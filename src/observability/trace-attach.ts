@@ -37,7 +37,7 @@ function attachResolved(
     record.bucket = bucket;
   }
   if (generation) {
-    record.generation = {
+    const traceGeneration = {
       thinking: generation.thinking,
       summaries: generation.summaries,
       temperature: generation.temperature,
@@ -47,6 +47,7 @@ function attachResolved(
       structured: generation.structured,
       image: generation.image,
     };
+    record.generation = traceGeneration;
   }
 }
 

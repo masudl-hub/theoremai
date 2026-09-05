@@ -24,7 +24,7 @@ const HTTP_OK = 200;
 
 /** Credentials for the openAi speech path — gateway config + optional voice. */
 export type SpeechProviderConfig = OpenAiGatewayConfig & {
-  /** Fallback TTS voice when the profile does not pin `outputs.speech.voice`. */
+  /** Fallback TTS voice when the profile does not pin `speech.voice`. */
   voice?: string;
 };
 
@@ -151,4 +151,3 @@ export function createSpeechProvider(config: SpeechProviderConfig = {}): ModelPr
     complete: (req: ProviderCompleteRequest) => streamSpeech(req, config),
   };
 }
-

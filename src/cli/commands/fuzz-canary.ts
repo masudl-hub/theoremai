@@ -33,7 +33,9 @@ interface ChannelResult {
 
 function registerFuzzCanaryProfile(): void {
   registerProfile({
+    type: 'text',
     id: FUZZ_PROFILE_ID,
+    identity: { handle: 'fuzz-canary', system: 'Canary fuzz profile.' },
     model: {
       protocol: 'openAi',
       provider: 'openrouter',
@@ -51,6 +53,8 @@ function registerFuzzCanaryProfile(): void {
       },
       thinking: 'none',
     },
+    tools: { allow: [] },
+    inputs: { text: true },
     guardrails: { canary: true },
   });
 }

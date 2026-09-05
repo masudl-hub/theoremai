@@ -6,33 +6,33 @@ import { stubProfile } from '../fixtures/profiles.ts';
 
 function baseProfile(
   model: { protocol: Protocol; provider: Provider },
-  role: 'chat' | 'speech' | 'image',
+  role: 'text' | 'speech' | 'image',
 ) {
   return stubProfile({ protocol: model.protocol, provider: model.provider, role });
 }
 
-Deno.test('isSpeechRole is true when outputs.speech is defined', () => {
+Deno.test('isSpeechRole is true when type is speech', () => {
   const profile = baseProfile({ protocol: 'geminiInteractions', provider: 'google' }, 'speech');
   assertEquals(isSpeechRole(profile), true);
 });
 
-Deno.test('isSpeechRole is false when outputs.speech is undefined', () => {
-  const profile = baseProfile({ protocol: 'geminiInteractions', provider: 'google' }, 'chat');
+Deno.test('isSpeechRole is false when type is not speech', () => {
+  const profile = baseProfile({ protocol: 'geminiInteractions', provider: 'google' }, 'text');
   assertEquals(isSpeechRole(profile), false);
 });
 
-Deno.test('isImageRole is true when outputs.image is defined', () => {
+Deno.test('isImageRole is true when type is image', () => {
   const profile = baseProfile({ protocol: 'openAi', provider: 'openrouter' }, 'image');
   assertEquals(isImageRole(profile), true);
 });
 
-Deno.test('isImageRole is false when outputs.image is undefined', () => {
-  const profile = baseProfile({ protocol: 'openAi', provider: 'openrouter' }, 'chat');
+Deno.test('isImageRole is false when type is not image', () => {
+  const profile = baseProfile({ protocol: 'openAi', provider: 'openrouter' }, 'text');
   assertEquals(isImageRole(profile), false);
 });
 
 Deno.test('createProvider throws when gemini transport is missing for geminiInteractions/google', () => {
-  const profile = baseProfile({ protocol: 'geminiInteractions', provider: 'google' }, 'chat');
+  const profile = baseProfile({ protocol: 'geminiInteractions', provider: 'google' }, 'text');
   let thrown: unknown;
   try {
     createProvider(profile, {});
@@ -47,7 +47,7 @@ Deno.test('createProvider throws when gemini transport is missing for geminiInte
 });
 
 Deno.test('createProvider returns a provider when gemini transport is supplied', () => {
-  const profile = baseProfile({ protocol: 'geminiInteractions', provider: 'google' }, 'chat');
+  const profile = baseProfile({ protocol: 'geminiInteractions', provider: 'google' }, 'text');
   const provider = createProvider(profile, {
     gemini: { vault: { freeA: 'a', freeB: 'b', freeC: 'c', paid: 'p' } },
   });
@@ -55,7 +55,7 @@ Deno.test('createProvider returns a provider when gemini transport is supplied',
 });
 
 Deno.test('createProvider throws when openAiGateway config is missing for openAi/openrouter', () => {
-  const profile = baseProfile({ protocol: 'openAi', provider: 'openrouter' }, 'chat');
+  const profile = baseProfile({ protocol: 'openAi', provider: 'openrouter' }, 'text');
   let thrown: unknown;
   try {
     createProvider(profile, {});
@@ -69,8 +69,8 @@ Deno.test('createProvider throws when openAiGateway config is missing for openAi
   );
 });
 
-Deno.test('createProvider returns a chat provider for openAi/openrouter non-speech profile', () => {
-  const profile = baseProfile({ protocol: 'openAi', provider: 'openrouter' }, 'chat');
+Deno.test('createProvider returns a text provider for openAi/openrouter non-speech profile', () => {
+  const profile = baseProfile({ protocol: 'openAi', provider: 'openrouter' }, 'text');
   const provider = createProvider(profile, { openAiGateway: { apiKey: 'key' } });
   assertEquals(typeof provider.complete, 'function');
 });
@@ -92,7 +92,7 @@ Deno.test('createProvider throws for openAi/local image profile', () => {
   assertEquals(thrown instanceof TheorumError, true);
   assertEquals(
     (thrown as Error).message,
-    'createProvider: outputs.image requires openrouter provider for openAi protocol',
+    'createProvider: type image requires openrouter provider for openAi protocol',
   );
 });
 
@@ -103,7 +103,7 @@ Deno.test('createProvider returns a speech provider for openAi/openrouter speech
 });
 
 Deno.test('createProvider throws for unsupported protocol/provider pairs', () => {
-  const profile = baseProfile({ protocol: 'openAi', provider: 'google' }, 'chat');
+  const profile = baseProfile({ protocol: 'openAi', provider: 'google' }, 'text');
   let thrown: unknown;
   try {
     createProvider(profile, {});
@@ -118,7 +118,7 @@ Deno.test('createProvider throws for unsupported protocol/provider pairs', () =>
 });
 
 Deno.test('createProvider routes openAi/local without requiring options.local', () => {
-  const profile = baseProfile({ protocol: 'openAi', provider: 'local' }, 'chat');
+  const profile = baseProfile({ protocol: 'openAi', provider: 'local' }, 'text');
   const provider = createProvider(profile, {});
   assertEquals(typeof provider.complete, 'function');
   const withUrl = createProvider(profile, { local: { baseUrl: 'http://127.0.0.1:8080' } });
@@ -144,13 +144,13 @@ Deno.test('create-provider has no eager adapter imports', async () => {
 Deno.test('create-provider loads OpenRouter adapter only via dynamic import', () => {
   // Sync createProvider for openrouter chat must not touch the Vercel graph.
   // This file's suite runs without --allow-sys; an eager openrouter import would throw.
-  const profile = baseProfile({ protocol: 'openAi', provider: 'openrouter' }, 'chat');
+  const profile = baseProfile({ protocol: 'openAi', provider: 'openrouter' }, 'text');
   const provider = createProvider(profile, { openAiGateway: { apiKey: 'key' } });
   assertEquals(typeof provider.complete, 'function');
 });
 
 Deno.test('create-provider loads Google adapter only via dynamic import', () => {
-  const profile = baseProfile({ protocol: 'geminiInteractions', provider: 'google' }, 'chat');
+  const profile = baseProfile({ protocol: 'geminiInteractions', provider: 'google' }, 'text');
   const provider = createProvider(profile, {
     gemini: { vault: { freeA: 'a', freeB: 'b', freeC: 'c', paid: 'p' } },
   });
@@ -158,7 +158,7 @@ Deno.test('create-provider loads Google adapter only via dynamic import', () => 
 });
 
 Deno.test('create-provider loads local adapter only via dynamic import', () => {
-  const profile = baseProfile({ protocol: 'openAi', provider: 'local' }, 'chat');
+  const profile = baseProfile({ protocol: 'openAi', provider: 'local' }, 'text');
   const provider = createProvider(profile, {});
   assertEquals(typeof provider.complete, 'function');
 });

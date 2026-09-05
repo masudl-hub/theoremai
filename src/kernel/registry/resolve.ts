@@ -13,10 +13,12 @@ import type {
   ModelId,
   ModelSpec,
   Profile,
+  ProfileInputsSpec,
   ProjectedProfile,
   ProviderTransport,
   ResolvedGeneration,
   StructuredSchemaId,
+  SummaryMode,
   ThinkingLevel,
   TurnRequest,
 } from '../types.ts';
@@ -70,6 +72,9 @@ function pickModel(profile: Profile, select?: string): ModelId {
 }
 
 function thinkingFromControl(spec: ModelSpec, thinkingOn: boolean | undefined): ThinkingLevel {
+  if (!spec.thinking) {
+    throw new TheorumError('model.config thinking map is required when controls include thinking');
+  }
   if (thinkingOn) {
     return spec.thinking.on;
   }
@@ -121,7 +126,10 @@ function resolveSummaries(
   profile: Profile,
   spec: ModelSpec,
   thinkingOn: boolean | undefined,
-): 'auto' | 'none' {
+): SummaryMode | undefined {
+  if (!spec.summaries) {
+    return undefined;
+  }
   if (profile.model.controls?.includes('thinking')) {
     if (thinkingOn) {
       return spec.summaries.on;
@@ -135,7 +143,7 @@ function resolveStructured(
   profile: Profile,
   slots?: Record<string, string>,
 ): StructuredSchemaId | null {
-  const { structured } = profile.outputs;
+  const structured = profile.outputs?.structured;
   if (!structured) {
     return null;
   }
@@ -152,6 +160,54 @@ function resolveStructured(
   return structured.fallback;
 }
 
+function resolveStreamFlag(profile: Profile): boolean | undefined {
+  const mode = profile.outputs?.streaming?.mode;
+  if (mode === 'sse') {
+    return true;
+  }
+  if (mode === 'buffered') {
+    return false;
+  }
+  return undefined;
+}
+
+function resolveStore(spec: ModelSpec, reqStore: boolean | undefined): boolean | undefined {
+  if (reqStore !== undefined) {
+    return reqStore;
+  }
+  return spec.store;
+}
+
+function assertTurnResumption(profile: Profile, req: TurnRequest): void {
+  if (!req.continueFrom) {
+    return;
+  }
+  if (profile.type === 'live') {
+    throw new TheorumError(
+      `Profile ${profile.id}: type 'live' uses live.sessionResumption, not turnResumption/continueFrom`,
+    );
+  }
+  const policy = profile.turnResumption;
+  const max = policy?.maxContinues;
+  if (max === undefined) {
+    return;
+  }
+  const attempt = req.continuation;
+  if (attempt === undefined) {
+    throw new TheorumError(
+      `Profile ${profile.id}: continueFrom requires TurnRequest.continuation when turnResumption.maxContinues is set`,
+    );
+  }
+  if (attempt < 1) {
+    throw new TheorumError(`Profile ${profile.id}: continuation must be >= 1`);
+  }
+  if (attempt > max) {
+    throw new TheorumError(
+      `Profile ${profile.id}: continuation ${attempt} exceeds turnResumption.maxContinues (${max})`,
+    );
+  }
+}
+
 /** Resolve a host `TurnRequest` into provider-ready generation state. */
 function resolveTurn(req: TurnRequest): {
   profile: Profile;
@@ -160,6 +216,7 @@ function resolveTurn(req: TurnRequest): {
   const safe = sanitizeTurnRequest(req);
   const input = safe.input ?? {};
   const profile = getProfile(safe.profile);
+  assertTurnResumption(profile, safe);
   const model = pickModel(profile, safe.select);
   const spec = requireModelSpec(profile, model);
   const thinkingOn = safe.thinking === true;
@@ -170,23 +227,26 @@ function resolveTurn(req: TurnRequest): {
   assertSpeechRole(profile);
   const geminiBucket =
     profile.model.provider === 'google'
-      ? resolveGeminiBucket(profile.model.key ?? 'freeA', spec, builtins)
+      ? resolveGeminiBucket(profile.model.key ?? spec.key, spec, builtins)
       : undefined;
   const transport: ProviderTransport =
-    profile.model.protocol === 'geminiLive' && profile.model.provider === 'google'
+    profile.type === 'live' ||
+    (profile.model.protocol === 'geminiLive' && profile.model.provider === 'google')
       ? 'geminiLive'
       : profile.model.protocol === 'geminiInteractions' && profile.model.provider === 'google'
         ? 'interactions'
         : 'openAiCompat';
+  const previousInteractionId =
+    spec.persistViaInteractionId === false ? undefined : safe.previousInteractionId;
   return {
     profile,
     generation: {
       model,
       apiId: spec.apiId,
       transport,
-      previousInteractionId: safe.previousInteractionId,
-      store: safe.store,
-      stream: safe.stream,
+      previousInteractionId,
+      store: resolveStore(spec, safe.store),
+      stream: resolveStreamFlag(profile),
       thinking: resolveThinking(profile, spec, thinkingOn, safe.select),
       summaries: resolveSummaries(profile, spec, thinkingOn),
       maxOutputTokens: spec.maxOutputTokens,
@@ -195,43 +255,51 @@ function resolveTurn(req: TurnRequest): {
       tools: toolSnapshot,
       sessionPermissions: safe.sessionPermissions,
       history: input.history,
-      maxSteps: profile.model.maxSteps ?? 1,
+      maxSteps: profile.model.maxSteps,
       structured,
       image: resolveImageFormat(profile),
-      speech: profile.outputs.speech,
-      live: profile.outputs.live,
+      speech: profile.type === 'speech' ? profile.speech : undefined,
+      live: profile.type === 'live' ? profile.live : undefined,
       input: resolveInputParts(profile, model, safe),
       geminiBucket,
-      canary: profile.guardrails.canary !== false ? mintCanary() : '',
+      canary: profile.guardrails?.canary === true ? mintCanary() : '',
       sessionResumptionHandle: safe.sessionResumptionHandle ?? input.sessionResumptionHandle,
     },
   };
 }
 
 function primaryImageSpec(profile: Profile) {
-  return profile.outputs.image;
+  return profile.type === 'image' ? profile.image : null;
+}
+
+function profileInputsOrNull(profile: Profile): ProfileInputsSpec | null {
+  if (profile.type === 'speech') {
+    return null;
+  }
+  return profile.inputs ?? null;
 }
 
 /** Project a registered profile into a safe host/UI inspection object. */
 function projectProfile(id: Profile['id']): ProjectedProfile {
   const profile = getProfile(id);
-  const { model, identity, inputs, outputs } = profile;
+  const { model, identity, outputs } = profile;
   const { select, allow, maxSteps, controls } = model;
-  const { handle, chat } = identity;
-  const { slots } = inputs;
+  const inputs = profileInputsOrNull(profile);
   return {
     id: profile.id,
-    handle,
-    chat: chat !== false,
-    maxSteps: maxSteps ?? 1,
+    type: profile.type,
+    handle: identity.handle,
+    maxSteps: maxSteps ?? null,
     models: allow,
     select: select ?? null,
     controls: controls ?? [],
     tools: projectTools(profile),
     inputs,
-    slots: slots ?? {},
-    outputs,
+    slots: inputs?.slots ?? {},
+    outputs: outputs ?? null,
     image: primaryImageSpec(profile),
+    speech: profile.type === 'speech' ? profile.speech : null,
+    live: profile.type === 'live' ? profile.live : null,
   };
 }
 

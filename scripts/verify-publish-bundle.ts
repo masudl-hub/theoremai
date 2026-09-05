@@ -154,9 +154,7 @@ async function assertNoExportedInternals(): Promise<void> {
     }
   }
   if (hits.length > 0) {
-    throw new Error(
-      `Published source must not export _internals:\n  ${hits.join('\n  ')}`,
-    );
+    throw new Error(`Published source must not export _internals:\n  ${hits.join('\n  ')}`);
   }
 }
 

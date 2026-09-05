@@ -24,12 +24,12 @@ import type { LocalProviderConfig, OpenAiGatewayConfig } from './types.ts';
 
 /** Credentials supplied by the host when creating a provider. */
 export interface CreateProviderOptions {
-  /** Google Interactions (chat, image, and speech when protocol is geminiInteractions). */
+  /** Google Interactions (text, image, and speech when protocol is geminiInteractions). */
   gemini?: GeminiTransport;
   /**
    * OpenAI-gateway credentials for `openAi` profiles (OpenRouter or compatible).
    * Used for chat completions, `/images`, or `/audio/speech` depending on output role.
-   * Optional `voice` is a fallback when `outputs.speech.voice` is omitted.
+   * Optional `voice` is a fallback when `speech.voice` is omitted.
    */
   openAiGateway?: OpenAiGatewayConfig & { voice?: string };
   /** Local OpenAI-compatible server (Ollama, llama.cpp, vLLM, LM Studio). */
@@ -37,11 +37,11 @@ export interface CreateProviderOptions {
 }
 
 export function isSpeechRole(profile: Profile): boolean {
-  return profile.outputs.speech !== undefined;
+  return profile.type === 'speech';
 }
 
 export function isImageRole(profile: Profile): boolean {
-  return profile.outputs.image !== undefined;
+  return profile.type === 'image';
 }
 
 /**
@@ -143,7 +143,7 @@ export function createProvider(
   if (protocol === 'openAi' && provider === 'local') {
     if (isImageRole(profile)) {
       throw new TheorumError(
-        'createProvider: outputs.image requires openrouter provider for openAi protocol',
+        'createProvider: type image requires openrouter provider for openAi protocol',
       );
     }
     return lazyLocal(options.local);

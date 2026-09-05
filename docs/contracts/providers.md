@@ -114,11 +114,11 @@ terminal `done.stop` via `turnStopFromOpenAiFinishReason`.
 | --- | --- |
 | History | `user_input` / `model_output` steps |
 | Multimodal | `image` / `audio` / `video` / `document` parts |
-| Structured | `responseFormat` JSON schema when enforced |
-| Output modes | responseFormat JSON schema, image, and speech are mutually exclusive; prompt-enforced structured schemas and free text are not. Image profiles may opt into interleaved text via `outputs.image.includeText`. |
+| Structured | `responseFormat` JSON schema when enforced. When structured is requested and model text is not valid JSON, providers emit an `error` event (never silently skip). |
+| Output modes | responseFormat JSON schema, image, and speech are mutually exclusive; prompt-enforced structured schemas and free text are not. Image profiles may opt into interleaved text via `image.includeText`. |
 | Tools | Registry builtins (`wire.interactions`) + function schemas from `generation.tools.wire` |
 | Code execution | Builtin `codeExecution` → `{ type: "code_execution" }`. Streamed `step.start` / `step.delta` / `step.stop`, `interaction.status_update` (`requires_action` for host tools), and batched `interaction.steps` become `evidence` (`kind`, `code`, `result`, `isError`, `raw`) plus `media` for sandbox images. Search/maps/`url_context` steps in `steps[]` are also `evidence`. Structured `responseFormat` is still attached when both are requested. |
-| Stream vs batch | Default `stream: true` (`?alt=sse`). `TurnRequest.stream: false` POSTs JSON and yields the same `TurnEvent` types from `steps[]`. |
+| Stream vs batch | Default SSE (`outputs.streaming.mode: 'sse'` or omitted). `'buffered'` POSTs JSON and yields the same `TurnEvent` types from `steps[]`. |
 | Grounding | Classic `grounding_metadata` **and** Interactions `google_search_result` / `google_maps_result` tool payloads (`search_suggestions` chips, `result[].places[]`, `place_citation` annotations). Emits `grounding` with normalized `sources` **and** classic `chunks[].maps` (`title` / `uri` / `placeId`) plus `evidence` with the raw tool payload so hosts can decide what to surface. |
 | Stop | `turnStopFromInteractionStatus` on terminal status |
 
@@ -131,6 +131,7 @@ WebSocket service (`BidiGenerateContent`) and streams normalized `TurnEvent`s.
 | --- | --- |
 | Transport | Direct WebSocket stream to `GEMINI_LIVE_WS_URL` with API key |
 | Handshake | Sends `BidiGenerateContentSetup` with system instruction, generation config, voice, VAD spec, and tools |
+| Framing | Empty WS payloads are ignored; malformed JSON / non-object payloads fail setup or emit `error` mid-turn |
 | Input | Streams `realtimeInput` (audio/video/text) and seeds `clientContent` history |
 | Output | Folds `serverContent` parts into `thought`, `text`, and `media` (PCM 24kHz -> WAV) events |
 | Tools | Dispatches function calls, receives tool responses via `BidiGenerateContentToolResponse` |
@@ -159,7 +160,7 @@ local: {
 
 ## Image roles
 
-When `profile.outputs.image` is defined and protocol/provider is
+When `profile.type === 'image'` and protocol/provider is
 `openAi`/`openrouter`, `createProvider` returns `createImageProvider`
 (`openrouter/image.ts`). When protocol/provider is `geminiInteractions`/`google`,
 the same `createInteractionsProvider` handles image via polymorphic
@@ -168,14 +169,14 @@ the same `createInteractionsProvider` handles image via polymorphic
 | Transport | Module | Path / mechanism | Notes |
 | --- | --- | --- | --- |
 | OpenAI | `openrouter/image.ts` | `POST /images` | Native image models; reference images via `input_references` |
-| OpenAI | `openrouter/image.ts` | `POST /chat/completions` + server tool | When `outputs.image.includeText`; yields interleaved `text` + `media` |
+| OpenAI | `openrouter/image.ts` | `POST /chat/completions` + server tool | When `image.includeText`; yields interleaved `text` + `media` |
 | Interactions | `google/interactions/framing.ts` | `responseFormat` object or array | Image-only object; text + image array when `includeText` |
 
 `openAi`/`local` image roles are rejected at `createProvider`.
 
 ## Speech roles
 
-When `profile.outputs.speech` is defined and protocol/provider is
+When `profile.type === 'speech'` and protocol/provider is
 `openAi`/`openrouter`, `createProvider` returns `createSpeechProvider`
 (`openrouter/speech.ts` — OpenAI `/audio/speech`). When protocol/provider is
 `geminiInteractions`/`google`, the same `createInteractionsProvider`

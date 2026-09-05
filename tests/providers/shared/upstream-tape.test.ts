@@ -142,7 +142,7 @@ Deno.test('runTurn traces wire, usage, and every Interactions SSE row', async ()
   );
   assertEquals(
     events.map((event) => event.type),
-    ['text', 'tokens', 'done'],
+    ['text', 'tokens', 'error', 'done'],
   );
   const [row] = into;
   if (!row) {

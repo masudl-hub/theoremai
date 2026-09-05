@@ -15,6 +15,7 @@ import type {
   MediaInputKind,
   ModelId,
   Profile,
+  ProfileImageSpec,
   TurnBlob,
   TurnRequest,
 } from '../types.ts';
@@ -40,10 +41,10 @@ function activePrimaryOutputModes(
   if (usesStructuredResponseFormat(structuredId)) {
     modes.push('structured');
   }
-  if (profile.outputs.image) {
+  if (profile.type === 'image') {
     modes.push('image');
   }
-  if (profile.outputs.speech) {
+  if (profile.type === 'speech') {
     modes.push('speech');
   }
   return modes;
@@ -51,8 +52,8 @@ function activePrimaryOutputModes(
 
 /**
  * Provider wire formats (JSON schema, image, speech) are mutually exclusive.
- * Prompt-enforced schemas and free text are not. Image profiles opt into
- * interleaved assistant text via `outputs.image.includeText`.
+ * Typed profiles make illegal mixes unrepresentable; this remains a safety net
+ * for responseFormat structured on text vs accidental dual modes.
  */
 function assertOutputMode(profile: Profile, structuredId: string | null): void {
   const active = activePrimaryOutputModes(profile, structuredId);
@@ -62,41 +63,37 @@ function assertOutputMode(profile: Profile, structuredId: string | null): void {
   throw new TheorumError(
     `Profile ${profile.id} declares multiple output wire formats (${active.join(', ')}). ` +
       `Only one of responseFormat JSON schema (outputs.structured with enforced ` +
-      `'responseFormat'), image (outputs.image), or speech (outputs.speech) may be active. ` +
-      `Prompt-enforced schemas and free text do not count toward this limit.`,
+      `'responseFormat'), image, or speech may be active.`,
   );
 }
 
-function assertImageRole(profile: Profile): NonNullable<Profile['outputs']['image']> {
-  const pins = profile.outputs.image;
-  if (!pins) {
-    throw new TheorumError(
-      `Profile ${profile.id} requests image output but does not set outputs.image`,
-    );
+function assertImagePins(profile: Profile): ProfileImageSpec {
+  if (profile.type !== 'image') {
+    throw new TheorumError(`Profile ${profile.id} is not type 'image'`);
   }
-  return pins;
+  return profile.image;
 }
 
 function assertSpeechRole(profile: Profile): void {
-  if (!profile.outputs.speech) {
+  if (profile.type !== 'speech') {
     return;
   }
-  if (profile.outputs.speech.format === 'mp3' && profile.model.protocol === 'geminiInteractions') {
+  if (profile.speech.format === 'mp3' && profile.model.protocol === 'geminiInteractions') {
     throw new TheorumError(
-      `Profile ${profile.id}: outputs.speech.format 'mp3' requires protocol 'openAi' ` +
+      `Profile ${profile.id}: speech.format 'mp3' requires protocol 'openAi' ` +
         `(geminiInteractions speech returns PCM and emits WAV)`,
     );
   }
 }
 
 function resolveImageFormat(profile: Profile): ImageResponseFormat | null {
-  if (!profile.outputs.image) {
+  if (profile.type !== 'image') {
     return null;
   }
-  const pins = assertImageRole(profile);
+  const pins = assertImagePins(profile);
   return {
     type: 'image',
-    mimeType: pins.mimeType ?? 'image/jpeg',
+    mimeType: pins.mimeType,
     aspectRatio: pins.aspectRatio,
     size: pins.size,
     includeText: pins.includeText === true,
@@ -111,18 +108,25 @@ function assertMediaMime(mime: string): MediaInputKind {
   return kind;
 }
 
+function profileInputs(profile: Profile) {
+  if (profile.type === 'speech') {
+    return undefined;
+  }
+  return profile.inputs;
+}
+
 function mediaParts(
   profile: Profile,
   model: ModelId,
   blobs: TurnBlob[],
   channel: 'attachments' | 'voice',
 ): InteractionPart[] {
-  const accept =
-    channel === 'voice' ? profile.inputs.voice?.accept : profile.inputs.attachments?.accept;
+  const inputs = profileInputs(profile);
+  const accept = channel === 'voice' ? inputs?.voice?.accept : inputs?.attachments?.accept;
   if (!accept) {
     throw new TheorumError(`Profile ${profile.id} does not accept ${channel}`);
   }
-  const maxInputImages = profile.outputs.image?.maxInputImages;
+  const maxInputImages = profile.type === 'image' ? profile.image.maxInputImages : undefined;
   const imageCount = blobs.filter((blob) => mediaKindForMime(blob.mimeType) === 'image').length;
   if (maxInputImages !== undefined && imageCount > maxInputImages) {
     throw new TheorumError(`At most ${maxInputImages} reference images on ${model}`);
@@ -143,7 +147,18 @@ function mediaParts(
 
 function extractTextPart(profile: Profile, req: TurnRequest): InteractionPart | null {
   const { text, repair, history } = req.input ?? {};
-  if (profile.inputs.text === false) {
+  if (profile.type === 'speech') {
+    if (!text?.trim()) {
+      throw new TheorumError(`Profile ${profile.id} (speech) requires text input`);
+    }
+    let promptText = text;
+    if (repair) {
+      promptText = synthesizeRepairPrompt({ profile, repair, history });
+    }
+    return { type: 'text', text: wrapUserData(promptText) };
+  }
+  const inputs = profileInputs(profile);
+  if (inputs?.text === false) {
     if (text) {
       throw new TheorumError(`Profile ${profile.id} does not accept text input`);
     }
@@ -160,6 +175,13 @@ function extractTextPart(profile: Profile, req: TurnRequest): InteractionPart | 
 }
 
 function extractMediaParts(profile: Profile, model: ModelId, req: TurnRequest): InteractionPart[] {
+  if (profile.type === 'speech') {
+    const { attachments, voice } = req.input ?? {};
+    if ((attachments?.length ?? 0) + (voice?.length ?? 0) > 0) {
+      throw new TheorumError(`Profile ${profile.id} (speech) does not accept media input`);
+    }
+    return [];
+  }
   const { attachments, voice } = req.input ?? {};
   const files = attachments ?? [];
   const clips = voice ?? [];

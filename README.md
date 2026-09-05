@@ -184,6 +184,7 @@ import {
 } from "jsr:@theorum/core";
 
 const profile = defineProfile({
+  type: "text",
   id: "assistant.basic",
   identity: {
     handle: "assistant",
@@ -207,6 +208,8 @@ const profile = defineProfile({
     thinking: "minimal",
     maxSteps: 1,
   },
+  tools: { allow: [] },
+  inputs: { text: true },
   outputs: {
     streaming: { streamThoughts: false },
   },
@@ -290,8 +293,12 @@ Inbound and outbound safety are generic kernel hooks.
 
 ```ts
 const guardedProfile = defineProfile({
+  type: "text",
   id: "assistant.guarded",
+  identity: { handle: "guarded", system: "You are a careful assistant." },
   model: {
+    protocol: "openAi",
+    provider: "openrouter",
     allow: ["hostFastModel"],
     config: {
       hostFastModel: {
@@ -304,7 +311,10 @@ const guardedProfile = defineProfile({
         builtInTools: [],
       },
     },
+    thinking: "minimal",
   },
+  tools: { allow: [] },
+  inputs: { text: true },
   guardrails: {
     egress: {
       onBlock: "reject_to_agent",
@@ -399,7 +409,7 @@ Named exports from the root barrel (same symbols hosts get from `theorum` /
 | --- | --- |
 | Guardrails errors | `describeError`, `isAbortError`, `publicError`, `TheorumError`, `throwIfAborted`, `toErrorEvent`, `PUBLIC_CANARY` |
 | Quota | `QuotaSlotStatus`, `clientIp`, `quotaMessage`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |
-| Sanitize | `PROJECT_ID_MAX`, `sanitizeProjectId`, `sanitizeText`, `sanitizeTurnRequest`, `redactSensitiveOnly` |
+| Sanitize | `PROJECT_ID_MAX`, `sanitizeProjectId`, `sanitizeText`, `sanitizeTurnRequest`, `sanitizeTurnRequestForTrace`, `redactSensitiveOnly` |
 | Canary / egress | `mintCanary`, `bindCanary`, `wrapUserData`, `scanTextForCanaryLeak`, `redactCanary`, `OMIT_CANARY`, `createCanaryStreamGate`, `eventHasCanary`, `createCanaryGateSession`, `filterCanaryGatedEvents`, `CanaryGateResult`, `CanaryGateSession`, `CanaryStreamGate`, `standardEgressEnforce`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `LiveOutboundBatchResult`, `LiveOutboundGateSession` |
 | Compaction | `CompactionSplit`, `CompactionTokens`, `compactionMeter`, `compactionNeeded`, `estimateHistoryTokens`, `HISTORY_MEDIA_TOKENS`, `HISTORY_TEXT_ENCODING`, `resolveCompactionTokens`, `resolveHistoryTokens`, `shouldCompact`, `splitForCompaction` |
 | Runner | `runTurn`, `prepareLiveInboundText` |
@@ -408,7 +418,7 @@ Named exports from the root barrel (same symbols hosts get from `theorum` /
 | Profiles | `ProfileDefinition`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `resolveTurn`, `pickModel` |
 | Tools | `registerTool`, `registerTools`, `invokeTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `listBuiltinIds`, `listFunctionIds`, `resetTools`, `formatToolResult`, `prepareTurnToolSnapshot` |
 | Structured | `getStructured`, `registerStructured` |
-| Stop / resume | `ProfileResumeSpec`, `TurnContinueFrom`, `TurnStop`, `TurnStopKind`, `AUTO_CONTINUE_DELAY_MS`, `CONTINUE_INSTRUCTION`, `DEFAULT_AUTO_CONTINUE`, `GenerationStopError`, `isGenerationStopError`, `isResumeableStop`, `isUserCancelledStop`, `shouldAutoContinue`, `turnStopFromClientStreamEnd`, `turnStopFromInteractionStatus`, `turnStopFromOpenAiFinishReason` |
+| Stop / resume | `ProfileTurnResumptionSpec`, `TurnContinueFrom`, `TurnStop`, `TurnStopKind`, `AUTO_CONTINUE_DELAY_MS`, `CONTINUE_INSTRUCTION`, `DEFAULT_AUTO_CONTINUE`, `GenerationStopError`, `isGenerationStopError`, `isResumeableStop`, `isUserCancelledStop`, `shouldAutoContinue`, `turnStopFromClientStreamEnd`, `turnStopFromInteractionStatus`, `turnStopFromOpenAiFinishReason` |
 | Observability | `jsonlSink`, `memorySink`, `noopSink`, `resolveTraceDir`, `sinkFromDir`, `writeTrace`, `TraceRecord` |
 | Providers | `CreateProviderOptions`, `GeminiTransport`, `GeminiVault`, `LocalProviderConfig`, `OpenAiGatewayConfig`, `createProvider` (local: `theorum/providers/local` → `createLocalProvider`, `DEFAULT_LOCAL_BASE_URL`) |
 

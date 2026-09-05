@@ -36,11 +36,11 @@ export type LiveOutboundBatchResult =
   | { action: 'idle' };
 
 function egressSpec(profile: Profile): ProfileEgressSpec | undefined {
-  return profile.guardrails.egress;
+  return profile.guardrails?.egress;
 }
 
 function createLiveOutboundGateSession(profile: Profile, canary?: string): LiveOutboundGateSession {
-  const useCanary = profile.guardrails.canary !== false && Boolean(canary);
+  const useCanary = profile.guardrails?.canary === true && Boolean(canary);
   return {
     profile,
     canary: useCanary ? canary : undefined,

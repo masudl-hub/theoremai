@@ -308,10 +308,16 @@ Deno.test('foldGeminiLiveServerMessage handles model audio, text, transcriptions
   assertEquals(resumeEvts[0]?.sessionResumptionHandle, 'handle_xyz_987');
 });
 
-Deno.test('parseGeminiLiveMessage parses valid JSON and ignores invalid', () => {
-  assertEquals(parseGeminiLiveMessage('{"setupComplete": true}'), { setupComplete: true });
-  assertEquals(parseGeminiLiveMessage(''), null);
-  assertEquals(parseGeminiLiveMessage('invalid json'), null);
+Deno.test('parseGeminiLiveMessage distinguishes empty from malformed', () => {
+  assertEquals(parseGeminiLiveMessage('{"setupComplete": true}'), {
+    ok: true,
+    value: { setupComplete: true },
+  });
+  assertEquals(parseGeminiLiveMessage(''), { ok: false, reason: 'empty' });
+  assertEquals(parseGeminiLiveMessage('   '), { ok: false, reason: 'empty' });
+  assertEquals(parseGeminiLiveMessage('invalid json'), { ok: false, reason: 'malformed' });
+  assertEquals(parseGeminiLiveMessage('[]'), { ok: false, reason: 'malformed' });
+  assertEquals(parseGeminiLiveMessage('null'), { ok: false, reason: 'malformed' });
 });
 
 Deno.test('extractUsageTokens parses token counts', () => {

@@ -41,6 +41,7 @@ const BENCH_PROFILE_ID = '__bench__';
 
 function registerBenchProfile(): void {
   registerProfile({
+    type: 'text',
     id: BENCH_PROFILE_ID,
     identity: {
       handle: 'bench',
@@ -63,6 +64,8 @@ function registerBenchProfile(): void {
       },
       thinking: 'none',
     },
+    tools: { allow: [] },
+    inputs: { text: true },
     guardrails: {
       canary: true,
       sanitizeInput: true,

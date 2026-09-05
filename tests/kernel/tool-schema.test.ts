@@ -77,7 +77,16 @@ Deno.test('registerTool wire snapshot preserves Zod input properties', () => {
   registerProfile(
     defineProfile({
       id: 'wire_schema_pressure_bot',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 1 },
+      type: 'text',
+      identity: { handle: 'wire-schema-pressure' },
+      model: {
+        protocol: 'geminiInteractions',
+        provider: 'google',
+        key: 'freeA',
+        thinking: 'minimal',
+        ...modelAllow('gemini35FlashLite'),
+        maxSteps: 1,
+      },
       tools: { allow: [toolName] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 1 } },

@@ -10,7 +10,7 @@ import {
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile, getProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
 import type { EgressContext, EgressEnforcementResult, TurnEvent } from '../../src/kernel/types.ts';
-import { modelAllow } from '../fixtures/models.ts';
+import { geminiModel } from '../fixtures/models.ts';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -121,8 +121,11 @@ Deno.test('processLiveOutboundBatch buffers visible events when holdUserVisible 
   let enforced = false;
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
       id: 'live_egress_hold',
-      model: { ...modelAllow('gemini35FlashLite') },
+      model: { ...geminiModel('gemini35FlashLite') },
       inputs: { text: true },
       guardrails: {
         quota: { perDay: 100 },
@@ -155,8 +158,11 @@ Deno.test('processLiveOutboundBatch buffers visible events when holdUserVisible 
 Deno.test('finalizeLiveOutboundTurn withholds when egress.enforce blocks', async () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
       id: 'live_egress_block',
-      model: { ...modelAllow('gemini35FlashLite') },
+      model: { ...geminiModel('gemini35FlashLite') },
       inputs: { text: true },
       guardrails: {
         quota: { perDay: 100 },
@@ -184,8 +190,11 @@ Deno.test('finalizeLiveOutboundTurn withholds when egress.enforce blocks', async
 Deno.test('finalizeLiveOutboundTurn emits refuse_to_user text when onBlock is set', async () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
       id: 'live_egress_refuse',
-      model: { ...modelAllow('gemini35FlashLite') },
+      model: { ...geminiModel('gemini35FlashLite') },
       inputs: { text: true },
       guardrails: {
         quota: { perDay: 100 },
@@ -276,8 +285,11 @@ Deno.test('processLiveOutboundBatch returns idle when all text is held in the ga
 Deno.test('processLiveOutboundBatch with holdUserVisible buffers thought events too', () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
       id: 'live_egress_hold_thought',
-      model: { ...modelAllow('gemini35FlashLite') },
+      model: { ...geminiModel('gemini35FlashLite') },
       inputs: { text: true },
       guardrails: {
         quota: { perDay: 100 },
@@ -302,8 +314,11 @@ Deno.test('processLiveOutboundBatch with holdUserVisible buffers thought events 
 Deno.test('createLiveOutboundGateSession with canary=false profile ignores provided canary', () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
       id: 'live_canary_disabled',
-      model: { ...modelAllow('gemini35FlashLite') },
+      model: { ...geminiModel('gemini35FlashLite') },
       inputs: { text: true },
       guardrails: { quota: { perDay: 100 }, canary: false },
     }),
@@ -329,8 +344,11 @@ Deno.test('flushCanaryTail action is idle not empty object when gate is null', a
 Deno.test('appendVisibleText skips non-text and non-thought events (type filter)', () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
       id: 'live_type_filter',
-      model: { ...modelAllow('gemini35FlashLite') },
+      model: { ...geminiModel('gemini35FlashLite') },
       inputs: { text: true },
       guardrails: {
         quota: { perDay: 100 },
@@ -354,8 +372,11 @@ Deno.test('appendVisibleText skips non-text and non-thought events (type filter)
 Deno.test('appendVisibleText only accumulates non-empty text not undefined/empty', () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
       id: 'live_text_gate',
-      model: { ...modelAllow('gemini35FlashLite') },
+      model: { ...geminiModel('gemini35FlashLite') },
       inputs: { text: true },
       guardrails: {
         quota: { perDay: 100 },
@@ -377,8 +398,11 @@ Deno.test('appendVisibleText only accumulates non-empty text not undefined/empty
 Deno.test('finalizeLiveOutboundTurn action and events correct when pending visible with no egress enforce', async () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
       id: 'live_hold_no_egress',
-      model: { ...modelAllow('gemini35FlashLite') },
+      model: { ...geminiModel('gemini35FlashLite') },
       inputs: { text: true },
       guardrails: {
         quota: { perDay: 100 },
@@ -409,8 +433,11 @@ Deno.test('finalizeLiveOutboundTurn action and events correct when pending visib
 Deno.test('finalizeLiveOutboundTurn emits refuse_to_user event type is text not empty', async () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
       id: 'live_refuse_type_check',
-      model: { ...modelAllow('gemini35FlashLite') },
+      model: { ...geminiModel('gemini35FlashLite') },
       inputs: { text: true },
       guardrails: {
         quota: { perDay: 100 },
@@ -439,8 +466,11 @@ Deno.test('finalizeLiveOutboundTurn emits refuse_to_user event type is text not 
 Deno.test('finalizeLiveOutboundTurn onBlock=refuse_to_user requires both condition parts', async () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
       id: 'live_refuse_both_parts',
-      model: { ...modelAllow('gemini35FlashLite') },
+      model: { ...geminiModel('gemini35FlashLite') },
       inputs: { text: true },
       guardrails: {
         quota: { perDay: 100 },
@@ -487,8 +517,11 @@ Deno.test('processLiveOutboundBatch emitType in flush is text string when lastSt
 Deno.test('processLiveOutboundBatch emits non-visible event types immediately even with holdUserVisible', () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
       id: 'live_egress_nonvis',
-      model: { ...modelAllow('gemini35FlashLite') },
+      model: { ...geminiModel('gemini35FlashLite') },
       inputs: { text: true },
       guardrails: {
         quota: { perDay: 100 },
@@ -521,8 +554,11 @@ Deno.test('appendVisibleText does not accumulate when text field is absent', () 
   // Uses holdUserVisible profile so appendVisibleText is called via holdUserVisible path
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
       id: 'live_no_text_field',
-      model: { ...modelAllow('gemini35FlashLite') },
+      model: { ...geminiModel('gemini35FlashLite') },
       inputs: { text: true },
       guardrails: {
         quota: { perDay: 100 },
@@ -547,11 +583,15 @@ Deno.test('appendVisibleText does not accumulate when text field is absent', () 
 Deno.test('processStreamChunk with gate and holdUserVisible buffers emitted content', () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
       id: 'live_gate_hold',
-      model: { ...modelAllow('gemini35FlashLite') },
+      model: { ...geminiModel('gemini35FlashLite') },
       inputs: { text: true },
       guardrails: {
         quota: { perDay: 100 },
+        canary: true,
         egress: {
           enforce: (ctx: EgressContext): EgressEnforcementResult => ({
             blocked: false,
@@ -642,8 +682,11 @@ Deno.test('finalizeLiveOutboundTurn passes accumulated text to egress enforce ct
   // Enforce that throws when ctx.text is missing/undefined
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
       id: 'live_egress_ctx_verify',
-      model: { ...modelAllow('gemini35FlashLite') },
+      model: { ...geminiModel('gemini35FlashLite') },
       inputs: { text: true },
       guardrails: {
         quota: { perDay: 100 },

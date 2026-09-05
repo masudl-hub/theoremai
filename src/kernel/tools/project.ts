@@ -20,15 +20,22 @@ function builtInToolIds(profile: Profile): ToolId[] {
   const seen = new Set<ToolId>();
   for (const modelId of profile.model.allow) {
     const spec = profile.model.config[modelId];
-    for (const id of spec.builtInTools) {
+    for (const id of spec?.builtInTools ?? []) {
       seen.add(id);
     }
   }
   return [...seen];
 }
 
+function profileAllow(profile: Profile): ToolId[] {
+  if (profile.type === 'speech') {
+    return [];
+  }
+  return profile.tools.allow;
+}
+
 function projectTools(profile: Profile): Array<RegisteredTool | { name: ToolId; missing: true }> {
-  const ids = [...profile.tools.allow, ...builtInToolIds(profile)];
+  const ids = [...profileAllow(profile), ...builtInToolIds(profile)];
   return ids.map((name) => projectTool(name));
 }
 

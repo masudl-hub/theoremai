@@ -19,15 +19,14 @@ import {
 } from '../../src/cli/matrix/synthesizer.ts';
 import { getProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ModelProvider, Profile, TurnEvent } from '../../src/kernel/types.ts';
-import { HOST_MODELS, modelAllow } from '../fixtures/models.ts';
+import { geminiModel, HOST_MODELS, modelAllow } from '../fixtures/models.ts';
 
 const testProfile: Profile = {
+  type: 'text',
   id: 'test-agent',
   identity: { handle: 'test-agent', system: 'You are a test agent.' },
   model: {
-    protocol: 'geminiInteractions',
-    provider: 'google',
-    ...modelAllow('gemini35FlashLite', 'gemini31ProPreview'),
+    ...geminiModel('gemini35FlashLite', 'gemini31ProPreview'),
     select: { fast: 'gemini35FlashLite', smart: 'gemini31ProPreview' },
     key: 'freeA',
   },
@@ -106,6 +105,7 @@ Deno.test('buildCustomTurnRequest requires grounding flags on the model', () => 
   );
   const withMaps: Profile = {
     ...testProfile,
+    type: 'text',
     model: {
       ...testProfile.model,
       config: {
@@ -116,6 +116,8 @@ Deno.test('buildCustomTurnRequest requires grounding flags on the model', () => 
         },
       },
     },
+    tools: testProfile.tools,
+    inputs: testProfile.inputs,
   };
   const req = buildCustomTurnRequest(withMaps, { mode: 'fast', map: true });
   assertEquals(req.select, 'fast');
@@ -125,6 +127,7 @@ Deno.test('synthesizer handles all tool combinations, fallbacks, and reasoning c
   // 1. Profile with select but without 'smart' key
   const customSelectProfile: Profile = {
     ...testProfile,
+    type: 'text',
     model: {
       ...testProfile.model,
       select: { quick: 'gemini35FlashLite', deep: 'gemini31ProPreview' },
@@ -141,6 +144,9 @@ Deno.test('synthesizer handles all tool combinations, fallbacks, and reasoning c
       text: true,
       attachments: { accept: ['unknown/custom-mime'] },
       voice: { accept: [] },
+      maxFiles: 5,
+      maxBytes: 10_000_000,
+      maxTurnBytes: 15_000_000,
     },
   };
   const req1 = synthesizeStressCombo(customSelectProfile);
@@ -151,6 +157,7 @@ Deno.test('synthesizer handles all tool combinations, fallbacks, and reasoning c
   // 2. Profile without select and only custom tools
   const noSelectProfile: Profile = {
     ...testProfile,
+    type: 'text',
     model: {
       ...testProfile.model,
       select: undefined,
@@ -159,6 +166,10 @@ Deno.test('synthesizer handles all tool combinations, fallbacks, and reasoning c
     inputs: {
       text: true,
       attachments: { accept: [] },
+      voice: { accept: [] },
+      maxFiles: 5,
+      maxBytes: 10_000_000,
+      maxTurnBytes: 15_000_000,
     },
   };
   const req2 = synthesizeStressCombo(noSelectProfile);
@@ -177,6 +188,7 @@ Deno.test('synthesizer handles all tool combinations, fallbacks, and reasoning c
   );
   const withSearch: Profile = {
     ...testProfile,
+    type: 'text',
     model: {
       ...testProfile.model,
       config: {
@@ -187,6 +199,8 @@ Deno.test('synthesizer handles all tool combinations, fallbacks, and reasoning c
         },
       },
     },
+    tools: testProfile.tools,
+    inputs: testProfile.inputs,
   };
   const searchOk = buildCustomTurnRequest(withSearch, { search: true });
   assertEquals(searchOk.profile, testProfile.id);
@@ -234,6 +248,9 @@ Deno.test('runCommand exercises all stream event types and failure handling', as
   const { registerProfile, defineProfile } = await import('../../src/kernel/registry/profiles.ts');
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
       id: 'openrouter_run_bot',
       model: { protocol: 'openAi', provider: 'openrouter', ...modelAllow('sonar') },
       inputs: { text: true },
@@ -255,8 +272,11 @@ Deno.test('runCommand exercises all stream event types and failure handling', as
   // Test runCommand when runTurn throws exception (e.g. text input disabled)
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
       id: 'no_text_bot',
-      model: { ...modelAllow('gemini35FlashLite') },
+      model: { ...geminiModel('gemini35FlashLite') },
       inputs: { text: false },
       outputs: { structured: null },
       guardrails: { quota: { perDay: 10 } },

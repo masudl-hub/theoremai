@@ -73,7 +73,7 @@ export {
   TURN_STOP_KINDS,
   VOICE_ACCEPT_MIMES,
 } from './schema.ts';
-export type { ProfileResumeSpec, TurnContinueFrom, TurnStop } from './stop.ts';
+export type { ProfileTurnResumptionSpec, TurnContinueFrom, TurnStop } from './stop.ts';
 export {
   AUTO_CONTINUE_DELAY_MS,
   CONTINUE_INSTRUCTION,

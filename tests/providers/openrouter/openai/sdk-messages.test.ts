@@ -140,7 +140,7 @@ Deno.test('assistantToolCallMessage maps tool calls', () => {
     ],
   };
   const result = assistantToolCallMessage(msg);
-  if (!result || result.role !== 'assistant') throw new Error('expected assistant message');
+  if (result?.role !== 'assistant') throw new Error('expected assistant message');
   assertEquals(result.role, 'assistant');
   const content = result.content;
   if (!Array.isArray(content)) throw new Error('expected array content');
@@ -163,7 +163,7 @@ Deno.test('assistantToolCallMessage throws on invalid JSON args', () => {
 Deno.test('historyToSdk dispatches tool messages', () => {
   const msg: TurnHistoryMessage = { role: 'tool', content: 'ok', name: 'fn', tool_call_id: 'c1' };
   const result = historyToSdk(msg);
-  if (!result || result.role !== 'tool') throw new Error('expected tool message');
+  if (result?.role !== 'tool') throw new Error('expected tool message');
   assertEquals(result.role, 'tool');
 });
 
@@ -173,7 +173,7 @@ Deno.test('historyToSdk dispatches assistant with tool calls', () => {
     tool_calls: [{ id: 'c1', type: 'function', function: { name: 'fn', arguments: '{}' } }],
   };
   const result = historyToSdk(msg);
-  if (!result || result.role !== 'assistant') throw new Error('expected assistant message');
+  if (result?.role !== 'assistant') throw new Error('expected assistant message');
   assertEquals(result.role, 'assistant');
   const content = result.content;
   if (!Array.isArray(content)) throw new Error('expected array content');
@@ -183,7 +183,7 @@ Deno.test('historyToSdk dispatches assistant with tool calls', () => {
 Deno.test('historyToSdk dispatches content messages', () => {
   const msg: TurnHistoryMessage = { role: 'user', content: 'hello' };
   const result = historyToSdk(msg);
-  if (!result || result.role !== 'user') throw new Error('expected user message');
+  if (result?.role !== 'user') throw new Error('expected user message');
   assertEquals(result.role, 'user');
   assertEquals(result.content, 'hello');
 });

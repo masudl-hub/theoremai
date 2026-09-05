@@ -5,6 +5,7 @@ import {
   catalogPathFor,
   coerceProtocol,
   coerceProvider,
+  EXTRA_FIELDS,
   fieldMeta,
   GEMINI_BUCKETS,
   GEMINI_FREE_BUCKETS,
@@ -61,7 +62,7 @@ Deno.test('MEDIA_INPUT_KINDS values are MediaInputKind', () => {
   assertEquals(VOICE_ACCEPT_MIMES.includes('audio/wav'), true);
 });
 
-Deno.test('PROFILE_FIELDS protocol / accept / chat match live unions', () => {
+Deno.test('PROFILE_FIELDS protocol / accept / text match live unions', () => {
   const protocol = fieldMeta('model.protocol');
   assertEquals(protocol?.options, PROTOCOLS);
   assertEquals(protocol?.type.includes('geminiInteractions'), true);
@@ -69,8 +70,9 @@ Deno.test('PROFILE_FIELDS protocol / accept / chat match live unions', () => {
   const handle = fieldMeta('identity.handle');
   assertEquals(handle?.type, 'string');
 
-  const chat = fieldMeta('identity.chat');
-  assertEquals(chat?.type, 'boolean');
+  const profileType = fieldMeta('type');
+  assertEquals(profileType?.type.includes('text'), true);
+  assertEquals(profileType?.type.includes('live'), true);
 
   const accept = fieldMeta('inputs.attachments.accept');
   assertEquals(accept?.type, 'string[]');
@@ -127,8 +129,11 @@ Deno.test('EXTRA_FIELDS covers registerTool keys shown in profile docs', () => {
     'handler',
   ];
   for (const key of registerToolKeys) {
+    if (key === 'type') {
+      assertEquals(EXTRA_FIELDS.type != null, true, 'missing EXTRA_FIELDS.type');
+      continue;
+    }
     assertEquals(fieldMeta(key) != null, true, `missing EXTRA_FIELDS.${key}`);
   }
-  const toolType = fieldMeta('type');
-  assertEquals(toolType?.options, ['builtin', 'function']);
+  assertEquals(EXTRA_FIELDS.type?.options, ['builtin', 'function']);
 });

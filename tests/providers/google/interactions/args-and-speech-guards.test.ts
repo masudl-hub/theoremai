@@ -6,6 +6,7 @@ import { assertEquals } from '../../../../src/kernel/engine/assert.ts';
 import type { ProviderCompleteRequest } from '../../../../src/kernel/types.ts';
 import {
   emitToolCallFromRawArguments,
+  finalizeStructured,
   isVoiceProfile,
   missingSpeechAudioError,
   newStreamFold,
@@ -59,4 +60,20 @@ Deno.test('F-04 pressure: missing-audio gate matrix', () => {
   const err = [...missingSpeechAudioError()];
   assertEquals(err[0]?.type, 'error');
   assertEquals(String(err[0]?.errorInternal).includes('speech audio'), true);
+});
+
+Deno.test('structured-required + bad JSON emits error (never silent skip)', () => {
+  const fold = newStreamFold();
+  fold.text = 'not json';
+  const req = { structured: 'chatTurn' } as ProviderCompleteRequest;
+  const events = [...finalizeStructured(req, fold)];
+  assertEquals(events.length, 1);
+  assertEquals(events[0]?.type, 'error');
+  assertEquals(events[0]?.errorInternal, 'structured output was not valid JSON');
+
+  fold.text = '{"ok":true}';
+  assertEquals(
+    [...finalizeStructured(req, fold)],
+    [{ type: 'structured', structured: { ok: true } }],
+  );
 });

@@ -84,6 +84,7 @@ export {
   sanitizeProjectId,
   sanitizeText,
   sanitizeTurnRequest,
+  sanitizeTurnRequestForTrace,
 } from './src/guardrails/sanitize.ts';
 export type { CompactionSplit, CompactionTokens } from './src/kernel/engine/compaction.ts';
 export {
@@ -161,7 +162,7 @@ export {
   VOICE_ACCEPT_MIMES,
 } from './src/kernel/schema.ts';
 export type {
-  ProfileResumeSpec,
+  ProfileTurnResumptionSpec,
   TurnContinueFrom,
   TurnStop,
 } from './src/kernel/stop.ts';

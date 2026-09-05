@@ -3,13 +3,18 @@ import { createProvider } from '../../../src/providers/create-provider.ts';
 import { stubProfile } from '../profiles.ts';
 
 function baseProfile(
-  model: { protocol: 'geminiInteractions' | 'openAi'; provider: 'google' | 'openrouter' | 'local' },
+  model: {
+    thinking: 'minimal';
+    key: 'freeA';
+    protocol: 'geminiInteractions' | 'openAi';
+    provider: 'google' | 'openrouter' | 'local';
+  },
   speech: boolean,
 ) {
   return stubProfile({
     protocol: model.protocol,
     provider: model.provider,
-    role: speech ? 'speech' : 'chat',
+    role: speech ? 'speech' : 'text',
     id: 'probe-profile',
   });
 }

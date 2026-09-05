@@ -44,8 +44,8 @@ function clampLevels(entry: ModelSpec | undefined, level: ThinkingLevel): Thinki
   if (entry.thinkingLevels.includes(level)) {
     return level;
   }
-  const fallback = entry.thinking.off;
-  if (entry.thinkingLevels.includes(fallback)) {
+  const fallback = entry.thinking?.off;
+  if (fallback && entry.thinkingLevels.includes(fallback)) {
     return fallback;
   }
   const first = entry.thinkingLevels[0];

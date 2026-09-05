@@ -171,6 +171,7 @@ function registerPressureProfiles(): void {
 
   registerProfile(
     defineProfile({
+      type: 'text',
       id: INVOKE_PROFILE,
       identity: { handle: 'invoke-pressure', system: 'invoke-only profile' },
       model: { ...flashLiteModel(1) },
@@ -183,6 +184,7 @@ function registerPressureProfiles(): void {
 
   registerProfile(
     defineProfile({
+      type: 'text',
       id: T2_PROFILE,
       identity: { handle: 't2-pressure', system: 'T2 loader profile' },
       model: { ...flashLiteModel(4) },
@@ -198,6 +200,7 @@ function registerPressureProfiles(): void {
 
   registerProfile(
     defineProfile({
+      type: 'text',
       id: T1_PROFILE,
       identity: { handle: 't1-pressure', system: 'T1 policy profile' },
       model: { ...flashLiteModel(2) },
@@ -213,6 +216,7 @@ function registerPressureProfiles(): void {
 
   registerProfile(
     defineProfile({
+      type: 'text',
       id: STUB_RUN_PROFILE,
       identity: { handle: 'stub-run', system: 'Stub provider drives tool calls.' },
       model: { ...flashLiteModel(8) },
@@ -239,6 +243,7 @@ function registerPressureProfiles(): void {
 
   registerProfile(
     defineProfile({
+      type: 'text',
       id: LIVE_PROFILE,
       identity: {
         handle: 'live-pressure',

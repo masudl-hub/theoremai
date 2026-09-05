@@ -25,14 +25,26 @@ const FILE_DAY = /^turns-(\d{4}-\d{2}-\d{2})(?:-\d+)?\.jsonl$/;
 /** Minimal async destination for completed turn trace records. */
 interface TraceSink {
   write: (record: TraceRecord) => Promise<void>;
+  /**
+   * Optional host hook when `writeTrace` catches record-build or write failures.
+   * Must not throw; tracing never fails the turn.
+   */
+  onError?: (err: unknown) => void;
 }
 
-/** Write a trace record without allowing trace failures to fail the turn. */
+/**
+ * Write a trace record without allowing trace failures to fail the turn.
+ * Build/write errors are forwarded to `sink.onError` when provided.
+ */
 async function writeTrace(sink: TraceSink, record: Promise<TraceRecord>): Promise<void> {
   try {
     await sink.write(await record);
-  } catch {
-    // Tracing must not fail the turn.
+  } catch (err) {
+    try {
+      sink.onError?.(err);
+    } catch {
+      // Host onError must not fail the turn.
+    }
   }
 }
 

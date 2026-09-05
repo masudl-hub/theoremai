@@ -7,7 +7,7 @@ import { registerProfile } from '../../src/kernel/registry/profiles.ts';
 import { projectProfile, resolveTurn } from '../../src/kernel/registry/resolve.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
 import { camelToSnake, toInteractionsBody } from '../../src/providers/google/interactions/mod.ts';
-import { CHAT_MEDIA_LIMITS, HOST_MODELS, modelAllow } from '../fixtures/models.ts';
+import { CHAT_MEDIA_LIMITS, geminiModel, HOST_MODELS } from '../fixtures/models.ts';
 
 async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
   const out: TurnEvent[] = [];
@@ -23,7 +23,7 @@ async function* fakeComplete(req: ProviderCompleteRequest): AsyncGenerator<TurnE
   if (req.image) {
     yield {
       type: 'media',
-      media: { mimeType: req.image.mimeType, data: 'image-bytes' },
+      media: { mimeType: req.image.mimeType ?? 'image/png', data: 'image-bytes' },
     };
   }
 }
@@ -137,10 +137,17 @@ Deno.test('interactions body places refs in input and image in response format',
 Deno.test('interactions body requests text and image when includeText is set', () => {
   registerProfile({
     id: 'image_with_text',
+    type: 'image',
+    identity: { handle: 'image_with_text' },
     model: {
-      protocol: 'geminiInteractions',
-      provider: 'google',
-      ...modelAllow('gemini31FlashLiteImage'),
+      ...geminiModel('gemini31FlashLiteImage'),
+      thinking: 'minimal',
+    },
+    image: {
+      aspectRatio: '1:1',
+      size: '1K',
+      mimeType: 'image/jpeg',
+      includeText: true,
     },
     tools: { allow: [] },
     inputs: {
@@ -148,12 +155,6 @@ Deno.test('interactions body requests text and image when includeText is set', (
     },
     outputs: {
       structured: null,
-      image: {
-        aspectRatio: '1:1',
-        size: '1K',
-        mimeType: 'image/jpeg',
-        includeText: true,
-      },
     },
     guardrails: { quota: { perDay: 10 } },
   });
@@ -197,7 +198,7 @@ Deno.test('chat profile does not attach image response format', () => {
 Deno.test('image projection exposes image pins not tools', () => {
   const ui = projectProfile('image');
   assertEquals(ui.tools, []);
-  assertEquals(ui.outputs.image?.mimeType, 'image/jpeg');
+  assertEquals(ui.outputs?.structured, null);
   assertEquals(ui.image?.mimeType, 'image/jpeg');
   assertEquals(ui.image?.size, '1K');
   assertEquals(ui.image?.maxInputImages, 14);
@@ -211,9 +212,16 @@ Deno.test('media validations allow omitted aspect/size; reject structured mixing
   registerProfile(
     defineProfile({
       id: 'image_defaults_profile',
-      model: { ...modelAllow('gemini31FlashLiteImage') },
+      type: 'image',
+      identity: { handle: 'image_defaults_profile' },
+      model: {
+        ...geminiModel('gemini31FlashLiteImage'),
+        thinking: 'minimal',
+      },
+      image: { mimeType: 'image/jpeg' },
+      tools: { allow: [] },
       inputs: { text: true },
-      outputs: { structured: null, image: { mimeType: 'image/jpeg' } },
+      outputs: { structured: null },
       guardrails: { quota: { perDay: 10 } },
     }),
   );
@@ -233,11 +241,17 @@ Deno.test('media validations allow omitted aspect/size; reject structured mixing
   registerProfile(
     defineProfile({
       id: 'mixed_media_profile',
-      model: { ...modelAllow('gemini31FlashLiteImage') },
+      type: 'image',
+      identity: { handle: 'mixed_media_profile' },
+      model: {
+        ...geminiModel('gemini31FlashLiteImage'),
+        thinking: 'minimal',
+      },
+      image: { aspectRatio: '1:1', size: '1K', mimeType: 'image/jpeg' },
+      tools: { allow: [] },
       inputs: { text: true },
       outputs: {
         structured: 'chatTurn',
-        image: { aspectRatio: '1:1', size: '1K', mimeType: 'image/jpeg' },
       },
       guardrails: { quota: { perDay: 10 } },
     }),
@@ -251,11 +265,17 @@ Deno.test('media validations allow omitted aspect/size; reject structured mixing
   registerProfile(
     defineProfile({
       id: 'image_with_prompt_schema',
-      model: { ...modelAllow('gemini31FlashLiteImage') },
+      type: 'image',
+      identity: { handle: 'image_with_prompt_schema' },
+      model: {
+        ...geminiModel('gemini31FlashLiteImage'),
+        thinking: 'minimal',
+      },
+      image: { aspectRatio: '1:1', size: '1K', mimeType: 'image/jpeg' },
+      tools: { allow: [] },
       inputs: { text: true },
       outputs: {
         structured: 'promptTurn',
-        image: { aspectRatio: '1:1', size: '1K', mimeType: 'image/jpeg' },
       },
       guardrails: { quota: { perDay: 10 } },
     }),
@@ -271,7 +291,13 @@ Deno.test('media validations allow omitted aspect/size; reject structured mixing
   registerProfile(
     defineProfile({
       id: 'image_with_code_exec',
+      type: 'image',
+      identity: { handle: 'image_with_code_exec' },
       model: {
+        key: 'freeA',
+        protocol: 'geminiInteractions',
+        provider: 'google',
+        thinking: 'minimal',
         allow: ['gemini31FlashLiteImage'],
         config: {
           gemini31FlashLiteImage: {
@@ -280,15 +306,15 @@ Deno.test('media validations allow omitted aspect/size; reject structured mixing
           },
         },
       },
+      image: {
+        aspectRatio: '1:1',
+        size: '1K',
+        mimeType: 'image/jpeg',
+      },
       tools: { allow: [] },
       inputs: { text: true },
       outputs: {
         structured: null,
-        image: {
-          aspectRatio: '1:1',
-          size: '1K',
-          mimeType: 'image/jpeg',
-        },
       },
       guardrails: { quota: { perDay: 10 } },
     }),
@@ -302,7 +328,13 @@ Deno.test('media validations allow omitted aspect/size; reject structured mixing
   registerProfile(
     defineProfile({
       id: 'image_with_search',
+      type: 'image',
+      identity: { handle: 'image_with_search' },
       model: {
+        key: 'freeA',
+        protocol: 'geminiInteractions',
+        provider: 'google',
+        thinking: 'minimal',
         allow: ['gemini31FlashLiteImage'],
         config: {
           gemini31FlashLiteImage: {
@@ -311,15 +343,15 @@ Deno.test('media validations allow omitted aspect/size; reject structured mixing
           },
         },
       },
+      image: {
+        aspectRatio: '1:1',
+        size: '1K',
+        mimeType: 'image/jpeg',
+      },
       tools: { allow: [] },
       inputs: { text: true },
       outputs: {
         structured: null,
-        image: {
-          aspectRatio: '1:1',
-          size: '1K',
-          mimeType: 'image/jpeg',
-        },
       },
       guardrails: { quota: { perDay: 10 } },
     }),
@@ -331,20 +363,24 @@ Deno.test('media validations allow omitted aspect/size; reject structured mixing
   );
 });
 
-Deno.test('resolveTurn rejects multiple responseFormat wire formats', () => {
+Deno.test('speech profiles use top-level speech pins', () => {
   registerProfile({
-    id: 'mixed_output_modes_test',
-    model: { ...modelAllow('gemini35FlashLite') },
-    tools: { allow: [] },
-    inputs: { text: true },
-    outputs: {
-      structured: 'chatTurn',
-      speech: { voice: 'Kore', format: 'pcm' },
+    id: 'speech_output_test',
+    type: 'speech',
+    identity: { handle: 'speech_output_test' },
+    model: {
+      ...geminiModel('gemini31FlashTts'),
+      thinking: 'minimal',
+      key: 'freeA',
     },
+    speech: { voice: 'Kore', format: 'pcm' },
     guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
   });
-  assertThrows(
-    () => resolveTurn({ profile: 'mixed_output_modes_test', input: { text: 'hi' } }),
-    TheorumError,
+  assertEquals(
+    resolveTurn({ profile: 'speech_output_test', input: { text: 'hi' } }).generation.speech,
+    {
+      voice: 'Kore',
+      format: 'pcm',
+    },
   );
 });

@@ -5,7 +5,7 @@ import console from 'node:console';
 import {
 	CONFIG_FILE_PATTERN,
 	CONFIG_WEAKEN_PATTERNS,
-	auditToolInput,
+	findSuppressionReason,
 	matchesAny,
 } from './_suppression.mjs';
 
@@ -75,7 +75,16 @@ function main() {
 		return;
 	}
 
-	const hit = auditToolInput(toolName, toolInput);
+	const filePath =
+		toolInput.path ?? toolInput.file_path ?? toolInput.target_notebook ?? toolInput.filePath ?? '';
+
+	// Audit only the text the agent is actually adding, not the existing file content
+	// that the IDE may include in the tool payload.
+	const auditText =
+		(toolName === 'Write' || toolName === 'TabWrite'
+			? toolInput.contents ?? toolInput.content
+			: toolInput.new_string ?? toolInput.newString) ?? '';
+	const hit = findSuppressionReason(auditText, filePath);
 	if (hit) {
 		if (hit.reason.includes('suppression')) {
 			deny(`Adding lint suppressions (${E}-${D}, ${B}-${I}, ${TS}-ignore, etc.) is not allowed.`);
@@ -85,8 +94,6 @@ function main() {
 		return;
 	}
 
-	const filePath =
-		toolInput.path ?? toolInput.file_path ?? toolInput.target_notebook ?? toolInput.filePath ?? '';
 	if (CONFIG_FILE_PATTERN.test(filePath)) {
 		const candidates = [toolInput.contents, toolInput.content, toolInput.new_string, toolInput.newString].filter(
 			(value) => typeof value === 'string',

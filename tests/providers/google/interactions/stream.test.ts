@@ -693,16 +693,12 @@ Deno.test('readData and readMime extract part media properties', () => {
 });
 
 Deno.test('yieldMediaChunk yields media events for binary chunks', () => {
-  const chunks = Array.from(
-    yieldMediaChunk({ data: 'aGVsbG8=', mime_type: 'image/png' }),
-  );
+  const chunks = Array.from(yieldMediaChunk({ data: 'aGVsbG8=', mime_type: 'image/png' }));
   assertEquals(chunks.length, 1);
   assertEquals((chunks[0] as { type: string }).type, 'media');
 
   const pcmBytes = bytesToBase64(new Uint8Array([0, 0, 0, 0]));
-  const pcmChunks = Array.from(
-    yieldMediaChunk({ data: pcmBytes, mime_type: 'audio/pcm' }),
-  );
+  const pcmChunks = Array.from(yieldMediaChunk({ data: pcmBytes, mime_type: 'audio/pcm' }));
   assertEquals(pcmChunks.length, 1);
   assertEquals((pcmChunks[0] as { media?: { mimeType?: string } })?.media?.mimeType, 'audio/wav');
 
@@ -725,10 +721,7 @@ Deno.test('scanMediaParts scans nested content arrays', () => {
 });
 
 Deno.test('eventType prefers event_type, falls back to type, then empty string', () => {
-  assertEquals(
-    eventType({ event_type: 'content.delta', type: 'ignored' }),
-    'content.delta',
-  );
+  assertEquals(eventType({ event_type: 'content.delta', type: 'ignored' }), 'content.delta');
   assertEquals(eventType({ type: 'interaction.complete' }), 'interaction.complete');
   assertEquals(eventType({}), '');
 });
@@ -799,10 +792,7 @@ Deno.test('foldPayload folds a delta event and accumulates text', () => {
 Deno.test('foldPayload folds a complete event', () => {
   const fold = newStreamFold();
   fold.text = 'already streamed';
-  const events = foldPayload(
-    { event_type: 'interaction.complete', interaction: {} },
-    fold,
-  );
+  const events = foldPayload({ event_type: 'interaction.complete', interaction: {} }, fold);
   assertEquals(Array.isArray(events), true);
 });
 
@@ -890,14 +880,11 @@ Deno.test('foldPayload emits grounding chunks from google_maps_result places', (
   const grounding = events.find((e) => e.type === 'grounding')?.grounding;
   assertEquals(grounding?.chunks?.length, 2);
   assertEquals(grounding?.sources?.length, 2);
-  assertEquals(
-    (grounding?.chunks?.[0] as { maps?: { title?: string; placeId?: string } }).maps?.title,
-    'Swansons Nursery',
-  );
-  assertEquals(
-    (grounding?.chunks?.[0] as { maps?: { placeId?: string } }).maps?.placeId,
-    'ChIJ_primary',
-  );
+  const firstChunk = grounding?.chunks?.[0] as
+    | { maps?: { title?: string; placeId?: string } }
+    | undefined;
+  assertEquals(firstChunk?.maps?.title, 'Swansons Nursery');
+  assertEquals(firstChunk?.maps?.placeId, 'ChIJ_primary');
   assertEquals(grounding?.sources?.[0]?.placeId, 'ChIJ_primary');
 });
 
@@ -959,7 +946,9 @@ Deno.test('foldPayload re-emits google_maps_result evidence once result arrives'
       delta: {
         type: 'google_maps_result',
         call_id: 'call_1',
-        result: [{ places: [{ place_id: 'p1', name: 'Nursery', url: 'https://maps.google.com/?cid=1' }] }],
+        result: [
+          { places: [{ place_id: 'p1', name: 'Nursery', url: 'https://maps.google.com/?cid=1' }] },
+        ],
       },
     },
     fold,
@@ -967,10 +956,15 @@ Deno.test('foldPayload re-emits google_maps_result evidence once result arrives'
   const evidence = withResult.filter((e) => e.type === 'evidence');
   assertEquals(evidence.length, 1);
   assertEquals(
-    Array.isArray((evidence[0] as { evidence?: { raw?: { result?: unknown } } }).evidence?.raw?.result),
+    Array.isArray(
+      (evidence[0] as { evidence?: { raw?: { result?: unknown } } }).evidence?.raw?.result,
+    ),
     true,
   );
-  assertEquals(withResult.some((e) => e.type === 'grounding'), true);
+  assertEquals(
+    withResult.some((e) => e.type === 'grounding'),
+    true,
+  );
 });
 
 Deno.test('foldPayload emits evidence for code_execution_call deltas', () => {
@@ -1181,10 +1175,7 @@ Deno.test('foldStepStart ignores empty steps and seeds function_call', () => {
   const fold = newStreamFold();
   assertEquals(foldStepStart({ event_type: 'step.start' }, fold), []);
   assertEquals(
-    foldStepStart(
-      { event_type: 'step.start', index: 0, step: { type: 'thought' } },
-      fold,
-    ),
+    foldStepStart({ event_type: 'step.start', index: 0, step: { type: 'thought' } }, fold),
     [],
   );
   assertEquals(
@@ -1276,4 +1267,42 @@ Deno.test('withTap wraps the transport fetch without mutating other fields', () 
   assertEquals(wrapped.vault, vault);
   assertEquals(wrapped.wait, noWait);
   assertEquals(typeof wrapped.fetch, 'function');
+});
+
+Deno.test('foldPayload emits error event when payload contains api error', () => {
+  const fold = newStreamFold();
+  const events = foldPayload(
+    {
+      error: {
+        message: "'google_maps' and 'google_search' cannot be combined in the same request.",
+        code: 'invalid_request',
+      },
+    },
+    fold,
+  );
+  assertEquals(events.length, 1);
+  assertEquals(events[0]?.type, 'error');
+  assertEquals(
+    events[0]?.errorInternal,
+    "'google_maps' and 'google_search' cannot be combined in the same request.",
+  );
+});
+
+Deno.test('provider emits error event when SSE stream returns an API error payload', async () => {
+  const transport = {
+    vault,
+    wait: noWait,
+    fetch: () => {
+      const sseBody = `data: {"error":{"message":"'google_maps' and 'google_search' cannot be combined in the same request.","code":"invalid_request"}}\n\n`;
+      return Promise.resolve(new Response(sseBody, { status: HTTP_OK }));
+    },
+  };
+  const provider = createInteractionsProvider(transport);
+  const events = await collect(provider.complete(fromChatProfile()));
+  assertEquals(events.length, 1);
+  assertEquals(events[0]?.type, 'error');
+  assertEquals(
+    events[0]?.errorInternal,
+    "'google_maps' and 'google_search' cannot be combined in the same request.",
+  );
 });

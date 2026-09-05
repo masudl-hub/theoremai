@@ -21,7 +21,7 @@ import {
   isCodeExecutionType,
   isGoogleBuiltinStepType,
   mergeCodeExecutionPayload,
-  tryStructured,
+  parseStructuredOutput,
 } from '../../../kernel/engine/delta.ts';
 import { asRecord } from '../../../kernel/engine/record.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../../kernel/types.ts';
@@ -417,6 +417,10 @@ export function foldCompleteEvents(
 }
 
 export function foldPayload(payload: Record<string, unknown>, fold: StreamFold): TurnEvent[] {
+  const apiError = readApiErrorMessage(payload);
+  if (apiError) {
+    return [toErrorEvent(new TheorumError(apiError))];
+  }
   const events: TurnEvent[] = [];
   for (const ev of yieldGrounding(payload)) events.push(ev);
 
@@ -452,12 +456,15 @@ export function* finalizeStructured(
   req: ProviderCompleteRequest,
   fold: StreamFold,
 ): Generator<TurnEvent> {
-  if (req.structured && fold.text) {
-    const structured = tryStructured(fold.text);
-    if (structured !== undefined) {
-      yield structured;
-    }
+  if (!req.structured || !fold.text) {
+    return;
   }
+  const parsed = parseStructuredOutput(fold.text);
+  if (!parsed.ok) {
+    yield toErrorEvent(new TheorumError(parsed.error));
+    return;
+  }
+  yield { type: 'structured', structured: parsed.structured };
 }
 
 export function* scanInteractionsMedia(json: Record<string, unknown>): Generator<TurnEvent> {
@@ -500,6 +507,7 @@ export async function* parseInteractionsSse(
   }
   const fold = newStreamFold();
   const speech = Boolean(req.speech);
+  let hasError = false;
   for await (const row of readSseChunks(response.body)) {
     req.tapUpstream?.(row);
     if (row.eventType === 'sse_done') {
@@ -510,8 +518,17 @@ export async function* parseInteractionsSse(
       if (ev.type === 'media') {
         fold.sawStreamedMedia = true;
       }
+      if (ev.type === 'error') {
+        hasError = true;
+      }
       yield normalizeSpeechMedia(ev, speech);
     }
+    if (hasError) {
+      return;
+    }
+  }
+  if (hasError) {
+    return;
   }
   yield* flushCompletedCodeSteps(fold.codeSteps, fold.emittedEvidenceKeys);
   yield* finalizeStructured(req, fold);
@@ -522,7 +539,22 @@ export async function* parseInteractionsSse(
 
 export function readApiErrorMessage(record: Record<string, unknown>): string | null {
   const error = record.error;
-  if (!error || typeof error !== 'object') return null;
+  if (!error) {
+    if (
+      record.sseEvent === 'error' ||
+      record.eventType === 'error' ||
+      record.event_type === 'error' ||
+      record.type === 'error'
+    ) {
+      const msg = typeof record.message === 'string' ? record.message : null;
+      return msg || 'Gemini returned an error.';
+    }
+    return null;
+  }
+  if (typeof error === 'string' && error.length > 0) {
+    return error;
+  }
+  if (typeof error !== 'object') return null;
   const errorRecord = error as { message?: unknown; status?: unknown; code?: unknown };
   if (typeof errorRecord.message === 'string' && errorRecord.message.length > 0) {
     const status = typeof errorRecord.status === 'string' ? errorRecord.status : null;

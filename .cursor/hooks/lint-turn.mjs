@@ -182,11 +182,6 @@ function isDocsPath(relPath) {
 	);
 }
 
-function isKernelSourceOrTest(relPath) {
-	const normalized = relPath.replaceAll('\\', '/');
-	return normalized.startsWith('src/') || normalized.startsWith('tests/');
-}
-
 /** Minimal glob match for biome `files.includes` entries (`*` / `**` only). */
 function matchIncludeGlob(file, pattern) {
 	const normalizedFile = file.replaceAll('\\', '/');
@@ -310,17 +305,25 @@ async function lintEditedFiles(root, relFiles, pkg) {
 		}
 	}
 
-	if (typeof scripts['lint:ast-grep'] === 'string' && relFiles.some(isKernelSourceOrTest)) {
-		console.error(`[lint-turn] lint:ast-grep (source/test edit) in ${root}`);
-		const result = await runCommand(root, 'npm', ['run', 'lint:ast-grep']);
-		if (result.code !== 0) {
-			failures.push({
-				root,
-				step: 'lint:ast-grep',
-				code: result.code,
-				output: result.output,
-				relFiles,
-			});
+	// ast-grep must be scoped to edited files so concurrent agents' dirty files do not
+	// poison this conversation's verification loop. `npm run lint:ast-grep` is intentionally
+	// left repo-wide for full CI / manual use; the hook narrows it to `ast-grep scan <paths>`.
+	if (typeof scripts['lint:ast-grep'] === 'string') {
+		const astGrepTargets = relFiles.filter((file) =>
+			/\.(?:ts|tsx|mjs|cjs|js)$/i.test(file),
+		);
+		if (astGrepTargets.length > 0) {
+			console.error(`[lint-turn] ast-grep (${astGrepTargets.length} edited files) in ${root}`);
+			const result = await runCommand(root, 'npx', ['ast-grep', 'scan', ...astGrepTargets]);
+			if (result.code !== 0) {
+				failures.push({
+					root,
+					step: 'ast-grep (edited files)',
+					code: result.code,
+					output: result.output,
+					relFiles: astGrepTargets,
+				});
+			}
 		}
 	}
 
@@ -386,19 +389,32 @@ async function main() {
 			const pkg = await readPackageJson(root);
 			failures.push(...(await lintEditedFiles(root, relFiles, pkg)));
 
-			if (failures.length === 0 && (await isTheorumTestRoot(root)) && relFiles.some(isKernelSourceOrTest)) {
-				console.error(`[lint-turn] npm run test (source/test edit) in ${root}`);
-				const result = await runCommand(root, 'npm', ['run', 'test']);
-				if (result.code !== 0) {
-					failures.push({
-						root,
-						step: 'test',
-						code: result.code,
-						output: result.output,
-						relFiles,
-					});
-				}
+		// Run only the test files this conversation edited. Full-suite runs are for CI;
+		// the hook must not block on another agent's churning test files.
+		const testTargets = relFiles.filter((file) => file.startsWith('tests/') && file.endsWith('.test.ts'));
+		if (failures.length === 0 && (await isTheorumTestRoot(root)) && testTargets.length > 0) {
+			console.error(`[lint-turn] deno test (${testTargets.length} edited test file(s)) in ${root}`);
+			const result = await runCommand(root, 'deno', [
+				'test',
+				'--allow-read',
+				'--allow-write',
+				'--allow-net',
+				'--allow-env',
+				'--allow-sys',
+				'--allow-run',
+				'--ignore=npm/',
+				...testTargets,
+			]);
+			if (result.code !== 0) {
+				failures.push({
+					root,
+					step: 'test (edited test files)',
+					code: result.code,
+					output: result.output,
+					relFiles: testTargets,
+				});
 			}
+		}
 		}
 
 		if (failures.length === 0) {

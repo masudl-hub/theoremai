@@ -351,4 +351,3 @@ export function createImageProvider(config: ImageProviderConfig = {}): ModelProv
     complete: (req: ProviderCompleteRequest) => streamImage(req, config),
   };
 }
-

@@ -57,7 +57,10 @@ function maxBytesForMime(mimeType: string, limits: MediaLimits): number {
 }
 
 function requireMediaLimits(profile: Profile): MediaLimits {
-  const limits = mediaLimits(profile.inputs);
+  if (profile.type === 'speech') {
+    throw new TheorumError(`Profile ${profile.id} (speech) does not accept media input`);
+  }
+  const limits = mediaLimits(profile.inputs ?? {});
   if (!limits) {
     throw new TheorumError(`Profile ${profile.id} must set maxFiles, maxBytes, and maxTurnBytes`);
   }

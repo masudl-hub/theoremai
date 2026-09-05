@@ -139,23 +139,35 @@ export interface SummaryMap {
 export interface ModelSpec {
   /** Provider wire model id for the configured provider. */
   apiId: string;
-  thinking: ThinkingMap;
+  /** Thinking on/off map when the profile lists `thinking` in controls. Omit → provider default. */
+  thinking?: ThinkingMap;
   /** Levels this model accepts. Illegal values are clamped via `thinkingLevels`. */
-  thinkingLevels: ThinkingLevel[];
-  summaries: SummaryMap;
-  maxOutputTokens: number;
-  temperature: number;
+  thinkingLevels?: ThinkingLevel[];
+  /** Thinking-summary on/off map. Omit → provider default. */
+  summaries?: SummaryMap;
+  /** Cap on output tokens. Omit → provider default. */
+  maxOutputTokens?: number;
+  /** Sampling temperature. Omit → provider default. */
+  temperature?: number;
   /**
-   * Provider-native builtins this model supports. Opt in per turn with `tools[id]: true`.
+   * Provider-native builtins this model supports.
+   * Omit or `[]` when none. Opt in per turn with `tools[id]: true`.
    */
-  builtInTools: BuiltinToolId[];
+  builtInTools?: BuiltinToolId[];
   /**
    * Optional vault slot for this model. When set, overrides `profile.model.key`.
    * Host-owned — e.g. pin image models to `paid`.
    */
   key?: GeminiBucket;
-  /** Optional compaction policy for this model's context window. */
+  /** Optional compaction policy for this model's context window (chat profiles). */
   compaction?: CompactionSpec;
+  /** Gemini Interactions: whether the provider stores the interaction. Omit → provider default. */
+  store?: boolean;
+  /**
+   * Gemini Interactions: prefer server-side thread via `previous_interaction_id`
+   * instead of client-owned history. Omit → host/turn decides.
+   */
+  persistViaInteractionId?: boolean;
 }
 
 /**
@@ -281,7 +293,7 @@ export interface ProfileValidationSpec {
 /**
  * Speech-role output pins owned by the host profile.
  * The speech model itself lives in `model.allow` / `model.config`.
- * Namespaced under `outputs.speech` so `voice` here is the TTS voice id,
+ * Declared top-level under `speech` so `voice` here is the TTS voice id,
  * not ingress audio (`inputs.voice`).
  */
 export interface ProfileSpeechSpec {
@@ -329,14 +341,22 @@ export interface ProfileLiveSpec {
 
 /** Stream delivery controls enforced by the kernel. */
 export interface ProfileStreamingSpec {
+  /**
+   * Profile-only source of truth for upstream stream vs batch.
+   * `sse` → stream; `buffered` → non-SSE where the transport supports it.
+   * Omit → leave to provider transport default (no THEORUM invent).
+   */
   mode?: StreamMode;
+  /** When false, filter `thought` events from the turn stream. */
   streamThoughts?: boolean;
-  gateMedia?: boolean;
 }
 
-export type { ProfileResumeSpec, TurnContinueFrom, TurnStop } from './stop.ts';
+export type { ProfileTurnResumptionSpec, TurnContinueFrom, TurnStop } from './stop.ts';
 
-import type { ProfileResumeSpec, TurnContinueFrom, TurnStop } from './stop.ts';
+import type { ProfileTurnResumptionSpec, TurnContinueFrom, TurnStop } from './stop.ts';
+
+/** Profile wire/session archetype. Required on every profile — no inference shims. */
+export type ProfileType = 'text' | 'image' | 'speech' | 'live';
 
 /** Context passed to a host-owned outbound disclosure guard. */
 export interface EgressContext {
@@ -389,6 +409,10 @@ export interface ProfileModelSpec {
   select?: Record<string, ModelId>;
   thinking?: ThinkingLevel | Record<string, ThinkingLevel>;
   controls?: ControlId[];
+  /**
+   * Tool-loop ceiling. `<= 0` = unbounded; `1` = one-shot; `> 1` = hard cap.
+   * Omit → unbounded (no THEORUM invent of `1`).
+   */
   maxSteps?: number;
   key?: GeminiFreeBucket;
 }
@@ -405,36 +429,63 @@ export interface ProfileInputsSpec {
   slots?: Record<string, string[]>;
 }
 
-/** Output schema, image, speech, validation, and stream rules for a profile. */
+/** Chat-shaped output schema, validation, and stream filters. */
 export interface ProfileOutputsSpec {
   structured?: StructuredSchemaId | StructuredBySlot | null;
-  /** Pins for an image-role profile. Model id is on `model`. */
-  image?: ProfileImageSpec;
-  /** Pins for a speech-role profile (`voice` / `format`). Model id is on `model`. */
-  speech?: ProfileSpeechSpec;
-  /** Pins for a live-role profile (bidirectional streaming session). */
-  live?: ProfileLiveSpec;
   validation?: ProfileValidationSpec;
   streaming?: ProfileStreamingSpec;
-  /** Resume / Continue policy for non-user stops. */
-  resume?: ProfileResumeSpec;
+}
+
+/** Shared identity block for every profile type. */
+export interface ProfileIdentity {
+  handle: string;
+  system?: string;
+  systemByRole?: Record<string, string>;
+}
+
+/** Fields shared by every typed profile. */
+export interface ProfileCommon {
+  id: ProfileId;
+  identity: ProfileIdentity;
+  model: ProfileModelSpec;
+  outputs?: ProfileOutputsSpec;
+  guardrails?: ProfileGuardrailsSpec;
+}
+
+/** Text / structured turn engine with optional tool execution. */
+export interface TextProfile extends ProfileCommon {
+  type: 'text';
+  tools: ProfileToolsSpec;
+  inputs: ProfileInputsSpec;
+  turnResumption?: ProfileTurnResumptionSpec;
+}
+
+/** Image-generation primary role. */
+export interface ImageProfile extends ProfileCommon {
+  type: 'image';
+  image: ProfileImageSpec;
+  tools: ProfileToolsSpec;
+  inputs: ProfileInputsSpec;
+  turnResumption?: ProfileTurnResumptionSpec;
+}
+
+/** Unary TTS — text-in locked by type; no tools / inputs block. */
+export interface SpeechProfile extends ProfileCommon {
+  type: 'speech';
+  speech: ProfileSpeechSpec;
+  turnResumption?: ProfileTurnResumptionSpec;
+}
+
+/** Bidirectional live session. */
+export interface LiveProfile extends ProfileCommon {
+  type: 'live';
+  live: ProfileLiveSpec;
+  tools: ProfileToolsSpec;
+  inputs?: ProfileInputsSpec;
 }
 
 /** Complete host-owned agent contract consumed by the kernel. */
-export interface Profile {
-  id: ProfileId;
-  identity: {
-    handle: string;
-    chat?: boolean;
-    system?: string;
-    systemByRole?: Record<string, string>;
-  };
-  model: ProfileModelSpec;
-  tools: ProfileToolsSpec;
-  inputs: ProfileInputsSpec;
-  outputs: ProfileOutputsSpec;
-  guardrails: ProfileGuardrailsSpec;
-}
+export type Profile = TextProfile | ImageProfile | SpeechProfile | LiveProfile;
 
 /** Text part sent to provider adapters after input normalization. */
 export interface InteractionTextPart {
@@ -455,7 +506,8 @@ export type InteractionPart = InteractionTextPart | InteractionMediaPart;
 /** Native image response request passed to image-capable providers. */
 export interface ImageResponseFormat {
   type: 'image';
-  mimeType: string;
+  /** Omitted when the profile does not pin MIME; providers use their default. */
+  mimeType?: string;
   /** Omitted when the profile does not pin aspect; providers use their default. */
   aspectRatio?: string;
   /**
@@ -530,14 +582,8 @@ export interface TurnRequest {
   projectId?: string;
   /** Google Interactions server-side conversation state. Omit for stateless/manual history. */
   previousInteractionId?: string;
-  /** Optional Interactions storage override. Omit to let provider/project policy decide. */
+  /** Optional Interactions storage override. Omit to let profile model.config / provider decide. */
   store?: boolean;
-  /**
-   * Google Interactions transport mode. Default `true` (SSE).
-   * `false` POSTs a non-SSE interaction and THEORUM yields the same `TurnEvent`
-   * types from the completed `steps[]` array.
-   */
-  stream?: boolean;
   select?: string;
   thinking?: boolean;
   /** Host-provided dynamic system prompt combined with profile persona */
@@ -558,6 +604,11 @@ export interface TurnRequest {
    * the system prompt; hosts should also pass partial artifact via input/history.
    */
   continueFrom?: TurnContinueFrom;
+  /**
+   * 1-based continue attempt when `continueFrom` is set.
+   * Compared to `profile.turnResumption.maxContinues` when that cap is set.
+   */
+  continuation?: number;
   input?: TurnInput;
   /** Provider for the compaction profile when `timing: 'before'`. Falls back to the turn provider. */
   compactionProvider?: ModelProvider;
@@ -568,17 +619,19 @@ export interface TurnRequest {
 /** Safe profile projection suitable for UI or host inspection. */
 export interface ProjectedProfile {
   id: string;
+  type: ProfileType;
   handle: string;
-  chat: boolean;
-  maxSteps: number;
+  maxSteps: number | null;
   models: ModelId[];
   select: Record<string, ModelId> | null;
   controls: ControlId[];
   tools: Array<RegisteredTool | { name: ToolId; missing: true }>;
-  inputs: Profile['inputs'];
+  inputs: ProfileInputsSpec | null;
   slots: Record<string, string[]>;
-  outputs: Profile['outputs'];
+  outputs: ProfileOutputsSpec | null;
   image?: ProfileImageSpec | null;
+  speech?: ProfileSpeechSpec | null;
+  live?: ProfileLiveSpec | null;
 }
 
 /** Provider selection and generation knobs shared before and after resolution. */
@@ -588,12 +641,15 @@ export interface ProviderGenerationConfig {
   apiId: string;
   previousInteractionId?: string;
   store?: boolean;
-  /** Google Interactions: omit or `true` for SSE; `false` for a single JSON interaction. */
+  /**
+   * Upstream stream vs batch, derived from `outputs.streaming.mode`.
+   * `true` = SSE; `false` = buffered; omit = provider default.
+   */
   stream?: boolean;
   thinking: ThinkingLevel;
-  summaries: SummaryMode;
-  maxOutputTokens: number;
-  temperature: number;
+  summaries?: SummaryMode;
+  maxOutputTokens?: number;
+  temperature?: number;
   builtins: BuiltinToolId[];
 }
 
@@ -613,7 +669,11 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
    * history + user parts (e.g. a lone `function_result` continuation step).
    */
   interactionOnlyInput?: Record<string, unknown>[];
-  maxSteps: number;
+  /**
+   * Tool-loop ceiling. `undefined` or `<= 0` = unbounded.
+   * Taken from `profile.model.maxSteps` with no THEORUM invent.
+   */
+  maxSteps?: number;
   structured: StructuredSchemaId | null;
   image: ImageResponseFormat | null;
   speech?: ProfileSpeechSpec;

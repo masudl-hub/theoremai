@@ -25,7 +25,7 @@ function systemFromProfile(profile: Profile, role: string): string {
 }
 
 function shouldSkipStreamEvent(event: TurnEvent, profile: Profile): boolean {
-  return event.type === 'thought' && profile.outputs.streaming?.streamThoughts === false;
+  return event.type === 'thought' && profile.outputs?.streaming?.streamThoughts === false;
 }
 
 function* processNormalEvent(event: TurnEvent): Generator<TurnEvent> {

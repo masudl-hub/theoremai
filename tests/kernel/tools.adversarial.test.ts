@@ -17,14 +17,14 @@ import {
   promoteLoadedTools,
   resolveTurnTools,
 } from '../../src/kernel/tools/resolve.ts';
-import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
+import type { ModelProvider, ProfileToolsSpec, TurnEvent } from '../../src/kernel/types.ts';
 import {
   foldArgumentsDelta,
   foldPayload,
   foldStepStart,
   newStreamFold,
 } from '../../src/providers/google/interactions/stream.ts';
-import { HOST_MODELS, modelAllow } from '../fixtures/models.ts';
+import { geminiModel, HOST_MODELS } from '../fixtures/models.ts';
 import { invokeRegisteredTool } from '../fixtures/test-tools.ts';
 
 async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
@@ -35,15 +35,13 @@ async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
   return out;
 }
 
-function flashProfile(
-  id: string,
-  maxSteps: number,
-  tools: Parameters<typeof defineProfile>[0]['tools'],
-) {
+function flashProfile(id: string, maxSteps: number, tools: ProfileToolsSpec) {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id,
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps },
       tools,
       inputs: { text: true },
       guardrails: { quota: { perDay: 10_000 } },
@@ -437,8 +435,10 @@ Deno.test('adversarial/t2Loader: loaded must be string[] not numbers', async () 
 Deno.test('adversarial/promote: invalid id fails with zero side effects', () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'promote_partial_probe',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 1 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
       tools: { allow: ['load_tools', 'record_lookup', 'stub_tool'], t2Loader: 'load_tools' },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -460,8 +460,10 @@ Deno.test('adversarial/promote: invalid id fails with zero side effects', () => 
 Deno.test('adversarial/promote: invalid id in batch does not unlock later tools', async () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'partial_batch_probe',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 4 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 4 },
       tools: { allow: ['load_tools', 'record_lookup', 'stub_tool'], t2Loader: 'load_tools' },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -498,11 +500,11 @@ Deno.test('adversarial/promote: invalid id in batch does not unlock later tools'
 Deno.test('adversarial/runTurn: geminiInteractions T2 promotion expands wire on continuation', async () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'gemini_t2_wire_probe',
       model: {
-        protocol: 'geminiInteractions',
-        provider: 'google',
-        ...modelAllow('gemini35FlashLite'),
+        ...geminiModel('gemini35FlashLite'),
         maxSteps: 3,
       },
       tools: { allow: ['load_tools', 'record_lookup'], t2Loader: 'load_tools' },
@@ -644,8 +646,14 @@ Deno.test('adversarial/runTurn: tool error still feeds provider continuation tex
 Deno.test('adversarial/runTurn: builtin function_call surfaces provider_native error', async () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'builtin_runner_probe',
       model: {
+        thinking: 'minimal',
+        key: 'freeA',
+        protocol: 'geminiInteractions',
+        provider: 'google',
         allow: ['gemini35FlashLite'],
         config: {
           gemini35FlashLite: {

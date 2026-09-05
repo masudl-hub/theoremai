@@ -71,5 +71,6 @@ export {
   sanitizeProjectId,
   sanitizeText,
   sanitizeTurnRequest,
+  sanitizeTurnRequestForTrace,
 } from './sanitize.ts';
 export { sensitiveSpans } from './sensitive.ts';

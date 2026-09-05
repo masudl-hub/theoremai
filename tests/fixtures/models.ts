@@ -117,9 +117,28 @@ function modelAllow(...ids: HostModelId[]): {
   return { allow: [...ids], config };
 }
 
+/** Gemini Interactions model block for fixtures (protocol + provider + allow/config). */
+function geminiModel(...ids: HostModelId[]): {
+  allow: ModelId[];
+  config: Record<ModelId, ModelSpec>;
+  protocol: 'geminiInteractions';
+  provider: 'google';
+  key: 'freeA';
+  thinking: 'minimal';
+} {
+  return {
+    protocol: 'geminiInteractions',
+    provider: 'google',
+    key: 'freeA',
+    thinking: 'minimal',
+    ...modelAllow(...ids),
+  };
+}
+
 export type { HostModelId };
 export {
   CHAT_MEDIA_LIMITS,
+  geminiModel,
   HOST_MODELS,
   IMAGE_ASPECT_RATIOS,
   IMAGE_INPUT_MIMES,

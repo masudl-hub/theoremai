@@ -283,7 +283,7 @@ export async function* executeFunction(
     }
 
     let finalOutput: unknown = checked.data;
-    if (ctx.profile.tools.t2Loader === tool.name) {
+    if (ctx.profile.type !== 'speech' && ctx.profile.tools.t2Loader === tool.name) {
       if (!snapshot) {
         yield failureEvent(base, {
           code: 'invalid_output',
@@ -426,7 +426,7 @@ export async function* executeRegisteredTool(args: {
     const fullCtx: ToolContext = { ...ctx, callId, profile };
     return yield* executeBuiltin(tool, fullCtx, base, snapshot);
   }
-  if (!profile.tools.allow.includes(name)) {
+  if (profile.type === 'speech' || !profile.tools.allow.includes(name)) {
     yield failureEvent(base, {
       code: 'not_allowed',
       message: `Tool '${name}' is not allowed on ${profile.id}`,

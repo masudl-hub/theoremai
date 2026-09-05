@@ -24,14 +24,16 @@ import type {
   TurnEvent,
   TurnRequest,
 } from '../../src/kernel/types.ts';
-import { HOST_MODELS, modelAllow } from '../fixtures/models.ts';
+import { geminiModel, HOST_MODELS, modelAllow } from '../fixtures/models.ts';
 import { invokeRegisteredTool, withProfileTools } from '../fixtures/test-tools.ts';
 
 Deno.test('runner internal helper branches: loaders, tool findings, step ceilings, and fallback handlers', async () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'dynamic_runner_bot',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 3 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 3 },
       tools: { allow: ['stub_tool'] },
       inputs: { text: true },
       outputs: { structured: null },
@@ -41,8 +43,10 @@ Deno.test('runner internal helper branches: loaders, tool findings, step ceiling
 
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'loader_runner_bot',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 2 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 2 },
       tools: { allow: ['record_lookup'] },
       inputs: { text: true },
       outputs: { structured: null },
@@ -109,8 +113,10 @@ Deno.test('runner internal helper branches: loaders, tool findings, step ceiling
   // 3. Catalog registration is the source of truth for tool metadata
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'existing_tool_bot',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 1 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
       tools: { allow: ['existing_tool'] },
       inputs: { text: true },
       outputs: { structured: null },
@@ -175,7 +181,7 @@ async function* fakeComplete(req: ProviderCompleteRequest): AsyncGenerator<TurnE
   if (req.image) {
     yield {
       type: 'media',
-      media: { mimeType: req.image.mimeType, data: 'vinyl-bytes' },
+      media: { mimeType: req.image.mimeType ?? 'image/png', data: 'vinyl-bytes' },
     };
   }
 }
@@ -186,6 +192,9 @@ const LONG_FLASH = 40_000;
 
 function withTools(id: ProfileId, extra: ToolId[]) {
   const profile = getProfile(id);
+  if (profile.type === 'speech') {
+    throw new Error(`withTools: profile '${id}' is speech`);
+  }
   return withProfileTools(profile, extra);
 }
 
@@ -198,8 +207,12 @@ Deno.test('every profile is oneshot', () => {
 
 Deno.test('runTurn accepts an omitted input object', async () => {
   registerProfile({
+    type: 'text',
+    identity: { handle: 'test', system: 'test' },
+    tools: { allow: [] },
+    inputs: { text: true },
     id: 'no_input_bot',
-    model: { ...modelAllow('gemini35FlashLite') },
+    model: { ...geminiModel('gemini35FlashLite') },
   });
 
   const provider: ModelProvider = {
@@ -223,7 +236,7 @@ Deno.test('flash lite thinking off is minimal', () => {
   assertEquals(generation.model, 'gemini35FlashLite');
   assertEquals(generation.thinking, 'minimal');
   assertEquals(generation.summaries, 'none');
-  assertEquals(HOST_MODELS.gemini35FlashLite.thinking.off, 'minimal');
+  assertEquals(HOST_MODELS.gemini35FlashLite.thinking?.off, 'minimal');
 });
 
 Deno.test('thinking level shapes differ by model family', () => {
@@ -231,7 +244,7 @@ Deno.test('thinking level shapes differ by model family', () => {
   assertEquals(HOST_MODELS.gemini35FlashLite.thinkingLevels, ['minimal', 'low', 'medium', 'high']);
   assertEquals(HOST_MODELS.gemini31ProPreview.thinkingLevels, ['low', 'medium', 'high']);
   assertEquals(HOST_MODELS.gemini31FlashLiteImage.thinkingLevels, ['minimal', 'high']);
-  assertEquals(HOST_MODELS.gemini31ProPreview.thinking.off, 'low');
+  assertEquals(HOST_MODELS.gemini31ProPreview.thinking?.off, 'low');
   assertEquals(clampThinkingLevel(HOST_MODELS.gemini31ProPreview, 'minimal'), 'low');
   assertEquals(clampThinkingLevel(HOST_MODELS.gemini31FlashLite, 'minimal'), 'minimal');
   assertEquals(
@@ -279,8 +292,14 @@ Deno.test('selectable profile picks model and pinned thinking', () => {
 Deno.test('model builtInTools lists search and maps when both are allowlisted', () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'mutex_grounding',
       model: {
+        thinking: 'minimal',
+        key: 'freeA',
+        protocol: 'geminiInteractions',
+        provider: 'google',
         allow: ['gemini35FlashLite'],
         config: {
           gemini35FlashLite: {
@@ -305,8 +324,14 @@ Deno.test('model builtInTools lists search and maps when both are allowlisted', 
 Deno.test('model builtInTools ceiling blocks unlisted builtins', () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'ceiling_grounding',
       model: {
+        thinking: 'minimal',
+        key: 'freeA',
+        protocol: 'geminiInteractions',
+        provider: 'google',
         allow: ['gemini35FlashLite'],
         config: {
           gemini35FlashLite: {
@@ -334,8 +359,14 @@ Deno.test('allow puts T0 custom tools on the wire; builtins follow the model', (
   assertEquals(idle.generation.tools.visible, []);
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'search_on_model',
       model: {
+        thinking: 'minimal',
+        key: 'freeA',
+        protocol: 'geminiInteractions',
+        provider: 'google',
         allow: ['gemini35FlashLite'],
         config: {
           gemini35FlashLite: {
@@ -421,7 +452,7 @@ Deno.test('projection lists only allowed tools', () => {
     [],
   );
   assertEquals(ui.controls, ['thinking']);
-  assertEquals(ui.inputs.voice, undefined);
+  assertEquals(ui.inputs?.voice, undefined);
 });
 
 Deno.test('unknown profile select is rejected', () => {
@@ -601,12 +632,11 @@ Deno.test('synthesizeRepairPrompt scopes history to last 2 exchanges and include
 
 Deno.test('runTurn executes profile validation and auto-corrects', async () => {
   registerProfile({
+    type: 'text',
     id: 'validatedProfile',
     identity: { handle: 'validated' },
     model: {
-      protocol: 'geminiInteractions',
-      provider: 'google',
-      ...modelAllow('gemini35FlashLite'),
+      ...geminiModel('gemini35FlashLite'),
       thinking: 'minimal',
       controls: [],
       maxSteps: 1,
@@ -662,12 +692,11 @@ Deno.test('runTurn executes profile validation and auto-corrects', async () => {
 Deno.test('runTurn skips optional field validators when optional path is omitted', async () => {
   let codeValidatorCalls = 0;
   registerProfile({
+    type: 'text',
     id: 'optionalArtifactProfile',
     identity: { handle: 'optionalArtifact' },
     model: {
-      protocol: 'geminiInteractions',
-      provider: 'google',
-      ...modelAllow('gemini35FlashLite'),
+      ...geminiModel('gemini35FlashLite'),
       thinking: 'minimal',
       controls: [],
       maxSteps: 1,
@@ -714,12 +743,11 @@ Deno.test('runTurn skips optional field validators when optional path is omitted
 
 Deno.test('runTurn streams thought and text live while validation buffers structured', async () => {
   registerProfile({
+    type: 'text',
     id: 'streamWhileValidate',
     identity: { handle: 'streamValidate' },
     model: {
-      protocol: 'geminiInteractions',
-      provider: 'google',
-      ...modelAllow('gemini35FlashLite'),
+      ...geminiModel('gemini35FlashLite'),
       thinking: 'minimal',
       controls: [],
       maxSteps: 1,
@@ -763,12 +791,11 @@ Deno.test('runTurn streams thought and text live while validation buffers struct
 
 Deno.test('runTurn retries when required field is missing', async () => {
   registerProfile({
+    type: 'text',
     id: 'requiredMissingProfile',
     identity: { handle: 'requiredMissing' },
     model: {
-      protocol: 'geminiInteractions',
-      provider: 'google',
-      ...modelAllow('gemini35FlashLite'),
+      ...geminiModel('gemini35FlashLite'),
       thinking: 'minimal',
       controls: [],
       maxSteps: 1,
@@ -813,12 +840,11 @@ Deno.test('runTurn retries when required field is missing', async () => {
 Deno.test('runTurn validates nested required under present optional object', async () => {
   let mermaidCalls = 0;
   registerProfile({
+    type: 'text',
     id: 'nestedOptionalProfile',
     identity: { handle: 'nestedOptional' },
     model: {
-      protocol: 'geminiInteractions',
-      provider: 'google',
-      ...modelAllow('gemini35FlashLite'),
+      ...geminiModel('gemini35FlashLite'),
       thinking: 'minimal',
       controls: [],
       maxSteps: 1,
@@ -876,12 +902,11 @@ Deno.test('runTurn validates nested required under present optional object', asy
 
 Deno.test('runTurn validation without structured schema throws', async () => {
   registerProfile({
+    type: 'text',
     id: 'validationNoSchemaProfile',
     identity: { handle: 'validationNoSchema' },
     model: {
-      protocol: 'geminiInteractions',
-      provider: 'google',
-      ...modelAllow('gemini35FlashLite'),
+      ...geminiModel('gemini35FlashLite'),
       thinking: 'minimal',
       controls: [],
       maxSteps: 1,
@@ -942,8 +967,10 @@ Deno.test('runTurn passes host dynamic system prompt combined with canary', asyn
 Deno.test('runTurn executes autonomous multi-step tool loop when maxSteps > 1', async () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'multistep_bot',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 1 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
       tools: { allow: ['get_record_status'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 100 } },
@@ -995,8 +1022,10 @@ Deno.test('runTurn executes autonomous multi-step tool loop when maxSteps > 1', 
 Deno.test('runTurn autonomous loop re-calls provider until text emitted or step ceiling reached', async () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'host_assistant',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 3 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 3 },
       tools: { allow: ['fetch_sensor'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 100 } },
@@ -1071,8 +1100,10 @@ Deno.test('runTurn autonomous loop re-calls provider until text emitted or step 
 Deno.test('runTurn sends every Interactions function_result in one continuation', async () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'host_assistant_multi_fn',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 3 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 3 },
       tools: { allow: ['fetch_sensor', 'lookup_order'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 100 } },
@@ -1132,8 +1163,10 @@ Deno.test('runTurn sends every Interactions function_result in one continuation'
 Deno.test('runTurn falls back to function_result history when Interactions id is missing', async () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'host_assistant_history_fallback',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 2 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 2 },
       tools: { allow: ['fetch_sensor'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 100 } },
@@ -1179,8 +1212,11 @@ Deno.test('guardrails.canary=false omits canary generation and system binding', 
   const { defineProfile, registerProfile } = await import('../../src/kernel/registry/profiles.ts');
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
       id: 'internal_eval_bot',
-      model: { ...modelAllow('gemini35FlashLite') },
+      model: { ...geminiModel('gemini35FlashLite') },
       inputs: { text: true },
       guardrails: { quota: { perDay: 100 }, canary: false },
     }),
@@ -1209,8 +1245,11 @@ Deno.test('inputs.text=false rejects text turns with TheorumError', async () => 
   const { defineProfile, registerProfile } = await import('../../src/kernel/registry/profiles.ts');
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
       id: 'voice_only_bot',
-      model: { ...modelAllow('gemini35FlashLite') },
+      model: { ...geminiModel('gemini35FlashLite') },
       inputs: {
         text: false,
         voice: { accept: ['audio/wav'] },
@@ -1236,8 +1275,11 @@ Deno.test('outputs.streaming.streamThoughts=false filters out thought events fro
   const { defineProfile, registerProfile } = await import('../../src/kernel/registry/profiles.ts');
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
       id: 'quiet_bot',
-      model: { ...modelAllow('gemini35FlashLite') },
+      model: { ...geminiModel('gemini35FlashLite') },
       inputs: { text: true },
       outputs: {
         streaming: { streamThoughts: false },
@@ -1295,8 +1337,10 @@ Deno.test('outputs.streaming.streamThoughts=false filters out thought events fro
 Deno.test('registered tool exception is safely caught and converted to error finding', async () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'fault_tolerant_bot',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 2 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 2 },
       tools: { allow: ['crashing_tool'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 100 } },
@@ -1357,8 +1401,10 @@ Deno.test('registered tool exception is safely caught and converted to error fin
 Deno.test('autonomous loop strictly enforces maxSteps ceiling when tool requests repeat endlessly', async () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'loop_capped_bot',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 2 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 2 },
       tools: { allow: ['ping_tool'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 100 } },
@@ -1397,12 +1443,11 @@ Deno.test('autonomous loop strictly enforces maxSteps ceiling when tool requests
 
 Deno.test('registered tool enforces session_consent pause unless granted', async () => {
   registerProfile({
+    type: 'text',
     id: 'consent_tool_bot',
-    identity: { handle: 'consent_bot', chat: true },
+    identity: { handle: 'consent_bot' },
     model: {
-      protocol: 'geminiInteractions',
-      provider: 'google',
-      ...modelAllow('gemini35FlashLite'),
+      ...geminiModel('gemini35FlashLite'),
       thinking: 'minimal',
       maxSteps: 2,
     },
@@ -1459,8 +1504,9 @@ Deno.test('registered tool enforces session_consent pause unless granted', async
 
 Deno.test('loader promotes deferred tools and continues the same turn loop', async () => {
   registerProfile({
+    type: 'text',
     id: 'loader_bot',
-    identity: { handle: 'loader_bot', chat: true },
+    identity: { handle: 'loader_bot' },
     model: {
       protocol: 'openAi',
       provider: 'openrouter',
@@ -1531,8 +1577,9 @@ Deno.test('loader promotes deferred tools and continues the same turn loop', asy
 
 Deno.test('loader does not promote deferred tools before required permission is granted', async () => {
   registerProfile({
+    type: 'text',
     id: 'loader_permission_bot',
-    identity: { handle: 'loader_permission_bot', chat: true },
+    identity: { handle: 'loader_permission_bot' },
     model: {
       protocol: 'openAi',
       provider: 'openrouter',
@@ -1586,12 +1633,11 @@ Deno.test('loader does not promote deferred tools before required permission is 
 
 Deno.test('guardrails.egress refuse_to_user delivers in-character refusal without retry', async () => {
   registerProfile({
+    type: 'text',
     id: 'voice_egress_bot',
-    identity: { handle: 'voice_bot', chat: true },
+    identity: { handle: 'voice_bot' },
     model: {
-      protocol: 'geminiInteractions',
-      provider: 'google',
-      ...modelAllow('gemini35FlashLite'),
+      ...geminiModel('gemini35FlashLite'),
       thinking: 'minimal',
       maxSteps: 1,
     },
@@ -1639,12 +1685,11 @@ Deno.test('guardrails.egress refuse_to_user delivers in-character refusal withou
 
 Deno.test('guardrails.egress reject_to_agent triggers auto-repair retry loop', async () => {
   registerProfile({
+    type: 'text',
     id: 'chat_egress_bot',
-    identity: { handle: 'chat_bot', chat: true },
+    identity: { handle: 'chat_bot' },
     model: {
-      protocol: 'geminiInteractions',
-      provider: 'google',
-      ...modelAllow('gemini35FlashLite'),
+      ...geminiModel('gemini35FlashLite'),
       thinking: 'minimal',
       maxSteps: 1,
     },
@@ -1708,12 +1753,11 @@ Deno.test('guardrails.egress reject_to_agent triggers auto-repair retry loop', a
 
 Deno.test('guardrails.egress reject_to_agent withholds turn when retries exhausted', async () => {
   registerProfile({
+    type: 'text',
     id: 'exhausted_egress_bot',
-    identity: { handle: 'exhausted_bot', chat: true },
+    identity: { handle: 'exhausted_bot' },
     model: {
-      protocol: 'geminiInteractions',
-      provider: 'google',
-      ...modelAllow('gemini35FlashLite'),
+      ...geminiModel('gemini35FlashLite'),
       thinking: 'minimal',
       maxSteps: 1,
     },
@@ -1765,24 +1809,23 @@ Deno.test('guardrails.egress withholds media until prose clears', async () => {
   const { defineProfile, registerProfile } = await import('../../src/kernel/registry/profiles.ts');
   registerProfile(
     defineProfile({
+      type: 'image',
       id: 'media_egress_bot',
-      identity: { handle: 'media_bot', chat: true },
+      identity: { handle: 'media_bot' },
       model: {
-        protocol: 'geminiInteractions',
-        provider: 'google',
-        ...modelAllow('gemini31FlashLiteImage'),
+        ...geminiModel('gemini31FlashLiteImage'),
         thinking: 'minimal',
         maxSteps: 1,
+      },
+      image: {
+        aspectRatio: '1:1',
+        size: '1K',
+        mimeType: 'image/jpeg',
       },
       tools: { allow: [] },
       inputs: { text: true },
       outputs: {
         structured: null,
-        image: {
-          aspectRatio: '1:1',
-          size: '1K',
-          mimeType: 'image/jpeg',
-        },
       },
       guardrails: {
         quota: { perDay: 50 },
@@ -1845,12 +1888,11 @@ Deno.test('guardrails.egress withholds media until prose clears', async () => {
 
 function createCanExecBotProfile(id: string, toolName: string): void {
   registerProfile({
+    type: 'text',
     id,
-    identity: { handle: id, chat: true },
+    identity: { handle: id },
     model: {
-      protocol: 'geminiInteractions',
-      provider: 'google',
-      ...modelAllow('gemini35FlashLite'),
+      ...geminiModel('gemini35FlashLite'),
       thinking: 'minimal',
       maxSteps: 2,
     },

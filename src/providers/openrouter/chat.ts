@@ -10,8 +10,8 @@
 
 import { createOpenRouter, type OpenRouterChatSettings } from '@openrouter/ai-sdk-provider';
 import { jsonSchema, streamText, type TextStreamPart, type ToolSet, tool } from 'ai';
-import { isAbortError, toErrorEvent } from '../../guardrails/error.ts';
-import { tryStructured } from '../../kernel/engine/delta.ts';
+import { isAbortError, TheorumError, toErrorEvent } from '../../guardrails/error.ts';
+import { parseStructuredOutput } from '../../kernel/engine/delta.ts';
 import { turnStopFromOpenAiFinishReason } from '../../kernel/stop.ts';
 import type {
   ModelProvider,
@@ -422,10 +422,12 @@ export function* finalEvents(
     return;
   }
   if (req.structured && acc.text) {
-    const structured = tryStructured(acc.text);
-    if (structured) {
-      yield structured;
+    const parsed = parseStructuredOutput(acc.text);
+    if (!parsed.ok) {
+      yield toErrorEvent(new TheorumError(parsed.error));
+      return;
     }
+    yield { type: 'structured', structured: parsed.structured };
   }
   yield {
     type: 'done',

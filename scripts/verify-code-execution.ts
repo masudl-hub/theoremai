@@ -63,6 +63,7 @@ function flashSpec(builtInTools: string[]) {
 
 registerProfile(
   defineProfile({
+    type: 'text',
     id: PROFILE,
     identity: {
       handle: 'code-exec-live',
@@ -80,6 +81,7 @@ registerProfile(
       key: 'freeA',
       select: { fast: 'flash', smart: 'flash' },
     },
+    tools: { allow: [] },
     inputs: { text: true },
     outputs: {},
     guardrails: { quota: { perDay: 1000 } },
@@ -88,6 +90,7 @@ registerProfile(
 
 registerProfile(
   defineProfile({
+    type: 'text',
     id: PROFILE_STRUCTURED,
     identity: {
       handle: 'code-exec-structured',
@@ -103,8 +106,9 @@ registerProfile(
       maxSteps: 1,
       key: 'freeA',
     },
+    tools: { allow: [] },
     inputs: { text: true },
-    outputs: { structured: { schema: 'liveCodeAnswer' } },
+    outputs: { structured: 'liveCodeAnswer' },
     guardrails: { quota: { perDay: 1000 } },
   }),
 );

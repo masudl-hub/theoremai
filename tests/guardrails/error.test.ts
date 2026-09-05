@@ -35,6 +35,15 @@ Deno.test('publicError covers all exact mappings and rules', () => {
     'Something was wrong with that request.',
   );
   assertEquals(
+    publicError(new TheorumError('structured output was not valid JSON')),
+    'Something was wrong with that request.',
+  );
+  assertEquals(publicError(new TheorumError('malformed Gemini Live message')), PUBLIC_UNAVAILABLE);
+  assertEquals(
+    publicError(new TheorumError('malformed Gemini Live message during setup')),
+    PUBLIC_UNAVAILABLE,
+  );
+  assertEquals(
     publicError(new TheorumError('user input cannot be placed in the system block')),
     PUBLIC_GENERIC,
   );

@@ -9,7 +9,11 @@
 
 import { OMIT_CANARY } from '../guardrails/canary.ts';
 import { isAbortError, publicError } from '../guardrails/error.ts';
-import { redactSensitiveOnly, sanitizeText, sanitizeTurnRequest } from '../guardrails/sanitize.ts';
+import {
+  redactSensitiveOnly,
+  sanitizeText,
+  sanitizeTurnRequestForTrace,
+} from '../guardrails/sanitize.ts';
 import { sha256 } from '../kernel/engine/hash.ts';
 import type { Protocol } from '../kernel/schema.ts';
 import type { ResolvedGeneration, TurnBlob, TurnEvent, TurnRequest } from '../kernel/types.ts';
@@ -62,9 +66,9 @@ interface TraceRecord {
   bucket?: string;
   generation?: {
     thinking: string;
-    summaries: string;
-    temperature: number;
-    maxOutputTokens: number;
+    summaries?: string;
+    temperature?: number;
+    maxOutputTokens?: number;
     builtins: string[];
     visibleTools: string[];
     structured: string | null;
@@ -166,12 +170,11 @@ async function snapshotEvent(event: TurnEvent): Promise<TraceEvent> {
   return row;
 }
 
-function requestForTrace(req: TurnRequest): TurnRequest {
-  try {
-    return sanitizeTurnRequest(req);
-  } catch {
-    return { profile: req.profile, input: {} };
-  }
+function requestForTrace(req: TurnRequest): {
+  request: TurnRequest;
+  sanitizeError?: string;
+} {
+  return sanitizeTurnRequestForTrace(req);
 }
 
 function internalError(err: unknown): string | undefined {
@@ -230,7 +233,8 @@ async function buildRecord(args: {
   const { req, events, started, model, bucket, thrown, upstreamLog, canary, system, generation } =
     args;
   const protocol = args.protocol;
-  const safe = args.sanitizedReq ?? requestForTrace(req);
+  const traced = args.sanitizedReq ? { request: args.sanitizedReq } : requestForTrace(req);
+  const safe = traced.request;
   const input = safe.input ?? {};
   const snapped = await Promise.all(events.map((event) => snapshotEvent(event)));
   const lastErr = [...snapped].reverse().find((row) => row.type === 'error');
@@ -275,6 +279,11 @@ async function buildRecord(args: {
   attachUsage(record, upstreamLog, done, events);
   attachResolved(record, { safe, model, bucket, generation });
   attachFailure(record, thrown, lastErr, canary);
+  if (traced.sanitizeError && !record.errorInternal) {
+    record.errorInternal = sanitizeText(
+      `request sanitize for trace failed: ${traced.sanitizeError}`,
+    );
+  }
   return record;
 }
 

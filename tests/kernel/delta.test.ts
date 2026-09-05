@@ -7,7 +7,7 @@ import {
   extractUsageTokens,
   groundingFromEvent,
   mergeCodeExecutionPayload,
-  tryStructured,
+  parseStructuredOutput,
 } from '../../src/kernel/engine/delta.ts';
 import type { GroundingSource } from '../../src/kernel/types.ts';
 
@@ -243,7 +243,7 @@ Deno.test('delta.ts: extractUsageTokens and extractTokenEvent support all token 
   assertEquals(tokenEvent?.interactionId, 'int_abc');
 });
 
-Deno.test('delta.ts: eventsFromComplete parses outputs array, direct output_image, and tryStructured', () => {
+Deno.test('delta.ts: eventsFromComplete parses outputs array, direct output_image, and parseStructuredOutput', () => {
   const completeWithOutputs = {
     interaction: {
       output_text: 'Done here',
@@ -271,9 +271,15 @@ Deno.test('delta.ts: eventsFromComplete parses outputs array, direct output_imag
   const events3 = eventsFromComplete(directImageEvent, true);
   assertEquals(events3[0]?.type, 'media');
 
-  // tryStructured
-  assertEquals(tryStructured('{"status":"ok"}')?.structured, { status: 'ok' });
-  assertEquals(tryStructured('not json'), undefined);
+  // parseStructuredOutput
+  assertEquals(parseStructuredOutput('{"status":"ok"}'), {
+    ok: true,
+    structured: { status: 'ok' },
+  });
+  assertEquals(parseStructuredOutput('not json'), {
+    ok: false,
+    error: 'structured output was not valid JSON',
+  });
 });
 
 Deno.test('delta.ts: eventsFromInteractionSteps replays code execution and model_output images', () => {

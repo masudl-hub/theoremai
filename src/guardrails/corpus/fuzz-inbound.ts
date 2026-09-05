@@ -16,7 +16,9 @@ const FUZZ_PROFILE_ID = '__fuzz__';
 
 function registerFuzzProfile(): void {
   registerProfile({
+    type: 'text',
     id: FUZZ_PROFILE_ID,
+    identity: { handle: 'fuzz', system: 'Fuzz profile.' },
     model: {
       protocol: 'openAi',
       provider: 'openrouter',
@@ -34,6 +36,8 @@ function registerFuzzProfile(): void {
       },
       thinking: 'none',
     },
+    tools: { allow: [] },
+    inputs: { text: true },
     guardrails: {
       canary: true,
       sanitizeInput: true,

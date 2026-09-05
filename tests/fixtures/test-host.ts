@@ -6,9 +6,9 @@ import type { GoogleImagePins } from '../../src/presets/google.ts';
 import { registerGooglePreset } from '../../src/presets/google.ts';
 import {
   CHAT_MEDIA_LIMITS,
+  geminiModel,
   HOST_MODELS,
   IMAGE_INPUT_MIMES,
-  modelAllow,
   VOICE_INPUT_MIMES,
 } from './models.ts';
 import { registerTestTools } from './test-tools.ts';
@@ -79,12 +79,11 @@ registerStructured('optionalCodeTurn', {
 });
 
 const chat: Profile = {
+  type: 'text',
   id: 'chat',
   identity: { handle: 'chat', system: 'Reply in the structured turn schema.' },
   model: {
-    protocol: 'geminiInteractions',
-    provider: 'google',
-    ...modelAllow('gemini35FlashLite'),
+    ...geminiModel('gemini35FlashLite'),
     controls: ['thinking'],
     maxSteps: 1,
     key: 'freeA',
@@ -97,16 +96,18 @@ const chat: Profile = {
     ...CHAT_MEDIA_LIMITS,
   },
   outputs: { structured: 'chatTurn' },
-  guardrails: { quota: { perDay: CHAT_QUOTA } },
+  guardrails: {
+    canary: true,
+    quota: { perDay: CHAT_QUOTA },
+  },
 };
 
 const pinned: Profile = {
+  type: 'text',
   id: 'pinned',
-  identity: { handle: 'pinned', chat: false, system: 'Keep replies short.' },
+  identity: { handle: 'pinned', system: 'Keep replies short.' },
   model: {
-    protocol: 'geminiInteractions',
-    provider: 'google',
-    ...modelAllow('gemini35FlashLite'),
+    ...geminiModel('gemini35FlashLite'),
     thinking: 'low',
     controls: [],
     maxSteps: 1,
@@ -115,10 +116,14 @@ const pinned: Profile = {
   tools: { allow: [] },
   inputs: { text: true },
   outputs: { structured: 'chatTurn' },
-  guardrails: { quota: { perDay: PIN_QUOTA } },
+  guardrails: {
+    canary: true,
+    quota: { perDay: PIN_QUOTA },
+  },
 };
 
 const selector: Profile = {
+  type: 'text',
   id: 'selector',
   identity: {
     handle: 'primary',
@@ -149,16 +154,18 @@ const selector: Profile = {
     ...CHAT_MEDIA_LIMITS,
   },
   outputs: { structured: 'promptTurn' },
-  guardrails: { quota: { perDay: CHAT_QUOTA } },
+  guardrails: {
+    canary: true,
+    quota: { perDay: CHAT_QUOTA },
+  },
 };
 
 const formatter: Profile = {
+  type: 'text',
   id: 'formatter',
   identity: { handle: 'formatter', system: 'Produce source text in the structured turn schema.' },
   model: {
-    protocol: 'geminiInteractions',
-    provider: 'google',
-    ...modelAllow('gemini35FlashLite'),
+    ...geminiModel('gemini35FlashLite'),
     config: {
       gemini35FlashLite: {
         ...HOST_MODELS.gemini35FlashLite,
@@ -179,58 +186,58 @@ const formatter: Profile = {
   outputs: {
     structured: { by: 'language', map: { html: 'htmlTurn', tsx: 'tsxTurn' }, fallback: 'htmlTurn' },
   },
-  guardrails: { quota: { perDay: FORMATTER_QUOTA } },
+  guardrails: {
+    canary: true,
+    quota: { perDay: FORMATTER_QUOTA },
+  },
 };
 
 const image: Profile = {
+  type: 'image',
   id: 'image',
   identity: { handle: 'image', system: 'Generate exactly one image.' },
   model: {
-    protocol: 'geminiInteractions',
-    provider: 'google',
-    ...modelAllow('gemini31FlashLiteImage'),
+    ...geminiModel('gemini31FlashLiteImage'),
     thinking: 'minimal',
     controls: [],
     maxSteps: 1,
     key: 'freeA',
   },
+  image: {
+    aspectRatio: '1:1',
+    size: '1K',
+    mimeType: 'image/jpeg',
+    maxInputImages: 14,
+  } satisfies GoogleImagePins,
   tools: { allow: [] },
   inputs: {
     text: true,
     attachments: { accept: IMAGE_INPUT_MIMES },
     ...CHAT_MEDIA_LIMITS,
   },
-  outputs: {
-    structured: null,
-    image: {
-      aspectRatio: '1:1',
-      size: '1K',
-      mimeType: 'image/jpeg',
-      maxInputImages: 14,
-    } satisfies GoogleImagePins,
+  outputs: { structured: null },
+  guardrails: {
+    canary: true,
+    quota: { perDay: PIN_QUOTA },
   },
-  guardrails: { quota: { perDay: PIN_QUOTA } },
 };
 
 const speech: Profile = {
+  type: 'speech',
   id: 'speech',
   identity: { handle: 'speech', system: 'Speak the user text clearly.' },
   model: {
-    protocol: 'geminiInteractions',
-    provider: 'google',
-    ...modelAllow('gemini31FlashTts'),
+    ...geminiModel('gemini31FlashTts'),
     thinking: 'minimal',
     controls: [],
     maxSteps: 1,
     key: 'freeA',
   },
-  tools: { allow: [] },
-  inputs: { text: true },
-  outputs: {
-    structured: null,
-    speech: { voice: 'Kore', format: 'pcm' },
+  speech: { voice: 'Kore', format: 'pcm' },
+  guardrails: {
+    canary: true,
+    quota: { perDay: PIN_QUOTA },
   },
-  guardrails: { quota: { perDay: PIN_QUOTA } },
 };
 
 registerProfile(chat);

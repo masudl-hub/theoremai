@@ -88,9 +88,15 @@ export function performLiveSetup(ws: WebSocket, req: ProviderCompleteRequest): P
     const initialMessageHandler = async (evt: MessageEvent) => {
       const rawText = await readMessageData(evt.data);
       const parsed = parseGeminiLiveMessage(rawText);
-      if (!parsed) return;
+      if (!parsed.ok) {
+        if (parsed.reason === 'empty') return;
+        clearTimeout(timeout);
+        setupResolved = true;
+        reject(new TheorumError('malformed Gemini Live message during setup'));
+        return;
+      }
 
-      const errMsg = readGeminiLiveErrorMessage(parsed);
+      const errMsg = readGeminiLiveErrorMessage(parsed.value);
       if (errMsg) {
         clearTimeout(timeout);
         setupResolved = true;
@@ -98,7 +104,7 @@ export function performLiveSetup(ws: WebSocket, req: ProviderCompleteRequest): P
         return;
       }
 
-      if (parsed.setupComplete) {
+      if (parsed.value.setupComplete) {
         clearTimeout(timeout);
         setupResolved = true;
         resolve();
@@ -180,20 +186,28 @@ function attachLiveStreamHandlers(ws: WebSocket, liveQueue: LiveQueue): void {
     try {
       const rawText = await readMessageData(evt.data);
       const parsed = parseGeminiLiveMessage(rawText);
-      if (!parsed || parsed.setupComplete) return;
+      if (!parsed.ok) {
+        if (parsed.reason === 'empty') return;
+        liveQueue.push({
+          type: 'error',
+          error: new TheorumError('malformed Gemini Live message'),
+        });
+        return;
+      }
+      if (parsed.value.setupComplete) return;
 
-      const errMsg = readGeminiLiveErrorMessage(parsed);
+      const errMsg = readGeminiLiveErrorMessage(parsed.value);
       if (errMsg) {
         liveQueue.push({ type: 'error', error: new TheorumError(errMsg) });
         return;
       }
 
-      const events = foldGeminiLiveServerMessage(parsed);
+      const events = foldGeminiLiveServerMessage(parsed.value);
       if (events.length > 0) {
         liveQueue.push({ type: 'event', events });
       }
 
-      const serverContent = parsed.serverContent as { turnComplete?: boolean } | undefined;
+      const serverContent = parsed.value.serverContent as { turnComplete?: boolean } | undefined;
       if (serverContent?.turnComplete) {
         liveQueue.push({ type: 'done' });
       }

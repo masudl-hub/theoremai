@@ -283,21 +283,28 @@ export function buildGeminiLiveToolResponses(
 }
 
 /** Parse raw WebSocket message text / buffer into a JSON record. */
-export function parseGeminiLiveMessage(raw: unknown): Record<string, unknown> | null {
+export type ParsedLiveMessage =
+  | { ok: true; value: Record<string, unknown> }
+  | { ok: false; reason: 'empty' | 'malformed' };
+
+export function parseGeminiLiveMessage(raw: unknown): ParsedLiveMessage {
   if (typeof raw === 'object' && raw !== null && !Array.isArray(raw)) {
     if (raw instanceof ArrayBuffer || raw instanceof Uint8Array) {
       const text = new TextDecoder().decode(raw);
       return parseGeminiLiveMessage(text);
     }
   }
-  if (typeof raw !== 'string' || !raw.trim()) return null;
+  if (typeof raw !== 'string' || !raw.trim()) {
+    return { ok: false, reason: 'empty' };
+  }
   try {
     const parsed: unknown = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return { ok: true, value: parsed as Record<string, unknown> };
+    }
+    return { ok: false, reason: 'malformed' };
   } catch {
-    return null;
+    return { ok: false, reason: 'malformed' };
   }
 }
 

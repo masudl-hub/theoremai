@@ -28,6 +28,7 @@ function normalizeFunction<TIn = unknown, TOut = unknown>(
   validateToolOutputSchema(outputSchema);
   return {
     ...def,
+    type: 'function',
     inputSchema,
     outputSchema,
   };

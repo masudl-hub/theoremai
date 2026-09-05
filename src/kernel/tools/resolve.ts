@@ -14,8 +14,8 @@ import type {
   WireFunctionTool,
 } from './types.ts';
 
-export function pathMatches(catalogPaths: string[], turnPath?: string): boolean {
-  if (catalogPaths.includes('*')) {
+export function pathMatches(catalogPaths?: string[], turnPath?: string): boolean {
+  if (!catalogPaths || catalogPaths.includes('*')) {
     return true;
   }
   if (!turnPath) {
@@ -36,6 +36,9 @@ export function applyBuiltinMutualExclusions(requested: string[]): string[] {
 }
 
 export function resolveAllowedCustomToolIds(profile: Profile, req: TurnRequest): ToolId[] {
+  if (profile.type === 'speech') {
+    return [];
+  }
   return profile.tools.allow.filter((id) => {
     const tool = getTool(id);
     if (!tool || tool.type === 'builtin') {
@@ -55,7 +58,7 @@ export function resolveModelBuiltinIds(
   if (!spec) {
     return [];
   }
-  return spec.builtInTools.filter((id) => {
+  return (spec.builtInTools ?? []).filter((id) => {
     const tool = getTool(id);
     if (tool?.type !== 'builtin') {
       return false;
@@ -184,6 +187,9 @@ export async function expandT1Policy(
   profile: Profile,
   req: TurnRequest,
 ): Promise<void> {
+  if (profile.type === 'speech') {
+    return;
+  }
   const t1Policy = profile.tools.t1Policy;
   if (!t1Policy) {
     return;
@@ -272,7 +278,7 @@ export function promoteLoadedTools(
 }
 
 export function promotionFailure(id: string, profile: Profile): ToolFailure | undefined {
-  if (!profile.tools.allow.includes(id)) {
+  if (profile.type === 'speech' || !profile.tools.allow.includes(id)) {
     return {
       code: 'invalid_output',
       message: `tools.t2Loader attempted to promote tool '${id}' outside profile allow`,

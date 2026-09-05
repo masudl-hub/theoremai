@@ -1,5 +1,5 @@
 /**
- * Google Gemini TTS voice names for `outputs.speech.voice`.
+ * Google Gemini TTS voice names for `speech.voice`.
  *
  * Standalone preset vocabulary — no kernel registry imports so docs UIs can
  * import this file without pulling provider wiring.

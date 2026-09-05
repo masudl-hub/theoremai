@@ -6,8 +6,8 @@ import { OMIT_INJECTION } from '../../src/observability/spans.ts';
 
 const profile: Profile = {
   id: 'live.inbound',
+  type: 'live',
   identity: { handle: 'live' },
-  outputs: {},
   model: {
     protocol: 'geminiLive',
     provider: 'google',
@@ -24,6 +24,7 @@ const profile: Profile = {
       },
     },
   },
+  live: {},
   tools: { allow: [] },
   inputs: { text: true },
   guardrails: { sanitizeInput: true, redactSensitive: true },

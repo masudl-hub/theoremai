@@ -383,10 +383,16 @@ Deno.test('buildRecord without protocol defaults to no wire (backward compat)', 
 
 Deno.test('writeTrace swallows sink failures safely', async () => {
   const { writeTrace } = await import('../../src/observability/trace.ts');
+  const seen: unknown[] = [];
   const failingSink = {
     write: () => Promise.reject(new Error('Disk full')),
+    onError: (err: unknown) => {
+      seen.push(err);
+    },
   };
   await writeTrace(failingSink, Promise.resolve(stubRecord()));
+  assertEquals(seen.length, 1);
+  assertEquals(seen[0] instanceof Error && (seen[0] as Error).message, 'Disk full');
 });
 
 Deno.test('resolveTraceDir rejects missing and identical directory roots', () => {

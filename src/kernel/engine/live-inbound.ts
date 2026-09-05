@@ -12,8 +12,8 @@ import type { Profile } from '../types.ts';
 function prepareLiveInboundText(profile: Profile, text: string): string {
   const guardrails = profile.guardrails;
   const safe = sanitizeText(text, {
-    sanitizeInput: guardrails.sanitizeInput ?? true,
-    redactSensitive: guardrails.redactSensitive ?? true,
+    sanitizeInput: guardrails?.sanitizeInput === true,
+    redactSensitive: guardrails?.redactSensitive === true,
   });
   return wrapUserData(safe);
 }

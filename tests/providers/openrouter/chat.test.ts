@@ -9,8 +9,8 @@ import {
   citationCandidates,
   createAccumulator,
   createOpenRouterProvider,
-  evidenceFromMetadata,
   eventFromPart,
+  evidenceFromMetadata,
   finalEvents,
   finishEvent,
   metadataAnnotations,
@@ -38,7 +38,10 @@ import {
 import { testWireTool } from '../../fixtures/wire-tools.ts';
 
 /** Adversarial stream part for default-branch coverage only. */
-function adversarialPart(type: string, extra: Record<string, unknown> = {}): TextStreamPart<ToolSet> {
+function adversarialPart(
+  type: string,
+  extra: Record<string, unknown> = {},
+): TextStreamPart<ToolSet> {
   return { type, ...extra } as TextStreamPart<ToolSet>;
 }
 
@@ -158,6 +161,8 @@ Deno.test('createOpenRouterProvider streams reasoning, text, tools, tokens, and 
   });
 
   const req = createMockTurnRequest('pinned', 'How often to water?');
+  // Stream plumbing only — pinned profile otherwise requests chatTurn JSON.
+  req.structured = null;
   req.history = [
     { role: 'user', content: 'Previous question' },
     { role: 'assistant', content: 'Previous answer' },
@@ -599,7 +604,7 @@ Deno.test('createOpenRouterProvider emits structured event for valid JSON output
   );
 });
 
-Deno.test('createOpenRouterProvider skips structured event for invalid JSON', async () => {
+Deno.test('createOpenRouterProvider errors when structured output is invalid JSON', async () => {
   const provider = createOpenRouterProvider({
     apiKey: 'test-key',
     fetch: () =>
@@ -613,11 +618,16 @@ Deno.test('createOpenRouterProvider skips structured event for invalid JSON', as
 
   const req = createMockTurnRequest('formatter', 'Design hero card');
   const events = await collect(provider.complete(req));
-  const structuredEv = events.find((e) => e.type === 'structured');
-  assertEquals(structuredEv, undefined);
+  assertEquals(
+    events.some((e) => e.type === 'structured'),
+    false,
+  );
+  const errorEv = events.find((e) => e.type === 'error');
+  assertEquals(errorEv?.error, 'Something was wrong with that request.');
+  assertEquals(errorEv?.errorInternal, 'structured output was not valid JSON');
   assertEquals(
     events.some((e) => e.type === 'done'),
-    true,
+    false,
   );
 });
 
@@ -1306,9 +1316,7 @@ Deno.test('nestedCitations finds openrouter.providerMetadata.citations', () => {
 });
 
 Deno.test('nestedCitations finds provider_metadata.citations', () => {
-  assertEquals(nestedCitations({ provider_metadata: { citations: ['url5'] } }), [
-    'url5',
-  ]);
+  assertEquals(nestedCitations({ provider_metadata: { citations: ['url5'] } }), ['url5']);
 });
 
 Deno.test('nestedCitations finds openrouter.provider_metadata.citations', () => {
@@ -1333,9 +1341,7 @@ Deno.test('metadataAnnotations finds top-level annotations', () => {
 });
 
 Deno.test('metadataAnnotations finds openrouter.annotations', () => {
-  assertEquals(metadataAnnotations({ openrouter: { annotations: [{ b: 2 }] } }), [
-    { b: 2 },
-  ]);
+  assertEquals(metadataAnnotations({ openrouter: { annotations: [{ b: 2 }] } }), [{ b: 2 }]);
 });
 
 Deno.test('metadataAnnotations returns undefined when none', () => {
@@ -1421,10 +1427,7 @@ Deno.test('rawChoiceMessageEvidence returns undefined without choices', () => {
 
 Deno.test('rawChoiceMessageEvidence skips non-object messages', () => {
   const acc = createAccumulator();
-  assertEquals(
-    rawChoiceMessageEvidence({ choices: [{ message: 'not object' }] }, acc),
-    undefined,
-  );
+  assertEquals(rawChoiceMessageEvidence({ choices: [{ message: 'not object' }] }, acc), undefined);
 });
 
 Deno.test('rawEvents collects thought and evidence', () => {
@@ -1616,6 +1619,17 @@ Deno.test('finalEvents emits structured and done', () => {
   }
 });
 
+Deno.test('finalEvents errors when structured text is not valid JSON', () => {
+  const acc = createAccumulator();
+  acc.text = 'not valid json';
+  const req = createMockTurnRequest('formatter', 'test');
+  const events = [...finalEvents(req, acc)];
+  assertEquals(events.length, 1);
+  assertEquals(events[0]?.type, 'error');
+  assertEquals(events[0]?.error, 'Something was wrong with that request.');
+  assertEquals(events[0]?.errorInternal, 'structured output was not valid JSON');
+});
+
 Deno.test('finalEvents skips when errored', () => {
   const acc = createAccumulator();
   acc.errored = true;
@@ -1656,10 +1670,7 @@ Deno.test('missingOpenRouterKey returns error event', () => {
 
 Deno.test('providerMetadataEvent returns undefined without providerMetadata', () => {
   const acc = createAccumulator();
-  assertEquals(
-    providerMetadataEvent(adversarialPart('text-delta', { text: 'x' }), acc),
-    undefined,
-  );
+  assertEquals(providerMetadataEvent(adversarialPart('text-delta', { text: 'x' }), acc), undefined);
 });
 
 Deno.test('providerMetadataEvent extracts evidence', () => {

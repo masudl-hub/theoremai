@@ -4,39 +4,54 @@ import type { Profile, ProfileModelSpec, Protocol, Provider } from '../../src/ke
 export function stubProfile(opts: {
   protocol: Protocol;
   provider: Provider;
-  role?: 'chat' | 'speech' | 'image';
+  role?: 'text' | 'speech' | 'image';
   id?: string;
 }): Profile {
-  const role = opts.role ?? 'chat';
-  const outputs =
-    role === 'speech'
-      ? { structured: null, speech: { voice: 'Kore', format: 'pcm' as const } }
-      : role === 'image'
-        ? {
-            structured: null,
-            image: { aspectRatio: '1:1', size: '1K', mimeType: 'image/png' },
-          }
-        : { structured: null };
-
+  const role = opts.role ?? 'text';
+  const id = opts.id ?? 'test-profile';
   const model: ProfileModelSpec = {
     protocol: opts.protocol,
     provider: opts.provider,
     allow: [],
     config: {},
   };
+  const guardrails = {
+    canary: true,
+    sanitizeInput: true,
+    redactSensitive: true,
+    quota: { perDay: 1 },
+  } as const;
 
+  if (role === 'speech') {
+    return {
+      type: 'speech',
+      id,
+      identity: { handle: id },
+      model,
+      speech: { voice: 'Kore', format: 'pcm' },
+      guardrails,
+    };
+  }
+  if (role === 'image') {
+    return {
+      type: 'image',
+      id,
+      identity: { handle: id },
+      model,
+      image: { aspectRatio: '1:1', size: '1K', mimeType: 'image/png' },
+      tools: { allow: [] },
+      inputs: { text: true },
+      guardrails,
+    };
+  }
   return {
-    id: opts.id ?? 'test-profile',
-    identity: { handle: opts.id ?? 'test' },
+    type: 'text',
+    id,
+    identity: { handle: id },
     model,
     tools: { allow: [] },
     inputs: { text: true },
-    outputs,
-    guardrails: {
-      canary: true,
-      sanitizeInput: true,
-      redactSensitive: true,
-      quota: { perDay: 1 },
-    },
+    outputs: { structured: null },
+    guardrails,
   };
 }

@@ -39,18 +39,24 @@ export const DEFAULT_AUTO_CONTINUE: readonly TurnStopKind[] = ['length', 'stream
 /** Pause before the one-shot auto-continue so a flaky tunnel can settle. */
 export const AUTO_CONTINUE_DELAY_MS = 1_500;
 
-/** Profile resume policy under `outputs.resume`. */
-export interface ProfileResumeSpec {
+/** Profile turn-continuation policy under top-level `turnResumption`. */
+export interface ProfileTurnResumptionSpec {
   /**
    * Kinds eligible for a Continue / continueFrom turn.
-   * Defaults to length, stream_incomplete, provider_error.
+   * When omitted, length / stream_incomplete / provider_error are eligible.
    */
   allowContinue?: TurnStopKind[];
   /**
-   * Kinds the host may auto-continue once without a CTA.
-   * Kernel does not loop; hosts call continueFrom at most once.
+   * Kinds the host may auto-continue without a CTA.
+   * Kernel does not loop; hosts call continueFrom and pass `continuation`.
    */
   autoContinue?: TurnStopKind[];
+  /**
+   * Max continueFrom rounds the kernel will accept for this profile.
+   * Compared against `TurnRequest.continuation` (1-based continue attempt).
+   * When omitted, only kind allowlists apply (no count cap).
+   */
+  maxContinues?: number;
 }
 
 /** Partial state passed when continuing a resumeable stop. */

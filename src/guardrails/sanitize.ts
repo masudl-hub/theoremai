@@ -101,19 +101,26 @@ function sanitizeHistory(
   }));
 }
 
-/** Sanitize all user-controlled text and blobs in a turn request. */
-function sanitizeTurnRequest(req: TurnRequest): NormalizedTurnRequest {
-  let profileGuardrails: { sanitizeInput?: boolean; redactSensitive?: boolean } | undefined;
+type GuardrailTextOptions = { sanitizeInput?: boolean; redactSensitive?: boolean };
+
+function guardrailTextOptions(profileId: string): GuardrailTextOptions {
+  let profileGuardrails: GuardrailTextOptions | undefined;
   try {
-    profileGuardrails = getProfile(req.profile)?.guardrails;
+    profileGuardrails = getProfile(profileId)?.guardrails;
   } catch {
-    // If profile not registered yet, default to full guardrails
+    // If profile not registered yet, default to full guardrails.
   }
-  const options = {
+  return {
     sanitizeInput: profileGuardrails?.sanitizeInput ?? true,
     redactSensitive: profileGuardrails?.redactSensitive ?? true,
   };
+}
 
+/** Sanitize user-controlled text fields; leave attachments/voice untouched. */
+function sanitizeTurnRequestText(
+  req: TurnRequest,
+  options: GuardrailTextOptions,
+): NormalizedTurnRequest {
   const input = req.input ?? {};
   const { text: rawText } = input;
   let text = rawText;
@@ -124,11 +131,6 @@ function sanitizeTurnRequest(req: TurnRequest): NormalizedTurnRequest {
   if (system !== undefined) {
     system = sanitizeText(system, options);
   }
-  const { attachments, voice } = sanitizeTurnBlobsForProfile(
-    req.profile,
-    input.attachments,
-    input.voice,
-  );
   return {
     ...req,
     system,
@@ -137,12 +139,49 @@ function sanitizeTurnRequest(req: TurnRequest): NormalizedTurnRequest {
       ...input,
       text,
       slots: sanitizeSlots(input.slots, options),
-      attachments,
-      voice,
       repair: sanitizeRepair(input.repair, options),
       history: sanitizeHistory(input.history, options),
     },
   };
+}
+
+/** Sanitize all user-controlled text and blobs in a turn request. */
+function sanitizeTurnRequest(req: TurnRequest): NormalizedTurnRequest {
+  const options = guardrailTextOptions(req.profile);
+  const textSafe = sanitizeTurnRequestText(req, options);
+  const input = textSafe.input ?? {};
+  const { attachments, voice } = sanitizeTurnBlobsForProfile(
+    req.profile,
+    input.attachments,
+    input.voice,
+  );
+  return {
+    ...textSafe,
+    input: {
+      ...input,
+      attachments,
+      voice,
+    },
+  };
+}
+
+/**
+ * Trace-safe request sanitize. Prefers full `sanitizeTurnRequest`; if blob/policy
+ * checks throw, still redacts text and keeps attachments for hashing — never invents empty input.
+ */
+function sanitizeTurnRequestForTrace(req: TurnRequest): {
+  request: NormalizedTurnRequest;
+  sanitizeError?: string;
+} {
+  try {
+    return { request: sanitizeTurnRequest(req) };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      request: sanitizeTurnRequestText(req, guardrailTextOptions(req.profile)),
+      sanitizeError: message,
+    };
+  }
 }
 
 export {
@@ -151,4 +190,5 @@ export {
   sanitizeProjectId,
   sanitizeText,
   sanitizeTurnRequest,
+  sanitizeTurnRequestForTrace,
 };

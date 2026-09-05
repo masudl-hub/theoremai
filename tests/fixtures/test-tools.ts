@@ -319,7 +319,10 @@ function invokeRegisteredTool(args: InvokeToolRequest): Promise<TurnEvent[]> {
   return collectToolEvents(invokeTool(args));
 }
 
-function withProfileTools(profile: Profile, extraAllow: string[]): Profile {
+function withProfileTools(
+  profile: Exclude<Profile, import('../../src/kernel/types.ts').SpeechProfile>,
+  extraAllow: string[],
+): typeof profile {
   return {
     ...profile,
     tools: { allow: [...profile.tools.allow, ...extraAllow] },

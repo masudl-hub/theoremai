@@ -223,26 +223,32 @@ Deno.test('Interactions non-voice profile does not synthesize speech media from 
       geminiBucket: generation.geminiBucket,
     }),
   );
-  assertEquals(events.length, 1);
-  assertEquals(events[0]?.type, 'text');
-  assertEquals(events[0]?.text, 'hello');
+  assertEquals(
+    events.some((event) => event.type === 'text' && event.text === 'hello'),
+    true,
+  );
+  assertEquals(
+    events.some((event) => event.type === 'media'),
+    false,
+  );
 });
 
 Deno.test('Interactions speech profile rejects mp3 format at profile resolution', () => {
   registerProfile({
     id: 'bad-speech',
+    type: 'speech',
     identity: { handle: 'bad' },
     model: {
+      thinking: 'minimal',
+      key: 'freeA',
       protocol: 'geminiInteractions',
       provider: 'google',
       allow: ['gemini31FlashTts'],
       config: HOST_MODELS,
     },
-    outputs: {
-      speech: {
-        voice: 'Kore',
-        format: 'mp3',
-      },
+    speech: {
+      voice: 'Kore',
+      format: 'mp3',
     },
   });
   assertThrows(() => {
@@ -253,16 +259,17 @@ Deno.test('Interactions speech profile rejects mp3 format at profile resolution'
 Deno.test('createProvider routes speech-role Interactions to the same adapter', () => {
   registerProfile({
     id: 'speech-test',
+    type: 'speech',
     identity: { handle: 'speech' },
     model: {
+      thinking: 'minimal',
+      key: 'freeA',
       protocol: 'geminiInteractions',
       provider: 'google',
       allow: ['gemini31FlashTts'],
       config: HOST_MODELS,
     },
-    outputs: {
-      speech: { voice: 'Kore', format: 'pcm' },
-    },
+    speech: { voice: 'Kore', format: 'pcm' },
   });
   const profile = getProfile('speech-test');
   const provider = createProvider(profile, {

@@ -28,7 +28,7 @@ function printTestHeader(req: TurnRequest, testName: string): void {
     req.select && profile.model.select?.[req.select]
       ? profile.model.select[req.select]
       : profile.model.allow[0];
-  const customs = profile.tools.allow.join(', ') || 'none';
+  const customs = profile.type === 'speech' ? 'none' : profile.tools.allow.join(', ') || 'none';
   const builtins = (profile.model.config[modelId]?.builtInTools ?? []).join(', ') || 'none';
 
   console.log(`\n▶ [THEORUM TEST] ${testName}`);

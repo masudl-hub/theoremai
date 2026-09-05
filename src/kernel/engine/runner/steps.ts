@@ -18,7 +18,7 @@ import { recordStepEvent, type StepExecutionState } from './state.ts';
 import { yieldProviderEvents } from './stream.ts';
 
 function isStepLimitReached(step: number, maxSteps: number): boolean {
-  if (maxSteps <= 0) {
+  if (maxSteps === undefined || maxSteps <= 0) {
     return false;
   }
   return step >= maxSteps;
@@ -310,10 +310,10 @@ async function* executeAttempt(args: {
   let latestStructured: unknown;
   let pendingTools: TurnEvent[] = [];
   let stepInAttempt = 0;
-  const holdUserVisible = Boolean(profile.guardrails.egress?.enforce);
-  const holdLate = Boolean(profile.outputs.validation) || holdUserVisible;
+  const holdUserVisible = Boolean(profile.guardrails?.egress?.enforce);
+  const holdLate = Boolean(profile.outputs?.validation) || holdUserVisible;
 
-  while (!isStepLimitReached(stepInAttempt, generation.maxSteps)) {
+  while (!isStepLimitReached(stepInAttempt, generation.maxSteps ?? 0)) {
     throwIfAborted(args.safe.signal);
     stepInAttempt++;
     state.stepCount++;

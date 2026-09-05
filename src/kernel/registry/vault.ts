@@ -4,9 +4,10 @@
  * @module
  */
 
+import { TheorumError } from '../../guardrails/error.ts';
 import { getTool } from '../tools/registry.ts';
 import type { BuiltinToolDef } from '../tools/types.ts';
-import type { BuiltinToolId, GeminiBucket, GeminiFreeBucket, ModelSpec } from '../types.ts';
+import type { BuiltinToolId, GeminiBucket, ModelSpec } from '../types.ts';
 
 function builtinForcesPaid(id: BuiltinToolId): boolean {
   const tool = getTool(id);
@@ -18,7 +19,7 @@ function builtinForcesPaid(id: BuiltinToolId): boolean {
 
 /** Pick the vault slot for a turn from profile key, model pin, and enabled builtins. */
 function resolveGeminiBucket(
-  profileKey: GeminiFreeBucket,
+  profileKey: GeminiBucket | undefined,
   spec: ModelSpec,
   builtins: BuiltinToolId[],
 ): GeminiBucket {
@@ -27,6 +28,9 @@ function resolveGeminiBucket(
   }
   if (builtins.some((id) => builtinForcesPaid(id))) {
     return 'paid';
+  }
+  if (!profileKey) {
+    throw new TheorumError('Google profile must set model.key or model.config.*.key');
   }
   return profileKey;
 }

@@ -60,7 +60,9 @@ export function attachImagePins(
   if (image.size) {
     payload.resolution = image.size;
   }
-  payload.output_format = outputFormatFromMime(image.mimeType);
+  if (image.mimeType) {
+    payload.output_format = outputFormatFromMime(image.mimeType);
+  }
 }
 
 /** Build a POST `/images` body for native image-generation models. */
@@ -85,9 +87,10 @@ export function buildImagesPayload(req: ProviderCompleteRequest): Record<string,
 
 /** Tool parameters for gateways that generate images inside chat completions. */
 export function imageToolParameters(image: ImageResponseFormat): Record<string, unknown> {
-  const params: Record<string, unknown> = {
-    output_format: outputFormatFromMime(image.mimeType),
-  };
+  const params: Record<string, unknown> = {};
+  if (image.mimeType) {
+    params.output_format = outputFormatFromMime(image.mimeType);
+  }
   if (image.aspectRatio) {
     params.aspect_ratio = image.aspectRatio;
   }

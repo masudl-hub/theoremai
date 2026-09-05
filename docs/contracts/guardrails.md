@@ -105,6 +105,7 @@ Driven by profile `guardrails.sanitizeInput` and `guardrails.redactSensitive`
 | --- | --- |
 | `sanitizeText` | Strip injection + sensitive spans from one string |
 | `sanitizeTurnRequest` | Full turn: text, slots, tool arguments, blobs |
+| `sanitizeTurnRequestForTrace` | Trace path: full sanitize, or text-only fallback that keeps blobs for hashing (never invents empty input) |
 | `sanitizeProjectId` | Bound project id strings (`PROJECT_ID_MAX`) |
 
 `injectionSpans` and `sensitiveSpans` return `RedactSpan[]`; `applySpans`
@@ -157,7 +158,10 @@ try {
 | `ok` | Slot taken; increment daily count |
 | `busy` | Same ip/profile already in flight |
 | `quota` | `perDay` exhausted |
-| `not_configured` | Profile has no `guardrails.quota` |
+| `not_configured` | Profile has no `guardrails.quota` (including when `guardrails` itself is omitted) |
+
+`takeSlot` reads `profile.guardrails?.quota` — missing guardrails object is treated
+like missing quota config.
 
 `quotaMessage(profile)` uses `identity.handle` for user-facing limit copy.
 `resetSlots()` clears in-memory state (tests).
@@ -170,7 +174,7 @@ From `src/guardrails/mod.ts`:
 | --- | --- |
 | Public errors | `describeError`, `isAbortError`, `publicError`, `TheorumError`, `throwIfAborted`, `toErrorEvent`, `PUBLIC_ACTION`, `PUBLIC_CANARY`, `PUBLIC_CANCELLED`, `PUBLIC_FILE_COUNT`, `PUBLIC_FILE_SIZE`, `PUBLIC_FILE_TYPE`, `PUBLIC_GENERIC`, `PUBLIC_IMAGE_SIZE`, `PUBLIC_UNAVAILABLE`, `UPSTREAM_FAILED` |
 | Injection / sensitive | `injectionSpans`, `sensitiveSpans` |
-| Sanitize | `PROJECT_ID_MAX`, `sanitizeProjectId`, `sanitizeText`, `sanitizeTurnRequest`, `redactSensitiveOnly` |
+| Sanitize | `PROJECT_ID_MAX`, `sanitizeProjectId`, `sanitizeText`, `sanitizeTurnRequest`, `sanitizeTurnRequestForTrace`, `redactSensitiveOnly` |
 | Canary | `mintCanary`, `bindCanary`, `wrapUserData`, `scanTextForCanaryLeak`, `createCanaryStreamGate`, `eventHasCanary`, `isStreamedCanaryEvent`, `redactCanary`, `OMIT_CANARY`, `USER_OPEN`, `USER_CLOSE`, `createCanaryGateSession`, `filterCanaryGatedEvents`, `CanaryGateResult`, `CanaryGateSession`, `CanaryStreamGate` |
 | Egress / Live | `standardEgressEnforce`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveOutboundBatchResult`, `LiveOutboundGateSession` |
 | Quota | `QuotaSlotStatus`, `clientIp`, `quotaMessage`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |

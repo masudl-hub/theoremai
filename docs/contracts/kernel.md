@@ -28,11 +28,14 @@ A `Profile` binds:
 
 | Block | Role |
 | --- | --- |
-| `identity` | `handle`, optional `chat`, `system` / `systemByRole` |
+| `type` | Wire archetype discriminator: `'text'`, `'image'`, `'speech'`, `'live'` |
+| `identity` | `handle`, optional `system` / `systemByRole` |
 | `model` | `protocol`, `provider`, `allow`, `config`, optional `select` / `thinking` / `controls` / `maxSteps` / `key` |
-| `tools` | Allowlist ceiling (`allow: ToolId[]`) |
-| `inputs` | Text / attachments / voice / slots / per-mime limits |
-| `outputs` | Structured, image, speech, streaming, validation, `resume` |
+| `tools` | Allowlist ceiling (`allow: ToolId[]`) — present on `text`, `image`, `live` |
+| `inputs` | Text / attachments / voice / slots / per-mime limits — present on `text`, `image`; optional on `live`; absent on `speech` |
+| `image` / `speech` / `live` | Modality-specific pins (top-level, not nested under `outputs`) |
+| `outputs` | Structured, streaming, validation |
+| `turnResumption` | `allowContinue`, `autoContinue`, `maxContinues` — present on `text`, `image`, `speech` |
 | `guardrails` | Quota, canary, sanitize, redact, egress |
 
 Closed unions (`protocol`, `provider`, `thinking`, stop kinds, MIME maps, …)
@@ -55,14 +58,9 @@ Every id in `allow` must exist in `config`. Each `ModelSpec` carries wire ids
 `thinkingLevels`, `maxOutputTokens`, `temperature`, `builtInTools`, optional
 vault `key`, optional `compaction`.
 
-Defaults applied at registration (`profiles.ts`):
-
-| Field | Default when omitted |
-| --- | --- |
-| `model.maxSteps` | `1` |
-| `guardrails.canary` | `true` |
-| `guardrails.sanitizeInput` | profile-dependent |
-| `guardrails.redactSensitive` | profile-dependent |
+THEORUM does not invent defaults. Omitted optional fields stay omitted;
+provider or API defaults apply. Hosts must set required fields explicitly
+(`type`, `model.protocol`, `model.provider`, `model.allow`, `model.config`).
 
 `projectProfile` / `resolveTurn` project a registered profile + `TurnRequest`
 into a `ProjectedProfile` / `ResolvedGeneration` the runner and providers consume.
@@ -74,8 +72,8 @@ for one agent turn. Pipeline (see `engine/runner/mod.ts`):
 
 1. **Resolve** — `resolveTurn` picks model, wire `apiId`, `transport`
    (`'interactions'` for Google Interactions, `'openAiCompat'` for OpenRouter/local),
-   thinking, tools, structured schema, streaming flags (`TurnRequest.stream` for
-   Interactions SSE vs JSON), canary token.
+   thinking, tools, structured schema, streaming mode (`outputs.streaming.mode`
+   → SSE vs buffered), canary token.
 2. **Sanitize** — `sanitizeTurnRequest` strips injection/sensitive spans per
    profile guardrails (unless disabled).
 3. **Compaction (before)** — when `timing: 'before'` and threshold fires, kernel
@@ -147,14 +145,14 @@ flush. Pass a trace sink (`memorySink`, `jsonlSink`) as the third argument to
 Google Interactions code execution (`codeExecution` builtin) is a server-side
 tool: THEORUM does not run Python. Hosts receive the sandbox timeline as
 `evidence` events (streamed SSE deltas, or a batched replay of `steps[]` when
-`TurnRequest.stream === false`). Generated plots/annotated images arrive as
+`outputs.streaming.mode === 'buffered'`). Generated plots/annotated images arrive as
 `media`. `maxSteps` does not bound Google's internal code loop; it only bounds
 host function-calling round trips. The sandbox runtime cap (~30s per execution)
 is Google's, not a THEORUM setting.
 
-`stream` on `TurnRequest` / `ProviderCompleteRequest` defaults to SSE (`true`).
-`false` POSTs without `alt=sse` and folds the JSON `interaction` into the same
-event types.
+Streaming is controlled solely by `outputs.streaming.mode` on the profile
+(`'sse'` or `'buffered'`). When omitted, the provider transport default applies.
+There is no per-turn stream override.
 
 ## Registered tools
 
@@ -222,11 +220,24 @@ Profile `outputs` pins behavior the kernel enforces before adapters run:
 | Pin | Effect |
 | --- | --- |
 | `structured` | Schema id or slot-mapped ids; `responseFormat` vs prompt enforcement |
-| `image` | Optional aspect/size, mime, max input images (aspect/size omit → provider defaults) |
-| `speech` | TTS voice + `format` (`pcm` → WAV; `mp3` OpenAI-only) |
-| `streaming` | `mode`, `streamThoughts`, `gateMedia` |
+| `streaming` | `mode`, `streamThoughts` |
 | `validation` | Field validators + `maxRetries` + `repairGuidance` |
-| `resume` | `allowContinue` / `autoContinue` stop kinds |
+
+Top-level modality pins (after `model`, not under `outputs`):
+
+| Block | Effect |
+| --- | --- |
+| `image` | Optional aspect/size, mime, max input images (type `'image'` only) |
+| `speech` | TTS voice + `format` (`pcm` → WAV; `mp3` OpenAI-only) (type `'speech'` only) |
+| `live` | Voice, VAD, transcription, sessionResumption, contextCompression (type `'live'` only) |
+
+Profile `turnResumption` (top-level on chat/image/speech):
+
+| Field | Effect |
+| --- | --- |
+| `allowContinue` | Stop kinds eligible for a continueFrom turn |
+| `autoContinue` | Stop kinds the host may auto-continue without a CTA |
+| `maxContinues` | Max continueFrom rounds the kernel accepts (enforced) |
 
 Profile `guardrails`:
 
@@ -290,13 +301,14 @@ A compaction profile is a normal registered profile. Minimal summarizer:
 
 ```ts
 registerProfile(defineProfile({
+  type: "text",
   id: "my.compactor",
   identity: {
     handle: "Compactor",
     system: "Summarize this conversation concisely. Preserve unresolved issues, "
       + "decisions, and key facts.",
   },
-  model: { /* allow + config */, maxSteps: 1 },
+  model: { /* allow + config */, maxSteps: 1, thinking: "none" },
   tools: { allow: [] },
   inputs: { text: true },
   outputs: { structured: "my.summary.schema" },
@@ -412,7 +424,7 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
 | Profiles | `ProfileDefinition`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `resolveTurn` |
 | Tools | `registerTool`, `registerTools`, `invokeTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `listBuiltinIds`, `listFunctionIds`, `resetTools`, `formatToolResult`, `prepareTurnToolSnapshot` |
 | Structured | `getStructured`, `registerStructured` |
-| Stop / resume | `ProfileResumeSpec`, `TurnContinueFrom`, `TurnStop`, `TurnStopKind`, `AUTO_CONTINUE_DELAY_MS`, `CONTINUE_INSTRUCTION`, `DEFAULT_AUTO_CONTINUE`, `GenerationStopError`, `isGenerationStopError`, `isResumeableStop`, `isUserCancelledStop`, `shouldAutoContinue`, `turnStopFromClientStreamEnd`, `turnStopFromInteractionStatus`, `turnStopFromOpenAiFinishReason` |
+| Stop / resume | `ProfileTurnResumptionSpec`, `TurnContinueFrom`, `TurnStop`, `TurnStopKind`, `AUTO_CONTINUE_DELAY_MS`, `CONTINUE_INSTRUCTION`, `DEFAULT_AUTO_CONTINUE`, `GenerationStopError`, `isGenerationStopError`, `isResumeableStop`, `isUserCancelledStop`, `shouldAutoContinue`, `turnStopFromClientStreamEnd`, `turnStopFromInteractionStatus`, `turnStopFromOpenAiFinishReason` |
 
 ```theorum-evidence
 {

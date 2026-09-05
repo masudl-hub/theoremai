@@ -40,11 +40,7 @@ Deno.test('schema-validation: required missing fails; optional omitted skips', a
 });
 
 Deno.test('schema-validation: required field missing is reported', async () => {
-  const failures = await collectValidationFailures(
-    ROOT,
-    {},
-    undefined,
-  );
+  const failures = await collectValidationFailures(ROOT, {}, undefined);
   assertEquals(failures.length, 1);
   assertEquals(failures[0]?.path, 'message');
   assertEquals(failures[0]?.error.includes("required field 'message' is missing"), true);
@@ -70,11 +66,7 @@ Deno.test('schema-validation: optional present runs nested required and field va
 });
 
 Deno.test('schema-validation: nested required missing under present optional', async () => {
-  const failures = await collectValidationFailures(
-    ROOT,
-    { message: 'hi', diagram: {} },
-    undefined,
-  );
+  const failures = await collectValidationFailures(ROOT, { message: 'hi', diagram: {} }, undefined);
   assertEquals(failures.length, 1);
   assertEquals(failures[0]?.path, 'diagram.mermaid');
 });

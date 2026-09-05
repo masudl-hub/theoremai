@@ -424,8 +424,7 @@ function sourceFromMaps(maps: Record<string, unknown>): GroundingSource | undefi
     return undefined;
   }
   const rawTitle = maps.title ?? maps.name;
-  const title =
-    typeof rawTitle === 'string' && rawTitle ? cleanMapsTitle(rawTitle) : uri;
+  const title = typeof rawTitle === 'string' && rawTitle ? cleanMapsTitle(rawTitle) : uri;
   const placeId = placeIdFromRecord(maps);
   return {
     type: 'maps',
@@ -987,11 +986,16 @@ function doneFromInteractionStatus(
   };
 }
 
-function tryStructured(text: string): TurnEvent | undefined {
+export type ParsedStructuredOutput =
+  | { ok: true; structured: unknown }
+  | { ok: false; error: string };
+
+/** Parse model text as structured JSON. Invalid JSON is a hard failure — never silent skip. */
+function parseStructuredOutput(text: string): ParsedStructuredOutput {
   try {
-    return { type: 'structured', structured: JSON.parse(text) };
+    return { ok: true, structured: JSON.parse(text) };
   } catch {
-    return undefined;
+    return { ok: false, error: 'structured output was not valid JSON' };
   }
 }
 
@@ -1008,5 +1012,5 @@ export {
   isCodeExecutionType,
   isGoogleBuiltinStepType,
   mergeCodeExecutionPayload,
-  tryStructured,
+  parseStructuredOutput,
 };

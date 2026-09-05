@@ -1,8 +1,8 @@
 import { assertEquals } from '../../../src/kernel/engine/assert.ts';
 import {
-  tapFetch,
   tapeHeaders,
   tapeHeaderValue,
+  tapFetch,
   throwRow,
 } from '../../../src/providers/shared/upstream-tap.ts';
 

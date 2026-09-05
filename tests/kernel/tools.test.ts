@@ -14,7 +14,7 @@ import {
 } from '../../src/kernel/tools/resolve.ts';
 import { validateToolInputSchema } from '../../src/kernel/tools/schema.ts';
 import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
-import { HOST_MODELS, modelAllow } from '../fixtures/models.ts';
+import { geminiModel, HOST_MODELS } from '../fixtures/models.ts';
 import { invokeRegisteredTool } from '../fixtures/test-tools.ts';
 
 async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
@@ -27,11 +27,11 @@ async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
 
 Deno.test('runTurn ends with stop kind tool when execution pauses', async () => {
   registerProfile({
+    type: 'text',
+    identity: { handle: 'test', system: 'test' },
     id: 'pause_stop_probe',
     model: {
-      protocol: 'geminiInteractions',
-      provider: 'google',
-      ...modelAllow('gemini35FlashLite'),
+      ...geminiModel('gemini35FlashLite'),
       maxSteps: 2,
     },
     tools: { allow: ['delete_resource'] },
@@ -68,11 +68,11 @@ Deno.test('runTurn ends with stop kind tool when execution pauses', async () => 
 
 Deno.test('always_confirm ignores session permissions until resume.granted', async () => {
   registerProfile({
+    type: 'text',
+    identity: { handle: 'test', system: 'test' },
     id: 'always_confirm_probe',
     model: {
-      protocol: 'geminiInteractions',
-      provider: 'google',
-      ...modelAllow('gemini35FlashLite'),
+      ...geminiModel('gemini35FlashLite'),
       maxSteps: 1,
     },
     tools: { allow: ['always_confirm_tool'] },
@@ -120,8 +120,10 @@ Deno.test('always_confirm ignores session permissions until resume.granted', asy
 Deno.test('path-mismatched allowed tool returns not_gated not not_loaded', async () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'path_mismatch_probe',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 1 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
       tools: { allow: ['web_only_tool'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -151,8 +153,10 @@ Deno.test('path-mismatched allowed tool returns not_gated not not_loaded', async
 Deno.test('provider tool call for unregistered name yields unknown_tool', async () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'unknown_provider_tool_probe',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 1 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
       tools: { allow: ['stub_tool'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -177,8 +181,10 @@ Deno.test('provider tool call for unregistered name yields unknown_tool', async 
 Deno.test('preflight confirmation emits pause not error', async () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'preflight_confirm_bot',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 1 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
       tools: { allow: ['preflight_confirm_tool'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -221,8 +227,10 @@ Deno.test('handler streaming is live through invoke and runTurn', async () => {
   });
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'live_stream_bot',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 1 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
       tools: { allow: ['live_stream_probe', 'streaming_probe'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -282,8 +290,10 @@ Deno.test('handler streaming is live through invoke and runTurn', async () => {
 Deno.test('invokeTool for allowed T0 tool succeeds and ends completed', async () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'invoke_allow_probe',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 1 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
       tools: { allow: ['stub_tool'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -302,8 +312,10 @@ Deno.test('invokeTool for allowed T0 tool succeeds and ends completed', async ()
 Deno.test('catalog path filter excludes tools from snapshot', () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'path_filter_probe',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 1 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
       tools: { allow: ['web_only_tool'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -321,8 +333,10 @@ Deno.test('catalog path filter excludes tools from snapshot', () => {
 Deno.test('exposeToModel false omits secret from provider tool result', async () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'hidden_model_probe',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 2 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 2 },
       tools: { allow: ['hidden_from_model_tool'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -394,8 +408,10 @@ Deno.test('permission check runs before preflight', async () => {
   });
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'permission_order_probe',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 1 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
       tools: { allow: ['permission_before_preflight_probe'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -416,8 +432,10 @@ Deno.test('permission check runs before preflight', async () => {
 Deno.test('t2Loader function promotes T2 ids from { loaded }', async () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 't2_promote_probe',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 1 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
       tools: { allow: ['load_tools', 'record_lookup'], t2Loader: 'load_tools' },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -437,8 +455,10 @@ Deno.test('t2Loader function promotes T2 ids from { loaded }', async () => {
 Deno.test('loader promote rejects non-T2 tool ids', () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'promote_tier_probe',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 1 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
       tools: { allow: ['load_tools', 'stub_tool'], t2Loader: 'load_tools' },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -475,8 +495,10 @@ Deno.test('profile.tools.t1Policy wires T1 function tools via prepareTurnToolSna
   });
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 't1_loader_probe',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 1 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
       tools: {
         allow: ['contextual_lookup'],
         t1Policy: () => ['contextual_lookup'],
@@ -510,8 +532,10 @@ Deno.test('T1 not_loaded message cites t1Policy', async () => {
   });
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 't1_not_loaded_bot',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 1 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
       tools: { allow: ['t1_not_loaded_probe'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -531,8 +555,10 @@ Deno.test('T1 not_loaded message cites t1Policy', async () => {
 Deno.test('invokeTool resume cannot bypass T2 not_loaded without promoted', async () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 't2_resume_probe',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 1 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
       tools: { allow: ['record_lookup'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -552,8 +578,10 @@ Deno.test('invokeTool resume cannot bypass T2 not_loaded without promoted', asyn
 Deno.test('invokeTool resume runs T2 when promoted ids are supplied', async () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 't2_resume_promoted_probe',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 1 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
       tools: { allow: ['record_lookup'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -585,8 +613,10 @@ Deno.test('invokeTool wires T1 tools when profile.tools.t1Policy is set', async 
   });
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'invoke_t1_bot',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 1 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
       tools: {
         allow: ['invoke_t1_probe'],
         t1Policy: () => ['invoke_t1_probe'],
@@ -606,8 +636,10 @@ Deno.test('invokeTool wires T1 tools when profile.tools.t1Policy is set', async 
 Deno.test('empty resume object does not bypass T2 load checks', async () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'empty_resume_probe',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 1 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
       tools: { allow: ['record_lookup'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -640,8 +672,10 @@ Deno.test('loader output lists only ids actually promoted', async () => {
   });
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'loader_output_probe',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 1 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
       tools: { allow: ['load_tools', 'record_lookup', 'ungated_t2_probe'], t2Loader: 'load_tools' },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -661,8 +695,10 @@ Deno.test('loader output lists only ids actually promoted', async () => {
 Deno.test('path omitted excludes tools without wildcard paths', () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'path_default_probe',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 1 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
       tools: { allow: ['web_only_tool', 'stub_tool'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -690,8 +726,14 @@ Deno.test('T1 builtins stay off wire until profile.tools.t1Policy selects them',
   });
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 't1_builtin_probe',
       model: {
+        thinking: 'minimal',
+        key: 'freeA',
+        protocol: 'geminiInteractions',
+        provider: 'google',
         allow: ['gemini35FlashLite'],
         config: {
           gemini35FlashLite: {
@@ -736,8 +778,10 @@ Deno.test('runTurn expands profile.tools.t1Policy before provider sees T1 tools'
   });
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'runturn_t1_bot',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 1 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
       tools: {
         allow: ['runturn_t1_probe'],
         t1Policy: () => ['runturn_t1_probe'],
@@ -768,8 +812,10 @@ Deno.test('runTurn expands profile.tools.t1Policy before provider sees T1 tools'
 Deno.test('failure codes surface on invokeTool path', async () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'failure_codes_probe',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 1 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
       tools: { allow: ['stub_tool', 'denied_tool'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -836,8 +882,10 @@ Deno.test('permission granted alone does not resume interactive tools', async ()
   });
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'interactive_resume_bot',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 1 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
       tools: { allow: ['interactive_resume_probe'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -887,8 +935,10 @@ Deno.test('permission granted alone does not resume interactive tools', async ()
 Deno.test('T2 tools are not visible until loader promotes them', () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 't2_probe',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 1 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
       tools: { allow: ['load_tools', 'record_lookup'], t2Loader: 'load_tools' },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -938,8 +988,10 @@ Deno.test('invalid handler output and throws surface failure codes', async () =>
   });
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
       id: 'output_error_bot',
-      model: { ...modelAllow('gemini35FlashLite'), maxSteps: 1 },
+      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
       tools: { allow: ['bad_output_probe', 'throwing_handler_probe'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },

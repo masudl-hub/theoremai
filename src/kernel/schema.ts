@@ -291,12 +291,12 @@ export function catalogPathFor(keys: readonly string[]): string {
  */
 export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   id: field('string', 'Host-owned profile identifier.'),
+  type: field("'text' | 'image' | 'speech' | 'live'", 'Required profile archetype.'),
   identity: field(
-    '{ handle, chat?, system?, systemByRole? }',
-    'Display handle, chat flag, and system instruction the model receives each turn.',
+    '{ handle, system?, systemByRole? }',
+    'Display handle and system instruction the model receives each turn.',
   ),
   'identity.handle': field('string', 'Public handle for this agent.'),
-  'identity.chat': field('boolean', 'When true, this profile is a conversational agent.'),
   'identity.system': field('string', 'System instruction merged into every turn.'),
   'identity.systemByRole': field(
     'Record<string, string>',
@@ -484,7 +484,10 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
     },
   ),
   'model.controls': field('ControlId[]', 'Turn-time toggles this profile exposes.', CONTROL_IDS),
-  'model.maxSteps': field('number', 'Tool-loop ceiling. Defaults to 1.'),
+  'model.maxSteps': field(
+    'number',
+    'Tool-loop ceiling. <=0 unbounded, 1 one-shot, >1 ceiling. Omit → unbounded.',
+  ),
   'model.key': field(
     unionType(GEMINI_FREE_BUCKETS),
     'Gemini vault slot for Google Interactions. Paid is overflow-only.',
@@ -507,7 +510,10 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
     'Optional function tool id for T2 promotion. Must be in tools.allow; handler returns { loaded: string[] }.',
   ),
   inputs: field('ProfileInputsSpec', 'Text, attachment, voice, slot, and size rules.'),
-  'inputs.text': field('boolean', 'Whether the profile accepts text on a turn. Defaults to true.'),
+  'inputs.text': field(
+    'boolean',
+    'Whether the profile accepts text on a turn. False rejects text.',
+  ),
   'inputs.attachments': field('{ accept: string[] }', 'File upload allowlist.'),
   'inputs.attachments.accept': field(
     'string[]',
@@ -544,38 +550,26 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
     'Optional turn-time selectors (e.g. language: ["html", "tsx"]).',
   ),
   'inputs.slots.*': field('string[]', 'Allowed choices for this turn selector.'),
-  outputs: field(
-    'ProfileOutputsSpec',
-    'Structured, image, speech, validation, streaming, and resume pins.',
-  ),
+  outputs: field('ProfileOutputsSpec', 'Structured, validation, and streaming output policy.'),
   'outputs.structured': field(
     'StructuredSchemaId | StructuredBySlot | null',
     'Registered schema id, slot-mapped ids, or null for free text.',
   ),
-  'outputs.image': field(
-    'ProfileImageSpec',
-    'Pins for an image-role profile. Model id is on model.',
-  ),
-  'outputs.image.aspectRatio': field(
-    'string',
-    'Optional output aspect ratio. Omitted → provider default.',
-  ),
-  'outputs.image.size': field(
-    'string',
-    'Optional output size / resolution. Omitted → provider default.',
-  ),
-  'outputs.image.mimeType': field('string', 'Output MIME for generated images.'),
-  'outputs.image.maxInputImages': field('number', 'Cap on reference images in one turn.'),
-  'outputs.image.includeText': field(
+  image: field('ProfileImageSpec', 'Pins for an image-role profile. Model id is on model.'),
+  'image.aspectRatio': field('string', 'Optional output aspect ratio. Omitted → provider default.'),
+  'image.size': field('string', 'Optional output size / resolution. Omitted → provider default.'),
+  'image.mimeType': field('string', 'Output MIME for generated images.'),
+  'image.maxInputImages': field('number', 'Cap on reference images in one turn.'),
+  'image.includeText': field(
     'boolean',
     'When true, request interleaved assistant text alongside generated images.',
   ),
-  'outputs.speech': field('ProfileSpeechSpec', 'TTS pins. Model id is on model.'),
-  'outputs.speech.voice': field(
+  speech: field('ProfileSpeechSpec', 'TTS pins. Model id is on model.'),
+  'speech.voice': field(
     'string',
-    'TTS voice id (outputs.speech). Kernel accepts any string; Google preset narrows to named voices.',
+    'TTS voice id. Kernel accepts any string; Google preset narrows to named voices.',
   ),
-  'outputs.speech.format': field(
+  'speech.format': field(
     unionType(SPEECH_AUDIO_FORMATS),
     'pcm (default) → WAV on both transports. mp3 requires protocol openAi.',
     SPEECH_AUDIO_FORMATS,
@@ -584,59 +578,56 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
       mp3: 'MP3 encoded stream. Requires openAi protocol.',
     },
   ),
-  'outputs.live': field(
-    'ProfileLiveSpec',
-    'Bidirectional live audio/video streaming session pins.',
-  ),
-  'outputs.live.voice': field(
+  live: field('ProfileLiveSpec', 'Bidirectional live audio/video streaming session pins.'),
+  'live.voice': field(
     'string',
     'TTS voice name for live audio output (e.g. Puck, Aoede, Charon).',
     GOOGLE_SPEECH_VOICES,
     'Google preset vocabulary; kernel accepts any string.',
   ),
-  'outputs.live.vad': field(
+  'live.vad': field(
     'LiveVadSpec',
     'Voice activity detection, barge-in, and endpointing sensitivity.',
   ),
-  'outputs.live.vad.activityHandling': field(
+  'live.vad.activityHandling': field(
     unionType(LIVE_ACTIVITY_HANDLINGS),
     'Barge-in handling when user speaks.',
     LIVE_ACTIVITY_HANDLINGS,
   ),
-  'outputs.live.vad.startSensitivity': field(
+  'live.vad.startSensitivity': field(
     unionType(LIVE_SPEECH_SENSITIVITIES),
     'Sensitivity for detecting start of speech.',
     LIVE_SPEECH_SENSITIVITIES,
   ),
-  'outputs.live.vad.endSensitivity': field(
+  'live.vad.endSensitivity': field(
     unionType(LIVE_SPEECH_SENSITIVITIES),
     'Sensitivity for detecting end of speech.',
     LIVE_SPEECH_SENSITIVITIES,
   ),
-  'outputs.live.vad.prefixPaddingMs': field('number', 'Speech prefix buffer duration in ms.'),
-  'outputs.live.vad.silenceDurationMs': field(
+  'live.vad.prefixPaddingMs': field('number', 'Speech prefix buffer duration in ms.'),
+  'live.vad.silenceDurationMs': field(
     'number',
     'Required silence before committing end-of-speech in ms.',
   ),
-  'outputs.live.sessionResumption': field(
+  'live.sessionResumption': field(
     'boolean',
     'Enable session resumption handles across WebSocket reconnects.',
   ),
-  'outputs.live.contextCompression': field(
+  'live.contextCompression': field(
     unionType(LIVE_CONTEXT_COMPRESSIONS),
     'Context window compression mechanism.',
     LIVE_CONTEXT_COMPRESSIONS,
   ),
-  'outputs.live.proactiveAudio': field(
+  'live.proactiveAudio': field(
     'boolean',
     'Allow model to reject responding or stay silent if unprompted.',
   ),
-  'outputs.live.transcription': field(
+  'live.transcription': field(
     'LiveTranscriptionSpec',
     'Enable real-time input/output audio transcriptions.',
   ),
-  'outputs.live.transcription.input': field('boolean', 'Transcribe user input speech.'),
-  'outputs.live.transcription.output': field('boolean', 'Transcribe model output speech.'),
+  'live.transcription.input': field('boolean', 'Transcribe user input speech.'),
+  'live.transcription.output': field('boolean', 'Transcribe model output speech.'),
   'outputs.validation': field('ProfileValidationSpec', 'Host domain validators and repair policy.'),
   'outputs.validation.fields': field(
     'Record<string, ProfileValidator>',
@@ -662,9 +653,8 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
     },
   ),
   'outputs.streaming.streamThoughts': field('boolean', 'Emit model thinking on the turn stream.'),
-  'outputs.streaming.gateMedia': field('boolean', 'Hold media until egress / validation clear.'),
-  'outputs.resume': field('ProfileResumeSpec', 'Continue after a non-user stop.'),
-  'outputs.resume.allowContinue': field(
+  turnResumption: field('ProfileTurnResumptionSpec', 'Continue after a non-user stop.'),
+  'turnResumption.allowContinue': field(
     'TurnStopKind[]',
     'Kinds eligible for a Continue / continueFrom turn.',
     TURN_STOP_KINDS,
@@ -678,7 +668,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
       completed: 'Turn finished normally.',
     },
   ),
-  'outputs.resume.autoContinue': field(
+  'turnResumption.autoContinue': field(
     'TurnStopKind[]',
     'Kinds the host may auto-continue once without a CTA.',
     TURN_STOP_KINDS,
@@ -701,9 +691,9 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
     'Host HTTP helper — not enforced inside runTurn.',
   ),
   'guardrails.quota.perDay': field('number', 'Daily turn cap used by host quota middleware.'),
-  'guardrails.canary': field('boolean', 'Per-turn canary token. Defaults to true.'),
-  'guardrails.sanitizeInput': field('boolean', 'Strip inbound injection spans. Defaults to true.'),
-  'guardrails.redactSensitive': field('boolean', 'Redact sensitive spans. Defaults to true.'),
+  'guardrails.canary': field('boolean', 'Enable per-turn canary token bound to system prompt.'),
+  'guardrails.sanitizeInput': field('boolean', 'Strip inbound injection spans.'),
+  'guardrails.redactSensitive': field('boolean', 'Redact sensitive spans.'),
   'guardrails.egress': field(
     'ProfileEgressSpec',
     'Host check before user-visible text is released.',

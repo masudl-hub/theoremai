@@ -1,28 +1,78 @@
 /**
  * Runtime profile registry for host-owned THEORUM profiles.
  *
- * THEORUM ships profile types and defaults, not application profiles. Host apps
- * register their profiles at process startup or test setup.
+ * THEORUM ships profile types — not application profiles and not invented defaults.
+ * Hosts must pass required fields explicitly (`type`, `model.protocol`, `model.provider`, …).
  *
  * @module
  */
 
 import { TheorumError } from '../../guardrails/error.ts';
 import { getTool } from '../tools/registry.ts';
-import type { CompactionSpec, ModelId, Profile } from '../types.ts';
+import type {
+  CompactionSpec,
+  ImageProfile,
+  LiveProfile,
+  ModelId,
+  Profile,
+  ProfileGuardrailsSpec,
+  ProfileIdentity,
+  ProfileInputsSpec,
+  ProfileModelSpec,
+  ProfileOutputsSpec,
+  ProfileToolsSpec,
+  ProfileTurnResumptionSpec,
+  SpeechProfile,
+  TextProfile,
+} from '../types.ts';
 
 const profiles = new Map<string, Profile>();
 
-/** Host-authored profile definition, with defaults applied to omitted sections. */
-export type ProfileDefinition = {
+type ModelAuthored = ProfileModelSpec;
+
+/** Shared authoring fields before type discrimination. */
+export type ProfileDefinitionBase = {
   id: Profile['id'];
-  identity?: Partial<Profile['identity']>;
-  model: Partial<Profile['model']> & Pick<Profile['model'], 'allow' | 'config'>;
-  tools?: Partial<Profile['tools']>;
-  inputs?: Partial<Profile['inputs']>;
-  outputs?: Partial<Profile['outputs']>;
-  guardrails?: Partial<Profile['guardrails']>;
+  identity: ProfileIdentity;
+  model: ModelAuthored;
+  outputs?: ProfileOutputsSpec;
+  guardrails?: ProfileGuardrailsSpec;
 };
+
+export type TextProfileDefinition = ProfileDefinitionBase & {
+  type: 'text';
+  tools: ProfileToolsSpec;
+  inputs: ProfileInputsSpec;
+  turnResumption?: ProfileTurnResumptionSpec;
+};
+
+export type ImageProfileDefinition = ProfileDefinitionBase & {
+  type: 'image';
+  image: NonNullable<ImageProfile['image']>;
+  tools: ProfileToolsSpec;
+  inputs: ProfileInputsSpec;
+  turnResumption?: ProfileTurnResumptionSpec;
+};
+
+export type SpeechProfileDefinition = ProfileDefinitionBase & {
+  type: 'speech';
+  speech: NonNullable<SpeechProfile['speech']>;
+  turnResumption?: ProfileTurnResumptionSpec;
+};
+
+export type LiveProfileDefinition = ProfileDefinitionBase & {
+  type: 'live';
+  live: NonNullable<LiveProfile['live']>;
+  tools: ProfileToolsSpec;
+  inputs?: ProfileInputsSpec;
+};
+
+/** Host-authored profile definition — discriminated on `type`. No THEORUM defaults. */
+export type ProfileDefinition =
+  | TextProfileDefinition
+  | ImageProfileDefinition
+  | SpeechProfileDefinition
+  | LiveProfileDefinition;
 
 function assertModelSpecs(
   profileId: string,
@@ -36,84 +86,113 @@ function assertModelSpecs(
   }
 }
 
-function buildDefaultIdentity(
-  id: Profile['id'],
-  identity?: Partial<Profile['identity']>,
-): Profile['identity'] {
-  return {
-    handle: identity?.handle ?? id,
-    chat: identity?.chat,
-    system: identity?.system,
-    systemByRole: identity?.systemByRole,
-  };
+function assertProtocolProvider(profileId: string, model: ModelAuthored): void {
+  if (!model.protocol) {
+    throw new TheorumError(`Profile ${profileId} must set model.protocol`);
+  }
+  if (!model.provider) {
+    throw new TheorumError(`Profile ${profileId} must set model.provider`);
+  }
 }
 
-function buildDefaultModel(profileId: string, model: ProfileDefinition['model']): Profile['model'] {
-  assertModelSpecs(profileId, model.allow, model.config);
-  return {
-    protocol: model.protocol ?? 'geminiInteractions',
-    provider: model.provider ?? 'google',
-    allow: model.allow,
-    config: model.config,
-    thinking: model.thinking ?? 'minimal',
-    controls: model.controls ?? [],
-    maxSteps: model.maxSteps ?? 1,
-    key: model.key ?? 'freeA',
-    select: model.select,
-  };
+function assertTypeProtocol(profile: Profile): void {
+  if (profile.type === 'live' && profile.model.protocol !== 'geminiLive') {
+    throw new TheorumError(
+      `Profile ${profile.id}: type 'live' requires model.protocol 'geminiLive'`,
+    );
+  }
+  if (profile.type !== 'live' && profile.model.protocol === 'geminiLive') {
+    throw new TheorumError(
+      `Profile ${profile.id}: model.protocol 'geminiLive' requires type 'live'`,
+    );
+  }
 }
 
-function buildDefaultInputs(inputs?: Partial<Profile['inputs']>): Profile['inputs'] {
-  return {
-    text: inputs?.text ?? true,
-    attachments: inputs?.attachments,
-    voice: inputs?.voice,
-    maxFiles: inputs?.maxFiles,
-    maxBytes: inputs?.maxBytes,
-    maxTurnBytes: inputs?.maxTurnBytes,
-    limitsByMime: inputs?.limitsByMime,
-    slots: inputs?.slots,
-  };
-}
-
-function buildDefaultOutputs(outputs?: Partial<Profile['outputs']>): Profile['outputs'] {
-  return {
-    structured: outputs?.structured ?? null,
-    image: outputs?.image,
-    speech: outputs?.speech,
-    live: outputs?.live,
-    validation: outputs?.validation,
-    streaming: outputs?.streaming,
-  };
-}
-
-function buildDefaultGuardrails(
-  guardrails?: Partial<Profile['guardrails']>,
-): Profile['guardrails'] {
-  return {
-    quota: guardrails?.quota,
-    canary: guardrails?.canary ?? true,
-    sanitizeInput: guardrails?.sanitizeInput ?? true,
-    redactSensitive: guardrails?.redactSensitive ?? true,
-    egress: guardrails?.egress,
-  };
-}
-
-/** Define a typed profile with stable defaults for optional properties. */
+/** Define a typed profile. Omitted optional fields stay omitted — no invented defaults. */
 function defineProfile(input: ProfileDefinition): Profile {
-  return {
-    id: input.id,
-    identity: buildDefaultIdentity(input.id, input.identity),
-    model: buildDefaultModel(input.id, input.model),
-    tools: {
-      allow: input.tools?.allow ?? [],
-      t1Policy: input.tools?.t1Policy,
-      t2Loader: input.tools?.t2Loader,
-    },
-    inputs: buildDefaultInputs(input.inputs),
-    outputs: buildDefaultOutputs(input.outputs),
-    guardrails: buildDefaultGuardrails(input.guardrails),
+  assertProtocolProvider(input.id, input.model);
+  assertModelSpecs(input.id, input.model.allow, input.model.config);
+
+  const identity: ProfileIdentity = {
+    handle: input.identity.handle,
+    system: input.identity.system,
+    systemByRole: input.identity.systemByRole,
   };
+  const model: ProfileModelSpec = {
+    protocol: input.model.protocol,
+    provider: input.model.provider,
+    allow: input.model.allow,
+    config: input.model.config,
+    thinking: input.model.thinking,
+    controls: input.model.controls,
+    maxSteps: input.model.maxSteps,
+    key: input.model.key,
+    select: input.model.select,
+  };
+  const outputs = input.outputs;
+  const guardrails = input.guardrails;
+
+  let profile: Profile;
+  switch (input.type) {
+    case 'text':
+      profile = {
+        type: 'text',
+        id: input.id,
+        identity,
+        model,
+        tools: input.tools,
+        inputs: input.inputs,
+        outputs,
+        turnResumption: input.turnResumption,
+        guardrails,
+      } satisfies TextProfile;
+      break;
+    case 'image':
+      profile = {
+        type: 'image',
+        id: input.id,
+        identity,
+        model,
+        image: input.image,
+        tools: input.tools,
+        inputs: input.inputs,
+        outputs,
+        turnResumption: input.turnResumption,
+        guardrails,
+      } satisfies ImageProfile;
+      break;
+    case 'speech':
+      profile = {
+        type: 'speech',
+        id: input.id,
+        identity,
+        model,
+        speech: input.speech,
+        outputs,
+        turnResumption: input.turnResumption,
+        guardrails,
+      } satisfies SpeechProfile;
+      break;
+    case 'live':
+      profile = {
+        type: 'live',
+        id: input.id,
+        identity,
+        model,
+        live: input.live,
+        tools: input.tools,
+        inputs: input.inputs,
+        outputs,
+        guardrails,
+      } satisfies LiveProfile;
+      break;
+    default: {
+      const _exhaustive: never = input;
+      throw new TheorumError(`Unknown profile type '${String(_exhaustive)}'`);
+    }
+  }
+  assertTypeProtocol(profile);
+  return profile;
 }
 
 function assertCompactionSpec(profileId: string, modelId: ModelId, spec: CompactionSpec): void {
@@ -155,8 +234,15 @@ function assertCompactionRetain(tag: string, spec: CompactionSpec): void {
   }
 }
 
+function profileToolsAllow(profile: Profile): string[] {
+  if (profile.type === 'speech') {
+    return [];
+  }
+  return profile.tools.allow;
+}
+
 function assertCustomToolsOnly(profile: Profile): void {
-  for (const id of profile.tools.allow) {
+  for (const id of profileToolsAllow(profile)) {
     const tool = getTool(id);
     if (tool?.type === 'builtin') {
       throw new TheorumError(
@@ -167,6 +253,9 @@ function assertCustomToolsOnly(profile: Profile): void {
 }
 
 function assertProfileToolLoader(profile: Profile): void {
+  if (profile.type === 'speech') {
+    return;
+  }
   const loaderId = profile.tools.t2Loader;
   if (!loaderId) {
     return;
@@ -186,7 +275,7 @@ function assertProfileToolLoader(profile: Profile): void {
 
 function assertModelBuiltInTools(profile: Profile): void {
   for (const [modelId, spec] of Object.entries(profile.model.config)) {
-    for (const id of spec.builtInTools) {
+    for (const id of spec.builtInTools ?? []) {
       const tool = getTool(id);
       if (tool?.type !== 'builtin') {
         throw new TheorumError(
@@ -197,19 +286,44 @@ function assertModelBuiltInTools(profile: Profile): void {
   }
 }
 
-/** Register one host-owned profile in the process-local registry. */
-function registerProfile(profileInput: Profile | ProfileDefinition): void {
-  const profile = defineProfile(profileInput);
-  assertModelSpecs(profile.id, profile.model.allow, profile.model.config);
-  assertCustomToolsOnly(profile);
-  assertProfileToolLoader(profile);
-  assertModelBuiltInTools(profile);
-  const { attachments, voice, maxFiles, maxBytes, maxTurnBytes } = profile.inputs;
+function assertCompactionOnlyOnText(profile: Profile): void {
+  if (profile.type === 'text') {
+    return;
+  }
+  for (const [modelId, spec] of Object.entries(profile.model.config)) {
+    if (spec.compaction) {
+      throw new TheorumError(
+        `Profile ${profile.id} model '${modelId}': compaction is only valid on type 'text'`,
+      );
+    }
+  }
+}
+
+function assertMediaLimits(profile: Profile): void {
+  if (profile.type === 'speech') {
+    return;
+  }
+  const inputs = profile.inputs;
+  if (!inputs) {
+    return;
+  }
+  const { attachments, voice, maxFiles, maxBytes, maxTurnBytes } = inputs;
   if (attachments || voice) {
     if (!(maxFiles && maxBytes && maxTurnBytes)) {
       throw new TheorumError(`Profile ${profile.id} must set maxFiles, maxBytes, and maxTurnBytes`);
     }
   }
+}
+
+/** Register one host-owned profile in the process-local registry. */
+function registerProfile(profileInput: Profile | ProfileDefinition): void {
+  const profile = defineProfile(profileInput as ProfileDefinition);
+  assertModelSpecs(profile.id, profile.model.allow, profile.model.config);
+  assertCustomToolsOnly(profile);
+  assertProfileToolLoader(profile);
+  assertModelBuiltInTools(profile);
+  assertCompactionOnlyOnText(profile);
+  assertMediaLimits(profile);
   for (const [modelId, spec] of Object.entries(profile.model.config)) {
     if (spec.compaction) {
       assertCompactionSpec(profile.id, modelId, spec.compaction);

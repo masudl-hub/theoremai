@@ -143,6 +143,7 @@ function registerLiveProfile(providerKind: 'openrouter' | 'gemini'): void {
   if (providerKind === 'openrouter') {
     registerProfile(
       defineProfile({
+        type: 'text',
         id: LIVE_PROFILE_ID,
         identity: {
           handle: 'redteam',
@@ -178,6 +179,7 @@ function registerLiveProfile(providerKind: 'openrouter' | 'gemini'): void {
 
   registerProfile(
     defineProfile({
+      type: 'text',
       id: LIVE_PROFILE_ID,
       identity: {
         handle: 'redteam',

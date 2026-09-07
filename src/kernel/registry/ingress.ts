@@ -9,10 +9,12 @@
 import { wrapUserData } from '../../guardrails/canary.ts';
 import { TheorumError } from '../../guardrails/error.ts';
 import { synthesizeRepairPrompt } from '../engine/repair.ts';
+import { isSpeechFormatAllowedForProtocol } from '../schema.ts';
 import type {
   ImageResponseFormat,
   InteractionPart,
   MediaInputKind,
+  ModelBinding,
   ModelId,
   Profile,
   ProfileImageSpec,
@@ -74,13 +76,21 @@ function assertImagePins(profile: Profile): ProfileImageSpec {
   return profile.image;
 }
 
+function defaultBinding(profile: Profile): ModelBinding | undefined {
+  const ids = Object.keys(profile.models);
+  const id = profile.defaultModel ?? (ids.length === 1 ? ids[0] : undefined);
+  return id ? profile.models[id] : undefined;
+}
+
 function assertSpeechRole(profile: Profile): void {
   if (profile.type !== 'speech') {
     return;
   }
-  if (profile.speech.format === 'mp3' && profile.model.protocol === 'geminiInteractions') {
+  const format = profile.speech.format;
+  const binding = defaultBinding(profile);
+  if (format && binding && !isSpeechFormatAllowedForProtocol(binding.protocol, format)) {
     throw new TheorumError(
-      `Profile ${profile.id}: speech.format 'mp3' requires protocol 'openAi' ` +
+      `Profile ${profile.id}: speech.format '${format}' requires protocol 'openAi' ` +
         `(geminiInteractions speech returns PCM and emits WAV)`,
     );
   }

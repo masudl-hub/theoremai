@@ -187,6 +187,66 @@ export async function* resolveToolAuth(
   return { headers: {} };
 }
 
+export type HttpToolMapping = NonNullable<HttpToolDef['mapping']>;
+
+export type HttpToolTarget = {
+  url: string;
+  body?: string;
+};
+
+/**
+ * Build the request URL (and optional JSON body) for a declarative HTTP tool
+ * from endpoint template, mapping, and validated input.
+ */
+export function buildHttpToolTarget(
+  endpoint: string,
+  method: HttpToolDef['method'],
+  input: Record<string, unknown>,
+  mapping?: HttpToolMapping,
+): HttpToolTarget {
+  let urlStr = endpoint;
+  const pathParams = mapping?.pathParams ?? [];
+  for (const param of pathParams) {
+    const val = input[param];
+    if (val !== undefined) {
+      urlStr = urlStr.replaceAll(`{${param}}`, encodeURIComponent(String(val)));
+    }
+  }
+
+  const unreplacedMatch = urlStr.match(/\{([a-zA-Z0-9_-]+)\}/);
+  if (unreplacedMatch) {
+    throw new Error(
+      `Missing required path parameter "${unreplacedMatch[1]}" for endpoint "${endpoint}"`,
+    );
+  }
+
+  const targetUrl = new URL(urlStr);
+  const queryParams = mapping?.queryParams ?? [];
+  for (const param of queryParams) {
+    const val = input[param];
+    if (val !== undefined) {
+      targetUrl.searchParams.set(param, String(val));
+    }
+  }
+
+  if (method === 'GET') {
+    return { url: targetUrl.toString() };
+  }
+
+  if (mapping?.bodyParam) {
+    return { url: targetUrl.toString(), body: JSON.stringify(input[mapping.bodyParam]) };
+  }
+
+  const bodyObj: Record<string, unknown> = {};
+  const excluded = new Set([...pathParams, ...queryParams]);
+  for (const [k, v] of Object.entries(input)) {
+    if (!excluded.has(k)) {
+      bodyObj[k] = v;
+    }
+  }
+  return { url: targetUrl.toString(), body: JSON.stringify(bodyObj) };
+}
+
 /**
  * Executes a Declarative HTTP tool.
  */
@@ -220,20 +280,13 @@ export async function* executeHttpTool(
   }
 
   // 3. Build endpoint URL with path and query parameters
-  let urlStr = tool.endpoint;
-  const pathParams = tool.mapping?.pathParams ?? [];
-  for (const param of pathParams) {
-    const val = input[param];
-    if (val !== undefined) {
-      urlStr = urlStr.replaceAll(`{${param}}`, encodeURIComponent(String(val)));
-    }
-  }
-
-  const unreplacedMatch = urlStr.match(/\{([a-zA-Z0-9_-]+)\}/);
-  if (unreplacedMatch) {
+  let target: HttpToolTarget;
+  try {
+    target = buildHttpToolTarget(tool.endpoint, tool.method, input, tool.mapping);
+  } catch (err) {
     yield failureEvent(base, {
       code: 'invalid_input',
-      message: `Missing required path parameter "${unreplacedMatch[1]}" for endpoint "${tool.endpoint}"`,
+      message: err instanceof Error ? err.message : String(err),
     });
     return undefined;
   }
@@ -241,7 +294,7 @@ export async function* executeHttpTool(
   // 4. Validate URL against SSRF network guardrails
   let targetUrl: URL;
   try {
-    targetUrl = assertSafeUrl(urlStr, ctx.profile.guardrails?.network);
+    targetUrl = assertSafeUrl(target.url, ctx.profile.guardrails?.network);
   } catch (err) {
     yield failureEvent(base, {
       code: 'network_blocked',
@@ -250,17 +303,8 @@ export async function* executeHttpTool(
     return undefined;
   }
 
-  // Query parameters
-  const queryParams = tool.mapping?.queryParams ?? [];
-  for (const param of queryParams) {
-    const val = input[param];
-    if (val !== undefined) {
-      targetUrl.searchParams.set(param, String(val));
-    }
-  }
-
   // 5. Build request body
-  let body: string | undefined;
+  const body: string | undefined = target.body;
   const headers: Record<string, string> = {
     Accept: 'application/json',
     ...tool.headers,
@@ -269,19 +313,6 @@ export async function* executeHttpTool(
 
   if (tool.method !== 'GET') {
     headers['Content-Type'] = 'application/json';
-    if (tool.mapping?.bodyParam) {
-      body = JSON.stringify(input[tool.mapping.bodyParam]);
-    } else {
-      // Exclude path and query params from default body payload
-      const bodyObj: Record<string, unknown> = {};
-      const excluded = new Set([...pathParams, ...queryParams]);
-      for (const [k, v] of Object.entries(input)) {
-        if (!excluded.has(k)) {
-          bodyObj[k] = v;
-        }
-      }
-      body = JSON.stringify(bodyObj);
-    }
   }
 
   // 6. Execute HTTP call
@@ -352,6 +383,60 @@ export async function* executeHttpTool(
   }
 }
 
+const MCP_PROTOCOL_VERSIONS = ['2026-07-28', '2025-11-25', '2025-06-18', '2025-03-26'] as const;
+
+type McpRpcResponse = {
+  jsonrpc?: string;
+  id?: unknown;
+  result?: {
+    content?: Array<{ type: string; text?: string; [key: string]: unknown }>;
+    isError?: boolean;
+    [key: string]: unknown;
+  };
+  error?: { code: number; message: string; data?: unknown };
+  method?: string;
+};
+
+/** Parse MCP JSON or SSE (`event: message` / `data:`) bodies into a JSON-RPC object. */
+export function parseMcpRpcResponse(text: string): McpRpcResponse {
+  const trimmed = text.trim();
+  if (trimmed.startsWith('{')) {
+    return JSON.parse(trimmed) as McpRpcResponse;
+  }
+
+  const messages: McpRpcResponse[] = [];
+  for (const line of text.split('\n')) {
+    if (!line.startsWith('data: ')) continue;
+    const payload = line.slice(6).trim();
+    if (!payload || payload === '[DONE]') continue;
+    try {
+      messages.push(JSON.parse(payload) as McpRpcResponse);
+    } catch {
+      // Ignore non-JSON SSE payloads (e.g. pings).
+    }
+  }
+
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.result !== undefined && msg.method === undefined) return msg;
+  }
+
+  const last = messages.at(-1);
+  if (!last) {
+    throw new Error(`MCP server returned non-JSON response: ${text.slice(0, 200)}`);
+  }
+  return last;
+}
+
+function isUnsupportedMcpProtocolError(error: McpRpcResponse['error']): boolean {
+  if (!error) return false;
+  const message = error.message.toLowerCase();
+  return (
+    message.includes('unsupported protocol version') ||
+    message.includes('inconsistent mcp protocol version')
+  );
+}
+
 /**
  * Executes a Remote MCP tool over Streamable HTTP (spec revision 2026-07-28).
  */
@@ -396,59 +481,79 @@ export async function* executeMcpTool(
     return undefined; // Turn paused
   }
 
-  // 4. Construct MCP JSON-RPC `tools/call` payload per 2026-07-28 spec
-  const jsonRpcPayload = {
-    jsonrpc: '2.0',
-    id: base.callId ?? Date.now(),
-    method: 'tools/call',
-    params: {
-      name: tool.mcpToolName,
-      arguments: input,
-      _meta: {
-        'io.modelcontextprotocol/protocolVersion': '2026-07-28',
-      },
-    },
-  };
-
-  const headers: Record<string, string> = {
+  const rpcId = base.callId ?? Date.now();
+  const baseHeaders: Record<string, string> = {
     'Content-Type': 'application/json',
-    Accept: 'application/json',
-    'MCP-Protocol-Version': '2026-07-28',
+    Accept: 'application/json, text/event-stream',
+    ...tool.headers,
     ...authRes.headers,
   };
 
   try {
-    const response = await fetch(targetUrl.toString(), {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(jsonRpcPayload),
-      signal: ctx.signal,
-    });
+    let rpcResponse: McpRpcResponse | undefined;
+    let lastProtocolError: McpRpcResponse['error'];
 
-    if (!response.ok) {
-      const errText = await response.text();
-      yield failureEvent(base, {
-        code: `mcp_http_${response.status}`,
-        message: `MCP server error HTTP ${response.status}: ${errText}`,
+    for (const protocolVersion of MCP_PROTOCOL_VERSIONS) {
+      const jsonRpcPayload = {
+        jsonrpc: '2.0',
+        id: rpcId,
+        method: 'tools/call',
+        params: {
+          name: tool.mcpToolName,
+          arguments: input,
+          _meta: {
+            'io.modelcontextprotocol/protocolVersion': protocolVersion,
+          },
+        },
+      };
+
+      const response = await fetch(targetUrl.toString(), {
+        method: 'POST',
+        headers: {
+          ...baseHeaders,
+          'MCP-Protocol-Version': protocolVersion,
+        },
+        body: JSON.stringify(jsonRpcPayload),
+        signal: ctx.signal,
       });
-      return undefined;
+
+      const text = await response.text();
+
+      if (!response.ok) {
+        const acceptRejected =
+          response.status === 406 &&
+          text.toLowerCase().includes('accept') &&
+          protocolVersion !== MCP_PROTOCOL_VERSIONS.at(-1);
+        if (acceptRejected) continue;
+        yield failureEvent(base, {
+          code: `mcp_http_${response.status}`,
+          message: `MCP server error HTTP ${response.status}: ${text.slice(0, 300)}`,
+        });
+        return undefined;
+      }
+
+      try {
+        rpcResponse = parseMcpRpcResponse(text);
+      } catch {
+        yield failureEvent(base, {
+          code: 'invalid_response',
+          message: `MCP server returned non-JSON response: ${text.slice(0, 200)}`,
+        });
+        return undefined;
+      }
+
+      if (rpcResponse.error && isUnsupportedMcpProtocolError(rpcResponse.error)) {
+        lastProtocolError = rpcResponse.error;
+        continue;
+      }
+      break;
     }
 
-    const text = await response.text();
-    let rpcResponse: {
-      jsonrpc?: string;
-      result?: {
-        content?: Array<{ type: string; text?: string; [key: string]: unknown }>;
-        isError?: boolean;
-      };
-      error?: { code: number; message: string; data?: unknown };
-    };
-    try {
-      rpcResponse = JSON.parse(text);
-    } catch {
+    if (!rpcResponse) {
       yield failureEvent(base, {
-        code: 'invalid_response',
-        message: `MCP server returned non-JSON response: ${text.slice(0, 200)}`,
+        code: 'mcp_protocol_error',
+        message: lastProtocolError?.message ?? 'MCP protocol negotiation failed',
+        details: lastProtocolError?.data,
       });
       return undefined;
     }

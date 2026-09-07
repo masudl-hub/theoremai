@@ -76,6 +76,10 @@ Import corpus helpers from **`theorum/guardrails/testing`** (not the production 
 
 Extend attack cases under **`src/guardrails/corpus/`** only (`strings.ts` / `secrets.ts` for shared literals).
 
+Fuzz runners register minimal stub profiles via `registerProfile` (for example
+`corpus/fuzz-inbound.ts` uses flat `models: Record<ModelId, ModelBinding>` with
+`defaultModel`).
+
 ## Public errors
 
 `TheorumError` marks expected contract failures. Never show raw internal

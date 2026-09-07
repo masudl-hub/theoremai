@@ -50,34 +50,32 @@ function withBuiltins(
   id: string,
   baseProfile: string,
   builtInTools: string[],
-  select?: string,
+  modelId?: string,
 ): void {
   const base = getProfile(baseProfile);
-  const modelId = select
-    ? (base.model.select?.[select] ?? base.model.allow[0])
-    : base.model.allow[0];
-  const config = { ...base.model.config };
-  for (const mid of base.model.allow) {
-    config[mid] = {
-      ...base.model.config[mid],
-      builtInTools: mid === modelId ? builtInTools : [],
+  const models = { ...base.models };
+  const targetId = modelId ?? base.defaultModel ?? Object.keys(models)[0];
+  for (const mid of Object.keys(models)) {
+    models[mid] = {
+      ...models[mid],
+      builtInTools: mid === targetId ? builtInTools : [],
     };
   }
   registerProfile(
     defineProfile({
       ...base,
       id,
-      model: { ...base.model, config },
+      models,
     } as Parameters<typeof defineProfile>[0]),
   );
 }
 
 withBuiltins('chat_search', 'chat', ['googleSearch']);
 withBuiltins('formatter_search', 'formatter', ['googleSearch']);
-withBuiltins('selector_fast_search', 'selector', ['googleSearch'], 'fast');
+withBuiltins('selector_fast_search', 'selector', ['googleSearch'], 'gemini35FlashLite');
 withBuiltins('chat_maps', 'chat', ['googleMaps']);
-withBuiltins('selector_fast_maps', 'selector', ['googleMaps'], 'fast');
-withBuiltins('selector_smart_maps', 'selector', ['googleMaps'], 'smart');
+withBuiltins('selector_fast_maps', 'selector', ['googleMaps'], 'gemini35FlashLite');
+withBuiltins('selector_smart_maps', 'selector', ['googleMaps'], 'gemini31ProPreview');
 withBuiltins('chat_url', 'chat', ['urlContext']);
 
 Deno.test('host profiles default to their configured key slots', () => {
@@ -88,7 +86,7 @@ Deno.test('host profiles default to their configured key slots', () => {
     'slotC',
   );
   assertEquals(
-    resolveTurn({ profile: 'selector', select: 'fast', input: { text: 'x' } }).generation.keySlot,
+    resolveTurn({ profile: 'selector', model: 'gemini35FlashLite', input: { text: 'x' } }).generation.keySlot,
     'slotB',
   );
 });
@@ -103,7 +101,7 @@ Deno.test('image model uses the paid Gemini key', () => {
 Deno.test('pro preview without search or maps stays on the configured key slot', () => {
   const { generation } = resolveTurn({
     profile: 'selector',
-    select: 'smart',
+    model: 'gemini31ProPreview',
     input: { text: 'x' },
   });
   assertEquals(generation.model, 'gemini31ProPreview');
@@ -122,7 +120,7 @@ Deno.test('search forces the paid key when listed on the model', () => {
   assertEquals(
     resolveTurn({
       profile: 'selector_fast_search',
-      select: 'fast',
+      model: 'gemini35FlashLite',
       input: { text: 'x' },
     }).generation.keySlot,
     'paid',
@@ -137,7 +135,7 @@ Deno.test('maps uses profile key slot unless model pins paid or builtin forces p
   assertEquals(
     resolveTurn({
       profile: 'selector_fast_maps',
-      select: 'fast',
+      model: 'gemini35FlashLite',
       input: { text: 'x' },
     }).generation.keySlot,
     'slotB',
@@ -145,7 +143,7 @@ Deno.test('maps uses profile key slot unless model pins paid or builtin forces p
   assertEquals(
     resolveTurn({
       profile: 'selector_smart_maps',
-      select: 'smart',
+      model: 'gemini31ProPreview',
       input: { text: 'x' },
     }).generation.keySlot,
     'slotB',

@@ -18,9 +18,9 @@ function assertLiveProfile(profile: Profile): LiveProfile {
   return profile;
 }
 
-/** Default when `live.ingress.<channel>` is omitted — camera is opt-in. */
+/** Default when `live.ingress.<channel>` is omitted — mic and camera on, typed text off. */
 export function liveIngressChannelDefault(channel: LiveIngressChannel): boolean {
-  return channel !== 'video';
+  return channel !== 'text';
 }
 
 /** Resolve one channel from an ingress spec object (no profile wrapper). */

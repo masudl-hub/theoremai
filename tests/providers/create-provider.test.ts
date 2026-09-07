@@ -2,6 +2,7 @@ import { TheorumError } from '../../src/guardrails/error.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import type { Provider } from '../../src/kernel/types.ts';
 import { createProvider, isImageRole, isSpeechRole } from '../../src/providers/create-provider.ts';
+import { HOST_BINDINGS } from '../fixtures/models.ts';
 import { stubProfile } from '../fixtures/profiles.ts';
 
 function baseProfile(
@@ -151,19 +152,10 @@ Deno.test('createProvider rejects geminiLive — use runSession', () => {
   const liveProfile = {
     ...profile,
     type: 'live' as const,
-    model: {
-      protocol: 'geminiLive' as const,
-      provider: 'google' as const,
-      allow: ['gemini31FlashLive'],
-      config: {
-        gemini31FlashLive: {
-          apiId: 'gemini-3.1-flash-live-preview',
-          thinking: { on: 'none' as const, off: 'none' as const },
-          thinkingLevels: ['none' as const],
-          summaries: { on: 'none' as const, off: 'none' as const },
-          builtInTools: [],
-          key: 'slotA' as const,
-        },
+    models: {
+      gemini31FlashLive: {
+        ...HOST_BINDINGS.gemini31FlashLive,
+        key: 'slotA' as const,
       },
     },
     live: { voice: 'Aoede' },

@@ -19,17 +19,19 @@ import {
 } from '../../src/cli/matrix/synthesizer.ts';
 import { getProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ModelProvider, Profile, TurnEvent } from '../../src/kernel/types.ts';
-import { geminiModel, HOST_MODELS, modelAllow } from '../fixtures/models.ts';
+import { geminiModels, HOST_BINDINGS, modelBindings } from '../fixtures/models.ts';
 
 const testProfile: Profile = {
   type: 'text',
   id: 'test-agent',
   identity: { handle: 'test-agent', system: 'You are a test agent.' },
-  model: {
-    ...geminiModel('gemini35FlashLite', 'gemini31ProPreview'),
-    select: { fast: 'gemini35FlashLite', smart: 'gemini31ProPreview' },
-    key: 'slotA',
+  models: {
+    gemini35FlashLite: HOST_BINDINGS.gemini35FlashLite,
+    gemini31ProPreview: HOST_BINDINGS.gemini31ProPreview,
   },
+  defaultModel: 'gemini35FlashLite',
+  allowModelSelect: true,
+  key: 'slotA',
   tools: { allow: [] },
   inputs: {
     text: true,
@@ -72,7 +74,7 @@ Deno.test('fixtures produce valid base64 buffers', () => {
 Deno.test('synthesizeLiteCombo constructs minimal fast request', () => {
   const req = synthesizeLiteCombo(testProfile);
   assertEquals(req.profile, 'test-agent');
-  assertEquals(req.select, 'fast');
+  assertEquals(req.model, 'gemini35FlashLite');
   assertEquals(req.input?.attachments, undefined);
   assertEquals(req.input?.voice, undefined);
 });
@@ -80,7 +82,7 @@ Deno.test('synthesizeLiteCombo constructs minimal fast request', () => {
 Deno.test('synthesizeStressCombo constructs smart mode with multimodal attachments', () => {
   const req = synthesizeStressCombo(testProfile);
   assertEquals(req.profile, 'test-agent');
-  assertEquals(req.select, 'smart');
+  assertEquals(req.model, 'gemini31ProPreview');
   assertEquals(req.input?.attachments?.length, 1);
   assertEquals(req.input?.voice?.length, 1);
 });
@@ -106,39 +108,33 @@ Deno.test('buildCustomTurnRequest requires grounding flags on the model', () => 
   const withMaps: Profile = {
     ...testProfile,
     type: 'text',
-    model: {
-      ...testProfile.model,
-      config: {
-        ...testProfile.model.config,
-        gemini35FlashLite: {
-          ...testProfile.model.config.gemini35FlashLite,
-          builtInTools: ['googleMaps'],
-        },
+    models: {
+      ...testProfile.models,
+      gemini35FlashLite: {
+        ...testProfile.models.gemini35FlashLite,
+        builtInTools: ['googleMaps'],
       },
     },
     tools: testProfile.tools,
     inputs: testProfile.inputs,
   };
-  const req = buildCustomTurnRequest(withMaps, { mode: 'fast', map: true });
-  assertEquals(req.select, 'fast');
+  const req = buildCustomTurnRequest(withMaps, { mode: 'gemini35FlashLite', map: true });
+  assertEquals(req.model, 'gemini35FlashLite');
 });
 
 Deno.test('synthesizer handles all tool combinations, fallbacks, and reasoning configurations', () => {
-  // 1. Profile with select but without 'smart' key
   const customSelectProfile: Profile = {
     ...testProfile,
     type: 'text',
-    model: {
-      ...testProfile.model,
-      select: { quick: 'gemini35FlashLite', deep: 'gemini31ProPreview' },
-      config: {
-        ...testProfile.model.config,
-        gemini31ProPreview: {
-          ...HOST_MODELS.gemini31ProPreview,
-          builtInTools: ['googleMaps'],
-        },
+    models: {
+      gemini35FlashLite: HOST_BINDINGS.gemini35FlashLite,
+      gemini31ProPreview: {
+        ...HOST_BINDINGS.gemini31ProPreview,
+        builtInTools: ['googleMaps'],
       },
     },
+    defaultModel: 'gemini35FlashLite',
+    allowModelSelect: true,
     tools: { allow: [] },
     inputs: {
       text: true,
@@ -150,18 +146,14 @@ Deno.test('synthesizer handles all tool combinations, fallbacks, and reasoning c
     },
   };
   const req1 = synthesizeStressCombo(customSelectProfile);
-  assertEquals(req1.select, 'deep');
+  assertEquals(req1.model, 'gemini31ProPreview');
   assertEquals(req1.input?.attachments?.length, 1);
   assertEquals(req1.input?.voice, undefined);
 
-  // 2. Profile without select and only custom tools
   const noSelectProfile: Profile = {
     ...testProfile,
     type: 'text',
-    model: {
-      ...testProfile.model,
-      select: undefined,
-    },
+    allowModelSelect: false,
     tools: { allow: ['ask_user'] },
     inputs: {
       text: true,
@@ -173,14 +165,12 @@ Deno.test('synthesizer handles all tool combinations, fallbacks, and reasoning c
     },
   };
   const req2 = synthesizeStressCombo(noSelectProfile);
-  assertEquals(req2.select, undefined);
+  assertEquals(req2.model, undefined);
   assertEquals(req2.input?.attachments, undefined);
 
-  // 3. buildCustomTurnRequest with options.lite
   const liteReq = buildCustomTurnRequest(testProfile, { lite: true });
-  assertEquals(liteReq.select, 'fast');
+  assertEquals(liteReq.model, 'gemini35FlashLite');
 
-  // 4. --search/--map require builtins on the selected model
   assertThrows(
     () => buildCustomTurnRequest(testProfile, { search: true, map: true }),
     Error,
@@ -189,14 +179,11 @@ Deno.test('synthesizer handles all tool combinations, fallbacks, and reasoning c
   const withSearch: Profile = {
     ...testProfile,
     type: 'text',
-    model: {
-      ...testProfile.model,
-      config: {
-        ...testProfile.model.config,
-        gemini35FlashLite: {
-          ...testProfile.model.config.gemini35FlashLite,
-          builtInTools: ['googleSearch'],
-        },
+    models: {
+      ...testProfile.models,
+      gemini35FlashLite: {
+        ...testProfile.models.gemini35FlashLite,
+        builtInTools: ['googleSearch'],
       },
     },
     tools: testProfile.tools,
@@ -252,7 +239,7 @@ Deno.test('runCommand exercises all stream event types and failure handling', as
       identity: { handle: 'test', system: 'test' },
       tools: { allow: [] },
       id: 'openrouter_run_bot',
-      model: { protocol: 'openAi', provider: 'openrouter', ...modelAllow('sonar') },
+      ...geminiModels('sonar'),
       inputs: { text: true },
       outputs: { structured: null },
       guardrails: { quota: { perDay: 10 } },
@@ -276,7 +263,7 @@ Deno.test('runCommand exercises all stream event types and failure handling', as
       identity: { handle: 'test', system: 'test' },
       tools: { allow: [] },
       id: 'no_text_bot',
-      model: { ...geminiModel('gemini35FlashLite') },
+      ...geminiModels('gemini35FlashLite'),
       inputs: { text: false },
       outputs: { structured: null },
       guardrails: { quota: { perDay: 10 } },

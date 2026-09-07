@@ -244,7 +244,7 @@ export async function* executeFunction(
     }
   }
 
-  if (tool.preflight) {
+  if (tool.preflight && ctx.resume?.granted !== true) {
     const pre = await tool.preflight(input, ctx);
     if (pre) {
       if (isToolPause(pre)) {

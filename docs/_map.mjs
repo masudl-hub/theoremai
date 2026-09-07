@@ -57,6 +57,11 @@ const graph = {
           reason: 'README public entrypoints table tracks headless interface surface',
           sections: ['Public Entrypoints'],
         },
+        {
+          path: 'src/playground/mod.ts',
+          reason: 'README public entrypoints table tracks playground fixtures surface',
+          sections: ['Public Entrypoints'],
+        },
       ],
       validates: ['tests/kernel/theorum.test.ts', 'scripts/docs-truth/graph.test.mjs'],
       required_sections: [
@@ -414,6 +419,26 @@ const graph = {
       required_sections: ['Headless interface', 'Exported API'],
       section_triggers: [
         { paths: ['src/interface/'], sections: ['Headless interface', 'Exported API'] },
+      ],
+    },
+
+    playground: {
+      export: './playground',
+      doc: 'docs/contracts/playground.md',
+      owns: ['src/playground/'],
+      validates: ['tests/kernel/schema.test.ts', 'tests/playground/mod.test.ts', 'tests/playground/http-demo-smoke.test.ts'],
+      required_sections: [
+        'Export',
+        'Ownership',
+        'Role in the package',
+        'Demo graph seeds',
+        'Exported API',
+      ],
+      section_triggers: [
+        { paths: ['src/playground/concierge-demo.ts'], sections: ['Demo graph seeds'] },
+        { paths: ['src/playground/demo-handlers.ts'], sections: ['Demo graph seeds', 'Exported API'] },
+        { paths: ['src/playground/types.ts'], sections: ['Role in the package'] },
+        { paths: ['src/playground/stub.ts'], sections: ['Exported API'] },
       ],
     },
 

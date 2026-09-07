@@ -36,7 +36,7 @@ export {
   mimeAllowed,
   mimeEssence,
   modelEntryByApiId,
-  requireModelSpec,
+  requireModelBinding,
 } from './registry/catalog.ts';
 export type {
   ImageProfileDefinition,
@@ -57,17 +57,30 @@ export {
 } from './registry/profiles.ts';
 export { projectProfile, projectProfileObject, resolveTurn } from './registry/resolve.ts';
 export { getStructured, registerStructured } from './registry/schemas.ts';
+export type {
+  AuthUnauthenticatedPolicy,
+  CustomToolType,
+  HttpMethod,
+  PlaygroundAuthType,
+  ToolAccess,
+  ToolAuthType,
+  ToolPermission,
+  ToolType,
+} from './schema.ts';
 export {
   ATTACHMENT_ACCEPT_MIMES,
+  AUTH_UNAUTHENTICATED_POLICIES,
   COMPACTION_METERS,
   COMPACTION_TIMINGS,
-  CONTROL_IDS,
   catalogPathFor,
   coerceProtocol,
   coerceProvider,
+  coerceSpeechFormat,
   EGRESS_ON_BLOCK,
   EXTRA_FIELDS,
   fieldMeta,
+  HTTP_METHODS,
+  isSpeechFormatAllowedForProtocol,
   isValidPair,
   isValidProfileProtocol,
   KEY_SLOTS,
@@ -75,6 +88,7 @@ export {
   MEDIA_INPUT_KINDS,
   MEDIA_WILDCARDS,
   OVERFLOW_KEY_SLOTS,
+  PLAYGROUND_AUTH_TYPES,
   PROFILE_FIELDS,
   PROFILE_TYPE_PROTOCOLS,
   PROFILE_TYPES,
@@ -88,8 +102,11 @@ export {
   SPEECH_AUDIO_FORMATS,
   STREAM_MODES,
   SUMMARY_MODES,
+  speechFormatsForProtocol,
   THINKING_LEVELS,
   TOOL_ACCESS,
+  TOOL_AUTH_TYPES,
+  LIVE_TOOL_LOAD_TIERS,
   TOOL_LOAD_TIERS,
   TOOL_PERMISSION,
   TOOL_TYPES,
@@ -129,4 +146,5 @@ export {
   resetTools,
   resolveToolAuth,
 } from './tools/mod.ts';
+export type { ToolPause } from './tools/types.ts';
 export type * from './types.ts';

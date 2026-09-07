@@ -24,7 +24,7 @@ import type {
   TurnRequest,
 } from '../src/kernel/types.ts';
 import { createProvider } from '../src/providers/create-provider.ts';
-import { modelAllow } from '../tests/fixtures/models.ts';
+import { geminiModels, HOST_BINDINGS } from '../tests/fixtures/models.ts';
 import '../tests/fixtures/test-host.ts';
 import { registerHarnessTools } from '../src/kernel/tools/harness.ts';
 
@@ -114,24 +114,19 @@ const ALL_TEST_TOOLS = [
   'ask_user',
 ] as const;
 
-function flashLiteModel(maxSteps: number) {
-  const base = modelAllow('gemini35FlashLite');
+function flashLiteFields(maxSteps: number) {
   return {
-    protocol: 'geminiInteractions' as const,
-    provider: 'google' as const,
-    ...base,
-    config: {
+    ...geminiModels('gemini35FlashLite'),
+    models: {
       gemini35FlashLite: {
-        ...base.config.gemini35FlashLite,
+        ...HOST_BINDINGS.gemini35FlashLite,
         apiId: 'gemini-3.1-flash-lite',
         temperature: 0.1,
         maxOutputTokens: 2048,
         builtInTools: [],
       },
     },
-    thinking: 'minimal' as const,
     maxSteps,
-    key: 'slotA' as const,
   };
 }
 
@@ -175,7 +170,7 @@ function registerPressureProfiles(): void {
       type: 'text',
       id: INVOKE_PROFILE,
       identity: { handle: 'invoke-pressure', system: 'invoke-only profile' },
-      model: { ...flashLiteModel(1) },
+      ...flashLiteFields(1),
       tools: { allow: [...ALL_TEST_TOOLS, 'pressure_burst_echo'] },
       inputs: { text: true },
       outputs: {},
@@ -188,7 +183,7 @@ function registerPressureProfiles(): void {
       type: 'text',
       id: T2_PROFILE,
       identity: { handle: 't2-pressure', system: 'T2 loader profile' },
-      model: { ...flashLiteModel(4) },
+      ...flashLiteFields(4),
       tools: {
         allow: ['load_tools', 'record_lookup', 'stub_tool'],
         t2Loader: 'load_tools',
@@ -204,7 +199,7 @@ function registerPressureProfiles(): void {
       type: 'text',
       id: T1_PROFILE,
       identity: { handle: 't1-pressure', system: 'T1 policy profile' },
-      model: { ...flashLiteModel(2) },
+      ...flashLiteFields(2),
       tools: {
         allow: ['pressure_t1_tool', 'stub_tool'],
         t1Policy: () => ['pressure_t1_tool'],
@@ -220,7 +215,7 @@ function registerPressureProfiles(): void {
       type: 'text',
       id: STUB_RUN_PROFILE,
       identity: { handle: 'stub-run', system: 'Stub provider drives tool calls.' },
-      model: { ...flashLiteModel(8) },
+      ...flashLiteFields(8),
       tools: {
         allow: [
           'stub_tool',
@@ -251,7 +246,7 @@ function registerPressureProfiles(): void {
         system:
           'You are a tool executor under test. When instructed to call a tool, call it exactly once with the given JSON arguments. Do not explain. Do not refuse. Do not call any other tool.',
       },
-      model: { ...flashLiteModel(6) },
+      ...flashLiteFields(6),
       tools: {
         allow: [
           'stub_tool',
@@ -321,9 +316,7 @@ async function runLive(req: TurnRequest, provider: ModelProvider): Promise<CaseR
     const internal = errEv?.errorInternal;
     return {
       events,
-      error: internal
-        ? `${publicMsg ?? 'error'} [internal: ${internal}]`
-        : publicMsg,
+      error: internal ? `${publicMsg ?? 'error'} [internal: ${internal}]` : publicMsg,
       ms: Date.now() - start,
     };
   } catch (err) {

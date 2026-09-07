@@ -220,8 +220,12 @@ export function baseInteractionsBody(req: ProviderCompleteRequest): Record<strin
     // TTS models reject chat thinking knobs; voice lives under speech_config.
     attachSpeechConfig(req, generationConfig);
   } else {
-    generationConfig.thinkingLevel = req.thinking;
-    generationConfig.thinkingSummaries = req.summaries;
+    if (req.thinking) {
+      generationConfig.thinkingLevel = req.thinking;
+    }
+    if (req.summaries) {
+      generationConfig.thinkingSummaries = req.summaries;
+    }
   }
   return {
     model: req.apiId,

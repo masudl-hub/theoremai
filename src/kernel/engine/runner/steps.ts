@@ -316,6 +316,7 @@ async function* handlePendingTools(
     }
     if (paused) {
       sawPause = true;
+      state.toolSnapshot = generation.tools;
       continue;
     }
     if (!modelResult) {

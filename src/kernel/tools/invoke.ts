@@ -18,7 +18,7 @@ function turnRequestFromInvoke(request: InvokeToolRequest): TurnRequest {
     path: request.path,
     sessionPermissions: request.sessionPermissions,
     input: request.turnInput,
-    select: request.select,
+    model: request.model,
   };
 }
 
@@ -27,7 +27,7 @@ async function prepareInvokeSnapshot(
   profile: Profile,
 ): Promise<TurnToolSnapshot> {
   const req = turnRequestFromInvoke(request);
-  const model = pickModel(profile, request.select);
+  const model = pickModel(profile, request.model);
   return await prepareTurnToolSnapshot(profile, req, model);
 }
 
@@ -66,6 +66,7 @@ async function* invokeTool(request: InvokeToolRequest): AsyncGenerator<TurnEvent
       callId,
       ctx: {
         sessionPermissions: request.sessionPermissions,
+        credentials: request.credentials,
         path: request.path,
         signal: request.signal,
         resume: request.resume,

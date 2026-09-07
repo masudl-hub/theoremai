@@ -18,11 +18,11 @@ function attachResolved(
   if (safe.projectId) {
     record.projectId = safe.projectId;
   }
-  if (safe.select) {
-    record.select = safe.select;
+  if (safe.model) {
+    record.modelSelect = safe.model;
   }
-  if (safe.thinking !== undefined) {
-    record.thinking = safe.thinking;
+  if (safe.effort) {
+    record.effort = safe.effort;
   }
   if (safe.metadata) {
     record.metadata = safe.metadata;

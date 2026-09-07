@@ -195,7 +195,7 @@ Deno.test('JSON Schema property names stay camelCase inside response_format.sche
 Deno.test('prompt-enforced schema omits JSON response_format', () => {
   const { generation } = resolveTurn({
     profile: 'selector',
-    select: 'fast',
+    model: 'gemini35FlashLite',
     input: { text: 'x' },
   });
   const body = toInteractionsBody({

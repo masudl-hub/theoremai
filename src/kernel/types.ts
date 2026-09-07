@@ -11,7 +11,6 @@
 import type {
   CompactionMeter,
   CompactionTiming,
-  ControlId,
   EgressOnBlock,
   FieldMeta,
   KeySlot,
@@ -19,6 +18,7 @@ import type {
   LiveActivityHandling,
   LiveContextCompression,
   LiveSpeechSensitivity,
+  LiveToolLoadTier,
   MediaInputKind,
   OverflowKeySlot,
   ProfileType,
@@ -48,7 +48,6 @@ import type {
 export type {
   CompactionMeter,
   CompactionTiming,
-  ControlId,
   EgressOnBlock,
   FieldMeta,
   InvokeToolRequest,
@@ -58,6 +57,7 @@ export type {
   LiveContextCompression,
   LiveProfileToolsSpec,
   LiveSpeechSensitivity,
+  LiveToolLoadTier,
   MediaInputKind,
   OverflowKeySlot,
   ProfileToolsSpec,
@@ -99,7 +99,7 @@ export type ChatRole = 'system' | 'user' | 'assistant';
 
 /**
  * Image-role output pins owned by the host profile.
- * The image model itself lives in `model.allow` / `model.config`.
+ * The image model itself lives in `profile.models`.
  * Aspect/size/mime values are host strings (presets/apps own the vocabularies).
  */
 export interface ProfileImageSpec {
@@ -141,28 +141,20 @@ export interface SessionEvent {
   timeLeftMs?: number;
 }
 
-/** Provider thinking levels used when a boolean thinking control is on or off. */
-export interface ThinkingMap {
-  on: ThinkingLevel;
-  off: ThinkingLevel;
-}
-
-/** Provider summary behavior used when a boolean thinking control is on or off. */
-export interface SummaryMap {
-  on: SummaryMode;
-  off: SummaryMode;
-}
-
-/** Host-declared metadata THEORUM needs to call a model safely. */
-export interface ModelSpec {
+/** Host-named model binding — wire routing and generation knobs for one profile model. */
+export interface ModelBinding {
+  protocol: Protocol;
+  provider: Provider;
   /** Provider wire model id for the configured provider. */
   apiId: string;
-  /** Thinking on/off map when the profile lists `thinking` in controls. Omit → provider default. */
-  thinking?: ThinkingMap;
-  /** Levels this model accepts. Illegal values are clamped via `thinkingLevels`. */
-  thinkingLevels?: ThinkingLevel[];
-  /** Thinking-summary on/off map. Omit → provider default. */
-  summaries?: SummaryMap;
+  /** Alias → thinking level. One entry = fixed; two+ may be selectable at turn time. */
+  efforts?: Record<string, ThinkingLevel>;
+  /** Effort alias when the turn omits `effort`. Defaults to the only key when there is one. */
+  defaultEffort?: string;
+  /** Turn may pass `{ effort: "<alias>" }`. Requires two or more `efforts` keys. */
+  allowEffortSelect?: boolean;
+  /** Emit thinking summaries on the stream. Omit → provider default. */
+  summaries?: boolean;
   /** Cap on output tokens. Omit → provider default. */
   maxOutputTokens?: number;
   /** Sampling temperature. Omit → provider default. */
@@ -173,7 +165,7 @@ export interface ModelSpec {
    */
   builtInTools?: BuiltinToolId[];
   /**
-   * Optional vault slot for this model. When set, overrides `profile.model.key`.
+   * Optional vault slot for this model. When set, overrides `profile.key`.
    * Host-owned — e.g. pin image models to `paid`.
    */
   key?: KeySlot;
@@ -187,7 +179,6 @@ export interface ModelSpec {
    */
   persistViaInteractionId?: boolean;
 }
-
 /**
  * Context supplied to a custom compaction trigger.
  *
@@ -310,7 +301,7 @@ export interface ProfileValidationSpec {
 
 /**
  * Speech-role output pins owned by the host profile.
- * The speech model itself lives in `model.allow` / `model.config`.
+ * The speech model itself lives in `profile.models`.
  * Declared top-level under `speech` so `voice` here is the TTS voice id,
  * not ingress audio (`inputs.voice`).
  */
@@ -346,15 +337,15 @@ export interface LiveTranscriptionSpec {
 export interface LiveIngressSpec {
   /** Microphone PCM via `sendAudio`. Omit → enabled. */
   audio?: boolean;
-  /** Webcam JPEG frames via `sendVideo`. Omit → disabled (opt-in). */
+  /** Webcam JPEG frames via `sendVideo`. Omit → enabled. */
   video?: boolean;
-  /** Typed text via `sendText`. Omit → enabled. */
+  /** Typed text via `sendText`. Omit → disabled (opt-in). */
   text?: boolean;
 }
 
 /**
  * Output pins for a live-role profile (bidirectional WebSocket audio/video session).
- * The live model itself lives in `model.allow` / `model.config`.
+ * The live model itself lives in `profile.models`.
  */
 export interface ProfileLiveSpec {
   /** Realtime ingress modality toggles (mic, camera frames, typed text). */
@@ -433,17 +424,14 @@ export interface ProfileGuardrailsSpec {
   network?: NetworkGuardrailSpec;
 }
 
-/** Model, provider, thinking, and step bounds for a profile. */
-export interface ProfileModelSpec<P extends Protocol = Protocol> {
-  protocol: P;
-  provider: Provider;
-  /** Ids this profile may select. Each id must exist in `config`. */
-  allow: ModelId[];
-  /** Host-owned wire config keyed by the same ids used in `allow` / `select`. */
-  config: Record<ModelId, ModelSpec>;
-  select?: Record<string, ModelId>;
-  thinking?: ThinkingLevel | Record<string, ThinkingLevel>;
-  controls?: ControlId[];
+/** Model routing fields shared by every profile type. */
+export interface ProfileModelFields {
+  /** Host-named models. Each key is a selectable model id when `allowModelSelect` is set. */
+  models: Record<ModelId, ModelBinding>;
+  /** Default model id when the turn omits `model`. Defaults to the only key when there is one. */
+  defaultModel?: ModelId;
+  /** Turn may pass `{ model: "<id>" }`. Requires two or more `models` keys. */
+  allowModelSelect?: boolean;
   /**
    * Tool-loop ceiling. `<= 0` = unbounded; `1` = one-shot; `> 1` = hard cap.
    * Omit → unbounded (no THEORUM invent of `1`).
@@ -451,12 +439,6 @@ export interface ProfileModelSpec<P extends Protocol = Protocol> {
   maxSteps?: number;
   key?: OverflowKeySlot;
 }
-
-/** Wire model specification for turn-based profiles (text, image, speech). */
-export type TurnProfileModelSpec = ProfileModelSpec<ProfileTypeProtocol<'text'>>;
-
-/** Wire model specification for live bidirectional streaming profiles. */
-export type LiveProfileModelSpec = ProfileModelSpec<ProfileTypeProtocol<'live'>>;
 
 /** Text, attachment, voice, slot, and size rules for a profile. */
 export interface ProfileInputsSpec {
@@ -485,16 +467,20 @@ export interface ProfileIdentity {
 }
 
 /** Fields shared by every typed profile. */
-export interface ProfileCommon<P extends Protocol = Protocol> {
+export interface ProfileCommon {
   id: ProfileId;
   identity: ProfileIdentity;
-  model: ProfileModelSpec<P>;
+  models: Record<ModelId, ModelBinding>;
+  defaultModel?: ModelId;
+  allowModelSelect?: boolean;
+  maxSteps?: number;
+  key?: OverflowKeySlot;
   outputs?: ProfileOutputsSpec;
   guardrails?: ProfileGuardrailsSpec;
 }
 
 /** Text / structured turn engine with optional tool execution. */
-export interface TextProfile extends ProfileCommon<ProfileTypeProtocol<'text'>> {
+export interface TextProfile extends ProfileCommon {
   type: 'text';
   tools: ProfileToolsSpec;
   inputs: ProfileInputsSpec;
@@ -502,7 +488,7 @@ export interface TextProfile extends ProfileCommon<ProfileTypeProtocol<'text'>> 
 }
 
 /** Image-generation primary role. */
-export interface ImageProfile extends ProfileCommon<ProfileTypeProtocol<'image'>> {
+export interface ImageProfile extends ProfileCommon {
   type: 'image';
   image: ProfileImageSpec;
   tools: ProfileToolsSpec;
@@ -511,21 +497,17 @@ export interface ImageProfile extends ProfileCommon<ProfileTypeProtocol<'image'>
 }
 
 /** Unary TTS — text-in locked by type; no tools / inputs block. */
-export interface SpeechProfile extends ProfileCommon<ProfileTypeProtocol<'speech'>> {
+export interface SpeechProfile extends ProfileCommon {
   type: 'speech';
   speech: ProfileSpeechSpec;
   turnResumption?: ProfileTurnResumptionSpec;
 }
 
 /** Bidirectional live session. */
-export interface LiveProfile {
+export interface LiveProfile extends Omit<ProfileCommon, 'outputs'> {
   type: 'live';
-  id: ProfileId;
-  identity: ProfileIdentity;
-  model: ProfileModelSpec<ProfileTypeProtocol<'live'>>;
   live: ProfileLiveSpec;
   tools: LiveProfileToolsSpec;
-  guardrails?: ProfileGuardrailsSpec;
 }
 
 /** Complete host-owned agent contract consumed by the kernel. */
@@ -632,10 +614,12 @@ export interface TurnRequest {
    * Ignored when `googleMaps` is not enabled for the selected model.
    */
   googleMapsLocation?: { latitude: number; longitude: number };
-  /** Optional Interactions storage override. Omit to let profile model.config / provider decide. */
+  /** Optional Interactions storage override. Omit to let the selected model binding decide. */
   store?: boolean;
-  select?: string;
-  thinking?: boolean;
+  /** Selected model id when `profile.allowModelSelect` is true. */
+  model?: ModelId;
+  /** Selected effort alias when the binding has `allowEffortSelect`. */
+  effort?: string;
   /** Host-provided dynamic system prompt combined with profile persona */
   system?: string;
   /** Session permissions granted for this conversation turn */
@@ -669,11 +653,10 @@ export interface TurnRequest {
 }
 
 /** Safe profile projection suitable for UI or host inspection. */
-export interface ProjectedProfile {
+export interface ProjectedProfile extends ProfileModelFields {
   id: string;
   type: ProfileType;
   handle: string;
-  model: ProfileModelSpec;
   tools: Array<RegisteredTool | { name: ToolId; missing: true }>;
   inputs: ProfileInputsSpec | null;
   outputs: ProfileOutputsSpec | null;
@@ -694,7 +677,7 @@ export interface ProviderGenerationConfig {
    * `true` = SSE (THEORUM default when mode is omitted); `false` = buffered.
    */
   stream?: boolean;
-  thinking: ThinkingLevel;
+  thinking?: ThinkingLevel;
   summaries?: SummaryMode;
   maxOutputTokens?: number;
   temperature?: number;
@@ -724,7 +707,7 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
   interactionOnlyInput?: Record<string, unknown>[];
   /**
    * Tool-loop ceiling. `undefined` or `<= 0` = unbounded.
-   * Taken from `profile.model.maxSteps` with no THEORUM invent.
+   * Taken from `profile.maxSteps` with no THEORUM invent.
    */
   maxSteps?: number;
   structured: StructuredSchemaId | null;
@@ -734,7 +717,7 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
   input: InteractionPart[];
   /**
    * Vault key slot for credentialed transports (Google required; OpenRouter when
-   * the profile pins `model.key` or a builtin forces `paid`). Never sent on the wire.
+   * the profile pins `key` or a builtin forces `paid`). Never sent on the wire.
    */
   keySlot?: KeySlot;
   canary: string;
@@ -851,6 +834,11 @@ export interface TurnEvent {
   compaction?: CompactionSignal;
   /** Why the turn ended. Present on terminal `done` events when known. */
   stop?: TurnStop;
+  /**
+   * Turn tool visibility snapshot when `stop.kind === 'tool'`.
+   * Hosts pass this to `invokeTool({ snapshot })` so T1/T2 resume matches the paused turn.
+   */
+  tools?: TurnToolSnapshot;
 }
 
 /**

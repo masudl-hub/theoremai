@@ -13,18 +13,14 @@ import type { LiveProfile } from '../../src/kernel/types.ts';
 const liveBase = {
   type: 'live' as const,
   identity: { handle: 'live', system: 'hi' },
-  model: {
-    protocol: 'geminiLive' as const,
-    provider: 'google' as const,
-    allow: ['gemini31FlashLive'],
-    config: {
-      gemini31FlashLive: {
-        apiId: 'gemini-3.1-flash-live-preview',
-        thinking: { on: 'none' as const, off: 'none' as const },
-        thinkingLevels: ['none' as const],
-        summaries: { on: 'none' as const, off: 'none' as const },
-        builtInTools: [],
-      },
+  models: {
+    gemini31FlashLive: {
+      protocol: 'geminiLive' as const,
+      provider: 'google' as const,
+      apiId: 'gemini-3.1-flash-live-preview',
+      efforts: { normal: 'none' as const },
+      summaries: false,
+      builtInTools: [],
     },
   },
   tools: { allow: [] as string[] },
@@ -34,26 +30,26 @@ const liveProfile = defineProfile({
   ...liveBase,
   id: 'live_ingress',
   live: {
-    ingress: { audio: true, video: false, text: true },
+    ingress: { audio: true, video: true, text: false },
   },
 });
 
-Deno.test('liveIngressChannelDefault enables audio and text, disables video', () => {
+Deno.test('liveIngressChannelDefault enables audio and video, disables text', () => {
   assertEquals(liveIngressChannelDefault('audio'), true);
-  assertEquals(liveIngressChannelDefault('video'), false);
-  assertEquals(liveIngressChannelDefault('text'), true);
+  assertEquals(liveIngressChannelDefault('video'), true);
+  assertEquals(liveIngressChannelDefault('text'), false);
 });
 
 Deno.test('liveIngressEnabledFromSpec uses channel defaults when omitted', () => {
   assertEquals(liveIngressEnabledFromSpec(undefined, 'audio'), true);
-  assertEquals(liveIngressEnabledFromSpec(undefined, 'video'), false);
-  assertEquals(liveIngressEnabledFromSpec(undefined, 'text'), true);
+  assertEquals(liveIngressEnabledFromSpec(undefined, 'video'), true);
+  assertEquals(liveIngressEnabledFromSpec(undefined, 'text'), false);
 });
 
 Deno.test('liveIngressEnabled respects live.ingress toggles', () => {
   assertEquals(liveIngressEnabled(liveProfile, 'audio'), true);
-  assertEquals(liveIngressEnabled(liveProfile, 'video'), false);
-  assertEquals(liveIngressEnabled(liveProfile, 'text'), true);
+  assertEquals(liveIngressEnabled(liveProfile, 'video'), true);
+  assertEquals(liveIngressEnabled(liveProfile, 'text'), false);
 });
 
 Deno.test('hasAnyLiveIngress rejects all-disabled ingress', () => {
@@ -61,7 +57,7 @@ Deno.test('hasAnyLiveIngress rejects all-disabled ingress', () => {
     type: 'live',
     id: 'live_blocked',
     identity: { handle: 'live', system: 'hi' },
-    model: liveBase.model,
+    models: liveBase.models,
     live: { ingress: { audio: false, video: false, text: false } },
     tools: { allow: [] },
   };
@@ -88,8 +84,8 @@ Deno.test('defineProfile rejects live profiles with every ingress channel disabl
 
 Deno.test('assertLiveIngress throws when channel is disabled', () => {
   assertThrows(
-    () => assertLiveIngress(liveProfile, 'video'),
+    () => assertLiveIngress(liveProfile, 'text'),
     Error,
-    'live.ingress.video is disabled',
+    'live.ingress.text is disabled',
   );
 });

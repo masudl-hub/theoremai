@@ -18,6 +18,13 @@ export {
   requireTool,
   resetTools,
 } from './registry.ts';
-export { executeHttpTool, executeMcpTool, resolveToolAuth } from './remote.ts';
+export type { HttpToolMapping, HttpToolTarget } from './remote.ts';
+export {
+  buildHttpToolTarget,
+  executeHttpTool,
+  executeMcpTool,
+  parseMcpRpcResponse,
+  resolveToolAuth,
+} from './remote.ts';
 export { cloneTurnToolSnapshot, prepareTurnToolSnapshot } from './resolve.ts';
 export type * from './types.ts';

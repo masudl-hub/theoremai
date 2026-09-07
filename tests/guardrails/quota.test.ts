@@ -9,7 +9,7 @@ import {
 } from '../../src/guardrails/quota.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile, getProfile } from '../../src/kernel/registry/profiles.ts';
-import { geminiModel } from '../fixtures/models.ts';
+import { geminiModels } from '../fixtures/models.ts';
 
 const now = Date.parse('2026-08-16T12:00:00Z');
 const ip = '203.0.113.10';
@@ -74,7 +74,7 @@ Deno.test('takeSlot returns not_configured when profile omits quota', () => {
     tools: { allow: [] },
     inputs: { text: true },
     id: 'unmetered',
-    model: { ...geminiModel('gemini35FlashLite') },
+    ...geminiModels('gemini35FlashLite'),
   });
 
   assertEquals(takeSlot(profile, ip, now), 'not_configured');

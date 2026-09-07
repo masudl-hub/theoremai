@@ -203,7 +203,7 @@ function isPrivateOrLocalIPv6(ip: string): boolean {
 }
 
 /** Check if hostname represents localhost or private domain names */
-function isLocalhostName(hostname: string): boolean {
+export function isLocalhostName(hostname: string): boolean {
   const lower = hostname.toLowerCase().replace(/\.+$/, '');
   return (
     lower === 'localhost' ||
@@ -222,6 +222,13 @@ function isLocalhostName(hostname: string): boolean {
     lower === '::1' ||
     lower === '[::1]'
   );
+}
+
+/** Check if an IP address string is loopback or private IPv4/IPv6 */
+export function isPrivateOrLocalAddress(ipOrHost: string): boolean {
+  const stripped =
+    ipOrHost.startsWith('[') && ipOrHost.endsWith(']') ? ipOrHost.slice(1, -1) : ipOrHost;
+  return isPrivateOrLocalIPv4(stripped) || isPrivateOrLocalIPv6(stripped);
 }
 
 /**

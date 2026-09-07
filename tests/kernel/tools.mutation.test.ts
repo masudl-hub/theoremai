@@ -245,7 +245,7 @@ Deno.test('tools mutation coverage exercises resolver filtering and builtin prom
   assertEquals(
     resolveModelBuiltinIds(
       asValue<Profile>({
-        model: { config: { m: { builtInTools: ['googleSearch', 'stub_tool', 'missing'] } } },
+        models: { m: { protocol: 'geminiInteractions', provider: 'google', apiId: 'm', efforts: { normal: 'minimal' }, builtInTools: ['googleSearch', 'stub_tool', 'missing'] } },
       }),
       asValue<TurnRequest>({ path: 'web' }),
       'm',
@@ -254,7 +254,7 @@ Deno.test('tools mutation coverage exercises resolver filtering and builtin prom
   );
   assertEquals(
     resolveModelBuiltinIds(
-      asValue<Profile>({ model: { config: {} } }),
+      asValue<Profile>({ models: {} }),
       asValue<TurnRequest>({ path: 'web' }),
       'missing',
     ),

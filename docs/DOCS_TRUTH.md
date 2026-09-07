@@ -7,7 +7,7 @@ Deterministic document-health lint for THEORUM. No waivers. No LLM.
 | Field | Value |
 | --- | --- |
 | CLI | `scripts/docs-truth/cli.mjs` (`lint`, `inventory`, `freshness`) |
-| Export drift | `scripts/docs-truth/export-drift.mjs` |
+| Export drift | `scripts/docs-truth/export-drift.mjs` (barrel exports vs contracts, including `theorum/playground`) |
 | Graph | `docs/_map.mjs` |
 
 ## Ownership
@@ -29,7 +29,7 @@ Deterministic document-health lint for THEORUM. No waivers. No LLM.
 | Section freshness | Watches/`section_triggers` → specific `##` headings must change |
 | Owned fallback | Owned files → at least one behavioral section hunk |
 | Evidence | ≥2 supports; behavioral sections require `contract_test` |
-| Export drift | Entry `mod.ts` export names appear in owner contract |
+| Export drift | Entry `mod.ts` export names appear in owner contract (checked by `export-drift.mjs`, including `theorum/playground`) |
 
 ## Package vs repo documentation
 

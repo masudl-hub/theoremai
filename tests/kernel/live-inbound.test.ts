@@ -8,20 +8,16 @@ const profile: Profile = {
   id: 'live.inbound',
   type: 'live',
   identity: { handle: 'live' },
-  model: {
-    protocol: 'geminiLive',
-    provider: 'google',
-    allow: ['m'],
-    config: {
-      m: {
-        apiId: 'live',
-        thinking: { on: 'none', off: 'none' },
-        thinkingLevels: ['none'],
-        summaries: { on: 'none', off: 'none' },
-        maxOutputTokens: 256,
-        temperature: 0,
-        builtInTools: [],
-      },
+  models: {
+    m: {
+      protocol: 'geminiLive',
+      provider: 'google',
+      apiId: 'gemini-2.0-flash-exp',
+      efforts: { normal: 'none' },
+      summaries: false,
+      maxOutputTokens: 256,
+      temperature: 0,
+      builtInTools: [],
     },
   },
   live: { voice: 'Aoede' },

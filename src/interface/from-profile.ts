@@ -9,15 +9,16 @@
 
 import { projectProfileObject } from '../kernel/registry/resolve.ts';
 import type {
+  LiveProfile,
   Profile,
   ProfileGuardrailsSpec,
-  ProfileModelSpec,
   ProjectedProfile,
 } from '../kernel/types.ts';
 import { inputsFromSpec } from './inputs.ts';
 import type {
+  ComposerProfileInterface,
+  LiveProfileInterface,
   LiveResolvedTools,
-  NormalizeModel,
   ProfileGuardrailsView,
   ProfileInterface,
   ProfileInterfaceSource,
@@ -32,14 +33,6 @@ function guardrailsView(guardrails?: ProfileGuardrailsSpec): ProfileGuardrailsVi
     sanitizeInput: guardrails.sanitizeInput,
     redactSensitive: guardrails.redactSensitive,
     hasEgress: Boolean(guardrails.egress),
-  };
-}
-
-function normalizeModel<M extends ProfileModelSpec>(model: M): NormalizeModel<M> {
-  return {
-    ...model,
-    select: model.select ?? null,
-    controls: model.controls ?? [],
   };
 }
 
@@ -69,10 +62,19 @@ function toolsResolved(projected: ProjectedProfile, profile?: Profile): Resolved
 function enrich(projected: ProjectedProfile, profile?: Profile): ProfileInterface {
   const inputs = inputsFromSpec(projected.type, projected.inputs);
   const identity = profile?.identity ?? { handle: projected.handle };
-  const model = normalizeModel(projected.model);
   const guardrails = profile ? guardrailsView(profile.guardrails) : undefined;
   const outputs = projected.outputs ?? undefined;
-  const shared = { id: projected.id, identity, model, outputs, guardrails };
+  const shared = {
+    id: projected.id,
+    identity,
+    models: projected.models,
+    defaultModel: projected.defaultModel,
+    allowModelSelect: projected.allowModelSelect,
+    maxSteps: projected.maxSteps,
+    key: projected.key,
+    outputs,
+    guardrails,
+  };
 
   switch (projected.type) {
     case 'text':
@@ -102,10 +104,7 @@ function enrich(projected: ProjectedProfile, profile?: Profile): ProfileInterfac
       } as ProfileInterface;
     case 'live':
       return {
-        id: shared.id,
-        identity: shared.identity,
-        model: shared.model,
-        guardrails: shared.guardrails,
+        ...shared,
         type: 'live',
         live: projected.live ?? {},
         tools: toolsResolved(projected, profile) as LiveResolvedTools,
@@ -124,6 +123,9 @@ function interfaceFrom(source: ProfileInterfaceSource): ProfileInterface {
   return enrich(source);
 }
 
+function interfaceFromProfile(profile: LiveProfile): LiveProfileInterface;
+function interfaceFromProfile(profile: Exclude<Profile, LiveProfile>): ComposerProfileInterface;
+function interfaceFromProfile(profile: Profile): ProfileInterface;
 function interfaceFromProfile(profile: Profile): ProfileInterface {
   return interfaceFrom(profile);
 }

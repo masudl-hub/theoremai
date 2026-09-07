@@ -10,8 +10,8 @@ import { sanitizeTurnRequest } from '../../guardrails/sanitize.ts';
 import { projectTools } from '../tools/project.ts';
 import { resolveTurnTools } from '../tools/resolve.ts';
 import type {
+  ModelBinding,
   ModelId,
-  ModelSpec,
   Profile,
   ProfileInputsSpec,
   ProjectedProfile,
@@ -22,7 +22,7 @@ import type {
   ThinkingLevel,
   TurnRequest,
 } from '../types.ts';
-import { clampThinkingLevel, requireModelSpec } from './catalog.ts';
+import { requireModelBinding } from './catalog.ts';
 import {
   assertOutputMode,
   assertSpeechRole,
@@ -32,111 +32,71 @@ import {
 import { getProfile } from './profiles.ts';
 import { providerUsesKeySlots, resolveKeySlot } from './vault.ts';
 
-function firstSelectKey(selectMap: Record<string, ModelId>): string | undefined {
-  const [key] = Object.keys(selectMap);
-  return key;
+function soleModelId(models: Record<ModelId, ModelBinding>): ModelId | undefined {
+  const ids = Object.keys(models);
+  return ids.length === 1 ? ids[0] : undefined;
 }
 
-function lookupSelectId(profile: Profile, select?: string): ModelId | undefined {
-  const { select: selectMap } = profile.model;
-  if (!selectMap) {
-    return undefined;
-  }
-  let key = select;
-  if (!key) {
-    key = firstSelectKey(selectMap);
-  }
-  if (!key) {
-    return undefined;
-  }
-  return selectMap[key];
-}
-
-function pickModel(profile: Profile, select?: string): ModelId {
-  if (profile.model.select) {
-    const id = lookupSelectId(profile, select);
-    if (!(id && profile.model.allow.includes(id))) {
-      let label = '';
-      if (select) {
-        label = select;
-      }
-      throw new TheorumError(`Unknown model select '${label}' for ${profile.id}`);
+function pickModel(profile: Profile, requested?: string): ModelId {
+  if (requested) {
+    if (!profile.allowModelSelect) {
+      throw new TheorumError(`Profile ${profile.id} does not allow model selection`);
     }
-    return id;
+    if (!profile.models[requested]) {
+      throw new TheorumError(`Unknown model '${requested}' for ${profile.id}`);
+    }
+    return requested;
   }
-  const [only] = profile.model.allow;
-  if (!only) {
-    throw new TheorumError(`Profile ${profile.id} has no models`);
+  const defaultId = profile.defaultModel ?? soleModelId(profile.models);
+  if (!defaultId || !profile.models[defaultId]) {
+    throw new TheorumError(`Profile ${profile.id} has no default model`);
   }
-  return only;
+  return defaultId;
 }
 
-function thinkingFromControl(spec: ModelSpec, thinkingOn: boolean | undefined): ThinkingLevel {
-  if (!spec.thinking) {
-    throw new TheorumError('model.config thinking map is required when controls include thinking');
-  }
-  if (thinkingOn) {
-    return spec.thinking.on;
-  }
-  return spec.thinking.off;
-}
-
-function pinnedLevel(
-  pinned: Record<string, ThinkingLevel>,
-  key: string | undefined,
+function resolveEffort(
+  profile: Profile,
+  binding: ModelBinding,
+  modelId: ModelId,
+  requested?: string,
 ): ThinkingLevel | undefined {
-  if (!key) {
-    return undefined;
-  }
-  return pinned[key];
-}
-
-function thinkingFromPin(profile: Profile, select?: string): ThinkingLevel {
-  const pinned = profile.model.thinking;
-  if (typeof pinned === 'string') {
-    return pinned;
-  }
-  if (!pinned) {
-    throw new TheorumError(`Profile ${profile.id} must pin thinking or list it in controls`);
-  }
-  const fromSelect = pinnedLevel(pinned, select);
-  if (fromSelect) {
-    return fromSelect;
-  }
-  const fromFirst = pinnedLevel(pinned, firstSelectKey(profile.model.select ?? {}));
-  if (fromFirst) {
-    return fromFirst;
-  }
-  throw new TheorumError(`Profile ${profile.id} must pin thinking or list it in controls`);
-}
-
-function resolveThinking(
-  profile: Profile,
-  spec: ModelSpec,
-  thinkingOn: boolean | undefined,
-  select?: string,
-): ThinkingLevel {
-  const raw = profile.model.controls?.includes('thinking')
-    ? thinkingFromControl(spec, thinkingOn)
-    : thinkingFromPin(profile, select);
-  return clampThinkingLevel(spec, raw);
-}
-
-function resolveSummaries(
-  profile: Profile,
-  spec: ModelSpec,
-  thinkingOn: boolean | undefined,
-): SummaryMode | undefined {
-  if (!spec.summaries) {
-    return undefined;
-  }
-  if (profile.model.controls?.includes('thinking')) {
-    if (thinkingOn) {
-      return spec.summaries.on;
+  const efforts = binding.efforts;
+  if (!efforts || Object.keys(efforts).length === 0) {
+    if (requested) {
+      throw new TheorumError(`Profile ${profile.id} model '${modelId}' has no selectable efforts`);
     }
-    return spec.summaries.off;
+    return undefined;
   }
-  return spec.summaries.on;
+  const keys = Object.keys(efforts);
+  if (requested) {
+    if (!binding.allowEffortSelect) {
+      throw new TheorumError(
+        `Profile ${profile.id} model '${modelId}' does not allow effort selection`,
+      );
+    }
+    const level = efforts[requested];
+    if (!level) {
+      throw new TheorumError(`Unknown effort '${requested}' for ${profile.id} model '${modelId}'`);
+    }
+    return level;
+  }
+  const alias = binding.defaultEffort ?? (keys.length === 1 ? keys[0] : undefined);
+  if (!alias) {
+    throw new TheorumError(
+      `Profile ${profile.id} model '${modelId}' must set defaultEffort when more than one effort is declared`,
+    );
+  }
+  return efforts[alias];
+}
+
+function resolveSummaries(binding: ModelBinding): SummaryMode | undefined {
+  if (binding.summaries === true) {
+    return 'auto';
+  }
+  if (binding.summaries === false) {
+    return 'none';
+  }
+  return undefined;
 }
 
 function resolveStructured(
@@ -174,11 +134,21 @@ function resolveStreamFlag(profile: Profile): boolean {
   return profile.outputs?.streaming?.mode !== 'buffered';
 }
 
-function resolveStore(spec: ModelSpec, reqStore: boolean | undefined): boolean | undefined {
+function resolveStore(binding: ModelBinding, reqStore: boolean | undefined): boolean | undefined {
   if (reqStore !== undefined) {
     return reqStore;
   }
-  return spec.store;
+  return binding.store;
+}
+
+function resolveTransport(profile: Profile, binding: ModelBinding): ProviderTransport {
+  if (profile.type === 'live') {
+    return 'geminiLive';
+  }
+  if (binding.protocol === 'geminiInteractions' && binding.provider === 'google') {
+    return 'interactions';
+  }
+  return 'openAiCompat';
 }
 
 function assertTurnResumption(profile: Profile, req: TurnRequest): void {
@@ -220,45 +190,38 @@ function resolveTurn(req: TurnRequest): {
   const input = safe.input ?? {};
   const profile = getProfile(safe.profile);
   assertTurnResumption(profile, safe);
-  const model = pickModel(profile, safe.select);
-  const spec = requireModelSpec(profile, model);
-  const thinkingOn = safe.thinking === true;
+  const model = pickModel(profile, safe.model);
+  const binding = requireModelBinding(profile, model);
   const toolSnapshot = resolveTurnTools(profile, safe, model);
   const builtins = toolSnapshot.builtins;
   const structured = resolveStructured(profile, input.slots);
   assertOutputMode(profile, structured);
   assertSpeechRole(profile);
-  const pinnedKey = profile.model.key ?? spec.key;
-  const keySlot = providerUsesKeySlots(profile.model.provider)
-    ? resolveKeySlot(pinnedKey, spec, builtins, profile.model.provider === 'google')
+  const pinnedKey = profile.key ?? binding.key;
+  const keySlot = providerUsesKeySlots(binding.provider)
+    ? resolveKeySlot(pinnedKey, binding, builtins, binding.provider === 'google')
     : undefined;
-  const transport: ProviderTransport =
-    profile.type === 'live'
-      ? 'geminiLive'
-      : profile.model.protocol === 'geminiInteractions' && profile.model.provider === 'google'
-        ? 'interactions'
-        : 'openAiCompat';
   const previousInteractionId =
-    spec.persistViaInteractionId === false ? undefined : safe.previousInteractionId;
+    binding.persistViaInteractionId === false ? undefined : safe.previousInteractionId;
   return {
     profile,
     generation: {
       model,
-      apiId: spec.apiId,
-      transport,
+      apiId: binding.apiId,
+      transport: resolveTransport(profile, binding),
       previousInteractionId,
-      store: resolveStore(spec, safe.store),
+      store: resolveStore(binding, safe.store),
       stream: resolveStreamFlag(profile),
-      thinking: resolveThinking(profile, spec, thinkingOn, safe.select),
-      summaries: resolveSummaries(profile, spec, thinkingOn),
-      maxOutputTokens: spec.maxOutputTokens,
-      temperature: spec.temperature,
+      thinking: resolveEffort(profile, binding, model, safe.effort),
+      summaries: resolveSummaries(binding),
+      maxOutputTokens: binding.maxOutputTokens,
+      temperature: binding.temperature,
       builtins,
       googleMapsLocation: safe.googleMapsLocation,
       tools: toolSnapshot,
       sessionPermissions: safe.sessionPermissions,
       history: input.history,
-      maxSteps: profile.model.maxSteps,
+      maxSteps: profile.maxSteps,
       structured,
       image: resolveImageFormat(profile),
       speech: profile.type === 'speech' ? profile.speech : undefined,
@@ -284,14 +247,18 @@ function profileInputsOrNull(profile: Profile): ProfileInputsSpec | null {
 
 /** Project a profile object into a safe host/UI inspection object. */
 function projectProfileObject(profile: Profile): ProjectedProfile {
-  const { model, identity } = profile;
+  const { identity } = profile;
   const inputs = profileInputsOrNull(profile);
   const outputs = profile.type === 'live' ? null : (profile.outputs ?? null);
   return {
     id: profile.id,
     type: profile.type,
     handle: identity.handle,
-    model,
+    models: profile.models,
+    defaultModel: profile.defaultModel,
+    allowModelSelect: profile.allowModelSelect,
+    maxSteps: profile.maxSteps,
+    key: profile.key,
     tools: projectTools(profile),
     inputs,
     outputs,

@@ -82,9 +82,6 @@ export type OverflowKeySlot = (typeof OVERFLOW_KEY_SLOTS)[number];
 export type KeyVault = Record<KeySlot, string | undefined>;
 
 /** Profile-level control a caller may toggle at turn time. */
-export const CONTROL_IDS = ['thinking'] as const;
-export type ControlId = (typeof CONTROL_IDS)[number];
-
 /** Normalized multimodal part category. */
 export const MEDIA_INPUT_KIND_VALUES = ['image', 'audio', 'video', 'document'] as const;
 export type MediaInputKind = (typeof MEDIA_INPUT_KIND_VALUES)[number];
@@ -100,6 +97,28 @@ export type StreamMode = (typeof STREAM_MODES)[number];
 /** Audio container for speech generation output. */
 export const SPEECH_AUDIO_FORMATS = ['pcm', 'mp3'] as const;
 export type SpeechAudioFormat = (typeof SPEECH_AUDIO_FORMATS)[number];
+
+/** Speech `format` values legal for a wire protocol (`assertSpeechRole` / UI). */
+export function speechFormatsForProtocol(protocol: Protocol): readonly SpeechAudioFormat[] {
+  return protocol === 'openAi' ? SPEECH_AUDIO_FORMATS : ['pcm'];
+}
+
+export function isSpeechFormatAllowedForProtocol(
+  protocol: Protocol,
+  format: SpeechAudioFormat,
+): boolean {
+  return speechFormatsForProtocol(protocol).includes(format);
+}
+
+/** Snap an illegal or omitted format to the first legal value for the protocol. */
+export function coerceSpeechFormat(
+  protocol: Protocol,
+  format: SpeechAudioFormat | undefined,
+): SpeechAudioFormat {
+  const allowed = speechFormatsForProtocol(protocol);
+  if (format && allowed.includes(format)) return format;
+  return allowed[0];
+}
 
 /** Live session activity handling (barge-in behavior). */
 export const LIVE_ACTIVITY_HANDLINGS = ['START_OF_ACTIVITY_INTERRUPTS', 'NO_INTERRUPTION'] as const;
@@ -153,8 +172,23 @@ export type TurnStopKind = (typeof TURN_STOP_KINDS)[number];
 export const TOOL_LOAD_TIERS = ['T0', 'T1', 'T2'] as const;
 export type ToolLoadTier = (typeof TOOL_LOAD_TIERS)[number];
 
+/**
+ * Load tiers valid on `type: 'live'` profiles.
+ * Gemini Live (and similar) fix function declarations at session setup — T1/T2 cannot be added mid-session.
+ */
+export const LIVE_TOOL_LOAD_TIERS = ['T0'] as const satisfies readonly ToolLoadTier[];
+export type LiveToolLoadTier = (typeof LIVE_TOOL_LOAD_TIERS)[number];
+
+/** HTTP verbs supported by declarative HTTP tools. */
+export const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
+export type HttpMethod = (typeof HTTP_METHODS)[number];
+
+/** When remote tool auth is missing or expired. */
+export const AUTH_UNAUTHENTICATED_POLICIES = ['pause', 'report_to_model'] as const;
+export type AuthUnauthenticatedPolicy = (typeof AUTH_UNAUTHENTICATED_POLICIES)[number];
+
 /** Registered tool discriminant (`registerTool`). */
-export const TOOL_TYPES = ['builtin', 'function'] as const;
+export const TOOL_TYPES = ['builtin', 'function', 'http', 'mcp'] as const;
 
 /** Semantic access level — host policy / UI; not enforced by execute. */
 export const TOOL_ACCESS = ['read-only', 'read-write', 'destructive'] as const;
@@ -163,6 +197,18 @@ export type ToolAccess = (typeof TOOL_ACCESS)[number];
 /** Execution authorization tier for registered tools. */
 export const TOOL_PERMISSION = ['auto', 'session_consent', 'always_confirm'] as const;
 export type ToolPermission = (typeof TOOL_PERMISSION)[number];
+
+/** Credential attachment modes for HTTP and MCP tools (`auth.type`). */
+export const TOOL_AUTH_TYPES = ['bearer', 'api_key', 'oauth2'] as const;
+export type ToolAuthType = (typeof TOOL_AUTH_TYPES)[number];
+
+/** Playground auth select — includes UI-only `none` (omits auth at compile time). */
+export const PLAYGROUND_AUTH_TYPES = ['none', ...TOOL_AUTH_TYPES] as const;
+export type PlaygroundAuthType = (typeof PLAYGROUND_AUTH_TYPES)[number];
+
+export type ToolType = (typeof TOOL_TYPES)[number];
+/** Custom registerTool discriminants (excludes provider builtins). */
+export type CustomToolType = Exclude<ToolType, 'builtin'>;
 
 /** MIME essence → normalized media part category (shared ingress map). */
 export const MEDIA_INPUT_KINDS: Record<string, MediaInputKind> = {
@@ -291,12 +337,11 @@ function field(
 
 /**
  * Parents whose next key is a host-owned map key (model id, slot name, …).
- * The annotator substitutes `*` so `model.config.flash.apiId` → `model.config.*.apiId`.
+ * The annotator substitutes `*` so `models.flash.apiId` → `models.*.apiId`.
  */
 export const DYNAMIC_FIELD_PARENTS: ReadonlySet<string> = new Set([
-  'model.config',
-  'model.select',
-  'model.thinking',
+  'models',
+  'models.*.efforts',
   'identity.systemByRole',
   'inputs.slots',
   'inputs.limitsByMime',
@@ -338,19 +383,24 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
     'string',
     'System instruction merged when this turn role is active.',
   ),
-  model: field('ProfileModelSpec', 'Protocol, provider, allowlist, wire config, and step bounds.'),
-  'model.protocol': field(
+  models: field(
+    'Record<ModelId, ModelBinding>',
+    'Host-named model bindings. Keys are model ids; each entry carries protocol, provider, and wire config.',
+  ),
+  'models.*': field('ModelBinding', 'Wire binding for one host-named model id.'),
+  'models.*.protocol': field(
     unionType(PROTOCOLS),
-    'Wire protocol. Pairs with provider via createProvider.',
+    'Wire protocol for this model. Must be valid for profile type.',
     PROTOCOLS,
     {
       geminiInteractions: 'Google Gemini Interactions wire protocol (Gemini 2.5 / 3+).',
+      geminiLive: 'Gemini Live bidirectional WebSocket protocol.',
       openAi: 'OpenAI-compatible chat completions and streaming protocol.',
     },
   ),
-  'model.provider': field(
+  'models.*.provider': field(
     unionType(PROVIDERS),
-    'Transport. Must form a legal pair with protocol.',
+    'Transport for this model. Must form a legal pair with protocol.',
     PROVIDERS,
     {
       google: 'Direct Google Gemini API transport.',
@@ -358,23 +408,14 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
       local: 'Local OpenAI-compatible server (Ollama, llama.cpp, vLLM).',
     },
   ),
-  'model.allow': field('ModelId[]', 'Ids this profile may select. Each id must exist in config.'),
-  'model.config': field(
-    'Record<ModelId, ModelSpec>',
-    'Host-owned wire config keyed by the same ids used in allow / select.',
+  'models.*.apiId': field('string', 'Provider wire model id.'),
+  'models.*.efforts': field(
+    'Record<string, ThinkingLevel>',
+    'Alias → thinking level. One entry = fixed; two+ may be selectable at turn time.',
   ),
-  'model.config.*': field(
-    'ModelSpec',
-    'Host-owned wire config for this model id (apiId, thinking, token limits, compaction).',
-  ),
-  'model.config.*.apiId': field('string', 'Provider wire model id.'),
-  'model.config.*.thinking': field(
-    '{ on, off }',
-    'Thinking levels used when a boolean thinking control is on or off.',
-  ),
-  'model.config.*.thinking.on': field(
+  'models.*.efforts.*': field(
     unionType(THINKING_LEVELS),
-    'Level when thinking is on.',
+    'Wire thinking level for this effort alias.',
     THINKING_LEVELS,
     {
       none: 'Disable reasoning tokens completely.',
@@ -386,85 +427,41 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
       max: 'Maximum reasoning tokens supported by model.',
     },
   ),
-  'model.config.*.thinking.off': field(
-    unionType(THINKING_LEVELS),
-    'Level when thinking is off.',
-    THINKING_LEVELS,
-    {
-      none: 'Disable reasoning tokens completely.',
-      minimal: 'Minimal reasoning tokens for fastest response.',
-      low: 'Low reasoning budget for basic structured tasks.',
-      medium: 'Balanced reasoning for multi-step agent actions.',
-      high: 'Deep reasoning for complex planning and code.',
-      xhigh: 'Extended reasoning budget for hard problems.',
-      max: 'Maximum reasoning tokens supported by model.',
-    },
+  'models.*.defaultEffort': field('string', 'Effort alias when the turn omits effort.'),
+  'models.*.allowEffortSelect': field(
+    'boolean',
+    'Turn may pass effort. Requires two or more efforts keys.',
   ),
-  'model.config.*.thinkingLevels': field(
-    'ThinkingLevel[]',
-    'Levels this model accepts. Illegal values are clamped.',
-    THINKING_LEVELS,
-    {
-      none: 'Disable reasoning tokens completely.',
-      minimal: 'Minimal reasoning tokens for fastest response.',
-      low: 'Low reasoning budget for basic structured tasks.',
-      medium: 'Balanced reasoning for multi-step agent actions.',
-      high: 'Deep reasoning for complex planning and code.',
-      xhigh: 'Extended reasoning budget for hard problems.',
-      max: 'Maximum reasoning tokens supported by model.',
-    },
-  ),
-  'model.config.*.summaries': field('{ on, off }', 'Summary behavior for the thinking control.'),
-  'model.config.*.summaries.on': field(
-    unionType(SUMMARY_MODES),
-    'Summaries when thinking is on.',
-    SUMMARY_MODES,
-    {
-      auto: 'Emit thinking summaries when available.',
-      none: 'Suppress thinking summaries from the stream.',
-    },
-  ),
-  'model.config.*.summaries.off': field(
-    unionType(SUMMARY_MODES),
-    'Summaries when thinking is off.',
-    SUMMARY_MODES,
-    {
-      auto: 'Emit thinking summaries when available.',
-      none: 'Suppress thinking summaries from the stream.',
-    },
-  ),
-  'model.config.*.maxOutputTokens': field('number', 'Maximum tokens the model may emit.'),
-  'model.config.*.temperature': field('number', 'Sampling temperature.'),
-  'model.config.*.builtInTools': field(
+  'models.*.summaries': field('boolean', 'Emit thinking summaries on the stream.'),
+  'models.*.maxOutputTokens': field('number', 'Maximum tokens the model may emit.'),
+  'models.*.temperature': field('number', 'Sampling temperature.'),
+  'models.*.builtInTools': field(
     'BuiltinToolId[]',
     'Provider-native builtins enabled whenever this model is selected.',
   ),
-  'model.config.*.key': field(
+  'models.*.key': field(
     unionType(KEY_SLOTS),
-    'Optional vault slot for this model. Overrides profile.model.key.',
+    'Optional vault slot for this model. Overrides profile.key.',
     KEY_SLOTS,
   ),
-  'model.config.*.compaction': field(
-    'CompactionSpec',
-    'Optional compaction policy for this model.',
-  ),
-  'model.config.*.compaction.maxTokens': field(
+  'models.*.compaction': field('CompactionSpec', 'Optional compaction policy for this model.'),
+  'models.*.compaction.maxTokens': field(
     'number',
     'Token budget compared by the trigger (compactAt * maxTokens).',
   ),
-  'model.config.*.compaction.compactAt': field(
+  'models.*.compaction.compactAt': field(
     'number',
     'Fraction of maxTokens at which compaction fires. Must be in (0, 1).',
   ),
-  'model.config.*.compaction.previousExchanges': field(
+  'models.*.compaction.previousExchanges': field(
     'number',
     '≥ 1 = exchange count, (0, 1) = fraction of maxTokens, 0 = compact all.',
   ),
-  'model.config.*.compaction.profile': field(
+  'models.*.compaction.profile': field(
     'ProfileId',
     'Compaction agent profile id. Must be registered before the owning profile.',
   ),
-  'model.config.*.compaction.timing': field(
+  'models.*.compaction.timing': field(
     unionType(COMPACTION_TIMINGS),
     'When compaction runs relative to the primary turn.',
     COMPACTION_TIMINGS,
@@ -473,7 +470,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
       after: 'Signal on done for host async background compaction.',
     },
   ),
-  'model.config.*.compaction.meter': field(
+  'models.*.compaction.meter': field(
     unionType(COMPACTION_METERS),
     'What the threshold meters. Defaults to history.',
     COMPACTION_METERS,
@@ -482,64 +479,32 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
       input: 'Meters full turn input token count (system + history + attachments).',
     },
   ),
-  'model.select': field(
-    'Record<string, ModelId>',
-    'Named aliases (fast / smart) → allowlisted ids.',
-  ),
-  'model.select.*': field('ModelId', 'Allowlisted model id for this select key.'),
-  'model.thinking': field(
-    'ThinkingLevel | Record<string, ThinkingLevel>',
-    'Default thinking pin, or a map keyed by select labels.',
-    THINKING_LEVELS,
-    {
-      none: 'Disable reasoning tokens completely.',
-      minimal: 'Minimal reasoning tokens for fastest response.',
-      low: 'Low reasoning budget for basic structured tasks.',
-      medium: 'Balanced reasoning for multi-step agent actions.',
-      high: 'Deep reasoning for complex planning and code.',
-      xhigh: 'Extended reasoning budget for hard problems.',
-      max: 'Maximum reasoning tokens supported by model.',
-    },
-  ),
-  'model.thinking.*': field(
-    unionType(THINKING_LEVELS),
-    'Thinking pin for this select key.',
-    THINKING_LEVELS,
-    {
-      none: 'Disable reasoning tokens completely.',
-      minimal: 'Minimal reasoning tokens for fastest response.',
-      low: 'Low reasoning budget for basic structured tasks.',
-      medium: 'Balanced reasoning for multi-step agent actions.',
-      high: 'Deep reasoning for complex planning and code.',
-      xhigh: 'Extended reasoning budget for hard problems.',
-      max: 'Maximum reasoning tokens supported by model.',
-    },
-  ),
-  'model.controls': field('ControlId[]', 'Turn-time toggles this profile exposes.', CONTROL_IDS),
-  'model.maxSteps': field(
+  defaultModel: field('ModelId', 'Default model id when the turn omits model.'),
+  allowModelSelect: field('boolean', 'Turn may pass model. Requires two or more models keys.'),
+  maxSteps: field(
     'number',
     'Tool-loop ceiling. <=0 unbounded, 1 one-shot, >1 ceiling. Omit → unbounded.',
   ),
-  'model.key': field(
+  key: field(
     unionType(OVERFLOW_KEY_SLOTS),
-    'Vault key slot (slotA/B/C). Paid is overflow-only via model.config.*.key or forcePaidKey builtins.',
+    'Vault key slot (slotA/B/C). Paid is overflow-only via models.*.key or forcePaidKey builtins.',
     OVERFLOW_KEY_SLOTS,
   ),
   tools: field(
     '{ allow: ToolId[]; t1Policy?; t2Loader? }',
-    'Custom tools (allow), optional T1 policy, optional T2 loader function id. Builtins belong on model.config.*.builtInTools. Live profiles use `{ allow }` only.',
+    'Custom tools (allow), optional T1 policy, optional T2 loader function id. Builtins belong on models.*.builtInTools. Live profiles use LiveProfileToolsSpec `{ allow }` only — T0 tools fixed at session setup.',
   ),
   'tools.allow': field(
     'ToolId[]',
-    'Custom tools the agent may call. Builtins are declared per model, not here.',
+    'Custom tools the agent may call. Builtins are declared per model, not here. On type live, every listed id must be loadTier T0.',
   ),
   'tools.t1Policy': field(
     '(ctx) => ToolId[] | Promise<ToolId[]>',
-    'Optional T1 policy — which eligible loadTier:T1 tools to wire at turn start.',
+    'Optional T1 policy — which eligible loadTier:T1 tools to wire at turn start. Not supported on type live.',
   ),
   'tools.t2Loader': field(
     'ToolId',
-    'Optional function tool id for T2 promotion. Must be in tools.allow; handler returns { loaded: string[] }.',
+    'Optional function tool id for T2 promotion. Must be in tools.allow; handler returns { loaded: string[] }. Not supported on type live.',
   ),
   inputs: field('ProfileInputsSpec', 'Text, attachment, voice, slot, and size rules.'),
   'inputs.text': field(
@@ -621,9 +586,9 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   ),
   'live.ingress.video': field(
     'boolean',
-    'Webcam JPEG frames via LiveSession.sendVideo. Omit or false → disabled; true → enabled.',
+    'Webcam JPEG frames via LiveSession.sendVideo. Omit → enabled.',
   ),
-  'live.ingress.text': field('boolean', 'Typed text via LiveSession.sendText. Omit → enabled.'),
+  'live.ingress.text': field('boolean', 'Typed text via LiveSession.sendText. Omit → disabled.'),
   'live.voice': field(
     'string',
     'TTS voice name for live audio output (e.g. Puck, Aoede, Charon).',
@@ -765,23 +730,40 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
     'string',
     'Instruction appended on an egress repair turn.',
   ),
+  'guardrails.network': field(
+    'NetworkGuardrailSpec',
+    'SSRF guardrails for declarative HTTP and MCP tools.',
+  ),
+  'guardrails.network.allowPrivateNetworks': field(
+    'boolean',
+    'Allow loopback and private-network targets when resolving tool URLs.',
+  ),
+  'guardrails.network.allowedHosts': field(
+    'string[]',
+    'Explicit hostname allowlist for declarative HTTP and MCP egress.',
+  ),
 };
+
+const TOOL_TYPE_FIELD = field(
+  unionType(TOOL_TYPES),
+  'Discriminator: builtin (provider-native), function (host handler), http (declarative HTTP), or mcp (remote MCP).',
+  TOOL_TYPES,
+  {
+    builtin: 'Provider-native capability; wire maps to the provider adapter.',
+    function:
+      'Host-owned tool with Zod input/output and a handler. Profile tools.t2Loader may promote T2 tools when output includes { loaded }.',
+    http: 'Declarative HTTP tool calling remote REST/JSON endpoint with optional auth/PKCE.',
+    mcp: 'Remote Model Context Protocol tool calling remote MCP server with JSON-RPC.',
+  },
+);
 
 /** Adjacent tool catalog fields that appear next to profile examples. */
 export const EXTRA_FIELDS: Record<string, FieldMeta> = {
-  type: field(
-    unionType(TOOL_TYPES),
-    'Discriminator: builtin (provider-native) or function (host handler).',
-    TOOL_TYPES,
-    {
-      builtin: 'Provider-native capability; wire maps to the provider adapter.',
-      function:
-        'Host-owned tool with Zod input/output and a handler. Profile tools.t2Loader may promote T2 tools when output includes { loaded }.',
-    },
-  ),
+  /** Playground / UI path — avoids collision with profile `type` in fieldMeta(). */
+  'registerTool.type': TOOL_TYPE_FIELD,
   name: field(
     'string',
-    'Wire tool id — custom: tools.allow; provider builtin: model.config.*.builtInTools. Visibility via loadTier (T0/T1/T2).',
+    'Wire tool id — custom: tools.allow; provider builtin: models.*.builtInTools. Visibility via loadTier (T0/T1/T2).',
   ),
   description: field('string', 'Model-facing description included in function declarations.'),
   input: field(
@@ -793,6 +775,96 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     'ToolHandler',
     'Host function or async generator run on model tool calls and invokeTool resumes.',
   ),
+  endpoint: field(
+    'string',
+    'HTTP URL template for declarative tools. Use {param} placeholders for path segments.',
+  ),
+  method: field(unionType(HTTP_METHODS), 'HTTP verb for declarative tools.', HTTP_METHODS),
+  headers: field(
+    'Record<string, string>',
+    'Optional static headers merged on every HTTP or MCP request.',
+  ),
+  mapping: field(
+    '{ pathParams?, queryParams?, bodyParam? }',
+    'Maps tool input fields to URL path segments, query string, or JSON body.',
+  ),
+  'mapping.pathParams': field(
+    'string[]',
+    'Input keys substituted into {name} path segments on the endpoint template.',
+  ),
+  'mapping.queryParams': field('string[]', 'Input keys appended as query-string parameters.'),
+  'mapping.bodyParam': field(
+    'string',
+    'Single input key sent as the JSON request body (POST/PUT/PATCH).',
+  ),
+  serverUrl: field('string', 'Streamable HTTP MCP server endpoint (JSON-RPC tools/call).'),
+  mcpToolName: field('string', 'Remote tool name on the MCP server (tools/list → tools/call).'),
+  auth: field(
+    'HttpToolAuthConfig',
+    'Optional credential slot and header wiring for HTTP and MCP tools.',
+  ),
+  'auth.type': field(
+    unionType(TOOL_AUTH_TYPES),
+    'How credentials from the slot are attached to outbound requests.',
+    TOOL_AUTH_TYPES,
+    {
+      bearer: 'Authorization header with optional prefix (default Bearer).',
+      api_key: 'Named header carries the raw key or token.',
+      oauth2: 'OAuth2 access token with optional refresh via the credential slot.',
+    },
+  ),
+  'auth.slot': field(
+    'string',
+    'Credential slot id resolved from ToolContext.credentials at execution time.',
+  ),
+  'auth.headerName': field(
+    'string',
+    "Request header for bearer/api_key auth (default 'Authorization').",
+  ),
+  'auth.headerPrefix': field(
+    'string',
+    "Prefix before the secret (default 'Bearer ' for bearer auth).",
+  ),
+  'auth.onUnauthenticated': field(
+    unionType(AUTH_UNAUTHENTICATED_POLICIES),
+    'Whether a missing/expired credential pauses the turn or reports to the model.',
+    AUTH_UNAUTHENTICATED_POLICIES,
+    {
+      pause: 'Emit ToolPause { kind: auth } and wait for host credential injection.',
+      report_to_model: 'Return a model-visible finding without pausing the turn.',
+    },
+  ),
+  'auth.scopes': field('string[]', 'OAuth2 scopes requested during authorization.'),
+  'auth.clientId': field('string', 'OAuth2 client id for the authorization code flow.'),
+  'auth.redirectUri': field('string', 'OAuth2 redirect URI registered for this client.'),
+  'playground.authType': field(
+    unionType(PLAYGROUND_AUTH_TYPES),
+    'Playground auth select — `none` omits auth when compiling registerTool.',
+    PLAYGROUND_AUTH_TYPES,
+    {
+      none: 'No credential slot — tool runs without Authorization headers.',
+      bearer: 'Authorization header with optional prefix (default Bearer).',
+      api_key: 'Named header carries the raw key or token.',
+      oauth2: 'OAuth2 access token with optional refresh via the credential slot.',
+    },
+  ),
+  'playground.testCredential': field(
+    'string',
+    'Playground-only: one-shot credential for the pre-run connectivity check (not compiled into registerTool).',
+  ),
+  'playground.stubOutput': field(
+    'Record<string, unknown>',
+    'Playground-only: fixed JSON object returned by function tool stubs when no demo handler exists.',
+  ),
+  'registerStructured.enforced': field(
+    unionType(SCHEMA_ENFORCEMENTS),
+    'How structured output is enforced on the wire.',
+    SCHEMA_ENFORCEMENTS,
+  ),
+  'registerStructured.jsonSchema': field(
+    'Record<string, unknown>',
+    'JSON Schema body registered under outputs.structured id.',
+  ),
   access: field(unionType(TOOL_ACCESS), 'Semantic access level for policy and UI.', TOOL_ACCESS, {
     'read-only': 'Reads host or remote state; no lasting mutation.',
     'read-write': 'May create or update host state.',
@@ -800,12 +872,12 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   }),
   loadTier: field(
     unionType(TOOL_LOAD_TIERS),
-    'When this tool is wired to the model (profile allow / builtInTools is still required).',
+    'When this tool is wired to the model (profile allow / builtInTools is still required). Live sessions accept T0 only.',
     TOOL_LOAD_TIERS,
     {
-      T0: 'Wired at turn start when allowed (custom on allow / builtin on the model).',
-      T1: 'Wired when profile.tools.t1Policy selects it.',
-      T2: 'Deferred until profile.tools.t2Loader returns { loaded } and the kernel promotes those ids.',
+      T0: 'Wired at turn/session start when allowed (custom on allow / builtin on the model). Required for type live.',
+      T1: 'Wired when profile.tools.t1Policy selects it (text/image turns only — not live).',
+      T2: 'Deferred until profile.tools.t2Loader returns { loaded } and the kernel promotes those ids (text/image turns only — not live).',
     },
   ),
   permission: field(

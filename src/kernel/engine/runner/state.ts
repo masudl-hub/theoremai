@@ -1,3 +1,4 @@
+import type { TurnToolSnapshot } from '../../tools/types.ts';
 import type {
   ResolvedGeneration,
   TurnEvent,
@@ -14,6 +15,8 @@ interface StepExecutionState {
   attemptEvents: TurnEvent[];
   /** Last provider stop from a discarded provider `done` event. */
   lastStop?: TurnStop;
+  /** Tool snapshot at tool pause — emitted on terminal `done` when `stop.kind === 'tool'`. */
+  toolSnapshot?: TurnToolSnapshot;
   /** Latest Google Interactions id observed on the current provider stream. */
   lastInteractionId?: string;
   /** Pending Interactions `function_result` continuation for the next provider step. */

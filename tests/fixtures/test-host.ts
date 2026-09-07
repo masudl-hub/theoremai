@@ -6,9 +6,10 @@ import type { GoogleImagePins } from '../../src/presets/google.ts';
 import { registerGooglePreset } from '../../src/presets/google.ts';
 import {
   CHAT_MEDIA_LIMITS,
-  geminiModel,
-  HOST_MODELS,
+  geminiModels,
+  HOST_BINDINGS,
   IMAGE_INPUT_MIMES,
+  modelBindings,
   VOICE_INPUT_MIMES,
 } from './models.ts';
 import { registerTestTools } from './test-tools.ts';
@@ -82,12 +83,11 @@ const chat: Profile = {
   type: 'text',
   id: 'chat',
   identity: { handle: 'chat', system: 'Reply in the structured turn schema.' },
-  model: {
-    ...geminiModel('gemini35FlashLite'),
-    controls: ['thinking'],
-    maxSteps: 1,
-    key: 'slotA',
+  models: {
+    gemini35FlashLite: HOST_BINDINGS.gemini35FlashLite,
   },
+  maxSteps: 1,
+  key: 'slotA',
   tools: { allow: [] },
   inputs: {
     text: true,
@@ -106,13 +106,15 @@ const pinned: Profile = {
   type: 'text',
   id: 'pinned',
   identity: { handle: 'pinned', system: 'Keep replies short.' },
-  model: {
-    ...geminiModel('gemini35FlashLite'),
-    thinking: 'low',
-    controls: [],
-    maxSteps: 1,
-    key: 'slotA',
+  models: {
+    gemini35FlashLite: {
+      ...HOST_BINDINGS.gemini35FlashLite,
+      efforts: { normal: 'low' },
+      allowEffortSelect: false,
+    },
   },
+  maxSteps: 1,
+  key: 'slotA',
   tools: { allow: [] },
   inputs: { text: true },
   outputs: { structured: 'chatTurn' },
@@ -129,23 +131,23 @@ const selector: Profile = {
     handle: 'primary',
     systemByRole: { primary: 'You are Primary.', reviewer: 'You are Reviewer.' },
   },
-  model: {
-    protocol: 'geminiInteractions',
-    provider: 'google',
-    allow: ['gemini35FlashLite', 'gemini31ProPreview'],
-    config: {
-      gemini35FlashLite: {
-        ...HOST_MODELS.gemini35FlashLite,
-        maxOutputTokens: LONG_FLASH,
-      },
-      gemini31ProPreview: HOST_MODELS.gemini31ProPreview,
+  models: {
+    gemini35FlashLite: {
+      ...HOST_BINDINGS.gemini35FlashLite,
+      efforts: { normal: 'low' },
+      allowEffortSelect: false,
+      maxOutputTokens: LONG_FLASH,
     },
-    select: { fast: 'gemini35FlashLite', smart: 'gemini31ProPreview' },
-    thinking: { fast: 'low', smart: 'high' },
-    controls: [],
-    maxSteps: 1,
-    key: 'slotB',
+    gemini31ProPreview: {
+      ...HOST_BINDINGS.gemini31ProPreview,
+      efforts: { normal: 'high' },
+      allowEffortSelect: false,
+    },
   },
+  defaultModel: 'gemini35FlashLite',
+  allowModelSelect: true,
+  maxSteps: 1,
+  key: 'slotB',
   tools: { allow: [] },
   inputs: {
     text: true,
@@ -164,18 +166,14 @@ const formatter: Profile = {
   type: 'text',
   id: 'formatter',
   identity: { handle: 'formatter', system: 'Produce source text in the structured turn schema.' },
-  model: {
-    ...geminiModel('gemini35FlashLite'),
-    config: {
-      gemini35FlashLite: {
-        ...HOST_MODELS.gemini35FlashLite,
-        builtInTools: [],
-      },
+  models: {
+    gemini35FlashLite: {
+      ...HOST_BINDINGS.gemini35FlashLite,
+      builtInTools: [],
     },
-    controls: ['thinking'],
-    maxSteps: 1,
-    key: 'slotC',
   },
+  maxSteps: 1,
+  key: 'slotC',
   tools: { allow: [] },
   inputs: {
     text: true,
@@ -196,13 +194,8 @@ const image: Profile = {
   type: 'image',
   id: 'image',
   identity: { handle: 'image', system: 'Generate exactly one image.' },
-  model: {
-    ...geminiModel('gemini31FlashLiteImage'),
-    thinking: 'minimal',
-    controls: [],
-    maxSteps: 1,
-    key: 'slotA',
-  },
+  ...geminiModels('gemini31FlashLiteImage'),
+  maxSteps: 1,
   image: {
     aspectRatio: '1:1',
     size: '1K',
@@ -226,13 +219,8 @@ const speech: Profile = {
   type: 'speech',
   id: 'speech',
   identity: { handle: 'speech', system: 'Speak the user text clearly.' },
-  model: {
-    ...geminiModel('gemini31FlashTts'),
-    thinking: 'minimal',
-    controls: [],
-    maxSteps: 1,
-    key: 'slotA',
-  },
+  ...geminiModels('gemini31FlashTts'),
+  maxSteps: 1,
   speech: { voice: 'Kore', format: 'pcm' },
   guardrails: {
     canary: true,
@@ -246,3 +234,5 @@ registerProfile(selector);
 registerProfile(formatter);
 registerProfile(image);
 registerProfile(speech);
+
+export { modelBindings };

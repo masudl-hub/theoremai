@@ -16,7 +16,7 @@ import { buildRecord } from '../../../observability/trace-record.ts';
 import { pickSystemRole, resolveTurn } from '../../registry/resolve.ts';
 import type { Protocol } from '../../schema.ts';
 import { CONTINUE_INSTRUCTION } from '../../stop.ts';
-import { expandT1Policy } from '../../tools/resolve.ts';
+import { cloneTurnToolSnapshot, expandT1Policy } from '../../tools/resolve.ts';
 import type {
   CompactionSignal,
   CompactionSpec,
@@ -34,7 +34,7 @@ import { shouldSkipStreamEvent, systemFromProfile } from './stream.ts';
 import { calculateFallbackTokens } from './tokens.ts';
 
 function getCompactionSpec(profile: Profile, modelId: string): CompactionSpec | undefined {
-  return profile.model.config[modelId]?.compaction;
+  return profile.models[modelId]?.compaction;
 }
 
 async function runCompactionTurn(
@@ -164,6 +164,9 @@ async function* emitTurn(args: {
   yield {
     type: 'done',
     stop: state.lastStop ?? { kind: 'completed' },
+    ...(state.lastStop?.kind === 'tool' && state.toolSnapshot
+      ? { tools: cloneTurnToolSnapshot(state.toolSnapshot) }
+      : {}),
   };
 }
 
@@ -234,7 +237,7 @@ async function* runTurnBody(ctx: TraceCtx, provider: ModelProvider): AsyncGenera
   ctx.model = gen.model;
   ctx.keySlot = gen.keySlot;
   ctx.canary = gen.canary;
-  ctx.protocol = profile.model.protocol;
+  ctx.protocol = profile.models[gen.model]?.protocol;
 
   const isCompacting = ctx.req.metadata?._compacting === true;
   const compactionSpec = isCompacting ? undefined : getCompactionSpec(profile, gen.model);

@@ -522,7 +522,7 @@ async function* streamOpenRouter(
 
 export function providerOptionsFor(req: ProviderCompleteRequest): ProviderOptions | undefined {
   const openrouter: Record<string, JsonValue> = {};
-  if (req.thinking !== 'none') {
+  if (req.thinking && req.thinking !== 'none') {
     openrouter.reasoning = { effort: req.thinking };
   }
   const responseFormat = resolveResponseFormat(req.structured) as

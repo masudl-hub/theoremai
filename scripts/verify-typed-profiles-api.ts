@@ -152,18 +152,15 @@ if (openRouterKey) {
       type: 'text',
       id: 'live_test_chat_or_sse',
       identity: { handle: 'assistant', system: 'You are a concise AI assistant.' },
-      model: {
-        protocol: 'openAi',
-        provider: 'openrouter',
-        allow: ['openrouter/free'],
-        config: {
-          'openrouter/free': {
-            apiId: 'openrouter/free',
-            maxOutputTokens: 100,
-            temperature: 0.2,
-          },
+      models: {
+        'openrouter/free': {
+          protocol: 'openAi',
+          provider: 'openrouter',
+          apiId: 'openrouter/free',
+          efforts: { normal: 'none' },
+          maxOutputTokens: 100,
+          temperature: 0.2,
         },
-        thinking: 'none',
       },
       tools: { allow: [] },
       inputs: { text: true },
@@ -216,18 +213,15 @@ if (openRouterKey) {
       type: 'text',
       id: 'live_test_chat_structured',
       identity: { handle: 'analyzer', system: 'Analyze sentiment in structured JSON.' },
-      model: {
-        protocol: 'openAi',
-        provider: 'openrouter',
-        allow: ['openrouter/free'],
-        config: {
-          'openrouter/free': {
-            apiId: 'openrouter/free',
-            maxOutputTokens: 200,
-            temperature: 0.1,
-          },
+      models: {
+        'openrouter/free': {
+          protocol: 'openAi',
+          provider: 'openrouter',
+          apiId: 'openrouter/free',
+          efforts: { normal: 'none' },
+          maxOutputTokens: 200,
+          temperature: 0.1,
         },
-        thinking: 'none',
       },
       tools: { allow: [] },
       inputs: { text: true },
@@ -272,23 +266,20 @@ if (geminiKey) {
         system:
           'You must use the calculate_sum tool to calculate any addition. Do not do mental math.',
       },
-      model: {
-        protocol: 'geminiInteractions',
-        provider: 'google',
-        allow: ['gemini-2.0-flash'],
-        config: {
-          'gemini-2.0-flash': {
-            apiId: 'gemini-2.0-flash',
-            maxOutputTokens: 200,
-            temperature: 0.1,
-            thinking: { on: 'minimal', off: 'minimal' },
-            thinkingLevels: ['minimal', 'low', 'medium', 'high'],
-          },
+      models: {
+        'gemini-2.0-flash': {
+          protocol: 'geminiInteractions',
+          provider: 'google',
+          apiId: 'gemini-2.0-flash',
+          efforts: { normal: 'minimal', low: 'low', medium: 'medium', high: 'high' },
+          defaultEffort: 'normal',
+          allowEffortSelect: true,
+          maxOutputTokens: 200,
+          temperature: 0.1,
         },
-        thinking: 'minimal',
-        maxSteps: 3,
-        key: 'slotA',
       },
+      maxSteps: 3,
+      key: 'slotA',
       tools: { allow: ['calculate_sum'] },
       inputs: { text: true },
       turnResumption: { allowContinue: true, autoContinue: true, maxContinues: 2 },
@@ -332,20 +323,17 @@ if (geminiKey) {
       type: 'text',
       id: 'live_test_chat_buffered',
       identity: { handle: 'assistant', system: 'Be concise.' },
-      model: {
-        protocol: 'geminiInteractions',
-        provider: 'google',
-        allow: ['gemini-2.0-flash'],
-        config: {
-          'gemini-2.0-flash': {
-            apiId: 'gemini-2.0-flash',
-            maxOutputTokens: 100,
-            temperature: 0.2,
-          },
+      models: {
+        'gemini-2.0-flash': {
+          protocol: 'geminiInteractions',
+          provider: 'google',
+          apiId: 'gemini-2.0-flash',
+          efforts: { normal: 'minimal' },
+          maxOutputTokens: 100,
+          temperature: 0.2,
         },
-        thinking: 'minimal',
-        key: 'slotA',
       },
+      key: 'slotA',
       tools: { allow: [] },
       inputs: { text: true },
       outputs: { streaming: { mode: 'buffered' } },
@@ -398,16 +386,13 @@ await runTest('Image Profile: Schema and Provider Resolution', () => {
     type: 'image',
     id: 'live_test_image_profile',
     identity: { handle: 'artist', system: 'Generate beautiful artwork.' },
-    model: {
-      protocol: 'openAi',
-      provider: 'openrouter',
-      allow: ['stabilityai/stable-diffusion-xl'],
-      config: {
-        'stabilityai/stable-diffusion-xl': {
-          apiId: 'stabilityai/stable-diffusion-xl',
-        },
+    models: {
+      'stabilityai/stable-diffusion-xl': {
+        protocol: 'openAi',
+        provider: 'openrouter',
+        apiId: 'stabilityai/stable-diffusion-xl',
+        efforts: { normal: 'none' },
       },
-      thinking: 'none',
     },
     image: {
       mimeType: 'image/jpeg',
@@ -444,16 +429,13 @@ await runTest('Speech Profile: Locked Inputs and Provider Resolution', () => {
     type: 'speech',
     id: 'live_test_speech_profile',
     identity: { handle: 'speaker' },
-    model: {
-      protocol: 'openAi',
-      provider: 'openrouter',
-      allow: ['openai/tts-1'],
-      config: {
-        'openai/tts-1': {
-          apiId: 'openai/tts-1',
-        },
+    models: {
+      'openai/tts-1': {
+        protocol: 'openAi',
+        provider: 'openrouter',
+        apiId: 'openai/tts-1',
+        efforts: { normal: 'none' },
       },
-      thinking: 'none',
     },
     speech: {
       voice: 'alloy',
@@ -496,20 +478,15 @@ await runTest('Live Profile: geminiLive Protocol and Session Setup', () => {
     type: 'live',
     id: 'live_test_gemini_live',
     identity: { handle: 'conversationalist', system: 'Real-time conversational agent.' },
-    model: {
-      protocol: 'geminiLive',
-      provider: 'google',
-      allow: ['gemini31FlashLive'],
-      thinking: 'none',
-      config: {
-        gemini31FlashLive: {
-          apiId: 'gemini-3.1-flash-live-preview',
-          thinking: { on: 'none', off: 'none' },
-          thinkingLevels: ['none'],
-          summaries: { on: 'none', off: 'none' },
-          builtInTools: [],
-          key: 'slotA',
-        },
+    models: {
+      gemini31FlashLive: {
+        protocol: 'geminiLive',
+        provider: 'google',
+        apiId: 'gemini-3.1-flash-live-preview',
+        efforts: { normal: 'none' },
+        summaries: false,
+        builtInTools: [],
+        key: 'slotA',
       },
     },
     live: {

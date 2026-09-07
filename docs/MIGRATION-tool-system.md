@@ -60,7 +60,7 @@ tools: {
   allow: ['lookup_order', 'load_tools', 'deferred_lookup'],
   t2Loader: 'load_tools', // optional — function that returns { loaded }
 }
-// model.config.*.builtInTools: ['googleSearch']
+// models.*.builtInTools: ['googleSearch']
 ```
 
 Set **`loadTier`** on each registered tool (`T0` / `T1` / `T2`).
@@ -118,6 +118,7 @@ Do **not** use `continueFrom` for tool pauses — use `invokeTool`.
 - **`always_confirm`** ignores `sessionPermissions`; only `resume.granted === true` bypasses.
 - **`canExecute` returning a pause envelope** — use `preflight` returning a `ToolPause` instead.
 - **T2 promotion** — only the designated `tools.t2Loader` function may promote **pre-registered** ids in `allow`.
+- **Live (`type: 'live'`)** — `LiveProfileToolsSpec` is `{ allow }` only (no `t1Policy` / `t2Loader`). Every allowlisted custom tool and model `builtInTools` entry must be `loadTier: 'T0'`; Gemini Live fixes declarations at session setup.
 - **Tool descriptions** — no per-turn `sanitizeDynamicTools`; sanitize at registration if needed.
 
 ---

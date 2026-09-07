@@ -1,6 +1,12 @@
 import { z } from 'zod';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import { executeRegisteredTool, registerTool, resetTools } from '../../src/kernel/tools/mod.ts';
+import {
+  executeRegisteredTool,
+  parseMcpRpcResponse,
+  registerTool,
+  resetTools,
+} from '../../src/kernel/tools/mod.ts';
+import { buildHttpToolTarget } from '../../src/kernel/tools/remote.ts';
 import type { ModelToolResult } from '../../src/kernel/tools/types.ts';
 import type { Profile } from '../../src/kernel/types.ts';
 
@@ -8,16 +14,14 @@ const testProfile: Profile = {
   id: 'test-profile',
   type: 'text',
   identity: { handle: 'test-agent' },
-  model: {
-    protocol: 'geminiInteractions',
-    provider: 'google',
-    allow: ['test-model'],
-    config: {
-      'test-model': {
-        apiId: 'test-model-id',
-        maxOutputTokens: 1000,
-        temperature: 0.5,
-      },
+  models: {
+    'test-model': {
+      protocol: 'geminiInteractions',
+      provider: 'google',
+      apiId: 'test-model-id',
+      efforts: { normal: 'minimal' },
+      maxOutputTokens: 1000,
+      temperature: 0.5,
     },
   },
   tools: {
@@ -351,6 +355,7 @@ Deno.test('Remote MCP Tool executes successfully per 2026-07-28 spec', async () 
       '2026-07-28',
     );
     assertEquals(receivedHeaders['mcp-protocol-version'], '2026-07-28');
+    assertEquals(receivedHeaders.accept, 'application/json, text/event-stream');
     assertEquals(receivedHeaders['x-api-key'], 'lin_api_key_xyz');
 
     const data = result?.data as { issueId: string } | undefined;
@@ -457,4 +462,36 @@ Deno.test('Proactive OAuth token refresh during tool execution emits progress an
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+Deno.test('buildHttpToolTarget maps path and query parameters', () => {
+  const target = buildHttpToolTarget(
+    'https://geocoding-api.open-meteo.com/v1/search?count=3',
+    'GET',
+    { name: 'Paris' },
+    { queryParams: ['name'] },
+  );
+  assertEquals(target.url, 'https://geocoding-api.open-meteo.com/v1/search?count=3&name=Paris');
+  assertEquals(target.body, undefined);
+
+  const pathTarget = buildHttpToolTarget(
+    'https://en.wikipedia.org/api/rest_v1/page/summary/{title}',
+    'GET',
+    { title: 'Paris' },
+    { pathParams: ['title'] },
+  );
+  assertEquals(pathTarget.url, 'https://en.wikipedia.org/api/rest_v1/page/summary/Paris');
+});
+
+Deno.test('parseMcpRpcResponse extracts JSON-RPC result from SSE', () => {
+  const sse = `: ping\n\nevent: message\ndata: {"method":"notifications/message","params":{"level":"info"},"jsonrpc":"2.0"}\n\nevent: message\ndata: {"jsonrpc":"2.0","id":9,"result":{"content":[{"type":"text","text":"ok"}]}}\n`;
+  const parsed = parseMcpRpcResponse(sse);
+  assertEquals(parsed.id, 9);
+  assertEquals(parsed.result?.content?.[0]?.text, 'ok');
+});
+
+Deno.test('parseMcpRpcResponse parses plain JSON bodies', () => {
+  const parsed = parseMcpRpcResponse('{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}');
+  const tools = parsed.result?.tools;
+  assertEquals(Array.isArray(tools) && tools.length === 0, true);
 });

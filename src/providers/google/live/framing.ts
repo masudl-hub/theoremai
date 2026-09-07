@@ -6,6 +6,7 @@
  * @module
  */
 
+import { groundingFromEvent } from '../../../kernel/engine/delta.ts';
 import { getTool } from '../../../kernel/tools/registry.ts';
 import type {
   InteractionPart,
@@ -16,7 +17,6 @@ import type {
   TurnTokens,
   WireFunctionTool,
 } from '../../../kernel/types.ts';
-import { groundingFromEvent } from '../../../kernel/engine/delta.ts';
 import { base64ToBytes, bytesToBase64, wrapPcmAsWav } from '../../shared/pcm.ts';
 import { parseToolArgumentsObject } from '../../shared/tool-args.ts';
 import { GEMINI_LIVE_WS_URL } from '../urls.ts';
@@ -359,7 +359,8 @@ function foldSessionUpdate(message: Record<string, unknown>, events: TurnEvent[]
     | { newHandle?: string; resumable?: boolean }
     | undefined;
   if (!sessionUpdate || typeof sessionUpdate !== 'object') return;
-  const hasHandle = typeof sessionUpdate.newHandle === 'string' && sessionUpdate.newHandle.length > 0;
+  const hasHandle =
+    typeof sessionUpdate.newHandle === 'string' && sessionUpdate.newHandle.length > 0;
   const hasResumable = typeof sessionUpdate.resumable === 'boolean';
   if (!hasHandle && !hasResumable) return;
   events.push({

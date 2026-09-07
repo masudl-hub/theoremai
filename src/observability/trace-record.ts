@@ -59,13 +59,13 @@ interface TraceRecord {
   profile: string;
   title?: string;
   projectId?: string;
-  select?: string;
-  thinking?: boolean;
+  modelSelect?: string;
+  effort?: string;
   metadata?: Record<string, unknown>;
   model?: { id: string; apiId: string };
   keySlot?: string;
   generation?: {
-    thinking: string;
+    thinking?: string;
     summaries?: string;
     temperature?: number;
     maxOutputTokens?: number;

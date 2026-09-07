@@ -53,6 +53,7 @@ Owns every module under `src/providers/`.
 | No key templates | Business apps own secret storage |
 | Traces | Host-injected on `runTurn`, not here |
 | Pairs | `PROTOCOL_PROVIDERS` / `isValidPair` in `src/kernel/schema.ts` — `createProvider` does not invent extra routes |
+| Multi-model | `profile.models` map + optional `defaultModel`; adapter selection uses one binding per call |
 
 ## createProvider
 
@@ -60,15 +61,20 @@ Owns every module under `src/providers/`.
 const provider = createProvider(profile, {
   gemini: { vault: { slotA, slotB, slotC, paid }, fetch? },
   openAiGateway: {
-    // Prefer the same KEY_SLOTS vault as Google when profiles pin model.key:
+    // Prefer the same KEY_SLOTS vault as Google when profiles pin models.*.key:
     vault: { slotA, slotB, slotC, paid },
-    // Or a single flat key when the profile omits model.key:
+    // Or a single flat key when the profile omits per-model keys:
     apiKey?,
     baseUrl?, siteUrl?, siteName?, fetch?, voice?,
   },
   local: { baseUrl?, fetch? },
-})
+}, modelId?)
 ```
+
+`createProvider` reads the selected **`ModelBinding`** from `profile.models`
+(`protocol` / `provider` on that binding). When a profile declares multiple
+models, pass optional `modelId` (defaults to `profile.defaultModel`, or the sole
+model key when only one is declared).
 
 Legal pairs are `PROTOCOL_PROVIDERS` in `src/kernel/schema.ts` (`isValidPair`).
 Routing table:
@@ -107,7 +113,8 @@ Chat and speech requests use `ProviderCompleteRequest.apiId` on the wire — sam
 field as Google Interactions and local OpenAI-compat paths.
 
 `toOpenAiChatPayload` maps `ProviderCompleteRequest` → OpenAI chat-completions
-body (messages, tools, structured output, thinking / `reasoning.effort`).
+body (messages, tools, structured output). `reasoning.effort` is set only when
+`thinking` is present and not `'none'`.
 
 `createOpenRouterProvider(config)` (internal) streams normalized `TurnEvent`s;
 terminal `done.stop` via `turnStopFromOpenAiFinishReason`.
@@ -125,6 +132,7 @@ terminal `done.stop` via `turnStopFromOpenAiFinishReason`.
 | Tools | Registry builtins (`wire.interactions`) + function schemas from `generation.tools.wire`. When `googleMaps` is enabled and `TurnRequest.googleMapsLocation` is set, Interactions receives `tools: [{ type: "google_maps", latitude, longitude }]`. |
 | Code execution | Builtin `codeExecution` → `{ type: "code_execution" }`. Streamed `step.start` / `step.delta` / `step.stop`, `interaction.status_update` (`requires_action` for host tools), and batched `interaction.steps` become `evidence` (`kind`, `code`, `result`, `isError`, `raw`) plus `media` for sandbox images. Search/maps/`url_context` steps in `steps[]` are also `evidence`. Structured `responseFormat` is still attached when both are requested. |
 | Stream vs batch | Default SSE (`outputs.streaming.mode: 'sse'` or omitted). `'buffered'` POSTs JSON and yields the same `TurnEvent` types from `steps[]`. |
+| Thinking | `thinkingLevel` / `thinkingSummaries` are attached only when the resolved request sets `thinking` / `summaries` (omitted when unset). |
 | Grounding | Classic `grounding_metadata` **and** Interactions `google_search_result` / `google_maps_result` tool payloads (`search_suggestions` chips, `result[].places[]`, `place_citation` annotations). Emits `grounding` with normalized `sources` **and** classic `chunks[].maps` (`title` / `uri` / `placeId`) plus `evidence` with the raw tool payload so hosts can decide what to surface. |
 | Stop | `turnStopFromInteractionStatus` on terminal status |
 
@@ -147,8 +155,8 @@ gate (canary + egress) at each conversational `turnComplete`, and returns a
 | Handshake | `BidiGenerateContentSetup` via `buildGeminiLiveSetupMessage` |
 | Turn boundary | Gemini `turnComplete` → outbound gate finalize + `done` (`stop.kind: 'completed'`); **session stays open** |
 | Generation boundary | Gemini `generationComplete` → `done` (`stop.kind: 'generation_complete'`) without tearing down the session |
-| Tools | Host executes and replies via `sendToolResponse(s)`; cancellations → `tool.phase: 'cancel'`. Profile `tools.allow` (T0) + `builtInTools` are wired in `BidiGenerateContentSetup` only — no `t1Policy` / `t2Loader`, no structured output, no turn `inputs` / `outputs`. |
-| Ingress | `live.ingress` gates `sendAudio` / `sendVideo` / `sendText`. Defaults: audio **on**, text **on**, camera (video channel) **off** unless `live.ingress.video: true`. At least one channel must stay enabled. |
+| Tools | Host executes and replies via `sendToolResponse(s)`; cancellations → `tool.phase: 'cancel'`. Profile `tools.allow` + `builtInTools` must be `loadTier: 'T0'` (enforced at `registerProfile`) and are wired in `BidiGenerateContentSetup` only — no `t1Policy` / `t2Loader`, no structured output, no turn `inputs` / `outputs`. |
+| Ingress | `live.ingress` gates `sendAudio` / `sendVideo` / `sendText`. Defaults: audio **on**, camera (video channel) **on**, text **off** unless `live.ingress.text: true`. At least one channel must stay enabled. |
 | Transcription | Mid-turn `evidence` with `kind: 'input_transcription'` / `output_transcription` (optional `interim`); **not** held for egress — streams immediately |
 | Session control | `goAway` → `session.kind: 'closing_soon'`; `waitingForInput` → `waiting_for_input` |
 | Resumption | `sessionResumptionHandle` on `SessionRequest`; updates as `evidence.kind: 'session_resumption'` with `resumable` |
@@ -238,9 +246,10 @@ event with `phase: 'error'` / `failure.code: 'malformed_arguments'`, or a thrown
 
 ## Key vault (provider-neutral)
 
-`KEY_SLOTS` = `slotA` | `slotB` | `slotC` | `paid`. Profiles pin `model.key` to an
-overflow slot (`OVERFLOW_KEY_SLOTS` = A/B/C). Resolve puts the chosen id on
-`ResolvedGeneration.keySlot` / `ProviderCompleteRequest.keySlot`.
+`KEY_SLOTS` = `slotA` | `slotB` | `slotC` | `paid`. Profiles pin `models.*.key`
+(or profile-level `key`) to an overflow slot (`OVERFLOW_KEY_SLOTS` = A/B/C).
+Resolve puts the chosen id on `ResolvedGeneration.keySlot` /
+`ProviderCompleteRequest.keySlot`.
 
 | Host option | How credentials are chosen |
 | --- | --- |
@@ -261,7 +270,7 @@ createProvider(profile, {
 | `GeminiTransport` | Google vault + optional `fetch` |
 | `KeyVault` | `Record<KeySlot, string \| undefined>` shared with OpenRouter |
 | Slots | `slotA`, `slotB`, `slotC`, `paid` |
-| Selection | `model.key` / `ModelSpec.key` / `builtInTools` (`forcePaidKey`) |
+| Selection | `models.*.key` / `ModelBinding.key` / `builtInTools` (`forcePaidKey`) |
 
 Overflow to `paid` is host policy, not inferred here.
 

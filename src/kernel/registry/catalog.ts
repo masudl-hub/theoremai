@@ -1,12 +1,12 @@
 /**
- * MIME helpers and model spec utilities.
+ * MIME helpers and model binding utilities.
  *
  * @module
  */
 
 import { TheorumError } from '../../guardrails/error.ts';
 import { MEDIA_INPUT_KINDS } from '../schema.ts';
-import type { MediaInputKind, ModelId, ModelSpec, Profile, ThinkingLevel } from '../types.ts';
+import type { MediaInputKind, ModelBinding, ModelId, Profile, ThinkingLevel } from '../types.ts';
 
 function mimeEssence(mime: string): string {
   const [base] = mime.split(';');
@@ -28,47 +28,58 @@ function mediaKindForMime(mime: string): MediaInputKind | undefined {
   return MEDIA_INPUT_KINDS[mimeEssence(mime)];
 }
 
-/** Require a host-declared model spec for an allowed profile model id. */
-function requireModelSpec(profile: Profile, modelId: ModelId): ModelSpec {
-  const spec = profile.model.config[modelId];
-  if (!spec) {
-    throw new TheorumError(`Profile ${profile.id} has no model spec for '${modelId}'`);
+/** Require a host-declared model binding for a profile model id. */
+function requireModelBinding(profile: Profile, modelId: ModelId): ModelBinding {
+  const binding = profile.models[modelId];
+  if (!binding) {
+    throw new TheorumError(`Profile ${profile.id} has no model binding for '${modelId}'`);
   }
-  return spec;
+  return binding;
 }
 
-function clampLevels(entry: ModelSpec | undefined, level: ThinkingLevel): ThinkingLevel {
-  if (!entry?.thinkingLevels || entry.thinkingLevels.length === 0) {
+function effortLevels(binding: ModelBinding | undefined): ThinkingLevel[] {
+  if (!binding?.efforts) {
+    return [];
+  }
+  return Object.values(binding.efforts);
+}
+
+function clampLevels(binding: ModelBinding | undefined, level: ThinkingLevel): ThinkingLevel {
+  const legal = effortLevels(binding);
+  if (legal.length === 0) {
     return level;
   }
-  if (entry.thinkingLevels.includes(level)) {
+  if (legal.includes(level)) {
     return level;
   }
-  const fallback = entry.thinking?.off;
-  if (fallback && entry.thinkingLevels.includes(fallback)) {
+  const fallbackAlias = binding?.defaultEffort;
+  const fallback = fallbackAlias ? binding?.efforts?.[fallbackAlias] : undefined;
+  if (fallback && legal.includes(fallback)) {
     return fallback;
   }
-  const first = entry.thinkingLevels[0];
-  return first ?? level;
+  return legal[0] ?? level;
 }
 
-/** Clamp a requested thinking level to what the model spec accepts. */
-function clampThinkingLevel(spec: ModelSpec, level: ThinkingLevel): ThinkingLevel {
-  return clampLevels(spec, level);
+/** Clamp a requested thinking level to what the model binding accepts. */
+function clampThinkingLevel(binding: ModelBinding, level: ThinkingLevel): ThinkingLevel {
+  return clampLevels(binding, level);
 }
 
-/** Look up a model spec by provider-native API id within a host specs map. */
-function modelEntryByApiId(specs: Record<string, ModelSpec>, apiId: string): ModelSpec | undefined {
-  return Object.values(specs).find((m) => m.apiId === apiId);
+/** Look up a model binding by provider-native API id within a host map. */
+function modelEntryByApiId(
+  bindings: Record<string, ModelBinding>,
+  apiId: string,
+): ModelBinding | undefined {
+  return Object.values(bindings).find((m) => m.apiId === apiId);
 }
 
-/** Clamp thinking level using a provider-native API id within a host specs map. */
+/** Clamp thinking level using a provider-native API id within a host map. */
 function clampThinkingLevelForApiId(
-  specs: Record<string, ModelSpec>,
+  bindings: Record<string, ModelBinding>,
   apiId: string,
   level: ThinkingLevel,
 ): ThinkingLevel {
-  return clampLevels(modelEntryByApiId(specs, apiId), level);
+  return clampLevels(modelEntryByApiId(bindings, apiId), level);
 }
 
 export {
@@ -78,5 +89,5 @@ export {
   mimeAllowed,
   mimeEssence,
   modelEntryByApiId,
-  requireModelSpec,
+  requireModelBinding,
 };

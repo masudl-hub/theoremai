@@ -4,7 +4,7 @@ import { defineProfile, getProfile, registerProfile } from '../../src/kernel/reg
 import { projectProfile, resolveTurn } from '../../src/kernel/registry/resolve.ts';
 import { registerGooglePreset } from '../../src/presets/google.ts';
 import { createProvider } from '../../src/providers/create-provider.ts';
-import { geminiModel, HOST_MODELS } from '../fixtures/models.ts';
+import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 import '../fixtures/test-host.ts';
 
 registerGooglePreset();
@@ -17,14 +17,12 @@ Deno.test('pressure-test: type/protocol matrix rejects every illegal pair', () =
         id: 'invalid_live_openai',
         type: 'live',
         identity: { handle: 'invalid_live' },
-        model: {
-          protocol: 'openAi' as unknown as 'geminiLive',
-          provider: 'openrouter',
-          allow: ['openai/gpt-4o'],
-          config: {
-            'openai/gpt-4o': {
-              apiId: 'openai/gpt-4o',
-            },
+        models: {
+          'openai/gpt-4o': {
+            protocol: 'openAi' as unknown as 'geminiLive',
+            provider: 'openrouter',
+            apiId: 'openai/gpt-4o',
+            efforts: { normal: 'minimal' },
           },
         },
         live: { voice: 'Aoede' },
@@ -42,14 +40,12 @@ Deno.test('pressure-test: type/protocol matrix rejects every illegal pair', () =
         id: 'invalid_text_gemini_live',
         type: 'text',
         identity: { handle: 'invalid_text' },
-        model: {
-          protocol: 'geminiLive' as unknown as 'geminiInteractions',
-          provider: 'google',
-          allow: ['gemini-2.0-flash-exp'],
-          config: {
-            'gemini-2.0-flash-exp': {
-              apiId: 'gemini-2.0-flash-exp',
-            },
+        models: {
+          'gemini-2.0-flash-exp': {
+            protocol: 'geminiLive' as unknown as 'geminiInteractions',
+            provider: 'google',
+            apiId: 'gemini-2.0-flash-exp',
+            efforts: { normal: 'minimal' },
           },
         },
         tools: { allow: [] },
@@ -67,14 +63,12 @@ Deno.test('pressure-test: type/protocol matrix rejects every illegal pair', () =
         id: 'invalid_image_gemini_live',
         type: 'image',
         identity: { handle: 'invalid_image' },
-        model: {
-          protocol: 'geminiLive' as unknown as 'geminiInteractions',
-          provider: 'google',
-          allow: ['gemini-2.0-flash-exp'],
-          config: {
-            'gemini-2.0-flash-exp': {
-              apiId: 'gemini-2.0-flash-exp',
-            },
+        models: {
+          'gemini-2.0-flash-exp': {
+            protocol: 'geminiLive' as unknown as 'geminiInteractions',
+            provider: 'google',
+            apiId: 'gemini-2.0-flash-exp',
+            efforts: { normal: 'minimal' },
           },
         },
         image: { mimeType: 'image/jpeg' },
@@ -93,14 +87,12 @@ Deno.test('pressure-test: type/protocol matrix rejects every illegal pair', () =
         id: 'invalid_speech_gemini_live',
         type: 'speech',
         identity: { handle: 'invalid_speech' },
-        model: {
-          protocol: 'geminiLive' as unknown as 'geminiInteractions',
-          provider: 'google',
-          allow: ['gemini-2.0-flash-exp'],
-          config: {
-            'gemini-2.0-flash-exp': {
-              apiId: 'gemini-2.0-flash-exp',
-            },
+        models: {
+          'gemini-2.0-flash-exp': {
+            protocol: 'geminiLive' as unknown as 'geminiInteractions',
+            provider: 'google',
+            apiId: 'gemini-2.0-flash-exp',
+            efforts: { normal: 'minimal' },
           },
         },
         speech: { voice: 'Kore', format: 'pcm' },
@@ -117,9 +109,7 @@ Deno.test('pressure-test: compaction is forbidden on non-text profiles', () => {
     id: 'compactor_agent',
     type: 'text',
     identity: { handle: 'compactor' },
-    model: {
-      ...geminiModel('gemini35FlashLite'),
-    },
+    ...geminiModels('gemini35FlashLite'),
     tools: { allow: [] },
     inputs: { text: true },
   });
@@ -131,20 +121,15 @@ Deno.test('pressure-test: compaction is forbidden on non-text profiles', () => {
         id: 'invalid_image_compaction',
         type: 'image',
         identity: { handle: 'invalid_image' },
-        model: {
-          protocol: 'geminiInteractions',
-          provider: 'google',
-          allow: ['gemini31FlashLiteImage'],
-          config: {
-            gemini31FlashLiteImage: {
-              ...HOST_MODELS.gemini31FlashLiteImage,
-              compaction: {
-                maxTokens: 10000,
-                compactAt: 0.8,
-                previousExchanges: 2,
-                profile: 'compactor_agent',
-                timing: 'before',
-              },
+        models: {
+          gemini31FlashLiteImage: {
+            ...HOST_BINDINGS.gemini31FlashLiteImage,
+            compaction: {
+              maxTokens: 10000,
+              compactAt: 0.8,
+              previousExchanges: 2,
+              profile: 'compactor_agent',
+              timing: 'before',
             },
           },
         },
@@ -164,20 +149,15 @@ Deno.test('pressure-test: compaction is forbidden on non-text profiles', () => {
         id: 'invalid_speech_compaction',
         type: 'speech',
         identity: { handle: 'invalid_speech' },
-        model: {
-          protocol: 'geminiInteractions',
-          provider: 'google',
-          allow: ['gemini31FlashTts'],
-          config: {
-            gemini31FlashTts: {
-              ...HOST_MODELS.gemini31FlashTts,
-              compaction: {
-                maxTokens: 10000,
-                compactAt: 0.8,
-                previousExchanges: 2,
-                profile: 'compactor_agent',
-                timing: 'before',
-              },
+        models: {
+          gemini31FlashTts: {
+            ...HOST_BINDINGS.gemini31FlashTts,
+            compaction: {
+              maxTokens: 10000,
+              compactAt: 0.8,
+              previousExchanges: 2,
+              profile: 'compactor_agent',
+              timing: 'before',
             },
           },
         },
@@ -197,20 +177,15 @@ Deno.test('pressure-test: compaction spec validations on text profiles', () => {
         id: 'chat_with_unregistered_compactor',
         type: 'text',
         identity: { handle: 'chat_compactor' },
-        model: {
-          protocol: 'geminiInteractions',
-          provider: 'google',
-          allow: ['gemini35FlashLite'],
-          config: {
-            gemini35FlashLite: {
-              ...HOST_MODELS.gemini35FlashLite,
-              compaction: {
-                maxTokens: 10000,
-                compactAt: 0.8,
-                previousExchanges: 2,
-                profile: 'non_existent_compactor',
-                timing: 'before',
-              },
+        models: {
+          gemini35FlashLite: {
+            ...HOST_BINDINGS.gemini35FlashLite,
+            compaction: {
+              maxTokens: 10000,
+              compactAt: 0.8,
+              previousExchanges: 2,
+              profile: 'non_existent_compactor',
+              timing: 'before',
             },
           },
         },
@@ -229,20 +204,15 @@ Deno.test('pressure-test: compaction spec validations on text profiles', () => {
         id: 'chat_invalid_compact_at',
         type: 'text',
         identity: { handle: 'chat_compactor' },
-        model: {
-          protocol: 'geminiInteractions',
-          provider: 'google',
-          allow: ['gemini35FlashLite'],
-          config: {
-            gemini35FlashLite: {
-              ...HOST_MODELS.gemini35FlashLite,
-              compaction: {
-                maxTokens: 10000,
-                compactAt: 1.5,
-                previousExchanges: 2,
-                profile: 'compactor_agent',
-                timing: 'before',
-              },
+        models: {
+          gemini35FlashLite: {
+            ...HOST_BINDINGS.gemini35FlashLite,
+            compaction: {
+              maxTokens: 10000,
+              compactAt: 1.5,
+              previousExchanges: 2,
+              profile: 'compactor_agent',
+              timing: 'before',
             },
           },
         },
@@ -261,20 +231,15 @@ Deno.test('pressure-test: compaction spec validations on text profiles', () => {
         id: 'chat_fractional_exchanges_overflow',
         type: 'text',
         identity: { handle: 'chat_compactor' },
-        model: {
-          protocol: 'geminiInteractions',
-          provider: 'google',
-          allow: ['gemini35FlashLite'],
-          config: {
-            gemini35FlashLite: {
-              ...HOST_MODELS.gemini35FlashLite,
-              compaction: {
-                maxTokens: 10000,
-                compactAt: 0.5,
-                previousExchanges: 0.6,
-                profile: 'compactor_agent',
-                timing: 'before',
-              },
+        models: {
+          gemini35FlashLite: {
+            ...HOST_BINDINGS.gemini35FlashLite,
+            compaction: {
+              maxTokens: 10000,
+              compactAt: 0.5,
+              previousExchanges: 0.6,
+              profile: 'compactor_agent',
+              timing: 'before',
             },
           },
         },
@@ -292,9 +257,7 @@ Deno.test('pressure-test: turnResumption maxContinues enforcement', () => {
     id: 'capped_continue_profile',
     type: 'text',
     identity: { handle: 'capped_bot' },
-    model: {
-      ...geminiModel('gemini35FlashLite'),
-    },
+    ...geminiModels('gemini35FlashLite'),
     tools: { allow: [] },
     inputs: { text: true },
     turnResumption: {
@@ -361,14 +324,12 @@ Deno.test('pressure-test: turnResumption maxContinues enforcement', () => {
     id: 'live_test_profile',
     type: 'live',
     identity: { handle: 'live_bot' },
-    model: {
-      protocol: 'geminiLive',
-      provider: 'google',
-      allow: ['gemini-2.0-flash-exp'],
-      config: {
-        'gemini-2.0-flash-exp': {
-          apiId: 'gemini-2.0-flash-exp',
-        },
+    models: {
+      'gemini-2.0-flash-exp': {
+        protocol: 'geminiLive',
+        provider: 'google',
+        apiId: 'gemini-2.0-flash-exp',
+        efforts: { normal: 'minimal' },
       },
     },
     live: { voice: 'Aoede', sessionResumption: true },
@@ -394,7 +355,7 @@ Deno.test('pressure-test: outputs.streaming.mode resolution', () => {
     id: 'sse_stream_profile',
     type: 'text',
     identity: { handle: 'sse_bot' },
-    model: { ...geminiModel('gemini35FlashLite') },
+    ...geminiModels('gemini35FlashLite'),
     tools: { allow: [] },
     inputs: { text: true },
     outputs: { streaming: { mode: 'sse' } },
@@ -409,7 +370,7 @@ Deno.test('pressure-test: outputs.streaming.mode resolution', () => {
     id: 'buffered_stream_profile',
     type: 'text',
     identity: { handle: 'buffered_bot' },
-    model: { ...geminiModel('gemini35FlashLite') },
+    ...geminiModels('gemini35FlashLite'),
     tools: { allow: [] },
     inputs: { text: true },
     outputs: { streaming: { mode: 'buffered' } },
@@ -424,7 +385,7 @@ Deno.test('pressure-test: outputs.streaming.mode resolution', () => {
     id: 'omitted_stream_profile',
     type: 'text',
     identity: { handle: 'omitted_bot' },
-    model: { ...geminiModel('gemini35FlashLite') },
+    ...geminiModels('gemini35FlashLite'),
     tools: { allow: [] },
     inputs: { text: true },
     outputs: { streaming: { streamThoughts: true } },
@@ -441,9 +402,7 @@ Deno.test('pressure-test: speech profile ingress restrictions and format validat
     id: 'speech_invalid_mp3',
     type: 'speech',
     identity: { handle: 'speech_mp3' },
-    model: {
-      ...geminiModel('gemini31FlashTts'),
-    },
+    ...geminiModels('gemini31FlashTts'),
     speech: { voice: 'Kore', format: 'mp3' },
   });
 
@@ -460,9 +419,7 @@ Deno.test('pressure-test: speech profile ingress restrictions and format validat
     id: 'speech_valid_pcm',
     type: 'speech',
     identity: { handle: 'speech_pcm' },
-    model: {
-      ...geminiModel('gemini31FlashTts'),
-    },
+    ...geminiModels('gemini31FlashTts'),
     speech: { voice: 'Kore', format: 'pcm' },
   });
 
@@ -588,12 +545,12 @@ Deno.test('pressure-test: createProvider type routing and boundary enforcement',
     id: 'openai_speech_prof',
     type: 'speech',
     identity: { handle: 'openai_speech' },
-    model: {
-      protocol: 'openAi',
-      provider: 'openrouter',
-      allow: ['openai/tts-1'],
-      config: {
-        'openai/tts-1': { apiId: 'openai/tts-1' },
+    models: {
+      'openai/tts-1': {
+        protocol: 'openAi',
+        provider: 'openrouter',
+        apiId: 'openai/tts-1',
+        efforts: { normal: 'minimal' },
       },
     },
     speech: { voice: 'alloy', format: 'mp3' },
@@ -607,12 +564,12 @@ Deno.test('pressure-test: createProvider type routing and boundary enforcement',
     id: 'openai_image_prof',
     type: 'image',
     identity: { handle: 'openai_image' },
-    model: {
-      protocol: 'openAi',
-      provider: 'openrouter',
-      allow: ['openai/dall-e-3'],
-      config: {
-        'openai/dall-e-3': { apiId: 'openai/dall-e-3' },
+    models: {
+      'openai/dall-e-3': {
+        protocol: 'openAi',
+        provider: 'openrouter',
+        apiId: 'openai/dall-e-3',
+        efforts: { normal: 'minimal' },
       },
     },
     image: { mimeType: 'image/png' },
@@ -629,12 +586,12 @@ Deno.test('pressure-test: createProvider type routing and boundary enforcement',
     id: 'local_image_prof',
     type: 'image',
     identity: { handle: 'local_image' },
-    model: {
-      protocol: 'openAi',
-      provider: 'local',
-      allow: ['local-sd'],
-      config: {
-        'local-sd': { apiId: 'local-sd' },
+    models: {
+      'local-sd': {
+        protocol: 'openAi',
+        provider: 'local',
+        apiId: 'local-sd',
+        efforts: { normal: 'minimal' },
       },
     },
     image: { mimeType: 'image/png' },

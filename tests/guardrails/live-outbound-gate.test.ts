@@ -10,7 +10,7 @@ import {
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile, getProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
 import type { EgressContext, EgressEnforcementResult, TurnEvent } from '../../src/kernel/types.ts';
-import { geminiModel } from '../fixtures/models.ts';
+import { geminiModels } from '../fixtures/models.ts';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -125,7 +125,7 @@ Deno.test('processLiveOutboundBatch buffers visible events when holdUserVisible 
       identity: { handle: 'test', system: 'test' },
       tools: { allow: [] },
       id: 'live_egress_hold',
-      model: { ...geminiModel('gemini35FlashLite') },
+      ...geminiModels('gemini35FlashLite'),
       inputs: { text: true },
       guardrails: {
         quota: { perDay: 100 },
@@ -162,7 +162,7 @@ Deno.test('processLiveOutboundBatch emits transcription evidence immediately und
       identity: { handle: 'test', system: 'test' },
       tools: { allow: [] },
       id: 'live_egress_asr_passthrough',
-      model: { ...geminiModel('gemini35FlashLite') },
+      ...geminiModels('gemini35FlashLite'),
       inputs: { text: true },
       guardrails: {
         quota: { perDay: 100 },
@@ -200,7 +200,7 @@ Deno.test('finalizeLiveOutboundTurn withholds when egress.enforce blocks', async
       identity: { handle: 'test', system: 'test' },
       tools: { allow: [] },
       id: 'live_egress_block',
-      model: { ...geminiModel('gemini35FlashLite') },
+      ...geminiModels('gemini35FlashLite'),
       inputs: { text: true },
       guardrails: {
         quota: { perDay: 100 },
@@ -232,7 +232,7 @@ Deno.test('finalizeLiveOutboundTurn emits refuse_to_user text when onBlock is se
       identity: { handle: 'test', system: 'test' },
       tools: { allow: [] },
       id: 'live_egress_refuse',
-      model: { ...geminiModel('gemini35FlashLite') },
+      ...geminiModels('gemini35FlashLite'),
       inputs: { text: true },
       guardrails: {
         quota: { perDay: 100 },
@@ -327,7 +327,7 @@ Deno.test('processLiveOutboundBatch with holdUserVisible buffers thought events 
       identity: { handle: 'test', system: 'test' },
       tools: { allow: [] },
       id: 'live_egress_hold_thought',
-      model: { ...geminiModel('gemini35FlashLite') },
+      ...geminiModels('gemini35FlashLite'),
       inputs: { text: true },
       guardrails: {
         quota: { perDay: 100 },
@@ -356,7 +356,7 @@ Deno.test('createLiveOutboundGateSession with canary=false profile ignores provi
       identity: { handle: 'test', system: 'test' },
       tools: { allow: [] },
       id: 'live_canary_disabled',
-      model: { ...geminiModel('gemini35FlashLite') },
+      ...geminiModels('gemini35FlashLite'),
       inputs: { text: true },
       guardrails: { quota: { perDay: 100 }, canary: false },
     }),
@@ -386,7 +386,7 @@ Deno.test('appendVisibleText skips non-text and non-thought events (type filter)
       identity: { handle: 'test', system: 'test' },
       tools: { allow: [] },
       id: 'live_type_filter',
-      model: { ...geminiModel('gemini35FlashLite') },
+      ...geminiModels('gemini35FlashLite'),
       inputs: { text: true },
       guardrails: {
         quota: { perDay: 100 },
@@ -414,7 +414,7 @@ Deno.test('appendVisibleText only accumulates non-empty text not undefined/empty
       identity: { handle: 'test', system: 'test' },
       tools: { allow: [] },
       id: 'live_text_gate',
-      model: { ...geminiModel('gemini35FlashLite') },
+      ...geminiModels('gemini35FlashLite'),
       inputs: { text: true },
       guardrails: {
         quota: { perDay: 100 },
@@ -440,7 +440,7 @@ Deno.test('finalizeLiveOutboundTurn action and events correct when pending visib
       identity: { handle: 'test', system: 'test' },
       tools: { allow: [] },
       id: 'live_hold_no_egress',
-      model: { ...geminiModel('gemini35FlashLite') },
+      ...geminiModels('gemini35FlashLite'),
       inputs: { text: true },
       guardrails: {
         quota: { perDay: 100 },
@@ -475,7 +475,7 @@ Deno.test('finalizeLiveOutboundTurn emits refuse_to_user event type is text not 
       identity: { handle: 'test', system: 'test' },
       tools: { allow: [] },
       id: 'live_refuse_type_check',
-      model: { ...geminiModel('gemini35FlashLite') },
+      ...geminiModels('gemini35FlashLite'),
       inputs: { text: true },
       guardrails: {
         quota: { perDay: 100 },
@@ -508,7 +508,7 @@ Deno.test('finalizeLiveOutboundTurn onBlock=refuse_to_user requires both conditi
       identity: { handle: 'test', system: 'test' },
       tools: { allow: [] },
       id: 'live_refuse_both_parts',
-      model: { ...geminiModel('gemini35FlashLite') },
+      ...geminiModels('gemini35FlashLite'),
       inputs: { text: true },
       guardrails: {
         quota: { perDay: 100 },
@@ -559,7 +559,7 @@ Deno.test('processLiveOutboundBatch emits non-visible event types immediately ev
       identity: { handle: 'test', system: 'test' },
       tools: { allow: [] },
       id: 'live_egress_nonvis',
-      model: { ...geminiModel('gemini35FlashLite') },
+      ...geminiModels('gemini35FlashLite'),
       inputs: { text: true },
       guardrails: {
         quota: { perDay: 100 },
@@ -596,7 +596,7 @@ Deno.test('appendVisibleText does not accumulate when text field is absent', () 
       identity: { handle: 'test', system: 'test' },
       tools: { allow: [] },
       id: 'live_no_text_field',
-      model: { ...geminiModel('gemini35FlashLite') },
+      ...geminiModels('gemini35FlashLite'),
       inputs: { text: true },
       guardrails: {
         quota: { perDay: 100 },
@@ -625,7 +625,7 @@ Deno.test('processStreamChunk with gate and holdUserVisible buffers emitted cont
       identity: { handle: 'test', system: 'test' },
       tools: { allow: [] },
       id: 'live_gate_hold',
-      model: { ...geminiModel('gemini35FlashLite') },
+      ...geminiModels('gemini35FlashLite'),
       inputs: { text: true },
       guardrails: {
         quota: { perDay: 100 },
@@ -724,7 +724,7 @@ Deno.test('finalizeLiveOutboundTurn passes accumulated text to egress enforce ct
       identity: { handle: 'test', system: 'test' },
       tools: { allow: [] },
       id: 'live_egress_ctx_verify',
-      model: { ...geminiModel('gemini35FlashLite') },
+      ...geminiModels('gemini35FlashLite'),
       inputs: { text: true },
       guardrails: {
         quota: { perDay: 100 },

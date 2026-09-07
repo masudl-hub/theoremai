@@ -3,7 +3,7 @@ import { registerStructured } from '../../../../src/kernel/registry/schemas.ts';
 import type { ModelId, ProviderCompleteRequest } from '../../../../src/kernel/types.ts';
 import { registerGooglePreset } from '../../../../src/presets/google.ts';
 import { toOpenAiChatPayload } from '../../../../src/providers/openrouter/openai/chat-payload.ts';
-import { HOST_MODELS } from '../../../fixtures/models.ts';
+import { HOST_BINDINGS } from '../../../fixtures/models.ts';
 
 registerGooglePreset();
 
@@ -31,7 +31,7 @@ Deno.test('toOpenAiChatPayload passes apiId through unchanged', () => {
 Deno.test('toOpenAiChatPayload builds correct system and user messages', () => {
   const req: ProviderCompleteRequest = {
     model: 'gemini35FlashLite',
-    apiId: HOST_MODELS.gemini35FlashLite.apiId,
+    apiId: HOST_BINDINGS.gemini35FlashLite.apiId,
     system: 'Be helpful',
     summaries: undefined,
     image: null,
@@ -56,7 +56,7 @@ Deno.test('toOpenAiChatPayload builds correct system and user messages', () => {
 Deno.test('toOpenAiChatPayload wires multimodal user input with image, audio, and document parts', () => {
   const req: ProviderCompleteRequest = {
     model: 'gemini35FlashLite',
-    apiId: HOST_MODELS.gemini35FlashLite.apiId,
+    apiId: HOST_BINDINGS.gemini35FlashLite.apiId,
     system: '',
     summaries: undefined,
     image: null,
@@ -100,7 +100,7 @@ Deno.test('toOpenAiChatPayload wires multimodal user input with image, audio, an
 Deno.test('toOpenAiChatPayload wires history messages with parts, tool_calls, tool results, and plain text', () => {
   const req: ProviderCompleteRequest = {
     model: 'gemini35FlashLite',
-    apiId: HOST_MODELS.gemini35FlashLite.apiId,
+    apiId: HOST_BINDINGS.gemini35FlashLite.apiId,
     system: '',
     summaries: undefined,
     image: null,
@@ -169,7 +169,7 @@ Deno.test('toOpenAiChatPayload wires history messages with parts, tool_calls, to
 Deno.test('toOpenAiChatPayload formats tools with name, description, and parameters', () => {
   const req: ProviderCompleteRequest = {
     model: 'gemini35FlashLite',
-    apiId: HOST_MODELS.gemini35FlashLite.apiId,
+    apiId: HOST_BINDINGS.gemini35FlashLite.apiId,
     system: '',
     summaries: undefined,
     image: null,
@@ -219,7 +219,7 @@ Deno.test('toOpenAiChatPayload formats tools with name, description, and paramet
 Deno.test('toOpenAiChatPayload omits tools when wireTools is empty', () => {
   const req: ProviderCompleteRequest = {
     model: 'gemini35FlashLite',
-    apiId: HOST_MODELS.gemini35FlashLite.apiId,
+    apiId: HOST_BINDINGS.gemini35FlashLite.apiId,
     system: '',
     summaries: undefined,
     image: null,
@@ -240,7 +240,7 @@ Deno.test('toOpenAiChatPayload omits tools when wireTools is empty', () => {
 Deno.test('toOpenAiChatPayload sets reasoning effort from thinking level', () => {
   const req: ProviderCompleteRequest = {
     model: 'gemini35FlashLite',
-    apiId: HOST_MODELS.gemini35FlashLite.apiId,
+    apiId: HOST_BINDINGS.gemini35FlashLite.apiId,
     system: '',
     summaries: undefined,
     image: null,
@@ -269,7 +269,7 @@ Deno.test('toOpenAiChatPayload formats structured json_schema response_format', 
 
   const req: ProviderCompleteRequest = {
     model: 'gemini35FlashLite',
-    apiId: HOST_MODELS.gemini35FlashLite.apiId,
+    apiId: HOST_BINDINGS.gemini35FlashLite.apiId,
     system: '',
     summaries: undefined,
     image: null,
@@ -299,7 +299,7 @@ Deno.test('toOpenAiChatPayload omits response_format when structured has no json
 
   const req: ProviderCompleteRequest = {
     model: 'gemini35FlashLite',
-    apiId: HOST_MODELS.gemini35FlashLite.apiId,
+    apiId: HOST_BINDINGS.gemini35FlashLite.apiId,
     system: '',
     summaries: undefined,
     image: null,
@@ -320,7 +320,7 @@ Deno.test('toOpenAiChatPayload omits response_format when structured has no json
 Deno.test('toOpenAiChatPayload routes web builtin to web_search_options and non-web to plugins', () => {
   const req: ProviderCompleteRequest = {
     model: 'gemini35FlashLite',
-    apiId: HOST_MODELS.gemini35FlashLite.apiId,
+    apiId: HOST_BINDINGS.gemini35FlashLite.apiId,
     system: '',
     summaries: undefined,
     image: null,
@@ -342,7 +342,7 @@ Deno.test('toOpenAiChatPayload routes web builtin to web_search_options and non-
 Deno.test('toOpenAiChatPayload omits plugins and web_search_options when builtins have no openRouterPlugin', () => {
   const req: ProviderCompleteRequest = {
     model: 'gemini35FlashLite',
-    apiId: HOST_MODELS.gemini35FlashLite.apiId,
+    apiId: HOST_BINDINGS.gemini35FlashLite.apiId,
     system: '',
     summaries: undefined,
     image: null,

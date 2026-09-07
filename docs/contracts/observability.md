@@ -70,10 +70,18 @@ transport.
 
 ## Trace records
 
-`TraceRecord` captures turn identity, timing, model selection, optional
-`keySlot` (vault key slot), token usage, and
-related fields for host analytics. Built by `buildRecord` in the runner path and
-consumed by sinks.
+`TraceRecord` captures turn identity, timing, requested model id (`modelSelect`),
+effort level (`effort`), resolved model (`model.id` / `model.apiId`), optional
+`keySlot` (vault key slot), token usage, and related fields for host analytics.
+Built by `buildRecord` in the runner path and consumed by sinks.
+
+| Field | Source |
+| --- | --- |
+| `modelSelect` | `TurnRequest.model` when set |
+| `effort` | `TurnRequest.effort` when set |
+| `model` | Resolved binding id + wire `apiId` |
+| `keySlot` | Vault slot chosen for the turn |
+| `generation` | Resolved generation knobs (`thinking`, `temperature`, tools, …) |
 
 When `sanitizedReq` is omitted, `buildRecord` uses `sanitizeTurnRequestForTrace`:
 full request sanitize when possible; on blob/policy failure it still redacts text
@@ -84,7 +92,7 @@ fallback is recorded in `errorInternal` when no other internal error is set.
 | --- | --- |
 | `trace-record.ts` | Record type + builder inputs |
 | `trace-usage.ts` | Attach provider token events |
-| `trace-attach.ts` | Correlate attachments / metadata |
+| `trace-attach.ts` | Copy request fields + correlate attachments / metadata |
 
 ## Exported API
 

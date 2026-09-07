@@ -27,7 +27,9 @@ function toOpenAiChatPayload(req: ProviderCompleteRequest): Record<string, unkno
     max_tokens: req.maxOutputTokens,
   };
 
-  payload.reasoning = { effort: req.thinking };
+  if (req.thinking && req.thinking !== 'none') {
+    payload.reasoning = { effort: req.thinking };
+  }
 
   const responseFormat = resolveResponseFormat(req.structured);
   if (responseFormat) {

@@ -30,7 +30,7 @@ function formatProfileTools(p: Profile): string {
 
 function printProfileCard(p: Profile): void {
   const tools = formatProfileTools(p);
-  const models = p.model.allow?.join(', ') || 'default';
+  const models = Object.keys(p.models).join(', ') || 'default';
   const structured = p.type === 'live' || p.type === 'speech' ? undefined : p.outputs?.structured;
   const structuredLabel =
     typeof structured === 'string' ? structured : structured ? 'custom' : 'none';
@@ -40,7 +40,7 @@ function printProfileCard(p: Profile): void {
   console.log(`   - Inputs:     ${formatProfileInputs(p)}`);
   console.log(`   - Tools:      ${tools}`);
   console.log(`   - Structured: ${structuredLabel}`);
-  console.log(`   - Key Slot: ${p.model.key ?? '(unset)'}`);
+  console.log(`   - Key Slot: ${p.key ?? '(unset)'}`);
   console.log('-'.repeat(70));
 }
 

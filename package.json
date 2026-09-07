@@ -1,6 +1,6 @@
 {
   "name": "theorum",
-  "version": "1.0.0",
+  "version": "1.1.2",
   "description": "A flat TypeScript agent kernel for typed profiles, deterministic turn execution, registered tools, provider adapters, guardrails, and host-injected traces.",
   "license": "MIT",
   "repository": {
@@ -33,6 +33,7 @@
     "./presets/google": "./src/presets/google.ts",
     "./presets/google/speech-voices": "./src/presets/google/speech-voices.ts",
     "./interface": "./src/interface/mod.ts",
+    "./playground": "./src/playground/mod.ts",
     "./schema": "./src/kernel/schema.ts",
     "./providers/google/live": "./src/providers/google/live/mod.ts"
   },

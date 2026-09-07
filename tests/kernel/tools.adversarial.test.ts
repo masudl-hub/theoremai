@@ -24,7 +24,7 @@ import {
   foldStepStart,
   newStreamFold,
 } from '../../src/providers/google/interactions/stream.ts';
-import { geminiModel, HOST_MODELS } from '../fixtures/models.ts';
+import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 import { invokeRegisteredTool } from '../fixtures/test-tools.ts';
 
 async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
@@ -41,7 +41,8 @@ function flashProfile(id: string, maxSteps: number, tools: ProfileToolsSpec) {
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id,
-      model: { ...geminiModel('gemini35FlashLite'), maxSteps },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps,
       tools,
       inputs: { text: true },
       guardrails: { quota: { perDay: 10_000 } },
@@ -123,8 +124,14 @@ Deno.test('adversarial/stream: duplicate function_call deduped', () => {
     index: 0,
     step: { type: 'function_call', id: 'c_dup', name: 'stub_tool', arguments: {} },
   };
-  assertEquals((foldPayload(payload, fold) as TurnEvent[]).filter((e) => e.type === 'tool').length, 0);
-  assertEquals((foldPayload(payload, fold) as TurnEvent[]).filter((e) => e.type === 'tool').length, 0);
+  assertEquals(
+    (foldPayload(payload, fold) as TurnEvent[]).filter((e) => e.type === 'tool').length,
+    0,
+  );
+  assertEquals(
+    (foldPayload(payload, fold) as TurnEvent[]).filter((e) => e.type === 'tool').length,
+    0,
+  );
   const firstStop = foldPayload({ event_type: 'step.stop', index: 0 }, fold) as TurnEvent[];
   const secondStop = foldPayload({ event_type: 'step.stop', index: 0 }, fold) as TurnEvent[];
   assertEquals(firstStop.filter((e) => e.type === 'tool').length, 1);
@@ -440,7 +447,8 @@ Deno.test('adversarial/promote: invalid id fails with zero side effects', () => 
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 'promote_partial_probe',
-      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
       tools: { allow: ['load_tools', 'record_lookup', 'stub_tool'], t2Loader: 'load_tools' },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -465,7 +473,8 @@ Deno.test('adversarial/promote: invalid id in batch does not unlock later tools'
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 'partial_batch_probe',
-      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 4 },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 4,
       tools: { allow: ['load_tools', 'record_lookup', 'stub_tool'], t2Loader: 'load_tools' },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -505,10 +514,8 @@ Deno.test('adversarial/runTurn: geminiInteractions T2 promotion expands wire on 
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 'gemini_t2_wire_probe',
-      model: {
-        ...geminiModel('gemini35FlashLite'),
-        maxSteps: 3,
-      },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 3,
       tools: { allow: ['load_tools', 'record_lookup'], t2Loader: 'load_tools' },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -651,20 +658,14 @@ Deno.test('adversarial/runTurn: builtin function_call surfaces provider_native e
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 'builtin_runner_probe',
-      model: {
-        thinking: 'minimal',
-        key: 'slotA',
-        protocol: 'geminiInteractions',
-        provider: 'google',
-        allow: ['gemini35FlashLite'],
-        config: {
-          gemini35FlashLite: {
-            ...HOST_MODELS.gemini35FlashLite,
-            builtInTools: ['googleSearch'],
-          },
+      models: {
+        gemini35FlashLite: {
+          ...HOST_BINDINGS.gemini35FlashLite,
+          builtInTools: ['googleSearch'],
         },
-        maxSteps: 2,
       },
+      key: 'slotA',
+      maxSteps: 2,
       tools: { allow: [] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },

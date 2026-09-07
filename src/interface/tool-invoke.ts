@@ -1,0 +1,39 @@
+/**
+ * Host tool invoke context derived from turn events — snapshot and T2 promotions.
+ *
+ * @module
+ */
+
+import type { ToolId, TurnEvent, TurnToolSnapshot } from '../kernel/types.ts';
+
+/** Collect T2 ids promoted by loader tool completions in a turn event stream. */
+function promotedToolIdsFromEvents(events: readonly TurnEvent[]): ToolId[] {
+  const ids = new Set<ToolId>();
+  for (const event of events) {
+    if (
+      event.type !== 'tool' ||
+      event.tool?.phase !== 'complete' ||
+      event.tool.output === undefined
+    ) {
+      continue;
+    }
+    const loaded = (event.tool.output as { loaded?: unknown }).loaded;
+    if (!Array.isArray(loaded)) {
+      continue;
+    }
+    for (const id of loaded) {
+      if (typeof id === 'string') {
+        ids.add(id);
+      }
+    }
+  }
+  return [...ids];
+}
+
+/** Read the turn tool snapshot emitted on a tool-pause terminal `done` event. */
+function toolSnapshotFromEvents(events: readonly TurnEvent[]): TurnToolSnapshot | undefined {
+  const done = events.findLast((event) => event.type === 'done' && event.stop?.kind === 'tool');
+  return done?.tools;
+}
+
+export { promotedToolIdsFromEvents, toolSnapshotFromEvents };

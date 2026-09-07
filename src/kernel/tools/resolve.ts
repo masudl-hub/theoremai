@@ -54,7 +54,7 @@ export function resolveModelBuiltinIds(
   req: TurnRequest,
   modelId: ModelId,
 ): ToolId[] {
-  const spec = profile.model.config[modelId];
+  const spec = profile.models[modelId];
   if (!spec) {
     return [];
   }

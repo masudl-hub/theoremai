@@ -13,7 +13,7 @@ import { synthesizeMatrixCombos } from '../src/cli/matrix/synthesizer.ts';
 import { runTurn } from '../src/kernel/engine/runner.ts';
 import { defineProfile, getProfile, registerProfile } from '../src/kernel/registry/profiles.ts';
 import { registerStructured } from '../src/kernel/registry/schemas.ts';
-import type { ModelProvider, TurnEvent, TurnRequest } from '../src/kernel/types.ts';
+import type { BuiltinToolId, ModelBinding, ModelProvider, TurnEvent, TurnRequest } from '../src/kernel/types.ts';
 import { registerGooglePreset } from '../src/presets/google.ts';
 import { createProvider } from '../src/providers/create-provider.ts';
 
@@ -49,12 +49,24 @@ registerStructured('liveCodeAnswer', {
 const PROFILE = 'live.code_execution';
 const PROFILE_STRUCTURED = 'live.code_execution.structured';
 
-function flashSpec(builtInTools: string[]) {
+function effortAlias(level: string): string {
+  if (level === 'high') return 'high';
+  if (level === 'medium') return 'medium';
+  if (level === 'low') return 'low';
+  return 'normal';
+}
+
+const turnEffort = effortAlias(thinkingLevel);
+
+function flashBinding(builtInTools: BuiltinToolId[]): ModelBinding {
   return {
+    protocol: 'geminiInteractions',
+    provider: 'google',
     apiId: modelId,
-    thinking: { on: thinkingLevel, off: 'minimal' },
-    thinkingLevels: ['minimal', 'low', 'medium', 'high'],
-    summaries: { on: 'auto', off: 'none' },
+    efforts: { normal: 'minimal', low: 'low', medium: 'medium', high: 'high' },
+    defaultEffort: turnEffort,
+    allowEffortSelect: true,
+    summaries: true,
     maxOutputTokens: 4096,
     temperature: 0.2,
     builtInTools,
@@ -70,17 +82,10 @@ registerProfile(
       system:
         'You have code_execution. Prefer executing Python for arithmetic, plots, and failures. Be concise.',
     },
-    model: {
-      protocol: 'geminiInteractions',
-      provider: 'google',
-      allow: ['flash'],
-      config: { flash: flashSpec(['codeExecution', 'googleSearch']) },
-      thinking: thinkingLevel,
-      controls: [],
-      maxSteps: 3,
-      key: 'slotA',
-      select: { fast: 'flash', smart: 'flash' },
-    },
+    models: { flash: flashBinding(['codeExecution', 'googleSearch']) },
+    defaultModel: 'flash',
+    maxSteps: 3,
+    key: 'slotA',
     tools: { allow: [] },
     inputs: { text: true },
     outputs: {},
@@ -96,16 +101,10 @@ registerProfile(
       handle: 'code-exec-structured',
       system: 'Use code_execution, then answer only via the JSON schema.',
     },
-    model: {
-      protocol: 'geminiInteractions',
-      provider: 'google',
-      allow: ['flash'],
-      config: { flash: flashSpec(['codeExecution']) },
-      thinking: thinkingLevel,
-      controls: [],
-      maxSteps: 1,
-      key: 'slotA',
-    },
+    models: { flash: flashBinding(['codeExecution']) },
+    defaultModel: 'flash',
+    maxSteps: 1,
+    key: 'slotA',
     tools: { allow: [] },
     inputs: { text: true },
     outputs: { structured: 'liveCodeAnswer' },
@@ -203,8 +202,8 @@ asserted.push(
   await (async () => {
     const req = {
       profile: PROFILE,
-      select: 'smart',
-      thinking: true,
+      model: 'flash',
+      effort: turnEffort,
       input: {
         text: 'Use code_execution once: print(sum(range(1, 11))). Reply with only the number.',
       },
@@ -224,7 +223,7 @@ asserted.push(
     {
       profile: PROFILE,
       stream: true,
-      thinking: true,
+      effort: turnEffort,
       input: { text: 'Use code_execution: print(sum(range(1, 101))). Reply with only the number.' },
     },
     (got) => {
@@ -246,7 +245,7 @@ asserted.push(
     {
       profile: PROFILE,
       stream: false,
-      thinking: true,
+      effort: turnEffort,
       input: { text: 'Use code_execution: print(sum(range(1, 51))). Reply with only the number.' },
     },
     (got) => {
@@ -266,7 +265,7 @@ asserted.push(
     'sandbox error isError=true',
     {
       profile: PROFILE,
-      thinking: true,
+      effort: turnEffort,
       input: {
         text:
           'Use code_execution exactly once to evaluate 1/0 in Python. ' +
@@ -291,7 +290,7 @@ asserted.push(
     'multi-exec in one turn',
     {
       profile: PROFILE,
-      thinking: true,
+      effort: turnEffort,
       input: {
         text:
           'Use code_execution at least twice. First print(17*19). Then print(math.factorial(8)) ' +
@@ -316,7 +315,7 @@ asserted.push(
     'matplotlib media',
     {
       profile: PROFILE,
-      thinking: true,
+      effort: turnEffort,
       input: {
         text:
           'Use code_execution with matplotlib to plot y=[1,3,2] and show the figure. ' +
@@ -342,7 +341,7 @@ asserted.push(
     'codeExecution + googleSearch',
     {
       profile: PROFILE,
-      thinking: true,
+      effort: turnEffort,
       input: {
         text:
           'Search for the atomic number of carbon, then use code_execution to print that number times 2. ' +
@@ -365,7 +364,7 @@ asserted.push(
     'structured + codeExecution (API may reject)',
     {
       profile: PROFILE_STRUCTURED,
-      thinking: true,
+      effort: turnEffort,
       input: {
         text: 'Use code_execution to compute 21*2. Return JSON with answer and usedCode=true.',
       },

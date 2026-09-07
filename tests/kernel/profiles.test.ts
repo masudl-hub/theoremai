@@ -1,4 +1,5 @@
 import { assertEquals, assertThrows } from '@std/assert';
+import { z } from 'zod';
 import {
   clearProfiles,
   defineProfile,
@@ -8,8 +9,9 @@ import {
   registerProfile,
   registerProfiles,
 } from '../../src/kernel/registry/profiles.ts';
+import { registerTool } from '../../src/kernel/tools/mod.ts';
 import { registerGooglePreset } from '../../src/presets/google.ts';
-import { geminiModel, modelAllow } from '../fixtures/models.ts';
+import { geminiModels, HOST_BINDINGS, modelBindings } from '../fixtures/models.ts';
 
 registerGooglePreset();
 
@@ -18,12 +20,15 @@ Deno.test('defineProfile preserves explicit typed fields without defaults', () =
     id: 'host_profile',
     type: 'text',
     identity: { handle: 'host_profile' },
-    model: {
-      ...geminiModel('gemini35FlashLite'),
-      thinking: 'low',
-      maxSteps: 1,
-      key: 'slotA',
+    models: {
+      gemini35FlashLite: {
+        ...HOST_BINDINGS.gemini35FlashLite,
+        efforts: { normal: 'low' },
+        allowEffortSelect: false,
+      },
     },
+    maxSteps: 1,
+    key: 'slotA',
     tools: { allow: [] },
     inputs: { text: true },
     outputs: { structured: null },
@@ -32,10 +37,10 @@ Deno.test('defineProfile preserves explicit typed fields without defaults', () =
 
   assertEquals(profile.id, 'host_profile');
   assertEquals(profile.type, 'text');
-  assertEquals(profile.model.protocol, 'geminiInteractions');
-  assertEquals(profile.model.provider, 'google');
-  assertEquals(profile.model.maxSteps, 1);
-  assertEquals(profile.model.key, 'slotA');
+  assertEquals(profile.models.gemini35FlashLite.protocol, 'geminiInteractions');
+  assertEquals(profile.models.gemini35FlashLite.provider, 'google');
+  assertEquals(profile.maxSteps, 1);
+  assertEquals(profile.key, 'slotA');
   assertEquals(profile.identity.handle, 'host_profile');
   if (profile.type !== 'text') throw new Error('Expected text profile');
   assertEquals(profile.tools.allow, []);
@@ -51,12 +56,14 @@ Deno.test('defineProfile rejects illegal protocol/provider pairs', () => {
         id: 'bad_pair',
         type: 'text',
         identity: { handle: 'bad_pair' },
-        model: {
-          protocol: 'openAi',
-          provider: 'google',
-          key: 'slotA',
-          ...modelAllow('gemini35FlashLite'),
+        models: {
+          gemini35FlashLite: {
+            ...modelBindings('gemini35FlashLite').gemini35FlashLite,
+            protocol: 'openAi',
+            provider: 'google',
+          },
         },
+        key: 'slotA',
         tools: { allow: [] },
         inputs: { text: true },
       }),
@@ -70,17 +77,12 @@ Deno.test('defineProfile keeps omitted optional fields omitted', () => {
     id: 'bare_host_profile',
     type: 'text',
     identity: { handle: 'bare_host_profile' },
-    model: {
-      protocol: 'geminiInteractions',
-      provider: 'google',
-      key: 'slotA',
-      ...modelAllow('gemini35FlashLite'),
-    },
+    ...geminiModels('gemini35FlashLite'),
     tools: { allow: [] },
     inputs: { text: true },
   });
 
-  assertEquals(profile.model.thinking, undefined);
+  assertEquals(profile.models.gemini35FlashLite.defaultEffort, 'normal');
   if (profile.type !== 'text') throw new Error('Expected text profile');
   assertEquals(profile.tools.allow, []);
   assertEquals(profile.inputs.text, true);
@@ -93,9 +95,7 @@ Deno.test('registerProfile accepts explicit typed profile definitions', () => {
     id: 'minimal_host_bot',
     type: 'text',
     identity: { handle: 'minimal_host_bot' },
-    model: {
-      ...geminiModel('gemini35FlashLite'),
-    },
+    ...geminiModels('gemini35FlashLite'),
     tools: { allow: [] },
     inputs: { text: true },
   });
@@ -115,9 +115,7 @@ Deno.test('registerProfile and getProfile manage runtime profile lifecycle', () 
     id: 'custom_bot',
     type: 'text',
     identity: { handle: 'custom_bot' },
-    model: {
-      ...geminiModel('gemini35FlashLite'),
-    },
+    ...geminiModels('gemini35FlashLite'),
     tools: { allow: [] },
     inputs: { text: true },
     guardrails: { quota: { perDay: 50 } },
@@ -137,9 +135,7 @@ Deno.test('registerProfiles handles batch registration', () => {
     id: 'bot_alpha',
     type: 'text',
     identity: { handle: 'bot_alpha' },
-    model: {
-      ...geminiModel('gemini35FlashLite'),
-    },
+    ...geminiModels('gemini35FlashLite'),
     tools: { allow: [] },
     inputs: { text: true },
     guardrails: { quota: { perDay: 10 } },
@@ -148,9 +144,7 @@ Deno.test('registerProfiles handles batch registration', () => {
     id: 'bot_beta',
     type: 'text',
     identity: { handle: 'bot_beta' },
-    model: {
-      ...geminiModel('gemini35FlashLite'),
-    },
+    ...geminiModels('gemini35FlashLite'),
     tools: { allow: [] },
     inputs: { text: true },
     guardrails: { quota: { perDay: 20 } },
@@ -166,9 +160,7 @@ Deno.test('registerProfile validates media limits if attachments are enabled', (
     id: 'invalid_media_bot',
     type: 'text',
     identity: { handle: 'invalid_media_bot' },
-    model: {
-      ...geminiModel('gemini35FlashLite'),
-    },
+    ...geminiModels('gemini35FlashLite'),
     tools: { allow: [] },
     inputs: { text: true, attachments: { accept: ['image/png'] } },
     guardrails: { quota: { perDay: 10 } },
@@ -188,22 +180,7 @@ Deno.test('defineProfile rejects inputs, outputs, and t2Loader on live profiles'
     id: 'live_shape_bot',
     type: 'live' as const,
     identity: { handle: 'live_shape_bot' },
-    model: {
-      protocol: 'geminiLive' as const,
-      provider: 'google' as const,
-      allow: ['gemini31FlashLive'],
-      config: {
-        gemini31FlashLive: {
-          apiId: 'gemini-3.1-flash-live-preview',
-          thinking: { on: 'none', off: 'none' },
-          thinkingLevels: ['none'],
-          summaries: { on: 'none', off: 'none' },
-          maxOutputTokens: 256,
-          temperature: 0,
-          builtInTools: [],
-        },
-      },
-    },
+    models: modelBindings('gemini31FlashLive'),
     live: { voice: 'Aoede' },
     tools: { allow: [] },
   };
@@ -253,6 +230,69 @@ Deno.test('defineProfile rejects inputs, outputs, and t2Loader on live profiles'
   );
 });
 
+Deno.test("registerProfile rejects T1/T2 tools on type 'live'", () => {
+  registerTool({
+    type: 'function',
+    name: 'live_t1_probe',
+    description: 'T1 tool must not be allowlisted on live',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T1',
+    permission: 'auto',
+    input: z.object({}),
+    output: z.object({ finding: z.string() }),
+    handler: () => ({ finding: 'nope' }),
+  });
+  registerTool({
+    type: 'function',
+    name: 'live_t2_probe',
+    description: 'T2 tool must not be allowlisted on live',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T2',
+    permission: 'auto',
+    input: z.object({}),
+    output: z.object({ finding: z.string() }),
+    handler: () => ({ finding: 'nope' }),
+  });
+
+  const liveBase = {
+    id: 'live_tier_bot',
+    type: 'live' as const,
+    identity: { handle: 'live_tier_bot' },
+    models: modelBindings('gemini31FlashLive'),
+    live: { voice: 'Aoede' },
+  };
+
+  assertThrows(
+    () =>
+      registerProfile(
+        defineProfile({
+          ...liveBase,
+          id: 'live_t1_bot',
+          tools: { allow: ['live_t1_probe'] },
+        }),
+      ),
+    Error,
+    "tools.allow 'live_t1_probe' has loadTier 'T1'",
+  );
+
+  assertThrows(
+    () =>
+      registerProfile(
+        defineProfile({
+          ...liveBase,
+          id: 'live_t2_bot',
+          tools: { allow: ['live_t2_probe'] },
+        }),
+      ),
+    Error,
+    "tools.allow 'live_t2_probe' has loadTier 'T2'",
+  );
+});
+
 Deno.test('getProfile throws for unknown profile', () => {
   assertThrows(
     () => {
@@ -269,9 +309,7 @@ Deno.test('clearProfiles empties the process-local registry', () => {
     id: 'temp_clear_bot',
     type: 'text',
     identity: { handle: 'temp_clear_bot' },
-    model: {
-      ...geminiModel('gemini35FlashLite'),
-    },
+    ...geminiModels('gemini35FlashLite'),
     tools: { allow: [] },
     inputs: { text: true },
   });

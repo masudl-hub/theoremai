@@ -9,14 +9,11 @@
 
 import type { LiveProfileToolsSpec, ProfileToolsSpec } from '../kernel/tools/types.ts';
 import type {
-  ControlId,
   GroundingEvent,
   ImageProfile,
   LiveProfile,
-  ModelId,
   Profile,
   ProfileGuardrailsSpec,
-  ProfileModelSpec,
   ProfileOutputsSpec,
   ProjectedProfile,
   ProviderEvidenceEvent,
@@ -35,12 +32,6 @@ export type ProfileGuardrailsView = Pick<
   'quota' | 'canary' | 'sanitizeInput' | 'redactSensitive'
 > & {
   hasEgress: boolean;
-};
-
-/** `profile.model` with normalized `select` / `controls`. */
-export type NormalizeModel<M extends ProfileModelSpec = ProfileModelSpec> = M & {
-  select: Record<string, ModelId> | null;
-  controls: ControlId[];
 };
 
 /** Resolved `inputs` — `ProfileInputsSpec` plus `acceptAttr` for file pickers. */
@@ -65,36 +56,24 @@ export type LiveResolvedTools = LiveProfileToolsSpec & {
   resolved: Array<RegisteredTool | { name: ToolId; missing: true }>;
 };
 
-export type NormalizedModel = NormalizeModel;
-
-export type TextProfileInterface = Omit<
-  TextProfile,
-  'inputs' | 'tools' | 'guardrails' | 'model'
-> & {
-  model: NormalizeModel<TextProfile['model']>;
+export type TextProfileInterface = Omit<TextProfile, 'inputs' | 'tools' | 'guardrails'> & {
   inputs: ProfileInputsInterface;
   tools: ResolvedTools;
   guardrails?: ProfileGuardrailsView;
 };
 
-export type ImageProfileInterface = Omit<
-  ImageProfile,
-  'inputs' | 'tools' | 'guardrails' | 'model'
-> & {
-  model: NormalizeModel<ImageProfile['model']>;
+export type ImageProfileInterface = Omit<ImageProfile, 'inputs' | 'tools' | 'guardrails'> & {
   inputs: ProfileInputsInterface;
   tools: ResolvedTools;
   guardrails?: ProfileGuardrailsView;
 };
 
-export type SpeechProfileInterface = Omit<SpeechProfile, 'guardrails' | 'model'> & {
-  model: NormalizeModel<SpeechProfile['model']>;
+export type SpeechProfileInterface = Omit<SpeechProfile, 'guardrails'> & {
   inputs: ProfileInputsInterface;
   guardrails?: ProfileGuardrailsView;
 };
 
-export type LiveProfileInterface = Omit<LiveProfile, 'tools' | 'model' | 'guardrails'> & {
-  model: NormalizeModel<LiveProfile['model']>;
+export type LiveProfileInterface = Omit<LiveProfile, 'tools' | 'guardrails'> & {
   tools: LiveResolvedTools;
   guardrails?: ProfileGuardrailsView;
 };

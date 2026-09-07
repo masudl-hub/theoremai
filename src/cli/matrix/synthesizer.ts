@@ -2,13 +2,13 @@
  * Stress / matrix turn synthesis for the THEORUM CLI.
  *
  * Custom tools come from `profile.tools.allow` (visibility via loadTier).
- * Provider builtins come from `model.config.*.builtInTools`. `--search` /
+ * Provider builtins come from `models.*.builtInTools`. `--search` /
  * `--map` only verify those ids are listed on the selected model.
  *
  * @module
  */
 
-import type { Profile, TurnBlob, TurnRequest } from '../../kernel/types.ts';
+import type { ModelId, Profile, TurnBlob, TurnRequest } from '../../kernel/types.ts';
 import { FIXTURE_PNG_BASE64, FIXTURE_WAV_BASE64, getFixtureForMime } from './fixtures.ts';
 
 export interface MatrixOptions {
@@ -22,26 +22,28 @@ export interface MatrixOptions {
   voicePath?: string;
 }
 
+function defaultModelId(profile: Profile): ModelId {
+  const ids = Object.keys(profile.models);
+  return profile.defaultModel ?? ids[0] ?? '';
+}
+
 export function synthesizeLiteCombo(profile: Profile): TurnRequest {
-  const select = profile.model.select?.fast ? 'fast' : undefined;
+  const model = profile.allowModelSelect && profile.models.fast ? 'fast' : undefined;
   return {
     profile: profile.id,
-    select,
+    model,
     input: {
       text: `Ping test for profile ${profile.id}. Respond concisely with confirmation.`,
     },
   };
 }
 
-function resolveStressReasoning(profile: Profile): string | undefined {
-  if (profile.model.select?.smart) {
+function resolveStressModel(profile: Profile): string | undefined {
+  if (profile.models.smart) {
     return 'smart';
   }
-  if (profile.model.select) {
-    const keys = Object.keys(profile.model.select);
-    return keys[keys.length - 1];
-  }
-  return undefined;
+  const ids = Object.keys(profile.models);
+  return ids.length > 1 ? ids[ids.length - 1] : undefined;
 }
 
 function resolveStressAttachments(profile: Profile): TurnBlob[] {
@@ -75,14 +77,14 @@ function resolveStressVoice(profile: Profile): TurnBlob[] {
 }
 
 export function synthesizeStressCombo(profile: Profile): TurnRequest {
-  const select = resolveStressReasoning(profile);
+  const model = resolveStressModel(profile);
   const attachments = resolveStressAttachments(profile);
   const voice = resolveStressVoice(profile);
   const promptText = `Execute comprehensive test turn for profile ${profile.id}. Validate all instructions and produce required outputs.`;
 
   return {
     profile: profile.id,
-    select,
+    model,
     input: {
       text: promptText,
       attachments: attachments.length > 0 ? attachments : undefined,
@@ -108,17 +110,14 @@ export function synthesizeMatrixCombos(
 
 /** Ensure CLI grounding flags match model builtInTools. */
 function assertGroundingFlagsOnModel(profile: Profile, options: MatrixOptions): void {
-  const select = options.mode ?? (profile.model.select?.fast ? 'fast' : undefined);
   const modelId =
-    select && profile.model.select?.[select]
-      ? profile.model.select[select]
-      : profile.model.allow[0];
-  const builtins = new Set(profile.model.config[modelId]?.builtInTools ?? []);
+    options.mode && profile.models[options.mode] ? options.mode : defaultModelId(profile);
+  const builtins = new Set(profile.models[modelId]?.builtInTools ?? []);
   if (options.search === true && !builtins.has('googleSearch')) {
-    throw new Error(`--search requires googleSearch on model.config.${modelId}.builtInTools`);
+    throw new Error(`--search requires googleSearch on models.${modelId}.builtInTools`);
   }
   if (options.map === true && !builtins.has('googleMaps')) {
-    throw new Error(`--map requires googleMaps on model.config.${modelId}.builtInTools`);
+    throw new Error(`--map requires googleMaps on models.${modelId}.builtInTools`);
   }
 }
 
@@ -129,7 +128,7 @@ export function buildCustomTurnRequest(profile: Profile, options: MatrixOptions)
 
   const base = synthesizeStressCombo(profile);
   if (options.mode) {
-    base.select = options.mode;
+    base.model = options.mode;
   }
 
   if (options.search !== undefined || options.map !== undefined) {

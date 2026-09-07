@@ -66,8 +66,10 @@ console.log('Vault loaded — all slots populated.');
 const profiles = listProfiles();
 console.log(`Registered profiles: ${profiles.map((p) => p.id).join(', ')}`);
 
-const geminiProfiles = profiles.filter(
-  (p) => p.model.protocol === 'geminiInteractions' && p.model.provider === 'google',
+const geminiProfiles = profiles.filter((p) =>
+  Object.values(p.models).some(
+    (binding) => binding.protocol === 'geminiInteractions' && binding.provider === 'google',
+  ),
 );
 
 console.log(

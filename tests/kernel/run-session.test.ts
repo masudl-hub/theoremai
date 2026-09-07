@@ -8,25 +8,17 @@ import {
 } from '../../src/kernel/registry/profiles.ts';
 import { resetTools } from '../../src/kernel/tools/mod.ts';
 
+import { HOST_BINDINGS } from '../fixtures/models.ts';
+
 function registerLiveProfile(id: string) {
   const profile = defineProfile({
     type: 'live',
     id,
     identity: { handle: 'live', system: 'hi' },
-    model: {
-      protocol: 'geminiLive',
-      provider: 'google',
-      allow: ['gemini31FlashLive'],
-      thinking: 'none',
-      config: {
-        gemini31FlashLive: {
-          apiId: 'gemini-3.1-flash-live-preview',
-          thinking: { on: 'none', off: 'none' },
-          thinkingLevels: ['none'],
-          summaries: { on: 'none', off: 'none' },
-          builtInTools: [],
-          key: 'slotA',
-        },
+    models: {
+      gemini31FlashLive: {
+        ...HOST_BINDINGS.gemini31FlashLive,
+        key: 'slotA',
       },
     },
     live: { voice: 'Aoede' },
@@ -82,20 +74,15 @@ Deno.test('runSession rejects non-live profiles', async () => {
     type: 'text',
     id: 'session_reject_text',
     identity: { handle: 't' },
-    model: {
-      protocol: 'geminiInteractions',
-      provider: 'google',
-      allow: ['m'],
-      thinking: 'none',
-      config: {
-        m: {
-          apiId: 'gemini-test',
-          thinking: { on: 'none', off: 'none' },
-          thinkingLevels: ['none'],
-          summaries: { on: 'none', off: 'none' },
-          builtInTools: [],
-          key: 'slotA',
-        },
+    models: {
+      m: {
+        protocol: 'geminiInteractions',
+        provider: 'google',
+        apiId: 'gemini-test',
+        efforts: { normal: 'none' },
+        summaries: false,
+        builtInTools: [],
+        key: 'slotA',
       },
     },
     tools: { allow: [] },
@@ -142,20 +129,10 @@ Deno.test('runSession sendVideo rejects when live.ingress.video is disabled', as
     type: 'live',
     id: 'session_live_no_video',
     identity: { handle: 'live', system: 'hi' },
-    model: {
-      protocol: 'geminiLive',
-      provider: 'google',
-      allow: ['gemini31FlashLive'],
-      thinking: 'none',
-      config: {
-        gemini31FlashLive: {
-          apiId: 'gemini-3.1-flash-live-preview',
-          thinking: { on: 'none', off: 'none' },
-          thinkingLevels: ['none'],
-          summaries: { on: 'none', off: 'none' },
-          builtInTools: [],
-          key: 'slotA',
-        },
+    models: {
+      gemini31FlashLive: {
+        ...HOST_BINDINGS.gemini31FlashLive,
+        key: 'slotA',
       },
     },
     live: { voice: 'Aoede', ingress: { video: false } },
@@ -186,6 +163,96 @@ Deno.test('runSession sendVideo rejects when live.ingress.video is disabled', as
     'live.ingress.video is disabled',
   );
   (mock as unknown as MockLiveWebSocket)?.close();
+  await session.close();
+});
+
+Deno.test('runSession sendText rejects when live.ingress.text is disabled', async () => {
+  clearProfiles();
+  resetTools();
+  const profile = defineProfile({
+    type: 'live',
+    id: 'session_live_no_text',
+    identity: { handle: 'live', system: 'hi' },
+    models: {
+      gemini31FlashLive: {
+        ...HOST_BINDINGS.gemini31FlashLive,
+        key: 'slotA',
+      },
+    },
+    live: { voice: 'Aoede', ingress: { text: false } },
+    tools: { allow: [] },
+  });
+  registerProfile(profile);
+
+  let mock: MockLiveWebSocket | null = null;
+  const session = await runSession(
+    { profile: profile.id },
+    {
+      gemini: {
+        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
+      },
+      openWebSocket: () => {
+        mock = new MockLiveWebSocket();
+        setTimeout(() => mock?.open(), 0);
+        return Promise.resolve(mock as unknown as WebSocket);
+      },
+    },
+  );
+
+  await new Promise((r) => setTimeout(r, 0));
+
+  assertThrows(() => session.sendText('hello'), TheorumError, 'live.ingress.text is disabled');
+  (mock as unknown as MockLiveWebSocket)?.close();
+  await session.close();
+});
+
+Deno.test('runSession sendText frames sanitized realtime input when text ingress enabled', async () => {
+  clearProfiles();
+  resetTools();
+  const profile = defineProfile({
+    type: 'live',
+    id: 'session_live_text',
+    identity: { handle: 'live', system: 'hi' },
+    models: {
+      gemini31FlashLive: {
+        ...HOST_BINDINGS.gemini31FlashLive,
+        key: 'slotA',
+      },
+    },
+    live: { voice: 'Aoede', ingress: { text: true } },
+    tools: { allow: [] },
+    guardrails: { sanitizeInput: true, redactSensitive: true },
+  });
+  registerProfile(profile);
+
+  let mock: MockLiveWebSocket | null = null;
+  const session = await runSession(
+    { profile: profile.id },
+    {
+      gemini: {
+        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
+      },
+      openWebSocket: () => {
+        mock = new MockLiveWebSocket();
+        setTimeout(() => mock?.open(), 0);
+        return Promise.resolve(mock as unknown as WebSocket);
+      },
+    },
+  );
+
+  await new Promise((r) => setTimeout(r, 0));
+
+  session.sendText('hello concierge');
+  const liveMock = mock as unknown as MockLiveWebSocket;
+  const textFrame = liveMock.sent.find((frame) => frame.includes('"realtimeInput"'));
+  assertEquals(textFrame !== undefined, true);
+  const parsed = JSON.parse(textFrame ?? '{}') as {
+    realtimeInput?: { text?: string };
+  };
+  assertEquals(parsed.realtimeInput?.text?.includes('<user_data>'), true);
+  assertEquals(parsed.realtimeInput?.text?.includes('hello concierge'), true);
+
+  liveMock.close();
   await session.close();
 });
 

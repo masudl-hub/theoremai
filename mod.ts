@@ -11,24 +11,31 @@
  *
  * const profile = defineProfile({
  *   id: "assistant.basic",
- *   model: {
- *     allow: ["gemini35FlashLite"],
- *     config: {
- *       gemini35FlashLite: {
- *         apiId: "gemini-3.5-flash-lite",
- *         thinking: { on: "high", off: "minimal" },
- *         thinkingLevels: ["minimal", "low", "medium", "high"],
- *         summaries: { on: "auto", off: "none" },
- *         maxOutputTokens: 8192,
- *         temperature: 1,
- *         builtInTools: [],
- *       },
+ *   type: "text",
+ *   identity: {
+ *     handle: "assistant",
+ *     system: "Answer plainly.",
+ *   },
+ *   models: {
+ *     default: {
+ *       protocol: "openAi",
+ *       provider: "openrouter",
+ *       apiId: "perplexity/sonar",
+ *       efforts: { normal: "minimal" },
+ *       summaries: false,
+ *       maxOutputTokens: 8192,
+ *       temperature: 1,
  *     },
  *   },
+ *   maxSteps: 1,
  *   tools: { allow: [] },
  *   inputs: { text: true },
- *   outputs: {},
- *   guardrails: { quota: { perDay: 100 } },
+ *   outputs: {
+ *     streaming: { streamThoughts: false },
+ *   },
+ *   guardrails: {
+ *     quota: { perDay: 100 },
+ *   },
  * });
  *
  * registerProfile(profile);
@@ -69,6 +76,12 @@ export {
   standardEgressEnforce,
   wrapUserData,
 } from './src/guardrails/mod.ts';
+export {
+  assertSafeUrl,
+  isLocalhostName,
+  isPrivateOrLocalAddress,
+  type NetworkGuardrailSpec,
+} from './src/guardrails/network.ts';
 export type { QuotaSlotStatus } from './src/guardrails/quota.ts';
 export {
   clientIp,
@@ -131,7 +144,7 @@ export {
   mimeAllowed,
   mimeEssence,
   modelEntryByApiId,
-  requireModelSpec,
+  requireModelBinding,
 } from './src/kernel/registry/catalog.ts';
 export type {
   ImageProfileDefinition,
@@ -152,19 +165,32 @@ export {
 } from './src/kernel/registry/profiles.ts';
 export { pickModel, projectProfile, resolveTurn } from './src/kernel/registry/resolve.ts';
 export { getStructured, registerStructured } from './src/kernel/registry/schemas.ts';
-export type { TurnStopKind } from './src/kernel/schema.ts';
+export type {
+  AuthUnauthenticatedPolicy,
+  CustomToolType,
+  HttpMethod,
+  PlaygroundAuthType,
+  ToolAccess,
+  ToolAuthType,
+  ToolPermission,
+  ToolType,
+  TurnStopKind,
+} from './src/kernel/schema.ts';
 export {
   ATTACHMENT_ACCEPT_MIMES,
+  AUTH_UNAUTHENTICATED_POLICIES,
   COMPACTION_METERS,
   COMPACTION_TIMINGS,
-  CONTROL_IDS,
   catalogPathFor,
   coerceProtocol,
   coerceProvider,
+  coerceSpeechFormat,
   DYNAMIC_FIELD_PARENTS,
   EGRESS_ON_BLOCK,
   EXTRA_FIELDS,
   fieldMeta,
+  HTTP_METHODS,
+  isSpeechFormatAllowedForProtocol,
   isValidPair,
   isValidProfileProtocol,
   KEY_SLOTS,
@@ -175,6 +201,7 @@ export {
   MEDIA_INPUT_KINDS,
   MEDIA_WILDCARDS,
   OVERFLOW_KEY_SLOTS,
+  PLAYGROUND_AUTH_TYPES,
   PROFILE_FIELDS,
   PROFILE_TYPE_PROTOCOLS,
   PROFILE_TYPES,
@@ -188,8 +215,11 @@ export {
   SPEECH_AUDIO_FORMATS,
   STREAM_MODES,
   SUMMARY_MODES,
+  speechFormatsForProtocol,
   THINKING_LEVELS,
   TOOL_ACCESS,
+  TOOL_AUTH_TYPES,
+  LIVE_TOOL_LOAD_TIERS,
   TOOL_LOAD_TIERS,
   TOOL_PERMISSION,
   TOOL_TYPES,
@@ -215,6 +245,7 @@ export {
   turnStopFromOpenAiFinishReason,
 } from './src/kernel/stop.ts';
 export {
+  buildHttpToolTarget,
   executeHttpTool,
   executeMcpTool,
   formatToolResult,
@@ -224,6 +255,7 @@ export {
   listBuiltinIds,
   listFunctionIds,
   listTools,
+  parseMcpRpcResponse,
   prepareTurnToolSnapshot,
   registerHarnessTools,
   registerTool,

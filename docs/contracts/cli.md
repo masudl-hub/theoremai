@@ -63,7 +63,7 @@ theorum test --profile my.agent --lite --trace --trace-dir /var/log/theorum
 | `matrix/fixtures.ts` | Shared harness fixtures (not product personas) |
 
 Tool stress / matrix allowlists are `profile.tools.allow` plus each selected
-model's `builtInTools` (via `pickModel` / union across `model.allow`). Builtin
+model's `builtInTools` (via `pickModel` / union across `models`). Builtin
 conflict resolution uses registered tool `type === 'builtin'` metadata.
 The matrix respects those allowlists — e.g. `--search` only applies when
 `googleSearch` is allowlisted, while skipping file/voice synthesizers for `live` and `speech` profiles.

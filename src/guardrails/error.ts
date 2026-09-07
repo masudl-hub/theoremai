@@ -95,7 +95,8 @@ const RULES: ErrorRule[] = [
       t.includes('not allowed') ||
       t.includes('not registered') ||
       t.includes('Unknown model select') ||
-      t.includes('Grounding tools'),
+      t.includes('Grounding tools') ||
+      (t.includes('live.ingress.') && t.includes('is disabled')),
     resolve: () => PUBLIC_ACTION,
   },
   {

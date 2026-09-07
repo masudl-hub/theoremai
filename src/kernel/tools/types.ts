@@ -9,10 +9,25 @@
 
 import type { z } from 'zod';
 import type { ToolCredential } from '../auth/types.ts';
-import type { ToolAccess, ToolLoadTier, ToolPermission } from '../schema.ts';
+import type {
+  AuthUnauthenticatedPolicy,
+  HttpMethod,
+  LiveToolLoadTier,
+  ToolAccess,
+  ToolAuthType,
+  ToolLoadTier,
+  ToolPermission,
+} from '../schema.ts';
 import type { Profile, ToolId, TurnInput } from '../types.ts';
 
-export type { ToolAccess, ToolPermission };
+export type {
+  AuthUnauthenticatedPolicy,
+  HttpMethod,
+  LiveToolLoadTier,
+  ToolAccess,
+  ToolAuthType,
+  ToolPermission,
+};
 
 export interface ToolLabels {
   activity?: string;
@@ -88,7 +103,7 @@ export interface ToolPause {
   /** Auth challenge metadata when kind is 'auth' */
   authChallenge?: {
     slot: string;
-    authType: 'oauth2' | 'bearer' | 'api_key';
+    authType: ToolAuthType;
     message: string;
     authorizationUrl?: string;
     state?: string;
@@ -143,13 +158,9 @@ export interface FunctionToolDef<TIn = unknown, TOut = unknown> extends ToolBase
   exposeToModel?: boolean;
 }
 
-export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
-
-export type AuthUnauthenticatedPolicy = 'pause' | 'report_to_model';
-
 export interface HttpToolAuthConfig {
   slot: string;
-  type: 'bearer' | 'api_key' | 'oauth2';
+  type: ToolAuthType;
   headerName?: string; // defaults to 'Authorization'
   headerPrefix?: string; // defaults to 'Bearer '
   onUnauthenticated?: AuthUnauthenticatedPolicy; // defaults to 'pause'
@@ -193,6 +204,7 @@ export interface McpToolDef<TIn = unknown, TOut = unknown> extends ToolBase {
   type: 'mcp';
   serverUrl: string; // HTTP MCP server endpoint URL
   mcpToolName: string; // Name of the tool on the remote MCP server
+  headers?: Record<string, string>;
   auth?: HttpToolAuthConfig;
   input: z.ZodType<TIn>;
   output: z.ZodType<TOut>;
@@ -277,8 +289,8 @@ export interface InvokeToolRequest {
    * Host must have run tools.t2Loader (or equivalent) before listing ids here.
    */
   promoted?: ToolId[];
-  /** Model select key — same as `TurnRequest.select` (builtins resolve from that model). */
-  select?: string;
+  /** Selected model id — same as `TurnRequest.model` (builtins resolve from that model). */
+  model?: string;
   /**
    * Optional turn snapshot from a paused turn. Cloned before use so concurrent host
    * invokes do not share mutable visibility state.
@@ -286,12 +298,14 @@ export interface InvokeToolRequest {
   snapshot?: TurnToolSnapshot;
   resume?: InvokeToolResume;
   sessionPermissions?: string[];
+  /** Host credentials for authenticated HTTP / MCP tools keyed by auth slot. */
+  credentials?: Record<string, ToolCredential>;
   path?: string;
   signal?: AbortSignal;
 }
 
 export interface ProfileToolsSpec {
-  /** Custom function tools this profile may run. Builtins live on model specs. */
+  /** Custom function tools this profile may run. Builtins live on models.*.builtInTools. */
   allow: ToolId[];
   /**
    * Optional T1 policy — returns which eligible T1 tools to wire at turn start.
@@ -307,8 +321,15 @@ export interface ProfileToolsSpec {
   t2Loader?: ToolId;
 }
 
-/** Live profiles: T0 custom allowlist only — declarations are fixed at Gemini Live setup. */
+/**
+ * Live session tools — Gemini Live (and similar) fix function declarations at setup.
+ *
+ * Shape excludes `t1Policy` / `t2Loader`. Every id in `allow` (and each model's
+ * `builtInTools`) must resolve to a registered tool with {@link LiveToolLoadTier}
+ * (`T0`) — `registerProfile` rejects T1/T2.
+ */
 export interface LiveProfileToolsSpec {
+  /** Custom T0 tools wired once at session setup. */
   allow: ToolId[];
 }
 

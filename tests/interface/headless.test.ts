@@ -1,16 +1,32 @@
 import { assertEquals, assertFalse } from '@std/assert';
 import {
+  appendAssistantEventsToHistory,
+  appendToolDenialToHistory,
+  appendUserDraftToHistory,
+  applyTurnEventsToSession,
+  branchInterfaceTurnSession,
   buildUserTurnBlocks,
   type ComposerProfileInterface,
+  defaultInterfaceEffort,
+  defaultInterfaceModel,
+  effortSelectEnabled,
+  emptyInterfaceTurnSession,
   foldConversationTurn,
   foldTurnEvents,
+  historyFromTranscriptBlocks,
   inputsFromSpec,
+  interfaceEffortOptions,
   interfaceFrom,
   interfaceFromProfile,
+  interfaceModelOptions,
+  modelSelectEnabled,
+  pausedToolFromEvents,
   prepareUserTurn,
+  promotedToolIdsFromEvents,
   resetBlockIds,
   sanitizeUserDraft,
   streamThoughtsEnabled,
+  toolSnapshotFromEvents,
   validateProfileInputs,
 } from '../../src/interface/mod.ts';
 import {
@@ -20,9 +36,9 @@ import {
 } from '../../src/kernel/registry/attachments.ts';
 import { defineProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
 import { projectProfile } from '../../src/kernel/registry/resolve.ts';
-import type { Profile, TextProfile, TurnEvent } from '../../src/kernel/types.ts';
+import type { ModelBinding, Profile, TextProfile, TurnEvent } from '../../src/kernel/types.ts';
 import { registerGooglePreset } from '../../src/presets/google.ts';
-import { CHAT_MEDIA_LIMITS, geminiModel } from '../fixtures/models.ts';
+import { CHAT_MEDIA_LIMITS, geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 
 registerGooglePreset();
 
@@ -30,7 +46,7 @@ const ATTACHMENT_PROFILE = defineProfile({
   id: 'interface.text.attachments',
   type: 'text',
   identity: { handle: 'vision_bot', system: 'You see images.' },
-  model: geminiModel('gemini35FlashLite'),
+  ...geminiModels('gemini35FlashLite'),
   tools: { allow: [] },
   inputs: {
     text: true,
@@ -44,7 +60,7 @@ const NO_TEXT_PROFILE = defineProfile({
   id: 'interface.text.no_text',
   type: 'text',
   identity: { handle: 'files_only' },
-  model: geminiModel('gemini35FlashLite'),
+  ...geminiModels('gemini35FlashLite'),
   tools: { allow: [] },
   inputs: {
     text: false,
@@ -75,8 +91,9 @@ Deno.test('interfaceFromProfile maps identity, inputs, model, and outputs', () =
   assertEquals(iface.inputs.attachments?.acceptAttr, 'image/png,image/jpeg');
   assertEquals(iface.inputs.voice, null);
   assertEquals(iface.inputs.maxFiles, CHAT_MEDIA_LIMITS.maxFiles);
-  assertEquals(iface.model.allow, ATTACHMENT_PROFILE.model.allow);
-  assertEquals(iface.model.protocol, 'geminiInteractions');
+  const projected = projectProfile(ATTACHMENT_PROFILE.id);
+  assertEquals(Object.keys(projected.models), ['gemini35FlashLite']);
+  assertEquals(projected.models.gemini35FlashLite.protocol, 'geminiInteractions');
   assertEquals(iface.outputs?.structured, undefined);
   assertEquals(streamThoughtsEnabled(iface.outputs), true);
   assertEquals(iface.guardrails?.canary, true);
@@ -114,12 +131,12 @@ Deno.test('interfaceFromProfile maps live type without turn inputs', () => {
     id: 'interface.live.base',
     type: 'live',
     identity: { handle: 'live_agent' },
-    model: {
-      protocol: 'geminiLive',
-      provider: 'google',
-      allow: ['gemini-2.0-flash-exp'],
-      config: {
-        'gemini-2.0-flash-exp': { apiId: 'gemini-2.0-flash-exp' },
+    models: {
+      'gemini-2.0-flash-exp': {
+        protocol: 'geminiLive',
+        provider: 'google',
+        apiId: 'gemini-2.0-flash-exp',
+        efforts: { normal: 'minimal' },
       },
     },
     live: { voice: 'Kore' },
@@ -139,12 +156,12 @@ Deno.test('interfaceFromProfile preserves live.ingress on projection', () => {
     id: 'interface.live.ingress',
     type: 'live',
     identity: { handle: 'live_agent' },
-    model: {
-      protocol: 'geminiLive',
-      provider: 'google',
-      allow: ['gemini-2.0-flash-exp'],
-      config: {
-        'gemini-2.0-flash-exp': { apiId: 'gemini-2.0-flash-exp' },
+    models: {
+      'gemini-2.0-flash-exp': {
+        protocol: 'geminiLive',
+        provider: 'google',
+        apiId: 'gemini-2.0-flash-exp',
+        efforts: { normal: 'minimal' },
       },
     },
     live: { voice: 'Kore', ingress: { video: true, text: false } },
@@ -163,7 +180,7 @@ Deno.test('interfaceFromProfile maps speech to text-only inputs', () => {
     id: 'interface.speech.base',
     type: 'speech',
     identity: { handle: 'narrator' },
-    model: geminiModel('gemini31FlashTts'),
+    ...geminiModels('gemini31FlashTts'),
     speech: { voice: 'Kore', format: 'pcm' },
   });
   const iface = interfaceFromProfile(speech);
@@ -325,7 +342,7 @@ Deno.test('interfaceFromProfile maps structured outputs and streamThoughts=false
     id: 'interface.text.structured',
     type: 'text',
     identity: { handle: 'json_bot' },
-    model: geminiModel('gemini35FlashLite'),
+    ...geminiModels('gemini35FlashLite'),
     tools: { allow: [] },
     inputs: { text: true },
     outputs: {
@@ -393,7 +410,7 @@ Deno.test('interfaceFromProfile maps image profile facets', () => {
     id: 'interface.image.base',
     type: 'image',
     identity: { handle: 'artist' },
-    model: geminiModel('gemini31FlashLiteImage'),
+    ...geminiModels('gemini31FlashLiteImage'),
     image: { aspectRatio: '1:1', includeText: true },
     tools: { allow: [] },
     inputs: { text: true },
@@ -404,4 +421,229 @@ Deno.test('interfaceFromProfile maps image profile facets', () => {
     assertEquals(iface.image.aspectRatio, '1:1');
     assertEquals(iface.image.includeText, true);
   }
+});
+
+Deno.test('appendUserDraftToHistory appends text and encoded attachment parts', () => {
+  const history = appendUserDraftToHistory(
+    [],
+    { text: 'see this' },
+    { attachments: [{ mimeType: 'image/png', data: 'abc' }] },
+  );
+  assertEquals(history.length, 1);
+  assertEquals(history[0]?.role, 'user');
+  assertEquals(history[0]?.parts?.length, 2);
+});
+
+Deno.test('appendAssistantEventsToHistory folds text and completed tools', () => {
+  const history = appendAssistantEventsToHistory(
+    [],
+    [
+      { type: 'text', text: 'Hello' },
+      {
+        type: 'tool',
+        tool: {
+          name: 'lookup',
+          id: 'c1',
+          phase: 'complete',
+          output: { finding: 'ok', data: { id: 1 } },
+        },
+      },
+    ],
+  );
+  assertEquals(history.length, 3);
+  assertEquals(history[0]?.role, 'assistant');
+  assertEquals(history[1]?.role, 'assistant');
+  assertEquals(history[2]?.role, 'tool');
+});
+
+Deno.test('appendToolDenialToHistory uses kernel failure formatting', () => {
+  const history = appendToolDenialToHistory([], {
+    name: 'delete_resource',
+    callId: 'c-del',
+    arguments: { id: '1' },
+  });
+  assertEquals(history[1]?.role, 'tool');
+  assertEquals(history[1]?.content?.includes('denied'), true);
+  assertEquals(history[1]?.content?.includes('Tool error'), true);
+});
+
+Deno.test('pausedToolFromEvents detects tool stop', () => {
+  const paused = pausedToolFromEvents([
+    {
+      type: 'tool',
+      tool: {
+        name: 'ask_user',
+        phase: 'pause',
+        pause: { kind: 'interactive', tool: 'ask_user', input: {} },
+      },
+    },
+    { type: 'done', stop: { kind: 'tool' } },
+  ]);
+  assertEquals(paused?.name, 'ask_user');
+  assertEquals(paused?.pauseKind, 'interactive');
+});
+
+Deno.test('promotedToolIdsFromEvents collects loader loaded ids', () => {
+  const ids = promotedToolIdsFromEvents([
+    {
+      type: 'tool',
+      tool: {
+        name: 'load_tools',
+        phase: 'complete',
+        output: { loaded: ['record_lookup', 'stub_tool'] },
+      },
+    },
+  ]);
+  assertEquals(ids, ['record_lookup', 'stub_tool']);
+});
+
+Deno.test('toolSnapshotFromEvents reads tools from tool-pause done', () => {
+  const snapshot = toolSnapshotFromEvents([
+    {
+      type: 'done',
+      stop: { kind: 'tool' },
+      tools: { builtins: [], gated: ['a'], visible: ['a'], executable: ['a'], wire: [] },
+    },
+  ]);
+  assertEquals(snapshot?.visible, ['a']);
+});
+
+Deno.test('applyTurnEventsToSession stores tool snapshot and promoted ids', () => {
+  const session = applyTurnEventsToSession(emptyInterfaceTurnSession(), [
+    {
+      type: 'tool',
+      tool: { name: 'load_tools', phase: 'complete', output: { loaded: ['record_lookup'] } },
+    },
+    {
+      type: 'done',
+      stop: { kind: 'tool' },
+      tools: {
+        builtins: [],
+        gated: ['record_lookup'],
+        visible: ['record_lookup'],
+        executable: ['record_lookup'],
+        wire: [],
+      },
+    },
+  ]);
+  assertEquals(session.promotedToolIds, ['record_lookup']);
+  assertEquals(session.toolSnapshot?.visible, ['record_lookup']);
+  assertEquals(session.pausedTool, null);
+});
+
+Deno.test('applyTurnEventsToSession captures interactionId and input tokens', () => {
+  const session = applyTurnEventsToSession(emptyInterfaceTurnSession(), [
+    { type: 'tokens', tokens: { input: 42, output: 1, total: 43 }, interactionId: 'ix_1' },
+    { type: 'done', stop: { kind: 'completed' } },
+  ]);
+  assertEquals(session.previousInteractionId, 'ix_1');
+  assertEquals(session.inputTokens, 42);
+  assertEquals(session.pausedTool, null);
+});
+
+Deno.test('branchInterfaceTurnSession rebuilds history and clears interaction id', () => {
+  const session = branchInterfaceTurnSession(
+    {
+      ...emptyInterfaceTurnSession(),
+      previousInteractionId: 'ix_old',
+      sessionPermissions: ['delete_resource'],
+      selectedModel: 'smart',
+      selectedEffort: 'deep',
+      history: [{ role: 'user', content: 'stale' }],
+    },
+    [
+      { id: 'u1', kind: 'user-text', text: 'kept' },
+      { id: 'a1', kind: 'text', text: 'reply' },
+    ],
+  );
+  assertEquals(session.previousInteractionId, undefined);
+  assertEquals(session.history.length, 2);
+  assertEquals(session.sessionPermissions, ['delete_resource']);
+  assertEquals(session.selectedModel, 'smart');
+  assertEquals(session.selectedEffort, 'deep');
+});
+
+Deno.test('effortSelectEnabled requires allowEffortSelect and two aliases', () => {
+  const profile = {
+    id: 'iface.effort',
+    models: {
+      fast: {
+        ...HOST_BINDINGS.gemini35FlashLite,
+        allowEffortSelect: true,
+        efforts: { fast: 'minimal', deep: 'high' },
+        defaultEffort: 'fast',
+      } satisfies ModelBinding,
+    },
+  };
+  assertEquals(effortSelectEnabled(profile, 'fast'), true);
+  assertEquals(
+    interfaceEffortOptions(profile, 'fast').map((option) => option.alias),
+    ['fast', 'deep'],
+  );
+  assertEquals(defaultInterfaceEffort(profile, 'fast'), 'fast');
+});
+
+Deno.test('modelSelectEnabled requires allowModelSelect and two models', () => {
+  const iface = interfaceFromProfile(
+    defineProfile({
+      id: 'iface.model.select',
+      type: 'text',
+      identity: { handle: 'bot', system: 'test' },
+      ...geminiModels('gemini35FlashLite', 'gemini31ProPreview'),
+      defaultModel: 'gemini35FlashLite',
+      allowModelSelect: true,
+      tools: { allow: [] },
+      inputs: { text: true },
+    }),
+  );
+  assertEquals(modelSelectEnabled(iface), true);
+  assertEquals(defaultInterfaceModel(iface), 'gemini35FlashLite');
+  assertEquals(
+    interfaceModelOptions(iface).map((option) => option.id),
+    ['gemini35FlashLite', 'gemini31ProPreview'],
+  );
+  assertEquals(
+    interfaceModelOptions({
+      id: 'iface.model.alias',
+      allowModelSelect: true,
+      models: {
+        fast: { ...HOST_BINDINGS.gemini35FlashLite, apiId: 'gemini-3.5-flash-lite' },
+        smart: HOST_BINDINGS.gemini31ProPreview,
+      },
+    }),
+    [
+      { id: 'fast', label: 'gemini-3.5-flash-lite' },
+      { id: 'smart', label: 'gemini-3.1-pro-preview' },
+    ],
+  );
+});
+
+Deno.test('modelSelectEnabled is false with a single model', () => {
+  assertEquals(
+    modelSelectEnabled({
+      id: 'iface.model.single',
+      models: { gemini35FlashLite: HOST_BINDINGS.gemini35FlashLite },
+      allowModelSelect: true,
+    }),
+    false,
+  );
+  assertEquals(
+    interfaceModelOptions({
+      id: 'iface.model.single',
+      models: { gemini35FlashLite: HOST_BINDINGS.gemini35FlashLite },
+      allowModelSelect: true,
+    }),
+    [],
+  );
+});
+
+Deno.test('historyFromTranscriptBlocks round-trips user and assistant text', () => {
+  const history = historyFromTranscriptBlocks([
+    { id: 'u1', kind: 'user-text', text: 'Hi' },
+    { id: 'a1', kind: 'text', text: 'Hey' },
+  ]);
+  assertEquals(history, [
+    { role: 'user', content: 'Hi' },
+    { role: 'assistant', content: 'Hey' },
+  ]);
 });

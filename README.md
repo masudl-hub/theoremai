@@ -478,8 +478,21 @@ Document health is enforced by `npm run lint:docs` — the **first** step of
 npm install
 npm run test
 npm run lint
-deno publish --dry-run --allow-dirty
+deno install
+deno publish --dry-run
+npm run build:npm
+cd npm && npm pack
 ```
+
+To dry-run npm publish when the current version is already on the registry, bump to an ephemeral prerelease first (CI does this automatically):
+
+```bash
+cd npm
+npm version 0.0.0-pr.local --no-git-tag-version
+npm publish --dry-run --access public --tag ci-validate
+```
+
+PR CI runs JSR and npm dry-run checks in the required `publish-dry-run` job.
 
 Run the packaged CLI locally:
 

@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - deno.json
+      - deno.lock
   workflow_dispatch:
 
 permissions:
@@ -23,13 +24,17 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: Check version change
+      - name: Check publish trigger
         id: version
         run: |
           CURRENT=$(jq -r '.version' deno.json)
-          PREVIOUS=$(git show HEAD~1:deno.json 2>/dev/null | jq -r '.version' 2>/dev/null || echo "")
+          PREVIOUS=$(jq -r '.version' deno.json <<< "$(git show HEAD~1:deno.json 2>/dev/null || echo '{}')")
           echo "version=$CURRENT" >> "$GITHUB_OUTPUT"
-          if [ "$CURRENT" != "$PREVIOUS" ]; then
+          LOCK_CHANGED=false
+          if ! git diff --quiet HEAD~1 HEAD -- deno.lock; then
+            LOCK_CHANGED=true
+          fi
+          if [ "$CURRENT" != "$PREVIOUS" ] || [ "$LOCK_CHANGED" = "true" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -50,6 +55,13 @@ jobs:
 
       - name: Install dependencies
         run: deno install
+
+      - name: Assert deno.lock is committed
+        run: |
+          if ! git diff --exit-code deno.lock; then
+            echo "::error::deno.lock is out of sync with deno.json. Run 'deno install' and commit deno.lock."
+            exit 1
+          fi
 
       - name: Verify publish bundle excludes artifacts
         run: deno task verify:publish

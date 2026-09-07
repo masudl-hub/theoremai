@@ -147,11 +147,11 @@ Deno.test('runSession abort phase still forwards tool events', async () => {
       gemini: {
         vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
       },
-      openWebSocket: async () => {
+      openWebSocket: () => {
         mock = new MockLiveWebSocket();
         // Macrotask so performLiveSetup can attach onopen/message before open fires.
         setTimeout(() => mock?.open(), 0);
-        return mock as unknown as WebSocket;
+        return Promise.resolve(mock as unknown as WebSocket);
       },
     },
   );

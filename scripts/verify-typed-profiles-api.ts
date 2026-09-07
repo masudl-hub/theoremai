@@ -123,7 +123,7 @@ registerStructured('sentimentAnalysis', {
 let passed = 0;
 let failed = 0;
 
-async function runTest(name: string, fn: () => Promise<void>) {
+async function runTest(name: string, fn: () => void | Promise<void>) {
   try {
     await fn();
     console.log(`  ✓ PASS: ${name}`);
@@ -393,7 +393,7 @@ if (geminiKey) {
 
 console.log('\n─── 2. Image Profiles (type: "image") ───');
 
-await runTest('Image Profile: Schema and Provider Resolution', async () => {
+await runTest('Image Profile: Schema and Provider Resolution', () => {
   const profile = defineProfile({
     type: 'image',
     id: 'live_test_image_profile',
@@ -439,7 +439,7 @@ await runTest('Image Profile: Schema and Provider Resolution', async () => {
 
 console.log('\n─── 3. Speech Profiles (type: "speech") ───');
 
-await runTest('Speech Profile: Locked Inputs and Provider Resolution', async () => {
+await runTest('Speech Profile: Locked Inputs and Provider Resolution', () => {
   const profile = defineProfile({
     type: 'speech',
     id: 'live_test_speech_profile',
@@ -491,7 +491,7 @@ await runTest('Speech Profile: Locked Inputs and Provider Resolution', async () 
 
 console.log('\n─── 4. Live Profiles (type: "live") ───');
 
-await runTest('Live Profile: geminiLive Protocol and Session Setup', async () => {
+await runTest('Live Profile: geminiLive Protocol and Session Setup', () => {
   const profile = defineProfile({
     type: 'live',
     id: 'live_test_gemini_live',

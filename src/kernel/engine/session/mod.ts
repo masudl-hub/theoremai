@@ -231,10 +231,11 @@ function buildLiveSession(args: {
     sendToolResponses(responses: Array<{ id: string; name: string; output: unknown }>) {
       sendJson(buildGeminiLiveToolResponses(responses));
     },
-    async close(reason = 'session-closed') {
-      if (closed) return;
+    close(reason = 'session-closed'): Promise<void> {
+      if (closed) return Promise.resolve();
       closed = true;
       connection.close(1000, reason);
+      return Promise.resolve();
     },
   };
 }

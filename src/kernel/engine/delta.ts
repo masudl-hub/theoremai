@@ -401,7 +401,25 @@ function eventsFromInteractionSteps(steps: unknown[], alreadyText: boolean): Tur
 }
 
 function cleanMapsTitle(title: string): string {
-  return title.replace(/\s*-\s*Google Maps\s*$/i, '').trim();
+  const suffix = 'google maps';
+  const trimmed = title.trimEnd();
+  if (trimmed.length < suffix.length) {
+    return title.trim();
+  }
+  if (trimmed.slice(-suffix.length).toLowerCase() !== suffix) {
+    return title.trim();
+  }
+  let end = trimmed.length - suffix.length;
+  while (end > 0 && /\s/.test(trimmed[end - 1])) {
+    end--;
+  }
+  if (end > 0 && trimmed[end - 1] === '-') {
+    end--;
+    while (end > 0 && /\s/.test(trimmed[end - 1])) {
+      end--;
+    }
+  }
+  return trimmed.slice(0, end).trimEnd();
 }
 
 function isPrimaryMapsPlace(name: string, uri: string): boolean {

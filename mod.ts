@@ -86,6 +86,7 @@ export {
   sanitizeTurnRequest,
   sanitizeTurnRequestForTrace,
 } from './src/guardrails/sanitize.ts';
+export * from './src/interface/mod.ts';
 export type { CompactionSplit, CompactionTokens } from './src/kernel/engine/compaction.ts';
 export {
   compactionMeter,
@@ -99,6 +100,15 @@ export {
   splitForCompaction,
 } from './src/kernel/engine/compaction.ts';
 export { prepareLiveInboundText } from './src/kernel/engine/live-inbound.ts';
+export type { LiveIngressChannel } from './src/kernel/engine/live-ingress.ts';
+export {
+  assertLiveIngress,
+  assertLiveIngressConfigured,
+  hasAnyLiveIngress,
+  liveIngressChannelDefault,
+  liveIngressEnabled,
+  liveIngressEnabledFromSpec,
+} from './src/kernel/engine/live-ingress.ts';
 export { runTurn } from './src/kernel/engine/runner.ts';
 export type { RunSessionOptions } from './src/kernel/engine/session/mod.ts';
 export { runSession } from './src/kernel/engine/session/mod.ts';
@@ -205,6 +215,8 @@ export {
   turnStopFromOpenAiFinishReason,
 } from './src/kernel/stop.ts';
 export {
+  executeHttpTool,
+  executeMcpTool,
   formatToolResult,
   getTool,
   hasTool,
@@ -218,6 +230,7 @@ export {
   registerTools,
   requireTool,
   resetTools,
+  resolveToolAuth,
 } from './src/kernel/tools/mod.ts';
 export type * from './src/kernel/types.ts';
 export {
@@ -238,4 +251,3 @@ export type {
   OpenAiGatewayConfig,
 } from './src/providers/mod.ts';
 export { createProvider } from './src/providers/mod.ts';
-export * from './src/interface/mod.ts';

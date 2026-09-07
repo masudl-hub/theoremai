@@ -5,6 +5,9 @@ function formatProfileInputs(p: Profile): string {
   if (p.type === 'speech') {
     return 'text (speech)';
   }
+  if (p.type === 'live') {
+    return 'audio/video (live)';
+  }
   const inputs: string[] = [];
   const { inputs: spec } = p;
   if (!spec) {
@@ -28,7 +31,7 @@ function formatProfileTools(p: Profile): string {
 function printProfileCard(p: Profile): void {
   const tools = formatProfileTools(p);
   const models = p.model.allow?.join(', ') || 'default';
-  const structured = p.outputs?.structured;
+  const structured = p.type === 'live' || p.type === 'speech' ? undefined : p.outputs?.structured;
   const structuredLabel =
     typeof structured === 'string' ? structured : structured ? 'custom' : 'none';
 

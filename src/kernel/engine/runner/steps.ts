@@ -1,4 +1,5 @@
 import { throwIfAborted } from '../../../guardrails/error.ts';
+import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
 import {
   executeRegisteredTool,
   formatToolFailureForModel,
@@ -220,6 +221,7 @@ async function* handlePendingTools(
   generation: ResolvedGeneration,
   profile: Profile,
   state: StepExecutionState,
+  safe?: TurnRequest,
 ): AsyncGenerator<TurnEvent, boolean> {
   let executed = false;
   let sawPause = false;
@@ -290,6 +292,7 @@ async function* handlePendingTools(
         sessionPermissions: generation.sessionPermissions,
         path: generation.tools.path,
         turn: { step: state.stepCount },
+        credentials: safe?.credentials,
       },
       snapshot: generation.tools,
     });
@@ -341,7 +344,7 @@ async function* executeAttempt(args: {
   let pendingTools: TurnEvent[] = [];
   let stepInAttempt = 0;
   const holdUserVisible = Boolean(profile.guardrails?.egress?.enforce);
-  const holdLate = Boolean(profile.outputs?.validation) || holdUserVisible;
+  const holdLate = Boolean(profileTurnOutputs(profile)?.validation) || holdUserVisible;
 
   while (!isStepLimitReached(stepInAttempt, generation.maxSteps ?? 0)) {
     throwIfAborted(args.safe.signal);
@@ -361,7 +364,7 @@ async function* executeAttempt(args: {
       break;
     }
 
-    const executed = yield* handlePendingTools(pendingTools, generation, profile, state);
+    const executed = yield* handlePendingTools(pendingTools, generation, profile, state, args.safe);
     if (!executed) {
       break;
     }

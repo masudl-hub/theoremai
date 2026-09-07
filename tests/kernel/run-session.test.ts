@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from '@std/assert';
+import { assertEquals, assertRejects, assertThrows } from '@std/assert';
 import { TheorumError } from '../../src/guardrails/error.ts';
 import { runSession } from '../../src/kernel/engine/session/mod.ts';
 import {
@@ -133,6 +133,60 @@ Deno.test('runSession requires registered live profile with gemini vault', async
     TheorumError,
   );
   assertEquals(profile.type, 'live');
+});
+
+Deno.test('runSession sendVideo rejects when live.ingress.video is disabled', async () => {
+  clearProfiles();
+  resetTools();
+  const profile = defineProfile({
+    type: 'live',
+    id: 'session_live_no_video',
+    identity: { handle: 'live', system: 'hi' },
+    model: {
+      protocol: 'geminiLive',
+      provider: 'google',
+      allow: ['gemini31FlashLive'],
+      thinking: 'none',
+      config: {
+        gemini31FlashLive: {
+          apiId: 'gemini-3.1-flash-live-preview',
+          thinking: { on: 'none', off: 'none' },
+          thinkingLevels: ['none'],
+          summaries: { on: 'none', off: 'none' },
+          builtInTools: [],
+          key: 'slotA',
+        },
+      },
+    },
+    live: { voice: 'Aoede', ingress: { video: false } },
+    tools: { allow: [] },
+  });
+  registerProfile(profile);
+
+  let mock: MockLiveWebSocket | null = null;
+  const session = await runSession(
+    { profile: profile.id },
+    {
+      gemini: {
+        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
+      },
+      openWebSocket: () => {
+        mock = new MockLiveWebSocket();
+        setTimeout(() => mock?.open(), 0);
+        return Promise.resolve(mock as unknown as WebSocket);
+      },
+    },
+  );
+
+  await new Promise((r) => setTimeout(r, 0));
+
+  assertThrows(
+    () => session.sendVideo({ data: 'abc', mimeType: 'image/jpeg' }),
+    TheorumError,
+    'live.ingress.video is disabled',
+  );
+  (mock as unknown as MockLiveWebSocket)?.close();
+  await session.close();
 });
 
 Deno.test('runSession abort phase still forwards tool events', async () => {

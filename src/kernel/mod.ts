@@ -4,6 +4,7 @@
  * @module
  */
 
+export * from './auth/mod.ts';
 export type { CompactionSplit, CompactionTokens } from './engine/compaction.ts';
 export {
   compactionMeter,
@@ -16,6 +17,15 @@ export {
   shouldCompact,
   splitForCompaction,
 } from './engine/compaction.ts';
+export type { LiveIngressChannel } from './engine/live-ingress.ts';
+export {
+  assertLiveIngress,
+  assertLiveIngressConfigured,
+  hasAnyLiveIngress,
+  liveIngressChannelDefault,
+  liveIngressEnabled,
+  liveIngressEnabledFromSpec,
+} from './engine/live-ingress.ts';
 export { runTurn } from './engine/runner.ts';
 export type { RunSessionOptions } from './engine/session/mod.ts';
 export { runSession } from './engine/session/mod.ts';
@@ -101,6 +111,9 @@ export {
   turnStopFromOpenAiFinishReason,
 } from './stop.ts';
 export {
+  executeHttpTool,
+  executeMcpTool,
+  executeRegisteredTool,
   formatToolResult,
   getTool,
   hasTool,
@@ -114,5 +127,6 @@ export {
   registerTools,
   requireTool,
   resetTools,
+  resolveToolAuth,
 } from './tools/mod.ts';
 export type * from './types.ts';

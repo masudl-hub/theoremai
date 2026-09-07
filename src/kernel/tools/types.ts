@@ -8,6 +8,7 @@
  */
 
 import type { z } from 'zod';
+import type { ToolCredential } from '../auth/types.ts';
 import type { ToolAccess, ToolLoadTier, ToolPermission } from '../schema.ts';
 import type { Profile, ToolId, TurnInput } from '../types.ts';
 
@@ -68,6 +69,7 @@ export interface ToolContext {
   signal?: AbortSignal;
   turn?: { step: number };
   resume?: InvokeToolResume;
+  credentials?: Record<string, ToolCredential>;
 }
 
 export interface ToolFailure {
@@ -77,12 +79,23 @@ export interface ToolFailure {
 }
 
 export interface ToolPause {
-  kind: 'interactive' | 'confirmation' | 'permission';
+  kind: 'interactive' | 'confirmation' | 'permission' | 'auth';
   tool: string;
   render?: InteractiveRender;
   summary?: string;
   input: unknown;
   permission?: ToolPermission;
+  /** Auth challenge metadata when kind is 'auth' */
+  authChallenge?: {
+    slot: string;
+    authType: 'oauth2' | 'bearer' | 'api_key';
+    message: string;
+    authorizationUrl?: string;
+    state?: string;
+    issuer?: string;
+    resource?: string;
+    requiredScopes?: string[];
+  };
 }
 
 export interface ToolWarning {
@@ -130,13 +143,87 @@ export interface FunctionToolDef<TIn = unknown, TOut = unknown> extends ToolBase
   exposeToModel?: boolean;
 }
 
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+
+export type AuthUnauthenticatedPolicy = 'pause' | 'report_to_model';
+
+export interface HttpToolAuthConfig {
+  slot: string;
+  type: 'bearer' | 'api_key' | 'oauth2';
+  headerName?: string; // defaults to 'Authorization'
+  headerPrefix?: string; // defaults to 'Bearer '
+  onUnauthenticated?: AuthUnauthenticatedPolicy; // defaults to 'pause'
+  /** Pre-resolved AS/resource metadata to bypass network discovery */
+  preResolved?: {
+    issuer?: string;
+    authorizationEndpoint?: string;
+    tokenEndpoint?: string;
+    resource?: string;
+  };
+  scopes?: string[];
+  clientId?: string;
+  redirectUri?: string;
+}
+
+export interface HttpToolDef<TIn = unknown, TOut = unknown> extends ToolBase {
+  type: 'http';
+  endpoint: string; // URL template, e.g. "https://api.example.com/items/{id}"
+  method: HttpMethod;
+  headers?: Record<string, string>;
+  auth?: HttpToolAuthConfig;
+  input: z.ZodType<TIn>;
+  output: z.ZodType<TOut>;
+  inputSchema: Record<string, unknown>;
+  outputSchema: Record<string, unknown>;
+  mapping?: {
+    pathParams?: string[];
+    queryParams?: string[];
+    bodyParam?: string;
+  };
+  interactive?: InteractiveConfig<TIn>;
+  canExecute?: (input: TIn, ctx: ToolContext) => boolean | Promise<boolean>;
+  preflight?: (
+    input: TIn,
+    ctx: ToolContext,
+  ) => undefined | ToolFailure | ToolPause | Promise<undefined | ToolFailure | ToolPause>;
+  exposeToModel?: boolean;
+}
+
+export interface McpToolDef<TIn = unknown, TOut = unknown> extends ToolBase {
+  type: 'mcp';
+  serverUrl: string; // HTTP MCP server endpoint URL
+  mcpToolName: string; // Name of the tool on the remote MCP server
+  auth?: HttpToolAuthConfig;
+  input: z.ZodType<TIn>;
+  output: z.ZodType<TOut>;
+  inputSchema: Record<string, unknown>;
+  outputSchema: Record<string, unknown>;
+  interactive?: InteractiveConfig<TIn>;
+  canExecute?: (input: TIn, ctx: ToolContext) => boolean | Promise<boolean>;
+  preflight?: (
+    input: TIn,
+    ctx: ToolContext,
+  ) => undefined | ToolFailure | ToolPause | Promise<undefined | ToolFailure | ToolPause>;
+  exposeToModel?: boolean;
+}
+
 export type RegisteredTool<TIn = unknown, TOut = unknown> =
   | BuiltinToolDef
-  | FunctionToolDef<TIn, TOut>;
+  | FunctionToolDef<TIn, TOut>
+  | HttpToolDef<TIn, TOut>
+  | McpToolDef<TIn, TOut>;
 
 export type ToolDefinitionInput<TIn = unknown, TOut = unknown> =
   | BuiltinToolDef
   | (Omit<FunctionToolDef<TIn, TOut>, 'inputSchema' | 'outputSchema'> & {
+      input: z.ZodType<TIn>;
+      output: z.ZodType<TOut>;
+    })
+  | (Omit<HttpToolDef<TIn, TOut>, 'inputSchema' | 'outputSchema'> & {
+      input: z.ZodType<TIn>;
+      output: z.ZodType<TOut>;
+    })
+  | (Omit<McpToolDef<TIn, TOut>, 'inputSchema' | 'outputSchema'> & {
       input: z.ZodType<TIn>;
       output: z.ZodType<TOut>;
     });
@@ -209,13 +296,20 @@ export interface ProfileToolsSpec {
   /**
    * Optional T1 policy — returns which eligible T1 tools to wire at turn start.
    * Tools must already be on `allow` (custom) or `builtInTools` (builtin) and `loadTier: 'T1'`.
+   * Not supported on `type: 'live'` (Gemini Live wires declarations once at session setup).
    */
   t1Policy?: ToolPolicy;
   /**
    * Optional designated function tool id for T2 promotion.
    * Must be in `allow`. When that tool completes with `{ loaded: string[] }`, those T2 ids are promoted.
+   * Not supported on `type: 'live'`.
    */
   t2Loader?: ToolId;
+}
+
+/** Live profiles: T0 custom allowlist only — declarations are fixed at Gemini Live setup. */
+export interface LiveProfileToolsSpec {
+  allow: ToolId[];
 }
 
 export interface ModelToolResult {

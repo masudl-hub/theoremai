@@ -187,7 +187,7 @@ export async function expandT1Policy(
   profile: Profile,
   req: TurnRequest,
 ): Promise<void> {
-  if (profile.type === 'speech') {
+  if (profile.type === 'speech' || profile.type === 'live') {
     return;
   }
   const t1Policy = profile.tools.t1Policy;

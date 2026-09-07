@@ -24,9 +24,8 @@ const profile: Profile = {
       },
     },
   },
-  live: {},
+  live: { voice: 'Aoede' },
   tools: { allow: [] },
-  inputs: { text: true },
   guardrails: { sanitizeInput: true, redactSensitive: true },
 };
 

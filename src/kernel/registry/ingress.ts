@@ -109,7 +109,7 @@ function assertMediaMime(mime: string): MediaInputKind {
 }
 
 function profileInputs(profile: Profile) {
-  if (profile.type === 'speech') {
+  if (profile.type === 'speech' || profile.type === 'live') {
     return undefined;
   }
   return profile.inputs;

@@ -45,7 +45,7 @@ function resolveStressReasoning(profile: Profile): string | undefined {
 }
 
 function resolveStressAttachments(profile: Profile): TurnBlob[] {
-  if (profile.type === 'speech' || !profile.inputs) {
+  if (profile.type === 'speech' || profile.type === 'live' || !profile.inputs) {
     return [];
   }
   const attachments: TurnBlob[] = [];
@@ -64,7 +64,7 @@ function resolveStressAttachments(profile: Profile): TurnBlob[] {
 }
 
 function resolveStressVoice(profile: Profile): TurnBlob[] {
-  if (profile.type === 'speech' || !profile.inputs) {
+  if (profile.type === 'speech' || profile.type === 'live' || !profile.inputs) {
     return [];
   }
   const voice: TurnBlob[] = [];

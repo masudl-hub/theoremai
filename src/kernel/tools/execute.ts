@@ -9,6 +9,7 @@ import { throwIfAborted } from '../../guardrails/error.ts';
 import { sanitizeText } from '../../guardrails/sanitize.ts';
 import type { Profile, TurnEvent } from '../types.ts';
 import { getTool } from './registry.ts';
+import { executeHttpTool, executeMcpTool } from './remote.ts';
 import { promoteLoadedTools } from './resolve.ts';
 import type {
   FunctionToolDef,
@@ -37,7 +38,10 @@ export function isResumeContinuation(resume?: InvokeToolResume): boolean {
 export function isToolPause(value: ToolFailure | ToolPause): value is ToolPause {
   return (
     'kind' in value &&
-    (value.kind === 'interactive' || value.kind === 'confirmation' || value.kind === 'permission')
+    (value.kind === 'interactive' ||
+      value.kind === 'confirmation' ||
+      value.kind === 'permission' ||
+      value.kind === 'auth')
   );
 }
 
@@ -283,42 +287,45 @@ export async function* executeFunction(
     }
 
     let finalOutput: unknown = checked.data;
-    if (ctx.profile.type !== 'speech' && ctx.profile.tools.t2Loader === tool.name) {
-      if (!snapshot) {
-        yield failureEvent(base, {
-          code: 'invalid_output',
-          message: `tools.t2Loader '${tool.name}' requires a turn tool snapshot`,
-        });
-        return undefined;
+    if (ctx.profile.type !== 'speech' && ctx.profile.type !== 'live') {
+      const { t2Loader } = ctx.profile.tools;
+      if (t2Loader === tool.name) {
+        if (!snapshot) {
+          yield failureEvent(base, {
+            code: 'invalid_output',
+            message: `tools.t2Loader '${tool.name}' requires a turn tool snapshot`,
+          });
+          return undefined;
+        }
+        const loaded = extractLoadedIds(checked.data);
+        if (!loaded) {
+          yield failureEvent(base, {
+            code: 'invalid_output',
+            message: `T2 loader '${tool.name}' must return { loaded: string[] }`,
+          });
+          return undefined;
+        }
+        const { promoted, failure: promoteFailure } = promoteLoadedTools(
+          snapshot,
+          loaded,
+          ctx.profile,
+        );
+        if (promoteFailure) {
+          yield failureEvent(base, promoteFailure);
+          return undefined;
+        }
+        finalOutput = { ...(checked.data as Record<string, unknown>), loaded: promoted };
+        const rechecked = tool.output.safeParse(finalOutput);
+        if (!rechecked.success) {
+          yield failureEvent(base, {
+            code: 'invalid_output',
+            message: 'T2 loader output validation failed after promotion',
+            details: rechecked.error.flatten(),
+          });
+          return undefined;
+        }
+        finalOutput = rechecked.data;
       }
-      const loaded = extractLoadedIds(checked.data);
-      if (!loaded) {
-        yield failureEvent(base, {
-          code: 'invalid_output',
-          message: `T2 loader '${tool.name}' must return { loaded: string[] }`,
-        });
-        return undefined;
-      }
-      const { promoted, failure: promoteFailure } = promoteLoadedTools(
-        snapshot,
-        loaded,
-        ctx.profile,
-      );
-      if (promoteFailure) {
-        yield failureEvent(base, promoteFailure);
-        return undefined;
-      }
-      finalOutput = { ...(checked.data as Record<string, unknown>), loaded: promoted };
-      const rechecked = tool.output.safeParse(finalOutput);
-      if (!rechecked.success) {
-        yield failureEvent(base, {
-          code: 'invalid_output',
-          message: 'T2 loader output validation failed after promotion',
-          details: rechecked.error.flatten(),
-        });
-        return undefined;
-      }
-      finalOutput = rechecked.data;
     }
 
     const modelResult = projectForModel(tool, finalOutput);
@@ -331,7 +338,7 @@ export async function* executeFunction(
   }
 }
 
-export function notLoadedMessage(tool: FunctionToolDef): string {
+export function notLoadedMessage(tool: { name: string; loadTier?: string }): string {
   if (tool.loadTier === 'T1') {
     return `Tool '${tool.name}' is not wired — profile.tools.t1Policy must select it`;
   }
@@ -454,6 +461,13 @@ export async function* executeRegisteredTool(args: {
     }
   }
   const fullCtx: ToolContext = { ...ctx, callId, profile };
+
+  if (tool.type === 'http') {
+    return yield* executeHttpTool(tool, safeInput, fullCtx, base);
+  }
+  if (tool.type === 'mcp') {
+    return yield* executeMcpTool(tool, safeInput, fullCtx, base);
+  }
 
   return yield* executeFunction(tool, safeInput, fullCtx, base, snapshot);
 }

@@ -1,5 +1,6 @@
 import { TheorumError, throwIfAborted, toErrorEvent } from '../../../guardrails/error.ts';
 import { sanitizeTurnRequest } from '../../../guardrails/sanitize.ts';
+import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
 import { resolveTurn } from '../../registry/resolve.ts';
 import { getStructured } from '../../registry/schemas.ts';
 import type {
@@ -251,7 +252,7 @@ async function* executeSingleAttemptCycle(args: {
   maxRetries: number;
 }): AsyncGenerator<TurnEvent, AttemptStepAction> {
   const { flow, state, profile, system, provider, upstream, maxRetries } = args;
-  const validation = profile.outputs?.validation;
+  const validation = profileTurnOutputs(profile)?.validation;
   const egress = profile.guardrails?.egress;
 
   state.attemptEvents = [];
@@ -305,7 +306,7 @@ async function* runAttemptsWithValidation(
   state: StepExecutionState,
 ): AsyncGenerator<TurnEvent> {
   const maxRetries = Math.max(
-    profile.outputs?.validation?.maxRetries ?? 0,
+    profileTurnOutputs(profile)?.validation?.maxRetries ?? 0,
     profile.guardrails?.egress?.maxRetries ?? 0,
   );
   const flow: AttemptFlowState = {

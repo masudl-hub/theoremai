@@ -10,6 +10,8 @@ export {
   foldTurnEvents,
   resetBlockIds,
 } from './blocks.ts';
+export type { PrepareUserTurnResult } from './draft.ts';
+export { prepareUserTurn, sanitizeUserDraft } from './draft.ts';
 export { interfaceFrom, interfaceFromProfile, interfaceFromProjected } from './from-profile.ts';
 export {
   attachmentAcceptAttr,
@@ -21,9 +23,11 @@ export type {
   AttachmentValidationCode,
   AttachmentValidationIssue,
   AttachmentValidationResult,
+  ComposerProfileInterface,
   FoldTurnEventsOptions,
   ImageProfileInterface,
   LiveProfileInterface,
+  LiveResolvedTools,
   NormalizedModel,
   NormalizeModel,
   PendingAttachment,

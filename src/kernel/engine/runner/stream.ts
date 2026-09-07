@@ -6,6 +6,7 @@ import {
   redactCanary,
 } from '../../../guardrails/canary.ts';
 import { publicError, throwIfAborted, toErrorEvent } from '../../../guardrails/error.ts';
+import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
 import { providerCompleteRequest } from '../../registry/provider-request.ts';
 import type { ModelProvider, Profile, ResolvedGeneration, TurnEvent } from '../../types.ts';
 
@@ -25,7 +26,9 @@ function systemFromProfile(profile: Profile, role: string): string {
 }
 
 function shouldSkipStreamEvent(event: TurnEvent, profile: Profile): boolean {
-  return event.type === 'thought' && profile.outputs?.streaming?.streamThoughts === false;
+  return (
+    event.type === 'thought' && profileTurnOutputs(profile)?.streaming?.streamThoughts === false
+  );
 }
 
 function* processNormalEvent(event: TurnEvent): Generator<TurnEvent> {

@@ -4,7 +4,7 @@
  * @module
  */
 
-export { formatToolResult } from './execute.ts';
+export { executeRegisteredTool, formatToolResult } from './execute.ts';
 export { registerHarnessTools } from './harness.ts';
 export { invokeTool } from './invoke.ts';
 export {
@@ -18,5 +18,6 @@ export {
   requireTool,
   resetTools,
 } from './registry.ts';
+export { executeHttpTool, executeMcpTool, resolveToolAuth } from './remote.ts';
 export { cloneTurnToolSnapshot, prepareTurnToolSnapshot } from './resolve.ts';
 export type * from './types.ts';

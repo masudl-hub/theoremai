@@ -32,9 +32,9 @@ A `Profile` binds:
 | `identity` | `handle`, optional `system` / `systemByRole` |
 | `model` | `protocol`, `provider`, `allow`, `config`, optional `select` / `thinking` / `controls` / `maxSteps` / `key` |
 | `tools` | Allowlist ceiling (`allow: ToolId[]`) — present on `text`, `image`, `live` |
-| `inputs` | Text / attachments / voice / slots / per-mime limits — present on `text`, `image`; optional on `live`; absent on `speech` |
+| `inputs` | Text / attachments / voice / slots / per-mime limits — present on `text`, `image`; absent on `speech` and `live` (live uses `live.ingress` instead) |
 | `image` / `speech` / `live` | Modality-specific pins (top-level, not nested under `outputs`) |
-| `outputs` | Structured, streaming, validation |
+| `outputs` | Structured, streaming, validation — present on `text`, `image`, `speech`; absent on `live` |
 | `turnResumption` | `allowContinue`, `autoContinue`, `maxContinues` — present on `text`, `image`, `speech` |
 | `guardrails` | Quota, canary, sanitize, redact, egress |
 
@@ -89,7 +89,7 @@ gate boundary, not socket teardown). Pipeline for `runTurn` (see `engine/runner/
 5. **Provider stream** — `provider.complete` yields partial events; runner may
    gate thoughts/media per `outputs.streaming`.
 6. **Tool loop** — while under `maxSteps`, tool calls execute via `executeRegisteredTool`
-   (shared with `invokeTool`); results feed the next step. `generation.transport` selects
+   (shared with `invokeTool`), threading host `credentials` for authenticated HTTP/MCP tools; results feed the next step. `generation.transport` selects
    Interactions continuation (`previous_interaction_id` + `function_result` steps) vs
    OpenAI-compat tool-call history. Server-side `codeExecution` does not consume a runner step.
 7. **Validation / repair** — structured output validators (`outputs.validation`)
@@ -209,12 +209,21 @@ invokeTool({ profile, name: 'lookup_order', input: {...} });
 | --- | --- | --- |
 | Registry | Host startup | Schema, handler, `access`, `loadTier`, `permission`, wire metadata |
 | Profile | Host | `tools.allow` / `tools.t1Policy` / `tools.t2Loader`; `model.config.*.builtInTools` |
-| Turn | Host | `sessionPermissions` for consent; path / input / transport |
+| Turn | Host | `sessionPermissions` for consent; `credentials` bag for authenticated HTTP/MCP tools; path / input / transport |
 | Execution | Kernel | Shared `executeRegisteredTool` for model and `invokeTool` paths |
 
 Builtins (`type: 'builtin'`) are provider-native — kernel pins capabilities in
-`generation.builtins` but does not execute handlers. Function tools require
-Zod input/output validated at registration.
+`generation.builtins` but does not execute handlers.
+Function tools (`type: 'function'`) run host TypeScript handlers.
+Declarative HTTP tools (`type: 'http'`) call REST APIs directly with templated URLs, query parameters, headers, and body mapping.
+Remote MCP tools (`type: 'mcp'`) call external Model Context Protocol servers over Streamable HTTP (revision 2026-07-28).
+
+Both HTTP and MCP tools integrate with:
+- **Network Guardrails** (`guardrails.network`): SSRF protection blocking loopback and private subnets unless `allowPrivateNetworks: true` is configured.
+- **Stateless OAuth 2.1 & PKCE** (`theorum/auth`): RFC 7636 PKCE S256, RFC 9728 discovery, RFC 8414 AS metadata, RFC 9207 `iss` mix-up defense, RFC 8707 resource indicators, and stateless HMAC-signed state envelopes.
+- **Unauthenticated Handling**: Pauses the turn via `ToolPause { kind: 'auth' }` or reports synthetic error findings to the model per `onUnauthenticated: 'pause' | 'report_to_model'`.
+- **Token Rotation**: Proactively refreshes expiring OAuth tokens during turns, emitting progress events so the host can update its credential store.
+
 Catalog `conflictsWith` is an optional host-declared mutual exclusion on registered builtins; the Google preset does not set it.
 MIME classification (`MEDIA_INPUT_KINDS`, `ATTACHMENT_ACCEPT_MIMES`, …) lives in
 `schema.ts`. Tool catalog constants: `TOOL_LOAD_TIERS`, `TOOL_ACCESS`,
@@ -237,6 +246,22 @@ Top-level modality pins (after `model`, not under `outputs`):
 | `image` | Optional aspect/size, mime, max input images (type `'image'` only) |
 | `speech` | TTS voice + `format` (`pcm` → WAV; `mp3` OpenAI-only) (type `'speech'` only) |
 | `live` | Voice, VAD, transcription, sessionResumption, contextCompression, proactiveAudio (type `'live'` only; omit → provider defaults) |
+
+### Live profile (`type: 'live'`)
+
+Live is a **session** contract (`runSession`), not a turn contract (`runTurn`). The profile shape is intentionally smaller than text/image:
+
+| Block | On live? | Notes |
+| --- | --- | --- |
+| `identity` | yes | `handle`, `system` / `systemByRole` |
+| `model` | yes | `protocol: 'geminiLive'`, `provider: 'google'` only |
+| `live` | yes | Voice, VAD, transcription, resumption, compression, proactive audio, **`ingress`** (realtime mic / camera / text toggles; camera off unless `ingress.video: true`) |
+| `tools` | yes | `{ allow: ToolId[] }` only — T0 custom tools + `model.config.*.builtInTools` wired once at Gemini Live setup |
+| `guardrails` | optional | Canary, sanitize, egress (live outbound gate) |
+| `inputs` | **no** | Turn file attachments — use `live.ingress` for realtime channels instead |
+| `outputs` | **no** | No structured JSON or SSE/buffered turn streaming on Gemini Live |
+| `turnResumption` | **no** | Use `live.sessionResumption` + `SessionRequest.sessionResumptionHandle` |
+| `tools.t1Policy` / `tools.t2Loader` | **no** | Declarations are fixed after setup; host cannot add schemas mid-session |
 
 Profile `turnResumption` (top-level on chat/image/speech):
 
@@ -431,6 +456,7 @@ Framework-neutral helpers for profile-driven runtime UIs. Import from
 | --- | --- |
 | Spec | `interfaceFrom`, `interfaceFromProfile`, `interfaceFromProjected` |
 | Inputs | `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime` |
+| Draft | `sanitizeUserDraft`, `prepareUserTurn` |
 | Transcript | `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `streamThoughtsEnabled` |
 
 ```ts
@@ -451,14 +477,15 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
 | Group | Symbols |
 | --- | --- |
 | Compaction | `CompactionSplit`, `CompactionTokens`, `compactionMeter`, `compactionNeeded`, `estimateHistoryTokens`, `HISTORY_MEDIA_TOKENS`, `HISTORY_TEXT_ENCODING`, `resolveCompactionTokens`, `resolveHistoryTokens`, `shouldCompact`, `splitForCompaction` |
-| Runner | `runTurn`, `runSession`, `RunSessionOptions`, `prepareLiveInboundText` |
+| Runner | `runTurn`, `runSession`, `RunSessionOptions`, `prepareLiveInboundText`, `liveIngressEnabled`, `liveIngressEnabledFromSpec`, `liveIngressChannelDefault`, `hasAnyLiveIngress`, `assertLiveIngress`, `assertLiveIngressConfigured`, `LiveIngressChannel` |
 | Catalog | `clampThinkingLevel`, `clampThinkingLevelForApiId`, `mediaKindForMime`, `getTool`, `listBuiltinIds`, `mimeAllowed`, `mimeEssence`, `modelEntryByApiId`, `registerTools`, `requireModelSpec`, `resetTools` |
 | Schema | `PROFILE_FIELDS`, `PROFILE_TYPES`, `PROFILE_TYPE_PROTOCOLS`, `protocolsForProfileType`, `isValidProfileProtocol`, `EXTRA_FIELDS`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `PROTOCOLS`, `PROVIDERS`, `PROTOCOL_PROVIDERS`, `providersFor`, `protocolsFor`, `isValidPair`, `coerceProvider`, `coerceProtocol`, `THINKING_LEVELS`, `CONTROL_IDS`, `KEY_SLOTS`, `OVERFLOW_KEY_SLOTS`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `SCHEMA_ENFORCEMENTS`, `COMPACTION_METERS`, `COMPACTION_TIMINGS`, `EGRESS_ON_BLOCK`, `TURN_STOP_KINDS`, `TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES` |
 | Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `LiveProfileDefinition`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `resolveTurn` |
-| Tools | `registerTool`, `registerTools`, `invokeTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `listBuiltinIds`, `listFunctionIds`, `resetTools`, `formatToolResult`, `prepareTurnToolSnapshot` |
+| Tools | `registerTool`, `registerTools`, `invokeTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `listBuiltinIds`, `listFunctionIds`, `resetTools`, `formatToolResult`, `prepareTurnToolSnapshot`, `executeHttpTool`, `executeMcpTool`, `resolveToolAuth` |
+| Auth (stateless OAuth/PKCE) | `createOAuthPkceFlow`, `exchangeOAuthPkce`, `refreshOAuthToken`, `discoverResourceMetadata`, `discoverAuthServerMetadata`, `validateIssuer`, `generateCodeVerifier`, `computeCodeChallenge`, `sealStatePayload`, `unsealStatePayload` |
 | Structured | `getStructured`, `registerStructured` |
 | Stop / resume | `ProfileTurnResumptionSpec`, `TurnContinueFrom`, `TurnStop`, `TurnStopKind`, `AUTO_CONTINUE_DELAY_MS`, `CONTINUE_INSTRUCTION`, `DEFAULT_AUTO_CONTINUE`, `GenerationStopError`, `isGenerationStopError`, `isResumeableStop`, `isUserCancelledStop`, `shouldAutoContinue`, `turnStopFromClientStreamEnd`, `turnStopFromInteractionStatus`, `turnStopFromOpenAiFinishReason` |
-| Interface (headless) | `interfaceFrom`, `interfaceFromProfile`, `interfaceFromProjected`, `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime`, `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `resetBlockIds`, `streamThoughtsEnabled`, `AttachmentValidationCode`, `AttachmentValidationIssue`, `AttachmentValidationResult`, `FoldTurnEventsOptions`, `ImageProfileInterface`, `LiveProfileInterface`, `NormalizeModel`, `NormalizedModel`, `PendingAttachment`, `ProfileGuardrailsView`, `ProfileInputsInterface`, `ProfileInterface`, `ProfileInterfaceSource`, `ResolvedTools`, `SpeechProfileInterface`, `TextProfileInterface`, `TranscriptBlock`, `TranscriptBlockKind`, `UserTurnDraft` |
+| Interface (headless) | `interfaceFrom`, `interfaceFromProfile`, `interfaceFromProjected`, `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime`, `sanitizeUserDraft`, `prepareUserTurn`, `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `resetBlockIds`, `streamThoughtsEnabled`, `AttachmentValidationCode`, `AttachmentValidationIssue`, `AttachmentValidationResult`, `FoldTurnEventsOptions`, `ComposerProfileInterface`, `ImageProfileInterface`, `LiveProfileInterface`, `LiveResolvedTools`, `NormalizeModel`, `NormalizedModel`, `PendingAttachment`, `PrepareUserTurnResult`, `ProfileGuardrailsView`, `ProfileInputsInterface`, `ProfileInterface`, `ProfileInterfaceSource`, `ResolvedTools`, `SpeechProfileInterface`, `TextProfileInterface`, `TranscriptBlock`, `TranscriptBlockKind`, `UserTurnDraft` |
 | Attachments (kernel) | `maxBytesForMime`, `resolveMediaLimits`, `fileTooLargeMessage`, `tooManyFilesMessage`, `turnTooLargeMessage` |
 
 ```theorum-evidence
@@ -511,8 +538,10 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
         { "kind": "source", "path": "src/kernel/tools/resolve.ts" },
         { "kind": "source", "path": "src/kernel/engine/runner/steps.ts" },
         { "kind": "source", "path": "src/kernel/schema.ts" },
+        { "kind": "source", "path": "src/guardrails/network.ts" },
         { "kind": "contract_test", "path": "tests/kernel/tools.test.ts" },
-        { "kind": "contract_test", "path": "tests/kernel/theorum.test.ts" }
+        { "kind": "contract_test", "path": "tests/kernel/theorum.test.ts" },
+        { "kind": "contract_test", "path": "tests/guardrails/network.test.ts" }
       ]
     },
     "Outputs and guardrails": {
@@ -555,7 +584,9 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
       "supports": [
         { "kind": "source", "path": "src/kernel/mod.ts" },
         { "kind": "source", "path": "src/interface/mod.ts" },
+        { "kind": "source", "path": "src/kernel/auth/mod.ts" },
         { "kind": "contract_test", "path": "tests/kernel/theorum.test.ts" },
+        { "kind": "contract_test", "path": "tests/kernel/auth.test.ts" },
         { "kind": "contract_test", "path": "tests/interface/headless.test.ts" }
       ]
     }

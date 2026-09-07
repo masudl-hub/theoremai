@@ -16,6 +16,7 @@ import type {
 } from '../kernel/types.ts';
 import { inputsFromSpec } from './inputs.ts';
 import type {
+  LiveResolvedTools,
   NormalizeModel,
   ProfileGuardrailsView,
   ProfileInterface,
@@ -45,6 +46,12 @@ function normalizeModel<M extends ProfileModelSpec>(model: M): NormalizeModel<M>
 function toolsResolved(projected: ProjectedProfile, profile?: Profile): ResolvedTools {
   if (projected.type === 'speech') {
     return { allow: [], resolved: [] };
+  }
+  if (profile?.type === 'live') {
+    return {
+      allow: profile.tools.allow,
+      resolved: projected.tools,
+    };
   }
   if (profile && profile.type !== 'speech') {
     return {
@@ -95,11 +102,13 @@ function enrich(projected: ProjectedProfile, profile?: Profile): ProfileInterfac
       } as ProfileInterface;
     case 'live':
       return {
-        ...shared,
+        id: shared.id,
+        identity: shared.identity,
+        model: shared.model,
+        guardrails: shared.guardrails,
         type: 'live',
         live: projected.live ?? {},
-        inputs,
-        tools: toolsResolved(projected, profile),
+        tools: toolsResolved(projected, profile) as LiveResolvedTools,
       } as ProfileInterface;
     default: {
       const exhaustive: never = projected.type;

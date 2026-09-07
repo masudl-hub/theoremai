@@ -60,6 +60,9 @@ function requireMediaLimits(profile: Profile): MediaLimits {
   if (profile.type === 'speech') {
     throw new TheorumError(`Profile ${profile.id} (speech) does not accept media input`);
   }
+  if (profile.type === 'live') {
+    throw new TheorumError(`Profile ${profile.id} (live) does not accept turn attachment input`);
+  }
   const limits = resolveMediaLimits(profile.inputs ?? {});
   if (!limits) {
     throw new TheorumError(`Profile ${profile.id} must set maxFiles, maxBytes, and maxTurnBytes`);

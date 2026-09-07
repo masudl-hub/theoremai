@@ -37,7 +37,7 @@ function inputsFromSpec(
   type: ProfileType,
   inputs: ProfileInputsSpec | null | undefined,
 ): ProfileInputsInterface {
-  if (type === 'speech') {
+  if (type === 'speech' || type === 'live') {
     return { text: true, attachments: null, voice: null };
   }
 

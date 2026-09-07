@@ -183,6 +183,76 @@ Deno.test('registerProfile validates media limits if attachments are enabled', (
   );
 });
 
+Deno.test('defineProfile rejects inputs, outputs, and t2Loader on live profiles', () => {
+  const liveBase = {
+    id: 'live_shape_bot',
+    type: 'live' as const,
+    identity: { handle: 'live_shape_bot' },
+    model: {
+      protocol: 'geminiLive' as const,
+      provider: 'google' as const,
+      allow: ['gemini31FlashLive'],
+      config: {
+        gemini31FlashLive: {
+          apiId: 'gemini-3.1-flash-live-preview',
+          thinking: { on: 'none', off: 'none' },
+          thinkingLevels: ['none'],
+          summaries: { on: 'none', off: 'none' },
+          maxOutputTokens: 256,
+          temperature: 0,
+          builtInTools: [],
+        },
+      },
+    },
+    live: { voice: 'Aoede' },
+    tools: { allow: [] },
+  };
+
+  assertThrows(
+    () =>
+      defineProfile({
+        ...liveBase,
+        inputs: { text: true },
+      } as Parameters<typeof defineProfile>[0]),
+    Error,
+    "type 'live' must not set inputs",
+  );
+
+  assertThrows(
+    () =>
+      defineProfile({
+        ...liveBase,
+        outputs: { structured: null },
+      } as Parameters<typeof defineProfile>[0]),
+    Error,
+    "type 'live' must not set outputs",
+  );
+
+  assertThrows(
+    () =>
+      registerProfile(
+        defineProfile({
+          ...liveBase,
+          tools: { allow: ['load_tools'], t2Loader: 'load_tools' },
+        } as never),
+      ),
+    Error,
+    "tools.t2Loader is not supported on type 'live'",
+  );
+
+  assertThrows(
+    () =>
+      registerProfile(
+        defineProfile({
+          ...liveBase,
+          tools: { allow: ['deferred_tool'], t1Policy: () => ['deferred_tool'] },
+        } as never),
+      ),
+    Error,
+    'tools.t1Policy is not supported on type',
+  );
+});
+
 Deno.test('getProfile throws for unknown profile', () => {
   assertThrows(
     () => {

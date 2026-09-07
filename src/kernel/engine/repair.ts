@@ -1,3 +1,4 @@
+import { profileTurnOutputs } from '../registry/profile-outputs.ts';
 import type { Profile, TurnHistoryMessage, TurnRepairRequest } from '../types.ts';
 
 const MAX_REPAIR_HISTORY_EXCHANGES = 2;
@@ -26,7 +27,7 @@ function synthesizeRepairPrompt(args: {
   const { profile, repair, history } = args;
   const guidance =
     repair.guidance ||
-    profile.outputs?.validation?.repairGuidance ||
+    profileTurnOutputs(profile)?.validation?.repairGuidance ||
     'Revise the previous output so it satisfies the validator rejection. Preserve the intended user-facing substance unless the guidance says otherwise.';
 
   const historyBlock = formatHistoryBlock(scopeHistory(history));

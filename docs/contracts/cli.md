@@ -35,7 +35,7 @@ theorum <command> [options]
 | `fuzz-canary` | Adversarial canary egress fuzzer (`runTurn` stream gate + Live batch gate); exit `1` on bypass |
 | `test` | Stress matrix or custom profile tests (`--profile`, `--all`, `--lite`, `--matrix`, `--mode`, `--search`, `--map`, `--verbose`, `--trace`, `--trace-dir`) |
 | `run` | Execute a turn with streaming output (`--profile`, `--prompt`, `--mode`, `--verbose`, `--trace`, `--trace-dir`, …) |
-| `profile list` / `profile show <id>` | Inspect registered profile blueprints |
+| `profile list` / `profile show <id>` | Inspect registered profile blueprints (text, image, speech, live) |
 | `help` | Usage |
 
 Exit code `1` on failed `test` runs. `run` requires `--profile` (or `-p`).
@@ -66,7 +66,7 @@ Tool stress / matrix allowlists are `profile.tools.allow` plus each selected
 model's `builtInTools` (via `pickModel` / union across `model.allow`). Builtin
 conflict resolution uses registered tool `type === 'builtin'` metadata.
 The matrix respects those allowlists — e.g. `--search` only applies when
-`googleSearch` is allowlisted.
+`googleSearch` is allowlisted, while skipping file/voice synthesizers for `live` and `speech` profiles.
 
 ## Exported API
 

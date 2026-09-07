@@ -110,10 +110,11 @@ const graph = {
     kernel: {
       export: './kernel',
       doc: 'docs/contracts/kernel.md',
-      owns: ['src/kernel/'],
+      owns: ['src/kernel/', 'src/guardrails/network.ts'],
       owns_except: ['src/kernel/schema.ts'],
       validates: [
         'tests/kernel/',
+        'tests/guardrails/network.test.ts',
       ],
       required_sections: [
         'Export',
@@ -146,7 +147,7 @@ const graph = {
           sections: ['Profiles'],
         },
         {
-          paths: ['src/kernel/tools/**', 'src/kernel/schema.ts'],
+          paths: ['src/kernel/tools/**', 'src/kernel/schema.ts', 'src/guardrails/network.ts'],
           sections: ['Registered tools'],
         },
       ],
@@ -252,7 +253,7 @@ const graph = {
       export: './guardrails',
       doc: 'docs/contracts/guardrails.md',
       owns: ['src/guardrails/'],
-      owns_except: ['src/guardrails/testing.ts'],
+      owns_except: ['src/guardrails/testing.ts', 'src/guardrails/network.ts'],
       validates: ['tests/guardrails/'],
       required_sections: [
         'Export',

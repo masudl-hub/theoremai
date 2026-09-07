@@ -8,6 +8,7 @@
  */
 
 import { TheorumError } from '../../guardrails/error.ts';
+import { assertLiveIngressConfigured } from '../engine/live-ingress.ts';
 import { isValidPair, isValidProfileProtocol, protocolsForProfileType } from '../schema.ts';
 import { getTool } from '../tools/registry.ts';
 import type {
@@ -15,6 +16,7 @@ import type {
   ImageProfile,
   LiveProfile,
   LiveProfileModelSpec,
+  LiveProfileToolsSpec,
   ModelId,
   Profile,
   ProfileGuardrailsSpec,
@@ -62,11 +64,14 @@ export type SpeechProfileDefinition = ProfileDefinitionBase<TurnProfileModelSpec
   turnResumption?: ProfileTurnResumptionSpec;
 };
 
-export type LiveProfileDefinition = ProfileDefinitionBase<LiveProfileModelSpec> & {
+export type LiveProfileDefinition = {
+  id: Profile['id'];
+  identity: ProfileIdentity;
+  model: LiveProfileModelSpec;
   type: 'live';
   live: NonNullable<LiveProfile['live']>;
-  tools: ProfileToolsSpec;
-  inputs?: ProfileInputsSpec;
+  tools: LiveProfileToolsSpec;
+  guardrails?: ProfileGuardrailsSpec;
 };
 
 /** Host-authored profile definition — discriminated on `type`. No THEORUM defaults. */
@@ -121,7 +126,6 @@ function defineProfile(input: ProfileDefinition): Profile {
     system: input.identity.system,
     systemByRole: input.identity.systemByRole,
   };
-  const outputs = input.outputs;
   const guardrails = input.guardrails;
 
   let profile: Profile;
@@ -134,7 +138,7 @@ function defineProfile(input: ProfileDefinition): Profile {
         model: input.model,
         tools: input.tools,
         inputs: input.inputs,
-        outputs,
+        outputs: input.outputs,
         turnResumption: input.turnResumption,
         guardrails,
       } satisfies TextProfile;
@@ -148,7 +152,7 @@ function defineProfile(input: ProfileDefinition): Profile {
         image: input.image,
         tools: input.tools,
         inputs: input.inputs,
-        outputs,
+        outputs: input.outputs,
         turnResumption: input.turnResumption,
         guardrails,
       } satisfies ImageProfile;
@@ -160,24 +164,34 @@ function defineProfile(input: ProfileDefinition): Profile {
         identity,
         model: input.model,
         speech: input.speech,
-        outputs,
+        outputs: input.outputs,
         turnResumption: input.turnResumption,
         guardrails,
       } satisfies SpeechProfile;
       break;
-    case 'live':
+    case 'live': {
+      const liveInput = input as LiveProfileDefinition & {
+        inputs?: unknown;
+        outputs?: unknown;
+      };
+      if (liveInput.inputs !== undefined) {
+        throw new TheorumError(`Profile ${input.id}: type 'live' must not set inputs`);
+      }
+      if (liveInput.outputs !== undefined) {
+        throw new TheorumError(`Profile ${input.id}: type 'live' must not set outputs`);
+      }
       profile = {
         type: 'live',
         id: input.id,
         identity,
         model: input.model,
         live: input.live,
-        tools: input.tools,
-        inputs: input.inputs,
-        outputs,
+        tools: assertLiveTools(input.id, input.tools),
         guardrails,
       } satisfies LiveProfile;
+      assertLiveIngressConfigured(profile);
       break;
+    }
     default: {
       const _exhaustive: never = input;
       throw new TheorumError(`Unknown profile type '${String(_exhaustive)}'`);
@@ -244,8 +258,27 @@ function assertCustomToolsOnly(profile: Profile): void {
   }
 }
 
+function assertLiveTools(profileId: string, tools: LiveProfileToolsSpec): LiveProfileToolsSpec {
+  const extra = tools as ProfileToolsSpec;
+  if (extra.t1Policy !== undefined) {
+    throw new TheorumError(
+      `Profile ${profileId}: tools.t1Policy is not supported on type 'live' — wire T0 tools in tools.allow for session setup`,
+    );
+  }
+  if (extra.t2Loader !== undefined) {
+    throw new TheorumError(
+      `Profile ${profileId}: tools.t2Loader is not supported on type 'live' — Gemini Live function declarations are fixed at session setup`,
+    );
+  }
+  return { allow: tools.allow };
+}
+
 function assertProfileToolLoader(profile: Profile): void {
   if (profile.type === 'speech') {
+    return;
+  }
+  if (profile.type === 'live') {
+    assertLiveTools(profile.id, profile.tools);
     return;
   }
   const loaderId = profile.tools.t2Loader;
@@ -292,7 +325,7 @@ function assertCompactionOnlyOnText(profile: Profile): void {
 }
 
 function assertMediaLimits(profile: Profile): void {
-  if (profile.type === 'speech') {
+  if (profile.type === 'speech' || profile.type === 'live') {
     return;
   }
   const inputs = profile.inputs;

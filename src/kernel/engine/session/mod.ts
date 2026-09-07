@@ -32,7 +32,6 @@ import {
 import { openGoogleLiveSession } from '../../../providers/google/live/session.ts';
 import { providerCompleteRequest } from '../../registry/provider-request.ts';
 import { pickSystemRole, resolveTurn } from '../../registry/resolve.ts';
-import { expandT1Policy } from '../../tools/resolve.ts';
 import type {
   InteractionPart,
   LiveSession,
@@ -44,6 +43,7 @@ import type {
   TurnRequest,
 } from '../../types.ts';
 import { prepareLiveInboundText } from '../live-inbound.ts';
+import { assertLiveIngress } from '../live-ingress.ts';
 import { systemFromProfile } from '../runner/stream.ts';
 
 export type { LiveSession, SessionRequest };
@@ -204,6 +204,7 @@ function buildLiveSession(args: {
       }
     },
     sendAudio(audio: { data: string; mimeType?: string }) {
+      assertLiveIngress(profile, 'audio');
       sendJson(
         buildGeminiLiveRealtimeInput({
           type: 'audio',
@@ -213,6 +214,7 @@ function buildLiveSession(args: {
       );
     },
     sendVideo(video: { data: string; mimeType?: string }) {
+      assertLiveIngress(profile, 'video');
       sendJson(
         buildGeminiLiveRealtimeInput({
           type: 'video',
@@ -222,6 +224,7 @@ function buildLiveSession(args: {
       );
     },
     sendText(text: string) {
+      assertLiveIngress(profile, 'text');
       const safeText = prepareLiveInboundText(profile, text);
       sendJson(buildGeminiLiveRealtimeText(safeText));
     },
@@ -257,7 +260,6 @@ export async function runSession(
   const { profile, generation: gen0 } = resolveTurn(safe);
   assertLiveProfile(profile);
 
-  await expandT1Policy(gen0.tools, profile, safe);
   gen0.builtins = gen0.tools.builtins;
 
   let generation = applyVoiceOverride(gen0, req.voice);

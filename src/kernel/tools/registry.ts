@@ -12,9 +12,51 @@
 import type { z } from 'zod';
 import { TheorumError } from '../../guardrails/error.ts';
 import { jsonSchemaFromZod, validateToolInputSchema, validateToolOutputSchema } from './schema.ts';
-import type { FunctionToolDef, RegisteredTool, ToolDefinitionInput } from './types.ts';
+import type {
+  FunctionToolDef,
+  HttpToolDef,
+  McpToolDef,
+  RegisteredTool,
+  ToolDefinitionInput,
+} from './types.ts';
 
 const tools = new Map<string, RegisteredTool>();
+
+function normalizeHttp<TIn = unknown, TOut = unknown>(
+  def: Omit<HttpToolDef<TIn, TOut>, 'inputSchema' | 'outputSchema'> & {
+    input: z.ZodType<TIn>;
+    output: z.ZodType<TOut>;
+  },
+): HttpToolDef<TIn, TOut> {
+  const inputSchema = jsonSchemaFromZod(def.input, 'input');
+  validateToolInputSchema(inputSchema);
+  const outputSchema = jsonSchemaFromZod(def.output, 'output');
+  validateToolOutputSchema(outputSchema);
+  return {
+    ...def,
+    type: 'http',
+    inputSchema,
+    outputSchema,
+  };
+}
+
+function normalizeMcp<TIn = unknown, TOut = unknown>(
+  def: Omit<McpToolDef<TIn, TOut>, 'inputSchema' | 'outputSchema'> & {
+    input: z.ZodType<TIn>;
+    output: z.ZodType<TOut>;
+  },
+): McpToolDef<TIn, TOut> {
+  const inputSchema = jsonSchemaFromZod(def.input, 'input');
+  validateToolInputSchema(inputSchema);
+  const outputSchema = jsonSchemaFromZod(def.output, 'output');
+  validateToolOutputSchema(outputSchema);
+  return {
+    ...def,
+    type: 'mcp',
+    inputSchema,
+    outputSchema,
+  };
+}
 
 function normalizeFunction<TIn = unknown, TOut = unknown>(
   def: Omit<FunctionToolDef<TIn, TOut>, 'inputSchema' | 'outputSchema'> & {
@@ -39,6 +81,12 @@ function normalizeToolDefinition<TIn = unknown, TOut = unknown>(
 ): RegisteredTool<TIn, TOut> {
   if (def.type === 'builtin') {
     return def;
+  }
+  if (def.type === 'http') {
+    return normalizeHttp(def);
+  }
+  if (def.type === 'mcp') {
+    return normalizeMcp(def);
   }
   return normalizeFunction(def);
 }

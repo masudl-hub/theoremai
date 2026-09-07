@@ -147,7 +147,8 @@ gate (canary + egress) at each conversational `turnComplete`, and returns a
 | Handshake | `BidiGenerateContentSetup` via `buildGeminiLiveSetupMessage` |
 | Turn boundary | Gemini `turnComplete` → outbound gate finalize + `done` (`stop.kind: 'completed'`); **session stays open** |
 | Generation boundary | Gemini `generationComplete` → `done` (`stop.kind: 'generation_complete'`) without tearing down the session |
-| Tools | Host executes and replies via `sendToolResponse(s)`; cancellations → `tool.phase: 'cancel'` |
+| Tools | Host executes and replies via `sendToolResponse(s)`; cancellations → `tool.phase: 'cancel'`. Profile `tools.allow` (T0) + `builtInTools` are wired in `BidiGenerateContentSetup` only — no `t1Policy` / `t2Loader`, no structured output, no turn `inputs` / `outputs`. |
+| Ingress | `live.ingress` gates `sendAudio` / `sendVideo` / `sendText`. Defaults: audio **on**, text **on**, camera (video channel) **off** unless `live.ingress.video: true`. At least one channel must stay enabled. |
 | Transcription | Mid-turn `evidence` with `kind: 'input_transcription'` / `output_transcription` (optional `interim`); **not** held for egress — streams immediately |
 | Session control | `goAway` → `session.kind: 'closing_soon'`; `waitingForInput` → `waiting_for_input` |
 | Resumption | `sessionResumptionHandle` on `SessionRequest`; updates as `evidence.kind: 'session_resumption'` with `resumable` |

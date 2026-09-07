@@ -527,7 +527,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   ),
   tools: field(
     '{ allow: ToolId[]; t1Policy?; t2Loader? }',
-    'Custom tools (allow), optional T1 policy, optional T2 loader function id. Builtins belong on model.config.*.builtInTools.',
+    'Custom tools (allow), optional T1 policy, optional T2 loader function id. Builtins belong on model.config.*.builtInTools. Live profiles use `{ allow }` only.',
   ),
   'tools.allow': field(
     'ToolId[]',
@@ -611,6 +611,19 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
     },
   ),
   live: field('ProfileLiveSpec', 'Bidirectional live audio/video streaming session pins.'),
+  'live.ingress': field(
+    'LiveIngressSpec',
+    'Realtime ingress toggles for sendAudio / sendVideo / sendText — not turn file attachments.',
+  ),
+  'live.ingress.audio': field(
+    'boolean',
+    'Microphone PCM via LiveSession.sendAudio. Omit → enabled.',
+  ),
+  'live.ingress.video': field(
+    'boolean',
+    'Webcam JPEG frames via LiveSession.sendVideo. Omit or false → disabled; true → enabled.',
+  ),
+  'live.ingress.text': field('boolean', 'Typed text via LiveSession.sendText. Omit → enabled.'),
   'live.voice': field(
     'string',
     'TTS voice name for live audio output (e.g. Puck, Aoede, Charon).',

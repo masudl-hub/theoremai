@@ -35,6 +35,7 @@ import type {
 } from './schema.ts';
 import type {
   InvokeToolRequest,
+  LiveProfileToolsSpec,
   ProfileToolsSpec,
   RegisteredTool,
   ToolCallEvent,
@@ -55,6 +56,7 @@ export type {
   KeyVault,
   LiveActivityHandling,
   LiveContextCompression,
+  LiveProfileToolsSpec,
   LiveSpeechSensitivity,
   MediaInputKind,
   OverflowKeySlot,
@@ -337,10 +339,26 @@ export interface LiveTranscriptionSpec {
 }
 
 /**
+ * Realtime ingress modalities for a live session.
+ * Distinct from turn `inputs` (file attachments, MIME limits) — these gate
+ * `LiveSession.sendAudio` / `sendVideo` / `sendText` channels.
+ */
+export interface LiveIngressSpec {
+  /** Microphone PCM via `sendAudio`. Omit → enabled. */
+  audio?: boolean;
+  /** Webcam JPEG frames via `sendVideo`. Omit → disabled (opt-in). */
+  video?: boolean;
+  /** Typed text via `sendText`. Omit → enabled. */
+  text?: boolean;
+}
+
+/**
  * Output pins for a live-role profile (bidirectional WebSocket audio/video session).
  * The live model itself lives in `model.allow` / `model.config`.
  */
 export interface ProfileLiveSpec {
+  /** Realtime ingress modality toggles (mic, camera frames, typed text). */
+  ingress?: LiveIngressSpec;
   /** Output TTS voice name (e.g. 'Puck', 'Aoede', 'Charon'). */
   voice?: string;
   /** Voice activity detection & barge-in configuration. */
@@ -369,6 +387,8 @@ export interface ProfileStreamingSpec {
 
 export type { ProfileTurnResumptionSpec, TurnContinueFrom, TurnStop } from './stop.ts';
 
+import type { NetworkGuardrailSpec } from '../guardrails/network.ts';
+import type { ToolCredential } from './auth/types.ts';
 import type { ProfileTurnResumptionSpec, TurnContinueFrom, TurnStop } from './stop.ts';
 
 /** Context passed to a host-owned outbound disclosure guard. */
@@ -409,6 +429,8 @@ export interface ProfileGuardrailsSpec {
   sanitizeInput?: boolean;
   redactSensitive?: boolean;
   egress?: ProfileEgressSpec;
+  /** SSRF and network access policies for HTTP and MCP tools. */
+  network?: NetworkGuardrailSpec;
 }
 
 /** Model, provider, thinking, and step bounds for a profile. */
@@ -496,11 +518,14 @@ export interface SpeechProfile extends ProfileCommon<ProfileTypeProtocol<'speech
 }
 
 /** Bidirectional live session. */
-export interface LiveProfile extends ProfileCommon<ProfileTypeProtocol<'live'>> {
+export interface LiveProfile {
   type: 'live';
+  id: ProfileId;
+  identity: ProfileIdentity;
+  model: ProfileModelSpec<ProfileTypeProtocol<'live'>>;
   live: ProfileLiveSpec;
-  tools: ProfileToolsSpec;
-  inputs?: ProfileInputsSpec;
+  tools: LiveProfileToolsSpec;
+  guardrails?: ProfileGuardrailsSpec;
 }
 
 /** Complete host-owned agent contract consumed by the kernel. */
@@ -639,6 +664,8 @@ export interface TurnRequest {
   compactionProvider?: ModelProvider;
   /** Optional session resumption handle for continuing live WebSocket sessions. */
   sessionResumptionHandle?: string;
+  /** Host credentials for authenticated HTTP / MCP tools keyed by auth slot. */
+  credentials?: Record<string, ToolCredential>;
 }
 
 /** Safe profile projection suitable for UI or host inspection. */

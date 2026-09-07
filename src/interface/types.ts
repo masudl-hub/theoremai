@@ -7,7 +7,7 @@
  * @module
  */
 
-import type { ProfileToolsSpec } from '../kernel/tools/types.ts';
+import type { LiveProfileToolsSpec, ProfileToolsSpec } from '../kernel/tools/types.ts';
 import type {
   ControlId,
   GroundingEvent,
@@ -55,8 +55,13 @@ export interface ProfileInputsInterface {
   slots?: Record<string, string[]>;
 }
 
-/** `profile.tools` plus resolved registry entries. */
+/** `profile.tools` plus resolved registry entries (turn profiles). */
 export type ResolvedTools = ProfileToolsSpec & {
+  resolved: Array<RegisteredTool | { name: ToolId; missing: true }>;
+};
+
+/** Live `profile.tools` — allowlist only, plus resolved registry entries. */
+export type LiveResolvedTools = LiveProfileToolsSpec & {
   resolved: Array<RegisteredTool | { name: ToolId; missing: true }>;
 };
 
@@ -88,13 +93,9 @@ export type SpeechProfileInterface = Omit<SpeechProfile, 'guardrails' | 'model'>
   guardrails?: ProfileGuardrailsView;
 };
 
-export type LiveProfileInterface = Omit<
-  LiveProfile,
-  'inputs' | 'tools' | 'model' | 'guardrails'
-> & {
+export type LiveProfileInterface = Omit<LiveProfile, 'tools' | 'model' | 'guardrails'> & {
   model: NormalizeModel<LiveProfile['model']>;
-  inputs: ProfileInputsInterface;
-  tools: ResolvedTools;
+  tools: LiveResolvedTools;
   guardrails?: ProfileGuardrailsView;
 };
 
@@ -103,6 +104,9 @@ export type ProfileInterface =
   | ImageProfileInterface
   | SpeechProfileInterface
   | LiveProfileInterface;
+
+/** Turn/chat composer profiles — excludes live (realtime streams, no turn inputs block). */
+export type ComposerProfileInterface = Exclude<ProfileInterface, LiveProfileInterface>;
 
 export type ProfileInterfaceSource = Profile | ProjectedProfile;
 

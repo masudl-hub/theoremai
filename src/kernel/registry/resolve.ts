@@ -143,6 +143,9 @@ function resolveStructured(
   profile: Profile,
   slots?: Record<string, string>,
 ): StructuredSchemaId | null {
+  if (profile.type === 'live') {
+    return null;
+  }
   const structured = profile.outputs?.structured;
   if (!structured) {
     return null;
@@ -165,6 +168,9 @@ function resolveStructured(
  * Explicit `'buffered'` opts out; `'sse'` (or omit) yields `stream: true`.
  */
 function resolveStreamFlag(profile: Profile): boolean {
+  if (profile.type === 'live') {
+    return true;
+  }
   return profile.outputs?.streaming?.mode !== 'buffered';
 }
 
@@ -270,7 +276,7 @@ function primaryImageSpec(profile: Profile) {
 }
 
 function profileInputsOrNull(profile: Profile): ProfileInputsSpec | null {
-  if (profile.type === 'speech') {
+  if (profile.type === 'speech' || profile.type === 'live') {
     return null;
   }
   return profile.inputs ?? null;
@@ -278,8 +284,9 @@ function profileInputsOrNull(profile: Profile): ProfileInputsSpec | null {
 
 /** Project a profile object into a safe host/UI inspection object. */
 function projectProfileObject(profile: Profile): ProjectedProfile {
-  const { model, identity, outputs } = profile;
+  const { model, identity } = profile;
   const inputs = profileInputsOrNull(profile);
+  const outputs = profile.type === 'live' ? null : (profile.outputs ?? null);
   return {
     id: profile.id,
     type: profile.type,
@@ -287,7 +294,7 @@ function projectProfileObject(profile: Profile): ProjectedProfile {
     model,
     tools: projectTools(profile),
     inputs,
-    outputs: outputs ?? null,
+    outputs,
     image: primaryImageSpec(profile),
     speech: profile.type === 'speech' ? profile.speech : null,
     live: profile.type === 'live' ? profile.live : null,

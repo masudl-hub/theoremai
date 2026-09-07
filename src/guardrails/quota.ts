@@ -46,7 +46,7 @@ function clientIp(peer: string, req: Request): string {
 }
 
 function takeSlot(profile: Profile, ip: string, now: number): QuotaSlotStatus {
-  const quota = profile.guardrails.quota;
+  const quota = profile.guardrails?.quota;
   if (!quota) {
     return 'not_configured';
   }

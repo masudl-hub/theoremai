@@ -1,7 +1,7 @@
 {
   "name": "@theorum/core",
-  "version": "0.1.15",
-  "description": "A flat TypeScript agent kernel for typed profiles, deterministic turn execution, dynamic tools, provider adapters, guardrails, and host-injected traces.",
+  "version": "1.0.0",
+  "description": "A flat TypeScript agent kernel for typed profiles, deterministic turn execution, registered tools, provider adapters, guardrails, and host-injected traces.",
   "license": "MIT",
   "keywords": [
     "agent",
@@ -18,14 +18,15 @@
     ".": "./mod.ts",
     "./kernel": "./src/kernel/mod.ts",
     "./providers": "./src/providers/mod.ts",
-    "./openrouter": "./src/providers/openrouter-mod.ts",
+    "./providers/local": "./src/providers/local/mod.ts",
     "./guardrails": "./src/guardrails/mod.ts",
+    "./guardrails/testing": "./src/guardrails/testing.ts",
     "./observability": "./src/observability/mod.ts",
     "./host": "./src/host/mod.ts",
     "./cli": "./src/cli/index.ts",
     "./presets": "./src/presets/mod.ts",
     "./presets/google": "./src/presets/google.ts",
-    "./streaming": "./src/streaming/mod.ts"
+    "./interface": "./src/interface/mod.ts"
   },
   "publish": {
     "exclude": [
@@ -33,9 +34,11 @@
       ".fallowrc.jsonc",
       ".github/",
       ".gitignore",
+      ".npmignore",
       "ast-grep-rules/",
       "biome.json",
       "deno.lock",
+      "docs/",
       "knip.json",
       "stryker.config.json",
       "stryker.log",
@@ -50,6 +53,7 @@
       "package-lock.json",
       "scripts/",
       "sgconfig.yml",
+      "src/**/*.md",
       "tests/"
     ]
   },
@@ -57,17 +61,28 @@
     "@openrouter/ai-sdk-provider": "npm:@openrouter/ai-sdk-provider@^3.0.0",
     "ai": "npm:ai@^7.0.0",
     "gpt-tokenizer": "npm:gpt-tokenizer@^4.0.0",
+    "zod": "npm:zod@^4.1.8",
     "@std/assert": "jsr:@std/assert@^1.0.0",
     "@deno/dnt": "jsr:@deno/dnt@0.43.2"
   },
   "tasks": {
     "theorum": "deno run --allow-read --allow-write --allow-net src/cli/index.ts",
-    "test": "deno test --allow-read --allow-write --allow-net --allow-env --allow-sys --ignore=npm/ tests/",
+    "fuzz": "deno run --allow-read --allow-write --allow-net src/cli/index.ts fuzz",
+    "fuzz-canary": "deno run --allow-read --allow-write --allow-net src/cli/index.ts fuzz-canary",
+    "test:guardrails": "deno test --allow-read --allow-write --allow-net --allow-env --allow-sys tests/guardrails/ tests/cli/fuzz-guardrails.test.ts && deno run --allow-read --allow-write --allow-net src/cli/index.ts fuzz-canary",
+    "test": "deno test --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run --ignore=npm/ tests/",
     "check": "deno check mod.ts",
     "verify:publish": "deno run --allow-read scripts/verify-publish-bundle.ts",
     "lint": "npm run lint",
     "lint:docs": "npm run lint:docs",
     "hooks:install": "npm run hooks:install",
-    "verify:live": "deno run --allow-net scripts/verify-live.ts"
+    "verify:provider-smoke": "deno run --allow-net scripts/verify-provider-smoke.ts",
+    "verify:canary-api": "deno run --allow-read --allow-net --allow-env --allow-sys scripts/verify-guardrails-api.ts",
+    "verify:guardrails-api": "deno run --allow-read --allow-net --allow-env --allow-sys scripts/verify-guardrails-api.ts",
+    "verify:tools-api": "deno run --allow-read --allow-net --allow-env --allow-sys scripts/verify-tools-api.ts",
+    "verify:typed-profiles-api": "deno run --allow-read --allow-net --allow-env --allow-sys scripts/verify-typed-profiles-api.ts",
+    "verify:runner-api": "deno run --allow-read --allow-net --allow-env --allow-sys scripts/verify-runner-api.ts",
+    "stryker:guardrails": "npx stryker run stryker.guardrails.config.json",
+    "stryker:tools": "npx stryker run stryker.tools.config.json"
   }
 }

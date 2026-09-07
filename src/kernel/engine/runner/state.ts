@@ -14,6 +14,13 @@ interface StepExecutionState {
   attemptEvents: TurnEvent[];
   /** Last provider stop from a discarded provider `done` event. */
   lastStop?: TurnStop;
+  /** Latest Google Interactions id observed on the current provider stream. */
+  lastInteractionId?: string;
+  /** Pending Interactions `function_result` continuation for the next provider step. */
+  interactionsContinuation?: {
+    previousInteractionId: string;
+    input: Record<string, unknown>[];
+  };
 }
 
 interface AttemptFlowState {

@@ -6,7 +6,7 @@ import {
   isAbsent,
 } from '../../src/kernel/engine/runner/schema-validation.ts';
 
-const ROOT = {
+const ROOT: Record<string, unknown> = {
   type: 'object',
   properties: {
     message: { type: 'string' },
@@ -21,12 +21,12 @@ const ROOT = {
     },
   },
   required: ['message'],
-} as const;
+};
 
 Deno.test('schema-validation: required missing fails; optional omitted skips', async () => {
   let codeCalls = 0;
   const failures = await collectValidationFailures(
-    ROOT as unknown as Record<string, unknown>,
+    ROOT,
     { message: 'hi' },
     {
       code: () => {
@@ -40,11 +40,7 @@ Deno.test('schema-validation: required missing fails; optional omitted skips', a
 });
 
 Deno.test('schema-validation: required field missing is reported', async () => {
-  const failures = await collectValidationFailures(
-    ROOT as unknown as Record<string, unknown>,
-    {},
-    undefined,
-  );
+  const failures = await collectValidationFailures(ROOT, {}, undefined);
   assertEquals(failures.length, 1);
   assertEquals(failures[0]?.path, 'message');
   assertEquals(failures[0]?.error.includes("required field 'message' is missing"), true);
@@ -53,7 +49,7 @@ Deno.test('schema-validation: required field missing is reported', async () => {
 Deno.test('schema-validation: optional present runs nested required and field validator', async () => {
   let mermaidCalls = 0;
   const failures = await collectValidationFailures(
-    ROOT as unknown as Record<string, unknown>,
+    ROOT,
     { message: 'hi', diagram: { mermaid: 'bad' } },
     {
       'diagram.mermaid': (v) => {
@@ -70,11 +66,7 @@ Deno.test('schema-validation: optional present runs nested required and field va
 });
 
 Deno.test('schema-validation: nested required missing under present optional', async () => {
-  const failures = await collectValidationFailures(
-    ROOT as unknown as Record<string, unknown>,
-    { message: 'hi', diagram: {} },
-    undefined,
-  );
+  const failures = await collectValidationFailures(ROOT, { message: 'hi', diagram: {} }, undefined);
   assertEquals(failures.length, 1);
   assertEquals(failures[0]?.path, 'diagram.mermaid');
 });
@@ -82,7 +74,7 @@ Deno.test('schema-validation: nested required missing under present optional', a
 Deno.test('schema-validation: null optional is absent', async () => {
   let calls = 0;
   const failures = await collectValidationFailures(
-    ROOT as unknown as Record<string, unknown>,
+    ROOT,
     { message: 'hi', diagram: null },
     {
       'diagram.mermaid': () => {

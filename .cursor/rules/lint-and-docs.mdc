@@ -1,0 +1,28 @@
+---
+description: Lint integrity and documentation sync for agent turns
+alwaysApply: true
+---
+
+# Lint and documentation discipline
+
+Every agent turn is followed by a **stop hook** that lints **only files this conversation edited**, then runs only the **edited test files** when those edits touch `tests/`. Full-suite runs and repo-wide lint are intentionally left for CI; the hook must not block on another agent's churning files. Fix every cited file:line on failure. Auto-fix loops cap at **12 attempts**, then ask the user.
+
+Do not treat pre-existing or other-agent failures as your job unless they appear in your edited-file set.
+
+## Lint failures
+
+- Fix the root cause at each reported location.
+- Do **not** ignore, suppress, or reconfigure linters to pass (`eslint-disable`, `biome-ignore`, `@ts-ignore`, weakening `biome.json` / ESLint config, etc.).
+- Do **not** skip or shorten lint commands to evade the hook.
+- If a rule is genuinely wrong for the change, **ask the user** — do not bypass it unilaterally.
+
+## Documentation
+
+When you change behavior, APIs, scripts, config, or file paths that docs reference:
+
+- Update the relevant markdown, README sections, and inline doc comments.
+- In this repo, docs-related edits trigger `npm run lint:docs` — treat its failures like any other lint error.
+
+## When stuck
+
+Ask the user with the specific lint rule, file, and why a straight fix seems impossible. Do not work around the gate silently.

@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "hooks": {
+    "stop": [
+      {
+        "command": ".cursor/hooks/lint-turn.mjs",
+        "timeout": 900,
+        "loop_limit": 12
+      }
+    ],
+    "subagentStop": [
+      {
+        "command": ".cursor/hooks/lint-turn.mjs",
+        "timeout": 900,
+        "loop_limit": 12
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": ".cursor/hooks/block-lint-suppression.mjs",
+        "timeout": 10
+      }
+    ],
+    "beforeShellExecution": [
+      {
+        "command": ".cursor/hooks/block-lint-suppression.mjs",
+        "timeout": 10
+      }
+    ],
+    "postToolUse": [
+      {
+        "command": ".cursor/hooks/audit-file-edit.mjs",
+        "matcher": "Write|StrReplace|EditNotebook|TabWrite|ApplyPatch",
+        "timeout": 10
+      }
+    ],
+    "afterFileEdit": [
+      {
+        "command": ".cursor/hooks/audit-file-edit.mjs",
+        "timeout": 10
+      }
+    ],
+    "afterTabFileEdit": [
+      {
+        "command": ".cursor/hooks/audit-file-edit.mjs",
+        "timeout": 10
+      }
+    ]
+  }
+}

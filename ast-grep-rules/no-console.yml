@@ -6,5 +6,7 @@ files:
   - 'src/**/*.ts'
 ignores:
   - 'src/cli/**/*.ts'
+  # Corpus fuzz runners print human reports for CLI / deno task fuzz.
+  - 'src/guardrails/corpus/fuzz-inbound.ts'
 rule:
   pattern: console.$METHOD($$$ARGS)

@@ -8,61 +8,117 @@ import {
   registerProfile,
   registerProfiles,
 } from '../../src/kernel/registry/profiles.ts';
-import { modelAllow } from '../fixtures/models.ts';
+import { registerGooglePreset } from '../../src/presets/google.ts';
+import { geminiModel, modelAllow } from '../fixtures/models.ts';
 
-Deno.test('defineProfile creates valid defaults', () => {
+registerGooglePreset();
+
+Deno.test('defineProfile preserves explicit typed fields without defaults', () => {
   const profile = defineProfile({
     id: 'host_profile',
-    model: { ...modelAllow('gemini35FlashLite'), thinking: 'low' },
+    type: 'text',
+    identity: { handle: 'host_profile' },
+    model: {
+      ...geminiModel('gemini35FlashLite'),
+      thinking: 'low',
+      maxSteps: 1,
+      key: 'slotA',
+    },
+    tools: { allow: [] },
+    inputs: { text: true },
+    outputs: { structured: null },
+    guardrails: { canary: true, sanitizeInput: true },
   });
 
   assertEquals(profile.id, 'host_profile');
+  assertEquals(profile.type, 'text');
   assertEquals(profile.model.protocol, 'geminiInteractions');
   assertEquals(profile.model.provider, 'google');
   assertEquals(profile.model.maxSteps, 1);
-  assertEquals(profile.model.key, 'freeA');
+  assertEquals(profile.model.key, 'slotA');
   assertEquals(profile.identity.handle, 'host_profile');
+  if (profile.type !== 'text') throw new Error('Expected text profile');
   assertEquals(profile.tools.allow, []);
   assertEquals(profile.inputs.text, true);
-  assertEquals(profile.outputs.structured, null);
-  assertEquals(profile.outputs.image, undefined);
-  assertEquals(profile.outputs.speech, undefined);
-  assertEquals(profile.guardrails.canary, true);
-  assertEquals(profile.guardrails.quota, undefined);
+  assertEquals(profile.outputs?.structured, null);
+  assertEquals(profile.guardrails?.canary, true);
 });
 
-Deno.test('defineProfile defaults all optional host-authored sections', () => {
+Deno.test('defineProfile rejects illegal protocol/provider pairs', () => {
+  assertThrows(
+    () =>
+      defineProfile({
+        id: 'bad_pair',
+        type: 'text',
+        identity: { handle: 'bad_pair' },
+        model: {
+          protocol: 'openAi',
+          provider: 'google',
+          key: 'slotA',
+          ...modelAllow('gemini35FlashLite'),
+        },
+        tools: { allow: [] },
+        inputs: { text: true },
+      }),
+    Error,
+    "protocol 'openAi' is not valid for provider 'google'",
+  );
+});
+
+Deno.test('defineProfile keeps omitted optional fields omitted', () => {
   const profile = defineProfile({
     id: 'bare_host_profile',
-    model: { ...modelAllow('gemini35FlashLite') },
+    type: 'text',
+    identity: { handle: 'bare_host_profile' },
+    model: {
+      protocol: 'geminiInteractions',
+      provider: 'google',
+      key: 'slotA',
+      ...modelAllow('gemini35FlashLite'),
+    },
+    tools: { allow: [] },
+    inputs: { text: true },
   });
 
-  assertEquals(profile.identity.handle, 'bare_host_profile');
-  assertEquals(profile.model.thinking, 'minimal');
+  assertEquals(profile.model.thinking, undefined);
+  if (profile.type !== 'text') throw new Error('Expected text profile');
   assertEquals(profile.tools.allow, []);
   assertEquals(profile.inputs.text, true);
-  assertEquals(profile.outputs.image, undefined);
-  assertEquals(profile.guardrails.sanitizeInput, true);
+  assertEquals(profile.outputs, undefined);
+  assertEquals(profile.guardrails, undefined);
 });
 
-Deno.test('registerProfile accepts minimal host-authored profile definitions', () => {
+Deno.test('registerProfile accepts explicit typed profile definitions', () => {
   registerProfile({
     id: 'minimal_host_bot',
-    model: { ...modelAllow('gemini35FlashLite') },
+    type: 'text',
+    identity: { handle: 'minimal_host_bot' },
+    model: {
+      ...geminiModel('gemini35FlashLite'),
+    },
+    tools: { allow: [] },
+    inputs: { text: true },
   });
 
   const profile = getProfile('minimal_host_bot');
   assertEquals(profile.identity.handle, 'minimal_host_bot');
+  assertEquals(profile.type, 'text');
+  if (profile.type !== 'text') throw new Error('Expected text profile');
   assertEquals(profile.tools.allow, []);
   assertEquals(profile.inputs.text, true);
-  assertEquals(profile.outputs.structured, null);
-  assertEquals(profile.guardrails.quota, undefined);
+  assertEquals(profile.outputs, undefined);
+  assertEquals(profile.guardrails, undefined);
 });
 
 Deno.test('registerProfile and getProfile manage runtime profile lifecycle', () => {
   const profile = defineProfile({
     id: 'custom_bot',
-    model: { ...modelAllow('gemini35FlashLite') },
+    type: 'text',
+    identity: { handle: 'custom_bot' },
+    model: {
+      ...geminiModel('gemini35FlashLite'),
+    },
+    tools: { allow: [] },
     inputs: { text: true },
     guardrails: { quota: { perDay: 50 } },
   });
@@ -79,13 +135,23 @@ Deno.test('registerProfile and getProfile manage runtime profile lifecycle', () 
 Deno.test('registerProfiles handles batch registration', () => {
   const p1 = defineProfile({
     id: 'bot_alpha',
-    model: { ...modelAllow('gemini35FlashLite') },
+    type: 'text',
+    identity: { handle: 'bot_alpha' },
+    model: {
+      ...geminiModel('gemini35FlashLite'),
+    },
+    tools: { allow: [] },
     inputs: { text: true },
     guardrails: { quota: { perDay: 10 } },
   });
   const p2 = defineProfile({
     id: 'bot_beta',
-    model: { ...modelAllow('gemini35FlashLite') },
+    type: 'text',
+    identity: { handle: 'bot_beta' },
+    model: {
+      ...geminiModel('gemini35FlashLite'),
+    },
+    tools: { allow: [] },
     inputs: { text: true },
     guardrails: { quota: { perDay: 20 } },
   });
@@ -98,7 +164,12 @@ Deno.test('registerProfiles handles batch registration', () => {
 Deno.test('registerProfile validates media limits if attachments are enabled', () => {
   const invalidProfile = defineProfile({
     id: 'invalid_media_bot',
-    model: { ...modelAllow('gemini35FlashLite') },
+    type: 'text',
+    identity: { handle: 'invalid_media_bot' },
+    model: {
+      ...geminiModel('gemini35FlashLite'),
+    },
+    tools: { allow: [] },
     inputs: { text: true, attachments: { accept: ['image/png'] } },
     guardrails: { quota: { perDay: 10 } },
   });
@@ -126,7 +197,13 @@ Deno.test('clearProfiles empties the process-local registry', () => {
   const prior = listProfiles();
   registerProfile({
     id: 'temp_clear_bot',
-    model: { ...modelAllow('gemini35FlashLite') },
+    type: 'text',
+    identity: { handle: 'temp_clear_bot' },
+    model: {
+      ...geminiModel('gemini35FlashLite'),
+    },
+    tools: { allow: [] },
+    inputs: { text: true },
   });
   assertEquals(hasProfile('temp_clear_bot'), true);
   clearProfiles();

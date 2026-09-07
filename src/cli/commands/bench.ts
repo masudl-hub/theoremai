@@ -13,8 +13,8 @@
  * @module
  */
 
+import { bindCanary, eventHasCanary, mintCanary } from '../../guardrails/canary.ts';
 import { sanitizeTurnRequest } from '../../guardrails/sanitize.ts';
-import { bindCanary, eventHasCanary, mintCanary } from '../../kernel/engine/boundary.ts';
 import { runTurn } from '../../kernel/engine/runner.ts';
 import { clearProfiles, registerProfile } from '../../kernel/registry/profiles.ts';
 import { pickSystemRole, resolveTurn } from '../../kernel/registry/resolve.ts';
@@ -41,6 +41,7 @@ const BENCH_PROFILE_ID = '__bench__';
 
 function registerBenchProfile(): void {
   registerProfile({
+    type: 'text',
     id: BENCH_PROFILE_ID,
     identity: {
       handle: 'bench',
@@ -58,11 +59,13 @@ function registerBenchProfile(): void {
           summaries: { on: 'none', off: 'none' },
           maxOutputTokens: 4096,
           temperature: 0,
-          keyBuiltins: [],
+          builtInTools: [],
         },
       },
       thinking: 'none',
     },
+    tools: { allow: [] },
+    inputs: { text: true },
     guardrails: {
       canary: true,
       sanitizeInput: true,
@@ -122,7 +125,7 @@ async function measureRawProvider(provider: ModelProvider): Promise<TimingResult
     model: 'bench-model',
     apiId: 'bench-model',
     thinking: 'none',
-    summaries: 'none',
+    summaries: undefined,
     maxOutputTokens: 4096,
     temperature: 0,
     builtins: [],

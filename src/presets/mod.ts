@@ -12,6 +12,7 @@ export type {
   GoogleImageInputMime,
   GoogleImagePins,
   GoogleImageSize,
+  GoogleSpeechVoice,
   GoogleVoiceInputMime,
 } from './google.ts';
 export {
@@ -19,6 +20,7 @@ export {
   GOOGLE_IMAGE_ASPECT_RATIOS,
   GOOGLE_IMAGE_INPUT_MIMES,
   GOOGLE_IMAGE_SIZES,
+  GOOGLE_SPEECH_VOICES,
   GOOGLE_VOICE_INPUT_MIMES,
   registerGooglePreset,
 } from './google.ts';

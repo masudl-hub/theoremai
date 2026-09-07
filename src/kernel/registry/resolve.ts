@@ -1,50 +1,36 @@
 /**
  * Profile resolution for THEORUM turns.
  *
- * This module validates caller overrides, selects models and tools, normalizes
- * input parts, and produces the provider request state consumed by `runTurn`.
- *
  * @module
  */
 
+import { mintCanary } from '../../guardrails/canary.ts';
 import { TheorumError } from '../../guardrails/error.ts';
 import { sanitizeTurnRequest } from '../../guardrails/sanitize.ts';
-import { mintCanary } from '../engine/boundary.ts';
+import { projectTools } from '../tools/project.ts';
+import { resolveTurnTools } from '../tools/resolve.ts';
 import type {
-  BuiltinToolId,
-  CustomToolId,
   ModelId,
   ModelSpec,
   Profile,
+  ProfileInputsSpec,
   ProjectedProfile,
+  ProviderTransport,
   ResolvedGeneration,
   StructuredSchemaId,
+  SummaryMode,
   ThinkingLevel,
-  ToolId,
   TurnRequest,
 } from '../types.ts';
+import { clampThinkingLevel, requireModelSpec } from './catalog.ts';
 import {
-  CATALOG,
-  clampThinkingLevel,
-  getTool,
-  listBuiltinIds,
-  requireModelSpec,
-} from './catalog.ts';
-import {
-  assertImageGrounding,
+  assertOutputMode,
   assertSpeechRole,
   resolveImageFormat,
   resolveInputParts,
 } from './ingress.ts';
 import { getProfile } from './profiles.ts';
-import { resolveGeminiBucket } from './vault.ts';
-
-function applyBuiltinMutualExclusions(requested: BuiltinToolId[]): BuiltinToolId[] {
-  return requested.filter((id) => {
-    const conflicts = getTool(id)?.conflictsWith ?? [];
-    return !conflicts.some((other) => requested.includes(other));
-  });
-}
+import { providerUsesKeySlots, resolveKeySlot } from './vault.ts';
 
 function firstSelectKey(selectMap: Record<string, ModelId>): string | undefined {
   const [key] = Object.keys(selectMap);
@@ -86,6 +72,9 @@ function pickModel(profile: Profile, select?: string): ModelId {
 }
 
 function thinkingFromControl(spec: ModelSpec, thinkingOn: boolean | undefined): ThinkingLevel {
+  if (!spec.thinking) {
+    throw new TheorumError('model.config thinking map is required when controls include thinking');
+  }
   if (thinkingOn) {
     return spec.thinking.on;
   }
@@ -137,7 +126,10 @@ function resolveSummaries(
   profile: Profile,
   spec: ModelSpec,
   thinkingOn: boolean | undefined,
-): 'auto' | 'none' {
+): SummaryMode | undefined {
+  if (!spec.summaries) {
+    return undefined;
+  }
   if (profile.model.controls?.includes('thinking')) {
     if (thinkingOn) {
       return spec.summaries.on;
@@ -147,44 +139,11 @@ function resolveSummaries(
   return spec.summaries.on;
 }
 
-function isGatedOn(requested: Partial<Record<ToolId, boolean>> | undefined, id: ToolId): boolean {
-  if (!requested) {
-    return false;
-  }
-  return requested[id] === true;
-}
-
-function resolveBuiltins(
-  profile: Profile,
-  requested?: Partial<Record<ToolId, boolean>>,
-): BuiltinToolId[] {
-  const allowed = profile.tools.allow.filter(
-    (id): id is BuiltinToolId => CATALOG.tools[id]?.kind === 'builtin',
-  );
-  const picked = listBuiltinIds().filter((id) => allowed.includes(id) && isGatedOn(requested, id));
-  return applyBuiltinMutualExclusions(picked);
-}
-
-function resolveCustom(
-  profile: Profile,
-  requested?: Partial<Record<ToolId, boolean>>,
-): CustomToolId[] {
-  return profile.tools.allow.filter(
-    (id): id is CustomToolId => CATALOG.tools[id]?.kind === 'custom' && isGatedOn(requested, id),
-  );
-}
-
-function assertToolAllowed(profile: Profile, name: ToolId): void {
-  if (!profile.tools.allow.includes(name)) {
-    throw new TheorumError(`Tool '${name}' is not allowed on ${profile.id}`);
-  }
-}
-
 function resolveStructured(
   profile: Profile,
   slots?: Record<string, string>,
 ): StructuredSchemaId | null {
-  const { structured } = profile.outputs;
+  const structured = profile.outputs?.structured;
   if (!structured) {
     return null;
   }
@@ -201,6 +160,51 @@ function resolveStructured(
   return structured.fallback;
 }
 
+/**
+ * THEORUM prefers SSE when the host omits `outputs.streaming.mode`.
+ * Explicit `'buffered'` opts out; `'sse'` (or omit) yields `stream: true`.
+ */
+function resolveStreamFlag(profile: Profile): boolean {
+  return profile.outputs?.streaming?.mode !== 'buffered';
+}
+
+function resolveStore(spec: ModelSpec, reqStore: boolean | undefined): boolean | undefined {
+  if (reqStore !== undefined) {
+    return reqStore;
+  }
+  return spec.store;
+}
+
+function assertTurnResumption(profile: Profile, req: TurnRequest): void {
+  if (!req.continueFrom) {
+    return;
+  }
+  if (profile.type === 'live') {
+    throw new TheorumError(
+      `Profile ${profile.id}: type 'live' uses live.sessionResumption, not turnResumption/continueFrom`,
+    );
+  }
+  const policy = profile.turnResumption;
+  const max = policy?.maxContinues;
+  if (max === undefined) {
+    return;
+  }
+  const attempt = req.continuation;
+  if (attempt === undefined) {
+    throw new TheorumError(
+      `Profile ${profile.id}: continueFrom requires TurnRequest.continuation when turnResumption.maxContinues is set`,
+    );
+  }
+  if (attempt < 1) {
+    throw new TheorumError(`Profile ${profile.id}: continuation must be >= 1`);
+  }
+  if (attempt > max) {
+    throw new TheorumError(
+      `Profile ${profile.id}: continuation ${attempt} exceeds turnResumption.maxContinues (${max})`,
+    );
+  }
+}
+
 /** Resolve a host `TurnRequest` into provider-ready generation state. */
 function resolveTurn(req: TurnRequest): {
   profile: Profile;
@@ -209,73 +213,90 @@ function resolveTurn(req: TurnRequest): {
   const safe = sanitizeTurnRequest(req);
   const input = safe.input ?? {};
   const profile = getProfile(safe.profile);
+  assertTurnResumption(profile, safe);
   const model = pickModel(profile, safe.select);
   const spec = requireModelSpec(profile, model);
   const thinkingOn = safe.thinking === true;
-  const builtins = resolveBuiltins(profile, safe.tools);
-  assertImageGrounding(profile, model, builtins);
+  const toolSnapshot = resolveTurnTools(profile, safe, model);
+  const builtins = toolSnapshot.builtins;
+  const structured = resolveStructured(profile, input.slots);
+  assertOutputMode(profile, structured);
   assertSpeechRole(profile);
-  const geminiBucket =
-    profile.model.provider === 'google'
-      ? resolveGeminiBucket(profile.model.key ?? 'freeA', spec, builtins)
-      : undefined;
+  const pinnedKey = profile.model.key ?? spec.key;
+  const keySlot = providerUsesKeySlots(profile.model.provider)
+    ? resolveKeySlot(pinnedKey, spec, builtins, profile.model.provider === 'google')
+    : undefined;
+  const transport: ProviderTransport =
+    profile.type === 'live'
+      ? 'geminiLive'
+      : profile.model.protocol === 'geminiInteractions' && profile.model.provider === 'google'
+        ? 'interactions'
+        : 'openAiCompat';
+  const previousInteractionId =
+    spec.persistViaInteractionId === false ? undefined : safe.previousInteractionId;
   return {
     profile,
     generation: {
       model,
       apiId: spec.apiId,
-      openRouterId: spec.openRouterId,
-      previousInteractionId: safe.previousInteractionId,
-      store: safe.store,
+      transport,
+      previousInteractionId,
+      store: resolveStore(spec, safe.store),
+      stream: resolveStreamFlag(profile),
       thinking: resolveThinking(profile, spec, thinkingOn, safe.select),
       summaries: resolveSummaries(profile, spec, thinkingOn),
       maxOutputTokens: spec.maxOutputTokens,
       temperature: spec.temperature,
       builtins,
-      custom: resolveCustom(profile, safe.tools),
-      dynamicTools: safe.dynamicTools,
-      dynamicToolLoader: safe.dynamicToolLoader,
+      googleMapsLocation: safe.googleMapsLocation,
+      tools: toolSnapshot,
       sessionPermissions: safe.sessionPermissions,
       history: input.history,
-      maxSteps: profile.model.maxSteps ?? 1,
-      structured: resolveStructured(profile, input.slots),
-      image: resolveImageFormat(profile, model, input.slots),
-      speech: profile.outputs.speech,
+      maxSteps: profile.model.maxSteps,
+      structured,
+      image: resolveImageFormat(profile),
+      speech: profile.type === 'speech' ? profile.speech : undefined,
+      live: profile.type === 'live' ? profile.live : undefined,
       input: resolveInputParts(profile, model, safe),
-      geminiBucket,
-      canary: profile.guardrails.canary !== false ? mintCanary() : '',
+      keySlot,
+      canary: profile.guardrails?.canary === true ? mintCanary() : '',
+      sessionResumptionHandle: safe.sessionResumptionHandle ?? input.sessionResumptionHandle,
     },
   };
 }
 
 function primaryImageSpec(profile: Profile) {
-  return profile.outputs.image;
+  return profile.type === 'image' ? profile.image : null;
+}
+
+function profileInputsOrNull(profile: Profile): ProfileInputsSpec | null {
+  if (profile.type === 'speech') {
+    return null;
+  }
+  return profile.inputs ?? null;
+}
+
+/** Project a profile object into a safe host/UI inspection object. */
+function projectProfileObject(profile: Profile): ProjectedProfile {
+  const { model, identity, outputs } = profile;
+  const inputs = profileInputsOrNull(profile);
+  return {
+    id: profile.id,
+    type: profile.type,
+    handle: identity.handle,
+    model,
+    tools: projectTools(profile),
+    inputs,
+    outputs: outputs ?? null,
+    image: primaryImageSpec(profile),
+    speech: profile.type === 'speech' ? profile.speech : null,
+    live: profile.type === 'live' ? profile.live : null,
+  };
 }
 
 /** Project a registered profile into a safe host/UI inspection object. */
 function projectProfile(id: Profile['id']): ProjectedProfile {
-  const profile = getProfile(id);
-  const { model, identity, tools, inputs, outputs } = profile;
-  const { select, allow, maxSteps, controls } = model;
-  const { handle, chat } = identity;
-  const { slots } = inputs;
-  return {
-    id: profile.id,
-    handle,
-    chat: chat !== false,
-    maxSteps: maxSteps ?? 1,
-    models: allow,
-    select: select ?? null,
-    controls: controls ?? [],
-    tools: tools.allow.map((name) => ({
-      name,
-      ...(CATALOG.tools[name] ?? { kind: 'custom' as const, ui: true }),
-    })),
-    inputs,
-    slots: slots ?? {},
-    outputs,
-    image: primaryImageSpec(profile),
-  };
+  return projectProfileObject(getProfile(id));
 }
 
 function pickSystemRole(profile: Profile, requested?: string): string {
@@ -287,4 +308,4 @@ function pickSystemRole(profile: Profile, requested?: string): string {
   return handle;
 }
 
-export { assertToolAllowed, pickSystemRole, projectProfile, resolveTurn };
+export { pickModel, pickSystemRole, projectProfile, projectProfileObject, resolveTurn };

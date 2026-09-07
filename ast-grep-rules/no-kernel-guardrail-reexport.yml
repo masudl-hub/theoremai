@@ -1,0 +1,11 @@
+id: no-kernel-guardrail-reexport
+language: TypeScript
+severity: error
+message: >-
+  Do not re-export guardrails from src/kernel. Import directly from
+  src/guardrails/ at the call site. Ghost trampoline modules are banned.
+files:
+  - "src/kernel/**/*.ts"
+rule:
+  kind: export_statement
+  regex: from ['\"].*guardrails/

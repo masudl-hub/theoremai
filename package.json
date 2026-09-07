@@ -1,7 +1,7 @@
 {
   "name": "theorum",
-  "version": "0.1.15",
-  "description": "A flat TypeScript agent kernel for typed profiles, deterministic turn execution, dynamic tools, provider adapters, guardrails, and host-injected traces.",
+  "version": "1.0.0",
+  "description": "A flat TypeScript agent kernel for typed profiles, deterministic turn execution, registered tools, provider adapters, guardrails, and host-injected traces.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -23,19 +23,23 @@
     ".": "./mod.ts",
     "./kernel": "./src/kernel/mod.ts",
     "./providers": "./src/providers/mod.ts",
-    "./openrouter": "./src/providers/openrouter-mod.ts",
+    "./providers/local": "./src/providers/local/mod.ts",
     "./guardrails": "./src/guardrails/mod.ts",
+    "./guardrails/testing": "./src/guardrails/testing.ts",
     "./observability": "./src/observability/mod.ts",
     "./host": "./src/host/mod.ts",
     "./cli": "./src/cli/index.ts",
     "./presets": "./src/presets/mod.ts",
     "./presets/google": "./src/presets/google.ts",
-    "./streaming": "./src/streaming/mod.ts"
+    "./presets/google/speech-voices": "./src/presets/google/speech-voices.ts",
+    "./interface": "./src/interface/mod.ts",
+    "./schema": "./src/kernel/schema.ts",
+    "./providers/google/live": "./src/providers/google/live/mod.ts"
   },
   "files": [
     "README.md",
+    "LICENSE",
     "deno.json",
-    "docs/",
     "mod.ts",
     "src/"
   ],
@@ -44,10 +48,13 @@
     "ai": "^7.0.0",
     "gpt-tokenizer": "^4.0.0"
   },
+  "peerDependencies": {
+    "zod": "^4.1.8"
+  },
   "scripts": {
     "build:npm": "deno run --allow-read --allow-write --allow-env --allow-net --allow-run=npm scripts/build-npm.ts",
-    "test": "deno test --allow-read --allow-write --allow-net --allow-env --allow-sys --ignore=npm/ tests/",
-    "coverage": "rm -rf coverage && deno test --allow-read --allow-write --allow-net --allow-env --allow-sys --ignore=npm/ --coverage=coverage tests/ && deno coverage coverage --lcov --output=coverage/lcov.info && node scripts/lcov-to-istanbul.mjs",
+    "test": "deno test --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run --ignore=npm/ tests/",
+    "coverage": "rm -rf coverage && deno test --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run --ignore=npm/ --coverage=coverage tests/ && deno coverage coverage --lcov --output=coverage/lcov.info && node scripts/lcov-to-istanbul.mjs",
     "lint:biome": "biome check .",
     "lint:ast-grep": "ast-grep scan",
     "lint:fallow": "npm run coverage && fallow audit && fallow health && fallow dupes && fallow dead-code",
@@ -59,8 +66,9 @@
     "lint": "npm run lint:docs && npm run lint:biome && npm run lint:ast-grep && npm run lint:fallow"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.8",
     "@ast-grep/cli": "^0.41.0",
+    "@biomejs/biome": "^2.5.8",
+    "@stryker-mutator/core": "^10.0.0",
     "fallow": "3.17.0"
   }
 }

@@ -1,10 +1,6 @@
 /**
  * Profile, turn, tool, provider, egress, and event contracts for THEORUM.
  *
- * This entrypoint is type-first. Host applications import from here when they
- * want to declare profiles, tool schemas, provider adapters, turn requests, or
- * trace-safe event handlers without importing provider implementations.
- *
  * @module
  */
 
@@ -21,21 +17,25 @@ export {
   splitForCompaction,
 } from './engine/compaction.ts';
 export { runTurn } from './engine/runner.ts';
+export type { RunSessionOptions } from './engine/session/mod.ts';
+export { runSession } from './engine/session/mod.ts';
 export {
-  CATALOG,
   clampThinkingLevel,
   clampThinkingLevelForApiId,
-  getTool,
-  listBuiltinIds,
   mediaKindForMime,
   mimeAllowed,
   mimeEssence,
   modelEntryByApiId,
-  registerTools,
   requireModelSpec,
-  resetTools,
 } from './registry/catalog.ts';
-export type { ProfileDefinition } from './registry/profiles.ts';
+export type {
+  ImageProfileDefinition,
+  LiveProfileDefinition,
+  ProfileDefinition,
+  ProfileDefinitionBase,
+  SpeechProfileDefinition,
+  TextProfileDefinition,
+} from './registry/profiles.ts';
 export {
   clearProfiles,
   defineProfile,
@@ -45,10 +45,48 @@ export {
   registerProfile,
   registerProfiles,
 } from './registry/profiles.ts';
-export { projectProfile, resolveTurn } from './registry/resolve.ts';
+export { projectProfile, projectProfileObject, resolveTurn } from './registry/resolve.ts';
 export { getStructured, registerStructured } from './registry/schemas.ts';
-export { executeTool } from './registry/tools.ts';
-export type { ProfileResumeSpec, TurnContinueFrom, TurnStop, TurnStopKind } from './stop.ts';
+export {
+  ATTACHMENT_ACCEPT_MIMES,
+  COMPACTION_METERS,
+  COMPACTION_TIMINGS,
+  CONTROL_IDS,
+  catalogPathFor,
+  coerceProtocol,
+  coerceProvider,
+  EGRESS_ON_BLOCK,
+  EXTRA_FIELDS,
+  fieldMeta,
+  isValidPair,
+  isValidProfileProtocol,
+  KEY_SLOTS,
+  MEDIA_INPUT_KIND_VALUES,
+  MEDIA_INPUT_KINDS,
+  MEDIA_WILDCARDS,
+  OVERFLOW_KEY_SLOTS,
+  PROFILE_FIELDS,
+  PROFILE_TYPE_PROTOCOLS,
+  PROFILE_TYPES,
+  PROTOCOL_PROVIDERS,
+  PROTOCOLS,
+  PROVIDERS,
+  protocolsFor,
+  protocolsForProfileType,
+  providersFor,
+  SCHEMA_ENFORCEMENTS,
+  SPEECH_AUDIO_FORMATS,
+  STREAM_MODES,
+  SUMMARY_MODES,
+  THINKING_LEVELS,
+  TOOL_ACCESS,
+  TOOL_LOAD_TIERS,
+  TOOL_PERMISSION,
+  TOOL_TYPES,
+  TURN_STOP_KINDS,
+  VOICE_ACCEPT_MIMES,
+} from './schema.ts';
+export type { ProfileTurnResumptionSpec, TurnContinueFrom, TurnStop } from './stop.ts';
 export {
   AUTO_CONTINUE_DELAY_MS,
   CONTINUE_INSTRUCTION,
@@ -60,6 +98,21 @@ export {
   shouldAutoContinue,
   turnStopFromClientStreamEnd,
   turnStopFromInteractionStatus,
-  turnStopFromOpenRouter,
+  turnStopFromOpenAiFinishReason,
 } from './stop.ts';
+export {
+  formatToolResult,
+  getTool,
+  hasTool,
+  invokeTool,
+  listBuiltinIds,
+  listFunctionIds,
+  listTools,
+  prepareTurnToolSnapshot,
+  registerHarnessTools,
+  registerTool,
+  registerTools,
+  requireTool,
+  resetTools,
+} from './tools/mod.ts';
 export type * from './types.ts';

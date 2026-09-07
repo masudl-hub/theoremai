@@ -2,29 +2,42 @@ import { getProfile, listProfiles } from '../../kernel/registry/profiles.ts';
 import type { Profile } from '../../kernel/types.ts';
 
 function formatProfileInputs(p: Profile): string {
+  if (p.type === 'speech') {
+    return 'text (speech)';
+  }
   const inputs: string[] = [];
-  if (p.inputs.text !== false) inputs.push('text');
-  if (p.inputs.voice) inputs.push('voice');
-  if (p.inputs.attachments) inputs.push(`attachments [${p.inputs.attachments.accept?.join(', ')}]`);
-  return inputs.join(' | ');
+  const { inputs: spec } = p;
+  if (!spec) {
+    return 'none';
+  }
+  if (spec.text !== false) inputs.push('text');
+  if (spec.voice) inputs.push('voice');
+  if (spec.attachments) {
+    inputs.push(`attachments [${spec.attachments.accept?.join(', ')}]`);
+  }
+  return inputs.join(' | ') || 'none';
+}
+
+function formatProfileTools(p: Profile): string {
+  if (p.type === 'speech') {
+    return 'none';
+  }
+  return p.tools.allow?.length ? p.tools.allow.join(', ') : 'none';
 }
 
 function printProfileCard(p: Profile): void {
-  const tools = p.tools.allow?.length ? p.tools.allow.join(', ') : 'none';
+  const tools = formatProfileTools(p);
   const models = p.model.allow?.join(', ') || 'default';
-  const structured =
-    typeof p.outputs.structured === 'string'
-      ? p.outputs.structured
-      : p.outputs.structured
-        ? 'custom'
-        : 'none';
+  const structured = p.outputs?.structured;
+  const structuredLabel =
+    typeof structured === 'string' ? structured : structured ? 'custom' : 'none';
 
-  console.log(` • Profile: ${p.id.padEnd(16)} (handle: ${p.identity.handle})`);
+  console.log(` • Profile: ${p.id.padEnd(16)} (handle: ${p.identity.handle}) [${p.type}]`);
   console.log(`   - Models:     ${models}`);
   console.log(`   - Inputs:     ${formatProfileInputs(p)}`);
   console.log(`   - Tools:      ${tools}`);
-  console.log(`   - Structured: ${structured}`);
-  console.log(`   - Key Bucket: ${p.model.key ?? 'freeA'}`);
+  console.log(`   - Structured: ${structuredLabel}`);
+  console.log(`   - Key Slot: ${p.model.key ?? '(unset)'}`);
   console.log('-'.repeat(70));
 }
 

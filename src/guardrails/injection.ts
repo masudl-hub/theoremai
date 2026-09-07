@@ -52,11 +52,17 @@ const DISABLE_SAFETY =
   /(disable|delete|remove|turn\s+off|eliminate)\s+(all\s+)?(your\s+)?(safety|security|content)\s+(filters?|measures?|rules?|guidelines?|restrictions?)/gi;
 const IGNORE_SAFETY =
   /(ignore|disregard)\s+(all\s+)?(your\s+)?(safety|security|ethical|content)\s+(guidelines?|rules?|restrictions?|measures?|filters?|polic(?:y|ies)|protocols?)/gi;
-const SYSTEM_TAG = /<\s*\/?\s*system\s*\/?>/gi;
-const ROLE_TAG = /<\s*\/?\s*(assistant|developer|tool|function)\s*\/?>/gi;
-const ROLE_DELIMITER = /\]\s*\n\s*\[?(system|assistant|user)\]?:/gi;
-const BRACKETED_ROLE = /\[\s*(System\s*Message|System|Assistant|Internal)\s*\]/gi;
-const SYSTEM_YOU_ARE = /^\s*System:\s+(you\s+are|ignore|override)/gim;
+/** Bound whitespace so tag scanners cannot polynomial-backtrack on long runs. */
+const TAG_WS = String.raw`[^\S\r\n]{0,32}`;
+const SYSTEM_TAG = new RegExp(`<${TAG_WS}\\/?${TAG_WS}system${TAG_WS}\\/?>`, 'gi');
+const ROLE_TAG = new RegExp(
+  `<${TAG_WS}\\/?${TAG_WS}(assistant|developer|tool|function)${TAG_WS}\\/?>`,
+  'gi',
+);
+const ROLE_DELIMITER = /\][^\S\r\n]{0,32}\n[^\S\r\n]{0,32}\[?(system|assistant|user)\]?:/gi;
+const BRACKETED_ROLE =
+  /\[[^\S\r\n]{0,32}(System[^\S\r\n]{0,8}Message|System|Assistant|Internal)[^\S\r\n]{0,32}\]/gi;
+const SYSTEM_YOU_ARE = /^[^\S\r\n]{0,32}System:[^\S\r\n]{1,32}(you\s+are|ignore|override)/gim;
 const CONTROL_TOKEN = /<\|(?:im_start|im_end|eot_id|start_header_id|end_header_id|endoftext)\|>/g;
 const DEEPSEEK_CONTROL = /<｜(?:end▁of▁sentence|begin▁of▁sentence)｜>/g;
 const LLAMA_INST = /\[\/?INST\]/gi;
@@ -133,6 +139,11 @@ const TYPO_TARGETS = [
 const BASE64_BLOB = /[A-Za-z0-9+/]{16,}={0,2}/g;
 const HEX_BLOB = /(?:[0-9a-f]{2}[\s]?){8,}/gi;
 const SPACED_LETTERS = /\b(?:[A-Za-z] ){3,}[A-Za-z]\b/g;
+/** Three+ alphabetic tokens joined by `|` (no shell spaces around pipes). */
+const PIPE_SEPARATED = /\b(?:[A-Za-z]+\|){2,}[A-Za-z]+\b/g;
+/** Pipe evasion only when the first token is a known injection lead-in. */
+const PIPE_HEAD_VERBS =
+  /^(ignore|disregard|forget|bypass|reveal|show|repeat|output|disable|override|new|jailbreak|pretend|act|enter|activate|void|supersede|do)$/i;
 const WORD = /\b[A-Za-z]{4,}\b/g;
 const PRINTABLE_MIN = 0.85;
 const CODE_TAB = 9;
@@ -274,6 +285,21 @@ function spacedSpans(text: string): RedactSpan[] {
   return spans;
 }
 
+function pipeSeparatedSpans(text: string): RedactSpan[] {
+  const spans: RedactSpan[] = [];
+  for (const match of text.matchAll(PIPE_SEPARATED)) {
+    const found = blobAt(match);
+    if (!found) continue;
+    const head = found.blob.split('|')[0]?.toLowerCase();
+    if (!head || !PIPE_HEAD_VERBS.test(head)) continue;
+    const collapsed = found.blob.replaceAll('|', ' ');
+    if (injectionSpansOn(collapsed).length > 0) {
+      spans.push({ start: found.index, end: found.index + found.blob.length, kind: 'injection' });
+    }
+  }
+  return spans;
+}
+
 // ── Encoding evasion decoders ────────────────────────────────────────
 
 function tryRot13(text: string): string {
@@ -361,6 +387,7 @@ function injectionSpans(text: string): RedactSpan[] {
     ...unicodeHits,
     ...encodedSpans(text),
     ...spacedSpans(text),
+    ...pipeSeparatedSpans(text),
     ...decodedTextSpans(text),
   ];
 }

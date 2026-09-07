@@ -346,7 +346,8 @@ function validateEvidenceSupport({ docPath, support, graphPath, graph, errors })
       /CONTRACT\.md$/.test(supportPath) ||
       /GOOGLE\.md$/.test(supportPath) ||
       /OPENROUTER\.md$/.test(supportPath) ||
-      /DOCS_TRUTH\.md$/.test(supportPath);
+      /DOCS_TRUTH\.md$/.test(supportPath) ||
+      supportPath.startsWith('docs/contracts/');
     if (!ok) {
       errors.push(`${docPath}: doc evidence path not allowed: ${supportPath}`);
     }
@@ -358,6 +359,7 @@ function readGit(repoRoot, args) {
     return execFileSync('git', args, {
       cwd: repoRoot,
       encoding: 'utf8',
+      maxBuffer: 32 * 1024 * 1024,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
   } catch {
@@ -602,6 +604,8 @@ export async function lintDocsTruth({
 
   for (const changedFile of normalizedChanged) {
     if (!isProductionFile(graph, changedFile)) continue;
+    // Deletions show up in git diffs; ownership applies to the live tree only.
+    if (!(await pathExists(repoRoot, changedFile))) continue;
 
     const matching = entriesForFile(graph, changedFile);
     if (matching.length === 0) {

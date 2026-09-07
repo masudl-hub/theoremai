@@ -1,4 +1,5 @@
 import { benchCommand } from './commands/bench.ts';
+import { fuzzCanaryCommand } from './commands/fuzz-canary.ts';
 import { fuzzGuardrailsCommand } from './commands/fuzz-guardrails.ts';
 import { listProfilesCommand, showProfileCommand } from './commands/profile.ts';
 import { runCommand } from './commands/run.ts';
@@ -17,7 +18,18 @@ COMMANDS:
     --iterations <n>   Measurement iterations (default: 50)
     --warmup <n>       Warmup iterations (default: 5)
 
-  fuzz                 Adversarial guardrail fuzzer
+  fuzz                 Adversarial inbound sanitization fuzzer
+  fuzz-canary          Adversarial canary egress fuzzer (stream + Live gates)
+
+  run                  Execute a turn with real-time streaming output
+    --profile, -p <id> Target profile ID
+    --prompt <text>    User prompt string
+    --mode <fast|smart> Reasoning mode
+    --search           Requires googleSearch on the selected model's builtInTools
+    --map              Requires googleMaps on the selected model's builtInTools
+    --verbose, -v      Print errorInternal and evidence.raw while running
+    --trace            Capture a TraceRecord and print it after the turn
+    --trace-dir <path> Also append trace JSONL under this directory
 
   test                 Run stress matrix or custom profile tests
     --profile, -p <id> Target profile ID registered by your host app
@@ -25,15 +37,11 @@ COMMANDS:
     --lite             Minimal fast-path connectivity ping
     --matrix           Run all valid permutations for the profile
     --mode <fast|smart> Reasoning mode override
-    --search           Optional: set tool id googleSearch when allowlisted
-    --map              Optional: set tool id googleMaps when allowlisted
-
-  run                  Execute a turn with real-time streaming output
-    --profile, -p <id> Target profile ID
-    --prompt <text>    User prompt string
-    --mode <fast|smart> Reasoning mode
-    --search           Optional: set tool id googleSearch when allowlisted
-    --map              Optional: set tool id googleMaps when allowlisted
+    --search           Requires googleSearch on the selected model's builtInTools
+    --map              Requires googleMaps on the selected model's builtInTools
+    --verbose, -v      Print errorInternal and evidence.raw while running
+    --trace            Capture a TraceRecord and print it after each turn
+    --trace-dir <path> Also append trace JSONL under this directory
 
   profile              Inspect registered profile blueprints
     list               List all registered profiles
@@ -55,8 +63,24 @@ interface ParsedFlags {
   matrix?: boolean;
   search?: boolean;
   map?: boolean;
+  verbose?: boolean;
+  v?: boolean;
+  trace?: boolean;
+  'trace-dir'?: string;
   help?: boolean;
   [key: string]: unknown;
+}
+
+function cliDiagnostics(flags: ParsedFlags): {
+  verbose: boolean;
+  trace: boolean;
+  traceDir?: string;
+} {
+  return {
+    verbose: Boolean(flags.verbose || flags.v),
+    trace: Boolean(flags.trace),
+    traceDir: typeof flags['trace-dir'] === 'string' ? flags['trace-dir'] : undefined,
+  };
 }
 
 function parseLongFlag(arg: string, nextArg: string | undefined, flags: ParsedFlags): number {
@@ -77,6 +101,7 @@ function parseShortFlag(arg: string, nextArg: string | undefined, flags: ParsedF
   }
   if (key === 'a') flags.all = true;
   else if (key === 'h') flags.help = true;
+  else if (key === 'v') flags.verbose = true;
   else flags[key] = true;
   return 0;
 }
@@ -107,6 +132,7 @@ function extractProfileId(flags: ParsedFlags): string | undefined {
 
 async function handleTest(flags: ParsedFlags): Promise<void> {
   const profile = extractProfileId(flags);
+  const diagnostics = cliDiagnostics(flags);
   const success = await testProfileCommand(profile, {
     all: Boolean(flags.all || flags.a),
     lite: Boolean(flags.lite),
@@ -114,6 +140,9 @@ async function handleTest(flags: ParsedFlags): Promise<void> {
     mode: typeof flags.mode === 'string' ? flags.mode : undefined,
     search: flags.search ? true : undefined,
     map: flags.map ? true : undefined,
+    verbose: diagnostics.verbose,
+    trace: diagnostics.trace,
+    traceDir: diagnostics.traceDir,
   });
   if (!success) {
     Deno.exit(1);
@@ -127,12 +156,16 @@ async function handleRun(flags: ParsedFlags): Promise<void> {
     Deno.exit(1);
   }
   const prompt = typeof flags.prompt === 'string' ? flags.prompt : flags._.slice(1).join(' ');
+  const diagnostics = cliDiagnostics(flags);
   await runCommand({
     profile,
     prompt,
     mode: typeof flags.mode === 'string' ? flags.mode : undefined,
     search: Boolean(flags.search),
     map: Boolean(flags.map),
+    verbose: diagnostics.verbose,
+    trace: diagnostics.trace,
+    traceDir: diagnostics.traceDir,
   });
 }
 
@@ -155,7 +188,15 @@ export async function main(cliArgs = Deno.args): Promise<void> {
   const command = flags._[0] || (flags.help ? 'help' : 'help');
 
   if (command === 'fuzz') {
-    fuzzGuardrailsCommand();
+    const ok = fuzzGuardrailsCommand();
+    if (!ok) {
+      Deno.exit(1);
+    }
+  } else if (command === 'fuzz-canary') {
+    const ok = await fuzzCanaryCommand();
+    if (!ok) {
+      Deno.exit(1);
+    }
   } else if (command === 'bench') {
     await benchCommand({
       chunks: typeof flags.chunks === 'string' ? Number(flags.chunks) : undefined,

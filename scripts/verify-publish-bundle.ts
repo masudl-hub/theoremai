@@ -18,6 +18,7 @@ const ARTIFACT_DIRS = [
   'tests',
   'scripts',
   'ast-grep-rules',
+  'docs',
 ] as const;
 
 const ARTIFACT_FILES = [
@@ -29,7 +30,11 @@ const ARTIFACT_FILES = [
   'sgconfig.yml',
   'package-lock.json',
   'deno.lock',
+  '.npmignore',
 ] as const;
+
+/** Repo-maintainer markdown that must stay out of JSR / npm publish. */
+const REPO_DOC_GLOBS = ['src/**/*.md'] as const;
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 
@@ -67,11 +72,30 @@ function assertPublishExcludeCoversArtifacts(exclude: Set<string>): void {
   for (const file of ARTIFACT_FILES) {
     if (!normalized.has(file)) missing.push(file);
   }
+  for (const glob of REPO_DOC_GLOBS) {
+    if (![...normalized].includes(glob)) missing.push(glob);
+  }
 
   if (missing.length > 0) {
     throw new Error(
       `deno.json publish.exclude is missing artifact paths:\n  ${missing.join('\n  ')}`,
     );
+  }
+}
+
+async function assertNpmPackageFilesOmitRepoDocs(): Promise<void> {
+  const pkg = JSON.parse(await Deno.readTextFile(`${root}/package.json`)) as {
+    files?: string[];
+  };
+  const files = pkg.files ?? [];
+  if (files.some((f) => f === 'docs' || f === 'docs/' || f.startsWith('docs/'))) {
+    throw new Error(
+      'package.json files must not include docs/ (repo contracts / docs-truth are not package docs)',
+    );
+  }
+  const npmignore = await Deno.readTextFile(`${root}/.npmignore`).catch(() => '');
+  if (!npmignore.includes('docs/') || !npmignore.includes('src/**/*.md')) {
+    throw new Error('.npmignore must exclude docs/ and src/**/*.md from the npm tarball');
   }
 }
 
@@ -130,9 +154,7 @@ async function assertNoExportedInternals(): Promise<void> {
     }
   }
   if (hits.length > 0) {
-    throw new Error(
-      `Published source must not export _internals (test-only via exposeForTests):\n  ${hits.join('\n  ')}`,
-    );
+    throw new Error(`Published source must not export _internals:\n  ${hits.join('\n  ')}`);
   }
 }
 
@@ -141,17 +163,15 @@ async function assertPublicEntrypointsOmitTestHooks(): Promise<void> {
     'mod.ts',
     'src/kernel/mod.ts',
     'src/providers/mod.ts',
-    'src/providers/openrouter-mod.ts',
     'src/guardrails/mod.ts',
     'src/observability/mod.ts',
     'src/host/mod.ts',
     'src/presets/mod.ts',
-    'src/streaming/mod.ts',
   ];
   const hits: string[] = [];
   for (const rel of entrypoints) {
     const text = await Deno.readTextFile(`${root}/${rel}`);
-    if (/exposeForTests|_internals|THEORUM_TEST_INTERNALS/.test(text)) {
+    if (/exposeForTests|__theorumTestInternals|THEORUM_TEST_INTERNALS|_internals/.test(text)) {
       hits.push(rel);
     }
   }
@@ -160,29 +180,31 @@ async function assertPublicEntrypointsOmitTestHooks(): Promise<void> {
   }
 }
 
-/** expose-for-tests ships (imported by providers) but must stay env-gated and unexported. */
-async function assertExposeForTestsStaysGated(): Promise<void> {
-  const rel = 'src/providers/expose-for-tests.ts';
-  const text = await Deno.readTextFile(`${root}/${rel}`);
-  if (!text.includes('THEORUM_TEST_INTERNALS') || !text.includes("=== '1'")) {
-    throw new Error(`${rel} must gate exposure on THEORUM_TEST_INTERNALS=1`);
-  }
-  const pkg = JSON.parse(await Deno.readTextFile(`${root}/deno.json`)) as {
-    exports?: Record<string, string>;
-  };
-  for (const [key, target] of Object.entries(pkg.exports ?? {})) {
-    if (target.includes('expose-for-tests')) {
-      throw new Error(`expose-for-tests must not be a package export (${key} → ${target})`);
+/** Global test backdoors must not exist anywhere under src/ (natural spellings). */
+async function assertNoGlobalTestInternals(): Promise<void> {
+  const banned = /exposeForTests|__theorumTestInternals|THEORUM_TEST_INTERNALS/;
+  const hits: string[] = [];
+  for await (const file of walkFiles(`${root}/src`)) {
+    if (!file.endsWith('.ts')) continue;
+    const text = await Deno.readTextFile(file);
+    if (banned.test(text)) {
+      hits.push(file.replace(root, '.'));
     }
+  }
+  if (hits.length > 0) {
+    throw new Error(
+      `src/ must not contain exposeForTests / __theorumTestInternals / THEORUM_TEST_INTERNALS:\n  ${hits.join('\n  ')}`,
+    );
   }
 }
 
 async function main(): Promise<void> {
   const exclude = await readPublishExclude();
   assertPublishExcludeCoversArtifacts(exclude);
+  await assertNpmPackageFilesOmitRepoDocs();
   await assertNoExportedInternals();
   await assertPublicEntrypointsOmitTestHooks();
-  await assertExposeForTestsStaysGated();
+  await assertNoGlobalTestInternals();
 
   const oversized = await findOversizedFiles();
   if (oversized.length > 0) {
@@ -193,7 +215,7 @@ async function main(): Promise<void> {
   }
 
   console.log(
-    'verify-publish-bundle: exclude list covers artifacts; no exported _internals; expose-for-tests gated; no oversized local files.',
+    'verify-publish-bundle: exclude list covers artifacts; repo docs omitted from package; no exported _internals; no global test internals in src/; no oversized local files.',
   );
 }
 

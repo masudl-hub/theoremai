@@ -1,0 +1,4 @@
+# Repo-only paths. `package.json` `files` includes `src/`; these exclusions
+# keep maintainer contracts and docs-truth out of the npm tarball.
+docs/
+src/**/*.md

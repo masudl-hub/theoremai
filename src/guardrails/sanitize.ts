@@ -1,21 +1,12 @@
 /**
  * Request sanitization utilities for THEORUM.
  *
- * Sanitization removes inbound prompt-injection spans and sensitive-data spans
- * according to the active profile guardrail flags. The host remains responsible
- * for domain policy.
- *
  * @module
  */
 
-import { mapStrings } from '../kernel/engine/tree.ts';
 import { sanitizeTurnBlobsForProfile } from '../kernel/registry/attachments.ts';
 import { getProfile } from '../kernel/registry/profiles.ts';
-import type {
-  DynamicToolDeclaration,
-  NormalizedTurnRequest,
-  TurnRequest,
-} from '../kernel/types.ts';
+import type { NormalizedTurnRequest, TurnRequest } from '../kernel/types.ts';
 import { applySpans } from '../observability/spans.ts';
 import { injectionSpans } from './injection.ts';
 import { sensitiveSpans } from './sensitive.ts';
@@ -37,8 +28,7 @@ function sanitizeText(
   return applySpans(text, spans);
 }
 
-/** Redact only sensitive data (credentials, PII) — skip injection patterns.
- *  Use for model output text that never contained user-authored injection attempts. */
+/** Redact only sensitive data (credentials, PII) — skip injection patterns. */
 function redactSensitiveOnly(text: string): string {
   const spans = sensitiveSpans(text);
   if (spans.length === 0) return text;
@@ -59,22 +49,9 @@ function sanitizeSlots(
   return out;
 }
 
-function sanitizeArgs(
-  args: Record<string, unknown>,
-  options?: { sanitizeInput?: boolean; redactSensitive?: boolean },
-): Record<string, unknown> {
-  const next = mapStrings(args, (t) => sanitizeText(t, options));
-  if (next && typeof next === 'object' && !Array.isArray(next)) {
-    return next as Record<string, unknown>;
-  }
-  return args;
-}
-
-/** Maximum retained length for trace-safe host project ids. */
 const PROJECT_ID_MAX = 128;
 const PROJECT_ID_OK = /^[A-Za-z0-9._-]+$/;
 
-/** Return a trace-safe project id or `undefined` when the input is unsafe. */
 function sanitizeProjectId(id: string | undefined): string | undefined {
   if (!id) {
     return undefined;
@@ -124,51 +101,28 @@ function sanitizeHistory(
   }));
 }
 
-function sanitizeDynamicTool(
-  decl: DynamicToolDeclaration,
-  options?: { sanitizeInput?: boolean; redactSensitive?: boolean },
-): DynamicToolDeclaration {
-  const clean = { ...decl };
-  if (clean.description !== undefined) {
-    clean.description = sanitizeText(clean.description, options);
-  }
-  if (clean.parameters !== undefined) {
-    clean.parameters = sanitizeArgs(clean.parameters, options) as Record<string, unknown>;
-  }
-  return clean;
-}
+type GuardrailTextOptions = { sanitizeInput?: boolean; redactSensitive?: boolean };
 
-/** Sanitize description and parameter schema text in dynamic tool declarations. */
-function sanitizeDynamicTools(
-  tools: DynamicToolDeclaration[] | undefined,
-  options?: { sanitizeInput?: boolean; redactSensitive?: boolean },
-): DynamicToolDeclaration[] | undefined {
-  if (!tools || tools.length === 0) {
-    return tools;
-  }
-  return tools.map((decl) => sanitizeDynamicTool(decl, options));
-}
-
-/** Sanitize all user-controlled text and blobs in a turn request. */
-function sanitizeTurnRequest(req: TurnRequest): NormalizedTurnRequest {
-  let profileGuardrails: { sanitizeInput?: boolean; redactSensitive?: boolean } | undefined;
+function guardrailTextOptions(profileId: string): GuardrailTextOptions {
+  let profileGuardrails: GuardrailTextOptions | undefined;
   try {
-    profileGuardrails = getProfile(req.profile)?.guardrails;
+    profileGuardrails = getProfile(profileId)?.guardrails;
   } catch {
-    // If profile not registered yet, default to full guardrails
+    // If profile not registered yet, default to full guardrails.
   }
-  const options = {
+  return {
     sanitizeInput: profileGuardrails?.sanitizeInput ?? true,
     redactSensitive: profileGuardrails?.redactSensitive ?? true,
   };
+}
 
+/** Sanitize user-controlled text fields; leave attachments/voice untouched. */
+function sanitizeTurnRequestText(
+  req: TurnRequest,
+  options: GuardrailTextOptions,
+): NormalizedTurnRequest {
   const input = req.input ?? {};
-  const { toolInvoke } = req;
   const { text: rawText } = input;
-  let invoke = toolInvoke;
-  if (toolInvoke) {
-    invoke = { ...toolInvoke, arguments: sanitizeArgs(toolInvoke.arguments, options) };
-  }
   let text = rawText;
   if (rawText !== undefined) {
     text = sanitizeText(rawText, options);
@@ -177,34 +131,64 @@ function sanitizeTurnRequest(req: TurnRequest): NormalizedTurnRequest {
   if (system !== undefined) {
     system = sanitizeText(system, options);
   }
+  return {
+    ...req,
+    system,
+    projectId: sanitizeProjectId(req.projectId),
+    input: {
+      ...input,
+      text,
+      slots: sanitizeSlots(input.slots, options),
+      repair: sanitizeRepair(input.repair, options),
+      history: sanitizeHistory(input.history, options),
+    },
+  };
+}
+
+/** Sanitize all user-controlled text and blobs in a turn request. */
+function sanitizeTurnRequest(req: TurnRequest): NormalizedTurnRequest {
+  const options = guardrailTextOptions(req.profile);
+  const textSafe = sanitizeTurnRequestText(req, options);
+  const input = textSafe.input ?? {};
   const { attachments, voice } = sanitizeTurnBlobsForProfile(
     req.profile,
     input.attachments,
     input.voice,
   );
   return {
-    ...req,
-    system,
-    projectId: sanitizeProjectId(req.projectId),
-    dynamicTools: sanitizeDynamicTools(req.dynamicTools, options),
+    ...textSafe,
     input: {
       ...input,
-      text,
-      slots: sanitizeSlots(input.slots, options),
       attachments,
       voice,
-      repair: sanitizeRepair(input.repair, options),
-      history: sanitizeHistory(input.history, options),
     },
-    toolInvoke: invoke,
   };
+}
+
+/**
+ * Trace-safe request sanitize. Prefers full `sanitizeTurnRequest`; if blob/policy
+ * checks throw, still redacts text and keeps attachments for hashing — never invents empty input.
+ */
+function sanitizeTurnRequestForTrace(req: TurnRequest): {
+  request: NormalizedTurnRequest;
+  sanitizeError?: string;
+} {
+  try {
+    return { request: sanitizeTurnRequest(req) };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      request: sanitizeTurnRequestText(req, guardrailTextOptions(req.profile)),
+      sanitizeError: message,
+    };
+  }
 }
 
 export {
   PROJECT_ID_MAX,
   redactSensitiveOnly,
-  sanitizeDynamicTools,
   sanitizeProjectId,
   sanitizeText,
   sanitizeTurnRequest,
+  sanitizeTurnRequestForTrace,
 };

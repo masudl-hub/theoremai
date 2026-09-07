@@ -1,0 +1,242 @@
+/**
+ * Shared Gemini Live WebSocket transport helpers.
+ *
+ * Used by `openGoogleLiveSession` / `runSession`. No ModelProvider.complete() path —
+ * live is session-scoped, not turn-scoped.
+ *
+ * @module
+ */
+
+import { TheorumError } from '../../../guardrails/error.ts';
+import type { ProviderCompleteRequest, TurnEvent } from '../../../kernel/types.ts';
+import {
+  buildGeminiLiveClientContent,
+  buildGeminiLiveRealtimeInput,
+  buildGeminiLiveSetupMessage,
+  foldGeminiLiveServerMessage,
+  parseGeminiLiveMessage,
+} from './framing.ts';
+
+const SETUP_TIMEOUT_MS = 20_000;
+
+export type LiveTurnPhase = 'streaming' | 'complete' | 'abort';
+
+export type SessionQueueItem =
+  | { type: 'batch'; events: TurnEvent[]; turnPhase: LiveTurnPhase }
+  | { type: 'error'; error: Error }
+  | { type: 'closed' };
+
+export async function readMessageData(data: unknown): Promise<string> {
+  if (typeof data === 'string') return data;
+  if (data instanceof ArrayBuffer) {
+    return new TextDecoder().decode(data);
+  }
+  if (typeof Blob !== 'undefined' && data instanceof Blob) {
+    return await data.text();
+  }
+  return String(data);
+}
+
+export function readGeminiLiveErrorMessage(message: Record<string, unknown>): string | null {
+  const error = message.error;
+  if (!error || typeof error !== 'object') return null;
+  const record = error as { message?: unknown; status?: unknown; code?: unknown };
+  if (typeof record.message === 'string' && record.message.length > 0) {
+    const status = typeof record.status === 'string' ? record.status : null;
+    return status ? `${status}: ${record.message}` : record.message;
+  }
+  return 'Gemini returned an error during live session.';
+}
+
+export function performLiveSetup(ws: WebSocket, req: ProviderCompleteRequest): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    let setupResolved = false;
+    const timeout = setTimeout(() => {
+      if (!setupResolved) {
+        setupResolved = true;
+        reject(new TheorumError(`Gemini Live setup timed out after ${SETUP_TIMEOUT_MS}ms`));
+      }
+    }, SETUP_TIMEOUT_MS);
+
+    ws.onopen = () => {
+      try {
+        const setupMsg = buildGeminiLiveSetupMessage(req);
+        ws.send(JSON.stringify(setupMsg));
+      } catch (err) {
+        clearTimeout(timeout);
+        setupResolved = true;
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
+    };
+
+    ws.onerror = () => {
+      clearTimeout(timeout);
+      if (!setupResolved) {
+        setupResolved = true;
+        reject(new TheorumError('Gemini Live WebSocket error during setup'));
+      }
+    };
+
+    ws.onclose = (evt) => {
+      clearTimeout(timeout);
+      if (!setupResolved) {
+        setupResolved = true;
+        reject(
+          new TheorumError(
+            `Gemini Live WebSocket closed during setup (${evt.code}: ${evt.reason})`,
+          ),
+        );
+      }
+    };
+
+    const initialMessageHandler = async (evt: MessageEvent) => {
+      const rawText = await readMessageData(evt.data);
+      const parsed = parseGeminiLiveMessage(rawText);
+      if (!parsed.ok) {
+        if (parsed.reason === 'empty') return;
+        clearTimeout(timeout);
+        setupResolved = true;
+        reject(new TheorumError('malformed Gemini Live message during setup'));
+        return;
+      }
+
+      const errMsg = readGeminiLiveErrorMessage(parsed.value);
+      if (errMsg) {
+        clearTimeout(timeout);
+        setupResolved = true;
+        reject(new TheorumError(errMsg));
+        return;
+      }
+
+      if (parsed.value.setupComplete) {
+        clearTimeout(timeout);
+        setupResolved = true;
+        ws.removeEventListener('message', initialMessageHandler);
+        resolve();
+      }
+    };
+
+    ws.addEventListener('message', initialMessageHandler);
+  });
+}
+
+export type LiveSocketSender = { send(data: string): void };
+
+export function sendInitialPayloads(ws: LiveSocketSender, req: ProviderCompleteRequest): void {
+  if (req.history && req.history.length > 0) {
+    const historyMsg = buildGeminiLiveClientContent(req.history);
+    if (historyMsg) {
+      ws.send(JSON.stringify(historyMsg));
+    }
+  }
+  if (req.input && req.input.length > 0) {
+    for (const part of req.input) {
+      const inputMsg = buildGeminiLiveRealtimeInput(part);
+      ws.send(JSON.stringify(inputMsg));
+    }
+  }
+}
+
+export interface LiveQueue {
+  push: (item: SessionQueueItem) => void;
+  next: () => Promise<SessionQueueItem | undefined>;
+  close: () => void;
+  isClosed: () => boolean;
+}
+
+export function createLiveQueue(): LiveQueue {
+  const queue: SessionQueueItem[] = [];
+  let notify: (() => void) | null = null;
+  let closed = false;
+
+  return {
+    push(item: SessionQueueItem) {
+      queue.push(item);
+      if (notify) {
+        const fn = notify;
+        notify = null;
+        fn();
+      }
+    },
+    async next(): Promise<SessionQueueItem | undefined> {
+      while (queue.length === 0) {
+        if (closed) return undefined;
+        await new Promise<void>((resolve) => {
+          notify = resolve;
+        });
+      }
+      return queue.shift();
+    },
+    close() {
+      closed = true;
+      if (notify) {
+        const fn = notify;
+        notify = null;
+        fn();
+      }
+    },
+    isClosed() {
+      return closed;
+    },
+  };
+}
+
+function turnPhaseFromMessage(
+  message: Record<string, unknown>,
+  events: TurnEvent[],
+): LiveTurnPhase {
+  const interrupted = events.some((ev) => ev.type === 'done' && ev.interrupted === true);
+  if (interrupted) return 'abort';
+  const serverContent = message.serverContent as { turnComplete?: boolean } | undefined;
+  if (serverContent?.turnComplete) return 'complete';
+  return 'streaming';
+}
+
+/** Attach handlers that keep the socket open across conversational turns. */
+export function attachLiveSessionHandlers(ws: WebSocket, liveQueue: LiveQueue): void {
+  ws.onmessage = async (evt: MessageEvent) => {
+    try {
+      const rawText = await readMessageData(evt.data);
+      const parsed = parseGeminiLiveMessage(rawText);
+      if (!parsed.ok) {
+        if (parsed.reason === 'empty') return;
+        liveQueue.push({
+          type: 'error',
+          error: new TheorumError('malformed Gemini Live message'),
+        });
+        return;
+      }
+      if (parsed.value.setupComplete) return;
+
+      const errMsg = readGeminiLiveErrorMessage(parsed.value);
+      if (errMsg) {
+        liveQueue.push({ type: 'error', error: new TheorumError(errMsg) });
+        return;
+      }
+
+      const events = foldGeminiLiveServerMessage(parsed.value);
+      const turnPhase = turnPhaseFromMessage(parsed.value, events);
+      if (events.length > 0 || turnPhase !== 'streaming') {
+        liveQueue.push({ type: 'batch', events, turnPhase });
+      }
+    } catch (err) {
+      liveQueue.push({
+        type: 'error',
+        error: err instanceof Error ? err : new Error(String(err)),
+      });
+    }
+  };
+
+  ws.onerror = () => {
+    if (!liveQueue.isClosed()) {
+      liveQueue.push({ type: 'error', error: new TheorumError('Gemini Live WebSocket error') });
+    }
+  };
+
+  ws.onclose = () => {
+    if (!liveQueue.isClosed()) {
+      liveQueue.push({ type: 'closed' });
+      liveQueue.close();
+    }
+  };
+}

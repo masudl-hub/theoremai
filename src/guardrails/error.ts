@@ -65,12 +65,14 @@ const EXACT: Record<string, string> = {
   'This operation was aborted': PUBLIC_CANCELLED,
   'Turn withheld: egress disclosure violation': PUBLIC_CANARY,
   'expected JSON object': 'Something was wrong with that request.',
+  'structured output was not valid JSON': 'Something was wrong with that request.',
+  'malformed Gemini Live message': PUBLIC_UNAVAILABLE,
+  'malformed Gemini Live message during setup': PUBLIC_UNAVAILABLE,
   'user input cannot be placed in the system block': PUBLIC_GENERIC,
   'attachment data must be base64': PUBLIC_FILE_TYPE,
   'attachment is too large': PUBLIC_FILE_SIZE,
   'attachments exceed the per-turn budget': PUBLIC_FILE_SIZE,
-  'askUser.kind must be confirm, choice, or text': "That question isn't valid.",
-  'askUser.prompt is required': 'That question needs a prompt.',
+  'Tool input validation failed': "That question isn't valid.",
   'This profile does not accept text input': PUBLIC_ACTION,
 };
 
@@ -89,9 +91,9 @@ const RULES: ErrorRule[] = [
   },
   {
     match: (t) =>
-      t.includes('not gated') ||
+      t.includes('not enabled on this turn') ||
       t.includes('not allowed') ||
-      t.includes('has no kernel executor') ||
+      t.includes('not registered') ||
       t.includes('Unknown model select') ||
       t.includes('Grounding tools'),
     resolve: () => PUBLIC_ACTION,

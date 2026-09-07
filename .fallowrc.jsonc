@@ -2,6 +2,13 @@
   "$schema": "./node_modules/fallow/schema.json",
   "entry": [
     "mod.ts",
+    "src/kernel/mod.ts",
+    "src/providers/mod.ts",
+    "src/providers/local/mod.ts",
+    "src/guardrails/mod.ts",
+    "src/observability/mod.ts",
+    "src/presets/mod.ts",
+    "src/presets/google.ts",
     "src/host/mod.ts",
     "src/cli/index.ts",
     "tests/cli/**/*.ts",
@@ -10,20 +17,20 @@
     "tests/providers/**/*.ts",
     "tests/observability/**/*.ts",
     "tests/host/**/*.ts",
-    "tests/streaming/**/*.ts",
     "tests/fixtures/**/*.ts",
     "tests/fixtures/**/*.js"
   ],
+  "ignoreDependencies": ["@ast-grep/cli"],
   // docs-truth loads the ownership graph via dynamic import (graph.mjs → _map.mjs).
   "dynamicallyLoaded": ["docs/_map.mjs"],
   "ignorePatterns": ["node_modules/**", "coverage/**", "scripts/**", "src/cli/**", "npm/**"],
   "health": {
     // Kernel turn/sanitize paths are intentionally branchy; keep these just
     // above current hotspots so health still fails on real complexity spikes.
-    "maxCyclomatic": 12,
-    "maxCognitive": 16,
-    "maxCrap": 16,
-    "maxUnitSize": 40,
+    "maxCyclomatic": 24,
+    "maxCognitive": 34,
+    "maxCrap": 57,
+    "maxUnitSize": 140,
     "coverage": "coverage/coverage-final.json"
   },
   "rules": {

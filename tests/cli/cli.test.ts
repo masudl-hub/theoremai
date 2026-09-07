@@ -1,5 +1,5 @@
 import '../fixtures/test-host.ts';
-import { assertEquals, assertExists } from '@std/assert';
+import { assertEquals, assertExists, assertThrows } from '@std/assert';
 import { listProfilesCommand, showProfileCommand } from '../../src/cli/commands/profile.ts';
 import { runCommand } from '../../src/cli/commands/run.ts';
 import { executeSingleTest, testProfileCommand } from '../../src/cli/commands/test.ts';
@@ -19,19 +19,18 @@ import {
 } from '../../src/cli/matrix/synthesizer.ts';
 import { getProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ModelProvider, Profile, TurnEvent } from '../../src/kernel/types.ts';
-import { modelAllow } from '../fixtures/models.ts';
+import { geminiModel, HOST_MODELS, modelAllow } from '../fixtures/models.ts';
 
 const testProfile: Profile = {
+  type: 'text',
   id: 'test-agent',
   identity: { handle: 'test-agent', system: 'You are a test agent.' },
   model: {
-    protocol: 'geminiInteractions',
-    provider: 'google',
-    ...modelAllow('gemini35FlashLite', 'gemini31ProPreview'),
+    ...geminiModel('gemini35FlashLite', 'gemini31ProPreview'),
     select: { fast: 'gemini35FlashLite', smart: 'gemini31ProPreview' },
-    key: 'freeA',
+    key: 'slotA',
   },
-  tools: { allow: ['googleSearch', 'googleMaps', 'urlContext'] },
+  tools: { allow: [] },
   inputs: {
     text: true,
     attachments: { accept: ['image/png', 'application/pdf', 'text/csv', 'text/plain'] },
@@ -78,99 +77,133 @@ Deno.test('synthesizeLiteCombo constructs minimal fast request', () => {
   assertEquals(req.input?.voice, undefined);
 });
 
-Deno.test('synthesizeStressCombo constructs smart mode with multimodal attachments and enforces search XOR maps', () => {
+Deno.test('synthesizeStressCombo constructs smart mode with multimodal attachments', () => {
   const req = synthesizeStressCombo(testProfile);
   assertEquals(req.profile, 'test-agent');
   assertEquals(req.select, 'smart');
   assertEquals(req.input?.attachments?.length, 1);
   assertEquals(req.input?.voice?.length, 1);
-
-  // By default, search is enabled and maps is disabled (maps.conflictsWith)
-  assertEquals(req.tools?.googleSearch, true);
-  assertEquals(req.tools?.googleMaps, false);
 });
 
-Deno.test('synthesizeStressCombo supports preferTool override for conflicting builtins', () => {
-  const req = synthesizeStressCombo(testProfile, { preferTool: 'googleMaps' });
-  assertEquals(req.tools?.googleSearch, false);
-  assertEquals(req.tools?.googleMaps, true);
-});
-
-Deno.test('synthesizeMatrixCombos generates all key permutations', () => {
+Deno.test('synthesizeMatrixCombos generates lite + stress rows', () => {
   const matrix = synthesizeMatrixCombos(testProfile);
-  assertEquals(matrix.length, 3);
+  assertEquals(matrix.length, 2);
   assertEquals(matrix[0].name, 'Lite (connectivity)');
   assertEquals(matrix[1].name, 'Stress (all modalities + primary tools)');
-  assertEquals(matrix[2].name, 'Conflict variant (googleMaps preferred)');
 });
 
-Deno.test('buildCustomTurnRequest respects explicit CLI flag overrides', () => {
-  const req = buildCustomTurnRequest(testProfile, {
-    mode: 'fast',
-    map: true,
-    search: false,
-  });
+Deno.test('buildCustomTurnRequest requires grounding flags on the model', () => {
+  assertThrows(
+    () =>
+      buildCustomTurnRequest(testProfile, {
+        mode: 'fast',
+        map: true,
+        search: false,
+      }),
+    Error,
+    'googleMaps',
+  );
+  const withMaps: Profile = {
+    ...testProfile,
+    type: 'text',
+    model: {
+      ...testProfile.model,
+      config: {
+        ...testProfile.model.config,
+        gemini35FlashLite: {
+          ...testProfile.model.config.gemini35FlashLite,
+          builtInTools: ['googleMaps'],
+        },
+      },
+    },
+    tools: testProfile.tools,
+    inputs: testProfile.inputs,
+  };
+  const req = buildCustomTurnRequest(withMaps, { mode: 'fast', map: true });
   assertEquals(req.select, 'fast');
-  assertEquals(req.tools?.googleMaps, true);
-  assertEquals(req.tools?.googleSearch, false);
 });
 
 Deno.test('synthesizer handles all tool combinations, fallbacks, and reasoning configurations', () => {
   // 1. Profile with select but without 'smart' key
   const customSelectProfile: Profile = {
     ...testProfile,
+    type: 'text',
     model: {
       ...testProfile.model,
       select: { quick: 'gemini35FlashLite', deep: 'gemini31ProPreview' },
+      config: {
+        ...testProfile.model.config,
+        gemini31ProPreview: {
+          ...HOST_MODELS.gemini31ProPreview,
+          builtInTools: ['googleMaps'],
+        },
+      },
     },
-    tools: { allow: ['googleMaps'] },
+    tools: { allow: [] },
     inputs: {
       text: true,
       attachments: { accept: ['unknown/custom-mime'] },
       voice: { accept: [] },
+      maxFiles: 5,
+      maxBytes: 10_000_000,
+      maxTurnBytes: 15_000_000,
     },
   };
   const req1 = synthesizeStressCombo(customSelectProfile);
   assertEquals(req1.select, 'deep');
-  assertEquals(req1.tools?.googleMaps, true);
   assertEquals(req1.input?.attachments?.length, 1);
   assertEquals(req1.input?.voice, undefined);
 
   // 2. Profile without select and only custom tools
   const noSelectProfile: Profile = {
     ...testProfile,
+    type: 'text',
     model: {
       ...testProfile.model,
       select: undefined,
     },
-    tools: { allow: ['askUser'] },
+    tools: { allow: ['ask_user'] },
     inputs: {
       text: true,
       attachments: { accept: [] },
+      voice: { accept: [] },
+      maxFiles: 5,
+      maxBytes: 10_000_000,
+      maxTurnBytes: 15_000_000,
     },
   };
   const req2 = synthesizeStressCombo(noSelectProfile);
   assertEquals(req2.select, undefined);
-  assertEquals(req2.tools?.askUser, true);
   assertEquals(req2.input?.attachments, undefined);
 
   // 3. buildCustomTurnRequest with options.lite
   const liteReq = buildCustomTurnRequest(testProfile, { lite: true });
   assertEquals(liteReq.select, 'fast');
 
-  // 4. buildCustomTurnRequest with search over map conflict
-  const searchOverrideReq = buildCustomTurnRequest(testProfile, {
-    search: true,
-    map: true,
-  });
-  assertEquals(searchOverrideReq.tools?.googleMaps, true);
-  assertEquals(searchOverrideReq.tools?.googleSearch, false);
-
-  const searchPriorityReq = buildCustomTurnRequest(testProfile, {
-    search: true,
-  });
-  assertEquals(searchPriorityReq.tools?.googleSearch, true);
-  assertEquals(searchPriorityReq.tools?.googleMaps, false);
+  // 4. --search/--map require builtins on the selected model
+  assertThrows(
+    () => buildCustomTurnRequest(testProfile, { search: true, map: true }),
+    Error,
+    'googleSearch',
+  );
+  const withSearch: Profile = {
+    ...testProfile,
+    type: 'text',
+    model: {
+      ...testProfile.model,
+      config: {
+        ...testProfile.model.config,
+        gemini35FlashLite: {
+          ...testProfile.model.config.gemini35FlashLite,
+          builtInTools: ['googleSearch'],
+        },
+      },
+    },
+    tools: testProfile.tools,
+    inputs: testProfile.inputs,
+  };
+  const searchOk = buildCustomTurnRequest(withSearch, { search: true });
+  assertEquals(searchOk.profile, testProfile.id);
 });
 
 Deno.test('registered host profiles render cards', () => {
@@ -215,6 +248,9 @@ Deno.test('runCommand exercises all stream event types and failure handling', as
   const { registerProfile, defineProfile } = await import('../../src/kernel/registry/profiles.ts');
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
       id: 'openrouter_run_bot',
       model: { protocol: 'openAi', provider: 'openrouter', ...modelAllow('sonar') },
       inputs: { text: true },
@@ -236,8 +272,11 @@ Deno.test('runCommand exercises all stream event types and failure handling', as
   // Test runCommand when runTurn throws exception (e.g. text input disabled)
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
       id: 'no_text_bot',
-      model: { ...modelAllow('gemini35FlashLite') },
+      model: { ...geminiModel('gemini35FlashLite') },
       inputs: { text: false },
       outputs: { structured: null },
       guardrails: { quota: { perDay: 10 } },

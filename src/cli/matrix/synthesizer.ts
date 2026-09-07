@@ -1,22 +1,21 @@
 /**
  * Stress / matrix turn synthesis for the THEORUM CLI.
  *
- * Tool enabling walks the profile allowlist and registered catalog metadata
- * (`conflictsWith`). Google `--search` / `--map` flags remain as convenience
- * aliases for `googleSearch` / `googleMaps` when those ids are allowed.
+ * Custom tools come from `profile.tools.allow` (visibility via loadTier).
+ * Provider builtins come from `model.config.*.builtInTools`. `--search` /
+ * `--map` only verify those ids are listed on the selected model.
  *
  * @module
  */
 
-import { getTool } from '../../kernel/registry/catalog.ts';
-import type { Profile, ToolId, TurnBlob, TurnRequest } from '../../kernel/types.ts';
+import type { Profile, TurnBlob, TurnRequest } from '../../kernel/types.ts';
 import { FIXTURE_PNG_BASE64, FIXTURE_WAV_BASE64, getFixtureForMime } from './fixtures.ts';
 
 export interface MatrixOptions {
   lite?: boolean;
-  /** Convenience alias for enabling/disabling `googleSearch` when allowed. */
+  /** Requires googleSearch on the selected model's builtInTools. */
   search?: boolean;
-  /** Convenience alias for enabling/disabling `googleMaps` when allowed. */
+  /** Requires googleMaps on the selected model's builtInTools. */
   map?: boolean;
   mode?: string;
   attachmentPaths?: string[];
@@ -28,7 +27,6 @@ export function synthesizeLiteCombo(profile: Profile): TurnRequest {
   return {
     profile: profile.id,
     select,
-    tools: {},
     input: {
       text: `Ping test for profile ${profile.id}. Respond concisely with confirmation.`,
     },
@@ -46,67 +44,10 @@ function resolveStressReasoning(profile: Profile): string | undefined {
   return undefined;
 }
 
-function isEnabled(active: Partial<Record<ToolId, boolean>>, id: ToolId): boolean {
-  return active[id] === true;
-}
-
-/** Drop tools whose registered `conflictsWith` siblings are also enabled. */
-function applyRegisteredConflicts(
-  allowed: ToolId[],
-  active: Partial<Record<ToolId, boolean>>,
-): void {
-  for (const id of allowed) {
-    if (!isEnabled(active, id)) {
-      continue;
-    }
-    const conflicts = getTool(id)?.conflictsWith ?? [];
-    if (conflicts.some((other) => isEnabled(active, other))) {
-      active[id] = false;
-    }
-  }
-}
-
-/**
- * Enable allowlisted tools, optionally forcing one preferred tool and clearing
- * what it conflicts with (and tools that conflict with it).
- */
-function resolveStressTools(allowed: ToolId[], prefer?: ToolId): Partial<Record<ToolId, boolean>> {
-  const active: Partial<Record<ToolId, boolean>> = {};
-  for (const t of allowed) {
-    active[t] = true;
-  }
-
-  if (prefer && allowed.includes(prefer)) {
-    active[prefer] = true;
-    for (const c of getTool(prefer)?.conflictsWith ?? []) {
-      if (allowed.includes(c)) {
-        active[c] = false;
-      }
-    }
-    for (const t of allowed) {
-      if (t === prefer) {
-        continue;
-      }
-      const otherConflicts: ToolId[] = getTool(t)?.conflictsWith ?? [];
-      if (otherConflicts.includes(prefer)) {
-        active[t] = false;
-      }
-    }
-  }
-
-  applyRegisteredConflicts(allowed, active);
-  return active;
-}
-
-/** Builtins on the allowlist that declare conflicts (candidates for matrix variants). */
-function conflictingAllowlistedTools(allowed: ToolId[]): ToolId[] {
-  return allowed.filter((id) => {
-    const entry = getTool(id);
-    return entry?.kind === 'builtin' && (entry.conflictsWith?.length ?? 0) > 0;
-  });
-}
-
 function resolveStressAttachments(profile: Profile): TurnBlob[] {
+  if (profile.type === 'speech' || !profile.inputs) {
+    return [];
+  }
   const attachments: TurnBlob[] = [];
   const accept = profile.inputs.attachments?.accept;
   if (accept && accept.length > 0) {
@@ -123,6 +64,9 @@ function resolveStressAttachments(profile: Profile): TurnBlob[] {
 }
 
 function resolveStressVoice(profile: Profile): TurnBlob[] {
+  if (profile.type === 'speech' || !profile.inputs) {
+    return [];
+  }
   const voice: TurnBlob[] = [];
   if (profile.inputs.voice?.accept && profile.inputs.voice.accept.length > 0) {
     voice.push({ mimeType: 'audio/wav', data: FIXTURE_WAV_BASE64 });
@@ -130,12 +74,8 @@ function resolveStressVoice(profile: Profile): TurnBlob[] {
   return voice;
 }
 
-export function synthesizeStressCombo(
-  profile: Profile,
-  options: { preferTool?: ToolId } = {},
-): TurnRequest {
+export function synthesizeStressCombo(profile: Profile): TurnRequest {
   const select = resolveStressReasoning(profile);
-  const activeTools = resolveStressTools(profile.tools.allow ?? [], options.preferTool);
   const attachments = resolveStressAttachments(profile);
   const voice = resolveStressVoice(profile);
   const promptText = `Execute comprehensive test turn for profile ${profile.id}. Validate all instructions and produce required outputs.`;
@@ -143,7 +83,6 @@ export function synthesizeStressCombo(
   return {
     profile: profile.id,
     select,
-    tools: activeTools,
     input: {
       text: promptText,
       attachments: attachments.length > 0 ? attachments : undefined,
@@ -155,71 +94,32 @@ export function synthesizeStressCombo(
 export function synthesizeMatrixCombos(
   profile: Profile,
 ): Array<{ name: string; req: TurnRequest }> {
-  const combos: Array<{ name: string; req: TurnRequest }> = [];
-  const allowed = profile.tools.allow ?? [];
-
-  combos.push({
-    name: 'Lite (connectivity)',
-    req: synthesizeLiteCombo(profile),
-  });
-
-  const primary = synthesizeStressCombo(profile);
-  combos.push({
-    name: 'Stress (all modalities + primary tools)',
-    req: primary,
-  });
-
-  // Variants: each allowlisted conflicting builtin that the primary pass dropped.
-  for (const id of conflictingAllowlistedTools(allowed)) {
-    if (primary.tools?.[id] === true) {
-      continue;
-    }
-    const variant = synthesizeStressCombo(profile, { preferTool: id });
-    if (variant.tools?.[id] !== true) {
-      continue;
-    }
-    combos.push({
-      name: `Conflict variant (${id} preferred)`,
-      req: variant,
-    });
-  }
-
-  return combos;
+  return [
+    {
+      name: 'Lite (connectivity)',
+      req: synthesizeLiteCombo(profile),
+    },
+    {
+      name: 'Stress (all modalities + primary tools)',
+      req: synthesizeStressCombo(profile),
+    },
+  ];
 }
 
-/** Map legacy Google CLI flags onto tool ids when the profile allowlists them. */
-function applyGoogleFlagAliases(
-  active: Partial<Record<ToolId, boolean>>,
-  allowed: ToolId[],
-  options: MatrixOptions,
-): void {
-  if (options.search !== undefined && allowed.includes('googleSearch')) {
-    active.googleSearch = options.search;
+/** Ensure CLI grounding flags match model builtInTools. */
+function assertGroundingFlagsOnModel(profile: Profile, options: MatrixOptions): void {
+  const select = options.mode ?? (profile.model.select?.fast ? 'fast' : undefined);
+  const modelId =
+    select && profile.model.select?.[select]
+      ? profile.model.select[select]
+      : profile.model.allow[0];
+  const builtins = new Set(profile.model.config[modelId]?.builtInTools ?? []);
+  if (options.search === true && !builtins.has('googleSearch')) {
+    throw new Error(`--search requires googleSearch on model.config.${modelId}.builtInTools`);
   }
-  if (options.map !== undefined && allowed.includes('googleMaps')) {
-    active.googleMaps = options.map;
+  if (options.map === true && !builtins.has('googleMaps')) {
+    throw new Error(`--map requires googleMaps on model.config.${modelId}.builtInTools`);
   }
-}
-
-function applyExplicitToolOverrides(
-  base: TurnRequest,
-  profile: Profile,
-  options: MatrixOptions,
-): void {
-  const allowed = profile.tools.allow ?? [];
-  base.tools = base.tools ?? {};
-  applyGoogleFlagAliases(base.tools, allowed, options);
-
-  // If map was explicitly requested on, prefer it against its registered conflicts.
-  if (options.map === true && allowed.includes('googleMaps')) {
-    const preferred = resolveStressTools(allowed, 'googleMaps');
-    for (const id of allowed) {
-      base.tools[id] = preferred[id] === true;
-    }
-    return;
-  }
-
-  applyRegisteredConflicts(allowed, base.tools);
 }
 
 export function buildCustomTurnRequest(profile: Profile, options: MatrixOptions): TurnRequest {
@@ -233,7 +133,7 @@ export function buildCustomTurnRequest(profile: Profile, options: MatrixOptions)
   }
 
   if (options.search !== undefined || options.map !== undefined) {
-    applyExplicitToolOverrides(base, profile, options);
+    assertGroundingFlagsOnModel(profile, options);
   }
 
   return base;

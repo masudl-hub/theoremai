@@ -1,0 +1,32 @@
+id: no-vacuous-live-outbound-init-test
+language: TypeScript
+severity: error
+message: >-
+  Vacuous session-init assertion. Exercise processLiveOutboundBatch /
+  finalizeLiveOutboundTurn / abortLiveOutboundTurn, then assert domain
+  invariants — do not probe default field placeholders.
+rule:
+  any:
+    - pattern: |
+        Deno.test($NAME, () => {
+          const $S = createLiveOutboundGateSession($$$ARGS);
+          assertEquals($S.$FIELD, $VAL);
+        })
+    - pattern: |
+        Deno.test($NAME, () => {
+          const $S = session($$$ARGS);
+          assertEquals($S.$FIELD, $VAL);
+        })
+---
+id: no-vacuous-canary-gate-init-test
+language: TypeScript
+severity: error
+message: >-
+  Vacuous canary-gate init assertion. Exercise filterCanaryGatedEvents (or
+  gate.process/flush), then assert leak/emit invariants.
+rule:
+  pattern: |
+    Deno.test($NAME, () => {
+      const $S = createCanaryGateSession($$$ARGS);
+      assertEquals($S.$FIELD, $VAL);
+    })

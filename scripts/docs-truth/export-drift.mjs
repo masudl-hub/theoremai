@@ -15,14 +15,18 @@ const ENTRY_MODS = [
   { export: '.', mod: 'mod.ts', docFromEntry: 'package' },
   { export: './kernel', mod: 'src/kernel/mod.ts', docFromEntry: 'kernel' },
   { export: './providers', mod: 'src/providers/mod.ts', docFromEntry: 'providers' },
-  { export: './openrouter', mod: 'src/providers/openrouter-mod.ts', docFromEntry: 'openrouter' },
+  {
+    export: './providers/local',
+    mod: 'src/providers/local/mod.ts',
+    docFromEntry: 'providers-local',
+  },
   { export: './guardrails', mod: 'src/guardrails/mod.ts', docFromEntry: 'guardrails' },
   { export: './observability', mod: 'src/observability/mod.ts', docFromEntry: 'observability' },
   { export: './host', mod: 'src/host/mod.ts', docFromEntry: 'host' },
   { export: './cli', mod: 'src/cli/index.ts', docFromEntry: 'cli' },
   { export: './presets', mod: 'src/presets/mod.ts', docFromEntry: 'presets' },
   { export: './presets/google', mod: 'src/presets/google.ts', docFromEntry: 'presets-google' },
-  { export: './streaming', mod: 'src/streaming/mod.ts', docFromEntry: 'streaming' },
+  { export: './interface', mod: 'src/interface/mod.ts', docFromEntry: 'interface' },
 ];
 
 function parseExportNames(source) {

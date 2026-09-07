@@ -199,9 +199,13 @@ Deno.test('jsonl sink writes a day file and drops stale turns', async () => {
 
 Deno.test('buildRecord and trace utilities test all edge cases, canaries, sanitization, and titles', async () => {
   const { buildRecord } = await import('../../src/observability/trace-record.ts');
-  const { httpStatus, completedInteraction } = await import(
-    '../../src/observability/trace-usage.ts'
-  );
+  const {
+    httpStatus,
+    completedInteraction,
+    stopKindFromEvents,
+    tokensFromEvents,
+    openAiFinishReason,
+  } = await import('../../src/observability/trace-usage.ts');
 
   // 1. httpStatus and completedInteraction with non-arrays and various rows
   assertEquals(httpStatus(null), undefined);
@@ -213,7 +217,34 @@ Deno.test('buildRecord and trace utilities test all edge cases, canaries, saniti
     'done_1',
   );
 
-  // 2. buildRecord with whitespace title, canary in record, string error, tool without result
+  // 1b. stopKindFromEvents extracts stop kind from done events
+  assertEquals(stopKindFromEvents([]), undefined);
+  assertEquals(stopKindFromEvents([{ type: 'text', text: 'hi' }]), undefined);
+  assertEquals(
+    stopKindFromEvents([
+      { type: 'text', text: 'hi' },
+      { type: 'done', stop: { kind: 'completed' } },
+    ]),
+    'completed',
+  );
+  assertEquals(stopKindFromEvents([{ type: 'done', stop: { kind: 'cancelled' } }]), 'cancelled');
+
+  // 1c. tokensFromEvents extracts the last tokens event
+  assertEquals(tokensFromEvents([]), undefined);
+  assertEquals(
+    tokensFromEvents([
+      { type: 'tokens', tokens: { input: 10, output: 20, total: 30 } },
+      { type: 'text', text: 'hi' },
+    ]),
+    { input: 10, output: 20, total: 30 },
+  );
+
+  // 1d. openAiFinishReason extracts from OpenAI-style upstream rows
+  assertEquals(openAiFinishReason(null), undefined);
+  assertEquals(openAiFinishReason([]), undefined);
+  assertEquals(openAiFinishReason([{ choices: [{ delta: {}, finish_reason: 'stop' }] }]), 'stop');
+
+  // 2. buildRecord with Interactions protocol: cancelled via interaction.completed
   const canaryToken = 'theo-canary-secret-123';
   const longText = '   hello world    '.repeat(10);
   const rec = await buildRecord({
@@ -221,7 +252,6 @@ Deno.test('buildRecord and trace utilities test all edge cases, canaries, saniti
       profile: 'chat',
       input: {
         text: longText,
-        // no attachments or voice
       },
     },
     events: [
@@ -241,7 +271,8 @@ Deno.test('buildRecord and trace utilities test all edge cases, canaries, saniti
     started: Date.now() - 50,
     thrown: `Direct thrown string containing canary ${canaryToken}`,
     canary: canaryToken,
-    gemini: [{ event_type: 'interaction.completed', status: 'cancelled' }],
+    protocol: 'geminiInteractions',
+    upstreamLog: [{ event_type: 'interaction.completed', status: 'cancelled' }],
   });
 
   assertEquals(rec.cancelled, true);
@@ -250,12 +281,118 @@ Deno.test('buildRecord and trace utilities test all edge cases, canaries, saniti
   assertEquals(rec.errorInternal, '[omitted - canary]');
 });
 
+Deno.test('buildRecord with openAi protocol detects cancelled from done event', async () => {
+  const { buildRecord } = await import('../../src/observability/trace-record.ts');
+
+  const rec = await buildRecord({
+    req: { profile: 'chat', input: { text: 'hello' } },
+    events: [
+      { type: 'text', text: 'partial' },
+      { type: 'done', stop: { kind: 'cancelled' } },
+    ],
+    started: Date.now() - 10,
+    protocol: 'openAi',
+    upstreamLog: [],
+  });
+
+  assertEquals(rec.cancelled, true);
+  assertEquals(rec.ok, false);
+  assertEquals(rec.wire, undefined);
+});
+
+Deno.test('buildRecord with openAi protocol marks ok from done.completed', async () => {
+  const { buildRecord } = await import('../../src/observability/trace-record.ts');
+
+  const rec = await buildRecord({
+    req: { profile: 'chat', input: { text: 'hello' } },
+    events: [
+      { type: 'text', text: 'response' },
+      { type: 'tokens', tokens: { input: 100, output: 50, total: 150 } },
+      { type: 'done', stop: { kind: 'completed' } },
+    ],
+    started: Date.now() - 10,
+    protocol: 'openAi',
+    upstreamLog: [{ choices: [{ delta: { content: 'r' }, finish_reason: 'stop' }] }],
+  });
+
+  assertEquals(rec.ok, true);
+  assertEquals(rec.cancelled, false);
+  assertEquals(rec.wire, undefined);
+  assertEquals(rec.usage, { input: 100, output: 50, total: 150 });
+  assertEquals(rec.upstream?.finish, 'stop');
+});
+
+Deno.test('buildRecord omits wire for openAi even when generation+system provided', async () => {
+  const { buildRecord } = await import('../../src/observability/trace-record.ts');
+  const { resolveTurn } = await import('../../src/kernel/registry/resolve.ts');
+
+  const { generation } = resolveTurn({ profile: 'chat', input: { text: 'test' } });
+
+  const rec = await buildRecord({
+    req: { profile: 'chat', input: { text: 'test' } },
+    events: [
+      { type: 'text', text: 'ok' },
+      { type: 'done', stop: { kind: 'completed' } },
+    ],
+    started: Date.now(),
+    system: 'test system',
+    generation,
+    protocol: 'openAi',
+    upstreamLog: [],
+  });
+
+  assertEquals(rec.wire, undefined);
+  assertEquals(rec.ok, true);
+});
+
+Deno.test('buildRecord with geminiInteractions builds wire when generation+system present', async () => {
+  const { buildRecord } = await import('../../src/observability/trace-record.ts');
+  const { resolveTurn } = await import('../../src/kernel/registry/resolve.ts');
+
+  const { generation } = resolveTurn({ profile: 'chat', input: { text: 'test' } });
+
+  const rec = await buildRecord({
+    req: { profile: 'chat', input: { text: 'test' } },
+    events: [
+      { type: 'text', text: 'ok' },
+      { type: 'done', stop: { kind: 'completed' } },
+    ],
+    started: Date.now(),
+    system: 'test system',
+    generation,
+    protocol: 'geminiInteractions',
+    upstreamLog: [],
+  });
+
+  assertEquals(rec.wire !== undefined, true);
+  assertEquals(rec.ok, true);
+});
+
+Deno.test('buildRecord without protocol defaults to no wire (backward compat)', async () => {
+  const { buildRecord } = await import('../../src/observability/trace-record.ts');
+
+  const rec = await buildRecord({
+    req: { profile: 'chat', input: { text: 'test' } },
+    events: [],
+    started: Date.now(),
+    upstreamLog: [],
+  });
+
+  assertEquals(rec.wire, undefined);
+});
+
 Deno.test('writeTrace swallows sink failures safely', async () => {
   const { writeTrace } = await import('../../src/observability/trace.ts');
+  const seen: unknown[] = [];
   const failingSink = {
     write: () => Promise.reject(new Error('Disk full')),
+    onError: (err: unknown) => {
+      seen.push(err);
+    },
   };
   await writeTrace(failingSink, Promise.resolve(stubRecord()));
+  assertEquals(seen.length, 1);
+  assertEquals(seen[0] instanceof Error && (seen[0] as Error).message, 'Disk full');
 });
 
 Deno.test('resolveTraceDir rejects missing and identical directory roots', () => {

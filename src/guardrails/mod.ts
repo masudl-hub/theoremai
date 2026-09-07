@@ -1,13 +1,32 @@
 /**
  * Generic inbound and outbound guardrail primitives.
  *
- * This entrypoint exposes public-safe error mapping, prompt-injection span
- * detection, sensitive-data span detection, and request sanitization. App-
- * specific policy remains host-owned.
+ * Owns sanitization, injection/sensitive detection, canary egress gates,
+ * bundled egress policy, and public error mapping.
+ * App-specific policy copy remains host-owned.
+ *
+ * Adversarial corpus and fuzz runners: `theorum/guardrails/testing`.
  *
  * @module
  */
 
+export type { CanaryGateResult, CanaryStreamGate } from './canary.ts';
+export {
+  bindCanary,
+  createCanaryStreamGate,
+  eventHasCanary,
+  isStreamedCanaryEvent,
+  mintCanary,
+  OMIT_CANARY,
+  redactCanary,
+  scanTextForCanaryLeak,
+  USER_CLOSE,
+  USER_OPEN,
+  wrapUserData,
+} from './canary.ts';
+export type { CanaryGateSession } from './canary-gate.ts';
+export { createCanaryGateSession, filterCanaryGatedEvents } from './canary-gate.ts';
+export { standardEgressEnforce } from './egress.ts';
 export {
   describeError,
   isAbortError,
@@ -27,6 +46,16 @@ export {
   UPSTREAM_FAILED,
 } from './error.ts';
 export { injectionSpans } from './injection.ts';
+export type {
+  LiveOutboundBatchResult,
+  LiveOutboundGateSession,
+} from './live-outbound-gate.ts';
+export {
+  abortLiveOutboundTurn,
+  createLiveOutboundGateSession,
+  finalizeLiveOutboundTurn,
+  processLiveOutboundBatch,
+} from './live-outbound-gate.ts';
 export type { QuotaSlotStatus } from './quota.ts';
 export {
   clientIp,
@@ -38,8 +67,10 @@ export {
 } from './quota.ts';
 export {
   PROJECT_ID_MAX,
+  redactSensitiveOnly,
   sanitizeProjectId,
   sanitizeText,
   sanitizeTurnRequest,
+  sanitizeTurnRequestForTrace,
 } from './sanitize.ts';
 export { sensitiveSpans } from './sensitive.ts';

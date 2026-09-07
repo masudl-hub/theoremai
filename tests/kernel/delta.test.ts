@@ -2,10 +2,12 @@ import { assertEquals, assertExists } from '@std/assert';
 import {
   eventsFromComplete,
   eventsFromDelta,
+  eventsFromInteractionSteps,
   extractTokenEvent,
   extractUsageTokens,
   groundingFromEvent,
-  tryStructured,
+  mergeCodeExecutionPayload,
+  parseStructuredOutput,
 } from '../../src/kernel/engine/delta.ts';
 import type { GroundingSource } from '../../src/kernel/types.ts';
 
@@ -96,6 +98,20 @@ Deno.test('delta.ts: groundingFromEvent parses web, maps, rendered HTML, and nes
   assertEquals(groundingEv.type, 'grounding');
   assertEquals(groundingEv.grounding.searchHtml, '<div>Search widget</div>');
   assertGroundingSources(groundingEv.grounding.sources);
+});
+
+Deno.test('delta.ts: eventsFromDelta wraps code_execution_call as google evidence', () => {
+  const events = eventsFromDelta({
+    type: 'code_execution_call',
+    arguments: { code: 'print(1)', language: 'python' },
+  });
+  assertEquals(events.length, 1);
+  assertEquals(events[0]?.type, 'evidence');
+  assertEquals(events[0]?.evidence?.provider, 'google');
+  assertEquals(events[0]?.evidence?.kind, 'code_execution_call');
+  assertEquals(events[0]?.evidence?.code, 'print(1)');
+  assertEquals(events[0]?.evidence?.language, 'python');
+  assertEquals(events[0]?.evidence?.raw?.type, 'code_execution_call');
 });
 
 Deno.test('delta.ts: groundingFromEvent wraps Interactions google_search_result search_suggestions', () => {
@@ -199,8 +215,17 @@ Deno.test('delta.ts: extractUsageTokens and extractTokenEvent support all token 
     output: 25,
     thinking: 10,
     toolUse: 5,
-    total: 90, // calculated sum
+    total: 90,
   });
+
+  assertEquals(
+    extractUsageTokens({
+      input: 4,
+      output: 2,
+      intermediate_tokens: 9,
+    }),
+    { input: 4, output: 2, thinking: 0, toolUse: 0, total: 15, intermediate: 9 },
+  );
 
   const eventWithUsage = {
     interaction: {
@@ -218,7 +243,7 @@ Deno.test('delta.ts: extractUsageTokens and extractTokenEvent support all token 
   assertEquals(tokenEvent?.interactionId, 'int_abc');
 });
 
-Deno.test('delta.ts: eventsFromComplete parses outputs array, direct output_image, and tryStructured', () => {
+Deno.test('delta.ts: eventsFromComplete parses outputs array, direct output_image, and parseStructuredOutput', () => {
   const completeWithOutputs = {
     interaction: {
       output_text: 'Done here',
@@ -246,7 +271,115 @@ Deno.test('delta.ts: eventsFromComplete parses outputs array, direct output_imag
   const events3 = eventsFromComplete(directImageEvent, true);
   assertEquals(events3[0]?.type, 'media');
 
-  // tryStructured
-  assertEquals(tryStructured('{"status":"ok"}')?.structured, { status: 'ok' });
-  assertEquals(tryStructured('not json'), undefined);
+  // parseStructuredOutput
+  assertEquals(parseStructuredOutput('{"status":"ok"}'), {
+    ok: true,
+    structured: { status: 'ok' },
+  });
+  assertEquals(parseStructuredOutput('not json'), {
+    ok: false,
+    error: 'structured output was not valid JSON',
+  });
+});
+
+Deno.test('delta.ts: eventsFromInteractionSteps replays code execution and model_output images', () => {
+  const steps = [
+    {
+      type: 'code_execution_call',
+      id: 'code_call_1',
+      arguments: { code: 'print(sum(range(1, 11)))', language: 'python' },
+    },
+    {
+      type: 'code_execution_result',
+      call_id: 'code_call_1',
+      is_error: false,
+      result: '55\n',
+    },
+    {
+      type: 'google_search_result',
+      result: [{ search_suggestions: '<div>sum</div>' }],
+    },
+    {
+      type: 'code_execution_call',
+      id: 'code_call_2',
+      arguments: { code: 'print(1/0)' },
+    },
+    {
+      type: 'code_execution_result',
+      call_id: 'code_call_2',
+      is_error: true,
+      result: 'ZeroDivisionError',
+    },
+    {
+      type: 'model_output',
+      content: [
+        { type: 'text', text: 'The sum is 55.' },
+        { type: 'image', mime_type: 'image/png', data: 'plot_bytes' },
+      ],
+    },
+  ];
+  const fromSteps = eventsFromInteractionSteps(steps, false);
+  assertEquals(
+    fromSteps.map((e) => e.type),
+    ['evidence', 'evidence', 'evidence', 'evidence', 'evidence', 'text', 'media'],
+  );
+  assertEquals(fromSteps[0]?.evidence?.kind, 'code_execution_call');
+  assertEquals(fromSteps[0]?.evidence?.code, 'print(sum(range(1, 11)))');
+  assertEquals(fromSteps[1]?.evidence?.callId, 'code_call_1');
+  assertEquals(fromSteps[1]?.evidence?.result, '55\n');
+  assertEquals(fromSteps[2]?.evidence?.kind, 'google_search_result');
+  assertEquals(fromSteps[3]?.evidence?.id, 'code_call_2');
+  assertEquals(fromSteps[4]?.evidence?.isError, true);
+  assertEquals(fromSteps[5]?.text, 'The sum is 55.');
+  assertEquals(fromSteps[6]?.media, { mimeType: 'image/png', data: 'plot_bytes' });
+
+  const batched = eventsFromComplete(
+    {
+      interaction: {
+        status: 'completed',
+        id: 'v1_code',
+        steps,
+        output_text: 'ignored because steps already have text',
+      },
+    },
+    false,
+  );
+  assertEquals(
+    batched.some((e) => e.type === 'text' && e.text === 'The sum is 55.'),
+    true,
+  );
+  assertEquals(batched.filter((e) => e.type === 'text').length, 1);
+  assertEquals(
+    batched.some((e) => e.type === 'done' && e.interactionId === 'v1_code'),
+    true,
+  );
+});
+
+Deno.test('delta.ts: mergeCodeExecutionPayload concatenates partial code and stdout', () => {
+  const merged = mergeCodeExecutionPayload(
+    { type: 'code_execution_call', arguments: { code: 'print(' } },
+    { arguments: { code: '1)', language: 'python' } },
+  );
+  assertEquals(merged.arguments, { code: 'print(1)', language: 'python' });
+
+  const strings = mergeCodeExecutionPayload(
+    { type: 'code_execution_call', arguments: 'pri' },
+    { arguments: 'nt(2)' },
+  );
+  assertEquals(strings.arguments, 'print(2)');
+
+  const withResult = mergeCodeExecutionPayload({ result: '1' }, { result: '1\n' });
+  assertEquals(withResult.result, '1\n');
+});
+
+Deno.test('delta.ts: eventsFromInteractionSteps skips empty and unknown steps', () => {
+  const events = eventsFromInteractionSteps(
+    [null, { type: 'thought_signature' }, { type: 'code_execution_call', arguments: 'x = 1' }],
+    false,
+  );
+  assertEquals(
+    events.map((e) => e.type),
+    ['evidence'],
+  );
+  assertEquals(events[0]?.evidence?.code, 'x = 1');
 });

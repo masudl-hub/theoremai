@@ -34,7 +34,7 @@ import type {
   TurnHistoryMessage,
   TurnInput,
 } from '../../src/kernel/types.ts';
-import { modelAllow } from '../fixtures/models.ts';
+import { geminiModel, modelAllow } from '../fixtures/models.ts';
 
 function msg(role: TurnHistoryMessage['role'], content: string): TurnHistoryMessage {
   return { role, content };
@@ -204,8 +204,12 @@ Deno.test('splitForCompaction groups tool messages with their exchange', async (
 Deno.test('registerProfile rejects compactAt outside (0,1)', () => {
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
+      inputs: { text: true },
       id: 'compaction.validator.compactor',
-      model: { ...modelAllow('gemini35FlashLite'), thinking: 'minimal', maxSteps: 1 },
+      model: { ...geminiModel('gemini35FlashLite'), thinking: 'minimal', maxSteps: 1 },
     }),
   );
 
@@ -213,12 +217,18 @@ Deno.test('registerProfile rejects compactAt outside (0,1)', () => {
     () =>
       registerProfile(
         defineProfile({
+          type: 'text',
+          identity: { handle: 'test', system: 'test' },
+          tools: { allow: [] },
+          inputs: { text: true },
           id: 'compaction.validator.bad_compact_at',
           model: {
+            protocol: 'geminiInteractions',
+            provider: 'google',
             allow: ['testModel'],
             config: {
               testModel: {
-                ...modelAllow('gemini35FlashLite').config.gemini35FlashLite,
+                ...geminiModel('gemini35FlashLite').config.gemini35FlashLite,
                 compaction: {
                   maxTokens: 100_000,
                   compactAt: 1.5,
@@ -241,12 +251,18 @@ Deno.test('registerProfile rejects previousExchanges fraction >= compactAt', () 
     () =>
       registerProfile(
         defineProfile({
+          type: 'text',
+          identity: { handle: 'test', system: 'test' },
+          tools: { allow: [] },
+          inputs: { text: true },
           id: 'compaction.validator.bad_prev_exchanges',
           model: {
+            protocol: 'geminiInteractions',
+            provider: 'google',
             allow: ['testModel'],
             config: {
               testModel: {
-                ...modelAllow('gemini35FlashLite').config.gemini35FlashLite,
+                ...geminiModel('gemini35FlashLite').config.gemini35FlashLite,
                 compaction: {
                   maxTokens: 100_000,
                   compactAt: 0.5,
@@ -269,12 +285,18 @@ Deno.test('registerProfile rejects non-integer previousExchanges >= 1', () => {
     () =>
       registerProfile(
         defineProfile({
+          type: 'text',
+          identity: { handle: 'test', system: 'test' },
+          tools: { allow: [] },
+          inputs: { text: true },
           id: 'compaction.validator.bad_prev_exchanges_int',
           model: {
+            protocol: 'geminiInteractions',
+            provider: 'google',
             allow: ['testModel'],
             config: {
               testModel: {
-                ...modelAllow('gemini35FlashLite').config.gemini35FlashLite,
+                ...geminiModel('gemini35FlashLite').config.gemini35FlashLite,
                 compaction: {
                   maxTokens: 100_000,
                   compactAt: 0.75,
@@ -297,12 +319,18 @@ Deno.test('registerProfile rejects unregistered compaction profile', () => {
     () =>
       registerProfile(
         defineProfile({
+          type: 'text',
+          identity: { handle: 'test', system: 'test' },
+          tools: { allow: [] },
+          inputs: { text: true },
           id: 'compaction.validator.missing_profile',
           model: {
+            protocol: 'geminiInteractions',
+            provider: 'google',
             allow: ['testModel'],
             config: {
               testModel: {
-                ...modelAllow('gemini35FlashLite').config.gemini35FlashLite,
+                ...geminiModel('gemini35FlashLite').config.gemini35FlashLite,
                 compaction: {
                   maxTokens: 100_000,
                   compactAt: 0.75,
@@ -329,8 +357,11 @@ function registerCompactionPair(
   const modelKey = `${prefix.replaceAll('.', '_')}Model`;
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
       id: compactorId,
-      model: { ...modelAllow('gemini35FlashLite'), thinking: 'minimal', maxSteps: 1 },
+      model: { ...geminiModel('gemini35FlashLite'), thinking: 'minimal', maxSteps: 1 },
       inputs: { text: true },
       guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
     }),
@@ -344,8 +375,14 @@ function registerCompactionPair(
   };
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
       id: speakerId,
       model: {
+        key: 'slotA',
+        protocol: 'geminiInteractions',
+        provider: 'google',
         allow: [modelKey],
         config: { [modelKey]: model },
         thinking: 'minimal',
@@ -859,21 +896,29 @@ Deno.test('orchid after: fallback prompt tokens from a long system prompt do not
   const speakerId = 'compaction.orchid.fallback.speaker';
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
       id: compactorId,
-      model: { ...modelAllow('gemini35FlashLite'), thinking: 'minimal', maxSteps: 1 },
+      model: { ...geminiModel('gemini35FlashLite'), thinking: 'minimal', maxSteps: 1 },
       inputs: { text: true },
       guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
     }),
   );
   registerProfile(
     defineProfile({
+      type: 'text',
+      tools: { allow: [] },
       id: speakerId,
       identity: { handle: 'speaker', system: 'S'.repeat(20_000) },
       model: {
+        key: 'slotA',
+        protocol: 'geminiInteractions',
+        provider: 'google',
         allow: ['fallbackModel'],
         config: {
           fallbackModel: {
-            ...modelAllow('gemini35FlashLite').config.gemini35FlashLite,
+            ...geminiModel('gemini35FlashLite').config.gemini35FlashLite,
             compaction: { ...ORCHID_SPEC, profile: compactorId },
           },
         },
@@ -980,20 +1025,29 @@ Deno.test('nested compacting turn does not recurse even if compacting profile ha
   const speaker = 'compaction.nested.speaker';
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
       id: leaf,
-      model: { ...modelAllow('gemini35FlashLite'), thinking: 'minimal', maxSteps: 1 },
+      model: { ...geminiModel('gemini35FlashLite'), thinking: 'minimal', maxSteps: 1 },
       inputs: { text: true },
       guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
     }),
   );
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
       id: mid,
       model: {
+        key: 'slotA',
+        protocol: 'geminiInteractions',
+        provider: 'google',
         allow: ['midModel'],
         config: {
           midModel: {
-            ...modelAllow('gemini35FlashLite').config.gemini35FlashLite,
+            ...geminiModel('gemini35FlashLite').config.gemini35FlashLite,
             compaction: {
               maxTokens: 10,
               compactAt: 0.1,
@@ -1012,12 +1066,18 @@ Deno.test('nested compacting turn does not recurse even if compacting profile ha
   );
   registerProfile(
     defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
       id: speaker,
       model: {
+        key: 'slotA',
+        protocol: 'geminiInteractions',
+        provider: 'google',
         allow: ['nestModel'],
         config: {
           nestModel: {
-            ...modelAllow('gemini35FlashLite').config.gemini35FlashLite,
+            ...geminiModel('gemini35FlashLite').config.gemini35FlashLite,
             compaction: {
               maxTokens: 1000,
               compactAt: 0.5,

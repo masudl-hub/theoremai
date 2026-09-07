@@ -3,9 +3,9 @@
  * Gemini API using free-tier keys from the host app's .env.
  *
  * Reads keys from env vars (set them directly or via a .env loader):
- *   GEMINI_API_KEY_PORTFOLIO  → freeA
- *   GEMINI_API_KEY_STUDIO     → freeB
- *   GEMINI_API_KEY_CRUCIBLE   → freeC
+ *   GEMINI_API_KEY_PORTFOLIO  → slotA
+ *   GEMINI_API_KEY_STUDIO     → slotB
+ *   GEMINI_API_KEY_CRUCIBLE   → slotC
  *   GEMINI_API_KEY            → paid (overflow)
  *
  * Or point THEORUM_ENV_FILE at a .env file to load from there.
@@ -18,7 +18,7 @@ import '../tests/fixtures/test-host.ts';
 import { testProfileCommand } from '../src/cli/commands/test.ts';
 import { listProfiles } from '../src/kernel/registry/profiles.ts';
 import { createProvider } from '../src/providers/create-provider.ts';
-import type { GeminiVault } from '../src/providers/keys.ts';
+import type { KeyVault } from '../src/providers/google/keys.ts';
 
 function loadEnvFile(path: string): void {
   let text: string;
@@ -45,10 +45,10 @@ function loadEnvFile(path: string): void {
 const envFile = Deno.env.get('THEORUM_ENV_FILE');
 if (envFile) loadEnvFile(envFile);
 
-const vault: GeminiVault = {
-  freeA: Deno.env.get('GEMINI_API_KEY_PORTFOLIO') || undefined,
-  freeB: Deno.env.get('GEMINI_API_KEY_STUDIO') || undefined,
-  freeC: Deno.env.get('GEMINI_API_KEY_CRUCIBLE') || undefined,
+const vault: KeyVault = {
+  slotA: Deno.env.get('GEMINI_API_KEY_PORTFOLIO') || undefined,
+  slotB: Deno.env.get('GEMINI_API_KEY_STUDIO') || undefined,
+  slotC: Deno.env.get('GEMINI_API_KEY_CRUCIBLE') || undefined,
   paid: Deno.env.get('GEMINI_API_KEY') || undefined,
 };
 
@@ -61,7 +61,7 @@ if (missing.length > 0) {
   Deno.exit(1);
 }
 
-console.log('Vault loaded — all buckets populated.');
+console.log('Vault loaded — all slots populated.');
 
 const profiles = listProfiles();
 console.log(`Registered profiles: ${profiles.map((p) => p.id).join(', ')}`);

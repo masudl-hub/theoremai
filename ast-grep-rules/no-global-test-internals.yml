@@ -1,0 +1,21 @@
+id: no-global-test-internals
+language: TypeScript
+severity: error
+message: >-
+  Global test backdoors (exposeForTests / __theorumTestInternals /
+  THEORUM_TEST_INTERNALS / testInternals) are banned. Export helpers from their
+  modules and import them in tests. This rule catches natural spellings only —
+  deliberately splitting or concatenating the banned name to evade lint is a
+  hard review reject, not a supported workaround.
+rule:
+  any:
+    - kind: identifier
+      regex: '^(exposeForTests|testInternals|__theorumTestInternals|THEORUM_TEST_INTERNALS)$'
+    - kind: property_identifier
+      regex: '^(exposeForTests|testInternals|__theorumTestInternals|THEORUM_TEST_INTERNALS)$'
+    - kind: string
+      regex: '(exposeForTests|__theorumTestInternals|THEORUM_TEST_INTERNALS)'
+    - pattern: exposeForTests($$$ARGS)
+    - pattern: testInternals($$$ARGS)
+    - pattern: globalThis.__theorumTestInternals
+    - pattern: $X.__theorumTestInternals

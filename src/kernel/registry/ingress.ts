@@ -6,128 +6,97 @@
  * @module
  */
 
+import { wrapUserData } from '../../guardrails/canary.ts';
 import { TheorumError } from '../../guardrails/error.ts';
-import { wrapUserData } from '../engine/boundary.ts';
 import { synthesizeRepairPrompt } from '../engine/repair.ts';
 import type {
-  BuiltinToolId,
   ImageResponseFormat,
   InteractionPart,
   MediaInputKind,
   ModelId,
   Profile,
+  ProfileImageSpec,
   TurnBlob,
   TurnRequest,
 } from '../types.ts';
 import { assertAttachmentLimits, requireMediaLimits } from './attachments.ts';
 import { mediaKindForMime, mimeAllowed, mimeEssence } from './catalog.ts';
+import { getStructured } from './schemas.ts';
 
-function listedValue(allowed: string[] | undefined, value: string | undefined): string | undefined {
-  if (!value) {
-    return undefined;
+type PrimaryOutputMode = 'structured' | 'image' | 'speech';
+
+function usesStructuredResponseFormat(structuredId: string | null): boolean {
+  if (!structuredId) {
+    return false;
   }
-  if (!allowed || allowed.length === 0) {
-    return value;
-  }
-  if (allowed.includes(value)) {
-    return value;
-  }
-  return undefined;
+  const spec = getStructured(structuredId);
+  return spec.enforced === 'responseFormat' && spec.jsonSchema != null;
 }
 
-function resolveSlotOrPin(
-  profileId: string,
-  label: string,
-  slotValue: string | undefined,
-  pin: string | undefined,
-  allow: string[] | undefined,
-): string | undefined {
-  if (slotValue !== undefined) {
-    const fromSlot = listedValue(allow, slotValue);
-    if (!fromSlot) {
-      throw new TheorumError(`Unknown image ${label} for ${profileId}`);
-    }
-    return fromSlot;
+function activePrimaryOutputModes(
+  profile: Profile,
+  structuredId: string | null,
+): PrimaryOutputMode[] {
+  const modes: PrimaryOutputMode[] = [];
+  if (usesStructuredResponseFormat(structuredId)) {
+    modes.push('structured');
   }
-  if (pin === undefined) {
-    return undefined;
+  if (profile.type === 'image') {
+    modes.push('image');
   }
-  const fromPin = listedValue(allow, pin);
-  if (!fromPin) {
-    throw new TheorumError(`Unknown image ${label} for ${profileId}`);
+  if (profile.type === 'speech') {
+    modes.push('speech');
   }
-  return fromPin;
+  return modes;
 }
 
-function assertImageRole(profile: Profile): NonNullable<Profile['outputs']['image']> {
-  const pins = profile.outputs.image;
-  if (!pins) {
-    throw new TheorumError(
-      `Profile ${profile.id} requests image output but does not set outputs.image`,
-    );
+/**
+ * Provider wire formats (JSON schema, image, speech) are mutually exclusive.
+ * Typed profiles make illegal mixes unrepresentable; this remains a safety net
+ * for responseFormat structured on text vs accidental dual modes.
+ */
+function assertOutputMode(profile: Profile, structuredId: string | null): void {
+  const active = activePrimaryOutputModes(profile, structuredId);
+  if (active.length <= 1) {
+    return;
   }
-  assertExclusiveNativeOutput(profile, 'image');
-  return pins;
+  throw new TheorumError(
+    `Profile ${profile.id} declares multiple output wire formats (${active.join(', ')}). ` +
+      `Only one of responseFormat JSON schema (outputs.structured with enforced ` +
+      `'responseFormat'), image, or speech may be active.`,
+  );
+}
+
+function assertImagePins(profile: Profile): ProfileImageSpec {
+  if (profile.type !== 'image') {
+    throw new TheorumError(`Profile ${profile.id} is not type 'image'`);
+  }
+  return profile.image;
 }
 
 function assertSpeechRole(profile: Profile): void {
-  if (!profile.outputs.speech) {
+  if (profile.type !== 'speech') {
     return;
   }
-  assertExclusiveNativeOutput(profile, 'speech');
-  if (profile.outputs.speech.format === 'mp3' && profile.model.protocol === 'geminiInteractions') {
+  if (profile.speech.format === 'mp3' && profile.model.protocol === 'geminiInteractions') {
     throw new TheorumError(
-      `Profile ${profile.id}: outputs.speech.format 'mp3' requires protocol 'openAi' ` +
+      `Profile ${profile.id}: speech.format 'mp3' requires protocol 'openAi' ` +
         `(geminiInteractions speech returns PCM and emits WAV)`,
     );
   }
 }
 
-function assertExclusiveNativeOutput(profile: Profile, kind: 'image' | 'speech'): void {
-  const other = kind === 'image' ? 'speech' : 'image';
-  if (profile.outputs[other]) {
-    throw new TheorumError(
-      `Profile ${profile.id} cannot mix outputs.${kind} with outputs.${other}`,
-    );
-  }
-  if (profile.outputs.structured !== null && profile.outputs.structured !== undefined) {
-    throw new TheorumError(
-      `Profile ${profile.id} cannot mix structured JSON with native ${kind} output`,
-    );
-  }
-}
-
-function resolveImageFormat(
-  profile: Profile,
-  _model: ModelId,
-  slots?: Record<string, string>,
-): ImageResponseFormat | null {
-  if (!profile.outputs.image) {
+function resolveImageFormat(profile: Profile): ImageResponseFormat | null {
+  if (profile.type !== 'image') {
     return null;
   }
-  const pins = assertImageRole(profile);
-  const aspectRatio = resolveSlotOrPin(
-    profile.id,
-    'aspect',
-    slots?.aspectRatio,
-    pins.aspectRatio,
-    profile.inputs.slots?.aspectRatio,
-  );
-  const size = resolveSlotOrPin(
-    profile.id,
-    'size',
-    slots?.size,
-    pins.size,
-    profile.inputs.slots?.size,
-  );
-  if (!(aspectRatio && size)) {
-    throw new TheorumError(`Unknown image aspect or size for ${profile.id}`);
-  }
+  const pins = assertImagePins(profile);
   return {
     type: 'image',
-    mimeType: pins.mimeType ?? 'image/jpeg',
-    aspectRatio,
-    size,
+    mimeType: pins.mimeType,
+    aspectRatio: pins.aspectRatio,
+    size: pins.size,
+    includeText: pins.includeText === true,
   };
 }
 
@@ -139,18 +108,25 @@ function assertMediaMime(mime: string): MediaInputKind {
   return kind;
 }
 
+function profileInputs(profile: Profile) {
+  if (profile.type === 'speech') {
+    return undefined;
+  }
+  return profile.inputs;
+}
+
 function mediaParts(
   profile: Profile,
   model: ModelId,
   blobs: TurnBlob[],
   channel: 'attachments' | 'voice',
 ): InteractionPart[] {
-  const accept =
-    channel === 'voice' ? profile.inputs.voice?.accept : profile.inputs.attachments?.accept;
+  const inputs = profileInputs(profile);
+  const accept = channel === 'voice' ? inputs?.voice?.accept : inputs?.attachments?.accept;
   if (!accept) {
     throw new TheorumError(`Profile ${profile.id} does not accept ${channel}`);
   }
-  const maxInputImages = profile.outputs.image?.maxInputImages;
+  const maxInputImages = profile.type === 'image' ? profile.image.maxInputImages : undefined;
   const imageCount = blobs.filter((blob) => mediaKindForMime(blob.mimeType) === 'image').length;
   if (maxInputImages !== undefined && imageCount > maxInputImages) {
     throw new TheorumError(`At most ${maxInputImages} reference images on ${model}`);
@@ -171,7 +147,18 @@ function mediaParts(
 
 function extractTextPart(profile: Profile, req: TurnRequest): InteractionPart | null {
   const { text, repair, history } = req.input ?? {};
-  if (profile.inputs.text === false) {
+  if (profile.type === 'speech') {
+    if (!text?.trim()) {
+      throw new TheorumError(`Profile ${profile.id} (speech) requires text input`);
+    }
+    let promptText = text;
+    if (repair) {
+      promptText = synthesizeRepairPrompt({ profile, repair, history });
+    }
+    return { type: 'text', text: wrapUserData(promptText) };
+  }
+  const inputs = profileInputs(profile);
+  if (inputs?.text === false) {
     if (text) {
       throw new TheorumError(`Profile ${profile.id} does not accept text input`);
     }
@@ -188,6 +175,13 @@ function extractTextPart(profile: Profile, req: TurnRequest): InteractionPart | 
 }
 
 function extractMediaParts(profile: Profile, model: ModelId, req: TurnRequest): InteractionPart[] {
+  if (profile.type === 'speech') {
+    const { attachments, voice } = req.input ?? {};
+    if ((attachments?.length ?? 0) + (voice?.length ?? 0) > 0) {
+      throw new TheorumError(`Profile ${profile.id} (speech) does not accept media input`);
+    }
+    return [];
+  }
   const { attachments, voice } = req.input ?? {};
   const files = attachments ?? [];
   const clips = voice ?? [];
@@ -214,10 +208,4 @@ function resolveInputParts(profile: Profile, model: ModelId, req: TurnRequest): 
   return parts;
 }
 
-function assertImageGrounding(profile: Profile, model: ModelId, builtins: BuiltinToolId[]): void {
-  if (profile.outputs.image?.allowsGrounding === false && builtins.length > 0) {
-    throw new TheorumError(`Grounding tools are not valid on ${model}`);
-  }
-}
-
-export { assertImageGrounding, assertSpeechRole, resolveImageFormat, resolveInputParts };
+export { assertOutputMode, assertSpeechRole, resolveImageFormat, resolveInputParts };

@@ -1,26 +1,52 @@
 /**
- * Gemini vault slot selection for Google Interactions transport.
- *
- * Host-owned policy over `ModelSpec.key` / `keyBuiltins`. Pure; no network.
+ * Vault key-slot selection for credentialed transports (Google, OpenRouter, …).
  *
  * @module
  */
 
-import type { BuiltinToolId, GeminiBucket, GeminiFreeBucket, ModelSpec } from '../types.ts';
+import { TheorumError } from '../../guardrails/error.ts';
+import { getTool } from '../tools/registry.ts';
+import type { BuiltinToolDef } from '../tools/types.ts';
+import type { BuiltinToolId, KeySlot, ModelSpec, Provider } from '../types.ts';
 
-/** Pick the vault slot for a turn from profile key, model pin, and builtins. */
-function resolveGeminiBucket(
-  profileKey: GeminiFreeBucket,
+function builtinForcesPaid(id: BuiltinToolId): boolean {
+  const tool = getTool(id);
+  if (tool?.type !== 'builtin') {
+    return false;
+  }
+  return (tool as BuiltinToolDef).forcePaidKey === true;
+}
+
+/** Providers that resolve a vault `keySlot` on each turn. */
+export function providerUsesKeySlots(provider: Provider): boolean {
+  return provider === 'google' || provider === 'openrouter';
+}
+
+/**
+ * Pick the key slot for a turn from profile key, model pin, and enabled builtins.
+ *
+ * When `required` is false and nothing pins a slot, returns `undefined` so hosts
+ * can use a single flat `apiKey` (OpenRouter without a vault).
+ */
+function resolveKeySlot(
+  profileKey: KeySlot | undefined,
   spec: ModelSpec,
   builtins: BuiltinToolId[],
-): GeminiBucket {
+  required: boolean,
+): KeySlot | undefined {
   if (spec.key) {
     return spec.key;
   }
-  if (builtins.some((id) => !spec.keyBuiltins.includes(id))) {
+  if (builtins.some((id) => builtinForcesPaid(id))) {
     return 'paid';
   }
-  return profileKey;
+  if (profileKey) {
+    return profileKey;
+  }
+  if (required) {
+    throw new TheorumError('Profile must set model.key or model.config.*.key');
+  }
+  return undefined;
 }
 
-export { resolveGeminiBucket };
+export { resolveKeySlot };

@@ -25,7 +25,9 @@ const GITHUB_PAT = /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g;
 const GITHUB_TOKEN = /\bghp_[A-Za-z0-9]{36}\b/g;
 const SLACK_TOKEN = /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g;
 const BEARER = /\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi;
-const PEM_KEY = /-----BEGIN (?:RSA )?PRIVATE KEY-----[\s\S]+?-----END (?:RSA )?PRIVATE KEY-----/g;
+/** Bounded payload so PEM redaction cannot ReDoS on repeated BEGIN markers. */
+const PEM_KEY =
+  /-----BEGIN (?:RSA )?PRIVATE KEY-----[\s\S]{0,16384}?-----END (?:RSA )?PRIVATE KEY-----/g;
 const CARD_CANDIDATE = /\b(?:\d[\s.-]*?){13,19}\b/g;
 
 const KEY_PATTERNS = [

@@ -14,8 +14,8 @@
     "jsr:@ts-morph/common@0.29": "0.29.0",
     "npm:@ast-grep/cli@0.41": "0.41.1",
     "npm:@biomejs/biome@^2.5.8": "2.5.11",
-    "npm:@openrouter/ai-sdk-provider@3": "3.0.0_ai@7.0.84__zod@4.5.2",
-    "npm:ai@7": "7.0.84_zod@4.5.2",
+    "npm:@openrouter/ai-sdk-provider@3": "3.0.0_ai@7.0.84__zod@3.25.76_zod@3.25.76",
+    "npm:ai@7": "7.0.84_zod@3.25.76",
     "npm:fallow@3.17.0": "3.17.0",
     "npm:gpt-tokenizer@4": "4.0.0"
   },
@@ -73,7 +73,7 @@
     }
   },
   "npm": {
-    "@ai-sdk/gateway@4.0.68_zod@4.5.2": {
+    "@ai-sdk/gateway@4.0.68_zod@3.25.76": {
       "integrity": "sha512-XKvZv6HFoMOWK64zXMaQatk4SxBzBDkGg7enXPWsCkxqPP4zDhFewOoBKasf3FPnZP9ceE+Yj3BgW925blAWtw==",
       "dependencies": [
         "@ai-sdk/provider",
@@ -82,7 +82,7 @@
         "zod"
       ]
     },
-    "@ai-sdk/provider-utils@5.0.33_zod@4.5.2": {
+    "@ai-sdk/provider-utils@5.0.33_zod@3.25.76": {
       "integrity": "sha512-TfjJqJmRsQyxAlb+3hGmP1o1xLUIT79yhOgtJuTF4hqsB37IC3CufGsuFhU04EeTOg7R9iptQ6Bzm0MW0n/c3g==",
       "dependencies": [
         "@ai-sdk/provider",
@@ -245,7 +245,7 @@
       "os": ["win32"],
       "cpu": ["x64"]
     },
-    "@openrouter/ai-sdk-provider@3.0.0_ai@7.0.84__zod@4.5.2": {
+    "@openrouter/ai-sdk-provider@3.0.0_ai@7.0.84__zod@3.25.76_zod@3.25.76": {
       "integrity": "sha512-m9XTSWoODH2RM5OsZpaGiN7QRR8cdP5paBWq699Tu3JVmGPBKT8xF8XwV0ZBVVsjikD/JgWfak4VSsTR4wAVbg==",
       "dependencies": [
         "ai",
@@ -361,7 +361,7 @@
     "@workflow/serde@4.1.0": {
       "integrity": "sha512-pav4F2BoirECWR7Nf1TKt+2eETcBj7jj4cBefQ8VXQCA6NPkaKeLfj/zMgi+3zYV5ZIBT4GuUiphsj0/b9hPQQ=="
     },
-    "ai@7.0.84_zod@4.5.2": {
+    "ai@7.0.84_zod@3.25.76": {
       "integrity": "sha512-znHNBWADOy79k8EK7636kDm5LmnjF4tMzegC2TfmlLDobDZbs0z0OXD2sxtH3eDTp5Re+pJQESvjinWJ6+kadQ==",
       "dependencies": [
         "@ai-sdk/gateway",
@@ -436,8 +436,8 @@
     "undici@7.29.0": {
       "integrity": "sha512-IDxfleLmmbSskfWSUATiN1nfn2rDuvnMOqb5CWR92iIfojA0Ud+ulOAAEQ57LPr9rWmsreUyf5lwyao+7GNNVw=="
     },
-    "zod@4.5.2": {
-      "integrity": "sha512-XkYXCol10+ba/6F/cueWV+TezUeOqXW0hdeJt5CdXjTYeAgAQg5N03RQdJ80mhfFE72+pblvYMW4wy2Qp4Qbrg=="
+    "zod@3.25.76": {
+      "integrity": "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="
     }
   },
   "workspace": {
@@ -446,13 +446,15 @@
       "jsr:@std/assert@1",
       "npm:@openrouter/ai-sdk-provider@3",
       "npm:ai@7",
-      "npm:gpt-tokenizer@4"
+      "npm:gpt-tokenizer@4",
+      "npm:zod@^4.1.8"
     ],
     "packageJson": {
       "dependencies": [
         "npm:@ast-grep/cli@0.41",
         "npm:@biomejs/biome@^2.5.8",
         "npm:@openrouter/ai-sdk-provider@3",
+        "npm:@stryker-mutator/core@10",
         "npm:ai@7",
         "npm:fallow@3.17.0",
         "npm:gpt-tokenizer@4"

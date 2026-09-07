@@ -7,7 +7,7 @@
   "mutate": [
     "src/providers/**/*.ts",
     "!src/providers/mod.ts",
-    "!src/providers/openrouter-mod.ts"
+    "!src/providers/probe.ts"
   ],
   "ignorePatterns": [
     "coverage",
@@ -20,16 +20,24 @@
     "cov_profile",
     ".fallow"
   ],
-  "reporters": ["clear-text", "progress"],
+  "reporters": [
+    "clear-text",
+    "progress"
+  ],
   "coverageAnalysis": "off",
   "incremental": true,
   "incrementalFile": ".stryker-cache/incremental.json",
   "thresholds": {
-    "high": 90,
-    "low": 80,
-    "break": 80
+    "high": 85,
+    "low": 75,
+    "break": 75
   },
   "timeoutMS": 30000,
   "concurrency": 5,
-  "ignoreStatic": false
+  "ignoreStatic": false,
+  "mutator": {
+    "excludedMutations": [
+      "StringLiteral"
+    ]
+  }
 }

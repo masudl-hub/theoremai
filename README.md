@@ -10,11 +10,11 @@
 
 # THEORUM: The Flat Agent Kernel
 
-**Current release: `0.1.15`** (`jsr:@theorum/core` / npm `theorum`).
+**Current release: `1.0.0`** (`jsr:@theorum/core` / npm `theorum`).
 
 > **"Profiles describe the contract. Providers move bytes. The runner enforces the turn."**
 
-THEORUM is a compact TypeScript agent kernel for apps that need deterministic agent execution without embedding product logic inside the runtime. It gives a host application one runner, typed profiles, multimodal input normalization, dynamic tool dispatch, provider adapters, trace sinks, and guardrail hooks.
+THEORUM is a compact TypeScript agent kernel for apps that need deterministic agent execution without embedding product logic inside the runtime. It gives a host application one runner, typed profiles, multimodal input normalization, a registered tool system with per-turn gating, provider adapters, trace sinks, and guardrail hooks.
 
 The package is intentionally **not** an agent product. It ships no app profiles, no prompts, no secrets, no database policy, no business rules, and no channel-specific UX. Those belong in the host application.
 
@@ -29,7 +29,7 @@ OpenRouter chat transport is powered by Vercel AI SDK Core under the adapter. TH
 profiles = "Host-owned declarations for model, inputs, outputs, tools, and guardrails"
 runner = "Single deterministic execution path for one agent turn"
 providers = "createProvider routes protocol/provider; adapters stay internal"
-tools = "Profile allowlist ceiling plus per-turn dynamic declarations"
+tools = "Profile allowlist ceiling plus per-turn opt-in gates"
 egress = "Typed host hook for outbound disclosure checks and repair loops"
 traces = "Host-injected sinks; no environment variables or bundled destinations"
 
@@ -61,7 +61,7 @@ flowchart TD
         Resolve["resolveTurn"]
         Guard["sanitize + canary + egress"]
         Runner["runTurn"]
-        ToolLoop["dynamic tool loop"]
+        ToolLoop["registered tool loop"]
         Repair["repair attempts"]
     end
 
@@ -84,26 +84,65 @@ flowchart TD
     Runner --> TraceSink
 ```
 
-Hosts bind transports with `createProvider(profile, { gemini, openRouter })`. One door; protocol/provider (and speech role) pick the adapter.
+Hosts bind transports with `createProvider(profile, { gemini, openAiGateway })`. One door; protocol/provider (and speech role) pick the adapter.
 
-### Turn Lifecycle
+### Turn execution and tools
+
+One turn is a single pipeline. Tools share `executeRegisteredTool` with `invokeTool`; compaction,
+guardrails, and streaming attach at different layers.
 
 ```mermaid
-stateDiagram-v2
-    [*] --> ResolveProfile: host sends TurnRequest
-    ResolveProfile --> NormalizeInput: profile input rules
-    NormalizeInput --> BindBoundary: canary + user data fencing
-    BindBoundary --> ProviderStream: ModelProvider.complete
-    ProviderStream --> ToolDispatch: tool event
-    ToolDispatch --> ProviderStream: autonomous loop continues
-    ProviderStream --> EgressGate: final candidate
-    EgressGate --> RepairTurn: blocked + retry budget
-    RepairTurn --> ProviderStream
-    EgressGate --> ValidateOutput: clear
-    ValidateOutput --> EmitEvents: text/media/structured/tokens/done
-    EmitEvents --> Trace: host sink receives audit record
-    Trace --> [*]
+flowchart TD
+  subgraph Host["Host application"]
+    REG["registerTool at startup"]
+    REQ["TurnRequest<br/>(tools gate · continueFrom · …)"]
+    UI["Pause UI"]
+    INV["invokeTool(resume)"]
+  end
+
+  subgraph Ingress["runTurn ingress"]
+    SAN["sanitizeTurnRequest"]
+    RES["resolveTurn → TurnToolSnapshot"]
+    CB{"timing: before<br/>compact history?"}
+    SYS["system + canary<br/>(+ CONTINUE_INSTRUCTION if continueFrom)"]
+  end
+
+  subgraph Attempt["Attempt (egress / validation retries)"]
+    subgraph Steps["maxSteps loop"]
+      PL["provider.complete<br/>(wire schemas + history)"]
+      TE["executeRegisteredTool"]
+      HK["formatToolResult → history<br/>or Interactions continuation"]
+    end
+    EG["egress + validation<br/>(assistant text in attempt)"]
+  end
+
+  OUT["done<br/>(stop · tokens · compaction signal?)"]
+  TR["trace record"]
+
+  REG -.-> TE
+  REQ --> SAN --> RES --> CB --> SYS --> Steps
+  PL -->|model tool calls| TE
+  TE -->|complete| HK --> PL
+  TE -->|pause · exit step loop| EG
+  UI --> INV --> TE
+  Steps -->|loop ends| EG
+  EG -->|repair retry| SAN
+  EG --> OUT --> TR
+
+  INV -.->|separate entry · no provider| TE
 ```
+
+**How the verticals meet tools:**
+
+| Vertical | Where it runs | Tool interaction |
+| --- | --- | --- |
+| **Compaction** | Before turn (`timing: 'before'`) or signal on `done` (`timing: 'after'`) | Summarizes `TurnHistoryMessage` history — including `tool_calls` and `role: 'tool'` rows — not the live registry or mid-turn wire snapshot |
+| **Guardrails** | Ingress sanitize; egress/validation after the step loop | Sanitizes user text and history content; tool catalog descriptions and model-emitted arguments are host/registration concerns. Egress inspects assistant **text** in the attempt, not tool progress events |
+| **Streaming** | Provider stream + tool handler generators | Provider tool-call events buffer until execution; handler `progress` / `trace` / `artifact` / `warning` phases stream during `executeRegisteredTool`. `streamThoughts: false` filters thoughts only |
+| **Resumption** | Two paths — do not mix | **`stop.kind: 'tool'`** → host UI → `invokeTool` with `resume` (skips turn gate). **`length` / `stream_incomplete` / …** → new `runTurn` with `continueFrom` (+ `CONTINUE_INSTRUCTION` in system); host must re-gate tools |
+
+On tool pause the `maxSteps` loop exits (`stop.kind: 'tool'`), egress may still evaluate
+buffered assistant text from that attempt, then the turn emits terminal `done`.
 
 ---
 
@@ -145,6 +184,7 @@ import {
 } from "jsr:@theorum/core";
 
 const profile = defineProfile({
+  type: "text",
   id: "assistant.basic",
   identity: {
     handle: "assistant",
@@ -157,18 +197,19 @@ const profile = defineProfile({
     config: {
       hostFastModel: {
         apiId: "perplexity/sonar",
-        openRouterId: "perplexity/sonar",
         thinking: { on: "high", off: "minimal" },
         thinkingLevels: ["minimal", "low", "medium", "high"],
         summaries: { on: "auto", off: "none" },
         maxOutputTokens: 8192,
         temperature: 1,
-        keyBuiltins: [],
+        builtInTools: [],
       },
     },
     thinking: "minimal",
     maxSteps: 1,
   },
+  tools: { allow: [] },
+  inputs: { text: true },
   outputs: {
     streaming: { streamThoughts: false },
   },
@@ -197,38 +238,52 @@ for await (const event of runTurn(
 
 ---
 
-## Dynamic Tools
+## Registered Tools
 
-THEORUM separates tool concerns into three layers.
+THEORUM separates tool concerns into four layers.
 
 | Layer | Owner | Purpose |
 | :--- | :--- | :--- |
-| **Access** | Profile | Hard ceiling: the agent cannot use a tool outside `profile.tools.allow`. |
-| **Visibility** | Turn request | Per-turn declarations: T0/T1/T2 schemas can be passed or loaded dynamically. |
-| **Permission** | Host app | `auto`, `session_consent`, and `always_confirm` determine whether execution pauses. |
+| **Catalog** | Host (startup) | `registerTool` — schema, handler, access, loadTier, permission |
+| **Allow** | Profile | Custom: `tools.allow`. Builtins: `model.config.*.builtInTools` |
+| **Visibility** | Registry + profile | `loadTier` on tool; T1 via `tools.t1Policy`; T2 via `tools.t2Loader` |
+| **Permission** | Host app | `auto`, `session_consent`, and `always_confirm` determine whether execution pauses |
 
 ```ts
-const dynamicTools = [
-  {
-    name: "lookup_order",
-    description: "Fetch order state from the host application.",
-    loadTier: "T1",
-    permissionTier: "session_consent",
-    parameters: {
-      type: "object",
-      properties: { orderId: { type: "string" } },
-      required: ["orderId"],
-    },
-    handler: async (args) => ({
-      status: "ok",
-      finding: "Order is in transit.",
-      data: { orderId: args.orderId, state: "in_transit" },
-    }),
-  },
-] as const;
+import { z } from 'zod';
+import { registerTool, invokeTool, runTurn } from 'theorum';
+
+registerTool({
+  type: 'function',
+  name: 'lookup_order',
+  description: 'Fetch order state from the host application.',
+  category: 'operations',
+  access: 'read-only',
+  paths: ['*'],
+  loadTier: 'T0',
+  permission: 'session_consent',
+  input: z.object({ orderId: z.string() }),
+  output: z.object({ finding: z.string() }),
+  handler: async (input) => ({
+    finding: `Order ${input.orderId} is in transit.`,
+  }),
+});
+
+// Profile allow
+tools: { allow: ['lookup_order', 'load_tools'] }
+
+runTurn({ profile, input: { text: '…' } }, provider);
+
+// Host resume (interactive, confirmation, permission)
+invokeTool({ profile, name: 'ask_user', input: { kind: 'confirm', prompt: 'Proceed?' }, resume: { value: true } });
 ```
 
-The host owns the handler and authorization state. The kernel only enforces the declared contract.
+The host owns handlers and authorization state. The kernel enforces the declared contract
+via shared `executeRegisteredTool` for model tool calls and `invokeTool` for host resumes.
+
+Function tools require **Zod** input/output schemas at registration time.
+
+**Migration:** [`docs/MIGRATION-tool-system.md`](docs/MIGRATION-tool-system.md) (breaking changes from `dynamicTools` / `ToolEnvelope`).
 
 ---
 
@@ -238,22 +293,28 @@ Inbound and outbound safety are generic kernel hooks.
 
 ```ts
 const guardedProfile = defineProfile({
+  type: "text",
   id: "assistant.guarded",
+  identity: { handle: "guarded", system: "You are a careful assistant." },
   model: {
+    protocol: "openAi",
+    provider: "openrouter",
     allow: ["hostFastModel"],
     config: {
       hostFastModel: {
         apiId: "perplexity/sonar",
-        openRouterId: "perplexity/sonar",
         thinking: { on: "high", off: "minimal" },
         thinkingLevels: ["minimal", "low", "medium", "high"],
         summaries: { on: "auto", off: "none" },
         maxOutputTokens: 8192,
         temperature: 1,
-        keyBuiltins: [],
+        builtInTools: [],
       },
     },
+    thinking: "minimal",
   },
+  tools: { allow: [] },
+  inputs: { text: true },
   guardrails: {
     egress: {
       onBlock: "reject_to_agent",
@@ -289,7 +350,7 @@ import { createProvider, runTurn } from "jsr:@theorum/core";
 
 const provider = createProvider(profile, {
   gemini: { vault: hostGeminiKeyVault, fetch },
-  openRouter: { apiKey: hostSecrets.openRouterApiKey },
+  openAiGateway: { apiKey: hostSecrets.openRouterApiKey },
   // openAi + local — optional; default baseUrl http://127.0.0.1:11434
   local: { baseUrl: hostResolvedLocalBaseUrl },
 });
@@ -299,7 +360,7 @@ for await (const event of runTurn({ profile: profile.id, input: { text: "…" } 
 }
 ```
 
-`createProvider` routes from `profile.model.protocol` / `provider`. Speech roles use the same call — Interactions when Google, `/audio/speech` when openAi/openrouter (same `openRouter` credentials).
+`createProvider` routes from `profile.model.protocol` / `provider`. Speech roles use the same call — Interactions when Google, `/audio/speech` when openAi/openrouter (same `openAiGateway` credentials).
 
 | Profile | Transport |
 | :--- | :--- |
@@ -310,17 +371,14 @@ for await (const event of runTurn({ profile: profile.id, input: { text: "…" } 
 
 Local adapters take an optional `baseUrl` (default `http://127.0.0.1:11434`). THEORUM does not read `OLLAMA_HOST`; hosts that honor that env should resolve it and pass `local.baseUrl`. History `parts` (including images) are mapped on the wire; `done` events include a normalized `stop` from the OpenAI `finish_reason`.
 
-OpenRouter uses Vercel AI SDK Core inside THEORUM's provider adapter. That stack
-loads **lazily on the first `complete` call** for `openAi` + `openrouter` chat —
-not when importing THEORUM, and not for Google or local providers. The adapter
-still emits THEORUM `TurnEvent` values and preserves raw provider evidence for
-citations/provenance where the normalized SDK stream does not expose enough detail.
-
-Advanced OpenRouter exports live under `theorum/openrouter` (`createOpenRouterProvider`,
-`toOpenRouterPayload`, …). Prefer `createProvider` for turns unless the host needs
-to wire the OpenRouter adapter directly. Direct local construction is also available
-as `createLocalProvider` from the main / providers entrypoints. Importing
-`theorum/openrouter` loads the Vercel SDK immediately.
+OpenRouter uses Vercel AI SDK Core inside THEORUM's provider adapter. Provider
+adapters load **lazily on the first `complete` call** for the selected transport —
+not when importing THEORUM. Importing `createProvider` alone does not pull in
+Google Interactions, OpenRouter/AI SDK, speech, or local adapter graphs.
+The OpenRouter adapter still emits THEORUM `TurnEvent` values and preserves raw
+provider evidence for citations/provenance where the normalized SDK stream does
+not expose enough detail. Use `createProvider` for all turns; adapter modules
+stay internal to the providers package.
 
 ---
 
@@ -330,14 +388,16 @@ as `createLocalProvider` from the main / providers entrypoints. Importing
 | :--- | :--- |
 | `jsr:@theorum/core` / `theorum` | Main kernel API: profiles, schemas, runner, core types, provider constructors. |
 | `jsr:@theorum/core/kernel` / `theorum/kernel` | Profile/turn types, tool catalog, `requireModelSpec`, thinking clamps over host model maps. |
-| `jsr:@theorum/core/providers` / `theorum/providers` | `createProvider` + Gemini vault types. |
-| `jsr:@theorum/core/openrouter` / `theorum/openrouter` | Direct OpenRouter provider adapter and payload helpers (advanced). |
-| `jsr:@theorum/core/guardrails` / `theorum/guardrails` | Sanitization, public error mapping, inbound injection/sensitive-data primitives. |
+| `jsr:@theorum/core/providers` / `theorum/providers` | `createProvider` + Gemini vault types + host option bags. |
+| `jsr:@theorum/core/providers/local` / `theorum/providers/local` | Direct local OpenAI-compat adapter (`createLocalProvider`, `DEFAULT_LOCAL_BASE_URL`). |
+| `jsr:@theorum/core/guardrails` / `theorum/guardrails` | Sanitization, canary/egress gates, public error mapping, inbound injection/sensitive-data primitives. |
+| `jsr:@theorum/core/guardrails/testing` / `theorum/guardrails/testing` | Adversarial corpus + fuzz helpers (test/harness only). |
 | `jsr:@theorum/core/observability` / `theorum/observability` | Trace sinks and trace record helpers. |
 | `jsr:@theorum/core/host` / `theorum/host` | Optional Deno HTTP helpers (`json`, status mapping, cutout mint flush). |
 | `jsr:@theorum/core/cli` / `theorum/cli` | Profile inspection and stress-test CLI (`theorum` binary on npm). |
 | `jsr:@theorum/core/presets` / `theorum/presets` | Optional convenience packs (`registerGooglePreset`, …). |
-| `jsr:@theorum/core/presets/google` / `theorum/presets/google` | Google builtins (search/maps/urlContext) + Interactions/OpenRouter wire metadata. |
+| `jsr:@theorum/core/presets/google` / `theorum/presets/google` | Google builtins (search/maps/urlContext/codeExecution) + Interactions/OpenRouter wire metadata. |
+| `jsr:@theorum/core/interface` / `theorum/interface` | Headless profile-driven runtime UI spec (`interfaceFromProfile`, `foldTurnEvents`, input validation). |
 
 Internal files remain present in source for maintainability, but package consumers should use the public entrypoints above.
 
@@ -348,39 +408,55 @@ Named exports from the root barrel (same symbols hosts get from `theorum` /
 
 | Group | Symbols |
 | --- | --- |
-| Guardrails errors | `describeError`, `isAbortError`, `publicError`, `TheorumError`, `throwIfAborted`, `toErrorEvent` |
+| Guardrails errors | `describeError`, `isAbortError`, `publicError`, `TheorumError`, `throwIfAborted`, `toErrorEvent`, `PUBLIC_CANARY` |
 | Quota | `QuotaSlotStatus`, `clientIp`, `quotaMessage`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |
-| Sanitize | `PROJECT_ID_MAX`, `sanitizeProjectId`, `sanitizeText`, `sanitizeTurnRequest` |
+| Sanitize | `PROJECT_ID_MAX`, `sanitizeProjectId`, `sanitizeText`, `sanitizeTurnRequest`, `sanitizeTurnRequestForTrace`, `redactSensitiveOnly` |
+| Canary / egress | `mintCanary`, `bindCanary`, `wrapUserData`, `scanTextForCanaryLeak`, `redactCanary`, `OMIT_CANARY`, `createCanaryStreamGate`, `eventHasCanary`, `createCanaryGateSession`, `filterCanaryGatedEvents`, `CanaryGateResult`, `CanaryGateSession`, `CanaryStreamGate`, `standardEgressEnforce`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `LiveOutboundBatchResult`, `LiveOutboundGateSession` |
 | Compaction | `CompactionSplit`, `CompactionTokens`, `compactionMeter`, `compactionNeeded`, `estimateHistoryTokens`, `HISTORY_MEDIA_TOKENS`, `HISTORY_TEXT_ENCODING`, `resolveCompactionTokens`, `resolveHistoryTokens`, `shouldCompact`, `splitForCompaction` |
-| Runner | `runTurn` |
-| Catalog | `CATALOG`, `clampThinkingLevel`, `clampThinkingLevelForApiId`, `mediaKindForMime`, `getTool`, `listBuiltinIds`, `mimeAllowed`, `mimeEssence`, `modelEntryByApiId`, `registerTools`, `requireModelSpec`, `resetTools` |
-| Profiles | `ProfileDefinition`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `resolveTurn` |
-| Structured | `getStructured`, `registerStructured`, `executeTool` |
-| Stop / resume | `ProfileResumeSpec`, `TurnContinueFrom`, `TurnStop`, `TurnStopKind`, `AUTO_CONTINUE_DELAY_MS`, `CONTINUE_INSTRUCTION`, `DEFAULT_AUTO_CONTINUE`, `GenerationStopError`, `isGenerationStopError`, `isResumeableStop`, `isUserCancelledStop`, `shouldAutoContinue`, `turnStopFromClientStreamEnd`, `turnStopFromInteractionStatus`, `turnStopFromOpenRouter` |
+| Runner | `runTurn`, `runSession`, `RunSessionOptions`, `prepareLiveInboundText` |
+| Attachments | `assertAttachmentLimits`, `fileTooLargeMessage`, `maxBytesForMime`, `requireMediaLimits`, `resolveMediaLimits`, `sanitizeCsvText`, `sanitizeTurnBlobs`, `sanitizeTurnBlobsForProfile`, `tooManyFilesMessage`, `turnTooLargeMessage` |
+| Interface (headless) | `interfaceFrom`, `interfaceFromProfile`, `interfaceFromProjected`, `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime`, `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `resetBlockIds`, `streamThoughtsEnabled`, `AttachmentValidationCode`, `AttachmentValidationIssue`, `AttachmentValidationResult`, `FoldTurnEventsOptions`, `ImageProfileInterface`, `LiveProfileInterface`, `NormalizeModel`, `NormalizedModel`, `PendingAttachment`, `ProfileGuardrailsView`, `ProfileInputsInterface`, `ProfileInterface`, `ProfileInterfaceSource`, `ResolvedTools`, `SpeechProfileInterface`, `TextProfileInterface`, `TranscriptBlock`, `TranscriptBlockKind`, `UserTurnDraft` |
+| Catalog | `clampThinkingLevel`, `clampThinkingLevelForApiId`, `mediaKindForMime`, `mimeAllowed`, `mimeEssence`, `modelEntryByApiId`, `requireModelSpec` |
+| Schema | `PROFILE_FIELDS`, `PROFILE_TYPES`, `PROFILE_TYPE_PROTOCOLS`, `protocolsForProfileType`, `isValidProfileProtocol`, `EXTRA_FIELDS`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `PROTOCOLS`, `PROVIDERS`, `PROTOCOL_PROVIDERS`, `providersFor`, `protocolsFor`, `isValidPair`, `coerceProvider`, `coerceProtocol`, `THINKING_LEVELS`, `CONTROL_IDS`, `KEY_SLOTS`, `OVERFLOW_KEY_SLOTS`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `SCHEMA_ENFORCEMENTS`, `COMPACTION_METERS`, `COMPACTION_TIMINGS`, `EGRESS_ON_BLOCK`, `TURN_STOP_KINDS`, `TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES`, `LIVE_ACTIVITY_HANDLINGS`, `LIVE_CONTEXT_COMPRESSIONS`, `LIVE_SPEECH_SENSITIVITIES` |
+| Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `LiveProfileDefinition`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `resolveTurn`, `pickModel` |
+| Tools | `registerTool`, `registerTools`, `invokeTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `listBuiltinIds`, `listFunctionIds`, `resetTools`, `formatToolResult`, `prepareTurnToolSnapshot` |
+| Structured | `getStructured`, `registerStructured` |
+| Stop / resume | `ProfileTurnResumptionSpec`, `TurnContinueFrom`, `TurnStop`, `TurnStopKind`, `AUTO_CONTINUE_DELAY_MS`, `CONTINUE_INSTRUCTION`, `DEFAULT_AUTO_CONTINUE`, `GenerationStopError`, `isGenerationStopError`, `isResumeableStop`, `isUserCancelledStop`, `shouldAutoContinue`, `turnStopFromClientStreamEnd`, `turnStopFromInteractionStatus`, `turnStopFromOpenAiFinishReason` |
 | Observability | `jsonlSink`, `memorySink`, `noopSink`, `resolveTraceDir`, `sinkFromDir`, `writeTrace`, `TraceRecord` |
-| Providers | `CreateProviderOptions`, `GeminiTransport`, `GeminiVault`, `LocalProviderConfig`, `createLocalProvider`, `createProvider`, `DEFAULT_LOCAL_BASE_URL` |
+| Providers | `CreateProviderOptions`, `GeminiTransport`, `KeyVault`, `LocalProviderConfig`, `OpenAiGatewayConfig`, `createProvider` (local: `theorum/providers/local` → `createLocalProvider`, `DEFAULT_LOCAL_BASE_URL`) |
 
 Kernel types re-exported through this barrel follow `export type *` from
-`src/kernel/types.ts` (see `src/kernel/CONTRACT.md`).
+`src/kernel/types.ts` (behavioral detail for contributors: repo
+`docs/contracts/kernel.md`).
 
 ---
 
 ## Documentation
 
-Package docs are co-located with each public export (plus this README for `.`):
+THEORUM keeps **package docs** and **repo contracts** separate.
 
-| Doc | Export |
+| Surface | What it is | In the published package? |
+| --- | --- | --- |
+| **This README** | How hosts use THEORUM (API, boundaries, examples) | Yes |
+| **Repo contracts** (`docs/contracts/*.md`) | Maintainer ownership + behavioral specs for docs-truth | **No** — GitHub / clone only |
+| **Docs-truth** (`docs/DOCS_TRUTH.md`, `docs/_map.mjs`) | Lint graph that enforces those contracts | **No** |
+
+On GitHub, module contracts:
+
+| Doc (repo only) | Export |
 | :--- | :--- |
-| [`src/kernel/CONTRACT.md`](src/kernel/CONTRACT.md) | `theorum/kernel` — profiles, runner, compaction, stop/resume |
-| [`src/providers/CONTRACT.md`](src/providers/CONTRACT.md) | `theorum/providers` — `createProvider`, secrets boundary |
-| [`src/providers/OPENROUTER.md`](src/providers/OPENROUTER.md) | `theorum/openrouter` |
-| [`src/guardrails/CONTRACT.md`](src/guardrails/CONTRACT.md) | `theorum/guardrails` |
-| [`src/observability/CONTRACT.md`](src/observability/CONTRACT.md) | `theorum/observability` |
-| [`src/host/CONTRACT.md`](src/host/CONTRACT.md) | `theorum/host` |
-| [`src/cli/CONTRACT.md`](src/cli/CONTRACT.md) | `theorum/cli` |
-| [`src/presets/CONTRACT.md`](src/presets/CONTRACT.md) | `theorum/presets` |
-| [`src/presets/GOOGLE.md`](src/presets/GOOGLE.md) | `theorum/presets/google` |
-| [`src/streaming/CONTRACT.md`](src/streaming/CONTRACT.md) | `theorum/streaming` |
+| [`docs/contracts/kernel.md`](docs/contracts/kernel.md) | `theorum/kernel` |
+| [`docs/contracts/providers.md`](docs/contracts/providers.md) | `theorum/providers` |
+| [`docs/contracts/guardrails.md`](docs/contracts/guardrails.md) | `theorum/guardrails` |
+| [`docs/contracts/observability.md`](docs/contracts/observability.md) | `theorum/observability` |
+| [`docs/contracts/host.md`](docs/contracts/host.md) | `theorum/host` |
+| [`docs/contracts/kernel.md`](docs/contracts/kernel.md) (Headless interface) | `theorum/interface` |
+| [`docs/contracts/cli.md`](docs/contracts/cli.md) | `theorum/cli` |
+| [`docs/contracts/presets.md`](docs/contracts/presets.md) | `theorum/presets` |
+| [`docs/contracts/presets-google.md`](docs/contracts/presets-google.md) | `theorum/presets/google` |
+
+Migrating from per-turn `dynamicTools`? See
+[`docs/MIGRATION-tool-system.md`](docs/MIGRATION-tool-system.md).
 
 Document health is enforced by `npm run lint:docs` — the **first** step of
 `npm run lint` / `deno task lint` (`docs/_map.mjs`):
@@ -389,6 +465,9 @@ Document health is enforced by `npm run lint:docs` — the **first** step of
 - Export parity with `package.json` and export-drift vs entry `mod.ts` files
 - Doc + **section** freshness on every code change (no Export-only gaming)
 - Behavioral sections require `contract_test` evidence (≥2 supports each)
+- Publish gates keep `docs/` and `src/**/*.md` out of npm/JSR (`verify-publish-bundle`)
+- Freshness diffs use a 32 MiB `git` buffer so large `origin/main...HEAD` patches
+  are not silently dropped (`ENOBUFS`)
 - Pre-commit runs `lint:docs` automatically (`prepare` installs the hook on `npm install`)
 
 ---
@@ -418,16 +497,16 @@ cd npm
 npm pack
 ```
 
-Run a live OpenRouter smoke test with a host-resolved key. The key is passed as an argument and is never read from a Theorum `.env` file.
+Run an OpenRouter provider smoke test with a host-resolved key. The key is passed as an argument and is never read from a Theorum `.env` file.
 
 ```bash
-deno run --allow-net scripts/verify-live.ts --api-key "$OPENROUTER_API_KEY"
+deno run --allow-net scripts/verify-provider-smoke.ts --api-key "$OPENROUTER_API_KEY"
 ```
 
-The default live verifier uses `perplexity/sonar` because it is broadly available on OpenRouter. Hosts can override both the profile-facing model id and provider-native id:
+The default smoke uses `perplexity/sonar` because it is broadly available on OpenRouter. Hosts can override both the profile-facing model id and provider-native id:
 
 ```bash
-deno run --allow-net scripts/verify-live.ts \
+deno run --allow-net scripts/verify-provider-smoke.ts \
   --api-key "$OPENROUTER_API_KEY" \
   --model hostFastModel \
   --api-id perplexity/sonar
@@ -446,9 +525,16 @@ env_files_in_package = false
 ambient_secret_reads = false
 business_logic_in_kernel = false
 provider_keys_host_owned = true
+provider_adapters_lazy = true
 trace_sinks_host_injected = true
 realtime_duplex_voice = "out of scope"
 ```
+
+Provider adapters load **lazily** on the first `complete` for that transport —
+`createProvider` and `theorum/providers` stay a thin barrel (`src/providers/mod.ts`);
+implementation modules (e.g. `google/interactions/`, `openrouter/`, `local/`) are
+not pulled in at import time. `trace-attach` lazy-loads Interactions wire helpers
+only for `geminiInteractions` traces.
 
 If an app needs domain rules, platform delivery policy, product copy, database access, or session memory, that belongs outside THEORUM.
 
@@ -487,6 +573,7 @@ MIT License. Copyright (c) ORCHID AI LLC.
     },
     "Package Boundary": {
       "supports": [
+        { "kind": "source", "path": "src/providers/mod.ts" },
         { "kind": "source", "path": "src/providers/create-provider.ts" },
         { "kind": "contract_test", "path": "tests/providers/create-provider.test.ts" }
       ]

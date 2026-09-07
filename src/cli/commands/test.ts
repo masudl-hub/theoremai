@@ -1,6 +1,7 @@
 import { runTurn } from '../../kernel/engine/runner.ts';
 import { getProfile, listProfiles } from '../../kernel/registry/profiles.ts';
-import type { ModelProvider, Profile, TurnEvent, TurnRequest } from '../../kernel/types.ts';
+import type { ModelProvider, Profile, TurnRequest } from '../../kernel/types.ts';
+import { createCliTraceCapture, printTestEvent, printTraceRecord } from '../event-log.ts';
 import {
   buildCustomTurnRequest,
   type MatrixOptions,
@@ -22,38 +23,43 @@ interface TestExecutionAccumulator {
 }
 
 function printTestHeader(req: TurnRequest, testName: string): void {
-  const activeTools = Object.entries(req.tools ?? {})
-    .filter(([, v]) => Boolean(v))
-    .map(([k]) => k)
-    .join(', ');
+  const profile = getProfile(req.profile);
+  const modelId =
+    req.select && profile.model.select?.[req.select]
+      ? profile.model.select[req.select]
+      : profile.model.allow[0];
+  const customs = profile.type === 'speech' ? 'none' : profile.tools.allow.join(', ') || 'none';
+  const builtins = (profile.model.config[modelId]?.builtInTools ?? []).join(', ') || 'none';
 
   console.log(`\n▶ [THEORUM TEST] ${testName}`);
   console.log(`  Profile:     ${req.profile} (Mode: ${req.select ?? 'default'})`);
-  console.log(`  Tools:       ${activeTools || 'none'}`);
+  console.log(`  Custom:      ${customs}`);
+  console.log(`  Builtins:    ${builtins}`);
   console.log(
     `  Attachments: ${req.input?.attachments?.length ?? 0} file(s) | Voice: ${req.input?.voice?.length ? 'yes' : 'no'}`,
   );
   console.log(`  ${'-'.repeat(60)}`);
 }
 
-function processTestEvent(event: TurnEvent, acc: TestExecutionAccumulator): void {
-  if (event.type === 'thought' && event.text) {
-    Deno.stdout.write(new TextEncoder().encode('.'));
-  } else if (event.type === 'tool' && event.tool) {
-    console.log(
-      `\n  ⚡ [Tool Dispatched] ${event.tool.name}(${JSON.stringify(event.tool.arguments ?? {})})`,
-    );
-  } else if (event.type === 'structured') {
-    console.log(`\n  ✓ [Structured Schema Validated]`);
-  } else if (event.type === 'media') {
-    console.log(`\n  ✓ [Media Generated] (${event.media?.mimeType})`);
-  } else if (event.type === 'tokens' && event.tokens) {
+interface CliTestOptions {
+  verbose?: boolean;
+  trace?: boolean;
+  traceDir?: string;
+}
+
+function processTestEvent(
+  event: Parameters<typeof printTestEvent>[0],
+  acc: TestExecutionAccumulator,
+  options: CliTestOptions,
+): void {
+  if (event.type === 'tokens' && event.tokens) {
     acc.totalTokens = event.tokens.total;
-  } else if (event.type === 'error' && event.error) {
+  }
+  if (event.type === 'error' && event.error) {
     acc.hasError = true;
     acc.errorMessage = event.error;
-    console.error(`\n  [Test Error Detail]: ${event.error}`);
   }
+  printTestEvent(event, { verbose: options.verbose });
 }
 
 function printTestResult(
@@ -74,6 +80,7 @@ export async function executeSingleTest(
   req: TurnRequest,
   testName: string,
   provider?: ModelProvider,
+  cliOptions: CliTestOptions = {},
 ): Promise<TestRunResult> {
   const start = Date.now();
   getProfile(req.profile);
@@ -91,8 +98,12 @@ export async function executeSingleTest(
         'Theorum CLI does not create providers or read keys. Pass an explicit ModelProvider from the host app.',
       );
     }
-    for await (const event of runTurn(req, provider)) {
-      processTestEvent(event, acc);
+    const traceCapture = cliOptions.trace ? createCliTraceCapture(cliOptions.traceDir) : undefined;
+    for await (const event of runTurn(req, provider, traceCapture?.sink)) {
+      processTestEvent(event, acc, cliOptions);
+    }
+    if (cliOptions.trace) {
+      printTraceRecord(traceCapture?.records.at(-1), cliOptions.verbose === true);
     }
   } catch (err) {
     acc.hasError = true;
@@ -136,11 +147,17 @@ function resolveTargetProfiles(
 async function runProfileMatrix(
   profile: Profile,
   provider?: ModelProvider,
+  cliOptions: CliTestOptions = {},
 ): Promise<TestRunResult[]> {
   const results: TestRunResult[] = [];
   const combos = synthesizeMatrixCombos(profile);
   for (const combo of combos) {
-    const res = await executeSingleTest(combo.req, `${profile.id} [${combo.name}]`, provider);
+    const res = await executeSingleTest(
+      combo.req,
+      `${profile.id} [${combo.name}]`,
+      provider,
+      cliOptions,
+    );
     results.push(res);
   }
   return results;
@@ -150,10 +167,11 @@ async function runProfileSingle(
   profile: Profile,
   options: MatrixOptions,
   provider?: ModelProvider,
+  cliOptions: CliTestOptions = {},
 ): Promise<TestRunResult> {
   const req = buildCustomTurnRequest(profile, options);
   const testName = options.lite ? `${profile.id} [Lite]` : `${profile.id} [Stress Combo]`;
-  return await executeSingleTest(req, testName, provider);
+  return await executeSingleTest(req, testName, provider, cliOptions);
 }
 
 function printSummaryReport(results: TestRunResult[]): boolean {
@@ -175,19 +193,31 @@ function printSummaryReport(results: TestRunResult[]): boolean {
 
 export async function testProfileCommand(
   profileId?: string,
-  options: MatrixOptions & { all?: boolean; matrix?: boolean; provider?: ModelProvider } = {},
+  options: MatrixOptions & {
+    all?: boolean;
+    matrix?: boolean;
+    provider?: ModelProvider;
+    verbose?: boolean;
+    trace?: boolean;
+    traceDir?: string;
+  } = {},
 ): Promise<boolean> {
   const targetProfiles = resolveTargetProfiles(profileId, options.all);
   if (!targetProfiles || targetProfiles.length === 0) {
     return false;
   }
 
+  const cliOptions: CliTestOptions = {
+    verbose: options.verbose,
+    trace: options.trace,
+    traceDir: options.traceDir,
+  };
   const results: TestRunResult[] = [];
   for (const profile of targetProfiles) {
     if (options.matrix) {
-      results.push(...(await runProfileMatrix(profile, options.provider)));
+      results.push(...(await runProfileMatrix(profile, options.provider, cliOptions)));
     } else {
-      results.push(await runProfileSingle(profile, options, options.provider));
+      results.push(await runProfileSingle(profile, options, options.provider, cliOptions));
     }
   }
 

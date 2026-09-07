@@ -5,6 +5,7 @@ import { getStructured } from '../../registry/schemas.ts';
 import type {
   ModelProvider,
   Profile,
+  ProfileEgressSpec,
   ProfileOutputsSpec,
   ResolvedGeneration,
   TurnEvent,
@@ -48,7 +49,7 @@ type EgressOutcome =
   | { action: 'withhold'; event: TurnEvent };
 
 async function evaluateEgressOutcome(args: {
-  egress: NonNullable<Profile['guardrails']['egress']>;
+  egress: ProfileEgressSpec;
   attemptEvents: TurnEvent[];
   generation: ResolvedGeneration;
   request: TurnRequest;
@@ -160,7 +161,7 @@ function updateFlowForRetry(flow: AttemptFlowState, nextReq: TurnRequest): void 
 }
 
 async function* handleEgressGate(
-  egress: NonNullable<Profile['guardrails']['egress']>,
+  egress: ProfileEgressSpec,
   flow: AttemptFlowState,
   state: StepExecutionState,
   profile: Profile,
@@ -246,12 +247,12 @@ async function* executeSingleAttemptCycle(args: {
   profile: Profile;
   system: string;
   provider: ModelProvider;
-  gemini: Record<string, unknown>[];
+  upstream: Record<string, unknown>[];
   maxRetries: number;
 }): AsyncGenerator<TurnEvent, AttemptStepAction> {
-  const { flow, state, profile, system, provider, gemini, maxRetries } = args;
-  const validation = profile.outputs.validation;
-  const egress = profile.guardrails.egress;
+  const { flow, state, profile, system, provider, upstream, maxRetries } = args;
+  const validation = profile.outputs?.validation;
+  const egress = profile.guardrails?.egress;
 
   state.attemptEvents = [];
   const { latestStructured } = yield* executeAttempt({
@@ -260,7 +261,7 @@ async function* executeSingleAttemptCycle(args: {
     generation: flow.currentGen,
     system,
     provider,
-    gemini,
+    upstream,
     state,
   });
 
@@ -300,12 +301,12 @@ async function* runAttemptsWithValidation(
   generation: ResolvedGeneration,
   system: string,
   provider: ModelProvider,
-  gemini: Record<string, unknown>[],
+  upstream: Record<string, unknown>[],
   state: StepExecutionState,
 ): AsyncGenerator<TurnEvent> {
   const maxRetries = Math.max(
-    profile.outputs.validation?.maxRetries ?? 0,
-    profile.guardrails.egress?.maxRetries ?? 2,
+    profile.outputs?.validation?.maxRetries ?? 0,
+    profile.guardrails?.egress?.maxRetries ?? 0,
   );
   const flow: AttemptFlowState = {
     currentAttempt: 0,
@@ -321,7 +322,7 @@ async function* runAttemptsWithValidation(
       profile,
       system,
       provider,
-      gemini,
+      upstream,
       maxRetries,
     });
     if (step.status === 'terminal' || step.status === 'success') {

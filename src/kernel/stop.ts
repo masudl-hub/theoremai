@@ -1,21 +1,13 @@
 /**
  * Normalized turn stop reasons and resume policy.
  *
- * Providers map Interactions `status` / OpenRouter `finish_reason` into `TurnStop`.
+ * Providers map Interactions `status` / OpenAI `finish_reason` into `TurnStop`.
  * Hosts classify client SSE drops via `turnStopFromClientStreamEnd`.
  *
  * @module
  */
 
-/** Why a turn ended (provider-neutral). */
-export type TurnStopKind =
-  | 'completed'
-  | 'length'
-  | 'tool'
-  | 'filtered'
-  | 'provider_error'
-  | 'cancelled'
-  | 'stream_incomplete';
+import type { TurnStopKind } from './schema.ts';
 
 /** Normalized stop attached to terminal `done` events and host continue requests. */
 export interface TurnStop {
@@ -47,18 +39,24 @@ export const DEFAULT_AUTO_CONTINUE: readonly TurnStopKind[] = ['length', 'stream
 /** Pause before the one-shot auto-continue so a flaky tunnel can settle. */
 export const AUTO_CONTINUE_DELAY_MS = 1_500;
 
-/** Profile resume policy under `outputs.resume`. */
-export interface ProfileResumeSpec {
+/** Profile turn-continuation policy under top-level `turnResumption`. */
+export interface ProfileTurnResumptionSpec {
   /**
    * Kinds eligible for a Continue / continueFrom turn.
-   * Defaults to length, stream_incomplete, provider_error.
+   * When omitted, length / stream_incomplete / provider_error are eligible.
    */
   allowContinue?: TurnStopKind[];
   /**
-   * Kinds the host may auto-continue once without a CTA.
-   * Kernel does not loop; hosts call continueFrom at most once.
+   * Kinds the host may auto-continue without a CTA.
+   * Kernel does not loop; hosts call continueFrom and pass `continuation`.
    */
   autoContinue?: TurnStopKind[];
+  /**
+   * Max continueFrom rounds the kernel will accept for this profile.
+   * Compared against `TurnRequest.continuation` (1-based continue attempt).
+   * When omitted, only kind allowlists apply (no count cap).
+   */
+  maxContinues?: number;
 }
 
 /** Partial state passed when continuing a resumeable stop. */
@@ -97,8 +95,8 @@ export function shouldAutoContinue(
   return list.includes(stop.kind) && isResumeableStop(stop);
 }
 
-/** OpenRouter normalized `finish_reason` (+ optional `native_finish_reason`). */
-export function turnStopFromOpenRouter(
+/** OpenAI-compatible normalized `finish_reason` (+ optional `native_finish_reason`). */
+export function turnStopFromOpenAiFinishReason(
   finishReason: string | null | undefined,
   nativeFinishReason?: string | null,
 ): TurnStop {
@@ -108,14 +106,10 @@ export function turnStopFromOpenRouter(
   if (effective === 'network_error' || effective.includes('network')) {
     return { kind: 'provider_error', native };
   }
-  return openRouterFinishKind((finishReason || '').toLowerCase(), effective, native);
+  return openAiFinishKind((finishReason || '').toLowerCase(), effective, native);
 }
 
-function openRouterFinishKind(
-  finish: string,
-  effective: string,
-  native: string | undefined,
-): TurnStop {
+function openAiFinishKind(finish: string, effective: string, native: string | undefined): TurnStop {
   if (finish === 'stop') {
     return /error|fail/.test(effective)
       ? { kind: 'provider_error', native }

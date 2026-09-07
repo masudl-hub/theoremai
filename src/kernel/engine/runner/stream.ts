@@ -1,8 +1,13 @@
+import {
+  type CanaryStreamGate,
+  createCanaryStreamGate,
+  eventHasCanary,
+  isStreamedCanaryEvent,
+  redactCanary,
+} from '../../../guardrails/canary.ts';
 import { publicError, throwIfAborted, toErrorEvent } from '../../../guardrails/error.ts';
 import { providerCompleteRequest } from '../../registry/provider-request.ts';
 import type { ModelProvider, Profile, ResolvedGeneration, TurnEvent } from '../../types.ts';
-import { eventHasCanary, redactCanary } from '../boundary.ts';
-import { dispatchModelTool } from './tools.ts';
 
 function systemFromProfile(profile: Profile, role: string): string {
   const { identity } = profile;
@@ -19,37 +24,12 @@ function systemFromProfile(profile: Profile, role: string): string {
   return '';
 }
 
-function* interceptProviderTool(
-  event: TurnEvent,
-  profile: Profile,
-  generation: ResolvedGeneration,
-): Generator<TurnEvent> {
-  const tool = event.tool;
-  if (!tool) {
-    return;
-  }
-  const isDynamic = generation.dynamicTools?.some((d) => d.name === tool.name);
-  if (isDynamic) {
-    yield event;
-  } else {
-    for (const item of dispatchModelTool(profile, event, generation.custom)) {
-      yield item;
-    }
-  }
-}
-
 function shouldSkipStreamEvent(event: TurnEvent, profile: Profile): boolean {
-  return event.type === 'thought' && profile.outputs.streaming?.streamThoughts === false;
+  return event.type === 'thought' && profile.outputs?.streaming?.streamThoughts === false;
 }
 
-function* processNormalEvent(
-  event: TurnEvent,
-  profile: Profile,
-  generation: ResolvedGeneration,
-): Generator<TurnEvent> {
-  if (event.type === 'tool') {
-    yield* interceptProviderTool(event, profile, generation);
-  } else if (event.type === 'error') {
+function* processNormalEvent(event: TurnEvent): Generator<TurnEvent> {
+  if (event.type === 'error') {
     const internal = event.errorInternal ?? event.error ?? '';
     yield {
       type: 'error',
@@ -61,31 +41,103 @@ function* processNormalEvent(
   }
 }
 
+function* yieldCanaryLeak(canary: string, event: TurnEvent): Generator<TurnEvent> {
+  yield redactCanary(event, canary);
+  yield toErrorEvent('canary leaked');
+}
+
+function* yieldGatedStreamEvent(
+  event: TurnEvent & { type: 'text' | 'thought' },
+  gate: CanaryStreamGate,
+  canary: string,
+): Generator<TurnEvent, 'continue' | 'stop'> {
+  const fragment = event.text ?? '';
+  const result = gate.process(fragment);
+  if (result.leak) {
+    yield* yieldCanaryLeak(canary, event);
+    return 'stop';
+  }
+  if (result.emit) {
+    yield* processNormalEvent({ ...event, text: result.emit });
+  }
+  return 'continue';
+}
+
+function* flushCanaryGate(
+  gate: CanaryStreamGate,
+  _canary: string,
+  lastType: 'text' | 'thought' | undefined,
+): Generator<TurnEvent, 'stop' | 'pass'> {
+  const result = gate.flush();
+  if (result.leak) {
+    yield toErrorEvent('canary leaked');
+    return 'stop';
+  }
+  if (result.emit) {
+    const emitType = lastType ?? 'text';
+    yield* processNormalEvent({ type: emitType, text: result.emit });
+  }
+  return 'pass';
+}
+
 async function* yieldProviderEvents(args: {
-  profile: Profile;
   generation: ResolvedGeneration;
   system: string;
   provider: ModelProvider;
-  gemini: Record<string, unknown>[];
+  upstream: Record<string, unknown>[];
   signal?: AbortSignal;
 }): AsyncGenerator<TurnEvent> {
-  const { profile, generation, system, provider, gemini, signal } = args;
+  const { generation, system, provider, upstream, signal } = args;
   const { canary } = generation;
+  const gate = canary ? createCanaryStreamGate(canary) : null;
+  let lastStreamType: 'text' | 'thought' | undefined;
+
   throwIfAborted(signal);
   for await (const event of provider.complete({
     ...providerCompleteRequest(generation, system),
     signal,
-    tapGemini: (row) => {
-      gemini.push(row);
+    tapUpstream: (row) => {
+      upstream.push(row);
     },
   })) {
     throwIfAborted(signal);
+
+    if (gate && isStreamedCanaryEvent(event)) {
+      if (lastStreamType && lastStreamType !== event.type) {
+        const status = yield* flushCanaryGate(gate, canary, lastStreamType);
+        if (status === 'stop') {
+          return;
+        }
+      }
+      lastStreamType = event.type;
+      const status = yield* yieldGatedStreamEvent(event, gate, canary);
+      if (status === 'stop') {
+        return;
+      }
+      continue;
+    }
+
+    if (gate && lastStreamType) {
+      const status = yield* flushCanaryGate(gate, canary, lastStreamType);
+      if (status === 'stop') {
+        return;
+      }
+      lastStreamType = undefined;
+    }
+
     if (canary && eventHasCanary(event, canary)) {
-      yield redactCanary(event, canary);
-      yield toErrorEvent('canary leaked');
+      yield* yieldCanaryLeak(canary, event);
       return;
     }
-    yield* processNormalEvent(event, profile, generation);
+
+    yield* processNormalEvent(event);
+  }
+
+  if (gate) {
+    const status = yield* flushCanaryGate(gate, canary, lastStreamType);
+    if (status === 'stop') {
+      return;
+    }
   }
 }
 

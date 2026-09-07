@@ -1,6 +1,7 @@
 import { runTurn } from '../../kernel/engine/runner.ts';
 import { getProfile } from '../../kernel/registry/profiles.ts';
-import type { ModelProvider, TurnEvent, TurnRequest } from '../../kernel/types.ts';
+import type { ModelProvider, TurnRequest } from '../../kernel/types.ts';
+import { createCliTraceCapture, printRunEvent, printTraceRecord } from '../event-log.ts';
 
 export interface RunOptions {
   profile: string;
@@ -9,23 +10,9 @@ export interface RunOptions {
   search?: boolean;
   map?: boolean;
   provider?: ModelProvider;
-}
-
-function handleRunEvent(event: TurnEvent): void {
-  if (event.type === 'thought' && event.text) {
-    Deno.stdout.write(new TextEncoder().encode(`\x1b[2m${event.text}\x1b[0m`));
-  } else if (event.type === 'text' && event.text) {
-    Deno.stdout.write(new TextEncoder().encode(event.text));
-  } else if (event.type === 'tool' && event.tool) {
-    console.log(`\n\x1b[33m⚡ [Tool Call] ${event.tool.name}\x1b[0m:`, event.tool.arguments);
-  } else if (event.type === 'structured' && event.structured) {
-    console.log('\n\x1b[32m✓ [Structured Output]\x1b[0m:');
-    console.log(JSON.stringify(event.structured, null, 2));
-  } else if (event.type === 'media' && event.media) {
-    console.log(`\n\x1b[34m🖼 [Media Output]\x1b[0m (${event.media.mimeType})`);
-  } else if (event.type === 'error' && event.error) {
-    console.error(`\n\x1b[31m✗ Error\x1b[0m: ${event.error}`);
-  }
+  verbose?: boolean;
+  trace?: boolean;
+  traceDir?: string;
 }
 
 export async function runCommand(options: RunOptions): Promise<void> {
@@ -39,25 +26,45 @@ export async function runCommand(options: RunOptions): Promise<void> {
   }
 
   const prompt = options.prompt || 'Hello! Please introduce your capabilities.';
-  const tools: Record<string, boolean> = {};
-  if (options.search) tools.googleSearch = true;
-  if (options.map) tools.googleMaps = true;
+  if (options.search || options.map) {
+    const profile = getProfile(options.profile);
+    const selected = options.mode
+      ? (profile.model.select?.[options.mode] ?? profile.model.allow[0])
+      : profile.model.allow[0];
+    const builtins = new Set(profile.model.config[selected]?.builtInTools ?? []);
+    if (options.search && !builtins.has('googleSearch')) {
+      console.error(
+        '\n\x1b[31mExecution Failed\x1b[0m: --search requires googleSearch on model.config.*.builtInTools for the selected model.\n',
+      );
+      return;
+    }
+    if (options.map && !builtins.has('googleMaps')) {
+      console.error(
+        '\n\x1b[31mExecution Failed\x1b[0m: --map requires googleMaps on model.config.*.builtInTools for the selected model.\n',
+      );
+      return;
+    }
+  }
 
   const req: TurnRequest = {
     profile: options.profile,
     select: options.mode,
-    tools: Object.keys(tools).length > 0 ? tools : undefined,
     input: { text: prompt },
   };
 
   console.log(`\n▶ [RUNNING TURN] Profile: ${options.profile} (${options.mode ?? 'default'})`);
   console.log(`Prompt: "${prompt}"\n`);
 
+  const traceCapture = options.trace ? createCliTraceCapture(options.traceDir) : undefined;
+
   try {
-    for await (const event of runTurn(req, provider)) {
-      handleRunEvent(event);
+    for await (const event of runTurn(req, provider, traceCapture?.sink)) {
+      printRunEvent(event, { verbose: options.verbose });
     }
     console.log('\n');
+    if (options.trace) {
+      printTraceRecord(traceCapture?.records.at(-1), options.verbose === true);
+    }
   } catch (err) {
     console.error(
       `\n\x1b[31mExecution Failed\x1b[0m: ${err instanceof Error ? err.message : String(err)}\n`,

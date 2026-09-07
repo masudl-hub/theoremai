@@ -39,7 +39,7 @@ const gemini35FlashLite: ModelSpec = {
   summaries: { on: 'auto', off: 'none' },
   maxOutputTokens: 8192,
   temperature: 1,
-  keyBuiltins: ['googleMaps', 'urlContext'],
+  builtInTools: [],
 };
 
 const gemini31FlashLite: ModelSpec = {
@@ -49,7 +49,7 @@ const gemini31FlashLite: ModelSpec = {
   summaries: { on: 'auto', off: 'none' },
   maxOutputTokens: 8192,
   temperature: 1,
-  keyBuiltins: ['googleMaps', 'urlContext'],
+  builtInTools: [],
 };
 
 const gemini31ProPreview: ModelSpec = {
@@ -59,7 +59,7 @@ const gemini31ProPreview: ModelSpec = {
   summaries: { on: 'auto', off: 'none' },
   maxOutputTokens: 64_000,
   temperature: 1,
-  keyBuiltins: [],
+  builtInTools: [],
 };
 
 const gemini31FlashLiteImage: ModelSpec = {
@@ -69,30 +69,28 @@ const gemini31FlashLiteImage: ModelSpec = {
   summaries: { on: 'none', off: 'none' },
   maxOutputTokens: 4096,
   temperature: 1,
-  keyBuiltins: [],
+  builtInTools: [],
   key: 'paid',
 };
 
 const gemini31FlashTts: ModelSpec = {
   apiId: 'gemini-3.1-flash-tts-preview',
-  openRouterId: 'google/gemini-3.1-flash-tts-preview',
   thinking: { on: 'minimal', off: 'minimal' },
   thinkingLevels: ['minimal'],
   summaries: { on: 'none', off: 'none' },
   maxOutputTokens: 2048,
   temperature: 1,
-  keyBuiltins: [],
+  builtInTools: [],
 };
 
 const sonar: ModelSpec = {
-  apiId: 'sonar',
-  openRouterId: 'perplexity/sonar',
+  apiId: 'perplexity/sonar',
   thinking: { on: 'high', off: 'low' },
   thinkingLevels: [...PRO_THINKING],
   summaries: { on: 'none', off: 'none' },
   maxOutputTokens: 8192,
   temperature: 1,
-  keyBuiltins: [],
+  builtInTools: [],
 };
 
 /** Convenience map for tests that need several model ids. */
@@ -119,9 +117,28 @@ function modelAllow(...ids: HostModelId[]): {
   return { allow: [...ids], config };
 }
 
+/** Gemini Interactions model block for fixtures (protocol + provider + allow/config). */
+function geminiModel(...ids: HostModelId[]): {
+  allow: ModelId[];
+  config: Record<ModelId, ModelSpec>;
+  protocol: 'geminiInteractions';
+  provider: 'google';
+  key: 'slotA';
+  thinking: 'minimal';
+} {
+  return {
+    protocol: 'geminiInteractions',
+    provider: 'google',
+    key: 'slotA',
+    thinking: 'minimal',
+    ...modelAllow(...ids),
+  };
+}
+
 export type { HostModelId };
 export {
   CHAT_MEDIA_LIMITS,
+  geminiModel,
   HOST_MODELS,
   IMAGE_ASPECT_RATIOS,
   IMAGE_INPUT_MIMES,

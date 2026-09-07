@@ -14,12 +14,15 @@ import type {
   ControlId,
   EgressOnBlock,
   FieldMeta,
-  GeminiBucket,
-  GeminiFreeBucket,
+  KeySlot,
+  KeyVault,
   LiveActivityHandling,
   LiveContextCompression,
   LiveSpeechSensitivity,
   MediaInputKind,
+  OverflowKeySlot,
+  ProfileType,
+  ProfileTypeProtocol,
   Protocol,
   Provider,
   SchemaEnforcement,
@@ -47,14 +50,17 @@ export type {
   ControlId,
   EgressOnBlock,
   FieldMeta,
-  GeminiBucket,
-  GeminiFreeBucket,
   InvokeToolRequest,
+  KeySlot,
+  KeyVault,
   LiveActivityHandling,
   LiveContextCompression,
   LiveSpeechSensitivity,
   MediaInputKind,
+  OverflowKeySlot,
   ProfileToolsSpec,
+  ProfileType,
+  ProfileTypeProtocol,
   Protocol,
   Provider,
   RegisteredTool,
@@ -120,8 +126,18 @@ export type TurnEventType =
   | 'grounding'
   | 'evidence'
   | 'tokens'
+  | 'session'
   | 'done'
   | 'error';
+
+/** Live session control signals (provider-neutral). */
+export type SessionEventKind = 'closing_soon' | 'waiting_for_input';
+
+export interface SessionEvent {
+  kind: SessionEventKind;
+  /** Parsed drain window when the provider supplied a duration; omit when unknown. */
+  timeLeftMs?: number;
+}
 
 /** Provider thinking levels used when a boolean thinking control is on or off. */
 export interface ThinkingMap {
@@ -158,7 +174,7 @@ export interface ModelSpec {
    * Optional vault slot for this model. When set, overrides `profile.model.key`.
    * Host-owned — e.g. pin image models to `paid`.
    */
-  key?: GeminiBucket;
+  key?: KeySlot;
   /** Optional compaction policy for this model's context window (chat profiles). */
   compaction?: CompactionSpec;
   /** Gemini Interactions: whether the provider stores the interaction. Omit → provider default. */
@@ -344,7 +360,7 @@ export interface ProfileStreamingSpec {
   /**
    * Profile-only source of truth for upstream stream vs batch.
    * `sse` → stream; `buffered` → non-SSE where the transport supports it.
-   * Omit → leave to provider transport default (no THEORUM invent).
+   * Omit → THEORUM defaults to SSE (`ResolvedGeneration.stream === true`).
    */
   mode?: StreamMode;
   /** When false, filter `thought` events from the turn stream. */
@@ -354,9 +370,6 @@ export interface ProfileStreamingSpec {
 export type { ProfileTurnResumptionSpec, TurnContinueFrom, TurnStop } from './stop.ts';
 
 import type { ProfileTurnResumptionSpec, TurnContinueFrom, TurnStop } from './stop.ts';
-
-/** Profile wire/session archetype. Required on every profile — no inference shims. */
-export type ProfileType = 'text' | 'image' | 'speech' | 'live';
 
 /** Context passed to a host-owned outbound disclosure guard. */
 export interface EgressContext {
@@ -399,8 +412,8 @@ export interface ProfileGuardrailsSpec {
 }
 
 /** Model, provider, thinking, and step bounds for a profile. */
-export interface ProfileModelSpec {
-  protocol: Protocol;
+export interface ProfileModelSpec<P extends Protocol = Protocol> {
+  protocol: P;
   provider: Provider;
   /** Ids this profile may select. Each id must exist in `config`. */
   allow: ModelId[];
@@ -414,8 +427,14 @@ export interface ProfileModelSpec {
    * Omit → unbounded (no THEORUM invent of `1`).
    */
   maxSteps?: number;
-  key?: GeminiFreeBucket;
+  key?: OverflowKeySlot;
 }
+
+/** Wire model specification for turn-based profiles (text, image, speech). */
+export type TurnProfileModelSpec = ProfileModelSpec<ProfileTypeProtocol<'text'>>;
+
+/** Wire model specification for live bidirectional streaming profiles. */
+export type LiveProfileModelSpec = ProfileModelSpec<ProfileTypeProtocol<'live'>>;
 
 /** Text, attachment, voice, slot, and size rules for a profile. */
 export interface ProfileInputsSpec {
@@ -444,16 +463,16 @@ export interface ProfileIdentity {
 }
 
 /** Fields shared by every typed profile. */
-export interface ProfileCommon {
+export interface ProfileCommon<P extends Protocol = Protocol> {
   id: ProfileId;
   identity: ProfileIdentity;
-  model: ProfileModelSpec;
+  model: ProfileModelSpec<P>;
   outputs?: ProfileOutputsSpec;
   guardrails?: ProfileGuardrailsSpec;
 }
 
 /** Text / structured turn engine with optional tool execution. */
-export interface TextProfile extends ProfileCommon {
+export interface TextProfile extends ProfileCommon<ProfileTypeProtocol<'text'>> {
   type: 'text';
   tools: ProfileToolsSpec;
   inputs: ProfileInputsSpec;
@@ -461,7 +480,7 @@ export interface TextProfile extends ProfileCommon {
 }
 
 /** Image-generation primary role. */
-export interface ImageProfile extends ProfileCommon {
+export interface ImageProfile extends ProfileCommon<ProfileTypeProtocol<'image'>> {
   type: 'image';
   image: ProfileImageSpec;
   tools: ProfileToolsSpec;
@@ -470,14 +489,14 @@ export interface ImageProfile extends ProfileCommon {
 }
 
 /** Unary TTS — text-in locked by type; no tools / inputs block. */
-export interface SpeechProfile extends ProfileCommon {
+export interface SpeechProfile extends ProfileCommon<ProfileTypeProtocol<'speech'>> {
   type: 'speech';
   speech: ProfileSpeechSpec;
   turnResumption?: ProfileTurnResumptionSpec;
 }
 
 /** Bidirectional live session. */
-export interface LiveProfile extends ProfileCommon {
+export interface LiveProfile extends ProfileCommon<ProfileTypeProtocol<'live'>> {
   type: 'live';
   live: ProfileLiveSpec;
   tools: ProfileToolsSpec;
@@ -582,6 +601,12 @@ export interface TurnRequest {
   projectId?: string;
   /** Google Interactions server-side conversation state. Omit for stateless/manual history. */
   previousInteractionId?: string;
+  /**
+   * Location bias for Interactions `google_maps` builtin.
+   * Wired as `tools: [{ type: "google_maps", latitude, longitude }]`.
+   * Ignored when `googleMaps` is not enabled for the selected model.
+   */
+  googleMapsLocation?: { latitude: number; longitude: number };
   /** Optional Interactions storage override. Omit to let profile model.config / provider decide. */
   store?: boolean;
   select?: string;
@@ -621,13 +646,9 @@ export interface ProjectedProfile {
   id: string;
   type: ProfileType;
   handle: string;
-  maxSteps: number | null;
-  models: ModelId[];
-  select: Record<string, ModelId> | null;
-  controls: ControlId[];
+  model: ProfileModelSpec;
   tools: Array<RegisteredTool | { name: ToolId; missing: true }>;
   inputs: ProfileInputsSpec | null;
-  slots: Record<string, string[]>;
   outputs: ProfileOutputsSpec | null;
   image?: ProfileImageSpec | null;
   speech?: ProfileSpeechSpec | null;
@@ -643,7 +664,7 @@ export interface ProviderGenerationConfig {
   store?: boolean;
   /**
    * Upstream stream vs batch, derived from `outputs.streaming.mode`.
-   * `true` = SSE; `false` = buffered; omit = provider default.
+   * `true` = SSE (THEORUM default when mode is omitted); `false` = buffered.
    */
   stream?: boolean;
   thinking: ThinkingLevel;
@@ -651,6 +672,11 @@ export interface ProviderGenerationConfig {
   maxOutputTokens?: number;
   temperature?: number;
   builtins: BuiltinToolId[];
+  /**
+   * Location bias for Interactions `google_maps`.
+   * Copied from `TurnRequest.googleMapsLocation` when present.
+   */
+  googleMapsLocation?: { latitude: number; longitude: number };
 }
 
 /** Resolved provider transport derived once in `resolveTurn`. */
@@ -680,10 +706,10 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
   live?: ProfileLiveSpec;
   input: InteractionPart[];
   /**
-   * Gemini vault slot for Google transports only.
-   * Omitted for non-Google providers; never sent on the wire.
+   * Vault key slot for credentialed transports (Google required; OpenRouter when
+   * the profile pins `model.key` or a builtin forces `paid`). Never sent on the wire.
    */
-  geminiBucket?: GeminiBucket;
+  keySlot?: KeySlot;
   canary: string;
   /** Optional session resumption handle for continuing live WebSocket sessions. */
   sessionResumptionHandle?: string;
@@ -724,8 +750,19 @@ export interface ProviderEvidenceEvent {
   citations?: string[];
   annotations?: unknown[];
   sources?: GroundingSource[];
-  /** Interactions server-side step type when this event is a Google builtin payload. */
-  kind?: 'code_execution_call' | 'code_execution_result' | string;
+  /**
+   * Discriminant for evidence payloads.
+   * Live ASR uses `input_transcription` / `output_transcription`;
+   * resumption uses `session_resumption`; Interactions code execution uses
+   * `code_execution_call` / `code_execution_result`.
+   */
+  kind?:
+    | 'code_execution_call'
+    | 'code_execution_result'
+    | 'input_transcription'
+    | 'output_transcription'
+    | 'session_resumption'
+    | string;
   /** Generated Python (or other) source from `code_execution_call.arguments.code`. */
   code?: string;
   /** Language of `code` when the API supplies it (typically `python`). */
@@ -738,6 +775,10 @@ export interface ProviderEvidenceEvent {
   id?: string;
   /** Links a result to its call (`code_execution_result.call_id`). */
   callId?: string;
+  /** Live ASR: partial/interim chunk (vs final transcription delta). */
+  interim?: boolean;
+  /** Live session resumption: whether the handle may be used to resume. */
+  resumable?: boolean;
 }
 
 /** Compaction signal emitted in the `done` event when `timing: 'after'`. */
@@ -768,6 +809,7 @@ export interface TurnEvent {
   media?: { mimeType: string; data: string };
   grounding?: GroundingEvent;
   evidence?: ProviderEvidenceEvent;
+  session?: SessionEvent;
   tokens?: TurnTokens;
   interactionId?: string;
   /** Session resumption handle updated during live sessions. */
@@ -787,10 +829,11 @@ export interface TurnEvent {
 /**
  * Provider-neutral request object sent from the kernel to a model adapter.
  *
- * Several fields are **Interactions-only** and omitted for non-Google providers:
+ * Several fields are **Google Interactions-only** and omitted otherwise:
  * `previousInteractionId`, `store`, `stream`, `summaries`,
- * `interactionOnlyInput`, `geminiBucket`.
- * Adapters must tolerate their absence.
+ * `interactionOnlyInput`.
+ * Adapters must tolerate their absence. `keySlot` is shared by Google and
+ * OpenRouter vault resolution (required for Google; optional for OpenRouter).
  */
 export interface ProviderCompleteRequest extends Omit<ProviderGenerationConfig, 'summaries'> {
   /**
@@ -816,10 +859,10 @@ export interface ProviderCompleteRequest extends Omit<ProviderGenerationConfig, 
   /** Optional session resumption handle for continuing live WebSocket sessions. */
   sessionResumptionHandle?: string;
   /**
-   * Gemini vault slot for Google Interactions transport only.
-   * Required when completing via Google Interactions; omitted otherwise.
+   * Vault key slot. Required for Google; set for OpenRouter when the profile
+   * pins `model.key` or a builtin forces `paid`. Never sent on the wire.
    */
-  geminiBucket?: GeminiBucket;
+  keySlot?: KeySlot;
   /** Scrubbed SSE / HTTP rows for traces. */
   tapUpstream?: (row: Record<string, unknown>) => void;
   /** Host abort signal — adapters should pass this into fetch / SDK calls. */
@@ -829,4 +872,46 @@ export interface ProviderCompleteRequest extends Omit<ProviderGenerationConfig, 
 /** Minimal adapter contract every model provider must implement. */
 export interface ModelProvider {
   complete: (req: ProviderCompleteRequest) => AsyncIterable<TurnEvent>;
+}
+
+/**
+ * Host request to open a long-lived live session (`runSession`).
+ * Profile must be `type: 'live'`.
+ */
+export interface SessionRequest {
+  profile: ProfileId;
+  /** Host-built system prompt merged with profile identity.system. */
+  system?: string;
+  /** Override `profile.live.voice` for this session. */
+  voice?: string;
+  path?: string;
+  sessionPermissions?: string[];
+  history?: TurnHistoryMessage[];
+  sessionResumptionHandle?: string;
+  /**
+   * Host-supplied function declarations for this session.
+   * When set, replaces `generation.tools.wire` on the provider request
+   * (Orchid-class hosts that resolve tools outside the Worker registry).
+   */
+  wireTools?: WireFunctionTool[];
+  /** Optional realtime parts sent immediately after setup. */
+  input?: InteractionPart[];
+  signal?: AbortSignal;
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Long-lived live session returned by `runSession`.
+ * `done` events mark conversational turn boundaries; the session stays open until `close()`.
+ */
+export interface LiveSession {
+  readonly profileId: ProfileId;
+  readonly canary: string;
+  events(): AsyncGenerator<TurnEvent, void, undefined>;
+  sendAudio(args: { data: string; mimeType?: string }): void;
+  sendVideo(args: { data: string; mimeType?: string }): void;
+  sendText(text: string): void;
+  sendToolResponse(id: string, name: string, output: unknown): void;
+  sendToolResponses(responses: Array<{ id: string; name: string; output: unknown }>): void;
+  close(reason?: string): Promise<void>;
 }

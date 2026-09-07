@@ -123,10 +123,12 @@ Deno.test('adversarial/stream: duplicate function_call deduped', () => {
     index: 0,
     step: { type: 'function_call', id: 'c_dup', name: 'stub_tool', arguments: {} },
   };
-  const first = foldPayload(payload, fold) as TurnEvent[];
-  const second = foldPayload(payload, fold) as TurnEvent[];
-  assertEquals(first.filter((e) => e.type === 'tool').length, 1);
-  assertEquals(second.filter((e) => e.type === 'tool').length, 0);
+  assertEquals((foldPayload(payload, fold) as TurnEvent[]).filter((e) => e.type === 'tool').length, 0);
+  assertEquals((foldPayload(payload, fold) as TurnEvent[]).filter((e) => e.type === 'tool').length, 0);
+  const firstStop = foldPayload({ event_type: 'step.stop', index: 0 }, fold) as TurnEvent[];
+  const secondStop = foldPayload({ event_type: 'step.stop', index: 0 }, fold) as TurnEvent[];
+  assertEquals(firstStop.filter((e) => e.type === 'tool').length, 1);
+  assertEquals(secondStop.filter((e) => e.type === 'tool').length, 0);
 });
 
 Deno.test('adversarial/runTurn: provider malformed_arguments skips handler execution', async () => {
@@ -651,7 +653,7 @@ Deno.test('adversarial/runTurn: builtin function_call surfaces provider_native e
       id: 'builtin_runner_probe',
       model: {
         thinking: 'minimal',
-        key: 'freeA',
+        key: 'slotA',
         protocol: 'geminiInteractions',
         provider: 'google',
         allow: ['gemini35FlashLite'],

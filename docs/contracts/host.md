@@ -53,12 +53,17 @@ host-only diagnostics:
 
 ```ts
 import { forClientEvents } from "theorum/host";
+import { runSession } from "theorum";
 
-const gated = processLiveOutboundBatch(session, upstreamEvents);
-if (gated.action === "emit") {
-  ws.send(JSON.stringify({ type: "events", events: forClientEvents(gated.events) }));
+const live = await runSession({ profile: "site.live" }, { gemini: { vault } });
+for await (const event of live.events()) {
+  ws.send(JSON.stringify({ type: "events", events: forClientEvents([event]) }));
 }
 ```
+
+Outbound canary/egress for live is applied inside `runSession`. Hosts that
+build a custom relay still may call `processLiveOutboundBatch` /
+`finalizeLiveOutboundTurn` directly — prefer `runSession` when possible.
 
 | Export | Role |
 | --- | --- |

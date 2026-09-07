@@ -2,7 +2,7 @@ import '../../../fixtures/test-host.ts';
 import { PUBLIC_UNAVAILABLE } from '../../../../src/guardrails/error.ts';
 import { assertEquals } from '../../../../src/kernel/engine/assert.ts';
 import { resolveTurn } from '../../../../src/kernel/registry/resolve.ts';
-import type { ProviderCompleteRequest, TurnEvent } from '../../../../src/kernel/types.ts';
+import type { KeyVault, ProviderCompleteRequest, TurnEvent } from '../../../../src/kernel/types.ts';
 import {
   camelToSnake,
   toInteractionsBody,
@@ -26,14 +26,13 @@ import {
   withTap,
   yieldMediaChunk,
 } from '../../../../src/providers/google/interactions/stream.ts';
-import type { GeminiVault } from '../../../../src/providers/google/keys.ts';
 import { INTERACTIONS_JSON_URL, INTERACTIONS_URL } from '../../../../src/providers/google/urls.ts';
 import { base64ToBytes, bytesToBase64 } from '../../../../src/providers/shared/pcm.ts';
 
-const vault: GeminiVault = {
-  freeA: 'free-a-key',
-  freeB: 'free-b-key',
-  freeC: 'free-c-key',
+const vault: KeyVault = {
+  slotA: 'free-a-key',
+  slotB: 'free-b-key',
+  slotC: 'free-c-key',
   paid: 'paid-key',
 };
 
@@ -83,11 +82,11 @@ function fromChatProfile(): ProviderCompleteRequest {
     input: generation.input,
     structured: generation.structured,
     image: generation.image,
-    geminiBucket: generation.geminiBucket,
+    keySlot: generation.keySlot,
   };
 }
 
-Deno.test('host profile Interactions body streams JSON schema and never ships geminiBucket', () => {
+Deno.test('host profile Interactions body streams JSON schema and never ships keySlot', () => {
   const req = fromChatProfile();
   const body = toInteractionsBody(req);
   const format = body[camelToSnake('responseFormat')] as unknown[];
@@ -97,8 +96,8 @@ Deno.test('host profile Interactions body streams JSON schema and never ships ge
   assertEquals(body.model, 'gemini-3.5-flash-lite');
   assertEquals(config[camelToSnake('maxOutputTokens')], req.maxOutputTokens);
   assertEquals(Array.isArray(format), true);
-  assertEquals(Object.hasOwn(body, camelToSnake('geminiBucket')), false);
-  assertEquals(Object.hasOwn(body, 'geminiBucket'), false);
+  assertEquals(Object.hasOwn(body, camelToSnake('keySlot')), false);
+  assertEquals(Object.hasOwn(body, 'keySlot'), false);
   assertEquals(Object.hasOwn(body, camelToSnake('previousInteractionId')), false);
 });
 
@@ -131,7 +130,7 @@ Deno.test('chat voice audio wires as Interactions type audio', () => {
     input: generation.input,
     structured: generation.structured,
     image: generation.image,
-    geminiBucket: generation.geminiBucket,
+    keySlot: generation.keySlot,
   });
   const input = body.input as Array<{ content: Array<Record<string, unknown>> }>;
   const parts = input[0]?.content ?? [];
@@ -185,7 +184,7 @@ Deno.test('JSON Schema property names stay camelCase inside response_format.sche
     input: generation.input,
     structured: generation.structured,
     image: generation.image,
-    geminiBucket: generation.geminiBucket,
+    keySlot: generation.keySlot,
   });
   const format = body[camelToSnake('responseFormat')] as Array<Record<string, unknown>>;
   const schema = format[0]?.schema as Record<string, unknown>;
@@ -211,7 +210,7 @@ Deno.test('prompt-enforced schema omits JSON response_format', () => {
     input: generation.input,
     structured: generation.structured,
     image: generation.image,
-    geminiBucket: generation.geminiBucket,
+    keySlot: generation.keySlot,
   });
   assertEquals(body[camelToSnake('responseFormat')], undefined);
 });
@@ -235,7 +234,7 @@ Deno.test('pinned profile wires 3.5 minimal through theorum', () => {
     input: generation.input,
     structured: generation.structured,
     image: generation.image,
-    geminiBucket: generation.geminiBucket,
+    keySlot: generation.keySlot,
   });
   const config = body[camelToSnake('generationConfig')] as Record<string, unknown>;
   assertEquals(body.model, 'gemini-3.5-flash-lite');
@@ -289,7 +288,7 @@ Deno.test('provider POSTs Interactions JSON when stream is false', async () => {
   );
 });
 
-Deno.test('provider POSTs Interactions SSE on the resolved free key', async () => {
+Deno.test('provider POSTs Interactions SSE on the resolved key slot', async () => {
   const used: string[] = [];
   let href = '';
   const provider = createInteractionsProvider({
@@ -457,7 +456,7 @@ Deno.test('image delta yields media', async () => {
       input: generation.input,
       structured: generation.structured,
       image: generation.image,
-      geminiBucket: generation.geminiBucket,
+      keySlot: generation.keySlot,
     }),
   );
   assertEquals(events, [
@@ -498,7 +497,7 @@ Deno.test('interaction complete yields output_image media', async () => {
       input: generation.input,
       structured: generation.structured,
       image: generation.image,
-      geminiBucket: generation.geminiBucket,
+      keySlot: generation.keySlot,
     }),
   );
   assertEquals(events, [
@@ -539,7 +538,7 @@ Deno.test('interaction complete yields outputs image media', async () => {
       input: generation.input,
       structured: generation.structured,
       image: generation.image,
-      geminiBucket: generation.geminiBucket,
+      keySlot: generation.keySlot,
     }),
   );
   assertEquals(events, [
@@ -571,7 +570,7 @@ Deno.test('provider handles null body, direct event usage/grounding, and structu
       input: generation.input,
       structured: generation.structured,
       image: generation.image,
-      geminiBucket: generation.geminiBucket,
+      keySlot: generation.keySlot,
     }),
   );
   assertEquals(nullEvents.length, 1);
@@ -605,7 +604,7 @@ Deno.test('provider handles null body, direct event usage/grounding, and structu
       input: chatGen.input,
       structured: chatGen.structured,
       image: chatGen.image,
-      geminiBucket: chatGen.geminiBucket,
+      keySlot: chatGen.keySlot,
     }),
   );
 
@@ -1207,7 +1206,7 @@ Deno.test('foldStepStart ignores empty steps and seeds function_call', () => {
   assertEquals(started[0]?.evidence?.code, 'print(1)');
 });
 
-Deno.test('foldPayload emits tool when function_call arrives on step.start with object arguments', () => {
+Deno.test('foldPayload emits tool on step.stop after function_call with object arguments at start', () => {
   const fold = newStreamFold();
   const started = foldPayload(
     {
@@ -1217,6 +1216,7 @@ Deno.test('foldPayload emits tool when function_call arrives on step.start with 
     },
     fold,
   );
+  assertEquals(started.filter((e) => e.type === 'tool').length, 0);
   const stopped = foldPayload({ event_type: 'step.stop', index: 1 }, fold);
   const completed = foldPayload(
     {
@@ -1229,6 +1229,32 @@ Deno.test('foldPayload emits tool when function_call arrives on step.start with 
   assertEquals(tools.length, 1);
   assertEquals(tools[0]?.tool?.name, 'stub_tool');
   assertEquals(tools[0]?.tool?.id, 'call_live');
+  assertEquals(tools[0]?.tool?.arguments, {});
+});
+
+Deno.test('foldPayload: empty object args at start then streamed JSON keeps name', () => {
+  const fold = newStreamFold();
+  foldPayload(
+    {
+      event_type: 'step.start',
+      index: 0,
+      step: { id: 'c1', type: 'function_call', name: 'pressure_burst_echo', arguments: {} },
+    },
+    fold,
+  );
+  foldPayload(
+    {
+      event_type: 'step.delta',
+      index: 0,
+      delta: { type: 'arguments_delta', arguments: '{"n":42}' },
+    },
+    fold,
+  );
+  const stopped = foldPayload({ event_type: 'step.stop', index: 0 }, fold);
+  assertEquals(stopped.length, 1);
+  assertEquals(stopped[0]?.tool?.name, 'pressure_burst_echo');
+  assertEquals(stopped[0]?.tool?.arguments, { n: 42 });
+  assertEquals(stopped[0]?.tool?.phase, undefined);
 });
 
 Deno.test('foldDeltaPayload accumulates function arguments and media', () => {

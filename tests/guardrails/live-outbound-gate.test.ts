@@ -155,6 +155,44 @@ Deno.test('processLiveOutboundBatch buffers visible events when holdUserVisible 
   assertEquals(final.action, 'emit');
 });
 
+Deno.test('processLiveOutboundBatch emits transcription evidence immediately under egress.enforce', () => {
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
+      id: 'live_egress_asr_passthrough',
+      model: { ...geminiModel('gemini35FlashLite') },
+      inputs: { text: true },
+      guardrails: {
+        quota: { perDay: 100 },
+        egress: {
+          enforce: (ctx: EgressContext): EgressEnforcementResult => ({
+            blocked: false,
+            text: ctx.text,
+          }),
+        },
+      },
+    }),
+  );
+  const profile = getProfile('live_egress_asr_passthrough');
+  const s = createLiveOutboundGateSession(profile);
+  assertEquals(s.holdUserVisible, true);
+
+  const result = processLiveOutboundBatch(s, [
+    {
+      type: 'evidence',
+      text: 'spoken by model',
+      evidence: { provider: 'google', kind: 'output_transcription' },
+    },
+  ]);
+  assertEquals(result.action, 'emit');
+  if (result.action === 'emit') {
+    assertEquals(result.events[0]?.evidence?.kind, 'output_transcription');
+    assertEquals(result.events[0]?.text, 'spoken by model');
+  }
+});
+
 Deno.test('finalizeLiveOutboundTurn withholds when egress.enforce blocks', async () => {
   registerProfile(
     defineProfile({

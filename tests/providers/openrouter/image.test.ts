@@ -2,20 +2,24 @@ import { assertEquals } from '@std/assert';
 import { PUBLIC_GENERIC } from '../../../src/guardrails/error.ts';
 import type { ImageResponseFormat, ProviderCompleteRequest } from '../../../src/kernel/types.ts';
 import {
+  buildImageHeaders,
   buildInterleavedChatPayload,
   createImageProvider,
   fetchImageAsBase64,
   markdownImageUrls,
   mediaFromImagesResponse,
+  OPENROUTER_IMAGE_TOOL,
   plainTextFromContent,
   streamImage,
   yieldImagesEndpoint,
   yieldInterleavedChat,
 } from '../../../src/providers/openrouter/image.ts';
 import {
+  attachImagePins,
   buildImagesPayload,
   imageToolParameters,
   outputFormatFromMime,
+  wireInputReference,
   wireInputReferences,
 } from '../../../src/providers/openrouter/openai/image-payload.ts';
 
@@ -99,6 +103,10 @@ Deno.test('mediaFromImagesResponse reads b64_json and media_type', () => {
   );
 });
 
+Deno.test('mediaFromImagesResponse returns null when mime cannot be resolved', () => {
+  assertEquals(mediaFromImagesResponse({ data: [{ b64_json: 'abc' }] }), null);
+});
+
 Deno.test('markdownImageUrls extracts https image links from assistant markdown', () => {
   const urls = markdownImageUrls(
     "Here's the scene:\n\n![Generated image](https://images.openrouter.ai/gen.png)\n\nDone.",
@@ -146,10 +154,11 @@ Deno.test('yieldImagesEndpoint maps /images JSON to media and tokens', async () 
     );
 
   const events = [];
-  for await (const event of yieldImagesEndpoint(createMockImageRequest(), {
-    apiKey: 'key',
-    fetch: mockFetch,
-  })) {
+  for await (const event of yieldImagesEndpoint(
+    createMockImageRequest(),
+    { apiKey: 'key', fetch: mockFetch },
+    'key',
+  )) {
     events.push(event);
   }
   assertEquals(
@@ -162,10 +171,11 @@ Deno.test('yieldImagesEndpoint maps /images JSON to media and tokens', async () 
 Deno.test('yieldImagesEndpoint yields error on HTTP failure', async () => {
   const mockFetch: typeof fetch = () => Promise.resolve(new Response('nope', { status: 502 }));
   const events = [];
-  for await (const event of yieldImagesEndpoint(createMockImageRequest(), {
-    apiKey: 'key',
-    fetch: mockFetch,
-  })) {
+  for await (const event of yieldImagesEndpoint(
+    createMockImageRequest(),
+    { apiKey: 'key', fetch: mockFetch },
+    'key',
+  )) {
     events.push(event);
   }
   assertEquals(events.length, 1);
@@ -211,6 +221,7 @@ Deno.test('yieldInterleavedChat yields text, fetched media, tokens, and done', a
   for await (const event of yieldInterleavedChat(
     createMockImageRequest({ image: { ...IMAGE, includeText: true } }),
     { apiKey: 'key', fetch: mockFetch },
+    'key',
   )) {
     events.push(event);
   }
@@ -236,9 +247,19 @@ Deno.test('fetchImageAsBase64 returns base64 image bytes', async () => {
 Deno.test('createImageProvider exposes complete()', () => {
   const provider = createImageProvider({ apiKey: 'key' });
   assertEquals(typeof provider.complete, 'function');
+  assertEquals(OPENROUTER_IMAGE_TOOL, 'openrouter:image_generation');
+  const headers = buildImageHeaders('test-key', { apiKey: 'test-key' });
+  assertEquals(headers.Authorization, 'Bearer test-key');
 });
 
 Deno.test('wireInputReferences ignores non-image parts', () => {
+  const ref = wireInputReference({ type: 'image', mimeType: 'image/png', data: 'abc' });
+  assertEquals(ref.type, 'image_url');
+
+  const dummyPayload: Record<string, unknown> = {};
+  attachImagePins(dummyPayload, IMAGE);
+  assertEquals(dummyPayload.aspect_ratio, '16:9');
+
   assertEquals(
     wireInputReferences([
       { type: 'text', text: 'hello' },

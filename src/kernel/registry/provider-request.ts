@@ -6,7 +6,6 @@ function providerCompleteRequest(
   system: string,
 ): ProviderCompleteRequest {
   const isInteractions = generation.transport === 'interactions';
-  const isGoogle = isInteractions || generation.transport === 'geminiLive';
   return {
     model: generation.model,
     apiId: generation.apiId,
@@ -18,6 +17,7 @@ function providerCompleteRequest(
     maxOutputTokens: generation.maxOutputTokens,
     temperature: generation.temperature,
     builtins: generation.builtins,
+    googleMapsLocation: isInteractions ? generation.googleMapsLocation : undefined,
     system,
     input: generation.input,
     history: generation.history,
@@ -28,7 +28,7 @@ function providerCompleteRequest(
     speech: generation.speech,
     live: generation.live,
     sessionResumptionHandle: generation.sessionResumptionHandle,
-    geminiBucket: isGoogle ? generation.geminiBucket : undefined,
+    keySlot: generation.keySlot,
   };
 }
 

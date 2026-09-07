@@ -37,7 +37,7 @@ function printProfileCard(p: Profile): void {
   console.log(`   - Inputs:     ${formatProfileInputs(p)}`);
   console.log(`   - Tools:      ${tools}`);
   console.log(`   - Structured: ${structuredLabel}`);
-  console.log(`   - Key Bucket: ${p.model.key ?? 'freeA'}`);
+  console.log(`   - Key Slot: ${p.model.key ?? '(unset)'}`);
   console.log('-'.repeat(70));
 }
 

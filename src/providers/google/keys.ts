@@ -1,19 +1,18 @@
 /**
- * Gemini key vault selection, quota overflow, and fetch retries.
+ * Google transport credentials, quota overflow, and fetch retries.
  *
- * Host applications supply vault credentials through `GeminiTransport`.
+ * Hosts supply a provider-neutral `KeyVault` via `GeminiTransport`.
  * THEORUM does not read environment variables for these keys.
  *
  * @module
  */
 
 import { isAbortError, TheorumError, UPSTREAM_FAILED } from '../../guardrails/error.ts';
-import type { GeminiBucket } from '../../kernel/types.ts';
+import type { KeySlot, KeyVault } from '../../kernel/types.ts';
 
-type GeminiVault = Record<GeminiBucket, string | undefined>;
-
+/** Google Interactions / Live transport: shared `KeyVault` + optional fetch/wait. */
 interface GeminiTransport {
-  vault: GeminiVault;
+  vault: KeyVault;
   wait?: (ms: number) => Promise<void>;
   fetch?: typeof fetch;
 }
@@ -65,8 +64,8 @@ export function isTransientThrown(err: unknown): boolean {
   return TRANSIENT_THROWN_RE.test(String(err));
 }
 
-export function requireKey(vault: GeminiVault, bucket: GeminiBucket): string {
-  const key = vault[bucket];
+export function requireKey(vault: KeyVault, slot: KeySlot): string {
+  const key = vault[slot];
   if (!key) {
     throw new TheorumError(UPSTREAM_FAILED);
   }
@@ -98,12 +97,8 @@ async function runWithBackoff<T>(
   }
 }
 
-export function canOverflow(
-  bucket: GeminiBucket,
-  vault: GeminiVault,
-  primary: string,
-): string | undefined {
-  if (bucket === 'paid') {
+export function canOverflow(slot: KeySlot, vault: KeyVault, primary: string): string | undefined {
+  if (slot === 'paid') {
     return undefined;
   }
   const { paid } = vault;
@@ -114,16 +109,16 @@ export function canOverflow(
 }
 
 export async function withGeminiKey<T>(
-  bucket: GeminiBucket,
+  slot: KeySlot,
   run: (apiKey: string) => Promise<T>,
   transport: GeminiTransport,
 ): Promise<T> {
   const wait = transport.wait ?? waitDefault;
-  const primary = requireKey(transport.vault, bucket);
+  const primary = requireKey(transport.vault, slot);
   try {
     return await runWithBackoff(primary, run, wait, 0);
   } catch (err) {
-    const paid = canOverflow(bucket, transport.vault, primary);
+    const paid = canOverflow(slot, transport.vault, primary);
     if (!(isQuota(err) && paid)) {
       throw err;
     }
@@ -148,7 +143,7 @@ interface FetchAttempt {
   attempt: number;
 }
 
-export async function fetchWithBackoff(args: FetchAttempt): Promise<Response> {
+async function fetchWithBackoff(args: FetchAttempt): Promise<Response> {
   const wait = args.transport.wait ?? waitDefault;
   const send = args.transport.fetch ?? fetch;
   try {
@@ -175,19 +170,19 @@ export async function fetchWithBackoff(args: FetchAttempt): Promise<Response> {
 export async function fetchGemini(
   url: string,
   init: RequestInit,
-  bucket: GeminiBucket,
+  slot: KeySlot,
   transport: GeminiTransport,
 ): Promise<Response> {
   const parsed = new URL(url);
   parsed.searchParams.delete('key');
   const href = parsed.toString();
-  const primary = requireKey(transport.vault, bucket);
+  const primary = requireKey(transport.vault, slot);
   let last = await fetchWithBackoff({ href, init, apiKey: primary, transport, attempt: 0 });
-  const paid = canOverflow(bucket, transport.vault, primary);
+  const paid = canOverflow(slot, transport.vault, primary);
   if (last.status === HTTP_QUOTA && paid) {
     last = await fetchWithBackoff({ href, init, apiKey: paid, transport, attempt: 0 });
   }
   return last;
 }
 
-export type { GeminiTransport, GeminiVault };
+export type { GeminiTransport };

@@ -30,7 +30,7 @@ import {
   resolveInputParts,
 } from './ingress.ts';
 import { getProfile } from './profiles.ts';
-import { resolveGeminiBucket } from './vault.ts';
+import { providerUsesKeySlots, resolveKeySlot } from './vault.ts';
 
 function firstSelectKey(selectMap: Record<string, ModelId>): string | undefined {
   const [key] = Object.keys(selectMap);
@@ -160,15 +160,12 @@ function resolveStructured(
   return structured.fallback;
 }
 
-function resolveStreamFlag(profile: Profile): boolean | undefined {
-  const mode = profile.outputs?.streaming?.mode;
-  if (mode === 'sse') {
-    return true;
-  }
-  if (mode === 'buffered') {
-    return false;
-  }
-  return undefined;
+/**
+ * THEORUM prefers SSE when the host omits `outputs.streaming.mode`.
+ * Explicit `'buffered'` opts out; `'sse'` (or omit) yields `stream: true`.
+ */
+function resolveStreamFlag(profile: Profile): boolean {
+  return profile.outputs?.streaming?.mode !== 'buffered';
 }
 
 function resolveStore(spec: ModelSpec, reqStore: boolean | undefined): boolean | undefined {
@@ -225,13 +222,12 @@ function resolveTurn(req: TurnRequest): {
   const structured = resolveStructured(profile, input.slots);
   assertOutputMode(profile, structured);
   assertSpeechRole(profile);
-  const geminiBucket =
-    profile.model.provider === 'google'
-      ? resolveGeminiBucket(profile.model.key ?? spec.key, spec, builtins)
-      : undefined;
+  const pinnedKey = profile.model.key ?? spec.key;
+  const keySlot = providerUsesKeySlots(profile.model.provider)
+    ? resolveKeySlot(pinnedKey, spec, builtins, profile.model.provider === 'google')
+    : undefined;
   const transport: ProviderTransport =
-    profile.type === 'live' ||
-    (profile.model.protocol === 'geminiLive' && profile.model.provider === 'google')
+    profile.type === 'live'
       ? 'geminiLive'
       : profile.model.protocol === 'geminiInteractions' && profile.model.provider === 'google'
         ? 'interactions'
@@ -252,6 +248,7 @@ function resolveTurn(req: TurnRequest): {
       maxOutputTokens: spec.maxOutputTokens,
       temperature: spec.temperature,
       builtins,
+      googleMapsLocation: safe.googleMapsLocation,
       tools: toolSnapshot,
       sessionPermissions: safe.sessionPermissions,
       history: input.history,
@@ -261,7 +258,7 @@ function resolveTurn(req: TurnRequest): {
       speech: profile.type === 'speech' ? profile.speech : undefined,
       live: profile.type === 'live' ? profile.live : undefined,
       input: resolveInputParts(profile, model, safe),
-      geminiBucket,
+      keySlot,
       canary: profile.guardrails?.canary === true ? mintCanary() : '',
       sessionResumptionHandle: safe.sessionResumptionHandle ?? input.sessionResumptionHandle,
     },
@@ -279,28 +276,27 @@ function profileInputsOrNull(profile: Profile): ProfileInputsSpec | null {
   return profile.inputs ?? null;
 }
 
-/** Project a registered profile into a safe host/UI inspection object. */
-function projectProfile(id: Profile['id']): ProjectedProfile {
-  const profile = getProfile(id);
+/** Project a profile object into a safe host/UI inspection object. */
+function projectProfileObject(profile: Profile): ProjectedProfile {
   const { model, identity, outputs } = profile;
-  const { select, allow, maxSteps, controls } = model;
   const inputs = profileInputsOrNull(profile);
   return {
     id: profile.id,
     type: profile.type,
     handle: identity.handle,
-    maxSteps: maxSteps ?? null,
-    models: allow,
-    select: select ?? null,
-    controls: controls ?? [],
+    model,
     tools: projectTools(profile),
     inputs,
-    slots: inputs?.slots ?? {},
     outputs: outputs ?? null,
     image: primaryImageSpec(profile),
     speech: profile.type === 'speech' ? profile.speech : null,
     live: profile.type === 'live' ? profile.live : null,
   };
+}
+
+/** Project a registered profile into a safe host/UI inspection object. */
+function projectProfile(id: Profile['id']): ProjectedProfile {
+  return projectProfileObject(getProfile(id));
 }
 
 function pickSystemRole(profile: Profile, requested?: string): string {
@@ -312,4 +308,4 @@ function pickSystemRole(profile: Profile, requested?: string): string {
   return handle;
 }
 
-export { pickModel, pickSystemRole, projectProfile, resolveTurn };
+export { pickModel, pickSystemRole, projectProfile, projectProfileObject, resolveTurn };

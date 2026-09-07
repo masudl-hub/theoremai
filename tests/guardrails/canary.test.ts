@@ -62,7 +62,7 @@ function chatCanaryWire() {
     input: generation.input,
     structured: generation.structured,
     image: generation.image,
-    geminiBucket: generation.geminiBucket,
+    keySlot: generation.keySlot,
   });
   return { generation, body };
 }
@@ -232,7 +232,7 @@ Deno.test('toInteractionsBody rejects user payload copied into system', () => {
         input: generation.input,
         structured: generation.structured,
         image: generation.image,
-        geminiBucket: generation.geminiBucket,
+        keySlot: generation.keySlot,
       }),
     TheorumError,
   );

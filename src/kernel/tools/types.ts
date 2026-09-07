@@ -40,7 +40,7 @@ export interface BuiltinToolDef extends ToolBase {
   type: 'builtin';
   wire: BuiltinWire;
   conflictsWith?: string[];
-  /** When enabled, select the paid Gemini vault slot unless model.spec.key overrides. */
+  /** When enabled, select the paid Vault key slot unless model.spec.key overrides. */
   forcePaidKey?: boolean;
 }
 
@@ -231,7 +231,9 @@ export type ToolCallPhase =
   | 'warning'
   | 'complete'
   | 'pause'
-  | 'error';
+  | 'error'
+  /** Provider cancelled an in-flight tool call (e.g. live barge-in). */
+  | 'cancel';
 
 export interface ToolCallEvent {
   name: string;

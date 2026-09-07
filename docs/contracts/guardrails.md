@@ -72,7 +72,7 @@ Import corpus helpers from **`theorum/guardrails/testing`** (not the production 
 | `deno task fuzz` | CLI inbound fuzz; exit `1` on expected miss |
 | `deno task fuzz-canary` | CLI canary egress fuzz (stream + Live gates) |
 | `deno task test:guardrails` | Unit tests + inbound + canary fuzz (no live API) |
-| `deno task verify:guardrails-live` | Live provider red-team (`scripts/verify-guardrails-live.ts`) |
+| `deno task verify:guardrails-api` | Real-provider red-team (`scripts/verify-guardrails-api.ts`) |
 
 Extend attack cases under **`src/guardrails/corpus/`** only (`strings.ts` / `secrets.ts` for shared literals).
 

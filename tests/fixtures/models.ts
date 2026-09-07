@@ -123,13 +123,13 @@ function geminiModel(...ids: HostModelId[]): {
   config: Record<ModelId, ModelSpec>;
   protocol: 'geminiInteractions';
   provider: 'google';
-  key: 'freeA';
+  key: 'slotA';
   thinking: 'minimal';
 } {
   return {
     protocol: 'geminiInteractions',
     provider: 'google',
-    key: 'freeA',
+    key: 'slotA',
     thinking: 'minimal',
     ...modelAllow(...ids),
   };

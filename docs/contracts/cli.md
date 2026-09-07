@@ -29,8 +29,8 @@ theorum <command> [options]
 
 | Command | Purpose |
 | --- | --- |
-| `verify:guardrails-live` | Live red-team of Theorum-owned guardrails (~95 adversarial cases); `--category`, `--limit`, `--inbound-only` |
-| `verify:canary-live` | Alias for `verify:guardrails-live` |
+| `verify:guardrails-api` | Real-provider red-team of Theorum-owned guardrails (~95 adversarial cases); `--category`, `--limit`, `--inbound-only` |
+| `verify:canary-api` | Alias for `verify:guardrails-api` |
 | `fuzz` | Adversarial inbound sanitization fuzzer; exit `1` on expected miss |
 | `fuzz-canary` | Adversarial canary egress fuzzer (`runTurn` stream gate + Live batch gate); exit `1` on bypass |
 | `test` | Stress matrix or custom profile tests (`--profile`, `--all`, `--lite`, `--matrix`, `--mode`, `--search`, `--map`, `--verbose`, `--trace`, `--trace-dir`) |

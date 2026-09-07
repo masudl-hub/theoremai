@@ -1,11 +1,11 @@
 import { TheorumError } from '../../src/guardrails/error.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import type { Protocol, Provider } from '../../src/kernel/types.ts';
+import type { Provider } from '../../src/kernel/types.ts';
 import { createProvider, isImageRole, isSpeechRole } from '../../src/providers/create-provider.ts';
 import { stubProfile } from '../fixtures/profiles.ts';
 
 function baseProfile(
-  model: { protocol: Protocol; provider: Provider },
+  model: { protocol: 'geminiInteractions' | 'openAi'; provider: Provider },
   role: 'text' | 'speech' | 'image',
 ) {
   return stubProfile({ protocol: model.protocol, provider: model.provider, role });
@@ -49,7 +49,7 @@ Deno.test('createProvider throws when gemini transport is missing for geminiInte
 Deno.test('createProvider returns a provider when gemini transport is supplied', () => {
   const profile = baseProfile({ protocol: 'geminiInteractions', provider: 'google' }, 'text');
   const provider = createProvider(profile, {
-    gemini: { vault: { freeA: 'a', freeB: 'b', freeC: 'c', paid: 'p' } },
+    gemini: { vault: { slotA: 'a', slotB: 'b', slotC: 'c', paid: 'p' } },
   });
   assertEquals(typeof provider.complete, 'function');
 });
@@ -135,10 +135,53 @@ Deno.test('create-provider has no eager adapter imports', async () => {
   assertEquals(/from\s+['"]\.\/google\/live\//.test(src), false);
   assertEquals(src.includes("import('./openrouter/chat.ts')"), true);
   assertEquals(src.includes("import('./google/interactions/mod.ts')"), true);
-  assertEquals(src.includes("import('./google/live/mod.ts')"), true);
+  assertEquals(src.includes("import('./google/live/mod.ts')"), false);
   assertEquals(src.includes("import('./openrouter/speech.ts')"), true);
   assertEquals(src.includes("import('./openrouter/image.ts')"), true);
   assertEquals(src.includes("import('./local/local.ts')"), true);
+});
+
+Deno.test('createProvider rejects geminiLive — use runSession', () => {
+  const profile = stubProfile({
+    protocol: 'geminiInteractions',
+    provider: 'google',
+    role: 'text',
+  });
+  // Force live protocol pair via narrow cast on a defined live-shaped profile
+  const liveProfile = {
+    ...profile,
+    type: 'live' as const,
+    model: {
+      protocol: 'geminiLive' as const,
+      provider: 'google' as const,
+      allow: ['gemini31FlashLive'],
+      config: {
+        gemini31FlashLive: {
+          apiId: 'gemini-3.1-flash-live-preview',
+          thinking: { on: 'none' as const, off: 'none' as const },
+          thinkingLevels: ['none' as const],
+          summaries: { on: 'none' as const, off: 'none' as const },
+          builtInTools: [],
+          key: 'slotA' as const,
+        },
+      },
+    },
+    live: { voice: 'Aoede' },
+    tools: { allow: [] as string[] },
+  };
+  let thrown: unknown;
+  try {
+    createProvider(liveProfile, {
+      gemini: { vault: { slotA: 'a', slotB: 'b', slotC: 'c', paid: 'p' } },
+    });
+  } catch (err) {
+    thrown = err;
+  }
+  assertEquals(thrown instanceof TheorumError, true);
+  assertEquals(
+    (thrown as Error).message,
+    "createProvider does not support type 'live' / geminiLive — use runSession(req, { gemini })",
+  );
 });
 
 Deno.test('create-provider loads OpenRouter adapter only via dynamic import', () => {
@@ -152,7 +195,7 @@ Deno.test('create-provider loads OpenRouter adapter only via dynamic import', ()
 Deno.test('create-provider loads Google adapter only via dynamic import', () => {
   const profile = baseProfile({ protocol: 'geminiInteractions', provider: 'google' }, 'text');
   const provider = createProvider(profile, {
-    gemini: { vault: { freeA: 'a', freeB: 'b', freeC: 'c', paid: 'p' } },
+    gemini: { vault: { slotA: 'a', slotB: 'b', slotC: 'c', paid: 'p' } },
   });
   assertEquals(typeof provider.complete, 'function');
 });

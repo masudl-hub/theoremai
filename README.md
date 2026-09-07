@@ -397,6 +397,7 @@ stay internal to the providers package.
 | `jsr:@theorum/core/cli` / `theorum/cli` | Profile inspection and stress-test CLI (`theorum` binary on npm). |
 | `jsr:@theorum/core/presets` / `theorum/presets` | Optional convenience packs (`registerGooglePreset`, …). |
 | `jsr:@theorum/core/presets/google` / `theorum/presets/google` | Google builtins (search/maps/urlContext/codeExecution) + Interactions/OpenRouter wire metadata. |
+| `jsr:@theorum/core/interface` / `theorum/interface` | Headless profile-driven runtime UI spec (`interfaceFromProfile`, `foldTurnEvents`, input validation). |
 
 Internal files remain present in source for maintainability, but package consumers should use the public entrypoints above.
 
@@ -412,15 +413,17 @@ Named exports from the root barrel (same symbols hosts get from `theorum` /
 | Sanitize | `PROJECT_ID_MAX`, `sanitizeProjectId`, `sanitizeText`, `sanitizeTurnRequest`, `sanitizeTurnRequestForTrace`, `redactSensitiveOnly` |
 | Canary / egress | `mintCanary`, `bindCanary`, `wrapUserData`, `scanTextForCanaryLeak`, `redactCanary`, `OMIT_CANARY`, `createCanaryStreamGate`, `eventHasCanary`, `createCanaryGateSession`, `filterCanaryGatedEvents`, `CanaryGateResult`, `CanaryGateSession`, `CanaryStreamGate`, `standardEgressEnforce`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `LiveOutboundBatchResult`, `LiveOutboundGateSession` |
 | Compaction | `CompactionSplit`, `CompactionTokens`, `compactionMeter`, `compactionNeeded`, `estimateHistoryTokens`, `HISTORY_MEDIA_TOKENS`, `HISTORY_TEXT_ENCODING`, `resolveCompactionTokens`, `resolveHistoryTokens`, `shouldCompact`, `splitForCompaction` |
-| Runner | `runTurn`, `prepareLiveInboundText` |
+| Runner | `runTurn`, `runSession`, `RunSessionOptions`, `prepareLiveInboundText` |
+| Attachments | `assertAttachmentLimits`, `fileTooLargeMessage`, `maxBytesForMime`, `requireMediaLimits`, `resolveMediaLimits`, `sanitizeCsvText`, `sanitizeTurnBlobs`, `sanitizeTurnBlobsForProfile`, `tooManyFilesMessage`, `turnTooLargeMessage` |
+| Interface (headless) | `interfaceFrom`, `interfaceFromProfile`, `interfaceFromProjected`, `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime`, `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `resetBlockIds`, `streamThoughtsEnabled`, `AttachmentValidationCode`, `AttachmentValidationIssue`, `AttachmentValidationResult`, `FoldTurnEventsOptions`, `ImageProfileInterface`, `LiveProfileInterface`, `NormalizeModel`, `NormalizedModel`, `PendingAttachment`, `ProfileGuardrailsView`, `ProfileInputsInterface`, `ProfileInterface`, `ProfileInterfaceSource`, `ResolvedTools`, `SpeechProfileInterface`, `TextProfileInterface`, `TranscriptBlock`, `TranscriptBlockKind`, `UserTurnDraft` |
 | Catalog | `clampThinkingLevel`, `clampThinkingLevelForApiId`, `mediaKindForMime`, `mimeAllowed`, `mimeEssence`, `modelEntryByApiId`, `requireModelSpec` |
-| Schema | `PROFILE_FIELDS`, `EXTRA_FIELDS`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `PROTOCOLS`, `PROVIDERS`, `PROTOCOL_PROVIDERS`, `providersFor`, `protocolsFor`, `isValidPair`, `coerceProvider`, `coerceProtocol`, `THINKING_LEVELS`, `CONTROL_IDS`, `GEMINI_BUCKETS`, `GEMINI_FREE_BUCKETS`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `SCHEMA_ENFORCEMENTS`, `COMPACTION_METERS`, `COMPACTION_TIMINGS`, `EGRESS_ON_BLOCK`, `TURN_STOP_KINDS`, `TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES`, `LIVE_ACTIVITY_HANDLINGS`, `LIVE_CONTEXT_COMPRESSIONS`, `LIVE_SPEECH_SENSITIVITIES` |
-| Profiles | `ProfileDefinition`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `resolveTurn`, `pickModel` |
+| Schema | `PROFILE_FIELDS`, `PROFILE_TYPES`, `PROFILE_TYPE_PROTOCOLS`, `protocolsForProfileType`, `isValidProfileProtocol`, `EXTRA_FIELDS`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `PROTOCOLS`, `PROVIDERS`, `PROTOCOL_PROVIDERS`, `providersFor`, `protocolsFor`, `isValidPair`, `coerceProvider`, `coerceProtocol`, `THINKING_LEVELS`, `CONTROL_IDS`, `KEY_SLOTS`, `OVERFLOW_KEY_SLOTS`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `SCHEMA_ENFORCEMENTS`, `COMPACTION_METERS`, `COMPACTION_TIMINGS`, `EGRESS_ON_BLOCK`, `TURN_STOP_KINDS`, `TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES`, `LIVE_ACTIVITY_HANDLINGS`, `LIVE_CONTEXT_COMPRESSIONS`, `LIVE_SPEECH_SENSITIVITIES` |
+| Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `LiveProfileDefinition`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `resolveTurn`, `pickModel` |
 | Tools | `registerTool`, `registerTools`, `invokeTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `listBuiltinIds`, `listFunctionIds`, `resetTools`, `formatToolResult`, `prepareTurnToolSnapshot` |
 | Structured | `getStructured`, `registerStructured` |
 | Stop / resume | `ProfileTurnResumptionSpec`, `TurnContinueFrom`, `TurnStop`, `TurnStopKind`, `AUTO_CONTINUE_DELAY_MS`, `CONTINUE_INSTRUCTION`, `DEFAULT_AUTO_CONTINUE`, `GenerationStopError`, `isGenerationStopError`, `isResumeableStop`, `isUserCancelledStop`, `shouldAutoContinue`, `turnStopFromClientStreamEnd`, `turnStopFromInteractionStatus`, `turnStopFromOpenAiFinishReason` |
 | Observability | `jsonlSink`, `memorySink`, `noopSink`, `resolveTraceDir`, `sinkFromDir`, `writeTrace`, `TraceRecord` |
-| Providers | `CreateProviderOptions`, `GeminiTransport`, `GeminiVault`, `LocalProviderConfig`, `OpenAiGatewayConfig`, `createProvider` (local: `theorum/providers/local` → `createLocalProvider`, `DEFAULT_LOCAL_BASE_URL`) |
+| Providers | `CreateProviderOptions`, `GeminiTransport`, `KeyVault`, `LocalProviderConfig`, `OpenAiGatewayConfig`, `createProvider` (local: `theorum/providers/local` → `createLocalProvider`, `DEFAULT_LOCAL_BASE_URL`) |
 
 Kernel types re-exported through this barrel follow `export type *` from
 `src/kernel/types.ts` (behavioral detail for contributors: repo
@@ -447,6 +450,7 @@ On GitHub, module contracts:
 | [`docs/contracts/guardrails.md`](docs/contracts/guardrails.md) | `theorum/guardrails` |
 | [`docs/contracts/observability.md`](docs/contracts/observability.md) | `theorum/observability` |
 | [`docs/contracts/host.md`](docs/contracts/host.md) | `theorum/host` |
+| [`docs/contracts/kernel.md`](docs/contracts/kernel.md) (Headless interface) | `theorum/interface` |
 | [`docs/contracts/cli.md`](docs/contracts/cli.md) | `theorum/cli` |
 | [`docs/contracts/presets.md`](docs/contracts/presets.md) | `theorum/presets` |
 | [`docs/contracts/presets-google.md`](docs/contracts/presets-google.md) | `theorum/presets/google` |
@@ -493,16 +497,16 @@ cd npm
 npm pack
 ```
 
-Run a live OpenRouter smoke test with a host-resolved key. The key is passed as an argument and is never read from a Theorum `.env` file.
+Run an OpenRouter provider smoke test with a host-resolved key. The key is passed as an argument and is never read from a Theorum `.env` file.
 
 ```bash
-deno run --allow-net scripts/verify-live.ts --api-key "$OPENROUTER_API_KEY"
+deno run --allow-net scripts/verify-provider-smoke.ts --api-key "$OPENROUTER_API_KEY"
 ```
 
-The default live verifier uses `perplexity/sonar` because it is broadly available on OpenRouter. Hosts can override both the profile-facing model id and provider-native id:
+The default smoke uses `perplexity/sonar` because it is broadly available on OpenRouter. Hosts can override both the profile-facing model id and provider-native id:
 
 ```bash
-deno run --allow-net scripts/verify-live.ts \
+deno run --allow-net scripts/verify-provider-smoke.ts \
   --api-key "$OPENROUTER_API_KEY" \
   --model hostFastModel \
   --api-id perplexity/sonar

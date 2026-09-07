@@ -22,7 +22,7 @@ Deno.test('defineProfile preserves explicit typed fields without defaults', () =
       ...geminiModel('gemini35FlashLite'),
       thinking: 'low',
       maxSteps: 1,
-      key: 'freeA',
+      key: 'slotA',
     },
     tools: { allow: [] },
     inputs: { text: true },
@@ -35,13 +35,34 @@ Deno.test('defineProfile preserves explicit typed fields without defaults', () =
   assertEquals(profile.model.protocol, 'geminiInteractions');
   assertEquals(profile.model.provider, 'google');
   assertEquals(profile.model.maxSteps, 1);
-  assertEquals(profile.model.key, 'freeA');
+  assertEquals(profile.model.key, 'slotA');
   assertEquals(profile.identity.handle, 'host_profile');
   if (profile.type !== 'text') throw new Error('Expected text profile');
   assertEquals(profile.tools.allow, []);
   assertEquals(profile.inputs.text, true);
   assertEquals(profile.outputs?.structured, null);
   assertEquals(profile.guardrails?.canary, true);
+});
+
+Deno.test('defineProfile rejects illegal protocol/provider pairs', () => {
+  assertThrows(
+    () =>
+      defineProfile({
+        id: 'bad_pair',
+        type: 'text',
+        identity: { handle: 'bad_pair' },
+        model: {
+          protocol: 'openAi',
+          provider: 'google',
+          key: 'slotA',
+          ...modelAllow('gemini35FlashLite'),
+        },
+        tools: { allow: [] },
+        inputs: { text: true },
+      }),
+    Error,
+    "protocol 'openAi' is not valid for provider 'google'",
+  );
 });
 
 Deno.test('defineProfile keeps omitted optional fields omitted', () => {
@@ -52,7 +73,7 @@ Deno.test('defineProfile keeps omitted optional fields omitted', () => {
     model: {
       protocol: 'geminiInteractions',
       provider: 'google',
-      key: 'freeA',
+      key: 'slotA',
       ...modelAllow('gemini35FlashLite'),
     },
     tools: { allow: [] },

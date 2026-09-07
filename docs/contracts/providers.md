@@ -58,8 +58,14 @@ Owns every module under `src/providers/`.
 
 ```ts
 const provider = createProvider(profile, {
-  gemini: { vault: { freeA, freeB, freeC, paid }, fetch? },
-  openAiGateway: { apiKey, baseUrl?, siteUrl?, siteName?, fetch?, voice? },
+  gemini: { vault: { slotA, slotB, slotC, paid }, fetch? },
+  openAiGateway: {
+    // Prefer the same KEY_SLOTS vault as Google when profiles pin model.key:
+    vault: { slotA, slotB, slotC, paid },
+    // Or a single flat key when the profile omits model.key:
+    apiKey?,
+    baseUrl?, siteUrl?, siteName?, fetch?, voice?,
+  },
   local: { baseUrl?, fetch? },
 })
 ```
@@ -116,7 +122,7 @@ terminal `done.stop` via `turnStopFromOpenAiFinishReason`.
 | Multimodal | `image` / `audio` / `video` / `document` parts |
 | Structured | `responseFormat` JSON schema when enforced. When structured is requested and model text is not valid JSON, providers emit an `error` event (never silently skip). |
 | Output modes | responseFormat JSON schema, image, and speech are mutually exclusive; prompt-enforced structured schemas and free text are not. Image profiles may opt into interleaved text via `image.includeText`. |
-| Tools | Registry builtins (`wire.interactions`) + function schemas from `generation.tools.wire` |
+| Tools | Registry builtins (`wire.interactions`) + function schemas from `generation.tools.wire`. When `googleMaps` is enabled and `TurnRequest.googleMapsLocation` is set, Interactions receives `tools: [{ type: "google_maps", latitude, longitude }]`. |
 | Code execution | Builtin `codeExecution` → `{ type: "code_execution" }`. Streamed `step.start` / `step.delta` / `step.stop`, `interaction.status_update` (`requires_action` for host tools), and batched `interaction.steps` become `evidence` (`kind`, `code`, `result`, `isError`, `raw`) plus `media` for sandbox images. Search/maps/`url_context` steps in `steps[]` are also `evidence`. Structured `responseFormat` is still attached when both are requested. |
 | Stream vs batch | Default SSE (`outputs.streaming.mode: 'sse'` or omitted). `'buffered'` POSTs JSON and yields the same `TurnEvent` types from `steps[]`. |
 | Grounding | Classic `grounding_metadata` **and** Interactions `google_search_result` / `google_maps_result` tool payloads (`search_suggestions` chips, `result[].places[]`, `place_citation` annotations). Emits `grounding` with normalized `sources` **and** classic `chunks[].maps` (`title` / `uri` / `placeId`) plus `evidence` with the raw tool payload so hosts can decide what to surface. |
@@ -124,19 +130,49 @@ terminal `done.stop` via `turnStopFromOpenAiFinishReason`.
 
 ## Google Live
 
-`createGoogleLiveProvider(geminiTransport)` connects to the Gemini Live bidirectional
-WebSocket service (`BidiGenerateContent`) and streams normalized `TurnEvent`s.
+Live profiles use **`runSession`**, not `createProvider` / `ModelProvider.complete()`.
+
+`runSession(req, { gemini, openWebSocket? })` opens a long-lived Gemini Live
+WebSocket (`BidiGenerateContent`), applies inbound text prep and the live outbound
+gate (canary + egress) at each conversational `turnComplete`, and returns a
+`LiveSession` (`sendAudio` / `sendVideo` / `sendText` / `sendToolResponse` /
+`sendToolResponses` / `events` / `close`).
+
+`createProvider` **rejects** `geminiLive` — there is no turn-scoped live `complete()` adapter.
 
 | Concern | Behavior |
 | --- | --- |
-| Transport | Direct WebSocket stream to `GEMINI_LIVE_WS_URL` with API key |
-| Handshake | Sends `BidiGenerateContentSetup` with system instruction, generation config, voice, VAD spec, and tools |
-| Framing | Empty WS payloads are ignored; malformed JSON / non-object payloads fail setup or emit `error` mid-turn |
-| Input | Streams `realtimeInput` (audio/video/text) and seeds `clientContent` history |
-| Output | Folds `serverContent` parts into `thought`, `text`, and `media` (PCM 24kHz -> WAV) events |
-| Tools | Dispatches function calls, receives tool responses via `BidiGenerateContentToolResponse` |
-| Interruption | Emits `interrupted` event on barge-in / `serverContent.interrupted` signal |
-| Resumption | Captures `sessionResumptionUpdate.newHandle` for continuous session reconnects |
+| Door | `runSession` (shares resolve / tools / canary / system compose with `runTurn`) |
+| Transport | `openGoogleLiveSession` — WebSocket; optional `openWebSocket` for Cloudflare fetch-upgrade |
+| Handshake | `BidiGenerateContentSetup` via `buildGeminiLiveSetupMessage` |
+| Turn boundary | Gemini `turnComplete` → outbound gate finalize + `done` (`stop.kind: 'completed'`); **session stays open** |
+| Generation boundary | Gemini `generationComplete` → `done` (`stop.kind: 'generation_complete'`) without tearing down the session |
+| Tools | Host executes and replies via `sendToolResponse(s)`; cancellations → `tool.phase: 'cancel'` |
+| Transcription | Mid-turn `evidence` with `kind: 'input_transcription'` / `output_transcription` (optional `interim`); **not** held for egress — streams immediately |
+| Session control | `goAway` → `session.kind: 'closing_soon'`; `waitingForInput` → `waiting_for_input` |
+| Resumption | `sessionResumptionHandle` on `SessionRequest`; updates as `evidence.kind: 'session_resumption'` with `resumable` |
+| Host wire tools | Optional `SessionRequest.wireTools` replaces profile wire declarations for the session |
+
+### Live fold → `TurnEvent` (exhaustive)
+
+| Gemini signal | TurnEvent |
+| --- | --- |
+| `inputTranscription` | `evidence` + `kind: 'input_transcription'` |
+| `interimInputTranscription` | same + `evidence.interim: true` |
+| `outputTranscription` | `evidence` + `kind: 'output_transcription'` |
+| `toolCall.functionCalls` | `tool` |
+| `toolCallCancellation.ids` | `tool` + `phase: 'cancel'` |
+| `goAway` | `session` + `kind: 'closing_soon'` |
+| `waitingForInput` | `session` + `kind: 'waiting_for_input'` |
+| `generationComplete` | `done` + `stop.kind: 'generation_complete'` |
+| `interrupted` | `done` + `interrupted` + `stop.kind: 'interrupted'` |
+| `sessionResumptionUpdate` | `evidence` + `kind: 'session_resumption'` |
+| `groundingMetadata` | `grounding` |
+| `usageMetadata` | `tokens` |
+| `setupComplete` | handshake only (not a TurnEvent) |
+| `turnComplete` | stream phase → `runSession` emits `done` + `completed` |
+
+Framing helpers remain in `google/live/framing.ts` for hosts that only need setup JSON.
 
 ## Local provider
 
@@ -199,19 +235,32 @@ event with `phase: 'error'` / `failure.code: 'malformed_arguments'`, or a thrown
 `TheorumError` when rebuilding history for the AI SDK. Nothing invents `{}` or
 `{ _raw }` to paper over bad JSON.
 
+## Key vault (provider-neutral)
+
+`KEY_SLOTS` = `slotA` | `slotB` | `slotC` | `paid`. Profiles pin `model.key` to an
+overflow slot (`OVERFLOW_KEY_SLOTS` = A/B/C). Resolve puts the chosen id on
+`ResolvedGeneration.keySlot` / `ProviderCompleteRequest.keySlot`.
+
+| Host option | How credentials are chosen |
+| --- | --- |
+| `gemini.vault` | Required for Google. Adapter reads `vault[keySlot]`. |
+| `openAiGateway.vault` | Optional. Used when `keySlot` is set (profile pinned a key or a builtin forced `paid`). |
+| `openAiGateway.apiKey` | Flat fallback when `keySlot` is omitted. |
+
 ## Gemini transport
 
 ```ts
 createProvider(profile, {
-  gemini: { vault: { freeA, freeB, freeC, paid } },
+  gemini: { vault: { slotA, slotB, slotC, paid } },
 })
 ```
 
 | Piece | Role |
 | --- | --- |
-| `GeminiTransport` | Vault + optional `fetch` |
-| Buckets | `freeA`, `freeB`, `freeC`, `paid` |
-| Selection | `model.key` / `ModelSpec.key` / `builtInTools` |
+| `GeminiTransport` | Google vault + optional `fetch` |
+| `KeyVault` | `Record<KeySlot, string \| undefined>` shared with OpenRouter |
+| Slots | `slotA`, `slotB`, `slotC`, `paid` |
+| Selection | `model.key` / `ModelSpec.key` / `builtInTools` (`forcePaidKey`) |
 
 Overflow to `paid` is host policy, not inferred here.
 
@@ -223,7 +272,7 @@ From `src/providers/mod.ts`:
 | --- | --- |
 | `createProvider` | function |
 | `CreateProviderOptions` | type |
-| `GeminiTransport`, `GeminiVault` | types |
+| `GeminiTransport`, `KeyVault` | types |
 | `LocalProviderConfig`, `OpenAiGatewayConfig` | types |
 
 From `src/providers/local/mod.ts` (`theorum/providers/local`):

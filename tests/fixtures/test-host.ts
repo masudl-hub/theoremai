@@ -86,7 +86,7 @@ const chat: Profile = {
     ...geminiModel('gemini35FlashLite'),
     controls: ['thinking'],
     maxSteps: 1,
-    key: 'freeA',
+    key: 'slotA',
   },
   tools: { allow: [] },
   inputs: {
@@ -111,7 +111,7 @@ const pinned: Profile = {
     thinking: 'low',
     controls: [],
     maxSteps: 1,
-    key: 'freeA',
+    key: 'slotA',
   },
   tools: { allow: [] },
   inputs: { text: true },
@@ -144,7 +144,7 @@ const selector: Profile = {
     thinking: { fast: 'low', smart: 'high' },
     controls: [],
     maxSteps: 1,
-    key: 'freeB',
+    key: 'slotB',
   },
   tools: { allow: [] },
   inputs: {
@@ -174,7 +174,7 @@ const formatter: Profile = {
     },
     controls: ['thinking'],
     maxSteps: 1,
-    key: 'freeC',
+    key: 'slotC',
   },
   tools: { allow: [] },
   inputs: {
@@ -201,7 +201,7 @@ const image: Profile = {
     thinking: 'minimal',
     controls: [],
     maxSteps: 1,
-    key: 'freeA',
+    key: 'slotA',
   },
   image: {
     aspectRatio: '1:1',
@@ -231,7 +231,7 @@ const speech: Profile = {
     thinking: 'minimal',
     controls: [],
     maxSteps: 1,
-    key: 'freeA',
+    key: 'slotA',
   },
   speech: { voice: 'Kore', format: 'pcm' },
   guardrails: {

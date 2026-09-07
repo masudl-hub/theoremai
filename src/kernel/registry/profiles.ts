@@ -8,11 +8,13 @@
  */
 
 import { TheorumError } from '../../guardrails/error.ts';
+import { isValidPair, isValidProfileProtocol, protocolsForProfileType } from '../schema.ts';
 import { getTool } from '../tools/registry.ts';
 import type {
   CompactionSpec,
   ImageProfile,
   LiveProfile,
+  LiveProfileModelSpec,
   ModelId,
   Profile,
   ProfileGuardrailsSpec,
@@ -22,31 +24,31 @@ import type {
   ProfileOutputsSpec,
   ProfileToolsSpec,
   ProfileTurnResumptionSpec,
+  Protocol,
+  Provider,
   SpeechProfile,
   TextProfile,
+  TurnProfileModelSpec,
 } from '../types.ts';
 
 const profiles = new Map<string, Profile>();
 
-type ModelAuthored = ProfileModelSpec;
-
-/** Shared authoring fields before type discrimination. */
-export type ProfileDefinitionBase = {
+export type ProfileDefinitionBase<P extends ProfileModelSpec = ProfileModelSpec> = {
   id: Profile['id'];
   identity: ProfileIdentity;
-  model: ModelAuthored;
+  model: P;
   outputs?: ProfileOutputsSpec;
   guardrails?: ProfileGuardrailsSpec;
 };
 
-export type TextProfileDefinition = ProfileDefinitionBase & {
+export type TextProfileDefinition = ProfileDefinitionBase<TurnProfileModelSpec> & {
   type: 'text';
   tools: ProfileToolsSpec;
   inputs: ProfileInputsSpec;
   turnResumption?: ProfileTurnResumptionSpec;
 };
 
-export type ImageProfileDefinition = ProfileDefinitionBase & {
+export type ImageProfileDefinition = ProfileDefinitionBase<TurnProfileModelSpec> & {
   type: 'image';
   image: NonNullable<ImageProfile['image']>;
   tools: ProfileToolsSpec;
@@ -54,13 +56,13 @@ export type ImageProfileDefinition = ProfileDefinitionBase & {
   turnResumption?: ProfileTurnResumptionSpec;
 };
 
-export type SpeechProfileDefinition = ProfileDefinitionBase & {
+export type SpeechProfileDefinition = ProfileDefinitionBase<TurnProfileModelSpec> & {
   type: 'speech';
   speech: NonNullable<SpeechProfile['speech']>;
   turnResumption?: ProfileTurnResumptionSpec;
 };
 
-export type LiveProfileDefinition = ProfileDefinitionBase & {
+export type LiveProfileDefinition = ProfileDefinitionBase<LiveProfileModelSpec> & {
   type: 'live';
   live: NonNullable<LiveProfile['live']>;
   tools: ProfileToolsSpec;
@@ -86,29 +88,30 @@ function assertModelSpecs(
   }
 }
 
-function assertProtocolProvider(profileId: string, model: ModelAuthored): void {
+function assertProtocolProvider(profileId: string, model: ProfileModelSpec): void {
   if (!model.protocol) {
     throw new TheorumError(`Profile ${profileId} must set model.protocol`);
   }
   if (!model.provider) {
     throw new TheorumError(`Profile ${profileId} must set model.provider`);
   }
+  if (!isValidPair(model.protocol as Protocol, model.provider as Provider)) {
+    throw new TheorumError(
+      `Profile ${profileId}: protocol '${model.protocol}' is not valid for provider '${model.provider}'`,
+    );
+  }
 }
 
 function assertTypeProtocol(profile: Profile): void {
-  if (profile.type === 'live' && profile.model.protocol !== 'geminiLive') {
-    throw new TheorumError(
-      `Profile ${profile.id}: type 'live' requires model.protocol 'geminiLive'`,
-    );
-  }
-  if (profile.type !== 'live' && profile.model.protocol === 'geminiLive') {
-    throw new TheorumError(
-      `Profile ${profile.id}: model.protocol 'geminiLive' requires type 'live'`,
-    );
-  }
+  const protocol = profile.model.protocol as Protocol;
+  if (isValidProfileProtocol(profile.type, protocol)) return;
+  const valid = protocolsForProfileType(profile.type).join(', ');
+  throw new TheorumError(
+    `Profile ${profile.id}: type '${profile.type}' cannot use protocol '${protocol}'. Supported: ${valid}`,
+  );
 }
 
-/** Define a typed profile. Omitted optional fields stay omitted — no invented defaults. */
+/** Define a typed profile. Required fields must be set explicitly; optional fields stay optional. */
 function defineProfile(input: ProfileDefinition): Profile {
   assertProtocolProvider(input.id, input.model);
   assertModelSpecs(input.id, input.model.allow, input.model.config);
@@ -117,17 +120,6 @@ function defineProfile(input: ProfileDefinition): Profile {
     handle: input.identity.handle,
     system: input.identity.system,
     systemByRole: input.identity.systemByRole,
-  };
-  const model: ProfileModelSpec = {
-    protocol: input.model.protocol,
-    provider: input.model.provider,
-    allow: input.model.allow,
-    config: input.model.config,
-    thinking: input.model.thinking,
-    controls: input.model.controls,
-    maxSteps: input.model.maxSteps,
-    key: input.model.key,
-    select: input.model.select,
   };
   const outputs = input.outputs;
   const guardrails = input.guardrails;
@@ -139,7 +131,7 @@ function defineProfile(input: ProfileDefinition): Profile {
         type: 'text',
         id: input.id,
         identity,
-        model,
+        model: input.model,
         tools: input.tools,
         inputs: input.inputs,
         outputs,
@@ -152,7 +144,7 @@ function defineProfile(input: ProfileDefinition): Profile {
         type: 'image',
         id: input.id,
         identity,
-        model,
+        model: input.model,
         image: input.image,
         tools: input.tools,
         inputs: input.inputs,
@@ -166,7 +158,7 @@ function defineProfile(input: ProfileDefinition): Profile {
         type: 'speech',
         id: input.id,
         identity,
-        model,
+        model: input.model,
         speech: input.speech,
         outputs,
         turnResumption: input.turnResumption,
@@ -178,7 +170,7 @@ function defineProfile(input: ProfileDefinition): Profile {
         type: 'live',
         id: input.id,
         identity,
-        model,
+        model: input.model,
         live: input.live,
         tools: input.tools,
         inputs: input.inputs,

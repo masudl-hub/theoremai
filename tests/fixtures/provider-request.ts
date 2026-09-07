@@ -1,6 +1,6 @@
 import type { ProviderCompleteRequest, ThinkingLevel } from '../../src/kernel/types.ts';
 
-type StubOverrides = Partial<ProviderCompleteRequest> & {
+export type StubOverrides = Partial<ProviderCompleteRequest> & {
   model?: string;
   apiId?: string;
   thinking?: ThinkingLevel;
@@ -26,7 +26,7 @@ export function stubCompleteRequest(overrides: StubOverrides = {}): ProviderComp
     speech: overrides.speech,
     live: overrides.live,
     sessionResumptionHandle: overrides.sessionResumptionHandle,
-    geminiBucket: overrides.geminiBucket,
+    keySlot: overrides.keySlot,
     tapUpstream: overrides.tapUpstream,
     signal: overrides.signal,
     previousInteractionId: overrides.previousInteractionId,

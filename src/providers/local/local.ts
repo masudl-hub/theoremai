@@ -27,7 +27,7 @@ export const DEFAULT_LOCAL_BASE_URL = 'http://127.0.0.1:11434';
 
 // ── wire types ──────────────────────────────────────
 
-export interface OpenAiDelta {
+interface OpenAiDelta {
   role?: string;
   content?: string | null;
   tool_calls?: Array<{
@@ -37,28 +37,23 @@ export interface OpenAiDelta {
   }>;
 }
 
-export interface OpenAiChoice {
+interface OpenAiChoice {
   index: number;
   delta?: OpenAiDelta;
   finish_reason?: string | null;
 }
 
-export interface OpenAiUsage {
+interface OpenAiUsage {
   prompt_tokens?: number;
   completion_tokens?: number;
   total_tokens?: number;
-}
-
-export interface OpenAiChunk {
-  choices?: OpenAiChoice[];
-  usage?: OpenAiUsage;
 }
 
 export type PendingToolCall = { id: string; name: string; args: string };
 
 // ── request mapping ─────────────────────────────────
 
-export function normalizeBaseUrl(baseUrl: string): string {
+function normalizeBaseUrl(baseUrl: string): string {
   let end = baseUrl.length;
   while (end > 0 && baseUrl.charCodeAt(end - 1) === 47) end -= 1;
   return baseUrl.slice(0, end);
@@ -68,7 +63,7 @@ export function resolveBaseUrl(config?: LocalProviderConfig): string {
   return normalizeBaseUrl(config?.baseUrl?.trim() || DEFAULT_LOCAL_BASE_URL);
 }
 
-export function buildBody(req: ProviderCompleteRequest): Record<string, unknown> {
+function buildBody(req: ProviderCompleteRequest): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model: req.apiId,
     messages: buildChatMessages(req),
@@ -245,10 +240,4 @@ function createLocalProvider(config?: LocalProviderConfig): ModelProvider {
   };
 }
 
-export {
-  accumulateToolCalls,
-  buildChatMessages as historyToWire,
-  createLocalProvider,
-  streamComplete,
-  wireTools as toolsToWire,
-};
+export { buildChatMessages as historyToWire, createLocalProvider, wireTools as toolsToWire };

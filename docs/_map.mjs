@@ -52,6 +52,11 @@ const graph = {
           reason: 'README documents createProvider as the single door',
           sections: ['Public Entrypoints', 'Package Boundary'],
         },
+        {
+          path: 'src/interface/mod.ts',
+          reason: 'README public entrypoints table tracks headless interface surface',
+          sections: ['Public Entrypoints'],
+        },
       ],
       validates: ['tests/kernel/theorum.test.ts', 'scripts/docs-truth/graph.test.mjs'],
       required_sections: [
@@ -400,6 +405,17 @@ const graph = {
       required_sections: ['Export', 'Ownership', 'Vocabularies', 'Exported API'],
     },
 
+    interface: {
+      export: './interface',
+      doc: 'docs/contracts/kernel.md',
+      owns: ['src/interface/'],
+      validates: ['tests/interface/'],
+      required_sections: ['Headless interface', 'Exported API'],
+      section_triggers: [
+        { paths: ['src/interface/'], sections: ['Headless interface', 'Exported API'] },
+      ],
+    },
+
     schema: {
       export: './schema',
       doc: 'docs/contracts/kernel.md',
@@ -420,7 +436,17 @@ const graph = {
         },
         {
           path: 'src/providers/google/live/stream.ts',
-          reason: 'Live stream adapter behind createGoogleLiveProvider',
+          reason: 'Shared Live WebSocket transport helpers for runSession',
+          sections: ['Google Live'],
+        },
+        {
+          path: 'src/providers/google/live/session.ts',
+          reason: 'openGoogleLiveSession — long-lived Gemini Live socket',
+          sections: ['Google Live'],
+        },
+        {
+          path: 'src/kernel/engine/session/mod.ts',
+          reason: 'runSession door — gated live session over shared resolve/tools/gates',
           sections: ['Google Live'],
         },
       ],

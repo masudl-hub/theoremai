@@ -13,6 +13,8 @@ import {
   foldGeminiLiveServerMessage,
   parseFunctionArguments,
   parseGeminiLiveMessage,
+  parseGoAwayTimeLeftMs,
+  wireFunctionDeclaration,
 } from '../../../../src/providers/google/live/framing.ts';
 
 Deno.test('buildGeminiLiveWebSocketUrl encodes api key parameter', () => {
@@ -85,10 +87,80 @@ Deno.test('buildGeminiLiveSetupMessage constructs standard setup frame', () => {
   );
   assertExists(setupMsg.setup.sessionResumption);
   assertExists(setupMsg.setup.contextWindowCompression);
+  assertExists(setupMsg.setup.realtimeInputConfig);
   assertExists(setupMsg.setup.inputAudioTranscription);
   assertExists(setupMsg.setup.outputAudioTranscription);
+  assertEquals(setupMsg.setup.proactivity, { proactiveAudio: true });
   // Empty sessions must not gate on clientContent history — that stalls realtime.
   assertEquals((setupMsg.setup as { historyConfig?: unknown }).historyConfig, undefined);
+});
+
+Deno.test('buildGeminiLiveSetupMessage omits proactivity when proactiveAudio is unset', () => {
+  const req: ProviderCompleteRequest = {
+    model: 'gemini-3.1-flash-live-preview',
+    apiId: 'gemini-3.1-flash-live-preview',
+    temperature: 0.7,
+    maxOutputTokens: 2048,
+    system: 'You are a helpful live assistant.',
+    builtins: [],
+    thinking: 'low',
+    input: [],
+    structured: null,
+    image: null,
+    live: { voice: 'Puck', proactiveAudio: false },
+  };
+
+  const setupMsg = buildGeminiLiveSetupMessage(req) as {
+    setup: { proactivity?: unknown };
+  };
+  assertEquals(setupMsg.setup.proactivity, undefined);
+});
+
+Deno.test('buildGeminiLiveSetupMessage omits VAD and compression when profile omits them', () => {
+  const req: ProviderCompleteRequest = {
+    model: 'gemini-3.1-flash-live-preview',
+    apiId: 'gemini-3.1-flash-live-preview',
+    temperature: 0.7,
+    maxOutputTokens: 2048,
+    system: 'You are a helpful live assistant.',
+    builtins: [],
+    thinking: 'low',
+    input: [],
+    structured: null,
+    image: null,
+    live: { voice: 'Puck' },
+  };
+
+  const setupMsg = buildGeminiLiveSetupMessage(req) as {
+    setup: {
+      realtimeInputConfig?: unknown;
+      contextWindowCompression?: unknown;
+    };
+  };
+
+  assertEquals(setupMsg.setup.realtimeInputConfig, undefined);
+  assertEquals(setupMsg.setup.contextWindowCompression, undefined);
+});
+
+Deno.test('buildGeminiLiveSetupMessage omits compression for contextCompression none', () => {
+  const req: ProviderCompleteRequest = {
+    model: 'gemini-3.1-flash-live-preview',
+    apiId: 'gemini-3.1-flash-live-preview',
+    temperature: 0.7,
+    maxOutputTokens: 2048,
+    system: 'You are a helpful live assistant.',
+    builtins: [],
+    thinking: 'low',
+    input: [],
+    structured: null,
+    image: null,
+    live: { voice: 'Puck', contextCompression: 'none' },
+  };
+
+  const setupMsg = buildGeminiLiveSetupMessage(req) as {
+    setup: { contextWindowCompression?: unknown };
+  };
+  assertEquals(setupMsg.setup.contextWindowCompression, undefined);
 });
 
 Deno.test('buildGeminiLiveSetupMessage seeds historyConfig only when history is present', () => {
@@ -306,6 +378,85 @@ Deno.test('foldGeminiLiveServerMessage handles model audio, text, transcriptions
   });
   assertEquals(resumeEvts.length, 1);
   assertEquals(resumeEvts[0]?.sessionResumptionHandle, 'handle_xyz_987');
+  assertEquals(resumeEvts[0]?.evidence?.kind, 'session_resumption');
+  assertEquals(resumeEvts[0]?.evidence?.resumable, true);
+});
+
+Deno.test('foldGeminiLiveServerMessage folds output and interim transcriptions mid-turn', () => {
+  const outputOnly = foldGeminiLiveServerMessage({
+    serverContent: {
+      outputTranscription: { text: 'spoken by model' },
+    },
+  });
+  assertEquals(outputOnly.length, 1);
+  assertEquals(outputOnly[0]?.type, 'evidence');
+  assertEquals(outputOnly[0]?.text, 'spoken by model');
+  assertEquals(outputOnly[0]?.evidence?.kind, 'output_transcription');
+
+  const both = foldGeminiLiveServerMessage({
+    serverContent: {
+      inputTranscription: { text: 'user hello' },
+      outputTranscription: { text: 'agent hello' },
+    },
+  });
+  assertEquals(
+    both.map((e) => e.evidence?.kind),
+    ['input_transcription', 'output_transcription'],
+  );
+
+  const interim = foldGeminiLiveServerMessage({
+    serverContent: {
+      interimInputTranscription: { text: 'hel' },
+    },
+  });
+  assertEquals(interim[0]?.evidence?.kind, 'input_transcription');
+  assertEquals(interim[0]?.evidence?.interim, true);
+});
+
+Deno.test('foldGeminiLiveServerMessage folds goAway, tool cancel, waitingForInput, generationComplete', () => {
+  const goAway = foldGeminiLiveServerMessage({
+    goAway: { timeLeft: '10s' },
+  });
+  assertEquals(goAway[0]?.type, 'session');
+  assertEquals(goAway[0]?.session?.kind, 'closing_soon');
+  assertEquals(goAway[0]?.session?.timeLeftMs, 10_000);
+
+  const cancel = foldGeminiLiveServerMessage({
+    toolCallCancellation: { ids: ['call_1', 'call_2'] },
+  });
+  assertEquals(cancel.length, 2);
+  assertEquals(cancel[0]?.tool?.phase, 'cancel');
+  assertEquals(cancel[0]?.tool?.id, 'call_1');
+  assertEquals(cancel[1]?.tool?.id, 'call_2');
+
+  const waiting = foldGeminiLiveServerMessage({
+    serverContent: { waitingForInput: true },
+  });
+  assertEquals(waiting[0]?.session?.kind, 'waiting_for_input');
+
+  const genDone = foldGeminiLiveServerMessage({
+    serverContent: { generationComplete: true },
+  });
+  assertEquals(genDone[0]?.type, 'done');
+  assertEquals(genDone[0]?.stop?.kind, 'generation_complete');
+});
+
+Deno.test('foldGeminiLiveServerMessage emits resumable false without a new handle', () => {
+  const evts = foldGeminiLiveServerMessage({
+    sessionResumptionUpdate: { resumable: false },
+  });
+  assertEquals(evts.length, 1);
+  assertEquals(evts[0]?.evidence?.kind, 'session_resumption');
+  assertEquals(evts[0]?.evidence?.resumable, false);
+  assertEquals(evts[0]?.sessionResumptionHandle, undefined);
+});
+
+Deno.test('parseGoAwayTimeLeftMs parses seconds and duration strings', () => {
+  assertEquals(parseGoAwayTimeLeftMs(10), 10_000);
+  assertEquals(parseGoAwayTimeLeftMs('10s'), 10_000);
+  assertEquals(parseGoAwayTimeLeftMs('1.5s'), 1_500);
+  assertEquals(parseGoAwayTimeLeftMs(''), undefined);
+  assertEquals(parseGoAwayTimeLeftMs(undefined), undefined);
 });
 
 Deno.test('parseGeminiLiveMessage distinguishes empty from malformed', () => {
@@ -344,6 +495,31 @@ Deno.test('extractUsageTokens parses token counts', () => {
   assertEquals(snakeTokens?.output, 20);
   assertEquals(snakeTokens?.total, 30);
   assertEquals(snakeTokens?.thinking, undefined);
+});
+
+Deno.test('wireFunctionDeclaration uppercases JSON Schema types for Gemini Live', () => {
+  const wired = wireFunctionDeclaration({
+    type: 'function',
+    name: 'think_deeply',
+    description: 'Think harder',
+    parameters: {
+      type: 'object',
+      properties: {
+        question: { type: 'string' },
+        mode: { type: ['string', 'null'] },
+      },
+      required: ['question'],
+    },
+  });
+  assertEquals(wired.name, 'think_deeply');
+  assertEquals(wired.parameters, {
+    type: 'OBJECT',
+    properties: {
+      question: { type: 'STRING' },
+      mode: { type: 'STRING', nullable: true },
+    },
+    required: ['question'],
+  });
 });
 
 Deno.test('parseFunctionArguments handles strings, objects, and malformed inputs', () => {

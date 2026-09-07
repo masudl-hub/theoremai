@@ -2,12 +2,11 @@ import '../../fixtures/test-host.ts';
 import { OMIT_CANARY } from '../../../src/guardrails/canary.ts';
 import { assertEquals } from '../../../src/kernel/engine/assert.ts';
 import { runTurn } from '../../../src/kernel/engine/runner.ts';
-import type { TurnEvent } from '../../../src/kernel/types.ts';
+import type { KeyVault, TurnEvent } from '../../../src/kernel/types.ts';
 import { memorySink } from '../../../src/observability/trace.ts';
 import type { TraceRecord } from '../../../src/observability/trace-record.ts';
 import { camelToSnake } from '../../../src/providers/google/interactions/framing.ts';
 import { createInteractionsProvider } from '../../../src/providers/google/interactions/stream.ts';
-import type { GeminiVault } from '../../../src/providers/google/keys.ts';
 import {
   isImageBlob,
   redactCanaryInTree,
@@ -21,10 +20,10 @@ const INPUT_TOKENS = 11;
 const OUTPUT_TOKENS = 2;
 const HTTP_OK = 200;
 
-const vault: GeminiVault = {
-  freeA: 'free-a-key',
-  freeB: 'free-b-key',
-  freeC: 'free-c-key',
+const vault: KeyVault = {
+  slotA: 'free-a-key',
+  slotB: 'free-b-key',
+  slotC: 'free-c-key',
   paid: 'paid-key',
 };
 

@@ -380,7 +380,7 @@ function registerCompactionPair(
       tools: { allow: [] },
       id: speakerId,
       model: {
-        key: 'freeA',
+        key: 'slotA',
         protocol: 'geminiInteractions',
         provider: 'google',
         allow: [modelKey],
@@ -912,7 +912,7 @@ Deno.test('orchid after: fallback prompt tokens from a long system prompt do not
       id: speakerId,
       identity: { handle: 'speaker', system: 'S'.repeat(20_000) },
       model: {
-        key: 'freeA',
+        key: 'slotA',
         protocol: 'geminiInteractions',
         provider: 'google',
         allow: ['fallbackModel'],
@@ -1041,7 +1041,7 @@ Deno.test('nested compacting turn does not recurse even if compacting profile ha
       tools: { allow: [] },
       id: mid,
       model: {
-        key: 'freeA',
+        key: 'slotA',
         protocol: 'geminiInteractions',
         provider: 'google',
         allow: ['midModel'],
@@ -1071,7 +1071,7 @@ Deno.test('nested compacting turn does not recurse even if compacting profile ha
       tools: { allow: [] },
       id: speaker,
       model: {
-        key: 'freeA',
+        key: 'slotA',
         protocol: 'geminiInteractions',
         provider: 'google',
         allow: ['nestModel'],

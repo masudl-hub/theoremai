@@ -172,7 +172,7 @@ type TraceCtx = {
   seen: TurnEvent[];
   started: number;
   model?: string;
-  bucket?: string;
+  keySlot?: string;
   canary: string;
   system?: string;
   generation?: ResolvedGeneration;
@@ -190,7 +190,7 @@ async function flushTurnTrace(sink: TraceSink, ctx: TraceCtx): Promise<void> {
       events: ctx.seen,
       started: ctx.started,
       model: ctx.model,
-      bucket: ctx.bucket,
+      keySlot: ctx.keySlot,
       thrown: ctx.thrown,
       upstreamLog: ctx.upstream,
       canary: ctx.canary,
@@ -232,7 +232,7 @@ async function* runTurnBody(ctx: TraceCtx, provider: ModelProvider): AsyncGenera
   gen.builtins = gen.tools.builtins;
   ctx.generation = gen;
   ctx.model = gen.model;
-  ctx.bucket = gen.geminiBucket;
+  ctx.keySlot = gen.keySlot;
   ctx.canary = gen.canary;
   ctx.protocol = profile.model.protocol;
 

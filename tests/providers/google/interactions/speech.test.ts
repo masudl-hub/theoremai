@@ -4,21 +4,20 @@ import { TheorumError } from '../../../../src/guardrails/error.ts';
 import { eventsFromComplete, eventsFromDelta } from '../../../../src/kernel/engine/delta.ts';
 import { getProfile, registerProfile } from '../../../../src/kernel/registry/profiles.ts';
 import { resolveTurn } from '../../../../src/kernel/registry/resolve.ts';
-import type { TurnEvent } from '../../../../src/kernel/types.ts';
+import type { KeyVault, TurnEvent } from '../../../../src/kernel/types.ts';
 import { createProvider } from '../../../../src/providers/create-provider.ts';
 import {
   camelToSnake,
   toInteractionsBody,
 } from '../../../../src/providers/google/interactions/framing.ts';
 import { createInteractionsProvider } from '../../../../src/providers/google/interactions/stream.ts';
-import type { GeminiVault } from '../../../../src/providers/google/keys.ts';
 import { wrapPcmAsWav } from '../../../../src/providers/shared/pcm.ts';
 import { HOST_MODELS } from '../../../fixtures/models.ts';
 
-const vault: GeminiVault = {
-  freeA: 'free-a-key',
-  freeB: 'free-b-key',
-  freeC: 'free-c-key',
+const vault: KeyVault = {
+  slotA: 'free-a-key',
+  slotB: 'free-b-key',
+  slotC: 'free-c-key',
   paid: 'paid-key',
 };
 
@@ -73,7 +72,7 @@ Deno.test('Interactions body for speech uses audio response_format and speech_co
     structured: generation.structured,
     image: generation.image,
     speech: generation.speech,
-    geminiBucket: generation.geminiBucket,
+    keySlot: generation.keySlot,
   });
 
   const format = body[camelToSnake('responseFormat')] as Record<string, string>;
@@ -139,7 +138,7 @@ Deno.test('Interactions speech turn wraps PCM as WAV media', async () => {
       structured: generation.structured,
       image: generation.image,
       speech: generation.speech,
-      geminiBucket: generation.geminiBucket,
+      keySlot: generation.keySlot,
     }),
   );
   assertEquals(events.length, 1);
@@ -180,7 +179,7 @@ Deno.test('Interactions speech profile errors when model emits text only (no fak
       structured: generation.structured,
       image: generation.image,
       speech: generation.speech,
-      geminiBucket: generation.geminiBucket,
+      keySlot: generation.keySlot,
     }),
   );
   assertEquals(events.length, 2);
@@ -220,7 +219,7 @@ Deno.test('Interactions non-voice profile does not synthesize speech media from 
       structured: generation.structured,
       image: generation.image,
       speech: undefined,
-      geminiBucket: generation.geminiBucket,
+      keySlot: generation.keySlot,
     }),
   );
   assertEquals(
@@ -240,7 +239,7 @@ Deno.test('Interactions speech profile rejects mp3 format at profile resolution'
     identity: { handle: 'bad' },
     model: {
       thinking: 'minimal',
-      key: 'freeA',
+      key: 'slotA',
       protocol: 'geminiInteractions',
       provider: 'google',
       allow: ['gemini31FlashTts'],
@@ -263,7 +262,7 @@ Deno.test('createProvider routes speech-role Interactions to the same adapter', 
     identity: { handle: 'speech' },
     model: {
       thinking: 'minimal',
-      key: 'freeA',
+      key: 'slotA',
       protocol: 'geminiInteractions',
       provider: 'google',
       allow: ['gemini31FlashTts'],

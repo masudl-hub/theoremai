@@ -78,7 +78,7 @@ registerProfile(
       thinking: thinkingLevel,
       controls: [],
       maxSteps: 3,
-      key: 'freeA',
+      key: 'slotA',
       select: { fast: 'flash', smart: 'flash' },
     },
     tools: { allow: [] },
@@ -104,7 +104,7 @@ registerProfile(
       thinking: thinkingLevel,
       controls: [],
       maxSteps: 1,
-      key: 'freeA',
+      key: 'slotA',
     },
     tools: { allow: [] },
     inputs: { text: true },
@@ -115,7 +115,7 @@ registerProfile(
 
 const provider: ModelProvider = createProvider(getProfile(PROFILE), {
   gemini: {
-    vault: { freeA: apiKey, freeB: apiKey, freeC: apiKey, paid: apiKey },
+    vault: { slotA: apiKey, slotB: apiKey, slotC: apiKey, paid: apiKey },
     wait: () => Promise.resolve(),
   },
 });

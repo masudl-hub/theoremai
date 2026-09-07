@@ -244,8 +244,5 @@ export {
   parseToolInput,
   resolveResponseFormat,
   stringDefault,
-  wireAudioPart,
-  wireHistoryMessage,
-  wireMessageContent,
   wireTools,
 };

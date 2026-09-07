@@ -731,7 +731,7 @@ Deno.test('T1 builtins stay off wire until profile.tools.t1Policy selects them',
       id: 't1_builtin_probe',
       model: {
         thinking: 'minimal',
-        key: 'freeA',
+        key: 'slotA',
         protocol: 'geminiInteractions',
         provider: 'google',
         allow: ['gemini35FlashLite'],

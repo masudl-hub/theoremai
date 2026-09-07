@@ -26,6 +26,7 @@ const ENTRY_MODS = [
   { export: './cli', mod: 'src/cli/index.ts', docFromEntry: 'cli' },
   { export: './presets', mod: 'src/presets/mod.ts', docFromEntry: 'presets' },
   { export: './presets/google', mod: 'src/presets/google.ts', docFromEntry: 'presets-google' },
+  { export: './interface', mod: 'src/interface/mod.ts', docFromEntry: 'interface' },
 ];
 
 function parseExportNames(source) {

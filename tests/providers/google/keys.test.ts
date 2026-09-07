@@ -7,11 +7,11 @@ import {
   registerProfile,
 } from '../../../src/kernel/registry/profiles.ts';
 import { resolveTurn } from '../../../src/kernel/registry/resolve.ts';
+import type { KeyVault } from '../../../src/kernel/types.ts';
 import {
   backoffMs,
   canOverflow,
   fetchGemini,
-  type GeminiVault,
   isQuota,
   isTransientHttp,
   isTransientThrown,
@@ -21,10 +21,10 @@ import {
   withGeminiKey,
 } from '../../../src/providers/google/keys.ts';
 
-const vault: GeminiVault = {
-  freeA: 'free-a-key',
-  freeB: 'free-b-key',
-  freeC: 'free-c-key',
+const vault: KeyVault = {
+  slotA: 'free-a-key',
+  slotB: 'free-b-key',
+  slotC: 'free-c-key',
   paid: 'paid-key',
 };
 
@@ -68,7 +68,7 @@ function withBuiltins(
       ...base,
       id,
       model: { ...base.model, config },
-    }),
+    } as Parameters<typeof defineProfile>[0]),
   );
 }
 
@@ -80,47 +80,43 @@ withBuiltins('selector_fast_maps', 'selector', ['googleMaps'], 'fast');
 withBuiltins('selector_smart_maps', 'selector', ['googleMaps'], 'smart');
 withBuiltins('chat_url', 'chat', ['urlContext']);
 
-Deno.test('host profiles default to their configured free key slots', () => {
+Deno.test('host profiles default to their configured key slots', () => {
+  assertEquals(resolveTurn({ profile: 'chat', input: { text: 'x' } }).generation.keySlot, 'slotA');
+  assertEquals(resolveTurn({ profile: 'pinned', input: {} }).generation.keySlot, 'slotA');
   assertEquals(
-    resolveTurn({ profile: 'chat', input: { text: 'x' } }).generation.geminiBucket,
-    'freeA',
-  );
-  assertEquals(resolveTurn({ profile: 'pinned', input: {} }).generation.geminiBucket, 'freeA');
-  assertEquals(
-    resolveTurn({ profile: 'formatter', input: { text: 'x' } }).generation.geminiBucket,
-    'freeC',
+    resolveTurn({ profile: 'formatter', input: { text: 'x' } }).generation.keySlot,
+    'slotC',
   );
   assertEquals(
-    resolveTurn({ profile: 'selector', select: 'fast', input: { text: 'x' } }).generation
-      .geminiBucket,
-    'freeB',
+    resolveTurn({ profile: 'selector', select: 'fast', input: { text: 'x' } }).generation.keySlot,
+    'slotB',
   );
 });
 
 Deno.test('image model uses the paid Gemini key', () => {
   assertEquals(
-    resolveTurn({ profile: 'image', input: { text: 'fox' } }).generation.geminiBucket,
+    resolveTurn({ profile: 'image', input: { text: 'fox' } }).generation.keySlot,
     'paid',
   );
 });
 
-Deno.test('pro preview without search or maps stays on the configured free key', () => {
+Deno.test('pro preview without search or maps stays on the configured key slot', () => {
   const { generation } = resolveTurn({
     profile: 'selector',
     select: 'smart',
     input: { text: 'x' },
   });
   assertEquals(generation.model, 'gemini31ProPreview');
-  assertEquals(generation.geminiBucket, 'freeB');
+  assertEquals(generation.keySlot, 'slotB');
 });
 
 Deno.test('search forces the paid key when listed on the model', () => {
   assertEquals(
-    resolveTurn({ profile: 'chat_search', input: { text: 'x' } }).generation.geminiBucket,
+    resolveTurn({ profile: 'chat_search', input: { text: 'x' } }).generation.keySlot,
     'paid',
   );
   assertEquals(
-    resolveTurn({ profile: 'formatter_search', input: { text: 'x' } }).generation.geminiBucket,
+    resolveTurn({ profile: 'formatter_search', input: { text: 'x' } }).generation.keySlot,
     'paid',
   );
   assertEquals(
@@ -128,45 +124,45 @@ Deno.test('search forces the paid key when listed on the model', () => {
       profile: 'selector_fast_search',
       select: 'fast',
       input: { text: 'x' },
-    }).generation.geminiBucket,
+    }).generation.keySlot,
     'paid',
   );
 });
 
-Deno.test('maps uses profile free key unless model pins paid or builtin forces paid', () => {
+Deno.test('maps uses profile key slot unless model pins paid or builtin forces paid', () => {
   assertEquals(
-    resolveTurn({ profile: 'chat_maps', input: { text: 'x' } }).generation.geminiBucket,
-    'freeA',
+    resolveTurn({ profile: 'chat_maps', input: { text: 'x' } }).generation.keySlot,
+    'slotA',
   );
   assertEquals(
     resolveTurn({
       profile: 'selector_fast_maps',
       select: 'fast',
       input: { text: 'x' },
-    }).generation.geminiBucket,
-    'freeB',
+    }).generation.keySlot,
+    'slotB',
   );
   assertEquals(
     resolveTurn({
       profile: 'selector_smart_maps',
       select: 'smart',
       input: { text: 'x' },
-    }).generation.geminiBucket,
-    'freeB',
+    }).generation.keySlot,
+    'slotB',
   );
 });
 
 Deno.test('url context does not force paid', () => {
   assertEquals(
-    resolveTurn({ profile: 'chat_url', input: { text: 'x' } }).generation.geminiBucket,
-    'freeA',
+    resolveTurn({ profile: 'chat_url', input: { text: 'x' } }).generation.keySlot,
+    'slotA',
   );
 });
 
 Deno.test('withGeminiKey stays on the free key when it succeeds', async () => {
   const used: string[] = [];
   const out = await withGeminiKey(
-    'freeA',
+    'slotA',
     (apiKey) => {
       used.push(apiKey);
       return Promise.resolve('ok');
@@ -177,10 +173,10 @@ Deno.test('withGeminiKey stays on the free key when it succeeds', async () => {
   assertEquals(used, ['free-a-key']);
 });
 
-Deno.test('withGeminiKey overflows to paid after quota backoff on a free bucket', async () => {
+Deno.test('withGeminiKey overflows to paid after quota backoff on a key slot', async () => {
   const used: string[] = [];
   const out = await withGeminiKey(
-    'freeC',
+    'slotC',
     (apiKey) => {
       used.push(apiKey);
       if (apiKey !== 'paid-key') {
@@ -194,7 +190,7 @@ Deno.test('withGeminiKey overflows to paid after quota backoff on a free bucket'
   assertEquals(used, ['free-c-key', 'free-c-key', 'free-c-key', 'paid-key']);
 });
 
-Deno.test('withGeminiKey never overflows when the bucket is already paid', async () => {
+Deno.test('withGeminiKey never overflows when the slot is already paid', async () => {
   const used: string[] = [];
   let threw = false;
   try {
@@ -213,9 +209,9 @@ Deno.test('withGeminiKey never overflows when the bucket is already paid', async
   assertEquals(used, ['paid-key', 'paid-key', 'paid-key']);
 });
 
-Deno.test('fetchGemini never starts on paid for a free bucket that is not 429', async () => {
+Deno.test('fetchGemini never starts on paid for a key slot that is not 429', async () => {
   const used: string[] = [];
-  const res = await fetchGemini('https://example.com/v1', { method: 'POST', body: '{}' }, 'freeB', {
+  const res = await fetchGemini('https://example.com/v1', { method: 'POST', body: '{}' }, 'slotB', {
     vault,
     wait: noWait,
     fetch: (_url, init) => {
@@ -232,7 +228,7 @@ Deno.test('fetchGemini overflows to paid after 429 backoff, not before', async (
   const res = await fetchGemini(
     'https://example.com/v1?key=strip-me',
     { method: 'POST', body: '{}' },
-    'freeA',
+    'slotA',
     {
       vault,
       wait: noWait,
@@ -250,8 +246,8 @@ Deno.test('fetchGemini overflows to paid after 429 backoff, not before', async (
 Deno.test('missing free key throws before any fetch', async () => {
   let threw = false;
   try {
-    await fetchGemini('https://example.com/v1', {}, 'freeC', {
-      vault: { ...vault, freeC: undefined },
+    await fetchGemini('https://example.com/v1', {}, 'slotC', {
+      vault: { ...vault, slotC: undefined },
       wait: noWait,
       fetch: () => {
         throw new Error('must not fetch');
@@ -265,7 +261,7 @@ Deno.test('missing free key throws before any fetch', async () => {
 
 Deno.test('fetchGemini and withGeminiKey retry on transient network errors before succeeding', async () => {
   let attempts = 0;
-  const res = await fetchGemini('https://example.com/v1/ping', { method: 'GET' }, 'freeA', {
+  const res = await fetchGemini('https://example.com/v1/ping', { method: 'GET' }, 'slotA', {
     vault,
     wait: noWait,
     fetch: () => {
@@ -281,7 +277,7 @@ Deno.test('fetchGemini and withGeminiKey retry on transient network errors befor
 
   let keyAttempts = 0;
   const result = await withGeminiKey(
-    'freeA',
+    'slotA',
     () => {
       keyAttempts++;
       if (keyAttempts === 1) {
@@ -343,11 +339,11 @@ Deno.test('backoffMs follows the configured schedule and falls back after it', (
   assertEquals(backoffMs(10), 2000);
 });
 
-Deno.test('canOverflow only offers the paid key for a distinct free bucket', () => {
+Deno.test('canOverflow only offers the paid key for a distinct key slot', () => {
   assertEquals(canOverflow('paid', vault, vault.paid ?? ''), undefined);
-  assertEquals(canOverflow('freeA', { ...vault, paid: undefined }, 'free-a-key'), undefined);
-  assertEquals(canOverflow('freeA', vault, 'paid-key'), undefined);
-  assertEquals(canOverflow('freeA', vault, 'free-a-key'), 'paid-key');
+  assertEquals(canOverflow('slotA', { ...vault, paid: undefined }, 'free-a-key'), undefined);
+  assertEquals(canOverflow('slotA', vault, 'paid-key'), undefined);
+  assertEquals(canOverflow('slotA', vault, 'free-a-key'), 'paid-key');
 });
 
 Deno.test('withApiKey sets the api key header and Content-Type for non-GET requests', () => {
@@ -376,10 +372,10 @@ Deno.test('withApiKey defaults to GET behavior when no method is given', () => {
   assertEquals(headers.get('Content-Type'), null);
 });
 
-Deno.test('requireKey throws TheorumError when the bucket has no key', () => {
+Deno.test('requireKey throws TheorumError when the slot has no key', () => {
   let threw = false;
   try {
-    requireKey({ ...vault, freeA: undefined }, 'freeA');
+    requireKey({ ...vault, slotA: undefined }, 'slotA');
   } catch (err) {
     threw = err instanceof TheorumError && err.message === UPSTREAM_FAILED;
   }
@@ -387,7 +383,7 @@ Deno.test('requireKey throws TheorumError when the bucket has no key', () => {
 });
 
 Deno.test('requireKey returns the key when present', () => {
-  assertEquals(requireKey(vault, 'freeA'), 'free-a-key');
+  assertEquals(requireKey(vault, 'slotA'), 'free-a-key');
 });
 
 Deno.test('waitDefault returns a promise', () => {

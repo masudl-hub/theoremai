@@ -10,11 +10,11 @@ function attachResolved(
   args: {
     safe: TurnRequest;
     model?: string;
-    bucket?: string;
+    keySlot?: string;
     generation?: ResolvedGeneration;
   },
 ): void {
-  const { safe, model, bucket, generation } = args;
+  const { safe, model, keySlot, generation } = args;
   if (safe.projectId) {
     record.projectId = safe.projectId;
   }
@@ -33,8 +33,8 @@ function attachResolved(
       apiId: generation?.apiId ?? model,
     };
   }
-  if (bucket) {
-    record.bucket = bucket;
+  if (keySlot) {
+    record.keySlot = keySlot;
   }
   if (generation) {
     const traceGeneration = {

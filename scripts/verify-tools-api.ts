@@ -1,15 +1,16 @@
 #!/usr/bin/env -S deno run --allow-read --allow-net --allow-env --allow-sys
 
 /**
- * Adversarial tool-system pressure test — kernel invoke matrix + live Gemini turns.
+ * Adversarial tool-system pressure test — kernel invoke matrix + real Gemini
+ * Interactions turns (text runner). Not Gemini Live (`type: 'live'`).
  *
  * Loads keys from THEORUM_ENV_FILE or ../theorum-frontend/.env.local (GEMINI_API_KEY).
  *
  * Usage:
- *   THEORUM_ENV_FILE=../theorum-frontend/.env.local deno run --allow-read --allow-net --allow-env --allow-sys scripts/verify-tools-live.ts
- *   ... --invoke-only     # skip live API (deterministic kernel path)
- *   ... --live-only       # skip invoke matrix
- *   ... --limit 5         # cap live cases (debug)
+ *   THEORUM_ENV_FILE=../theorum-frontend/.env.local deno task verify:tools-api
+ *   ... --invoke-only     # skip provider API (deterministic kernel path)
+ *   ... --api-only        # skip invoke matrix
+ *   ... --limit 5         # cap API cases (debug)
  */
 
 import { z } from 'zod';
@@ -130,7 +131,7 @@ function flashLiteModel(maxSteps: number) {
     },
     thinking: 'minimal' as const,
     maxSteps,
-    key: 'freeA' as const,
+    key: 'slotA' as const,
   };
 }
 
@@ -316,9 +317,13 @@ async function runLive(req: TurnRequest, provider: ModelProvider): Promise<CaseR
   try {
     const events = await collect(runTurn(req, provider));
     const errEv = events.find((e) => e.type === 'error');
+    const publicMsg = errEv?.error;
+    const internal = errEv?.errorInternal;
     return {
       events,
-      error: errEv?.error,
+      error: internal
+        ? `${publicMsg ?? 'error'} [internal: ${internal}]`
+        : publicMsg,
       ms: Date.now() - start,
     };
   } catch (err) {
@@ -327,6 +332,45 @@ async function runLive(req: TurnRequest, provider: ModelProvider): Promise<CaseR
       error: err instanceof Error ? err.message : String(err),
       ms: Date.now() - start,
     };
+  }
+}
+
+function summarizeEvents(events: TurnEvent[]): string {
+  const parts: string[] = [];
+  for (const e of events) {
+    if (e.type === 'tool' && e.tool) {
+      parts.push(
+        `tool:${e.tool.name}/${e.tool.phase ?? '?'}${e.tool.failure ? `(${e.tool.failure.code})` : ''}`,
+      );
+    } else if (e.type === 'done') {
+      parts.push(`done:${e.stop?.kind ?? '?'}`);
+    } else if (e.type === 'error') {
+      parts.push(`error:${e.errorInternal ?? e.error ?? '?'}`);
+    } else {
+      parts.push(e.type);
+    }
+  }
+  return parts.join(' → ');
+}
+
+/** Dump args + Zod/failure details for every tool event that ended in error/pause. */
+function dumpToolFailures(events: TurnEvent[]): void {
+  for (const e of events) {
+    if (e.type !== 'tool' || !e.tool) continue;
+    const t = e.tool;
+    if (t.phase !== 'error' && t.phase !== 'pause') continue;
+    const args = t.arguments === undefined ? '<absent>' : JSON.stringify(t.arguments);
+    console.log(`      tool[${t.name || '(empty)'}] phase=${t.phase} args=${args}`);
+    if (t.failure) {
+      console.log(
+        `        failure: ${t.failure.code} — ${t.failure.message}${
+          t.failure.details !== undefined ? ` details=${JSON.stringify(t.failure.details)}` : ''
+        }`,
+      );
+    }
+    if (t.pause) {
+      console.log(`        pause: ${t.pause.kind}`);
+    }
   }
 }
 
@@ -350,7 +394,7 @@ function createGeminiProvider(): ModelProvider {
     throw new Error('GEMINI_API_KEY missing — set in .env.local or env');
   }
   return createProvider(getProfile(LIVE_PROFILE), {
-    gemini: { vault: { freeA: key, freeB: key, freeC: key, paid: key } },
+    gemini: { vault: { slotA: key, slotB: key, slotC: key, paid: key } },
   });
 }
 
@@ -849,28 +893,28 @@ async function main(): Promise<void> {
   registerPressureProfiles();
 
   const invokeOnly = hasFlag('--invoke-only');
-  const liveOnly = hasFlag('--live-only');
+  const apiOnly = hasFlag('--api-only') || hasFlag('--live-only'); // --live-only = deprecated alias
   const stubOnly = hasFlag('--stub-only');
   const limitRaw = valueAfterFlag('--limit');
-  const liveLimit = limitRaw ? Number(limitRaw) : undefined;
+  const apiLimit = limitRaw ? Number(limitRaw) : undefined;
 
-  const invokeCases = liveOnly || stubOnly ? [] : buildInvokeCases();
-  const stubCases = invokeOnly || liveOnly ? [] : buildStubRunCases();
-  let liveCases: Case[] = [];
+  const invokeCases = apiOnly || stubOnly ? [] : buildInvokeCases();
+  const stubCases = invokeOnly || apiOnly ? [] : buildStubRunCases();
+  let apiCases: Case[] = [];
   if (!invokeOnly && !stubOnly) {
     try {
       const provider = createGeminiProvider();
-      liveCases = buildLiveCases(provider);
-      if (liveLimit && liveLimit > 0) liveCases = liveCases.slice(0, liveLimit);
+      apiCases = buildLiveCases(provider);
+      if (apiLimit && apiLimit > 0) apiCases = apiCases.slice(0, apiLimit);
     } catch (err) {
-      console.error(`Live provider unavailable: ${err instanceof Error ? err.message : err}`);
-      if (liveOnly) Deno.exit(1);
+      console.error(`Provider API unavailable: ${err instanceof Error ? err.message : err}`);
+      if (apiOnly) Deno.exit(1);
     }
   }
 
-  const all = [...invokeCases, ...stubCases, ...liveCases];
+  const all = [...invokeCases, ...stubCases, ...apiCases];
   console.log(
-    `\nTool pressure matrix: ${invokeCases.length} invoke + ${stubCases.length} stub-run + ${liveCases.length} live = ${all.length} cases\n`,
+    `\nTool pressure matrix: ${invokeCases.length} invoke + ${stubCases.length} stub-run + ${apiCases.length} api = ${all.length} cases\n`,
   );
 
   const failures: Array<{ name: string; reason: string; ms: number }> = [];
@@ -883,6 +927,10 @@ async function main(): Promise<void> {
     if (reason) {
       console.log(`FAIL (${result.ms}ms)`);
       console.log(`      ${reason}`);
+      if (c.lane === 'live' && result.events.length > 0) {
+        console.log(`      events: ${summarizeEvents(result.events)}`);
+        dumpToolFailures(result.events);
+      }
       failures.push({ name: c.name, reason, ms: result.ms });
     } else {
       console.log(`ok (${result.ms}ms)`);

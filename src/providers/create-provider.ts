@@ -73,12 +73,6 @@ function lazyGoogleInteractions(config: GeminiTransport): ModelProvider {
   );
 }
 
-function lazyGoogleLive(config: GeminiTransport): ModelProvider {
-  return lazyAdapter('google-live-stream', () =>
-    import('./google/live/mod.ts').then((m) => m.createGoogleLiveProvider(config)),
-  );
-}
-
 function lazySpeech(config: OpenAiGatewayConfig & { voice?: string }): ModelProvider {
   return lazyAdapter('openrouter-speech', () =>
     import('./openrouter/speech.ts').then((m) => m.createSpeechProvider(config)),
@@ -98,8 +92,8 @@ function lazyLocal(config?: LocalProviderConfig): ModelProvider {
 }
 
 /**
- * Create a `ModelProvider` for a profile.
- * One call: protocol/provider (and speech role) pick the transport.
+ * Create a `ModelProvider` for a turn-based profile (text / image / speech).
+ * Live profiles use `runSession` — `createProvider` rejects geminiLive.
  */
 export function createProvider(
   profile: Profile,
@@ -121,10 +115,9 @@ export function createProvider(
   }
 
   if (protocol === 'geminiLive' && provider === 'google') {
-    if (!options.gemini) {
-      throw new TheorumError('createProvider requires gemini transport for google Gemini Live');
-    }
-    return lazyGoogleLive(options.gemini);
+    throw new TheorumError(
+      "createProvider does not support type 'live' / geminiLive — use runSession(req, { gemini })",
+    );
   }
 
   if (protocol === 'openAi' && provider === 'openrouter') {

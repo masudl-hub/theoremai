@@ -25,7 +25,8 @@
     "./host": "./src/host/mod.ts",
     "./cli": "./src/cli/index.ts",
     "./presets": "./src/presets/mod.ts",
-    "./presets/google": "./src/presets/google.ts"
+    "./presets/google": "./src/presets/google.ts",
+    "./interface": "./src/interface/mod.ts"
   },
   "publish": {
     "exclude": [
@@ -75,11 +76,12 @@
     "lint": "npm run lint",
     "lint:docs": "npm run lint:docs",
     "hooks:install": "npm run hooks:install",
-    "verify:live": "deno run --allow-net scripts/verify-live.ts",
-    "verify:canary-live": "deno run --allow-read --allow-net --allow-env --allow-sys scripts/verify-guardrails-live.ts",
-    "verify:guardrails-live": "deno run --allow-read --allow-net --allow-env --allow-sys scripts/verify-guardrails-live.ts",
-    "verify:tools-live": "deno run --allow-read --allow-net --allow-env --allow-sys scripts/verify-tools-live.ts",
-    "verify:runner-live": "deno run --allow-read --allow-net --allow-env --allow-sys scripts/verify-runner-live.ts",
+    "verify:provider-smoke": "deno run --allow-net scripts/verify-provider-smoke.ts",
+    "verify:canary-api": "deno run --allow-read --allow-net --allow-env --allow-sys scripts/verify-guardrails-api.ts",
+    "verify:guardrails-api": "deno run --allow-read --allow-net --allow-env --allow-sys scripts/verify-guardrails-api.ts",
+    "verify:tools-api": "deno run --allow-read --allow-net --allow-env --allow-sys scripts/verify-tools-api.ts",
+    "verify:typed-profiles-api": "deno run --allow-read --allow-net --allow-env --allow-sys scripts/verify-typed-profiles-api.ts",
+    "verify:runner-api": "deno run --allow-read --allow-net --allow-env --allow-sys scripts/verify-runner-api.ts",
     "stryker:guardrails": "npx stryker run stryker.guardrails.config.json",
     "stryker:tools": "npx stryker run stryker.tools.config.json"
   }

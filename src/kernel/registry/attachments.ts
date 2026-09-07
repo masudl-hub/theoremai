@@ -33,7 +33,7 @@ function turnTooLargeMessage(maxTurnBytes: number): string {
   return `Those files together are too large for one message (${formatMb(maxTurnBytes)} max).`;
 }
 
-function mediaLimits(inputs: MimeInputs): MediaLimits | undefined {
+function resolveMediaLimits(inputs: MimeInputs): MediaLimits | undefined {
   const { maxFiles, maxBytes, maxTurnBytes, limitsByMime } = inputs;
   if (maxFiles && maxBytes && maxTurnBytes) {
     return { maxFiles, maxBytes, maxTurnBytes, limitsByMime };
@@ -60,7 +60,7 @@ function requireMediaLimits(profile: Profile): MediaLimits {
   if (profile.type === 'speech') {
     throw new TheorumError(`Profile ${profile.id} (speech) does not accept media input`);
   }
-  const limits = mediaLimits(profile.inputs ?? {});
+  const limits = resolveMediaLimits(profile.inputs ?? {});
   if (!limits) {
     throw new TheorumError(`Profile ${profile.id} must set maxFiles, maxBytes, and maxTurnBytes`);
   }
@@ -189,7 +189,9 @@ function sanitizeTurnBlobsForProfile(
 export {
   assertAttachmentLimits,
   fileTooLargeMessage,
+  maxBytesForMime,
   requireMediaLimits,
+  resolveMediaLimits,
   sanitizeCsvText,
   sanitizeTurnBlobs,
   sanitizeTurnBlobsForProfile,

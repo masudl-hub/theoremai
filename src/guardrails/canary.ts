@@ -102,6 +102,9 @@ function eventHasCanary(event: TurnEvent, canary: string): boolean {
   ) {
     return true;
   }
+  if (event.session !== undefined && scanTextForCanaryLeak(JSON.stringify(event.session), canary)) {
+    return true;
+  }
   if (
     event.sessionResumptionHandle &&
     scanTextForCanaryLeak(event.sessionResumptionHandle, canary)

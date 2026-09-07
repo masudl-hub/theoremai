@@ -17,6 +17,8 @@ export {
   splitForCompaction,
 } from './engine/compaction.ts';
 export { runTurn } from './engine/runner.ts';
+export type { RunSessionOptions } from './engine/session/mod.ts';
+export { runSession } from './engine/session/mod.ts';
 export {
   clampThinkingLevel,
   clampThinkingLevelForApiId,
@@ -26,7 +28,14 @@ export {
   modelEntryByApiId,
   requireModelSpec,
 } from './registry/catalog.ts';
-export type { ProfileDefinition } from './registry/profiles.ts';
+export type {
+  ImageProfileDefinition,
+  LiveProfileDefinition,
+  ProfileDefinition,
+  ProfileDefinitionBase,
+  SpeechProfileDefinition,
+  TextProfileDefinition,
+} from './registry/profiles.ts';
 export {
   clearProfiles,
   defineProfile,
@@ -36,7 +45,7 @@ export {
   registerProfile,
   registerProfiles,
 } from './registry/profiles.ts';
-export { projectProfile, resolveTurn } from './registry/resolve.ts';
+export { projectProfile, projectProfileObject, resolveTurn } from './registry/resolve.ts';
 export { getStructured, registerStructured } from './registry/schemas.ts';
 export {
   ATTACHMENT_ACCEPT_MIMES,
@@ -49,17 +58,21 @@ export {
   EGRESS_ON_BLOCK,
   EXTRA_FIELDS,
   fieldMeta,
-  GEMINI_BUCKETS,
-  GEMINI_FREE_BUCKETS,
   isValidPair,
+  isValidProfileProtocol,
+  KEY_SLOTS,
   MEDIA_INPUT_KIND_VALUES,
   MEDIA_INPUT_KINDS,
   MEDIA_WILDCARDS,
+  OVERFLOW_KEY_SLOTS,
   PROFILE_FIELDS,
+  PROFILE_TYPE_PROTOCOLS,
+  PROFILE_TYPES,
   PROTOCOL_PROVIDERS,
   PROTOCOLS,
   PROVIDERS,
   protocolsFor,
+  protocolsForProfileType,
   providersFor,
   SCHEMA_ENFORCEMENTS,
   SPEECH_AUDIO_FORMATS,

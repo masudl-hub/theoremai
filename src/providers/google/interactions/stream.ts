@@ -144,7 +144,7 @@ export function* yieldEvidenceStep(
   yield event;
 }
 
-export function recordCodeStep(
+function recordCodeStep(
   index: number,
   delta: Record<string, unknown>,
   steps: Map<number, Record<string, unknown>>,
@@ -161,7 +161,7 @@ export function isCompleteCodeStep(step: Record<string, unknown>): boolean {
   return step.arguments !== undefined || step.result !== undefined;
 }
 
-export function* flushCompletedCodeSteps(
+function* flushCompletedCodeSteps(
   steps: Map<number, Record<string, unknown>>,
   emittedKeys: Set<string>,
 ): Generator<TurnEvent> {
@@ -188,13 +188,20 @@ export function foldStepStart(payload: Record<string, unknown>, fold: StreamFold
   const type = String(step.type ?? '');
   const index = typeof payload.index === 'number' ? payload.index : 0;
   if (type === 'function_call') {
-    if (step.arguments !== undefined && typeof step.arguments !== 'string') {
-      return foldFunctionCallDelta(step, fold);
+    // Always buffer until step.stop. Gemini often sends arguments: {} on start, then
+    // streams the real JSON via arguments_delta — early emit would run with empty args
+    // and leave a nameless pending for the deltas.
+    const existing = fold.functionCalls.get(index);
+    let argumentsStr = existing?.arguments ?? '';
+    if (typeof step.arguments === 'string') {
+      argumentsStr = step.arguments;
+    } else if (step.arguments !== undefined && typeof step.arguments === 'object') {
+      argumentsStr = JSON.stringify(step.arguments);
     }
     fold.functionCalls.set(index, {
-      id: typeof step.id === 'string' ? step.id : undefined,
-      name: typeof step.name === 'string' ? step.name : undefined,
-      arguments: typeof step.arguments === 'string' ? step.arguments : '',
+      id: typeof step.id === 'string' ? step.id : existing?.id,
+      name: typeof step.name === 'string' ? step.name : existing?.name,
+      arguments: argumentsStr,
     });
     return [];
   }
@@ -236,12 +243,29 @@ export function emitToolCallFromRawArguments(
   rawArguments: unknown,
   fold: StreamFold,
 ): TurnEvent[] {
+  const name = tool.name.trim();
+  if (!name) {
+    return emitUniqueToolEvent(
+      {
+        id: tool.id,
+        name: '',
+        arguments: {},
+        phase: 'error',
+        failure: {
+          code: 'malformed_arguments',
+          message: 'function call is missing a name',
+          details: { rawArguments },
+        },
+      },
+      fold,
+    );
+  }
   const parsed = parseArgumentsObject(rawArguments);
   if (!parsed.ok) {
     return emitUniqueToolEvent(
       {
         id: tool.id,
-        name: tool.name,
+        name,
         arguments: {},
         phase: 'error',
         failure: {
@@ -253,7 +277,7 @@ export function emitToolCallFromRawArguments(
       fold,
     );
   }
-  return emitUniqueToolEvent({ id: tool.id, name: tool.name, arguments: parsed.value }, fold);
+  return emitUniqueToolEvent({ id: tool.id, name, arguments: parsed.value }, fold);
 }
 
 export function foldArgumentsDelta(
@@ -263,7 +287,16 @@ export function foldArgumentsDelta(
 ): void {
   const existing = fold.functionCalls.get(index) ?? { arguments: '' };
   const chunk = typeof delta.arguments === 'string' ? delta.arguments : '';
-  existing.arguments += chunk;
+  if (!chunk) {
+    fold.functionCalls.set(index, existing);
+    return;
+  }
+  // Replace empty / `{}` placeholder from step.start so streamed JSON is not concatenated onto it.
+  if (existing.arguments === '' || existing.arguments === '{}') {
+    existing.arguments = chunk;
+  } else {
+    existing.arguments += chunk;
+  }
   fold.functionCalls.set(index, existing);
 }
 
@@ -497,7 +530,7 @@ export function* missingSpeechAudioError(): Generator<TurnEvent> {
   yield toErrorEvent(new TheorumError('speech audio was not returned by the model'));
 }
 
-export async function* parseInteractionsSse(
+async function* parseInteractionsSse(
   response: Response,
   req: ProviderCompleteRequest,
 ): AsyncGenerator<TurnEvent> {
@@ -582,19 +615,31 @@ export async function readNonOkErrorMessage(response: Response): Promise<string>
   }
 }
 
-export async function* fetchInteractionsOnce(
+function prepareInteractionsFetch(req: ProviderCompleteRequest): {
+  slot: NonNullable<ProviderCompleteRequest['keySlot']>;
+  init: RequestInit;
+} {
+  if (!req.keySlot) {
+    throw new TheorumError('Request requires keySlot');
+  }
+  const body = JSON.stringify(toInteractionsBody(req));
+  return {
+    slot: req.keySlot,
+    init: {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body,
+      signal: req.signal,
+    },
+  };
+}
+
+async function* fetchInteractionsOnce(
   req: ProviderCompleteRequest,
   transport: GeminiTransport,
 ): AsyncGenerator<TurnEvent> {
-  const bucket = req.geminiBucket ?? 'freeA';
-  const body = JSON.stringify(toInteractionsBody(req));
-  const init: RequestInit = {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body,
-    signal: req.signal,
-  };
-  const response = await fetchGemini(INTERACTIONS_JSON_URL, init, bucket, transport);
+  const { slot, init } = prepareInteractionsFetch(req);
+  const response = await fetchGemini(INTERACTIONS_JSON_URL, init, slot, transport);
   if (response.status !== HTTP_OK) {
     const reason = await readNonOkErrorMessage(response);
     throw new TheorumError(reason);
@@ -631,20 +676,13 @@ export function withTap(req: ProviderCompleteRequest, transport: GeminiTransport
   return { ...transport, fetch: fetchFn };
 }
 
-export async function* streamInteractions(
+async function* streamInteractions(
   req: ProviderCompleteRequest,
   transport: GeminiTransport,
 ): AsyncGenerator<TurnEvent> {
-  const bucket = req.geminiBucket ?? 'freeA';
-  const body = JSON.stringify(toInteractionsBody(req));
+  const { slot, init } = prepareInteractionsFetch(req);
   const customTransport = withTap(req, transport);
-  const init: RequestInit = {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body,
-    signal: req.signal,
-  };
-  const response = await fetchGemini(INTERACTIONS_URL, init, bucket, customTransport);
+  const response = await fetchGemini(INTERACTIONS_URL, init, slot, customTransport);
   if (response.status !== HTTP_OK) {
     const reason = await readNonOkErrorMessage(response);
     throw new TheorumError(reason);

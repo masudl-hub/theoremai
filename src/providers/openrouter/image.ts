@@ -21,6 +21,7 @@ import {
   extractPromptText,
   imageToolParameters,
 } from './openai/image-payload.ts';
+import { resolveOpenAiGatewayApiKey } from './resolve-api-key.ts';
 
 const HTTP_OK = 200;
 /** OpenRouter chat server tool for inline image generation. */
@@ -28,13 +29,16 @@ export const OPENROUTER_IMAGE_TOOL = 'openrouter:image_generation';
 
 export type ImageProviderConfig = OpenAiGatewayConfig;
 
-export interface TokenUsage {
+interface TokenUsage {
   input: number;
   output: number;
   total: number;
 }
 
-export function buildHeaders(apiKey: string, config: ImageProviderConfig): Record<string, string> {
+export function buildImageHeaders(
+  apiKey: string,
+  config: ImageProviderConfig,
+): Record<string, string> {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${apiKey}`,
     'Content-Type': 'application/json',
@@ -46,11 +50,11 @@ export function buildHeaders(apiKey: string, config: ImageProviderConfig): Recor
   return headers;
 }
 
-export function baseUrl(config: ImageProviderConfig): string {
+function baseUrl(config: ImageProviderConfig): string {
   return config.baseUrl?.replace(/\/+$/, '') ?? 'https://openrouter.ai/api/v1';
 }
 
-export function usageFromRecord(raw: unknown): TokenUsage | null {
+function usageFromRecord(raw: unknown): TokenUsage | null {
   if (!raw || typeof raw !== 'object') {
     return null;
   }
@@ -64,7 +68,7 @@ export function usageFromRecord(raw: unknown): TokenUsage | null {
   return { input, output, total };
 }
 
-export function* yieldUsage(usage: TokenUsage | null): Generator<TurnEvent> {
+function* yieldUsage(usage: TokenUsage | null): Generator<TurnEvent> {
   if (!usage) {
     return;
   }
@@ -73,7 +77,7 @@ export function* yieldUsage(usage: TokenUsage | null): Generator<TurnEvent> {
 
 export function mediaFromImagesResponse(
   body: Record<string, unknown>,
-  fallbackMime: string,
+  fallbackMime?: string,
 ): { mimeType: string; data: string } | null {
   const data = body.data;
   if (!Array.isArray(data) || data.length === 0) {
@@ -92,6 +96,9 @@ export function mediaFromImagesResponse(
     typeof entry.media_type === 'string' && entry.media_type.length > 0
       ? entry.media_type
       : fallbackMime;
+  if (!mimeType) {
+    return null;
+  }
   return { mimeType, data: b64 };
 }
 
@@ -162,7 +169,7 @@ function httpImageUrlFromPart(entry: Record<string, unknown>): string | undefine
   return undefined;
 }
 
-export function inlineImageUrls(content: unknown): string[] {
+function inlineImageUrls(content: unknown): string[] {
   if (!Array.isArray(content)) {
     return [];
   }
@@ -181,15 +188,15 @@ export function inlineImageUrls(content: unknown): string[] {
 
 async function postJson(
   config: ImageProviderConfig,
+  apiKey: string,
   path: string,
   body: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<Response> {
   const fetchFn = config.fetch ?? fetch;
-  const apiKey = config.apiKey?.trim() ?? '';
   return await fetchFn(`${baseUrl(config)}${path}`, {
     method: 'POST',
-    headers: buildHeaders(apiKey, config),
+    headers: buildImageHeaders(apiKey, config),
     body: JSON.stringify(body),
     signal,
   });
@@ -202,11 +209,12 @@ function imageHttpError(res: Response, label: string): TurnEvent | undefined {
   return undefined;
 }
 
-export async function requestImages(
+async function requestImages(
   req: ProviderCompleteRequest,
   config: ImageProviderConfig,
+  apiKey: string,
 ): Promise<Response> {
-  return await postJson(config, '/images', buildImagesPayload(req), req.signal);
+  return await postJson(config, apiKey, '/images', buildImagesPayload(req), req.signal);
 }
 
 export function buildInterleavedChatPayload(req: ProviderCompleteRequest): Record<string, unknown> {
@@ -229,18 +237,26 @@ export function buildInterleavedChatPayload(req: ProviderCompleteRequest): Recor
   };
 }
 
-export async function requestInterleavedChat(
+async function requestInterleavedChat(
   req: ProviderCompleteRequest,
   config: ImageProviderConfig,
+  apiKey: string,
 ): Promise<Response> {
-  return await postJson(config, '/chat/completions', buildInterleavedChatPayload(req), req.signal);
+  return await postJson(
+    config,
+    apiKey,
+    '/chat/completions',
+    buildInterleavedChatPayload(req),
+    req.signal,
+  );
 }
 
 export async function* yieldInterleavedChat(
   req: ProviderCompleteRequest,
   config: ImageProviderConfig,
+  apiKey: string,
 ): AsyncGenerator<TurnEvent> {
-  const res = await requestInterleavedChat(req, config);
+  const res = await requestInterleavedChat(req, config, apiKey);
   const httpErr = imageHttpError(res, 'Image chat');
   if (httpErr) {
     yield httpErr;
@@ -296,8 +312,9 @@ export async function* yieldInterleavedChat(
 export async function* yieldImagesEndpoint(
   req: ProviderCompleteRequest,
   config: ImageProviderConfig,
+  apiKey: string,
 ): AsyncGenerator<TurnEvent> {
-  const res = await requestImages(req, config);
+  const res = await requestImages(req, config, apiKey);
   const httpErr = imageHttpError(res, 'Image');
   if (httpErr) {
     yield httpErr;
@@ -305,7 +322,7 @@ export async function* yieldImagesEndpoint(
   }
 
   const body = (await res.json()) as Record<string, unknown>;
-  const media = mediaFromImagesResponse(body, req.image?.mimeType ?? 'image/png');
+  const media = mediaFromImagesResponse(body, req.image?.mimeType);
   if (!media) {
     yield toErrorEvent('no image returned from image generation');
     return;
@@ -320,9 +337,11 @@ export async function* streamImage(
   req: ProviderCompleteRequest,
   config: ImageProviderConfig = {},
 ): AsyncGenerator<TurnEvent> {
-  const apiKey = config.apiKey?.trim() || undefined;
-  if (!apiKey) {
-    yield toErrorEvent('missing API key for image generation');
+  let apiKey: string;
+  try {
+    apiKey = resolveOpenAiGatewayApiKey(config, req.keySlot);
+  } catch (err) {
+    yield toErrorEvent(err);
     return;
   }
 
@@ -338,11 +357,11 @@ export async function* streamImage(
   }
 
   if (req.image.includeText) {
-    yield* yieldInterleavedChat(req, config);
+    yield* yieldInterleavedChat(req, config, apiKey);
     return;
   }
 
-  yield* yieldImagesEndpoint(req, config);
+  yield* yieldImagesEndpoint(req, config, apiKey);
 }
 
 /** Internal ModelProvider for openAi image roles on OpenRouter. */

@@ -1,5 +1,5 @@
 import { assertEquals } from '@std/assert';
-import type { GeminiBucket, Protocol, Provider } from '../../src/kernel/schema.ts';
+import type { KeySlot, Protocol, Provider } from '../../src/kernel/schema.ts';
 import {
   ATTACHMENT_ACCEPT_MIMES,
   catalogPathFor,
@@ -7,16 +7,20 @@ import {
   coerceProvider,
   EXTRA_FIELDS,
   fieldMeta,
-  GEMINI_BUCKETS,
-  GEMINI_FREE_BUCKETS,
   isValidPair,
+  isValidProfileProtocol,
+  KEY_SLOTS,
   MEDIA_INPUT_KIND_VALUES,
   MEDIA_INPUT_KINDS,
+  OVERFLOW_KEY_SLOTS,
   PROFILE_FIELDS,
+  PROFILE_TYPE_PROTOCOLS,
+  PROFILE_TYPES,
   PROTOCOL_PROVIDERS,
   PROTOCOLS,
   PROVIDERS,
   protocolsFor,
+  protocolsForProfileType,
   providersFor,
   THINKING_LEVELS,
   VOICE_ACCEPT_MIMES,
@@ -34,6 +38,44 @@ Deno.test('PROTOCOL_PROVIDERS covers every protocol and only known providers', (
   assertEquals(isValidPair('geminiInteractions', 'openrouter'), false);
 });
 
+Deno.test('PROFILE_TYPE_PROTOCOLS covers every archetype and only known protocols', () => {
+  assertEquals([...PROFILE_TYPES].sort().join(), Object.keys(PROFILE_TYPE_PROTOCOLS).sort().join());
+  for (const type of PROFILE_TYPES) {
+    const allowed = PROFILE_TYPE_PROTOCOLS[type];
+    assertEquals(allowed.length > 0, true);
+    for (const protocol of allowed) {
+      assertEquals(PROTOCOLS.includes(protocol), true);
+      assertEquals(isValidProfileProtocol(type, protocol), true);
+      assertEquals(protocolsForProfileType(type).includes(protocol), true);
+    }
+  }
+});
+
+Deno.test('PROFILE_TYPE_PROTOCOLS rejects every illegal type/protocol pair', () => {
+  for (const type of PROFILE_TYPES) {
+    for (const protocol of PROTOCOLS) {
+      const ok = (PROFILE_TYPE_PROTOCOLS[type] as readonly string[]).includes(protocol);
+      assertEquals(isValidProfileProtocol(type, protocol), ok);
+    }
+  }
+  assertEquals(isValidProfileProtocol('text', 'geminiLive'), false);
+  assertEquals(isValidProfileProtocol('image', 'geminiLive'), false);
+  assertEquals(isValidProfileProtocol('speech', 'geminiLive'), false);
+  assertEquals(isValidProfileProtocol('live', 'openAi'), false);
+  assertEquals(isValidProfileProtocol('live', 'geminiInteractions'), false);
+  assertEquals(isValidProfileProtocol('live', 'geminiLive'), true);
+  assertEquals(isValidProfileProtocol('text', 'openAi'), true);
+  assertEquals(isValidProfileProtocol('text', 'geminiInteractions'), true);
+});
+
+Deno.test('every PROFILE_TYPE_PROTOCOLS entry has PROTOCOL_PROVIDERS partners', () => {
+  for (const type of PROFILE_TYPES) {
+    for (const protocol of PROFILE_TYPE_PROTOCOLS[type]) {
+      assertEquals(providersFor(protocol).length > 0, true);
+    }
+  }
+});
+
 Deno.test('providersFor / protocolsFor / coerce stay on PROTOCOL_PROVIDERS', () => {
   assertEquals([...providersFor('geminiInteractions')], ['google']);
   assertEquals([...providersFor('geminiLive')], ['google']);
@@ -44,11 +86,11 @@ Deno.test('providersFor / protocolsFor / coerce stay on PROTOCOL_PROVIDERS', () 
   assertEquals(coerceProvider('openAi', 'local'), 'local');
 });
 
-Deno.test('Gemini free buckets are GEMINI_BUCKETS without paid', () => {
-  assertEquals([...GEMINI_FREE_BUCKETS].join(), 'freeA,freeB,freeC');
-  assertEquals(GEMINI_BUCKETS.includes('paid'), true);
-  for (const bucket of GEMINI_FREE_BUCKETS) {
-    assertEquals(GEMINI_BUCKETS.includes(bucket), true);
+Deno.test('Key slots are KEY_SLOTS without paid', () => {
+  assertEquals([...OVERFLOW_KEY_SLOTS].join(), 'slotA,slotB,slotC');
+  assertEquals(KEY_SLOTS.includes('paid'), true);
+  for (const slot of OVERFLOW_KEY_SLOTS) {
+    assertEquals(KEY_SLOTS.includes(slot), true);
   }
 });
 
@@ -109,9 +151,9 @@ Deno.test('isValidPair matches createProvider routing table', () => {
   }
 });
 
-Deno.test('GeminiBucket union matches GEMINI_BUCKETS', () => {
-  const sample: GeminiBucket = 'paid';
-  assertEquals(GEMINI_BUCKETS.includes(sample), true);
+Deno.test('KeySlot union matches KEY_SLOTS', () => {
+  const sample: KeySlot = 'paid';
+  assertEquals(KEY_SLOTS.includes(sample), true);
 });
 
 Deno.test('EXTRA_FIELDS covers registerTool keys shown in profile docs', () => {

@@ -268,7 +268,7 @@ Deno.test('flash lite thinking on is high', () => {
 Deno.test('pinned profile uses fixed thinking without a control', () => {
   const { generation } = resolveTurn({ profile: 'pinned', input: {} });
   assertEquals(generation.thinking, 'low');
-  assertEquals(projectProfile('pinned').controls, []);
+  assertEquals(projectProfile('pinned').model.controls, []);
 });
 
 Deno.test('selectable profile picks model and pinned thinking', () => {
@@ -297,7 +297,7 @@ Deno.test('model builtInTools lists search and maps when both are allowlisted', 
       id: 'mutex_grounding',
       model: {
         thinking: 'minimal',
-        key: 'freeA',
+        key: 'slotA',
         protocol: 'geminiInteractions',
         provider: 'google',
         allow: ['gemini35FlashLite'],
@@ -329,7 +329,7 @@ Deno.test('model builtInTools ceiling blocks unlisted builtins', () => {
       id: 'ceiling_grounding',
       model: {
         thinking: 'minimal',
-        key: 'freeA',
+        key: 'slotA',
         protocol: 'geminiInteractions',
         provider: 'google',
         allow: ['gemini35FlashLite'],
@@ -364,7 +364,7 @@ Deno.test('allow puts T0 custom tools on the wire; builtins follow the model', (
       id: 'search_on_model',
       model: {
         thinking: 'minimal',
-        key: 'freeA',
+        key: 'slotA',
         protocol: 'geminiInteractions',
         provider: 'google',
         allow: ['gemini35FlashLite'],
@@ -451,7 +451,7 @@ Deno.test('projection lists only allowed tools', () => {
     ui.tools.map((t) => t.name),
     [],
   );
-  assertEquals(ui.controls, ['thinking']);
+  assertEquals(ui.model.controls, ['thinking']);
   assertEquals(ui.inputs?.voice, undefined);
 });
 
@@ -640,7 +640,7 @@ Deno.test('runTurn executes profile validation and auto-corrects', async () => {
       thinking: 'minimal',
       controls: [],
       maxSteps: 1,
-      key: 'freeA',
+      key: 'slotA',
     },
     tools: { allow: [] },
     inputs: { text: true },
@@ -700,7 +700,7 @@ Deno.test('runTurn skips optional field validators when optional path is omitted
       thinking: 'minimal',
       controls: [],
       maxSteps: 1,
-      key: 'freeA',
+      key: 'slotA',
     },
     tools: { allow: [] },
     inputs: { text: true },
@@ -751,7 +751,7 @@ Deno.test('runTurn streams thought and text live while validation buffers struct
       thinking: 'minimal',
       controls: [],
       maxSteps: 1,
-      key: 'freeA',
+      key: 'slotA',
     },
     tools: { allow: [] },
     inputs: { text: true },
@@ -799,7 +799,7 @@ Deno.test('runTurn retries when required field is missing', async () => {
       thinking: 'minimal',
       controls: [],
       maxSteps: 1,
-      key: 'freeA',
+      key: 'slotA',
     },
     tools: { allow: [] },
     inputs: { text: true },
@@ -848,7 +848,7 @@ Deno.test('runTurn validates nested required under present optional object', asy
       thinking: 'minimal',
       controls: [],
       maxSteps: 1,
-      key: 'freeA',
+      key: 'slotA',
     },
     tools: { allow: [] },
     inputs: { text: true },
@@ -910,7 +910,7 @@ Deno.test('runTurn validation without structured schema throws', async () => {
       thinking: 'minimal',
       controls: [],
       maxSteps: 1,
-      key: 'freeA',
+      key: 'slotA',
     },
     tools: { allow: [] },
     inputs: { text: true },

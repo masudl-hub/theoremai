@@ -1,5 +1,5 @@
 /**
- * Gemini vault slot selection for Google Interactions transport.
+ * Vault key-slot selection for credentialed transports (Google, OpenRouter, …).
  *
  * @module
  */
@@ -7,7 +7,7 @@
 import { TheorumError } from '../../guardrails/error.ts';
 import { getTool } from '../tools/registry.ts';
 import type { BuiltinToolDef } from '../tools/types.ts';
-import type { BuiltinToolId, GeminiBucket, ModelSpec } from '../types.ts';
+import type { BuiltinToolId, KeySlot, ModelSpec, Provider } from '../types.ts';
 
 function builtinForcesPaid(id: BuiltinToolId): boolean {
   const tool = getTool(id);
@@ -17,22 +17,36 @@ function builtinForcesPaid(id: BuiltinToolId): boolean {
   return (tool as BuiltinToolDef).forcePaidKey === true;
 }
 
-/** Pick the vault slot for a turn from profile key, model pin, and enabled builtins. */
-function resolveGeminiBucket(
-  profileKey: GeminiBucket | undefined,
+/** Providers that resolve a vault `keySlot` on each turn. */
+export function providerUsesKeySlots(provider: Provider): boolean {
+  return provider === 'google' || provider === 'openrouter';
+}
+
+/**
+ * Pick the key slot for a turn from profile key, model pin, and enabled builtins.
+ *
+ * When `required` is false and nothing pins a slot, returns `undefined` so hosts
+ * can use a single flat `apiKey` (OpenRouter without a vault).
+ */
+function resolveKeySlot(
+  profileKey: KeySlot | undefined,
   spec: ModelSpec,
   builtins: BuiltinToolId[],
-): GeminiBucket {
+  required: boolean,
+): KeySlot | undefined {
   if (spec.key) {
     return spec.key;
   }
   if (builtins.some((id) => builtinForcesPaid(id))) {
     return 'paid';
   }
-  if (!profileKey) {
-    throw new TheorumError('Google profile must set model.key or model.config.*.key');
+  if (profileKey) {
+    return profileKey;
   }
-  return profileKey;
+  if (required) {
+    throw new TheorumError('Profile must set model.key or model.config.*.key');
+  }
+  return undefined;
 }
 
-export { resolveGeminiBucket };
+export { resolveKeySlot };

@@ -182,6 +182,39 @@ function queueInteractionsToolContinuation(
   };
 }
 
+function recordToolModelResult(
+  state: StepExecutionState,
+  toolEv: TurnEvent,
+  modelResult: ModelToolResult,
+  generation: ResolvedGeneration,
+  useInteractionsContinuation: boolean,
+): void {
+  if (useInteractionsContinuation) {
+    queueInteractionsToolContinuation(state, toolEv, modelResult, generation.previousInteractionId);
+    if (!state.interactionsContinuation) {
+      appendInteractionsToolResultToHistory(state.currentHistory, toolEv, modelResult);
+    }
+    return;
+  }
+  appendToolTurnToHistory(state.currentHistory, toolEv, modelResult);
+}
+
+function enrichToolEvent(
+  tool: NonNullable<TurnEvent['tool']>,
+  callId: string,
+  patch?: Partial<NonNullable<TurnEvent['tool']>>,
+): TurnEvent {
+  return {
+    type: 'tool',
+    tool: {
+      ...tool,
+      ...patch,
+      callId,
+      id: tool.id ?? callId,
+    },
+  };
+}
+
 async function* handlePendingTools(
   pendingTools: TurnEvent[],
   generation: ResolvedGeneration,
@@ -198,34 +231,51 @@ async function* handlePendingTools(
     }
 
     executed = true;
-    const callId = tool.id ?? tool.callId ?? newCallId(tool.name);
+    const callId = tool.id ?? tool.callId ?? newCallId(tool.name || 'unknown');
+
+    // Provider cancelled an in-flight call (e.g. live barge-in). Do not execute.
+    if (tool.phase === 'cancel') {
+      const enriched = enrichToolEvent(tool, callId);
+      state.allEmittedEvents.push(enriched);
+      yield enriched;
+      continue;
+    }
 
     // Provider already failed this call (e.g. malformed arguments JSON).
     if (tool.phase === 'error' && tool.failure) {
-      const enriched: TurnEvent = {
-        type: 'tool',
-        tool: {
-          ...tool,
-          callId,
-          id: tool.id ?? callId,
-        },
-      };
+      const enriched = enrichToolEvent(tool, callId);
       state.allEmittedEvents.push(enriched);
       yield enriched;
-      const modelResult = formatToolFailureForModel(tool.failure);
-      if (useInteractionsContinuation) {
-        queueInteractionsToolContinuation(
-          state,
-          toolEv,
-          modelResult,
-          generation.previousInteractionId,
-        );
-        if (!state.interactionsContinuation) {
-          appendInteractionsToolResultToHistory(state.currentHistory, toolEv, modelResult);
-        }
-      } else {
-        appendToolTurnToHistory(state.currentHistory, toolEv, modelResult);
-      }
+      recordToolModelResult(
+        state,
+        toolEv,
+        formatToolFailureForModel(tool.failure),
+        generation,
+        useInteractionsContinuation,
+      );
+      continue;
+    }
+
+    // Empty name is a protocol defect — never route through the registry as unknown_tool.
+    if (!tool.name) {
+      const failure = {
+        code: 'malformed_arguments',
+        message: 'Provider tool call is missing a function name',
+      };
+      const enriched = enrichToolEvent(tool, callId, {
+        phase: 'error',
+        failure,
+        name: '',
+      });
+      state.allEmittedEvents.push(enriched);
+      yield enriched;
+      recordToolModelResult(
+        state,
+        toolEv,
+        formatToolFailureForModel(failure),
+        generation,
+        useInteractionsContinuation,
+      );
       continue;
     }
 
@@ -246,15 +296,7 @@ async function* handlePendingTools(
     let next = await exec.next();
     while (!next.done) {
       const event = next.value;
-      const enriched: TurnEvent = {
-        type: 'tool',
-        tool: {
-          ...tool,
-          ...event.tool,
-          callId,
-          id: tool.id ?? callId,
-        },
-      };
+      const enriched = enrichToolEvent(tool, callId, event.tool);
       state.allEmittedEvents.push(enriched);
       yield enriched;
       if (event.tool?.phase === 'error' && event.tool.failure) {
@@ -276,19 +318,7 @@ async function* handlePendingTools(
     if (!modelResult) {
       continue;
     }
-    if (useInteractionsContinuation) {
-      queueInteractionsToolContinuation(
-        state,
-        toolEv,
-        modelResult,
-        generation.previousInteractionId,
-      );
-      if (!state.interactionsContinuation) {
-        appendInteractionsToolResultToHistory(state.currentHistory, toolEv, modelResult);
-      }
-    } else {
-      appendToolTurnToHistory(state.currentHistory, toolEv, modelResult);
-    }
+    recordToolModelResult(state, toolEv, modelResult, generation, useInteractionsContinuation);
   }
   if (sawPause) {
     state.lastStop = { kind: 'tool' };

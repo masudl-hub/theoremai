@@ -1,18 +1,19 @@
 #!/usr/bin/env -S deno run --allow-read --allow-net --allow-env --allow-sys
 
 /**
- * Comprehensive live pressure-test suite for typed profiles in THEORUM:
- *   - chat profiles (OpenRouter & Gemini)
+ * Real-provider pressure suite for typed profiles in THEORUM:
+ *   - text profiles (OpenRouter & Gemini Interactions)
  *   - image profiles
  *   - speech profiles
- *   - live profiles
+ *   - live profiles (`type: 'live'` / runSession — the one place this suite hits Gemini Live)
  *
  * Exercises the entire THEORUM kernel:
- *   defineProfile -> registerProfile -> resolveTurn -> runTurn -> createProvider -> upstream API
+ *   defineProfile -> registerProfile -> resolveTurn -> runTurn / runSession -> createProvider -> upstream API
  */
 
 import { z } from 'zod';
 import { runTurn } from '../src/kernel/engine/runner.ts';
+import { runSession } from '../src/kernel/engine/session/mod.ts';
 import { defineProfile, registerProfile } from '../src/kernel/registry/profiles.ts';
 import { projectProfile, resolveTurn } from '../src/kernel/registry/resolve.ts';
 import { registerStructured } from '../src/kernel/registry/schemas.ts';
@@ -286,7 +287,7 @@ if (geminiKey) {
         },
         thinking: 'minimal',
         maxSteps: 3,
-        key: 'freeA',
+        key: 'slotA',
       },
       tools: { allow: ['calculate_sum'] },
       inputs: { text: true },
@@ -296,7 +297,7 @@ if (geminiKey) {
 
     const provider = createProvider(profile, {
       gemini: {
-        vault: { freeA: geminiKey, freeB: geminiKey, freeC: geminiKey, paid: geminiKey },
+        vault: { slotA: geminiKey, slotB: geminiKey, slotC: geminiKey, paid: geminiKey },
         wait: () => Promise.resolve(),
       },
     });
@@ -343,7 +344,7 @@ if (geminiKey) {
           },
         },
         thinking: 'minimal',
-        key: 'freeA',
+        key: 'slotA',
       },
       tools: { allow: [] },
       inputs: { text: true },
@@ -367,7 +368,7 @@ if (geminiKey) {
 
     const provider = createProvider(profile, {
       gemini: {
-        vault: { freeA: geminiKey, freeB: geminiKey, freeC: geminiKey, paid: geminiKey },
+        vault: { slotA: geminiKey, slotB: geminiKey, slotC: geminiKey, paid: geminiKey },
         wait: () => Promise.resolve(),
       },
     });
@@ -498,26 +499,23 @@ await runTest('Live Profile: geminiLive Protocol and Session Setup', async () =>
     model: {
       protocol: 'geminiLive',
       provider: 'google',
-      allow: ['gemini-2.0-flash-exp'],
+      allow: ['gemini31FlashLive'],
+      thinking: 'none',
       config: {
-        'gemini-2.0-flash-exp': {
-          apiId: 'gemini-2.0-flash-exp',
-          generationConfig: {
-            responseModalities: ['AUDIO'],
-            speechConfig: {
-              voiceConfig: {
-                prebuiltVoiceConfig: {
-                  voiceName: 'Aoede',
-                },
-              },
-            },
-          },
+        gemini31FlashLive: {
+          apiId: 'gemini-3.1-flash-live-preview',
+          thinking: { on: 'none', off: 'none' },
+          thinkingLevels: ['none'],
+          summaries: { on: 'none', off: 'none' },
+          builtInTools: [],
+          key: 'slotA',
         },
       },
-      key: 'freeA',
     },
     live: {
       voice: 'Aoede',
+      sessionResumption: true,
+      transcription: { input: true, output: true },
     },
     tools: { allow: [] },
   }) as LiveProfile;
@@ -528,15 +526,21 @@ await runTest('Live Profile: geminiLive Protocol and Session Setup', async () =>
     throw new Error(`Expected projected.type = 'live', got ${projected.type}`);
   if (projected.live?.voice !== 'Aoede') throw new Error('Live voice mismatch');
 
-  if (geminiKey) {
-    const provider = createProvider(profile, {
+  if (typeof runSession !== 'function') {
+    throw new Error('runSession export missing');
+  }
+  // createProvider must reject live — session door only.
+  let rejected = false;
+  try {
+    createProvider(profile, {
       gemini: {
-        vault: { freeA: geminiKey, freeB: geminiKey, freeC: geminiKey, paid: geminiKey },
-        wait: () => Promise.resolve(),
+        vault: { slotA: 'k', slotB: undefined, slotC: undefined, paid: undefined },
       },
     });
-    if (!provider) throw new Error('Failed to create geminiLive provider');
+  } catch {
+    rejected = true;
   }
+  if (!rejected) throw new Error('createProvider should reject geminiLive profiles');
 });
 
 // ===========================================================================

@@ -24,6 +24,7 @@ import type { OpenAiGatewayConfig } from '../types.ts';
 import { resolveOpenRouterPlugins } from './openai/chat-payload.ts';
 import { openAiGatewayHeaders, resolveResponseFormat } from './openai/compat.ts';
 import { buildAiSdkMessages } from './openai/sdk-messages.ts';
+import { resolveOpenAiGatewayApiKey } from './resolve-api-key.ts';
 
 export interface StreamAccumulator {
   text: string;
@@ -34,7 +35,7 @@ export interface StreamAccumulator {
   nativeFinishReason?: string | null;
 }
 
-export interface OpenRouterStreamContext {
+interface OpenRouterStreamContext {
   openrouter: ReturnType<typeof createOpenRouter>;
   modelName: string;
 }
@@ -107,9 +108,7 @@ export function buildTools(wireTools?: WireFunctionTool[]): ToolSet | undefined 
   return tools;
 }
 
-export function openRouterSettings(
-  req: ProviderCompleteRequest,
-): OpenRouterChatSettings | undefined {
+function openRouterSettings(req: ProviderCompleteRequest): OpenRouterChatSettings | undefined {
   const { plugins, webSearch } = resolveOpenRouterPlugins(req.builtins);
   if (plugins.length === 0 && !webSearch) {
     return undefined;
@@ -435,7 +434,7 @@ export function* finalEvents(
   };
 }
 
-export function createStreamContext(
+function createStreamContext(
   req: ProviderCompleteRequest,
   config: OpenAiGatewayConfig,
   apiKey: string,
@@ -453,7 +452,7 @@ export function createStreamContext(
   };
 }
 
-export function streamTextOptions(
+function streamTextOptions(
   req: ProviderCompleteRequest,
   context: OpenRouterStreamContext,
 ): Parameters<typeof streamText>[0] {
@@ -472,7 +471,7 @@ export function streamTextOptions(
   };
 }
 
-export async function* yieldAiSdkStream(
+async function* yieldAiSdkStream(
   req: ProviderCompleteRequest,
   acc: StreamAccumulator,
   context: OpenRouterStreamContext,
@@ -496,13 +495,15 @@ export function missingOpenRouterKey(): TurnEvent {
   return toErrorEvent('missing OpenRouter API key');
 }
 
-export async function* streamOpenRouter(
+async function* streamOpenRouter(
   req: ProviderCompleteRequest,
   config: OpenAiGatewayConfig,
 ): AsyncGenerator<TurnEvent> {
-  const apiKey = trimApiKey(config.apiKey);
-  if (!apiKey) {
-    yield missingOpenRouterKey();
+  let apiKey: string;
+  try {
+    apiKey = resolveOpenAiGatewayApiKey(config, req.keySlot);
+  } catch (err) {
+    yield toErrorEvent(err);
     return;
   }
 

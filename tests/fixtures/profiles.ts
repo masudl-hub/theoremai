@@ -1,15 +1,15 @@
-import type { Profile, ProfileModelSpec, Protocol, Provider } from '../../src/kernel/types.ts';
+import type { Profile, Provider, TurnProfileModelSpec } from '../../src/kernel/types.ts';
 
 /** Minimal typed profile for provider / probe tests (no casts). */
 export function stubProfile(opts: {
-  protocol: Protocol;
+  protocol: 'geminiInteractions' | 'openAi';
   provider: Provider;
   role?: 'text' | 'speech' | 'image';
   id?: string;
 }): Profile {
   const role = opts.role ?? 'text';
   const id = opts.id ?? 'test-profile';
-  const model: ProfileModelSpec = {
+  const model: TurnProfileModelSpec = {
     protocol: opts.protocol,
     provider: opts.provider,
     allow: [],

@@ -1,12 +1,13 @@
 #!/usr/bin/env -S deno run --allow-read --allow-net --allow-env --allow-sys
 
 /**
- * Live runner stress tests — exercises behaviors only verifiable with a real API.
+ * Text-turn runner stress against a real provider API (Gemini Interactions /
+ * OpenRouter HTTP). Not Gemini Live (`type: 'live'` / sliding-window voice).
  *
  * Covers:
  *   Egress gate     — every retry count (0, 1, 2), refuse_to_user vs reject_to_agent,
  *                     repair loop success, call-count verification on every path
- *   Compaction      — threshold boundary (below / at / above), both meters (history / input),
+ *   Compaction      — text-turn ModelSpec.compaction (history / input meters);
  *                     empty-history guard, no-false-fire check
  *   Token estimation — 2 / 5 / 10 exchange histories; empty history; ratio bounds
  *   Runner integrity — multi-turn state isolation, inbound sanitize, canary no-leak,
@@ -14,12 +15,14 @@
  *
  * Rate limit: ≥4 s between API calls (≤15 RPM).
  * Keys: loaded from THEORUM_ENV_FILE or ../theorum-frontend/.env.local.
+ * Default provider: openrouter (`--provider gemini` to switch).
  *
  * Usage:
- *   deno task verify:runner-live
- *   deno task verify:runner-live -- --provider gemini
- *   deno task verify:runner-live -- --suite egress,compaction
- *   deno task verify:runner-live -- --verbose
+ *   deno task verify:runner-api
+ *   deno task verify:runner-api -- --provider gemini
+ *   deno task verify:runner-api -- --provider openrouter
+ *   deno task verify:runner-api -- --suite egress,compaction
+ *   deno task verify:runner-api -- --verbose
  */
 
 import { estimateHistoryTokens } from '../src/kernel/engine/compaction.ts';
@@ -65,7 +68,18 @@ function parseListFlag(flag: string): string[] | undefined {
 
 const VERBOSE = hasFlag('--verbose');
 const GROUP_FILTER = parseListFlag('--suite'); // filter by group name
-const PROVIDER_KIND = (valueAfterFlag('--provider') ?? 'openrouter') as 'openrouter' | 'gemini';
+const PROVIDER_FLAG = valueAfterFlag('--provider');
+
+function resolveProviderKind(): 'openrouter' | 'gemini' {
+  const flag = PROVIDER_FLAG ?? 'openrouter';
+  if (flag !== 'openrouter' && flag !== 'gemini') {
+    console.error('--provider must be openrouter or gemini');
+    Deno.exit(1);
+  }
+  return flag;
+}
+
+const PROVIDER_KIND = resolveProviderKind();
 
 // ---------------------------------------------------------------------------
 // Env loader
@@ -140,9 +154,11 @@ const REPAIR_1_ID = '__rl_repair1__';
 const COMPACT_SUB_ID = '__rl_compact_sub__';
 const COMPACT_HISTORY_ID = '__rl_compact_history__';
 const COMPACT_INPUT_ID = '__rl_compact_input__';
+/** meter=input + timing=before — host inputTokens decide the threshold. */
+const COMPACT_INPUT_BEFORE_ID = '__rl_compact_input_before__';
 
-const OPENROUTER_FREE_API_ID = 'openrouter/free';
-const GEMINI_FREE_API_ID = 'gemini-3.1-flash-lite';
+const OPENROUTER_VERIFY_API_ID = 'openrouter/free';
+const GEMINI_VERIFY_API_ID = 'gemini-3.1-flash-lite';
 
 // ---------------------------------------------------------------------------
 // Egress enforcers
@@ -150,6 +166,18 @@ const GEMINI_FREE_API_ID = 'gemini-3.1-flash-lite';
 
 function alwaysBlock(_ctx: EgressContext): EgressEnforcementResult {
   return { blocked: true, text: '', hits: ['always'], rejectionMessage: 'Always blocked.' };
+}
+
+/** refuse_to_user delivers this copy as a text event — never an error withhold. */
+const REFUSE_USER_COPY = "I can't share that.";
+
+function alwaysRefuseToUser(_ctx: EgressContext): EgressEnforcementResult {
+  return {
+    blocked: true,
+    text: REFUSE_USER_COPY,
+    hits: ['always'],
+    rejectionMessage: 'Always blocked.',
+  };
 }
 
 function blockOnMarker(ctx: EgressContext): EgressEnforcementResult {
@@ -168,8 +196,8 @@ function blockOnMarker(ctx: EgressContext): EgressEnforcementResult {
 // Profile helpers
 // ---------------------------------------------------------------------------
 
-function freeApiId(): string {
-  return PROVIDER_KIND === 'gemini' ? GEMINI_FREE_API_ID : OPENROUTER_FREE_API_ID;
+function verifyApiId(): string {
+  return PROVIDER_KIND === 'gemini' ? GEMINI_VERIFY_API_ID : OPENROUTER_VERIFY_API_ID;
 }
 
 function baseModelSpec(apiId: string): ModelSpec {
@@ -204,7 +232,7 @@ function modelSection(apiId: string): ProfileModelSpec {
       config: { [apiId]: baseModelSpec(apiId) },
       thinking: 'minimal',
       maxSteps: 1,
-      key: 'freeA',
+      key: 'slotA',
     };
   }
   return {
@@ -223,7 +251,7 @@ function simpleProfile(id: string, guardrails: ProfileDefinition['guardrails'] =
       type: 'text',
       id,
       identity: { handle: 'verify', system: 'You are a helpful assistant.' },
-      model: modelSection(freeApiId()),
+      model: modelSection(verifyApiId()),
       tools: { allow: [] },
       inputs: { text: true },
       guardrails: guardrails ?? {},
@@ -231,17 +259,24 @@ function simpleProfile(id: string, guardrails: ProfileDefinition['guardrails'] =
   );
 }
 
-function compactionProfile(id: string, meter: 'history' | 'input', subId: string): void {
-  const aid = freeApiId();
+function compactionProfile(
+  id: string,
+  meter: 'history' | 'input',
+  subId: string,
+  opts: { maxTokens?: number; compactAt?: number; timing?: 'before' | 'after' } = {},
+): void {
+  const aid = verifyApiId();
   const compactModelId = 'compact';
+  const maxTokens = opts.maxTokens ?? 50;
+  const compactAt = opts.compactAt ?? 0.5; // default threshold = 25 tokens
   const compactSpec: ModelSpec = {
     ...baseModelSpec(aid),
     compaction: {
-      maxTokens: 50,
-      compactAt: 0.5, // threshold = 25 tokens
+      maxTokens,
+      compactAt,
       previousExchanges: 1,
       profile: subId,
-      timing: 'after',
+      timing: opts.timing ?? 'after',
       meter,
     },
   };
@@ -279,7 +314,7 @@ function registerAllProfiles(): void {
 
   // Egress: always-block, refuse_to_user (no retries regardless of maxRetries)
   simpleProfile(REFUSE_USER_ID, {
-    egress: { onBlock: 'refuse_to_user', maxRetries: 2, enforce: alwaysBlock },
+    egress: { onBlock: 'refuse_to_user', maxRetries: 2, enforce: alwaysRefuseToUser },
   });
 
   // Egress: marker-block, reject_to_agent, maxRetries=1
@@ -300,8 +335,11 @@ function registerAllProfiles(): void {
   // Compaction with meter=history
   compactionProfile(COMPACT_HISTORY_ID, 'history', COMPACT_SUB_ID);
 
-  // Compaction with meter=input
+  // Compaction with meter=input, timing=after (provider promptTokens)
   compactionProfile(COMPACT_INPUT_ID, 'input', COMPACT_SUB_ID);
+
+  // Compaction with meter=input, timing=before (host inputTokens)
+  compactionProfile(COMPACT_INPUT_BEFORE_ID, 'input', COMPACT_SUB_ID, { timing: 'before' });
 }
 
 // ---------------------------------------------------------------------------
@@ -314,7 +352,7 @@ function makeProvider(profileId: string): ModelProvider {
     const key = Deno.env.get('GEMINI_API_KEY')?.trim();
     if (!key) throw new Error('GEMINI_API_KEY not set');
     return createProvider(profile, {
-      gemini: { vault: { freeA: key, freeB: key, freeC: key, paid: key } },
+      gemini: { vault: { slotA: key, slotB: key, slotC: key, paid: key } },
     });
   }
   const key = Deno.env.get('OPENROUTER_API_KEY')?.trim();
@@ -339,6 +377,27 @@ function countingProvider(base: ModelProvider): { provider: ModelProvider; calls
       },
     },
     calls: () => n,
+  };
+}
+
+/**
+ * Deterministic provider for egress repair — real provider models will not reliably emit a
+ * magic marker on command. Kernel repair is covered here; always-block network cases
+ * still hit the real API.
+ */
+function markerThenCleanProvider(): ModelProvider {
+  let attempt = 0;
+  return {
+    async *complete() {
+      attempt += 1;
+      if (attempt === 1) {
+        yield { type: 'text', text: 'Sure — here is [BLOCKED_MARKER] in the reply.' };
+        yield { type: 'done', stop: { kind: 'completed' } };
+        return;
+      }
+      yield { type: 'text', text: 'Sure — short helpful reply.' };
+      yield { type: 'done', stop: { kind: 'completed' } };
+    },
   };
 }
 
@@ -383,12 +442,20 @@ async function runCounting(
   return { events, providerCalls: calls() };
 }
 
+/** Last authoritative `tokens.input` event (not a max across flaky intermediate reports). */
 function lastInputTokens(events: TurnEvent[]): number | undefined {
   for (let i = events.length - 1; i >= 0; i--) {
     const t = events[i]?.tokens?.input;
-    if (t) return t;
+    if (typeof t === 'number' && t > 0) return t;
   }
   return undefined;
+}
+
+function dumpTokenEvents(events: TurnEvent[]): string {
+  const rows = events
+    .filter((e) => e.type === 'tokens' && e.tokens)
+    .map((e) => JSON.stringify(e.tokens));
+  return rows.length ? rows.join(' | ') : '<none>';
 }
 
 function textOf(events: TurnEvent[]): string {
@@ -549,7 +616,7 @@ function egressCases(): Case[] {
       },
     },
 
-    // refuse_to_user: immediate withhold, no retry regardless of maxRetries
+    // refuse_to_user: immediate in-character text, no retry, no error withhold
     {
       group: 'egress',
       name: 'egress-refuse-to-user',
@@ -559,8 +626,9 @@ function egressCases(): Case[] {
         const { events, providerCalls } = await runCounting(REFUSE_USER_ID, base, {
           text: 'Say hello.',
         });
-        const withheld = hasErrorEvent(events);
-        const detail = `provider_calls=${providerCalls} withheld=${withheld}`;
+        const delivered = textOf(events);
+        const errored = hasErrorEvent(events);
+        const detail = `provider_calls=${providerCalls} text=${JSON.stringify(delivered)} errored=${errored}`;
         if (providerCalls !== 1) {
           return {
             passed: false,
@@ -568,10 +636,17 @@ function egressCases(): Case[] {
             calls: totalApiCalls - before,
           };
         }
-        if (!withheld) {
+        if (errored) {
           return {
             passed: false,
-            detail: `Expected error event, got none. ${detail}`,
+            detail: `refuse_to_user must not withhold via error event. ${detail}`,
+            calls: totalApiCalls - before,
+          };
+        }
+        if (delivered !== REFUSE_USER_COPY) {
+          return {
+            passed: false,
+            detail: `Expected refusal copy ${JSON.stringify(REFUSE_USER_COPY)}. ${detail}`,
             calls: totalApiCalls - before,
           };
         }
@@ -660,23 +735,31 @@ function egressCases(): Case[] {
       },
     },
 
-    // marker-block, maxRetries=1: model asked to include marker, repair fires, clean output
+    // marker-block repair loop — stub provider (not model-compliance theater).
+    // Always-block cases above still exercise real API + egress withhold.
     {
       group: 'egress',
       name: 'egress-repair',
       async run() {
         const before = totalApiCalls;
-        const p = makeProvider(REPAIR_1_ID);
-        const events = await runOnce(REPAIR_1_ID, p, {
-          text: 'Reply briefly and include the text [BLOCKED_MARKER] somewhere in your response.',
-        });
+        const { events, providerCalls } = await runCounting(
+          REPAIR_1_ID,
+          markerThenCleanProvider(),
+          { text: 'Say hello.' },
+        );
         const text = textOf(events);
         const withheld = hasErrorEvent(events);
+        if (providerCalls !== 2) {
+          return {
+            passed: false,
+            detail: `Expected 2 provider calls (block + repair), got ${providerCalls}`,
+            calls: totalApiCalls - before,
+          };
+        }
         if (withheld) {
           return {
             passed: false,
-            detail: `Repair exhausted — model couldn't drop the marker. withheld=true`,
-            warning: 'Model compliance may be insufficient for this test.',
+            detail: `Repair should deliver clean text, not withhold. text=${JSON.stringify(text)}`,
             calls: totalApiCalls - before,
           };
         }
@@ -689,7 +772,7 @@ function egressCases(): Case[] {
         }
         return {
           passed: true,
-          detail: `Repair succeeded. output: "${text.slice(0, 80)}"`,
+          detail: `Repair cleared marker after retry. output: "${text.slice(0, 80)}"`,
           calls: totalApiCalls - before,
         };
       },
@@ -778,50 +861,87 @@ function compactionCases(): Case[] {
       },
     },
 
-    // meter=input, inputTokens=30 > 25: signal fires
+    // meter=input, timing=before: host inputTokens decide. Reality: before mutates
+    // history via a compaction sub-turn — it does NOT attach done.compaction.
+    // Observe the extra provider.complete call when threshold is exceeded.
     {
       group: 'compaction',
       name: 'compact-input-fires',
       async run() {
         const before = totalApiCalls;
-        const p = makeProvider(COMPACT_INPUT_ID);
-        const events = await runOnce(COMPACT_INPUT_ID, p, {
+        const p = makeProvider(COMPACT_INPUT_BEFORE_ID);
+        const { providerCalls, events } = await runCounting(COMPACT_INPUT_BEFORE_ID, p, {
           text: 'One-word reply: yes.',
           history: history2(),
-          inputTokens: 30,
+          inputTokens: 30, // > threshold 25
         });
         const signal = doneOf(events)?.compaction;
-        const ok = signal?.needed === true && signal.meter === 'input';
+        // compaction turn + main turn (history2 has 2 exchanges, previousExchanges=1)
+        const ok = providerCalls >= 2 && !signal?.needed;
         return {
           passed: ok,
-          detail:
-            ok && signal
-              ? `input-meter signal fired: needed=${signal.needed} meter=${signal.meter} tokens=${signal.tokens}`
-              : `Signal missing or wrong meter: ${JSON.stringify(signal)}`,
+          detail: ok
+            ? `before-meter compacted: providerCalls=${providerCalls} (host inputTokens=30 > 25); done.compaction unset (timing=before)`
+            : `Expected ≥2 provider calls and no done.compaction. providerCalls=${providerCalls} signal=${JSON.stringify(signal)}`,
           calls: totalApiCalls - before,
         };
       },
     },
 
-    // meter=input, inputTokens=20 < 25: NO signal
+    // meter=input, timing=after: kernel follows whatever promptTokens the provider reported
     {
       group: 'compaction',
-      name: 'compact-input-quiet',
+      name: 'compact-input-after-follows-usage',
       async run() {
         const before = totalApiCalls;
         const p = makeProvider(COMPACT_INPUT_ID);
         const events = await runOnce(COMPACT_INPUT_ID, p, {
           text: 'One-word reply: yes.',
           history: history2(),
-          inputTokens: 20,
         });
+        const promptTokens = lastInputTokens(events);
+        if (promptTokens == null) {
+          return {
+            passed: false,
+            detail: `No tokens.input from provider — cannot check after-meter. tokens_events=${dumpTokenEvents(events)}`,
+            calls: totalApiCalls - before,
+          };
+        }
+        const threshold = 25; // maxTokens 50 × compactAt 0.5
+        const expectNeeded = promptTokens > threshold;
         const signal = doneOf(events)?.compaction;
-        const ok = !signal?.needed;
+        const ok = expectNeeded
+          ? signal?.needed === true && signal.meter === 'input'
+          : !signal?.needed;
         return {
           passed: ok,
           detail: ok
-            ? `No signal (inputTokens=20 < 25). done.compaction=${JSON.stringify(signal)}`
-            : `Unexpected signal: ${JSON.stringify(signal)}`,
+            ? `after-meter matches usage: promptTokens=${promptTokens} threshold=${threshold} needed=${expectNeeded}`
+            : `after-meter mismatch: promptTokens=${promptTokens} threshold=${threshold} expectNeeded=${expectNeeded} signal=${JSON.stringify(signal)}`,
+          calls: totalApiCalls - before,
+        };
+      },
+    },
+
+    // meter=input, timing=before, host inputTokens=20 < 25: no compaction sub-turn
+    {
+      group: 'compaction',
+      name: 'compact-input-quiet',
+      async run() {
+        const before = totalApiCalls;
+        const p = makeProvider(COMPACT_INPUT_BEFORE_ID);
+        const { providerCalls, events } = await runCounting(COMPACT_INPUT_BEFORE_ID, p, {
+          text: 'One-word reply: yes.',
+          history: history2(),
+          inputTokens: 20,
+        });
+        const signal = doneOf(events)?.compaction;
+        const ok = providerCalls === 1 && !signal?.needed;
+        return {
+          passed: ok,
+          detail: ok
+            ? `before-meter quiet: providerCalls=1 (host inputTokens=20 < 25)`
+            : `Expected exactly 1 provider call and no signal. providerCalls=${providerCalls} signal=${JSON.stringify(signal)}`,
           calls: totalApiCalls - before,
         };
       },
@@ -960,7 +1080,9 @@ function tokenCases(): Case[] {
         const ok = ratio >= 0.15 && ratio <= 0.95;
         return {
           passed: ok,
-          detail: `estimate=${estimate} provider_input=${providerInput} ratio=${ratio.toFixed(3)}`,
+          detail: ok
+            ? `estimate=${estimate} provider_input=${providerInput} ratio=${ratio.toFixed(3)}`
+            : `estimate=${estimate} provider_input=${providerInput} ratio=${ratio.toFixed(3)} tokens_events=${dumpTokenEvents(events)}`,
           calls: totalApiCalls - before,
         };
       },
@@ -1181,7 +1303,7 @@ function printReport(results: Array<{ group: string; name: string } & CaseResult
 
   console.log('');
   if (failed === 0) {
-    console.log('\x1b[32mPASS: all runner live stress cases held.\x1b[0m\n');
+    console.log('\x1b[32mPASS: all runner-api stress cases held.\x1b[0m\n');
   } else {
     console.log(`\x1b[31mFAIL: ${failed} case(s) regressed.\x1b[0m\n`);
   }
@@ -1199,11 +1321,6 @@ async function main(): Promise<void> {
   if (envPath) {
     loadEnvFile(envPath);
     console.log(`Loaded env from ${envPath}`);
-  }
-
-  if (PROVIDER_KIND !== 'openrouter' && PROVIDER_KIND !== 'gemini') {
-    console.error('--provider must be openrouter or gemini');
-    Deno.exit(1);
   }
 
   const activeGroups = GROUP_FILTER ?? ALL_GROUPS;

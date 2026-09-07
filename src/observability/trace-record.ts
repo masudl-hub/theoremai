@@ -63,7 +63,7 @@ interface TraceRecord {
   thinking?: boolean;
   metadata?: Record<string, unknown>;
   model?: { id: string; apiId: string };
-  bucket?: string;
+  keySlot?: string;
   generation?: {
     thinking: string;
     summaries?: string;
@@ -221,7 +221,7 @@ async function buildRecord(args: {
   events: TurnEvent[];
   started: number;
   model?: string;
-  bucket?: string;
+  keySlot?: string;
   thrown?: unknown;
   upstreamLog?: unknown;
   canary?: string;
@@ -230,7 +230,7 @@ async function buildRecord(args: {
   protocol?: Protocol;
   sanitizedReq?: TurnRequest;
 }): Promise<TraceRecord> {
-  const { req, events, started, model, bucket, thrown, upstreamLog, canary, system, generation } =
+  const { req, events, started, model, keySlot, thrown, upstreamLog, canary, system, generation } =
     args;
   const protocol = args.protocol;
   const traced = args.sanitizedReq ? { request: args.sanitizedReq } : requestForTrace(req);
@@ -277,7 +277,7 @@ async function buildRecord(args: {
   }
   await attachTape(record, { upstream: upstreamLog, canary, system, generation, protocol });
   attachUsage(record, upstreamLog, done, events);
-  attachResolved(record, { safe, model, bucket, generation });
+  attachResolved(record, { safe, model, keySlot, generation });
   attachFailure(record, thrown, lastErr, canary);
   if (traced.sanitizeError && !record.errorInternal) {
     record.errorInternal = sanitizeText(

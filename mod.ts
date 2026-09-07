@@ -100,6 +100,20 @@ export {
 } from './src/kernel/engine/compaction.ts';
 export { prepareLiveInboundText } from './src/kernel/engine/live-inbound.ts';
 export { runTurn } from './src/kernel/engine/runner.ts';
+export type { RunSessionOptions } from './src/kernel/engine/session/mod.ts';
+export { runSession } from './src/kernel/engine/session/mod.ts';
+export {
+  assertAttachmentLimits,
+  fileTooLargeMessage,
+  maxBytesForMime,
+  requireMediaLimits,
+  resolveMediaLimits,
+  sanitizeCsvText,
+  sanitizeTurnBlobs,
+  sanitizeTurnBlobsForProfile,
+  tooManyFilesMessage,
+  turnTooLargeMessage,
+} from './src/kernel/registry/attachments.ts';
 export {
   clampThinkingLevel,
   clampThinkingLevelForApiId,
@@ -109,7 +123,14 @@ export {
   modelEntryByApiId,
   requireModelSpec,
 } from './src/kernel/registry/catalog.ts';
-export type { ProfileDefinition } from './src/kernel/registry/profiles.ts';
+export type {
+  ImageProfileDefinition,
+  LiveProfileDefinition,
+  ProfileDefinition,
+  ProfileDefinitionBase,
+  SpeechProfileDefinition,
+  TextProfileDefinition,
+} from './src/kernel/registry/profiles.ts';
 export {
   clearProfiles,
   defineProfile,
@@ -134,20 +155,24 @@ export {
   EGRESS_ON_BLOCK,
   EXTRA_FIELDS,
   fieldMeta,
-  GEMINI_BUCKETS,
-  GEMINI_FREE_BUCKETS,
   isValidPair,
+  isValidProfileProtocol,
+  KEY_SLOTS,
   LIVE_ACTIVITY_HANDLINGS,
   LIVE_CONTEXT_COMPRESSIONS,
   LIVE_SPEECH_SENSITIVITIES,
   MEDIA_INPUT_KIND_VALUES,
   MEDIA_INPUT_KINDS,
   MEDIA_WILDCARDS,
+  OVERFLOW_KEY_SLOTS,
   PROFILE_FIELDS,
+  PROFILE_TYPE_PROTOCOLS,
+  PROFILE_TYPES,
   PROTOCOL_PROVIDERS,
   PROTOCOLS,
   PROVIDERS,
   protocolsFor,
+  protocolsForProfileType,
   providersFor,
   SCHEMA_ENFORCEMENTS,
   SPEECH_AUDIO_FORMATS,
@@ -204,11 +229,13 @@ export {
   writeTrace,
 } from './src/observability/trace.ts';
 export type { TraceRecord } from './src/observability/trace-record.ts';
+export * from './src/presets/mod.ts';
 export type {
   CreateProviderOptions,
   GeminiTransport,
-  GeminiVault,
+  KeyVault,
   LocalProviderConfig,
   OpenAiGatewayConfig,
 } from './src/providers/mod.ts';
 export { createProvider } from './src/providers/mod.ts';
+export * from './src/interface/mod.ts';

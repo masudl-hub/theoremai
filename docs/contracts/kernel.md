@@ -10,7 +10,7 @@ provider adapters.
 | --- | --- |
 | Import | `theorum/kernel` / `jsr:@theorum/core/kernel` |
 | Module | `src/kernel/mod.ts` |
-| Also on | Root `theorum` / `mod.ts` re-exports the same runner and many helpers |
+| Also on | Root `theorum` / `mod.ts` re-exports the same interface helpers and many kernel exports |
 
 ## Ownership
 
@@ -58,9 +58,12 @@ Every id in `allow` must exist in `config`. Each `ModelSpec` carries wire ids
 `thinkingLevels`, `maxOutputTokens`, `temperature`, `builtInTools`, optional
 vault `key`, optional `compaction`.
 
-THEORUM does not invent defaults. Omitted optional fields stay omitted;
-provider or API defaults apply. Hosts must set required fields explicitly
+THEORUM does not invent provider-API defaults for optional wire fields.
+Hosts must set required fields explicitly
 (`type`, `model.protocol`, `model.provider`, `model.allow`, `model.config`).
+First-party THEORUM opinions that *are* applied when the host omits a knob:
+guardrails default on, and Interactions streaming defaults to SSE
+(`outputs.streaming.mode` omitted → `stream: true`).
 
 `projectProfile` / `resolveTurn` project a registered profile + `TurnRequest`
 into a `ProjectedProfile` / `ResolvedGeneration` the runner and providers consume.
@@ -68,7 +71,9 @@ into a `ProjectedProfile` / `ResolvedGeneration` the runner and providers consum
 ## Turn lifecycle
 
 `runTurn(request, provider, sink?)` is the single deterministic execution path
-for one agent turn. Pipeline (see `engine/runner/mod.ts`):
+for one **turn-based** agent turn (text / image / speech). Live profiles use
+`runSession` instead (long-lived session; conversational `turnComplete` is a
+gate boundary, not socket teardown). Pipeline for `runTurn` (see `engine/runner/mod.ts`):
 
 1. **Resolve** — `resolveTurn` picks model, wire `apiId`, `transport`
    (`'interactions'` for Google Interactions, `'openAiCompat'` for OpenRouter/local),
@@ -112,13 +117,14 @@ different transport than the primary turn.
 | --- | --- |
 | `thought` | Model reasoning stream (may be gated) |
 | `text` | User-visible assistant text |
-| `tool` | Tool call (`phase`: `running` / `progress` / `complete` / `pause` / `error`, …) |
+| `tool` | Tool call (`phase`: `running` / `progress` / `complete` / `pause` / `error` / `cancel`, …) |
 | `structured` | Parsed JSON object when schema enforced |
 | `media` | Generated image/audio bytes + mime |
 | `grounding` | Search/maps grounding metadata (classic `grounding_metadata` and Interactions tool results such as `google_search_result.search_suggestions`, `google_maps_result.result[].places`, and `place_citation` annotations). Normalized to `sources` plus classic `chunks[].maps` (`title` / `uri` / `placeId`) |
-| `evidence` | Provider-native attachments. Google code execution sets `kind` (`code_execution_call` / `code_execution_result`) plus parsed `code` / `result` / `isError` / `id` / `callId`, and always keeps `raw`. |
+| `evidence` | Provider-native attachments. Google code execution sets `kind` (`code_execution_call` / `code_execution_result`) plus parsed `code` / `result` / `isError` / `id` / `callId`, and always keeps `raw`. Live ASR uses `input_transcription` / `output_transcription` (optional `interim`); session resumption uses `session_resumption` + `resumable`. |
+| `session` | Live control: `closing_soon` (optional `timeLeftMs`), `waiting_for_input` |
 | `tokens` | `input` / `output` / `total` usage (billing; may gate `meter: 'input'`) |
-| `done` | Terminal: `stop`, `tokens`, `compaction`, final text pointer |
+| `done` | Terminal or live boundary: `stop` (`completed` / `interrupted` / `generation_complete` / …), `tokens`, `compaction` |
 | `error` | Public-safe `error` string; optional `errorInternal` for host logs only |
 
 ### Host client boundary
@@ -151,7 +157,8 @@ host function-calling round trips. The sandbox runtime cap (~30s per execution)
 is Google's, not a THEORUM setting.
 
 Streaming is controlled solely by `outputs.streaming.mode` on the profile
-(`'sse'` or `'buffered'`). When omitted, the provider transport default applies.
+(`'sse'` or `'buffered'`). When omitted, THEORUM defaults to SSE
+(`ResolvedGeneration.stream === true`).
 There is no per-turn stream override.
 
 ## Registered tools
@@ -229,7 +236,7 @@ Top-level modality pins (after `model`, not under `outputs`):
 | --- | --- |
 | `image` | Optional aspect/size, mime, max input images (type `'image'` only) |
 | `speech` | TTS voice + `format` (`pcm` → WAV; `mp3` OpenAI-only) (type `'speech'` only) |
-| `live` | Voice, VAD, transcription, sessionResumption, contextCompression (type `'live'` only) |
+| `live` | Voice, VAD, transcription, sessionResumption, contextCompression, proactiveAudio (type `'live'` only; omit → provider defaults) |
 
 Profile `turnResumption` (top-level on chat/image/speech):
 
@@ -410,6 +417,32 @@ Beyond compaction rules (above), `registerProfile` asserts:
 Runtime structured validation uses `outputs.validation.fields` keyed by dotted
 paths; failures can trigger repair turns via `input.repair`.
 
+## Headless interface
+
+Framework-neutral helpers for profile-driven runtime UIs. Import from
+`@theorum/core/interface` or the root barrel.
+
+`ProfileInterface` is `Profile` with resolved `inputs`/`tools` and a serializable
+`guardrails` view — not a parallel schema. Projection flows through kernel
+`projectProfileObject` / `projectProfile`; the interface layer only adds
+`acceptAttr` on inputs.
+
+| Concern | Entrypoints |
+| --- | --- |
+| Spec | `interfaceFrom`, `interfaceFromProfile`, `interfaceFromProjected` |
+| Inputs | `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime` |
+| Transcript | `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `streamThoughtsEnabled` |
+
+```ts
+import { interfaceFromProfile, foldTurnEvents, streamThoughtsEnabled } from '@theorum/core/interface';
+
+const iface = interfaceFromProfile(profile);
+const blocks = foldTurnEvents(events, { showThoughts: streamThoughtsEnabled(iface.outputs) });
+```
+
+Svelte or other UI layers map `ProfileInterface` and `TranscriptBlock` to
+components; this module does not ship UI.
+
 ## Exported API
 
 Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
@@ -418,13 +451,15 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
 | Group | Symbols |
 | --- | --- |
 | Compaction | `CompactionSplit`, `CompactionTokens`, `compactionMeter`, `compactionNeeded`, `estimateHistoryTokens`, `HISTORY_MEDIA_TOKENS`, `HISTORY_TEXT_ENCODING`, `resolveCompactionTokens`, `resolveHistoryTokens`, `shouldCompact`, `splitForCompaction` |
-| Runner | `runTurn` |
+| Runner | `runTurn`, `runSession`, `RunSessionOptions`, `prepareLiveInboundText` |
 | Catalog | `clampThinkingLevel`, `clampThinkingLevelForApiId`, `mediaKindForMime`, `getTool`, `listBuiltinIds`, `mimeAllowed`, `mimeEssence`, `modelEntryByApiId`, `registerTools`, `requireModelSpec`, `resetTools` |
-| Schema | `PROFILE_FIELDS`, `EXTRA_FIELDS`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `PROTOCOLS`, `PROVIDERS`, `PROTOCOL_PROVIDERS`, `providersFor`, `protocolsFor`, `isValidPair`, `coerceProvider`, `coerceProtocol`, `THINKING_LEVELS`, `CONTROL_IDS`, `GEMINI_BUCKETS`, `GEMINI_FREE_BUCKETS`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `SCHEMA_ENFORCEMENTS`, `COMPACTION_METERS`, `COMPACTION_TIMINGS`, `EGRESS_ON_BLOCK`, `TURN_STOP_KINDS`, `TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES` |
-| Profiles | `ProfileDefinition`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `resolveTurn` |
+| Schema | `PROFILE_FIELDS`, `PROFILE_TYPES`, `PROFILE_TYPE_PROTOCOLS`, `protocolsForProfileType`, `isValidProfileProtocol`, `EXTRA_FIELDS`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `PROTOCOLS`, `PROVIDERS`, `PROTOCOL_PROVIDERS`, `providersFor`, `protocolsFor`, `isValidPair`, `coerceProvider`, `coerceProtocol`, `THINKING_LEVELS`, `CONTROL_IDS`, `KEY_SLOTS`, `OVERFLOW_KEY_SLOTS`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `SCHEMA_ENFORCEMENTS`, `COMPACTION_METERS`, `COMPACTION_TIMINGS`, `EGRESS_ON_BLOCK`, `TURN_STOP_KINDS`, `TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES` |
+| Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `LiveProfileDefinition`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `resolveTurn` |
 | Tools | `registerTool`, `registerTools`, `invokeTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `listBuiltinIds`, `listFunctionIds`, `resetTools`, `formatToolResult`, `prepareTurnToolSnapshot` |
 | Structured | `getStructured`, `registerStructured` |
 | Stop / resume | `ProfileTurnResumptionSpec`, `TurnContinueFrom`, `TurnStop`, `TurnStopKind`, `AUTO_CONTINUE_DELAY_MS`, `CONTINUE_INSTRUCTION`, `DEFAULT_AUTO_CONTINUE`, `GenerationStopError`, `isGenerationStopError`, `isResumeableStop`, `isUserCancelledStop`, `shouldAutoContinue`, `turnStopFromClientStreamEnd`, `turnStopFromInteractionStatus`, `turnStopFromOpenAiFinishReason` |
+| Interface (headless) | `interfaceFrom`, `interfaceFromProfile`, `interfaceFromProjected`, `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime`, `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `resetBlockIds`, `streamThoughtsEnabled`, `AttachmentValidationCode`, `AttachmentValidationIssue`, `AttachmentValidationResult`, `FoldTurnEventsOptions`, `ImageProfileInterface`, `LiveProfileInterface`, `NormalizeModel`, `NormalizedModel`, `PendingAttachment`, `ProfileGuardrailsView`, `ProfileInputsInterface`, `ProfileInterface`, `ProfileInterfaceSource`, `ResolvedTools`, `SpeechProfileInterface`, `TextProfileInterface`, `TranscriptBlock`, `TranscriptBlockKind`, `UserTurnDraft` |
+| Attachments (kernel) | `maxBytesForMime`, `resolveMediaLimits`, `fileTooLargeMessage`, `tooManyFilesMessage`, `turnTooLargeMessage` |
 
 ```theorum-evidence
 {
@@ -506,10 +541,22 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
         { "kind": "contract_test", "path": "tests/kernel/profiles.test.ts" }
       ]
     },
+    "Headless interface": {
+      "supports": [
+        { "kind": "source", "path": "src/interface/mod.ts" },
+        { "kind": "source", "path": "src/interface/from-profile.ts" },
+        { "kind": "source", "path": "src/interface/inputs.ts" },
+        { "kind": "source", "path": "src/interface/inputs.ts" },
+        { "kind": "source", "path": "src/interface/blocks.ts" },
+        { "kind": "contract_test", "path": "tests/interface/headless.test.ts" }
+      ]
+    },
     "Exported API": {
       "supports": [
         { "kind": "source", "path": "src/kernel/mod.ts" },
-        { "kind": "contract_test", "path": "tests/kernel/theorum.test.ts" }
+        { "kind": "source", "path": "src/interface/mod.ts" },
+        { "kind": "contract_test", "path": "tests/kernel/theorum.test.ts" },
+        { "kind": "contract_test", "path": "tests/interface/headless.test.ts" }
       ]
     }
   }

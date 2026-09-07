@@ -10,6 +10,10 @@
 
 import { GOOGLE_SPEECH_VOICES } from '../presets/google/speech-voices.ts';
 
+/** Primary profile archetype. Discriminated union key for `ProfileDefinition` and `Profile`. */
+export const PROFILE_TYPES = ['text', 'image', 'speech', 'live'] as const;
+export type ProfileType = (typeof PROFILE_TYPES)[number];
+
 /** Model reasoning effort level normalized across provider adapters. */
 export const THINKING_LEVELS = [
   'none',
@@ -40,16 +44,42 @@ export const PROTOCOL_PROVIDERS = {
   openAi: ['openrouter', 'local'],
 } as const satisfies Record<Protocol, readonly Provider[]>;
 
-/** Named Gemini key bucket used by host-provided transports. */
-export const GEMINI_BUCKETS = ['freeA', 'freeB', 'freeC', 'paid'] as const;
-export type GeminiBucket = (typeof GEMINI_BUCKETS)[number];
+/**
+ * Legal wire protocols for each profile archetype.
+ * 'live' profiles require 'geminiLive'; turn-based archetypes require turn protocols.
+ */
+export const PROFILE_TYPE_PROTOCOLS = {
+  text: ['geminiInteractions', 'openAi'],
+  image: ['geminiInteractions', 'openAi'],
+  speech: ['geminiInteractions', 'openAi'],
+  live: ['geminiLive'],
+} as const satisfies Record<ProfileType, readonly Protocol[]>;
 
-/** Gemini bucket that may overflow to the paid bucket after quota backoff. */
-export const GEMINI_FREE_BUCKETS = ['freeA', 'freeB', 'freeC'] as const satisfies readonly Exclude<
-  GeminiBucket,
+export type ProfileTypeProtocol<T extends ProfileType> = (typeof PROFILE_TYPE_PROTOCOLS)[T][number];
+
+/** Protocols allowed for a profile archetype (`type`). */
+export function protocolsForProfileType(type: ProfileType): readonly Protocol[] {
+  return PROFILE_TYPE_PROTOCOLS[type];
+}
+
+/** True when the protocol is valid for the given profile archetype. */
+export function isValidProfileProtocol(type: ProfileType, protocol: Protocol): boolean {
+  return (PROFILE_TYPE_PROTOCOLS[type] as readonly string[]).includes(protocol);
+}
+
+/** Named vault key slots for host-supplied credentials (provider-neutral). */
+export const KEY_SLOTS = ['slotA', 'slotB', 'slotC', 'paid'] as const;
+export type KeySlot = (typeof KEY_SLOTS)[number];
+
+/** Key slots that may overflow to `paid` after quota backoff. */
+export const OVERFLOW_KEY_SLOTS = ['slotA', 'slotB', 'slotC'] as const satisfies readonly Exclude<
+  KeySlot,
   'paid'
 >[];
-export type GeminiFreeBucket = (typeof GEMINI_FREE_BUCKETS)[number];
+export type OverflowKeySlot = (typeof OVERFLOW_KEY_SLOTS)[number];
+
+/** Host vault: one optional credential string per key slot. */
+export type KeyVault = Record<KeySlot, string | undefined>;
 
 /** Profile-level control a caller may toggle at turn time. */
 export const CONTROL_IDS = ['thinking'] as const;
@@ -114,6 +144,8 @@ export const TURN_STOP_KINDS = [
   'cancelled',
   'stream_incomplete',
   'interrupted',
+  /** Live: model finished generating audio/text for this utterance; turn may still be open. */
+  'generation_complete',
 ] as const;
 export type TurnStopKind = (typeof TURN_STOP_KINDS)[number];
 
@@ -408,9 +440,9 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
     'Provider-native builtins enabled whenever this model is selected.',
   ),
   'model.config.*.key': field(
-    unionType(GEMINI_BUCKETS),
+    unionType(KEY_SLOTS),
     'Optional vault slot for this model. Overrides profile.model.key.',
-    GEMINI_BUCKETS,
+    KEY_SLOTS,
   ),
   'model.config.*.compaction': field(
     'CompactionSpec',
@@ -489,9 +521,9 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
     'Tool-loop ceiling. <=0 unbounded, 1 one-shot, >1 ceiling. Omit → unbounded.',
   ),
   'model.key': field(
-    unionType(GEMINI_FREE_BUCKETS),
-    'Gemini vault slot for Google Interactions. Paid is overflow-only.',
-    GEMINI_FREE_BUCKETS,
+    unionType(OVERFLOW_KEY_SLOTS),
+    'Vault key slot (slotA/B/C). Paid is overflow-only via model.config.*.key or forcePaidKey builtins.',
+    OVERFLOW_KEY_SLOTS,
   ),
   tools: field(
     '{ allow: ToolId[]; t1Policy?; t2Loader? }',
@@ -645,10 +677,10 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   'outputs.streaming': field('ProfileStreamingSpec', 'How the turn emits live events.'),
   'outputs.streaming.mode': field(
     unionType(STREAM_MODES),
-    'sse (default) or buffered.',
+    'sse or buffered. Omit → THEORUM SSE default (ResolvedGeneration.stream = true).',
     STREAM_MODES,
     {
-      sse: 'Server-Sent Events emitting live incremental TurnEvents.',
+      sse: 'Server-Sent Events emitting live incremental TurnEvents (THEORUM default when mode omitted).',
       buffered: 'Buffers response into a single completed turn event.',
     },
   ),
@@ -666,6 +698,8 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
       filtered: 'Content safety filter intercepted output.',
       cancelled: 'Turn aborted via AbortSignal.',
       completed: 'Turn finished normally.',
+      interrupted: 'Live barge-in interrupted the in-flight response.',
+      generation_complete: 'Live model finished generating this utterance; turn may still be open.',
     },
   ),
   'turnResumption.autoContinue': field(
@@ -680,6 +714,8 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
       filtered: 'Content safety filter intercepted output.',
       cancelled: 'Turn aborted via AbortSignal.',
       completed: 'Turn finished normally.',
+      interrupted: 'Live barge-in interrupted the in-flight response.',
+      generation_complete: 'Live model finished generating this utterance; turn may still be open.',
     },
   ),
   guardrails: field(

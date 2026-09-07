@@ -28,7 +28,7 @@ const testProfile: Profile = {
   model: {
     ...geminiModel('gemini35FlashLite', 'gemini31ProPreview'),
     select: { fast: 'gemini35FlashLite', smart: 'gemini31ProPreview' },
-    key: 'freeA',
+    key: 'slotA',
   },
   tools: { allow: [] },
   inputs: {

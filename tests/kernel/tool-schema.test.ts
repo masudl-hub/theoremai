@@ -82,7 +82,7 @@ Deno.test('registerTool wire snapshot preserves Zod input properties', () => {
       model: {
         protocol: 'geminiInteractions',
         provider: 'google',
-        key: 'freeA',
+        key: 'slotA',
         thinking: 'minimal',
         ...modelAllow('gemini35FlashLite'),
         maxSteps: 1,

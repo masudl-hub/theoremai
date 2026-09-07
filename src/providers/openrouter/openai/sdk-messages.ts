@@ -15,7 +15,7 @@ import type {
 } from '../../../kernel/types.ts';
 import { fallbackToolCallId, parseToolInput } from './compat.ts';
 
-export function stringDefault(value: string | undefined, fallback: string): string {
+function stringDefault(value: string | undefined, fallback: string): string {
   return value === undefined ? fallback : value;
 }
 

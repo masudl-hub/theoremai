@@ -1,26 +1,30 @@
 /**
- * Google Gemini Live WebSocket provider adapter.
+ * Shared Gemini Live WebSocket transport helpers.
  *
- * Connects to Google's bidirectional `BidiGenerateContent` WebSocket service,
- * performs the setup handshake, streams client content/inputs, and yields
- * normalized `TurnEvent` streams.
+ * Used by `openGoogleLiveSession` / `runSession`. No ModelProvider.complete() path —
+ * live is session-scoped, not turn-scoped.
  *
  * @module
  */
 
-import { isAbortError, TheorumError, toErrorEvent } from '../../../guardrails/error.ts';
-import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../../kernel/types.ts';
-import { type GeminiTransport, requireKey } from '../keys.ts';
+import { TheorumError } from '../../../guardrails/error.ts';
+import type { ProviderCompleteRequest, TurnEvent } from '../../../kernel/types.ts';
 import {
   buildGeminiLiveClientContent,
   buildGeminiLiveRealtimeInput,
   buildGeminiLiveSetupMessage,
-  buildGeminiLiveWebSocketUrl,
   foldGeminiLiveServerMessage,
   parseGeminiLiveMessage,
 } from './framing.ts';
 
 const SETUP_TIMEOUT_MS = 20_000;
+
+export type LiveTurnPhase = 'streaming' | 'complete' | 'abort';
+
+export type SessionQueueItem =
+  | { type: 'batch'; events: TurnEvent[]; turnPhase: LiveTurnPhase }
+  | { type: 'error'; error: Error }
+  | { type: 'closed' };
 
 export async function readMessageData(data: unknown): Promise<string> {
   if (typeof data === 'string') return data;
@@ -107,6 +111,7 @@ export function performLiveSetup(ws: WebSocket, req: ProviderCompleteRequest): P
       if (parsed.value.setupComplete) {
         clearTimeout(timeout);
         setupResolved = true;
+        ws.removeEventListener('message', initialMessageHandler);
         resolve();
       }
     };
@@ -132,25 +137,20 @@ export function sendInitialPayloads(ws: LiveSocketSender, req: ProviderCompleteR
   }
 }
 
-export type QueueItem =
-  | { type: 'event'; events: TurnEvent[] }
-  | { type: 'error'; error: Error }
-  | { type: 'done' };
-
 export interface LiveQueue {
-  push: (item: QueueItem) => void;
-  next: () => Promise<QueueItem | undefined>;
+  push: (item: SessionQueueItem) => void;
+  next: () => Promise<SessionQueueItem | undefined>;
   close: () => void;
   isClosed: () => boolean;
 }
 
 export function createLiveQueue(): LiveQueue {
-  const queue: QueueItem[] = [];
+  const queue: SessionQueueItem[] = [];
   let notify: (() => void) | null = null;
   let closed = false;
 
   return {
-    push(item: QueueItem) {
+    push(item: SessionQueueItem) {
       queue.push(item);
       if (notify) {
         const fn = notify;
@@ -158,7 +158,7 @@ export function createLiveQueue(): LiveQueue {
         fn();
       }
     },
-    async next(): Promise<QueueItem | undefined> {
+    async next(): Promise<SessionQueueItem | undefined> {
       while (queue.length === 0) {
         if (closed) return undefined;
         await new Promise<void>((resolve) => {
@@ -181,7 +181,19 @@ export function createLiveQueue(): LiveQueue {
   };
 }
 
-function attachLiveStreamHandlers(ws: WebSocket, liveQueue: LiveQueue): void {
+function turnPhaseFromMessage(
+  message: Record<string, unknown>,
+  events: TurnEvent[],
+): LiveTurnPhase {
+  const interrupted = events.some((ev) => ev.type === 'done' && ev.interrupted === true);
+  if (interrupted) return 'abort';
+  const serverContent = message.serverContent as { turnComplete?: boolean } | undefined;
+  if (serverContent?.turnComplete) return 'complete';
+  return 'streaming';
+}
+
+/** Attach handlers that keep the socket open across conversational turns. */
+export function attachLiveSessionHandlers(ws: WebSocket, liveQueue: LiveQueue): void {
   ws.onmessage = async (evt: MessageEvent) => {
     try {
       const rawText = await readMessageData(evt.data);
@@ -203,16 +215,15 @@ function attachLiveStreamHandlers(ws: WebSocket, liveQueue: LiveQueue): void {
       }
 
       const events = foldGeminiLiveServerMessage(parsed.value);
-      if (events.length > 0) {
-        liveQueue.push({ type: 'event', events });
-      }
-
-      const serverContent = parsed.value.serverContent as { turnComplete?: boolean } | undefined;
-      if (serverContent?.turnComplete) {
-        liveQueue.push({ type: 'done' });
+      const turnPhase = turnPhaseFromMessage(parsed.value, events);
+      if (events.length > 0 || turnPhase !== 'streaming') {
+        liveQueue.push({ type: 'batch', events, turnPhase });
       }
     } catch (err) {
-      liveQueue.push({ type: 'error', error: err instanceof Error ? err : new Error(String(err)) });
+      liveQueue.push({
+        type: 'error',
+        error: err instanceof Error ? err : new Error(String(err)),
+      });
     }
   };
 
@@ -224,119 +235,8 @@ function attachLiveStreamHandlers(ws: WebSocket, liveQueue: LiveQueue): void {
 
   ws.onclose = () => {
     if (!liveQueue.isClosed()) {
-      liveQueue.push({ type: 'done' });
-    }
-  };
-}
-
-/**
- * Connect to Gemini Live API over WebSocket and stream TurnEvents.
- */
-export async function* streamGeminiLive(
-  req: ProviderCompleteRequest,
-  transport: GeminiTransport,
-): AsyncGenerator<TurnEvent> {
-  let apiKey: string;
-  try {
-    const bucket = req.geminiBucket ?? 'freeA';
-    apiKey = requireKey(transport.vault, bucket);
-  } catch (err) {
-    yield toErrorEvent(err);
-    return;
-  }
-  const wsUrl = buildGeminiLiveWebSocketUrl(apiKey);
-
-  let ws: WebSocket;
-  try {
-    ws = new WebSocket(wsUrl);
-  } catch (err) {
-    yield toErrorEvent(err);
-    return;
-  }
-
-  const liveQueue = createLiveQueue();
-
-  const onAbort = () => {
-    if (!liveQueue.isClosed()) {
+      liveQueue.push({ type: 'closed' });
       liveQueue.close();
-      try {
-        ws.close(1000, 'aborted');
-      } catch {
-        // Ignore close errors
-      }
-      liveQueue.push({
-        type: 'error',
-        error: new DOMException('The operation was aborted.', 'AbortError'),
-      });
     }
   };
-
-  if (req.signal) {
-    if (req.signal.aborted) {
-      onAbort();
-      return;
-    }
-    req.signal.addEventListener('abort', onAbort, { once: true });
-  }
-
-  try {
-    await performLiveSetup(ws, req);
-  } catch (err) {
-    if (req.signal) {
-      req.signal.removeEventListener('abort', onAbort);
-    }
-    try {
-      ws.close();
-    } catch {
-      // Ignore
-    }
-    yield toErrorEvent(err);
-    return;
-  }
-
-  attachLiveStreamHandlers(ws, liveQueue);
-  sendInitialPayloads(ws, req);
-
-  try {
-    while (true) {
-      const item = await liveQueue.next();
-      if (!item) break;
-      if (item.type === 'error') {
-        if (isAbortError(item.error)) {
-          throw item.error;
-        }
-        yield toErrorEvent(item.error);
-        break;
-      }
-      if (item.type === 'done') {
-        break;
-      }
-      if (item.type === 'event') {
-        for (const ev of item.events) {
-          yield ev;
-        }
-      }
-    }
-  } finally {
-    liveQueue.close();
-    if (req.signal) {
-      req.signal.removeEventListener('abort', onAbort);
-    }
-    try {
-      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-        ws.close(1000, 'turn-finished');
-      }
-    } catch {
-      // Ignore
-    }
-  }
 }
-
-/** Create a `ModelProvider` backed by Google Gemini Live WebSocket streaming. */
-export function createGoogleLiveProvider(transport: GeminiTransport): ModelProvider {
-  return {
-    complete: (req) => streamGeminiLive(req, transport),
-  };
-}
-
-export { attachLiveStreamHandlers };

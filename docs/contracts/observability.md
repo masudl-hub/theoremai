@@ -70,7 +70,8 @@ transport.
 
 ## Trace records
 
-`TraceRecord` captures turn identity, timing, model selection, token usage, and
+`TraceRecord` captures turn identity, timing, model selection, optional
+`keySlot` (vault key slot), token usage, and
 related fields for host analytics. Built by `buildRecord` in the runner path and
 consumed by sinks.
 

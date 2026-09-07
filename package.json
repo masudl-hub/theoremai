@@ -32,6 +32,7 @@
     "./presets": "./src/presets/mod.ts",
     "./presets/google": "./src/presets/google.ts",
     "./presets/google/speech-voices": "./src/presets/google/speech-voices.ts",
+    "./interface": "./src/interface/mod.ts",
     "./schema": "./src/kernel/schema.ts",
     "./providers/google/live": "./src/providers/google/live/mod.ts"
   },

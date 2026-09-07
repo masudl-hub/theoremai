@@ -16,18 +16,11 @@ import type {
   TurnTokens,
   WireFunctionTool,
 } from '../../../kernel/types.ts';
+import { groundingFromEvent } from '../../../kernel/engine/delta.ts';
 import { base64ToBytes, bytesToBase64, wrapPcmAsWav } from '../../shared/pcm.ts';
 import { parseToolArgumentsObject } from '../../shared/tool-args.ts';
 import { GEMINI_LIVE_WS_URL } from '../urls.ts';
-
-/** Default VAD configuration when omitted on profile. */
-const DEFAULT_VAD: Required<LiveVadSpec> = {
-  activityHandling: 'START_OF_ACTIVITY_INTERRUPTS',
-  startSensitivity: 'START_SENSITIVITY_LOW',
-  endSensitivity: 'END_SENSITIVITY_LOW',
-  prefixPaddingMs: 500,
-  silenceDurationMs: 1500,
-};
+import { toGeminiOpenApiSchema } from './openapi-schema.ts';
 
 /** Construct authenticated WebSocket URL for Gemini Live API. */
 export function buildGeminiLiveWebSocketUrl(apiKey: string): string {
@@ -35,10 +28,14 @@ export function buildGeminiLiveWebSocketUrl(apiKey: string): string {
 }
 
 export function wireFunctionDeclaration(decl: WireFunctionTool): Record<string, unknown> {
+  const parameters = toGeminiOpenApiSchema(decl.parameters);
   return {
     name: decl.name,
     description: decl.description,
-    parameters: decl.parameters,
+    parameters:
+      parameters && typeof parameters === 'object'
+        ? (parameters as Record<string, unknown>)
+        : { type: 'OBJECT', properties: {} },
   };
 }
 
@@ -93,16 +90,31 @@ function normalizeEndSensitivity(val?: string): string {
   return val?.includes('HIGH') ? 'END_SENSITIVITY_HIGH' : 'END_SENSITIVITY_LOW';
 }
 
-function buildLiveRealtimeInputConfig(vad: Required<LiveVadSpec>): Record<string, unknown> {
-  return {
-    activityHandling: vad.activityHandling,
-    automaticActivityDetection: {
-      startOfSpeechSensitivity: normalizeStartSensitivity(vad.startSensitivity),
-      endOfSpeechSensitivity: normalizeEndSensitivity(vad.endSensitivity),
-      prefixPaddingMs: vad.prefixPaddingMs,
-      silenceDurationMs: vad.silenceDurationMs,
-    },
-  };
+function buildLiveRealtimeInputConfig(vad: LiveVadSpec): Record<string, unknown> | undefined {
+  const automaticActivityDetection: Record<string, unknown> = {};
+  if (vad.startSensitivity !== undefined) {
+    automaticActivityDetection.startOfSpeechSensitivity = normalizeStartSensitivity(
+      vad.startSensitivity,
+    );
+  }
+  if (vad.endSensitivity !== undefined) {
+    automaticActivityDetection.endOfSpeechSensitivity = normalizeEndSensitivity(vad.endSensitivity);
+  }
+  if (vad.prefixPaddingMs !== undefined) {
+    automaticActivityDetection.prefixPaddingMs = vad.prefixPaddingMs;
+  }
+  if (vad.silenceDurationMs !== undefined) {
+    automaticActivityDetection.silenceDurationMs = vad.silenceDurationMs;
+  }
+
+  const config: Record<string, unknown> = {};
+  if (vad.activityHandling !== undefined) {
+    config.activityHandling = vad.activityHandling;
+  }
+  if (Object.keys(automaticActivityDetection).length > 0) {
+    config.automaticActivityDetection = automaticActivityDetection;
+  }
+  return Object.keys(config).length > 0 ? config : undefined;
 }
 
 function buildLiveSessionResumption(
@@ -131,12 +143,15 @@ function applyLiveOptionalFeatures(
   if (live?.transcription?.output) {
     setup.outputAudioTranscription = {};
   }
+  if (live?.proactiveAudio === true) {
+    setup.proactivity = { proactiveAudio: true };
+  }
 }
 
 /** Build the initial `setup` message sent once immediately after WebSocket open. */
 export function buildGeminiLiveSetupMessage(req: ProviderCompleteRequest): Record<string, unknown> {
   const live = req.live;
-  const vad = { ...DEFAULT_VAD, ...(live?.vad ?? {}) };
+  const realtimeInputConfig = live?.vad ? buildLiveRealtimeInputConfig(live.vad) : undefined;
   const tools = wireLiveTools(req);
   const sessionResumption = buildLiveSessionResumption(req);
 
@@ -154,10 +169,11 @@ export function buildGeminiLiveSetupMessage(req: ProviderCompleteRequest): Recor
     },
     ...(tools.length > 0 ? { tools } : {}),
     ...(sessionResumption ? { sessionResumption } : {}),
-    contextWindowCompression:
-      live?.contextCompression === 'none' ? undefined : { slidingWindow: {} },
+    ...(live?.contextCompression === 'slidingWindow'
+      ? { contextWindowCompression: { slidingWindow: {} } }
+      : {}),
     ...(seedInitialHistory ? { historyConfig: { initialHistoryInClientContent: true } } : {}),
-    realtimeInputConfig: buildLiveRealtimeInputConfig(vad),
+    ...(realtimeInputConfig ? { realtimeInputConfig } : {}),
   };
 
   applyLiveOptionalFeatures(live, setup);
@@ -342,12 +358,20 @@ function foldSessionUpdate(message: Record<string, unknown>, events: TurnEvent[]
   const sessionUpdate = message.sessionResumptionUpdate as
     | { newHandle?: string; resumable?: boolean }
     | undefined;
-  if (sessionUpdate?.newHandle) {
-    events.push({
-      type: 'evidence',
-      sessionResumptionHandle: sessionUpdate.newHandle,
-    });
-  }
+  if (!sessionUpdate || typeof sessionUpdate !== 'object') return;
+  const hasHandle = typeof sessionUpdate.newHandle === 'string' && sessionUpdate.newHandle.length > 0;
+  const hasResumable = typeof sessionUpdate.resumable === 'boolean';
+  if (!hasHandle && !hasResumable) return;
+  events.push({
+    type: 'evidence',
+    ...(hasHandle ? { sessionResumptionHandle: sessionUpdate.newHandle } : {}),
+    evidence: {
+      provider: 'google',
+      kind: 'session_resumption',
+      resumable: hasResumable ? sessionUpdate.resumable : hasHandle,
+      raw: sessionUpdate as Record<string, unknown>,
+    },
+  });
 }
 
 function foldToolCalls(message: Record<string, unknown>, events: TurnEvent[]): void {
@@ -386,6 +410,56 @@ function foldToolCalls(message: Record<string, unknown>, events: TurnEvent[]): v
   }
 }
 
+function foldToolCancellations(message: Record<string, unknown>, events: TurnEvent[]): void {
+  const cancellation = message.toolCallCancellation as { ids?: unknown } | undefined;
+  const ids = cancellation?.ids;
+  if (!Array.isArray(ids)) return;
+  for (const id of ids) {
+    if (typeof id !== 'string' || id.length === 0) continue;
+    events.push({
+      type: 'tool',
+      tool: {
+        id,
+        name: '',
+        phase: 'cancel',
+      },
+    });
+  }
+}
+
+/** Parse Gemini goAway.timeLeft (seconds number, "10s", duration string) → ms when known. */
+export function parseGoAwayTimeLeftMs(timeLeft: unknown): number | undefined {
+  if (typeof timeLeft === 'number' && Number.isFinite(timeLeft) && timeLeft >= 0) {
+    return Math.round(timeLeft * 1000);
+  }
+  if (typeof timeLeft !== 'string') return undefined;
+  const trimmed = timeLeft.trim();
+  if (!trimmed) return undefined;
+  const seconds = Number(trimmed);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.round(seconds * 1000);
+  }
+  const match = /^(\d+(?:\.\d+)?)\s*s$/i.exec(trimmed);
+  if (match?.[1]) {
+    const s = Number(match[1]);
+    if (Number.isFinite(s) && s >= 0) return Math.round(s * 1000);
+  }
+  return undefined;
+}
+
+function foldGoAway(message: Record<string, unknown>, events: TurnEvent[]): void {
+  const goAway = message.goAway as { timeLeft?: unknown } | undefined;
+  if (!goAway || typeof goAway !== 'object') return;
+  const timeLeftMs = parseGoAwayTimeLeftMs(goAway.timeLeft);
+  events.push({
+    type: 'session',
+    session: {
+      kind: 'closing_soon',
+      ...(timeLeftMs !== undefined ? { timeLeftMs } : {}),
+    },
+  });
+}
+
 interface ModelTurnPart {
   text?: string;
   thought?: string | boolean;
@@ -421,17 +495,49 @@ function foldModelPart(part: ModelTurnPart, events: TurnEvent[]): void {
   }
 }
 
-function foldServerContent(message: Record<string, unknown>, events: TurnEvent[]): void {
-  const serverContent = message.serverContent as
-    | {
-        modelTurn?: { parts?: ModelTurnPart[] };
-        inputTranscription?: { text?: string };
-        interrupted?: boolean;
-      }
-    | undefined;
-  if (!serverContent) return;
+function foldTranscription(
+  text: string | undefined,
+  kind: 'input_transcription' | 'output_transcription',
+  events: TurnEvent[],
+  interim?: boolean,
+): void {
+  if (!text) return;
+  events.push({
+    type: 'evidence',
+    text,
+    evidence: {
+      provider: 'google',
+      kind,
+      ...(interim ? { interim: true } : {}),
+    },
+  });
+}
 
-  if (serverContent.interrupted) {
+function foldLiveGrounding(serverContent: Record<string, unknown>, events: TurnEvent[]): void {
+  const groundingEvent = groundingFromEvent({
+    groundingMetadata: serverContent.groundingMetadata ?? serverContent.grounding_metadata,
+  });
+  if (groundingEvent) {
+    events.push(groundingEvent);
+  }
+  const urlContext = serverContent.urlContextMetadata ?? serverContent.url_context_metadata;
+  if (urlContext && typeof urlContext === 'object') {
+    events.push({
+      type: 'evidence',
+      evidence: {
+        provider: 'google',
+        kind: 'url_context',
+        raw: urlContext as Record<string, unknown>,
+      },
+    });
+  }
+}
+
+function foldServerContent(message: Record<string, unknown>, events: TurnEvent[]): void {
+  const serverContent = message.serverContent as Record<string, unknown> | undefined;
+  if (!serverContent || typeof serverContent !== 'object') return;
+
+  if (serverContent.interrupted === true) {
     events.push({
       type: 'done',
       interrupted: true,
@@ -439,20 +545,35 @@ function foldServerContent(message: Record<string, unknown>, events: TurnEvent[]
     });
   }
 
-  if (serverContent.inputTranscription?.text) {
+  if (serverContent.waitingForInput === true || serverContent.waiting_for_input === true) {
     events.push({
-      type: 'evidence',
-      text: serverContent.inputTranscription.text,
-      evidence: {
-        provider: 'google',
-        kind: 'input_transcription',
-      },
+      type: 'session',
+      session: { kind: 'waiting_for_input' },
     });
   }
 
-  for (const part of serverContent.modelTurn?.parts ?? []) {
+  if (serverContent.generationComplete === true || serverContent.generation_complete === true) {
+    events.push({
+      type: 'done',
+      stop: { kind: 'generation_complete' as const },
+    });
+  }
+
+  const inputTranscription = serverContent.inputTranscription as { text?: string } | undefined;
+  foldTranscription(inputTranscription?.text, 'input_transcription', events);
+
+  const interimInput = serverContent.interimInputTranscription as { text?: string } | undefined;
+  foldTranscription(interimInput?.text, 'input_transcription', events, true);
+
+  const outputTranscription = serverContent.outputTranscription as { text?: string } | undefined;
+  foldTranscription(outputTranscription?.text, 'output_transcription', events);
+
+  const modelTurn = serverContent.modelTurn as { parts?: ModelTurnPart[] } | undefined;
+  for (const part of modelTurn?.parts ?? []) {
     foldModelPart(part, events);
   }
+
+  foldLiveGrounding(serverContent, events);
 }
 
 function foldUsageMetadata(message: Record<string, unknown>, events: TurnEvent[]): void {
@@ -473,8 +594,10 @@ export function foldGeminiLiveServerMessage(
 ): TurnEvent[] {
   if (!message || typeof message !== 'object') return [];
   const events: TurnEvent[] = [];
+  foldGoAway(message, events);
   foldSessionUpdate(message, events);
   foldToolCalls(message, events);
+  foldToolCancellations(message, events);
   foldServerContent(message, events);
   foldUsageMetadata(message, events);
   return events;

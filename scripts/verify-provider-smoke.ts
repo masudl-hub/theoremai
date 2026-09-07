@@ -32,7 +32,7 @@ Deno.stdout.writeSync(
 const provider = createOpenRouterProvider({
   apiKey,
   siteUrl: 'https://theorum.agent',
-  siteName: 'Theorum Live Verification',
+  siteName: 'Theorum Provider Smoke',
 });
 
 const req: ProviderCompleteRequest = {

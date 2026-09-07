@@ -39,7 +39,7 @@ Deno.test('image oneshot uses image model and image response format', () => {
     },
   });
   assertEquals(generation.model, 'gemini31FlashLiteImage');
-  assertEquals(generation.geminiBucket, 'paid');
+  assertEquals(generation.keySlot, 'paid');
   assertEquals(generation.thinking, 'minimal');
   assertEquals(generation.structured, null);
   assertEquals(generation.image, {
@@ -95,7 +95,7 @@ function googleImageBody() {
     input: generation.input,
     structured: generation.structured,
     image: generation.image,
-    geminiBucket: generation.geminiBucket,
+    keySlot: generation.keySlot,
   });
 }
 
@@ -175,7 +175,7 @@ Deno.test('interactions body requests text and image when includeText is set', (
     input: generation.input,
     structured: generation.structured,
     image: generation.image,
-    geminiBucket: generation.geminiBucket,
+    keySlot: generation.keySlot,
   });
   assertImageWithTextWireBody(body);
 });
@@ -202,7 +202,7 @@ Deno.test('image projection exposes image pins not tools', () => {
   assertEquals(ui.image?.mimeType, 'image/jpeg');
   assertEquals(ui.image?.size, '1K');
   assertEquals(ui.image?.maxInputImages, 14);
-  assertEquals(ui.controls, []);
+  assertEquals(ui.model.controls, []);
 });
 
 Deno.test('media validations allow omitted aspect/size; reject structured mixing and invalid mime', async () => {
@@ -294,7 +294,7 @@ Deno.test('media validations allow omitted aspect/size; reject structured mixing
       type: 'image',
       identity: { handle: 'image_with_code_exec' },
       model: {
-        key: 'freeA',
+        key: 'slotA',
         protocol: 'geminiInteractions',
         provider: 'google',
         thinking: 'minimal',
@@ -331,7 +331,7 @@ Deno.test('media validations allow omitted aspect/size; reject structured mixing
       type: 'image',
       identity: { handle: 'image_with_search' },
       model: {
-        key: 'freeA',
+        key: 'slotA',
         protocol: 'geminiInteractions',
         provider: 'google',
         thinking: 'minimal',
@@ -371,7 +371,7 @@ Deno.test('speech profiles use top-level speech pins', () => {
     model: {
       ...geminiModel('gemini31FlashTts'),
       thinking: 'minimal',
-      key: 'freeA',
+      key: 'slotA',
     },
     speech: { voice: 'Kore', format: 'pcm' },
     guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },

@@ -23,7 +23,7 @@ import type {
   TurnToolSnapshot,
 } from './types.ts';
 
-export function isStreamHandler(handler: unknown): boolean {
+function isStreamHandler(handler: unknown): boolean {
   return (
     typeof handler === 'function' &&
     Object.prototype.toString.call(handler) === '[object AsyncGeneratorFunction]'
@@ -123,7 +123,7 @@ export function checkPermission(
   };
 }
 
-export function toolEvent(
+function toolEvent(
   base: Pick<ToolCallEvent, 'name' | 'callId' | 'arguments'>,
   patch: Partial<ToolCallEvent>,
 ): TurnEvent {
@@ -133,7 +133,7 @@ export function toolEvent(
   };
 }
 
-export function failureEvent(
+function failureEvent(
   base: Pick<ToolCallEvent, 'name' | 'callId' | 'arguments'>,
   failure: ToolFailure,
 ): TurnEvent {

@@ -45,7 +45,7 @@ export function userInputStep(parts: InteractionPart[]): Record<string, unknown>
   return { type: USER_INPUT, content: parts.map(wirePart) };
 }
 
-export function functionResultStep(msg: TurnHistoryMessage): Record<string, unknown> {
+function functionResultStep(msg: TurnHistoryMessage): Record<string, unknown> {
   return {
     type: 'function_result',
     name: msg.name ?? '',
@@ -143,6 +143,18 @@ function wireInteractionsFunctionTool(decl: WireFunctionTool): Record<string, un
   };
 }
 
+function wireGoogleMapsTool(req: ProviderCompleteRequest): Record<string, unknown> {
+  const loc = req.googleMapsLocation;
+  if (loc && Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude)) {
+    return {
+      type: 'google_maps',
+      latitude: loc.latitude,
+      longitude: loc.longitude,
+    };
+  }
+  return { type: 'google_maps' };
+}
+
 function wireInteractionsTools(req: ProviderCompleteRequest): Record<string, unknown>[] {
   const tools: Record<string, unknown>[] = [];
   for (const id of req.builtins) {
@@ -150,6 +162,10 @@ function wireInteractionsTools(req: ProviderCompleteRequest): Record<string, unk
     const type = entry?.type === 'builtin' ? entry.wire.interactions : undefined;
     if (!type) {
       throw new TheorumError(`Builtin '${id}' has no Interactions wire type`);
+    }
+    if (type === 'google_maps') {
+      tools.push(wireGoogleMapsTool(req));
+      continue;
     }
     tools.push({ type });
   }
@@ -209,7 +225,7 @@ export function baseInteractionsBody(req: ProviderCompleteRequest): Record<strin
   }
   return {
     model: req.apiId,
-    stream: req.stream !== false,
+    stream: req.stream ?? true,
     input: inputStepsFromRequest(req),
     generationConfig,
   };

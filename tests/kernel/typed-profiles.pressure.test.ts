@@ -9,7 +9,7 @@ import '../fixtures/test-host.ts';
 
 registerGooglePreset();
 
-Deno.test('pressure-test: type live requires protocol geminiLive and vice versa', () => {
+Deno.test('pressure-test: type/protocol matrix rejects every illegal pair', () => {
   // type 'live' with protocol 'openAi' must throw
   assertThrows(
     () => {
@@ -18,7 +18,7 @@ Deno.test('pressure-test: type live requires protocol geminiLive and vice versa'
         type: 'live',
         identity: { handle: 'invalid_live' },
         model: {
-          protocol: 'openAi',
+          protocol: 'openAi' as unknown as 'geminiLive',
           provider: 'openrouter',
           allow: ['openai/gpt-4o'],
           config: {
@@ -32,7 +32,7 @@ Deno.test('pressure-test: type live requires protocol geminiLive and vice versa'
       });
     },
     TheorumError,
-    "type 'live' requires model.protocol 'geminiLive'",
+    "type 'live' cannot use protocol 'openAi'",
   );
 
   // type 'text' with protocol 'geminiLive' must throw
@@ -43,7 +43,7 @@ Deno.test('pressure-test: type live requires protocol geminiLive and vice versa'
         type: 'text',
         identity: { handle: 'invalid_text' },
         model: {
-          protocol: 'geminiLive',
+          protocol: 'geminiLive' as unknown as 'geminiInteractions',
           provider: 'google',
           allow: ['gemini-2.0-flash-exp'],
           config: {
@@ -57,7 +57,7 @@ Deno.test('pressure-test: type live requires protocol geminiLive and vice versa'
       });
     },
     TheorumError,
-    "model.protocol 'geminiLive' requires type 'live'",
+    "type 'text' cannot use protocol 'geminiLive'",
   );
 
   // type 'image' with protocol 'geminiLive' must throw
@@ -68,7 +68,7 @@ Deno.test('pressure-test: type live requires protocol geminiLive and vice versa'
         type: 'image',
         identity: { handle: 'invalid_image' },
         model: {
-          protocol: 'geminiLive',
+          protocol: 'geminiLive' as unknown as 'geminiInteractions',
           provider: 'google',
           allow: ['gemini-2.0-flash-exp'],
           config: {
@@ -83,7 +83,31 @@ Deno.test('pressure-test: type live requires protocol geminiLive and vice versa'
       });
     },
     TheorumError,
-    "model.protocol 'geminiLive' requires type 'live'",
+    "type 'image' cannot use protocol 'geminiLive'",
+  );
+
+  // type 'speech' with protocol 'geminiLive' must throw
+  assertThrows(
+    () => {
+      defineProfile({
+        id: 'invalid_speech_gemini_live',
+        type: 'speech',
+        identity: { handle: 'invalid_speech' },
+        model: {
+          protocol: 'geminiLive' as unknown as 'geminiInteractions',
+          provider: 'google',
+          allow: ['gemini-2.0-flash-exp'],
+          config: {
+            'gemini-2.0-flash-exp': {
+              apiId: 'gemini-2.0-flash-exp',
+            },
+          },
+        },
+        speech: { voice: 'Kore', format: 'pcm' },
+      });
+    },
+    TheorumError,
+    "type 'speech' cannot use protocol 'geminiLive'",
   );
 });
 
@@ -395,7 +419,7 @@ Deno.test('pressure-test: outputs.streaming.mode resolution', () => {
     false,
   );
 
-  // mode omitted -> stream = undefined (no invented defaults)
+  // mode omitted -> stream = true (THEORUM SSE default)
   registerProfile({
     id: 'omitted_stream_profile',
     type: 'text',
@@ -407,7 +431,7 @@ Deno.test('pressure-test: outputs.streaming.mode resolution', () => {
   });
   assertEquals(
     resolveTurn({ profile: 'omitted_stream_profile', input: { text: 'hi' } }).generation.stream,
-    undefined,
+    true,
   );
 });
 
@@ -540,7 +564,7 @@ Deno.test('pressure-test: createProvider type routing and boundary enforcement',
 
   // Google interactions for speech, image, chat
   const googleTransport = {
-    vault: { freeA: 'fake-key', freeB: undefined, freeC: undefined, paid: undefined },
+    vault: { slotA: 'fake-key', slotB: undefined, slotC: undefined, paid: undefined },
   };
   const googleSpeech = createProvider(speechProfile, { gemini: googleTransport });
   assertEquals(typeof googleSpeech.complete, 'function');
@@ -551,8 +575,13 @@ Deno.test('pressure-test: createProvider type routing and boundary enforcement',
   const googleChat = createProvider(chatProfile, { gemini: googleTransport });
   assertEquals(typeof googleChat.complete, 'function');
 
-  const googleLive = createProvider(liveProfile, { gemini: googleTransport });
-  assertEquals(typeof googleLive.complete, 'function');
+  assertThrows(
+    () => {
+      createProvider(liveProfile, { gemini: googleTransport });
+    },
+    TheorumError,
+    "createProvider does not support type 'live' / geminiLive — use runSession(req, { gemini })",
+  );
 
   // OpenRouter speech/image/chat
   const openAiSpeechProfile = defineProfile({

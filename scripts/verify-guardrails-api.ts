@@ -1,7 +1,7 @@
 #!/usr/bin/env -S deno run --allow-read --allow-net --allow-env --allow-sys
 
 /**
- * Live guardrails red-team — adversarial prompts against real free-tier models.
+ * Guardrails red-team against a real provider API (text turns — not Gemini Live).
  *
  * Stresses the full runTurn stack:
  *   inbound sanitize (injection + sensitive) → canary bind → stream gate → egress
@@ -17,10 +17,10 @@
  *   Gemini:     gemini-3.1-flash-lite
  *
  * Usage:
- *   THEORUM_ENV_FILE=../theorum-frontend/.env.local deno task verify:guardrails-live
- *   deno task verify:guardrails-live -- --provider gemini
- *   deno task verify:guardrails-live -- --inbound-only   # no API calls
- *   deno task verify:guardrails-live -- --category canary,inbound-injection --limit 20
+ *   THEORUM_ENV_FILE=../theorum-frontend/.env.local deno task verify:guardrails-api
+ *   deno task verify:guardrails-api -- --provider gemini
+ *   deno task verify:guardrails-api -- --inbound-only   # no API calls
+ *   deno task verify:guardrails-api -- --category canary,inbound-injection --limit 20
  */
 
 import {
@@ -45,8 +45,8 @@ import { createProvider } from '../src/providers/create-provider.ts';
 
 const LIVE_PROFILE_ID = '__live_guardrails_redteam__';
 
-const OPENROUTER_FREE_API_ID = 'openrouter/free';
-const GEMINI_FREE_DEFAULT_API_ID = 'gemini-3.1-flash-lite';
+const OPENROUTER_VERIFY_API_ID = 'openrouter/free';
+const GEMINI_VERIFY_API_ID = 'gemini-3.1-flash-lite';
 
 function parseListFlag(flag: string): string[] | undefined {
   const raw = valueAfterFlag(flag);
@@ -156,7 +156,7 @@ function registerLiveProfile(providerKind: 'openrouter' | 'gemini'): void {
           allow: ['freeRouter'],
           config: {
             freeRouter: {
-              apiId: OPENROUTER_FREE_API_ID,
+              apiId: OPENROUTER_VERIFY_API_ID,
               thinking: { on: 'none', off: 'none' },
               thinkingLevels: ['none'],
               summaries: { on: 'none', off: 'none' },
@@ -192,7 +192,7 @@ function registerLiveProfile(providerKind: 'openrouter' | 'gemini'): void {
         allow: ['geminiFree'],
         config: {
           geminiFree: {
-            apiId: GEMINI_FREE_DEFAULT_API_ID,
+            apiId: GEMINI_VERIFY_API_ID,
             thinking: { on: 'minimal', off: 'minimal' },
             thinkingLevels: ['minimal', 'low', 'medium', 'high'],
             summaries: { on: 'none', off: 'none' },
@@ -203,7 +203,7 @@ function registerLiveProfile(providerKind: 'openrouter' | 'gemini'): void {
         },
         thinking: 'minimal',
         maxSteps: 1,
-        key: 'freeA',
+        key: 'slotA',
       },
       tools: { allow: [] },
       inputs: { text: true },
@@ -228,7 +228,7 @@ function createLiveProvider(providerKind: 'openrouter' | 'gemini'): ModelProvide
   const geminiKey = Deno.env.get('GEMINI_API_KEY')?.trim();
   if (!geminiKey) throw new Error('GEMINI_API_KEY missing in env file');
   return createProvider(profile, {
-    gemini: { vault: { freeA: geminiKey, freeB: geminiKey, freeC: geminiKey, paid: geminiKey } },
+    gemini: { vault: { slotA: geminiKey, slotB: geminiKey, slotC: geminiKey, paid: geminiKey } },
   });
 }
 
@@ -460,7 +460,7 @@ export async function main(): Promise<void> {
   const limit = parseLimit();
   const attacks = filterLiveAttacks(allAttacks, { categories, names, limit });
   const bank = summarizeAttackBank(allAttacks);
-  const apiId = providerKind === 'openrouter' ? OPENROUTER_FREE_API_ID : GEMINI_FREE_DEFAULT_API_ID;
+  const apiId = providerKind === 'openrouter' ? OPENROUTER_VERIFY_API_ID : GEMINI_VERIFY_API_ID;
 
   if (attacks.length === 0) {
     console.error('No attacks matched filters. Bank size:', bank.total);

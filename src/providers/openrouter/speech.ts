@@ -19,6 +19,7 @@ import type {
 import { bytesToBase64, wrapPcmAsWav } from '../shared/pcm.ts';
 import type { OpenAiGatewayConfig } from '../types.ts';
 import { openAiGatewayHeaders } from './openai/compat.ts';
+import { resolveOpenAiGatewayApiKey } from './resolve-api-key.ts';
 
 const HTTP_OK = 200;
 
@@ -36,7 +37,10 @@ export function extractInputText(input: InteractionPart[]): string {
     .trim();
 }
 
-export function buildHeaders(apiKey: string, config: SpeechProviderConfig): Record<string, string> {
+export function buildSpeechHeaders(
+  apiKey: string,
+  config: SpeechProviderConfig,
+): Record<string, string> {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${apiKey}`,
     'Content-Type': 'application/json',
@@ -53,12 +57,13 @@ export function buildPayload(
   configVoice?: string,
 ): Record<string, unknown> {
   const voice = speech?.voice ?? configVoice;
-  const format: SpeechAudioFormat = speech?.format ?? 'pcm';
   const payload: Record<string, unknown> = {
     model: req.apiId,
     input: text,
-    response_format: format,
   };
+  if (speech?.format) {
+    payload.response_format = speech.format;
+  }
   if (voice) {
     payload.voice = voice;
   }
@@ -76,7 +81,7 @@ export async function requestSpeech(
   const url = `${baseUrl}/audio/speech`;
   return await fetchFn(url, {
     method: 'POST',
-    headers: buildHeaders(apiKey, config),
+    headers: buildSpeechHeaders(apiKey, config),
     body: JSON.stringify(buildPayload(req, text, req.speech, config.voice)),
     signal: req.signal,
   });
@@ -85,14 +90,17 @@ export async function requestSpeech(
 export function* yieldSpeechSuccess(
   rawBytes: Uint8Array,
   text: string,
-  format: SpeechAudioFormat,
+  format?: SpeechAudioFormat,
+  contentType?: string | null,
 ): Generator<TurnEvent> {
-  let mediaMime = 'audio/mpeg';
+  let mediaMime = contentType?.split(';')[0]?.trim() || 'application/octet-stream';
   let mediaBytes = rawBytes;
 
   if (format === 'pcm') {
     mediaMime = 'audio/wav';
     mediaBytes = wrapPcmAsWav(rawBytes);
+  } else if (format === 'mp3') {
+    mediaMime = 'audio/mpeg';
   }
 
   yield {
@@ -114,9 +122,11 @@ export async function* streamSpeech(
   req: ProviderCompleteRequest,
   config: SpeechProviderConfig = {},
 ): AsyncGenerator<TurnEvent> {
-  const apiKey = config.apiKey?.trim() || undefined;
-  if (!apiKey) {
-    yield toErrorEvent('missing API key for speech');
+  let apiKey: string;
+  try {
+    apiKey = resolveOpenAiGatewayApiKey(config, req.keySlot);
+  } catch (err) {
+    yield toErrorEvent(err);
     return;
   }
 
@@ -139,8 +149,8 @@ export async function* streamSpeech(
     return;
   }
 
-  const format = req.speech?.format ?? 'pcm';
-  for (const ev of yieldSpeechSuccess(rawBytes, text, format)) {
+  const format = req.speech?.format;
+  for (const ev of yieldSpeechSuccess(rawBytes, text, format, res.headers.get('content-type'))) {
     yield ev;
   }
 }

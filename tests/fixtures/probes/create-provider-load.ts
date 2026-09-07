@@ -5,7 +5,7 @@ import { stubProfile } from '../profiles.ts';
 function baseProfile(
   model: {
     thinking: 'minimal';
-    key: 'freeA';
+    key: 'slotA';
     protocol: 'geminiInteractions' | 'openAi';
     provider: 'google' | 'openrouter' | 'local';
   },
@@ -50,7 +50,7 @@ function sseResponse(chunks: string[]): Response {
 console.log('PHASE:providers-created');
 
 createProvider(baseProfile({ protocol: 'geminiInteractions', provider: 'google' }, false), {
-  gemini: { vault: { freeA: 'a', freeB: 'b', freeC: 'c', paid: 'p' } },
+  gemini: { vault: { slotA: 'a', slotB: 'b', slotC: 'c', paid: 'p' } },
 });
 createProvider(baseProfile({ protocol: 'openAi', provider: 'openrouter' }, false), {
   openAiGateway: { apiKey: 'key' },

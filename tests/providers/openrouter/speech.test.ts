@@ -2,10 +2,11 @@ import { assertEquals } from '@std/assert';
 import { PUBLIC_GENERIC, PUBLIC_UNAVAILABLE } from '../../../src/guardrails/error.ts';
 import type { InteractionPart, ProviderCompleteRequest } from '../../../src/kernel/types.ts';
 import {
-  buildHeaders,
   buildPayload,
+  buildSpeechHeaders,
   createSpeechProvider,
   extractInputText,
+  requestSpeech,
   streamSpeech,
   yieldSpeechSuccess,
 } from '../../../src/providers/openrouter/speech.ts';
@@ -130,7 +131,10 @@ Deno.test('streamSpeech yields error when response is empty', async () => {
 });
 
 Deno.test('streamSpeech yields media, tokens, and done on successful synthesis', async () => {
-  const req = createMockSpeechRequest('Hello, welcome to the demo!');
+  const req = {
+    ...createMockSpeechRequest('Hello, welcome to the demo!'),
+    speech: { format: 'pcm' as const },
+  };
   const mockPcmBytes = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 
   let capturedUrl = '';
@@ -261,28 +265,28 @@ Deno.test('extractInputText returns empty string for empty input array', () => {
   assertEquals(extractInputText([]), '');
 });
 
-// -- buildHeaders ------------------------------------------------
+// -- buildSpeechHeaders ------------------------------------------------
 
-Deno.test('buildHeaders sets Authorization and Content-Type only by default', () => {
-  const headers = buildHeaders('secret-key', {});
+Deno.test('buildSpeechHeaders sets Authorization and Content-Type only by default', () => {
+  const headers = buildSpeechHeaders('secret-key', {});
   assertEquals(headers.Authorization, 'Bearer secret-key');
   assertEquals(headers['Content-Type'], 'application/json');
   assertEquals(headers['HTTP-Referer'], undefined);
   assertEquals(headers['X-Title'], undefined);
 });
 
-Deno.test('buildHeaders adds HTTP-Referer when siteUrl is set', () => {
-  const headers = buildHeaders('secret-key', { siteUrl: 'https://theorum.dev' });
+Deno.test('buildSpeechHeaders adds HTTP-Referer when siteUrl is set', () => {
+  const headers = buildSpeechHeaders('secret-key', { siteUrl: 'https://theorum.dev' });
   assertEquals(headers['HTTP-Referer'], 'https://theorum.dev');
 });
 
-Deno.test('buildHeaders adds X-Title when siteName is set', () => {
-  const headers = buildHeaders('secret-key', { siteName: 'Theorum' });
+Deno.test('buildSpeechHeaders adds X-Title when siteName is set', () => {
+  const headers = buildSpeechHeaders('secret-key', { siteName: 'Theorum' });
   assertEquals(headers['X-Title'], 'Theorum');
 });
 
-Deno.test('buildHeaders adds both when siteUrl and siteName are set', () => {
-  const headers = buildHeaders('secret-key', {
+Deno.test('buildSpeechHeaders adds both when siteUrl and siteName are set', () => {
+  const headers = buildSpeechHeaders('secret-key', {
     siteUrl: 'https://theorum.dev',
     siteName: 'Theorum',
   });
@@ -292,10 +296,10 @@ Deno.test('buildHeaders adds both when siteUrl and siteName are set', () => {
 
 // -- buildPayload -------------------------------------------------
 
-Deno.test('buildPayload defaults to pcm format with no voice', () => {
+Deno.test('buildPayload omits response_format when speech.format is unset', () => {
   const req = createMockSpeechRequest('hi');
   const payload = buildPayload(req, 'hi there', undefined, undefined);
-  assertEquals(payload.response_format, 'pcm');
+  assertEquals('response_format' in payload, false);
   assertEquals(payload.input, 'hi there');
   assertEquals('voice' in payload, false);
 });
@@ -373,4 +377,22 @@ Deno.test('yieldSpeechSuccess ends with a done event', () => {
   const rawBytes = new Uint8Array([1, 2, 3]);
   const events = [...yieldSpeechSuccess(rawBytes, 'hi', 'mp3')];
   assertEquals(events[2]?.type, 'done');
+});
+
+Deno.test('createSpeechProvider exposes complete() and requestSpeech sends POST', async () => {
+  const provider = createSpeechProvider({ apiKey: 'key' });
+  assertEquals(typeof provider.complete, 'function');
+
+  let capturedUrl = '';
+  const mockFetch: typeof fetch = (input) => {
+    capturedUrl = String(input);
+    return Promise.resolve(new Response(new Uint8Array([1, 2, 3]), { status: 200 }));
+  };
+  const req = createMockSpeechRequest('say hello');
+  const res = await requestSpeech('secret-key', 'say hello', req, {
+    apiKey: 'secret-key',
+    fetch: mockFetch,
+  });
+  assertEquals(res.status, 200);
+  assertEquals(capturedUrl, 'https://openrouter.ai/api/v1/audio/speech');
 });

@@ -1,7 +1,8 @@
-import { assertEquals, assertExists } from '@std/assert';
+import { assertEquals, assertExists, assertRejects } from '@std/assert';
+import { TheorumError } from '../../../../src/guardrails/error.ts';
 import type { GeminiTransport } from '../../../../src/providers/google/keys.ts';
+import { openGoogleLiveSession } from '../../../../src/providers/google/live/session.ts';
 import {
-  createGoogleLiveProvider,
   createLiveQueue,
   readGeminiLiveErrorMessage,
   readMessageData,
@@ -9,13 +10,35 @@ import {
 } from '../../../../src/providers/google/live/stream.ts';
 import { stubCompleteRequest } from '../../../fixtures/provider-request.ts';
 
-Deno.test('createGoogleLiveProvider returns ModelProvider with complete function', () => {
+Deno.test('openGoogleLiveSession rejects when API key is missing', async () => {
   const transport: GeminiTransport = {
-    vault: { freeA: 'mock-key-abc', freeB: undefined, freeC: undefined, paid: undefined },
+    vault: { slotA: undefined, slotB: undefined, slotC: undefined, paid: undefined },
   };
-  const provider = createGoogleLiveProvider(transport);
-  assertExists(provider);
-  assertEquals(typeof provider.complete, 'function');
+  const req = stubCompleteRequest({
+    model: 'gemini-3.1-flash-live-preview',
+    apiId: 'gemini-3.1-flash-live-preview',
+    keySlot: 'slotA',
+  });
+
+  await assertRejects(() => openGoogleLiveSession(req, transport), TheorumError);
+});
+
+Deno.test('openGoogleLiveSession rejects when pre-aborted', async () => {
+  const transport: GeminiTransport = {
+    vault: { slotA: 'valid-mock-key', slotB: undefined, slotC: undefined, paid: undefined },
+  };
+  const controller = new AbortController();
+  controller.abort();
+
+  const req = stubCompleteRequest({
+    model: 'gemini-3.1-flash-live-preview',
+    apiId: 'gemini-3.1-flash-live-preview',
+    keySlot: 'slotA',
+    signal: controller.signal,
+  });
+
+  // Aborted before WebSocket open — setup fails or abort surfaces.
+  await assertRejects(() => openGoogleLiveSession(req, transport));
 });
 
 Deno.test('readMessageData handles strings, ArrayBuffers, and Blobs', async () => {
@@ -57,50 +80,6 @@ Deno.test('readGeminiLiveErrorMessage extracts error details', () => {
   );
 });
 
-Deno.test('streamGeminiLive yields error when API key is missing', async () => {
-  const transport: GeminiTransport = {
-    vault: { freeA: undefined, freeB: undefined, freeC: undefined, paid: undefined },
-  };
-  const provider = createGoogleLiveProvider(transport);
-  const req = stubCompleteRequest({
-    model: 'gemini-3.1-flash-live-preview',
-    apiId: 'gemini-3.1-flash-live-preview',
-    geminiBucket: 'freeA',
-  });
-
-  const events = [];
-  for await (const ev of provider.complete(req)) {
-    events.push(ev);
-  }
-  assertEquals(events.length, 1);
-  assertEquals(events[0]?.type, 'error');
-});
-
-Deno.test('streamGeminiLive handles pre-aborted signal gracefully', async () => {
-  const transport: GeminiTransport = {
-    vault: { freeA: 'valid-mock-key', freeB: undefined, freeC: undefined, paid: undefined },
-  };
-  const provider = createGoogleLiveProvider(transport);
-  const controller = new AbortController();
-  controller.abort();
-
-  const req = stubCompleteRequest({
-    model: 'gemini-3.1-flash-live-preview',
-    apiId: 'gemini-3.1-flash-live-preview',
-    geminiBucket: 'freeA',
-    signal: controller.signal,
-  });
-
-  const events = [];
-  try {
-    for await (const ev of provider.complete(req)) {
-      events.push(ev);
-    }
-  } catch (err) {
-    assertEquals((err as Error).name, 'AbortError');
-  }
-});
-
 Deno.test('sendInitialPayloads sends history and input payloads over websocket', () => {
   const sent: string[] = [];
   const mockWs = {
@@ -118,21 +97,26 @@ Deno.test('sendInitialPayloads sends history and input payloads over websocket',
   assertEquals(sent[1]?.includes('realtimeInput'), true);
 });
 
-Deno.test('createLiveQueue queues items and resolves async next', async () => {
+Deno.test('createLiveQueue queues session batches and resolves async next', async () => {
   const queue = createLiveQueue();
   assertEquals(queue.isClosed(), false);
 
-  queue.push({ type: 'event', events: [{ type: 'text', text: 'hi' }] });
+  queue.push({
+    type: 'batch',
+    events: [{ type: 'text', text: 'hi' }],
+    turnPhase: 'streaming',
+  });
   const item1 = await queue.next();
-  assertEquals(item1?.type, 'event');
+  assertEquals(item1?.type, 'batch');
 
   const pendingNext = queue.next();
-  queue.push({ type: 'done' });
+  queue.push({ type: 'closed' });
   const item2 = await pendingNext;
-  assertEquals(item2?.type, 'done');
+  assertEquals(item2?.type, 'closed');
 
   queue.close();
   assertEquals(queue.isClosed(), true);
   const itemAfterClose = await queue.next();
   assertEquals(itemAfterClose, undefined);
+  assertExists(queue);
 });

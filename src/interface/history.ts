@@ -192,7 +192,8 @@ function appendAssistantEventsToHistory(
  * Rebuild host history from committed transcript blocks (e.g. branch truncation).
  *
  * Text, structured, and completed tool blocks round-trip. Attachment/voice blocks
- * retain names only — blob data is not stored on transcript blocks.
+ * are omitted here — optional preview `data` on those blocks is UI-only and does
+ * not rebuild into host history.
  */
 function historyFromTranscriptBlocks(blocks: readonly TranscriptBlock[]): TurnHistoryMessage[] {
   let history: TurnHistoryMessage[] = [];

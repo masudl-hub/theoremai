@@ -118,6 +118,8 @@ export interface UserAttachmentBlock extends TranscriptBlockBase {
   name: string;
   mimeType: string;
   sizeBytes: number;
+  /** Optional base64 payload for inline image/audio preview in the host UI. */
+  data?: string;
 }
 
 export interface ThoughtBlock extends TranscriptBlockBase {
@@ -186,6 +188,8 @@ export interface PendingAttachment {
   name: string;
   mimeType: string;
   sizeBytes: number;
+  /** Optional base64 payload copied onto the transcript block for UI preview. */
+  data?: string;
 }
 
 export type AttachmentValidationCode =

@@ -272,13 +272,26 @@ Deno.test('buildUserTurnBlocks maps text, attachments, and voice', () => {
   resetBlockIds();
   const blocks = buildUserTurnBlocks({
     text: ' hello ',
-    attachments: [{ name: 'a.png', mimeType: 'image/png', sizeBytes: 10 }],
+    attachments: [{ name: 'a.png', mimeType: 'image/png', sizeBytes: 10, data: 'abc' }],
     voice: [{ name: 'clip.webm', mimeType: 'audio/webm', sizeBytes: 20 }],
   });
   assertEquals(blocks.length, 3);
   assertEquals(blocks[0], { id: 'user-1', kind: 'user-text', text: 'hello' });
-  assertEquals(blocks[1]?.kind, 'user-attachment');
-  assertEquals(blocks[2]?.kind, 'user-voice');
+  assertEquals(blocks[1], {
+    id: 'user-2',
+    kind: 'user-attachment',
+    name: 'a.png',
+    mimeType: 'image/png',
+    sizeBytes: 10,
+    data: 'abc',
+  });
+  assertEquals(blocks[2], {
+    id: 'user-3',
+    kind: 'user-voice',
+    name: 'clip.webm',
+    mimeType: 'audio/webm',
+    sizeBytes: 20,
+  });
 });
 
 Deno.test('foldTurnEvents merges streaming text and thought deltas', () => {

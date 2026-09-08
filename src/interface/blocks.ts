@@ -84,6 +84,7 @@ function buildUserTurnBlocks(draft: UserTurnDraft, idPrefix = 'user'): Transcrip
       name: file.name,
       mimeType: file.mimeType,
       sizeBytes: file.sizeBytes,
+      ...(file.data !== undefined ? { data: file.data } : {}),
     });
   }
   for (const file of draft.voice ?? []) {
@@ -93,6 +94,7 @@ function buildUserTurnBlocks(draft: UserTurnDraft, idPrefix = 'user'): Transcrip
       name: file.name,
       mimeType: file.mimeType,
       sizeBytes: file.sizeBytes,
+      ...(file.data !== undefined ? { data: file.data } : {}),
     });
   }
   return blocks;

@@ -1,0 +1,237 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+
+import { createPortal } from 'react-dom';
+import type { AttachPreviewStyle } from '../client/attachment-hover-preview';
+import {
+	formatAttachmentSize,
+	resolveAttachPreviewStyle,
+} from '../client/attachment-hover-preview';
+import { InkWaveform } from './InkWaveform';
+
+export type ComposerAttachmentItem = {
+	id: string;
+	kind: 'file' | 'voice';
+	file: File;
+	/** Object URL for image preview; caller owns lifecycle when provided. */
+	previewUrl?: string;
+};
+
+export type ComposerAttachmentsRowProps = {
+	items?: ComposerAttachmentItem[];
+	recording?: boolean;
+	inputLevel?: number;
+	onRemove?: (id: string) => void;
+};
+
+function isImage(file: File): boolean {
+	return file.type.startsWith('image/');
+}
+
+function voiceFormatLabel(file: File): string {
+	const mime = file.type.toLowerCase();
+	if (mime.includes('webm')) return 'voice.webm';
+	if (mime.includes('wav')) return 'voice.wav';
+	if (mime.includes('mpeg') || mime.includes('mp3')) return 'voice.mp3';
+	if (mime.includes('mp4') || mime.includes('m4a') || mime.includes('aac')) return 'voice.m4a';
+	if (mime.includes('ogg')) return 'voice.ogg';
+	const ext = file.name.includes('.') ? file.name.split('.').pop()?.toLowerCase() : undefined;
+	return ext ? `voice.${ext}` : 'voice.audio';
+}
+
+function labelFor(item: ComposerAttachmentItem): string {
+	if (item.kind === 'voice') return voiceFormatLabel(item.file);
+	return item.file.name;
+}
+
+function mimeLabel(item: ComposerAttachmentItem): string {
+	if (item.file.type) return item.file.type;
+	if (item.kind === 'voice') return 'audio';
+	return isImage(item.file) ? 'image' : 'file';
+}
+
+function applyPreviewBox(node: HTMLElement, style: AttachPreviewStyle) {
+	node.style.left = `${String(style.left)}px`;
+	node.style.top = style.top !== undefined ? `${String(style.top)}px` : '';
+	node.style.bottom = style.bottom !== undefined ? `${String(style.bottom)}px` : '';
+}
+
+export function ComposerAttachmentsRow({
+	items = [],
+	recording = false,
+	inputLevel = 0,
+	onRemove,
+}: ComposerAttachmentsRowProps) {
+	const showRecordingPill = recording && !items.some((item) => item.kind === 'voice');
+	const visible = items.length > 0 || showRecordingPill;
+
+	const [hoverId, setHoverId] = useState<string | null>(null);
+	const hoverIdRef = useRef<string | null>(null);
+	const hoverElRef = useRef<HTMLElement | null>(null);
+	const previewElRef = useRef<HTMLDivElement | null>(null);
+	const [previewStyle, setPreviewStyle] = useState<AttachPreviewStyle | null>(null);
+
+	hoverIdRef.current = hoverId;
+
+	const hoverItem = hoverId ? (items.find((item) => item.id === hoverId) ?? null) : null;
+
+	const syncPreviewPosition = useCallback(() => {
+		if (!hoverElRef.current) {
+			setPreviewStyle(null);
+			return;
+		}
+		setPreviewStyle(resolveAttachPreviewStyle(hoverElRef.current.getBoundingClientRect()));
+	}, []);
+
+	function openPreview(id: string, el: HTMLElement) {
+		setHoverId(id);
+		hoverElRef.current = el;
+		setPreviewStyle(resolveAttachPreviewStyle(el.getBoundingClientRect()));
+	}
+
+	function closePreview(id: string) {
+		if (hoverIdRef.current !== id) return;
+		setHoverId(null);
+		hoverElRef.current = null;
+		setPreviewStyle(null);
+	}
+
+	useEffect(() => {
+		if (hoverId && !items.some((item) => item.id === hoverId)) {
+			setHoverId(null);
+			hoverElRef.current = null;
+			setPreviewStyle(null);
+		}
+	}, [hoverId, items]);
+
+	useEffect(() => {
+		if (!hoverId) return;
+		const onChange = () => {
+			syncPreviewPosition();
+		};
+		window.addEventListener('resize', onChange);
+		window.addEventListener('scroll', onChange, { capture: true });
+		return () => {
+			window.removeEventListener('resize', onChange);
+			window.removeEventListener('scroll', onChange, { capture: true });
+		};
+	}, [hoverId, syncPreviewPosition]);
+
+	useEffect(() => {
+		if (!previewElRef.current || !previewStyle) return;
+		applyPreviewBox(previewElRef.current, previewStyle);
+	}, [previewStyle]);
+
+	if (!visible) return null;
+
+	return (
+		<>
+			<div className="iface-attach-row" aria-label="Pending attachments">
+				{items.map((item) => (
+					<div
+						key={item.id}
+						className={[
+							'iface-attach-pill',
+							item.kind === 'voice' ? 'iface-attach-pill--voice' : '',
+							item.kind === 'file' && isImage(item.file) ? 'iface-attach-pill--image' : '',
+						]
+							.filter(Boolean)
+							.join(' ')}
+						role="group"
+						aria-label={labelFor(item)}
+						onPointerEnter={(event) => {
+							openPreview(item.id, event.currentTarget);
+						}}
+						onPointerLeave={() => {
+							closePreview(item.id);
+						}}
+					>
+						{item.kind === 'voice' ? (
+							<div className="iface-attach-pill__wave" aria-hidden="true">
+								<InkWaveform
+									frozen={!recording}
+									inputLevel={inputLevel}
+									outputLevel={0}
+									status={recording ? 'listening' : 'ready'}
+									variant="pill"
+								/>
+							</div>
+						) : item.previewUrl && isImage(item.file) ? (
+							<>
+								<img
+									alt=""
+									className="iface-attach-pill__thumb"
+									draggable={false}
+									src={item.previewUrl}
+								/>
+								<span className="iface-attach-pill__label" title={labelFor(item)}>
+									{labelFor(item)}
+								</span>
+							</>
+						) : (
+							<span className="iface-attach-pill__label" title={labelFor(item)}>
+								{labelFor(item)}
+							</span>
+						)}
+						<button
+							className="iface-attach-pill__remove"
+							aria-label={`Remove ${labelFor(item)}`}
+							disabled={recording && item.kind === 'voice'}
+							onClick={() => onRemove?.(item.id)}
+							type="button"
+						>
+							×
+						</button>
+					</div>
+				))}
+
+				{showRecordingPill ? (
+					<div className="iface-attach-pill iface-attach-pill--voice iface-attach-pill--recording">
+						<div className="iface-attach-pill__wave" aria-hidden="true">
+							<InkWaveform
+								frozen={false}
+								inputLevel={inputLevel}
+								outputLevel={0}
+								status="listening"
+								variant="pill"
+							/>
+						</div>
+						<button
+							className="iface-attach-pill__remove"
+							aria-label="Cancel recording"
+							onClick={() => onRemove?.('__recording__')}
+							type="button"
+						>
+							×
+						</button>
+					</div>
+				) : null}
+			</div>
+
+			{hoverItem && previewStyle
+				? createPortal(
+						<div ref={previewElRef} className="iface-attach-preview" role="tooltip">
+							{hoverItem.previewUrl && isImage(hoverItem.file) ? (
+								<div className="iface-attach-preview__media">
+									<img alt={hoverItem.file.name} src={hoverItem.previewUrl} />
+								</div>
+							) : null}
+							<div className="iface-attach-preview__meta">
+								<span className="iface-attach-preview__name" title={labelFor(hoverItem)}>
+									{labelFor(hoverItem)}
+								</span>
+								<div className="iface-attach-preview__row">
+									<span className="iface-attach-preview__mime">{mimeLabel(hoverItem)}</span>
+									{formatAttachmentSize(hoverItem.file.size) ? (
+										<span className="iface-attach-preview__size">
+											{formatAttachmentSize(hoverItem.file.size)}
+										</span>
+									) : null}
+								</div>
+							</div>
+						</div>,
+						document.body,
+					)
+				: null}
+		</>
+	);
+}

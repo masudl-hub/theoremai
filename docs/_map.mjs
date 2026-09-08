@@ -268,6 +268,7 @@ const graph = {
         'Injection categories (non-exhaustive)',
         'Sensitive data',
         'Quota',
+        'Egress',
         'Exported API',
       ],
       section_triggers: [
@@ -276,6 +277,14 @@ const graph = {
         { paths: ['src/guardrails/injection.ts'], sections: ['Injection categories (non-exhaustive)'] },
         { paths: ['src/guardrails/sensitive.ts'], sections: ['Sensitive data'] },
         { paths: ['src/guardrails/quota.ts'], sections: ['Quota'] },
+        {
+          paths: [
+            'src/guardrails/egress.ts',
+            'src/guardrails/progressive-yield.ts',
+            'src/guardrails/live-outbound-gate.ts',
+          ],
+          sections: ['Egress'],
+        },
       ],
     },
 

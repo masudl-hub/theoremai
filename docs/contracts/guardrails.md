@@ -24,9 +24,10 @@ Owns every module under `src/guardrails/`.
 | `injection.ts` | Prompt-injection span patterns |
 | `sensitive.ts` | Credential / PII span patterns |
 | `canary.ts` | Per-turn canary mint/bind, stream gate, leak scan |
-| `canary-gate.ts` | Stateful Live batch canary gate |
-| `live-outbound-gate.ts` | Live outbound canary + egress holdback |
-| `egress.ts` | `standardEgressEnforce` bundled outbound policy |
+| `canary-gate.ts` | Canary-only batch helper (`createCanaryGateSession`) |
+| `live-outbound-gate.ts` | Live outbound progressive-yield (canary + egress lookback) |
+| `progressive-yield.ts` | Streaming lookback gate for canary / sensitive / host enforce |
+| `egress.ts` | `standardEgressEnforce` / `collectEgressHits` bundled outbound policy |
 | `corpus/` | Adversarial bank (live attacks, inbound fuzz, canary egress catalog) |
 | `testing.ts` | Test-only re-exports (`theorum/guardrails/testing`) |
 | `normalize.ts` | Detection normalization |
@@ -42,7 +43,7 @@ Owns every module under `src/guardrails/`.
 | `createCanaryStreamGate` | Rolling holdback for split-token streaming |
 | `scanTextForCanaryLeak` | Literal + base64 + spaced-hex detection |
 | `eventHasCanary` | Scan any `TurnEvent` wire shape |
-| `createCanaryGateSession` / `filterCanaryGatedEvents` | Live batch path |
+| `createCanaryGateSession` / `filterCanaryGatedEvents` | Canary-only batch helper (Live production uses `live-outbound-gate`) |
 
 ## Egress
 
@@ -58,6 +59,18 @@ guardrails: {
 
 `standardEgressEnforce` blocks canary leaks, sensitive echoes, system-boundary
 markers, and injection-pattern echoes in assistant text.
+
+Outbound streaming uses **progressive yield** (`createProgressiveYieldGate` /
+`createOutboundProgressiveGate`): cleared prefixes release while a lookback
+window (default 256 chars, at least canary overlap, plus incomplete PEM bodies)
+stays held for split-token matches. The same constructor backs `runTurn` and
+Live (`processLiveOutboundBatch`). Host `egress.enforce` is authoritative when
+set; otherwise the bundled hit collector (`collectEgressHits`) runs.
+`outputs.streaming.mode: 'sse'` and `egress.enforce` can both stay on.
+
+When progressive yield blocks mid-stream, the runner stops releasing
+text/thought/media to the host and finishes the attempt so end-of-attempt
+refuse / repair / withhold can run on the full accumulated window.
 
 ## Adversarial testing
 
@@ -85,6 +98,11 @@ Fuzz runners register minimal stub profiles via `registerProfile` (for example
 `TheorumError` marks expected contract failures. Never show raw internal
 messages to end users — map through `publicError(err)` (or `toErrorEvent` for
 streams).
+
+Progressive-yield / egress blocks on the outbound stream use the same public
+surface: canary leaks and host `egress.enforce` withhold map to `PUBLIC_CANARY`
+(or `refuse_to_user` copy when configured). Do not expose detector hit names or
+raw leaked fragments on the client wire.
 
 | Internal marker | Public copy |
 | --- | --- |
@@ -180,7 +198,7 @@ From `src/guardrails/mod.ts`:
 | Injection / sensitive | `injectionSpans`, `sensitiveSpans` |
 | Sanitize | `PROJECT_ID_MAX`, `sanitizeProjectId`, `sanitizeText`, `sanitizeTurnRequest`, `sanitizeTurnRequestForTrace`, `redactSensitiveOnly` |
 | Canary | `mintCanary`, `bindCanary`, `wrapUserData`, `scanTextForCanaryLeak`, `createCanaryStreamGate`, `eventHasCanary`, `isStreamedCanaryEvent`, `redactCanary`, `OMIT_CANARY`, `USER_OPEN`, `USER_CLOSE`, `createCanaryGateSession`, `filterCanaryGatedEvents`, `CanaryGateResult`, `CanaryGateSession`, `CanaryStreamGate` |
-| Egress / Live | `standardEgressEnforce`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveOutboundBatchResult`, `LiveOutboundGateSession` |
+| Egress / Live | `standardEgressEnforce`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `DEFAULT_HOLDBACK`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
 | Quota | `QuotaSlotStatus`, `clientIp`, `quotaMessage`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |
 
 From `src/guardrails/testing.ts` (test / harness only):
@@ -233,6 +251,14 @@ From `src/guardrails/testing.ts` (test / harness only):
       "supports": [
         { "kind": "source", "path": "src/guardrails/quota.ts" },
         { "kind": "contract_test", "path": "tests/guardrails/quota.test.ts" }
+      ]
+    },
+    "Egress": {
+      "supports": [
+        { "kind": "source", "path": "src/guardrails/progressive-yield.ts" },
+        { "kind": "source", "path": "src/guardrails/egress.ts" },
+        { "kind": "contract_test", "path": "tests/guardrails/progressive-yield.test.ts" },
+        { "kind": "contract_test", "path": "tests/guardrails/live-outbound-gate.test.ts" }
       ]
     },
     "Adversarial testing": {

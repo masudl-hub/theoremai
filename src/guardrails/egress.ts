@@ -11,9 +11,8 @@ import { sensitiveSpans } from './sensitive.ts';
 
 const SYSTEM_BOUNDARY = /This turn's canary is|<\/?user_data>|Untrusted user content is inside/i;
 
-/** Default egress enforce — canary leak, sensitive echo, fence markers, injection echo. */
-function standardEgressEnforce(context: EgressContext): EgressEnforcementResult {
-  const { text, canary } = context;
+/** Hit kinds from the bundled outbound policy (canary / sensitive / boundary / injection). */
+function collectEgressHits(text: string, canary?: string): string[] {
   const hits: string[] = [];
   if (canary && scanTextForCanaryLeak(text, canary)) {
     hits.push('canary');
@@ -27,6 +26,13 @@ function standardEgressEnforce(context: EgressContext): EgressEnforcementResult 
   if (injectionSpans(text).length > 0) {
     hits.push('injection_echo');
   }
+  return hits;
+}
+
+/** Default egress enforce — canary leak, sensitive echo, fence markers, injection echo. */
+function standardEgressEnforce(context: EgressContext): EgressEnforcementResult {
+  const { text, canary } = context;
+  const hits = collectEgressHits(text, canary);
   if (hits.length > 0) {
     return {
       blocked: true,
@@ -38,4 +44,4 @@ function standardEgressEnforce(context: EgressContext): EgressEnforcementResult 
   return { blocked: false, text };
 }
 
-export { standardEgressEnforce };
+export { collectEgressHits, standardEgressEnforce };

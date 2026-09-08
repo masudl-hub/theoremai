@@ -1,5 +1,6 @@
 /**
- * Stateful canary gate for batched Live relay events (same semantics as runTurn stream).
+ * Canary-only batch helper for hosts that need stream lookback without full
+ * egress. Live production path: `live-outbound-gate.ts` (progressive yield).
  *
  * @module
  */

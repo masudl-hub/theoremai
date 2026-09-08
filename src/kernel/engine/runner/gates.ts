@@ -289,8 +289,8 @@ async function* executeSingleAttemptCycle(args: {
   }
 
   if (validation || egress?.enforce) {
-    const alreadyStreamedUserVisible = !egress?.enforce;
-    yield* yieldBufferedAttemptEvents(state.attemptEvents, alreadyStreamedUserVisible);
+    // Progressive-yield already released text/thought live under egress.
+    yield* yieldBufferedAttemptEvents(state.attemptEvents, true);
   }
 
   return { status: 'success' };

@@ -16,7 +16,7 @@ import type {
   TurnRequest,
 } from '../../types.ts';
 import { recordStepEvent, type StepExecutionState } from './state.ts';
-import { yieldProviderEvents } from './stream.ts';
+import { type OutboundStreamControl, yieldProviderEvents } from './stream.ts';
 
 function isStepLimitReached(step: number, maxSteps: number): boolean {
   if (maxSteps === undefined || maxSteps <= 0) {
@@ -59,22 +59,24 @@ async function* executeAutonomousStep(
     signal?: AbortSignal;
   },
   state: StepExecutionState,
-  buffer: { holdLate: boolean; holdUserVisible: boolean } = {
+  buffer: { holdLate: boolean } = {
     holdLate: false,
-    holdUserVisible: false,
   },
 ): AsyncGenerator<TurnEvent, { pendingTools: TurnEvent[]; latestStructured?: unknown }> {
   const { generation, system, provider, upstream, signal } = args;
   const genForStep = generationForProviderStep(generation, state);
   const pendingTools: TurnEvent[] = [];
   let latestStructured: unknown;
+  const control: OutboundStreamControl = { withholdVisible: false };
 
   for await (const event of yieldProviderEvents({
+    profile: args.profile,
     generation: genForStep,
     system,
     provider,
     upstream,
     signal,
+    control,
   })) {
     captureInteractionId(event, state);
     if (event.type === 'structured') {
@@ -91,9 +93,15 @@ async function* executeAutonomousStep(
       continue;
     }
     recordStepEvent(event, state);
-    const isUserVisible = event.type === 'thought' || event.type === 'text';
-    const streamNow =
-      !buffer.holdLate || event.type === 'tokens' || (isUserVisible && !buffer.holdUserVisible);
+    const isUserVisible =
+      event.type === 'thought' || event.type === 'text' || event.type === 'media';
+    if (control.withholdVisible && isUserVisible) {
+      // Progressive-yield blocked this attempt — keep events for egress/repair only.
+      continue;
+    }
+    // Progressive-yield streams text/thought live under egress; holdLate only
+    // buffers non-visible events (e.g. structured) for validation.
+    const streamNow = !buffer.holdLate || event.type === 'tokens' || isUserVisible;
     if (streamNow) {
       yield event;
     }
@@ -344,8 +352,9 @@ async function* executeAttempt(args: {
   let latestStructured: unknown;
   let pendingTools: TurnEvent[] = [];
   let stepInAttempt = 0;
-  const holdUserVisible = Boolean(profile.guardrails?.egress?.enforce);
-  const holdLate = Boolean(profileTurnOutputs(profile)?.validation) || holdUserVisible;
+  // Text/thought stream via progressive-yield under egress; validation still
+  // holds non-visible events (structured) until the attempt gate.
+  const holdLate = Boolean(profileTurnOutputs(profile)?.validation);
 
   while (!isStepLimitReached(stepInAttempt, generation.maxSteps ?? 0)) {
     throwIfAborted(args.safe.signal);
@@ -354,7 +363,7 @@ async function* executeAttempt(args: {
     const stepResult = yield* executeAutonomousStep(
       { profile, generation, system, provider, upstream, signal: args.safe.signal },
       state,
-      { holdLate, holdUserVisible },
+      { holdLate },
     );
     if (stepResult.latestStructured !== undefined) {
       latestStructured = stepResult.latestStructured;

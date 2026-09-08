@@ -93,8 +93,10 @@ gate boundary, not socket teardown). Pipeline for `runTurn` (see `engine/runner/
    OpenAI-compat tool-call history. Server-side `codeExecution` does not consume a runner step.
 7. **Validation / repair** — structured output validators (`outputs.validation`)
    may trigger repair turns with `input.repair`.
-8. **Egress** — `guardrails.egress.enforce` may block, refuse, or retry with
-   repair guidance before releasing user-visible text.
+8. **Egress** — progressive-yield lookback on the provider stream (canary,
+   sensitive/PII, host `guardrails.egress.enforce`) releases cleared prefixes
+   while holding a rolling window; end-of-attempt may still refuse, repair, or
+   withhold. SSE streaming and egress can both stay enabled.
 9. **Trace** — optional sink receives a `TraceRecord`; failures are swallowed.
    Runner threads `profile.model.protocol` and upstream tap rows (`tapUpstream`).
    Interactions turns snapshot `wire` via `toInteractionsBody`; OpenAI-compat turns

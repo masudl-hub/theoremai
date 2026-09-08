@@ -122,7 +122,7 @@ async function applyOutbound(
     );
   }
 
-  const batch = processLiveOutboundBatch(gate, events);
+  const batch = await processLiveOutboundBatch(gate, events);
   const out: TurnEvent[] = [];
   if (batch.action === 'withhold') {
     onWithhold(batch.error);

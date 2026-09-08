@@ -56,6 +56,16 @@ export {
   finalizeLiveOutboundTurn,
   processLiveOutboundBatch,
 } from './live-outbound-gate.ts';
+export type {
+  ProgressiveYieldGate,
+  ProgressiveYieldGateOptions,
+  ProgressiveYieldResult,
+} from './progressive-yield.ts';
+export {
+  createOutboundProgressiveGate,
+  createProgressiveYieldGate,
+  DEFAULT_HOLDBACK,
+} from './progressive-yield.ts';
 export type { QuotaSlotStatus } from './quota.ts';
 export {
   clientIp,

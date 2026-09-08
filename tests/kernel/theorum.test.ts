@@ -243,16 +243,27 @@ Deno.test('flash lite thinking off is minimal', () => {
 });
 
 Deno.test('thinking level shapes differ by model family', () => {
-  assertEquals(
-    Object.values(HOST_BINDINGS.gemini31FlashLite.efforts ?? {}),
-    ['minimal', 'low', 'medium', 'high'],
-  );
-  assertEquals(
-    Object.values(HOST_BINDINGS.gemini35FlashLite.efforts ?? {}),
-    ['minimal', 'low', 'medium', 'high'],
-  );
-  assertEquals(Object.values(HOST_BINDINGS.gemini31ProPreview.efforts ?? {}), ['low', 'medium', 'high']);
-  assertEquals(Object.values(HOST_BINDINGS.gemini31FlashLiteImage.efforts ?? {}), ['minimal', 'high']);
+  assertEquals(Object.values(HOST_BINDINGS.gemini31FlashLite.efforts ?? {}), [
+    'minimal',
+    'low',
+    'medium',
+    'high',
+  ]);
+  assertEquals(Object.values(HOST_BINDINGS.gemini35FlashLite.efforts ?? {}), [
+    'minimal',
+    'low',
+    'medium',
+    'high',
+  ]);
+  assertEquals(Object.values(HOST_BINDINGS.gemini31ProPreview.efforts ?? {}), [
+    'low',
+    'medium',
+    'high',
+  ]);
+  assertEquals(Object.values(HOST_BINDINGS.gemini31FlashLiteImage.efforts ?? {}), [
+    'minimal',
+    'high',
+  ]);
   assertEquals(HOST_BINDINGS.gemini31ProPreview.efforts?.normal, 'low');
   assertEquals(clampThinkingLevel(HOST_BINDINGS.gemini31ProPreview, 'minimal'), 'low');
   assertEquals(clampThinkingLevel(HOST_BINDINGS.gemini31FlashLite, 'minimal'), 'minimal');
@@ -260,7 +271,10 @@ Deno.test('thinking level shapes differ by model family', () => {
     modelEntryByApiId(HOST_BINDINGS, 'gemini-3.5-flash-lite')?.apiId,
     'gemini-3.5-flash-lite',
   );
-  assertEquals(clampThinkingLevelForApiId(HOST_BINDINGS, 'gemini-3.1-pro-preview', 'minimal'), 'low');
+  assertEquals(
+    clampThinkingLevelForApiId(HOST_BINDINGS, 'gemini-3.1-pro-preview', 'minimal'),
+    'low',
+  );
   assertEquals(modelEntryByApiId(HOST_BINDINGS, 'unknown-model-api-id'), undefined);
 });
 
@@ -1414,7 +1428,7 @@ Deno.test('registered tool enforces session_consent pause unless granted', async
     id: 'consent_tool_bot',
     identity: { handle: 'consent_bot' },
     ...geminiModels('gemini35FlashLite'),
-      maxSteps: 2,
+    maxSteps: 2,
     tools: { allow: ['delete_resource'] },
     inputs: { text: true },
     outputs: {},
@@ -1613,7 +1627,7 @@ Deno.test('guardrails.egress refuse_to_user delivers in-character refusal withou
     id: 'voice_egress_bot',
     identity: { handle: 'voice_bot' },
     ...geminiModels('gemini35FlashLite'),
-      maxSteps: 1,
+    maxSteps: 1,
     tools: { allow: [] },
     inputs: { text: true },
     outputs: {},
@@ -1662,7 +1676,7 @@ Deno.test('guardrails.egress reject_to_agent triggers auto-repair retry loop', a
     id: 'chat_egress_bot',
     identity: { handle: 'chat_bot' },
     ...geminiModels('gemini35FlashLite'),
-      maxSteps: 1,
+    maxSteps: 1,
     tools: { allow: [] },
     inputs: { text: true },
     outputs: {},
@@ -1727,7 +1741,7 @@ Deno.test('guardrails.egress reject_to_agent withholds turn when retries exhaust
     id: 'exhausted_egress_bot',
     identity: { handle: 'exhausted_bot' },
     ...geminiModels('gemini35FlashLite'),
-      maxSteps: 1,
+    maxSteps: 1,
     tools: { allow: [] },
     inputs: { text: true },
     outputs: {},
@@ -1850,13 +1864,65 @@ Deno.test('guardrails.egress withholds media until prose clears', async () => {
   );
 });
 
+Deno.test('guardrails.egress progressive yield streams cleared prefixes under sse', async () => {
+  const { defineProfile, registerProfile } = await import('../../src/kernel/registry/profiles.ts');
+  const { DEFAULT_HOLDBACK } = await import('../../src/guardrails/progressive-yield.ts');
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      id: 'progressive_egress_bot',
+      identity: { handle: 'progressive_bot' },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
+      tools: { allow: [] },
+      inputs: { text: true },
+      outputs: {
+        streaming: { mode: 'sse' },
+      },
+      guardrails: {
+        quota: { perDay: 50 },
+        egress: {
+          onBlock: 'refuse_to_user',
+          enforce: ({ text }: EgressContext) => ({ blocked: false, text }),
+        },
+      },
+    }),
+  );
+
+  const body = `${'n'.repeat(DEFAULT_HOLDBACK + 32)}END`;
+  const provider: import('../../src/kernel/types.ts').ModelProvider = {
+    async *complete() {
+      yield { type: 'text', text: body };
+    },
+  };
+
+  const events: import('../../src/kernel/types.ts').TurnEvent[] = [];
+  for await (const ev of runTurn(
+    {
+      profile: 'progressive_egress_bot',
+      input: { text: 'stream please' },
+    },
+    provider,
+  )) {
+    events.push(ev);
+  }
+
+  const textEvents = events.filter((e) => e.type === 'text');
+  assertEquals(textEvents.length >= 1, true);
+  const joined = textEvents.map((e) => e.text ?? '').join('');
+  assertEquals(joined, body);
+  // Cleared prefix should arrive as its own event before the lookback flush.
+  assertEquals((textEvents[0]?.text?.length ?? 0) > 0, true);
+  assertEquals((textEvents[0]?.text ?? '').endsWith('END'), false);
+});
+
 function createCanExecBotProfile(id: string, toolName: string): void {
   registerProfile({
     type: 'text',
     id,
     identity: { handle: id },
     ...geminiModels('gemini35FlashLite'),
-      maxSteps: 2,
+    maxSteps: 2,
     tools: { allow: [toolName] },
     inputs: { text: true },
     outputs: {},

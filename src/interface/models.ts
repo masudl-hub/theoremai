@@ -7,7 +7,7 @@
 import type { ModelBinding, ModelId } from '../kernel/types.ts';
 import type { ComposerProfileInterface } from './types.ts';
 
-type ModelSelectProfile = Pick<
+export type ModelSelectProfile = Pick<
   ComposerProfileInterface,
   'id' | 'models' | 'defaultModel' | 'allowModelSelect'
 >;

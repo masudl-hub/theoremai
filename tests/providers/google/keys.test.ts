@@ -86,7 +86,8 @@ Deno.test('host profiles default to their configured key slots', () => {
     'slotC',
   );
   assertEquals(
-    resolveTurn({ profile: 'selector', model: 'gemini35FlashLite', input: { text: 'x' } }).generation.keySlot,
+    resolveTurn({ profile: 'selector', model: 'gemini35FlashLite', input: { text: 'x' } })
+      .generation.keySlot,
     'slotB',
   );
 });

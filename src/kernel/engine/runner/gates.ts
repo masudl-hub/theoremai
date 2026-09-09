@@ -1,12 +1,19 @@
+import { runEnforcer } from '../../../guardrails/egress.ts';
 import { TheorumError, throwIfAborted, toErrorEvent } from '../../../guardrails/error.ts';
+import { guardrailFromVerdict } from '../../../guardrails/events.ts';
+import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import { sanitizeTurnRequest } from '../../../guardrails/sanitize.ts';
+import type {
+  GuardrailContext,
+  OutboundPayload,
+  ProfileEgressSpec,
+} from '../../../guardrails/types.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
 import { resolveTurn } from '../../registry/resolve.ts';
 import { getStructured } from '../../registry/schemas.ts';
 import type {
   ModelProvider,
   Profile,
-  ProfileEgressSpec,
   ProfileOutputsSpec,
   ResolvedGeneration,
   TurnEvent,
@@ -16,11 +23,28 @@ import { collectValidationFailures, formatValidationFailures } from './schema-va
 import type { AttemptFlowState, StepExecutionState } from './state.ts';
 import { executeAttempt } from './steps.ts';
 
+/** Internal reason recorded when a turn is withheld; mapped to public copy on emit. */
+const WITHHELD = 'Turn withheld: egress disclosure violation';
+
 function collectAttemptText(events: TurnEvent[]): string {
   return events
     .filter((e) => e.type === 'text' && e.text)
     .map((e) => e.text)
     .join('');
+}
+
+/**
+ * Project one attempt's events into the payload the egress policy inspects.
+ *
+ * Structured output travels alongside text so a profile with `outputs.structured`
+ * is covered by its own egress policy rather than passing unexamined.
+ */
+function projectOutbound(events: TurnEvent[]): OutboundPayload {
+  const structured = events.findLast((e) => e.type === 'structured')?.structured;
+  return {
+    text: collectAttemptText(events),
+    ...(structured !== undefined ? { structured } : {}),
+  };
 }
 
 function buildRepairRequest(
@@ -56,38 +80,59 @@ async function evaluateEgressOutcome(args: {
   request: TurnRequest;
   profile: Profile;
   canRetry: boolean;
-}): Promise<EgressOutcome> {
+}): Promise<{ outcome: EgressOutcome; guardrail?: TurnEvent }> {
   const { egress, attemptEvents, generation, request, profile, canRetry } = args;
-  const attemptText = collectAttemptText(attemptEvents);
-  const result = await egress.enforce({
-    text: attemptText,
-    canary: generation.canary,
-    slots: request.input?.slots,
-    profile,
-    role: request.input?.role,
-  });
+  const payload = projectOutbound(attemptEvents);
+  const context: GuardrailContext = {
+    stage: 'output_final',
+    trust: 'untrusted',
+    profileId: profile.id,
+    ...(generation.canary ? { canary: generation.canary } : {}),
+    ...(request.input?.slots ? { slots: request.input.slots } : {}),
+    ...(request.input?.role ? { role: request.input.role } : {}),
+  };
+  const verdict = await runEnforcer(egress.enforce, payload, context);
+  const guardrail = guardrailFromVerdict('output_final', 'untrusted', verdict);
 
-  if (!result.blocked) {
-    return { action: 'pass' };
+  // `flag` is advisory: the hit is recorded, the turn still releases.
+  if (verdict.action === 'allow' || verdict.action === 'flag') {
+    return { outcome: { action: 'pass' }, guardrail };
+  }
+
+  // The policy supplied safe replacement prose — release that instead.
+  if (verdict.action === 'redact') {
+    return {
+      outcome: { action: 'refusal', event: { type: 'text', text: verdict.text } },
+      guardrail,
+    };
   }
 
   if (egress.onBlock === 'refuse_to_user') {
-    return { action: 'refusal', event: { type: 'text', text: result.text } };
+    // Only emit a text turn when the policy supplied copy. Without it the kernel
+    // has nothing to say — an empty text event reads as a successful empty reply —
+    // so fall back to the same withheld error the exhausted-retry path uses.
+    return {
+      outcome: verdict.refusal
+        ? { action: 'refusal', event: { type: 'text', text: verdict.refusal } }
+        : { action: 'withhold', event: toErrorEvent(WITHHELD) },
+      guardrail,
+    };
   }
 
   if (canRetry) {
-    const rejectionMsg = result.rejectionMessage || 'Egress disclosure violation detected.';
     const repairGuidance =
       egress.repairGuidance ||
       'Rewrite the message as corrected user-visible prose only. Keep the same helpful substance; scrub all internal tool names, leak phrases, and disclosure markers.';
-    const nextRequest = buildRepairRequest(request, attemptText, rejectionMsg, repairGuidance);
-    return { action: 'retry', nextRequest };
+    const nextRequest = buildRepairRequest(
+      request,
+      payload.text,
+      verdict.rejection,
+      repairGuidance,
+    );
+    return { outcome: { action: 'retry', nextRequest }, guardrail };
   }
 
-  return {
-    action: 'withhold',
-    event: toErrorEvent('Turn withheld: egress disclosure violation'),
-  };
+  return { outcome: { action: 'withhold', event: toErrorEvent(WITHHELD) }, guardrail };
 }
 
 type ValidationOutcome =
@@ -169,7 +214,7 @@ async function* handleEgressGate(
   maxRetries: number,
 ): AsyncGenerator<TurnEvent, 'continue' | 'terminal' | 'pass'> {
   const canRetry = flow.currentAttempt < maxRetries;
-  const outcome = await evaluateEgressOutcome({
+  const { outcome, guardrail } = await evaluateEgressOutcome({
     egress,
     attemptEvents: state.attemptEvents,
     generation: flow.currentGen,
@@ -177,6 +222,11 @@ async function* handleEgressGate(
     profile,
     canRetry,
   });
+
+  if (guardrail) {
+    state.allEmittedEvents.push(guardrail);
+    yield guardrail;
+  }
 
   if (outcome.action === 'refusal') {
     state.allEmittedEvents.push(outcome.event);
@@ -253,9 +303,10 @@ async function* executeSingleAttemptCycle(args: {
 }): AsyncGenerator<TurnEvent, AttemptStepAction> {
   const { flow, state, profile, system, provider, upstream, maxRetries } = args;
   const validation = profileTurnOutputs(profile)?.validation;
-  const egress = profile.guardrails?.egress;
+  const egress = resolveGuardrailPolicy(profile.guardrails).egress;
 
   state.attemptEvents = [];
+  state.withheldVisible = false;
   const { latestStructured } = yield* executeAttempt({
     safe: flow.currentReq,
     profile,
@@ -289,8 +340,10 @@ async function* executeSingleAttemptCycle(args: {
   }
 
   if (validation || egress?.enforce) {
-    // Progressive-yield already released text/thought live under egress.
-    yield* yieldBufferedAttemptEvents(state.attemptEvents, true);
+    // Progressive-yield already released text/thought live under egress — unless it
+    // withheld them mid-stream. A passing final verdict on the full text supersedes
+    // that partial-window decision, so the buffer is released instead of dropped.
+    yield* yieldBufferedAttemptEvents(state.attemptEvents, !state.withheldVisible);
   }
 
   return { status: 'success' };
@@ -307,7 +360,7 @@ async function* runAttemptsWithValidation(
 ): AsyncGenerator<TurnEvent> {
   const maxRetries = Math.max(
     profileTurnOutputs(profile)?.validation?.maxRetries ?? 0,
-    profile.guardrails?.egress?.maxRetries ?? 0,
+    resolveGuardrailPolicy(profile.guardrails).egress?.maxRetries ?? 0,
   );
   const flow: AttemptFlowState = {
     currentAttempt: 0,

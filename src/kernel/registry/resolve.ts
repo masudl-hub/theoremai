@@ -6,7 +6,9 @@
 
 import { mintCanary } from '../../guardrails/canary.ts';
 import { TheorumError } from '../../guardrails/error.ts';
+import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import { sanitizeTurnRequest } from '../../guardrails/sanitize.ts';
+import { profileTurnResumption } from '../stop.ts';
 import { projectTools } from '../tools/project.ts';
 import { resolveTurnTools } from '../tools/resolve.ts';
 import type {
@@ -157,10 +159,10 @@ function assertTurnResumption(profile: Profile, req: TurnRequest): void {
   }
   if (profile.type === 'live') {
     throw new TheorumError(
-      `Profile ${profile.id}: type 'live' uses live.sessionResumption, not turnResumption/continueFrom`,
+      `Profile ${profile.id}: type 'live' uses live.sessionResumption, not turnBehaviour.resumption/continueFrom`,
     );
   }
-  const policy = profile.turnResumption;
+  const policy = profileTurnResumption(profile);
   const max = policy?.maxContinues;
   if (max === undefined) {
     return;
@@ -168,7 +170,7 @@ function assertTurnResumption(profile: Profile, req: TurnRequest): void {
   const attempt = req.continuation;
   if (attempt === undefined) {
     throw new TheorumError(
-      `Profile ${profile.id}: continueFrom requires TurnRequest.continuation when turnResumption.maxContinues is set`,
+      `Profile ${profile.id}: continueFrom requires TurnRequest.continuation when turnBehaviour.resumption.maxContinues is set`,
     );
   }
   if (attempt < 1) {
@@ -176,7 +178,7 @@ function assertTurnResumption(profile: Profile, req: TurnRequest): void {
   }
   if (attempt > max) {
     throw new TheorumError(
-      `Profile ${profile.id}: continuation ${attempt} exceeds turnResumption.maxContinues (${max})`,
+      `Profile ${profile.id}: continuation ${attempt} exceeds turnBehaviour.resumption.maxContinues (${max})`,
     );
   }
 }
@@ -228,7 +230,7 @@ function resolveTurn(req: TurnRequest): {
       live: profile.type === 'live' ? profile.live : undefined,
       input: resolveInputParts(profile, model, safe),
       keySlot,
-      canary: profile.guardrails?.canary === true ? mintCanary() : '',
+      canary: resolveGuardrailPolicy(profile.guardrails).canary ? mintCanary() : '',
       sessionResumptionHandle: safe.sessionResumptionHandle ?? input.sessionResumptionHandle,
     },
   };

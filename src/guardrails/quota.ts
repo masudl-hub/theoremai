@@ -1,4 +1,5 @@
 import type { Profile } from '../kernel/types.ts';
+import { resolveGuardrailPolicy } from './policy.ts';
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
 
@@ -46,7 +47,7 @@ function clientIp(peer: string, req: Request): string {
 }
 
 function takeSlot(profile: Profile, ip: string, now: number): QuotaSlotStatus {
-  const quota = profile.guardrails?.quota;
+  const quota = resolveGuardrailPolicy(profile.guardrails).quota;
   if (!quota) {
     return 'not_configured';
   }

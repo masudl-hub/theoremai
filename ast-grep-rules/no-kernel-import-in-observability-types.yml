@@ -1,0 +1,14 @@
+id: no-kernel-import-in-observability-types
+language: TypeScript
+severity: error
+message: >-
+  src/observability/types.ts owns the observability vocabulary and must not
+  import from src/kernel/. The kernel type-imports ProfileObservabilitySpec from
+  here, and that edge stays one-directional. Implementation modules under
+  src/observability/ may import kernel types freely — only the vocabulary file
+  is pinned.
+files:
+  - "src/observability/types.ts"
+rule:
+  kind: import_statement
+  regex: from ['\"].*kernel/

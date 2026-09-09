@@ -51,7 +51,7 @@ Owns every module under `src/providers/`.
 | No `.env` in repo | Hosts pass credentials explicitly |
 | No ambient env reads | `OLLAMA_HOST` resolved by host → `local.baseUrl` |
 | No key templates | Business apps own secret storage |
-| Traces | Host-injected on `runTurn`, not here |
+| Traces | Profile `observability` + optional `runTurn` sink override; not here |
 | Pairs | `PROTOCOL_PROVIDERS` / `isValidPair` in `src/kernel/schema.ts` — `createProvider` does not invent extra routes |
 | Multi-model | `profile.models` map + optional `defaultModel`; adapter selection uses one binding per call |
 
@@ -125,7 +125,7 @@ terminal `done.stop` via `turnStopFromOpenAiFinishReason`.
 
 | Concern | Behavior |
 | --- | --- |
-| History | `user_input` / `model_output` steps |
+| History | `user_input` / `model_output` steps; OpenAI-shaped `assistant.tool_calls` → `function_call` (not empty text); `tool` → `function_result` |
 | Multimodal | `image` / `audio` / `video` / `document` parts |
 | Structured | `responseFormat` JSON schema when enforced. When structured is requested and model text is not valid JSON, providers emit an `error` event (never silently skip). |
 | Output modes | responseFormat JSON schema, image, and speech are mutually exclusive; prompt-enforced structured schemas and free text are not. Image profiles may opt into interleaved text via `image.includeText`. |

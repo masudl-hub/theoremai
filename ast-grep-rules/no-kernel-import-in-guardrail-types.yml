@@ -1,0 +1,13 @@
+id: no-kernel-import-in-guardrail-types
+language: TypeScript
+severity: error
+message: >-
+  src/guardrails/types.ts owns the guardrail vocabulary and must not import from
+  src/kernel/. The kernel type-imports ProfileGuardrailsSpec from here, and that
+  edge stays one-directional. Implementation modules under src/guardrails/ may
+  import kernel types freely — only the vocabulary file is pinned.
+files:
+  - "src/guardrails/types.ts"
+rule:
+  kind: import_statement
+  regex: from ['\"].*kernel/

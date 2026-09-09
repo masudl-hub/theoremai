@@ -54,17 +54,85 @@ function functionResultStep(msg: TurnHistoryMessage): Record<string, unknown> {
   };
 }
 
-export function historyStep(msg: TurnHistoryMessage): Record<string, unknown> {
-  if (msg.role === 'tool') {
-    return functionResultStep(msg);
+/** Parse OpenAI-style tool-call `arguments` JSON into an Interactions object. */
+function functionCallArguments(raw: string): Record<string, unknown> {
+  const trimmed = raw.trim();
+  if (!trimmed) return {};
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+    return { value: parsed };
+  } catch {
+    return { value: raw };
   }
-  const isAssistant = msg.role === 'assistant';
+}
+
+function functionCallStep(call: {
+  id: string;
+  function: { name: string; arguments: string };
+  thoughtSignature?: string;
+}): Record<string, unknown> {
+  const step: Record<string, unknown> = {
+    type: 'function_call',
+    id: call.id,
+    name: call.function.name,
+    arguments: functionCallArguments(call.function.arguments),
+  };
+  if (call.thoughtSignature) {
+    step.thoughtSignature = call.thoughtSignature;
+  }
+  return step;
+}
+
+function textOrPartsStep(
+  role: 'assistant' | 'user',
+  msg: TurnHistoryMessage,
+): Record<string, unknown> {
   // Google Interactions input steps: assistant history is `model_output` (not `model_turn`).
-  const type = isAssistant ? 'model_output' : 'user_input';
+  const type = role === 'assistant' ? 'model_output' : 'user_input';
   if (msg.parts && msg.parts.length > 0) {
     return { type, content: msg.parts.map(wirePart) };
   }
   return { type, content: [{ type: 'text', text: msg.content ?? '' }] };
+}
+
+/**
+ * Map one host history message to Interactions input step(s).
+ *
+ * OpenAI-shaped assistant `tool_calls` (often with no `content`) become
+ * `function_call` steps — never empty `model_output` text.
+ */
+export function historySteps(msg: TurnHistoryMessage): Record<string, unknown>[] {
+  if (msg.role === 'tool') {
+    return [functionResultStep(msg)];
+  }
+
+  if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
+    const steps: Record<string, unknown>[] = [];
+    const hasParts = Boolean(msg.parts && msg.parts.length > 0);
+    const hasText = Boolean(msg.content?.trim());
+    if (hasParts || hasText) {
+      steps.push(textOrPartsStep('assistant', msg));
+    }
+    for (const call of msg.tool_calls) {
+      steps.push(functionCallStep(call));
+    }
+    return steps;
+  }
+
+  if (msg.role === 'assistant') {
+    return [textOrPartsStep('assistant', msg)];
+  }
+
+  return [textOrPartsStep('user', msg)];
+}
+
+/** Single-step helper for simple messages (first of {@link historySteps}). */
+export function historyStep(msg: TurnHistoryMessage): Record<string, unknown> {
+  const steps = historySteps(msg);
+  return steps[0] ?? { type: 'user_input', content: [{ type: 'text', text: '' }] };
 }
 
 export function systemHoldsUserInput(system: string, parts: InteractionPart[]): boolean {
@@ -181,7 +249,7 @@ export function inputStepsFromRequest(req: ProviderCompleteRequest): Record<stri
   }
   const inputSteps: Record<string, unknown>[] = [];
   for (const h of req.history ?? []) {
-    inputSteps.push(historyStep(h));
+    inputSteps.push(...historySteps(h));
   }
   if (req.input.length > 0 || inputSteps.length === 0) {
     inputSteps.push(userInputStep(req.input));

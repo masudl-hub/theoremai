@@ -77,6 +77,37 @@ export async function discoverResourceMetadata(
  * Discover Authorization Server Metadata (RFC 8414 Section 3 & OpenID Connect Discovery 1.0).
  * Queries `/.well-known/oauth-authorization-server` then `/.well-known/openid-configuration`.
  */
+function parseAuthServerMetadata(
+  data: Record<string, unknown>,
+  fallbackIssuer: string,
+): AuthorizationServerMetadata | undefined {
+  if (typeof data.authorization_endpoint !== 'string' || typeof data.token_endpoint !== 'string') {
+    return undefined;
+  }
+  return {
+    issuer: typeof data.issuer === 'string' ? data.issuer : fallbackIssuer,
+    authorization_endpoint: data.authorization_endpoint,
+    token_endpoint: data.token_endpoint,
+    registration_endpoint:
+      typeof data.registration_endpoint === 'string' ? data.registration_endpoint : undefined,
+    scopes_supported: Array.isArray(data.scopes_supported)
+      ? (data.scopes_supported as string[])
+      : undefined,
+    response_types_supported: Array.isArray(data.response_types_supported)
+      ? (data.response_types_supported as string[])
+      : undefined,
+    grant_types_supported: Array.isArray(data.grant_types_supported)
+      ? (data.grant_types_supported as string[])
+      : undefined,
+    code_challenge_methods_supported: Array.isArray(data.code_challenge_methods_supported)
+      ? (data.code_challenge_methods_supported as string[])
+      : undefined,
+    authorization_response_iss_parameter_supported:
+      data.authorization_response_iss_parameter_supported === true,
+    client_id_metadata_document_supported: data.client_id_metadata_document_supported === true,
+  };
+}
+
 export async function discoverAuthServerMetadata(
   authServerUrl: string,
   fetchFn: typeof fetch = fetch,
@@ -92,34 +123,8 @@ export async function discoverAuthServerMetadata(
       if (!response.ok) continue;
 
       const data = (await response.json()) as Record<string, unknown>;
-      if (
-        typeof data.authorization_endpoint === 'string' &&
-        typeof data.token_endpoint === 'string'
-      ) {
-        return {
-          issuer: typeof data.issuer === 'string' ? data.issuer : authServerUrl,
-          authorization_endpoint: data.authorization_endpoint,
-          token_endpoint: data.token_endpoint,
-          registration_endpoint:
-            typeof data.registration_endpoint === 'string' ? data.registration_endpoint : undefined,
-          scopes_supported: Array.isArray(data.scopes_supported)
-            ? (data.scopes_supported as string[])
-            : undefined,
-          response_types_supported: Array.isArray(data.response_types_supported)
-            ? (data.response_types_supported as string[])
-            : undefined,
-          grant_types_supported: Array.isArray(data.grant_types_supported)
-            ? (data.grant_types_supported as string[])
-            : undefined,
-          code_challenge_methods_supported: Array.isArray(data.code_challenge_methods_supported)
-            ? (data.code_challenge_methods_supported as string[])
-            : undefined,
-          authorization_response_iss_parameter_supported:
-            data.authorization_response_iss_parameter_supported === true,
-          client_id_metadata_document_supported:
-            data.client_id_metadata_document_supported === true,
-        };
-      }
+      const parsed = parseAuthServerMetadata(data, authServerUrl);
+      if (parsed) return parsed;
     } catch {
       // Try next discovery endpoint
     }
@@ -224,6 +229,39 @@ export function validateIssuer(expectedIssuer: string, receivedIss?: string): vo
 }
 
 /**
+ * POST a form-encoded token request and parse the response.
+ *
+ * The authorization-code exchange and the refresh flow differ only in the body
+ * they send and the label on a failure, so the transport, the error shape, and
+ * the expiry computation live here once.
+ */
+async function postTokenRequest(
+  fetchFn: typeof fetch,
+  tokenEndpoint: string,
+  body: URLSearchParams,
+  failureLabel: string,
+): Promise<{ tokens: OAuthTokens; expiresAt?: number }> {
+  const response = await fetchFn(tokenEndpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Accept: 'application/json',
+    },
+    body: body.toString(),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`${failureLabel} at ${tokenEndpoint} (HTTP ${response.status}): ${errText}`);
+  }
+
+  const tokens = (await response.json()) as OAuthTokens;
+  const expiresAt =
+    tokens.expires_in !== undefined ? Date.now() + tokens.expires_in * 1000 : undefined;
+  return { tokens, expiresAt };
+}
+
+/**
  * Exchange authorization code for access and refresh tokens.
  *
  * Verifies state HMAC, performs RFC 9207 `iss` validation, and posts
@@ -271,25 +309,12 @@ export async function exchangeOAuthPkce(
     body.set('resource', statePayload.resource);
   }
 
-  const response = await fetchFn(tokenEndpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Accept: 'application/json',
-    },
-    body: body.toString(),
-  });
-
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(
-      `Token exchange failed at ${tokenEndpoint} (HTTP ${response.status}): ${errText}`,
-    );
-  }
-
-  const tokens = (await response.json()) as OAuthTokens;
-  const expiresAt =
-    tokens.expires_in !== undefined ? Date.now() + tokens.expires_in * 1000 : undefined;
+  const { tokens, expiresAt } = await postTokenRequest(
+    fetchFn,
+    tokenEndpoint,
+    body,
+    'Token exchange failed',
+  );
 
   const credential: OAuth2Credential = {
     type: 'oauth2',
@@ -326,25 +351,12 @@ export async function refreshOAuthToken(
     body.set('scope', options.scope);
   }
 
-  const response = await fetchFn(options.tokenEndpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Accept: 'application/json',
-    },
-    body: body.toString(),
-  });
-
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(
-      `Token refresh failed at ${options.tokenEndpoint} (HTTP ${response.status}): ${errText}`,
-    );
-  }
-
-  const tokens = (await response.json()) as OAuthTokens;
-  const expiresAt =
-    tokens.expires_in !== undefined ? Date.now() + tokens.expires_in * 1000 : undefined;
+  const { tokens, expiresAt } = await postTokenRequest(
+    fetchFn,
+    options.tokenEndpoint,
+    body,
+    'Token refresh failed',
+  );
 
   const credential: OAuth2Credential = {
     type: 'oauth2',

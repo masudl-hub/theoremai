@@ -53,40 +53,105 @@ export {
   throwIfAborted,
   toErrorEvent,
 } from './src/guardrails/error.ts';
+export {
+  guardrailFromHits,
+  guardrailFromVerdict,
+  guardrailTurnEvent,
+  projectGuardrailTurnEvent,
+} from './src/guardrails/events.ts';
+export {
+  GUARDRAIL_MATCH_PREVIEW_MAX,
+  hitFromSpan,
+  matchPreview,
+  projectGuardrailEvent,
+} from './src/guardrails/hits.ts';
 export type {
+  AdvisoryLevel,
   CanaryGateResult,
   CanaryGateSession,
   CanaryStreamGate,
+  DetectionOptions,
+  EgressEnforcer,
+  EgressOnBlock,
+  GuardedToolText,
+  GuardrailAction,
+  GuardrailContext,
+  GuardrailEvent,
+  GuardrailHit,
+  GuardrailStage,
   LiveOutboundBatchResult,
   LiveOutboundGateSession,
+  NetworkGuardrailSpec,
+  OutboundPayload,
+  ProfileEgressSpec,
+  ProfileGuardrailsSpec,
   ProgressiveYieldGate,
   ProgressiveYieldGateOptions,
   ProgressiveYieldResult,
+  Provenance,
+  ResolvedGuardrailPolicy,
+  ScanText,
+  Severity,
+  TaintGate,
+  TaintGuardrailSpec,
+  ToolOrigin,
+  TrustLevel,
+  TurnTaint,
+  Verdict,
 } from './src/guardrails/mod.ts';
 export {
+  ADVISORY_LEVELS,
   bindCanary,
+  checkTaintGate,
+  collectEgressHits,
+  composeToolText,
   createCanaryGateSession,
   createCanaryStreamGate,
   createLiveOutboundGateSession,
   createOutboundProgressiveGate,
   createProgressiveYieldGate,
   DEFAULT_HOLDBACK,
+  DIRECTIVE_RULES,
+  detectionForTrust,
+  directiveHits,
+  EGRESS_ON_BLOCK,
+  EGRESS_RULES,
   eventHasCanary,
   filterCanaryGatedEvents,
   finalizeLiveOutboundTurn,
+  GUARDRAIL_STAGES,
+  guardToolFailureText,
+  guardToolResult,
+  hitRules,
+  inspectToolArguments,
+  isRemoteOrigin,
+  isSuspicious,
+  isTainted,
+  looksDirective,
   mintCanary,
   OMIT_CANARY,
   processLiveOutboundBatch,
+  recordTaint,
   redactCanary,
+  resolveGuardrailPolicy,
+  runEnforcer,
+  SEVERITIES,
   scanTextForCanaryLeak,
+  scanTextOf,
   standardEgressEnforce,
+  TAINT_GATES,
+  TOOL_CLOSE,
+  TOOL_ORIGINS,
+  TRUST_LEVELS,
+  textForScan,
+  toolCallEvent,
+  wrapToolData,
   wrapUserData,
 } from './src/guardrails/mod.ts';
 export {
   assertSafeUrl,
   isLocalhostName,
   isPrivateOrLocalAddress,
-  type NetworkGuardrailSpec,
 } from './src/guardrails/network.ts';
 export type { QuotaSlotStatus } from './src/guardrails/quota.ts';
 export {
@@ -98,12 +163,15 @@ export {
   takeSlot,
 } from './src/guardrails/quota.ts';
 export {
+  detectionForProfile,
+  detectText,
   PROJECT_ID_MAX,
   redactSensitiveOnly,
   sanitizeProjectId,
   sanitizeText,
   sanitizeTurnRequest,
   sanitizeTurnRequestForTrace,
+  sanitizeTurnRequestWithEvents,
 } from './src/guardrails/sanitize.ts';
 export * from './src/interface/mod.ts';
 export type { CompactionSplit, CompactionTokens } from './src/kernel/engine/compaction.ts';
@@ -131,6 +199,17 @@ export {
 export { runTurn } from './src/kernel/engine/runner.ts';
 export type { RunSessionOptions } from './src/kernel/engine/session/mod.ts';
 export { runSession } from './src/kernel/engine/session/mod.ts';
+export type {
+  ProfileGraphEditor,
+  ProfileGraphFacet,
+  ProfileGraphFacetId,
+  ProfileGraphRole,
+} from './src/kernel/profile-graph.ts';
+export {
+  PROFILE_GRAPH,
+  profileGraphFacet,
+  spineFacetsForProfileType,
+} from './src/kernel/profile-graph.ts';
 export {
   assertAttachmentLimits,
   fileTooLargeMessage,
@@ -173,6 +252,7 @@ export { pickModel, projectProfile, resolveTurn } from './src/kernel/registry/re
 export { getStructured, registerStructured } from './src/kernel/registry/schemas.ts';
 export type {
   AuthUnauthenticatedPolicy,
+  ContinueStopKind,
   CustomToolType,
   HttpMethod,
   PlaygroundAuthType,
@@ -187,12 +267,12 @@ export {
   AUTH_UNAUTHENTICATED_POLICIES,
   COMPACTION_METERS,
   COMPACTION_TIMINGS,
+  CONTINUE_STOP_KINDS,
   catalogPathFor,
   coerceProtocol,
   coerceProvider,
   coerceSpeechFormat,
   DYNAMIC_FIELD_PARENTS,
-  EGRESS_ON_BLOCK,
   EXTRA_FIELDS,
   fieldMeta,
   HTTP_METHODS,
@@ -229,10 +309,12 @@ export {
   TOOL_LOAD_TIERS,
   TOOL_PERMISSION,
   TOOL_TYPES,
+  TURN_STEER_BARRIERS,
   TURN_STOP_KINDS,
   VOICE_ACCEPT_MIMES,
 } from './src/kernel/schema.ts';
 export type {
+  ProfileTurnBehaviourSpec,
   ProfileTurnResumptionSpec,
   TurnContinueFrom,
   TurnStop,
@@ -240,16 +322,21 @@ export type {
 export {
   AUTO_CONTINUE_DELAY_MS,
   CONTINUE_INSTRUCTION,
+  DEFAULT_ALLOW_CONTINUE,
   DEFAULT_AUTO_CONTINUE,
   GenerationStopError,
+  isContinueStopKind,
   isGenerationStopError,
   isResumeableStop,
   isUserCancelledStop,
+  profileAllowsSteering,
+  profileTurnResumption,
   shouldAutoContinue,
   turnStopFromClientStreamEnd,
   turnStopFromInteractionStatus,
   turnStopFromOpenAiFinishReason,
 } from './src/kernel/stop.ts';
+export type { McpProtocolVersion, McpRpcResponse } from './src/kernel/tools/mod.ts';
 export {
   buildHttpToolTarget,
   executeHttpTool,
@@ -258,9 +345,11 @@ export {
   getTool,
   hasTool,
   invokeTool,
+  isUnsupportedMcpProtocolError,
   listBuiltinIds,
   listFunctionIds,
   listTools,
+  MCP_PROTOCOL_VERSIONS,
   parseMcpRpcResponse,
   prepareTurnToolSnapshot,
   registerHarnessTools,
@@ -271,15 +360,37 @@ export {
   resolveToolAuth,
 } from './src/kernel/tools/mod.ts';
 export type * from './src/kernel/types.ts';
+export type {
+  JsonlSinkOptions,
+  JsonlTraceDestination,
+  ProfileObservabilitySpec,
+  ResolvedObservabilityPolicy,
+  ResolvedTraceInclude,
+  ResolvedTraceScrub,
+  TraceDestination,
+  TraceIncludeSpec,
+  TraceRecord,
+  TraceScrubSpec,
+  TraceSink,
+} from './src/observability/mod.ts';
 export {
+  clearTraceDestinations,
+  getTraceDestination,
+  isJsonlTraceDestination,
+  isTraceSink,
+  jsonlDestination,
   jsonlSink,
+  listTraceDestinationIds,
   memorySink,
   noopSink,
+  registerTraceDestination,
+  requireTraceDestination,
+  resolveObservabilityPolicy,
   resolveTraceDir,
+  resolveTraceWriter,
   sinkFromDir,
   writeTrace,
-} from './src/observability/trace.ts';
-export type { TraceRecord } from './src/observability/trace-record.ts';
+} from './src/observability/mod.ts';
 export * from './src/presets/mod.ts';
 export type {
   CreateProviderOptions,

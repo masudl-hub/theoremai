@@ -55,8 +55,6 @@ Tool & Fact Grounding:
 Multimodal Understanding:
 - Immediately extract actionable constraints (dates, flight times, locations, budgets) from provided images, documents, tickets, or audio, and weave them directly into your response.`;
 
-type DemoToolSeed = PlaygroundToolSeed;
-
 /** Inputs facet seed — text, attachments, voice, and size limits enabled. */
 export function demoInputsSpec(): PlaygroundInputsSpec {
   return {
@@ -70,32 +68,31 @@ export function demoInputsSpec(): PlaygroundInputsSpec {
 }
 
 /** Tool facet seeds for the travel concierge demo (positions assigned by graph layout). */
-export function demoToolSpecs(): DemoToolSeed[] {
-  return [
-    // --- Geocoding & weather (free, no Google attribution) ---
-    {
-      id: 'tool-geocode-city',
-      data: {
-        toolName: 'geocode_city',
-        toolType: 'http',
-        description:
-          'Resolve a city or place name to coordinates using the Open-Meteo geocoding API.',
-        category: 'demo',
-        access: 'read-only',
-        permission: 'auto',
-        loadTier: 'T0',
-        paths: '*',
-        endpoint: 'https://geocoding-api.open-meteo.com/v1/search?count=3',
-        method: 'GET',
-        queryParams: 'name',
-        inputJson: `{
+const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
+  // --- Geocoding & weather (free, no Google attribution) ---
+  {
+    id: 'tool-geocode-city',
+    data: {
+      toolName: 'geocode_city',
+      toolType: 'http',
+      description:
+        'Resolve a city or place name to coordinates using the Open-Meteo geocoding API.',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: '*',
+      endpoint: 'https://geocoding-api.open-meteo.com/v1/search?count=3',
+      method: 'GET',
+      queryParams: 'name',
+      inputJson: `{
   "type": "object",
   "properties": {
     "name": { "type": "string", "description": "City or place name" }
   },
   "required": ["name"]
 }`,
-        outputJson: `{
+      outputJson: `{
   "type": "object",
   "properties": {
     "results": {
@@ -112,25 +109,25 @@ export function demoToolSpecs(): DemoToolSeed[] {
     }
   }
 }`,
-      },
     },
-    {
-      id: 'tool-search-places',
-      data: {
-        toolName: 'search_places',
-        toolType: 'http',
-        description:
-          'Search OpenStreetMap Nominatim for places (free alternative to paid maps APIs).',
-        category: 'demo',
-        access: 'read-only',
-        permission: 'auto',
-        loadTier: 'T0',
-        paths: '*',
-        endpoint: 'https://nominatim.openstreetmap.org/search?format=json&addressdetails=1',
-        method: 'GET',
-        headersJson: NOMINATIM_HEADERS,
-        queryParams: 'q, limit',
-        inputJson: `{
+  },
+  {
+    id: 'tool-search-places',
+    data: {
+      toolName: 'search_places',
+      toolType: 'http',
+      description:
+        'Search OpenStreetMap Nominatim for places (free alternative to paid maps APIs).',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: '*',
+      endpoint: 'https://nominatim.openstreetmap.org/search?format=json&addressdetails=1',
+      method: 'GET',
+      headersJson: NOMINATIM_HEADERS,
+      queryParams: 'q, limit',
+      inputJson: `{
   "type": "object",
   "properties": {
     "q": { "type": "string", "description": "Place search query" },
@@ -138,25 +135,25 @@ export function demoToolSpecs(): DemoToolSeed[] {
   },
   "required": ["q"]
 }`,
-        outputJson: `{ "type": "array" }`,
-      },
+      outputJson: `{ "type": "array" }`,
     },
-    {
-      id: 'tool-reverse-geocode',
-      data: {
-        toolName: 'reverse_geocode',
-        toolType: 'http',
-        description: 'Reverse geocode coordinates to a place label via OpenStreetMap Nominatim.',
-        category: 'demo',
-        access: 'read-only',
-        permission: 'auto',
-        loadTier: 'T0',
-        paths: '*',
-        endpoint: 'https://nominatim.openstreetmap.org/reverse?format=json',
-        method: 'GET',
-        headersJson: NOMINATIM_HEADERS,
-        queryParams: 'lat, lon',
-        inputJson: `{
+  },
+  {
+    id: 'tool-reverse-geocode',
+    data: {
+      toolName: 'reverse_geocode',
+      toolType: 'http',
+      description: 'Reverse geocode coordinates to a place label via OpenStreetMap Nominatim.',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: '*',
+      endpoint: 'https://nominatim.openstreetmap.org/reverse?format=json',
+      method: 'GET',
+      headersJson: NOMINATIM_HEADERS,
+      queryParams: 'lat, lon',
+      inputJson: `{
   "type": "object",
   "properties": {
     "lat": { "type": "number" },
@@ -164,24 +161,24 @@ export function demoToolSpecs(): DemoToolSeed[] {
   },
   "required": ["lat", "lon"]
 }`,
-        outputJson: `{ "type": "object" }`,
-      },
+      outputJson: `{ "type": "object" }`,
     },
-    {
-      id: 'tool-get-weather',
-      data: {
-        toolName: 'get_weather',
-        toolType: 'http',
-        description: 'Fetch current weather for coordinates via Open-Meteo.',
-        category: 'demo',
-        access: 'read-only',
-        permission: 'auto',
-        loadTier: 'T0',
-        paths: '*',
-        endpoint: 'https://api.open-meteo.com/v1/forecast?current_weather=true',
-        method: 'GET',
-        queryParams: 'latitude, longitude',
-        inputJson: `{
+  },
+  {
+    id: 'tool-get-weather',
+    data: {
+      toolName: 'get_weather',
+      toolType: 'http',
+      description: 'Fetch current weather for coordinates via Open-Meteo.',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: '*',
+      endpoint: 'https://api.open-meteo.com/v1/forecast?current_weather=true',
+      method: 'GET',
+      queryParams: 'latitude, longitude',
+      inputJson: `{
   "type": "object",
   "properties": {
     "latitude": { "type": "number" },
@@ -189,7 +186,7 @@ export function demoToolSpecs(): DemoToolSeed[] {
   },
   "required": ["latitude", "longitude"]
 }`,
-        outputJson: `{
+      outputJson: `{
   "type": "object",
   "properties": {
     "current_weather": {
@@ -203,23 +200,23 @@ export function demoToolSpecs(): DemoToolSeed[] {
     }
   }
 }`,
-      },
     },
-    {
-      id: 'tool-sun-times',
-      data: {
-        toolName: 'get_sun_times',
-        toolType: 'http',
-        description: 'Sunrise, sunset, and day length for coordinates (sunrise-sunset.org).',
-        category: 'demo',
-        access: 'read-only',
-        permission: 'auto',
-        loadTier: 'T0',
-        paths: '*',
-        endpoint: 'https://api.sunrise-sunset.org/json',
-        method: 'GET',
-        queryParams: 'lat, lng',
-        inputJson: `{
+  },
+  {
+    id: 'tool-sun-times',
+    data: {
+      toolName: 'get_sun_times',
+      toolType: 'http',
+      description: 'Sunrise, sunset, and day length for coordinates (sunrise-sunset.org).',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: '*',
+      endpoint: 'https://api.sunrise-sunset.org/json',
+      method: 'GET',
+      queryParams: 'lat, lng',
+      inputJson: `{
   "type": "object",
   "properties": {
     "lat": { "type": "number" },
@@ -227,31 +224,31 @@ export function demoToolSpecs(): DemoToolSeed[] {
   },
   "required": ["lat", "lng"]
 }`,
-        outputJson: `{
+      outputJson: `{
   "type": "object",
   "properties": {
     "results": { "type": "object" },
     "status": { "type": "string" }
   }
 }`,
-      },
     },
-    // --- Money & units ---
-    {
-      id: 'tool-convert-currency',
-      data: {
-        toolName: 'convert_currency',
-        toolType: 'http',
-        description: 'Convert an amount between ISO currencies using ECB reference rates.',
-        category: 'demo',
-        access: 'read-only',
-        permission: 'auto',
-        loadTier: 'T0',
-        paths: '*',
-        endpoint: 'https://api.frankfurter.dev/v1/latest',
-        method: 'GET',
-        queryParams: 'from, to, amount',
-        inputJson: `{
+  },
+  // --- Money & units ---
+  {
+    id: 'tool-convert-currency',
+    data: {
+      toolName: 'convert_currency',
+      toolType: 'http',
+      description: 'Convert an amount between ISO currencies using ECB reference rates.',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: '*',
+      endpoint: 'https://api.frankfurter.dev/v1/latest',
+      method: 'GET',
+      queryParams: 'from, to, amount',
+      inputJson: `{
   "type": "object",
   "properties": {
     "from": { "type": "string" },
@@ -260,7 +257,7 @@ export function demoToolSpecs(): DemoToolSeed[] {
   },
   "required": ["from", "to", "amount"]
 }`,
-        outputJson: `{
+      outputJson: `{
   "type": "object",
   "properties": {
     "amount": { "type": "number" },
@@ -268,20 +265,20 @@ export function demoToolSpecs(): DemoToolSeed[] {
     "rates": { "type": "object" }
   }
 }`,
-      },
     },
-    {
-      id: 'tool-convert-units',
-      data: {
-        toolName: 'convert_units',
-        toolType: 'function',
-        description: 'Convert temperature (c/f/k) or distance (km/mi) locally — no network call.',
-        category: 'demo',
-        access: 'read-only',
-        permission: 'auto',
-        loadTier: 'T0',
-        paths: '*',
-        inputJson: `{
+  },
+  {
+    id: 'tool-convert-units',
+    data: {
+      toolName: 'convert_units',
+      toolType: 'function',
+      description: 'Convert temperature (c/f/k) or distance (km/mi) locally — no network call.',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: '*',
+      inputJson: `{
   "type": "object",
   "properties": {
     "value": { "type": "number" },
@@ -290,7 +287,7 @@ export function demoToolSpecs(): DemoToolSeed[] {
   },
   "required": ["value", "from", "to"]
 }`,
-        outputJson: `{
+      outputJson: `{
   "type": "object",
   "properties": {
     "value": { "type": "number" },
@@ -300,20 +297,20 @@ export function demoToolSpecs(): DemoToolSeed[] {
   },
   "required": ["result"]
 }`,
-      },
     },
-    {
-      id: 'tool-haversine',
-      data: {
-        toolName: 'haversine_distance',
-        toolType: 'function',
-        description: 'Great-circle distance between two lat/lon pairs in km and miles.',
-        category: 'demo',
-        access: 'read-only',
-        permission: 'auto',
-        loadTier: 'T0',
-        paths: '*',
-        inputJson: `{
+  },
+  {
+    id: 'tool-haversine',
+    data: {
+      toolName: 'haversine_distance',
+      toolType: 'function',
+      description: 'Great-circle distance between two lat/lon pairs in km and miles.',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: '*',
+      inputJson: `{
   "type": "object",
   "properties": {
     "lat1": { "type": "number" },
@@ -323,7 +320,7 @@ export function demoToolSpecs(): DemoToolSeed[] {
   },
   "required": ["lat1", "lon1", "lat2", "lon2"]
 }`,
-        outputJson: `{
+      outputJson: `{
   "type": "object",
   "properties": {
     "km": { "type": "number" },
@@ -331,31 +328,31 @@ export function demoToolSpecs(): DemoToolSeed[] {
   },
   "required": ["km", "mi"]
 }`,
-      },
     },
-    // --- Research ---
-    {
-      id: 'tool-wikipedia',
-      data: {
-        toolName: 'wikipedia_summary',
-        toolType: 'http',
-        description: 'Fetch the Wikipedia REST summary for a page title.',
-        category: 'demo',
-        access: 'read-only',
-        permission: 'auto',
-        loadTier: 'T0',
-        paths: '*',
-        endpoint: 'https://en.wikipedia.org/api/rest_v1/page/summary/{title}',
-        method: 'GET',
-        pathParams: 'title',
-        inputJson: `{
+  },
+  // --- Research ---
+  {
+    id: 'tool-wikipedia',
+    data: {
+      toolName: 'wikipedia_summary',
+      toolType: 'http',
+      description: 'Fetch the Wikipedia REST summary for a page title.',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: '*',
+      endpoint: 'https://en.wikipedia.org/api/rest_v1/page/summary/{title}',
+      method: 'GET',
+      pathParams: 'title',
+      inputJson: `{
   "type": "object",
   "properties": {
     "title": { "type": "string", "description": "Wikipedia page title, e.g. Paris" }
   },
   "required": ["title"]
 }`,
-        outputJson: `{
+      outputJson: `{
   "type": "object",
   "properties": {
     "title": { "type": "string" },
@@ -363,23 +360,23 @@ export function demoToolSpecs(): DemoToolSeed[] {
     "description": { "type": "string" }
   }
 }`,
-      },
     },
-    {
-      id: 'tool-openlibrary',
-      data: {
-        toolName: 'openlibrary_search',
-        toolType: 'http',
-        description: 'Search Open Library for books by title or author.',
-        category: 'demo',
-        access: 'read-only',
-        permission: 'auto',
-        loadTier: 'T0',
-        paths: '*',
-        endpoint: 'https://openlibrary.org/search.json',
-        method: 'GET',
-        queryParams: 'q, limit',
-        inputJson: `{
+  },
+  {
+    id: 'tool-openlibrary',
+    data: {
+      toolName: 'openlibrary_search',
+      toolType: 'http',
+      description: 'Search Open Library for books by title or author.',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: '*',
+      endpoint: 'https://openlibrary.org/search.json',
+      method: 'GET',
+      queryParams: 'q, limit',
+      inputJson: `{
   "type": "object",
   "properties": {
     "q": { "type": "string" },
@@ -387,24 +384,24 @@ export function demoToolSpecs(): DemoToolSeed[] {
   },
   "required": ["q"]
 }`,
-        outputJson: `{ "type": "object" }`,
-      },
+      outputJson: `{ "type": "object" }`,
     },
-    {
-      id: 'tool-postal',
-      data: {
-        toolName: 'lookup_postal_code',
-        toolType: 'http',
-        description: 'Look up place names for a postal code via Zippopotam (no API key).',
-        category: 'demo',
-        access: 'read-only',
-        permission: 'auto',
-        loadTier: 'T0',
-        paths: '*',
-        endpoint: 'https://api.zippopotam.us/{country}/{postal}',
-        method: 'GET',
-        pathParams: 'country, postal',
-        inputJson: `{
+  },
+  {
+    id: 'tool-postal',
+    data: {
+      toolName: 'lookup_postal_code',
+      toolType: 'http',
+      description: 'Look up place names for a postal code via Zippopotam (no API key).',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: '*',
+      endpoint: 'https://api.zippopotam.us/{country}/{postal}',
+      method: 'GET',
+      pathParams: 'country, postal',
+      inputJson: `{
   "type": "object",
   "properties": {
     "country": { "type": "string", "description": "ISO country code, e.g. us or fr" },
@@ -412,24 +409,24 @@ export function demoToolSpecs(): DemoToolSeed[] {
   },
   "required": ["country", "postal"]
 }`,
-        outputJson: `{ "type": "object" }`,
-      },
+      outputJson: `{ "type": "object" }`,
     },
-    // --- MCP (DeepWiki — no Google Maps / grounding attribution) ---
-    {
-      id: 'tool-ask-deepwiki',
-      data: {
-        toolName: 'ask_repo_docs',
-        toolType: 'mcp',
-        description: 'Ask questions about a public GitHub repo via DeepWiki MCP (Streamable HTTP).',
-        category: 'demo',
-        access: 'read-only',
-        permission: 'auto',
-        loadTier: 'T0',
-        paths: '*',
-        serverUrl: 'https://mcp.deepwiki.com/mcp',
-        mcpToolName: 'ask_question',
-        inputJson: `{
+  },
+  // --- MCP (DeepWiki — no Google Maps / grounding attribution) ---
+  {
+    id: 'tool-ask-deepwiki',
+    data: {
+      toolName: 'ask_repo_docs',
+      toolType: 'mcp',
+      description: 'Ask questions about a public GitHub repo via DeepWiki MCP (Streamable HTTP).',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: '*',
+      serverUrl: 'https://mcp.deepwiki.com/mcp',
+      mcpToolName: 'ask_question',
+      inputJson: `{
   "type": "object",
   "properties": {
     "repoName": { "type": "string", "description": "owner/repo, e.g. sveltejs/kit" },
@@ -437,53 +434,53 @@ export function demoToolSpecs(): DemoToolSeed[] {
   },
   "required": ["repoName", "question"]
 }`,
-        outputJson: `{ "type": "string", "description": "Answer text from DeepWiki" }`,
-      },
+      outputJson: `{ "type": "string", "description": "Answer text from DeepWiki" }`,
     },
-    // --- T2 loader ---
-    {
-      id: 'tool-discover-tools',
-      data: {
-        toolName: 'discover_tools',
-        toolType: 'function',
-        description:
-          'Discover bonus entertainment tools for this turn. Call before get_cat_fact, tell_joke, get_advice, or random_dog_image.',
-        category: 'demo',
-        access: 'read-only',
-        permission: 'auto',
-        loadTier: 'T0',
-        paths: '*',
-        inputJson: `{ "type": "object", "properties": {} }`,
-        outputJson: `{
+  },
+  // --- T2 loader ---
+  {
+    id: 'tool-discover-tools',
+    data: {
+      toolName: 'discover_tools',
+      toolType: 'function',
+      description:
+        'Discover bonus entertainment tools for this turn. Call before get_cat_fact, tell_joke, get_advice, or random_dog_image.',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: '*',
+      inputJson: `{ "type": "object", "properties": {} }`,
+      outputJson: `{
   "type": "object",
   "properties": {
     "loaded": { "type": "array", "items": { "type": "string" } }
   },
   "required": ["loaded"]
 }`,
-        stubOutputJson: JSON.stringify({ loaded: [...DISCOVER_LOADED] }),
-      },
+      stubOutputJson: JSON.stringify({ loaded: [...DISCOVER_LOADED] }),
     },
-    // --- Function stubs / local logic ---
-    {
-      id: 'tool-weather-label',
-      data: {
-        toolName: 'weather_code_label',
-        toolType: 'function',
-        description: 'Translate an Open-Meteo WMO weathercode into a short label.',
-        category: 'demo',
-        access: 'read-only',
-        permission: 'auto',
-        loadTier: 'T0',
-        paths: '*',
-        inputJson: `{
+  },
+  // --- Function stubs / local logic ---
+  {
+    id: 'tool-weather-label',
+    data: {
+      toolName: 'weather_code_label',
+      toolType: 'function',
+      description: 'Translate an Open-Meteo WMO weathercode into a short label.',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: '*',
+      inputJson: `{
   "type": "object",
   "properties": {
     "weathercode": { "type": "number" }
   },
   "required": ["weathercode"]
 }`,
-        outputJson: `{
+      outputJson: `{
   "type": "object",
   "properties": {
     "weathercode": { "type": "number" },
@@ -491,20 +488,20 @@ export function demoToolSpecs(): DemoToolSeed[] {
   },
   "required": ["label"]
 }`,
-      },
     },
-    {
-      id: 'tool-plan-day',
-      data: {
-        toolName: 'plan_day',
-        toolType: 'function',
-        description: 'Draft a simple day plan from destination context (playground stub).',
-        category: 'demo',
-        access: 'read-write',
-        permission: 'auto',
-        loadTier: 'T0',
-        paths: '*',
-        inputJson: `{
+  },
+  {
+    id: 'tool-plan-day',
+    data: {
+      toolName: 'plan_day',
+      toolType: 'function',
+      description: 'Draft a simple day plan from destination context (playground stub).',
+      category: 'demo',
+      access: 'read-write',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: '*',
+      inputJson: `{
   "type": "object",
   "properties": {
     "destination": { "type": "string" },
@@ -512,7 +509,7 @@ export function demoToolSpecs(): DemoToolSeed[] {
   },
   "required": ["destination"]
 }`,
-        outputJson: `{
+      outputJson: `{
   "type": "object",
   "properties": {
     "summary": { "type": "string" },
@@ -520,7 +517,7 @@ export function demoToolSpecs(): DemoToolSeed[] {
   },
   "required": ["summary", "stops"]
 }`,
-        stubOutputJson: `{
+      stubOutputJson: `{
   "summary": "A balanced day mixing local culture, a weather-aware outdoor block, and an easy evening.",
   "stops": [
     "Morning: coffee near the main square",
@@ -529,20 +526,20 @@ export function demoToolSpecs(): DemoToolSeed[] {
     "Evening: casual dinner with a local specialty"
   ]
 }`,
-      },
     },
-    {
-      id: 'tool-trip-budget',
-      data: {
-        toolName: 'trip_budget_estimate',
-        toolType: 'function',
-        description: 'Estimate trip cost from days × per-diem (local math, no FX).',
-        category: 'demo',
-        access: 'read-only',
-        permission: 'auto',
-        loadTier: 'T0',
-        paths: '*',
-        inputJson: `{
+  },
+  {
+    id: 'tool-trip-budget',
+    data: {
+      toolName: 'trip_budget_estimate',
+      toolType: 'function',
+      description: 'Estimate trip cost from days × per-diem (local math, no FX).',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: '*',
+      inputJson: `{
   "type": "object",
   "properties": {
     "days": { "type": "number" },
@@ -551,7 +548,7 @@ export function demoToolSpecs(): DemoToolSeed[] {
   },
   "required": ["days", "perDiem"]
 }`,
-        outputJson: `{
+      outputJson: `{
   "type": "object",
   "properties": {
     "days": { "type": "number" },
@@ -561,20 +558,20 @@ export function demoToolSpecs(): DemoToolSeed[] {
   },
   "required": ["total"]
 }`,
-      },
     },
-    {
-      id: 'tool-packing',
-      data: {
-        toolName: 'packing_suggestions',
-        toolType: 'function',
-        description: 'Suggest a packing list from temperature and activity type.',
-        category: 'demo',
-        access: 'read-only',
-        permission: 'auto',
-        loadTier: 'T0',
-        paths: '*',
-        inputJson: `{
+  },
+  {
+    id: 'tool-packing',
+    data: {
+      toolName: 'packing_suggestions',
+      toolType: 'function',
+      description: 'Suggest a packing list from temperature and activity type.',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: '*',
+      inputJson: `{
   "type": "object",
   "properties": {
     "tempC": { "type": "number" },
@@ -582,7 +579,7 @@ export function demoToolSpecs(): DemoToolSeed[] {
   },
   "required": ["tempC"]
 }`,
-        outputJson: `{
+      outputJson: `{
   "type": "object",
   "properties": {
     "tempC": { "type": "number" },
@@ -591,30 +588,30 @@ export function demoToolSpecs(): DemoToolSeed[] {
   },
   "required": ["items"]
 }`,
-      },
     },
-    {
-      id: 'tool-get-pokemon',
-      data: {
-        toolName: 'get_pokemon',
-        toolType: 'http',
-        description: 'Look up a Pokémon by name from the public PokéAPI.',
-        category: 'demo',
-        access: 'read-only',
-        permission: 'auto',
-        loadTier: 'T0',
-        paths: '*',
-        endpoint: 'https://pokeapi.co/api/v2/pokemon/{name}',
-        method: 'GET',
-        pathParams: 'name',
-        inputJson: `{
+  },
+  {
+    id: 'tool-get-pokemon',
+    data: {
+      toolName: 'get_pokemon',
+      toolType: 'http',
+      description: 'Look up a Pokémon by name from the public PokéAPI.',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: '*',
+      endpoint: 'https://pokeapi.co/api/v2/pokemon/{name}',
+      method: 'GET',
+      pathParams: 'name',
+      inputJson: `{
   "type": "object",
   "properties": {
     "name": { "type": "string" }
   },
   "required": ["name"]
 }`,
-        outputJson: `{
+      outputJson: `{
   "type": "object",
   "properties": {
     "name": { "type": "string" },
@@ -622,24 +619,24 @@ export function demoToolSpecs(): DemoToolSeed[] {
     "weight": { "type": "number" }
   }
 }`,
-      },
     },
-    // --- T2 entertainment (require discover_tools) ---
-    {
-      id: 'tool-cat-fact',
-      data: {
-        toolName: 'get_cat_fact',
-        toolType: 'http',
-        description: 'Return a random cat fact (T2 — call discover_tools first).',
-        category: 'demo',
-        access: 'read-only',
-        permission: 'auto',
-        loadTier: 'T2',
-        paths: '*',
-        endpoint: 'https://catfact.ninja/fact?max_length=160',
-        method: 'GET',
-        inputJson: `{ "type": "object", "properties": {} }`,
-        outputJson: `{
+  },
+  // --- T2 entertainment (require discover_tools) ---
+  {
+    id: 'tool-cat-fact',
+    data: {
+      toolName: 'get_cat_fact',
+      toolType: 'http',
+      description: 'Return a random cat fact (T2 — call discover_tools first).',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T2',
+      paths: '*',
+      endpoint: 'https://catfact.ninja/fact?max_length=160',
+      method: 'GET',
+      inputJson: `{ "type": "object", "properties": {} }`,
+      outputJson: `{
   "type": "object",
   "properties": {
     "fact": { "type": "string" },
@@ -647,23 +644,23 @@ export function demoToolSpecs(): DemoToolSeed[] {
   },
   "required": ["fact"]
 }`,
-      },
     },
-    {
-      id: 'tool-tell-joke',
-      data: {
-        toolName: 'tell_joke',
-        toolType: 'http',
-        description: 'Tell a random joke (T2 — call discover_tools first).',
-        category: 'demo',
-        access: 'read-only',
-        permission: 'auto',
-        loadTier: 'T2',
-        paths: '*',
-        endpoint: 'https://official-joke-api.appspot.com/random_joke',
-        method: 'GET',
-        inputJson: `{ "type": "object", "properties": {} }`,
-        outputJson: `{
+  },
+  {
+    id: 'tool-tell-joke',
+    data: {
+      toolName: 'tell_joke',
+      toolType: 'http',
+      description: 'Tell a random joke (T2 — call discover_tools first).',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T2',
+      paths: '*',
+      endpoint: 'https://official-joke-api.appspot.com/random_joke',
+      method: 'GET',
+      inputJson: `{ "type": "object", "properties": {} }`,
+      outputJson: `{
   "type": "object",
   "properties": {
     "setup": { "type": "string" },
@@ -671,23 +668,23 @@ export function demoToolSpecs(): DemoToolSeed[] {
   },
   "required": ["setup", "punchline"]
 }`,
-      },
     },
-    {
-      id: 'tool-advice',
-      data: {
-        toolName: 'get_advice',
-        toolType: 'http',
-        description: 'Random travel-style advice slip (T2 — call discover_tools first).',
-        category: 'demo',
-        access: 'read-only',
-        permission: 'auto',
-        loadTier: 'T2',
-        paths: '*',
-        endpoint: 'https://api.adviceslip.com/advice',
-        method: 'GET',
-        inputJson: `{ "type": "object", "properties": {} }`,
-        outputJson: `{
+  },
+  {
+    id: 'tool-advice',
+    data: {
+      toolName: 'get_advice',
+      toolType: 'http',
+      description: 'Random travel-style advice slip (T2 — call discover_tools first).',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T2',
+      paths: '*',
+      endpoint: 'https://api.adviceslip.com/advice',
+      method: 'GET',
+      inputJson: `{ "type": "object", "properties": {} }`,
+      outputJson: `{
   "type": "object",
   "properties": {
     "slip": {
@@ -698,23 +695,23 @@ export function demoToolSpecs(): DemoToolSeed[] {
     }
   }
 }`,
-      },
     },
-    {
-      id: 'tool-dog-image',
-      data: {
-        toolName: 'random_dog_image',
-        toolType: 'http',
-        description: 'Random dog photo URL from dog.ceo (T2 — call discover_tools first).',
-        category: 'demo',
-        access: 'read-only',
-        permission: 'auto',
-        loadTier: 'T2',
-        paths: '*',
-        endpoint: 'https://dog.ceo/api/breeds/image/random',
-        method: 'GET',
-        inputJson: `{ "type": "object", "properties": {} }`,
-        outputJson: `{
+  },
+  {
+    id: 'tool-dog-image',
+    data: {
+      toolName: 'random_dog_image',
+      toolType: 'http',
+      description: 'Random dog photo URL from dog.ceo (T2 — call discover_tools first).',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T2',
+      paths: '*',
+      endpoint: 'https://dog.ceo/api/breeds/image/random',
+      method: 'GET',
+      inputJson: `{ "type": "object", "properties": {} }`,
+      outputJson: `{
   "type": "object",
   "properties": {
     "message": { "type": "string" },
@@ -722,7 +719,11 @@ export function demoToolSpecs(): DemoToolSeed[] {
   },
   "required": ["message"]
 }`,
-      },
     },
-  ];
+  },
+];
+
+/** Tool facet seeds for the travel concierge demo (positions assigned by graph layout). */
+export function demoToolSpecs(): PlaygroundToolSeed[] {
+  return DEMO_TOOL_SPECS;
 }

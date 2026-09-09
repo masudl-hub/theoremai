@@ -2,18 +2,19 @@
  * Profile → `ProfileInterface` projection.
  *
  * Kernel `projectProfileObject` is the single inspection projection; this module
- * only enriches `inputs` (acceptAttr) and attaches serializable guardrails.
+ * only enriches `inputs` (acceptAttr) and attaches serializable guardrails /
+ * observability views.
  *
  * @module
  */
 
+import { resolveGuardrailPolicy } from '../guardrails/policy.ts';
+import type { ProfileGuardrailsSpec } from '../guardrails/types.ts';
 import { projectProfileObject } from '../kernel/registry/resolve.ts';
-import type {
-  LiveProfile,
-  Profile,
-  ProfileGuardrailsSpec,
-  ProjectedProfile,
-} from '../kernel/types.ts';
+import { profileAllowsSteering } from '../kernel/stop.ts';
+import type { LiveProfile, Profile, ProjectedProfile } from '../kernel/types.ts';
+import { resolveObservabilityPolicy } from '../observability/policy.ts';
+import type { ProfileObservabilitySpec } from '../observability/types.ts';
 import { inputsFromSpec } from './inputs.ts';
 import type {
   ComposerProfileInterface,
@@ -22,17 +23,60 @@ import type {
   ProfileGuardrailsView,
   ProfileInterface,
   ProfileInterfaceSource,
+  ProfileObservabilityView,
   ResolvedTools,
 } from './types.ts';
 
-function guardrailsView(guardrails?: ProfileGuardrailsSpec): ProfileGuardrailsView | undefined {
-  if (!guardrails) return undefined;
+/**
+ * Project a profile's guardrails for the headless interface.
+ *
+ * Values are resolved, not raw: a host rendering this view sees what the kernel
+ * will actually enforce rather than re-deriving defaults of its own.
+ */
+function guardrailsView(guardrails?: ProfileGuardrailsSpec): ProfileGuardrailsView {
+  const policy = resolveGuardrailPolicy(guardrails);
   return {
-    quota: guardrails.quota,
-    canary: guardrails.canary,
-    sanitizeInput: guardrails.sanitizeInput,
-    redactSensitive: guardrails.redactSensitive,
-    hasEgress: Boolean(guardrails.egress),
+    quota: policy.quota,
+    canary: policy.canary,
+    sanitizeInput: policy.sanitizeInput,
+    redactSensitive: policy.redactSensitive,
+    hasEgress: Boolean(policy.egress),
+  };
+}
+
+function writeToView(
+  writeTo: ProfileObservabilitySpec['writeTo'],
+): ProfileObservabilityView['writeTo'] {
+  if (writeTo === undefined || writeTo === false) {
+    return writeTo;
+  }
+  if (typeof writeTo === 'string') {
+    return writeTo;
+  }
+  return 'custom';
+}
+
+/**
+ * Project a profile's observability for the headless interface.
+ *
+ * TraceSink and onWriteError are omitted; writeTo becomes 'custom' when inline.
+ */
+function observabilityView(
+  observability?: ProfileObservabilitySpec,
+): ProfileObservabilityView | undefined {
+  if (!observability) {
+    return undefined;
+  }
+  const policy = resolveObservabilityPolicy(observability);
+  return {
+    record: policy.record,
+    writeTo: writeToView(policy.writeTo),
+    sampleRate: policy.sampleRate,
+    include: policy.include,
+    scrub: policy.scrub,
+    retainForDays: policy.retainForDays,
+    rotateAfterMiB: policy.rotateAfterMiB,
+    hasOnWriteError: Boolean(policy.onWriteError),
   };
 }
 
@@ -63,6 +107,7 @@ function enrich(projected: ProjectedProfile, profile?: Profile): ProfileInterfac
   const inputs = inputsFromSpec(projected.type, projected.inputs);
   const identity = profile?.identity ?? { handle: projected.handle };
   const guardrails = profile ? guardrailsView(profile.guardrails) : undefined;
+  const observability = profile ? observabilityView(profile.observability) : undefined;
   const outputs = projected.outputs ?? undefined;
   const shared = {
     id: projected.id,
@@ -74,6 +119,7 @@ function enrich(projected: ProjectedProfile, profile?: Profile): ProfileInterfac
     key: projected.key,
     outputs,
     guardrails,
+    observability,
   };
 
   switch (projected.type) {
@@ -83,7 +129,9 @@ function enrich(projected: ProjectedProfile, profile?: Profile): ProfileInterfac
         type: 'text',
         inputs,
         tools: toolsResolved(projected, profile),
-        turnResumption: profile?.type === 'text' ? profile.turnResumption : undefined,
+        turnBehaviour: profile?.type === 'text' ? profile.turnBehaviour : undefined,
+        canStop: true,
+        allowSteering: profile ? profileAllowsSteering(profile) : true,
       } as ProfileInterface;
     case 'image':
       return {
@@ -92,7 +140,8 @@ function enrich(projected: ProjectedProfile, profile?: Profile): ProfileInterfac
         image: projected.image ?? {},
         inputs,
         tools: toolsResolved(projected, profile),
-        turnResumption: profile?.type === 'image' ? profile.turnResumption : undefined,
+        turnBehaviour: profile?.type === 'image' ? profile.turnBehaviour : undefined,
+        canStop: true,
       } as ProfileInterface;
     case 'speech':
       return {
@@ -100,7 +149,8 @@ function enrich(projected: ProjectedProfile, profile?: Profile): ProfileInterfac
         type: 'speech',
         speech: projected.speech ?? {},
         inputs,
-        turnResumption: profile?.type === 'speech' ? profile.turnResumption : undefined,
+        turnBehaviour: profile?.type === 'speech' ? profile.turnBehaviour : undefined,
+        canStop: true,
       } as ProfileInterface;
     case 'live':
       return {

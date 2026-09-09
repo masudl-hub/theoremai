@@ -4,6 +4,7 @@
  * @module
  */
 
+import { resolveGuardrailPolicy } from '../guardrails/policy.ts';
 import { sanitizeText } from '../guardrails/sanitize.ts';
 import { buildUserTurnBlocks } from './blocks.ts';
 import { validateProfileInputs } from './inputs.ts';
@@ -15,22 +16,12 @@ import type {
   UserTurnDraft,
 } from './types.ts';
 
-function guardrailTextOptions(guardrails?: ProfileGuardrailsView): {
-  sanitizeInput?: boolean;
-  redactSensitive?: boolean;
-} {
-  return {
-    sanitizeInput: guardrails?.sanitizeInput ?? true,
-    redactSensitive: guardrails?.redactSensitive ?? true,
-  };
-}
-
 /** Sanitize user-authored text in a draft using profile guardrail flags. */
 function sanitizeUserDraft(
   draft: UserTurnDraft,
   guardrails?: ProfileGuardrailsView,
 ): UserTurnDraft {
-  const options = guardrailTextOptions(guardrails);
+  const options = guardrails ?? resolveGuardrailPolicy(undefined);
   if (!options.sanitizeInput && !options.redactSensitive) {
     return draft;
   }

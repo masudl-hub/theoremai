@@ -115,12 +115,9 @@ const graph = {
     kernel: {
       export: './kernel',
       doc: 'docs/contracts/kernel.md',
-      owns: ['src/kernel/', 'src/guardrails/network.ts'],
+      owns: ['src/kernel/'],
       owns_except: ['src/kernel/schema.ts'],
-      validates: [
-        'tests/kernel/',
-        'tests/guardrails/network.test.ts',
-      ],
+      validates: ['tests/kernel/'],
       required_sections: [
         'Export',
         'Ownership',
@@ -152,7 +149,7 @@ const graph = {
           sections: ['Profiles'],
         },
         {
-          paths: ['src/kernel/tools/**', 'src/kernel/schema.ts', 'src/guardrails/network.ts'],
+          paths: ['src/kernel/tools/**', 'src/kernel/schema.ts'],
           sections: ['Registered tools'],
         },
       ],
@@ -258,12 +255,17 @@ const graph = {
       export: './guardrails',
       doc: 'docs/contracts/guardrails.md',
       owns: ['src/guardrails/'],
-      owns_except: ['src/guardrails/testing.ts', 'src/guardrails/network.ts'],
+      owns_except: ['src/guardrails/testing.ts'],
       validates: ['tests/guardrails/'],
       required_sections: [
         'Export',
         'Ownership',
         'Public errors',
+        'Trust levels',
+        'Evaluation',
+        'Tool boundary',
+        'Guardrail events',
+        'Network',
         'Sanitization',
         'Injection categories (non-exhaustive)',
         'Sensitive data',
@@ -273,12 +275,23 @@ const graph = {
       ],
       section_triggers: [
         { paths: ['src/guardrails/error.ts'], sections: ['Public errors'] },
+        {
+          paths: ['src/guardrails/policy.ts', 'src/guardrails/types.ts'],
+          sections: ['Trust levels'],
+        },
+        { paths: ['src/guardrails/network.ts'], sections: ['Network'] },
+        { paths: ['src/guardrails/eval/**'], sections: ['Evaluation'] },
+        {
+          paths: ['src/guardrails/tool-result.ts'],
+          sections: ['Tool boundary', 'Guardrail events'],
+        },
         { paths: ['src/guardrails/sanitize.ts', 'src/guardrails/injection.ts'], sections: ['Sanitization'] },
         { paths: ['src/guardrails/injection.ts'], sections: ['Injection categories (non-exhaustive)'] },
         { paths: ['src/guardrails/sensitive.ts'], sections: ['Sensitive data'] },
         { paths: ['src/guardrails/quota.ts'], sections: ['Quota'] },
         {
           paths: [
+            'src/guardrails/serialize.ts',
             'src/guardrails/egress.ts',
             'src/guardrails/progressive-yield.ts',
             'src/guardrails/live-outbound-gate.ts',
@@ -315,12 +328,16 @@ const graph = {
       required_sections: [
         'Export',
         'Ownership',
+        'Profile observability',
+        'Trace destinations',
         'Trace sinks',
         'Sensitive storage',
         'Trace records',
         'Exported API',
       ],
       section_triggers: [
+        { paths: ['src/observability/types.ts', 'src/observability/policy.ts'], sections: ['Profile observability'] },
+        { paths: ['src/observability/destinations.ts'], sections: ['Trace destinations'] },
         { paths: ['src/observability/trace.ts'], sections: ['Trace sinks'] },
         { paths: ['src/observability/trace-record.ts'], sections: ['Trace records', 'Sensitive storage'] },
       ],

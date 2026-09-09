@@ -33,6 +33,12 @@ The playground package is **not** imported by the kernel runner. It exists so
 demo graphs, smoke scripts, and the frontend playground share one typed source
 of truth instead of duplicating URLs, JSON schemas, and handler logic.
 
+The **web playground graph** (theorum-frontend) must project `PROFILE_GRAPH` /
+`PROFILE_FIELDS` from theorum. It must not invent facet kinds or kernel
+defaults; only free-tier host policy is frontend-owned. Adding a profile
+section requires `PROFILE_FIELDS` + `PROFILE_GRAPH` in theorum first (see
+`tests/kernel/profile-graph.test.ts`).
+
 ## Demo graph seeds
 
 | Export | Content |

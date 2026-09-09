@@ -39,6 +39,9 @@ export function synthesizeLiteCombo(profile: Profile): TurnRequest {
 }
 
 function resolveStressModel(profile: Profile): string | undefined {
+  if (!profile.allowModelSelect) {
+    return undefined;
+  }
   if (profile.models.smart) {
     return 'smart';
   }

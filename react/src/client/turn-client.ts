@@ -19,6 +19,8 @@ export type TurnRequestBody = {
 	sessionPermissions?: string[];
 	model?: string;
 	effort?: string;
+	/** Host-generated id so the client can post mid-turn steers. */
+	turnId?: string;
 	input: {
 		text?: string;
 		attachments?: Array<{ name: string; mimeType: string; data: string }>;
@@ -62,6 +64,7 @@ export function buildTurnRequestBody(
 	payload: PlaygroundRunPayload,
 	session: InterfaceTurnSession,
 	input: TurnRequestBody['input'],
+	options: { turnId?: string } = {},
 ): TurnRequestBody {
 	const modelId = resolveTurnModelId(payload, session);
 	const model = payload.profile.allowModelSelect ? modelId : undefined;
@@ -72,6 +75,7 @@ export function buildTurnRequestBody(
 		structured: payload.structured,
 		previousInteractionId: session.previousInteractionId,
 		sessionPermissions: session.sessionPermissions,
+		...(options.turnId ? { turnId: options.turnId } : {}),
 		...(model ? { model } : {}),
 		...(effort ? { effort } : {}),
 		input,
@@ -173,16 +177,57 @@ export function foldAssistantTurn(
 }
 
 function parseStreamEvent(line: string): TurnEvent {
-	const event = JSON.parse(line) as TurnEvent | { type: 'error'; error: string };
+	const event = JSON.parse(line) as TurnEvent | {
+		type: 'error';
+		error?: string;
+		errorInternal?: string;
+	};
 	if (event.type === 'error') {
-		throw new Error(event.error);
+		throw playgroundStreamError(event);
 	}
 	return event;
+}
+
+/** Public-safe stream failure with optional internal detail for playground hover. */
+export class PlaygroundStreamError extends Error {
+	readonly publicMessage: string;
+	readonly internalMessage?: string;
+
+	constructor(publicMessage: string, internalMessage?: string) {
+		super(publicMessage);
+		this.name = 'PlaygroundStreamError';
+		this.publicMessage = publicMessage;
+		if (internalMessage) this.internalMessage = internalMessage;
+	}
+}
+
+export function playgroundStreamError(event: {
+	error?: string;
+	errorInternal?: string;
+}): PlaygroundStreamError {
+	const pub = typeof event.error === 'string' ? event.error.trim() : '';
+	const internal = typeof event.errorInternal === 'string' ? event.errorInternal.trim() : '';
+	const publicMessage = pub || 'Something went wrong. Try again.';
+	const internalMessage =
+		internal && internal !== publicMessage ? internal : undefined;
+	return new PlaygroundStreamError(publicMessage, internalMessage);
+}
+
+export function isPlaygroundStreamError(err: unknown): err is PlaygroundStreamError {
+	return err instanceof PlaygroundStreamError;
+}
+
+export function isAbortError(err: unknown): boolean {
+	return (
+		(err instanceof DOMException && err.name === 'AbortError') ||
+		(err instanceof Error && (err.name === 'AbortError' || /aborted/i.test(err.message)))
+	);
 }
 
 async function readNdjsonStream(
 	response: Response,
 	onEvent: (event: TurnEvent) => void,
+	signal?: AbortSignal,
 ): Promise<void> {
 	if (!response.body) {
 		throw new Error('Stream missing body');
@@ -192,21 +237,33 @@ async function readNdjsonStream(
 	const decoder = new TextDecoder();
 	let buffer = '';
 
-	for (;;) {
-		const { done, value } = await reader.read();
-		if (done) break;
-		buffer += decoder.decode(value, { stream: true });
-		const lines = buffer.split('\n');
-		buffer = lines.pop() ?? '';
-		for (const line of lines) {
-			if (!line.trim()) continue;
-			onEvent(parseStreamEvent(line));
-		}
-	}
+	const onAbort = () => {
+		void reader.cancel();
+	};
+	signal?.addEventListener('abort', onAbort, { once: true });
 
-	const tail = buffer.trim();
-	if (tail) {
-		onEvent(parseStreamEvent(tail));
+	try {
+		for (;;) {
+			if (signal?.aborted) {
+				throw new DOMException('The operation was aborted.', 'AbortError');
+			}
+			const { done, value } = await reader.read();
+			if (done) break;
+			buffer += decoder.decode(value, { stream: true });
+			const lines = buffer.split('\n');
+			buffer = lines.pop() ?? '';
+			for (const line of lines) {
+				if (!line.trim()) continue;
+				onEvent(parseStreamEvent(line));
+			}
+		}
+
+		const tail = buffer.trim();
+		if (tail) {
+			onEvent(parseStreamEvent(tail));
+		}
+	} finally {
+		signal?.removeEventListener('abort', onAbort);
 	}
 }
 
@@ -215,29 +272,57 @@ async function postJsonNdjson(
 	body: unknown,
 	onEvent: (event: TurnEvent) => void,
 	failureLabel: string,
+	signal?: AbortSignal,
 ): Promise<void> {
-	const response = await fetch(url, {
-		method: 'POST',
-		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify(body),
-	});
+	let response: Response;
+	try {
+		response = await fetch(url, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify(body),
+			signal,
+		});
+	} catch (err) {
+		if (isAbortError(err)) {
+			throw new DOMException('The operation was aborted.', 'AbortError');
+		}
+		throw err;
+	}
 	if (!response.ok) {
 		const payload = (await response.json()) as { error?: string };
 		throw new Error(payload.error ?? `${failureLabel} (${String(response.status)})`);
 	}
-	await readNdjsonStream(response, onEvent);
+	await readNdjsonStream(response, onEvent, signal);
 }
 
 export async function streamPlaygroundTurn(
 	body: TurnRequestBody,
 	onEvent: (event: TurnEvent) => void,
+	signal?: AbortSignal,
 ): Promise<void> {
-	await postJsonNdjson('/api/playground/turn', body, onEvent, 'Turn failed');
+	await postJsonNdjson('/api/playground/turn', body, onEvent, 'Turn failed', signal);
 }
 
 export async function streamPlaygroundInvoke(
 	body: InvokeRequestBody,
 	onEvent: (event: TurnEvent) => void,
+	signal?: AbortSignal,
 ): Promise<void> {
-	await postJsonNdjson('/api/playground/invoke', body, onEvent, 'Invoke failed');
+	await postJsonNdjson('/api/playground/invoke', body, onEvent, 'Invoke failed', signal);
+}
+
+/** Push a steer inject into the active turn's server-side inbox. */
+export async function postPlaygroundSteer(args: {
+	turnId: string;
+	inject: TurnHistoryMessage[];
+}): Promise<void> {
+	const response = await fetch('/api/playground/turn/steer', {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify(args),
+	});
+	if (!response.ok) {
+		const payload = (await response.json()) as { error?: string };
+		throw new Error(payload.error ?? `Steer failed (${String(response.status)})`);
+	}
 }

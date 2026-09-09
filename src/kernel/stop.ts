@@ -7,7 +7,7 @@
  * @module
  */
 
-import type { TurnStopKind } from './schema.ts';
+import { CONTINUE_STOP_KINDS, type ContinueStopKind, type TurnStopKind } from './schema.ts';
 
 /** Normalized stop attached to terminal `done` events and host continue requests. */
 export interface TurnStop {
@@ -23,40 +23,64 @@ export interface TurnStop {
 export const CONTINUE_INSTRUCTION =
   'Continue and finish the incomplete output from the previous turn. Do not restart from scratch; preserve what was already generated and complete it.';
 
-/** Default kinds hosts may offer Continue for. */
-const DEFAULT_ALLOW_CONTINUE: readonly TurnStopKind[] = [
-  'length',
-  'stream_incomplete',
-  'provider_error',
-];
+/** Default kinds hosts may offer Continue for (= full ContinueStopKind set). */
+export const DEFAULT_ALLOW_CONTINUE: readonly ContinueStopKind[] = CONTINUE_STOP_KINDS;
 
 /**
  * Default kinds for one silent auto-continue (hosts wait briefly, then resume once).
- * User `cancelled` is never included.
+ * Never includes kinds outside ContinueStopKind (e.g. cancelled / tool / completed).
  */
-export const DEFAULT_AUTO_CONTINUE: readonly TurnStopKind[] = ['length', 'stream_incomplete'];
+export const DEFAULT_AUTO_CONTINUE: readonly ContinueStopKind[] = ['length', 'stream_incomplete'];
 
 /** Pause before the one-shot auto-continue so a flaky tunnel can settle. */
 export const AUTO_CONTINUE_DELAY_MS = 1_500;
 
-/** Profile turn-continuation policy under top-level `turnResumption`. */
+/** Profile turn-continuation policy under `turnBehaviour.resumption`. */
 export interface ProfileTurnResumptionSpec {
   /**
    * Kinds eligible for a Continue / continueFrom turn.
    * When omitted, length / stream_incomplete / provider_error are eligible.
+   * Only `ContinueStopKind` values are valid — not tool / cancelled / completed / …
    */
-  allowContinue?: TurnStopKind[];
+  allowContinue?: ContinueStopKind[];
   /**
    * Kinds the host may auto-continue without a CTA.
    * Kernel does not loop; hosts call continueFrom and pass `continuation`.
    */
-  autoContinue?: TurnStopKind[];
+  autoContinue?: ContinueStopKind[];
   /**
    * Max continueFrom rounds the kernel will accept for this profile.
    * Compared against `TurnRequest.continuation` (1-based continue attempt).
    * When omitted, only kind allowlists apply (no count cap).
    */
   maxContinues?: number;
+}
+
+const CONTINUE_KIND_SET = new Set<string>(CONTINUE_STOP_KINDS);
+
+/** True when `kind` may appear in allowContinue / autoContinue. */
+export function isContinueStopKind(kind: string): kind is ContinueStopKind {
+  return CONTINUE_KIND_SET.has(kind);
+}
+
+/**
+ * Mid-turn + resume policy for text / image / speech profiles.
+ *
+ * - `resumption` — continueFrom after a non-user stop (all three types).
+ * - `allowSteering` — inject at runner barriers; **text only**. Default true
+ *   when omitted on text. Image / speech ignore this flag.
+ *
+ * Stop / AbortSignal is not a profile knob — composer interfaces always
+ * project `canStop: true` because `TurnRequest.signal` is already wired.
+ */
+export interface ProfileTurnBehaviourSpec {
+  resumption?: ProfileTurnResumptionSpec;
+  /**
+   * When true (default on text), the runner emits `barrier` events and accepts
+   * `TurnRequest.onSteer` injects at `pre_llm` / `pre_tool_followup`. Does not
+   * imply durable join/absorb — only that barriers accept injects.
+   */
+  allowSteering?: boolean;
 }
 
 /** Partial state passed when continuing a resumeable stop. */
@@ -67,14 +91,15 @@ export interface TurnContinueFrom {
   partialArtifact?: string;
 }
 
-const RESUMEABLE_DEFAULT = new Set<TurnStopKind>(DEFAULT_ALLOW_CONTINUE);
+const RESUMEABLE_DEFAULT = new Set<ContinueStopKind>(DEFAULT_ALLOW_CONTINUE);
 
 /** True when this stop may be continued (profile allow list or default). */
 export function isResumeableStop(
   stop: TurnStop | undefined,
-  allowContinue?: readonly TurnStopKind[],
+  allowContinue?: readonly ContinueStopKind[],
 ): boolean {
   if (!stop) return false;
+  if (!isContinueStopKind(stop.kind)) return false;
   const allow = allowContinue?.length ? new Set(allowContinue) : RESUMEABLE_DEFAULT;
   return allow.has(stop.kind);
 }
@@ -87,12 +112,33 @@ export function isUserCancelledStop(stop: TurnStop | undefined): boolean {
 /** True when profile policy allows one silent auto-continue for this stop. */
 export function shouldAutoContinue(
   stop: TurnStop | undefined,
-  autoContinue: readonly TurnStopKind[] | undefined = DEFAULT_AUTO_CONTINUE,
+  autoContinue: readonly ContinueStopKind[] | undefined = DEFAULT_AUTO_CONTINUE,
 ): boolean {
-  if (!stop) return false;
+  if (!stop || !isContinueStopKind(stop.kind)) return false;
   const list = autoContinue ?? DEFAULT_AUTO_CONTINUE;
   if (list.length === 0) return false;
   return list.includes(stop.kind) && isResumeableStop(stop);
+}
+
+/** Read nested `turnBehaviour.resumption` from a non-live profile. */
+export function profileTurnResumption(profile: {
+  type: string;
+  turnBehaviour?: ProfileTurnBehaviourSpec;
+}): ProfileTurnResumptionSpec | undefined {
+  if (profile.type === 'live') return undefined;
+  return profile.turnBehaviour?.resumption;
+}
+
+/**
+ * Text profiles may steer at barriers unless `allowSteering: false`.
+ * Image / speech / live never steer via this path.
+ */
+export function profileAllowsSteering(profile: {
+  type: string;
+  turnBehaviour?: ProfileTurnBehaviourSpec;
+}): boolean {
+  if (profile.type !== 'text') return false;
+  return profile.turnBehaviour?.allowSteering !== false;
 }
 
 /** OpenAI-compatible normalized `finish_reason` (+ optional `native_finish_reason`). */

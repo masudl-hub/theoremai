@@ -66,6 +66,7 @@
     "@deno/dnt": "jsr:@deno/dnt@0.43.2"
   },
   "tasks": {
+    "guardrails:eval": "deno run --allow-net --allow-read --allow-write src/cli/index.ts guardrails-eval",
     "theorum": "deno run --allow-read --allow-write --allow-net src/cli/index.ts",
     "fuzz": "deno run --allow-read --allow-write --allow-net src/cli/index.ts fuzz",
     "fuzz-canary": "deno run --allow-read --allow-write --allow-net src/cli/index.ts fuzz-canary",

@@ -282,7 +282,14 @@ if (geminiKey) {
       key: 'slotA',
       tools: { allow: ['calculate_sum'] },
       inputs: { text: true },
-      turnResumption: { allowContinue: true, autoContinue: true, maxContinues: 2 },
+      turnBehaviour: {
+        resumption: {
+          allowContinue: ['length', 'stream_incomplete', 'provider_error'],
+          autoContinue: ['length', 'stream_incomplete'],
+          maxContinues: 2,
+        },
+        allowSteering: true,
+      },
     }) as TextProfile;
     registerProfile(profile);
 
@@ -337,7 +344,13 @@ if (geminiKey) {
       tools: { allow: [] },
       inputs: { text: true },
       outputs: { streaming: { mode: 'buffered' } },
-      turnResumption: { allowContinue: true, autoContinue: false, maxContinues: 3 },
+      turnBehaviour: {
+        resumption: {
+          allowContinue: ['length', 'stream_incomplete', 'provider_error'],
+          autoContinue: [],
+          maxContinues: 3,
+        },
+      },
     }) as TextProfile;
     registerProfile(profile);
 

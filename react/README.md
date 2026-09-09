@@ -13,8 +13,21 @@ No Svelte. The playground site (`theorum-frontend`) hosts a thin Vite SPA at `ap
 
 ```ts
 import { TheorumRunApp } from '@theorum/react';
-import { readPlaygroundRunPayload } from '@theorum/react/client';
+import {
+  createPlaygroundRunId,
+  savePlaygroundRunPayload,
+  loadPlaygroundRunPayload,
+  readPlaygroundRunIdFromUrl,
+} from '@theorum/react/client';
 ```
+
+## Run handoff
+
+1. Playground compiles the graph, calls `createPlaygroundRunId()`, and
+   `savePlaygroundRunPayload(payload, runId)` (keyed localStorage).
+2. Opens `/playground/run/?run=<runId>` in a new tab.
+3. `TheorumRunApp` reads `?run=`, loads that key, and **keeps** it (refresh-safe).
+4. A new Run creates a new id. Storage retains at most 8 runs (oldest pruned).
 
 ## Local layout
 
@@ -24,3 +37,16 @@ Development/
     react/
   theorum-frontend/  # site; apps/run consumes file:../theorum/react
 ```
+
+## Composer pending intents
+
+`theorum/interface` owns stash / queue / steer list ops and the action matrix.
+This package wires AbortSignal, the pending bar, and playground turn/steer HTTP.
+
+| Phase | Empty composer | Filled composer |
+| --- | --- | --- |
+| idle | disabled | Send (+ Stash menu) |
+| streaming | Stop | Queue (+ Steer / Send now / Stash) |
+| paused | disabled | Queue (+ Send now / Stash; no Steer) |
+
+Enter matches the primary action. No keyboard shortcuts for stash/steer.

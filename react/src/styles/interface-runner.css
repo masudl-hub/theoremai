@@ -743,6 +743,173 @@
 	gap: 0.15rem;
 }
 
+.iface-composer__send-group {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	gap: 0;
+}
+
+.iface-composer__send--labeled {
+	width: auto;
+	min-width: 2.25rem;
+	padding: 0 0.45rem;
+	gap: 0.25rem;
+}
+
+.iface-composer__send-label {
+	font-family: var(--font-mono);
+	font-size: var(--iface-type-floor);
+	font-weight: 700;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+}
+
+.iface-composer__send-menu {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 1.35rem;
+	height: 2.25rem;
+	padding: 0;
+	color: var(--color-ink);
+	background: transparent;
+	border: none;
+	cursor: pointer;
+	opacity: 0.45;
+	transition: opacity var(--iface-duration) var(--iface-ease);
+}
+
+.iface-composer__send-menu:hover,
+.iface-composer__send-menu:focus-visible {
+	opacity: 1;
+}
+
+.iface-composer__send-menu:focus-visible {
+	outline: 1.5px solid var(--color-ink);
+	outline-offset: 2px;
+}
+
+.iface-composer__menu {
+	position: absolute;
+	right: 0;
+	bottom: calc(100% + 0.35rem);
+	z-index: 20;
+	display: flex;
+	flex-direction: column;
+	gap: 0.15rem;
+	min-width: 13.5rem;
+	margin: 0;
+	padding: 0.35rem;
+	list-style: none;
+	background: var(--color-paper, #fff);
+	border: 1px solid color-mix(in srgb, var(--color-ink) 14%, transparent);
+	box-shadow: 0 8px 24px color-mix(in srgb, var(--color-ink) 12%, transparent);
+}
+
+.iface-composer__menu-item {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 0.1rem;
+	width: 100%;
+	padding: 0.45rem 0.5rem;
+	text-align: left;
+	color: var(--color-ink);
+	background: transparent;
+	border: none;
+	cursor: pointer;
+}
+
+.iface-composer__menu-item:hover,
+.iface-composer__menu-item:focus-visible {
+	background: color-mix(in srgb, var(--color-ink) 6%, transparent);
+}
+
+.iface-composer__menu-label {
+	font-family: var(--font-mono);
+	font-size: 0.72rem;
+	font-weight: 700;
+	letter-spacing: 0.04em;
+}
+
+.iface-composer__menu-desc {
+	font-size: 0.68rem;
+	line-height: 1.3;
+	color: var(--color-mute);
+}
+
+.iface-pending {
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+	margin: 0 0 0.35rem;
+	padding: 0;
+	list-style: none;
+}
+
+.iface-pending__row {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 0.4rem;
+	padding: 0.35rem 0.45rem;
+	background: color-mix(in srgb, var(--color-ink) 4%, transparent);
+	border: 1px solid color-mix(in srgb, var(--color-ink) 10%, transparent);
+}
+
+.iface-pending__kind {
+	font-family: var(--font-mono);
+	font-size: 0.62rem;
+	font-weight: 800;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--color-mute);
+}
+
+.iface-pending__kind--steer {
+	color: var(--color-ink);
+}
+
+.iface-pending__preview {
+	min-width: 0;
+	overflow: hidden;
+	padding: 0;
+	font-size: 0.78rem;
+	line-height: 1.3;
+	text-align: left;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--color-ink);
+	background: transparent;
+	border: none;
+	cursor: pointer;
+}
+
+.iface-pending__actions {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.05rem;
+}
+
+.iface-pending__btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 1.5rem;
+	height: 1.5rem;
+	padding: 0;
+	color: var(--color-mute);
+	background: transparent;
+	border: none;
+	cursor: pointer;
+}
+
+.iface-pending__btn:hover,
+.iface-pending__btn:focus-visible {
+	color: var(--color-ink);
+}
+
 .iface-composer__inner--collapsed .iface-composer__actions {
 	grid-column: 3;
 	grid-row: 1;
@@ -887,6 +1054,15 @@
 	background: rgba(0, 0, 0, 0.03);
 }
 
+.iface-msg__video {
+	display: block;
+	max-width: min(100%, 24rem);
+	max-height: 16rem;
+	margin-top: 0.25rem;
+	border: 1px solid rgba(0, 0, 0, 0.1);
+	background: rgba(0, 0, 0, 0.03);
+}
+
 .iface-voice-player {
 	display: block;
 	width: 16rem;
@@ -968,6 +1144,7 @@
 }
 
 .iface-inline-error {
+	position: relative;
 	margin: 0 0 0.45rem;
 	padding: 0.45rem 0.55rem;
 	font-size: 0.72rem;
@@ -975,6 +1152,43 @@
 	color: #8b0000;
 	background: rgba(139, 0, 0, 0.06);
 	border: 1px solid rgba(139, 0, 0, 0.18);
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.iface-inline-error__public {
+	margin: 0;
+}
+
+.iface-inline-error__internal {
+	display: none;
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: calc(100% + 0.35rem);
+	z-index: 8;
+	margin: 0;
+	max-height: 12rem;
+	overflow: auto;
+	padding: 0.45rem 0.55rem;
+	font-family: var(--font-mono, ui-monospace, monospace);
+	font-size: 0.65rem;
+	font-weight: 500;
+	line-height: 1.4;
+	white-space: pre-wrap;
+	word-break: break-word;
+	color: var(--color-paper, #f4f1ea);
+	background: var(--color-ink, #111);
+	border: 1px solid rgba(0, 0, 0, 0.35);
+}
+
+.iface-inline-error--detail {
+	cursor: help;
+}
+
+.iface-inline-error--detail:hover .iface-inline-error__internal,
+.iface-inline-error--detail:focus-within .iface-inline-error__internal {
+	display: block;
 }
 
 .iface-trace {
@@ -1025,6 +1239,34 @@
 
 .iface-trace__chevron--open {
 	transform: rotate(90deg);
+}
+
+/* Trace list + per-tool exchange: same Orchid ease as the rest of the runner. */
+.iface-trace__disclosure,
+.iface-trace__exchange {
+	display: grid;
+	grid-template-rows: 0fr;
+	opacity: 0;
+	transition:
+		grid-template-rows var(--iface-duration) var(--iface-ease),
+		opacity var(--iface-duration) var(--iface-ease);
+}
+
+.iface-trace__disclosure--open,
+.iface-trace__exchange--open {
+	grid-template-rows: 1fr;
+	opacity: 1;
+}
+
+.iface-trace__disclosure:not(.iface-trace__disclosure--open),
+.iface-trace__exchange:not(.iface-trace__exchange--open) {
+	pointer-events: none;
+}
+
+.iface-trace__disclosure-clip,
+.iface-trace__exchange-clip {
+	min-height: 0;
+	overflow: hidden;
 }
 
 .iface-trace__list {
@@ -1081,7 +1323,7 @@
 	font-weight: 500;
 }
 
-.iface-trace__exchange {
+.iface-trace__exchange-clip {
 	display: flex;
 	flex-direction: column;
 	gap: 0.45rem;
@@ -1338,7 +1580,9 @@ a.iface-sources__chip:hover {
 	.iface-transcript__item,
 	.iface-msg--streaming .iface-msg__bubble:last-of-type::after,
 	.iface-md--streaming > :last-child::after,
-	.iface-trace__chevron {
+	.iface-trace__chevron,
+	.iface-trace__disclosure,
+	.iface-trace__exchange {
 		transition: none;
 		animation: none;
 	}

@@ -13,6 +13,7 @@ import type { PlaygroundRunPayload } from './run-payload';
 import {
 	buildTurnRequestBody,
 	foldAssistantTurn,
+	isPlaygroundStreamError,
 	streamPlaygroundTurn,
 	turnInputFromSession,
 } from './turn-client';
@@ -117,7 +118,7 @@ export async function continueAfterTool(args: {
 	seedEvents: TurnEvent[];
 }): Promise<
 	| { ok: true; session: InterfaceTurnSession; assistantBlocks: TranscriptBlock[] }
-	| { ok: false; error: string }
+	| { ok: false; error: string; errorInternal?: string }
 > {
 	const seedLength = args.seedEvents.length;
 	try {
@@ -146,6 +147,13 @@ export async function continueAfterTool(args: {
 			assistantBlocks: foldAssistantTurn(args.iface, events),
 		};
 	} catch (err) {
+		if (isPlaygroundStreamError(err)) {
+			return {
+				ok: false,
+				error: err.publicMessage,
+				...(err.internalMessage ? { errorInternal: err.internalMessage } : {}),
+			};
+		}
 		const message = err instanceof Error ? err.message : String(err);
 		return { ok: false, error: message };
 	}

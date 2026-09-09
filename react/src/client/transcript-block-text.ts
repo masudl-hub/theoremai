@@ -24,7 +24,9 @@ export function transcriptBlockCopyText(block: TranscriptBlock): string {
 		case 'structured':
 			return JSON.stringify(block.value, null, 2);
 		case 'media':
-			return `[${block.mimeType} media]`;
+			return block.url !== undefined
+				? block.url
+				: `[${block.mimeType} media]`;
 		case 'grounding':
 			return JSON.stringify(block.grounding, null, 2);
 		case 'evidence':

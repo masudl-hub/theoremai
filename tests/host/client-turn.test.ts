@@ -71,3 +71,26 @@ Deno.test('forClientEvents maps an entire batch', () => {
   assertEquals(out[0]?.text, 'hi');
   assertEquals(out[1]?.errorInternal, undefined);
 });
+
+Deno.test('forClient strips GuardrailHit.match even when present', () => {
+  const event: TurnEvent = {
+    type: 'guardrail',
+    guardrail: {
+      stage: 'input',
+      trust: 'untrusted',
+      action: 'redact',
+      hits: [
+        {
+          rule: 'sanitize.injection',
+          severity: 'high',
+          span: { start: 0, end: 10 },
+          match: 'ignore all',
+        },
+      ],
+    },
+  };
+  const client = forClient(event);
+  assertEquals(client.guardrail?.hits[0]?.rule, 'sanitize.injection');
+  assertEquals(client.guardrail?.hits[0]?.match, undefined);
+  assertEquals(Object.hasOwn(client.guardrail?.hits[0] ?? {}, 'match'), false);
+});

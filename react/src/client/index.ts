@@ -24,21 +24,35 @@ export type {
 } from './registrations';
 export {
 	clearPlaygroundRunPayload,
+	createPlaygroundRunId,
 	loadPlaygroundRunPayload,
+	PLAYGROUND_RUN_INDEX_KEY,
+	PLAYGROUND_RUN_PAYLOAD_CAP,
 	PLAYGROUND_RUN_PAYLOAD_KEY,
+	PLAYGROUND_RUN_PAYLOAD_KEY_PREFIX,
+	type PlaygroundRunIndex,
+	type PlaygroundRunIndexEntry,
 	type PlaygroundRunPayload,
+	playgroundRunPayloadKey,
+	readPlaygroundRunIdFromUrl,
 	savePlaygroundRunPayload,
+	upsertPlaygroundRunIndex,
 } from './run-payload';
 export {
 	applyTurnResultToTranscript,
 	resumeInterfaceTool,
+	streamInterfaceDraftTurn,
 	streamInterfaceTurn,
 } from './run-session';
 export type { ToolDecisionAction, ToolPauseResolution } from './tool-resume';
 export {
 	buildInvokeRequestBody,
 	buildTurnRequestBody,
+	isPlaygroundStreamError,
+	PlaygroundStreamError,
+	postPlaygroundSteer,
 	streamPlaygroundInvoke,
 	streamPlaygroundTurn,
 	turnInputFromSession,
 } from './turn-client';
+export { encodeComposerDraft } from './encode-composer-draft';

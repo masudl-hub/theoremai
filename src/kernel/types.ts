@@ -11,7 +11,7 @@
 import type {
   CompactionMeter,
   CompactionTiming,
-  EgressOnBlock,
+  ContinueStopKind,
   FieldMeta,
   KeySlot,
   KeyVault,
@@ -31,6 +31,7 @@ import type {
   SummaryMode,
   ThinkingLevel,
   ToolLoadTier,
+  TurnSteerBarrier,
   TurnStopKind,
 } from './schema.ts';
 import type {
@@ -48,7 +49,7 @@ import type {
 export type {
   CompactionMeter,
   CompactionTiming,
-  EgressOnBlock,
+  ContinueStopKind,
   FieldMeta,
   InvokeToolRequest,
   KeySlot,
@@ -75,6 +76,7 @@ export type {
   ToolLoadContext,
   ToolLoadTier,
   ToolPolicy,
+  TurnSteerBarrier,
   TurnStopKind,
   TurnToolSnapshot,
   WireFunctionTool,
@@ -129,6 +131,8 @@ export type TurnEventType =
   | 'evidence'
   | 'tokens'
   | 'session'
+  | 'guardrail'
+  | 'barrier'
   | 'done'
   | 'error';
 
@@ -376,53 +380,17 @@ export interface ProfileStreamingSpec {
   streamThoughts?: boolean;
 }
 
-export type { ProfileTurnResumptionSpec, TurnContinueFrom, TurnStop } from './stop.ts';
+export type {
+  ProfileTurnBehaviourSpec,
+  ProfileTurnResumptionSpec,
+  TurnContinueFrom,
+  TurnStop,
+} from './stop.ts';
 
-import type { NetworkGuardrailSpec } from '../guardrails/network.ts';
+import type { GuardrailEvent, ProfileGuardrailsSpec } from '../guardrails/types.ts';
+import type { ProfileObservabilitySpec } from '../observability/types.ts';
 import type { ToolCredential } from './auth/types.ts';
-import type { ProfileTurnResumptionSpec, TurnContinueFrom, TurnStop } from './stop.ts';
-
-/** Context passed to a host-owned outbound disclosure guard. */
-export interface EgressContext {
-  text: string;
-  canary?: string;
-  slots?: Record<string, string>;
-  profile: Profile;
-  role?: string;
-}
-
-/** Decision returned by an egress guard. */
-export interface EgressEnforcementResult {
-  blocked: boolean;
-  text: string;
-  hits?: string[];
-  rejectionMessage?: string | null;
-}
-
-/** Function that evaluates candidate user-visible output before release. */
-export type EgressEnforcer = (
-  context: EgressContext,
-) => EgressEnforcementResult | Promise<EgressEnforcementResult>;
-
-/** Profile egress policy for rejection, retry, or refusal behavior. */
-export interface ProfileEgressSpec {
-  enforce: EgressEnforcer;
-  onBlock?: EgressOnBlock;
-  maxRetries?: number;
-  repairGuidance?: string;
-}
-
-/** Profile guardrail switches enforced by the kernel. */
-export interface ProfileGuardrailsSpec {
-  /** Optional daily turn quota; omitted means quota enforcement is not configured. */
-  quota?: { perDay: number };
-  canary?: boolean;
-  sanitizeInput?: boolean;
-  redactSensitive?: boolean;
-  egress?: ProfileEgressSpec;
-  /** SSRF and network access policies for HTTP and MCP tools. */
-  network?: NetworkGuardrailSpec;
-}
+import type { ProfileTurnBehaviourSpec, TurnContinueFrom, TurnStop } from './stop.ts';
 
 /** Model routing fields shared by every profile type. */
 export interface ProfileModelFields {
@@ -477,6 +445,7 @@ export interface ProfileCommon {
   key?: OverflowKeySlot;
   outputs?: ProfileOutputsSpec;
   guardrails?: ProfileGuardrailsSpec;
+  observability?: ProfileObservabilitySpec;
 }
 
 /** Text / structured turn engine with optional tool execution. */
@@ -484,7 +453,8 @@ export interface TextProfile extends ProfileCommon {
   type: 'text';
   tools: ProfileToolsSpec;
   inputs: ProfileInputsSpec;
-  turnResumption?: ProfileTurnResumptionSpec;
+  /** Resume + mid-turn steering policy. */
+  turnBehaviour?: ProfileTurnBehaviourSpec;
 }
 
 /** Image-generation primary role. */
@@ -493,14 +463,16 @@ export interface ImageProfile extends ProfileCommon {
   image: ProfileImageSpec;
   tools: ProfileToolsSpec;
   inputs: ProfileInputsSpec;
-  turnResumption?: ProfileTurnResumptionSpec;
+  /** Resume policy (`allowSteering` is ignored — text only). */
+  turnBehaviour?: ProfileTurnBehaviourSpec;
 }
 
 /** Unary TTS — text-in locked by type; no tools / inputs block. */
 export interface SpeechProfile extends ProfileCommon {
   type: 'speech';
   speech: ProfileSpeechSpec;
-  turnResumption?: ProfileTurnResumptionSpec;
+  /** Resume policy (`allowSteering` is ignored — text only). */
+  turnBehaviour?: ProfileTurnBehaviourSpec;
 }
 
 /** Bidirectional live session. */
@@ -598,6 +570,28 @@ export interface TurnInput {
   sessionResumptionHandle?: string;
 }
 
+/** Context passed to `TurnRequest.onSteer` at a runner barrier. */
+export interface TurnSteerContext {
+  barrier: TurnSteerBarrier;
+  /** 1-based step count about to run (provider call). */
+  step: number;
+  /** Current turn history (read-only snapshot). */
+  history: readonly TurnHistoryMessage[];
+}
+
+/** Host response from `onSteer` — messages appended before the next provider call. */
+export interface TurnSteerResult {
+  inject?: TurnHistoryMessage[];
+}
+
+/**
+ * Host mid-turn inject hook. Invoked only when `profileAllowsSteering(profile)`.
+ * In-process only — not serializable over HTTP.
+ */
+export type TurnSteerHandler = (
+  ctx: TurnSteerContext,
+) => TurnSteerResult | undefined | Promise<TurnSteerResult | undefined>;
+
 /** Host request after kernel ingress normalization. */
 export type NormalizedTurnRequest = TurnRequest & { input: TurnInput };
 
@@ -640,7 +634,7 @@ export interface TurnRequest {
   continueFrom?: TurnContinueFrom;
   /**
    * 1-based continue attempt when `continueFrom` is set.
-   * Compared to `profile.turnResumption.maxContinues` when that cap is set.
+   * Compared to `profile.turnBehaviour.resumption.maxContinues` when that cap is set.
    */
   continuation?: number;
   input?: TurnInput;
@@ -650,6 +644,11 @@ export interface TurnRequest {
   sessionResumptionHandle?: string;
   /** Host credentials for authenticated HTTP / MCP tools keyed by auth slot. */
   credentials?: Record<string, ToolCredential>;
+  /**
+   * Mid-turn steering hook. Called at `pre_llm` / `pre_tool_followup` when the
+   * profile allows steering. Emit is always a `barrier` stream event first.
+   */
+  onSteer?: TurnSteerHandler;
 }
 
 /** Safe profile projection suitable for UI or host inspection. */
@@ -820,6 +819,8 @@ export interface TurnEvent {
   grounding?: GroundingEvent;
   evidence?: ProviderEvidenceEvent;
   session?: SessionEvent;
+  /** Guardrail decision for this turn — rule identity and offsets, never content. */
+  guardrail?: GuardrailEvent;
   tokens?: TurnTokens;
   interactionId?: string;
   /** Session resumption handle updated during live sessions. */
@@ -839,6 +840,8 @@ export interface TurnEvent {
    * Hosts pass this to `invokeTool({ snapshot })` so T1/T2 resume matches the paused turn.
    */
   tools?: TurnToolSnapshot;
+  /** Steer barrier name when `type === 'barrier'`. */
+  barrier?: TurnSteerBarrier;
 }
 
 /**

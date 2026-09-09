@@ -8,9 +8,10 @@ import {
   processLiveOutboundBatch,
 } from '../../src/guardrails/live-outbound-gate.ts';
 import { DEFAULT_HOLDBACK } from '../../src/guardrails/progressive-yield.ts';
+import type { EgressEnforcer, Verdict } from '../../src/guardrails/types.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile, getProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
-import type { EgressContext, EgressEnforcementResult, TurnEvent } from '../../src/kernel/types.ts';
+import type { TurnEvent } from '../../src/kernel/types.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -25,7 +26,7 @@ function session(canary?: string) {
 
 function egressProfile(
   id: string,
-  enforce: (ctx: EgressContext) => EgressEnforcementResult,
+  enforce: EgressEnforcer,
   extras: { onBlock?: 'refuse_to_user'; canary?: boolean } = {},
 ) {
   registerProfile(
@@ -49,8 +50,18 @@ function egressProfile(
   return getProfile(id);
 }
 
-function passEnforce(ctx: EgressContext): EgressEnforcementResult {
-  return { blocked: false, text: ctx.text };
+function passEnforce(): Verdict {
+  return { action: 'allow' };
+}
+
+/** Blocking verdict with an optional user-facing refusal. */
+function blockVerdict(rule: string, refusal?: string): Verdict {
+  return {
+    action: 'block',
+    hits: [{ rule, severity: 'high' }],
+    rejection: 'blocked',
+    ...(refusal ? { refusal } : {}),
+  };
 }
 
 // ── createLiveOutboundGateSession ─────────────────────────────────────────────
@@ -58,13 +69,13 @@ function passEnforce(ctx: EgressContext): EgressEnforcementResult {
 Deno.test('createLiveOutboundGateSession: canary gate is null when no canary supplied', () => {
   const s = session();
   assertEquals(s.gate, null);
-  assertEquals(s.canary, undefined);
+  assertEquals(s.context.canary, undefined);
 });
 
 Deno.test('createLiveOutboundGateSession: gate is created when canary is supplied', () => {
   const canary = mintCanary();
   const s = session(canary);
-  assertEquals(s.canary, canary);
+  assertEquals(s.context.canary, canary);
   assertEquals(s.gate !== null, true);
 });
 
@@ -149,9 +160,9 @@ Deno.test('processLiveOutboundBatch withholds when non-stream event follows a pe
 
 Deno.test('processLiveOutboundBatch holds short text in lookback under egress.enforce', async () => {
   let enforced = false;
-  const profile = egressProfile('live_egress_hold', (ctx) => {
+  const profile = egressProfile('live_egress_hold', () => {
     enforced = true;
-    return { blocked: false, text: ctx.text };
+    return { action: 'allow' };
   });
   const s = createLiveOutboundGateSession(profile);
   assertEquals(s.gate !== null, true);
@@ -209,15 +220,14 @@ Deno.test('processLiveOutboundBatch emits transcription evidence immediately und
 });
 
 Deno.test('finalizeLiveOutboundTurn withholds when egress.enforce blocks', async () => {
-  const profile = egressProfile('live_egress_block', () => ({
-    blocked: true,
-    text: '',
-    hits: ['injection_echo'],
-    rejectionMessage: 'blocked',
-  }));
+  const profile = egressProfile('live_egress_block', () => blockVerdict('egress.injection-echo'));
   const s = createLiveOutboundGateSession(profile, mintCanary());
   const mid = await processLiveOutboundBatch(s, [{ type: 'text', text: 'hello' }]);
-  assertEquals(mid.action, 'idle');
+  assertEquals(mid.action, 'emit');
+  if (mid.action === 'emit') {
+    assertEquals(mid.events[0]?.type, 'guardrail');
+    assertEquals(mid.events[0]?.guardrail?.stage, 'live_outbound');
+  }
   assertEquals(s.withholdVisible, true);
   const result = await finalizeLiveOutboundTurn(s);
   assertEquals(result.action, 'withhold');
@@ -229,12 +239,7 @@ Deno.test('finalizeLiveOutboundTurn withholds when egress.enforce blocks', async
 Deno.test('finalizeLiveOutboundTurn emits refuse_to_user text when onBlock is set', async () => {
   const profile = egressProfile(
     'live_egress_refuse',
-    () => ({
-      blocked: true,
-      text: 'That reply was blocked.',
-      hits: ['canary'],
-      rejectionMessage: 'blocked',
-    }),
+    () => blockVerdict('egress.canary-leak', 'That reply was blocked.'),
     { onBlock: 'refuse_to_user' },
   );
   const s = createLiveOutboundGateSession(profile, mintCanary());
@@ -243,19 +248,19 @@ Deno.test('finalizeLiveOutboundTurn emits refuse_to_user text when onBlock is se
   const result = await finalizeLiveOutboundTurn(s);
   assertEquals(result.action, 'emit');
   if (result.action === 'emit') {
-    assertEquals(result.events[0]?.text, 'That reply was blocked.');
+    const refusal = result.events.find((e) => e.type === 'text');
+    assertEquals(refusal?.text, 'That reply was blocked.');
+    assertEquals(
+      result.events.some((e) => e.type === 'guardrail'),
+      true,
+    );
   }
 });
 
 Deno.test('finalizeLiveOutboundTurn emits refuse_to_user for non-canary egress hits', async () => {
   const profile = egressProfile(
     'live_egress_refuse_inj',
-    () => ({
-      blocked: true,
-      text: 'That reply was blocked.',
-      hits: ['injection_echo'],
-      rejectionMessage: 'blocked',
-    }),
+    () => blockVerdict('egress.injection-echo', 'That reply was blocked.'),
     { onBlock: 'refuse_to_user' },
   );
   const s = createLiveOutboundGateSession(profile);
@@ -264,7 +269,8 @@ Deno.test('finalizeLiveOutboundTurn emits refuse_to_user for non-canary egress h
   const result = await finalizeLiveOutboundTurn(s);
   assertEquals(result.action, 'emit');
   if (result.action === 'emit') {
-    assertEquals(result.events[0]?.text, 'That reply was blocked.');
+    const refusal = result.events.find((e) => e.type === 'text');
+    assertEquals(refusal?.text, 'That reply was blocked.');
   }
 });
 
@@ -347,13 +353,13 @@ Deno.test('createLiveOutboundGateSession with canary=false profile ignores provi
   const profile = getProfile('live_canary_disabled');
   const s = createLiveOutboundGateSession(profile, mintCanary());
   assertEquals(s.gate, null);
-  assertEquals(s.canary, undefined);
+  assertEquals(s.context.canary, undefined);
 });
 
 Deno.test('createLiveOutboundGateSession with canary=true profile but no canary string leaves gate null', () => {
   const s = session();
   assertEquals(s.gate, null);
-  assertEquals(s.canary, undefined);
+  assertEquals(s.context.canary, undefined);
 });
 
 Deno.test('finalizeLiveOutboundTurn is idle when gate is null', async () => {
@@ -383,13 +389,30 @@ Deno.test('finalizeLiveOutboundTurn emits lookback text when enforce passes', as
   }
 });
 
+Deno.test('finalizeLiveOutboundTurn emits redact text in place of the model output', async () => {
+  const profile = egressProfile(
+    'live_egress_redact',
+    (): Verdict => ({
+      action: 'redact',
+      text: 'Rewritten for release.',
+      hits: [{ rule: 'egress.injection-echo', severity: 'medium' }],
+    }),
+  );
+  const s = createLiveOutboundGateSession(profile);
+  await processLiveOutboundBatch(s, [{ type: 'text', text: 'raw model prose' }]);
+  const result = await finalizeLiveOutboundTurn(s);
+  assertEquals(result.action, 'emit');
+  if (result.action === 'emit') {
+    const rewritten = result.events.find((e) => e.type === 'text');
+    assertEquals(rewritten?.text, 'Rewritten for release.');
+  }
+});
+
 Deno.test('finalizeLiveOutboundTurn onBlock defaults to withhold for non-canary hits', async () => {
-  const profile = egressProfile('live_refuse_both_parts', () => ({
-    blocked: true,
-    text: 'should not be shown',
-    hits: ['injection_echo'],
-    rejectionMessage: 'blocked',
-  }));
+  // No `refusal` on the verdict: onBlock has nothing to show, so the turn is withheld.
+  const profile = egressProfile('live_refuse_both_parts', () =>
+    blockVerdict('egress.injection-echo'),
+  );
   const s = createLiveOutboundGateSession(profile, mintCanary());
   await processLiveOutboundBatch(s, [{ type: 'text', text: 'partial' }]);
   const result = await finalizeLiveOutboundTurn(s);
@@ -462,9 +485,10 @@ Deno.test('finalizeLiveOutboundTurn is idle when egress gate has nothing buffere
 });
 
 Deno.test('finalizeLiveOutboundTurn passes accumulated text to egress enforce ctx', async () => {
-  const profile = egressProfile('live_egress_ctx_verify', (ctx) => {
-    if (typeof ctx.text !== 'string') throw new Error('ctx.text missing');
-    return { blocked: false, text: ctx.text };
+  const profile = egressProfile('live_egress_ctx_verify', (payload, context) => {
+    if (typeof payload.text !== 'string') throw new Error('payload.text missing');
+    if (context.stage !== 'live_outbound') throw new Error('unexpected stage');
+    return { action: 'allow' };
   });
   const s = createLiveOutboundGateSession(profile);
   await processLiveOutboundBatch(s, [{ type: 'text', text: 'response content' }]);

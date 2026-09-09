@@ -95,6 +95,38 @@
 	opacity: 0.9;
 }
 
+.ink-tooltip {
+	position: relative;
+	display: inline-flex;
+}
+
+.ink-tooltip__label {
+	position: absolute;
+	left: 50%;
+	z-index: 6;
+	padding: 0.28rem 0.45rem;
+	font-family: var(--font-mono, ui-monospace, monospace);
+	font-size: 0.62rem;
+	font-weight: 700;
+	letter-spacing: 0.08em;
+	line-height: 1.2;
+	text-transform: lowercase;
+	white-space: nowrap;
+	color: var(--color-paper, #f4f1ea);
+	background: var(--color-ink, #111);
+	border-radius: 0;
+	pointer-events: none;
+	transform: translateX(-50%);
+}
+
+.ink-tooltip__label--top {
+	bottom: calc(100% + 0.45rem);
+}
+
+.ink-tooltip__label--bottom {
+	top: calc(100% + 0.45rem);
+}
+
 @media (prefers-reduced-motion: reduce) {
 	.ink-control {
 		transition: none;

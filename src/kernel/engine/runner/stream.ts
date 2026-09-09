@@ -1,9 +1,18 @@
 import { eventHasCanary, isStreamedCanaryEvent, redactCanary } from '../../../guardrails/canary.ts';
+import { EGRESS_RULES } from '../../../guardrails/egress.ts';
 import { publicError, throwIfAborted, toErrorEvent } from '../../../guardrails/error.ts';
+import { guardrailFromHits } from '../../../guardrails/events.ts';
+import { detectionForTrust, resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import {
   createOutboundProgressiveGate,
   type ProgressiveYieldGate,
 } from '../../../guardrails/progressive-yield.ts';
+import { sanitizeText } from '../../../guardrails/sanitize.ts';
+import type {
+  GuardrailContext,
+  GuardrailHit,
+  ResolvedGuardrailPolicy,
+} from '../../../guardrails/types.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
 import { providerCompleteRequest } from '../../registry/provider-request.ts';
 import type { ModelProvider, Profile, ResolvedGeneration, TurnEvent } from '../../types.ts';
@@ -14,19 +23,24 @@ interface OutboundStreamControl {
   withholdVisible: boolean;
 }
 
+/**
+ * Author-time system text for a role.
+ *
+ * Routed through the guardrail policy at `trust: 'trusted'` so the exemption is
+ * declared at the point it applies rather than implied by never calling the
+ * sanitizer. Trusted resolves to no detection, so the text reaches the provider
+ * verbatim — `req.system`, which the host assembles per turn, is handled as
+ * `assembled` in `sanitizeTurnRequest` and is not exempt.
+ */
 function systemFromProfile(profile: Profile, role: string): string {
   const { identity } = profile;
   const { systemByRole, system } = identity;
-  if (systemByRole) {
-    const byRole = systemByRole[role];
-    if (byRole) {
-      return byRole;
-    }
+  const text = systemByRole?.[role] || system || '';
+  if (!text) {
+    return '';
   }
-  if (system) {
-    return system;
-  }
-  return '';
+  const policy = resolveGuardrailPolicy(profile.guardrails);
+  return sanitizeText(text, detectionForTrust(policy, 'trusted'));
 }
 
 function shouldSkipStreamEvent(event: TurnEvent, profile: Profile): boolean {
@@ -49,16 +63,36 @@ function* processNormalEvent(event: TurnEvent): Generator<TurnEvent> {
 }
 
 function* yieldCanaryLeak(canary: string, event: TurnEvent): Generator<TurnEvent> {
+  const guardrail = guardrailFromHits(
+    'output_delta',
+    'untrusted',
+    [{ rule: EGRESS_RULES.canary, severity: 'high', match: '[canary]' }],
+    'block',
+  );
+  if (guardrail) {
+    yield guardrail;
+  }
   yield redactCanary(event, canary);
   yield toErrorEvent('canary leaked');
+}
+
+function* yieldDeltaBlock(hits: GuardrailHit[]): Generator<TurnEvent> {
+  const guardrail = guardrailFromHits('output_delta', 'untrusted', hits, 'block');
+  if (guardrail) {
+    yield guardrail;
+  }
 }
 
 function isHostVisible(event: TurnEvent): boolean {
   return event.type === 'text' || event.type === 'thought' || event.type === 'media';
 }
 
-function canaryOnlyImmediateStop(profile: Profile): boolean {
-  return !profile.guardrails?.egress?.enforce;
+function canaryOnlyImmediateStop(policy: ResolvedGuardrailPolicy): boolean {
+  return !policy.egress?.enforce;
+}
+
+function hasCanaryHit(hits: GuardrailHit[]): boolean {
+  return hits.some((hit) => hit.rule === EGRESS_RULES.canary);
 }
 
 async function* yieldProviderEvents(args: {
@@ -72,7 +106,14 @@ async function* yieldProviderEvents(args: {
 }): AsyncGenerator<TurnEvent> {
   const { profile, generation, system, provider, upstream, signal, control } = args;
   const { canary } = generation;
-  const gate: ProgressiveYieldGate | null = createOutboundProgressiveGate(profile, canary);
+  const policy = resolveGuardrailPolicy(profile.guardrails);
+  const context: GuardrailContext = {
+    stage: 'output_final',
+    trust: 'untrusted',
+    profileId: profile.id,
+    ...(canary ? { canary } : {}),
+  };
+  const gate: ProgressiveYieldGate | null = createOutboundProgressiveGate(policy, context);
   let lastStreamType: 'text' | 'thought' | undefined;
   let withholdVisible = false;
 
@@ -93,14 +134,15 @@ async function* yieldProviderEvents(args: {
     const result = await gate.flush();
     lastStreamType = undefined;
     if (result.blocked) {
-      if (result.hits.includes('canary') && canary && canaryOnlyImmediateStop(profile)) {
+      if (hasCanaryHit(result.hits) && canary && canaryOnlyImmediateStop(policy)) {
         yield* yieldCanaryLeak(canary, { type: emitType, text: gate.accumulated() });
         return 'stop';
       }
+      yield* yieldDeltaBlock(result.hits);
       // Arm withhold before recording the unreleased tail so the step runner
       // does not forward that text to the host.
       armWithhold();
-      const tail = gate.unreleased();
+      const tail = gate.drainUnreleased();
       if (tail) yield { type: 'text', text: tail };
       return 'pass';
     }
@@ -131,12 +173,13 @@ async function* yieldProviderEvents(args: {
     lastStreamType = event.type;
     const result = await gate.process(event.text ?? '');
     if (result.blocked) {
-      if (result.hits.includes('canary') && canary && canaryOnlyImmediateStop(profile)) {
+      if (hasCanaryHit(result.hits) && canary && canaryOnlyImmediateStop(policy)) {
         yield* yieldCanaryLeak(canary, event);
         return 'stop';
       }
+      yield* yieldDeltaBlock(result.hits);
       armWithhold();
-      const tail = gate.unreleased();
+      const tail = gate.drainUnreleased();
       if (tail) yield { type: 'text', text: tail };
       return 'continue';
     }

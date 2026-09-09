@@ -1,7 +1,9 @@
 import {
+	IconChevronUp,
 	IconLoader2,
 	IconMicrophone,
 	IconMicrophoneOff,
+	IconPlayerStop,
 	IconPlus,
 	IconSend,
 } from '@tabler/icons-react';
@@ -14,7 +16,18 @@ import {
 	useRef,
 	useState,
 } from 'react';
-import type { ProfileInputsInterface } from 'theorum/interface';
+import {
+	COMPOSER_MENU_ACTION_DESCRIPTIONS,
+	COMPOSER_MENU_ACTION_LABELS,
+	COMPOSER_PRIMARY_LABELS,
+	type ComposerMenuAction,
+	type ComposerPrimaryAction,
+	type ComposerRunPhase,
+	type ProfileInputsInterface,
+	resolveComposerMenuActions,
+	resolveComposerPrimary,
+	userDraftHasPayload,
+} from 'theorum/interface';
 import {
 	composerShellHeight,
 	isComposerExpanded,
@@ -37,14 +50,21 @@ export type InterfaceComposerProps = {
 	pendingFiles?: File[];
 	pendingVoice?: File[];
 	issues?: string[];
-	busy?: boolean;
-	canSubmit?: boolean;
+	/** Agent turn phase for send/stop/queue matrix. */
+	phase?: ComposerRunPhase;
+	/** Text profiles: show Steer in the menu while streaming. */
+	allowSteering?: boolean;
+	/** Host lock (e.g. live session not connected) — disables compose/send. */
+	inputLocked?: boolean;
 	onTextChange?: (value: string) => void;
 	onFilesSelected?: (files: File[]) => void;
 	onAttachmentRemove?: (index: number) => void;
 	onVoiceStaged?: (file: File) => void;
 	onVoiceClear?: () => void;
+	/** Primary action (Send / Queue) or Enter. */
 	onSubmit?: () => void;
+	onStop?: () => void;
+	onMenuAction?: (action: ComposerMenuAction) => void;
 };
 
 export function InterfaceComposer({
@@ -53,28 +73,72 @@ export function InterfaceComposer({
 	pendingFiles = [],
 	pendingVoice = [],
 	issues = [],
-	busy = false,
-	canSubmit = false,
+	phase = 'idle',
+	allowSteering = false,
+	inputLocked = false,
 	onTextChange,
 	onFilesSelected,
 	onAttachmentRemove,
 	onVoiceStaged,
 	onVoiceClear,
 	onSubmit,
+	onStop,
+	onMenuAction,
 }: InterfaceComposerProps) {
 	const [recording, setRecording] = useState(false);
 	const [inputLevel, setInputLevel] = useState(0);
 	const [voiceError, setVoiceError] = useState('');
 	const [shellFocused, setShellFocused] = useState(false);
+	const [menuOpen, setMenuOpen] = useState(false);
 	const recorderRef = useRef<ComposerVoiceRecorder | null>(null);
 	const previewUrlsRef = useRef(new Map<string, string>());
 	const [previewTick, setPreviewTick] = useState(0);
+	const menuRef = useRef<HTMLDivElement | null>(null);
 
 	const voiceEnabled = Boolean(inputs.voice);
 	const attachmentCount = pendingFiles.length;
 	const voiceCount = pendingVoice.length;
 	const isExpanded = isComposerExpanded(text.length, attachmentCount, voiceCount, recording);
-	const sendDisabled = busy || !canSubmit || recording;
+
+	const hasPayload = userDraftHasPayload({
+		...(text.trim() ? { text } : {}),
+		...(pendingFiles.length
+			? {
+					attachments: pendingFiles.map((file) => ({
+						name: file.name,
+						mimeType: file.type || 'application/octet-stream',
+						sizeBytes: file.size,
+					})),
+				}
+			: {}),
+		...(pendingVoice.length
+			? {
+					voice: pendingVoice.map((file) => ({
+						name: file.name,
+						mimeType: file.type || 'application/octet-stream',
+						sizeBytes: file.size,
+					})),
+				}
+			: {}),
+	});
+
+	const primary: ComposerPrimaryAction = resolveComposerPrimary({
+		phase,
+		hasPayload,
+		allowSteering,
+	});
+	const menuActions = resolveComposerMenuActions({
+		phase,
+		hasPayload,
+		allowSteering,
+	});
+
+	const primaryDisabled =
+		inputLocked ||
+		recording ||
+		primary === 'none' ||
+		(primary === 'send' && !hasPayload) ||
+		(primary === 'queue' && !hasPayload);
 
 	const attachItems = useMemo((): ComposerAttachmentItem[] => {
 		const files: ComposerAttachmentItem[] = pendingFiles.map((file, index) => {
@@ -91,7 +155,6 @@ export function InterfaceComposer({
 			kind: 'voice',
 			file,
 		}));
-		// previewTick forces recalculation when object URLs are (re)created.
 		return previewTick >= 0 ? [...files, ...voices] : [...files, ...voices];
 	}, [pendingFiles, pendingVoice, previewTick]);
 
@@ -146,6 +209,24 @@ export function InterfaceComposer({
 			revokeAllPreviews();
 		};
 	}, [revokeAllPreviews, syncMaxHeight]);
+
+	useEffect(() => {
+		if (!menuOpen) return;
+		const onPointer = (event: MouseEvent) => {
+			const target = event.target;
+			if (target instanceof Node && menuRef.current?.contains(target)) return;
+			setMenuOpen(false);
+		};
+		const onKey = (event: globalThis.KeyboardEvent) => {
+			if (event.key === 'Escape') setMenuOpen(false);
+		};
+		document.addEventListener('mousedown', onPointer);
+		document.addEventListener('keydown', onKey);
+		return () => {
+			document.removeEventListener('mousedown', onPointer);
+			document.removeEventListener('keydown', onKey);
+		};
+	}, [menuOpen]);
 
 	const layoutEpoch = `${String(text.length)}:${recording ? '1' : '0'}:${attachItems.map((item) => item.id).join('|')}`;
 
@@ -252,10 +333,19 @@ export function InterfaceComposer({
 		onAttachmentRemove?.(index);
 	}
 
+	function runPrimary() {
+		if (primaryDisabled) return;
+		if (primary === 'stop') {
+			onStop?.();
+			return;
+		}
+		onSubmit?.();
+	}
+
 	function handleKeydown(event: KeyboardEvent<HTMLTextAreaElement>) {
 		if (event.key === 'Enter' && !event.shiftKey) {
 			event.preventDefault();
-			if (!sendDisabled) onSubmit?.();
+			runPrimary();
 		}
 	}
 
@@ -287,12 +377,16 @@ export function InterfaceComposer({
 		.filter(Boolean)
 		.join(' ');
 
+	const primaryLabel = COMPOSER_PRIMARY_LABELS[primary];
+	const showQueueLabel = primary === 'queue';
+	const streamingBusy = phase === 'streaming';
+
 	return (
 		<form
 			className="iface-composer"
 			onSubmit={(event) => {
 				event.preventDefault();
-				if (!sendDisabled) onSubmit?.();
+				runPrimary();
 			}}
 		>
 			{issues.length || voiceError ? (
@@ -337,7 +431,7 @@ export function InterfaceComposer({
 							<input
 								accept={inputs.attachments.acceptAttr}
 								className="iface-composer__file"
-								disabled={busy || recording}
+								disabled={recording || inputLocked}
 								multiple={inputs.maxFiles !== 1}
 								onChange={handleFiles}
 								type="file"
@@ -349,7 +443,7 @@ export function InterfaceComposer({
 						<textarea
 							ref={textareaRef}
 							className={inputClass}
-							disabled={busy || recording}
+							disabled={recording || inputLocked}
 							onKeyDown={handleKeydown}
 							onInput={(event) => onTextChange?.(event.currentTarget.value)}
 							placeholder={isExpanded && !recording && voiceCount === 0 ? '' : placeholder}
@@ -375,7 +469,7 @@ export function InterfaceComposer({
 										: 'iface-composer__voice'
 								}
 								aria-label={recording ? 'Stop recording' : 'Record voice note'}
-								disabled={busy}
+								disabled={inputLocked || (streamingBusy && !hasPayload)}
 								onClick={() => {
 									void toggleRecording();
 								}}
@@ -388,25 +482,86 @@ export function InterfaceComposer({
 								)}
 							</button>
 						) : null}
-						<button
-							className="iface-composer__send"
-							aria-label={busy ? 'Sending' : 'Send message'}
-							disabled={sendDisabled}
-							type="submit"
-						>
-							{busy ? (
-								<span
-									className="iface-composer__send-icon iface-composer__send-icon--spin"
-									aria-hidden="true"
-								>
-									<IconLoader2 size={18} stroke={1.75} />
-								</span>
-							) : (
-								<span className="iface-composer__send-icon" aria-hidden="true">
-									<IconSend size={18} stroke={1.75} />
-								</span>
-							)}
-						</button>
+
+						<div className="iface-composer__send-group" ref={menuRef}>
+							<button
+								className={
+									showQueueLabel
+										? 'iface-composer__send iface-composer__send--labeled'
+										: 'iface-composer__send'
+								}
+								aria-label={primaryLabel}
+								disabled={primaryDisabled}
+								title={
+									primary === 'queue'
+										? 'Queue for after this turn'
+										: primary === 'stop'
+											? 'Stop'
+											: 'Send'
+								}
+								type="submit"
+							>
+								{primary === 'stop' ? (
+									<span className="iface-composer__send-icon" aria-hidden="true">
+										<IconPlayerStop size={18} stroke={1.75} />
+									</span>
+								) : streamingBusy && primary === 'none' ? (
+									<span
+										className="iface-composer__send-icon iface-composer__send-icon--spin"
+										aria-hidden="true"
+									>
+										<IconLoader2 size={18} stroke={1.75} />
+									</span>
+								) : (
+									<span className="iface-composer__send-icon" aria-hidden="true">
+										<IconSend size={18} stroke={1.75} />
+									</span>
+								)}
+								{showQueueLabel ? (
+									<span className="iface-composer__send-label">Queue</span>
+								) : null}
+							</button>
+							{menuActions.length > 0 ? (
+								<>
+									<button
+										aria-expanded={menuOpen}
+										aria-haspopup="menu"
+										aria-label="Message options"
+										className="iface-composer__send-menu"
+										disabled={recording || inputLocked}
+										onClick={() => setMenuOpen((open) => !open)}
+										title="Message options: Queue, Steer, Send now, Stash"
+										type="button"
+									>
+										<IconChevronUp size={14} stroke={2} />
+									</button>
+									{menuOpen ? (
+										<ul className="iface-composer__menu" role="menu">
+											{menuActions.map((action) => (
+												<li key={action} role="none">
+													<button
+														className="iface-composer__menu-item"
+														onClick={() => {
+															setMenuOpen(false);
+															onMenuAction?.(action);
+														}}
+														role="menuitem"
+														type="button"
+													>
+														<span className="iface-composer__menu-label">
+															{COMPOSER_MENU_ACTION_LABELS[action]}
+														</span>
+														<span className="iface-composer__menu-desc">
+															{COMPOSER_MENU_ACTION_DESCRIPTIONS[action]}
+														</span>
+													</button>
+												</li>
+											))}
+										</ul>
+									) : null}
+								</>
+							) : null}
+						</div>
 					</div>
 				</div>
 			</div>

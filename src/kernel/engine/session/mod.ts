@@ -14,6 +14,7 @@ import {
   throwIfAborted,
   toErrorEvent,
 } from '../../../guardrails/error.ts';
+import { projectGuardrailTurnEvent } from '../../../guardrails/events.ts';
 import {
   abortLiveOutboundTurn,
   createLiveOutboundGateSession,
@@ -22,6 +23,7 @@ import {
   processLiveOutboundBatch,
 } from '../../../guardrails/live-outbound-gate.ts';
 import { sanitizeTurnRequest } from '../../../guardrails/sanitize.ts';
+import { resolveObservabilityPolicy } from '../../../observability/policy.ts';
 import type { GeminiTransport } from '../../../providers/google/keys.ts';
 import {
   buildGeminiLiveRealtimeInput,
@@ -126,7 +128,7 @@ async function applyOutbound(
   const out: TurnEvent[] = [];
   if (batch.action === 'withhold') {
     onWithhold(batch.error);
-    return [{ type: 'error', error: batch.error }];
+    return [...(batch.events ?? []), { type: 'error', error: batch.error }];
   }
   if (batch.action === 'emit') {
     out.push(...batch.events);
@@ -158,6 +160,9 @@ function buildLiveSession(args: {
   const { profile, canary, connection, gate, signal } = args;
   let closed = false;
   let withholdClose: string | undefined;
+  const pendingHostEvents: TurnEvent[] = [];
+  const includeMatch = resolveObservabilityPolicy(profile.observability).include
+    .guardrailMatchPreview;
 
   const sendJson = (payload: Record<string, unknown>) => {
     if (closed) {
@@ -173,6 +178,12 @@ function buildLiveSession(args: {
       try {
         for await (const item of connection.batches()) {
           throwIfAborted(signal);
+          while (pendingHostEvents.length > 0) {
+            const pending = pendingHostEvents.shift();
+            if (pending) {
+              yield projectGuardrailTurnEvent(pending, includeMatch);
+            }
+          }
           if (item.type === 'closed') {
             break;
           }
@@ -190,12 +201,18 @@ function buildLiveSession(args: {
                 error: publicError(ev.error ?? withholdClose ?? 'guardrail withheld'),
               };
             } else {
-              yield ev;
+              yield projectGuardrailTurnEvent(ev, includeMatch);
             }
           }
           if (withholdClose) {
             connection.close(1011, 'guardrail withheld');
             break;
+          }
+        }
+        while (pendingHostEvents.length > 0) {
+          const pending = pendingHostEvents.shift();
+          if (pending) {
+            yield projectGuardrailTurnEvent(pending, includeMatch);
           }
         }
       } finally {
@@ -225,8 +242,11 @@ function buildLiveSession(args: {
     },
     sendText(text: string) {
       assertLiveIngress(profile, 'text');
-      const safeText = prepareLiveInboundText(profile, text);
-      sendJson(buildGeminiLiveRealtimeText(safeText));
+      const prepared = prepareLiveInboundText(profile, text);
+      if (prepared.guardrail) {
+        pendingHostEvents.push(prepared.guardrail);
+      }
+      sendJson(buildGeminiLiveRealtimeText(prepared.text));
     },
     sendToolResponse(id: string, name: string, output: unknown) {
       sendJson(buildGeminiLiveToolResponse(id, name, output));

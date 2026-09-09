@@ -252,7 +252,7 @@ Deno.test('pressure-test: compaction spec validations on text profiles', () => {
   );
 });
 
-Deno.test('pressure-test: turnResumption maxContinues enforcement', () => {
+Deno.test('pressure-test: turnBehaviour.resumption maxContinues enforcement', () => {
   registerProfile({
     id: 'capped_continue_profile',
     type: 'text',
@@ -260,9 +260,11 @@ Deno.test('pressure-test: turnResumption maxContinues enforcement', () => {
     ...geminiModels('gemini35FlashLite'),
     tools: { allow: [] },
     inputs: { text: true },
-    turnResumption: {
-      maxContinues: 3,
-      allowContinue: ['length', 'stream_incomplete'],
+    turnBehaviour: {
+      resumption: {
+        maxContinues: 3,
+        allowContinue: ['length', 'stream_incomplete'],
+      },
     },
   });
 
@@ -289,7 +291,7 @@ Deno.test('pressure-test: turnResumption maxContinues enforcement', () => {
       });
     },
     TheorumError,
-    'continuation 4 exceeds turnResumption.maxContinues (3)',
+    'continuation 4 exceeds turnBehaviour.resumption.maxContinues (3)',
   );
 
   // Continuation count < 1 must throw
@@ -316,7 +318,7 @@ Deno.test('pressure-test: turnResumption maxContinues enforcement', () => {
       });
     },
     TheorumError,
-    'continueFrom requires TurnRequest.continuation when turnResumption.maxContinues is set',
+    'continueFrom requires TurnRequest.continuation when turnBehaviour.resumption.maxContinues is set',
   );
 
   // continueFrom on live profile must throw
@@ -345,7 +347,63 @@ Deno.test('pressure-test: turnResumption maxContinues enforcement', () => {
       });
     },
     TheorumError,
-    "type 'live' uses live.sessionResumption, not turnResumption/continueFrom",
+    "type 'live' uses live.sessionResumption, not turnBehaviour.resumption/continueFrom",
+  );
+});
+
+Deno.test('pressure-test: turnBehaviour.allowSteering rejected on image', () => {
+  assertThrows(
+    () => {
+      registerProfile({
+        id: 'image_steer_illegal',
+        type: 'image',
+        identity: { handle: 'img' },
+        models: {
+          'openai/dall-e-3': {
+            protocol: 'openAi',
+            provider: 'openrouter',
+            apiId: 'openai/dall-e-3',
+            efforts: { normal: 'minimal' },
+          },
+        },
+        image: { mimeType: 'image/png' },
+        tools: { allow: [] },
+        inputs: { text: true },
+        turnBehaviour: { allowSteering: true },
+      });
+    },
+    TheorumError,
+    "turnBehaviour.allowSteering is only valid on type 'text'",
+  );
+});
+
+Deno.test('pressure-test: turnBehaviour.resumption rejects non-ContinueStopKind', () => {
+  assertThrows(
+    () => {
+      registerProfile({
+        id: 'continue_kind_illegal',
+        type: 'text',
+        identity: { handle: 't', system: 's' },
+        models: {
+          'openai/gpt-4o-mini': {
+            protocol: 'openAi',
+            provider: 'openrouter',
+            apiId: 'openai/gpt-4o-mini',
+            efforts: { normal: 'minimal' },
+          },
+        },
+        tools: { allow: [] },
+        inputs: { text: true },
+        turnBehaviour: {
+          resumption: {
+            // @ts-expect-error intentional illegal kind
+            allowContinue: ['cancelled'],
+          },
+        },
+      });
+    },
+    TheorumError,
+    'may only include ContinueStopKind',
   );
 });
 

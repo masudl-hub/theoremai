@@ -18,11 +18,13 @@ export {
   requireTool,
   resetTools,
 } from './registry.ts';
-export type { HttpToolMapping, HttpToolTarget } from './remote.ts';
+export type { McpProtocolVersion, McpRpcResponse } from './remote.ts';
 export {
   buildHttpToolTarget,
   executeHttpTool,
   executeMcpTool,
+  isUnsupportedMcpProtocolError,
+  MCP_PROTOCOL_VERSIONS,
   parseMcpRpcResponse,
   resolveToolAuth,
 } from './remote.ts';

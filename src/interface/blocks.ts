@@ -5,17 +5,24 @@
  */
 
 import type { TurnEvent } from '../kernel/types.ts';
+import { collectPromotedMediaFromToolOutput } from './tool-media.ts';
 import type { FoldTurnEventsOptions, TranscriptBlock, UserTurnDraft } from './types.ts';
 
-let blockCounter = 0;
+let userBlockCounter = 0;
+let turnBlockCounter = 0;
 
 function nextBlockId(prefix: string): string {
-  blockCounter += 1;
-  return `${prefix}-${String(blockCounter)}`;
+  if (prefix === 'user') {
+    userBlockCounter += 1;
+    return `user-${String(userBlockCounter)}`;
+  }
+  turnBlockCounter += 1;
+  return `${prefix}-${String(turnBlockCounter)}`;
 }
 
 function resetBlockIds(): void {
-  blockCounter = 0;
+  userBlockCounter = 0;
+  turnBlockCounter = 0;
 }
 
 function isAppendableTextBlock(
@@ -65,9 +72,30 @@ function upsertToolBlock(blocks: TranscriptBlock[], event: TurnEvent, key: strin
   });
 }
 
+/** Append inline media blocks for http(s) image/video/audio URLs in completed tool output. */
+function appendPromotedToolMedia(
+  blocks: TranscriptBlock[],
+  event: TurnEvent,
+  idPrefix: string,
+  seenUrls: Set<string>,
+): void {
+  const tool = event.tool;
+  if (tool?.phase !== 'complete' || tool.output === undefined) return;
+  for (const media of collectPromotedMediaFromToolOutput(tool.output)) {
+    if (seenUrls.has(media.url)) continue;
+    seenUrls.add(media.url);
+    blocks.push({
+      id: nextBlockId(idPrefix),
+      kind: 'media',
+      mimeType: media.mimeType,
+      url: media.url,
+    });
+  }
+}
+
 /** Build transcript blocks for a user-authored turn. */
 function buildUserTurnBlocks(draft: UserTurnDraft, idPrefix = 'user'): TranscriptBlock[] {
-  resetBlockIds();
+  // Do not reset counters — user ids must stay unique across the conversation.
   const blocks: TranscriptBlock[] = [];
   const text = draft.text?.trim();
   if (text) {
@@ -103,8 +131,12 @@ function buildUserTurnBlocks(draft: UserTurnDraft, idPrefix = 'user'): Transcrip
 /**
  * Fold a single assistant turn's `TurnEvent` stream into ordered transcript blocks.
  *
- * Merges consecutive `text` and `thought` deltas, upserts tool calls by id, and
+ * Merges consecutive `text` and `thought` deltas, upserts tool calls by id,
+ * promotes http(s) media URLs from completed tool output into `media` blocks, and
  * skips kernel bookkeeping events (`tokens`, `session`) unless folded into `turn-done`.
+ *
+ * Resets only the turn id sequence so streaming refolds keep stable `turn-*` keys;
+ * user ids are left alone.
  */
 function foldTurnEvents(
   events: readonly TurnEvent[],
@@ -112,10 +144,11 @@ function foldTurnEvents(
 ): TranscriptBlock[] {
   const idPrefix = options.idPrefix ?? 'turn';
   const showThoughts = options.showThoughts ?? true;
-  resetBlockIds();
+  turnBlockCounter = 0;
 
   const blocks: TranscriptBlock[] = [];
   let toolIndex = 0;
+  const promotedMediaUrls = new Set<string>();
 
   for (const event of events) {
     switch (event.type) {
@@ -133,6 +166,7 @@ function foldTurnEvents(
         const key = toolKey(event, toolIndex);
         toolIndex += 1;
         upsertToolBlock(blocks, event, key);
+        appendPromotedToolMedia(blocks, event, idPrefix, promotedMediaUrls);
         break;
       }
       case 'structured':
@@ -191,6 +225,7 @@ function foldTurnEvents(
         break;
       case 'tokens':
       case 'session':
+      case 'barrier':
         break;
       default:
         break;

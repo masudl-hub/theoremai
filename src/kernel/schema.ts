@@ -8,7 +8,10 @@
  * @module
  */
 
+import { EGRESS_ON_BLOCK, type EgressOnBlock } from '../guardrails/types.ts';
 import { GOOGLE_SPEECH_VOICES } from '../presets/google/speech-voices.ts';
+
+export { EGRESS_ON_BLOCK, type EgressOnBlock };
 
 /** Primary profile archetype. Discriminated union key for `ProfileDefinition` and `Profile`. */
 export const PROFILE_TYPES = ['text', 'image', 'speech', 'live'] as const;
@@ -149,10 +152,6 @@ export type CompactionMeter = (typeof COMPACTION_METERS)[number];
 export const COMPACTION_TIMINGS = ['before', 'after'] as const;
 export type CompactionTiming = (typeof COMPACTION_TIMINGS)[number];
 
-/** Egress block handling. */
-export const EGRESS_ON_BLOCK = ['reject_to_agent', 'refuse_to_user'] as const;
-export type EgressOnBlock = (typeof EGRESS_ON_BLOCK)[number];
-
 /** Why a turn ended (provider-neutral). */
 export const TURN_STOP_KINDS = [
   'completed',
@@ -167,6 +166,22 @@ export const TURN_STOP_KINDS = [
   'generation_complete',
 ] as const;
 export type TurnStopKind = (typeof TURN_STOP_KINDS)[number];
+
+/**
+ * Stop kinds eligible for `continueFrom` / resumption allowlists.
+ * Excludes terminal-success, user abort, tool-pause, filter, and live-only boundaries —
+ * those use other host paths (or are not resumeable).
+ */
+export const CONTINUE_STOP_KINDS = ['length', 'stream_incomplete', 'provider_error'] as const;
+export type ContinueStopKind = (typeof CONTINUE_STOP_KINDS)[number];
+
+/**
+ * Safe points where a steering host may inject mid-turn messages.
+ * `pre_llm` — before the first (and each) provider step that starts a model call.
+ * `pre_tool_followup` — after tools run, before the next model step.
+ */
+export const TURN_STEER_BARRIERS = ['pre_llm', 'pre_tool_followup'] as const;
+export type TurnSteerBarrier = (typeof TURN_STEER_BARRIERS)[number];
 
 /** Per-tool visibility tier — enforced by the kernel at resolve time. */
 export const TOOL_LOAD_TIERS = ['T0', 'T1', 'T2'] as const;
@@ -663,38 +678,41 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
     },
   ),
   'outputs.streaming.streamThoughts': field('boolean', 'Emit model thinking on the turn stream.'),
-  turnResumption: field('ProfileTurnResumptionSpec', 'Continue after a non-user stop.'),
-  'turnResumption.allowContinue': field(
-    'TurnStopKind[]',
-    'Kinds eligible for a Continue / continueFrom turn.',
-    TURN_STOP_KINDS,
+  turnBehaviour: field(
+    'ProfileTurnBehaviourSpec',
+    'Resume after a non-user stop; text may also allow mid-turn steering.',
+  ),
+  'turnBehaviour.resumption': field(
+    'ProfileTurnResumptionSpec',
+    'Continue after a non-user stop (continueFrom).',
+  ),
+  'turnBehaviour.resumption.allowContinue': field(
+    'ContinueStopKind[]',
+    'Kinds eligible for a Continue / continueFrom turn. Not tool/cancelled/completed/filtered/live boundaries.',
+    CONTINUE_STOP_KINDS,
     {
       length: 'Model hit maximum output token ceiling.',
       stream_incomplete: 'Network connection or stream dropped prematurely.',
       provider_error: 'Upstream provider returned an error code or timeout.',
-      tool: 'Turn paused at tool execution boundary.',
-      filtered: 'Content safety filter intercepted output.',
-      cancelled: 'Turn aborted via AbortSignal.',
-      completed: 'Turn finished normally.',
-      interrupted: 'Live barge-in interrupted the in-flight response.',
-      generation_complete: 'Live model finished generating this utterance; turn may still be open.',
     },
   ),
-  'turnResumption.autoContinue': field(
-    'TurnStopKind[]',
-    'Kinds the host may auto-continue once without a CTA.',
-    TURN_STOP_KINDS,
+  'turnBehaviour.resumption.autoContinue': field(
+    'ContinueStopKind[]',
+    'Kinds the host may auto-continue once without a CTA. Subset of ContinueStopKind.',
+    CONTINUE_STOP_KINDS,
     {
       length: 'Model hit maximum output token ceiling.',
       stream_incomplete: 'Network connection or stream dropped prematurely.',
       provider_error: 'Upstream provider returned an error code or timeout.',
-      tool: 'Turn paused at tool execution boundary.',
-      filtered: 'Content safety filter intercepted output.',
-      cancelled: 'Turn aborted via AbortSignal.',
-      completed: 'Turn finished normally.',
-      interrupted: 'Live barge-in interrupted the in-flight response.',
-      generation_complete: 'Live model finished generating this utterance; turn may still be open.',
     },
+  ),
+  'turnBehaviour.resumption.maxContinues': field(
+    'number',
+    'Max continueFrom rounds the kernel accepts (compared to TurnRequest.continuation).',
+  ),
+  'turnBehaviour.allowSteering': field(
+    'boolean',
+    'Text only. When true (default), host may inject at runner barriers. Image/speech must omit.',
   ),
   guardrails: field(
     'ProfileGuardrailsSpec',
@@ -705,7 +723,10 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
     'Host HTTP helper — not enforced inside runTurn.',
   ),
   'guardrails.quota.perDay': field('number', 'Daily turn cap used by host quota middleware.'),
-  'guardrails.canary': field('boolean', 'Enable per-turn canary token bound to system prompt.'),
+  'guardrails.canary': field(
+    'boolean',
+    'Per-turn canary token bound to system prompt. Default true; set false to opt out.',
+  ),
   'guardrails.sanitizeInput': field('boolean', 'Strip inbound injection spans.'),
   'guardrails.redactSensitive': field('boolean', 'Redact sensitive spans.'),
   'guardrails.egress': field(
@@ -741,6 +762,68 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   'guardrails.network.allowedHosts': field(
     'string[]',
     'Explicit hostname allowlist for declarative HTTP and MCP egress.',
+  ),
+  observability: field(
+    'ProfileObservabilitySpec',
+    'Trace destination, scrub, include, and sampling policy for this profile.',
+  ),
+  'observability.writeTo': field(
+    'false | string | TraceSink',
+    'false = off; string = registerTraceDestination id; TraceSink = inline writer. runTurn third arg overrides.',
+  ),
+  'observability.sampleRate': field(
+    'number',
+    'Fraction of turns to record (0–1). Default 1. Ignored when runTurn passes an explicit sink.',
+  ),
+  'observability.include': field(
+    'TraceIncludeSpec',
+    'Which TraceRecord payloads to keep (upstreamLog, outboundWire, evidenceRaw, usage, guardrailDecisions, guardrailMatchPreview).',
+  ),
+  'observability.include.upstreamLog': field(
+    'boolean',
+    'Scrubbed provider HTTP/SSE rows. Default true.',
+  ),
+  'observability.include.outboundWire': field(
+    'boolean',
+    'Scrubbed outbound request body. Default false.',
+  ),
+  'observability.include.evidenceRaw': field(
+    'boolean',
+    'Verbatim provider step JSON on events. Default false.',
+  ),
+  'observability.include.usage': field('boolean', 'Token / usage fields. Default true.'),
+  'observability.include.guardrailDecisions': field(
+    'boolean',
+    'Persist { type: "guardrail" } decisions in the TraceRecord. Default true.',
+  ),
+  'observability.include.guardrailMatchPreview': field(
+    'boolean',
+    'Keep GuardrailHit.match (capped matched substring) on stream + TraceRecord. Default false — debugging only.',
+  ),
+  'observability.scrub': field(
+    'TraceScrubSpec',
+    'Scrubbing of stored records — independent of profile.guardrails. Defaults on.',
+  ),
+  'observability.scrub.sensitive': field(
+    'boolean',
+    'Strip credentials / PII spans in stored text. Default true.',
+  ),
+  'observability.scrub.injection': field(
+    'boolean',
+    'Strip injection spans in the stored request copy. Default true.',
+  ),
+  'observability.scrub.canary': field('boolean', 'Never persist the canary token. Default true.'),
+  'observability.retainForDays': field(
+    'number',
+    'JSONL retention days when writeTo resolves to a jsonl destination. Default 14.',
+  ),
+  'observability.rotateAfterMiB': field(
+    'number',
+    'JSONL rotate threshold in MiB when writeTo resolves to a jsonl destination. Default 32.',
+  ),
+  'observability.onWriteError': field(
+    '(err: unknown) => void',
+    'Host hook when record build or destination write fails. Must not throw.',
   ),
 };
 
@@ -901,3 +984,15 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
 export function fieldMeta(path: string): FieldMeta | undefined {
   return PROFILE_FIELDS[path] ?? EXTRA_FIELDS[path];
 }
+
+export type {
+  ProfileGraphEditor,
+  ProfileGraphFacet,
+  ProfileGraphFacetId,
+  ProfileGraphRole,
+} from './profile-graph.ts';
+export {
+  PROFILE_GRAPH,
+  profileGraphFacet,
+  spineFacetsForProfileType,
+} from './profile-graph.ts';

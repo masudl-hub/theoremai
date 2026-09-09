@@ -1,19 +1,19 @@
 /**
  * Headless interface contracts — profile-driven UI spec and transcript blocks.
  *
- * `ProfileInterface` is `Profile` with resolved `inputs`/`tools` and a serializable
- * `guardrails` view. No parallel schema.
+ * `ProfileInterface` is `Profile` with resolved `inputs`/`tools` and serializable
+ * `guardrails` / `observability` views. No parallel schema.
  *
  * @module
  */
 
+import type { ResolvedGuardrailPolicy } from '../guardrails/types.ts';
 import type { LiveProfileToolsSpec, ProfileToolsSpec } from '../kernel/tools/types.ts';
 import type {
   GroundingEvent,
   ImageProfile,
   LiveProfile,
   Profile,
-  ProfileGuardrailsSpec,
   ProfileOutputsSpec,
   ProjectedProfile,
   ProviderEvidenceEvent,
@@ -25,13 +25,24 @@ import type {
   TurnStop,
   TurnTokens,
 } from '../kernel/types.ts';
+import type { ResolvedObservabilityPolicy } from '../observability/types.ts';
 
 /** Guardrails visible to UI — egress enforcer functions are omitted. */
 export type ProfileGuardrailsView = Pick<
-  ProfileGuardrailsSpec,
+  ResolvedGuardrailPolicy,
   'quota' | 'canary' | 'sanitizeInput' | 'redactSensitive'
 > & {
   hasEgress: boolean;
+};
+
+/** Observability visible to UI — TraceSink / onWriteError functions are omitted. */
+export type ProfileObservabilityView = Pick<
+  ResolvedObservabilityPolicy,
+  'record' | 'sampleRate' | 'include' | 'scrub' | 'retainForDays' | 'rotateAfterMiB'
+> & {
+  /** false | registered id | 'custom' when writeTo is an inline TraceSink. */
+  writeTo: false | string | 'custom' | undefined;
+  hasOnWriteError: boolean;
 };
 
 /** Resolved `inputs` — `ProfileInputsSpec` plus `acceptAttr` for file pickers. */
@@ -56,26 +67,44 @@ export type LiveResolvedTools = LiveProfileToolsSpec & {
   resolved: Array<RegisteredTool | { name: ToolId; missing: true }>;
 };
 
-export type TextProfileInterface = Omit<TextProfile, 'inputs' | 'tools' | 'guardrails'> & {
+export type TextProfileInterface = Omit<
+  TextProfile,
+  'inputs' | 'tools' | 'guardrails' | 'observability'
+> & {
   inputs: ProfileInputsInterface;
   tools: ResolvedTools;
   guardrails?: ProfileGuardrailsView;
+  observability?: ProfileObservabilityView;
+  /** Always true — composer turns cancel via `TurnRequest.signal`. */
+  canStop: true;
+  /** From `turnBehaviour.allowSteering` (default true on text). */
+  allowSteering: boolean;
 };
 
-export type ImageProfileInterface = Omit<ImageProfile, 'inputs' | 'tools' | 'guardrails'> & {
+export type ImageProfileInterface = Omit<
+  ImageProfile,
+  'inputs' | 'tools' | 'guardrails' | 'observability'
+> & {
   inputs: ProfileInputsInterface;
   tools: ResolvedTools;
   guardrails?: ProfileGuardrailsView;
+  observability?: ProfileObservabilityView;
+  /** Always true — composer turns cancel via `TurnRequest.signal`. */
+  canStop: true;
 };
 
-export type SpeechProfileInterface = Omit<SpeechProfile, 'guardrails'> & {
+export type SpeechProfileInterface = Omit<SpeechProfile, 'guardrails' | 'observability'> & {
   inputs: ProfileInputsInterface;
   guardrails?: ProfileGuardrailsView;
+  observability?: ProfileObservabilityView;
+  /** Always true — composer turns cancel via `TurnRequest.signal`. */
+  canStop: true;
 };
 
-export type LiveProfileInterface = Omit<LiveProfile, 'tools' | 'guardrails'> & {
+export type LiveProfileInterface = Omit<LiveProfile, 'tools' | 'guardrails' | 'observability'> & {
   tools: LiveResolvedTools;
   guardrails?: ProfileGuardrailsView;
+  observability?: ProfileObservabilityView;
 };
 
 export type ProfileInterface =
@@ -145,7 +174,16 @@ export interface StructuredBlock extends TranscriptBlockBase {
 export interface MediaBlock extends TranscriptBlockBase {
   kind: 'media';
   mimeType: string;
-  data: string;
+  /**
+   * Base64 payload for model-generated or attached media.
+   * Absent when `url` is set (tool-result URL promotion).
+   */
+  data?: string;
+  /**
+   * Remote http(s) URL promoted from completed tool output.
+   * Absent when `data` is set (kernel `media` events).
+   */
+  url?: string;
 }
 
 export interface GroundingBlock extends TranscriptBlockBase {

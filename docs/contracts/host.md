@@ -67,7 +67,7 @@ build a custom relay still may call `processLiveOutboundBatch` /
 
 | Export | Role |
 | --- | --- |
-| `forClient(event, options?)` | Copy one event without `errorInternal`; strips `evidence.raw` unless `includeEvidenceRaw: true` |
+| `forClient(event, options?)` | Copy one event without `errorInternal`; strips `evidence.raw` unless `includeEvidenceRaw: true`; always strips `GuardrailHit.match` |
 | `forClientEvents(events, options?)` | Batch helper for Live relays and HTTP stream flush |
 | `ClientTurnOptions` | `{ includeEvidenceRaw?: boolean }` |
 

@@ -8,11 +8,11 @@
  */
 
 import type { z } from 'zod';
+import type { GuardrailHit, Provenance, TurnTaint } from '../../guardrails/types.ts';
 import type { ToolCredential } from '../auth/types.ts';
 import type {
   AuthUnauthenticatedPolicy,
   HttpMethod,
-  LiveToolLoadTier,
   ToolAccess,
   ToolAuthType,
   ToolLoadTier,
@@ -20,14 +20,7 @@ import type {
 } from '../schema.ts';
 import type { Profile, ToolId, TurnInput } from '../types.ts';
 
-export type {
-  AuthUnauthenticatedPolicy,
-  HttpMethod,
-  LiveToolLoadTier,
-  ToolAccess,
-  ToolAuthType,
-  ToolPermission,
-};
+export type { AuthUnauthenticatedPolicy, HttpMethod, ToolAccess, ToolAuthType, ToolPermission };
 
 export interface ToolLabels {
   activity?: string;
@@ -82,7 +75,8 @@ export interface ToolContext {
   sessionPermissions?: string[];
   path?: string;
   signal?: AbortSignal;
-  turn?: { step: number };
+  /** Turn-scoped facts: the step index and what this turn has already ingested. */
+  turn?: { step: number; taint?: TurnTaint };
   resume?: InvokeToolResume;
   credentials?: Record<string, ToolCredential>;
 }
@@ -142,13 +136,17 @@ export type StreamToolHandler<TIn, TOut> = (
 
 export type ToolHandler<TIn, TOut> = SyncToolHandler<TIn, TOut> | StreamToolHandler<TIn, TOut>;
 
-export interface FunctionToolDef<TIn = unknown, TOut = unknown> extends ToolBase {
-  type: 'function';
-  input: z.ZodType<TIn>;
-  output: z.ZodType<TOut>;
+/**
+ * Host lifecycle hooks and JSON schemas shared by every kernel-executed tool.
+ *
+ * Only members that depend on `TIn` live here. `input` and `output` stay declared
+ * on each concrete tool so `TOut` is still inferred from `output` rather than from
+ * a handler's return type — moving them here silently breaks inference for stream
+ * handlers. Builtins are provider-native and do not extend this.
+ */
+export interface ToolHostHooks<TIn = unknown> {
   inputSchema: Record<string, unknown>;
   outputSchema: Record<string, unknown>;
-  handler: ToolHandler<TIn, TOut>;
   interactive?: InteractiveConfig<TIn>;
   canExecute?: (input: TIn, ctx: ToolContext) => boolean | Promise<boolean>;
   preflight?: (
@@ -156,6 +154,15 @@ export interface FunctionToolDef<TIn = unknown, TOut = unknown> extends ToolBase
     ctx: ToolContext,
   ) => undefined | ToolFailure | ToolPause | Promise<undefined | ToolFailure | ToolPause>;
   exposeToModel?: boolean;
+}
+
+export interface FunctionToolDef<TIn = unknown, TOut = unknown>
+  extends ToolBase,
+    ToolHostHooks<TIn> {
+  type: 'function';
+  input: z.ZodType<TIn>;
+  output: z.ZodType<TOut>;
+  handler: ToolHandler<TIn, TOut>;
 }
 
 export interface HttpToolAuthConfig {
@@ -176,47 +183,29 @@ export interface HttpToolAuthConfig {
   redirectUri?: string;
 }
 
-export interface HttpToolDef<TIn = unknown, TOut = unknown> extends ToolBase {
+export interface HttpToolDef<TIn = unknown, TOut = unknown> extends ToolBase, ToolHostHooks<TIn> {
   type: 'http';
+  input: z.ZodType<TIn>;
+  output: z.ZodType<TOut>;
   endpoint: string; // URL template, e.g. "https://api.example.com/items/{id}"
   method: HttpMethod;
   headers?: Record<string, string>;
   auth?: HttpToolAuthConfig;
-  input: z.ZodType<TIn>;
-  output: z.ZodType<TOut>;
-  inputSchema: Record<string, unknown>;
-  outputSchema: Record<string, unknown>;
   mapping?: {
     pathParams?: string[];
     queryParams?: string[];
     bodyParam?: string;
   };
-  interactive?: InteractiveConfig<TIn>;
-  canExecute?: (input: TIn, ctx: ToolContext) => boolean | Promise<boolean>;
-  preflight?: (
-    input: TIn,
-    ctx: ToolContext,
-  ) => undefined | ToolFailure | ToolPause | Promise<undefined | ToolFailure | ToolPause>;
-  exposeToModel?: boolean;
 }
 
-export interface McpToolDef<TIn = unknown, TOut = unknown> extends ToolBase {
+export interface McpToolDef<TIn = unknown, TOut = unknown> extends ToolBase, ToolHostHooks<TIn> {
   type: 'mcp';
+  input: z.ZodType<TIn>;
+  output: z.ZodType<TOut>;
   serverUrl: string; // HTTP MCP server endpoint URL
   mcpToolName: string; // Name of the tool on the remote MCP server
   headers?: Record<string, string>;
   auth?: HttpToolAuthConfig;
-  input: z.ZodType<TIn>;
-  output: z.ZodType<TOut>;
-  inputSchema: Record<string, unknown>;
-  outputSchema: Record<string, unknown>;
-  interactive?: InteractiveConfig<TIn>;
-  canExecute?: (input: TIn, ctx: ToolContext) => boolean | Promise<boolean>;
-  preflight?: (
-    input: TIn,
-    ctx: ToolContext,
-  ) => undefined | ToolFailure | ToolPause | Promise<undefined | ToolFailure | ToolPause>;
-  exposeToModel?: boolean;
 }
 
 export type RegisteredTool<TIn = unknown, TOut = unknown> =
@@ -325,8 +314,8 @@ export interface ProfileToolsSpec {
  * Live session tools — Gemini Live (and similar) fix function declarations at setup.
  *
  * Shape excludes `t1Policy` / `t2Loader`. Every id in `allow` (and each model's
- * `builtInTools`) must resolve to a registered tool with {@link LiveToolLoadTier}
- * (`T0`) — `registerProfile` rejects T1/T2.
+ * `builtInTools`) must resolve to a registered tool with live load tier `T0`
+ * (`LiveToolLoadTier` in schema) — `registerProfile` rejects T1/T2.
  */
 export interface LiveProfileToolsSpec {
   /** Custom T0 tools wired once at session setup. */
@@ -336,6 +325,19 @@ export interface LiveProfileToolsSpec {
 export interface ModelToolResult {
   finding: string;
   data?: unknown;
+  /**
+   * Model-facing text, already fenced and redacted at the tool boundary.
+   *
+   * Set by `executeRegisteredTool`, which knows the tool's origin and the
+   * profile's policy. `formatToolResult` prefers it; when it is absent — a host
+   * formatting a recorded result outside the execution path — that function
+   * guards the composed text itself under full detection.
+   */
+  modelText?: string;
+  /** Where these bytes came from. Set alongside `modelText`. */
+  provenance?: Provenance;
+  /** Directive signals found in the content; raises the turn's taint. */
+  suspicious?: GuardrailHit[];
 }
 
 export type ToolCallPhase =

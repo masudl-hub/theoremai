@@ -4,9 +4,12 @@ import {
   AUTO_CONTINUE_DELAY_MS,
   CONTINUE_INSTRUCTION,
   GenerationStopError,
+  isContinueStopKind,
   isGenerationStopError,
   isResumeableStop,
   isUserCancelledStop,
+  profileAllowsSteering,
+  profileTurnResumption,
   shouldAutoContinue,
   turnStopFromClientStreamEnd,
   turnStopFromInteractionStatus,
@@ -47,12 +50,37 @@ Deno.test('resume policy helpers', () => {
   assertEquals(isResumeableStop({ kind: 'stream_incomplete' }), true);
   assertEquals(isUserCancelledStop({ kind: 'cancelled' }), true);
   assertEquals(isResumeableStop({ kind: 'cancelled' }), false);
+  assertEquals(isResumeableStop({ kind: 'completed' }), false);
+  assertEquals(isResumeableStop({ kind: 'tool' }), false);
+  assertEquals(isResumeableStop({ kind: 'filtered' }), false);
+  assertEquals(isContinueStopKind('length'), true);
+  assertEquals(isContinueStopKind('cancelled'), false);
   assertEquals(shouldAutoContinue({ kind: 'length' }), true);
   assertEquals(shouldAutoContinue({ kind: 'stream_incomplete' }), true);
   assertEquals(shouldAutoContinue({ kind: 'cancelled' }), false);
   assertEquals(shouldAutoContinue({ kind: 'length' }, []), false);
   assertEquals(CONTINUE_INSTRUCTION.length > 20, true);
   assertEquals(AUTO_CONTINUE_DELAY_MS, 1_500);
+});
+
+Deno.test('turnBehaviour helpers', () => {
+  assertEquals(
+    profileTurnResumption({
+      type: 'text',
+      turnBehaviour: { resumption: { maxContinues: 2 } },
+    })?.maxContinues,
+    2,
+  );
+  assertEquals(profileTurnResumption({ type: 'live' }), undefined);
+  assertEquals(profileAllowsSteering({ type: 'text' }), true);
+  assertEquals(
+    profileAllowsSteering({ type: 'text', turnBehaviour: { allowSteering: false } }),
+    false,
+  );
+  assertEquals(
+    profileAllowsSteering({ type: 'image', turnBehaviour: { allowSteering: true } }),
+    false,
+  );
 });
 
 Deno.test('GenerationStopError', () => {

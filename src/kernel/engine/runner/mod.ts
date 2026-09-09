@@ -10,9 +10,13 @@
 
 import { bindCanary } from '../../../guardrails/canary.ts';
 import { throwIfAborted } from '../../../guardrails/error.ts';
-import { sanitizeTurnRequest } from '../../../guardrails/sanitize.ts';
+import { projectGuardrailTurnEvent } from '../../../guardrails/events.ts';
+import { sanitizeTurnRequestWithEvents } from '../../../guardrails/sanitize.ts';
+import { resolveTraceWriter } from '../../../observability/policy.ts';
 import { noopSink, type TraceSink, writeTrace } from '../../../observability/trace.ts';
 import { buildRecord } from '../../../observability/trace-record.ts';
+import type { ResolvedObservabilityPolicy } from '../../../observability/types.ts';
+import { getProfile } from '../../registry/profiles.ts';
 import { pickSystemRole, resolveTurn } from '../../registry/resolve.ts';
 import type { Protocol } from '../../schema.ts';
 import { CONTINUE_INSTRUCTION } from '../../stop.ts';
@@ -32,6 +36,13 @@ import { runAttemptsWithValidation } from './gates.ts';
 import type { StepExecutionState } from './state.ts';
 import { shouldSkipStreamEvent, systemFromProfile } from './stream.ts';
 import { calculateFallbackTokens } from './tokens.ts';
+
+function projectForObs(
+  event: TurnEvent,
+  policy: ResolvedObservabilityPolicy | undefined,
+): TurnEvent {
+  return projectGuardrailTurnEvent(event, policy?.include.guardrailMatchPreview ?? false);
+}
 
 function getCompactionSpec(profile: Profile, modelId: string): CompactionSpec | undefined {
   return profile.models[modelId]?.compaction;
@@ -183,6 +194,7 @@ type TraceCtx = {
   safe?: TurnRequest;
   upstream: Record<string, unknown>[];
   thrown?: unknown;
+  observability?: ResolvedObservabilityPolicy;
 };
 
 async function flushTurnTrace(sink: TraceSink, ctx: TraceCtx): Promise<void> {
@@ -201,6 +213,7 @@ async function flushTurnTrace(sink: TraceSink, ctx: TraceCtx): Promise<void> {
       generation: ctx.generation,
       protocol: ctx.protocol,
       sanitizedReq: ctx.safe,
+      observability: ctx.observability,
     }),
   );
 }
@@ -209,7 +222,7 @@ async function flushTurnTrace(sink: TraceSink, ctx: TraceCtx): Promise<void> {
 async function* runTurn(
   req: TurnRequest,
   provider: ModelProvider,
-  sink: TraceSink = noopSink(),
+  sinkOverride?: TraceSink,
 ): AsyncGenerator<TurnEvent> {
   const ctx: TraceCtx = {
     req,
@@ -218,7 +231,15 @@ async function* runTurn(
     canary: '',
     upstream: [],
   };
+  let sink: TraceSink = sinkOverride ?? noopSink();
   try {
+    const profile = getProfile(req.profile);
+    const resolved = resolveTraceWriter({
+      override: sinkOverride,
+      observability: profile.observability,
+    });
+    sink = resolved.sink;
+    ctx.observability = resolved.policy;
     yield* runTurnBody(ctx, provider);
   } catch (err) {
     await flushTurnTrace(sink, { ...ctx, thrown: err });
@@ -228,7 +249,13 @@ async function* runTurn(
 }
 
 async function* runTurnBody(ctx: TraceCtx, provider: ModelProvider): AsyncGenerator<TurnEvent> {
-  ctx.safe = sanitizeTurnRequest(ctx.req);
+  const sanitized = sanitizeTurnRequestWithEvents(ctx.req);
+  ctx.safe = sanitized.request;
+  for (const event of sanitized.events) {
+    const out = projectForObs(event, ctx.observability);
+    ctx.seen.push(out);
+    yield out;
+  }
   throwIfAborted(ctx.safe.signal);
   const { profile, generation: gen } = resolveTurn(ctx.safe);
   await expandT1Policy(gen.tools, profile, ctx.safe);
@@ -287,7 +314,8 @@ async function* streamTurnEvents(
     provider,
     upstream: ctx.upstream,
   })) {
-    const out = await maybeAttachAfter(event, ctx, gen, compactionSpec, isCompacting);
+    const attached = await maybeAttachAfter(event, ctx, gen, compactionSpec, isCompacting);
+    const out = projectForObs(attached, ctx.observability);
     ctx.seen.push(out);
     if (!shouldSkipStreamEvent(out, profile)) yield out;
   }

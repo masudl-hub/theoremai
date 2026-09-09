@@ -38,17 +38,34 @@
     "unused-exports": "error",
     "unused-types": "error",
     "unused-dependencies": "error",
+    "unused-dev-dependencies": "error",
+    "unused-optional-dependencies": "error",
+    "type-only-dependencies": "error",
+    "test-only-dependencies": "error",
+    "dev-dependencies-in-production": "error",
     "circular-dependency": "error",
+    "re-export-cycle": "error",
     "unresolved-imports": "error",
     "private-type-leaks": "error",
-    "boundary-violations": "error"
+    "boundary-violations": "error",
+    "stale-suppressions": "error",
+    "unused-catalog-entries": "error",
+    "empty-catalog-groups": "error",
+    "unused-dependency-overrides": "error",
+    "css-token-drift": "error",
+    "css-duplicate-block": "error",
+    "css-selector-complexity": "error",
+    "css-dead-surface": "error",
+    "css-broken-reference": "error"
   },
   "duplicates": {
     "mode": "strict",
     "minTokens": 40,
     "minLines": 5,
     "minOccurrences": 2,
-    "ignoreImports": true
+    "ignoreImports": true,
+    // Hard ceiling: any meaningful duplication fails until clone groups are cleared.
+    "threshold": 0.5
   },
   "audit": {
     "gate": "all"

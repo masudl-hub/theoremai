@@ -4,6 +4,7 @@
  * @module
  */
 
+import { projectGuardrailTurnEvent } from '../guardrails/events.ts';
 import type { TurnEvent } from '../kernel/types.ts';
 
 /** Options for {@link forClient} / {@link forClientEvents}. */
@@ -37,6 +38,9 @@ function forClient(event: TurnEvent, options?: ClientTurnOptions): TurnEvent {
   if (!options?.includeEvidenceRaw) {
     out = stripEvidenceRaw(out);
   }
+  // Clients never receive matched substrings — even if the host opted into
+  // guardrailMatchPreview for server logs / JSONL.
+  out = projectGuardrailTurnEvent(out, false);
   return out;
 }
 

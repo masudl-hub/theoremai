@@ -19,17 +19,17 @@ import {
 } from '../../src/cli/matrix/synthesizer.ts';
 import { getProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ModelProvider, Profile, TurnEvent } from '../../src/kernel/types.ts';
-import { geminiModels, HOST_BINDINGS, modelBindings } from '../fixtures/models.ts';
+import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 
 const testProfile: Profile = {
   type: 'text',
   id: 'test-agent',
   identity: { handle: 'test-agent', system: 'You are a test agent.' },
   models: {
-    gemini35FlashLite: HOST_BINDINGS.gemini35FlashLite,
-    gemini31ProPreview: HOST_BINDINGS.gemini31ProPreview,
+    fast: HOST_BINDINGS.gemini35FlashLite,
+    smart: HOST_BINDINGS.gemini31ProPreview,
   },
-  defaultModel: 'gemini35FlashLite',
+  defaultModel: 'fast',
   allowModelSelect: true,
   key: 'slotA',
   tools: { allow: [] },
@@ -74,7 +74,7 @@ Deno.test('fixtures produce valid base64 buffers', () => {
 Deno.test('synthesizeLiteCombo constructs minimal fast request', () => {
   const req = synthesizeLiteCombo(testProfile);
   assertEquals(req.profile, 'test-agent');
-  assertEquals(req.model, 'gemini35FlashLite');
+  assertEquals(req.model, 'fast');
   assertEquals(req.input?.attachments, undefined);
   assertEquals(req.input?.voice, undefined);
 });
@@ -82,7 +82,7 @@ Deno.test('synthesizeLiteCombo constructs minimal fast request', () => {
 Deno.test('synthesizeStressCombo constructs smart mode with multimodal attachments', () => {
   const req = synthesizeStressCombo(testProfile);
   assertEquals(req.profile, 'test-agent');
-  assertEquals(req.model, 'gemini31ProPreview');
+  assertEquals(req.model, 'smart');
   assertEquals(req.input?.attachments?.length, 1);
   assertEquals(req.input?.voice?.length, 1);
 });
@@ -110,16 +110,16 @@ Deno.test('buildCustomTurnRequest requires grounding flags on the model', () => 
     type: 'text',
     models: {
       ...testProfile.models,
-      gemini35FlashLite: {
-        ...testProfile.models.gemini35FlashLite,
+      fast: {
+        ...testProfile.models.fast,
         builtInTools: ['googleMaps'],
       },
     },
     tools: testProfile.tools,
     inputs: testProfile.inputs,
   };
-  const req = buildCustomTurnRequest(withMaps, { mode: 'gemini35FlashLite', map: true });
-  assertEquals(req.model, 'gemini35FlashLite');
+  const req = buildCustomTurnRequest(withMaps, { mode: 'fast', map: true });
+  assertEquals(req.model, 'fast');
 });
 
 Deno.test('synthesizer handles all tool combinations, fallbacks, and reasoning configurations', () => {
@@ -169,7 +169,7 @@ Deno.test('synthesizer handles all tool combinations, fallbacks, and reasoning c
   assertEquals(req2.input?.attachments, undefined);
 
   const liteReq = buildCustomTurnRequest(testProfile, { lite: true });
-  assertEquals(liteReq.model, 'gemini35FlashLite');
+  assertEquals(liteReq.model, 'fast');
 
   assertThrows(
     () => buildCustomTurnRequest(testProfile, { search: true, map: true }),
@@ -181,8 +181,8 @@ Deno.test('synthesizer handles all tool combinations, fallbacks, and reasoning c
     type: 'text',
     models: {
       ...testProfile.models,
-      gemini35FlashLite: {
-        ...testProfile.models.gemini35FlashLite,
+      fast: {
+        ...testProfile.models.fast,
         builtInTools: ['googleSearch'],
       },
     },

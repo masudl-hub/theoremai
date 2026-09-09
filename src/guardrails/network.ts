@@ -9,24 +9,8 @@
  */
 
 import { TheorumError } from './error.ts';
+import type { NetworkGuardrailSpec } from './types.ts';
 
-export interface NetworkGuardrailSpec {
-  /** When true, allows connections to localhost / loopback and private subnets (e.g. for local dev/testing). Default: false. */
-  allowPrivateNetworks?: boolean;
-  /** Explicit whitelist of hostnames or IP addresses permitted regardless of private subnet status. */
-  allowedHosts?: string[];
-  /** Optional allowed URL schemes. Defaults to ['https'] in production, or ['http', 'https'] if allowPrivateNetworks is true. */
-  allowedSchemes?: string[];
-}
-
-/**
- * Checks if an IPv4 address is in a private, loopback, or link-local range:
- * - Loopback: 127.0.0.0/8
- * - RFC 1918: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
- * - Link-local / Cloud metadata: 169.254.0.0/16
- * - Current network: 0.0.0.0/8
- * - Broadcast / multicast: 224.0.0.0/4, 255.255.255.255
- */
 /**
  * Checks if an IPv4 address is in a private, loopback, or link-local range:
  * - Loopback: 127.0.0.0/8
@@ -38,20 +22,25 @@ export interface NetworkGuardrailSpec {
  * - RFC 2544 benchmark testing: 198.18.0.0/15
  * - Broadcast / multicast / reserved: 224.0.0.0/4, 240.0.0.0/4, 255.255.255.255
  */
+type IPv4OctetMatch = (b0: number, b1: number, b2: number) => boolean;
+
+const PRIVATE_OR_LOCAL_IPV4_MATCHES: readonly IPv4OctetMatch[] = [
+  (b0) => b0 === 0, // 0.0.0.0/8
+  (b0) => b0 === 127, // 127.0.0.0/8 (loopback)
+  (b0) => b0 === 10, // 10.0.0.0/8
+  (b0, b1) => b0 === 100 && b1 >= 64 && b1 <= 127, // 100.64.0.0/10 (CGNAT)
+  (b0, b1) => b0 === 172 && b1 >= 16 && b1 <= 31, // 172.16.0.0/12
+  (b0, b1) => b0 === 192 && b1 === 168, // 192.168.0.0/16
+  (b0, b1) => b0 === 169 && b1 === 254, // 169.254.0.0/16 (link-local)
+  (b0, b1, b2) => b0 === 192 && b1 === 0 && (b2 === 0 || b2 === 2), // 192.0.0.0/24, 192.0.2.0/24
+  (b0, b1) => b0 === 198 && (b1 === 18 || b1 === 19), // 198.18.0.0/15
+  (b0, b1, b2) => b0 === 198 && b1 === 51 && b2 === 100, // 198.51.100.0/24
+  (b0, b1, b2) => b0 === 203 && b1 === 0 && b2 === 113, // 203.0.113.0/24
+  (b0) => b0 >= 224, // Multicast & Reserved (224.0.0.0/4, 240.0.0.0/4)
+];
+
 function isPrivateOrLocalIPv4Parts(b0: number, b1: number, b2: number, _b3: number): boolean {
-  if (b0 === 0) return true; // 0.0.0.0/8
-  if (b0 === 127) return true; // 127.0.0.0/8 (loopback)
-  if (b0 === 10) return true; // 10.0.0.0/8
-  if (b0 === 100 && b1 >= 64 && b1 <= 127) return true; // 100.64.0.0/10 (CGNAT / cloud internal)
-  if (b0 === 172 && b1 >= 16 && b1 <= 31) return true; // 172.16.0.0/12
-  if (b0 === 192 && b1 === 168) return true; // 192.168.0.0/16
-  if (b0 === 169 && b1 === 254) return true; // 169.254.0.0/16 (link-local, cloud metadata)
-  if (b0 === 192 && b1 === 0 && (b2 === 0 || b2 === 2)) return true; // 192.0.0.0/24, 192.0.2.0/24
-  if (b0 === 198 && (b1 === 18 || b1 === 19)) return true; // 198.18.0.0/15 (benchmark)
-  if (b0 === 198 && b1 === 51 && b2 === 100) return true; // 198.51.100.0/24
-  if (b0 === 203 && b1 === 0 && b2 === 113) return true; // 203.0.113.0/24
-  if (b0 >= 224) return true; // Multicast & Reserved (240.0.0.0/4)
-  return false;
+  return PRIVATE_OR_LOCAL_IPV4_MATCHES.some((match) => match(b0, b1, b2));
 }
 
 function isPrivateOrLocalIPv4(ip: string): boolean {

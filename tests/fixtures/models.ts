@@ -34,9 +34,7 @@ const GEMINI_INTERACTIONS = {
   provider: 'google' as const,
 };
 
-function geminiBinding(
-  spec: Omit<ModelBinding, 'protocol' | 'provider'>,
-): ModelBinding {
+function geminiBinding(spec: Omit<ModelBinding, 'protocol' | 'provider'>): ModelBinding {
   return { ...GEMINI_INTERACTIONS, ...spec };
 }
 

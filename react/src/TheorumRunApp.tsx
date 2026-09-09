@@ -2,20 +2,34 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { defineProfile } from 'theorum';
 import {
 	branchInterfaceTurnSession,
+	type ComposerMenuAction,
+	type ComposerPendingMessage,
+	type ComposerRunPhase,
+	consumeNextComposerQueue,
+	convertSteersToFrontQueued,
+	createComposerPendingMessage,
 	defaultInterfaceEffort,
 	defaultInterfaceModel,
 	emptyInterfaceTurnSession,
 	type InterfaceTurnSession,
 	interfaceFromProfile,
+	moveComposerPendingWithinKind,
+	orderComposerPendingMessages,
+	removeComposerPendingMessage,
 	type TranscriptBlock,
+	userDraftHasPayload,
+	userDraftToSteerInject,
 } from 'theorum/interface';
 import type { ToolCredential } from 'theorum/kernel';
 import {
 	applyTurnResultToTranscript,
-	clearPlaygroundRunPayload,
+	encodeComposerDraft,
 	loadPlaygroundRunPayload,
 	type PlaygroundRunPayload,
+	postPlaygroundSteer,
+	readPlaygroundRunIdFromUrl,
 	resumeInterfaceTool,
+	streamInterfaceDraftTurn,
 	streamInterfaceTurn,
 	type ToolDecisionAction,
 } from './client/index';
@@ -27,10 +41,10 @@ export type TheorumRunAppProps = {
 	missingPayloadHref?: string;
 	/** Back-link to the authoring playground. */
 	playgroundHref?: string;
-	/** Override payload load (tests / product hosts). Default: localStorage handoff. */
-	loadPayload?: () => PlaygroundRunPayload | null;
-	/** Called after a successful default load; default clears localStorage handoff. */
-	onPayloadConsumed?: () => void;
+	/** Override run-id resolution (tests / product hosts). Default: `?run=` from the URL. */
+	readRunId?: () => string | null;
+	/** Override payload load (tests / product hosts). Default: localStorage handoff by run id. */
+	loadPayload?: (runId: string) => PlaygroundRunPayload | null;
 };
 
 type TurnOk = {
@@ -40,13 +54,19 @@ type TurnOk = {
 	assistantBlocks: TranscriptBlock[];
 };
 
-type TurnFail = { ok: false; error: string; issues?: string[] };
+type TurnFail = { ok: false; error: string; errorInternal?: string; issues?: string[]; aborted?: boolean };
+
+function newTurnId(): string {
+	return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+		? crypto.randomUUID()
+		: `turn-${Date.now()}`;
+}
 
 export function TheorumRunApp({
 	missingPayloadHref = '/#playground',
 	playgroundHref = '/#playground',
+	readRunId = readPlaygroundRunIdFromUrl,
 	loadPayload = loadPlaygroundRunPayload,
-	onPayloadConsumed = clearPlaygroundRunPayload,
 }: TheorumRunAppProps) {
 	const [payload, setPayload] = useState<PlaygroundRunPayload | null>(null);
 	const [ready, setReady] = useState(false);
@@ -55,8 +75,10 @@ export function TheorumRunApp({
 	const [draftText, setDraftText] = useState('');
 	const [pendingFiles, setPendingFiles] = useState<File[]>([]);
 	const [pendingVoice, setPendingVoice] = useState<File[]>([]);
+	const [pendingMessages, setPendingMessages] = useState<ComposerPendingMessage[]>([]);
 	const [issues, setIssues] = useState<string[]>([]);
 	const [error, setError] = useState('');
+	const [errorInternal, setErrorInternal] = useState('');
 	const [busy, setBusy] = useState(false);
 	const [chatStarted, setChatStarted] = useState(false);
 	const [streaming, setStreaming] = useState(false);
@@ -65,6 +87,16 @@ export function TheorumRunApp({
 	const pendingStreamRef = useRef<TranscriptBlock[] | null>(null);
 	const blocksRef = useRef(blocks);
 	blocksRef.current = blocks;
+	const busyRef = useRef(false);
+	const abortRef = useRef<AbortController | null>(null);
+	const turnIdRef = useRef<string | null>(null);
+	const pendingRef = useRef(pendingMessages);
+	pendingRef.current = pendingMessages;
+	const sessionRef = useRef(session);
+	sessionRef.current = session;
+	const drainLockRef = useRef(false);
+	const allowQueueDrainRef = useRef(false);
+	const runPromiseRef = useRef<Promise<void> | null>(null);
 
 	const cancelPendingStreamFrame = useCallback(() => {
 		if (streamRafRef.current != null) {
@@ -86,15 +118,19 @@ export function TheorumRunApp({
 	}, []);
 
 	useEffect(() => {
-		const loaded = loadPayload();
+		const runId = readRunId();
+		if (!runId) {
+			window.location.href = missingPayloadHref;
+			return;
+		}
+		const loaded = loadPayload(runId);
 		if (!loaded) {
 			window.location.href = missingPayloadHref;
 			return;
 		}
-		onPayloadConsumed();
 		setPayload(loaded);
 		setReady(true);
-	}, [loadPayload, missingPayloadHref, onPayloadConsumed]);
+	}, [loadPayload, missingPayloadHref, readRunId]);
 
 	const iface = useMemo(() => {
 		if (!payload || payload.profile.type === 'live') return null;
@@ -112,15 +148,7 @@ export function TheorumRunApp({
 	}, [payload]);
 
 	const paused = session.pausedTool !== null;
-
-	const canSubmit = Boolean(
-		!busy &&
-			!paused &&
-			iface &&
-			((iface.inputs.text && draftText.trim().length > 0) ||
-				(iface.inputs.attachments && pendingFiles.length > 0) ||
-				(iface.inputs.voice && pendingVoice.length > 0)),
-	);
+	const phase: ComposerRunPhase = busy ? 'streaming' : paused ? 'paused' : 'idle';
 
 	useEffect(() => {
 		if (!iface) return;
@@ -149,79 +177,320 @@ export function TheorumRunApp({
 		[iface],
 	);
 
+	const clearComposer = useCallback(() => {
+		setDraftText('');
+		setPendingFiles([]);
+		setPendingVoice([]);
+	}, []);
+
+	const onRunEnded = useCallback((nextPending: ComposerPendingMessage[], drain: boolean) => {
+		const converted = convertSteersToFrontQueued(nextPending);
+		setPendingMessages(orderComposerPendingMessages(converted));
+		allowQueueDrainRef.current = drain;
+		return converted;
+	}, []);
+
 	const runTurnStream = useCallback(
 		async (
 			run: (onStream: (partial: TranscriptBlock[]) => void) => Promise<TurnOk | TurnFail>,
 			options: { userBlocksAlreadyApplied?: boolean } = {},
 		) => {
-			if (!iface || !payload || busy) return;
+			if (!iface || !payload || busyRef.current) return;
 			setError('');
+			setErrorInternal('');
+			busyRef.current = true;
 			setBusy(true);
 			setStreaming(true);
+			allowQueueDrainRef.current = false;
 
-			let latestStream: TranscriptBlock[] = [];
-			const result = await run((partial) => {
-				latestStream = partial;
-				scheduleStreamBlocks(partial);
-			});
+			const work = (async () => {
+				let latestStream: TranscriptBlock[] = [];
+				const result = await run((partial) => {
+					latestStream = partial;
+					scheduleStreamBlocks(partial);
+				});
 
-			cancelPendingStreamFrame();
-			setBusy(false);
-			setStreaming(false);
+				cancelPendingStreamFrame();
+				busyRef.current = false;
+				setBusy(false);
+				setStreaming(false);
+				abortRef.current = null;
+				turnIdRef.current = null;
 
-			if (!result.ok) {
-				setError(result.error);
-				if (result.issues) setIssues(result.issues);
-				setStreamBlocks([]);
-				return;
+				if (!result.ok) {
+					if (!result.aborted) {
+						setError(result.error);
+						setErrorInternal(result.errorInternal ?? '');
+						if (result.issues) setIssues(result.issues);
+					}
+					setStreamBlocks([]);
+					// Stop / abort: steers → queue, but do not auto-drain.
+					onRunEnded(pendingRef.current, false);
+					return;
+				}
+
+				const merged = applyTurnResultToTranscript({
+					blocks: blocksRef.current,
+					streamBlocks: latestStream,
+					session: result.session,
+					userBlocks: options.userBlocksAlreadyApplied ? undefined : result.userBlocks,
+					assistantBlocks: result.assistantBlocks,
+				});
+				setBlocks(merged.blocks);
+				setStreamBlocks(merged.streamBlocks);
+				setSession(merged.session);
+
+				if (merged.session.pausedTool !== null) {
+					// Same run — leave pending intents alone; do not drain queue.
+					return;
+				}
+
+				onRunEnded(pendingRef.current, true);
+			})();
+
+			runPromiseRef.current = work;
+			try {
+				await work;
+			} finally {
+				if (runPromiseRef.current === work) runPromiseRef.current = null;
 			}
-
-			const merged = applyTurnResultToTranscript({
-				blocks: blocksRef.current,
-				streamBlocks: latestStream,
-				session: result.session,
-				userBlocks: options.userBlocksAlreadyApplied ? undefined : result.userBlocks,
-				assistantBlocks: result.assistantBlocks,
-			});
-			// Same tick — avoid a frame where committed blocks + streamBlocks duplicate.
-			setBlocks(merged.blocks);
-			setStreamBlocks(merged.streamBlocks);
-			setSession(merged.session);
 		},
-		[busy, cancelPendingStreamFrame, iface, payload, scheduleStreamBlocks],
+		[cancelPendingStreamFrame, iface, onRunEnded, payload, scheduleStreamBlocks],
 	);
 
-	const handleSubmit = useCallback(async () => {
-		const composer = iface;
-		const runPayload = payload;
-		if (!composer || !runPayload || paused) return;
+	const startTurnFromFields = useCallback(
+		async (args: {
+			text: string;
+			files: File[];
+			voice: File[];
+		}) => {
+			const composer = iface;
+			const runPayload = payload;
+			if (!composer || !runPayload) return;
+
+			const controller = new AbortController();
+			abortRef.current = controller;
+			const turnId = newTurnId();
+			turnIdRef.current = turnId;
+
+			await runTurnStream(
+				(onStream) =>
+					streamInterfaceTurn({
+						iface: composer,
+						payload: runPayload,
+						session: sessionRef.current,
+						text: args.text,
+						pendingFiles: args.files,
+						pendingVoice: args.voice,
+						signal: controller.signal,
+						turnId,
+						onStream,
+						onUserBlocks: (userBlocks) => {
+							setBlocks((prev) => [...prev, ...userBlocks]);
+							setChatStarted(true);
+							clearComposer();
+						},
+					}),
+				{ userBlocksAlreadyApplied: true },
+			);
+		},
+		[clearComposer, iface, payload, runTurnStream],
+	);
+
+	const startTurnFromDraft = useCallback(
+		async (draft: ComposerPendingMessage['draft']) => {
+			const composer = iface;
+			const runPayload = payload;
+			if (!composer || !runPayload) return;
+
+			const controller = new AbortController();
+			abortRef.current = controller;
+			const turnId = newTurnId();
+			turnIdRef.current = turnId;
+
+			await runTurnStream(
+				(onStream) =>
+					streamInterfaceDraftTurn({
+						iface: composer,
+						payload: runPayload,
+						session: sessionRef.current,
+						draft,
+						signal: controller.signal,
+						turnId,
+						onStream,
+						onUserBlocks: (userBlocks) => {
+							setBlocks((prev) => [...prev, ...userBlocks]);
+							setChatStarted(true);
+						},
+					}),
+				{ userBlocksAlreadyApplied: true },
+			);
+		},
+		[iface, payload, runTurnStream],
+	);
+
+	const drainQueue = useCallback(async () => {
+		if (drainLockRef.current || busyRef.current || sessionRef.current.pausedTool) return;
+		const { message, remaining } = consumeNextComposerQueue(pendingRef.current);
+		if (!message) return;
+		drainLockRef.current = true;
+		setPendingMessages(remaining);
+		try {
+			await startTurnFromDraft(message.draft);
+		} finally {
+			drainLockRef.current = false;
+		}
+	}, [startTurnFromDraft]);
+
+	useEffect(() => {
+		if (phase !== 'idle' || !allowQueueDrainRef.current) return;
+		if (!pendingMessages.some((m) => m.kind === 'queue')) {
+			allowQueueDrainRef.current = false;
+			return;
+		}
+		allowQueueDrainRef.current = false;
+		void drainQueue();
+	}, [drainQueue, pendingMessages, phase]);
+
+	const enqueuePending = useCallback(async (kind: 'queue' | 'steer' | 'stash') => {
+		if (!userDraftHasPayload({
+			...(draftText.trim() ? { text: draftText } : {}),
+			...(pendingFiles.length
+				? {
+						attachments: pendingFiles.map((f) => ({
+							name: f.name,
+							mimeType: f.type || 'application/octet-stream',
+							sizeBytes: f.size,
+						})),
+					}
+				: {}),
+			...(pendingVoice.length
+				? {
+						voice: pendingVoice.map((f) => ({
+							name: f.name,
+							mimeType: f.type || 'application/octet-stream',
+							sizeBytes: f.size,
+						})),
+					}
+				: {}),
+		})) {
+			return;
+		}
 		setIssues([]);
+		try {
+			const draft = await encodeComposerDraft({
+				text: draftText,
+				pendingFiles,
+				pendingVoice,
+			});
+			const message = createComposerPendingMessage({ kind, draft });
+			setPendingMessages((prev) => orderComposerPendingMessages([...prev, message]));
+			clearComposer();
 
-		const textSnapshot = draftText;
-		const pendingSnapshot = [...pendingFiles];
-		const voiceSnapshot = [...pendingVoice];
+			if (kind === 'steer') {
+				const turnId = turnIdRef.current;
+				if (!turnId) {
+					setError('No active turn to steer.');
+					setErrorInternal('');
+					setPendingMessages((prev) =>
+						orderComposerPendingMessages(
+							convertSteersToFrontQueued(removeComposerPendingMessage(prev, message.id)),
+						),
+					);
+					return;
+				}
+				const inject = userDraftToSteerInject(draft);
+				if (inject.length === 0) return;
+				await postPlaygroundSteer({ turnId, inject });
+			}
+		} catch (err) {
+			setError(err instanceof Error ? err.message : String(err));
+			setErrorInternal('');
+		}
+	}, [clearComposer, draftText, pendingFiles, pendingVoice]);
 
-		await runTurnStream(
-			(onStream) =>
-				streamInterfaceTurn({
-					iface: composer,
-					payload: runPayload,
-					session,
-					text: textSnapshot,
-					pendingFiles: pendingSnapshot,
-					pendingVoice: voiceSnapshot,
-					onStream,
-					onUserBlocks: (userBlocks) => {
-						setBlocks((prev) => [...prev, ...userBlocks]);
-						setChatStarted(true);
-						setDraftText('');
-						setPendingFiles([]);
-						setPendingVoice([]);
-					},
-				}),
-			{ userBlocksAlreadyApplied: true },
-		);
-	}, [draftText, iface, payload, paused, pendingFiles, pendingVoice, runTurnStream, session]);
+	const handleStop = useCallback(() => {
+		abortRef.current?.abort();
+	}, []);
+
+	const handleSubmit = useCallback(async () => {
+		if (phase === 'streaming' || phase === 'paused') {
+			await enqueuePending('queue');
+			return;
+		}
+		if (paused) return;
+		setIssues([]);
+		await startTurnFromFields({
+			text: draftText,
+			files: [...pendingFiles],
+			voice: [...pendingVoice],
+		});
+	}, [draftText, enqueuePending, paused, pendingFiles, pendingVoice, phase, startTurnFromFields]);
+
+	const handleSendNow = useCallback(
+		async (draftSource?: ComposerPendingMessage) => {
+			const composer = iface;
+			if (!composer) return;
+
+			let draft = draftSource?.draft;
+			if (!draft) {
+				draft = await encodeComposerDraft({
+					text: draftText,
+					pendingFiles,
+					pendingVoice,
+				});
+				if (!userDraftHasPayload(draft)) return;
+				clearComposer();
+			} else {
+				setPendingMessages((prev) => removeComposerPendingMessage(prev, draftSource!.id));
+			}
+
+			if (busyRef.current) {
+				abortRef.current?.abort();
+				await runPromiseRef.current;
+			}
+
+			if (paused && sessionRef.current.pausedTool) {
+				await runTurnStream((onStream) =>
+					resumeInterfaceTool({
+						iface: composer,
+						payload: payload!,
+						session: sessionRef.current,
+						action: 'deny',
+						onStream,
+					}),
+				);
+			}
+
+			setPendingMessages((prev) => convertSteersToFrontQueued(prev));
+			allowQueueDrainRef.current = false;
+			await startTurnFromDraft(draft);
+		},
+		[
+			clearComposer,
+			draftText,
+			iface,
+			payload,
+			paused,
+			pendingFiles,
+			pendingVoice,
+			runTurnStream,
+			startTurnFromDraft,
+		],
+	);
+
+	const handleMenuAction = useCallback(
+		(action: ComposerMenuAction) => {
+			if (action === 'queue' || action === 'steer' || action === 'stash') {
+				void enqueuePending(action);
+				return;
+			}
+			if (action === 'send_now') {
+				void handleSendNow();
+			}
+		},
+		[enqueuePending, handleSendNow],
+	);
 
 	const handleToolDecision = useCallback(
 		async (_index: number, action: ToolDecisionAction, interactiveValue?: unknown) => {
@@ -233,14 +502,14 @@ export function TheorumRunApp({
 				resumeInterfaceTool({
 					iface: composer,
 					payload: runPayload,
-					session,
+					session: sessionRef.current,
 					action,
 					interactiveValue,
 					onStream,
 				}),
 			);
 		},
-		[iface, payload, runTurnStream, session],
+		[iface, payload, runTurnStream],
 	);
 
 	const handleAuthCredential = useCallback(
@@ -253,14 +522,14 @@ export function TheorumRunApp({
 				resumeInterfaceTool({
 					iface: composer,
 					payload: runPayload,
-					session,
+					session: sessionRef.current,
 					action: 'allow',
 					credentials: { [slot]: credential },
 					onStream,
 				}),
 			);
 		},
-		[iface, payload, runTurnStream, session],
+		[iface, payload, runTurnStream],
 	);
 
 	const handleBranch = useCallback(
@@ -269,12 +538,27 @@ export function TheorumRunApp({
 			setBlocks(kept);
 			setStreamBlocks([]);
 			setStreaming(false);
+			busyRef.current = false;
 			setBusy(false);
 			setChatStarted(kept.length > 0);
 			setSession((prevSession) => branchInterfaceTurnSession(prevSession, kept));
 		},
 		[blocks, streamBlocks],
 	);
+
+	const handlePendingRestore = useCallback((id: string) => {
+		const message = pendingMessages.find((m) => m.id === id);
+		if (!message) return;
+		setPendingMessages((prev) => removeComposerPendingMessage(prev, id));
+		setDraftText(message.draft.text ?? '');
+		setPendingFiles([]);
+		setPendingVoice([]);
+		setIssues(
+			message.draft.attachments?.length || message.draft.voice?.length
+				? ['Restored text only — re-attach files before sending if needed.']
+				: [],
+		);
+	}, [pendingMessages]);
 
 	useEffect(() => {
 		document.title = `${titleHandle} · Theorum Playground`;
@@ -295,11 +579,10 @@ export function TheorumRunApp({
 			) : iface && payload ? (
 				<InterfaceRunner
 					blocks={blocks}
-					busy={busy}
-					canSubmit={canSubmit}
 					chatStarted={chatStarted}
 					draftText={draftText}
-					error={error || (paused ? 'Waiting for tool approval before you can continue.' : '')}
+					error={error}
+					errorInternal={errorInternal}
 					iface={iface}
 					issues={[...issues]}
 					onAuthCredential={(index, slot, credential) => {
@@ -324,12 +607,27 @@ export function TheorumRunApp({
 					onSubmit={() => {
 						void handleSubmit();
 					}}
+					onStop={handleStop}
+					onMenuAction={handleMenuAction}
+					onPendingMove={(id, direction) => {
+						setPendingMessages((prev) => moveComposerPendingWithinKind(prev, id, direction));
+					}}
+					onPendingRemove={(id) => {
+						setPendingMessages((prev) => removeComposerPendingMessage(prev, id));
+					}}
+					onPendingRestore={handlePendingRestore}
+					onPendingSendNow={(id) => {
+						const message = pendingMessages.find((m) => m.id === id);
+						if (message) void handleSendNow(message);
+					}}
 					onToolDecision={(index, action, interactiveValue) => {
 						void handleToolDecision(index, action, interactiveValue);
 					}}
 					onGenerationChange={handleGenerationChange}
 					pendingFiles={pendingFiles}
+					pendingMessages={pendingMessages}
 					pendingVoice={pendingVoice}
+					phase={phase}
 					selectedEffort={session.selectedEffort ?? ''}
 					selectedModel={session.selectedModel ?? ''}
 					streamBlocks={streamBlocks}

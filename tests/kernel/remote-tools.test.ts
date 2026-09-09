@@ -25,7 +25,7 @@ const testProfile: Profile = {
     },
   },
   tools: {
-    allow: ['fetch_user_profile', 'linear_issue', 'private_internal_api'],
+    allow: ['fetch_user_profile', 'linear_issue', 'private_internal_api', 'local_mcp'],
   },
   inputs: { text: true },
   outputs: {},
@@ -494,4 +494,262 @@ Deno.test('parseMcpRpcResponse parses plain JSON bodies', () => {
   const parsed = parseMcpRpcResponse('{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}');
   const tools = parsed.result?.tools;
   assertEquals(Array.isArray(tools) && tools.length === 0, true);
+});
+
+function registerLinearMcpFixture() {
+  resetTools();
+  registerTool({
+    name: 'linear_issue',
+    description: 'Create linear issue via MCP',
+    type: 'mcp',
+    serverUrl: 'https://mcp.linear.app/sse',
+    mcpToolName: 'create_issue',
+    category: 'workflow',
+    access: 'read-write',
+    loadTier: 'T0',
+    permission: 'auto',
+    paths: ['*'],
+    auth: {
+      slot: 'linear_auth',
+      type: 'api_key',
+      headerName: 'X-API-Key',
+    },
+    input: z.object({ title: z.string(), description: z.string() }),
+    output: z.object({ issueId: z.string(), url: z.string() }),
+  });
+}
+
+async function collectToolRun(name: string, input: unknown, callId: string) {
+  const events = [];
+  const exec = executeRegisteredTool({
+    profile: testProfile,
+    name,
+    input,
+    callId,
+    ctx: {
+      credentials: {
+        linear_auth: { type: 'api_key', key: 'lin_api_key_xyz' },
+      },
+    },
+  });
+  let result: ModelToolResult | undefined;
+  while (true) {
+    const next = await exec.next();
+    if (next.done) {
+      result = next.value;
+      break;
+    }
+    events.push(next.value);
+  }
+  return { events, result };
+}
+
+Deno.test('Remote MCP Tool reports invalid input and network blocks', async () => {
+  registerLinearMcpFixture();
+  const invalid = await collectToolRun('linear_issue', { title: 1 }, 'call_mcp_invalid');
+  assertEquals(
+    invalid.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.code,
+    'invalid_input',
+  );
+
+  resetTools();
+  registerTool({
+    name: 'local_mcp',
+    description: 'blocked',
+    type: 'mcp',
+    serverUrl: 'https://127.0.0.1:9/mcp',
+    mcpToolName: 'noop',
+    category: 'workflow',
+    access: 'read-only',
+    loadTier: 'T0',
+    permission: 'auto',
+    paths: ['*'],
+    input: z.object({}),
+    output: z.unknown(),
+  });
+  const events = [];
+  for await (const ev of executeRegisteredTool({
+    profile: testProfile,
+    name: 'local_mcp',
+    input: {},
+    callId: 'call_mcp_blocked',
+    ctx: {},
+  })) {
+    events.push(ev);
+  }
+  assertEquals(
+    events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.code,
+    'network_blocked',
+  );
+});
+
+Deno.test('Remote MCP Tool surfaces RPC, tool, HTTP, and schema failures', async () => {
+  registerLinearMcpFixture();
+  const originalFetch = globalThis.fetch;
+  const input = { title: 'Bug', description: 'x' };
+
+  try {
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          error: { code: -32000, message: 'boom', data: { retry: false } },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      )) as typeof fetch;
+    const rpcErr = await collectToolRun('linear_issue', input, 'call_mcp_rpc_err');
+    assertEquals(
+      rpcErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.code,
+      'mcp_rpc_error_-32000',
+    );
+
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          result: { isError: true, content: [{ type: 'text', text: 'tool blew up' }] },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      )) as typeof fetch;
+    const toolErr = await collectToolRun('linear_issue', input, 'call_mcp_tool_err');
+    assertEquals(
+      toolErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.code,
+      'mcp_tool_execution_failed',
+    );
+
+    globalThis.fetch = (async () => new Response('nope', { status: 500 })) as typeof fetch;
+    const httpErr = await collectToolRun('linear_issue', input, 'call_mcp_http_err');
+    assertEquals(
+      httpErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.code,
+      'mcp_http_500',
+    );
+
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          result: { content: [{ type: 'text', text: '{"wrong":true}' }] },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      )) as typeof fetch;
+    const schemaErr = await collectToolRun('linear_issue', input, 'call_mcp_schema_err');
+    assertEquals(
+      schemaErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.code,
+      'invalid_output',
+    );
+
+    globalThis.fetch = (async () => {
+      throw new Error('socket reset');
+    }) as typeof fetch;
+    const netErr = await collectToolRun('linear_issue', input, 'call_mcp_net_err');
+    assertEquals(
+      netErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.code,
+      'network_error',
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('Remote MCP Tool retries unsupported protocol versions then succeeds', async () => {
+  registerLinearMcpFixture();
+  const originalFetch = globalThis.fetch;
+  let attempt = 0;
+  globalThis.fetch = (async (_input, _init) => {
+    attempt += 1;
+    if (attempt === 1) {
+      return new Response(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          error: { code: -32600, message: 'Unsupported protocol version' },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({ issueId: 'LIN-202', url: 'https://linear.app/issue/LIN-202' }),
+            },
+          ],
+        },
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const { result } = await collectToolRun(
+      'linear_issue',
+      { title: 'Retry', description: 'protocol' },
+      'call_mcp_retry',
+    );
+    assertEquals(attempt >= 2, true);
+    assertEquals((result?.data as { issueId?: string } | undefined)?.issueId, 'LIN-202');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('Remote MCP Tool retries HTTP 400 unsupported protocol versions then succeeds', async () => {
+  registerLinearMcpFixture();
+  const originalFetch = globalThis.fetch;
+  let attempt = 0;
+  let secondProtocol: string | null = null;
+  globalThis.fetch = (async (_input, init) => {
+    attempt += 1;
+    const headers = new Headers(init?.headers);
+    if (attempt === 1) {
+      return new Response(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          error: {
+            code: -32600,
+            message:
+              'Bad Request: Unsupported protocol version: 2026-07-28. Supported versions: 2024-11-05, 2025-03-26, 2025-06-18, 2025-11-25',
+          },
+        }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    secondProtocol = headers.get('mcp-protocol-version');
+    return new Response(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({ issueId: 'LIN-400', url: 'https://linear.app/issue/LIN-400' }),
+            },
+          ],
+        },
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const { result } = await collectToolRun(
+      'linear_issue',
+      { title: 'HTTP 400 retry', description: 'protocol' },
+      'call_mcp_http_400_retry',
+    );
+    assertEquals(attempt >= 2, true);
+    assertEquals(secondProtocol, '2025-11-25');
+    assertEquals((result?.data as { issueId?: string } | undefined)?.issueId, 'LIN-400');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

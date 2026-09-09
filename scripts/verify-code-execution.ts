@@ -13,7 +13,13 @@ import { synthesizeMatrixCombos } from '../src/cli/matrix/synthesizer.ts';
 import { runTurn } from '../src/kernel/engine/runner.ts';
 import { defineProfile, getProfile, registerProfile } from '../src/kernel/registry/profiles.ts';
 import { registerStructured } from '../src/kernel/registry/schemas.ts';
-import type { BuiltinToolId, ModelBinding, ModelProvider, TurnEvent, TurnRequest } from '../src/kernel/types.ts';
+import type {
+  BuiltinToolId,
+  ModelBinding,
+  ModelProvider,
+  TurnEvent,
+  TurnRequest,
+} from '../src/kernel/types.ts';
 import { registerGooglePreset } from '../src/presets/google.ts';
 import { createProvider } from '../src/providers/create-provider.ts';
 

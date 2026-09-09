@@ -4,10 +4,20 @@
  * @module
  */
 
-import type { z } from 'zod';
 import { throwIfAborted } from '../../guardrails/error.ts';
+import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import { sanitizeText } from '../../guardrails/sanitize.ts';
+import {
+  checkTaintGate,
+  composeToolText,
+  guardToolFailureText,
+  guardToolResult,
+  inspectToolArguments,
+  toolCallEvent,
+} from '../../guardrails/tool-result.ts';
+import type { Provenance, ToolOrigin } from '../../guardrails/types.ts';
 import type { Profile, TurnEvent } from '../types.ts';
+import { failureEvent, startToolExecution, toolEvent } from './events.ts';
 import { getTool } from './registry.ts';
 import { executeHttpTool, executeMcpTool } from './remote.ts';
 import { promoteLoadedTools } from './resolve.ts';
@@ -15,6 +25,7 @@ import type {
   FunctionToolDef,
   InvokeToolResume,
   ModelToolResult,
+  RegisteredTool,
   ToolCallEvent,
   ToolContext,
   ToolFailure,
@@ -23,6 +34,18 @@ import type {
   ToolStreamEvent,
   TurnToolSnapshot,
 } from './types.ts';
+
+/** Map a registered tool's type onto the origin its bytes carry. */
+function originOfTool(type: RegisteredTool['type']): ToolOrigin {
+  if (type === 'http') return 'http';
+  if (type === 'mcp') return 'mcp';
+  if (type === 'builtin') return 'builtin';
+  return 'local';
+}
+
+function provenanceFor(tool: RegisteredTool, depth = 1): Provenance {
+  return { origin: originOfTool(tool.type), tool: tool.name, depth };
+}
 
 function isStreamHandler(handler: unknown): boolean {
   return (
@@ -127,23 +150,6 @@ export function checkPermission(
   };
 }
 
-function toolEvent(
-  base: Pick<ToolCallEvent, 'name' | 'callId' | 'arguments'>,
-  patch: Partial<ToolCallEvent>,
-): TurnEvent {
-  return {
-    type: 'tool',
-    tool: { ...base, ...patch },
-  };
-}
-
-function failureEvent(
-  base: Pick<ToolCallEvent, 'name' | 'callId' | 'arguments'>,
-  failure: ToolFailure,
-): TurnEvent {
-  return toolEvent(base, { phase: 'error', failure });
-}
-
 export function projectForModel(tool: FunctionToolDef, output: unknown): ModelToolResult {
   if (tool.exposeToModel === false) {
     return { finding: 'Completed.' };
@@ -158,45 +164,129 @@ export function projectForModel(tool: FunctionToolDef, output: unknown): ModelTo
   };
 }
 
-/** Format model-facing tool output for provider history continuation. */
+/**
+ * Format model-facing tool output for provider history continuation.
+ *
+ * `executeRegisteredTool` guards at the boundary and leaves `modelText` behind, so
+ * the common path returns already-fenced text. A result recorded elsewhere — a
+ * host replaying a transcript — is guarded here instead, under full detection.
+ */
 export function formatToolResult(result: ModelToolResult): string {
-  if (result.data !== undefined) {
-    return sanitizeText(`${result.finding}\n${JSON.stringify(result.data)}`);
+  if (result.modelText !== undefined) {
+    return result.modelText;
   }
-  return sanitizeText(result.finding);
+  return sanitizeText(composeToolText(result.finding, result.data));
 }
 
-/** Format a tool failure for provider history — structured so the model (or host) sees the code. */
-export function formatToolFailureForModel(failure: ToolFailure): ModelToolResult {
+/**
+ * Format a tool failure for provider history — structured so the model (or host)
+ * sees the code.
+ *
+ * The message is remote-authored on HTTP and MCP tools, so it is redacted before
+ * the kernel frames it as a system report.
+ */
+export function formatToolFailureForModel(
+  failure: ToolFailure,
+  provenance?: Provenance,
+  policy: ReturnType<typeof resolveGuardrailPolicy> = resolveGuardrailPolicy(undefined),
+): ModelToolResult {
+  const safe = provenance
+    ? guardToolFailureText(failure.message, provenance, policy).text
+    : sanitizeText(failure.message);
   return {
-    finding: `Tool error (${failure.code}): ${failure.message}`,
+    finding: `Tool error (${failure.code}): ${safe}`,
     data: {
       ok: false,
       code: failure.code,
-      message: failure.message,
+      message: safe,
       ...(failure.details !== undefined ? { details: failure.details } : {}),
     },
   };
 }
 
-export function* startToolExecution<T>(
-  tool: { input: z.ZodType<T> },
-  rawInput: unknown,
+async function authorizeCanExecute<T>(
+  tool: FunctionToolDef<T>,
+  input: T,
   ctx: ToolContext,
-  base: Pick<ToolCallEvent, 'name' | 'callId' | 'arguments'>,
-): Generator<TurnEvent, { ok: true; data: T } | { ok: false }> {
-  yield toolEvent(base, { phase: 'running' });
-  throwIfAborted(ctx.signal);
-  const parsed = tool.input.safeParse(rawInput);
-  if (!parsed.success) {
-    yield failureEvent(base, {
-      code: 'invalid_input',
-      message: 'Tool input validation failed',
-      details: parsed.error.flatten(),
-    });
-    return { ok: false };
+): Promise<ToolFailure | undefined> {
+  if (!tool.canExecute) return undefined;
+  try {
+    const allowed = await tool.canExecute(input, ctx);
+    if (!allowed) {
+      return { code: 'not_authorized', message: 'Tool execution not authorized' };
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      code: 'not_authorized',
+      message: `Authorization failed for '${tool.name}': ${msg}`,
+    };
   }
-  return { ok: true, data: parsed.data };
+  return undefined;
+}
+
+async function runToolPreflight<T>(
+  tool: FunctionToolDef<T>,
+  input: T,
+  ctx: ToolContext,
+): Promise<ToolPause | ToolFailure | undefined> {
+  if (!tool.preflight || ctx.resume?.granted === true) return undefined;
+  const pre = await tool.preflight(input, ctx);
+  if (!pre) return undefined;
+  if (isToolPause(pre)) {
+    return { ...pre, input: pre.input ?? input };
+  }
+  return pre;
+}
+
+function applyT2LoaderPromotion(
+  tool: FunctionToolDef,
+  checkedData: unknown,
+  ctx: ToolContext,
+  snapshot: TurnToolSnapshot | undefined,
+): { ok: true; output: unknown } | { ok: false; failure: ToolFailure } {
+  if (ctx.profile.type === 'speech' || ctx.profile.type === 'live') {
+    return { ok: true, output: checkedData };
+  }
+  if (ctx.profile.tools.t2Loader !== tool.name) {
+    return { ok: true, output: checkedData };
+  }
+  if (!snapshot) {
+    return {
+      ok: false,
+      failure: {
+        code: 'invalid_output',
+        message: `tools.t2Loader '${tool.name}' requires a turn tool snapshot`,
+      },
+    };
+  }
+  const loaded = extractLoadedIds(checkedData);
+  if (!loaded) {
+    return {
+      ok: false,
+      failure: {
+        code: 'invalid_output',
+        message: `T2 loader '${tool.name}' must return { loaded: string[] }`,
+      },
+    };
+  }
+  const { promoted, failure: promoteFailure } = promoteLoadedTools(snapshot, loaded, ctx.profile);
+  if (promoteFailure) {
+    return { ok: false, failure: promoteFailure };
+  }
+  const finalOutput = { ...(checkedData as Record<string, unknown>), loaded: promoted };
+  const rechecked = tool.output.safeParse(finalOutput);
+  if (!rechecked.success) {
+    return {
+      ok: false,
+      failure: {
+        code: 'invalid_output',
+        message: 'T2 loader output validation failed after promotion',
+        details: rechecked.error.flatten(),
+      },
+    };
+  }
+  return { ok: true, output: rechecked.data };
 }
 
 export async function* executeFunction(
@@ -224,45 +314,27 @@ export async function* executeFunction(
 
   throwIfAborted(ctx.signal);
 
-  if (tool.canExecute) {
-    try {
-      const allowed = await tool.canExecute(input, ctx);
-      if (!allowed) {
-        yield failureEvent(base, {
-          code: 'not_authorized',
-          message: 'Tool execution not authorized',
-        });
-        return undefined;
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      yield failureEvent(base, {
-        code: 'not_authorized',
-        message: `Authorization failed for '${tool.name}': ${msg}`,
-      });
-      return undefined;
-    }
+  const authFailure = await authorizeCanExecute(tool, input, ctx);
+  if (authFailure) {
+    yield failureEvent(base, authFailure);
+    return undefined;
   }
 
-  if (tool.preflight && ctx.resume?.granted !== true) {
-    const pre = await tool.preflight(input, ctx);
-    if (pre) {
-      if (isToolPause(pre)) {
-        const pausePayload: ToolPause = { ...pre, input: pre.input ?? input };
-        yield toolEvent(base, { phase: 'pause', pause: pausePayload });
-        return undefined;
-      }
-      yield failureEvent(base, pre);
+  const preflight = await runToolPreflight(tool, input, ctx);
+  if (preflight) {
+    if (isToolPause(preflight)) {
+      yield toolEvent(base, { phase: 'pause', pause: preflight });
       return undefined;
     }
+    yield failureEvent(base, preflight);
+    return undefined;
   }
 
   if (tool.interactive && ctx.resume?.value === undefined) {
-    const render = tool.interactive.render(input);
     const interactivePause: ToolPause = {
       kind: 'interactive',
       tool: tool.name,
-      render,
+      render: tool.interactive.render(input),
       input,
     };
     yield toolEvent(base, { phase: 'pause', pause: interactivePause });
@@ -286,50 +358,14 @@ export async function* executeFunction(
       return undefined;
     }
 
-    let finalOutput: unknown = checked.data;
-    if (ctx.profile.type !== 'speech' && ctx.profile.type !== 'live') {
-      const { t2Loader } = ctx.profile.tools;
-      if (t2Loader === tool.name) {
-        if (!snapshot) {
-          yield failureEvent(base, {
-            code: 'invalid_output',
-            message: `tools.t2Loader '${tool.name}' requires a turn tool snapshot`,
-          });
-          return undefined;
-        }
-        const loaded = extractLoadedIds(checked.data);
-        if (!loaded) {
-          yield failureEvent(base, {
-            code: 'invalid_output',
-            message: `T2 loader '${tool.name}' must return { loaded: string[] }`,
-          });
-          return undefined;
-        }
-        const { promoted, failure: promoteFailure } = promoteLoadedTools(
-          snapshot,
-          loaded,
-          ctx.profile,
-        );
-        if (promoteFailure) {
-          yield failureEvent(base, promoteFailure);
-          return undefined;
-        }
-        finalOutput = { ...(checked.data as Record<string, unknown>), loaded: promoted };
-        const rechecked = tool.output.safeParse(finalOutput);
-        if (!rechecked.success) {
-          yield failureEvent(base, {
-            code: 'invalid_output',
-            message: 'T2 loader output validation failed after promotion',
-            details: rechecked.error.flatten(),
-          });
-          return undefined;
-        }
-        finalOutput = rechecked.data;
-      }
+    const promoted = applyT2LoaderPromotion(tool, checked.data, ctx, snapshot);
+    if (!promoted.ok) {
+      yield failureEvent(base, promoted.failure);
+      return undefined;
     }
 
-    const modelResult = projectForModel(tool, finalOutput);
-    yield toolEvent(base, { phase: 'complete', output: finalOutput });
+    const modelResult = projectForModel(tool, promoted.output);
+    yield toolEvent(base, { phase: 'complete', output: promoted.output });
     return modelResult;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -461,16 +497,69 @@ export async function* executeRegisteredTool(args: {
     }
   }
   const fullCtx: ToolContext = { ...ctx, callId, profile };
+  const policy = resolveGuardrailPolicy(profile.guardrails);
+  const provenance = provenanceFor(tool);
+  // Tools the model can actually call this turn — the callable-tool signal.
+  const callableTools = snapshot?.executable ?? [];
+
+  // Model-authored arguments: report exfiltration-shaped values, never rewrite them.
+  const argEvent = toolCallEvent(inspectToolArguments(safeInput, policy), provenance);
+  if (argEvent) {
+    yield { type: 'guardrail', guardrail: argEvent };
+  }
+
+  // Confused-deputy gate: this turn may already have read content that wants to act.
+  const taintVerdict = checkTaintGate(ctx.turn?.taint, tool.access, policy);
+  const taintEvent = toolCallEvent(taintVerdict, provenance);
+  if (taintEvent) {
+    yield { type: 'guardrail', guardrail: taintEvent };
+  }
+  if (taintVerdict.action === 'block') {
+    yield failureEvent(base, { code: 'tainted_turn', message: taintVerdict.rejection });
+    return undefined;
+  }
 
   if (tool.type === 'http') {
-    return yield* executeHttpTool(tool, safeInput, fullCtx, base);
+    const httpResult = yield* executeHttpTool(tool, safeInput, fullCtx, base);
+    return yield* guardResult(httpResult, provenance, policy, callableTools);
   }
   if (tool.type === 'mcp') {
-    return yield* executeMcpTool(tool, safeInput, fullCtx, base);
+    const mcpResult = yield* executeMcpTool(tool, safeInput, fullCtx, base);
+    return yield* guardResult(mcpResult, provenance, policy, callableTools);
   }
 
-  return yield* executeFunction(tool, safeInput, fullCtx, base, snapshot);
+  const fnResult = yield* executeFunction(tool, safeInput, fullCtx, base, snapshot);
+  return yield* guardResult(fnResult, provenance, policy, callableTools);
 }
+
+/**
+ * Guard a tool result before it becomes model context.
+ *
+ * Every tool returns through here, so the fence, the redaction, and the
+ * provenance label are applied once and cannot be skipped by adding a tool type.
+ */
+function* guardResult(
+  result: ModelToolResult | undefined,
+  provenance: Provenance,
+  policy: ReturnType<typeof resolveGuardrailPolicy>,
+  callableTools: readonly string[],
+): Generator<TurnEvent, ModelToolResult | undefined> {
+  if (!result) {
+    return undefined;
+  }
+  const guarded = guardToolResult(result.finding, result.data, provenance, policy, callableTools);
+  if (guarded.event) {
+    yield { type: 'guardrail', guardrail: guarded.event };
+  }
+  return {
+    ...result,
+    modelText: guarded.text,
+    provenance,
+    ...(guarded.suspicious ? { suspicious: guarded.suspicious } : {}),
+  };
+}
+
+export { startToolExecution };
 
 export function newCallId(name: string): string {
   return `call_${name}_${Date.now()}`;

@@ -1,11 +1,45 @@
+/**
+ * Playground → run-tab handoff via keyed localStorage + `?run=` URL id.
+ *
+ * @module
+ */
+
 import type { ProfileDefinition } from 'theorum';
 import type { StructuredRegistration, ToolRegistration } from './registrations';
+import {
+	clearPlaygroundRunPayloadRecord,
+	createPlaygroundRunId,
+	loadPlaygroundRunPayloadRecord,
+	PLAYGROUND_RUN_INDEX_KEY,
+	PLAYGROUND_RUN_PAYLOAD_CAP,
+	PLAYGROUND_RUN_PAYLOAD_KEY,
+	PLAYGROUND_RUN_PAYLOAD_KEY_PREFIX,
+	type PlaygroundRunIndex,
+	type PlaygroundRunIndexEntry,
+	playgroundRunPayloadKey,
+	readPlaygroundRunIdFromUrl,
+	savePlaygroundRunPayloadRecord,
+	upsertPlaygroundRunIndex,
+} from './run-payload-core';
 
-export const PLAYGROUND_RUN_PAYLOAD_KEY = 'theorum.playground.run';
+export {
+	createPlaygroundRunId,
+	PLAYGROUND_RUN_INDEX_KEY,
+	PLAYGROUND_RUN_PAYLOAD_CAP,
+	PLAYGROUND_RUN_PAYLOAD_KEY,
+	PLAYGROUND_RUN_PAYLOAD_KEY_PREFIX,
+	type PlaygroundRunIndex,
+	type PlaygroundRunIndexEntry,
+	playgroundRunPayloadKey,
+	readPlaygroundRunIdFromUrl,
+	upsertPlaygroundRunIndex,
+};
 
 export type PlaygroundRunPayload = {
 	/** Payload schema version — bump when handoff shape changes. */
 	version?: 1;
+	/** Optional echo of the storage/URL run id. */
+	runId?: string;
 	agentId: string;
 	profile: ProfileDefinition;
 	customTools: ToolRegistration[];
@@ -16,35 +50,26 @@ export type PlaygroundRunPayload = {
  * Persist compiled agent for the run tab. Uses `localStorage` (not `sessionStorage`)
  * so `window.open` handoffs work — session storage is per-tab only.
  */
-function storage(): Storage | null {
-	if (typeof window === 'undefined') return null;
-	try {
-		return localStorage;
-	} catch {
-		return null;
-	}
+export function savePlaygroundRunPayload(
+	payload: PlaygroundRunPayload,
+	runId: string,
+	storeOverride?: Storage | null,
+): void {
+	savePlaygroundRunPayloadRecord({ ...payload } as Record<string, unknown>, runId, storeOverride);
 }
 
-export function savePlaygroundRunPayload(payload: PlaygroundRunPayload): void {
-	const store = storage();
-	if (!store) return;
-	store.setItem(PLAYGROUND_RUN_PAYLOAD_KEY, JSON.stringify({ version: 1 as const, ...payload }));
-}
-
-export function loadPlaygroundRunPayload(): PlaygroundRunPayload | null {
-	const store = storage();
-	if (!store) return null;
-	const raw = store.getItem(PLAYGROUND_RUN_PAYLOAD_KEY);
+export function loadPlaygroundRunPayload(
+	runId: string,
+	storeOverride?: Storage | null,
+): PlaygroundRunPayload | null {
+	const raw = loadPlaygroundRunPayloadRecord(runId, storeOverride);
 	if (!raw) return null;
-	try {
-		return JSON.parse(raw) as PlaygroundRunPayload;
-	} catch {
-		return null;
-	}
+	return raw as unknown as PlaygroundRunPayload;
 }
 
-export function clearPlaygroundRunPayload(): void {
-	const store = storage();
-	if (!store) return;
-	store.removeItem(PLAYGROUND_RUN_PAYLOAD_KEY);
+export function clearPlaygroundRunPayload(
+	runId: string,
+	storeOverride?: Storage | null,
+): void {
+	clearPlaygroundRunPayloadRecord(runId, storeOverride);
 }

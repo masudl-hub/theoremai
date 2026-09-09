@@ -1,6 +1,7 @@
 import { benchCommand } from './commands/bench.ts';
 import { fuzzCanaryCommand } from './commands/fuzz-canary.ts';
 import { fuzzGuardrailsCommand } from './commands/fuzz-guardrails.ts';
+import { guardrailsEvalCommand } from './commands/guardrails-eval.ts';
 import { listProfilesCommand, showProfileCommand } from './commands/profile.ts';
 import { runCommand } from './commands/run.ts';
 import { testProfileCommand } from './commands/test.ts';
@@ -20,6 +21,9 @@ COMMANDS:
 
   fuzz                 Adversarial inbound sanitization fuzzer
   fuzz-canary          Adversarial canary egress fuzzer (stream + Live gates)
+  guardrails-eval      Score detectors against external corpora (fetches on run)
+    --cache-dir <path> Corpus cache location (default: .guardrail-corpus)
+    --limit <n>        Cap samples per source for a quick run
 
   run                  Execute a turn with real-time streaming output
     --profile, -p <id> Target profile ID
@@ -192,6 +196,13 @@ export async function main(cliArgs = Deno.args): Promise<void> {
     if (!ok) {
       Deno.exit(1);
     }
+  } else if (command === 'guardrails-eval') {
+    const cacheDir = typeof flags['cache-dir'] === 'string' ? flags['cache-dir'] : undefined;
+    const limit = typeof flags.limit === 'string' ? Number(flags.limit) : undefined;
+    await guardrailsEvalCommand({
+      ...(cacheDir ? { cacheDir } : {}),
+      ...(limit !== undefined && Number.isFinite(limit) ? { limit } : {}),
+    });
   } else if (command === 'fuzz-canary') {
     const ok = await fuzzCanaryCommand();
     if (!ok) {

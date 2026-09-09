@@ -337,7 +337,7 @@ function readTokenCount(
   return typeof val === 'number' ? val : 0;
 }
 
-export function extractUsageTokens(metadata: Record<string, unknown>): TurnTokens | undefined {
+export function extractLiveUsageTokens(metadata: Record<string, unknown>): TurnTokens | undefined {
   const prompt = readTokenCount(metadata, 'promptTokenCount', 'prompt_token_count');
   const output = readTokenCount(metadata, 'responseTokenCount', 'response_token_count');
   const thinking = readTokenCount(metadata, 'thoughtsTokenCount', 'thoughts_token_count');
@@ -580,7 +580,7 @@ function foldServerContent(message: Record<string, unknown>, events: TurnEvent[]
 function foldUsageMetadata(message: Record<string, unknown>, events: TurnEvent[]): void {
   const usageMetadata = message.usageMetadata as Record<string, unknown> | undefined;
   if (usageMetadata) {
-    const tokens = extractUsageTokens(usageMetadata);
+    const tokens = extractLiveUsageTokens(usageMetadata);
     if (tokens) {
       events.push({ type: 'tokens', tokens });
     }

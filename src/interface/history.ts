@@ -41,6 +41,31 @@ export type UserTurnHistoryMedia = {
   voice?: TurnBlob[];
 };
 
+/**
+ * Project a pending/composer draft into history messages for `onSteer` inject.
+ * Uses base64 on `draft.attachments` / `draft.voice` when present.
+ */
+function userDraftToSteerInject(draft: UserTurnDraft): TurnHistoryMessage[] {
+  const attachments = draft.attachments
+    ?.filter(
+      (a): a is typeof a & { data: string } => typeof a.data === 'string' && a.data.length > 0,
+    )
+    .map((a) => ({ name: a.name, mimeType: a.mimeType, data: a.data }));
+  const voice = draft.voice
+    ?.filter(
+      (a): a is typeof a & { data: string } => typeof a.data === 'string' && a.data.length > 0,
+    )
+    .map((a) => ({ name: a.name, mimeType: a.mimeType, data: a.data }));
+  return appendUserDraftToHistory(
+    [],
+    { text: draft.text },
+    {
+      ...(attachments?.length ? { attachments } : {}),
+      ...(voice?.length ? { voice } : {}),
+    },
+  );
+}
+
 /** Append a user turn (text and optional encoded media) to host history. */
 function appendUserDraftToHistory(
   history: TurnHistoryMessage[],
@@ -235,4 +260,5 @@ export {
   appendToolExchangeToHistory,
   appendUserDraftToHistory,
   historyFromTranscriptBlocks,
+  userDraftToSteerInject,
 };

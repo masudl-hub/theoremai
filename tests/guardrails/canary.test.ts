@@ -116,7 +116,7 @@ Deno.test('redactCanary replaces the token in text events', () => {
 });
 
 Deno.test('canary stream gate detects token split across chunks', async () => {
-  const { generation } = resolveTurn({ profile: 'chat', input: { text: 'hi' } });
+  const { profile, generation } = resolveTurn({ profile: 'chat', input: { text: 'hi' } });
   const { canary } = generation;
   const half = Math.ceil(canary.length / 2);
   const partA = canary.slice(0, half);
@@ -131,6 +131,7 @@ Deno.test('canary stream gate detects token split across chunks', async () => {
 
   const events = await collect(
     yieldProviderEvents({
+      profile,
       generation,
       system: bindCanary('sys', canary),
       provider: { complete: splitLeak },
@@ -153,7 +154,7 @@ Deno.test('canary stream gate detects token split across chunks', async () => {
 });
 
 Deno.test('canary stream gate detects leak in thought events', async () => {
-  const { generation } = resolveTurn({ profile: 'chat', input: { text: 'hi' } });
+  const { profile, generation } = resolveTurn({ profile: 'chat', input: { text: 'hi' } });
   const { canary } = generation;
 
   async function* thoughtLeak(): AsyncGenerator<TurnEvent> {
@@ -163,6 +164,7 @@ Deno.test('canary stream gate detects leak in thought events', async () => {
 
   const events = await collect(
     yieldProviderEvents({
+      profile,
       generation,
       system: bindCanary('sys', canary),
       provider: { complete: thoughtLeak },
@@ -242,7 +244,7 @@ Deno.test('bindCanary returns just the canary note when system is empty', () => 
   const canary = mintCanary();
   const result = bindCanary('', canary);
   assertEquals(result.includes(canary), true);
-  assertEquals(result.startsWith('Untrusted'), true);
+  assertEquals(result.startsWith("This turn's canary is"), true);
   assertEquals(result.includes('\n\n'), false);
 });
 

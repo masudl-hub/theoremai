@@ -13,7 +13,7 @@ import {
 import { registerPlaygroundLiveProfile } from '../../client/live/live-session';
 import { liveStateLabel } from '../../client/live/live-state';
 import { invokePlaygroundLiveTool, type LiveToolPausePrompt } from '../../client/live/live-tool';
-import { type LiveVideoCapture, startLiveVideoCapture } from '../../client/live/live-video';
+import { type LiveFacingMode, type LiveVideoCapture, startLiveVideoCapture } from '../../client/live/live-video';
 import {
 	type LiveConnectPhase,
 	LiveSessionClient,
@@ -55,6 +55,8 @@ export function LiveRunner({ iface, payload }: LiveRunnerProps) {
 
 	const clientRef = useRef<LiveSessionClient | null>(null);
 	const videoCaptureRef = useRef<LiveVideoCapture | null>(null);
+	const [videoPreview, setVideoPreview] = useState<HTMLVideoElement | null>(null);
+	const [videoFacingMode, setVideoFacingMode] = useState<LiveFacingMode>('user');
 	const pauseResolverRef = useRef<((resolution: ToolPauseResolution) => void) | null>(null);
 	const pauseRejectRef = useRef<((reason: Error) => void) | null>(null);
 
@@ -160,6 +162,8 @@ export function LiveRunner({ iface, payload }: LiveRunnerProps) {
 			videoCaptureRef.current.stop();
 			videoCaptureRef.current = null;
 		}
+		setVideoPreview(null);
+		setVideoFacingMode('user');
 		setIsVideoOn(false);
 	}, []);
 
@@ -185,6 +189,8 @@ export function LiveRunner({ iface, payload }: LiveRunnerProps) {
 							videoCaptureRef.current.stop();
 							videoCaptureRef.current = null;
 						}
+						setVideoPreview(null);
+						setVideoFacingMode('user');
 						setIsVideoOn(false);
 					}
 				},
@@ -300,15 +306,30 @@ export function LiveRunner({ iface, payload }: LiveRunnerProps) {
 			return;
 		}
 		try {
-			videoCaptureRef.current = await startLiveVideoCapture((base64) => {
+			const capture = await startLiveVideoCapture((base64) => {
 				clientRef.current?.sendVideo(base64);
 			});
+			videoCaptureRef.current = capture;
+			setVideoPreview(capture.video);
+			setVideoFacingMode(capture.facingMode());
 			setIsVideoOn(true);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : String(err));
 			stopVideo();
 		}
 	}, [isVideoOn, sessionActive, stopVideo, videoAvailable]);
+
+	const handleFlipCamera = useCallback(async () => {
+		const capture = videoCaptureRef.current;
+		if (!capture || !sessionActive || !isVideoOn) return;
+		try {
+			const facing = await capture.flip();
+			setVideoFacingMode(facing);
+			setVideoPreview(capture.video);
+		} catch (err) {
+			setError(err instanceof Error ? err.message : String(err));
+		}
+	}, [isVideoOn, sessionActive]);
 
 	const handleToggleMic = useCallback(() => {
 		if (!clientRef.current || !sessionActive || !voiceAvailable) return;
@@ -358,6 +379,9 @@ export function LiveRunner({ iface, payload }: LiveRunnerProps) {
 				onSendText={handleSendText}
 				onTextDraftChange={setTextDraft}
 				onToggleMic={handleToggleMic}
+				onFlipCamera={() => {
+					void handleFlipCamera();
+				}}
 				onToggleTextComposer={handleToggleTextComposer}
 				onToggleVideo={() => {
 					void handleToggleVideo();
@@ -371,6 +395,8 @@ export function LiveRunner({ iface, payload }: LiveRunnerProps) {
 				textDraft={textDraft}
 				toolActive={toolActive}
 				videoAvailable={videoAvailable}
+				videoFacingMode={videoFacingMode}
+				videoPreview={videoPreview}
 				voiceAvailable={voiceAvailable}
 				canRestart={!sessionActive && everConnected && status !== 'connecting'}
 			/>

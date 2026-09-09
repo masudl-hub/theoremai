@@ -12,7 +12,7 @@ import {
 } from '../../../../src/providers/google/interactions/framing.ts';
 import { createInteractionsProvider } from '../../../../src/providers/google/interactions/stream.ts';
 import { wrapPcmAsWav } from '../../../../src/providers/shared/pcm.ts';
-import { geminiModels, HOST_BINDINGS } from '../../../fixtures/models.ts';
+import { geminiModels } from '../../../fixtures/models.ts';
 
 const vault: KeyVault = {
   slotA: 'free-a-key',

@@ -6,6 +6,7 @@ import {
 } from '../../src/kernel/auth/crypto.ts';
 import {
   createOAuthPkceFlow,
+  discoverAuthServerMetadata,
   exchangeOAuthPkce,
   refreshOAuthToken,
   validateIssuer,
@@ -232,4 +233,86 @@ Deno.test('refreshOAuthToken calls token endpoint with refresh_token grant', asy
   const parsedBody = new URLSearchParams(requestBody);
   assertEquals(parsedBody.get('grant_type'), 'refresh_token');
   assertEquals(parsedBody.get('refresh_token'), 'old-refresh-token');
+});
+
+Deno.test('discoverAuthServerMetadata prefers oauth-authorization-server then OIDC', async () => {
+  const urls: string[] = [];
+  const mockFetch: typeof fetch = async (input) => {
+    const url = String(input);
+    urls.push(url);
+    if (url.endsWith('/.well-known/oauth-authorization-server')) {
+      return new Response(
+        JSON.stringify({
+          issuer: 'https://auth.example.com',
+          authorization_endpoint: 'https://auth.example.com/oauth/authorize',
+          token_endpoint: 'https://auth.example.com/oauth/token',
+          registration_endpoint: 'https://auth.example.com/register',
+          scopes_supported: ['openid'],
+          response_types_supported: ['code'],
+          grant_types_supported: ['authorization_code'],
+          code_challenge_methods_supported: ['S256'],
+          authorization_response_iss_parameter_supported: true,
+          client_id_metadata_document_supported: true,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    return new Response('not found', { status: 404 });
+  };
+
+  const meta = await discoverAuthServerMetadata('https://auth.example.com/', mockFetch);
+  assertEquals(meta.issuer, 'https://auth.example.com');
+  assertEquals(meta.authorization_endpoint, 'https://auth.example.com/oauth/authorize');
+  assertEquals(meta.token_endpoint, 'https://auth.example.com/oauth/token');
+  assertEquals(meta.registration_endpoint, 'https://auth.example.com/register');
+  assertEquals(meta.scopes_supported, ['openid']);
+  assertEquals(meta.authorization_response_iss_parameter_supported, true);
+  assertEquals(meta.client_id_metadata_document_supported, true);
+  assertEquals(urls[0], 'https://auth.example.com/.well-known/oauth-authorization-server');
+});
+
+Deno.test('discoverAuthServerMetadata falls back to openid-configuration', async () => {
+  const mockFetch: typeof fetch = async (input) => {
+    const url = String(input);
+    if (url.endsWith('/.well-known/oauth-authorization-server')) {
+      return new Response('missing', { status: 404 });
+    }
+    if (url.endsWith('/.well-known/openid-configuration')) {
+      return new Response(
+        JSON.stringify({
+          authorization_endpoint: 'https://auth.example.com/authorize',
+          token_endpoint: 'https://auth.example.com/token',
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    return new Response('not found', { status: 404 });
+  };
+
+  const meta = await discoverAuthServerMetadata('https://auth.example.com', mockFetch);
+  assertEquals(meta.issuer, 'https://auth.example.com');
+  assertEquals(meta.authorization_endpoint, 'https://auth.example.com/authorize');
+  assertEquals(meta.token_endpoint, 'https://auth.example.com/token');
+});
+
+Deno.test('discoverAuthServerMetadata rejects incomplete or unreachable metadata', async () => {
+  const incomplete: typeof fetch = async () =>
+    new Response(JSON.stringify({ issuer: 'https://auth.example.com' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  await assertRejects(
+    () => discoverAuthServerMetadata('https://auth.example.com', incomplete),
+    Error,
+    'Failed to discover authorization server metadata',
+  );
+
+  const exploding: typeof fetch = async () => {
+    throw new Error('network down');
+  };
+  await assertRejects(
+    () => discoverAuthServerMetadata('https://auth.example.com', exploding),
+    Error,
+    'Failed to discover authorization server metadata',
+  );
 });

@@ -1,0 +1,17 @@
+---
+description: Profile graph / playground projection ownership in theorum
+globs: src/kernel/profile-graph.ts,src/kernel/schema.ts,docs/contracts/playground.md
+alwaysApply: false
+---
+
+# PROFILE_GRAPH ownership
+
+When adding a top-level profile authoring field:
+
+1. Add it to `PROFILE_FIELDS` in `src/kernel/schema.ts`.
+2. Own it in `PROFILE_GRAPH` (`src/kernel/profile-graph.ts`) — section facet or `ownsFields`.
+3. Do **not** tell agents to invent a `FacetKind` in theorum-frontend.
+
+Drift is gated by `tests/kernel/profile-graph.test.ts`.
+
+Playground UI, compile, and run must project this catalog. Free-tier policy stays in the frontend `playground-policy.ts` only.

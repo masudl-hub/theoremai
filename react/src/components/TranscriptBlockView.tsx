@@ -178,20 +178,21 @@ function renderBody(args: {
 	}
 
 	if (block.kind === 'media') {
+		const src =
+			block.url !== undefined
+				? block.url
+				: block.data !== undefined
+					? `data:${block.mimeType};base64,${block.data}`
+					: undefined;
 		return (
 			<article className="iface-msg iface-msg--assistant">
 				{!embedded ? <p className="iface-msg__handle">{handleLabel}</p> : null}
-				{block.mimeType.startsWith('image/') ? (
-					<img
-						className="iface-msg__image"
-						alt="Model output"
-						src={`data:${block.mimeType};base64,${block.data}`}
-					/>
-				) : block.mimeType.startsWith('audio/') ? (
-					<VoiceNotePill
-						mimeType={block.mimeType}
-						src={`data:${block.mimeType};base64,${block.data}`}
-					/>
+				{src && block.mimeType.startsWith('image/') ? (
+					<img className="iface-msg__image" alt="Media" src={src} />
+				) : src && block.mimeType.startsWith('video/') ? (
+					<video className="iface-msg__video" controls playsInline preload="metadata" src={src} />
+				) : src && block.mimeType.startsWith('audio/') ? (
+					<VoiceNotePill mimeType={block.mimeType} src={src} />
 				) : (
 					<p className="iface-msg__meta">{block.mimeType}</p>
 				)}

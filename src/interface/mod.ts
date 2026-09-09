@@ -1,5 +1,6 @@
 /**
- * Headless profile-driven interface — spec, inputs, transcript folding.
+ * Headless profile-driven interface — spec, inputs, transcript folding,
+ * composer pending intents (stash / queue / steer).
  *
  * @module
  */
@@ -10,6 +11,19 @@ export {
   foldTurnEvents,
   resetBlockIds,
 } from './blocks.ts';
+export type {
+  ComposerActionContext,
+  ComposerMenuAction,
+  ComposerPrimaryAction,
+  ComposerRunPhase,
+} from './composer-actions.ts';
+export {
+  COMPOSER_MENU_ACTION_DESCRIPTIONS,
+  COMPOSER_MENU_ACTION_LABELS,
+  COMPOSER_PRIMARY_LABELS,
+  resolveComposerMenuActions,
+  resolveComposerPrimary,
+} from './composer-actions.ts';
 export type { PrepareUserTurnResult } from './draft.ts';
 export { prepareUserTurn, sanitizeUserDraft } from './draft.ts';
 export { interfaceFrom, interfaceFromProfile, interfaceFromProjected } from './from-profile.ts';
@@ -20,6 +34,7 @@ export {
   appendToolExchangeToHistory,
   appendUserDraftToHistory,
   historyFromTranscriptBlocks,
+  userDraftToSteerInject,
 } from './history.ts';
 export {
   attachmentAcceptAttr,
@@ -37,6 +52,26 @@ export {
   interfaceModelOptions,
   modelSelectEnabled,
 } from './models.ts';
+export type {
+  ComposerPendingKind,
+  ComposerPendingMessage,
+  CreateComposerPendingMessageArgs,
+} from './pending.ts';
+export {
+  COMPOSER_PENDING_KINDS,
+  cloneUserTurnDraft,
+  composerPendingPreview,
+  consumeNextComposerQueue,
+  consumeNextComposerSteer,
+  convertSteersToFrontQueued,
+  createComposerPendingMessage,
+  moveComposerPendingWithinKind,
+  orderComposerPendingMessages,
+  promoteComposerPendingKind,
+  removeComposerPendingMessage,
+  updateComposerPendingDraft,
+  userDraftHasPayload,
+} from './pending.ts';
 export type { InterfaceTurnSession, PausedToolContext } from './session.ts';
 export {
   applyTurnEventsToSession,
@@ -45,6 +80,11 @@ export {
   pausedToolFromEvents,
 } from './session.ts';
 export { promotedToolIdsFromEvents, toolSnapshotFromEvents } from './tool-invoke.ts';
+export type { PromotedToolMedia } from './tool-media.ts';
+export {
+  collectPromotedMediaFromToolOutput,
+  promotedMediaFromUrlString,
+} from './tool-media.ts';
 export type {
   AttachmentValidationCode,
   AttachmentValidationIssue,
@@ -59,6 +99,7 @@ export type {
   ProfileInputsInterface,
   ProfileInterface,
   ProfileInterfaceSource,
+  ProfileObservabilityView,
   ResolvedTools,
   SpeechProfileInterface,
   TextProfileInterface,

@@ -29,6 +29,17 @@ export {
 export { runTurn } from './engine/runner.ts';
 export type { RunSessionOptions } from './engine/session/mod.ts';
 export { runSession } from './engine/session/mod.ts';
+export type {
+  ProfileGraphEditor,
+  ProfileGraphFacet,
+  ProfileGraphFacetId,
+  ProfileGraphRole,
+} from './profile-graph.ts';
+export {
+  PROFILE_GRAPH,
+  profileGraphFacet,
+  spineFacetsForProfileType,
+} from './profile-graph.ts';
 export {
   clampThinkingLevel,
   clampThinkingLevelForApiId,
@@ -72,11 +83,12 @@ export {
   AUTH_UNAUTHENTICATED_POLICIES,
   COMPACTION_METERS,
   COMPACTION_TIMINGS,
+  CONTINUE_STOP_KINDS,
+  CONTINUE_STOP_KINDS,
   catalogPathFor,
   coerceProtocol,
   coerceProvider,
   coerceSpeechFormat,
-  EGRESS_ON_BLOCK,
   EXTRA_FIELDS,
   fieldMeta,
   HTTP_METHODS,
@@ -84,6 +96,7 @@ export {
   isValidPair,
   isValidProfileProtocol,
   KEY_SLOTS,
+  LIVE_TOOL_LOAD_TIERS,
   MEDIA_INPUT_KIND_VALUES,
   MEDIA_INPUT_KINDS,
   MEDIA_WILDCARDS,
@@ -106,27 +119,37 @@ export {
   THINKING_LEVELS,
   TOOL_ACCESS,
   TOOL_AUTH_TYPES,
-  LIVE_TOOL_LOAD_TIERS,
   TOOL_LOAD_TIERS,
   TOOL_PERMISSION,
   TOOL_TYPES,
+  TURN_STEER_BARRIERS,
   TURN_STOP_KINDS,
   VOICE_ACCEPT_MIMES,
 } from './schema.ts';
-export type { ProfileTurnResumptionSpec, TurnContinueFrom, TurnStop } from './stop.ts';
+export type {
+  ProfileTurnBehaviourSpec,
+  ProfileTurnResumptionSpec,
+  TurnContinueFrom,
+  TurnStop,
+} from './stop.ts';
 export {
   AUTO_CONTINUE_DELAY_MS,
   CONTINUE_INSTRUCTION,
+  DEFAULT_ALLOW_CONTINUE,
   DEFAULT_AUTO_CONTINUE,
   GenerationStopError,
+  isContinueStopKind,
   isGenerationStopError,
   isResumeableStop,
   isUserCancelledStop,
+  profileAllowsSteering,
+  profileTurnResumption,
   shouldAutoContinue,
   turnStopFromClientStreamEnd,
   turnStopFromInteractionStatus,
   turnStopFromOpenAiFinishReason,
 } from './stop.ts';
+export type { McpProtocolVersion, McpRpcResponse } from './tools/mod.ts';
 export {
   executeHttpTool,
   executeMcpTool,
@@ -135,9 +158,12 @@ export {
   getTool,
   hasTool,
   invokeTool,
+  isUnsupportedMcpProtocolError,
   listBuiltinIds,
   listFunctionIds,
   listTools,
+  MCP_PROTOCOL_VERSIONS,
+  parseMcpRpcResponse,
   prepareTurnToolSnapshot,
   registerHarnessTools,
   registerTool,

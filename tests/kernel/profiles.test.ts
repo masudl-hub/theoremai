@@ -33,11 +33,14 @@ Deno.test('defineProfile preserves explicit typed fields without defaults', () =
     inputs: { text: true },
     outputs: { structured: null },
     guardrails: { canary: true, sanitizeInput: true },
+    observability: { writeTo: false, sampleRate: 0.5 },
   });
 
   assertEquals(profile.id, 'host_profile');
   assertEquals(profile.type, 'text');
   assertEquals(profile.models.gemini35FlashLite.protocol, 'geminiInteractions');
+  assertEquals(profile.observability?.writeTo, false);
+  assertEquals(profile.observability?.sampleRate, 0.5);
   assertEquals(profile.models.gemini35FlashLite.provider, 'google');
   assertEquals(profile.maxSteps, 1);
   assertEquals(profile.key, 'slotA');
@@ -47,6 +50,26 @@ Deno.test('defineProfile preserves explicit typed fields without defaults', () =
   assertEquals(profile.inputs.text, true);
   assertEquals(profile.outputs?.structured, null);
   assertEquals(profile.guardrails?.canary, true);
+  assertEquals(profile.observability?.writeTo, false);
+  assertEquals(profile.observability?.sampleRate, 0.5);
+});
+
+Deno.test('defineProfile rejects observability.sampleRate outside 0–1', () => {
+  assertThrows(
+    () =>
+      defineProfile({
+        id: 'bad_obs',
+        type: 'text',
+        identity: { handle: 'bad_obs' },
+        models: modelBindings('gemini35FlashLite'),
+        key: 'slotA',
+        tools: { allow: [] },
+        inputs: { text: true },
+        observability: { writeTo: false, sampleRate: 2 },
+      }),
+    Error,
+    'sampleRate',
+  );
 });
 
 Deno.test('defineProfile rejects illegal protocol/provider pairs', () => {

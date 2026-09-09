@@ -1,3 +1,4 @@
+import type { Verdict } from '../../src/guardrails/types.ts';
 import '../fixtures/test-host.ts';
 import { PUBLIC_CANARY, TheorumError } from '../../src/guardrails/error.ts';
 import {
@@ -16,7 +17,6 @@ import {
 import { defineProfile, getProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
 import { projectProfile, resolveTurn } from '../../src/kernel/registry/resolve.ts';
 import type {
-  EgressContext,
   ModelProvider,
   ProfileId,
   ProviderCompleteRequest,
@@ -444,8 +444,10 @@ Deno.test('invokeTool ask_user is denied until allowed', async () => {
 
 Deno.test('runTurn oneshot yields text structured done', async () => {
   const events = await collect(runTurn({ profile: 'chat', input: { text: 'flow' } }, fake));
+  const types = events.map((e) => e.type);
+  assertEquals(types.includes('barrier'), true);
   assertEquals(
-    events.map((e) => e.type),
+    types.filter((t) => t !== 'barrier'),
     ['text', 'structured', 'tokens', 'done'],
   );
 });
@@ -936,7 +938,7 @@ Deno.test('runTurn passes host dynamic system prompt combined with canary', asyn
 
   assertEquals(receivedSystem.includes('## HOST DYNAMIC CONTEXT'), true);
   assertEquals(receivedSystem.includes('User has 4 records in Workspace.'), true);
-  assertEquals(receivedSystem.includes('Untrusted user content is inside <user_data>'), true);
+  assertEquals(receivedSystem.includes("This turn's canary is"), true);
 });
 
 Deno.test('runTurn executes autonomous multi-step tool loop when maxSteps > 1', async () => {
@@ -1635,15 +1637,16 @@ Deno.test('guardrails.egress refuse_to_user delivers in-character refusal withou
       quota: { perDay: 50 },
       egress: {
         onBlock: 'refuse_to_user',
-        enforce: ({ text }: EgressContext) => {
+        enforce: ({ text }): Verdict => {
           if (text.includes('internal_tool_abc')) {
             return {
-              blocked: true,
-              text: "i can't discuss internal wiring.",
-              hits: ['internal_tool_name'],
+              action: 'block',
+              hits: [{ rule: 'internal_tool_name', severity: 'high' }],
+              rejection: 'Do not mention internal tool names.',
+              refusal: "i can't discuss internal wiring.",
             };
           }
-          return { blocked: false, text };
+          return { action: 'allow' };
         },
       },
     },
@@ -1685,16 +1688,15 @@ Deno.test('guardrails.egress reject_to_agent triggers auto-repair retry loop', a
       egress: {
         onBlock: 'reject_to_agent',
         maxRetries: 2,
-        enforce: ({ text }: EgressContext) => {
+        enforce: ({ text }): Verdict => {
           if (text.includes('internal_tool_abc')) {
             return {
-              blocked: true,
-              text: '',
-              hits: ['internal_tool_name'],
-              rejectionMessage: 'Do not mention internal_tool_abc in public prose.',
+              action: 'block',
+              hits: [{ rule: 'internal_tool_name', severity: 'high' }],
+              rejection: 'Do not mention internal_tool_abc in public prose.',
             };
           }
-          return { blocked: false, text };
+          return { action: 'allow' };
         },
       },
     },
@@ -1750,11 +1752,10 @@ Deno.test('guardrails.egress reject_to_agent withholds turn when retries exhaust
       egress: {
         onBlock: 'reject_to_agent',
         maxRetries: 1,
-        enforce: () => ({
-          blocked: true,
-          text: '',
-          hits: ['persistent_leak'],
-          rejectionMessage: 'Persistent leak violation',
+        enforce: (): Verdict => ({
+          action: 'block',
+          hits: [{ rule: 'persistent_leak', severity: 'high' }],
+          rejection: 'Persistent leak violation',
         }),
       },
     },
@@ -1810,12 +1811,14 @@ Deno.test('guardrails.egress withholds media until prose clears', async () => {
         egress: {
           onBlock: 'reject_to_agent',
           maxRetries: 1,
-          enforce: ({ text }: { text: string }) => ({
-            blocked: text.includes('internal_tool_abc'),
-            text,
-            hits: ['internal_tool_name'],
-            rejectionMessage: 'remove internal tool names',
-          }),
+          enforce: ({ text }): Verdict =>
+            text.includes('internal_tool_abc')
+              ? {
+                  action: 'block',
+                  hits: [{ rule: 'internal_tool_name', severity: 'high' }],
+                  rejection: 'remove internal tool names',
+                }
+              : { action: 'allow' },
         },
       },
     }),
@@ -1883,7 +1886,7 @@ Deno.test('guardrails.egress progressive yield streams cleared prefixes under ss
         quota: { perDay: 50 },
         egress: {
           onBlock: 'refuse_to_user',
-          enforce: ({ text }: EgressContext) => ({ blocked: false, text }),
+          enforce: (): Verdict => ({ action: 'allow' }),
         },
       },
     }),

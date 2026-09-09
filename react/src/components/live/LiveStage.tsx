@@ -1,4 +1,5 @@
 import {
+	IconCameraRotate,
 	IconMessage,
 	IconMicrophone,
 	IconMicrophoneOff,
@@ -10,12 +11,15 @@ import {
 import type { ProfileInputsInterface } from 'theorum/interface';
 import type { CaptionFocus } from '../../client/live/caption-focus';
 import type { LiveCaptionTurn } from '../../client/live/live-captions';
+import type { LiveFacingMode } from '../../client/live/live-video';
 import type { LiveSessionStatus } from '../../client/live-client';
 import '../../styles/live-stage.css';
 import '../../styles/interface-runner.css';
+import { InkTooltip } from '../InkTooltip';
 import { InkWaveform } from '../InkWaveform';
 import { InterfaceComposer } from '../InterfaceComposer';
 import { LiveCaptionRail } from './LiveCaptionRail';
+import { LiveVideoPreview } from './LiveVideoPreview';
 
 const liveTextInputs: ProfileInputsInterface = {
 	text: true,
@@ -36,6 +40,8 @@ export type LiveStageProps = {
 	captionFocus?: CaptionFocus;
 	isMuted?: boolean;
 	isVideoOn?: boolean;
+	videoPreview?: HTMLVideoElement | null;
+	videoFacingMode?: LiveFacingMode;
 	voiceAvailable?: boolean;
 	videoAvailable?: boolean;
 	textAvailable?: boolean;
@@ -47,6 +53,7 @@ export type LiveStageProps = {
 	onCaptionFocusChange?: (focus: CaptionFocus) => void;
 	onToggleMic?: () => void;
 	onToggleVideo?: () => void;
+	onFlipCamera?: () => void;
 	onToggleTextComposer?: () => void;
 	onTextDraftChange?: (value: string) => void;
 	onSendText?: () => void;
@@ -67,6 +74,8 @@ export function LiveStage({
 	captionFocus = null,
 	isMuted = false,
 	isVideoOn = false,
+	videoPreview = null,
+	videoFacingMode = 'user',
 	voiceAvailable = false,
 	videoAvailable = false,
 	textAvailable = false,
@@ -78,6 +87,7 @@ export function LiveStage({
 	onCaptionFocusChange,
 	onToggleMic,
 	onToggleVideo,
+	onFlipCamera,
 	onToggleTextComposer,
 	onTextDraftChange,
 	onSendText,
@@ -86,6 +96,7 @@ export function LiveStage({
 }: LiveStageProps) {
 	const handleLabel = `@${handle}`;
 	const canSendText = sessionActive && textDraft.trim().length > 0;
+	const showVideoPreview = isVideoOn && videoPreview !== null;
 
 	return (
 		<section className="live-stage">
@@ -95,14 +106,19 @@ export function LiveStage({
 						<h1 className="live-head__handle">{handleLabel}</h1>
 						<p className="live-head__state">{stateLabel}</p>
 					</div>
-					<LiveCaptionRail
-						handle={handle}
-						focus={captionFocus}
-						interimAgent={interimAgent}
-						interimUser={interimUser}
-						onFocusChange={onCaptionFocusChange}
-						turns={captionTurns}
-					/>
+					<div className="live-head__side">
+						<LiveCaptionRail
+							handle={handle}
+							focus={captionFocus}
+							interimAgent={interimAgent}
+							interimUser={interimUser}
+							onFocusChange={onCaptionFocusChange}
+							turns={captionTurns}
+						/>
+						{showVideoPreview ? (
+							<LiveVideoPreview facingMode={videoFacingMode} video={videoPreview} />
+						) : null}
+					</div>
 				</header>
 
 				<div className="live-wave-slot">
@@ -125,12 +141,12 @@ export function LiveStage({
 					{textComposerOpen && textAvailable ? (
 						<div className="live-composer-slot">
 							<InterfaceComposer
-								busy={!sessionActive}
-								canSubmit={canSendText}
+								inputLocked={!sessionActive || !canSendText}
 								inputs={liveTextInputs}
 								issues={[]}
 								onSubmit={onSendText}
 								onTextChange={onTextDraftChange}
+								phase="idle"
 								text={textDraft}
 							/>
 						</div>
@@ -141,73 +157,98 @@ export function LiveStage({
 					<div className="ink-controls">
 						<div className="ink-controls__left">
 							{voiceAvailable ? (
-								<button
-									className="ink-control"
-									aria-label={isMuted ? 'Unmute microphone' : 'Mute microphone'}
-									aria-pressed={!isMuted}
-									disabled={!sessionActive}
-									onClick={onToggleMic}
-									type="button"
-								>
-									{isMuted ? (
-										<IconMicrophoneOff size={20} stroke={1.75} />
-									) : (
-										<IconMicrophone size={20} stroke={1.75} />
-									)}
-								</button>
+								<InkTooltip label={isMuted ? 'open mic' : 'close mic'}>
+									<button
+										className="ink-control"
+										aria-label={isMuted ? 'Open microphone' : 'Close microphone'}
+										aria-pressed={!isMuted}
+										disabled={!sessionActive}
+										onClick={onToggleMic}
+										type="button"
+									>
+										{isMuted ? (
+											<IconMicrophoneOff size={20} stroke={1.75} />
+										) : (
+											<IconMicrophone size={20} stroke={1.75} />
+										)}
+									</button>
+								</InkTooltip>
 							) : null}
 							{videoAvailable ? (
-								<button
-									className={['ink-control', isVideoOn ? 'ink-control--active' : '']
-										.filter(Boolean)
-										.join(' ')}
-									aria-label={isVideoOn ? 'Turn off video' : 'Turn on video'}
-									aria-pressed={isVideoOn}
-									disabled={!sessionActive}
-									onClick={onToggleVideo}
-									type="button"
-								>
+								<>
+									<InkTooltip label={isVideoOn ? 'end video' : 'start video'}>
+										<button
+											className={['ink-control', isVideoOn ? 'ink-control--active' : '']
+												.filter(Boolean)
+												.join(' ')}
+											aria-label={isVideoOn ? 'End video' : 'Start video'}
+											aria-pressed={isVideoOn}
+											disabled={!sessionActive}
+											onClick={onToggleVideo}
+											type="button"
+										>
+											{isVideoOn ? (
+												<IconVideoOff size={20} stroke={1.75} />
+											) : (
+												<IconVideo size={20} stroke={1.75} />
+											)}
+										</button>
+									</InkTooltip>
 									{isVideoOn ? (
-										<IconVideoOff size={20} stroke={1.75} />
-									) : (
-										<IconVideo size={20} stroke={1.75} />
-									)}
-								</button>
+										<InkTooltip label="flip camera">
+											<button
+												className="ink-control"
+												aria-label="Flip camera"
+												disabled={!sessionActive}
+												onClick={onFlipCamera}
+												type="button"
+											>
+												<IconCameraRotate size={20} stroke={1.75} />
+											</button>
+										</InkTooltip>
+									) : null}
+								</>
 							) : null}
 							{textAvailable ? (
-								<button
-									className={['ink-control', textComposerOpen ? 'ink-control--active' : '']
-										.filter(Boolean)
-										.join(' ')}
-									aria-label={textComposerOpen ? 'Hide text composer' : 'Show text composer'}
-									aria-pressed={textComposerOpen}
-									disabled={!sessionActive}
-									onClick={onToggleTextComposer}
-									type="button"
-								>
-									<IconMessage size={20} stroke={1.75} />
-								</button>
+								<InkTooltip label={textComposerOpen ? 'hide text' : 'show text'}>
+									<button
+										className={['ink-control', textComposerOpen ? 'ink-control--active' : '']
+											.filter(Boolean)
+											.join(' ')}
+										aria-label={textComposerOpen ? 'Hide text composer' : 'Show text composer'}
+										aria-pressed={textComposerOpen}
+										disabled={!sessionActive}
+										onClick={onToggleTextComposer}
+										type="button"
+									>
+										<IconMessage size={20} stroke={1.75} />
+									</button>
+								</InkTooltip>
 							) : null}
 						</div>
 						<div className="ink-controls__right">
 							{canRestart ? (
-								<button
-									className="ink-control"
-									aria-label="Restart live session"
-									onClick={onRestart}
-									type="button"
-								>
-									<IconPhone size={20} stroke={1.75} />
-								</button>
+								<InkTooltip label="start call">
+									<button
+										className="ink-control"
+										aria-label="Start call"
+										onClick={onRestart}
+										type="button"
+									>
+										<IconPhone size={20} stroke={1.75} />
+									</button>
+								</InkTooltip>
 							) : (
-								<button
-									className="ink-control"
-									aria-label="End live session"
-									onClick={onEnd}
-									type="button"
-								>
-									<IconPhoneOff size={20} stroke={1.75} />
-								</button>
+								<InkTooltip label="end call">
+									<button
+										className="ink-control"
+										aria-label="End call"
+										onClick={onEnd}
+										type="button"
+									>
+										<IconPhoneOff size={20} stroke={1.75} />
+									</button>
+								</InkTooltip>
 							)}
 						</div>
 					</div>

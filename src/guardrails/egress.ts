@@ -4,44 +4,116 @@
  * @module
  */
 
-import type { EgressContext, EgressEnforcementResult } from '../kernel/types.ts';
+import type { RedactSpan } from '../observability/spans.ts';
 import { scanTextForCanaryLeak } from './canary.ts';
+import { hitFromSpan } from './hits.ts';
 import { injectionSpans } from './injection.ts';
 import { sensitiveSpans } from './sensitive.ts';
+import { textForScan } from './serialize.ts';
+import type {
+  EgressEnforcer,
+  GuardrailContext,
+  GuardrailHit,
+  OutboundPayload,
+  Severity,
+  Verdict,
+} from './types.ts';
 
-const SYSTEM_BOUNDARY = /This turn's canary is|<\/?user_data>|Untrusted user content is inside/i;
+const SYSTEM_BOUNDARY = /This turn's canary is|<\/?user_data>/i;
 
-/** Hit kinds from the bundled outbound policy (canary / sensitive / boundary / injection). */
-function collectEgressHits(text: string, canary?: string): string[] {
-  const hits: string[] = [];
+/** Rule ids emitted by the bundled outbound policy. */
+export const EGRESS_RULES = {
+  canary: 'egress.canary-leak',
+  sensitive: 'egress.sensitive-echo',
+  boundary: 'egress.system-boundary',
+  injection: 'egress.injection-echo',
+  /** Payload could not be rendered for inspection — released output is unverified. */
+  unscannable: 'egress.unscannable',
+  /** The host policy threw instead of returning a verdict. */
+  enforcerError: 'egress.enforcer-error',
+} as const;
+
+function hitsFromSpans(
+  text: string,
+  spans: RedactSpan[],
+  rule: string,
+  severity: Severity,
+): GuardrailHit[] {
+  return spans.map((span) => hitFromSpan(text, span, rule, severity));
+}
+
+/** Hits from the bundled outbound policy (canary / sensitive / boundary / injection). */
+function collectEgressHits(text: string, canary?: string): GuardrailHit[] {
+  const hits: GuardrailHit[] = [];
   if (canary && scanTextForCanaryLeak(text, canary)) {
-    hits.push('canary');
+    // Never put the live canary token into match — placeholder only.
+    hits.push({ rule: EGRESS_RULES.canary, severity: 'high', match: '[canary]' });
   }
-  if (sensitiveSpans(text).length > 0) {
-    hits.push('sensitive');
+  hits.push(...hitsFromSpans(text, sensitiveSpans(text), EGRESS_RULES.sensitive, 'high'));
+  const boundary = SYSTEM_BOUNDARY.exec(text);
+  if (boundary && boundary.index !== undefined) {
+    hits.push(
+      hitFromSpan(
+        text,
+        { start: boundary.index, end: boundary.index + boundary[0].length },
+        EGRESS_RULES.boundary,
+        'medium',
+      ),
+    );
   }
-  if (SYSTEM_BOUNDARY.test(text)) {
-    hits.push('system_boundary');
-  }
-  if (injectionSpans(text).length > 0) {
-    hits.push('injection_echo');
-  }
+  hits.push(...hitsFromSpans(text, injectionSpans(text), EGRESS_RULES.injection, 'medium'));
   return hits;
 }
 
-/** Default egress enforce — canary leak, sensitive echo, fence markers, injection echo. */
-function standardEgressEnforce(context: EgressContext): EgressEnforcementResult {
-  const { text, canary } = context;
-  const hits = collectEgressHits(text, canary);
-  if (hits.length > 0) {
-    return {
-      blocked: true,
-      text: '',
-      hits,
-      rejectionMessage: `Egress blocked: ${hits.join(', ')}`,
-    };
-  }
-  return { blocked: false, text };
+/** Distinct rule ids in a hit list, in first-seen order — for rejection copy. */
+function hitRules(hits: GuardrailHit[]): string[] {
+  return [...new Set(hits.map((hit) => hit.rule))];
 }
 
-export { collectEgressHits, standardEgressEnforce };
+/** Default egress enforce — canary leak, sensitive echo, fence markers, injection echo. */
+function standardEgressEnforce(payload: OutboundPayload, context: GuardrailContext): Verdict {
+  const hits = collectEgressHits(payload.text, context.canary);
+  if (payload.structured !== undefined) {
+    const structured = textForScan(payload.structured);
+    if (structured.unscannable) {
+      // Cannot inspect it, so cannot vouch for it. Fail closed.
+      hits.push({ rule: EGRESS_RULES.unscannable, severity: 'high' });
+    } else {
+      hits.push(...collectEgressHits(structured.text, context.canary));
+    }
+  }
+  if (hits.length === 0) {
+    return { action: 'allow' };
+  }
+  return {
+    action: 'block',
+    hits,
+    rejection: `Egress blocked: ${hitRules(hits).join(', ')}`,
+  };
+}
+
+/**
+ * Run a host policy without letting it break the turn.
+ *
+ * A policy that throws has reached no decision, so it cannot vouch for the output:
+ * the failure becomes a `block`, not a pass. The turn then follows the profile's
+ * ordinary `onBlock` handling instead of surfacing a raw host stack trace.
+ */
+async function runEnforcer(
+  enforce: EgressEnforcer,
+  payload: OutboundPayload,
+  context: GuardrailContext,
+): Promise<Verdict> {
+  try {
+    return await enforce(payload, context);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    return {
+      action: 'block',
+      hits: [{ rule: EGRESS_RULES.enforcerError, severity: 'high' }],
+      rejection: `Egress policy failed to reach a decision: ${detail}`,
+    };
+  }
+}
+
+export { collectEgressHits, hitRules, runEnforcer, standardEgressEnforce };

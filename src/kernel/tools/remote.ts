@@ -12,38 +12,159 @@
  * @module
  */
 
-import { assertSafeUrl } from '../../guardrails/network.ts';
 import { refreshOAuthToken } from '../auth/oauth.ts';
+import type { OAuth2Credential, ToolCredential } from '../auth/types.ts';
 import type { TurnEvent } from '../types.ts';
+import {
+  failureEvent,
+  guardToolTarget,
+  messageOf,
+  startToolExecution,
+  type ToolCallBase,
+  toolEvent,
+} from './events.ts';
 import type {
   HttpToolAuthConfig,
   HttpToolDef,
   McpToolDef,
   ModelToolResult,
-  ToolCallEvent,
   ToolContext,
   ToolFailure,
   ToolPause,
 } from './types.ts';
 
-function toolEvent(
-  base: Pick<ToolCallEvent, 'name' | 'callId' | 'arguments'>,
-  patch: Partial<ToolCallEvent>,
-): TurnEvent {
+export type AuthResolveResult = {
+  headers: Record<string, string>;
+  unauthenticated?: boolean;
+  modelMessage?: string;
+};
+
+function authHeaderPair(
+  authConfig: HttpToolAuthConfig,
+  value: string,
+  defaults: { headerName: string; headerPrefix: string },
+): Record<string, string> {
+  const headerName = authConfig.headerName ?? defaults.headerName;
+  const headerPrefix = authConfig.headerPrefix ?? defaults.headerPrefix;
+  return { [headerName]: `${headerPrefix}${value}` };
+}
+
+function buildAuthPause(
+  toolName: string,
+  authConfig: HttpToolAuthConfig,
+  base: ToolCallBase,
+  message: string,
+  extras?: { issuer?: string; resource?: string },
+): ToolPause {
   return {
-    type: 'tool',
-    tool: {
-      ...base,
-      ...patch,
+    kind: 'auth',
+    tool: toolName,
+    input: base.arguments,
+    authChallenge: {
+      slot: authConfig.slot,
+      authType: authConfig.type,
+      message,
+      issuer: extras?.issuer ?? authConfig.preResolved?.issuer,
+      resource: extras?.resource ?? authConfig.preResolved?.resource,
+      requiredScopes: authConfig.scopes,
     },
   };
 }
 
-function failureEvent(
-  base: Pick<ToolCallEvent, 'name' | 'callId' | 'arguments'>,
-  failure: ToolFailure,
-): TurnEvent {
-  return toolEvent(base, { phase: 'error', failure });
+function* yieldUnauthenticated(
+  toolName: string,
+  authConfig: HttpToolAuthConfig,
+  base: ToolCallBase,
+  message: string,
+  policy: string,
+  extras?: { issuer?: string; resource?: string },
+): Generator<TurnEvent, AuthResolveResult> {
+  if (policy === 'pause') {
+    yield toolEvent(base, {
+      phase: 'pause',
+      pause: buildAuthPause(toolName, authConfig, base, message, extras),
+    });
+    return { headers: {}, unauthenticated: true };
+  }
+  return { headers: {}, unauthenticated: true, modelMessage: message };
+}
+
+function resolveStaticCredential(
+  credential: ToolCredential,
+  authConfig: HttpToolAuthConfig,
+): AuthResolveResult | undefined {
+  if (credential.type === 'bearer') {
+    return {
+      headers: authHeaderPair(authConfig, credential.token, {
+        headerName: 'Authorization',
+        headerPrefix: 'Bearer ',
+      }),
+    };
+  }
+  if (credential.type === 'api_key') {
+    const headerName = credential.headerName ?? authConfig.headerName ?? 'Authorization';
+    const headerPrefix = credential.headerPrefix ?? authConfig.headerPrefix ?? '';
+    return { headers: { [headerName]: `${headerPrefix}${credential.key}` } };
+  }
+  return undefined;
+}
+
+async function* resolveOAuth2Credential(
+  toolName: string,
+  authConfig: HttpToolAuthConfig,
+  credential: OAuth2Credential,
+  ctx: ToolContext,
+  base: ToolCallBase,
+  policy: string,
+): AsyncGenerator<TurnEvent, AuthResolveResult> {
+  const slot = authConfig.slot;
+  let activeToken = credential.accessToken;
+  const now = Date.now();
+  const isExpired = credential.expiresAt !== undefined && credential.expiresAt <= now + 30000;
+
+  if (isExpired && credential.refreshToken) {
+    try {
+      const refreshResult = await refreshOAuthToken({
+        refreshToken: credential.refreshToken,
+        tokenEndpoint: credential.tokenEndpoint,
+        clientId: credential.clientId,
+        resource: credential.resource,
+        scope: credential.scope,
+        issuer: credential.issuer,
+      });
+      activeToken = refreshResult.credential.accessToken;
+      yield toolEvent(base, {
+        phase: 'progress',
+        data: {
+          kind: 'auth_token_refreshed',
+          slot,
+          credential: refreshResult.credential,
+        },
+      });
+      if (ctx.credentials) {
+        ctx.credentials[slot] = refreshResult.credential;
+      }
+    } catch (err) {
+      const message = `Failed to refresh OAuth token for '${toolName}' (slot: '${slot}'): ${err instanceof Error ? err.message : String(err)}`;
+      return yield* yieldUnauthenticated(toolName, authConfig, base, message, policy, {
+        issuer: credential.issuer,
+        resource: credential.resource,
+      });
+    }
+  } else if (isExpired && !credential.refreshToken) {
+    const message = `OAuth token expired for '${toolName}' (slot: '${slot}') and no refresh token is available.`;
+    return yield* yieldUnauthenticated(toolName, authConfig, base, message, policy, {
+      issuer: credential.issuer,
+      resource: credential.resource,
+    });
+  }
+
+  return {
+    headers: authHeaderPair(authConfig, activeToken, {
+      headerName: 'Authorization',
+      headerPrefix: 'Bearer ',
+    }),
+  };
 }
 
 /**
@@ -54,134 +175,27 @@ export async function* resolveToolAuth(
   toolName: string,
   authConfig: HttpToolAuthConfig | undefined,
   ctx: ToolContext,
-  base: Pick<ToolCallEvent, 'name' | 'callId' | 'arguments'>,
-): AsyncGenerator<
-  TurnEvent,
-  { headers: Record<string, string>; unauthenticated?: boolean; modelMessage?: string }
-> {
+  base: ToolCallBase,
+): AsyncGenerator<TurnEvent, AuthResolveResult> {
   if (!authConfig) {
     return { headers: {} };
   }
 
-  const slot = authConfig.slot;
-  const credential = ctx.credentials?.[slot];
+  const credential = ctx.credentials?.[authConfig.slot];
   const policy = authConfig.onUnauthenticated ?? 'pause';
 
   if (!credential) {
-    const message = `Authentication required for '${toolName}' (auth slot: '${slot}').`;
-    if (policy === 'pause') {
-      const authPause: ToolPause = {
-        kind: 'auth',
-        tool: toolName,
-        input: base.arguments,
-        authChallenge: {
-          slot,
-          authType: authConfig.type,
-          message,
-          issuer: authConfig.preResolved?.issuer,
-          resource: authConfig.preResolved?.resource,
-          requiredScopes: authConfig.scopes,
-        },
-      };
-      yield toolEvent(base, { phase: 'pause', pause: authPause });
-      return { headers: {}, unauthenticated: true };
-    }
-    return { headers: {}, unauthenticated: true, modelMessage: message };
+    const message = `Authentication required for '${toolName}' (auth slot: '${authConfig.slot}').`;
+    return yield* yieldUnauthenticated(toolName, authConfig, base, message, policy);
   }
 
-  // Handle Bearer Token
-  if (credential.type === 'bearer') {
-    const headerName = authConfig.headerName ?? 'Authorization';
-    const headerPrefix = authConfig.headerPrefix ?? 'Bearer ';
-    return { headers: { [headerName]: `${headerPrefix}${credential.token}` } };
+  const staticResolved = resolveStaticCredential(credential, authConfig);
+  if (staticResolved) {
+    return staticResolved;
   }
 
-  // Handle API Key
-  if (credential.type === 'api_key') {
-    const headerName = credential.headerName ?? authConfig.headerName ?? 'Authorization';
-    const headerPrefix = credential.headerPrefix ?? authConfig.headerPrefix ?? '';
-    return { headers: { [headerName]: `${headerPrefix}${credential.key}` } };
-  }
-
-  // Handle OAuth 2.1
   if (credential.type === 'oauth2') {
-    let activeToken = credential.accessToken;
-    const now = Date.now();
-    const isExpired = credential.expiresAt !== undefined && credential.expiresAt <= now + 30000; // 30s buffer
-
-    if (isExpired && credential.refreshToken) {
-      try {
-        const refreshResult = await refreshOAuthToken({
-          refreshToken: credential.refreshToken,
-          tokenEndpoint: credential.tokenEndpoint,
-          clientId: credential.clientId,
-          resource: credential.resource,
-          scope: credential.scope,
-          issuer: credential.issuer,
-        });
-
-        activeToken = refreshResult.credential.accessToken;
-
-        // Emit progress event notifying host that token was refreshed
-        yield toolEvent(base, {
-          phase: 'progress',
-          data: {
-            kind: 'auth_token_refreshed',
-            slot,
-            credential: refreshResult.credential,
-          },
-        });
-
-        // Mutate in-memory context credentials for subsequent steps in this turn
-        if (ctx.credentials) {
-          ctx.credentials[slot] = refreshResult.credential;
-        }
-      } catch (err) {
-        const message = `Failed to refresh OAuth token for '${toolName}' (slot: '${slot}'): ${err instanceof Error ? err.message : String(err)}`;
-        if (policy === 'pause') {
-          const authPause: ToolPause = {
-            kind: 'auth',
-            tool: toolName,
-            input: base.arguments,
-            authChallenge: {
-              slot,
-              authType: 'oauth2',
-              message,
-              issuer: credential.issuer,
-              resource: credential.resource,
-              requiredScopes: authConfig.scopes,
-            },
-          };
-          yield toolEvent(base, { phase: 'pause', pause: authPause });
-          return { headers: {}, unauthenticated: true };
-        }
-        return { headers: {}, unauthenticated: true, modelMessage: message };
-      }
-    } else if (isExpired && !credential.refreshToken) {
-      const message = `OAuth token expired for '${toolName}' (slot: '${slot}') and no refresh token is available.`;
-      if (policy === 'pause') {
-        const authPause: ToolPause = {
-          kind: 'auth',
-          tool: toolName,
-          input: base.arguments,
-          authChallenge: {
-            slot,
-            authType: 'oauth2',
-            message,
-            issuer: credential.issuer,
-            resource: credential.resource,
-            requiredScopes: authConfig.scopes,
-          },
-        };
-        yield toolEvent(base, { phase: 'pause', pause: authPause });
-        return { headers: {}, unauthenticated: true };
-      }
-      return { headers: {}, unauthenticated: true, modelMessage: message };
-    }
-
-    const headerName = authConfig.headerName ?? 'Authorization';
-    const headerPrefix = authConfig.headerPrefix ?? 'Bearer ';
-    return { headers: { [headerName]: `${headerPrefix}${activeToken}` } };
+    return yield* resolveOAuth2Credential(toolName, authConfig, credential, ctx, base, policy);
   }
 
   return { headers: {} };
@@ -247,6 +261,50 @@ export function buildHttpToolTarget(
   return { url: targetUrl.toString(), body: JSON.stringify(bodyObj) };
 }
 
+function parseHttpResponseData(contentType: string, text: string, status: number): unknown {
+  if (contentType.includes('application/json') && text.trim().length > 0) {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return text;
+    }
+  }
+  if (text.trim().length === 0 && status === 204) {
+    return null;
+  }
+  return text;
+}
+
+function parseToolOutput<T>(
+  schema: {
+    safeParse: (
+      data: unknown,
+    ) => { success: true; data: T } | { success: false; error: { flatten: () => unknown } };
+  },
+  responseData: unknown,
+): { success: true; data: T } | { success: false; error: { flatten: () => unknown } } {
+  let checked = schema.safeParse(responseData);
+  if (!checked.success && typeof responseData === 'string' && responseData.trim().length > 0) {
+    try {
+      const jsonParsed = JSON.parse(responseData);
+      const retryChecked = schema.safeParse(jsonParsed);
+      if (retryChecked.success) {
+        checked = retryChecked;
+      }
+    } catch {
+      // Not JSON
+    }
+  }
+  return checked;
+}
+
+function modelResultFromOutput(data: unknown): ModelToolResult {
+  return {
+    finding: typeof data === 'string' ? data : JSON.stringify(data),
+    data,
+  };
+}
+
 /**
  * Executes a Declarative HTTP tool.
  */
@@ -254,73 +312,46 @@ export async function* executeHttpTool(
   tool: HttpToolDef,
   rawInput: unknown,
   ctx: ToolContext,
-  base: Pick<ToolCallEvent, 'name' | 'callId' | 'arguments'>,
+  base: ToolCallBase,
 ): AsyncGenerator<TurnEvent, ModelToolResult | undefined> {
-  yield toolEvent(base, { phase: 'running' });
-
-  // 1. Input validation
-  const parsed = tool.input.safeParse(rawInput);
-  if (!parsed.success) {
-    yield failureEvent(base, {
-      code: 'invalid_input',
-      message: 'Tool input validation failed',
-      details: parsed.error.flatten(),
-    });
+  const started = yield* startToolExecution(tool, rawInput, ctx, base);
+  if (!started.ok) {
     return undefined;
   }
-  const input = parsed.data as Record<string, unknown>;
+  const input = started.data as Record<string, unknown>;
 
-  // 2. Auth resolution
   const authRes = yield* resolveToolAuth(tool.name, tool.auth, ctx, base);
   if (authRes.unauthenticated) {
-    if (authRes.modelMessage) {
-      return { finding: authRes.modelMessage };
-    }
-    return undefined; // Turn paused
+    return authRes.modelMessage ? { finding: authRes.modelMessage } : undefined;
   }
 
-  // 3. Build endpoint URL with path and query parameters
   let target: HttpToolTarget;
   try {
     target = buildHttpToolTarget(tool.endpoint, tool.method, input, tool.mapping);
   } catch (err) {
-    yield failureEvent(base, {
-      code: 'invalid_input',
-      message: err instanceof Error ? err.message : String(err),
-    });
+    yield failureEvent(base, { code: 'invalid_input', message: messageOf(err) });
     return undefined;
   }
 
-  // 4. Validate URL against SSRF network guardrails
-  let targetUrl: URL;
-  try {
-    targetUrl = assertSafeUrl(target.url, ctx.profile.guardrails?.network);
-  } catch (err) {
-    yield failureEvent(base, {
-      code: 'network_blocked',
-      message: err instanceof Error ? err.message : String(err),
-    });
+  const targetUrl = yield* guardToolTarget(target.url, ctx, base);
+  if (!targetUrl) {
     return undefined;
   }
 
-  // 5. Build request body
-  const body: string | undefined = target.body;
   const headers: Record<string, string> = {
     Accept: 'application/json',
     ...tool.headers,
     ...authRes.headers,
   };
-
   if (tool.method !== 'GET') {
     headers['Content-Type'] = 'application/json';
   }
 
-  // 6. Execute HTTP call
   try {
     const response = await fetch(targetUrl.toString(), {
       method: tool.method,
       headers,
-      body,
+      body: target.body,
       signal: ctx.signal,
     });
 
@@ -333,33 +364,13 @@ export async function* executeHttpTool(
       return undefined;
     }
 
-    const contentType = response.headers.get('content-type') ?? '';
     const text = await response.text();
-    let responseData: unknown = text;
-    if (contentType.includes('application/json') && text.trim().length > 0) {
-      try {
-        responseData = JSON.parse(text);
-      } catch {
-        responseData = text;
-      }
-    } else if (text.trim().length === 0 && response.status === 204) {
-      responseData = null;
-    }
-
-    // 7. Validate output schema
-    let checked = tool.output.safeParse(responseData);
-    if (!checked.success && typeof responseData === 'string' && responseData.trim().length > 0) {
-      try {
-        const jsonParsed = JSON.parse(responseData);
-        const retryChecked = tool.output.safeParse(jsonParsed);
-        if (retryChecked.success) {
-          checked = retryChecked;
-        }
-      } catch {
-        // Not JSON
-      }
-    }
-
+    const responseData = parseHttpResponseData(
+      response.headers.get('content-type') ?? '',
+      text,
+      response.status,
+    );
+    const checked = parseToolOutput(tool.output, responseData);
     if (!checked.success) {
       yield failureEvent(base, {
         code: 'invalid_output',
@@ -370,10 +381,7 @@ export async function* executeHttpTool(
     }
 
     yield toolEvent(base, { phase: 'complete', output: checked.data });
-    return {
-      finding: typeof checked.data === 'string' ? checked.data : JSON.stringify(checked.data),
-      data: checked.data,
-    };
+    return modelResultFromOutput(checked.data);
   } catch (err) {
     yield failureEvent(base, {
       code: 'network_error',
@@ -383,9 +391,17 @@ export async function* executeHttpTool(
   }
 }
 
-const MCP_PROTOCOL_VERSIONS = ['2026-07-28', '2025-11-25', '2025-06-18', '2025-03-26'] as const;
+/** Preferred-first Streamable HTTP protocol revisions the kernel will negotiate. */
+export const MCP_PROTOCOL_VERSIONS = [
+  '2026-07-28',
+  '2025-11-25',
+  '2025-06-18',
+  '2025-03-26',
+] as const;
 
-type McpRpcResponse = {
+export type McpProtocolVersion = (typeof MCP_PROTOCOL_VERSIONS)[number];
+
+export type McpRpcResponse = {
   jsonrpc?: string;
   id?: unknown;
   result?: {
@@ -428,13 +444,203 @@ export function parseMcpRpcResponse(text: string): McpRpcResponse {
   return last;
 }
 
-function isUnsupportedMcpProtocolError(error: McpRpcResponse['error']): boolean {
+/** True when a JSON-RPC error indicates the server rejected our protocol revision. */
+export function isUnsupportedMcpProtocolError(error: McpRpcResponse['error']): boolean {
   if (!error) return false;
   const message = error.message.toLowerCase();
   return (
     message.includes('unsupported protocol version') ||
     message.includes('inconsistent mcp protocol version')
   );
+}
+
+function unsupportedProtocolFromHttpBody(text: string): McpRpcResponse['error'] | undefined {
+  try {
+    const rpcResponse = parseMcpRpcResponse(text);
+    if (rpcResponse.error && isUnsupportedMcpProtocolError(rpcResponse.error)) {
+      return rpcResponse.error;
+    }
+  } catch {
+    // Fall through to raw-text heuristic for non-JSON error pages.
+  }
+  if (text.toLowerCase().includes('unsupported protocol version')) {
+    return { code: -32600, message: text.slice(0, 300) };
+  }
+  return undefined;
+}
+
+type McpFetchOutcome =
+  | { kind: 'rpc'; response: McpRpcResponse }
+  | { kind: 'retry' }
+  | { kind: 'protocol_retry'; error: McpRpcResponse['error'] }
+  | { kind: 'failure'; failure: ToolFailure };
+
+async function fetchMcpProtocolAttempt(
+  targetUrl: string,
+  baseHeaders: Record<string, string>,
+  rpcId: string | number,
+  mcpToolName: string,
+  input: unknown,
+  protocolVersion: string,
+  signal: AbortSignal | undefined,
+): Promise<McpFetchOutcome> {
+  const jsonRpcPayload = {
+    jsonrpc: '2.0',
+    id: rpcId,
+    method: 'tools/call',
+    params: {
+      name: mcpToolName,
+      arguments: input,
+      _meta: {
+        'io.modelcontextprotocol/protocolVersion': protocolVersion,
+      },
+    },
+  };
+
+  const response = await fetch(targetUrl, {
+    method: 'POST',
+    headers: {
+      ...baseHeaders,
+      'MCP-Protocol-Version': protocolVersion,
+    },
+    body: JSON.stringify(jsonRpcPayload),
+    signal,
+  });
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    const acceptRejected =
+      response.status === 406 &&
+      text.toLowerCase().includes('accept') &&
+      protocolVersion !== MCP_PROTOCOL_VERSIONS.at(-1);
+    if (acceptRejected) return { kind: 'retry' };
+    const protocolError = unsupportedProtocolFromHttpBody(text);
+    if (protocolError) return { kind: 'protocol_retry', error: protocolError };
+    return {
+      kind: 'failure',
+      failure: {
+        code: `mcp_http_${response.status}`,
+        message: `MCP server error HTTP ${response.status}: ${text.slice(0, 300)}`,
+      },
+    };
+  }
+
+  try {
+    const rpcResponse = parseMcpRpcResponse(text);
+    if (rpcResponse.error && isUnsupportedMcpProtocolError(rpcResponse.error)) {
+      return { kind: 'protocol_retry', error: rpcResponse.error };
+    }
+    return { kind: 'rpc', response: rpcResponse };
+  } catch {
+    return {
+      kind: 'failure',
+      failure: {
+        code: 'invalid_response',
+        message: `MCP server returned non-JSON response: ${text.slice(0, 200)}`,
+      },
+    };
+  }
+}
+
+async function negotiateMcpRpc(
+  targetUrl: string,
+  baseHeaders: Record<string, string>,
+  rpcId: string | number,
+  mcpToolName: string,
+  input: unknown,
+  signal: AbortSignal | undefined,
+): Promise<{
+  rpc?: McpRpcResponse;
+  failure?: ToolFailure;
+  lastProtocolError?: McpRpcResponse['error'];
+}> {
+  let lastProtocolError: McpRpcResponse['error'];
+  for (const protocolVersion of MCP_PROTOCOL_VERSIONS) {
+    const outcome = await fetchMcpProtocolAttempt(
+      targetUrl,
+      baseHeaders,
+      rpcId,
+      mcpToolName,
+      input,
+      protocolVersion,
+      signal,
+    );
+    if (outcome.kind === 'retry' || outcome.kind === 'protocol_retry') {
+      if (outcome.kind === 'protocol_retry') lastProtocolError = outcome.error;
+      continue;
+    }
+    if (outcome.kind === 'failure') {
+      return { failure: outcome.failure };
+    }
+    return { rpc: outcome.response };
+  }
+  return { lastProtocolError };
+}
+
+function extractMcpOutput(result: McpRpcResponse['result']): unknown {
+  if (result?.content && Array.isArray(result.content)) {
+    return result.content.map((c) => c.text ?? '').join('\n');
+  }
+  return result;
+}
+
+function mcpResultFailure(rpcResponse: McpRpcResponse): ToolFailure | undefined {
+  if (rpcResponse.error) {
+    return {
+      code: `mcp_rpc_error_${rpcResponse.error.code}`,
+      message: rpcResponse.error.message,
+      details: rpcResponse.error.data,
+    };
+  }
+  const result = rpcResponse.result;
+  if (result?.isError) {
+    return {
+      code: 'mcp_tool_execution_failed',
+      message: result.content?.map((c) => c.text ?? '').join('\n') ?? 'MCP Tool execution error',
+    };
+  }
+  return undefined;
+}
+
+function interpretMcpRpc(
+  tool: McpToolDef,
+  negotiated: {
+    rpc?: McpRpcResponse;
+    failure?: ToolFailure;
+    lastProtocolError?: McpRpcResponse['error'];
+  },
+): { ok: true; data: unknown } | { ok: false; failure: ToolFailure } {
+  if (negotiated.failure) {
+    return { ok: false, failure: negotiated.failure };
+  }
+  const rpcResponse = negotiated.rpc;
+  if (!rpcResponse) {
+    return {
+      ok: false,
+      failure: {
+        code: 'mcp_protocol_error',
+        message: negotiated.lastProtocolError?.message ?? 'MCP protocol negotiation failed',
+        details: negotiated.lastProtocolError?.data,
+      },
+    };
+  }
+  const resultFailure = mcpResultFailure(rpcResponse);
+  if (resultFailure) {
+    return { ok: false, failure: resultFailure };
+  }
+  const checked = parseToolOutput(tool.output, extractMcpOutput(rpcResponse.result));
+  if (!checked.success) {
+    return {
+      ok: false,
+      failure: {
+        code: 'invalid_output',
+        message: 'MCP output schema validation failed',
+        details: checked.error.flatten(),
+      },
+    };
+  }
+  return { ok: true, data: checked.data };
 }
 
 /**
@@ -444,175 +650,46 @@ export async function* executeMcpTool(
   tool: McpToolDef,
   rawInput: unknown,
   ctx: ToolContext,
-  base: Pick<ToolCallEvent, 'name' | 'callId' | 'arguments'>,
+  base: ToolCallBase,
 ): AsyncGenerator<TurnEvent, ModelToolResult | undefined> {
-  yield toolEvent(base, { phase: 'running' });
-
-  // 1. Input validation
-  const parsed = tool.input.safeParse(rawInput);
-  if (!parsed.success) {
-    yield failureEvent(base, {
-      code: 'invalid_input',
-      message: 'Tool input validation failed',
-      details: parsed.error.flatten(),
-    });
-    return undefined;
-  }
-  const input = parsed.data;
-
-  // 2. Validate server URL against network guardrail
-  let targetUrl: URL;
-  try {
-    targetUrl = assertSafeUrl(tool.serverUrl, ctx.profile.guardrails?.network);
-  } catch (err) {
-    yield failureEvent(base, {
-      code: 'network_blocked',
-      message: err instanceof Error ? err.message : String(err),
-    });
+  const started = yield* startToolExecution(tool, rawInput, ctx, base);
+  if (!started.ok) {
     return undefined;
   }
 
-  // 3. Resolve Auth
+  const targetUrl = yield* guardToolTarget(tool.serverUrl, ctx, base);
+  if (!targetUrl) {
+    return undefined;
+  }
+
   const authRes = yield* resolveToolAuth(tool.name, tool.auth, ctx, base);
   if (authRes.unauthenticated) {
-    if (authRes.modelMessage) {
-      return { finding: authRes.modelMessage };
-    }
-    return undefined; // Turn paused
+    return authRes.modelMessage ? { finding: authRes.modelMessage } : undefined;
   }
 
-  const rpcId = base.callId ?? Date.now();
-  const baseHeaders: Record<string, string> = {
-    'Content-Type': 'application/json',
-    Accept: 'application/json, text/event-stream',
-    ...tool.headers,
-    ...authRes.headers,
-  };
-
   try {
-    let rpcResponse: McpRpcResponse | undefined;
-    let lastProtocolError: McpRpcResponse['error'];
-
-    for (const protocolVersion of MCP_PROTOCOL_VERSIONS) {
-      const jsonRpcPayload = {
-        jsonrpc: '2.0',
-        id: rpcId,
-        method: 'tools/call',
-        params: {
-          name: tool.mcpToolName,
-          arguments: input,
-          _meta: {
-            'io.modelcontextprotocol/protocolVersion': protocolVersion,
-          },
+    const interpreted = interpretMcpRpc(
+      tool,
+      await negotiateMcpRpc(
+        targetUrl.toString(),
+        {
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
+          ...tool.headers,
+          ...authRes.headers,
         },
-      };
-
-      const response = await fetch(targetUrl.toString(), {
-        method: 'POST',
-        headers: {
-          ...baseHeaders,
-          'MCP-Protocol-Version': protocolVersion,
-        },
-        body: JSON.stringify(jsonRpcPayload),
-        signal: ctx.signal,
-      });
-
-      const text = await response.text();
-
-      if (!response.ok) {
-        const acceptRejected =
-          response.status === 406 &&
-          text.toLowerCase().includes('accept') &&
-          protocolVersion !== MCP_PROTOCOL_VERSIONS.at(-1);
-        if (acceptRejected) continue;
-        yield failureEvent(base, {
-          code: `mcp_http_${response.status}`,
-          message: `MCP server error HTTP ${response.status}: ${text.slice(0, 300)}`,
-        });
-        return undefined;
-      }
-
-      try {
-        rpcResponse = parseMcpRpcResponse(text);
-      } catch {
-        yield failureEvent(base, {
-          code: 'invalid_response',
-          message: `MCP server returned non-JSON response: ${text.slice(0, 200)}`,
-        });
-        return undefined;
-      }
-
-      if (rpcResponse.error && isUnsupportedMcpProtocolError(rpcResponse.error)) {
-        lastProtocolError = rpcResponse.error;
-        continue;
-      }
-      break;
-    }
-
-    if (!rpcResponse) {
-      yield failureEvent(base, {
-        code: 'mcp_protocol_error',
-        message: lastProtocolError?.message ?? 'MCP protocol negotiation failed',
-        details: lastProtocolError?.data,
-      });
+        base.callId ?? Date.now(),
+        tool.mcpToolName,
+        started.data,
+        ctx.signal,
+      ),
+    );
+    if (!interpreted.ok) {
+      yield failureEvent(base, interpreted.failure);
       return undefined;
     }
-
-    if (rpcResponse.error) {
-      yield failureEvent(base, {
-        code: `mcp_rpc_error_${rpcResponse.error.code}`,
-        message: rpcResponse.error.message,
-        details: rpcResponse.error.data,
-      });
-      return undefined;
-    }
-
-    const result = rpcResponse.result;
-    if (result?.isError) {
-      const errText =
-        result.content?.map((c) => c.text ?? '').join('\n') ?? 'MCP Tool execution error';
-      yield failureEvent(base, {
-        code: 'mcp_tool_execution_failed',
-        message: errText,
-      });
-      return undefined;
-    }
-
-    // Extract text content or structured data
-    let output: unknown;
-    if (result?.content && Array.isArray(result.content)) {
-      output = result.content.map((c) => c.text ?? '').join('\n');
-    } else {
-      output = result;
-    }
-
-    let checked = tool.output.safeParse(output);
-    if (!checked.success && typeof output === 'string' && output.trim().length > 0) {
-      try {
-        const jsonParsed = JSON.parse(output);
-        const retryChecked = tool.output.safeParse(jsonParsed);
-        if (retryChecked.success) {
-          checked = retryChecked;
-        }
-      } catch {
-        // Not JSON
-      }
-    }
-
-    if (!checked.success) {
-      yield failureEvent(base, {
-        code: 'invalid_output',
-        message: 'MCP output schema validation failed',
-        details: checked.error.flatten(),
-      });
-      return undefined;
-    }
-
-    yield toolEvent(base, { phase: 'complete', output: checked.data });
-    return {
-      finding: typeof checked.data === 'string' ? checked.data : JSON.stringify(checked.data),
-      data: checked.data,
-    };
+    yield toolEvent(base, { phase: 'complete', output: interpreted.data });
+    return modelResultFromOutput(interpreted.data);
   } catch (err) {
     yield failureEvent(base, {
       code: 'network_error',

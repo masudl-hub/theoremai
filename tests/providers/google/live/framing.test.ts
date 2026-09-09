@@ -9,7 +9,7 @@ import {
   buildGeminiLiveToolResponse,
   buildGeminiLiveToolResponses,
   buildGeminiLiveWebSocketUrl,
-  extractUsageTokens,
+  extractLiveUsageTokens,
   foldGeminiLiveServerMessage,
   parseFunctionArguments,
   parseGeminiLiveMessage,
@@ -471,11 +471,11 @@ Deno.test('parseGeminiLiveMessage distinguishes empty from malformed', () => {
   assertEquals(parseGeminiLiveMessage('null'), { ok: false, reason: 'malformed' });
 });
 
-Deno.test('extractUsageTokens parses token counts', () => {
-  const empty = extractUsageTokens({});
+Deno.test('extractLiveUsageTokens parses token counts', () => {
+  const empty = extractLiveUsageTokens({});
   assertEquals(empty, undefined);
 
-  const tokens = extractUsageTokens({
+  const tokens = extractLiveUsageTokens({
     promptTokenCount: 15,
     responseTokenCount: 25,
     thoughtsTokenCount: 5,
@@ -486,7 +486,7 @@ Deno.test('extractUsageTokens parses token counts', () => {
   assertEquals(tokens?.thinking, 5);
   assertEquals(tokens?.total, 40);
 
-  const snakeTokens = extractUsageTokens({
+  const snakeTokens = extractLiveUsageTokens({
     prompt_token_count: 10,
     response_token_count: 20,
     total_token_count: 30,

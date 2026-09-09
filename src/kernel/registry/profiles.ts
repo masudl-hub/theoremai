@@ -8,6 +8,9 @@
  */
 
 import { TheorumError } from '../../guardrails/error.ts';
+import type { ProfileGuardrailsSpec } from '../../guardrails/types.ts';
+import { resolveObservabilityPolicy } from '../../observability/policy.ts';
+import type { ProfileObservabilitySpec } from '../../observability/types.ts';
 import { assertLiveIngressConfigured } from '../engine/live-ingress.ts';
 import {
   isValidPair,
@@ -15,6 +18,7 @@ import {
   LIVE_TOOL_LOAD_TIERS,
   protocolsForProfileType,
 } from '../schema.ts';
+import { isContinueStopKind, type ProfileTurnResumptionSpec } from '../stop.ts';
 import { getTool } from '../tools/registry.ts';
 import type {
   CompactionSpec,
@@ -24,13 +28,12 @@ import type {
   ModelBinding,
   ModelId,
   Profile,
-  ProfileGuardrailsSpec,
   ProfileIdentity,
   ProfileInputsSpec,
   ProfileModelFields,
   ProfileOutputsSpec,
   ProfileToolsSpec,
-  ProfileTurnResumptionSpec,
+  ProfileTurnBehaviourSpec,
   Protocol,
   Provider,
   SpeechProfile,
@@ -49,13 +52,14 @@ export type ProfileDefinitionBase = {
   key?: ProfileModelFields['key'];
   outputs?: ProfileOutputsSpec;
   guardrails?: ProfileGuardrailsSpec;
+  observability?: ProfileObservabilitySpec;
 };
 
 export type TextProfileDefinition = ProfileDefinitionBase & {
   type: 'text';
   tools: ProfileToolsSpec;
   inputs: ProfileInputsSpec;
-  turnResumption?: ProfileTurnResumptionSpec;
+  turnBehaviour?: ProfileTurnBehaviourSpec;
 };
 
 export type ImageProfileDefinition = ProfileDefinitionBase & {
@@ -63,13 +67,13 @@ export type ImageProfileDefinition = ProfileDefinitionBase & {
   image: NonNullable<ImageProfile['image']>;
   tools: ProfileToolsSpec;
   inputs: ProfileInputsSpec;
-  turnResumption?: ProfileTurnResumptionSpec;
+  turnBehaviour?: ProfileTurnBehaviourSpec;
 };
 
 export type SpeechProfileDefinition = ProfileDefinitionBase & {
   type: 'speech';
   speech: NonNullable<SpeechProfile['speech']>;
-  turnResumption?: ProfileTurnResumptionSpec;
+  turnBehaviour?: ProfileTurnBehaviourSpec;
 };
 
 export type LiveProfileDefinition = ProfileDefinitionBase & {
@@ -180,6 +184,66 @@ function profileModelFields(input: ProfileDefinitionBase): ProfileModelFields {
   };
 }
 
+function assertContinueKindList(
+  profileId: string,
+  path: 'allowContinue' | 'autoContinue',
+  kinds: readonly string[] | undefined,
+): void {
+  if (!kinds?.length) return;
+  for (const kind of kinds) {
+    if (!isContinueStopKind(kind)) {
+      throw new TheorumError(
+        `Profile ${profileId}: turnBehaviour.resumption.${path} may only include ContinueStopKind ` +
+          `(length | stream_incomplete | provider_error); got '${kind}'`,
+      );
+    }
+  }
+}
+
+function assertResumption(
+  profileId: string,
+  resumption: ProfileTurnResumptionSpec | undefined,
+): void {
+  if (!resumption) return;
+  assertContinueKindList(profileId, 'allowContinue', resumption.allowContinue);
+  assertContinueKindList(profileId, 'autoContinue', resumption.autoContinue);
+}
+
+function assertTurnBehaviour(profileId: string, input: ProfileDefinition): void {
+  if (input.type === 'live') return;
+  if (input.type !== 'text' && input.turnBehaviour?.allowSteering !== undefined) {
+    throw new TheorumError(
+      `Profile ${profileId}: turnBehaviour.allowSteering is only valid on type 'text'`,
+    );
+  }
+  assertResumption(profileId, input.turnBehaviour?.resumption);
+}
+
+function assertObservability(profileId: string, spec: ProfileObservabilitySpec | undefined): void {
+  if (!spec) {
+    return;
+  }
+  try {
+    const policy = resolveObservabilityPolicy(spec);
+    if (policy.retainForDays <= 0 || !Number.isFinite(policy.retainForDays)) {
+      throw new TheorumError(
+        `Profile ${profileId}: observability.retainForDays must be a positive number`,
+      );
+    }
+    if (policy.rotateAfterMiB <= 0 || !Number.isFinite(policy.rotateAfterMiB)) {
+      throw new TheorumError(
+        `Profile ${profileId}: observability.rotateAfterMiB must be a positive number`,
+      );
+    }
+  } catch (err) {
+    if (err instanceof TheorumError && err.message.startsWith('Profile ')) {
+      throw err;
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    throw new TheorumError(`Profile ${profileId}: ${message}`);
+  }
+}
+
 /** Define a typed profile. Required fields must be set explicitly; optional fields stay optional. */
 function defineProfile(input: LiveProfileDefinition): LiveProfile;
 function defineProfile(
@@ -189,6 +253,8 @@ function defineProfile(input: ProfileDefinition): Profile;
 function defineProfile(input: ProfileDefinition): Profile {
   assertModelsNonEmpty(input.id, input.models);
   assertDefaultModel(input.id, input);
+  assertTurnBehaviour(input.id, input);
+  assertObservability(input.id, input.observability);
   for (const [modelId, binding] of Object.entries(input.models)) {
     assertModelBinding(input.id, modelId, binding);
   }
@@ -199,6 +265,7 @@ function defineProfile(input: ProfileDefinition): Profile {
     systemByRole: input.identity.systemByRole,
   };
   const guardrails = input.guardrails;
+  const observability = input.observability;
   const modelFields = profileModelFields(input);
 
   let profile: Profile;
@@ -212,8 +279,9 @@ function defineProfile(input: ProfileDefinition): Profile {
         tools: input.tools,
         inputs: input.inputs,
         outputs: input.outputs,
-        turnResumption: input.turnResumption,
+        turnBehaviour: input.turnBehaviour,
         guardrails,
+        observability,
       } satisfies TextProfile;
       break;
     case 'image':
@@ -226,8 +294,9 @@ function defineProfile(input: ProfileDefinition): Profile {
         tools: input.tools,
         inputs: input.inputs,
         outputs: input.outputs,
-        turnResumption: input.turnResumption,
+        turnBehaviour: input.turnBehaviour,
         guardrails,
+        observability,
       } satisfies ImageProfile;
       break;
     case 'speech':
@@ -238,8 +307,9 @@ function defineProfile(input: ProfileDefinition): Profile {
         ...modelFields,
         speech: input.speech,
         outputs: input.outputs,
-        turnResumption: input.turnResumption,
+        turnBehaviour: input.turnBehaviour,
         guardrails,
+        observability,
       } satisfies SpeechProfile;
       break;
     case 'live': {
@@ -261,6 +331,7 @@ function defineProfile(input: ProfileDefinition): Profile {
         live: input.live,
         tools: assertLiveTools(input.id, input.tools),
         guardrails,
+        observability,
       } satisfies LiveProfile;
       assertLiveIngressConfigured(profile);
       break;
@@ -360,8 +431,8 @@ function assertLiveToolLoadTiers(profile: LiveProfile): void {
       );
     }
   }
-  for (const [modelId, binding] of Object.entries(profile.models)) {
-    for (const id of binding.builtInTools ?? []) {
+  for (const { modelId, id } of modelBuiltinIds(profile)) {
+    {
       const tool = getTool(id);
       if (!tool) {
         continue;
@@ -401,15 +472,22 @@ function assertProfileToolLoader(profile: Profile): void {
   }
 }
 
-function assertModelBuiltInTools(profile: Profile): void {
+/** Every builtin id declared across a profile's model bindings. */
+function* modelBuiltinIds(profile: Profile): Generator<{ modelId: string; id: string }> {
   for (const [modelId, binding] of Object.entries(profile.models)) {
     for (const id of binding.builtInTools ?? []) {
-      const tool = getTool(id);
-      if (tool?.type !== 'builtin') {
-        throw new TheorumError(
-          `Profile ${profile.id} model '${modelId}' lists '${id}' in builtInTools — not a registered builtin`,
-        );
-      }
+      yield { modelId, id };
+    }
+  }
+}
+
+function assertModelBuiltInTools(profile: Profile): void {
+  for (const { modelId, id } of modelBuiltinIds(profile)) {
+    const tool = getTool(id);
+    if (tool?.type !== 'builtin') {
+      throw new TheorumError(
+        `Profile ${profile.id} model '${modelId}' lists '${id}' in builtInTools — not a registered builtin`,
+      );
     }
   }
 }

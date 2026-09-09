@@ -20,11 +20,31 @@ import {
 	buildInvokeRequestBody,
 	buildTurnRequestBody,
 	foldAssistantTurn,
+	isAbortError,
+	isPlaygroundStreamError,
 	prepareComposerTurn,
+	projectUserTurn,
 	streamPlaygroundInvoke,
 	streamPlaygroundTurn,
 	turnInputFromSession,
 } from './turn-client';
+
+type TurnFailure = { ok: false; error: string; errorInternal?: string; issues?: string[]; aborted?: boolean };
+
+function turnFailureFromCaught(err: unknown, signal?: AbortSignal): TurnFailure {
+	if (isAbortError(err) || signal?.aborted) {
+		return { ok: false, error: 'Cancelled', aborted: true };
+	}
+	if (isPlaygroundStreamError(err)) {
+		return {
+			ok: false,
+			error: err.publicMessage,
+			...(err.internalMessage ? { errorInternal: err.internalMessage } : {}),
+		};
+	}
+	const message = err instanceof Error ? err.message : String(err);
+	return { ok: false, error: message };
+}
 
 export async function streamInterfaceTurn(args: {
 	iface: ComposerProfileInterface;
@@ -36,6 +56,8 @@ export async function streamInterfaceTurn(args: {
 	onStream: (blocks: TranscriptBlock[]) => void;
 	/** Fires once user blocks are ready (with media preview data) before the assistant stream. */
 	onUserBlocks?: (blocks: TranscriptBlock[]) => void;
+	signal?: AbortSignal;
+	turnId?: string;
 }): Promise<
 	| {
 			ok: true;
@@ -43,7 +65,7 @@ export async function streamInterfaceTurn(args: {
 			userBlocks: TranscriptBlock[];
 			assistantBlocks: TranscriptBlock[];
 	  }
-	| { ok: false; error: string; issues?: string[] }
+	| { ok: false; error: string; errorInternal?: string; issues?: string[]; aborted?: boolean }
 > {
 	if (args.session.pausedTool) {
 		return { ok: false, error: 'Resolve the paused tool before sending a new message.' };
@@ -87,7 +109,11 @@ export async function streamInterfaceTurn(args: {
 			onStream: args.onStream,
 			seedEvents: [],
 			stream: (onEvent) =>
-				streamPlaygroundTurn(buildTurnRequestBody(args.payload, session, input), onEvent),
+				streamPlaygroundTurn(
+					buildTurnRequestBody(args.payload, session, input, { turnId: args.turnId }),
+					onEvent,
+					args.signal,
+				),
 		});
 
 		session = finalizeTurnStream({
@@ -103,8 +129,87 @@ export async function streamInterfaceTurn(args: {
 			assistantBlocks: foldAssistantTurn(args.iface, events),
 		};
 	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		return { ok: false, error: message };
+		return turnFailureFromCaught(err, args.signal);
+	}
+}
+
+/** Send a turn from an already-encoded pending draft (queue drain / send now). */
+export async function streamInterfaceDraftTurn(args: {
+	iface: ComposerProfileInterface;
+	payload: PlaygroundRunPayload;
+	session: InterfaceTurnSession;
+	draft: import('theorum/interface').UserTurnDraft;
+	onStream: (blocks: TranscriptBlock[]) => void;
+	onUserBlocks?: (blocks: TranscriptBlock[]) => void;
+	signal?: AbortSignal;
+	turnId?: string;
+}): Promise<
+	| {
+			ok: true;
+			session: InterfaceTurnSession;
+			userBlocks: TranscriptBlock[];
+			assistantBlocks: TranscriptBlock[];
+	  }
+	| { ok: false; error: string; errorInternal?: string; issues?: string[]; aborted?: boolean }
+> {
+	if (args.session.pausedTool) {
+		return { ok: false, error: 'Resolve the paused tool before sending a new message.' };
+	}
+
+	try {
+		const prepared = projectUserTurn(args.iface, args.draft);
+		if (!prepared.ok) {
+			return { ok: false, error: prepared.issues.join(' '), issues: prepared.issues };
+		}
+
+		const encodedAttachments = prepared.draft.attachments
+			?.filter((a): a is typeof a & { data: string } => typeof a.data === 'string')
+			.map((a) => ({ name: a.name, mimeType: a.mimeType, data: a.data }));
+		const encodedVoice = prepared.draft.voice
+			?.filter((a): a is typeof a & { data: string } => typeof a.data === 'string')
+			.map((a) => ({ name: a.name, mimeType: a.mimeType, data: a.data }));
+		const media = toTurnMedia(encodedAttachments, encodedVoice);
+		const userBlocks = attachPreviewData(prepared.blocks, encodedAttachments, encodedVoice);
+		args.onUserBlocks?.(userBlocks);
+
+		const input = turnInputFromSession(args.session, {
+			...(prepared.draft.text ? { text: prepared.draft.text } : {}),
+			...(encodedAttachments?.length ? { attachments: encodedAttachments } : {}),
+			...(encodedVoice?.length ? { voice: encodedVoice } : {}),
+		});
+
+		let session: InterfaceTurnSession = {
+			...args.session,
+			pendingUserDraft: prepared.draft,
+			assistantEvents: [],
+		};
+
+		const events = await streamFoldedTurn({
+			iface: args.iface,
+			onStream: args.onStream,
+			seedEvents: [],
+			stream: (onEvent) =>
+				streamPlaygroundTurn(
+					buildTurnRequestBody(args.payload, session, input, { turnId: args.turnId }),
+					onEvent,
+					args.signal,
+				),
+		});
+
+		session = finalizeTurnStream({
+			session,
+			events,
+			media,
+		});
+
+		return {
+			ok: true,
+			session,
+			userBlocks,
+			assistantBlocks: foldAssistantTurn(args.iface, events),
+		};
+	} catch (err) {
+		return turnFailureFromCaught(err, args.signal);
 	}
 }
 
@@ -118,7 +223,7 @@ export async function resumeInterfaceTool(args: {
 	credentials?: Record<string, ToolCredential>;
 }): Promise<
 	| { ok: true; session: InterfaceTurnSession; assistantBlocks: TranscriptBlock[] }
-	| { ok: false; error: string }
+	| TurnFailure
 > {
 	const paused = args.session.pausedTool;
 	if (!paused) {
@@ -174,8 +279,7 @@ export async function resumeInterfaceTool(args: {
 	try {
 		resume = buildInvokeToolResume(paused.pauseKind, args.interactiveValue);
 	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		return { ok: false, error: message };
+		return turnFailureFromCaught(err);
 	}
 
 	try {
@@ -232,8 +336,7 @@ export async function resumeInterfaceTool(args: {
 
 		return await continueAfterTool({ ...args, session, seedEvents: invokeEvents });
 	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		return { ok: false, error: message };
+		return turnFailureFromCaught(err);
 	}
 }
 

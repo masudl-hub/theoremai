@@ -97,14 +97,12 @@ export function InterfaceGenerationSelect({
 
 			{open ? (
 				<>
-					<button
+					<div
 						className="iface-gen__backdrop"
-						aria-hidden="true"
+						role="presentation"
 						onClick={() => {
 							setOpen(false);
 						}}
-						tabIndex={-1}
-						type="button"
 					/>
 					<div
 						className={

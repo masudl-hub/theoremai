@@ -135,10 +135,12 @@ function appendToolDenialToHistory(
     callId?: string;
     id?: string;
     arguments?: Record<string, unknown>;
+    /** Override default deny copy (e.g. send-now cancel while paused). */
+    failure?: { code: string; message: string };
   },
 ): TurnHistoryMessage[] {
   const callId = toolCallId(tool);
-  const failure = {
+  const failure = tool.failure ?? {
     code: 'denied',
     message: `User denied execution of '${tool.name}'.`,
   };

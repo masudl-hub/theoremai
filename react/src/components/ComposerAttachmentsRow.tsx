@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { createPortal } from 'react-dom';
 import type { AttachPreviewStyle } from '../client/attachment-hover-preview';
@@ -7,12 +7,13 @@ import {
 	resolveAttachPreviewStyle,
 } from '../client/attachment-hover-preview';
 import { InkWaveform } from './InkWaveform';
+import { VoiceNotePill } from './VoiceNotePill';
 
 export type ComposerAttachmentItem = {
 	id: string;
 	kind: 'file' | 'voice';
 	file: File;
-	/** Object URL for image preview; caller owns lifecycle when provided. */
+	/** Object URL for image / voice preview; caller owns lifecycle when provided. */
 	previewUrl?: string;
 };
 
@@ -64,6 +65,7 @@ export function ComposerAttachmentsRow({
 	const showRecordingPill = recording && !items.some((item) => item.kind === 'voice');
 	const visible = items.length > 0 || showRecordingPill;
 
+	const rowRef = useRef<HTMLDivElement | null>(null);
 	const [hoverId, setHoverId] = useState<string | null>(null);
 	const hoverIdRef = useRef<string | null>(null);
 	const hoverElRef = useRef<HTMLElement | null>(null);
@@ -121,68 +123,99 @@ export function ComposerAttachmentsRow({
 		applyPreviewBox(previewElRef.current, previewStyle);
 	}, [previewStyle]);
 
+	// Keep the live recording pill in view when the row already has file pills.
+	useLayoutEffect(() => {
+		if (!showRecordingPill) return;
+		const row = rowRef.current;
+		if (!row) return;
+		row.scrollLeft = row.scrollWidth;
+	}, [showRecordingPill, items.length]);
+
 	if (!visible) return null;
 
 	return (
 		<>
-			<div className="iface-attach-row" aria-label="Pending attachments">
-				{items.map((item) => (
-					<div
-						key={item.id}
-						className={[
-							'iface-attach-pill',
-							item.kind === 'voice' ? 'iface-attach-pill--voice' : '',
-							item.kind === 'file' && isImage(item.file) ? 'iface-attach-pill--image' : '',
-						]
-							.filter(Boolean)
-							.join(' ')}
-						role="group"
-						aria-label={labelFor(item)}
-						onPointerEnter={(event) => {
-							openPreview(item.id, event.currentTarget);
-						}}
-						onPointerLeave={() => {
-							closePreview(item.id);
-						}}
-					>
-						{item.kind === 'voice' ? (
-							<div className="iface-attach-pill__wave" aria-hidden="true">
-								<InkWaveform
-									frozen={!recording}
-									inputLevel={inputLevel}
-									outputLevel={0}
-									status={recording ? 'listening' : 'ready'}
-									variant="pill"
-								/>
-							</div>
-						) : item.previewUrl && isImage(item.file) ? (
-							<>
-								<img
-									alt=""
-									className="iface-attach-pill__thumb"
-									draggable={false}
-									src={item.previewUrl}
-								/>
+			<div ref={rowRef} className="iface-attach-row" aria-label="Pending attachments">
+				{items.map((item) =>
+					item.kind === 'voice' && item.previewUrl && !recording ? (
+						<div
+							key={item.id}
+							className="iface-attach-voice"
+							role="group"
+							aria-label={labelFor(item)}
+						>
+							<VoiceNotePill
+								label={labelFor(item)}
+								mimeType={item.file.type || 'audio/webm'}
+								src={item.previewUrl}
+							/>
+							<button
+								className="iface-attach-pill__remove"
+								aria-label={`Remove ${labelFor(item)}`}
+								onClick={() => onRemove?.(item.id)}
+								type="button"
+							>
+								×
+							</button>
+						</div>
+					) : (
+						<div
+							key={item.id}
+							className={[
+								'iface-attach-pill',
+								item.kind === 'voice' ? 'iface-attach-pill--voice' : '',
+								item.kind === 'file' && isImage(item.file) ? 'iface-attach-pill--image' : '',
+							]
+								.filter(Boolean)
+								.join(' ')}
+							role="group"
+							aria-label={labelFor(item)}
+							onPointerEnter={(event) => {
+								openPreview(item.id, event.currentTarget);
+							}}
+							onPointerLeave={() => {
+								closePreview(item.id);
+							}}
+						>
+							{item.kind === 'voice' ? (
+								<div className="iface-attach-pill__wave" aria-hidden="true">
+									<InkWaveform
+										frozen={!recording}
+										inputLevel={inputLevel}
+										outputLevel={0}
+										status={recording ? 'listening' : 'ready'}
+										variant="pill"
+									/>
+								</div>
+							) : item.previewUrl && isImage(item.file) ? (
+								<>
+									<img
+										alt=""
+										className="iface-attach-pill__thumb"
+										draggable={false}
+										src={item.previewUrl}
+									/>
+									<span className="iface-attach-pill__label" title={labelFor(item)}>
+										{labelFor(item)}
+									</span>
+								</>
+							) : (
 								<span className="iface-attach-pill__label" title={labelFor(item)}>
 									{labelFor(item)}
 								</span>
-							</>
-						) : (
-							<span className="iface-attach-pill__label" title={labelFor(item)}>
-								{labelFor(item)}
-							</span>
-						)}
-						<button
-							className="iface-attach-pill__remove"
-							aria-label={`Remove ${labelFor(item)}`}
-							disabled={recording && item.kind === 'voice'}
-							onClick={() => onRemove?.(item.id)}
-							type="button"
-						>
-							×
-						</button>
-					</div>
-				))}
+							)}
+							<button
+								className="iface-attach-pill__remove"
+								aria-label={`Remove ${labelFor(item)}`}
+								disabled={recording && item.kind === 'voice'}
+								onClick={() => onRemove?.(item.id)}
+								type="button"
+							>
+								×
+							</button>
+						</div>
+					),
+				)}
 
 				{showRecordingPill ? (
 					<div className="iface-attach-pill iface-attach-pill--voice iface-attach-pill--recording">

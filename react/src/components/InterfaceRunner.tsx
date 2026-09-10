@@ -38,6 +38,7 @@ export type InterfaceRunnerProps = {
 	onMenuAction?: (action: ComposerMenuAction) => void;
 	onPendingRemove?: (id: string) => void;
 	onPendingMove?: (id: string, direction: 'up' | 'down') => void;
+	onPendingQueue?: (id: string) => void;
 	onPendingSendNow?: (id: string) => void;
 	onPendingRestore?: (id: string) => void;
 	onBranch?: (index: number) => void;
@@ -76,6 +77,7 @@ export function InterfaceRunner({
 	onMenuAction,
 	onPendingRemove,
 	onPendingMove,
+	onPendingQueue,
 	onPendingSendNow,
 	onPendingRestore,
 	onBranch,
@@ -137,9 +139,9 @@ export function InterfaceRunner({
 							</div>
 						) : null}
 						<ComposerPendingBar
-							canSendNow={phase === 'streaming' || phase === 'paused'}
 							messages={pendingMessages}
 							onMove={onPendingMove}
+							onQueue={onPendingQueue}
 							onRemove={onPendingRemove}
 							onRestore={onPendingRestore}
 							onSendNow={onPendingSendNow}

@@ -33,6 +33,12 @@ export function measureComposerTextareaHeight(args: {
 	};
 }
 
-export function composerShellHeight(args: { isExpanded: boolean; contentHeight: number }): number {
-	return args.isExpanded ? args.contentHeight : 46;
+export function composerShellHeight(args: {
+	isExpanded: boolean;
+	contentHeight: number;
+	/** Floor while expanded so a stale collapsed measure can't crush the chrome. */
+	expandedFloor?: number;
+}): number {
+	if (!args.isExpanded) return 46;
+	return Math.max(args.contentHeight, args.expandedFloor ?? 46);
 }

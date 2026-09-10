@@ -15,6 +15,7 @@ import {
 	interfaceFromProfile,
 	moveComposerPendingWithinKind,
 	orderComposerPendingMessages,
+	promoteComposerPendingKind,
 	removeComposerPendingMessage,
 	type TranscriptBlock,
 	userDraftHasPayload,
@@ -23,6 +24,8 @@ import {
 import type { ToolCredential } from 'theorum/kernel';
 import {
 	applyTurnResultToTranscript,
+	abandonPausedInterfaceTool,
+	composerFieldsFromDraft,
 	encodeComposerDraft,
 	loadPlaygroundRunPayload,
 	type PlaygroundRunPayload,
@@ -450,16 +453,21 @@ export function TheorumRunApp({
 				await runPromiseRef.current;
 			}
 
-			if (paused && sessionRef.current.pausedTool) {
-				await runTurnStream((onStream) =>
-					resumeInterfaceTool({
-						iface: composer,
-						payload: payload!,
-						session: sessionRef.current,
-						action: 'deny',
-						onStream,
-					}),
-				);
+			if (sessionRef.current.pausedTool && composer) {
+				const abandoned = abandonPausedInterfaceTool({
+					iface: composer,
+					session: sessionRef.current,
+				});
+				const merged = applyTurnResultToTranscript({
+					blocks: blocksRef.current,
+					streamBlocks: [],
+					session: abandoned.session,
+					assistantBlocks: abandoned.assistantBlocks,
+				});
+				setBlocks(merged.blocks);
+				setStreamBlocks([]);
+				setSession(merged.session);
+				sessionRef.current = merged.session;
 			}
 
 			setPendingMessages((prev) => convertSteersToFrontQueued(prev));
@@ -470,11 +478,8 @@ export function TheorumRunApp({
 			clearComposer,
 			draftText,
 			iface,
-			payload,
-			paused,
 			pendingFiles,
 			pendingVoice,
-			runTurnStream,
 			startTurnFromDraft,
 		],
 	);
@@ -546,19 +551,68 @@ export function TheorumRunApp({
 		[blocks, streamBlocks],
 	);
 
-	const handlePendingRestore = useCallback((id: string) => {
-		const message = pendingMessages.find((m) => m.id === id);
+	const handlePendingRestore = useCallback(async (id: string) => {
+		const message = pendingRef.current.find((m) => m.id === id);
 		if (!message) return;
-		setPendingMessages((prev) => removeComposerPendingMessage(prev, id));
-		setDraftText(message.draft.text ?? '');
-		setPendingFiles([]);
-		setPendingVoice([]);
-		setIssues(
-			message.draft.attachments?.length || message.draft.voice?.length
-				? ['Restored text only — re-attach files before sending if needed.']
-				: [],
-		);
-	}, [pendingMessages]);
+
+		const currentDraft = {
+			...(draftText.trim() ? { text: draftText } : {}),
+			...(pendingFiles.length
+				? {
+						attachments: pendingFiles.map((f) => ({
+							name: f.name,
+							mimeType: f.type || 'application/octet-stream',
+							sizeBytes: f.size,
+						})),
+					}
+				: {}),
+			...(pendingVoice.length
+				? {
+						voice: pendingVoice.map((f) => ({
+							name: f.name,
+							mimeType: f.type || 'application/octet-stream',
+							sizeBytes: f.size,
+						})),
+					}
+				: {}),
+		};
+
+		try {
+			let nextPending = removeComposerPendingMessage(pendingRef.current, id);
+
+			if (userDraftHasPayload(currentDraft)) {
+				const stashDraft = await encodeComposerDraft({
+					text: draftText,
+					pendingFiles,
+					pendingVoice,
+				});
+				const stash = createComposerPendingMessage({ kind: 'stash', draft: stashDraft });
+				nextPending = orderComposerPendingMessages([...nextPending, stash]);
+			}
+
+			const restored = composerFieldsFromDraft(message.draft);
+			setPendingMessages(nextPending);
+			setDraftText(restored.text);
+			setPendingFiles(restored.files);
+			setPendingVoice(restored.voice);
+			setIssues([]);
+		} catch (err) {
+			setError(err instanceof Error ? err.message : String(err));
+			setErrorInternal('');
+		}
+	}, [draftText, pendingFiles, pendingVoice]);
+
+	const handlePendingQueue = useCallback(
+		(id: string) => {
+			const message = pendingRef.current.find((m) => m.id === id);
+			if (!message || message.kind !== 'stash') return;
+			if (phase === 'idle') {
+				allowQueueDrainRef.current = true;
+			}
+			setPendingMessages((prev) => promoteComposerPendingKind(prev, id, 'queue'));
+		},
+		[phase],
+	);
 
 	useEffect(() => {
 		document.title = `${titleHandle} · Theorum Playground`;
@@ -612,10 +666,13 @@ export function TheorumRunApp({
 					onPendingMove={(id, direction) => {
 						setPendingMessages((prev) => moveComposerPendingWithinKind(prev, id, direction));
 					}}
+					onPendingQueue={handlePendingQueue}
 					onPendingRemove={(id) => {
 						setPendingMessages((prev) => removeComposerPendingMessage(prev, id));
 					}}
-					onPendingRestore={handlePendingRestore}
+					onPendingRestore={(id) => {
+						void handlePendingRestore(id);
+					}}
 					onPendingSendNow={(id) => {
 						const message = pendingMessages.find((m) => m.id === id);
 						if (message) void handleSendNow(message);

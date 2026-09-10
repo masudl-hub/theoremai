@@ -74,6 +74,7 @@ export {
 } from './pending.ts';
 export type { InterfaceTurnSession, PausedToolContext } from './session.ts';
 export {
+  abandonPausedToolSession,
   applyTurnEventsToSession,
   branchInterfaceTurnSession,
   emptyInterfaceTurnSession,

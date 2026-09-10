@@ -1,4 +1,5 @@
 import {
+	abandonPausedToolSession,
 	appendToolDenialToHistory,
 	appendToolExchangeToHistory,
 	applyTurnEventsToSession,
@@ -360,5 +361,23 @@ export function applyTurnResultToTranscript(args: {
 		blocks: [...prefix, ...args.assistantBlocks],
 		streamBlocks: [],
 		session,
+	};
+}
+
+/**
+ * Leave a tool pause without continuing the model — for send-now while paused.
+ * Commits cancelled tool state into session history + assistant transcript blocks.
+ */
+export function abandonPausedInterfaceTool(args: {
+	iface: ComposerProfileInterface;
+	session: InterfaceTurnSession;
+}): {
+	session: InterfaceTurnSession;
+	assistantBlocks: TranscriptBlock[];
+} {
+	const { session, finalizedEvents } = abandonPausedToolSession(args.session);
+	return {
+		session,
+		assistantBlocks: foldAssistantTurn(args.iface, finalizedEvents),
 	};
 }

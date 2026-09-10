@@ -395,12 +395,33 @@
 
 .iface-attach-pill--voice {
 	position: relative;
-	width: 16rem;
-	max-width: min(16rem, 100%);
+	width: 12rem;
+	max-width: min(12rem, 100%);
 	align-items: stretch;
 	gap: 0;
 	padding: 0;
 	overflow: hidden;
+}
+
+.iface-attach-voice {
+	position: relative;
+	flex-shrink: 0;
+	width: 12rem;
+	max-width: min(12rem, 100%);
+}
+
+.iface-attach-voice .iface-voice-player {
+	width: 100%;
+	max-width: 100%;
+}
+
+.iface-attach-voice .iface-attach-pill__remove {
+	position: absolute;
+	top: 0.15rem;
+	right: 0.15rem;
+	z-index: 2;
+	margin: 0;
+	background: rgba(250, 249, 245, 0.85);
 }
 
 .iface-attach-pill--image {
@@ -797,14 +818,15 @@
 	z-index: 20;
 	display: flex;
 	flex-direction: column;
-	gap: 0.15rem;
 	min-width: 13.5rem;
 	margin: 0;
-	padding: 0.35rem;
+	padding: 0.2rem 0;
 	list-style: none;
-	background: var(--color-paper, #fff);
-	border: 1px solid color-mix(in srgb, var(--color-ink) 14%, transparent);
-	box-shadow: 0 8px 24px color-mix(in srgb, var(--color-ink) 12%, transparent);
+	font-family: var(--font-mono);
+	background: var(--color-paper);
+	border: 1px solid rgba(0, 0, 0, 0.12);
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+	overflow: hidden;
 }
 
 .iface-composer__menu-item {
@@ -813,7 +835,11 @@
 	align-items: flex-start;
 	gap: 0.1rem;
 	width: 100%;
-	padding: 0.45rem 0.5rem;
+	padding: 0.35rem 0.55rem;
+	font-family: var(--font-mono);
+	font-size: 0.68rem;
+	font-weight: 600;
+	line-height: 1.25;
 	text-align: left;
 	color: var(--color-ink);
 	background: transparent;
@@ -823,18 +849,22 @@
 
 .iface-composer__menu-item:hover,
 .iface-composer__menu-item:focus-visible {
-	background: color-mix(in srgb, var(--color-ink) 6%, transparent);
+	background: rgba(0, 0, 0, 0.04);
+}
+
+.iface-composer__menu-item:focus-visible {
+	outline: 1.5px solid var(--color-ink);
+	outline-offset: -1.5px;
+	background: rgba(0, 0, 0, 0.06);
 }
 
 .iface-composer__menu-label {
-	font-family: var(--font-mono);
-	font-size: 0.72rem;
 	font-weight: 700;
-	letter-spacing: 0.04em;
 }
 
 .iface-composer__menu-desc {
-	font-size: 0.68rem;
+	font-size: 0.6rem;
+	font-weight: 500;
 	line-height: 1.3;
 	color: var(--color-mute);
 }
@@ -842,8 +872,8 @@
 .iface-pending {
 	display: flex;
 	flex-direction: column;
-	gap: 0.25rem;
-	margin: 0 0 0.35rem;
+	gap: 0.35rem;
+	margin: 0 0 0.45rem;
 	padding: 0;
 	list-style: none;
 }
@@ -852,14 +882,14 @@
 	display: grid;
 	grid-template-columns: auto minmax(0, 1fr) auto;
 	align-items: center;
-	gap: 0.4rem;
-	padding: 0.35rem 0.45rem;
+	gap: 0.45rem;
+	padding: 0.4rem 0.5rem;
 	background: color-mix(in srgb, var(--color-ink) 4%, transparent);
 	border: 1px solid color-mix(in srgb, var(--color-ink) 10%, transparent);
 }
 
 .iface-pending__kind {
-	font-family: var(--font-mono);
+	font-family: var(--font-mono, ui-monospace, monospace);
 	font-size: 0.62rem;
 	font-weight: 800;
 	letter-spacing: 0.08em;
@@ -871,10 +901,87 @@
 	color: var(--color-ink);
 }
 
+.iface-pending__kind--queue {
+	color: var(--color-ink);
+}
+
+.iface-pending__body {
+	display: flex;
+	min-width: 0;
+	align-items: center;
+	gap: 0.45rem;
+}
+
+.iface-pending__thumbs {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.25rem;
+	flex-shrink: 0;
+	max-width: 40%;
+	overflow: hidden;
+}
+
+.iface-pending__thumb {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	height: 1.75rem;
+	margin: 0;
+	padding: 0 0.35rem;
+	font-family: var(--font-mono, ui-monospace, monospace);
+	font-size: 0.58rem;
+	font-weight: 600;
+	line-height: 1;
+	color: var(--color-mute);
+	background: color-mix(in srgb, var(--color-ink) 5%, transparent);
+	border: 1px solid color-mix(in srgb, var(--color-ink) 12%, transparent);
+	appearance: none;
+}
+
+.iface-pending__thumb--image {
+	width: 1.75rem;
+	padding: 0;
+	overflow: hidden;
+	cursor: pointer;
+}
+
+.iface-pending__thumb--image img {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+
+.iface-pending__thumb--file {
+	max-width: 5.5rem;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.iface-pending__thumb--voice {
+	width: 1.75rem;
+	padding: 0;
+	color: var(--color-ink);
+	cursor: pointer;
+}
+
+.iface-pending__thumb--voice audio {
+	display: none;
+}
+
+.iface-pending__thumb--playing {
+	background: color-mix(in srgb, var(--color-ink) 12%, transparent);
+}
+
 .iface-pending__preview {
 	min-width: 0;
+	flex: 1 1 auto;
 	overflow: hidden;
 	padding: 0;
+	font-family: var(--font-mono, ui-monospace, monospace);
 	font-size: 0.78rem;
 	line-height: 1.3;
 	text-align: left;
@@ -885,11 +992,33 @@
 	border: none;
 	cursor: pointer;
 }
-
 .iface-pending__actions {
 	display: inline-flex;
 	align-items: center;
-	gap: 0.05rem;
+	gap: 0.15rem;
+}
+
+.iface-pending__action {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	height: 1.5rem;
+	padding: 0 0.4rem;
+	font-family: var(--font-mono, ui-monospace, monospace);
+	font-size: 0.62rem;
+	font-weight: 700;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: var(--color-ink);
+	background: transparent;
+	border: 1px solid color-mix(in srgb, var(--color-ink) 16%, transparent);
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.iface-pending__action:hover,
+.iface-pending__action:focus-visible {
+	background: color-mix(in srgb, var(--color-ink) 6%, transparent);
 }
 
 .iface-pending__btn {
@@ -908,6 +1037,11 @@
 .iface-pending__btn:hover,
 .iface-pending__btn:focus-visible {
 	color: var(--color-ink);
+}
+
+.iface-pending__btn:disabled {
+	opacity: 0.25;
+	cursor: default;
 }
 
 .iface-composer__inner--collapsed .iface-composer__actions {
@@ -1065,8 +1199,8 @@
 
 .iface-voice-player {
 	display: block;
-	width: 16rem;
-	max-width: min(16rem, 100%);
+	width: 12rem;
+	max-width: min(12rem, 100%);
 }
 
 .iface-voice-player__hit {
@@ -1551,18 +1685,6 @@ a.iface-sources__chip:hover {
 	font-size: 0.72rem;
 	color: var(--color-mute);
 	text-align: center;
-}
-
-.iface-pending {
-	display: flex;
-	flex-wrap: wrap;
-	justify-content: center;
-	gap: 0.35rem;
-	margin: 0 0 0.5rem;
-	padding: 0;
-	list-style: none;
-	font-size: 0.68rem;
-	color: var(--color-mute);
 }
 
 @media (prefers-reduced-motion: reduce) {

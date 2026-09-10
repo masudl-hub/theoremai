@@ -12,6 +12,7 @@ import {
 	type KeyboardEvent,
 	useCallback,
 	useEffect,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -28,6 +29,10 @@ import {
 	resolveComposerPrimary,
 	userDraftHasPayload,
 } from 'theorum/interface';
+import {
+	canStageVoice,
+	stageComposerFiles,
+} from '../client/composer-attachments';
 import {
 	composerShellHeight,
 	isComposerExpanded,
@@ -88,6 +93,7 @@ export function InterfaceComposer({
 	const [recording, setRecording] = useState(false);
 	const [inputLevel, setInputLevel] = useState(0);
 	const [voiceError, setVoiceError] = useState('');
+	const [attachNotice, setAttachNotice] = useState('');
 	const [shellFocused, setShellFocused] = useState(false);
 	const [menuOpen, setMenuOpen] = useState(false);
 	const recorderRef = useRef<ComposerVoiceRecorder | null>(null);
@@ -150,11 +156,15 @@ export function InterfaceComposer({
 				previewUrl: previewUrlsRef.current.get(id),
 			};
 		});
-		const voices: ComposerAttachmentItem[] = pendingVoice.map((file, index) => ({
-			id: voiceAttachmentId(file, index),
-			kind: 'voice',
-			file,
-		}));
+		const voices: ComposerAttachmentItem[] = pendingVoice.map((file, index) => {
+			const id = voiceAttachmentId(file, index);
+			return {
+				id,
+				kind: 'voice' as const,
+				file,
+				previewUrl: previewUrlsRef.current.get(id),
+			};
+		});
 		return previewTick >= 0 ? [...files, ...voices] : [...files, ...voices];
 	}, [pendingFiles, pendingVoice, previewTick]);
 
@@ -165,7 +175,11 @@ export function InterfaceComposer({
 	const [maxHeight, setMaxHeight] = useState(320);
 	const [contentHeight, setContentHeight] = useState(46);
 
-	const shellHeight = composerShellHeight({ isExpanded, contentHeight });
+	const shellHeight = composerShellHeight({
+		isExpanded,
+		contentHeight,
+		expandedFloor: attachmentCount > 0 || voiceCount > 0 || recording ? 92 : 46,
+	});
 
 	const syncMaxHeight = useCallback(() => {
 		setMaxHeight(Math.round(window.innerHeight * 0.4));
@@ -188,6 +202,13 @@ export function InterfaceComposer({
 				previewUrlsRef.current.set(id, URL.createObjectURL(file));
 			}
 		}
+		for (const [index, file] of pendingVoice.entries()) {
+			const id = voiceAttachmentId(file, index);
+			keep.push(id);
+			if (!previewUrlsRef.current.has(id)) {
+				previewUrlsRef.current.set(id, URL.createObjectURL(file));
+			}
+		}
 		for (const id of [...previewUrlsRef.current.keys()]) {
 			if (keep.includes(id)) continue;
 			const url = previewUrlsRef.current.get(id);
@@ -195,7 +216,7 @@ export function InterfaceComposer({
 			previewUrlsRef.current.delete(id);
 		}
 		setPreviewTick((v) => v + 1);
-	}, [pendingFiles]);
+	}, [pendingFiles, pendingVoice]);
 
 	useEffect(() => {
 		syncMaxHeight();
@@ -230,10 +251,17 @@ export function InterfaceComposer({
 
 	const layoutEpoch = `${String(text.length)}:${recording ? '1' : '0'}:${attachItems.map((item) => item.id).join('|')}`;
 
-	useEffect(() => {
+	// Measure before paint so attaching files expands the shell instead of
+	// crushing the bottom bar inside the collapsed 46px height for a frame.
+	useLayoutEffect(() => {
 		const ta = textareaRef.current;
-		if (!ta) return;
-		if (layoutEpoch.length < 0) return;
+		const attachH = attachRowRef.current?.offsetHeight ?? 0;
+
+		if (!ta) {
+			const innerH = innerRef.current?.offsetHeight ?? 46;
+			setContentHeight(isExpanded ? innerH + attachH + 2 : 46);
+			return;
+		}
 
 		const scrollHeight = isExpanded
 			? (() => {
@@ -245,7 +273,6 @@ export function InterfaceComposer({
 		ta.style.height = `${String(measured.heightPx)}px`;
 		ta.style.overflowY = measured.overflowY;
 
-		const attachH = attachRowRef.current?.offsetHeight ?? 0;
 		const innerH =
 			isExpanded && innerRef.current
 				? innerRef.current.offsetHeight + 2
@@ -253,7 +280,7 @@ export function InterfaceComposer({
 		setContentHeight(innerH + attachH);
 	}, [layoutEpoch, isExpanded, maxHeight]);
 
-	useEffect(() => {
+	useLayoutEffect(() => {
 		const shell = shellRef.current;
 		if (!shell) return;
 		shell.style.height = `${String(shellHeight)}px`;
@@ -268,6 +295,11 @@ export function InterfaceComposer({
 
 	async function startRecording() {
 		setVoiceError('');
+		if (!canStageVoice({ fileCount: pendingFiles.length, maxFiles: inputs.maxFiles })) {
+			const limit = inputs.maxFiles ?? 0;
+			setVoiceError(`${String(limit)} is the limit.`);
+			return;
+		}
 		onVoiceClear?.();
 		try {
 			await ensureRecorder().start();
@@ -322,6 +354,7 @@ export function InterfaceComposer({
 	}
 
 	function handleAttachRemove(id: string) {
+		setAttachNotice('');
 		if (id === '__recording__' || id.startsWith('voice:')) {
 			discardRecordingOrVoice();
 			return;
@@ -351,9 +384,20 @@ export function InterfaceComposer({
 
 	function handleFiles(event: ChangeEvent<HTMLInputElement>) {
 		const input = event.currentTarget;
-		const files = input.files ? [...input.files] : [];
-		onFilesSelected?.(files);
+		const incoming = input.files ? [...input.files] : [];
 		input.value = '';
+		if (incoming.length === 0) return;
+
+		const staged = stageComposerFiles({
+			existing: pendingFiles,
+			incoming,
+			maxFiles: inputs.maxFiles,
+			voiceCount: pendingVoice.length,
+		});
+		const added = staged.files.slice(pendingFiles.length);
+		if (added.length > 0) onFilesSelected?.(added);
+		setAttachNotice(staged.notice ?? '');
+		if (staged.notice) setVoiceError('');
 	}
 
 	const placeholder = recording
@@ -389,12 +433,13 @@ export function InterfaceComposer({
 				runPrimary();
 			}}
 		>
-			{issues.length || voiceError ? (
+			{issues.length || voiceError || attachNotice ? (
 				<ul className="iface-composer__issues" aria-live="polite">
 					{issues.map((issue) => (
 						<li key={issue}>{issue}</li>
 					))}
-					{voiceError ? <li>{voiceError}</li> : null}
+					{attachNotice ? <li key="attach-notice">{attachNotice}</li> : null}
+					{voiceError ? <li key="voice-error">{voiceError}</li> : null}
 				</ul>
 			) : null}
 

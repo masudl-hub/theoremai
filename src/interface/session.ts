@@ -6,7 +6,11 @@
 
 import type { ToolPause, TurnToolSnapshot } from '../kernel/tools/types.ts';
 import type { ModelId, ToolId, TurnEvent, TurnHistoryMessage } from '../kernel/types.ts';
-import { historyFromTranscriptBlocks } from './history.ts';
+import {
+  appendAssistantEventsToHistory,
+  appendToolDenialToHistory,
+  historyFromTranscriptBlocks,
+} from './history.ts';
 import { promotedToolIdsFromEvents, toolSnapshotFromEvents } from './tool-invoke.ts';
 import type { TranscriptBlock, UserTurnDraft } from './types.ts';
 
@@ -142,7 +146,75 @@ function branchInterfaceTurnSession(
   };
 }
 
+function markPausedToolCancelled(
+  events: readonly TurnEvent[],
+  paused: PausedToolContext,
+): TurnEvent[] {
+  return events.map((event) => {
+    if (event.type !== 'tool' || event.tool?.phase !== 'pause' || !event.tool.pause) {
+      return event;
+    }
+    return {
+      type: 'tool' as const,
+      tool: {
+        ...event.tool,
+        phase: 'error' as const,
+        pause: undefined,
+        failure: {
+          code: 'cancelled',
+          message: `User cancelled paused tool '${paused.name}' to send a new message.`,
+        },
+      },
+    };
+  });
+}
+
+/**
+ * Abandon a tool pause without continuing the agent turn.
+ *
+ * Records the cancelled tool in history, finalizes any streamed assistant text,
+ * and clears pause state. Used by send-now while paused (leave the wait, then
+ * start a new user turn) — not the same as Deny, which continues the model.
+ */
+function abandonPausedToolSession(session: InterfaceTurnSession): {
+  session: InterfaceTurnSession;
+  finalizedEvents: TurnEvent[];
+} {
+  const paused = session.pausedTool;
+  if (!paused) {
+    return { session, finalizedEvents: [...session.assistantEvents] };
+  }
+
+  const finalizedEvents = markPausedToolCancelled(session.assistantEvents, paused);
+  const history = appendToolDenialToHistory(
+    appendAssistantEventsToHistory(session.history, finalizedEvents),
+    {
+      name: paused.name,
+      callId: paused.callId,
+      arguments: paused.arguments,
+      failure: {
+        code: 'cancelled',
+        message: `User cancelled paused tool '${paused.name}' to send a new message.`,
+      },
+    },
+  );
+
+  return {
+    finalizedEvents,
+    session: {
+      ...session,
+      history,
+      pausedTool: null,
+      assistantEvents: [],
+      pendingUserDraft: null,
+      toolSnapshot: undefined,
+      promotedToolIds: [],
+    },
+  };
+}
+
 export {
+  abandonPausedToolSession,
   applyTurnEventsToSession,
   branchInterfaceTurnSession,
   emptyInterfaceTurnSession,

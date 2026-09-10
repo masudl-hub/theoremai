@@ -24,8 +24,8 @@ export type ComposerRunPhase = 'idle' | 'streaming' | 'paused';
 export type ComposerPrimaryAction = 'send' | 'stop' | 'queue' | 'none';
 
 /**
- * Split-menu / long-press actions. `send_now` is abort+send (or deny+send when
- * paused); not a pending kind.
+ * Split-menu / long-press actions. `send_now` is abort+send while streaming, or
+ * abandon the tool pause (no model continue) + send while paused; not a pending kind.
  */
 export type ComposerMenuAction = ComposerPendingKind | 'send_now';
 
@@ -86,7 +86,7 @@ const COMPOSER_MENU_ACTION_LABELS: Record<ComposerMenuAction, string> = {
 const COMPOSER_MENU_ACTION_DESCRIPTIONS: Record<ComposerMenuAction, string> = {
   queue: 'Send after the current run finishes.',
   steer: 'Deliver at the next safe boundary.',
-  send_now: 'Stop the current run and send this message.',
+  send_now: 'Stop or leave the pause, then send this message.',
   stash: 'Save in the composer for later.',
 };
 

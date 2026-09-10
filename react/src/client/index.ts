@@ -4,7 +4,9 @@ export {
 	INPUT_LEVEL_GAIN,
 	timeDomainBytesToLevel,
 } from './audio-level';
-export { filesToPending } from './encode-files';
+export { filesToPending, pendingAttachmentsToFiles } from './encode-files';
+export { composerFieldsFromDraft, type ComposerDraftFields } from './decode-composer-draft';
+export { encodeComposerDraft } from './encode-composer-draft';
 export { registerPlaygroundLiveProfile } from './live/live-session';
 export { liveStateLabel } from './live/live-state';
 export { invokePlaygroundLiveTool } from './live/live-tool';
@@ -39,6 +41,7 @@ export {
 	upsertPlaygroundRunIndex,
 } from './run-payload';
 export {
+	abandonPausedInterfaceTool,
 	applyTurnResultToTranscript,
 	resumeInterfaceTool,
 	streamInterfaceDraftTurn,
@@ -55,4 +58,3 @@ export {
 	streamPlaygroundTurn,
 	turnInputFromSession,
 } from './turn-client';
-export { encodeComposerDraft } from './encode-composer-draft';

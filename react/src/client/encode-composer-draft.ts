@@ -3,7 +3,7 @@
  */
 
 import type { UserTurnDraft } from 'theorum/interface';
-import { encodeFiles } from './encode-files';
+import { encodeFiles } from './encode-files.ts';
 
 export async function encodeComposerDraft(args: {
 	text: string;

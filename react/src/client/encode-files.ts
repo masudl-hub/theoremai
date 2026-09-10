@@ -8,6 +8,39 @@ export function filesToPending(files: readonly File[]): PendingAttachment[] {
 	}));
 }
 
+function base64ToBytes(base64: string): Uint8Array {
+	const binary = atob(base64);
+	const bytes = new Uint8Array(binary.length);
+	for (let i = 0; i < binary.length; i += 1) {
+		bytes[i] = binary.charCodeAt(i);
+	}
+	return bytes;
+}
+
+/**
+ * Rebuild `File`s from encoded pending attachments (stash / queue restore).
+ * Attachments without `data` cannot be restored and are skipped.
+ */
+export function pendingAttachmentsToFiles(
+	attachments: readonly PendingAttachment[],
+): File[] {
+	const files: File[] = [];
+	for (const attachment of attachments) {
+		if (typeof attachment.data !== 'string' || attachment.data.length === 0) continue;
+		const bytes = base64ToBytes(attachment.data);
+		const buffer = bytes.buffer.slice(
+			bytes.byteOffset,
+			bytes.byteOffset + bytes.byteLength,
+		) as ArrayBuffer;
+		files.push(
+			new File([buffer], attachment.name, {
+				type: attachment.mimeType || 'application/octet-stream',
+			}),
+		);
+	}
+	return files;
+}
+
 async function fileToBase64(file: File): Promise<string> {
 	const buffer = await file.arrayBuffer();
 	const bytes = new Uint8Array(buffer);

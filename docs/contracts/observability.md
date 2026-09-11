@@ -17,8 +17,10 @@ sinks die set `TraceSink.onError` or `observability.onWriteError`.
 | Path | Role |
 | --- | --- |
 | `src/observability/types.ts` | `ProfileObservabilitySpec` + resolved policy shapes |
-| `src/observability/policy.ts` | `resolveObservabilityPolicy` / `resolveTraceWriter` |
+| `src/observability/resolve-policy.ts` | `resolveObservabilityPolicy` (pure defaults; no sinks) |
+| `src/observability/policy.ts` | `resolveTraceWriter` |
 | `src/observability/destinations.ts` | Named destination registry |
+| `src/observability/trace-sink.ts` | `TraceSink` contract (type-only; safe for non-Deno host type graphs) |
 | `src/observability/trace.ts` | Sink implementations + `writeTrace` |
 | `src/observability/trace-record.ts` | `TraceRecord` shape + `buildRecord` |
 | `src/observability/trace-usage.ts` | Token usage attachment |
@@ -222,6 +224,7 @@ does not silently inherit a turn-path `redactSensitive: false`.
     "Profile observability": {
       "supports": [
         { "kind": "source", "path": "src/observability/types.ts" },
+        { "kind": "source", "path": "src/observability/resolve-policy.ts" },
         { "kind": "source", "path": "src/observability/policy.ts" },
         { "kind": "contract_test", "path": "tests/observability/policy.test.ts" }
       ]
@@ -234,6 +237,7 @@ does not silently inherit a turn-path `redactSensitive: false`.
     },
     "Trace sinks": {
       "supports": [
+        { "kind": "source", "path": "src/observability/trace-sink.ts" },
         { "kind": "source", "path": "src/observability/trace.ts" },
         { "kind": "contract_test", "path": "tests/observability/trace.test.ts" }
       ]

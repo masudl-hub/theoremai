@@ -15,7 +15,11 @@ import {
   modelEntryByApiId,
 } from '../../src/kernel/registry/catalog.ts';
 import { defineProfile, getProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
-import { projectProfile, resolveTurn } from '../../src/kernel/registry/resolve.ts';
+import {
+  projectProfile,
+  requireModelProfile,
+  resolveTurn,
+} from '../../src/kernel/registry/resolve.ts';
 import type {
   ModelProvider,
   ProfileId,
@@ -204,7 +208,7 @@ function withTools(id: ProfileId, extra: ToolId[]) {
 Deno.test('every profile is oneshot', () => {
   const ids: ProfileId[] = ['chat', 'pinned', 'formatter', 'selector', 'image'];
   for (const id of ids) {
-    assertEquals(getProfile(id).maxSteps, 1);
+    assertEquals(requireModelProfile(getProfile(id), 'test').maxSteps, 1);
   }
 });
 
@@ -320,7 +324,7 @@ Deno.test('model builtInTools lists search and maps when both are allowlisted', 
       id: 'mutex_grounding',
       models: {
         gemini35FlashLite: {
-          ...getProfile('chat').models.gemini35FlashLite,
+          ...requireModelProfile(getProfile('chat'), 'test').models.gemini35FlashLite,
           builtInTools: ['googleSearch', 'googleMaps'],
         },
       },
@@ -346,7 +350,7 @@ Deno.test('model builtInTools ceiling blocks unlisted builtins', () => {
       id: 'ceiling_grounding',
       models: {
         gemini35FlashLite: {
-          ...getProfile('chat').models.gemini35FlashLite,
+          ...requireModelProfile(getProfile('chat'), 'test').models.gemini35FlashLite,
           builtInTools: ['googleSearch', 'googleMaps'],
         },
       },
@@ -375,7 +379,7 @@ Deno.test('allow puts T0 custom tools on the wire; builtins follow the model', (
       id: 'search_on_model',
       models: {
         gemini35FlashLite: {
-          ...getProfile('chat').models.gemini35FlashLite,
+          ...requireModelProfile(getProfile('chat'), 'test').models.gemini35FlashLite,
           builtInTools: ['googleSearch'],
         },
       },
@@ -1279,7 +1283,7 @@ Deno.test('outputs.streaming.streamThoughts=false filters out thought events fro
 
   const events: import('../../src/kernel/types.ts').TurnEvent[] = [];
   let capturedTraceEvents: import('../../src/observability/trace-record.ts').TraceEvent[] = [];
-  const mockSink: import('../../src/observability/trace.ts').TraceSink = {
+  const mockSink: import('../../src/observability/trace-sink.ts').TraceSink = {
     write: (record) => {
       capturedTraceEvents = record.events;
       return Promise.resolve();

@@ -9,24 +9,22 @@
 
 import { TheorumError } from '../../guardrails/error.ts';
 import type { ProfileGuardrailsSpec } from '../../guardrails/types.ts';
-import { resolveObservabilityPolicy } from '../../observability/policy.ts';
+import { resolveObservabilityPolicy } from '../../observability/resolve-policy.ts';
 import type { ProfileObservabilitySpec } from '../../observability/types.ts';
 import { assertLiveIngressConfigured } from '../engine/live-ingress.ts';
-import {
-  isValidPair,
-  isValidProfileProtocol,
-  LIVE_TOOL_LOAD_TIERS,
-  protocolsForProfileType,
-} from '../schema.ts';
+import { isValidPair, isValidProfileProtocol, protocolsForProfileType } from '../schema.ts';
 import { isContinueStopKind, type ProfileTurnResumptionSpec } from '../stop.ts';
 import { getTool } from '../tools/registry.ts';
 import type {
   CompactionSpec,
+  HostProfile,
+  HostProfileToolsSpec,
   ImageProfile,
   LiveProfile,
   LiveProfileToolsSpec,
   ModelBinding,
   ModelId,
+  ModelProfile,
   Profile,
   ProfileIdentity,
   ProfileInputsSpec,
@@ -82,12 +80,65 @@ export type LiveProfileDefinition = ProfileDefinitionBase & {
   tools: LiveProfileToolsSpec;
 };
 
+/** Host-driven tool ceiling — no models, identity, inputs, outputs, turnBehaviour, key, or maxSteps. */
+export type HostProfileDefinition = {
+  type: 'host';
+  id: Profile['id'];
+  tools: HostProfileToolsSpec;
+  guardrails?: ProfileGuardrailsSpec;
+  observability?: ProfileObservabilitySpec;
+};
+
 /** Host-authored profile definition — discriminated on `type`. No THEORUM defaults. */
 export type ProfileDefinition =
   | TextProfileDefinition
   | ImageProfileDefinition
   | SpeechProfileDefinition
-  | LiveProfileDefinition;
+  | LiveProfileDefinition
+  | HostProfileDefinition;
+
+/** Fields a `host` profile must not carry — rejected when supplied. */
+const HOST_ABSENT_FIELDS = [
+  'models',
+  'defaultModel',
+  'allowModelSelect',
+  'identity',
+  'inputs',
+  'outputs',
+  'turnBehaviour',
+  'key',
+  'maxSteps',
+] as const;
+
+function defineHostProfile(input: HostProfileDefinition): HostProfile {
+  const extra = input as HostProfileDefinition & Record<string, unknown>;
+  for (const key of HOST_ABSENT_FIELDS) {
+    if (extra[key] !== undefined) {
+      throw new TheorumError(`Profile ${input.id}: type 'host' must not set ${key}`);
+    }
+  }
+  assertHostTools(input.id, input.tools);
+  assertObservability(input.id, input.observability);
+  return {
+    type: 'host',
+    id: input.id,
+    tools: { allow: input.tools.allow },
+    guardrails: input.guardrails,
+    observability: input.observability,
+  } satisfies HostProfile;
+}
+
+function assertHostTools(profileId: string, tools: HostProfileToolsSpec | undefined): void {
+  if (!Array.isArray(tools?.allow)) {
+    throw new TheorumError(`Profile ${profileId}: type 'host' must set tools.allow`);
+  }
+  const extra = tools as ProfileToolsSpec;
+  if (extra.t1Policy !== undefined || extra.t2Loader !== undefined) {
+    throw new TheorumError(
+      `Profile ${profileId}: tools.t1Policy / tools.t2Loader are not supported on type 'host' — every allowed tool is executable`,
+    );
+  }
+}
 
 function soleModelId(models: Record<ModelId, ModelBinding>): ModelId | undefined {
   const ids = Object.keys(models);
@@ -163,7 +214,7 @@ function assertModelEfforts(profileId: string, modelId: ModelId, binding: ModelB
   }
 }
 
-function assertTypeProtocols(profile: Profile): void {
+function assertTypeProtocols(profile: ModelProfile): void {
   for (const [modelId, binding] of Object.entries(profile.models)) {
     if (!isValidProfileProtocol(profile.type, binding.protocol)) {
       const valid = protocolsForProfileType(profile.type).join(', ');
@@ -210,7 +261,7 @@ function assertResumption(
 }
 
 function assertTurnBehaviour(profileId: string, input: ProfileDefinition): void {
-  if (input.type === 'live') return;
+  if (input.type === 'live' || input.type === 'host') return;
   if (input.type !== 'text' && input.turnBehaviour?.allowSteering !== undefined) {
     throw new TheorumError(
       `Profile ${profileId}: turnBehaviour.allowSteering is only valid on type 'text'`,
@@ -246,11 +297,15 @@ function assertObservability(profileId: string, spec: ProfileObservabilitySpec |
 
 /** Define a typed profile. Required fields must be set explicitly; optional fields stay optional. */
 function defineProfile(input: LiveProfileDefinition): LiveProfile;
+function defineProfile(input: HostProfileDefinition): HostProfile;
 function defineProfile(
-  input: Exclude<ProfileDefinition, LiveProfileDefinition>,
-): Exclude<Profile, LiveProfile>;
+  input: Exclude<ProfileDefinition, LiveProfileDefinition | HostProfileDefinition>,
+): Exclude<Profile, LiveProfile | HostProfile>;
 function defineProfile(input: ProfileDefinition): Profile;
 function defineProfile(input: ProfileDefinition): Profile {
+  if (input.type === 'host') {
+    return defineHostProfile(input);
+  }
   assertModelsNonEmpty(input.id, input.models);
   assertDefaultModel(input.id, input);
   assertTurnBehaviour(input.id, input);
@@ -268,7 +323,7 @@ function defineProfile(input: ProfileDefinition): Profile {
   const observability = input.observability;
   const modelFields = profileModelFields(input);
 
-  let profile: Profile;
+  let profile: ModelProfile;
   switch (input.type) {
     case 'text':
       profile = {
@@ -396,7 +451,9 @@ function assertCustomToolsOnly(profile: Profile): void {
     const tool = getTool(id);
     if (tool?.type === 'builtin') {
       throw new TheorumError(
-        `Profile ${profile.id} lists builtin '${id}' in tools.allow — declare it on models.*.builtInTools instead`,
+        profile.type === 'host'
+          ? `Profile ${profile.id} lists builtin '${id}' in tools.allow — type 'host' never runs a model`
+          : `Profile ${profile.id} lists builtin '${id}' in tools.allow — declare it on models.*.builtInTools instead`,
       );
     }
   }
@@ -417,42 +474,16 @@ function assertLiveTools(profileId: string, tools: LiveProfileToolsSpec): LivePr
   return { allow: tools.allow };
 }
 
-/** Live sessions cannot promote T1/T2 — every gated tool must already be T0. */
-function assertLiveToolLoadTiers(profile: LiveProfile): void {
-  const liveTiers = LIVE_TOOL_LOAD_TIERS as readonly string[];
-  for (const id of profile.tools.allow) {
-    const tool = getTool(id);
-    if (!tool) {
-      continue;
-    }
-    if (!liveTiers.includes(tool.loadTier)) {
-      throw new TheorumError(
-        `Profile ${profile.id}: tools.allow '${id}' has loadTier '${tool.loadTier}' — type 'live' only supports T0 (function declarations are fixed at session setup)`,
-      );
-    }
-  }
-  for (const { modelId, id } of modelBuiltinIds(profile)) {
-    {
-      const tool = getTool(id);
-      if (!tool) {
-        continue;
-      }
-      if (!liveTiers.includes(tool.loadTier)) {
-        throw new TheorumError(
-          `Profile ${profile.id} model '${modelId}' builtInTools '${id}' has loadTier '${tool.loadTier}' — type 'live' only supports T0`,
-        );
-      }
-    }
-  }
-}
-
 function assertProfileToolLoader(profile: Profile): void {
   if (profile.type === 'speech') {
     return;
   }
   if (profile.type === 'live') {
     assertLiveTools(profile.id, profile.tools);
-    assertLiveToolLoadTiers(profile);
+    return;
+  }
+  if (profile.type === 'host') {
+    assertHostTools(profile.id, profile.tools);
     return;
   }
   const loaderId = profile.tools.t2Loader;
@@ -473,7 +504,7 @@ function assertProfileToolLoader(profile: Profile): void {
 }
 
 /** Every builtin id declared across a profile's model bindings. */
-function* modelBuiltinIds(profile: Profile): Generator<{ modelId: string; id: string }> {
+function* modelBuiltinIds(profile: ModelProfile): Generator<{ modelId: string; id: string }> {
   for (const [modelId, binding] of Object.entries(profile.models)) {
     for (const id of binding.builtInTools ?? []) {
       yield { modelId, id };
@@ -481,7 +512,7 @@ function* modelBuiltinIds(profile: Profile): Generator<{ modelId: string; id: st
   }
 }
 
-function assertModelBuiltInTools(profile: Profile): void {
+function assertModelBuiltInTools(profile: ModelProfile): void {
   for (const { modelId, id } of modelBuiltinIds(profile)) {
     const tool = getTool(id);
     if (tool?.type !== 'builtin') {
@@ -492,7 +523,7 @@ function assertModelBuiltInTools(profile: Profile): void {
   }
 }
 
-function assertCompactionOnlyOnText(profile: Profile): void {
+function assertCompactionOnlyOnText(profile: ModelProfile): void {
   if (profile.type === 'text') {
     return;
   }
@@ -505,7 +536,7 @@ function assertCompactionOnlyOnText(profile: Profile): void {
   }
 }
 
-function assertMediaLimits(profile: Profile): void {
+function assertMediaLimits(profile: ModelProfile): void {
   if (profile.type === 'speech' || profile.type === 'live') {
     return;
   }
@@ -526,6 +557,11 @@ function registerProfile(profileInput: Profile | ProfileDefinition): void {
   const profile = defineProfile(profileInput as ProfileDefinition);
   assertCustomToolsOnly(profile);
   assertProfileToolLoader(profile);
+  if (profile.type === 'host') {
+    // No models, ingress, media limits, or compaction to validate — the tool ceiling is the whole contract.
+    profiles.set(profile.id, profile);
+    return;
+  }
   assertModelBuiltInTools(profile);
   assertCompactionOnlyOnText(profile);
   assertMediaLimits(profile);

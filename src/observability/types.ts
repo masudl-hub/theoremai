@@ -9,7 +9,7 @@
  * @module
  */
 
-import type { TraceSink } from './trace.ts';
+import type { TraceSink } from './trace-sink.ts';
 
 /** Which payloads land in each TraceRecord. Omitted keys use resolved defaults. */
 export interface TraceIncludeSpec {

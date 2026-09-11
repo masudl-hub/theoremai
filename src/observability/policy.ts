@@ -1,80 +1,18 @@
 /**
- * Observability policy resolution — profile switches become defaults + a writer.
+ * Trace writer resolution — a resolved observability policy becomes a sink.
+ *
+ * Policy defaults live in `resolve-policy.ts` (pure); this module owns the
+ * writer precedence and needs the sink implementations.
  *
  * @module
  */
 
 import { TheorumError } from '../guardrails/error.ts';
 import { isJsonlTraceDestination, isTraceSink, requireTraceDestination } from './destinations.ts';
-import { jsonlSink, noopSink, type TraceSink } from './trace.ts';
-import type {
-  ProfileObservabilitySpec,
-  ResolvedObservabilityPolicy,
-  ResolvedTraceInclude,
-  ResolvedTraceScrub,
-} from './types.ts';
-
-const DEFAULT_RETAIN_DAYS = 14;
-const DEFAULT_ROTATE_MIB = 32;
-
-function resolveInclude(spec: ProfileObservabilitySpec | undefined): ResolvedTraceInclude {
-  // When no observability block is authored, preserve historical buildRecord
-  // behavior (wire + evidence included). Authored blocks default those off.
-  const authored = spec !== undefined;
-  return {
-    upstreamLog: spec?.include?.upstreamLog ?? true,
-    outboundWire: spec?.include?.outboundWire ?? !authored,
-    evidenceRaw: spec?.include?.evidenceRaw ?? !authored,
-    usage: spec?.include?.usage ?? true,
-    guardrailDecisions: spec?.include?.guardrailDecisions ?? true,
-    guardrailMatchPreview: spec?.include?.guardrailMatchPreview ?? false,
-  };
-}
-
-function resolveScrub(spec: ProfileObservabilitySpec | undefined): ResolvedTraceScrub {
-  return {
-    sensitive: spec?.scrub?.sensitive ?? true,
-    injection: spec?.scrub?.injection ?? true,
-    canary: spec?.scrub?.canary ?? true,
-  };
-}
-
-function clampSampleRate(value: number | undefined): number {
-  if (value === undefined) {
-    return 1;
-  }
-  if (!Number.isFinite(value)) {
-    throw new TheorumError('observability.sampleRate must be a finite number');
-  }
-  if (value < 0 || value > 1) {
-    throw new TheorumError('observability.sampleRate must be between 0 and 1 inclusive');
-  }
-  return value;
-}
-
-/**
- * Apply defaults to a profile's observability block.
- *
- * Omitted block → record false (noop). Explicit `writeTo: false` → record false.
- * A writeTo target with sampleRate 0 still resolves record false at write time.
- */
-function resolveObservabilityPolicy(
-  spec: ProfileObservabilitySpec | undefined,
-): ResolvedObservabilityPolicy {
-  const writeTo = spec?.writeTo;
-  const sampleRate = clampSampleRate(spec?.sampleRate);
-  const record = spec !== undefined && writeTo !== false && writeTo !== undefined;
-  return {
-    record,
-    writeTo,
-    sampleRate,
-    include: resolveInclude(spec),
-    scrub: resolveScrub(spec),
-    retainForDays: spec?.retainForDays ?? DEFAULT_RETAIN_DAYS,
-    rotateAfterMiB: spec?.rotateAfterMiB ?? DEFAULT_ROTATE_MIB,
-    onWriteError: spec?.onWriteError,
-  };
-}
+import { resolveObservabilityPolicy } from './resolve-policy.ts';
+import { jsonlSink, noopSink } from './trace.ts';
+import type { TraceSink } from './trace-sink.ts';
+import type { ProfileObservabilitySpec, ResolvedObservabilityPolicy } from './types.ts';
 
 function bindOnWriteError(sink: TraceSink, onWriteError?: (err: unknown) => void): TraceSink {
   if (!onWriteError && !sink.onError) {
@@ -162,4 +100,4 @@ function resolveTraceWriter(args: {
   };
 }
 
-export { resolveObservabilityPolicy, resolveTraceWriter };
+export { resolveTraceWriter };

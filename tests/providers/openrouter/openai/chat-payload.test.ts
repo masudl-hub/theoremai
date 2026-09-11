@@ -1,4 +1,5 @@
-import { assertEquals } from '@std/assert';
+import { assertEquals, assertThrows } from '@std/assert';
+import { TheorumError } from '../../../../src/guardrails/error.ts';
 import { registerStructured } from '../../../../src/kernel/registry/schemas.ts';
 import type { ModelId, ProviderCompleteRequest } from '../../../../src/kernel/types.ts';
 import { registerGooglePreset } from '../../../../src/presets/google.ts';
@@ -94,7 +95,13 @@ Deno.test('toOpenAiChatPayload wires multimodal user input with image, audio, an
     type: 'input_audio',
     input_audio: { data: 'SUQzBA===', format: 'mp3' },
   });
-  assertEquals(content[4], { type: 'text', text: '' });
+  assertEquals(content[4], {
+    type: 'file',
+    file: {
+      filename: 'document.bin',
+      file_data: 'data:application/pdf;base64,JVBERi0=',
+    },
+  });
 });
 
 Deno.test('toOpenAiChatPayload wires history messages with parts, tool_calls, tool results, and plain text', () => {
@@ -163,6 +170,65 @@ Deno.test('toOpenAiChatPayload wires history messages with parts, tool_calls, to
   assertEquals(parts[1], {
     type: 'image_url',
     image_url: { url: 'data:image/jpeg;base64,/9j/4AAQ' },
+  });
+});
+
+Deno.test('toOpenAiChatPayload wires tool results with multimodal parts', () => {
+  const req: ProviderCompleteRequest = {
+    model: 'gemini35FlashLite',
+    apiId: HOST_BINDINGS.gemini35FlashLite.apiId,
+    system: '',
+    summaries: undefined,
+    image: null,
+    input: [{ type: 'text', text: 'next' }],
+    history: [
+      {
+        role: 'assistant',
+        tool_calls: [
+          {
+            id: 'call_media',
+            type: 'function',
+            function: { name: 'fetch_stock_media', arguments: '{}' },
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        name: 'fetch_stock_media',
+        tool_call_id: 'call_media',
+        content: 'shortlist',
+        parts: [
+          { type: 'text', text: '1. palm' },
+          { type: 'image', mimeType: 'image/jpeg', data: '/9j/abc' },
+          { type: 'document', mimeType: 'application/pdf', data: 'JVBERi0' },
+        ],
+      },
+    ],
+    thinking: 'none',
+    maxOutputTokens: 1024,
+    temperature: 0,
+    builtins: [],
+    wireTools: [],
+    structured: null,
+  };
+
+  const payload = toOpenAiChatPayload(req);
+  const messages = payload.messages as Array<Record<string, unknown>>;
+  const toolResultMsg = messages[1];
+  assertEquals(toolResultMsg.role, 'tool');
+  assertEquals(toolResultMsg.tool_call_id, 'call_media');
+  const content = toolResultMsg.content as Array<Record<string, unknown>>;
+  assertEquals(content[0], { type: 'text', text: '1. palm' });
+  assertEquals(content[1], {
+    type: 'image_url',
+    image_url: { url: 'data:image/jpeg;base64,/9j/abc' },
+  });
+  assertEquals(content[2], {
+    type: 'file',
+    file: {
+      filename: 'document.bin',
+      file_data: 'data:application/pdf;base64,JVBERi0',
+    },
   });
 });
 
@@ -359,4 +425,30 @@ Deno.test('toOpenAiChatPayload omits plugins and web_search_options when builtin
   const payload = toOpenAiChatPayload(req);
   assertEquals(payload.plugins, undefined);
   assertEquals(payload.web_search_options, undefined);
+});
+
+Deno.test('toOpenAiChatPayload rejects media references (openAi compat carries inline bytes only)', () => {
+  const req: ProviderCompleteRequest = {
+    model: 'gemini35FlashLite',
+    apiId: HOST_BINDINGS.gemini35FlashLite.apiId,
+    system: '',
+    summaries: undefined,
+    image: null,
+    input: [
+      { type: 'text', text: 'Describe' },
+      { type: 'video', mimeType: 'video/mp4', uri: 'files/abc123' },
+    ],
+    history: [],
+    thinking: 'none',
+    maxOutputTokens: 1024,
+    temperature: 0,
+    builtins: [],
+    wireTools: [],
+    structured: null,
+  };
+  assertThrows(
+    () => toOpenAiChatPayload(req),
+    TheorumError,
+    'media references are not supported on openAi',
+  );
 });

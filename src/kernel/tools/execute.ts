@@ -16,7 +16,7 @@ import {
   toolCallEvent,
 } from '../../guardrails/tool-result.ts';
 import type { Provenance, ToolOrigin } from '../../guardrails/types.ts';
-import type { Profile, TurnEvent } from '../types.ts';
+import type { InteractionPart, Profile, TurnEvent } from '../types.ts';
 import { failureEvent, startToolExecution, toolEvent } from './events.ts';
 import { getTool } from './registry.ts';
 import { executeHttpTool, executeMcpTool } from './remote.ts';
@@ -52,6 +52,46 @@ function isStreamHandler(handler: unknown): boolean {
     typeof handler === 'function' &&
     Object.prototype.toString.call(handler) === '[object AsyncGeneratorFunction]'
   );
+}
+
+const MEDIA_PART_TYPES = new Set(['image', 'audio', 'video', 'document']);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** Validate host-emitted InteractionPart shapes; drop invalid entries. */
+export function coerceToolResultParts(raw: unknown): InteractionPart[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const parts: InteractionPart[] = [];
+  for (const item of raw) {
+    if (!isRecord(item) || typeof item.type !== 'string') continue;
+    if (item.type === 'text' && typeof item.text === 'string') {
+      parts.push({ type: 'text', text: item.text });
+      continue;
+    }
+    if (
+      MEDIA_PART_TYPES.has(item.type) &&
+      typeof item.mimeType === 'string' &&
+      item.mimeType.trim() &&
+      typeof item.data === 'string' &&
+      item.data.length > 0
+    ) {
+      parts.push({
+        type: item.type as 'image' | 'audio' | 'video' | 'document',
+        mimeType: item.mimeType,
+        data: item.data,
+      });
+    }
+  }
+  return parts.length > 0 ? parts : undefined;
+}
+
+/** Copy tool output for model `data`, omitting media `parts`. */
+export function leanToolResultData(output: unknown): unknown {
+  if (!isRecord(output)) return output;
+  const { parts: _parts, ...rest } = output;
+  return rest;
 }
 
 export function isResumeContinuation(resume?: InvokeToolResume): boolean {
@@ -158,14 +198,20 @@ export function projectForModel(tool: FunctionToolDef, output: unknown): ModelTo
     typeof output === 'object' && output !== null && 'finding' in output
       ? String((output as { finding?: unknown }).finding)
       : JSON.stringify(output);
+  const parts =
+    isRecord(output) && 'parts' in output ? coerceToolResultParts(output.parts) : undefined;
   return {
     finding: sanitizeText(finding),
-    data: output,
+    data: leanToolResultData(output),
+    ...(parts ? { parts } : {}),
   };
 }
 
 /**
  * Format model-facing tool output for provider history continuation.
+ *
+ * Text projection only — never embeds `parts[].data`; media travels on
+ * `TurnHistoryMessage.parts` and adapters wire it from there.
  *
  * `executeRegisteredTool` guards at the boundary and leaves `modelText` behind, so
  * the common path returns already-fenced text. A result recorded elsewhere — a
@@ -245,7 +291,7 @@ function applyT2LoaderPromotion(
   ctx: ToolContext,
   snapshot: TurnToolSnapshot | undefined,
 ): { ok: true; output: unknown } | { ok: false; failure: ToolFailure } {
-  if (ctx.profile.type === 'speech' || ctx.profile.type === 'live') {
+  if (ctx.profile.type === 'speech' || ctx.profile.type === 'live' || ctx.profile.type === 'host') {
     return { ok: true, output: checkedData };
   }
   if (ctx.profile.tools.t2Loader !== tool.name) {

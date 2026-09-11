@@ -5,8 +5,9 @@
  */
 
 import type { TurnEvent } from '../kernel/types.ts';
-import { jsonlSink, memorySink, type TraceSink } from '../observability/trace.ts';
+import { jsonlSink, memorySink } from '../observability/trace.ts';
 import type { TraceRecord } from '../observability/trace-record.ts';
+import type { TraceSink } from '../observability/trace-sink.ts';
 
 export interface CliEventLogOptions {
   verbose?: boolean;

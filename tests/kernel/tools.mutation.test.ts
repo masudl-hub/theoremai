@@ -1,6 +1,7 @@
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
+import { getProfile } from '../../src/kernel/registry/profiles.ts';
 import {
   checkPermission,
   executeBuiltin,
@@ -40,7 +41,12 @@ import type {
   ToolPause,
   TurnToolSnapshot,
 } from '../../src/kernel/tools/types.ts';
-import type { Profile, ProviderCompleteRequest, TurnRequest } from '../../src/kernel/types.ts';
+import type {
+  ModelProfile,
+  Profile,
+  ProviderCompleteRequest,
+  TurnRequest,
+} from '../../src/kernel/types.ts';
 import {
   emitPendingFunctionCall,
   emitUniqueToolEvent,
@@ -167,6 +173,34 @@ Deno.test('tools mutation helpers project and format model results exactly', () 
     finding: '{"value":2}',
     data: { value: 2 },
   });
+  assertEquals(
+    projectForModel(visible, {
+      finding: 'shortlist',
+      items: [{ index: 1 }],
+      parts: [
+        { type: 'text', text: '1. palm' },
+        { type: 'image', mimeType: 'image/jpeg', data: '/9j/abc' },
+        { type: 'image', mimeType: 'image/jpeg', data: '' },
+        { type: 'bogus', mimeType: 'x', data: 'y' },
+      ],
+    }),
+    {
+      finding: 'shortlist',
+      data: { finding: 'shortlist', items: [{ index: 1 }] },
+      parts: [
+        { type: 'text', text: '1. palm' },
+        { type: 'image', mimeType: 'image/jpeg', data: '/9j/abc' },
+      ],
+    },
+  );
+  assertEquals(
+    formatToolResult({
+      finding: 'shortlist',
+      data: { finding: 'shortlist', items: [{ index: 1 }] },
+      parts: [{ type: 'image', mimeType: 'image/jpeg', data: '/9j/abc' }],
+    }),
+    'shortlist\n{"finding":"shortlist","items":[{"index":1}]}',
+  );
   assertEquals(formatToolResult({ finding: 'ok' }), 'ok');
   assertEquals(formatToolResult({ finding: 'ok', data: { n: 1 } }), 'ok\n{"n":1}');
   assertEquals(formatToolFailureForModel({ code: 'bad', message: 'no' }), {
@@ -210,8 +244,19 @@ Deno.test('tools mutation helpers filter paths, wire tools, and clone snapshots'
   assertEquals(pathMatches(['web'], undefined), false);
   assertEquals(pathMatches(['web'], 'web'), true);
   assertEquals(pathMatches(['web'], 'cli'), false);
-  assertEquals(initialVisible(['stub_tool', 'record_lookup']), ['stub_tool']);
-  assertEquals(initialBuiltins(['googleSearch']), ['googleSearch']);
+  const chat = getProfile('chat');
+  assertEquals(initialVisible(chat, ['stub_tool', 'record_lookup']), ['stub_tool']);
+  assertEquals(initialBuiltins(chat, ['googleSearch']), ['googleSearch']);
+  const host = asValue<Profile>({ type: 'host' });
+  assertEquals(initialVisible(host, ['stub_tool', 'record_lookup']), [
+    'stub_tool',
+    'record_lookup',
+  ]);
+  const live = asValue<Profile>({ type: 'live' });
+  assertEquals(initialVisible(live, ['stub_tool', 'record_lookup']), [
+    'stub_tool',
+    'record_lookup',
+  ]);
   const snapshot: TurnToolSnapshot = {
     builtins: [],
     gated: ['stub_tool'],
@@ -244,7 +289,7 @@ Deno.test('tools mutation coverage exercises resolver filtering and builtin prom
   );
   assertEquals(
     resolveModelBuiltinIds(
-      asValue<Profile>({
+      asValue<ModelProfile>({
         models: {
           m: {
             protocol: 'geminiInteractions',
@@ -262,7 +307,7 @@ Deno.test('tools mutation coverage exercises resolver filtering and builtin prom
   );
   assertEquals(
     resolveModelBuiltinIds(
-      asValue<Profile>({ models: {} }),
+      asValue<ModelProfile>({ models: {} }),
       asValue<TurnRequest>({ path: 'web' }),
       'missing',
     ),

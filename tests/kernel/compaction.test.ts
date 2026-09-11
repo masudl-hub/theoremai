@@ -14,6 +14,7 @@ import {
   shouldCompact,
   splitForCompaction,
 } from '../../src/kernel/engine/compaction.ts';
+import { compactionTranscriptLine } from '../../src/kernel/engine/runner/mod.ts';
 import { runTurn } from '../../src/kernel/engine/runner.ts';
 import {
   compactionMeter as publicCompactionMeter,
@@ -56,6 +57,35 @@ const DEFAULT_SPEC: CompactionSpec = {
   profile: 'test.compactor',
   timing: 'before',
 };
+
+Deno.test('compactionTranscriptLine keeps content and marks media parts', () => {
+  assertEquals(
+    compactionTranscriptLine({
+      role: 'tool',
+      content: 'shortlist',
+      parts: [
+        { type: 'text', text: 'ignored when content set' },
+        { type: 'image', mimeType: 'image/png', data: 'abc' },
+        { type: 'video', mimeType: 'video/mp4', data: 'def' },
+      ],
+    }),
+    '[tool]: shortlist[image][video]',
+  );
+});
+
+Deno.test('compactionTranscriptLine falls back to text parts when content missing', () => {
+  assertEquals(
+    compactionTranscriptLine({
+      role: 'user',
+      parts: [
+        { type: 'text', text: 'hello' },
+        { type: 'audio', mimeType: 'audio/wav', data: 'UklG' },
+        { type: 'document', mimeType: 'application/pdf', data: 'JVBERi0' },
+      ],
+    }),
+    '[user]: hello[audio][document]',
+  );
+});
 
 // --- compactionNeeded ---
 

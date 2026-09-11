@@ -1,6 +1,7 @@
 import { runTurn } from '../../kernel/engine/runner.ts';
 import { getProfile, listProfiles } from '../../kernel/registry/profiles.ts';
-import type { ModelProvider, Profile, TurnRequest } from '../../kernel/types.ts';
+import { requireModelProfile } from '../../kernel/registry/resolve.ts';
+import type { ModelProfile, ModelProvider, TurnRequest } from '../../kernel/types.ts';
 import { createCliTraceCapture, printTestEvent, printTraceRecord } from '../event-log.ts';
 import {
   buildCustomTurnRequest,
@@ -23,7 +24,7 @@ interface TestExecutionAccumulator {
 }
 
 function printTestHeader(req: TurnRequest, testName: string): void {
-  const profile = getProfile(req.profile);
+  const profile = requireModelProfile(getProfile(req.profile), 'theorum test');
   const modelId =
     req.model && profile.models[req.model] ? req.model : (Object.keys(profile.models)[0] ?? '');
   const customs = profile.type === 'speech' ? 'none' : profile.tools.allow.join(', ') || 'none';
@@ -124,13 +125,14 @@ export async function executeSingleTest(
 function resolveTargetProfiles(
   profileId: string | undefined,
   all: boolean | undefined,
-): Profile[] | null {
+): ModelProfile[] | null {
   if (all) {
-    return listProfiles();
+    // Host profiles never run a model, so there is no turn matrix to execute.
+    return listProfiles().filter((profile): profile is ModelProfile => profile.type !== 'host');
   }
   if (profileId) {
     try {
-      return [getProfile(profileId)];
+      return [requireModelProfile(getProfile(profileId), 'theorum test')];
     } catch (err) {
       console.error(`\n Error: ${err instanceof Error ? err.message : String(err)}\n`);
       return null;
@@ -143,7 +145,7 @@ function resolveTargetProfiles(
 }
 
 async function runProfileMatrix(
-  profile: Profile,
+  profile: ModelProfile,
   provider?: ModelProvider,
   cliOptions: CliTestOptions = {},
 ): Promise<TestRunResult[]> {
@@ -162,7 +164,7 @@ async function runProfileMatrix(
 }
 
 async function runProfileSingle(
-  profile: Profile,
+  profile: ModelProfile,
   options: MatrixOptions,
   provider?: ModelProvider,
   cliOptions: CliTestOptions = {},

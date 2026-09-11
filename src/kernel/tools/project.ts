@@ -18,6 +18,9 @@ function projectTool(name: ToolId): RegisteredTool | { name: ToolId; missing: tr
 
 function builtInToolIds(profile: Profile): ToolId[] {
   const seen = new Set<ToolId>();
+  if (profile.type === 'host') {
+    return [];
+  }
   for (const binding of Object.values(profile.models)) {
     for (const id of binding.builtInTools ?? []) {
       seen.add(id);

@@ -2,7 +2,7 @@ import { TheorumError } from '../../guardrails/error.ts';
 import { injectionSpans } from '../../guardrails/injection.ts';
 import { sensitiveSpans } from '../../guardrails/sensitive.ts';
 import { applySpans } from '../../observability/spans.ts';
-import type { MediaLimits, MimeInputs, Profile, TurnBlob } from '../types.ts';
+import type { MediaLimits, MimeInputs, Profile, TurnBlob, TurnMediaRef } from '../types.ts';
 import { getProfile } from './profiles.ts';
 
 const B64_PAD = 2;
@@ -56,12 +56,20 @@ function maxBytesForMime(mimeType: string, limits: MediaLimits): number {
   return limits.maxBytes;
 }
 
+/** Attachment supplied by provider file reference — no bytes to size-check or sanitize. */
+function isTurnMediaRef(item: TurnBlob | TurnMediaRef): item is TurnMediaRef {
+  return 'uri' in item;
+}
+
 function requireMediaLimits(profile: Profile): MediaLimits {
   if (profile.type === 'speech') {
     throw new TheorumError(`Profile ${profile.id} (speech) does not accept media input`);
   }
   if (profile.type === 'live') {
     throw new TheorumError(`Profile ${profile.id} (live) does not accept turn attachment input`);
+  }
+  if (profile.type === 'host') {
+    throw new TheorumError(`Profile ${profile.id} (host) does not accept turn input`);
   }
   const limits = resolveMediaLimits(profile.inputs ?? {});
   if (!limits) {
@@ -122,12 +130,19 @@ function sanitizeTextBytes(mime: string, bytes: Uint8Array): Uint8Array {
   );
 }
 
-function assertAttachmentLimits(blobs: TurnBlob[], limits: MediaLimits): void {
-  if (blobs.length > limits.maxFiles) {
+/** Enforce file count on every attachment; base64 and byte limits only on inline blobs. */
+function assertAttachmentLimits(
+  attachments: Array<TurnBlob | TurnMediaRef>,
+  limits: MediaLimits,
+): void {
+  if (attachments.length > limits.maxFiles) {
     throw new TheorumError(tooManyFilesMessage(limits.maxFiles));
   }
   let total = 0;
-  for (const blob of blobs) {
+  for (const blob of attachments) {
+    if (isTurnMediaRef(blob)) {
+      continue;
+    }
     const { data, mimeType } = blob;
     if (!B64_BODY.test(data)) {
       throw new TheorumError('attachment data must be base64');
@@ -144,24 +159,29 @@ function assertAttachmentLimits(blobs: TurnBlob[], limits: MediaLimits): void {
   }
 }
 
-function sanitizeAttachment(blob: TurnBlob): TurnBlob {
+function sanitizeAttachment<T extends TurnBlob | TurnMediaRef>(blob: T): T {
+  if (isTurnMediaRef(blob)) {
+    return blob;
+  }
   const { mimeType, data } = blob;
   if (!TEXT_MIMES.has(mimeType.split(';')[0]?.trim().toLowerCase() ?? '')) {
     return blob;
   }
   const bytes = sanitizeTextBytes(mimeType, decodeB64(data));
-  return { mimeType, data: encodeB64(bytes) };
+  return { mimeType, data: encodeB64(bytes) } as T;
 }
 
-function hasTurnBlobs(attachments?: TurnBlob[], voice?: TurnBlob[]): boolean {
+type TurnAttachments = Array<TurnBlob | TurnMediaRef>;
+
+function hasTurnBlobs(attachments?: TurnAttachments, voice?: TurnBlob[]): boolean {
   return (attachments?.length ?? 0) > 0 || (voice?.length ?? 0) > 0;
 }
 
 function sanitizeTurnBlobs(
-  attachments: TurnBlob[] | undefined,
+  attachments: TurnAttachments | undefined,
   voice: TurnBlob[] | undefined,
   limits: MediaLimits | undefined,
-): { attachments?: TurnBlob[]; voice?: TurnBlob[] } {
+): { attachments?: TurnAttachments; voice?: TurnBlob[] } {
   if (!hasTurnBlobs(attachments, voice)) {
     return { attachments, voice };
   }
@@ -179,9 +199,9 @@ function sanitizeTurnBlobs(
 
 function sanitizeTurnBlobsForProfile(
   profileId: string,
-  attachments: TurnBlob[] | undefined,
+  attachments: TurnAttachments | undefined,
   voice: TurnBlob[] | undefined,
-): { attachments?: TurnBlob[]; voice?: TurnBlob[] } {
+): { attachments?: TurnAttachments; voice?: TurnBlob[] } {
   if (!hasTurnBlobs(attachments, voice)) {
     return { attachments, voice };
   }
@@ -192,6 +212,7 @@ function sanitizeTurnBlobsForProfile(
 export {
   assertAttachmentLimits,
   fileTooLargeMessage,
+  isTurnMediaRef,
   maxBytesForMime,
   requireMediaLimits,
   resolveMediaLimits,

@@ -22,8 +22,9 @@ export {
   registerTraceDestination,
   requireTraceDestination,
 } from './destinations.ts';
-export { resolveObservabilityPolicy, resolveTraceWriter } from './policy.ts';
-export type { JsonlSinkOptions, TraceSink } from './trace.ts';
+export { resolveTraceWriter } from './policy.ts';
+export { resolveObservabilityPolicy } from './resolve-policy.ts';
+export type { JsonlSinkOptions } from './trace.ts';
 export {
   jsonlSink,
   memorySink,
@@ -33,6 +34,7 @@ export {
   writeTrace,
 } from './trace.ts';
 export type { TraceRecord } from './trace-record.ts';
+export type { TraceSink } from './trace-sink.ts';
 export type {
   ProfileObservabilitySpec,
   ResolvedObservabilityPolicy,

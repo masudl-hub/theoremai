@@ -77,7 +77,8 @@ function releaseSlot(profile: Profile, ip: string): void {
 }
 
 function quotaMessage(profile: Profile): string {
-  return `Enjoying ${profile.identity.handle}? You've reached today's limit`;
+  const name = profile.type === 'host' ? profile.id : profile.identity.handle;
+  return `Enjoying ${name}? You've reached today's limit`;
 }
 
 function resetSlots(): void {

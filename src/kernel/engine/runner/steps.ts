@@ -2,6 +2,7 @@ import { throwIfAborted } from '../../../guardrails/error.ts';
 import { detectionForTrust, resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import { sanitizeHistory } from '../../../guardrails/sanitize.ts';
 import { recordTaint } from '../../../guardrails/tool-result.ts';
+import { wireInteractionPart } from '../../interaction-parts.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
 import { profileAllowsSteering } from '../../stop.ts';
 import {
@@ -119,10 +120,7 @@ function steerMessageToInteractionStep(msg: TurnHistoryMessage): Record<string, 
   if (msg.parts && msg.parts.length > 0) {
     return {
       type,
-      content: msg.parts.map((p) => {
-        if (p.type === 'text') return { type: 'text', text: p.text };
-        return { type: p.type, mimeType: p.mimeType, data: p.data };
-      }),
+      content: msg.parts.map(wireInteractionPart),
     };
   }
   return { type, content: [{ type: 'text', text: msg.content ?? '' }] };
@@ -229,6 +227,7 @@ function appendInteractionsToolResultToHistory(
     tool_call_id: tool.id ?? tool.callId ?? `call_${tool.name}`,
     name: tool.name,
     content: formatToolResult(result),
+    ...(result.parts && result.parts.length > 0 ? { parts: result.parts } : {}),
   });
 }
 
@@ -260,6 +259,7 @@ function appendToolTurnToHistory(
     tool_call_id: callId,
     name: tool.name,
     content: formatToolResult(result),
+    ...(result.parts && result.parts.length > 0 ? { parts: result.parts } : {}),
   });
 }
 
@@ -281,7 +281,10 @@ function queueInteractionsToolContinuation(
     type: 'function_result',
     name: tool.name,
     call_id: tool.id ?? tool.callId ?? `call_${tool.name}`,
-    result: [{ type: 'text', text: formatToolResult(result) }],
+    result:
+      result.parts && result.parts.length > 0
+        ? result.parts.map(wireInteractionPart)
+        : [{ type: 'text', text: formatToolResult(result) }],
   };
   if (
     state.interactionsContinuation &&
@@ -406,6 +409,7 @@ async function* handlePendingTools(
         path: generation.tools.path,
         turn: { step: state.stepCount, taint: state.taint },
         credentials: safe?.credentials,
+        host: generation.host,
       },
       snapshot: generation.tools,
     });

@@ -19,6 +19,7 @@ function turnRequestFromInvoke(request: InvokeToolRequest): TurnRequest {
     sessionPermissions: request.sessionPermissions,
     input: request.turnInput,
     model: request.model,
+    host: request.host,
   };
 }
 
@@ -27,7 +28,8 @@ async function prepareInvokeSnapshot(
   profile: Profile,
 ): Promise<TurnToolSnapshot> {
   const req = turnRequestFromInvoke(request);
-  const model = pickModel(profile, request.model);
+  // Host profiles bind no model — the allow list is the whole snapshot.
+  const model = profile.type === 'host' ? undefined : pickModel(profile, request.model);
   return await prepareTurnToolSnapshot(profile, req, model);
 }
 
@@ -70,6 +72,7 @@ async function* invokeTool(request: InvokeToolRequest): AsyncGenerator<TurnEvent
         path: request.path,
         signal: request.signal,
         resume: request.resume,
+        host: request.host,
       },
       snapshot,
     })) {

@@ -18,7 +18,7 @@ import type {
   ToolLoadTier,
   ToolPermission,
 } from '../schema.ts';
-import type { Profile, ToolId, TurnInput } from '../types.ts';
+import type { InteractionPart, Profile, ToolId, TurnInput } from '../types.ts';
 
 export type { AuthUnauthenticatedPolicy, HttpMethod, ToolAccess, ToolAuthType, ToolPermission };
 
@@ -79,6 +79,8 @@ export interface ToolContext {
   turn?: { step: number; taint?: TurnTaint };
   resume?: InvokeToolResume;
   credentials?: Record<string, ToolCredential>;
+  /** Opaque application context from `TurnRequest.host` / `InvokeToolRequest.host`; the kernel never reads it. */
+  host?: unknown;
 }
 
 export interface ToolFailure {
@@ -262,6 +264,8 @@ export interface ToolLoadContext {
   sessionPermissions?: string[];
   /** Tool ids eligible this turn. */
   gated: ToolId[];
+  /** Opaque application context from `TurnRequest.host`; the kernel never reads it. */
+  host?: unknown;
 }
 
 /** Profile-owned T1 selection — which eligible T1 tools to wire at turn start. */
@@ -291,6 +295,8 @@ export interface InvokeToolRequest {
   credentials?: Record<string, ToolCredential>;
   path?: string;
   signal?: AbortSignal;
+  /** Opaque application context handed to the tool as `ctx.host`; the kernel never reads it. */
+  host?: unknown;
 }
 
 export interface ProfileToolsSpec {
@@ -314,17 +320,33 @@ export interface ProfileToolsSpec {
  * Live session tools — Gemini Live (and similar) fix function declarations at setup.
  *
  * Shape excludes `t1Policy` / `t2Loader`. Every id in `allow` (and each model's
- * `builtInTools`) must resolve to a registered tool with live load tier `T0`
- * (`LiveToolLoadTier` in schema) — `registerProfile` rejects T1/T2.
+ * `builtInTools`) is wired at session setup regardless of `loadTier` —
+ * declarations cannot be added mid-session, so on live every allowed tool is
+ * effectively T0.
  */
 export interface LiveProfileToolsSpec {
-  /** Custom T0 tools wired once at session setup. */
+  /** Custom tools wired once at session setup (every load tier). */
+  allow: ToolId[];
+}
+
+/**
+ * Host profile tools — the explicit ceiling for host-driven `invokeTool` calls.
+ * Every id in `allow` is executable with no visibility tiers and no path gating.
+ */
+export interface HostProfileToolsSpec {
+  /** Custom function tools the host may invoke. */
   allow: ToolId[];
 }
 
 export interface ModelToolResult {
   finding: string;
+  /** Lean JSON for model reasoning — must not carry media bytes. */
   data?: unknown;
+  /**
+   * Multimodal tool-result parts (text / image / audio / video / document).
+   * Adapters wire these with the same fidelity as user input parts.
+   */
+  parts?: InteractionPart[];
   /**
    * Model-facing text, already fenced and redacted at the tool boundary.
    *

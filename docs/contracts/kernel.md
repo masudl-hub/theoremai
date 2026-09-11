@@ -28,10 +28,10 @@ A `Profile` binds:
 
 | Block | Role |
 | --- | --- |
-| `type` | Wire archetype discriminator: `'text'`, `'image'`, `'speech'`, `'live'` |
-| `identity` | `handle`, optional `system` / `systemByRole` |
-| `model` | `protocol`, `provider`, `allow`, `config`, optional `select` / `thinking` / `controls` / `maxSteps` / `key` |
-| `tools` | Allowlist ceiling (`allow: ToolId[]`) — present on `text`, `image`, `live` |
+| `type` | Wire archetype discriminator: `'text'`, `'image'`, `'speech'`, `'live'`, `'host'` (`PROFILE_TYPES`) |
+| `identity` | `handle`, optional `system` / `systemByRole` — absent on `host` |
+| `model` | `protocol`, `provider`, `allow`, `config`, optional `select` / `thinking` / `controls` / `maxSteps` / `key` — absent on `host` |
+| `tools` | Allowlist ceiling (`allow: ToolId[]`) — present on `text`, `image`, `live`, `host` |
 | `inputs` | Text / attachments / voice / slots / per-mime limits — present on `text`, `image`; absent on `speech` and `live` (live uses `live.ingress` instead) |
 | `image` / `speech` / `live` | Modality-specific pins (top-level, not nested under `outputs`) |
 | `outputs` | Structured, streaming, validation — present on `text`, `image`, `speech`; absent on `live` |
@@ -51,6 +51,21 @@ Multimodal ingress uses provider-neutral `InteractionPart` values;
 `InteractionMediaPart.type` is `MediaInputKind` (`image` | `audio` | `video` |
 `document`). MIME → kind mapping lives in `MEDIA_INPUT_KINDS` (`schema.ts`)
 and is applied by `mediaKindForMime` (`catalog.ts`).
+
+Turn media arrives on `TurnInput.attachments` as either inline bytes or a
+provider file reference:
+
+| Input | Shape | Ingress |
+| --- | --- | --- |
+| `TurnBlob` | `{ mimeType, data }` (base64) | MIME acceptance, kind resolution, base64 check, per-file / per-turn byte limits, text-MIME sanitization |
+| `TurnMediaRef` | `{ mimeType, uri }` (e.g. Gemini Files `files/<id>`) | MIME acceptance and kind resolution only — no base64 or byte limits; the host owns upload and cleanup |
+| `InteractionMediaRefPart` | `{ type: MediaInputKind, mimeType, uri }` | Provider part emitted for a `TurnMediaRef`; `isMediaRefPart` narrows it |
+
+`wireInteractionPart` emits `{ type, mimeType, uri }` for a reference part; the
+Google Interactions adapter snake-cases it to the documented Files input
+`{ "type": "video", "uri": "files/<id>", "mime_type": "video/mp4" }`. Every other
+adapter (OpenAI compat, AI SDK, Gemini Live) throws `TheorumError` for reference
+parts — see `docs/contracts/providers.md`.
 
 `models.*.protocol` is `PROTOCOLS` (`geminiInteractions` | `openAi` | `geminiLive`).
 `models.*.provider` is `PROVIDERS` (`google` | `openrouter` | `local`).
@@ -94,7 +109,7 @@ sink, or noop). An explicit third-argument sink always wins for that call.
 5. **Provider stream** — `provider.complete` yields partial events; runner may
    gate thoughts/media per `outputs.streaming`.
 6. **Tool loop** — while under `maxSteps`, tool calls execute via `executeRegisteredTool`
-   (shared with `invokeTool`), threading host `credentials` for authenticated HTTP/MCP tools; results feed the next step. `generation.transport` selects
+   (shared with `invokeTool`), threading host `credentials` for authenticated HTTP/MCP tools and the opaque `host` context slot; results feed the next step. `generation.transport` selects
    Interactions continuation (`previous_interaction_id` + `function_result` steps) vs
    OpenAI-compat tool-call history. Server-side `codeExecution` does not consume a runner step.
 7. **Validation / repair** — structured output validators (`outputs.validation`)
@@ -112,6 +127,10 @@ sink, or noop). An explicit third-argument sink always wins for that call.
 
 `continueFrom` on `TurnRequest` prepends `CONTINUE_INSTRUCTION` and carries
 partial assistant text/artifact from a resumeable stop.
+
+`runTurn`, `runSession`, `resolveTurn`, and `projectProfile` refuse a `'host'`
+profile with `TheorumError` (`requireModelProfile`); host profiles only execute
+tools through `invokeTool`.
 
 Optional `compactionProvider` on `TurnRequest` when the compactor profile uses a
 different transport than the primary turn.
@@ -173,8 +192,37 @@ There is no per-turn stream override.
 
 Tools are registered once at host startup via `registerTool` (Google builtins via
 `registerGooglePreset`). Profiles declare **custom** tools on `tools.allow` and **provider builtins** on
-`models.*.builtInTools`. Visibility is `loadTier` (T0 at turn start, T1 via
-`tools.t1Policy`, T2 via `tools.t2Loader`).
+`models.*.builtInTools`. On `text` / `image` turns visibility is `loadTier` (T0 at
+turn start, T1 via `tools.t1Policy`, T2 via `tools.t2Loader`). On `live` every
+allowed tool (and every model builtin) is wired at session setup regardless of
+`loadTier`; on `host` every allowed tool is executable with no tiers and no path
+gating.
+
+### Host context slot
+
+Application context reaches tool hooks through one opaque slot. The kernel never
+reads, logs, traces, or serializes it — it is not on `TurnEvent`, `ToolPause`,
+pause `input`, `TraceRecord`, or `ProviderCompleteRequest`.
+
+| Field | Reaches |
+| --- | --- |
+| `TurnRequest.host?: unknown` | `ToolContext.host` for every tool the turn executes; `ToolLoadContext.host` for `tools.t1Policy` |
+| `InvokeToolRequest.host?: unknown` | Same, for a host-initiated `invokeTool` |
+| `ToolContext.host?: unknown` | Read by `handler`, `preflight`, `canExecute` |
+| `ToolLoadContext.host?: unknown` | Read by `tools.t1Policy` |
+
+`SessionRequest` has no slot: `runSession` never executes tools; hosts execute
+live tool calls through `invokeTool`.
+
+### Session snapshot across a process boundary
+
+`SessionRequest.snapshot?: TurnToolSnapshot` lets a relay process that does not
+own the tool registry open a session. The registry-owning process resolves the
+snapshot with `prepareTurnToolSnapshot(profile, request, modelId)` and hands it
+across as data; `runSession` declares `snapshot.wire` at setup instead of
+resolving locally. The profile's `tools.allow` remains the ceiling: any custom
+id in the snapshot outside it is refused with `TheorumError`. Without a snapshot
+and without the registry, a session declares no tools.
 
 ```ts
 // Startup
@@ -275,12 +323,34 @@ Live is a **session** contract (`runSession`), not a turn contract (`runTurn`). 
 | `identity` | yes | `handle`, `system` / `systemByRole` |
 | `model` | yes | `protocol: 'geminiLive'`, `provider: 'google'` only |
 | `live` | yes | Voice, VAD, transcription, resumption, compression, proactive audio, **`ingress`** (realtime mic / camera / text toggles; text off unless `ingress.text: true`) |
-| `tools` | yes | `{ allow: ToolId[] }` only — each allowlisted (and `builtInTools`) id must be `loadTier: 'T0'`; declarations wired once at Gemini Live setup |
+| `tools` | yes | `{ allow: ToolId[] }` only — every allowlisted id and every model `builtInTools` id is wired once at Gemini Live setup regardless of `loadTier` (declarations cannot be added mid-session, so on live every allowed tool is effectively T0) |
 | `guardrails` | optional | Canary, sanitize, egress (live outbound gate) |
 | `inputs` | **no** | Turn file attachments — use `live.ingress` for realtime channels instead |
 | `outputs` | **no** | No structured JSON or SSE/buffered turn streaming on Gemini Live |
 | `turnBehaviour` | **no** | Use `live.sessionResumption` + `SessionRequest.sessionResumptionHandle` |
-| `tools.t1Policy` / `tools.t2Loader` / T1–T2 tools | **no** | Declarations are fixed after setup; host cannot add schemas mid-session |
+| `tools.t1Policy` / `tools.t2Loader` | **no** | Declarations are fixed after setup; the whole allow list is the session declaration set |
+
+### Host profile (`type: 'host'`)
+
+A `host` profile is the explicit tool ceiling for host-driven execution — MCP
+servers, web UIs, schedulers — and never runs a model. `invokeTool` under a
+`host` profile executes any tool in `tools.allow` with no visibility or loading
+tiers and no path gating; `preflight`, `canExecute`, permission pauses, and the
+tool-result guardrails (`resolveGuardrailPolicy(profile.guardrails)`) apply
+unchanged.
+
+| Block | On host? | Notes |
+| --- | --- | --- |
+| `tools` | yes | `{ allow: ToolId[] }` — registered function tools only (`HostProfileToolsSpec`); builtins are rejected |
+| `guardrails` | optional | Tool-result sanitization and canary policy for host-driven calls |
+| `observability` | optional | Same shape as every other profile |
+| `models` / `identity` / `inputs` / `outputs` / `turnBehaviour` / `key` / `maxSteps` | **no** | `registerProfile` rejects them when supplied |
+
+`resolveTurnTools` for a host profile yields `gated = visible = executable =
+tools.allow`, `builtins = []`, and `wire` from `buildWire`. `expandT1Policy`,
+`promoteLoadedTools`, and the T2 loader promotion are no-ops. `ModelProfile`
+(`Exclude<Profile, HostProfile>`) names every type that binds models;
+`requireModelProfile` narrows to it and throws for `host`.
 
 Profile `turnBehaviour` (top-level on chat/image/speech):
 
@@ -568,9 +638,9 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
 | Compaction | `CompactionSplit`, `CompactionTokens`, `compactionMeter`, `compactionNeeded`, `estimateHistoryTokens`, `HISTORY_MEDIA_TOKENS`, `HISTORY_TEXT_ENCODING`, `resolveCompactionTokens`, `resolveHistoryTokens`, `shouldCompact`, `splitForCompaction` |
 | Runner | `runTurn`, `runSession`, `RunSessionOptions`, `prepareLiveInboundText`, `liveIngressEnabled`, `liveIngressEnabledFromSpec`, `liveIngressChannelDefault`, `hasAnyLiveIngress`, `assertLiveIngress`, `assertLiveIngressConfigured`, `LiveIngressChannel` |
 | Catalog | `clampThinkingLevel`, `clampThinkingLevelForApiId`, `mediaKindForMime`, `getTool`, `listBuiltinIds`, `mimeAllowed`, `mimeEssence`, `modelEntryByApiId`, `registerTools`, `requireModelBinding`, `resetTools` |
-| Schema | `PROFILE_FIELDS`, `PROFILE_GRAPH`, `PROFILE_TYPES`, `PROFILE_TYPE_PROTOCOLS`, `protocolsForProfileType`, `isValidProfileProtocol`, `EXTRA_FIELDS`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `spineFacetsForProfileType`, `profileGraphFacet`, `ProfileGraphFacet`, `ProfileGraphFacetId`, `ProfileGraphEditor`, `ProfileGraphRole`, `PROTOCOLS`, `PROVIDERS`, `PROTOCOL_PROVIDERS`, `providersFor`, `protocolsFor`, `isValidPair`, `coerceProvider`, `coerceProtocol`, `coerceSpeechFormat`, `isSpeechFormatAllowedForProtocol`, `speechFormatsForProtocol`, `THINKING_LEVELS`, `KEY_SLOTS`, `OVERFLOW_KEY_SLOTS`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `SCHEMA_ENFORCEMENTS`, `COMPACTION_METERS`, `COMPACTION_TIMINGS`, `TURN_STOP_KINDS`, `CONTINUE_STOP_KINDS`, `TOOL_LOAD_TIERS`, `LIVE_TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES`, `AUTH_UNAUTHENTICATED_POLICIES`, `HTTP_METHODS`, `PLAYGROUND_AUTH_TYPES`, `TOOL_AUTH_TYPES`, `AuthUnauthenticatedPolicy`, `CustomToolType`, `HttpMethod`, `PlaygroundAuthType`, `ToolAccess`, `ToolAuthType`, `ToolPermission`, `ToolType`, `EGRESS_ON_BLOCK`, `EgressOnBlock` |
-| Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `LiveProfileDefinition`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `resolveTurn` |
-| Tools | `registerTool`, `registerTools`, `invokeTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `listBuiltinIds`, `listFunctionIds`, `resetTools`, `formatToolResult`, `prepareTurnToolSnapshot`, `buildHttpToolTarget`, `executeHttpTool`, `executeMcpTool`, `parseMcpRpcResponse`, `isUnsupportedMcpProtocolError`, `MCP_PROTOCOL_VERSIONS`, `McpProtocolVersion`, `resolveToolAuth` |
+| Schema | `PROFILE_FIELDS`, `PROFILE_GRAPH`, `PROFILE_TYPES`, `PROFILE_TYPE_PROTOCOLS`, `protocolsForProfileType`, `isValidProfileProtocol`, `EXTRA_FIELDS`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `spineFacetsForProfileType`, `profileGraphFacet`, `ProfileGraphFacet`, `ProfileGraphFacetId`, `ProfileGraphEditor`, `ProfileGraphRole`, `PROTOCOLS`, `PROVIDERS`, `PROTOCOL_PROVIDERS`, `providersFor`, `protocolsFor`, `isValidPair`, `coerceProvider`, `coerceProtocol`, `coerceSpeechFormat`, `isSpeechFormatAllowedForProtocol`, `speechFormatsForProtocol`, `THINKING_LEVELS`, `KEY_SLOTS`, `OVERFLOW_KEY_SLOTS`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `SCHEMA_ENFORCEMENTS`, `COMPACTION_METERS`, `COMPACTION_TIMINGS`, `TURN_STOP_KINDS`, `CONTINUE_STOP_KINDS`, `TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES`, `AUTH_UNAUTHENTICATED_POLICIES`, `HTTP_METHODS`, `PLAYGROUND_AUTH_TYPES`, `TOOL_AUTH_TYPES`, `AuthUnauthenticatedPolicy`, `CustomToolType`, `HttpMethod`, `PlaygroundAuthType`, `ToolAccess`, `ToolAuthType`, `ToolPermission`, `ToolType`, `EGRESS_ON_BLOCK`, `EgressOnBlock` |
+| Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `LiveProfileDefinition`, `HostProfileDefinition`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `projectProfileObject`, `requireModelProfile`, `resolveTurn` |
+| Tools | `registerTool`, `registerTools`, `invokeTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `listBuiltinIds`, `listFunctionIds`, `resetTools`, `formatToolResult`, `projectForModel`, `coerceToolResultParts`, `leanToolResultData`, `wireInteractionPart`, `isMediaRefPart`, `prepareTurnToolSnapshot`, `buildHttpToolTarget`, `executeHttpTool`, `executeMcpTool`, `parseMcpRpcResponse`, `isUnsupportedMcpProtocolError`, `MCP_PROTOCOL_VERSIONS`, `McpProtocolVersion`, `resolveToolAuth` |
 | Auth (stateless OAuth/PKCE) | `createOAuthPkceFlow`, `exchangeOAuthPkce`, `refreshOAuthToken`, `discoverResourceMetadata`, `discoverAuthServerMetadata`, `validateIssuer`, `generateCodeVerifier`, `computeCodeChallenge`, `sealStatePayload`, `unsealStatePayload` |
 | Structured | `getStructured`, `registerStructured` |
 | Stop / resume | `ProfileTurnBehaviourSpec`, `ProfileTurnResumptionSpec`, `TurnContinueFrom`, `TurnStop`, `TurnStopKind`, `ContinueStopKind`, `TurnSteerBarrier`, `TurnSteerContext`, `TurnSteerHandler`, `TurnSteerResult`, `TURN_STEER_BARRIERS`, `CONTINUE_STOP_KINDS`, `AUTO_CONTINUE_DELAY_MS`, `CONTINUE_INSTRUCTION`, `DEFAULT_ALLOW_CONTINUE`, `DEFAULT_AUTO_CONTINUE`, `GenerationStopError`, `isContinueStopKind`, `isGenerationStopError`, `isResumeableStop`, `isUserCancelledStop`, `profileAllowsSteering`, `profileTurnResumption`, `shouldAutoContinue`, `turnStopFromClientStreamEnd`, `turnStopFromInteractionStatus`, `turnStopFromOpenAiFinishReason` |

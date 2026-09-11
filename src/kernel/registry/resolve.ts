@@ -14,6 +14,7 @@ import { resolveTurnTools } from '../tools/resolve.ts';
 import type {
   ModelBinding,
   ModelId,
+  ModelProfile,
   Profile,
   ProfileInputsSpec,
   ProjectedProfile,
@@ -32,6 +33,7 @@ import {
   resolveInputParts,
 } from './ingress.ts';
 import { getProfile } from './profiles.ts';
+import { resolveTurnSystemPrompt } from './system-prompt.ts';
 import { providerUsesKeySlots, resolveKeySlot } from './vault.ts';
 
 function soleModelId(models: Record<ModelId, ModelBinding>): ModelId | undefined {
@@ -39,7 +41,17 @@ function soleModelId(models: Record<ModelId, ModelBinding>): ModelId | undefined
   return ids.length === 1 ? ids[0] : undefined;
 }
 
-function pickModel(profile: Profile, requested?: string): ModelId {
+/** Narrow to a model-binding profile; `host` never runs a model. */
+function requireModelProfile(profile: Profile, door: string): ModelProfile {
+  if (profile.type === 'host') {
+    throw new TheorumError(
+      `Profile ${profile.id}: type 'host' never runs a model — ${door} is not supported; execute tools with invokeTool`,
+    );
+  }
+  return profile;
+}
+
+function pickModel(profile: ModelProfile, requested?: string): ModelId {
   if (requested) {
     if (!profile.allowModelSelect) {
       throw new TheorumError(`Profile ${profile.id} does not allow model selection`);
@@ -57,7 +69,7 @@ function pickModel(profile: Profile, requested?: string): ModelId {
 }
 
 function resolveEffort(
-  profile: Profile,
+  profile: ModelProfile,
   binding: ModelBinding,
   modelId: ModelId,
   requested?: string,
@@ -102,7 +114,7 @@ function resolveSummaries(binding: ModelBinding): SummaryMode | undefined {
 }
 
 function resolveStructured(
-  profile: Profile,
+  profile: ModelProfile,
   slots?: Record<string, string>,
 ): StructuredSchemaId | null {
   if (profile.type === 'live') {
@@ -129,7 +141,7 @@ function resolveStructured(
  * THEORUM prefers SSE when the host omits `outputs.streaming.mode`.
  * Explicit `'buffered'` opts out; `'sse'` (or omit) yields `stream: true`.
  */
-function resolveStreamFlag(profile: Profile): boolean {
+function resolveStreamFlag(profile: ModelProfile): boolean {
   if (profile.type === 'live') {
     return true;
   }
@@ -143,7 +155,7 @@ function resolveStore(binding: ModelBinding, reqStore: boolean | undefined): boo
   return binding.store;
 }
 
-function resolveTransport(profile: Profile, binding: ModelBinding): ProviderTransport {
+function resolveTransport(profile: ModelProfile, binding: ModelBinding): ProviderTransport {
   if (profile.type === 'live') {
     return 'geminiLive';
   }
@@ -153,7 +165,7 @@ function resolveTransport(profile: Profile, binding: ModelBinding): ProviderTran
   return 'openAiCompat';
 }
 
-function assertTurnResumption(profile: Profile, req: TurnRequest): void {
+function assertTurnResumption(profile: ModelProfile, req: TurnRequest): void {
   if (!req.continueFrom) {
     return;
   }
@@ -185,12 +197,12 @@ function assertTurnResumption(profile: Profile, req: TurnRequest): void {
 
 /** Resolve a host `TurnRequest` into provider-ready generation state. */
 function resolveTurn(req: TurnRequest): {
-  profile: Profile;
+  profile: ModelProfile;
   generation: ResolvedGeneration;
 } {
   const safe = sanitizeTurnRequest(req);
   const input = safe.input ?? {};
-  const profile = getProfile(safe.profile);
+  const profile = requireModelProfile(getProfile(safe.profile), 'resolveTurn');
   assertTurnResumption(profile, safe);
   const model = pickModel(profile, safe.model);
   const binding = requireModelBinding(profile, model);
@@ -232,15 +244,17 @@ function resolveTurn(req: TurnRequest): {
       keySlot,
       canary: resolveGuardrailPolicy(profile.guardrails).canary ? mintCanary() : '',
       sessionResumptionHandle: safe.sessionResumptionHandle ?? input.sessionResumptionHandle,
+      resolvedSystem: resolveTurnSystemPrompt(profile, safe),
+      host: safe.host,
     },
   };
 }
 
-function primaryImageSpec(profile: Profile) {
+function primaryImageSpec(profile: ModelProfile) {
   return profile.type === 'image' ? profile.image : null;
 }
 
-function profileInputsOrNull(profile: Profile): ProfileInputsSpec | null {
+function profileInputsOrNull(profile: ModelProfile): ProfileInputsSpec | null {
   if (profile.type === 'speech' || profile.type === 'live') {
     return null;
   }
@@ -248,7 +262,8 @@ function profileInputsOrNull(profile: Profile): ProfileInputsSpec | null {
 }
 
 /** Project a profile object into a safe host/UI inspection object. */
-function projectProfileObject(profile: Profile): ProjectedProfile {
+function projectProfileObject(input: Profile): ProjectedProfile {
+  const profile = requireModelProfile(input, 'projectProfile');
   const { identity } = profile;
   const inputs = profileInputsOrNull(profile);
   const outputs = profile.type === 'live' ? null : (profile.outputs ?? null);
@@ -275,13 +290,5 @@ function projectProfile(id: Profile['id']): ProjectedProfile {
   return projectProfileObject(getProfile(id));
 }
 
-function pickSystemRole(profile: Profile, requested?: string): string {
-  const { identity } = profile;
-  const { handle, systemByRole } = identity;
-  if (requested && systemByRole && Object.hasOwn(systemByRole, requested)) {
-    return requested;
-  }
-  return handle;
-}
-
-export { pickModel, pickSystemRole, projectProfile, projectProfileObject, resolveTurn };
+export { pickSystemRole } from './system-prompt.ts';
+export { pickModel, projectProfile, projectProfileObject, requireModelProfile, resolveTurn };

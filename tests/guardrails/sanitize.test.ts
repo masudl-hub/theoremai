@@ -181,7 +181,7 @@ Deno.test('csv attachments are sanitized before the model sees them', () => {
   });
   const part = generation.input.find((item) => item.type === 'document');
   assertEquals(part?.type, 'document');
-  if (part?.type === 'document') {
+  if (part?.type === 'document' && 'data' in part) {
     const text = atob(part.data);
     assertEquals(text.startsWith("'="), true);
     assertEquals(text.includes('hello'), true);
@@ -196,7 +196,7 @@ Deno.test('png bytes are not run through text sanitizers', () => {
   });
   const part = generation.input.find((item) => item.type === 'image');
   assertEquals(part?.type, 'image');
-  if (part?.type === 'image') {
+  if (part?.type === 'image' && 'data' in part) {
     assertEquals(part.data, data);
   }
 });

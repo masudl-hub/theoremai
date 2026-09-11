@@ -8,7 +8,7 @@
  */
 
 import { TheorumError } from '../guardrails/error.ts';
-import type { TraceSink } from './trace.ts';
+import type { TraceSink } from './trace-sink.ts';
 
 /** JSONL directory destination — retention comes from profile policy at resolve time. */
 export interface JsonlTraceDestination {

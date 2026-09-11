@@ -6,7 +6,7 @@ import {
   getProfile,
   registerProfile,
 } from '../../../src/kernel/registry/profiles.ts';
-import { resolveTurn } from '../../../src/kernel/registry/resolve.ts';
+import { requireModelProfile, resolveTurn } from '../../../src/kernel/registry/resolve.ts';
 import type { KeyVault } from '../../../src/kernel/types.ts';
 import {
   backoffMs,
@@ -52,7 +52,7 @@ function withBuiltins(
   builtInTools: string[],
   modelId?: string,
 ): void {
-  const base = getProfile(baseProfile);
+  const base = requireModelProfile(getProfile(baseProfile), 'test');
   const models = { ...base.models };
   const targetId = modelId ?? base.defaultModel ?? Object.keys(models)[0];
   for (const mid of Object.keys(models)) {

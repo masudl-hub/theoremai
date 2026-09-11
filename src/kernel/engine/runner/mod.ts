@@ -13,17 +13,18 @@ import { throwIfAborted } from '../../../guardrails/error.ts';
 import { projectGuardrailTurnEvent } from '../../../guardrails/events.ts';
 import { sanitizeTurnRequestWithEvents } from '../../../guardrails/sanitize.ts';
 import { resolveTraceWriter } from '../../../observability/policy.ts';
-import { noopSink, type TraceSink, writeTrace } from '../../../observability/trace.ts';
+import { noopSink, writeTrace } from '../../../observability/trace.ts';
 import { buildRecord } from '../../../observability/trace-record.ts';
+import type { TraceSink } from '../../../observability/trace-sink.ts';
 import type { ResolvedObservabilityPolicy } from '../../../observability/types.ts';
 import { getProfile } from '../../registry/profiles.ts';
-import { pickSystemRole, resolveTurn } from '../../registry/resolve.ts';
+import { resolveTurn } from '../../registry/resolve.ts';
 import type { Protocol } from '../../schema.ts';
-import { CONTINUE_INSTRUCTION } from '../../stop.ts';
 import { cloneTurnToolSnapshot, expandT1Policy } from '../../tools/resolve.ts';
 import type {
   CompactionSignal,
   CompactionSpec,
+  ModelProfile,
   ModelProvider,
   Profile,
   ResolvedGeneration,
@@ -34,7 +35,7 @@ import type {
 import { resolveCompactionTokens, shouldCompact, splitForCompaction } from '../compaction.ts';
 import { runAttemptsWithValidation } from './gates.ts';
 import type { StepExecutionState } from './state.ts';
-import { shouldSkipStreamEvent, systemFromProfile } from './stream.ts';
+import { shouldSkipStreamEvent } from './stream.ts';
 import { calculateFallbackTokens } from './tokens.ts';
 
 function projectForObs(
@@ -44,8 +45,27 @@ function projectForObs(
   return projectGuardrailTurnEvent(event, policy?.include.guardrailMatchPreview ?? false);
 }
 
-function getCompactionSpec(profile: Profile, modelId: string): CompactionSpec | undefined {
+function getCompactionSpec(profile: ModelProfile, modelId: string): CompactionSpec | undefined {
   return profile.models[modelId]?.compaction;
+}
+
+/** Fold one history message to a compaction transcript line (media → markers). */
+function compactionTranscriptLine(m: TurnHistoryMessage): string {
+  const text = m.content ?? '';
+  const mediaMarkers =
+    m.parts
+      ?.filter((p) => p.type !== 'text')
+      .map((p) => `[${p.type}]`)
+      .join('') ?? '';
+  const fromTextParts =
+    !text && m.parts
+      ? m.parts
+          .filter((p) => p.type === 'text')
+          .map((p) => p.text)
+          .join('')
+      : '';
+  const content = `${text || fromTextParts}${mediaMarkers}`;
+  return `[${m.role}]: ${content}`;
 }
 
 async function runCompactionTurn(
@@ -54,12 +74,7 @@ async function runCompactionTurn(
   provider: ModelProvider,
   signal?: AbortSignal,
 ): Promise<TurnHistoryMessage> {
-  const compactText = toCompact
-    .map((m) => {
-      const content = m.content ?? m.parts?.map((p) => ('text' in p ? p.text : '')).join('') ?? '';
-      return `[${m.role}]: ${content}`;
-    })
-    .join('\n');
+  const compactText = toCompact.map(compactionTranscriptLine).join('\n');
 
   const events: TurnEvent[] = [];
   for await (const event of runTurn(
@@ -270,12 +285,7 @@ async function* runTurnBody(ctx: TraceCtx, provider: ModelProvider): AsyncGenera
   const compactionSpec = isCompacting ? undefined : getCompactionSpec(profile, gen.model);
   await maybeCompactBefore(ctx, gen, compactionSpec, provider);
 
-  const role = pickSystemRole(profile, ctx.safe.input?.role);
-  const continueSys = ctx.safe.continueFrom ? CONTINUE_INSTRUCTION : '';
-  const combinedSys = [systemFromProfile(profile, role), ctx.safe.system, continueSys]
-    .filter(Boolean)
-    .join('\n\n');
-  ctx.system = bindCanary(combinedSys, ctx.canary);
+  ctx.system = bindCanary(gen.resolvedSystem, ctx.canary);
 
   yield* streamTurnEvents(ctx, profile, gen, provider, compactionSpec, isCompacting);
 }
@@ -339,4 +349,4 @@ async function maybeAttachAfter(
   });
 }
 
-export { runTurn };
+export { compactionTranscriptLine, runTurn };

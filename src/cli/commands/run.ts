@@ -1,5 +1,6 @@
 import { runTurn } from '../../kernel/engine/runner.ts';
 import { getProfile } from '../../kernel/registry/profiles.ts';
+import { requireModelProfile } from '../../kernel/registry/resolve.ts';
 import type { ModelProvider, TurnRequest } from '../../kernel/types.ts';
 import { createCliTraceCapture, printRunEvent, printTraceRecord } from '../event-log.ts';
 
@@ -16,7 +17,7 @@ export interface RunOptions {
 }
 
 export async function runCommand(options: RunOptions): Promise<void> {
-  getProfile(options.profile);
+  requireModelProfile(getProfile(options.profile), 'theorum run');
   const provider = options.provider;
   if (!provider) {
     console.error(
@@ -27,7 +28,7 @@ export async function runCommand(options: RunOptions): Promise<void> {
 
   const prompt = options.prompt || 'Hello! Please introduce your capabilities.';
   if (options.search || options.map) {
-    const profile = getProfile(options.profile);
+    const profile = requireModelProfile(getProfile(options.profile), 'theorum run');
     const selected = options.mode ?? profile.defaultModel ?? Object.keys(profile.models)[0] ?? '';
     const builtins = new Set(profile.models[selected]?.builtInTools ?? []);
     if (options.search && !builtins.has('googleSearch')) {

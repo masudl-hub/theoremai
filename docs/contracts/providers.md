@@ -93,6 +93,15 @@ Errors:
 OpenRouter Vercel AI SDK loads **only** on first `complete` for `openAi` +
 `openrouter` chat. Google and local never import it.
 
+Media part support by transport (`InteractionPart` — see `docs/contracts/kernel.md`):
+
+| Transport | Inline `InteractionMediaPart` (`data`) | Reference `InteractionMediaRefPart` (`uri`) |
+| --- | --- | --- |
+| Google Interactions | `{ type, mime_type, data }` | `{ type, mime_type, uri }` — Files API reference, wired by `wireInteractionPart` |
+| Gemini Live (`runSession`) | `inlineData` in client-content history and realtime input | **rejected** — `TheorumError('media references are not supported on geminiLive')` |
+| OpenRouter / local (`openAi`, REST payload) | `image_url` / `input_audio` / `file` data URLs | **rejected** — `TheorumError('media references are not supported on openAi')` |
+| OpenRouter (`openAi`, AI SDK messages) | `image` / `file` data URLs | **rejected** — same error, including tool-result parts |
+
 ## OpenRouter
 
 Internal adapter behind `createProvider` for `openAi` + `openrouter` chat. Hosts
@@ -126,7 +135,7 @@ terminal `done.stop` via `turnStopFromOpenAiFinishReason`.
 | Concern | Behavior |
 | --- | --- |
 | History | `user_input` / `model_output` steps; OpenAI-shaped `assistant.tool_calls` → `function_call` (not empty text); `tool` → `function_result` |
-| Multimodal | `image` / `audio` / `video` / `document` parts |
+| Multimodal | `image` / `audio` / `video` / `document` parts, inline (`data`) or by Files API reference (`uri` → `{ type, uri, mime_type }`) |
 | Structured | `responseFormat` JSON schema when enforced. When structured is requested and model text is not valid JSON, providers emit an `error` event (never silently skip). |
 | Output modes | responseFormat JSON schema, image, and speech are mutually exclusive; prompt-enforced structured schemas and free text are not. Image profiles may opt into interleaved text via `image.includeText`. |
 | Tools | Registry builtins (`wire.interactions`) + function schemas from `generation.tools.wire`. When `googleMaps` is enabled and `TurnRequest.googleMapsLocation` is set, Interactions receives `tools: [{ type: "google_maps", latitude, longitude }]`. |
@@ -155,12 +164,13 @@ gate (canary + egress) at each conversational `turnComplete`, and returns a
 | Handshake | `BidiGenerateContentSetup` via `buildGeminiLiveSetupMessage` |
 | Turn boundary | Gemini `turnComplete` → outbound gate finalize + `done` (`stop.kind: 'completed'`); **session stays open** |
 | Generation boundary | Gemini `generationComplete` → `done` (`stop.kind: 'generation_complete'`) without tearing down the session |
-| Tools | Host executes and replies via `sendToolResponse(s)`; cancellations → `tool.phase: 'cancel'`. Profile `tools.allow` + `builtInTools` must be `loadTier: 'T0'` (enforced at `registerProfile`) and are wired in `BidiGenerateContentSetup` only — no `t1Policy` / `t2Loader`, no structured output, no turn `inputs` / `outputs`. |
+| Tools | Host executes and replies via `sendToolResponse(s)`; cancellations → `tool.phase: 'cancel'`. Every id in profile `tools.allow` + `builtInTools` is wired in `BidiGenerateContentSetup` regardless of `loadTier` (declarations cannot change mid-session) — no `t1Policy` / `t2Loader`, no structured output, no turn `inputs` / `outputs`. |
 | Ingress | `live.ingress` gates `sendAudio` / `sendVideo` / `sendText`. Defaults: audio **on**, camera (video channel) **on**, text **off** unless `live.ingress.text: true`. At least one channel must stay enabled. |
 | Transcription | Mid-turn `evidence` with `kind: 'input_transcription'` / `output_transcription` (optional `interim`); **not** held for egress — streams immediately |
 | Session control | `goAway` → `session.kind: 'closing_soon'`; `waitingForInput` → `waiting_for_input` |
 | Resumption | `sessionResumptionHandle` on `SessionRequest`; updates as `evidence.kind: 'session_resumption'` with `resumable` |
-| Host wire tools | Optional `SessionRequest.wireTools` replaces profile wire declarations for the session |
+| Remote registry | `SessionRequest.snapshot` (a `TurnToolSnapshot` from `prepareTurnToolSnapshot` in the registry-owning process) supplies the setup declarations when the session runs where the registry is not registered; ids outside `tools.allow` are refused |
+| Media references | Client-content history and realtime input reject `InteractionMediaRefPart` (`TheorumError`) until provider support is verified |
 
 ### Live fold → `TurnEvent` (exhaustive)
 
@@ -201,7 +211,8 @@ local: {
 - Raw `fetch` + `sse.ts` — no SDK.
 - Accumulates streaming tool calls; maps `finish_reason` through
   `turnStopFromOpenAiFinishReason`.
-- Supports multimodal user content when the server accepts OpenAI-style parts.
+- Supports multimodal user content when the server accepts OpenAI-style parts;
+  media reference parts (`uri`) are rejected with `TheorumError`.
 
 ## Image roles
 

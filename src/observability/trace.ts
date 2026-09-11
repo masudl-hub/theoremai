@@ -10,6 +10,7 @@
  */
 
 import type { TraceRecord } from './trace-record.ts';
+import type { TraceSink } from './trace-sink.ts';
 
 const DEFAULT_RETAIN_DAYS = 14;
 const HOURS_PER_DAY = 24;
@@ -26,16 +27,6 @@ interface JsonlSinkOptions {
   retainForDays?: number;
   rotateAfterMiB?: number;
   now?: () => number;
-}
-
-/** Minimal async destination for completed turn trace records. */
-interface TraceSink {
-  write: (record: TraceRecord) => Promise<void>;
-  /**
-   * Optional host hook when `writeTrace` catches record-build or write failures.
-   * Must not throw; tracing never fails the turn.
-   */
-  onError?: (err: unknown) => void;
 }
 
 /**
@@ -168,5 +159,5 @@ function sinkFromDir(dir?: string, fallbackDir?: string): TraceSink {
   return jsonlSink(resolved);
 }
 
-export type { JsonlSinkOptions, TraceSink };
+export type { JsonlSinkOptions };
 export { jsonlSink, memorySink, noopSink, resolveTraceDir, sinkFromDir, writeTrace };

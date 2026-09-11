@@ -4,7 +4,13 @@
  * @module
  */
 
-export { executeRegisteredTool, formatToolResult } from './execute.ts';
+export {
+  coerceToolResultParts,
+  executeRegisteredTool,
+  formatToolResult,
+  leanToolResultData,
+  projectForModel,
+} from './execute.ts';
 export { registerHarnessTools } from './harness.ts';
 export { invokeTool } from './invoke.ts';
 export {

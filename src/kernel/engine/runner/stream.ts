@@ -2,12 +2,11 @@ import { eventHasCanary, isStreamedCanaryEvent, redactCanary } from '../../../gu
 import { EGRESS_RULES } from '../../../guardrails/egress.ts';
 import { publicError, throwIfAborted, toErrorEvent } from '../../../guardrails/error.ts';
 import { guardrailFromHits } from '../../../guardrails/events.ts';
-import { detectionForTrust, resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
+import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import {
   createOutboundProgressiveGate,
   type ProgressiveYieldGate,
 } from '../../../guardrails/progressive-yield.ts';
-import { sanitizeText } from '../../../guardrails/sanitize.ts';
 import type {
   GuardrailContext,
   GuardrailHit,
@@ -15,32 +14,13 @@ import type {
 } from '../../../guardrails/types.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
 import { providerCompleteRequest } from '../../registry/provider-request.ts';
+import { systemFromProfile } from '../../registry/system-prompt.ts';
 import type { ModelProvider, Profile, ResolvedGeneration, TurnEvent } from '../../types.ts';
 
 /** Mutable control flags shared with the step runner during one provider stream. */
 interface OutboundStreamControl {
   /** Stop releasing text/thought/media to the host; keep recording for egress. */
   withholdVisible: boolean;
-}
-
-/**
- * Author-time system text for a role.
- *
- * Routed through the guardrail policy at `trust: 'trusted'` so the exemption is
- * declared at the point it applies rather than implied by never calling the
- * sanitizer. Trusted resolves to no detection, so the text reaches the provider
- * verbatim — `req.system`, which the host assembles per turn, is handled as
- * `assembled` in `sanitizeTurnRequest` and is not exempt.
- */
-function systemFromProfile(profile: Profile, role: string): string {
-  const { identity } = profile;
-  const { systemByRole, system } = identity;
-  const text = systemByRole?.[role] || system || '';
-  if (!text) {
-    return '';
-  }
-  const policy = resolveGuardrailPolicy(profile.guardrails);
-  return sanitizeText(text, detectionForTrust(policy, 'trusted'));
 }
 
 function shouldSkipStreamEvent(event: TurnEvent, profile: Profile): boolean {

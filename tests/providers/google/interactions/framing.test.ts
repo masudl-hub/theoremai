@@ -474,6 +474,30 @@ Deno.test('historyStep maps tool role messages to function_result steps', () => 
   });
 });
 
+Deno.test('historyStep maps tool role parts through wirePart', () => {
+  const step = historyStep({
+    role: 'tool',
+    name: 'fetch_stock_media',
+    tool_call_id: 'call_media',
+    content: 'shortlist\n{"items":[]}',
+    parts: [
+      { type: 'text', text: '1. palm' },
+      { type: 'image', mimeType: 'image/jpeg', data: '/9j/abc' },
+      { type: 'audio', mimeType: 'audio/wav', data: 'UklG' },
+    ],
+  });
+  assertEquals(step, {
+    type: 'function_result',
+    name: 'fetch_stock_media',
+    call_id: 'call_media',
+    result: [
+      { type: 'text', text: '1. palm' },
+      { type: 'image', mimeType: 'image/jpeg', data: '/9j/abc' },
+      { type: 'audio', mimeType: 'audio/wav', data: 'UklG' },
+    ],
+  });
+});
+
 Deno.test('historySteps maps assistant tool_calls to function_call (no empty text)', () => {
   const steps = historySteps({
     role: 'assistant',
@@ -625,4 +649,22 @@ Deno.test('toInteractionsBody sends code_execution together with structured resp
   );
   assertEquals(body.tools, [{ type: 'code_execution' }]);
   assertEquals(Array.isArray(body.response_format), true);
+});
+
+Deno.test('Interactions wires a media reference as { type, uri, mime_type } (Files API input)', () => {
+  const ref: InteractionPart = { type: 'video', mimeType: 'video/mp4', uri: 'files/abc123' };
+  assertEquals(wirePart(ref), { type: 'video', mimeType: 'video/mp4', uri: 'files/abc123' });
+  assertEquals(toGoogleValue(userInputStep([ref])), {
+    type: 'user_input',
+    content: [{ type: 'video', mime_type: 'video/mp4', uri: 'files/abc123' }],
+  });
+  const body = toInteractionsBody(baseReq({ input: [{ type: 'text', text: 'describe' }, ref] }));
+  const input = body.input as Array<{ type: string; content: Array<Record<string, unknown>> }>;
+  const userStep = input.find((step) => step.type === 'user_input');
+  assertEquals(userStep?.content.at(-1), {
+    type: 'video',
+    mime_type: 'video/mp4',
+    uri: 'files/abc123',
+  });
+  assertEquals(JSON.stringify(body).includes('file_uri'), false);
 });

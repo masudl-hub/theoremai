@@ -8,7 +8,7 @@ import { wrapUserData } from '../../guardrails/canary.ts';
 import { guardrailFromHits, projectGuardrailTurnEvent } from '../../guardrails/events.ts';
 import { detectionForTrust, resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import { detectText } from '../../guardrails/sanitize.ts';
-import { resolveObservabilityPolicy } from '../../observability/policy.ts';
+import { resolveObservabilityPolicy } from '../../observability/resolve-policy.ts';
 import type { Profile, TurnEvent } from '../types.ts';
 
 export interface LiveInboundPrepareResult {

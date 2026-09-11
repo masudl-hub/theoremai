@@ -1,4 +1,5 @@
 import { TheorumError } from '../../../guardrails/error.ts';
+import { wireInteractionPart } from '../../../kernel/interaction-parts.ts';
 import { getStructured } from '../../../kernel/registry/schemas.ts';
 import { getTool } from '../../../kernel/tools/registry.ts';
 import type {
@@ -33,10 +34,7 @@ export function toGoogleValue(value: unknown): unknown {
 }
 
 export function wirePart(part: InteractionPart): Record<string, string> {
-  if (part.type === 'text') {
-    return { type: 'text', text: part.text };
-  }
-  return { type: part.type, mimeType: part.mimeType, data: part.data };
+  return wireInteractionPart(part);
 }
 
 const USER_INPUT = 'user_input';
@@ -46,11 +44,15 @@ export function userInputStep(parts: InteractionPart[]): Record<string, unknown>
 }
 
 function functionResultStep(msg: TurnHistoryMessage): Record<string, unknown> {
+  const result =
+    msg.parts && msg.parts.length > 0
+      ? msg.parts.map(wirePart)
+      : [{ type: 'text', text: msg.content ?? '' }];
   return {
     type: 'function_result',
     name: msg.name ?? '',
     call_id: msg.tool_call_id ?? '',
-    result: [{ type: 'text', text: msg.content ?? '' }],
+    result,
   };
 }
 

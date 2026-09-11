@@ -18,7 +18,6 @@ import type {
   LiveActivityHandling,
   LiveContextCompression,
   LiveSpeechSensitivity,
-  LiveToolLoadTier,
   MediaInputKind,
   OverflowKeySlot,
   ProfileType,
@@ -35,6 +34,7 @@ import type {
   TurnStopKind,
 } from './schema.ts';
 import type {
+  HostProfileToolsSpec,
   InvokeToolRequest,
   LiveProfileToolsSpec,
   ProfileToolsSpec,
@@ -51,6 +51,7 @@ export type {
   CompactionTiming,
   ContinueStopKind,
   FieldMeta,
+  HostProfileToolsSpec,
   InvokeToolRequest,
   KeySlot,
   KeyVault,
@@ -58,7 +59,6 @@ export type {
   LiveContextCompression,
   LiveProfileToolsSpec,
   LiveSpeechSensitivity,
-  LiveToolLoadTier,
   MediaInputKind,
   OverflowKeySlot,
   ProfileToolsSpec,
@@ -482,8 +482,27 @@ export interface LiveProfile extends Omit<ProfileCommon, 'outputs'> {
   tools: LiveProfileToolsSpec;
 }
 
+/**
+ * Host-driven tool execution ceiling — never runs a model.
+ *
+ * `invokeTool` under a `host` profile executes any tool in `tools.allow` with no
+ * visibility or loading tiers and no path gating. No `models`, `identity`,
+ * `inputs`, `outputs`, `turnBehaviour`, `key`, or `maxSteps`. `resolveTurn`,
+ * `runTurn`, and `runSession` refuse it.
+ */
+export interface HostProfile {
+  type: 'host';
+  id: ProfileId;
+  tools: HostProfileToolsSpec;
+  guardrails?: ProfileGuardrailsSpec;
+  observability?: ProfileObservabilitySpec;
+}
+
 /** Complete host-owned agent contract consumed by the kernel. */
-export type Profile = TextProfile | ImageProfile | SpeechProfile | LiveProfile;
+export type Profile = TextProfile | ImageProfile | SpeechProfile | LiveProfile | HostProfile;
+
+/** Profiles that bind models — every type except `host`. */
+export type ModelProfile = Exclude<Profile, HostProfile>;
 
 /** Text part sent to provider adapters after input normalization. */
 export interface InteractionTextPart {
@@ -498,8 +517,19 @@ export interface InteractionMediaPart {
   data: string;
 }
 
+/**
+ * Media part carried by reference (e.g. a Gemini Files `files/<id>` uri).
+ * The host owns the upload and cleanup; THEORUM only carries the reference.
+ * Wired by the Google Interactions adapter; other adapters reject it.
+ */
+export interface InteractionMediaRefPart {
+  type: MediaInputKind;
+  mimeType: string;
+  uri: string;
+}
+
 /** Any provider input part accepted by THEORUM's provider contract. */
-export type InteractionPart = InteractionTextPart | InteractionMediaPart;
+export type InteractionPart = InteractionTextPart | InteractionMediaPart | InteractionMediaRefPart;
 
 /** Native image response request passed to image-capable providers. */
 export interface ImageResponseFormat {
@@ -521,6 +551,15 @@ export interface ImageResponseFormat {
 export interface TurnBlob {
   mimeType: string;
   data: string;
+}
+
+/**
+ * Media attachment supplied by reference (provider file uri) instead of bytes.
+ * MIME acceptance still applies; base64 and byte limits do not.
+ */
+export interface TurnMediaRef {
+  mimeType: string;
+  uri: string;
 }
 
 /** Provider-neutral history message preserving text, parts, tools, and metadata. */
@@ -551,7 +590,7 @@ export interface TurnInput {
   text?: string;
   role?: string;
   slots?: Record<string, string>;
-  attachments?: TurnBlob[];
+  attachments?: Array<TurnBlob | TurnMediaRef>;
   voice?: TurnBlob[];
   history?: TurnHistoryMessage[];
   repair?: TurnRepairRequest;
@@ -623,6 +662,12 @@ export interface TurnRequest {
   /** Host-owned metadata preserved for traces; the kernel does not interpret it. */
   metadata?: Record<string, unknown>;
   /**
+   * Opaque application context handed to tool `handler` / `preflight` /
+   * `canExecute` and `tools.t1Policy` as `ctx.host`. The kernel never reads,
+   * logs, traces, or serializes it.
+   */
+  host?: unknown;
+  /**
    * Optional abort signal. When aborted, THEORUM stops the turn and cancels
    * in-flight provider HTTP where the adapter supports it.
    */
@@ -651,10 +696,10 @@ export interface TurnRequest {
   onSteer?: TurnSteerHandler;
 }
 
-/** Safe profile projection suitable for UI or host inspection. */
+/** Safe profile projection suitable for UI or host inspection (model profiles only). */
 export interface ProjectedProfile extends ProfileModelFields {
   id: string;
-  type: ProfileType;
+  type: ModelProfile['type'];
   handle: string;
   tools: Array<RegisteredTool | { name: ToolId; missing: true }>;
   inputs: ProfileInputsSpec | null;
@@ -722,6 +767,13 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
   canary: string;
   /** Optional session resumption handle for continuing live WebSocket sessions. */
   sessionResumptionHandle?: string;
+  /**
+   * Merged profile + turn system prompt, snapshotted synchronously in `resolveTurn`
+   * before any async work. Runner applies canary bind on top of this string.
+   */
+  resolvedSystem: string;
+  /** `TurnRequest.host`, carried to tool contexts only. Never sent to providers or traces. */
+  host?: unknown;
 }
 
 /** Token accounting emitted by providers or fallback estimation. */
@@ -906,14 +958,16 @@ export interface SessionRequest {
   sessionPermissions?: string[];
   history?: TurnHistoryMessage[];
   sessionResumptionHandle?: string;
-  /**
-   * Host-supplied function declarations for this session.
-   * When set, replaces `generation.tools.wire` on the provider request
-   * (Orchid-class hosts that resolve tools outside the Worker registry).
-   */
-  wireTools?: WireFunctionTool[];
   /** Optional realtime parts sent immediately after setup. */
   input?: InteractionPart[];
+  /**
+   * Registry-resolved tool snapshot from the process that owns the tool registry
+   * (`prepareTurnToolSnapshot`). When set, session setup declares `snapshot.wire`
+   * instead of resolving tools locally, so a relay process without the registry
+   * can open the session. Every custom id must be within the profile's
+   * `tools.allow`; ids outside it are refused.
+   */
+  snapshot?: TurnToolSnapshot;
   signal?: AbortSignal;
   metadata?: Record<string, unknown>;
 }

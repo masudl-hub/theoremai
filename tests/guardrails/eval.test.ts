@@ -8,7 +8,12 @@
  */
 import '../fixtures/test-host.ts';
 import type { CorpusCache, CorpusSample } from '../../src/guardrails/eval/corpus.ts';
-import { fetchRows, parseLabelledCsv, recordsFromYaml } from '../../src/guardrails/eval/corpus.ts';
+import {
+  fetchRows,
+  parseLabelledCsv,
+  recordsFromYaml,
+  SOURCES,
+} from '../../src/guardrails/eval/corpus.ts';
 import { type EvalDetector, scoreAll, scoreDetector } from '../../src/guardrails/eval/score.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 
@@ -53,12 +58,62 @@ Deno.test('recordsFromYaml keeps the identifiers a tool result would carry', () 
     subject: "Birthday Party"
     body: "Hi Emma,\\n\\nPlease let me know if you can make it."
 `;
-  const records = recordsFromYaml(yaml, 'email');
+  const records = recordsFromYaml(yaml);
   assertEquals(records.length, 1);
   const record = records[0] ?? '';
   assertEquals(record.includes('lily.white@gmail.com'), true);
   assertEquals(record.includes('emma.johnson@bluesparrowtech.com'), true);
   assertEquals(record.includes('Birthday Party'), true);
+});
+
+// ── sample caps are honoured by every loader ─────────────────────────────────
+
+/**
+ * `CorpusSource.sampleLimit` exists so a report can say what fraction of a corpus
+ * was scored. A loader that returns more rows than the cap it was given makes
+ * that fraction a lie, so single-file loaders must cut after parsing.
+ */
+function sourceById(id: string) {
+  const source = SOURCES.find((candidate) => candidate.id === id);
+  if (!source) {
+    throw new Error(`corpus source '${id}' is not registered`);
+  }
+  return source;
+}
+
+/** Cache stub: serves one fixed text for every fetch. */
+function textCache(text: string): CorpusCache {
+  return { dir: '', fetchText: () => Promise.resolve(text) };
+}
+
+Deno.test('prompt-injection-prompts loader honours the sample cap on a single CSV', async () => {
+  const csv = 'text,label\nfirst,1\nsecond,0\nthird,1\n';
+  const samples = await sourceById('prompt-injection-prompts').load(textCache(csv), 2);
+  assertEquals(
+    samples.map((s) => s.text),
+    ['first', 'second'],
+  );
+});
+
+Deno.test('agentdojo-benign loader honours the sample cap across fixtures', async () => {
+  // Two records per fixture, each rich enough to survive the tool-result
+  // serialiser's minimum length; three fixtures would yield six without the cap.
+  const yaml = `initial_emails:
+  - id_: "0"
+    sender: lily.white@gmail.com
+    subject: "Birthday Party"
+    body: "Hi Emma, please let me know if you can make it on Saturday."
+  - id_: "1"
+    sender: mark.brown@gmail.com
+    subject: "Quarterly numbers"
+    body: "Attached are the figures we discussed; let me know if anything looks off."
+`;
+  const samples = await sourceById('agentdojo-benign').load(textCache(yaml), 3);
+  assertEquals(samples.length, 3);
+  assertEquals(
+    samples.every((s) => s.source === 'agentdojo-benign'),
+    true,
+  );
 });
 
 // ── scoring ──────────────────────────────────────────────────────────────────

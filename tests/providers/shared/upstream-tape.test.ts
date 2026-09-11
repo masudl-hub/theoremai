@@ -139,9 +139,13 @@ Deno.test('runTurn traces wire, usage, and every Interactions SSE row', async ()
   const events = await collect(
     runTurn({ profile: 'chat', input: { text: 'hi' } }, provider, memorySink(into)),
   );
+  // `chat` is a text profile that leaves `turnBehaviour.allowSteering` at its
+  // default, so the runner opens step 1 with a `pre_llm` steer barrier even when
+  // the turn passes no `onSteer` handler (see applySteerBarrier in
+  // src/kernel/engine/runner/steps.ts).
   assertEquals(
     events.map((event) => event.type),
-    ['text', 'tokens', 'error', 'done'],
+    ['barrier', 'text', 'tokens', 'error', 'done'],
   );
   const [row] = into;
   if (!row) {

@@ -6,7 +6,13 @@
 
 import { TheorumError } from '../../guardrails/error.ts';
 import { MEDIA_INPUT_KINDS } from '../schema.ts';
-import type { MediaInputKind, ModelBinding, ModelId, Profile, ThinkingLevel } from '../types.ts';
+import type {
+  MediaInputKind,
+  ModelBinding,
+  ModelId,
+  ModelProfile,
+  ThinkingLevel,
+} from '../types.ts';
 
 function mimeEssence(mime: string): string {
   const [base] = mime.split(';');
@@ -29,7 +35,7 @@ function mediaKindForMime(mime: string): MediaInputKind | undefined {
 }
 
 /** Require a host-declared model binding for a profile model id. */
-function requireModelBinding(profile: Profile, modelId: ModelId): ModelBinding {
+function requireModelBinding(profile: ModelProfile, modelId: ModelId): ModelBinding {
   const binding = profile.models[modelId];
   if (!binding) {
     throw new TheorumError(`Profile ${profile.id} has no model binding for '${modelId}'`);

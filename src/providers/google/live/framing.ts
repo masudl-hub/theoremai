@@ -6,9 +6,12 @@
  * @module
  */
 
+import { TheorumError } from '../../../guardrails/error.ts';
 import { groundingFromEvent } from '../../../kernel/engine/delta.ts';
+import { isMediaRefPart } from '../../../kernel/interaction-parts.ts';
 import { getTool } from '../../../kernel/tools/registry.ts';
 import type {
+  InteractionMediaPart,
   InteractionPart,
   LiveVadSpec,
   ProviderCompleteRequest,
@@ -180,6 +183,19 @@ export function buildGeminiLiveSetupMessage(req: ProviderCompleteRequest): Recor
   return { setup };
 }
 
+/** Live carries inline bytes only — provider file references are rejected until support is verified. */
+function inlineMediaPart(part: Exclude<InteractionPart, { type: 'text' }>): InteractionMediaPart {
+  if (isMediaRefPart(part)) {
+    throw new TheorumError('media references are not supported on geminiLive');
+  }
+  return part;
+}
+
+function inlineData(part: Exclude<InteractionPart, { type: 'text' }>): Record<string, string> {
+  const inline = inlineMediaPart(part);
+  return { mimeType: inline.mimeType, data: inline.data };
+}
+
 /** Format a single history message into a Google turn object. */
 function historyTurnToGoogleTurn(msg: TurnHistoryMessage): Record<string, unknown> {
   const role = msg.role === 'assistant' ? 'model' : 'user';
@@ -193,12 +209,7 @@ function historyTurnToGoogleTurn(msg: TurnHistoryMessage): Record<string, unknow
     if (part.type === 'text') {
       parts.push({ text: part.text });
     } else {
-      parts.push({
-        inlineData: {
-          mimeType: part.mimeType,
-          data: part.data,
-        },
-      });
+      parts.push({ inlineData: inlineData(part) });
     }
   }
 
@@ -221,14 +232,15 @@ export function buildGeminiLiveClientContent(
 }
 
 /** Build a `realtimeInput` message for streaming audio, video, or text chunks. */
-export function buildGeminiLiveRealtimeInput(part: InteractionPart): Record<string, unknown> {
-  if (part.type === 'text') {
+export function buildGeminiLiveRealtimeInput(input: InteractionPart): Record<string, unknown> {
+  if (input.type === 'text') {
     return {
       realtimeInput: {
-        text: part.text,
+        text: input.text,
       },
     };
   }
+  const part = inlineMediaPart(input);
 
   if (part.type === 'audio') {
     return {

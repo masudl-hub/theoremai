@@ -55,14 +55,23 @@ Deno.test('PROFILE_GRAPH ownsFields exist in PROFILE_FIELDS', () => {
   }
 });
 
-Deno.test('spineFacetsForProfileType includes identity, models, guardrails, observability', () => {
+Deno.test('spineFacetsForProfileType includes identity, guardrails, observability; models except host', () => {
   for (const type of PROFILE_TYPES) {
     const ids = spineFacetsForProfileType(type).map((f) => f.id);
     assertEquals(ids.includes('identity'), true);
-    assertEquals(ids.includes('models'), true);
+    assertEquals(ids.includes('models'), type !== 'host');
     assertEquals(ids.includes('guardrails'), true);
     assertEquals(ids.includes('observability'), true);
   }
+});
+
+Deno.test('host spine is tools, guardrails, observability under the identity root', () => {
+  const host = spineFacetsForProfileType('host').map((f) => f.id);
+  assertEquals(host, ['identity', 'tools', 'guardrails', 'observability']);
+  const toolSpec = PROFILE_GRAPH.find((f) => f.id === 'toolSpec');
+  assertEquals(toolSpec?.profileTypes.includes('host'), true);
+  const modelBinding = PROFILE_GRAPH.find((f) => f.id === 'modelBinding');
+  assertEquals(modelBinding?.profileTypes.includes('host'), false);
 });
 
 Deno.test('speech spine omits tools and inputs; live omits inputs and outputs', () => {
@@ -77,7 +86,9 @@ Deno.test('speech spine omits tools and inputs; live omits inputs and outputs', 
 });
 
 Deno.test('ALL covers PROFILE_TYPES exactly', () => {
-  const allFacets = PROFILE_GRAPH.filter((f) => f.id === 'identity' || f.id === 'models');
+  const allFacets = PROFILE_GRAPH.filter(
+    (f) => f.id === 'identity' || f.id === 'guardrails' || f.id === 'observability',
+  );
   for (const facet of allFacets) {
     const sortedFacetTypes = [...facet.profileTypes].sort();
     const sortedProfileTypes = [...PROFILE_TYPES].sort();

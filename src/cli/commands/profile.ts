@@ -1,7 +1,7 @@
 import { getProfile, listProfiles } from '../../kernel/registry/profiles.ts';
-import type { Profile } from '../../kernel/types.ts';
+import type { ModelProfile, Profile } from '../../kernel/types.ts';
 
-function formatProfileInputs(p: Profile): string {
+function formatProfileInputs(p: ModelProfile): string {
   if (p.type === 'speech') {
     return 'text (speech)';
   }
@@ -30,6 +30,12 @@ function formatProfileTools(p: Profile): string {
 
 function printProfileCard(p: Profile): void {
   const tools = formatProfileTools(p);
+  if (p.type === 'host') {
+    console.log(` • Profile: ${p.id.padEnd(16)} [host]`);
+    console.log(`   - Tools:      ${tools}`);
+    console.log('-'.repeat(70));
+    return;
+  }
   const models = Object.keys(p.models).join(', ') || 'default';
   const structured = p.type === 'live' || p.type === 'speech' ? undefined : p.outputs?.structured;
   const structuredLabel =

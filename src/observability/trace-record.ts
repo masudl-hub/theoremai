@@ -17,8 +17,14 @@ import {
 } from '../guardrails/sanitize.ts';
 import { sha256 } from '../kernel/engine/hash.ts';
 import type { Protocol } from '../kernel/schema.ts';
-import type { ResolvedGeneration, TurnBlob, TurnEvent, TurnRequest } from '../kernel/types.ts';
-import { resolveObservabilityPolicy } from './policy.ts';
+import type {
+  ResolvedGeneration,
+  TurnBlob,
+  TurnEvent,
+  TurnMediaRef,
+  TurnRequest,
+} from '../kernel/types.ts';
+import { resolveObservabilityPolicy } from './resolve-policy.ts';
 import { attachResolved, attachTape, attachUsage } from './trace-attach.ts';
 import { completedInteraction, stopKindFromEvents } from './trace-usage.ts';
 import type {
@@ -34,7 +40,10 @@ const TITLE_MAX = 80;
 /** Hash-only image reference stored in trace records. */
 export interface TraceImage {
   mimeType: string;
-  sha256: string;
+  /** Content hash for inline bytes; absent for a provider file reference. */
+  sha256?: string;
+  /** Provider file reference when the attachment was supplied by uri. */
+  uri?: string;
 }
 
 /** Trace-safe copy of a public turn event. */
@@ -119,15 +128,16 @@ interface TraceRecord {
   };
 }
 
-function hashBlobs(blobs: TurnBlob[] | undefined): Promise<TraceImage[]> {
+function hashBlobs(blobs: Array<TurnBlob | TurnMediaRef> | undefined): Promise<TraceImage[]> {
   if (!blobs) {
     return Promise.resolve([]);
   }
   return Promise.all(
-    blobs.map(async (blob) => ({
-      mimeType: blob.mimeType,
-      sha256: await sha256(blob.data),
-    })),
+    blobs.map(async (blob) =>
+      'uri' in blob
+        ? { mimeType: blob.mimeType, uri: blob.uri }
+        : { mimeType: blob.mimeType, sha256: await sha256(blob.data) },
+    ),
   );
 }
 

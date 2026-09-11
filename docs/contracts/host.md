@@ -4,6 +4,14 @@ Optional helpers for host applications. **Not** part of the turn kernel —
 import when you want shared reply/status glue, cutout-trace flushing, or live
 structured-output preview without reimplementing it per route.
 
+Host-driven tool execution (MCP servers, web UIs, schedulers) does not live
+here: register a `type: 'host'` profile (`HostProfileDefinition` — `tools.allow`
+ceiling, optional `guardrails` / `observability`, no models) and call
+`invokeTool({ profile, name, input, host })` from `theorum/kernel`. The `host`
+slot carries opaque application context to `handler` / `preflight` /
+`canExecute` and is never traced or sent to a provider. See
+`docs/contracts/kernel.md` (“Host profile” and “Host context slot”).
+
 ## Export
 
 | Field | Value |
@@ -80,6 +88,7 @@ only to turn event payloads.
 | --- | --- |
 | `flushMintTrace` | Flush pending cutout mint records after a turn |
 | `CutoutTape` | Tape type for mint/cutout correlation |
+| `TraceSink` (imported) | From `src/observability/trace-sink.ts`, the type-only sink contract |
 
 Use when your Deno HTTP host records mint/cutout telemetry alongside THEORUM
 turns. Skip entirely for non-HTTP or non-Deno hosts.

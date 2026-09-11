@@ -1,5 +1,6 @@
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
+import { INJ_IGNORE } from '../../src/guardrails/corpus/strings.ts';
 import { TheorumError } from '../../src/guardrails/error.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { runTurn } from '../../src/kernel/engine/runner.ts';
@@ -13,7 +14,10 @@ import {
   resolveTurnTools,
 } from '../../src/kernel/tools/resolve.ts';
 import { validateToolInputSchema } from '../../src/kernel/tools/schema.ts';
-import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
+import type { ToolContext, ToolLoadContext } from '../../src/kernel/tools/types.ts';
+import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
+import { memorySink } from '../../src/observability/trace.ts';
+import type { TraceRecord } from '../../src/observability/trace-record.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 import { invokeRegisteredTool } from '../fixtures/test-tools.ts';
 
@@ -1055,5 +1059,336 @@ Deno.test('validateToolInputSchema rejects Gemini-unsupported keys', () => {
         additionalProperties: false,
       }),
     TheorumError,
+  );
+});
+
+// ── T01 host context slot ──────────────────────────────────────────────
+
+/** Register a T1 probe that records the `host` it observes at every hook. */
+function registerHostProbe(name: string, seen: Array<{ hook: string; host: unknown }>): void {
+  registerTool({
+    type: 'function',
+    name,
+    description: 'Records ctx.host at every hook',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T1',
+    permission: 'auto',
+    input: z.object({ q: z.string().optional() }),
+    output: z.object({ finding: z.string() }),
+    canExecute: (_input, ctx: ToolContext) => {
+      seen.push({ hook: 'canExecute', host: ctx.host });
+      return true;
+    },
+    preflight: (_input, ctx: ToolContext) => {
+      seen.push({ hook: 'preflight', host: ctx.host });
+      return undefined;
+    },
+    handler: (_input, ctx: ToolContext) => {
+      seen.push({ hook: 'handler', host: ctx.host });
+      return { finding: 'observed' };
+    },
+  });
+}
+
+function hostProbeProvider(name: string, delayMs = 0): ModelProvider {
+  return {
+    async *complete() {
+      if (delayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+      yield { type: 'tool', tool: { name, arguments: { q: 'x' }, id: `${name}_call` } };
+    },
+  };
+}
+
+Deno.test('handler, preflight, canExecute and t1Policy observe the same host object for a turn', async () => {
+  const seen: Array<{ hook: string; host: unknown }> = [];
+  registerHostProbe('host_ctx_probe', seen);
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      id: 'host_ctx_bot',
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
+      tools: {
+        allow: ['host_ctx_probe'],
+        t1Policy: (ctx: ToolLoadContext) => {
+          seen.push({ hook: 't1Policy', host: ctx.host });
+          return ['host_ctx_probe'];
+        },
+      },
+      inputs: { text: true },
+      guardrails: { quota: { perDay: 10 } },
+    }),
+  );
+  const host = { db: Symbol('db'), user: 'u1' };
+  await collect(
+    runTurn(
+      { profile: 'host_ctx_bot', input: { text: 'x' }, host },
+      hostProbeProvider('host_ctx_probe'),
+    ),
+  );
+  assertEquals(
+    seen.map((s) => s.hook),
+    ['t1Policy', 'canExecute', 'preflight', 'handler'],
+  );
+  for (const entry of seen) {
+    assertEquals(entry.host === host, true);
+  }
+});
+
+Deno.test("concurrent runTurn calls never observe each other's host", async () => {
+  const seenA: Array<{ hook: string; host: unknown }> = [];
+  const seenB: Array<{ hook: string; host: unknown }> = [];
+  registerHostProbe('host_iso_probe_a', seenA);
+  registerHostProbe('host_iso_probe_b', seenB);
+  for (const [id, name] of [
+    ['host_iso_bot_a', 'host_iso_probe_a'],
+    ['host_iso_bot_b', 'host_iso_probe_b'],
+  ] as const) {
+    registerProfile(
+      defineProfile({
+        type: 'text',
+        identity: { handle: 'test', system: 'test' },
+        id,
+        ...geminiModels('gemini35FlashLite'),
+        maxSteps: 1,
+        tools: { allow: [name], t1Policy: () => [name] },
+        inputs: { text: true },
+        guardrails: { quota: { perDay: 10 } },
+      }),
+    );
+  }
+  const hostA = { tenant: 'A' };
+  const hostB = { tenant: 'B' };
+  await Promise.all([
+    collect(
+      runTurn(
+        { profile: 'host_iso_bot_a', input: { text: 'x' }, host: hostA },
+        hostProbeProvider('host_iso_probe_a', 15),
+      ),
+    ),
+    collect(
+      runTurn(
+        { profile: 'host_iso_bot_b', input: { text: 'x' }, host: hostB },
+        hostProbeProvider('host_iso_probe_b', 1),
+      ),
+    ),
+  ]);
+  assertEquals(seenA.length, 3);
+  assertEquals(seenB.length, 3);
+  assertEquals(
+    seenA.every((s) => s.host === hostA),
+    true,
+  );
+  assertEquals(
+    seenB.every((s) => s.host === hostB),
+    true,
+  );
+});
+
+Deno.test('invokeTool passes its own host to handler, preflight, canExecute and t1Policy', async () => {
+  const seen: Array<{ hook: string; host: unknown }> = [];
+  registerHostProbe('host_invoke_probe', seen);
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      id: 'host_invoke_bot',
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
+      tools: {
+        allow: ['host_invoke_probe'],
+        t1Policy: (ctx: ToolLoadContext) => {
+          seen.push({ hook: 't1Policy', host: ctx.host });
+          return ['host_invoke_probe'];
+        },
+      },
+      inputs: { text: true },
+      guardrails: { quota: { perDay: 10 } },
+    }),
+  );
+  const host = { invoked: true };
+  const events = await invokeRegisteredTool({
+    profile: 'host_invoke_bot',
+    name: 'host_invoke_probe',
+    input: { q: 'x' },
+    host,
+  });
+  assertEquals(
+    events.findLast((e) => e.tool?.name === 'host_invoke_probe')?.tool?.phase,
+    'complete',
+  );
+  assertEquals(
+    seen.map((s) => s.hook),
+    ['t1Policy', 'canExecute', 'preflight', 'handler'],
+  );
+  assertEquals(
+    seen.every((s) => s.host === host),
+    true,
+  );
+});
+
+Deno.test('host never appears in TurnEvents, trace records, pauses, pause input, or provider requests', async () => {
+  const sentinel = `HOST_SENTINEL_${crypto.randomUUID()}`;
+  const host = { sentinel, nested: { again: sentinel }, toString: () => sentinel };
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      id: 'host_sentinel_bot',
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 2,
+      tools: { allow: ['delete_resource', 'stub_tool'] },
+      inputs: { text: true },
+      guardrails: { quota: { perDay: 10 } },
+    }),
+  );
+  const providerRequests: ProviderCompleteRequest[] = [];
+  const provider: ModelProvider = {
+    async *complete(req) {
+      providerRequests.push(req);
+      if (providerRequests.length === 1) {
+        yield { type: 'tool', tool: { name: 'stub_tool', arguments: { value: 1 }, id: 'c0' } };
+        return;
+      }
+      yield { type: 'tool', tool: { name: 'delete_resource', arguments: { id: 'x' }, id: 'c1' } };
+    },
+  };
+  const records: TraceRecord[] = [];
+  const events = await collect(
+    runTurn(
+      { profile: 'host_sentinel_bot', input: { text: 'delete' }, host },
+      provider,
+      memorySink(records),
+    ),
+  );
+  const pause = events.find((e) => e.tool?.phase === 'pause')?.tool?.pause;
+  assertEquals(pause?.kind, 'permission');
+  assertEquals(JSON.stringify(pause).includes(sentinel), false);
+  assertEquals(JSON.stringify(pause?.input).includes(sentinel), false);
+  assertEquals(JSON.stringify(events).includes(sentinel), false);
+  assertEquals(records.length, 1);
+  assertEquals(JSON.stringify(records).includes(sentinel), false);
+  assertEquals(providerRequests.length, 2);
+  assertEquals(JSON.stringify(providerRequests).includes(sentinel), false);
+  assertEquals(
+    providerRequests.some((r) => 'host' in r),
+    false,
+  );
+
+  const invoked = await invokeRegisteredTool({
+    profile: 'host_sentinel_bot',
+    name: 'delete_resource',
+    input: { id: 'y' },
+    host,
+  });
+  assertEquals(JSON.stringify(invoked).includes(sentinel), false);
+});
+
+// ── T04 host profile ───────────────────────────────────────────────────
+
+Deno.test('invokeTool under a host profile executes a T2 tool without promotion and ignores path', async () => {
+  registerProfile({
+    type: 'host',
+    id: 'host_invoke_ceiling',
+    tools: { allow: ['record_lookup', 'web_only_tool', 'preflight_confirm_tool', 'stub_tool'] },
+  });
+  const t2 = await invokeRegisteredTool({
+    profile: 'host_invoke_ceiling',
+    name: 'record_lookup',
+    input: { q: 'ok' },
+  });
+  const t2Event = t2.findLast((e) => e.tool?.name === 'record_lookup');
+  assertEquals(t2Event?.tool?.phase, 'complete');
+  assertEquals(t2Event?.tool?.output, { finding: 'found ok' });
+  assertEquals(t2.at(-1)?.stop?.kind, 'completed');
+
+  // paths: ['web'] — not applied on host, even without a request path.
+  const pathless = await invokeRegisteredTool({
+    profile: 'host_invoke_ceiling',
+    name: 'web_only_tool',
+    input: {},
+  });
+  assertEquals(pathless.findLast((e) => e.tool?.name === 'web_only_tool')?.tool?.phase, 'complete');
+});
+
+Deno.test('invokeTool under a host profile rejects tools outside allow', async () => {
+  registerProfile({
+    type: 'host',
+    id: 'host_invoke_denied',
+    tools: { allow: ['stub_tool'] },
+  });
+  const events = await invokeRegisteredTool({
+    profile: 'host_invoke_denied',
+    name: 'record_lookup',
+    input: { q: 'x' },
+  });
+  const ev = events.findLast((e) => e.tool?.name === 'record_lookup');
+  assertEquals(ev?.tool?.phase, 'error');
+  assertEquals(ev?.tool?.failure?.code, 'not_allowed');
+  assertEquals(events.at(-1)?.stop?.kind, 'tool');
+});
+
+Deno.test('invokeTool under a host profile runs preflight and honours its pause', async () => {
+  registerProfile({
+    type: 'host',
+    id: 'host_invoke_preflight',
+    tools: { allow: ['preflight_confirm_tool'] },
+  });
+  const paused = await invokeRegisteredTool({
+    profile: 'host_invoke_preflight',
+    name: 'preflight_confirm_tool',
+    input: {},
+  });
+  const pause = paused.findLast((e) => e.tool?.name === 'preflight_confirm_tool');
+  assertEquals(pause?.tool?.phase, 'pause');
+  assertEquals(pause?.tool?.pause?.kind, 'confirmation');
+
+  const resumed = await invokeRegisteredTool({
+    profile: 'host_invoke_preflight',
+    name: 'preflight_confirm_tool',
+    input: {},
+    resume: { granted: true },
+  });
+  assertEquals(
+    resumed.findLast((e) => e.tool?.name === 'preflight_confirm_tool')?.tool?.phase,
+    'complete',
+  );
+});
+
+Deno.test('invokeTool under a host profile applies guardrails to tool output', async () => {
+  registerTool({
+    type: 'function',
+    name: 'host_injecting_tool',
+    description: 'Returns a directive in its finding',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    input: z.object({}),
+    output: z.object({ finding: z.string() }),
+    handler: () => ({ finding: `report: ${INJ_IGNORE}` }),
+  });
+  registerProfile({
+    type: 'host',
+    id: 'host_invoke_guarded',
+    tools: { allow: ['host_injecting_tool'] },
+  });
+  const events = await invokeRegisteredTool({
+    profile: 'host_invoke_guarded',
+    name: 'host_injecting_tool',
+    input: {},
+  });
+  const guardrail = events.find((e) => e.type === 'guardrail')?.guardrail;
+  assertEquals(guardrail?.stage, 'tool_result');
+  assertEquals(guardrail?.provenance?.tool, 'host_injecting_tool');
+  assertEquals(
+    events.findLast((e) => e.tool?.name === 'host_injecting_tool')?.tool?.phase,
+    'complete',
   );
 });

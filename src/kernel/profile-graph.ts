@@ -37,7 +37,10 @@ interface ProfileGraphFacetDef {
  * Mirrors PROFILE_TYPES — value import would cycle through schema re-exports.
  * Drift is gated by tests/kernel/profile-graph.test.ts.
  */
-const ALL: readonly ProfileType[] = ['text', 'image', 'speech', 'live'];
+const ALL: readonly ProfileType[] = ['text', 'image', 'speech', 'live', 'host'];
+
+/** Types that bind models — `host` never runs a model. */
+const MODEL_TYPES: readonly ProfileType[] = ['text', 'image', 'speech', 'live'];
 
 /**
  * Authoring-graph catalog. Adding a profile section? Add PROFILE_FIELDS and a row
@@ -60,7 +63,7 @@ const PROFILE_GRAPH_DEF = [
     id: 'models',
     profilePath: 'models',
     role: 'spine',
-    profileTypes: ALL,
+    profileTypes: MODEL_TYPES,
     optional: false,
     editor: 'structural',
     label: 'Models',
@@ -71,7 +74,7 @@ const PROFILE_GRAPH_DEF = [
     profilePath: 'models.*',
     role: 'branch',
     parent: 'models',
-    profileTypes: ALL,
+    profileTypes: MODEL_TYPES,
     optional: false,
     editor: 'structural',
     label: 'Model binding',
@@ -107,7 +110,7 @@ const PROFILE_GRAPH_DEF = [
     id: 'tools',
     profilePath: 'tools',
     role: 'spine',
-    profileTypes: ['text', 'image', 'live'],
+    profileTypes: ['text', 'image', 'live', 'host'],
     optional: false,
     editor: 'structural',
     label: 'Tools',
@@ -117,7 +120,7 @@ const PROFILE_GRAPH_DEF = [
     profilePath: 'tools.allow',
     role: 'branch',
     parent: 'tools',
-    profileTypes: ['text', 'image', 'live'],
+    profileTypes: ['text', 'image', 'live', 'host'],
     optional: true,
     editor: 'structural',
     label: 'Tool',

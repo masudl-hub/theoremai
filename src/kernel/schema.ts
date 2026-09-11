@@ -14,7 +14,7 @@ import { GOOGLE_SPEECH_VOICES } from '../presets/google/speech-voices.ts';
 export { EGRESS_ON_BLOCK, type EgressOnBlock };
 
 /** Primary profile archetype. Discriminated union key for `ProfileDefinition` and `Profile`. */
-export const PROFILE_TYPES = ['text', 'image', 'speech', 'live'] as const;
+export const PROFILE_TYPES = ['text', 'image', 'speech', 'live', 'host'] as const;
 export type ProfileType = (typeof PROFILE_TYPES)[number];
 
 /** Model reasoning effort level normalized across provider adapters. */
@@ -49,13 +49,15 @@ export const PROTOCOL_PROVIDERS = {
 
 /**
  * Legal wire protocols for each profile archetype.
- * 'live' profiles require 'geminiLive'; turn-based archetypes require turn protocols.
+ * 'live' profiles require 'geminiLive'; turn-based archetypes require turn protocols;
+ * 'host' never runs a model and binds no protocol.
  */
 export const PROFILE_TYPE_PROTOCOLS = {
   text: ['geminiInteractions', 'openAi'],
   image: ['geminiInteractions', 'openAi'],
   speech: ['geminiInteractions', 'openAi'],
   live: ['geminiLive'],
+  host: [],
 } as const satisfies Record<ProfileType, readonly Protocol[]>;
 
 export type ProfileTypeProtocol<T extends ProfileType> = (typeof PROFILE_TYPE_PROTOCOLS)[T][number];
@@ -187,13 +189,6 @@ export type TurnSteerBarrier = (typeof TURN_STEER_BARRIERS)[number];
 export const TOOL_LOAD_TIERS = ['T0', 'T1', 'T2'] as const;
 export type ToolLoadTier = (typeof TOOL_LOAD_TIERS)[number];
 
-/**
- * Load tiers valid on `type: 'live'` profiles.
- * Gemini Live (and similar) fix function declarations at session setup — T1/T2 cannot be added mid-session.
- */
-export const LIVE_TOOL_LOAD_TIERS = ['T0'] as const satisfies readonly ToolLoadTier[];
-export type LiveToolLoadTier = (typeof LIVE_TOOL_LOAD_TIERS)[number];
-
 /** HTTP verbs supported by declarative HTTP tools. */
 export const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
 export type HttpMethod = (typeof HTTP_METHODS)[number];
@@ -244,10 +239,13 @@ export const MEDIA_INPUT_KINDS: Record<string, MediaInputKind> = {
   'audio/webm': 'audio',
   'audio/mp4': 'audio',
   'audio/pcm': 'audio',
+  'audio/m4a': 'audio',
+  'audio/opus': 'audio',
   'video/mp4': 'video',
   'video/mpeg': 'video',
   'video/quicktime': 'video',
   'video/x-msvideo': 'video',
+  'video/avi': 'video',
   'video/x-flv': 'video',
   'video/mpg': 'video',
   'video/webm': 'video',
@@ -383,7 +381,10 @@ export function catalogPathFor(keys: readonly string[]): string {
  */
 export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   id: field('string', 'Host-owned profile identifier.'),
-  type: field("'text' | 'image' | 'speech' | 'live'", 'Required profile archetype.'),
+  type: field(
+    "'text' | 'image' | 'speech' | 'live' | 'host'",
+    'Required profile archetype. host = tool-execution ceiling for invokeTool; never runs a model.',
+  ),
   identity: field(
     '{ handle, system?, systemByRole? }',
     'Display handle and system instruction the model receives each turn.',
@@ -507,11 +508,11 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   ),
   tools: field(
     '{ allow: ToolId[]; t1Policy?; t2Loader? }',
-    'Custom tools (allow), optional T1 policy, optional T2 loader function id. Builtins belong on models.*.builtInTools. Live profiles use LiveProfileToolsSpec `{ allow }` only — T0 tools fixed at session setup.',
+    'Custom tools (allow), optional T1 policy, optional T2 loader function id. Builtins belong on models.*.builtInTools. Live and host profiles use `{ allow }` only — live wires every allowed tool at session setup; host executes every allowed tool.',
   ),
   'tools.allow': field(
     'ToolId[]',
-    'Custom tools the agent may call. Builtins are declared per model, not here. On type live, every listed id must be loadTier T0.',
+    'Custom tools the agent may call. Builtins are declared per model, not here. On type live every listed id is wired at session setup regardless of loadTier; on type host every listed id is executable.',
   ),
   'tools.t1Policy': field(
     '(ctx) => ToolId[] | Promise<ToolId[]>',
@@ -955,12 +956,12 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   }),
   loadTier: field(
     unionType(TOOL_LOAD_TIERS),
-    'When this tool is wired to the model (profile allow / builtInTools is still required). Live sessions accept T0 only.',
+    'When this tool is wired to the model (profile allow / builtInTools is still required). Live sessions wire every allowed tool at setup; host profiles execute every allowed tool.',
     TOOL_LOAD_TIERS,
     {
-      T0: 'Wired at turn/session start when allowed (custom on allow / builtin on the model). Required for type live.',
-      T1: 'Wired when profile.tools.t1Policy selects it (text/image turns only — not live).',
-      T2: 'Deferred until profile.tools.t2Loader returns { loaded } and the kernel promotes those ids (text/image turns only — not live).',
+      T0: 'Wired at turn/session start when allowed (custom on allow / builtin on the model).',
+      T1: 'Wired when profile.tools.t1Policy selects it (text/image turns; live wires it at setup).',
+      T2: 'Deferred until profile.tools.t2Loader returns { loaded } and the kernel promotes those ids (text/image turns; live wires it at setup).',
     },
   ),
   permission: field(

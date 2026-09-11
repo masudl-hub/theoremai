@@ -23,7 +23,7 @@ import {
   processLiveOutboundBatch,
 } from '../../../guardrails/live-outbound-gate.ts';
 import { sanitizeTurnRequest } from '../../../guardrails/sanitize.ts';
-import { resolveObservabilityPolicy } from '../../../observability/policy.ts';
+import { resolveObservabilityPolicy } from '../../../observability/resolve-policy.ts';
 import type { GeminiTransport } from '../../../providers/google/keys.ts';
 import {
   buildGeminiLiveRealtimeInput,
@@ -33,9 +33,12 @@ import {
 } from '../../../providers/google/live/framing.ts';
 import { openGoogleLiveSession } from '../../../providers/google/live/session.ts';
 import { providerCompleteRequest } from '../../registry/provider-request.ts';
-import { pickSystemRole, resolveTurn } from '../../registry/resolve.ts';
+import { resolveTurn } from '../../registry/resolve.ts';
+import { cloneTurnToolSnapshot } from '../../tools/resolve.ts';
+import type { TurnToolSnapshot } from '../../tools/types.ts';
 import type {
   InteractionPart,
+  LiveProfile,
   LiveSession,
   Profile,
   ProviderCompleteRequest,
@@ -46,7 +49,6 @@ import type {
 } from '../../types.ts';
 import { prepareLiveInboundText } from '../live-inbound.ts';
 import { assertLiveIngress } from '../live-ingress.ts';
-import { systemFromProfile } from '../runner/stream.ts';
 
 export type { LiveSession, SessionRequest };
 
@@ -56,12 +58,37 @@ export interface RunSessionOptions {
   openWebSocket?: (url: string) => Promise<WebSocket>;
 }
 
-function assertLiveProfile(profile: Profile): void {
+function assertLiveProfile(profile: Profile): asserts profile is LiveProfile {
   if (profile.type !== 'live') {
     throw new TheorumError(
       `runSession requires profile.type 'live' (got '${profile.type}' for ${profile.id})`,
     );
   }
+}
+
+/**
+ * Accept a registry-resolved snapshot from the process that owns the tool
+ * registry. The profile's `tools.allow` stays the ceiling: a custom tool id
+ * outside it is refused rather than declared.
+ */
+function sessionSnapshotWithinAllow(
+  profile: LiveProfile,
+  snapshot: TurnToolSnapshot,
+): TurnToolSnapshot {
+  const allow = new Set<string>(profile.tools.allow);
+  const builtins = new Set<string>(snapshot.builtins);
+  const outside = new Set<string>();
+  for (const id of [...snapshot.gated, ...snapshot.visible, ...snapshot.executable]) {
+    if (!allow.has(id) && !builtins.has(id)) {
+      outside.add(id);
+    }
+  }
+  if (outside.size > 0) {
+    throw new TheorumError(
+      `Profile ${profile.id}: session snapshot declares tools outside tools.allow: ${[...outside].join(', ')}`,
+    );
+  }
+  return cloneTurnToolSnapshot(snapshot);
 }
 
 function toTurnRequest(req: SessionRequest): TurnRequest {
@@ -280,17 +307,17 @@ export async function runSession(
   const { profile, generation: gen0 } = resolveTurn(safe);
   assertLiveProfile(profile);
 
+  if (req.snapshot) {
+    gen0.tools = sessionSnapshotWithinAllow(profile, req.snapshot);
+  }
   gen0.builtins = gen0.tools.builtins;
 
   let generation = applyVoiceOverride(gen0, req.voice);
   generation = applyInitialInput(generation, req.input);
 
-  const role = pickSystemRole(profile, safe.input?.role);
-  const combinedSys = [systemFromProfile(profile, role), safe.system].filter(Boolean).join('\n\n');
-  const system = bindCanary(combinedSys, generation.canary);
+  const system = bindCanary(generation.resolvedSystem, generation.canary);
   const completeReq: ProviderCompleteRequest = {
     ...providerCompleteRequest(generation, system),
-    ...(req.wireTools ? { wireTools: req.wireTools } : {}),
     signal: safe.signal,
   };
 

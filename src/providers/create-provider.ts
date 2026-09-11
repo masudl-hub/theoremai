@@ -11,6 +11,7 @@
  */
 
 import { TheorumError } from '../guardrails/error.ts';
+import { requireModelProfile } from '../kernel/registry/resolve.ts';
 import { isValidPair } from '../kernel/schema.ts';
 import type {
   ModelBinding,
@@ -51,7 +52,8 @@ function soleModelId(models: Record<ModelId, ModelBinding>): ModelId | undefined
   return ids.length === 1 ? ids[0] : undefined;
 }
 
-function bindingForProvider(profile: Profile, modelId?: ModelId): ModelBinding {
+function bindingForProvider(input: Profile, modelId?: ModelId): ModelBinding {
+  const profile = requireModelProfile(input, 'createProvider');
   const id = modelId ?? profile.defaultModel ?? soleModelId(profile.models);
   if (!id) {
     throw new TheorumError(

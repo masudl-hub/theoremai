@@ -16,12 +16,14 @@ import type {
   MediaInputKind,
   ModelBinding,
   ModelId,
+  ModelProfile,
   Profile,
   ProfileImageSpec,
   TurnBlob,
+  TurnMediaRef,
   TurnRequest,
 } from '../types.ts';
-import { assertAttachmentLimits, requireMediaLimits } from './attachments.ts';
+import { assertAttachmentLimits, isTurnMediaRef, requireMediaLimits } from './attachments.ts';
 import { mediaKindForMime, mimeAllowed, mimeEssence } from './catalog.ts';
 import { getStructured } from './schemas.ts';
 
@@ -76,7 +78,7 @@ function assertImagePins(profile: Profile): ProfileImageSpec {
   return profile.image;
 }
 
-function defaultBinding(profile: Profile): ModelBinding | undefined {
+function defaultBinding(profile: ModelProfile): ModelBinding | undefined {
   const ids = Object.keys(profile.models);
   const id = profile.defaultModel ?? (ids.length === 1 ? ids[0] : undefined);
   return id ? profile.models[id] : undefined;
@@ -119,16 +121,21 @@ function assertMediaMime(mime: string): MediaInputKind {
 }
 
 function profileInputs(profile: Profile) {
-  if (profile.type === 'speech' || profile.type === 'live') {
+  if (profile.type === 'speech' || profile.type === 'live' || profile.type === 'host') {
     return undefined;
   }
   return profile.inputs;
 }
 
+/**
+ * Normalize accepted attachments into provider parts. Inline blobs and
+ * references share MIME acceptance and kind resolution; references carry the
+ * uri through untouched (no base64, no byte limits — the host owns the upload).
+ */
 function mediaParts(
   profile: Profile,
   model: ModelId,
-  blobs: TurnBlob[],
+  blobs: Array<TurnBlob | TurnMediaRef>,
   channel: 'attachments' | 'voice',
 ): InteractionPart[] {
   const inputs = profileInputs(profile);
@@ -147,11 +154,11 @@ function mediaParts(
       throw new TheorumError(`MIME '${blob.mimeType}' is not accepted on ${profile.id}`);
     }
     const essence = mimeEssence(blob.mimeType);
-    return {
-      type: kind,
-      mimeType: essence === 'image/jpg' ? 'image/jpeg' : essence,
-      data: blob.data,
-    };
+    const mimeType = essence === 'image/jpg' ? 'image/jpeg' : essence;
+    if (isTurnMediaRef(blob)) {
+      return { type: kind, mimeType, uri: blob.uri };
+    }
+    return { type: kind, mimeType, data: blob.data };
   });
 }
 

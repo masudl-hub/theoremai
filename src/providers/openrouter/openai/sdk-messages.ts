@@ -8,21 +8,32 @@
  */
 
 import type { ModelMessage } from 'ai';
+import { TheorumError } from '../../../guardrails/error.ts';
+import { isMediaRefPart } from '../../../kernel/interaction-parts.ts';
 import type {
+  InteractionMediaPart,
   InteractionPart,
   ProviderCompleteRequest,
   TurnHistoryMessage,
 } from '../../../kernel/types.ts';
 import { fallbackToolCallId, parseToolInput } from './compat.ts';
 
+function inlineMediaPart(part: Exclude<InteractionPart, { type: 'text' }>): InteractionMediaPart {
+  if (isMediaRefPart(part)) {
+    throw new TheorumError('media references are not supported on openAi');
+  }
+  return part;
+}
+
 function stringDefault(value: string | undefined, fallback: string): string {
   return value === undefined ? fallback : value;
 }
 
-export function sdkPart(part: InteractionPart): Record<string, unknown> {
-  if (part.type === 'text') {
-    return { type: 'text', text: part.text };
+export function sdkPart(input: InteractionPart): Record<string, unknown> {
+  if (input.type === 'text') {
+    return { type: 'text', text: input.text };
   }
+  const part = inlineMediaPart(input);
   if (part.type === 'image') {
     return {
       type: 'image',
@@ -56,15 +67,35 @@ export function sdkContentFromOptionalParts(
 
 export function toolResultMessage(msg: TurnHistoryMessage): ModelMessage {
   const toolName = stringDefault(msg.name, 'tool');
+  const toolCallId = stringDefault(msg.tool_call_id, fallbackToolCallId(msg.name));
+  const output =
+    msg.parts && msg.parts.length > 0
+      ? {
+          type: 'content' as const,
+          value: msg.parts.map((input) => {
+            if (input.type === 'text') {
+              return { type: 'text' as const, text: input.text };
+            }
+            // image / audio / video / document — AI SDK tool-result file parts
+            const part = inlineMediaPart(input);
+            return {
+              type: 'file' as const,
+              mediaType: part.mimeType,
+              data: { type: 'data' as const, data: part.data },
+            };
+          }),
+        }
+      : { type: 'text' as const, value: stringDefault(msg.content, '') };
+
   // AI SDK ToolModelMessage is a branded union; structural tool-result is correct at runtime.
   return {
     role: 'tool',
     content: [
       {
         type: 'tool-result',
-        toolCallId: stringDefault(msg.tool_call_id, fallbackToolCallId(msg.name)),
+        toolCallId,
         toolName,
-        output: { type: 'text', value: stringDefault(msg.content, '') },
+        output,
       },
     ],
   } as ModelMessage;

@@ -10,10 +10,10 @@
 
 import { resolveGuardrailPolicy } from '../guardrails/policy.ts';
 import type { ProfileGuardrailsSpec } from '../guardrails/types.ts';
-import { projectProfileObject } from '../kernel/registry/resolve.ts';
+import { projectProfileObject, requireModelProfile } from '../kernel/registry/resolve.ts';
 import { profileAllowsSteering } from '../kernel/stop.ts';
-import type { LiveProfile, Profile, ProjectedProfile } from '../kernel/types.ts';
-import { resolveObservabilityPolicy } from '../observability/policy.ts';
+import type { LiveProfile, ModelProfile, Profile, ProjectedProfile } from '../kernel/types.ts';
+import { resolveObservabilityPolicy } from '../observability/resolve-policy.ts';
 import type { ProfileObservabilitySpec } from '../observability/types.ts';
 import { inputsFromSpec } from './inputs.ts';
 import type {
@@ -80,7 +80,7 @@ function observabilityView(
   };
 }
 
-function toolsResolved(projected: ProjectedProfile, profile?: Profile): ResolvedTools {
+function toolsResolved(projected: ProjectedProfile, profile?: ModelProfile): ResolvedTools {
   if (projected.type === 'speech') {
     return { allow: [], resolved: [] };
   }
@@ -103,7 +103,7 @@ function toolsResolved(projected: ProjectedProfile, profile?: Profile): Resolved
   return { allow, resolved: projected.tools };
 }
 
-function enrich(projected: ProjectedProfile, profile?: Profile): ProfileInterface {
+function enrich(projected: ProjectedProfile, profile?: ModelProfile): ProfileInterface {
   const inputs = inputsFromSpec(projected.type, projected.inputs);
   const identity = profile?.identity ?? { handle: projected.handle };
   const guardrails = profile ? guardrailsView(profile.guardrails) : undefined;
@@ -167,10 +167,12 @@ function enrich(projected: ProjectedProfile, profile?: Profile): ProfileInterfac
 }
 
 function interfaceFrom(source: ProfileInterfaceSource): ProfileInterface {
-  if ('identity' in source) {
-    return enrich(projectProfileObject(source), source);
+  if ('handle' in source) {
+    return enrich(source);
   }
-  return enrich(source);
+  // Host profiles never run a model and have no composer surface.
+  const profile = requireModelProfile(source, 'interfaceFromProfile');
+  return enrich(projectProfileObject(profile), profile);
 }
 
 function interfaceFromProfile(profile: LiveProfile): LiveProfileInterface;

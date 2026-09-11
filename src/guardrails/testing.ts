@@ -6,12 +6,6 @@
  * @module
  */
 
-export type { CorpusSample, CorpusSource } from './eval/corpus.ts';
-export { createCorpusCache, parseLabelledCsv, recordsFromYaml, SOURCES } from './eval/corpus.ts';
-export type { EvalOptions, EvalReport } from './eval/mod.ts';
-export { DETECTORS, formatReport, runGuardrailEval } from './eval/mod.ts';
-export type { DetectorScore, EvalDetector } from './eval/score.ts';
-export { formatScores, scoreAll, scoreDetector } from './eval/score.ts';
 export type {
   CanaryEgressAttack,
   CanaryEgressCatalogEntry,
@@ -30,3 +24,9 @@ export {
   runInboundGuardrailFuzz,
   summarizeAttackBank,
 } from './corpus/mod.ts';
+export type { CorpusSample, CorpusSource } from './eval/corpus.ts';
+export { createCorpusCache, parseLabelledCsv, recordsFromYaml, SOURCES } from './eval/corpus.ts';
+export type { EvalOptions, EvalReport } from './eval/mod.ts';
+export { DETECTORS, formatReport, runGuardrailEval } from './eval/mod.ts';
+export type { DetectorScore, EvalDetector } from './eval/score.ts';
+export { formatScores, scoreAll, scoreDetector } from './eval/score.ts';

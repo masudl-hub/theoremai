@@ -8,7 +8,7 @@
  * @module
  */
 
-import type { ModelId, Profile, TurnBlob, TurnRequest } from '../../kernel/types.ts';
+import type { ModelId, ModelProfile, TurnBlob, TurnRequest } from '../../kernel/types.ts';
 import { FIXTURE_PNG_BASE64, FIXTURE_WAV_BASE64, getFixtureForMime } from './fixtures.ts';
 
 export interface MatrixOptions {
@@ -22,12 +22,12 @@ export interface MatrixOptions {
   voicePath?: string;
 }
 
-function defaultModelId(profile: Profile): ModelId {
+function defaultModelId(profile: ModelProfile): ModelId {
   const ids = Object.keys(profile.models);
   return profile.defaultModel ?? ids[0] ?? '';
 }
 
-export function synthesizeLiteCombo(profile: Profile): TurnRequest {
+export function synthesizeLiteCombo(profile: ModelProfile): TurnRequest {
   const model = profile.allowModelSelect && profile.models.fast ? 'fast' : undefined;
   return {
     profile: profile.id,
@@ -38,7 +38,7 @@ export function synthesizeLiteCombo(profile: Profile): TurnRequest {
   };
 }
 
-function resolveStressModel(profile: Profile): string | undefined {
+function resolveStressModel(profile: ModelProfile): string | undefined {
   if (!profile.allowModelSelect) {
     return undefined;
   }
@@ -49,7 +49,7 @@ function resolveStressModel(profile: Profile): string | undefined {
   return ids.length > 1 ? ids[ids.length - 1] : undefined;
 }
 
-function resolveStressAttachments(profile: Profile): TurnBlob[] {
+function resolveStressAttachments(profile: ModelProfile): TurnBlob[] {
   if (profile.type === 'speech' || profile.type === 'live' || !profile.inputs) {
     return [];
   }
@@ -68,7 +68,7 @@ function resolveStressAttachments(profile: Profile): TurnBlob[] {
   return attachments;
 }
 
-function resolveStressVoice(profile: Profile): TurnBlob[] {
+function resolveStressVoice(profile: ModelProfile): TurnBlob[] {
   if (profile.type === 'speech' || profile.type === 'live' || !profile.inputs) {
     return [];
   }
@@ -79,7 +79,7 @@ function resolveStressVoice(profile: Profile): TurnBlob[] {
   return voice;
 }
 
-export function synthesizeStressCombo(profile: Profile): TurnRequest {
+export function synthesizeStressCombo(profile: ModelProfile): TurnRequest {
   const model = resolveStressModel(profile);
   const attachments = resolveStressAttachments(profile);
   const voice = resolveStressVoice(profile);
@@ -97,7 +97,7 @@ export function synthesizeStressCombo(profile: Profile): TurnRequest {
 }
 
 export function synthesizeMatrixCombos(
-  profile: Profile,
+  profile: ModelProfile,
 ): Array<{ name: string; req: TurnRequest }> {
   return [
     {
@@ -112,7 +112,7 @@ export function synthesizeMatrixCombos(
 }
 
 /** Ensure CLI grounding flags match model builtInTools. */
-function assertGroundingFlagsOnModel(profile: Profile, options: MatrixOptions): void {
+function assertGroundingFlagsOnModel(profile: ModelProfile, options: MatrixOptions): void {
   const modelId =
     options.mode && profile.models[options.mode] ? options.mode : defaultModelId(profile);
   const builtins = new Set(profile.models[modelId]?.builtInTools ?? []);
@@ -124,7 +124,7 @@ function assertGroundingFlagsOnModel(profile: Profile, options: MatrixOptions): 
   }
 }
 
-export function buildCustomTurnRequest(profile: Profile, options: MatrixOptions): TurnRequest {
+export function buildCustomTurnRequest(profile: ModelProfile, options: MatrixOptions): TurnRequest {
   if (options.lite) {
     return synthesizeLiteCombo(profile);
   }

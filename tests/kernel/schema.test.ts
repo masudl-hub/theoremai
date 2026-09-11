@@ -10,7 +10,6 @@ import {
   isValidPair,
   isValidProfileProtocol,
   KEY_SLOTS,
-  LIVE_TOOL_LOAD_TIERS,
   MEDIA_INPUT_KIND_VALUES,
   MEDIA_INPUT_KINDS,
   OVERFLOW_KEY_SLOTS,
@@ -44,7 +43,8 @@ Deno.test('PROFILE_TYPE_PROTOCOLS covers every archetype and only known protocol
   assertEquals([...PROFILE_TYPES].sort().join(), Object.keys(PROFILE_TYPE_PROTOCOLS).sort().join());
   for (const type of PROFILE_TYPES) {
     const allowed = PROFILE_TYPE_PROTOCOLS[type];
-    assertEquals(allowed.length > 0, true);
+    // host never runs a model, so it is the one archetype with no protocol.
+    assertEquals(allowed.length > 0, type !== 'host');
     for (const protocol of allowed) {
       assertEquals(PROTOCOLS.includes(protocol), true);
       assertEquals(isValidProfileProtocol(type, protocol), true);
@@ -207,9 +207,13 @@ Deno.test('EXTRA_FIELDS covers registerTool keys shown in profile docs', () => {
   assertEquals(fieldMeta('type')?.doc?.includes('archetype'), true);
 });
 
-Deno.test('LIVE_TOOL_LOAD_TIERS is T0-only', () => {
-  assertEquals(LIVE_TOOL_LOAD_TIERS, ['T0']);
-  assertEquals(fieldMeta('loadTier')?.doc?.includes('Live sessions accept T0 only'), true);
+Deno.test('live wires every load tier; host is a model-less profile type', () => {
+  assertEquals(PROFILE_TYPES.includes('host'), true);
+  assertEquals(PROFILE_TYPE_PROTOCOLS.host, []);
+  assertEquals(protocolsForProfileType('host'), []);
+  assertEquals(isValidProfileProtocol('host', 'geminiInteractions'), false);
+  assertEquals(fieldMeta('loadTier')?.doc?.includes('wire every allowed tool'), true);
   assertEquals(fieldMeta('tools.t1Policy')?.doc?.includes('Not supported on type live'), true);
   assertEquals(fieldMeta('tools.t2Loader')?.doc?.includes('Not supported on type live'), true);
+  assertEquals(fieldMeta('type')?.doc?.includes('host'), true);
 });

@@ -328,14 +328,18 @@ const promptDataset: CorpusSource = {
   upstreamRows: 11089,
   async load(cache, limit) {
     const raw = await cache.fetchText(PROMPT_DATASET_URL, 'prompt-dataset.csv');
-    return parseLabelledCsv(raw).map((row) => ({
-      text: row.text,
-      attack: row.label === 1,
-      source: 'prompt-injection-prompts',
-      // The dataset does not sub-label its benign half; treat it as one category
-      // rather than inventing a taxonomy it does not carry.
-      category: row.label === 1 ? 'attack' : 'user-prompt',
-    }));
+    // The CSV is one file, so the sample cap is applied after parsing: the report
+    // must describe the rows actually scored, not the rows in the file.
+    return parseLabelledCsv(raw)
+      .slice(0, limit)
+      .map((row) => ({
+        text: row.text,
+        attack: row.label === 1,
+        source: 'prompt-injection-prompts',
+        // The dataset does not sub-label its benign half; treat it as one category
+        // rather than inventing a taxonomy it does not carry.
+        category: row.label === 1 ? 'attack' : 'user-prompt',
+      }));
   },
 };
 
@@ -346,7 +350,7 @@ const promptDataset: CorpusSource = {
  * addresses, ids, and amounts that a real tool result carries, and a detector
  * measured against that thinner text scores better than it deserves.
  */
-function recordsFromYaml(yaml: string, category: string): string[] {
+function recordsFromYaml(yaml: string): string[] {
   const blocks = yaml.split(/\n\s*- (?=\w+[_a-z]*:)/).slice(1);
   const out: string[] = [];
   for (const block of blocks) {
@@ -400,7 +404,7 @@ const agentDojo: CorpusSource = {
         // A suite that moved upstream should not fail the whole run.
         continue;
       }
-      for (const text of recordsFromYaml(raw, fixture.category)) {
+      for (const text of recordsFromYaml(raw)) {
         samples.push({
           text,
           attack: false,
@@ -409,7 +413,8 @@ const agentDojo: CorpusSource = {
         });
       }
     }
-    return samples;
+    // Fixtures are fetched whole; the sample cap decides how many are scored.
+    return samples.slice(0, limit);
   },
 };
 
@@ -564,7 +569,7 @@ const agenticIpi: CorpusSource = {
     const rows = await fetchRows(
       cache,
       'nvidia/Nemotron-RL-Agentic-Indirect-Prompt-Injection-v1',
-      1300,
+      limit,
     );
     const out: CorpusSample[] = [];
     for (const row of rows) {

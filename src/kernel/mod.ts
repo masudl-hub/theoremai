@@ -29,6 +29,7 @@ export {
 export { runTurn } from './engine/runner.ts';
 export type { RunSessionOptions } from './engine/session/mod.ts';
 export { runSession } from './engine/session/mod.ts';
+export { isMediaRefPart, wireInteractionPart } from './interaction-parts.ts';
 export type {
   ProfileGraphEditor,
   ProfileGraphFacet,
@@ -50,6 +51,7 @@ export {
   requireModelBinding,
 } from './registry/catalog.ts';
 export type {
+  HostProfileDefinition,
   ImageProfileDefinition,
   LiveProfileDefinition,
   ProfileDefinition,
@@ -66,7 +68,12 @@ export {
   registerProfile,
   registerProfiles,
 } from './registry/profiles.ts';
-export { projectProfile, projectProfileObject, resolveTurn } from './registry/resolve.ts';
+export {
+  projectProfile,
+  projectProfileObject,
+  requireModelProfile,
+  resolveTurn,
+} from './registry/resolve.ts';
 export { getStructured, registerStructured } from './registry/schemas.ts';
 export type {
   AuthUnauthenticatedPolicy,
@@ -84,7 +91,6 @@ export {
   COMPACTION_METERS,
   COMPACTION_TIMINGS,
   CONTINUE_STOP_KINDS,
-  CONTINUE_STOP_KINDS,
   catalogPathFor,
   coerceProtocol,
   coerceProvider,
@@ -96,7 +102,6 @@ export {
   isValidPair,
   isValidProfileProtocol,
   KEY_SLOTS,
-  LIVE_TOOL_LOAD_TIERS,
   MEDIA_INPUT_KIND_VALUES,
   MEDIA_INPUT_KINDS,
   MEDIA_WILDCARDS,
@@ -151,6 +156,7 @@ export {
 } from './stop.ts';
 export type { McpProtocolVersion, McpRpcResponse } from './tools/mod.ts';
 export {
+  coerceToolResultParts,
   executeHttpTool,
   executeMcpTool,
   executeRegisteredTool,
@@ -159,12 +165,14 @@ export {
   hasTool,
   invokeTool,
   isUnsupportedMcpProtocolError,
+  leanToolResultData,
   listBuiltinIds,
   listFunctionIds,
   listTools,
   MCP_PROTOCOL_VERSIONS,
   parseMcpRpcResponse,
   prepareTurnToolSnapshot,
+  projectForModel,
   registerHarnessTools,
   registerTool,
   registerTools,

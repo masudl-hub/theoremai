@@ -1,11 +1,11 @@
 import {
-	abandonPausedToolSession,
+	abandonGatedToolSession,
 	appendToolDenialToHistory,
 	appendToolExchangeToHistory,
 	applyTurnEventsToSession,
 	type ComposerProfileInterface,
+	gatedToolFromEvents,
 	type InterfaceTurnSession,
-	pausedToolFromEvents,
 	type TranscriptBlock,
 } from 'theorum/interface';
 import type { ToolCredential } from 'theorum/kernel';
@@ -47,6 +47,10 @@ function turnFailureFromCaught(err: unknown, signal?: AbortSignal): TurnFailure 
 	return { ok: false, error: message };
 }
 
+function sessionHasGatedTool(session: InterfaceTurnSession): boolean {
+	return (session.gatedTool ?? session.pausedTool) !== null;
+}
+
 export async function streamInterfaceTurn(args: {
 	iface: ComposerProfileInterface;
 	payload: PlaygroundRunPayload;
@@ -68,8 +72,8 @@ export async function streamInterfaceTurn(args: {
 	  }
 	| { ok: false; error: string; errorInternal?: string; issues?: string[]; aborted?: boolean }
 > {
-	if (args.session.pausedTool) {
-		return { ok: false, error: 'Resolve the paused tool before sending a new message.' };
+	if (sessionHasGatedTool(args.session)) {
+		return { ok: false, error: 'Resolve the gated tool before sending a new message.' };
 	}
 
 	try {
@@ -153,8 +157,8 @@ export async function streamInterfaceDraftTurn(args: {
 	  }
 	| { ok: false; error: string; errorInternal?: string; issues?: string[]; aborted?: boolean }
 > {
-	if (args.session.pausedTool) {
-		return { ok: false, error: 'Resolve the paused tool before sending a new message.' };
+	if (sessionHasGatedTool(args.session)) {
+		return { ok: false, error: 'Resolve the gated tool before sending a new message.' };
 	}
 
 	try {
@@ -226,21 +230,24 @@ export async function resumeInterfaceTool(args: {
 	| { ok: true; session: InterfaceTurnSession; assistantBlocks: TranscriptBlock[] }
 	| TurnFailure
 > {
-	const paused = args.session.pausedTool;
-	if (!paused) {
-		return { ok: false, error: 'No paused tool to resume.' };
+	const gated = args.session.gatedTool ?? args.session.pausedTool;
+	if (!gated) {
+		return { ok: false, error: 'No gated tool to resume.' };
 	}
 
 	let session: InterfaceTurnSession = { ...args.session };
 
 	if (args.action === 'deny') {
 		const history = appendToolDenialToHistory(session.history, {
-			name: paused.name,
-			callId: paused.callId,
-			arguments: paused.arguments,
+			name: gated.name,
+			callId: gated.callId,
+			arguments: gated.arguments,
 		});
 		const seedEvents = session.assistantEvents.map((event) => {
-			if (event.type !== 'tool' || event.tool?.phase !== 'pause' || !event.tool.pause) {
+			const isGate =
+				(event.tool?.phase === 'gate' && event.tool.gate) ||
+				(event.tool?.phase === 'pause' && event.tool.pause);
+			if (event.type !== 'tool' || !isGate) {
 				return event;
 			}
 			return {
@@ -248,10 +255,11 @@ export async function resumeInterfaceTool(args: {
 				tool: {
 					...event.tool,
 					phase: 'error' as const,
+					gate: undefined,
 					pause: undefined,
 					failure: {
 						code: 'denied',
-						message: `User denied execution of '${paused.name}'.`,
+						message: `User denied execution of '${gated.name}'.`,
 					},
 				},
 			};
@@ -259,6 +267,7 @@ export async function resumeInterfaceTool(args: {
 		session = {
 			...session,
 			history,
+			gatedTool: null,
 			pausedTool: null,
 			assistantEvents: seedEvents,
 		};
@@ -267,9 +276,9 @@ export async function resumeInterfaceTool(args: {
 
 	const invokePermissions = applyToolDecisionToSessionPermissions(
 		session.sessionPermissions,
-		paused.name,
+		gated.name,
 		args.action,
-		paused.permission,
+		gated.permission,
 	);
 	let sessionPermissions = session.sessionPermissions;
 	if (args.action === 'allow_session') {
@@ -278,7 +287,7 @@ export async function resumeInterfaceTool(args: {
 
 	let resume: ReturnType<typeof buildInvokeToolResume>;
 	try {
-		resume = buildInvokeToolResume(paused.pauseKind, args.interactiveValue);
+		resume = buildInvokeToolResume(gated.gateKind);
 	} catch (err) {
 		return turnFailureFromCaught(err);
 	}
@@ -291,8 +300,8 @@ export async function resumeInterfaceTool(args: {
 			stream: (onEvent) =>
 				streamPlaygroundInvoke(
 					buildInvokeRequestBody(args.payload, session, {
-						name: paused.name,
-						input: paused.input,
+						name: gated.name,
+						input: gated.input,
 						resume,
 						sessionPermissions: invokePermissions,
 						credentials: args.credentials,
@@ -301,14 +310,16 @@ export async function resumeInterfaceTool(args: {
 				),
 		});
 
+		const nextGated = gatedToolFromEvents(invokeEvents);
 		session = {
 			...applyTurnEventsToSession(session, invokeEvents),
 			sessionPermissions,
 			assistantEvents: invokeEvents,
-			pausedTool: pausedToolFromEvents(invokeEvents),
+			gatedTool: nextGated,
+			pausedTool: nextGated,
 		};
 
-		if (session.pausedTool) {
+		if (sessionHasGatedTool(session)) {
 			return {
 				ok: true,
 				session,
@@ -319,7 +330,7 @@ export async function resumeInterfaceTool(args: {
 		const completedTool = invokeEvents.findLast(
 			(event) =>
 				event.type === 'tool' &&
-				event.tool?.name === paused.name &&
+				event.tool?.name === gated.name &&
 				event.tool.phase === 'complete' &&
 				event.tool.output !== undefined,
 		);
@@ -327,9 +338,9 @@ export async function resumeInterfaceTool(args: {
 			session = {
 				...session,
 				history: appendToolExchangeToHistory(session.history, {
-					name: paused.name,
-					callId: paused.callId,
-					arguments: paused.arguments,
+					name: gated.name,
+					callId: gated.callId,
+					arguments: gated.arguments,
 					output: completedTool.tool.output,
 				}),
 			};
@@ -350,7 +361,7 @@ export function applyTurnResultToTranscript(args: {
 }): { blocks: TranscriptBlock[]; streamBlocks: TranscriptBlock[]; session: InterfaceTurnSession } {
 	const session = args.session;
 	const prefix = args.userBlocks?.length ? [...args.blocks, ...args.userBlocks] : args.blocks;
-	if (session.pausedTool) {
+	if (sessionHasGatedTool(session)) {
 		return {
 			blocks: prefix,
 			streamBlocks: args.assistantBlocks,
@@ -365,9 +376,24 @@ export function applyTurnResultToTranscript(args: {
 }
 
 /**
- * Leave a tool pause without continuing the model — for send-now while paused.
+ * Leave a tool gate without continuing the model — for send-now while gated.
  * Commits cancelled tool state into session history + assistant transcript blocks.
  */
+export function abandonGatedInterfaceTool(args: {
+	iface: ComposerProfileInterface;
+	session: InterfaceTurnSession;
+}): {
+	session: InterfaceTurnSession;
+	assistantBlocks: TranscriptBlock[];
+} {
+	const { session, finalizedEvents } = abandonGatedToolSession(args.session);
+	return {
+		session,
+		assistantBlocks: foldAssistantTurn(args.iface, finalizedEvents),
+	};
+}
+
+/** @deprecated Use `abandonGatedInterfaceTool`. */
 export function abandonPausedInterfaceTool(args: {
 	iface: ComposerProfileInterface;
 	session: InterfaceTurnSession;
@@ -375,9 +401,5 @@ export function abandonPausedInterfaceTool(args: {
 	session: InterfaceTurnSession;
 	assistantBlocks: TranscriptBlock[];
 } {
-	const { session, finalizedEvents } = abandonPausedToolSession(args.session);
-	return {
-		session,
-		assistantBlocks: foldAssistantTurn(args.iface, finalizedEvents),
-	};
+	return abandonGatedInterfaceTool(args);
 }

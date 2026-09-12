@@ -18,7 +18,11 @@ export type TraceItem =
 export type ComposedAssistantTurn = {
 	/** Ordered reasoning / narration / tools for the disclosure. */
 	trace: TraceItem[];
-	/** Pause tools rendered as interactive cards outside the collapsed list. */
+	/** Gate tools rendered as interactive cards outside the collapsed list. */
+	gatedTools: Extract<TranscriptBlock, { kind: 'tool' }>[];
+	/**
+	 * @deprecated Alias of `gatedTools` for Slice 3 react rename.
+	 */
 	pausedTools: Extract<TranscriptBlock, { kind: 'tool' }>[];
 	/** Final answer segments (text / media / structured / grounding / evidence / error). */
 	body: TranscriptBlock[];
@@ -78,8 +82,9 @@ export function toolPhaseLabel(phase: string | undefined): string {
 			return 'done';
 		case 'error':
 			return 'error';
+		case 'gate':
 		case 'pause':
-			return 'paused';
+			return 'gated';
 		case 'running':
 		case 'progress':
 			return 'running';
@@ -124,8 +129,8 @@ export function workStatusLabel(args: {
  * Split an assistant turn into Seance-style trace + final body.
  *
  * - `thought` → always reasoning in the trace
- * - non-pause `tool` → tool item in the trace
- * - pause `tool` → interactive card outside the collapsed list
+ * - non-gate `tool` → tool item in the trace
+ * - gate `tool` → interactive card outside the collapsed list
  * - While streaming: all `text` → narration (final markdown hidden to avoid double)
  * - When done: `text` before/between tools → narration; trailing answer kinds → body
  * - No tools: thoughts still go to trace; remaining kinds → body
@@ -136,17 +141,24 @@ export function composeAssistantTurn(
 ): ComposedAssistantTurn {
 	const streaming = args.streaming === true;
 	const visible = blocks.filter((block) => !isHiddenTranscriptBlock(block));
-	const pausedTools = visible.filter(
+	const gatedTools = visible.filter(
 		(block): block is Extract<TranscriptBlock, { kind: 'tool' }> =>
-			block.kind === 'tool' && block.tool.phase === 'pause',
+			block.kind === 'tool' &&
+			((block.tool.phase === 'gate' && Boolean(block.tool.gate)) ||
+				(block.tool.phase === 'pause' && Boolean(block.tool.pause))),
 	);
-	const nonPause = visible.filter(
-		(block) => !(block.kind === 'tool' && block.tool.phase === 'pause'),
+	const nonGate = visible.filter(
+		(block) =>
+			!(
+				block.kind === 'tool' &&
+				((block.tool.phase === 'gate' && Boolean(block.tool.gate)) ||
+					(block.tool.phase === 'pause' && Boolean(block.tool.pause)))
+			),
 	);
 
 	const lastToolIndex = (() => {
-		for (let i = nonPause.length - 1; i >= 0; i -= 1) {
-			if (nonPause[i]?.kind === 'tool') return i;
+		for (let i = nonGate.length - 1; i >= 0; i -= 1) {
+			if (nonGate[i]?.kind === 'tool') return i;
 		}
 		return -1;
 	})();
@@ -155,7 +167,7 @@ export function composeAssistantTurn(
 	const trace: TraceItem[] = [];
 	const body: TranscriptBlock[] = [];
 
-	for (const [i, block] of nonPause.entries()) {
+	for (const [i, block] of nonGate.entries()) {
 		if (block.kind === 'thought') {
 			if (block.text.trim()) {
 				trace.push({ kind: 'reasoning', id: block.id, text: block.text });
@@ -197,7 +209,8 @@ export function composeAssistantTurn(
 
 	return {
 		trace,
-		pausedTools,
+		gatedTools,
+		pausedTools: gatedTools,
 		body,
 		hasTrace: trace.length > 0,
 	};

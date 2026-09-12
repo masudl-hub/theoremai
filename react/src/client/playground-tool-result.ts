@@ -1,19 +1,14 @@
 import type { TurnEvent } from 'theorum';
-import type { ToolPause } from 'theorum/kernel';
+import type { ToolGate } from 'theorum/kernel';
 
-const PAUSE_KINDS = new Set<ToolPause['kind']>([
-	'interactive',
-	'confirmation',
-	'permission',
-	'auth',
-]);
+const GATE_KINDS = new Set<ToolGate['kind']>(['confirmation', 'permission', 'auth']);
 
 export type PlaygroundLiveToolResult =
 	| { status: 'complete'; output: Record<string, unknown> }
 	| {
-			status: 'paused';
+			status: 'gated';
 			toolName: string;
-			pause: ToolPause;
+			gate: ToolGate;
 			input: Record<string, unknown>;
 	  };
 
@@ -21,9 +16,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function isToolPause(value: unknown): value is ToolPause {
+function isToolGate(value: unknown): value is ToolGate {
 	if (!isRecord(value)) return false;
-	if (typeof value.kind !== 'string' || !PAUSE_KINDS.has(value.kind as ToolPause['kind'])) {
+	if (typeof value.kind !== 'string' || !GATE_KINDS.has(value.kind as ToolGate['kind'])) {
 		return false;
 	}
 	return typeof value.tool === 'string';
@@ -44,11 +39,30 @@ export function toolInvokeResultFromEvents(
 		return { status: 'complete', output: { error: 'Tool execution produced no result' } };
 	}
 
-	if (tool.phase === 'pause' && tool.pause) {
+	if (tool.phase === 'gate' && tool.gate) {
 		return {
-			status: 'paused',
+			status: 'gated',
 			toolName: name,
-			pause: tool.pause,
+			gate: tool.gate,
+			input,
+		};
+	}
+
+	// Legacy pause wire during dual-API window
+	if (tool.phase === 'pause' && tool.pause) {
+		const pause = tool.pause;
+		const kind =
+			pause.kind === 'interactive' ? 'confirmation' : (pause.kind as ToolGate['kind']);
+		return {
+			status: 'gated',
+			toolName: name,
+			gate: {
+				kind,
+				tool: pause.tool,
+				permission: pause.permission,
+				summary: pause.summary,
+				authChallenge: pause.authChallenge,
+			},
 			input,
 		};
 	}
@@ -87,12 +101,16 @@ export function parsePlaygroundLiveToolResult(raw: unknown): PlaygroundLiveToolR
 			output: isRecord(raw.output) ? raw.output : { success: true },
 		};
 	}
-	if (raw.status === 'paused' && typeof raw.toolName === 'string' && isToolPause(raw.pause)) {
-		const pause = raw.pause;
+	if (
+		(raw.status === 'gated' || raw.status === 'paused') &&
+		typeof raw.toolName === 'string' &&
+		isToolGate(raw.gate ?? raw.pause)
+	) {
+		const gate = (raw.gate ?? raw.pause) as ToolGate;
 		return {
-			status: 'paused',
+			status: 'gated',
 			toolName: raw.toolName,
-			pause,
+			gate,
 			input: isRecord(raw.input) ? raw.input : {},
 		};
 	}

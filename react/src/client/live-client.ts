@@ -50,12 +50,7 @@ function emptyInboundTurnAccum(): InboundTurnAccum {
 const BARGE_IN_RMS_WHILE_SPEAKING = 0.05;
 
 export type LiveSessionStatus =
-	| 'disconnected'
-	| 'connecting'
-	| 'ready'
-	| 'listening'
-	| 'speaking'
-	| 'error';
+	'disconnected' | 'connecting' | 'ready' | 'listening' | 'speaking' | 'error';
 
 export type LiveConnectPhase = 'socket' | 'microphone';
 
@@ -74,7 +69,10 @@ export interface LiveClientOptions {
 	onToolCall?: (
 		name: string,
 		args: Record<string, unknown>,
+		meta: { callId: string },
 	) => Promise<Record<string, unknown>> | Record<string, unknown>;
+	/** Fired when the relay assigns a live session id (steer inbox key). */
+	onSessionReady?: (info: { sessionId?: string; profile?: string }) => void;
 	onVolumeLevel?: (level: number, isUser: boolean) => void;
 }
 
@@ -156,9 +154,21 @@ export class LiveSessionClient {
 	private audioChain: Promise<void> = Promise.resolve();
 	/** Bumped on barge-in / cancel so stale audioChain work is skipped. */
 	private audioEpoch = 0;
+	private sessionId: string | undefined;
+	private pendingExecuteResults = new Map<
+		string,
+		{
+			resolve: (value: Extract<LiveServerEnvelope, { type: 'executeToolResult' }>) => void;
+			reject: (reason: Error) => void;
+		}
+	>();
 
 	constructor(options: LiveClientOptions = {}) {
 		this.options = options;
+	}
+
+	getLiveSessionId(): string | undefined {
+		return this.sessionId;
 	}
 
 	private setStatus(newStatus: LiveSessionStatus): void {
@@ -311,7 +321,9 @@ export class LiveSessionClient {
 				this.options.onVolumeLevel?.(float32RmsToLevel(inputFloat32), true);
 			}
 
-			if (this.isMuted || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+			if (this.isMuted || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+				return;
+			}
 
 			const sampleRate = this.audioContext?.sampleRate ?? 48000;
 			const rms = float32Rms(inputFloat32);
@@ -411,11 +423,24 @@ export class LiveSessionClient {
 
 	private async tryHandleControlEnvelope(payload: LiveServerEnvelope): Promise<boolean> {
 		if (payload.type === 'ready') {
+			this.sessionId = payload.sessionId;
+			this.options.onSessionReady?.({
+				sessionId: payload.sessionId,
+				profile: payload.profile,
+			});
 			if (this.options.voiceIngress === false) {
 				this.setConnectPhase(null);
 				this.setStatus('listening');
 			} else {
 				await this.activateMicrophone();
+			}
+			return true;
+		}
+		if (payload.type === 'executeToolResult') {
+			const pending = this.pendingExecuteResults.get(payload.callId);
+			if (pending) {
+				this.pendingExecuteResults.delete(payload.callId);
+				pending.resolve(payload);
 			}
 			return true;
 		}
@@ -478,7 +503,10 @@ export class LiveSessionClient {
 	private collectMediaTurnEvent(event: TurnEvent, accum: InboundTurnAccum): void {
 		if (event.type !== 'media' || !event.media?.data) return;
 		this.setStatus('speaking');
-		accum.mediaChunks.push({ data: event.media.data, mimeType: event.media.mimeType });
+		accum.mediaChunks.push({
+			data: event.media.data,
+			mimeType: event.media.mimeType,
+		});
 	}
 
 	private collectToolTurnEvent(event: TurnEvent, accum: InboundTurnAccum): void {
@@ -525,29 +553,102 @@ export class LiveSessionClient {
 	}
 
 	private async handleToolExecutions(calls: LiveToolCall[]): Promise<void> {
-		const responses: Array<{ id: string; name: string; output: unknown }> = [];
-
 		for (const call of calls) {
-			let output: Record<string, unknown>;
-
 			if (call.error) {
-				output = { error: call.error };
-			} else if (this.options.onToolCall) {
-				try {
-					output = await this.options.onToolCall(call.name, call.arguments);
-				} catch (err) {
-					output = { error: (err as Error).message || 'Tool execution failed' };
+				// Escape hatch for pre-failed calls — still need an upstream response.
+				if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+					this.ws.send(
+						JSON.stringify({
+							type: 'toolResponses',
+							responses: [
+								{
+									id: call.id,
+									name: call.name,
+									output: { error: call.error },
+								},
+							],
+						}),
+					);
 				}
-			} else {
-				output = { success: true };
+				continue;
 			}
 
-			responses.push({ id: call.id, name: call.name, output });
-		}
+			if (this.options.onToolCall) {
+				// Host may run UI / credentials; then we prefer session.executeTool on the relay.
+				try {
+					await this.options.onToolCall(call.name, call.arguments, {
+						callId: call.id,
+					});
+				} catch (err) {
+					const message = (err as Error).message || 'Tool execution failed';
+					if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+						this.ws.send(
+							JSON.stringify({
+								type: 'toolResponses',
+								responses: [
+									{
+										id: call.id,
+										name: call.name,
+										output: { error: message },
+									},
+								],
+							}),
+						);
+					}
+				}
+				continue;
+			}
 
-		if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-			this.ws.send(JSON.stringify({ type: 'toolResponses', responses }));
+			// Default: run through LiveSession.executeTool on the relay (stages + upstream).
+			await this.executeToolOnRelay({
+				name: call.name,
+				callId: call.id || `call_${Date.now()}`,
+				input: call.arguments,
+			});
 		}
+	}
+
+	/**
+	 * Ask the relay to run `LiveSession.executeTool` (stages + upstream tool response).
+	 * Returns the settlement; when gated, the host must call again with resume.
+	 */
+	executeToolOnRelay(args: {
+		name: string;
+		callId: string;
+		input?: unknown;
+		resume?: { value?: unknown; granted?: boolean };
+		credentials?: Record<string, unknown>;
+	}): Promise<Extract<LiveServerEnvelope, { type: 'executeToolResult' }>> {
+		if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+			throw new Error('Live session is not connected');
+		}
+		const resultPromise = new Promise<Extract<LiveServerEnvelope, { type: 'executeToolResult' }>>(
+			(resolve, reject) => {
+				this.pendingExecuteResults.set(args.callId, { resolve, reject });
+			},
+		);
+		this.ws.send(
+			JSON.stringify({
+				type: 'executeTool',
+				name: args.name,
+				callId: args.callId,
+				input: args.input,
+				resume: args.resume,
+				credentials: args.credentials,
+			}),
+		);
+		return resultPromise;
+	}
+
+	/**
+	 * Escape hatch: send tool output upstream without `executeTool` stages.
+	 * Use after a UI deny (or similar) when the call was gated and never started.
+	 */
+	sendToolResponses(responses: Array<{ id: string; name: string; output: unknown }>): void {
+		if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+			throw new Error('Live session is not connected');
+		}
+		this.ws.send(JSON.stringify({ type: 'toolResponses', responses }));
 	}
 
 	private async enqueueAudioChunk(base64Data: string, mimeType?: string): Promise<void> {

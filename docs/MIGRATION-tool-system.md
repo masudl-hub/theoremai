@@ -15,7 +15,7 @@ Spec: `tmp/specs/tool-system.md` (working design notes — not published docs)
 | `TurnRequest.dynamicToolLoader` | `tools.t2Loader` function returning `{ loaded }` |
 | `TurnRequest.toolInvoke` | `invokeTool({ profile, name, input, … })` |
 | `executeTool(profile, name, args)` | Stream events via `runTurn` / `invokeTool` |
-| `ToolEnvelope` (`status` / `finding` / `data`) | `TurnEvent.tool.phase` (`complete`, `pause`, `error`, …) |
+| `ToolEnvelope` (`status` / `finding` / `data`) | `TurnEvent.tool.phase` (`complete`, `gate`, `error`, …) |
 | `askUser` catalog builtin | `ask_user` harness tool (`registerHarnessTools`) |
 | Per-turn `loadTier` / `permissionTier` on declarations | `loadTier` / `permission` on each registered tool |
 | Per-turn `dynamicToolLoader` (T2 schemas) | `tools.t2Loader` + `{ loaded }` |
@@ -130,7 +130,8 @@ Do **not** use `continueFrom` for tool gates — use `invokeTool`.
 | Old `ToolEnvelope` | New stream |
 | --- | --- |
 | `status: 'ok'` | `tool.phase: 'complete'` |
-| `status: 'pause'` | `tool.phase: 'pause'` (+ `pause.kind`) |
+| `status: 'pause'` (confirm / permission / auth) | `tool.phase: 'gate'` (+ `gate.kind`); resume via `invokeTool` / `executeTool` with `resume.granted` |
+| `status: 'pause'` (interactive / ask_user) | `tool.phase: 'complete'` with awaiting / `awaiting_user_input` — not a gate |
 | `status: 'error'` | `tool.phase: 'error'` (+ `failure.code`) |
 
 Model-facing results use `formatToolResult` internally; hosts

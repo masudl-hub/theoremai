@@ -39,10 +39,13 @@ import type { StageApplyWarning, StageHandler } from './stages.ts';
 import type {
   HostProfileToolsSpec,
   InvokeToolRequest,
+  InvokeToolResume,
   LiveProfileToolsSpec,
+  ModelToolResult,
   ProfileToolsSpec,
   RegisteredTool,
   ToolCallEvent,
+  ToolFailure,
   ToolGate,
   ToolLoadContext,
   ToolPolicy,
@@ -492,7 +495,7 @@ export interface ImageProfile extends ProfileCommon {
   image: ProfileImageSpec;
   tools: ProfileToolsSpec;
   inputs: ProfileInputsSpec;
-  /** Resume policy (`allowSteering` is ignored — text only). */
+  /** Resume policy (`allowSteering` is rejected — text/live only). */
   turnBehaviour?: ProfileTurnBehaviourSpec;
 }
 
@@ -500,7 +503,7 @@ export interface ImageProfile extends ProfileCommon {
 export interface SpeechProfile extends ProfileCommon {
   type: 'speech';
   speech: ProfileSpeechSpec;
-  /** Resume policy (`allowSteering` is ignored — text only). */
+  /** Resume policy (`allowSteering` is rejected — text/live only). */
   turnBehaviour?: ProfileTurnBehaviourSpec;
 }
 
@@ -509,6 +512,11 @@ export interface LiveProfile extends Omit<ProfileCommon, 'outputs'> {
   type: 'live';
   live: ProfileLiveSpec;
   tools: LiveProfileToolsSpec;
+  /**
+   * Stage inject gate only (`allowSteering`). Resumption is `live.sessionResumption`,
+   * not `turnBehaviour.resumption` (`docs/contracts/stages.md`).
+   */
+  turnBehaviour?: Pick<ProfileTurnBehaviourSpec, 'allowSteering'>;
 }
 
 /**
@@ -1017,9 +1025,13 @@ export interface SessionRequest {
   metadata?: Record<string, unknown>;
   /**
    * Session-lifetime stage handler (`docs/contracts/stages.md`). Immutable for
-   * the session; no `setOnStage`. Types frozen; live wiring is slice 3.
+   * the session; no `setOnStage`.
    */
   onStage?: StageHandler;
+  /** Default credentials for `executeTool` (per-call args override). */
+  credentials?: Record<string, ToolCredential>;
+  /** Opaque host slot for stages / tool execute (per-call args override). */
+  host?: unknown;
 }
 
 /**
@@ -1030,9 +1042,27 @@ export interface LiveSession {
   readonly profileId: ProfileId;
   readonly canary: string;
   events(): AsyncGenerator<TurnEvent, void, undefined>;
-  sendAudio(args: { data: string; mimeType?: string }): void;
-  sendVideo(args: { data: string; mimeType?: string }): void;
-  sendText(text: string): void;
+  sendAudio(args: { data: string; mimeType?: string }): Promise<void>;
+  sendVideo(args: { data: string; mimeType?: string }): Promise<void>;
+  sendText(text: string): Promise<void>;
+  /**
+   * Registry tool execute with stages. Pumps `stage`/`tool` into `events()`.
+   * Gate → returns `gated` without upstream tool response; resume with `granted`.
+   */
+  executeTool(args: {
+    name: string;
+    callId: string;
+    input?: unknown;
+    resume?: InvokeToolResume;
+    credentials?: Record<string, ToolCredential>;
+    host?: unknown;
+  }): Promise<{
+    outputRaw?: unknown;
+    outputModel?: ModelToolResult;
+    failure?: ToolFailure;
+    awaiting?: boolean;
+    gated?: ToolGate;
+  }>;
   sendToolResponse(id: string, name: string, output: unknown): void;
   sendToolResponses(responses: Array<{ id: string; name: string; output: unknown }>): void;
   close(reason?: string): Promise<void>;

@@ -147,7 +147,7 @@ const PROFILE_GRAPH_DEF = [
     id: 'turnBehaviour',
     profilePath: 'turnBehaviour',
     role: 'spine',
-    profileTypes: ['text', 'image', 'speech'],
+    profileTypes: ['text', 'image', 'speech', 'live'],
     optional: true,
     editor: 'structural',
     label: 'Turn behaviour',

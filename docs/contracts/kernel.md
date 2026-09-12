@@ -35,7 +35,7 @@ A `Profile` binds:
 | `inputs` | Text / attachments / voice / slots / per-mime limits — present on `text`, `image`; absent on `speech` and `live` (live uses `live.ingress` instead) |
 | `image` / `speech` / `live` | Modality-specific pins (top-level, not nested under `outputs`) |
 | `outputs` | Structured, streaming, validation — present on `text`, `image`, `speech`; absent on `live` |
-| `turnBehaviour` | `resumption` (`allowContinue`, `autoContinue`, `maxContinues`); text also `allowSteering` — present on `text`, `image`, `speech`. Target stages: inject gate via `profileAllowsInject` / `allowSteering` (live field lands with stages slice 3; see [`stages.md`](stages.md)) |
+| `turnBehaviour` | `resumption` (`allowContinue`, `autoContinue`, `maxContinues`) on `text` / `image` / `speech`; `allowSteering` on **text and live** (inject gate via `profileAllowsInject`; see [`stages.md`](stages.md)). Live must omit `turnBehaviour.resumption` (use `live.sessionResumption`) |
 | `guardrails` | Quota, canary, sanitize, redact, egress, network, taint — on `host` narrowed to `HostGuardrailsSpec` |
 | `observability` | Trace destination, scrub, include, sampling (`writeTo`, `sampleRate`, …) |
 
@@ -138,7 +138,8 @@ finalize (inject may re-enter the step loop under `maxSteps`); terminal `done`;
 then `post_turn`. Inject requires `profileAllowsInject` (`allowSteering` on
 text). Invalid affordances yield a follow-up `stage` event with `stageWarnings`.
 AbortSignal / stage `abort` end with cancelled `done` then `post_turn`.
-Live `onStage` / cycle stages are slice 3.
+Live sessions emit the same stage names around utterance cycles and
+`LiveSession.executeTool` (`docs/contracts/stages.md`).
 
 1. **Resolve** — `resolveTurn` picks model, wire `apiId`, `transport`
    (`'interactions'` for Google Interactions, `'openAiCompat'` for OpenRouter/local),
@@ -425,16 +426,16 @@ Profile `turnBehaviour` (top-level on chat/image/speech):
 | `resumption.allowContinue` | Stop kinds eligible for a continueFrom turn |
 | `resumption.autoContinue` | Stop kinds the host may auto-continue without a CTA |
 | `resumption.maxContinues` | Max continueFrom rounds the kernel accepts (enforced) |
-| `allowSteering` | **Text only.** Gates **inject** via `profileAllowsInject` / stages. Stage events always emit on text turns. Image/speech must omit |
+| `allowSteering` | **Text and live.** Gates **inject** via `profileAllowsInject` / stages. Stage events always emit. Image/speech must omit |
 
 Stop / cancel is not a profile field: composer `ProfileInterface` always projects `canStop: true`
 (`TurnRequest.signal`). Text interfaces also project resolved `allowSteering`.
 
 ### Mid-turn steering
 
-**Branch (text spine):** stage events + `onStage` — [`docs/contracts/stages.md`](stages.md).
-Text mid-turn inject uses stages (`onStage`). Tool `pre_tool` gates, live `executeTool`,
-and composer gated/awaiting split remain slices 2–3.
+**Branch:** stage events + `onStage` — [`docs/contracts/stages.md`](stages.md).
+Text and live mid-turn / mid-cycle inject use stages (`onStage`). Tool `pre_tool`
+gates and `LiveSession.executeTool` are on the same contract.
 
 On text turns the runner always yields `{ type: 'stage', stage }`:
 
@@ -443,7 +444,8 @@ On text turns the runner always yields `{ type: 'stage', stage }`:
 3. `before_end` — before egress/validation; inject may re-enter the step loop under `maxSteps`.
 4. `post_turn` — after terminal `done` (sees compaction-after when attached).
 
-Inject applies only when `profileAllowsInject(profile)` (text + `allowSteering !== false`).
+Inject applies only when `profileAllowsInject(profile)` (text + live when
+`allowSteering !== false`).
 
 ```ts
 for await (const event of runTurn({

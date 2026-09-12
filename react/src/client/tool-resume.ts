@@ -1,11 +1,14 @@
-import type { ToolCredential, ToolPause, ToolPermission } from 'theorum/kernel';
+import type { ToolCredential, ToolGate, ToolPermission } from 'theorum/kernel';
 
 export type ToolDecisionAction = 'allow' | 'allow_session' | 'deny';
 
-export type ToolPauseResolution =
+export type ToolGateResolution =
 	| { action: 'deny' }
-	| { action: ToolDecisionAction; interactiveValue?: unknown }
+	| { action: ToolDecisionAction }
 	| { action: 'auth'; credentials: Record<string, ToolCredential> };
+
+/** @deprecated Use `ToolGateResolution`. */
+export type ToolPauseResolution = ToolGateResolution;
 
 export type InvokeToolResumeInput = {
 	value?: unknown;
@@ -28,20 +31,12 @@ export function applyToolDecisionToSessionPermissions(
 	return next;
 }
 
-export function buildInvokeToolResume(
-	pauseKind: ToolPause['kind'],
-	interactiveValue?: unknown,
-): InvokeToolResumeInput {
-	if (pauseKind === 'interactive') {
-		if (interactiveValue === undefined) {
-			throw new Error('Interactive tool resume requires a chosen option.');
-		}
-		return { value: interactiveValue };
-	}
+/** Gate resume always uses `granted: true` (ask_user answers are a new user turn). */
+export function buildInvokeToolResume(_gateKind?: ToolGate['kind']): InvokeToolResumeInput {
 	return { granted: true };
 }
 
-export type PausedToolContinue =
+export type GatedToolContinue =
 	| { kind: 'denied' }
 	| { kind: 'auth'; credentials: Record<string, ToolCredential> }
 	| {
@@ -50,12 +45,15 @@ export type PausedToolContinue =
 			sessionPermissions: string[];
 	  };
 
-export function continuePausedToolInvocation(args: {
+/** @deprecated Use `GatedToolContinue`. */
+export type PausedToolContinue = GatedToolContinue;
+
+export function continueGatedToolInvocation(args: {
 	toolName: string;
-	pause: Pick<ToolPause, 'kind' | 'permission'>;
+	gate: Pick<ToolGate, 'kind' | 'permission'>;
 	sessionPermissions: readonly string[];
-	resolution: ToolPauseResolution;
-}): PausedToolContinue {
+	resolution: ToolGateResolution;
+}): GatedToolContinue {
 	if (args.resolution.action === 'deny') {
 		return { kind: 'denied' };
 	}
@@ -69,8 +67,23 @@ export function continuePausedToolInvocation(args: {
 			args.sessionPermissions,
 			args.toolName,
 			args.resolution.action,
-			args.pause.permission,
+			args.gate.permission,
 		),
-		resume: buildInvokeToolResume(args.pause.kind, args.resolution.interactiveValue),
+		resume: buildInvokeToolResume(args.gate.kind),
 	};
+}
+
+/** @deprecated Use `continueGatedToolInvocation`. */
+export function continuePausedToolInvocation(args: {
+	toolName: string;
+	pause: Pick<ToolGate, 'kind' | 'permission'>;
+	sessionPermissions: readonly string[];
+	resolution: ToolGateResolution;
+}): GatedToolContinue {
+	return continueGatedToolInvocation({
+		toolName: args.toolName,
+		gate: args.pause,
+		sessionPermissions: args.sessionPermissions,
+		resolution: args.resolution,
+	});
 }

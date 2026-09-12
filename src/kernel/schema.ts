@@ -788,11 +788,11 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   'outputs.streaming.streamThoughts': field('boolean', 'Emit model thinking on the turn stream.'),
   turnBehaviour: field(
     'ProfileTurnBehaviourSpec',
-    'Resume after a non-user stop; text may also allow mid-turn steering.',
+    'Resume after a non-user stop (text/image/speech); text and live may also allow mid-turn inject via allowSteering.',
   ),
   'turnBehaviour.resumption': field(
     'ProfileTurnResumptionSpec',
-    'Continue after a non-user stop (continueFrom).',
+    'Continue after a non-user stop (continueFrom). Not valid on live — use live.sessionResumption.',
   ),
   'turnBehaviour.resumption.allowContinue': field(
     'ContinueStopKind[]',
@@ -820,7 +820,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   ),
   'turnBehaviour.allowSteering': field(
     'boolean',
-    'Text only. When true (default), host onStage inject affordances are applied. Image/speech must omit.',
+    'Text and live. When true (default), host onStage inject affordances are applied. Image/speech must omit.',
   ),
   guardrails: field(
     'ProfileGuardrailsSpec',

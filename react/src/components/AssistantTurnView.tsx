@@ -55,7 +55,7 @@ export function AssistantTurnView({
 	}, [streaming]);
 
 	const composed = composeAssistantTurn(blocks, { streaming });
-	const { trace, pausedTools, body, hasTrace } = composed;
+	const { trace, gatedTools, body, hasTrace } = composed;
 	const copyText = assistantTurnCopyText(body.length > 0 ? body : blocks);
 	const handleLabel = `@${handle}`;
 	const statusLabel = workStatusLabel({
@@ -67,7 +67,7 @@ export function AssistantTurnView({
 	// Prefer the composed shell whenever we have status/trace; only skip for a
 	// lone completed body block with nothing else to show.
 	const simpleSingle =
-		!streaming && !hasTrace && pausedTools.length === 0 && body.length === 1 && !statusLabel;
+		!streaming && !hasTrace && gatedTools.length === 0 && body.length === 1 && !statusLabel;
 	const soleBody = simpleSingle ? body[0] : undefined;
 
 	if (soleBody) {
@@ -126,7 +126,7 @@ export function AssistantTurnView({
 					/>
 				) : null}
 
-				{pausedTools.map((block) => (
+				{gatedTools.map((block) => (
 					<TranscriptBlockView
 						key={block.id}
 						block={block}

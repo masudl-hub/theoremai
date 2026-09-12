@@ -82,7 +82,7 @@ Deno.test('speech spine omits tools and inputs; live omits inputs and outputs', 
   const live = spineFacetsForProfileType('live').map((f) => f.id);
   assertEquals(live.includes('inputs'), false);
   assertEquals(live.includes('outputs'), false);
-  assertEquals(live.includes('turnBehaviour'), false);
+  assertEquals(live.includes('turnBehaviour'), true);
 });
 
 Deno.test('ALL covers PROFILE_TYPES exactly', () => {

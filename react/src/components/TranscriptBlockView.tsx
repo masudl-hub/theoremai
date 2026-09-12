@@ -143,18 +143,20 @@ function renderBody(args: {
 				) : (
 					<p className="iface-msg__meta">Tool · {block.tool.name}</p>
 				)}
-				{block.tool.phase === 'pause' && block.tool.pause ? (
-					block.tool.pause.kind === 'auth' ? (
+				{(block.tool.phase === 'gate' && block.tool.gate) ||
+				(block.tool.phase === 'pause' && block.tool.pause) ? (
+					(block.tool.gate ?? block.tool.pause)?.kind === 'auth' ? (
 						<AuthChallengeCard
 							onSubmitCredential={onAuthCredential}
-							pause={block.tool.pause}
+							gate={(block.tool.gate ?? block.tool.pause)!}
 							toolName={block.tool.name}
 						/>
 					) : (
 						<ApprovalCard
 							onDecision={onToolDecision}
-							pause={block.tool.pause}
+							gate={(block.tool.gate ?? block.tool.pause)!}
 							toolName={block.tool.name}
+							input={block.tool.arguments}
 						/>
 					)
 				) : block.tool.output !== undefined ? (

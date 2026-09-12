@@ -2,6 +2,7 @@ import { assertEquals, assertThrows } from '@std/assert';
 import { TheorumError } from '../../src/guardrails/error.ts';
 import { defineProfile, getProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
 import { projectProfile, resolveTurn } from '../../src/kernel/registry/resolve.ts';
+import { profileAllowsInject } from '../../src/kernel/stop.ts';
 import { registerGooglePreset } from '../../src/presets/google.ts';
 import { createProvider } from '../../src/providers/create-provider.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
@@ -373,8 +374,27 @@ Deno.test('pressure-test: turnBehaviour.allowSteering rejected on image', () => 
       });
     },
     TheorumError,
-    "turnBehaviour.allowSteering is only valid on type 'text'",
+    "turnBehaviour.allowSteering is only valid on type 'text' or 'live'",
   );
+});
+
+Deno.test('pressure-test: turnBehaviour.allowSteering accepted on live', () => {
+  const profile = defineProfile({
+    type: 'live',
+    id: 'live_steer_ok',
+    identity: { handle: 'live' },
+    models: {
+      gemini31FlashLive: {
+        ...HOST_BINDINGS.gemini31FlashLive,
+        key: 'slotA',
+      },
+    },
+    live: { voice: 'Aoede' },
+    tools: { allow: [] },
+    turnBehaviour: { allowSteering: false },
+  });
+  assertEquals(profile.turnBehaviour?.allowSteering, false);
+  assertEquals(profileAllowsInject(profile), false);
 });
 
 Deno.test('pressure-test: turnBehaviour.resumption rejects non-ContinueStopKind', () => {

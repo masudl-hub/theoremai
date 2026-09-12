@@ -7,22 +7,26 @@ import {
 	applyLiveTranscript,
 	clearLiveCaptionInterim,
 	emptyLiveCaptionState,
-	type LiveCaptionState,
 	latestLiveCaptionTurnId,
+	type LiveCaptionState,
 } from '../../client/live/live-captions';
 import { registerPlaygroundLiveProfile } from '../../client/live/live-session';
 import { liveStateLabel } from '../../client/live/live-state';
-import { invokePlaygroundLiveTool, type LiveToolPausePrompt } from '../../client/live/live-tool';
-import { type LiveFacingMode, type LiveVideoCapture, startLiveVideoCapture } from '../../client/live/live-video';
+import type { LiveToolGatePrompt } from '../../client/live/live-tool';
+import {
+	type LiveFacingMode,
+	type LiveVideoCapture,
+	startLiveVideoCapture,
+} from '../../client/live/live-video';
 import {
 	type LiveConnectPhase,
 	LiveSessionClient,
 	type LiveSessionStatus,
 } from '../../client/live-client';
 import type { PlaygroundRunPayload } from '../../client/run-payload';
-import type { ToolPauseResolution } from '../../client/tool-resume';
+import { continueGatedToolInvocation, type ToolGateResolution } from '../../client/tool-resume';
 import { LiveStage } from './LiveStage';
-import { LiveToolPausePanel } from './LiveToolPausePanel';
+import { LiveToolGatePanel } from './LiveToolGatePanel';
 
 export type LiveRunnerProps = {
 	iface: LiveProfileInterface;
@@ -50,25 +54,25 @@ export function LiveRunner({ iface, payload }: LiveRunnerProps) {
 	const [textComposerOpen, setTextComposerOpen] = useState(false);
 	const [sessionActive, setSessionActive] = useState(false);
 	const [sessionPermissions, setSessionPermissions] = useState<string[]>([]);
-	const [pausePrompt, setPausePrompt] = useState<LiveToolPausePrompt | null>(null);
+	const [gatePrompt, setGatePrompt] = useState<LiveToolGatePrompt | null>(null);
 	const [everConnected, setEverConnected] = useState(false);
 
 	const clientRef = useRef<LiveSessionClient | null>(null);
 	const videoCaptureRef = useRef<LiveVideoCapture | null>(null);
 	const [videoPreview, setVideoPreview] = useState<HTMLVideoElement | null>(null);
 	const [videoFacingMode, setVideoFacingMode] = useState<LiveFacingMode>('user');
-	const pauseResolverRef = useRef<((resolution: ToolPauseResolution) => void) | null>(null);
-	const pauseRejectRef = useRef<((reason: Error) => void) | null>(null);
+	const gateResolverRef = useRef<((resolution: ToolGateResolution) => void) | null>(null);
+	const gateRejectRef = useRef<((reason: Error) => void) | null>(null);
 
 	const captionsRef = useRef(captions);
-	const pausePromptRef = useRef(pausePrompt);
+	const gatePromptRef = useRef(gatePrompt);
 	const isMutedRef = useRef(isMuted);
 	const sessionPermissionsRef = useRef(sessionPermissions);
 	const payloadRef = useRef(payload);
 	const statusRef = useRef(status);
 
 	captionsRef.current = captions;
-	pausePromptRef.current = pausePrompt;
+	gatePromptRef.current = gatePrompt;
 	isMutedRef.current = isMuted;
 	sessionPermissionsRef.current = sessionPermissions;
 	payloadRef.current = payload;
@@ -90,7 +94,7 @@ export function LiveRunner({ iface, payload }: LiveRunnerProps) {
 		[activeTool, connectPhase, isMuted, status, voiceAvailable],
 	);
 
-	const toolActive = activeTool !== null || pausePrompt !== null;
+	const toolActive = activeTool !== null || gatePrompt !== null;
 
 	useEffect(() => {
 		if (sessionActive) setEverConnected(true);
@@ -104,23 +108,23 @@ export function LiveRunner({ iface, payload }: LiveRunnerProps) {
 	const handleLiveTurnEvent = useCallback((event: TurnEvent) => {
 		if (event.type === 'done') {
 			setCaptions((prev) => clearLiveCaptionInterim(prev));
-			if (!pausePromptRef.current) setActiveTool(null);
+			if (!gatePromptRef.current) setActiveTool(null);
 			return;
 		}
 		if (event.type !== 'tool' || !event.tool) return;
 
 		const tool = event.tool;
 		if (tool.phase === 'cancel') {
-			if (!pausePromptRef.current) setActiveTool(null);
+			if (!gatePromptRef.current) setActiveTool(null);
 			return;
 		}
 		if (tool.phase === 'error') {
 			setError(toolFailureMessage(tool));
-			if (!pausePromptRef.current) setActiveTool(null);
+			if (!gatePromptRef.current) setActiveTool(null);
 			return;
 		}
 		if (tool.phase === 'complete') {
-			if (!pausePromptRef.current) setActiveTool(null);
+			if (!gatePromptRef.current) setActiveTool(null);
 			return;
 		}
 		if (tool.name) {
@@ -128,28 +132,28 @@ export function LiveRunner({ iface, payload }: LiveRunnerProps) {
 		}
 	}, []);
 
-	const waitForPauseDecision = useCallback((prompt: LiveToolPausePrompt) => {
-		return new Promise<ToolPauseResolution>((resolve, reject) => {
-			setPausePrompt(prompt);
-			pauseResolverRef.current = resolve;
-			pauseRejectRef.current = reject;
+	const waitForGateDecision = useCallback((prompt: LiveToolGatePrompt) => {
+		return new Promise<ToolGateResolution>((resolve, reject) => {
+			setGatePrompt(prompt);
+			gateResolverRef.current = resolve;
+			gateRejectRef.current = reject;
 		});
 	}, []);
 
-	const resolvePauseDecision = useCallback((resolution: ToolPauseResolution) => {
-		pauseResolverRef.current?.(resolution);
-		pauseResolverRef.current = null;
-		pauseRejectRef.current = null;
-		setPausePrompt(null);
+	const resolveGateDecision = useCallback((resolution: ToolGateResolution) => {
+		gateResolverRef.current?.(resolution);
+		gateResolverRef.current = null;
+		gateRejectRef.current = null;
+		setGatePrompt(null);
 	}, []);
 
-	const cancelPauseDecision = useCallback((reason = 'Live session ended') => {
-		if (pauseRejectRef.current) {
-			pauseRejectRef.current(new Error(reason));
+	const cancelGateDecision = useCallback((reason = 'Live session ended') => {
+		if (gateRejectRef.current) {
+			gateRejectRef.current(new Error(reason));
 		}
-		pauseResolverRef.current = null;
-		pauseRejectRef.current = null;
-		setPausePrompt(null);
+		gateResolverRef.current = null;
+		gateRejectRef.current = null;
+		setGatePrompt(null);
 	}, []);
 
 	const resetCaptions = useCallback(() => {
@@ -214,29 +218,71 @@ export function LiveRunner({ iface, payload }: LiveRunnerProps) {
 				onError: (message) => {
 					setError(message);
 				},
-				onToolCall: async (name, args) => {
+				onToolCall: async (name, args, meta) => {
 					setActiveTool(name);
 					setError('');
+					const client = clientRef.current;
+					if (!client) {
+						return { error: 'Live session is not connected' };
+					}
+					const callId = meta.callId || `call_${Date.now()}`;
 					try {
-						const result = await invokePlaygroundLiveTool({
-							payload: payloadRef.current,
-							name,
-							input: args,
-							sessionPermissions: sessionPermissionsRef.current,
-							onPause: waitForPauseDecision,
-						});
-						sessionPermissionsRef.current = result.sessionPermissions;
-						setSessionPermissions(result.sessionPermissions);
-						const outputError =
-							typeof result.output.error === 'string' ? result.output.error : undefined;
-						if (outputError) setError(outputError);
-						return result.output;
+						let resume: { granted?: boolean } | undefined;
+						let credentials: Record<string, unknown> | undefined;
+						for (;;) {
+							const result = await client.executeToolOnRelay({
+								name,
+								callId,
+								input: args,
+								resume,
+								credentials,
+							});
+							if (result.status === 'complete') {
+								const output =
+									result.output &&
+									typeof result.output === 'object' &&
+									!Array.isArray(result.output)
+										? (result.output as Record<string, unknown>)
+										: { result: result.output };
+								const outputError = typeof output.error === 'string' ? output.error : undefined;
+								if (outputError) setError(outputError);
+								return output;
+							}
+							if (!result.gate) {
+								return { error: 'Tool gated without gate payload' };
+							}
+							const resolution = await waitForGateDecision({
+								toolName: name,
+								input: args,
+								gate: result.gate,
+							});
+							const next = continueGatedToolInvocation({
+								toolName: name,
+								gate: result.gate,
+								sessionPermissions: sessionPermissionsRef.current,
+								resolution,
+							});
+							if (next.kind === 'denied') {
+								const message = `User denied execution of '${name}'.`;
+								client.sendToolResponses([{ id: callId, name, output: { error: message } }]);
+								return { error: message };
+							}
+							if (next.kind === 'auth') {
+								credentials = { ...credentials, ...next.credentials };
+								resume = undefined;
+								continue;
+							}
+							sessionPermissionsRef.current = next.sessionPermissions;
+							setSessionPermissions(next.sessionPermissions);
+							resume = next.resume;
+							credentials = undefined;
+						}
 					} catch (err) {
 						const message = err instanceof Error ? err.message : String(err);
 						setError(message);
 						return { error: message };
 					} finally {
-						if (!pausePromptRef.current) setActiveTool(null);
+						if (!gatePromptRef.current) setActiveTool(null);
 					}
 				},
 			});
@@ -244,11 +290,11 @@ export function LiveRunner({ iface, payload }: LiveRunnerProps) {
 			clientRef.current = client;
 			return client;
 		},
-		[handleLiveTurnEvent, voiceAvailable, waitForPauseDecision],
+		[handleLiveTurnEvent, voiceAvailable, waitForGateDecision],
 	);
 
 	const teardownSession = useCallback(() => {
-		cancelPauseDecision();
+		cancelGateDecision();
 		if (clientRef.current) {
 			clientRef.current.disconnect();
 			clientRef.current = null;
@@ -265,7 +311,7 @@ export function LiveRunner({ iface, payload }: LiveRunnerProps) {
 		setConnectPhase(null);
 		setInputLevel(0);
 		setOutputLevel(0);
-	}, [cancelPauseDecision, stopVideo]);
+	}, [cancelGateDecision, stopVideo]);
 
 	const startSession = useCallback(async () => {
 		setError('');
@@ -401,8 +447,12 @@ export function LiveRunner({ iface, payload }: LiveRunnerProps) {
 				canRestart={!sessionActive && everConnected && status !== 'connecting'}
 			/>
 
-			{pausePrompt ? (
-				<LiveToolPausePanel pause={pausePrompt.pause} onResolve={resolvePauseDecision} />
+			{gatePrompt ? (
+				<LiveToolGatePanel
+					gate={gatePrompt.gate}
+					input={gatePrompt.input}
+					onResolve={resolveGateDecision}
+				/>
 			) : null}
 		</div>
 	);

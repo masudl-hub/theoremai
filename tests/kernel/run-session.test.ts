@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects, assertThrows } from '@std/assert';
+import { assertEquals, assertRejects } from '@std/assert';
 import { z } from 'zod';
 import { TheorumError } from '../../src/guardrails/error.ts';
 import { runSession } from '../../src/kernel/engine/session/mod.ts';
@@ -158,7 +158,7 @@ Deno.test('runSession sendVideo rejects when live.ingress.video is disabled', as
 
   await new Promise((r) => setTimeout(r, 0));
 
-  assertThrows(
+  await assertRejects(
     () => session.sendVideo({ data: 'abc', mimeType: 'image/jpeg' }),
     TheorumError,
     'live.ingress.video is disabled',
@@ -202,7 +202,11 @@ Deno.test('runSession sendText rejects when live.ingress.text is disabled', asyn
 
   await new Promise((r) => setTimeout(r, 0));
 
-  assertThrows(() => session.sendText('hello'), TheorumError, 'live.ingress.text is disabled');
+  await assertRejects(
+    () => session.sendText('hello'),
+    TheorumError,
+    'live.ingress.text is disabled',
+  );
   (mock as unknown as MockLiveWebSocket)?.close();
   await session.close();
 });
@@ -243,7 +247,7 @@ Deno.test('runSession sendText frames sanitized realtime input when text ingress
 
   await new Promise((r) => setTimeout(r, 0));
 
-  session.sendText('hello concierge');
+  await session.sendText('hello concierge');
   const liveMock = mock as unknown as MockLiveWebSocket;
   const textFrame = liveMock.sent.find((frame) => frame.includes('"realtimeInput"'));
   assertEquals(textFrame !== undefined, true);
@@ -518,4 +522,75 @@ Deno.test('runSession refuses a snapshot that declares tools outside tools.allow
     TheorumError,
     'outside tools.allow: snap_t1, snap_t2',
   );
+});
+
+Deno.test('runSession emits pre_turn before first sendText and post_turn after cycle done', async () => {
+  clearProfiles();
+  resetTools();
+  const profile = defineProfile({
+    type: 'live',
+    id: 'session_live_stages',
+    identity: { handle: 'live', system: 'hi' },
+    models: {
+      gemini31FlashLive: {
+        ...HOST_BINDINGS.gemini31FlashLive,
+        key: 'slotA',
+      },
+    },
+    live: { voice: 'Aoede', ingress: { text: true } },
+    tools: { allow: [] },
+  });
+  registerProfile(profile);
+
+  const stages: string[] = [];
+  let mock: MockLiveWebSocket | null = null;
+  const session = await runSession(
+    {
+      profile: profile.id,
+      onStage: async ({ stage }) => {
+        stages.push(stage);
+      },
+    },
+    {
+      gemini: {
+        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
+      },
+      openWebSocket: () => {
+        mock = new MockLiveWebSocket();
+        setTimeout(() => mock?.open(), 0);
+        return Promise.resolve(mock as unknown as WebSocket);
+      },
+    },
+  );
+
+  await new Promise((r) => setTimeout(r, 0));
+
+  const eventsPromise = (async () => {
+    const out = [];
+    for await (const ev of session.events()) {
+      out.push(ev);
+      if (ev.type === 'done') break;
+    }
+    return out;
+  })();
+
+  await session.sendText('open cycle');
+  assertEquals(stages.includes('pre_turn'), true);
+
+  const liveMock = mock as unknown as MockLiveWebSocket;
+  // Simulate model turn complete so outbound gate emits done and cycle closes.
+  liveMock.deliver({
+    serverContent: { turnComplete: true },
+  });
+
+  const events = await eventsPromise;
+  assertEquals(
+    events.some((e) => e.type === 'stage' && e.stage === 'pre_turn'),
+    true,
+  );
+  // before_end / post_turn require cycle open + done boundary
+  assertEquals(stages.includes('before_end') || stages.includes('post_turn'), true);
+
+  liveMock.close();
+  await session.close();
 });

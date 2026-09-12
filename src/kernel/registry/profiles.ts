@@ -88,6 +88,8 @@ export type LiveProfileDefinition = ProfileDefinitionBase & {
   type: 'live';
   live: NonNullable<LiveProfile['live']>;
   tools: LiveProfileToolsSpec;
+  /** Inject gate only — resumption is `live.sessionResumption`. */
+  turnBehaviour?: Pick<ProfileTurnBehaviourSpec, 'allowSteering'>;
 };
 
 /** Host-driven tool ceiling — no models, identity, inputs, outputs, turnBehaviour, key, or maxSteps. */
@@ -306,10 +308,19 @@ function assertResumption(
 }
 
 function assertTurnBehaviour(profileId: string, input: ProfileDefinition): void {
-  if (input.type === 'live' || input.type === 'host') return;
+  if (input.type === 'host') return;
+  if (input.type === 'live') {
+    const tb = input.turnBehaviour as ProfileTurnBehaviourSpec | undefined;
+    if (tb?.resumption !== undefined) {
+      throw new TheorumError(
+        `Profile ${profileId}: type 'live' uses live.sessionResumption, not turnBehaviour.resumption`,
+      );
+    }
+    return;
+  }
   if (input.type !== 'text' && input.turnBehaviour?.allowSteering !== undefined) {
     throw new TheorumError(
-      `Profile ${profileId}: turnBehaviour.allowSteering is only valid on type 'text'`,
+      `Profile ${profileId}: turnBehaviour.allowSteering is only valid on type 'text' or 'live'`,
     );
   }
   assertResumption(profileId, input.turnBehaviour?.resumption);
@@ -430,6 +441,7 @@ function defineProfile(input: ProfileDefinition): Profile {
         ...modelFields,
         live: input.live,
         tools: assertLiveTools(input.id, input.tools),
+        turnBehaviour: liveInput.turnBehaviour,
         guardrails,
         observability,
       } satisfies LiveProfile;

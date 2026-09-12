@@ -67,8 +67,8 @@ export function isContinueStopKind(kind: string): kind is ContinueStopKind {
  * Mid-turn + resume policy for text / image / speech profiles.
  *
  * - `resumption` — continueFrom after a non-user stop (all three types).
- * - `allowSteering` — stage **inject** gate on text (default true). Image /
- *   speech must omit. Stage events always emit when the runner uses stages.
+ * - `allowSteering` — stage **inject** gate on text and live (default true).
+ *   Image / speech must omit. Stage events always emit when the runner uses stages.
  *
  * Stop / AbortSignal is not a profile knob — composer interfaces always
  * project `canStop: true` because `TurnRequest.signal` is already wired.
@@ -76,7 +76,7 @@ export function isContinueStopKind(kind: string): kind is ContinueStopKind {
 export interface ProfileTurnBehaviourSpec {
   resumption?: ProfileTurnResumptionSpec;
   /**
-   * When true (default on text), host `onStage` inject affordances are applied
+   * When true (default on text/live), host `onStage` inject affordances are applied
    * (`profileAllowsInject`). Does not hide stage emission.
    */
   allowSteering?: boolean;
@@ -130,7 +130,7 @@ export function profileTurnResumption(profile: {
 
 /**
  * Text profiles may inject at stages unless `allowSteering: false`.
- * Image / speech / live: use `profileAllowsInject` for the target matrix;
+ * Image / speech / host: use `profileAllowsInject` for the target matrix;
  * this helper remains text-only for interface `allowSteering` projection.
  */
 export function profileAllowsSteering(profile: {
@@ -145,9 +145,7 @@ export function profileAllowsSteering(profile: {
  * Whether stage **inject** affordances may be applied (`docs/contracts/stages.md`).
  * Gates inject only — never stage emission or tool stages.
  *
- * Target: text + live when `allowSteering !== false`; never image / speech / host.
- * Shipping: live cannot author `allowSteering` yet (registry); effective inject
- * on live remains closed until slice 3 opens the field.
+ * Text + live when `allowSteering !== false`; never image / speech / host.
  */
 export function profileAllowsInject(profile: {
   type: string;

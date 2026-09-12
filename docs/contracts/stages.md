@@ -1,12 +1,11 @@
 # Turn stages (target contract)
 
-**Status: target — text spine + tool cutover on branch.** Locked design replacing
-steer barriers and overlapping tool pre-gates. **Foundation + text `runTurn` +
-tool execute cutover landed:** stages, `preTool`, gate/deny/awaiting wire,
-`ask_user` awaiting completion, interface gated/awaiting helpers. **Not a
-released product yet:** live `executeTool` and playground/composer cycle fiction
-still follow (slice 3). **No dual API** on a released line: stages are not
-“shipped” until all three slices have landed and `kernel.md` matches this file.
+**Status: target — slices 1–3 on branch.** Locked design replacing steer
+barriers and overlapping tool pre-gates. **Foundation + text `runTurn` + tool
+execute + live cycle/`executeTool` + playground `onStage` inbox + react
+`gated*` rename (deprecated `paused*` aliases) landed on branch.** **No dual
+API** on a released line: stages are not “shipped” until `kernel.md` matches
+this file on the release cut.
 
 ## Export (target)
 
@@ -21,14 +20,16 @@ still follow (slice 3). **No dual API** on a released line: stages are not
 | Tool `preTool`; removed `canExecute` / `preflight` / `interactive` | landed |
 | `ask_user` awaiting completion; gate vs deny wire | landed |
 | Interface gated/awaiting split (text) | landed |
-| `LiveSession.executeTool` / live cycle map | not yet (slice 3) |
+| Live profile `allowSteering`; cycle `idle`\|`open`; `LiveSession.executeTool` | landed |
+| Playground steer inbox via `onStage` (inject-capable stages only) | landed |
+| React rename `paused*` → `gated*` (deprecated aliases retained) | landed |
 | Cancelled `done` + `post_turn` for AbortSignal (not only stage abort) | landed |
 
 Slice 1 removed: `TURN_STEER_BARRIERS`, `TurnSteer*`, `onSteer`, `barrier` events.
 Slice 2 removed: `canExecute`, `preflight`, `interactive` tool config; pause fiction for
 confirm/permission/auth (`phase: 'gate'` + `stop.kind: 'gate'`). `ask_user` completes with
-`awaiting_user_input`. Still outstanding (slice 3): live `executeTool`, live `allowSteering`
-field, playground/composer cycle fiction, react rename.
+`awaiting_user_input`. Slice 3: live stages + `executeTool` + playground `onStage`
++ react `gated*` rename (deprecated `paused*` aliases).
 
 ## Ownership
 
@@ -455,4 +456,5 @@ slice 1 alone is the product.
 
 Text mid-turn inject is stages (`onStage`); steer barriers are deleted.
 Tool execute uses `preTool` + gate/deny/awaiting ([`stages.md`](stages.md) slice 2).
-Live `executeTool` / playground inbox remain slice 3.
+Live `executeTool` / playground inbox / cycle stages / react `gated*` rename are
+on branch (slice 3); deprecated `paused*` aliases remain until a follow-up cleanup.

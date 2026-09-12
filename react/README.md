@@ -47,13 +47,14 @@ This package wires AbortSignal, the pending bar, and playground turn/steer HTTP.
 | --- | --- | --- |
 | idle | disabled | Send (+ Stash menu) |
 | streaming | Stop | Queue (+ Steer / Send now / Stash) |
-| paused | disabled | Queue (+ Send now / Stash; no Steer) |
+| gated | disabled | Queue (+ Send now / Stash; no Steer) |
 
 Enter matches the primary action. No keyboard shortcuts for stash/steer.
 
-Send now while paused abandons the tool wait (`abandonPausedToolSession`) without
+Send now while gated abandons the tool wait (`abandonGatedInterfaceTool`) without
 continuing the model, then starts a new user turn. Steer POSTs use the Cache API
 on Cloudflare (process Map locally) so mid-turn injects work across isolates.
+Live sessions key the same inbox by `sessionId` from relay `ready`.
 
 Pending rows show attachment / voice previews, text, **Queue** (stash → queue),
 and **Send now**. Clicking the text restores the full draft (text + files + voice)

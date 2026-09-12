@@ -1,17 +1,20 @@
-import type { ToolCredential, ToolPause } from 'theorum/kernel';
+import type { ToolCredential, ToolGate } from 'theorum/kernel';
 import {
 	type PlaygroundLiveToolResult,
 	parsePlaygroundLiveToolResult,
 } from '../playground-tool-result';
 import type { PlaygroundRunPayload } from '../run-payload';
-import { continuePausedToolInvocation, type ToolPauseResolution } from '../tool-resume';
+import { continueGatedToolInvocation, type ToolGateResolution } from '../tool-resume';
 import { postPlaygroundJson } from './live-session';
 
-export type LiveToolPausePrompt = {
+export type LiveToolGatePrompt = {
 	toolName: string;
 	input: Record<string, unknown>;
-	pause: ToolPause;
+	gate: ToolGate;
 };
+
+/** @deprecated Use `LiveToolGatePrompt`. */
+export type LiveToolPausePrompt = LiveToolGatePrompt & { pause: ToolGate };
 
 export type LiveToolInvokeOptions = {
 	resume?: { value?: unknown; granted?: boolean };
@@ -46,11 +49,29 @@ export async function invokePlaygroundLiveTool(args: {
 	name: string;
 	input: Record<string, unknown>;
 	sessionPermissions: string[];
-	onPause: (prompt: LiveToolPausePrompt) => Promise<ToolPauseResolution>;
+	onGate: (prompt: LiveToolGatePrompt) => Promise<ToolGateResolution>;
+	/** @deprecated Use `onGate`. */
+	onPause?: (prompt: LiveToolPausePrompt) => Promise<ToolGateResolution>;
 }): Promise<{ output: Record<string, unknown>; sessionPermissions: string[] }> {
 	let sessionPermissions = [...args.sessionPermissions];
 	let credentials: Record<string, ToolCredential> | undefined;
 	let resume: LiveToolInvokeOptions['resume'];
+
+	const onGate =
+		args.onGate ??
+		(args.onPause
+			? async (prompt: LiveToolGatePrompt) => {
+					const onPause = args.onPause;
+					if (!onPause) {
+						throw new Error('invokePlaygroundLiveTool requires onGate');
+					}
+					return onPause({ ...prompt, pause: prompt.gate });
+				}
+			: undefined);
+
+	if (!onGate) {
+		throw new Error('invokePlaygroundLiveTool requires onGate');
+	}
 
 	for (;;) {
 		const result = await runPlaygroundLiveTool(args.payload, args.name, args.input, {
@@ -63,15 +84,15 @@ export async function invokePlaygroundLiveTool(args: {
 			return { output: result.output, sessionPermissions };
 		}
 
-		const resolution = await args.onPause({
+		const resolution = await onGate({
 			toolName: args.name,
 			input: args.input,
-			pause: result.pause,
+			gate: result.gate,
 		});
 
-		const next = continuePausedToolInvocation({
+		const next = continueGatedToolInvocation({
 			toolName: args.name,
-			pause: result.pause,
+			gate: result.gate,
 			sessionPermissions,
 			resolution,
 		});

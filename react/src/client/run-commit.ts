@@ -5,7 +5,7 @@ import {
 	applyTurnEventsToSession,
 	type ComposerProfileInterface,
 	type InterfaceTurnSession,
-	pausedToolFromEvents,
+	gatedToolFromEvents,
 	type TranscriptBlock,
 	type UserTurnHistoryMedia,
 } from 'theorum/interface';
@@ -30,6 +30,7 @@ function commitCompletedTurn(
 	return {
 		...applyTurnEventsToSession(session, events),
 		history: appendAssistantEventsToHistory(history, events),
+		gatedTool: null,
 		pausedTool: null,
 		assistantEvents: [],
 		pendingUserDraft: null,
@@ -46,6 +47,7 @@ function commitContinuationTurn(
 	return {
 		...applyTurnEventsToSession(session, events),
 		history: appendAssistantEventsToHistory(session.history, events.slice(seedLength)),
+		gatedTool: null,
 		pausedTool: null,
 		assistantEvents: [],
 		pendingUserDraft: null,
@@ -63,10 +65,12 @@ function pauseTurn(
 		? appendUserDraftToHistory(session.history, session.pendingUserDraft, media)
 		: session.history;
 
+	const gated = gatedToolFromEvents(events);
 	return {
 		...applyTurnEventsToSession(session, events),
 		history,
-		pausedTool: pausedToolFromEvents(events),
+		gatedTool: gated,
+		pausedTool: gated,
 		assistantEvents: [...events],
 		pendingUserDraft: null,
 	};
@@ -77,10 +81,12 @@ function pauseContinuationTurn(
 	seedLength: number,
 	events: TurnEvent[],
 ): InterfaceTurnSession {
+	const gated = gatedToolFromEvents(events);
 	return {
 		...applyTurnEventsToSession(session, events),
 		history: appendAssistantEventsToHistory(session.history, events.slice(seedLength)),
-		pausedTool: pausedToolFromEvents(events),
+		gatedTool: gated,
+		pausedTool: gated,
 		assistantEvents: [...events],
 		pendingUserDraft: null,
 	};
@@ -133,7 +139,7 @@ export async function continueAfterTool(args: {
 			args.seedEvents,
 		);
 
-		if (pausedToolFromEvents(events)) {
+		if (gatedToolFromEvents(events)) {
 			return {
 				ok: true,
 				session: pauseContinuationTurn(args.session, seedLength, events),
@@ -164,7 +170,7 @@ export function finalizeTurnStream(args: {
 	events: TurnEvent[];
 	media: UserTurnHistoryMedia;
 }): InterfaceTurnSession {
-	if (pausedToolFromEvents(args.events)) {
+	if (gatedToolFromEvents(args.events)) {
 		return pauseTurn(args.session, args.events, args.media);
 	}
 	return commitCompletedTurn(args.session, args.events, args.media);

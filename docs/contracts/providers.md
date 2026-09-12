@@ -165,8 +165,13 @@ Live profiles use **`runSession`**, not `createProvider` / `ModelProvider.comple
 `runSession(req, { gemini, openWebSocket? })` opens a long-lived Gemini Live
 WebSocket (`BidiGenerateContent`), applies inbound text prep and the live outbound
 gate (canary + egress) at each conversational `turnComplete`, and returns a
-`LiveSession` (`sendAudio` / `sendVideo` / `sendText` / `sendToolResponse` /
-`sendToolResponses` / `events` / `close`).
+`LiveSession` (`sendAudio` / `sendVideo` / `sendText` / `executeTool` /
+`sendToolResponse` / `sendToolResponses` / `events` / `close`).
+
+Registry tools should go through **`executeTool`** so live stages (`pre_tool` /
+`post_tool`), permission/auth gates, and upstream tool responses stay on the
+session path. `sendToolResponse(s)` remain an escape hatch for non-registry
+relays that skip session stages.
 
 `createProvider` **rejects** `geminiLive` — there is no turn-scoped live `complete()` adapter.
 
@@ -177,7 +182,7 @@ gate (canary + egress) at each conversational `turnComplete`, and returns a
 | Handshake | `BidiGenerateContentSetup` via `buildGeminiLiveSetupMessage` |
 | Turn boundary | Gemini `turnComplete` → outbound gate finalize + `done` (`stop.kind: 'completed'`); **session stays open** |
 | Generation boundary | Gemini `generationComplete` → `done` (`stop.kind: 'generation_complete'`) without tearing down the session |
-| Tools | Host executes and replies via `sendToolResponse(s)`; cancellations → `tool.phase: 'cancel'`. Every id in profile `tools.allow` + `builtInTools` is wired in `BidiGenerateContentSetup` regardless of `loadTier` (declarations cannot change mid-session) — no `t1Policy` / `t2Loader`, no structured output, no turn `inputs` / `outputs`. |
+| Tools | Prefer `executeTool` (stages + gate resume + upstream). Escape hatch: host replies via `sendToolResponse(s)`; cancellations → `tool.phase: 'cancel'`. Every id in profile `tools.allow` + `builtInTools` is wired in `BidiGenerateContentSetup` regardless of `loadTier` (declarations cannot change mid-session) — no `t1Policy` / `t2Loader`, no structured output, no turn `inputs` / `outputs`. |
 | Ingress | `live.ingress` gates `sendAudio` / `sendVideo` / `sendText`. Defaults: audio **on**, camera (video channel) **on**, text **off** unless `live.ingress.text: true`. At least one channel must stay enabled. |
 | Transcription | Mid-turn `evidence` with `kind: 'input_transcription'` / `output_transcription` (optional `interim`); **not** held for egress — streams immediately |
 | Session control | `goAway` → `session.kind: 'closing_soon'`; `waitingForInput` → `waiting_for_input` |

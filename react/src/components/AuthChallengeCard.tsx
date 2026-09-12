@@ -1,15 +1,26 @@
 import { useState } from 'react';
-import type { ToolCredential, ToolPause } from 'theorum/kernel';
+import type { ToolCredential, ToolGate } from 'theorum/kernel';
 import '../styles/renderable-card.css';
 
 export type AuthChallengeCardProps = {
-	pause: ToolPause;
+	gate: ToolGate;
 	toolName: string;
 	onSubmitCredential?: (slot: string, credential: ToolCredential) => void;
+	/** @deprecated Use `gate`. */
+	pause?: ToolGate;
 };
 
-export function AuthChallengeCard({ pause, toolName, onSubmitCredential }: AuthChallengeCardProps) {
-	const challenge = pause.authChallenge;
+export function AuthChallengeCard({
+	gate: gateProp,
+	toolName,
+	onSubmitCredential,
+	pause,
+}: AuthChallengeCardProps) {
+	const gate = gateProp ?? pause;
+	if (!gate) {
+		throw new Error('AuthChallengeCard requires gate');
+	}
+	const challenge = gate.authChallenge;
 	const authType = challenge?.authType ?? 'bearer';
 	const slot = challenge?.slot ?? 'default';
 	const authUrl = challenge?.authorizationUrl;

@@ -24,7 +24,7 @@ import {
 import type { ToolCredential } from 'theorum/kernel';
 import {
 	applyTurnResultToTranscript,
-	abandonPausedInterfaceTool,
+	abandonGatedInterfaceTool,
 	composerFieldsFromDraft,
 	encodeComposerDraft,
 	loadPlaygroundRunPayload,
@@ -150,8 +150,8 @@ export function TheorumRunApp({
 		return interfaceFromProfile(defineProfile(payload.profile)).identity.handle;
 	}, [payload]);
 
-	const paused = session.pausedTool !== null;
-	const phase: ComposerRunPhase = busy ? 'streaming' : paused ? 'paused' : 'idle';
+	const gated = (session.gatedTool ?? session.pausedTool) !== null;
+	const phase: ComposerRunPhase = busy ? 'streaming' : gated ? 'gated' : 'idle';
 
 	useEffect(() => {
 		if (!iface) return;
@@ -243,7 +243,7 @@ export function TheorumRunApp({
 				setStreamBlocks(merged.streamBlocks);
 				setSession(merged.session);
 
-				if (merged.session.pausedTool !== null) {
+				if ((merged.session.gatedTool ?? merged.session.pausedTool) !== null) {
 					// Same run — leave pending intents alone; do not drain queue.
 					return;
 				}
@@ -333,7 +333,13 @@ export function TheorumRunApp({
 	);
 
 	const drainQueue = useCallback(async () => {
-		if (drainLockRef.current || busyRef.current || sessionRef.current.pausedTool) return;
+		if (
+			drainLockRef.current ||
+			busyRef.current ||
+			(sessionRef.current.gatedTool ?? sessionRef.current.pausedTool)
+		) {
+			return;
+		}
 		const { message, remaining } = consumeNextComposerQueue(pendingRef.current);
 		if (!message) return;
 		drainLockRef.current = true;
@@ -417,18 +423,18 @@ export function TheorumRunApp({
 	}, []);
 
 	const handleSubmit = useCallback(async () => {
-		if (phase === 'streaming' || phase === 'paused') {
+		if (phase === 'streaming' || phase === 'gated' || phase === 'paused') {
 			await enqueuePending('queue');
 			return;
 		}
-		if (paused) return;
+		if (gated) return;
 		setIssues([]);
 		await startTurnFromFields({
 			text: draftText,
 			files: [...pendingFiles],
 			voice: [...pendingVoice],
 		});
-	}, [draftText, enqueuePending, paused, pendingFiles, pendingVoice, phase, startTurnFromFields]);
+	}, [draftText, enqueuePending, gated, pendingFiles, pendingVoice, phase, startTurnFromFields]);
 
 	const handleSendNow = useCallback(
 		async (draftSource?: ComposerPendingMessage) => {
@@ -453,8 +459,8 @@ export function TheorumRunApp({
 				await runPromiseRef.current;
 			}
 
-			if (sessionRef.current.pausedTool && composer) {
-				const abandoned = abandonPausedInterfaceTool({
+			if ((sessionRef.current.gatedTool ?? sessionRef.current.pausedTool) && composer) {
+				const abandoned = abandonGatedInterfaceTool({
 					iface: composer,
 					session: sessionRef.current,
 				});

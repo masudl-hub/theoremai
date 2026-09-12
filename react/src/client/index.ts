@@ -41,13 +41,22 @@ export {
 	upsertPlaygroundRunIndex,
 } from './run-payload';
 export {
+	abandonGatedInterfaceTool,
 	abandonPausedInterfaceTool,
 	applyTurnResultToTranscript,
 	resumeInterfaceTool,
 	streamInterfaceDraftTurn,
 	streamInterfaceTurn,
 } from './run-session';
-export type { ToolDecisionAction, ToolPauseResolution } from './tool-resume';
+export type {
+	ToolDecisionAction,
+	ToolGateResolution,
+	ToolPauseResolution,
+} from './tool-resume';
+export {
+	continueGatedToolInvocation,
+	continuePausedToolInvocation,
+} from './tool-resume';
 export {
 	buildInvokeRequestBody,
 	buildTurnRequestBody,

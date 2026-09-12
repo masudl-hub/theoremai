@@ -311,15 +311,24 @@ export async function streamPlaygroundInvoke(
 	await postJsonNdjson('/api/playground/invoke', body, onEvent, 'Invoke failed', signal);
 }
 
-/** Push a steer inject into the active turn's server-side inbox. */
+/** Push a steer inject into the active turn or live session inbox. */
 export async function postPlaygroundSteer(args: {
-	turnId: string;
 	inject: TurnHistoryMessage[];
+	turnId?: string;
+	sessionId?: string;
 }): Promise<void> {
+	const turnId = args.turnId?.trim();
+	const sessionId = args.sessionId?.trim();
+	if (!turnId && !sessionId) {
+		throw new Error('turnId or sessionId is required');
+	}
 	const response = await fetch('/api/playground/turn/steer', {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify(args),
+		body: JSON.stringify({
+			inject: args.inject,
+			...(sessionId ? { sessionId } : { turnId }),
+		}),
 	});
 	if (!response.ok) {
 		const payload = (await response.json()) as { error?: string };

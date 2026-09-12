@@ -129,10 +129,17 @@ field as Google Interactions and local OpenAI-compat paths.
 
 `toOpenAiChatPayload` maps `ProviderCompleteRequest` → OpenAI chat-completions
 body (messages, tools, structured output). `reasoning.effort` is set only when
-`thinking` is present and not `'none'`.
+`thinking` is present and not `'none'`. When `cache.mode` is `automatic`, the
+payload includes top-level `cache_control`; when `system`, the system message
+content block carries `cache_control`. Optional `sessionId` becomes `session_id`.
 
 `createOpenRouterProvider(config)` (internal) streams normalized `TurnEvent`s;
-terminal `done.stop` via `turnStopFromOpenAiFinishReason`.
+terminal `done.stop` via `turnStopFromOpenAiFinishReason`. Cache policy is applied
+via AI SDK `providerOptions.openrouter` (`cacheControl` / `session_id`) — the same
+`cacheControlFromSpec` / `cacheControlJson` helpers as the REST payload path
+(`src/providers/openrouter/cache-control.ts`). Token events may include
+`cached` / `cacheWrite` from AI SDK usage details or raw `usage` chunks
+(OpenRouter image turns use the same `extractUsageTokens` parser).
 
 ## Google Interactions
 

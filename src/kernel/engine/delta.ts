@@ -873,6 +873,22 @@ const INTERMEDIATE_KEYS = [
   'intermediate',
 ] as const;
 
+const CACHED_KEYS = [
+  'total_cached_tokens',
+  'totalCachedTokens',
+  'cached_tokens',
+  'cachedTokens',
+  'cached',
+] as const;
+
+const CACHE_WRITE_KEYS = [
+  'cache_write_tokens',
+  'cacheWriteTokens',
+  'cache_creation_input_tokens',
+  'cacheCreationInputTokens',
+  'cacheWrite',
+] as const;
+
 const TOTAL_KEYS = [
   'total_tokens',
   'totalTokens',
@@ -894,19 +910,49 @@ function pickNumericField(record: Record<string, unknown>, keys: readonly string
   return 0;
 }
 
+function detailsRecord(raw: Record<string, unknown>): Record<string, unknown> | undefined {
+  for (const key of [
+    'prompt_tokens_details',
+    'promptTokensDetails',
+    'input_tokens_details',
+    'inputTokensDetails',
+  ]) {
+    const value = raw[key];
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+  }
+  return undefined;
+}
+
 function extractUsageTokens(raw: unknown): TurnTokens | undefined {
   if (!raw || typeof raw !== 'object') {
     return undefined;
   }
   const r = raw as Record<string, unknown>;
+  const details = detailsRecord(r);
   const input = pickNumericField(r, INPUT_KEYS);
   const output = pickNumericField(r, OUTPUT_KEYS);
   const thinking = pickNumericField(r, THINKING_KEYS);
   const toolUse = pickNumericField(r, TOOL_KEYS);
   const intermediate = pickNumericField(r, INTERMEDIATE_KEYS);
+  const cached =
+    pickNumericField(r, CACHED_KEYS) || (details ? pickNumericField(details, CACHED_KEYS) : 0);
+  const cacheWrite =
+    pickNumericField(r, CACHE_WRITE_KEYS) ||
+    (details ? pickNumericField(details, CACHE_WRITE_KEYS) : 0);
   const total =
     pickNumericField(r, TOTAL_KEYS) || input + output + thinking + toolUse + intermediate;
-  if (input > 0 || output > 0 || thinking > 0 || toolUse > 0 || intermediate > 0 || total > 0) {
+  if (
+    input > 0 ||
+    output > 0 ||
+    thinking > 0 ||
+    toolUse > 0 ||
+    intermediate > 0 ||
+    cached > 0 ||
+    cacheWrite > 0 ||
+    total > 0
+  ) {
     return {
       input,
       output,
@@ -914,6 +960,8 @@ function extractUsageTokens(raw: unknown): TurnTokens | undefined {
       toolUse,
       total,
       ...(intermediate > 0 ? { intermediate } : {}),
+      ...(cached > 0 ? { cached } : {}),
+      ...(cacheWrite > 0 ? { cacheWrite } : {}),
     };
   }
   return undefined;

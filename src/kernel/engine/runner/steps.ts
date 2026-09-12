@@ -1,10 +1,8 @@
 import { throwIfAborted } from '../../../guardrails/error.ts';
-import { detectionForTrust, resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
-import { sanitizeHistory } from '../../../guardrails/sanitize.ts';
+import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import { recordTaint } from '../../../guardrails/tool-result.ts';
 import { wireInteractionPart } from '../../interaction-parts.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
-import { profileAllowsSteering } from '../../stop.ts';
 import {
   executeRegisteredTool,
   formatToolFailureForModel,
@@ -19,9 +17,8 @@ import type {
   TurnEvent,
   TurnHistoryMessage,
   TurnRequest,
-  TurnSteerBarrier,
-  TurnSteerHandler,
 } from '../../types.ts';
+import { applyTurnStage, injectWouldExceedMaxSteps } from './stages.ts';
 import { recordStepEvent, type StepExecutionState } from './state.ts';
 import { type OutboundStreamControl, yieldProviderEvents } from './stream.ts';
 
@@ -30,100 +27,6 @@ function isStepLimitReached(step: number, maxSteps: number): boolean {
     return false;
   }
   return step >= maxSteps;
-}
-
-/** Sanitize host steer injects with the profile's untrusted-input policy. */
-function sanitizeSteerInjects(
-  profile: Profile,
-  messages: TurnHistoryMessage[],
-): TurnHistoryMessage[] {
-  const policy = resolveGuardrailPolicy(profile.guardrails);
-  return sanitizeHistory(messages, detectionForTrust(policy, 'untrusted'));
-}
-
-/**
- * Move opening user `generation.input` into history so steer injects and tool
- * turns append after the user turn (Orchid absorb order).
- */
-function foldGenerationInputIntoHistory(
-  generation: ResolvedGeneration,
-  state: StepExecutionState,
-): void {
-  if (state.foldedForGeneration === generation) return;
-  state.foldedForGeneration = generation;
-  if (generation.input.length === 0) return;
-  const textOnly = generation.input.every((p) => p.type === 'text');
-  if (textOnly) {
-    state.currentHistory.push({
-      role: 'user',
-      content: generation.input.map((p) => (p.type === 'text' ? p.text : '')).join(''),
-    });
-  } else {
-    state.currentHistory.push({
-      role: 'user',
-      parts: [...generation.input],
-    });
-  }
-  generation.input = [];
-}
-
-/**
- * Emit a barrier event and apply host `onSteer` injects into turn history.
- * No-op when the profile does not allow steering.
- */
-async function* applySteerBarrier(args: {
-  profile: Profile;
-  generation: ResolvedGeneration;
-  barrier: TurnSteerBarrier;
-  step: number;
-  state: StepExecutionState;
-  onSteer?: TurnSteerHandler;
-  signal?: AbortSignal;
-}): AsyncGenerator<TurnEvent> {
-  if (!profileAllowsSteering(args.profile)) return;
-  throwIfAborted(args.signal);
-
-  const event: TurnEvent = { type: 'barrier', barrier: args.barrier };
-  args.state.allEmittedEvents.push(event);
-  yield event;
-
-  // Fold only when a host hook is present — otherwise keep the existing
-  // history+input wire shape for non-steering turns.
-  if (args.barrier === 'pre_llm' && args.onSteer) {
-    foldGenerationInputIntoHistory(args.generation, args.state);
-  }
-
-  if (!args.onSteer) return;
-  const result = await args.onSteer({
-    barrier: args.barrier,
-    step: args.step,
-    history: args.state.currentHistory,
-  });
-  throwIfAborted(args.signal);
-  const inject = result?.inject;
-  if (!inject || inject.length === 0) return;
-  const sanitized = sanitizeSteerInjects(args.profile, inject);
-  args.state.currentHistory.push(...sanitized);
-  // Interactions tool follow-ups use interactionOnlyInput and ignore history —
-  // append user_input steps so steer injects still reach the provider.
-  if (args.state.interactionsContinuation) {
-    for (const msg of sanitized) {
-      if (msg.role === 'tool') continue;
-      args.state.interactionsContinuation.input.push(steerMessageToInteractionStep(msg));
-    }
-  }
-}
-
-/** Provider-neutral Interactions `user_input` / `model_output` step for a steer inject. */
-function steerMessageToInteractionStep(msg: TurnHistoryMessage): Record<string, unknown> {
-  const type = msg.role === 'assistant' ? 'model_output' : 'user_input';
-  if (msg.parts && msg.parts.length > 0) {
-    return {
-      type,
-      content: msg.parts.map(wireInteractionPart),
-    };
-  }
-  return { type, content: [{ type: 'text', text: msg.content ?? '' }] };
 }
 
 function generationForProviderStep(
@@ -452,6 +355,30 @@ async function* handlePendingTools(
       continue;
     }
     recordToolModelResult(state, toolEv, modelResult, generation, useInteractionsContinuation);
+    const post = yield* applyTurnStage({
+      profile,
+      generation,
+      state,
+      stage: 'post_tool',
+      step: state.stepCount,
+      onStage: safe?.onStage,
+      signal: safe?.signal,
+      callId,
+      tool: tool.name,
+      outputRaw: modelResult,
+      outputModel: modelResult,
+      host: generation.host,
+      injectWouldExceedMaxSteps: injectWouldExceedMaxSteps(state.stepCount, generation.maxSteps),
+    });
+    if (post.abort) {
+      state.lastStop = {
+        kind: 'cancelled',
+        ...(typeof post.abort === 'object' && post.abort.reason
+          ? { native: post.abort.reason }
+          : {}),
+      };
+      return false;
+    }
   }
   if (sawPause) {
     state.lastStop = { kind: 'tool' };
@@ -472,7 +399,6 @@ async function* executeAttempt(args: {
   const { profile, generation, system, provider, upstream, state } = args;
   let latestStructured: unknown;
   let pendingTools: TurnEvent[] = [];
-  let stepInAttempt = 0;
   // Text/thought stream via progressive-yield under egress; validation and egress
   // both hold non-visible events (structured) until the attempt gate, so a policy
   // sees the structured payload before any of it reaches the host.
@@ -481,20 +407,14 @@ async function* executeAttempt(args: {
       resolveGuardrailPolicy(profile.guardrails).egress?.enforce,
   );
 
-  while (!isStepLimitReached(stepInAttempt, generation.maxSteps ?? 0)) {
+  // Ceiling is cumulative `state.stepCount` across before_end inject re-entries
+  // within this attempt. Validation/egress repair resets stepCount at the start
+  // of each attempt cycle (see gates.ts).
+  while (!isStepLimitReached(state.stepCount, generation.maxSteps ?? 0)) {
     throwIfAborted(args.safe.signal);
-    stepInAttempt++;
     state.stepCount++;
-    const barrier: TurnSteerBarrier = stepInAttempt === 1 ? 'pre_llm' : 'pre_tool_followup';
-    yield* applySteerBarrier({
-      profile,
-      generation,
-      barrier,
-      step: state.stepCount,
-      state,
-      onSteer: args.safe.onSteer,
-      signal: args.safe.signal,
-    });
+    // Mid-loop inject lives on `post_tool` (after tools). Opening inject is `pre_turn`
+    // outside this loop.
     const stepResult = yield* executeAutonomousStep(
       { profile, generation, system, provider, upstream, signal: args.safe.signal },
       state,

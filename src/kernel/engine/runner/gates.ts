@@ -20,6 +20,7 @@ import type {
   TurnRequest,
 } from '../../types.ts';
 import { collectValidationFailures, formatValidationFailures } from './schema-validation.ts';
+import { applyTurnStage, injectWouldExceedMaxSteps } from './stages.ts';
 import type { AttemptFlowState, StepExecutionState } from './state.ts';
 import { executeAttempt } from './steps.ts';
 
@@ -305,17 +306,63 @@ async function* executeSingleAttemptCycle(args: {
   const validation = profileTurnOutputs(profile)?.validation;
   const egress = resolveGuardrailPolicy(profile.guardrails).egress;
 
-  state.attemptEvents = [];
-  state.withheldVisible = false;
-  const { latestStructured } = yield* executeAttempt({
-    safe: flow.currentReq,
-    profile,
-    generation: flow.currentGen,
-    system,
-    provider,
-    upstream,
-    state,
-  });
+  // Fresh maxSteps budget per validation/egress attempt. before_end inject
+  // re-entry inside this cycle still accumulates stepCount (do not reset there).
+  state.stepCount = 0;
+
+  let latestStructured: unknown;
+  // before_end may inject and re-enter the step loop under maxSteps.
+  for (;;) {
+    state.attemptEvents = [];
+    state.withheldVisible = false;
+    const attempt = yield* executeAttempt({
+      safe: flow.currentReq,
+      profile,
+      generation: flow.currentGen,
+      system,
+      provider,
+      upstream,
+      state,
+    });
+    latestStructured = attempt.latestStructured;
+
+    // Tool / gate suspension — do not before_end; finalize with that stop.
+    if (state.lastStop?.kind === 'tool' || state.lastStop?.kind === 'gate') {
+      break;
+    }
+    if (state.lastStop?.kind === 'cancelled') {
+      return { status: 'terminal' };
+    }
+
+    const beforeEnd = yield* applyTurnStage({
+      profile,
+      generation: flow.currentGen,
+      state,
+      stage: 'before_end',
+      step: Math.max(state.stepCount, 1),
+      onStage: flow.currentReq.onStage,
+      signal: flow.currentReq.signal,
+      host: flow.currentGen.host,
+      injectWouldExceedMaxSteps: injectWouldExceedMaxSteps(
+        state.stepCount,
+        flow.currentGen.maxSteps,
+      ),
+    });
+    if (beforeEnd.abort) {
+      state.lastStop = {
+        kind: 'cancelled',
+        ...(typeof beforeEnd.abort === 'object' && beforeEnd.abort.reason
+          ? { native: beforeEnd.abort.reason }
+          : {}),
+      };
+      return { status: 'terminal' };
+    }
+    if (beforeEnd.injectCount > 0) {
+      // Host extended the turn — another provider step under maxSteps.
+      continue;
+    }
+    break;
+  }
 
   if (egress?.enforce) {
     const status = yield* handleEgressGate(egress, flow, state, profile, maxRetries);

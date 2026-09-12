@@ -28,7 +28,7 @@ export const DEFAULT_ALLOW_CONTINUE: readonly ContinueStopKind[] = CONTINUE_STOP
 
 /**
  * Default kinds for one silent auto-continue (hosts wait briefly, then resume once).
- * Never includes kinds outside ContinueStopKind (e.g. cancelled / tool / completed).
+ * Never includes kinds outside ContinueStopKind (e.g. cancelled / tool / gate / completed).
  */
 export const DEFAULT_AUTO_CONTINUE: readonly ContinueStopKind[] = ['length', 'stream_incomplete'];
 
@@ -67,8 +67,8 @@ export function isContinueStopKind(kind: string): kind is ContinueStopKind {
  * Mid-turn + resume policy for text / image / speech profiles.
  *
  * - `resumption` — continueFrom after a non-user stop (all three types).
- * - `allowSteering` — inject at runner barriers; **text only**. Default true
- *   when omitted on text. Image / speech ignore this flag.
+ * - `allowSteering` — stage **inject** gate on text (default true). Image /
+ *   speech must omit. Stage events always emit when the runner uses stages.
  *
  * Stop / AbortSignal is not a profile knob — composer interfaces always
  * project `canStop: true` because `TurnRequest.signal` is already wired.
@@ -76,9 +76,8 @@ export function isContinueStopKind(kind: string): kind is ContinueStopKind {
 export interface ProfileTurnBehaviourSpec {
   resumption?: ProfileTurnResumptionSpec;
   /**
-   * When true (default on text), the runner emits `barrier` events and accepts
-   * `TurnRequest.onSteer` injects at `pre_llm` / `pre_tool_followup`. Does not
-   * imply durable join/absorb — only that barriers accept injects.
+   * When true (default on text), host `onStage` inject affordances are applied
+   * (`profileAllowsInject`). Does not hide stage emission.
    */
   allowSteering?: boolean;
 }
@@ -130,8 +129,9 @@ export function profileTurnResumption(profile: {
 }
 
 /**
- * Text profiles may steer at barriers unless `allowSteering: false`.
- * Image / speech / live never steer via this path.
+ * Text profiles may inject at stages unless `allowSteering: false`.
+ * Image / speech / live: use `profileAllowsInject` for the target matrix;
+ * this helper remains text-only for interface `allowSteering` projection.
  */
 export function profileAllowsSteering(profile: {
   type: string;
@@ -139,6 +139,24 @@ export function profileAllowsSteering(profile: {
 }): boolean {
   if (profile.type !== 'text') return false;
   return profile.turnBehaviour?.allowSteering !== false;
+}
+
+/**
+ * Whether stage **inject** affordances may be applied (`docs/contracts/stages.md`).
+ * Gates inject only — never stage emission or tool stages.
+ *
+ * Target: text + live when `allowSteering !== false`; never image / speech / host.
+ * Shipping: live cannot author `allowSteering` yet (registry); effective inject
+ * on live remains closed until slice 3 opens the field.
+ */
+export function profileAllowsInject(profile: {
+  type: string;
+  turnBehaviour?: ProfileTurnBehaviourSpec;
+}): boolean {
+  if (profile.type === 'text' || profile.type === 'live') {
+    return profile.turnBehaviour?.allowSteering !== false;
+  }
+  return false;
 }
 
 /** OpenAI-compatible normalized `finish_reason` (+ optional `native_finish_reason`). */

@@ -232,6 +232,8 @@ function resolveTurn(req: TurnRequest): {
       temperature: binding.temperature,
       builtins,
       googleMapsLocation: safe.googleMapsLocation,
+      cache: binding.cache,
+      sessionId: safe.sessionId,
       tools: toolSnapshot,
       sessionPermissions: safe.sessionPermissions,
       history: input.history,

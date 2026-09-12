@@ -12,7 +12,8 @@ quota / canary / egress are refused because they guard a model turn — no model
 and call
 `invokeTool({ profile, name, input, host })` from `theorum/kernel`. The `host`
 slot carries opaque application context to `handler` / `preflight` /
-`canExecute` and is never traced or sent to a provider. See
+`canExecute` (target: tool `preTool` + turn stages — see
+`docs/contracts/stages.md`) and is never traced or sent to a provider. See
 `docs/contracts/kernel.md` (“Host profile” and “Host context slot”).
 
 ## Export

@@ -2,7 +2,7 @@
  * Composer pending messages — stash / queue / steer (headless).
  *
  * Ownership: interface layer. Delivery:
- * - `steer` → host `TurnRequest.onSteer` at kernel barriers (same run)
+ * - `steer` → host `TurnRequest.onStage` inject at stage boundaries (same run)
  * - `queue` → new user turn after the agent run fully ends (not on tool pause)
  * - `stash` → never auto-sent; user must promote
  *
@@ -178,7 +178,7 @@ function moveComposerPendingWithinKind(
 
 /**
  * Take the next pending steer (FIFO). Returns `{ message, remaining }`.
- * One steer per safe boundary — host should call once per `onSteer`.
+ * One steer per safe boundary — host should call once per `onStage` inject site.
  */
 function consumeNextComposerSteer(messages: readonly ComposerPendingMessage[]): {
   message: ComposerPendingMessage | null;

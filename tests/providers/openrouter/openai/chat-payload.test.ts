@@ -452,3 +452,52 @@ Deno.test('toOpenAiChatPayload rejects media references (openAi compat carries i
     'media references are not supported on openAi',
   );
 });
+
+Deno.test('toOpenAiChatPayload sets top-level cache_control for automatic mode', () => {
+  const req: ProviderCompleteRequest = {
+    model: 'sonar',
+    apiId: HOST_BINDINGS.sonar.apiId,
+    system: 'Be helpful',
+    summaries: undefined,
+    image: null,
+    input: [{ type: 'text', text: 'Hello' }],
+    history: [],
+    thinking: 'none',
+    maxOutputTokens: 1024,
+    temperature: 0,
+    builtins: [],
+    wireTools: [],
+    structured: null,
+    cache: { mode: 'automatic', ttl: '1h' },
+    sessionId: 'sess-abc',
+  };
+  const payload = toOpenAiChatPayload(req);
+  assertEquals(payload.cache_control, { type: 'ephemeral', ttl: '1h' });
+  assertEquals(payload.session_id, 'sess-abc');
+});
+
+Deno.test('toOpenAiChatPayload marks system content with cache_control for system mode', () => {
+  const req: ProviderCompleteRequest = {
+    model: 'sonar',
+    apiId: HOST_BINDINGS.sonar.apiId,
+    system: 'Stable persona',
+    summaries: undefined,
+    image: null,
+    input: [{ type: 'text', text: 'Hello' }],
+    history: [],
+    thinking: 'none',
+    maxOutputTokens: 1024,
+    temperature: 0,
+    builtins: [],
+    wireTools: [],
+    structured: null,
+    cache: { mode: 'system' },
+  };
+  const payload = toOpenAiChatPayload(req);
+  assertEquals(payload.cache_control, undefined);
+  const messages = payload.messages as Array<Record<string, unknown>>;
+  const system = messages.find((m) => m.role === 'system');
+  assertEquals(system?.content, [
+    { type: 'text', text: 'Stable persona', cache_control: { type: 'ephemeral' } },
+  ]);
+});

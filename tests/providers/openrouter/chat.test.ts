@@ -27,6 +27,7 @@ import {
   schemaForTool,
   sourceEvent,
   stringArray,
+  systemDelivery,
   tokenEvent,
   tokensFromUsage,
   toolArguments,
@@ -1661,6 +1662,83 @@ Deno.test('providerOptionsFor includes reasoning effort', () => {
   req.structured = null;
   const opts = providerOptionsFor(req);
   assertEquals(field(opts, 'openrouter', 'reasoning'), { effort: 'high' });
+});
+
+Deno.test('providerOptionsFor includes automatic cacheControl and session_id', () => {
+  const req = createMockTurnRequest('pinned', 'test');
+  req.thinking = 'none';
+  req.structured = null;
+  req.cache = { mode: 'automatic', ttl: '5m' };
+  req.sessionId = 'sticky-1';
+  const opts = providerOptionsFor(req);
+  assertEquals(field(opts, 'openrouter', 'cacheControl'), { type: 'ephemeral', ttl: '5m' });
+  assertEquals(field(opts, 'openrouter', 'session_id'), 'sticky-1');
+});
+
+Deno.test('providerOptionsFor omits cacheControl for system mode (message-level only)', () => {
+  const req = createMockTurnRequest('pinned', 'test');
+  req.thinking = 'none';
+  req.structured = null;
+  req.cache = { mode: 'system' };
+  const opts = providerOptionsFor(req);
+  assertEquals(field(opts, 'openrouter', 'cacheControl'), undefined);
+});
+
+Deno.test('systemDelivery uses instructions for automatic/default and XOR system message for system mode', () => {
+  const base = createMockTurnRequest('pinned', 'test');
+  base.system = 'Stable persona';
+  base.thinking = 'none';
+  base.structured = null;
+
+  const automatic = systemDelivery({ ...base, cache: { mode: 'automatic', ttl: '1h' } });
+  assertEquals(automatic.instructions, 'Stable persona');
+  assertEquals(automatic.systemMessage, undefined);
+
+  const systemMode = systemDelivery({ ...base, cache: { mode: 'system', ttl: '5m' } });
+  assertEquals(systemMode.instructions, undefined);
+  assertEquals(systemMode.systemMessage?.role, 'system');
+  assertEquals(field(systemMode.systemMessage, 'providerOptions', 'openrouter', 'cacheControl'), {
+    type: 'ephemeral',
+    ttl: '5m',
+  });
+  assertEquals(
+    (systemMode.systemMessage as { content?: string } | undefined)?.content,
+    'Stable persona',
+  );
+
+  const empty = systemDelivery({ ...base, system: '' });
+  assertEquals(empty.instructions, undefined);
+  assertEquals(empty.systemMessage, undefined);
+});
+
+Deno.test('tokensFromUsage maps AI SDK cache read/write details', () => {
+  assertEquals(
+    tokensFromUsage({
+      inputTokens: 100,
+      outputTokens: 5,
+      totalTokens: 105,
+      inputTokenDetails: { cacheReadTokens: 80, cacheWriteTokens: 20 },
+    }),
+    { input: 100, output: 5, total: 105, cached: 80, cacheWrite: 20 },
+  );
+});
+
+Deno.test('rawEvents emits tokens with cached from usage', () => {
+  const acc = createAccumulator();
+  const events = rawEvents(
+    {
+      choices: [{ finish_reason: 'stop' }],
+      usage: {
+        prompt_tokens: 50,
+        completion_tokens: 2,
+        prompt_tokens_details: { cached_tokens: 40 },
+      },
+    },
+    acc,
+  );
+  const tokenEv = events.find((e) => e.type === 'tokens');
+  assertEquals(tokenEv?.tokens?.cached, 40);
+  assertEquals(acc.emittedTokens, true);
 });
 
 Deno.test('missingOpenRouterKey returns error event', () => {

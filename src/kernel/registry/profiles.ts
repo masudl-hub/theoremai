@@ -16,7 +16,13 @@ import {
 import { resolveObservabilityPolicy } from '../../observability/resolve-policy.ts';
 import type { ProfileObservabilitySpec } from '../../observability/types.ts';
 import { assertLiveIngressConfigured } from '../engine/live-ingress.ts';
-import { isValidPair, isValidProfileProtocol, protocolsForProfileType } from '../schema.ts';
+import {
+  CACHE_MODES,
+  CACHE_TTLS,
+  isValidPair,
+  isValidProfileProtocol,
+  protocolsForProfileType,
+} from '../schema.ts';
 import { isContinueStopKind, type ProfileTurnResumptionSpec } from '../stop.ts';
 import { getTool } from '../tools/registry.ts';
 import type {
@@ -218,6 +224,10 @@ function assertModelBinding(profileId: string, modelId: ModelId, binding: ModelB
     );
   }
   assertModelEfforts(profileId, modelId, binding);
+  if (binding.cache) {
+    assertCacheSpec(profileId, modelId, binding);
+  }
+  assertInteractionsPersistence(profileId, modelId, binding);
 }
 
 function assertModelEfforts(profileId: string, modelId: ModelId, binding: ModelBinding): void {
@@ -447,6 +457,47 @@ function assertCompactionSpec(profileId: string, modelId: ModelId, spec: Compact
       `${tag}: compaction profile '${spec.profile}' must be registered before '${profileId}'`,
     );
   }
+}
+
+function assertCacheSpec(profileId: string, modelId: ModelId, binding: ModelBinding): void {
+  const spec = binding.cache;
+  if (!spec) {
+    return;
+  }
+  const tag = `Profile ${profileId} model '${modelId}'`;
+  if (binding.provider !== 'openrouter' || binding.protocol !== 'openAi') {
+    throw new TheorumError(
+      `${tag}: cache is only valid when protocol is 'openAi' and provider is 'openrouter'`,
+    );
+  }
+  if (!(CACHE_MODES as readonly string[]).includes(spec.mode)) {
+    throw new TheorumError(`${tag}: cache.mode must be one of ${CACHE_MODES.join(' | ')}`);
+  }
+  if (spec.ttl != null && !(CACHE_TTLS as readonly string[]).includes(spec.ttl)) {
+    throw new TheorumError(`${tag}: cache.ttl must be one of ${CACHE_TTLS.join(' | ')}`);
+  }
+}
+
+function assertInteractionsPersistence(
+  profileId: string,
+  modelId: ModelId,
+  binding: ModelBinding,
+): void {
+  if (binding.store === undefined && binding.persistViaInteractionId === undefined) {
+    return;
+  }
+  if (binding.protocol === 'geminiInteractions' && binding.provider === 'google') {
+    return;
+  }
+  const which =
+    binding.store !== undefined && binding.persistViaInteractionId !== undefined
+      ? 'store and persistViaInteractionId'
+      : binding.store !== undefined
+        ? 'store'
+        : 'persistViaInteractionId';
+  throw new TheorumError(
+    `Profile ${profileId} model '${modelId}': ${which} is only valid when protocol is 'geminiInteractions' and provider is 'google'`,
+  );
 }
 
 function assertCompactionBudget(tag: string, spec: CompactionSpec): void {

@@ -525,3 +525,141 @@ Deno.test('clearProfiles empties the process-local registry', () => {
   }
   assertEquals(hasProfile('temp_clear_bot'), false);
 });
+
+Deno.test('defineProfile accepts openrouter cache and rejects cache on google', () => {
+  const ok = defineProfile({
+    id: 'cache_or_bot',
+    type: 'text',
+    identity: { handle: 'cache_or_bot' },
+    models: {
+      sonar: {
+        ...HOST_BINDINGS.sonar,
+        cache: { mode: 'automatic', ttl: '1h' },
+      },
+    },
+    tools: { allow: [] },
+    inputs: { text: true },
+  });
+  assertEquals(ok.models.sonar.cache, { mode: 'automatic', ttl: '1h' });
+
+  assertThrows(
+    () =>
+      defineProfile({
+        id: 'cache_google_bot',
+        type: 'text',
+        identity: { handle: 'cache_google_bot' },
+        models: {
+          gemini35FlashLite: {
+            ...HOST_BINDINGS.gemini35FlashLite,
+            cache: { mode: 'automatic' },
+          },
+        },
+        key: 'slotA',
+        tools: { allow: [] },
+        inputs: { text: true },
+      }),
+    Error,
+    'cache is only valid when protocol is',
+  );
+});
+
+Deno.test('defineProfile accepts Interactions store/persist and rejects them on openrouter', () => {
+  const ok = defineProfile({
+    id: 'store_google_bot',
+    type: 'text',
+    identity: { handle: 'store_google_bot' },
+    models: {
+      gemini35FlashLite: {
+        ...HOST_BINDINGS.gemini35FlashLite,
+        store: true,
+        persistViaInteractionId: true,
+      },
+    },
+    key: 'slotA',
+    tools: { allow: [] },
+    inputs: { text: true },
+  });
+  assertEquals(ok.models.gemini35FlashLite.store, true);
+  assertEquals(ok.models.gemini35FlashLite.persistViaInteractionId, true);
+
+  assertThrows(
+    () =>
+      defineProfile({
+        id: 'store_or_bot',
+        type: 'text',
+        identity: { handle: 'store_or_bot' },
+        models: {
+          sonar: {
+            ...HOST_BINDINGS.sonar,
+            store: true,
+          },
+        },
+        tools: { allow: [] },
+        inputs: { text: true },
+      }),
+    Error,
+    'store is only valid when protocol is',
+  );
+});
+
+Deno.test('defineProfile rejects invalid cache.mode and cache.ttl', () => {
+  assertThrows(
+    () =>
+      defineProfile({
+        id: 'cache_bad_mode',
+        type: 'text',
+        identity: { handle: 'cache_bad_mode' },
+        models: {
+          sonar: {
+            ...HOST_BINDINGS.sonar,
+            cache: { mode: 'nope' as 'automatic' },
+          },
+        },
+        tools: { allow: [] },
+        inputs: { text: true },
+      }),
+    Error,
+    'cache.mode must be one of',
+  );
+  assertThrows(
+    () =>
+      defineProfile({
+        id: 'cache_bad_ttl',
+        type: 'text',
+        identity: { handle: 'cache_bad_ttl' },
+        models: {
+          sonar: {
+            ...HOST_BINDINGS.sonar,
+            cache: { mode: 'automatic', ttl: '2h' as '1h' },
+          },
+        },
+        tools: { allow: [] },
+        inputs: { text: true },
+      }),
+    Error,
+    'cache.ttl must be one of',
+  );
+});
+
+Deno.test('resolveTurn projects cache and sessionId onto generation', () => {
+  registerProfile({
+    id: 'cache_resolve_bot',
+    type: 'text',
+    identity: { handle: 'cache_resolve_bot' },
+    models: {
+      sonar: {
+        ...HOST_BINDINGS.sonar,
+        cache: { mode: 'system', ttl: '5m' },
+      },
+    },
+    tools: { allow: [] },
+    inputs: { text: true },
+  });
+  const { generation } = resolveTurn({
+    profile: 'cache_resolve_bot',
+    sessionId: 'sess-1',
+    input: { text: 'hi' },
+  });
+  assertEquals(generation.cache, { mode: 'system', ttl: '5m' });
+  assertEquals(generation.sessionId, 'sess-1');
+});

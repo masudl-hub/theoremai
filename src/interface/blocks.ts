@@ -225,7 +225,7 @@ function foldTurnEvents(
         break;
       case 'tokens':
       case 'session':
-      case 'barrier':
+      case 'stage':
         break;
       default:
         break;

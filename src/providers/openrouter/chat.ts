@@ -9,9 +9,16 @@
  */
 
 import { createOpenRouter, type OpenRouterChatSettings } from '@openrouter/ai-sdk-provider';
-import { jsonSchema, streamText, type TextStreamPart, type ToolSet, tool } from 'ai';
+import {
+  jsonSchema,
+  type ModelMessage,
+  streamText,
+  type TextStreamPart,
+  type ToolSet,
+  tool,
+} from 'ai';
 import { isAbortError, TheorumError, toErrorEvent } from '../../guardrails/error.ts';
-import { parseStructuredOutput } from '../../kernel/engine/delta.ts';
+import { extractUsageTokens, parseStructuredOutput } from '../../kernel/engine/delta.ts';
 import { turnStopFromOpenAiFinishReason } from '../../kernel/stop.ts';
 import type {
   ModelProvider,
@@ -21,6 +28,7 @@ import type {
   WireFunctionTool,
 } from '../../kernel/types.ts';
 import type { OpenAiGatewayConfig } from '../types.ts';
+import { cacheControlJson } from './cache-control.ts';
 import { resolveOpenRouterPlugins } from './openai/chat-payload.ts';
 import { openAiGatewayHeaders, resolveResponseFormat } from './openai/compat.ts';
 import { buildAiSdkMessages } from './openai/sdk-messages.ts';
@@ -123,17 +131,32 @@ export function tokensFromUsage(usage: {
   inputTokens?: number | null;
   outputTokens?: number | null;
   totalTokens?: number | null;
+  inputTokenDetails?: {
+    cacheReadTokens?: number | null;
+    cacheWriteTokens?: number | null;
+  } | null;
+  cachedInputTokens?: number | null;
 }): TurnTokens | undefined {
   const input = usage.inputTokens ?? 0;
   const output = usage.outputTokens ?? 0;
   const total = usage.totalTokens ?? input + output;
-  if (input === 0 && output === 0 && total === 0) {
+  const cached = usage.inputTokenDetails?.cacheReadTokens ?? usage.cachedInputTokens ?? undefined;
+  const cacheWrite = usage.inputTokenDetails?.cacheWriteTokens ?? undefined;
+  if (
+    input === 0 &&
+    output === 0 &&
+    total === 0 &&
+    !(cached && cached > 0) &&
+    !(cacheWrite && cacheWrite > 0)
+  ) {
     return undefined;
   }
   return {
     input,
     output,
     total,
+    ...(cached && cached > 0 ? { cached } : {}),
+    ...(cacheWrite && cacheWrite > 0 ? { cacheWrite } : {}),
   };
 }
 
@@ -279,6 +302,13 @@ export function rawEvents(raw: unknown, acc: StreamAccumulator): TurnEvent[] {
   if (messageEvidence) {
     events.push(messageEvidence);
   }
+  if (!acc.emittedTokens) {
+    const usage = extractUsageTokens(record.usage);
+    if (usage) {
+      acc.emittedTokens = true;
+      events.push({ type: 'tokens', tokens: usage });
+    }
+  }
   const choices = Array.isArray(record.choices) ? record.choices : [];
   for (const choice of choices) {
     const row = rawRecord(choice);
@@ -332,6 +362,11 @@ export function tokenEvent(part: {
     inputTokens?: number | null;
     outputTokens?: number | null;
     totalTokens?: number | null;
+    inputTokenDetails?: {
+      cacheReadTokens?: number | null;
+      cacheWriteTokens?: number | null;
+    } | null;
+    cachedInputTokens?: number | null;
   };
 }): TurnEvent | undefined {
   const tokens = tokensFromUsage(part.totalUsage);
@@ -393,6 +428,11 @@ export function finishEvent(
       inputTokens?: number | null;
       outputTokens?: number | null;
       totalTokens?: number | null;
+      inputTokenDetails?: {
+        cacheReadTokens?: number | null;
+        cacheWriteTokens?: number | null;
+      } | null;
+      cachedInputTokens?: number | null;
     };
   },
   acc: StreamAccumulator,
@@ -452,14 +492,41 @@ function createStreamContext(
   };
 }
 
+/** System via instructions XOR a cache-marked system message — never both. */
+export function systemDelivery(req: ProviderCompleteRequest): {
+  instructions?: string;
+  systemMessage?: ModelMessage;
+} {
+  if (!req.system) {
+    return {};
+  }
+  if (req.cache?.mode === 'system') {
+    return {
+      systemMessage: {
+        role: 'system',
+        content: req.system,
+        providerOptions: {
+          openrouter: { cacheControl: cacheControlJson(req.cache) },
+        },
+      } as ModelMessage,
+    };
+  }
+  return { instructions: req.system };
+}
+
 function streamTextOptions(
   req: ProviderCompleteRequest,
   context: OpenRouterStreamContext,
 ): Parameters<typeof streamText>[0] {
+  const delivery = systemDelivery(req);
+  const messages = buildAiSdkMessages(req);
+  if (delivery.systemMessage) {
+    messages.unshift(delivery.systemMessage);
+  }
   return {
     model: context.openrouter.chat(context.modelName, openRouterSettings(req)),
-    instructions: req.system,
-    messages: buildAiSdkMessages(req),
+    instructions: delivery.instructions,
+    messages,
     allowSystemInMessages: true,
     temperature: req.temperature,
     maxOutputTokens: req.maxOutputTokens,
@@ -530,6 +597,12 @@ export function providerOptionsFor(req: ProviderCompleteRequest): ProviderOption
     | undefined;
   if (responseFormat) {
     openrouter.response_format = responseFormat;
+  }
+  if (req.cache?.mode === 'automatic') {
+    openrouter.cacheControl = cacheControlJson(req.cache);
+  }
+  if (req.sessionId) {
+    openrouter.session_id = req.sessionId;
   }
   if (Object.keys(openrouter).length === 0) return undefined;
   return { openrouter } as ProviderOptions;

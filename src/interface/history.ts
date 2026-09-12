@@ -42,7 +42,7 @@ export type UserTurnHistoryMedia = {
 };
 
 /**
- * Project a pending/composer draft into history messages for `onSteer` inject.
+ * Project a pending/composer draft into history messages for `onStage` inject.
  * Uses base64 on `draft.attachments` / `draft.voice` when present.
  */
 function userDraftToSteerInject(draft: UserTurnDraft): TurnHistoryMessage[] {

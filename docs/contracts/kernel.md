@@ -35,14 +35,17 @@ A `Profile` binds:
 | `inputs` | Text / attachments / voice / slots / per-mime limits — present on `text`, `image`; absent on `speech` and `live` (live uses `live.ingress` instead) |
 | `image` / `speech` / `live` | Modality-specific pins (top-level, not nested under `outputs`) |
 | `outputs` | Structured, streaming, validation — present on `text`, `image`, `speech`; absent on `live` |
-| `turnBehaviour` | `resumption` (`allowContinue`, `autoContinue`, `maxContinues`); text also `allowSteering` — present on `text`, `image`, `speech` |
+| `turnBehaviour` | `resumption` (`allowContinue`, `autoContinue`, `maxContinues`); text also `allowSteering` — present on `text`, `image`, `speech`. Target stages: inject gate via `profileAllowsInject` / `allowSteering` (live field lands with stages slice 3; see [`stages.md`](stages.md)) |
 | `guardrails` | Quota, canary, sanitize, redact, egress, network, taint — on `host` narrowed to `HostGuardrailsSpec` |
 | `observability` | Trace destination, scrub, include, sampling (`writeTo`, `sampleRate`, …) |
 
-Closed unions (`protocol`, `provider`, `thinking`, stop kinds, MIME maps, …)
-live as `as const` arrays in `src/kernel/schema.ts`. Types are derived from
-those arrays. `PROFILE_FIELDS` / `fieldMeta` document every authoring path so
-host UIs and docs hover the live kernel types instead of copying them.
+Closed unions (`protocol`, `provider`, `thinking`, stop kinds, turn stages,
+MIME maps, …) live as `as const` arrays in `src/kernel/schema.ts`. Types are
+derived from those arrays. `TURN_STAGES` / `TOOL_GATE_KINDS` /
+`AWAITING_USER_INPUT_*` are foundation for the stages cutover
+([`stages.md`](stages.md)); text `runTurn` mid-turn inject uses `TURN_STAGES` /
+`onStage`. `PROFILE_FIELDS` / `fieldMeta` document every authoring
+path so host UIs and docs hover the live kernel types instead of copying them.
 `PROFILE_GRAPH` projects those sections into the playground authoring graph
 (spine / branch / optional); the frontend must import it rather than inventing
 facet kinds. Drift is gated by `tests/kernel/profile-graph.test.ts`.
@@ -99,7 +102,15 @@ outside `isValidPair`. `providersFor` / `protocolsFor` / `coerceProvider` /
 `coerceProtocol` are the same table.
 Each `ModelBinding` in `profile.models` carries wire ids (`apiId`), optional
 `efforts` / `defaultEffort`, `summaries`, `maxOutputTokens`, `temperature`,
-`builtInTools`, optional vault `key`, optional `compaction`.
+`builtInTools`, optional vault `key`, optional `compaction`, optional OpenRouter
+`cache` (`mode` / `ttl`; openrouter-only), and Gemini Interactions optional
+`store` / `persistViaInteractionId` (Interactions-only).
+
+`TurnRequest.sessionId` is an optional sticky routing key forwarded to OpenRouter
+as `session_id` (distinct from `projectId` and Gemini `previousInteractionId`).
+
+`TurnTokens` may include `cached` / `cacheWrite` when the provider reports cache
+read/write counts.
 
 THEORUM does not invent provider-API defaults for optional wire fields.
 Hosts must set required fields explicitly (`type`, `models`, per-binding
@@ -120,6 +131,15 @@ gate boundary, not socket teardown). When `sink` is omitted, the runner resolves
 `profile.observability` via `resolveTraceWriter` (named destination, inline
 sink, or noop). An explicit third-argument sink always wins for that call.
 
+Text turns emit **stage** events and invoke optional `TurnRequest.onStage`
+(`docs/contracts/stages.md`): `pre_turn` before the first provider step;
+`post_tool` after each settled tool; `before_end` before egress/validation
+finalize (inject may re-enter the step loop under `maxSteps`); terminal `done`;
+then `post_turn`. Inject requires `profileAllowsInject` (`allowSteering` on
+text). Invalid affordances yield a follow-up `stage` event with `stageWarnings`.
+AbortSignal / stage `abort` end with cancelled `done` then `post_turn`.
+`pre_tool` host/gate cutover is slice 2; live stages are slice 3.
+
 1. **Resolve** — `resolveTurn` picks model, wire `apiId`, `transport`
    (`'interactions'` for Google Interactions, `'openAiCompat'` for OpenRouter/local),
    thinking, tools, structured schema, streaming mode (`outputs.streaming.mode`
@@ -131,24 +151,30 @@ sink, or noop). An explicit third-argument sink always wins for that call.
    history.
 4. **Canary bind** — `bindCanary` embeds the per-turn canary in system text when
    `guardrails.canary` is enabled.
-5. **Provider stream** — `provider.complete` yields partial events; runner may
+5. **`pre_turn`** — stage emit + optional `onStage` (may fold opening input /
+   inject).
+6. **Provider stream** — `provider.complete` yields partial events; runner may
    gate thoughts/media per `outputs.streaming`.
-6. **Tool loop** — while under `maxSteps`, tool calls execute via `executeRegisteredTool`
-   (shared with `invokeTool`), threading host `credentials` for authenticated HTTP/MCP tools and the opaque `host` context slot; results feed the next step. `generation.transport` selects
+7. **Tool loop** — while under `maxSteps`, tool calls execute via `executeRegisteredTool`
+   (shared with `invokeTool`), threading host `credentials` for authenticated HTTP/MCP tools and the opaque `host` context slot; results feed the next step. After each
+   settled tool, `post_tool` may inject. `generation.transport` selects
    Interactions continuation (`previous_interaction_id` + `function_result` steps) vs
    OpenAI-compat tool-call history. Server-side `codeExecution` does not consume a runner step.
-7. **Validation / repair** — structured output validators (`outputs.validation`)
+8. **`before_end`** — stage before egress/validation; inject re-enters the step
+   loop when under `maxSteps`.
+9. **Validation / repair** — structured output validators (`outputs.validation`)
    may trigger repair turns with `input.repair`.
-8. **Egress** — progressive-yield lookback on the provider stream (canary,
+10. **Egress** — progressive-yield lookback on the provider stream (canary,
    sensitive/PII, host `guardrails.egress.enforce`) releases cleared prefixes
    while holding a rolling window; end-of-attempt may still refuse, repair, or
    withhold. SSE streaming and egress can both stay enabled.
-9. **Trace** — optional sink receives a `TraceRecord`; failures are swallowed.
+11. **Trace** — optional sink receives a `TraceRecord`; failures are swallowed.
    Runner threads `profile.model.protocol` and upstream tap rows (`tapUpstream`).
    Interactions turns snapshot `wire` via `toInteractionsBody`; OpenAI-compat turns
    omit wire and classify ok/cancelled from terminal `done.stop` on the event stream.
-10. **Terminal `done`** — one `done` event with tokens, optional `stop`,
-    optional `compaction` signal (`timing: 'after'`).
+12. **Terminal `done` then `post_turn`** — one `done` event with tokens, optional
+    `stop`, optional `compaction` signal (`timing: 'after'`), then observe-only
+    `post_turn`.
 
 `continueFrom` on `TurnRequest` prepends `CONTINUE_INSTRUCTION` and carries
 partial assistant text/artifact from a resumeable stop.
@@ -174,7 +200,7 @@ different transport than the primary turn.
 | `grounding` | Search/maps grounding metadata (classic `grounding_metadata` and Interactions tool results such as `google_search_result.search_suggestions`, `google_maps_result.result[].places`, and `place_citation` annotations). Normalized to `sources` plus classic `chunks[].maps` (`title` / `uri` / `placeId`) |
 | `evidence` | Provider-native attachments. Google code execution sets `kind` (`code_execution_call` / `code_execution_result`) plus parsed `code` / `result` / `isError` / `id` / `callId`, and always keeps `raw`. Live ASR uses `input_transcription` / `output_transcription` (optional `interim`); session resumption uses `session_resumption` + `resumable`. |
 | `session` | Live control: `closing_soon` (optional `timeLeftMs`), `waiting_for_input` |
-| `barrier` | Steer boundary (`barrier`: `pre_llm` \| `pre_tool_followup`) when `turnBehaviour.allowSteering` |
+| `stage` | Turn timeline (`stage`: `pre_turn` \| `pre_tool` \| `post_tool` \| `before_end` \| `post_turn`) — see [`stages.md`](stages.md) |
 | `tokens` | `input` / `output` / `total` usage (billing; may gate `meter: 'input'`) |
 | `done` | Terminal or live boundary: `stop` (`completed` / `interrupted` / `generation_complete` / …), `tokens`, `compaction`; when `stop.kind === 'tool'`, optional `tools` (`TurnToolSnapshot`) for host `invokeTool` resume |
 | `error` | Public-safe `error` string; optional `errorInternal` for host logs only |
@@ -233,11 +259,14 @@ pause `input`, `TraceRecord`, or `ProviderCompleteRequest`.
 | --- | --- |
 | `TurnRequest.host?: unknown` | `ToolContext.host` for every tool the turn executes; `ToolLoadContext.host` for `tools.t1Policy` |
 | `InvokeToolRequest.host?: unknown` | Same, for a host-initiated `invokeTool` |
+| `InvokeToolRequest.onStage?: StageHandler` | Target: optional `pre_tool` / `post_tool` only ([`stages.md`](stages.md)); types frozen, execute cutover not shipping |
 | `ToolContext.host?: unknown` | Read by `handler`, `preflight`, `canExecute` |
 | `ToolLoadContext.host?: unknown` | Read by `tools.t1Policy` |
 
-`SessionRequest` has no slot: `runSession` never executes tools; hosts execute
-live tool calls through `invokeTool`.
+`SessionRequest` has no host slot today. Target stages attach `SessionRequest.onStage`
+for the session lifetime (immutable; no `setOnStage`) and require
+`LiveSession.executeTool` for live tool execute — see [`stages.md`](stages.md).
+Until that cutover, hosts still execute live tool calls through `invokeTool`.
 
 ### Session snapshot across a process boundary
 
@@ -396,36 +425,43 @@ Profile `turnBehaviour` (top-level on chat/image/speech):
 | `resumption.allowContinue` | Stop kinds eligible for a continueFrom turn |
 | `resumption.autoContinue` | Stop kinds the host may auto-continue without a CTA |
 | `resumption.maxContinues` | Max continueFrom rounds the kernel accepts (enforced) |
-| `allowSteering` | **Text only.** When true (default), runner emits `barrier` events and accepts `TurnRequest.onSteer` injects. Image/speech must omit |
+| `allowSteering` | **Text only.** Gates **inject** via `profileAllowsInject` / stages. Stage events always emit on text turns. Image/speech must omit |
 
 Stop / cancel is not a profile field: composer `ProfileInterface` always projects `canStop: true`
 (`TurnRequest.signal`). Text interfaces also project resolved `allowSteering`.
 
 ### Mid-turn steering
 
-When `profileAllowsSteering(profile)`:
+**Branch (text spine):** stage events + `onStage` — [`docs/contracts/stages.md`](stages.md).
+Text mid-turn inject uses stages (`onStage`). Tool `pre_tool` gates, live `executeTool`,
+and composer gated/awaiting split remain slices 2–3.
 
-1. Before each provider step the runner yields `{ type: 'barrier', barrier }`.
-2. `pre_llm` — first model call of the attempt; `pre_tool_followup` — after tools, before the next model step.
-3. If `TurnRequest.onSteer` is set, it runs at the barrier. Returned `inject` messages are sanitized and appended to turn history (after the opening user turn).
+On text turns the runner always yields `{ type: 'stage', stage }`:
+
+1. `pre_turn` — once before the first provider step (fold opening input when `onStage` is set).
+2. `post_tool` — per settled tool call (inject window before the next model step).
+3. `before_end` — before egress/validation; inject may re-enter the step loop under `maxSteps`.
+4. `post_turn` — after terminal `done` (sees compaction-after when attached).
+
+Inject applies only when `profileAllowsInject(profile)` (text + `allowSteering !== false`).
 
 ```ts
 for await (const event of runTurn({
   profile: 'my.agent',
   input: { text: 'first message' },
-  onSteer: ({ barrier, history }) => {
-    if (barrier === 'pre_tool_followup' && pendingFollowUp) {
+  onStage: ({ stage }) => {
+    if (stage === 'post_tool' && pendingFollowUp) {
       return { inject: [{ role: 'user', content: pendingFollowUp }] };
     }
   },
 }, provider)) {
-  if (event.type === 'barrier') {
-    // UI: safe point to flush a client-held follow-up via host onSteer
+  if (event.type === 'stage') {
+    // UI: safe point to flush a client-held follow-up via host onStage
   }
 }
 ```
 
-Orchid-style durable absorb belongs in the host `onSteer` implementation (claim/accept/consume), not in the kernel.
+Orchid-style durable absorb belongs in the host `onStage` implementation (claim/accept/consume), not in the kernel.
 
 Profile `guardrails`:
 
@@ -531,6 +567,22 @@ Register-time validation: `maxTokens > 0`, `compactAt ∈ (0,1)`, integer
 `previousExchanges ≥ 1`, fractional `< compactAt`, meter ∈ `{history,input}`,
 compaction profile registered first.
 
+## Prompt cache (OpenRouter)
+
+Optional per-model `ModelBinding.cache` (openrouter-only):
+
+```ts
+cache: { mode: "automatic" | "system", ttl?: "5m" | "1h" }
+```
+
+- `automatic` — top-level `cache_control` on the OpenRouter request.
+- `system` — `cache_control` on the system instruction only.
+- Omit — no opt-in (some upstream models may still auto-cache).
+
+Pass `TurnRequest.sessionId` for OpenRouter sticky `session_id` routing.
+`TurnTokens.cached` / `cacheWrite` report provider cache read/write when present
+(Google Interactions implicit hits via `total_cached_tokens` included).
+
 ## Stop and resume
 
 `TurnStopKind` values are the `TURN_STOP_KINDS` array in `src/kernel/schema.ts`.
@@ -540,7 +592,8 @@ Providers map native finish reasons into `TurnStop` on terminal `done` events.
 | --- | --- |
 | `completed` | Normal completion |
 | `length` | Output / budget cut off |
-| `tool` | Model requested tool use |
+| `tool` | @deprecated Shipping pause fiction (`tool.phase: 'pause'`). Target: `gate` for confirm/permission/auth; awaiting is a completed tool result ([`stages.md`](stages.md)) |
+| `gate` | Target / foundation: honest `pre_tool` suspension (confirm / permission / auth). Host resumes via `invokeTool` / `executeTool` |
 | `filtered` | Content filter |
 | `provider_error` | Upstream failure |
 | `cancelled` | User / host abort |
@@ -581,7 +634,8 @@ turnBehaviour: {
 | `shouldAutoContinue` | One silent resume; never outside ContinueStopKind |
 | `isUserCancelledStop` | `kind === 'cancelled'` |
 | `profileTurnResumption` | Read `turnBehaviour.resumption` |
-| `profileAllowsSteering` | Text + `allowSteering !== false` |
+| `profileAllowsSteering` | Text + `allowSteering !== false` (interface inject projection) |
+| `profileAllowsInject` | Stage inject gate: text + live when `allowSteering !== false`; never image / speech / host ([`stages.md`](stages.md)) |
 
 ### Continue turn
 
@@ -601,12 +655,17 @@ that prefer exceptions over stream `done.stop`.
 
 ## Validation
 
-Beyond compaction rules (above), `registerProfile` asserts:
+Beyond compaction rules (above), `registerProfile` / `defineProfile` assert:
 
 - Each `tools.allow` id is a registered **custom** tool (builtins rejected here).
 - Each `models.*.builtInTools` id is a registered **builtin**.
 - Each key in `models` is a host-named model id with a full `ModelBinding`.
 - Profiles with attachments or voice set `maxFiles`, `maxBytes`, `maxTurnBytes`.
+- `models.*.cache` only when `protocol: 'openAi'` and `provider: 'openrouter'`.
+- `models.*.store` / `persistViaInteractionId` only when
+  `protocol: 'geminiInteractions'` and `provider: 'google'`.
+  **Breaking:** previously these fields were accepted on any binding and ignored
+  at runtime; `defineProfile` now rejects them outside Interactions+google.
 
 Runtime structured validation uses `outputs.validation.fields` keyed by dotted
 paths; failures can trigger repair turns via `input.repair`.
@@ -638,21 +697,21 @@ exchange already carries the URL.
 
 ### Composer pending intents
 
-Headless contract for stash / queue / steer (Seance-aligned). Kernel owns barriers +
-`onSteer` + `AbortSignal`; the interface owns pending list ops and the action matrix;
+Headless contract for stash / queue / steer (Seance-aligned). Kernel owns stages +
+`onStage` inject + `AbortSignal`; the interface owns pending list ops and the action matrix;
 `@theorum/react` owns UI.
 
 | Intent | Lifetime |
 | --- | --- |
 | `stash` | Never auto-sent; user promotes |
 | `queue` | New user turn after the **agent run fully ends** (not on tool pause resolve) |
-| `steer` | Inject at next kernel barrier via host `onSteer` (same run) |
+| `steer` | Inject at next inject-capable stage via host `onStage` (same run — `docs/contracts/stages.md`) |
 | `send_now` | Immediate abort + send (not a pending kind) |
 
 Primary matrix: idle+payload → Send; streaming+empty → Stop; streaming/paused+payload → Queue.
 Enter matches primary. Menu offers Queue / Steer / Send now / Stash as applicable.
 Undelivered steers convert to the front of the queue when the run ends.
-Tool pause does not drain the queue and does not offer Steer (runner is not at a barrier).
+Tool pause does not drain the queue and does not offer Steer (not an inject stage).
 Send now while paused uses `abandonPausedToolSession` (cancel wait, no model continue) then starts a new user turn.
 
 ```ts
@@ -675,12 +734,13 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
 | Compaction | `CompactionSplit`, `CompactionTokens`, `compactionMeter`, `compactionNeeded`, `estimateHistoryTokens`, `HISTORY_MEDIA_TOKENS`, `HISTORY_TEXT_ENCODING`, `resolveCompactionTokens`, `resolveHistoryTokens`, `shouldCompact`, `splitForCompaction` |
 | Runner | `runTurn`, `runSession`, `RunSessionOptions`, `prepareLiveInboundText`, `liveIngressEnabled`, `liveIngressEnabledFromSpec`, `liveIngressChannelDefault`, `hasAnyLiveIngress`, `assertLiveIngress`, `assertLiveIngressConfigured`, `LiveIngressChannel` |
 | Catalog | `clampThinkingLevel`, `clampThinkingLevelForApiId`, `mediaChannelForMime`, `MediaInputChannel`, `mediaKindForMime`, `getTool`, `listBuiltinIds`, `mimeAllowed`, `mimeEssence`, `modelEntryByApiId`, `registerTools`, `requireModelBinding`, `resetTools` |
-| Schema | `PROFILE_FIELDS`, `PROFILE_GRAPH`, `PROFILE_TYPES`, `PROFILE_TYPE_PROTOCOLS`, `protocolsForProfileType`, `isValidProfileProtocol`, `EXTRA_FIELDS`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `spineFacetsForProfileType`, `profileGraphFacet`, `ProfileGraphFacet`, `ProfileGraphFacetId`, `ProfileGraphEditor`, `ProfileGraphRole`, `PROTOCOLS`, `PROVIDERS`, `PROTOCOL_PROVIDERS`, `providersFor`, `protocolsFor`, `isValidPair`, `coerceProvider`, `coerceProtocol`, `coerceSpeechFormat`, `isSpeechFormatAllowedForProtocol`, `speechFormatsForProtocol`, `THINKING_LEVELS`, `KEY_SLOTS`, `OVERFLOW_KEY_SLOTS`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `SCHEMA_ENFORCEMENTS`, `COMPACTION_METERS`, `COMPACTION_TIMINGS`, `TURN_STOP_KINDS`, `CONTINUE_STOP_KINDS`, `TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES`, `AUTH_UNAUTHENTICATED_POLICIES`, `HTTP_METHODS`, `PLAYGROUND_AUTH_TYPES`, `TOOL_AUTH_TYPES`, `AuthUnauthenticatedPolicy`, `CustomToolType`, `HttpMethod`, `PlaygroundAuthType`, `ToolAccess`, `ToolAuthType`, `ToolPermission`, `ToolType`, `EGRESS_ON_BLOCK`, `EgressOnBlock` |
+| Schema | `PROFILE_FIELDS`, `PROFILE_GRAPH`, `PROFILE_TYPES`, `PROFILE_TYPE_PROTOCOLS`, `protocolsForProfileType`, `isValidProfileProtocol`, `EXTRA_FIELDS`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `spineFacetsForProfileType`, `profileGraphFacet`, `ProfileGraphFacet`, `ProfileGraphFacetId`, `ProfileGraphEditor`, `ProfileGraphRole`, `PROTOCOLS`, `PROVIDERS`, `PROTOCOL_PROVIDERS`, `providersFor`, `protocolsFor`, `isValidPair`, `coerceProvider`, `coerceProtocol`, `coerceSpeechFormat`, `isSpeechFormatAllowedForProtocol`, `speechFormatsForProtocol`, `THINKING_LEVELS`, `KEY_SLOTS`, `OVERFLOW_KEY_SLOTS`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `SCHEMA_ENFORCEMENTS`, `COMPACTION_METERS`, `COMPACTION_TIMINGS`, `CACHE_MODES`, `CACHE_TTLS`, `TURN_STOP_KINDS`, `CONTINUE_STOP_KINDS`, `TURN_STAGES`, `TURN_INJECT_STAGES`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES`, `AUTH_UNAUTHENTICATED_POLICIES`, `HTTP_METHODS`, `PLAYGROUND_AUTH_TYPES`, `TOOL_AUTH_TYPES`, `AuthUnauthenticatedPolicy`, `CustomToolType`, `HttpMethod`, `PlaygroundAuthType`, `ToolAccess`, `ToolAuthType`, `ToolPermission`, `ToolType`, `ToolGateKind`, `TurnStage`, `TurnInjectStage`, `AwaitingUserInputKind`, `EGRESS_ON_BLOCK`, `EgressOnBlock` |
 | Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `LiveProfileDefinition`, `HostProfileDefinition`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `projectProfileObject`, `requireModelProfile`, `resolveTurn` |
 | Tools | `registerTool`, `registerTools`, `invokeTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `listBuiltinIds`, `listFunctionIds`, `resetTools`, `formatToolResult`, `projectForModel`, `coerceToolResultParts`, `leanToolResultData`, `wireInteractionPart`, `isMediaRefPart`, `prepareTurnToolSnapshot`, `buildHttpToolTarget`, `executeHttpTool`, `executeMcpTool`, `parseMcpRpcResponse`, `isUnsupportedMcpProtocolError`, `MCP_PROTOCOL_VERSIONS`, `McpProtocolVersion`, `resolveToolAuth` |
 | Auth (stateless OAuth/PKCE) | `createOAuthPkceFlow`, `exchangeOAuthPkce`, `refreshOAuthToken`, `discoverResourceMetadata`, `discoverAuthServerMetadata`, `validateIssuer`, `generateCodeVerifier`, `computeCodeChallenge`, `sealStatePayload`, `unsealStatePayload` |
 | Structured | `getStructured`, `registerStructured` |
-| Stop / resume | `ProfileTurnBehaviourSpec`, `ProfileTurnResumptionSpec`, `TurnContinueFrom`, `TurnStop`, `TurnStopKind`, `ContinueStopKind`, `TurnSteerBarrier`, `TurnSteerContext`, `TurnSteerHandler`, `TurnSteerResult`, `TURN_STEER_BARRIERS`, `CONTINUE_STOP_KINDS`, `AUTO_CONTINUE_DELAY_MS`, `CONTINUE_INSTRUCTION`, `DEFAULT_ALLOW_CONTINUE`, `DEFAULT_AUTO_CONTINUE`, `GenerationStopError`, `isContinueStopKind`, `isGenerationStopError`, `isResumeableStop`, `isUserCancelledStop`, `profileAllowsSteering`, `profileTurnResumption`, `shouldAutoContinue`, `turnStopFromClientStreamEnd`, `turnStopFromInteractionStatus`, `turnStopFromOpenAiFinishReason` |
+| Stop / resume | `ProfileTurnBehaviourSpec`, `ProfileTurnResumptionSpec`, `TurnContinueFrom`, `TurnStop`, `TurnStopKind`, `ContinueStopKind`, `CONTINUE_STOP_KINDS`, `AUTO_CONTINUE_DELAY_MS`, `CONTINUE_INSTRUCTION`, `DEFAULT_ALLOW_CONTINUE`, `DEFAULT_AUTO_CONTINUE`, `GenerationStopError`, `isContinueStopKind`, `isGenerationStopError`, `isResumeableStop`, `isUserCancelledStop`, `profileAllowsSteering`, `profileAllowsInject`, `profileTurnResumption`, `shouldAutoContinue`, `turnStopFromClientStreamEnd`, `turnStopFromInteractionStatus`, `turnStopFromOpenAiFinishReason` |
+| Stages (target foundation) | `TURN_STAGES`, `TURN_INJECT_STAGES`, `STAGE_AFFORDANCES`, `STAGE_AFFORDANCE_MATRIX`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `applyStageResult`, `parseAwaitingUserInput`, `parseToolGate`, `isTurnStage`, `isTurnInjectStage`, `isToolGateKind`, `isAwaitingUserInput`, `stageAllowsAffordance`, `stageEventFields`, `profileAllowsInject`, `StageAffordance`, `StageContext`, `StageResult`, `StageHandler`, `StageApplyInput`, `StageApplyOutput`, `StageApplyWarning`, `StageApplyWarningCode`, `StageEventExtra`, `AwaitingUserInput`, `ToolGate` — see [`stages.md`](stages.md). Text `runTurn` stage spine landed; tool `pre_tool` / live still outstanding. |
 | Interface (headless) | `interfaceFrom`, `interfaceFromProfile`, `interfaceFromProjected`, `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime`, `sanitizeUserDraft`, `prepareUserTurn`, `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `resetBlockIds`, `streamThoughtsEnabled`, `collectPromotedMediaFromToolOutput`, `promotedMediaFromUrlString`, `PromotedToolMedia`, `defaultInterfaceEffort`, `defaultInterfaceModel`, `effortSelectEnabled`, `generationSelectEnabled`, `interfaceEffortOptions`, `interfaceModelOptions`, `modelSelectEnabled`, `appendAssistantEventsToHistory`, `appendToolDenialToHistory`, `appendToolExchangeToHistory`, `appendUserDraftToHistory`, `historyFromTranscriptBlocks`, `applyTurnEventsToSession`, `branchInterfaceTurnSession`, `emptyInterfaceTurnSession`, `abandonPausedToolSession`, `pausedToolFromEvents`, `promotedToolIdsFromEvents`, `toolSnapshotFromEvents`, `COMPOSER_PENDING_KINDS`, `COMPOSER_MENU_ACTION_DESCRIPTIONS`, `COMPOSER_MENU_ACTION_LABELS`, `COMPOSER_PRIMARY_LABELS`, `cloneUserTurnDraft`, `composerPendingPreview`, `consumeNextComposerQueue`, `consumeNextComposerSteer`, `convertSteersToFrontQueued`, `createComposerPendingMessage`, `moveComposerPendingWithinKind`, `orderComposerPendingMessages`, `promoteComposerPendingKind`, `removeComposerPendingMessage`, `resolveComposerMenuActions`, `resolveComposerPrimary`, `updateComposerPendingDraft`, `userDraftHasPayload`, `userDraftToSteerInject`, `AttachmentValidationCode`, `AttachmentValidationIssue`, `AttachmentValidationResult`, `ComposerActionContext`, `ComposerMenuAction`, `ComposerPendingKind`, `ComposerPendingMessage`, `ComposerPrimaryAction`, `ComposerProfileInterface`, `ComposerRunPhase`, `CreateComposerPendingMessageArgs`, `FoldTurnEventsOptions`, `ImageProfileInterface`, `InterfaceEffortOption`, `InterfaceModelOption`, `LiveProfileInterface`, `LiveResolvedTools`, `PendingAttachment`, `PrepareUserTurnResult`, `ProfileGuardrailsView`, `ProfileObservabilityView`, `ProfileInputsInterface`, `ProfileInterface`, `ProfileInterfaceSource`, `ResolvedTools`, `SpeechProfileInterface`, `TextProfileInterface`, `TranscriptBlock`, `TranscriptBlockKind`, `UserTurnDraft`, `UserTurnHistoryMedia`, `InterfaceTurnSession`, `PausedToolContext` |
 | Attachments (kernel) | `maxBytesForMime`, `resolveMediaLimits`, `fileTooLargeMessage`, `tooManyFilesMessage`, `turnTooLargeMessage` |
 
@@ -712,11 +772,14 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
       "supports": [
         { "kind": "source", "path": "src/kernel/engine/runner/mod.ts" },
         { "kind": "source", "path": "src/kernel/engine/runner/steps.ts" },
+        { "kind": "source", "path": "src/kernel/engine/runner/stages.ts" },
         { "kind": "source", "path": "src/kernel/engine/runner/state.ts" },
         { "kind": "source", "path": "src/kernel/engine/runner/stream.ts" },
         { "kind": "source", "path": "src/kernel/engine/runner/gates.ts" },
         { "kind": "source", "path": "src/kernel/registry/resolve.ts" },
-        { "kind": "contract_test", "path": "tests/kernel/theorum.test.ts" }
+        { "kind": "contract_test", "path": "tests/kernel/theorum.test.ts" },
+        { "kind": "contract_test", "path": "tests/kernel/turn-stages.test.ts" },
+        { "kind": "contract_test", "path": "tests/kernel/abort.test.ts" }
       ]
     },
     "Stream events": {

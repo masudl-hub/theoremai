@@ -71,7 +71,7 @@ function resolveComposerMenuActions(ctx: ComposerActionContext): ComposerMenuAct
     return actions;
   }
 
-  // paused: no steer (runner not at a barrier); send_now = host ends wait + send
+  // paused: no steer (tool suspension — not an inject stage); send_now = host ends wait + send
   return ['queue', 'send_now', 'stash'];
 }
 
@@ -85,7 +85,7 @@ const COMPOSER_MENU_ACTION_LABELS: Record<ComposerMenuAction, string> = {
 
 const COMPOSER_MENU_ACTION_DESCRIPTIONS: Record<ComposerMenuAction, string> = {
   queue: 'Send after the current run finishes.',
-  steer: 'Deliver at the next safe boundary.',
+  steer: 'Inject at the next inject-capable stage (pre_turn / post_tool / before_end).',
   send_now: 'Stop or leave the pause, then send this message.',
   stash: 'Save in the composer for later.',
 };

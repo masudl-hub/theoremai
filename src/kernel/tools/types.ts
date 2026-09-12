@@ -15,12 +15,20 @@ import type {
   HttpMethod,
   ToolAccess,
   ToolAuthType,
+  ToolGateKind,
   ToolLoadTier,
   ToolPermission,
 } from '../schema.ts';
 import type { InteractionPart, Profile, ToolId, TurnInput } from '../types.ts';
 
-export type { AuthUnauthenticatedPolicy, HttpMethod, ToolAccess, ToolAuthType, ToolPermission };
+export type {
+  AuthUnauthenticatedPolicy,
+  HttpMethod,
+  ToolAccess,
+  ToolAuthType,
+  ToolGateKind,
+  ToolPermission,
+};
 
 export interface ToolLabels {
   activity?: string;
@@ -107,6 +115,18 @@ export interface ToolPause {
     resource?: string;
     requiredScopes?: string[];
   };
+}
+
+/**
+ * Confirm-to-run / permission / auth gate (stages contract).
+ * Not ask_user / awaiting — those complete the tool. Replaces ToolPause for gates.
+ */
+export interface ToolGate {
+  kind: ToolGateKind;
+  tool: string;
+  permission?: ToolPermission;
+  summary?: string;
+  authChallenge?: NonNullable<ToolPause['authChallenge']>;
 }
 
 export interface ToolWarning {
@@ -297,6 +317,11 @@ export interface InvokeToolRequest {
   signal?: AbortSignal;
   /** Opaque application context handed to the tool as `ctx.host`; the kernel never reads it. */
   host?: unknown;
+  /**
+   * Optional stage handler for this invoke — `pre_tool` / `post_tool` only
+   * (`docs/contracts/stages.md`). Types frozen; execute cutover is slice 2.
+   */
+  onStage?: import('../stages.ts').StageHandler;
 }
 
 export interface ProfileToolsSpec {
@@ -369,7 +394,13 @@ export type ToolCallPhase =
   | 'artifact'
   | 'warning'
   | 'complete'
+  /**
+   * @deprecated Shipping interactive/confirm pause. Target: `gate` for
+   * confirm/permission/auth; awaiting is `complete` + awaiting payload.
+   */
   | 'pause'
+  /** pre_tool confirm / permission / auth — body did not run. */
+  | 'gate'
   | 'error'
   /** Provider cancelled an in-flight tool call (e.g. live barge-in). */
   | 'cancel';
@@ -386,6 +417,9 @@ export interface ToolCallEvent {
   artifact?: unknown;
   warning?: ToolWarning;
   output?: unknown;
+  /** @deprecated Target: `gate` for confirm/permission/auth. */
   pause?: ToolPause;
+  /** pre_tool gate — body did not run. */
+  gate?: ToolGate;
   failure?: ToolFailure;
 }

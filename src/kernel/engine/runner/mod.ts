@@ -9,7 +9,7 @@
  */
 
 import { bindCanary } from '../../../guardrails/canary.ts';
-import { throwIfAborted } from '../../../guardrails/error.ts';
+import { isAbortError, throwIfAborted } from '../../../guardrails/error.ts';
 import { projectGuardrailTurnEvent } from '../../../guardrails/events.ts';
 import { sanitizeTurnRequestWithEvents } from '../../../guardrails/sanitize.ts';
 import { resolveTraceWriter } from '../../../observability/policy.ts';
@@ -34,6 +34,7 @@ import type {
 } from '../../types.ts';
 import { resolveCompactionTokens, shouldCompact, splitForCompaction } from '../compaction.ts';
 import { runAttemptsWithValidation } from './gates.ts';
+import { applyTurnStage } from './stages.ts';
 import type { StepExecutionState } from './state.ts';
 import { shouldSkipStreamEvent } from './stream.ts';
 import { calculateFallbackTokens } from './tokens.ts';
@@ -170,6 +171,8 @@ async function* emitTurn(args: {
   system: string;
   provider: ModelProvider;
   upstream: Record<string, unknown>[];
+  /** Filled before the terminal `done` so callers can run `post_turn` after compaction-after. */
+  outState: { state?: StepExecutionState };
 }): AsyncGenerator<TurnEvent> {
   const { safe, profile, generation, system, provider, upstream } = args;
 
@@ -180,6 +183,40 @@ async function* emitTurn(args: {
     allEmittedEvents: [],
     attemptEvents: [],
   };
+  args.outState.state = state;
+
+  const pre = yield* applyTurnStage({
+    profile,
+    generation,
+    state,
+    stage: 'pre_turn',
+    step: 1,
+    onStage: safe.onStage,
+    signal: safe.signal,
+    foldInput: true,
+    host: generation.host,
+  });
+  if (pre.abort) {
+    const stop = {
+      kind: 'cancelled' as const,
+      ...(typeof pre.abort === 'object' && pre.abort.reason ? { native: pre.abort.reason } : {}),
+    };
+    const done: TurnEvent = { type: 'done', stop };
+    state.allEmittedEvents.push(done);
+    yield done;
+    yield* applyTurnStage({
+      profile,
+      generation,
+      state,
+      stage: 'post_turn',
+      step: 1,
+      onStage: safe.onStage,
+      signal: safe.signal,
+      stop,
+      host: generation.host,
+    });
+    return;
+  }
 
   yield* runAttemptsWithValidation(safe, profile, generation, system, provider, upstream, state);
 
@@ -187,13 +224,69 @@ async function* emitTurn(args: {
     yield* calculateFallbackTokens(safe, system, state.allEmittedEvents);
   }
 
-  yield {
+  const stop = state.lastStop ?? { kind: 'completed' };
+  const done: TurnEvent = {
     type: 'done',
-    stop: state.lastStop ?? { kind: 'completed' },
-    ...(state.lastStop?.kind === 'tool' && state.toolSnapshot
+    stop,
+    ...(stop.kind === 'tool' && state.toolSnapshot
+      ? { tools: cloneTurnToolSnapshot(state.toolSnapshot) }
+      : {}),
+    ...(stop.kind === 'gate' && state.toolSnapshot
       ? { tools: cloneTurnToolSnapshot(state.toolSnapshot) }
       : {}),
   };
+  state.allEmittedEvents.push(done);
+  yield done;
+}
+
+async function* streamTurnEvents(
+  ctx: TraceCtx,
+  profile: Profile,
+  gen: ResolvedGeneration,
+  provider: ModelProvider,
+  compactionSpec: CompactionSpec | undefined,
+  isCompacting: boolean,
+): AsyncGenerator<TurnEvent> {
+  if (!ctx.safe || ctx.system === undefined) return;
+  const outState: { state?: StepExecutionState } = {};
+  for await (const event of emitTurn({
+    safe: ctx.safe,
+    profile,
+    generation: gen,
+    system: ctx.system,
+    provider,
+    upstream: ctx.upstream,
+    outState,
+  })) {
+    const attached = await maybeAttachAfter(event, ctx, gen, compactionSpec, isCompacting);
+    const out = projectForObs(attached, ctx.observability);
+    ctx.seen.push(out);
+    if (!shouldSkipStreamEvent(out, profile)) yield out;
+
+    if (out.type === 'done' && outState.state) {
+      // Skip duplicate post_turn when pre_turn abort already emitted it inside emitTurn.
+      const alreadyPost = outState.state.allEmittedEvents.some(
+        (e) => e.type === 'stage' && e.stage === 'post_turn',
+      );
+      if (!alreadyPost) {
+        for await (const stageEv of applyTurnStage({
+          profile,
+          generation: gen,
+          state: outState.state,
+          stage: 'post_turn',
+          step: Math.max(outState.state.stepCount, 1),
+          onStage: ctx.safe.onStage,
+          signal: ctx.safe.signal,
+          stop: out.stop,
+          host: gen.host,
+        })) {
+          const stageOut = projectForObs(stageEv, ctx.observability);
+          ctx.seen.push(stageOut);
+          if (!shouldSkipStreamEvent(stageOut, profile)) yield stageOut;
+        }
+      }
+    }
+  }
 }
 
 type TraceCtx = {
@@ -257,10 +350,54 @@ async function* runTurn(
     ctx.observability = resolved.policy;
     yield* runTurnBody(ctx, provider);
   } catch (err) {
+    if (isAbortError(err)) {
+      yield* emitCancelledDoneAfterAbort(ctx);
+      await flushTurnTrace(sink, { ...ctx, thrown: err });
+      return;
+    }
     await flushTurnTrace(sink, { ...ctx, thrown: err });
     throw err;
   }
   await flushTurnTrace(sink, ctx);
+}
+
+/**
+ * Slice 1: host AbortSignal ends with cancelled `done` + `post_turn`, not a bare throw.
+ * Skip when a terminal `done` already reached the host stream.
+ */
+async function* emitCancelledDoneAfterAbort(ctx: TraceCtx): AsyncGenerator<TurnEvent> {
+  if (ctx.seen.some((e) => e.type === 'done')) return;
+  const stop = { kind: 'cancelled' as const };
+  const done: TurnEvent = { type: 'done', stop };
+  const outDone = projectForObs(done, ctx.observability);
+  ctx.seen.push(outDone);
+  yield outDone;
+
+  const profile = getProfile(ctx.req.profile);
+  const gen = ctx.generation;
+  if (!gen || !ctx.safe) return;
+
+  const state: StepExecutionState = {
+    currentHistory: [...(gen.history ?? [])],
+    stepCount: 0,
+    sawTokensEvent: false,
+    allEmittedEvents: [...ctx.seen],
+    attemptEvents: [],
+  };
+  for await (const stageEv of applyTurnStage({
+    profile,
+    generation: gen,
+    state,
+    stage: 'post_turn',
+    step: 1,
+    onStage: ctx.safe.onStage,
+    stop,
+    host: gen.host,
+  })) {
+    const stageOut = projectForObs(stageEv, ctx.observability);
+    ctx.seen.push(stageOut);
+    if (!shouldSkipStreamEvent(stageOut, profile)) yield stageOut;
+  }
 }
 
 async function* runTurnBody(ctx: TraceCtx, provider: ModelProvider): AsyncGenerator<TurnEvent> {
@@ -271,7 +408,6 @@ async function* runTurnBody(ctx: TraceCtx, provider: ModelProvider): AsyncGenera
     ctx.seen.push(out);
     yield out;
   }
-  throwIfAborted(ctx.safe.signal);
   const { profile, generation: gen } = resolveTurn(ctx.safe);
   await expandT1Policy(gen.tools, profile, ctx.safe);
   gen.builtins = gen.tools.builtins;
@@ -280,6 +416,8 @@ async function* runTurnBody(ctx: TraceCtx, provider: ModelProvider): AsyncGenera
   ctx.keySlot = gen.keySlot;
   ctx.canary = gen.canary;
   ctx.protocol = profile.models[gen.model]?.protocol;
+
+  throwIfAborted(ctx.safe.signal);
 
   const isCompacting = ctx.req.metadata?._compacting === true;
   const compactionSpec = isCompacting ? undefined : getCompactionSpec(profile, gen.model);
@@ -305,30 +443,6 @@ async function maybeCompactBefore(
     compactionProvider: ctx.req.compactionProvider,
     signal: ctx.safe.signal,
   });
-}
-
-async function* streamTurnEvents(
-  ctx: TraceCtx,
-  profile: Profile,
-  gen: ResolvedGeneration,
-  provider: ModelProvider,
-  compactionSpec: CompactionSpec | undefined,
-  isCompacting: boolean,
-): AsyncGenerator<TurnEvent> {
-  if (!ctx.safe || ctx.system === undefined) return;
-  for await (const event of emitTurn({
-    safe: ctx.safe,
-    profile,
-    generation: gen,
-    system: ctx.system,
-    provider,
-    upstream: ctx.upstream,
-  })) {
-    const attached = await maybeAttachAfter(event, ctx, gen, compactionSpec, isCompacting);
-    const out = projectForObs(attached, ctx.observability);
-    ctx.seen.push(out);
-    if (!shouldSkipStreamEvent(out, profile)) yield out;
-  }
 }
 
 async function maybeAttachAfter(

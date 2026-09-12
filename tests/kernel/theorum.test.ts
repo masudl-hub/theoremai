@@ -168,7 +168,7 @@ Deno.test('runTurn emits one final done when provider also emits done', async ()
   }
 
   assertEquals(events.filter((event) => event.type === 'done').length, 1);
-  assertEquals(events.at(-1)?.type, 'done');
+  assertDoneThenPostTurn(events);
 });
 
 async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
@@ -177,6 +177,17 @@ async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
     out.push(event);
   }
   return out;
+}
+
+/** Text turns end with terminal `done` then observe-only `post_turn`. */
+function assertDoneThenPostTurn(events: TurnEvent[]): void {
+  assertEquals(events.filter((e) => e.type === 'done').length, 1);
+  const doneIdx = events.findLastIndex((e) => e.type === 'done');
+  assertEquals(doneIdx >= 0, true);
+  assertEquals(events[doneIdx + 1]?.type, 'stage');
+  assertEquals(events[doneIdx + 1]?.stage, 'post_turn');
+  assertEquals(events.at(-1)?.type, 'stage');
+  assertEquals(events.at(-1)?.stage, 'post_turn');
 }
 
 async function* fakeComplete(req: ProviderCompleteRequest): AsyncGenerator<TurnEvent> {
@@ -231,7 +242,7 @@ Deno.test('runTurn accepts an omitted input object', async () => {
   const events = await collect(runTurn({ profile: 'no_input_bot' }, provider));
 
   assertEquals(events.find((e) => e.type === 'text')?.text, 'empty input ok');
-  assertEquals(events.at(-1)?.type, 'done');
+  assertDoneThenPostTurn(events);
 });
 
 Deno.test('flash lite thinking off is minimal', () => {
@@ -449,10 +460,14 @@ Deno.test('invokeTool ask_user is denied until allowed', async () => {
 Deno.test('runTurn oneshot yields text structured done', async () => {
   const events = await collect(runTurn({ profile: 'chat', input: { text: 'flow' } }, fake));
   const types = events.map((e) => e.type);
-  assertEquals(types.includes('barrier'), true);
+  assertEquals(types.includes('stage'), true);
   assertEquals(
-    types.filter((t) => t !== 'barrier'),
+    types.filter((t) => t !== 'stage'),
     ['text', 'structured', 'tokens', 'done'],
+  );
+  assertEquals(
+    events.filter((e) => e.type === 'stage').map((e) => e.stage),
+    ['pre_turn', 'before_end', 'post_turn'],
   );
 });
 
@@ -522,7 +537,7 @@ Deno.test('provider tool call is dispatched', async () => {
     ),
     true,
   );
-  assertEquals(events.at(-1)?.type, 'done');
+  assertDoneThenPostTurn(events);
 });
 
 Deno.test('role-specific system prompt still completes', async () => {
@@ -692,7 +707,7 @@ Deno.test('runTurn executes profile validation and auto-corrects', async () => {
   assertEquals(events.find((e) => e.type === 'structured')?.structured, {
     code: 'good',
   });
-  assertEquals(events.at(-1)?.type, 'done');
+  assertDoneThenPostTurn(events);
 });
 
 Deno.test('runTurn skips optional field validators when optional path is omitted', async () => {
@@ -739,7 +754,7 @@ Deno.test('runTurn skips optional field validators when optional path is omitted
   assertEquals(events.find((e) => e.type === 'structured')?.structured, {
     message: '2 + 2 is 4.',
   });
-  assertEquals(events.at(-1)?.type, 'done');
+  assertDoneThenPostTurn(events);
 });
 
 Deno.test('runTurn streams thought and text live while validation buffers structured', async () => {
@@ -782,7 +797,7 @@ Deno.test('runTurn streams thought and text live while validation buffers struct
   assertEquals(types.filter((t) => t === 'text').length, 1);
   assertEquals(types.indexOf('thought') < types.indexOf('structured'), true);
   assertEquals(types.indexOf('text') < types.indexOf('structured'), true);
-  assertEquals(events.at(-1)?.type, 'done');
+  assertDoneThenPostTurn(events);
 });
 
 Deno.test('runTurn retries when required field is missing', async () => {
@@ -1425,7 +1440,7 @@ Deno.test('autonomous loop strictly enforces maxSteps ceiling when tool requests
   }
 
   assertEquals(callCount, 2);
-  assertEquals(events.at(-1)?.type, 'done');
+  assertDoneThenPostTurn(events);
 });
 
 Deno.test('registered tool enforces session_consent pause unless granted', async () => {

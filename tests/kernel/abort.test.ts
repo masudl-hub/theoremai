@@ -1,5 +1,4 @@
 import '../fixtures/test-host.ts';
-import { isAbortError } from '../../src/guardrails/error.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { runTurn } from '../../src/kernel/engine/runner.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
@@ -14,7 +13,7 @@ async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
   return out;
 }
 
-Deno.test('runTurn throws AbortError when signal is already aborted', async () => {
+Deno.test('runTurn emits cancelled done + post_turn when signal is already aborted', async () => {
   const controller = new AbortController();
   controller.abort();
   const provider: ModelProvider = {
@@ -22,18 +21,18 @@ Deno.test('runTurn throws AbortError when signal is already aborted', async () =
       throw new Error('provider should not run');
     },
   };
-  let threw: unknown;
-  try {
-    await collect(
-      runTurn({ profile: 'chat', input: { text: 'hi' }, signal: controller.signal }, provider),
-    );
-  } catch (err) {
-    threw = err;
-  }
-  assertEquals(isAbortError(threw), true);
+  const events = await collect(
+    runTurn({ profile: 'chat', input: { text: 'hi' }, signal: controller.signal }, provider),
+  );
+  assertEquals(
+    events.some((e) => e.type === 'done' && e.stop?.kind === 'cancelled'),
+    true,
+  );
+  assertEquals(events.at(-1)?.type, 'stage');
+  assertEquals(events.at(-1)?.stage, 'post_turn');
 });
 
-Deno.test('runTurn cancels an in-flight provider when signal aborts', async () => {
+Deno.test('runTurn cancels an in-flight provider and ends with cancelled done', async () => {
   const controller = new AbortController();
   const into: TraceRecord[] = [];
   let sawAbort = false;
@@ -63,20 +62,19 @@ Deno.test('runTurn cancels an in-flight provider when signal aborts', async () =
     },
   };
 
-  let threw: unknown;
-  try {
-    await collect(
-      runTurn(
-        { profile: 'chat', input: { text: 'hi' }, signal: controller.signal },
-        provider,
-        memorySink(into),
-      ),
-    );
-  } catch (err) {
-    threw = err;
-  }
-  assertEquals(isAbortError(threw), true);
+  const events = await collect(
+    runTurn(
+      { profile: 'chat', input: { text: 'hi' }, signal: controller.signal },
+      provider,
+      memorySink(into),
+    ),
+  );
   assertEquals(sawAbort, true);
   assertEquals(into[0]?.cancelled, true);
   assertEquals(into[0]?.ok, false);
+  assertEquals(
+    events.some((e) => e.type === 'done' && e.stop?.kind === 'cancelled'),
+    true,
+  );
+  assertEquals(events.at(-1)?.stage, 'post_turn');
 });

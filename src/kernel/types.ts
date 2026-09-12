@@ -9,6 +9,8 @@
  */
 
 import type {
+  CacheMode,
+  CacheTtl,
   CompactionMeter,
   CompactionTiming,
   ContinueStopKind,
@@ -30,9 +32,10 @@ import type {
   SummaryMode,
   ThinkingLevel,
   ToolLoadTier,
-  TurnSteerBarrier,
+  TurnStage,
   TurnStopKind,
 } from './schema.ts';
+import type { StageApplyWarning, StageHandler } from './stages.ts';
 import type {
   HostProfileToolsSpec,
   InvokeToolRequest,
@@ -40,6 +43,7 @@ import type {
   ProfileToolsSpec,
   RegisteredTool,
   ToolCallEvent,
+  ToolGate,
   ToolLoadContext,
   ToolPolicy,
   TurnToolSnapshot,
@@ -47,6 +51,8 @@ import type {
 } from './tools/types.ts';
 
 export type {
+  CacheMode,
+  CacheTtl,
   CompactionMeter,
   CompactionTiming,
   ContinueStopKind,
@@ -73,10 +79,11 @@ export type {
   SummaryMode,
   ThinkingLevel,
   ToolCallEvent,
+  ToolGate,
   ToolLoadContext,
   ToolLoadTier,
   ToolPolicy,
-  TurnSteerBarrier,
+  TurnStage,
   TurnStopKind,
   TurnToolSnapshot,
   WireFunctionTool,
@@ -132,7 +139,7 @@ export type TurnEventType =
   | 'tokens'
   | 'session'
   | 'guardrail'
-  | 'barrier'
+  | 'stage'
   | 'done'
   | 'error';
 
@@ -175,6 +182,11 @@ export interface ModelBinding {
   key?: KeySlot;
   /** Optional compaction policy for this model's context window (chat profiles). */
   compaction?: CompactionSpec;
+  /**
+   * OpenRouter prompt-cache policy. Omit → no opt-in `cache_control`.
+   * `defineProfile` accepts only when `provider` is `openrouter` (protocol `openAi`).
+   */
+  cache?: CacheSpec;
   /** Gemini Interactions: whether the provider stores the interaction. Omit → provider default. */
   store?: boolean;
   /**
@@ -183,6 +195,19 @@ export interface ModelBinding {
    */
   persistViaInteractionId?: boolean;
 }
+
+/**
+ * OpenRouter prompt-cache policy (`models.*.cache`).
+ *
+ * - `automatic` — top-level `cache_control`; breakpoint advances with the conversation.
+ * - `system` — explicit breakpoint on the system instruction only.
+ */
+export interface CacheSpec {
+  mode: CacheMode;
+  /** Ephemeral TTL. Omit → provider default (typically 5m on Anthropic). */
+  ttl?: CacheTtl;
+}
+
 /**
  * Context supplied to a custom compaction trigger.
  *
@@ -617,28 +642,6 @@ export interface TurnInput {
   sessionResumptionHandle?: string;
 }
 
-/** Context passed to `TurnRequest.onSteer` at a runner barrier. */
-export interface TurnSteerContext {
-  barrier: TurnSteerBarrier;
-  /** 1-based step count about to run (provider call). */
-  step: number;
-  /** Current turn history (read-only snapshot). */
-  history: readonly TurnHistoryMessage[];
-}
-
-/** Host response from `onSteer` — messages appended before the next provider call. */
-export interface TurnSteerResult {
-  inject?: TurnHistoryMessage[];
-}
-
-/**
- * Host mid-turn inject hook. Invoked only when `profileAllowsSteering(profile)`.
- * In-process only — not serializable over HTTP.
- */
-export type TurnSteerHandler = (
-  ctx: TurnSteerContext,
-) => TurnSteerResult | undefined | Promise<TurnSteerResult | undefined>;
-
 /** Host request after kernel ingress normalization. */
 export type NormalizedTurnRequest = TurnRequest & { input: TurnInput };
 
@@ -647,6 +650,11 @@ export interface TurnRequest {
   profile: ProfileId;
   /** Caller project id when one exists. Omitted on some HTTP hosts. */
   projectId?: string;
+  /**
+   * Sticky routing / cache session key for OpenRouter (`session_id`).
+   * Not the same as `projectId` or Gemini `previousInteractionId`.
+   */
+  sessionId?: string;
   /** Google Interactions server-side conversation state. Omit for stateless/manual history. */
   previousInteractionId?: string;
   /**
@@ -698,10 +706,10 @@ export interface TurnRequest {
   /** Host credentials for authenticated HTTP / MCP tools keyed by auth slot. */
   credentials?: Record<string, ToolCredential>;
   /**
-   * Mid-turn steering hook. Called at `pre_llm` / `pre_tool_followup` when the
-   * profile allows steering. Emit is always a `barrier` stream event first.
+   * Turn-stage handler (`docs/contracts/stages.md`).
+   * Text `runTurn` emits stages and applies returned affordances.
    */
-  onSteer?: TurnSteerHandler;
+  onStage?: StageHandler;
 }
 
 /** Safe profile projection suitable for UI or host inspection (model profiles only). */
@@ -739,6 +747,16 @@ export interface ProviderGenerationConfig {
    * Copied from `TurnRequest.googleMapsLocation` when present.
    */
   googleMapsLocation?: { latitude: number; longitude: number };
+  /**
+   * OpenRouter prompt-cache policy from the selected model binding.
+   * Omitted for non-openrouter bindings.
+   */
+  cache?: CacheSpec;
+  /**
+   * OpenRouter sticky session id from `TurnRequest.sessionId`.
+   * Forwarded as request `session_id` when present.
+   */
+  sessionId?: string;
 }
 
 /** Resolved provider transport derived once in `resolveTurn`. */
@@ -792,6 +810,10 @@ export interface TurnTokens {
   toolUse?: number;
   /** Google code-execution / tool intermediate tokens when the API reports them. */
   intermediate?: number;
+  /** Prompt tokens read from provider cache (cache hit). */
+  cached?: number;
+  /** Prompt tokens written into provider cache. */
+  cacheWrite?: number;
   total: number;
 }
 
@@ -900,8 +922,23 @@ export interface TurnEvent {
    * Hosts pass this to `invokeTool({ snapshot })` so T1/T2 resume matches the paused turn.
    */
   tools?: TurnToolSnapshot;
-  /** Steer barrier name when `type === 'barrier'`. */
-  barrier?: TurnSteerBarrier;
+  /** Turn-stage name when `type === 'stage'` (`docs/contracts/stages.md`). */
+  stage?: TurnStage;
+  /** Tool call id on `stage` / related tool-stage events. */
+  callId?: string;
+  /** Tool name on `stage` events (`pre_tool` / `post_tool`). Not `tool` (ToolCallEvent). */
+  toolName?: string;
+  /** True when a tool completed with awaiting_user_input (on stage/tool events). */
+  awaiting?: boolean;
+  /** pre_tool gate payload when `tool.phase === 'gate'` or stage carries a gate. */
+  gate?: ToolGate;
+  /** True when pre_tool settled without running the body. */
+  callNotStarted?: boolean;
+  /**
+   * Host-visible stage affordance warnings (`docs/contracts/stages.md`).
+   * Emitted after `onStage` when invalid/rejected fields were dropped.
+   */
+  stageWarnings?: StageApplyWarning[];
 }
 
 /**
@@ -978,6 +1015,11 @@ export interface SessionRequest {
   snapshot?: TurnToolSnapshot;
   signal?: AbortSignal;
   metadata?: Record<string, unknown>;
+  /**
+   * Session-lifetime stage handler (`docs/contracts/stages.md`). Immutable for
+   * the session; no `setOnStage`. Types frozen; live wiring is slice 3.
+   */
+  onStage?: StageHandler;
 }
 
 /**

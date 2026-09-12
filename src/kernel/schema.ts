@@ -154,11 +154,29 @@ export type CompactionMeter = (typeof COMPACTION_METERS)[number];
 export const COMPACTION_TIMINGS = ['before', 'after'] as const;
 export type CompactionTiming = (typeof COMPACTION_TIMINGS)[number];
 
+/** OpenRouter prompt-cache mode (models.*.cache.mode). */
+export const CACHE_MODES = ['automatic', 'system'] as const;
+export type CacheMode = (typeof CACHE_MODES)[number];
+
+/** OpenRouter ephemeral cache TTL (models.*.cache.ttl). */
+export const CACHE_TTLS = ['5m', '1h'] as const;
+export type CacheTtl = (typeof CACHE_TTLS)[number];
+
 /** Why a turn ended (provider-neutral). */
 export const TURN_STOP_KINDS = [
   'completed',
   'length',
+  /**
+   * @deprecated Shipping pause fiction (`tool.phase: 'pause'`). Target: use `gate`
+   * for confirm/permission/auth suspension; awaiting is a completed tool result.
+   * Removed when stages slices release.
+   */
   'tool',
+  /**
+   * Honest suspension: `pre_tool` confirm / permission / auth blocked the body.
+   * Host resumes via invokeTool/executeTool; not continueFrom.
+   */
+  'gate',
   'filtered',
   'provider_error',
   'cancelled',
@@ -171,20 +189,39 @@ export type TurnStopKind = (typeof TURN_STOP_KINDS)[number];
 
 /**
  * Stop kinds eligible for `continueFrom` / resumption allowlists.
- * Excludes terminal-success, user abort, tool-pause, filter, and live-only boundaries —
- * those use other host paths (or are not resumeable).
+ * Excludes terminal-success, user abort, tool/gate suspension, filter, and live-only
+ * boundaries — those use other host paths (or are not resumeable).
  */
 export const CONTINUE_STOP_KINDS = ['length', 'stream_incomplete', 'provider_error'] as const;
 export type ContinueStopKind = (typeof CONTINUE_STOP_KINDS)[number];
 
 /**
- * Safe points where a steering host may inject mid-turn messages.
- * `pre_llm` — before the first (and each) provider step that starts a model call.
- * `pre_tool_followup` — after tools run, before the next model step.
+ * Turn / utterance-cycle timeline stages (`docs/contracts/stages.md`).
+ * Replaces the former steer barriers (`pre_llm` / `pre_tool_followup`).
  */
-export const TURN_STEER_BARRIERS = ['pre_llm', 'pre_tool_followup'] as const;
-export type TurnSteerBarrier = (typeof TURN_STEER_BARRIERS)[number];
+export const TURN_STAGES = [
+  'pre_turn',
+  'pre_tool',
+  'post_tool',
+  'before_end',
+  'post_turn',
+] as const;
+export type TurnStage = (typeof TURN_STAGES)[number];
 
+/** Stages where inject is physically meaningful (still requires inject gate). */
+export const TURN_INJECT_STAGES = ['pre_turn', 'post_tool', 'before_end'] as const;
+export type TurnInjectStage = (typeof TURN_INJECT_STAGES)[number];
+
+/** `pre_tool` gate kinds — confirm-to-run / permission / auth. Not awaiting. */
+export const TOOL_GATE_KINDS = ['confirmation', 'permission', 'auth'] as const;
+export type ToolGateKind = (typeof TOOL_GATE_KINDS)[number];
+
+/** `awaiting_user_input.kind` — harness ask_user / human-as-product completions. */
+export const AWAITING_USER_INPUT_KINDS = ['confirm', 'choice', 'text'] as const;
+export type AwaitingUserInputKind = (typeof AWAITING_USER_INPUT_KINDS)[number];
+
+/** Discriminator on tool output for awaiting completions. */
+export const AWAITING_USER_INPUT_STATUS = 'awaiting_user_input' as const;
 /** Per-tool visibility tier — enforced by the kernel at resolve time. */
 export const TOOL_LOAD_TIERS = ['T0', 'T1', 'T2'] as const;
 export type ToolLoadTier = (typeof TOOL_LOAD_TIERS)[number];
@@ -535,6 +572,36 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
       input: 'Meters full turn input token count (system + history + attachments).',
     },
   ),
+  'models.*.cache': field(
+    'CacheSpec',
+    'OpenRouter prompt-cache policy. Only valid when provider is openrouter.',
+  ),
+  'models.*.cache.mode': field(
+    unionType(CACHE_MODES),
+    'How to place cache_control on OpenRouter requests.',
+    CACHE_MODES,
+    {
+      automatic: 'Top-level cache_control; breakpoint advances with the conversation.',
+      system: 'Explicit cache_control breakpoint on the system instruction only.',
+    },
+  ),
+  'models.*.cache.ttl': field(
+    unionType(CACHE_TTLS),
+    'Ephemeral cache TTL. Omit → provider default (typically 5m on Anthropic).',
+    CACHE_TTLS,
+    {
+      '5m': 'Five-minute ephemeral cache (default when ttl is omitted).',
+      '1h': 'One-hour ephemeral cache (higher write cost; better for long sessions).',
+    },
+  ),
+  'models.*.store': field(
+    'boolean',
+    'Gemini Interactions: whether the provider stores the interaction. Omit → provider default.',
+  ),
+  'models.*.persistViaInteractionId': field(
+    'boolean',
+    'Gemini Interactions: prefer previous_interaction_id over client-owned history. Omit → host/turn decides.',
+  ),
   defaultModel: field('ModelId', 'Default model id when the turn omits model.'),
   allowModelSelect: field('boolean', 'Turn may pass model. Requires two or more models keys.'),
   maxSteps: field(
@@ -753,7 +820,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   ),
   'turnBehaviour.allowSteering': field(
     'boolean',
-    'Text only. When true (default), host may inject at runner barriers. Image/speech must omit.',
+    'Text only. When true (default), host onStage inject affordances are applied. Image/speech must omit.',
   ),
   guardrails: field(
     'ProfileGuardrailsSpec',

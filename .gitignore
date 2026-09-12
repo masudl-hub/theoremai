@@ -29,6 +29,7 @@ Thumbs.db
 *.swp
 *.swo
 *~
+*.code-workspace
 
 # Pack / archive outputs
 theorum-core-*.tgz

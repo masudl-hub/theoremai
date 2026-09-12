@@ -11,8 +11,12 @@ import type {
   ModelBinding,
   ModelId,
   ModelProfile,
+  Profile,
   ThinkingLevel,
 } from '../types.ts';
+
+/** `TurnInput` field a media file rides in. */
+type MediaInputChannel = 'attachments' | 'voice';
 
 function mimeEssence(mime: string): string {
   const [base] = mime.split(';');
@@ -32,6 +36,36 @@ function mimeAllowed(accept: string[], mime: string): boolean {
 
 function mediaKindForMime(mime: string): MediaInputKind | undefined {
   return MEDIA_INPUT_KINDS[mimeEssence(mime)];
+}
+
+/** The `accept` list a profile declares for one input channel, if it declares one. */
+function profileAccept(profile: Profile, channel: MediaInputChannel): string[] | undefined {
+  if (profile.type === 'speech' || profile.type === 'live' || profile.type === 'host') {
+    return undefined;
+  }
+  const inputs = profile.inputs;
+  return channel === 'voice' ? inputs?.voice?.accept : inputs?.attachments?.accept;
+}
+
+/**
+ * Which `TurnInput` channel of a profile accepts this MIME, or `undefined` when
+ * the profile accepts it nowhere (or the kernel cannot classify it at all).
+ *
+ * The one public answer to "does this profile take this file". Hosts route and
+ * filter channel ingress with it instead of keeping their own MIME table: the
+ * profile's `accept` lists are the whole declaration.
+ */
+function mediaChannelForMime(profile: Profile, mime: string): MediaInputChannel | undefined {
+  if (!mediaKindForMime(mime)) {
+    return undefined;
+  }
+  for (const channel of ['attachments', 'voice'] as const) {
+    const accept = profileAccept(profile, channel);
+    if (accept && mimeAllowed(accept, mime)) {
+      return channel;
+    }
+  }
+  return undefined;
 }
 
 /** Require a host-declared model binding for a profile model id. */
@@ -88,12 +122,15 @@ function clampThinkingLevelForApiId(
   return clampLevels(modelEntryByApiId(bindings, apiId), level);
 }
 
+export type { MediaInputChannel };
 export {
   clampThinkingLevel,
   clampThinkingLevelForApiId,
+  mediaChannelForMime,
   mediaKindForMime,
   mimeAllowed,
   mimeEssence,
   modelEntryByApiId,
+  profileAccept,
   requireModelBinding,
 };

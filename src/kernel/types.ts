@@ -387,7 +387,11 @@ export type {
   TurnStop,
 } from './stop.ts';
 
-import type { GuardrailEvent, ProfileGuardrailsSpec } from '../guardrails/types.ts';
+import type {
+  GuardrailEvent,
+  HostGuardrailsSpec,
+  ProfileGuardrailsSpec,
+} from '../guardrails/types.ts';
 import type { ProfileObservabilitySpec } from '../observability/types.ts';
 import type { ToolCredential } from './auth/types.ts';
 import type { ProfileTurnBehaviourSpec, TurnContinueFrom, TurnStop } from './stop.ts';
@@ -489,12 +493,16 @@ export interface LiveProfile extends Omit<ProfileCommon, 'outputs'> {
  * visibility or loading tiers and no path gating. No `models`, `identity`,
  * `inputs`, `outputs`, `turnBehaviour`, `key`, or `maxSteps`. `resolveTurn`,
  * `runTurn`, and `runSession` refuse it.
+ *
+ * `guardrails` is narrowed to {@link HostGuardrailsSpec}: only the guards that
+ * fire on the `invokeTool` path. Quota, canary, and egress guard a model turn,
+ * so `defineProfile` refuses them here rather than accepting inert config.
  */
 export interface HostProfile {
   type: 'host';
   id: ProfileId;
   tools: HostProfileToolsSpec;
-  guardrails?: ProfileGuardrailsSpec;
+  guardrails?: HostGuardrailsSpec;
   observability?: ProfileObservabilitySpec;
 }
 

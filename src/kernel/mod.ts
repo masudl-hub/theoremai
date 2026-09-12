@@ -41,9 +41,11 @@ export {
   profileGraphFacet,
   spineFacetsForProfileType,
 } from './profile-graph.ts';
+export type { MediaInputChannel } from './registry/catalog.ts';
 export {
   clampThinkingLevel,
   clampThinkingLevelForApiId,
+  mediaChannelForMime,
   mediaKindForMime,
   mimeAllowed,
   mimeEssence,

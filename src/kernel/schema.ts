@@ -220,7 +220,35 @@ export type ToolType = (typeof TOOL_TYPES)[number];
 /** Custom registerTool discriminants (excludes provider builtins). */
 export type CustomToolType = Exclude<ToolType, 'builtin'>;
 
-/** MIME essence → normalized media part category (shared ingress map). */
+/**
+ * MIME essence → normalized media part category.
+ *
+ * This table is the complete media-input vocabulary of the package: every MIME
+ * any supported transport may carry on a turn appears here exactly once, and
+ * nothing else is a media input type. `assertMediaMime` (`registry/ingress.ts`)
+ * refuses anything absent from it, so hosts declare what they accept in
+ * `inputs.attachments.accept` / `inputs.voice.accept` and keep no second table.
+ *
+ * Contents are the union of the documented provider input lists:
+ * - Google Interactions / Live (image, audio, video, document lists verified
+ *   2026-09-12) — the widest of the three and therefore the table's shape. The
+ *   document row is Google's document-understanding list in full: PDF, plain
+ *   text, HTML, CSS, Markdown (`text/md`), CSV, XML, RTF, JavaScript
+ *   (`text/javascript`, `application/x-javascript`) and Python
+ *   (`text/x-python`, `application/x-python`); `application/json` is an
+ *   established row alongside it. TypeScript, `application/xml` and
+ *   `application/rtf` are NOT on Google's list and are therefore not rows.
+ * - OpenRouter / OpenAI-compat (`providers/openrouter/openai/compat.ts`,
+ *   `sdk-messages.ts`): the adapters wire every `MediaInputKind` (image →
+ *   `image_url`/`image`, audio → `input_audio`, video and document → `file`)
+ *   and forward the part's MIME verbatim, so their accepted set is open-ended
+ *   and adds no rows. What they cannot carry — a `uri` reference part — is
+ *   refused at request time with `TheorumError`, not by a second MIME list.
+ *
+ * Alias essences that providers also emit (`image/jpg`, `video/mov`,
+ * `audio/x-wav`, `video/x-ms-wmv`, …) are rows here; `resolveInputParts`
+ * canonicalizes `image/jpg` to `image/jpeg` on the wire.
+ */
 export const MEDIA_INPUT_KINDS: Record<string, MediaInputKind> = {
   'image/png': 'image',
   'image/jpeg': 'image',
@@ -241,9 +269,13 @@ export const MEDIA_INPUT_KINDS: Record<string, MediaInputKind> = {
   'audio/pcm': 'audio',
   'audio/m4a': 'audio',
   'audio/opus': 'audio',
+  'audio/l16': 'audio',
+  'audio/alaw': 'audio',
+  'audio/mulaw': 'audio',
   'video/mp4': 'video',
   'video/mpeg': 'video',
   'video/quicktime': 'video',
+  'video/mov': 'video',
   'video/x-msvideo': 'video',
   'video/avi': 'video',
   'video/x-flv': 'video',
@@ -256,7 +288,15 @@ export const MEDIA_INPUT_KINDS: Record<string, MediaInputKind> = {
   'text/plain': 'document',
   'text/csv': 'document',
   'text/markdown': 'document',
+  'text/md': 'document',
   'text/html': 'document',
+  'text/css': 'document',
+  'text/xml': 'document',
+  'text/rtf': 'document',
+  'text/javascript': 'document',
+  'application/x-javascript': 'document',
+  'text/x-python': 'document',
+  'application/x-python': 'document',
   'application/json': 'document',
 };
 
@@ -717,7 +757,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   ),
   guardrails: field(
     'ProfileGuardrailsSpec',
-    'Quota, canary, sanitize, redact, and egress switches.',
+    'Quota, canary, sanitize, redact, egress, network, and taint switches. On type host only the invokeTool-path guards are accepted (HostGuardrailsSpec: sanitizeInput, redactSensitive, network, taint) — quota, canary, and egress guard a model turn and are refused.',
   ),
   'guardrails.quota': field(
     '{ perDay: number }',

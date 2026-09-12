@@ -36,7 +36,7 @@ A `Profile` binds:
 | `image` / `speech` / `live` | Modality-specific pins (top-level, not nested under `outputs`) |
 | `outputs` | Structured, streaming, validation — present on `text`, `image`, `speech`; absent on `live` |
 | `turnBehaviour` | `resumption` (`allowContinue`, `autoContinue`, `maxContinues`); text also `allowSteering` — present on `text`, `image`, `speech` |
-| `guardrails` | Quota, canary, sanitize, redact, egress |
+| `guardrails` | Quota, canary, sanitize, redact, egress, network, taint — on `host` narrowed to `HostGuardrailsSpec` |
 | `observability` | Trace destination, scrub, include, sampling (`writeTo`, `sampleRate`, …) |
 
 Closed unions (`protocol`, `provider`, `thinking`, stop kinds, MIME maps, …)
@@ -51,6 +51,31 @@ Multimodal ingress uses provider-neutral `InteractionPart` values;
 `InteractionMediaPart.type` is `MediaInputKind` (`image` | `audio` | `video` |
 `document`). MIME → kind mapping lives in `MEDIA_INPUT_KINDS` (`schema.ts`)
 and is applied by `mediaKindForMime` (`catalog.ts`).
+
+`MEDIA_INPUT_KINDS` is the package's complete media-input vocabulary — every
+MIME any supported transport can take on a turn, and nothing else. It is the
+union of the documented provider input lists: Google Interactions / Live
+(images `png`, `jpeg`, `webp`, `heic`, `heif`; audio `wav`, `mp3`, `mpeg`,
+`aiff`, `aac`, `ogg`, `flac`, `m4a`, `l16`, `opus`, `alaw`, `mulaw`, `webm`;
+video `mp4`, `mpeg`, `mov`, `avi`, `x-flv`, `mpg`, `webm`, `wmv`, `3gpp`;
+documents `application/pdf`, `text/plain`, `text/html`, `text/css`,
+`text/markdown`/`text/md`, `text/csv`, `text/xml`, `text/rtf`,
+`text/javascript`/`application/x-javascript`,
+`text/x-python`/`application/x-python`, `application/json`), verified
+2026-09-12, plus
+provider alias essences (`image/jpg`, `audio/x-wav`, `video/x-ms-wmv`, …). The
+OpenAI-compat adapters forward a part's MIME verbatim on every `MediaInputKind`,
+so their accepted set is open-ended and contributes no additional rows; what
+they cannot carry — a `uri` reference part — is refused at request time with
+`TheorumError` rather than by a second MIME table (see
+`docs/contracts/providers.md`).
+
+A host declares what it accepts only in `inputs.attachments.accept` /
+`inputs.voice.accept`. `mediaChannelForMime(profile, mime)` (`catalog.ts`) is the
+public answer to "does this profile take this file, and on which `TurnInput`
+channel" — hosts filter and route channel ingress with it and keep no MIME table
+of their own. `resolveInputParts` applies the same acceptance on the turn and
+throws `TheorumError` for a MIME the profile does not accept.
 
 Turn media arrives on `TurnInput.attachments` as either inline bytes or a
 provider file reference:
@@ -339,10 +364,22 @@ tiers and no path gating; `preflight`, `canExecute`, permission pauses, and the
 tool-result guardrails (`resolveGuardrailPolicy(profile.guardrails)`) apply
 unchanged.
 
+`guardrails` on a host profile is `HostGuardrailsSpec` — a `Pick` of the one
+guardrail vocabulary, not a second hierarchy. It carries only the switches that
+fire on the `invokeTool` path: `sanitizeInput` and `redactSensitive` (the
+detectors run over model-supplied arguments, tool result text, and tool failure
+text), `network` (SSRF clearance for declarative HTTP and MCP targets), and
+`taint` (the confused-deputy gate, plus its advisory guidance on fenced remote
+results). `defineProfile` throws a `TheorumError` naming the field for
+`guardrails.quota`, `guardrails.canary`, and `guardrails.egress`: a host profile
+runs no model, so quota counts nothing, no system prompt exists for a canary to
+bind to, and egress gates user-visible model text in the turn runner, which a
+host profile never enters.
+
 | Block | On host? | Notes |
 | --- | --- | --- |
 | `tools` | yes | `{ allow: ToolId[] }` — registered function tools only (`HostProfileToolsSpec`); builtins are rejected |
-| `guardrails` | optional | Tool-result sanitization and canary policy for host-driven calls |
+| `guardrails` | optional | `HostGuardrailsSpec` only — `sanitizeInput`, `redactSensitive`, `network`, `taint` |
 | `observability` | optional | Same shape as every other profile |
 | `models` / `identity` / `inputs` / `outputs` / `turnBehaviour` / `key` / `maxSteps` | **no** | `registerProfile` rejects them when supplied |
 
@@ -637,7 +674,7 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
 | --- | --- |
 | Compaction | `CompactionSplit`, `CompactionTokens`, `compactionMeter`, `compactionNeeded`, `estimateHistoryTokens`, `HISTORY_MEDIA_TOKENS`, `HISTORY_TEXT_ENCODING`, `resolveCompactionTokens`, `resolveHistoryTokens`, `shouldCompact`, `splitForCompaction` |
 | Runner | `runTurn`, `runSession`, `RunSessionOptions`, `prepareLiveInboundText`, `liveIngressEnabled`, `liveIngressEnabledFromSpec`, `liveIngressChannelDefault`, `hasAnyLiveIngress`, `assertLiveIngress`, `assertLiveIngressConfigured`, `LiveIngressChannel` |
-| Catalog | `clampThinkingLevel`, `clampThinkingLevelForApiId`, `mediaKindForMime`, `getTool`, `listBuiltinIds`, `mimeAllowed`, `mimeEssence`, `modelEntryByApiId`, `registerTools`, `requireModelBinding`, `resetTools` |
+| Catalog | `clampThinkingLevel`, `clampThinkingLevelForApiId`, `mediaChannelForMime`, `MediaInputChannel`, `mediaKindForMime`, `getTool`, `listBuiltinIds`, `mimeAllowed`, `mimeEssence`, `modelEntryByApiId`, `registerTools`, `requireModelBinding`, `resetTools` |
 | Schema | `PROFILE_FIELDS`, `PROFILE_GRAPH`, `PROFILE_TYPES`, `PROFILE_TYPE_PROTOCOLS`, `protocolsForProfileType`, `isValidProfileProtocol`, `EXTRA_FIELDS`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `spineFacetsForProfileType`, `profileGraphFacet`, `ProfileGraphFacet`, `ProfileGraphFacetId`, `ProfileGraphEditor`, `ProfileGraphRole`, `PROTOCOLS`, `PROVIDERS`, `PROTOCOL_PROVIDERS`, `providersFor`, `protocolsFor`, `isValidPair`, `coerceProvider`, `coerceProtocol`, `coerceSpeechFormat`, `isSpeechFormatAllowedForProtocol`, `speechFormatsForProtocol`, `THINKING_LEVELS`, `KEY_SLOTS`, `OVERFLOW_KEY_SLOTS`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `SCHEMA_ENFORCEMENTS`, `COMPACTION_METERS`, `COMPACTION_TIMINGS`, `TURN_STOP_KINDS`, `CONTINUE_STOP_KINDS`, `TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES`, `AUTH_UNAUTHENTICATED_POLICIES`, `HTTP_METHODS`, `PLAYGROUND_AUTH_TYPES`, `TOOL_AUTH_TYPES`, `AuthUnauthenticatedPolicy`, `CustomToolType`, `HttpMethod`, `PlaygroundAuthType`, `ToolAccess`, `ToolAuthType`, `ToolPermission`, `ToolType`, `EGRESS_ON_BLOCK`, `EgressOnBlock` |
 | Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `LiveProfileDefinition`, `HostProfileDefinition`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `projectProfileObject`, `requireModelProfile`, `resolveTurn` |
 | Tools | `registerTool`, `registerTools`, `invokeTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `listBuiltinIds`, `listFunctionIds`, `resetTools`, `formatToolResult`, `projectForModel`, `coerceToolResultParts`, `leanToolResultData`, `wireInteractionPart`, `isMediaRefPart`, `prepareTurnToolSnapshot`, `buildHttpToolTarget`, `executeHttpTool`, `executeMcpTool`, `parseMcpRpcResponse`, `isUnsupportedMcpProtocolError`, `MCP_PROTOCOL_VERSIONS`, `McpProtocolVersion`, `resolveToolAuth` |

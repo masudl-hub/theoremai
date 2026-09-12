@@ -6,7 +6,10 @@ structured-output preview without reimplementing it per route.
 
 Host-driven tool execution (MCP servers, web UIs, schedulers) does not live
 here: register a `type: 'host'` profile (`HostProfileDefinition` — `tools.allow`
-ceiling, optional `guardrails` / `observability`, no models) and call
+ceiling, optional `observability`, optional `guardrails` narrowed to
+`HostGuardrailsSpec` — `sanitizeInput`, `redactSensitive`, `network`, `taint`;
+quota / canary / egress are refused because they guard a model turn — no models)
+and call
 `invokeTool({ profile, name, input, host })` from `theorum/kernel`. The `host`
 slot carries opaque application context to `handler` / `preflight` /
 `canExecute` and is never traced or sent to a provider. See

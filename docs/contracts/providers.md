@@ -93,7 +93,13 @@ Errors:
 OpenRouter Vercel AI SDK loads **only** on first `complete` for `openAi` +
 `openrouter` chat. Google and local never import it.
 
-Media part support by transport (`InteractionPart` — see `docs/contracts/kernel.md`):
+Media part support by transport (`InteractionPart` — see `docs/contracts/kernel.md`).
+The accepted MIME vocabulary is one table for every transport
+(`MEDIA_INPUT_KINDS`); no adapter keeps a second list. Google Interactions and
+Live take the whole table. The OpenAI-compat adapters map every
+`MediaInputKind` to a wire part and forward the MIME verbatim, so their set is
+open-ended. The only per-adapter refusal is the reference part, raised as a
+`TheorumError` at request time:
 
 | Transport | Inline `InteractionMediaPart` (`data`) | Reference `InteractionMediaRefPart` (`uri`) |
 | --- | --- | --- |

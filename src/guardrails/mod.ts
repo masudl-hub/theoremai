@@ -140,6 +140,7 @@ export type {
   GuardrailEvent,
   GuardrailHit,
   GuardrailStage,
+  HostGuardrailsSpec,
   NetworkGuardrailSpec,
   OutboundPayload,
   ProfileEgressSpec,

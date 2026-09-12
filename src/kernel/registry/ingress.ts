@@ -24,7 +24,13 @@ import type {
   TurnRequest,
 } from '../types.ts';
 import { assertAttachmentLimits, isTurnMediaRef, requireMediaLimits } from './attachments.ts';
-import { mediaKindForMime, mimeAllowed, mimeEssence } from './catalog.ts';
+import {
+  type MediaInputChannel,
+  mediaKindForMime,
+  mimeAllowed,
+  mimeEssence,
+  profileAccept,
+} from './catalog.ts';
 import { getStructured } from './schemas.ts';
 
 type PrimaryOutputMode = 'structured' | 'image' | 'speech';
@@ -136,10 +142,9 @@ function mediaParts(
   profile: Profile,
   model: ModelId,
   blobs: Array<TurnBlob | TurnMediaRef>,
-  channel: 'attachments' | 'voice',
+  channel: MediaInputChannel,
 ): InteractionPart[] {
-  const inputs = profileInputs(profile);
-  const accept = channel === 'voice' ? inputs?.voice?.accept : inputs?.attachments?.accept;
+  const accept = profileAccept(profile, channel);
   if (!accept) {
     throw new TheorumError(`Profile ${profile.id} does not accept ${channel}`);
   }

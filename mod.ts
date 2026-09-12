@@ -79,6 +79,7 @@ export type {
   GuardrailEvent,
   GuardrailHit,
   GuardrailStage,
+  HostGuardrailsSpec,
   LiveOutboundBatchResult,
   LiveOutboundGateSession,
   NetworkGuardrailSpec,
@@ -222,9 +223,11 @@ export {
   tooManyFilesMessage,
   turnTooLargeMessage,
 } from './src/kernel/registry/attachments.ts';
+export type { MediaInputChannel } from './src/kernel/registry/catalog.ts';
 export {
   clampThinkingLevel,
   clampThinkingLevelForApiId,
+  mediaChannelForMime,
   mediaKindForMime,
   mimeAllowed,
   mimeEssence,

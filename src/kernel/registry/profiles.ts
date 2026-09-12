@@ -8,7 +8,11 @@
  */
 
 import { TheorumError } from '../../guardrails/error.ts';
-import type { ProfileGuardrailsSpec } from '../../guardrails/types.ts';
+import {
+  HOST_GUARDRAIL_FIELDS,
+  type HostGuardrailsSpec,
+  type ProfileGuardrailsSpec,
+} from '../../guardrails/types.ts';
 import { resolveObservabilityPolicy } from '../../observability/resolve-policy.ts';
 import type { ProfileObservabilitySpec } from '../../observability/types.ts';
 import { assertLiveIngressConfigured } from '../engine/live-ingress.ts';
@@ -85,7 +89,8 @@ export type HostProfileDefinition = {
   type: 'host';
   id: Profile['id'];
   tools: HostProfileToolsSpec;
-  guardrails?: ProfileGuardrailsSpec;
+  /** Only the guards that fire on the `invokeTool` path — see {@link HostGuardrailsSpec}. */
+  guardrails?: HostGuardrailsSpec;
   observability?: ProfileObservabilitySpec;
 };
 
@@ -110,6 +115,35 @@ const HOST_ABSENT_FIELDS = [
   'maxSteps',
 ] as const;
 
+/**
+ * Guardrails that only a model turn can run, so a host profile must not declare
+ * them: `egress` gates user-visible model text in the turn runner, `canary` is
+ * minted into a system prompt, and `quota` counts turns. None is reachable from
+ * `invokeTool`, so accepting them would register config that guards nothing.
+ */
+const HOST_ABSENT_GUARDRAILS = ['quota', 'canary', 'egress'] as const satisfies readonly Exclude<
+  keyof ProfileGuardrailsSpec,
+  keyof HostGuardrailsSpec
+>[];
+
+const HOST_GUARDRAIL_REASON: Record<(typeof HOST_ABSENT_GUARDRAILS)[number], string> = {
+  quota: 'quota counts model turns',
+  canary: 'canary is minted into a system prompt',
+  egress: 'egress gates user-visible model text in the turn runner',
+};
+
+function assertHostGuardrails(profileId: string, guardrails: HostGuardrailsSpec | undefined): void {
+  if (!guardrails) return;
+  const extra = guardrails as ProfileGuardrailsSpec;
+  for (const key of HOST_ABSENT_GUARDRAILS) {
+    if (extra[key] !== undefined) {
+      throw new TheorumError(
+        `Profile ${profileId}: type 'host' must not set guardrails.${key} — a host profile runs no model and ${HOST_GUARDRAIL_REASON[key]}. Host profiles accept ${HOST_GUARDRAIL_FIELDS.join(', ')}.`,
+      );
+    }
+  }
+}
+
 function defineHostProfile(input: HostProfileDefinition): HostProfile {
   const extra = input as HostProfileDefinition & Record<string, unknown>;
   for (const key of HOST_ABSENT_FIELDS) {
@@ -117,6 +151,7 @@ function defineHostProfile(input: HostProfileDefinition): HostProfile {
       throw new TheorumError(`Profile ${input.id}: type 'host' must not set ${key}`);
     }
   }
+  assertHostGuardrails(input.id, input.guardrails);
   assertHostTools(input.id, input.tools);
   assertObservability(input.id, input.observability);
   return {

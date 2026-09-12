@@ -3,6 +3,7 @@ import { standardEgressEnforce } from '../../src/guardrails/egress.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { runTurn } from '../../src/kernel/engine/runner.ts';
 import { defineProfile, getProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
+import { requireModelProfile } from '../../src/kernel/registry/resolve.ts';
 import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
 import { memorySink } from '../../src/observability/mod.ts';
 import type { TraceRecord } from '../../src/observability/trace-record.ts';
@@ -85,7 +86,8 @@ Deno.test('include.guardrailMatchPreview keeps matched substring on stream and t
 });
 
 Deno.test('runTurn emits egress guardrail events on block', async () => {
-  const base = getProfile('chat');
+  // `egress` is a model-turn guardrail, so the base must be narrowed past `host`.
+  const base = requireModelProfile(getProfile('chat'), 'test');
   registerProfile(
     defineProfile({
       ...base,

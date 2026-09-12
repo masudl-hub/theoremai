@@ -1,10 +1,11 @@
 /**
- * Host turn session state for multi-turn runs and tool pause/resume.
+ * Host turn session state for multi-turn runs and tool gate / awaiting.
  *
  * @module
  */
 
-import type { ToolPause, TurnToolSnapshot } from '../kernel/tools/types.ts';
+import { isAwaitingUserInput } from '../kernel/stages.ts';
+import type { ToolGate, ToolPause, TurnToolSnapshot } from '../kernel/tools/types.ts';
 import type { ModelId, ToolId, TurnEvent, TurnHistoryMessage } from '../kernel/types.ts';
 import {
   appendAssistantEventsToHistory,
@@ -14,14 +15,26 @@ import {
 import { promotedToolIdsFromEvents, toolSnapshotFromEvents } from './tool-invoke.ts';
 import type { TranscriptBlock, UserTurnDraft } from './types.ts';
 
-export type PausedToolContext = {
+/** @deprecated Use `GatedToolContext`. */
+export type PausedToolContext = GatedToolContext;
+
+export type GatedToolContext = {
   name: string;
   input: unknown;
   callId?: string;
   arguments?: Record<string, unknown>;
-  pauseKind: ToolPause['kind'];
-  permission?: ToolPause['permission'];
-  interactiveOptions?: string[];
+  gateKind: ToolGate['kind'];
+  permission?: ToolGate['permission'];
+  summary?: string;
+};
+
+export type AwaitingToolContext = {
+  name: string;
+  callId?: string;
+  arguments?: Record<string, unknown>;
+  kind: string;
+  prompt: string;
+  options?: string[];
 };
 
 /** Client-side conversation state for composer turn runs. */
@@ -34,12 +47,19 @@ export type InterfaceTurnSession = {
   inputTokens?: number;
   /** Host override for compaction meter `history`. */
   historyTokens?: number;
-  pausedTool: PausedToolContext | null;
-  /** Kernel events for the assistant segment still in flight (pause / resume / continue). */
+  /** Active pre_tool gate awaiting host resume. */
+  gatedTool: GatedToolContext | null;
+  /**
+   * @deprecated Alias of `gatedTool` for Slice 3 react rename.
+   */
+  pausedTool: GatedToolContext | null;
+  /** Completed ask_user (or similar) awaiting host UI — turn may already be done. */
+  awaitingTool: AwaitingToolContext | null;
+  /** Kernel events for the assistant segment still in flight (gate / resume / continue). */
   assistantEvents: TurnEvent[];
   /** User draft for the turn that produced `assistantEvents`. */
   pendingUserDraft: UserTurnDraft | null;
-  /** Snapshot from the last tool-pause `done` event — pass to `invokeTool({ snapshot })`. */
+  /** Snapshot from the last gate `done` event — pass to `invokeTool({ snapshot })`. */
   toolSnapshot?: TurnToolSnapshot;
   /** T2 tool ids promoted during the current assistant segment (loader `loaded` outputs). */
   promotedToolIds: ToolId[];
@@ -53,33 +73,72 @@ function emptyInterfaceTurnSession(): InterfaceTurnSession {
   return {
     history: [],
     sessionPermissions: [],
+    gatedTool: null,
     pausedTool: null,
+    awaitingTool: null,
     assistantEvents: [],
     pendingUserDraft: null,
     promotedToolIds: [],
   };
 }
 
-function pausedToolFromEvents(events: readonly TurnEvent[]): PausedToolContext | null {
+function gatedToolFromEvents(events: readonly TurnEvent[]): GatedToolContext | null {
   const done = events.findLast((event) => event.type === 'done');
-  if (done?.stop?.kind !== 'tool') {
+  if (done?.stop?.kind !== 'gate' && done?.stop?.kind !== 'tool') {
     return null;
   }
-  const pauseEvent = events.findLast(
-    (event) => event.type === 'tool' && event.tool?.phase === 'pause' && event.tool.pause,
+  const gateEvent = events.findLast(
+    (event) =>
+      event.type === 'tool' &&
+      ((event.tool?.phase === 'gate' && event.tool.gate) ||
+        (event.tool?.phase === 'pause' && event.tool.pause)),
   );
-  const tool = pauseEvent?.tool;
-  if (!tool?.pause) {
-    return null;
+  const tool = gateEvent?.tool;
+  if (tool?.gate) {
+    return {
+      name: tool.name,
+      input: tool.arguments ?? {},
+      callId: tool.id ?? tool.callId,
+      arguments: tool.arguments,
+      gateKind: tool.gate.kind,
+      permission: tool.gate.permission,
+      summary: tool.gate.summary,
+    };
   }
+  if (tool?.pause) {
+    const pause: ToolPause = tool.pause;
+    const kind = pause.kind === 'interactive' ? 'confirmation' : (pause.kind as ToolGate['kind']);
+    return {
+      name: tool.name,
+      input: pause.input,
+      callId: tool.id ?? tool.callId,
+      arguments: tool.arguments,
+      gateKind: kind,
+      permission: pause.permission,
+      summary: pause.summary,
+    };
+  }
+  return null;
+}
+
+/** @deprecated Use `gatedToolFromEvents`. */
+function pausedToolFromEvents(events: readonly TurnEvent[]): GatedToolContext | null {
+  return gatedToolFromEvents(events);
+}
+
+function awaitingFromEvents(events: readonly TurnEvent[]): AwaitingToolContext | null {
+  const complete = events.findLast(
+    (event) => event.type === 'tool' && event.tool?.phase === 'complete',
+  );
+  const output = complete?.tool?.output;
+  if (!isAwaitingUserInput(output)) return null;
   return {
-    name: tool.name,
-    input: tool.pause.input,
-    callId: tool.id ?? tool.callId,
-    arguments: tool.arguments,
-    pauseKind: tool.pause.kind,
-    permission: tool.pause.permission,
-    interactiveOptions: tool.pause.render?.options,
+    name: complete?.tool?.name ?? '',
+    callId: complete?.tool?.id ?? complete?.tool?.callId,
+    arguments: complete?.tool?.arguments,
+    kind: output.kind,
+    prompt: output.prompt,
+    options: output.options,
   };
 }
 
@@ -114,12 +173,15 @@ function applyTurnEventsToSession(
     promotedToolIds = [...new Set([...promotedToolIds, ...newPromoted])];
   }
 
+  const gated = gatedToolFromEvents(events);
   return {
     ...session,
     previousInteractionId,
     inputTokens,
     historyTokens,
-    pausedTool: pausedToolFromEvents(events),
+    gatedTool: gated,
+    pausedTool: gated,
+    awaitingTool: awaitingFromEvents(events),
     toolSnapshot,
     promotedToolIds,
   };
@@ -146,23 +208,23 @@ function branchInterfaceTurnSession(
   };
 }
 
-function markPausedToolCancelled(
+function markGatedToolCancelled(
   events: readonly TurnEvent[],
-  paused: PausedToolContext,
+  gated: GatedToolContext,
 ): TurnEvent[] {
   return events.map((event) => {
-    if (event.type !== 'tool' || event.tool?.phase !== 'pause' || !event.tool.pause) {
-      return event;
-    }
+    if (event.type !== 'tool') return event;
+    if (event.tool?.phase !== 'gate' && event.tool?.phase !== 'pause') return event;
     return {
       type: 'tool' as const,
       tool: {
         ...event.tool,
         phase: 'error' as const,
+        gate: undefined,
         pause: undefined,
         failure: {
           code: 'cancelled',
-          message: `User cancelled paused tool '${paused.name}' to send a new message.`,
+          message: `User cancelled gated tool '${gated.name}' to send a new message.`,
         },
       },
     };
@@ -170,31 +232,31 @@ function markPausedToolCancelled(
 }
 
 /**
- * Abandon a tool pause without continuing the agent turn.
+ * Abandon a tool gate without continuing the agent turn.
  *
  * Records the cancelled tool in history, finalizes any streamed assistant text,
- * and clears pause state. Used by send-now while paused (leave the wait, then
- * start a new user turn) — not the same as Deny, which continues the model.
+ * and clears gate state. Used by send-now while gated (leave the wait, then
+ * start a new user turn).
  */
-function abandonPausedToolSession(session: InterfaceTurnSession): {
+function abandonGatedToolSession(session: InterfaceTurnSession): {
   session: InterfaceTurnSession;
   finalizedEvents: TurnEvent[];
 } {
-  const paused = session.pausedTool;
-  if (!paused) {
+  const gated = session.gatedTool ?? session.pausedTool;
+  if (!gated) {
     return { session, finalizedEvents: [...session.assistantEvents] };
   }
 
-  const finalizedEvents = markPausedToolCancelled(session.assistantEvents, paused);
+  const finalizedEvents = markGatedToolCancelled(session.assistantEvents, gated);
   const history = appendToolDenialToHistory(
     appendAssistantEventsToHistory(session.history, finalizedEvents),
     {
-      name: paused.name,
-      callId: paused.callId,
-      arguments: paused.arguments,
+      name: gated.name,
+      callId: gated.callId,
+      arguments: gated.arguments,
       failure: {
         code: 'cancelled',
-        message: `User cancelled paused tool '${paused.name}' to send a new message.`,
+        message: `User cancelled gated tool '${gated.name}' to send a new message.`,
       },
     },
   );
@@ -204,7 +266,9 @@ function abandonPausedToolSession(session: InterfaceTurnSession): {
     session: {
       ...session,
       history,
+      gatedTool: null,
       pausedTool: null,
+      awaitingTool: null,
       assistantEvents: [],
       pendingUserDraft: null,
       toolSnapshot: undefined,
@@ -213,10 +277,21 @@ function abandonPausedToolSession(session: InterfaceTurnSession): {
   };
 }
 
+/** @deprecated Use `abandonGatedToolSession`. */
+function abandonPausedToolSession(session: InterfaceTurnSession): {
+  session: InterfaceTurnSession;
+  finalizedEvents: TurnEvent[];
+} {
+  return abandonGatedToolSession(session);
+}
+
 export {
+  abandonGatedToolSession,
   abandonPausedToolSession,
   applyTurnEventsToSession,
+  awaitingFromEvents,
   branchInterfaceTurnSession,
   emptyInterfaceTurnSession,
+  gatedToolFromEvents,
   pausedToolFromEvents,
 };

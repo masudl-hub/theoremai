@@ -169,12 +169,17 @@ export type ToolHandler<TIn, TOut> = SyncToolHandler<TIn, TOut> | StreamToolHand
 export interface ToolHostHooks<TIn = unknown> {
   inputSchema: Record<string, unknown>;
   outputSchema: Record<string, unknown>;
-  interactive?: InteractiveConfig<TIn>;
-  canExecute?: (input: TIn, ctx: ToolContext) => boolean | Promise<boolean>;
-  preflight?: (
+  /**
+   * Tool-local `pre_tool` registrant (`docs/contracts/stages.md`).
+   * Runs before host `onStage` for `pre_tool`. May return deny / confirm / mutate.
+   */
+  preTool?: (
     input: TIn,
     ctx: ToolContext,
-  ) => undefined | ToolFailure | ToolPause | Promise<undefined | ToolFailure | ToolPause>;
+  ) =>
+    | import('../stages.ts').StageResult
+    | undefined
+    | Promise<import('../stages.ts').StageResult | undefined>;
   exposeToModel?: boolean;
 }
 
@@ -319,7 +324,7 @@ export interface InvokeToolRequest {
   host?: unknown;
   /**
    * Optional stage handler for this invoke — `pre_tool` / `post_tool` only
-   * (`docs/contracts/stages.md`). Types frozen; execute cutover is slice 2.
+   * (`docs/contracts/stages.md`).
    */
   onStage?: import('../stages.ts').StageHandler;
 }

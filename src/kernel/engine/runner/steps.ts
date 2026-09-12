@@ -3,11 +3,13 @@ import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import { recordTaint } from '../../../guardrails/tool-result.ts';
 import { wireInteractionPart } from '../../interaction-parts.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
+import { profileAllowsInject } from '../../stop.ts';
 import {
   executeRegisteredTool,
   formatToolFailureForModel,
   formatToolResult,
   newCallId,
+  type ToolStageSupport,
 } from '../../tools/execute.ts';
 import type { ModelToolResult } from '../../tools/types.ts';
 import type {
@@ -18,7 +20,7 @@ import type {
   TurnHistoryMessage,
   TurnRequest,
 } from '../../types.ts';
-import { applyTurnStage, injectWouldExceedMaxSteps } from './stages.ts';
+import { applyStageInjects, injectWouldExceedMaxSteps } from './stages.ts';
 import { recordStepEvent, type StepExecutionState } from './state.ts';
 import { type OutboundStreamControl, yieldProviderEvents } from './stream.ts';
 
@@ -243,9 +245,13 @@ async function* handlePendingTools(
   safe?: TurnRequest,
 ): AsyncGenerator<TurnEvent, boolean> {
   let executed = false;
-  let sawPause = false;
+  let sawGate = false;
   const useInteractionsContinuation = generation.transport === 'interactions';
   for (const toolEv of pendingTools) {
+    if (sawGate) {
+      // Contract: do not start later siblings after a gate.
+      break;
+    }
     const tool = toolEv.tool;
     if (!tool) {
       continue;
@@ -300,8 +306,16 @@ async function* handlePendingTools(
       continue;
     }
 
-    let modelResult: ModelToolResult | undefined;
-    let paused = false;
+    const stages: ToolStageSupport | undefined = {
+      handlers: safe?.onStage ? [safe.onStage] : [],
+      step: state.stepCount,
+      history: () => state.currentHistory,
+      injectAllowed: profileAllowsInject(profile),
+      injectWouldExceedMaxSteps: injectWouldExceedMaxSteps(state.stepCount, generation.maxSteps),
+      host: generation.host,
+      signal: safe?.signal,
+    };
+
     const exec = executeRegisteredTool({
       profile,
       name: tool.name,
@@ -313,15 +327,22 @@ async function* handlePendingTools(
         turn: { step: state.stepCount, taint: state.taint },
         credentials: safe?.credentials,
         host: generation.host,
+        resume: undefined,
+        signal: safe?.signal,
       },
       snapshot: generation.tools,
+      stages,
     });
     let next = await exec.next();
     while (!next.done) {
       const event = next.value;
+      if (event.type === 'stage') {
+        state.allEmittedEvents.push(event);
+        yield event;
+        next = await exec.next();
+        continue;
+      }
       if (event.type !== 'tool') {
-        // Guardrail decisions travel alongside tool events; enrichment would
-        // rewrite them into tool-shaped events and lose them.
         state.allEmittedEvents.push(event);
         yield event;
         next = await exec.next();
@@ -330,58 +351,52 @@ async function* handlePendingTools(
       const enriched = enrichToolEvent(tool, callId, event.tool);
       state.allEmittedEvents.push(enriched);
       yield enriched;
-      if (event.tool?.phase === 'error' && event.tool.failure) {
-        modelResult = formatToolFailureForModel(event.tool.failure);
-      }
-      if (event.tool?.phase === 'pause') {
-        modelResult = undefined;
-        paused = true;
+      if (event.tool?.phase === 'gate') {
+        sawGate = true;
       }
       next = await exec.next();
     }
-    if (next.value !== undefined) {
-      modelResult = next.value;
-      if (modelResult.provenance) {
-        // Remote reads taint the turn for every tool call that follows.
-        state.taint = recordTaint(state.taint, modelResult.provenance, modelResult.suspicious);
-      }
-    }
-    if (paused) {
-      sawPause = true;
-      state.toolSnapshot = generation.tools;
-      continue;
-    }
-    if (!modelResult) {
-      continue;
-    }
-    recordToolModelResult(state, toolEv, modelResult, generation, useInteractionsContinuation);
-    const post = yield* applyTurnStage({
-      profile,
-      generation,
-      state,
-      stage: 'post_tool',
-      step: state.stepCount,
-      onStage: safe?.onStage,
-      signal: safe?.signal,
-      callId,
-      tool: tool.name,
-      outputRaw: modelResult,
-      outputModel: modelResult,
-      host: generation.host,
-      injectWouldExceedMaxSteps: injectWouldExceedMaxSteps(state.stepCount, generation.maxSteps),
-    });
-    if (post.abort) {
+
+    const settlement = next.value;
+    if (settlement.aborted) {
       state.lastStop = {
         kind: 'cancelled',
-        ...(typeof post.abort === 'object' && post.abort.reason
-          ? { native: post.abort.reason }
+        ...(typeof settlement.aborted === 'object' && settlement.aborted.reason
+          ? { native: settlement.aborted.reason }
           : {}),
       };
       return false;
     }
+    if (settlement.gated || sawGate) {
+      sawGate = true;
+      state.toolSnapshot = generation.tools;
+      continue;
+    }
+    if (settlement.modelResult?.provenance) {
+      state.taint = recordTaint(
+        state.taint,
+        settlement.modelResult.provenance,
+        settlement.modelResult.suspicious,
+      );
+    }
+    if (!settlement.modelResult) {
+      continue;
+    }
+    recordToolModelResult(
+      state,
+      toolEv,
+      settlement.modelResult,
+      generation,
+      useInteractionsContinuation,
+    );
+    // Apply post_tool inject after the provider tool result is recorded so
+    // Interactions continuation can absorb user_input inject steps.
+    if (settlement.pendingInject?.length) {
+      applyStageInjects(state, profile, settlement.pendingInject);
+    }
   }
-  if (sawPause) {
-    state.lastStop = { kind: 'tool' };
+  if (sawGate) {
+    state.lastStop = { kind: 'gate' };
     return false;
   }
   return executed;

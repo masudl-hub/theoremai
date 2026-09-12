@@ -30,9 +30,12 @@ function promotedToolIdsFromEvents(events: readonly TurnEvent[]): ToolId[] {
   return [...ids];
 }
 
-/** Read the turn tool snapshot emitted on a tool-pause terminal `done` event. */
+/** Read the turn tool snapshot emitted on a gate (or legacy tool-pause) terminal `done`. */
 function toolSnapshotFromEvents(events: readonly TurnEvent[]): TurnToolSnapshot | undefined {
-  const done = events.findLast((event) => event.type === 'done' && event.stop?.kind === 'tool');
+  const done = events.findLast(
+    (event) =>
+      event.type === 'done' && (event.stop?.kind === 'gate' || event.stop?.kind === 'tool'),
+  );
   return done?.tools;
 }
 

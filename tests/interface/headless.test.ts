@@ -629,20 +629,20 @@ Deno.test('appendToolDenialToHistory uses kernel failure formatting', () => {
   assertEquals(history[1]?.content?.includes('Tool error'), true);
 });
 
-Deno.test('pausedToolFromEvents detects tool stop', () => {
+Deno.test('pausedToolFromEvents detects gate stop', () => {
   const paused = pausedToolFromEvents([
     {
       type: 'tool',
       tool: {
-        name: 'ask_user',
-        phase: 'pause',
-        pause: { kind: 'interactive', tool: 'ask_user', input: {} },
+        name: 'delete_resource',
+        phase: 'gate',
+        gate: { kind: 'permission', tool: 'delete_resource', permission: 'session_consent' },
       },
     },
-    { type: 'done', stop: { kind: 'tool' } },
+    { type: 'done', stop: { kind: 'gate' } },
   ]);
-  assertEquals(paused?.name, 'ask_user');
-  assertEquals(paused?.pauseKind, 'interactive');
+  assertEquals(paused?.name, 'delete_resource');
+  assertEquals(paused?.gateKind, 'permission');
 });
 
 Deno.test('promotedToolIdsFromEvents collects loader loaded ids', () => {
@@ -659,11 +659,11 @@ Deno.test('promotedToolIdsFromEvents collects loader loaded ids', () => {
   assertEquals(ids, ['record_lookup', 'stub_tool']);
 });
 
-Deno.test('toolSnapshotFromEvents reads tools from tool-pause done', () => {
+Deno.test('toolSnapshotFromEvents reads tools from gate done', () => {
   const snapshot = toolSnapshotFromEvents([
     {
       type: 'done',
-      stop: { kind: 'tool' },
+      stop: { kind: 'gate' },
       tools: { builtins: [], gated: ['a'], visible: ['a'], executable: ['a'], wire: [] },
     },
   ]);
@@ -678,7 +678,7 @@ Deno.test('applyTurnEventsToSession stores tool snapshot and promoted ids', () =
     },
     {
       type: 'done',
-      stop: { kind: 'tool' },
+      stop: { kind: 'gate' },
       tools: {
         builtins: [],
         gated: ['record_lookup'],

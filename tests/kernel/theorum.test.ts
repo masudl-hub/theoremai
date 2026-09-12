@@ -432,7 +432,7 @@ Deno.test('disallowed tool cannot run', async () => {
   assertEquals(toolEv?.tool?.phase, 'error');
 });
 
-Deno.test('ask_user pauses when allowed', async () => {
+Deno.test('ask_user completes with awaiting when allowed', async () => {
   registerProfile({
     ...withTools('chat', ['ask_user']),
     id: 'ask_user_bot',
@@ -442,8 +442,10 @@ Deno.test('ask_user pauses when allowed', async () => {
     name: 'ask_user',
     input: { kind: 'text', prompt: 'which?' },
   });
-  const toolEv = events.find((e) => e.type === 'tool' && e.tool?.phase === 'pause');
-  assertEquals(Boolean(toolEv), true);
+  const toolEv = events.findLast((e) => e.type === 'tool' && e.tool?.name === 'ask_user');
+  assertEquals(toolEv?.tool?.phase, 'complete');
+  assertEquals((toolEv?.tool?.output as { status?: string })?.status, 'awaiting_user_input');
+  assertEquals(events.at(-1)?.stop?.kind, 'completed');
 });
 
 Deno.test('invokeTool ask_user is denied until allowed', async () => {
@@ -1481,8 +1483,8 @@ Deno.test('registered tool enforces session_consent pause unless granted', async
   }
 
   const toolEv1 = events1.findLast((e) => e.type === 'tool' && e.tool?.name === 'delete_resource');
-  assertEquals(toolEv1?.tool?.phase, 'pause');
-  assertEquals(toolEv1?.tool?.pause?.kind, 'permission');
+  assertEquals(toolEv1?.tool?.phase, 'gate');
+  assertEquals(toolEv1?.tool?.gate?.kind, 'permission');
 
   const events2: TurnEvent[] = [];
   for await (const ev of runTurn(
@@ -1635,7 +1637,7 @@ Deno.test('loader does not promote deferred tools before required permission is 
 
   assertEquals(seenToolLists, [['load_tools_consent']]);
   const loadEvent = events.findLast((event) => event.tool?.name === 'load_tools_consent');
-  assertEquals(loadEvent?.tool?.phase, 'pause');
+  assertEquals(loadEvent?.tool?.phase, 'gate');
   assertEquals(
     events.some((event) => event.tool?.name === 'record_lookup'),
     false,
@@ -1963,7 +1965,7 @@ function createToolProvider(toolName: string): import('../../src/kernel/types.ts
   };
 }
 
-Deno.test('registered tool canExecute returning false yields unauthorized error', async () => {
+Deno.test('registered tool preTool deny yields unauthorized error', async () => {
   createCanExecBotProfile('can_exec_bot_1', 'denied_tool');
   const events = await collect(
     runTurn(
@@ -1979,18 +1981,22 @@ Deno.test('registered tool canExecute returning false yields unauthorized error'
   assertStringIncludes(toolEv?.tool?.failure?.message ?? '', 'not authorized');
 });
 
-Deno.test('registered tool canExecute throwing error is caught safely', async () => {
+Deno.test('registered tool preTool throwing error propagates from runTurn', async () => {
   createCanExecBotProfile('can_exec_bot_3', 'throwing_auth_tool');
-  const events = await collect(
-    runTurn(
-      {
-        profile: 'can_exec_bot_3',
-        input: { text: 'test' },
-      },
-      createToolProvider('throwing_auth_tool'),
-    ),
-  );
-  const toolEv = events.findLast((e) => e.type === 'tool' && e.tool?.name === 'throwing_auth_tool');
-  assertEquals(toolEv?.tool?.phase, 'error');
-  assertStringIncludes(toolEv?.tool?.failure?.message ?? '', 'Authorization failed for');
+  let threw = false;
+  try {
+    await collect(
+      runTurn(
+        {
+          profile: 'can_exec_bot_3',
+          input: { text: 'test' },
+        },
+        createToolProvider('throwing_auth_tool'),
+      ),
+    );
+  } catch (err) {
+    threw = true;
+    assertStringIncludes(err instanceof Error ? err.message : String(err), 'auth network failure');
+  }
+  assertEquals(threw, true);
 });

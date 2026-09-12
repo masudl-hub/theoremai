@@ -678,9 +678,9 @@ export interface TurnRequest {
   /** Host-owned metadata preserved for traces; the kernel does not interpret it. */
   metadata?: Record<string, unknown>;
   /**
-   * Opaque application context handed to tool `handler` / `preflight` /
-   * `canExecute` and `tools.t1Policy` as `ctx.host`. The kernel never reads,
-   * logs, traces, or serializes it.
+   * Opaque application context handed to tool `handler` / `preTool` and
+   * `tools.t1Policy` as `ctx.host`. The kernel never reads, logs, traces, or
+   * serializes it.
    */
   host?: unknown;
   /**

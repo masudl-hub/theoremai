@@ -7,7 +7,7 @@ import {
   resetTools,
 } from '../../src/kernel/tools/mod.ts';
 import { buildHttpToolTarget } from '../../src/kernel/tools/remote.ts';
-import type { ModelToolResult } from '../../src/kernel/tools/types.ts';
+import type { ToolExecuteSettlement } from '../../src/kernel/tools/execute.ts';
 import type { Profile } from '../../src/kernel/types.ts';
 
 const testProfile: Profile = {
@@ -31,7 +31,7 @@ const testProfile: Profile = {
   outputs: {},
 };
 
-Deno.test('Declarative HTTP Tool pauses when credentials are missing and policy is pause', async () => {
+Deno.test('Declarative HTTP Tool gates when credentials are missing and policy is pause', async () => {
   resetTools();
   registerTool({
     name: 'fetch_user_profile',
@@ -69,10 +69,10 @@ Deno.test('Declarative HTTP Tool pauses when credentials are missing and policy 
     events.push(ev);
   }
 
-  const pauseEvent = events.find((e) => e.tool?.phase === 'pause');
-  assertEquals(Boolean(pauseEvent), true);
-  assertEquals(pauseEvent?.tool?.pause?.kind, 'auth');
-  assertEquals(pauseEvent?.tool?.pause?.authChallenge?.slot, 'user_auth');
+  const gateEvent = events.find((e) => e.tool?.phase === 'gate');
+  assertEquals(Boolean(gateEvent), true);
+  assertEquals(gateEvent?.tool?.gate?.kind, 'auth');
+  assertEquals(gateEvent?.tool?.gate?.authChallenge?.slot, 'user_auth');
 });
 
 Deno.test('Declarative HTTP Tool reports error finding when policy is report_to_model', async () => {
@@ -108,16 +108,16 @@ Deno.test('Declarative HTTP Tool reports error finding when policy is report_to_
     ctx: {},
   });
 
-  let result: ModelToolResult | undefined;
+  let settlement: ToolExecuteSettlement | undefined;
   while (true) {
     const next = await exec.next();
     if (next.done) {
-      result = next.value;
+      settlement = next.value;
       break;
     }
   }
 
-  assertEquals(Boolean(result?.finding?.includes('Authentication required')), true);
+  assertEquals(Boolean(settlement?.modelResult?.finding?.includes('Authentication required')), true);
 });
 
 Deno.test('Declarative HTTP Tool triggers SSRF guardrail on private IP without permission', async () => {
@@ -211,11 +211,11 @@ Deno.test('Declarative HTTP Tool executes successfully with auth header and para
       },
     });
 
-    let result: ModelToolResult | undefined;
+    let settlement: ToolExecuteSettlement | undefined;
     while (true) {
       const next = await exec.next();
       if (next.done) {
-        result = next.value;
+        settlement = next.value;
         break;
       }
       events.push(next.value);
@@ -223,7 +223,7 @@ Deno.test('Declarative HTTP Tool executes successfully with auth header and para
 
     assertEquals(requestedUrl, 'https://api.example.com/users/usr_123?includeHistory=true');
     assertEquals(authHeader, 'Bearer valid-secret-token');
-    assertEquals((result?.data as { name: string })?.name, 'Alice');
+    assertEquals((settlement?.modelResult?.data as { name: string })?.name, 'Alice');
 
     const completeEvent = events.find((e) => e.tool?.phase === 'complete');
     assertEquals(Boolean(completeEvent), true);
@@ -337,11 +337,11 @@ Deno.test('Remote MCP Tool executes successfully per 2026-07-28 spec', async () 
       },
     });
 
-    let result: ModelToolResult | undefined;
+    let settlement: ToolExecuteSettlement | undefined;
     while (true) {
       const next = await exec.next();
       if (next.done) {
-        result = next.value;
+        settlement = next.value;
         break;
       }
       events.push(next.value);
@@ -358,7 +358,7 @@ Deno.test('Remote MCP Tool executes successfully per 2026-07-28 spec', async () 
     assertEquals(receivedHeaders.accept, 'application/json, text/event-stream');
     assertEquals(receivedHeaders['x-api-key'], 'lin_api_key_xyz');
 
-    const data = result?.data as { issueId: string } | undefined;
+    const data = settlement?.modelResult?.data as { issueId: string } | undefined;
     assertEquals(data?.issueId, 'LIN-101');
     const completeEvent = events.find((e) => e.tool?.phase === 'complete');
     assertEquals(Boolean(completeEvent), true);
@@ -532,16 +532,16 @@ async function collectToolRun(name: string, input: unknown, callId: string) {
       },
     },
   });
-  let result: ModelToolResult | undefined;
+  let settlement: ToolExecuteSettlement | undefined;
   while (true) {
     const next = await exec.next();
     if (next.done) {
-      result = next.value;
+      settlement = next.value;
       break;
     }
     events.push(next.value);
   }
-  return { events, result };
+  return { events, settlement };
 }
 
 Deno.test('Remote MCP Tool reports invalid input and network blocks', async () => {
@@ -688,13 +688,16 @@ Deno.test('Remote MCP Tool retries unsupported protocol versions then succeeds',
   }) as typeof fetch;
 
   try {
-    const { result } = await collectToolRun(
+    const { settlement } = await collectToolRun(
       'linear_issue',
       { title: 'Retry', description: 'protocol' },
       'call_mcp_retry',
     );
     assertEquals(attempt >= 2, true);
-    assertEquals((result?.data as { issueId?: string } | undefined)?.issueId, 'LIN-202');
+    assertEquals(
+      (settlement?.modelResult?.data as { issueId?: string } | undefined)?.issueId,
+      'LIN-202',
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -741,14 +744,17 @@ Deno.test('Remote MCP Tool retries HTTP 400 unsupported protocol versions then s
   }) as typeof fetch;
 
   try {
-    const { result } = await collectToolRun(
+    const { settlement } = await collectToolRun(
       'linear_issue',
       { title: 'HTTP 400 retry', description: 'protocol' },
       'call_mcp_http_400_retry',
     );
     assertEquals(attempt >= 2, true);
     assertEquals(secondProtocol, '2025-11-25');
-    assertEquals((result?.data as { issueId?: string } | undefined)?.issueId, 'LIN-400');
+    assertEquals(
+      (settlement?.modelResult?.data as { issueId?: string } | undefined)?.issueId,
+      'LIN-400',
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

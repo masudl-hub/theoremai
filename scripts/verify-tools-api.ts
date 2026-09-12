@@ -351,7 +351,7 @@ function dumpToolFailures(events: TurnEvent[]): void {
   for (const e of events) {
     if (e.type !== 'tool' || !e.tool) continue;
     const t = e.tool;
-    if (t.phase !== 'error' && t.phase !== 'pause') continue;
+    if (t.phase !== 'error' && t.phase !== 'gate') continue;
     const args = t.arguments === undefined ? '<absent>' : JSON.stringify(t.arguments);
     console.log(`      tool[${t.name || '(empty)'}] phase=${t.phase} args=${args}`);
     if (t.failure) {
@@ -361,8 +361,8 @@ function dumpToolFailures(events: TurnEvent[]): void {
         }`,
       );
     }
-    if (t.pause) {
-      console.log(`        pause: ${t.pause.kind}`);
+    if (t.gate) {
+      console.log(`        gate: ${t.gate.kind}`);
     }
   }
 }
@@ -443,21 +443,23 @@ function buildInvokeCases(): Case[] {
   });
 
   add(
-    'invoke/not_authorized auth throw',
+    'invoke/preTool auth throw',
     { profile: p, name: 'throwing_auth_tool', input: {} },
     (r) => {
-      if (lastTool(r.events, 'throwing_auth_tool')?.failure?.code !== 'not_authorized') {
-        return 'expected not_authorized';
+      const errEv = r.events.find((e) => e.type === 'error');
+      const detail = errEv?.errorInternal ?? errEv?.error ?? r.error ?? '';
+      if (!detail.includes('auth network failure')) {
+        return 'expected preTool throw as error event';
       }
     },
   );
 
   add(
-    'invoke/always_confirm pause',
+    'invoke/always_confirm gate',
     { profile: p, name: 'always_confirm_tool', input: {} },
     (r) => {
-      if (lastTool(r.events, 'always_confirm_tool')?.phase !== 'pause') return 'expected pause';
-      if (stopKind(r.events) !== 'tool') return 'expected tool stop';
+      if (lastTool(r.events, 'always_confirm_tool')?.phase !== 'gate') return 'expected gate';
+      if (stopKind(r.events) !== 'gate') return 'expected gate stop';
     },
   );
 
@@ -475,9 +477,9 @@ function buildInvokeCases(): Case[] {
     },
   );
 
-  add('invoke/preflight pause', { profile: p, name: 'preflight_confirm_tool', input: {} }, (r) => {
-    if (lastTool(r.events, 'preflight_confirm_tool')?.pause?.kind !== 'confirmation') {
-      return 'expected confirmation pause';
+  add('invoke/preTool gate', { profile: p, name: 'preflight_confirm_tool', input: {} }, (r) => {
+    if (lastTool(r.events, 'preflight_confirm_tool')?.gate?.kind !== 'confirmation') {
+      return 'expected confirmation gate';
     }
   });
 
@@ -485,8 +487,8 @@ function buildInvokeCases(): Case[] {
     'invoke/session_consent pause',
     { profile: p, name: 'delete_resource', input: { id: 'x' } },
     (r) => {
-      if (lastTool(r.events, 'delete_resource')?.phase !== 'pause')
-        return 'expected permission pause';
+      if (lastTool(r.events, 'delete_resource')?.phase !== 'gate')
+        return 'expected permission gate';
     },
   );
 
@@ -508,8 +510,8 @@ function buildInvokeCases(): Case[] {
     'invoke/load_tools_consent blocked',
     { profile: p, name: 'load_tools_consent', input: { names: ['stub_tool'] } },
     (r) => {
-      if (lastTool(r.events, 'load_tools_consent')?.phase !== 'pause')
-        return 'expected consent pause';
+      if (lastTool(r.events, 'load_tools_consent')?.phase !== 'gate')
+        return 'expected consent gate';
     },
   );
 
@@ -582,29 +584,19 @@ function buildInvokeCases(): Case[] {
   });
 
   add(
-    'invoke/ask_user interactive pause',
+    'invoke/ask_user awaiting complete',
     {
       profile: p,
       name: 'ask_user',
       input: { kind: 'text', prompt: 'Say hi' },
     },
     (r) => {
-      if (lastTool(r.events, 'ask_user')?.phase !== 'pause')
-        return 'ask_user should pause without resume';
-    },
-  );
-
-  add(
-    'invoke/ask_user resume',
-    {
-      profile: p,
-      name: 'ask_user',
-      input: { kind: 'text', prompt: 'Say hi' },
-      resume: { value: 'hello' },
-    },
-    (r) => {
-      const out = lastTool(r.events, 'ask_user')?.output as { answer?: unknown } | undefined;
-      if (out?.answer !== 'hello') return 'ask_user should return resume value';
+      const out = lastTool(r.events, 'ask_user')?.output as { status?: string } | undefined;
+      if (lastTool(r.events, 'ask_user')?.phase !== 'complete') {
+        return 'ask_user should complete without resume';
+      }
+      if (out?.status !== 'awaiting_user_input') return 'ask_user should await user input';
+      if (stopKind(r.events) !== 'completed') return 'expected completed stop';
     },
   );
 
@@ -790,8 +782,8 @@ function buildStubRunCases(): Case[] {
       lane: 'stub',
       run: () => stub('always_confirm_tool', {}),
       check: (r) => {
-        if (lastTool(r.events, 'always_confirm_tool')?.phase !== 'pause') return 'expected pause';
-        if (stopKind(r.events) !== 'tool') return 'expected tool stop';
+        if (lastTool(r.events, 'always_confirm_tool')?.phase !== 'gate') return 'expected gate';
+        if (stopKind(r.events) !== 'gate') return 'expected gate stop';
       },
     },
     {

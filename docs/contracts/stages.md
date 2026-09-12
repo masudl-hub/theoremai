@@ -1,15 +1,12 @@
 # Turn stages (target contract)
 
-**Status: target — text spine on branch.** Locked design replacing steer barriers
-and overlapping tool pre-gates. **Foundation + text `runTurn` stage map landed:**
-closed unions, defensive `applyStageResult`, `profileAllowsInject`, typed
-`onStage`, text emission of `pre_turn` / `post_tool` / `before_end` / `post_turn`,
-and **full deletion** of `onSteer` / `TURN_STEER_BARRIERS` / `barrier` events from
-the public API. **Not a released product yet:** `pre_tool` gate/deny cutover,
-live `executeTool`, and playground/composer cycle fiction still follow.
-`canExecute` / `preflight` / `interactive` / pause-`done` still run (slices 2–3).
-**No dual API** on a released line: stages are not “shipped” until all three
-slices have landed and `kernel.md` matches this file.
+**Status: target — text spine + tool cutover on branch.** Locked design replacing
+steer barriers and overlapping tool pre-gates. **Foundation + text `runTurn` +
+tool execute cutover landed:** stages, `preTool`, gate/deny/awaiting wire,
+`ask_user` awaiting completion, interface gated/awaiting helpers. **Not a
+released product yet:** live `executeTool` and playground/composer cycle fiction
+still follow (slice 3). **No dual API** on a released line: stages are not
+“shipped” until all three slices have landed and `kernel.md` matches this file.
 
 ## Export (target)
 
@@ -20,13 +17,18 @@ slices have landed and `kernel.md` matches this file.
 | `TurnRequest` / `SessionRequest` / `InvokeToolRequest.onStage` types | landed |
 | Text `runTurn` `pre_turn` / `post_tool` / `before_end` / `post_turn` | landed |
 | Text barriers / `onSteer` / `barrier` events deleted from API | landed |
-| `pre_tool` deny/confirm/mutate execute cutover | not yet (slice 2) |
+| `pre_tool` deny/confirm/mutate execute cutover | landed |
+| Tool `preTool`; removed `canExecute` / `preflight` / `interactive` | landed |
+| `ask_user` awaiting completion; gate vs deny wire | landed |
+| Interface gated/awaiting split (text) | landed |
 | `LiveSession.executeTool` / live cycle map | not yet (slice 3) |
 | Cancelled `done` + `post_turn` for AbortSignal (not only stage abort) | landed |
 
 Slice 1 removed: `TURN_STEER_BARRIERS`, `TurnSteer*`, `onSteer`, `barrier` events.
-Still removed on later slices: `canExecute`, `preflight`, `interactive` tool config,
-and `done.stop.kind: 'tool'` as a pause fiction.
+Slice 2 removed: `canExecute`, `preflight`, `interactive` tool config; pause fiction for
+confirm/permission/auth (`phase: 'gate'` + `stop.kind: 'gate'`). `ask_user` completes with
+`awaiting_user_input`. Still outstanding (slice 3): live `executeTool`, live `allowSteering`
+field, playground/composer cycle fiction, react rename.
 
 ## Ownership
 
@@ -452,5 +454,5 @@ slice 1 alone is the product.
 ## Relation to `kernel.md`
 
 Text mid-turn inject is stages (`onStage`); steer barriers are deleted.
-Composer / tools / live sections still describe shipping pause/`canExecute` until
-slices 2–3 rewrite them to this contract.
+Tool execute uses `preTool` + gate/deny/awaiting ([`stages.md`](stages.md) slice 2).
+Live `executeTool` / playground inbox remain slice 3.

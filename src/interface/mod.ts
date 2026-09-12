@@ -72,12 +72,20 @@ export {
   updateComposerPendingDraft,
   userDraftHasPayload,
 } from './pending.ts';
-export type { InterfaceTurnSession, PausedToolContext } from './session.ts';
+export type {
+  AwaitingToolContext,
+  GatedToolContext,
+  InterfaceTurnSession,
+  PausedToolContext,
+} from './session.ts';
 export {
+  abandonGatedToolSession,
   abandonPausedToolSession,
   applyTurnEventsToSession,
+  awaitingFromEvents,
   branchInterfaceTurnSession,
   emptyInterfaceTurnSession,
+  gatedToolFromEvents,
   pausedToolFromEvents,
 } from './session.ts';
 export { promotedToolIdsFromEvents, toolSnapshotFromEvents } from './tool-invoke.ts';

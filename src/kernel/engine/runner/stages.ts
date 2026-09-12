@@ -119,6 +119,15 @@ function appendInjects(
   return sanitized.length;
 }
 
+/** Apply stage inject messages onto turn history (shared with tool execute stages). */
+export function applyStageInjects(
+  state: StepExecutionState,
+  profile: Profile,
+  inject: TurnHistoryMessage[],
+): number {
+  return appendInjects(state, profile, inject);
+}
+
 /**
  * Emit a `stage` event, invoke `onStage`, apply returned affordances.
  * Stage events always emit. Inject requires `profileAllowsInject`.

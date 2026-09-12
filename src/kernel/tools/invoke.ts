@@ -53,14 +53,15 @@ async function* invokeTool(request: InvokeToolRequest): AsyncGenerator<TurnEvent
           failure,
         },
       };
-      yield { type: 'done', stop: { kind: 'tool' } };
+      yield { type: 'done', stop: { kind: 'completed' } };
       return;
     }
   }
 
-  let sawPause = false;
+  let sawGate = false;
   let sawError = false;
   try {
+    const handlers = request.onStage ? [request.onStage] : [];
     for await (const event of executeRegisteredTool({
       profile,
       name: request.name,
@@ -75,13 +76,21 @@ async function* invokeTool(request: InvokeToolRequest): AsyncGenerator<TurnEvent
         host: request.host,
       },
       snapshot,
+      stages: {
+        handlers,
+        step: 1,
+        history: () => [],
+        injectAllowed: false,
+        host: request.host,
+        signal: request.signal,
+      },
     })) {
       yield event;
       if (event.type !== 'tool') {
         continue;
       }
-      if (event.tool?.phase === 'pause') {
-        sawPause = true;
+      if (event.tool?.phase === 'gate') {
+        sawGate = true;
       }
       if (event.tool?.phase === 'error') {
         sawError = true;
@@ -91,8 +100,12 @@ async function* invokeTool(request: InvokeToolRequest): AsyncGenerator<TurnEvent
     yield toErrorEvent(err);
     sawError = true;
   }
-  const stopKind = sawError || sawPause ? 'tool' : 'completed';
-  yield { type: 'done', stop: { kind: stopKind } };
+  const stopKind = sawGate ? 'gate' : sawError ? 'completed' : 'completed';
+  yield {
+    type: 'done',
+    stop: { kind: stopKind },
+    ...(sawGate ? { tools: snapshot } : {}),
+  };
 }
 
 export { invokeTool };

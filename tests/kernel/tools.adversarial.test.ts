@@ -241,7 +241,7 @@ Deno.test('adversarial/runTurn: first tool error does not block second tool', as
   assertEquals(lastTool(events, 'stub_tool')?.phase, 'complete');
 });
 
-Deno.test('adversarial/runTurn: pause on one tool does not skip siblings in batch', async () => {
+Deno.test('adversarial/runTurn: gate on one tool does not start later siblings in batch', async () => {
   flashProfile('batch_pause_probe', 4, { allow: ['always_confirm_tool', 'stub_tool'] });
   const provider: ModelProvider = {
     async *complete() {
@@ -257,9 +257,9 @@ Deno.test('adversarial/runTurn: pause on one tool does not skip siblings in batc
   const events = await collect(
     runTurn({ profile: 'batch_pause_probe', input: { text: 'x' } }, provider),
   );
-  assertEquals(lastTool(events, 'always_confirm_tool')?.phase, 'pause');
-  assertEquals(lastTool(events, 'stub_tool')?.phase, 'complete');
-  assertEquals(events.at(-1)?.stop?.kind, 'tool');
+  assertEquals(lastTool(events, 'always_confirm_tool')?.phase, 'gate');
+  assertEquals(lastTool(events, 'stub_tool'), undefined);
+  assertEquals(events.findLast((e) => e.type === 'done')?.stop?.kind, 'gate');
 });
 
 Deno.test('adversarial/runTurn: maxSteps caps provider rounds not tools per round', async () => {
@@ -385,11 +385,11 @@ Deno.test('adversarial/handler: abort signal during execution', async () => {
   );
 });
 
-Deno.test('adversarial/preflight: failure object not pause', async () => {
+Deno.test('adversarial/preTool: deny object not gate', async () => {
   registerTool({
     type: 'function',
     name: 'preflight_fail_probe',
-    description: 'Preflight returns hard failure',
+    description: 'preTool returns hard deny',
     category: 'test',
     access: 'read-write',
     paths: ['*'],
@@ -397,7 +397,7 @@ Deno.test('adversarial/preflight: failure object not pause', async () => {
     permission: 'auto',
     input: z.object({}),
     output: z.object({ finding: z.string() }),
-    preflight: () => ({ code: 'not_authorized', message: 'blocked by policy' }),
+    preTool: () => ({ deny: { code: 'not_authorized', message: 'blocked by policy' } }),
     handler: () => ({ finding: 'should not run' }),
   });
   flashProfile('preflight_fail_bot', 1, { allow: ['preflight_fail_probe'] });
@@ -598,7 +598,7 @@ Deno.test('adversarial/resume: granted bypasses always_confirm but not session_c
     input: { id: 'x' },
     resume: { granted: true },
   });
-  assertEquals(lastTool(deleteEv, 'delete_resource')?.phase, 'pause');
+  assertEquals(lastTool(deleteEv, 'delete_resource')?.phase, 'gate');
 });
 
 Deno.test('adversarial/invoke: promote failure attributes to host target tool', async () => {

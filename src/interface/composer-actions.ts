@@ -6,26 +6,26 @@
  * - idle + payload → send (menu: stash)
  * - streaming + empty → stop
  * - streaming + payload → queue (menu: queue, steer?, send_now, stash)
- * - paused + empty → none (tool pause is still the same run; no abort stream)
- * - paused + payload → queue (menu: queue, send_now, stash — no steer; runner idle)
+ * - gated/paused + empty → none (pre_tool gate suspension; no abort stream)
+ * - gated/paused + payload → queue (menu: queue, send_now, stash — no steer)
  *
- * Tool pause does **not** drain the queue. Enter matches primary (queue while
- * streaming/paused with payload). No keyboard shortcuts in this contract.
+ * Tool gate does **not** drain the queue. Enter matches primary (queue while
+ * streaming/gated with payload). No keyboard shortcuts in this contract.
  *
  * @module
  */
 
 import type { ComposerPendingKind } from './pending.ts';
 
-/** Host turn phase for composer affordances. */
-export type ComposerRunPhase = 'idle' | 'streaming' | 'paused';
+/** Host turn phase for composer affordances. Prefer `'gated'`; `'paused'` is a legacy alias. */
+export type ComposerRunPhase = 'idle' | 'streaming' | 'gated' | 'paused';
 
 /** Primary button / Enter target. */
 export type ComposerPrimaryAction = 'send' | 'stop' | 'queue' | 'none';
 
 /**
  * Split-menu / long-press actions. `send_now` is abort+send while streaming, or
- * abandon the tool pause (no model continue) + send while paused; not a pending kind.
+ * abandon the tool gate (no model continue) + send while gated; not a pending kind.
  */
 export type ComposerMenuAction = ComposerPendingKind | 'send_now';
 
@@ -49,7 +49,7 @@ function resolveComposerPrimary(ctx: ComposerActionContext): ComposerPrimaryActi
     if (!ctx.hasPayload) return canStop ? 'stop' : 'none';
     return 'queue';
   }
-  // paused — still same run; queue only, no stop stream
+  // gated/paused — still same run; queue only, no stop stream
   return ctx.hasPayload ? 'queue' : 'none';
 }
 
@@ -71,7 +71,7 @@ function resolveComposerMenuActions(ctx: ComposerActionContext): ComposerMenuAct
     return actions;
   }
 
-  // paused: no steer (tool suspension — not an inject stage); send_now = host ends wait + send
+  // gated/paused: no steer (not an inject stage); send_now = host ends wait + send
   return ['queue', 'send_now', 'stash'];
 }
 

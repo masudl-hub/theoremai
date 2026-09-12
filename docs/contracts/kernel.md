@@ -156,8 +156,8 @@ AbortSignal / stage `abort` end with cancelled `done` then `post_turn`.
 6. **Provider stream** — `provider.complete` yields partial events; runner may
    gate thoughts/media per `outputs.streaming`.
 7. **Tool loop** — while under `maxSteps`, tool calls execute via `executeRegisteredTool`
-   (shared with `invokeTool`), threading host `credentials` for authenticated HTTP/MCP tools and the opaque `host` context slot; results feed the next step. After each
-   settled tool, `post_tool` may inject. `generation.transport` selects
+   (shared with `invokeTool`), threading host `credentials` for authenticated HTTP/MCP tools and the opaque `host` context slot; `pre_tool` / `post_tool` stages + `preTool` run on that path. After each
+   settled tool, `post_tool` may inject. Gate (`stop.kind: 'gate'`) suspends the batch. `generation.transport` selects
    Interactions continuation (`previous_interaction_id` + `function_result` steps) vs
    OpenAI-compat tool-call history. Server-side `codeExecution` does not consume a runner step.
 8. **`before_end`** — stage before egress/validation; inject re-enters the step
@@ -194,7 +194,7 @@ different transport than the primary turn.
 | --- | --- |
 | `thought` | Model reasoning stream (may be gated) |
 | `text` | User-visible assistant text |
-| `tool` | Tool call (`phase`: `running` / `progress` / `complete` / `pause` / `error` / `cancel`, …) |
+| `tool` | Tool call (`phase`: `running` / `progress` / `complete` / `gate` / `error` / `cancel`, …; `pause` deprecated) |
 | `structured` | Parsed JSON object when schema enforced |
 | `media` | Generated image/audio bytes + mime |
 | `grounding` | Search/maps grounding metadata (classic `grounding_metadata` and Interactions tool results such as `google_search_result.search_suggestions`, `google_maps_result.result[].places`, and `place_citation` annotations). Normalized to `sources` plus classic `chunks[].maps` (`title` / `uri` / `placeId`) |
@@ -259,8 +259,8 @@ pause `input`, `TraceRecord`, or `ProviderCompleteRequest`.
 | --- | --- |
 | `TurnRequest.host?: unknown` | `ToolContext.host` for every tool the turn executes; `ToolLoadContext.host` for `tools.t1Policy` |
 | `InvokeToolRequest.host?: unknown` | Same, for a host-initiated `invokeTool` |
-| `InvokeToolRequest.onStage?: StageHandler` | Target: optional `pre_tool` / `post_tool` only ([`stages.md`](stages.md)); types frozen, execute cutover not shipping |
-| `ToolContext.host?: unknown` | Read by `handler`, `preflight`, `canExecute` |
+| `InvokeToolRequest.onStage?: StageHandler` | Optional `pre_tool` / `post_tool` only ([`stages.md`](stages.md)) |
+| `ToolContext.host?: unknown` | Read by `handler`, `preTool` |
 | `ToolLoadContext.host?: unknown` | Read by `tools.t1Policy` |
 
 `SessionRequest` has no host slot today. Target stages attach `SessionRequest.onStage`
@@ -308,13 +308,13 @@ runTurn({
   input: { text: '...' },
 }, provider);
 
-// Host resume (interactive, confirmation, permission) — pass turn snapshot from tool-pause `done.tools`
-invokeTool({ profile, name: 'ask_user', input: {...}, resume: { value: 'yes' }, snapshot, turnInput });
+// Host resume for pre_tool gates (permission / confirm / auth) — pass snapshot from gate `done.tools`
 invokeTool({ profile, name: 'risky_tool', input: {...}, resume: { granted: true }, snapshot, turnInput });
+// ask_user completes with awaiting_user_input; answers are a new user turn (not resume on same call_id)
 // T2 resume after loader: include `promoted: ['record_lookup']` (or rely on snapshot.visible when emitted on `done`)
 invokeTool({ profile, name: 'record_lookup', input: {...}, resume: { value: true }, snapshot, promoted: ['record_lookup'], turnInput });
 
-// Preflight returning `kind: 'confirmation'` pauses once; `resume.granted: true` skips preflight on the next invoke (same as `always_confirm` permission).
+// Tool `preTool` returning `confirm` gates once; `resume.granted: true` skips preTool on the next invoke (same as `always_confirm` permission).
 
 // Host direct invoke (command palette)
 invokeTool({ profile, name: 'lookup_order', input: {...} });
@@ -389,7 +389,7 @@ Live is a **session** contract (`runSession`), not a turn contract (`runTurn`). 
 A `host` profile is the explicit tool ceiling for host-driven execution — MCP
 servers, web UIs, schedulers — and never runs a model. `invokeTool` under a
 `host` profile executes any tool in `tools.allow` with no visibility or loading
-tiers and no path gating; `preflight`, `canExecute`, permission pauses, and the
+tiers and no path gating; `preTool`, permission/auth **gates**, and the
 tool-result guardrails (`resolveGuardrailPolicy(profile.guardrails)`) apply
 unchanged.
 
@@ -708,11 +708,13 @@ Headless contract for stash / queue / steer (Seance-aligned). Kernel owns stages
 | `steer` | Inject at next inject-capable stage via host `onStage` (same run — `docs/contracts/stages.md`) |
 | `send_now` | Immediate abort + send (not a pending kind) |
 
-Primary matrix: idle+payload → Send; streaming+empty → Stop; streaming/paused+payload → Queue.
+Primary matrix: idle+payload → Send; streaming+empty → Stop; streaming/gated+payload → Queue.
 Enter matches primary. Menu offers Queue / Steer / Send now / Stash as applicable.
 Undelivered steers convert to the front of the queue when the run ends.
-Tool pause does not drain the queue and does not offer Steer (not an inject stage).
-Send now while paused uses `abandonPausedToolSession` (cancel wait, no model continue) then starts a new user turn.
+Tool **gate** does not drain the queue and does not offer Steer (not an inject stage).
+Send now while gated uses `abandonGatedToolSession` (alias `abandonPausedToolSession`)
+then starts a new user turn. Awaiting completions (`ask_user`) are not composer
+`gated` — the turn may already be idle; use `awaitingFromEvents`.
 
 ```ts
 import { interfaceFromProfile, foldTurnEvents, streamThoughtsEnabled } from '@theorum/core/interface';
@@ -740,8 +742,8 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
 | Auth (stateless OAuth/PKCE) | `createOAuthPkceFlow`, `exchangeOAuthPkce`, `refreshOAuthToken`, `discoverResourceMetadata`, `discoverAuthServerMetadata`, `validateIssuer`, `generateCodeVerifier`, `computeCodeChallenge`, `sealStatePayload`, `unsealStatePayload` |
 | Structured | `getStructured`, `registerStructured` |
 | Stop / resume | `ProfileTurnBehaviourSpec`, `ProfileTurnResumptionSpec`, `TurnContinueFrom`, `TurnStop`, `TurnStopKind`, `ContinueStopKind`, `CONTINUE_STOP_KINDS`, `AUTO_CONTINUE_DELAY_MS`, `CONTINUE_INSTRUCTION`, `DEFAULT_ALLOW_CONTINUE`, `DEFAULT_AUTO_CONTINUE`, `GenerationStopError`, `isContinueStopKind`, `isGenerationStopError`, `isResumeableStop`, `isUserCancelledStop`, `profileAllowsSteering`, `profileAllowsInject`, `profileTurnResumption`, `shouldAutoContinue`, `turnStopFromClientStreamEnd`, `turnStopFromInteractionStatus`, `turnStopFromOpenAiFinishReason` |
-| Stages (target foundation) | `TURN_STAGES`, `TURN_INJECT_STAGES`, `STAGE_AFFORDANCES`, `STAGE_AFFORDANCE_MATRIX`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `applyStageResult`, `parseAwaitingUserInput`, `parseToolGate`, `isTurnStage`, `isTurnInjectStage`, `isToolGateKind`, `isAwaitingUserInput`, `stageAllowsAffordance`, `stageEventFields`, `profileAllowsInject`, `StageAffordance`, `StageContext`, `StageResult`, `StageHandler`, `StageApplyInput`, `StageApplyOutput`, `StageApplyWarning`, `StageApplyWarningCode`, `StageEventExtra`, `AwaitingUserInput`, `ToolGate` — see [`stages.md`](stages.md). Text `runTurn` stage spine landed; tool `pre_tool` / live still outstanding. |
-| Interface (headless) | `interfaceFrom`, `interfaceFromProfile`, `interfaceFromProjected`, `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime`, `sanitizeUserDraft`, `prepareUserTurn`, `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `resetBlockIds`, `streamThoughtsEnabled`, `collectPromotedMediaFromToolOutput`, `promotedMediaFromUrlString`, `PromotedToolMedia`, `defaultInterfaceEffort`, `defaultInterfaceModel`, `effortSelectEnabled`, `generationSelectEnabled`, `interfaceEffortOptions`, `interfaceModelOptions`, `modelSelectEnabled`, `appendAssistantEventsToHistory`, `appendToolDenialToHistory`, `appendToolExchangeToHistory`, `appendUserDraftToHistory`, `historyFromTranscriptBlocks`, `applyTurnEventsToSession`, `branchInterfaceTurnSession`, `emptyInterfaceTurnSession`, `abandonPausedToolSession`, `pausedToolFromEvents`, `promotedToolIdsFromEvents`, `toolSnapshotFromEvents`, `COMPOSER_PENDING_KINDS`, `COMPOSER_MENU_ACTION_DESCRIPTIONS`, `COMPOSER_MENU_ACTION_LABELS`, `COMPOSER_PRIMARY_LABELS`, `cloneUserTurnDraft`, `composerPendingPreview`, `consumeNextComposerQueue`, `consumeNextComposerSteer`, `convertSteersToFrontQueued`, `createComposerPendingMessage`, `moveComposerPendingWithinKind`, `orderComposerPendingMessages`, `promoteComposerPendingKind`, `removeComposerPendingMessage`, `resolveComposerMenuActions`, `resolveComposerPrimary`, `updateComposerPendingDraft`, `userDraftHasPayload`, `userDraftToSteerInject`, `AttachmentValidationCode`, `AttachmentValidationIssue`, `AttachmentValidationResult`, `ComposerActionContext`, `ComposerMenuAction`, `ComposerPendingKind`, `ComposerPendingMessage`, `ComposerPrimaryAction`, `ComposerProfileInterface`, `ComposerRunPhase`, `CreateComposerPendingMessageArgs`, `FoldTurnEventsOptions`, `ImageProfileInterface`, `InterfaceEffortOption`, `InterfaceModelOption`, `LiveProfileInterface`, `LiveResolvedTools`, `PendingAttachment`, `PrepareUserTurnResult`, `ProfileGuardrailsView`, `ProfileObservabilityView`, `ProfileInputsInterface`, `ProfileInterface`, `ProfileInterfaceSource`, `ResolvedTools`, `SpeechProfileInterface`, `TextProfileInterface`, `TranscriptBlock`, `TranscriptBlockKind`, `UserTurnDraft`, `UserTurnHistoryMedia`, `InterfaceTurnSession`, `PausedToolContext` |
+| Stages (target foundation) | `TURN_STAGES`, `TURN_INJECT_STAGES`, `STAGE_AFFORDANCES`, `STAGE_AFFORDANCE_MATRIX`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `applyStageResult`, `parseAwaitingUserInput`, `parseToolGate`, `isTurnStage`, `isTurnInjectStage`, `isToolGateKind`, `isAwaitingUserInput`, `stageAllowsAffordance`, `stageEventFields`, `profileAllowsInject`, `StageAffordance`, `StageContext`, `StageResult`, `StageHandler`, `StageApplyInput`, `StageApplyOutput`, `StageApplyWarning`, `StageApplyWarningCode`, `StageEventExtra`, `AwaitingUserInput`, `ToolGate` — see [`stages.md`](stages.md). Text `runTurn` + tool execute cutover landed; live still outstanding. |
+| Interface (headless) | `interfaceFrom`, `interfaceFromProfile`, `interfaceFromProjected`, `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime`, `sanitizeUserDraft`, `prepareUserTurn`, `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `resetBlockIds`, `streamThoughtsEnabled`, `collectPromotedMediaFromToolOutput`, `promotedMediaFromUrlString`, `PromotedToolMedia`, `defaultInterfaceEffort`, `defaultInterfaceModel`, `effortSelectEnabled`, `generationSelectEnabled`, `interfaceEffortOptions`, `interfaceModelOptions`, `modelSelectEnabled`, `appendAssistantEventsToHistory`, `appendToolDenialToHistory`, `appendToolExchangeToHistory`, `appendUserDraftToHistory`, `historyFromTranscriptBlocks`, `applyTurnEventsToSession`, `branchInterfaceTurnSession`, `emptyInterfaceTurnSession`, `abandonGatedToolSession`, `abandonPausedToolSession`, `gatedToolFromEvents`, `pausedToolFromEvents`, `awaitingFromEvents`, `promotedToolIdsFromEvents`, `toolSnapshotFromEvents`, `COMPOSER_PENDING_KINDS`, `COMPOSER_MENU_ACTION_DESCRIPTIONS`, `COMPOSER_MENU_ACTION_LABELS`, `COMPOSER_PRIMARY_LABELS`, `cloneUserTurnDraft`, `composerPendingPreview`, `consumeNextComposerQueue`, `consumeNextComposerSteer`, `convertSteersToFrontQueued`, `createComposerPendingMessage`, `moveComposerPendingWithinKind`, `orderComposerPendingMessages`, `promoteComposerPendingKind`, `removeComposerPendingMessage`, `resolveComposerMenuActions`, `resolveComposerPrimary`, `updateComposerPendingDraft`, `userDraftHasPayload`, `userDraftToSteerInject`, `AttachmentValidationCode`, `AttachmentValidationIssue`, `AttachmentValidationResult`, `AwaitingToolContext`, `ComposerActionContext`, `ComposerMenuAction`, `ComposerPendingKind`, `ComposerPendingMessage`, `ComposerPrimaryAction`, `ComposerProfileInterface`, `ComposerRunPhase`, `CreateComposerPendingMessageArgs`, `FoldTurnEventsOptions`, `GatedToolContext`, `ImageProfileInterface`, `InterfaceEffortOption`, `InterfaceModelOption`, `LiveProfileInterface`, `LiveResolvedTools`, `PendingAttachment`, `PrepareUserTurnResult`, `ProfileGuardrailsView`, `ProfileObservabilityView`, `ProfileInputsInterface`, `ProfileInterface`, `ProfileInterfaceSource`, `ResolvedTools`, `SpeechProfileInterface`, `TextProfileInterface`, `TranscriptBlock`, `TranscriptBlockKind`, `UserTurnDraft`, `UserTurnHistoryMedia`, `InterfaceTurnSession`, `PausedToolContext` |
 | Attachments (kernel) | `maxBytesForMime`, `resolveMediaLimits`, `fileTooLargeMessage`, `tooManyFilesMessage`, `turnTooLargeMessage` |
 
 ```theorum-evidence

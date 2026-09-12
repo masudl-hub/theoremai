@@ -9,25 +9,24 @@ import {
 } from '../../src/interface/session.ts';
 import type { TurnEvent } from '../../src/kernel/types.ts';
 
-Deno.test('abandonPausedToolSession: clears pause and records cancelled tool', () => {
+Deno.test('abandonPausedToolSession: clears gate and records cancelled tool', () => {
   const events: TurnEvent[] = [
     { type: 'text', text: 'Let me check that.' },
     {
       type: 'tool',
       tool: {
         name: 'dangerous',
-        phase: 'pause',
+        phase: 'gate',
         callId: 'c1',
         arguments: { x: 1 },
-        pause: {
+        gate: {
           kind: 'permission',
           tool: 'dangerous',
-          input: { x: 1 },
           permission: 'always_confirm',
         },
       },
     },
-    { type: 'done', stop: { kind: 'tool' } },
+    { type: 'done', stop: { kind: 'gate' } },
   ];
 
   const before = {
@@ -38,7 +37,7 @@ Deno.test('abandonPausedToolSession: clears pause and records cancelled tool', (
       input: { x: 1 },
       callId: 'c1',
       arguments: { x: 1 },
-      pauseKind: 'permission' as const,
+      gateKind: 'permission' as const,
       permission: 'always_confirm' as const,
     },
     assistantEvents: events,

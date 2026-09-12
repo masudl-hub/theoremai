@@ -29,7 +29,7 @@ async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
   return out;
 }
 
-Deno.test('runTurn ends with stop kind tool when execution pauses', async () => {
+Deno.test('runTurn ends with stop kind gate when execution gates', async () => {
   registerProfile({
     type: 'text',
     identity: { handle: 'test', system: 'test' },
@@ -62,12 +62,13 @@ Deno.test('runTurn ends with stop kind tool when execution pauses', async () => 
   );
 
   assertEquals(
-    events.some((e) => e.tool?.phase === 'pause'),
+    events.some((e) => e.tool?.phase === 'gate'),
     true,
   );
-  assertEquals(events.at(-1)?.stop?.kind, 'tool');
-  assertEquals(events.at(-1)?.tools?.gated.includes('delete_resource'), true);
-  assertEquals(events.at(-1)?.tools?.visible.includes('delete_resource'), true);
+  const done = events.findLast((e) => e.type === 'done');
+  assertEquals(done?.stop?.kind, 'gate');
+  assertEquals(done?.tools?.gated.includes('delete_resource'), true);
+  assertEquals(done?.tools?.visible.includes('delete_resource'), true);
 });
 
 Deno.test('always_confirm ignores session permissions until resume.granted', async () => {
@@ -104,7 +105,7 @@ Deno.test('always_confirm ignores session permissions until resume.granted', asy
   );
   assertEquals(
     paused.findLast((e) => e.tool?.name === 'always_confirm_tool')?.tool?.phase,
-    'pause',
+    'gate',
   );
 
   const resumed = await invokeRegisteredTool({
@@ -182,7 +183,7 @@ Deno.test('provider tool call for unregistered name yields unknown_tool', async 
   assertEquals(toolEv?.tool?.failure?.code, 'unknown_tool');
 });
 
-Deno.test('preflight confirmation emits pause not error', async () => {
+Deno.test('preTool confirmation emits gate not error', async () => {
   registerProfile(
     defineProfile({
       type: 'text',
@@ -201,11 +202,11 @@ Deno.test('preflight confirmation emits pause not error', async () => {
     input: {},
   });
   const toolEv = events.findLast((e) => e.tool?.name === 'preflight_confirm_tool');
-  assertEquals(toolEv?.tool?.phase, 'pause');
-  assertEquals(toolEv?.tool?.pause?.kind, 'confirmation');
+  assertEquals(toolEv?.tool?.phase, 'gate');
+  assertEquals(toolEv?.tool?.gate?.kind, 'confirmation');
 });
 
-Deno.test('preflight confirmation resumes after granted', async () => {
+Deno.test('preTool confirmation resumes after granted', async () => {
   const events = await invokeRegisteredTool({
     profile: 'preflight_confirm_bot',
     name: 'preflight_confirm_tool',
@@ -409,12 +410,12 @@ Deno.test('formatToolResult sanitizes finding and includes data', () => {
   assertEquals(text.includes('"n":1'), true);
 });
 
-Deno.test('permission check runs before preflight', async () => {
-  let preflightRan = false;
+Deno.test('permission check runs before preTool', async () => {
+  let preToolRan = false;
   registerTool({
     type: 'function',
     name: 'permission_before_preflight_probe',
-    description: 'Permission before preflight probe',
+    description: 'Permission before preTool probe',
     category: 'test',
     access: 'read-write',
     paths: ['*'],
@@ -422,8 +423,8 @@ Deno.test('permission check runs before preflight', async () => {
     permission: 'session_consent',
     input: z.object({}),
     output: z.object({ finding: z.string() }),
-    preflight: () => {
-      preflightRan = true;
+    preTool: () => {
+      preToolRan = true;
     },
     handler: () => ({ finding: 'ran' }),
   });
@@ -444,10 +445,10 @@ Deno.test('permission check runs before preflight', async () => {
     name: 'permission_before_preflight_probe',
     input: {},
   });
-  assertEquals(preflightRan, false);
+  assertEquals(preToolRan, false);
   assertEquals(
     events.findLast((e) => e.tool?.name === 'permission_before_preflight_probe')?.tool?.phase,
-    'pause',
+    'gate',
   );
 });
 
@@ -891,74 +892,38 @@ Deno.test('failure codes surface on invokeTool path', async () => {
   );
 });
 
-Deno.test('permission granted alone does not resume interactive tools', async () => {
-  registerTool({
-    type: 'function',
-    name: 'interactive_resume_probe',
-    description: 'Interactive resume probe',
-    category: 'test',
-    access: 'read-only',
-    paths: ['*'],
-    loadTier: 'T0',
-    permission: 'auto',
-    input: z.object({ prompt: z.string() }),
-    output: z.object({ finding: z.string() }),
-    interactive: {
-      render: (input) => ({ kind: 'text', prompt: (input as { prompt: string }).prompt }),
-    },
-    handler: (_input, ctx) => ({ finding: String(ctx.resume?.value ?? 'missing') }),
-  });
+Deno.test('permission granted alone does not substitute ask_user answer', async () => {
   registerProfile(
     defineProfile({
       type: 'text',
       identity: { handle: 'test', system: 'test' },
-      id: 'interactive_resume_bot',
+      id: 'ask_user_resume_bot',
       ...geminiModels('gemini35FlashLite'),
       maxSteps: 1,
-      tools: { allow: ['interactive_resume_probe'] },
+      tools: { allow: ['ask_user'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
     }),
   );
-  const paused = await invokeRegisteredTool({
-    profile: 'interactive_resume_bot',
-    name: 'interactive_resume_probe',
-    input: { prompt: 'choose' },
+  const awaiting = await invokeRegisteredTool({
+    profile: 'ask_user_resume_bot',
+    name: 'ask_user',
+    input: { kind: 'text', prompt: 'choose' },
   });
-  assertEquals(
-    paused.findLast((e) => e.tool?.name === 'interactive_resume_probe')?.tool?.phase,
-    'pause',
-  );
+  const first = awaiting.findLast((e) => e.tool?.name === 'ask_user')?.tool;
+  assertEquals(first?.phase, 'complete');
+  assertEquals((first?.output as { status?: string })?.status, 'awaiting_user_input');
+  assertEquals(awaiting.at(-1)?.stop?.kind, 'completed');
 
   const fakeResume = await invokeRegisteredTool({
-    profile: 'interactive_resume_bot',
-    name: 'interactive_resume_probe',
-    input: { prompt: 'choose' },
+    profile: 'ask_user_resume_bot',
+    name: 'ask_user',
+    input: { kind: 'text', prompt: 'choose' },
     resume: { granted: true },
   });
-  assertEquals(
-    fakeResume.findLast((e) => e.tool?.name === 'interactive_resume_probe')?.tool?.phase,
-    'pause',
-  );
-
-  const realResume = await invokeRegisteredTool({
-    profile: 'interactive_resume_bot',
-    name: 'interactive_resume_probe',
-    input: { prompt: 'choose' },
-    resume: { value: 'picked' },
-  });
-  assertEquals(
-    realResume.findLast((e) => e.tool?.name === 'interactive_resume_probe')?.tool?.phase,
-    'complete',
-  );
-  assertEquals(
-    (
-      realResume.findLast((e) => e.tool?.name === 'interactive_resume_probe')?.tool?.output as {
-        finding?: string;
-      }
-    )?.finding,
-    'picked',
-  );
+  const second = fakeResume.findLast((e) => e.tool?.name === 'ask_user')?.tool;
+  assertEquals(second?.phase, 'complete');
+  assertEquals((second?.output as { status?: string })?.status, 'awaiting_user_input');
 });
 
 Deno.test('T2 tools are not visible until loader promotes them', () => {
@@ -1077,12 +1042,8 @@ function registerHostProbe(name: string, seen: Array<{ hook: string; host: unkno
     permission: 'auto',
     input: z.object({ q: z.string().optional() }),
     output: z.object({ finding: z.string() }),
-    canExecute: (_input, ctx: ToolContext) => {
-      seen.push({ hook: 'canExecute', host: ctx.host });
-      return true;
-    },
-    preflight: (_input, ctx: ToolContext) => {
-      seen.push({ hook: 'preflight', host: ctx.host });
+    preTool: (_input, ctx: ToolContext) => {
+      seen.push({ hook: 'preTool', host: ctx.host });
       return undefined;
     },
     handler: (_input, ctx: ToolContext) => {
@@ -1103,7 +1064,7 @@ function hostProbeProvider(name: string, delayMs = 0): ModelProvider {
   };
 }
 
-Deno.test('handler, preflight, canExecute and t1Policy observe the same host object for a turn', async () => {
+Deno.test('handler, preTool and t1Policy observe the same host object for a turn', async () => {
   const seen: Array<{ hook: string; host: unknown }> = [];
   registerHostProbe('host_ctx_probe', seen);
   registerProfile(
@@ -1133,7 +1094,7 @@ Deno.test('handler, preflight, canExecute and t1Policy observe the same host obj
   );
   assertEquals(
     seen.map((s) => s.hook),
-    ['t1Policy', 'canExecute', 'preflight', 'handler'],
+    ['t1Policy', 'preTool', 'handler'],
   );
   for (const entry of seen) {
     assertEquals(entry.host === host, true);
@@ -1178,8 +1139,8 @@ Deno.test("concurrent runTurn calls never observe each other's host", async () =
       ),
     ),
   ]);
-  assertEquals(seenA.length, 3);
-  assertEquals(seenB.length, 3);
+  assertEquals(seenA.length, 2);
+  assertEquals(seenB.length, 2);
   assertEquals(
     seenA.every((s) => s.host === hostA),
     true,
@@ -1190,7 +1151,7 @@ Deno.test("concurrent runTurn calls never observe each other's host", async () =
   );
 });
 
-Deno.test('invokeTool passes its own host to handler, preflight, canExecute and t1Policy', async () => {
+Deno.test('invokeTool passes its own host to handler, preTool and t1Policy', async () => {
   const seen: Array<{ hook: string; host: unknown }> = [];
   registerHostProbe('host_invoke_probe', seen);
   registerProfile(
@@ -1224,7 +1185,7 @@ Deno.test('invokeTool passes its own host to handler, preflight, canExecute and 
   );
   assertEquals(
     seen.map((s) => s.hook),
-    ['t1Policy', 'canExecute', 'preflight', 'handler'],
+    ['t1Policy', 'preTool', 'handler'],
   );
   assertEquals(
     seen.every((s) => s.host === host),
@@ -1232,7 +1193,7 @@ Deno.test('invokeTool passes its own host to handler, preflight, canExecute and 
   );
 });
 
-Deno.test('host never appears in TurnEvents, trace records, pauses, pause input, or provider requests', async () => {
+Deno.test('host never appears in TurnEvents, trace records, gates, gate input, or provider requests', async () => {
   const sentinel = `HOST_SENTINEL_${crypto.randomUUID()}`;
   const host = { sentinel, nested: { again: sentinel }, toString: () => sentinel };
   registerProfile(
@@ -1266,10 +1227,9 @@ Deno.test('host never appears in TurnEvents, trace records, pauses, pause input,
       memorySink(records),
     ),
   );
-  const pause = events.find((e) => e.tool?.phase === 'pause')?.tool?.pause;
-  assertEquals(pause?.kind, 'permission');
-  assertEquals(JSON.stringify(pause).includes(sentinel), false);
-  assertEquals(JSON.stringify(pause?.input).includes(sentinel), false);
+  const gate = events.find((e) => e.tool?.phase === 'gate')?.tool?.gate;
+  assertEquals(gate?.kind, 'permission');
+  assertEquals(JSON.stringify(gate).includes(sentinel), false);
   assertEquals(JSON.stringify(events).includes(sentinel), false);
   assertEquals(records.length, 1);
   assertEquals(JSON.stringify(records).includes(sentinel), false);
@@ -1330,10 +1290,10 @@ Deno.test('invokeTool under a host profile rejects tools outside allow', async (
   const ev = events.findLast((e) => e.tool?.name === 'record_lookup');
   assertEquals(ev?.tool?.phase, 'error');
   assertEquals(ev?.tool?.failure?.code, 'not_allowed');
-  assertEquals(events.at(-1)?.stop?.kind, 'tool');
+  assertEquals(events.at(-1)?.stop?.kind, 'completed');
 });
 
-Deno.test('invokeTool under a host profile runs preflight and honours its pause', async () => {
+Deno.test('invokeTool under a host profile runs preTool and honours its gate', async () => {
   registerProfile({
     type: 'host',
     id: 'host_invoke_preflight',
@@ -1344,9 +1304,9 @@ Deno.test('invokeTool under a host profile runs preflight and honours its pause'
     name: 'preflight_confirm_tool',
     input: {},
   });
-  const pause = paused.findLast((e) => e.tool?.name === 'preflight_confirm_tool');
-  assertEquals(pause?.tool?.phase, 'pause');
-  assertEquals(pause?.tool?.pause?.kind, 'confirmation');
+  const gated = paused.findLast((e) => e.tool?.name === 'preflight_confirm_tool');
+  assertEquals(gated?.tool?.phase, 'gate');
+  assertEquals(gated?.tool?.gate?.kind, 'confirmation');
 
   const resumed = await invokeRegisteredTool({
     profile: 'host_invoke_preflight',

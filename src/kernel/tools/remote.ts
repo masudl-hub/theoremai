@@ -6,7 +6,7 @@
  * - Network SSRF guardrail enforcement via `assertSafeUrl`
  * - Credential resolution (bearer, api_key, oauth2)
  * - Proactive OAuth token refresh with progress event emission
- * - ToolPause { kind: 'auth' } emission or model error reporting
+ * - ToolGate { kind: 'auth' } emission or model error reporting
  * - Streamable HTTP MCP JSON-RPC protocol (`tools/call`) per 2026-07-28 spec
  *
  * @module
@@ -30,7 +30,7 @@ import type {
   ModelToolResult,
   ToolContext,
   ToolFailure,
-  ToolPause,
+  ToolGate,
 } from './types.ts';
 
 export type AuthResolveResult = {
@@ -49,17 +49,15 @@ function authHeaderPair(
   return { [headerName]: `${headerPrefix}${value}` };
 }
 
-function buildAuthPause(
+function buildAuthGate(
   toolName: string,
   authConfig: HttpToolAuthConfig,
-  base: ToolCallBase,
   message: string,
   extras?: { issuer?: string; resource?: string },
-): ToolPause {
+): ToolGate {
   return {
     kind: 'auth',
     tool: toolName,
-    input: base.arguments,
     authChallenge: {
       slot: authConfig.slot,
       authType: authConfig.type,
@@ -80,9 +78,10 @@ function* yieldUnauthenticated(
   extras?: { issuer?: string; resource?: string },
 ): Generator<TurnEvent, AuthResolveResult> {
   if (policy === 'pause') {
+    // Policy name remains `pause` in schema; wire is honest `gate`.
     yield toolEvent(base, {
-      phase: 'pause',
-      pause: buildAuthPause(toolName, authConfig, base, message, extras),
+      phase: 'gate',
+      gate: buildAuthGate(toolName, authConfig, message, extras),
     });
     return { headers: {}, unauthenticated: true };
   }

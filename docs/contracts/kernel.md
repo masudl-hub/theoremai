@@ -138,7 +138,7 @@ finalize (inject may re-enter the step loop under `maxSteps`); terminal `done`;
 then `post_turn`. Inject requires `profileAllowsInject` (`allowSteering` on
 text). Invalid affordances yield a follow-up `stage` event with `stageWarnings`.
 AbortSignal / stage `abort` end with cancelled `done` then `post_turn`.
-`pre_tool` host/gate cutover is slice 2; live stages are slice 3.
+Live `onStage` / cycle stages are slice 3.
 
 1. **Resolve** — `resolveTurn` picks model, wire `apiId`, `transport`
    (`'interactions'` for Google Interactions, `'openAiCompat'` for OpenRouter/local),
@@ -339,7 +339,7 @@ when a server rejects an unsupported protocol version (JSON-RPC or HTTP error bo
 Both HTTP and MCP tools integrate with:
 - **Network Guardrails** (`guardrails.network`): SSRF protection blocking loopback and private subnets unless `allowPrivateNetworks: true` is configured. Owned by the guardrails contract — see `docs/contracts/guardrails.md#network`.
 - **Stateless OAuth 2.1 & PKCE** (`theorum/auth`): RFC 7636 PKCE S256, RFC 9728 discovery, RFC 8414 AS metadata, RFC 9207 `iss` mix-up defense, RFC 8707 resource indicators, and stateless HMAC-signed state envelopes.
-- **Unauthenticated Handling**: Pauses the turn via `ToolPause { kind: 'auth' }` or reports synthetic error findings to the model per `onUnauthenticated: 'pause' | 'report_to_model'`.
+- **Unauthenticated Handling**: Gates the turn via `ToolGate { kind: 'auth' }` (`tool.phase: 'gate'`, `stop.kind: 'gate'`) or reports synthetic error findings to the model per `onUnauthenticated: 'pause' | 'report_to_model'` (schema policy name remains `pause`).
 - **Token Rotation**: Proactively refreshes expiring OAuth tokens during turns, emitting progress events so the host can update its credential store.
 
 Catalog `conflictsWith` is an optional host-declared mutual exclusion on registered builtins; the Google preset does not set it.

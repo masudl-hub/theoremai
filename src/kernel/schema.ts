@@ -1018,11 +1018,12 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   ),
   'auth.onUnauthenticated': field(
     unionType(AUTH_UNAUTHENTICATED_POLICIES),
-    'Whether a missing/expired credential pauses the turn or reports to the model.',
+    'Whether a missing/expired credential gates the turn or reports to the model.',
     AUTH_UNAUTHENTICATED_POLICIES,
     {
-      pause: 'Emit ToolPause { kind: auth } and wait for host credential injection.',
-      report_to_model: 'Return a model-visible finding without pausing the turn.',
+      pause:
+        'Emit ToolGate { kind: auth } (tool.phase gate + stop.kind gate) and wait for host credential injection. Schema id remains `pause`.',
+      report_to_model: 'Return a model-visible finding without gating the turn.',
     },
   ),
   'auth.scopes': field('string[]', 'OAuth2 scopes requested during authorization.'),

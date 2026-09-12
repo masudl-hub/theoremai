@@ -2,6 +2,7 @@ import '../fixtures/test-host.ts';
 import { z } from 'zod';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { getProfile } from '../../src/kernel/registry/profiles.ts';
+import { AWAITING_USER_INPUT_STATUS } from '../../src/kernel/schema.ts';
 import {
   checkPermission,
   executeBuiltin,
@@ -9,6 +10,7 @@ import {
   extractLoadedIds,
   formatToolFailureForModel,
   formatToolResult,
+  isGateResumeGranted,
   isResumeContinuation,
   isToolPause,
   notLoadedMessage,
@@ -35,7 +37,6 @@ import {
   resolveModelBuiltinIds,
   wireForTool,
 } from '../../src/kernel/tools/resolve.ts';
-import { AWAITING_USER_INPUT_STATUS } from '../../src/kernel/schema.ts';
 import type {
   FunctionToolDef,
   ToolContext,
@@ -114,6 +115,12 @@ Deno.test('tools mutation helpers classify resume, pauses, and permissions preci
   assertEquals(isResumeContinuation({ granted: true }), true);
   assertEquals(isResumeContinuation({ value: 0 }), true);
   assertEquals(isResumeContinuation({ value: undefined, granted: false }), false);
+
+  assertEquals(isGateResumeGranted(undefined), false);
+  assertEquals(isGateResumeGranted({}), false);
+  assertEquals(isGateResumeGranted({ value: true }), false);
+  assertEquals(isGateResumeGranted({ granted: true }), true);
+  assertEquals(isGateResumeGranted({ granted: false, value: 1 }), false);
 
   assertEquals(isToolPause({ kind: 'confirmation' }), true);
   assertEquals(isToolPause({ kind: 'permission' }), true);

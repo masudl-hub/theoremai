@@ -98,7 +98,7 @@ function gatedToolFromEvents(events: readonly TurnEvent[]): GatedToolContext | n
     return {
       name: tool.name,
       input: tool.arguments ?? {},
-      callId: tool.id ?? tool.callId,
+      callId: tool.callId ?? tool.id,
       arguments: tool.arguments,
       gateKind: tool.gate.kind,
       permission: tool.gate.permission,
@@ -111,7 +111,7 @@ function gatedToolFromEvents(events: readonly TurnEvent[]): GatedToolContext | n
     return {
       name: tool.name,
       input: pause.input,
-      callId: tool.id ?? tool.callId,
+      callId: tool.callId ?? tool.id,
       arguments: tool.arguments,
       gateKind: kind,
       permission: pause.permission,
@@ -134,7 +134,7 @@ function awaitingFromEvents(events: readonly TurnEvent[]): AwaitingToolContext |
   if (!isAwaitingUserInput(output)) return null;
   return {
     name: complete?.tool?.name ?? '',
-    callId: complete?.tool?.id ?? complete?.tool?.callId,
+    callId: complete?.tool?.callId,
     arguments: complete?.tool?.arguments,
     kind: output.kind,
     prompt: output.prompt,

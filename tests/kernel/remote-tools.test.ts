@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
+import type { ToolExecuteSettlement } from '../../src/kernel/tools/execute.ts';
 import {
   executeRegisteredTool,
   parseMcpRpcResponse,
@@ -7,7 +8,6 @@ import {
   resetTools,
 } from '../../src/kernel/tools/mod.ts';
 import { buildHttpToolTarget } from '../../src/kernel/tools/remote.ts';
-import type { ToolExecuteSettlement } from '../../src/kernel/tools/execute.ts';
 import type { Profile } from '../../src/kernel/types.ts';
 
 const testProfile: Profile = {
@@ -25,7 +25,13 @@ const testProfile: Profile = {
     },
   },
   tools: {
-    allow: ['fetch_user_profile', 'linear_issue', 'private_internal_api', 'local_mcp'],
+    allow: [
+      'fetch_user_profile',
+      'linear_issue',
+      'private_internal_api',
+      'local_mcp',
+      'http_deny_probe',
+    ],
   },
   inputs: { text: true },
   outputs: {},
@@ -65,14 +71,81 @@ Deno.test('Declarative HTTP Tool gates when credentials are missing and policy i
     ctx: {},
   });
 
-  for await (const ev of exec) {
-    events.push(ev);
+  let settlement: ToolExecuteSettlement | undefined;
+  while (true) {
+    const next = await exec.next();
+    if (next.done) {
+      settlement = next.value;
+      break;
+    }
+    events.push(next.value);
   }
 
-  const gateEvent = events.find((e) => e.tool?.phase === 'gate');
+  const gateEvent = events.find((e) => e.type === 'tool' && e.tool?.phase === 'gate');
   assertEquals(Boolean(gateEvent), true);
-  assertEquals(gateEvent?.tool?.gate?.kind, 'auth');
-  assertEquals(gateEvent?.tool?.gate?.authChallenge?.slot, 'user_auth');
+  assertEquals(gateEvent?.type === 'tool' ? gateEvent.tool?.gate?.kind : undefined, 'auth');
+  assertEquals(
+    gateEvent?.type === 'tool' ? gateEvent.tool?.gate?.authChallenge?.slot : undefined,
+    'user_auth',
+  );
+  const preToolStage = events.find(
+    (e) => e.type === 'stage' && e.stage === 'pre_tool' && e.callNotStarted === true,
+  );
+  assertEquals(Boolean(preToolStage), true);
+  assertEquals(settlement?.gated?.kind, 'auth');
+  assertEquals(settlement?.callNotStarted, true);
+  assertEquals(settlement?.modelResult, undefined);
+});
+
+Deno.test('Declarative HTTP Tool preTool deny settles with modelResult + post_tool', async () => {
+  resetTools();
+  registerTool({
+    name: 'http_deny_probe',
+    description: 'HTTP tool denied by preTool',
+    type: 'http',
+    endpoint: 'https://api.example.com/x',
+    method: 'GET',
+    category: 'api',
+    access: 'read-only',
+    loadTier: 'T0',
+    permission: 'auto',
+    paths: ['*'],
+    input: z.object({}),
+    output: z.unknown(),
+    preTool: () => ({ deny: { code: 'not_authorized', message: 'http denied' } }),
+  });
+
+  const events = [];
+  const exec = executeRegisteredTool({
+    profile: testProfile,
+    name: 'http_deny_probe',
+    input: {},
+    callId: 'call_deny',
+    ctx: {},
+    stages: {
+      handlers: [],
+      step: 1,
+      history: () => [],
+      injectAllowed: false,
+    },
+  });
+
+  let settlement: ToolExecuteSettlement | undefined;
+  while (true) {
+    const next = await exec.next();
+    if (next.done) {
+      settlement = next.value;
+      break;
+    }
+    events.push(next.value);
+  }
+
+  assertEquals(settlement?.failure?.code, 'not_authorized');
+  assertEquals(settlement?.callNotStarted, true);
+  assertEquals(Boolean(settlement?.modelResult?.finding?.includes('not_authorized')), true);
+  const postTool = events.find((e) => e.type === 'stage' && e.stage === 'post_tool');
+  assertEquals(Boolean(postTool), true);
+  assertEquals(postTool?.type === 'stage' ? postTool.callNotStarted : undefined, true);
 });
 
 Deno.test('Declarative HTTP Tool reports error finding when policy is report_to_model', async () => {
@@ -117,7 +190,10 @@ Deno.test('Declarative HTTP Tool reports error finding when policy is report_to_
     }
   }
 
-  assertEquals(Boolean(settlement?.modelResult?.finding?.includes('Authentication required')), true);
+  assertEquals(
+    Boolean(settlement?.modelResult?.finding?.includes('Authentication required')),
+    true,
+  );
 });
 
 Deno.test('Declarative HTTP Tool triggers SSRF guardrail on private IP without permission', async () => {

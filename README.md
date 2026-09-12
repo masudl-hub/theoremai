@@ -276,8 +276,8 @@ tools: { allow: ['lookup_order', 'load_tools'] }
 
 runTurn({ profile, input: { text: '…' } }, provider);
 
-// Host resume (interactive, confirmation, permission)
-invokeTool({ profile, name: 'ask_user', input: { kind: 'confirm', prompt: 'Proceed?' }, resume: { value: true } });
+// Gate resume (permission / confirm / auth) — ask_user completes awaiting; answer is a new user turn
+invokeTool({ profile, name: 'risky_tool', input: {…}, resume: { granted: true }, snapshot, turnInput });
 ```
 
 The host owns handlers and authorization state. The kernel enforces the declared contract

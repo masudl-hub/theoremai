@@ -6,7 +6,12 @@ import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { runTurn } from '../../src/kernel/engine/runner.ts';
 import { defineProfile, getProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
 import { resolveTurn } from '../../src/kernel/registry/resolve.ts';
-import { formatToolResult, invokeTool, registerTool } from '../../src/kernel/tools/mod.ts';
+import {
+  executeRegisteredTool,
+  formatToolResult,
+  invokeTool,
+  registerTool,
+} from '../../src/kernel/tools/mod.ts';
 import {
   expandT1Policy,
   prepareTurnToolSnapshot,
@@ -103,10 +108,7 @@ Deno.test('always_confirm ignores session permissions until resume.granted', asy
       provider,
     ),
   );
-  assertEquals(
-    paused.findLast((e) => e.tool?.name === 'always_confirm_tool')?.tool?.phase,
-    'gate',
-  );
+  assertEquals(paused.findLast((e) => e.tool?.name === 'always_confirm_tool')?.tool?.phase, 'gate');
 
   const resumed = await invokeRegisteredTool({
     profile: 'always_confirm_probe',
@@ -216,6 +218,52 @@ Deno.test('preTool confirmation resumes after granted', async () => {
   const toolEv = events.findLast((e) => e.tool?.name === 'preflight_confirm_tool');
   assertEquals(toolEv?.tool?.phase, 'complete');
   assertEquals((toolEv?.tool?.output as { finding?: string })?.finding, 'preflight cleared');
+});
+
+Deno.test('preTool deny settles modelResult + post_tool callNotStarted', async () => {
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      id: 'pretool_deny_bot',
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
+      tools: { allow: ['denied_tool'] },
+      inputs: { text: true },
+      guardrails: { quota: { perDay: 10 } },
+    }),
+  );
+  const profile = getProfile('pretool_deny_bot');
+  assertEquals(Boolean(profile), true);
+  const events: TurnEvent[] = [];
+  const exec = executeRegisteredTool({
+    profile: profile as NonNullable<typeof profile>,
+    name: 'denied_tool',
+    input: {},
+    callId: 'deny_1',
+    ctx: {},
+    stages: {
+      handlers: [],
+      step: 1,
+      history: () => [],
+      injectAllowed: false,
+    },
+  });
+  let settlement: { callNotStarted?: boolean; failure?: { code: string }; modelResult?: unknown } =
+    {};
+  while (true) {
+    const next = await exec.next();
+    if (next.done) {
+      settlement = next.value;
+      break;
+    }
+    events.push(next.value);
+  }
+  assertEquals(settlement.callNotStarted, true);
+  assertEquals(settlement.failure?.code, 'not_authorized');
+  assertEquals(Boolean(settlement.modelResult), true);
+  const post = events.find((e) => e.type === 'stage' && e.stage === 'post_tool');
+  assertEquals(post?.type === 'stage' ? post.callNotStarted : undefined, true);
 });
 
 Deno.test('handler streaming is live through invoke and runTurn', async () => {

@@ -23,6 +23,8 @@ import {
   type ToolCallBase,
   toolEvent,
 } from './events.ts';
+import { checkPermission, isGateResumeGranted } from './permission.ts';
+import { gateEvent, runPreToolStages, type ToolStageSupport } from './stage-run.ts';
 import type {
   HttpToolAuthConfig,
   HttpToolDef,
@@ -33,10 +35,24 @@ import type {
   ToolGate,
 } from './types.ts';
 
+/** Discriminated settle for HTTP/MCP — never collapse gate and error. */
+export type RemoteToolOutcome =
+  | { kind: 'ok'; modelResult: ModelToolResult; outputRaw?: unknown }
+  | { kind: 'gated'; gate: ToolGate }
+  | { kind: 'aborted'; aborted: true | { reason?: string } }
+  | {
+      kind: 'failed';
+      failure: ToolFailure;
+      modelResult: ModelToolResult;
+      /** True when the HTTP/MCP body never ran. */
+      callNotStarted: boolean;
+    };
+
 export type AuthResolveResult = {
   headers: Record<string, string>;
   unauthenticated?: boolean;
   modelMessage?: string;
+  gate?: ToolGate;
 };
 
 function authHeaderPair(
@@ -69,21 +85,18 @@ function buildAuthGate(
   };
 }
 
-function* yieldUnauthenticated(
+function unauthenticatedResult(
   toolName: string,
   authConfig: HttpToolAuthConfig,
-  base: ToolCallBase,
   message: string,
   policy: string,
   extras?: { issuer?: string; resource?: string },
-): Generator<TurnEvent, AuthResolveResult> {
+): AuthResolveResult & { gate?: ToolGate } {
   if (policy === 'pause') {
     // Policy name remains `pause` in schema; wire is honest `gate`.
-    yield toolEvent(base, {
-      phase: 'gate',
-      gate: buildAuthGate(toolName, authConfig, message, extras),
-    });
-    return { headers: {}, unauthenticated: true };
+    // Do not emit gate here — caller uses emitGateSettlement (pre_tool + gate).
+    const gate = buildAuthGate(toolName, authConfig, message, extras);
+    return { headers: {}, unauthenticated: true, gate };
   }
   return { headers: {}, unauthenticated: true, modelMessage: message };
 }
@@ -145,14 +158,14 @@ async function* resolveOAuth2Credential(
       }
     } catch (err) {
       const message = `Failed to refresh OAuth token for '${toolName}' (slot: '${slot}'): ${err instanceof Error ? err.message : String(err)}`;
-      return yield* yieldUnauthenticated(toolName, authConfig, base, message, policy, {
+      return unauthenticatedResult(toolName, authConfig, message, policy, {
         issuer: credential.issuer,
         resource: credential.resource,
       });
     }
   } else if (isExpired && !credential.refreshToken) {
     const message = `OAuth token expired for '${toolName}' (slot: '${slot}') and no refresh token is available.`;
-    return yield* yieldUnauthenticated(toolName, authConfig, base, message, policy, {
+    return unauthenticatedResult(toolName, authConfig, message, policy, {
       issuer: credential.issuer,
       resource: credential.resource,
     });
@@ -185,7 +198,7 @@ export async function* resolveToolAuth(
 
   if (!credential) {
     const message = `Authentication required for '${toolName}' (auth slot: '${authConfig.slot}').`;
-    return yield* yieldUnauthenticated(toolName, authConfig, base, message, policy);
+    return unauthenticatedResult(toolName, authConfig, message, policy);
   }
 
   const staticResolved = resolveStaticCredential(credential, authConfig);
@@ -304,37 +317,165 @@ function modelResultFromOutput(data: unknown): ModelToolResult {
   };
 }
 
+function failureOutcome(
+  failure: ToolFailure,
+  callNotStarted: boolean,
+): Extract<RemoteToolOutcome, { kind: 'failed' }> {
+  return {
+    kind: 'failed',
+    failure,
+    modelResult: {
+      finding: `Tool error (${failure.code}): ${failure.message}`,
+      data: {
+        ok: false,
+        code: failure.code,
+        message: failure.message,
+        ...(failure.details !== undefined ? { details: failure.details } : {}),
+      },
+    },
+    callNotStarted,
+  };
+}
+
+/**
+ * After schema + permission + auth: tool `preTool` → host `pre_tool` → mutate re-parse.
+ * Returns the (possibly mutated) input, or a terminal RemoteToolOutcome.
+ */
+async function* runRemotePreBodyStages(args: {
+  tool: HttpToolDef | McpToolDef;
+  input: unknown;
+  ctx: ToolContext;
+  base: ToolCallBase;
+  stages?: ToolStageSupport;
+}): AsyncGenerator<TurnEvent, { ok: true; input: unknown } | RemoteToolOutcome> {
+  const { tool, ctx, base, stages } = args;
+  let input = args.input;
+
+  let toolPreTool: import('../stages.ts').StageResult | undefined;
+  if (tool.preTool && !isGateResumeGranted(ctx.resume)) {
+    toolPreTool = (await tool.preTool(input as never, ctx)) ?? undefined;
+  }
+
+  if (!stages && toolPreTool === undefined) {
+    return { ok: true, input };
+  }
+
+  const support: ToolStageSupport = stages ?? {
+    handlers: [],
+    step: ctx.turn?.step ?? 1,
+    history: () => [],
+    injectAllowed: false,
+    host: ctx.host,
+    signal: ctx.signal,
+  };
+
+  const pre = yield* runPreToolStages({
+    stages: support,
+    toolName: tool.name,
+    callId: base.callId ?? '',
+    input,
+    toolPreTool,
+  });
+
+  if (pre.kind === 'abort') {
+    return { kind: 'aborted', aborted: pre.abort };
+  }
+  if (pre.kind === 'gate') {
+    // runPreToolStages already emitted pre_tool callNotStarted for confirm.
+    yield gateEvent(base, pre.gate);
+    return { kind: 'gated', gate: pre.gate };
+  }
+  if (pre.kind === 'deny' || pre.kind === 'error') {
+    yield failureEvent(base, pre.failure);
+    return failureOutcome(pre.failure, true);
+  }
+
+  input = pre.input;
+  const reparsed = tool.input.safeParse(input);
+  if (!reparsed.success) {
+    const failure: ToolFailure = {
+      code: 'invalid_input',
+      message: 'Tool input validation failed after mutate',
+      details: reparsed.error.flatten(),
+    };
+    yield failureEvent(base, failure);
+    return failureOutcome(failure, true);
+  }
+  return { ok: true, input: reparsed.data };
+}
+
 /**
  * Executes a Declarative HTTP tool.
+ * Order: schema → permission → auth → preTool/host stages → body.
  */
 export async function* executeHttpTool(
   tool: HttpToolDef,
   rawInput: unknown,
   ctx: ToolContext,
   base: ToolCallBase,
-): AsyncGenerator<TurnEvent, ModelToolResult | undefined> {
+  stages?: ToolStageSupport,
+): AsyncGenerator<TurnEvent, RemoteToolOutcome> {
   const started = yield* startToolExecution(tool, rawInput, ctx, base);
   if (!started.ok) {
-    return undefined;
+    return failureOutcome({ code: 'invalid_input', message: 'Tool input validation failed' }, true);
   }
-  const input = started.data as Record<string, unknown>;
+  let input: unknown = started.data as Record<string, unknown>;
+
+  const permissionGate = checkPermission(
+    tool.name,
+    tool.permission,
+    ctx.sessionPermissions,
+    ctx.resume,
+  );
+  if (permissionGate) {
+    return { kind: 'gated', gate: permissionGate };
+  }
 
   const authRes = yield* resolveToolAuth(tool.name, tool.auth, ctx, base);
   if (authRes.unauthenticated) {
-    return authRes.modelMessage ? { finding: authRes.modelMessage } : undefined;
+    if (authRes.gate) {
+      return { kind: 'gated', gate: authRes.gate };
+    }
+    if (authRes.modelMessage) {
+      return {
+        kind: 'ok',
+        modelResult: { finding: authRes.modelMessage },
+        outputRaw: { unauthenticated: true, message: authRes.modelMessage },
+      };
+    }
+    return failureOutcome(
+      { code: 'not_authorized', message: 'Tool authentication required' },
+      true,
+    );
   }
+
+  const preBody = yield* runRemotePreBodyStages({ tool, input, ctx, base, stages });
+  if (!('ok' in preBody)) {
+    return preBody;
+  }
+  input = preBody.input as Record<string, unknown>;
 
   let target: HttpToolTarget;
   try {
-    target = buildHttpToolTarget(tool.endpoint, tool.method, input, tool.mapping);
+    target = buildHttpToolTarget(
+      tool.endpoint,
+      tool.method,
+      input as Record<string, unknown>,
+      tool.mapping,
+    );
   } catch (err) {
-    yield failureEvent(base, { code: 'invalid_input', message: messageOf(err) });
-    return undefined;
+    const failure: ToolFailure = { code: 'invalid_input', message: messageOf(err) };
+    yield failureEvent(base, failure);
+    return failureOutcome(failure, true);
   }
 
   const targetUrl = yield* guardToolTarget(target.url, ctx, base);
   if (!targetUrl) {
-    return undefined;
+    const failure: ToolFailure = {
+      code: 'network_blocked',
+      message: 'HTTP target blocked by network policy',
+    };
+    return failureOutcome(failure, true);
   }
 
   const headers: Record<string, string> = {
@@ -356,11 +497,12 @@ export async function* executeHttpTool(
 
     if (!response.ok) {
       const errText = await response.text();
-      yield failureEvent(base, {
+      const failure: ToolFailure = {
         code: `http_${response.status}`,
         message: `HTTP ${response.status} from ${targetUrl.hostname}: ${errText}`,
-      });
-      return undefined;
+      };
+      yield failureEvent(base, failure);
+      return failureOutcome(failure, false);
     }
 
     const text = await response.text();
@@ -371,22 +513,28 @@ export async function* executeHttpTool(
     );
     const checked = parseToolOutput(tool.output, responseData);
     if (!checked.success) {
-      yield failureEvent(base, {
+      const failure: ToolFailure = {
         code: 'invalid_output',
         message: 'HTTP response did not match tool output schema',
         details: checked.error.flatten(),
-      });
-      return undefined;
+      };
+      yield failureEvent(base, failure);
+      return failureOutcome(failure, false);
     }
 
     yield toolEvent(base, { phase: 'complete', output: checked.data });
-    return modelResultFromOutput(checked.data);
+    return {
+      kind: 'ok',
+      modelResult: modelResultFromOutput(checked.data),
+      outputRaw: checked.data,
+    };
   } catch (err) {
-    yield failureEvent(base, {
+    const failure: ToolFailure = {
       code: 'network_error',
       message: err instanceof Error ? err.message : String(err),
-    });
-    return undefined;
+    };
+    yield failureEvent(base, failure);
+    return failureOutcome(failure, false);
   }
 }
 
@@ -644,27 +792,62 @@ function interpretMcpRpc(
 
 /**
  * Executes a Remote MCP tool over Streamable HTTP (spec revision 2026-07-28).
+ * Order: schema → permission → auth → preTool/host stages → body.
  */
 export async function* executeMcpTool(
   tool: McpToolDef,
   rawInput: unknown,
   ctx: ToolContext,
   base: ToolCallBase,
-): AsyncGenerator<TurnEvent, ModelToolResult | undefined> {
+  stages?: ToolStageSupport,
+): AsyncGenerator<TurnEvent, RemoteToolOutcome> {
   const started = yield* startToolExecution(tool, rawInput, ctx, base);
   if (!started.ok) {
-    return undefined;
+    return failureOutcome({ code: 'invalid_input', message: 'Tool input validation failed' }, true);
+  }
+  let input: unknown = started.data;
+
+  const permissionGate = checkPermission(
+    tool.name,
+    tool.permission,
+    ctx.sessionPermissions,
+    ctx.resume,
+  );
+  if (permissionGate) {
+    return { kind: 'gated', gate: permissionGate };
   }
 
   const targetUrl = yield* guardToolTarget(tool.serverUrl, ctx, base);
   if (!targetUrl) {
-    return undefined;
+    return failureOutcome(
+      { code: 'network_blocked', message: 'MCP target blocked by network policy' },
+      true,
+    );
   }
 
   const authRes = yield* resolveToolAuth(tool.name, tool.auth, ctx, base);
   if (authRes.unauthenticated) {
-    return authRes.modelMessage ? { finding: authRes.modelMessage } : undefined;
+    if (authRes.gate) {
+      return { kind: 'gated', gate: authRes.gate };
+    }
+    if (authRes.modelMessage) {
+      return {
+        kind: 'ok',
+        modelResult: { finding: authRes.modelMessage },
+        outputRaw: { unauthenticated: true, message: authRes.modelMessage },
+      };
+    }
+    return failureOutcome(
+      { code: 'not_authorized', message: 'Tool authentication required' },
+      true,
+    );
   }
+
+  const preBody = yield* runRemotePreBodyStages({ tool, input, ctx, base, stages });
+  if (!('ok' in preBody)) {
+    return preBody;
+  }
+  input = preBody.input;
 
   try {
     const interpreted = interpretMcpRpc(
@@ -679,21 +862,26 @@ export async function* executeMcpTool(
         },
         base.callId ?? Date.now(),
         tool.mcpToolName,
-        started.data,
+        input,
         ctx.signal,
       ),
     );
     if (!interpreted.ok) {
       yield failureEvent(base, interpreted.failure);
-      return undefined;
+      return failureOutcome(interpreted.failure, false);
     }
     yield toolEvent(base, { phase: 'complete', output: interpreted.data });
-    return modelResultFromOutput(interpreted.data);
+    return {
+      kind: 'ok',
+      modelResult: modelResultFromOutput(interpreted.data),
+      outputRaw: interpreted.data,
+    };
   } catch (err) {
-    yield failureEvent(base, {
+    const failure: ToolFailure = {
       code: 'network_error',
       message: err instanceof Error ? err.message : String(err),
-    });
-    return undefined;
+    };
+    yield failureEvent(base, failure);
+    return failureOutcome(failure, false);
   }
 }

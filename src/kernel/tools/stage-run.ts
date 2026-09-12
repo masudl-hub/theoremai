@@ -144,13 +144,20 @@ export async function* runPreToolStages(args: {
     };
   }
   if (applied.confirm && !args.skipHostConfirm) {
+    const gate: ToolGate = {
+      kind: 'confirmation',
+      tool: toolName,
+      ...(applied.confirm.summary ? { summary: applied.confirm.summary } : {}),
+    };
+    yield stageEventFields('pre_tool', {
+      callId,
+      toolName,
+      callNotStarted: true,
+      gate,
+    });
     return {
       kind: 'gate',
-      gate: {
-        kind: 'confirmation',
-        tool: toolName,
-        ...(applied.confirm.summary ? { summary: applied.confirm.summary } : {}),
-      },
+      gate,
     };
   }
   if (applied.mutate) {
@@ -256,4 +263,22 @@ export function gateEvent(
       gate,
     },
   };
+}
+
+/**
+ * Emit observe `pre_tool` (callNotStarted) then the tool `gate` wire.
+ */
+export async function* emitGateSettlement(args: {
+  base: { name: string; callId?: string; arguments?: Record<string, unknown> };
+  gate: ToolGate;
+  callId: string;
+  toolName: string;
+}): AsyncGenerator<TurnEvent, void> {
+  yield stageEventFields('pre_tool', {
+    callId: args.callId,
+    toolName: args.toolName,
+    callNotStarted: true,
+    gate: args.gate,
+  });
+  yield gateEvent(args.base, args.gate);
 }

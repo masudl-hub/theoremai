@@ -4,13 +4,7 @@
  * @module
  */
 
-import {
-  fileTooLargeMessage,
-  maxBytesForMime,
-  resolveMediaLimits,
-  tooManyFilesMessage,
-  turnTooLargeMessage,
-} from '../kernel/registry/attachments.ts';
+import { maxBytesForMime, resolveMediaLimits } from '../kernel/registry/attachments.ts';
 import { mimeAllowed } from '../kernel/registry/catalog.ts';
 import type { ProfileInputsSpec, ProfileType } from '../kernel/types.ts';
 import type {
@@ -71,27 +65,21 @@ function toProfileInputsSpec(inputs: ProfileInputsInterface): ProfileInputsSpec 
 
 function issue(
   code: AttachmentValidationIssue['code'],
-  message: string,
+  params?: AttachmentValidationIssue['params'],
   fileName?: string,
 ): AttachmentValidationIssue {
-  return { code, message, fileName };
+  return { code, params, fileName };
 }
 
 function validateMime(
   accept: string[],
   files: PendingAttachment[],
-  channelLabel: 'attachment' | 'voice',
+  channel: 'attachment' | 'voice',
 ): AttachmentValidationIssue[] {
   const issues: AttachmentValidationIssue[] = [];
   for (const file of files) {
     if (!mimeAllowed(accept, file.mimeType)) {
-      issues.push(
-        issue(
-          'mime_not_allowed',
-          `${file.name}: MIME '${file.mimeType}' is not accepted for ${channelLabel} input.`,
-          file.name,
-        ),
-      );
+      issues.push(issue('mime_not_allowed', { mimeType: file.mimeType, channel }, file.name));
     }
   }
   return issues;
@@ -103,7 +91,7 @@ function validateLimits(
 ): AttachmentValidationIssue[] {
   const issues: AttachmentValidationIssue[] = [];
   if (files.length > limits.maxFiles) {
-    issues.push(issue('too_many_files', tooManyFilesMessage(limits.maxFiles)));
+    issues.push(issue('too_many_files', { maxFiles: limits.maxFiles }));
     return issues;
   }
 
@@ -111,13 +99,13 @@ function validateLimits(
   for (const file of files) {
     const maxAllowed = maxBytesForMime(file.mimeType, limits);
     if (file.sizeBytes > maxAllowed) {
-      issues.push(issue('file_too_large', fileTooLargeMessage(maxAllowed), file.name));
+      issues.push(issue('file_too_large', { maxBytes: maxAllowed }, file.name));
     }
     total += file.sizeBytes;
   }
 
   if (total > limits.maxTurnBytes) {
-    issues.push(issue('turn_too_large', turnTooLargeMessage(limits.maxTurnBytes)));
+    issues.push(issue('turn_too_large', { maxTurnBytes: limits.maxTurnBytes }));
   }
 
   return issues;
@@ -137,13 +125,13 @@ function validateProfileInputs(
   if (attachments.length > 0 && !inputs.attachments) {
     return {
       ok: false,
-      issues: [issue('mime_not_allowed', 'This profile does not accept file attachments.')],
+      issues: [issue('attachments_not_accepted', { channel: 'attachment' })],
     };
   }
   if (voice.length > 0 && !inputs.voice) {
     return {
       ok: false,
-      issues: [issue('mime_not_allowed', 'This profile does not accept voice input.')],
+      issues: [issue('voice_not_accepted', { channel: 'voice' })],
     };
   }
 
@@ -159,12 +147,7 @@ function validateProfileInputs(
 
   const limits = resolveMediaLimits(spec);
   if (!limits) {
-    issues.push(
-      issue(
-        'limits_unconfigured',
-        'This profile accepts media but does not define maxFiles, maxBytes, and maxTurnBytes.',
-      ),
-    );
+    issues.push(issue('limits_unconfigured'));
     return { ok: false, issues };
   }
 

@@ -9,21 +9,22 @@
 import { throwIfAborted } from '../../../guardrails/error.ts';
 import { detectionForTrust, resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import { sanitizeHistory } from '../../../guardrails/sanitize.ts';
+import type { TurnStage } from '../../schema.ts';
 import {
   applyStageResult,
+  buildStageContext,
   type StageApplyWarning,
-  type StageContext,
+  type StageCallBag,
   type StageHandler,
-  type StageResult,
   stageEventFields,
-  type TurnStage,
 } from '../../stages.ts';
 import { profileAllowsInject } from '../../stop.ts';
-import type { LiveProfile, TurnEvent, TurnHistoryMessage, TurnStop } from '../../types.ts';
+import type { LiveProfile, TurnEvent, TurnHistoryMessage } from '../../types.ts';
+import { invokeStageHandler } from '../stage-invoke.ts';
 
 export type LiveCycleState = 'idle' | 'open';
 
-export interface ApplyLiveStageArgs {
+export interface ApplyLiveStageArgs extends StageCallBag {
   profile: LiveProfile;
   stage: TurnStage;
   step: number;
@@ -31,16 +32,6 @@ export interface ApplyLiveStageArgs {
   onStage?: StageHandler;
   signal?: AbortSignal;
   host?: unknown;
-  callId?: string;
-  tool?: string;
-  input?: unknown;
-  callNotStarted?: boolean;
-  outputRaw?: unknown;
-  outputModel?: StageContext['outputModel'];
-  failure?: StageContext['failure'];
-  awaiting?: boolean;
-  stop?: TurnStop;
-  gate?: StageContext['gate'];
 }
 
 export interface ApplyLiveStageResult {
@@ -91,7 +82,7 @@ export async function* applyLiveStage(
   const baseEmpty: ApplyLiveStageResult = { injectTexts: [], warnings: [] };
   if (!args.onStage) return baseEmpty;
 
-  const ctx: StageContext = {
+  const ctx = buildStageContext({
     stage: args.stage,
     step: args.step,
     history: args.history,
@@ -106,16 +97,9 @@ export async function* applyLiveStage(
     awaiting: args.awaiting,
     stop: args.stop,
     gate: args.gate,
-  };
+  });
 
-  let raw: StageResult | undefined;
-  try {
-    raw = (await args.onStage(ctx)) ?? undefined;
-  } catch (err) {
-    throwIfAborted(args.signal);
-    throw err;
-  }
-  throwIfAborted(args.signal);
+  const raw = await invokeStageHandler(args.onStage, ctx, args.signal);
 
   const applied = applyStageResult({
     stage: args.stage,

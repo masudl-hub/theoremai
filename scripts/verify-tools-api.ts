@@ -442,26 +442,18 @@ function buildInvokeCases(): Case[] {
     }
   });
 
-  add(
-    'invoke/preTool auth throw',
-    { profile: p, name: 'throwing_auth_tool', input: {} },
-    (r) => {
-      const errEv = r.events.find((e) => e.type === 'error');
-      const detail = errEv?.errorInternal ?? errEv?.error ?? r.error ?? '';
-      if (!detail.includes('auth network failure')) {
-        return 'expected preTool throw as error event';
-      }
-    },
-  );
+  add('invoke/preTool auth throw', { profile: p, name: 'throwing_auth_tool', input: {} }, (r) => {
+    const errEv = r.events.find((e) => e.type === 'error');
+    const detail = errEv?.errorInternal ?? errEv?.error ?? r.error ?? '';
+    if (!detail.includes('auth network failure')) {
+      return 'expected preTool throw as error event';
+    }
+  });
 
-  add(
-    'invoke/always_confirm gate',
-    { profile: p, name: 'always_confirm_tool', input: {} },
-    (r) => {
-      if (lastTool(r.events, 'always_confirm_tool')?.phase !== 'gate') return 'expected gate';
-      if (stopKind(r.events) !== 'gate') return 'expected gate stop';
-    },
-  );
+  add('invoke/always_confirm gate', { profile: p, name: 'always_confirm_tool', input: {} }, (r) => {
+    if (lastTool(r.events, 'always_confirm_tool')?.phase !== 'gate') return 'expected gate';
+    if (stopKind(r.events) !== 'gate') return 'expected gate stop';
+  });
 
   add(
     'invoke/always_confirm resume',

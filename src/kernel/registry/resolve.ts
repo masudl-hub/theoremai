@@ -33,19 +33,15 @@ import {
   resolveInputParts,
 } from './ingress.ts';
 import { getProfile } from './profiles.ts';
+import { soleModelId } from './sole-model.ts';
 import { resolveTurnSystemPrompt } from './system-prompt.ts';
 import { providerUsesKeySlots, resolveKeySlot } from './vault.ts';
-
-function soleModelId(models: Record<ModelId, ModelBinding>): ModelId | undefined {
-  const ids = Object.keys(models);
-  return ids.length === 1 ? ids[0] : undefined;
-}
 
 /** Narrow to a model-binding profile; `host` never runs a model. */
 function requireModelProfile(profile: Profile, door: string): ModelProfile {
   if (profile.type === 'host') {
     throw new TheorumError(
-      `Profile ${profile.id}: type 'host' never runs a model — ${door} is not supported; execute tools with invokeTool`,
+      `Profile ${profile.id}: type 'host' never runs a model — ${door} is not supported; execute tools with invokeTool`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   return profile;
@@ -54,16 +50,16 @@ function requireModelProfile(profile: Profile, door: string): ModelProfile {
 function pickModel(profile: ModelProfile, requested?: string): ModelId {
   if (requested) {
     if (!profile.allowModelSelect) {
-      throw new TheorumError(`Profile ${profile.id} does not allow model selection`);
+      throw new TheorumError(`Profile ${profile.id} does not allow model selection`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
     if (!profile.models[requested]) {
-      throw new TheorumError(`Unknown model '${requested}' for ${profile.id}`);
+      throw new TheorumError(`Unknown model '${requested}' for ${profile.id}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
     return requested;
   }
   const defaultId = profile.defaultModel ?? soleModelId(profile.models);
   if (!defaultId || !profile.models[defaultId]) {
-    throw new TheorumError(`Profile ${profile.id} has no default model`);
+    throw new TheorumError(`Profile ${profile.id} has no default model`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return defaultId;
 }
@@ -77,7 +73,7 @@ function resolveEffort(
   const efforts = binding.efforts;
   if (!efforts || Object.keys(efforts).length === 0) {
     if (requested) {
-      throw new TheorumError(`Profile ${profile.id} model '${modelId}' has no selectable efforts`);
+      throw new TheorumError(`Profile ${profile.id} model '${modelId}' has no selectable efforts`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
     return undefined;
   }
@@ -85,19 +81,19 @@ function resolveEffort(
   if (requested) {
     if (!binding.allowEffortSelect) {
       throw new TheorumError(
-        `Profile ${profile.id} model '${modelId}' does not allow effort selection`,
+        `Profile ${profile.id} model '${modelId}' does not allow effort selection`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
     const level = efforts[requested];
     if (!level) {
-      throw new TheorumError(`Unknown effort '${requested}' for ${profile.id} model '${modelId}'`);
+      throw new TheorumError(`Unknown effort '${requested}' for ${profile.id} model '${modelId}'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
     return level;
   }
   const alias = binding.defaultEffort ?? (keys.length === 1 ? keys[0] : undefined);
   if (!alias) {
     throw new TheorumError(
-      `Profile ${profile.id} model '${modelId}' must set defaultEffort when more than one effort is declared`,
+      `Profile ${profile.id} model '${modelId}' must set defaultEffort when more than one effort is declared`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   return efforts[alias];
@@ -171,7 +167,7 @@ function assertTurnResumption(profile: ModelProfile, req: TurnRequest): void {
   }
   if (profile.type === 'live') {
     throw new TheorumError(
-      `Profile ${profile.id}: type 'live' uses live.sessionResumption, not turnBehaviour.resumption/continueFrom`,
+      `Profile ${profile.id}: type 'live' uses live.sessionResumption, not turnBehaviour.resumption/continueFrom`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   const policy = profileTurnResumption(profile);
@@ -182,15 +178,15 @@ function assertTurnResumption(profile: ModelProfile, req: TurnRequest): void {
   const attempt = req.continuation;
   if (attempt === undefined) {
     throw new TheorumError(
-      `Profile ${profile.id}: continueFrom requires TurnRequest.continuation when turnBehaviour.resumption.maxContinues is set`,
+      `Profile ${profile.id}: continueFrom requires TurnRequest.continuation when turnBehaviour.resumption.maxContinues is set`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   if (attempt < 1) {
-    throw new TheorumError(`Profile ${profile.id}: continuation must be >= 1`);
+    throw new TheorumError(`Profile ${profile.id}: continuation must be >= 1`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   if (attempt > max) {
     throw new TheorumError(
-      `Profile ${profile.id}: continuation ${attempt} exceeds turnBehaviour.resumption.maxContinues (${max})`,
+      `Profile ${profile.id}: continuation ${attempt} exceeds turnBehaviour.resumption.maxContinues (${max})`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 }
@@ -292,5 +288,4 @@ function projectProfile(id: Profile['id']): ProjectedProfile {
   return projectProfileObject(getProfile(id));
 }
 
-export { pickSystemRole } from './system-prompt.ts';
 export { pickModel, projectProfile, projectProfileObject, requireModelProfile, resolveTurn };

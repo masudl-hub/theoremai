@@ -181,9 +181,10 @@ Deno.test('image runTurn yields media then done', async () => {
   const events = await collect(runTurn({ profile: 'image', input: { text: 'fox' } }, fake));
   assertEquals(
     events.map((e) => e.type),
-    ['text', 'media', 'tokens', 'done'],
+    ['stage', 'text', 'media', 'stage', 'tokens', 'done', 'stage'],
   );
-  assertEquals(events[1]?.media?.mimeType, 'image/jpeg');
+  const media = events.find((e) => e.type === 'media');
+  assertEquals(media?.media?.mimeType, 'image/jpeg');
 });
 
 Deno.test('chat profile does not attach image response format', () => {

@@ -24,6 +24,7 @@ import {
   type LiveOutboundGateSession,
   processLiveOutboundBatch,
 } from '../../../guardrails/live-outbound-gate.ts';
+import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import { sanitizeTurnRequest } from '../../../guardrails/sanitize.ts';
 import { resolveObservabilityPolicy } from '../../../observability/resolve-policy.ts';
 import type { GeminiTransport } from '../../../providers/google/keys.ts';
@@ -39,10 +40,13 @@ import { providerCompleteRequest } from '../../registry/provider-request.ts';
 import { resolveTurn } from '../../registry/resolve.ts';
 import type { StageHandler } from '../../stages.ts';
 import { profileAllowsInject } from '../../stop.ts';
-import { executeRegisteredTool } from '../../tools/execute.ts';
+import {
+  executeRegisteredTool,
+  formatToolFailureForModel,
+  formatToolResult,
+} from '../../tools/execute.ts';
 import { cloneTurnToolSnapshot } from '../../tools/resolve.ts';
 import type {
-  InvokeToolResume,
   ModelToolResult,
   ToolFailure,
   ToolGate,
@@ -50,6 +54,8 @@ import type {
 } from '../../tools/types.ts';
 import type {
   InteractionPart,
+  LiveExecuteToolArgs,
+  LiveExecuteToolResult,
   LiveProfile,
   LiveSession,
   Profile,
@@ -62,7 +68,12 @@ import type {
 } from '../../types.ts';
 import { prepareLiveInboundText } from '../live-inbound.ts';
 import { assertLiveIngress } from '../live-ingress.ts';
-import { applyLiveStage, isEmptyLiveAudio, type LiveCycleState } from './stages.ts';
+import {
+  applyLiveStage,
+  isEmptyLiveAudio,
+  type LiveCycleState,
+  liveInjectTexts,
+} from './stages.ts';
 
 export type { LiveSession, SessionRequest };
 
@@ -75,7 +86,7 @@ export interface RunSessionOptions {
 function assertLiveProfile(profile: Profile): asserts profile is LiveProfile {
   if (profile.type !== 'live') {
     throw new TheorumError(
-      `runSession requires profile.type 'live' (got '${profile.type}' for ${profile.id})`,
+      `runSession requires profile.type 'live' (got '${profile.type}' for ${profile.id})`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 }
@@ -99,7 +110,7 @@ function sessionSnapshotWithinAllow(
   }
   if (outside.size > 0) {
     throw new TheorumError(
-      `Profile ${profile.id}: session snapshot declares tools outside tools.allow: ${[...outside].join(', ')}`,
+      `Profile ${profile.id}: session snapshot declares tools outside tools.allow: ${[...outside].join(', ')}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   return cloneTurnToolSnapshot(snapshot);
@@ -192,6 +203,50 @@ async function applyOutbound(
   return out;
 }
 
+function* drainPendingHostEvents(pendingHostEvents: TurnEvent[]): Generator<TurnEvent> {
+  while (pendingHostEvents.length > 0) {
+    const pending = pendingHostEvents.shift();
+    if (pending) yield pending;
+  }
+}
+
+function boundaryDoneEvents(
+  doneBatch: TurnEvent[],
+  turnPhase: string | undefined,
+  interrupted: boolean,
+): TurnEvent[] {
+  if (doneBatch.length > 0) return doneBatch;
+  if (turnPhase === 'abort' || interrupted) {
+    return [{ type: 'done', stop: { kind: 'interrupted' }, interrupted: true }];
+  }
+  return [{ type: 'done', stop: { kind: 'completed' } }];
+}
+
+/** Yield non-done batch events; return the done subset for boundary handling. */
+function* yieldLiveNonDoneEvents(
+  gated: TurnEvent[],
+  includeMatch: boolean | undefined,
+  withholdClose: string | undefined,
+  recordAssistantText: (text: string) => void,
+): Generator<TurnEvent, TurnEvent[]> {
+  const doneBatch = gated.filter((ev) => ev.type === 'done');
+  for (const ev of gated) {
+    if (ev.type === 'done') continue;
+    if (ev.type === 'error') {
+      yield {
+        ...ev,
+        error: publicError(ev.error ?? withholdClose ?? 'guardrail withheld'),
+      };
+      continue;
+    }
+    if (ev.type === 'text' && typeof ev.text === 'string') {
+      recordAssistantText(ev.text);
+    }
+    yield projectGuardrailTurnEvent(ev, includeMatch ?? false);
+  }
+  return doneBatch;
+}
+
 function buildLiveSession(args: {
   profile: LiveProfile;
   canary: string;
@@ -204,6 +259,8 @@ function buildLiveSession(args: {
   sessionPermissions?: string[];
   path?: string;
   snapshot: TurnToolSnapshot;
+  /** Seed for StageContext.history (cloned). */
+  historySeed?: TurnHistoryMessage[];
   /** Open cycle for initial setup input when present. */
   openInitialCycle: boolean;
 }): LiveSession {
@@ -229,9 +286,72 @@ function buildLiveSession(args: {
 
   let cycle: LiveCycleState = 'idle';
   let cycleStep = 0;
-  const history: TurnHistoryMessage[] = [];
+  const history: TurnHistoryMessage[] = args.historySeed?.length
+    ? (structuredClone(args.historySeed) as TurnHistoryMessage[])
+    : [];
   /** Serialize stage + ingress so concurrent send* cannot interleave cycles. */
   let ingressChain: Promise<void> = Promise.resolve();
+
+  const recordUserText = (text: string) => {
+    const trimmed = text.trim();
+    if (trimmed) history.push({ role: 'user', content: trimmed });
+  };
+
+  const recordAssistantText = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const last = history.at(-1);
+    if (last?.role === 'assistant' && typeof last.content === 'string' && !last.tool_calls) {
+      last.content = `${last.content}${trimmed}`;
+      return;
+    }
+    history.push({ role: 'assistant', content: trimmed });
+  };
+
+  const recordToolSettle = (tool: {
+    name: string;
+    callId: string;
+    input?: unknown;
+    output?: unknown;
+    failure?: ToolFailure;
+  }) => {
+    const args =
+      tool.input && typeof tool.input === 'object' && !Array.isArray(tool.input)
+        ? (tool.input as Record<string, unknown>)
+        : {};
+    const modelResult = tool.failure
+      ? formatToolFailureForModel(tool.failure)
+      : tool.output !== undefined
+        ? {
+            finding: typeof tool.output === 'string' ? tool.output : JSON.stringify(tool.output),
+            data: tool.output,
+          }
+        : formatToolFailureForModel({
+            code: 'error',
+            message: 'Tool settled without output', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+          });
+    history.push(
+      {
+        role: 'assistant',
+        tool_calls: [
+          {
+            id: tool.callId,
+            type: 'function',
+            function: {
+              name: tool.name,
+              arguments: JSON.stringify(args),
+            },
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        tool_call_id: tool.callId,
+        name: tool.name,
+        content: formatToolResult(modelResult),
+      },
+    );
+  };
 
   const enqueuePending = (ev: TurnEvent) => {
     pendingHostEvents.push(projectGuardrailTurnEvent(ev, includeMatch));
@@ -239,7 +359,7 @@ function buildLiveSession(args: {
 
   const sendJson = (payload: Record<string, unknown>) => {
     if (closed) {
-      throw new TheorumError('Live session is closed');
+      throw new TheorumError('Live session is closed'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
     connection.send(JSON.stringify(payload));
   };
@@ -266,15 +386,20 @@ function buildLiveSession(args: {
     return result.value;
   };
 
+  const ingestPreparedLiveText = (text: string) => {
+    const prepared = prepareLiveInboundText(profile, text);
+    if (prepared.guardrail) {
+      enqueuePending(prepared.guardrail);
+    }
+    recordUserText(prepared.text);
+    sendJson(buildGeminiLiveRealtimeText(prepared.text));
+  };
+
   const applyInjectTexts = async (texts: string[]) => {
     for (const text of texts) {
       // Cycle already open — write without re-entering pre_turn.
       assertLiveIngress(profile, 'text');
-      const prepared = prepareLiveInboundText(profile, text);
-      if (prepared.guardrail) {
-        enqueuePending(prepared.guardrail);
-      }
-      sendJson(buildGeminiLiveRealtimeText(prepared.text));
+      ingestPreparedLiveText(text);
     }
   };
 
@@ -344,10 +469,7 @@ function buildLiveSession(args: {
       try {
         for await (const item of connection.batches()) {
           throwIfAborted(signal);
-          while (pendingHostEvents.length > 0) {
-            const pending = pendingHostEvents.shift();
-            if (pending) yield pending;
-          }
+          yield* drainPendingHostEvents(pendingHostEvents);
           if (item.type === 'closed') {
             break;
           }
@@ -359,37 +481,24 @@ function buildLiveSession(args: {
             withholdClose = error;
           });
 
-          const doneBatch = gated.filter((ev) => ev.type === 'done');
-          const other = gated.filter((ev) => ev.type !== 'done');
-          for (const ev of other) {
-            if (ev.type === 'error') {
-              yield {
-                ...ev,
-                error: publicError(ev.error ?? withholdClose ?? 'guardrail withheld'),
-              };
-            } else {
-              yield projectGuardrailTurnEvent(ev, includeMatch);
-            }
-          }
+          const doneBatch = yield* yieldLiveNonDoneEvents(
+            gated,
+            includeMatch,
+            withholdClose,
+            recordAssistantText,
+          );
 
           const interrupted = doneBatch.some((ev) => ev.type === 'done' && ev.interrupted);
           const completeBoundary =
             item.turnPhase === 'complete' || item.turnPhase === 'abort' || doneBatch.length > 0;
 
-          if (completeBoundary && (doneBatch.length > 0 || interrupted)) {
-            const boundaryDone =
-              doneBatch.length > 0
-                ? doneBatch
-                : [
-                    {
-                      type: 'done' as const,
-                      stop: { kind: 'interrupted' as const },
-                      interrupted: true,
-                    },
-                  ];
+          // Bare `turnComplete` often has no folded `done` — still end the live cycle.
+          if (completeBoundary && cycle === 'open') {
+            const boundaryDone = boundaryDoneEvents(doneBatch, item.turnPhase, interrupted);
             for await (const ev of endCycleAroundDone(boundaryDone)) {
               yield projectGuardrailTurnEvent(ev, includeMatch);
             }
+            yield* drainPendingHostEvents(pendingHostEvents);
           } else if (doneBatch.length > 0) {
             for (const ev of doneBatch) {
               yield projectGuardrailTurnEvent(ev, includeMatch);
@@ -401,10 +510,7 @@ function buildLiveSession(args: {
             break;
           }
         }
-        while (pendingHostEvents.length > 0) {
-          const pending = pendingHostEvents.shift();
-          if (pending) yield pending;
-        }
+        yield* drainPendingHostEvents(pendingHostEvents);
       } finally {
         closed = true;
         connection.close();
@@ -444,29 +550,12 @@ function buildLiveSession(args: {
         assertLiveIngress(profile, 'text');
         const opened = await openCycleIfNeeded();
         if (opened.aborted) return;
-        const prepared = prepareLiveInboundText(profile, text);
-        if (prepared.guardrail) {
-          enqueuePending(prepared.guardrail);
-        }
-        sendJson(buildGeminiLiveRealtimeText(prepared.text));
+        ingestPreparedLiveText(text);
       });
     },
-    async executeTool(toolArgs: {
-      name: string;
-      callId: string;
-      input?: unknown;
-      resume?: InvokeToolResume;
-      credentials?: Record<string, ToolCredential>;
-      host?: unknown;
-    }): Promise<{
-      outputRaw?: unknown;
-      outputModel?: ModelToolResult;
-      failure?: ToolFailure;
-      awaiting?: boolean;
-      gated?: ToolGate;
-    }> {
+    async executeTool(toolArgs: LiveExecuteToolArgs): Promise<LiveExecuteToolResult> {
       if (closed) {
-        throw new TheorumError('Live session is closed');
+        throw new TheorumError('Live session is closed'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       }
       const handlers = onStage ? [onStage] : [];
       const exec = executeRegisteredTool({
@@ -524,10 +613,7 @@ function buildLiveSession(args: {
 
       // post_tool inject on live → schedule text ingress
       if (s.pendingInject?.length) {
-        const texts = s.pendingInject
-          .filter((m) => m.role !== 'tool' && !m.parts?.length)
-          .map((m) => m.content?.trim())
-          .filter((t): t is string => Boolean(t));
+        const texts = liveInjectTexts(s.pendingInject);
         if (texts.length) {
           await withIngress(async () => {
             const opened = await openCycleIfNeeded();
@@ -538,6 +624,13 @@ function buildLiveSession(args: {
 
       const outputModel = s.modelResult;
       if (outputModel !== undefined || s.failure) {
+        recordToolSettle({
+          name: toolArgs.name,
+          callId: toolArgs.callId,
+          input: toolArgs.input,
+          output: s.outputRaw ?? outputModel?.data ?? outputModel,
+          failure: s.failure,
+        });
         const upstream =
           outputModel ??
           ({
@@ -605,7 +698,11 @@ export async function runSession(
   const hasInitialInput = Boolean(req.input && req.input.length > 0);
   generation = applyInitialInput(generation, req.input);
 
-  const system = bindCanary(generation.resolvedSystem, generation.canary);
+  const system = bindCanary(
+    generation.resolvedSystem,
+    generation.canary,
+    resolveGuardrailPolicy(profile.guardrails).canaryBindNote,
+  );
   const completeReq: ProviderCompleteRequest = {
     ...providerCompleteRequest(generation, system),
     signal: safe.signal,
@@ -630,6 +727,7 @@ export async function runSession(
     sessionPermissions: req.sessionPermissions,
     path: req.path,
     snapshot: gen0.tools,
+    historySeed: req.history,
     openInitialCycle: hasInitialInput,
   });
 }

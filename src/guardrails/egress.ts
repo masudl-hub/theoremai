@@ -19,18 +19,18 @@ import type {
   Verdict,
 } from './types.ts';
 
-const SYSTEM_BOUNDARY = /This turn's canary is|<\/?user_data>/i;
+const SYSTEM_BOUNDARY = /This turn's canary is|<\/?user_data>/i; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
 
 /** Rule ids emitted by the bundled outbound policy. */
 export const EGRESS_RULES = {
   canary: 'egress.canary-leak',
   sensitive: 'egress.sensitive-echo',
   boundary: 'egress.system-boundary',
-  injection: 'egress.injection-echo',
+  injection: 'egress.injection-echo', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   /** Payload could not be rendered for inspection — released output is unverified. */
-  unscannable: 'egress.unscannable',
+  unscannable: 'egress.unscannable', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   /** The host policy threw instead of returning a verdict. */
-  enforcerError: 'egress.enforcer-error',
+  enforcerError: 'egress.enforcer-error', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
 } as const;
 
 function hitsFromSpans(
@@ -49,7 +49,7 @@ function collectEgressHits(text: string, canary?: string): GuardrailHit[] {
     // Never put the live canary token into match — placeholder only.
     hits.push({ rule: EGRESS_RULES.canary, severity: 'high', match: '[canary]' });
   }
-  hits.push(...hitsFromSpans(text, sensitiveSpans(text), EGRESS_RULES.sensitive, 'high'));
+  hits.push(...hitsFromSpans(text, sensitiveSpans(text), EGRESS_RULES.sensitive, 'high')); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   const boundary = SYSTEM_BOUNDARY.exec(text);
   if (boundary && boundary.index !== undefined) {
     hits.push(
@@ -61,7 +61,7 @@ function collectEgressHits(text: string, canary?: string): GuardrailHit[] {
       ),
     );
   }
-  hits.push(...hitsFromSpans(text, injectionSpans(text), EGRESS_RULES.injection, 'medium'));
+  hits.push(...hitsFromSpans(text, injectionSpans(text), EGRESS_RULES.injection, 'medium')); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   return hits;
 }
 
@@ -77,7 +77,7 @@ function standardEgressEnforce(payload: OutboundPayload, context: GuardrailConte
     const structured = textForScan(payload.structured);
     if (structured.unscannable) {
       // Cannot inspect it, so cannot vouch for it. Fail closed.
-      hits.push({ rule: EGRESS_RULES.unscannable, severity: 'high' });
+      hits.push({ rule: EGRESS_RULES.unscannable, severity: 'high' }); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     } else {
       hits.push(...collectEgressHits(structured.text, context.canary));
     }
@@ -86,9 +86,9 @@ function standardEgressEnforce(payload: OutboundPayload, context: GuardrailConte
     return { action: 'allow' };
   }
   return {
-    action: 'block',
+    action: 'block', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     hits,
-    rejection: `Egress blocked: ${hitRules(hits).join(', ')}`,
+    rejection: `Egress blocked: ${hitRules(hits).join(', ')}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   };
 }
 
@@ -111,7 +111,7 @@ async function runEnforcer(
     return {
       action: 'block',
       hits: [{ rule: EGRESS_RULES.enforcerError, severity: 'high' }],
-      rejection: `Egress policy failed to reach a decision: ${detail}`,
+      rejection: `Egress policy failed to reach a decision: ${detail}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     };
   }
 }

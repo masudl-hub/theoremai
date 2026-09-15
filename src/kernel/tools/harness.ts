@@ -28,7 +28,7 @@ function registerHarnessTools(): void {
   registerTool({
     type: 'function',
     name: 'ask_user',
-    description: 'Ask the user a question (completes with awaiting_user_input)',
+    description: 'Ask the user a question (completes with awaiting_user_input)', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     category: 'conversation',
     access: 'read-only',
     paths: ['*'],

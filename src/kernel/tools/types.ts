@@ -68,12 +68,18 @@ export interface InteractiveRender {
   [key: string]: unknown;
 }
 
-export interface InteractiveConfig<TIn = unknown> {
-  render: (input: TIn) => InteractiveRender;
-}
-
 export interface InvokeToolResume {
+  /**
+   * Legacy interactive value — unused for gates / ask_user answers.
+   * @deprecated Prefer a new user turn for ask_user answers.
+   */
   value?: unknown;
+  /**
+   * Gate resume:
+   * - `true` — skip confirm / permission / `preTool` re-ask and run the body
+   * - `false` — settle as deny (synthetic failure + `post_tool`, no body)
+   * - omit — first attempt (or auth credential retry without grant)
+   */
   granted?: boolean;
 }
 
@@ -310,7 +316,7 @@ export interface InvokeToolRequest {
   /** Selected model id — same as `TurnRequest.model` (builtins resolve from that model). */
   model?: string;
   /**
-   * Optional turn snapshot from a paused turn. Cloned before use so concurrent host
+   * Optional turn snapshot from a gated turn. Cloned before use so concurrent host
    * invokes do not share mutable visibility state.
    */
   snapshot?: TurnToolSnapshot;

@@ -11,6 +11,7 @@
 import { bindCanary } from '../../../guardrails/canary.ts';
 import { isAbortError, throwIfAborted } from '../../../guardrails/error.ts';
 import { projectGuardrailTurnEvent } from '../../../guardrails/events.ts';
+import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import { sanitizeTurnRequestWithEvents } from '../../../guardrails/sanitize.ts';
 import { resolveTraceWriter } from '../../../observability/policy.ts';
 import { noopSink, writeTrace } from '../../../observability/trace.ts';
@@ -44,6 +45,16 @@ function projectForObs(
   policy: ResolvedObservabilityPolicy | undefined,
 ): TurnEvent {
   return projectGuardrailTurnEvent(event, policy?.include.guardrailMatchPreview ?? false);
+}
+
+function* emitObservedStage(
+  ctx: { seen: TurnEvent[]; observability?: ResolvedObservabilityPolicy },
+  stageEv: TurnEvent,
+  profile: Profile,
+): Generator<TurnEvent> {
+  const stageOut = projectForObs(stageEv, ctx.observability);
+  ctx.seen.push(stageOut);
+  if (!shouldSkipStreamEvent(stageOut, profile)) yield stageOut;
 }
 
 function getCompactionSpec(profile: ModelProfile, modelId: string): CompactionSpec | undefined {
@@ -280,9 +291,7 @@ async function* streamTurnEvents(
           stop: out.stop,
           host: gen.host,
         })) {
-          const stageOut = projectForObs(stageEv, ctx.observability);
-          ctx.seen.push(stageOut);
-          if (!shouldSkipStreamEvent(stageOut, profile)) yield stageOut;
+          yield* emitObservedStage(ctx, stageEv, profile);
         }
       }
     }
@@ -394,9 +403,7 @@ async function* emitCancelledDoneAfterAbort(ctx: TraceCtx): AsyncGenerator<TurnE
     stop,
     host: gen.host,
   })) {
-    const stageOut = projectForObs(stageEv, ctx.observability);
-    ctx.seen.push(stageOut);
-    if (!shouldSkipStreamEvent(stageOut, profile)) yield stageOut;
+    yield* emitObservedStage(ctx, stageEv, profile);
   }
 }
 
@@ -423,7 +430,11 @@ async function* runTurnBody(ctx: TraceCtx, provider: ModelProvider): AsyncGenera
   const compactionSpec = isCompacting ? undefined : getCompactionSpec(profile, gen.model);
   await maybeCompactBefore(ctx, gen, compactionSpec, provider);
 
-  ctx.system = bindCanary(gen.resolvedSystem, ctx.canary);
+  ctx.system = bindCanary(
+    gen.resolvedSystem,
+    ctx.canary,
+    resolveGuardrailPolicy(profile.guardrails).canaryBindNote,
+  );
 
   yield* streamTurnEvents(ctx, profile, gen, provider, compactionSpec, isCompacting);
 }

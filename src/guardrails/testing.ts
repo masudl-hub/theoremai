@@ -6,6 +6,7 @@
  * @module
  */
 
+/** lexicon-exempt-file: adversarial harness helpers — not runtime user or model copy (P2) */
 export type {
   CanaryEgressAttack,
   CanaryEgressCatalogEntry,

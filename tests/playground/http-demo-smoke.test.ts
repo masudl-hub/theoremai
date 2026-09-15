@@ -1,8 +1,8 @@
 import { type ZodType, z } from 'zod';
+import { DEMO_HTTP_SAMPLE_INPUT, demoToolSpecs } from '../../playground/concierge-demo.ts';
 import { executeRegisteredTool } from '../../src/kernel/tools/execute.ts';
 import { registerTool, resetTools } from '../../src/kernel/tools/registry.ts';
 import type { Profile } from '../../src/kernel/types.ts';
-import { DEMO_HTTP_SAMPLE_INPUT, demoToolSpecs } from '../../src/playground/concierge-demo.ts';
 
 function jsonSchemaFields(schema: Record<string, unknown>): {
   props: Record<string, Record<string, unknown>>;

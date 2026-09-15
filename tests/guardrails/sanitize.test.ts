@@ -320,18 +320,21 @@ Deno.test('limitsByMime enforces granular per-mime byte limits', async () => {
 });
 
 Deno.test('attachments.ts edge cases: formatting, 1-file message, latin1 decoding, wildcards, and missing limits', async () => {
-  const {
-    tooManyFilesMessage,
-    fileTooLargeMessage,
-    turnTooLargeMessage,
-    requireMediaLimits,
-    sanitizeTurnBlobs,
-  } = await import('../../src/kernel/registry/attachments.ts');
+  const { requireMediaLimits, sanitizeTurnBlobs } = await import(
+    '../../src/kernel/registry/attachments.ts'
+  );
+  const { lexiconText } = await import('../../src/guardrails/lexicon.ts');
 
-  assertEquals(tooManyFilesMessage(1), 'Only 1 file per message.');
-  assertEquals(fileTooLargeMessage(1_572_864), 'Each file must be 1.5 MB or smaller.');
   assertEquals(
-    turnTooLargeMessage(1_572_864),
+    lexiconText('attachments.too_many_files', { maxFiles: 1 }),
+    'Only 1 file per message.',
+  );
+  assertEquals(
+    lexiconText('attachments.file_too_large', { maxBytes: 1_572_864 }),
+    'Each file must be 1.5 MB or smaller.',
+  );
+  assertEquals(
+    lexiconText('attachments.turn_too_large', { maxTurnBytes: 1_572_864 }),
     'Those files together are too large for one message (1.5 MB max).',
   );
 

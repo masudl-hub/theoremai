@@ -5,6 +5,7 @@
  */
 
 import { throwIfAborted } from '../../guardrails/error.ts';
+import { lexiconText } from '../../guardrails/lexicon.ts';
 import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import { sanitizeText } from '../../guardrails/sanitize.ts';
 import {
@@ -19,7 +20,7 @@ import type { Provenance, ToolOrigin } from '../../guardrails/types.ts';
 import { isAwaitingUserInput } from '../stages.ts';
 import type { InteractionPart, Profile, TurnEvent, TurnHistoryMessage } from '../types.ts';
 import { failureEvent, startToolExecution, toolEvent } from './events.ts';
-import { checkPermission, isGateResumeGranted, isResumeContinuation } from './permission.ts';
+import { checkPermission, isGateResumeDenied, isResumeContinuation } from './permission.ts';
 import { getTool } from './registry.ts';
 import { executeHttpTool, executeMcpTool, type RemoteToolOutcome } from './remote.ts';
 import { promoteLoadedTools } from './resolve.ts';
@@ -27,7 +28,7 @@ import {
   emitGateSettlement,
   gateEvent,
   runPostToolStages,
-  runPreToolStages,
+  runPreToolPipeline,
   type ToolStageSupport,
 } from './stage-run.ts';
 import type {
@@ -171,7 +172,7 @@ export function projectForModel(tool: FunctionToolDef, output: unknown): ModelTo
   }
   if (isAwaitingUserInput(output)) {
     return {
-      finding: `Awaiting user input (${output.kind}): ${output.prompt}`,
+      finding: lexiconText('tool.awaiting_user', { kind: output.kind, prompt: output.prompt }),
       data: leanToolResultData(output),
     };
   }
@@ -248,7 +249,7 @@ function applyT2LoaderPromotion(
       ok: false,
       failure: {
         code: 'invalid_output',
-        message: `tools.t2Loader '${tool.name}' requires a turn tool snapshot`,
+        message: lexiconText('tool.t2_loader_needs_snapshot', { tool: tool.name }),
       },
     };
   }
@@ -258,7 +259,7 @@ function applyT2LoaderPromotion(
       ok: false,
       failure: {
         code: 'invalid_output',
-        message: `T2 loader '${tool.name}' must return { loaded: string[] }`,
+        message: lexiconText('tool.t2_loader_shape', { tool: tool.name }),
       },
     };
   }
@@ -273,7 +274,7 @@ function applyT2LoaderPromotion(
       ok: false,
       failure: {
         code: 'invalid_output',
-        message: 'T2 loader output validation failed after promotion',
+        message: lexiconText('tool.t2_loader_output_invalid'),
         details: rechecked.error.flatten(),
       },
     };
@@ -324,6 +325,99 @@ async function* settlePostTool(
   };
 }
 
+/** Emit failure + post_tool and return a failed settlement (collapses clone sites). */
+async function* settleToolFailure(
+  base: Pick<ToolCallEvent, 'name' | 'callId' | 'arguments'>,
+  failure: ToolFailure,
+  stages: ToolStageSupport | undefined,
+  args: {
+    toolName: string;
+    callId: string;
+    input?: unknown;
+    callNotStarted?: boolean;
+  },
+): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
+  yield failureEvent(base, failure);
+  const modelResult = formatToolFailureForModel(failure);
+  const post = yield* settlePostTool(stages, {
+    toolName: args.toolName,
+    callId: args.callId,
+    input: args.input,
+    callNotStarted: args.callNotStarted,
+    failure,
+    outputModel: modelResult,
+  });
+  return {
+    modelResult,
+    failure,
+    ...(args.callNotStarted ? { callNotStarted: true as const } : {}),
+    ...(post.aborted !== undefined ? { aborted: post.aborted } : {}),
+    ...(post.pendingInject?.length ? { pendingInject: post.pendingInject } : {}),
+  };
+}
+
+/**
+ * Tool `preTool` + host `pre_tool` + mutate re-parse for local function tools.
+ * Mirrors remote `runRemotePreBodyStages` so the two paths cannot drift in structure.
+ */
+async function* runFunctionPreBodyStages(args: {
+  tool: FunctionToolDef;
+  input: unknown;
+  ctx: ToolContext;
+  base: Pick<ToolCallEvent, 'name' | 'callId' | 'arguments'>;
+  stages?: ToolStageSupport;
+}): AsyncGenerator<TurnEvent, { ok: true; input: unknown } | ToolExecuteSettlement> {
+  const { tool, ctx, base, stages } = args;
+  const pipeline = yield* runPreToolPipeline({
+    tool,
+    input: args.input,
+    ctx,
+    callId: base.callId ?? '',
+    stages,
+  });
+  if (pipeline.status === 'passthrough') {
+    return { ok: true, input: pipeline.input };
+  }
+  const pre = pipeline.outcome;
+
+  if (pre.kind === 'abort') {
+    return { aborted: pre.abort, callNotStarted: true };
+  }
+  if (pre.kind === 'gate') {
+    yield gateEvent(base, pre.gate);
+    return { gated: pre.gate, callNotStarted: true };
+  }
+  if (pre.kind === 'deny' || pre.kind === 'error') {
+    return yield* settleToolFailure(base, pre.failure, stages, {
+      toolName: tool.name,
+      callId: base.callId ?? '',
+      input: args.input,
+      callNotStarted: true,
+    });
+  }
+
+  const input = pre.input;
+  const reparsed = tool.input.safeParse(input);
+  if (!reparsed.success) {
+    return yield* settleToolFailure(
+      base,
+      {
+        code: 'invalid_input',
+        message: lexiconText('tool.input_invalid_after_mutate'),
+        details: reparsed.error.flatten(),
+      },
+      stages,
+      {
+        toolName: tool.name,
+        callId: base.callId ?? '',
+        input,
+        callNotStarted: true,
+      },
+    );
+  }
+  return { ok: true, input: reparsed.data };
+}
+
 export async function* executeFunction(
   tool: FunctionToolDef,
   rawInput: unknown,
@@ -334,25 +428,12 @@ export async function* executeFunction(
 ): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
   const parsed = yield* startToolExecution(tool, rawInput, ctx, base);
   if (!parsed.ok) {
-    const failure: ToolFailure = {
-      code: 'invalid_input',
-      message: 'Tool input validation failed',
-    };
-    const modelResult = formatToolFailureForModel(failure);
-    const post = yield* settlePostTool(stages, {
-      toolName: tool.name,
-      callId: base.callId ?? '',
-      callNotStarted: true,
-      failure,
-      outputModel: modelResult,
-    });
-    return {
-      failure,
-      callNotStarted: true,
-      modelResult,
-      ...(post.aborted !== undefined ? { aborted: post.aborted } : {}),
-      ...(post.pendingInject?.length ? { pendingInject: post.pendingInject } : {}),
-    };
+    return yield* settleToolFailure(
+      base,
+      { code: 'invalid_input', message: lexiconText('tool.input_invalid') },
+      stages,
+      { toolName: tool.name, callId: base.callId ?? '', callNotStarted: true },
+    );
   }
   let input: unknown = parsed.data;
 
@@ -374,167 +455,44 @@ export async function* executeFunction(
 
   throwIfAborted(ctx.signal);
 
-  let toolPreTool: import('../stages.ts').StageResult | undefined;
-  // Only resume.granted skips preTool (not resume.value — that was interactive fiction).
-  if (tool.preTool && !isGateResumeGranted(ctx.resume)) {
-    toolPreTool = (await tool.preTool(input as never, ctx)) ?? undefined;
+  const preBody = yield* runFunctionPreBodyStages({ tool, input, ctx, base, stages });
+  if (!('ok' in preBody)) {
+    return preBody;
   }
-
-  if (stages || toolPreTool !== undefined) {
-    const support: ToolStageSupport = stages ?? {
-      handlers: [],
-      step: ctx.turn?.step ?? 1,
-      history: () => [],
-      injectAllowed: false,
-      host: ctx.host,
-      signal: ctx.signal,
-    };
-    const pre = yield* runPreToolStages({
-      stages: support,
-      toolName: tool.name,
-      callId: base.callId ?? '',
-      input,
-      toolPreTool,
-    });
-    if (pre.kind === 'abort') {
-      return { aborted: pre.abort, callNotStarted: true };
-    }
-    if (pre.kind === 'gate') {
-      yield gateEvent(base, pre.gate);
-      return { gated: pre.gate, callNotStarted: true };
-    }
-    if (pre.kind === 'deny') {
-      yield failureEvent(base, pre.failure);
-      const modelResult = formatToolFailureForModel(pre.failure);
-      const post = yield* settlePostTool(stages, {
-        toolName: tool.name,
-        callId: base.callId ?? '',
-        input,
-        callNotStarted: true,
-        failure: pre.failure,
-        outputModel: modelResult,
-      });
-      return {
-        modelResult,
-        failure: pre.failure,
-        callNotStarted: true,
-        ...(post.aborted !== undefined ? { aborted: post.aborted } : {}),
-        ...(post.pendingInject?.length ? { pendingInject: post.pendingInject } : {}),
-      };
-    }
-    if (pre.kind === 'error') {
-      yield failureEvent(base, pre.failure);
-      const modelResult = formatToolFailureForModel(pre.failure);
-      const post = yield* settlePostTool(stages, {
-        toolName: tool.name,
-        callId: base.callId ?? '',
-        input,
-        callNotStarted: true,
-        failure: pre.failure,
-        outputModel: modelResult,
-      });
-      return {
-        modelResult,
-        failure: pre.failure,
-        callNotStarted: true,
-        ...(post.aborted !== undefined ? { aborted: post.aborted } : {}),
-        ...(post.pendingInject?.length ? { pendingInject: post.pendingInject } : {}),
-      };
-    }
-    input = pre.input;
-    const reparsed = tool.input.safeParse(input);
-    if (!reparsed.success) {
-      const failure: ToolFailure = {
-        code: 'invalid_input',
-        message: 'Tool input validation failed after mutate',
-        details: reparsed.error.flatten(),
-      };
-      yield failureEvent(base, failure);
-      const modelResult = formatToolFailureForModel(failure);
-      const post = yield* settlePostTool(stages, {
-        toolName: tool.name,
-        callId: base.callId ?? '',
-        input,
-        callNotStarted: true,
-        failure,
-        outputModel: modelResult,
-      });
-      return {
-        modelResult,
-        failure,
-        callNotStarted: true,
-        ...(post.aborted !== undefined ? { aborted: post.aborted } : {}),
-        ...(post.pendingInject?.length ? { pendingInject: post.pendingInject } : {}),
-      };
-    }
-    input = reparsed.data;
-  }
+  input = preBody.input;
 
   throwIfAborted(ctx.signal);
   try {
     const output = yield* runHandler(tool.handler, input as never, ctx, base);
     if (output === undefined) {
-      const failure: ToolFailure = {
-        code: 'invalid_output',
-        message: 'Handler returned no output',
-      };
-      yield failureEvent(base, failure);
-      const modelResult = formatToolFailureForModel(failure);
-      const post = yield* settlePostTool(stages, {
-        toolName: tool.name,
-        callId: base.callId ?? '',
-        input,
-        failure,
-        outputModel: modelResult,
-      });
-      return {
-        modelResult,
-        failure,
-        ...(post.aborted !== undefined ? { aborted: post.aborted } : {}),
-        ...(post.pendingInject?.length ? { pendingInject: post.pendingInject } : {}),
-      };
+      return yield* settleToolFailure(
+        base,
+        { code: 'invalid_output', message: lexiconText('tool.handler_no_output') },
+        stages,
+        { toolName: tool.name, callId: base.callId ?? '', input },
+      );
     }
     const checked = tool.output.safeParse(output);
     if (!checked.success) {
-      const failure: ToolFailure = {
-        code: 'invalid_output',
-        message: 'Tool output validation failed',
-        details: checked.error.flatten(),
-      };
-      yield failureEvent(base, failure);
-      const modelResult = formatToolFailureForModel(failure);
-      const post = yield* settlePostTool(stages, {
-        toolName: tool.name,
-        callId: base.callId ?? '',
-        input,
-        failure,
-        outputModel: modelResult,
-      });
-      return {
-        modelResult,
-        failure,
-        ...(post.aborted !== undefined ? { aborted: post.aborted } : {}),
-        ...(post.pendingInject?.length ? { pendingInject: post.pendingInject } : {}),
-      };
+      return yield* settleToolFailure(
+        base,
+        {
+          code: 'invalid_output',
+          message: lexiconText('tool.output_invalid'),
+          details: checked.error.flatten(),
+        },
+        stages,
+        { toolName: tool.name, callId: base.callId ?? '', input },
+      );
     }
 
     const promoted = applyT2LoaderPromotion(tool, checked.data, ctx, snapshot);
     if (!promoted.ok) {
-      yield failureEvent(base, promoted.failure);
-      const modelResult = formatToolFailureForModel(promoted.failure);
-      const post = yield* settlePostTool(stages, {
+      return yield* settleToolFailure(base, promoted.failure, stages, {
         toolName: tool.name,
         callId: base.callId ?? '',
         input,
-        failure: promoted.failure,
-        outputModel: modelResult,
       });
-      return {
-        modelResult,
-        failure: promoted.failure,
-        ...(post.aborted !== undefined ? { aborted: post.aborted } : {}),
-        ...(post.pendingInject?.length ? { pendingInject: post.pendingInject } : {}),
-      };
     }
 
     const awaiting = isAwaitingUserInput(promoted.output);
@@ -560,33 +518,22 @@ export async function* executeFunction(
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    const failure: ToolFailure = { code: 'handler_error', message: msg };
-    yield failureEvent(base, failure);
-    const modelResult = formatToolFailureForModel(failure);
-    const post = yield* settlePostTool(stages, {
+    return yield* settleToolFailure(base, { code: 'handler_error', message: msg }, stages, {
       toolName: tool.name,
       callId: base.callId ?? '',
       input,
-      failure,
-      outputModel: modelResult,
     });
-    return {
-      modelResult,
-      failure,
-      ...(post.aborted !== undefined ? { aborted: post.aborted } : {}),
-      ...(post.pendingInject?.length ? { pendingInject: post.pendingInject } : {}),
-    };
   }
 }
 
 export function notLoadedMessage(tool: { name: string; loadTier?: string }): string {
   if (tool.loadTier === 'T1') {
-    return `Tool '${tool.name}' is not wired — profile.tools.t1Policy must select it`;
+    return lexiconText('tool.not_wired_t1', { tool: tool.name });
   }
   if (tool.loadTier === 'T2') {
-    return `Tool '${tool.name}' is not loaded — run profile.tools.t2Loader first`;
+    return lexiconText('tool.not_loaded_t2', { tool: tool.name });
   }
-  return `Tool '${tool.name}' is not visible this turn`;
+  return lexiconText('tool.not_visible', { tool: tool.name });
 }
 
 export function extractLoadedIds(output: unknown): string[] | undefined {
@@ -618,6 +565,10 @@ export function plainToolInput(input: unknown): unknown {
   return out;
 }
 
+function earlyFailure(failure: ToolFailure): ToolExecuteSettlement {
+  return { failure, callNotStarted: true, modelResult: formatToolFailureForModel(failure) };
+}
+
 export async function* executeBuiltin(
   tool: { name: string },
   ctx: ToolContext,
@@ -629,17 +580,112 @@ export async function* executeBuiltin(
   if (!snapshot.builtins.includes(tool.name)) {
     const failure: ToolFailure = {
       code: 'not_loaded',
-      message: `Builtin '${tool.name}' is not enabled this turn`,
+      message: lexiconText('tool.builtin_not_enabled', { tool: tool.name }),
     };
     yield failureEvent(base, failure);
-    return { failure, callNotStarted: true, modelResult: formatToolFailureForModel(failure) };
+    return earlyFailure(failure);
   }
   const failure: ToolFailure = {
     code: 'provider_native',
-    message: `Tool '${tool.name}' is a provider builtin — execution is handled by the model provider, not the kernel`,
+    message: lexiconText('tool.provider_native', { tool: tool.name }),
   };
   yield failureEvent(base, failure);
-  return { failure, callNotStarted: true, modelResult: formatToolFailureForModel(failure) };
+  return earlyFailure(failure);
+}
+
+/** Snapshot / allowlist / load-tier checks before body execution. */
+function registeredEligibilityFailure(args: {
+  tool: NonNullable<ReturnType<typeof getTool>>;
+  profile: Profile;
+  name: string;
+  resume: ToolContext['resume'];
+  snapshot?: TurnToolSnapshot;
+}): ToolFailure | undefined {
+  const { tool, profile, name, resume, snapshot } = args;
+  if (profile.type === 'speech' || !profile.tools.allow.includes(name)) {
+    return {
+      code: 'not_allowed',
+      message: lexiconText('tool.not_allowed', { tool: name, profile: profile.id }),
+    };
+  }
+  if (!snapshot) return undefined;
+  const continuing = isResumeContinuation(resume);
+  if (!continuing && !snapshot.gated.includes(name)) {
+    return { code: 'not_gated', message: lexiconText('tool.not_eligible', { tool: name }) };
+  }
+  if (!snapshot.visible.includes(name)) {
+    const skipLoadCheck = continuing && tool.loadTier === 'T0';
+    if (!skipLoadCheck) {
+      return { code: 'not_loaded', message: notLoadedMessage(tool) };
+    }
+  }
+  return undefined;
+}
+
+async function* settleRemoteOutcome(args: {
+  outcome: RemoteToolOutcome;
+  base: Pick<ToolCallEvent, 'name' | 'callId' | 'arguments'>;
+  name: string;
+  callId: string;
+  safeInput: unknown;
+  stages?: ToolStageSupport;
+  provenance: ReturnType<typeof provenanceFor>;
+  policy: ReturnType<typeof resolveGuardrailPolicy>;
+  callableTools: readonly string[];
+}): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
+  const { outcome, base, name, callId, safeInput, stages, provenance, policy, callableTools } =
+    args;
+
+  if (outcome.kind === 'gated') {
+    if (outcome.gate.kind === 'confirmation') {
+      return { gated: outcome.gate, callNotStarted: true };
+    }
+    yield* emitGateSettlement({
+      base,
+      gate: outcome.gate,
+      callId,
+      toolName: name,
+    });
+    return { gated: outcome.gate, callNotStarted: true };
+  }
+
+  if (outcome.kind === 'aborted') {
+    return { aborted: outcome.aborted, callNotStarted: true };
+  }
+
+  if (outcome.kind === 'failed') {
+    const guarded = yield* guardResult(outcome.modelResult, provenance, policy, callableTools);
+    const post = yield* settlePostTool(stages, {
+      toolName: name,
+      callId,
+      input: safeInput,
+      callNotStarted: outcome.callNotStarted,
+      failure: outcome.failure,
+      outputModel: guarded,
+    });
+    return {
+      modelResult: guarded,
+      failure: outcome.failure,
+      callNotStarted: outcome.callNotStarted,
+      ...(post.aborted !== undefined ? { aborted: post.aborted } : {}),
+      ...(post.pendingInject?.length ? { pendingInject: post.pendingInject } : {}),
+    };
+  }
+
+  const guarded = yield* guardResult(outcome.modelResult, provenance, policy, callableTools);
+  const post = yield* settlePostTool(stages, {
+    toolName: name,
+    callId,
+    input: safeInput,
+    outputRaw: outcome.outputRaw,
+    outputModel: guarded,
+  });
+  return {
+    modelResult: guarded,
+    outputRaw: outcome.outputRaw,
+    ...(post.aborted !== undefined ? { aborted: post.aborted } : {}),
+    ...(post.pendingInject?.length ? { pendingInject: post.pendingInject } : {}),
+  };
 }
 
 export async function* executeRegisteredTool(args: {
@@ -665,53 +711,46 @@ export async function* executeRegisteredTool(args: {
   if (!tool) {
     const failure: ToolFailure = {
       code: 'unknown_tool',
-      message: `Tool '${name}' is not registered`,
+      message: lexiconText('tool.not_registered', { tool: name }),
     };
     yield failureEvent(base, failure);
-    return { failure, callNotStarted: true, modelResult: formatToolFailureForModel(failure) };
+    return earlyFailure(failure);
   }
   if (tool.type === 'builtin') {
     if (!snapshot) {
       const failure: ToolFailure = {
         code: 'provider_native',
-        message: `Tool '${name}' is a provider builtin and requires a turn tool snapshot`,
+        message: lexiconText('tool.builtin_needs_snapshot', { tool: name }),
       };
       yield failureEvent(base, failure);
-      return { failure, callNotStarted: true, modelResult: formatToolFailureForModel(failure) };
+      return earlyFailure(failure);
     }
     const fullCtx: ToolContext = { ...ctx, callId, profile };
     return yield* executeBuiltin(tool, fullCtx, base, snapshot);
   }
-  if (profile.type === 'speech' || !profile.tools.allow.includes(name)) {
-    const failure: ToolFailure = {
-      code: 'not_allowed',
-      message: `Tool '${name}' is not allowed on ${profile.id}`,
-    };
-    yield failureEvent(base, failure);
-    return { failure, callNotStarted: true, modelResult: formatToolFailureForModel(failure) };
+
+  const eligibility = registeredEligibilityFailure({
+    tool,
+    profile,
+    name,
+    resume: ctx.resume,
+    snapshot,
+  });
+  if (eligibility) {
+    yield failureEvent(base, eligibility);
+    return earlyFailure(eligibility);
   }
-  if (snapshot) {
-    const continuing = isResumeContinuation(ctx.resume);
-    if (!continuing && !snapshot.gated.includes(name)) {
-      const failure: ToolFailure = {
-        code: 'not_gated',
-        message: `Tool '${name}' is not eligible on this turn (allow/path)`,
-      };
-      yield failureEvent(base, failure);
-      return { failure, callNotStarted: true, modelResult: formatToolFailureForModel(failure) };
-    }
-    if (!snapshot.visible.includes(name)) {
-      const skipLoadCheck = continuing && tool.loadTier === 'T0';
-      if (!skipLoadCheck) {
-        const failure: ToolFailure = {
-          code: 'not_loaded',
-          message: notLoadedMessage(tool),
-        };
-        yield failureEvent(base, failure);
-        return { failure, callNotStarted: true, modelResult: formatToolFailureForModel(failure) };
-      }
-    }
+
+  // Host denied after a gate — synthetic failure + post_tool, no body.
+  if (isGateResumeDenied(ctx.resume)) {
+    return yield* settleToolFailure(
+      base,
+      { code: 'denied', message: lexiconText('session.tool_denied', { tool: name }) },
+      stages,
+      { toolName: name, callId, input: safeInput, callNotStarted: true },
+    );
   }
+
   const fullCtx: ToolContext = { ...ctx, callId, profile };
   const policy = resolveGuardrailPolicy(profile.guardrails);
   const provenance = provenanceFor(tool);
@@ -733,7 +772,7 @@ export async function* executeRegisteredTool(args: {
       message: taintVerdict.rejection,
     };
     yield failureEvent(base, failure);
-    return { failure, callNotStarted: true, modelResult: formatToolFailureForModel(failure) };
+    return earlyFailure(failure);
   }
 
   if (tool.type === 'function') {
@@ -746,6 +785,10 @@ export async function* executeRegisteredTool(args: {
   }
 
   // HTTP / MCP: schema → permission → auth → preTool → body (inside remote).
+  const unsupported: ToolFailure = {
+    code: 'unknown_tool',
+    message: lexiconText('tool.unsupported_type', { tool: name }),
+  };
   const remoteOutcome: RemoteToolOutcome =
     tool.type === 'http'
       ? yield* executeHttpTool(tool, safeInput, fullCtx, base, stages)
@@ -753,70 +796,22 @@ export async function* executeRegisteredTool(args: {
         ? yield* executeMcpTool(tool, safeInput, fullCtx, base, stages)
         : {
             kind: 'failed',
-            failure: { code: 'unknown_tool', message: `Tool '${name}' has unsupported type` },
-            modelResult: formatToolFailureForModel({
-              code: 'unknown_tool',
-              message: `Tool '${name}' has unsupported type`,
-            }),
+            failure: unsupported,
+            modelResult: formatToolFailureForModel(unsupported),
             callNotStarted: true,
           };
 
-  if (remoteOutcome.kind === 'gated') {
-    // Confirm from preTool already emitted pre_tool callNotStarted + gate inside remote.
-    if (remoteOutcome.gate.kind === 'confirmation') {
-      return { gated: remoteOutcome.gate, callNotStarted: true };
-    }
-    yield* emitGateSettlement({
-      base,
-      gate: remoteOutcome.gate,
-      callId,
-      toolName: name,
-    });
-    return { gated: remoteOutcome.gate, callNotStarted: true };
-  }
-
-  if (remoteOutcome.kind === 'aborted') {
-    return { aborted: remoteOutcome.aborted, callNotStarted: true };
-  }
-
-  if (remoteOutcome.kind === 'failed') {
-    const guarded = yield* guardResult(
-      remoteOutcome.modelResult,
-      provenance,
-      policy,
-      callableTools,
-    );
-    const post = yield* settlePostTool(stages, {
-      toolName: name,
-      callId,
-      input: safeInput,
-      callNotStarted: remoteOutcome.callNotStarted,
-      failure: remoteOutcome.failure,
-      outputModel: guarded,
-    });
-    return {
-      modelResult: guarded,
-      failure: remoteOutcome.failure,
-      callNotStarted: remoteOutcome.callNotStarted,
-      ...(post.aborted !== undefined ? { aborted: post.aborted } : {}),
-      ...(post.pendingInject?.length ? { pendingInject: post.pendingInject } : {}),
-    };
-  }
-
-  const guarded = yield* guardResult(remoteOutcome.modelResult, provenance, policy, callableTools);
-  const post = yield* settlePostTool(stages, {
-    toolName: name,
+  return yield* settleRemoteOutcome({
+    outcome: remoteOutcome,
+    base,
+    name,
     callId,
-    input: safeInput,
-    outputRaw: remoteOutcome.outputRaw,
-    outputModel: guarded,
+    safeInput,
+    stages,
+    provenance,
+    policy,
+    callableTools,
   });
-  return {
-    modelResult: guarded,
-    outputRaw: remoteOutcome.outputRaw,
-    ...(post.aborted !== undefined ? { aborted: post.aborted } : {}),
-    ...(post.pendingInject?.length ? { pendingInject: post.pendingInject } : {}),
-  };
 }
 
 /**

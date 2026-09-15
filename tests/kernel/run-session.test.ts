@@ -569,7 +569,7 @@ Deno.test('runSession emits pre_turn before first sendText and post_turn after c
     const out = [];
     for await (const ev of session.events()) {
       out.push(ev);
-      if (ev.type === 'done') break;
+      if (stages.includes('post_turn')) break;
     }
     return out;
   })();
@@ -578,7 +578,6 @@ Deno.test('runSession emits pre_turn before first sendText and post_turn after c
   assertEquals(stages.includes('pre_turn'), true);
 
   const liveMock = mock as unknown as MockLiveWebSocket;
-  // Simulate model turn complete so outbound gate emits done and cycle closes.
   liveMock.deliver({
     serverContent: { turnComplete: true },
   });
@@ -588,8 +587,311 @@ Deno.test('runSession emits pre_turn before first sendText and post_turn after c
     events.some((e) => e.type === 'stage' && e.stage === 'pre_turn'),
     true,
   );
-  // before_end / post_turn require cycle open + done boundary
-  assertEquals(stages.includes('before_end') || stages.includes('post_turn'), true);
+  assertEquals(
+    events.some((e) => e.type === 'done'),
+    true,
+  );
+  assertEquals(stages, ['pre_turn', 'before_end', 'post_turn']);
+
+  liveMock.close();
+  await session.close();
+});
+
+Deno.test('runSession StageContext.history seeds from SessionRequest.history', async () => {
+  clearProfiles();
+  resetTools();
+  const profile = defineProfile({
+    type: 'live',
+    id: 'session_live_history_seed',
+    identity: { handle: 'live', system: 'hi' },
+    models: {
+      gemini31FlashLive: {
+        ...HOST_BINDINGS.gemini31FlashLive,
+        key: 'slotA',
+      },
+    },
+    live: { voice: 'Aoede', ingress: { text: true } },
+    tools: { allow: [] },
+  });
+  registerProfile(profile);
+
+  let seenSeed = false;
+  let mock: MockLiveWebSocket | null = null;
+  const session = await runSession(
+    {
+      profile: profile.id,
+      history: [{ role: 'user', content: 'seeded prior' }],
+      onStage: async ({ stage, history }) => {
+        if (stage === 'pre_turn') {
+          seenSeed = history.some((m) => m.role === 'user' && m.content === 'seeded prior');
+        }
+      },
+    },
+    {
+      gemini: {
+        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
+      },
+      openWebSocket: () => {
+        mock = new MockLiveWebSocket();
+        setTimeout(() => mock?.open(), 0);
+        return Promise.resolve(mock as unknown as WebSocket);
+      },
+    },
+  );
+
+  await new Promise((r) => setTimeout(r, 0));
+  const drain = (async () => {
+    for await (const ev of session.events()) {
+      if (ev.type === 'done') break;
+    }
+  })();
+  await session.sendText('hello');
+  assertEquals(seenSeed, true);
+  (mock as unknown as MockLiveWebSocket).deliver({ serverContent: { turnComplete: true } });
+  await drain;
+  await session.close();
+});
+
+Deno.test('runSession executeTool gates, resumes granted, and denies via granted false', async () => {
+  clearProfiles();
+  resetTools();
+  registerTool({
+    type: 'function',
+    name: 'live_confirm_tool',
+    description: 'needs confirm',
+    category: 'test',
+    access: 'read-write',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    input: z.object({}),
+    output: z.object({ ok: z.boolean() }),
+    // Host onStage pre_tool runs after catalog permission; use preTool confirm for gate.
+    preTool: () => ({ confirm: { summary: 'confirm live tool' } }),
+    handler: () => ({ ok: true }),
+  });
+  const profile = defineProfile({
+    type: 'live',
+    id: 'session_live_execute_tool',
+    identity: { handle: 'live', system: 'hi' },
+    models: {
+      gemini31FlashLive: {
+        ...HOST_BINDINGS.gemini31FlashLive,
+        key: 'slotA',
+      },
+    },
+    live: { voice: 'Aoede', ingress: { text: true } },
+    tools: { allow: ['live_confirm_tool'] },
+  });
+  registerProfile(profile);
+
+  const stages: string[] = [];
+  let mock: MockLiveWebSocket | null = null;
+  const session = await runSession(
+    {
+      profile: profile.id,
+      onStage: async ({ stage }) => {
+        stages.push(stage);
+      },
+    },
+    {
+      gemini: {
+        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
+      },
+      openWebSocket: () => {
+        mock = new MockLiveWebSocket();
+        setTimeout(() => mock?.open(), 0);
+        return Promise.resolve(mock as unknown as WebSocket);
+      },
+    },
+  );
+
+  await new Promise((r) => setTimeout(r, 0));
+  const drain = (async () => {
+    for await (const _ev of session.events()) {
+      /* keep pump alive */
+    }
+  })();
+
+  const gated = await session.executeTool({
+    name: 'live_confirm_tool',
+    callId: 'c-gate',
+    input: {},
+  });
+  assertEquals(gated.gated?.kind, 'confirmation');
+  assertEquals(stages.includes('pre_tool'), true);
+  const sentAfterGate = (mock as unknown as MockLiveWebSocket).sent.filter((s) =>
+    s.includes('toolResponse'),
+  );
+  assertEquals(sentAfterGate.length, 0);
+
+  stages.length = 0;
+  const allowed = await session.executeTool({
+    name: 'live_confirm_tool',
+    callId: 'c-ok',
+    input: {},
+    resume: { granted: true },
+  });
+  assertEquals(allowed.failure, undefined);
+  assertEquals(allowed.gated, undefined);
+  assertEquals(stages.includes('post_tool'), true);
+  const sentAfterOk = (mock as unknown as MockLiveWebSocket).sent.filter(
+    (s) => s.includes('toolResponse') || s.includes('functionResponse'),
+  );
+  assertEquals(sentAfterOk.length > 0, true);
+
+  stages.length = 0;
+  const gated2 = await session.executeTool({
+    name: 'live_confirm_tool',
+    callId: 'c-deny',
+    input: {},
+  });
+  assertEquals(Boolean(gated2.gated), true);
+  const denied = await session.executeTool({
+    name: 'live_confirm_tool',
+    callId: 'c-deny',
+    input: {},
+    resume: { granted: false },
+  });
+  assertEquals(denied.failure?.code, 'denied');
+  assertEquals(stages.includes('post_tool'), true);
+
+  (mock as unknown as MockLiveWebSocket).close();
+  await session.close();
+  await drain.catch(() => undefined);
+});
+
+Deno.test('runSession pre_turn inject schedules realtime text and lands in later history', async () => {
+  clearProfiles();
+  resetTools();
+  const profile = defineProfile({
+    type: 'live',
+    id: 'session_live_inject',
+    identity: { handle: 'live', system: 'hi' },
+    models: {
+      gemini31FlashLive: {
+        ...HOST_BINDINGS.gemini31FlashLive,
+        key: 'slotA',
+      },
+    },
+    live: { voice: 'Aoede', ingress: { text: true } },
+    tools: { allow: [] },
+  });
+  registerProfile(profile);
+
+  let beforeEndSawInject = false;
+  let mock: MockLiveWebSocket | null = null;
+  const session = await runSession(
+    {
+      profile: profile.id,
+      onStage: async ({ stage, history }) => {
+        if (stage === 'pre_turn') {
+          return { inject: [{ role: 'user', content: 'injected steer' }] };
+        }
+        if (stage === 'before_end') {
+          beforeEndSawInject = history.some(
+            (m) =>
+              m.role === 'user' &&
+              typeof m.content === 'string' &&
+              m.content.includes('injected steer'),
+          );
+        }
+      },
+    },
+    {
+      gemini: {
+        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
+      },
+      openWebSocket: () => {
+        mock = new MockLiveWebSocket();
+        setTimeout(() => mock?.open(), 0);
+        return Promise.resolve(mock as unknown as WebSocket);
+      },
+    },
+  );
+
+  await new Promise((r) => setTimeout(r, 0));
+  const eventsPromise = (async () => {
+    for await (const ev of session.events()) {
+      if (ev.type === 'done' && beforeEndSawInject) break;
+    }
+  })();
+
+  await session.sendText('user open');
+  const liveMock = mock as unknown as MockLiveWebSocket;
+  const injectedWire = liveMock.sent.some((s) => s.includes('injected steer'));
+  assertEquals(injectedWire, true);
+  liveMock.deliver({ serverContent: { turnComplete: true } });
+  await eventsPromise;
+  assertEquals(beforeEndSawInject, true);
+  await session.close();
+});
+
+Deno.test('runSession before_end inject schedules realtime text and still emits done/post_turn', async () => {
+  clearProfiles();
+  resetTools();
+  const profile = defineProfile({
+    type: 'live',
+    id: 'session_live_before_end_inject',
+    identity: { handle: 'live', system: 'hi' },
+    models: {
+      gemini31FlashLive: {
+        ...HOST_BINDINGS.gemini31FlashLive,
+        key: 'slotA',
+      },
+    },
+    live: { voice: 'Aoede', ingress: { text: true } },
+    tools: { allow: [] },
+  });
+  registerProfile(profile);
+
+  const stages: string[] = [];
+  let mock: MockLiveWebSocket | null = null;
+  const session = await runSession(
+    {
+      profile: profile.id,
+      onStage: async ({ stage }) => {
+        stages.push(stage);
+        if (stage === 'before_end') {
+          return { inject: [{ role: 'user', content: 'before-end steer' }] };
+        }
+      },
+    },
+    {
+      gemini: {
+        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
+      },
+      openWebSocket: () => {
+        mock = new MockLiveWebSocket();
+        setTimeout(() => mock?.open(), 0);
+        return Promise.resolve(mock as unknown as WebSocket);
+      },
+    },
+  );
+
+  await new Promise((r) => setTimeout(r, 0));
+  const eventsPromise = (async () => {
+    const out = [];
+    for await (const ev of session.events()) {
+      out.push(ev);
+      if (stages.includes('post_turn')) break;
+    }
+    return out;
+  })();
+
+  await session.sendText('open');
+  const liveMock = mock as unknown as MockLiveWebSocket;
+  liveMock.deliver({ serverContent: { turnComplete: true } });
+  const events = await eventsPromise;
+  assertEquals(stages, ['pre_turn', 'before_end', 'post_turn']);
+  assertEquals(
+    events.some((e) => e.type === 'done'),
+    true,
+  );
+  assertEquals(
+    liveMock.sent.some((s) => s.includes('before-end steer')),
+    true,
+  );
 
   liveMock.close();
   await session.close();

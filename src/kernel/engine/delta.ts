@@ -1061,7 +1061,7 @@ function parseStructuredOutput(text: string): ParsedStructuredOutput {
   try {
     return { ok: true, structured: JSON.parse(text) };
   } catch {
-    return { ok: false, error: 'structured output was not valid JSON' };
+    return { ok: false, error: 'structured output was not valid JSON' }; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
 }
 

@@ -114,7 +114,8 @@ Deno.test('tools mutation helpers classify resume, pauses, and permissions preci
   assertEquals(isResumeContinuation({}), false);
   assertEquals(isResumeContinuation({ granted: true }), true);
   assertEquals(isResumeContinuation({ value: 0 }), true);
-  assertEquals(isResumeContinuation({ value: undefined, granted: false }), false);
+  // granted: false is still a resume continuation (a denial), not "no resume".
+  assertEquals(isResumeContinuation({ value: undefined, granted: false }), true);
 
   assertEquals(isGateResumeGranted(undefined), false);
   assertEquals(isGateResumeGranted({}), false);
@@ -222,18 +223,19 @@ Deno.test('tools mutation helpers project and format model results exactly', () 
   });
 });
 
-Deno.test('tools mutation helpers validate loaded ids and sanitize nested input', () => {
+Deno.test('tools mutation helpers validate loaded ids and sanitize nested input', async () => {
+  const { lexiconText } = await import('../../src/guardrails/lexicon.ts');
   assertEquals(
     notLoadedMessage(asValue<FunctionToolDef>({ name: 'probe', loadTier: 'T0' })),
-    "Tool 'probe' is not visible this turn",
+    lexiconText('tool.not_visible', { tool: 'probe' }),
   );
   assertEquals(
     notLoadedMessage(asValue<FunctionToolDef>({ name: 'one', loadTier: 'T1' })),
-    "Tool 'one' is not wired — profile.tools.t1Policy must select it",
+    lexiconText('tool.not_wired_t1', { tool: 'one' }),
   );
   assertEquals(
     notLoadedMessage(asValue<FunctionToolDef>({ name: 'two', loadTier: 'T2' })),
-    "Tool 'two' is not loaded — run profile.tools.t2Loader first",
+    lexiconText('tool.not_loaded_t2', { tool: 'two' }),
   );
   assertEquals(extractLoadedIds(null), undefined);
   assertEquals(extractLoadedIds([]), undefined);

@@ -1,4 +1,4 @@
-import { ATTACHMENT_ACCEPT_MIMES, VOICE_ACCEPT_MIMES } from '../kernel/schema.ts';
+import { ATTACHMENT_ACCEPT_MIMES, VOICE_ACCEPT_MIMES } from '../src/kernel/schema.ts';
 import type { PlaygroundInputsSpec, PlaygroundToolSeed } from './types.ts';
 
 const DEMO_ATTACHMENT_ACCEPT = ATTACHMENT_ACCEPT_MIMES.filter(

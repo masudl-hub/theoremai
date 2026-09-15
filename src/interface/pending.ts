@@ -62,7 +62,7 @@ function createComposerPendingMessage(
   args: CreateComposerPendingMessageArgs,
 ): ComposerPendingMessage {
   if (!userDraftHasPayload(args.draft)) {
-    throw new Error('Composer pending message requires a non-empty draft');
+    throw new Error('Composer pending message requires a non-empty draft'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   const now = args.now ?? Date.now();
   return {
@@ -129,7 +129,7 @@ function updateComposerPendingDraft(
   now = Date.now(),
 ): ComposerPendingMessage[] {
   if (!userDraftHasPayload(draft)) {
-    throw new Error('Composer pending message requires a non-empty draft');
+    throw new Error('Composer pending message requires a non-empty draft'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return messages.map((m) =>
     m.id === id

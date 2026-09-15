@@ -9,12 +9,17 @@
 import type { InvokeToolResume, ToolGate, ToolPermission } from './types.ts';
 
 export function isResumeContinuation(resume?: InvokeToolResume): boolean {
-  return resume?.value !== undefined || resume?.granted === true;
+  return resume?.value !== undefined || typeof resume?.granted === 'boolean';
 }
 
-/** Gate resume — only `granted` skips confirm/permission/`preTool` re-ask. */
+/** Gate resume — only `granted: true` skips confirm/permission/`preTool` re-ask. */
 export function isGateResumeGranted(resume?: InvokeToolResume): boolean {
   return resume?.granted === true;
+}
+
+/** Host denied after a gate — settle without running the body. */
+export function isGateResumeDenied(resume?: InvokeToolResume): boolean {
+  return resume?.granted === false;
 }
 
 export function permissionGranted(toolName: string, sessionPermissions?: string[]): boolean {

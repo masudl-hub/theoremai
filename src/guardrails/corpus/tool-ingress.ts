@@ -16,6 +16,7 @@
  * @module
  */
 
+/** lexicon-exempt-file: adversarial corpus fixture — not runtime user or model copy (P2) */
 /** Tool names a scenario's profile can call, for the callable-tool signal. */
 export const TOOL_INGRESS_TOOLS = ['send_email', 'delete_records', 'web_fetch', 'search'] as const;
 

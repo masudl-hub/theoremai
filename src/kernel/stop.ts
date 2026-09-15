@@ -7,6 +7,7 @@
  * @module
  */
 
+import { lexiconDefault } from '../guardrails/lexicon.ts';
 import { CONTINUE_STOP_KINDS, type ContinueStopKind, type TurnStopKind } from './schema.ts';
 
 /** Normalized stop attached to terminal `done` events and host continue requests. */
@@ -17,11 +18,12 @@ export interface TurnStop {
 }
 
 /**
- * Fixed continue instruction for resumeable stops.
- * Hosts should not invent per-app continue prompts.
+ * Default continue instruction for resumeable stops — the registered lexicon
+ * default (`continue.instruction`). It rarely needs replacing, but hosts may
+ * override it per profile via `turnBehaviour.resumption.continueInstruction`
+ * or process-wide via `overrideLexicon`.
  */
-export const CONTINUE_INSTRUCTION =
-  'Continue and finish the incomplete output from the previous turn. Do not restart from scratch; preserve what was already generated and complete it.';
+export const CONTINUE_INSTRUCTION = lexiconDefault('continue.instruction');
 
 /** Default kinds hosts may offer Continue for (= full ContinueStopKind set). */
 export const DEFAULT_ALLOW_CONTINUE: readonly ContinueStopKind[] = CONTINUE_STOP_KINDS;
@@ -54,6 +56,11 @@ export interface ProfileTurnResumptionSpec {
    * When omitted, only kind allowlists apply (no count cap).
    */
   maxContinues?: number;
+  /**
+   * Host replacement for the continue instruction appended on continueFrom
+   * turns. Omitted means the registered default (`CONTINUE_INSTRUCTION`).
+   */
+  continueInstruction?: string;
 }
 
 const CONTINUE_KIND_SET = new Set<string>(CONTINUE_STOP_KINDS);

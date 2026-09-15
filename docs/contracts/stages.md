@@ -3,9 +3,9 @@
 **Status: target — slices 1–3 on branch.** Locked design replacing steer
 barriers and overlapping tool pre-gates. **Foundation + text `runTurn` + tool
 execute + live cycle/`executeTool` + playground `onStage` inbox + react
-`gated*` rename (deprecated `paused*` aliases) landed on branch.** **No dual
-API** on a released line: stages are not “shipped” until `kernel.md` matches
-this file on the release cut.
+`gated*` (pause aliases removed) landed on branch.** **No dual API** on a
+released line: stages are not “shipped” until `kernel.md` matches this file on
+the release cut.
 
 ## Export (target)
 
@@ -22,14 +22,14 @@ this file on the release cut.
 | Interface gated/awaiting split (text) | landed |
 | Live profile `allowSteering`; cycle `idle`\|`open`; `LiveSession.executeTool` | landed |
 | Playground steer inbox via `onStage` (inject-capable stages only) | landed |
-| React rename `paused*` → `gated*` (deprecated aliases retained) | landed |
+| React / interface `gated*` only (`paused*` removed; no aliases) | landed |
 | Cancelled `done` + `post_turn` for AbortSignal (not only stage abort) | landed |
 
 Slice 1 removed: `TURN_STEER_BARRIERS`, `TurnSteer*`, `onSteer`, `barrier` events.
 Slice 2 removed: `canExecute`, `preflight`, `interactive` tool config; pause fiction for
 confirm/permission/auth (`phase: 'gate'` + `stop.kind: 'gate'`). `ask_user` completes with
 `awaiting_user_input`. Slice 3: live stages + `executeTool` + playground `onStage`
-+ react `gated*` rename (deprecated `paused*` aliases).
++ full `paused*` → `gated*` cut (no aliases).
 
 ## Ownership
 
@@ -227,6 +227,11 @@ resume — but stop kind was `'gate'`, not `'tool'`. After settle, host continue
 the model turn the same way they do after today’s tool resume
 (`continueAfterTool` / new `runTurn` / live already open).
 
+**Deny resume:** `resume: { granted: false }` settles as deny **without** running
+the body: failure event, `post_tool` with `callNotStarted: true`, and (on live)
+one upstream tool response — same honesty as `pre.kind === 'deny'`. Do not skip
+settle via bare `sendToolResponses`.
+
 **Do not** reuse `ToolPause` or `tool.phase: 'pause'` or `stop.kind: 'tool'` for
 these. Those names are removed with the fiction.
 
@@ -331,6 +336,12 @@ Same names. Cycle state `idle` | `open` on the session.
 `interrupted` / `post_turn`. Empty or zero-length audio chunks do **not** open
 a cycle. After `post_turn`, the next non-empty ingress opens a new cycle.
 
+**StageContext.history (live):** seeded from `SessionRequest.history`, then
+appended for user `sendText` / inject texts, tool settles from `executeTool`,
+and outbound assistant `text` events. Raw PCM / video frames are **not** stubbed
+into history — text + tools + seed are the observe surface until a multimodal
+history model exists.
+
 ### `LiveSession.executeTool` (required)
 
 ```ts
@@ -358,14 +369,17 @@ executeTool(args: {
 - On successful/awaiting/deny settle: sends upstream `sendToolResponse` with the
   **one** final model-facing result (deny → failure text/data).
 - On **gate**: does **not** send upstream tool response; returns `gated`; host
-  shows UI; host calls `executeTool` again with `resume`; then upstream send.
+  shows UI; host calls `executeTool` again with `resume: { granted: true }`
+  (allow) or `resume: { granted: false }` (deny settle); then upstream send on
+  allow/deny settle.
 - `SessionRequest` gains optional `credentials` and `host` for the session
   default; per-call args override.
 
 `sendToolResponse` / `sendToolResponses` remain for hosts that must speak the
-wire, but **using them alone to complete model tool calls skips stages and is
-non-compliant** with this contract. Document as escape hatch for non-registry
-relays only.
+wire for **non-registry** pre-failed call ids, but **using them alone to complete
+model tool calls skips stages and is non-compliant** with this contract.
+Playground HTTP `/api/playground/live/tool` is **removed** — live tools run only
+via relay `executeTool`.
 
 **Process split:** registry-owning process runs `executeTool` (or shared
 `invokeTool` + explicit stage dispatch); session process may only forward the
@@ -392,11 +406,11 @@ tool-request events, raw `sendToolResponse`.
 
 | Concern | Target |
 | --- | --- |
-| Steer | Offered when inject allowed **and** runner is at an inject-capable stage (`pre_turn` / `post_tool` / `before_end`). Not tied to “not paused.” |
-| Confirm / auth gate | Composer phase `gated` (rename from `paused`); primary actions: resolve gate / abandon — **not** “queue as if turn ended” |
-| Awaiting completion | Turn may be `idle` / completed; host UI from tool output; **not** composer `paused` |
-| `pausedTool` helpers | Replace with `gatedToolFromEvents` (stop `gate`) + `awaitingFromEvents` (complete+awaiting) |
-| `abandonPausedToolSession` | `abandonGatedToolSession` |
+| Steer | Offered when inject allowed **and** runner is at an inject-capable stage (`pre_turn` / `post_tool` / `before_end`). Not tied to “not gated.” |
+| Confirm / auth gate | Composer phase `gated` only; primary actions: resolve gate / abandon — **not** “queue as if turn ended” |
+| Awaiting completion | Turn may be `idle` / completed; host UI from tool output; **not** composer `gated` |
+| Gate helpers | `gatedToolFromEvents` (stop `gate`) + `awaitingFromEvents` (complete+awaiting) |
+| Abandon | `abandonGatedToolSession` |
 | Playground steer inbox | FIFO **one consume per inject-capable stage fire**; keyed by turn id (text) or session id (live). Do not consume on `pre_tool` / `post_turn` |
 | Snapshot | Still on `done` when `stop.kind === 'gate'` (and available on normal `done` when tools ran — not only gates) |
 
@@ -456,5 +470,5 @@ slice 1 alone is the product.
 
 Text mid-turn inject is stages (`onStage`); steer barriers are deleted.
 Tool execute uses `preTool` + gate/deny/awaiting ([`stages.md`](stages.md) slice 2).
-Live `executeTool` / playground inbox / cycle stages / react `gated*` rename are
-on branch (slice 3); deprecated `paused*` aliases remain until a follow-up cleanup.
+Live `executeTool` / playground inbox / cycle stages / react+interface `gated*`
+(no `paused*` aliases) are on branch (slice 3).

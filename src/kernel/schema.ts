@@ -8,6 +8,7 @@
  * @module
  */
 
+/** lexicon-exempt-file: authoring field-meta / closed unions — not runtime user or model copy (P2) */
 import { EGRESS_ON_BLOCK, type EgressOnBlock } from '../guardrails/types.ts';
 import { GOOGLE_SPEECH_VOICES } from '../presets/google/speech-voices.ts';
 
@@ -208,14 +209,34 @@ export const TURN_STAGES = [
 ] as const;
 export type TurnStage = (typeof TURN_STAGES)[number];
 
+const TURN_STAGE_SET = new Set<string>(TURN_STAGES);
+
+/** True when `value` is a known `TurnStage`. */
+export function isTurnStage(value: unknown): value is TurnStage {
+  return typeof value === 'string' && TURN_STAGE_SET.has(value);
+}
+
 /** Stages where inject is physically meaningful (still requires inject gate). */
 export const TURN_INJECT_STAGES = ['pre_turn', 'post_tool', 'before_end'] as const;
 export type TurnInjectStage = (typeof TURN_INJECT_STAGES)[number];
+
+const TURN_INJECT_STAGE_SET = new Set<string>(TURN_INJECT_STAGES);
+
+/** True when inject is physically meaningful at this stage (gate still required). */
+export function isTurnInjectStage(value: unknown): value is TurnInjectStage {
+  return typeof value === 'string' && TURN_INJECT_STAGE_SET.has(value);
+}
 
 /** `pre_tool` gate kinds — confirm-to-run / permission / auth. Not awaiting. */
 export const TOOL_GATE_KINDS = ['confirmation', 'permission', 'auth'] as const;
 export type ToolGateKind = (typeof TOOL_GATE_KINDS)[number];
 
+const TOOL_GATE_KIND_SET = new Set<string>(TOOL_GATE_KINDS);
+
+/** True when `value` is a known tool-gate kind. */
+export function isToolGateKind(value: unknown): value is ToolGateKind {
+  return typeof value === 'string' && TOOL_GATE_KIND_SET.has(value);
+}
 /** `awaiting_user_input.kind` — harness ask_user / human-as-product completions. */
 export const AWAITING_USER_INPUT_KINDS = ['confirm', 'choice', 'text'] as const;
 export type AwaitingUserInputKind = (typeof AWAITING_USER_INPUT_KINDS)[number];
@@ -818,6 +839,10 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
     'number',
     'Max continueFrom rounds the kernel accepts (compared to TurnRequest.continuation).',
   ),
+  'turnBehaviour.resumption.continueInstruction': field(
+    'string',
+    'Host replacement for the continue instruction appended on continueFrom turns. Omitted: registered default.',
+  ),
   'turnBehaviour.allowSteering': field(
     'boolean',
     'Text and live. When true (default), host onStage inject affordances are applied. Image/speech must omit.',
@@ -827,13 +852,21 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
     'Quota, canary, sanitize, redact, egress, network, and taint switches. On type host only the invokeTool-path guards are accepted (HostGuardrailsSpec: sanitizeInput, redactSensitive, network, taint) — quota, canary, and egress guard a model turn and are refused.',
   ),
   'guardrails.quota': field(
-    '{ perDay: number }',
+    'QuotaGuardrailSpec',
     'Host HTTP helper — not enforced inside runTurn.',
   ),
   'guardrails.quota.perDay': field('number', 'Daily turn cap used by host quota middleware.'),
+  'guardrails.quota.message': field(
+    'string',
+    'Host copy surfaced by quotaExhausted when the quota trips. The kernel ships no fallback.',
+  ),
   'guardrails.canary': field(
-    'boolean',
-    'Per-turn canary token bound to system prompt. Default true; set false to opt out.',
+    'boolean | CanaryGuardrailSpec',
+    'Per-turn canary token bound to system prompt. Default true; set false to opt out; object form supplies bindNote.',
+  ),
+  'guardrails.canary.bindNote': field(
+    'string',
+    'Host template appended to the system prompt; must contain the {canary} placeholder. Omitted: registered default.',
   ),
   'guardrails.sanitizeInput': field('boolean', 'Strip inbound injection spans.'),
   'guardrails.redactSensitive': field('boolean', 'Redact sensitive spans.'),

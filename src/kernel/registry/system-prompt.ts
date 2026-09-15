@@ -5,19 +5,12 @@
  * @module
  */
 
+import { lexiconText } from '../../guardrails/lexicon.ts';
 import { detectionForTrust, resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import { sanitizeText } from '../../guardrails/sanitize.ts';
-import { CONTINUE_INSTRUCTION } from '../stop.ts';
+import { profileTurnResumption } from '../stop.ts';
 import type { ModelProfile, TurnRequest } from '../types.ts';
-
-function pickSystemRole(profile: ModelProfile, requested?: string): string {
-  const { identity } = profile;
-  const { handle, systemByRole } = identity;
-  if (requested && systemByRole && Object.hasOwn(systemByRole, requested)) {
-    return requested;
-  }
-  return handle;
-}
+import { pickSystemRole } from './system-role.ts';
 
 /**
  * Author-time system text for a role (handle or `systemByRole`).
@@ -42,8 +35,11 @@ function systemFromProfile(profile: ModelProfile, role: string): string {
 /** Merge profile + host turn system synchronously at resolve time. */
 function resolveTurnSystemPrompt(profile: ModelProfile, req: TurnRequest): string {
   const role = pickSystemRole(profile, req.input?.role);
-  const continueSys = req.continueFrom ? CONTINUE_INSTRUCTION : '';
+  // Profile override wins; otherwise the registered lexicon default.
+  const continueSys = req.continueFrom
+    ? lexiconText('continue.instruction', {}, profileTurnResumption(profile)?.continueInstruction)
+    : '';
   return [systemFromProfile(profile, role), req.system, continueSys].filter(Boolean).join('\n\n');
 }
 
-export { pickSystemRole, resolveTurnSystemPrompt, systemFromProfile };
+export { resolveTurnSystemPrompt, systemFromProfile };

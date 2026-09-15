@@ -122,6 +122,40 @@ Deno.test('always_confirm ignores session permissions until resume.granted', asy
   );
 });
 
+Deno.test('resume.granted false settles as denied with post_tool', async () => {
+  registerProfile({
+    type: 'text',
+    identity: { handle: 'test', system: 'test' },
+    id: 'deny_resume_probe',
+    ...geminiModels('gemini35FlashLite'),
+    maxSteps: 1,
+    tools: { allow: ['always_confirm_tool'] },
+    inputs: { text: true },
+    outputs: {},
+    guardrails: { quota: { perDay: 50 } },
+  });
+
+  const stages: string[] = [];
+  const denied = await invokeRegisteredTool({
+    profile: 'deny_resume_probe',
+    name: 'always_confirm_tool',
+    input: {},
+    resume: { granted: false },
+    onStage: async ({ stage }) => {
+      stages.push(stage);
+    },
+  });
+  assertEquals(
+    denied.findLast((e) => e.tool?.name === 'always_confirm_tool')?.tool?.phase,
+    'error',
+  );
+  assertEquals(
+    denied.findLast((e) => e.tool?.name === 'always_confirm_tool')?.tool?.failure?.code,
+    'denied',
+  );
+  assertEquals(stages.includes('post_tool'), true);
+});
+
 Deno.test('path-mismatched allowed tool returns not_gated not not_loaded', async () => {
   registerProfile(
     defineProfile({

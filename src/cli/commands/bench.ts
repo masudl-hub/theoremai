@@ -17,7 +17,8 @@ import { bindCanary, eventHasCanary, mintCanary } from '../../guardrails/canary.
 import { sanitizeTurnRequest } from '../../guardrails/sanitize.ts';
 import { runTurn } from '../../kernel/engine/runner.ts';
 import { clearProfiles, registerProfile } from '../../kernel/registry/profiles.ts';
-import { pickSystemRole, resolveTurn } from '../../kernel/registry/resolve.ts';
+import { resolveTurn } from '../../kernel/registry/resolve.ts';
+import { pickSystemRole } from '../../kernel/registry/system-role.ts';
 import type {
   ModelProvider,
   ProviderCompleteRequest,

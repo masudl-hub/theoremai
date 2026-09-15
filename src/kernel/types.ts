@@ -927,7 +927,7 @@ export interface TurnEvent {
   stop?: TurnStop;
   /**
    * Turn tool visibility snapshot when `stop.kind === 'tool'`.
-   * Hosts pass this to `invokeTool({ snapshot })` so T1/T2 resume matches the paused turn.
+   * Hosts pass this to `invokeTool({ snapshot })` so T1/T2 resume matches the gated turn.
    */
   tools?: TurnToolSnapshot;
   /** Turn-stage name when `type === 'stage'` (`docs/contracts/stages.md`). */
@@ -1038,6 +1038,23 @@ export interface SessionRequest {
  * Long-lived live session returned by `runSession`.
  * `done` events mark conversational turn boundaries; the session stays open until `close()`.
  */
+export type LiveExecuteToolArgs = {
+  name: string;
+  callId: string;
+  input?: unknown;
+  resume?: InvokeToolResume;
+  credentials?: Record<string, ToolCredential>;
+  host?: unknown;
+};
+
+export type LiveExecuteToolResult = {
+  outputRaw?: unknown;
+  outputModel?: ModelToolResult;
+  failure?: ToolFailure;
+  awaiting?: boolean;
+  gated?: ToolGate;
+};
+
 export interface LiveSession {
   readonly profileId: ProfileId;
   readonly canary: string;
@@ -1049,20 +1066,7 @@ export interface LiveSession {
    * Registry tool execute with stages. Pumps `stage`/`tool` into `events()`.
    * Gate → returns `gated` without upstream tool response; resume with `granted`.
    */
-  executeTool(args: {
-    name: string;
-    callId: string;
-    input?: unknown;
-    resume?: InvokeToolResume;
-    credentials?: Record<string, ToolCredential>;
-    host?: unknown;
-  }): Promise<{
-    outputRaw?: unknown;
-    outputModel?: ModelToolResult;
-    failure?: ToolFailure;
-    awaiting?: boolean;
-    gated?: ToolGate;
-  }>;
+  executeTool(args: LiveExecuteToolArgs): Promise<LiveExecuteToolResult>;
   sendToolResponse(id: string, name: string, output: unknown): void;
   sendToolResponses(responses: Array<{ id: string; name: string; output: unknown }>): void;
   close(reason?: string): Promise<void>;

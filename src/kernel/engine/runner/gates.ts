@@ -1,6 +1,7 @@
 import { runEnforcer } from '../../../guardrails/egress.ts';
 import { TheorumError, throwIfAborted, toErrorEvent } from '../../../guardrails/error.ts';
 import { guardrailFromVerdict } from '../../../guardrails/events.ts';
+import { lexiconText } from '../../../guardrails/lexicon.ts';
 import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import { sanitizeTurnRequest } from '../../../guardrails/sanitize.ts';
 import type {
@@ -19,29 +20,33 @@ import type {
   TurnEvent,
   TurnRequest,
 } from '../../types.ts';
+import { findLast } from '../../util/find-last.ts';
 import { collectValidationFailures, formatValidationFailures } from './schema-validation.ts';
 import { applyTurnStage, injectWouldExceedMaxSteps } from './stages.ts';
 import type { AttemptFlowState, StepExecutionState } from './state.ts';
 import { executeAttempt } from './steps.ts';
 
 /** Internal reason recorded when a turn is withheld; mapped to public copy on emit. */
-const WITHHELD = 'Turn withheld: egress disclosure violation';
+const WITHHELD = 'Turn withheld: egress disclosure violation'; // lexicon-exempt: internal marker mapped by publicError
 
 function collectAttemptText(events: TurnEvent[]): string {
-  return events
-    .filter((e) => e.type === 'text' && e.text)
-    .map((e) => e.text)
-    .join('');
+  const parts: string[] = [];
+  for (const event of events) {
+    if (event.type === 'text' && event.text) {
+      parts.push(event.text);
+    }
+  }
+  return parts.join('');
 }
 
 /**
- * Project one attempt's events into the payload the egress policy inspects.
+ * Project attempt events into the egress payload.
  *
  * Structured output travels alongside text so a profile with `outputs.structured`
  * is covered by its own egress policy rather than passing unexamined.
  */
 function projectOutbound(events: TurnEvent[]): OutboundPayload {
-  const structured = events.findLast((e) => e.type === 'structured')?.structured;
+  const structured = findLast(events, (e) => e.type === 'structured')?.structured;
   return {
     text: collectAttemptText(events),
     ...(structured !== undefined ? { structured } : {}),
@@ -121,9 +126,7 @@ async function evaluateEgressOutcome(args: {
   }
 
   if (canRetry) {
-    const repairGuidance =
-      egress.repairGuidance ||
-      'Rewrite the message as corrected user-visible prose only. Keep the same helpful substance; scrub all internal tool names, leak phrases, and disclosure markers.';
+    const repairGuidance = egress.repairGuidance || lexiconText('egress.default_repair_guidance');
     const nextRequest = buildRepairRequest(
       request,
       payload.text,
@@ -154,11 +157,15 @@ async function evaluateValidationOutcome(args: {
   }
   const structuredId = generation.structured;
   if (!structuredId) {
-    throw new TheorumError('outputs.validation requires outputs.structured with a JSON Schema');
+    throw new TheorumError(
+      'outputs.validation requires outputs.structured with a JSON Schema', // lexicon-exempt: developer contract error
+    );
   }
   const spec = getStructured(structuredId);
   if (!spec.jsonSchema) {
-    throw new TheorumError(`structured schema '${structuredId}' has no jsonSchema for validation`);
+    throw new TheorumError(
+      `structured schema '${structuredId}' has no jsonSchema for validation`, // lexicon-exempt: developer contract error
+    );
   }
   const failures = await collectValidationFailures(
     spec.jsonSchema,

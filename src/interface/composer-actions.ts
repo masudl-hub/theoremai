@@ -6,8 +6,8 @@
  * - idle + payload → send (menu: stash)
  * - streaming + empty → stop
  * - streaming + payload → queue (menu: queue, steer?, send_now, stash)
- * - gated/paused + empty → none (pre_tool gate suspension; no abort stream)
- * - gated/paused + payload → queue (menu: queue, send_now, stash — no steer)
+ * - gated + empty → none (pre_tool gate suspension; no abort stream)
+ * - gated + payload → queue (menu: queue, send_now, stash — no steer)
  *
  * Tool gate does **not** drain the queue. Enter matches primary (queue while
  * streaming/gated with payload). No keyboard shortcuts in this contract.
@@ -17,8 +17,8 @@
 
 import type { ComposerPendingKind } from './pending.ts';
 
-/** Host turn phase for composer affordances. Prefer `'gated'`; `'paused'` is a legacy alias. */
-export type ComposerRunPhase = 'idle' | 'streaming' | 'gated' | 'paused';
+/** Host turn phase for composer affordances. */
+export type ComposerRunPhase = 'idle' | 'streaming' | 'gated';
 
 /** Primary button / Enter target. */
 export type ComposerPrimaryAction = 'send' | 'stop' | 'queue' | 'none';
@@ -49,7 +49,7 @@ function resolveComposerPrimary(ctx: ComposerActionContext): ComposerPrimaryActi
     if (!ctx.hasPayload) return canStop ? 'stop' : 'none';
     return 'queue';
   }
-  // gated/paused — still same run; queue only, no stop stream
+  // gated — still same run; queue only, no stop stream
   return ctx.hasPayload ? 'queue' : 'none';
 }
 
@@ -71,36 +71,11 @@ function resolveComposerMenuActions(ctx: ComposerActionContext): ComposerMenuAct
     return actions;
   }
 
-  // gated/paused: no steer (not an inject stage); send_now = host ends wait + send
+  // gated: no steer (not an inject stage); send_now = host ends wait + send
   return ['queue', 'send_now', 'stash'];
 }
 
-/** Human labels for UI (hosts may override). */
-const COMPOSER_MENU_ACTION_LABELS: Record<ComposerMenuAction, string> = {
-  queue: 'Queue',
-  steer: 'Steer current run',
-  send_now: 'Send now',
-  stash: 'Stash',
-};
-
-const COMPOSER_MENU_ACTION_DESCRIPTIONS: Record<ComposerMenuAction, string> = {
-  queue: 'Send after the current run finishes.',
-  steer: 'Inject at the next inject-capable stage (pre_turn / post_tool / before_end).',
-  send_now: 'Stop or leave the pause, then send this message.',
-  stash: 'Save in the composer for later.',
-};
-
-const COMPOSER_PRIMARY_LABELS: Record<ComposerPrimaryAction, string> = {
-  send: 'Send',
-  stop: 'Stop',
-  queue: 'Queue',
-  none: 'Send',
-};
-
-export {
-  COMPOSER_MENU_ACTION_DESCRIPTIONS,
-  COMPOSER_MENU_ACTION_LABELS,
-  COMPOSER_PRIMARY_LABELS,
-  resolveComposerMenuActions,
-  resolveComposerPrimary,
-};
+// Headless contract: this module emits semantic action keys only. English
+// labels for these keys live in the rendering layer (`@theorum/react`)
+// or in the host UI.
+export { resolveComposerMenuActions, resolveComposerPrimary };

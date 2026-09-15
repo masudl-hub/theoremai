@@ -13,7 +13,8 @@ import {
   stageEventFields,
 } from '../stages.ts';
 import type { TurnEvent, TurnHistoryMessage } from '../types.ts';
-import type { ModelToolResult, ToolFailure, ToolGate } from './types.ts';
+import { isGateResumeGranted } from './permission.ts';
+import type { ModelToolResult, ToolContext, ToolFailure, ToolGate } from './types.ts';
 
 /** Stage wiring passed into `executeRegisteredTool`. */
 export interface ToolStageSupport {
@@ -29,6 +30,22 @@ export interface ToolStageSupport {
   signal?: AbortSignal;
 }
 
+/** Empty host stage support when only a tool-local `preTool` is present. */
+function defaultToolStageSupport(ctx: {
+  turn?: { step?: number };
+  host?: unknown;
+  signal?: AbortSignal;
+}): ToolStageSupport {
+  return {
+    handlers: [],
+    step: ctx.turn?.step ?? 1,
+    history: () => [],
+    injectAllowed: false,
+    host: ctx.host,
+    signal: ctx.signal,
+  };
+}
+
 export type PreToolStageOutcome =
   | { kind: 'proceed'; input: unknown }
   | { kind: 'deny'; failure: ToolFailure }
@@ -42,6 +59,44 @@ export type PostToolStageOutcome = {
   /** Inject messages for the caller to apply after recording the tool result. */
   inject?: TurnHistoryMessage[];
 };
+
+/**
+ * Await tool-local `preTool` (skipped when resume.granted), then run host pre_tool stages.
+ * Returns `passthrough` when neither tool nor host stages apply.
+ */
+export async function* runPreToolPipeline(args: {
+  tool: {
+    name: string;
+    preTool?: (
+      input: never,
+      ctx: ToolContext,
+    ) => StageResult | undefined | Promise<StageResult | undefined>;
+  };
+  input: unknown;
+  ctx: ToolContext;
+  callId: string;
+  stages?: ToolStageSupport;
+}): AsyncGenerator<
+  TurnEvent,
+  { status: 'passthrough'; input: unknown } | { status: 'ran'; outcome: PreToolStageOutcome }
+> {
+  let toolPreTool: StageResult | undefined;
+  if (args.tool.preTool && !isGateResumeGranted(args.ctx.resume)) {
+    toolPreTool = (await args.tool.preTool(args.input as never, args.ctx)) ?? undefined;
+  }
+  if (!args.stages && toolPreTool === undefined) {
+    return { status: 'passthrough', input: args.input };
+  }
+  const support = args.stages ?? defaultToolStageSupport(args.ctx);
+  const outcome = yield* runPreToolStages({
+    stages: support,
+    toolName: args.tool.name,
+    callId: args.callId,
+    input: args.input,
+    toolPreTool,
+  });
+  return { status: 'ran', outcome };
+}
 
 function mergeStageResults(parts: StageResult[]): StageResult {
   const out: StageResult = {};
@@ -71,7 +126,7 @@ async function collectHandlerResults(
 /**
  * Emit `pre_tool`, run tool `preTool` then host handlers, apply affordances.
  */
-export async function* runPreToolStages(args: {
+async function* runPreToolStages(args: {
   stages: ToolStageSupport;
   toolName: string;
   callId: string;

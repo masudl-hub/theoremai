@@ -100,7 +100,7 @@ async function run(
     events.push(step.value);
     step = await exec.next();
   }
-  return { events, result: step.value };
+  return { events, result: step.value.modelResult };
 }
 
 const guardrails = (events: TurnEvent[]) =>

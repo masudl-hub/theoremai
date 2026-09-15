@@ -4,6 +4,7 @@
  * @module
  */
 
+/** lexicon-exempt-file: adversarial corpus fixture — not runtime user or model copy (P2) */
 export const TEST_AWS_KEY = 'AKIAIOSFODNN7EXAMPLE';
 export const TEST_GOOGLE_KEY = 'AIzaSyA1234567890abcdefghijklmnopqrstuv';
 export const TEST_OPENAI_KEY = 'sk-1234567890abcdefghijklmn';

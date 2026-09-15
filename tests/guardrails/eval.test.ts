@@ -7,10 +7,12 @@
  * running `theorum guardrails-eval`, not by the unit suite.
  */
 import '../fixtures/test-host.ts';
-import type { CorpusCache, CorpusSample } from '../../src/guardrails/eval/corpus.ts';
 import {
+  type CorpusCache,
+  type CorpusSample,
   fetchRows,
   parseLabelledCsv,
+  REVIEWED_SOURCES,
   recordsFromYaml,
   SOURCES,
 } from '../../src/guardrails/eval/corpus.ts';
@@ -227,4 +229,12 @@ Deno.test('a failed page does not truncate the walk', async () => {
 
 Deno.test('fetchRows stops at the requested limit', async () => {
   assertEquals((await fetchRows(stubCache(10_000), 'x/y', 300, { retryBaseMs: 1 })).length, 300);
+});
+
+Deno.test('REVIEWED_SOURCES catalog stays non-empty for docs drift', () => {
+  assertEquals(REVIEWED_SOURCES.length > 0, true);
+  assertEquals(
+    REVIEWED_SOURCES.every((entry) => entry.dataset.length > 0 && entry.verdict.length > 0),
+    true,
+  );
 });

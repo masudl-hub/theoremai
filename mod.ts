@@ -65,10 +65,19 @@ export {
   matchPreview,
   projectGuardrailEvent,
 } from './src/guardrails/hits.ts';
+export type { LexiconKey, LexiconOverrides, LexiconParams } from './src/guardrails/lexicon.ts';
+export {
+  LEXICON_KEYS,
+  lexiconDefault,
+  lexiconText,
+  overrideLexicon,
+  resetLexicon,
+} from './src/guardrails/lexicon.ts';
 export type {
   AdvisoryLevel,
   CanaryGateResult,
   CanaryGateSession,
+  CanaryGuardrailSpec,
   CanaryStreamGate,
   DetectionOptions,
   EgressEnforcer,
@@ -90,6 +99,7 @@ export type {
   ProgressiveYieldGateOptions,
   ProgressiveYieldResult,
   Provenance,
+  QuotaGuardrailSpec,
   ResolvedGuardrailPolicy,
   ScanText,
   Severity,
@@ -154,10 +164,10 @@ export {
   isLocalhostName,
   isPrivateOrLocalAddress,
 } from './src/guardrails/network.ts';
-export type { QuotaSlotStatus } from './src/guardrails/quota.ts';
+export type { QuotaExhausted, QuotaSlotStatus } from './src/guardrails/quota.ts';
 export {
   clientIp,
-  quotaMessage,
+  quotaExhausted,
   releaseSlot,
   resetSlots,
   skipQuota,
@@ -213,15 +223,12 @@ export {
 } from './src/kernel/profile-graph.ts';
 export {
   assertAttachmentLimits,
-  fileTooLargeMessage,
   maxBytesForMime,
   requireMediaLimits,
   resolveMediaLimits,
   sanitizeCsvText,
   sanitizeTurnBlobs,
   sanitizeTurnBlobsForProfile,
-  tooManyFilesMessage,
-  turnTooLargeMessage,
 } from './src/kernel/registry/attachments.ts';
 export type { MediaInputChannel } from './src/kernel/registry/catalog.ts';
 export {
@@ -282,6 +289,9 @@ export {
   fieldMeta,
   HTTP_METHODS,
   isSpeechFormatAllowedForProtocol,
+  isToolGateKind,
+  isTurnInjectStage,
+  isTurnStage,
   isValidPair,
   isValidProfileProtocol,
   KEY_SLOTS,
@@ -334,9 +344,6 @@ export type {
 export {
   applyStageResult,
   isAwaitingUserInput,
-  isToolGateKind,
-  isTurnInjectStage,
-  isTurnStage,
   parseAwaitingUserInput,
   parseToolGate,
   STAGE_AFFORDANCE_MATRIX,

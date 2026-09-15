@@ -44,7 +44,7 @@ function resolveKeySlot(
     return profileKey;
   }
   if (required) {
-    throw new TheorumError('Profile must set key or models.*.key');
+    throw new TheorumError('Profile must set key or models.*.key'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return undefined;
 }

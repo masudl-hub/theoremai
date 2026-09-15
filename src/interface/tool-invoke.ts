@@ -5,6 +5,7 @@
  */
 
 import type { ToolId, TurnEvent, TurnToolSnapshot } from '../kernel/types.ts';
+import { findLast } from '../kernel/util/find-last.ts';
 
 /** Collect T2 ids promoted by loader tool completions in a turn event stream. */
 function promotedToolIdsFromEvents(events: readonly TurnEvent[]): ToolId[] {
@@ -32,7 +33,8 @@ function promotedToolIdsFromEvents(events: readonly TurnEvent[]): ToolId[] {
 
 /** Read the turn tool snapshot emitted on a gate (or legacy tool-pause) terminal `done`. */
 function toolSnapshotFromEvents(events: readonly TurnEvent[]): TurnToolSnapshot | undefined {
-  const done = events.findLast(
+  const done = findLast(
+    events,
     (event) =>
       event.type === 'done' && (event.stop?.kind === 'gate' || event.stop?.kind === 'tool'),
   );

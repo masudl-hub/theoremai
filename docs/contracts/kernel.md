@@ -18,6 +18,31 @@ provider adapters.
 | --- | --- |
 | Tree | `src/kernel/` (engine, registry, `stop.ts`, `types.ts`) |
 
+## Facts and policy
+
+**Rule: "Host decides, Theorum runs."** Two hosts shipping contradictory
+products can run the same unforked kernel version; no end user and no model
+may observe a decision the host did not make.
+
+**Facts vs policy.** Provider facts may ship (model capabilities, wire shapes,
+protocol metadata — presets/google). Product policy may not (prompts, personas,
+end-user copy, demo apps, channel behavior). The kernel may ship overridable
+defaults for mechanism text via the guardrails lexicon; it may not ship
+unreplaceable copy or bundled product. Demo fixtures live in the repo-private
+`playground/` package (`@theorum/playground`), never in the published artifact.
+
+| Id | Property |
+| --- | --- |
+| P1 | No ambient authority — `defineProfile` / `createProvider` succeed with every Deno permission denied (no env, net, read, write, run, ffi, sys). Deno loads the static module graph without consulting the permission system; construction must not exercise ambient I/O beyond that (`tests/kernel/zero-permission-import.test.ts`) |
+| P2 | No unownable words — every user- or model-visible string is host-supplied or an overridable registered lexicon default |
+| P3 | No buried policy — behavioral defaults are declared typed profile-schema fields, never only implementation constants |
+| P4 | Inert extras — deleting optional packages (playground) changes no kernel behavior |
+
+Continue-instruction text defaults to `CONTINUE_INSTRUCTION` and is overridable
+per profile at `turnBehaviour.resumption.continueInstruction` (or process-wide
+via `overrideLexicon`). Composer labels in `theorum/interface` are semantic
+keys only; English lives in `@theorum/react`.
+
 ## Profiles
 
 Hosts declare agents with `defineProfile` / `registerProfile` (or
@@ -714,7 +739,7 @@ Primary matrix: idle+payload → Send; streaming+empty → Stop; streaming/gated
 Enter matches primary. Menu offers Queue / Steer / Send now / Stash as applicable.
 Undelivered steers convert to the front of the queue when the run ends.
 Tool **gate** does not drain the queue and does not offer Steer (not an inject stage).
-Send now while gated uses `abandonGatedToolSession` (alias `abandonPausedToolSession`)
+Send now while gated uses `abandonGatedToolSession`
 then starts a new user turn. Awaiting completions (`ask_user`) are not composer
 `gated` — the turn may already be idle; use `awaitingFromEvents`.
 
@@ -744,9 +769,9 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
 | Auth (stateless OAuth/PKCE) | `createOAuthPkceFlow`, `exchangeOAuthPkce`, `refreshOAuthToken`, `discoverResourceMetadata`, `discoverAuthServerMetadata`, `validateIssuer`, `generateCodeVerifier`, `computeCodeChallenge`, `sealStatePayload`, `unsealStatePayload` |
 | Structured | `getStructured`, `registerStructured` |
 | Stop / resume | `ProfileTurnBehaviourSpec`, `ProfileTurnResumptionSpec`, `TurnContinueFrom`, `TurnStop`, `TurnStopKind`, `ContinueStopKind`, `CONTINUE_STOP_KINDS`, `AUTO_CONTINUE_DELAY_MS`, `CONTINUE_INSTRUCTION`, `DEFAULT_ALLOW_CONTINUE`, `DEFAULT_AUTO_CONTINUE`, `GenerationStopError`, `isContinueStopKind`, `isGenerationStopError`, `isResumeableStop`, `isUserCancelledStop`, `profileAllowsSteering`, `profileAllowsInject`, `profileTurnResumption`, `shouldAutoContinue`, `turnStopFromClientStreamEnd`, `turnStopFromInteractionStatus`, `turnStopFromOpenAiFinishReason` |
-| Stages (target foundation) | `TURN_STAGES`, `TURN_INJECT_STAGES`, `STAGE_AFFORDANCES`, `STAGE_AFFORDANCE_MATRIX`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `applyStageResult`, `parseAwaitingUserInput`, `parseToolGate`, `isTurnStage`, `isTurnInjectStage`, `isToolGateKind`, `isAwaitingUserInput`, `stageAllowsAffordance`, `stageEventFields`, `profileAllowsInject`, `StageAffordance`, `StageContext`, `StageResult`, `StageHandler`, `StageApplyInput`, `StageApplyOutput`, `StageApplyWarning`, `StageApplyWarningCode`, `StageEventExtra`, `AwaitingUserInput`, `ToolGate` — see [`stages.md`](stages.md). Text `runTurn` + tool execute cutover landed; live still outstanding. |
-| Interface (headless) | `interfaceFrom`, `interfaceFromProfile`, `interfaceFromProjected`, `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime`, `sanitizeUserDraft`, `prepareUserTurn`, `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `resetBlockIds`, `streamThoughtsEnabled`, `collectPromotedMediaFromToolOutput`, `promotedMediaFromUrlString`, `PromotedToolMedia`, `defaultInterfaceEffort`, `defaultInterfaceModel`, `effortSelectEnabled`, `generationSelectEnabled`, `interfaceEffortOptions`, `interfaceModelOptions`, `modelSelectEnabled`, `appendAssistantEventsToHistory`, `appendToolDenialToHistory`, `appendToolExchangeToHistory`, `appendUserDraftToHistory`, `historyFromTranscriptBlocks`, `applyTurnEventsToSession`, `branchInterfaceTurnSession`, `emptyInterfaceTurnSession`, `abandonGatedToolSession`, `abandonPausedToolSession`, `gatedToolFromEvents`, `pausedToolFromEvents`, `awaitingFromEvents`, `promotedToolIdsFromEvents`, `toolSnapshotFromEvents`, `COMPOSER_PENDING_KINDS`, `COMPOSER_MENU_ACTION_DESCRIPTIONS`, `COMPOSER_MENU_ACTION_LABELS`, `COMPOSER_PRIMARY_LABELS`, `cloneUserTurnDraft`, `composerPendingPreview`, `consumeNextComposerQueue`, `consumeNextComposerSteer`, `convertSteersToFrontQueued`, `createComposerPendingMessage`, `moveComposerPendingWithinKind`, `orderComposerPendingMessages`, `promoteComposerPendingKind`, `removeComposerPendingMessage`, `resolveComposerMenuActions`, `resolveComposerPrimary`, `updateComposerPendingDraft`, `userDraftHasPayload`, `userDraftToSteerInject`, `AttachmentValidationCode`, `AttachmentValidationIssue`, `AttachmentValidationResult`, `AwaitingToolContext`, `ComposerActionContext`, `ComposerMenuAction`, `ComposerPendingKind`, `ComposerPendingMessage`, `ComposerPrimaryAction`, `ComposerProfileInterface`, `ComposerRunPhase`, `CreateComposerPendingMessageArgs`, `FoldTurnEventsOptions`, `GatedToolContext`, `ImageProfileInterface`, `InterfaceEffortOption`, `InterfaceModelOption`, `LiveProfileInterface`, `LiveResolvedTools`, `PendingAttachment`, `PrepareUserTurnResult`, `ProfileGuardrailsView`, `ProfileObservabilityView`, `ProfileInputsInterface`, `ProfileInterface`, `ProfileInterfaceSource`, `ResolvedTools`, `SpeechProfileInterface`, `TextProfileInterface`, `TranscriptBlock`, `TranscriptBlockKind`, `UserTurnDraft`, `UserTurnHistoryMedia`, `InterfaceTurnSession`, `PausedToolContext` |
-| Attachments (kernel) | `maxBytesForMime`, `resolveMediaLimits`, `fileTooLargeMessage`, `tooManyFilesMessage`, `turnTooLargeMessage` |
+| Stages (target foundation) | `TURN_STAGES`, `TURN_INJECT_STAGES`, `STAGE_AFFORDANCES`, `STAGE_AFFORDANCE_MATRIX`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `applyStageResult`, `parseAwaitingUserInput`, `parseToolGate`, `isTurnStage`, `isTurnInjectStage`, `isToolGateKind`, `isAwaitingUserInput`, `stageAllowsAffordance`, `stageEventFields`, `profileAllowsInject`, `StageAffordance`, `StageContext`, `StageResult`, `StageHandler`, `StageApplyInput`, `StageApplyOutput`, `StageApplyWarning`, `StageApplyWarningCode`, `StageEventExtra`, `AwaitingUserInput`, `ToolGate` — see [`stages.md`](stages.md). Slices 1–3 landed on branch; publish when release cut matches docs. |
+| Interface (headless) | `interfaceFrom`, `interfaceFromProfile`, `interfaceFromProjected`, `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime`, `sanitizeUserDraft`, `prepareUserTurn`, `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `resetBlockIds`, `streamThoughtsEnabled`, `collectPromotedMediaFromToolOutput`, `promotedMediaFromUrlString`, `PromotedToolMedia`, `defaultInterfaceEffort`, `defaultInterfaceModel`, `effortSelectEnabled`, `generationSelectEnabled`, `interfaceEffortOptions`, `interfaceModelOptions`, `modelSelectEnabled`, `appendAssistantEventsToHistory`, `appendToolDenialToHistory`, `appendToolExchangeToHistory`, `appendUserDraftToHistory`, `historyFromTranscriptBlocks`, `applyTurnEventsToSession`, `branchInterfaceTurnSession`, `emptyInterfaceTurnSession`, `abandonGatedToolSession`, `gatedToolFromEvents`, `awaitingFromEvents`, `promotedToolIdsFromEvents`, `toolSnapshotFromEvents`, `COMPOSER_PENDING_KINDS`, `cloneUserTurnDraft`, `composerPendingPreview`, `consumeNextComposerQueue`, `consumeNextComposerSteer`, `convertSteersToFrontQueued`, `createComposerPendingMessage`, `moveComposerPendingWithinKind`, `orderComposerPendingMessages`, `promoteComposerPendingKind`, `removeComposerPendingMessage`, `resolveComposerMenuActions`, `resolveComposerPrimary`, `updateComposerPendingDraft`, `userDraftHasPayload`, `userDraftToSteerInject`, `AttachmentValidationCode`, `AttachmentValidationIssue`, `AttachmentValidationParams`, `AttachmentValidationResult`, `AwaitingToolContext`, `ComposerActionContext`, `ComposerMenuAction`, `ComposerPendingKind`, `ComposerPendingMessage`, `ComposerPrimaryAction`, `ComposerProfileInterface`, `ComposerRunPhase`, `CreateComposerPendingMessageArgs`, `FoldTurnEventsOptions`, `GatedToolContext`, `ImageProfileInterface`, `InterfaceEffortOption`, `InterfaceModelOption`, `LiveProfileInterface`, `LiveResolvedTools`, `PendingAttachment`, `PrepareUserTurnResult`, `ProfileGuardrailsView`, `ProfileObservabilityView`, `ProfileInputsInterface`, `ProfileInterface`, `ProfileInterfaceSource`, `ResolvedTools`, `SpeechProfileInterface`, `TextProfileInterface`, `TranscriptBlock`, `TranscriptBlockKind`, `UserTurnDraft`, `UserTurnHistoryMedia`, `InterfaceTurnSession` |
+| Attachments (kernel) | `assertAttachmentLimits`, `maxBytesForMime`, `requireMediaLimits`, `resolveMediaLimits`, `sanitizeCsvText`, `sanitizeTurnBlobs`, `sanitizeTurnBlobsForProfile` |
 
 ```theorum-evidence
 {
@@ -761,6 +786,14 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
       "supports": [
         { "kind": "source", "path": "src/kernel/mod.ts" },
         { "kind": "graph", "path": "docs/_map.mjs" }
+      ]
+    },
+    "Facts and policy": {
+      "supports": [
+        { "kind": "source", "path": "src/guardrails/lexicon.ts" },
+        { "kind": "source", "path": "src/kernel/stop.ts" },
+        { "kind": "contract_test", "path": "tests/kernel/two-hosts-boundary.test.ts" },
+        { "kind": "contract_test", "path": "tests/kernel/zero-permission-import.test.ts" }
       ]
     },
     "Profiles": {
@@ -843,7 +876,7 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
         { "kind": "source", "path": "src/interface/composer-actions.ts" },
         { "kind": "contract_test", "path": "tests/interface/headless.test.ts" },
         { "kind": "contract_test", "path": "tests/interface/composer-pending.test.ts" },
-        { "kind": "contract_test", "path": "tests/interface/abandon-paused.test.ts" }
+        { "kind": "contract_test", "path": "tests/interface/abandon-gated.test.ts" }
       ]
     },
     "Exported API": {

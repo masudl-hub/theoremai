@@ -12,6 +12,7 @@
 
 import { TheorumError } from '../guardrails/error.ts';
 import { requireModelProfile } from '../kernel/registry/resolve.ts';
+import { soleModelId } from '../kernel/registry/sole-model.ts';
 import { isValidPair } from '../kernel/schema.ts';
 import type {
   ModelBinding,
@@ -45,11 +46,6 @@ export function isSpeechRole(profile: Profile): boolean {
 
 export function isImageRole(profile: Profile): boolean {
   return profile.type === 'image';
-}
-
-function soleModelId(models: Record<ModelId, ModelBinding>): ModelId | undefined {
-  const ids = Object.keys(models);
-  return ids.length === 1 ? ids[0] : undefined;
 }
 
 function bindingForProvider(input: Profile, modelId?: ModelId): ModelBinding {

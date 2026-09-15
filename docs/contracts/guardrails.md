@@ -604,8 +604,40 @@ try {
 `takeSlot` reads `resolveGuardrailPolicy(profile.guardrails).quota` — a missing
 guardrails object is treated like missing quota config.
 
-`quotaMessage(profile)` uses `identity.handle` for user-facing limit copy.
+`quotaExhausted(profile)` returns structured data only:
+`{ code: 'quota_exhausted', perDay, message? }`. `message` is present if and
+only if the host set `guardrails.quota.message`. The kernel authors **no**
+English fallback — hosts render from the code (and optional host message).
 `resetSlots()` clears in-memory state (tests).
+
+## Lexicon
+
+Every English string the kernel may emit toward a user or a model is registered
+in `src/guardrails/lexicon.ts` under a stable `LexiconKey`. Hosts replace
+defaults process-wide with `overrideLexicon({ … })` (same registration pattern
+as `registerTraceDestination`). Profile fields that supply copy win over the
+process override for that emit site. `overrideLexicon` throws `TheorumError`
+on unknown keys or missing required placeholders.
+
+| Key family | Examples | Override |
+| --- | --- | --- |
+| Continue | `continue.instruction` | `turnBehaviour.resumption.continueInstruction` or lexicon |
+| Canary | `canary.bind_note` | `guardrails.canary.bindNote` (must keep `{canary}`) |
+| Taint / advisory | `taint.*`, `advisory.*` | lexicon |
+| Attachments | `attachments.*` | lexicon (structured codes also exposed) |
+| Public errors | `public.*` | lexicon (`publicError` resolves at call time) |
+| Repair / egress | `repair.*`, `egress.default_repair_guidance` | host `repairGuidance` fields or lexicon |
+| Session | `session.abandon_gated` | lexicon |
+
+The copy-manifest lint (`scripts/docs-truth/copy-lint.mjs`) scans the **full**
+`src/kernel`, `src/guardrails`, and `src/interface` trees. Only
+`src/guardrails/lexicon.ts` is auto-skipped. Everything else must either live
+in the lexicon or carry an explicit reason:
+
+| Escape | Where |
+| --- | --- |
+| `// lexicon-exempt: <reason>` | Same or previous line |
+| `lexicon-exempt-file: <reason>` | Comment in the first 40 lines (non-runtime fixtures / authoring meta only) |
 
 ## Exported API
 
@@ -615,7 +647,7 @@ From `src/guardrails/mod.ts`:
 | --- | --- |
 | Public errors | `describeError`, `isAbortError`, `publicError`, `TheorumError`, `throwIfAborted`, `toErrorEvent`, `PUBLIC_ACTION`, `PUBLIC_CANARY`, `PUBLIC_CANCELLED`, `PUBLIC_FILE_COUNT`, `PUBLIC_FILE_SIZE`, `PUBLIC_FILE_TYPE`, `PUBLIC_GENERIC`, `PUBLIC_IMAGE_SIZE`, `PUBLIC_UNAVAILABLE`, `UPSTREAM_FAILED` |
 | Injection / sensitive | `injectionSpans`, `sensitiveSpans` |
-| Vocabulary | `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailEvent`, `Provenance`, `ToolOrigin`, `GuardrailAction`, `GuardrailContext`, `OutboundPayload`, `EgressEnforcer`, `EgressOnBlock`, `ProfileEgressSpec`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `NetworkGuardrailSpec`, `ResolvedGuardrailPolicy`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES`, `EGRESS_ON_BLOCK` |
+| Vocabulary | `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailEvent`, `Provenance`, `ToolOrigin`, `GuardrailAction`, `GuardrailContext`, `OutboundPayload`, `EgressEnforcer`, `EgressOnBlock`, `ProfileEgressSpec`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `NetworkGuardrailSpec`, `CanaryGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES`, `EGRESS_ON_BLOCK` |
 | Policy | `resolveGuardrailPolicy`, `detectionForTrust`, `DetectionOptions` |
 | Tool boundary | `guardToolResult`, `guardToolFailureText`, `inspectToolArguments`, `toolCallEvent`, `wrapToolData`, `isRemoteOrigin`, `composeToolText`, `checkTaintGate`, `recordTaint`, `isTainted`, `isSuspicious`, `directiveHits`, `looksDirective`, `advisoryLevel`, `DIRECTIVE_RULES`, `ADVISORY_LEVELS`, `AdvisoryLevel`, `TOOL_CLOSE`, `TOOL_ORIGINS`, `TAINT_GATES`, `GuardedToolText`, `Provenance`, `ToolOrigin`, `TurnTaint`, `TaintGate`, `TaintGuardrailSpec`, `GuardrailEvent` |
 | Serialization | `textForScan`, `scanTextOf`, `ScanText` |
@@ -624,7 +656,8 @@ From `src/guardrails/mod.ts`:
 | Canary | `mintCanary`, `bindCanary`, `wrapUserData`, `scanTextForCanaryLeak`, `createCanaryStreamGate`, `eventHasCanary`, `isStreamedCanaryEvent`, `redactCanary`, `OMIT_CANARY`, `USER_OPEN`, `USER_CLOSE`, `createCanaryGateSession`, `filterCanaryGatedEvents`, `CanaryGateResult`, `CanaryGateSession`, `CanaryStreamGate` |
 | Egress / Live | `standardEgressEnforce`, `collectEgressHits`, `hitRules`, `EGRESS_RULES`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `DEFAULT_HOLDBACK`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
 | Network | `assertSafeUrl`, `isLocalhostName`, `isPrivateOrLocalAddress`, `NetworkGuardrailSpec` |
-| Quota | `QuotaSlotStatus`, `clientIp`, `quotaMessage`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |
+| Quota | `QuotaSlotStatus`, `QuotaExhausted`, `clientIp`, `quotaExhausted`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |
+| Lexicon | `LEXICON_KEYS`, `LexiconKey`, `LexiconOverrides`, `LexiconParams`, `lexiconDefault`, `lexiconText`, `overrideLexicon`, `resetLexicon` |
 
 From `src/guardrails/testing.ts` (test / harness only):
 
@@ -705,6 +738,13 @@ From `src/guardrails/testing.ts` (test / harness only):
       "supports": [
         { "kind": "source", "path": "src/guardrails/quota.ts" },
         { "kind": "source", "path": "src/guardrails/policy.ts" },
+        { "kind": "contract_test", "path": "tests/guardrails/quota.test.ts" }
+      ]
+    },
+    "Lexicon": {
+      "supports": [
+        { "kind": "source", "path": "src/guardrails/lexicon.ts" },
+        { "kind": "contract_test", "path": "tests/kernel/two-hosts-boundary.test.ts" },
         { "kind": "contract_test", "path": "tests/guardrails/quota.test.ts" }
       ]
     },

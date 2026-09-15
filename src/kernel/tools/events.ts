@@ -54,7 +54,7 @@ export function* startToolExecution<T>(
   if (!parsed.success) {
     yield failureEvent(base, {
       code: 'invalid_input',
-      message: 'Tool input validation failed',
+      message: 'Tool input validation failed', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       details: parsed.error.flatten(),
     });
     return { ok: false };

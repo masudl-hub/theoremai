@@ -6,6 +6,7 @@
  * @module
  */
 
+import { lexiconText } from '../guardrails/lexicon.ts';
 import { mediaKindForMime } from '../kernel/registry/catalog.ts';
 import {
   formatToolFailureForModel,
@@ -41,27 +42,30 @@ export type UserTurnHistoryMedia = {
   voice?: TurnBlob[];
 };
 
+function draftBlobsWithData(
+  blobs: UserTurnDraft['attachments'] | UserTurnDraft['voice'],
+): TurnBlob[] | undefined {
+  const mapped = blobs
+    ?.filter(
+      (a): a is typeof a & { data: string } => typeof a.data === 'string' && a.data.length > 0,
+    )
+    .map((a) => ({ name: a.name, mimeType: a.mimeType, data: a.data }));
+  return mapped?.length ? mapped : undefined;
+}
+
 /**
  * Project a pending/composer draft into history messages for `onStage` inject.
  * Uses base64 on `draft.attachments` / `draft.voice` when present.
  */
 function userDraftToSteerInject(draft: UserTurnDraft): TurnHistoryMessage[] {
-  const attachments = draft.attachments
-    ?.filter(
-      (a): a is typeof a & { data: string } => typeof a.data === 'string' && a.data.length > 0,
-    )
-    .map((a) => ({ name: a.name, mimeType: a.mimeType, data: a.data }));
-  const voice = draft.voice
-    ?.filter(
-      (a): a is typeof a & { data: string } => typeof a.data === 'string' && a.data.length > 0,
-    )
-    .map((a) => ({ name: a.name, mimeType: a.mimeType, data: a.data }));
+  const attachments = draftBlobsWithData(draft.attachments);
+  const voice = draftBlobsWithData(draft.voice);
   return appendUserDraftToHistory(
     [],
     { text: draft.text },
     {
-      ...(attachments?.length ? { attachments } : {}),
-      ...(voice?.length ? { voice } : {}),
+      ...(attachments ? { attachments } : {}),
+      ...(voice ? { voice } : {}),
     },
   );
 }
@@ -92,6 +96,41 @@ function appendUserDraftToHistory(
   return [...history, { role: 'user', parts }];
 }
 
+function appendToolCallPair(
+  history: TurnHistoryMessage[],
+  tool: {
+    name: string;
+    callId?: string;
+    id?: string;
+    arguments?: Record<string, unknown>;
+  },
+  content: string,
+): TurnHistoryMessage[] {
+  const callId = toolCallId(tool);
+  return [
+    ...history,
+    {
+      role: 'assistant',
+      tool_calls: [
+        {
+          id: callId,
+          type: 'function',
+          function: {
+            name: tool.name,
+            arguments: JSON.stringify(tool.arguments ?? {}),
+          },
+        },
+      ],
+    },
+    {
+      role: 'tool',
+      tool_call_id: callId,
+      name: tool.name,
+      content,
+    },
+  ];
+}
+
 function appendToolExchangeToHistory(
   history: TurnHistoryMessage[],
   tool: {
@@ -102,29 +141,7 @@ function appendToolExchangeToHistory(
     output: unknown;
   },
 ): TurnHistoryMessage[] {
-  const callId = toolCallId(tool);
-  return [
-    ...history,
-    {
-      role: 'assistant',
-      tool_calls: [
-        {
-          id: callId,
-          type: 'function',
-          function: {
-            name: tool.name,
-            arguments: JSON.stringify(tool.arguments ?? {}),
-          },
-        },
-      ],
-    },
-    {
-      role: 'tool',
-      tool_call_id: callId,
-      name: tool.name,
-      content: toolOutputForHistory(tool.name, tool.output),
-    },
-  ];
+  return appendToolCallPair(history, tool, toolOutputForHistory(tool.name, tool.output));
 }
 
 /** Record a host-side tool denial using kernel failure formatting. */
@@ -135,37 +152,15 @@ function appendToolDenialToHistory(
     callId?: string;
     id?: string;
     arguments?: Record<string, unknown>;
-    /** Override default deny copy (e.g. send-now cancel while paused). */
+    /** Override default deny copy (e.g. send-now cancel while gated). */
     failure?: { code: string; message: string };
   },
 ): TurnHistoryMessage[] {
-  const callId = toolCallId(tool);
   const failure = tool.failure ?? {
     code: 'denied',
-    message: `User denied execution of '${tool.name}'.`,
+    message: lexiconText('session.tool_denied', { tool: tool.name }),
   };
-  return [
-    ...history,
-    {
-      role: 'assistant',
-      tool_calls: [
-        {
-          id: callId,
-          type: 'function',
-          function: {
-            name: tool.name,
-            arguments: JSON.stringify(tool.arguments ?? {}),
-          },
-        },
-      ],
-    },
-    {
-      role: 'tool',
-      tool_call_id: callId,
-      name: tool.name,
-      content: formatToolResult(formatToolFailureForModel(failure)),
-    },
-  ];
+  return appendToolCallPair(history, tool, formatToolResult(formatToolFailureForModel(failure)));
 }
 
 /** Fold completed assistant turn events into provider-neutral history rows. */

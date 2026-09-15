@@ -4,7 +4,6 @@
 
 import { assertEquals, assertThrows } from '@std/assert';
 import {
-  COMPOSER_MENU_ACTION_LABELS,
   resolveComposerMenuActions,
   resolveComposerPrimary,
 } from '../../src/interface/composer-actions.ts';
@@ -153,18 +152,17 @@ Deno.test('composer actions: streaming matrix', () => {
   );
 });
 
-Deno.test('composer actions: paused — queue, no steer, no stop', () => {
+Deno.test('composer actions: gated — queue, no steer, no stop', () => {
   assertEquals(
-    resolveComposerPrimary({ phase: 'paused', hasPayload: false, allowSteering: true }),
+    resolveComposerPrimary({ phase: 'gated', hasPayload: false, allowSteering: true }),
     'none',
   );
   assertEquals(
-    resolveComposerPrimary({ phase: 'paused', hasPayload: true, allowSteering: true }),
+    resolveComposerPrimary({ phase: 'gated', hasPayload: true, allowSteering: true }),
     'queue',
   );
   assertEquals(
-    resolveComposerMenuActions({ phase: 'paused', hasPayload: true, allowSteering: true }),
+    resolveComposerMenuActions({ phase: 'gated', hasPayload: true, allowSteering: true }),
     ['queue', 'send_now', 'stash'],
   );
-  assertEquals(COMPOSER_MENU_ACTION_LABELS.steer, 'Steer current run');
 });

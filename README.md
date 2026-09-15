@@ -400,7 +400,10 @@ stay internal to the providers package.
 | `jsr:@theorum/core/presets` / `theorum/presets` | Optional convenience packs (`registerGooglePreset`, …). |
 | `jsr:@theorum/core/presets/google` / `theorum/presets/google` | Google builtins (search/maps/urlContext/codeExecution) + Interactions/OpenRouter wire metadata. |
 | `jsr:@theorum/core/interface` / `theorum/interface` | Headless profile-driven runtime UI spec (`interfaceFromProfile`, `foldTurnEvents`, input validation). |
-| `jsr:@theorum/core/playground` / `theorum/playground` | Optional playground fixtures: travel demo seeds, local function handlers, JSON Schema stubs. |
+
+Demo fixtures (travel concierge seeds, local handlers) live in the **repo-private**
+`@theorum/playground` package under `playground/` — never published with the kernel.
+Hosts that need them link `file:../theorum/playground`.
 
 Internal files remain present in source for maintainability, but package consumers should use the public entrypoints above.
 
@@ -413,16 +416,17 @@ Named exports from the root barrel (same symbols hosts get from `theorum` /
 | --- | --- |
 | Guardrails errors | `describeError`, `isAbortError`, `publicError`, `TheorumError`, `throwIfAborted`, `toErrorEvent`, `PUBLIC_CANARY` |
 | Network guardrails | `assertSafeUrl`, `isLocalhostName`, `isPrivateOrLocalAddress` |
-| Guardrail vocabulary | `AdvisoryLevel`, `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailAction`, `GuardrailContext`, `GuardrailEvent`, `OutboundPayload`, `Provenance`, `ToolOrigin`, `ScanText`, `EgressEnforcer`, `EgressOnBlock`, `ProfileEgressSpec`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `NetworkGuardrailSpec`, `ResolvedGuardrailPolicy`, `DetectionOptions`, `GuardedToolText`, `TurnTaint`, `TaintGate`, `TaintGuardrailSpec`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES`, `TOOL_ORIGINS`, `EGRESS_ON_BLOCK` |
+| Guardrail vocabulary | `AdvisoryLevel`, `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailAction`, `GuardrailContext`, `GuardrailEvent`, `OutboundPayload`, `Provenance`, `ToolOrigin`, `ScanText`, `EgressEnforcer`, `EgressOnBlock`, `ProfileEgressSpec`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `NetworkGuardrailSpec`, `CanaryGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `DetectionOptions`, `GuardedToolText`, `TurnTaint`, `TaintGate`, `TaintGuardrailSpec`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES`, `TOOL_ORIGINS`, `EGRESS_ON_BLOCK` |
 | Guardrail policy | `resolveGuardrailPolicy`, `detectionForTrust`, `detectionForProfile`, `collectEgressHits`, `hitRules`, `EGRESS_RULES`, `runEnforcer` |
 | Tool boundary | `guardToolResult`, `guardToolFailureText`, `inspectToolArguments`, `toolCallEvent`, `wrapToolData`, `isRemoteOrigin`, `composeToolText`, `checkTaintGate`, `recordTaint`, `isTainted`, `isSuspicious`, `directiveHits`, `looksDirective`, `advisoryLevel`, `DIRECTIVE_RULES`, `ADVISORY_LEVELS`, `TOOL_CLOSE`, `TOOL_ORIGINS`, `TAINT_GATES`, `textForScan`, `scanTextOf` |
-| Quota | `QuotaSlotStatus`, `clientIp`, `quotaMessage`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |
+| Quota | `QuotaSlotStatus`, `QuotaExhausted`, `clientIp`, `quotaExhausted`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |
+| Lexicon | `LEXICON_KEYS`, `LexiconKey`, `LexiconOverrides`, `LexiconParams`, `lexiconDefault`, `lexiconText`, `overrideLexicon`, `resetLexicon` |
 | Sanitize | `PROJECT_ID_MAX`, `sanitizeProjectId`, `sanitizeText`, `detectText`, `sanitizeTurnRequest`, `sanitizeTurnRequestWithEvents`, `sanitizeTurnRequestForTrace`, `redactSensitiveOnly`, `guardrailFromHits`, `guardrailFromVerdict`, `guardrailTurnEvent`, `projectGuardrailTurnEvent`, `hitFromSpan`, `matchPreview`, `projectGuardrailEvent`, `GUARDRAIL_MATCH_PREVIEW_MAX` |
 | Canary / egress | `mintCanary`, `bindCanary`, `wrapUserData`, `scanTextForCanaryLeak`, `redactCanary`, `OMIT_CANARY`, `createCanaryStreamGate`, `eventHasCanary`, `createCanaryGateSession`, `filterCanaryGatedEvents`, `CanaryGateResult`, `CanaryGateSession`, `CanaryStreamGate`, `standardEgressEnforce`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `DEFAULT_HOLDBACK`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
 | Compaction | `CompactionSplit`, `CompactionTokens`, `compactionMeter`, `compactionNeeded`, `estimateHistoryTokens`, `HISTORY_MEDIA_TOKENS`, `HISTORY_TEXT_ENCODING`, `resolveCompactionTokens`, `resolveHistoryTokens`, `shouldCompact`, `splitForCompaction` |
 | Runner | `runTurn`, `runSession`, `RunSessionOptions`, `prepareLiveInboundText`, `liveIngressEnabled`, `liveIngressEnabledFromSpec`, `liveIngressChannelDefault`, `hasAnyLiveIngress`, `assertLiveIngress`, `assertLiveIngressConfigured`, `LiveIngressChannel` |
-| Attachments | `assertAttachmentLimits`, `fileTooLargeMessage`, `maxBytesForMime`, `requireMediaLimits`, `resolveMediaLimits`, `sanitizeCsvText`, `sanitizeTurnBlobs`, `sanitizeTurnBlobsForProfile`, `tooManyFilesMessage`, `turnTooLargeMessage` |
-| Interface (headless) | `interfaceFrom`, `interfaceFromProfile`, `interfaceFromProjected`, `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime`, `sanitizeUserDraft`, `prepareUserTurn`, `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `resetBlockIds`, `streamThoughtsEnabled`, `COMPOSER_PENDING_KINDS`, `createComposerPendingMessage`, `orderComposerPendingMessages`, `consumeNextComposerSteer`, `abandonGatedToolSession`, `abandonPausedToolSession`, `gatedToolFromEvents`, `awaitingFromEvents`, `consumeNextComposerQueue`, `convertSteersToFrontQueued`, `resolveComposerPrimary`, `resolveComposerMenuActions`, `userDraftHasPayload`, `AttachmentValidationCode`, `AttachmentValidationIssue`, `AttachmentValidationResult`, `ComposerActionContext`, `ComposerMenuAction`, `ComposerPendingKind`, `ComposerPendingMessage`, `ComposerPrimaryAction`, `ComposerRunPhase`, `FoldTurnEventsOptions`, `ImageProfileInterface`, `LiveProfileInterface`, `PendingAttachment`, `PrepareUserTurnResult`, `ProfileGuardrailsView`, `ProfileInputsInterface`, `ProfileInterface`, `ProfileInterfaceSource`, `ResolvedTools`, `SpeechProfileInterface`, `TextProfileInterface`, `TranscriptBlock`, `TranscriptBlockKind`, `UserTurnDraft` |
+| Attachments | `assertAttachmentLimits`, `maxBytesForMime`, `requireMediaLimits`, `resolveMediaLimits`, `sanitizeCsvText`, `sanitizeTurnBlobs`, `sanitizeTurnBlobsForProfile` |
+| Interface (headless) | `interfaceFrom`, `interfaceFromProfile`, `interfaceFromProjected`, `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime`, `sanitizeUserDraft`, `prepareUserTurn`, `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `resetBlockIds`, `streamThoughtsEnabled`, `COMPOSER_PENDING_KINDS`, `createComposerPendingMessage`, `orderComposerPendingMessages`, `consumeNextComposerSteer`, `abandonGatedToolSession`, `gatedToolFromEvents`, `awaitingFromEvents`, `consumeNextComposerQueue`, `convertSteersToFrontQueued`, `resolveComposerPrimary`, `resolveComposerMenuActions`, `userDraftHasPayload`, `AttachmentValidationCode`, `AttachmentValidationIssue`, `AttachmentValidationParams`, `AttachmentValidationResult`, `ComposerActionContext`, `ComposerMenuAction`, `ComposerPendingKind`, `ComposerPendingMessage`, `ComposerPrimaryAction`, `ComposerRunPhase`, `FoldTurnEventsOptions`, `ImageProfileInterface`, `LiveProfileInterface`, `PendingAttachment`, `PrepareUserTurnResult`, `ProfileGuardrailsView`, `ProfileInputsInterface`, `ProfileInterface`, `ProfileInterfaceSource`, `ResolvedTools`, `SpeechProfileInterface`, `TextProfileInterface`, `TranscriptBlock`, `TranscriptBlockKind`, `UserTurnDraft` |
 | Catalog | `clampThinkingLevel`, `clampThinkingLevelForApiId`, `mediaChannelForMime`, `MediaInputChannel`, `mediaKindForMime`, `mimeAllowed`, `mimeEssence`, `modelEntryByApiId`, `requireModelBinding` |
 | Schema | `PROFILE_FIELDS`, `PROFILE_GRAPH`, `PROFILE_TYPES`, `PROFILE_TYPE_PROTOCOLS`, `protocolsForProfileType`, `isValidProfileProtocol`, `EXTRA_FIELDS`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `spineFacetsForProfileType`, `profileGraphFacet`, `ProfileGraphFacet`, `ProfileGraphFacetId`, `ProfileGraphEditor`, `ProfileGraphRole`, `PROTOCOLS`, `PROVIDERS`, `PROTOCOL_PROVIDERS`, `providersFor`, `protocolsFor`, `isValidPair`, `coerceProvider`, `coerceProtocol`, `coerceSpeechFormat`, `isSpeechFormatAllowedForProtocol`, `speechFormatsForProtocol`, `THINKING_LEVELS`, `KEY_SLOTS`, `OVERFLOW_KEY_SLOTS`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `SCHEMA_ENFORCEMENTS`, `COMPACTION_METERS`, `COMPACTION_TIMINGS`, `CACHE_MODES`, `CACHE_TTLS`, `TURN_STAGES`, `TURN_INJECT_STAGES`, `TURN_STOP_KINDS`, `CONTINUE_STOP_KINDS`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES`, `AUTH_UNAUTHENTICATED_POLICIES`, `HTTP_METHODS`, `PLAYGROUND_AUTH_TYPES`, `TOOL_AUTH_TYPES`, `AuthUnauthenticatedPolicy`, `CustomToolType`, `HttpMethod`, `PlaygroundAuthType`, `ToolAccess`, `ToolAuthType`, `ToolPermission`, `ToolType`, `LIVE_ACTIVITY_HANDLINGS`, `LIVE_CONTEXT_COMPRESSIONS`, `LIVE_SPEECH_SENSITIVITIES`, `EGRESS_ON_BLOCK`, `EgressOnBlock` |
 | Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `LiveProfileDefinition`, `HostProfileDefinition`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `resolveTurn`, `pickModel` |
@@ -454,7 +458,7 @@ On GitHub, module contracts:
 | Doc (repo only) | Export |
 | :--- | :--- |
 | [`docs/contracts/kernel.md`](docs/contracts/kernel.md) | `theorum/kernel` |
-| [`docs/contracts/stages.md`](docs/contracts/stages.md) | Turn stages target contract (foundation on branch; not shipping product yet) |
+| [`docs/contracts/stages.md`](docs/contracts/stages.md) | Turn stages — slices 1–3 landed on branch; release cut when docs match product |
 | [`docs/contracts/providers.md`](docs/contracts/providers.md) | `theorum/providers` |
 | [`docs/contracts/guardrails.md`](docs/contracts/guardrails.md) | `theorum/guardrails` |
 | [`docs/contracts/observability.md`](docs/contracts/observability.md) | `theorum/observability` |
@@ -463,10 +467,11 @@ On GitHub, module contracts:
 | [`docs/contracts/cli.md`](docs/contracts/cli.md) | `theorum/cli` |
 | [`docs/contracts/presets.md`](docs/contracts/presets.md) | `theorum/presets` |
 | [`docs/contracts/presets-google.md`](docs/contracts/presets-google.md) | `theorum/presets/google` |
-| [`docs/contracts/playground.md`](docs/contracts/playground.md) | `theorum/playground` |
 
 Migrating from per-turn `dynamicTools`? See
 [`docs/MIGRATION-tool-system.md`](docs/MIGRATION-tool-system.md).
+Ownership-boundary cut (playground out of package, quota/lexicon/composer)? See
+[`docs/MIGRATION-boundary.md`](docs/MIGRATION-boundary.md).
 
 Document health is enforced by `npm run lint:docs` — the **first** step of
 `npm run lint` / `deno task lint` (`docs/_map.mjs`):
@@ -543,15 +548,35 @@ THEORUM is ready for host applications when these statements stay true:
 
 ```toml
 [boundary]
+# Rule: "Host decides, Theorum runs."
 profiles_in_package = false
+demos_in_package = false
 env_files_in_package = false
 ambient_secret_reads = false
 business_logic_in_kernel = false
+unownable_user_or_model_copy = false
 provider_keys_host_owned = true
 provider_adapters_lazy = true
 trace_sinks_host_injected = true
 realtime_duplex_voice = "out of scope"
 ```
+
+**Facts vs policy.** Provider facts may ship (model capabilities, wire shapes,
+protocol metadata — e.g. `theorum/presets/google`). Product policy may not
+(prompts, personas, end-user copy, demo apps, channel behavior). Every
+user- or model-visible string is either host-supplied or an overridable
+registered default in the kernel lexicon (`overrideLexicon`). Behavioral
+defaults live as typed profile-schema fields. Optional packages
+(`playground/`) are inert extras: deleting them changes no kernel behavior.
+
+Invariant properties (machine-checked where noted):
+
+| Id | Property | Check |
+| --- | --- | --- |
+| P1 | No ambient authority — construct with every Deno permission denied | `tests/kernel/zero-permission-import.test.ts` |
+| P2 | No unownable words — user/model-visible strings are host-suppliable or lexicon defaults | lexicon + full-tree `scripts/docs-truth/copy-lint.mjs` + two-hosts test |
+| P3 | No buried policy — behavioral defaults are declared profile-schema fields | `PROFILE_FIELDS` / schema |
+| P4 | Inert extras — optional entrypoints removable without behavior change | publish-bundle gate excludes `playground/` |
 
 Provider adapters load **lazily** on the first `complete` for that transport —
 `createProvider` and `theorum/providers` stay a thin barrel (`src/providers/mod.ts`);
@@ -597,8 +622,9 @@ MIT License. Copyright (c) ORCHID AI LLC.
     "Package Boundary": {
       "supports": [
         { "kind": "source", "path": "src/providers/mod.ts" },
-        { "kind": "source", "path": "src/providers/create-provider.ts" },
-        { "kind": "contract_test", "path": "tests/providers/create-provider.test.ts" }
+        { "kind": "source", "path": "src/guardrails/lexicon.ts" },
+        { "kind": "contract_test", "path": "tests/kernel/two-hosts-boundary.test.ts" },
+        { "kind": "contract_test", "path": "tests/kernel/zero-permission-import.test.ts" }
       ]
     }
   }

@@ -31,7 +31,7 @@ export function fromBase64Url(base64url: string): Uint8Array {
     return bytes;
   } catch (err) {
     throw new Error(
-      `Invalid base64url encoding: ${err instanceof Error ? err.message : String(err)}`,
+      `Invalid base64url encoding: ${err instanceof Error ? err.message : String(err)}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 }
@@ -43,7 +43,7 @@ export function fromBase64Url(base64url: string): Uint8Array {
 export function generateCodeVerifier(length = 64): string {
   if (length < 43 || length > 128) {
     throw new RangeError(
-      `Invalid PKCE code_verifier length: ${length}. RFC 7636 Section 4.1 requires length between 43 and 128 characters.`,
+      `Invalid PKCE code_verifier length: ${length}. RFC 7636 Section 4.1 requires length between 43 and 128 characters.`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   const validChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
@@ -125,7 +125,7 @@ export async function unsealStatePayload(
 ): Promise<SealedStatePayload> {
   const parts = sealed.split('.');
   if (parts.length !== 2) {
-    throw new Error('Invalid sealed state format');
+    throw new Error('Invalid sealed state format'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   const [payloadB64, signatureB64] = parts;
   const encoder = new TextEncoder();
@@ -148,7 +148,7 @@ export async function unsealStatePayload(
 
   if (!isValid) {
     throw new Error(
-      'OAuth state HMAC signature verification failed: state has been tampered with or corrupted',
+      'OAuth state HMAC signature verification failed: state has been tampered with or corrupted', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 
@@ -156,7 +156,7 @@ export async function unsealStatePayload(
   const payload = JSON.parse(payloadJson) as SealedStatePayload;
 
   if (Date.now() > payload.expiresAt) {
-    throw new Error('OAuth state has expired');
+    throw new Error('OAuth state has expired'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
 
   return payload;

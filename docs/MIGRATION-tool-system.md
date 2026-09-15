@@ -93,8 +93,9 @@ invokeTool({
 });
 ```
 
-`resume.granted === true` skips permission / confirm / `preTool` re-ask. `resume.value`
-is **not** used for gates or `ask_user` (awaiting answers are a new user turn).
+`resume.granted === true` skips permission / confirm / `preTool` re-ask. `resume.granted === false`
+settles as deny (failure + `post_tool`, live upstream tool response) without running the body.
+`resume.value` is **not** used for gates or `ask_user` (awaiting answers are a new user turn).
 It does **not** bypass T1/T2 load checks — ensure `tools.t1Policy` / `promoted` cover
 resume when needed. T0 gated calls may resume without rebuilding the snapshot. Direct
 invoke requires the tool on `tools.allow`.
@@ -130,7 +131,7 @@ Do **not** use `continueFrom` for tool gates — use `invokeTool`.
 | Old `ToolEnvelope` | New stream |
 | --- | --- |
 | `status: 'ok'` | `tool.phase: 'complete'` |
-| `status: 'pause'` (confirm / permission / auth) | `tool.phase: 'gate'` (+ `gate.kind`); resume via `invokeTool` / `executeTool` with `resume.granted` |
+| `status: 'pause'` (confirm / permission / auth) | `tool.phase: 'gate'` (+ `gate.kind`); resume via `invokeTool` / `executeTool` with `resume.granted: true` (allow) or `false` (deny settle) |
 | `status: 'pause'` (interactive / ask_user) | `tool.phase: 'complete'` with awaiting / `awaiting_user_input` — not a gate |
 | `status: 'error'` | `tool.phase: 'error'` (+ `failure.code`) |
 

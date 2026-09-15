@@ -27,6 +27,7 @@
  * @module
  */
 
+/** lexicon-exempt-file: evaluation corpora — not runtime user or model copy (P2) */
 /** A single labelled example. */
 export interface CorpusSample {
   text: string;
@@ -680,6 +681,10 @@ const repoHardNegatives: CorpusSource = {
  * Kept in the repo so the search does not have to be repeated, and so a later
  * decision to include one starts from the objection rather than from scratch.
  */
+/**
+ * Corpora evaluated and deliberately left out of SOURCES, with the objection.
+ * See docs/contracts/guardrails.md.
+ */
 export const REVIEWED_SOURCES: readonly {
   dataset: string;
   rows: number;
@@ -1031,21 +1036,4 @@ const SOURCES: readonly CorpusSource[] = [
   agentDojo,
 ];
 
-export {
-  agentAttacks,
-  agentDojo,
-  agenticIpi,
-  createCorpusCache,
-  deepsetPrompts,
-  fetchRows,
-  huggingFaceToken,
-  parseLabelledCsv,
-  piiSpans,
-  promptDataset,
-  recordsFromYaml,
-  repoHardNegatives,
-  SOURCES,
-  spmlPrompts,
-  toolResults,
-  toolResultsFromChat,
-};
+export { createCorpusCache, fetchRows, parseLabelledCsv, recordsFromYaml, SOURCES };

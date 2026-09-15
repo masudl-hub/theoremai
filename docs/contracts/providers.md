@@ -169,9 +169,9 @@ gate (canary + egress) at each conversational `turnComplete`, and returns a
 `sendToolResponse` / `sendToolResponses` / `events` / `close`).
 
 Registry tools should go through **`executeTool`** so live stages (`pre_tool` /
-`post_tool`), permission/auth gates, and upstream tool responses stay on the
-session path. `sendToolResponse(s)` remain an escape hatch for non-registry
-relays that skip session stages.
+`post_tool`), permission/auth gates, deny resume (`resume.granted: false`), and
+upstream tool responses stay on the session path. `sendToolResponse(s)` remain an
+escape hatch for non-registry relays that skip session stages — not for UI deny.
 
 `createProvider` **rejects** `geminiLive` — there is no turn-scoped live `complete()` adapter.
 
@@ -180,9 +180,9 @@ relays that skip session stages.
 | Door | `runSession` (shares resolve / tools / canary / system compose with `runTurn`) |
 | Transport | `openGoogleLiveSession` — WebSocket; optional `openWebSocket` for Cloudflare fetch-upgrade |
 | Handshake | `BidiGenerateContentSetup` via `buildGeminiLiveSetupMessage` |
-| Turn boundary | Gemini `turnComplete` → outbound gate finalize + `done` (`stop.kind: 'completed'`); **session stays open** |
+| Turn boundary | Gemini `turnComplete` → outbound gate finalize + cycle `done` (`stop.kind: 'completed'` when no folded done) + `before_end` / `post_turn`; **session stays open** |
 | Generation boundary | Gemini `generationComplete` → `done` (`stop.kind: 'generation_complete'`) without tearing down the session |
-| Tools | Prefer `executeTool` (stages + gate resume + upstream). Escape hatch: host replies via `sendToolResponse(s)`; cancellations → `tool.phase: 'cancel'`. Every id in profile `tools.allow` + `builtInTools` is wired in `BidiGenerateContentSetup` regardless of `loadTier` (declarations cannot change mid-session) — no `t1Policy` / `t2Loader`, no structured output, no turn `inputs` / `outputs`. |
+| Tools | Prefer `executeTool` (stages + gate/deny resume + upstream). Escape hatch: host replies via `sendToolResponse(s)` for non-registry pre-fail only; cancellations → `tool.phase: 'cancel'`. Every id in profile `tools.allow` + `builtInTools` is wired in `BidiGenerateContentSetup` regardless of `loadTier` (declarations cannot change mid-session) — no `t1Policy` / `t2Loader`, no structured output, no turn `inputs` / `outputs`. |
 | Ingress | `live.ingress` gates `sendAudio` / `sendVideo` / `sendText`. Defaults: audio **on**, camera (video channel) **on**, text **off** unless `live.ingress.text: true`. At least one channel must stay enabled. |
 | Transcription | Mid-turn `evidence` with `kind: 'input_transcription'` / `output_transcription` (optional `interim`); **not** held for egress — streams immediately |
 | Session control | `goAway` → `session.kind: 'closing_soon'`; `waitingForInput` → `waiting_for_input` |

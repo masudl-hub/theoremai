@@ -6,7 +6,7 @@ import type {
   ToolAccess,
   ToolLoadTier,
   ToolPermission,
-} from '../kernel/schema.ts';
+} from '../src/kernel/schema.ts';
 
 /** Serializable tool facet seed — UI adds `kind` / `expanded` in the frontend. */
 export type PlaygroundToolSpecSeed = {

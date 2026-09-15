@@ -12,6 +12,7 @@
  * @module
  */
 
+/** lexicon-exempt-file: evaluation runner — not runtime user or model copy (P2) */
 import { injectionSpans } from '../injection.ts';
 import { sensitiveSpans } from '../sensitive.ts';
 import { directiveHits } from '../tool-directives.ts';
@@ -91,50 +92,65 @@ export interface EvalReport {
   skipped: { id: string; reason: string }[];
 }
 
-/** Fetch the corpora and score every detector against each source separately. */
-async function runGuardrailEval(options: EvalOptions = {}): Promise<EvalReport> {
-  const cache = createCorpusCache(options.cacheDir ?? '.guardrail-corpus');
-  const bySource = new Map<string, CorpusSample[]>();
-  const sources: EvalReport['sources'] = [];
+function corpusSkipReason(
+  source: (typeof SOURCES)[number],
+  kind: 'error' | 'empty',
+  err?: unknown,
+): string {
+  if (kind === 'error') {
+    if (source.requiresToken) return 'gated upstream — set HF_TOKEN to include it';
+    return err instanceof Error ? err.message : String(err);
+  }
+  return source.requiresToken
+    ? 'no rows returned — gated, or upstream rate-limited'
+    : 'no rows returned — upstream rate-limited or schema changed';
+}
 
-  const skipped: EvalReport['skipped'] = [];
-  for (const source of SOURCES) {
-    const limit = options.limit ?? source.sampleLimit;
-    let samples: CorpusSample[];
-    try {
-      samples = await source.load(cache, limit);
-    } catch (err) {
-      // A corpus that cannot be reached narrows the report; it never breaks it.
-      skipped.push({
-        id: source.id,
-        reason: source.requiresToken
-          ? 'gated upstream — set HF_TOKEN to include it'
-          : err instanceof Error
-            ? err.message
-            : String(err),
-      });
-      continue;
-    }
-    // An empty load from a corpus known to have rows is a failure wearing the
-    // costume of a success. Report it as skipped rather than scoring against
-    // nothing and printing a confident `0 of 370724`.
-    if (samples.length === 0 && (source.upstreamRows ?? 0) > 0) {
-      skipped.push({
-        id: source.id,
-        reason: source.requiresToken
-          ? 'no rows returned — gated, or upstream rate-limited'
-          : 'no rows returned — upstream rate-limited or schema changed',
-      });
-      continue;
-    }
-    bySource.set(source.id, samples);
-    sources.push({
+async function loadEvalSource(
+  source: (typeof SOURCES)[number],
+  cache: ReturnType<typeof createCorpusCache>,
+  limit: number | undefined,
+): Promise<
+  | { ok: true; samples: CorpusSample[]; meta: EvalReport['sources'][number] }
+  | { ok: false; skip: EvalReport['skipped'][number] }
+> {
+  let samples: CorpusSample[];
+  try {
+    samples = await source.load(cache, limit ?? source.sampleLimit);
+  } catch (err) {
+    return { ok: false, skip: { id: source.id, reason: corpusSkipReason(source, 'error', err) } };
+  }
+  if (samples.length === 0 && (source.upstreamRows ?? 0) > 0) {
+    return { ok: false, skip: { id: source.id, reason: corpusSkipReason(source, 'empty') } };
+  }
+  return {
+    ok: true,
+    samples,
+    meta: {
       id: source.id,
       licence: source.licence,
       attribution: source.attribution,
       samples: samples.length,
       ...(source.upstreamRows !== undefined ? { upstreamRows: source.upstreamRows } : {}),
-    });
+    },
+  };
+}
+
+/** Fetch the corpora and score every detector against each source separately. */
+async function runGuardrailEval(options: EvalOptions = {}): Promise<EvalReport> {
+  const cache = createCorpusCache(options.cacheDir ?? '.guardrail-corpus');
+  const bySource = new Map<string, CorpusSample[]>();
+  const sources: EvalReport['sources'] = [];
+  const skipped: EvalReport['skipped'] = [];
+
+  for (const source of SOURCES) {
+    const loaded = await loadEvalSource(source, cache, options.limit);
+    if (!loaded.ok) {
+      skipped.push(loaded.skip);
+      continue;
+    }
+    bySource.set(source.id, loaded.samples);
+    sources.push(loaded.meta);
   }
 
   return { scores: scoreAll(DETECTORS, bySource), sources, skipped };

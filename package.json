@@ -33,7 +33,6 @@
     "./presets/google": "./src/presets/google.ts",
     "./presets/google/speech-voices": "./src/presets/google/speech-voices.ts",
     "./interface": "./src/interface/mod.ts",
-    "./playground": "./src/playground/mod.ts",
     "./schema": "./src/kernel/schema.ts",
     "./providers/google/live": "./src/providers/google/live/mod.ts"
   },
@@ -59,7 +58,7 @@
     "lint:biome": "biome check --error-on-warnings .",
     "lint:ast-grep": "ast-grep scan",
     "lint:fallow": "npm run coverage && fallow audit && fallow health && fallow dupes && fallow dead-code",
-    "lint:docs": "node ./scripts/docs-truth/cli.mjs lint && node ./scripts/docs-truth/export-drift.mjs && node --test ./scripts/docs-truth/graph.test.mjs",
+    "lint:docs": "node ./scripts/docs-truth/cli.mjs lint && node ./scripts/docs-truth/export-drift.mjs && node ./scripts/docs-truth/copy-lint.mjs && node --test ./scripts/docs-truth/graph.test.mjs",
     "docs:inventory": "node ./scripts/docs-truth/cli.mjs inventory",
     "docs:freshness": "node ./scripts/docs-truth/cli.mjs freshness",
     "hooks:install": "node ./scripts/hooks/install.mjs",

@@ -1,15 +1,12 @@
 /**
- * Abandon tool pause without continuing the model (send-now while paused).
+ * Abandon tool gate without continuing the model (send-now while gated).
  */
 
 import { assertEquals } from '@std/assert';
-import {
-  abandonPausedToolSession,
-  emptyInterfaceTurnSession,
-} from '../../src/interface/session.ts';
+import { abandonGatedToolSession, emptyInterfaceTurnSession } from '../../src/interface/session.ts';
 import type { TurnEvent } from '../../src/kernel/types.ts';
 
-Deno.test('abandonPausedToolSession: clears gate and records cancelled tool', () => {
+Deno.test('abandonGatedToolSession: clears gate and records cancelled tool', () => {
   const events: TurnEvent[] = [
     { type: 'text', text: 'Let me check that.' },
     {
@@ -32,7 +29,7 @@ Deno.test('abandonPausedToolSession: clears gate and records cancelled tool', ()
   const before = {
     ...emptyInterfaceTurnSession(),
     history: [{ role: 'user' as const, content: 'do it' }],
-    pausedTool: {
+    gatedTool: {
       name: 'dangerous',
       input: { x: 1 },
       callId: 'c1',
@@ -43,8 +40,8 @@ Deno.test('abandonPausedToolSession: clears gate and records cancelled tool', ()
     assistantEvents: events,
   };
 
-  const { session, finalizedEvents } = abandonPausedToolSession(before);
-  assertEquals(session.pausedTool, null);
+  const { session, finalizedEvents } = abandonGatedToolSession(before);
+  assertEquals(session.gatedTool, null);
   assertEquals(session.assistantEvents, []);
   assertEquals(
     finalizedEvents.some(
@@ -62,8 +59,8 @@ Deno.test('abandonPausedToolSession: clears gate and records cancelled tool', ()
   );
 });
 
-Deno.test('abandonPausedToolSession: no-op when not paused', () => {
+Deno.test('abandonGatedToolSession: no-op when not gated', () => {
   const session = emptyInterfaceTurnSession();
-  const next = abandonPausedToolSession(session);
+  const next = abandonGatedToolSession(session);
   assertEquals(next.session, session);
 });

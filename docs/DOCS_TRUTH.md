@@ -7,7 +7,8 @@ Deterministic document-health lint for THEORUM. No waivers. No LLM.
 | Field | Value |
 | --- | --- |
 | CLI | `scripts/docs-truth/cli.mjs` (`lint`, `inventory`, `freshness`) |
-| Export drift | `scripts/docs-truth/export-drift.mjs` (barrel exports vs contracts, including `theorum/playground`) |
+| Export drift | `scripts/docs-truth/export-drift.mjs` (barrel exports vs contracts) |
+| Copy lint | `scripts/docs-truth/copy-lint.mjs` (P2 — full-tree prose in `src/kernel` / `src/guardrails` / `src/interface` must live in the lexicon or carry an explicit exempt) |
 | Graph | `docs/_map.mjs` |
 
 ## Ownership
@@ -17,6 +18,7 @@ Deterministic document-health lint for THEORUM. No waivers. No LLM.
 | `scripts/docs-truth/graph.mjs` | Graph load, ownership, evidence, freshness |
 | `scripts/docs-truth/cli.mjs` | `lint`, `inventory`, `freshness` |
 | `scripts/docs-truth/export-drift.mjs` | Entrypoint export vs contract drift |
+| `scripts/docs-truth/copy-lint.mjs` | Emit-site copy vs lexicon (P2) |
 | `scripts/docs-truth/graph.test.mjs` | Contract tests |
 | `docs/_map.mjs` | Export → doc ownership graph |
 
@@ -29,7 +31,8 @@ Deterministic document-health lint for THEORUM. No waivers. No LLM.
 | Section freshness | Watches/`section_triggers` → specific `##` headings must change |
 | Owned fallback | Owned files → at least one behavioral section hunk |
 | Evidence | ≥2 supports; behavioral sections require `contract_test` |
-| Export drift | Entry `mod.ts` export names appear in owner contract (checked by `export-drift.mjs`, including `theorum/playground`) |
+| Export drift | Entry `mod.ts` export names appear in owner contract (checked by `export-drift.mjs`) |
+| Copy lint | Full-tree prose (≥3 words) in `src/kernel` / `src/guardrails` / `src/interface` outside `lexicon.ts` fails (`copy-lint.mjs`); `// lexicon-exempt:` / `lexicon-exempt-file:` require a reason |
 
 ## Package vs repo documentation
 
@@ -94,6 +97,7 @@ Re-install manually: `npm run hooks:install`
     "Rules": {
       "supports": [
         { "kind": "source", "path": "scripts/docs-truth/graph.mjs" },
+        { "kind": "source", "path": "scripts/docs-truth/copy-lint.mjs" },
         { "kind": "contract_test", "path": "scripts/docs-truth/graph.test.mjs" }
       ]
     },

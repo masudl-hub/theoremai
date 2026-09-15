@@ -21,7 +21,7 @@ function registerStructured(id: string, spec: StructuredSpec): void {
 function getStructured(id: string): StructuredSpec {
   const spec = schemas.get(id);
   if (!spec) {
-    throw new TheorumError(`Unknown structured schema '${id}'`);
+    throw new TheorumError(`Unknown structured schema '${id}'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return spec;
 }

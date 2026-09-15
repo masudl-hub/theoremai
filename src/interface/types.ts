@@ -235,11 +235,26 @@ export type AttachmentValidationCode =
   | 'too_many_files'
   | 'file_too_large'
   | 'turn_too_large'
+  | 'attachments_not_accepted'
+  | 'voice_not_accepted'
   | 'limits_unconfigured';
+
+/**
+ * Structured parameters for rendering one validation issue. The headless
+ * interface emits codes + params only; English lives in the lexicon defaults
+ * and is rendered by the host UI layer (e.g. `@theorum/react`).
+ */
+export interface AttachmentValidationParams {
+  maxFiles?: number;
+  maxBytes?: number;
+  maxTurnBytes?: number;
+  mimeType?: string;
+  channel?: 'attachment' | 'voice';
+}
 
 export interface AttachmentValidationIssue {
   code: AttachmentValidationCode;
-  message: string;
+  params?: AttachmentValidationParams;
   fileName?: string;
 }
 

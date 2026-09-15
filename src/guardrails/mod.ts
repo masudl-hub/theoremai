@@ -64,6 +64,14 @@ export {
   projectGuardrailEvent,
 } from './hits.ts';
 export { injectionSpans } from './injection.ts';
+export type { LexiconKey, LexiconOverrides, LexiconParams } from './lexicon.ts';
+export {
+  LEXICON_KEYS,
+  lexiconDefault,
+  lexiconText,
+  overrideLexicon,
+  resetLexicon,
+} from './lexicon.ts';
 export type {
   LiveOutboundBatchResult,
   LiveOutboundGateSession,
@@ -86,10 +94,10 @@ export {
   createProgressiveYieldGate,
   DEFAULT_HOLDBACK,
 } from './progressive-yield.ts';
-export type { QuotaSlotStatus } from './quota.ts';
+export type { QuotaExhausted, QuotaSlotStatus } from './quota.ts';
 export {
   clientIp,
-  quotaMessage,
+  quotaExhausted,
   releaseSlot,
   resetSlots,
   skipQuota,
@@ -133,6 +141,7 @@ export {
 } from './tool-result.ts';
 export type {
   AdvisoryLevel,
+  CanaryGuardrailSpec,
   EgressEnforcer,
   EgressOnBlock,
   GuardrailAction,
@@ -146,6 +155,7 @@ export type {
   ProfileEgressSpec,
   ProfileGuardrailsSpec,
   Provenance,
+  QuotaGuardrailSpec,
   ResolvedGuardrailPolicy,
   Severity,
   TaintGate,

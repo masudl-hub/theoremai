@@ -46,7 +46,7 @@ export async function discoverResourceMetadata(
 
   if (!response.ok) {
     throw new Error(
-      `Failed to discover protected resource metadata at ${metadataUrl} (HTTP ${response.status})`,
+      `Failed to discover protected resource metadata at ${metadataUrl} (HTTP ${response.status})`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 
@@ -57,7 +57,7 @@ export async function discoverResourceMetadata(
 
   if (authServers.length === 0) {
     throw new Error(
-      `Protected resource metadata at ${metadataUrl} did not declare any authorization_servers`,
+      `Protected resource metadata at ${metadataUrl} did not declare any authorization_servers`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 
@@ -130,7 +130,7 @@ export async function discoverAuthServerMetadata(
     }
   }
 
-  throw new Error(`Failed to discover authorization server metadata for "${authServerUrl}"`);
+  throw new Error(`Failed to discover authorization server metadata for "${authServerUrl}"`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
 }
 
 /**
@@ -223,7 +223,7 @@ export function validateIssuer(expectedIssuer: string, receivedIss?: string): vo
   // Simple byte-exact string comparison (no URL normalization per 2026-07-28 spec)
   if (expectedIssuer !== receivedIss) {
     throw new Error(
-      `RFC 9207 Issuer mismatch detected (potential mix-up attack): expected "${expectedIssuer}", received "${receivedIss}"`,
+      `RFC 9207 Issuer mismatch detected (potential mix-up attack): expected "${expectedIssuer}", received "${receivedIss}"`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 }
@@ -283,7 +283,7 @@ export async function exchangeOAuthPkce(
     options.redirectUri !== statePayload.redirectUri
   ) {
     throw new Error(
-      `Redirect URI mismatch: expected "${statePayload.redirectUri}", received "${options.redirectUri}"`,
+      `Redirect URI mismatch: expected "${statePayload.redirectUri}", received "${options.redirectUri}"`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 
@@ -313,7 +313,7 @@ export async function exchangeOAuthPkce(
     fetchFn,
     tokenEndpoint,
     body,
-    'Token exchange failed',
+    'Token exchange failed', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   );
 
   const credential: OAuth2Credential = {
@@ -355,7 +355,7 @@ export async function refreshOAuthToken(
     fetchFn,
     options.tokenEndpoint,
     body,
-    'Token refresh failed',
+    'Token refresh failed', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   );
 
   const credential: OAuth2Credential = {

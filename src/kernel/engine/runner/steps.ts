@@ -4,6 +4,7 @@ import { recordTaint } from '../../../guardrails/tool-result.ts';
 import { wireInteractionPart } from '../../interaction-parts.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
 import { profileAllowsInject } from '../../stop.ts';
+import type { ToolExecuteSettlement } from '../../tools/execute.ts';
 import {
   executeRegisteredTool,
   formatToolFailureForModel,
@@ -237,6 +238,98 @@ function enrichToolEvent(
   };
 }
 
+async function* drainToolExecEvents(
+  exec: AsyncGenerator<TurnEvent, ToolExecuteSettlement>,
+  tool: NonNullable<TurnEvent['tool']>,
+  callId: string,
+  state: StepExecutionState,
+): AsyncGenerator<TurnEvent, { settlement: ToolExecuteSettlement; sawGate: boolean }> {
+  let next = await exec.next();
+  let sawGate = false;
+  while (!next.done) {
+    const event = next.value;
+    if (event.type === 'tool') {
+      const enriched = enrichToolEvent(tool, callId, event.tool);
+      state.allEmittedEvents.push(enriched);
+      yield enriched;
+      if (event.tool?.phase === 'gate') sawGate = true;
+    } else {
+      state.allEmittedEvents.push(event);
+      yield event;
+    }
+    next = await exec.next();
+  }
+  return { settlement: next.value, sawGate };
+}
+
+function recordProviderToolFailure(
+  state: StepExecutionState,
+  toolEv: TurnEvent,
+  tool: NonNullable<TurnEvent['tool']>,
+  callId: string,
+  failure: { code: string; message: string },
+  generation: ResolvedGeneration,
+  useInteractionsContinuation: boolean,
+  patch?: Partial<NonNullable<TurnEvent['tool']>>,
+): TurnEvent {
+  const enriched = enrichToolEvent(tool, callId, {
+    phase: 'error',
+    failure,
+    ...patch,
+  });
+  state.allEmittedEvents.push(enriched);
+  recordToolModelResult(
+    state,
+    toolEv,
+    formatToolFailureForModel(failure),
+    generation,
+    useInteractionsContinuation,
+  );
+  return enriched;
+}
+
+function applyToolSettlement(
+  settlement: ToolExecuteSettlement,
+  state: StepExecutionState,
+  toolEv: TurnEvent,
+  generation: ResolvedGeneration,
+  profile: Profile,
+  useInteractionsContinuation: boolean,
+): 'continue' | 'stop_cancelled' | 'gated' {
+  if (settlement.aborted) {
+    state.lastStop = {
+      kind: 'cancelled',
+      ...(typeof settlement.aborted === 'object' && settlement.aborted.reason
+        ? { native: settlement.aborted.reason }
+        : {}),
+    };
+    return 'stop_cancelled';
+  }
+  if (settlement.gated) {
+    state.toolSnapshot = generation.tools;
+    return 'gated';
+  }
+  if (settlement.modelResult?.provenance) {
+    state.taint = recordTaint(
+      state.taint,
+      settlement.modelResult.provenance,
+      settlement.modelResult.suspicious,
+    );
+  }
+  if (!settlement.modelResult) return 'continue';
+  recordToolModelResult(
+    state,
+    toolEv,
+    settlement.modelResult,
+    generation,
+    useInteractionsContinuation,
+  );
+  if (settlement.pendingInject?.length) {
+    applyStageInjects(state, profile, settlement.pendingInject);
+  }
+  return 'continue';
+}
+
 async function* handlePendingTools(
   pendingTools: TurnEvent[],
   generation: ResolvedGeneration,
@@ -248,19 +341,13 @@ async function* handlePendingTools(
   let sawGate = false;
   const useInteractionsContinuation = generation.transport === 'interactions';
   for (const toolEv of pendingTools) {
-    if (sawGate) {
-      // Contract: do not start later siblings after a gate.
-      break;
-    }
+    if (sawGate) break;
     const tool = toolEv.tool;
-    if (!tool) {
-      continue;
-    }
+    if (!tool) continue;
 
     executed = true;
     const callId = tool.id ?? tool.callId ?? newCallId(tool.name || 'unknown');
 
-    // Provider cancelled an in-flight call (e.g. live barge-in). Do not execute.
     if (tool.phase === 'cancel') {
       const enriched = enrichToolEvent(tool, callId);
       state.allEmittedEvents.push(enriched);
@@ -268,7 +355,6 @@ async function* handlePendingTools(
       continue;
     }
 
-    // Provider already failed this call (e.g. malformed arguments JSON).
     if (tool.phase === 'error' && tool.failure) {
       const enriched = enrichToolEvent(tool, callId);
       state.allEmittedEvents.push(enriched);
@@ -283,30 +369,24 @@ async function* handlePendingTools(
       continue;
     }
 
-    // Empty name is a protocol defect — never route through the registry as unknown_tool.
     if (!tool.name) {
-      const failure = {
-        code: 'malformed_arguments',
-        message: 'Provider tool call is missing a function name',
-      };
-      const enriched = enrichToolEvent(tool, callId, {
-        phase: 'error',
-        failure,
-        name: '',
-      });
-      state.allEmittedEvents.push(enriched);
-      yield enriched;
-      recordToolModelResult(
+      yield recordProviderToolFailure(
         state,
         toolEv,
-        formatToolFailureForModel(failure),
+        tool,
+        callId,
+        {
+          code: 'malformed_arguments',
+          message: 'Provider tool call is missing a function name', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        },
         generation,
         useInteractionsContinuation,
+        { name: '' },
       );
       continue;
     }
 
-    const stages: ToolStageSupport | undefined = {
+    const stages: ToolStageSupport = {
       handlers: safe?.onStage ? [safe.onStage] : [],
       step: state.stepCount,
       history: () => state.currentHistory,
@@ -316,83 +396,41 @@ async function* handlePendingTools(
       signal: safe?.signal,
     };
 
-    const exec = executeRegisteredTool({
-      profile,
-      name: tool.name,
-      input: tool.arguments ?? {},
+    const drained = yield* drainToolExecEvents(
+      executeRegisteredTool({
+        profile,
+        name: tool.name,
+        input: tool.arguments ?? {},
+        callId,
+        ctx: {
+          sessionPermissions: generation.sessionPermissions,
+          path: generation.tools.path,
+          turn: { step: state.stepCount, taint: state.taint },
+          credentials: safe?.credentials,
+          host: generation.host,
+          resume: undefined,
+          signal: safe?.signal,
+        },
+        snapshot: generation.tools,
+        stages,
+      }),
+      tool,
       callId,
-      ctx: {
-        sessionPermissions: generation.sessionPermissions,
-        path: generation.tools.path,
-        turn: { step: state.stepCount, taint: state.taint },
-        credentials: safe?.credentials,
-        host: generation.host,
-        resume: undefined,
-        signal: safe?.signal,
-      },
-      snapshot: generation.tools,
-      stages,
-    });
-    let next = await exec.next();
-    while (!next.done) {
-      const event = next.value;
-      if (event.type === 'stage') {
-        state.allEmittedEvents.push(event);
-        yield event;
-        next = await exec.next();
-        continue;
-      }
-      if (event.type !== 'tool') {
-        state.allEmittedEvents.push(event);
-        yield event;
-        next = await exec.next();
-        continue;
-      }
-      const enriched = enrichToolEvent(tool, callId, event.tool);
-      state.allEmittedEvents.push(enriched);
-      yield enriched;
-      if (event.tool?.phase === 'gate') {
-        sawGate = true;
-      }
-      next = await exec.next();
-    }
+      state,
+    );
 
-    const settlement = next.value;
-    if (settlement.aborted) {
-      state.lastStop = {
-        kind: 'cancelled',
-        ...(typeof settlement.aborted === 'object' && settlement.aborted.reason
-          ? { native: settlement.aborted.reason }
-          : {}),
-      };
-      return false;
-    }
-    if (settlement.gated || sawGate) {
-      sawGate = true;
-      state.toolSnapshot = generation.tools;
-      continue;
-    }
-    if (settlement.modelResult?.provenance) {
-      state.taint = recordTaint(
-        state.taint,
-        settlement.modelResult.provenance,
-        settlement.modelResult.suspicious,
-      );
-    }
-    if (!settlement.modelResult) {
-      continue;
-    }
-    recordToolModelResult(
+    if (drained.sawGate) sawGate = true;
+    const outcome = applyToolSettlement(
+      drained.settlement,
       state,
       toolEv,
-      settlement.modelResult,
       generation,
+      profile,
       useInteractionsContinuation,
     );
-    // Apply post_tool inject after the provider tool result is recorded so
-    // Interactions continuation can absorb user_input inject steps.
-    if (settlement.pendingInject?.length) {
-      applyStageInjects(state, profile, settlement.pendingInject);
+    if (outcome === 'stop_cancelled') return false;
+    if (outcome === 'gated' || sawGate) {
+      sawGate = true;
     }
   }
   if (sawGate) {

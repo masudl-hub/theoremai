@@ -17,13 +17,7 @@ export type {
   ComposerPrimaryAction,
   ComposerRunPhase,
 } from './composer-actions.ts';
-export {
-  COMPOSER_MENU_ACTION_DESCRIPTIONS,
-  COMPOSER_MENU_ACTION_LABELS,
-  COMPOSER_PRIMARY_LABELS,
-  resolveComposerMenuActions,
-  resolveComposerPrimary,
-} from './composer-actions.ts';
+export { resolveComposerMenuActions, resolveComposerPrimary } from './composer-actions.ts';
 export type { PrepareUserTurnResult } from './draft.ts';
 export { prepareUserTurn, sanitizeUserDraft } from './draft.ts';
 export { interfaceFrom, interfaceFromProfile, interfaceFromProjected } from './from-profile.ts';
@@ -76,17 +70,14 @@ export type {
   AwaitingToolContext,
   GatedToolContext,
   InterfaceTurnSession,
-  PausedToolContext,
 } from './session.ts';
 export {
   abandonGatedToolSession,
-  abandonPausedToolSession,
   applyTurnEventsToSession,
   awaitingFromEvents,
   branchInterfaceTurnSession,
   emptyInterfaceTurnSession,
   gatedToolFromEvents,
-  pausedToolFromEvents,
 } from './session.ts';
 export { promotedToolIdsFromEvents, toolSnapshotFromEvents } from './tool-invoke.ts';
 export type { PromotedToolMedia } from './tool-media.ts';
@@ -97,6 +88,7 @@ export {
 export type {
   AttachmentValidationCode,
   AttachmentValidationIssue,
+  AttachmentValidationParams,
   AttachmentValidationResult,
   ComposerProfileInterface,
   FoldTurnEventsOptions,

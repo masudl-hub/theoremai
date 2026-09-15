@@ -4,6 +4,9 @@
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import {
   AWAITING_USER_INPUT_STATUS,
+  isToolGateKind,
+  isTurnInjectStage,
+  isTurnStage,
   TOOL_GATE_KINDS,
   TURN_INJECT_STAGES,
   TURN_STAGES,
@@ -12,9 +15,6 @@ import {
 import {
   applyStageResult,
   isAwaitingUserInput,
-  isToolGateKind,
-  isTurnInjectStage,
-  isTurnStage,
   parseAwaitingUserInput,
   parseToolGate,
   STAGE_AFFORDANCE_MATRIX,

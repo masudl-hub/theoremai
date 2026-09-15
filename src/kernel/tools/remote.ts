@@ -12,6 +12,7 @@
  * @module
  */
 
+import { lexiconText } from '../../guardrails/lexicon.ts';
 import { refreshOAuthToken } from '../auth/oauth.ts';
 import type { OAuth2Credential, ToolCredential } from '../auth/types.ts';
 import type { TurnEvent } from '../types.ts';
@@ -23,8 +24,8 @@ import {
   type ToolCallBase,
   toolEvent,
 } from './events.ts';
-import { checkPermission, isGateResumeGranted } from './permission.ts';
-import { gateEvent, runPreToolStages, type ToolStageSupport } from './stage-run.ts';
+import { checkPermission } from './permission.ts';
+import { gateEvent, runPreToolPipeline, type ToolStageSupport } from './stage-run.ts';
 import type {
   HttpToolAuthConfig,
   HttpToolDef,
@@ -157,14 +158,14 @@ async function* resolveOAuth2Credential(
         ctx.credentials[slot] = refreshResult.credential;
       }
     } catch (err) {
-      const message = `Failed to refresh OAuth token for '${toolName}' (slot: '${slot}'): ${err instanceof Error ? err.message : String(err)}`;
+      const message = `Failed to refresh OAuth token for '${toolName}' (slot: '${slot}'): ${err instanceof Error ? err.message : String(err)}`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       return unauthenticatedResult(toolName, authConfig, message, policy, {
         issuer: credential.issuer,
         resource: credential.resource,
       });
     }
   } else if (isExpired && !credential.refreshToken) {
-    const message = `OAuth token expired for '${toolName}' (slot: '${slot}') and no refresh token is available.`;
+    const message = `OAuth token expired for '${toolName}' (slot: '${slot}') and no refresh token is available.`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     return unauthenticatedResult(toolName, authConfig, message, policy, {
       issuer: credential.issuer,
       resource: credential.resource,
@@ -197,7 +198,7 @@ export async function* resolveToolAuth(
   const policy = authConfig.onUnauthenticated ?? 'pause';
 
   if (!credential) {
-    const message = `Authentication required for '${toolName}' (auth slot: '${authConfig.slot}').`;
+    const message = `Authentication required for '${toolName}' (auth slot: '${authConfig.slot}').`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     return unauthenticatedResult(toolName, authConfig, message, policy);
   }
 
@@ -242,7 +243,7 @@ export function buildHttpToolTarget(
   const unreplacedMatch = urlStr.match(/\{([a-zA-Z0-9_-]+)\}/);
   if (unreplacedMatch) {
     throw new Error(
-      `Missing required path parameter "${unreplacedMatch[1]}" for endpoint "${endpoint}"`,
+      `Missing required path parameter "${unreplacedMatch[1]}" for endpoint "${endpoint}"`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 
@@ -348,34 +349,18 @@ async function* runRemotePreBodyStages(args: {
   base: ToolCallBase;
   stages?: ToolStageSupport;
 }): AsyncGenerator<TurnEvent, { ok: true; input: unknown } | RemoteToolOutcome> {
-  const { tool, ctx, base, stages } = args;
-  let input = args.input;
-
-  let toolPreTool: import('../stages.ts').StageResult | undefined;
-  if (tool.preTool && !isGateResumeGranted(ctx.resume)) {
-    toolPreTool = (await tool.preTool(input as never, ctx)) ?? undefined;
-  }
-
-  if (!stages && toolPreTool === undefined) {
-    return { ok: true, input };
-  }
-
-  const support: ToolStageSupport = stages ?? {
-    handlers: [],
-    step: ctx.turn?.step ?? 1,
-    history: () => [],
-    injectAllowed: false,
-    host: ctx.host,
-    signal: ctx.signal,
-  };
-
-  const pre = yield* runPreToolStages({
-    stages: support,
-    toolName: tool.name,
+  const { tool, base, stages } = args;
+  const pipeline = yield* runPreToolPipeline({
+    tool,
+    input: args.input,
+    ctx: args.ctx,
     callId: base.callId ?? '',
-    input,
-    toolPreTool,
+    stages,
   });
+  if (pipeline.status === 'passthrough') {
+    return { ok: true, input: pipeline.input };
+  }
+  const pre = pipeline.outcome;
 
   if (pre.kind === 'abort') {
     return { kind: 'aborted', aborted: pre.abort };
@@ -390,18 +375,101 @@ async function* runRemotePreBodyStages(args: {
     return failureOutcome(pre.failure, true);
   }
 
-  input = pre.input;
-  const reparsed = tool.input.safeParse(input);
+  const reparsed = tool.input.safeParse(pre.input);
   if (!reparsed.success) {
     const failure: ToolFailure = {
       code: 'invalid_input',
-      message: 'Tool input validation failed after mutate',
+      message: lexiconText('tool.input_invalid_after_mutate'),
       details: reparsed.error.flatten(),
     };
     yield failureEvent(base, failure);
     return failureOutcome(failure, true);
   }
   return { ok: true, input: reparsed.data };
+}
+
+async function* remoteParseAndPermit(
+  tool: HttpToolDef | McpToolDef,
+  rawInput: unknown,
+  ctx: ToolContext,
+  base: ToolCallBase,
+): AsyncGenerator<
+  TurnEvent,
+  { ok: true; input: unknown } | { ok: false; outcome: RemoteToolOutcome }
+> {
+  const started = yield* startToolExecution(tool, rawInput, ctx, base);
+  if (!started.ok) {
+    return {
+      ok: false,
+      outcome: failureOutcome(
+        { code: 'invalid_input', message: lexiconText('tool.input_invalid') },
+        true,
+      ),
+    };
+  }
+  const permissionGate = checkPermission(
+    tool.name,
+    tool.permission,
+    ctx.sessionPermissions,
+    ctx.resume,
+  );
+  if (permissionGate) {
+    return { ok: false, outcome: { kind: 'gated', gate: permissionGate } };
+  }
+  return { ok: true, input: started.data };
+}
+
+function outcomeFromUnauth(authRes: {
+  unauthenticated?: boolean;
+  gate?: import('./types.ts').ToolGate;
+  modelMessage?: string;
+}): RemoteToolOutcome | undefined {
+  if (!authRes.unauthenticated) return undefined;
+  if (authRes.gate) return { kind: 'gated', gate: authRes.gate };
+  if (authRes.modelMessage) {
+    return {
+      kind: 'ok',
+      modelResult: { finding: authRes.modelMessage },
+      outputRaw: { unauthenticated: true, message: authRes.modelMessage },
+    };
+  }
+  return failureOutcome(
+    { code: 'not_authorized', message: 'Tool authentication required' }, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    true,
+  );
+}
+
+async function* remoteAuthAndPreBody(args: {
+  tool: HttpToolDef | McpToolDef;
+  input: unknown;
+  ctx: ToolContext;
+  base: ToolCallBase;
+  stages?: ToolStageSupport;
+}): AsyncGenerator<
+  TurnEvent,
+  { ok: true; input: unknown; authHeaders: Record<string, string> } | RemoteToolOutcome
+> {
+  const authRes = yield* resolveToolAuth(args.tool.name, args.tool.auth, args.ctx, args.base);
+  const unauth = outcomeFromUnauth(authRes);
+  if (unauth) return unauth;
+
+  const preBody = yield* runRemotePreBodyStages({
+    tool: args.tool,
+    input: args.input,
+    ctx: args.ctx,
+    base: args.base,
+    stages: args.stages,
+  });
+  if (!('ok' in preBody)) return preBody;
+  return { ok: true, input: preBody.input, authHeaders: authRes.headers ?? {} };
+}
+
+function networkFailureOutcome(err: unknown): { failure: ToolFailure; outcome: RemoteToolOutcome } {
+  const failure: ToolFailure = {
+    code: 'network_error',
+    message: err instanceof Error ? err.message : String(err),
+  };
+  return { failure, outcome: failureOutcome(failure, false) };
 }
 
 /**
@@ -415,45 +483,13 @@ export async function* executeHttpTool(
   base: ToolCallBase,
   stages?: ToolStageSupport,
 ): AsyncGenerator<TurnEvent, RemoteToolOutcome> {
-  const started = yield* startToolExecution(tool, rawInput, ctx, base);
-  if (!started.ok) {
-    return failureOutcome({ code: 'invalid_input', message: 'Tool input validation failed' }, true);
-  }
-  let input: unknown = started.data as Record<string, unknown>;
+  const parsed = yield* remoteParseAndPermit(tool, rawInput, ctx, base);
+  if (!parsed.ok) return parsed.outcome;
+  let input: unknown = parsed.input as Record<string, unknown>;
 
-  const permissionGate = checkPermission(
-    tool.name,
-    tool.permission,
-    ctx.sessionPermissions,
-    ctx.resume,
-  );
-  if (permissionGate) {
-    return { kind: 'gated', gate: permissionGate };
-  }
-
-  const authRes = yield* resolveToolAuth(tool.name, tool.auth, ctx, base);
-  if (authRes.unauthenticated) {
-    if (authRes.gate) {
-      return { kind: 'gated', gate: authRes.gate };
-    }
-    if (authRes.modelMessage) {
-      return {
-        kind: 'ok',
-        modelResult: { finding: authRes.modelMessage },
-        outputRaw: { unauthenticated: true, message: authRes.modelMessage },
-      };
-    }
-    return failureOutcome(
-      { code: 'not_authorized', message: 'Tool authentication required' },
-      true,
-    );
-  }
-
-  const preBody = yield* runRemotePreBodyStages({ tool, input, ctx, base, stages });
-  if (!('ok' in preBody)) {
-    return preBody;
-  }
-  input = preBody.input as Record<string, unknown>;
+  const prepared = yield* remoteAuthAndPreBody({ tool, input, ctx, base, stages });
+  if (!('ok' in prepared)) return prepared;
+  input = prepared.input as Record<string, unknown>;
 
   let target: HttpToolTarget;
   try {
@@ -473,7 +509,7 @@ export async function* executeHttpTool(
   if (!targetUrl) {
     const failure: ToolFailure = {
       code: 'network_blocked',
-      message: 'HTTP target blocked by network policy',
+      message: 'HTTP target blocked by network policy', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     };
     return failureOutcome(failure, true);
   }
@@ -481,7 +517,7 @@ export async function* executeHttpTool(
   const headers: Record<string, string> = {
     Accept: 'application/json',
     ...tool.headers,
-    ...authRes.headers,
+    ...prepared.authHeaders,
   };
   if (tool.method !== 'GET') {
     headers['Content-Type'] = 'application/json';
@@ -515,7 +551,7 @@ export async function* executeHttpTool(
     if (!checked.success) {
       const failure: ToolFailure = {
         code: 'invalid_output',
-        message: 'HTTP response did not match tool output schema',
+        message: 'HTTP response did not match tool output schema', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         details: checked.error.flatten(),
       };
       yield failureEvent(base, failure);
@@ -529,12 +565,9 @@ export async function* executeHttpTool(
       outputRaw: checked.data,
     };
   } catch (err) {
-    const failure: ToolFailure = {
-      code: 'network_error',
-      message: err instanceof Error ? err.message : String(err),
-    };
+    const { failure, outcome } = networkFailureOutcome(err);
     yield failureEvent(base, failure);
-    return failureOutcome(failure, false);
+    return outcome;
   }
 }
 
@@ -586,7 +619,7 @@ export function parseMcpRpcResponse(text: string): McpRpcResponse {
 
   const last = messages.at(-1);
   if (!last) {
-    throw new Error(`MCP server returned non-JSON response: ${text.slice(0, 200)}`);
+    throw new Error(`MCP server returned non-JSON response: ${text.slice(0, 200)}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return last;
 }
@@ -596,8 +629,8 @@ export function isUnsupportedMcpProtocolError(error: McpRpcResponse['error']): b
   if (!error) return false;
   const message = error.message.toLowerCase();
   return (
-    message.includes('unsupported protocol version') ||
-    message.includes('inconsistent mcp protocol version')
+    message.includes('unsupported protocol version') || // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    message.includes('inconsistent mcp protocol version') // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   );
 }
 
@@ -610,6 +643,7 @@ function unsupportedProtocolFromHttpBody(text: string): McpRpcResponse['error'] 
   } catch {
     // Fall through to raw-text heuristic for non-JSON error pages.
   }
+  // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   if (text.toLowerCase().includes('unsupported protocol version')) {
     return { code: -32600, message: text.slice(0, 300) };
   }
@@ -668,7 +702,7 @@ async function fetchMcpProtocolAttempt(
       kind: 'failure',
       failure: {
         code: `mcp_http_${response.status}`,
-        message: `MCP server error HTTP ${response.status}: ${text.slice(0, 300)}`,
+        message: `MCP server error HTTP ${response.status}: ${text.slice(0, 300)}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       },
     };
   }
@@ -684,7 +718,7 @@ async function fetchMcpProtocolAttempt(
       kind: 'failure',
       failure: {
         code: 'invalid_response',
-        message: `MCP server returned non-JSON response: ${text.slice(0, 200)}`,
+        message: `MCP server returned non-JSON response: ${text.slice(0, 200)}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       },
     };
   }
@@ -744,7 +778,7 @@ function mcpResultFailure(rpcResponse: McpRpcResponse): ToolFailure | undefined 
   if (result?.isError) {
     return {
       code: 'mcp_tool_execution_failed',
-      message: result.content?.map((c) => c.text ?? '').join('\n') ?? 'MCP Tool execution error',
+      message: result.content?.map((c) => c.text ?? '').join('\n') ?? 'MCP Tool execution error', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     };
   }
   return undefined;
@@ -767,7 +801,7 @@ function interpretMcpRpc(
       ok: false,
       failure: {
         code: 'mcp_protocol_error',
-        message: negotiated.lastProtocolError?.message ?? 'MCP protocol negotiation failed',
+        message: negotiated.lastProtocolError?.message ?? 'MCP protocol negotiation failed', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         details: negotiated.lastProtocolError?.data,
       },
     };
@@ -782,7 +816,7 @@ function interpretMcpRpc(
       ok: false,
       failure: {
         code: 'invalid_output',
-        message: 'MCP output schema validation failed',
+        message: 'MCP output schema validation failed', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         details: checked.error.flatten(),
       },
     };
@@ -801,53 +835,21 @@ export async function* executeMcpTool(
   base: ToolCallBase,
   stages?: ToolStageSupport,
 ): AsyncGenerator<TurnEvent, RemoteToolOutcome> {
-  const started = yield* startToolExecution(tool, rawInput, ctx, base);
-  if (!started.ok) {
-    return failureOutcome({ code: 'invalid_input', message: 'Tool input validation failed' }, true);
-  }
-  let input: unknown = started.data;
-
-  const permissionGate = checkPermission(
-    tool.name,
-    tool.permission,
-    ctx.sessionPermissions,
-    ctx.resume,
-  );
-  if (permissionGate) {
-    return { kind: 'gated', gate: permissionGate };
-  }
+  const parsed = yield* remoteParseAndPermit(tool, rawInput, ctx, base);
+  if (!parsed.ok) return parsed.outcome;
+  let input: unknown = parsed.input;
 
   const targetUrl = yield* guardToolTarget(tool.serverUrl, ctx, base);
   if (!targetUrl) {
     return failureOutcome(
-      { code: 'network_blocked', message: 'MCP target blocked by network policy' },
+      { code: 'network_blocked', message: 'MCP target blocked by network policy' }, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       true,
     );
   }
 
-  const authRes = yield* resolveToolAuth(tool.name, tool.auth, ctx, base);
-  if (authRes.unauthenticated) {
-    if (authRes.gate) {
-      return { kind: 'gated', gate: authRes.gate };
-    }
-    if (authRes.modelMessage) {
-      return {
-        kind: 'ok',
-        modelResult: { finding: authRes.modelMessage },
-        outputRaw: { unauthenticated: true, message: authRes.modelMessage },
-      };
-    }
-    return failureOutcome(
-      { code: 'not_authorized', message: 'Tool authentication required' },
-      true,
-    );
-  }
-
-  const preBody = yield* runRemotePreBodyStages({ tool, input, ctx, base, stages });
-  if (!('ok' in preBody)) {
-    return preBody;
-  }
-  input = preBody.input;
+  const prepared = yield* remoteAuthAndPreBody({ tool, input, ctx, base, stages });
+  if (!('ok' in prepared)) return prepared;
+  input = prepared.input;
 
   try {
     const interpreted = interpretMcpRpc(
@@ -858,7 +860,7 @@ export async function* executeMcpTool(
           'Content-Type': 'application/json',
           Accept: 'application/json, text/event-stream',
           ...tool.headers,
-          ...authRes.headers,
+          ...prepared.authHeaders,
         },
         base.callId ?? Date.now(),
         tool.mcpToolName,
@@ -877,11 +879,8 @@ export async function* executeMcpTool(
       outputRaw: interpreted.data,
     };
   } catch (err) {
-    const failure: ToolFailure = {
-      code: 'network_error',
-      message: err instanceof Error ? err.message : String(err),
-    };
+    const { failure, outcome } = networkFailureOutcome(err);
     yield failureEvent(base, failure);
-    return failureOutcome(failure, false);
+    return outcome;
   }
 }

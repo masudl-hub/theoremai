@@ -12,20 +12,16 @@ import { sanitizeHistory } from '../../../guardrails/sanitize.ts';
 import { wireInteractionPart } from '../../interaction-parts.ts';
 import {
   applyStageResult,
+  buildStageContext,
   type StageApplyWarning,
+  type StageCallBag,
   type StageContext,
   type StageHandler,
-  type StageResult,
   stageEventFields,
 } from '../../stages.ts';
 import { profileAllowsInject } from '../../stop.ts';
-import type {
-  Profile,
-  ResolvedGeneration,
-  TurnEvent,
-  TurnHistoryMessage,
-  TurnStop,
-} from '../../types.ts';
+import type { Profile, ResolvedGeneration, TurnEvent, TurnHistoryMessage } from '../../types.ts';
+import { invokeStageHandler } from '../stage-invoke.ts';
 import type { StepExecutionState } from './state.ts';
 
 function sanitizeStageInjects(
@@ -48,7 +44,7 @@ function stageMessageToInteractionStep(msg: TurnHistoryMessage): Record<string, 
 }
 
 /** Move opening user `generation.input` into history (Interactions-safe fold). */
-export function foldGenerationInputIntoHistory(
+function foldGenerationInputIntoHistory(
   generation: ResolvedGeneration,
   state: StepExecutionState,
 ): void {
@@ -70,7 +66,7 @@ export function foldGenerationInputIntoHistory(
   generation.input = [];
 }
 
-export interface ApplyTurnStageArgs {
+export interface ApplyTurnStageArgs extends StageCallBag {
   profile: Profile;
   generation: ResolvedGeneration;
   state: StepExecutionState;
@@ -82,16 +78,6 @@ export interface ApplyTurnStageArgs {
   foldInput?: boolean;
   /** Another provider step would exceed maxSteps — reject inject. */
   injectWouldExceedMaxSteps?: boolean;
-  callId?: string;
-  tool?: string;
-  input?: unknown;
-  callNotStarted?: boolean;
-  outputRaw?: unknown;
-  outputModel?: StageContext['outputModel'];
-  failure?: StageContext['failure'];
-  awaiting?: boolean;
-  stop?: TurnStop;
-  gate?: StageContext['gate'];
   host?: unknown;
 }
 
@@ -157,7 +143,7 @@ export async function* applyTurnStage(
   const empty: ApplyTurnStageResult = { injectCount: 0, warnings: [] };
   if (!args.onStage) return empty;
 
-  const ctx: StageContext = {
+  const ctx = buildStageContext({
     stage: args.stage,
     step: args.step,
     history: args.state.currentHistory,
@@ -172,16 +158,9 @@ export async function* applyTurnStage(
     awaiting: args.awaiting,
     stop: args.stop,
     gate: args.gate,
-  };
+  });
 
-  let raw: StageResult | undefined;
-  try {
-    raw = (await args.onStage(ctx)) ?? undefined;
-  } catch (err) {
-    throwIfAborted(args.signal);
-    throw err;
-  }
-  throwIfAborted(args.signal);
+  const raw = await invokeStageHandler(args.onStage, ctx, args.signal);
 
   const applied = applyStageResult({
     stage: args.stage,

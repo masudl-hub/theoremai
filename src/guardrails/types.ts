@@ -249,11 +249,35 @@ export interface NetworkGuardrailSpec {
   allowedSchemes?: string[];
 }
 
+/** Optional daily turn quota consumed by host HTTP middleware. */
+export interface QuotaGuardrailSpec {
+  perDay: number;
+  /**
+   * Host copy surfaced when the quota trips. The kernel never authors this:
+   * `quotaExhausted` returns structured data (`code`, `perDay`) and includes
+   * this string only when the host set it.
+   */
+  message?: string;
+}
+
+/**
+ * Per-turn canary switches. `true` / `false` toggles minting with the
+ * registered default bind note; the object form supplies host copy.
+ */
+export interface CanaryGuardrailSpec {
+  /**
+   * Host template appended to the system prompt binding the canary. Must
+   * contain the `{canary}` placeholder; `bindCanary` refuses a note that lost
+   * the token. Omitted means the lexicon default (`canary.bind_note`).
+   */
+  bindNote?: string;
+}
+
 /** Profile guardrail switches enforced by the kernel. */
 export interface ProfileGuardrailsSpec {
   /** Optional daily turn quota; omitted means quota enforcement is not configured. */
-  quota?: { perDay: number };
-  canary?: boolean;
+  quota?: QuotaGuardrailSpec;
+  canary?: boolean | CanaryGuardrailSpec;
   sanitizeInput?: boolean;
   redactSensitive?: boolean;
   egress?: ProfileEgressSpec;
@@ -299,8 +323,10 @@ export interface ResolvedGuardrailPolicy {
   sanitizeInput: boolean;
   redactSensitive: boolean;
   canary: boolean;
+  /** Host bind-note template from `guardrails.canary.bindNote`, when set. */
+  canaryBindNote?: string;
   egress?: ProfileEgressSpec;
   network?: NetworkGuardrailSpec;
-  quota?: { perDay: number };
+  quota?: QuotaGuardrailSpec;
   taint?: TaintGuardrailSpec;
 }

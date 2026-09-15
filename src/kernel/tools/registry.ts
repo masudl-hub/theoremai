@@ -22,22 +22,21 @@ import type {
 
 const tools = new Map<string, RegisteredTool>();
 
+function schemasFromZod<TIn, TOut>(input: z.ZodType<TIn>, output: z.ZodType<TOut>) {
+  const inputSchema = jsonSchemaFromZod(input, 'input');
+  validateToolInputSchema(inputSchema);
+  const outputSchema = jsonSchemaFromZod(output, 'output');
+  validateToolOutputSchema(outputSchema);
+  return { inputSchema, outputSchema };
+}
+
 function normalizeHttp<TIn = unknown, TOut = unknown>(
   def: Omit<HttpToolDef<TIn, TOut>, 'inputSchema' | 'outputSchema'> & {
     input: z.ZodType<TIn>;
     output: z.ZodType<TOut>;
   },
 ): HttpToolDef<TIn, TOut> {
-  const inputSchema = jsonSchemaFromZod(def.input, 'input');
-  validateToolInputSchema(inputSchema);
-  const outputSchema = jsonSchemaFromZod(def.output, 'output');
-  validateToolOutputSchema(outputSchema);
-  return {
-    ...def,
-    type: 'http',
-    inputSchema,
-    outputSchema,
-  };
+  return { ...def, type: 'http', ...schemasFromZod(def.input, def.output) };
 }
 
 function normalizeMcp<TIn = unknown, TOut = unknown>(
@@ -46,16 +45,7 @@ function normalizeMcp<TIn = unknown, TOut = unknown>(
     output: z.ZodType<TOut>;
   },
 ): McpToolDef<TIn, TOut> {
-  const inputSchema = jsonSchemaFromZod(def.input, 'input');
-  validateToolInputSchema(inputSchema);
-  const outputSchema = jsonSchemaFromZod(def.output, 'output');
-  validateToolOutputSchema(outputSchema);
-  return {
-    ...def,
-    type: 'mcp',
-    inputSchema,
-    outputSchema,
-  };
+  return { ...def, type: 'mcp', ...schemasFromZod(def.input, def.output) };
 }
 
 function normalizeFunction<TIn = unknown, TOut = unknown>(
@@ -64,16 +54,7 @@ function normalizeFunction<TIn = unknown, TOut = unknown>(
     output: z.ZodType<TOut>;
   },
 ): FunctionToolDef<TIn, TOut> {
-  const inputSchema = jsonSchemaFromZod(def.input, 'input');
-  validateToolInputSchema(inputSchema);
-  const outputSchema = jsonSchemaFromZod(def.output, 'output');
-  validateToolOutputSchema(outputSchema);
-  return {
-    ...def,
-    type: 'function',
-    inputSchema,
-    outputSchema,
-  };
+  return { ...def, type: 'function', ...schemasFromZod(def.input, def.output) };
 }
 
 function normalizeToolDefinition<TIn = unknown, TOut = unknown>(
@@ -110,7 +91,7 @@ function getTool(name: string): RegisteredTool | undefined {
 function requireTool(name: string): RegisteredTool {
   const tool = getTool(name);
   if (!tool) {
-    throw new TheorumError(`Tool '${name}' is not registered`);
+    throw new TheorumError(`Tool '${name}' is not registered`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return tool;
 }

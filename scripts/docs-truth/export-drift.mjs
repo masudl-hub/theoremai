@@ -27,7 +27,6 @@ const ENTRY_MODS = [
   { export: './presets', mod: 'src/presets/mod.ts', docFromEntry: 'presets' },
   { export: './presets/google', mod: 'src/presets/google.ts', docFromEntry: 'presets-google' },
   { export: './interface', mod: 'src/interface/mod.ts', docFromEntry: 'interface' },
-  { export: './playground', mod: 'src/playground/mod.ts', docFromEntry: 'playground' },
 ];
 
 function parseExportNames(source) {

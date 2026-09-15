@@ -12,24 +12,18 @@ import {
   AWAITING_USER_INPUT_KINDS,
   AWAITING_USER_INPUT_STATUS,
   type AwaitingUserInputKind,
-  TOOL_GATE_KINDS,
+  isToolGateKind,
   TOOL_PERMISSION,
-  type ToolGateKind,
   type ToolPermission,
-  TURN_INJECT_STAGES,
-  TURN_STAGES,
-  type TurnInjectStage,
   type TurnStage,
 } from './schema.ts';
 import type { TurnStop } from './stop.ts';
 import type { ModelToolResult, ToolFailure, ToolGate } from './tools/types.ts';
 import type { TurnEvent, TurnHistoryMessage } from './types.ts';
 
-export type { AwaitingUserInputKind, ToolGate, ToolGateKind, TurnInjectStage, TurnStage };
+/** Canonical homes: schema (`TurnStage`, `ToolGateKind`), tools/types (`ToolGate`). */
+export type { AwaitingUserInputKind, ToolGate };
 
-const STAGE_SET = new Set<string>(TURN_STAGES);
-const INJECT_STAGE_SET = new Set<string>(TURN_INJECT_STAGES);
-const GATE_KIND_SET = new Set<string>(TOOL_GATE_KINDS);
 const AWAITING_KIND_SET = new Set<string>(AWAITING_USER_INPUT_KINDS);
 const PERMISSION_SET = new Set<string>(TOOL_PERMISSION);
 
@@ -61,14 +55,8 @@ export interface AwaitingUserInput {
   options?: string[];
 }
 
-/** Context passed to `onStage`. Frozen for slice 1. */
-export interface StageContext {
-  stage: TurnStage;
-  /** 1-based provider step (text) or utterance cycle index (live). */
-  step: number;
-  history: readonly TurnHistoryMessage[];
-  /** Opaque host slot — never traced or client-forwarded by the kernel. */
-  host?: unknown;
+/** Tool/stop fields shared by text + live stage apply argument bags. */
+export type StageCallBag = {
   callId?: string;
   tool?: string;
   input?: unknown;
@@ -79,6 +67,28 @@ export interface StageContext {
   awaiting?: boolean;
   stop?: TurnStop;
   gate?: ToolGate;
+};
+
+/** Context passed to `onStage`. Frozen for slice 1. */
+export interface StageContext extends StageCallBag {
+  stage: TurnStage;
+  /** 1-based provider step (text) or utterance cycle index (live). */
+  step: number;
+  history: readonly TurnHistoryMessage[];
+  /** Opaque host slot — never traced or client-forwarded by the kernel. */
+  host?: unknown;
+}
+
+/** Build StageContext from the shared tool/stop field bag used by text + live stages. */
+export function buildStageContext(
+  args: {
+    stage: TurnStage;
+    step: number;
+    history: readonly TurnHistoryMessage[];
+    host?: unknown;
+  } & StageCallBag,
+): StageContext {
+  return args;
 }
 
 /** Host return from `onStage`. Frozen for slice 1. */
@@ -130,21 +140,6 @@ export interface StageApplyOutput {
   confirm?: { summary?: string };
   mutate?: { input: unknown };
   warnings: StageApplyWarning[];
-}
-
-/** True when `value` is a known `TurnStage`. */
-export function isTurnStage(value: unknown): value is TurnStage {
-  return typeof value === 'string' && STAGE_SET.has(value);
-}
-
-/** True when inject is physically meaningful at this stage (gate still required). */
-export function isTurnInjectStage(value: unknown): value is TurnInjectStage {
-  return typeof value === 'string' && INJECT_STAGE_SET.has(value);
-}
-
-/** True when `value` is a known tool-gate kind. */
-export function isToolGateKind(value: unknown): value is ToolGateKind {
-  return typeof value === 'string' && GATE_KIND_SET.has(value);
 }
 
 /** True when the affordance is physically allowed at `stage` (ignores inject gate). */
@@ -208,6 +203,34 @@ export function isAwaitingUserInput(output: unknown): output is AwaitingUserInpu
   return parseAwaitingUserInput(output) !== undefined;
 }
 
+function parseAuthChallenge(value: unknown): NonNullable<ToolGate['authChallenge']> | undefined {
+  if (!isRecord(value)) return undefined;
+  if (typeof value.slot !== 'string' || !value.slot.trim()) return undefined;
+  if (value.authType !== 'bearer' && value.authType !== 'api_key' && value.authType !== 'oauth2') {
+    return undefined;
+  }
+  if (typeof value.message !== 'string' || !value.message.trim()) return undefined;
+  const authChallenge: NonNullable<ToolGate['authChallenge']> = {
+    slot: value.slot.trim(),
+    authType: value.authType,
+    message: value.message.trim(),
+  };
+  if (typeof value.authorizationUrl === 'string') {
+    authChallenge.authorizationUrl = value.authorizationUrl;
+  }
+  if (typeof value.state === 'string') authChallenge.state = value.state;
+  if (typeof value.issuer === 'string') authChallenge.issuer = value.issuer;
+  if (typeof value.resource === 'string') authChallenge.resource = value.resource;
+  if (Array.isArray(value.requiredScopes)) {
+    const scopes: string[] = [];
+    for (const s of value.requiredScopes) {
+      if (typeof s === 'string' && s.trim()) scopes.push(s.trim());
+    }
+    if (scopes.length > 0) authChallenge.requiredScopes = scopes;
+  }
+  return authChallenge;
+}
+
 /**
  * Normalize / validate a host `ToolGate`. Returns undefined when invalid
  * (defensive — never throws into the runner).
@@ -227,31 +250,8 @@ export function parseToolGate(value: unknown, fallbackTool = ''): ToolGate | und
     gate.permission = value.permission as ToolPermission;
   }
   if (value.kind === 'auth') {
-    if (!isRecord(value.authChallenge)) return undefined;
-    const ac = value.authChallenge;
-    if (typeof ac.slot !== 'string' || !ac.slot.trim()) return undefined;
-    if (ac.authType !== 'bearer' && ac.authType !== 'api_key' && ac.authType !== 'oauth2') {
-      return undefined;
-    }
-    if (typeof ac.message !== 'string' || !ac.message.trim()) return undefined;
-    const authChallenge: NonNullable<ToolGate['authChallenge']> = {
-      slot: ac.slot.trim(),
-      authType: ac.authType,
-      message: ac.message.trim(),
-    };
-    if (typeof ac.authorizationUrl === 'string') {
-      authChallenge.authorizationUrl = ac.authorizationUrl;
-    }
-    if (typeof ac.state === 'string') authChallenge.state = ac.state;
-    if (typeof ac.issuer === 'string') authChallenge.issuer = ac.issuer;
-    if (typeof ac.resource === 'string') authChallenge.resource = ac.resource;
-    if (Array.isArray(ac.requiredScopes)) {
-      const scopes: string[] = [];
-      for (const s of ac.requiredScopes) {
-        if (typeof s === 'string' && s.trim()) scopes.push(s.trim());
-      }
-      if (scopes.length > 0) authChallenge.requiredScopes = scopes;
-    }
+    const authChallenge = parseAuthChallenge(value.authChallenge);
+    if (!authChallenge) return undefined;
     gate.authChallenge = authChallenge;
   }
   return gate;
@@ -266,7 +266,7 @@ function coerceInjectMessage(
   warnings: StageApplyWarning[],
 ): TurnHistoryMessage | undefined {
   if (!isRecord(item)) {
-    warn(warnings, 'inject_invalid_messages', 'inject', 'inject entry must be an object');
+    warn(warnings, 'inject_invalid_messages', 'inject', 'inject entry must be an object'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     return undefined;
   }
   if (item.role === 'tool') {
@@ -274,7 +274,7 @@ function coerceInjectMessage(
       warnings,
       'inject_invalid_messages',
       'inject',
-      'inject messages with role "tool" are rejected',
+      'inject messages with role "tool" are rejected', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
     return undefined;
   }
@@ -283,7 +283,7 @@ function coerceInjectMessage(
       warnings,
       'inject_invalid_messages',
       'inject',
-      `inject role not allowed: ${String(item.role)}`,
+      `inject role not allowed: ${String(item.role)}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
     return undefined;
   }
@@ -296,7 +296,7 @@ function coerceInjectMessage(
         warnings,
         'inject_invalid_messages',
         'inject',
-        'inject content must be a string when present',
+        'inject content must be a string when present', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
       return undefined;
     }
@@ -308,7 +308,7 @@ function coerceInjectMessage(
         warnings,
         'inject_invalid_messages',
         'inject',
-        'inject parts must be an array when present',
+        'inject parts must be an array when present', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
       return undefined;
     }
@@ -320,7 +320,7 @@ function coerceInjectMessage(
         warnings,
         'inject_invalid_messages',
         'inject',
-        'inject tool_calls must be an array when present',
+        'inject tool_calls must be an array when present', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
       return undefined;
     }
@@ -328,14 +328,14 @@ function coerceInjectMessage(
   }
   if (item.name !== undefined) {
     if (typeof item.name !== 'string') {
-      warn(warnings, 'inject_invalid_messages', 'inject', 'inject name must be a string');
+      warn(warnings, 'inject_invalid_messages', 'inject', 'inject name must be a string'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       return undefined;
     }
     msg.name = item.name;
   }
   if (item.metadata !== undefined) {
     if (!isRecord(item.metadata)) {
-      warn(warnings, 'inject_invalid_messages', 'inject', 'inject metadata must be a plain object');
+      warn(warnings, 'inject_invalid_messages', 'inject', 'inject metadata must be a plain object'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       return undefined;
     }
     msg.metadata = { ...item.metadata };
@@ -345,7 +345,7 @@ function coerceInjectMessage(
       warnings,
       'inject_invalid_messages',
       'inject',
-      'inject tool_call_id is rejected (not a tool-role message)',
+      'inject tool_call_id is rejected (not a tool-role message)', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 
@@ -361,7 +361,7 @@ function coerceHistoryMessages(
       warnings,
       'inject_invalid_messages',
       'inject',
-      'inject must be an array of history messages',
+      'inject must be an array of history messages', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
     return undefined;
   }
@@ -373,6 +373,135 @@ function coerceHistoryMessages(
   return out.length > 0 ? out : undefined;
 }
 
+function applyInjectField(
+  result: Record<string, unknown>,
+  input: StageApplyInput,
+  out: StageApplyOutput,
+): void {
+  if (!('inject' in result) || result.inject === undefined) return;
+  const { stage, injectAllowed, injectWouldExceedMaxSteps } = input;
+  if (!stageAllowsAffordance(stage, 'inject')) {
+    warn(
+      out.warnings,
+      'affordance_not_allowed',
+      'inject',
+      `inject is not allowed at stage ${stage}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  } else if (!injectAllowed) {
+    warn(
+      out.warnings,
+      'inject_not_allowed',
+      'inject',
+      'inject gate is closed for this profile/session', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  } else if (injectWouldExceedMaxSteps) {
+    warn(
+      out.warnings,
+      'inject_rejected_max_steps',
+      'inject',
+      'inject rejected: another model step would exceed maxSteps', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  } else {
+    const messages = coerceHistoryMessages(result.inject, out.warnings);
+    if (messages) out.inject = messages;
+  }
+}
+
+function applyAbortField(
+  result: Record<string, unknown>,
+  stage: TurnStage,
+  out: StageApplyOutput,
+): void {
+  if (!('abort' in result) || result.abort === undefined) return;
+  if (!stageAllowsAffordance(stage, 'abort')) {
+    warn(out.warnings, 'affordance_not_allowed', 'abort', 'abort is not allowed at post_turn'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  } else if (result.abort === true) {
+    out.abort = true;
+  } else if (isRecord(result.abort)) {
+    const reason =
+      typeof result.abort.reason === 'string' && result.abort.reason.trim()
+        ? result.abort.reason.trim()
+        : undefined;
+    out.abort = reason ? { reason } : true;
+  } else if (result.abort !== false) {
+    warn(out.warnings, 'abort_invalid', 'abort', 'abort must be boolean or { reason?: string }'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+}
+
+function applyDenyField(
+  result: Record<string, unknown>,
+  stage: TurnStage,
+  out: StageApplyOutput,
+): void {
+  if (!('deny' in result) || result.deny === undefined) return;
+  if (!stageAllowsAffordance(stage, 'deny')) {
+    warn(out.warnings, 'affordance_not_allowed', 'deny', `deny is not allowed at stage ${stage}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  } else if (!isRecord(result.deny)) {
+    warn(out.warnings, 'deny_invalid', 'deny', 'deny must be an object'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  } else {
+    const code =
+      typeof result.deny.code === 'string' && result.deny.code.trim()
+        ? result.deny.code.trim()
+        : 'not_authorized';
+    const message =
+      typeof result.deny.message === 'string' && result.deny.message.trim()
+        ? result.deny.message.trim()
+        : 'Tool execution not authorized'; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    out.deny = { code, message };
+  }
+}
+
+function applyConfirmField(
+  result: Record<string, unknown>,
+  stage: TurnStage,
+  out: StageApplyOutput,
+): void {
+  if (!('confirm' in result) || result.confirm === undefined) return;
+  if (!stageAllowsAffordance(stage, 'confirm')) {
+    warn(
+      out.warnings,
+      'affordance_not_allowed',
+      'confirm',
+      `confirm is not allowed at stage ${stage}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  } else if (result.confirm === true) {
+    out.confirm = {};
+  } else if (isRecord(result.confirm)) {
+    const summary =
+      typeof result.confirm.summary === 'string' && result.confirm.summary.trim()
+        ? result.confirm.summary.trim()
+        : undefined;
+    out.confirm = summary ? { summary } : {};
+  } else {
+    warn(
+      out.warnings,
+      'confirm_invalid',
+      'confirm',
+      'confirm must be true or { summary?: string }', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+}
+
+function applyMutateField(
+  result: Record<string, unknown>,
+  stage: TurnStage,
+  out: StageApplyOutput,
+): void {
+  if (!('mutate' in result) || result.mutate === undefined) return;
+  if (!stageAllowsAffordance(stage, 'mutate')) {
+    warn(
+      out.warnings,
+      'affordance_not_allowed',
+      'mutate',
+      `mutate is not allowed at stage ${stage}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  } else if (!isRecord(result.mutate) || !('input' in result.mutate)) {
+    warn(out.warnings, 'mutate_invalid', 'mutate', 'mutate must be { input: unknown }'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  } else {
+    out.mutate = { input: result.mutate.input };
+  }
+}
+
 /**
  * Defensively apply a host stage return against the affordance matrix.
  * Never throws. Invalid fields become warnings and are dropped.
@@ -380,113 +509,29 @@ function coerceHistoryMessages(
 export function applyStageResult(input: StageApplyInput): StageApplyOutput {
   const warnings: StageApplyWarning[] = [];
   const out: StageApplyOutput = { warnings };
-  const { stage, result, injectAllowed, injectWouldExceedMaxSteps } = input;
+  const { stage, result } = input;
 
   if (result == null) return out;
   if (!isRecord(result)) {
-    warn(warnings, 'result_invalid', 'result', 'StageResult must be a plain object');
+    warn(warnings, 'result_invalid', 'result', 'StageResult must be a plain object'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     return out;
   }
 
   for (const key of Object.keys(result)) {
     if (!STAGE_RESULT_KEYS.has(key)) {
-      warn(warnings, 'unknown_field', key, `unknown StageResult field "${key}" ignored`);
+      warn(warnings, 'unknown_field', key, `unknown StageResult field "${key}" ignored`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
   }
 
-  if ('inject' in result && result.inject !== undefined) {
-    if (!stageAllowsAffordance(stage, 'inject')) {
-      warn(warnings, 'affordance_not_allowed', 'inject', `inject is not allowed at stage ${stage}`);
-    } else if (!injectAllowed) {
-      warn(
-        warnings,
-        'inject_not_allowed',
-        'inject',
-        'inject gate is closed for this profile/session',
-      );
-    } else if (injectWouldExceedMaxSteps) {
-      warn(
-        warnings,
-        'inject_rejected_max_steps',
-        'inject',
-        'inject rejected: another model step would exceed maxSteps',
-      );
-    } else {
-      const messages = coerceHistoryMessages(result.inject, warnings);
-      if (messages) out.inject = messages;
-    }
-  }
-
-  if ('abort' in result && result.abort !== undefined) {
-    if (!stageAllowsAffordance(stage, 'abort')) {
-      warn(warnings, 'affordance_not_allowed', 'abort', 'abort is not allowed at post_turn');
-    } else if (result.abort === true) {
-      out.abort = true;
-    } else if (isRecord(result.abort)) {
-      const reason =
-        typeof result.abort.reason === 'string' && result.abort.reason.trim()
-          ? result.abort.reason.trim()
-          : undefined;
-      out.abort = reason ? { reason } : true;
-    } else if (result.abort === false) {
-      // explicit no-op
-    } else {
-      warn(warnings, 'abort_invalid', 'abort', 'abort must be boolean or { reason?: string }');
-    }
-  }
-
-  if ('deny' in result && result.deny !== undefined) {
-    if (!stageAllowsAffordance(stage, 'deny')) {
-      warn(warnings, 'affordance_not_allowed', 'deny', `deny is not allowed at stage ${stage}`);
-    } else if (!isRecord(result.deny)) {
-      warn(warnings, 'deny_invalid', 'deny', 'deny must be an object');
-    } else {
-      const code =
-        typeof result.deny.code === 'string' && result.deny.code.trim()
-          ? result.deny.code.trim()
-          : 'not_authorized';
-      const message =
-        typeof result.deny.message === 'string' && result.deny.message.trim()
-          ? result.deny.message.trim()
-          : 'Tool execution not authorized';
-      out.deny = { code, message };
-    }
-  }
-
-  if ('confirm' in result && result.confirm !== undefined) {
-    if (!stageAllowsAffordance(stage, 'confirm')) {
-      warn(
-        warnings,
-        'affordance_not_allowed',
-        'confirm',
-        `confirm is not allowed at stage ${stage}`,
-      );
-    } else if (result.confirm === true) {
-      out.confirm = {};
-    } else if (isRecord(result.confirm)) {
-      const summary =
-        typeof result.confirm.summary === 'string' && result.confirm.summary.trim()
-          ? result.confirm.summary.trim()
-          : undefined;
-      out.confirm = summary ? { summary } : {};
-    } else {
-      warn(warnings, 'confirm_invalid', 'confirm', 'confirm must be true or { summary?: string }');
-    }
-  }
-
-  if ('mutate' in result && result.mutate !== undefined) {
-    if (!stageAllowsAffordance(stage, 'mutate')) {
-      warn(warnings, 'affordance_not_allowed', 'mutate', `mutate is not allowed at stage ${stage}`);
-    } else if (!isRecord(result.mutate) || !('input' in result.mutate)) {
-      warn(warnings, 'mutate_invalid', 'mutate', 'mutate must be { input: unknown }');
-    } else {
-      out.mutate = { input: result.mutate.input };
-    }
-  }
+  applyInjectField(result, input, out);
+  applyAbortField(result, stage, out);
+  applyDenyField(result, stage, out);
+  applyConfirmField(result, stage, out);
+  applyMutateField(result, stage, out);
 
   // confirm + deny together: deny wins
   if (out.deny && out.confirm) {
-    warn(warnings, 'confirm_invalid', 'confirm', 'confirm ignored because deny is set');
+    warn(warnings, 'confirm_invalid', 'confirm', 'confirm ignored because deny is set'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     delete out.confirm;
   }
 

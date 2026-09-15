@@ -4,6 +4,7 @@
  * @module
  */
 
+/** lexicon-exempt-file: adversarial corpus fixture — not runtime user or model copy (P2) */
 import { clearProfiles, registerProfile } from '../../kernel/registry/profiles.ts';
 import type { TurnRequest } from '../../kernel/types.ts';
 import { injectionSpans } from '../injection.ts';

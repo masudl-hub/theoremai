@@ -50,6 +50,7 @@
       "reports/",
       "node_modules/",
       "npm/",
+      "playground/",
       "package-lock.json",
       "scripts/",
       "sgconfig.yml",

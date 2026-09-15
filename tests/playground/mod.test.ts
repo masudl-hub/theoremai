@@ -5,7 +5,7 @@ import {
   demoToolSpecs,
   playgroundDemoHandler,
   stubOutputFromSchema,
-} from '../../src/playground/mod.ts';
+} from '../../playground/mod.ts';
 
 Deno.test('demoToolSpecs includes http and function tools', () => {
   const seeds = demoToolSpecs();

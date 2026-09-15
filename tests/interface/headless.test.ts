@@ -14,6 +14,7 @@ import {
   emptyInterfaceTurnSession,
   foldConversationTurn,
   foldTurnEvents,
+  gatedToolFromEvents,
   historyFromTranscriptBlocks,
   inputsFromSpec,
   interfaceEffortOptions,
@@ -21,7 +22,6 @@ import {
   interfaceFromProfile,
   interfaceModelOptions,
   modelSelectEnabled,
-  pausedToolFromEvents,
   prepareUserTurn,
   promotedToolIdsFromEvents,
   resetBlockIds,
@@ -30,11 +30,6 @@ import {
   toolSnapshotFromEvents,
   validateProfileInputs,
 } from '../../src/interface/mod.ts';
-import {
-  fileTooLargeMessage,
-  tooManyFilesMessage,
-  turnTooLargeMessage,
-} from '../../src/kernel/registry/attachments.ts';
 import { defineProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
 import { projectProfile } from '../../src/kernel/registry/resolve.ts';
 import type { ModelBinding, Profile, TextProfile, TurnEvent } from '../../src/kernel/types.ts';
@@ -231,7 +226,8 @@ Deno.test('validateProfileInputs enforces maxFiles and byte caps', () => {
     })),
   });
   assertFalse(tooMany.ok);
-  assertEquals(tooMany.issues[0]?.message, tooManyFilesMessage(CHAT_MEDIA_LIMITS.maxFiles));
+  assertEquals(tooMany.issues[0]?.code, 'too_many_files');
+  assertEquals(tooMany.issues[0]?.params, { maxFiles: CHAT_MEDIA_LIMITS.maxFiles });
 
   const tooLarge = validateProfileInputs(inputs, {
     attachments: [
@@ -243,7 +239,9 @@ Deno.test('validateProfileInputs enforces maxFiles and byte caps', () => {
     ],
   });
   assertFalse(tooLarge.ok);
-  assertEquals(tooLarge.issues[0]?.message, fileTooLargeMessage(CHAT_MEDIA_LIMITS.maxBytes));
+  assertEquals(tooLarge.issues[0]?.code, 'file_too_large');
+  assertEquals(tooLarge.issues[0]?.params, { maxBytes: CHAT_MEDIA_LIMITS.maxBytes });
+  assertEquals(tooLarge.issues[0]?.fileName, 'big.png');
 
   const turnTooLarge = validateProfileInputs(inputs, {
     attachments: [
@@ -252,10 +250,10 @@ Deno.test('validateProfileInputs enforces maxFiles and byte caps', () => {
     ],
   });
   assertFalse(turnTooLarge.ok);
-  assertEquals(
-    turnTooLarge.issues.at(-1)?.message,
-    turnTooLargeMessage(CHAT_MEDIA_LIMITS.maxTurnBytes),
-  );
+  assertEquals(turnTooLarge.issues.at(-1)?.code, 'turn_too_large');
+  assertEquals(turnTooLarge.issues.at(-1)?.params, {
+    maxTurnBytes: CHAT_MEDIA_LIMITS.maxTurnBytes,
+  });
 });
 
 Deno.test('validateProfileInputs requires limits when media is enabled', () => {
@@ -629,8 +627,8 @@ Deno.test('appendToolDenialToHistory uses kernel failure formatting', () => {
   assertEquals(history[1]?.content?.includes('Tool error'), true);
 });
 
-Deno.test('pausedToolFromEvents detects gate stop', () => {
-  const paused = pausedToolFromEvents([
+Deno.test('gatedToolFromEvents detects gate stop', () => {
+  const gated = gatedToolFromEvents([
     {
       type: 'tool',
       tool: {
@@ -641,8 +639,8 @@ Deno.test('pausedToolFromEvents detects gate stop', () => {
     },
     { type: 'done', stop: { kind: 'gate' } },
   ]);
-  assertEquals(paused?.name, 'delete_resource');
-  assertEquals(paused?.gateKind, 'permission');
+  assertEquals(gated?.name, 'delete_resource');
+  assertEquals(gated?.gateKind, 'permission');
 });
 
 Deno.test('promotedToolIdsFromEvents collects loader loaded ids', () => {
@@ -690,7 +688,7 @@ Deno.test('applyTurnEventsToSession stores tool snapshot and promoted ids', () =
   ]);
   assertEquals(session.promotedToolIds, ['record_lookup']);
   assertEquals(session.toolSnapshot?.visible, ['record_lookup']);
-  assertEquals(session.pausedTool, null);
+  assertEquals(session.gatedTool, null);
 });
 
 Deno.test('applyTurnEventsToSession captures interactionId and input tokens', () => {
@@ -700,7 +698,7 @@ Deno.test('applyTurnEventsToSession captures interactionId and input tokens', ()
   ]);
   assertEquals(session.previousInteractionId, 'ix_1');
   assertEquals(session.inputTokens, 42);
-  assertEquals(session.pausedTool, null);
+  assertEquals(session.gatedTool, null);
 });
 
 Deno.test('branchInterfaceTurnSession rebuilds history and clears interaction id', () => {

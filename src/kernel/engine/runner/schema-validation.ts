@@ -55,7 +55,7 @@ function joinPath(prefix: string, key: string): string {
 }
 
 function pushMissing(path: string, failures: ValidationFailure[]): void {
-  failures.push({ path, error: `required field '${path}' is missing` });
+  failures.push({ path, error: `required field '${path}' is missing` }); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
 }
 
 async function runFieldValidator(
@@ -74,7 +74,7 @@ async function runFieldValidator(
   }
   failures.push({
     path,
-    error: check.error || check.finding || `Validation failed for '${path}'`,
+    error: check.error || check.finding || `Validation failed for '${path}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   });
 }
 
@@ -142,7 +142,7 @@ async function collectValidationFailures(
 ): Promise<ValidationFailure[]> {
   const root = asObjectSchema(jsonSchema);
   if (!root) {
-    throw new TheorumError('structured validation requires a JSON Schema object root');
+    throw new TheorumError('structured validation requires a JSON Schema object root'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   const failures: ValidationFailure[] = [];
   if (!asRecord(structured)) {

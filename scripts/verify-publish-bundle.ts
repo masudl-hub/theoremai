@@ -19,6 +19,7 @@ const ARTIFACT_DIRS = [
   'scripts',
   'ast-grep-rules',
   'docs',
+  'playground',
 ] as const;
 
 const ARTIFACT_FILES = [
@@ -198,10 +199,52 @@ async function assertNoGlobalTestInternals(): Promise<void> {
   }
 }
 
+/**
+ * The playground demo package is repo-private and must never ship: no
+ * `./playground` entry in any exports map, no `playground/` in the npm files
+ * whitelist or tarball, and no `src/playground` tree resurrected.
+ */
+async function assertNoPlaygroundInBundles(): Promise<void> {
+  const pkg = JSON.parse(await Deno.readTextFile(`${root}/package.json`)) as {
+    files?: string[];
+    exports?: Record<string, unknown>;
+  };
+  if (Object.keys(pkg.exports ?? {}).some((key) => key.includes('playground'))) {
+    throw new Error('package.json exports must not include a playground entrypoint');
+  }
+  if ((pkg.files ?? []).some((f) => f.includes('playground'))) {
+    throw new Error('package.json files must not include playground/');
+  }
+  const denoConfig = JSON.parse(await Deno.readTextFile(`${root}/deno.json`)) as {
+    exports?: Record<string, unknown>;
+  };
+  if (Object.keys(denoConfig.exports ?? {}).some((key) => key.includes('playground'))) {
+    throw new Error('deno.json exports must not include a playground entrypoint');
+  }
+  const npmignore = await Deno.readTextFile(`${root}/.npmignore`).catch(() => '');
+  if (!npmignore.includes('playground/')) {
+    throw new Error('.npmignore must exclude playground/ from the npm tarball');
+  }
+  if (await exists(`${root}/src/playground`)) {
+    throw new Error(
+      'src/playground must not exist — demo fixtures live in repo-private playground/',
+    );
+  }
+  // dnt output tree, when present, must not contain a playground module.
+  if (await exists(`${root}/npm`)) {
+    for await (const file of walkFiles(`${root}/npm`)) {
+      if (file.includes('/playground/')) {
+        throw new Error(`npm build output must not contain playground modules: ${file}`);
+      }
+    }
+  }
+}
+
 async function main(): Promise<void> {
   const exclude = await readPublishExclude();
   assertPublishExcludeCoversArtifacts(exclude);
   await assertNpmPackageFilesOmitRepoDocs();
+  await assertNoPlaygroundInBundles();
   await assertNoExportedInternals();
   await assertPublicEntrypointsOmitTestHooks();
   await assertNoGlobalTestInternals();
@@ -215,7 +258,7 @@ async function main(): Promise<void> {
   }
 
   console.log(
-    'verify-publish-bundle: exclude list covers artifacts; repo docs omitted from package; no exported _internals; no global test internals in src/; no oversized local files.',
+    'verify-publish-bundle: exclude list covers artifacts; repo docs omitted from package; playground absent from all bundles; no exported _internals; no global test internals in src/; no oversized local files.',
   );
 }
 

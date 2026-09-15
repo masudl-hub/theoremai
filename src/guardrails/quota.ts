@@ -76,14 +76,36 @@ function releaseSlot(profile: Profile, ip: string): void {
   }
 }
 
-function quotaMessage(profile: Profile): string {
-  const name = profile.type === 'host' ? profile.id : profile.identity.handle;
-  return `Enjoying ${name}? You've reached today's limit`;
+/**
+ * Structured quota-trip report. The kernel authors no copy here: `message` is
+ * present if and only if the host set `guardrails.quota.message`.
+ */
+interface QuotaExhausted {
+  code: 'quota_exhausted';
+  perDay: number;
+  message?: string;
+}
+
+/**
+ * Structured data for a tripped quota, or `undefined` when the profile has no
+ * quota configured. Hosts render their own copy from `code` / `perDay` /
+ * `message` — there is no English fallback in the kernel.
+ */
+function quotaExhausted(profile: Profile): QuotaExhausted | undefined {
+  const quota = resolveGuardrailPolicy(profile.guardrails).quota;
+  if (!quota) {
+    return undefined;
+  }
+  return {
+    code: 'quota_exhausted',
+    perDay: quota.perDay,
+    ...(quota.message !== undefined ? { message: quota.message } : {}),
+  };
 }
 
 function resetSlots(): void {
   slots.clear();
 }
 
-export type { QuotaSlotStatus };
-export { clientIp, quotaMessage, releaseSlot, resetSlots, skipQuota, takeSlot };
+export type { QuotaExhausted, QuotaSlotStatus };
+export { clientIp, quotaExhausted, releaseSlot, resetSlots, skipQuota, takeSlot };

@@ -68,18 +68,18 @@ function parseExecuteToolResult(record: Record<string, unknown>): LiveServerEnve
 	};
 }
 
-const ENVELOPE_PARSERS: Record<
-	string,
-	(record: Record<string, unknown>) => LiveServerEnvelope | null
-> = {
-	ready: parseReady,
-	events: parseEvents,
-	error: parseError,
-	executeToolResult: parseExecuteToolResult,
-};
-
 export function parseLiveServerEnvelope(raw: unknown): LiveServerEnvelope | null {
 	if (!isRecord(raw) || typeof raw.type !== 'string') return null;
-	const parse = ENVELOPE_PARSERS[raw.type];
-	return parse ? parse(raw) : null;
+	switch (raw.type) {
+		case 'ready':
+			return parseReady(raw);
+		case 'events':
+			return parseEvents(raw);
+		case 'error':
+			return parseError(raw);
+		case 'executeToolResult':
+			return parseExecuteToolResult(raw);
+		default:
+			return null;
+	}
 }

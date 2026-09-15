@@ -14,7 +14,7 @@ marked.setOptions({
 let hooksInstalled = false;
 
 function ensureLinkHooks(): void {
-	if (hooksInstalled || typeof window === 'undefined') return;
+	if (hooksInstalled || typeof document === 'undefined') return;
 	hooksInstalled = true;
 	DOMPurify.addHook('afterSanitizeAttributes', (node) => {
 		if (node instanceof HTMLAnchorElement) {
@@ -24,11 +24,21 @@ function ensureLinkHooks(): void {
 	});
 }
 
+/** Escape HTML so SSR/node never emits markup without DOMPurify. */
+function escapeHtmlText(raw: string): string {
+	return raw
+		.replaceAll('&', '&amp;')
+		.replaceAll('<', '&lt;')
+		.replaceAll('>', '&gt;')
+		.replaceAll('"', '&quot;')
+		.replaceAll("'", '&#39;');
+}
+
 export function renderChatMarkdown(markdown: string): string {
 	const raw = marked.parse(markdown, { async: false });
-	if (typeof window === 'undefined') {
-		// SSR / node tests: strip tags as a safe fallback (run UI is browser-only).
-		return raw.replace(/<[^>]+>/g, '');
+	if (typeof document === 'undefined') {
+		// SSR / node tests: escape rather than half-strip tags (run UI is browser-only).
+		return escapeHtmlText(typeof raw === 'string' ? raw : String(raw));
 	}
 	ensureLinkHooks();
 	return DOMPurify.sanitize(raw, {

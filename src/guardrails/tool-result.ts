@@ -29,7 +29,7 @@ import type {
 } from './types.ts';
 
 const TOOL_CLOSE = '</tool_data>';
-const FENCE = /<\/?tool_data[^>]*>/gi;
+const TOOL_OPEN = '<tool_data';
 
 /** Origins whose bytes the host does not author and cannot vouch for. */
 const REMOTE_ORIGINS: ReadonlySet<ToolOrigin> = new Set<ToolOrigin>(['http', 'mcp', 'delegated']);
@@ -39,9 +39,43 @@ function isRemoteOrigin(origin: ToolOrigin): boolean {
   return REMOTE_ORIGINS.has(origin);
 }
 
-/** Strip fence markers a tool result tried to forge before wrapping it. */
+/**
+ * Strip fence markers a tool result tried to forge before wrapping it.
+ * Linear scan — avoids polynomial regex on forged `<tool_data…>` runs.
+ */
 function stripToolFences(text: string): string {
-  return text.replace(FENCE, '');
+  const lower = text.toLowerCase();
+  let out = '';
+  let i = 0;
+  while (i < text.length) {
+    const openAt = lower.indexOf(TOOL_OPEN, i);
+    const closeAt = lower.indexOf(TOOL_CLOSE, i);
+    let next = -1;
+    let kind: 'open' | 'close' | null = null;
+    if (openAt >= 0 && (closeAt < 0 || openAt <= closeAt)) {
+      next = openAt;
+      kind = 'open';
+    } else if (closeAt >= 0) {
+      next = closeAt;
+      kind = 'close';
+    }
+    if (next < 0 || kind === null) {
+      out += text.slice(i);
+      break;
+    }
+    out += text.slice(i, next);
+    if (kind === 'close') {
+      i = next + TOOL_CLOSE.length;
+      continue;
+    }
+    const gt = text.indexOf('>', next + TOOL_OPEN.length);
+    if (gt < 0) {
+      out += text.slice(next);
+      break;
+    }
+    i = gt + 1;
+  }
+  return out;
 }
 
 /**

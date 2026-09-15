@@ -351,32 +351,94 @@ const promptDataset: CorpusSource = {
  * addresses, ids, and amounts that a real tool result carries, and a detector
  * measured against that thinner text scores better than it deserves.
  */
+
+/** True when `ch` is ASCII a-z or underscore (YAML field key char). */
+function isYamlKeyChar(ch: string): boolean {
+  if (ch.length !== 1) return false;
+  const code = ch.charCodeAt(0);
+  return (code >= 97 && code <= 122) || ch === '_';
+}
+
+/**
+ * Split a YAML list-of-maps dump into record blocks without polynomial regex.
+ * Each block starts at the field after `- key:` (matching the prior split semantics).
+ */
+function yamlRecordBlocks(yaml: string): string[] {
+  const blocks: string[] = [];
+  let start = -1;
+  const lines = yaml.split('\n');
+  let offset = 0;
+  for (const line of lines) {
+    let i = 0;
+    while (i < line.length && (line[i] === ' ' || line[i] === '\t')) i += 1;
+    if (line[i] === '-' && line[i + 1] === ' ') {
+      let j = i + 2;
+      while (j < line.length && isYamlKeyChar(line[j] ?? '')) j += 1;
+      if (j > i + 2 && line[j] === ':') {
+        if (start >= 0) blocks.push(yaml.slice(start, offset));
+        // Skip the `- ` so the block opens on `key:` like the old regex split.
+        start = offset + i + 2;
+      }
+    }
+    offset += line.length + 1;
+  }
+  if (start >= 0) blocks.push(yaml.slice(start));
+  return blocks;
+}
+
+/** Parse `  key: value` / `  key:` / `  - item` lines without backtracking regex. */
+function parseYamlRecordLine(
+  line: string,
+):
+  | { kind: 'scalar'; key: string; value: string }
+  | { kind: 'header'; key: string }
+  | { kind: 'item'; value: string }
+  | null {
+  let i = 0;
+  while (i < line.length && (line[i] === ' ' || line[i] === '\t')) i += 1;
+  if (line[i] === '-' && line[i + 1] === ' ') {
+    const value = line.slice(i + 2).trim();
+    return value.length > 0 && !value.includes(' ') ? { kind: 'item', value } : null;
+  }
+  const keyStart = i;
+  while (i < line.length && isYamlKeyChar(line[i] ?? '')) i += 1;
+  if (i === keyStart || line[i] !== ':') return null;
+  const key = line.slice(keyStart, i);
+  i += 1;
+  while (i < line.length && (line[i] === ' ' || line[i] === '\t')) i += 1;
+  if (i >= line.length) return { kind: 'header', key };
+  let value = line.slice(i).trimEnd();
+  if (value === '[]') return null;
+  if (value.startsWith('"') && value.endsWith('"') && value.length >= 2) {
+    value = value.slice(1, -1);
+  }
+  return { kind: 'scalar', key, value };
+}
+
 function recordsFromYaml(yaml: string): string[] {
-  const blocks = yaml.split(/\n\s*- (?=\w+[_a-z]*:)/).slice(1);
+  const blocks = yamlRecordBlocks(yaml);
   const out: string[] = [];
   for (const block of blocks) {
     const fields: Record<string, string | string[]> = {};
     let listKey = '';
     for (const line of block.split('\n')) {
-      const scalar = /^\s*([a-z_]+):\s*"?(.+?)"?\s*$/.exec(line);
-      if (scalar?.[1] && scalar[2] && scalar[2] !== '[]') {
-        fields[scalar[1]] = scalar[2].replace(/\\n/g, '\n');
+      const parsed = parseYamlRecordLine(line);
+      if (parsed?.kind === 'scalar') {
+        fields[parsed.key] = parsed.value.replaceAll('\\n', '\n');
         listKey = '';
         continue;
       }
       // A bare `key:` opens a list. Without tracking it, the items below attach to
       // the previous field and overwrite it — which silently dropped sender
       // addresses from every email record.
-      const header = /^\s*([a-z_]+):\s*$/.exec(line);
-      if (header?.[1]) {
-        listKey = header[1];
+      if (parsed?.kind === 'header') {
+        listKey = parsed.key;
         fields[listKey] = [];
         continue;
       }
-      const item = /^\s+- (\S+)\s*$/.exec(line);
-      if (item?.[1] && listKey) {
+      if (parsed?.kind === 'item' && listKey) {
         const prior = fields[listKey];
-        fields[listKey] = Array.isArray(prior) ? [...prior, item[1]] : [item[1]];
+        fields[listKey] = Array.isArray(prior) ? [...prior, parsed.value] : [parsed.value];
       }
     }
     const rendered = JSON.stringify(fields, null, 2);

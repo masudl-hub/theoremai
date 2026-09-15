@@ -193,7 +193,10 @@ function isPrivateOrLocalIPv6(ip: string): boolean {
 
 /** Check if hostname represents localhost or private domain names */
 export function isLocalhostName(hostname: string): boolean {
-  const lower = hostname.toLowerCase().replace(/\.+$/, '');
+  let lower = hostname.toLowerCase();
+  while (lower.endsWith('.')) {
+    lower = lower.slice(0, -1);
+  }
   return (
     lower === 'localhost' ||
     lower.endsWith('.localhost') ||

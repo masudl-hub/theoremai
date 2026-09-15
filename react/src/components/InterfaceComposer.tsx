@@ -1,26 +1,5 @@
+import { type ChangeEvent, type KeyboardEvent, useEffect, useState } from 'react';
 import {
-	IconChevronUp,
-	IconLoader2,
-	IconMicrophone,
-	IconMicrophoneOff,
-	IconPlayerStop,
-	IconPlus,
-	IconSend,
-} from '@tabler/icons-react';
-import {
-	type ChangeEvent,
-	type KeyboardEvent,
-	useCallback,
-	useEffect,
-	useLayoutEffect,
-	useMemo,
-	useRef,
-	useState,
-} from 'react';
-import {
-	COMPOSER_MENU_ACTION_DESCRIPTIONS,
-	COMPOSER_MENU_ACTION_LABELS,
-	COMPOSER_PRIMARY_LABELS,
 	type ComposerMenuAction,
 	type ComposerPrimaryAction,
 	type ComposerRunPhase,
@@ -29,25 +8,14 @@ import {
 	resolveComposerPrimary,
 	userDraftHasPayload,
 } from 'theorum/interface';
-import {
-	canStageVoice,
-	stageComposerFiles,
-} from '../client/composer-attachments';
-import {
-	composerShellHeight,
-	isComposerExpanded,
-	measureComposerTextareaHeight,
-} from '../client/composer-layout';
-import { ComposerVoiceRecorder, isVoiceRecorderFailure } from '../client/voice-recorder';
-import { type ComposerAttachmentItem, ComposerAttachmentsRow } from './ComposerAttachmentsRow';
-
-function fileAttachmentId(file: File, index: number): string {
-	return `file:${String(index)}:${file.name}:${String(file.size)}:${String(file.lastModified)}`;
-}
-
-function voiceAttachmentId(file: File, index: number): string {
-	return `voice:${String(index)}:${file.name}:${String(file.size)}:${String(file.lastModified)}`;
-}
+import { stageComposerFiles } from '../client/composer-attachments';
+import { isComposerExpanded } from '../client/composer-layout';
+import { ComposerActionBar } from './ComposerActionBar';
+import type { ComposerFieldHandlers } from './composer-field-handlers';
+import { ComposerInputArea, ComposerIssues, ComposerShell } from './ComposerShell';
+import { useComposerAttachmentPreviews } from './use-composer-attachment-previews';
+import { useComposerMenuDismiss, useComposerShellLayout } from './use-composer-shell-layout';
+import { useComposerVoice } from './use-composer-voice';
 
 export type InterfaceComposerProps = {
 	inputs: ProfileInputsInterface;
@@ -62,51 +30,14 @@ export type InterfaceComposerProps = {
 	/** Host lock (e.g. live session not connected) — disables compose/send. */
 	inputLocked?: boolean;
 	onTextChange?: (value: string) => void;
-	onFilesSelected?: (files: File[]) => void;
-	onAttachmentRemove?: (index: number) => void;
-	onVoiceStaged?: (file: File) => void;
-	onVoiceClear?: () => void;
-	/** Primary action (Send / Queue) or Enter. */
-	onSubmit?: () => void;
-	onStop?: () => void;
-	onMenuAction?: (action: ComposerMenuAction) => void;
-};
+} & Omit<ComposerFieldHandlers, 'onDraftTextChange'>;
 
-export function InterfaceComposer({
-	inputs,
-	text = '',
-	pendingFiles = [],
-	pendingVoice = [],
-	issues = [],
-	phase = 'idle',
-	allowSteering = false,
-	inputLocked = false,
-	onTextChange,
-	onFilesSelected,
-	onAttachmentRemove,
-	onVoiceStaged,
-	onVoiceClear,
-	onSubmit,
-	onStop,
-	onMenuAction,
-}: InterfaceComposerProps) {
-	const [recording, setRecording] = useState(false);
-	const [inputLevel, setInputLevel] = useState(0);
-	const [voiceError, setVoiceError] = useState('');
-	const [attachNotice, setAttachNotice] = useState('');
-	const [shellFocused, setShellFocused] = useState(false);
-	const [menuOpen, setMenuOpen] = useState(false);
-	const recorderRef = useRef<ComposerVoiceRecorder | null>(null);
-	const previewUrlsRef = useRef(new Map<string, string>());
-	const [previewTick, setPreviewTick] = useState(0);
-	const menuRef = useRef<HTMLDivElement | null>(null);
-
-	const voiceEnabled = Boolean(inputs.voice);
-	const attachmentCount = pendingFiles.length;
-	const voiceCount = pendingVoice.length;
-	const isExpanded = isComposerExpanded(text.length, attachmentCount, voiceCount, recording);
-
-	const hasPayload = userDraftHasPayload({
+function draftHasPayload(
+	text: string,
+	pendingFiles: readonly File[],
+	pendingVoice: readonly File[],
+): boolean {
+	return userDraftHasPayload({
 		...(text.trim() ? { text } : {}),
 		...(pendingFiles.length
 			? {
@@ -127,236 +58,110 @@ export function InterfaceComposer({
 				}
 			: {}),
 	});
+}
 
-	const primary: ComposerPrimaryAction = resolveComposerPrimary({
-		phase,
+function primaryActionDisabled(args: {
+	inputLocked: boolean;
+	recording: boolean;
+	primary: ComposerPrimaryAction;
+	hasPayload: boolean;
+}): boolean {
+	const { inputLocked, recording, primary, hasPayload } = args;
+	if (inputLocked || recording || primary === 'none') return true;
+	if (primary === 'send' || primary === 'queue') return !hasPayload;
+	return false;
+}
+
+function composerPlaceholder(
+	recording: boolean,
+	voiceCount: number,
+	inputs: ProfileInputsInterface,
+): string {
+	if (recording) return 'Listening…';
+	if (voiceCount > 0) return 'Voice ready — send or re-record';
+	return `Message${inputs.attachments || inputs.voice ? ' or attach' : ''}…`;
+}
+
+function classNames(parts: Array<string | false | ''>): string {
+	return parts.filter(Boolean).join(' ');
+}
+
+export function InterfaceComposer({
+	inputs,
+	text = '',
+	pendingFiles = [],
+	pendingVoice = [],
+	issues = [],
+	phase = 'idle',
+	allowSteering = false,
+	inputLocked = false,
+	onTextChange,
+	onFilesSelected,
+	onAttachmentRemove,
+	onVoiceStaged,
+	onVoiceClear,
+	onSubmit,
+	onStop,
+	onMenuAction,
+}: InterfaceComposerProps) {
+	const [attachNotice, setAttachNotice] = useState('');
+	const [shellFocused, setShellFocused] = useState(false);
+	const [menuOpen, setMenuOpen] = useState(false);
+
+	const voiceEnabled = Boolean(inputs.voice);
+	const attachmentCount = pendingFiles.length;
+	const voiceCount = pendingVoice.length;
+
+	const voice = useComposerVoice({
+		inputs,
+		pendingFiles,
+		onVoiceStaged,
+		onVoiceClear,
+	});
+	const recording = voice.recording;
+	const expanded = isComposerExpanded(text.length, attachmentCount, voiceCount, recording);
+
+	const hasPayload = draftHasPayload(text, pendingFiles, pendingVoice);
+	const primary = resolveComposerPrimary({ phase, hasPayload, allowSteering });
+	const menuActions = resolveComposerMenuActions({ phase, hasPayload, allowSteering });
+	const primaryDisabled = primaryActionDisabled({
+		inputLocked,
+		recording,
+		primary,
 		hasPayload,
-		allowSteering,
-	});
-	const menuActions = resolveComposerMenuActions({
-		phase,
-		hasPayload,
-		allowSteering,
 	});
 
-	const primaryDisabled =
-		inputLocked ||
-		recording ||
-		primary === 'none' ||
-		(primary === 'send' && !hasPayload) ||
-		(primary === 'queue' && !hasPayload);
-
-	const attachItems = useMemo((): ComposerAttachmentItem[] => {
-		const files: ComposerAttachmentItem[] = pendingFiles.map((file, index) => {
-			const id = fileAttachmentId(file, index);
-			return {
-				id,
-				kind: 'file',
-				file,
-				previewUrl: previewUrlsRef.current.get(id),
-			};
-		});
-		const voices: ComposerAttachmentItem[] = pendingVoice.map((file, index) => {
-			const id = voiceAttachmentId(file, index);
-			return {
-				id,
-				kind: 'voice' as const,
-				file,
-				previewUrl: previewUrlsRef.current.get(id),
-			};
-		});
-		return previewTick >= 0 ? [...files, ...voices] : [...files, ...voices];
-	}, [pendingFiles, pendingVoice, previewTick]);
-
-	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-	const innerRef = useRef<HTMLDivElement | null>(null);
-	const shellRef = useRef<HTMLDivElement | null>(null);
-	const attachRowRef = useRef<HTMLDivElement | null>(null);
-	const [maxHeight, setMaxHeight] = useState(320);
-	const [contentHeight, setContentHeight] = useState(46);
-
-	const shellHeight = composerShellHeight({
-		isExpanded,
-		contentHeight,
-		expandedFloor: attachmentCount > 0 || voiceCount > 0 || recording ? 92 : 46,
+	const { attachItems, revokeAllPreviews } = useComposerAttachmentPreviews(
+		pendingFiles,
+		pendingVoice,
+	);
+	const layout = useComposerShellLayout({
+		text,
+		recording,
+		isExpanded: expanded,
+		attachmentCount,
+		voiceCount,
+		attachItems,
 	});
-
-	const syncMaxHeight = useCallback(() => {
-		setMaxHeight(Math.round(window.innerHeight * 0.4));
-	}, []);
-
-	const revokeAllPreviews = useCallback(() => {
-		for (const url of previewUrlsRef.current.values()) {
-			URL.revokeObjectURL(url);
-		}
-		previewUrlsRef.current.clear();
-	}, []);
+	const menuRef = useComposerMenuDismiss(menuOpen, setMenuOpen);
 
 	useEffect(() => {
-		const keep: string[] = [];
-		for (const [index, file] of pendingFiles.entries()) {
-			if (!file.type.startsWith('image/')) continue;
-			const id = fileAttachmentId(file, index);
-			keep.push(id);
-			if (!previewUrlsRef.current.has(id)) {
-				previewUrlsRef.current.set(id, URL.createObjectURL(file));
-			}
-		}
-		for (const [index, file] of pendingVoice.entries()) {
-			const id = voiceAttachmentId(file, index);
-			keep.push(id);
-			if (!previewUrlsRef.current.has(id)) {
-				previewUrlsRef.current.set(id, URL.createObjectURL(file));
-			}
-		}
-		for (const id of [...previewUrlsRef.current.keys()]) {
-			if (keep.includes(id)) continue;
-			const url = previewUrlsRef.current.get(id);
-			if (url) URL.revokeObjectURL(url);
-			previewUrlsRef.current.delete(id);
-		}
-		setPreviewTick((v) => v + 1);
-	}, [pendingFiles, pendingVoice]);
-
-	useEffect(() => {
-		syncMaxHeight();
+		layout.syncMaxHeight();
 		const onResize = () => {
-			syncMaxHeight();
+			layout.syncMaxHeight();
 		};
 		window.addEventListener('resize', onResize);
 		return () => {
 			window.removeEventListener('resize', onResize);
-			recorderRef.current?.dispose();
+			voice.disposeRecorder();
 			revokeAllPreviews();
 		};
-	}, [revokeAllPreviews, syncMaxHeight]);
-
-	useEffect(() => {
-		if (!menuOpen) return;
-		const onPointer = (event: MouseEvent) => {
-			const target = event.target;
-			if (target instanceof Node && menuRef.current?.contains(target)) return;
-			setMenuOpen(false);
-		};
-		const onKey = (event: globalThis.KeyboardEvent) => {
-			if (event.key === 'Escape') setMenuOpen(false);
-		};
-		document.addEventListener('mousedown', onPointer);
-		document.addEventListener('keydown', onKey);
-		return () => {
-			document.removeEventListener('mousedown', onPointer);
-			document.removeEventListener('keydown', onKey);
-		};
-	}, [menuOpen]);
-
-	const layoutEpoch = `${String(text.length)}:${recording ? '1' : '0'}:${attachItems.map((item) => item.id).join('|')}`;
-
-	// Measure before paint so attaching files expands the shell instead of
-	// crushing the bottom bar inside the collapsed 46px height for a frame.
-	useLayoutEffect(() => {
-		const ta = textareaRef.current;
-		const attachH = attachRowRef.current?.offsetHeight ?? 0;
-
-		if (!ta) {
-			const innerH = innerRef.current?.offsetHeight ?? 46;
-			setContentHeight(isExpanded ? innerH + attachH + 2 : 46);
-			return;
-		}
-
-		const scrollHeight = isExpanded
-			? (() => {
-					ta.style.height = 'auto';
-					return ta.scrollHeight;
-				})()
-			: 0;
-		const measured = measureComposerTextareaHeight({ scrollHeight, maxHeight, isExpanded });
-		ta.style.height = `${String(measured.heightPx)}px`;
-		ta.style.overflowY = measured.overflowY;
-
-		const innerH =
-			isExpanded && innerRef.current
-				? innerRef.current.offsetHeight + 2
-				: measured.contentHeightFallback;
-		setContentHeight(innerH + attachH);
-	}, [layoutEpoch, isExpanded, maxHeight]);
-
-	useLayoutEffect(() => {
-		const shell = shellRef.current;
-		if (!shell) return;
-		shell.style.height = `${String(shellHeight)}px`;
-	}, [shellHeight]);
-
-	function ensureRecorder(): ComposerVoiceRecorder {
-		recorderRef.current ??= new ComposerVoiceRecorder(inputs.voice?.accept ?? [], (level) => {
-			setInputLevel(level);
-		});
-		return recorderRef.current;
-	}
-
-	async function startRecording() {
-		setVoiceError('');
-		if (!canStageVoice({ fileCount: pendingFiles.length, maxFiles: inputs.maxFiles })) {
-			const limit = inputs.maxFiles ?? 0;
-			setVoiceError(`${String(limit)} is the limit.`);
-			return;
-		}
-		onVoiceClear?.();
-		try {
-			await ensureRecorder().start();
-			setRecording(true);
-		} catch (err) {
-			setRecording(false);
-			setVoiceError(
-				isVoiceRecorderFailure(err)
-					? err.message
-					: err instanceof Error
-						? err.message
-						: 'Microphone unavailable',
-			);
-		}
-	}
-
-	async function stopRecording() {
-		setVoiceError('');
-		try {
-			const file = await ensureRecorder().stop();
-			setRecording(false);
-			setInputLevel(0);
-			onVoiceStaged?.(file);
-		} catch (err) {
-			setRecording(false);
-			setInputLevel(0);
-			setVoiceError(
-				isVoiceRecorderFailure(err)
-					? err.message
-					: err instanceof Error
-						? err.message
-						: 'Recording failed',
-			);
-		}
-	}
-
-	async function toggleRecording() {
-		if (recording) {
-			await stopRecording();
-			return;
-		}
-		await startRecording();
-	}
-
-	function discardRecordingOrVoice() {
-		if (recording) {
-			ensureRecorder().cancel();
-			setRecording(false);
-			setInputLevel(0);
-		}
-		onVoiceClear?.();
-	}
+	}, [layout.syncMaxHeight, revokeAllPreviews, voice.disposeRecorder]);
 
 	function handleAttachRemove(id: string) {
 		setAttachNotice('');
 		if (id === '__recording__' || id.startsWith('voice:')) {
-			discardRecordingOrVoice();
+			voice.discardRecordingOrVoice();
 			return;
 		}
 		const match = /^file:(\d+):/.exec(id);
@@ -397,33 +202,8 @@ export function InterfaceComposer({
 		const added = staged.files.slice(pendingFiles.length);
 		if (added.length > 0) onFilesSelected?.(added);
 		setAttachNotice(staged.notice ?? '');
-		if (staged.notice) setVoiceError('');
+		if (staged.notice) voice.setVoiceError('');
 	}
-
-	const placeholder = recording
-		? 'Listening…'
-		: voiceCount > 0
-			? 'Voice ready — send or re-record'
-			: `Message${inputs.attachments || inputs.voice ? ' or attach' : ''}…`;
-
-	const innerClass = [
-		'iface-composer__inner',
-		isExpanded ? 'iface-composer__inner--expanded' : 'iface-composer__inner--collapsed',
-		inputs.attachments ? 'iface-composer__inner--has-attach' : '',
-	]
-		.filter(Boolean)
-		.join(' ');
-
-	const inputClass = [
-		'iface-composer__input',
-		!isExpanded ? 'iface-composer__input--collapsed' : '',
-	]
-		.filter(Boolean)
-		.join(' ');
-
-	const primaryLabel = COMPOSER_PRIMARY_LABELS[primary];
-	const showQueueLabel = primary === 'queue';
-	const streamingBusy = phase === 'streaming';
 
 	return (
 		<form
@@ -433,183 +213,72 @@ export function InterfaceComposer({
 				runPrimary();
 			}}
 		>
-			{issues.length || voiceError || attachNotice ? (
-				<ul className="iface-composer__issues" aria-live="polite">
-					{issues.map((issue) => (
-						<li key={issue}>{issue}</li>
-					))}
-					{attachNotice ? <li key="attach-notice">{attachNotice}</li> : null}
-					{voiceError ? <li key="voice-error">{voiceError}</li> : null}
-				</ul>
-			) : null}
+			<ComposerIssues
+				issues={issues}
+				attachNotice={attachNotice}
+				voiceError={voice.voiceError}
+			/>
 
-			<div
-				ref={shellRef}
-				className={
-					shellFocused
-						? 'iface-composer__shell iface-composer__shell--focus'
-						: 'iface-composer__shell'
-				}
-				onFocusCapture={() => {
+			<ComposerShell
+				shellRef={layout.shellRef}
+				attachRowRef={layout.attachRowRef}
+				shellFocused={shellFocused}
+				recording={recording}
+				inputLevel={voice.inputLevel}
+				attachItems={attachItems}
+				onAttachRemove={handleAttachRemove}
+				onFocus={() => {
 					setShellFocused(true);
 				}}
-				onBlurCapture={(event) => {
-					const next = event.relatedTarget;
-					if (next instanceof Node && event.currentTarget.contains(next)) return;
+				onBlur={(related, current) => {
+					if (related instanceof Node && current.contains(related)) return;
 					setShellFocused(false);
 				}}
 			>
-				<div ref={attachRowRef}>
-					<ComposerAttachmentsRow
-						inputLevel={recording ? inputLevel : 0}
-						items={attachItems}
-						onRemove={handleAttachRemove}
+				<ComposerInputArea
+					inputs={inputs}
+					text={text}
+					recording={recording}
+					inputLocked={inputLocked}
+					expanded={expanded}
+					voiceEnabled={voiceEnabled}
+					voiceCount={voiceCount}
+					placeholder={composerPlaceholder(recording, voiceCount, inputs)}
+					innerClass={classNames([
+						'iface-composer__inner',
+						expanded ? 'iface-composer__inner--expanded' : 'iface-composer__inner--collapsed',
+						inputs.attachments ? 'iface-composer__inner--has-attach' : '',
+					])}
+					inputClass={classNames([
+						'iface-composer__input',
+						!expanded ? 'iface-composer__input--single' : '',
+					])}
+					textareaRef={layout.textareaRef}
+					innerRef={layout.innerRef}
+					onKeyDown={handleKeydown}
+					onTextChange={onTextChange}
+					onFiles={handleFiles}
+				>
+					<ComposerActionBar
+						voiceEnabled={voiceEnabled}
 						recording={recording}
+						inputLocked={inputLocked}
+						streamingBusy={phase === 'streaming'}
+						hasPayload={hasPayload}
+						primary={primary}
+						primaryDisabled={primaryDisabled}
+						menuOpen={menuOpen}
+						menuActions={menuActions}
+						menuRef={menuRef}
+						onToggleRecording={() => {
+							void voice.toggleRecording();
+						}}
+						onToggleMenu={() => setMenuOpen((open) => !open)}
+						onMenuAction={onMenuAction}
+						setMenuOpen={setMenuOpen}
 					/>
-				</div>
-
-				<div className={innerClass} ref={innerRef}>
-					{inputs.attachments ? (
-						<label className="iface-composer__attach">
-							<IconPlus size={18} stroke={1.75} aria-hidden="true" />
-							<span className="sr-only">Attach file</span>
-							<input
-								accept={inputs.attachments.acceptAttr}
-								className="iface-composer__file"
-								disabled={recording || inputLocked}
-								multiple={inputs.maxFiles !== 1}
-								onChange={handleFiles}
-								type="file"
-							/>
-						</label>
-					) : null}
-
-					{inputs.text ? (
-						<textarea
-							ref={textareaRef}
-							className={inputClass}
-							disabled={recording || inputLocked}
-							onKeyDown={handleKeydown}
-							onInput={(event) => onTextChange?.(event.currentTarget.value)}
-							placeholder={isExpanded && !recording && voiceCount === 0 ? '' : placeholder}
-							rows={1}
-							value={text}
-						/>
-					) : voiceEnabled ? (
-						<p className="iface-composer__voice-hint">
-							{recording
-								? 'Listening…'
-								: voiceCount > 0
-									? 'Voice ready — send'
-									: 'tap mic to record'}
-						</p>
-					) : null}
-
-					<div className="iface-composer__actions">
-						{voiceEnabled ? (
-							<button
-								className={
-									recording
-										? 'iface-composer__voice iface-composer__voice--recording'
-										: 'iface-composer__voice'
-								}
-								aria-label={recording ? 'Stop recording' : 'Record voice note'}
-								disabled={inputLocked || (streamingBusy && !hasPayload)}
-								onClick={() => {
-									void toggleRecording();
-								}}
-								type="button"
-							>
-								{recording ? (
-									<IconMicrophoneOff size={18} stroke={1.75} />
-								) : (
-									<IconMicrophone size={18} stroke={1.75} />
-								)}
-							</button>
-						) : null}
-
-						<div className="iface-composer__send-group" ref={menuRef}>
-							<button
-								className={
-									showQueueLabel
-										? 'iface-composer__send iface-composer__send--labeled'
-										: 'iface-composer__send'
-								}
-								aria-label={primaryLabel}
-								disabled={primaryDisabled}
-								title={
-									primary === 'queue'
-										? 'Queue for after this turn'
-										: primary === 'stop'
-											? 'Stop'
-											: 'Send'
-								}
-								type="submit"
-							>
-								{primary === 'stop' ? (
-									<span className="iface-composer__send-icon" aria-hidden="true">
-										<IconPlayerStop size={18} stroke={1.75} />
-									</span>
-								) : streamingBusy && primary === 'none' ? (
-									<span
-										className="iface-composer__send-icon iface-composer__send-icon--spin"
-										aria-hidden="true"
-									>
-										<IconLoader2 size={18} stroke={1.75} />
-									</span>
-								) : (
-									<span className="iface-composer__send-icon" aria-hidden="true">
-										<IconSend size={18} stroke={1.75} />
-									</span>
-								)}
-								{showQueueLabel ? (
-									<span className="iface-composer__send-label">Queue</span>
-								) : null}
-							</button>
-							{menuActions.length > 0 ? (
-								<>
-									<button
-										aria-expanded={menuOpen}
-										aria-haspopup="menu"
-										aria-label="Message options"
-										className="iface-composer__send-menu"
-										disabled={recording || inputLocked}
-										onClick={() => setMenuOpen((open) => !open)}
-										title="Message options: Queue, Steer, Send now, Stash"
-										type="button"
-									>
-										<IconChevronUp size={14} stroke={2} />
-									</button>
-									{menuOpen ? (
-										<ul className="iface-composer__menu" role="menu">
-											{menuActions.map((action) => (
-												<li key={action} role="none">
-													<button
-														className="iface-composer__menu-item"
-														onClick={() => {
-															setMenuOpen(false);
-															onMenuAction?.(action);
-														}}
-														role="menuitem"
-														type="button"
-													>
-														<span className="iface-composer__menu-label">
-															{COMPOSER_MENU_ACTION_LABELS[action]}
-														</span>
-														<span className="iface-composer__menu-desc">
-															{COMPOSER_MENU_ACTION_DESCRIPTIONS[action]}
-														</span>
-													</button>
-												</li>
-											))}
-										</ul>
-									) : null}
-								</>
-							) : null}
-						</div>
-					</div>
-				</div>
-			</div>
+				</ComposerInputArea>
+			</ComposerShell>
 		</form>
 	);
 }

@@ -1,0 +1,154 @@
+import { useCallback, type MutableRefObject, type Dispatch, type SetStateAction } from 'react';
+import {
+	applyLiveTranscript,
+	type LiveCaptionState,
+} from '../../client/live/live-captions';
+import { registerPlaygroundLiveProfile } from '../../client/live/live-session';
+import {
+	type LiveFacingMode,
+	type LiveVideoCapture,
+	startLiveVideoCapture,
+} from '../../client/live/live-video';
+import type { LiveSessionClient, LiveSessionStatus } from '../../client/live-client';
+import type { PlaygroundRunPayload } from '../../client/run-payload';
+
+/** Media + session lifecycle handlers for LiveRunner. */
+export function useLiveRunnerControls(args: {
+	clientRef: MutableRefObject<LiveSessionClient | null>;
+	videoCaptureRef: MutableRefObject<LiveVideoCapture | null>;
+	captionsRef: MutableRefObject<LiveCaptionState>;
+	payloadRef: MutableRefObject<PlaygroundRunPayload>;
+	statusRef: MutableRefObject<LiveSessionStatus>;
+	isMutedRef: MutableRefObject<boolean>;
+	sessionPermissionsRef: MutableRefObject<string[]>;
+	ensureClient: (profileId: string) => LiveSessionClient;
+	clearClient: () => void;
+	cancelGateDecision: (reason?: string) => void;
+	stopVideo: () => void;
+	resetCaptions: () => void;
+	focusLatestCaption: (next: LiveCaptionState) => void;
+	sessionActive: boolean;
+	textAvailable: boolean;
+	videoAvailable: boolean;
+	voiceAvailable: boolean;
+	isVideoOn: boolean;
+	textDraft: string;
+	setTextDraft: Dispatch<SetStateAction<string>>;
+	setCaptions: Dispatch<SetStateAction<LiveCaptionState>>;
+	setError: Dispatch<SetStateAction<string>>;
+	setIsMuted: Dispatch<SetStateAction<boolean>>;
+	setTextComposerOpen: Dispatch<SetStateAction<boolean>>;
+	setSessionActive: Dispatch<SetStateAction<boolean>>;
+	setSessionPermissions: Dispatch<SetStateAction<string[]>>;
+	setStatus: Dispatch<SetStateAction<LiveSessionStatus>>;
+	setConnectPhase: Dispatch<SetStateAction<import('../../client/live-client').LiveConnectPhase | null>>;
+	setInputLevel: Dispatch<SetStateAction<number>>;
+	setOutputLevel: Dispatch<SetStateAction<number>>;
+	setVideoPreview: Dispatch<SetStateAction<HTMLVideoElement | null>>;
+	setVideoFacingMode: Dispatch<SetStateAction<LiveFacingMode>>;
+	setIsVideoOn: Dispatch<SetStateAction<boolean>>;
+}) {
+	const teardownSession = useCallback(() => {
+		args.cancelGateDecision();
+		args.clearClient();
+		args.stopVideo();
+		args.setIsMuted(false);
+		args.isMutedRef.current = false;
+		args.setTextComposerOpen(false);
+		args.setSessionActive(false);
+		args.setSessionPermissions([]);
+		args.sessionPermissionsRef.current = [];
+		args.statusRef.current = 'disconnected';
+		args.setStatus('disconnected');
+		args.setConnectPhase(null);
+		args.setInputLevel(0);
+		args.setOutputLevel(0);
+	}, [args]);
+
+	const startSession = useCallback(async () => {
+		args.setError('');
+		args.resetCaptions();
+		try {
+			const profileId = await registerPlaygroundLiveProfile(args.payloadRef.current);
+			const liveClient = args.ensureClient(profileId);
+			if (args.statusRef.current === 'disconnected' || args.statusRef.current === 'error') {
+				await liveClient.connect();
+			}
+		} catch (err) {
+			args.setError(err instanceof Error ? err.message : String(err));
+		}
+	}, [args]);
+
+	const handleSendText = useCallback(() => {
+		const text = args.textDraft.trim();
+		if (!text || !args.clientRef.current || !args.sessionActive || !args.textAvailable) return;
+		args.clientRef.current.sendText(text);
+		args.setTextDraft('');
+		const next = applyLiveTranscript(args.captionsRef.current, text, true, false, {
+			forceNew: true,
+		});
+		args.captionsRef.current = next;
+		args.setCaptions(next);
+		args.focusLatestCaption(next);
+	}, [args]);
+
+	const handleToggleTextComposer = useCallback(() => {
+		if (!args.textAvailable) return;
+		args.setTextComposerOpen((open) => !open);
+	}, [args]);
+
+	const handleToggleVideo = useCallback(async () => {
+		if (!args.clientRef.current || !args.sessionActive || !args.videoAvailable) return;
+		if (args.isVideoOn) {
+			args.stopVideo();
+			return;
+		}
+		try {
+			const capture = await startLiveVideoCapture((base64) => {
+				args.clientRef.current?.sendVideo(base64);
+			});
+			args.videoCaptureRef.current = capture;
+			args.setVideoPreview(capture.video);
+			args.setVideoFacingMode(capture.facingMode());
+			args.setIsVideoOn(true);
+		} catch (err) {
+			args.setError(err instanceof Error ? err.message : String(err));
+			args.stopVideo();
+		}
+	}, [args]);
+
+	const handleFlipCamera = useCallback(async () => {
+		const capture = args.videoCaptureRef.current;
+		if (!capture || !args.sessionActive || !args.isVideoOn) return;
+		try {
+			const facing = await capture.flip();
+			args.setVideoFacingMode(facing);
+			args.setVideoPreview(capture.video);
+		} catch (err) {
+			args.setError(err instanceof Error ? err.message : String(err));
+		}
+	}, [args]);
+
+	const handleToggleMic = useCallback(() => {
+		if (!args.clientRef.current || !args.sessionActive || !args.voiceAvailable) return;
+		const muted = args.clientRef.current.toggleMute();
+		args.isMutedRef.current = muted;
+		args.setIsMuted(muted);
+	}, [args]);
+
+	const handleRestart = useCallback(async () => {
+		teardownSession();
+		await startSession();
+	}, [startSession, teardownSession]);
+
+	return {
+		teardownSession,
+		startSession,
+		handleSendText,
+		handleToggleTextComposer,
+		handleToggleVideo,
+		handleFlipCamera,
+		handleToggleMic,
+		handleRestart,
+	};
+}

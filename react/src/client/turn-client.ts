@@ -8,6 +8,7 @@ import {
 	type TranscriptBlock,
 } from 'theorum/interface';
 import type { ToolCredential, TurnToolSnapshot } from 'theorum/kernel';
+import { attachmentIssueText } from './attachment-issues';
 import { filesToPending } from './encode-files';
 import type { PlaygroundRunPayload } from './run-payload';
 
@@ -149,7 +150,7 @@ export function projectUserTurn(
 ): { ok: true; blocks: TranscriptBlock[]; draft: UserTurnDraft } | { ok: false; issues: string[] } {
 	const prepared = prepareUserTurn(iface.inputs, draft, iface.guardrails);
 	if (!prepared.ok) {
-		return { ok: false, issues: prepared.issues.map((issue) => issue.message) };
+		return { ok: false, issues: prepared.issues.map(attachmentIssueText) };
 	}
 	return { ok: true, blocks: prepared.blocks, draft: prepared.draft };
 }
@@ -201,7 +202,7 @@ export class PlaygroundStreamError extends Error {
 	}
 }
 
-export function playgroundStreamError(event: {
+function playgroundStreamError(event: {
 	error?: string;
 	errorInternal?: string;
 }): PlaygroundStreamError {
@@ -215,6 +216,22 @@ export function playgroundStreamError(event: {
 
 export function isPlaygroundStreamError(err: unknown): err is PlaygroundStreamError {
 	return err instanceof PlaygroundStreamError;
+}
+
+export function playgroundFailureFromError(err: unknown): {
+	ok: false;
+	error: string;
+	errorInternal?: string;
+} {
+	if (isPlaygroundStreamError(err)) {
+		return {
+			ok: false,
+			error: err.publicMessage,
+			...(err.internalMessage ? { errorInternal: err.internalMessage } : {}),
+		};
+	}
+	const message = err instanceof Error ? err.message : String(err);
+	return { ok: false, error: message };
 }
 
 export function isAbortError(err: unknown): boolean {
@@ -249,22 +266,23 @@ async function readNdjsonStream(
 			}
 			const { done, value } = await reader.read();
 			if (done) break;
-			buffer += decoder.decode(value, { stream: true });
-			const lines = buffer.split('\n');
-			buffer = lines.pop() ?? '';
-			for (const line of lines) {
-				if (!line.trim()) continue;
-				onEvent(parseStreamEvent(line));
-			}
+			buffer = flushNdjsonChunk(buffer + decoder.decode(value, { stream: true }), onEvent);
 		}
-
 		const tail = buffer.trim();
-		if (tail) {
-			onEvent(parseStreamEvent(tail));
-		}
+		if (tail) onEvent(parseStreamEvent(tail));
 	} finally {
 		signal?.removeEventListener('abort', onAbort);
 	}
+}
+
+function flushNdjsonChunk(buffer: string, onEvent: (event: TurnEvent) => void): string {
+	const lines = buffer.split('\n');
+	const rest = lines.pop() ?? '';
+	for (const line of lines) {
+		if (!line.trim()) continue;
+		onEvent(parseStreamEvent(line));
+	}
+	return rest;
 }
 
 async function postJsonNdjson(

@@ -13,7 +13,7 @@ import type { PlaygroundRunPayload } from './run-payload';
 import {
 	buildTurnRequestBody,
 	foldAssistantTurn,
-	isPlaygroundStreamError,
+	playgroundFailureFromError,
 	streamPlaygroundTurn,
 	turnInputFromSession,
 } from './turn-client';
@@ -31,7 +31,6 @@ function commitCompletedTurn(
 		...applyTurnEventsToSession(session, events),
 		history: appendAssistantEventsToHistory(history, events),
 		gatedTool: null,
-		pausedTool: null,
 		assistantEvents: [],
 		pendingUserDraft: null,
 		toolSnapshot: undefined,
@@ -48,7 +47,6 @@ function commitContinuationTurn(
 		...applyTurnEventsToSession(session, events),
 		history: appendAssistantEventsToHistory(session.history, events.slice(seedLength)),
 		gatedTool: null,
-		pausedTool: null,
 		assistantEvents: [],
 		pendingUserDraft: null,
 		toolSnapshot: undefined,
@@ -70,7 +68,6 @@ function pauseTurn(
 		...applyTurnEventsToSession(session, events),
 		history,
 		gatedTool: gated,
-		pausedTool: gated,
 		assistantEvents: [...events],
 		pendingUserDraft: null,
 	};
@@ -86,7 +83,6 @@ function pauseContinuationTurn(
 		...applyTurnEventsToSession(session, events),
 		history: appendAssistantEventsToHistory(session.history, events.slice(seedLength)),
 		gatedTool: gated,
-		pausedTool: gated,
 		assistantEvents: [...events],
 		pendingUserDraft: null,
 	};
@@ -153,15 +149,7 @@ export async function continueAfterTool(args: {
 			assistantBlocks: foldAssistantTurn(args.iface, events),
 		};
 	} catch (err) {
-		if (isPlaygroundStreamError(err)) {
-			return {
-				ok: false,
-				error: err.publicMessage,
-				...(err.internalMessage ? { errorInternal: err.internalMessage } : {}),
-			};
-		}
-		const message = err instanceof Error ? err.message : String(err);
-		return { ok: false, error: message };
+		return playgroundFailureFromError(err);
 	}
 }
 

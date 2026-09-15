@@ -9,6 +9,7 @@ import {
 	type TranscriptBlock,
 } from 'theorum/interface';
 import type { ToolCredential } from 'theorum/kernel';
+import { lexiconText } from 'theorum';
 import { attachPreviewData, encodeFiles } from './encode-files';
 import { continueAfterTool, finalizeTurnStream, streamFoldedTurn, toTurnMedia } from './run-commit';
 import type { PlaygroundRunPayload } from './run-payload';
@@ -22,7 +23,7 @@ import {
 	buildTurnRequestBody,
 	foldAssistantTurn,
 	isAbortError,
-	isPlaygroundStreamError,
+	playgroundFailureFromError,
 	prepareComposerTurn,
 	projectUserTurn,
 	streamPlaygroundInvoke,
@@ -30,25 +31,94 @@ import {
 	turnInputFromSession,
 } from './turn-client';
 
-type TurnFailure = { ok: false; error: string; errorInternal?: string; issues?: string[]; aborted?: boolean };
+export type TurnFailure = {
+	ok: false;
+	error: string;
+	errorInternal?: string;
+	issues?: string[];
+	aborted?: boolean;
+};
 
 function turnFailureFromCaught(err: unknown, signal?: AbortSignal): TurnFailure {
 	if (isAbortError(err) || signal?.aborted) {
 		return { ok: false, error: 'Cancelled', aborted: true };
 	}
-	if (isPlaygroundStreamError(err)) {
-		return {
-			ok: false,
-			error: err.publicMessage,
-			...(err.internalMessage ? { errorInternal: err.internalMessage } : {}),
-		};
-	}
-	const message = err instanceof Error ? err.message : String(err);
-	return { ok: false, error: message };
+	return playgroundFailureFromError(err);
 }
 
 function sessionHasGatedTool(session: InterfaceTurnSession): boolean {
-	return (session.gatedTool ?? session.pausedTool) !== null;
+	return session.gatedTool !== null;
+}
+
+export type StreamTurnSuccess = {
+	ok: true;
+	session: InterfaceTurnSession;
+	userBlocks: TranscriptBlock[];
+	assistantBlocks: TranscriptBlock[];
+};
+
+type PreparedUserTurn = {
+	ok: true;
+	draft: import('theorum/interface').UserTurnDraft;
+	blocks: TranscriptBlock[];
+};
+
+async function streamPreparedInterfaceTurn(args: {
+	iface: ComposerProfileInterface;
+	payload: PlaygroundRunPayload;
+	session: InterfaceTurnSession;
+	prepared: PreparedUserTurn;
+	encodedAttachments?: Awaited<ReturnType<typeof encodeFiles>>;
+	encodedVoice?: Awaited<ReturnType<typeof encodeFiles>>;
+	onStream: (blocks: TranscriptBlock[]) => void;
+	onUserBlocks?: (blocks: TranscriptBlock[]) => void;
+	signal?: AbortSignal;
+	turnId?: string;
+}): Promise<StreamTurnSuccess | TurnFailure> {
+	const media = toTurnMedia(args.encodedAttachments, args.encodedVoice);
+	const userBlocks = attachPreviewData(
+		args.prepared.blocks,
+		args.encodedAttachments,
+		args.encodedVoice,
+	);
+	args.onUserBlocks?.(userBlocks);
+
+	const input = turnInputFromSession(args.session, {
+		...(args.prepared.draft.text ? { text: args.prepared.draft.text } : {}),
+		...(args.encodedAttachments?.length ? { attachments: args.encodedAttachments } : {}),
+		...(args.encodedVoice?.length ? { voice: args.encodedVoice } : {}),
+	});
+
+	let session: InterfaceTurnSession = {
+		...args.session,
+		pendingUserDraft: args.prepared.draft,
+		assistantEvents: [],
+	};
+
+	const events = await streamFoldedTurn({
+		iface: args.iface,
+		onStream: args.onStream,
+		seedEvents: [],
+		stream: (onEvent) =>
+			streamPlaygroundTurn(
+				buildTurnRequestBody(args.payload, session, input, { turnId: args.turnId }),
+				onEvent,
+				args.signal,
+			),
+	});
+
+	session = finalizeTurnStream({
+		session,
+		events,
+		media,
+	});
+
+	return {
+		ok: true,
+		session,
+		userBlocks,
+		assistantBlocks: foldAssistantTurn(args.iface, events),
+	};
 }
 
 export async function streamInterfaceTurn(args: {
@@ -63,15 +133,7 @@ export async function streamInterfaceTurn(args: {
 	onUserBlocks?: (blocks: TranscriptBlock[]) => void;
 	signal?: AbortSignal;
 	turnId?: string;
-}): Promise<
-	| {
-			ok: true;
-			session: InterfaceTurnSession;
-			userBlocks: TranscriptBlock[];
-			assistantBlocks: TranscriptBlock[];
-	  }
-	| { ok: false; error: string; errorInternal?: string; issues?: string[]; aborted?: boolean }
-> {
+}): Promise<StreamTurnSuccess | TurnFailure> {
 	if (sessionHasGatedTool(args.session)) {
 		return { ok: false, error: 'Resolve the gated tool before sending a new message.' };
 	}
@@ -87,52 +149,20 @@ export async function streamInterfaceTurn(args: {
 			return { ok: false, error: prepared.issues.join(' '), issues: prepared.issues };
 		}
 
-		const encodedAttachments = args.pendingFiles.length
-			? await encodeFiles(args.pendingFiles)
-			: undefined;
-		const encodedVoice = args.pendingVoice.length
-			? await encodeFiles(args.pendingVoice)
-			: undefined;
-		const media = toTurnMedia(encodedAttachments, encodedVoice);
-		const userBlocks = attachPreviewData(prepared.blocks, encodedAttachments, encodedVoice);
-		args.onUserBlocks?.(userBlocks);
-
-		const input = turnInputFromSession(args.session, {
-			...(prepared.draft.text ? { text: prepared.draft.text } : {}),
-			...(encodedAttachments ? { attachments: encodedAttachments } : {}),
-			...(encodedVoice ? { voice: encodedVoice } : {}),
-		});
-
-		let session: InterfaceTurnSession = {
-			...args.session,
-			pendingUserDraft: prepared.draft,
-			assistantEvents: [],
-		};
-
-		const events = await streamFoldedTurn({
+		return await streamPreparedInterfaceTurn({
 			iface: args.iface,
+			payload: args.payload,
+			session: args.session,
+			prepared,
+			encodedAttachments: args.pendingFiles.length
+				? await encodeFiles(args.pendingFiles)
+				: undefined,
+			encodedVoice: args.pendingVoice.length ? await encodeFiles(args.pendingVoice) : undefined,
 			onStream: args.onStream,
-			seedEvents: [],
-			stream: (onEvent) =>
-				streamPlaygroundTurn(
-					buildTurnRequestBody(args.payload, session, input, { turnId: args.turnId }),
-					onEvent,
-					args.signal,
-				),
+			onUserBlocks: args.onUserBlocks,
+			signal: args.signal,
+			turnId: args.turnId,
 		});
-
-		session = finalizeTurnStream({
-			session,
-			events,
-			media,
-		});
-
-		return {
-			ok: true,
-			session,
-			userBlocks,
-			assistantBlocks: foldAssistantTurn(args.iface, events),
-		};
 	} catch (err) {
 		return turnFailureFromCaught(err, args.signal);
 	}
@@ -148,15 +178,7 @@ export async function streamInterfaceDraftTurn(args: {
 	onUserBlocks?: (blocks: TranscriptBlock[]) => void;
 	signal?: AbortSignal;
 	turnId?: string;
-}): Promise<
-	| {
-			ok: true;
-			session: InterfaceTurnSession;
-			userBlocks: TranscriptBlock[];
-			assistantBlocks: TranscriptBlock[];
-	  }
-	| { ok: false; error: string; errorInternal?: string; issues?: string[]; aborted?: boolean }
-> {
+}): Promise<StreamTurnSuccess | TurnFailure> {
 	if (sessionHasGatedTool(args.session)) {
 		return { ok: false, error: 'Resolve the gated tool before sending a new message.' };
 	}
@@ -173,48 +195,149 @@ export async function streamInterfaceDraftTurn(args: {
 		const encodedVoice = prepared.draft.voice
 			?.filter((a): a is typeof a & { data: string } => typeof a.data === 'string')
 			.map((a) => ({ name: a.name, mimeType: a.mimeType, data: a.data }));
-		const media = toTurnMedia(encodedAttachments, encodedVoice);
-		const userBlocks = attachPreviewData(prepared.blocks, encodedAttachments, encodedVoice);
-		args.onUserBlocks?.(userBlocks);
 
-		const input = turnInputFromSession(args.session, {
-			...(prepared.draft.text ? { text: prepared.draft.text } : {}),
-			...(encodedAttachments?.length ? { attachments: encodedAttachments } : {}),
-			...(encodedVoice?.length ? { voice: encodedVoice } : {}),
+		return await streamPreparedInterfaceTurn({
+			iface: args.iface,
+			payload: args.payload,
+			session: args.session,
+			prepared,
+			encodedAttachments,
+			encodedVoice,
+			onStream: args.onStream,
+			onUserBlocks: args.onUserBlocks,
+			signal: args.signal,
+			turnId: args.turnId,
 		});
+	} catch (err) {
+		return turnFailureFromCaught(err, args.signal);
+	}
+}
 
-		let session: InterfaceTurnSession = {
-			...args.session,
-			pendingUserDraft: prepared.draft,
-			assistantEvents: [],
+async function resumeDeniedGatedTool(args: {
+	iface: ComposerProfileInterface;
+	payload: PlaygroundRunPayload;
+	session: InterfaceTurnSession;
+	onStream: (blocks: TranscriptBlock[]) => void;
+	gated: NonNullable<InterfaceTurnSession['gatedTool']>;
+}): Promise<
+	| { ok: true; session: InterfaceTurnSession; assistantBlocks: TranscriptBlock[] }
+	| TurnFailure
+> {
+	const history = appendToolDenialToHistory(args.session.history, {
+		name: args.gated.name,
+		callId: args.gated.callId,
+		arguments: args.gated.arguments,
+	});
+	const seedEvents = args.session.assistantEvents.map((event) => {
+		const isGate = event.tool?.phase === 'gate' && event.tool.gate;
+		if (event.type !== 'tool' || !isGate) return event;
+		return {
+			type: 'tool' as const,
+			tool: {
+				...event.tool,
+				phase: 'error' as const,
+				gate: undefined,
+				pause: undefined,
+				failure: {
+					code: 'denied',
+					message: lexiconText('session.tool_denied', { tool: args.gated.name }),
+				},
+			},
 		};
+	});
+	const session = {
+		...args.session,
+		history,
+		gatedTool: null,
+		assistantEvents: seedEvents,
+	};
+	return await continueAfterTool({ ...args, session, seedEvents });
+}
 
-		const events = await streamFoldedTurn({
+async function resumeAllowedGatedTool(args: {
+	iface: ComposerProfileInterface;
+	payload: PlaygroundRunPayload;
+	session: InterfaceTurnSession;
+	action: Exclude<ToolDecisionAction, 'deny'>;
+	onStream: (blocks: TranscriptBlock[]) => void;
+	credentials?: Record<string, ToolCredential>;
+	gated: NonNullable<InterfaceTurnSession['gatedTool']>;
+}): Promise<
+	| { ok: true; session: InterfaceTurnSession; assistantBlocks: TranscriptBlock[] }
+	| TurnFailure
+> {
+	let session: InterfaceTurnSession = { ...args.session };
+	const invokePermissions = applyToolDecisionToSessionPermissions(
+		session.sessionPermissions,
+		args.gated.name,
+		args.action,
+		args.gated.permission,
+	);
+	const sessionPermissions =
+		args.action === 'allow_session' ? invokePermissions : session.sessionPermissions;
+
+	let resume: ReturnType<typeof buildInvokeToolResume>;
+	try {
+		resume = buildInvokeToolResume(args.gated.gateKind);
+	} catch (err) {
+		return turnFailureFromCaught(err);
+	}
+
+	try {
+		const invokeEvents = await streamFoldedTurn({
 			iface: args.iface,
 			onStream: args.onStream,
-			seedEvents: [],
+			seedEvents: session.assistantEvents,
 			stream: (onEvent) =>
-				streamPlaygroundTurn(
-					buildTurnRequestBody(args.payload, session, input, { turnId: args.turnId }),
+				streamPlaygroundInvoke(
+					buildInvokeRequestBody(args.payload, session, {
+						name: args.gated.name,
+						input: args.gated.input,
+						resume,
+						sessionPermissions: invokePermissions,
+						credentials: args.credentials,
+					}),
 					onEvent,
-					args.signal,
 				),
 		});
 
-		session = finalizeTurnStream({
-			session,
-			events,
-			media,
-		});
-
-		return {
-			ok: true,
-			session,
-			userBlocks,
-			assistantBlocks: foldAssistantTurn(args.iface, events),
+		session = {
+			...applyTurnEventsToSession(session, invokeEvents),
+			sessionPermissions,
+			assistantEvents: invokeEvents,
+			gatedTool: gatedToolFromEvents(invokeEvents),
 		};
+
+		if (sessionHasGatedTool(session)) {
+			return {
+				ok: true,
+				session,
+				assistantBlocks: foldAssistantTurn(args.iface, invokeEvents),
+			};
+		}
+
+		const completedTool = invokeEvents.findLast(
+			(event) =>
+				event.type === 'tool' &&
+				event.tool?.name === args.gated.name &&
+				event.tool.phase === 'complete' &&
+				event.tool.output !== undefined,
+		);
+		if (completedTool?.tool?.output !== undefined) {
+			session = {
+				...session,
+				history: appendToolExchangeToHistory(session.history, {
+					name: args.gated.name,
+					callId: args.gated.callId,
+					arguments: args.gated.arguments,
+					output: completedTool.tool.output,
+				}),
+			};
+		}
+
+		return await continueAfterTool({ ...args, session, seedEvents: invokeEvents });
 	} catch (err) {
-		return turnFailureFromCaught(err, args.signal);
+		return turnFailureFromCaught(err);
 	}
 }
 
@@ -230,126 +353,14 @@ export async function resumeInterfaceTool(args: {
 	| { ok: true; session: InterfaceTurnSession; assistantBlocks: TranscriptBlock[] }
 	| TurnFailure
 > {
-	const gated = args.session.gatedTool ?? args.session.pausedTool;
+	const gated = args.session.gatedTool;
 	if (!gated) {
 		return { ok: false, error: 'No gated tool to resume.' };
 	}
-
-	let session: InterfaceTurnSession = { ...args.session };
-
 	if (args.action === 'deny') {
-		const history = appendToolDenialToHistory(session.history, {
-			name: gated.name,
-			callId: gated.callId,
-			arguments: gated.arguments,
-		});
-		const seedEvents = session.assistantEvents.map((event) => {
-			const isGate =
-				(event.tool?.phase === 'gate' && event.tool.gate) ||
-				(event.tool?.phase === 'pause' && event.tool.pause);
-			if (event.type !== 'tool' || !isGate) {
-				return event;
-			}
-			return {
-				type: 'tool' as const,
-				tool: {
-					...event.tool,
-					phase: 'error' as const,
-					gate: undefined,
-					pause: undefined,
-					failure: {
-						code: 'denied',
-						message: `User denied execution of '${gated.name}'.`,
-					},
-				},
-			};
-		});
-		session = {
-			...session,
-			history,
-			gatedTool: null,
-			pausedTool: null,
-			assistantEvents: seedEvents,
-		};
-		return await continueAfterTool({ ...args, session, seedEvents });
+		return resumeDeniedGatedTool({ ...args, gated });
 	}
-
-	const invokePermissions = applyToolDecisionToSessionPermissions(
-		session.sessionPermissions,
-		gated.name,
-		args.action,
-		gated.permission,
-	);
-	let sessionPermissions = session.sessionPermissions;
-	if (args.action === 'allow_session') {
-		sessionPermissions = invokePermissions;
-	}
-
-	let resume: ReturnType<typeof buildInvokeToolResume>;
-	try {
-		resume = buildInvokeToolResume(gated.gateKind);
-	} catch (err) {
-		return turnFailureFromCaught(err);
-	}
-
-	try {
-		const invokeEvents = await streamFoldedTurn({
-			iface: args.iface,
-			onStream: args.onStream,
-			seedEvents: session.assistantEvents,
-			stream: (onEvent) =>
-				streamPlaygroundInvoke(
-					buildInvokeRequestBody(args.payload, session, {
-						name: gated.name,
-						input: gated.input,
-						resume,
-						sessionPermissions: invokePermissions,
-						credentials: args.credentials,
-					}),
-					onEvent,
-				),
-		});
-
-		const nextGated = gatedToolFromEvents(invokeEvents);
-		session = {
-			...applyTurnEventsToSession(session, invokeEvents),
-			sessionPermissions,
-			assistantEvents: invokeEvents,
-			gatedTool: nextGated,
-			pausedTool: nextGated,
-		};
-
-		if (sessionHasGatedTool(session)) {
-			return {
-				ok: true,
-				session,
-				assistantBlocks: foldAssistantTurn(args.iface, invokeEvents),
-			};
-		}
-
-		const completedTool = invokeEvents.findLast(
-			(event) =>
-				event.type === 'tool' &&
-				event.tool?.name === gated.name &&
-				event.tool.phase === 'complete' &&
-				event.tool.output !== undefined,
-		);
-		if (completedTool?.tool?.output !== undefined) {
-			session = {
-				...session,
-				history: appendToolExchangeToHistory(session.history, {
-					name: gated.name,
-					callId: gated.callId,
-					arguments: gated.arguments,
-					output: completedTool.tool.output,
-				}),
-			};
-		}
-
-		return await continueAfterTool({ ...args, session, seedEvents: invokeEvents });
-	} catch (err) {
-		return turnFailureFromCaught(err);
-	}
+	return resumeAllowedGatedTool({ ...args, action: args.action, gated });
 }
 
 export function applyTurnResultToTranscript(args: {
@@ -391,15 +402,4 @@ export function abandonGatedInterfaceTool(args: {
 		session,
 		assistantBlocks: foldAssistantTurn(args.iface, finalizedEvents),
 	};
-}
-
-/** @deprecated Use `abandonGatedInterfaceTool`. */
-export function abandonPausedInterfaceTool(args: {
-	iface: ComposerProfileInterface;
-	session: InterfaceTurnSession;
-}): {
-	session: InterfaceTurnSession;
-	assistantBlocks: TranscriptBlock[];
-} {
-	return abandonGatedInterfaceTool(args);
 }

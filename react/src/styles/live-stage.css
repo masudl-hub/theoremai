@@ -7,6 +7,7 @@
 	--live-rail-width: min(78vw, 56rem);
 	--live-ease: var(--ink-ease);
 	--live-duration: var(--ink-duration);
+	height: 100%;
 }
 
 .live-rail {
@@ -52,6 +53,7 @@
 	font-weight: 800;
 	letter-spacing: 0.12em;
 	text-transform: lowercase;
+	line-height: 1.2;
 	color: var(--color-mute);
 }
 
@@ -229,16 +231,12 @@
 	}
 }
 
-.site-main .live-stage {
-	height: 100%;
-}
-
 .live-runner {
 	position: relative;
 	height: 100%;
 }
 
-.live-tool-pause {
+.live-tool-gate {
 	position: absolute;
 	inset: auto 1rem 5.5rem;
 	z-index: 4;
@@ -248,7 +246,7 @@
 	right: 0;
 }
 
-.live-tool-pause__eyebrow {
+.live-tool-gate__eyebrow {
 	margin: 0 0 0.35rem;
 	font-family: var(--font-mono, monospace);
 	font-size: 0.65rem;

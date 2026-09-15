@@ -24,48 +24,62 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
+function optionalString(value: unknown): string | undefined {
+	return typeof value === 'string' ? value : undefined;
+}
+
+function parseReady(record: Record<string, unknown>): LiveServerEnvelope {
+	return {
+		type: 'ready',
+		profile: optionalString(record.profile),
+		sessionId: optionalString(record.sessionId),
+	};
+}
+
+function parseEvents(record: Record<string, unknown>): LiveServerEnvelope | null {
+	if (!Array.isArray(record.events)) return null;
+	return { type: 'events', events: record.events.filter(isTurnEvent) };
+}
+
+function parseError(record: Record<string, unknown>): LiveServerEnvelope | null {
+	return typeof record.error === 'string' ? { type: 'error', error: record.error } : null;
+}
+
+function parseToolFailure(
+	value: unknown,
+): { code: string; message: string } | undefined {
+	if (!isRecord(value)) return undefined;
+	if (typeof value.code !== 'string' || typeof value.message !== 'string') return undefined;
+	return { code: value.code, message: value.message };
+}
+
+function parseExecuteToolResult(record: Record<string, unknown>): LiveServerEnvelope | null {
+	if (typeof record.callId !== 'string' || typeof record.name !== 'string') return null;
+	if (record.status !== 'complete' && record.status !== 'gated') return null;
+	return {
+		type: 'executeToolResult',
+		callId: record.callId,
+		name: record.name,
+		status: record.status,
+		output: record.output,
+		gate: isRecord(record.gate) ? (record.gate as unknown as ToolGate) : undefined,
+		awaiting: typeof record.awaiting === 'boolean' ? record.awaiting : undefined,
+		failure: parseToolFailure(record.failure),
+	};
+}
+
+const ENVELOPE_PARSERS: Record<
+	string,
+	(record: Record<string, unknown>) => LiveServerEnvelope | null
+> = {
+	ready: parseReady,
+	events: parseEvents,
+	error: parseError,
+	executeToolResult: parseExecuteToolResult,
+};
+
 export function parseLiveServerEnvelope(raw: unknown): LiveServerEnvelope | null {
-	if (!raw || typeof raw !== 'object') return null;
-	const record = raw as Record<string, unknown>;
-	switch (record.type) {
-		case 'ready':
-			return {
-				type: 'ready',
-				profile: typeof record.profile === 'string' ? record.profile : undefined,
-				sessionId: typeof record.sessionId === 'string' ? record.sessionId : undefined,
-			};
-		case 'events':
-			if (!Array.isArray(record.events)) return null;
-			return {
-				type: 'events',
-				events: record.events.filter(isTurnEvent),
-			};
-		case 'error':
-			return typeof record.error === 'string' ? { type: 'error', error: record.error } : null;
-		case 'executeToolResult': {
-			if (typeof record.callId !== 'string' || typeof record.name !== 'string') return null;
-			const status =
-				record.status === 'complete' || record.status === 'gated'
-					? record.status
-					: record.status === 'paused'
-						? 'gated'
-						: null;
-			if (!status) return null;
-			const gateSource = record.gate ?? record.pause;
-			return {
-				type: 'executeToolResult',
-				callId: record.callId,
-				name: record.name,
-				status,
-				output: record.output,
-				gate: isRecord(gateSource) ? (gateSource as unknown as ToolGate) : undefined,
-				awaiting: typeof record.awaiting === 'boolean' ? record.awaiting : undefined,
-				failure: isRecord(record.failure)
-					? (record.failure as { code: string; message: string })
-					: undefined,
-			};
-		}
-		default:
-			return null;
-	}
+	if (!isRecord(raw) || typeof raw.type !== 'string') return null;
+	const parse = ENVELOPE_PARSERS[raw.type];
+	return parse ? parse(raw) : null;
 }

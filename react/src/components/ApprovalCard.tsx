@@ -8,9 +8,9 @@ export type ApprovalCardProps = {
 	/** Tool call arguments for display. */
 	input?: unknown;
 	onDecision?: (action: 'allow' | 'allow_session' | 'deny') => void;
-	/** @deprecated Use `gate`. */
-	pause?: ToolGate & { input?: unknown };
 };
+
+type Decision = 'allowed' | 'allowed_session' | 'denied';
 
 function formatUnknownDisplay(value: unknown): string {
 	if (typeof value === 'string') return value;
@@ -21,26 +21,71 @@ function formatUnknownDisplay(value: unknown): string {
 	return JSON.stringify(value, null, 2);
 }
 
-export function ApprovalCard({
-	gate: gateProp,
-	toolName,
-	input,
-	onDecision,
-	pause,
-}: ApprovalCardProps) {
-	const gate = gateProp ?? pause;
-	if (!gate) {
-		throw new Error('ApprovalCard requires gate');
-	}
-	const accessKind = gate.permission ?? 'session_consent';
-	const inputFormatted = formatUnknownDisplay(input ?? pause?.input);
+function decisionFromAction(action: 'allow' | 'allow_session' | 'deny'): Decision {
+	if (action === 'allow') return 'allowed';
+	if (action === 'allow_session') return 'allowed_session';
+	return 'denied';
+}
 
-	const [decided, setDecided] = useState<'allowed' | 'allowed_session' | 'denied' | null>(null);
+function DecisionOutcome(props: { decided: Decision }) {
+	if (props.decided === 'denied') {
+		return (
+			<div className="decision-outcome decision-outcome--denied">
+				<span>✗ Execution Denied</span>
+			</div>
+		);
+	}
+	const label =
+		props.decided === 'allowed_session'
+			? '✓ Approved for entire session'
+			: '✓ Approved for single execution';
+	return (
+		<div className="decision-outcome">
+			<span>{label}</span>
+		</div>
+	);
+}
+
+function ActionButtons(props: { onAction: (action: 'allow' | 'allow_session' | 'deny') => void }) {
+	return (
+		<div className="action-buttons">
+			<button
+				className="btn-action btn-action--deny"
+				onClick={() => {
+					props.onAction('deny');
+				}}
+				type="button"
+			>
+				Deny
+			</button>
+			<button
+				className="btn-action btn-action--allow"
+				onClick={() => {
+					props.onAction('allow');
+				}}
+				type="button"
+			>
+				Approve
+			</button>
+			<button
+				className="btn-action btn-action--always"
+				onClick={() => {
+					props.onAction('allow_session');
+				}}
+				type="button"
+			>
+				Always Allow this Session
+			</button>
+		</div>
+	);
+}
+
+export function ApprovalCard({ gate, toolName, input, onDecision }: ApprovalCardProps) {
+	const accessKind = gate.permission ?? 'session_consent';
+	const [decided, setDecided] = useState<Decision | null>(null);
 
 	function handleAction(action: 'allow' | 'allow_session' | 'deny') {
-		if (action === 'allow') setDecided('allowed');
-		else if (action === 'allow_session') setDecided('allowed_session');
-		else setDecided('denied');
+		setDecided(decisionFromAction(action));
 		onDecision?.(action);
 	}
 
@@ -65,56 +110,14 @@ export function ApprovalCard({
 
 			<details className="card-details">
 				<summary className="details-toggle">View Input Arguments</summary>
-				<pre className="card-code">{inputFormatted}</pre>
+				<pre className="card-code">{formatUnknownDisplay(input)}</pre>
 			</details>
 
 			<footer className="card-footer">
 				{decided === null ? (
-					<div className="action-buttons">
-						<button
-							className="btn-action btn-action--deny"
-							onClick={() => {
-								handleAction('deny');
-							}}
-							type="button"
-						>
-							Deny
-						</button>
-						<button
-							className="btn-action btn-action--allow"
-							onClick={() => {
-								handleAction('allow');
-							}}
-							type="button"
-						>
-							Approve
-						</button>
-						<button
-							className="btn-action btn-action--always"
-							onClick={() => {
-								handleAction('allow_session');
-							}}
-							type="button"
-						>
-							Always Allow this Session
-						</button>
-					</div>
+					<ActionButtons onAction={handleAction} />
 				) : (
-					<div
-						className={
-							decided === 'denied'
-								? 'decision-outcome decision-outcome--denied'
-								: 'decision-outcome'
-						}
-					>
-						{decided === 'denied' ? (
-							<span>✗ Execution Denied</span>
-						) : decided === 'allowed_session' ? (
-							<span>✓ Approved for entire session</span>
-						) : (
-							<span>✓ Approved for single execution</span>
-						)}
-					</div>
+					<DecisionOutcome decided={decided} />
 				)}
 			</footer>
 		</article>

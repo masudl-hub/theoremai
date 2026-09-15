@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { TranscriptBlock } from 'theorum/interface';
 import type { ToolCredential } from 'theorum/kernel';
 import { transcriptBlockCopyText } from '../client/transcript-block-text';
@@ -21,6 +22,224 @@ export type TranscriptBlockViewProps = {
 	embedded?: boolean;
 };
 
+type BodyArgs = {
+	handleLabel: string;
+	streaming: boolean;
+	embedded: boolean;
+	onToolDecision?: TranscriptBlockViewProps['onToolDecision'];
+	onAuthCredential?: TranscriptBlockViewProps['onAuthCredential'];
+};
+
+function userAlign(block: TranscriptBlock): boolean {
+	return (
+		block.kind === 'user-text' || block.kind === 'user-attachment' || block.kind === 'user-voice'
+	);
+}
+
+function Handle(props: { show: boolean; label: string }) {
+	return props.show ? <p className="iface-msg__handle">{props.label}</p> : null;
+}
+
+function UserTextBody(block: Extract<TranscriptBlock, { kind: 'user-text' }>) {
+	return (
+		<article className="iface-msg iface-msg--user">
+			<p className="iface-msg__bubble">{block.text}</p>
+		</article>
+	);
+}
+
+function UserMediaBody(
+	block: Extract<TranscriptBlock, { kind: 'user-attachment' | 'user-voice' }>,
+) {
+	const dataUrl =
+		block.data !== undefined ? `data:${block.mimeType};base64,${block.data}` : undefined;
+	let content: ReactNode;
+	if (dataUrl && block.mimeType.startsWith('image/')) {
+		content = <img className="iface-msg__image" alt={block.name} src={dataUrl} />;
+	} else if (dataUrl && block.mimeType.startsWith('audio/')) {
+		content = <VoiceNotePill label={block.name} mimeType={block.mimeType} src={dataUrl} />;
+	} else {
+		content = (
+			<>
+				<p className="iface-msg__bubble">{block.name}</p>
+				<p className="iface-msg__meta">{block.mimeType}</p>
+			</>
+		);
+	}
+	return <article className="iface-msg iface-msg--user">{content}</article>;
+}
+
+function ThoughtBody(block: Extract<TranscriptBlock, { kind: 'thought' }>) {
+	return (
+		<article className="iface-msg iface-msg--thought">
+			<p className="iface-msg__meta">Thought</p>
+			<p className="iface-msg__bubble">{block.text}</p>
+		</article>
+	);
+}
+
+function TextBody(block: Extract<TranscriptBlock, { kind: 'text' }>, args: BodyArgs) {
+	return (
+		<article
+			className={
+				args.streaming
+					? 'iface-msg iface-msg--assistant iface-msg--streaming'
+					: 'iface-msg iface-msg--assistant'
+			}
+		>
+			<Handle show={!args.embedded} label={args.handleLabel} />
+			<MarkdownBody text={block.text} streaming={args.streaming} />
+		</article>
+	);
+}
+
+function ToolGateBody(args: {
+	tool: Extract<TranscriptBlock, { kind: 'tool' }>['tool'];
+	onToolDecision?: BodyArgs['onToolDecision'];
+	onAuthCredential?: BodyArgs['onAuthCredential'];
+}) {
+	const { tool, onToolDecision, onAuthCredential } = args;
+	if (tool.phase !== 'gate' || !tool.gate) {
+		if (tool.output !== undefined) {
+			return <pre className="iface-msg__code">{JSON.stringify(tool.output, null, 2)}</pre>;
+		}
+		if (tool.failure !== undefined) {
+			return (
+				<pre className="iface-msg__code iface-msg__code--error">
+					{JSON.stringify(tool.failure, null, 2)}
+				</pre>
+			);
+		}
+		return null;
+	}
+	if (tool.gate.kind === 'auth') {
+		return (
+			<AuthChallengeCard
+				onSubmitCredential={onAuthCredential}
+				gate={tool.gate}
+				toolName={tool.name}
+			/>
+		);
+	}
+	return (
+		<ApprovalCard
+			onDecision={onToolDecision}
+			gate={tool.gate}
+			toolName={tool.name}
+			input={tool.arguments}
+		/>
+	);
+}
+
+function ToolBody(block: Extract<TranscriptBlock, { kind: 'tool' }>, args: BodyArgs) {
+	return (
+		<article className={args.embedded ? 'iface-msg' : 'iface-msg iface-msg--assistant'}>
+			{args.embedded ? (
+				<p className="iface-msg__meta">Tool · {block.tool.name}</p>
+			) : (
+				<>
+					<p className="iface-msg__handle">{args.handleLabel}</p>
+					<p className="iface-msg__meta">
+						Tool · {block.tool.name} [{block.tool.phase ?? 'invoked'}]
+					</p>
+				</>
+			)}
+			<ToolGateBody
+				tool={block.tool}
+				onToolDecision={args.onToolDecision}
+				onAuthCredential={args.onAuthCredential}
+			/>
+		</article>
+	);
+}
+
+function StructuredBody(block: Extract<TranscriptBlock, { kind: 'structured' }>, args: BodyArgs) {
+	return (
+		<article className="iface-msg iface-msg--assistant">
+			<Handle show={!args.embedded} label={args.handleLabel} />
+			<pre className="iface-msg__code">{JSON.stringify(block.value, null, 2)}</pre>
+		</article>
+	);
+}
+
+function mediaSrc(block: Extract<TranscriptBlock, { kind: 'media' }>): string | undefined {
+	if (block.url !== undefined) return block.url;
+	if (block.data !== undefined) return `data:${block.mimeType};base64,${block.data}`;
+	return undefined;
+}
+
+function mediaContent(block: Extract<TranscriptBlock, { kind: 'media' }>): ReactNode {
+	const src = mediaSrc(block);
+	if (!src) return <p className="iface-msg__meta">{block.mimeType}</p>;
+	if (block.mimeType.startsWith('image/')) {
+		return <img className="iface-msg__image" alt="Media" src={src} />;
+	}
+	if (block.mimeType.startsWith('video/')) {
+		return (
+			<video className="iface-msg__video" controls playsInline preload="metadata" src={src} />
+		);
+	}
+	if (block.mimeType.startsWith('audio/')) {
+		return <VoiceNotePill mimeType={block.mimeType} src={src} />;
+	}
+	return <p className="iface-msg__meta">{block.mimeType}</p>;
+}
+
+function MediaBody(block: Extract<TranscriptBlock, { kind: 'media' }>, args: BodyArgs) {
+	return (
+		<article className="iface-msg iface-msg--assistant">
+			<Handle show={!args.embedded} label={args.handleLabel} />
+			{mediaContent(block)}
+		</article>
+	);
+}
+
+function SourcesBody(
+	block: Extract<TranscriptBlock, { kind: 'grounding' | 'evidence' }>,
+	args: BodyArgs,
+) {
+	return (
+		<article className="iface-msg iface-msg--assistant">
+			<Handle show={!args.embedded} label={args.handleLabel} />
+			<SourceChips block={block} />
+		</article>
+	);
+}
+
+function ErrorBody(block: Extract<TranscriptBlock, { kind: 'error' }>, args: BodyArgs) {
+	return (
+		<article className="iface-msg iface-msg--assistant iface-msg--error">
+			<Handle show={!args.embedded} label={args.handleLabel} />
+			<p className="iface-msg__bubble">{block.message}</p>
+		</article>
+	);
+}
+
+type BodyRenderer = (block: TranscriptBlock, args: BodyArgs) => ReactNode;
+
+const BODY_RENDERERS: Partial<Record<TranscriptBlock['kind'], BodyRenderer>> = {
+	'user-text': (block) => UserTextBody(block as Extract<TranscriptBlock, { kind: 'user-text' }>),
+	'user-attachment': (block) =>
+		UserMediaBody(block as Extract<TranscriptBlock, { kind: 'user-attachment' }>),
+	'user-voice': (block) =>
+		UserMediaBody(block as Extract<TranscriptBlock, { kind: 'user-voice' }>),
+	thought: (block) => ThoughtBody(block as Extract<TranscriptBlock, { kind: 'thought' }>),
+	text: (block, args) => TextBody(block as Extract<TranscriptBlock, { kind: 'text' }>, args),
+	tool: (block, args) => ToolBody(block as Extract<TranscriptBlock, { kind: 'tool' }>, args),
+	structured: (block, args) =>
+		StructuredBody(block as Extract<TranscriptBlock, { kind: 'structured' }>, args),
+	media: (block, args) => MediaBody(block as Extract<TranscriptBlock, { kind: 'media' }>, args),
+	grounding: (block, args) =>
+		SourcesBody(block as Extract<TranscriptBlock, { kind: 'grounding' }>, args),
+	evidence: (block, args) =>
+		SourcesBody(block as Extract<TranscriptBlock, { kind: 'evidence' }>, args),
+	error: (block, args) => ErrorBody(block as Extract<TranscriptBlock, { kind: 'error' }>, args),
+};
+
+function renderBody(block: TranscriptBlock, args: BodyArgs): ReactNode {
+	return BODY_RENDERERS[block.kind]?.(block, args) ?? null;
+}
+
 export function TranscriptBlockView({
 	block,
 	handle,
@@ -33,14 +252,7 @@ export function TranscriptBlockView({
 	embedded = false,
 }: TranscriptBlockViewProps) {
 	const handleLabel = `@${handle}`;
-	const align =
-		block.kind === 'user-text' || block.kind === 'user-attachment' || block.kind === 'user-voice'
-			? 'user'
-			: 'assistant';
-	const copyText = transcriptBlockCopyText(block);
-
-	const body = renderBody({
-		block,
+	const body = renderBody(block, {
 		handleLabel,
 		streaming,
 		embedded,
@@ -52,173 +264,13 @@ export function TranscriptBlockView({
 
 	return (
 		<TranscriptMessageShell
-			align={align}
+			align={userAlign(block) ? 'user' : 'assistant'}
 			at={at}
-			copyText={copyText}
+			copyText={transcriptBlockCopyText(block)}
 			onBranch={onBranch}
 			showChrome={showChrome}
 		>
 			{body}
 		</TranscriptMessageShell>
 	);
-}
-
-function renderBody(args: {
-	block: TranscriptBlock;
-	handleLabel: string;
-	streaming: boolean;
-	embedded: boolean;
-	onToolDecision?: (action: 'allow' | 'allow_session' | 'deny', interactiveValue?: unknown) => void;
-	onAuthCredential?: (slot: string, credential: ToolCredential) => void;
-}) {
-	const { block, handleLabel, streaming, embedded, onToolDecision, onAuthCredential } = args;
-
-	if (block.kind === 'user-text') {
-		return (
-			<article className="iface-msg iface-msg--user">
-				<p className="iface-msg__bubble">{block.text}</p>
-			</article>
-		);
-	}
-
-	if (block.kind === 'user-attachment' || block.kind === 'user-voice') {
-		return (
-			<article className="iface-msg iface-msg--user">
-				{block.data && block.mimeType.startsWith('image/') ? (
-					<img
-						className="iface-msg__image"
-						alt={block.name}
-						src={`data:${block.mimeType};base64,${block.data}`}
-					/>
-				) : block.data && block.mimeType.startsWith('audio/') ? (
-					<VoiceNotePill
-						label={block.name}
-						mimeType={block.mimeType}
-						src={`data:${block.mimeType};base64,${block.data}`}
-					/>
-				) : (
-					<>
-						<p className="iface-msg__bubble">{block.name}</p>
-						<p className="iface-msg__meta">{block.mimeType}</p>
-					</>
-				)}
-			</article>
-		);
-	}
-
-	if (block.kind === 'thought') {
-		return (
-			<article className="iface-msg iface-msg--thought">
-				<p className="iface-msg__meta">Thought</p>
-				<p className="iface-msg__bubble">{block.text}</p>
-			</article>
-		);
-	}
-
-	if (block.kind === 'text') {
-		return (
-			<article
-				className={
-					streaming
-						? 'iface-msg iface-msg--assistant iface-msg--streaming'
-						: 'iface-msg iface-msg--assistant'
-				}
-			>
-				{!embedded ? <p className="iface-msg__handle">{handleLabel}</p> : null}
-				<MarkdownBody text={block.text} streaming={streaming} />
-			</article>
-		);
-	}
-
-	if (block.kind === 'tool') {
-		return (
-			<article className={embedded ? 'iface-msg' : 'iface-msg iface-msg--assistant'}>
-				{!embedded ? (
-					<>
-						<p className="iface-msg__handle">{handleLabel}</p>
-						<p className="iface-msg__meta">
-							Tool · {block.tool.name} [{block.tool.phase ?? 'invoked'}]
-						</p>
-					</>
-				) : (
-					<p className="iface-msg__meta">Tool · {block.tool.name}</p>
-				)}
-				{(block.tool.phase === 'gate' && block.tool.gate) ||
-				(block.tool.phase === 'pause' && block.tool.pause) ? (
-					(block.tool.gate ?? block.tool.pause)?.kind === 'auth' ? (
-						<AuthChallengeCard
-							onSubmitCredential={onAuthCredential}
-							gate={(block.tool.gate ?? block.tool.pause)!}
-							toolName={block.tool.name}
-						/>
-					) : (
-						<ApprovalCard
-							onDecision={onToolDecision}
-							gate={(block.tool.gate ?? block.tool.pause)!}
-							toolName={block.tool.name}
-							input={block.tool.arguments}
-						/>
-					)
-				) : block.tool.output !== undefined ? (
-					<pre className="iface-msg__code">{JSON.stringify(block.tool.output, null, 2)}</pre>
-				) : block.tool.failure !== undefined ? (
-					<pre className="iface-msg__code iface-msg__code--error">
-						{JSON.stringify(block.tool.failure, null, 2)}
-					</pre>
-				) : null}
-			</article>
-		);
-	}
-
-	if (block.kind === 'structured') {
-		return (
-			<article className="iface-msg iface-msg--assistant">
-				{!embedded ? <p className="iface-msg__handle">{handleLabel}</p> : null}
-				<pre className="iface-msg__code">{JSON.stringify(block.value, null, 2)}</pre>
-			</article>
-		);
-	}
-
-	if (block.kind === 'media') {
-		const src =
-			block.url !== undefined
-				? block.url
-				: block.data !== undefined
-					? `data:${block.mimeType};base64,${block.data}`
-					: undefined;
-		return (
-			<article className="iface-msg iface-msg--assistant">
-				{!embedded ? <p className="iface-msg__handle">{handleLabel}</p> : null}
-				{src && block.mimeType.startsWith('image/') ? (
-					<img className="iface-msg__image" alt="Media" src={src} />
-				) : src && block.mimeType.startsWith('video/') ? (
-					<video className="iface-msg__video" controls playsInline preload="metadata" src={src} />
-				) : src && block.mimeType.startsWith('audio/') ? (
-					<VoiceNotePill mimeType={block.mimeType} src={src} />
-				) : (
-					<p className="iface-msg__meta">{block.mimeType}</p>
-				)}
-			</article>
-		);
-	}
-
-	if (block.kind === 'grounding' || block.kind === 'evidence') {
-		return (
-			<article className="iface-msg iface-msg--assistant">
-				{!embedded ? <p className="iface-msg__handle">{handleLabel}</p> : null}
-				<SourceChips block={block} />
-			</article>
-		);
-	}
-
-	if (block.kind === 'error') {
-		return (
-			<article className="iface-msg iface-msg--assistant iface-msg--error">
-				{!embedded ? <p className="iface-msg__handle">{handleLabel}</p> : null}
-				<p className="iface-msg__bubble">{block.message}</p>
-			</article>
-		);
-	}
-
-	return null;
 }

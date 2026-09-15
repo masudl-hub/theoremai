@@ -24,95 +24,58 @@ function isToolGate(value: unknown): value is ToolGate {
 	return typeof value.tool === 'string';
 }
 
+function complete(output: Record<string, unknown>): PlaygroundLiveToolResult {
+	return { status: 'complete', output };
+}
+
+function outputFromTool(tool: NonNullable<TurnEvent['tool']>): PlaygroundLiveToolResult {
+	if (tool.phase === 'error' && tool.failure) {
+		return complete({
+			error: tool.failure.message,
+			code: tool.failure.code,
+			...(tool.failure.details !== undefined ? { details: tool.failure.details } : {}),
+		});
+	}
+	if (tool.output === undefined) return complete({ success: true });
+	if (isRecord(tool.output)) return complete(tool.output);
+	return complete({ result: tool.output });
+}
+
 export function toolInvokeResultFromEvents(
 	events: readonly TurnEvent[],
 	name: string,
 	input: Record<string, unknown>,
 ): PlaygroundLiveToolResult {
 	const errEv = events.find((event) => event.type === 'error');
-	if (errEv?.error) {
-		return { status: 'complete', output: { error: errEv.error } };
-	}
+	if (errEv?.error) return complete({ error: errEv.error });
 
 	const tool = events.findLast((event) => event.type === 'tool' && event.tool?.name === name)?.tool;
-	if (!tool) {
-		return { status: 'complete', output: { error: 'Tool execution produced no result' } };
-	}
+	if (!tool) return complete({ error: 'Tool execution produced no result' });
 
 	if (tool.phase === 'gate' && tool.gate) {
-		return {
-			status: 'gated',
-			toolName: name,
-			gate: tool.gate,
-			input,
-		};
+		return { status: 'gated', toolName: name, gate: tool.gate, input };
 	}
+	return outputFromTool(tool);
+}
 
-	// Legacy pause wire during dual-API window
-	if (tool.phase === 'pause' && tool.pause) {
-		const pause = tool.pause;
-		const kind =
-			pause.kind === 'interactive' ? 'confirmation' : (pause.kind as ToolGate['kind']);
-		return {
-			status: 'gated',
-			toolName: name,
-			gate: {
-				kind,
-				tool: pause.tool,
-				permission: pause.permission,
-				summary: pause.summary,
-				authChallenge: pause.authChallenge,
-			},
-			input,
-		};
+function parseGatedResult(raw: Record<string, unknown>): PlaygroundLiveToolResult {
+	if (typeof raw.toolName !== 'string' || !isToolGate(raw.gate)) {
+		throw new Error('Invalid live tool response');
 	}
-
-	if (tool.phase === 'error' && tool.failure) {
-		return {
-			status: 'complete',
-			output: {
-				error: tool.failure.message,
-				code: tool.failure.code,
-				...(tool.failure.details !== undefined ? { details: tool.failure.details } : {}),
-			},
-		};
-	}
-
-	if (tool.output !== undefined) {
-		if (typeof tool.output === 'object' && tool.output !== null && !Array.isArray(tool.output)) {
-			return { status: 'complete', output: tool.output as Record<string, unknown> };
-		}
-		return { status: 'complete', output: { result: tool.output } };
-	}
-
-	return { status: 'complete', output: { success: true } };
+	return {
+		status: 'gated',
+		toolName: raw.toolName,
+		gate: raw.gate,
+		input: isRecord(raw.input) ? raw.input : {},
+	};
 }
 
 export function parsePlaygroundLiveToolResult(raw: unknown): PlaygroundLiveToolResult {
-	if (!isRecord(raw)) {
-		throw new Error('Invalid live tool response');
-	}
-	if (typeof raw.error === 'string') {
-		throw new Error(raw.error);
-	}
+	if (!isRecord(raw)) throw new Error('Invalid live tool response');
+	if (typeof raw.error === 'string') throw new Error(raw.error);
 	if (raw.status === 'complete') {
-		return {
-			status: 'complete',
-			output: isRecord(raw.output) ? raw.output : { success: true },
-		};
+		return complete(isRecord(raw.output) ? raw.output : { success: true });
 	}
-	if (
-		(raw.status === 'gated' || raw.status === 'paused') &&
-		typeof raw.toolName === 'string' &&
-		isToolGate(raw.gate ?? raw.pause)
-	) {
-		const gate = (raw.gate ?? raw.pause) as ToolGate;
-		return {
-			status: 'gated',
-			toolName: raw.toolName,
-			gate,
-			input: isRecord(raw.input) ? raw.input : {},
-		};
-	}
+	if (raw.status === 'gated') return parseGatedResult(raw);
 	throw new Error('Invalid live tool response');
 }

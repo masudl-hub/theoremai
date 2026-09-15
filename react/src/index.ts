@@ -16,6 +16,12 @@ export {
 	type ToolRegistration,
 	upsertPlaygroundRunIndex,
 } from './client/index';
+export {
+	COMPOSER_MENU_ACTION_DESCRIPTIONS,
+	COMPOSER_MENU_ACTION_LABELS,
+	COMPOSER_PRIMARY_LABELS,
+} from './components/composer-labels';
+export { attachmentIssueText } from './client/attachment-issues';
 export type { InterfaceRunnerProps } from './components/InterfaceRunner';
 export { InterfaceRunner } from './components/InterfaceRunner';
 export type { InkTooltipProps } from './components/InkTooltip';

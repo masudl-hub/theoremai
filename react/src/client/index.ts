@@ -4,12 +4,13 @@ export {
 	INPUT_LEVEL_GAIN,
 	timeDomainBytesToLevel,
 } from './audio-level';
+export { attachmentIssueText } from './attachment-issues';
 export { filesToPending, pendingAttachmentsToFiles } from './encode-files';
 export { composerFieldsFromDraft, type ComposerDraftFields } from './decode-composer-draft';
 export { encodeComposerDraft } from './encode-composer-draft';
 export { registerPlaygroundLiveProfile } from './live/live-session';
 export { liveStateLabel } from './live/live-state';
-export { invokePlaygroundLiveTool } from './live/live-tool';
+export type { LiveToolGatePrompt } from './live/live-tool';
 export type { LiveConnectPhase, LiveSessionStatus } from './live-client';
 export { LiveSessionClient } from './live-client';
 export {
@@ -42,7 +43,6 @@ export {
 } from './run-payload';
 export {
 	abandonGatedInterfaceTool,
-	abandonPausedInterfaceTool,
 	applyTurnResultToTranscript,
 	resumeInterfaceTool,
 	streamInterfaceDraftTurn,
@@ -51,11 +51,9 @@ export {
 export type {
 	ToolDecisionAction,
 	ToolGateResolution,
-	ToolPauseResolution,
 } from './tool-resume';
 export {
 	continueGatedToolInvocation,
-	continuePausedToolInvocation,
 } from './tool-resume';
 export {
 	buildInvokeRequestBody,

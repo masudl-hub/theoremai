@@ -7,9 +7,6 @@ export type ToolGateResolution =
 	| { action: ToolDecisionAction }
 	| { action: 'auth'; credentials: Record<string, ToolCredential> };
 
-/** @deprecated Use `ToolGateResolution`. */
-export type ToolPauseResolution = ToolGateResolution;
-
 export type InvokeToolResumeInput = {
 	value?: unknown;
 	granted?: boolean;
@@ -45,9 +42,6 @@ export type GatedToolContinue =
 			sessionPermissions: string[];
 	  };
 
-/** @deprecated Use `GatedToolContinue`. */
-export type PausedToolContinue = GatedToolContinue;
-
 export function continueGatedToolInvocation(args: {
 	toolName: string;
 	gate: Pick<ToolGate, 'kind' | 'permission'>;
@@ -71,19 +65,4 @@ export function continueGatedToolInvocation(args: {
 		),
 		resume: buildInvokeToolResume(args.gate.kind),
 	};
-}
-
-/** @deprecated Use `continueGatedToolInvocation`. */
-export function continuePausedToolInvocation(args: {
-	toolName: string;
-	pause: Pick<ToolGate, 'kind' | 'permission'>;
-	sessionPermissions: readonly string[];
-	resolution: ToolGateResolution;
-}): GatedToolContinue {
-	return continueGatedToolInvocation({
-		toolName: args.toolName,
-		gate: args.pause,
-		sessionPermissions: args.sessionPermissions,
-		resolution: args.resolution,
-	});
 }

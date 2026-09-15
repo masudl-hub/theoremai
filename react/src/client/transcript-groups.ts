@@ -20,10 +20,6 @@ export type ComposedAssistantTurn = {
 	trace: TraceItem[];
 	/** Gate tools rendered as interactive cards outside the collapsed list. */
 	gatedTools: Extract<TranscriptBlock, { kind: 'tool' }>[];
-	/**
-	 * @deprecated Alias of `gatedTools` for Slice 3 react rename.
-	 */
-	pausedTools: Extract<TranscriptBlock, { kind: 'tool' }>[];
 	/** Final answer segments (text / media / structured / grounding / evidence / error). */
 	body: TranscriptBlock[];
 	/** True when the disclosure control should appear. */
@@ -34,12 +30,12 @@ const USER_KINDS = new Set(['user-text', 'user-attachment', 'user-voice']);
 
 const BODY_KINDS = new Set(['text', 'media', 'structured', 'grounding', 'evidence', 'error']);
 
-export function isUserTranscriptBlock(block: TranscriptBlock): boolean {
+function isUserTranscriptBlock(block: TranscriptBlock): boolean {
 	return USER_KINDS.has(block.kind);
 }
 
 /** Hide bookkeeping from the message body. */
-export function isHiddenTranscriptBlock(block: TranscriptBlock): boolean {
+function isHiddenTranscriptBlock(block: TranscriptBlock): boolean {
 	return block.kind === 'turn-done';
 }
 
@@ -64,10 +60,6 @@ export function groupTranscriptBlocks(blocks: readonly TranscriptBlock[]): Trans
 	return groups;
 }
 
-export function assistantTurnTools(blocks: readonly TranscriptBlock[]): TranscriptBlock[] {
-	return blocks.filter((block) => block.kind === 'tool');
-}
-
 export function assistantTurnCopyText(blocks: readonly TranscriptBlock[]): string {
 	return blocks
 		.filter((block) => block.kind === 'text' || block.kind === 'error')
@@ -83,7 +75,6 @@ export function toolPhaseLabel(phase: string | undefined): string {
 		case 'error':
 			return 'error';
 		case 'gate':
-		case 'pause':
 			return 'gated';
 		case 'running':
 		case 'progress':
@@ -94,18 +85,14 @@ export function toolPhaseLabel(phase: string | undefined): string {
 }
 
 /** Wall-clock duration copy matching Seance's builder-trace formatter. */
-export function formatWorkDuration(durationMs: number): string {
+function formatWorkDuration(durationMs: number): string {
 	const ms = Math.max(0, durationMs);
-	if (ms < 1_000) {
-		return `${String(Math.round(ms))}ms`;
-	}
+	if (ms < 1_000) return `${String(Math.round(ms))}ms`;
 	if (ms < 10_000) {
 		const seconds = Math.round(ms / 100) / 10;
 		return `${seconds.toFixed(seconds % 1 === 0 ? 0 : 1)}s`;
 	}
-	if (ms < 60_000) {
-		return `${String(Math.round(ms / 1_000))}s`;
-	}
+	if (ms < 60_000) return `${String(Math.round(ms / 1_000))}s`;
 	const minutes = Math.floor(ms / 60_000);
 	const seconds = Math.round((ms % 60_000) / 1_000);
 	if (seconds === 0) return `${String(minutes)}m`;
@@ -118,11 +105,77 @@ export function workStatusLabel(args: {
 	elapsedMs?: number;
 }): string {
 	if (args.streaming) return 'Working…';
-	if (!args.hasTrace && (args.elapsedMs === undefined || args.elapsedMs <= 0)) return '';
 	const duration =
 		args.elapsedMs !== undefined && args.elapsedMs > 0 ? formatWorkDuration(args.elapsedMs) : null;
-	if (!duration) return args.hasTrace ? 'Worked' : '';
-	return `Worked for ${duration}`;
+	if (duration) return `Worked for ${duration}`;
+	return args.hasTrace ? 'Worked' : '';
+}
+
+function isGatedTool(
+	block: TranscriptBlock,
+): block is Extract<TranscriptBlock, { kind: 'tool' }> {
+	return block.kind === 'tool' && block.tool.phase === 'gate' && Boolean(block.tool.gate);
+}
+
+function lastToolIndexOf(blocks: readonly TranscriptBlock[]): number {
+	for (let i = blocks.length - 1; i >= 0; i -= 1) {
+		if (blocks[i]?.kind === 'tool') return i;
+	}
+	return -1;
+}
+
+function pushTextBlock(
+	block: Extract<TranscriptBlock, { kind: 'text' }>,
+	args: { streaming: boolean; hasTools: boolean; index: number; lastToolIndex: number },
+	trace: TraceItem[],
+	body: TranscriptBlock[],
+): void {
+	const isNarration =
+		(args.streaming && args.hasTools) ||
+		(!args.streaming && args.hasTools && args.index < args.lastToolIndex);
+	if (isNarration) {
+		if (block.text.trim()) {
+			trace.push({ kind: 'narration', id: block.id, text: block.text });
+		}
+		return;
+	}
+	body.push(block);
+}
+
+function classifyNonGateBlock(
+	block: TranscriptBlock,
+	args: { streaming: boolean; hasTools: boolean; index: number; lastToolIndex: number },
+	trace: TraceItem[],
+	body: TranscriptBlock[],
+): void {
+	if (block.kind === 'thought') {
+		if (block.text.trim()) {
+			trace.push({ kind: 'reasoning', id: block.id, text: block.text });
+		}
+		return;
+	}
+	if (block.kind === 'tool') {
+		trace.push({ kind: 'tool', id: block.id, block });
+		return;
+	}
+	if (block.kind === 'text') {
+		pushTextBlock(block, args, trace, body);
+		return;
+	}
+	pushBodyKind(block, args, body);
+}
+
+function pushBodyKind(
+	block: TranscriptBlock,
+	args: { streaming: boolean; hasTools: boolean },
+	body: TranscriptBlock[],
+): void {
+	if (BODY_KINDS.has(block.kind)) {
+		if (args.streaming && args.hasTools && block.kind !== 'error') return;
+		body.push(block);
+		return;
+	}
+	body.push(block);
 }
 
 /**
@@ -141,76 +194,20 @@ export function composeAssistantTurn(
 ): ComposedAssistantTurn {
 	const streaming = args.streaming === true;
 	const visible = blocks.filter((block) => !isHiddenTranscriptBlock(block));
-	const gatedTools = visible.filter(
-		(block): block is Extract<TranscriptBlock, { kind: 'tool' }> =>
-			block.kind === 'tool' &&
-			((block.tool.phase === 'gate' && Boolean(block.tool.gate)) ||
-				(block.tool.phase === 'pause' && Boolean(block.tool.pause))),
-	);
-	const nonGate = visible.filter(
-		(block) =>
-			!(
-				block.kind === 'tool' &&
-				((block.tool.phase === 'gate' && Boolean(block.tool.gate)) ||
-					(block.tool.phase === 'pause' && Boolean(block.tool.pause)))
-			),
-	);
-
-	const lastToolIndex = (() => {
-		for (let i = nonGate.length - 1; i >= 0; i -= 1) {
-			if (nonGate[i]?.kind === 'tool') return i;
-		}
-		return -1;
-	})();
+	const gatedTools = visible.filter(isGatedTool);
+	const nonGate = visible.filter((block) => !isGatedTool(block));
+	const lastToolIndex = lastToolIndexOf(nonGate);
 	const hasTools = lastToolIndex >= 0;
 
 	const trace: TraceItem[] = [];
 	const body: TranscriptBlock[] = [];
-
-	for (const [i, block] of nonGate.entries()) {
-		if (block.kind === 'thought') {
-			if (block.text.trim()) {
-				trace.push({ kind: 'reasoning', id: block.id, text: block.text });
-			}
-			continue;
-		}
-
-		if (block.kind === 'tool') {
-			trace.push({ kind: 'tool', id: block.id, block });
-			continue;
-		}
-
-		if (block.kind === 'text') {
-			// Streaming with tools: all text is mid-turn narration (final body hidden).
-			// Completed: text strictly before the last tool is narration; trailing text is body.
-			const isNarration = (streaming && hasTools) || (!streaming && hasTools && i < lastToolIndex);
-			if (isNarration) {
-				if (block.text.trim()) {
-					trace.push({ kind: 'narration', id: block.id, text: block.text });
-				}
-				continue;
-			}
-			body.push(block);
-			continue;
-		}
-
-		if (BODY_KINDS.has(block.kind)) {
-			// While streaming with tools mid-flight, defer non-error body until the
-			// turn settles so mid-turn media doesn't flash as the "final" answer.
-			if (streaming && hasTools && block.kind !== 'error') {
-				continue;
-			}
-			body.push(block);
-			continue;
-		}
-
-		body.push(block);
+	for (const [index, block] of nonGate.entries()) {
+		classifyNonGateBlock(block, { streaming, hasTools, index, lastToolIndex }, trace, body);
 	}
 
 	return {
 		trace,
 		gatedTools,
-		pausedTools: gatedTools,
 		body,
 		hasTrace: trace.length > 0,
 	};

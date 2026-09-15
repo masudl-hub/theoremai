@@ -10,7 +10,7 @@
 
 # THEORUM: The Flat Agent Kernel
 
-**Current release: `1.1.2`** (`jsr:@theorum/core` / npm `theorum`).
+**Current release: `1.1.3`** (`jsr:@theorum/core` / npm `theorum`).
 
 > **"Profiles describe the contract. Providers move bytes. The runner enforces the turn."**
 

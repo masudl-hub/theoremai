@@ -29,7 +29,7 @@ export function TranscriptMessageShell({
 
 		const schedule = () => {
 			if (cancelled) return;
-			timeoutId = window.setTimeout(() => {
+			timeoutId = globalThis.setTimeout(() => {
 				setNow(Date.now());
 				schedule();
 			}, msUntilRelativeTimeChange(at));
@@ -40,7 +40,7 @@ export function TranscriptMessageShell({
 
 		return () => {
 			cancelled = true;
-			if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+			if (timeoutId !== undefined) globalThis.clearTimeout(timeoutId);
 		};
 	}, [at]);
 
@@ -51,7 +51,7 @@ export function TranscriptMessageShell({
 		if (!canCopy) return;
 		await navigator.clipboard.writeText(copyText);
 		setCopied(true);
-		window.setTimeout(() => {
+		globalThis.setTimeout(() => {
 			setCopied(false);
 		}, 1500);
 	}

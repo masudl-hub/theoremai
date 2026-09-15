@@ -77,7 +77,7 @@ export function useComposerShellLayout(args: {
 	});
 
 	const syncMaxHeight = useCallback(() => {
-		setMaxHeight(Math.round(window.innerHeight * 0.4));
+		setMaxHeight(Math.round(globalThis.innerHeight * 0.4));
 	}, []);
 
 	const layoutEpoch = `${String(args.text.length)}:${args.recording ? '1' : '0'}:${args.attachItems.map((item) => item.id).join('|')}`;

@@ -8,7 +8,7 @@ import {
 	type LiveCaptionState,
 } from '../../client/live/live-captions';
 import type { LiveToolGatePrompt } from '../../client/live/live-tool';
-import { type LiveFacingMode, type LiveVideoCapture } from '../../client/live/live-video';
+import type { LiveFacingMode, LiveVideoCapture } from '../../client/live/live-video';
 import type { LiveConnectPhase, LiveSessionStatus } from '../../client/live-client';
 import type { ToolGateResolution } from '../../client/tool-resume';
 

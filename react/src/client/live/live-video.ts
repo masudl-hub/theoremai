@@ -15,7 +15,7 @@ type CaptureState = {
 	facing: LiveFacingMode;
 };
 
-async function openCamera(facing: LiveFacingMode): Promise<MediaStream> {
+function openCamera(facing: LiveFacingMode): Promise<MediaStream> {
 	return navigator.mediaDevices.getUserMedia({
 		video: { facingMode: { ideal: facing }, width: { ideal: 640 }, height: { ideal: 480 } },
 		audio: false,

@@ -341,7 +341,7 @@ async function resumeAllowedGatedTool(args: {
 	}
 }
 
-export async function resumeInterfaceTool(args: {
+export function resumeInterfaceTool(args: {
 	iface: ComposerProfileInterface;
 	payload: PlaygroundRunPayload;
 	session: InterfaceTurnSession;

@@ -1,6 +1,5 @@
 import { type ChangeEvent, type KeyboardEvent, useEffect, useState } from 'react';
 import {
-	type ComposerMenuAction,
 	type ComposerPrimaryAction,
 	type ComposerRunPhase,
 	type ProfileInputsInterface,
@@ -150,9 +149,9 @@ export function InterfaceComposer({
 		const onResize = () => {
 			layout.syncMaxHeight();
 		};
-		window.addEventListener('resize', onResize);
+		globalThis.addEventListener('resize', onResize);
 		return () => {
-			window.removeEventListener('resize', onResize);
+			globalThis.removeEventListener('resize', onResize);
 			voice.disposeRecorder();
 			revokeAllPreviews();
 		};

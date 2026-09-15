@@ -72,11 +72,11 @@ function registerRemote(body: unknown, status = 200): () => void {
     output: z.object({}).passthrough(),
   });
   const original = globalThis.fetch;
-  globalThis.fetch = (async () =>
-    new Response(JSON.stringify(body), {
+  globalThis.fetch = (() =>
+    Promise.resolve(new Response(JSON.stringify(body), {
       status,
       headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch;
+    }))) as typeof fetch;
   return () => {
     globalThis.fetch = original;
   };

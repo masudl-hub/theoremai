@@ -136,7 +136,7 @@ export class ComposerVoiceRecorder {
 	private startMeter(): void {
 		if (!this.stream) return;
 
-		const AudioContextClass = window.AudioContext;
+		const AudioContextClass = globalThis.AudioContext;
 		this.audioContext = new AudioContextClass();
 		this.analyser = this.audioContext.createAnalyser();
 		this.analyser.fftSize = 2048;

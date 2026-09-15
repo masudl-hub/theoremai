@@ -547,7 +547,7 @@ Deno.test('runSession emits pre_turn before first sendText and post_turn after c
   const session = await runSession(
     {
       profile: profile.id,
-      onStage: async ({ stage }) => {
+      onStage: ({ stage }) => {
         stages.push(stage);
       },
     },
@@ -621,7 +621,7 @@ Deno.test('runSession StageContext.history seeds from SessionRequest.history', a
     {
       profile: profile.id,
       history: [{ role: 'user', content: 'seeded prior' }],
-      onStage: async ({ stage, history }) => {
+      onStage: ({ stage, history }) => {
         if (stage === 'pre_turn') {
           seenSeed = history.some((m) => m.role === 'user' && m.content === 'seeded prior');
         }
@@ -690,7 +690,7 @@ Deno.test('runSession executeTool gates, resumes granted, and denies via granted
   const session = await runSession(
     {
       profile: profile.id,
-      onStage: async ({ stage }) => {
+      onStage: ({ stage }) => {
         stages.push(stage);
       },
     },
@@ -784,7 +784,7 @@ Deno.test('runSession pre_turn inject schedules realtime text and lands in later
   const session = await runSession(
     {
       profile: profile.id,
-      onStage: async ({ stage, history }) => {
+      onStage: ({ stage, history }) => {
         if (stage === 'pre_turn') {
           return { inject: [{ role: 'user', content: 'injected steer' }] };
         }
@@ -850,7 +850,7 @@ Deno.test('runSession before_end inject schedules realtime text and still emits 
   const session = await runSession(
     {
       profile: profile.id,
-      onStage: async ({ stage }) => {
+      onStage: ({ stage }) => {
         stages.push(stage);
         if (stage === 'before_end') {
           return { inject: [{ role: 'user', content: 'before-end steer' }] };

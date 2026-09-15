@@ -41,7 +41,7 @@ export function createPlaygroundRunId(): string {
 
 /** Read `?run=` from a URL string or Location. */
 export function readPlaygroundRunIdFromUrl(
-	url: string | { href: string } = typeof window !== 'undefined' ? window.location : { href: '' },
+	url: string | { href: string } = typeof window !== 'undefined' ? globalThis.location : { href: '' },
 ): string | null {
 	const href = typeof url === 'string' ? url : url.href;
 	if (!href) return null;
@@ -73,9 +73,10 @@ export function upsertPlaygroundRunIndex(
 
 function resolveStore(store?: Storage | null): Storage | null {
 	if (store !== undefined) return store;
-	if (typeof window === 'undefined') return null;
+	if (typeof globalThis === 'undefined' || !('localStorage' in globalThis)) return null;
 	try {
-		return localStorage;
+		// Private-mode / blocked storage can throw on access.
+		return globalThis.localStorage;
 	} catch {
 		return null;
 	}

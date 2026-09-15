@@ -99,7 +99,7 @@ function orderComposerPendingMessages(
  */
 function convertSteersToFrontQueued(
   messages: readonly ComposerPendingMessage[],
-  now = Date.now(),
+  now: number = Date.now(),
 ): ComposerPendingMessage[] {
   const steers = messages
     .filter((m) => m.kind === 'steer')
@@ -126,7 +126,7 @@ function updateComposerPendingDraft(
   messages: readonly ComposerPendingMessage[],
   id: string,
   draft: UserTurnDraft,
-  now = Date.now(),
+  now: number = Date.now(),
 ): ComposerPendingMessage[] {
   if (!userDraftHasPayload(draft)) {
     throw new Error('Composer pending message requires a non-empty draft'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -216,7 +216,7 @@ function promoteComposerPendingKind(
   messages: readonly ComposerPendingMessage[],
   id: string,
   kind: ComposerPendingKind,
-  now = Date.now(),
+  now: number = Date.now(),
 ): ComposerPendingMessage[] {
   const updated = messages.map((m) =>
     m.id === id

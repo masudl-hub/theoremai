@@ -141,7 +141,7 @@ Deno.test('resume.granted false settles as denied with post_tool', async () => {
     name: 'always_confirm_tool',
     input: {},
     resume: { granted: false },
-    onStage: async ({ stage }) => {
+    onStage: ({ stage }) => {
       stages.push(stage);
     },
   });

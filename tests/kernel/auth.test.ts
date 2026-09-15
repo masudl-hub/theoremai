@@ -155,16 +155,18 @@ Deno.test('exchangeOAuthPkce verifies state and exchanges code', async () => {
   });
 
   let tokenRequestBody = '';
-  const mockFetch: typeof fetch = async (_input, init) => {
+  const mockFetch: typeof fetch = (_input, init) => {
     tokenRequestBody = String(init?.body ?? '');
-    return new Response(
-      JSON.stringify({
-        access_token: 'mock-access-token-xyz',
-        refresh_token: 'mock-refresh-token-abc',
-        expires_in: 3600,
-        token_type: 'Bearer',
-      }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({
+          access_token: 'mock-access-token-xyz',
+          refresh_token: 'mock-refresh-token-abc',
+          expires_in: 3600,
+          token_type: 'Bearer',
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
     );
   };
 
@@ -207,14 +209,16 @@ Deno.test('exchangeOAuthPkce verifies state and exchanges code', async () => {
 
 Deno.test('refreshOAuthToken calls token endpoint with refresh_token grant', async () => {
   let requestBody = '';
-  const mockFetch: typeof fetch = async (_input, init) => {
+  const mockFetch: typeof fetch = (_input, init) => {
     requestBody = String(init?.body ?? '');
-    return new Response(
-      JSON.stringify({
-        access_token: 'new-refreshed-token-999',
-        expires_in: 3600,
-      }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({
+          access_token: 'new-refreshed-token-999',
+          expires_in: 3600,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
     );
   };
 
@@ -237,27 +241,29 @@ Deno.test('refreshOAuthToken calls token endpoint with refresh_token grant', asy
 
 Deno.test('discoverAuthServerMetadata prefers oauth-authorization-server then OIDC', async () => {
   const urls: string[] = [];
-  const mockFetch: typeof fetch = async (input) => {
+  const mockFetch: typeof fetch = (input) => {
     const url = String(input);
     urls.push(url);
     if (url.endsWith('/.well-known/oauth-authorization-server')) {
-      return new Response(
-        JSON.stringify({
-          issuer: 'https://auth.example.com',
-          authorization_endpoint: 'https://auth.example.com/oauth/authorize',
-          token_endpoint: 'https://auth.example.com/oauth/token',
-          registration_endpoint: 'https://auth.example.com/register',
-          scopes_supported: ['openid'],
-          response_types_supported: ['code'],
-          grant_types_supported: ['authorization_code'],
-          code_challenge_methods_supported: ['S256'],
-          authorization_response_iss_parameter_supported: true,
-          client_id_metadata_document_supported: true,
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            issuer: 'https://auth.example.com',
+            authorization_endpoint: 'https://auth.example.com/oauth/authorize',
+            token_endpoint: 'https://auth.example.com/oauth/token',
+            registration_endpoint: 'https://auth.example.com/register',
+            scopes_supported: ['openid'],
+            response_types_supported: ['code'],
+            grant_types_supported: ['authorization_code'],
+            code_challenge_methods_supported: ['S256'],
+            authorization_response_iss_parameter_supported: true,
+            client_id_metadata_document_supported: true,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
       );
     }
-    return new Response('not found', { status: 404 });
+    return Promise.resolve(new Response('not found', { status: 404 }));
   };
 
   const meta = await discoverAuthServerMetadata('https://auth.example.com/', mockFetch);
@@ -272,21 +278,23 @@ Deno.test('discoverAuthServerMetadata prefers oauth-authorization-server then OI
 });
 
 Deno.test('discoverAuthServerMetadata falls back to openid-configuration', async () => {
-  const mockFetch: typeof fetch = async (input) => {
+  const mockFetch: typeof fetch = (input) => {
     const url = String(input);
     if (url.endsWith('/.well-known/oauth-authorization-server')) {
-      return new Response('missing', { status: 404 });
+      return Promise.resolve(new Response('missing', { status: 404 }));
     }
     if (url.endsWith('/.well-known/openid-configuration')) {
-      return new Response(
-        JSON.stringify({
-          authorization_endpoint: 'https://auth.example.com/authorize',
-          token_endpoint: 'https://auth.example.com/token',
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            authorization_endpoint: 'https://auth.example.com/authorize',
+            token_endpoint: 'https://auth.example.com/token',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
       );
     }
-    return new Response('not found', { status: 404 });
+    return Promise.resolve(new Response('not found', { status: 404 }));
   };
 
   const meta = await discoverAuthServerMetadata('https://auth.example.com', mockFetch);
@@ -296,18 +304,20 @@ Deno.test('discoverAuthServerMetadata falls back to openid-configuration', async
 });
 
 Deno.test('discoverAuthServerMetadata rejects incomplete or unreachable metadata', async () => {
-  const incomplete: typeof fetch = async () =>
-    new Response(JSON.stringify({ issuer: 'https://auth.example.com' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
+  const incomplete: typeof fetch = () =>
+    Promise.resolve(
+      new Response(JSON.stringify({ issuer: 'https://auth.example.com' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
   await assertRejects(
     () => discoverAuthServerMetadata('https://auth.example.com', incomplete),
     Error,
     'Failed to discover authorization server metadata',
   );
 
-  const exploding: typeof fetch = async () => {
+  const exploding: typeof fetch = () => {
     throw new Error('network down');
   };
   await assertRejects(

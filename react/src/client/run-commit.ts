@@ -164,7 +164,7 @@ export function finalizeTurnStream(args: {
 	return commitCompletedTurn(args.session, args.events, args.media);
 }
 
-export async function streamFoldedTurn(args: {
+export function streamFoldedTurn(args: {
 	iface: ComposerProfileInterface;
 	onStream: (blocks: TranscriptBlock[]) => void;
 	seedEvents: TurnEvent[];

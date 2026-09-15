@@ -206,7 +206,7 @@ export function AuthChallengeCard({
 					onSubmit={handleSubmit}
 					onAuthorize={() => {
 						if (challenge.authUrl) {
-							window.open(challenge.authUrl, '_blank', 'width=600,height=700');
+							globalThis.open(challenge.authUrl, '_blank', 'width=600,height=700');
 						}
 					}}
 				/>

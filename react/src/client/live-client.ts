@@ -225,17 +225,17 @@ export class LiveSessionClient {
 		this.setConnectPhase('socket');
 
 		try {
-			const AudioContextClass = window.AudioContext;
+			const AudioContextClass = globalThis.AudioContext;
 			this.audioContext = new AudioContextClass();
 			if (this.audioContext.state === 'suspended') {
 				await this.audioContext.resume();
 			}
 
-			const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+			const protocol = globalThis.location.protocol === 'https:' ? 'wss:' : 'ws:';
 			const profileParam = this.options.profile
 				? `?profile=${encodeURIComponent(this.options.profile)}`
 				: '';
-			const defaultUrl = `${protocol}//${window.location.host}/api/live/relay${profileParam}`;
+			const defaultUrl = `${protocol}//${globalThis.location.host}/api/live/relay${profileParam}`;
 			const url = this.options.relayUrl || defaultUrl;
 
 			this.ws = new WebSocket(url);
@@ -279,7 +279,7 @@ export class LiveSessionClient {
 
 		try {
 			if (!this.audioContext || this.audioContext.state === 'closed') {
-				const AudioContextClass = window.AudioContext;
+				const AudioContextClass = globalThis.AudioContext;
 				this.audioContext = new AudioContextClass();
 				if (this.audioContext.state === 'suspended') {
 					await this.audioContext.resume();

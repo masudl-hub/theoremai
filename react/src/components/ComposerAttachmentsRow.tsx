@@ -110,11 +110,11 @@ export function ComposerAttachmentsRow({
 		const onChange = () => {
 			syncPreviewPosition();
 		};
-		window.addEventListener('resize', onChange);
-		window.addEventListener('scroll', onChange, { capture: true });
+		globalThis.addEventListener('resize', onChange);
+		globalThis.addEventListener('scroll', onChange, { capture: true });
 		return () => {
-			window.removeEventListener('resize', onChange);
-			window.removeEventListener('scroll', onChange, { capture: true });
+			globalThis.removeEventListener('resize', onChange);
+			globalThis.removeEventListener('scroll', onChange, { capture: true });
 		};
 	}, [hoverId, syncPreviewPosition]);
 

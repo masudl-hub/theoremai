@@ -23,7 +23,7 @@ export interface TurnStop {
  * override it per profile via `turnBehaviour.resumption.continueInstruction`
  * or process-wide via `overrideLexicon`.
  */
-export const CONTINUE_INSTRUCTION = lexiconDefault('continue.instruction');
+export const CONTINUE_INSTRUCTION: string = lexiconDefault('continue.instruction');
 
 /** Default kinds hosts may offer Continue for (= full ContinueStopKind set). */
 export const DEFAULT_ALLOW_CONTINUE: readonly ContinueStopKind[] = CONTINUE_STOP_KINDS;

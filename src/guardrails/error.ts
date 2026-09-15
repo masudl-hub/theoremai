@@ -16,15 +16,15 @@ import { TheorumError } from './theorum-error.ts';
 const UPSTREAM_FAILED = 'upstream failed';
 
 /** Snapshot of the registered default (ignores host overrides). Stable for tests. */
-const PUBLIC_GENERIC = lexiconDefault('public.generic');
-const PUBLIC_UNAVAILABLE = lexiconDefault('public.unavailable');
-const PUBLIC_CANARY = lexiconDefault('public.canary');
-const PUBLIC_ACTION = lexiconDefault('public.action');
-const PUBLIC_FILE_TYPE = lexiconDefault('public.file_type');
-const PUBLIC_FILE_SIZE = lexiconDefault('public.file_size');
-const PUBLIC_FILE_COUNT = lexiconDefault('public.file_count');
-const PUBLIC_IMAGE_SIZE = lexiconDefault('public.image_size');
-const PUBLIC_CANCELLED = lexiconDefault('public.cancelled');
+const PUBLIC_GENERIC: string = lexiconDefault('public.generic');
+const PUBLIC_UNAVAILABLE: string = lexiconDefault('public.unavailable');
+const PUBLIC_CANARY: string = lexiconDefault('public.canary');
+const PUBLIC_ACTION: string = lexiconDefault('public.action');
+const PUBLIC_FILE_TYPE: string = lexiconDefault('public.file_type');
+const PUBLIC_FILE_SIZE: string = lexiconDefault('public.file_size');
+const PUBLIC_FILE_COUNT: string = lexiconDefault('public.file_count');
+const PUBLIC_IMAGE_SIZE: string = lexiconDefault('public.image_size');
+const PUBLIC_CANCELLED: string = lexiconDefault('public.cancelled');
 
 /** True when `err` is an abort (DOMException or Error named AbortError). */
 function isAbortError(err: unknown): boolean {

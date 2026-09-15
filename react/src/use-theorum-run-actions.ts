@@ -250,7 +250,7 @@ export function useTheorumRunActions(args: {
 		});
 	}, [args, enqueuePending, startTurnFromFields]);
 
-	const abandonGatedIfNeeded = useCallback(async () => {
+	const abandonGatedIfNeeded = useCallback(() => {
 		const composer = args.iface;
 		if (!composer || !args.sessionRef.current.gatedTool) return;
 		const abandoned = abandonGatedInterfaceTool({

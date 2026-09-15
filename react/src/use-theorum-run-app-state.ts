@@ -135,12 +135,12 @@ export function useTheorumRunBootstrap(args: {
 	useEffect(() => {
 		const runId = args.readRunId();
 		if (!runId) {
-			window.location.href = args.missingPayloadHref;
+			globalThis.location.href = args.missingPayloadHref;
 			return;
 		}
 		const loaded = args.loadPayload(runId);
 		if (!loaded) {
-			window.location.href = args.missingPayloadHref;
+			globalThis.location.href = args.missingPayloadHref;
 			return;
 		}
 		args.setPayload(loaded);

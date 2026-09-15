@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { type ComposerAttachmentItem } from './ComposerAttachmentsRow';
+import type { ComposerAttachmentItem } from './ComposerAttachmentsRow';
 import { fileAttachmentId, voiceAttachmentId } from './composer-attachment-ids';
 
 function ensurePreviewUrl(

@@ -395,7 +395,7 @@ function buildLiveSession(args: {
     sendJson(buildGeminiLiveRealtimeText(prepared.text));
   };
 
-  const applyInjectTexts = async (texts: string[]) => {
+  const applyInjectTexts = (texts: string[]) => {
     for (const text of texts) {
       // Cycle already open — write without re-entering pre_turn.
       assertLiveIngress(profile, 'text');

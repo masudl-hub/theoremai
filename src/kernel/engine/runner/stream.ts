@@ -14,7 +14,6 @@ import type {
 } from '../../../guardrails/types.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
 import { providerCompleteRequest } from '../../registry/provider-request.ts';
-import { systemFromProfile } from '../../registry/system-prompt.ts';
 import type { ModelProvider, Profile, ResolvedGeneration, TurnEvent } from '../../types.ts';
 
 /** Mutable control flags shared with the step runner during one provider stream. */
@@ -217,4 +216,4 @@ async function* yieldProviderEvents(args: {
 }
 
 export type { OutboundStreamControl };
-export { shouldSkipStreamEvent, systemFromProfile, yieldProviderEvents };
+export { shouldSkipStreamEvent, yieldProviderEvents };

@@ -59,7 +59,7 @@ ceiling on host side effects.
 | --- | --- | --- | --- |
 | `pre_turn` | Once per user turn / live utterance cycle, before model work for that cycle | if inject allowed | `abort` |
 | `pre_tool` | Per `callId`, after chosen, before body | no | `deny`, `confirm` (gate), `mutate`, `abort` |
-| `post_tool` | Per `callId`, after settle (success / fail / awaiting) | if inject allowed | `abort` |
+| `post_tool` | Per `callId`, after the body (success / fail / awaiting), before the terminal `tool` event | if inject allowed | `deny`, `mutate`, `abort` |
 | `before_end` | About to end the turn / utterance cycle; host may extend | if inject allowed | `abort` |
 | `post_turn` | After cycle-ending `done` | **never** (ignored) | observe only |
 
@@ -109,10 +109,12 @@ interface StageContext {
 interface StageResult {
   inject?: TurnHistoryMessage[];
   abort?: boolean | { reason?: string };
+  /** pre_tool: refuse the call. post_tool: replace the result with this failure. */
   deny?: { code?: string; message?: string };
   /** pre_tool only — request confirm/permission gate (not ask_user). */
   confirm?: true | { summary?: string };
-  mutate?: { input: unknown };
+  /** pre_tool: replace the input. post_tool: replace the raw output. Both re-validate. */
+  mutate?: { input: unknown } | { output: unknown };
 }
 
 type StageHandler = (
@@ -127,9 +129,9 @@ type StageHandler = (
 | --- | --- | --- | --- | --- | --- |
 | `inject` | yes* | no | yes* | yes* | no |
 | `abort` | yes | yes | yes | yes | no |
-| `deny` | no | yes | no | no | no |
+| `deny` | no | yes | yes | no | no |
 | `confirm` | no | yes | no | no | no |
-| `mutate` | no | yes | no | no | no |
+| `mutate` | no | yes | yes | no | no |
 
 \*Only when `profileAllowsInject` / session inject gate is true; otherwise no-op.
 
@@ -205,9 +207,17 @@ Applies to function, HTTP, and MCP tools on every execute path
 8. Apply `mutate` → **re-parse** schema; fail → error settle.
 9. Body (function handler / HTTP / MCP).
 10. T2 loader promotion when applicable (**before** projection).
-11. `projectForModel` → guard → model result.
-12. Host event `tool.phase: 'complete' | 'error'` with raw output / failure.
-13. `onStage({ stage: 'post_tool', outputRaw, outputModel, failure?, awaiting? })`.
+11. `projectForModel` → guard (fence, redaction, provenance) → model result.
+12. `onStage({ stage: 'post_tool', outputRaw, outputModel, failure?, awaiting? })`
+    — `outputModel` is the guarded result. Apply `deny` → the model gets that
+    failure instead; apply `mutate { output }` → **re-validate** output schema,
+    re-project, **re-guard**; fail → error settle. `mutate` needs a completed
+    body the host may own: on a failed or unstarted call, or on the T2 loader
+    (whose output drives the snapshot), it is a `mutate_invalid` warning.
+13. **One** terminal host event per `callId`, after the host had its say:
+    `tool.phase: 'complete'` with the final raw output, or `tool.phase: 'error'`
+    with the final failure. Hosts that rebuild history from events therefore
+    never see a result the model did not get.
 14. Record provider-facing tool result when this path is responsible for it.
 
 **Builtins:** no local body. No `pre_tool`/`post_tool` on the host execute path;
@@ -218,7 +228,7 @@ provider-native builtin traffic is not kernel-executed.
 | Kind | Wire | Provider tool result | Turn / cycle |
 | --- | --- | --- | --- |
 | **Gate** (permission / confirm-to-run / auth) | `tool.phase: 'gate'` + `gate: ToolGate`; stage `pre_tool` with `callNotStarted: true`; then **`done.stop.kind: 'gate'`** + `done.tools` snapshot | **None yet** | Honest **suspension** — generator ends; host must resume |
-| **Deny** | `tool.phase: 'error'` + failure; `post_tool` with `failure` + `callNotStarted: true` | **One** synthetic failure result for that `call_id` (required so Interactions/Live rounds do not deadlock) | Continues |
+| **Deny** | `post_tool` (with `failure` + `callNotStarted: true` for a `pre_tool` deny, or with the completed `outputRaw` for a `post_tool` deny) then `tool.phase: 'error'` + failure | **One** synthetic failure result for that `call_id` (required so Interactions/Live rounds do not deadlock) | Continues |
 | **Awaiting user input** | Body **completes**; `tool.phase: 'complete'`; `awaiting: true` on stage; `post_tool` | **One** final result = awaiting payload | Turn may **truly** `done` (`completed` etc.); host UI orthogonal |
 
 **Resume gate:** `invokeTool` / `executeTool` with `resume: { granted: true }`
@@ -329,7 +339,7 @@ Same names. Cycle state `idle` | `open` on the session.
 | --- | --- | --- |
 | `pre_turn` | First ingress opening a cycle: first `sendText` / `sendVideo` / `sendAudio` / initial `input` after `idle`. Continuous audio: first chunk after idle only | Before socket write |
 | `pre_tool` / `post_tool` | Inside `executeTool` | Session execute API |
-| `before_end` | `turnComplete` or interrupt that will emit cycle-ending `done`; after batch known; before finalize / before yield `done` | `events()` outbound path |
+| `before_end` | Cycle boundary (`interactionStatus: IDLE`, else `turnComplete`) or interrupt that will emit cycle-ending `done`; after batch known; before finalize / before yield `done` | `events()` outbound path |
 | `post_turn` | After that `done`; cycle → `idle` | Same |
 
 **Barge-in / empty audio:** interrupt ends the cycle with `before_end` /
@@ -387,7 +397,8 @@ already-settled upstream payload. Stages fire where the body runs.
 
 ### Not stages
 
-`generation_complete`, `waiting_for_input`, setupComplete, socket close, bare
+`generation_complete`, `waiting_for_input`, `turn_complete` / `working` while
+the server is still `IN_PROGRESS`, setupComplete, socket close, bare
 tool-request events, raw `sendToolResponse`.
 
 ---

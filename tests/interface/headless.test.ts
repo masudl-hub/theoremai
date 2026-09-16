@@ -807,3 +807,50 @@ Deno.test('historyFromTranscriptBlocks round-trips user and assistant text', () 
     { role: 'assistant', content: 'Hey' },
   ]);
 });
+
+Deno.test('appendAssistantEventsToHistory records a failed tool call so no tool_call is left dangling', () => {
+  const history = appendAssistantEventsToHistory(
+    [],
+    [
+      {
+        type: 'tool',
+        tool: {
+          name: 'lookup',
+          id: 'c1',
+          arguments: { q: 'x' },
+          phase: 'error',
+          failure: { code: 'policy_refused', message: 'withheld by policy' },
+        },
+      },
+    ],
+  );
+  const assistant = history.find((m) => m.role === 'assistant');
+  const tool = history.find((m) => m.role === 'tool');
+  // The assistant tool_call and its tool result are paired: no orphan tool_call.
+  assertEquals(Boolean(assistant?.tool_calls?.length), true);
+  assertEquals(Boolean(tool), true);
+  assertEquals(tool?.content?.includes('withheld by policy'), true);
+  assertEquals(tool?.content?.includes('Tool error'), true);
+});
+
+Deno.test('historyFromTranscriptBlocks records a failed tool block as a paired result', () => {
+  const history = historyFromTranscriptBlocks([
+    {
+      id: 'tool-c9',
+      kind: 'tool',
+      tool: {
+        name: 'delete_resource',
+        callId: 'c9',
+        arguments: { id: '1' },
+        phase: 'error',
+        failure: { code: 'denied', message: 'not allowed' },
+      },
+    },
+  ]);
+  assertEquals(
+    history.some((m) => m.role === 'assistant' && (m.tool_calls?.length ?? 0) > 0),
+    true,
+  );
+  const tool = history.find((m) => m.role === 'tool');
+  assertEquals(tool?.content?.includes('not allowed'), true);
+});

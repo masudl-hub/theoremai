@@ -588,3 +588,48 @@ Deno.test('Live client-content history and realtime input reject media reference
     'media references are not supported on geminiLive',
   );
 });
+
+Deno.test('wireLiveTools declares every live function NON_BLOCKING', () => {
+  const req: ProviderCompleteRequest = {
+    model: 'gemini-3.1-flash-live-preview',
+    apiId: 'gemini-3.1-flash-live-preview',
+    system: '',
+    thinking: 'none',
+    maxOutputTokens: 100,
+    temperature: 0,
+    builtins: [],
+    input: [],
+    structured: null,
+    image: null,
+    wireTools: [
+      {
+        type: 'function',
+        name: 'lookup',
+        description: 'Look something up',
+        parameters: { type: 'object', properties: {} },
+      },
+    ],
+  };
+  const setupMsg = buildGeminiLiveSetupMessage(req) as {
+    setup: { tools: Array<{ functionDeclarations: Array<Record<string, unknown>> }> };
+  };
+  const decls = setupMsg.setup.tools[0]?.functionDeclarations ?? [];
+  assertEquals(decls.length, 1);
+  assertEquals(decls[0]?.behavior, 'NON_BLOCKING');
+});
+
+Deno.test('foldGeminiLiveServerMessage folds interactionStatus and turnComplete into session events', () => {
+  const working = foldGeminiLiveServerMessage({
+    serverContent: { turnComplete: true },
+    interactionStatus: 'IN_PROGRESS',
+  });
+  assertEquals(
+    working.map((ev) => (ev.type === 'session' ? ev.session?.kind : ev.type)),
+    ['turn_complete', 'working'],
+  );
+
+  const idle = foldGeminiLiveServerMessage({ interaction_status: 'IDLE' });
+  assertEquals(idle, [{ type: 'session', session: { kind: 'idle' } }]);
+
+  assertEquals(foldGeminiLiveServerMessage({ interactionStatus: 'BOGUS' }), []);
+});

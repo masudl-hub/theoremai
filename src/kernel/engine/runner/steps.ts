@@ -3,6 +3,7 @@ import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import { recordTaint } from '../../../guardrails/tool-result.ts';
 import { wireInteractionPart } from '../../interaction-parts.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
+import { injectWouldExceedMaxSteps } from '../../stages.ts';
 import { profileAllowsInject } from '../../stop.ts';
 import type { ToolExecuteSettlement } from '../../tools/execute.ts';
 import {
@@ -21,7 +22,7 @@ import type {
   TurnHistoryMessage,
   TurnRequest,
 } from '../../types.ts';
-import { applyStageInjects, injectWouldExceedMaxSteps } from './stages.ts';
+import { applyStageInjects } from './stages.ts';
 import { recordStepEvent, type StepExecutionState } from './state.ts';
 import { type OutboundStreamControl, yieldProviderEvents } from './stream.ts';
 
@@ -293,7 +294,6 @@ function applyToolSettlement(
   state: StepExecutionState,
   toolEv: TurnEvent,
   generation: ResolvedGeneration,
-  profile: Profile,
   useInteractionsContinuation: boolean,
 ): 'continue' | 'stop_cancelled' | 'gated' {
   if (settlement.aborted) {
@@ -325,7 +325,7 @@ function applyToolSettlement(
     useInteractionsContinuation,
   );
   if (settlement.pendingInject?.length) {
-    applyStageInjects(state, profile, settlement.pendingInject);
+    applyStageInjects(state, settlement.pendingInject);
   }
   return 'continue';
 }
@@ -388,6 +388,7 @@ async function* handlePendingTools(
 
     const stages: ToolStageSupport = {
       handlers: safe?.onStage ? [safe.onStage] : [],
+      profile,
       step: state.stepCount,
       history: () => state.currentHistory,
       injectAllowed: profileAllowsInject(profile),
@@ -425,7 +426,6 @@ async function* handlePendingTools(
       state,
       toolEv,
       generation,
-      profile,
       useInteractionsContinuation,
     );
     if (outcome === 'stop_cancelled') return false;

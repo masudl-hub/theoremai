@@ -78,6 +78,7 @@ async function* invokeTool(request: InvokeToolRequest): AsyncGenerator<TurnEvent
       snapshot,
       stages: {
         handlers,
+        profile,
         step: 1,
         history: () => [],
         injectAllowed: false,

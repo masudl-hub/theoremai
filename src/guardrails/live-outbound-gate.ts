@@ -223,6 +223,45 @@ async function processLiveOutboundBatch(
   return { action: 'emit', events: toEmit };
 }
 
+function emitOrIdle(events: TurnEvent[]): LiveOutboundBatchResult {
+  return events.length === 0 ? { action: 'idle' } : { action: 'emit', events };
+}
+
+function emitWithOptionalGuardrail(
+  prior: TurnEvent[],
+  guardrail: TurnEvent | undefined,
+  text: string,
+): LiveOutboundBatchResult {
+  return {
+    action: 'emit',
+    events: [...prior, ...(guardrail ? [guardrail] : []), { type: 'text', text }],
+  };
+}
+
+async function finalizeEgressEnforce(
+  session: LiveOutboundGateSession,
+  egress: ProfileEgressSpec,
+  accumulated: string,
+  prior: TurnEvent[],
+): Promise<LiveOutboundBatchResult | undefined> {
+  const verdict = await runEnforcer(egress.enforce, { text: accumulated }, session.context);
+  const guardrail = guardrailFromVerdict('live_outbound', 'untrusted', verdict);
+
+  if (verdict.action === 'redact') {
+    return emitWithOptionalGuardrail(prior, guardrail, verdict.text);
+  }
+  if (verdict.action === 'block') {
+    if (egress.onBlock === 'refuse_to_user' && verdict.refusal) {
+      return emitWithOptionalGuardrail(prior, guardrail, verdict.refusal);
+    }
+    return withholdResult(PUBLIC_CANARY, verdict.hits, prior);
+  }
+  if (guardrail) {
+    prior.push(guardrail);
+  }
+  return undefined;
+}
+
 async function finalizeLiveOutboundTurn(
   session: LiveOutboundGateSession,
 ): Promise<LiveOutboundBatchResult> {
@@ -236,50 +275,24 @@ async function finalizeLiveOutboundTurn(
   const egress = egressSpec(session);
   const accumulated = session.gate?.accumulated() ?? '';
 
-  if (session.withholdVisible || egress?.enforce) {
-    if (!accumulated && !session.withholdVisible) {
-      return extra.length ? { action: 'emit', events: extra } : { action: 'idle' };
-    }
-
-    if (egress?.enforce && accumulated) {
-      const verdict = await runEnforcer(egress.enforce, { text: accumulated }, session.context);
-      const guardrail = guardrailFromVerdict('live_outbound', 'untrusted', verdict);
-
-      if (verdict.action === 'redact') {
-        return {
-          action: 'emit',
-          events: [
-            ...extra,
-            ...(guardrail ? [guardrail] : []),
-            { type: 'text', text: verdict.text },
-          ],
-        };
-      }
-      if (verdict.action === 'block') {
-        if (egress.onBlock === 'refuse_to_user' && verdict.refusal) {
-          return {
-            action: 'emit',
-            events: [
-              ...extra,
-              ...(guardrail ? [guardrail] : []),
-              { type: 'text', text: verdict.refusal },
-            ],
-          };
-        }
-        return withholdResult(PUBLIC_CANARY, verdict.hits, extra);
-      }
-      if (guardrail) {
-        extra.push(guardrail);
-      }
-    } else if (session.withholdVisible) {
-      return withholdResult(PUBLIC_CANARY, canaryHit(), extra);
-    }
+  if (!(session.withholdVisible || egress)) {
+    return emitOrIdle(extra);
   }
 
-  if (extra.length === 0) {
-    return { action: 'idle' };
+  if (!accumulated && !session.withholdVisible) {
+    return emitOrIdle(extra);
   }
-  return { action: 'emit', events: extra };
+
+  if (egress && accumulated) {
+    const enforced = await finalizeEgressEnforce(session, egress, accumulated, extra);
+    if (enforced) {
+      return enforced;
+    }
+  } else if (session.withholdVisible) {
+    return withholdResult(PUBLIC_CANARY, canaryHit(), extra);
+  }
+
+  return emitOrIdle(extra);
 }
 
 /** Drop progressive-yield state when the user interrupts mid-turn. */

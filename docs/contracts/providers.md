@@ -180,12 +180,12 @@ escape hatch for non-registry relays that skip session stages — not for UI den
 | Door | `runSession` (shares resolve / tools / canary / system compose with `runTurn`) |
 | Transport | `openGoogleLiveSession` — WebSocket; optional `openWebSocket` for Cloudflare fetch-upgrade |
 | Handshake | `BidiGenerateContentSetup` via `buildGeminiLiveSetupMessage` |
-| Turn boundary | Gemini `turnComplete` → outbound gate finalize + cycle `done` (`stop.kind: 'completed'` when no folded done) + `before_end` / `post_turn`; **session stays open** |
+| Turn boundary | Gemini `interactionStatus: IDLE` when the server sends it, else `turnComplete` → outbound gate finalize + cycle `done` (`stop.kind: 'completed'` when no folded done) + `before_end` / `post_turn`; **session stays open**. `interactionStatus: IN_PROGRESS` keeps the cycle open across `turnComplete` — background reasoning / async tool calls may still emit audio or tool calls |
 | Generation boundary | Gemini `generationComplete` → `done` (`stop.kind: 'generation_complete'`) without tearing down the session |
-| Tools | Prefer `executeTool` (stages + gate/deny resume + upstream). Escape hatch: host replies via `sendToolResponse(s)` for non-registry pre-fail only; cancellations → `tool.phase: 'cancel'`. Every id in profile `tools.allow` + `builtInTools` is wired in `BidiGenerateContentSetup` regardless of `loadTier` (declarations cannot change mid-session) — no `t1Policy` / `t2Loader`, no structured output, no turn `inputs` / `outputs`. |
+| Tools | Every live function declaration is wired `behavior: NON_BLOCKING` (kernel tool execution is already async and honours `toolCallCancellation`). Prefer `executeTool` (stages + gate/deny resume + upstream). Escape hatch: host replies via `sendToolResponse(s)` for non-registry pre-fail only; cancellations → `tool.phase: 'cancel'`. Every id in profile `tools.allow` + `builtInTools` is wired in `BidiGenerateContentSetup` regardless of `loadTier` (declarations cannot change mid-session) — no `t1Policy` / `t2Loader`, no structured output, no turn `inputs` / `outputs`. |
 | Ingress | `live.ingress` gates `sendAudio` / `sendVideo` / `sendText`. Defaults: audio **on**, camera (video channel) **on**, text **off** unless `live.ingress.text: true`. At least one channel must stay enabled. |
 | Transcription | Mid-turn `evidence` with `kind: 'input_transcription'` / `output_transcription` (optional `interim`); **not** held for egress — streams immediately |
-| Session control | `goAway` → `session.kind: 'closing_soon'`; `waitingForInput` → `waiting_for_input` |
+| Session control | `goAway` → `session.kind: 'closing_soon'`; `waitingForInput` → `waiting_for_input`; `turnComplete` → `turn_complete`; `interactionStatus` → `working` / `idle` |
 | Resumption | `sessionResumptionHandle` on `SessionRequest`; updates as `evidence.kind: 'session_resumption'` with `resumable` |
 | Remote registry | `SessionRequest.snapshot` (a `TurnToolSnapshot` from `prepareTurnToolSnapshot` in the registry-owning process) supplies the setup declarations when the session runs where the registry is not registered; ids outside `tools.allow` are refused |
 | Media references | Client-content history and realtime input reject `InteractionMediaRefPart` (`TheorumError`) until provider support is verified |
@@ -207,7 +207,8 @@ escape hatch for non-registry relays that skip session stages — not for UI den
 | `groundingMetadata` | `grounding` |
 | `usageMetadata` | `tokens` |
 | `setupComplete` | handshake only (not a TurnEvent) |
-| `turnComplete` | stream phase → `runSession` emits `done` + `completed` |
+| `turnComplete` | `session` + `kind: 'turn_complete'`; stream phase `complete` only when no `IN_PROGRESS` status accompanies it |
+| `interactionStatus` | `session` + `kind: 'working'` (`IN_PROGRESS`) or `'idle'` (`IDLE`); `IDLE` is the stream-phase boundary → `runSession` emits `done` + `completed` |
 
 Framing helpers remain in `google/live/framing.ts` for hosts that only need setup JSON.
 

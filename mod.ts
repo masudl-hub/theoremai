@@ -184,7 +184,6 @@ export {
   sanitizeTurnRequestForTrace,
   sanitizeTurnRequestWithEvents,
 } from './src/guardrails/sanitize.ts';
-export * from './src/interface/mod.ts';
 export type { CompactionSplit, CompactionTokens } from './src/kernel/engine/compaction.ts';
 export {
   compactionMeter,
@@ -339,6 +338,7 @@ export type {
   StageContext,
   StageEventExtra,
   StageHandler,
+  StageMutate,
   StageResult,
 } from './src/kernel/stages.ts';
 export {

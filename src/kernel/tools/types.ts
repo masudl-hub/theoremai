@@ -374,6 +374,21 @@ export interface HostProfileToolsSpec {
   allow: ToolId[];
 }
 
+/**
+ * What a tool body produced, before settlement projects, guards, and runs
+ * `post_tool`. Every transport returns this; one settlement consumes it.
+ */
+export type ToolBodyOutcome =
+  | { kind: 'ok'; outputRaw: unknown; modelResult: ModelToolResult }
+  | { kind: 'gated'; gate: ToolGate }
+  | { kind: 'aborted'; aborted: true | { reason?: string } }
+  | {
+      kind: 'failed';
+      failure: ToolFailure;
+      /** True when the body never ran. */
+      callNotStarted: boolean;
+    };
+
 export interface ModelToolResult {
   finding: string;
   /** Lean JSON for model reasoning — must not carry media bytes. */

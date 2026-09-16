@@ -1,36 +1,24 @@
 /**
- * Runner-side turn-stage emit + affordance application.
+ * Text `runTurn` wiring around the stage spine: record stage events in step
+ * state, fold the opening input, and append sanitized injects to turn history.
  *
- * Contract: `docs/contracts/stages.md`. Shared by text `runTurn` (slice 1 spine).
+ * Contract: `docs/contracts/stages.md`. The stage itself runs in `runStage`.
  *
  * @module
  */
 
 import { throwIfAborted } from '../../../guardrails/error.ts';
-import { detectionForTrust, resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
-import { sanitizeHistory } from '../../../guardrails/sanitize.ts';
 import { wireInteractionPart } from '../../interaction-parts.ts';
 import {
-  applyStageResult,
-  buildStageContext,
+  runStage,
   type StageApplyWarning,
   type StageCallBag,
   type StageContext,
   type StageHandler,
-  stageEventFields,
 } from '../../stages.ts';
 import { profileAllowsInject } from '../../stop.ts';
 import type { Profile, ResolvedGeneration, TurnEvent, TurnHistoryMessage } from '../../types.ts';
-import { invokeStageHandler } from '../stage-invoke.ts';
 import type { StepExecutionState } from './state.ts';
-
-function sanitizeStageInjects(
-  profile: Profile,
-  messages: TurnHistoryMessage[],
-): TurnHistoryMessage[] {
-  const policy = resolveGuardrailPolicy(profile.guardrails);
-  return sanitizeHistory(messages, detectionForTrust(policy, 'untrusted'));
-}
 
 function stageMessageToInteractionStep(msg: TurnHistoryMessage): Record<string, unknown> {
   const type = msg.role === 'assistant' ? 'model_output' : 'user_input';
@@ -87,115 +75,52 @@ export interface ApplyTurnStageResult {
   warnings: StageApplyWarning[];
 }
 
-function appendInjects(
+/**
+ * Append already-sanitized inject messages to turn history. Mirrors them into
+ * the Interactions continuation when one is active. Returns how many landed.
+ */
+export function applyStageInjects(
   state: StepExecutionState,
-  profile: Profile,
-  inject: TurnHistoryMessage[],
+  inject: readonly TurnHistoryMessage[],
 ): number {
   if (inject.length === 0) return 0;
-  const sanitized = sanitizeStageInjects(profile, inject);
-  if (sanitized.length === 0) return 0;
-  state.currentHistory.push(...sanitized);
+  state.currentHistory.push(...inject);
   if (state.interactionsContinuation) {
-    for (const msg of sanitized) {
+    for (const msg of inject) {
       if (msg.role === 'tool') continue;
       state.interactionsContinuation.input.push(stageMessageToInteractionStep(msg));
     }
   }
-  return sanitized.length;
+  return inject.length;
 }
 
-/** Apply stage inject messages onto turn history (shared with tool execute stages). */
-export function applyStageInjects(
-  state: StepExecutionState,
-  profile: Profile,
-  inject: TurnHistoryMessage[],
-): number {
-  return appendInjects(state, profile, inject);
-}
-
-/**
- * Emit a `stage` event, invoke `onStage`, apply returned affordances.
- * Stage events always emit. Inject requires `profileAllowsInject`.
- */
+/** Run a turn stage, recording every stage event on step state. */
 export async function* applyTurnStage(
   args: ApplyTurnStageArgs,
 ): AsyncGenerator<TurnEvent, ApplyTurnStageResult> {
-  throwIfAborted(args.signal);
-
-  // Stream stage events stay lean (no outputRaw/failure). Hosts read those on
-  // StageContext via onStage; tool failures also ride tool events.
-  const event: TurnEvent = stageEventFields(args.stage, {
-    callId: args.callId,
-    toolName: args.tool,
-    callNotStarted: args.callNotStarted,
-    awaiting: args.awaiting,
-    gate: args.gate,
-    stop: args.stop,
-  });
-  args.state.allEmittedEvents.push(event);
-  yield event;
-
-  if (args.foldInput && args.onStage) {
-    foldGenerationInputIntoHistory(args.generation, args.state);
+  const { profile, generation, state, onStage, foldInput, host, ...call } = args;
+  throwIfAborted(call.signal);
+  if (foldInput && onStage) {
+    foldGenerationInputIntoHistory(generation, state);
   }
-
-  const empty: ApplyTurnStageResult = { injectCount: 0, warnings: [] };
-  if (!args.onStage) return empty;
-
-  const ctx = buildStageContext({
-    stage: args.stage,
-    step: args.step,
-    history: args.state.currentHistory,
-    host: args.host ?? args.generation.host,
-    callId: args.callId,
-    tool: args.tool,
-    input: args.input,
-    callNotStarted: args.callNotStarted,
-    outputRaw: args.outputRaw,
-    outputModel: args.outputModel,
-    failure: args.failure,
-    awaiting: args.awaiting,
-    stop: args.stop,
-    gate: args.gate,
+  const run = runStage({
+    ...call,
+    history: state.currentHistory,
+    handlers: onStage ? [onStage] : [],
+    guardrails: profile.guardrails,
+    injectAllowed: profileAllowsInject(profile),
+    host: host ?? generation.host,
   });
-
-  const raw = await invokeStageHandler(args.onStage, ctx, args.signal);
-
-  const applied = applyStageResult({
-    stage: args.stage,
-    result: raw,
-    injectAllowed: profileAllowsInject(args.profile),
-    injectWouldExceedMaxSteps: args.injectWouldExceedMaxSteps,
-  });
-
-  if (applied.warnings.length > 0) {
-    const warnEv: TurnEvent = {
-      type: 'stage',
-      stage: args.stage,
-      stageWarnings: applied.warnings,
-    };
-    args.state.allEmittedEvents.push(warnEv);
-    yield warnEv;
+  let next = await run.next();
+  while (!next.done) {
+    state.allEmittedEvents.push(next.value);
+    yield next.value;
+    next = await run.next();
   }
-
-  let injectCount = 0;
-  if (applied.inject?.length) {
-    injectCount = appendInjects(args.state, args.profile, applied.inject);
-  }
-
+  const out = next.value;
   return {
-    abort: applied.abort,
-    injectCount,
-    warnings: applied.warnings,
+    abort: out.abort,
+    injectCount: applyStageInjects(state, out.inject),
+    warnings: out.warnings,
   };
-}
-
-/** True when another provider step would exceed profile/generation maxSteps. */
-export function injectWouldExceedMaxSteps(
-  stepCount: number,
-  maxSteps: number | undefined,
-): boolean {
-  if (maxSteps === undefined || maxSteps <= 0) return false;
-  return stepCount >= maxSteps;
 }

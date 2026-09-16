@@ -15,7 +15,6 @@ import {
   isToolPause,
   notLoadedMessage,
   permissionGranted,
-  plainToolInput,
   projectForModel,
   startToolExecution,
   yieldHandlerSideEvent,
@@ -37,6 +36,7 @@ import {
   resolveModelBuiltinIds,
   wireForTool,
 } from '../../src/kernel/tools/resolve.ts';
+import { plainToolInput } from '../../src/kernel/tools/schema.ts';
 import type {
   FunctionToolDef,
   ToolContext,

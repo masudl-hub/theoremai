@@ -133,36 +133,50 @@ function pct(value: number | undefined): string {
 /** Sample count below which a rate is noise rather than a measurement. */
 const MEANINGFUL_N = 200;
 
-/** Render scores as a report, marking any figure too small to be a claim. */
-function formatScores(scores: readonly DetectorScore[]): string {
-  const lines: string[] = [];
+function groupScoresByDetector(scores: readonly DetectorScore[]): Map<string, DetectorScore[]> {
   const byDetector = new Map<string, DetectorScore[]>();
   for (const score of scores) {
     byDetector.set(score.detector, [...(byDetector.get(score.detector) ?? []), score]);
   }
+  return byDetector;
+}
 
-  for (const [detector, group] of byDetector) {
+function formatRecall(score: DetectorScore): string {
+  if (score.recall === undefined) {
+    return 'recall     n/a        ';
+  }
+  return `recall ${pct(score.recall)} (${score.attacksCaught}/${score.attacks})`;
+}
+
+function formatSourceLine(score: DetectorScore): string {
+  const thin = score.benign > 0 && score.benign < MEANINGFUL_N ? '  [n too small]' : '';
+  return (
+    `  ${score.source.padEnd(24)} ${formatRecall(score)}` +
+    `   false+ ${pct(score.falsePositiveRate)} (${score.falsePositives}/${score.benign})${thin}`
+  );
+}
+
+function formatFiredCategories(score: DetectorScore): string[] {
+  const lines: string[] = [];
+  for (const category of score.byCategory) {
+    if (category.fired <= 0) continue;
+    lines.push(
+      `      ${category.category.padEnd(22)} ${pct(category.rate)} (${category.fired}/${category.samples})`,
+    );
+  }
+  return lines;
+}
+
+/** Render scores as a report, marking any figure too small to be a claim. */
+function formatScores(scores: readonly DetectorScore[]): string {
+  const lines: string[] = [];
+  for (const [detector, group] of groupScoresByDetector(scores)) {
     lines.push(`\n${detector}  (on fire: ${group[0]?.action ?? 'unknown'})`);
     for (const score of group) {
-      const thin = score.benign > 0 && score.benign < MEANINGFUL_N ? '  [n too small]' : '';
-      const recall =
-        score.recall === undefined
-          ? 'recall     n/a        '
-          : `recall ${pct(score.recall)} (${score.attacksCaught}/${score.attacks})`;
-      lines.push(
-        `  ${score.source.padEnd(24)} ${recall}` +
-          `   false+ ${pct(score.falsePositiveRate)} (${score.falsePositives}/${score.benign})${thin}`,
-      );
-      for (const category of score.byCategory) {
-        if (category.fired > 0) {
-          lines.push(
-            `      ${category.category.padEnd(22)} ${pct(category.rate)} (${category.fired}/${category.samples})`,
-          );
-        }
-      }
+      lines.push(formatSourceLine(score), ...formatFiredCategories(score));
     }
   }
   return lines.join('\n');
 }
 
-export { formatScores, MEANINGFUL_N, scoreAll, scoreDetector };
+export { formatScores, scoreAll, scoreDetector };

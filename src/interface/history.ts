@@ -189,20 +189,32 @@ function appendAssistantEventsToHistory(
       next = [...next, { role: 'assistant', content: JSON.stringify(event.structured) }];
       continue;
     }
-    if (
-      event.type !== 'tool' ||
-      event.tool?.phase !== 'complete' ||
-      event.tool.output === undefined
-    ) {
+    if (event.type !== 'tool' || !event.tool) {
+      continue;
+    }
+    const { tool } = event;
+    if (tool.phase === 'error' && tool.failure) {
+      // A denied or failed call still owes the provider one result for its call id.
+      flushText();
+      next = appendToolDenialToHistory(next, {
+        name: tool.name,
+        callId: tool.callId,
+        id: tool.id,
+        arguments: tool.arguments,
+        failure: tool.failure,
+      });
+      continue;
+    }
+    if (tool.phase !== 'complete' || tool.output === undefined) {
       continue;
     }
     flushText();
     next = appendToolExchangeToHistory(next, {
-      name: event.tool.name,
-      callId: event.tool.callId,
-      id: event.tool.id,
-      arguments: event.tool.arguments,
-      output: event.tool.output,
+      name: tool.name,
+      callId: tool.callId,
+      id: tool.id,
+      arguments: tool.arguments,
+      output: tool.output,
     });
   }
 
@@ -231,6 +243,16 @@ function historyFromTranscriptBlocks(blocks: readonly TranscriptBlock[]): TurnHi
     }
     if (block.kind === 'structured') {
       history = [...history, { role: 'assistant', content: JSON.stringify(block.value) }];
+      continue;
+    }
+    if (block.kind === 'tool' && block.tool.phase === 'error' && block.tool.failure) {
+      history = appendToolDenialToHistory(history, {
+        name: block.tool.name,
+        callId: block.tool.callId,
+        id: block.tool.id,
+        arguments: block.tool.arguments,
+        failure: block.tool.failure,
+      });
       continue;
     }
     if (

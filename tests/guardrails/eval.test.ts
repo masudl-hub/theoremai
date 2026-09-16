@@ -16,7 +16,12 @@ import {
   recordsFromYaml,
   SOURCES,
 } from '../../src/guardrails/eval/corpus.ts';
-import { type EvalDetector, scoreAll, scoreDetector } from '../../src/guardrails/eval/score.ts';
+import {
+  type EvalDetector,
+  formatScores,
+  scoreAll,
+  scoreDetector,
+} from '../../src/guardrails/eval/score.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 
 // ── CSV parsing survives adversarial content ─────────────────────────────────
@@ -185,6 +190,58 @@ Deno.test('scoreAll keeps sources apart rather than pooling them', () => {
 Deno.test('rates are undefined rather than zero when there is nothing to divide by', () => {
   const score = scoreDetector(alwaysFires, 'src-a', [sample('a', true, 'attack')]);
   assertEquals(score.falsePositiveRate, undefined);
+});
+
+Deno.test('formatScores groups detectors and marks thin benign counts', () => {
+  const neverFires: EvalDetector = {
+    id: 'never',
+    action: 'block',
+    accountableFor: ['src-a'],
+    fires: () => false,
+  };
+  const scores = scoreAll(
+    [alwaysFires, neverFires],
+    new Map([
+      [
+        'src-a',
+        [
+          sample('attack-1', true, 'attack'),
+          sample('email-1', false, 'email'),
+          sample('email-2', false, 'email'),
+        ],
+      ],
+      ['src-b', [{ ...sample('chat-1', false, 'chat'), source: 'src-b' }]],
+    ]),
+  );
+  const report = formatScores(scores);
+  assertEquals(report.includes('\nalways  (on fire: annotate)'), true);
+  assertEquals(report.includes('\nnever  (on fire: block)'), true);
+  assertEquals(report.includes('recall'), true);
+  assertEquals(report.includes('false+'), true);
+  assertEquals(report.includes('[n too small]'), true);
+  assertEquals(report.includes('email'), true);
+});
+
+Deno.test('formatScores shows n/a recall and omits zero-fire categories', () => {
+  const selective: EvalDetector = {
+    id: 'selective',
+    action: 'annotate',
+    accountableFor: [],
+    fires: (text) => text === 'b',
+  };
+  const score = scoreDetector(selective, 'src-a', [
+    sample('a', true, 'attack'),
+    sample('b', false, 'email'),
+    sample('c', false, 'clean'),
+  ]);
+  const report = formatScores([score]);
+  assertEquals(report.includes('recall     n/a'), true);
+  assertEquals(report.includes('email'), true);
+  assertEquals(report.includes('clean'), false);
+});
+
+Deno.test('formatScores renders empty input as an empty string', () => {
+  assertEquals(formatScores([]), '');
 });
 
 // ── paging: a failed page is not the end of a corpus ─────────────────────────

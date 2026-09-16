@@ -1,43 +1,42 @@
 /**
- * Shared pre_tool / post_tool stage application for tool execute paths.
+ * Tool execute wiring around the stage spine: `pre_tool` outcomes (deny, gate,
+ * mutate, abort) and `post_tool` inject hand-off.
  *
- * Contract: `docs/contracts/stages.md` (slice 2).
+ * Contract: `docs/contracts/stages.md` (tool execute pipeline).
  *
  * @module
  */
 
-import {
-  applyStageResult,
-  type StageHandler,
-  type StageResult,
-  stageEventFields,
-} from '../stages.ts';
-import type { TurnEvent, TurnHistoryMessage } from '../types.ts';
+import type { z } from 'zod';
+import { lexiconText } from '../../guardrails/lexicon.ts';
+import { runStage, type StageHandler, type StageResult, stageEventFields } from '../stages.ts';
+import type { Profile, TurnEvent, TurnHistoryMessage } from '../types.ts';
+import type { ToolCallBase } from './events.ts';
 import { isGateResumeGranted } from './permission.ts';
+import { plainToolInput } from './schema.ts';
 import type { ModelToolResult, ToolContext, ToolFailure, ToolGate } from './types.ts';
 
 /** Stage wiring passed into `executeRegisteredTool`. */
 export interface ToolStageSupport {
   /** Ordered host handlers: request `onStage`, then turn/session ambient. */
   handlers: StageHandler[];
+  /** Profile whose guardrails sanitize injects and whose inject gate applies. */
+  profile: Profile;
   step: number;
   history: () => readonly TurnHistoryMessage[];
   injectAllowed: boolean;
   injectWouldExceedMaxSteps?: boolean;
-  /** Apply sanitized inject messages; return how many were appended. */
-  applyInject?: (messages: TurnHistoryMessage[]) => number;
+  /** Apply sanitized inject messages immediately instead of handing them back. */
+  applyInject?: (messages: TurnHistoryMessage[]) => void;
   host?: unknown;
   signal?: AbortSignal;
 }
 
-/** Empty host stage support when only a tool-local `preTool` is present. */
-function defaultToolStageSupport(ctx: {
-  turn?: { step?: number };
-  host?: unknown;
-  signal?: AbortSignal;
-}): ToolStageSupport {
+/** Stage support when only a tool-local `preTool` is present. */
+function defaultToolStageSupport(ctx: ToolContext): ToolStageSupport {
   return {
     handlers: [],
+    profile: ctx.profile,
     step: ctx.turn?.step ?? 1,
     history: () => [],
     injectAllowed: false,
@@ -46,27 +45,35 @@ function defaultToolStageSupport(ctx: {
   };
 }
 
-export type PreToolStageOutcome =
-  | { kind: 'proceed'; input: unknown }
-  | { kind: 'deny'; failure: ToolFailure }
-  | { kind: 'gate'; gate: ToolGate }
-  | { kind: 'abort'; abort: true | { reason?: string } }
-  | { kind: 'error'; failure: ToolFailure };
+/**
+ * Everything before a tool body runs, after schema + permission: tool `preTool`,
+ * host `pre_tool`, and the mutate re-parse. Each execute path maps the terminal
+ * shapes onto its own settlement; the pipeline itself lives here once.
+ */
+export type PreBodyOutcome =
+  | { ok: true; input: unknown }
+  | { ok: false; kind: 'aborted'; aborted: true | { reason?: string } }
+  | { ok: false; kind: 'gated'; gate: ToolGate }
+  | { ok: false; kind: 'failed'; failure: ToolFailure };
 
 export type PostToolStageOutcome = {
   abort?: boolean | { reason?: string };
-  injectCount: number;
-  /** Inject messages for the caller to apply after recording the tool result. */
+  /** Sanitized inject messages for the caller to apply after recording the tool result. */
   inject?: TurnHistoryMessage[];
+  /** Host refused the result: the model gets this failure instead. */
+  deny?: { code: string; message: string };
+  /** Host replaced the raw output; the caller re-validates and re-projects it. */
+  mutate?: { output: unknown };
 };
 
 /**
- * Await tool-local `preTool` (skipped when resume.granted), then run host pre_tool stages.
- * Returns `passthrough` when neither tool nor host stages apply.
+ * Tool-local `preTool` (skipped when resume.granted) → host `pre_tool` →
+ * mutate re-parse. Emits the gate wire for a host confirm.
  */
 export async function* runPreToolPipeline(args: {
   tool: {
     name: string;
+    input: { safeParse: (value: unknown) => z.ZodSafeParseResult<unknown> };
     preTool?: (
       input: never,
       ctx: ToolContext,
@@ -74,58 +81,45 @@ export async function* runPreToolPipeline(args: {
   };
   input: unknown;
   ctx: ToolContext;
-  callId: string;
+  base: ToolCallBase;
   stages?: ToolStageSupport;
-}): AsyncGenerator<
-  TurnEvent,
-  { status: 'passthrough'; input: unknown } | { status: 'ran'; outcome: PreToolStageOutcome }
-> {
+}): AsyncGenerator<TurnEvent, PreBodyOutcome> {
+  const { tool, ctx, base, stages } = args;
   let toolPreTool: StageResult | undefined;
-  if (args.tool.preTool && !isGateResumeGranted(args.ctx.resume)) {
-    toolPreTool = (await args.tool.preTool(args.input as never, args.ctx)) ?? undefined;
+  if (tool.preTool && !isGateResumeGranted(ctx.resume)) {
+    toolPreTool = (await tool.preTool(args.input as never, ctx)) ?? undefined;
   }
-  if (!args.stages && toolPreTool === undefined) {
-    return { status: 'passthrough', input: args.input };
+  if (!stages && toolPreTool === undefined) {
+    return { ok: true, input: args.input };
   }
-  const support = args.stages ?? defaultToolStageSupport(args.ctx);
-  const outcome = yield* runPreToolStages({
-    stages: support,
-    toolName: args.tool.name,
-    callId: args.callId,
+  const pre = yield* runPreToolStages({
+    stages: stages ?? defaultToolStageSupport(ctx),
+    toolName: tool.name,
+    callId: base.callId ?? '',
     input: args.input,
     toolPreTool,
   });
-  return { status: 'ran', outcome };
-}
-
-function mergeStageResults(parts: StageResult[]): StageResult {
-  const out: StageResult = {};
-  for (const part of parts) {
-    if (part.abort !== undefined) out.abort = part.abort;
-    if (part.deny) out.deny = part.deny;
-    if (part.confirm !== undefined && !out.deny) out.confirm = part.confirm;
-    if (part.mutate) out.mutate = part.mutate;
-    if (part.inject?.length) {
-      out.inject = [...(out.inject ?? []), ...part.inject];
-    }
+  if (!pre.ok) {
+    if (pre.kind === 'gated') yield gateEvent(base, pre.gate);
+    return pre;
   }
-  return out;
-}
-
-async function collectHandlerResults(
-  handlers: Array<() => StageResult | undefined | Promise<StageResult | undefined>>,
-): Promise<StageResult[]> {
-  const parts: StageResult[] = [];
-  for (const run of handlers) {
-    const raw = await run();
-    if (raw && typeof raw === 'object') parts.push(raw);
+  if (!pre.mutated) return { ok: true, input: pre.input };
+  const reparsed = tool.input.safeParse(plainToolInput(pre.input));
+  if (!reparsed.success) {
+    return {
+      ok: false,
+      kind: 'failed',
+      failure: {
+        code: 'invalid_input',
+        message: lexiconText('tool.input_invalid_after_mutate'),
+        details: reparsed.error.flatten(),
+      },
+    };
   }
-  return parts;
+  return { ok: true, input: reparsed.data };
 }
 
-/**
- * Emit `pre_tool`, run tool `preTool` then host handlers, apply affordances.
- */
+/** Emit `pre_tool`, run tool `preTool` then host handlers, map affordances to an outcome. */
 async function* runPreToolStages(args: {
   stages: ToolStageSupport;
   toolName: string;
@@ -133,97 +127,47 @@ async function* runPreToolStages(args: {
   input: unknown;
   /** Tool-local `preTool` return (already awaited by caller if needed). */
   toolPreTool?: StageResult | undefined;
-  /** When set, host confirm is skipped — declarative gate already decided. */
-  skipHostConfirm?: boolean;
-}): AsyncGenerator<TurnEvent, PreToolStageOutcome> {
-  const { stages, toolName, callId, input } = args;
-  const stageEv = stageEventFields('pre_tool', {
-    callId,
-    toolName,
-  });
-  yield stageEv;
-
-  const ctxBase = {
-    stage: 'pre_tool' as const,
+}): AsyncGenerator<
+  TurnEvent,
+  Exclude<PreBodyOutcome, { ok: true }> | { ok: true; input: unknown; mutated: boolean }
+> {
+  const { stages, toolName, callId, input, toolPreTool } = args;
+  const applied = yield* runStage({
+    stage: 'pre_tool',
     step: stages.step,
     history: stages.history(),
+    handlers: [...(toolPreTool !== undefined ? [() => toolPreTool] : []), ...stages.handlers],
+    guardrails: stages.profile.guardrails,
+    injectAllowed: false,
     host: stages.host,
+    signal: stages.signal,
     callId,
     tool: toolName,
     input,
-  };
-
-  const runners: Array<() => StageResult | undefined | Promise<StageResult | undefined>> = [];
-  if (args.toolPreTool !== undefined) {
-    runners.push(() => args.toolPreTool);
-  }
-  for (const handler of stages.handlers) {
-    runners.push(() => handler({ ...ctxBase }));
-  }
-
-  let rawParts: StageResult[];
-  try {
-    rawParts = await collectHandlerResults(runners);
-  } catch (err) {
-    if (stages.signal?.aborted) throw err;
-    throw err;
-  }
-
-  const merged = mergeStageResults(rawParts);
-  const applied = applyStageResult({
-    stage: 'pre_tool',
-    result: merged,
-    injectAllowed: false,
   });
 
-  if (applied.warnings.length > 0) {
-    yield {
-      type: 'stage',
-      stage: 'pre_tool',
-      stageWarnings: applied.warnings,
-      callId,
-      toolName,
-    };
-  }
-
   if (applied.abort) {
-    return { kind: 'abort', abort: applied.abort === true ? true : applied.abort };
+    return { ok: false, kind: 'aborted', aborted: applied.abort };
   }
   if (applied.deny) {
-    return {
-      kind: 'deny',
-      failure: {
-        code: applied.deny.code,
-        message: applied.deny.message,
-      },
-    };
+    return { ok: false, kind: 'failed', failure: applied.deny };
   }
-  if (applied.confirm && !args.skipHostConfirm) {
+  if (applied.confirm) {
     const gate: ToolGate = {
       kind: 'confirmation',
       tool: toolName,
       ...(applied.confirm.summary ? { summary: applied.confirm.summary } : {}),
     };
-    yield stageEventFields('pre_tool', {
-      callId,
-      toolName,
-      callNotStarted: true,
-      gate,
-    });
-    return {
-      kind: 'gate',
-      gate,
-    };
+    yield stageEventFields('pre_tool', { callId, toolName, callNotStarted: true, gate });
+    return { ok: false, kind: 'gated', gate };
   }
-  if (applied.mutate) {
-    return { kind: 'proceed', input: applied.mutate.input };
+  if (applied.mutate && 'input' in applied.mutate) {
+    return { ok: true, input: applied.mutate.input, mutated: true };
   }
-  return { kind: 'proceed', input };
+  return { ok: true, input, mutated: false };
 }
 
-/**
- * Emit `post_tool`, run host handlers, apply inject/abort.
- */
+/** Emit `post_tool`, run host handlers, hand back inject/abort. */
 export async function* runPostToolStages(args: {
   stages: ToolStageSupport;
   toolName: string;
@@ -234,82 +178,43 @@ export async function* runPostToolStages(args: {
   outputModel?: ModelToolResult;
   failure?: ToolFailure;
   awaiting?: boolean;
+  /** False when there is no completed output for `mutate` to replace. */
+  mutable: boolean;
 }): AsyncGenerator<TurnEvent, PostToolStageOutcome> {
-  const { stages, toolName, callId } = args;
-  yield stageEventFields('post_tool', {
-    callId,
-    toolName,
-    callNotStarted: args.callNotStarted,
-    awaiting: args.awaiting,
-  });
-
-  if (stages.handlers.length === 0) {
-    return { injectCount: 0 };
-  }
-
-  const ctx = {
-    stage: 'post_tool' as const,
+  const { stages, toolName, callId, mutable, ...call } = args;
+  const applied = yield* runStage({
+    ...call,
+    stage: 'post_tool',
     step: stages.step,
     history: stages.history(),
-    host: stages.host,
-    callId,
-    tool: toolName,
-    input: args.input,
-    callNotStarted: args.callNotStarted,
-    outputRaw: args.outputRaw,
-    outputModel: args.outputModel,
-    failure: args.failure,
-    awaiting: args.awaiting,
-  };
-
-  const parts = await collectHandlerResults(stages.handlers.map((h) => () => h(ctx)));
-  const merged = mergeStageResults(parts);
-  const applied = applyStageResult({
-    stage: 'post_tool',
-    result: merged,
+    handlers: stages.handlers,
+    guardrails: stages.profile.guardrails,
     injectAllowed: stages.injectAllowed,
     injectWouldExceedMaxSteps: stages.injectWouldExceedMaxSteps,
+    mutable,
+    host: stages.host,
+    signal: stages.signal,
+    callId,
+    tool: toolName,
   });
 
-  if (applied.warnings.length > 0) {
-    yield {
-      type: 'stage',
-      stage: 'post_tool',
-      stageWarnings: applied.warnings,
-      callId,
-      toolName,
-    };
-  }
-
-  let injectCount = 0;
+  const terminal: Omit<PostToolStageOutcome, 'inject'> = {
+    ...(applied.abort !== undefined ? { abort: applied.abort } : {}),
+    ...(applied.deny ? { deny: applied.deny } : {}),
+    ...(applied.mutate && 'output' in applied.mutate ? { mutate: applied.mutate } : {}),
+  };
+  if (applied.inject.length === 0) return terminal;
   // Prefer returning inject for the runner to apply after recording the provider
   // tool result (Interactions continuation must exist first). When applyInject is
-  // set and the caller wants immediate apply (e.g. invokeTool), use it.
-  if (applied.inject?.length) {
-    if (stages.applyInject) {
-      injectCount = stages.applyInject(applied.inject);
-      return {
-        injectCount,
-        ...(applied.abort !== undefined ? { abort: applied.abort } : {}),
-      };
-    }
-    return {
-      injectCount: applied.inject.length,
-      inject: applied.inject,
-      ...(applied.abort !== undefined ? { abort: applied.abort } : {}),
-    };
+  // set the caller wants immediate apply (e.g. invokeTool).
+  if (stages.applyInject) {
+    stages.applyInject(applied.inject);
+    return terminal;
   }
-
-  return {
-    injectCount,
-    ...(applied.abort !== undefined ? { abort: applied.abort } : {}),
-  };
+  return { ...terminal, inject: applied.inject };
 }
 
-export function gateEvent(
-  base: { name: string; callId?: string; arguments?: Record<string, unknown> },
-  gate: ToolGate,
-): TurnEvent {
+function gateEvent(base: ToolCallBase, gate: ToolGate): TurnEvent {
   return {
     type: 'tool',
     tool: {
@@ -320,11 +225,9 @@ export function gateEvent(
   };
 }
 
-/**
- * Emit observe `pre_tool` (callNotStarted) then the tool `gate` wire.
- */
+/** Emit observe `pre_tool` (callNotStarted) then the tool `gate` wire. */
 export async function* emitGateSettlement(args: {
-  base: { name: string; callId?: string; arguments?: Record<string, unknown> };
+  base: ToolCallBase;
   gate: ToolGate;
   callId: string;
   toolName: string;

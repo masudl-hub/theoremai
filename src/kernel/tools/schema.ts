@@ -201,3 +201,21 @@ function jsonSchemaFromZod(schema: ZodType, io: 'input' | 'output' = 'output'): 
 }
 
 export { jsonSchemaFromZod, validateToolInputSchema, validateToolOutputSchema };
+
+/** Strip prototype-pollution keys from provider/host tool args or host-mutated values before validation. */
+export function plainToolInput(input: unknown): unknown {
+  if (input === null || typeof input !== 'object') {
+    return input;
+  }
+  if (Array.isArray(input)) {
+    return input.map(plainToolInput);
+  }
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(input as Record<string, unknown>)) {
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+      continue;
+    }
+    out[key] = plainToolInput((input as Record<string, unknown>)[key]);
+  }
+  return out;
+}

@@ -146,8 +146,19 @@ export type TurnEventType =
   | 'done'
   | 'error';
 
-/** Live session control signals (provider-neutral). */
-export type SessionEventKind = 'closing_soon' | 'waiting_for_input';
+/**
+ * Live session control signals (provider-neutral).
+ *
+ * - `turn_complete` — one spoken response ended; the server may still be working.
+ * - `working` — server is reasoning or awaiting async tool results; more output may follow.
+ * - `idle` — server finished all processing; conversational cycle boundary.
+ */
+export type SessionEventKind =
+  | 'closing_soon'
+  | 'waiting_for_input'
+  | 'turn_complete'
+  | 'working'
+  | 'idle';
 
 export interface SessionEvent {
   kind: SessionEventKind;

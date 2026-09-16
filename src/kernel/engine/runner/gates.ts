@@ -12,6 +12,7 @@ import type {
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
 import { resolveTurn } from '../../registry/resolve.ts';
 import { getStructured } from '../../registry/schemas.ts';
+import { injectWouldExceedMaxSteps } from '../../stages.ts';
 import type {
   ModelProvider,
   Profile,
@@ -22,7 +23,7 @@ import type {
 } from '../../types.ts';
 import { findLast } from '../../util/find-last.ts';
 import { collectValidationFailures, formatValidationFailures } from './schema-validation.ts';
-import { applyTurnStage, injectWouldExceedMaxSteps } from './stages.ts';
+import { applyTurnStage } from './stages.ts';
 import type { AttemptFlowState, StepExecutionState } from './state.ts';
 import { executeAttempt } from './steps.ts';
 

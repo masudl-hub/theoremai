@@ -278,6 +278,7 @@ Deno.test('preTool deny settles modelResult + post_tool callNotStarted', async (
     ctx: {},
     stages: {
       handlers: [],
+      profile: profile as NonNullable<typeof profile>,
       step: 1,
       history: () => [],
       injectAllowed: false,
@@ -1433,4 +1434,485 @@ Deno.test('invokeTool under a host profile applies guardrails to tool output', a
     events.findLast((e) => e.tool?.name === 'host_injecting_tool')?.tool?.phase,
     'complete',
   );
+});
+
+function postToolProfile(id: string, tool: string) {
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      id,
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
+      tools: { allow: [tool] },
+      inputs: { text: true },
+      guardrails: { quota: { perDay: 10 } },
+    }),
+  );
+  const profile = getProfile(id);
+  if (!profile) throw new Error(`profile ${id} missing`);
+  return profile;
+}
+
+function registerPostToolProbe(name: string, output: unknown) {
+  registerTool({
+    type: 'function',
+    name,
+    description: 'post_tool affordance probe',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    input: z.object({}),
+    output: z.object({ finding: z.string(), secret: z.string().optional() }),
+    handler: () => output,
+  });
+}
+
+async function runPostToolProbe(args: {
+  profile: NonNullable<ReturnType<typeof getProfile>>;
+  tool: string;
+  onStage: (ctx: { stage: string; outputRaw?: unknown; failure?: unknown }) => unknown;
+}) {
+  const events: TurnEvent[] = [];
+  const exec = executeRegisteredTool({
+    profile: args.profile,
+    name: args.tool,
+    input: {},
+    callId: `${args.tool}_1`,
+    ctx: {},
+    stages: {
+      handlers: [args.onStage as never],
+      profile: args.profile,
+      step: 1,
+      history: () => [],
+      injectAllowed: false,
+    },
+  });
+  while (true) {
+    const next = await exec.next();
+    if (next.done) return { events, settlement: next.value };
+    events.push(next.value);
+  }
+}
+
+Deno.test('post_tool mutate replaces the raw output, re-validates it, and the model sees the replacement', async () => {
+  registerPostToolProbe('post_mutate_probe', { finding: 'ok', secret: 'hunter2' });
+  const profile = postToolProfile('post_mutate_bot', 'post_mutate_probe');
+  let sawRaw: unknown;
+  const { events, settlement } = await runPostToolProbe({
+    profile,
+    tool: 'post_mutate_probe',
+    onStage: (ctx) => {
+      if (ctx.stage !== 'post_tool') return undefined;
+      sawRaw = ctx.outputRaw;
+      return { mutate: { output: { finding: 'ok' } } };
+    },
+  });
+  assertEquals(sawRaw, { finding: 'ok', secret: 'hunter2' });
+  assertEquals(settlement.outputRaw, { finding: 'ok' });
+  assertEquals(settlement.failure, undefined);
+  assertEquals(settlement.modelResult?.modelText?.includes('hunter2'), false);
+  assertEquals(
+    events.some((e) => e.type === 'stage' && e.stageWarnings),
+    false,
+  );
+});
+
+Deno.test('post_tool mutate that fails the output schema settles as invalid_output', async () => {
+  registerPostToolProbe('post_mutate_bad_probe', { finding: 'ok' });
+  const profile = postToolProfile('post_mutate_bad_bot', 'post_mutate_bad_probe');
+  const { events, settlement } = await runPostToolProbe({
+    profile,
+    tool: 'post_mutate_bad_probe',
+    onStage: (ctx) =>
+      ctx.stage === 'post_tool' ? { mutate: { output: { finding: 42 } } } : undefined,
+  });
+  assertEquals(settlement.failure?.code, 'invalid_output');
+  assertEquals(settlement.modelResult?.modelText?.includes('after mutate'), true);
+  assertEquals(
+    events.some((e) => e.type === 'tool' && e.tool?.phase === 'error'),
+    true,
+  );
+});
+
+Deno.test('post_tool deny swaps a completed result for a failure the model sees', async () => {
+  registerPostToolProbe('post_deny_probe', { finding: 'ok', secret: 'hunter2' });
+  const profile = postToolProfile('post_deny_bot', 'post_deny_probe');
+  const { events, settlement } = await runPostToolProbe({
+    profile,
+    tool: 'post_deny_probe',
+    onStage: (ctx) =>
+      ctx.stage === 'post_tool'
+        ? { deny: { code: 'policy_refused', message: 'result withheld by policy' } }
+        : undefined,
+  });
+  assertEquals(settlement.failure, {
+    code: 'policy_refused',
+    message: 'result withheld by policy',
+  });
+  assertEquals(settlement.modelResult?.modelText?.includes('hunter2'), false);
+  assertEquals(settlement.modelResult?.modelText?.includes('result withheld by policy'), true);
+  // One terminal event per call: the deny is the only thing the wire shows.
+  const phases = events.filter((e) => e.type === 'tool').map((e) => e.tool?.phase);
+  assertEquals(phases.includes('complete'), false);
+  assertEquals(phases.filter((p) => p === 'error').length, 1);
+  assertEquals(settlement.outputRaw, undefined);
+  assertEquals(settlement.awaiting, undefined);
+  // post_tool saw the completed body; the terminal event came after it.
+  const order = events.map((e) =>
+    e.type === 'stage' ? `stage:${e.stage}` : `${e.type}:${e.tool?.phase ?? ''}`,
+  );
+  assertEquals(order.indexOf('stage:post_tool') < order.indexOf('tool:error'), true);
+});
+
+Deno.test('post_tool mutate on a failed call is a mutate_invalid warning, deny still applies', async () => {
+  registerTool({
+    type: 'function',
+    name: 'post_mutate_failed_probe',
+    description: 'throws',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    input: z.object({}),
+    output: z.object({ finding: z.string() }),
+    handler: () => {
+      throw new Error('boom');
+    },
+  });
+  const profile = postToolProfile('post_mutate_failed_bot', 'post_mutate_failed_probe');
+  const { events, settlement } = await runPostToolProbe({
+    profile,
+    tool: 'post_mutate_failed_probe',
+    onStage: (ctx) =>
+      ctx.stage === 'post_tool'
+        ? {
+            mutate: { output: { finding: 'nope' } },
+            deny: { code: 'replaced', message: 'replaced failure' },
+          }
+        : undefined,
+  });
+  const warned = events.find((e) => e.type === 'stage' && e.stageWarnings);
+  assertEquals(
+    warned?.type === 'stage' ? warned.stageWarnings?.[0]?.code : undefined,
+    'mutate_invalid',
+  );
+  assertEquals(settlement.failure?.code, 'replaced');
+  assertEquals(settlement.outputRaw, undefined);
+});
+
+Deno.test('post_tool deny of an awaiting result clears awaiting and outputRaw', async () => {
+  registerPostToolProbe('post_deny_awaiting_probe', {
+    finding: 'ask',
+    status: 'awaiting_user_input',
+    kind: 'text',
+    prompt: 'Which one?',
+  });
+  registerTool({
+    type: 'function',
+    name: 'post_deny_awaiting_probe',
+    description: 'awaiting probe',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    input: z.object({}),
+    output: z.object({ status: z.string(), kind: z.string(), prompt: z.string() }),
+    handler: () => ({ status: 'awaiting_user_input', kind: 'text', prompt: 'Which one?' }),
+  });
+  const profile = postToolProfile('post_deny_awaiting_bot', 'post_deny_awaiting_probe');
+  let stageSawAwaiting: boolean | undefined;
+  const { events, settlement } = await runPostToolProbe({
+    profile,
+    tool: 'post_deny_awaiting_probe',
+    onStage: (ctx) => {
+      if (ctx.stage !== 'post_tool') return undefined;
+      stageSawAwaiting = (ctx as { awaiting?: boolean }).awaiting;
+      return { deny: { code: 'no_questions', message: 'not now' } };
+    },
+  });
+  assertEquals(stageSawAwaiting, true);
+  assertEquals(settlement.awaiting, undefined);
+  assertEquals(settlement.outputRaw, undefined);
+  assertEquals(settlement.failure?.code, 'no_questions');
+  assertEquals(
+    events.some((e) => e.type === 'tool' && e.tool?.phase === 'complete'),
+    false,
+  );
+});
+
+Deno.test('post_tool mutate: one complete event, carrying the mutated output, after the stage', async () => {
+  registerPostToolProbe('post_mutate_wire_probe', { finding: 'ok', secret: 'hunter2' });
+  const profile = postToolProfile('post_mutate_wire_bot', 'post_mutate_wire_probe');
+  const { events } = await runPostToolProbe({
+    profile,
+    tool: 'post_mutate_wire_probe',
+    onStage: (ctx) =>
+      ctx.stage === 'post_tool' ? { mutate: { output: { finding: 'ok' } } } : undefined,
+  });
+  const completes = events.filter((e) => e.type === 'tool' && e.tool?.phase === 'complete');
+  assertEquals(completes.length, 1);
+  assertEquals(completes[0]?.tool?.output, { finding: 'ok' });
+  const order = events.map((e) =>
+    e.type === 'stage' ? `stage:${e.stage}` : `${e.type}:${e.tool?.phase ?? ''}`,
+  );
+  assertEquals(order.indexOf('stage:post_tool') < order.indexOf('tool:complete'), true);
+});
+
+Deno.test('post_tool sees the guarded model result and a mutated result is re-guarded', async () => {
+  registerPostToolProbe('post_guard_probe', { finding: `${INJ_IGNORE} original` });
+  const profile = postToolProfile('post_guard_bot', 'post_guard_probe');
+  let atStage: { modelText?: string; provenance?: unknown } | undefined;
+  const { settlement } = await runPostToolProbe({
+    profile,
+    tool: 'post_guard_probe',
+    onStage: (ctx) => {
+      if (ctx.stage !== 'post_tool') return undefined;
+      atStage = (ctx as { outputModel?: { modelText?: string; provenance?: unknown } }).outputModel;
+      return { mutate: { output: { finding: `${INJ_IGNORE} replaced` } } };
+    },
+  });
+  assertEquals(typeof atStage?.modelText, 'string');
+  assertEquals(Boolean(atStage?.provenance), true);
+  assertEquals(typeof settlement.modelResult?.modelText, 'string');
+  assertEquals(settlement.modelResult?.modelText?.includes('replaced'), true);
+  assertEquals(Boolean(settlement.modelResult?.provenance), true);
+});
+
+Deno.test('post_tool mutate on the T2 loader is a warning, not a replacement', async () => {
+  registerTool({
+    type: 'function',
+    name: 'post_mutate_t2_loader',
+    description: 'loads tools',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    input: z.object({}),
+    output: z.object({ loaded: z.array(z.string()) }),
+    handler: () => ({ loaded: [] }),
+  });
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      id: 'post_mutate_t2_bot',
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
+      tools: { allow: ['post_mutate_t2_loader'], t2Loader: 'post_mutate_t2_loader' },
+      inputs: { text: true },
+      guardrails: { quota: { perDay: 10 } },
+    }),
+  );
+  const profile = getProfile('post_mutate_t2_bot');
+  if (!profile) throw new Error('missing');
+  const snapshot = (await resolveTurn({ profile: profile.id, input: { text: 'x' } })).generation
+    .tools;
+  const events: TurnEvent[] = [];
+  const exec = executeRegisteredTool({
+    profile,
+    name: 'post_mutate_t2_loader',
+    input: {},
+    callId: 't2_1',
+    ctx: {},
+    snapshot,
+    stages: {
+      handlers: [
+        ((ctx: { stage: string }) =>
+          ctx.stage === 'post_tool'
+            ? { mutate: { output: { loaded: ['never_checked'] } } }
+            : undefined) as never,
+      ],
+      profile,
+      step: 1,
+      history: () => [],
+      injectAllowed: false,
+    },
+  });
+  let settlement: { outputRaw?: unknown } = {};
+  while (true) {
+    const next = await exec.next();
+    if (next.done) {
+      settlement = next.value;
+      break;
+    }
+    events.push(next.value);
+  }
+  assertEquals(settlement.outputRaw, { loaded: [] });
+  const warned = events.find((e) => e.type === 'stage' && e.stageWarnings);
+  assertEquals(
+    warned?.type === 'stage' ? warned.stageWarnings?.[0]?.code : undefined,
+    'mutate_invalid',
+  );
+});
+
+Deno.test('abort during a post_tool handler does not masquerade as handler_error', async () => {
+  registerPostToolProbe('post_abort_probe', { finding: 'ok' });
+  const profile = postToolProfile('post_abort_bot', 'post_abort_probe');
+  const controller = new AbortController();
+  const events: TurnEvent[] = [];
+  const exec = executeRegisteredTool({
+    profile,
+    name: 'post_abort_probe',
+    input: {},
+    callId: 'abort_1',
+    ctx: { signal: controller.signal },
+    stages: {
+      handlers: [
+        ((ctx: { stage: string }) => {
+          if (ctx.stage === 'post_tool') controller.abort();
+          return undefined;
+        }) as never,
+      ],
+      profile,
+      step: 1,
+      history: () => [],
+      injectAllowed: false,
+      signal: controller.signal,
+    },
+  });
+  let threw: unknown;
+  try {
+    while (true) {
+      const next = await exec.next();
+      if (next.done) break;
+      events.push(next.value);
+    }
+  } catch (err) {
+    threw = err;
+  }
+  assertEquals(Boolean(threw), true);
+  assertEquals(
+    events.some((e) => e.type === 'tool' && e.tool?.phase === 'error'),
+    false,
+  );
+});
+
+Deno.test('pre_tool pipeline: no stages and no preTool emits no pre_tool stage at all', async () => {
+  registerPostToolProbe('pre_passthrough_probe', { finding: 'ok' });
+  const profile = postToolProfile('pre_passthrough_bot', 'pre_passthrough_probe');
+  const events: TurnEvent[] = [];
+  const exec = executeRegisteredTool({
+    profile,
+    name: 'pre_passthrough_probe',
+    input: {},
+    callId: 'pt_1',
+    ctx: {},
+  });
+  while (true) {
+    const next = await exec.next();
+    if (next.done) break;
+    events.push(next.value);
+  }
+  assertEquals(
+    events.some((e) => e.type === 'stage' && e.stage === 'pre_tool'),
+    false,
+  );
+  assertEquals(
+    events.some((e) => e.type === 'stage' && e.stage === 'post_tool'),
+    false,
+  );
+});
+
+Deno.test('pre_tool mutate: replaced input is re-parsed, failing input settles invalid_input', async () => {
+  registerTool({
+    type: 'function',
+    name: 'pre_mutate_probe',
+    description: 'echoes',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    input: z.object({ n: z.number() }),
+    output: z.object({ finding: z.string() }),
+    handler: (input: { n: number }) => ({ finding: `n=${input.n}` }),
+  });
+  const profile = postToolProfile('pre_mutate_bot', 'pre_mutate_probe');
+  const run = async (mutate: unknown) => {
+    const exec = executeRegisteredTool({
+      profile,
+      name: 'pre_mutate_probe',
+      input: { n: 1 },
+      callId: 'pm_1',
+      ctx: {},
+      stages: {
+        handlers: [
+          ((ctx: { stage: string }) =>
+            ctx.stage === 'pre_tool' ? { mutate: { input: mutate } } : undefined) as never,
+        ],
+        profile,
+        step: 1,
+        history: () => [],
+        injectAllowed: false,
+      },
+    });
+    while (true) {
+      const next = await exec.next();
+      if (next.done) return next.value;
+    }
+  };
+  const good = await run({ n: 2, __proto__: { polluted: true } });
+  assertEquals(good.outputRaw, { finding: 'n=2' });
+  const bad = await run({ n: 'two' });
+  assertEquals(bad.failure?.code, 'invalid_input');
+  assertEquals(bad.callNotStarted, true);
+});
+
+Deno.test('pre_tool: tool-local preTool is skipped on a granted resume but host stages still run', async () => {
+  let preToolRan = 0;
+  let hostRan = 0;
+  registerTool({
+    type: 'function',
+    name: 'pre_resume_probe',
+    description: 'resume probe',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    input: z.object({}),
+    output: z.object({ finding: z.string() }),
+    preTool: () => {
+      preToolRan += 1;
+      return { confirm: true };
+    },
+    handler: () => ({ finding: 'ran' }),
+  });
+  const profile = postToolProfile('pre_resume_bot', 'pre_resume_probe');
+  const exec = executeRegisteredTool({
+    profile,
+    name: 'pre_resume_probe',
+    input: {},
+    callId: 'pr_1',
+    ctx: { resume: { granted: true } },
+    stages: {
+      handlers: [
+        ((ctx: { stage: string }) => {
+          if (ctx.stage === 'pre_tool') hostRan += 1;
+          return undefined;
+        }) as never,
+      ],
+      profile,
+      step: 1,
+      history: () => [],
+      injectAllowed: false,
+    },
+  });
+  let settlement: { outputRaw?: unknown } = {};
+  while (true) {
+    const next = await exec.next();
+    if (next.done) {
+      settlement = next.value;
+      break;
+    }
+  }
+  assertEquals(preToolRan, 0);
+  assertEquals(hostRan, 1);
+  assertEquals(settlement.outputRaw, { finding: 'ran' });
 });

@@ -31,6 +31,7 @@ const testProfile: Profile = {
       'private_internal_api',
       'local_mcp',
       'http_deny_probe',
+      'http_post_mutate_probe',
     ],
   },
   inputs: { text: true },
@@ -124,6 +125,7 @@ Deno.test('Declarative HTTP Tool preTool deny settles with modelResult + post_to
     ctx: {},
     stages: {
       handlers: [],
+      profile: testProfile,
       step: 1,
       history: () => [],
       injectAllowed: false,
@@ -264,10 +266,12 @@ Deno.test('Declarative HTTP Tool executes successfully with auth header and para
     requestedUrl = input.toString();
     const headers = new Headers(init?.headers);
     authHeader = headers.get('authorization') ?? '';
-    return Promise.resolve(new Response(JSON.stringify({ id: 'usr_123', name: 'Alice' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    }));
+    return Promise.resolve(
+      new Response(JSON.stringify({ id: 'usr_123', name: 'Alice' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
   }) as typeof fetch;
 
   try {
@@ -379,21 +383,26 @@ Deno.test('Remote MCP Tool executes successfully per 2026-07-28 spec', async () 
     receivedHeaders = Object.fromEntries(headers.entries());
 
     // MCP JSON-RPC 2026-07-28 response
-    return Promise.resolve(new Response(
-      JSON.stringify({
-        jsonrpc: '2.0',
-        id: (receivedRpc as { id: unknown }).id,
-        result: {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify({ issueId: 'LIN-101', url: 'https://linear.app/issue/LIN-101' }),
-            },
-          ],
-        },
-      }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } },
-    ));
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: (receivedRpc as { id: unknown }).id,
+          result: {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  issueId: 'LIN-101',
+                  url: 'https://linear.app/issue/LIN-101',
+                }),
+              },
+            ],
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
   }) as typeof fetch;
 
   try {
@@ -472,24 +481,28 @@ Deno.test('Proactive OAuth token refresh during tool execution emits progress an
     const headers = new Headers(init?.headers);
 
     if (urlStr === 'https://auth.example.com/oauth/token') {
-      return Promise.resolve(new Response(
-        JSON.stringify({
-          access_token: 'new-shiny-access-token',
-          refresh_token: 'new-refresh-token',
-          expires_in: 3600,
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            access_token: 'new-shiny-access-token',
+            refresh_token: 'new-refresh-token',
+            expires_in: 3600,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
     }
 
     if (urlStr === 'https://api.example.com/me') {
       if (headers.get('authorization') === 'Bearer new-shiny-access-token') {
         refreshedTokenUsedInToolCall = true;
       }
-      return Promise.resolve(new Response(JSON.stringify({ ok: true }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }));
+      return Promise.resolve(
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
     }
 
     throw new Error(`Unexpected request to ${urlStr}`);
@@ -666,14 +679,16 @@ Deno.test('Remote MCP Tool surfaces RPC, tool, HTTP, and schema failures', async
 
   try {
     globalThis.fetch = (() =>
-      Promise.resolve(new Response(
-        JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          error: { code: -32000, message: 'boom', data: { retry: false } },
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ))) as typeof fetch;
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            error: { code: -32000, message: 'boom', data: { retry: false } },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )) as typeof fetch;
     const rpcErr = await collectToolRun('linear_issue', input, 'call_mcp_rpc_err');
     assertEquals(
       rpcErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.code,
@@ -681,21 +696,24 @@ Deno.test('Remote MCP Tool surfaces RPC, tool, HTTP, and schema failures', async
     );
 
     globalThis.fetch = (() =>
-      Promise.resolve(new Response(
-        JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          result: { isError: true, content: [{ type: 'text', text: 'tool blew up' }] },
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ))) as typeof fetch;
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            result: { isError: true, content: [{ type: 'text', text: 'tool blew up' }] },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )) as typeof fetch;
     const toolErr = await collectToolRun('linear_issue', input, 'call_mcp_tool_err');
     assertEquals(
       toolErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.code,
       'mcp_tool_execution_failed',
     );
 
-    globalThis.fetch = (() => Promise.resolve(new Response('nope', { status: 500 }))) as typeof fetch;
+    globalThis.fetch = (() =>
+      Promise.resolve(new Response('nope', { status: 500 }))) as typeof fetch;
     const httpErr = await collectToolRun('linear_issue', input, 'call_mcp_http_err');
     assertEquals(
       httpErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.code,
@@ -703,14 +721,16 @@ Deno.test('Remote MCP Tool surfaces RPC, tool, HTTP, and schema failures', async
     );
 
     globalThis.fetch = (() =>
-      Promise.resolve(new Response(
-        JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          result: { content: [{ type: 'text', text: '{"wrong":true}' }] },
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ))) as typeof fetch;
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            result: { content: [{ type: 'text', text: '{"wrong":true}' }] },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )) as typeof fetch;
     const schemaErr = await collectToolRun('linear_issue', input, 'call_mcp_schema_err');
     assertEquals(
       schemaErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.code,
@@ -737,30 +757,37 @@ Deno.test('Remote MCP Tool retries unsupported protocol versions then succeeds',
   globalThis.fetch = ((_input, _init) => {
     attempt += 1;
     if (attempt === 1) {
-      return Promise.resolve(new Response(
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            error: { code: -32600, message: 'Unsupported protocol version' },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+    }
+    return Promise.resolve(
+      new Response(
         JSON.stringify({
           jsonrpc: '2.0',
           id: 1,
-          error: { code: -32600, message: 'Unsupported protocol version' },
+          result: {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  issueId: 'LIN-202',
+                  url: 'https://linear.app/issue/LIN-202',
+                }),
+              },
+            ],
+          },
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ));
-    }
-    return Promise.resolve(new Response(
-      JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
-        result: {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify({ issueId: 'LIN-202', url: 'https://linear.app/issue/LIN-202' }),
-            },
-          ],
-        },
-      }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } },
-    ));
+      ),
+    );
   }) as typeof fetch;
 
   try {
@@ -788,35 +815,42 @@ Deno.test('Remote MCP Tool retries HTTP 400 unsupported protocol versions then s
     attempt += 1;
     const headers = new Headers(init?.headers);
     if (attempt === 1) {
-      return Promise.resolve(new Response(
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            error: {
+              code: -32600,
+              message:
+                'Bad Request: Unsupported protocol version: 2026-07-28. Supported versions: 2024-11-05, 2025-03-26, 2025-06-18, 2025-11-25',
+            },
+          }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+    }
+    secondProtocol = headers.get('mcp-protocol-version');
+    return Promise.resolve(
+      new Response(
         JSON.stringify({
           jsonrpc: '2.0',
           id: 1,
-          error: {
-            code: -32600,
-            message:
-              'Bad Request: Unsupported protocol version: 2026-07-28. Supported versions: 2024-11-05, 2025-03-26, 2025-06-18, 2025-11-25',
+          result: {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  issueId: 'LIN-400',
+                  url: 'https://linear.app/issue/LIN-400',
+                }),
+              },
+            ],
           },
         }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } },
-      ));
-    }
-    secondProtocol = headers.get('mcp-protocol-version');
-    return Promise.resolve(new Response(
-      JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
-        result: {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify({ issueId: 'LIN-400', url: 'https://linear.app/issue/LIN-400' }),
-            },
-          ],
-        },
-      }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } },
-    ));
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
   }) as typeof fetch;
 
   try {
@@ -831,6 +865,74 @@ Deno.test('Remote MCP Tool retries HTTP 400 unsupported protocol versions then s
       (settlement?.modelResult?.data as { issueId?: string } | undefined)?.issueId,
       'LIN-400',
     );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('Declarative HTTP Tool post_tool mutate re-validates and replaces what the model sees', async () => {
+  resetTools();
+  registerTool({
+    name: 'http_post_mutate_probe',
+    description: 'HTTP tool whose result the host trims at post_tool',
+    type: 'http',
+    endpoint: 'https://api.example.com/profile',
+    method: 'GET',
+    category: 'api',
+    access: 'read-only',
+    loadTier: 'T0',
+    permission: 'auto',
+    paths: ['*'],
+    input: z.object({}),
+    output: z.object({ name: z.string(), ssn: z.string().optional() }),
+  });
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() =>
+    Promise.resolve(
+      new Response(JSON.stringify({ name: 'Alice', ssn: '123-45-6789' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )) as typeof fetch;
+
+  try {
+    const events = [];
+    const exec = executeRegisteredTool({
+      profile: testProfile,
+      name: 'http_post_mutate_probe',
+      input: {},
+      callId: 'call_post_mutate',
+      ctx: {},
+      stages: {
+        handlers: [
+          (ctx) =>
+            ctx.stage === 'post_tool' ? { mutate: { output: { name: 'Alice' } } } : undefined,
+        ],
+        profile: testProfile,
+        step: 1,
+        history: () => [],
+        injectAllowed: false,
+      },
+    });
+    let settlement: ToolExecuteSettlement | undefined;
+    while (true) {
+      const next = await exec.next();
+      if (next.done) {
+        settlement = next.value;
+        break;
+      }
+      events.push(next.value);
+    }
+    assertEquals(settlement?.outputRaw, { name: 'Alice' });
+    assertEquals((settlement?.modelResult?.data as { ssn?: string })?.ssn, undefined);
+    assertEquals(settlement?.modelResult?.modelText?.includes('123-45-6789'), false);
+    assertEquals(settlement?.failure, undefined);
+    // One terminal event, after post_tool, carrying what the model actually got.
+    const completes = events.filter((e) => e.tool?.phase === 'complete');
+    assertEquals(completes.length, 1);
+    assertEquals(completes[0]?.tool?.output, { name: 'Alice' });
+    assertEquals(JSON.stringify(events).includes('123-45-6789'), false);
   } finally {
     globalThis.fetch = originalFetch;
   }

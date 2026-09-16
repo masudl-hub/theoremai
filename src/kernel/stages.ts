@@ -1,13 +1,19 @@
 /**
- * Turn-stage types and defensive affordance application.
+ * Turn stages: frozen shapes, defensive affordance application, and the one
+ * spine every stage runs through (`runStage`).
  *
- * Contract: `docs/contracts/stages.md`. This module freezes shapes and
- * pressure-tests invalid host returns. Runner wiring is a separate cutover;
- * do not treat this as a shipped stages product until all three slices land.
+ * Contract: `docs/contracts/stages.md`. Text `runTurn`, live `runSession`, and
+ * tool execute differ only in what they do with a stage's output — history
+ * append, live text ingress, or a tool gate — never in how the stage runs.
  *
  * @module
  */
 
+import { throwIfAborted } from '../guardrails/error.ts';
+import { guardrailFromHits } from '../guardrails/events.ts';
+import { detectionForTrust, resolveGuardrailPolicy } from '../guardrails/policy.ts';
+import { sanitizeHistory } from '../guardrails/sanitize.ts';
+import type { GuardrailHit } from '../guardrails/types.ts';
 import {
   AWAITING_USER_INPUT_KINDS,
   AWAITING_USER_INPUT_STATUS,
@@ -19,7 +25,7 @@ import {
 } from './schema.ts';
 import type { TurnStop } from './stop.ts';
 import type { ModelToolResult, ToolFailure, ToolGate } from './tools/types.ts';
-import type { TurnEvent, TurnHistoryMessage } from './types.ts';
+import type { Profile, TurnEvent, TurnHistoryMessage } from './types.ts';
 
 /** Canonical homes: schema (`TurnStage`, `ToolGateKind`), tools/types (`ToolGate`). */
 export type { AwaitingUserInputKind, ToolGate };
@@ -40,7 +46,7 @@ export const STAGE_AFFORDANCE_MATRIX: Readonly<Record<TurnStage, readonly StageA
   Object.freeze({
     pre_turn: Object.freeze(['inject', 'abort'] as const),
     pre_tool: Object.freeze(['abort', 'deny', 'confirm', 'mutate'] as const),
-    post_tool: Object.freeze(['inject', 'abort'] as const),
+    post_tool: Object.freeze(['inject', 'abort', 'deny', 'mutate'] as const),
     before_end: Object.freeze(['inject', 'abort'] as const),
     post_turn: Object.freeze([] as const),
   });
@@ -69,7 +75,7 @@ export type StageCallBag = {
   gate?: ToolGate;
 };
 
-/** Context passed to `onStage`. Frozen for slice 1. */
+/** Context passed to `onStage`. */
 export interface StageContext extends StageCallBag {
   stage: TurnStage;
   /** 1-based provider step (text) or utterance cycle index (live). */
@@ -79,27 +85,20 @@ export interface StageContext extends StageCallBag {
   host?: unknown;
 }
 
-/** Build StageContext from the shared tool/stop field bag used by text + live stages. */
-export function buildStageContext(
-  args: {
-    stage: TurnStage;
-    step: number;
-    history: readonly TurnHistoryMessage[];
-    host?: unknown;
-  } & StageCallBag,
-): StageContext {
-  return args;
-}
-
-/** Host return from `onStage`. Frozen for slice 1. */
+/** Host return from `onStage`. */
 export interface StageResult {
   inject?: TurnHistoryMessage[];
   abort?: boolean | { reason?: string };
+  /** `pre_tool`: refuse the call. `post_tool`: replace the result with this failure. */
   deny?: { code?: string; message?: string };
   /** `pre_tool` only — request a confirm/permission gate. */
   confirm?: true | { summary?: string };
-  mutate?: { input: unknown };
+  /** `pre_tool`: replace the call input. `post_tool`: replace the raw output. Both re-validate. */
+  mutate?: StageMutate;
 }
+
+/** What `mutate` replaces: the stage's subject. */
+export type StageMutate = { input: unknown } | { output: unknown };
 
 export type StageHandler = (
   ctx: StageContext,
@@ -131,6 +130,12 @@ export interface StageApplyInput {
   injectAllowed: boolean;
   /** When true, another provider step would exceed `maxSteps`. */
   injectWouldExceedMaxSteps?: boolean;
+  /**
+   * False when the stage's mutate subject is absent at this fire (a `post_tool`
+   * whose body never completed, or a tool whose output the kernel must own).
+   * `mutate` is then a `mutate_invalid` warning, never a silent no-op.
+   */
+  mutable?: boolean;
 }
 
 export interface StageApplyOutput {
@@ -138,7 +143,7 @@ export interface StageApplyOutput {
   abort?: boolean | { reason?: string };
   deny?: { code: string; message: string };
   confirm?: { summary?: string };
-  mutate?: { input: unknown };
+  mutate?: StageMutate;
   warnings: StageApplyWarning[];
 }
 
@@ -482,11 +487,21 @@ function applyConfirmField(
   }
 }
 
+/** The subject `mutate` replaces at each stage that allows it. */
+const MUTATE_SUBJECT = { pre_tool: 'input', post_tool: 'output' } as const satisfies Partial<
+  Record<TurnStage, 'input' | 'output'>
+>;
+
+function mutateSubject(stage: TurnStage): 'input' | 'output' | undefined {
+  return stage in MUTATE_SUBJECT ? MUTATE_SUBJECT[stage as keyof typeof MUTATE_SUBJECT] : undefined;
+}
+
 function applyMutateField(
   result: Record<string, unknown>,
-  stage: TurnStage,
+  input: StageApplyInput,
   out: StageApplyOutput,
 ): void {
+  const { stage } = input;
   if (!('mutate' in result) || result.mutate === undefined) return;
   if (!stageAllowsAffordance(stage, 'mutate')) {
     warn(
@@ -495,11 +510,42 @@ function applyMutateField(
       'mutate',
       `mutate is not allowed at stage ${stage}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
-  } else if (!isRecord(result.mutate) || !('input' in result.mutate)) {
-    warn(out.warnings, 'mutate_invalid', 'mutate', 'mutate must be { input: unknown }'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  } else {
-    out.mutate = { input: result.mutate.input };
+    return;
   }
+  const subject = mutateSubject(stage);
+  if (!subject) {
+    // Matrix allows mutate but no subject is mapped: a kernel drift, surfaced not swallowed.
+    warn(
+      out.warnings,
+      'mutate_invalid',
+      'mutate',
+      // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `no mutate subject is defined at stage ${stage}`,
+    );
+    return;
+  }
+  if (!isRecord(result.mutate) || result.mutate[subject] === undefined) {
+    warn(
+      out.warnings,
+      'mutate_invalid',
+      'mutate',
+      // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `mutate must be { ${subject}: unknown } at stage ${stage}`,
+    );
+    return;
+  }
+  if (input.mutable === false) {
+    warn(
+      out.warnings,
+      'mutate_invalid',
+      'mutate',
+      // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `there is no ${subject} to replace at this ${stage} fire`,
+    );
+    return;
+  }
+  out.mutate =
+    subject === 'input' ? { input: result.mutate.input } : { output: result.mutate.output };
 }
 
 /**
@@ -527,7 +573,7 @@ export function applyStageResult(input: StageApplyInput): StageApplyOutput {
   applyAbortField(result, stage, out);
   applyDenyField(result, stage, out);
   applyConfirmField(result, stage, out);
-  applyMutateField(result, stage, out);
+  applyMutateField(result, input, out);
 
   // confirm + deny together: deny wins
   if (out.deny && out.confirm) {
@@ -558,4 +604,149 @@ export function stageEventFields(stage: TurnStage, extra?: Partial<StageEventExt
   if (extra.gate !== undefined) event.gate = extra.gate;
   if (extra.stop !== undefined) event.stop = extra.stop;
   return event;
+}
+
+/** True when another provider step would exceed profile/generation maxSteps. */
+export function injectWouldExceedMaxSteps(
+  stepCount: number,
+  maxSteps: number | undefined,
+): boolean {
+  if (maxSteps === undefined || maxSteps <= 0) return false;
+  return stepCount >= maxSteps;
+}
+
+/** One stage run: the shared call bag plus who handles it and how injects are gated. */
+export interface RunStageArgs extends StageCallBag {
+  stage: TurnStage;
+  step: number;
+  history: readonly TurnHistoryMessage[];
+  /**
+   * Handlers in call order. Later scalars win, `inject` lists concatenate. A
+   * tool-local `preTool` result rides here as the first handler.
+   */
+  handlers: readonly StageHandler[];
+  /** Profile guardrails — every inject site runs the untrusted sanitize path. */
+  guardrails: Profile['guardrails'];
+  injectAllowed: boolean;
+  injectWouldExceedMaxSteps?: boolean;
+  /** See `StageApplyInput.mutable`. */
+  mutable?: boolean;
+  host?: unknown;
+  signal?: AbortSignal;
+}
+
+/** Applied stage output. `inject` is sanitized and always present. */
+export interface RunStageOutput extends Omit<StageApplyOutput, 'inject'> {
+  inject: TurnHistoryMessage[];
+}
+
+/**
+ * Merge per-handler applied outputs in call order. Later scalars win, `inject`
+ * lists concatenate, warnings accumulate. `deny` beats `confirm` across handlers
+ * exactly as it does within one return.
+ */
+function mergeApplied(parts: readonly StageApplyOutput[]): StageApplyOutput {
+  const out: StageApplyOutput = { warnings: parts.flatMap((part) => part.warnings) };
+  for (const part of parts) {
+    if (part.abort !== undefined) out.abort = part.abort;
+    if (part.deny) out.deny = part.deny;
+    if (part.confirm) out.confirm = part.confirm;
+    if (part.mutate) out.mutate = part.mutate;
+    if (part.inject?.length) out.inject = [...(out.inject ?? []), ...part.inject];
+  }
+  if (out.deny && out.confirm) {
+    warn(out.warnings, 'confirm_invalid', 'confirm', 'confirm ignored because deny is set'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    delete out.confirm;
+  }
+  return out;
+}
+
+/**
+ * Await each handler in order and apply its return on its own, so one handler's
+ * junk is that handler's warning and cannot erase another's affordance. Each
+ * handler gets its own shallow context; abort wins over any handler error.
+ */
+async function applyHandlers(
+  handlers: readonly StageHandler[],
+  ctx: StageContext,
+  apply: Omit<StageApplyInput, 'result'>,
+  signal?: AbortSignal,
+): Promise<StageApplyOutput[]> {
+  const parts: StageApplyOutput[] = [];
+  for (const handler of handlers) {
+    let raw: unknown;
+    try {
+      raw = await handler({ ...ctx });
+    } catch (err) {
+      throwIfAborted(signal);
+      throw err;
+    }
+    throwIfAborted(signal);
+    parts.push(applyStageResult({ ...apply, result: raw }));
+  }
+  return parts;
+}
+
+/**
+ * Run one stage: emit the `stage` event, call the handlers, apply the affordance
+ * matrix per handler, emit any warnings, sanitize injects (with a `guardrail`
+ * event when redaction fired). Stage events always emit, even with no handlers.
+ */
+export async function* runStage(args: RunStageArgs): AsyncGenerator<TurnEvent, RunStageOutput> {
+  const {
+    stage,
+    step,
+    history,
+    handlers,
+    guardrails,
+    injectAllowed,
+    injectWouldExceedMaxSteps,
+    mutable,
+    host,
+    signal,
+    ...bag
+  } = args;
+  throwIfAborted(signal);
+
+  // Stream stage events stay lean (no outputRaw/failure). Hosts read those on
+  // StageContext via onStage; tool failures also ride tool events.
+  yield stageEventFields(stage, {
+    callId: bag.callId,
+    toolName: bag.tool,
+    callNotStarted: bag.callNotStarted,
+    awaiting: bag.awaiting,
+    gate: bag.gate,
+    stop: bag.stop,
+  });
+
+  if (handlers.length === 0) return { warnings: [], inject: [] };
+
+  const ctx: StageContext = { stage, step, history, host, ...bag };
+  const applied = mergeApplied(
+    await applyHandlers(
+      handlers,
+      ctx,
+      { stage, injectAllowed, injectWouldExceedMaxSteps, mutable },
+      signal,
+    ),
+  );
+
+  if (applied.warnings.length > 0) {
+    yield {
+      ...stageEventFields(stage, { callId: bag.callId, toolName: bag.tool }),
+      stageWarnings: applied.warnings,
+    };
+  }
+
+  const { inject, ...rest } = applied;
+  if (!inject?.length) return { ...rest, inject: [] };
+  const hits: GuardrailHit[] = [];
+  const sanitized = sanitizeHistory(
+    inject,
+    detectionForTrust(resolveGuardrailPolicy(guardrails), 'untrusted'),
+    hits,
+  );
+  const redacted = guardrailFromHits('history', 'untrusted', hits, 'redact');
+  if (redacted) yield redacted;
+  return { ...rest, inject: sanitized };
 }

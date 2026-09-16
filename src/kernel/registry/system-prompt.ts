@@ -42,4 +42,4 @@ function resolveTurnSystemPrompt(profile: ModelProfile, req: TurnRequest): strin
   return [systemFromProfile(profile, role), req.system, continueSys].filter(Boolean).join('\n\n');
 }
 
-export { resolveTurnSystemPrompt, systemFromProfile };
+export { resolveTurnSystemPrompt };

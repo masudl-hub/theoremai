@@ -30,11 +30,19 @@ export function buildGeminiLiveWebSocketUrl(apiKey: string): string {
   return `${GEMINI_LIVE_WS_URL}?key=${encodeURIComponent(apiKey)}`;
 }
 
+/**
+ * Live tools are always declared non-blocking: the kernel session already runs
+ * tool execution asynchronously and honours `toolCallCancellation`, so the model
+ * is free to keep speaking while a call is in flight.
+ */
+const LIVE_FUNCTION_BEHAVIOR = 'NON_BLOCKING';
+
 export function wireFunctionDeclaration(decl: WireFunctionTool): Record<string, unknown> {
   const parameters = toGeminiOpenApiSchema(decl.parameters);
   return {
     name: decl.name,
     description: decl.description,
+    behavior: LIVE_FUNCTION_BEHAVIOR,
     parameters:
       parameters && typeof parameters === 'object'
         ? (parameters as Record<string, unknown>)
@@ -50,6 +58,7 @@ export function wireLiveTools(req: ProviderCompleteRequest): Array<Record<string
       functionDeclarations.push({
         name: id,
         description: entry.description,
+        behavior: LIVE_FUNCTION_BEHAVIOR,
       });
     }
   }
@@ -546,6 +555,26 @@ function foldLiveGrounding(serverContent: Record<string, unknown>, events: TurnE
   }
 }
 
+export type LiveInteractionStatus = 'IN_PROGRESS' | 'IDLE';
+
+/** Read the server-side `interactionStatus` when the message carries one. */
+export function readLiveInteractionStatus(
+  message: Record<string, unknown>,
+): LiveInteractionStatus | undefined {
+  const raw = message.interactionStatus ?? message.interaction_status;
+  if (raw === 'IN_PROGRESS' || raw === 'IDLE') return raw;
+  return undefined;
+}
+
+function foldInteractionStatus(message: Record<string, unknown>, events: TurnEvent[]): void {
+  const status = readLiveInteractionStatus(message);
+  if (!status) return;
+  events.push({
+    type: 'session',
+    session: { kind: status === 'IDLE' ? 'idle' : 'working' },
+  });
+}
+
 function foldServerContent(message: Record<string, unknown>, events: TurnEvent[]): void {
   const serverContent = message.serverContent as Record<string, unknown> | undefined;
   if (!serverContent || typeof serverContent !== 'object') return;
@@ -587,6 +616,10 @@ function foldServerContent(message: Record<string, unknown>, events: TurnEvent[]
   }
 
   foldLiveGrounding(serverContent, events);
+
+  if (serverContent.turnComplete === true || serverContent.turn_complete === true) {
+    events.push({ type: 'session', session: { kind: 'turn_complete' } });
+  }
 }
 
 function foldUsageMetadata(message: Record<string, unknown>, events: TurnEvent[]): void {
@@ -612,6 +645,7 @@ export function foldGeminiLiveServerMessage(
   foldToolCalls(message, events);
   foldToolCancellations(message, events);
   foldServerContent(message, events);
+  foldInteractionStatus(message, events);
   foldUsageMetadata(message, events);
   return events;
 }

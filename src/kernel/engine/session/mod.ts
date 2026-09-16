@@ -4,7 +4,7 @@
  * Shares resolve / tools / canary / system / outbound gate with `runTurn`.
  * Does not use `ModelProvider.complete()` — live is a session, not one turn.
  *
- * Stages: `docs/contracts/stages.md` (slice 3 cycle map + `executeTool`).
+ * Stages: `docs/contracts/stages.md` (cycle map + `executeTool`).
  *
  * @module
  */
@@ -38,7 +38,8 @@ import { openGoogleLiveSession } from '../../../providers/google/live/session.ts
 import type { ToolCredential } from '../../auth/types.ts';
 import { providerCompleteRequest } from '../../registry/provider-request.ts';
 import { resolveTurn } from '../../registry/resolve.ts';
-import type { StageHandler } from '../../stages.ts';
+import type { TurnStage } from '../../schema.ts';
+import { runStage, type StageCallBag, type StageHandler } from '../../stages.ts';
 import { profileAllowsInject } from '../../stop.ts';
 import {
   executeRegisteredTool,
@@ -68,12 +69,6 @@ import type {
 } from '../../types.ts';
 import { prepareLiveInboundText } from '../live-inbound.ts';
 import { assertLiveIngress } from '../live-ingress.ts';
-import {
-  applyLiveStage,
-  isEmptyLiveAudio,
-  type LiveCycleState,
-  liveInjectTexts,
-} from './stages.ts';
 
 export type { LiveSession, SessionRequest };
 
@@ -81,6 +76,18 @@ export interface RunSessionOptions {
   gemini: GeminiTransport;
   /** Override socket open (Cloudflare fetch-upgrade, tests). Default: `new WebSocket(url)`. */
   openWebSocket?: (url: string) => Promise<WebSocket>;
+}
+
+/** Inject on live is realtime text ingress only: no tool role, no media parts. */
+function liveInjectTexts(messages: readonly TurnHistoryMessage[]): string[] {
+  const out: string[] = [];
+  for (const msg of messages) {
+    if (msg.role === 'tool') continue;
+    if (msg.parts?.length) continue;
+    const text = msg.content?.trim();
+    if (text) out.push(text);
+  }
+  return out;
 }
 
 function assertLiveProfile(profile: Profile): asserts profile is LiveProfile {
@@ -109,9 +116,9 @@ function sessionSnapshotWithinAllow(
     }
   }
   if (outside.size > 0) {
-    throw new TheorumError(
-      `Profile ${profile.id}: session snapshot declares tools outside tools.allow: ${[...outside].join(', ')}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    );
+    // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    const detail = `session snapshot declares tools outside tools.allow: ${[...outside].join(', ')}`;
+    throw new TheorumError(`Profile ${profile.id}: ${detail}`);
   }
   return cloneTurnToolSnapshot(snapshot);
 }
@@ -284,7 +291,7 @@ function buildLiveSession(args: {
   const includeMatch = resolveObservabilityPolicy(profile.observability).include
     .guardrailMatchPreview;
 
-  let cycle: LiveCycleState = 'idle';
+  let cycle: 'idle' | 'open' = 'idle';
   let cycleStep = 0;
   const history: TurnHistoryMessage[] = args.historySeed?.length
     ? (structuredClone(args.historySeed) as TurnHistoryMessage[])
@@ -364,26 +371,30 @@ function buildLiveSession(args: {
     connection.send(JSON.stringify(payload));
   };
 
-  const runStage = async (
-    stage: Parameters<typeof applyLiveStage>[0]['stage'],
-    extra?: Partial<Parameters<typeof applyLiveStage>[0]>,
+  const runCycleStage = async (
+    stage: TurnStage,
+    extra?: StageCallBag,
   ): Promise<{ abort?: boolean | { reason?: string }; injectTexts: string[] }> => {
-    const gen = applyLiveStage({
-      profile,
+    const gen = runStage({
+      ...extra,
       stage,
       step: Math.max(1, cycleStep),
       history,
-      onStage,
-      signal,
+      handlers: onStage ? [onStage] : [],
+      guardrails: profile.guardrails,
+      injectAllowed: profileAllowsInject(profile),
       host: sessionHost,
-      ...extra,
+      signal,
     });
     let result = await gen.next();
     while (!result.done) {
       enqueuePending(result.value);
       result = await gen.next();
     }
-    return result.value;
+    return {
+      abort: result.value.abort,
+      injectTexts: liveInjectTexts(result.value.inject),
+    };
   };
 
   const ingestPreparedLiveText = (text: string) => {
@@ -407,7 +418,7 @@ function buildLiveSession(args: {
     if (cycle === 'open') return { aborted: false };
     cycle = 'open';
     cycleStep += 1;
-    const pre = await runStage('pre_turn');
+    const pre = await runCycleStage('pre_turn');
     if (pre.abort) {
       const done: TurnEvent = {
         type: 'done',
@@ -415,7 +426,7 @@ function buildLiveSession(args: {
         interrupted: true,
       };
       enqueuePending(done);
-      await runStage('post_turn', { stop: { kind: 'cancelled' } });
+      await runCycleStage('post_turn', { stop: { kind: 'cancelled' } });
       cycle = 'idle';
       return { aborted: true };
     }
@@ -430,15 +441,12 @@ function buildLiveSession(args: {
       for (const ev of doneEvents) yield ev;
       return;
     }
-    const before = await runStage('before_end', {
+    const before = await runCycleStage('before_end', {
       stop: doneEvents.find((e) => e.type === 'done')?.stop,
     });
     if (before.abort) {
       yield { type: 'done', stop: { kind: 'cancelled' }, interrupted: true };
-      const post = await runStage('post_turn', { stop: { kind: 'cancelled' } });
-      if (post.injectTexts.length) {
-        // post_turn never injects — applyStageResult drops it; nothing to do.
-      }
+      await runCycleStage('post_turn', { stop: { kind: 'cancelled' } });
       cycle = 'idle';
       return;
     }
@@ -449,7 +457,7 @@ function buildLiveSession(args: {
       yield ev;
     }
     const terminal = doneEvents.find((e) => e.type === 'done');
-    await runStage('post_turn', { stop: terminal?.stop });
+    await runCycleStage('post_turn', { stop: terminal?.stop });
     cycle = 'idle';
   };
 
@@ -492,7 +500,8 @@ function buildLiveSession(args: {
           const completeBoundary =
             item.turnPhase === 'complete' || item.turnPhase === 'abort' || doneBatch.length > 0;
 
-          // Bare `turnComplete` often has no folded `done` — still end the live cycle.
+          // Boundary batches (`interactionStatus: IDLE`, or bare `turnComplete` when the
+          // provider sends no status) often have no folded `done` — still end the cycle.
           if (completeBoundary && cycle === 'open') {
             const boundaryDone = boundaryDoneEvents(doneBatch, item.turnPhase, interrupted);
             for await (const ev of endCycleAroundDone(boundaryDone)) {
@@ -518,7 +527,7 @@ function buildLiveSession(args: {
     },
     sendAudio(audio: { data: string; mimeType?: string }): Promise<void> {
       return withIngress(async () => {
-        if (isEmptyLiveAudio(audio.data)) return;
+        if (!audio.data) return;
         assertLiveIngress(profile, 'audio');
         const opened = await openCycleIfNeeded();
         if (opened.aborted) return;
@@ -575,6 +584,7 @@ function buildLiveSession(args: {
         snapshot,
         stages: {
           handlers,
+          profile,
           step: Math.max(1, cycleStep),
           history: () => history,
           injectAllowed: profileAllowsInject(profile),

@@ -152,6 +152,7 @@ export type {
   StageContext,
   StageEventExtra,
   StageHandler,
+  StageMutate,
   StageResult,
 } from './stages.ts';
 export {

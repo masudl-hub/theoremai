@@ -387,9 +387,9 @@ export async function resumeInterfaceTool(args: {
 		return { ok: false, error: 'No gated tool to resume.' };
 	}
 	if (args.action === 'deny') {
-		return resumeDeniedGatedTool({ ...args, gated });
+		return await resumeDeniedGatedTool({ ...args, gated });
 	}
-	return resumeAllowedGatedTool({ ...args, action: args.action, gated });
+	return await resumeAllowedGatedTool({ ...args, action: args.action, gated });
 }
 
 export function applyTurnResultToTranscript(args: {

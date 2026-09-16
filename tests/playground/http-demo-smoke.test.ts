@@ -134,24 +134,30 @@ Deno.test('travel concierge HTTP tools execute against live APIs', async () => {
 
   for (const name of names) {
     const input = SAMPLE_INPUT[name] ?? {};
-    const exec = executeRegisteredTool({
-      profile,
-      name,
-      input,
-      callId: `smoke-${name}`,
-      ctx: {},
-    });
     let ok = false;
     let detail = 'no events';
-    for await (const ev of exec) {
-      if (ev.type !== 'tool') continue;
-      if (ev.tool?.phase === 'complete') {
-        ok = true;
-        break;
+
+    for (let attempt = 0; attempt < 2 && !ok; attempt++) {
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, 1000));
       }
-      if (ev.tool?.phase === 'error' && ev.tool.failure) {
-        detail = `${ev.tool.failure.code}: ${ev.tool.failure.message}`;
-        break;
+      const exec = executeRegisteredTool({
+        profile,
+        name,
+        input,
+        callId: `smoke-${name}-${attempt}`,
+        ctx: {},
+      });
+      for await (const ev of exec) {
+        if (ev.type !== 'tool') continue;
+        if (ev.tool?.phase === 'complete') {
+          ok = true;
+          break;
+        }
+        if (ev.tool?.phase === 'error' && ev.tool.failure) {
+          detail = `${ev.tool.failure.code}: ${ev.tool.failure.message}`;
+          break;
+        }
       }
     }
     if (!ok) failures.push(`${name}: ${detail}`);

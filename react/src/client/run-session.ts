@@ -7,7 +7,7 @@ import {
 	gatedToolFromEvents,
 	type InterfaceTurnSession,
 	type TranscriptBlock,
-} from 'theorum/interface';
+} from '../../../src/interface/mod.ts';
 import type { ToolCredential } from 'theorum/kernel';
 import { lexiconText } from 'theorum';
 import { attachPreviewData, encodeFiles } from './encode-files';
@@ -59,7 +59,7 @@ export type StreamTurnSuccess = {
 
 type PreparedUserTurn = {
 	ok: true;
-	draft: import('theorum/interface').UserTurnDraft;
+	draft: import('../../../src/interface/mod.ts').UserTurnDraft;
 	blocks: TranscriptBlock[];
 };
 
@@ -173,7 +173,7 @@ export async function streamInterfaceDraftTurn(args: {
 	iface: ComposerProfileInterface;
 	payload: PlaygroundRunPayload;
 	session: InterfaceTurnSession;
-	draft: import('theorum/interface').UserTurnDraft;
+	draft: import('../../../src/interface/mod.ts').UserTurnDraft;
 	onStream: (blocks: TranscriptBlock[]) => void;
 	onUserBlocks?: (blocks: TranscriptBlock[]) => void;
 	signal?: AbortSignal;
@@ -190,11 +190,19 @@ export async function streamInterfaceDraftTurn(args: {
 		}
 
 		const encodedAttachments = prepared.draft.attachments
-			?.filter((a): a is typeof a & { data: string } => typeof a.data === 'string')
-			.map((a) => ({ name: a.name, mimeType: a.mimeType, data: a.data }));
+			?.filter((attachment) => typeof attachment.data === 'string')
+			.map((attachment) => ({
+				name: attachment.name,
+				mimeType: attachment.mimeType,
+				data: attachment.data as string,
+			}));
 		const encodedVoice = prepared.draft.voice
-			?.filter((a): a is typeof a & { data: string } => typeof a.data === 'string')
-			.map((a) => ({ name: a.name, mimeType: a.mimeType, data: a.data }));
+			?.filter((attachment) => typeof attachment.data === 'string')
+			.map((attachment) => ({
+				name: attachment.name,
+				mimeType: attachment.mimeType,
+				data: attachment.data as string,
+			}));
 
 		return await streamPreparedInterfaceTurn({
 			iface: args.iface,
@@ -229,12 +237,13 @@ async function resumeDeniedGatedTool(args: {
 		arguments: args.gated.arguments,
 	});
 	const seedEvents = args.session.assistantEvents.map((event) => {
-		const isGate = event.tool?.phase === 'gate' && event.tool.gate;
-		if (event.type !== 'tool' || !isGate) return event;
+		const tool = event.type === 'tool' ? event.tool : undefined;
+		if (!tool?.name || tool.phase !== 'gate' || !tool.gate) return event;
 		return {
 			type: 'tool' as const,
 			tool: {
-				...event.tool,
+				...tool,
+				name: tool.name,
 				phase: 'error' as const,
 				gate: undefined,
 				pause: undefined,
@@ -243,7 +252,7 @@ async function resumeDeniedGatedTool(args: {
 					message: lexiconText('session.tool_denied', { tool: args.gated.name }),
 				},
 			},
-		};
+		} as import('theorum').TurnEvent;
 	});
 	const session = {
 		...args.session,
@@ -333,6 +342,26 @@ async function resumeAllowedGatedTool(args: {
 					output: completedTool.tool.output,
 				}),
 			};
+		} else {
+			// The kernel emits one terminal tool event: no completion means the call failed or was denied.
+			const failedTool = invokeEvents.findLast(
+				(event) =>
+					event.type === 'tool' &&
+					event.tool?.name === args.gated.name &&
+					event.tool.phase === 'error' &&
+					event.tool.failure !== undefined,
+			);
+			if (failedTool?.tool?.failure) {
+				session = {
+					...session,
+					history: appendToolDenialToHistory(session.history, {
+						name: args.gated.name,
+						callId: args.gated.callId,
+						arguments: args.gated.arguments,
+						failure: failedTool.tool.failure,
+					}),
+				};
+			}
 		}
 
 		return await continueAfterTool({ ...args, session, seedEvents: invokeEvents });
@@ -341,7 +370,7 @@ async function resumeAllowedGatedTool(args: {
 	}
 }
 
-export function resumeInterfaceTool(args: {
+export async function resumeInterfaceTool(args: {
 	iface: ComposerProfileInterface;
 	payload: PlaygroundRunPayload;
 	session: InterfaceTurnSession;

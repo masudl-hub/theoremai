@@ -1,4 +1,4 @@
-import type { ComposerMenuAction } from 'theorum/interface';
+import type { ComposerMenuAction } from '../../../src/interface/mod.ts';
 
 /** Shared composer field / action callbacks for InterfaceComposer + InterfaceRunner. */
 export type ComposerFieldHandlers = {

@@ -6,6 +6,7 @@ import {
 	formatAttachmentSize,
 	resolveAttachPreviewStyle,
 } from '../client/attachment-hover-preview';
+import { voiceFormatLabel } from '../client/voice-label';
 import { InkWaveform } from './InkWaveform';
 import { VoiceNotePill } from './VoiceNotePill';
 
@@ -18,7 +19,7 @@ export type ComposerAttachmentItem = {
 };
 
 export type ComposerAttachmentsRowProps = {
-	items?: ComposerAttachmentItem[];
+	items?: readonly ComposerAttachmentItem[];
 	recording?: boolean;
 	inputLevel?: number;
 	onRemove?: (id: string) => void;
@@ -26,17 +27,6 @@ export type ComposerAttachmentsRowProps = {
 
 function isImage(file: File): boolean {
 	return file.type.startsWith('image/');
-}
-
-function voiceFormatLabel(file: File): string {
-	const mime = file.type.toLowerCase();
-	if (mime.includes('webm')) return 'voice.webm';
-	if (mime.includes('wav')) return 'voice.wav';
-	if (mime.includes('mpeg') || mime.includes('mp3')) return 'voice.mp3';
-	if (mime.includes('mp4') || mime.includes('m4a') || mime.includes('aac')) return 'voice.m4a';
-	if (mime.includes('ogg')) return 'voice.ogg';
-	const ext = file.name.includes('.') ? file.name.split('.').pop()?.toLowerCase() : undefined;
-	return ext ? `voice.${ext}` : 'voice.audio';
 }
 
 function labelFor(item: ComposerAttachmentItem): string {

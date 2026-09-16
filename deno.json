@@ -25,8 +25,7 @@
     "./host": "./src/host/mod.ts",
     "./cli": "./src/cli/index.ts",
     "./presets": "./src/presets/mod.ts",
-    "./presets/google": "./src/presets/google.ts",
-    "./interface": "./src/interface/mod.ts"
+		"./presets/google": "./src/presets/google.ts"
   },
   "publish": {
     "exclude": [
@@ -52,7 +51,9 @@
       "npm/",
       "playground/",
       "package-lock.json",
-      "scripts/",
+		"scripts/",
+		"react/",
+		"src/interface/",
       "sgconfig.yml",
       "src/**/*.md",
       "tests/"
@@ -66,7 +67,6 @@
     "@std/assert": "jsr:@std/assert@^1.0.0",
     "@deno/dnt": "jsr:@deno/dnt@0.43.2",
     "theorum": "./mod.ts",
-    "theorum/interface": "./src/interface/mod.ts",
     "theorum/kernel": "./src/kernel/mod.ts",
     "theorum/schema": "./src/kernel/schema.ts"
   },

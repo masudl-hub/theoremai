@@ -1,10 +1,10 @@
 /** Hover-card geometry for composer attachment pills (model-sculpt agent_chat parity). */
 
-export const ATTACH_PREVIEW_WIDTH_PX = 240;
-export const ATTACH_PREVIEW_OFFSET_PX = 6;
-export const ATTACH_PREVIEW_VIEWPORT_PAD_PX = 8;
+const ATTACH_PREVIEW_WIDTH_PX = 240;
+const ATTACH_PREVIEW_OFFSET_PX = 6;
+const ATTACH_PREVIEW_VIEWPORT_PAD_PX = 8;
 /** Prefer anchoring above the chip when this much space exists. */
-export const ATTACH_PREVIEW_ABOVE_THRESHOLD_PX = 190;
+const ATTACH_PREVIEW_ABOVE_THRESHOLD_PX = 190;
 
 export type AttachPreviewStyle = {
 	left: number;
@@ -19,7 +19,7 @@ export function formatAttachmentSize(bytes?: number): string {
 	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function clampAttachPreviewLeft(anchorLeft: number, viewportWidth: number): number {
+function clampAttachPreviewLeft(anchorLeft: number, viewportWidth: number): number {
 	const maxLeft = Math.max(
 		ATTACH_PREVIEW_VIEWPORT_PAD_PX,
 		viewportWidth - ATTACH_PREVIEW_WIDTH_PX - ATTACH_PREVIEW_VIEWPORT_PAD_PX,

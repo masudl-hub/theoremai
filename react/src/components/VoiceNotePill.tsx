@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { voiceLabelFromMime } from '../client/voice-label';
 import { InkWaveform } from './InkWaveform';
 
 export type VoiceNotePillProps = {
@@ -6,16 +7,6 @@ export type VoiceNotePillProps = {
 	mimeType?: string;
 	label?: string;
 };
-
-function voiceLabelFromMime(mime: string): string {
-	const lower = mime.toLowerCase();
-	if (lower.includes('webm')) return 'voice.webm';
-	if (lower.includes('wav')) return 'voice.wav';
-	if (lower.includes('mpeg') || lower.includes('mp3')) return 'voice.mp3';
-	if (lower.includes('mp4') || lower.includes('m4a') || lower.includes('aac')) return 'voice.m4a';
-	if (lower.includes('ogg')) return 'voice.ogg';
-	return 'voice note';
-}
 
 export function VoiceNotePill({ src, mimeType = 'audio/webm', label }: VoiceNotePillProps) {
 	const audioRef = useRef<HTMLAudioElement | null>(null);

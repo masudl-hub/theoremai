@@ -1,6 +1,6 @@
 # `@theorum/react`
 
-React projection of `theorum/interface` — runners, transcript, composer, live stage.
+React projection of the repo-private headless interface (`src/interface/`) — runners, transcript, composer, live stage.
 
 Lives next to the kernel at `theorum/react/` so React apps depend on:
 
@@ -40,7 +40,7 @@ Development/
 
 ## Composer pending intents
 
-`theorum/interface` owns stash / queue / steer list ops and the action matrix.
+`src/interface/` owns stash / queue / steer list ops and the action matrix.
 This package wires AbortSignal, the pending bar, and playground turn/steer HTTP.
 
 | Phase | Empty composer | Filled composer |

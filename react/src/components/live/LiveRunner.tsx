@@ -1,4 +1,4 @@
-import type { LiveProfileInterface } from 'theorum/interface';
+import type { LiveProfileInterface } from '../../../../src/interface/mod.ts';
 import type { PlaygroundRunPayload } from '../../client/run-payload';
 import { LiveStage } from './LiveStage';
 import { LiveToolGatePanel } from './LiveToolGatePanel';

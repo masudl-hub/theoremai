@@ -1,4 +1,4 @@
-import type { PendingAttachment, TranscriptBlock } from 'theorum/interface';
+import type { PendingAttachment, TranscriptBlock } from '../../../src/interface/mod.ts';
 
 export function filesToPending(files: readonly File[]): PendingAttachment[] {
 	return files.map((file) => ({

@@ -10,7 +10,7 @@ import {
 	promoteComposerPendingKind,
 	type InterfaceTurnSession,
 	type TranscriptBlock,
-} from 'theorum/interface';
+} from '../../src/interface/mod.ts';
 import {
 	applyTurnResultToTranscript,
 	loadPlaygroundRunPayload,

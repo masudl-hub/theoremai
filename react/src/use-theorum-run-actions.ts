@@ -6,7 +6,7 @@ import type {
 	ComposerRunPhase,
 	InterfaceTurnSession,
 	TranscriptBlock,
-} from 'theorum/interface';
+} from '../../src/interface/mod.ts';
 import {
 	convertSteersToFrontQueued,
 	createComposerPendingMessage,
@@ -14,7 +14,7 @@ import {
 	removeComposerPendingMessage,
 	userDraftHasPayload,
 	userDraftToSteerInject,
-} from 'theorum/interface';
+} from '../../src/interface/mod.ts';
 import type { ToolCredential } from 'theorum/kernel';
 import {
 	abandonGatedInterfaceTool,

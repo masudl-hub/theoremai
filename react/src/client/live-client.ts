@@ -15,7 +15,14 @@
 import type { TurnEvent } from 'theorum';
 import { float32Rms, float32RmsToLevel, timeDomainBytesToLevel } from './audio-level';
 import { isPermissionDeniedError } from './live-errors';
+import {
+	applyLiveToolTurnEvent,
+	liveTranscriptFromEvidence,
+	shouldForwardMicFrame,
+} from './live/live-mic-forward';
 import { type LiveServerEnvelope, parseLiveServerEnvelope } from './live-messages';
+import { base64ToBytes, bytesToBase64 } from '../../../src/providers/shared/pcm.ts';
+import { downsampleAndConvertToInt16, pcm16BytesToFloat32 } from './pcm-downsample';
 import micCaptureWorkletUrl from './mic-capture.worklet?worker&url';
 
 type LiveToolCall = {
@@ -50,7 +57,13 @@ function emptyInboundTurnAccum(): InboundTurnAccum {
 const BARGE_IN_RMS_WHILE_SPEAKING = 0.05;
 
 export type LiveSessionStatus =
-	'disconnected' | 'connecting' | 'ready' | 'listening' | 'speaking' | 'error';
+	| 'disconnected'
+	| 'connecting'
+	| 'ready'
+	| 'listening'
+	| 'speaking'
+	| 'working'
+	| 'error';
 
 export type LiveConnectPhase = 'socket' | 'microphone';
 
@@ -76,60 +89,6 @@ export interface LiveClientOptions {
 	onVolumeLevel?: (level: number, isUser: boolean) => void;
 }
 
-/** Decode base64 ASCII string to raw byte array. */
-function base64ToBytes(data: string): Uint8Array {
-	const bin = atob(data);
-	const out = new Uint8Array(bin.length);
-	for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-	return out;
-}
-
-/** Encode raw byte array to base64 ASCII string. */
-function bytesToBase64(bytes: Uint8Array): string {
-	let bin = '';
-	for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-	return btoa(bin);
-}
-
-/** Resample Float32 audio buffer from inputRate to 16000Hz and convert to Int16 PCM. */
-function downsampleAndConvertToInt16(
-	inputData: Float32Array,
-	inputRate: number,
-	outputRate = 16000,
-): Int16Array {
-	if (inputRate === outputRate) {
-		const result = new Int16Array(inputData.length);
-		for (let i = 0; i < inputData.length; i++) {
-			const val = inputData[i] ?? 0;
-			const s = Math.max(-1, Math.min(1, val));
-			result[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
-		}
-		return result;
-	}
-
-	const ratio = inputRate / outputRate;
-	const newLength = Math.round(inputData.length / ratio);
-	const result = new Int16Array(newLength);
-	let offsetResult = 0;
-	let offsetInput = 0;
-
-	while (offsetResult < result.length) {
-		const nextOffsetInput = Math.round((offsetResult + 1) * ratio);
-		let accum = 0;
-		let count = 0;
-		for (let i = offsetInput; i < nextOffsetInput && i < inputData.length; i++) {
-			accum += inputData[i] ?? 0;
-			count++;
-		}
-		const sample = count > 0 ? accum / count : 0;
-		const s = Math.max(-1, Math.min(1, sample));
-		result[offsetResult] = s < 0 ? s * 0x8000 : s * 0x7fff;
-		offsetResult++;
-		offsetInput = nextOffsetInput;
-	}
-	return result;
-}
-
 export class LiveSessionClient {
 	private ws: WebSocket | null = null;
 	private audioContext: AudioContext | null = null;
@@ -141,9 +100,11 @@ export class LiveSessionClient {
 	private playbackBus: GainNode | null = null;
 	private playbackAnalyser: AnalyserNode | null = null;
 	private playbackMeterFrame = 0;
-	private playbackMeterBuffer: Uint8Array | null = null;
+	private playbackMeterBuffer: Uint8Array<ArrayBuffer> | null = null;
 	private nextPlaybackTime = 0;
 	private status: LiveSessionStatus = 'disconnected';
+	/** Server reported background work (reasoning / async tools) still in flight. */
+	private serverWorking = false;
 	private micActivating = false;
 	private connectTimeout: ReturnType<typeof setTimeout> | null = null;
 	private isMuted = false;
@@ -165,10 +126,6 @@ export class LiveSessionClient {
 
 	constructor(options: LiveClientOptions = {}) {
 		this.options = options;
-	}
-
-	getLiveSessionId(): string | undefined {
-		return this.sessionId;
 	}
 
 	private setStatus(newStatus: LiveSessionStatus): void {
@@ -219,6 +176,7 @@ export class LiveSessionClient {
 		this.setStatus('error');
 	}
 
+	// fallow-ignore-next-line unused-class-member -- called from useLiveRunnerControls via client refs
 	public async connect(): Promise<void> {
 		this.teardownConnection();
 		this.setStatus('connecting');
@@ -321,21 +279,25 @@ export class LiveSessionClient {
 				this.options.onVolumeLevel?.(float32RmsToLevel(inputFloat32), true);
 			}
 
-			if (this.isMuted || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
-				return;
-			}
-
-			const sampleRate = this.audioContext?.sampleRate ?? 48000;
-			const rms = float32Rms(inputFloat32);
-
-			// Hold back quiet mic frames during model playback so speaker bleed does not
-			// trip START_OF_ACTIVITY_INTERRUPTS. Loud user speech still passes for barge-in.
-			const modelPlaying = this.playbackNodes.length > 0 || this.status === 'speaking';
-			if (modelPlaying && rms < BARGE_IN_RMS_WHILE_SPEAKING) return;
+				const sampleRate = this.audioContext?.sampleRate ?? 48000;
+				const rms = float32Rms(inputFloat32);
+				const modelPlaying = this.playbackNodes.length > 0 || this.status === 'speaking';
+				if (
+					!shouldForwardMicFrame({
+						isMuted: this.isMuted,
+						socketOpen: this.ws?.readyState === WebSocket.OPEN,
+						modelPlaying,
+						rms,
+						bargeInRmsWhileSpeaking: BARGE_IN_RMS_WHILE_SPEAKING,
+					})
+				) return;
 
 			const pcm16 = downsampleAndConvertToInt16(inputFloat32, sampleRate, 16000);
 			const base64 = bytesToBase64(new Uint8Array(pcm16.buffer));
-			this.ws.send(JSON.stringify({ type: 'audio', data: base64 }));
+			const socket = this.ws;
+			if (socket?.readyState === WebSocket.OPEN) {
+				socket.send(JSON.stringify({ type: 'audio', data: base64 }));
+			}
 		};
 
 		if (!this.micWorkletModuleLoaded) {
@@ -483,21 +445,36 @@ export class LiveSessionClient {
 
 	private handleEvidenceTurnEvent(event: TurnEvent): void {
 		if (event.type !== 'evidence' || !event.text) return;
-		const interim = event.evidence?.interim === true;
-		const kind = event.evidence?.kind;
-		if (kind === 'input_transcription') {
-			this.options.onTranscript?.(event.text, true, { interim });
-			return;
-		}
-		if (kind === 'output_transcription') {
-			this.options.onTranscript?.(event.text, false, { interim });
-		}
+		const transcript = liveTranscriptFromEvidence({
+			kind: event.evidence?.kind,
+			text: event.text,
+			interim: event.evidence?.interim,
+		});
+		if (transcript) this.options.onTranscript?.(transcript.text, transcript.isUser, { interim: transcript.interim });
 	}
 
 	private handleSessionTurnEvent(event: TurnEvent): void {
-		if (event.type === 'session' && event.session?.kind === 'closing_soon') {
-			this.options.onSessionClosing?.(event.session.timeLeftMs);
+		if (event.type !== 'session' || !event.session) return;
+		switch (event.session.kind) {
+			case 'closing_soon':
+				this.options.onSessionClosing?.(event.session.timeLeftMs);
+				return;
+			case 'working':
+				this.serverWorking = true;
+				if (this.status === 'listening') this.setStatus('working');
+				return;
+			case 'idle':
+				this.serverWorking = false;
+				if (this.status === 'working') this.setStatus('listening');
+				return;
+			default:
+				return;
 		}
+	}
+
+	/** Status to settle into once model speech stops. */
+	private restingStatus(): LiveSessionStatus {
+		return this.serverWorking ? 'working' : 'listening';
 	}
 
 	private collectMediaTurnEvent(event: TurnEvent, accum: InboundTurnAccum): void {
@@ -511,20 +488,7 @@ export class LiveSessionClient {
 
 	private collectToolTurnEvent(event: TurnEvent, accum: InboundTurnAccum): void {
 		if (event.type !== 'tool' || !event.tool) return;
-		const tool = event.tool;
-		if (tool.phase === 'cancel') {
-			if (tool.id) accum.cancelledToolIds.add(tool.id);
-			return;
-		}
-		if (!tool.name) return;
-		const failure =
-			tool.phase === 'error' && tool.failure?.message ? tool.failure.message : undefined;
-		accum.toolCalls.push({
-			id: tool.id ?? '',
-			name: tool.name,
-			arguments: tool.arguments ?? {},
-			error: failure,
-		});
+		applyLiveToolTurnEvent(event.tool, accum);
 	}
 
 	private handleDoneTurnEvent(event: TurnEvent): void {
@@ -533,6 +497,7 @@ export class LiveSessionClient {
 			this.cancelPlayback();
 		}
 		if (event.stop?.kind !== 'generation_complete') {
+			this.serverWorking = false;
 			this.setStatus('listening');
 		}
 	}
@@ -640,17 +605,6 @@ export class LiveSessionClient {
 		return resultPromise;
 	}
 
-	/**
-	 * Escape hatch: send tool output upstream without `executeTool` stages.
-	 * Use after a UI deny (or similar) when the call was gated and never started.
-	 */
-	sendToolResponses(responses: Array<{ id: string; name: string; output: unknown }>): void {
-		if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-			throw new Error('Live session is not connected');
-		}
-		this.ws.send(JSON.stringify({ type: 'toolResponses', responses }));
-	}
-
 	private async enqueueAudioChunk(base64Data: string, mimeType?: string): Promise<void> {
 		if (!this.audioContext) return;
 
@@ -661,17 +615,12 @@ export class LiveSessionClient {
 			const bytes = base64ToBytes(base64Data);
 			let audioBuffer: AudioBuffer;
 
-			if (mimeType?.includes('wav')) {
-				const wavBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-				audioBuffer = await this.audioContext.decodeAudioData(wavBuffer as ArrayBuffer);
-			} else {
-				// Raw PCM 24kHz 1-channel 16-bit LE
-				const int16 = new Int16Array(bytes.buffer);
-				const float32 = new Float32Array(int16.length);
-				for (let i = 0; i < int16.length; i++) {
-					const sample = int16[i] ?? 0;
-					float32[i] = sample / (sample < 0 ? 0x8000 : 0x7fff);
-				}
+				if (mimeType?.includes('wav')) {
+					const wavBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+					audioBuffer = await this.audioContext.decodeAudioData(wavBuffer as ArrayBuffer);
+				} else {
+					// Raw PCM 24kHz 1-channel 16-bit LE
+					const float32 = pcm16BytesToFloat32(bytes);
 				audioBuffer = this.audioContext.createBuffer(1, float32.length, 24000);
 				audioBuffer.getChannelData(0).set(float32);
 			}
@@ -694,7 +643,7 @@ export class LiveSessionClient {
 				if (this.playbackNodes.length === 0) {
 					this.stopPlaybackMeter();
 					if (this.status === 'speaking') {
-						this.setStatus('listening');
+						this.setStatus(this.restingStatus());
 					}
 				}
 			};
@@ -721,23 +670,27 @@ export class LiveSessionClient {
 		}
 	}
 
+	// fallow-ignore-next-line unused-class-member -- called from useLiveRunnerControls via client refs
 	public toggleMute(): boolean {
 		this.isMuted = !this.isMuted;
 		return this.isMuted;
 	}
 
+	// fallow-ignore-next-line unused-class-member -- called from useLiveRunnerControls via client refs
 	public sendText(text: string): void {
 		if (this.ws && this.ws.readyState === WebSocket.OPEN) {
 			this.ws.send(JSON.stringify({ type: 'text', text }));
 		}
 	}
 
+	// fallow-ignore-next-line unused-class-member -- called from useLiveRunnerControls via client refs
 	public sendVideo(data: string, mimeType = 'image/jpeg'): void {
 		if (this.ws && this.ws.readyState === WebSocket.OPEN) {
 			this.ws.send(JSON.stringify({ type: 'video', data, mimeType }));
 		}
 	}
 
+	// fallow-ignore-next-line unused-class-member -- called from useLiveSessionClient teardown
 	public disconnect(): void {
 		this.teardownConnection();
 		this.setStatus('disconnected');

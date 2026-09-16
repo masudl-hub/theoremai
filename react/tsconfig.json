@@ -11,8 +11,7 @@
 		"isolatedModules": true,
 		"resolveJsonModule": true,
 		"allowImportingTsExtensions": true,
-		"rewriteRelativeImportExtensions": true,
-		"types": ["vite/client"]
+		"rewriteRelativeImportExtensions": true
 	},
 	"include": ["src/**/*.ts", "src/**/*.tsx"]
 }

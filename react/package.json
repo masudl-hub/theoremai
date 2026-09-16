@@ -3,7 +3,7 @@
 	"version": "0.0.1",
 	"private": true,
 	"type": "module",
-	"description": "React projection of theorum/interface — runners, transcript, composer, live stage.",
+	"description": "React projection of theorum src/interface — runners, transcript, composer, live stage.",
 	"exports": {
 		".": "./src/index.ts",
 		"./client": "./src/client/index.ts",

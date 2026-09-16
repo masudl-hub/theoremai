@@ -1,4 +1,4 @@
-import type { TranscriptBlock } from 'theorum/interface';
+import type { TranscriptBlock } from '../../../src/interface/mod.ts';
 
 /** Plain text copied from a transcript block. */
 export function transcriptBlockCopyText(block: TranscriptBlock): string {

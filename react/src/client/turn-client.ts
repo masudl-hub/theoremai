@@ -1,4 +1,4 @@
-import type { TurnEvent, TurnHistoryMessage, UserTurnDraft } from 'theorum';
+import type { TurnEvent, TurnHistoryMessage } from 'theorum';
 import {
 	type ComposerProfileInterface,
 	foldTurnEvents,
@@ -6,7 +6,8 @@ import {
 	prepareUserTurn,
 	streamThoughtsEnabled,
 	type TranscriptBlock,
-} from 'theorum/interface';
+	type UserTurnDraft,
+} from '../../../src/interface/mod.ts';
 import type { ToolCredential, TurnToolSnapshot } from 'theorum/kernel';
 import { attachmentIssueText } from './attachment-issues';
 import { filesToPending } from './encode-files';
@@ -49,6 +50,14 @@ export type InvokeRequestBody = {
 	path?: string;
 };
 
+type ModelProfileDefinition = Extract<PlaygroundRunPayload['profile'], { models: unknown }>;
+
+function modelProfile(
+	profile: PlaygroundRunPayload['profile'],
+): ModelProfileDefinition | null {
+	return 'models' in profile ? profile : null;
+}
+
 export function turnInputFromSession(
 	session: InterfaceTurnSession,
 	overrides: TurnRequestBody['input'] = {},
@@ -67,8 +76,9 @@ export function buildTurnRequestBody(
 	input: TurnRequestBody['input'],
 	options: { turnId?: string } = {},
 ): TurnRequestBody {
+	const profile = modelProfile(payload.profile);
 	const modelId = resolveTurnModelId(payload, session);
-	const model = payload.profile.allowModelSelect ? modelId : undefined;
+	const model = profile?.allowModelSelect ? modelId : undefined;
 	const effort = resolveTurnEffort(payload, session, modelId);
 	return {
 		profile: payload.profile,
@@ -89,7 +99,9 @@ function resolveTurnEffort(
 	modelId: string | undefined,
 ): string | undefined {
 	if (!modelId) return undefined;
-	const models = payload.profile.models;
+	const profile = modelProfile(payload.profile);
+	if (!profile) return undefined;
+	const models = profile.models;
 	if (!Object.hasOwn(models, modelId)) return undefined;
 	const binding = models[modelId];
 	if (!binding.allowEffortSelect) return undefined;
@@ -100,16 +112,18 @@ function resolveTurnModelId(
 	payload: PlaygroundRunPayload,
 	session: InterfaceTurnSession,
 ): string | undefined {
-	return (
-		session.selectedModel ?? payload.profile.defaultModel ?? Object.keys(payload.profile.models)[0]
-	);
+	const profile = modelProfile(payload.profile);
+	return profile
+		? session.selectedModel ?? profile.defaultModel ?? Object.keys(profile.models)[0]
+		: undefined;
 }
 
 function resolveTurnModel(
 	payload: PlaygroundRunPayload,
 	session: InterfaceTurnSession,
 ): string | undefined {
-	if (!payload.profile.allowModelSelect) return undefined;
+	const profile = modelProfile(payload.profile);
+	if (!profile?.allowModelSelect) return undefined;
 	return resolveTurnModelId(payload, session);
 }
 

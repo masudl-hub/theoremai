@@ -3,7 +3,7 @@ import type {
 	ComposerProfileInterface,
 	ComposerRunPhase,
 	TranscriptBlock,
-} from 'theorum/interface';
+} from '../../../src/interface/mod.ts';
 import type { ToolCredential } from 'theorum/kernel';
 import '../styles/interface-runner.css';
 import type { ComposerFieldHandlers } from './composer-field-handlers';

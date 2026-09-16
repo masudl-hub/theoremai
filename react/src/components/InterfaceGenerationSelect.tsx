@@ -9,7 +9,7 @@ import {
 	interfaceEffortOptions,
 	interfaceModelOptions,
 	modelSelectEnabled,
-} from 'theorum/interface';
+} from '../../../src/interface/mod.ts';
 
 export type InterfaceGenerationSelectProps = {
 	iface: ComposerProfileInterface;

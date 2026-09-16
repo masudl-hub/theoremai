@@ -7,7 +7,7 @@ import {
 	IconPlayerStop,
 	IconSend,
 } from '@tabler/icons-react';
-import type { ComposerMenuAction, ComposerPrimaryAction } from 'theorum/interface';
+import type { ComposerMenuAction, ComposerPrimaryAction } from '../../../src/interface/mod.ts';
 import {
 	COMPOSER_MENU_ACTION_DESCRIPTIONS,
 	COMPOSER_MENU_ACTION_LABELS,

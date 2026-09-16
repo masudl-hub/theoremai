@@ -1,6 +1,6 @@
 import type { PlaygroundRunPayload } from '../run-payload';
 
-export async function postPlaygroundJson<T>(
+async function postPlaygroundJson<T>(
 	url: string,
 	body: unknown,
 	failureLabel: string,

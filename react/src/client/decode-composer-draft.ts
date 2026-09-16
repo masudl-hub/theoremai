@@ -2,7 +2,7 @@
  * Restore composer fields from a serializable pending `UserTurnDraft`.
  */
 
-import type { UserTurnDraft } from 'theorum/interface';
+import type { UserTurnDraft } from '../../../src/interface/mod.ts';
 import { pendingAttachmentsToFiles } from './encode-files.ts';
 
 export type ComposerDraftFields = {

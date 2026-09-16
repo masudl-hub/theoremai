@@ -40,9 +40,10 @@ Hosts override process-wide with `overrideLexicon({ … })`.
 
 ## Composer labels are semantic keys
 
-`theorum/interface` emits `ComposerPrimaryAction` / `ComposerMenuAction` keys
-only (`send` / `stop` / `queue` / …). English labels live in `@theorum/react`
-(`COMPOSER_PRIMARY_LABELS`, `COMPOSER_MENU_ACTION_LABELS`).
+The repo-private `src/interface/` layer emits `ComposerPrimaryAction` /
+`ComposerMenuAction` keys only (`send` / `stop` / `queue` / …). English labels
+live in the repo-private React package (`COMPOSER_PRIMARY_LABELS`,
+`COMPOSER_MENU_ACTION_LABELS`). Neither surface is published for now.
 
 ## Attachment validation is structured
 

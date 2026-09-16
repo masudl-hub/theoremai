@@ -71,8 +71,11 @@ owned by those contracts for freshness — change code, update the matching cont
 | --- | --- |
 | `npm run lint` | Runs `lint:docs` first, then biome / ast-grep / fallow |
 | `deno task lint` | Same as `npm run lint` |
-| CI | `npm run lint:docs` with `THEORUM_DOCS_BASE=origin/<base>` |
-| Pre-commit | `npm run lint:docs` (auto-installed by `prepare` on `npm install`) |
+| CI | `lint:docs` (with `THEORUM_DOCS_BASE`), `deno lint`, then `lint:biome` + `lint:ast-grep` + `lint:fallow` (`FALLOW_AUDIT_BASE=origin/<base>`) |
+| Pre-commit | `npm run lint:docs` (auto-installed by `prepare` / `hooks:install`) |
+| Pre-push | `fallow audit --base main` (uses `coverage/coverage-final.json` when present) |
+
+`lint:fallow` runs Istanbul coverage, then `fallow audit --base $FALLOW_AUDIT_BASE` (default `main`), then full-tree `health` / `dupes` / `dead-code`. No threshold waivers.
 
 Fallow: `docs/_map.mjs` is listed under `dynamicallyLoaded` in `.fallowrc.jsonc`
 (docs-truth imports it at runtime; static analysis cannot see the edge).

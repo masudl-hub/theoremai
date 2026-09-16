@@ -20,6 +20,7 @@ const ARTIFACT_DIRS = [
   'ast-grep-rules',
   'docs',
   'playground',
+  'react',
 ] as const;
 
 const ARTIFACT_FILES = [
@@ -97,6 +98,46 @@ async function assertNpmPackageFilesOmitRepoDocs(): Promise<void> {
   const npmignore = await Deno.readTextFile(`${root}/.npmignore`).catch(() => '');
   if (!npmignore.includes('docs/') || !npmignore.includes('src/**/*.md')) {
     throw new Error('.npmignore must exclude docs/ and src/**/*.md from the npm tarball');
+  }
+  if (!npmignore.includes('react/') || !npmignore.includes('src/interface/')) {
+    throw new Error(
+      '.npmignore must exclude repo-private react/ and src/interface/ from the npm tarball',
+    );
+  }
+}
+
+async function assertNoFrontendOrInterfaceInBundles(): Promise<void> {
+  const packageConfig = JSON.parse(await Deno.readTextFile(`${root}/package.json`)) as {
+    exports?: Record<string, unknown>;
+    files?: string[];
+  };
+  const denoConfig = JSON.parse(await Deno.readTextFile(`${root}/deno.json`)) as {
+    exports?: Record<string, unknown>;
+    publish?: { exclude?: string[] };
+  };
+  if (Object.keys(packageConfig.exports ?? {}).includes('./interface')) {
+    throw new Error('package.json must not publish the repo-private ./interface entrypoint');
+  }
+  if (Object.keys(denoConfig.exports ?? {}).includes('./interface')) {
+    throw new Error('deno.json must not publish the repo-private ./interface entrypoint');
+  }
+  if (
+    (packageConfig.files ?? []).some((file) => file === 'react/' || file.includes('src/interface'))
+  ) {
+    throw new Error('package.json files must not include repo-private frontend or interface paths');
+  }
+  const excluded = new Set(denoConfig.publish?.exclude ?? []);
+  for (const path of ['react/', 'src/interface/']) {
+    if (!excluded.has(path)) throw new Error(`deno.json publish.exclude must include ${path}`);
+  }
+  if (await exists(`${root}/npm`)) {
+    for await (const file of walkFiles(`${root}/npm`)) {
+      if (file.includes('/react/') || file.includes('/interface/')) {
+        throw new Error(
+          `npm build output must not contain repo-private frontend/interface files: ${file}`,
+        );
+      }
+    }
   }
 }
 
@@ -244,6 +285,7 @@ async function main(): Promise<void> {
   const exclude = await readPublishExclude();
   assertPublishExcludeCoversArtifacts(exclude);
   await assertNpmPackageFilesOmitRepoDocs();
+  await assertNoFrontendOrInterfaceInBundles();
   await assertNoPlaygroundInBundles();
   await assertNoExportedInternals();
   await assertPublicEntrypointsOmitTestHooks();

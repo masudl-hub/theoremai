@@ -14,7 +14,7 @@ export function float32RmsToLevel(samples: Float32Array): number {
 	return Math.min(1, float32Rms(samples) * INPUT_LEVEL_GAIN);
 }
 
-export function timeDomainBytesToLevel(samples: Uint8Array): number {
+export function timeDomainBytesToLevel(samples: Uint8Array<ArrayBufferLike>): number {
 	let sum = 0;
 	for (const sample of samples) {
 		const normalized = (sample - 128) / 128;

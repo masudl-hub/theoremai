@@ -7,8 +7,10 @@ import {
 	emptyInterfaceTurnSession,
 	type InterfaceTurnSession,
 	interfaceFromProfile,
+	type ComposerProfileInterface,
+	type LiveProfileInterface,
 	type TranscriptBlock,
-} from 'theorum/interface';
+} from '../../src/interface/mod.ts';
 import type { PlaygroundRunPayload } from './client/index';
 
 type SetSession = (
@@ -155,12 +157,12 @@ export function useTheorumRunBootstrap(args: {
 
 	const iface = useMemo(() => {
 		if (!args.payload || args.payload.profile.type === 'live') return null;
-		return interfaceFromProfile(defineProfile(args.payload.profile));
+		return interfaceFromProfile(defineProfile(args.payload.profile)) as ComposerProfileInterface;
 	}, [args.payload]);
 
 	const liveIface = useMemo(() => {
 		if (args.payload?.profile.type !== 'live') return null;
-		return interfaceFromProfile(defineProfile(args.payload.profile));
+		return interfaceFromProfile(defineProfile(args.payload.profile)) as LiveProfileInterface;
 	}, [args.payload]);
 
 	const titleHandle = useMemo(() => {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { TranscriptBlock } from 'theorum/interface';
+import type { TranscriptBlock } from '../../../src/interface/mod.ts';
 import type { ToolCredential } from 'theorum/kernel';
 import { groupTranscriptBlocks } from '../client/transcript-groups';
 import { resolveScrollToBottomScrollTop } from '../client/transcript-scroll';

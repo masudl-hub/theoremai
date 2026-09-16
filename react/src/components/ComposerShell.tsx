@@ -1,6 +1,6 @@
 import { IconPlus } from '@tabler/icons-react';
 import type { ChangeEvent, KeyboardEvent, ReactNode, RefObject } from 'react';
-import type { ProfileInputsInterface } from 'theorum/interface';
+import type { ProfileInputsInterface } from '../../../src/interface/mod.ts';
 import type { ComposerAttachmentItem } from './ComposerAttachmentsRow';
 import { ComposerAttachmentsRow } from './ComposerAttachmentsRow';
 

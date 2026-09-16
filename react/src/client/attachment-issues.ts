@@ -5,7 +5,7 @@
  */
 
 import { type LexiconKey, lexiconText } from 'theorum';
-import type { AttachmentValidationIssue } from 'theorum/interface';
+import type { AttachmentValidationIssue } from '../../../src/interface/mod.ts';
 
 const ISSUE_LEXICON: Record<AttachmentValidationIssue['code'], LexiconKey> = {
 	mime_not_allowed: 'attachments.mime_not_allowed',

@@ -8,7 +8,7 @@ import {
 	gatedToolFromEvents,
 	type TranscriptBlock,
 	type UserTurnHistoryMedia,
-} from 'theorum/interface';
+} from '../../../src/interface/mod.ts';
 import type { PlaygroundRunPayload } from './run-payload';
 import {
 	buildTurnRequestBody,

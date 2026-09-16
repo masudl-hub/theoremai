@@ -6,7 +6,7 @@ import {
 	resolveComposerMenuActions,
 	resolveComposerPrimary,
 	userDraftHasPayload,
-} from 'theorum/interface';
+} from '../../../src/interface/mod.ts';
 import { stageComposerFiles } from '../client/composer-attachments';
 import { isComposerExpanded } from '../client/composer-layout';
 import { ComposerActionBar } from './ComposerActionBar';

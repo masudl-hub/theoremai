@@ -4,7 +4,7 @@ import { LiveRunner } from './components/live/LiveRunner';
 import {
 	moveComposerPendingWithinKind,
 	removeComposerPendingMessage,
-} from 'theorum/interface';
+} from '../../src/interface/mod.ts';
 import type { useTheorumRunAppModel } from './use-theorum-run-app-model';
 
 export type RunModel = ReturnType<typeof useTheorumRunAppModel>;

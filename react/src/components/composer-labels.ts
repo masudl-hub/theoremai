@@ -1,12 +1,12 @@
 /**
  * English rendering of the headless composer's semantic action keys.
  *
- * `theorum/interface` emits keys only (`send` / `stop` / `queue` / `steer` /
+ * Headless interface emits keys only (`send` / `stop` / `queue` / `steer` /
  * `send_now` / `stash`); the words live here in the rendering layer, exported
  * so hosts can reuse or replace them when composing their own UI.
  */
 
-import type { ComposerMenuAction, ComposerPrimaryAction } from 'theorum/interface';
+import type { ComposerMenuAction, ComposerPrimaryAction } from '../../../src/interface/mod.ts';
 
 export const COMPOSER_PRIMARY_LABELS: Record<ComposerPrimaryAction, string> = {
 	send: 'Send',

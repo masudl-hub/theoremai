@@ -95,7 +95,14 @@ const graph = {
           sections: ['Rules', 'Production roots'],
         },
         {
-          paths: ['scripts/docs-truth/cli.mjs'],
+          paths: [
+            'scripts/docs-truth/cli.mjs',
+            'scripts/hooks/pre-commit',
+            'scripts/hooks/pre-push',
+            'scripts/hooks/install.mjs',
+            '.github/workflows/ci.yml',
+            'package.json',
+          ],
           sections: ['CI and hooks'],
         },
         {
@@ -444,7 +451,7 @@ const graph = {
     },
 
     interface: {
-      export: './interface',
+      export: '_internal/interface',
       doc: 'docs/contracts/kernel.md',
       owns: ['src/interface/'],
       validates: ['tests/interface/'],

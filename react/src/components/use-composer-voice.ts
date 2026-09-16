@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import type { ProfileInputsInterface } from 'theorum/interface';
+import type { ProfileInputsInterface } from '../../../src/interface/mod.ts';
 import { canStageVoice } from '../client/composer-attachments';
 import { ComposerVoiceRecorder, isVoiceRecorderFailure } from '../client/voice-recorder';
 

@@ -15,9 +15,10 @@ export type InkWaveStatus =
 	| 'ready'
 	| 'listening'
 	| 'speaking'
+	| 'working'
 	| 'error';
 
-export type InkWaveDriver = 'idle' | 'input' | 'output' | 'tool' | 'connecting';
+export type InkWaveDriver = 'idle' | 'input' | 'output' | 'tool' | 'working' | 'connecting';
 
 export function inkWaveDriver(
 	status: InkWaveStatus,
@@ -32,6 +33,7 @@ export function inkWaveDriver(
 	if (toolActive) return 'tool';
 	if (status === 'speaking' || outputLevel > LEVEL_FLOOR) return 'output';
 	if (inputLevel > LEVEL_FLOOR) return 'input';
+	if (status === 'working') return 'working';
 	if (status === 'listening' || status === 'ready') return 'idle';
 	return 'idle';
 }
@@ -65,6 +67,10 @@ export function computeInkBarTargets(args: {
 			break;
 		case 'tool':
 			master = 0.28 + 0.18 * Math.sin(t * 5.2) + Math.max(output, input) * 0.45;
+			break;
+		case 'working':
+			// Quiet, slow breathing: the server is reasoning, nobody is speaking.
+			master = 0.16 + 0.08 * Math.sin(t * 2.2) + Math.max(output, input) * 0.45;
 			break;
 		case 'connecting':
 			master = 0.14 + 0.1 * Math.sin(t * 3.1);

@@ -2,7 +2,7 @@ import type {
 	ComposerPendingMessage,
 	ComposerProfileInterface,
 	ComposerRunPhase,
-} from 'theorum/interface';
+} from '../../../src/interface/mod.ts';
 import type { ComposerFieldHandlers } from './composer-field-handlers';
 import { ComposerPendingBar } from './ComposerPendingBar';
 import { InterfaceComposer } from './InterfaceComposer';

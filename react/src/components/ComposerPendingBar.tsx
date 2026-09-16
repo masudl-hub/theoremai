@@ -10,7 +10,7 @@ import {
 	type ComposerPendingMessage,
 	type PendingAttachment,
 	composerPendingPreview,
-} from 'theorum/interface';
+} from '../../../src/interface/mod.ts';
 
 const KIND_LABEL: Record<ComposerPendingKind, string> = {
 	steer: 'Steer',

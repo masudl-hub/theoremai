@@ -1,9 +1,9 @@
-import { pickMediaRecorderMime } from 'theorum/interface';
+import { pickMediaRecorderMime } from '../../../src/interface/mod.ts';
 import { timeDomainBytesToLevel } from './audio-level';
 
 export type VoiceRecorderFailureCode = 'unsupported' | 'permission' | 'empty' | 'device';
 
-export class VoiceRecorderFailure extends Error {
+class VoiceRecorderFailure extends Error {
 	readonly code: VoiceRecorderFailureCode;
 
 	constructor(code: VoiceRecorderFailureCode, message: string) {
@@ -42,6 +42,7 @@ export class ComposerVoiceRecorder {
 		private readonly onLevel?: (level: number) => void,
 	) {}
 
+	// fallow-ignore-next-line unused-class-member -- called from useComposerVoice via recorder refs
 	async start(): Promise<void> {
 		this.disposeTracks();
 
@@ -81,6 +82,7 @@ export class ComposerVoiceRecorder {
 		this.startMeter();
 	}
 
+	// fallow-ignore-next-line unused-class-member -- called from useComposerVoice via recorder refs
 	async stop(): Promise<File> {
 		if (!this.recorder || !this.recording) {
 			throw new VoiceRecorderFailure('empty', 'No voice recording in progress.');
@@ -129,6 +131,7 @@ export class ComposerVoiceRecorder {
 		this.recorder = null;
 	}
 
+	// fallow-ignore-next-line unused-class-member -- called from useComposerVoice cleanup
 	dispose(): void {
 		this.cancel();
 	}
@@ -175,6 +178,8 @@ export class ComposerVoiceRecorder {
 	}
 }
 
-export function isVoiceRecorderFailure(value: unknown): value is VoiceRecorderFailure {
+export function isVoiceRecorderFailure(
+	value: unknown,
+): value is Error & { readonly code: VoiceRecorderFailureCode } {
 	return value instanceof VoiceRecorderFailure;
 }

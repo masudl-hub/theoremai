@@ -151,14 +151,16 @@ into a `ProjectedProfile` / `ResolvedGeneration` the runner and providers consum
 
 `runTurn(request, provider, sink?)` is the single deterministic execution path
 for one **turn-based** agent turn (text / image / speech). Live profiles use
-`runSession` instead (long-lived session; conversational `turnComplete` is a
+`runSession` instead (long-lived session; the conversational boundary is
+`interactionStatus: IDLE` when the provider sends it, else `turnComplete` — a
 gate boundary, not socket teardown). When `sink` is omitted, the runner resolves
 `profile.observability` via `resolveTraceWriter` (named destination, inline
 sink, or noop). An explicit third-argument sink always wins for that call.
 
 Text turns emit **stage** events and invoke optional `TurnRequest.onStage`
 (`docs/contracts/stages.md`): `pre_turn` before the first provider step;
-`post_tool` after each settled tool; `before_end` before egress/validation
+`post_tool` after each tool body (may `deny` or `mutate` the result);
+`before_end` before egress/validation
 finalize (inject may re-enter the step loop under `maxSteps`); terminal `done`;
 then `post_turn`. Inject requires `profileAllowsInject` (`allowSteering` on
 text). Invalid affordances yield a follow-up `stage` event with `stageWarnings`.
@@ -225,7 +227,7 @@ different transport than the primary turn.
 | `media` | Generated image/audio bytes + mime |
 | `grounding` | Search/maps grounding metadata (classic `grounding_metadata` and Interactions tool results such as `google_search_result.search_suggestions`, `google_maps_result.result[].places`, and `place_citation` annotations). Normalized to `sources` plus classic `chunks[].maps` (`title` / `uri` / `placeId`) |
 | `evidence` | Provider-native attachments. Google code execution sets `kind` (`code_execution_call` / `code_execution_result`) plus parsed `code` / `result` / `isError` / `id` / `callId`, and always keeps `raw`. Live ASR uses `input_transcription` / `output_transcription` (optional `interim`); session resumption uses `session_resumption` + `resumable`. |
-| `session` | Live control: `closing_soon` (optional `timeLeftMs`), `waiting_for_input` |
+| `session` | Live control: `closing_soon` (optional `timeLeftMs`), `waiting_for_input`, `turn_complete` (one spoken response ended), `working` (server still reasoning / awaiting async tools), `idle` (cycle boundary) |
 | `stage` | Turn timeline (`stage`: `pre_turn` \| `pre_tool` \| `post_tool` \| `before_end` \| `post_turn`) — see [`stages.md`](stages.md) |
 | `tokens` | `input` / `output` / `total` usage (billing; may gate `meter: 'input'`) |
 | `done` | Terminal or live boundary: `stop` (`completed` / `interrupted` / `generation_complete` / …), `tokens`, `compaction`; when `stop.kind === 'tool'`, optional `tools` (`TurnToolSnapshot`) for host `invokeTool` resume |
@@ -465,7 +467,7 @@ gates and `LiveSession.executeTool` are on the same contract.
 On text turns the runner always yields `{ type: 'stage', stage }`:
 
 1. `pre_turn` — once before the first provider step (fold opening input when `onStage` is set).
-2. `post_tool` — per settled tool call (inject window before the next model step).
+2. `post_tool` — per tool call, before its terminal `tool` event (inject window before the next model step; may `deny` / `mutate` the result).
 3. `before_end` — before egress/validation; inject may re-enter the step loop under `maxSteps`.
 4. `post_turn` — after terminal `done` (sees compaction-after when attached).
 
@@ -699,8 +701,9 @@ paths; failures can trigger repair turns via `input.repair`.
 
 ## Headless interface
 
-Framework-neutral helpers for profile-driven runtime UIs. Import from
-`@theorum/core/interface` or the root barrel.
+Framework-neutral helpers for profile-driven runtime UIs. This is a repo-private
+design surface for now; it is excluded from the published package and consumed
+only through local source aliases.
 
 `ProfileInterface` is `Profile` with resolved `inputs`/`tools` and a serializable
 `guardrails` view — not a parallel schema. Projection flows through kernel
@@ -744,7 +747,7 @@ then starts a new user turn. Awaiting completions (`ask_user`) are not composer
 `gated` — the turn may already be idle; use `awaitingFromEvents`.
 
 ```ts
-import { interfaceFromProfile, foldTurnEvents, streamThoughtsEnabled } from '@theorum/core/interface';
+import { interfaceFromProfile, foldTurnEvents, streamThoughtsEnabled } from '../src/interface/mod.ts';
 
 const iface = interfaceFromProfile(profile);
 const blocks = foldTurnEvents(events, { showThoughts: streamThoughtsEnabled(iface.outputs) });
@@ -769,7 +772,7 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
 | Auth (stateless OAuth/PKCE) | `createOAuthPkceFlow`, `exchangeOAuthPkce`, `refreshOAuthToken`, `discoverResourceMetadata`, `discoverAuthServerMetadata`, `validateIssuer`, `generateCodeVerifier`, `computeCodeChallenge`, `sealStatePayload`, `unsealStatePayload` |
 | Structured | `getStructured`, `registerStructured` |
 | Stop / resume | `ProfileTurnBehaviourSpec`, `ProfileTurnResumptionSpec`, `TurnContinueFrom`, `TurnStop`, `TurnStopKind`, `ContinueStopKind`, `CONTINUE_STOP_KINDS`, `AUTO_CONTINUE_DELAY_MS`, `CONTINUE_INSTRUCTION`, `DEFAULT_ALLOW_CONTINUE`, `DEFAULT_AUTO_CONTINUE`, `GenerationStopError`, `isContinueStopKind`, `isGenerationStopError`, `isResumeableStop`, `isUserCancelledStop`, `profileAllowsSteering`, `profileAllowsInject`, `profileTurnResumption`, `shouldAutoContinue`, `turnStopFromClientStreamEnd`, `turnStopFromInteractionStatus`, `turnStopFromOpenAiFinishReason` |
-| Stages (target foundation) | `TURN_STAGES`, `TURN_INJECT_STAGES`, `STAGE_AFFORDANCES`, `STAGE_AFFORDANCE_MATRIX`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `applyStageResult`, `parseAwaitingUserInput`, `parseToolGate`, `isTurnStage`, `isTurnInjectStage`, `isToolGateKind`, `isAwaitingUserInput`, `stageAllowsAffordance`, `stageEventFields`, `profileAllowsInject`, `StageAffordance`, `StageContext`, `StageResult`, `StageHandler`, `StageApplyInput`, `StageApplyOutput`, `StageApplyWarning`, `StageApplyWarningCode`, `StageEventExtra`, `AwaitingUserInput`, `ToolGate` — see [`stages.md`](stages.md). Slices 1–3 landed on branch; publish when release cut matches docs. |
+| Stages (target foundation) | `TURN_STAGES`, `TURN_INJECT_STAGES`, `STAGE_AFFORDANCES`, `STAGE_AFFORDANCE_MATRIX`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `applyStageResult`, `parseAwaitingUserInput`, `parseToolGate`, `isTurnStage`, `isTurnInjectStage`, `isToolGateKind`, `isAwaitingUserInput`, `stageAllowsAffordance`, `stageEventFields`, `profileAllowsInject`, `StageAffordance`, `StageContext`, `StageResult`, `StageMutate`, `StageHandler`, `StageApplyInput`, `StageApplyOutput`, `StageApplyWarning`, `StageApplyWarningCode`, `StageEventExtra`, `AwaitingUserInput`, `ToolGate` — see [`stages.md`](stages.md). Slices 1–3 landed on branch; publish when release cut matches docs. |
 | Interface (headless) | `interfaceFrom`, `interfaceFromProfile`, `interfaceFromProjected`, `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime`, `sanitizeUserDraft`, `prepareUserTurn`, `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `resetBlockIds`, `streamThoughtsEnabled`, `collectPromotedMediaFromToolOutput`, `promotedMediaFromUrlString`, `PromotedToolMedia`, `defaultInterfaceEffort`, `defaultInterfaceModel`, `effortSelectEnabled`, `generationSelectEnabled`, `interfaceEffortOptions`, `interfaceModelOptions`, `modelSelectEnabled`, `appendAssistantEventsToHistory`, `appendToolDenialToHistory`, `appendToolExchangeToHistory`, `appendUserDraftToHistory`, `historyFromTranscriptBlocks`, `applyTurnEventsToSession`, `branchInterfaceTurnSession`, `emptyInterfaceTurnSession`, `abandonGatedToolSession`, `gatedToolFromEvents`, `awaitingFromEvents`, `promotedToolIdsFromEvents`, `toolSnapshotFromEvents`, `COMPOSER_PENDING_KINDS`, `cloneUserTurnDraft`, `composerPendingPreview`, `consumeNextComposerQueue`, `consumeNextComposerSteer`, `convertSteersToFrontQueued`, `createComposerPendingMessage`, `moveComposerPendingWithinKind`, `orderComposerPendingMessages`, `promoteComposerPendingKind`, `removeComposerPendingMessage`, `resolveComposerMenuActions`, `resolveComposerPrimary`, `updateComposerPendingDraft`, `userDraftHasPayload`, `userDraftToSteerInject`, `AttachmentValidationCode`, `AttachmentValidationIssue`, `AttachmentValidationParams`, `AttachmentValidationResult`, `AwaitingToolContext`, `ComposerActionContext`, `ComposerMenuAction`, `ComposerPendingKind`, `ComposerPendingMessage`, `ComposerPrimaryAction`, `ComposerProfileInterface`, `ComposerRunPhase`, `CreateComposerPendingMessageArgs`, `FoldTurnEventsOptions`, `GatedToolContext`, `ImageProfileInterface`, `InterfaceEffortOption`, `InterfaceModelOption`, `LiveProfileInterface`, `LiveResolvedTools`, `PendingAttachment`, `PrepareUserTurnResult`, `ProfileGuardrailsView`, `ProfileObservabilityView`, `ProfileInputsInterface`, `ProfileInterface`, `ProfileInterfaceSource`, `ResolvedTools`, `SpeechProfileInterface`, `TextProfileInterface`, `TranscriptBlock`, `TranscriptBlockKind`, `UserTurnDraft`, `UserTurnHistoryMedia`, `InterfaceTurnSession` |
 | Attachments (kernel) | `assertAttachmentLimits`, `maxBytesForMime`, `requireMediaLimits`, `resolveMediaLimits`, `sanitizeCsvText`, `sanitizeTurnBlobs`, `sanitizeTurnBlobsForProfile` |
 

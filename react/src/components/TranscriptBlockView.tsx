@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { TranscriptBlock } from 'theorum/interface';
+import type { TranscriptBlock } from '../../../src/interface/mod.ts';
 import type { ToolCredential } from 'theorum/kernel';
 import { transcriptBlockCopyText } from '../client/transcript-block-text';
 import { ApprovalCard } from './ApprovalCard';

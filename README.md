@@ -12,6 +12,13 @@
 
 **Current release: `1.1.3`** (`jsr:@theorum/core` / npm `theorum`).
 
+> ⚠️ **Package Migration Notice:**
+> Starting with version 2.0, the package and scope are officially rebranded from `theorum` / `@theorum/core` to **`@theoremai/agents`** on both **npm** and **JSR**.
+> - **npm**: `npm install @theoremai/agents` (deprecating `theorum`)
+> - **JSR**: `deno add jsr:@theoremai/agents` (deprecating `jsr:@theorum/core`)
+>
+> All legacy `theorum` / `jsr:@theorum/core` v1.x releases are deprecated in favor of `@theoremai/agents`.
+
 > **"Profiles describe the contract. Providers move bytes. The runner enforces the turn."**
 
 THEORUM is a compact TypeScript agent kernel for apps that need deterministic agent execution without embedding product logic inside the runtime. It gives a host application one runner, typed profiles, multimodal input normalization, a registered tool system with per-turn gating, provider adapters, trace sinks, and guardrail hooks.

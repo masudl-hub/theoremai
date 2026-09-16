@@ -71,7 +71,7 @@ const profile: Profile = {
         'api.frankfurter.app',
         'api.frankfurter.dev',
         'en.wikipedia.org',
-        'openlibrary.org',
+        'archive.org',
         'api.zippopotam.us',
         'pokeapi.co',
         'catfact.ninja',

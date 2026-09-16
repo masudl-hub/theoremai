@@ -21,7 +21,7 @@ export const DEMO_HTTP_SAMPLE_INPUT: Record<string, Record<string, unknown>> = {
   get_sun_times: { lat: 48.85, lng: 2.35 },
   convert_currency: { from: 'USD', to: 'EUR', amount: 100 },
   wikipedia_summary: { title: 'Paris' },
-  openlibrary_search: { q: 'travel', limit: 1 },
+  archive_text_search: { q: 'mediatype:texts AND travel', rows: 1 },
   lookup_postal_code: { country: 'us', postal: '90210' },
   get_pokemon: { name: 'pikachu' },
   get_cat_fact: {},
@@ -37,7 +37,7 @@ export function demoHttpSampleInput(toolName: string): Record<string, unknown> |
 
 /** Comma-separated hosts for guardrails.egress allowlist in the demo graph. */
 export const DEMO_ALLOWED_HOSTS =
-  'nominatim.openstreetmap.org, geocoding-api.open-meteo.com, api.open-meteo.com, api.frankfurter.dev, api.sunrise-sunset.org, api.zippopotam.us, en.wikipedia.org, openlibrary.org, pokeapi.co, dog.ceo, api.adviceslip.com, catfact.ninja, official-joke-api.appspot.com, mcp.deepwiki.com';
+  'nominatim.openstreetmap.org, geocoding-api.open-meteo.com, api.open-meteo.com, api.frankfurter.dev, api.sunrise-sunset.org, api.zippopotam.us, en.wikipedia.org, archive.org, pokeapi.co, dog.ceo, api.adviceslip.com, catfact.ninja, official-joke-api.appspot.com, mcp.deepwiki.com';
 
 /** System prompt for the playground demo agent. */
 export const DEMO_CONCIERGE_SYSTEM = `Role: Elite, charismatic travel concierge.
@@ -363,24 +363,26 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
     },
   },
   {
-    id: 'tool-openlibrary',
+    id: 'tool-archive-search',
     data: {
-      toolName: 'openlibrary_search',
+      toolName: 'archive_text_search',
       toolType: 'http',
-      description: 'Search Open Library for books by title or author.',
+      description: 'Search Internet Archive texts (books) by title or keywords.',
       category: 'demo',
       access: 'read-only',
       permission: 'auto',
       loadTier: 'T0',
       paths: '*',
-      endpoint: 'https://openlibrary.org/search.json',
+      // Archive.org advanced search — Open Library TLS is unreachable from many networks.
+      endpoint:
+        'https://archive.org/advancedsearch.php?output=json&fl[]=identifier&fl[]=title&fl[]=creator',
       method: 'GET',
-      queryParams: 'q, limit',
+      queryParams: 'q, rows',
       inputJson: `{
   "type": "object",
   "properties": {
     "q": { "type": "string" },
-    "limit": { "type": "number" }
+    "rows": { "type": "number" }
   },
   "required": ["q"]
 }`,

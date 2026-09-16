@@ -26,7 +26,7 @@
     "react/src/index.ts",
     "react/src/client/index.ts"
   ],
-  "ignoreDependencies": ["@ast-grep/cli"],
+  "ignoreDependencies": ["@ast-grep/cli", "theorum"],
   // docs-truth loads the ownership graph via dynamic import (graph.mjs → _map.mjs).
   "dynamicallyLoaded": ["docs/_map.mjs"],
   "ignorePatterns": ["node_modules/**", "coverage/**", "scripts/**", "src/cli/**", "npm/**"],

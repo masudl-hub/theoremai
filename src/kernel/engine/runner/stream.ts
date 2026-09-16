@@ -105,6 +105,15 @@ async function* yieldProviderEvents(args: {
     return withholdVisible;
   }
 
+  async function* drainBlockedDelta(hits: GuardrailHit[]): AsyncGenerator<TurnEvent, void> {
+    yield* yieldDeltaBlock(hits);
+    // Arm withhold before recording the unreleased tail so the step runner
+    // does not forward that text to the host.
+    armWithhold();
+    const tail = gate?.drainUnreleased();
+    if (tail) yield { type: 'text', text: tail };
+  }
+
   async function* flushGate(): AsyncGenerator<TurnEvent, 'stop' | 'pass'> {
     if (!gate || !lastStreamType) {
       return 'pass';
@@ -117,12 +126,7 @@ async function* yieldProviderEvents(args: {
         yield* yieldCanaryLeak(canary, { type: emitType, text: gate.accumulated() });
         return 'stop';
       }
-      yield* yieldDeltaBlock(result.hits);
-      // Arm withhold before recording the unreleased tail so the step runner
-      // does not forward that text to the host.
-      armWithhold();
-      const tail = gate.drainUnreleased();
-      if (tail) yield { type: 'text', text: tail };
+      yield* drainBlockedDelta(result.hits);
       return 'pass';
     }
     if (result.emit) {
@@ -156,10 +160,7 @@ async function* yieldProviderEvents(args: {
         yield* yieldCanaryLeak(canary, event);
         return 'stop';
       }
-      yield* yieldDeltaBlock(result.hits);
-      armWithhold();
-      const tail = gate.drainUnreleased();
-      if (tail) yield { type: 'text', text: tail };
+      yield* drainBlockedDelta(result.hits);
       return 'continue';
     }
     if (result.emit) {

@@ -18,8 +18,7 @@ const KIND_LABEL: Record<ComposerPendingKind, string> = {
 	stash: 'Stash',
 };
 
-export type ComposerPendingBarProps = {
-	messages: readonly ComposerPendingMessage[];
+export type PendingActionHandlers = {
 	onRemove?: (id: string) => void;
 	onMove?: (id: string, direction: 'up' | 'down') => void;
 	/** Promote stash → queue (and drain when idle). */
@@ -29,6 +28,10 @@ export type ComposerPendingBarProps = {
 	/** Load draft (text + attachments + voice) back into the composer. */
 	onRestore?: (id: string) => void;
 };
+
+export type ComposerPendingBarProps = {
+	messages: readonly ComposerPendingMessage[];
+} & PendingActionHandlers;
 
 function isImageMime(mime: string): boolean {
 	return mime.toLowerCase().startsWith('image/');
@@ -131,6 +134,162 @@ function PendingAudioThumb({ name, src }: { name: string; src: string }) {
 	);
 }
 
+function PendingRowThumbs({
+	attachments,
+	voice,
+	onRestore,
+}: {
+	attachments: readonly ComposerAttachmentSpec[];
+	voice: readonly ComposerAttachmentSpec[];
+	onRestore?: () => void;
+}) {
+	if (attachments.length === 0 && voice.length === 0) return null;
+	return (
+		<span className="iface-pending__thumbs">
+			{attachments.map((attachment, index) => (
+				<PendingThumb
+					attachment={attachment}
+					key={`file-${String(index)}-${attachment.name}`}
+					kind="file"
+					onRestore={onRestore}
+				/>
+			))}
+			{voice.map((attachment, index) => (
+				<PendingThumb
+					attachment={attachment}
+					key={`voice-${String(index)}-${attachment.name}`}
+					kind="voice"
+				/>
+			))}
+		</span>
+	);
+}
+
+function PendingMessageActions({
+	messageId,
+	kind,
+	indexInKind,
+	countInKind,
+	onMove,
+	onQueue,
+	onSendNow,
+	onRemove,
+}: {
+	messageId: string;
+	kind: ComposerPendingKind;
+	indexInKind: number;
+	countInKind: number;
+	onMove?: (id: string, direction: 'up' | 'down') => void;
+	onQueue?: (id: string) => void;
+	onSendNow?: (id: string) => void;
+	onRemove?: (id: string) => void;
+}) {
+	return (
+		<div className="iface-pending__actions">
+			{kind === 'stash' ? (
+				<button
+					className="iface-pending__action"
+					onClick={() => onQueue?.(messageId)}
+					title="Queue for after this turn"
+					type="button"
+				>
+					Queue
+				</button>
+			) : null}
+			<button
+				className="iface-pending__action"
+				onClick={() => onSendNow?.(messageId)}
+				title="Send now"
+				type="button"
+			>
+				Send now
+			</button>
+			<button
+				aria-label="Move up"
+				className="iface-pending__btn"
+				disabled={indexInKind === 0}
+				onClick={() => onMove?.(messageId, 'up')}
+				type="button"
+			>
+				<IconArrowUp size={14} stroke={1.75} />
+			</button>
+			<button
+				aria-label="Move down"
+				className="iface-pending__btn"
+				disabled={indexInKind >= countInKind - 1}
+				onClick={() => onMove?.(messageId, 'down')}
+				type="button"
+			>
+				<IconArrowDown size={14} stroke={1.75} />
+			</button>
+			<button
+				aria-label="Remove"
+				className="iface-pending__btn"
+				onClick={() => onRemove?.(messageId)}
+				type="button"
+			>
+				{kind === 'stash' ? (
+					<IconX size={14} stroke={1.75} />
+				) : (
+					<IconTrash size={14} stroke={1.75} />
+				)}
+			</button>
+		</div>
+	);
+}
+
+function PendingMessageRow({
+	message,
+	indexInKind,
+	countInKind,
+	onRemove,
+	onMove,
+	onQueue,
+	onSendNow,
+	onRestore,
+}: {
+	message: ComposerPendingMessage;
+	indexInKind: number;
+	countInKind: number;
+} & PendingActionHandlers) {
+	const preview = composerPendingPreview(message);
+	const attachments = message.draft.attachments ?? [];
+	const voice = message.draft.voice ?? [];
+
+	return (
+		<li className="iface-pending__row" key={message.id}>
+			<span className={`iface-pending__kind iface-pending__kind--${message.kind}`}>
+				{KIND_LABEL[message.kind]}
+			</span>
+			<div className="iface-pending__body">
+				<PendingRowThumbs
+					attachments={attachments}
+					voice={voice}
+					onRestore={() => onRestore?.(message.id)}
+				/>
+				<button
+					className="iface-pending__preview"
+					onClick={() => onRestore?.(message.id)}
+					title="Edit in composer"
+					type="button"
+				>
+					{preview || '(empty)'}
+				</button>
+			</div>
+			<PendingMessageActions
+				messageId={message.id}
+				kind={message.kind}
+				indexInKind={indexInKind}
+				countInKind={countInKind}
+				onMove={onMove}
+				onQueue={onQueue}
+				onSendNow={onSendNow}
+				onRemove={onRemove}
+			/>
+		</li>
+	);
+}
+
 export function ComposerPendingBar({
 	messages,
 	onRemove,
@@ -159,101 +318,19 @@ export function ComposerPendingBar({
 
 	return (
 		<ul className="iface-pending" aria-label="Pending messages">
-			{messages.map((message) => {
-				const preview = composerPendingPreview(message);
-				const attachments = message.draft.attachments ?? [];
-				const voice = message.draft.voice ?? [];
-				const indexInKind = kindIndexes.get(message.id) ?? 0;
-				const countInKind = kindCounts[message.kind];
-				const canQueue = message.kind === 'stash';
-
-				return (
-					<li className="iface-pending__row" key={message.id}>
-						<span className={`iface-pending__kind iface-pending__kind--${message.kind}`}>
-							{KIND_LABEL[message.kind]}
-						</span>
-						<div className="iface-pending__body">
-							{(attachments.length > 0 || voice.length > 0) && (
-								<span className="iface-pending__thumbs">
-									{attachments.map((attachment, index) => (
-										<PendingThumb
-											attachment={attachment}
-											key={`file-${String(index)}-${attachment.name}`}
-											kind="file"
-											onRestore={() => onRestore?.(message.id)}
-										/>
-									))}
-									{voice.map((attachment, index) => (
-										<PendingThumb
-											attachment={attachment}
-											key={`voice-${String(index)}-${attachment.name}`}
-											kind="voice"
-										/>
-									))}
-								</span>
-							)}
-							<button
-								className="iface-pending__preview"
-								onClick={() => onRestore?.(message.id)}
-								title="Edit in composer"
-								type="button"
-							>
-								{preview || '(empty)'}
-							</button>
-						</div>
-						<div className="iface-pending__actions">
-							{canQueue ? (
-								<button
-									className="iface-pending__action"
-									onClick={() => onQueue?.(message.id)}
-									title="Queue for after this turn"
-									type="button"
-								>
-									Queue
-								</button>
-							) : null}
-							<button
-								className="iface-pending__action"
-								onClick={() => onSendNow?.(message.id)}
-								title="Send now"
-								type="button"
-							>
-								Send now
-							</button>
-							<button
-								aria-label="Move up"
-								className="iface-pending__btn"
-								disabled={indexInKind === 0}
-								onClick={() => onMove?.(message.id, 'up')}
-								type="button"
-							>
-								<IconArrowUp size={14} stroke={1.75} />
-							</button>
-							<button
-								aria-label="Move down"
-								className="iface-pending__btn"
-								disabled={indexInKind >= countInKind - 1}
-								onClick={() => onMove?.(message.id, 'down')}
-								type="button"
-							>
-								<IconArrowDown size={14} stroke={1.75} />
-							</button>
-							<button
-								aria-label="Remove"
-								className="iface-pending__btn"
-								onClick={() => onRemove?.(message.id)}
-								type="button"
-							>
-								{message.kind === 'stash' ? (
-									<IconX size={14} stroke={1.75} />
-								) : (
-									<IconTrash size={14} stroke={1.75} />
-								)}
-							</button>
-						</div>
-					</li>
-				);
-			})}
+			{messages.map((message) => (
+				<PendingMessageRow
+					key={message.id}
+					message={message}
+					indexInKind={kindIndexes.get(message.id) ?? 0}
+					countInKind={kindCounts[message.kind]}
+					onRemove={onRemove}
+					onMove={onMove}
+					onQueue={onQueue}
+					onSendNow={onSendNow}
+					onRestore={onRestore}
+				/>
+			))}
 		</ul>
 	);
 }

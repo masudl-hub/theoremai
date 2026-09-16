@@ -1,4 +1,13 @@
-import type { LiveConnectPhase, LiveSessionStatus } from '../live-client';
+export type LiveConnectPhase = 'socket' | 'microphone';
+export type LiveSessionStatus =
+	| 'disconnected'
+	| 'connecting'
+	| 'connected'
+	| 'ready'
+	| 'listening'
+	| 'speaking'
+	| 'working'
+	| 'error';
 
 export function liveStateLabel(args: {
 	status: LiveSessionStatus;

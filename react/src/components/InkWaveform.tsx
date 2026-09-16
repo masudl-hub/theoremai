@@ -26,23 +26,46 @@ type Snap = {
 	frozen: boolean;
 };
 
-export function InkWaveform({
-	status = 'disconnected',
-	inputLevel = 0,
-	outputLevel = 0,
-	toolActive = false,
-	frozen = false,
-	variant = 'default',
-}: InkWaveformProps) {
-	const viewWidth = variant === 'hero' ? 960 : 480;
-	const viewHeight = variant === 'hero' ? 720 : variant === 'pill' ? 120 : 320;
-	const preserveAspect =
-		variant === 'hero' ? 'xMidYMax slice' : variant === 'pill' ? 'none' : 'xMidYMax meet';
-	const strokeWidth = variant === 'pill' ? 3 : 2;
-	const barCount = variant === 'hero' ? INK_WAVE_HERO_BAR_COUNT : INK_WAVE_BAR_COUNT;
-	const gap = (viewWidth - strokeWidth * barCount) / (barCount + 1);
-	const phases = useMemo(() => inkWavePhases(barCount), [barCount]);
+const WAVE_CONFIG = {
+	hero: {
+		viewWidth: 960,
+		viewHeight: 720,
+		preserveAspect: 'xMidYMax slice',
+		strokeWidth: 2,
+		barCount: INK_WAVE_HERO_BAR_COUNT,
+	},
+	pill: {
+		viewWidth: 480,
+		viewHeight: 120,
+		preserveAspect: 'none',
+		strokeWidth: 3,
+		barCount: INK_WAVE_BAR_COUNT,
+	},
+	default: {
+		viewWidth: 480,
+		viewHeight: 320,
+		preserveAspect: 'xMidYMax meet',
+		strokeWidth: 2,
+		barCount: INK_WAVE_BAR_COUNT,
+	},
+} as const;
 
+function resolveWaveDimensions(variant: 'default' | 'hero' | 'pill') {
+	const cfg = WAVE_CONFIG[variant] ?? WAVE_CONFIG.default;
+	const gap = (cfg.viewWidth - cfg.strokeWidth * cfg.barCount) / (cfg.barCount + 1);
+	return { ...cfg, gap };
+}
+
+function useAnimatedWaveHeights(args: {
+	barCount: number;
+	phases: number[];
+	status: InkWaveStatus;
+	inputLevel: number;
+	outputLevel: number;
+	toolActive: boolean;
+	frozen: boolean;
+}) {
+	const { barCount, phases, status, inputLevel, outputLevel, toolActive, frozen } = args;
 	const [heights, setHeights] = useState<number[]>(() =>
 		Array.from({ length: barCount }, () => 0.06),
 	);
@@ -90,6 +113,30 @@ export function InkWaveform({
 			cancelAnimationFrame(frame);
 		};
 	}, [barCount, phases]);
+
+	return heights;
+}
+
+export function InkWaveform({
+	status = 'disconnected',
+	inputLevel = 0,
+	outputLevel = 0,
+	toolActive = false,
+	frozen = false,
+	variant = 'default',
+}: InkWaveformProps) {
+	const { viewWidth, viewHeight, preserveAspect, strokeWidth, barCount, gap } =
+		resolveWaveDimensions(variant);
+	const phases = useMemo(() => inkWavePhases(barCount), [barCount]);
+	const heights = useAnimatedWaveHeights({
+		barCount,
+		phases,
+		status,
+		inputLevel,
+		outputLevel,
+		toolActive,
+		frozen,
+	});
 
 	const bars = heights.map((height, index) => {
 		const x = gap + index * (strokeWidth + gap) + strokeWidth / 2;

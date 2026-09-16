@@ -363,14 +363,19 @@ function isYamlKeyChar(ch: string): boolean {
  * Split a YAML list-of-maps dump into record blocks without polynomial regex.
  * Each block starts at the field after `- key:` (matching the prior split semantics).
  */
+function skipIndent(line: string): number {
+  let i = 0;
+  while (i < line.length && (line[i] === ' ' || line[i] === '\t')) i += 1;
+  return i;
+}
+
 function yamlRecordBlocks(yaml: string): string[] {
   const blocks: string[] = [];
   let start = -1;
   const lines = yaml.split('\n');
   let offset = 0;
   for (const line of lines) {
-    let i = 0;
-    while (i < line.length && (line[i] === ' ' || line[i] === '\t')) i += 1;
+    const i = skipIndent(line);
     if (line[i] === '-' && line[i + 1] === ' ') {
       let j = i + 2;
       while (j < line.length && isYamlKeyChar(line[j] ?? '')) j += 1;
@@ -394,8 +399,7 @@ function parseYamlRecordLine(
   | { kind: 'header'; key: string }
   | { kind: 'item'; value: string }
   | null {
-  let i = 0;
-  while (i < line.length && (line[i] === ' ' || line[i] === '\t')) i += 1;
+  let i = skipIndent(line);
   if (line[i] === '-' && line[i + 1] === ' ') {
     const value = line.slice(i + 2).trim();
     return value.length > 0 && !value.includes(' ') ? { kind: 'item', value } : null;
@@ -404,10 +408,10 @@ function parseYamlRecordLine(
   while (i < line.length && isYamlKeyChar(line[i] ?? '')) i += 1;
   if (i === keyStart || line[i] !== ':') return null;
   const key = line.slice(keyStart, i);
-  i += 1;
-  while (i < line.length && (line[i] === ' ' || line[i] === '\t')) i += 1;
-  if (i >= line.length) return { kind: 'header', key };
-  let value = line.slice(i).trimEnd();
+  let nextIdx = i + 1;
+  while (nextIdx < line.length && (line[nextIdx] === ' ' || line[nextIdx] === '\t')) nextIdx += 1;
+  if (nextIdx >= line.length) return { kind: 'header', key };
+  let value = line.slice(nextIdx).trimEnd();
   if (value === '[]') return null;
   if (value.startsWith('"') && value.endsWith('"') && value.length >= 2) {
     value = value.slice(1, -1);

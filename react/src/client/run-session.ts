@@ -121,43 +121,81 @@ async function streamPreparedInterfaceTurn(args: {
 	};
 }
 
-export async function streamInterfaceTurn(args: {
+function extractInlineEncodedAttachments(
+	attachments?: readonly { name: string; mimeType: string; data?: unknown }[],
+): Array<{ name: string; mimeType: string; data: string }> | undefined {
+	const filtered = attachments
+		?.filter(
+			(a): a is { name: string; mimeType: string; data: string } => typeof a.data === 'string',
+		)
+		.map((a) => ({ name: a.name, mimeType: a.mimeType, data: a.data }));
+	return filtered && filtered.length > 0 ? filtered : undefined;
+}
+
+function assertNotGated(session: InterfaceTurnSession): TurnFailure | null {
+	if (sessionHasGatedTool(session)) {
+		return { ok: false, error: 'Resolve the gated tool before sending a new message.' };
+	}
+	return null;
+}
+
+export type StreamInterfaceTurnBaseArgs = {
 	iface: ComposerProfileInterface;
 	payload: PlaygroundRunPayload;
 	session: InterfaceTurnSession;
-	text: string;
-	pendingFiles: readonly File[];
-	pendingVoice: readonly File[];
 	onStream: (blocks: TranscriptBlock[]) => void;
 	/** Fires once user blocks are ready (with media preview data) before the assistant stream. */
 	onUserBlocks?: (blocks: TranscriptBlock[]) => void;
 	signal?: AbortSignal;
 	turnId?: string;
-}): Promise<StreamTurnSuccess | TurnFailure> {
-	if (sessionHasGatedTool(args.session)) {
-		return { ok: false, error: 'Resolve the gated tool before sending a new message.' };
-	}
+};
+
+export type StreamInterfaceTurnArgs = StreamInterfaceTurnBaseArgs & {
+	text: string;
+	pendingFiles: readonly File[];
+	pendingVoice: readonly File[];
+};
+
+export type StreamInterfaceDraftTurnArgs = StreamInterfaceTurnBaseArgs & {
+	draft: import('../../../src/interface/mod.ts').UserTurnDraft;
+};
+
+async function runPreparedTurnStream(
+	args: StreamInterfaceTurnBaseArgs & {
+		prepare: () =>
+			| Promise<
+					| { ok: false; issues: readonly string[] }
+					| {
+							ok: true;
+							prepared: PreparedUserTurn;
+							encodedAttachments?: Array<{ name: string; mimeType: string; data: string }>;
+							encodedVoice?: Array<{ name: string; mimeType: string; data: string }>;
+					  }
+			  >
+			| { ok: false; issues: readonly string[] }
+			| {
+					ok: true;
+					prepared: PreparedUserTurn;
+					encodedAttachments?: Array<{ name: string; mimeType: string; data: string }>;
+					encodedVoice?: Array<{ name: string; mimeType: string; data: string }>;
+			  };
+	},
+): Promise<StreamTurnSuccess | TurnFailure> {
+	const blocked = assertNotGated(args.session);
+	if (blocked) return blocked;
 
 	try {
-		const prepared = prepareComposerTurn(
-			args.iface,
-			args.text,
-			args.pendingFiles,
-			args.pendingVoice,
-		);
-		if (!prepared.ok) {
-			return { ok: false, error: prepared.issues.join(' '), issues: prepared.issues };
+		const outcome = await args.prepare();
+		if (!outcome.ok) {
+			return { ok: false, error: outcome.issues.join(' '), issues: [...outcome.issues] };
 		}
-
 		return await streamPreparedInterfaceTurn({
 			iface: args.iface,
 			payload: args.payload,
 			session: args.session,
-			prepared,
-			encodedAttachments: args.pendingFiles.length
-				? await encodeFiles(args.pendingFiles)
-				: undefined,
-			encodedVoice: args.pendingVoice.length ? await encodeFiles(args.pendingVoice) : undefined,
+			prepared: outcome.prepared,
+			encodedAttachments: outcome.encodedAttachments,
+			encodedVoice: outcome.encodedVoice,
 			onStream: args.onStream,
 			onUserBlocks: args.onUserBlocks,
 			signal: args.signal,
@@ -168,57 +206,48 @@ export async function streamInterfaceTurn(args: {
 	}
 }
 
+export async function streamInterfaceTurn(
+	args: StreamInterfaceTurnArgs,
+): Promise<StreamTurnSuccess | TurnFailure> {
+	return await runPreparedTurnStream({
+		...args,
+		prepare: async () => {
+			const prepared = prepareComposerTurn(
+				args.iface,
+				args.text,
+				args.pendingFiles,
+				args.pendingVoice,
+			);
+			if (!prepared.ok) return prepared;
+			return {
+				ok: true,
+				prepared,
+				encodedAttachments: args.pendingFiles.length
+					? await encodeFiles(args.pendingFiles)
+					: undefined,
+				encodedVoice: args.pendingVoice.length ? await encodeFiles(args.pendingVoice) : undefined,
+			};
+		},
+	});
+}
+
 /** Send a turn from an already-encoded pending draft (queue drain / send now). */
-export async function streamInterfaceDraftTurn(args: {
-	iface: ComposerProfileInterface;
-	payload: PlaygroundRunPayload;
-	session: InterfaceTurnSession;
-	draft: import('../../../src/interface/mod.ts').UserTurnDraft;
-	onStream: (blocks: TranscriptBlock[]) => void;
-	onUserBlocks?: (blocks: TranscriptBlock[]) => void;
-	signal?: AbortSignal;
-	turnId?: string;
-}): Promise<StreamTurnSuccess | TurnFailure> {
-	if (sessionHasGatedTool(args.session)) {
-		return { ok: false, error: 'Resolve the gated tool before sending a new message.' };
-	}
-
-	try {
-		const prepared = projectUserTurn(args.iface, args.draft);
-		if (!prepared.ok) {
-			return { ok: false, error: prepared.issues.join(' '), issues: prepared.issues };
-		}
-
-		const encodedAttachments = prepared.draft.attachments
-			?.filter((attachment) => typeof attachment.data === 'string')
-			.map((attachment) => ({
-				name: attachment.name,
-				mimeType: attachment.mimeType,
-				data: attachment.data as string,
-			}));
-		const encodedVoice = prepared.draft.voice
-			?.filter((attachment) => typeof attachment.data === 'string')
-			.map((attachment) => ({
-				name: attachment.name,
-				mimeType: attachment.mimeType,
-				data: attachment.data as string,
-			}));
-
-		return await streamPreparedInterfaceTurn({
-			iface: args.iface,
-			payload: args.payload,
-			session: args.session,
-			prepared,
-			encodedAttachments,
-			encodedVoice,
-			onStream: args.onStream,
-			onUserBlocks: args.onUserBlocks,
-			signal: args.signal,
-			turnId: args.turnId,
-		});
-	} catch (err) {
-		return turnFailureFromCaught(err, args.signal);
-	}
+export async function streamInterfaceDraftTurn(
+	args: StreamInterfaceDraftTurnArgs,
+): Promise<StreamTurnSuccess | TurnFailure> {
+	return await runPreparedTurnStream({
+		...args,
+		prepare: () => {
+			const prepared = projectUserTurn(args.iface, args.draft);
+			if (!prepared.ok) return prepared;
+			return {
+				ok: true,
+				prepared,
+				encodedAttachments: extractInlineEncodedAttachments(prepared.draft.attachments),
+				encodedVoice: extractInlineEncodedAttachments(prepared.draft.voice),
+			};
+		},
+	});
 }
 
 async function resumeDeniedGatedTool(args: {
@@ -261,6 +290,44 @@ async function resumeDeniedGatedTool(args: {
 		assistantEvents: seedEvents,
 	};
 	return await continueAfterTool({ ...args, session, seedEvents });
+}
+
+function appendTerminalToolToHistory(
+	history: InterfaceHistoryMessage[],
+	gated: NonNullable<InterfaceTurnSession['gatedTool']>,
+	invokeEvents: readonly TurnEvent[],
+): InterfaceHistoryMessage[] {
+	const completedTool = invokeEvents.findLast(
+		(event) =>
+			event.type === 'tool' &&
+			event.tool?.name === gated.name &&
+			event.tool.phase === 'complete' &&
+			event.tool.output !== undefined,
+	);
+	if (completedTool?.tool?.output !== undefined) {
+		return appendToolExchangeToHistory(history, {
+			name: gated.name,
+			callId: gated.callId,
+			arguments: gated.arguments,
+			output: completedTool.tool.output,
+		});
+	}
+	const failedTool = invokeEvents.findLast(
+		(event) =>
+			event.type === 'tool' &&
+			event.tool?.name === gated.name &&
+			event.tool.phase === 'error' &&
+			event.tool.failure !== undefined,
+	);
+	if (failedTool?.tool?.failure) {
+		return appendToolDenialToHistory(history, {
+			name: gated.name,
+			callId: gated.callId,
+			arguments: gated.arguments,
+			failure: failedTool.tool.failure,
+		});
+	}
+	return history;
 }
 
 async function resumeAllowedGatedTool(args: {
@@ -325,44 +392,10 @@ async function resumeAllowedGatedTool(args: {
 			};
 		}
 
-		const completedTool = invokeEvents.findLast(
-			(event) =>
-				event.type === 'tool' &&
-				event.tool?.name === args.gated.name &&
-				event.tool.phase === 'complete' &&
-				event.tool.output !== undefined,
-		);
-		if (completedTool?.tool?.output !== undefined) {
-			session = {
-				...session,
-				history: appendToolExchangeToHistory(session.history, {
-					name: args.gated.name,
-					callId: args.gated.callId,
-					arguments: args.gated.arguments,
-					output: completedTool.tool.output,
-				}),
-			};
-		} else {
-			// The kernel emits one terminal tool event: no completion means the call failed or was denied.
-			const failedTool = invokeEvents.findLast(
-				(event) =>
-					event.type === 'tool' &&
-					event.tool?.name === args.gated.name &&
-					event.tool.phase === 'error' &&
-					event.tool.failure !== undefined,
-			);
-			if (failedTool?.tool?.failure) {
-				session = {
-					...session,
-					history: appendToolDenialToHistory(session.history, {
-						name: args.gated.name,
-						callId: args.gated.callId,
-						arguments: args.gated.arguments,
-						failure: failedTool.tool.failure,
-					}),
-				};
-			}
-		}
+		session = {
+			...session,
+			history: appendTerminalToolToHistory(session.history, args.gated, invokeEvents),
+		};
 
 		return await continueAfterTool({ ...args, session, seedEvents: invokeEvents });
 	} catch (err) {

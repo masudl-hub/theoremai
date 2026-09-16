@@ -11,3 +11,12 @@ export type ComposerFieldHandlers = {
 	onStop?: () => void;
 	onMenuAction?: (action: ComposerMenuAction) => void;
 };
+
+export type ComposerPendingHandlers = {
+	onPendingRemove?: (id: string) => void;
+	onPendingMove?: (id: string, direction: 'up' | 'down') => void;
+	onPendingQueue?: (id: string) => void;
+	onPendingSendNow?: (id: string) => void;
+	onPendingRestore?: (id: string) => void;
+};
+

@@ -3,7 +3,10 @@ import type {
 	ComposerProfileInterface,
 	ComposerRunPhase,
 } from '../../../src/interface/mod.ts';
-import type { ComposerFieldHandlers } from './composer-field-handlers';
+import type {
+	ComposerFieldHandlers,
+	ComposerPendingHandlers,
+} from './composer-field-handlers';
 import { ComposerPendingBar } from './ComposerPendingBar';
 import { InterfaceComposer } from './InterfaceComposer';
 import { InterfaceGenerationSelect } from './InterfaceGenerationSelect';
@@ -44,12 +47,8 @@ export function InterfaceRunnerComposer(props: {
 	selectedModel: string;
 	selectedEffort: string;
 	onGenerationChange?: (next: { modelId: string; effort?: string }) => void;
-	onPendingRemove?: (id: string) => void;
-	onPendingMove?: (id: string, direction: 'up' | 'down') => void;
-	onPendingQueue?: (id: string) => void;
-	onPendingSendNow?: (id: string) => void;
-	onPendingRestore?: (id: string) => void;
-} & ComposerFieldHandlers) {
+} & ComposerFieldHandlers &
+	ComposerPendingHandlers) {
 	const allowSteering = 'allowSteering' in props.iface ? props.iface.allowSteering : false;
 	const handleLabel = `@${props.iface.identity.handle}`;
 	const slotClass = [

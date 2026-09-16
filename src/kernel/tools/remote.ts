@@ -768,9 +768,8 @@ export async function* executeMcpTool(
   base: ToolCallBase,
   stages?: ToolStageSupport,
 ): AsyncGenerator<TurnEvent, ToolBodyOutcome> {
-  const parsed = yield* remoteParseAndPermit(tool, rawInput, ctx, base);
-  if (!parsed.ok) return parsed.outcome;
-  let input: unknown = parsed.input;
+  const permitted = yield* remoteParseAndPermit(tool, rawInput, ctx, base);
+  if (!permitted.ok) return permitted.outcome;
 
   const targetUrl = yield* guardToolTarget(tool.serverUrl, ctx, base);
   if (!targetUrl) {
@@ -779,6 +778,8 @@ export async function* executeMcpTool(
       true,
     );
   }
+
+  let input: unknown = permitted.input;
 
   const prepared = yield* remoteAuthAndPreBody({ tool, input, ctx, base, stages });
   if (!('ok' in prepared)) return prepared;

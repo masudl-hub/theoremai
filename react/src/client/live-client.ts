@@ -89,6 +89,49 @@ export interface LiveClientOptions {
 	onVolumeLevel?: (level: number, isUser: boolean) => void;
 }
 
+function safeDisconnect(node?: { disconnect?: () => void } | null): void {
+	if (!node || typeof node.disconnect !== 'function') return;
+	try {
+		node.disconnect();
+	} catch {
+		/* ignore */
+	}
+}
+
+function stopMediaTracks(stream?: { getTracks?: () => Array<{ stop: () => void }> } | null): void {
+	if (!stream || typeof stream.getTracks !== 'function') return;
+	for (const track of stream.getTracks()) {
+		track.stop();
+	}
+}
+
+function checkMicFrameForward(args: {
+	isMuted: boolean;
+	wsOpen: boolean;
+	hasPlaybackNodes: boolean;
+	status: LiveSessionStatus;
+	inputFloat32: Float32Array;
+}): boolean {
+	const rms = float32Rms(args.inputFloat32);
+	const modelPlaying = args.hasPlaybackNodes || args.status === 'speaking';
+	return shouldForwardMicFrame({
+		isMuted: args.isMuted,
+		socketOpen: args.wsOpen,
+		modelPlaying,
+		rms,
+		bargeInRmsWhileSpeaking: BARGE_IN_RMS_WHILE_SPEAKING,
+	});
+}
+
+function resolveWorkingStatusTransition(
+	currentStatus: LiveSessionStatus,
+	serverWorking: boolean,
+): LiveSessionStatus | null {
+	if (currentStatus === 'listening' && serverWorking) return 'working';
+	if (currentStatus === 'working' && !serverWorking) return 'listening';
+	return null;
+}
+
 export class LiveSessionClient {
 	private ws: WebSocket | null = null;
 	private audioContext: AudioContext | null = null;
@@ -230,20 +273,23 @@ export class LiveSessionClient {
 		}
 	}
 
+	private async ensureAudioContext(): Promise<void> {
+		if (!this.audioContext || this.audioContext.state === 'closed') {
+			const AudioContextClass = globalThis.AudioContext;
+			this.audioContext = new AudioContextClass();
+			if (this.audioContext.state === 'suspended') {
+				await this.audioContext.resume();
+			}
+		}
+	}
+
 	private async activateMicrophone(): Promise<void> {
 		if (this.micActivating || this.status !== 'connecting') return;
 		this.micActivating = true;
 		this.setConnectPhase('microphone');
 
 		try {
-			if (!this.audioContext || this.audioContext.state === 'closed') {
-				const AudioContextClass = globalThis.AudioContext;
-				this.audioContext = new AudioContextClass();
-				if (this.audioContext.state === 'suspended') {
-					await this.audioContext.resume();
-				}
-			}
-
+			await this.ensureAudioContext();
 			this.micStream = await navigator.mediaDevices.getUserMedia({
 				audio: {
 					channelCount: 1,
@@ -267,38 +313,41 @@ export class LiveSessionClient {
 		}
 	}
 
+	private sendMicFrame(inputFloat32: Float32Array, sampleRate: number): void {
+		const pcm16 = downsampleAndConvertToInt16(inputFloat32, sampleRate, 16000);
+		const base64 = bytesToBase64(new Uint8Array(pcm16.buffer));
+		const socket = this.ws;
+		if (socket?.readyState === WebSocket.OPEN) {
+			socket.send(JSON.stringify({ type: 'audio', data: base64 }));
+		}
+	}
+
+	private reportMicVolume(inputFloat32: Float32Array): void {
+		if (this.isMuted) return;
+		this.options.onVolumeLevel?.(float32RmsToLevel(inputFloat32), true);
+	}
+
+	private forwardMicBuffer(inputFloat32: Float32Array): void {
+		this.reportMicVolume(inputFloat32);
+		const forward = checkMicFrameForward({
+			isMuted: this.isMuted,
+			wsOpen: this.ws?.readyState === WebSocket.OPEN,
+			hasPlaybackNodes: this.playbackNodes.length > 0,
+			status: this.status,
+			inputFloat32,
+		});
+		if (forward) {
+			const sampleRate = this.audioContext ? this.audioContext.sampleRate : 48000;
+			this.sendMicFrame(inputFloat32, sampleRate);
+		}
+	}
+
 	private async setupMicrophonePipeline(): Promise<void> {
 		if (!this.micStream || !this.audioContext) return;
 
 		this.micSource = this.audioContext.createMediaStreamSource(this.micStream);
 		const silent = this.audioContext.createGain();
 		silent.gain.value = 0;
-
-		const forwardMicFrame = (inputFloat32: Float32Array) => {
-			if (!this.isMuted) {
-				this.options.onVolumeLevel?.(float32RmsToLevel(inputFloat32), true);
-			}
-
-				const sampleRate = this.audioContext?.sampleRate ?? 48000;
-				const rms = float32Rms(inputFloat32);
-				const modelPlaying = this.playbackNodes.length > 0 || this.status === 'speaking';
-				if (
-					!shouldForwardMicFrame({
-						isMuted: this.isMuted,
-						socketOpen: this.ws?.readyState === WebSocket.OPEN,
-						modelPlaying,
-						rms,
-						bargeInRmsWhileSpeaking: BARGE_IN_RMS_WHILE_SPEAKING,
-					})
-				) return;
-
-			const pcm16 = downsampleAndConvertToInt16(inputFloat32, sampleRate, 16000);
-			const base64 = bytesToBase64(new Uint8Array(pcm16.buffer));
-			const socket = this.ws;
-			if (socket?.readyState === WebSocket.OPEN) {
-				socket.send(JSON.stringify({ type: 'audio', data: base64 }));
-			}
-		};
 
 		if (!this.micWorkletModuleLoaded) {
 			await this.audioContext.audioWorklet.addModule(micCaptureWorkletUrl);
@@ -308,7 +357,7 @@ export class LiveSessionClient {
 		this.micWorklet = new AudioWorkletNode(this.audioContext, 'mic-capture-processor');
 		this.micWorklet.port.onmessage = (event: MessageEvent<ArrayBuffer>) => {
 			const inputFloat32 = new Float32Array(event.data);
-			forwardMicFrame(inputFloat32);
+			this.forwardMicBuffer(inputFloat32);
 		};
 
 		this.micSource.connect(this.micWorklet);
@@ -353,6 +402,20 @@ export class LiveSessionClient {
 		this.playbackMeterFrame = requestAnimationFrame(tick);
 	}
 
+	private async processServerEnvelope(payload: LiveServerEnvelope): Promise<void> {
+		if (await this.tryHandleControlEnvelope(payload)) return;
+		if (payload.type !== 'events') return;
+
+		const accum = this.collectInboundTurn(payload.events);
+		const runnableTools = accum.toolCalls.filter(
+			(call) => !accum.cancelledToolIds.has(call.id),
+		);
+		if (runnableTools.length > 0) {
+			await this.handleToolExecutions(runnableTools);
+		}
+		this.scheduleMediaChunks(accum.mediaChunks);
+	}
+
 	private enqueueServerMessage(data: string | ArrayBuffer | Blob): void {
 		this.inboundChain = this.inboundChain
 			.then(async () => {
@@ -360,18 +423,7 @@ export class LiveSessionClient {
 
 				try {
 					const payload = parseLiveServerEnvelope(JSON.parse(data) as unknown);
-					if (!payload) return;
-					if (await this.tryHandleControlEnvelope(payload)) return;
-					if (payload.type !== 'events') return;
-
-					const accum = this.collectInboundTurn(payload.events);
-					const runnableTools = accum.toolCalls.filter(
-						(call) => !accum.cancelledToolIds.has(call.id),
-					);
-					if (runnableTools.length > 0) {
-						await this.handleToolExecutions(runnableTools);
-					}
-					this.scheduleMediaChunks(accum.mediaChunks);
+					if (payload) await this.processServerEnvelope(payload);
 				} catch (err) {
 					this.options.onError?.((err as Error).message || 'Failed to parse live server event');
 				}
@@ -383,27 +435,39 @@ export class LiveSessionClient {
 			});
 	}
 
+	private async handleReadyEnvelope(
+		payload: Extract<LiveServerEnvelope, { type: 'ready' }>,
+	): Promise<void> {
+		this.sessionId = payload.sessionId;
+		this.options.onSessionReady?.({
+			sessionId: payload.sessionId,
+			profile: payload.profile,
+		});
+		if (this.options.voiceIngress === false) {
+			this.setConnectPhase(null);
+			this.setStatus('listening');
+		} else {
+			await this.activateMicrophone();
+		}
+	}
+
+	private handleExecuteToolResultEnvelope(
+		payload: Extract<LiveServerEnvelope, { type: 'executeToolResult' }>,
+	): void {
+		const pending = this.pendingExecuteResults.get(payload.callId);
+		if (pending) {
+			this.pendingExecuteResults.delete(payload.callId);
+			pending.resolve(payload);
+		}
+	}
+
 	private async tryHandleControlEnvelope(payload: LiveServerEnvelope): Promise<boolean> {
 		if (payload.type === 'ready') {
-			this.sessionId = payload.sessionId;
-			this.options.onSessionReady?.({
-				sessionId: payload.sessionId,
-				profile: payload.profile,
-			});
-			if (this.options.voiceIngress === false) {
-				this.setConnectPhase(null);
-				this.setStatus('listening');
-			} else {
-				await this.activateMicrophone();
-			}
+			await this.handleReadyEnvelope(payload);
 			return true;
 		}
 		if (payload.type === 'executeToolResult') {
-			const pending = this.pendingExecuteResults.get(payload.callId);
-			if (pending) {
-				this.pendingExecuteResults.delete(payload.callId);
-				pending.resolve(payload);
-			}
+			this.handleExecuteToolResultEnvelope(payload);
 			return true;
 		}
 		if (payload.type === 'error') {
@@ -455,21 +519,14 @@ export class LiveSessionClient {
 
 	private handleSessionTurnEvent(event: TurnEvent): void {
 		if (event.type !== 'session' || !event.session) return;
-		switch (event.session.kind) {
-			case 'closing_soon':
-				this.options.onSessionClosing?.(event.session.timeLeftMs);
-				return;
-			case 'working':
-				this.serverWorking = true;
-				if (this.status === 'listening') this.setStatus('working');
-				return;
-			case 'idle':
-				this.serverWorking = false;
-				if (this.status === 'working') this.setStatus('listening');
-				return;
-			default:
-				return;
+		const { kind, timeLeftMs } = event.session;
+		if (kind === 'closing_soon') {
+			this.options.onSessionClosing?.(timeLeftMs);
+			return;
 		}
+		this.serverWorking = kind === 'working';
+		const nextStatus = resolveWorkingStatusTransition(this.status, this.serverWorking);
+		if (nextStatus) this.setStatus(nextStatus);
 	}
 
 	/** Status to settle into once model speech stops. */
@@ -517,24 +574,22 @@ export class LiveSessionClient {
 		}
 	}
 
+	private sendToolErrorResponse(id: string, name: string, error: string): void {
+		if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+			this.ws.send(
+				JSON.stringify({
+					type: 'toolResponses',
+					responses: [{ id, name, output: { error } }],
+				}),
+			);
+		}
+	}
+
 	private async handleToolExecutions(calls: LiveToolCall[]): Promise<void> {
 		for (const call of calls) {
 			if (call.error) {
 				// Escape hatch for pre-failed calls — still need an upstream response.
-				if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-					this.ws.send(
-						JSON.stringify({
-							type: 'toolResponses',
-							responses: [
-								{
-									id: call.id,
-									name: call.name,
-									output: { error: call.error },
-								},
-							],
-						}),
-					);
-				}
+				this.sendToolErrorResponse(call.id, call.name, call.error);
 				continue;
 			}
 
@@ -546,20 +601,7 @@ export class LiveSessionClient {
 					});
 				} catch (err) {
 					const message = (err as Error).message || 'Tool execution failed';
-					if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-						this.ws.send(
-							JSON.stringify({
-								type: 'toolResponses',
-								responses: [
-									{
-										id: call.id,
-										name: call.name,
-										output: { error: message },
-									},
-								],
-							}),
-						);
-					}
+					this.sendToolErrorResponse(call.id, call.name, message);
 				}
 				continue;
 			}
@@ -700,42 +742,22 @@ export class LiveSessionClient {
 		this.cancelPlayback();
 		this.stopPlaybackMeter();
 
-		if (this.playbackBus) {
-			try {
-				this.playbackBus.disconnect();
-			} catch {
-				/* ignore */
-			}
-			this.playbackBus = null;
-		}
+		safeDisconnect(this.playbackBus);
+		this.playbackBus = null;
 		this.playbackAnalyser = null;
 		this.playbackMeterBuffer = null;
 
 		if (this.micWorklet) {
-			try {
-				this.micWorklet.port.onmessage = null;
-				this.micWorklet.disconnect();
-			} catch {
-				/* ignore */
-			}
+			this.micWorklet.port.onmessage = null;
+			safeDisconnect(this.micWorklet);
 			this.micWorklet = null;
 		}
 
-		if (this.micSource) {
-			try {
-				this.micSource.disconnect();
-			} catch {
-				/* ignore */
-			}
-			this.micSource = null;
-		}
+		safeDisconnect(this.micSource);
+		this.micSource = null;
 
-		if (this.micStream) {
-			for (const track of this.micStream.getTracks()) {
-				track.stop();
-			}
-			this.micStream = null;
-		}
+		stopMediaTracks(this.micStream);
+		this.micStream = null;
 
 		if (this.audioContext && this.audioContext.state !== 'closed') {
 			try {

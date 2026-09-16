@@ -81,6 +81,7 @@
     "verify:publish": "deno run --allow-read scripts/verify-publish-bundle.ts",
     "lint": "npm run lint",
     "lint:docs": "npm run lint:docs",
+    "ci": "npm run check:ci",
     "hooks:install": "npm run hooks:install",
     "verify:provider-smoke": "deno run --allow-net scripts/verify-provider-smoke.ts",
     "verify:canary-api": "deno run --allow-read --allow-net --allow-env --allow-sys scripts/verify-guardrails-api.ts",

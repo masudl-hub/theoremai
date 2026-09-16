@@ -6,7 +6,10 @@ import type {
 } from '../../../src/interface/mod.ts';
 import type { ToolCredential } from 'theorum/kernel';
 import '../styles/interface-runner.css';
-import type { ComposerFieldHandlers } from './composer-field-handlers';
+import type {
+	ComposerFieldHandlers,
+	ComposerPendingHandlers,
+} from './composer-field-handlers';
 import { InterfaceRunnerComposer } from './InterfaceRunnerComposer';
 import { InterfaceTranscript } from './InterfaceTranscript';
 
@@ -26,11 +29,6 @@ export type InterfaceRunnerProps = {
 	error?: string;
 	/** Optional diagnostic detail shown on hover of the public error. */
 	errorInternal?: string;
-	onPendingRemove?: (id: string) => void;
-	onPendingMove?: (id: string, direction: 'up' | 'down') => void;
-	onPendingQueue?: (id: string) => void;
-	onPendingSendNow?: (id: string) => void;
-	onPendingRestore?: (id: string) => void;
 	onBranch?: (index: number) => void;
 	onToolDecision?: (
 		index: number,
@@ -41,7 +39,8 @@ export type InterfaceRunnerProps = {
 	onGenerationChange?: (next: { modelId: string; effort?: string }) => void;
 	selectedModel?: string;
 	selectedEffort?: string;
-} & ComposerFieldHandlers;
+} & ComposerFieldHandlers &
+	ComposerPendingHandlers;
 
 export function InterfaceRunner({
 	iface,

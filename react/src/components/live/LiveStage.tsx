@@ -51,6 +51,86 @@ export type LiveStageProps = {
 	onEnd?: () => void;
 };
 
+function LiveStageHead({
+	handle,
+	stateLabel,
+	captionTurns,
+	interimUser,
+	interimAgent,
+	captionFocus,
+	onCaptionFocusChange,
+	isVideoOn,
+	videoPreview,
+	videoFacingMode,
+}: {
+	handle: string;
+	stateLabel: string;
+	captionTurns: LiveCaptionTurn[];
+	interimUser: string;
+	interimAgent: string;
+	captionFocus: CaptionFocus;
+	onCaptionFocusChange?: (focus: CaptionFocus) => void;
+	isVideoOn: boolean;
+	videoPreview: HTMLVideoElement | null;
+	videoFacingMode: 'user' | 'environment';
+}) {
+	const handleLabel = `@${handle}`;
+	const showVideoPreview = isVideoOn && videoPreview !== null;
+	return (
+		<header className="live-head">
+			<div className="live-head__main">
+				<h1 className="live-head__handle">{handleLabel}</h1>
+				<p className="live-head__state">{stateLabel}</p>
+			</div>
+			<div className="live-head__side">
+				<LiveCaptionRail
+					handle={handle}
+					focus={captionFocus}
+					interimAgent={interimAgent}
+					interimUser={interimUser}
+					onFocusChange={onCaptionFocusChange}
+					turns={captionTurns}
+				/>
+				{showVideoPreview ? (
+					<LiveVideoPreview facingMode={videoFacingMode} video={videoPreview} />
+				) : null}
+			</div>
+		</header>
+	);
+}
+
+function LiveComposerSlot({
+	textComposerOpen,
+	textAvailable,
+	sessionActive,
+	textDraft,
+	onTextDraftChange,
+	onSendText,
+}: {
+	textComposerOpen: boolean;
+	textAvailable: boolean;
+	sessionActive: boolean;
+	textDraft: string;
+	onTextDraftChange?: (value: string) => void;
+	onSendText?: () => void;
+}) {
+	if (!textComposerOpen || !textAvailable) return null;
+	const canSendText = sessionActive && textDraft.trim().length > 0;
+	return (
+		<div className="live-composer-slot">
+			<InterfaceComposer
+				inputLocked={!sessionActive || !canSendText}
+				inputs={liveTextInputs}
+				issues={[]}
+				onSubmit={onSendText}
+				onTextChange={onTextDraftChange}
+				phase="idle"
+				text={textDraft}
+			/>
+		</div>
+	);
+}
+
 export function LiveStage({
 	handle,
 	stateLabel,
@@ -84,32 +164,21 @@ export function LiveStage({
 	onRestart,
 	onEnd,
 }: LiveStageProps) {
-	const handleLabel = `@${handle}`;
-	const canSendText = sessionActive && textDraft.trim().length > 0;
-	const showVideoPreview = isVideoOn && videoPreview !== null;
-
 	return (
 		<section className="live-stage">
 			<div className="live-rail">
-				<header className="live-head">
-					<div className="live-head__main">
-						<h1 className="live-head__handle">{handleLabel}</h1>
-						<p className="live-head__state">{stateLabel}</p>
-					</div>
-					<div className="live-head__side">
-						<LiveCaptionRail
-							handle={handle}
-							focus={captionFocus}
-							interimAgent={interimAgent}
-							interimUser={interimUser}
-							onFocusChange={onCaptionFocusChange}
-							turns={captionTurns}
-						/>
-						{showVideoPreview ? (
-							<LiveVideoPreview facingMode={videoFacingMode} video={videoPreview} />
-						) : null}
-					</div>
-				</header>
+				<LiveStageHead
+					handle={handle}
+					stateLabel={stateLabel}
+					captionTurns={captionTurns}
+					interimUser={interimUser}
+					interimAgent={interimAgent}
+					captionFocus={captionFocus}
+					onCaptionFocusChange={onCaptionFocusChange}
+					isVideoOn={isVideoOn}
+					videoPreview={videoPreview}
+					videoFacingMode={videoFacingMode}
+				/>
 
 				<div className="live-wave-slot">
 					<InkWaveform
@@ -128,19 +197,14 @@ export function LiveStage({
 						</p>
 					) : null}
 
-					{textComposerOpen && textAvailable ? (
-						<div className="live-composer-slot">
-							<InterfaceComposer
-								inputLocked={!sessionActive || !canSendText}
-								inputs={liveTextInputs}
-								issues={[]}
-								onSubmit={onSendText}
-								onTextChange={onTextDraftChange}
-								phase="idle"
-								text={textDraft}
-							/>
-						</div>
-					) : null}
+					<LiveComposerSlot
+						textComposerOpen={textComposerOpen}
+						textAvailable={textAvailable}
+						sessionActive={sessionActive}
+						textDraft={textDraft}
+						onTextDraftChange={onTextDraftChange}
+						onSendText={onSendText}
+					/>
 
 					<hr className="ink-divider live-footer__divider" />
 

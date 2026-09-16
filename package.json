@@ -56,14 +56,15 @@
     "coverage": "rm -rf coverage && deno test --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run --ignore=npm/ --coverage=coverage tests/ && deno coverage coverage --lcov --output=coverage/lcov.info && node scripts/lcov-to-istanbul.mjs",
     "lint:biome": "biome check --error-on-warnings .",
     "lint:ast-grep": "ast-grep scan",
-    "lint:fallow": "npm run coverage && fallow audit --base \"${FALLOW_AUDIT_BASE:-main}\" --coverage coverage/coverage-final.json",
+    "lint:fallow": "npm run coverage && fallow audit --base \"${FALLOW_AUDIT_BASE:-origin/main}\" --coverage coverage/coverage-final.json",
     "lint:fallow:deep": "fallow health && fallow dupes && fallow dead-code",
     "lint:docs": "node ./scripts/docs-truth/cli.mjs lint && node ./scripts/docs-truth/export-drift.mjs && node ./scripts/docs-truth/copy-lint.mjs && node --test ./scripts/docs-truth/graph.test.mjs",
     "docs:inventory": "node ./scripts/docs-truth/cli.mjs inventory",
     "docs:freshness": "node ./scripts/docs-truth/cli.mjs freshness",
     "hooks:install": "node ./scripts/hooks/install.mjs",
     "prepare": "node ./scripts/hooks/install.mjs",
-    "lint": "npm run lint:docs && npm run lint:biome && npm run lint:ast-grep && npm run lint:fallow"
+    "lint": "npm run lint:docs && deno lint && npm run lint:biome && npm run lint:ast-grep && npm run lint:fallow",
+    "check:ci": "npm run lint:docs && deno lint && npm run lint:biome && npm run lint:ast-grep && npm run lint:fallow && deno check mod.ts && deno task verify:publish && deno task test"
   },
   "devDependencies": {
     "@ast-grep/cli": "^0.41.0",

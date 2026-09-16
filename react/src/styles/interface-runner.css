@@ -107,6 +107,14 @@
 	white-space: nowrap;
 }
 
+.iface-gen__menu,
+.iface-composer__menu {
+	background: var(--color-paper);
+	border: 1px solid rgba(0, 0, 0, 0.12);
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+	overflow: hidden;
+}
+
 .iface-gen__menu {
 	position: absolute;
 	right: 0;
@@ -116,10 +124,6 @@
 	grid-template-columns: minmax(7.5rem, 1fr);
 	min-width: 8.5rem;
 	max-width: min(18rem, 70vw);
-	background: var(--color-paper);
-	border: 1px solid rgba(0, 0, 0, 0.12);
-	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
-	overflow: hidden;
 }
 
 .iface-gen__backdrop {
@@ -156,7 +160,8 @@
 	list-style: none;
 }
 
-.iface-gen__option {
+.iface-gen__option,
+.iface-composer__menu-item {
 	display: flex;
 	flex-direction: column;
 	align-items: flex-start;
@@ -174,11 +179,13 @@
 	cursor: pointer;
 }
 
-.iface-gen__option:hover {
+.iface-gen__option:hover,
+.iface-composer__menu-item:hover {
 	background: rgba(0, 0, 0, 0.04);
 }
 
-.iface-gen__option:focus-visible {
+.iface-gen__option:focus-visible,
+.iface-composer__menu-item:focus-visible {
 	outline: 1.5px solid var(--color-ink);
 	outline-offset: -1.5px;
 	background: rgba(0, 0, 0, 0.06);
@@ -823,39 +830,6 @@
 	padding: 0.2rem 0;
 	list-style: none;
 	font-family: var(--font-mono);
-	background: var(--color-paper);
-	border: 1px solid rgba(0, 0, 0, 0.12);
-	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
-	overflow: hidden;
-}
-
-.iface-composer__menu-item {
-	display: flex;
-	flex-direction: column;
-	align-items: flex-start;
-	gap: 0.1rem;
-	width: 100%;
-	padding: 0.35rem 0.55rem;
-	font-family: var(--font-mono);
-	font-size: 0.68rem;
-	font-weight: 600;
-	line-height: 1.25;
-	text-align: left;
-	color: var(--color-ink);
-	background: transparent;
-	border: none;
-	cursor: pointer;
-}
-
-.iface-composer__menu-item:hover,
-.iface-composer__menu-item:focus-visible {
-	background: rgba(0, 0, 0, 0.04);
-}
-
-.iface-composer__menu-item:focus-visible {
-	outline: 1.5px solid var(--color-ink);
-	outline-offset: -1.5px;
-	background: rgba(0, 0, 0, 0.06);
 }
 
 .iface-composer__menu-label {
@@ -1226,7 +1200,8 @@
 	color: #8b0000;
 }
 
-.iface-msg--streaming .iface-msg__bubble:last-of-type::after {
+.iface-msg--streaming .iface-msg__bubble:last-of-type::after,
+.iface-md--streaming > :last-child::after {
 	content: "";
 	display: inline-block;
 	width: 0.55ch;
@@ -1611,17 +1586,6 @@
 .iface-md th {
 	font-weight: 700;
 	background: rgba(0, 0, 0, 0.03);
-}
-
-.iface-md--streaming > :last-child::after {
-	content: "";
-	display: inline-block;
-	width: 0.55ch;
-	height: 1.05em;
-	margin-left: 0.12em;
-	vertical-align: -0.12em;
-	background: var(--color-ink);
-	animation: iface-caret 1.05s steps(1, end) infinite;
 }
 
 .iface-sources {

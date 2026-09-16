@@ -83,7 +83,11 @@ const graph = {
       required_sections: ['Export', 'Ownership', 'Rules', 'Package vs repo documentation', 'Production roots', 'CI and hooks'],
       section_triggers: [
         {
-          paths: ['scripts/docs-truth/export-drift.mjs', 'scripts/docs-truth/graph.test.mjs'],
+          paths: [
+            'scripts/docs-truth/export-drift.mjs',
+            'scripts/docs-truth/copy-lint.mjs',
+            'scripts/docs-truth/graph.test.mjs',
+          ],
           sections: ['Rules'],
         },
         {
@@ -91,7 +95,14 @@ const graph = {
           sections: ['Rules', 'Production roots'],
         },
         {
-          paths: ['scripts/docs-truth/cli.mjs'],
+          paths: [
+            'scripts/docs-truth/cli.mjs',
+            'scripts/hooks/pre-commit',
+            'scripts/hooks/pre-push',
+            'scripts/hooks/install.mjs',
+            '.github/workflows/ci.yml',
+            'package.json',
+          ],
           sections: ['CI and hooks'],
         },
         {
@@ -112,12 +123,11 @@ const graph = {
       doc: 'docs/contracts/kernel.md',
       owns: ['src/kernel/'],
       owns_except: ['src/kernel/schema.ts'],
-      validates: [
-        'tests/kernel/',
-      ],
+      validates: ['tests/kernel/'],
       required_sections: [
         'Export',
         'Ownership',
+        'Facts and policy',
         'Profiles',
         'Turn lifecycle',
         'Stream events',
@@ -129,6 +139,10 @@ const graph = {
         'Exported API',
       ],
       section_triggers: [
+        {
+          paths: ['src/guardrails/lexicon.ts', 'src/kernel/stop.ts', 'playground/'],
+          sections: ['Facts and policy'],
+        },
         {
           paths: ['src/kernel/engine/compaction.ts', 'src/kernel/engine/history-tokens.ts'],
           sections: ['Compaction'],
@@ -258,18 +272,45 @@ const graph = {
         'Export',
         'Ownership',
         'Public errors',
+        'Trust levels',
+        'Evaluation',
+        'Tool boundary',
+        'Guardrail events',
+        'Network',
         'Sanitization',
         'Injection categories (non-exhaustive)',
         'Sensitive data',
         'Quota',
+        'Lexicon',
+        'Egress',
         'Exported API',
       ],
       section_triggers: [
         { paths: ['src/guardrails/error.ts'], sections: ['Public errors'] },
+        { paths: ['src/guardrails/lexicon.ts'], sections: ['Lexicon'] },
+        {
+          paths: ['src/guardrails/policy.ts', 'src/guardrails/types.ts'],
+          sections: ['Trust levels'],
+        },
+        { paths: ['src/guardrails/network.ts'], sections: ['Network'] },
+        { paths: ['src/guardrails/eval/**'], sections: ['Evaluation'] },
+        {
+          paths: ['src/guardrails/tool-result.ts'],
+          sections: ['Tool boundary', 'Guardrail events'],
+        },
         { paths: ['src/guardrails/sanitize.ts', 'src/guardrails/injection.ts'], sections: ['Sanitization'] },
         { paths: ['src/guardrails/injection.ts'], sections: ['Injection categories (non-exhaustive)'] },
         { paths: ['src/guardrails/sensitive.ts'], sections: ['Sensitive data'] },
         { paths: ['src/guardrails/quota.ts'], sections: ['Quota'] },
+        {
+          paths: [
+            'src/guardrails/serialize.ts',
+            'src/guardrails/egress.ts',
+            'src/guardrails/progressive-yield.ts',
+            'src/guardrails/live-outbound-gate.ts',
+          ],
+          sections: ['Egress'],
+        },
       ],
     },
 
@@ -300,12 +341,16 @@ const graph = {
       required_sections: [
         'Export',
         'Ownership',
+        'Profile observability',
+        'Trace destinations',
         'Trace sinks',
         'Sensitive storage',
         'Trace records',
         'Exported API',
       ],
       section_triggers: [
+        { paths: ['src/observability/types.ts', 'src/observability/policy.ts'], sections: ['Profile observability'] },
+        { paths: ['src/observability/destinations.ts'], sections: ['Trace destinations'] },
         { paths: ['src/observability/trace.ts'], sections: ['Trace sinks'] },
         { paths: ['src/observability/trace-record.ts'], sections: ['Trace records', 'Sensitive storage'] },
       ],
@@ -406,7 +451,7 @@ const graph = {
     },
 
     interface: {
-      export: './interface',
+      export: '_internal/interface',
       doc: 'docs/contracts/kernel.md',
       owns: ['src/interface/'],
       validates: ['tests/interface/'],

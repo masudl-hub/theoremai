@@ -5,6 +5,7 @@
  */
 
 import { z } from 'zod';
+import { AWAITING_USER_INPUT_STATUS } from '../schema.ts';
 import { registerTool } from './registry.ts';
 
 const AskInputSchema = z.object({
@@ -14,7 +15,10 @@ const AskInputSchema = z.object({
 });
 
 const AskOutputSchema = z.object({
-  answer: z.unknown(),
+  status: z.literal(AWAITING_USER_INPUT_STATUS),
+  kind: z.enum(['confirm', 'choice', 'text']),
+  prompt: z.string().trim().min(1),
+  options: z.array(z.string()).optional(),
 });
 
 type AskInput = z.infer<typeof AskInputSchema>;
@@ -24,7 +28,7 @@ function registerHarnessTools(): void {
   registerTool({
     type: 'function',
     name: 'ask_user',
-    description: 'Ask the user a question and wait for a response',
+    description: 'Ask the user a question (completes with awaiting_user_input)', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     category: 'conversation',
     access: 'read-only',
     paths: ['*'],
@@ -32,19 +36,17 @@ function registerHarnessTools(): void {
     permission: 'auto',
     input: AskInputSchema,
     output: AskOutputSchema,
-    interactive: {
-      render: (input) => {
-        const ask = input as AskInput;
-        return {
-          kind: ask.kind,
-          prompt: ask.prompt,
-          options: ask.options,
-        };
-      },
+    handler: (input: AskInput) => {
+      const out: z.infer<typeof AskOutputSchema> = {
+        status: AWAITING_USER_INPUT_STATUS,
+        kind: input.kind,
+        prompt: input.prompt,
+      };
+      if (input.kind === 'choice' && input.options?.length) {
+        out.options = input.options;
+      }
+      return out;
     },
-    handler: (_input, ctx) => ({
-      answer: ctx.resume?.value ?? ctx.resume?.granted,
-    }),
   });
 }
 

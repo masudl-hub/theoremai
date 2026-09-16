@@ -31,13 +31,21 @@ jobs:
       - name: Install dependencies
         run: deno install
 
+      - name: Install npm lint tools
+        run: npm ci
+
       - name: Docs truth
         run: npm run lint:docs
         env:
           THEORUM_DOCS_BASE: origin/${{ github.base_ref || github.event.repository.default_branch }}
 
-      - name: Lint
+      - name: Deno lint
         run: deno lint
+
+      - name: Full lint (biome, ast-grep, fallow)
+        run: npm run lint:biome && npm run lint:ast-grep && npm run lint:fallow
+        env:
+          FALLOW_AUDIT_BASE: origin/${{ github.base_ref || github.event.repository.default_branch }}
 
       - name: Type check
         run: deno check mod.ts

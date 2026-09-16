@@ -4,6 +4,18 @@ Optional helpers for host applications. **Not** part of the turn kernel —
 import when you want shared reply/status glue, cutout-trace flushing, or live
 structured-output preview without reimplementing it per route.
 
+Host-driven tool execution (MCP servers, web UIs, schedulers) does not live
+here: register a `type: 'host'` profile (`HostProfileDefinition` — `tools.allow`
+ceiling, optional `observability`, optional `guardrails` narrowed to
+`HostGuardrailsSpec` — `sanitizeInput`, `redactSensitive`, `network`, `taint`;
+quota / canary / egress are refused because they guard a model turn — no models)
+and call
+`invokeTool({ profile, name, input, host })` from `theorum/kernel`. The `host`
+slot carries opaque application context to `handler` / `preTool`
+(and turn stages — see `docs/contracts/stages.md`) and is never traced or sent
+to a provider. See `docs/contracts/kernel.md` (“Host profile” and “Host context
+slot”).
+
 ## Export
 
 | Field | Value |
@@ -67,7 +79,7 @@ build a custom relay still may call `processLiveOutboundBatch` /
 
 | Export | Role |
 | --- | --- |
-| `forClient(event, options?)` | Copy one event without `errorInternal`; strips `evidence.raw` unless `includeEvidenceRaw: true` |
+| `forClient(event, options?)` | Copy one event without `errorInternal`; strips `evidence.raw` unless `includeEvidenceRaw: true`; always strips `GuardrailHit.match` |
 | `forClientEvents(events, options?)` | Batch helper for Live relays and HTTP stream flush |
 | `ClientTurnOptions` | `{ includeEvidenceRaw?: boolean }` |
 
@@ -80,6 +92,7 @@ only to turn event payloads.
 | --- | --- |
 | `flushMintTrace` | Flush pending cutout mint records after a turn |
 | `CutoutTape` | Tape type for mint/cutout correlation |
+| `TraceSink` (imported) | From `src/observability/trace-sink.ts`, the type-only sink contract |
 
 Use when your Deno HTTP host records mint/cutout telemetry alongside THEORUM
 turns. Skip entirely for non-HTTP or non-Deno hosts.

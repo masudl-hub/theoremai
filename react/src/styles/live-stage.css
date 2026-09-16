@@ -1,0 +1,257 @@
+/* Live voice shell — paper canvas, ink waveform, flat-bottom bars. */
+
+@import "./ink-controls.css";
+@import "./paper-stage.css";
+
+.live-stage {
+	--live-rail-width: min(78vw, 56rem);
+	--live-ease: var(--ink-ease);
+	--live-duration: var(--ink-duration);
+	height: 100%;
+}
+
+.live-rail {
+	display: flex;
+	flex-direction: column;
+	width: var(--live-rail-width);
+	max-width: 100%;
+	height: 100%;
+	min-height: 0;
+	margin: 0 auto;
+	padding: 2.5rem 1.25rem max(2rem, env(safe-area-inset-bottom));
+	overflow: hidden;
+}
+
+.live-head {
+	display: grid;
+	grid-template-columns: 1fr minmax(0, 14rem);
+	gap: 1rem 1.5rem;
+	align-items: start;
+	flex-shrink: 0;
+	min-height: 0;
+	max-height: min(42vh, 22rem);
+	margin-bottom: 0.75rem;
+}
+
+.live-head__main {
+	min-width: 0;
+}
+
+.live-head__side {
+	display: flex;
+	flex-direction: column;
+	gap: 0.75rem;
+	min-width: 0;
+	min-height: 0;
+	max-height: 100%;
+	overflow: hidden;
+}
+
+.live-head__handle {
+	margin: 0;
+	font-size: 0.72rem;
+	font-weight: 800;
+	letter-spacing: 0.12em;
+	text-transform: lowercase;
+	line-height: 1.2;
+	color: var(--color-mute);
+}
+
+.live-head__state {
+	margin: 0.35rem 0 0;
+	font-size: 0.75rem;
+	font-weight: 700;
+	letter-spacing: 0.06em;
+	text-transform: lowercase;
+	color: var(--color-ink);
+}
+
+.live-captions {
+	display: flex;
+	flex-direction: column;
+	flex: 1 1 auto;
+	gap: 0;
+	min-height: 0;
+	max-height: min(24vh, 11rem);
+	overflow: auto;
+	margin: 0;
+	padding: 0;
+	text-align: right;
+	scrollbar-width: thin;
+	scroll-behavior: auto;
+}
+
+.live-captions__rail {
+	display: flex;
+	flex-direction: column;
+	gap: 0.65rem;
+	min-height: min-content;
+}
+
+.live-captions__line {
+	display: flex;
+	flex-direction: column;
+	gap: 0.15rem;
+	margin: 0;
+	padding: 0;
+	font-family: var(--font-mono);
+	font-size: 0.68rem;
+	line-height: 1.45;
+	color: var(--color-ink);
+	text-align: right;
+	background: transparent;
+	border: none;
+	cursor: pointer;
+	opacity: 0.22;
+	transition: opacity var(--live-duration) var(--live-ease);
+}
+
+.live-captions__line--focused {
+	opacity: 1;
+}
+
+.live-captions__line--latest {
+	opacity: 0.82;
+}
+
+.live-captions__line:hover {
+	opacity: 0.55;
+}
+
+.live-captions__line--focused:hover {
+	opacity: 1;
+}
+
+.live-captions__role {
+	font-size: 0.6rem;
+	font-weight: 700;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: var(--color-mute);
+}
+
+.live-captions__text {
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.live-captions__line--interim {
+	cursor: default;
+	opacity: 0.35;
+}
+
+.live-captions__line--interim:hover {
+	opacity: 0.35;
+}
+
+.live-video-preview {
+	flex: 0 0 auto;
+	width: 100%;
+	aspect-ratio: 4 / 3;
+	overflow: hidden;
+	background: #0a0a0a;
+	border-radius: 0;
+}
+
+.live-video-preview video {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	border-radius: 0;
+}
+
+.live-video-preview--mirror video {
+	transform: scaleX(-1);
+}
+
+.live-error {
+	margin: 0 0 0.75rem;
+	font-size: 0.72rem;
+	color: #8b0000;
+}
+
+.live-footer {
+	flex-shrink: 0;
+	margin-top: auto;
+}
+
+.live-footer__divider {
+	margin-bottom: 1rem;
+}
+
+.live-composer-slot {
+	margin-bottom: 0.75rem;
+}
+
+.live-wave-slot {
+	flex: 1 1 0;
+	display: flex;
+	align-items: stretch;
+	justify-content: center;
+	width: 100%;
+	min-height: 40dvh;
+	margin-bottom: 1rem;
+	padding: 0;
+	overflow: hidden;
+}
+
+.live-wave-slot .ink-wave {
+	width: 100%;
+	height: 100%;
+	min-height: 0;
+	max-height: none;
+}
+
+.live-wave-slot .ink-wave--hero {
+	width: 100%;
+	max-width: none;
+	height: 100%;
+	min-height: 0;
+	max-height: none;
+}
+
+@media (max-width: 40rem) {
+	.live-head {
+		grid-template-columns: 1fr;
+	}
+
+	.live-captions {
+		text-align: left;
+	}
+
+	.live-captions__line {
+		text-align: left;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.live-captions__line {
+		transition: none;
+	}
+}
+
+.live-runner {
+	position: relative;
+	height: 100%;
+}
+
+.live-tool-gate {
+	position: absolute;
+	inset: auto 1rem 5.5rem;
+	z-index: 4;
+	max-width: min(38rem, calc(100% - 2rem));
+	margin-inline: auto;
+	left: 0;
+	right: 0;
+}
+
+.live-tool-gate__eyebrow {
+	margin: 0 0 0.35rem;
+	font-family: var(--font-mono, monospace);
+	font-size: 0.65rem;
+	font-weight: 700;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: rgba(0, 0, 0, 0.55);
+}

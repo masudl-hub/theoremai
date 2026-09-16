@@ -12,7 +12,7 @@ import {
 } from '../../../../src/providers/google/interactions/framing.ts';
 import { createInteractionsProvider } from '../../../../src/providers/google/interactions/stream.ts';
 import { wrapPcmAsWav } from '../../../../src/providers/shared/pcm.ts';
-import { HOST_MODELS } from '../../../fixtures/models.ts';
+import { geminiModels } from '../../../fixtures/models.ts';
 
 const vault: KeyVault = {
   slotA: 'free-a-key',
@@ -237,14 +237,7 @@ Deno.test('Interactions speech profile rejects mp3 format at profile resolution'
     id: 'bad-speech',
     type: 'speech',
     identity: { handle: 'bad' },
-    model: {
-      thinking: 'minimal',
-      key: 'slotA',
-      protocol: 'geminiInteractions',
-      provider: 'google',
-      allow: ['gemini31FlashTts'],
-      config: HOST_MODELS,
-    },
+    ...geminiModels('gemini31FlashTts'),
     speech: {
       voice: 'Kore',
       format: 'mp3',
@@ -260,14 +253,7 @@ Deno.test('createProvider routes speech-role Interactions to the same adapter', 
     id: 'speech-test',
     type: 'speech',
     identity: { handle: 'speech' },
-    model: {
-      thinking: 'minimal',
-      key: 'slotA',
-      protocol: 'geminiInteractions',
-      provider: 'google',
-      allow: ['gemini31FlashTts'],
-      config: HOST_MODELS,
-    },
+    ...geminiModels('gemini31FlashTts'),
     speech: { voice: 'Kore', format: 'pcm' },
   });
   const profile = getProfile('speech-test');

@@ -1,13 +1,30 @@
 /**
- * Trace sinks and trace record helpers for THEORUM.
+ * Trace sinks, destination registry, and profile observability policy.
  *
  * THEORUM does not own a database or environment variable. Host applications
- * choose a sink and pass it into `runTurn`, or use the noop sink for tests.
+ * register named destinations, declare `profile.observability`, and/or pass a
+ * sink into `runTurn`.
  *
  * @module
  */
 
-export type { TraceSink } from './trace.ts';
+export type {
+  JsonlTraceDestination,
+  TraceDestination,
+} from './destinations.ts';
+export {
+  clearTraceDestinations,
+  getTraceDestination,
+  isJsonlTraceDestination,
+  isTraceSink,
+  jsonlDestination,
+  listTraceDestinationIds,
+  registerTraceDestination,
+  requireTraceDestination,
+} from './destinations.ts';
+export { resolveTraceWriter } from './policy.ts';
+export { resolveObservabilityPolicy } from './resolve-policy.ts';
+export type { JsonlSinkOptions } from './trace.ts';
 export {
   jsonlSink,
   memorySink,
@@ -17,3 +34,12 @@ export {
   writeTrace,
 } from './trace.ts';
 export type { TraceRecord } from './trace-record.ts';
+export type { TraceSink } from './trace-sink.ts';
+export type {
+  ProfileObservabilitySpec,
+  ResolvedObservabilityPolicy,
+  ResolvedTraceInclude,
+  ResolvedTraceScrub,
+  TraceIncludeSpec,
+  TraceScrubSpec,
+} from './types.ts';

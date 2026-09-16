@@ -14,6 +14,7 @@ import {
   shouldCompact,
   splitForCompaction,
 } from '../../src/kernel/engine/compaction.ts';
+import { compactionTranscriptLine } from '../../src/kernel/engine/runner/mod.ts';
 import { runTurn } from '../../src/kernel/engine/runner.ts';
 import {
   compactionMeter as publicCompactionMeter,
@@ -28,13 +29,13 @@ import {
 import { defineProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
 import type {
   CompactionSpec,
+  ModelBinding,
   ModelProvider,
-  ModelSpec,
   TurnEvent,
   TurnHistoryMessage,
   TurnInput,
 } from '../../src/kernel/types.ts';
-import { geminiModel, modelAllow } from '../fixtures/models.ts';
+import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 
 function msg(role: TurnHistoryMessage['role'], content: string): TurnHistoryMessage {
   return { role, content };
@@ -56,6 +57,35 @@ const DEFAULT_SPEC: CompactionSpec = {
   profile: 'test.compactor',
   timing: 'before',
 };
+
+Deno.test('compactionTranscriptLine keeps content and marks media parts', () => {
+  assertEquals(
+    compactionTranscriptLine({
+      role: 'tool',
+      content: 'shortlist',
+      parts: [
+        { type: 'text', text: 'ignored when content set' },
+        { type: 'image', mimeType: 'image/png', data: 'abc' },
+        { type: 'video', mimeType: 'video/mp4', data: 'def' },
+      ],
+    }),
+    '[tool]: shortlist[image][video]',
+  );
+});
+
+Deno.test('compactionTranscriptLine falls back to text parts when content missing', () => {
+  assertEquals(
+    compactionTranscriptLine({
+      role: 'user',
+      parts: [
+        { type: 'text', text: 'hello' },
+        { type: 'audio', mimeType: 'audio/wav', data: 'UklG' },
+        { type: 'document', mimeType: 'application/pdf', data: 'JVBERi0' },
+      ],
+    }),
+    '[user]: hello[audio][document]',
+  );
+});
 
 // --- compactionNeeded ---
 
@@ -209,7 +239,8 @@ Deno.test('registerProfile rejects compactAt outside (0,1)', () => {
       tools: { allow: [] },
       inputs: { text: true },
       id: 'compaction.validator.compactor',
-      model: { ...geminiModel('gemini35FlashLite'), thinking: 'minimal', maxSteps: 1 },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
     }),
   );
 
@@ -222,20 +253,15 @@ Deno.test('registerProfile rejects compactAt outside (0,1)', () => {
           tools: { allow: [] },
           inputs: { text: true },
           id: 'compaction.validator.bad_compact_at',
-          model: {
-            protocol: 'geminiInteractions',
-            provider: 'google',
-            allow: ['testModel'],
-            config: {
-              testModel: {
-                ...geminiModel('gemini35FlashLite').config.gemini35FlashLite,
-                compaction: {
-                  maxTokens: 100_000,
-                  compactAt: 1.5,
-                  previousExchanges: 5,
-                  profile: 'compaction.validator.compactor',
-                  timing: 'before',
-                },
+          models: {
+            testModel: {
+              ...HOST_BINDINGS.gemini35FlashLite,
+              compaction: {
+                maxTokens: 100_000,
+                compactAt: 1.5,
+                previousExchanges: 5,
+                profile: 'compaction.validator.compactor',
+                timing: 'before',
               },
             },
           },
@@ -256,20 +282,15 @@ Deno.test('registerProfile rejects previousExchanges fraction >= compactAt', () 
           tools: { allow: [] },
           inputs: { text: true },
           id: 'compaction.validator.bad_prev_exchanges',
-          model: {
-            protocol: 'geminiInteractions',
-            provider: 'google',
-            allow: ['testModel'],
-            config: {
-              testModel: {
-                ...geminiModel('gemini35FlashLite').config.gemini35FlashLite,
-                compaction: {
-                  maxTokens: 100_000,
-                  compactAt: 0.5,
-                  previousExchanges: 0.5,
-                  profile: 'compaction.validator.compactor',
-                  timing: 'before',
-                },
+          models: {
+            testModel: {
+              ...HOST_BINDINGS.gemini35FlashLite,
+              compaction: {
+                maxTokens: 100_000,
+                compactAt: 0.5,
+                previousExchanges: 0.5,
+                profile: 'compaction.validator.compactor',
+                timing: 'before',
               },
             },
           },
@@ -290,20 +311,15 @@ Deno.test('registerProfile rejects non-integer previousExchanges >= 1', () => {
           tools: { allow: [] },
           inputs: { text: true },
           id: 'compaction.validator.bad_prev_exchanges_int',
-          model: {
-            protocol: 'geminiInteractions',
-            provider: 'google',
-            allow: ['testModel'],
-            config: {
-              testModel: {
-                ...geminiModel('gemini35FlashLite').config.gemini35FlashLite,
-                compaction: {
-                  maxTokens: 100_000,
-                  compactAt: 0.75,
-                  previousExchanges: 3.5,
-                  profile: 'compaction.validator.compactor',
-                  timing: 'before',
-                },
+          models: {
+            testModel: {
+              ...HOST_BINDINGS.gemini35FlashLite,
+              compaction: {
+                maxTokens: 100_000,
+                compactAt: 0.75,
+                previousExchanges: 3.5,
+                profile: 'compaction.validator.compactor',
+                timing: 'before',
               },
             },
           },
@@ -324,20 +340,15 @@ Deno.test('registerProfile rejects unregistered compaction profile', () => {
           tools: { allow: [] },
           inputs: { text: true },
           id: 'compaction.validator.missing_profile',
-          model: {
-            protocol: 'geminiInteractions',
-            provider: 'google',
-            allow: ['testModel'],
-            config: {
-              testModel: {
-                ...geminiModel('gemini35FlashLite').config.gemini35FlashLite,
-                compaction: {
-                  maxTokens: 100_000,
-                  compactAt: 0.75,
-                  previousExchanges: 5,
-                  profile: 'nonexistent.compactor',
-                  timing: 'before',
-                },
+          models: {
+            testModel: {
+              ...HOST_BINDINGS.gemini35FlashLite,
+              compaction: {
+                maxTokens: 100_000,
+                compactAt: 0.75,
+                previousExchanges: 5,
+                profile: 'nonexistent.compactor',
+                timing: 'before',
               },
             },
           },
@@ -361,13 +372,14 @@ function registerCompactionPair(
       identity: { handle: 'test', system: 'test' },
       tools: { allow: [] },
       id: compactorId,
-      model: { ...geminiModel('gemini35FlashLite'), thinking: 'minimal', maxSteps: 1 },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
       inputs: { text: true },
       guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
     }),
   );
-  const model: ModelSpec = {
-    ...modelAllow('gemini35FlashLite').config.gemini35FlashLite,
+  const binding: ModelBinding = {
+    ...HOST_BINDINGS.gemini35FlashLite,
     compaction: {
       ...compaction,
       profile: compaction.profile ?? compactorId,
@@ -379,14 +391,8 @@ function registerCompactionPair(
       identity: { handle: 'test', system: 'test' },
       tools: { allow: [] },
       id: speakerId,
-      model: {
-        key: 'slotA',
-        protocol: 'geminiInteractions',
-        provider: 'google',
-        allow: [modelKey],
-        config: { [modelKey]: model },
-        thinking: 'minimal',
-      },
+      models: { [modelKey]: binding },
+      key: 'slotA',
       inputs: { text: true },
       guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
     }),
@@ -900,7 +906,8 @@ Deno.test('orchid after: fallback prompt tokens from a long system prompt do not
       identity: { handle: 'test', system: 'test' },
       tools: { allow: [] },
       id: compactorId,
-      model: { ...geminiModel('gemini35FlashLite'), thinking: 'minimal', maxSteps: 1 },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
       inputs: { text: true },
       guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
     }),
@@ -911,19 +918,13 @@ Deno.test('orchid after: fallback prompt tokens from a long system prompt do not
       tools: { allow: [] },
       id: speakerId,
       identity: { handle: 'speaker', system: 'S'.repeat(20_000) },
-      model: {
-        key: 'slotA',
-        protocol: 'geminiInteractions',
-        provider: 'google',
-        allow: ['fallbackModel'],
-        config: {
-          fallbackModel: {
-            ...geminiModel('gemini35FlashLite').config.gemini35FlashLite,
-            compaction: { ...ORCHID_SPEC, profile: compactorId },
-          },
+      models: {
+        fallbackModel: {
+          ...HOST_BINDINGS.gemini35FlashLite,
+          compaction: { ...ORCHID_SPEC, profile: compactorId },
         },
-        thinking: 'minimal',
       },
+      key: 'slotA',
       inputs: { text: true },
       guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
     }),
@@ -1029,7 +1030,8 @@ Deno.test('nested compacting turn does not recurse even if compacting profile ha
       identity: { handle: 'test', system: 'test' },
       tools: { allow: [] },
       id: leaf,
-      model: { ...geminiModel('gemini35FlashLite'), thinking: 'minimal', maxSteps: 1 },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
       inputs: { text: true },
       guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
     }),
@@ -1040,26 +1042,20 @@ Deno.test('nested compacting turn does not recurse even if compacting profile ha
       identity: { handle: 'test', system: 'test' },
       tools: { allow: [] },
       id: mid,
-      model: {
-        key: 'slotA',
-        protocol: 'geminiInteractions',
-        provider: 'google',
-        allow: ['midModel'],
-        config: {
-          midModel: {
-            ...geminiModel('gemini35FlashLite').config.gemini35FlashLite,
-            compaction: {
-              maxTokens: 10,
-              compactAt: 0.1,
-              previousExchanges: 1,
-              profile: leaf,
-              timing: 'before',
-            },
+      models: {
+        midModel: {
+          ...HOST_BINDINGS.gemini35FlashLite,
+          compaction: {
+            maxTokens: 10,
+            compactAt: 0.1,
+            previousExchanges: 1,
+            profile: leaf,
+            timing: 'before',
           },
         },
-        thinking: 'minimal',
-        maxSteps: 1,
       },
+      maxSteps: 1,
+      key: 'slotA',
       inputs: { text: true },
       guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
     }),
@@ -1070,25 +1066,19 @@ Deno.test('nested compacting turn does not recurse even if compacting profile ha
       identity: { handle: 'test', system: 'test' },
       tools: { allow: [] },
       id: speaker,
-      model: {
-        key: 'slotA',
-        protocol: 'geminiInteractions',
-        provider: 'google',
-        allow: ['nestModel'],
-        config: {
-          nestModel: {
-            ...geminiModel('gemini35FlashLite').config.gemini35FlashLite,
-            compaction: {
-              maxTokens: 1000,
-              compactAt: 0.5,
-              previousExchanges: 2,
-              profile: mid,
-              timing: 'before',
-            },
+      models: {
+        nestModel: {
+          ...HOST_BINDINGS.gemini35FlashLite,
+          compaction: {
+            maxTokens: 1000,
+            compactAt: 0.5,
+            previousExchanges: 2,
+            profile: mid,
+            timing: 'before',
           },
         },
-        thinking: 'minimal',
       },
+      key: 'slotA',
       inputs: { text: true },
       guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
     }),

@@ -15,7 +15,7 @@ Spec: `tmp/specs/tool-system.md` (working design notes — not published docs)
 | `TurnRequest.dynamicToolLoader` | `tools.t2Loader` function returning `{ loaded }` |
 | `TurnRequest.toolInvoke` | `invokeTool({ profile, name, input, … })` |
 | `executeTool(profile, name, args)` | Stream events via `runTurn` / `invokeTool` |
-| `ToolEnvelope` (`status` / `finding` / `data`) | `TurnEvent.tool.phase` (`complete`, `pause`, `error`, …) |
+| `ToolEnvelope` (`status` / `finding` / `data`) | `TurnEvent.tool.phase` (`complete`, `gate`, `error`, …) |
 | `askUser` catalog builtin | `ask_user` harness tool (`registerHarnessTools`) |
 | Per-turn `loadTier` / `permissionTier` on declarations | `loadTier` / `permission` on each registered tool |
 | Per-turn `dynamicToolLoader` (T2 schemas) | `tools.t2Loader` + `{ loaded }` |
@@ -60,7 +60,7 @@ tools: {
   allow: ['lookup_order', 'load_tools', 'deferred_lookup'],
   t2Loader: 'load_tools', // optional — function that returns { loaded }
 }
-// model.config.*.builtInTools: ['googleSearch']
+// models.*.builtInTools: ['googleSearch']
 ```
 
 Set **`loadTier`** on each registered tool (`T0` / `T1` / `T2`).
@@ -78,26 +78,29 @@ runTurn({
 }, provider);
 ```
 
-### 4. Pause resume — `invokeTool`
+### 4. Gate resume — `invokeTool`
 
-When `done.stop.kind === 'tool'`:
+When `done.stop.kind === 'gate'`:
 
 ```ts
 invokeTool({
   profile: 'my.bot',
   name: 'delete_resource',
   input: originalArgs,
-  resume: { granted: true }, // always_confirm
-  // resume: { value: userAnswer }, // ask_user / interactive
+  resume: { granted: true }, // permission / confirm / auth
+  snapshot, // from gate `done.tools`
+  turnInput,
 });
 ```
 
-`resume` **skips** eligibility (`not_gated`) when `value` or `granted` is set. It does
-**not** bypass T1/T2 load checks — ensure `tools.t1Policy` / `promoted` cover resume when needed.
-T0 paused calls may resume without rebuilding the snapshot. Direct invoke requires the
-tool on `tools.allow`.
+`resume.granted === true` skips permission / confirm / `preTool` re-ask. `resume.granted === false`
+settles as deny (failure + `post_tool`, live upstream tool response) without running the body.
+`resume.value` is **not** used for gates or `ask_user` (awaiting answers are a new user turn).
+It does **not** bypass T1/T2 load checks — ensure `tools.t1Policy` / `promoted` cover
+resume when needed. T0 gated calls may resume without rebuilding the snapshot. Direct
+invoke requires the tool on `tools.allow`.
 
-### 5. Turn continue — `continueFrom` (not tool pause)
+### 5. Turn continue — `continueFrom` (not tool gate)
 
 For `length`, `stream_incomplete`, `provider_error`:
 
@@ -109,15 +112,16 @@ runTurn({
 }, provider);
 ```
 
-Do **not** use `continueFrom` for tool pauses — use `invokeTool`.
+Do **not** use `continueFrom` for tool gates — use `invokeTool`.
 
 ---
 
 ## Behavior changes (not bugs)
 
 - **`always_confirm`** ignores `sessionPermissions`; only `resume.granted === true` bypasses.
-- **`canExecute` returning a pause envelope** — use `preflight` returning a `ToolPause` instead.
+- **`canExecute` / `preflight` / `interactive`** — removed; use tool `preTool` + host `onStage` (`pre_tool`) returning deny / confirm / mutate (`docs/contracts/stages.md`).
 - **T2 promotion** — only the designated `tools.t2Loader` function may promote **pre-registered** ids in `allow`.
+- **Live (`type: 'live'`)** — `LiveProfileToolsSpec` is `{ allow }` only (no `t1Policy` / `t2Loader`). Every allowlisted custom tool and model `builtInTools` entry must be `loadTier: 'T0'`; Gemini Live fixes declarations at session setup.
 - **Tool descriptions** — no per-turn `sanitizeDynamicTools`; sanitize at registration if needed.
 
 ---
@@ -127,7 +131,8 @@ Do **not** use `continueFrom` for tool pauses — use `invokeTool`.
 | Old `ToolEnvelope` | New stream |
 | --- | --- |
 | `status: 'ok'` | `tool.phase: 'complete'` |
-| `status: 'pause'` | `tool.phase: 'pause'` (+ `pause.kind`) |
+| `status: 'pause'` (confirm / permission / auth) | `tool.phase: 'gate'` (+ `gate.kind`); resume via `invokeTool` / `executeTool` with `resume.granted: true` (allow) or `false` (deny settle) |
+| `status: 'pause'` (interactive / ask_user) | `tool.phase: 'complete'` with awaiting / `awaiting_user_input` — not a gate |
 | `status: 'error'` | `tool.phase: 'error'` (+ `failure.code`) |
 
 Model-facing results use `formatToolResult` internally; hosts

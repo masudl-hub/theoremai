@@ -227,6 +227,24 @@ Deno.test('delta.ts: extractUsageTokens and extractTokenEvent support all token 
     { input: 4, output: 2, thinking: 0, toolUse: 0, total: 15, intermediate: 9 },
   );
 
+  assertEquals(
+    extractUsageTokens({
+      total_input_tokens: 11,
+      total_output_tokens: 3,
+      total_cached_tokens: 8,
+    }),
+    { input: 11, output: 3, thinking: 0, toolUse: 0, total: 14, cached: 8 },
+  );
+
+  assertEquals(
+    extractUsageTokens({
+      prompt_tokens: 100,
+      completion_tokens: 10,
+      prompt_tokens_details: { cached_tokens: 90, cache_write_tokens: 10 },
+    }),
+    { input: 100, output: 10, thinking: 0, toolUse: 0, total: 110, cached: 90, cacheWrite: 10 },
+  );
+
   const eventWithUsage = {
     interaction: {
       id: 'int_abc',

@@ -11,24 +11,31 @@
  *
  * const profile = defineProfile({
  *   id: "assistant.basic",
- *   model: {
- *     allow: ["gemini35FlashLite"],
- *     config: {
- *       gemini35FlashLite: {
- *         apiId: "gemini-3.5-flash-lite",
- *         thinking: { on: "high", off: "minimal" },
- *         thinkingLevels: ["minimal", "low", "medium", "high"],
- *         summaries: { on: "auto", off: "none" },
- *         maxOutputTokens: 8192,
- *         temperature: 1,
- *         builtInTools: [],
- *       },
+ *   type: "text",
+ *   identity: {
+ *     handle: "assistant",
+ *     system: "Answer plainly.",
+ *   },
+ *   models: {
+ *     default: {
+ *       protocol: "openAi",
+ *       provider: "openrouter",
+ *       apiId: "perplexity/sonar",
+ *       efforts: { normal: "minimal" },
+ *       summaries: false,
+ *       maxOutputTokens: 8192,
+ *       temperature: 1,
  *     },
  *   },
+ *   maxSteps: 1,
  *   tools: { allow: [] },
  *   inputs: { text: true },
- *   outputs: {},
- *   guardrails: { quota: { perDay: 100 } },
+ *   outputs: {
+ *     streaming: { streamThoughts: false },
+ *   },
+ *   guardrails: {
+ *     quota: { perDay: 100 },
+ *   },
  * });
  *
  * registerProfile(profile);
@@ -46,45 +53,136 @@ export {
   throwIfAborted,
   toErrorEvent,
 } from './src/guardrails/error.ts';
+export {
+  guardrailFromHits,
+  guardrailFromVerdict,
+  guardrailTurnEvent,
+  projectGuardrailTurnEvent,
+} from './src/guardrails/events.ts';
+export {
+  GUARDRAIL_MATCH_PREVIEW_MAX,
+  hitFromSpan,
+  matchPreview,
+  projectGuardrailEvent,
+} from './src/guardrails/hits.ts';
+export type { LexiconKey, LexiconOverrides, LexiconParams } from './src/guardrails/lexicon.ts';
+export {
+  LEXICON_KEYS,
+  lexiconDefault,
+  lexiconText,
+  overrideLexicon,
+  resetLexicon,
+} from './src/guardrails/lexicon.ts';
 export type {
+  AdvisoryLevel,
   CanaryGateResult,
   CanaryGateSession,
+  CanaryGuardrailSpec,
   CanaryStreamGate,
+  DetectionOptions,
+  EgressEnforcer,
+  EgressOnBlock,
+  GuardedToolText,
+  GuardrailAction,
+  GuardrailContext,
+  GuardrailEvent,
+  GuardrailHit,
+  GuardrailStage,
+  HostGuardrailsSpec,
   LiveOutboundBatchResult,
   LiveOutboundGateSession,
+  NetworkGuardrailSpec,
+  OutboundPayload,
+  ProfileEgressSpec,
+  ProfileGuardrailsSpec,
+  ProgressiveYieldGate,
+  ProgressiveYieldGateOptions,
+  ProgressiveYieldResult,
+  Provenance,
+  QuotaGuardrailSpec,
+  ResolvedGuardrailPolicy,
+  ScanText,
+  Severity,
+  TaintGate,
+  TaintGuardrailSpec,
+  ToolOrigin,
+  TrustLevel,
+  TurnTaint,
+  Verdict,
 } from './src/guardrails/mod.ts';
 export {
+  ADVISORY_LEVELS,
   bindCanary,
+  checkTaintGate,
+  collectEgressHits,
+  composeToolText,
   createCanaryGateSession,
   createCanaryStreamGate,
   createLiveOutboundGateSession,
+  createOutboundProgressiveGate,
+  createProgressiveYieldGate,
+  DEFAULT_HOLDBACK,
+  DIRECTIVE_RULES,
+  detectionForTrust,
+  directiveHits,
+  EGRESS_ON_BLOCK,
+  EGRESS_RULES,
   eventHasCanary,
   filterCanaryGatedEvents,
   finalizeLiveOutboundTurn,
+  GUARDRAIL_STAGES,
+  guardToolFailureText,
+  guardToolResult,
+  hitRules,
+  inspectToolArguments,
+  isRemoteOrigin,
+  isSuspicious,
+  isTainted,
+  looksDirective,
   mintCanary,
   OMIT_CANARY,
   processLiveOutboundBatch,
+  recordTaint,
   redactCanary,
+  resolveGuardrailPolicy,
+  runEnforcer,
+  SEVERITIES,
   scanTextForCanaryLeak,
+  scanTextOf,
   standardEgressEnforce,
+  TAINT_GATES,
+  TOOL_CLOSE,
+  TOOL_ORIGINS,
+  TRUST_LEVELS,
+  textForScan,
+  toolCallEvent,
+  wrapToolData,
   wrapUserData,
 } from './src/guardrails/mod.ts';
-export type { QuotaSlotStatus } from './src/guardrails/quota.ts';
+export {
+  assertSafeUrl,
+  isLocalhostName,
+  isPrivateOrLocalAddress,
+} from './src/guardrails/network.ts';
+export type { QuotaExhausted, QuotaSlotStatus } from './src/guardrails/quota.ts';
 export {
   clientIp,
-  quotaMessage,
+  quotaExhausted,
   releaseSlot,
   resetSlots,
   skipQuota,
   takeSlot,
 } from './src/guardrails/quota.ts';
 export {
+  detectionForProfile,
+  detectText,
   PROJECT_ID_MAX,
   redactSensitiveOnly,
   sanitizeProjectId,
   sanitizeText,
   sanitizeTurnRequest,
   sanitizeTurnRequestForTrace,
+  sanitizeTurnRequestWithEvents,
 } from './src/guardrails/sanitize.ts';
 export type { CompactionSplit, CompactionTokens } from './src/kernel/engine/compaction.ts';
 export {
@@ -99,29 +197,48 @@ export {
   splitForCompaction,
 } from './src/kernel/engine/compaction.ts';
 export { prepareLiveInboundText } from './src/kernel/engine/live-inbound.ts';
+export type { LiveIngressChannel } from './src/kernel/engine/live-ingress.ts';
+export {
+  assertLiveIngress,
+  assertLiveIngressConfigured,
+  hasAnyLiveIngress,
+  liveIngressChannelDefault,
+  liveIngressEnabled,
+  liveIngressEnabledFromSpec,
+} from './src/kernel/engine/live-ingress.ts';
 export { runTurn } from './src/kernel/engine/runner.ts';
 export type { RunSessionOptions } from './src/kernel/engine/session/mod.ts';
 export { runSession } from './src/kernel/engine/session/mod.ts';
+export type {
+  ProfileGraphEditor,
+  ProfileGraphFacet,
+  ProfileGraphFacetId,
+  ProfileGraphRole,
+} from './src/kernel/profile-graph.ts';
+export {
+  PROFILE_GRAPH,
+  profileGraphFacet,
+  spineFacetsForProfileType,
+} from './src/kernel/profile-graph.ts';
 export {
   assertAttachmentLimits,
-  fileTooLargeMessage,
   maxBytesForMime,
   requireMediaLimits,
   resolveMediaLimits,
   sanitizeCsvText,
   sanitizeTurnBlobs,
   sanitizeTurnBlobsForProfile,
-  tooManyFilesMessage,
-  turnTooLargeMessage,
 } from './src/kernel/registry/attachments.ts';
+export type { MediaInputChannel } from './src/kernel/registry/catalog.ts';
 export {
   clampThinkingLevel,
   clampThinkingLevelForApiId,
+  mediaChannelForMime,
   mediaKindForMime,
   mimeAllowed,
   mimeEssence,
   modelEntryByApiId,
-  requireModelSpec,
+  requireModelBinding,
 } from './src/kernel/registry/catalog.ts';
 export type {
   ImageProfileDefinition,
@@ -142,19 +259,38 @@ export {
 } from './src/kernel/registry/profiles.ts';
 export { pickModel, projectProfile, resolveTurn } from './src/kernel/registry/resolve.ts';
 export { getStructured, registerStructured } from './src/kernel/registry/schemas.ts';
-export type { TurnStopKind } from './src/kernel/schema.ts';
+export type {
+  AuthUnauthenticatedPolicy,
+  ContinueStopKind,
+  CustomToolType,
+  HttpMethod,
+  PlaygroundAuthType,
+  ToolAccess,
+  ToolAuthType,
+  ToolPermission,
+  ToolType,
+  TurnStopKind,
+} from './src/kernel/schema.ts';
 export {
   ATTACHMENT_ACCEPT_MIMES,
+  AUTH_UNAUTHENTICATED_POLICIES,
+  AWAITING_USER_INPUT_KINDS,
+  AWAITING_USER_INPUT_STATUS,
   COMPACTION_METERS,
   COMPACTION_TIMINGS,
-  CONTROL_IDS,
+  CONTINUE_STOP_KINDS,
   catalogPathFor,
   coerceProtocol,
   coerceProvider,
+  coerceSpeechFormat,
   DYNAMIC_FIELD_PARENTS,
-  EGRESS_ON_BLOCK,
   EXTRA_FIELDS,
   fieldMeta,
+  HTTP_METHODS,
+  isSpeechFormatAllowedForProtocol,
+  isToolGateKind,
+  isTurnInjectStage,
+  isTurnStage,
   isValidPair,
   isValidProfileProtocol,
   KEY_SLOTS,
@@ -165,6 +301,7 @@ export {
   MEDIA_INPUT_KINDS,
   MEDIA_WILDCARDS,
   OVERFLOW_KEY_SLOTS,
+  PLAYGROUND_AUTH_TYPES,
   PROFILE_FIELDS,
   PROFILE_TYPE_PROTOCOLS,
   PROFILE_TYPES,
@@ -178,15 +315,44 @@ export {
   SPEECH_AUDIO_FORMATS,
   STREAM_MODES,
   SUMMARY_MODES,
+  speechFormatsForProtocol,
   THINKING_LEVELS,
   TOOL_ACCESS,
+  TOOL_AUTH_TYPES,
+  TOOL_GATE_KINDS,
   TOOL_LOAD_TIERS,
   TOOL_PERMISSION,
   TOOL_TYPES,
+  TURN_INJECT_STAGES,
+  TURN_STAGES,
   TURN_STOP_KINDS,
   VOICE_ACCEPT_MIMES,
 } from './src/kernel/schema.ts';
 export type {
+  AwaitingUserInput,
+  StageAffordance,
+  StageApplyInput,
+  StageApplyOutput,
+  StageApplyWarning,
+  StageApplyWarningCode,
+  StageContext,
+  StageEventExtra,
+  StageHandler,
+  StageMutate,
+  StageResult,
+} from './src/kernel/stages.ts';
+export {
+  applyStageResult,
+  isAwaitingUserInput,
+  parseAwaitingUserInput,
+  parseToolGate,
+  STAGE_AFFORDANCE_MATRIX,
+  STAGE_AFFORDANCES,
+  stageAllowsAffordance,
+  stageEventFields,
+} from './src/kernel/stages.ts';
+export type {
+  ProfileTurnBehaviourSpec,
   ProfileTurnResumptionSpec,
   TurnContinueFrom,
   TurnStop,
@@ -194,41 +360,76 @@ export type {
 export {
   AUTO_CONTINUE_DELAY_MS,
   CONTINUE_INSTRUCTION,
+  DEFAULT_ALLOW_CONTINUE,
   DEFAULT_AUTO_CONTINUE,
   GenerationStopError,
+  isContinueStopKind,
   isGenerationStopError,
   isResumeableStop,
   isUserCancelledStop,
+  profileAllowsInject,
+  profileAllowsSteering,
+  profileTurnResumption,
   shouldAutoContinue,
   turnStopFromClientStreamEnd,
   turnStopFromInteractionStatus,
   turnStopFromOpenAiFinishReason,
 } from './src/kernel/stop.ts';
+export type { McpProtocolVersion, McpRpcResponse } from './src/kernel/tools/mod.ts';
 export {
+  buildHttpToolTarget,
+  executeHttpTool,
+  executeMcpTool,
   formatToolResult,
   getTool,
   hasTool,
   invokeTool,
+  isUnsupportedMcpProtocolError,
   listBuiltinIds,
   listFunctionIds,
   listTools,
+  MCP_PROTOCOL_VERSIONS,
+  parseMcpRpcResponse,
   prepareTurnToolSnapshot,
   registerHarnessTools,
   registerTool,
   registerTools,
   requireTool,
   resetTools,
+  resolveToolAuth,
 } from './src/kernel/tools/mod.ts';
 export type * from './src/kernel/types.ts';
+export type {
+  JsonlSinkOptions,
+  JsonlTraceDestination,
+  ProfileObservabilitySpec,
+  ResolvedObservabilityPolicy,
+  ResolvedTraceInclude,
+  ResolvedTraceScrub,
+  TraceDestination,
+  TraceIncludeSpec,
+  TraceRecord,
+  TraceScrubSpec,
+  TraceSink,
+} from './src/observability/mod.ts';
 export {
+  clearTraceDestinations,
+  getTraceDestination,
+  isJsonlTraceDestination,
+  isTraceSink,
+  jsonlDestination,
   jsonlSink,
+  listTraceDestinationIds,
   memorySink,
   noopSink,
+  registerTraceDestination,
+  requireTraceDestination,
+  resolveObservabilityPolicy,
   resolveTraceDir,
+  resolveTraceWriter,
   sinkFromDir,
   writeTrace,
-} from './src/observability/trace.ts';
-export type { TraceRecord } from './src/observability/trace-record.ts';
+} from './src/observability/mod.ts';
 export * from './src/presets/mod.ts';
 export type {
   CreateProviderOptions,
@@ -238,4 +439,3 @@ export type {
   OpenAiGatewayConfig,
 } from './src/providers/mod.ts';
 export { createProvider } from './src/providers/mod.ts';
-export * from './src/interface/mod.ts';

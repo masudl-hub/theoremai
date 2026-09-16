@@ -1,8 +1,9 @@
 import { TheorumError } from '../../guardrails/error.ts';
 import { injectionSpans } from '../../guardrails/injection.ts';
+import { lexiconText } from '../../guardrails/lexicon.ts';
 import { sensitiveSpans } from '../../guardrails/sensitive.ts';
 import { applySpans } from '../../observability/spans.ts';
-import type { MediaLimits, MimeInputs, Profile, TurnBlob } from '../types.ts';
+import type { MediaLimits, MimeInputs, Profile, TurnBlob, TurnMediaRef } from '../types.ts';
 import { getProfile } from './profiles.ts';
 
 const B64_PAD = 2;
@@ -12,27 +13,6 @@ const B64_TRIPLET = 3;
 const CSV_FORMULA = /(^|,)(\s*)("?)(?:([=@])|([+-])(?![0-9."]))/gm;
 const B64_BODY = /^[A-Za-z0-9+/]*={0,2}$/;
 const TEXT_MIMES = new Set(['text/csv', 'text/plain', 'text/markdown']);
-const BYTES_PER_KIB = 1024;
-
-function formatMb(bytes: number): string {
-  const mb = bytes / (BYTES_PER_KIB * BYTES_PER_KIB);
-  return Number.isInteger(mb) ? `${String(mb)} MB` : `${mb.toFixed(1)} MB`;
-}
-
-function tooManyFilesMessage(maxFiles: number): string {
-  return maxFiles === 1
-    ? 'Only 1 file per message.'
-    : `Only ${String(maxFiles)} files per message.`;
-}
-
-function fileTooLargeMessage(maxBytes: number): string {
-  return `Each file must be ${formatMb(maxBytes)} or smaller.`;
-}
-
-function turnTooLargeMessage(maxTurnBytes: number): string {
-  return `Those files together are too large for one message (${formatMb(maxTurnBytes)} max).`;
-}
-
 function resolveMediaLimits(inputs: MimeInputs): MediaLimits | undefined {
   const { maxFiles, maxBytes, maxTurnBytes, limitsByMime } = inputs;
   if (maxFiles && maxBytes && maxTurnBytes) {
@@ -56,13 +36,24 @@ function maxBytesForMime(mimeType: string, limits: MediaLimits): number {
   return limits.maxBytes;
 }
 
+/** Attachment supplied by provider file reference — no bytes to size-check or sanitize. */
+function isTurnMediaRef(item: TurnBlob | TurnMediaRef): item is TurnMediaRef {
+  return 'uri' in item;
+}
+
 function requireMediaLimits(profile: Profile): MediaLimits {
   if (profile.type === 'speech') {
-    throw new TheorumError(`Profile ${profile.id} (speech) does not accept media input`);
+    throw new TheorumError(`Profile ${profile.id} (speech) does not accept media input`); // lexicon-exempt: developer contract error
+  }
+  if (profile.type === 'live') {
+    throw new TheorumError(`Profile ${profile.id} (live) does not accept turn attachment input`); // lexicon-exempt: developer contract error
+  }
+  if (profile.type === 'host') {
+    throw new TheorumError(`Profile ${profile.id} (host) does not accept turn input`); // lexicon-exempt: developer contract error
   }
   const limits = resolveMediaLimits(profile.inputs ?? {});
   if (!limits) {
-    throw new TheorumError(`Profile ${profile.id} must set maxFiles, maxBytes, and maxTurnBytes`);
+    throw new TheorumError(`Profile ${profile.id} must set maxFiles, maxBytes, and maxTurnBytes`); // lexicon-exempt: developer contract error
   }
   return limits;
 }
@@ -119,53 +110,70 @@ function sanitizeTextBytes(mime: string, bytes: Uint8Array): Uint8Array {
   );
 }
 
-function assertAttachmentLimits(blobs: TurnBlob[], limits: MediaLimits): void {
-  if (blobs.length > limits.maxFiles) {
-    throw new TheorumError(tooManyFilesMessage(limits.maxFiles));
+/** Enforce file count on every attachment; base64 and byte limits only on inline blobs. */
+function assertAttachmentLimits(
+  attachments: Array<TurnBlob | TurnMediaRef>,
+  limits: MediaLimits,
+): void {
+  if (attachments.length > limits.maxFiles) {
+    throw new TheorumError(
+      lexiconText('attachments.too_many_files', { maxFiles: limits.maxFiles }),
+    );
   }
   let total = 0;
-  for (const blob of blobs) {
+  for (const blob of attachments) {
+    if (isTurnMediaRef(blob)) {
+      continue;
+    }
     const { data, mimeType } = blob;
     if (!B64_BODY.test(data)) {
+      // lexicon-exempt: developer-facing wire-format diagnostic, not product copy
       throw new TheorumError('attachment data must be base64');
     }
     const size = b64DecodedLen(data);
     const maxAllowed = maxBytesForMime(mimeType, limits);
     if (size > maxAllowed) {
-      throw new TheorumError(fileTooLargeMessage(maxAllowed));
+      throw new TheorumError(lexiconText('attachments.file_too_large', { maxBytes: maxAllowed }));
     }
     total += size;
   }
   if (total > limits.maxTurnBytes) {
-    throw new TheorumError(turnTooLargeMessage(limits.maxTurnBytes));
+    throw new TheorumError(
+      lexiconText('attachments.turn_too_large', { maxTurnBytes: limits.maxTurnBytes }),
+    );
   }
 }
 
-function sanitizeAttachment(blob: TurnBlob): TurnBlob {
+function sanitizeAttachment<T extends TurnBlob | TurnMediaRef>(blob: T): T {
+  if (isTurnMediaRef(blob)) {
+    return blob;
+  }
   const { mimeType, data } = blob;
   if (!TEXT_MIMES.has(mimeType.split(';')[0]?.trim().toLowerCase() ?? '')) {
     return blob;
   }
   const bytes = sanitizeTextBytes(mimeType, decodeB64(data));
-  return { mimeType, data: encodeB64(bytes) };
+  return { mimeType, data: encodeB64(bytes) } as T;
 }
 
-function hasTurnBlobs(attachments?: TurnBlob[], voice?: TurnBlob[]): boolean {
+type TurnAttachments = Array<TurnBlob | TurnMediaRef>;
+
+function hasTurnBlobs(attachments?: TurnAttachments, voice?: TurnBlob[]): boolean {
   return (attachments?.length ?? 0) > 0 || (voice?.length ?? 0) > 0;
 }
 
 function sanitizeTurnBlobs(
-  attachments: TurnBlob[] | undefined,
+  attachments: Array<TurnBlob | TurnMediaRef> | undefined,
   voice: TurnBlob[] | undefined,
   limits: MediaLimits | undefined,
-): { attachments?: TurnBlob[]; voice?: TurnBlob[] } {
+): { attachments?: Array<TurnBlob | TurnMediaRef>; voice?: TurnBlob[] } {
   if (!hasTurnBlobs(attachments, voice)) {
     return { attachments, voice };
   }
   const files = attachments ?? [];
   const clips = voice ?? [];
   if (!limits) {
-    throw new TheorumError('This profile does not accept files.');
+    throw new TheorumError(lexiconText('attachments.not_accepted', { channel: 'file' }));
   }
   assertAttachmentLimits([...files, ...clips], limits);
   return {
@@ -176,9 +184,9 @@ function sanitizeTurnBlobs(
 
 function sanitizeTurnBlobsForProfile(
   profileId: string,
-  attachments: TurnBlob[] | undefined,
+  attachments: Array<TurnBlob | TurnMediaRef> | undefined,
   voice: TurnBlob[] | undefined,
-): { attachments?: TurnBlob[]; voice?: TurnBlob[] } {
+): { attachments?: Array<TurnBlob | TurnMediaRef>; voice?: TurnBlob[] } {
   if (!hasTurnBlobs(attachments, voice)) {
     return { attachments, voice };
   }
@@ -188,13 +196,11 @@ function sanitizeTurnBlobsForProfile(
 
 export {
   assertAttachmentLimits,
-  fileTooLargeMessage,
+  isTurnMediaRef,
   maxBytesForMime,
   requireMediaLimits,
   resolveMediaLimits,
   sanitizeCsvText,
   sanitizeTurnBlobs,
   sanitizeTurnBlobsForProfile,
-  tooManyFilesMessage,
-  turnTooLargeMessage,
 };

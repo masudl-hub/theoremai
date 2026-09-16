@@ -4,6 +4,7 @@
  * @module
  */
 
+/** lexicon-exempt-file: adversarial corpus fixture — not runtime user or model copy (P2) */
 import { clearProfiles, registerProfile } from '../../kernel/registry/profiles.ts';
 import type { TurnRequest } from '../../kernel/types.ts';
 import { injectionSpans } from '../injection.ts';
@@ -19,23 +20,19 @@ function registerFuzzProfile(): void {
     type: 'text',
     id: FUZZ_PROFILE_ID,
     identity: { handle: 'fuzz', system: 'Fuzz profile.' },
-    model: {
-      protocol: 'openAi',
-      provider: 'openrouter',
-      allow: ['fuzz-model'],
-      config: {
-        'fuzz-model': {
-          apiId: 'fuzz-model',
-          thinking: { on: 'none', off: 'none' },
-          thinkingLevels: ['none'],
-          summaries: { on: 'none', off: 'none' },
-          maxOutputTokens: 4096,
-          temperature: 0,
-          builtInTools: [],
-        },
+    models: {
+      'fuzz-model': {
+        protocol: 'openAi',
+        provider: 'openrouter',
+        apiId: 'fuzz-model',
+        efforts: { normal: 'none' },
+        summaries: false,
+        maxOutputTokens: 4096,
+        temperature: 0,
+        builtInTools: [],
       },
-      thinking: 'none',
     },
+    defaultModel: 'fuzz-model',
     tools: { allow: [] },
     inputs: { text: true },
     guardrails: {

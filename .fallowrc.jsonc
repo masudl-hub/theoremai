@@ -11,16 +11,22 @@
     "src/presets/google.ts",
     "src/host/mod.ts",
     "src/cli/index.ts",
+    // Unpublished headless interface surface; still an analysis entry for react + tests.
+    "src/interface/mod.ts",
     "tests/cli/**/*.ts",
     "tests/kernel/**/*.ts",
     "tests/guardrails/**/*.ts",
     "tests/providers/**/*.ts",
     "tests/observability/**/*.ts",
     "tests/host/**/*.ts",
+    "tests/interface/**/*.ts",
+    "tests/react/**/*.ts",
     "tests/fixtures/**/*.ts",
-    "tests/fixtures/**/*.js"
+    "tests/fixtures/**/*.js",
+    "react/src/index.ts",
+    "react/src/client/index.ts"
   ],
-  "ignoreDependencies": ["@ast-grep/cli"],
+  "ignoreDependencies": ["@ast-grep/cli", "theorum"],
   // docs-truth loads the ownership graph via dynamic import (graph.mjs → _map.mjs).
   "dynamicallyLoaded": ["docs/_map.mjs"],
   "ignorePatterns": ["node_modules/**", "coverage/**", "scripts/**", "src/cli/**", "npm/**"],
@@ -38,19 +44,38 @@
     "unused-exports": "error",
     "unused-types": "error",
     "unused-dependencies": "error",
+    "unused-dev-dependencies": "error",
+    "unused-optional-dependencies": "error",
+    "type-only-dependencies": "error",
+    "test-only-dependencies": "error",
+    "dev-dependencies-in-production": "error",
     "circular-dependency": "error",
+    "re-export-cycle": "error",
     "unresolved-imports": "error",
     "private-type-leaks": "error",
-    "boundary-violations": "error"
+    "boundary-violations": "error",
+    "stale-suppressions": "error",
+    "unused-catalog-entries": "error",
+    "empty-catalog-groups": "error",
+    "unused-dependency-overrides": "error",
+    // CSS quality is tracked but not CI-blocking until react style debt is cleared.
+    "css-token-drift": "warn",
+    "css-duplicate-block": "warn",
+    "css-selector-complexity": "warn",
+    "css-dead-surface": "warn",
+    "css-broken-reference": "warn"
   },
   "duplicates": {
     "mode": "strict",
     "minTokens": 40,
     "minLines": 5,
     "minOccurrences": 2,
-    "ignoreImports": true
+    "ignoreImports": true,
+    // Hard ceiling: any meaningful duplication fails until clone groups are cleared.
+    "threshold": 0.5
   },
+  // PR gate: fail only on findings this changeset introduces (fallow default).
   "audit": {
-    "gate": "all"
+    "gate": "new-only"
   }
 }

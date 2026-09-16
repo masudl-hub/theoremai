@@ -9,18 +9,28 @@
 import { wrapUserData } from '../../guardrails/canary.ts';
 import { TheorumError } from '../../guardrails/error.ts';
 import { synthesizeRepairPrompt } from '../engine/repair.ts';
+import { isSpeechFormatAllowedForProtocol } from '../schema.ts';
 import type {
   ImageResponseFormat,
   InteractionPart,
   MediaInputKind,
+  ModelBinding,
   ModelId,
+  ModelProfile,
   Profile,
   ProfileImageSpec,
   TurnBlob,
+  TurnMediaRef,
   TurnRequest,
 } from '../types.ts';
-import { assertAttachmentLimits, requireMediaLimits } from './attachments.ts';
-import { mediaKindForMime, mimeAllowed, mimeEssence } from './catalog.ts';
+import { assertAttachmentLimits, isTurnMediaRef, requireMediaLimits } from './attachments.ts';
+import {
+  type MediaInputChannel,
+  mediaKindForMime,
+  mimeAllowed,
+  mimeEssence,
+  profileAccept,
+} from './catalog.ts';
 import { getStructured } from './schemas.ts';
 
 type PrimaryOutputMode = 'structured' | 'image' | 'speech';
@@ -61,27 +71,35 @@ function assertOutputMode(profile: Profile, structuredId: string | null): void {
     return;
   }
   throw new TheorumError(
-    `Profile ${profile.id} declares multiple output wire formats (${active.join(', ')}). ` +
-      `Only one of responseFormat JSON schema (outputs.structured with enforced ` +
-      `'responseFormat'), image, or speech may be active.`,
+    `Profile ${profile.id} declares multiple output wire formats (${active.join(', ')}). ` + // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Only one of responseFormat JSON schema (outputs.structured with enforced ` + // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `'responseFormat'), image, or speech may be active.`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   );
 }
 
 function assertImagePins(profile: Profile): ProfileImageSpec {
   if (profile.type !== 'image') {
-    throw new TheorumError(`Profile ${profile.id} is not type 'image'`);
+    throw new TheorumError(`Profile ${profile.id} is not type 'image'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return profile.image;
+}
+
+function defaultBinding(profile: ModelProfile): ModelBinding | undefined {
+  const ids = Object.keys(profile.models);
+  const id = profile.defaultModel ?? (ids.length === 1 ? ids[0] : undefined);
+  return id ? profile.models[id] : undefined;
 }
 
 function assertSpeechRole(profile: Profile): void {
   if (profile.type !== 'speech') {
     return;
   }
-  if (profile.speech.format === 'mp3' && profile.model.protocol === 'geminiInteractions') {
+  const format = profile.speech.format;
+  const binding = defaultBinding(profile);
+  if (format && binding && !isSpeechFormatAllowedForProtocol(binding.protocol, format)) {
     throw new TheorumError(
-      `Profile ${profile.id}: speech.format 'mp3' requires protocol 'openAi' ` +
-        `(geminiInteractions speech returns PCM and emits WAV)`,
+      `Profile ${profile.id}: speech.format '${format}' requires protocol 'openAi' ` + // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `(geminiInteractions speech returns PCM and emits WAV)`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 }
@@ -103,45 +121,49 @@ function resolveImageFormat(profile: Profile): ImageResponseFormat | null {
 function assertMediaMime(mime: string): MediaInputKind {
   const kind = mediaKindForMime(mime);
   if (!kind) {
-    throw new TheorumError(`MIME '${mime}' is not a supported media input type`);
+    throw new TheorumError(`MIME '${mime}' is not a supported media input type`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return kind;
 }
 
 function profileInputs(profile: Profile) {
-  if (profile.type === 'speech') {
+  if (profile.type === 'speech' || profile.type === 'live' || profile.type === 'host') {
     return undefined;
   }
   return profile.inputs;
 }
 
+/**
+ * Normalize accepted attachments into provider parts. Inline blobs and
+ * references share MIME acceptance and kind resolution; references carry the
+ * uri through untouched (no base64, no byte limits — the host owns the upload).
+ */
 function mediaParts(
   profile: Profile,
   model: ModelId,
-  blobs: TurnBlob[],
-  channel: 'attachments' | 'voice',
+  blobs: Array<TurnBlob | TurnMediaRef>,
+  channel: MediaInputChannel,
 ): InteractionPart[] {
-  const inputs = profileInputs(profile);
-  const accept = channel === 'voice' ? inputs?.voice?.accept : inputs?.attachments?.accept;
+  const accept = profileAccept(profile, channel);
   if (!accept) {
-    throw new TheorumError(`Profile ${profile.id} does not accept ${channel}`);
+    throw new TheorumError(`Profile ${profile.id} does not accept ${channel}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   const maxInputImages = profile.type === 'image' ? profile.image.maxInputImages : undefined;
   const imageCount = blobs.filter((blob) => mediaKindForMime(blob.mimeType) === 'image').length;
   if (maxInputImages !== undefined && imageCount > maxInputImages) {
-    throw new TheorumError(`At most ${maxInputImages} reference images on ${model}`);
+    throw new TheorumError(`At most ${maxInputImages} reference images on ${model}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return blobs.map((blob) => {
     const kind = assertMediaMime(blob.mimeType);
     if (!mimeAllowed(accept, blob.mimeType)) {
-      throw new TheorumError(`MIME '${blob.mimeType}' is not accepted on ${profile.id}`);
+      throw new TheorumError(`MIME '${blob.mimeType}' is not accepted on ${profile.id}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
     const essence = mimeEssence(blob.mimeType);
-    return {
-      type: kind,
-      mimeType: essence === 'image/jpg' ? 'image/jpeg' : essence,
-      data: blob.data,
-    };
+    const mimeType = essence === 'image/jpg' ? 'image/jpeg' : essence;
+    if (isTurnMediaRef(blob)) {
+      return { type: kind, mimeType, uri: blob.uri };
+    }
+    return { type: kind, mimeType, data: blob.data };
   });
 }
 
@@ -149,7 +171,7 @@ function extractTextPart(profile: Profile, req: TurnRequest): InteractionPart | 
   const { text, repair, history } = req.input ?? {};
   if (profile.type === 'speech') {
     if (!text?.trim()) {
-      throw new TheorumError(`Profile ${profile.id} (speech) requires text input`);
+      throw new TheorumError(`Profile ${profile.id} (speech) requires text input`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
     let promptText = text;
     if (repair) {
@@ -160,7 +182,7 @@ function extractTextPart(profile: Profile, req: TurnRequest): InteractionPart | 
   const inputs = profileInputs(profile);
   if (inputs?.text === false) {
     if (text) {
-      throw new TheorumError(`Profile ${profile.id} does not accept text input`);
+      throw new TheorumError(`Profile ${profile.id} does not accept text input`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
     return null;
   }
@@ -178,7 +200,7 @@ function extractMediaParts(profile: Profile, model: ModelId, req: TurnRequest): 
   if (profile.type === 'speech') {
     const { attachments, voice } = req.input ?? {};
     if ((attachments?.length ?? 0) + (voice?.length ?? 0) > 0) {
-      throw new TheorumError(`Profile ${profile.id} (speech) does not accept media input`);
+      throw new TheorumError(`Profile ${profile.id} (speech) does not accept media input`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
     return [];
   }

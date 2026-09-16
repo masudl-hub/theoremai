@@ -11,9 +11,11 @@
  */
 
 import { TheorumError } from '../../../guardrails/error.ts';
+import { isMediaRefPart } from '../../../kernel/interaction-parts.ts';
 import { getStructured } from '../../../kernel/registry/schemas.ts';
 import type {
   InteractionMediaPart,
+  InteractionMediaRefPart,
   InteractionPart,
   ProviderCompleteRequest,
   StructuredSchemaId,
@@ -50,6 +52,14 @@ function parseToolInput(raw: string): Record<string, unknown> {
 
 // ── content wire format ─────────────────────────────
 
+function rejectMediaRef(
+  part: InteractionPart,
+): asserts part is Exclude<InteractionPart, InteractionMediaRefPart> {
+  if (isMediaRefPart(part)) {
+    throw new TheorumError('media references are not supported on openAi');
+  }
+}
+
 function wireAudioPart(part: InteractionMediaPart): Record<string, unknown> {
   let format = 'mp3';
   if (part.mimeType.includes('wav')) {
@@ -67,9 +77,9 @@ function wireAudioPart(part: InteractionMediaPart): Record<string, unknown> {
 /**
  * Map InteractionPart[] to OpenAI-compat message content.
  * Text-only inputs are joined as a plain string; mixed inputs produce a
- * content-part array (text, image_url, input_audio).
+ * content-part array (text, image_url, input_audio, file).
  */
-function wireMessageContent(parts: InteractionPart[]): unknown {
+export function wireMessageContent(parts: InteractionPart[]): unknown {
   const isAllText = parts.every((p) => p.type === 'text');
   if (isAllText) {
     return parts
@@ -86,6 +96,7 @@ function wireMessageContent(parts: InteractionPart[]): unknown {
     if (part.type === 'text') {
       return { type: 'text', text: part.text };
     }
+    rejectMediaRef(part);
     if (part.type === 'image') {
       return {
         type: 'image_url',
@@ -95,7 +106,14 @@ function wireMessageContent(parts: InteractionPart[]): unknown {
     if (part.type === 'audio') {
       return wireAudioPart(part);
     }
-    return { type: 'text', text: '' };
+    // video + document — file part (OpenAI-compat / OpenRouter)
+    return {
+      type: 'file',
+      file: {
+        filename: part.type === 'video' ? 'clip.bin' : 'document.bin',
+        file_data: `data:${part.mimeType};base64,${part.data}`,
+      },
+    };
   });
 }
 
@@ -108,11 +126,16 @@ function wireMessageContent(parts: InteractionPart[]): unknown {
  */
 function wireHistoryMessage(msg: TurnHistoryMessage): Record<string, unknown> {
   if (msg.role === 'tool') {
+    let content: unknown = msg.content ?? '';
+    if (msg.parts && msg.parts.length > 0) {
+      // Prefer multimodal parts; if only text parts, wireMessageContent collapses to string.
+      content = wireMessageContent(msg.parts);
+    }
     return {
       role: 'tool',
       tool_call_id: msg.tool_call_id ?? fallbackToolCallId(msg.name),
       name: msg.name,
-      content: msg.content ?? '',
+      content,
     };
   }
 

@@ -1,3 +1,4 @@
+/** lexicon-exempt-file: test assertion helpers shipped under src for Deno tests — not runtime user or model copy (P2) */
 type ErrorConstructor = new (message?: string) => Error;
 
 function assertEquals(left: unknown, right: unknown): void {
@@ -13,11 +14,16 @@ function assertStringIncludes(actual: string, expected: string): void {
   }
 }
 
-function assertThrows(fn: () => unknown, ctor: ErrorConstructor): void {
+function assertThrows(fn: () => unknown, ctor: ErrorConstructor, messageIncludes?: string): void {
   try {
     fn();
   } catch (err) {
     if (err instanceof ctor) {
+      if (messageIncludes && !String((err as Error).message).includes(messageIncludes)) {
+        throw new Error(
+          `assertThrows failed: expected message to include "${messageIncludes}", got "${(err as Error).message}"`,
+        );
+      }
       return;
     }
     throw err;

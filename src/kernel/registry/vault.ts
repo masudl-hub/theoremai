@@ -7,7 +7,7 @@
 import { TheorumError } from '../../guardrails/error.ts';
 import { getTool } from '../tools/registry.ts';
 import type { BuiltinToolDef } from '../tools/types.ts';
-import type { BuiltinToolId, KeySlot, ModelSpec, Provider } from '../types.ts';
+import type { BuiltinToolId, KeySlot, ModelBinding, Provider } from '../types.ts';
 
 function builtinForcesPaid(id: BuiltinToolId): boolean {
   const tool = getTool(id);
@@ -30,12 +30,12 @@ export function providerUsesKeySlots(provider: Provider): boolean {
  */
 function resolveKeySlot(
   profileKey: KeySlot | undefined,
-  spec: ModelSpec,
+  binding: ModelBinding,
   builtins: BuiltinToolId[],
   required: boolean,
 ): KeySlot | undefined {
-  if (spec.key) {
-    return spec.key;
+  if (binding.key) {
+    return binding.key;
   }
   if (builtins.some((id) => builtinForcesPaid(id))) {
     return 'paid';
@@ -44,7 +44,7 @@ function resolveKeySlot(
     return profileKey;
   }
   if (required) {
-    throw new TheorumError('Profile must set model.key or model.config.*.key');
+    throw new TheorumError('Profile must set key or models.*.key'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return undefined;
 }

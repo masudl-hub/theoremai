@@ -18,6 +18,8 @@ function providerCompleteRequest(
     temperature: generation.temperature,
     builtins: generation.builtins,
     googleMapsLocation: isInteractions ? generation.googleMapsLocation : undefined,
+    cache: generation.cache,
+    sessionId: generation.sessionId,
     system,
     input: generation.input,
     history: generation.history,

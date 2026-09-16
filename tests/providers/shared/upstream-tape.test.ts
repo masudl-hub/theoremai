@@ -139,9 +139,15 @@ Deno.test('runTurn traces wire, usage, and every Interactions SSE row', async ()
   const events = await collect(
     runTurn({ profile: 'chat', input: { text: 'hi' } }, provider, memorySink(into)),
   );
+  // Text profiles always emit turn stages (`pre_turn` → … → `post_turn`) even
+  // when the turn passes no `onStage` handler.
   assertEquals(
     events.map((event) => event.type),
-    ['text', 'tokens', 'error', 'done'],
+    ['stage', 'text', 'tokens', 'error', 'stage', 'done', 'stage'],
+  );
+  assertEquals(
+    events.filter((e) => e.type === 'stage').map((e) => e.stage),
+    ['pre_turn', 'before_end', 'post_turn'],
   );
   const [row] = into;
   if (!row) {

@@ -13,6 +13,7 @@ import {
   baseInteractionsBody,
   camelToSnake,
   historyStep,
+  historySteps,
   inputStepsFromRequest,
   jsonResponseFormat,
   systemHoldsUserInput,
@@ -473,6 +474,112 @@ Deno.test('historyStep maps tool role messages to function_result steps', () => 
   });
 });
 
+Deno.test('historyStep maps tool role parts through wirePart', () => {
+  const step = historyStep({
+    role: 'tool',
+    name: 'fetch_stock_media',
+    tool_call_id: 'call_media',
+    content: 'shortlist\n{"items":[]}',
+    parts: [
+      { type: 'text', text: '1. palm' },
+      { type: 'image', mimeType: 'image/jpeg', data: '/9j/abc' },
+      { type: 'audio', mimeType: 'audio/wav', data: 'UklG' },
+    ],
+  });
+  assertEquals(step, {
+    type: 'function_result',
+    name: 'fetch_stock_media',
+    call_id: 'call_media',
+    result: [
+      { type: 'text', text: '1. palm' },
+      { type: 'image', mimeType: 'image/jpeg', data: '/9j/abc' },
+      { type: 'audio', mimeType: 'audio/wav', data: 'UklG' },
+    ],
+  });
+});
+
+Deno.test('historySteps maps assistant tool_calls to function_call (no empty text)', () => {
+  const steps = historySteps({
+    role: 'assistant',
+    tool_calls: [
+      {
+        id: 'call_plan',
+        type: 'function',
+        function: { name: 'plan_day', arguments: '{"destination":"Tokyo"}' },
+      },
+    ],
+  });
+  assertEquals(steps, [
+    {
+      type: 'function_call',
+      id: 'call_plan',
+      name: 'plan_day',
+      arguments: { destination: 'Tokyo' },
+    },
+  ]);
+});
+
+Deno.test('historySteps keeps preceding assistant prose then function_call', () => {
+  const steps = historySteps({
+    role: 'assistant',
+    content: 'One moment.',
+    tool_calls: [
+      {
+        id: 'c1',
+        type: 'function',
+        function: { name: 'plan_day', arguments: '{}' },
+      },
+    ],
+  });
+  assertEquals(steps[0], {
+    type: 'model_output',
+    content: [{ type: 'text', text: 'One moment.' }],
+  });
+  assertEquals(steps[1], {
+    type: 'function_call',
+    id: 'c1',
+    name: 'plan_day',
+    arguments: {},
+  });
+});
+
+Deno.test('inputStepsFromRequest expands tool_calls history into function_call + function_result', () => {
+  const req = baseReq({
+    history: [
+      { role: 'user', content: 'Plan Tokyo' },
+      {
+        role: 'assistant',
+        tool_calls: [
+          {
+            id: 'call_1',
+            type: 'function',
+            function: { name: 'plan_day', arguments: '{"destination":"Tokyo"}' },
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        name: 'plan_day',
+        tool_call_id: 'call_1',
+        content: '{"summary":"ok"}',
+      },
+    ],
+    input: [{ type: 'text', text: 'How far between stops?' }],
+  });
+  const steps = inputStepsFromRequest(req);
+  assertEquals(
+    steps.map((s) => s.type),
+    ['user_input', 'function_call', 'function_result', 'user_input'],
+  );
+  assertEquals(steps[1], {
+    type: 'function_call',
+    id: 'call_1',
+    name: 'plan_day',
+    arguments: { destination: 'Tokyo' },
+  });
+  assertEquals(steps[2]?.type, 'function_result');
+});
+
 Deno.test('applyOptionalRequestFields throws for a builtin with no Interactions wire type', () => {
   const req = baseReq({ builtins: ['notRegisteredTool'] });
   assertThrows(() => applyOptionalRequestFields(req, {}), TheorumError);
@@ -542,4 +649,22 @@ Deno.test('toInteractionsBody sends code_execution together with structured resp
   );
   assertEquals(body.tools, [{ type: 'code_execution' }]);
   assertEquals(Array.isArray(body.response_format), true);
+});
+
+Deno.test('Interactions wires a media reference as { type, uri, mime_type } (Files API input)', () => {
+  const ref: InteractionPart = { type: 'video', mimeType: 'video/mp4', uri: 'files/abc123' };
+  assertEquals(wirePart(ref), { type: 'video', mimeType: 'video/mp4', uri: 'files/abc123' });
+  assertEquals(toGoogleValue(userInputStep([ref])), {
+    type: 'user_input',
+    content: [{ type: 'video', mime_type: 'video/mp4', uri: 'files/abc123' }],
+  });
+  const body = toInteractionsBody(baseReq({ input: [{ type: 'text', text: 'describe' }, ref] }));
+  const input = body.input as Array<{ type: string; content: Array<Record<string, unknown>> }>;
+  const userStep = input.find((step) => step.type === 'user_input');
+  assertEquals(userStep?.content.at(-1), {
+    type: 'video',
+    mime_type: 'video/mp4',
+    uri: 'files/abc123',
+  });
+  assertEquals(JSON.stringify(body).includes('file_uri'), false);
 });

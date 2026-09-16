@@ -1,3 +1,5 @@
+import { lexiconText } from '../../guardrails/lexicon.ts';
+import { profileTurnOutputs } from '../registry/profile-outputs.ts';
 import type { Profile, TurnHistoryMessage, TurnRepairRequest } from '../types.ts';
 
 const MAX_REPAIR_HISTORY_EXCHANGES = 2;
@@ -15,7 +17,8 @@ function formatHistoryBlock(messages: TurnHistoryMessage[]): string {
     return '';
   }
   const lines = messages.map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`);
-  return `### RECENT CONVERSATION CONTEXT (LAST ${messages.length} TURNS)\n${lines.join('\n')}\n\n`;
+  const heading = lexiconText('repair.history_heading', { count: messages.length });
+  return `${heading}\n${lines.join('\n')}\n\n`;
 }
 
 function synthesizeRepairPrompt(args: {
@@ -26,29 +29,27 @@ function synthesizeRepairPrompt(args: {
   const { profile, repair, history } = args;
   const guidance =
     repair.guidance ||
-    profile.outputs?.validation?.repairGuidance ||
-    'Revise the previous output so it satisfies the validator rejection. Preserve the intended user-facing substance unless the guidance says otherwise.';
+    profileTurnOutputs(profile)?.validation?.repairGuidance ||
+    lexiconText('repair.default_guidance');
 
   const historyBlock = formatHistoryBlock(scopeHistory(history));
 
-  let prompt = `## OUTPUT REPAIR REQUEST\n\n`;
-  prompt += `The previous assistant output was rejected by a host validator and must be revised.\n\n`;
+  let prompt = `${lexiconText('repair.prompt_header')}\n\n`;
+  prompt += `${lexiconText('repair.prompt_intro')}\n\n`;
 
-  prompt += `### PREVIOUS OUTPUT\n\`\`\`\n${repair.previousOutput.trim()}\n\`\`\`\n\n`;
-  prompt += `### VALIDATOR REJECTION\n${repair.rejection.trim()}\n\n`;
+  prompt += `${lexiconText('repair.section_previous_output')}\n\`\`\`\n${repair.previousOutput.trim()}\n\`\`\`\n\n`;
+  prompt += `${lexiconText('repair.section_validator_rejection')}\n${repair.rejection.trim()}\n\n`;
 
   if (guidance.trim()) {
-    prompt += `### REPAIR GUIDANCE\n${guidance.trim()}\n\n`;
+    prompt += `${lexiconText('repair.section_repair_guidance')}\n${guidance.trim()}\n\n`;
   }
 
   if (historyBlock) {
     prompt += historyBlock;
   }
 
-  prompt += `### INSTRUCTIONS\n`;
-  prompt += `1. Inspect the previous output and validator rejection.\n`;
-  prompt += `2. Apply the repair guidance without inventing unsupported facts.\n`;
-  prompt += `3. Return only the corrected assistant output required by the active profile.`;
+  prompt += `${lexiconText('repair.section_instructions')}\n`;
+  prompt += lexiconText('repair.prompt_instructions');
 
   return prompt;
 }

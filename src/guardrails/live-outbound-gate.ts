@@ -1,9 +1,10 @@
 /**
- * Stateful Live outbound gate — canary stream holdback + optional egress enforce.
+ * Stateful Live outbound gate — progressive-yield canary + egress lookback.
  *
  * Matches runTurn semantics:
- *   • canary gate on text/thought deltas (streaming)
- *   • when egress.enforce is set, hold text/thought until turn end then evaluate
+ *   • progressive-yield on text/thought deltas
+ *   • canary-only profiles withhold immediately on leak (PUBLIC_CANARY)
+ *   • with egress.enforce, mid-turn hits arm withhold; finalize refuse/withhold
  *   • media/tokens/tools pass through immediately (after non-stream canary scan)
  *
  * Live has no repair loop — blocked turns map to refuse_to_user copy or PUBLIC_CANARY.
@@ -11,124 +12,164 @@
  * @module
  */
 
-import type { Profile, ProfileEgressSpec, TurnEvent } from '../kernel/types.ts';
-import {
-  type CanaryStreamGate,
-  createCanaryStreamGate,
-  eventHasCanary,
-  isStreamedCanaryEvent,
-} from './canary.ts';
+import type { Profile, TurnEvent } from '../kernel/types.ts';
+import { eventHasCanary, isStreamedCanaryEvent } from './canary.ts';
+import { EGRESS_RULES, runEnforcer } from './egress.ts';
 import { PUBLIC_CANARY } from './error.ts';
+import { guardrailFromHits, guardrailFromVerdict } from './events.ts';
+import { resolveGuardrailPolicy } from './policy.ts';
+import { createOutboundProgressiveGate, type ProgressiveYieldGate } from './progressive-yield.ts';
+import type {
+  GuardrailContext,
+  GuardrailHit,
+  ProfileEgressSpec,
+  ResolvedGuardrailPolicy,
+} from './types.ts';
 
 export interface LiveOutboundGateSession {
-  profile: Profile;
-  canary?: string;
-  gate: CanaryStreamGate | null;
+  policy: ResolvedGuardrailPolicy;
+  context: GuardrailContext;
+  gate: ProgressiveYieldGate | null;
   lastStreamType?: 'text' | 'thought';
-  holdUserVisible: boolean;
-  pendingVisible: TurnEvent[];
-  accumulatedText: string;
+  /** Stop releasing host-visible text/thought after a progressive egress hit. */
+  withholdVisible: boolean;
 }
 
 export type LiveOutboundBatchResult =
   | { action: 'emit'; events: TurnEvent[] }
-  | { action: 'withhold'; error: string }
+  | { action: 'withhold'; error: string; events?: TurnEvent[] }
   | { action: 'idle' };
 
-function egressSpec(profile: Profile): ProfileEgressSpec | undefined {
-  return profile.guardrails?.egress;
+function egressSpec(session: LiveOutboundGateSession): ProfileEgressSpec | undefined {
+  return session.policy.egress;
 }
 
 function createLiveOutboundGateSession(profile: Profile, canary?: string): LiveOutboundGateSession {
-  const useCanary = profile.guardrails?.canary === true && Boolean(canary);
+  const policy = resolveGuardrailPolicy(profile.guardrails);
+  const useCanary = policy.canary && Boolean(canary);
+  const context: GuardrailContext = {
+    stage: 'live_outbound',
+    trust: 'untrusted',
+    profileId: profile.id,
+    ...(useCanary ? { canary } : {}),
+  };
   return {
-    profile,
-    canary: useCanary ? canary : undefined,
-    gate: useCanary && canary ? createCanaryStreamGate(canary) : null,
-    holdUserVisible: Boolean(egressSpec(profile)?.enforce),
-    pendingVisible: [],
-    accumulatedText: '',
+    policy,
+    context,
+    gate: createOutboundProgressiveGate(policy, context),
+    withholdVisible: false,
   };
 }
 
-function appendVisibleText(session: LiveOutboundGateSession, event: TurnEvent): void {
-  if (event.type !== 'text' && event.type !== 'thought') {
-    return;
-  }
-  if (event.text) {
-    session.accumulatedText += event.text;
-  }
-  session.pendingVisible.push(event);
+/** Canary-only profiles stop the turn immediately; egress profiles defer to finalize. */
+function canaryOnlyImmediateWithhold(session: LiveOutboundGateSession): boolean {
+  return !egressSpec(session)?.enforce;
 }
 
-function flushCanaryTail(session: LiveOutboundGateSession): LiveOutboundBatchResult {
+function armEgressWithhold(session: LiveOutboundGateSession): void {
+  session.withholdVisible = true;
+}
+
+function canaryHit(): GuardrailHit[] {
+  return [{ rule: EGRESS_RULES.canary, severity: 'high', match: '[canary]' }];
+}
+
+function withholdResult(
+  error: string,
+  hits: GuardrailHit[],
+  prior: TurnEvent[] = [],
+): LiveOutboundBatchResult {
+  const guardrail = guardrailFromHits('live_outbound', 'untrusted', hits, 'block');
+  return {
+    action: 'withhold',
+    error,
+    events: [...prior, ...(guardrail ? [guardrail] : [])],
+  };
+}
+
+async function flushProgressiveTail(
+  session: LiveOutboundGateSession,
+): Promise<LiveOutboundBatchResult> {
   if (!session.gate) {
     return { action: 'idle' };
   }
   const emitType = session.lastStreamType ?? 'text';
-  const tail = session.gate.flush();
+  const result = await session.gate.flush();
   session.lastStreamType = undefined;
-  if (tail.leak) {
-    return { action: 'withhold', error: PUBLIC_CANARY };
+  if (result.blocked) {
+    if (canaryOnlyImmediateWithhold(session)) {
+      return withholdResult(PUBLIC_CANARY, result.hits);
+    }
+    armEgressWithhold(session);
+    const guardrail = guardrailFromHits('live_outbound', 'untrusted', result.hits, 'block');
+    return guardrail ? { action: 'emit', events: [guardrail] } : { action: 'idle' };
   }
-  if (!tail.emit) {
+  if (!result.emit || session.withholdVisible) {
     return { action: 'idle' };
   }
-  const event: TurnEvent = { type: emitType, text: tail.emit };
-  if (session.holdUserVisible) {
-    appendVisibleText(session, event);
-    return { action: 'idle' };
-  }
-  return { action: 'emit', events: [event] };
+  return { action: 'emit', events: [{ type: emitType, text: result.emit }] };
 }
 
-function processStreamChunk(
+async function processStreamChunk(
   session: LiveOutboundGateSession,
   event: TurnEvent & { type: 'text' | 'thought' },
-): LiveOutboundBatchResult {
+): Promise<LiveOutboundBatchResult> {
   if (!session.gate) {
-    if (session.holdUserVisible) {
-      appendVisibleText(session, event);
+    if (session.withholdVisible) {
       return { action: 'idle' };
     }
     return { action: 'emit', events: [event] };
   }
 
+  if (session.withholdVisible) {
+    // Keep feeding the gate so finalize sees full text for refuse/withhold.
+    await session.gate.process(event.text ?? '');
+    return { action: 'idle' };
+  }
+
+  const prior: TurnEvent[] = [];
   if (session.lastStreamType && session.lastStreamType !== event.type) {
-    const tailResult = flushCanaryTail(session);
+    const tailResult = await flushProgressiveTail(session);
     if (tailResult.action === 'withhold') {
       return tailResult;
+    }
+    if (tailResult.action === 'emit') {
+      prior.push(...tailResult.events);
     }
   }
   session.lastStreamType = event.type;
 
-  const result = session.gate.process(event.text ?? '');
-  if (result.leak) {
-    return { action: 'withhold', error: PUBLIC_CANARY };
+  const result = await session.gate.process(event.text ?? '');
+  if (result.blocked) {
+    if (canaryOnlyImmediateWithhold(session)) {
+      return withholdResult(PUBLIC_CANARY, result.hits, prior);
+    }
+    armEgressWithhold(session);
+    const guardrail = guardrailFromHits('live_outbound', 'untrusted', result.hits, 'block');
+    if (guardrail) {
+      prior.push(guardrail);
+    }
+    return prior.length ? { action: 'emit', events: prior } : { action: 'idle' };
   }
-  if (!result.emit) {
-    return { action: 'idle' };
+  if (result.emit) {
+    prior.push({ ...event, text: result.emit });
   }
-  const gated: TurnEvent = { ...event, text: result.emit };
-  if (session.holdUserVisible) {
-    appendVisibleText(session, gated);
-    return { action: 'idle' };
-  }
-  return { action: 'emit', events: [gated] };
+  return prior.length ? { action: 'emit', events: prior } : { action: 'idle' };
 }
 
 function scanNonStreamEvent(session: LiveOutboundGateSession, event: TurnEvent): boolean {
-  return Boolean(session.canary && eventHasCanary(event, session.canary));
+  const { canary } = session.context;
+  return Boolean(canary && eventHasCanary(event, canary));
 }
 
-function flushCanaryTailInto(
+async function flushProgressiveTailInto(
   session: LiveOutboundGateSession,
   into: TurnEvent[],
-): LiveOutboundBatchResult | undefined {
+): Promise<LiveOutboundBatchResult | undefined> {
   if (!(session.gate && session.lastStreamType)) {
     return undefined;
   }
-  const tailResult = flushCanaryTail(session);
+  const tailResult = await flushProgressiveTail(session);
   if (tailResult.action === 'withhold') {
     return tailResult;
   }
@@ -138,16 +179,16 @@ function flushCanaryTailInto(
   return undefined;
 }
 
-/** Process one upstream Live batch (may emit immediately or buffer for egress). */
-function processLiveOutboundBatch(
+/** Process one upstream Live batch (may emit immediately or hold lookback). */
+async function processLiveOutboundBatch(
   session: LiveOutboundGateSession,
   events: TurnEvent[],
-): LiveOutboundBatchResult {
+): Promise<LiveOutboundBatchResult> {
   const toEmit: TurnEvent[] = [];
 
   for (const event of events) {
     if (isStreamedCanaryEvent(event)) {
-      const streamResult = processStreamChunk(
+      const streamResult = await processStreamChunk(
         session,
         event as TurnEvent & { type: 'text' | 'thought' },
       );
@@ -160,17 +201,16 @@ function processLiveOutboundBatch(
       continue;
     }
 
-    const withheld = flushCanaryTailInto(session, toEmit);
+    const withheld = await flushProgressiveTailInto(session, toEmit);
     if (withheld) {
       return withheld;
     }
 
     if (scanNonStreamEvent(session, event)) {
-      return { action: 'withhold', error: PUBLIC_CANARY };
+      return withholdResult(PUBLIC_CANARY, canaryHit(), toEmit);
     }
 
-    if (session.holdUserVisible && (event.type === 'text' || event.type === 'thought')) {
-      appendVisibleText(session, event);
+    if (session.withholdVisible && (event.type === 'text' || event.type === 'thought')) {
       continue;
     }
 
@@ -183,62 +223,83 @@ function processLiveOutboundBatch(
   return { action: 'emit', events: toEmit };
 }
 
+function emitOrIdle(events: TurnEvent[]): LiveOutboundBatchResult {
+  return events.length === 0 ? { action: 'idle' } : { action: 'emit', events };
+}
+
+function emitWithOptionalGuardrail(
+  prior: TurnEvent[],
+  guardrail: TurnEvent | undefined,
+  text: string,
+): LiveOutboundBatchResult {
+  return {
+    action: 'emit',
+    events: [...prior, ...(guardrail ? [guardrail] : []), { type: 'text', text }],
+  };
+}
+
+async function finalizeEgressEnforce(
+  session: LiveOutboundGateSession,
+  egress: ProfileEgressSpec,
+  accumulated: string,
+  prior: TurnEvent[],
+): Promise<LiveOutboundBatchResult | undefined> {
+  const verdict = await runEnforcer(egress.enforce, { text: accumulated }, session.context);
+  const guardrail = guardrailFromVerdict('live_outbound', 'untrusted', verdict);
+
+  if (verdict.action === 'redact') {
+    return emitWithOptionalGuardrail(prior, guardrail, verdict.text);
+  }
+  if (verdict.action === 'block') {
+    if (egress.onBlock === 'refuse_to_user' && verdict.refusal) {
+      return emitWithOptionalGuardrail(prior, guardrail, verdict.refusal);
+    }
+    return withholdResult(PUBLIC_CANARY, verdict.hits, prior);
+  }
+  if (guardrail) {
+    prior.push(guardrail);
+  }
+  return undefined;
+}
+
 async function finalizeLiveOutboundTurn(
   session: LiveOutboundGateSession,
 ): Promise<LiveOutboundBatchResult> {
   const extra: TurnEvent[] = [];
 
-  const withheld = flushCanaryTailInto(session, extra);
+  const withheld = await flushProgressiveTailInto(session, extra);
   if (withheld) {
     return withheld;
   }
 
-  if (!session.holdUserVisible) {
-    if (extra.length === 0) {
-      return { action: 'idle' };
+  const egress = egressSpec(session);
+  const accumulated = session.gate?.accumulated() ?? '';
+
+  if (!(session.withholdVisible || egress)) {
+    return emitOrIdle(extra);
+  }
+
+  if (!accumulated && !session.withholdVisible) {
+    return emitOrIdle(extra);
+  }
+
+  if (egress && accumulated) {
+    const enforced = await finalizeEgressEnforce(session, egress, accumulated, extra);
+    if (enforced) {
+      return enforced;
     }
-    return { action: 'emit', events: extra };
+  } else if (session.withholdVisible) {
+    return withholdResult(PUBLIC_CANARY, canaryHit(), extra);
   }
 
-  if (session.pendingVisible.length === 0) {
-    return extra.length ? { action: 'emit', events: extra } : { action: 'idle' };
-  }
-
-  const pending = session.pendingVisible;
-  const text = session.accumulatedText;
-  session.pendingVisible = [];
-  session.accumulatedText = '';
-
-  const egress = egressSpec(session.profile);
-  if (!egress?.enforce) {
-    return { action: 'emit', events: [...extra, ...pending] };
-  }
-
-  const enforcement = await egress.enforce({
-    text,
-    canary: session.canary,
-    profile: session.profile,
-  });
-
-  if (!enforcement.blocked) {
-    return { action: 'emit', events: [...extra, ...pending] };
-  }
-
-  if (egress.onBlock === 'refuse_to_user' && enforcement.text) {
-    return { action: 'emit', events: [{ type: 'text', text: enforcement.text }] };
-  }
-
-  return { action: 'withhold', error: PUBLIC_CANARY };
+  return emitOrIdle(extra);
 }
 
-/** Drop buffered assistant text when the user interrupts mid-turn. */
+/** Drop progressive-yield state when the user interrupts mid-turn. */
 function abortLiveOutboundTurn(session: LiveOutboundGateSession): void {
-  session.pendingVisible = [];
-  session.accumulatedText = '';
   session.lastStreamType = undefined;
-  if (session.canary) {
-    session.gate = createCanaryStreamGate(session.canary);
-  }
+  session.withholdVisible = false;
+  session.gate = createOutboundProgressiveGate(session.policy, session.context);
 }
 
 export {

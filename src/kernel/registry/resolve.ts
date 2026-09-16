@@ -6,12 +6,15 @@
 
 import { mintCanary } from '../../guardrails/canary.ts';
 import { TheorumError } from '../../guardrails/error.ts';
+import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import { sanitizeTurnRequest } from '../../guardrails/sanitize.ts';
+import { profileTurnResumption } from '../stop.ts';
 import { projectTools } from '../tools/project.ts';
 import { resolveTurnTools } from '../tools/resolve.ts';
 import type {
+  ModelBinding,
   ModelId,
-  ModelSpec,
+  ModelProfile,
   Profile,
   ProfileInputsSpec,
   ProjectedProfile,
@@ -22,7 +25,7 @@ import type {
   ThinkingLevel,
   TurnRequest,
 } from '../types.ts';
-import { clampThinkingLevel, requireModelSpec } from './catalog.ts';
+import { requireModelBinding } from './catalog.ts';
 import {
   assertOutputMode,
   assertSpeechRole,
@@ -30,119 +33,89 @@ import {
   resolveInputParts,
 } from './ingress.ts';
 import { getProfile } from './profiles.ts';
+import { soleModelId } from './sole-model.ts';
+import { resolveTurnSystemPrompt } from './system-prompt.ts';
 import { providerUsesKeySlots, resolveKeySlot } from './vault.ts';
 
-function firstSelectKey(selectMap: Record<string, ModelId>): string | undefined {
-  const [key] = Object.keys(selectMap);
-  return key;
+/** Narrow to a model-binding profile; `host` never runs a model. */
+function requireModelProfile(profile: Profile, door: string): ModelProfile {
+  if (profile.type === 'host') {
+    throw new TheorumError(
+      `Profile ${profile.id}: type 'host' never runs a model — ${door} is not supported; execute tools with invokeTool`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  return profile;
 }
 
-function lookupSelectId(profile: Profile, select?: string): ModelId | undefined {
-  const { select: selectMap } = profile.model;
-  if (!selectMap) {
-    return undefined;
-  }
-  let key = select;
-  if (!key) {
-    key = firstSelectKey(selectMap);
-  }
-  if (!key) {
-    return undefined;
-  }
-  return selectMap[key];
-}
-
-function pickModel(profile: Profile, select?: string): ModelId {
-  if (profile.model.select) {
-    const id = lookupSelectId(profile, select);
-    if (!(id && profile.model.allow.includes(id))) {
-      let label = '';
-      if (select) {
-        label = select;
-      }
-      throw new TheorumError(`Unknown model select '${label}' for ${profile.id}`);
+function pickModel(profile: ModelProfile, requested?: string): ModelId {
+  if (requested) {
+    if (!profile.allowModelSelect) {
+      throw new TheorumError(`Profile ${profile.id} does not allow model selection`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
-    return id;
+    if (!profile.models[requested]) {
+      throw new TheorumError(`Unknown model '${requested}' for ${profile.id}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    }
+    return requested;
   }
-  const [only] = profile.model.allow;
-  if (!only) {
-    throw new TheorumError(`Profile ${profile.id} has no models`);
+  const defaultId = profile.defaultModel ?? soleModelId(profile.models);
+  if (!defaultId || !profile.models[defaultId]) {
+    throw new TheorumError(`Profile ${profile.id} has no default model`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
-  return only;
+  return defaultId;
 }
 
-function thinkingFromControl(spec: ModelSpec, thinkingOn: boolean | undefined): ThinkingLevel {
-  if (!spec.thinking) {
-    throw new TheorumError('model.config thinking map is required when controls include thinking');
-  }
-  if (thinkingOn) {
-    return spec.thinking.on;
-  }
-  return spec.thinking.off;
-}
-
-function pinnedLevel(
-  pinned: Record<string, ThinkingLevel>,
-  key: string | undefined,
+function resolveEffort(
+  profile: ModelProfile,
+  binding: ModelBinding,
+  modelId: ModelId,
+  requested?: string,
 ): ThinkingLevel | undefined {
-  if (!key) {
-    return undefined;
-  }
-  return pinned[key];
-}
-
-function thinkingFromPin(profile: Profile, select?: string): ThinkingLevel {
-  const pinned = profile.model.thinking;
-  if (typeof pinned === 'string') {
-    return pinned;
-  }
-  if (!pinned) {
-    throw new TheorumError(`Profile ${profile.id} must pin thinking or list it in controls`);
-  }
-  const fromSelect = pinnedLevel(pinned, select);
-  if (fromSelect) {
-    return fromSelect;
-  }
-  const fromFirst = pinnedLevel(pinned, firstSelectKey(profile.model.select ?? {}));
-  if (fromFirst) {
-    return fromFirst;
-  }
-  throw new TheorumError(`Profile ${profile.id} must pin thinking or list it in controls`);
-}
-
-function resolveThinking(
-  profile: Profile,
-  spec: ModelSpec,
-  thinkingOn: boolean | undefined,
-  select?: string,
-): ThinkingLevel {
-  const raw = profile.model.controls?.includes('thinking')
-    ? thinkingFromControl(spec, thinkingOn)
-    : thinkingFromPin(profile, select);
-  return clampThinkingLevel(spec, raw);
-}
-
-function resolveSummaries(
-  profile: Profile,
-  spec: ModelSpec,
-  thinkingOn: boolean | undefined,
-): SummaryMode | undefined {
-  if (!spec.summaries) {
-    return undefined;
-  }
-  if (profile.model.controls?.includes('thinking')) {
-    if (thinkingOn) {
-      return spec.summaries.on;
+  const efforts = binding.efforts;
+  if (!efforts || Object.keys(efforts).length === 0) {
+    if (requested) {
+      throw new TheorumError(`Profile ${profile.id} model '${modelId}' has no selectable efforts`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
-    return spec.summaries.off;
+    return undefined;
   }
-  return spec.summaries.on;
+  const keys = Object.keys(efforts);
+  if (requested) {
+    if (!binding.allowEffortSelect) {
+      throw new TheorumError(
+        `Profile ${profile.id} model '${modelId}' does not allow effort selection`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
+    const level = efforts[requested];
+    if (!level) {
+      throw new TheorumError(`Unknown effort '${requested}' for ${profile.id} model '${modelId}'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    }
+    return level;
+  }
+  const alias = binding.defaultEffort ?? (keys.length === 1 ? keys[0] : undefined);
+  if (!alias) {
+    throw new TheorumError(
+      `Profile ${profile.id} model '${modelId}' must set defaultEffort when more than one effort is declared`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  return efforts[alias];
+}
+
+function resolveSummaries(binding: ModelBinding): SummaryMode | undefined {
+  if (binding.summaries === true) {
+    return 'auto';
+  }
+  if (binding.summaries === false) {
+    return 'none';
+  }
+  return undefined;
 }
 
 function resolveStructured(
-  profile: Profile,
+  profile: ModelProfile,
   slots?: Record<string, string>,
 ): StructuredSchemaId | null {
+  if (profile.type === 'live') {
+    return null;
+  }
   const structured = profile.outputs?.structured;
   if (!structured) {
     return null;
@@ -164,27 +137,40 @@ function resolveStructured(
  * THEORUM prefers SSE when the host omits `outputs.streaming.mode`.
  * Explicit `'buffered'` opts out; `'sse'` (or omit) yields `stream: true`.
  */
-function resolveStreamFlag(profile: Profile): boolean {
+function resolveStreamFlag(profile: ModelProfile): boolean {
+  if (profile.type === 'live') {
+    return true;
+  }
   return profile.outputs?.streaming?.mode !== 'buffered';
 }
 
-function resolveStore(spec: ModelSpec, reqStore: boolean | undefined): boolean | undefined {
+function resolveStore(binding: ModelBinding, reqStore: boolean | undefined): boolean | undefined {
   if (reqStore !== undefined) {
     return reqStore;
   }
-  return spec.store;
+  return binding.store;
 }
 
-function assertTurnResumption(profile: Profile, req: TurnRequest): void {
+function resolveTransport(profile: ModelProfile, binding: ModelBinding): ProviderTransport {
+  if (profile.type === 'live') {
+    return 'geminiLive';
+  }
+  if (binding.protocol === 'geminiInteractions' && binding.provider === 'google') {
+    return 'interactions';
+  }
+  return 'openAiCompat';
+}
+
+function assertTurnResumption(profile: ModelProfile, req: TurnRequest): void {
   if (!req.continueFrom) {
     return;
   }
   if (profile.type === 'live') {
     throw new TheorumError(
-      `Profile ${profile.id}: type 'live' uses live.sessionResumption, not turnResumption/continueFrom`,
+      `Profile ${profile.id}: type 'live' uses live.sessionResumption, not turnBehaviour.resumption/continueFrom`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
-  const policy = profile.turnResumption;
+  const policy = profileTurnResumption(profile);
   const max = policy?.maxContinues;
   if (max === undefined) {
     return;
@@ -192,102 +178,105 @@ function assertTurnResumption(profile: Profile, req: TurnRequest): void {
   const attempt = req.continuation;
   if (attempt === undefined) {
     throw new TheorumError(
-      `Profile ${profile.id}: continueFrom requires TurnRequest.continuation when turnResumption.maxContinues is set`,
+      `Profile ${profile.id}: continueFrom requires TurnRequest.continuation when turnBehaviour.resumption.maxContinues is set`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   if (attempt < 1) {
-    throw new TheorumError(`Profile ${profile.id}: continuation must be >= 1`);
+    throw new TheorumError(`Profile ${profile.id}: continuation must be >= 1`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   if (attempt > max) {
     throw new TheorumError(
-      `Profile ${profile.id}: continuation ${attempt} exceeds turnResumption.maxContinues (${max})`,
+      `Profile ${profile.id}: continuation ${attempt} exceeds turnBehaviour.resumption.maxContinues (${max})`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 }
 
 /** Resolve a host `TurnRequest` into provider-ready generation state. */
 function resolveTurn(req: TurnRequest): {
-  profile: Profile;
+  profile: ModelProfile;
   generation: ResolvedGeneration;
 } {
   const safe = sanitizeTurnRequest(req);
   const input = safe.input ?? {};
-  const profile = getProfile(safe.profile);
+  const profile = requireModelProfile(getProfile(safe.profile), 'resolveTurn');
   assertTurnResumption(profile, safe);
-  const model = pickModel(profile, safe.select);
-  const spec = requireModelSpec(profile, model);
-  const thinkingOn = safe.thinking === true;
+  const model = pickModel(profile, safe.model);
+  const binding = requireModelBinding(profile, model);
   const toolSnapshot = resolveTurnTools(profile, safe, model);
   const builtins = toolSnapshot.builtins;
   const structured = resolveStructured(profile, input.slots);
   assertOutputMode(profile, structured);
   assertSpeechRole(profile);
-  const pinnedKey = profile.model.key ?? spec.key;
-  const keySlot = providerUsesKeySlots(profile.model.provider)
-    ? resolveKeySlot(pinnedKey, spec, builtins, profile.model.provider === 'google')
+  const pinnedKey = profile.key ?? binding.key;
+  const keySlot = providerUsesKeySlots(binding.provider)
+    ? resolveKeySlot(pinnedKey, binding, builtins, binding.provider === 'google')
     : undefined;
-  const transport: ProviderTransport =
-    profile.type === 'live'
-      ? 'geminiLive'
-      : profile.model.protocol === 'geminiInteractions' && profile.model.provider === 'google'
-        ? 'interactions'
-        : 'openAiCompat';
   const previousInteractionId =
-    spec.persistViaInteractionId === false ? undefined : safe.previousInteractionId;
+    binding.persistViaInteractionId === false ? undefined : safe.previousInteractionId;
   return {
     profile,
     generation: {
       model,
-      apiId: spec.apiId,
-      transport,
+      apiId: binding.apiId,
+      transport: resolveTransport(profile, binding),
       previousInteractionId,
-      store: resolveStore(spec, safe.store),
+      store: resolveStore(binding, safe.store),
       stream: resolveStreamFlag(profile),
-      thinking: resolveThinking(profile, spec, thinkingOn, safe.select),
-      summaries: resolveSummaries(profile, spec, thinkingOn),
-      maxOutputTokens: spec.maxOutputTokens,
-      temperature: spec.temperature,
+      thinking: resolveEffort(profile, binding, model, safe.effort),
+      summaries: resolveSummaries(binding),
+      maxOutputTokens: binding.maxOutputTokens,
+      temperature: binding.temperature,
       builtins,
       googleMapsLocation: safe.googleMapsLocation,
+      cache: binding.cache,
+      sessionId: safe.sessionId,
       tools: toolSnapshot,
       sessionPermissions: safe.sessionPermissions,
       history: input.history,
-      maxSteps: profile.model.maxSteps,
+      maxSteps: profile.maxSteps,
       structured,
       image: resolveImageFormat(profile),
       speech: profile.type === 'speech' ? profile.speech : undefined,
       live: profile.type === 'live' ? profile.live : undefined,
       input: resolveInputParts(profile, model, safe),
       keySlot,
-      canary: profile.guardrails?.canary === true ? mintCanary() : '',
+      canary: resolveGuardrailPolicy(profile.guardrails).canary ? mintCanary() : '',
       sessionResumptionHandle: safe.sessionResumptionHandle ?? input.sessionResumptionHandle,
+      resolvedSystem: resolveTurnSystemPrompt(profile, safe),
+      host: safe.host,
     },
   };
 }
 
-function primaryImageSpec(profile: Profile) {
+function primaryImageSpec(profile: ModelProfile) {
   return profile.type === 'image' ? profile.image : null;
 }
 
-function profileInputsOrNull(profile: Profile): ProfileInputsSpec | null {
-  if (profile.type === 'speech') {
+function profileInputsOrNull(profile: ModelProfile): ProfileInputsSpec | null {
+  if (profile.type === 'speech' || profile.type === 'live') {
     return null;
   }
   return profile.inputs ?? null;
 }
 
 /** Project a profile object into a safe host/UI inspection object. */
-function projectProfileObject(profile: Profile): ProjectedProfile {
-  const { model, identity, outputs } = profile;
+function projectProfileObject(input: Profile): ProjectedProfile {
+  const profile = requireModelProfile(input, 'projectProfile');
+  const { identity } = profile;
   const inputs = profileInputsOrNull(profile);
+  const outputs = profile.type === 'live' ? null : (profile.outputs ?? null);
   return {
     id: profile.id,
     type: profile.type,
     handle: identity.handle,
-    model,
+    models: profile.models,
+    defaultModel: profile.defaultModel,
+    allowModelSelect: profile.allowModelSelect,
+    maxSteps: profile.maxSteps,
+    key: profile.key,
     tools: projectTools(profile),
     inputs,
-    outputs: outputs ?? null,
+    outputs,
     image: primaryImageSpec(profile),
     speech: profile.type === 'speech' ? profile.speech : null,
     live: profile.type === 'live' ? profile.live : null,
@@ -299,13 +288,4 @@ function projectProfile(id: Profile['id']): ProjectedProfile {
   return projectProfileObject(getProfile(id));
 }
 
-function pickSystemRole(profile: Profile, requested?: string): string {
-  const { identity } = profile;
-  const { handle, systemByRole } = identity;
-  if (requested && systemByRole && Object.hasOwn(systemByRole, requested)) {
-    return requested;
-  }
-  return handle;
-}
-
-export { pickModel, pickSystemRole, projectProfile, projectProfileObject, resolveTurn };
+export { pickModel, projectProfile, projectProfileObject, requireModelProfile, resolveTurn };

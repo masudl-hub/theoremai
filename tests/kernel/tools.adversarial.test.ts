@@ -24,7 +24,7 @@ import {
   foldStepStart,
   newStreamFold,
 } from '../../src/providers/google/interactions/stream.ts';
-import { geminiModel, HOST_MODELS } from '../fixtures/models.ts';
+import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 import { invokeRegisteredTool } from '../fixtures/test-tools.ts';
 
 async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
@@ -41,7 +41,8 @@ function flashProfile(id: string, maxSteps: number, tools: ProfileToolsSpec) {
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id,
-      model: { ...geminiModel('gemini35FlashLite'), maxSteps },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps,
       tools,
       inputs: { text: true },
       guardrails: { quota: { perDay: 10_000 } },
@@ -123,8 +124,14 @@ Deno.test('adversarial/stream: duplicate function_call deduped', () => {
     index: 0,
     step: { type: 'function_call', id: 'c_dup', name: 'stub_tool', arguments: {} },
   };
-  assertEquals((foldPayload(payload, fold) as TurnEvent[]).filter((e) => e.type === 'tool').length, 0);
-  assertEquals((foldPayload(payload, fold) as TurnEvent[]).filter((e) => e.type === 'tool').length, 0);
+  assertEquals(
+    (foldPayload(payload, fold) as TurnEvent[]).filter((e) => e.type === 'tool').length,
+    0,
+  );
+  assertEquals(
+    (foldPayload(payload, fold) as TurnEvent[]).filter((e) => e.type === 'tool').length,
+    0,
+  );
   const firstStop = foldPayload({ event_type: 'step.stop', index: 0 }, fold) as TurnEvent[];
   const secondStop = foldPayload({ event_type: 'step.stop', index: 0 }, fold) as TurnEvent[];
   assertEquals(firstStop.filter((e) => e.type === 'tool').length, 1);
@@ -234,7 +241,7 @@ Deno.test('adversarial/runTurn: first tool error does not block second tool', as
   assertEquals(lastTool(events, 'stub_tool')?.phase, 'complete');
 });
 
-Deno.test('adversarial/runTurn: pause on one tool does not skip siblings in batch', async () => {
+Deno.test('adversarial/runTurn: gate on one tool does not start later siblings in batch', async () => {
   flashProfile('batch_pause_probe', 4, { allow: ['always_confirm_tool', 'stub_tool'] });
   const provider: ModelProvider = {
     async *complete() {
@@ -250,9 +257,9 @@ Deno.test('adversarial/runTurn: pause on one tool does not skip siblings in batc
   const events = await collect(
     runTurn({ profile: 'batch_pause_probe', input: { text: 'x' } }, provider),
   );
-  assertEquals(lastTool(events, 'always_confirm_tool')?.phase, 'pause');
-  assertEquals(lastTool(events, 'stub_tool')?.phase, 'complete');
-  assertEquals(events.at(-1)?.stop?.kind, 'tool');
+  assertEquals(lastTool(events, 'always_confirm_tool')?.phase, 'gate');
+  assertEquals(lastTool(events, 'stub_tool'), undefined);
+  assertEquals(events.findLast((e) => e.type === 'done')?.stop?.kind, 'gate');
 });
 
 Deno.test('adversarial/runTurn: maxSteps caps provider rounds not tools per round', async () => {
@@ -378,11 +385,11 @@ Deno.test('adversarial/handler: abort signal during execution', async () => {
   );
 });
 
-Deno.test('adversarial/preflight: failure object not pause', async () => {
+Deno.test('adversarial/preTool: deny object not gate', async () => {
   registerTool({
     type: 'function',
     name: 'preflight_fail_probe',
-    description: 'Preflight returns hard failure',
+    description: 'preTool returns hard deny',
     category: 'test',
     access: 'read-write',
     paths: ['*'],
@@ -390,7 +397,7 @@ Deno.test('adversarial/preflight: failure object not pause', async () => {
     permission: 'auto',
     input: z.object({}),
     output: z.object({ finding: z.string() }),
-    preflight: () => ({ code: 'not_authorized', message: 'blocked by policy' }),
+    preTool: () => ({ deny: { code: 'not_authorized', message: 'blocked by policy' } }),
     handler: () => ({ finding: 'should not run' }),
   });
   flashProfile('preflight_fail_bot', 1, { allow: ['preflight_fail_probe'] });
@@ -440,7 +447,8 @@ Deno.test('adversarial/promote: invalid id fails with zero side effects', () => 
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 'promote_partial_probe',
-      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
       tools: { allow: ['load_tools', 'record_lookup', 'stub_tool'], t2Loader: 'load_tools' },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -465,7 +473,8 @@ Deno.test('adversarial/promote: invalid id in batch does not unlock later tools'
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 'partial_batch_probe',
-      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 4 },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 4,
       tools: { allow: ['load_tools', 'record_lookup', 'stub_tool'], t2Loader: 'load_tools' },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -505,10 +514,8 @@ Deno.test('adversarial/runTurn: geminiInteractions T2 promotion expands wire on 
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 'gemini_t2_wire_probe',
-      model: {
-        ...geminiModel('gemini35FlashLite'),
-        maxSteps: 3,
-      },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 3,
       tools: { allow: ['load_tools', 'record_lookup'], t2Loader: 'load_tools' },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -591,7 +598,7 @@ Deno.test('adversarial/resume: granted bypasses always_confirm but not session_c
     input: { id: 'x' },
     resume: { granted: true },
   });
-  assertEquals(lastTool(deleteEv, 'delete_resource')?.phase, 'pause');
+  assertEquals(lastTool(deleteEv, 'delete_resource')?.phase, 'gate');
 });
 
 Deno.test('adversarial/invoke: promote failure attributes to host target tool', async () => {
@@ -651,20 +658,14 @@ Deno.test('adversarial/runTurn: builtin function_call surfaces provider_native e
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 'builtin_runner_probe',
-      model: {
-        thinking: 'minimal',
-        key: 'slotA',
-        protocol: 'geminiInteractions',
-        provider: 'google',
-        allow: ['gemini35FlashLite'],
-        config: {
-          gemini35FlashLite: {
-            ...HOST_MODELS.gemini35FlashLite,
-            builtInTools: ['googleSearch'],
-          },
+      models: {
+        gemini35FlashLite: {
+          ...HOST_BINDINGS.gemini35FlashLite,
+          builtInTools: ['googleSearch'],
         },
-        maxSteps: 2,
       },
+      key: 'slotA',
+      maxSteps: 2,
       tools: { allow: [] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },

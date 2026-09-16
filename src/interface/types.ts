@@ -1,22 +1,19 @@
 /**
  * Headless interface contracts — profile-driven UI spec and transcript blocks.
  *
- * `ProfileInterface` is `Profile` with resolved `inputs`/`tools` and a serializable
- * `guardrails` view. No parallel schema.
+ * `ProfileInterface` is `Profile` with resolved `inputs`/`tools` and serializable
+ * `guardrails` / `observability` views. No parallel schema.
  *
  * @module
  */
 
-import type { ProfileToolsSpec } from '../kernel/tools/types.ts';
+import type { ResolvedGuardrailPolicy } from '../guardrails/types.ts';
+import type { LiveProfileToolsSpec, ProfileToolsSpec } from '../kernel/tools/types.ts';
 import type {
-  ControlId,
   GroundingEvent,
   ImageProfile,
   LiveProfile,
-  ModelId,
   Profile,
-  ProfileGuardrailsSpec,
-  ProfileModelSpec,
   ProfileOutputsSpec,
   ProjectedProfile,
   ProviderEvidenceEvent,
@@ -28,19 +25,24 @@ import type {
   TurnStop,
   TurnTokens,
 } from '../kernel/types.ts';
+import type { ResolvedObservabilityPolicy } from '../observability/types.ts';
 
 /** Guardrails visible to UI — egress enforcer functions are omitted. */
 export type ProfileGuardrailsView = Pick<
-  ProfileGuardrailsSpec,
+  ResolvedGuardrailPolicy,
   'quota' | 'canary' | 'sanitizeInput' | 'redactSensitive'
 > & {
   hasEgress: boolean;
 };
 
-/** `profile.model` with normalized `select` / `controls`. */
-export type NormalizeModel<M extends ProfileModelSpec = ProfileModelSpec> = M & {
-  select: Record<string, ModelId> | null;
-  controls: ControlId[];
+/** Observability visible to UI — TraceSink / onWriteError functions are omitted. */
+export type ProfileObservabilityView = Pick<
+  ResolvedObservabilityPolicy,
+  'record' | 'sampleRate' | 'include' | 'scrub' | 'retainForDays' | 'rotateAfterMiB'
+> & {
+  /** false | registered id | 'custom' when writeTo is an inline TraceSink. */
+  writeTo: false | string | 'custom' | undefined;
+  hasOnWriteError: boolean;
 };
 
 /** Resolved `inputs` — `ProfileInputsSpec` plus `acceptAttr` for file pickers. */
@@ -55,47 +57,54 @@ export interface ProfileInputsInterface {
   slots?: Record<string, string[]>;
 }
 
-/** `profile.tools` plus resolved registry entries. */
+/** `profile.tools` plus resolved registry entries (turn profiles). */
 export type ResolvedTools = ProfileToolsSpec & {
   resolved: Array<RegisteredTool | { name: ToolId; missing: true }>;
 };
 
-export type NormalizedModel = NormalizeModel;
+/** Live `profile.tools` — allowlist only, plus resolved registry entries. */
+export type LiveResolvedTools = LiveProfileToolsSpec & {
+  resolved: Array<RegisteredTool | { name: ToolId; missing: true }>;
+};
 
 export type TextProfileInterface = Omit<
   TextProfile,
-  'inputs' | 'tools' | 'guardrails' | 'model'
+  'inputs' | 'tools' | 'guardrails' | 'observability'
 > & {
-  model: NormalizeModel<TextProfile['model']>;
   inputs: ProfileInputsInterface;
   tools: ResolvedTools;
   guardrails?: ProfileGuardrailsView;
+  observability?: ProfileObservabilityView;
+  /** Always true — composer turns cancel via `TurnRequest.signal`. */
+  canStop: true;
+  /** From `turnBehaviour.allowSteering` (default true on text). */
+  allowSteering: boolean;
 };
 
 export type ImageProfileInterface = Omit<
   ImageProfile,
-  'inputs' | 'tools' | 'guardrails' | 'model'
+  'inputs' | 'tools' | 'guardrails' | 'observability'
 > & {
-  model: NormalizeModel<ImageProfile['model']>;
   inputs: ProfileInputsInterface;
   tools: ResolvedTools;
   guardrails?: ProfileGuardrailsView;
+  observability?: ProfileObservabilityView;
+  /** Always true — composer turns cancel via `TurnRequest.signal`. */
+  canStop: true;
 };
 
-export type SpeechProfileInterface = Omit<SpeechProfile, 'guardrails' | 'model'> & {
-  model: NormalizeModel<SpeechProfile['model']>;
+export type SpeechProfileInterface = Omit<SpeechProfile, 'guardrails' | 'observability'> & {
   inputs: ProfileInputsInterface;
   guardrails?: ProfileGuardrailsView;
+  observability?: ProfileObservabilityView;
+  /** Always true — composer turns cancel via `TurnRequest.signal`. */
+  canStop: true;
 };
 
-export type LiveProfileInterface = Omit<
-  LiveProfile,
-  'inputs' | 'tools' | 'model' | 'guardrails'
-> & {
-  model: NormalizeModel<LiveProfile['model']>;
-  inputs: ProfileInputsInterface;
-  tools: ResolvedTools;
+export type LiveProfileInterface = Omit<LiveProfile, 'tools' | 'guardrails' | 'observability'> & {
+  tools: LiveResolvedTools;
   guardrails?: ProfileGuardrailsView;
+  observability?: ProfileObservabilityView;
 };
 
 export type ProfileInterface =
@@ -103,6 +112,9 @@ export type ProfileInterface =
   | ImageProfileInterface
   | SpeechProfileInterface
   | LiveProfileInterface;
+
+/** Turn/chat composer profiles — excludes live (realtime streams, no turn inputs block). */
+export type ComposerProfileInterface = Exclude<ProfileInterface, LiveProfileInterface>;
 
 export type ProfileInterfaceSource = Profile | ProjectedProfile;
 
@@ -135,6 +147,8 @@ export interface UserAttachmentBlock extends TranscriptBlockBase {
   name: string;
   mimeType: string;
   sizeBytes: number;
+  /** Optional base64 payload for inline image/audio preview in the host UI. */
+  data?: string;
 }
 
 export interface ThoughtBlock extends TranscriptBlockBase {
@@ -160,7 +174,16 @@ export interface StructuredBlock extends TranscriptBlockBase {
 export interface MediaBlock extends TranscriptBlockBase {
   kind: 'media';
   mimeType: string;
-  data: string;
+  /**
+   * Base64 payload for model-generated or attached media.
+   * Absent when `url` is set (tool-result URL promotion).
+   */
+  data?: string;
+  /**
+   * Remote http(s) URL promoted from completed tool output.
+   * Absent when `data` is set (kernel `media` events).
+   */
+  url?: string;
 }
 
 export interface GroundingBlock extends TranscriptBlockBase {
@@ -203,6 +226,8 @@ export interface PendingAttachment {
   name: string;
   mimeType: string;
   sizeBytes: number;
+  /** Optional base64 payload copied onto the transcript block for UI preview. */
+  data?: string;
 }
 
 export type AttachmentValidationCode =
@@ -210,11 +235,26 @@ export type AttachmentValidationCode =
   | 'too_many_files'
   | 'file_too_large'
   | 'turn_too_large'
+  | 'attachments_not_accepted'
+  | 'voice_not_accepted'
   | 'limits_unconfigured';
+
+/**
+ * Structured parameters for rendering one validation issue. The headless
+ * interface emits codes + params only; English lives in the lexicon defaults
+ * and is rendered by the host UI layer (e.g. `@theorum/react`).
+ */
+export interface AttachmentValidationParams {
+  maxFiles?: number;
+  maxBytes?: number;
+  maxTurnBytes?: number;
+  mimeType?: string;
+  channel?: 'attachment' | 'voice';
+}
 
 export interface AttachmentValidationIssue {
   code: AttachmentValidationCode;
-  message: string;
+  params?: AttachmentValidationParams;
   fileName?: string;
 }
 

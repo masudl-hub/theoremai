@@ -7,7 +7,7 @@ import { registerProfile } from '../../src/kernel/registry/profiles.ts';
 import { projectProfile, resolveTurn } from '../../src/kernel/registry/resolve.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
 import { camelToSnake, toInteractionsBody } from '../../src/providers/google/interactions/mod.ts';
-import { CHAT_MEDIA_LIMITS, geminiModel, HOST_MODELS } from '../fixtures/models.ts';
+import { CHAT_MEDIA_LIMITS, geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 
 async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
   const out: TurnEvent[] = [];
@@ -139,10 +139,7 @@ Deno.test('interactions body requests text and image when includeText is set', (
     id: 'image_with_text',
     type: 'image',
     identity: { handle: 'image_with_text' },
-    model: {
-      ...geminiModel('gemini31FlashLiteImage'),
-      thinking: 'minimal',
-    },
+    ...geminiModels('gemini31FlashLiteImage'),
     image: {
       aspectRatio: '1:1',
       size: '1K',
@@ -184,9 +181,10 @@ Deno.test('image runTurn yields media then done', async () => {
   const events = await collect(runTurn({ profile: 'image', input: { text: 'fox' } }, fake));
   assertEquals(
     events.map((e) => e.type),
-    ['text', 'media', 'tokens', 'done'],
+    ['stage', 'text', 'media', 'stage', 'tokens', 'done', 'stage'],
   );
-  assertEquals(events[1]?.media?.mimeType, 'image/jpeg');
+  const media = events.find((e) => e.type === 'media');
+  assertEquals(media?.media?.mimeType, 'image/jpeg');
 });
 
 Deno.test('chat profile does not attach image response format', () => {
@@ -202,7 +200,7 @@ Deno.test('image projection exposes image pins not tools', () => {
   assertEquals(ui.image?.mimeType, 'image/jpeg');
   assertEquals(ui.image?.size, '1K');
   assertEquals(ui.image?.maxInputImages, 14);
-  assertEquals(ui.model.controls, []);
+  assertEquals(ui.models.gemini31FlashLiteImage.summaries, false);
 });
 
 Deno.test('media validations allow omitted aspect/size; reject structured mixing and invalid mime', async () => {
@@ -214,10 +212,7 @@ Deno.test('media validations allow omitted aspect/size; reject structured mixing
       id: 'image_defaults_profile',
       type: 'image',
       identity: { handle: 'image_defaults_profile' },
-      model: {
-        ...geminiModel('gemini31FlashLiteImage'),
-        thinking: 'minimal',
-      },
+      ...geminiModels('gemini31FlashLiteImage'),
       image: { mimeType: 'image/jpeg' },
       tools: { allow: [] },
       inputs: { text: true },
@@ -243,10 +238,7 @@ Deno.test('media validations allow omitted aspect/size; reject structured mixing
       id: 'mixed_media_profile',
       type: 'image',
       identity: { handle: 'mixed_media_profile' },
-      model: {
-        ...geminiModel('gemini31FlashLiteImage'),
-        thinking: 'minimal',
-      },
+      ...geminiModels('gemini31FlashLiteImage'),
       image: { aspectRatio: '1:1', size: '1K', mimeType: 'image/jpeg' },
       tools: { allow: [] },
       inputs: { text: true },
@@ -267,10 +259,7 @@ Deno.test('media validations allow omitted aspect/size; reject structured mixing
       id: 'image_with_prompt_schema',
       type: 'image',
       identity: { handle: 'image_with_prompt_schema' },
-      model: {
-        ...geminiModel('gemini31FlashLiteImage'),
-        thinking: 'minimal',
-      },
+      ...geminiModels('gemini31FlashLiteImage'),
       image: { aspectRatio: '1:1', size: '1K', mimeType: 'image/jpeg' },
       tools: { allow: [] },
       inputs: { text: true },
@@ -293,19 +282,13 @@ Deno.test('media validations allow omitted aspect/size; reject structured mixing
       id: 'image_with_code_exec',
       type: 'image',
       identity: { handle: 'image_with_code_exec' },
-      model: {
-        key: 'slotA',
-        protocol: 'geminiInteractions',
-        provider: 'google',
-        thinking: 'minimal',
-        allow: ['gemini31FlashLiteImage'],
-        config: {
-          gemini31FlashLiteImage: {
-            ...HOST_MODELS.gemini31FlashLiteImage,
-            builtInTools: ['codeExecution'],
-          },
+      models: {
+        gemini31FlashLiteImage: {
+          ...HOST_BINDINGS.gemini31FlashLiteImage,
+          builtInTools: ['codeExecution'],
         },
       },
+      key: 'slotA',
       image: {
         aspectRatio: '1:1',
         size: '1K',
@@ -330,19 +313,13 @@ Deno.test('media validations allow omitted aspect/size; reject structured mixing
       id: 'image_with_search',
       type: 'image',
       identity: { handle: 'image_with_search' },
-      model: {
-        key: 'slotA',
-        protocol: 'geminiInteractions',
-        provider: 'google',
-        thinking: 'minimal',
-        allow: ['gemini31FlashLiteImage'],
-        config: {
-          gemini31FlashLiteImage: {
-            ...HOST_MODELS.gemini31FlashLiteImage,
-            builtInTools: ['googleSearch'],
-          },
+      models: {
+        gemini31FlashLiteImage: {
+          ...HOST_BINDINGS.gemini31FlashLiteImage,
+          builtInTools: ['googleSearch'],
         },
       },
+      key: 'slotA',
       image: {
         aspectRatio: '1:1',
         size: '1K',
@@ -368,11 +345,7 @@ Deno.test('speech profiles use top-level speech pins', () => {
     id: 'speech_output_test',
     type: 'speech',
     identity: { handle: 'speech_output_test' },
-    model: {
-      ...geminiModel('gemini31FlashTts'),
-      thinking: 'minimal',
-      key: 'slotA',
-    },
+    ...geminiModels('gemini31FlashTts'),
     speech: { voice: 'Kore', format: 'pcm' },
     guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
   });

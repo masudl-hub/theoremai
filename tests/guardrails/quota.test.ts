@@ -1,7 +1,7 @@
 import '../fixtures/test-host.ts';
 import {
   clientIp,
-  quotaMessage,
+  quotaExhausted,
   releaseSlot,
   resetSlots,
   skipQuota,
@@ -9,7 +9,7 @@ import {
 } from '../../src/guardrails/quota.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile, getProfile } from '../../src/kernel/registry/profiles.ts';
-import { geminiModel } from '../fixtures/models.ts';
+import { geminiModels } from '../fixtures/models.ts';
 
 const now = Date.parse('2026-08-16T12:00:00Z');
 const ip = '203.0.113.10';
@@ -74,7 +74,7 @@ Deno.test('takeSlot returns not_configured when profile omits quota', () => {
     tools: { allow: [] },
     inputs: { text: true },
     id: 'unmetered',
-    model: { ...geminiModel('gemini35FlashLite') },
+    ...geminiModels('gemini35FlashLite'),
   });
 
   assertEquals(takeSlot(profile, ip, now), 'not_configured');
@@ -97,8 +97,41 @@ Deno.test('profile quotas do not share a bucket', () => {
   releaseSlot(chatProfile, ip);
 });
 
-Deno.test('quotaMessage names the profile handle', () => {
-  assertEquals(quotaMessage(getProfile('image')), "Enjoying image? You've reached today's limit");
+Deno.test('quotaExhausted returns structured data with no kernel English', () => {
+  const image = getProfile('image');
+  assertEquals(quotaExhausted(image), {
+    code: 'quota_exhausted',
+    perDay: 4,
+  });
+});
+
+Deno.test('quotaExhausted includes host message only when set on the profile', () => {
+  const profile = defineProfile({
+    type: 'text',
+    identity: { handle: 'metered', system: 'test' },
+    tools: { allow: [] },
+    inputs: { text: true },
+    id: 'quota-with-message',
+    guardrails: { quota: { perDay: 2, message: 'Host copy: daily limit reached' } },
+    ...geminiModels('gemini35FlashLite'),
+  });
+  assertEquals(quotaExhausted(profile), {
+    code: 'quota_exhausted',
+    perDay: 2,
+    message: 'Host copy: daily limit reached',
+  });
+});
+
+Deno.test('quotaExhausted is undefined when the profile omits quota', () => {
+  const profile = defineProfile({
+    type: 'text',
+    identity: { handle: 'test', system: 'test' },
+    tools: { allow: [] },
+    inputs: { text: true },
+    id: 'quota-absent',
+    ...geminiModels('gemini35FlashLite'),
+  });
+  assertEquals(quotaExhausted(profile), undefined);
 });
 
 Deno.test('takeSlot resets count on a new UTC day', () => {

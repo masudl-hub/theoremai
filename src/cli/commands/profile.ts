@@ -1,9 +1,12 @@
 import { getProfile, listProfiles } from '../../kernel/registry/profiles.ts';
-import type { Profile } from '../../kernel/types.ts';
+import type { ModelProfile, Profile } from '../../kernel/types.ts';
 
-function formatProfileInputs(p: Profile): string {
+function formatProfileInputs(p: ModelProfile): string {
   if (p.type === 'speech') {
     return 'text (speech)';
+  }
+  if (p.type === 'live') {
+    return 'audio/video (live)';
   }
   const inputs: string[] = [];
   const { inputs: spec } = p;
@@ -27,8 +30,14 @@ function formatProfileTools(p: Profile): string {
 
 function printProfileCard(p: Profile): void {
   const tools = formatProfileTools(p);
-  const models = p.model.allow?.join(', ') || 'default';
-  const structured = p.outputs?.structured;
+  if (p.type === 'host') {
+    console.log(` • Profile: ${p.id.padEnd(16)} [host]`);
+    console.log(`   - Tools:      ${tools}`);
+    console.log('-'.repeat(70));
+    return;
+  }
+  const models = Object.keys(p.models).join(', ') || 'default';
+  const structured = p.type === 'live' || p.type === 'speech' ? undefined : p.outputs?.structured;
   const structuredLabel =
     typeof structured === 'string' ? structured : structured ? 'custom' : 'none';
 
@@ -37,7 +46,7 @@ function printProfileCard(p: Profile): void {
   console.log(`   - Inputs:     ${formatProfileInputs(p)}`);
   console.log(`   - Tools:      ${tools}`);
   console.log(`   - Structured: ${structuredLabel}`);
-  console.log(`   - Key Slot: ${p.model.key ?? '(unset)'}`);
+  console.log(`   - Key Slot: ${p.key ?? '(unset)'}`);
   console.log('-'.repeat(70));
 }
 

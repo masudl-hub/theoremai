@@ -23,4 +23,5 @@ export {
   readMessageData,
   type SessionQueueItem,
   sendInitialPayloads,
+  turnPhaseFromMessage,
 } from './stream.ts';

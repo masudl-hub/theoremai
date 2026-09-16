@@ -51,8 +51,9 @@ Owns every module under `src/providers/`.
 | No `.env` in repo | Hosts pass credentials explicitly |
 | No ambient env reads | `OLLAMA_HOST` resolved by host → `local.baseUrl` |
 | No key templates | Business apps own secret storage |
-| Traces | Host-injected on `runTurn`, not here |
+| Traces | Profile `observability` + optional `runTurn` sink override; not here |
 | Pairs | `PROTOCOL_PROVIDERS` / `isValidPair` in `src/kernel/schema.ts` — `createProvider` does not invent extra routes |
+| Multi-model | `profile.models` map + optional `defaultModel`; adapter selection uses one binding per call |
 
 ## createProvider
 
@@ -60,15 +61,20 @@ Owns every module under `src/providers/`.
 const provider = createProvider(profile, {
   gemini: { vault: { slotA, slotB, slotC, paid }, fetch? },
   openAiGateway: {
-    // Prefer the same KEY_SLOTS vault as Google when profiles pin model.key:
+    // Prefer the same KEY_SLOTS vault as Google when profiles pin models.*.key:
     vault: { slotA, slotB, slotC, paid },
-    // Or a single flat key when the profile omits model.key:
+    // Or a single flat key when the profile omits per-model keys:
     apiKey?,
     baseUrl?, siteUrl?, siteName?, fetch?, voice?,
   },
   local: { baseUrl?, fetch? },
-})
+}, modelId?)
 ```
+
+`createProvider` reads the selected **`ModelBinding`** from `profile.models`
+(`protocol` / `provider` on that binding). When a profile declares multiple
+models, pass optional `modelId` (defaults to `profile.defaultModel`, or the sole
+model key when only one is declared).
 
 Legal pairs are `PROTOCOL_PROVIDERS` in `src/kernel/schema.ts` (`isValidPair`).
 Routing table:
@@ -86,6 +92,21 @@ Errors:
 
 OpenRouter Vercel AI SDK loads **only** on first `complete` for `openAi` +
 `openrouter` chat. Google and local never import it.
+
+Media part support by transport (`InteractionPart` — see `docs/contracts/kernel.md`).
+The accepted MIME vocabulary is one table for every transport
+(`MEDIA_INPUT_KINDS`); no adapter keeps a second list. Google Interactions and
+Live take the whole table. The OpenAI-compat adapters map every
+`MediaInputKind` to a wire part and forward the MIME verbatim, so their set is
+open-ended. The only per-adapter refusal is the reference part, raised as a
+`TheorumError` at request time:
+
+| Transport | Inline `InteractionMediaPart` (`data`) | Reference `InteractionMediaRefPart` (`uri`) |
+| --- | --- | --- |
+| Google Interactions | `{ type, mime_type, data }` | `{ type, mime_type, uri }` — Files API reference, wired by `wireInteractionPart` |
+| Gemini Live (`runSession`) | `inlineData` in client-content history and realtime input | **rejected** — `TheorumError('media references are not supported on geminiLive')` |
+| OpenRouter / local (`openAi`, REST payload) | `image_url` / `input_audio` / `file` data URLs | **rejected** — `TheorumError('media references are not supported on openAi')` |
+| OpenRouter (`openAi`, AI SDK messages) | `image` / `file` data URLs | **rejected** — same error, including tool-result parts |
 
 ## OpenRouter
 
@@ -107,10 +128,18 @@ Chat and speech requests use `ProviderCompleteRequest.apiId` on the wire — sam
 field as Google Interactions and local OpenAI-compat paths.
 
 `toOpenAiChatPayload` maps `ProviderCompleteRequest` → OpenAI chat-completions
-body (messages, tools, structured output, thinking / `reasoning.effort`).
+body (messages, tools, structured output). `reasoning.effort` is set only when
+`thinking` is present and not `'none'`. When `cache.mode` is `automatic`, the
+payload includes top-level `cache_control`; when `system`, the system message
+content block carries `cache_control`. Optional `sessionId` becomes `session_id`.
 
 `createOpenRouterProvider(config)` (internal) streams normalized `TurnEvent`s;
-terminal `done.stop` via `turnStopFromOpenAiFinishReason`.
+terminal `done.stop` via `turnStopFromOpenAiFinishReason`. Cache policy is applied
+via AI SDK `providerOptions.openrouter` (`cacheControl` / `session_id`) — the same
+`cacheControlFromSpec` / `cacheControlJson` helpers as the REST payload path
+(`src/providers/openrouter/cache-control.ts`). Token events may include
+`cached` / `cacheWrite` from AI SDK usage details or raw `usage` chunks
+(OpenRouter image turns use the same `extractUsageTokens` parser).
 
 ## Google Interactions
 
@@ -118,13 +147,14 @@ terminal `done.stop` via `turnStopFromOpenAiFinishReason`.
 
 | Concern | Behavior |
 | --- | --- |
-| History | `user_input` / `model_output` steps |
-| Multimodal | `image` / `audio` / `video` / `document` parts |
+| History | `user_input` / `model_output` steps; OpenAI-shaped `assistant.tool_calls` → `function_call` (not empty text); `tool` → `function_result` |
+| Multimodal | `image` / `audio` / `video` / `document` parts, inline (`data`) or by Files API reference (`uri` → `{ type, uri, mime_type }`) |
 | Structured | `responseFormat` JSON schema when enforced. When structured is requested and model text is not valid JSON, providers emit an `error` event (never silently skip). |
 | Output modes | responseFormat JSON schema, image, and speech are mutually exclusive; prompt-enforced structured schemas and free text are not. Image profiles may opt into interleaved text via `image.includeText`. |
 | Tools | Registry builtins (`wire.interactions`) + function schemas from `generation.tools.wire`. When `googleMaps` is enabled and `TurnRequest.googleMapsLocation` is set, Interactions receives `tools: [{ type: "google_maps", latitude, longitude }]`. |
 | Code execution | Builtin `codeExecution` → `{ type: "code_execution" }`. Streamed `step.start` / `step.delta` / `step.stop`, `interaction.status_update` (`requires_action` for host tools), and batched `interaction.steps` become `evidence` (`kind`, `code`, `result`, `isError`, `raw`) plus `media` for sandbox images. Search/maps/`url_context` steps in `steps[]` are also `evidence`. Structured `responseFormat` is still attached when both are requested. |
 | Stream vs batch | Default SSE (`outputs.streaming.mode: 'sse'` or omitted). `'buffered'` POSTs JSON and yields the same `TurnEvent` types from `steps[]`. |
+| Thinking | `thinkingLevel` / `thinkingSummaries` are attached only when the resolved request sets `thinking` / `summaries` (omitted when unset). |
 | Grounding | Classic `grounding_metadata` **and** Interactions `google_search_result` / `google_maps_result` tool payloads (`search_suggestions` chips, `result[].places[]`, `place_citation` annotations). Emits `grounding` with normalized `sources` **and** classic `chunks[].maps` (`title` / `uri` / `placeId`) plus `evidence` with the raw tool payload so hosts can decide what to surface. |
 | Stop | `turnStopFromInteractionStatus` on terminal status |
 
@@ -135,8 +165,13 @@ Live profiles use **`runSession`**, not `createProvider` / `ModelProvider.comple
 `runSession(req, { gemini, openWebSocket? })` opens a long-lived Gemini Live
 WebSocket (`BidiGenerateContent`), applies inbound text prep and the live outbound
 gate (canary + egress) at each conversational `turnComplete`, and returns a
-`LiveSession` (`sendAudio` / `sendVideo` / `sendText` / `sendToolResponse` /
-`sendToolResponses` / `events` / `close`).
+`LiveSession` (`sendAudio` / `sendVideo` / `sendText` / `executeTool` /
+`sendToolResponse` / `sendToolResponses` / `events` / `close`).
+
+Registry tools should go through **`executeTool`** so live stages (`pre_tool` /
+`post_tool`), permission/auth gates, deny resume (`resume.granted: false`), and
+upstream tool responses stay on the session path. `sendToolResponse(s)` remain an
+escape hatch for non-registry relays that skip session stages — not for UI deny.
 
 `createProvider` **rejects** `geminiLive` — there is no turn-scoped live `complete()` adapter.
 
@@ -145,13 +180,15 @@ gate (canary + egress) at each conversational `turnComplete`, and returns a
 | Door | `runSession` (shares resolve / tools / canary / system compose with `runTurn`) |
 | Transport | `openGoogleLiveSession` — WebSocket; optional `openWebSocket` for Cloudflare fetch-upgrade |
 | Handshake | `BidiGenerateContentSetup` via `buildGeminiLiveSetupMessage` |
-| Turn boundary | Gemini `turnComplete` → outbound gate finalize + `done` (`stop.kind: 'completed'`); **session stays open** |
+| Turn boundary | Gemini `interactionStatus: IDLE` when the server sends it, else `turnComplete` → outbound gate finalize + cycle `done` (`stop.kind: 'completed'` when no folded done) + `before_end` / `post_turn`; **session stays open**. `interactionStatus: IN_PROGRESS` keeps the cycle open across `turnComplete` — background reasoning / async tool calls may still emit audio or tool calls |
 | Generation boundary | Gemini `generationComplete` → `done` (`stop.kind: 'generation_complete'`) without tearing down the session |
-| Tools | Host executes and replies via `sendToolResponse(s)`; cancellations → `tool.phase: 'cancel'` |
+| Tools | Every live function declaration is wired `behavior: NON_BLOCKING` (kernel tool execution is already async and honours `toolCallCancellation`). Prefer `executeTool` (stages + gate/deny resume + upstream). Escape hatch: host replies via `sendToolResponse(s)` for non-registry pre-fail only; cancellations → `tool.phase: 'cancel'`. Every id in profile `tools.allow` + `builtInTools` is wired in `BidiGenerateContentSetup` regardless of `loadTier` (declarations cannot change mid-session) — no `t1Policy` / `t2Loader`, no structured output, no turn `inputs` / `outputs`. |
+| Ingress | `live.ingress` gates `sendAudio` / `sendVideo` / `sendText`. Defaults: audio **on**, camera (video channel) **on**, text **off** unless `live.ingress.text: true`. At least one channel must stay enabled. |
 | Transcription | Mid-turn `evidence` with `kind: 'input_transcription'` / `output_transcription` (optional `interim`); **not** held for egress — streams immediately |
-| Session control | `goAway` → `session.kind: 'closing_soon'`; `waitingForInput` → `waiting_for_input` |
+| Session control | `goAway` → `session.kind: 'closing_soon'`; `waitingForInput` → `waiting_for_input`; `turnComplete` → `turn_complete`; `interactionStatus` → `working` / `idle` |
 | Resumption | `sessionResumptionHandle` on `SessionRequest`; updates as `evidence.kind: 'session_resumption'` with `resumable` |
-| Host wire tools | Optional `SessionRequest.wireTools` replaces profile wire declarations for the session |
+| Remote registry | `SessionRequest.snapshot` (a `TurnToolSnapshot` from `prepareTurnToolSnapshot` in the registry-owning process) supplies the setup declarations when the session runs where the registry is not registered; ids outside `tools.allow` are refused |
+| Media references | Client-content history and realtime input reject `InteractionMediaRefPart` (`TheorumError`) until provider support is verified |
 
 ### Live fold → `TurnEvent` (exhaustive)
 
@@ -170,7 +207,8 @@ gate (canary + egress) at each conversational `turnComplete`, and returns a
 | `groundingMetadata` | `grounding` |
 | `usageMetadata` | `tokens` |
 | `setupComplete` | handshake only (not a TurnEvent) |
-| `turnComplete` | stream phase → `runSession` emits `done` + `completed` |
+| `turnComplete` | `session` + `kind: 'turn_complete'`; stream phase `complete` only when no `IN_PROGRESS` status accompanies it |
+| `interactionStatus` | `session` + `kind: 'working'` (`IN_PROGRESS`) or `'idle'` (`IDLE`); `IDLE` is the stream-phase boundary → `runSession` emits `done` + `completed` |
 
 Framing helpers remain in `google/live/framing.ts` for hosts that only need setup JSON.
 
@@ -192,7 +230,8 @@ local: {
 - Raw `fetch` + `sse.ts` — no SDK.
 - Accumulates streaming tool calls; maps `finish_reason` through
   `turnStopFromOpenAiFinishReason`.
-- Supports multimodal user content when the server accepts OpenAI-style parts.
+- Supports multimodal user content when the server accepts OpenAI-style parts;
+  media reference parts (`uri`) are rejected with `TheorumError`.
 
 ## Image roles
 
@@ -237,9 +276,10 @@ event with `phase: 'error'` / `failure.code: 'malformed_arguments'`, or a thrown
 
 ## Key vault (provider-neutral)
 
-`KEY_SLOTS` = `slotA` | `slotB` | `slotC` | `paid`. Profiles pin `model.key` to an
-overflow slot (`OVERFLOW_KEY_SLOTS` = A/B/C). Resolve puts the chosen id on
-`ResolvedGeneration.keySlot` / `ProviderCompleteRequest.keySlot`.
+`KEY_SLOTS` = `slotA` | `slotB` | `slotC` | `paid`. Profiles pin `models.*.key`
+(or profile-level `key`) to an overflow slot (`OVERFLOW_KEY_SLOTS` = A/B/C).
+Resolve puts the chosen id on `ResolvedGeneration.keySlot` /
+`ProviderCompleteRequest.keySlot`.
 
 | Host option | How credentials are chosen |
 | --- | --- |
@@ -260,7 +300,7 @@ createProvider(profile, {
 | `GeminiTransport` | Google vault + optional `fetch` |
 | `KeyVault` | `Record<KeySlot, string \| undefined>` shared with OpenRouter |
 | Slots | `slotA`, `slotB`, `slotC`, `paid` |
-| Selection | `model.key` / `ModelSpec.key` / `builtInTools` (`forcePaidKey`) |
+| Selection | `models.*.key` / `ModelBinding.key` / `builtInTools` (`forcePaidKey`) |
 
 Overflow to `paid` is host policy, not inferred here.
 

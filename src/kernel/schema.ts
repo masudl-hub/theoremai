@@ -8,10 +8,14 @@
  * @module
  */
 
+/** lexicon-exempt-file: authoring field-meta / closed unions — not runtime user or model copy (P2) */
+import { EGRESS_ON_BLOCK, type EgressOnBlock } from '../guardrails/types.ts';
 import { GOOGLE_SPEECH_VOICES } from '../presets/google/speech-voices.ts';
 
+export { EGRESS_ON_BLOCK, type EgressOnBlock };
+
 /** Primary profile archetype. Discriminated union key for `ProfileDefinition` and `Profile`. */
-export const PROFILE_TYPES = ['text', 'image', 'speech', 'live'] as const;
+export const PROFILE_TYPES = ['text', 'image', 'speech', 'live', 'host'] as const;
 export type ProfileType = (typeof PROFILE_TYPES)[number];
 
 /** Model reasoning effort level normalized across provider adapters. */
@@ -46,13 +50,15 @@ export const PROTOCOL_PROVIDERS = {
 
 /**
  * Legal wire protocols for each profile archetype.
- * 'live' profiles require 'geminiLive'; turn-based archetypes require turn protocols.
+ * 'live' profiles require 'geminiLive'; turn-based archetypes require turn protocols;
+ * 'host' never runs a model and binds no protocol.
  */
 export const PROFILE_TYPE_PROTOCOLS = {
   text: ['geminiInteractions', 'openAi'],
   image: ['geminiInteractions', 'openAi'],
   speech: ['geminiInteractions', 'openAi'],
   live: ['geminiLive'],
+  host: [],
 } as const satisfies Record<ProfileType, readonly Protocol[]>;
 
 export type ProfileTypeProtocol<T extends ProfileType> = (typeof PROFILE_TYPE_PROTOCOLS)[T][number];
@@ -82,9 +88,6 @@ export type OverflowKeySlot = (typeof OVERFLOW_KEY_SLOTS)[number];
 export type KeyVault = Record<KeySlot, string | undefined>;
 
 /** Profile-level control a caller may toggle at turn time. */
-export const CONTROL_IDS = ['thinking'] as const;
-export type ControlId = (typeof CONTROL_IDS)[number];
-
 /** Normalized multimodal part category. */
 export const MEDIA_INPUT_KIND_VALUES = ['image', 'audio', 'video', 'document'] as const;
 export type MediaInputKind = (typeof MEDIA_INPUT_KIND_VALUES)[number];
@@ -100,6 +103,28 @@ export type StreamMode = (typeof STREAM_MODES)[number];
 /** Audio container for speech generation output. */
 export const SPEECH_AUDIO_FORMATS = ['pcm', 'mp3'] as const;
 export type SpeechAudioFormat = (typeof SPEECH_AUDIO_FORMATS)[number];
+
+/** Speech `format` values legal for a wire protocol (`assertSpeechRole` / UI). */
+export function speechFormatsForProtocol(protocol: Protocol): readonly SpeechAudioFormat[] {
+  return protocol === 'openAi' ? SPEECH_AUDIO_FORMATS : ['pcm'];
+}
+
+export function isSpeechFormatAllowedForProtocol(
+  protocol: Protocol,
+  format: SpeechAudioFormat,
+): boolean {
+  return speechFormatsForProtocol(protocol).includes(format);
+}
+
+/** Snap an illegal or omitted format to the first legal value for the protocol. */
+export function coerceSpeechFormat(
+  protocol: Protocol,
+  format: SpeechAudioFormat | undefined,
+): SpeechAudioFormat {
+  const allowed = speechFormatsForProtocol(protocol);
+  if (format && allowed.includes(format)) return format;
+  return allowed[0];
+}
 
 /** Live session activity handling (barge-in behavior). */
 export const LIVE_ACTIVITY_HANDLINGS = ['START_OF_ACTIVITY_INTERRUPTS', 'NO_INTERRUPTION'] as const;
@@ -130,15 +155,29 @@ export type CompactionMeter = (typeof COMPACTION_METERS)[number];
 export const COMPACTION_TIMINGS = ['before', 'after'] as const;
 export type CompactionTiming = (typeof COMPACTION_TIMINGS)[number];
 
-/** Egress block handling. */
-export const EGRESS_ON_BLOCK = ['reject_to_agent', 'refuse_to_user'] as const;
-export type EgressOnBlock = (typeof EGRESS_ON_BLOCK)[number];
+/** OpenRouter prompt-cache mode (models.*.cache.mode). */
+export const CACHE_MODES = ['automatic', 'system'] as const;
+export type CacheMode = (typeof CACHE_MODES)[number];
+
+/** OpenRouter ephemeral cache TTL (models.*.cache.ttl). */
+export const CACHE_TTLS = ['5m', '1h'] as const;
+export type CacheTtl = (typeof CACHE_TTLS)[number];
 
 /** Why a turn ended (provider-neutral). */
 export const TURN_STOP_KINDS = [
   'completed',
   'length',
+  /**
+   * @deprecated Shipping pause fiction (`tool.phase: 'pause'`). Target: use `gate`
+   * for confirm/permission/auth suspension; awaiting is a completed tool result.
+   * Removed when stages slices release.
+   */
   'tool',
+  /**
+   * Honest suspension: `pre_tool` confirm / permission / auth blocked the body.
+   * Host resumes via invokeTool/executeTool; not continueFrom.
+   */
+  'gate',
   'filtered',
   'provider_error',
   'cancelled',
@@ -149,12 +188,75 @@ export const TURN_STOP_KINDS = [
 ] as const;
 export type TurnStopKind = (typeof TURN_STOP_KINDS)[number];
 
+/**
+ * Stop kinds eligible for `continueFrom` / resumption allowlists.
+ * Excludes terminal-success, user abort, tool/gate suspension, filter, and live-only
+ * boundaries — those use other host paths (or are not resumeable).
+ */
+export const CONTINUE_STOP_KINDS = ['length', 'stream_incomplete', 'provider_error'] as const;
+export type ContinueStopKind = (typeof CONTINUE_STOP_KINDS)[number];
+
+/**
+ * Turn / utterance-cycle timeline stages (`docs/contracts/stages.md`).
+ * Replaces the former steer barriers (`pre_llm` / `pre_tool_followup`).
+ */
+export const TURN_STAGES = [
+  'pre_turn',
+  'pre_tool',
+  'post_tool',
+  'before_end',
+  'post_turn',
+] as const;
+export type TurnStage = (typeof TURN_STAGES)[number];
+
+const TURN_STAGE_SET = new Set<string>(TURN_STAGES);
+
+/** True when `value` is a known `TurnStage`. */
+export function isTurnStage(value: unknown): value is TurnStage {
+  return typeof value === 'string' && TURN_STAGE_SET.has(value);
+}
+
+/** Stages where inject is physically meaningful (still requires inject gate). */
+export const TURN_INJECT_STAGES = ['pre_turn', 'post_tool', 'before_end'] as const;
+export type TurnInjectStage = (typeof TURN_INJECT_STAGES)[number];
+
+const TURN_INJECT_STAGE_SET = new Set<string>(TURN_INJECT_STAGES);
+
+/** True when inject is physically meaningful at this stage (gate still required). */
+export function isTurnInjectStage(value: unknown): value is TurnInjectStage {
+  return typeof value === 'string' && TURN_INJECT_STAGE_SET.has(value);
+}
+
+/** `pre_tool` gate kinds — confirm-to-run / permission / auth. Not awaiting. */
+export const TOOL_GATE_KINDS = ['confirmation', 'permission', 'auth'] as const;
+export type ToolGateKind = (typeof TOOL_GATE_KINDS)[number];
+
+const TOOL_GATE_KIND_SET = new Set<string>(TOOL_GATE_KINDS);
+
+/** True when `value` is a known tool-gate kind. */
+export function isToolGateKind(value: unknown): value is ToolGateKind {
+  return typeof value === 'string' && TOOL_GATE_KIND_SET.has(value);
+}
+/** `awaiting_user_input.kind` — harness ask_user / human-as-product completions. */
+export const AWAITING_USER_INPUT_KINDS = ['confirm', 'choice', 'text'] as const;
+export type AwaitingUserInputKind = (typeof AWAITING_USER_INPUT_KINDS)[number];
+
+/** Discriminator on tool output for awaiting completions. */
+export const AWAITING_USER_INPUT_STATUS = 'awaiting_user_input' as const;
 /** Per-tool visibility tier — enforced by the kernel at resolve time. */
 export const TOOL_LOAD_TIERS = ['T0', 'T1', 'T2'] as const;
 export type ToolLoadTier = (typeof TOOL_LOAD_TIERS)[number];
 
+/** HTTP verbs supported by declarative HTTP tools. */
+export const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
+export type HttpMethod = (typeof HTTP_METHODS)[number];
+
+/** When remote tool auth is missing or expired. */
+export const AUTH_UNAUTHENTICATED_POLICIES = ['pause', 'report_to_model'] as const;
+export type AuthUnauthenticatedPolicy = (typeof AUTH_UNAUTHENTICATED_POLICIES)[number];
+
 /** Registered tool discriminant (`registerTool`). */
-export const TOOL_TYPES = ['builtin', 'function'] as const;
+export const TOOL_TYPES = ['builtin', 'function', 'http', 'mcp'] as const;
 
 /** Semantic access level — host policy / UI; not enforced by execute. */
 export const TOOL_ACCESS = ['read-only', 'read-write', 'destructive'] as const;
@@ -164,7 +266,47 @@ export type ToolAccess = (typeof TOOL_ACCESS)[number];
 export const TOOL_PERMISSION = ['auto', 'session_consent', 'always_confirm'] as const;
 export type ToolPermission = (typeof TOOL_PERMISSION)[number];
 
-/** MIME essence → normalized media part category (shared ingress map). */
+/** Credential attachment modes for HTTP and MCP tools (`auth.type`). */
+export const TOOL_AUTH_TYPES = ['bearer', 'api_key', 'oauth2'] as const;
+export type ToolAuthType = (typeof TOOL_AUTH_TYPES)[number];
+
+/** Playground auth select — includes UI-only `none` (omits auth at compile time). */
+export const PLAYGROUND_AUTH_TYPES = ['none', ...TOOL_AUTH_TYPES] as const;
+export type PlaygroundAuthType = (typeof PLAYGROUND_AUTH_TYPES)[number];
+
+export type ToolType = (typeof TOOL_TYPES)[number];
+/** Custom registerTool discriminants (excludes provider builtins). */
+export type CustomToolType = Exclude<ToolType, 'builtin'>;
+
+/**
+ * MIME essence → normalized media part category.
+ *
+ * This table is the complete media-input vocabulary of the package: every MIME
+ * any supported transport may carry on a turn appears here exactly once, and
+ * nothing else is a media input type. `assertMediaMime` (`registry/ingress.ts`)
+ * refuses anything absent from it, so hosts declare what they accept in
+ * `inputs.attachments.accept` / `inputs.voice.accept` and keep no second table.
+ *
+ * Contents are the union of the documented provider input lists:
+ * - Google Interactions / Live (image, audio, video, document lists verified
+ *   2026-09-12) — the widest of the three and therefore the table's shape. The
+ *   document row is Google's document-understanding list in full: PDF, plain
+ *   text, HTML, CSS, Markdown (`text/md`), CSV, XML, RTF, JavaScript
+ *   (`text/javascript`, `application/x-javascript`) and Python
+ *   (`text/x-python`, `application/x-python`); `application/json` is an
+ *   established row alongside it. TypeScript, `application/xml` and
+ *   `application/rtf` are NOT on Google's list and are therefore not rows.
+ * - OpenRouter / OpenAI-compat (`providers/openrouter/openai/compat.ts`,
+ *   `sdk-messages.ts`): the adapters wire every `MediaInputKind` (image →
+ *   `image_url`/`image`, audio → `input_audio`, video and document → `file`)
+ *   and forward the part's MIME verbatim, so their accepted set is open-ended
+ *   and adds no rows. What they cannot carry — a `uri` reference part — is
+ *   refused at request time with `TheorumError`, not by a second MIME list.
+ *
+ * Alias essences that providers also emit (`image/jpg`, `video/mov`,
+ * `audio/x-wav`, `video/x-ms-wmv`, …) are rows here; `resolveInputParts`
+ * canonicalizes `image/jpg` to `image/jpeg` on the wire.
+ */
 export const MEDIA_INPUT_KINDS: Record<string, MediaInputKind> = {
   'image/png': 'image',
   'image/jpeg': 'image',
@@ -183,10 +325,17 @@ export const MEDIA_INPUT_KINDS: Record<string, MediaInputKind> = {
   'audio/webm': 'audio',
   'audio/mp4': 'audio',
   'audio/pcm': 'audio',
+  'audio/m4a': 'audio',
+  'audio/opus': 'audio',
+  'audio/l16': 'audio',
+  'audio/alaw': 'audio',
+  'audio/mulaw': 'audio',
   'video/mp4': 'video',
   'video/mpeg': 'video',
   'video/quicktime': 'video',
+  'video/mov': 'video',
   'video/x-msvideo': 'video',
+  'video/avi': 'video',
   'video/x-flv': 'video',
   'video/mpg': 'video',
   'video/webm': 'video',
@@ -197,7 +346,15 @@ export const MEDIA_INPUT_KINDS: Record<string, MediaInputKind> = {
   'text/plain': 'document',
   'text/csv': 'document',
   'text/markdown': 'document',
+  'text/md': 'document',
   'text/html': 'document',
+  'text/css': 'document',
+  'text/xml': 'document',
+  'text/rtf': 'document',
+  'text/javascript': 'document',
+  'application/x-javascript': 'document',
+  'text/x-python': 'document',
+  'application/x-python': 'document',
   'application/json': 'document',
 };
 
@@ -291,12 +448,11 @@ function field(
 
 /**
  * Parents whose next key is a host-owned map key (model id, slot name, …).
- * The annotator substitutes `*` so `model.config.flash.apiId` → `model.config.*.apiId`.
+ * The annotator substitutes `*` so `models.flash.apiId` → `models.*.apiId`.
  */
 export const DYNAMIC_FIELD_PARENTS: ReadonlySet<string> = new Set([
-  'model.config',
-  'model.select',
-  'model.thinking',
+  'models',
+  'models.*.efforts',
   'identity.systemByRole',
   'inputs.slots',
   'inputs.limitsByMime',
@@ -323,7 +479,10 @@ export function catalogPathFor(keys: readonly string[]): string {
  */
 export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   id: field('string', 'Host-owned profile identifier.'),
-  type: field("'text' | 'image' | 'speech' | 'live'", 'Required profile archetype.'),
+  type: field(
+    "'text' | 'image' | 'speech' | 'live' | 'host'",
+    'Required profile archetype. host = tool-execution ceiling for invokeTool; never runs a model.',
+  ),
   identity: field(
     '{ handle, system?, systemByRole? }',
     'Display handle and system instruction the model receives each turn.',
@@ -338,19 +497,24 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
     'string',
     'System instruction merged when this turn role is active.',
   ),
-  model: field('ProfileModelSpec', 'Protocol, provider, allowlist, wire config, and step bounds.'),
-  'model.protocol': field(
+  models: field(
+    'Record<ModelId, ModelBinding>',
+    'Host-named model bindings. Keys are model ids; each entry carries protocol, provider, and wire config.',
+  ),
+  'models.*': field('ModelBinding', 'Wire binding for one host-named model id.'),
+  'models.*.protocol': field(
     unionType(PROTOCOLS),
-    'Wire protocol. Pairs with provider via createProvider.',
+    'Wire protocol for this model. Must be valid for profile type.',
     PROTOCOLS,
     {
       geminiInteractions: 'Google Gemini Interactions wire protocol (Gemini 2.5 / 3+).',
+      geminiLive: 'Gemini Live bidirectional WebSocket protocol.',
       openAi: 'OpenAI-compatible chat completions and streaming protocol.',
     },
   ),
-  'model.provider': field(
+  'models.*.provider': field(
     unionType(PROVIDERS),
-    'Transport. Must form a legal pair with protocol.',
+    'Transport for this model. Must form a legal pair with protocol.',
     PROVIDERS,
     {
       google: 'Direct Google Gemini API transport.',
@@ -358,23 +522,14 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
       local: 'Local OpenAI-compatible server (Ollama, llama.cpp, vLLM).',
     },
   ),
-  'model.allow': field('ModelId[]', 'Ids this profile may select. Each id must exist in config.'),
-  'model.config': field(
-    'Record<ModelId, ModelSpec>',
-    'Host-owned wire config keyed by the same ids used in allow / select.',
+  'models.*.apiId': field('string', 'Provider wire model id.'),
+  'models.*.efforts': field(
+    'Record<string, ThinkingLevel>',
+    'Alias → thinking level. One entry = fixed; two+ may be selectable at turn time.',
   ),
-  'model.config.*': field(
-    'ModelSpec',
-    'Host-owned wire config for this model id (apiId, thinking, token limits, compaction).',
-  ),
-  'model.config.*.apiId': field('string', 'Provider wire model id.'),
-  'model.config.*.thinking': field(
-    '{ on, off }',
-    'Thinking levels used when a boolean thinking control is on or off.',
-  ),
-  'model.config.*.thinking.on': field(
+  'models.*.efforts.*': field(
     unionType(THINKING_LEVELS),
-    'Level when thinking is on.',
+    'Wire thinking level for this effort alias.',
     THINKING_LEVELS,
     {
       none: 'Disable reasoning tokens completely.',
@@ -386,85 +541,41 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
       max: 'Maximum reasoning tokens supported by model.',
     },
   ),
-  'model.config.*.thinking.off': field(
-    unionType(THINKING_LEVELS),
-    'Level when thinking is off.',
-    THINKING_LEVELS,
-    {
-      none: 'Disable reasoning tokens completely.',
-      minimal: 'Minimal reasoning tokens for fastest response.',
-      low: 'Low reasoning budget for basic structured tasks.',
-      medium: 'Balanced reasoning for multi-step agent actions.',
-      high: 'Deep reasoning for complex planning and code.',
-      xhigh: 'Extended reasoning budget for hard problems.',
-      max: 'Maximum reasoning tokens supported by model.',
-    },
+  'models.*.defaultEffort': field('string', 'Effort alias when the turn omits effort.'),
+  'models.*.allowEffortSelect': field(
+    'boolean',
+    'Turn may pass effort. Requires two or more efforts keys.',
   ),
-  'model.config.*.thinkingLevels': field(
-    'ThinkingLevel[]',
-    'Levels this model accepts. Illegal values are clamped.',
-    THINKING_LEVELS,
-    {
-      none: 'Disable reasoning tokens completely.',
-      minimal: 'Minimal reasoning tokens for fastest response.',
-      low: 'Low reasoning budget for basic structured tasks.',
-      medium: 'Balanced reasoning for multi-step agent actions.',
-      high: 'Deep reasoning for complex planning and code.',
-      xhigh: 'Extended reasoning budget for hard problems.',
-      max: 'Maximum reasoning tokens supported by model.',
-    },
-  ),
-  'model.config.*.summaries': field('{ on, off }', 'Summary behavior for the thinking control.'),
-  'model.config.*.summaries.on': field(
-    unionType(SUMMARY_MODES),
-    'Summaries when thinking is on.',
-    SUMMARY_MODES,
-    {
-      auto: 'Emit thinking summaries when available.',
-      none: 'Suppress thinking summaries from the stream.',
-    },
-  ),
-  'model.config.*.summaries.off': field(
-    unionType(SUMMARY_MODES),
-    'Summaries when thinking is off.',
-    SUMMARY_MODES,
-    {
-      auto: 'Emit thinking summaries when available.',
-      none: 'Suppress thinking summaries from the stream.',
-    },
-  ),
-  'model.config.*.maxOutputTokens': field('number', 'Maximum tokens the model may emit.'),
-  'model.config.*.temperature': field('number', 'Sampling temperature.'),
-  'model.config.*.builtInTools': field(
+  'models.*.summaries': field('boolean', 'Emit thinking summaries on the stream.'),
+  'models.*.maxOutputTokens': field('number', 'Maximum tokens the model may emit.'),
+  'models.*.temperature': field('number', 'Sampling temperature.'),
+  'models.*.builtInTools': field(
     'BuiltinToolId[]',
     'Provider-native builtins enabled whenever this model is selected.',
   ),
-  'model.config.*.key': field(
+  'models.*.key': field(
     unionType(KEY_SLOTS),
-    'Optional vault slot for this model. Overrides profile.model.key.',
+    'Optional vault slot for this model. Overrides profile.key.',
     KEY_SLOTS,
   ),
-  'model.config.*.compaction': field(
-    'CompactionSpec',
-    'Optional compaction policy for this model.',
-  ),
-  'model.config.*.compaction.maxTokens': field(
+  'models.*.compaction': field('CompactionSpec', 'Optional compaction policy for this model.'),
+  'models.*.compaction.maxTokens': field(
     'number',
     'Token budget compared by the trigger (compactAt * maxTokens).',
   ),
-  'model.config.*.compaction.compactAt': field(
+  'models.*.compaction.compactAt': field(
     'number',
     'Fraction of maxTokens at which compaction fires. Must be in (0, 1).',
   ),
-  'model.config.*.compaction.previousExchanges': field(
+  'models.*.compaction.previousExchanges': field(
     'number',
     '≥ 1 = exchange count, (0, 1) = fraction of maxTokens, 0 = compact all.',
   ),
-  'model.config.*.compaction.profile': field(
+  'models.*.compaction.profile': field(
     'ProfileId',
     'Compaction agent profile id. Must be registered before the owning profile.',
   ),
-  'model.config.*.compaction.timing': field(
+  'models.*.compaction.timing': field(
     unionType(COMPACTION_TIMINGS),
     'When compaction runs relative to the primary turn.',
     COMPACTION_TIMINGS,
@@ -473,7 +584,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
       after: 'Signal on done for host async background compaction.',
     },
   ),
-  'model.config.*.compaction.meter': field(
+  'models.*.compaction.meter': field(
     unionType(COMPACTION_METERS),
     'What the threshold meters. Defaults to history.',
     COMPACTION_METERS,
@@ -482,64 +593,62 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
       input: 'Meters full turn input token count (system + history + attachments).',
     },
   ),
-  'model.select': field(
-    'Record<string, ModelId>',
-    'Named aliases (fast / smart) → allowlisted ids.',
+  'models.*.cache': field(
+    'CacheSpec',
+    'OpenRouter prompt-cache policy. Only valid when provider is openrouter.',
   ),
-  'model.select.*': field('ModelId', 'Allowlisted model id for this select key.'),
-  'model.thinking': field(
-    'ThinkingLevel | Record<string, ThinkingLevel>',
-    'Default thinking pin, or a map keyed by select labels.',
-    THINKING_LEVELS,
+  'models.*.cache.mode': field(
+    unionType(CACHE_MODES),
+    'How to place cache_control on OpenRouter requests.',
+    CACHE_MODES,
     {
-      none: 'Disable reasoning tokens completely.',
-      minimal: 'Minimal reasoning tokens for fastest response.',
-      low: 'Low reasoning budget for basic structured tasks.',
-      medium: 'Balanced reasoning for multi-step agent actions.',
-      high: 'Deep reasoning for complex planning and code.',
-      xhigh: 'Extended reasoning budget for hard problems.',
-      max: 'Maximum reasoning tokens supported by model.',
+      automatic: 'Top-level cache_control; breakpoint advances with the conversation.',
+      system: 'Explicit cache_control breakpoint on the system instruction only.',
     },
   ),
-  'model.thinking.*': field(
-    unionType(THINKING_LEVELS),
-    'Thinking pin for this select key.',
-    THINKING_LEVELS,
+  'models.*.cache.ttl': field(
+    unionType(CACHE_TTLS),
+    'Ephemeral cache TTL. Omit → provider default (typically 5m on Anthropic).',
+    CACHE_TTLS,
     {
-      none: 'Disable reasoning tokens completely.',
-      minimal: 'Minimal reasoning tokens for fastest response.',
-      low: 'Low reasoning budget for basic structured tasks.',
-      medium: 'Balanced reasoning for multi-step agent actions.',
-      high: 'Deep reasoning for complex planning and code.',
-      xhigh: 'Extended reasoning budget for hard problems.',
-      max: 'Maximum reasoning tokens supported by model.',
+      '5m': 'Five-minute ephemeral cache (default when ttl is omitted).',
+      '1h': 'One-hour ephemeral cache (higher write cost; better for long sessions).',
     },
   ),
-  'model.controls': field('ControlId[]', 'Turn-time toggles this profile exposes.', CONTROL_IDS),
-  'model.maxSteps': field(
+  'models.*.store': field(
+    'boolean',
+    'Gemini Interactions: whether the provider stores the interaction. Omit → provider default.',
+  ),
+  'models.*.persistViaInteractionId': field(
+    'boolean',
+    'Gemini Interactions: prefer previous_interaction_id over client-owned history. Omit → host/turn decides.',
+  ),
+  defaultModel: field('ModelId', 'Default model id when the turn omits model.'),
+  allowModelSelect: field('boolean', 'Turn may pass model. Requires two or more models keys.'),
+  maxSteps: field(
     'number',
     'Tool-loop ceiling. <=0 unbounded, 1 one-shot, >1 ceiling. Omit → unbounded.',
   ),
-  'model.key': field(
+  key: field(
     unionType(OVERFLOW_KEY_SLOTS),
-    'Vault key slot (slotA/B/C). Paid is overflow-only via model.config.*.key or forcePaidKey builtins.',
+    'Vault key slot (slotA/B/C). Paid is overflow-only via models.*.key or forcePaidKey builtins.',
     OVERFLOW_KEY_SLOTS,
   ),
   tools: field(
     '{ allow: ToolId[]; t1Policy?; t2Loader? }',
-    'Custom tools (allow), optional T1 policy, optional T2 loader function id. Builtins belong on model.config.*.builtInTools.',
+    'Custom tools (allow), optional T1 policy, optional T2 loader function id. Builtins belong on models.*.builtInTools. Live and host profiles use `{ allow }` only — live wires every allowed tool at session setup; host executes every allowed tool.',
   ),
   'tools.allow': field(
     'ToolId[]',
-    'Custom tools the agent may call. Builtins are declared per model, not here.',
+    'Custom tools the agent may call. Builtins are declared per model, not here. On type live every listed id is wired at session setup regardless of loadTier; on type host every listed id is executable.',
   ),
   'tools.t1Policy': field(
     '(ctx) => ToolId[] | Promise<ToolId[]>',
-    'Optional T1 policy — which eligible loadTier:T1 tools to wire at turn start.',
+    'Optional T1 policy — which eligible loadTier:T1 tools to wire at turn start. Not supported on type live.',
   ),
   'tools.t2Loader': field(
     'ToolId',
-    'Optional function tool id for T2 promotion. Must be in tools.allow; handler returns { loaded: string[] }.',
+    'Optional function tool id for T2 promotion. Must be in tools.allow; handler returns { loaded: string[] }. Not supported on type live.',
   ),
   inputs: field('ProfileInputsSpec', 'Text, attachment, voice, slot, and size rules.'),
   'inputs.text': field(
@@ -611,6 +720,19 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
     },
   ),
   live: field('ProfileLiveSpec', 'Bidirectional live audio/video streaming session pins.'),
+  'live.ingress': field(
+    'LiveIngressSpec',
+    'Realtime ingress toggles for sendAudio / sendVideo / sendText — not turn file attachments.',
+  ),
+  'live.ingress.audio': field(
+    'boolean',
+    'Microphone PCM via LiveSession.sendAudio. Omit → enabled.',
+  ),
+  'live.ingress.video': field(
+    'boolean',
+    'Webcam JPEG frames via LiveSession.sendVideo. Omit → enabled.',
+  ),
+  'live.ingress.text': field('boolean', 'Typed text via LiveSession.sendText. Omit → disabled.'),
   'live.voice': field(
     'string',
     'TTS voice name for live audio output (e.g. Puck, Aoede, Charon).',
@@ -685,49 +807,67 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
     },
   ),
   'outputs.streaming.streamThoughts': field('boolean', 'Emit model thinking on the turn stream.'),
-  turnResumption: field('ProfileTurnResumptionSpec', 'Continue after a non-user stop.'),
-  'turnResumption.allowContinue': field(
-    'TurnStopKind[]',
-    'Kinds eligible for a Continue / continueFrom turn.',
-    TURN_STOP_KINDS,
+  turnBehaviour: field(
+    'ProfileTurnBehaviourSpec',
+    'Resume after a non-user stop (text/image/speech); text and live may also allow mid-turn inject via allowSteering.',
+  ),
+  'turnBehaviour.resumption': field(
+    'ProfileTurnResumptionSpec',
+    'Continue after a non-user stop (continueFrom). Not valid on live — use live.sessionResumption.',
+  ),
+  'turnBehaviour.resumption.allowContinue': field(
+    'ContinueStopKind[]',
+    'Kinds eligible for a Continue / continueFrom turn. Not tool/cancelled/completed/filtered/live boundaries.',
+    CONTINUE_STOP_KINDS,
     {
       length: 'Model hit maximum output token ceiling.',
       stream_incomplete: 'Network connection or stream dropped prematurely.',
       provider_error: 'Upstream provider returned an error code or timeout.',
-      tool: 'Turn paused at tool execution boundary.',
-      filtered: 'Content safety filter intercepted output.',
-      cancelled: 'Turn aborted via AbortSignal.',
-      completed: 'Turn finished normally.',
-      interrupted: 'Live barge-in interrupted the in-flight response.',
-      generation_complete: 'Live model finished generating this utterance; turn may still be open.',
     },
   ),
-  'turnResumption.autoContinue': field(
-    'TurnStopKind[]',
-    'Kinds the host may auto-continue once without a CTA.',
-    TURN_STOP_KINDS,
+  'turnBehaviour.resumption.autoContinue': field(
+    'ContinueStopKind[]',
+    'Kinds the host may auto-continue once without a CTA. Subset of ContinueStopKind.',
+    CONTINUE_STOP_KINDS,
     {
       length: 'Model hit maximum output token ceiling.',
       stream_incomplete: 'Network connection or stream dropped prematurely.',
       provider_error: 'Upstream provider returned an error code or timeout.',
-      tool: 'Turn paused at tool execution boundary.',
-      filtered: 'Content safety filter intercepted output.',
-      cancelled: 'Turn aborted via AbortSignal.',
-      completed: 'Turn finished normally.',
-      interrupted: 'Live barge-in interrupted the in-flight response.',
-      generation_complete: 'Live model finished generating this utterance; turn may still be open.',
     },
+  ),
+  'turnBehaviour.resumption.maxContinues': field(
+    'number',
+    'Max continueFrom rounds the kernel accepts (compared to TurnRequest.continuation).',
+  ),
+  'turnBehaviour.resumption.continueInstruction': field(
+    'string',
+    'Host replacement for the continue instruction appended on continueFrom turns. Omitted: registered default.',
+  ),
+  'turnBehaviour.allowSteering': field(
+    'boolean',
+    'Text and live. When true (default), host onStage inject affordances are applied. Image/speech must omit.',
   ),
   guardrails: field(
     'ProfileGuardrailsSpec',
-    'Quota, canary, sanitize, redact, and egress switches.',
+    'Quota, canary, sanitize, redact, egress, network, and taint switches. On type host only the invokeTool-path guards are accepted (HostGuardrailsSpec: sanitizeInput, redactSensitive, network, taint) — quota, canary, and egress guard a model turn and are refused.',
   ),
   'guardrails.quota': field(
-    '{ perDay: number }',
+    'QuotaGuardrailSpec',
     'Host HTTP helper — not enforced inside runTurn.',
   ),
   'guardrails.quota.perDay': field('number', 'Daily turn cap used by host quota middleware.'),
-  'guardrails.canary': field('boolean', 'Enable per-turn canary token bound to system prompt.'),
+  'guardrails.quota.message': field(
+    'string',
+    'Host copy surfaced by quotaExhausted when the quota trips. The kernel ships no fallback.',
+  ),
+  'guardrails.canary': field(
+    'boolean | CanaryGuardrailSpec',
+    'Per-turn canary token bound to system prompt. Default true; set false to opt out; object form supplies bindNote.',
+  ),
+  'guardrails.canary.bindNote': field(
+    'string',
+    'Host template appended to the system prompt; must contain the {canary} placeholder. Omitted: registered default.',
+  ),
   'guardrails.sanitizeInput': field('boolean', 'Strip inbound injection spans.'),
   'guardrails.redactSensitive': field('boolean', 'Redact sensitive spans.'),
   'guardrails.egress': field(
@@ -752,23 +892,102 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
     'string',
     'Instruction appended on an egress repair turn.',
   ),
+  'guardrails.network': field(
+    'NetworkGuardrailSpec',
+    'SSRF guardrails for declarative HTTP and MCP tools.',
+  ),
+  'guardrails.network.allowPrivateNetworks': field(
+    'boolean',
+    'Allow loopback and private-network targets when resolving tool URLs.',
+  ),
+  'guardrails.network.allowedHosts': field(
+    'string[]',
+    'Explicit hostname allowlist for declarative HTTP and MCP egress.',
+  ),
+  observability: field(
+    'ProfileObservabilitySpec',
+    'Trace destination, scrub, include, and sampling policy for this profile.',
+  ),
+  'observability.writeTo': field(
+    'false | string | TraceSink',
+    'false = off; string = registerTraceDestination id; TraceSink = inline writer. runTurn third arg overrides.',
+  ),
+  'observability.sampleRate': field(
+    'number',
+    'Fraction of turns to record (0–1). Default 1. Ignored when runTurn passes an explicit sink.',
+  ),
+  'observability.include': field(
+    'TraceIncludeSpec',
+    'Which TraceRecord payloads to keep (upstreamLog, outboundWire, evidenceRaw, usage, guardrailDecisions, guardrailMatchPreview).',
+  ),
+  'observability.include.upstreamLog': field(
+    'boolean',
+    'Scrubbed provider HTTP/SSE rows. Default true.',
+  ),
+  'observability.include.outboundWire': field(
+    'boolean',
+    'Scrubbed outbound request body. Default false.',
+  ),
+  'observability.include.evidenceRaw': field(
+    'boolean',
+    'Verbatim provider step JSON on events. Default false.',
+  ),
+  'observability.include.usage': field('boolean', 'Token / usage fields. Default true.'),
+  'observability.include.guardrailDecisions': field(
+    'boolean',
+    'Persist { type: "guardrail" } decisions in the TraceRecord. Default true.',
+  ),
+  'observability.include.guardrailMatchPreview': field(
+    'boolean',
+    'Keep GuardrailHit.match (capped matched substring) on stream + TraceRecord. Default false — debugging only.',
+  ),
+  'observability.scrub': field(
+    'TraceScrubSpec',
+    'Scrubbing of stored records — independent of profile.guardrails. Defaults on.',
+  ),
+  'observability.scrub.sensitive': field(
+    'boolean',
+    'Strip credentials / PII spans in stored text. Default true.',
+  ),
+  'observability.scrub.injection': field(
+    'boolean',
+    'Strip injection spans in the stored request copy. Default true.',
+  ),
+  'observability.scrub.canary': field('boolean', 'Never persist the canary token. Default true.'),
+  'observability.retainForDays': field(
+    'number',
+    'JSONL retention days when writeTo resolves to a jsonl destination. Default 14.',
+  ),
+  'observability.rotateAfterMiB': field(
+    'number',
+    'JSONL rotate threshold in MiB when writeTo resolves to a jsonl destination. Default 32.',
+  ),
+  'observability.onWriteError': field(
+    '(err: unknown) => void',
+    'Host hook when record build or destination write fails. Must not throw.',
+  ),
 };
+
+const TOOL_TYPE_FIELD = field(
+  unionType(TOOL_TYPES),
+  'Discriminator: builtin (provider-native), function (host handler), http (declarative HTTP), or mcp (remote MCP).',
+  TOOL_TYPES,
+  {
+    builtin: 'Provider-native capability; wire maps to the provider adapter.',
+    function:
+      'Host-owned tool with Zod input/output and a handler. Profile tools.t2Loader may promote T2 tools when output includes { loaded }.',
+    http: 'Declarative HTTP tool calling remote REST/JSON endpoint with optional auth/PKCE.',
+    mcp: 'Remote Model Context Protocol tool calling remote MCP server with JSON-RPC.',
+  },
+);
 
 /** Adjacent tool catalog fields that appear next to profile examples. */
 export const EXTRA_FIELDS: Record<string, FieldMeta> = {
-  type: field(
-    unionType(TOOL_TYPES),
-    'Discriminator: builtin (provider-native) or function (host handler).',
-    TOOL_TYPES,
-    {
-      builtin: 'Provider-native capability; wire maps to the provider adapter.',
-      function:
-        'Host-owned tool with Zod input/output and a handler. Profile tools.t2Loader may promote T2 tools when output includes { loaded }.',
-    },
-  ),
+  /** Playground / UI path — avoids collision with profile `type` in fieldMeta(). */
+  'registerTool.type': TOOL_TYPE_FIELD,
   name: field(
     'string',
-    'Wire tool id — custom: tools.allow; provider builtin: model.config.*.builtInTools. Visibility via loadTier (T0/T1/T2).',
+    'Wire tool id — custom: tools.allow; provider builtin: models.*.builtInTools. Visibility via loadTier (T0/T1/T2).',
   ),
   description: field('string', 'Model-facing description included in function declarations.'),
   input: field(
@@ -780,6 +999,97 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     'ToolHandler',
     'Host function or async generator run on model tool calls and invokeTool resumes.',
   ),
+  endpoint: field(
+    'string',
+    'HTTP URL template for declarative tools. Use {param} placeholders for path segments.',
+  ),
+  method: field(unionType(HTTP_METHODS), 'HTTP verb for declarative tools.', HTTP_METHODS),
+  headers: field(
+    'Record<string, string>',
+    'Optional static headers merged on every HTTP or MCP request.',
+  ),
+  mapping: field(
+    '{ pathParams?, queryParams?, bodyParam? }',
+    'Maps tool input fields to URL path segments, query string, or JSON body.',
+  ),
+  'mapping.pathParams': field(
+    'string[]',
+    'Input keys substituted into {name} path segments on the endpoint template.',
+  ),
+  'mapping.queryParams': field('string[]', 'Input keys appended as query-string parameters.'),
+  'mapping.bodyParam': field(
+    'string',
+    'Single input key sent as the JSON request body (POST/PUT/PATCH).',
+  ),
+  serverUrl: field('string', 'Streamable HTTP MCP server endpoint (JSON-RPC tools/call).'),
+  mcpToolName: field('string', 'Remote tool name on the MCP server (tools/list → tools/call).'),
+  auth: field(
+    'HttpToolAuthConfig',
+    'Optional credential slot and header wiring for HTTP and MCP tools.',
+  ),
+  'auth.type': field(
+    unionType(TOOL_AUTH_TYPES),
+    'How credentials from the slot are attached to outbound requests.',
+    TOOL_AUTH_TYPES,
+    {
+      bearer: 'Authorization header with optional prefix (default Bearer).',
+      api_key: 'Named header carries the raw key or token.',
+      oauth2: 'OAuth2 access token with optional refresh via the credential slot.',
+    },
+  ),
+  'auth.slot': field(
+    'string',
+    'Credential slot id resolved from ToolContext.credentials at execution time.',
+  ),
+  'auth.headerName': field(
+    'string',
+    "Request header for bearer/api_key auth (default 'Authorization').",
+  ),
+  'auth.headerPrefix': field(
+    'string',
+    "Prefix before the secret (default 'Bearer ' for bearer auth).",
+  ),
+  'auth.onUnauthenticated': field(
+    unionType(AUTH_UNAUTHENTICATED_POLICIES),
+    'Whether a missing/expired credential gates the turn or reports to the model.',
+    AUTH_UNAUTHENTICATED_POLICIES,
+    {
+      pause:
+        'Emit ToolGate { kind: auth } (tool.phase gate + stop.kind gate) and wait for host credential injection. Schema id remains `pause`.',
+      report_to_model: 'Return a model-visible finding without gating the turn.',
+    },
+  ),
+  'auth.scopes': field('string[]', 'OAuth2 scopes requested during authorization.'),
+  'auth.clientId': field('string', 'OAuth2 client id for the authorization code flow.'),
+  'auth.redirectUri': field('string', 'OAuth2 redirect URI registered for this client.'),
+  'playground.authType': field(
+    unionType(PLAYGROUND_AUTH_TYPES),
+    'Playground auth select — `none` omits auth when compiling registerTool.',
+    PLAYGROUND_AUTH_TYPES,
+    {
+      none: 'No credential slot — tool runs without Authorization headers.',
+      bearer: 'Authorization header with optional prefix (default Bearer).',
+      api_key: 'Named header carries the raw key or token.',
+      oauth2: 'OAuth2 access token with optional refresh via the credential slot.',
+    },
+  ),
+  'playground.testCredential': field(
+    'string',
+    'Playground-only: one-shot credential for the pre-run connectivity check (not compiled into registerTool).',
+  ),
+  'playground.stubOutput': field(
+    'Record<string, unknown>',
+    'Playground-only: fixed JSON object returned by function tool stubs when no demo handler exists.',
+  ),
+  'registerStructured.enforced': field(
+    unionType(SCHEMA_ENFORCEMENTS),
+    'How structured output is enforced on the wire.',
+    SCHEMA_ENFORCEMENTS,
+  ),
+  'registerStructured.jsonSchema': field(
+    'Record<string, unknown>',
+    'JSON Schema body registered under outputs.structured id.',
+  ),
   access: field(unionType(TOOL_ACCESS), 'Semantic access level for policy and UI.', TOOL_ACCESS, {
     'read-only': 'Reads host or remote state; no lasting mutation.',
     'read-write': 'May create or update host state.',
@@ -787,12 +1097,12 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   }),
   loadTier: field(
     unionType(TOOL_LOAD_TIERS),
-    'When this tool is wired to the model (profile allow / builtInTools is still required).',
+    'When this tool is wired to the model (profile allow / builtInTools is still required). Live sessions wire every allowed tool at setup; host profiles execute every allowed tool.',
     TOOL_LOAD_TIERS,
     {
-      T0: 'Wired at turn start when allowed (custom on allow / builtin on the model).',
-      T1: 'Wired when profile.tools.t1Policy selects it.',
-      T2: 'Deferred until profile.tools.t2Loader returns { loaded } and the kernel promotes those ids.',
+      T0: 'Wired at turn/session start when allowed (custom on allow / builtin on the model).',
+      T1: 'Wired when profile.tools.t1Policy selects it (text/image turns; live wires it at setup).',
+      T2: 'Deferred until profile.tools.t2Loader returns { loaded } and the kernel promotes those ids (text/image turns; live wires it at setup).',
     },
   ),
   permission: field(
@@ -816,3 +1126,15 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
 export function fieldMeta(path: string): FieldMeta | undefined {
   return PROFILE_FIELDS[path] ?? EXTRA_FIELDS[path];
 }
+
+export type {
+  ProfileGraphEditor,
+  ProfileGraphFacet,
+  ProfileGraphFacetId,
+  ProfileGraphRole,
+} from './profile-graph.ts';
+export {
+  PROFILE_GRAPH,
+  profileGraphFacet,
+  spineFacetsForProfileType,
+} from './profile-graph.ts';

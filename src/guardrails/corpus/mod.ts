@@ -6,6 +6,7 @@
  * @module
  */
 
+/** lexicon-exempt-file: adversarial corpus fixture — not runtime user or model copy (P2) */
 export type { CanaryEgressAttack } from './canary-egress-attacks.ts';
 export {
   buildCanaryEgressAttacks,

@@ -190,7 +190,7 @@ function registerTestTools(): void {
   registerTool({
     type: 'function',
     name: 'denied_tool',
-    description: 'Always denied by canExecute',
+    description: 'Always denied by preTool',
     category: 'test',
     access: 'read-write',
     paths: ['*'],
@@ -198,14 +198,14 @@ function registerTestTools(): void {
     permission: 'auto',
     input: StubInput,
     output: FindingOutput,
-    canExecute: () => false,
+    preTool: () => ({ deny: { code: 'not_authorized', message: 'Tool execution not authorized' } }),
     handler: () => ({ finding: 'should not run' }),
   });
 
   registerTool({
     type: 'function',
     name: 'throwing_auth_tool',
-    description: 'canExecute throws',
+    description: 'preTool throws',
     category: 'test',
     access: 'read-write',
     paths: ['*'],
@@ -213,7 +213,7 @@ function registerTestTools(): void {
     permission: 'auto',
     input: StubInput,
     output: FindingOutput,
-    canExecute: () => {
+    preTool: () => {
       throw new Error('auth network failure');
     },
     handler: () => ({ finding: 'should not run' }),
@@ -236,7 +236,7 @@ function registerTestTools(): void {
   registerTool({
     type: 'function',
     name: 'preflight_confirm_tool',
-    description: 'Preflight returns confirmation pause',
+    description: 'preTool returns confirmation gate',
     category: 'test',
     access: 'read-write',
     paths: ['*'],
@@ -244,11 +244,8 @@ function registerTestTools(): void {
     permission: 'auto',
     input: StubInput,
     output: FindingOutput,
-    preflight: () => ({
-      kind: 'confirmation',
-      tool: 'preflight_confirm_tool',
-      summary: 'Proceed with this action?',
-      input: {},
+    preTool: () => ({
+      confirm: { summary: 'Proceed with this action?' },
     }),
     handler: () => ({ finding: 'preflight cleared' }),
   });

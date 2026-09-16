@@ -9,10 +9,11 @@
  */
 
 import type {
+  CacheMode,
+  CacheTtl,
   CompactionMeter,
   CompactionTiming,
-  ControlId,
-  EgressOnBlock,
+  ContinueStopKind,
   FieldMeta,
   KeySlot,
   KeyVault,
@@ -31,13 +32,21 @@ import type {
   SummaryMode,
   ThinkingLevel,
   ToolLoadTier,
+  TurnStage,
   TurnStopKind,
 } from './schema.ts';
+import type { StageApplyWarning, StageHandler } from './stages.ts';
 import type {
+  HostProfileToolsSpec,
   InvokeToolRequest,
+  InvokeToolResume,
+  LiveProfileToolsSpec,
+  ModelToolResult,
   ProfileToolsSpec,
   RegisteredTool,
   ToolCallEvent,
+  ToolFailure,
+  ToolGate,
   ToolLoadContext,
   ToolPolicy,
   TurnToolSnapshot,
@@ -45,16 +54,19 @@ import type {
 } from './tools/types.ts';
 
 export type {
+  CacheMode,
+  CacheTtl,
   CompactionMeter,
   CompactionTiming,
-  ControlId,
-  EgressOnBlock,
+  ContinueStopKind,
   FieldMeta,
+  HostProfileToolsSpec,
   InvokeToolRequest,
   KeySlot,
   KeyVault,
   LiveActivityHandling,
   LiveContextCompression,
+  LiveProfileToolsSpec,
   LiveSpeechSensitivity,
   MediaInputKind,
   OverflowKeySlot,
@@ -70,9 +82,11 @@ export type {
   SummaryMode,
   ThinkingLevel,
   ToolCallEvent,
+  ToolGate,
   ToolLoadContext,
   ToolLoadTier,
   ToolPolicy,
+  TurnStage,
   TurnStopKind,
   TurnToolSnapshot,
   WireFunctionTool,
@@ -97,7 +111,7 @@ export type ChatRole = 'system' | 'user' | 'assistant';
 
 /**
  * Image-role output pins owned by the host profile.
- * The image model itself lives in `model.allow` / `model.config`.
+ * The image model itself lives in `profile.models`.
  * Aspect/size/mime values are host strings (presets/apps own the vocabularies).
  */
 export interface ProfileImageSpec {
@@ -127,11 +141,24 @@ export type TurnEventType =
   | 'evidence'
   | 'tokens'
   | 'session'
+  | 'guardrail'
+  | 'stage'
   | 'done'
   | 'error';
 
-/** Live session control signals (provider-neutral). */
-export type SessionEventKind = 'closing_soon' | 'waiting_for_input';
+/**
+ * Live session control signals (provider-neutral).
+ *
+ * - `turn_complete` — one spoken response ended; the server may still be working.
+ * - `working` — server is reasoning or awaiting async tool results; more output may follow.
+ * - `idle` — server finished all processing; conversational cycle boundary.
+ */
+export type SessionEventKind =
+  | 'closing_soon'
+  | 'waiting_for_input'
+  | 'turn_complete'
+  | 'working'
+  | 'idle';
 
 export interface SessionEvent {
   kind: SessionEventKind;
@@ -139,28 +166,20 @@ export interface SessionEvent {
   timeLeftMs?: number;
 }
 
-/** Provider thinking levels used when a boolean thinking control is on or off. */
-export interface ThinkingMap {
-  on: ThinkingLevel;
-  off: ThinkingLevel;
-}
-
-/** Provider summary behavior used when a boolean thinking control is on or off. */
-export interface SummaryMap {
-  on: SummaryMode;
-  off: SummaryMode;
-}
-
-/** Host-declared metadata THEORUM needs to call a model safely. */
-export interface ModelSpec {
+/** Host-named model binding — wire routing and generation knobs for one profile model. */
+export interface ModelBinding {
+  protocol: Protocol;
+  provider: Provider;
   /** Provider wire model id for the configured provider. */
   apiId: string;
-  /** Thinking on/off map when the profile lists `thinking` in controls. Omit → provider default. */
-  thinking?: ThinkingMap;
-  /** Levels this model accepts. Illegal values are clamped via `thinkingLevels`. */
-  thinkingLevels?: ThinkingLevel[];
-  /** Thinking-summary on/off map. Omit → provider default. */
-  summaries?: SummaryMap;
+  /** Alias → thinking level. One entry = fixed; two+ may be selectable at turn time. */
+  efforts?: Record<string, ThinkingLevel>;
+  /** Effort alias when the turn omits `effort`. Defaults to the only key when there is one. */
+  defaultEffort?: string;
+  /** Turn may pass `{ effort: "<alias>" }`. Requires two or more `efforts` keys. */
+  allowEffortSelect?: boolean;
+  /** Emit thinking summaries on the stream. Omit → provider default. */
+  summaries?: boolean;
   /** Cap on output tokens. Omit → provider default. */
   maxOutputTokens?: number;
   /** Sampling temperature. Omit → provider default. */
@@ -171,12 +190,17 @@ export interface ModelSpec {
    */
   builtInTools?: BuiltinToolId[];
   /**
-   * Optional vault slot for this model. When set, overrides `profile.model.key`.
+   * Optional vault slot for this model. When set, overrides `profile.key`.
    * Host-owned — e.g. pin image models to `paid`.
    */
   key?: KeySlot;
   /** Optional compaction policy for this model's context window (chat profiles). */
   compaction?: CompactionSpec;
+  /**
+   * OpenRouter prompt-cache policy. Omit → no opt-in `cache_control`.
+   * `defineProfile` accepts only when `provider` is `openrouter` (protocol `openAi`).
+   */
+  cache?: CacheSpec;
   /** Gemini Interactions: whether the provider stores the interaction. Omit → provider default. */
   store?: boolean;
   /**
@@ -184,6 +208,18 @@ export interface ModelSpec {
    * instead of client-owned history. Omit → host/turn decides.
    */
   persistViaInteractionId?: boolean;
+}
+
+/**
+ * OpenRouter prompt-cache policy (`models.*.cache`).
+ *
+ * - `automatic` — top-level `cache_control`; breakpoint advances with the conversation.
+ * - `system` — explicit breakpoint on the system instruction only.
+ */
+export interface CacheSpec {
+  mode: CacheMode;
+  /** Ephemeral TTL. Omit → provider default (typically 5m on Anthropic). */
+  ttl?: CacheTtl;
 }
 
 /**
@@ -308,7 +344,7 @@ export interface ProfileValidationSpec {
 
 /**
  * Speech-role output pins owned by the host profile.
- * The speech model itself lives in `model.allow` / `model.config`.
+ * The speech model itself lives in `profile.models`.
  * Declared top-level under `speech` so `voice` here is the TTS voice id,
  * not ingress audio (`inputs.voice`).
  */
@@ -337,10 +373,26 @@ export interface LiveTranscriptionSpec {
 }
 
 /**
+ * Realtime ingress modalities for a live session.
+ * Distinct from turn `inputs` (file attachments, MIME limits) — these gate
+ * `LiveSession.sendAudio` / `sendVideo` / `sendText` channels.
+ */
+export interface LiveIngressSpec {
+  /** Microphone PCM via `sendAudio`. Omit → enabled. */
+  audio?: boolean;
+  /** Webcam JPEG frames via `sendVideo`. Omit → enabled. */
+  video?: boolean;
+  /** Typed text via `sendText`. Omit → disabled (opt-in). */
+  text?: boolean;
+}
+
+/**
  * Output pins for a live-role profile (bidirectional WebSocket audio/video session).
- * The live model itself lives in `model.allow` / `model.config`.
+ * The live model itself lives in `profile.models`.
  */
 export interface ProfileLiveSpec {
+  /** Realtime ingress modality toggles (mic, camera frames, typed text). */
+  ingress?: LiveIngressSpec;
   /** Output TTS voice name (e.g. 'Puck', 'Aoede', 'Charon'). */
   voice?: string;
   /** Voice activity detection & barge-in configuration. */
@@ -367,61 +419,30 @@ export interface ProfileStreamingSpec {
   streamThoughts?: boolean;
 }
 
-export type { ProfileTurnResumptionSpec, TurnContinueFrom, TurnStop } from './stop.ts';
+export type {
+  ProfileTurnBehaviourSpec,
+  ProfileTurnResumptionSpec,
+  TurnContinueFrom,
+  TurnStop,
+} from './stop.ts';
 
-import type { ProfileTurnResumptionSpec, TurnContinueFrom, TurnStop } from './stop.ts';
+import type {
+  GuardrailEvent,
+  HostGuardrailsSpec,
+  ProfileGuardrailsSpec,
+} from '../guardrails/types.ts';
+import type { ProfileObservabilitySpec } from '../observability/types.ts';
+import type { ToolCredential } from './auth/types.ts';
+import type { ProfileTurnBehaviourSpec, TurnContinueFrom, TurnStop } from './stop.ts';
 
-/** Context passed to a host-owned outbound disclosure guard. */
-export interface EgressContext {
-  text: string;
-  canary?: string;
-  slots?: Record<string, string>;
-  profile: Profile;
-  role?: string;
-}
-
-/** Decision returned by an egress guard. */
-export interface EgressEnforcementResult {
-  blocked: boolean;
-  text: string;
-  hits?: string[];
-  rejectionMessage?: string | null;
-}
-
-/** Function that evaluates candidate user-visible output before release. */
-export type EgressEnforcer = (
-  context: EgressContext,
-) => EgressEnforcementResult | Promise<EgressEnforcementResult>;
-
-/** Profile egress policy for rejection, retry, or refusal behavior. */
-export interface ProfileEgressSpec {
-  enforce: EgressEnforcer;
-  onBlock?: EgressOnBlock;
-  maxRetries?: number;
-  repairGuidance?: string;
-}
-
-/** Profile guardrail switches enforced by the kernel. */
-export interface ProfileGuardrailsSpec {
-  /** Optional daily turn quota; omitted means quota enforcement is not configured. */
-  quota?: { perDay: number };
-  canary?: boolean;
-  sanitizeInput?: boolean;
-  redactSensitive?: boolean;
-  egress?: ProfileEgressSpec;
-}
-
-/** Model, provider, thinking, and step bounds for a profile. */
-export interface ProfileModelSpec<P extends Protocol = Protocol> {
-  protocol: P;
-  provider: Provider;
-  /** Ids this profile may select. Each id must exist in `config`. */
-  allow: ModelId[];
-  /** Host-owned wire config keyed by the same ids used in `allow` / `select`. */
-  config: Record<ModelId, ModelSpec>;
-  select?: Record<string, ModelId>;
-  thinking?: ThinkingLevel | Record<string, ThinkingLevel>;
-  controls?: ControlId[];
+/** Model routing fields shared by every profile type. */
+export interface ProfileModelFields {
+  /** Host-named models. Each key is a selectable model id when `allowModelSelect` is set. */
+  models: Record<ModelId, ModelBinding>;
+  /** Default model id when the turn omits `model`. Defaults to the only key when there is one. */
+  defaultModel?: ModelId;
+  /** Turn may pass `{ model: "<id>" }`. Requires two or more `models` keys. */
+  allowModelSelect?: boolean;
   /**
    * Tool-loop ceiling. `<= 0` = unbounded; `1` = one-shot; `> 1` = hard cap.
    * Omit → unbounded (no THEORUM invent of `1`).
@@ -429,12 +450,6 @@ export interface ProfileModelSpec<P extends Protocol = Protocol> {
   maxSteps?: number;
   key?: OverflowKeySlot;
 }
-
-/** Wire model specification for turn-based profiles (text, image, speech). */
-export type TurnProfileModelSpec = ProfileModelSpec<ProfileTypeProtocol<'text'>>;
-
-/** Wire model specification for live bidirectional streaming profiles. */
-export type LiveProfileModelSpec = ProfileModelSpec<ProfileTypeProtocol<'live'>>;
 
 /** Text, attachment, voice, slot, and size rules for a profile. */
 export interface ProfileInputsSpec {
@@ -463,48 +478,83 @@ export interface ProfileIdentity {
 }
 
 /** Fields shared by every typed profile. */
-export interface ProfileCommon<P extends Protocol = Protocol> {
+export interface ProfileCommon {
   id: ProfileId;
   identity: ProfileIdentity;
-  model: ProfileModelSpec<P>;
+  models: Record<ModelId, ModelBinding>;
+  defaultModel?: ModelId;
+  allowModelSelect?: boolean;
+  maxSteps?: number;
+  key?: OverflowKeySlot;
   outputs?: ProfileOutputsSpec;
   guardrails?: ProfileGuardrailsSpec;
+  observability?: ProfileObservabilitySpec;
 }
 
 /** Text / structured turn engine with optional tool execution. */
-export interface TextProfile extends ProfileCommon<ProfileTypeProtocol<'text'>> {
+export interface TextProfile extends ProfileCommon {
   type: 'text';
   tools: ProfileToolsSpec;
   inputs: ProfileInputsSpec;
-  turnResumption?: ProfileTurnResumptionSpec;
+  /** Resume + mid-turn steering policy. */
+  turnBehaviour?: ProfileTurnBehaviourSpec;
 }
 
 /** Image-generation primary role. */
-export interface ImageProfile extends ProfileCommon<ProfileTypeProtocol<'image'>> {
+export interface ImageProfile extends ProfileCommon {
   type: 'image';
   image: ProfileImageSpec;
   tools: ProfileToolsSpec;
   inputs: ProfileInputsSpec;
-  turnResumption?: ProfileTurnResumptionSpec;
+  /** Resume policy (`allowSteering` is rejected — text/live only). */
+  turnBehaviour?: ProfileTurnBehaviourSpec;
 }
 
 /** Unary TTS — text-in locked by type; no tools / inputs block. */
-export interface SpeechProfile extends ProfileCommon<ProfileTypeProtocol<'speech'>> {
+export interface SpeechProfile extends ProfileCommon {
   type: 'speech';
   speech: ProfileSpeechSpec;
-  turnResumption?: ProfileTurnResumptionSpec;
+  /** Resume policy (`allowSteering` is rejected — text/live only). */
+  turnBehaviour?: ProfileTurnBehaviourSpec;
 }
 
 /** Bidirectional live session. */
-export interface LiveProfile extends ProfileCommon<ProfileTypeProtocol<'live'>> {
+export interface LiveProfile extends Omit<ProfileCommon, 'outputs'> {
   type: 'live';
   live: ProfileLiveSpec;
-  tools: ProfileToolsSpec;
-  inputs?: ProfileInputsSpec;
+  tools: LiveProfileToolsSpec;
+  /**
+   * Stage inject gate only (`allowSteering`). Resumption is `live.sessionResumption`,
+   * not `turnBehaviour.resumption` (`docs/contracts/stages.md`).
+   */
+  turnBehaviour?: Pick<ProfileTurnBehaviourSpec, 'allowSteering'>;
+}
+
+/**
+ * Host-driven tool execution ceiling — never runs a model.
+ *
+ * `invokeTool` under a `host` profile executes any tool in `tools.allow` with no
+ * visibility or loading tiers and no path gating. No `models`, `identity`,
+ * `inputs`, `outputs`, `turnBehaviour`, `key`, or `maxSteps`. `resolveTurn`,
+ * `runTurn`, and `runSession` refuse it.
+ *
+ * `guardrails` is narrowed to {@link HostGuardrailsSpec}: only the guards that
+ * fire on the `invokeTool` path. Quota, canary, and egress guard a model turn,
+ * so `defineProfile` refuses them here rather than accepting inert config.
+ */
+export interface HostProfile {
+  type: 'host';
+  id: ProfileId;
+  tools: HostProfileToolsSpec;
+  guardrails?: HostGuardrailsSpec;
+  observability?: ProfileObservabilitySpec;
 }
 
 /** Complete host-owned agent contract consumed by the kernel. */
-export type Profile = TextProfile | ImageProfile | SpeechProfile | LiveProfile;
+export type Profile = TextProfile | ImageProfile | SpeechProfile | LiveProfile | HostProfile;
+
+/** Profiles that bind models — every type except `host`. */
+export type ModelProfile = Exclude<Profile, HostProfile>;
 
 /** Text part sent to provider adapters after input normalization. */
 export interface InteractionTextPart {
@@ -519,8 +569,19 @@ export interface InteractionMediaPart {
   data: string;
 }
 
+/**
+ * Media part carried by reference (e.g. a Gemini Files `files/<id>` uri).
+ * The host owns the upload and cleanup; THEORUM only carries the reference.
+ * Wired by the Google Interactions adapter; other adapters reject it.
+ */
+export interface InteractionMediaRefPart {
+  type: MediaInputKind;
+  mimeType: string;
+  uri: string;
+}
+
 /** Any provider input part accepted by THEORUM's provider contract. */
-export type InteractionPart = InteractionTextPart | InteractionMediaPart;
+export type InteractionPart = InteractionTextPart | InteractionMediaPart | InteractionMediaRefPart;
 
 /** Native image response request passed to image-capable providers. */
 export interface ImageResponseFormat {
@@ -542,6 +603,15 @@ export interface ImageResponseFormat {
 export interface TurnBlob {
   mimeType: string;
   data: string;
+}
+
+/**
+ * Media attachment supplied by reference (provider file uri) instead of bytes.
+ * MIME acceptance still applies; base64 and byte limits do not.
+ */
+export interface TurnMediaRef {
+  mimeType: string;
+  uri: string;
 }
 
 /** Provider-neutral history message preserving text, parts, tools, and metadata. */
@@ -572,7 +642,7 @@ export interface TurnInput {
   text?: string;
   role?: string;
   slots?: Record<string, string>;
-  attachments?: TurnBlob[];
+  attachments?: Array<TurnBlob | TurnMediaRef>;
   voice?: TurnBlob[];
   history?: TurnHistoryMessage[];
   repair?: TurnRepairRequest;
@@ -599,6 +669,11 @@ export interface TurnRequest {
   profile: ProfileId;
   /** Caller project id when one exists. Omitted on some HTTP hosts. */
   projectId?: string;
+  /**
+   * Sticky routing / cache session key for OpenRouter (`session_id`).
+   * Not the same as `projectId` or Gemini `previousInteractionId`.
+   */
+  sessionId?: string;
   /** Google Interactions server-side conversation state. Omit for stateless/manual history. */
   previousInteractionId?: string;
   /**
@@ -607,10 +682,12 @@ export interface TurnRequest {
    * Ignored when `googleMaps` is not enabled for the selected model.
    */
   googleMapsLocation?: { latitude: number; longitude: number };
-  /** Optional Interactions storage override. Omit to let profile model.config / provider decide. */
+  /** Optional Interactions storage override. Omit to let the selected model binding decide. */
   store?: boolean;
-  select?: string;
-  thinking?: boolean;
+  /** Selected model id when `profile.allowModelSelect` is true. */
+  model?: ModelId;
+  /** Selected effort alias when the binding has `allowEffortSelect`. */
+  effort?: string;
   /** Host-provided dynamic system prompt combined with profile persona */
   system?: string;
   /** Session permissions granted for this conversation turn */
@@ -619,6 +696,12 @@ export interface TurnRequest {
   path?: string;
   /** Host-owned metadata preserved for traces; the kernel does not interpret it. */
   metadata?: Record<string, unknown>;
+  /**
+   * Opaque application context handed to tool `handler` / `preTool` and
+   * `tools.t1Policy` as `ctx.host`. The kernel never reads, logs, traces, or
+   * serializes it.
+   */
+  host?: unknown;
   /**
    * Optional abort signal. When aborted, THEORUM stops the turn and cancels
    * in-flight provider HTTP where the adapter supports it.
@@ -631,7 +714,7 @@ export interface TurnRequest {
   continueFrom?: TurnContinueFrom;
   /**
    * 1-based continue attempt when `continueFrom` is set.
-   * Compared to `profile.turnResumption.maxContinues` when that cap is set.
+   * Compared to `profile.turnBehaviour.resumption.maxContinues` when that cap is set.
    */
   continuation?: number;
   input?: TurnInput;
@@ -639,14 +722,20 @@ export interface TurnRequest {
   compactionProvider?: ModelProvider;
   /** Optional session resumption handle for continuing live WebSocket sessions. */
   sessionResumptionHandle?: string;
+  /** Host credentials for authenticated HTTP / MCP tools keyed by auth slot. */
+  credentials?: Record<string, ToolCredential>;
+  /**
+   * Turn-stage handler (`docs/contracts/stages.md`).
+   * Text `runTurn` emits stages and applies returned affordances.
+   */
+  onStage?: StageHandler;
 }
 
-/** Safe profile projection suitable for UI or host inspection. */
-export interface ProjectedProfile {
+/** Safe profile projection suitable for UI or host inspection (model profiles only). */
+export interface ProjectedProfile extends ProfileModelFields {
   id: string;
-  type: ProfileType;
+  type: ModelProfile['type'];
   handle: string;
-  model: ProfileModelSpec;
   tools: Array<RegisteredTool | { name: ToolId; missing: true }>;
   inputs: ProfileInputsSpec | null;
   outputs: ProfileOutputsSpec | null;
@@ -667,7 +756,7 @@ export interface ProviderGenerationConfig {
    * `true` = SSE (THEORUM default when mode is omitted); `false` = buffered.
    */
   stream?: boolean;
-  thinking: ThinkingLevel;
+  thinking?: ThinkingLevel;
   summaries?: SummaryMode;
   maxOutputTokens?: number;
   temperature?: number;
@@ -677,6 +766,16 @@ export interface ProviderGenerationConfig {
    * Copied from `TurnRequest.googleMapsLocation` when present.
    */
   googleMapsLocation?: { latitude: number; longitude: number };
+  /**
+   * OpenRouter prompt-cache policy from the selected model binding.
+   * Omitted for non-openrouter bindings.
+   */
+  cache?: CacheSpec;
+  /**
+   * OpenRouter sticky session id from `TurnRequest.sessionId`.
+   * Forwarded as request `session_id` when present.
+   */
+  sessionId?: string;
 }
 
 /** Resolved provider transport derived once in `resolveTurn`. */
@@ -697,7 +796,7 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
   interactionOnlyInput?: Record<string, unknown>[];
   /**
    * Tool-loop ceiling. `undefined` or `<= 0` = unbounded.
-   * Taken from `profile.model.maxSteps` with no THEORUM invent.
+   * Taken from `profile.maxSteps` with no THEORUM invent.
    */
   maxSteps?: number;
   structured: StructuredSchemaId | null;
@@ -707,12 +806,19 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
   input: InteractionPart[];
   /**
    * Vault key slot for credentialed transports (Google required; OpenRouter when
-   * the profile pins `model.key` or a builtin forces `paid`). Never sent on the wire.
+   * the profile pins `key` or a builtin forces `paid`). Never sent on the wire.
    */
   keySlot?: KeySlot;
   canary: string;
   /** Optional session resumption handle for continuing live WebSocket sessions. */
   sessionResumptionHandle?: string;
+  /**
+   * Merged profile + turn system prompt, snapshotted synchronously in `resolveTurn`
+   * before any async work. Runner applies canary bind on top of this string.
+   */
+  resolvedSystem: string;
+  /** `TurnRequest.host`, carried to tool contexts only. Never sent to providers or traces. */
+  host?: unknown;
 }
 
 /** Token accounting emitted by providers or fallback estimation. */
@@ -723,6 +829,10 @@ export interface TurnTokens {
   toolUse?: number;
   /** Google code-execution / tool intermediate tokens when the API reports them. */
   intermediate?: number;
+  /** Prompt tokens read from provider cache (cache hit). */
+  cached?: number;
+  /** Prompt tokens written into provider cache. */
+  cacheWrite?: number;
   total: number;
 }
 
@@ -810,6 +920,8 @@ export interface TurnEvent {
   grounding?: GroundingEvent;
   evidence?: ProviderEvidenceEvent;
   session?: SessionEvent;
+  /** Guardrail decision for this turn — rule identity and offsets, never content. */
+  guardrail?: GuardrailEvent;
   tokens?: TurnTokens;
   interactionId?: string;
   /** Session resumption handle updated during live sessions. */
@@ -824,6 +936,28 @@ export interface TurnEvent {
   compaction?: CompactionSignal;
   /** Why the turn ended. Present on terminal `done` events when known. */
   stop?: TurnStop;
+  /**
+   * Turn tool visibility snapshot when `stop.kind === 'tool'`.
+   * Hosts pass this to `invokeTool({ snapshot })` so T1/T2 resume matches the gated turn.
+   */
+  tools?: TurnToolSnapshot;
+  /** Turn-stage name when `type === 'stage'` (`docs/contracts/stages.md`). */
+  stage?: TurnStage;
+  /** Tool call id on `stage` / related tool-stage events. */
+  callId?: string;
+  /** Tool name on `stage` events (`pre_tool` / `post_tool`). Not `tool` (ToolCallEvent). */
+  toolName?: string;
+  /** True when a tool completed with awaiting_user_input (on stage/tool events). */
+  awaiting?: boolean;
+  /** pre_tool gate payload when `tool.phase === 'gate'` or stage carries a gate. */
+  gate?: ToolGate;
+  /** True when pre_tool settled without running the body. */
+  callNotStarted?: boolean;
+  /**
+   * Host-visible stage affordance warnings (`docs/contracts/stages.md`).
+   * Emitted after `onStage` when invalid/rejected fields were dropped.
+   */
+  stageWarnings?: StageApplyWarning[];
 }
 
 /**
@@ -888,29 +1022,62 @@ export interface SessionRequest {
   sessionPermissions?: string[];
   history?: TurnHistoryMessage[];
   sessionResumptionHandle?: string;
-  /**
-   * Host-supplied function declarations for this session.
-   * When set, replaces `generation.tools.wire` on the provider request
-   * (Orchid-class hosts that resolve tools outside the Worker registry).
-   */
-  wireTools?: WireFunctionTool[];
   /** Optional realtime parts sent immediately after setup. */
   input?: InteractionPart[];
+  /**
+   * Registry-resolved tool snapshot from the process that owns the tool registry
+   * (`prepareTurnToolSnapshot`). When set, session setup declares `snapshot.wire`
+   * instead of resolving tools locally, so a relay process without the registry
+   * can open the session. Every custom id must be within the profile's
+   * `tools.allow`; ids outside it are refused.
+   */
+  snapshot?: TurnToolSnapshot;
   signal?: AbortSignal;
   metadata?: Record<string, unknown>;
+  /**
+   * Session-lifetime stage handler (`docs/contracts/stages.md`). Immutable for
+   * the session; no `setOnStage`.
+   */
+  onStage?: StageHandler;
+  /** Default credentials for `executeTool` (per-call args override). */
+  credentials?: Record<string, ToolCredential>;
+  /** Opaque host slot for stages / tool execute (per-call args override). */
+  host?: unknown;
 }
 
 /**
  * Long-lived live session returned by `runSession`.
  * `done` events mark conversational turn boundaries; the session stays open until `close()`.
  */
+export type LiveExecuteToolArgs = {
+  name: string;
+  callId: string;
+  input?: unknown;
+  resume?: InvokeToolResume;
+  credentials?: Record<string, ToolCredential>;
+  host?: unknown;
+};
+
+export type LiveExecuteToolResult = {
+  outputRaw?: unknown;
+  outputModel?: ModelToolResult;
+  failure?: ToolFailure;
+  awaiting?: boolean;
+  gated?: ToolGate;
+};
+
 export interface LiveSession {
   readonly profileId: ProfileId;
   readonly canary: string;
   events(): AsyncGenerator<TurnEvent, void, undefined>;
-  sendAudio(args: { data: string; mimeType?: string }): void;
-  sendVideo(args: { data: string; mimeType?: string }): void;
-  sendText(text: string): void;
+  sendAudio(args: { data: string; mimeType?: string }): Promise<void>;
+  sendVideo(args: { data: string; mimeType?: string }): Promise<void>;
+  sendText(text: string): Promise<void>;
+  /**
+   * Registry tool execute with stages. Pumps `stage`/`tool` into `events()`.
+   * Gate → returns `gated` without upstream tool response; resume with `granted`.
+   */
+  executeTool(args: LiveExecuteToolArgs): Promise<LiveExecuteToolResult>;
   sendToolResponse(id: string, name: string, output: unknown): void;
   sendToolResponses(responses: Array<{ id: string; name: string; output: unknown }>): void;
   close(reason?: string): Promise<void>;

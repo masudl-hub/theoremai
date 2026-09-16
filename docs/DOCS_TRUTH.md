@@ -7,7 +7,8 @@ Deterministic document-health lint for THEORUM. No waivers. No LLM.
 | Field | Value |
 | --- | --- |
 | CLI | `scripts/docs-truth/cli.mjs` (`lint`, `inventory`, `freshness`) |
-| Export drift | `scripts/docs-truth/export-drift.mjs` |
+| Export drift | `scripts/docs-truth/export-drift.mjs` (barrel exports vs contracts) |
+| Copy lint | `scripts/docs-truth/copy-lint.mjs` (P2 — full-tree prose in `src/kernel` / `src/guardrails` / `src/interface` must live in the lexicon or carry an explicit exempt) |
 | Graph | `docs/_map.mjs` |
 
 ## Ownership
@@ -17,6 +18,7 @@ Deterministic document-health lint for THEORUM. No waivers. No LLM.
 | `scripts/docs-truth/graph.mjs` | Graph load, ownership, evidence, freshness |
 | `scripts/docs-truth/cli.mjs` | `lint`, `inventory`, `freshness` |
 | `scripts/docs-truth/export-drift.mjs` | Entrypoint export vs contract drift |
+| `scripts/docs-truth/copy-lint.mjs` | Emit-site copy vs lexicon (P2) |
 | `scripts/docs-truth/graph.test.mjs` | Contract tests |
 | `docs/_map.mjs` | Export → doc ownership graph |
 
@@ -29,7 +31,8 @@ Deterministic document-health lint for THEORUM. No waivers. No LLM.
 | Section freshness | Watches/`section_triggers` → specific `##` headings must change |
 | Owned fallback | Owned files → at least one behavioral section hunk |
 | Evidence | ≥2 supports; behavioral sections require `contract_test` |
-| Export drift | Entry `mod.ts` export names appear in owner contract |
+| Export drift | Entry `mod.ts` export names appear in owner contract (checked by `export-drift.mjs`) |
+| Copy lint | Full-tree prose (≥3 words) in `src/kernel` / `src/guardrails` / `src/interface` outside `lexicon.ts` fails (`copy-lint.mjs`); `// lexicon-exempt:` / `lexicon-exempt-file:` require a reason |
 
 ## Package vs repo documentation
 
@@ -66,10 +69,14 @@ owned by those contracts for freshness — change code, update the matching cont
 
 | Layer | Command |
 | --- | --- |
-| `npm run lint` | Runs `lint:docs` first, then biome / ast-grep / fallow |
+| `npm run lint` | Runs `lint:docs` first, then `deno lint`, biome, ast-grep, and fallow |
 | `deno task lint` | Same as `npm run lint` |
-| CI | `npm run lint:docs` with `THEORUM_DOCS_BASE=origin/<base>` |
-| Pre-commit | `npm run lint:docs` (auto-installed by `prepare` on `npm install`) |
+| `npm run check:ci` / `deno task ci` | Full CI gate: docs-truth, deno lint, biome, ast-grep, fallow, typecheck, verify:publish, and tests |
+| CI | `lint:docs` (with `THEORUM_DOCS_BASE`), `deno lint`, then `lint:biome` + `lint:ast-grep` + `lint:fallow` (`FALLOW_AUDIT_BASE=origin/<base>`) |
+| Pre-commit | `npm run lint:docs` (auto-installed by `prepare` / `hooks:install`) |
+| Pre-push | `fallow audit --base origin/main` (uses `coverage/coverage-final.json` when present) |
+
+`lint:fallow` runs Istanbul coverage, then `fallow audit --base $FALLOW_AUDIT_BASE` (default `origin/main`), then full-tree `health` / `dupes` / `dead-code`. No threshold waivers.
 
 Fallow: `docs/_map.mjs` is listed under `dynamicallyLoaded` in `.fallowrc.jsonc`
 (docs-truth imports it at runtime; static analysis cannot see the edge).
@@ -94,6 +101,7 @@ Re-install manually: `npm run hooks:install`
     "Rules": {
       "supports": [
         { "kind": "source", "path": "scripts/docs-truth/graph.mjs" },
+        { "kind": "source", "path": "scripts/docs-truth/copy-lint.mjs" },
         { "kind": "contract_test", "path": "scripts/docs-truth/graph.test.mjs" }
       ]
     },

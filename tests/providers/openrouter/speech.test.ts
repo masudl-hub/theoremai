@@ -11,10 +11,10 @@ import {
   yieldSpeechSuccess,
 } from '../../../src/providers/openrouter/speech.ts';
 import { wrapPcmAsWav } from '../../../src/providers/shared/pcm.ts';
-import { HOST_MODELS } from '../../fixtures/models.ts';
+import { HOST_BINDINGS } from '../../fixtures/models.ts';
 
 function createMockSpeechRequest(text: string): ProviderCompleteRequest {
-  const spec = HOST_MODELS.gemini31FlashTts;
+  const spec = HOST_BINDINGS.gemini31FlashTts;
   return {
     model: 'gemini31FlashTts',
     apiId: spec.apiId,

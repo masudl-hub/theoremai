@@ -1,4 +1,5 @@
-import { assertEquals, assertExists } from '@std/assert';
+import { assertEquals, assertExists, assertThrows } from '@std/assert';
+import { TheorumError } from '../../../../src/guardrails/error.ts';
 import { registerTool } from '../../../../src/kernel/tools/mod.ts';
 import type { ProviderCompleteRequest } from '../../../../src/kernel/types.ts';
 import {
@@ -9,7 +10,7 @@ import {
   buildGeminiLiveToolResponse,
   buildGeminiLiveToolResponses,
   buildGeminiLiveWebSocketUrl,
-  extractUsageTokens,
+  extractLiveUsageTokens,
   foldGeminiLiveServerMessage,
   parseFunctionArguments,
   parseGeminiLiveMessage,
@@ -471,11 +472,11 @@ Deno.test('parseGeminiLiveMessage distinguishes empty from malformed', () => {
   assertEquals(parseGeminiLiveMessage('null'), { ok: false, reason: 'malformed' });
 });
 
-Deno.test('extractUsageTokens parses token counts', () => {
-  const empty = extractUsageTokens({});
+Deno.test('extractLiveUsageTokens parses token counts', () => {
+  const empty = extractLiveUsageTokens({});
   assertEquals(empty, undefined);
 
-  const tokens = extractUsageTokens({
+  const tokens = extractLiveUsageTokens({
     promptTokenCount: 15,
     responseTokenCount: 25,
     thoughtsTokenCount: 5,
@@ -486,7 +487,7 @@ Deno.test('extractUsageTokens parses token counts', () => {
   assertEquals(tokens?.thinking, 5);
   assertEquals(tokens?.total, 40);
 
-  const snakeTokens = extractUsageTokens({
+  const snakeTokens = extractLiveUsageTokens({
     prompt_token_count: 10,
     response_token_count: 20,
     total_token_count: 30,
@@ -567,4 +568,68 @@ Deno.test('foldGeminiLiveServerMessage handles tool calls and usage tokens', () 
   assertEquals(events[1]?.type, 'tokens');
   assertEquals(events[1]?.tokens?.input, 12);
   assertEquals(events[1]?.tokens?.output, 8);
+});
+
+Deno.test('Live client-content history and realtime input reject media references', () => {
+  assertThrows(
+    () =>
+      buildGeminiLiveClientContent([
+        {
+          role: 'user',
+          parts: [{ type: 'image', mimeType: 'image/png', uri: 'files/img1' }],
+        },
+      ]),
+    TheorumError,
+    'media references are not supported on geminiLive',
+  );
+  assertThrows(
+    () => buildGeminiLiveRealtimeInput({ type: 'video', mimeType: 'video/mp4', uri: 'files/v1' }),
+    TheorumError,
+    'media references are not supported on geminiLive',
+  );
+});
+
+Deno.test('wireLiveTools declares every live function NON_BLOCKING', () => {
+  const req: ProviderCompleteRequest = {
+    model: 'gemini-3.1-flash-live-preview',
+    apiId: 'gemini-3.1-flash-live-preview',
+    system: '',
+    thinking: 'none',
+    maxOutputTokens: 100,
+    temperature: 0,
+    builtins: [],
+    input: [],
+    structured: null,
+    image: null,
+    wireTools: [
+      {
+        type: 'function',
+        name: 'lookup',
+        description: 'Look something up',
+        parameters: { type: 'object', properties: {} },
+      },
+    ],
+  };
+  const setupMsg = buildGeminiLiveSetupMessage(req) as {
+    setup: { tools: Array<{ functionDeclarations: Array<Record<string, unknown>> }> };
+  };
+  const decls = setupMsg.setup.tools[0]?.functionDeclarations ?? [];
+  assertEquals(decls.length, 1);
+  assertEquals(decls[0]?.behavior, 'NON_BLOCKING');
+});
+
+Deno.test('foldGeminiLiveServerMessage folds interactionStatus and turnComplete into session events', () => {
+  const working = foldGeminiLiveServerMessage({
+    serverContent: { turnComplete: true },
+    interactionStatus: 'IN_PROGRESS',
+  });
+  assertEquals(
+    working.map((ev) => (ev.type === 'session' ? ev.session?.kind : ev.type)),
+    ['turn_complete', 'working'],
+  );
+
+  const idle = foldGeminiLiveServerMessage({ interaction_status: 'IDLE' });
+  assertEquals(idle, [{ type: 'session', session: { kind: 'idle' } }]);
+
+  assertEquals(foldGeminiLiveServerMessage({ interactionStatus: 'BOGUS' }), []);
 });

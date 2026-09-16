@@ -15,6 +15,7 @@ import {
   buildGeminiLiveSetupMessage,
   foldGeminiLiveServerMessage,
   parseGeminiLiveMessage,
+  readLiveInteractionStatus,
 } from './framing.ts';
 
 const SETUP_TIMEOUT_MS = 20_000;
@@ -181,14 +182,27 @@ export function createLiveQueue(): LiveQueue {
   };
 }
 
-function turnPhaseFromMessage(
+/**
+ * Conversational cycle boundary.
+ *
+ * When the server reports `interactionStatus`, that is authoritative: `IDLE`
+ * closes the cycle and `IN_PROGRESS` keeps it open even across `turnComplete`
+ * (background reasoning / async tools may still produce output). Without the
+ * field, `turnComplete` is the boundary as before.
+ */
+export function turnPhaseFromMessage(
   message: Record<string, unknown>,
   events: TurnEvent[],
 ): LiveTurnPhase {
   const interrupted = events.some((ev) => ev.type === 'done' && ev.interrupted === true);
   if (interrupted) return 'abort';
-  const serverContent = message.serverContent as { turnComplete?: boolean } | undefined;
-  if (serverContent?.turnComplete) return 'complete';
+  const status = readLiveInteractionStatus(message);
+  if (status === 'IDLE') return 'complete';
+  if (status === 'IN_PROGRESS') return 'streaming';
+  const serverContent = message.serverContent as
+    | { turnComplete?: boolean; turn_complete?: boolean }
+    | undefined;
+  if (serverContent?.turnComplete || serverContent?.turn_complete) return 'complete';
   return 'streaming';
 }
 

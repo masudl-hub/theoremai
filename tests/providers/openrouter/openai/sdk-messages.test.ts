@@ -114,6 +114,40 @@ Deno.test('toolResultMessage builds tool result message', () => {
   assertEquals(part.output, { type: 'text', value: 'result data' });
 });
 
+Deno.test('toolResultMessage prefers multimodal parts over content', () => {
+  const msg: TurnHistoryMessage = {
+    role: 'tool',
+    content: 'text projection without bytes',
+    tool_call_id: 'call_img',
+    name: 'fetch_stock_media',
+    parts: [
+      { type: 'text', text: '1. palm' },
+      { type: 'image', mimeType: 'image/jpeg', data: '/9j/abc' },
+      { type: 'video', mimeType: 'video/mp4', data: 'AAAA' },
+    ],
+  };
+  const result = toolResultMessage(msg);
+  if (result.role !== 'tool') throw new Error('expected tool message');
+  const part = result.content[0];
+  if (part.type !== 'tool-result') throw new Error('expected tool-result part');
+  assertEquals(part.output, {
+    type: 'content',
+    value: [
+      { type: 'text', text: '1. palm' },
+      {
+        type: 'file',
+        mediaType: 'image/jpeg',
+        data: { type: 'data', data: '/9j/abc' },
+      },
+      {
+        type: 'file',
+        mediaType: 'video/mp4',
+        data: { type: 'data', data: 'AAAA' },
+      },
+    ],
+  });
+});
+
 Deno.test('toolResultMessage uses fallback IDs', () => {
   const msg: TurnHistoryMessage = { role: 'tool' };
   const result = toolResultMessage(msg);
@@ -245,4 +279,26 @@ Deno.test('buildAiSdkMessages handles no history', () => {
   req.history = undefined;
   const messages = buildAiSdkMessages(req);
   assertEquals(messages.length, 1);
+});
+
+Deno.test('AI SDK message builder rejects media references in input and tool results', () => {
+  const ref: InteractionPart = { type: 'image', mimeType: 'image/png', uri: 'files/img1' };
+  assertThrows(() => sdkPart(ref), TheorumError, 'media references are not supported on openAi');
+  assertThrows(
+    () => sdkContentFromParts([{ type: 'text', text: 'hi' }, ref]),
+    TheorumError,
+    'media references are not supported on openAi',
+  );
+  const toolMsg: TurnHistoryMessage = {
+    role: 'tool',
+    tool_call_id: 'call_1',
+    name: 'fetch',
+    content: 'ok',
+    parts: [ref],
+  };
+  assertThrows(
+    () => toolResultMessage(toolMsg),
+    TheorumError,
+    'media references are not supported on openAi',
+  );
 });

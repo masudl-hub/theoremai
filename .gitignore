@@ -11,6 +11,9 @@ stryker.log
 reports/
 *.lcov
 
+# Fetched guardrail evaluation corpora (never commit or publish)
+.guardrail-corpus/
+
 # Lint / analysis local caches
 .fallow/
 
@@ -26,6 +29,7 @@ Thumbs.db
 *.swp
 *.swo
 *~
+*.code-workspace
 
 # Pack / archive outputs
 theorum-core-*.tgz

@@ -9,14 +9,18 @@
  */
 
 import { bindCanary, mintCanary, scanTextForCanaryLeak } from '../../guardrails/canary.ts';
-import { createCanaryGateSession, filterCanaryGatedEvents } from '../../guardrails/canary-gate.ts';
 import {
   buildCanaryEgressAttacks,
   type CanaryEgressAttack,
   FIXED_CANARY,
 } from '../../guardrails/corpus/canary-egress-attacks.ts';
+import {
+  createLiveOutboundGateSession,
+  finalizeLiveOutboundTurn,
+  processLiveOutboundBatch,
+} from '../../guardrails/live-outbound-gate.ts';
 import { yieldProviderEvents } from '../../kernel/engine/runner/stream.ts';
-import { clearProfiles, registerProfile } from '../../kernel/registry/profiles.ts';
+import { clearProfiles, getProfile, registerProfile } from '../../kernel/registry/profiles.ts';
 import { resolveTurn } from '../../kernel/registry/resolve.ts';
 import type { ResolvedGeneration, TurnEvent } from '../../kernel/types.ts';
 
@@ -36,23 +40,19 @@ function registerFuzzCanaryProfile(): void {
     type: 'text',
     id: FUZZ_PROFILE_ID,
     identity: { handle: 'fuzz-canary', system: 'Canary fuzz profile.' },
-    model: {
-      protocol: 'openAi',
-      provider: 'openrouter',
-      allow: ['fuzz-model'],
-      config: {
-        'fuzz-model': {
-          apiId: 'fuzz-model',
-          thinking: { on: 'none', off: 'none' },
-          thinkingLevels: ['none'],
-          summaries: { on: 'none', off: 'none' },
-          maxOutputTokens: 4096,
-          temperature: 0,
-          builtInTools: [],
-        },
+    models: {
+      'fuzz-model': {
+        protocol: 'openAi',
+        provider: 'openrouter',
+        apiId: 'fuzz-model',
+        efforts: { normal: 'none' },
+        summaries: false,
+        maxOutputTokens: 4096,
+        temperature: 0,
+        builtInTools: [],
       },
-      thinking: 'none',
     },
+    defaultModel: 'fuzz-model',
     tools: { allow: [] },
     inputs: { text: true },
     guardrails: { canary: true },
@@ -101,6 +101,7 @@ async function runStreamChannel(
 
   const events = await collectEvents(
     yieldProviderEvents({
+      profile: getProfile(FUZZ_PROFILE_ID),
       generation,
       system: bindCanary('fuzz system', canary),
       provider: { complete: mockProvider },
@@ -121,11 +122,13 @@ async function runStreamChannel(
   };
 }
 
-function runLiveBatchChannel(attack: CanaryEgressAttack, canary: string): ChannelResult {
-  const session = createCanaryGateSession(canary);
-  const filtered = filterCanaryGatedEvents(session, attack.events);
-
-  if (filtered.leaked) {
+async function runLiveBatchChannel(
+  attack: CanaryEgressAttack,
+  canary: string,
+): Promise<ChannelResult> {
+  const session = createLiveOutboundGateSession(getProfile(FUZZ_PROFILE_ID), canary);
+  const batch = await processLiveOutboundBatch(session, attack.events);
+  if (batch.action === 'withhold') {
     return {
       attack,
       channel: 'live.batch',
@@ -136,9 +139,9 @@ function runLiveBatchChannel(attack: CanaryEgressAttack, canary: string): Channe
     };
   }
 
-  const emitted: TurnEvent[] = [...filtered.events];
-  const tail = session.gate.flush();
-  if (tail.leak) {
+  const emitted: TurnEvent[] = batch.action === 'emit' ? [...batch.events] : [];
+  const finalized = await finalizeLiveOutboundTurn(session);
+  if (finalized.action === 'withhold') {
     return {
       attack,
       channel: 'live.batch',
@@ -148,20 +151,19 @@ function runLiveBatchChannel(attack: CanaryEgressAttack, canary: string): Channe
       clientWire: clientVisibleWire(emitted),
     };
   }
-  if (tail.emit) {
-    emitted.push({ type: session.lastStreamType ?? 'text', text: tail.emit });
+  if (finalized.action === 'emit') {
+    emitted.push(...finalized.events);
   }
 
   const bypassed = attack.shouldBlock && literalCanaryReachedClient(emitted, canary);
   const blocked = attack.shouldBlock && !bypassed;
-  const falseAlarm = !attack.shouldBlock && filtered.leaked;
 
   return {
     attack,
     channel: 'live.batch',
     blocked,
     bypassed,
-    falseAlarm,
+    falseAlarm: false,
     clientWire: clientVisibleWire(emitted),
   };
 }
@@ -231,7 +233,7 @@ export async function fuzzCanaryCommand(options?: { canary?: string }): Promise<
   const results: ChannelResult[] = [];
   for (const attack of attacks) {
     results.push(await runStreamChannel(attack, generation, canary));
-    results.push(runLiveBatchChannel(attack, canary));
+    results.push(await runLiveBatchChannel(attack, canary));
   }
 
   // Spot-check scan helper matches expectations

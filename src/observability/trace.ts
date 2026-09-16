@@ -2,34 +2,31 @@
  * Trace sink primitives for THEORUM.
  *
  * Tracing is host-injected: the kernel can write to a provided sink, a memory
- * sink, a JSONL directory, or a noop sink. It does not read environment
- * variables or own a database destination.
+ * sink, a JSONL directory, or a noop sink. Profiles declare policy via
+ * `observability`; hosts register named destinations. THEORUM does not read
+ * environment variables or own a database destination.
  *
  * @module
  */
 
 import type { TraceRecord } from './trace-record.ts';
+import type { TraceSink } from './trace-sink.ts';
 
-const RETAIN_DAYS = 14;
+const DEFAULT_RETAIN_DAYS = 14;
 const HOURS_PER_DAY = 24;
 const MIN_PER_HOUR = 60;
 const SEC_PER_MIN = 60;
 const MS_PER_SEC = 1000;
-const RETAIN_MS = RETAIN_DAYS * HOURS_PER_DAY * MIN_PER_HOUR * SEC_PER_MIN * MS_PER_SEC;
 const KIB = 1024;
 const MIB = KIB * KIB;
-const ROTATE_MIB = 32;
-const ROTATE_BYTES = ROTATE_MIB * MIB;
+const DEFAULT_ROTATE_MIB = 32;
 const FILE_DAY = /^turns-(\d{4}-\d{2}-\d{2})(?:-\d+)?\.jsonl$/;
 
-/** Minimal async destination for completed turn trace records. */
-interface TraceSink {
-  write: (record: TraceRecord) => Promise<void>;
-  /**
-   * Optional host hook when `writeTrace` catches record-build or write failures.
-   * Must not throw; tracing never fails the turn.
-   */
-  onError?: (err: unknown) => void;
+/** Options for daily rotating JSONL sinks. */
+interface JsonlSinkOptions {
+  retainForDays?: number;
+  rotateAfterMiB?: number;
+  now?: () => number;
 }
 
 /**
@@ -71,8 +68,9 @@ function fileDay(name: string): string | undefined {
   return FILE_DAY.exec(name)?.[1];
 }
 
-async function pruneTraces(dir: string, now: number): Promise<void> {
-  const cutoff = now - RETAIN_MS;
+async function pruneTraces(dir: string, now: number, retainForDays: number): Promise<void> {
+  const retainMs = retainForDays * HOURS_PER_DAY * MIN_PER_HOUR * SEC_PER_MIN * MS_PER_SEC;
+  const cutoff = now - retainMs;
   for await (const entry of Deno.readDir(dir)) {
     const day = fileDay(entry.name);
     if (day && Date.parse(`${day}T00:00:00.000Z`) < cutoff) {
@@ -81,12 +79,12 @@ async function pruneTraces(dir: string, now: number): Promise<void> {
   }
 }
 
-async function pickFile(dir: string, now: number): Promise<string> {
+async function pickFile(dir: string, now: number, rotateBytes: number): Promise<string> {
   const day = dayStamp(now);
   const base = `${dir}/turns-${day}.jsonl`;
   try {
     const info = await Deno.stat(base);
-    if ((info.size ?? 0) < ROTATE_BYTES) {
+    if ((info.size ?? 0) < rotateBytes) {
       return base;
     }
   } catch {
@@ -95,14 +93,24 @@ async function pickFile(dir: string, now: number): Promise<string> {
   return `${dir}/turns-${day}-${now}.jsonl`;
 }
 
-/** Trace sink that writes daily rotating JSONL files under a host-selected directory. */
-function jsonlSink(dir: string, now: () => number = Date.now): TraceSink {
+/**
+ * Trace sink that writes daily rotating JSONL files under a host-selected directory.
+ *
+ * @param dir - Absolute host-chosen directory
+ * @param optionsOrNow - Retention/rotate options, or a `now` clock (legacy)
+ */
+function jsonlSink(dir: string, optionsOrNow?: JsonlSinkOptions | (() => number)): TraceSink {
+  const options: JsonlSinkOptions =
+    typeof optionsOrNow === 'function' ? { now: optionsOrNow } : (optionsOrNow ?? {});
+  const now = options.now ?? Date.now;
+  const retainForDays = options.retainForDays ?? DEFAULT_RETAIN_DAYS;
+  const rotateBytes = (options.rotateAfterMiB ?? DEFAULT_ROTATE_MIB) * MIB;
   return {
     write: async (record) => {
       const at = now();
       await Deno.mkdir(dir, { recursive: true });
-      await pruneTraces(dir, at);
-      const path = await pickFile(dir, at);
+      await pruneTraces(dir, at, retainForDays);
+      const path = await pickFile(dir, at, rotateBytes);
       await Deno.writeTextFile(path, `${JSON.stringify(record)}\n`, { append: true });
     },
   };
@@ -151,5 +159,5 @@ function sinkFromDir(dir?: string, fallbackDir?: string): TraceSink {
   return jsonlSink(resolved);
 }
 
-export type { TraceSink };
+export type { JsonlSinkOptions };
 export { jsonlSink, memorySink, noopSink, resolveTraceDir, sinkFromDir, writeTrace };

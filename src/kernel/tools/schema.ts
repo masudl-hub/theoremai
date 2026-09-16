@@ -38,7 +38,7 @@ export type JsonSchema = Record<string, unknown>;
 function validateGeminiKeys(schema: JsonSchema, path: string, errors: string[]): void {
   for (const key of Object.keys(schema)) {
     if (!(GEMINI_SUPPORTED_SCHEMA_KEYS as readonly string[]).includes(key)) {
-      errors.push(`${path}: unsupported Gemini schema key '${key}'`);
+      errors.push(`${path}: unsupported Gemini schema key '${key}'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
   }
 }
@@ -50,7 +50,7 @@ function validateSchemaShape(
   errors: string[],
 ): boolean {
   if (!schema || typeof schema !== 'object' || Array.isArray(schema)) {
-    errors.push(`${path}: schema must be an object`);
+    errors.push(`${path}: schema must be an object`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     return false;
   }
   const hasType = typeof schema.type === 'string' || Array.isArray(schema.type);
@@ -59,13 +59,13 @@ function validateSchemaShape(
     if (mode === 'structural' && path !== '$') {
       return true;
     }
-    errors.push(`${path}: missing type or combinator`);
+    errors.push(`${path}: missing type or combinator`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   if (mode === 'gemini') {
     validateGeminiKeys(schema, path, errors);
   }
   if (schema.type === 'array' && schema.items === undefined) {
-    errors.push(`${path}: array schema must define items`);
+    errors.push(`${path}: array schema must define items`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return true;
 }
@@ -80,7 +80,7 @@ function walkSchemaProperties(
   const reqList = Array.isArray(required) ? required : [];
   for (const req of reqList) {
     if (typeof req === 'string' && !(req in props)) {
-      errors.push(`${path}: required key '${req}' missing from properties`);
+      errors.push(`${path}: required key '${req}' missing from properties`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
   }
   for (const [key, child] of Object.entries(props)) {
@@ -126,7 +126,7 @@ function validateToolWireSchema(
   const errors: string[] = [];
   walkSchema(schema, '$', mode, errors);
   if (errors.length > 0) {
-    throw new TheorumError(`Invalid tool ${label} schema: ${errors.join('; ')}`);
+    throw new TheorumError(`Invalid tool ${label} schema: ${errors.join('; ')}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
 }
 
@@ -201,3 +201,21 @@ function jsonSchemaFromZod(schema: ZodType, io: 'input' | 'output' = 'output'): 
 }
 
 export { jsonSchemaFromZod, validateToolInputSchema, validateToolOutputSchema };
+
+/** Strip prototype-pollution keys from provider/host tool args or host-mutated values before validation. */
+export function plainToolInput(input: unknown): unknown {
+  if (input === null || typeof input !== 'object') {
+    return input;
+  }
+  if (Array.isArray(input)) {
+    return input.map(plainToolInput);
+  }
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(input as Record<string, unknown>)) {
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+      continue;
+    }
+    out[key] = plainToolInput((input as Record<string, unknown>)[key]);
+  }
+  return out;
+}

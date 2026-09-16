@@ -24,7 +24,7 @@ import type {
   TurnRequest,
 } from '../src/kernel/types.ts';
 import { createProvider } from '../src/providers/create-provider.ts';
-import { modelAllow } from '../tests/fixtures/models.ts';
+import { geminiModels, HOST_BINDINGS } from '../tests/fixtures/models.ts';
 import '../tests/fixtures/test-host.ts';
 import { registerHarnessTools } from '../src/kernel/tools/harness.ts';
 
@@ -114,24 +114,19 @@ const ALL_TEST_TOOLS = [
   'ask_user',
 ] as const;
 
-function flashLiteModel(maxSteps: number) {
-  const base = modelAllow('gemini35FlashLite');
+function flashLiteFields(maxSteps: number) {
   return {
-    protocol: 'geminiInteractions' as const,
-    provider: 'google' as const,
-    ...base,
-    config: {
+    ...geminiModels('gemini35FlashLite'),
+    models: {
       gemini35FlashLite: {
-        ...base.config.gemini35FlashLite,
+        ...HOST_BINDINGS.gemini35FlashLite,
         apiId: 'gemini-3.1-flash-lite',
         temperature: 0.1,
         maxOutputTokens: 2048,
         builtInTools: [],
       },
     },
-    thinking: 'minimal' as const,
     maxSteps,
-    key: 'slotA' as const,
   };
 }
 
@@ -175,7 +170,7 @@ function registerPressureProfiles(): void {
       type: 'text',
       id: INVOKE_PROFILE,
       identity: { handle: 'invoke-pressure', system: 'invoke-only profile' },
-      model: { ...flashLiteModel(1) },
+      ...flashLiteFields(1),
       tools: { allow: [...ALL_TEST_TOOLS, 'pressure_burst_echo'] },
       inputs: { text: true },
       outputs: {},
@@ -188,7 +183,7 @@ function registerPressureProfiles(): void {
       type: 'text',
       id: T2_PROFILE,
       identity: { handle: 't2-pressure', system: 'T2 loader profile' },
-      model: { ...flashLiteModel(4) },
+      ...flashLiteFields(4),
       tools: {
         allow: ['load_tools', 'record_lookup', 'stub_tool'],
         t2Loader: 'load_tools',
@@ -204,7 +199,7 @@ function registerPressureProfiles(): void {
       type: 'text',
       id: T1_PROFILE,
       identity: { handle: 't1-pressure', system: 'T1 policy profile' },
-      model: { ...flashLiteModel(2) },
+      ...flashLiteFields(2),
       tools: {
         allow: ['pressure_t1_tool', 'stub_tool'],
         t1Policy: () => ['pressure_t1_tool'],
@@ -220,7 +215,7 @@ function registerPressureProfiles(): void {
       type: 'text',
       id: STUB_RUN_PROFILE,
       identity: { handle: 'stub-run', system: 'Stub provider drives tool calls.' },
-      model: { ...flashLiteModel(8) },
+      ...flashLiteFields(8),
       tools: {
         allow: [
           'stub_tool',
@@ -251,7 +246,7 @@ function registerPressureProfiles(): void {
         system:
           'You are a tool executor under test. When instructed to call a tool, call it exactly once with the given JSON arguments. Do not explain. Do not refuse. Do not call any other tool.',
       },
-      model: { ...flashLiteModel(6) },
+      ...flashLiteFields(6),
       tools: {
         allow: [
           'stub_tool',
@@ -321,9 +316,7 @@ async function runLive(req: TurnRequest, provider: ModelProvider): Promise<CaseR
     const internal = errEv?.errorInternal;
     return {
       events,
-      error: internal
-        ? `${publicMsg ?? 'error'} [internal: ${internal}]`
-        : publicMsg,
+      error: internal ? `${publicMsg ?? 'error'} [internal: ${internal}]` : publicMsg,
       ms: Date.now() - start,
     };
   } catch (err) {
@@ -358,7 +351,7 @@ function dumpToolFailures(events: TurnEvent[]): void {
   for (const e of events) {
     if (e.type !== 'tool' || !e.tool) continue;
     const t = e.tool;
-    if (t.phase !== 'error' && t.phase !== 'pause') continue;
+    if (t.phase !== 'error' && t.phase !== 'gate') continue;
     const args = t.arguments === undefined ? '<absent>' : JSON.stringify(t.arguments);
     console.log(`      tool[${t.name || '(empty)'}] phase=${t.phase} args=${args}`);
     if (t.failure) {
@@ -368,8 +361,8 @@ function dumpToolFailures(events: TurnEvent[]): void {
         }`,
       );
     }
-    if (t.pause) {
-      console.log(`        pause: ${t.pause.kind}`);
+    if (t.gate) {
+      console.log(`        gate: ${t.gate.kind}`);
     }
   }
 }
@@ -449,24 +442,18 @@ function buildInvokeCases(): Case[] {
     }
   });
 
-  add(
-    'invoke/not_authorized auth throw',
-    { profile: p, name: 'throwing_auth_tool', input: {} },
-    (r) => {
-      if (lastTool(r.events, 'throwing_auth_tool')?.failure?.code !== 'not_authorized') {
-        return 'expected not_authorized';
-      }
-    },
-  );
+  add('invoke/preTool auth throw', { profile: p, name: 'throwing_auth_tool', input: {} }, (r) => {
+    const errEv = r.events.find((e) => e.type === 'error');
+    const detail = errEv?.errorInternal ?? errEv?.error ?? r.error ?? '';
+    if (!detail.includes('auth network failure')) {
+      return 'expected preTool throw as error event';
+    }
+  });
 
-  add(
-    'invoke/always_confirm pause',
-    { profile: p, name: 'always_confirm_tool', input: {} },
-    (r) => {
-      if (lastTool(r.events, 'always_confirm_tool')?.phase !== 'pause') return 'expected pause';
-      if (stopKind(r.events) !== 'tool') return 'expected tool stop';
-    },
-  );
+  add('invoke/always_confirm gate', { profile: p, name: 'always_confirm_tool', input: {} }, (r) => {
+    if (lastTool(r.events, 'always_confirm_tool')?.phase !== 'gate') return 'expected gate';
+    if (stopKind(r.events) !== 'gate') return 'expected gate stop';
+  });
 
   add(
     'invoke/always_confirm resume',
@@ -482,9 +469,9 @@ function buildInvokeCases(): Case[] {
     },
   );
 
-  add('invoke/preflight pause', { profile: p, name: 'preflight_confirm_tool', input: {} }, (r) => {
-    if (lastTool(r.events, 'preflight_confirm_tool')?.pause?.kind !== 'confirmation') {
-      return 'expected confirmation pause';
+  add('invoke/preTool gate', { profile: p, name: 'preflight_confirm_tool', input: {} }, (r) => {
+    if (lastTool(r.events, 'preflight_confirm_tool')?.gate?.kind !== 'confirmation') {
+      return 'expected confirmation gate';
     }
   });
 
@@ -492,8 +479,8 @@ function buildInvokeCases(): Case[] {
     'invoke/session_consent pause',
     { profile: p, name: 'delete_resource', input: { id: 'x' } },
     (r) => {
-      if (lastTool(r.events, 'delete_resource')?.phase !== 'pause')
-        return 'expected permission pause';
+      if (lastTool(r.events, 'delete_resource')?.phase !== 'gate')
+        return 'expected permission gate';
     },
   );
 
@@ -515,8 +502,8 @@ function buildInvokeCases(): Case[] {
     'invoke/load_tools_consent blocked',
     { profile: p, name: 'load_tools_consent', input: { names: ['stub_tool'] } },
     (r) => {
-      if (lastTool(r.events, 'load_tools_consent')?.phase !== 'pause')
-        return 'expected consent pause';
+      if (lastTool(r.events, 'load_tools_consent')?.phase !== 'gate')
+        return 'expected consent gate';
     },
   );
 
@@ -589,29 +576,19 @@ function buildInvokeCases(): Case[] {
   });
 
   add(
-    'invoke/ask_user interactive pause',
+    'invoke/ask_user awaiting complete',
     {
       profile: p,
       name: 'ask_user',
       input: { kind: 'text', prompt: 'Say hi' },
     },
     (r) => {
-      if (lastTool(r.events, 'ask_user')?.phase !== 'pause')
-        return 'ask_user should pause without resume';
-    },
-  );
-
-  add(
-    'invoke/ask_user resume',
-    {
-      profile: p,
-      name: 'ask_user',
-      input: { kind: 'text', prompt: 'Say hi' },
-      resume: { value: 'hello' },
-    },
-    (r) => {
-      const out = lastTool(r.events, 'ask_user')?.output as { answer?: unknown } | undefined;
-      if (out?.answer !== 'hello') return 'ask_user should return resume value';
+      const out = lastTool(r.events, 'ask_user')?.output as { status?: string } | undefined;
+      if (lastTool(r.events, 'ask_user')?.phase !== 'complete') {
+        return 'ask_user should complete without resume';
+      }
+      if (out?.status !== 'awaiting_user_input') return 'ask_user should await user input';
+      if (stopKind(r.events) !== 'completed') return 'expected completed stop';
     },
   );
 
@@ -797,8 +774,8 @@ function buildStubRunCases(): Case[] {
       lane: 'stub',
       run: () => stub('always_confirm_tool', {}),
       check: (r) => {
-        if (lastTool(r.events, 'always_confirm_tool')?.phase !== 'pause') return 'expected pause';
-        if (stopKind(r.events) !== 'tool') return 'expected tool stop';
+        if (lastTool(r.events, 'always_confirm_tool')?.phase !== 'gate') return 'expected gate';
+        if (stopKind(r.events) !== 'gate') return 'expected gate stop';
       },
     },
     {

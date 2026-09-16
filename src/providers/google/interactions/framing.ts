@@ -1,4 +1,5 @@
 import { TheorumError } from '../../../guardrails/error.ts';
+import { wireInteractionPart } from '../../../kernel/interaction-parts.ts';
 import { getStructured } from '../../../kernel/registry/schemas.ts';
 import { getTool } from '../../../kernel/tools/registry.ts';
 import type {
@@ -33,10 +34,7 @@ export function toGoogleValue(value: unknown): unknown {
 }
 
 export function wirePart(part: InteractionPart): Record<string, string> {
-  if (part.type === 'text') {
-    return { type: 'text', text: part.text };
-  }
-  return { type: part.type, mimeType: part.mimeType, data: part.data };
+  return wireInteractionPart(part);
 }
 
 const USER_INPUT = 'user_input';
@@ -46,25 +44,97 @@ export function userInputStep(parts: InteractionPart[]): Record<string, unknown>
 }
 
 function functionResultStep(msg: TurnHistoryMessage): Record<string, unknown> {
+  const result =
+    msg.parts && msg.parts.length > 0
+      ? msg.parts.map(wirePart)
+      : [{ type: 'text', text: msg.content ?? '' }];
   return {
     type: 'function_result',
     name: msg.name ?? '',
     call_id: msg.tool_call_id ?? '',
-    result: [{ type: 'text', text: msg.content ?? '' }],
+    result,
   };
 }
 
-export function historyStep(msg: TurnHistoryMessage): Record<string, unknown> {
-  if (msg.role === 'tool') {
-    return functionResultStep(msg);
+/** Parse OpenAI-style tool-call `arguments` JSON into an Interactions object. */
+function functionCallArguments(raw: string): Record<string, unknown> {
+  const trimmed = raw.trim();
+  if (!trimmed) return {};
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+    return { value: parsed };
+  } catch {
+    return { value: raw };
   }
-  const isAssistant = msg.role === 'assistant';
+}
+
+function functionCallStep(call: {
+  id: string;
+  function: { name: string; arguments: string };
+  thoughtSignature?: string;
+}): Record<string, unknown> {
+  const step: Record<string, unknown> = {
+    type: 'function_call',
+    id: call.id,
+    name: call.function.name,
+    arguments: functionCallArguments(call.function.arguments),
+  };
+  if (call.thoughtSignature) {
+    step.thoughtSignature = call.thoughtSignature;
+  }
+  return step;
+}
+
+function textOrPartsStep(
+  role: 'assistant' | 'user',
+  msg: TurnHistoryMessage,
+): Record<string, unknown> {
   // Google Interactions input steps: assistant history is `model_output` (not `model_turn`).
-  const type = isAssistant ? 'model_output' : 'user_input';
+  const type = role === 'assistant' ? 'model_output' : 'user_input';
   if (msg.parts && msg.parts.length > 0) {
     return { type, content: msg.parts.map(wirePart) };
   }
   return { type, content: [{ type: 'text', text: msg.content ?? '' }] };
+}
+
+/**
+ * Map one host history message to Interactions input step(s).
+ *
+ * OpenAI-shaped assistant `tool_calls` (often with no `content`) become
+ * `function_call` steps — never empty `model_output` text.
+ */
+export function historySteps(msg: TurnHistoryMessage): Record<string, unknown>[] {
+  if (msg.role === 'tool') {
+    return [functionResultStep(msg)];
+  }
+
+  if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
+    const steps: Record<string, unknown>[] = [];
+    const hasParts = Boolean(msg.parts && msg.parts.length > 0);
+    const hasText = Boolean(msg.content?.trim());
+    if (hasParts || hasText) {
+      steps.push(textOrPartsStep('assistant', msg));
+    }
+    for (const call of msg.tool_calls) {
+      steps.push(functionCallStep(call));
+    }
+    return steps;
+  }
+
+  if (msg.role === 'assistant') {
+    return [textOrPartsStep('assistant', msg)];
+  }
+
+  return [textOrPartsStep('user', msg)];
+}
+
+/** Single-step helper for simple messages (first of {@link historySteps}). */
+export function historyStep(msg: TurnHistoryMessage): Record<string, unknown> {
+  const steps = historySteps(msg);
+  return steps[0] ?? { type: 'user_input', content: [{ type: 'text', text: '' }] };
 }
 
 export function systemHoldsUserInput(system: string, parts: InteractionPart[]): boolean {
@@ -181,7 +251,7 @@ export function inputStepsFromRequest(req: ProviderCompleteRequest): Record<stri
   }
   const inputSteps: Record<string, unknown>[] = [];
   for (const h of req.history ?? []) {
-    inputSteps.push(historyStep(h));
+    inputSteps.push(...historySteps(h));
   }
   if (req.input.length > 0 || inputSteps.length === 0) {
     inputSteps.push(userInputStep(req.input));
@@ -220,8 +290,12 @@ export function baseInteractionsBody(req: ProviderCompleteRequest): Record<strin
     // TTS models reject chat thinking knobs; voice lives under speech_config.
     attachSpeechConfig(req, generationConfig);
   } else {
-    generationConfig.thinkingLevel = req.thinking;
-    generationConfig.thinkingSummaries = req.summaries;
+    if (req.thinking) {
+      generationConfig.thinkingLevel = req.thinking;
+    }
+    if (req.summaries) {
+      generationConfig.thinkingSummaries = req.summaries;
+    }
   }
   return {
     model: req.apiId,

@@ -11,7 +11,8 @@ function convertGeminiSchemaType(value: unknown): Record<string, unknown> {
   const nonNullTypes = schemaTypes.filter((item) => item !== 'null');
   const converted: Record<string, unknown> = {};
   if (schemaTypes.includes('null')) converted.nullable = true;
-  if (nonNullTypes.length === 1) converted.type = nonNullTypes[0]!.toUpperCase();
+  const [onlyType] = nonNullTypes;
+  if (onlyType !== undefined && nonNullTypes.length === 1) converted.type = onlyType.toUpperCase();
   if (nonNullTypes.length > 1) {
     converted.anyOf = nonNullTypes.map((item) => ({ type: item.toUpperCase() }));
   }

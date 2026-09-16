@@ -4,6 +4,7 @@ import type { ResolvedGeneration, TurnEvent, TurnRequest } from '../kernel/types
 import { tapeUpstream } from '../providers/shared/upstream-tape.ts';
 import type { TraceRecord } from './trace-record.ts';
 import { httpStatus, openAiFinishReason, tokensFromEvents } from './trace-usage.ts';
+import type { ResolvedTraceInclude } from './types.ts';
 
 function attachResolved(
   record: TraceRecord,
@@ -18,11 +19,11 @@ function attachResolved(
   if (safe.projectId) {
     record.projectId = safe.projectId;
   }
-  if (safe.select) {
-    record.select = safe.select;
+  if (safe.model) {
+    record.modelSelect = safe.model;
   }
-  if (safe.thinking !== undefined) {
-    record.thinking = safe.thinking;
+  if (safe.effort) {
+    record.effort = safe.effort;
   }
   if (safe.metadata) {
     record.metadata = safe.metadata;
@@ -59,13 +60,19 @@ async function attachTape(
     system?: string;
     generation?: ResolvedGeneration;
     protocol?: Protocol;
+    include: ResolvedTraceInclude;
   },
 ): Promise<void> {
-  const { upstream, canary, system, generation, protocol } = args;
-  if (upstream !== undefined) {
+  const { upstream, canary, system, generation, protocol, include } = args;
+  if (include.upstreamLog && upstream !== undefined) {
     record.upstreamLog = await tapeUpstream(upstream, canary ?? '');
   }
-  if (generation && system !== undefined && protocol === 'geminiInteractions') {
+  if (
+    include.outboundWire &&
+    generation &&
+    system !== undefined &&
+    protocol === 'geminiInteractions'
+  ) {
     const { toInteractionsBody } = await import('../providers/google/interactions/framing.ts');
     record.wire = await tapeUpstream(
       toInteractionsBody(providerCompleteRequest(generation, system)),
@@ -114,10 +121,15 @@ function attachUsage(
   record: TraceRecord,
   upstream: unknown,
   done: Record<string, unknown> | undefined,
-  events?: TurnEvent[],
+  events: TurnEvent[] | undefined,
+  include: ResolvedTraceInclude,
 ): void {
-  attachUsageTokens(record, done, events);
-  attachUpstreamSummary(record, upstream, done);
+  if (include.usage) {
+    attachUsageTokens(record, done, events);
+  }
+  if (include.upstreamLog) {
+    attachUpstreamSummary(record, upstream, done);
+  }
 }
 
 export { attachResolved, attachTape, attachUsage };

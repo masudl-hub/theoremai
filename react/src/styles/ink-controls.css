@@ -1,0 +1,134 @@
+/* Shared ink waveform + borderless controls (live shell and turn voice composer). */
+
+:root {
+	--ink-ease: cubic-bezier(0.22, 1, 0.36, 1);
+	--ink-duration: 0.3s;
+}
+
+.ink-state {
+	margin: 0;
+	font-size: 0.75rem;
+	font-weight: 700;
+	letter-spacing: 0.06em;
+	text-transform: lowercase;
+	color: var(--color-ink);
+}
+
+.ink-wave-slot {
+	flex: 1 1 auto;
+	display: flex;
+	align-items: flex-end;
+	justify-content: center;
+	min-height: min(52vh, 22rem);
+	margin-bottom: 1.5rem;
+	padding: 0 0.5rem;
+}
+
+.ink-wave {
+	display: block;
+	width: min(100%, 36rem);
+	height: min(52vh, 22rem);
+	color: var(--color-ink);
+}
+
+.ink-wave--hero {
+	width: min(100%, 56rem);
+	height: 100%;
+	min-height: 40dvh;
+	max-height: 80dvh;
+}
+
+.ink-wave__bar {
+	stroke: currentcolor;
+	stroke-linecap: square;
+}
+
+.ink-divider {
+	flex-shrink: 0;
+	width: 100%;
+	height: 0;
+	margin: 0 0 1.5rem;
+	border: none;
+	border-top: 1px solid rgba(0, 0, 0, 0.14);
+}
+
+.ink-controls {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	flex-shrink: 0;
+}
+
+.ink-controls__left,
+.ink-controls__right {
+	display: flex;
+	align-items: center;
+	gap: 0.65rem;
+}
+
+.ink-control {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 2.5rem;
+	height: 2.5rem;
+	padding: 0;
+	color: var(--color-ink);
+	background: transparent;
+	border: none;
+	cursor: pointer;
+	opacity: 0.55;
+	transition: opacity var(--ink-duration) var(--ink-ease);
+}
+
+.ink-control:not(:disabled):hover {
+	opacity: 1;
+}
+
+.ink-control:disabled {
+	opacity: 0.22;
+	cursor: default;
+}
+
+.ink-control--active {
+	opacity: 0.9;
+}
+
+.ink-tooltip {
+	position: relative;
+	display: inline-flex;
+}
+
+.ink-tooltip__label {
+	position: absolute;
+	left: 50%;
+	z-index: 6;
+	padding: 0.28rem 0.45rem;
+	font-family: var(--font-mono, ui-monospace, monospace);
+	font-size: 0.62rem;
+	font-weight: 700;
+	letter-spacing: 0.08em;
+	line-height: 1.2;
+	text-transform: lowercase;
+	white-space: nowrap;
+	color: var(--color-paper, #f4f1ea);
+	background: var(--color-ink, #111);
+	border-radius: 0;
+	pointer-events: none;
+	transform: translateX(-50%);
+}
+
+.ink-tooltip__label--top {
+	bottom: calc(100% + 0.45rem);
+}
+
+.ink-tooltip__label--bottom {
+	top: calc(100% + 0.45rem);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ink-control {
+		transition: none;
+	}
+}

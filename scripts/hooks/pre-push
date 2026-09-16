@@ -1,0 +1,30 @@
+#!/usr/bin/env sh
+# Fallow gate on the push range — catches introduced complexity/dupes/dead before CI.
+# Installed by prepare / hooks:install. Full `npm run lint` still runs in CI.
+set -e
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+if ! command -v fallow >/dev/null 2>&1 && [ ! -x ./node_modules/.bin/fallow ]; then
+  echo "pre-push: fallow not installed (run npm install / deno install)" >&2
+  exit 1
+fi
+
+FALLOW_BIN="${FALLOW_BIN:-./node_modules/.bin/fallow}"
+
+# Prefer explicit FALLOW_AUDIT_BASE; otherwise let fallow use the branch upstream
+# merge-base (not a hardcoded main — release branches diverge heavily from main).
+AUDIT_ARGS=""
+if [ -n "${FALLOW_AUDIT_BASE:-}" ]; then
+  AUDIT_ARGS="--base ${FALLOW_AUDIT_BASE}"
+fi
+
+# Prefer Istanbul coverage when present so CRAP is real; otherwise audit still
+# gates cognitive / dupes / dead on the changeset.
+if [ -f coverage/coverage-final.json ]; then
+  # shellcheck disable=SC2086
+  "$FALLOW_BIN" audit $AUDIT_ARGS --coverage coverage/coverage-final.json
+else
+  echo "pre-push: no coverage/coverage-final.json — audit CRAP uses estimates (run npm run coverage locally for accurate scores)"
+  # shellcheck disable=SC2086
+  "$FALLOW_BIN" audit $AUDIT_ARGS
+fi

@@ -17,7 +17,8 @@ import { bindCanary, eventHasCanary, mintCanary } from '../../guardrails/canary.
 import { sanitizeTurnRequest } from '../../guardrails/sanitize.ts';
 import { runTurn } from '../../kernel/engine/runner.ts';
 import { clearProfiles, registerProfile } from '../../kernel/registry/profiles.ts';
-import { pickSystemRole, resolveTurn } from '../../kernel/registry/resolve.ts';
+import { resolveTurn } from '../../kernel/registry/resolve.ts';
+import { pickSystemRole } from '../../kernel/registry/system-role.ts';
 import type {
   ModelProvider,
   ProviderCompleteRequest,
@@ -47,23 +48,19 @@ function registerBenchProfile(): void {
       handle: 'bench',
       system: 'You are a benchmark stub.',
     },
-    model: {
-      protocol: 'openAi',
-      provider: 'openrouter',
-      allow: ['bench-model'],
-      config: {
-        'bench-model': {
-          apiId: 'bench-model',
-          thinking: { on: 'none', off: 'none' },
-          thinkingLevels: ['none'],
-          summaries: { on: 'none', off: 'none' },
-          maxOutputTokens: 4096,
-          temperature: 0,
-          builtInTools: [],
-        },
+    models: {
+      'bench-model': {
+        protocol: 'openAi',
+        provider: 'openrouter',
+        apiId: 'bench-model',
+        efforts: { normal: 'none' },
+        summaries: false,
+        maxOutputTokens: 4096,
+        temperature: 0,
+        builtInTools: [],
       },
-      thinking: 'none',
     },
+    defaultModel: 'bench-model',
     tools: { allow: [] },
     inputs: { text: true },
     guardrails: {

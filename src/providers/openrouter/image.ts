@@ -12,6 +12,7 @@
  */
 
 import { toErrorEvent } from '../../guardrails/error.ts';
+import { extractUsageTokens } from '../../kernel/engine/delta.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../kernel/types.ts';
 import { bytesToBase64 } from '../shared/pcm.ts';
 import type { OpenAiGatewayConfig } from '../types.ts';
@@ -28,12 +29,6 @@ const HTTP_OK = 200;
 export const OPENROUTER_IMAGE_TOOL = 'openrouter:image_generation';
 
 export type ImageProviderConfig = OpenAiGatewayConfig;
-
-interface TokenUsage {
-  input: number;
-  output: number;
-  total: number;
-}
 
 export function buildImageHeaders(
   apiKey: string,
@@ -54,25 +49,12 @@ function baseUrl(config: ImageProviderConfig): string {
   return config.baseUrl?.replace(/\/+$/, '') ?? 'https://openrouter.ai/api/v1';
 }
 
-function usageFromRecord(raw: unknown): TokenUsage | null {
-  if (!raw || typeof raw !== 'object') {
-    return null;
-  }
-  const usage = raw as Record<string, unknown>;
-  const input = typeof usage.prompt_tokens === 'number' ? usage.prompt_tokens : 0;
-  const output = typeof usage.completion_tokens === 'number' ? usage.completion_tokens : 0;
-  const total = typeof usage.total_tokens === 'number' ? usage.total_tokens : input + output;
-  if (input + output + total === 0) {
-    return null;
-  }
-  return { input, output, total };
-}
-
-function* yieldUsage(usage: TokenUsage | null): Generator<TurnEvent> {
-  if (!usage) {
+function* yieldUsage(raw: unknown): Generator<TurnEvent> {
+  const tokens = extractUsageTokens(raw);
+  if (!tokens) {
     return;
   }
-  yield { type: 'tokens', tokens: usage };
+  yield { type: 'tokens', tokens };
 }
 
 export function mediaFromImagesResponse(
@@ -227,7 +209,7 @@ export function buildInterleavedChatPayload(req: ProviderCompleteRequest): Recor
     messages: buildChatMessages(req),
     temperature: req.temperature,
     max_tokens: req.maxOutputTokens,
-    reasoning: { effort: req.thinking },
+    ...(req.thinking && req.thinking !== 'none' ? { reasoning: { effort: req.thinking } } : {}),
     tools: [
       {
         type: OPENROUTER_IMAGE_TOOL,
@@ -305,7 +287,7 @@ export async function* yieldInterleavedChat(
     return;
   }
 
-  yield* yieldUsage(usageFromRecord(body.usage));
+  yield* yieldUsage(body.usage);
   yield { type: 'done' };
 }
 
@@ -329,7 +311,7 @@ export async function* yieldImagesEndpoint(
   }
 
   yield { type: 'media', media };
-  yield* yieldUsage(usageFromRecord(body.usage));
+  yield* yieldUsage(body.usage);
   yield { type: 'done' };
 }
 

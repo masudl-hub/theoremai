@@ -4,7 +4,7 @@ import { defineProfile, getProfile, registerProfile } from '../../src/kernel/reg
 import { registerTool } from '../../src/kernel/tools/registry.ts';
 import { resolveTurnTools } from '../../src/kernel/tools/resolve.ts';
 import { jsonSchemaFromZod } from '../../src/kernel/tools/schema.ts';
-import { modelAllow } from '../fixtures/models.ts';
+import { geminiModels } from '../fixtures/models.ts';
 
 Deno.test('jsonSchemaFromZod preserves tool parameter shape for Zod 4 schemas', () => {
   const schema = z.object({
@@ -79,14 +79,8 @@ Deno.test('registerTool wire snapshot preserves Zod input properties', () => {
       id: 'wire_schema_pressure_bot',
       type: 'text',
       identity: { handle: 'wire-schema-pressure' },
-      model: {
-        protocol: 'geminiInteractions',
-        provider: 'google',
-        key: 'slotA',
-        thinking: 'minimal',
-        ...modelAllow('gemini35FlashLite'),
-        maxSteps: 1,
-      },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
       tools: { allow: [toolName] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 1 } },

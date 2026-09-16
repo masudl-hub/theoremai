@@ -5,7 +5,7 @@
  */
 
 import { TheorumError } from '../../guardrails/error.ts';
-import type { ModelId, Profile, ToolId, TurnRequest } from '../types.ts';
+import type { ModelId, ModelProfile, Profile, ToolId, TurnRequest } from '../types.ts';
 import { getTool } from './registry.ts';
 import type {
   PromoteLoadedResult,
@@ -44,17 +44,18 @@ export function resolveAllowedCustomToolIds(profile: Profile, req: TurnRequest):
     if (!tool || tool.type === 'builtin') {
       return false;
     }
-    return pathMatches(tool.paths, req.path);
+    // Host profiles execute every allowed tool — path gating does not apply.
+    return profile.type === 'host' || pathMatches(tool.paths, req.path);
   });
 }
 
 /** Provider builtins listed on the selected model — on for the turn (path-filtered). */
 export function resolveModelBuiltinIds(
-  profile: Profile,
+  profile: ModelProfile,
   req: TurnRequest,
   modelId: ModelId,
 ): ToolId[] {
-  const spec = profile.model.config[modelId];
+  const spec = profile.models[modelId];
   if (!spec) {
     return [];
   }
@@ -121,30 +122,46 @@ export function promoteBuiltin(state: TurnToolSnapshot, id: ToolId): void {
   state.builtins.push(id);
 }
 
-export function initialVisible(gated: ToolId[]): ToolId[] {
+/**
+ * Custom tools wired at turn start. Text/image: T0 only (T1/T2 pending).
+ * Live: every gated tool — declarations are fixed at session setup, so every
+ * allowed tool is effectively T0. Host: every gated tool — no tiers at all.
+ */
+export function initialVisible(profile: Profile, gated: ToolId[]): ToolId[] {
+  if (profile.type === 'live' || profile.type === 'host') {
+    return [...gated];
+  }
   return gated.filter((id) => getTool(id)?.loadTier === 'T0');
 }
 
-export function initialBuiltins(gated: ToolId[]): ToolId[] {
+/** Builtins on at turn start — every gated builtin on live, T0 elsewhere (mutual exclusions applied). */
+export function initialBuiltins(profile: Profile, gated: ToolId[]): ToolId[] {
   return applyBuiltinMutualExclusions(
     gated.filter((id) => {
       const tool = getTool(id);
-      return tool?.type === 'builtin' && tool.loadTier === 'T0';
+      return tool?.type === 'builtin' && (profile.type === 'live' || tool.loadTier === 'T0');
     }),
   );
 }
 
-/** Build the initial tool snapshot for a turn (T0 wired; T1/T2 pending). */
+/**
+ * Build the initial tool snapshot for a turn.
+ * Text/image: T0 wired, T1/T2 pending. Live: the whole allow list and every
+ * model builtin. Host: the whole allow list, no builtins, no path gating.
+ */
 export function resolveTurnTools(
   profile: Profile,
   req: TurnRequest,
-  modelId: ModelId,
+  modelId: ModelId | undefined,
 ): TurnToolSnapshot {
   const customAllowed = resolveAllowedCustomToolIds(profile, req);
-  const modelBuiltins = resolveModelBuiltinIds(profile, req, modelId);
+  const modelBuiltins =
+    profile.type === 'host' || modelId === undefined
+      ? []
+      : resolveModelBuiltinIds(profile, req, modelId);
   const gated = [...customAllowed, ...modelBuiltins];
-  const builtins = initialBuiltins(gated);
-  const visible = initialVisible(gated);
+  const builtins = initialBuiltins(profile, gated);
+  const visible = initialVisible(profile, gated);
   const executable = visible.filter((id) => getTool(id)?.type !== 'builtin');
   return {
     builtins,
@@ -161,7 +178,7 @@ export function resolveTurnTools(
 export async function prepareTurnToolSnapshot(
   profile: Profile,
   req: TurnRequest,
-  modelId: ModelId,
+  modelId: ModelId | undefined,
 ): Promise<TurnToolSnapshot> {
   const snapshot = resolveTurnTools(profile, req, modelId);
   await expandT1Policy(snapshot, profile, req);
@@ -187,7 +204,7 @@ export async function expandT1Policy(
   profile: Profile,
   req: TurnRequest,
 ): Promise<void> {
-  if (profile.type === 'speech') {
+  if (profile.type === 'speech' || profile.type === 'live' || profile.type === 'host') {
     return;
   }
   const t1Policy = profile.tools.t1Policy;
@@ -202,6 +219,7 @@ export async function expandT1Policy(
       path: req.path,
       sessionPermissions: req.sessionPermissions,
       gated: state.gated,
+      host: req.host,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -210,7 +228,7 @@ export async function expandT1Policy(
     });
   }
   if (!Array.isArray(selected)) {
-    throw new TheorumError(`Profile '${profile.id}' tools.t1Policy must return ToolId[]`);
+    throw new TheorumError(`Profile '${profile.id}' tools.t1Policy must return ToolId[]`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   for (const id of selected) {
     if (!state.gated.includes(id)) {
@@ -238,6 +256,10 @@ export function promoteLoadedTools(
   loaded: string[],
   profile: Profile,
 ): PromoteLoadedResult {
+  if (profile.type === 'live' || profile.type === 'host') {
+    // Every allowed tool is already visible — there is nothing to promote.
+    return { promoted: [] };
+  }
   const toPromote: ToolId[] = [];
   for (const id of loaded) {
     if (typeof id !== 'string' || LOADED_ID_BLOCKLIST.has(id)) {
@@ -245,7 +267,7 @@ export function promoteLoadedTools(
         promoted: [],
         failure: {
           code: 'invalid_output',
-          message: 'tools.t2Loader loaded ids must be plain strings',
+          message: 'tools.t2Loader loaded ids must be plain strings', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         },
       };
     }
@@ -259,7 +281,7 @@ export function promoteLoadedTools(
         promoted: [],
         failure: {
           code: 'invalid_output',
-          message: `Tool '${id}' is not registered`,
+          message: `Tool '${id}' is not registered`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         },
       };
     }
@@ -281,26 +303,26 @@ export function promotionFailure(id: string, profile: Profile): ToolFailure | un
   if (profile.type === 'speech' || !profile.tools.allow.includes(id)) {
     return {
       code: 'invalid_output',
-      message: `tools.t2Loader attempted to promote tool '${id}' outside profile allow`,
+      message: `tools.t2Loader attempted to promote tool '${id}' outside profile allow`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     };
   }
   const tool = getTool(id);
   if (!tool) {
     return {
       code: 'invalid_output',
-      message: `tools.t2Loader attempted to promote unknown tool '${id}'`,
+      message: `tools.t2Loader attempted to promote unknown tool '${id}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     };
   }
   if (tool.type === 'builtin') {
     return {
       code: 'invalid_output',
-      message: `tools.t2Loader attempted to promote builtin '${id}' — only custom tools may be promoted`,
+      message: `tools.t2Loader attempted to promote builtin '${id}' — only custom tools may be promoted`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     };
   }
   if (tool.loadTier !== 'T2') {
     return {
       code: 'invalid_output',
-      message: `tools.t2Loader attempted to promote tool '${id}' with loadTier '${tool.loadTier}' — only T2 tools may be promoted`,
+      message: `tools.t2Loader attempted to promote tool '${id}' with loadTier '${tool.loadTier}' — only T2 tools may be promoted`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     };
   }
   return undefined;

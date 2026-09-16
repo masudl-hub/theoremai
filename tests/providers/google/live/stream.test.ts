@@ -7,6 +7,7 @@ import {
   readGeminiLiveErrorMessage,
   readMessageData,
   sendInitialPayloads,
+  turnPhaseFromMessage,
 } from '../../../../src/providers/google/live/stream.ts';
 import { stubCompleteRequest } from '../../../fixtures/provider-request.ts';
 
@@ -119,4 +120,27 @@ Deno.test('createLiveQueue queues session batches and resolves async next', asyn
   const itemAfterClose = await queue.next();
   assertEquals(itemAfterClose, undefined);
   assertExists(queue);
+});
+
+Deno.test('turnPhaseFromMessage: interactionStatus is authoritative over turnComplete', () => {
+  assertEquals(turnPhaseFromMessage({ serverContent: { turnComplete: true } }, []), 'complete');
+  assertEquals(
+    turnPhaseFromMessage({ serverContent: { modelTurn: { parts: [] } } }, []),
+    'streaming',
+  );
+  assertEquals(
+    turnPhaseFromMessage(
+      { serverContent: { turnComplete: true }, interactionStatus: 'IN_PROGRESS' },
+      [],
+    ),
+    'streaming',
+  );
+  assertEquals(turnPhaseFromMessage({ interactionStatus: 'IDLE' }, []), 'complete');
+  assertEquals(turnPhaseFromMessage({ interaction_status: 'IDLE' }, []), 'complete');
+  assertEquals(
+    turnPhaseFromMessage({ serverContent: { interrupted: true }, interactionStatus: 'IDLE' }, [
+      { type: 'done', interrupted: true, stop: { kind: 'interrupted' } },
+    ]),
+    'abort',
+  );
 });

@@ -5,7 +5,7 @@ import {
   catalogPathFor,
   coerceProtocol,
   coerceProvider,
-  EXTRA_FIELDS,
+  coerceSpeechFormat,
   fieldMeta,
   isValidPair,
   isValidProfileProtocol,
@@ -22,6 +22,7 @@ import {
   protocolsFor,
   protocolsForProfileType,
   providersFor,
+  speechFormatsForProtocol,
   THINKING_LEVELS,
   VOICE_ACCEPT_MIMES,
 } from '../../src/kernel/schema.ts';
@@ -42,7 +43,8 @@ Deno.test('PROFILE_TYPE_PROTOCOLS covers every archetype and only known protocol
   assertEquals([...PROFILE_TYPES].sort().join(), Object.keys(PROFILE_TYPE_PROTOCOLS).sort().join());
   for (const type of PROFILE_TYPES) {
     const allowed = PROFILE_TYPE_PROTOCOLS[type];
-    assertEquals(allowed.length > 0, true);
+    // host never runs a model, so it is the one archetype with no protocol.
+    assertEquals(allowed.length > 0, type !== 'host');
     for (const protocol of allowed) {
       assertEquals(PROTOCOLS.includes(protocol), true);
       assertEquals(isValidProfileProtocol(type, protocol), true);
@@ -104,8 +106,16 @@ Deno.test('MEDIA_INPUT_KINDS values are MediaInputKind', () => {
   assertEquals(VOICE_ACCEPT_MIMES.includes('audio/wav'), true);
 });
 
+Deno.test('speechFormatsForProtocol matches assertSpeechRole rules', () => {
+  assertEquals([...speechFormatsForProtocol('openAi')], ['pcm', 'mp3']);
+  assertEquals([...speechFormatsForProtocol('geminiInteractions')], ['pcm']);
+  assertEquals([...speechFormatsForProtocol('geminiLive')], ['pcm']);
+  assertEquals(coerceSpeechFormat('geminiInteractions', 'mp3'), 'pcm');
+  assertEquals(coerceSpeechFormat('openAi', 'mp3'), 'mp3');
+});
+
 Deno.test('PROFILE_FIELDS protocol / accept / text match live unions', () => {
-  const protocol = fieldMeta('model.protocol');
+  const protocol = fieldMeta('models.*.protocol');
   assertEquals(protocol?.options, PROTOCOLS);
   assertEquals(protocol?.type.includes('geminiInteractions'), true);
 
@@ -120,16 +130,16 @@ Deno.test('PROFILE_FIELDS protocol / accept / text match live unions', () => {
   assertEquals(accept?.type, 'string[]');
   assertEquals(accept?.options, ATTACHMENT_ACCEPT_MIMES);
 
-  const thinking = fieldMeta('model.config.*.thinking.on');
-  assertEquals(thinking?.options, THINKING_LEVELS);
+  const effort = fieldMeta('models.*.efforts.*');
+  assertEquals(effort?.options, THINKING_LEVELS);
 });
 
 Deno.test('catalogPathFor substitutes host map keys with *', () => {
   assertEquals(catalogPathFor(['identity', 'handle']), 'identity.handle');
-  assertEquals(catalogPathFor(['model', 'protocol']), 'model.protocol');
-  assertEquals(catalogPathFor(['model', 'config', 'flash', 'apiId']), 'model.config.*.apiId');
+  assertEquals(catalogPathFor(['models', 'flash', 'protocol']), 'models.*.protocol');
+  assertEquals(catalogPathFor(['models', 'flash', 'apiId']), 'models.*.apiId');
   assertEquals(catalogPathFor(['inputs', 'attachments', 'accept']), 'inputs.attachments.accept');
-  assertEquals(PROFILE_FIELDS[catalogPathFor(['model', 'config', 'pro', 'apiId'])] != null, true);
+  assertEquals(PROFILE_FIELDS[catalogPathFor(['models', 'pro', 'apiId'])] != null, true);
 });
 
 Deno.test('isValidPair matches createProvider routing table', () => {
@@ -158,7 +168,6 @@ Deno.test('KeySlot union matches KEY_SLOTS', () => {
 
 Deno.test('EXTRA_FIELDS covers registerTool keys shown in profile docs', () => {
   const registerToolKeys = [
-    'type',
     'name',
     'description',
     'category',
@@ -169,13 +178,42 @@ Deno.test('EXTRA_FIELDS covers registerTool keys shown in profile docs', () => {
     'input',
     'output',
     'handler',
+    'endpoint',
+    'method',
+    'headers',
+    'mapping',
+    'mapping.pathParams',
+    'mapping.queryParams',
+    'mapping.bodyParam',
+    'serverUrl',
+    'mcpToolName',
+    'auth',
+    'auth.type',
+    'auth.slot',
+    'auth.onUnauthenticated',
+    'playground.authType',
   ];
   for (const key of registerToolKeys) {
-    if (key === 'type') {
-      assertEquals(EXTRA_FIELDS.type != null, true, 'missing EXTRA_FIELDS.type');
-      continue;
-    }
     assertEquals(fieldMeta(key) != null, true, `missing EXTRA_FIELDS.${key}`);
   }
-  assertEquals(EXTRA_FIELDS.type?.options, ['builtin', 'function']);
+  const toolType = fieldMeta('registerTool.type');
+  assertEquals(toolType != null, true, 'missing registerTool.type');
+  assertEquals(toolType?.options?.includes('http'), true);
+  assertEquals(toolType?.options?.includes('mcp'), true);
+  const playgroundAuth = fieldMeta('playground.authType');
+  assertEquals(playgroundAuth != null, true, 'missing playground.authType');
+  assertEquals(playgroundAuth?.options?.includes('none'), true);
+  assertEquals(playgroundAuth?.options?.includes('bearer'), true);
+  assertEquals(fieldMeta('type')?.doc?.includes('archetype'), true);
+});
+
+Deno.test('live wires every load tier; host is a model-less profile type', () => {
+  assertEquals(PROFILE_TYPES.includes('host'), true);
+  assertEquals(PROFILE_TYPE_PROTOCOLS.host, []);
+  assertEquals(protocolsForProfileType('host'), []);
+  assertEquals(isValidProfileProtocol('host', 'geminiInteractions'), false);
+  assertEquals(fieldMeta('loadTier')?.doc?.includes('wire every allowed tool'), true);
+  assertEquals(fieldMeta('tools.t1Policy')?.doc?.includes('Not supported on type live'), true);
+  assertEquals(fieldMeta('tools.t2Loader')?.doc?.includes('Not supported on type live'), true);
+  assertEquals(fieldMeta('type')?.doc?.includes('host'), true);
 });

@@ -9,6 +9,7 @@
 
 import { OMIT_CANARY } from '../guardrails/canary.ts';
 import { isAbortError, publicError } from '../guardrails/error.ts';
+import { projectGuardrailEvent } from '../guardrails/hits.ts';
 import {
   redactSensitiveOnly,
   sanitizeText,
@@ -16,9 +17,22 @@ import {
 } from '../guardrails/sanitize.ts';
 import { sha256 } from '../kernel/engine/hash.ts';
 import type { Protocol } from '../kernel/schema.ts';
-import type { ResolvedGeneration, TurnBlob, TurnEvent, TurnRequest } from '../kernel/types.ts';
+import type {
+  ResolvedGeneration,
+  TurnBlob,
+  TurnEvent,
+  TurnMediaRef,
+  TurnRequest,
+} from '../kernel/types.ts';
+import { resolveObservabilityPolicy } from './resolve-policy.ts';
 import { attachResolved, attachTape, attachUsage } from './trace-attach.ts';
 import { completedInteraction, stopKindFromEvents } from './trace-usage.ts';
+import type {
+  ProfileObservabilitySpec,
+  ResolvedObservabilityPolicy,
+  ResolvedTraceInclude,
+  ResolvedTraceScrub,
+} from './types.ts';
 
 const TRACE_VERSION = 2;
 const TITLE_MAX = 80;
@@ -26,7 +40,10 @@ const TITLE_MAX = 80;
 /** Hash-only image reference stored in trace records. */
 export interface TraceImage {
   mimeType: string;
-  sha256: string;
+  /** Content hash for inline bytes; absent for a provider file reference. */
+  sha256?: string;
+  /** Provider file reference when the attachment was supplied by uri. */
+  uri?: string;
 }
 
 /** Trace-safe copy of a public turn event. */
@@ -42,6 +59,8 @@ export interface TraceEvent {
   media?: TraceImage;
   grounding?: TurnEvent['grounding'];
   evidence?: TurnEvent['evidence'];
+  /** Guardrail decision — rule identity and offsets, never matched content. */
+  guardrail?: TurnEvent['guardrail'];
   error?: string;
   errorInternal?: string;
 }
@@ -59,13 +78,13 @@ interface TraceRecord {
   profile: string;
   title?: string;
   projectId?: string;
-  select?: string;
-  thinking?: boolean;
+  modelSelect?: string;
+  effort?: string;
   metadata?: Record<string, unknown>;
   model?: { id: string; apiId: string };
   keySlot?: string;
   generation?: {
-    thinking: string;
+    thinking?: string;
     summaries?: string;
     temperature?: number;
     maxOutputTokens?: number;
@@ -109,28 +128,46 @@ interface TraceRecord {
   };
 }
 
-function hashBlobs(blobs: TurnBlob[] | undefined): Promise<TraceImage[]> {
+function hashBlobs(blobs: Array<TurnBlob | TurnMediaRef> | undefined): Promise<TraceImage[]> {
   if (!blobs) {
     return Promise.resolve([]);
   }
   return Promise.all(
-    blobs.map(async (blob) => ({
-      mimeType: blob.mimeType,
-      sha256: await sha256(blob.data),
-    })),
+    blobs.map(async (blob) =>
+      'uri' in blob
+        ? { mimeType: blob.mimeType, uri: blob.uri }
+        : { mimeType: blob.mimeType, sha256: await sha256(blob.data) },
+    ),
   );
 }
 
-async function snapshotEvent(event: TurnEvent): Promise<TraceEvent> {
+function scrubStoredText(text: string, scrub: ResolvedTraceScrub): string {
+  if (scrub.sensitive && scrub.injection) {
+    return sanitizeText(text);
+  }
+  if (scrub.sensitive) {
+    return redactSensitiveOnly(text);
+  }
+  if (scrub.injection) {
+    return sanitizeText(text, { sanitizeInput: true, redactSensitive: false });
+  }
+  return text;
+}
+
+async function snapshotEvent(
+  event: TurnEvent,
+  include: ResolvedTraceInclude,
+  scrub: ResolvedTraceScrub,
+): Promise<TraceEvent> {
   const row: TraceEvent = { type: event.type };
   if (event.text) {
-    row.text = redactSensitiveOnly(event.text);
+    row.text = scrubStoredText(event.text, scrub);
   }
   if (event.error) {
     row.error = event.error;
   }
   if (event.errorInternal) {
-    row.errorInternal = redactSensitiveOnly(event.errorInternal);
+    row.errorInternal = scrubStoredText(event.errorInternal, scrub);
   }
   if (event.structured !== undefined) {
     row.structured = event.structured;
@@ -164,8 +201,11 @@ async function snapshotEvent(event: TurnEvent): Promise<TraceEvent> {
   if (event.grounding) {
     row.grounding = event.grounding;
   }
-  if (event.evidence) {
+  if (include.evidenceRaw && event.evidence) {
     row.evidence = event.evidence;
+  }
+  if (event.guardrail) {
+    row.guardrail = projectGuardrailEvent(event.guardrail, include.guardrailMatchPreview);
   }
   return row;
 }
@@ -203,17 +243,39 @@ function attachFailure(
   thrown: unknown,
   lastErr: TraceEvent | undefined,
   canary: string | undefined,
+  scrub: ResolvedTraceScrub,
 ): void {
   if (!record.ok) {
     record.error = publicError(thrown ?? lastErr?.error);
     const inside = internalError(thrown) ?? lastErr?.errorInternal ?? lastErr?.error;
     if (inside) {
-      record.errorInternal = inside;
+      record.errorInternal = scrubStoredText(inside, scrub);
     }
   }
-  if (canary && JSON.stringify(record).includes(canary)) {
+  if (scrub.canary && canary && JSON.stringify(record).includes(canary)) {
     record.errorInternal = OMIT_CANARY;
   }
+}
+
+function eventsForTrace(events: TurnEvent[], include: ResolvedTraceInclude): TurnEvent[] {
+  if (include.guardrailDecisions) {
+    return events;
+  }
+  return events.filter((event) => event.type !== 'guardrail');
+}
+
+function asResolvedPolicy(
+  value: ProfileObservabilitySpec | ResolvedObservabilityPolicy | undefined,
+): ResolvedObservabilityPolicy {
+  if (
+    value &&
+    typeof value === 'object' &&
+    'record' in value &&
+    typeof value.record === 'boolean'
+  ) {
+    return value;
+  }
+  return resolveObservabilityPolicy(value);
 }
 
 async function buildRecord(args: {
@@ -229,14 +291,21 @@ async function buildRecord(args: {
   generation?: ResolvedGeneration;
   protocol?: Protocol;
   sanitizedReq?: TurnRequest;
+  /** Profile observability — omit for defaults (safe scrub, standard include). */
+  observability?: ProfileObservabilitySpec | ResolvedObservabilityPolicy;
 }): Promise<TraceRecord> {
   const { req, events, started, model, keySlot, thrown, upstreamLog, canary, system, generation } =
     args;
   const protocol = args.protocol;
+  const policy = asResolvedPolicy(args.observability);
+  const { include, scrub } = policy;
   const traced = args.sanitizedReq ? { request: args.sanitizedReq } : requestForTrace(req);
   const safe = traced.request;
   const input = safe.input ?? {};
-  const snapped = await Promise.all(events.map((event) => snapshotEvent(event)));
+  const traceEvents = eventsForTrace(events, include);
+  const snapped = await Promise.all(
+    traceEvents.map((event) => snapshotEvent(event, include, scrub)),
+  );
   const lastErr = [...snapped].reverse().find((row) => row.type === 'error');
   const aborted = isAbortError(thrown);
 
@@ -262,26 +331,39 @@ async function buildRecord(args: {
     store: safe.store ?? null,
     profile: safe.profile,
     input: {
-      text: input.text,
+      text: input.text !== undefined ? scrubStoredText(input.text, scrub) : undefined,
       role: input.role,
-      slots: input.slots,
+      slots: input.slots
+        ? Object.fromEntries(
+            Object.entries(input.slots).map(([key, value]) => [key, scrubStoredText(value, scrub)]),
+          )
+        : undefined,
       attachments: await hashBlobs(input.attachments),
       voice: await hashBlobs(input.voice),
     },
     events: snapped,
     ok,
   };
-  const title = titleFrom(input.text);
+  const title = titleFrom(record.input.text);
   if (title) {
     record.title = title;
   }
-  await attachTape(record, { upstream: upstreamLog, canary, system, generation, protocol });
-  attachUsage(record, upstreamLog, done, events);
+  const tapeCanary = scrub.canary ? canary : undefined;
+  await attachTape(record, {
+    upstream: upstreamLog,
+    canary: tapeCanary,
+    system,
+    generation,
+    protocol,
+    include,
+  });
+  attachUsage(record, upstreamLog, done, events, include);
   attachResolved(record, { safe, model, keySlot, generation });
-  attachFailure(record, thrown, lastErr, canary);
+  attachFailure(record, thrown, lastErr, canary, scrub);
   if (traced.sanitizeError && !record.errorInternal) {
-    record.errorInternal = sanitizeText(
+    record.errorInternal = scrubStoredText(
       `request sanitize for trace failed: ${traced.sanitizeError}`,
+      scrub,
     );
   }
   return record;

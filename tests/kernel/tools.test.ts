@@ -1,11 +1,17 @@
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
+import { INJ_IGNORE } from '../../src/guardrails/corpus/strings.ts';
 import { TheorumError } from '../../src/guardrails/error.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { runTurn } from '../../src/kernel/engine/runner.ts';
 import { defineProfile, getProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
 import { resolveTurn } from '../../src/kernel/registry/resolve.ts';
-import { formatToolResult, invokeTool, registerTool } from '../../src/kernel/tools/mod.ts';
+import {
+  executeRegisteredTool,
+  formatToolResult,
+  invokeTool,
+  registerTool,
+} from '../../src/kernel/tools/mod.ts';
 import {
   expandT1Policy,
   prepareTurnToolSnapshot,
@@ -13,8 +19,11 @@ import {
   resolveTurnTools,
 } from '../../src/kernel/tools/resolve.ts';
 import { validateToolInputSchema } from '../../src/kernel/tools/schema.ts';
-import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
-import { geminiModel, HOST_MODELS } from '../fixtures/models.ts';
+import type { ToolContext, ToolLoadContext } from '../../src/kernel/tools/types.ts';
+import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
+import { memorySink } from '../../src/observability/trace.ts';
+import type { TraceRecord } from '../../src/observability/trace-record.ts';
+import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 import { invokeRegisteredTool } from '../fixtures/test-tools.ts';
 
 async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
@@ -25,15 +34,13 @@ async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
   return out;
 }
 
-Deno.test('runTurn ends with stop kind tool when execution pauses', async () => {
+Deno.test('runTurn ends with stop kind gate when execution gates', async () => {
   registerProfile({
     type: 'text',
     identity: { handle: 'test', system: 'test' },
     id: 'pause_stop_probe',
-    model: {
-      ...geminiModel('gemini35FlashLite'),
-      maxSteps: 2,
-    },
+    ...geminiModels('gemini35FlashLite'),
+    maxSteps: 2,
     tools: { allow: ['delete_resource'] },
     inputs: { text: true },
     outputs: {},
@@ -60,10 +67,13 @@ Deno.test('runTurn ends with stop kind tool when execution pauses', async () => 
   );
 
   assertEquals(
-    events.some((e) => e.tool?.phase === 'pause'),
+    events.some((e) => e.tool?.phase === 'gate'),
     true,
   );
-  assertEquals(events.at(-1)?.stop?.kind, 'tool');
+  const done = events.findLast((e) => e.type === 'done');
+  assertEquals(done?.stop?.kind, 'gate');
+  assertEquals(done?.tools?.gated.includes('delete_resource'), true);
+  assertEquals(done?.tools?.visible.includes('delete_resource'), true);
 });
 
 Deno.test('always_confirm ignores session permissions until resume.granted', async () => {
@@ -71,10 +81,8 @@ Deno.test('always_confirm ignores session permissions until resume.granted', asy
     type: 'text',
     identity: { handle: 'test', system: 'test' },
     id: 'always_confirm_probe',
-    model: {
-      ...geminiModel('gemini35FlashLite'),
-      maxSteps: 1,
-    },
+    ...geminiModels('gemini35FlashLite'),
+    maxSteps: 1,
     tools: { allow: ['always_confirm_tool'] },
     inputs: { text: true },
     outputs: {},
@@ -100,10 +108,7 @@ Deno.test('always_confirm ignores session permissions until resume.granted', asy
       provider,
     ),
   );
-  assertEquals(
-    paused.findLast((e) => e.tool?.name === 'always_confirm_tool')?.tool?.phase,
-    'pause',
-  );
+  assertEquals(paused.findLast((e) => e.tool?.name === 'always_confirm_tool')?.tool?.phase, 'gate');
 
   const resumed = await invokeRegisteredTool({
     profile: 'always_confirm_probe',
@@ -117,13 +122,48 @@ Deno.test('always_confirm ignores session permissions until resume.granted', asy
   );
 });
 
+Deno.test('resume.granted false settles as denied with post_tool', async () => {
+  registerProfile({
+    type: 'text',
+    identity: { handle: 'test', system: 'test' },
+    id: 'deny_resume_probe',
+    ...geminiModels('gemini35FlashLite'),
+    maxSteps: 1,
+    tools: { allow: ['always_confirm_tool'] },
+    inputs: { text: true },
+    outputs: {},
+    guardrails: { quota: { perDay: 50 } },
+  });
+
+  const stages: string[] = [];
+  const denied = await invokeRegisteredTool({
+    profile: 'deny_resume_probe',
+    name: 'always_confirm_tool',
+    input: {},
+    resume: { granted: false },
+    onStage: ({ stage }) => {
+      stages.push(stage);
+    },
+  });
+  assertEquals(
+    denied.findLast((e) => e.tool?.name === 'always_confirm_tool')?.tool?.phase,
+    'error',
+  );
+  assertEquals(
+    denied.findLast((e) => e.tool?.name === 'always_confirm_tool')?.tool?.failure?.code,
+    'denied',
+  );
+  assertEquals(stages.includes('post_tool'), true);
+});
+
 Deno.test('path-mismatched allowed tool returns not_gated not not_loaded', async () => {
   registerProfile(
     defineProfile({
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 'path_mismatch_probe',
-      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
       tools: { allow: ['web_only_tool'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -156,7 +196,8 @@ Deno.test('provider tool call for unregistered name yields unknown_tool', async 
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 'unknown_provider_tool_probe',
-      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
       tools: { allow: ['stub_tool'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -178,13 +219,14 @@ Deno.test('provider tool call for unregistered name yields unknown_tool', async 
   assertEquals(toolEv?.tool?.failure?.code, 'unknown_tool');
 });
 
-Deno.test('preflight confirmation emits pause not error', async () => {
+Deno.test('preTool confirmation emits gate not error', async () => {
   registerProfile(
     defineProfile({
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 'preflight_confirm_bot',
-      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
       tools: { allow: ['preflight_confirm_tool'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -196,8 +238,67 @@ Deno.test('preflight confirmation emits pause not error', async () => {
     input: {},
   });
   const toolEv = events.findLast((e) => e.tool?.name === 'preflight_confirm_tool');
-  assertEquals(toolEv?.tool?.phase, 'pause');
-  assertEquals(toolEv?.tool?.pause?.kind, 'confirmation');
+  assertEquals(toolEv?.tool?.phase, 'gate');
+  assertEquals(toolEv?.tool?.gate?.kind, 'confirmation');
+});
+
+Deno.test('preTool confirmation resumes after granted', async () => {
+  const events = await invokeRegisteredTool({
+    profile: 'preflight_confirm_bot',
+    name: 'preflight_confirm_tool',
+    input: {},
+    resume: { granted: true },
+  });
+  const toolEv = events.findLast((e) => e.tool?.name === 'preflight_confirm_tool');
+  assertEquals(toolEv?.tool?.phase, 'complete');
+  assertEquals((toolEv?.tool?.output as { finding?: string })?.finding, 'preflight cleared');
+});
+
+Deno.test('preTool deny settles modelResult + post_tool callNotStarted', async () => {
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      id: 'pretool_deny_bot',
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
+      tools: { allow: ['denied_tool'] },
+      inputs: { text: true },
+      guardrails: { quota: { perDay: 10 } },
+    }),
+  );
+  const profile = getProfile('pretool_deny_bot');
+  assertEquals(Boolean(profile), true);
+  const events: TurnEvent[] = [];
+  const exec = executeRegisteredTool({
+    profile: profile as NonNullable<typeof profile>,
+    name: 'denied_tool',
+    input: {},
+    callId: 'deny_1',
+    ctx: {},
+    stages: {
+      handlers: [],
+      profile: profile as NonNullable<typeof profile>,
+      step: 1,
+      history: () => [],
+      injectAllowed: false,
+    },
+  });
+  let settlement: { callNotStarted?: boolean; failure?: { code: string }; modelResult?: unknown } =
+    {};
+  while (true) {
+    const next = await exec.next();
+    if (next.done) {
+      settlement = next.value;
+      break;
+    }
+    events.push(next.value);
+  }
+  assertEquals(settlement.callNotStarted, true);
+  assertEquals(settlement.failure?.code, 'not_authorized');
+  assertEquals(Boolean(settlement.modelResult), true);
+  const post = events.find((e) => e.type === 'stage' && e.stage === 'post_tool');
+  assertEquals(post?.type === 'stage' ? post.callNotStarted : undefined, true);
 });
 
 Deno.test('handler streaming is live through invoke and runTurn', async () => {
@@ -230,7 +331,8 @@ Deno.test('handler streaming is live through invoke and runTurn', async () => {
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 'live_stream_bot',
-      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
       tools: { allow: ['live_stream_probe', 'streaming_probe'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -293,7 +395,8 @@ Deno.test('invokeTool for allowed T0 tool succeeds and ends completed', async ()
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 'invoke_allow_probe',
-      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
       tools: { allow: ['stub_tool'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -315,7 +418,8 @@ Deno.test('catalog path filter excludes tools from snapshot', () => {
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 'path_filter_probe',
-      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
       tools: { allow: ['web_only_tool'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -336,7 +440,8 @@ Deno.test('exposeToModel false omits secret from provider tool result', async ()
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 'hidden_model_probe',
-      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 2 },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 2,
       tools: { allow: ['hidden_from_model_tool'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -388,12 +493,12 @@ Deno.test('formatToolResult sanitizes finding and includes data', () => {
   assertEquals(text.includes('"n":1'), true);
 });
 
-Deno.test('permission check runs before preflight', async () => {
-  let preflightRan = false;
+Deno.test('permission check runs before preTool', async () => {
+  let preToolRan = false;
   registerTool({
     type: 'function',
     name: 'permission_before_preflight_probe',
-    description: 'Permission before preflight probe',
+    description: 'Permission before preTool probe',
     category: 'test',
     access: 'read-write',
     paths: ['*'],
@@ -401,8 +506,8 @@ Deno.test('permission check runs before preflight', async () => {
     permission: 'session_consent',
     input: z.object({}),
     output: z.object({ finding: z.string() }),
-    preflight: () => {
-      preflightRan = true;
+    preTool: () => {
+      preToolRan = true;
     },
     handler: () => ({ finding: 'ran' }),
   });
@@ -411,7 +516,8 @@ Deno.test('permission check runs before preflight', async () => {
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 'permission_order_probe',
-      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
       tools: { allow: ['permission_before_preflight_probe'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -422,10 +528,10 @@ Deno.test('permission check runs before preflight', async () => {
     name: 'permission_before_preflight_probe',
     input: {},
   });
-  assertEquals(preflightRan, false);
+  assertEquals(preToolRan, false);
   assertEquals(
     events.findLast((e) => e.tool?.name === 'permission_before_preflight_probe')?.tool?.phase,
-    'pause',
+    'gate',
   );
 });
 
@@ -435,7 +541,8 @@ Deno.test('t2Loader function promotes T2 ids from { loaded }', async () => {
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 't2_promote_probe',
-      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
       tools: { allow: ['load_tools', 'record_lookup'], t2Loader: 'load_tools' },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -458,7 +565,8 @@ Deno.test('loader promote rejects non-T2 tool ids', () => {
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 'promote_tier_probe',
-      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
       tools: { allow: ['load_tools', 'stub_tool'], t2Loader: 'load_tools' },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -498,7 +606,8 @@ Deno.test('profile.tools.t1Policy wires T1 function tools via prepareTurnToolSna
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 't1_loader_probe',
-      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
       tools: {
         allow: ['contextual_lookup'],
         t1Policy: () => ['contextual_lookup'],
@@ -535,7 +644,8 @@ Deno.test('T1 not_loaded message cites t1Policy', async () => {
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 't1_not_loaded_bot',
-      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
       tools: { allow: ['t1_not_loaded_probe'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -558,7 +668,8 @@ Deno.test('invokeTool resume cannot bypass T2 not_loaded without promoted', asyn
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 't2_resume_probe',
-      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
       tools: { allow: ['record_lookup'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -581,7 +692,8 @@ Deno.test('invokeTool resume runs T2 when promoted ids are supplied', async () =
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 't2_resume_promoted_probe',
-      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
       tools: { allow: ['record_lookup'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -616,7 +728,8 @@ Deno.test('invokeTool wires T1 tools when profile.tools.t1Policy is set', async 
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 'invoke_t1_bot',
-      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
       tools: {
         allow: ['invoke_t1_probe'],
         t1Policy: () => ['invoke_t1_probe'],
@@ -639,7 +752,8 @@ Deno.test('empty resume object does not bypass T2 load checks', async () => {
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 'empty_resume_probe',
-      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
       tools: { allow: ['record_lookup'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -675,7 +789,8 @@ Deno.test('loader output lists only ids actually promoted', async () => {
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 'loader_output_probe',
-      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
       tools: { allow: ['load_tools', 'record_lookup', 'ungated_t2_probe'], t2Loader: 'load_tools' },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -698,7 +813,8 @@ Deno.test('path omitted excludes tools without wildcard paths', () => {
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 'path_default_probe',
-      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
       tools: { allow: ['web_only_tool', 'stub_tool'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -729,20 +845,14 @@ Deno.test('T1 builtins stay off wire until profile.tools.t1Policy selects them',
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 't1_builtin_probe',
-      model: {
-        thinking: 'minimal',
-        key: 'slotA',
-        protocol: 'geminiInteractions',
-        provider: 'google',
-        allow: ['gemini35FlashLite'],
-        config: {
-          gemini35FlashLite: {
-            ...HOST_MODELS.gemini35FlashLite,
-            builtInTools: ['deferred_builtin_probe'],
-          },
+      models: {
+        gemini35FlashLite: {
+          ...HOST_BINDINGS.gemini35FlashLite,
+          builtInTools: ['deferred_builtin_probe'],
         },
-        maxSteps: 1,
       },
+      key: 'slotA',
+      maxSteps: 1,
       tools: {
         allow: [],
         t1Policy: () => ['deferred_builtin_probe'],
@@ -781,7 +891,8 @@ Deno.test('runTurn expands profile.tools.t1Policy before provider sees T1 tools'
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 'runturn_t1_bot',
-      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
       tools: {
         allow: ['runturn_t1_probe'],
         t1Policy: () => ['runturn_t1_probe'],
@@ -815,7 +926,8 @@ Deno.test('failure codes surface on invokeTool path', async () => {
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 'failure_codes_probe',
-      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
       tools: { allow: ['stub_tool', 'denied_tool'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -863,73 +975,38 @@ Deno.test('failure codes surface on invokeTool path', async () => {
   );
 });
 
-Deno.test('permission granted alone does not resume interactive tools', async () => {
-  registerTool({
-    type: 'function',
-    name: 'interactive_resume_probe',
-    description: 'Interactive resume probe',
-    category: 'test',
-    access: 'read-only',
-    paths: ['*'],
-    loadTier: 'T0',
-    permission: 'auto',
-    input: z.object({ prompt: z.string() }),
-    output: z.object({ finding: z.string() }),
-    interactive: {
-      render: (input) => ({ kind: 'text', prompt: (input as { prompt: string }).prompt }),
-    },
-    handler: (_input, ctx) => ({ finding: String(ctx.resume?.value ?? 'missing') }),
-  });
+Deno.test('permission granted alone does not substitute ask_user answer', async () => {
   registerProfile(
     defineProfile({
       type: 'text',
       identity: { handle: 'test', system: 'test' },
-      id: 'interactive_resume_bot',
-      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
-      tools: { allow: ['interactive_resume_probe'] },
+      id: 'ask_user_resume_bot',
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
+      tools: { allow: ['ask_user'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
     }),
   );
-  const paused = await invokeRegisteredTool({
-    profile: 'interactive_resume_bot',
-    name: 'interactive_resume_probe',
-    input: { prompt: 'choose' },
+  const awaiting = await invokeRegisteredTool({
+    profile: 'ask_user_resume_bot',
+    name: 'ask_user',
+    input: { kind: 'text', prompt: 'choose' },
   });
-  assertEquals(
-    paused.findLast((e) => e.tool?.name === 'interactive_resume_probe')?.tool?.phase,
-    'pause',
-  );
+  const first = awaiting.findLast((e) => e.tool?.name === 'ask_user')?.tool;
+  assertEquals(first?.phase, 'complete');
+  assertEquals((first?.output as { status?: string })?.status, 'awaiting_user_input');
+  assertEquals(awaiting.at(-1)?.stop?.kind, 'completed');
 
   const fakeResume = await invokeRegisteredTool({
-    profile: 'interactive_resume_bot',
-    name: 'interactive_resume_probe',
-    input: { prompt: 'choose' },
+    profile: 'ask_user_resume_bot',
+    name: 'ask_user',
+    input: { kind: 'text', prompt: 'choose' },
     resume: { granted: true },
   });
-  assertEquals(
-    fakeResume.findLast((e) => e.tool?.name === 'interactive_resume_probe')?.tool?.phase,
-    'pause',
-  );
-
-  const realResume = await invokeRegisteredTool({
-    profile: 'interactive_resume_bot',
-    name: 'interactive_resume_probe',
-    input: { prompt: 'choose' },
-    resume: { value: 'picked' },
-  });
-  assertEquals(
-    realResume.findLast((e) => e.tool?.name === 'interactive_resume_probe')?.tool?.phase,
-    'complete',
-  );
-  assertEquals(
-    (
-      realResume.findLast((e) => e.tool?.name === 'interactive_resume_probe')?.tool?.output as {
-        finding?: string;
-      }
-    )?.finding,
-    'picked',
-  );
+  const second = fakeResume.findLast((e) => e.tool?.name === 'ask_user')?.tool;
+  assertEquals(second?.phase, 'complete');
+  assertEquals((second?.output as { status?: string })?.status, 'awaiting_user_input');
 });
 
 Deno.test('T2 tools are not visible until loader promotes them', () => {
@@ -938,7 +1015,8 @@ Deno.test('T2 tools are not visible until loader promotes them', () => {
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 't2_probe',
-      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
       tools: { allow: ['load_tools', 'record_lookup'], t2Loader: 'load_tools' },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -991,7 +1069,8 @@ Deno.test('invalid handler output and throws surface failure codes', async () =>
       type: 'text',
       identity: { handle: 'test', system: 'test' },
       id: 'output_error_bot',
-      model: { ...geminiModel('gemini35FlashLite'), maxSteps: 1 },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
       tools: { allow: ['bad_output_probe', 'throwing_handler_probe'] },
       inputs: { text: true },
       guardrails: { quota: { perDay: 10 } },
@@ -1029,4 +1108,811 @@ Deno.test('validateToolInputSchema rejects Gemini-unsupported keys', () => {
       }),
     TheorumError,
   );
+});
+
+// ── T01 host context slot ──────────────────────────────────────────────
+
+/** Register a T1 probe that records the `host` it observes at every hook. */
+function registerHostProbe(name: string, seen: Array<{ hook: string; host: unknown }>): void {
+  registerTool({
+    type: 'function',
+    name,
+    description: 'Records ctx.host at every hook',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T1',
+    permission: 'auto',
+    input: z.object({ q: z.string().optional() }),
+    output: z.object({ finding: z.string() }),
+    preTool: (_input, ctx: ToolContext) => {
+      seen.push({ hook: 'preTool', host: ctx.host });
+      return undefined;
+    },
+    handler: (_input, ctx: ToolContext) => {
+      seen.push({ hook: 'handler', host: ctx.host });
+      return { finding: 'observed' };
+    },
+  });
+}
+
+function hostProbeProvider(name: string, delayMs = 0): ModelProvider {
+  return {
+    async *complete() {
+      if (delayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+      yield { type: 'tool', tool: { name, arguments: { q: 'x' }, id: `${name}_call` } };
+    },
+  };
+}
+
+Deno.test('handler, preTool and t1Policy observe the same host object for a turn', async () => {
+  const seen: Array<{ hook: string; host: unknown }> = [];
+  registerHostProbe('host_ctx_probe', seen);
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      id: 'host_ctx_bot',
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
+      tools: {
+        allow: ['host_ctx_probe'],
+        t1Policy: (ctx: ToolLoadContext) => {
+          seen.push({ hook: 't1Policy', host: ctx.host });
+          return ['host_ctx_probe'];
+        },
+      },
+      inputs: { text: true },
+      guardrails: { quota: { perDay: 10 } },
+    }),
+  );
+  const host = { db: Symbol('db'), user: 'u1' };
+  await collect(
+    runTurn(
+      { profile: 'host_ctx_bot', input: { text: 'x' }, host },
+      hostProbeProvider('host_ctx_probe'),
+    ),
+  );
+  assertEquals(
+    seen.map((s) => s.hook),
+    ['t1Policy', 'preTool', 'handler'],
+  );
+  for (const entry of seen) {
+    assertEquals(entry.host === host, true);
+  }
+});
+
+Deno.test("concurrent runTurn calls never observe each other's host", async () => {
+  const seenA: Array<{ hook: string; host: unknown }> = [];
+  const seenB: Array<{ hook: string; host: unknown }> = [];
+  registerHostProbe('host_iso_probe_a', seenA);
+  registerHostProbe('host_iso_probe_b', seenB);
+  for (const [id, name] of [
+    ['host_iso_bot_a', 'host_iso_probe_a'],
+    ['host_iso_bot_b', 'host_iso_probe_b'],
+  ] as const) {
+    registerProfile(
+      defineProfile({
+        type: 'text',
+        identity: { handle: 'test', system: 'test' },
+        id,
+        ...geminiModels('gemini35FlashLite'),
+        maxSteps: 1,
+        tools: { allow: [name], t1Policy: () => [name] },
+        inputs: { text: true },
+        guardrails: { quota: { perDay: 10 } },
+      }),
+    );
+  }
+  const hostA = { tenant: 'A' };
+  const hostB = { tenant: 'B' };
+  await Promise.all([
+    collect(
+      runTurn(
+        { profile: 'host_iso_bot_a', input: { text: 'x' }, host: hostA },
+        hostProbeProvider('host_iso_probe_a', 15),
+      ),
+    ),
+    collect(
+      runTurn(
+        { profile: 'host_iso_bot_b', input: { text: 'x' }, host: hostB },
+        hostProbeProvider('host_iso_probe_b', 1),
+      ),
+    ),
+  ]);
+  assertEquals(seenA.length, 2);
+  assertEquals(seenB.length, 2);
+  assertEquals(
+    seenA.every((s) => s.host === hostA),
+    true,
+  );
+  assertEquals(
+    seenB.every((s) => s.host === hostB),
+    true,
+  );
+});
+
+Deno.test('invokeTool passes its own host to handler, preTool and t1Policy', async () => {
+  const seen: Array<{ hook: string; host: unknown }> = [];
+  registerHostProbe('host_invoke_probe', seen);
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      id: 'host_invoke_bot',
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
+      tools: {
+        allow: ['host_invoke_probe'],
+        t1Policy: (ctx: ToolLoadContext) => {
+          seen.push({ hook: 't1Policy', host: ctx.host });
+          return ['host_invoke_probe'];
+        },
+      },
+      inputs: { text: true },
+      guardrails: { quota: { perDay: 10 } },
+    }),
+  );
+  const host = { invoked: true };
+  const events = await invokeRegisteredTool({
+    profile: 'host_invoke_bot',
+    name: 'host_invoke_probe',
+    input: { q: 'x' },
+    host,
+  });
+  assertEquals(
+    events.findLast((e) => e.tool?.name === 'host_invoke_probe')?.tool?.phase,
+    'complete',
+  );
+  assertEquals(
+    seen.map((s) => s.hook),
+    ['t1Policy', 'preTool', 'handler'],
+  );
+  assertEquals(
+    seen.every((s) => s.host === host),
+    true,
+  );
+});
+
+Deno.test('host never appears in TurnEvents, trace records, gates, gate input, or provider requests', async () => {
+  const sentinel = `HOST_SENTINEL_${crypto.randomUUID()}`;
+  const host = { sentinel, nested: { again: sentinel }, toString: () => sentinel };
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      id: 'host_sentinel_bot',
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 2,
+      tools: { allow: ['delete_resource', 'stub_tool'] },
+      inputs: { text: true },
+      guardrails: { quota: { perDay: 10 } },
+    }),
+  );
+  const providerRequests: ProviderCompleteRequest[] = [];
+  const provider: ModelProvider = {
+    async *complete(req) {
+      providerRequests.push(req);
+      if (providerRequests.length === 1) {
+        yield { type: 'tool', tool: { name: 'stub_tool', arguments: { value: 1 }, id: 'c0' } };
+        return;
+      }
+      yield { type: 'tool', tool: { name: 'delete_resource', arguments: { id: 'x' }, id: 'c1' } };
+    },
+  };
+  const records: TraceRecord[] = [];
+  const events = await collect(
+    runTurn(
+      { profile: 'host_sentinel_bot', input: { text: 'delete' }, host },
+      provider,
+      memorySink(records),
+    ),
+  );
+  const gate = events.find((e) => e.tool?.phase === 'gate')?.tool?.gate;
+  assertEquals(gate?.kind, 'permission');
+  assertEquals(JSON.stringify(gate).includes(sentinel), false);
+  assertEquals(JSON.stringify(events).includes(sentinel), false);
+  assertEquals(records.length, 1);
+  assertEquals(JSON.stringify(records).includes(sentinel), false);
+  assertEquals(providerRequests.length, 2);
+  assertEquals(JSON.stringify(providerRequests).includes(sentinel), false);
+  assertEquals(
+    providerRequests.some((r) => 'host' in r),
+    false,
+  );
+
+  const invoked = await invokeRegisteredTool({
+    profile: 'host_sentinel_bot',
+    name: 'delete_resource',
+    input: { id: 'y' },
+    host,
+  });
+  assertEquals(JSON.stringify(invoked).includes(sentinel), false);
+});
+
+// ── T04 host profile ───────────────────────────────────────────────────
+
+Deno.test('invokeTool under a host profile executes a T2 tool without promotion and ignores path', async () => {
+  registerProfile({
+    type: 'host',
+    id: 'host_invoke_ceiling',
+    tools: { allow: ['record_lookup', 'web_only_tool', 'preflight_confirm_tool', 'stub_tool'] },
+  });
+  const t2 = await invokeRegisteredTool({
+    profile: 'host_invoke_ceiling',
+    name: 'record_lookup',
+    input: { q: 'ok' },
+  });
+  const t2Event = t2.findLast((e) => e.tool?.name === 'record_lookup');
+  assertEquals(t2Event?.tool?.phase, 'complete');
+  assertEquals(t2Event?.tool?.output, { finding: 'found ok' });
+  assertEquals(t2.at(-1)?.stop?.kind, 'completed');
+
+  // paths: ['web'] — not applied on host, even without a request path.
+  const pathless = await invokeRegisteredTool({
+    profile: 'host_invoke_ceiling',
+    name: 'web_only_tool',
+    input: {},
+  });
+  assertEquals(pathless.findLast((e) => e.tool?.name === 'web_only_tool')?.tool?.phase, 'complete');
+});
+
+Deno.test('invokeTool under a host profile rejects tools outside allow', async () => {
+  registerProfile({
+    type: 'host',
+    id: 'host_invoke_denied',
+    tools: { allow: ['stub_tool'] },
+  });
+  const events = await invokeRegisteredTool({
+    profile: 'host_invoke_denied',
+    name: 'record_lookup',
+    input: { q: 'x' },
+  });
+  const ev = events.findLast((e) => e.tool?.name === 'record_lookup');
+  assertEquals(ev?.tool?.phase, 'error');
+  assertEquals(ev?.tool?.failure?.code, 'not_allowed');
+  assertEquals(events.at(-1)?.stop?.kind, 'completed');
+});
+
+Deno.test('invokeTool under a host profile runs preTool and honours its gate', async () => {
+  registerProfile({
+    type: 'host',
+    id: 'host_invoke_preflight',
+    tools: { allow: ['preflight_confirm_tool'] },
+  });
+  const paused = await invokeRegisteredTool({
+    profile: 'host_invoke_preflight',
+    name: 'preflight_confirm_tool',
+    input: {},
+  });
+  const gated = paused.findLast((e) => e.tool?.name === 'preflight_confirm_tool');
+  assertEquals(gated?.tool?.phase, 'gate');
+  assertEquals(gated?.tool?.gate?.kind, 'confirmation');
+
+  const resumed = await invokeRegisteredTool({
+    profile: 'host_invoke_preflight',
+    name: 'preflight_confirm_tool',
+    input: {},
+    resume: { granted: true },
+  });
+  assertEquals(
+    resumed.findLast((e) => e.tool?.name === 'preflight_confirm_tool')?.tool?.phase,
+    'complete',
+  );
+});
+
+Deno.test('invokeTool under a host profile applies guardrails to tool output', async () => {
+  registerTool({
+    type: 'function',
+    name: 'host_injecting_tool',
+    description: 'Returns a directive in its finding',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    input: z.object({}),
+    output: z.object({ finding: z.string() }),
+    handler: () => ({ finding: `report: ${INJ_IGNORE}` }),
+  });
+  registerProfile({
+    type: 'host',
+    id: 'host_invoke_guarded',
+    tools: { allow: ['host_injecting_tool'] },
+  });
+  const events = await invokeRegisteredTool({
+    profile: 'host_invoke_guarded',
+    name: 'host_injecting_tool',
+    input: {},
+  });
+  const guardrail = events.find((e) => e.type === 'guardrail')?.guardrail;
+  assertEquals(guardrail?.stage, 'tool_result');
+  assertEquals(guardrail?.provenance?.tool, 'host_injecting_tool');
+  assertEquals(
+    events.findLast((e) => e.tool?.name === 'host_injecting_tool')?.tool?.phase,
+    'complete',
+  );
+});
+
+function postToolProfile(id: string, tool: string) {
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      id,
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
+      tools: { allow: [tool] },
+      inputs: { text: true },
+      guardrails: { quota: { perDay: 10 } },
+    }),
+  );
+  const profile = getProfile(id);
+  if (!profile) throw new Error(`profile ${id} missing`);
+  return profile;
+}
+
+function registerPostToolProbe(name: string, output: unknown) {
+  registerTool({
+    type: 'function',
+    name,
+    description: 'post_tool affordance probe',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    input: z.object({}),
+    output: z.object({ finding: z.string(), secret: z.string().optional() }),
+    handler: () => output,
+  });
+}
+
+async function runPostToolProbe(args: {
+  profile: NonNullable<ReturnType<typeof getProfile>>;
+  tool: string;
+  onStage: (ctx: { stage: string; outputRaw?: unknown; failure?: unknown }) => unknown;
+}) {
+  const events: TurnEvent[] = [];
+  const exec = executeRegisteredTool({
+    profile: args.profile,
+    name: args.tool,
+    input: {},
+    callId: `${args.tool}_1`,
+    ctx: {},
+    stages: {
+      handlers: [args.onStage as never],
+      profile: args.profile,
+      step: 1,
+      history: () => [],
+      injectAllowed: false,
+    },
+  });
+  while (true) {
+    const next = await exec.next();
+    if (next.done) return { events, settlement: next.value };
+    events.push(next.value);
+  }
+}
+
+Deno.test('post_tool mutate replaces the raw output, re-validates it, and the model sees the replacement', async () => {
+  registerPostToolProbe('post_mutate_probe', { finding: 'ok', secret: 'hunter2' });
+  const profile = postToolProfile('post_mutate_bot', 'post_mutate_probe');
+  let sawRaw: unknown;
+  const { events, settlement } = await runPostToolProbe({
+    profile,
+    tool: 'post_mutate_probe',
+    onStage: (ctx) => {
+      if (ctx.stage !== 'post_tool') return undefined;
+      sawRaw = ctx.outputRaw;
+      return { mutate: { output: { finding: 'ok' } } };
+    },
+  });
+  assertEquals(sawRaw, { finding: 'ok', secret: 'hunter2' });
+  assertEquals(settlement.outputRaw, { finding: 'ok' });
+  assertEquals(settlement.failure, undefined);
+  assertEquals(settlement.modelResult?.modelText?.includes('hunter2'), false);
+  assertEquals(
+    events.some((e) => e.type === 'stage' && e.stageWarnings),
+    false,
+  );
+});
+
+Deno.test('post_tool mutate that fails the output schema settles as invalid_output', async () => {
+  registerPostToolProbe('post_mutate_bad_probe', { finding: 'ok' });
+  const profile = postToolProfile('post_mutate_bad_bot', 'post_mutate_bad_probe');
+  const { events, settlement } = await runPostToolProbe({
+    profile,
+    tool: 'post_mutate_bad_probe',
+    onStage: (ctx) =>
+      ctx.stage === 'post_tool' ? { mutate: { output: { finding: 42 } } } : undefined,
+  });
+  assertEquals(settlement.failure?.code, 'invalid_output');
+  assertEquals(settlement.modelResult?.modelText?.includes('after mutate'), true);
+  assertEquals(
+    events.some((e) => e.type === 'tool' && e.tool?.phase === 'error'),
+    true,
+  );
+});
+
+Deno.test('post_tool deny swaps a completed result for a failure the model sees', async () => {
+  registerPostToolProbe('post_deny_probe', { finding: 'ok', secret: 'hunter2' });
+  const profile = postToolProfile('post_deny_bot', 'post_deny_probe');
+  const { events, settlement } = await runPostToolProbe({
+    profile,
+    tool: 'post_deny_probe',
+    onStage: (ctx) =>
+      ctx.stage === 'post_tool'
+        ? { deny: { code: 'policy_refused', message: 'result withheld by policy' } }
+        : undefined,
+  });
+  assertEquals(settlement.failure, {
+    code: 'policy_refused',
+    message: 'result withheld by policy',
+  });
+  assertEquals(settlement.modelResult?.modelText?.includes('hunter2'), false);
+  assertEquals(settlement.modelResult?.modelText?.includes('result withheld by policy'), true);
+  // One terminal event per call: the deny is the only thing the wire shows.
+  const phases = events.filter((e) => e.type === 'tool').map((e) => e.tool?.phase);
+  assertEquals(phases.includes('complete'), false);
+  assertEquals(phases.filter((p) => p === 'error').length, 1);
+  assertEquals(settlement.outputRaw, undefined);
+  assertEquals(settlement.awaiting, undefined);
+  // post_tool saw the completed body; the terminal event came after it.
+  const order = events.map((e) =>
+    e.type === 'stage' ? `stage:${e.stage}` : `${e.type}:${e.tool?.phase ?? ''}`,
+  );
+  assertEquals(order.indexOf('stage:post_tool') < order.indexOf('tool:error'), true);
+});
+
+Deno.test('post_tool mutate on a failed call is a mutate_invalid warning, deny still applies', async () => {
+  registerTool({
+    type: 'function',
+    name: 'post_mutate_failed_probe',
+    description: 'throws',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    input: z.object({}),
+    output: z.object({ finding: z.string() }),
+    handler: () => {
+      throw new Error('boom');
+    },
+  });
+  const profile = postToolProfile('post_mutate_failed_bot', 'post_mutate_failed_probe');
+  const { events, settlement } = await runPostToolProbe({
+    profile,
+    tool: 'post_mutate_failed_probe',
+    onStage: (ctx) =>
+      ctx.stage === 'post_tool'
+        ? {
+            mutate: { output: { finding: 'nope' } },
+            deny: { code: 'replaced', message: 'replaced failure' },
+          }
+        : undefined,
+  });
+  const warned = events.find((e) => e.type === 'stage' && e.stageWarnings);
+  assertEquals(
+    warned?.type === 'stage' ? warned.stageWarnings?.[0]?.code : undefined,
+    'mutate_invalid',
+  );
+  assertEquals(settlement.failure?.code, 'replaced');
+  assertEquals(settlement.outputRaw, undefined);
+});
+
+Deno.test('post_tool deny of an awaiting result clears awaiting and outputRaw', async () => {
+  registerPostToolProbe('post_deny_awaiting_probe', {
+    finding: 'ask',
+    status: 'awaiting_user_input',
+    kind: 'text',
+    prompt: 'Which one?',
+  });
+  registerTool({
+    type: 'function',
+    name: 'post_deny_awaiting_probe',
+    description: 'awaiting probe',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    input: z.object({}),
+    output: z.object({ status: z.string(), kind: z.string(), prompt: z.string() }),
+    handler: () => ({ status: 'awaiting_user_input', kind: 'text', prompt: 'Which one?' }),
+  });
+  const profile = postToolProfile('post_deny_awaiting_bot', 'post_deny_awaiting_probe');
+  let stageSawAwaiting: boolean | undefined;
+  const { events, settlement } = await runPostToolProbe({
+    profile,
+    tool: 'post_deny_awaiting_probe',
+    onStage: (ctx) => {
+      if (ctx.stage !== 'post_tool') return undefined;
+      stageSawAwaiting = (ctx as { awaiting?: boolean }).awaiting;
+      return { deny: { code: 'no_questions', message: 'not now' } };
+    },
+  });
+  assertEquals(stageSawAwaiting, true);
+  assertEquals(settlement.awaiting, undefined);
+  assertEquals(settlement.outputRaw, undefined);
+  assertEquals(settlement.failure?.code, 'no_questions');
+  assertEquals(
+    events.some((e) => e.type === 'tool' && e.tool?.phase === 'complete'),
+    false,
+  );
+});
+
+Deno.test('post_tool mutate: one complete event, carrying the mutated output, after the stage', async () => {
+  registerPostToolProbe('post_mutate_wire_probe', { finding: 'ok', secret: 'hunter2' });
+  const profile = postToolProfile('post_mutate_wire_bot', 'post_mutate_wire_probe');
+  const { events } = await runPostToolProbe({
+    profile,
+    tool: 'post_mutate_wire_probe',
+    onStage: (ctx) =>
+      ctx.stage === 'post_tool' ? { mutate: { output: { finding: 'ok' } } } : undefined,
+  });
+  const completes = events.filter((e) => e.type === 'tool' && e.tool?.phase === 'complete');
+  assertEquals(completes.length, 1);
+  assertEquals(completes[0]?.tool?.output, { finding: 'ok' });
+  const order = events.map((e) =>
+    e.type === 'stage' ? `stage:${e.stage}` : `${e.type}:${e.tool?.phase ?? ''}`,
+  );
+  assertEquals(order.indexOf('stage:post_tool') < order.indexOf('tool:complete'), true);
+});
+
+Deno.test('post_tool sees the guarded model result and a mutated result is re-guarded', async () => {
+  registerPostToolProbe('post_guard_probe', { finding: `${INJ_IGNORE} original` });
+  const profile = postToolProfile('post_guard_bot', 'post_guard_probe');
+  let atStage: { modelText?: string; provenance?: unknown } | undefined;
+  const { settlement } = await runPostToolProbe({
+    profile,
+    tool: 'post_guard_probe',
+    onStage: (ctx) => {
+      if (ctx.stage !== 'post_tool') return undefined;
+      atStage = (ctx as { outputModel?: { modelText?: string; provenance?: unknown } }).outputModel;
+      return { mutate: { output: { finding: `${INJ_IGNORE} replaced` } } };
+    },
+  });
+  assertEquals(typeof atStage?.modelText, 'string');
+  assertEquals(Boolean(atStage?.provenance), true);
+  assertEquals(typeof settlement.modelResult?.modelText, 'string');
+  assertEquals(settlement.modelResult?.modelText?.includes('replaced'), true);
+  assertEquals(Boolean(settlement.modelResult?.provenance), true);
+});
+
+Deno.test('post_tool mutate on the T2 loader is a warning, not a replacement', async () => {
+  registerTool({
+    type: 'function',
+    name: 'post_mutate_t2_loader',
+    description: 'loads tools',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    input: z.object({}),
+    output: z.object({ loaded: z.array(z.string()) }),
+    handler: () => ({ loaded: [] }),
+  });
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      id: 'post_mutate_t2_bot',
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
+      tools: { allow: ['post_mutate_t2_loader'], t2Loader: 'post_mutate_t2_loader' },
+      inputs: { text: true },
+      guardrails: { quota: { perDay: 10 } },
+    }),
+  );
+  const profile = getProfile('post_mutate_t2_bot');
+  if (!profile) throw new Error('missing');
+  const snapshot = (await resolveTurn({ profile: profile.id, input: { text: 'x' } })).generation
+    .tools;
+  const events: TurnEvent[] = [];
+  const exec = executeRegisteredTool({
+    profile,
+    name: 'post_mutate_t2_loader',
+    input: {},
+    callId: 't2_1',
+    ctx: {},
+    snapshot,
+    stages: {
+      handlers: [
+        ((ctx: { stage: string }) =>
+          ctx.stage === 'post_tool'
+            ? { mutate: { output: { loaded: ['never_checked'] } } }
+            : undefined) as never,
+      ],
+      profile,
+      step: 1,
+      history: () => [],
+      injectAllowed: false,
+    },
+  });
+  let settlement: { outputRaw?: unknown } = {};
+  while (true) {
+    const next = await exec.next();
+    if (next.done) {
+      settlement = next.value;
+      break;
+    }
+    events.push(next.value);
+  }
+  assertEquals(settlement.outputRaw, { loaded: [] });
+  const warned = events.find((e) => e.type === 'stage' && e.stageWarnings);
+  assertEquals(
+    warned?.type === 'stage' ? warned.stageWarnings?.[0]?.code : undefined,
+    'mutate_invalid',
+  );
+});
+
+Deno.test('abort during a post_tool handler does not masquerade as handler_error', async () => {
+  registerPostToolProbe('post_abort_probe', { finding: 'ok' });
+  const profile = postToolProfile('post_abort_bot', 'post_abort_probe');
+  const controller = new AbortController();
+  const events: TurnEvent[] = [];
+  const exec = executeRegisteredTool({
+    profile,
+    name: 'post_abort_probe',
+    input: {},
+    callId: 'abort_1',
+    ctx: { signal: controller.signal },
+    stages: {
+      handlers: [
+        ((ctx: { stage: string }) => {
+          if (ctx.stage === 'post_tool') controller.abort();
+          return undefined;
+        }) as never,
+      ],
+      profile,
+      step: 1,
+      history: () => [],
+      injectAllowed: false,
+      signal: controller.signal,
+    },
+  });
+  let threw: unknown;
+  try {
+    while (true) {
+      const next = await exec.next();
+      if (next.done) break;
+      events.push(next.value);
+    }
+  } catch (err) {
+    threw = err;
+  }
+  assertEquals(Boolean(threw), true);
+  assertEquals(
+    events.some((e) => e.type === 'tool' && e.tool?.phase === 'error'),
+    false,
+  );
+});
+
+Deno.test('pre_tool pipeline: no stages and no preTool emits no pre_tool stage at all', async () => {
+  registerPostToolProbe('pre_passthrough_probe', { finding: 'ok' });
+  const profile = postToolProfile('pre_passthrough_bot', 'pre_passthrough_probe');
+  const events: TurnEvent[] = [];
+  const exec = executeRegisteredTool({
+    profile,
+    name: 'pre_passthrough_probe',
+    input: {},
+    callId: 'pt_1',
+    ctx: {},
+  });
+  while (true) {
+    const next = await exec.next();
+    if (next.done) break;
+    events.push(next.value);
+  }
+  assertEquals(
+    events.some((e) => e.type === 'stage' && e.stage === 'pre_tool'),
+    false,
+  );
+  assertEquals(
+    events.some((e) => e.type === 'stage' && e.stage === 'post_tool'),
+    false,
+  );
+});
+
+Deno.test('pre_tool mutate: replaced input is re-parsed, failing input settles invalid_input', async () => {
+  registerTool({
+    type: 'function',
+    name: 'pre_mutate_probe',
+    description: 'echoes',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    input: z.object({ n: z.number() }),
+    output: z.object({ finding: z.string() }),
+    handler: (input: { n: number }) => ({ finding: `n=${input.n}` }),
+  });
+  const profile = postToolProfile('pre_mutate_bot', 'pre_mutate_probe');
+  const run = async (mutate: unknown) => {
+    const exec = executeRegisteredTool({
+      profile,
+      name: 'pre_mutate_probe',
+      input: { n: 1 },
+      callId: 'pm_1',
+      ctx: {},
+      stages: {
+        handlers: [
+          ((ctx: { stage: string }) =>
+            ctx.stage === 'pre_tool' ? { mutate: { input: mutate } } : undefined) as never,
+        ],
+        profile,
+        step: 1,
+        history: () => [],
+        injectAllowed: false,
+      },
+    });
+    while (true) {
+      const next = await exec.next();
+      if (next.done) return next.value;
+    }
+  };
+  const good = await run({ n: 2, __proto__: { polluted: true } });
+  assertEquals(good.outputRaw, { finding: 'n=2' });
+  const bad = await run({ n: 'two' });
+  assertEquals(bad.failure?.code, 'invalid_input');
+  assertEquals(bad.callNotStarted, true);
+});
+
+Deno.test('pre_tool: tool-local preTool is skipped on a granted resume but host stages still run', async () => {
+  let preToolRan = 0;
+  let hostRan = 0;
+  registerTool({
+    type: 'function',
+    name: 'pre_resume_probe',
+    description: 'resume probe',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    input: z.object({}),
+    output: z.object({ finding: z.string() }),
+    preTool: () => {
+      preToolRan += 1;
+      return { confirm: true };
+    },
+    handler: () => ({ finding: 'ran' }),
+  });
+  const profile = postToolProfile('pre_resume_bot', 'pre_resume_probe');
+  const exec = executeRegisteredTool({
+    profile,
+    name: 'pre_resume_probe',
+    input: {},
+    callId: 'pr_1',
+    ctx: { resume: { granted: true } },
+    stages: {
+      handlers: [
+        ((ctx: { stage: string }) => {
+          if (ctx.stage === 'pre_tool') hostRan += 1;
+          return undefined;
+        }) as never,
+      ],
+      profile,
+      step: 1,
+      history: () => [],
+      injectAllowed: false,
+    },
+  });
+  let settlement: { outputRaw?: unknown } = {};
+  while (true) {
+    const next = await exec.next();
+    if (next.done) {
+      settlement = next.value;
+      break;
+    }
+  }
+  assertEquals(preToolRan, 0);
+  assertEquals(hostRan, 1);
+  assertEquals(settlement.outputRaw, { finding: 'ran' });
 });

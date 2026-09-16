@@ -8,8 +8,9 @@
  */
 
 import { publicError, UPSTREAM_FAILED } from '../guardrails/error.ts';
-import { noopSink, type TraceSink, writeTrace } from '../observability/trace.ts';
+import { noopSink, writeTrace } from '../observability/trace.ts';
 import type { TraceRecord } from '../observability/trace-record.ts';
+import type { TraceSink } from '../observability/trace-sink.ts';
 
 interface CutoutTape {
   ok: boolean;

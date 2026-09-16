@@ -1,5 +1,6 @@
 import { runTurn } from '../../kernel/engine/runner.ts';
 import { getProfile } from '../../kernel/registry/profiles.ts';
+import { requireModelProfile } from '../../kernel/registry/resolve.ts';
 import type { ModelProvider, TurnRequest } from '../../kernel/types.ts';
 import { createCliTraceCapture, printRunEvent, printTraceRecord } from '../event-log.ts';
 
@@ -16,7 +17,7 @@ export interface RunOptions {
 }
 
 export async function runCommand(options: RunOptions): Promise<void> {
-  getProfile(options.profile);
+  requireModelProfile(getProfile(options.profile), 'theorum run');
   const provider = options.provider;
   if (!provider) {
     console.error(
@@ -27,20 +28,18 @@ export async function runCommand(options: RunOptions): Promise<void> {
 
   const prompt = options.prompt || 'Hello! Please introduce your capabilities.';
   if (options.search || options.map) {
-    const profile = getProfile(options.profile);
-    const selected = options.mode
-      ? (profile.model.select?.[options.mode] ?? profile.model.allow[0])
-      : profile.model.allow[0];
-    const builtins = new Set(profile.model.config[selected]?.builtInTools ?? []);
+    const profile = requireModelProfile(getProfile(options.profile), 'theorum run');
+    const selected = options.mode ?? profile.defaultModel ?? Object.keys(profile.models)[0] ?? '';
+    const builtins = new Set(profile.models[selected]?.builtInTools ?? []);
     if (options.search && !builtins.has('googleSearch')) {
       console.error(
-        '\n\x1b[31mExecution Failed\x1b[0m: --search requires googleSearch on model.config.*.builtInTools for the selected model.\n',
+        '\n\x1b[31mExecution Failed\x1b[0m: --search requires googleSearch on models.*.builtInTools for the selected model.\n',
       );
       return;
     }
     if (options.map && !builtins.has('googleMaps')) {
       console.error(
-        '\n\x1b[31mExecution Failed\x1b[0m: --map requires googleMaps on model.config.*.builtInTools for the selected model.\n',
+        '\n\x1b[31mExecution Failed\x1b[0m: --map requires googleMaps on models.*.builtInTools for the selected model.\n',
       );
       return;
     }
@@ -48,7 +47,7 @@ export async function runCommand(options: RunOptions): Promise<void> {
 
   const req: TurnRequest = {
     profile: options.profile,
-    select: options.mode,
+    model: options.mode,
     input: { text: prompt },
   };
 

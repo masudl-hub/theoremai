@@ -7,7 +7,7 @@
  * Covers:
  *   Egress gate     — every retry count (0, 1, 2), refuse_to_user vs reject_to_agent,
  *                     repair loop success, call-count verification on every path
- *   Compaction      — text-turn ModelSpec.compaction (history / input meters);
+ *   Compaction      — text-turn ModelBinding.compaction (history / input meters);
  *                     empty-history guard, no-false-fire check
  *   Token estimation — 2 / 5 / 10 exchange histories; empty history; ratio bounds
  *   Runner integrity — multi-turn state isolation, inbound sanitize, canary no-leak,
@@ -37,8 +37,6 @@ import type {
   EgressContext,
   EgressEnforcementResult,
   ModelProvider,
-  ModelSpec,
-  ProfileModelSpec,
   TurnEvent,
   TurnHistoryMessage,
 } from '../src/kernel/types.ts';
@@ -200,47 +198,42 @@ function verifyApiId(): string {
   return PROVIDER_KIND === 'gemini' ? GEMINI_VERIFY_API_ID : OPENROUTER_VERIFY_API_ID;
 }
 
-function baseModelSpec(apiId: string): ModelSpec {
+function baseModelBinding(apiId: string): import('../src/kernel/types.ts').ModelBinding {
   if (PROVIDER_KIND === 'gemini') {
     return {
+      protocol: 'geminiInteractions',
+      provider: 'google',
       apiId,
-      thinking: { on: 'minimal', off: 'minimal' },
-      thinkingLevels: ['minimal'],
-      summaries: { on: 'none', off: 'none' },
+      efforts: { normal: 'minimal' },
+      summaries: false,
       maxOutputTokens: 300,
       temperature: 0.1,
       builtInTools: [],
     };
   }
   return {
+    protocol: 'openAi',
+    provider: 'openrouter',
     apiId,
-    thinking: { on: 'none', off: 'none' },
-    thinkingLevels: ['none'],
-    summaries: { on: 'none', off: 'none' },
+    efforts: { normal: 'none' },
+    summaries: false,
     maxOutputTokens: 300,
     temperature: 0.1,
     builtInTools: [],
   };
 }
 
-function modelSection(apiId: string): ProfileModelSpec {
+function modelFields(apiId: string): Pick<ProfileDefinition, 'models' | 'maxSteps' | 'key'> {
+  const binding = baseModelBinding(apiId);
   if (PROVIDER_KIND === 'gemini') {
     return {
-      protocol: 'geminiInteractions',
-      provider: 'google',
-      allow: [apiId],
-      config: { [apiId]: baseModelSpec(apiId) },
-      thinking: 'minimal',
+      models: { [apiId]: binding },
       maxSteps: 1,
       key: 'slotA',
     };
   }
   return {
-    protocol: 'openAi',
-    provider: 'openrouter',
-    allow: [apiId],
-    config: { [apiId]: baseModelSpec(apiId) },
-    thinking: 'none',
+    models: { [apiId]: binding },
     maxSteps: 1,
   };
 }
@@ -251,7 +244,7 @@ function simpleProfile(id: string, guardrails: ProfileDefinition['guardrails'] =
       type: 'text',
       id,
       identity: { handle: 'verify', system: 'You are a helpful assistant.' },
-      model: modelSection(verifyApiId()),
+      ...modelFields(verifyApiId()),
       tools: { allow: [] },
       inputs: { text: true },
       guardrails: guardrails ?? {},
@@ -266,11 +259,10 @@ function compactionProfile(
   opts: { maxTokens?: number; compactAt?: number; timing?: 'before' | 'after' } = {},
 ): void {
   const aid = verifyApiId();
-  const compactModelId = 'compact';
   const maxTokens = opts.maxTokens ?? 50;
   const compactAt = opts.compactAt ?? 0.5; // default threshold = 25 tokens
-  const compactSpec: ModelSpec = {
-    ...baseModelSpec(aid),
+  const compactBinding = {
+    ...baseModelBinding(aid),
     compaction: {
       maxTokens,
       compactAt,
@@ -285,11 +277,9 @@ function compactionProfile(
       type: 'text',
       id,
       identity: { handle: 'verify', system: 'You are a helpful assistant.' },
-      model: {
-        ...modelSection(aid),
-        allow: [compactModelId],
-        config: { [compactModelId]: compactSpec },
-      },
+      ...modelFields(aid),
+      models: { compact: compactBinding },
+      defaultModel: 'compact',
       tools: { allow: [] },
       inputs: { text: true },
       guardrails: {},

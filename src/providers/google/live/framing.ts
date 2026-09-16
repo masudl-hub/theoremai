@@ -6,8 +6,12 @@
  * @module
  */
 
+import { TheorumError } from '../../../guardrails/error.ts';
+import { groundingFromEvent } from '../../../kernel/engine/delta.ts';
+import { isMediaRefPart } from '../../../kernel/interaction-parts.ts';
 import { getTool } from '../../../kernel/tools/registry.ts';
 import type {
+  InteractionMediaPart,
   InteractionPart,
   LiveVadSpec,
   ProviderCompleteRequest,
@@ -16,7 +20,6 @@ import type {
   TurnTokens,
   WireFunctionTool,
 } from '../../../kernel/types.ts';
-import { groundingFromEvent } from '../../../kernel/engine/delta.ts';
 import { base64ToBytes, bytesToBase64, wrapPcmAsWav } from '../../shared/pcm.ts';
 import { parseToolArgumentsObject } from '../../shared/tool-args.ts';
 import { GEMINI_LIVE_WS_URL } from '../urls.ts';
@@ -27,11 +30,19 @@ export function buildGeminiLiveWebSocketUrl(apiKey: string): string {
   return `${GEMINI_LIVE_WS_URL}?key=${encodeURIComponent(apiKey)}`;
 }
 
+/**
+ * Live tools are always declared non-blocking: the kernel session already runs
+ * tool execution asynchronously and honours `toolCallCancellation`, so the model
+ * is free to keep speaking while a call is in flight.
+ */
+const LIVE_FUNCTION_BEHAVIOR = 'NON_BLOCKING';
+
 export function wireFunctionDeclaration(decl: WireFunctionTool): Record<string, unknown> {
   const parameters = toGeminiOpenApiSchema(decl.parameters);
   return {
     name: decl.name,
     description: decl.description,
+    behavior: LIVE_FUNCTION_BEHAVIOR,
     parameters:
       parameters && typeof parameters === 'object'
         ? (parameters as Record<string, unknown>)
@@ -47,6 +58,7 @@ export function wireLiveTools(req: ProviderCompleteRequest): Array<Record<string
       functionDeclarations.push({
         name: id,
         description: entry.description,
+        behavior: LIVE_FUNCTION_BEHAVIOR,
       });
     }
   }
@@ -180,6 +192,19 @@ export function buildGeminiLiveSetupMessage(req: ProviderCompleteRequest): Recor
   return { setup };
 }
 
+/** Live carries inline bytes only — provider file references are rejected until support is verified. */
+function inlineMediaPart(part: Exclude<InteractionPart, { type: 'text' }>): InteractionMediaPart {
+  if (isMediaRefPart(part)) {
+    throw new TheorumError('media references are not supported on geminiLive');
+  }
+  return part;
+}
+
+function inlineData(part: Exclude<InteractionPart, { type: 'text' }>): Record<string, string> {
+  const inline = inlineMediaPart(part);
+  return { mimeType: inline.mimeType, data: inline.data };
+}
+
 /** Format a single history message into a Google turn object. */
 function historyTurnToGoogleTurn(msg: TurnHistoryMessage): Record<string, unknown> {
   const role = msg.role === 'assistant' ? 'model' : 'user';
@@ -193,12 +218,7 @@ function historyTurnToGoogleTurn(msg: TurnHistoryMessage): Record<string, unknow
     if (part.type === 'text') {
       parts.push({ text: part.text });
     } else {
-      parts.push({
-        inlineData: {
-          mimeType: part.mimeType,
-          data: part.data,
-        },
-      });
+      parts.push({ inlineData: inlineData(part) });
     }
   }
 
@@ -221,14 +241,15 @@ export function buildGeminiLiveClientContent(
 }
 
 /** Build a `realtimeInput` message for streaming audio, video, or text chunks. */
-export function buildGeminiLiveRealtimeInput(part: InteractionPart): Record<string, unknown> {
-  if (part.type === 'text') {
+export function buildGeminiLiveRealtimeInput(input: InteractionPart): Record<string, unknown> {
+  if (input.type === 'text') {
     return {
       realtimeInput: {
-        text: part.text,
+        text: input.text,
       },
     };
   }
+  const part = inlineMediaPart(input);
 
   if (part.type === 'audio') {
     return {
@@ -337,7 +358,7 @@ function readTokenCount(
   return typeof val === 'number' ? val : 0;
 }
 
-export function extractUsageTokens(metadata: Record<string, unknown>): TurnTokens | undefined {
+export function extractLiveUsageTokens(metadata: Record<string, unknown>): TurnTokens | undefined {
   const prompt = readTokenCount(metadata, 'promptTokenCount', 'prompt_token_count');
   const output = readTokenCount(metadata, 'responseTokenCount', 'response_token_count');
   const thinking = readTokenCount(metadata, 'thoughtsTokenCount', 'thoughts_token_count');
@@ -359,7 +380,8 @@ function foldSessionUpdate(message: Record<string, unknown>, events: TurnEvent[]
     | { newHandle?: string; resumable?: boolean }
     | undefined;
   if (!sessionUpdate || typeof sessionUpdate !== 'object') return;
-  const hasHandle = typeof sessionUpdate.newHandle === 'string' && sessionUpdate.newHandle.length > 0;
+  const hasHandle =
+    typeof sessionUpdate.newHandle === 'string' && sessionUpdate.newHandle.length > 0;
   const hasResumable = typeof sessionUpdate.resumable === 'boolean';
   if (!hasHandle && !hasResumable) return;
   events.push({
@@ -533,6 +555,26 @@ function foldLiveGrounding(serverContent: Record<string, unknown>, events: TurnE
   }
 }
 
+export type LiveInteractionStatus = 'IN_PROGRESS' | 'IDLE';
+
+/** Read the server-side `interactionStatus` when the message carries one. */
+export function readLiveInteractionStatus(
+  message: Record<string, unknown>,
+): LiveInteractionStatus | undefined {
+  const raw = message.interactionStatus ?? message.interaction_status;
+  if (raw === 'IN_PROGRESS' || raw === 'IDLE') return raw;
+  return undefined;
+}
+
+function foldInteractionStatus(message: Record<string, unknown>, events: TurnEvent[]): void {
+  const status = readLiveInteractionStatus(message);
+  if (!status) return;
+  events.push({
+    type: 'session',
+    session: { kind: status === 'IDLE' ? 'idle' : 'working' },
+  });
+}
+
 function foldServerContent(message: Record<string, unknown>, events: TurnEvent[]): void {
   const serverContent = message.serverContent as Record<string, unknown> | undefined;
   if (!serverContent || typeof serverContent !== 'object') return;
@@ -574,12 +616,16 @@ function foldServerContent(message: Record<string, unknown>, events: TurnEvent[]
   }
 
   foldLiveGrounding(serverContent, events);
+
+  if (serverContent.turnComplete === true || serverContent.turn_complete === true) {
+    events.push({ type: 'session', session: { kind: 'turn_complete' } });
+  }
 }
 
 function foldUsageMetadata(message: Record<string, unknown>, events: TurnEvent[]): void {
   const usageMetadata = message.usageMetadata as Record<string, unknown> | undefined;
   if (usageMetadata) {
-    const tokens = extractUsageTokens(usageMetadata);
+    const tokens = extractLiveUsageTokens(usageMetadata);
     if (tokens) {
       events.push({ type: 'tokens', tokens });
     }
@@ -599,6 +645,7 @@ export function foldGeminiLiveServerMessage(
   foldToolCalls(message, events);
   foldToolCancellations(message, events);
   foldServerContent(message, events);
+  foldInteractionStatus(message, events);
   foldUsageMetadata(message, events);
   return events;
 }

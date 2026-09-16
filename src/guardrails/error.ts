@@ -2,39 +2,29 @@
  * Public-safe error mapping for THEORUM.
  *
  * Kernel internals may contain provider status text, tool names, or exception
- * details. This module maps those failures to stable user-safe strings.
+ * details. This module maps those failures to stable user-safe strings from the
+ * kernel lexicon (`public.*` keys) so hosts can override them via
+ * `overrideLexicon`.
  *
  * @module
  */
 
-/** Error class used for expected THEORUM contract failures. */
-class TheorumError extends Error {
-  constructor(message = '', options?: ErrorOptions) {
-    super(message, options);
-    this.name = 'TheorumError';
-  }
-}
+import { lexiconDefault, lexiconText } from './lexicon.ts';
+import { TheorumError } from './theorum-error.ts';
 
 /** Internal marker for provider or transport failure. */
 const UPSTREAM_FAILED = 'upstream failed';
-/** Generic safe fallback shown when details must not be surfaced. */
-const PUBLIC_GENERIC = 'Something went wrong. Try again.';
-/** Safe copy for transient provider unavailability. */
-const PUBLIC_UNAVAILABLE = 'The model is unavailable. Try again.';
-/** Safe copy for canary or egress disclosure violations. */
-const PUBLIC_CANARY = "That reply wasn't safe to show. Try again.";
-/** Safe copy for tool or permission denials. */
-const PUBLIC_ACTION = "That action isn't available.";
-/** Safe copy for unsupported MIME types. */
-const PUBLIC_FILE_TYPE = "That file type isn't supported.";
-/** Safe copy for oversized files. */
-const PUBLIC_FILE_SIZE = 'That file is too large.';
-/** Safe copy for too many files in one turn. */
-const PUBLIC_FILE_COUNT = 'Too many files for one message.';
-/** Safe copy for unsupported generated image dimensions. */
-const PUBLIC_IMAGE_SIZE = "That image size isn't supported.";
-/** Safe copy when the host aborts a turn. */
-const PUBLIC_CANCELLED = 'Cancelled.';
+
+/** Snapshot of the registered default (ignores host overrides). Stable for tests. */
+const PUBLIC_GENERIC: string = lexiconDefault('public.generic');
+const PUBLIC_UNAVAILABLE: string = lexiconDefault('public.unavailable');
+const PUBLIC_CANARY: string = lexiconDefault('public.canary');
+const PUBLIC_ACTION: string = lexiconDefault('public.action');
+const PUBLIC_FILE_TYPE: string = lexiconDefault('public.file_type');
+const PUBLIC_FILE_SIZE: string = lexiconDefault('public.file_size');
+const PUBLIC_FILE_COUNT: string = lexiconDefault('public.file_count');
+const PUBLIC_IMAGE_SIZE: string = lexiconDefault('public.image_size');
+const PUBLIC_CANCELLED: string = lexiconDefault('public.cancelled');
 
 /** True when `err` is an abort (DOMException or Error named AbortError). */
 function isAbortError(err: unknown): boolean {
@@ -54,26 +44,45 @@ function throwIfAborted(signal?: AbortSignal): void {
   if (isAbortError(reason)) {
     throw reason;
   }
-  throw new DOMException('The operation was aborted.', 'AbortError');
+  throw new DOMException('The operation was aborted.', 'AbortError'); // lexicon-exempt: DOM AbortError fingerprint
 }
 
-const EXACT: Record<string, string> = {
-  [UPSTREAM_FAILED]: PUBLIC_UNAVAILABLE,
-  'empty Gemini stream': PUBLIC_UNAVAILABLE,
-  'canary leaked': PUBLIC_CANARY,
-  'The operation was aborted.': PUBLIC_CANCELLED,
-  'This operation was aborted': PUBLIC_CANCELLED,
-  'Turn withheld: egress disclosure violation': PUBLIC_CANARY,
-  'expected JSON object': 'Something was wrong with that request.',
-  'structured output was not valid JSON': 'Something was wrong with that request.',
-  'malformed Gemini Live message': PUBLIC_UNAVAILABLE,
-  'malformed Gemini Live message during setup': PUBLIC_UNAVAILABLE,
-  'user input cannot be placed in the system block': PUBLIC_GENERIC,
-  'attachment data must be base64': PUBLIC_FILE_TYPE,
-  'attachment is too large': PUBLIC_FILE_SIZE,
-  'attachments exceed the per-turn budget': PUBLIC_FILE_SIZE,
-  'Tool input validation failed': "That question isn't valid.",
-  'This profile does not accept text input': PUBLIC_ACTION,
+type PublicKey =
+  | 'public.generic'
+  | 'public.unavailable'
+  | 'public.canary'
+  | 'public.action'
+  | 'public.file_type'
+  | 'public.file_size'
+  | 'public.file_count'
+  | 'public.image_size'
+  | 'public.cancelled'
+  | 'public.bad_request'
+  | 'public.invalid_question';
+
+/** Resolve public copy at call time so `overrideLexicon` takes effect. */
+function publicCopy(key: PublicKey): string {
+  return lexiconText(key);
+}
+
+/** Upstream/internal message fingerprints → public lexicon keys (not emit copy). */
+const EXACT: Record<string, PublicKey> = {
+  [UPSTREAM_FAILED]: 'public.unavailable', // lexicon-exempt: internal marker
+  'empty Gemini stream': 'public.unavailable', // lexicon-exempt: upstream fingerprint
+  'canary leaked': 'public.canary', // lexicon-exempt: internal marker
+  'The operation was aborted.': 'public.cancelled', // lexicon-exempt: AbortError fingerprint
+  'This operation was aborted': 'public.cancelled', // lexicon-exempt: AbortError fingerprint
+  'Turn withheld: egress disclosure violation': 'public.canary', // lexicon-exempt: internal marker
+  'expected JSON object': 'public.bad_request', // lexicon-exempt: upstream fingerprint
+  'structured output was not valid JSON': 'public.bad_request', // lexicon-exempt: upstream fingerprint
+  'malformed Gemini Live message': 'public.unavailable', // lexicon-exempt: upstream fingerprint
+  'malformed Gemini Live message during setup': 'public.unavailable', // lexicon-exempt: upstream fingerprint
+  'user input cannot be placed in the system block': 'public.generic', // lexicon-exempt: internal marker
+  'attachment data must be base64': 'public.file_type', // lexicon-exempt: internal marker
+  'attachment is too large': 'public.file_size', // lexicon-exempt: internal marker
+  'attachments exceed the per-turn budget': 'public.file_size', // lexicon-exempt: internal marker
+  'Tool input validation failed': 'public.invalid_question', // lexicon-exempt: internal marker
+  'This profile does not accept text input': 'public.action', // lexicon-exempt: internal marker
 };
 
 interface ErrorRule {
@@ -87,84 +96,97 @@ const RULES: ErrorRule[] = [
       /^(Gemini|OpenRouter|TTS|OpenRouter TTS|Speech) HTTP/.test(t) ||
       t.includes('TTS HTTP') ||
       t.includes('Speech HTTP'),
-    resolve: () => PUBLIC_UNAVAILABLE,
+    resolve: () => publicCopy('public.unavailable'),
   },
   {
     match: (t) =>
+      // lexicon-exempt: substring fingerprints against internal TheorumError messages
       t.includes('not enabled on this turn') ||
       t.includes('not allowed') ||
       t.includes('not registered') ||
-      t.includes('Unknown model select') ||
-      t.includes('Grounding tools'),
-    resolve: () => PUBLIC_ACTION,
+      t.includes('Unknown model select') || // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      t.includes('Grounding tools') ||
+      (t.includes('live.ingress.') && t.includes('is disabled')),
+    resolve: () => publicCopy('public.action'),
   },
   {
     match: (t) =>
+      // lexicon-exempt: substring fingerprints against internal TheorumError messages
       t.includes('MIME') ||
-      t.includes('does not accept attachments') ||
-      t.includes('does not accept voice'),
-    resolve: () => PUBLIC_FILE_TYPE,
+      t.includes('does not accept attachments') || // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      t.includes('does not accept voice'), // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    resolve: () => publicCopy('public.file_type'),
   },
   {
     match: (t) => t.startsWith('At most'),
-    resolve: () => PUBLIC_FILE_COUNT,
+    resolve: () => publicCopy('public.file_count'),
   },
   {
     match: (t) =>
+      // lexicon-exempt: match already-lexicon attachment copy before remapping
       (t.startsWith('Only ') && t.includes('file')) ||
-      t.startsWith('Each file must be') ||
-      t.startsWith('Those files together'),
+      t.startsWith('Each file must be') || // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      t.startsWith('Those files together'), // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     resolve: (t) => t,
   },
   {
     match: (t) => t.includes('attachment'),
-    resolve: () => PUBLIC_FILE_SIZE,
+    resolve: () => publicCopy('public.file_size'),
   },
   {
+    // lexicon-exempt: substring fingerprint against internal TheorumError messages
     match: (t) => t.includes('aspect or size'),
-    resolve: () => PUBLIC_IMAGE_SIZE,
+    resolve: () => publicCopy('public.image_size'),
   },
   {
-    match: (t) => t.includes('must pin thinking') || t.includes('has no models'),
-    resolve: () => PUBLIC_GENERIC,
+    match: (t) =>
+      // lexicon-exempt: substring fingerprints against internal TheorumError messages
+      t.includes('must pin thinking') || t.includes('has no models'),
+    resolve: () => publicCopy('public.generic'),
   },
 ];
 
-const ALREADY_PUBLIC = new Set([
-  PUBLIC_GENERIC,
-  PUBLIC_UNAVAILABLE,
-  PUBLIC_CANARY,
-  PUBLIC_ACTION,
-  PUBLIC_FILE_TYPE,
-  PUBLIC_FILE_SIZE,
-  PUBLIC_FILE_COUNT,
-  PUBLIC_IMAGE_SIZE,
-  PUBLIC_CANCELLED,
-]);
+const PUBLIC_KEYS: readonly PublicKey[] = [
+  'public.generic',
+  'public.unavailable',
+  'public.canary',
+  'public.action',
+  'public.file_type',
+  'public.file_size',
+  'public.file_count',
+  'public.image_size',
+  'public.cancelled',
+  'public.bad_request',
+  'public.invalid_question',
+];
+
+function isAlreadyPublic(text: string): boolean {
+  return PUBLIC_KEYS.some((key) => lexiconText(key) === text || lexiconDefault(key) === text);
+}
 
 function publicText(text: string): string {
   if (/aborted/i.test(text)) {
-    return PUBLIC_CANCELLED;
+    return publicCopy('public.cancelled');
   }
-  if (ALREADY_PUBLIC.has(text)) {
+  if (isAlreadyPublic(text)) {
     return text;
   }
   const exact = EXACT[text];
   if (exact) {
-    return exact;
+    return publicCopy(exact);
   }
   for (const rule of RULES) {
     if (rule.match(text)) {
       return rule.resolve(text);
     }
   }
-  return PUBLIC_GENERIC;
+  return publicCopy('public.generic');
 }
 
 /** Convert an unknown thrown value or internal message to user-safe text. */
 function publicError(err: unknown): string {
   if (isAbortError(err)) {
-    return PUBLIC_CANCELLED;
+    return publicCopy('public.cancelled');
   }
   if (typeof err === 'string') {
     return publicText(err);
@@ -172,7 +194,7 @@ function publicError(err: unknown): string {
   if (err instanceof TheorumError) {
     return publicText(err.message);
   }
-  return PUBLIC_UNAVAILABLE;
+  return publicCopy('public.unavailable');
 }
 
 /** Raw diagnostic text for hosts, traces, and logs (never shown to end users). */

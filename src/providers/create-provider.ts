@@ -1,8 +1,8 @@
 /**
  * Host provider factory — the single public door for binding a profile to a transport.
  *
- * Routes from `profile.model.protocol` / `provider` (and whether the profile is
- * a speech or image role). Adapters under this folder are internal implementation.
+ * Routes from the selected model binding's `protocol` / `provider` (and whether the
+ * profile is a speech or image role). Adapters under this folder are internal implementation.
  *
  * Every adapter graph is loaded only when that transport's first `complete` runs —
  * not when this module is imported.
@@ -11,8 +11,12 @@
  */
 
 import { TheorumError } from '../guardrails/error.ts';
+import { requireModelProfile } from '../kernel/registry/resolve.ts';
+import { soleModelId } from '../kernel/registry/sole-model.ts';
 import { isValidPair } from '../kernel/schema.ts';
 import type {
+  ModelBinding,
+  ModelId,
   ModelProvider,
   Profile,
   ProviderCompleteRequest,
@@ -42,6 +46,21 @@ export function isSpeechRole(profile: Profile): boolean {
 
 export function isImageRole(profile: Profile): boolean {
   return profile.type === 'image';
+}
+
+function bindingForProvider(input: Profile, modelId?: ModelId): ModelBinding {
+  const profile = requireModelProfile(input, 'createProvider');
+  const id = modelId ?? profile.defaultModel ?? soleModelId(profile.models);
+  if (!id) {
+    throw new TheorumError(
+      `createProvider: profile '${profile.id}' must set defaultModel when multiple models are declared`,
+    );
+  }
+  const binding = profile.models[id];
+  if (!binding) {
+    throw new TheorumError(`createProvider: profile '${profile.id}' has no model '${id}'`);
+  }
+  return binding;
 }
 
 /**
@@ -94,12 +113,16 @@ function lazyLocal(config?: LocalProviderConfig): ModelProvider {
 /**
  * Create a `ModelProvider` for a turn-based profile (text / image / speech).
  * Live profiles use `runSession` — `createProvider` rejects geminiLive.
+ *
+ * When a profile declares multiple models, pass `modelId` to pick the binding used
+ * for adapter selection (defaults to `defaultModel` or the sole model key).
  */
 export function createProvider(
   profile: Profile,
   options: CreateProviderOptions = {},
+  modelId?: ModelId,
 ): ModelProvider {
-  const { protocol, provider } = profile.model;
+  const { protocol, provider } = bindingForProvider(profile, modelId);
 
   if (!isValidPair(protocol, provider)) {
     throw new TheorumError(
@@ -142,9 +165,6 @@ export function createProvider(
     return lazyLocal(options.local);
   }
 
-  // Exhaustiveness guard: isValidPair above already rejects unknown pairs, so
-  // this throw is unreachable at runtime. It exists so TypeScript errors if a
-  // new protocol/provider is added to PROTOCOL_PROVIDERS without a branch here.
   throw new TheorumError(
     `createProvider: unsupported protocol/provider pair '${protocol}'/'${provider}'`,
   );

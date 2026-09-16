@@ -1,6 +1,8 @@
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
+import { getProfile } from '../../src/kernel/registry/profiles.ts';
+import { AWAITING_USER_INPUT_STATUS } from '../../src/kernel/schema.ts';
 import {
   checkPermission,
   executeBuiltin,
@@ -8,11 +10,11 @@ import {
   extractLoadedIds,
   formatToolFailureForModel,
   formatToolResult,
+  isGateResumeGranted,
   isResumeContinuation,
   isToolPause,
   notLoadedMessage,
   permissionGranted,
-  plainToolInput,
   projectForModel,
   startToolExecution,
   yieldHandlerSideEvent,
@@ -34,13 +36,18 @@ import {
   resolveModelBuiltinIds,
   wireForTool,
 } from '../../src/kernel/tools/resolve.ts';
+import { plainToolInput } from '../../src/kernel/tools/schema.ts';
 import type {
   FunctionToolDef,
   ToolContext,
-  ToolPause,
   TurnToolSnapshot,
 } from '../../src/kernel/tools/types.ts';
-import type { Profile, ProviderCompleteRequest, TurnRequest } from '../../src/kernel/types.ts';
+import type {
+  ModelProfile,
+  Profile,
+  ProviderCompleteRequest,
+  TurnRequest,
+} from '../../src/kernel/types.ts';
 import {
   emitPendingFunctionCall,
   emitUniqueToolEvent,
@@ -78,6 +85,8 @@ type ToolPhaseEvent = {
     artifact?: { id: string };
     warning?: { code: string };
     failure?: { code: string; message: string };
+    gate?: { kind: string };
+    output?: unknown;
     pause?: { kind: string };
   };
 };
@@ -105,11 +114,19 @@ Deno.test('tools mutation helpers classify resume, pauses, and permissions preci
   assertEquals(isResumeContinuation({}), false);
   assertEquals(isResumeContinuation({ granted: true }), true);
   assertEquals(isResumeContinuation({ value: 0 }), true);
-  assertEquals(isResumeContinuation({ value: undefined, granted: false }), false);
+  // granted: false is still a resume continuation (a denial), not "no resume".
+  assertEquals(isResumeContinuation({ value: undefined, granted: false }), true);
 
-  assertEquals(isToolPause({ kind: 'interactive', tool: 'probe', input: {} }), true);
-  assertEquals(isToolPause({ kind: 'confirmation', tool: 'probe', input: {} }), true);
-  assertEquals(isToolPause({ kind: 'permission', tool: 'probe', input: {} }), true);
+  assertEquals(isGateResumeGranted(undefined), false);
+  assertEquals(isGateResumeGranted({}), false);
+  assertEquals(isGateResumeGranted({ value: true }), false);
+  assertEquals(isGateResumeGranted({ granted: true }), true);
+  assertEquals(isGateResumeGranted({ granted: false, value: 1 }), false);
+
+  assertEquals(isToolPause({ kind: 'confirmation' }), true);
+  assertEquals(isToolPause({ kind: 'permission' }), true);
+  assertEquals(isToolPause({ kind: 'auth' }), true);
+  assertEquals(isToolPause({ kind: 'interactive' }), true);
   assertEquals(isToolPause({ code: 'x', message: 'failure' }), false);
 
   assertEquals(permissionGranted('probe', undefined), false);
@@ -123,7 +140,6 @@ Deno.test('tools mutation helpers classify resume, pauses, and permissions preci
     kind: 'permission',
     tool: 'probe',
     permission: 'always_confirm',
-    input: {},
   });
   assertEquals(checkPermission('probe', 'always_confirm', undefined, { granted: true }), null);
   assertEquals(checkPermission('probe', 'session_consent', ['probe']), null);
@@ -167,6 +183,34 @@ Deno.test('tools mutation helpers project and format model results exactly', () 
     finding: '{"value":2}',
     data: { value: 2 },
   });
+  assertEquals(
+    projectForModel(visible, {
+      finding: 'shortlist',
+      items: [{ index: 1 }],
+      parts: [
+        { type: 'text', text: '1. palm' },
+        { type: 'image', mimeType: 'image/jpeg', data: '/9j/abc' },
+        { type: 'image', mimeType: 'image/jpeg', data: '' },
+        { type: 'bogus', mimeType: 'x', data: 'y' },
+      ],
+    }),
+    {
+      finding: 'shortlist',
+      data: { finding: 'shortlist', items: [{ index: 1 }] },
+      parts: [
+        { type: 'text', text: '1. palm' },
+        { type: 'image', mimeType: 'image/jpeg', data: '/9j/abc' },
+      ],
+    },
+  );
+  assertEquals(
+    formatToolResult({
+      finding: 'shortlist',
+      data: { finding: 'shortlist', items: [{ index: 1 }] },
+      parts: [{ type: 'image', mimeType: 'image/jpeg', data: '/9j/abc' }],
+    }),
+    'shortlist\n{"finding":"shortlist","items":[{"index":1}]}',
+  );
   assertEquals(formatToolResult({ finding: 'ok' }), 'ok');
   assertEquals(formatToolResult({ finding: 'ok', data: { n: 1 } }), 'ok\n{"n":1}');
   assertEquals(formatToolFailureForModel({ code: 'bad', message: 'no' }), {
@@ -179,18 +223,19 @@ Deno.test('tools mutation helpers project and format model results exactly', () 
   });
 });
 
-Deno.test('tools mutation helpers validate loaded ids and sanitize nested input', () => {
+Deno.test('tools mutation helpers validate loaded ids and sanitize nested input', async () => {
+  const { lexiconText } = await import('../../src/guardrails/lexicon.ts');
   assertEquals(
     notLoadedMessage(asValue<FunctionToolDef>({ name: 'probe', loadTier: 'T0' })),
-    "Tool 'probe' is not visible this turn",
+    lexiconText('tool.not_visible', { tool: 'probe' }),
   );
   assertEquals(
     notLoadedMessage(asValue<FunctionToolDef>({ name: 'one', loadTier: 'T1' })),
-    "Tool 'one' is not wired — profile.tools.t1Policy must select it",
+    lexiconText('tool.not_wired_t1', { tool: 'one' }),
   );
   assertEquals(
     notLoadedMessage(asValue<FunctionToolDef>({ name: 'two', loadTier: 'T2' })),
-    "Tool 'two' is not loaded — run profile.tools.t2Loader first",
+    lexiconText('tool.not_loaded_t2', { tool: 'two' }),
   );
   assertEquals(extractLoadedIds(null), undefined);
   assertEquals(extractLoadedIds([]), undefined);
@@ -210,8 +255,19 @@ Deno.test('tools mutation helpers filter paths, wire tools, and clone snapshots'
   assertEquals(pathMatches(['web'], undefined), false);
   assertEquals(pathMatches(['web'], 'web'), true);
   assertEquals(pathMatches(['web'], 'cli'), false);
-  assertEquals(initialVisible(['stub_tool', 'record_lookup']), ['stub_tool']);
-  assertEquals(initialBuiltins(['googleSearch']), ['googleSearch']);
+  const chat = getProfile('chat');
+  assertEquals(initialVisible(chat, ['stub_tool', 'record_lookup']), ['stub_tool']);
+  assertEquals(initialBuiltins(chat, ['googleSearch']), ['googleSearch']);
+  const host = asValue<Profile>({ type: 'host' });
+  assertEquals(initialVisible(host, ['stub_tool', 'record_lookup']), [
+    'stub_tool',
+    'record_lookup',
+  ]);
+  const live = asValue<Profile>({ type: 'live' });
+  assertEquals(initialVisible(live, ['stub_tool', 'record_lookup']), [
+    'stub_tool',
+    'record_lookup',
+  ]);
   const snapshot: TurnToolSnapshot = {
     builtins: [],
     gated: ['stub_tool'],
@@ -244,8 +300,16 @@ Deno.test('tools mutation coverage exercises resolver filtering and builtin prom
   );
   assertEquals(
     resolveModelBuiltinIds(
-      asValue<Profile>({
-        model: { config: { m: { builtInTools: ['googleSearch', 'stub_tool', 'missing'] } } },
+      asValue<ModelProfile>({
+        models: {
+          m: {
+            protocol: 'geminiInteractions',
+            provider: 'google',
+            apiId: 'm',
+            efforts: { normal: 'minimal' },
+            builtInTools: ['googleSearch', 'stub_tool', 'missing'],
+          },
+        },
       }),
       asValue<TurnRequest>({ path: 'web' }),
       'm',
@@ -254,7 +318,7 @@ Deno.test('tools mutation coverage exercises resolver filtering and builtin prom
   );
   assertEquals(
     resolveModelBuiltinIds(
-      asValue<Profile>({ model: { config: {} } }),
+      asValue<ModelProfile>({ models: {} }),
       asValue<TurnRequest>({ path: 'web' }),
       'missing',
     ),
@@ -590,38 +654,75 @@ Deno.test('tools mutation coverage exercises policy and function execution trans
     return events;
   };
 
-  const denied = await run(makeTool({ canExecute: () => false }), { value: 1 });
-  assertEquals(toolEventAt(denied, 1).tool.failure?.code, 'not_authorized');
-  const authError = await run(
+  const denied = await run(
     makeTool({
-      canExecute: () => {
-        throw new Error('nope');
-      },
+      preTool: () => ({ deny: { code: 'not_authorized', message: 'denied' } }),
     }),
     { value: 1 },
   );
-  assertEquals(toolEventAt(authError, 1).tool.failure?.message.includes('nope'), true);
-  const preflightFailure = await run(
-    makeTool({ preflight: () => ({ code: 'blocked', message: 'stop' }) }),
+  const deniedFailure = asValue<ToolPhaseEvent>(
+    [...denied].reverse().find((e) => asValue<ToolPhaseEvent>(e).tool?.failure),
+  ).tool?.failure?.code;
+  assertEquals(deniedFailure, 'not_authorized');
+  let preToolThrew = false;
+  try {
+    await run(
+      makeTool({
+        preTool: () => {
+          throw new Error('nope');
+        },
+      }),
+      { value: 1 },
+    );
+  } catch (err) {
+    preToolThrew = true;
+    assertEquals(err instanceof Error && err.message.includes('nope'), true);
+  }
+  assertEquals(preToolThrew, true);
+  const preToolFailure = await run(
+    makeTool({
+      preTool: () => ({ deny: { code: 'blocked', message: 'stop' } }),
+    }),
     { value: 1 },
   );
-  assertEquals(toolEventAt(preflightFailure, 1).tool.failure?.code, 'blocked');
-  const preflightPause = await run(
+  const preToolFailureCode = asValue<ToolPhaseEvent>(
+    [...preToolFailure].reverse().find((e) => asValue<ToolPhaseEvent>(e).tool?.failure),
+  ).tool?.failure?.code;
+  assertEquals(preToolFailureCode, 'blocked');
+  const preToolGate = await run(
     makeTool({
-      preflight: (input: unknown): ToolPause => ({
-        kind: 'confirmation',
-        tool: 'x',
-        input,
+      preTool: () => ({ confirm: { summary: 'Proceed?' } }),
+    }),
+    { value: 1 },
+  );
+  const preToolGateEvent = asValue<ToolPhaseEvent>(
+    [...preToolGate].reverse().find((e) => asValue<ToolPhaseEvent>(e).tool?.phase === 'gate'),
+  );
+  assertEquals(preToolGateEvent.tool?.phase, 'gate');
+  assertEquals(preToolGateEvent.tool?.gate?.kind, 'confirmation');
+  const awaiting = await run(
+    makeTool({
+      output: z.object({
+        status: z.literal(AWAITING_USER_INPUT_STATUS),
+        kind: z.enum(['confirm', 'choice', 'text']),
+        prompt: z.string(),
+      }),
+      handler: () => ({
+        status: AWAITING_USER_INPUT_STATUS,
+        kind: 'choice',
+        prompt: 'pick',
       }),
     }),
     { value: 1 },
   );
-  assertEquals(toolEventAt(preflightPause, 1).tool.pause?.kind, 'confirmation');
-  const interactive = await run(
-    makeTool({ interactive: { render: () => ({ kind: 'choice', prompt: 'pick' }) } }),
-    { value: 1 },
+  const awaitingComplete = asValue<ToolPhaseEvent>(
+    [...awaiting].reverse().find((e) => asValue<ToolPhaseEvent>(e).tool?.phase === 'complete'),
   );
-  assertEquals(toolEventAt(interactive, 1).tool.pause?.kind, 'interactive');
+  assertEquals(awaitingComplete.tool?.phase, 'complete');
+  assertEquals(
+    (awaitingComplete.tool?.output as { status?: string })?.status,
+    AWAITING_USER_INPUT_STATUS,
+  );
   const noOutput = await run(makeTool({ handler: () => undefined }), { value: 1 });
   assertEquals(toolEventAt(noOutput, 1).tool.failure?.code, 'invalid_output');
   const badOutput = await run(makeTool({ handler: () => ({ finding: 3 }) }), { value: 1 });

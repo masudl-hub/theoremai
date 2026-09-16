@@ -4,9 +4,20 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const hookSrc = path.join(repoRoot, 'scripts/hooks/pre-commit');
 const hooksDir = path.join(repoRoot, '.git/hooks');
-const hookDest = path.join(hooksDir, 'pre-commit');
+
+const hooks = [
+  {
+    src: path.join(repoRoot, 'scripts/hooks/pre-commit'),
+    dest: path.join(hooksDir, 'pre-commit'),
+    label: 'pre-commit → npm run lint:docs (docs-truth)',
+  },
+  {
+    src: path.join(repoRoot, 'scripts/hooks/pre-push'),
+    dest: path.join(hooksDir, 'pre-push'),
+    label: 'pre-push → fallow audit --base main (coverage-aware when present)',
+  },
+];
 
 if (process.env.CI === 'true') {
   process.exit(0);
@@ -19,8 +30,8 @@ try {
 }
 
 await mkdir(hooksDir, { recursive: true });
-await copyFile(hookSrc, hookDest);
-await chmod(hookDest, 0o755);
-console.log(
-  'Installed git pre-commit hook → npm run lint:docs (docs-truth, first step of npm run lint)',
-);
+for (const hook of hooks) {
+  await copyFile(hook.src, hook.dest);
+  await chmod(hook.dest, 0o755);
+  console.log(`Installed git ${hook.label}`);
+}

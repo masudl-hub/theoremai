@@ -127,47 +127,51 @@ function registerDemoHttpTools(): string[] {
   return names;
 }
 
-Deno.test('travel concierge HTTP tools execute against live APIs', async () => {
-  const names = registerDemoHttpTools();
-  profile.tools.allow = names;
-  const failures: string[] = [];
+Deno.test({
+  name: 'travel concierge HTTP tools execute against live APIs',
+  ignore: Deno.env.get('CI') === 'true' || Deno.env.get('GITHUB_ACTIONS') === 'true',
+  fn: async () => {
+    const names = registerDemoHttpTools();
+    profile.tools.allow = names;
+    const failures: string[] = [];
 
-  for (const name of names) {
-    const input = SAMPLE_INPUT[name] ?? {};
-    let ok = false;
-    let detail = 'no events';
+    for (const name of names) {
+      const input = SAMPLE_INPUT[name] ?? {};
+      let ok = false;
+      let detail = 'no events';
 
-    for (let attempt = 0; attempt < 2 && !ok; attempt++) {
-      if (attempt > 0) {
-        await new Promise((r) => setTimeout(r, 1000));
+      for (let attempt = 0; attempt < 2 && !ok; attempt++) {
+        if (attempt > 0) {
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+        const exec = executeRegisteredTool({
+          profile,
+          name,
+          input,
+          callId: `smoke-${name}-${attempt}`,
+          ctx: {},
+        });
+        for await (const ev of exec) {
+          if (ev.type !== 'tool') continue;
+          if (ev.tool?.phase === 'complete') {
+            ok = true;
+            break;
+          }
+          if (ev.tool?.phase === 'error' && ev.tool.failure) {
+            detail = `${ev.tool.failure.code}: ${ev.tool.failure.message}`;
+            break;
+          }
+        }
       }
-      const exec = executeRegisteredTool({
-        profile,
-        name,
-        input,
-        callId: `smoke-${name}-${attempt}`,
-        ctx: {},
-      });
-      for await (const ev of exec) {
-        if (ev.type !== 'tool') continue;
-        if (ev.tool?.phase === 'complete') {
-          ok = true;
-          break;
-        }
-        if (ev.tool?.phase === 'error' && ev.tool.failure) {
-          detail = `${ev.tool.failure.code}: ${ev.tool.failure.message}`;
-          break;
-        }
+      if (!ok) failures.push(`${name}: ${detail}`);
+      // Nominatim rate limit
+      if (name === 'search_places' || name === 'reverse_geocode') {
+        await new Promise((r) => setTimeout(r, 1100));
       }
     }
-    if (!ok) failures.push(`${name}: ${detail}`);
-    // Nominatim rate limit
-    if (name === 'search_places' || name === 'reverse_geocode') {
-      await new Promise((r) => setTimeout(r, 1100));
-    }
-  }
 
-  if (failures.length) {
-    throw new Error(`HTTP demo tool failures:\n${failures.join('\n')}`);
-  }
+    if (failures.length) {
+      throw new Error(`HTTP demo tool failures:\n${failures.join('\n')}`);
+    }
+  },
 });

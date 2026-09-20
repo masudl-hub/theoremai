@@ -39,7 +39,6 @@ jobs:
   publish:
     needs: check-version
     if: needs.check-version.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
-    environment: publish
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

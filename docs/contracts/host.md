@@ -1,4 +1,4 @@
-# Host (`theorum/host`)
+# Host (`@theoremai/agents/host`)
 
 Optional helpers for host applications. **Not** part of the turn kernel —
 import when you want shared reply/status glue, cutout-trace flushing, or live
@@ -10,7 +10,7 @@ ceiling, optional `observability`, optional `guardrails` narrowed to
 `HostGuardrailsSpec` — `sanitizeInput`, `redactSensitive`, `network`, `taint`;
 quota / canary / egress are refused because they guard a model turn — no models)
 and call
-`invokeTool({ profile, name, input, host })` from `theorum/kernel`. The `host`
+`invokeTool({ profile, name, input, host })` from `@theoremai/agents/kernel`. The `host`
 slot carries opaque application context to `handler` / `preTool`
 (and turn stages — see `docs/contracts/stages.md`) and is never traced or sent
 to a provider. See `docs/contracts/kernel.md` (“Host profile” and “Host context
@@ -20,7 +20,7 @@ slot”).
 
 | Field | Value |
 | --- | --- |
-| Import | `theorum/host` / `jsr:@theorum/core/host` |
+| Import | `@theoremai/agents/host` / `jsr:@theoremai/agents/host` |
 | Module | `src/host/mod.ts` |
 
 ## Ownership
@@ -38,7 +38,7 @@ slot”).
 | Export | Role |
 | --- | --- |
 | `json(status, body, cors)` | JSON `Response` with merged CORS headers |
-| `caughtStatus(err)` | `400` for `TheorumError`, else `500` |
+| `caughtStatus(err)` | `400` for `TheoremError`, else `500` |
 | `HTTP_OK` | `200` |
 | `HTTP_BUSY` | `429` |
 | `HTTP_NOT_FOUND` | `404` |
@@ -47,7 +47,7 @@ slot”).
 Example:
 
 ```ts
-import { caughtStatus, HTTP_BUSY, json } from "theorum/host";
+import { caughtStatus, HTTP_BUSY, json } from "@theoremai/agents/host";
 
 try {
   return json(200, { ok: true }, cors);
@@ -64,8 +64,8 @@ Before forwarding `TurnEvent`s to browsers, SSE, or mobile clients, strip
 host-only diagnostics:
 
 ```ts
-import { forClientEvents } from "theorum/host";
-import { runSession } from "theorum";
+import { forClientEvents } from "@theoremai/agents/host";
+import { runSession } from "@theoremai/agents";
 
 const live = await runSession({ profile: "site.live" }, { gemini: { vault } });
 for await (const event of live.events()) {
@@ -94,7 +94,7 @@ only to turn event payloads.
 | `CutoutTape` | Tape type for mint/cutout correlation |
 | `TraceSink` (imported) | From `src/observability/trace-sink.ts`, the type-only sink contract |
 
-Use when your Deno HTTP host records mint/cutout telemetry alongside THEORUM
+Use when your Deno HTTP host records mint/cutout telemetry alongside THEOREM
 turns. Skip entirely for non-HTTP or non-Deno hosts.
 
 ## Structured JSON preview
@@ -105,7 +105,7 @@ it for live UI previews; it is not a JSON validator and never throws on truncate
 input.
 
 ```ts
-import { readStreamingJsonStringField } from "theorum/host";
+import { readStreamingJsonStringField } from "@theoremai/agents/host";
 
 const preview = readStreamingJsonStringField(buffer, "mermaid");
 // returns decoded prefix even before closing quote
@@ -126,7 +126,7 @@ Live list: `src/host/mod.ts` (`json`, status constants, `caughtStatus`,
 `flushMintTrace`, `CutoutTape`, `readStreamingJsonStringField`, `forClient`,
 `forClientEvents`, `ClientTurnOptions`).
 
-```theorum-evidence
+```theorem-evidence
 {
   "sections": {
     "Export": {

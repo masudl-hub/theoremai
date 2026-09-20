@@ -1,5 +1,5 @@
 import { assertEquals, assertExists, assertThrows } from '@std/assert';
-import { TheorumError } from '../../../../src/guardrails/error.ts';
+import { TheoremError } from '../../../../src/guardrails/error.ts';
 import { registerTool } from '../../../../src/kernel/tools/mod.ts';
 import type { ProviderCompleteRequest } from '../../../../src/kernel/types.ts';
 import {
@@ -579,12 +579,12 @@ Deno.test('Live client-content history and realtime input reject media reference
           parts: [{ type: 'image', mimeType: 'image/png', uri: 'files/img1' }],
         },
       ]),
-    TheorumError,
+    TheoremError,
     'media references are not supported on geminiLive',
   );
   assertThrows(
     () => buildGeminiLiveRealtimeInput({ type: 'video', mimeType: 'video/mp4', uri: 'files/v1' }),
-    TheorumError,
+    TheoremError,
     'media references are not supported on geminiLive',
   );
 });

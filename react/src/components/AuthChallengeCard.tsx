@@ -1,4 +1,4 @@
-import type { ToolCredential, ToolGate } from 'theorum/kernel';
+import type { ToolCredential, ToolGate } from '../../../src/kernel/mod.ts';
 import { useState } from 'react';
 import '../styles/renderable-card.css';
 

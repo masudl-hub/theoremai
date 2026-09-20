@@ -12,7 +12,7 @@ import {
   USER_OPEN,
   wrapUserData,
 } from '../../src/guardrails/canary.ts';
-import { PUBLIC_CANARY, TheorumError } from '../../src/guardrails/error.ts';
+import { PUBLIC_CANARY, TheoremError } from '../../src/guardrails/error.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { yieldProviderEvents } from '../../src/kernel/engine/runner/stream.ts';
 import { runTurn } from '../../src/kernel/engine/runner.ts';
@@ -236,7 +236,7 @@ Deno.test('toInteractionsBody rejects user payload copied into system', () => {
         image: generation.image,
         keySlot: generation.keySlot,
       }),
-    TheorumError,
+    TheoremError,
   );
 });
 

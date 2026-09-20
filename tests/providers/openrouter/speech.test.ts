@@ -214,8 +214,8 @@ Deno.test('streamSpeech respects outputs.speech voice and format mp3', async () 
 
   const provider = createSpeechProvider({
     apiKey: 'mock-key',
-    siteUrl: 'https://theorum.dev',
-    siteName: 'Theorum Test',
+    siteUrl: 'https://theorem.dev',
+    siteName: 'Theorem Test',
     fetch: mockFetch,
   });
 
@@ -276,22 +276,22 @@ Deno.test('buildSpeechHeaders sets Authorization and Content-Type only by defaul
 });
 
 Deno.test('buildSpeechHeaders adds HTTP-Referer when siteUrl is set', () => {
-  const headers = buildSpeechHeaders('secret-key', { siteUrl: 'https://theorum.dev' });
-  assertEquals(headers['HTTP-Referer'], 'https://theorum.dev');
+  const headers = buildSpeechHeaders('secret-key', { siteUrl: 'https://theorem.dev' });
+  assertEquals(headers['HTTP-Referer'], 'https://theorem.dev');
 });
 
 Deno.test('buildSpeechHeaders adds X-Title when siteName is set', () => {
-  const headers = buildSpeechHeaders('secret-key', { siteName: 'Theorum' });
-  assertEquals(headers['X-Title'], 'Theorum');
+  const headers = buildSpeechHeaders('secret-key', { siteName: 'Theorem' });
+  assertEquals(headers['X-Title'], 'Theorem');
 });
 
 Deno.test('buildSpeechHeaders adds both when siteUrl and siteName are set', () => {
   const headers = buildSpeechHeaders('secret-key', {
-    siteUrl: 'https://theorum.dev',
-    siteName: 'Theorum',
+    siteUrl: 'https://theorem.dev',
+    siteName: 'Theorem',
   });
-  assertEquals(headers['HTTP-Referer'], 'https://theorum.dev');
-  assertEquals(headers['X-Title'], 'Theorum');
+  assertEquals(headers['HTTP-Referer'], 'https://theorem.dev');
+  assertEquals(headers['X-Title'], 'Theorem');
 });
 
 // -- buildPayload -------------------------------------------------

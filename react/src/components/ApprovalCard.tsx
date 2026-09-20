@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { ToolGate } from 'theorum/kernel';
+import type { ToolGate } from '../../../src/kernel/mod.ts';
 import '../styles/renderable-card.css';
 
 export type ApprovalCardProps = {

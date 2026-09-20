@@ -1,5 +1,5 @@
 /**
- * Deterministic turn runner for THEORUM.
+ * Deterministic turn runner for THEOREM.
  *
  * `runTurn` resolves a profile, sanitizes input, binds canary boundaries,
  * streams provider events, executes allowed tools, applies validation and

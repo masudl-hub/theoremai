@@ -16,6 +16,7 @@ reports/
 
 # Lint / analysis local caches
 .fallow/
+snyk
 
 # Secrets & host-injected runtime data
 .env
@@ -32,7 +33,7 @@ Thumbs.db
 *.code-workspace
 
 # Pack / archive outputs
-theorum-core-*.tgz
+theoremai-agents-*.tgz
 *.tgz
 
 # Logs

@@ -1,5 +1,5 @@
 /**
- * Synthetic performance benchmark for the THEORUM kernel pipeline.
+ * Synthetic performance benchmark for the THEOREM kernel pipeline.
  *
  * Measures overhead added by profile resolution, sanitization, canary
  * binding, stream processing, and event dispatch vs. a bare provider call.
@@ -514,7 +514,7 @@ export async function benchCommand(options: BenchOptions = {}): Promise<void> {
   const iterations = options.iterations ?? DEFAULT_ITERATIONS;
   const warmup = options.warmup ?? DEFAULT_WARMUP;
 
-  console.log(`\n⏱  Theorum Kernel Benchmark`);
+  console.log(`\n⏱  Theorem Kernel Benchmark`);
   console.log(`   ${chunkCount} chunks × ${iterations} iterations (${warmup} warmup)\n`);
 
   const chunks = generateChunks(chunkCount);

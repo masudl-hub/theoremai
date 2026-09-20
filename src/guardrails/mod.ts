@@ -5,7 +5,7 @@
  * bundled egress policy, and public error mapping.
  * App-specific policy copy remains host-owned.
  *
- * Adversarial corpus and fuzz runners: `theorum/guardrails/testing`.
+ * Adversarial corpus and fuzz runners: `@theoremai/agents/guardrails/testing`.
  *
  * @module
  */
@@ -46,7 +46,7 @@ export {
   PUBLIC_IMAGE_SIZE,
   PUBLIC_UNAVAILABLE,
   publicError,
-  TheorumError,
+  TheoremError,
   throwIfAborted,
   toErrorEvent,
   UPSTREAM_FAILED,

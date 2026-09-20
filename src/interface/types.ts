@@ -242,7 +242,7 @@ export type AttachmentValidationCode =
 /**
  * Structured parameters for rendering one validation issue. The headless
  * interface emits codes + params only; English lives in the lexicon defaults
- * and is rendered by the host UI layer (e.g. `@theorum/react`).
+ * and is rendered by the host UI layer (e.g. `@theoremai/react`).
  */
 export interface AttachmentValidationParams {
   maxFiles?: number;

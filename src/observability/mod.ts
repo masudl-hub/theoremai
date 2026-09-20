@@ -1,7 +1,7 @@
 /**
  * Trace sinks, destination registry, and profile observability policy.
  *
- * THEORUM does not own a database or environment variable. Host applications
+ * THEOREM does not own a database or environment variable. Host applications
  * register named destinations, declare `profile.observability`, and/or pass a
  * sink into `runTurn`.
  *

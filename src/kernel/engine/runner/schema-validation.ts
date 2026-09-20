@@ -7,7 +7,7 @@
  * @module
  */
 
-import { TheorumError } from '../../../guardrails/error.ts';
+import { TheoremError } from '../../../guardrails/error.ts';
 import type { ProfileValidator, ValidationResult } from '../../types.ts';
 
 interface ValidationFailure {
@@ -142,7 +142,7 @@ async function collectValidationFailures(
 ): Promise<ValidationFailure[]> {
   const root = asObjectSchema(jsonSchema);
   if (!root) {
-    throw new TheorumError('structured validation requires a JSON Schema object root'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('structured validation requires a JSON Schema object root'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   const failures: ValidationFailure[] = [];
   if (!asRecord(structured)) {

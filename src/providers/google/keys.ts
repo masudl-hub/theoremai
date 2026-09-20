@@ -2,12 +2,12 @@
  * Google transport credentials, quota overflow, and fetch retries.
  *
  * Hosts supply a provider-neutral `KeyVault` via `GeminiTransport`.
- * THEORUM does not read environment variables for these keys.
+ * THEOREM does not read environment variables for these keys.
  *
  * @module
  */
 
-import { isAbortError, TheorumError, UPSTREAM_FAILED } from '../../guardrails/error.ts';
+import { isAbortError, TheoremError, UPSTREAM_FAILED } from '../../guardrails/error.ts';
 import type { KeySlot, KeyVault } from '../../kernel/types.ts';
 
 /** Google Interactions / Live transport: shared `KeyVault` + optional fetch/wait. */
@@ -67,7 +67,7 @@ export function isTransientThrown(err: unknown): boolean {
 export function requireKey(vault: KeyVault, slot: KeySlot): string {
   const key = vault[slot];
   if (!key) {
-    throw new TheorumError(UPSTREAM_FAILED);
+    throw new TheoremError(UPSTREAM_FAILED);
   }
   return key;
 }

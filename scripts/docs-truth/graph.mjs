@@ -1,5 +1,5 @@
 /**
- * Deterministic docs-truth graph for THEORUM.
+ * Deterministic docs-truth graph for THEOREM.
  * No waivers. No LLM. Ownership + evidence + freshness only.
  */
 
@@ -9,7 +9,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const DEFAULT_GRAPH_PATH = 'docs/_map.mjs';
-export const EVIDENCE_FENCE = 'theorum-evidence';
+export const EVIDENCE_FENCE = 'theorem-evidence';
 const ALLOWED_EVIDENCE_KINDS = new Set([
   'source',
   'contract_test',
@@ -410,7 +410,7 @@ export function changedSectionsForDoc(docSource, lineRanges) {
 
 export async function collectChangedSectionsByDoc(
   repoRoot,
-  { base = process.env.THEORUM_DOCS_BASE ?? 'origin/main' } = {},
+  { base = process.env.THEOREM_DOCS_BASE ?? 'origin/main' } = {},
 ) {
   const rangesByFile = collectChangedLineRanges(repoRoot, base);
   const changedSectionsByDoc = new Map();
@@ -430,7 +430,7 @@ export async function collectChangedSectionsByDoc(
 
 export function collectChangedFiles(
   repoRoot,
-  { base = process.env.THEORUM_DOCS_BASE ?? 'origin/main' } = {},
+  { base = process.env.THEOREM_DOCS_BASE ?? 'origin/main' } = {},
 ) {
   const run = (args) => readGit(repoRoot, args);
 
@@ -459,8 +459,8 @@ export async function lintDocsTruth({
   const warnings = [];
   const graph = await loadGraph(repoRoot, graphPath);
 
-  if (graph.schema !== 'theorum.docs-truth/v1') {
-    errors.push(`${graphPath}: unsupported or missing schema (want theorum.docs-truth/v1)`);
+  if (graph.schema !== 'theorem.docs-truth/v1') {
+    errors.push(`${graphPath}: unsupported or missing schema (want theorem.docs-truth/v1)`);
   }
   if (graph.waivers != null || graph.unmapped_waivers != null) {
     errors.push(`${graphPath}: waivers are not allowed`);

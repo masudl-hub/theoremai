@@ -1,7 +1,7 @@
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
 import { INJ_IGNORE } from '../../src/guardrails/corpus/strings.ts';
-import { TheorumError } from '../../src/guardrails/error.ts';
+import { TheoremError } from '../../src/guardrails/error.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { runTurn } from '../../src/kernel/engine/runner.ts';
 import { defineProfile, getProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
@@ -1106,7 +1106,7 @@ Deno.test('validateToolInputSchema rejects Gemini-unsupported keys', () => {
         properties: { n: { type: 'number' } },
         additionalProperties: false,
       }),
-    TheorumError,
+    TheoremError,
   );
 });
 

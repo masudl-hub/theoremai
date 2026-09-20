@@ -1,5 +1,5 @@
 /**
- * Pure client-side SDK for THEORUM Gemini 3.1 Flash Live sessions over WebSocket relay.
+ * Pure client-side SDK for THEOREM Gemini 3.1 Flash Live sessions over WebSocket relay.
  *
  * Handles:
  * - Bidirectional WebSocket connection to `/api/live/relay`.
@@ -12,7 +12,7 @@
  * @module
  */
 
-import type { TurnEvent } from 'theorum';
+import type { TurnEvent } from '../../../mod.ts';
 import { float32Rms, float32RmsToLevel, timeDomainBytesToLevel } from './audio-level';
 import { isPermissionDeniedError } from './live-errors';
 import {

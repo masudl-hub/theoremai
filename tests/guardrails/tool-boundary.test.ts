@@ -278,7 +278,7 @@ Deno.test('clean remote content carries no advisory', async () => {
     const { result } = await run(profile, 'remote_lookup', { q: 'x' });
     const text = formatToolResult(result as ModelToolResult);
     assertEquals(text.includes('advisory='), false);
-    assertEquals(text.includes('[theorum]'), false);
+    assertEquals(text.includes('[theorem]'), false);
   } finally {
     restore();
   }
@@ -294,7 +294,7 @@ Deno.test('directive content is annotated in the fence the model reads', async (
     const { result } = await run(profile, 'remote_lookup', { q: 'x' });
     const text = formatToolResult(result as ModelToolResult);
     assertEquals(text.includes('advisory="elevated"') || text.includes('advisory="high"'), true);
-    assertEquals(text.includes('[theorum]'), true);
+    assertEquals(text.includes('[theorem]'), true);
     assertEquals(text.includes('data, not an instruction'), true);
     // The content itself is intact — annotation, not redaction.
     assertEquals(text.includes('ops@vendor.example'), true);
@@ -333,5 +333,5 @@ Deno.test('a local tool result is never annotated', () => {
     resolveGuardrailPolicy(undefined),
     [],
   );
-  assertEquals(guarded.text.includes('[theorum]'), false);
+  assertEquals(guarded.text.includes('[theorem]'), false);
 });

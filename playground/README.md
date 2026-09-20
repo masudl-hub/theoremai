@@ -1,16 +1,16 @@
-# @theorum/playground (repo-private)
+# @theoremai/playground (repo-private)
 
-Demo fixtures for hosts developing against theorum: the travel concierge demo
+Demo fixtures for hosts developing against theorem: the travel concierge demo
 graph seeds, sample HTTP inputs (Open-Meteo, Nominatim, Frankfurter, …), local
 function handlers, and JSON Schema stub generation.
 
 This package is **never published**. The kernel's boundary rule — "Host
-decides, Theorum runs" — forbids bundled assistants and demo product in the
-`theorum` package; `scripts/verify-publish-bundle.ts` asserts `playground/`
+decides, Theorem runs" — forbids bundled assistants and demo product in the
+`@theoremai/agents` package; `scripts/verify-publish-bundle.ts` asserts `playground/`
 stays out of every npm/JSR artifact. Consumers link it directly, e.g.
 
 ```json
-{ "@theorum/playground": "file:../theorum/playground" }
+{ "@theoremai/playground": "file:../theorem/playground" }
 ```
 
 ## Surface (`mod.ts`)
@@ -25,6 +25,6 @@ stays out of every npm/JSR artifact. Consumers link it directly, e.g.
 | `PlaygroundInputsSpec`, `PlaygroundToolSeed`, `PlaygroundToolSpecSeed` | Serializable seed shapes |
 
 Generic authoring vocabulary the kernel schema owns (`PLAYGROUND_AUTH_TYPES`,
-`PlaygroundAuthType`, `playground.*` field metadata) stays in `theorum/schema`.
+`PlaygroundAuthType`, `playground.*` field metadata) stays in `@theoremai/agents/schema`.
 
 Tests live in the main repo: `tests/playground/`.

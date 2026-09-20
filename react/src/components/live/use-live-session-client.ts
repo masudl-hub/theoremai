@@ -1,5 +1,5 @@
 import { useCallback, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
-import type { TurnEvent } from 'theorum';
+import type { TurnEvent } from '../../../../mod.ts';
 import {
 	applyLiveTranscript,
 	latestLiveCaptionTurnId,

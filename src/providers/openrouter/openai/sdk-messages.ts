@@ -1,5 +1,5 @@
 /**
- * Convert THEORUM turn input into Vercel AI SDK `ModelMessage[]`.
+ * Convert THEOREM turn input into Vercel AI SDK `ModelMessage[]`.
  *
  * Semantic twin of `openai/compat.ts` (REST wire format). OpenRouter's AI SDK
  * adapter uses this module; local and payload paths use `buildChatMessages`.
@@ -8,7 +8,7 @@
  */
 
 import type { ModelMessage } from 'ai';
-import { TheorumError } from '../../../guardrails/error.ts';
+import { TheoremError } from '../../../guardrails/error.ts';
 import { isMediaRefPart } from '../../../kernel/interaction-parts.ts';
 import type {
   InteractionMediaPart,
@@ -20,7 +20,7 @@ import { fallbackToolCallId, parseToolInput } from './compat.ts';
 
 function inlineMediaPart(part: Exclude<InteractionPart, { type: 'text' }>): InteractionMediaPart {
   if (isMediaRefPart(part)) {
-    throw new TheorumError('media references are not supported on openAi');
+    throw new TheoremError('media references are not supported on openAi');
   }
   return part;
 }

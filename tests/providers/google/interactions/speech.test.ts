@@ -1,6 +1,6 @@
 import '../../../fixtures/test-host.ts';
 import { assertEquals, assertThrows } from '@std/assert';
-import { TheorumError } from '../../../../src/guardrails/error.ts';
+import { TheoremError } from '../../../../src/guardrails/error.ts';
 import { eventsFromComplete, eventsFromDelta } from '../../../../src/kernel/engine/delta.ts';
 import { getProfile, registerProfile } from '../../../../src/kernel/registry/profiles.ts';
 import { resolveTurn } from '../../../../src/kernel/registry/resolve.ts';
@@ -245,7 +245,7 @@ Deno.test('Interactions speech profile rejects mp3 format at profile resolution'
   });
   assertThrows(() => {
     resolveTurn({ profile: 'bad-speech', input: { text: 'hi' } });
-  }, TheorumError);
+  }, TheoremError);
 });
 
 Deno.test('createProvider routes speech-role Interactions to the same adapter', () => {

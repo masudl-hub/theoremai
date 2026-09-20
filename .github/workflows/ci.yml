@@ -37,7 +37,7 @@ jobs:
       - name: Docs truth
         run: npm run lint:docs
         env:
-          THEORUM_DOCS_BASE: origin/${{ github.base_ref || github.event.repository.default_branch }}
+          THEOREM_DOCS_BASE: origin/${{ github.base_ref || github.event.repository.default_branch }}
 
       - name: Deno lint
         run: deno lint

@@ -17,10 +17,10 @@ import {
 	type PlaygroundRunPayload,
 	readPlaygroundRunIdFromUrl,
 } from './client/index';
-import { useTheorumRunActions } from './use-theorum-run-actions';
-import { useTheorumRunAppState, useTheorumRunBootstrap } from './use-theorum-run-app-state';
+import { useTheoremRunActions } from './use-theorem-run-actions';
+import { useTheoremRunAppState, useTheoremRunBootstrap } from './use-theorem-run-app-state';
 
-export type TheorumRunAppProps = {
+export type TheoremRunAppProps = {
 	/** Where to send the user when no payload is present. */
 	missingPayloadHref?: string;
 	/** Back-link to the authoring playground. */
@@ -46,14 +46,14 @@ type TurnFail = {
 	aborted?: boolean;
 };
 
-export function useTheorumRunAppModel({
+export function useTheoremRunAppModel({
 	missingPayloadHref = '/#playground',
 	playgroundHref = '/#playground',
 	readRunId = readPlaygroundRunIdFromUrl,
 	loadPayload = loadPlaygroundRunPayload,
-}: TheorumRunAppProps) {
-	const state = useTheorumRunAppState();
-	const { iface, liveIface } = useTheorumRunBootstrap({
+}: TheoremRunAppProps) {
+	const state = useTheoremRunAppState();
+	const { iface, liveIface } = useTheoremRunBootstrap({
 		missingPayloadHref,
 		readRunId,
 		loadPayload,
@@ -153,7 +153,7 @@ export function useTheorumRunAppModel({
 		[iface, onRunEnded, state],
 	);
 
-	const actions = useTheorumRunActions({
+	const actions = useTheoremRunActions({
 		iface,
 		payload: state.payload,
 		phase,

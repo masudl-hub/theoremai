@@ -1,6 +1,6 @@
 import '../../../fixtures/test-host.ts';
 import { assertEquals, assertThrows } from '@std/assert';
-import { TheorumError } from '../../../../src/guardrails/error.ts';
+import { TheoremError } from '../../../../src/guardrails/error.ts';
 import type {
   InteractionPart,
   ProviderCompleteRequest,
@@ -208,12 +208,12 @@ Deno.test('attachResponseFormat throws when speech and image are both requested'
       includeText: false,
     },
   });
-  assertThrows(() => attachResponseFormat(req, {}), TheorumError);
+  assertThrows(() => attachResponseFormat(req, {}), TheoremError);
 });
 
 Deno.test('attachResponseFormat throws when speech and structured are both requested', () => {
   const req = baseReq({ speech: { voice: 'Kore' }, structured: 'chatTurn' });
-  assertThrows(() => attachResponseFormat(req, {}), TheorumError);
+  assertThrows(() => attachResponseFormat(req, {}), TheoremError);
 });
 
 Deno.test('attachResponseFormat sets an audio response format for speech-only requests', () => {
@@ -582,7 +582,7 @@ Deno.test('inputStepsFromRequest expands tool_calls history into function_call +
 
 Deno.test('applyOptionalRequestFields throws for a builtin with no Interactions wire type', () => {
   const req = baseReq({ builtins: ['notRegisteredTool'] });
-  assertThrows(() => applyOptionalRequestFields(req, {}), TheorumError);
+  assertThrows(() => applyOptionalRequestFields(req, {}), TheoremError);
 });
 
 // baseInteractionsBody
@@ -614,7 +614,7 @@ Deno.test('toInteractionsBody rejects a system prompt that already contains user
     system: 'leaked hi text',
     input: [{ type: 'text', text: 'hi' }],
   });
-  assertThrows(() => toInteractionsBody(req), TheorumError);
+  assertThrows(() => toInteractionsBody(req), TheoremError);
 });
 
 Deno.test('toInteractionsBody builds a full snake_case wire body', () => {

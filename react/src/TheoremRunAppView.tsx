@@ -5,9 +5,9 @@ import {
 	moveComposerPendingWithinKind,
 	removeComposerPendingMessage,
 } from '../../src/interface/mod.ts';
-import type { useTheorumRunAppModel } from './use-theorum-run-app-model';
+import type { useTheoremRunAppModel } from './use-theorem-run-app-model';
 
-export type RunModel = ReturnType<typeof useTheorumRunAppModel>;
+export type RunModel = ReturnType<typeof useTheoremRunAppModel>;
 
 function RunLoading() {
 	return (
@@ -96,7 +96,7 @@ function RunComposer(props: RunModel & { iface: NonNullable<RunModel['iface']>; 
 	);
 }
 
-export function TheorumRunAppView(props: RunModel) {
+export function TheoremRunAppView(props: RunModel) {
 	if (!props.ready) return <RunLoading />;
 	if (props.payload?.profile.type === 'live' && props.liveIface) {
 		return <RunLive iface={props.liveIface} payload={props.payload} />;

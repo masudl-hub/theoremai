@@ -4,7 +4,7 @@
  * @module
  */
 
-import { TheorumError } from '../../guardrails/error.ts';
+import { TheoremError } from '../../guardrails/error.ts';
 import type { ModelId, ModelProfile, Profile, ToolId, TurnRequest } from '../types.ts';
 import { getTool } from './registry.ts';
 import type {
@@ -223,12 +223,12 @@ export async function expandT1Policy(
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    throw new TheorumError(`Profile '${profile.id}' tools.t1Policy rejected: ${msg}`, {
+    throw new TheoremError(`Profile '${profile.id}' tools.t1Policy rejected: ${msg}`, {
       cause: err,
     });
   }
   if (!Array.isArray(selected)) {
-    throw new TheorumError(`Profile '${profile.id}' tools.t1Policy must return ToolId[]`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError(`Profile '${profile.id}' tools.t1Policy must return ToolId[]`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   for (const id of selected) {
     if (!state.gated.includes(id)) {

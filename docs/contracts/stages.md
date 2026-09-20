@@ -48,7 +48,7 @@ A **stage** is a named timeline moment where:
 2. the registered `onStage` handler runs (open host code),
 3. the kernel applies returned **affordances** only.
 
-Stages name **when**. Affordances are what theorum applies to the turn — not a
+Stages name **when**. Affordances are what theorem applies to the turn — not a
 ceiling on host side effects.
 
 ---
@@ -456,7 +456,7 @@ tool-request events, raw `sendToolResponse`.
 | **2 — Tools** | Pipeline order, `preTool`, remove three old hooks, gate vs deny vs awaiting wire, `ask_user` awaiting payload, synthetic deny results, T2-before-post_tool, interface gated/awaiting split (text) |
 | **3 — Live + playground** | Live profile `allowSteering`, cycle machine, `executeTool`, live inject, playground/session inbox, react rename |
 
-**Release rule:** do not publish a theorum version that exports stages while any
+**Release rule:** do not publish a theorem version that exports stages while any
 slice above is missing. Branch work may land incrementally; **mainline release
 requires all three.** That is how “no dual API” is enforced without pretending
 slice 1 alone is the product.

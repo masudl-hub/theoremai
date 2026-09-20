@@ -6,7 +6,7 @@
  * @module
  */
 
-import { isAbortError, TheorumError } from '../../../guardrails/error.ts';
+import { isAbortError, TheoremError } from '../../../guardrails/error.ts';
 import type { ProviderCompleteRequest } from '../../../kernel/types.ts';
 import { type GeminiTransport, requireKey } from '../keys.ts';
 import { buildGeminiLiveWebSocketUrl } from './framing.ts';
@@ -72,7 +72,7 @@ export async function openGoogleLiveSession(
   openWebSocket: OpenLiveWebSocket = defaultOpenWebSocket,
 ): Promise<GoogleLiveConnection> {
   if (!req.keySlot) {
-    throw new TheorumError('Request requires keySlot');
+    throw new TheoremError('Request requires keySlot');
   }
   const apiKey = requireKey(transport.vault, req.keySlot);
   const wsUrl = buildGeminiLiveWebSocketUrl(apiKey);

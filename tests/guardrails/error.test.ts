@@ -11,7 +11,7 @@ import {
   PUBLIC_IMAGE_SIZE,
   PUBLIC_UNAVAILABLE,
   publicError,
-  TheorumError,
+  TheoremError,
   throwIfAborted,
   toErrorEvent,
   UPSTREAM_FAILED,
@@ -19,46 +19,46 @@ import {
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 
 Deno.test('publicError covers all exact mappings and rules', () => {
-  assertEquals(publicError(new TheorumError(UPSTREAM_FAILED)), PUBLIC_UNAVAILABLE);
-  assertEquals(publicError(new TheorumError('empty Gemini stream')), PUBLIC_UNAVAILABLE);
+  assertEquals(publicError(new TheoremError(UPSTREAM_FAILED)), PUBLIC_UNAVAILABLE);
+  assertEquals(publicError(new TheoremError('empty Gemini stream')), PUBLIC_UNAVAILABLE);
   assertEquals(publicError('Gemini HTTP 500'), PUBLIC_UNAVAILABLE);
   assertEquals(publicError('OpenRouter HTTP 401'), PUBLIC_UNAVAILABLE);
   assertEquals(publicError('TTS HTTP 503'), PUBLIC_UNAVAILABLE);
   assertEquals(publicError(new Error('ECONNREFUSED 127.0.0.1')), PUBLIC_UNAVAILABLE);
-  assertEquals(publicError(new TheorumError('canary leaked')), PUBLIC_CANARY);
+  assertEquals(publicError(new TheoremError('canary leaked')), PUBLIC_CANARY);
   assertEquals(
-    publicError(new TheorumError('Turn withheld: egress disclosure violation')),
+    publicError(new TheoremError('Turn withheld: egress disclosure violation')),
     PUBLIC_CANARY,
   );
   assertEquals(
-    publicError(new TheorumError('expected JSON object')),
+    publicError(new TheoremError('expected JSON object')),
     'Something was wrong with that request.',
   );
   assertEquals(
-    publicError(new TheorumError('structured output was not valid JSON')),
+    publicError(new TheoremError('structured output was not valid JSON')),
     'Something was wrong with that request.',
   );
-  assertEquals(publicError(new TheorumError('malformed Gemini Live message')), PUBLIC_UNAVAILABLE);
+  assertEquals(publicError(new TheoremError('malformed Gemini Live message')), PUBLIC_UNAVAILABLE);
   assertEquals(
-    publicError(new TheorumError('malformed Gemini Live message during setup')),
+    publicError(new TheoremError('malformed Gemini Live message during setup')),
     PUBLIC_UNAVAILABLE,
   );
   assertEquals(
-    publicError(new TheorumError('user input cannot be placed in the system block')),
+    publicError(new TheoremError('user input cannot be placed in the system block')),
     PUBLIC_GENERIC,
   );
-  assertEquals(publicError(new TheorumError('attachment data must be base64')), PUBLIC_FILE_TYPE);
-  assertEquals(publicError(new TheorumError('attachment is too large')), PUBLIC_FILE_SIZE);
+  assertEquals(publicError(new TheoremError('attachment data must be base64')), PUBLIC_FILE_TYPE);
+  assertEquals(publicError(new TheoremError('attachment is too large')), PUBLIC_FILE_SIZE);
   assertEquals(
-    publicError(new TheorumError('attachments exceed the per-turn budget')),
+    publicError(new TheoremError('attachments exceed the per-turn budget')),
     PUBLIC_FILE_SIZE,
   );
   assertEquals(
-    publicError(new TheorumError('Tool input validation failed')),
+    publicError(new TheoremError('Tool input validation failed')),
     "That question isn't valid.",
   );
   assertEquals(
-    publicError(new TheorumError('This profile does not accept text input')),
+    publicError(new TheoremError('This profile does not accept text input')),
     PUBLIC_ACTION,
   );
 
@@ -69,28 +69,28 @@ Deno.test('publicError covers all exact mappings and rules', () => {
   assertEquals(publicError('Grounding tools conflict'), PUBLIC_ACTION);
 
   assertEquals(
-    publicError(new TheorumError("MIME 'image/gif' is not accepted on host-profile")),
+    publicError(new TheoremError("MIME 'image/gif' is not accepted on host-profile")),
     PUBLIC_FILE_TYPE,
   );
   assertEquals(
-    publicError(new TheorumError('Profile pinned does not accept voice')),
+    publicError(new TheoremError('Profile pinned does not accept voice')),
     PUBLIC_FILE_TYPE,
   );
-  assertEquals(publicError(new TheorumError('At most 5 files are allowed')), PUBLIC_FILE_COUNT);
+  assertEquals(publicError(new TheoremError('At most 5 files are allowed')), PUBLIC_FILE_COUNT);
   assertEquals(
-    publicError(new TheorumError('Each file must be under 2MB')),
+    publicError(new TheoremError('Each file must be under 2MB')),
     'Each file must be under 2MB',
   );
   assertEquals(
-    publicError(new TheorumError('Those files together are too large')),
+    publicError(new TheoremError('Those files together are too large')),
     'Those files together are too large',
   );
-  assertEquals(publicError(new TheorumError('Invalid aspect or size')), PUBLIC_IMAGE_SIZE);
-  assertEquals(publicError(new TheorumError('Profile must pin thinking')), PUBLIC_GENERIC);
-  assertEquals(publicError(new TheorumError('Profile has no models')), PUBLIC_GENERIC);
+  assertEquals(publicError(new TheoremError('Invalid aspect or size')), PUBLIC_IMAGE_SIZE);
+  assertEquals(publicError(new TheoremError('Profile must pin thinking')), PUBLIC_GENERIC);
+  assertEquals(publicError(new TheoremError('Profile has no models')), PUBLIC_GENERIC);
 
   const wire = [
-    publicError(new TheorumError('host key slot not configured')),
+    publicError(new TheoremError('host key slot not configured')),
     publicError('Gemini HTTP 429'),
     publicError(new Error('fetch failed: dns')),
   ].join(' ');
@@ -98,7 +98,7 @@ Deno.test('publicError covers all exact mappings and rules', () => {
   assertEquals(wire.includes('429'), false);
   assertEquals(wire.includes('dns'), false);
   assertEquals(
-    publicError(new TheorumError('Only 5 files per message.')),
+    publicError(new TheoremError('Only 5 files per message.')),
     'Only 5 files per message.',
   );
   assertEquals(publicError(PUBLIC_UNAVAILABLE), PUBLIC_UNAVAILABLE);
@@ -215,7 +215,7 @@ Deno.test('toErrorEvent with non-Error thrown value', () => {
 });
 
 Deno.test('toErrorEvent preserves internal detail alongside public message', () => {
-  const ev = toErrorEvent(new TheorumError('canary leaked'));
+  const ev = toErrorEvent(new TheoremError('canary leaked'));
   assertEquals(ev.error, PUBLIC_CANARY);
   assertEquals(ev.errorInternal, 'canary leaked');
 });
@@ -257,8 +257,8 @@ Deno.test('describeError stringifies Error with empty message via fallback', () 
   assertEquals(describeError(err), 'Error');
 });
 
-Deno.test('TheorumError name is TheorumError', () => {
-  assertEquals(new TheorumError('test').name, 'TheorumError');
+Deno.test('TheoremError name is TheoremError', () => {
+  assertEquals(new TheoremError('test').name, 'TheoremError');
 });
 
 Deno.test('UPSTREAM_FAILED constant is the literal string upstream failed', () => {

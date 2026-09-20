@@ -1,5 +1,5 @@
 import { assertEquals, assertExists, assertRejects } from '@std/assert';
-import { TheorumError } from '../../../../src/guardrails/error.ts';
+import { TheoremError } from '../../../../src/guardrails/error.ts';
 import type { GeminiTransport } from '../../../../src/providers/google/keys.ts';
 import { openGoogleLiveSession } from '../../../../src/providers/google/live/session.ts';
 import {
@@ -21,7 +21,7 @@ Deno.test('openGoogleLiveSession rejects when API key is missing', async () => {
     keySlot: 'slotA',
   });
 
-  await assertRejects(() => openGoogleLiveSession(req, transport), TheorumError);
+  await assertRejects(() => openGoogleLiveSession(req, transport), TheoremError);
 });
 
 Deno.test('openGoogleLiveSession rejects when pre-aborted', async () => {

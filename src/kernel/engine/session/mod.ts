@@ -12,7 +12,7 @@
 import { bindCanary } from '../../../guardrails/canary.ts';
 import {
   publicError,
-  TheorumError,
+  TheoremError,
   throwIfAborted,
   toErrorEvent,
 } from '../../../guardrails/error.ts';
@@ -92,7 +92,7 @@ function liveInjectTexts(messages: readonly TurnHistoryMessage[]): string[] {
 
 function assertLiveProfile(profile: Profile): asserts profile is LiveProfile {
   if (profile.type !== 'live') {
-    throw new TheorumError(
+    throw new TheoremError(
       `runSession requires profile.type 'live' (got '${profile.type}' for ${profile.id})`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
@@ -118,7 +118,7 @@ function sessionSnapshotWithinAllow(
   if (outside.size > 0) {
     // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     const detail = `session snapshot declares tools outside tools.allow: ${[...outside].join(', ')}`;
-    throw new TheorumError(`Profile ${profile.id}: ${detail}`);
+    throw new TheoremError(`Profile ${profile.id}: ${detail}`);
   }
   return cloneTurnToolSnapshot(snapshot);
 }
@@ -366,7 +366,7 @@ function buildLiveSession(args: {
 
   const sendJson = (payload: Record<string, unknown>) => {
     if (closed) {
-      throw new TheorumError('Live session is closed'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      throw new TheoremError('Live session is closed'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
     connection.send(JSON.stringify(payload));
   };
@@ -564,7 +564,7 @@ function buildLiveSession(args: {
     },
     async executeTool(toolArgs: LiveExecuteToolArgs): Promise<LiveExecuteToolResult> {
       if (closed) {
-        throw new TheorumError('Live session is closed'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        throw new TheoremError('Live session is closed'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       }
       const handlers = onStage ? [onStage] : [];
       const exec = executeRegisteredTool({
@@ -685,7 +685,7 @@ function buildLiveSession(args: {
 /**
  * Open a gated Gemini Live session for a `type: 'live'` profile.
  *
- * Hosts bridge browser sockets and tool dispatch; THEORUM owns Gemini WS,
+ * Hosts bridge browser sockets and tool dispatch; THEOREM owns Gemini WS,
  * framing, inbound prep, outbound canary/egress gates, and live stages.
  */
 export async function runSession(

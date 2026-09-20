@@ -1,4 +1,4 @@
-import { TheorumError, UPSTREAM_FAILED } from '../../../src/guardrails/error.ts';
+import { TheoremError, UPSTREAM_FAILED } from '../../../src/guardrails/error.ts';
 import { assertEquals } from '../../../src/kernel/engine/assert.ts';
 import { resolveOpenAiGatewayApiKey } from '../../../src/providers/openrouter/resolve-api-key.ts';
 
@@ -13,7 +13,7 @@ Deno.test('resolveOpenAiGatewayApiKey requires apiKey when keySlot is omitted', 
   } catch (err) {
     thrown = err;
   }
-  assertEquals(thrown instanceof TheorumError, true);
+  assertEquals(thrown instanceof TheoremError, true);
   assertEquals(
     (thrown as Error).message,
     'openAiGateway.apiKey is required when keySlot is omitted',
@@ -40,7 +40,7 @@ Deno.test('resolveOpenAiGatewayApiKey requires vault when keySlot is set', () =>
   } catch (err) {
     thrown = err;
   }
-  assertEquals(thrown instanceof TheorumError, true);
+  assertEquals(thrown instanceof TheoremError, true);
   assertEquals((thrown as Error).message, 'openAiGateway.vault is required when keySlot is set');
 });
 
@@ -54,6 +54,6 @@ Deno.test('resolveOpenAiGatewayApiKey fails closed on empty vault slot', () => {
   } catch (err) {
     thrown = err;
   }
-  assertEquals(thrown instanceof TheorumError, true);
+  assertEquals(thrown instanceof TheoremError, true);
   assertEquals((thrown as Error).message, UPSTREAM_FAILED);
 });

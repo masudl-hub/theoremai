@@ -7,7 +7,7 @@ const DEMO_ATTACHMENT_ACCEPT = ATTACHMENT_ACCEPT_MIMES.filter(
 const DEMO_VOICE_ACCEPT = VOICE_ACCEPT_MIMES.filter((mime) => mime === 'audio/*');
 
 const NOMINATIM_HEADERS = `{
-  "User-Agent": "TheorumPlayground/1.0 (travel demo; +https://github.com/theorum)"
+  "User-Agent": "TheoremPlayground/1.0 (travel demo; +https://github.com/theoremai)"
 }`;
 
 const DISCOVER_LOADED = ['get_cat_fact', 'tell_joke', 'get_advice', 'random_dog_image'] as const;

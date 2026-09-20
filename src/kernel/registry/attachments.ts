@@ -1,4 +1,4 @@
-import { TheorumError } from '../../guardrails/error.ts';
+import { TheoremError } from '../../guardrails/error.ts';
 import { injectionSpans } from '../../guardrails/injection.ts';
 import { lexiconText } from '../../guardrails/lexicon.ts';
 import { sensitiveSpans } from '../../guardrails/sensitive.ts';
@@ -43,17 +43,17 @@ function isTurnMediaRef(item: TurnBlob | TurnMediaRef): item is TurnMediaRef {
 
 function requireMediaLimits(profile: Profile): MediaLimits {
   if (profile.type === 'speech') {
-    throw new TheorumError(`Profile ${profile.id} (speech) does not accept media input`); // lexicon-exempt: developer contract error
+    throw new TheoremError(`Profile ${profile.id} (speech) does not accept media input`); // lexicon-exempt: developer contract error
   }
   if (profile.type === 'live') {
-    throw new TheorumError(`Profile ${profile.id} (live) does not accept turn attachment input`); // lexicon-exempt: developer contract error
+    throw new TheoremError(`Profile ${profile.id} (live) does not accept turn attachment input`); // lexicon-exempt: developer contract error
   }
   if (profile.type === 'host') {
-    throw new TheorumError(`Profile ${profile.id} (host) does not accept turn input`); // lexicon-exempt: developer contract error
+    throw new TheoremError(`Profile ${profile.id} (host) does not accept turn input`); // lexicon-exempt: developer contract error
   }
   const limits = resolveMediaLimits(profile.inputs ?? {});
   if (!limits) {
-    throw new TheorumError(`Profile ${profile.id} must set maxFiles, maxBytes, and maxTurnBytes`); // lexicon-exempt: developer contract error
+    throw new TheoremError(`Profile ${profile.id} must set maxFiles, maxBytes, and maxTurnBytes`); // lexicon-exempt: developer contract error
   }
   return limits;
 }
@@ -116,7 +116,7 @@ function assertAttachmentLimits(
   limits: MediaLimits,
 ): void {
   if (attachments.length > limits.maxFiles) {
-    throw new TheorumError(
+    throw new TheoremError(
       lexiconText('attachments.too_many_files', { maxFiles: limits.maxFiles }),
     );
   }
@@ -128,17 +128,17 @@ function assertAttachmentLimits(
     const { data, mimeType } = blob;
     if (!B64_BODY.test(data)) {
       // lexicon-exempt: developer-facing wire-format diagnostic, not product copy
-      throw new TheorumError('attachment data must be base64');
+      throw new TheoremError('attachment data must be base64');
     }
     const size = b64DecodedLen(data);
     const maxAllowed = maxBytesForMime(mimeType, limits);
     if (size > maxAllowed) {
-      throw new TheorumError(lexiconText('attachments.file_too_large', { maxBytes: maxAllowed }));
+      throw new TheoremError(lexiconText('attachments.file_too_large', { maxBytes: maxAllowed }));
     }
     total += size;
   }
   if (total > limits.maxTurnBytes) {
-    throw new TheorumError(
+    throw new TheoremError(
       lexiconText('attachments.turn_too_large', { maxTurnBytes: limits.maxTurnBytes }),
     );
   }
@@ -173,7 +173,7 @@ function sanitizeTurnBlobs(
   const files = attachments ?? [];
   const clips = voice ?? [];
   if (!limits) {
-    throw new TheorumError(lexiconText('attachments.not_accepted', { channel: 'file' }));
+    throw new TheoremError(lexiconText('attachments.not_accepted', { channel: 'file' }));
   }
   assertAttachmentLimits([...files, ...clips], limits);
   return {

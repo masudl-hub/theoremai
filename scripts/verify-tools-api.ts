@@ -4,10 +4,10 @@
  * Adversarial tool-system pressure test — kernel invoke matrix + real Gemini
  * Interactions turns (text runner). Not Gemini Live (`type: 'live'`).
  *
- * Loads keys from THEORUM_ENV_FILE or ../theorum-frontend/.env.local (GEMINI_API_KEY).
+ * Loads keys from THEOREM_ENV_FILE or ../theorem-frontend/.env.local (GEMINI_API_KEY).
  *
  * Usage:
- *   THEORUM_ENV_FILE=../theorum-frontend/.env.local deno task verify:tools-api
+ *   THEOREM_ENV_FILE=../theorem-frontend/.env.local deno task verify:tools-api
  *   ... --invoke-only     # skip provider API (deterministic kernel path)
  *   ... --api-only        # skip invoke matrix
  *   ... --limit 5         # cap API cases (debug)
@@ -56,9 +56,9 @@ function loadEnvFile(path: string): void {
 
 function defaultEnvFile(): string | undefined {
   for (const path of [
-    Deno.env.get('THEORUM_ENV_FILE'),
-    '../theorum-frontend/.env.local',
-    '../../theorum-frontend/.env.local',
+    Deno.env.get('THEOREM_ENV_FILE'),
+    '../theorem-frontend/.env.local',
+    '../../theorem-frontend/.env.local',
   ].filter(Boolean) as string[]) {
     try {
       Deno.statSync(path);

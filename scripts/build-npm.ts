@@ -20,7 +20,7 @@ await build({
     { name: './presets/google', path: './src/presets/google.ts' },
     {
       kind: 'bin',
-      name: 'theorum',
+      name: 'agents',
       path: './src/cli/index.ts',
     },
   ],
@@ -37,7 +37,7 @@ await build({
     strict: true,
   },
   package: {
-    name: 'theorum',
+    name: '@theoremai/agents',
     version,
     description:
       'A flat TypeScript agent kernel for typed profiles, deterministic turn execution, registered tools, provider adapters, guardrails, and host-injected traces.',
@@ -60,7 +60,7 @@ await build({
     },
     repository: {
       type: 'git',
-      url: 'https://github.com/masudl-hub/theorum',
+      url: 'https://github.com/masudl-hub/theoremai',
     },
   },
   postBuild: async () => {

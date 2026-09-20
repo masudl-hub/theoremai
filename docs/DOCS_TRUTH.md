@@ -1,6 +1,6 @@
 # Docs truth (`docs/_map.mjs`)
 
-Deterministic document-health lint for THEORUM. No waivers. No LLM.
+Deterministic document-health lint for THEOREM. No waivers. No LLM.
 
 ## Export
 
@@ -26,7 +26,8 @@ Deterministic document-health lint for THEORUM. No waivers. No LLM.
 
 | Rule | Behavior |
 | --- | --- |
-| Full ownership | Every production-root file has exactly one `owns` entry |
+| Full ownership | Every production-root file has exactly one `owns` entry in `docs/_map.mjs` |
+| Schema validation | Manifest specifies `theorem.docs-truth/v1` schema |
 | Doc freshness | Changed *existing* code → owning doc appears in git diff (deletions skipped) |
 | Section freshness | Watches/`section_triggers` → specific `##` headings must change |
 | Owned fallback | Owned files → at least one behavioral section hunk |
@@ -60,7 +61,7 @@ owned by those contracts for freshness — change code, update the matching cont
 
 | Root | Files |
 | --- | --- |
-| `mod.ts` | Package barrel |
+| `mod.ts` | Package barrel (`@theoremai/agents`) |
 | `package.json` | Published exports |
 | `src/**/*.ts` | Kernel + adapters (live tree only; deleted paths skip freshness) |
 | `scripts/docs-truth/**/*.mjs` | Docs-truth linter |
@@ -72,7 +73,7 @@ owned by those contracts for freshness — change code, update the matching cont
 | `npm run lint` | Runs `lint:docs` first, then `deno lint`, biome, ast-grep, and fallow |
 | `deno task lint` | Same as `npm run lint` |
 | `npm run check:ci` / `deno task ci` | Full CI gate: docs-truth, deno lint, biome, ast-grep, fallow, typecheck, verify:publish, and tests |
-| CI | `lint:docs` (with `THEORUM_DOCS_BASE`), `deno lint`, then `lint:biome` + `lint:ast-grep` + `lint:fallow` (`FALLOW_AUDIT_BASE=origin/<base>`) |
+| CI | `lint:docs` (with `THEOREM_DOCS_BASE`), `deno lint`, then `lint:biome` + `lint:ast-grep` + `lint:fallow` (`FALLOW_AUDIT_BASE=origin/<base>`) |
 | Pre-commit | `npm run lint:docs` (auto-installed by `prepare` / `hooks:install`) |
 | Pre-push | `fallow audit --base origin/main` (uses `coverage/coverage-final.json` when present) |
 
@@ -83,7 +84,7 @@ Fallow: `docs/_map.mjs` is listed under `dynamicallyLoaded` in `.fallowrc.jsonc`
 
 Re-install manually: `npm run hooks:install`
 
-```theorum-evidence
+```theorem-evidence
 {
   "sections": {
     "Export": {

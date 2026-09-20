@@ -24,13 +24,13 @@ interface TestExecutionAccumulator {
 }
 
 function printTestHeader(req: TurnRequest, testName: string): void {
-  const profile = requireModelProfile(getProfile(req.profile), 'theorum test');
+  const profile = requireModelProfile(getProfile(req.profile), 'agents test');
   const modelId =
     req.model && profile.models[req.model] ? req.model : (Object.keys(profile.models)[0] ?? '');
   const customs = profile.type === 'speech' ? 'none' : profile.tools.allow.join(', ') || 'none';
   const builtins = (profile.models[modelId]?.builtInTools ?? []).join(', ') || 'none';
 
-  console.log(`\n▶ [THEORUM TEST] ${testName}`);
+  console.log(`\n▶ [THEOREM TEST] ${testName}`);
   console.log(`  Profile:     ${req.profile} (Model: ${req.model ?? 'default'})`);
   console.log(`  Custom:      ${customs}`);
   console.log(`  Builtins:    ${builtins}`);
@@ -94,7 +94,7 @@ export async function executeSingleTest(
   try {
     if (!provider) {
       throw new Error(
-        'Theorum CLI does not create providers or read keys. Pass an explicit ModelProvider from the host app.',
+        'Theorem CLI does not create providers or read keys. Pass an explicit ModelProvider from the host app.',
       );
     }
     const traceCapture = cliOptions.trace ? createCliTraceCapture(cliOptions.traceDir) : undefined;
@@ -132,14 +132,14 @@ function resolveTargetProfiles(
   }
   if (profileId) {
     try {
-      return [requireModelProfile(getProfile(profileId), 'theorum test')];
+      return [requireModelProfile(getProfile(profileId), 'agents test')];
     } catch (err) {
       console.error(`\n Error: ${err instanceof Error ? err.message : String(err)}\n`);
       return null;
     }
   }
   console.error(
-    'Error: Please specify a profile ID (e.g. `theorum test --profile your-profile`) or `--all`.',
+    'Error: Please specify a profile ID (e.g. `agents test --profile your-profile`) or `--all`.',
   );
   return null;
 }

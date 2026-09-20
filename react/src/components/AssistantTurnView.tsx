@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { TranscriptBlock } from '../../../src/interface/mod.ts';
-import type { ToolCredential } from 'theorum/kernel';
+import type { ToolCredential } from '../../../src/kernel/mod.ts';
 import {
 	assistantTurnCopyText,
 	composeAssistantTurn,

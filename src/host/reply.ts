@@ -1,12 +1,12 @@
 /**
  * Optional Deno HTTP reply helpers for host applications.
  *
- * Not part of the turn kernel. Prefer importing from `theorum/host`.
+ * Not part of the turn kernel. Prefer importing from `@theoremai/agents/host`.
  *
  * @module
  */
 
-import { TheorumError } from '../guardrails/error.ts';
+import { TheoremError } from '../guardrails/error.ts';
 
 const HTTP_BAD = 400;
 const HTTP_BUSY = 429;
@@ -23,7 +23,7 @@ function json(status: number, body: unknown, cors: Record<string, string>): Resp
 }
 
 function caughtStatus(err: unknown): number {
-  if (err instanceof TheorumError) {
+  if (err instanceof TheoremError) {
     return HTTP_BAD;
   }
   return HTTP_ERR;

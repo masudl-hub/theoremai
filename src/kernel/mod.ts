@@ -1,5 +1,5 @@
 /**
- * Profile, turn, tool, provider, egress, and event contracts for THEORUM.
+ * Profile, turn, tool, provider, egress, and event contracts for THEOREM.
  *
  * @module
  */

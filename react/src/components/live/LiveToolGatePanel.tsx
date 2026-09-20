@@ -1,4 +1,4 @@
-import type { ToolGate } from 'theorum/kernel';
+import type { ToolGate } from '../../../../src/kernel/mod.ts';
 import type { ToolGateResolution } from '../../client/tool-resume';
 import { ApprovalCard } from '../ApprovalCard';
 import { AuthChallengeCard } from '../AuthChallengeCard';

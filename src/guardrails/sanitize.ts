@@ -1,5 +1,5 @@
 /**
- * Request sanitization utilities for THEORUM.
+ * Request sanitization utilities for THEOREM.
  *
  * @module
  */

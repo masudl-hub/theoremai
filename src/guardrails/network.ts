@@ -8,7 +8,7 @@
  * @module
  */
 
-import { TheorumError } from './error.ts';
+import { TheoremError } from './error.ts';
 import type { NetworkGuardrailSpec } from './types.ts';
 
 /**
@@ -225,14 +225,14 @@ export function isPrivateOrLocalAddress(ipOrHost: string): boolean {
 
 /**
  * Validates a target URL against network guardrail policy.
- * Throws a `TheorumError` if the URL is blocked.
+ * Throws a `TheoremError` if the URL is blocked.
  */
 export function assertSafeUrl(urlStr: string, policy?: NetworkGuardrailSpec): URL {
   let parsed: URL;
   try {
     parsed = new URL(urlStr);
   } catch {
-    throw new TheorumError(`Invalid URL provided: "${urlStr}"`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError(`Invalid URL provided: "${urlStr}"`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
 
   const allowPrivate = policy?.allowPrivateNetworks ?? false;
@@ -251,7 +251,7 @@ export function assertSafeUrl(urlStr: string, policy?: NetworkGuardrailSpec): UR
     : defaultSchemes;
 
   if (!allowedSchemes.includes(parsed.protocol)) {
-    throw new TheorumError(
+    throw new TheoremError(
       `URL scheme "${parsed.protocol}" is not permitted by network policy. Allowed: ${allowedSchemes.join(', ')}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
@@ -259,13 +259,13 @@ export function assertSafeUrl(urlStr: string, policy?: NetworkGuardrailSpec): UR
   // Unless private networks are allowed, block localhost and private subnets
   if (!allowPrivate) {
     if (isLocalhostName(hostname)) {
-      throw new TheorumError(
+      throw new TheoremError(
         `Access to loopback target "${hostname}" blocked by network guardrail. Enable allowPrivateNetworks to permit local addresses.`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
 
     if (isPrivateOrLocalIPv4(hostname)) {
-      throw new TheorumError(
+      throw new TheoremError(
         `Access to private IPv4 address "${hostname}" blocked by network guardrail.`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
@@ -273,7 +273,7 @@ export function assertSafeUrl(urlStr: string, policy?: NetworkGuardrailSpec): UR
     const strippedV6 =
       hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname;
     if (isPrivateOrLocalIPv6(strippedV6)) {
-      throw new TheorumError(
+      throw new TheoremError(
         `Access to private IPv6 address "${hostname}" blocked by network guardrail.`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }

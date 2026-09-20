@@ -52,7 +52,7 @@ function printProfileCard(p: Profile): void {
 
 export function listProfilesCommand(): void {
   const profiles = listProfiles();
-  console.log('\n Registered Theorum Profiles:');
+  console.log('\n Registered Theorem Profiles:');
   console.log('='.repeat(70));
   if (profiles.length === 0) {
     console.log('  (No profiles registered in runtime)');

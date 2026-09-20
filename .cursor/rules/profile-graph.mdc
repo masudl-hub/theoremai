@@ -1,5 +1,5 @@
 ---
-description: Profile graph / playground projection ownership in theorum
+description: Profile graph / playground projection ownership in theorem
 globs: src/kernel/profile-graph.ts,src/kernel/schema.ts,docs/contracts/playground.md
 alwaysApply: false
 ---
@@ -10,7 +10,7 @@ When adding a top-level profile authoring field:
 
 1. Add it to `PROFILE_FIELDS` in `src/kernel/schema.ts`.
 2. Own it in `PROFILE_GRAPH` (`src/kernel/profile-graph.ts`) — section facet or `ownsFields`.
-3. Do **not** tell agents to invent a `FacetKind` in theorum-frontend.
+3. Do **not** tell agents to invent a `FacetKind` in theorem-frontend.
 
 Drift is gated by `tests/kernel/profile-graph.test.ts`.
 

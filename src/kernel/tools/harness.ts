@@ -1,5 +1,5 @@
 /**
- * Built-in harness tools registered with THEORUM.
+ * Built-in harness tools registered with THEOREM.
  *
  * @module
  */
@@ -23,7 +23,7 @@ const AskOutputSchema = z.object({
 
 type AskInput = z.infer<typeof AskInputSchema>;
 
-/** Register harness tools shipped with THEORUM. */
+/** Register harness tools shipped with THEOREM. */
 function registerHarnessTools(): void {
   registerTool({
     type: 'function',

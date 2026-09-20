@@ -5,8 +5,8 @@
  * @module
  */
 
-/** Legacy single-slot key (removed on save). */
-export const PLAYGROUND_RUN_PAYLOAD_KEY = 'theorum.playground.run';
+/** Storage key root for playground run handoff. */
+export const PLAYGROUND_RUN_PAYLOAD_KEY = 'theoremai.playground.run';
 
 /** Prefix for per-run payload keys: `${prefix}${runId}`. */
 export const PLAYGROUND_RUN_PAYLOAD_KEY_PREFIX = `${PLAYGROUND_RUN_PAYLOAD_KEY}.`;

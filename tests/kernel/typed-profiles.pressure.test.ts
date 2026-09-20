@@ -1,5 +1,5 @@
 import { assertEquals, assertThrows } from '@std/assert';
-import { TheorumError } from '../../src/guardrails/error.ts';
+import { TheoremError } from '../../src/guardrails/error.ts';
 import { defineProfile, getProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
 import { projectProfile, resolveTurn } from '../../src/kernel/registry/resolve.ts';
 import { profileAllowsInject } from '../../src/kernel/stop.ts';
@@ -30,7 +30,7 @@ Deno.test('pressure-test: type/protocol matrix rejects every illegal pair', () =
         tools: { allow: [] },
       });
     },
-    TheorumError,
+    TheoremError,
     "type 'live' cannot use protocol 'openAi'",
   );
 
@@ -53,7 +53,7 @@ Deno.test('pressure-test: type/protocol matrix rejects every illegal pair', () =
         inputs: { text: true },
       });
     },
-    TheorumError,
+    TheoremError,
     "type 'text' cannot use protocol 'geminiLive'",
   );
 
@@ -77,7 +77,7 @@ Deno.test('pressure-test: type/protocol matrix rejects every illegal pair', () =
         inputs: { text: true },
       });
     },
-    TheorumError,
+    TheoremError,
     "type 'image' cannot use protocol 'geminiLive'",
   );
 
@@ -99,7 +99,7 @@ Deno.test('pressure-test: type/protocol matrix rejects every illegal pair', () =
         speech: { voice: 'Kore', format: 'pcm' },
       });
     },
-    TheorumError,
+    TheoremError,
     "type 'speech' cannot use protocol 'geminiLive'",
   );
 });
@@ -139,7 +139,7 @@ Deno.test('pressure-test: compaction is forbidden on non-text profiles', () => {
         inputs: { text: true },
       });
     },
-    TheorumError,
+    TheoremError,
     "compaction is only valid on type 'text'",
   );
 
@@ -165,7 +165,7 @@ Deno.test('pressure-test: compaction is forbidden on non-text profiles', () => {
         speech: { voice: 'Kore', format: 'pcm' },
       });
     },
-    TheorumError,
+    TheoremError,
     "compaction is only valid on type 'text'",
   );
 });
@@ -194,7 +194,7 @@ Deno.test('pressure-test: compaction spec validations on text profiles', () => {
         inputs: { text: true },
       });
     },
-    TheorumError,
+    TheoremError,
     "compaction profile 'non_existent_compactor' must be registered before",
   );
 
@@ -221,7 +221,7 @@ Deno.test('pressure-test: compaction spec validations on text profiles', () => {
         inputs: { text: true },
       });
     },
-    TheorumError,
+    TheoremError,
     'compactAt must be in (0, 1)',
   );
 
@@ -248,7 +248,7 @@ Deno.test('pressure-test: compaction spec validations on text profiles', () => {
         inputs: { text: true },
       });
     },
-    TheorumError,
+    TheoremError,
     'previousExchanges as fraction (0.6) must be < compactAt (0.5)',
   );
 });
@@ -291,7 +291,7 @@ Deno.test('pressure-test: turnBehaviour.resumption maxContinues enforcement', ()
         input: { text: 'continue please' },
       });
     },
-    TheorumError,
+    TheoremError,
     'continuation 4 exceeds turnBehaviour.resumption.maxContinues (3)',
   );
 
@@ -305,7 +305,7 @@ Deno.test('pressure-test: turnBehaviour.resumption maxContinues enforcement', ()
         input: { text: 'continue please' },
       });
     },
-    TheorumError,
+    TheoremError,
     'continuation must be >= 1',
   );
 
@@ -318,7 +318,7 @@ Deno.test('pressure-test: turnBehaviour.resumption maxContinues enforcement', ()
         input: { text: 'continue please' },
       });
     },
-    TheorumError,
+    TheoremError,
     'continueFrom requires TurnRequest.continuation when turnBehaviour.resumption.maxContinues is set',
   );
 
@@ -347,7 +347,7 @@ Deno.test('pressure-test: turnBehaviour.resumption maxContinues enforcement', ()
         input: { text: 'hello' },
       });
     },
-    TheorumError,
+    TheoremError,
     "type 'live' uses live.sessionResumption, not turnBehaviour.resumption/continueFrom",
   );
 });
@@ -373,7 +373,7 @@ Deno.test('pressure-test: turnBehaviour.allowSteering rejected on image', () => 
         turnBehaviour: { allowSteering: true },
       });
     },
-    TheorumError,
+    TheoremError,
     "turnBehaviour.allowSteering is only valid on type 'text' or 'live'",
   );
 });
@@ -422,7 +422,7 @@ Deno.test('pressure-test: turnBehaviour.resumption rejects non-ContinueStopKind'
         },
       });
     },
-    TheorumError,
+    TheoremError,
     'may only include ContinueStopKind',
   );
 });
@@ -458,7 +458,7 @@ Deno.test('pressure-test: outputs.streaming.mode resolution', () => {
     false,
   );
 
-  // mode omitted -> stream = true (THEORUM SSE default)
+  // mode omitted -> stream = true (THEOREM SSE default)
   registerProfile({
     id: 'omitted_stream_profile',
     type: 'text',
@@ -488,7 +488,7 @@ Deno.test('pressure-test: speech profile ingress restrictions and format validat
     () => {
       resolveTurn({ profile: 'speech_invalid_mp3', input: { text: 'hello' } });
     },
-    TheorumError,
+    TheoremError,
     "speech.format 'mp3' requires protocol 'openAi'",
   );
 
@@ -506,14 +506,14 @@ Deno.test('pressure-test: speech profile ingress restrictions and format validat
     () => {
       resolveTurn({ profile: 'speech_valid_pcm', input: { text: '' } });
     },
-    TheorumError,
+    TheoremError,
     'Profile speech_valid_pcm (speech) requires text input',
   );
   assertThrows(
     () => {
       resolveTurn({ profile: 'speech_valid_pcm', input: { text: '   ' } });
     },
-    TheorumError,
+    TheoremError,
     'Profile speech_valid_pcm (speech) requires text input',
   );
 
@@ -528,7 +528,7 @@ Deno.test('pressure-test: speech profile ingress restrictions and format validat
         },
       });
     },
-    TheorumError,
+    TheoremError,
     'Profile speech_valid_pcm (speech) does not accept media input',
   );
   assertThrows(
@@ -541,7 +541,7 @@ Deno.test('pressure-test: speech profile ingress restrictions and format validat
         },
       });
     },
-    TheorumError,
+    TheoremError,
     'Profile speech_valid_pcm (speech) does not accept media input',
   );
 
@@ -614,7 +614,7 @@ Deno.test('pressure-test: createProvider type routing and boundary enforcement',
     () => {
       createProvider(liveProfile, { gemini: googleTransport });
     },
-    TheorumError,
+    TheoremError,
     "createProvider does not support type 'live' / geminiLive — use runSession(req, { gemini })",
   );
 
@@ -680,7 +680,7 @@ Deno.test('pressure-test: createProvider type routing and boundary enforcement',
     () => {
       createProvider(localImageProfile, { local: { baseUrl: 'http://localhost:11434' } });
     },
-    TheorumError,
+    TheoremError,
     'createProvider: type image requires openrouter provider for openAi protocol',
   );
 });

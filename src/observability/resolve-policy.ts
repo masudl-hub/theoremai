@@ -7,7 +7,7 @@
  * @module
  */
 
-import { TheorumError } from '../guardrails/error.ts';
+import { TheoremError } from '../guardrails/error.ts';
 import type {
   ProfileObservabilitySpec,
   ResolvedObservabilityPolicy,
@@ -45,10 +45,10 @@ function clampSampleRate(value: number | undefined): number {
     return 1;
   }
   if (!Number.isFinite(value)) {
-    throw new TheorumError('observability.sampleRate must be a finite number');
+    throw new TheoremError('observability.sampleRate must be a finite number');
   }
   if (value < 0 || value > 1) {
-    throw new TheorumError('observability.sampleRate must be between 0 and 1 inclusive');
+    throw new TheoremError('observability.sampleRate must be between 0 and 1 inclusive');
   }
   return value;
 }

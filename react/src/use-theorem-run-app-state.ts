@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { defineProfile } from 'theorum';
+import { defineProfile } from '../../mod.ts';
 import {
 	type ComposerPendingMessage,
 	defaultInterfaceEffort,
@@ -19,8 +19,8 @@ type SetSession = (
 
 export type { SetSession };
 
-/** Composer / transcript / session state for TheorumRunApp. */
-export function useTheorumRunAppState() {
+/** Composer / transcript / session state for TheoremRunApp. */
+export function useTheoremRunAppState() {
 	const [payload, setPayload] = useState<PlaygroundRunPayload | null>(null);
 	const [ready, setReady] = useState(false);
 	const [blocks, setBlocks] = useState<TranscriptBlock[]>([]);
@@ -124,7 +124,7 @@ export function useTheorumRunAppState() {
 }
 
 /** Load payload + derive iface / liveIface / title. */
-export function useTheorumRunBootstrap(args: {
+export function useTheoremRunBootstrap(args: {
 	missingPayloadHref: string;
 	readRunId: () => string | null;
 	loadPayload: (runId: string) => PlaygroundRunPayload | null;
@@ -190,7 +190,7 @@ export function useTheorumRunBootstrap(args: {
 	]);
 
 	useEffect(() => {
-		document.title = `${titleHandle} · Theorum Playground`;
+		document.title = `${titleHandle} · Theorem Playground`;
 	}, [titleHandle]);
 
 	return { iface, liveIface, titleHandle };

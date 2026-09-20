@@ -1,4 +1,4 @@
-import type { TurnEvent, TurnHistoryMessage } from 'theorum';
+import type { TurnEvent, TurnHistoryMessage } from '../../../mod.ts';
 import {
 	type ComposerProfileInterface,
 	foldTurnEvents,
@@ -8,7 +8,7 @@ import {
 	type TranscriptBlock,
 	type UserTurnDraft,
 } from '../../../src/interface/mod.ts';
-import type { ToolCredential, TurnToolSnapshot } from 'theorum/kernel';
+import type { ToolCredential, TurnToolSnapshot } from '../../../src/kernel/mod.ts';
 import { attachmentIssueText } from './attachment-issues';
 import { filesToPending } from './encode-files';
 import type { PlaygroundRunPayload } from './run-payload';

@@ -17,18 +17,18 @@ export interface RunOptions {
 }
 
 export async function runCommand(options: RunOptions): Promise<void> {
-  requireModelProfile(getProfile(options.profile), 'theorum run');
+  requireModelProfile(getProfile(options.profile), 'agents run');
   const provider = options.provider;
   if (!provider) {
     console.error(
-      '\n\x1b[31mExecution Failed\x1b[0m: Theorum CLI does not create providers or read keys. Run turns from a host app with an explicit ModelProvider.\n',
+      '\n\x1b[31mExecution Failed\x1b[0m: Theorem CLI does not create providers or read keys. Run turns from a host app with an explicit ModelProvider.\n',
     );
     return;
   }
 
   const prompt = options.prompt || 'Hello! Please introduce your capabilities.';
   if (options.search || options.map) {
-    const profile = requireModelProfile(getProfile(options.profile), 'theorum run');
+    const profile = requireModelProfile(getProfile(options.profile), 'agents run');
     const selected = options.mode ?? profile.defaultModel ?? Object.keys(profile.models)[0] ?? '';
     const builtins = new Set(profile.models[selected]?.builtInTools ?? []);
     if (options.search && !builtins.has('googleSearch')) {

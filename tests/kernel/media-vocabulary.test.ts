@@ -5,7 +5,7 @@
  */
 import '../fixtures/test-host.ts';
 import { assertEquals, assertThrows } from '@std/assert';
-import { TheorumError } from '../../src/guardrails/error.ts';
+import { TheoremError } from '../../src/guardrails/error.ts';
 import { mediaChannelForMime } from '../../src/kernel/registry/catalog.ts';
 import { getProfile } from '../../src/kernel/registry/profiles.ts';
 import { MEDIA_INPUT_KINDS } from '../../src/kernel/schema.ts';
@@ -115,7 +115,7 @@ Deno.test('openAi compat wires every media kind and refuses only reference parts
 
   assertThrows(
     () => wireMessageContent([{ type: 'image', mimeType: 'image/png', uri: 'files/abc' }]),
-    TheorumError,
+    TheoremError,
     'media references are not supported on openAi',
   );
 });

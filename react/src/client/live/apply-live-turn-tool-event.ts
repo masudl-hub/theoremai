@@ -1,4 +1,4 @@
-import type { TurnEvent } from 'theorum';
+import type { TurnEvent } from '../../../../mod.ts';
 
 type LiveToolEventArgs = {
 	gateOpen: boolean;

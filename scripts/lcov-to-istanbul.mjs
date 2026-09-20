@@ -3,9 +3,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = dirname(fileURLToPath(import.meta.url));
-const theorum = dirname(root);
-const lcovPath = join(theorum, 'coverage', 'lcov.info');
-const outPath = join(theorum, 'coverage', 'coverage-final.json');
+const repoRoot = dirname(root);
+const lcovPath = join(repoRoot, 'coverage', 'lcov.info');
+const outPath = join(repoRoot, 'coverage', 'coverage-final.json');
 
 function loc(line, column = 0) {
   return { line, column };

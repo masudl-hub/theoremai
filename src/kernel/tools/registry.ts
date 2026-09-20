@@ -10,7 +10,7 @@
  */
 
 import type { z } from 'zod';
-import { TheorumError } from '../../guardrails/error.ts';
+import { TheoremError } from '../../guardrails/error.ts';
 import { jsonSchemaFromZod, validateToolInputSchema, validateToolOutputSchema } from './schema.ts';
 import type {
   FunctionToolDef,
@@ -91,7 +91,7 @@ function getTool(name: string): RegisteredTool | undefined {
 function requireTool(name: string): RegisteredTool {
   const tool = getTool(name);
   if (!tool) {
-    throw new TheorumError(`Tool '${name}' is not registered`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError(`Tool '${name}' is not registered`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return tool;
 }

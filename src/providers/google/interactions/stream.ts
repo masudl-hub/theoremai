@@ -1,7 +1,7 @@
 /**
  * Google Interactions provider adapter.
  *
- * This adapter converts THEORUM's provider-neutral request into the Google
+ * This adapter converts THEOREM's provider-neutral request into the Google
  * Interactions wire format and streams normalized `TurnEvent` objects.
  * Speech-role turns use `response_format: audio` + `speech_config` (same
  * transport as chat/image).
@@ -9,7 +9,7 @@
  * @module
  */
 
-import { isAbortError, TheorumError, toErrorEvent } from '../../../guardrails/error.ts';
+import { isAbortError, TheoremError, toErrorEvent } from '../../../guardrails/error.ts';
 import {
   codeExecutionEvidence,
   codeExecutionStepKey,
@@ -452,7 +452,7 @@ export function foldCompleteEvents(
 export function foldPayload(payload: Record<string, unknown>, fold: StreamFold): TurnEvent[] {
   const apiError = readApiErrorMessage(payload);
   if (apiError) {
-    return [toErrorEvent(new TheorumError(apiError))];
+    return [toErrorEvent(new TheoremError(apiError))];
   }
   const events: TurnEvent[] = [];
   for (const ev of yieldGrounding(payload)) events.push(ev);
@@ -494,7 +494,7 @@ export function* finalizeStructured(
   }
   const parsed = parseStructuredOutput(fold.text);
   if (!parsed.ok) {
-    yield toErrorEvent(new TheorumError(parsed.error));
+    yield toErrorEvent(new TheoremError(parsed.error));
     return;
   }
   yield { type: 'structured', structured: parsed.structured };
@@ -527,7 +527,7 @@ export function shouldReportMissingSpeechAudio(
 
 /** Speech-role turns must receive real audio; never invent PCM from text bytes. */
 export function* missingSpeechAudioError(): Generator<TurnEvent> {
-  yield toErrorEvent(new TheorumError('speech audio was not returned by the model'));
+  yield toErrorEvent(new TheoremError('speech audio was not returned by the model'));
 }
 
 async function* parseInteractionsSse(
@@ -620,7 +620,7 @@ function prepareInteractionsFetch(req: ProviderCompleteRequest): {
   init: RequestInit;
 } {
   if (!req.keySlot) {
-    throw new TheorumError('Request requires keySlot');
+    throw new TheoremError('Request requires keySlot');
   }
   const body = JSON.stringify(toInteractionsBody(req));
   return {
@@ -642,13 +642,13 @@ async function* fetchInteractionsOnce(
   const response = await fetchGemini(INTERACTIONS_JSON_URL, init, slot, transport);
   if (response.status !== HTTP_OK) {
     const reason = await readNonOkErrorMessage(response);
-    throw new TheorumError(reason);
+    throw new TheoremError(reason);
   }
   const text = await response.text();
   const parsed = JSON.parse(text) as Record<string, unknown>;
   const apiError = readApiErrorMessage(parsed);
   if (apiError) {
-    throw new TheorumError(apiError);
+    throw new TheoremError(apiError);
   }
   req.tapUpstream?.(parsed);
   yield* yieldGrounding(parsed);
@@ -685,7 +685,7 @@ async function* streamInteractions(
   const response = await fetchGemini(INTERACTIONS_URL, init, slot, customTransport);
   if (response.status !== HTTP_OK) {
     const reason = await readNonOkErrorMessage(response);
-    throw new TheorumError(reason);
+    throw new TheoremError(reason);
   }
   yield* parseInteractionsSse(response, req);
 }

@@ -1,4 +1,4 @@
-import type { ToolCredential, ToolGate, ToolPermission } from 'theorum/kernel';
+import type { ToolCredential, ToolGate, ToolPermission } from '../../../src/kernel/mod.ts';
 
 export type ToolDecisionAction = 'allow' | 'allow_session' | 'deny';
 

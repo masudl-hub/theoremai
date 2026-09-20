@@ -8,10 +8,10 @@ import { testProfileCommand } from './commands/test.ts';
 
 function printHelp(): void {
   console.log(`
-Theorum CLI - Profile Testing and Profile Inspection
+Theorem CLI - Profile Testing and Profile Inspection
 
 USAGE:
-  theorum <command> [options]
+  agents <command> [options]
 
 COMMANDS:
   bench                Synthetic kernel performance benchmark
@@ -156,7 +156,7 @@ async function handleTest(flags: ParsedFlags): Promise<void> {
 async function handleRun(flags: ParsedFlags): Promise<void> {
   const profile = extractProfileId(flags);
   if (!profile) {
-    console.error('Error: Profile ID required (e.g. `theorum run --profile your-profile`)');
+    console.error('Error: Profile ID required (e.g. `agents run --profile your-profile`)');
     Deno.exit(1);
   }
   const prompt = typeof flags.prompt === 'string' ? flags.prompt : flags._.slice(1).join(' ');
@@ -181,7 +181,7 @@ function handleProfile(flags: ParsedFlags): void {
   }
   const id = sub === 'show' ? flags._[2] || flags.profile : sub;
   if (typeof id !== 'string' || !id) {
-    console.error('Error: Profile ID required (e.g. `theorum profile show your-profile`)');
+    console.error('Error: Profile ID required (e.g. `agents profile show your-profile`)');
     Deno.exit(1);
   }
   showProfileCommand(id);

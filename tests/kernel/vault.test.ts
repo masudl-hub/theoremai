@@ -1,5 +1,5 @@
 import '../fixtures/test-host.ts';
-import { TheorumError } from '../../src/guardrails/error.ts';
+import { TheoremError } from '../../src/guardrails/error.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
 import { resolveTurn } from '../../src/kernel/registry/resolve.ts';
@@ -29,7 +29,7 @@ Deno.test('resolveKeySlot is required for google when nothing pins a slot', () =
   } catch (err) {
     thrown = err;
   }
-  assertEquals(thrown instanceof TheorumError, true);
+  assertEquals(thrown instanceof TheoremError, true);
   assertEquals((thrown as Error).message, 'Profile must set key or models.*.key');
 });
 

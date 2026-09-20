@@ -1,6 +1,6 @@
 import { assertEquals, assertRejects, assertThrows } from '@std/assert';
 import { z } from 'zod';
-import { TheorumError } from '../../src/guardrails/error.ts';
+import { TheoremError } from '../../src/guardrails/error.ts';
 import { runTurn } from '../../src/kernel/engine/runner.ts';
 import { runSession } from '../../src/kernel/engine/session/mod.ts';
 import {
@@ -428,7 +428,7 @@ Deno.test('host profile rejects guardrails that only a model turn can run', () =
   for (const [field, guardrails] of cases) {
     assertThrows(
       () => registerProfile({ ...base, guardrails } as Parameters<typeof registerProfile>[0]),
-      TheorumError,
+      TheoremError,
       `type 'host' must not set guardrails.${field}`,
     );
   }
@@ -470,8 +470,8 @@ Deno.test('host profile rejects models, identity, inputs, outputs, turnBehaviour
 
 Deno.test("resolveTurn, runTurn, runSession and projectProfile refuse a 'host' profile", async () => {
   registerProfile({ type: 'host', id: 'host_refusals', tools: { allow: [] } });
-  assertThrows(() => resolveTurn({ profile: 'host_refusals' }), TheorumError, "type 'host'");
-  assertThrows(() => projectProfile('host_refusals'), TheorumError, "type 'host'");
+  assertThrows(() => resolveTurn({ profile: 'host_refusals' }), TheoremError, "type 'host'");
+  assertThrows(() => projectProfile('host_refusals'), TheoremError, "type 'host'");
   const provider: ModelProvider = {
     async *complete() {
       yield { type: 'text', text: 'never' };
@@ -483,7 +483,7 @@ Deno.test("resolveTurn, runTurn, runSession and projectProfile refuse a 'host' p
         // drain
       }
     },
-    TheorumError,
+    TheoremError,
     "type 'host'",
   );
   await assertRejects(
@@ -492,7 +492,7 @@ Deno.test("resolveTurn, runTurn, runSession and projectProfile refuse a 'host' p
         { profile: 'host_refusals' },
         { gemini: { vault: { slotA: 'k', slotB: undefined, slotC: undefined, paid: undefined } } },
       ),
-    TheorumError,
+    TheoremError,
     "type 'host'",
   );
 });

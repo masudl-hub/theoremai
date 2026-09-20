@@ -1,13 +1,16 @@
 {
-  "name": "theorum",
-  "version": "1.1.3",
+  "name": "@theoremai/agents",
+  "version": "2.0.0",
   "description": "A flat TypeScript agent kernel for typed profiles, deterministic turn execution, registered tools, provider adapters, guardrails, and host-injected traces.",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/masudl-hub/theorum"
+    "url": "https://github.com/masudl-hub/theoremai"
   },
   "type": "module",
+  "bin": {
+    "agents": "./src/cli/index.ts"
+  },
   "keywords": [
     "agent",
     "ai",

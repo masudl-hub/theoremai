@@ -1,5 +1,5 @@
 /**
- * Stress / matrix turn synthesis for the THEORUM CLI.
+ * Stress / matrix turn synthesis for the THEOREM CLI.
  *
  * Custom tools come from `profile.tools.allow` (visibility via loadTier).
  * Provider builtins come from `models.*.builtInTools`. `--search` /

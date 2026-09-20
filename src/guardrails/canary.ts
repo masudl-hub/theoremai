@@ -1,6 +1,6 @@
 import { mapStrings } from '../kernel/engine/tree.ts';
 import type { TurnEvent } from '../kernel/types.ts';
-import { TheorumError } from './error.ts';
+import { TheoremError } from './error.ts';
 import { lexiconText } from './lexicon.ts';
 import { scanTextOf } from './serialize.ts';
 
@@ -46,7 +46,7 @@ function bindCanary(system: string, canary: string, bindNote?: string): string {
     return system;
   }
   if (bindNote !== undefined && !bindNote.includes('{canary}')) {
-    throw new TheorumError(
+    throw new TheoremError(
       'guardrails.canary.bindNote must contain the {canary} placeholder', // lexicon-exempt: developer contract error
     );
   }

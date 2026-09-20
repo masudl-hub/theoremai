@@ -19,20 +19,20 @@ if (!apiKey) {
   Deno.stdout.writeSync(
     new TextEncoder().encode(
       'Error: missing --api-key.\n' +
-        'Theorum does not read environment variables; pass credentials from the host app or local wrapper.\n',
+        'Theorem does not read environment variables; pass credentials from the host app or local wrapper.\n',
     ),
   );
   Deno.exit(1);
 }
 
 Deno.stdout.writeSync(
-  new TextEncoder().encode('Testing Theorum OpenRouter provider connection...\n'),
+  new TextEncoder().encode('Testing Theorem OpenRouter provider connection...\n'),
 );
 
 const provider = createOpenRouterProvider({
   apiKey,
-  siteUrl: 'https://theorum.agent',
-  siteName: 'Theorum Provider Smoke',
+  siteUrl: 'https://theorem.agent',
+  siteName: 'Theorem Provider Smoke',
 });
 
 const req: ProviderCompleteRequest = {
@@ -46,7 +46,7 @@ const req: ProviderCompleteRequest = {
   input: [
     {
       type: 'text',
-      text: 'Verify live streaming: Return "Theorum + OpenRouter live stream verified successfully."',
+      text: 'Verify live streaming: Return "Theorem + OpenRouter live stream verified successfully."',
     },
   ],
   builtins: [],

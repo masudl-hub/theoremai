@@ -1,9 +1,9 @@
 /**
- * Trace sink primitives for THEORUM.
+ * Trace sink primitives for THEOREM.
  *
  * Tracing is host-injected: the kernel can write to a provided sink, a memory
  * sink, a JSONL directory, or a noop sink. Profiles declare policy via
- * `observability`; hosts register named destinations. THEORUM does not read
+ * `observability`; hosts register named destinations. THEOREM does not read
  * environment variables or own a database destination.
  *
  * @module

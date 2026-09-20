@@ -6,7 +6,7 @@
 
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
-import { TheorumError } from '../../src/guardrails/error.ts';
+import { TheoremError } from '../../src/guardrails/error.ts';
 import { assertEquals, assertRejects } from '../../src/kernel/engine/assert.ts';
 import { runTurn } from '../../src/kernel/engine/runner.ts';
 import { defineProfile, getProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
@@ -555,7 +555,7 @@ Deno.test('adversarial/t1Policy: throw propagates', async () => {
   flashProfile('t1_throw_probe', 1, {
     allow: ['stub_tool'],
     t1Policy: () => {
-      throw new TheorumError('t1 selector exploded');
+      throw new TheoremError('t1 selector exploded');
     },
   });
   await assertRejects(
@@ -565,7 +565,7 @@ Deno.test('adversarial/t1Policy: throw propagates', async () => {
         { profile: 't1_throw_probe', input: { text: 'x' } },
         'gemini35FlashLite',
       ),
-    TheorumError,
+    TheoremError,
   );
 });
 
@@ -722,7 +722,7 @@ Deno.test('adversarial/runTurn: t1Policy async rejection fails turn', async () =
           },
         ),
       ),
-    TheorumError,
+    TheoremError,
     'tools.t1Policy rejected',
   );
 });

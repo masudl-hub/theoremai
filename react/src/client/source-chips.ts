@@ -1,5 +1,5 @@
 import type { TranscriptBlock } from '../../../src/interface/mod.ts';
-import type { GroundingSource } from 'theorum/kernel';
+import type { GroundingSource } from '../../../src/kernel/mod.ts';
 
 export type SourceChip = {
 	key: string;

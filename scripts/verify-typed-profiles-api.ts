@@ -1,13 +1,13 @@
 #!/usr/bin/env -S deno run --allow-read --allow-net --allow-env --allow-sys
 
 /**
- * Real-provider pressure suite for typed profiles in THEORUM:
+ * Real-provider pressure suite for typed profiles in THEOREM:
  *   - text profiles (OpenRouter & Gemini Interactions)
  *   - image profiles
  *   - speech profiles
  *   - live profiles (`type: 'live'` / runSession — the one place this suite hits Gemini Live)
  *
- * Exercises the entire THEORUM kernel:
+ * Exercises the entire THEOREM kernel:
  *   defineProfile -> registerProfile -> resolveTurn -> runTurn / runSession -> createProvider -> upstream API
  */
 
@@ -58,9 +58,9 @@ function loadEnvFile(path: string): void {
 }
 
 const envCandidates = [
-  Deno.env.get('THEORUM_ENV_FILE'),
-  '../theorum-frontend/.env.local',
-  '../../theorum-frontend/.env.local',
+  Deno.env.get('THEOREM_ENV_FILE'),
+  '../theorem-frontend/.env.local',
+  '../../theorem-frontend/.env.local',
   './.env.local',
 ].filter(Boolean) as string[];
 
@@ -72,7 +72,7 @@ const openRouterKey = Deno.env.get('OPENROUTER_API_KEY')?.trim();
 const geminiKey = Deno.env.get('GEMINI_API_KEY')?.trim();
 
 console.log('════════════════════════════════════════════════════════════════════════');
-console.log('  THEORUM TYPED PROFILES LIVE PRESSURE TEST');
+console.log('  THEOREM TYPED PROFILES LIVE PRESSURE TEST');
 console.log('════════════════════════════════════════════════════════════════════════');
 console.log(
   `  OpenRouter Key: ${openRouterKey ? `Present (len=${openRouterKey.length})` : 'MISSING'}`,
@@ -173,15 +173,15 @@ if (openRouterKey) {
     const provider = createProvider(profile, {
       openAiGateway: {
         apiKey: openRouterKey,
-        siteUrl: 'https://theorum.agent',
-        siteName: 'Theorum Live Pressure Test',
+        siteUrl: 'https://theorem.agent',
+        siteName: 'Theorem Live Pressure Test',
       },
     });
 
     const events: TurnEvent[] = [];
     const turnReq: TurnRequest = {
       profile: profile.id,
-      input: { text: 'Reply with "THEORUM_CHAT_OK" exactly.' },
+      input: { text: 'Reply with "THEOREM_CHAT_OK" exactly.' },
     };
 
     for await (const event of runTurn(turnReq, provider)) {
@@ -232,8 +232,8 @@ if (openRouterKey) {
     const provider = createProvider(profile, {
       openAiGateway: {
         apiKey: openRouterKey,
-        siteUrl: 'https://theorum.agent',
-        siteName: 'Theorum Live Pressure Test',
+        siteUrl: 'https://theorem.agent',
+        siteName: 'Theorem Live Pressure Test',
       },
     });
 

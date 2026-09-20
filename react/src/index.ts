@@ -28,5 +28,5 @@ export type { InkTooltipProps } from './components/InkTooltip';
 export { InkTooltip } from './components/InkTooltip';
 export type { LiveRunnerProps } from './components/live/LiveRunner';
 export { LiveRunner } from './components/live/LiveRunner';
-export type { TheorumRunAppProps } from './TheorumRunApp';
-export { TheorumRunApp } from './TheorumRunApp';
+export type { TheoremRunAppProps } from './TheoremRunApp';
+export { TheoremRunApp } from './TheoremRunApp';

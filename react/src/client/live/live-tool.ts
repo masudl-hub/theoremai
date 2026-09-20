@@ -1,4 +1,4 @@
-import type { ToolGate } from 'theorum/kernel';
+import type { ToolGate } from '../../../../src/kernel/mod.ts';
 
 export type LiveToolGatePrompt = {
 	toolName: string;

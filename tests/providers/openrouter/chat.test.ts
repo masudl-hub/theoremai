@@ -317,8 +317,8 @@ Deno.test('createOpenRouterProvider handles missing API key, empty stream, think
 
   const fullStreamProvider = createOpenRouterProvider({
     apiKey: 'mock-key',
-    siteUrl: 'https://theorum.dev',
-    siteName: 'Theorum',
+    siteUrl: 'https://theorem.dev',
+    siteName: 'Theorem',
     fetch: (_url, init) => {
       capturedHeaders = new Headers(init?.headers as Record<string, string>);
       return Promise.resolve(
@@ -344,8 +344,8 @@ Deno.test('createOpenRouterProvider handles missing API key, empty stream, think
     }),
   ];
   const fullEvents = await collect(fullStreamProvider.complete(structuredReq));
-  assertEquals(capturedHeaders?.get('HTTP-Referer'), 'https://theorum.dev');
-  assertEquals(capturedHeaders?.get('X-Title'), 'Theorum');
+  assertEquals(capturedHeaders?.get('HTTP-Referer'), 'https://theorem.dev');
+  assertEquals(capturedHeaders?.get('X-Title'), 'Theorem');
 
   const thoughtEv = fullEvents.find((e) => e.type === 'thought');
   assertEquals(thoughtEv?.text, 'deep thought');

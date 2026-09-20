@@ -6,7 +6,7 @@
  * failure visible against corpora the authors did not choose, rather than against
  * hand-picked examples that flatter whatever was just built.
  *
- * Reached from `theorum/guardrails/testing`; never from the production entry.
+ * Reached from `@theoremai/agents/guardrails/testing`; never from the production entry.
  *
  * @command `deno task guardrails:eval`
  * @module

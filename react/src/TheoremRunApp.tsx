@@ -2,21 +2,21 @@ import {
 	loadPlaygroundRunPayload,
 	readPlaygroundRunIdFromUrl,
 } from './client/index';
-import { TheorumRunAppView } from './TheorumRunAppView';
+import { TheoremRunAppView } from './TheoremRunAppView';
 import {
-	type TheorumRunAppProps,
-	useTheorumRunAppModel,
-} from './use-theorum-run-app-model';
+	type TheoremRunAppProps,
+	useTheoremRunAppModel,
+} from './use-theorem-run-app-model';
 
-export type { TheorumRunAppProps };
+export type { TheoremRunAppProps };
 
-export function TheorumRunApp({
+export function TheoremRunApp({
 	missingPayloadHref = '/#playground',
 	playgroundHref = '/#playground',
 	readRunId = readPlaygroundRunIdFromUrl,
 	loadPayload = loadPlaygroundRunPayload,
-}: TheorumRunAppProps) {
-	const model = useTheorumRunAppModel({
+}: TheoremRunAppProps) {
+	const model = useTheoremRunAppModel({
 		missingPayloadHref,
 		playgroundHref,
 		readRunId,
@@ -28,7 +28,7 @@ export function TheorumRunApp({
 			<a className="iface-run-link" href={model.playgroundHref}>
 				← Playground
 			</a>
-			<TheorumRunAppView {...model} />
+			<TheoremRunAppView {...model} />
 		</>
 	);
 }

@@ -11,7 +11,7 @@ export async function runImportProbe(relativeScript: string): Promise<ImportProb
   const cmd = new Deno.Command(Deno.execPath(), {
     args: ['run', '--allow-read', '--allow-env', script.pathname],
     cwd: REPO_ROOT,
-    env: { ...Deno.env.toObject(), THEORUM_IMPORT_PROBE: '1' },
+    env: { ...Deno.env.toObject(), THEOREM_IMPORT_PROBE: '1' },
     stdout: 'piped',
     stderr: 'piped',
   });

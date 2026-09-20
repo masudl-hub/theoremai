@@ -2,7 +2,7 @@ import { assertSafeUrl } from '../../src/guardrails/network.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 
 Deno.test('assertSafeUrl allows public https urls by default', () => {
-  const url = assertSafeUrl('https://api.github.com/repos/theorum/core');
+  const url = assertSafeUrl('https://api.github.com/repos/theoremai/agents');
   assertEquals(url.hostname, 'api.github.com');
   assertEquals(url.protocol, 'https:');
 });

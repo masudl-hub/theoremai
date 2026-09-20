@@ -1,17 +1,17 @@
-# Providers (`theorum/providers`)
+# Providers (`@theoremai/agents/providers`)
 
 Single door for constructing a `ModelProvider` bound to a profile. Credentials
-and runtime endpoints are always host-supplied arguments — THEORUM does not read
+and runtime endpoints are always host-supplied arguments — THEOREM does not read
 environment variables and does not ship `.env` files.
 
 ## Export
 
 | Field | Value |
 | --- | --- |
-| Import | `theorum/providers` / `jsr:@theorum/core/providers` |
+| Import | `@theoremai/agents/providers` / `jsr:@theoremai/agents/providers` |
 | Module | `src/providers/mod.ts` |
-| Local subpath | `theorum/providers/local` → `src/providers/local/mod.ts` |
-| Also on | Root `theorum` re-exports `createProvider` |
+| Local subpath | `@theoremai/agents/providers/local` → `src/providers/local/mod.ts` |
+| Also on | Root `@theoremai/agents` re-exports `createProvider` |
 
 ## Ownership
 
@@ -23,7 +23,7 @@ Owns every module under `src/providers/`.
 | `types.ts` | Host option bags (`OpenAiGatewayConfig`, `LocalProviderConfig`) |
 | `openrouter/chat.ts` | OpenRouter chat adapter (internal; lazy-loaded) |
 | `openrouter/openai/compat.ts` | Shared OpenAI REST wire format (messages, tools, headers) |
-| `openrouter/openai/sdk-messages.ts` | THEORUM → AI SDK `ModelMessage[]` (OpenRouter chat) |
+| `openrouter/openai/sdk-messages.ts` | THEOREM → AI SDK `ModelMessage[]` (OpenRouter chat) |
 | `openrouter/openai/chat-payload.ts` | OpenAI chat payload + OpenRouter plugins (internal) |
 | `openrouter/speech.ts` | OpenAI `/audio/speech` transport (openrouter speech role) |
 | `openrouter/image.ts` | OpenAI `/images` transport; chat + server tool when `includeText` |
@@ -42,7 +42,7 @@ Owns every module under `src/providers/`.
 | `shared/pcm.ts` | PCM → WAV for Interactions speech output |
 | `shared/tool-args.ts` | Shared tool-argument JSON parse (Result; never invents `{}` / `{ _raw }`) |
 | `shared/upstream-tape.ts` / `shared/upstream-tap.ts` | Test / tap hooks (not public exports) |
-| `probe.ts` | Env-gated `LOADED:<label>` writer used only by `createProvider`'s lazy loader (`THEORUM_IMPORT_PROBE=1`). Not a test backdoor; adapters must not import it. |
+| `probe.ts` | Env-gated `LOADED:<label>` writer used only by `createProvider`'s lazy loader (`THEOREM_IMPORT_PROBE=1`). Not a test backdoor; adapters must not import it. |
 
 ## Package boundary
 
@@ -87,8 +87,8 @@ Routing table:
 
 Errors:
 
-- Missing credential block → `TheorumError` naming the required option.
-- Unsupported pair → `TheorumError` with protocol/provider in the message.
+- Missing credential block → `TheoremError` naming the required option.
+- Unsupported pair → `TheoremError` with protocol/provider in the message.
 
 OpenRouter Vercel AI SDK loads **only** on first `complete` for `openAi` +
 `openrouter` chat. Google and local never import it.
@@ -99,13 +99,13 @@ The accepted MIME vocabulary is one table for every transport
 Live take the whole table. The OpenAI-compat adapters map every
 `MediaInputKind` to a wire part and forward the MIME verbatim, so their set is
 open-ended. The only per-adapter refusal is the reference part, raised as a
-`TheorumError` at request time:
+`TheoremError` at request time:
 
 | Transport | Inline `InteractionMediaPart` (`data`) | Reference `InteractionMediaRefPart` (`uri`) |
 | --- | --- | --- |
 | Google Interactions | `{ type, mime_type, data }` | `{ type, mime_type, uri }` — Files API reference, wired by `wireInteractionPart` |
-| Gemini Live (`runSession`) | `inlineData` in client-content history and realtime input | **rejected** — `TheorumError('media references are not supported on geminiLive')` |
-| OpenRouter / local (`openAi`, REST payload) | `image_url` / `input_audio` / `file` data URLs | **rejected** — `TheorumError('media references are not supported on openAi')` |
+| Gemini Live (`runSession`) | `inlineData` in client-content history and realtime input | **rejected** — `TheoremError('media references are not supported on geminiLive')` |
+| OpenRouter / local (`openAi`, REST payload) | `image_url` / `input_audio` / `file` data URLs | **rejected** — `TheoremError('media references are not supported on openAi')` |
 | OpenRouter (`openAi`, AI SDK messages) | `image` / `file` data URLs | **rejected** — same error, including tool-result parts |
 
 ## OpenRouter
@@ -143,7 +143,7 @@ via AI SDK `providerOptions.openrouter` (`cacheControl` / `session_id`) — the 
 
 ## Google Interactions
 
-`createInteractionsProvider(geminiTransport)` streams normalized `TurnEvent`s.
+`createInteractionsProvider(geminiTransport)` streams normalized `TurnEvent` events.
 
 | Concern | Behavior |
 | --- | --- |
@@ -188,7 +188,7 @@ escape hatch for non-registry relays that skip session stages — not for UI den
 | Session control | `goAway` → `session.kind: 'closing_soon'`; `waitingForInput` → `waiting_for_input`; `turnComplete` → `turn_complete`; `interactionStatus` → `working` / `idle` |
 | Resumption | `sessionResumptionHandle` on `SessionRequest`; updates as `evidence.kind: 'session_resumption'` with `resumable` |
 | Remote registry | `SessionRequest.snapshot` (a `TurnToolSnapshot` from `prepareTurnToolSnapshot` in the registry-owning process) supplies the setup declarations when the session runs where the registry is not registered; ids outside `tools.allow` are refused |
-| Media references | Client-content history and realtime input reject `InteractionMediaRefPart` (`TheorumError`) until provider support is verified |
+| Media references | Client-content history and realtime input reject `InteractionMediaRefPart` (`TheoremError`) until provider support is verified |
 
 ### Live fold → `TurnEvent` (exhaustive)
 
@@ -214,9 +214,9 @@ Framing helpers remain in `google/live/framing.ts` for hosts that only need setu
 
 ## Local provider
 
-Import `theorum/providers/local` for `createLocalProvider` /
+Import `@theoremai/agents/providers/local` for `createLocalProvider` /
 `DEFAULT_LOCAL_BASE_URL` (`http://127.0.0.1:11434`). Hosts resolve `OLLAMA_HOST`
-(or similar) themselves and pass `baseUrl` here — THEORUM does not read
+(or similar) themselves and pass `baseUrl` here — THEOREM does not read
 environment variables for local endpoints. The `local/local.ts` module header
 points at this contract (`docs/contracts/providers.md`).
 
@@ -231,7 +231,7 @@ local: {
 - Accumulates streaming tool calls; maps `finish_reason` through
   `turnStopFromOpenAiFinishReason`.
 - Supports multimodal user content when the server accepts OpenAI-style parts;
-  media reference parts (`uri`) are rejected with `TheorumError`.
+  media reference parts (`uri`) are rejected with `TheoremError`.
 
 ## Image roles
 
@@ -271,7 +271,7 @@ container.
 Tool-call argument strings that are not valid JSON objects fail the same way on
 every transport (Interactions, Live, local, OpenRouter history→SDK): a `tool`
 event with `phase: 'error'` / `failure.code: 'malformed_arguments'`, or a thrown
-`TheorumError` when rebuilding history for the AI SDK. Nothing invents `{}` or
+`TheoremError` when rebuilding history for the AI SDK. Nothing invents `{}` or
 `{ _raw }` to paper over bad JSON.
 
 ## Key vault (provider-neutral)
@@ -298,7 +298,7 @@ createProvider(profile, {
 | Piece | Role |
 | --- | --- |
 | `GeminiTransport` | Google vault + optional `fetch` |
-| `KeyVault` | `Record<KeySlot, string \| undefined>` shared with OpenRouter |
+| `KeyVault` | `Record<KeySlot, string | undefined>` shared with OpenRouter |
 | Slots | `slotA`, `slotB`, `slotC`, `paid` |
 | Selection | `models.*.key` / `ModelBinding.key` / `builtInTools` (`forcePaidKey`) |
 
@@ -315,14 +315,14 @@ From `src/providers/mod.ts`:
 | `GeminiTransport`, `KeyVault` | types |
 | `LocalProviderConfig`, `OpenAiGatewayConfig` | types |
 
-From `src/providers/local/mod.ts` (`theorum/providers/local`):
+From `src/providers/local/mod.ts` (`@theoremai/agents/providers/local`):
 
 | Export | Kind |
 | --- | --- |
 | `createLocalProvider` | function |
 | `DEFAULT_LOCAL_BASE_URL` | const |
 
-```theorum-evidence
+```theorem-evidence
 {
   "sections": {
     "Export": {

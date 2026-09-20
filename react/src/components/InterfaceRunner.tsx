@@ -4,7 +4,7 @@ import type {
 	ComposerRunPhase,
 	TranscriptBlock,
 } from '../../../src/interface/mod.ts';
-import type { ToolCredential } from 'theorum/kernel';
+import type { ToolCredential } from '../../../src/kernel/mod.ts';
 import '../styles/interface-runner.css';
 import type {
 	ComposerFieldHandlers,

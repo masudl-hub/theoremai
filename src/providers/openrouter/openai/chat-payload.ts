@@ -1,7 +1,7 @@
 /**
  * OpenAI-compatible chat payload builder.
  *
- * Converts THEORUM provider requests into OpenAI-compatible chat completion
+ * Converts THEOREM provider requests into OpenAI-compatible chat completion
  * payloads for OpenRouter and compatible gateways.
  *
  * Wire-format helpers (messages, tools, response format) are delegated to the

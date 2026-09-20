@@ -1,5 +1,5 @@
 import '../../fixtures/test-host.ts';
-import { TheorumError, UPSTREAM_FAILED } from '../../../src/guardrails/error.ts';
+import { TheoremError, UPSTREAM_FAILED } from '../../../src/guardrails/error.ts';
 import { assertEquals } from '../../../src/kernel/engine/assert.ts';
 import {
   defineProfile,
@@ -253,7 +253,7 @@ Deno.test('missing free key throws before any fetch', async () => {
       },
     });
   } catch (err) {
-    threw = err instanceof TheorumError && err.message === UPSTREAM_FAILED;
+    threw = err instanceof TheoremError && err.message === UPSTREAM_FAILED;
   }
   assertEquals(threw, true);
 });
@@ -371,12 +371,12 @@ Deno.test('withApiKey defaults to GET behavior when no method is given', () => {
   assertEquals(headers.get('Content-Type'), null);
 });
 
-Deno.test('requireKey throws TheorumError when the slot has no key', () => {
+Deno.test('requireKey throws TheoremError when the slot has no key', () => {
   let threw = false;
   try {
     requireKey({ ...vault, slotA: undefined }, 'slotA');
   } catch (err) {
-    threw = err instanceof TheorumError && err.message === UPSTREAM_FAILED;
+    threw = err instanceof TheoremError && err.message === UPSTREAM_FAILED;
   }
   assertEquals(threw, true);
 });

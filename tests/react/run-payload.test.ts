@@ -37,7 +37,7 @@ function memoryStorage(): Storage {
 }
 
 Deno.test('playgroundRunPayloadKey nests under the shared prefix', () => {
-  assertEquals(playgroundRunPayloadKey('abc'), 'theorum.playground.run.abc');
+  assertEquals(playgroundRunPayloadKey('abc'), 'theoremai.playground.run.abc');
 });
 
 Deno.test('readPlaygroundRunIdFromUrl reads ?run=', () => {

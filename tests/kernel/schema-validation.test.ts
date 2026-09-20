@@ -1,4 +1,4 @@
-import { TheorumError } from '../../src/guardrails/error.ts';
+import { TheoremError } from '../../src/guardrails/error.ts';
 import { assertEquals, assertRejects } from '../../src/kernel/engine/assert.ts';
 import {
   collectValidationFailures,
@@ -90,7 +90,7 @@ Deno.test('schema-validation: null optional is absent', async () => {
 Deno.test('schema-validation: non-object root throws', async () => {
   await assertRejects(
     () => collectValidationFailures({ type: 'string' }, 'x', undefined),
-    TheorumError,
+    TheoremError,
     'JSON Schema object root',
   );
 });

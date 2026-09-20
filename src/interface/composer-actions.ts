@@ -76,6 +76,6 @@ function resolveComposerMenuActions(ctx: ComposerActionContext): ComposerMenuAct
 }
 
 // Headless contract: this module emits semantic action keys only. English
-// labels for these keys live in the rendering layer (`@theorum/react`)
+// labels for these keys live in the rendering layer (`@theoremai/react`)
 // or in the host UI.
 export { resolveComposerMenuActions, resolveComposerPrimary };

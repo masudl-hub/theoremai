@@ -9,7 +9,7 @@ import {
   lintDocsTruth,
 } from './graph.mjs';
 
-const HELP = `theorum docs-truth — deterministic document health lint (no waivers)
+const HELP = `theorem docs-truth — deterministic document health lint (no waivers)
 
 Usage:
   node ./scripts/docs-truth/cli.mjs lint
@@ -18,7 +18,7 @@ Usage:
   node ./scripts/docs-truth/cli.mjs --help
 
 Environment:
-  THEORUM_DOCS_BASE=origin/main   Base ref for changed-file freshness
+  THEOREM_DOCS_BASE=origin/main   Base ref for changed-file freshness
 `;
 
 const repoRoot = process.cwd();

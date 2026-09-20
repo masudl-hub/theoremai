@@ -72,7 +72,7 @@ export const FIXTURE_CSV_BASE64 = btoa(
 );
 
 export const FIXTURE_TEXT_BASE64 = btoa(
-  'This is a synthetic fixture text document for Theorum validation testing.\n',
+  'This is a synthetic fixture text document for Theorem validation testing.\n',
 );
 
 export function getFixtureForMime(mime: string): { data: string; mimeType: string } | undefined {

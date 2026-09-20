@@ -1,16 +1,16 @@
-# CLI (`theorum/cli`)
+# CLI (`@theoremai/agents/cli`)
 
 Profile inspection and stress-test CLI. On npm this entry is also the
-`theorum` binary. Hosts must register profiles (and providers) in-process
+`agents` binary. Hosts must register profiles (and providers) in-process
 before commands that execute turns — the CLI does not embed app profiles.
 
 ## Export
 
 | Field | Value |
 | --- | --- |
-| Import | `theorum/cli` / `jsr:@theorum/core/cli` |
+| Import | `@theoremai/agents/cli` / `jsr:@theoremai/agents/cli` |
 | Module | `src/cli/index.ts` |
-| Binary | `theorum` (npm `bin`) |
+| Binary | `agents` (npm `bin`) |
 
 ## Ownership
 
@@ -18,21 +18,23 @@ before commands that execute turns — the CLI does not embed app profiles.
 | --- | --- |
 | `src/cli/index.ts` | Argument parser + command dispatch |
 | `src/cli/event-log.ts` | Shared `run`/`test` event printing + `--trace` capture |
-| `src/cli/commands/*` | `bench`, `fuzz`, `test`, `run`, `profile` |
+| `src/cli/commands/*` | `bench`, `fuzz`, `test`, `run`, `profile`, `guardrails-eval` |
 | `src/cli/matrix/*` | Permutation synthesizer + fixtures |
 
 ## Commands
 
 ```text
-theorum <command> [options]
+agents <command> [options]
 ```
 
 | Command | Purpose |
 | --- | --- |
-| `verify:guardrails-api` | Real-provider red-team of Theorum-owned guardrails (~95 adversarial cases); `--category`, `--limit`, `--inbound-only` |
+| `verify:guardrails-api` | Real-provider red-team of Theorem-owned guardrails (~95 adversarial cases); `--category`, `--limit`, `--inbound-only` |
 | `verify:canary-api` | Alias for `verify:guardrails-api` |
 | `fuzz` | Adversarial inbound sanitization fuzzer; exit `1` on expected miss |
 | `fuzz-canary` | Adversarial canary egress fuzzer (`runTurn` stream gate + Live batch gate); exit `1` on bypass |
+| `guardrails-eval` | Score guardrail detectors against external corpora (`--cache-dir`, `--limit`) |
+| `bench` | Synthetic kernel performance benchmark (`--chunks`, `--iterations`, `--warmup`) |
 | `test` | Stress matrix or custom profile tests (`--profile`, `--all`, `--lite`, `--matrix`, `--mode`, `--search`, `--map`, `--verbose`, `--trace`, `--trace-dir`) |
 | `run` | Execute a turn with streaming output (`--profile`, `--prompt`, `--mode`, `--verbose`, `--trace`, `--trace-dir`, …) |
 | `profile list` / `profile show <id>` | Inspect registered profile blueprints (text, image, speech, live) |
@@ -52,14 +54,14 @@ explicit `ModelProvider` (the CLI never reads API keys).
 | `--trace-dir <path>` | Also append trace JSONL under the given directory (in addition to `--trace` console dump) |
 
 ```bash
-theorum run --profile my.agent --prompt "ping" --verbose --trace
-theorum test --profile my.agent --lite --trace --trace-dir /var/log/theorum
+agents run --profile my.agent --prompt "ping" --verbose --trace
+agents test --profile my.agent --lite --trace --trace-dir /var/log/theorem
 ```
 ## Matrix and fixtures
 
 | Module | Role |
 | --- | --- |
-| `matrix/synthesizer.ts` | Builds valid permutation cases (modes, optional tools) |
+| `matrix/synthesizer.ts` | Builds valid permutation cases (modes, optional tools, reasoning) |
 | `matrix/fixtures.ts` | Shared harness fixtures (not product personas) |
 
 Tool stress / matrix allowlists are `profile.tools.allow` plus each selected
@@ -71,10 +73,10 @@ The matrix respects those allowlists — e.g. `--search` only applies when
 ## Exported API
 
 The entry module is the CLI program itself (side-effect main when run as a
-bin). Prefer `deno task theorum` / `npx theorum` over importing commands in
+bin). Prefer `deno task agents` / `npx @theoremai/agents` over importing commands in
 application code.
 
-```theorum-evidence
+```theorem-evidence
 {
   "sections": {
     "Export": {

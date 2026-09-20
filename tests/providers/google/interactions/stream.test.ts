@@ -215,7 +215,7 @@ Deno.test('prompt-enforced schema omits JSON response_format', () => {
   assertEquals(body[camelToSnake('responseFormat')], undefined);
 });
 
-Deno.test('pinned profile wires 3.5 minimal through theorum', () => {
+Deno.test('pinned profile wires 3.5 minimal through theorem', () => {
   const { generation } = resolveTurn({
     profile: 'pinned',
     input: { text: 'x' },

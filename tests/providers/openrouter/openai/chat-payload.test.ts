@@ -1,5 +1,5 @@
 import { assertEquals, assertThrows } from '@std/assert';
-import { TheorumError } from '../../../../src/guardrails/error.ts';
+import { TheoremError } from '../../../../src/guardrails/error.ts';
 import { registerStructured } from '../../../../src/kernel/registry/schemas.ts';
 import type { ModelId, ProviderCompleteRequest } from '../../../../src/kernel/types.ts';
 import { registerGooglePreset } from '../../../../src/presets/google.ts';
@@ -448,7 +448,7 @@ Deno.test('toOpenAiChatPayload rejects media references (openAi compat carries i
   };
   assertThrows(
     () => toOpenAiChatPayload(req),
-    TheorumError,
+    TheoremError,
     'media references are not supported on openAi',
   );
 });

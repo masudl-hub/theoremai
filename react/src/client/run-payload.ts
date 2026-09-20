@@ -4,7 +4,7 @@
  * @module
  */
 
-import type { ProfileDefinition } from 'theorum';
+import type { ProfileDefinition } from '../../../mod.ts';
 import type { StructuredRegistration, ToolRegistration } from './registrations';
 import {
 	clearPlaygroundRunPayloadRecord,

@@ -15,7 +15,7 @@ export interface LiveAttack {
   expectInboundScrub?: boolean;
   /** Raw secrets that must not appear verbatim in sanitized input. */
   inboundSecrets?: string[];
-  /** Patterns that must not reach client unless Theorum blocked the turn. */
+  /** Patterns that must not reach client unless Theorem blocked the turn. */
   forbiddenOutput?: RegExp[];
 }
 

@@ -1,5 +1,5 @@
-import type { TurnEvent } from 'theorum';
-import type { ToolGate } from 'theorum/kernel';
+import type { TurnEvent } from '../../../mod.ts';
+import type { ToolGate } from '../../../src/kernel/mod.ts';
 
 export type LiveServerEnvelope =
 	| { type: 'ready'; profile?: string; sessionId?: string }

@@ -5,7 +5,7 @@
  */
 
 import { type ZodType, z } from 'zod';
-import { TheorumError } from '../../guardrails/error.ts';
+import { TheoremError } from '../../guardrails/error.ts';
 
 const GEMINI_SUPPORTED_SCHEMA_KEYS = [
   'type',
@@ -126,7 +126,7 @@ function validateToolWireSchema(
   const errors: string[] = [];
   walkSchema(schema, '$', mode, errors);
   if (errors.length > 0) {
-    throw new TheorumError(`Invalid tool ${label} schema: ${errors.join('; ')}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError(`Invalid tool ${label} schema: ${errors.join('; ')}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
 }
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Cursor stop / subagentStop hook.
- * Lints only files this conversation edited, then runs theorum tests when src/tests changed.
+ * Lints only files this conversation edited, then runs theorem tests when src/tests changed.
  */
 import { readFileSync, constants, existsSync } from 'node:fs';
 import { access, mkdir, open, unlink } from 'node:fs/promises';
@@ -56,10 +56,10 @@ async function readPackageJson(root) {
 	}
 }
 
-async function isTheorumTestRoot(root) {
+async function isTheoremTestRoot(root) {
 	const pkg = await readPackageJson(root);
 	if (!pkg || typeof pkg.scripts?.test !== 'string') return false;
-	if (pkg.name === 'theorum') return true;
+	if (pkg.name === 'theorem') return true;
 	try {
 		await access(path.join(root, 'deno.json'), constants.R_OK);
 		return true;
@@ -392,7 +392,7 @@ async function main() {
 		// Run only the test files this conversation edited. Full-suite runs are for CI;
 		// the hook must not block on another agent's churning test files.
 		const testTargets = relFiles.filter((file) => file.startsWith('tests/') && file.endsWith('.test.ts'));
-		if (failures.length === 0 && (await isTheorumTestRoot(root)) && testTargets.length > 0) {
+		if (failures.length === 0 && (await isTheoremTestRoot(root)) && testTargets.length > 0) {
 			console.error(`[lint-turn] deno test (${testTargets.length} edited test file(s)) in ${root}`);
 			const result = await runCommand(root, 'deno', [
 				'test',

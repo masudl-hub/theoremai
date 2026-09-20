@@ -1,5 +1,5 @@
 /**
- * Runtime vocabulary and field catalog for THEORUM profile types.
+ * Runtime vocabulary and field catalog for THEOREM profile types.
  *
  * Closed unions live here as `as const` arrays; TypeScript types are derived
  * from those arrays. Host UIs and docs import this module (no Deno APIs) so
@@ -301,7 +301,7 @@ export type CustomToolType = Exclude<ToolType, 'builtin'>;
  *   `image_url`/`image`, audio → `input_audio`, video and document → `file`)
  *   and forward the part's MIME verbatim, so their accepted set is open-ended
  *   and adds no rows. What they cannot carry — a `uri` reference part — is
- *   refused at request time with `TheorumError`, not by a second MIME list.
+ *   refused at request time with `TheoremError`, not by a second MIME list.
  *
  * Alias essences that providers also emit (`image/jpg`, `video/mov`,
  * `audio/x-wav`, `video/x-ms-wmv`, …) are rows here; `resolveInputParts`
@@ -799,10 +799,10 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   'outputs.streaming': field('ProfileStreamingSpec', 'How the turn emits live events.'),
   'outputs.streaming.mode': field(
     unionType(STREAM_MODES),
-    'sse or buffered. Omit → THEORUM SSE default (ResolvedGeneration.stream = true).',
+    'sse or buffered. Omit → THEOREM SSE default (ResolvedGeneration.stream = true).',
     STREAM_MODES,
     {
-      sse: 'Server-Sent Events emitting live incremental TurnEvents (THEORUM default when mode omitted).',
+      sse: 'Server-Sent Events emitting live incremental TurnEvents (THEOREM default when mode omitted).',
       buffered: 'Buffers response into a single completed turn event.',
     },
   ),

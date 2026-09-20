@@ -1,6 +1,6 @@
 /** @type {import('../scripts/docs-truth/graph.mjs').DocsTruthGraph} */
 const graph = {
-  schema: 'theorum.docs-truth/v1',
+  schema: 'theorem.docs-truth/v1',
   structural_sections: ['Export', 'Ownership', 'Exported API'],
   min_evidence_supports: 2,
   min_doc_lines: {
@@ -58,7 +58,7 @@ const graph = {
           sections: ['Public Entrypoints'],
         },
       ],
-      validates: ['tests/kernel/theorum.test.ts', 'scripts/docs-truth/graph.test.mjs'],
+      validates: ['tests/kernel/theorem.test.ts', 'scripts/docs-truth/graph.test.mjs'],
       required_sections: [
         'Core Principles',
         'Architecture',
@@ -411,7 +411,7 @@ const graph = {
           sections: ['Exported API', 'Role in the package'],
         },
       ],
-      validates: ['tests/kernel/theorum.test.ts'],
+      validates: ['tests/kernel/theorem.test.ts'],
       required_sections: [
         'Export',
         'Ownership',
@@ -432,7 +432,7 @@ const graph = {
           sections: ['Vocabularies', 'Exported API'],
         },
       ],
-      validates: ['tests/kernel/theorum.test.ts'],
+      validates: ['tests/kernel/theorem.test.ts'],
       required_sections: [
         'Export',
         'Ownership',
@@ -446,7 +446,7 @@ const graph = {
       export: './presets/google/speech-voices',
       doc: 'docs/contracts/presets-google.md',
       owns: ['src/presets/google/speech-voices.ts'],
-      validates: ['tests/kernel/theorum.test.ts'],
+      validates: ['tests/kernel/theorem.test.ts'],
       required_sections: ['Export', 'Ownership', 'Vocabularies', 'Exported API'],
     },
 

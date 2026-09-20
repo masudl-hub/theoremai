@@ -1,6 +1,6 @@
-# Observability (`theorum/observability`)
+# Observability (`@theoremai/agents/observability`)
 
-Trace sinks, destination registry, and profile observability policy. THEORUM
+Trace sinks, destination registry, and profile observability policy. THEOREM
 does not own a database, does not read trace-related environment variables for
 destinations, and never lets tracing fail a turn. Hosts that need a signal when
 sinks die set `TraceSink.onError` or `observability.onWriteError`.
@@ -9,7 +9,7 @@ sinks die set `TraceSink.onError` or `observability.onWriteError`.
 
 | Field | Value |
 | --- | --- |
-| Import | `theorum/observability` / `jsr:@theorum/core/observability` |
+| Import | `@theoremai/agents/observability` / `jsr:@theoremai/agents/observability` |
 | Module | `src/observability/mod.ts` |
 
 ## Ownership
@@ -33,7 +33,7 @@ Declare policy on the profile. Prefer a host-registered destination id; pass a
 `TraceSink` only for tests or custom exporters.
 
 ```ts
-registerTraceDestination('prod', jsonlDestination('/var/log/theorum'));
+registerTraceDestination('prod', jsonlDestination('/var/log/theorem'));
 
 defineProfile({
   // …
@@ -68,7 +68,7 @@ defineProfile({
 | `retainForDays` / `rotateAfterMiB` | JSONL retention when `writeTo` resolves to a jsonl destination |
 | `onWriteError` | Host hook on build/write failure (never fails the turn) |
 
-Omit the whole `observability` block → noop (same as today).
+Omit the whole `observability` block → noop (same as today). `resolveObservabilityPolicy` maps author-provided values to fully resolved settings.
 
 `scrub` defaults stay on even when turn-path `guardrails.redactSensitive` is
 false: a host-confidential store must not accidentally inherit a debug-off
@@ -94,7 +94,7 @@ for await (const event of runTurn(request, provider)) {
 | --- | --- |
 | `registerTraceDestination(id, dest)` | Register a `TraceSink` or `{ kind: 'jsonl', dir }` |
 | `jsonlDestination(dir)` | Build a JSONL destination descriptor |
-| `getTraceDestination` / `requireTraceDestination` | Lookup |
+| `getTraceDestination` / `requireTraceDestination` | Lookup (throws `TheoremError` if unregistered) |
 | `listTraceDestinationIds` / `clearTraceDestinations` | Introspection / tests |
 
 ## Trace sinks
@@ -206,7 +206,7 @@ does not silently inherit a turn-path `redactSensitive: false`.
 | `isJsonlTraceDestination`, `isTraceSink` | function |
 | `resolveObservabilityPolicy`, `resolveTraceWriter` | function |
 
-```theorum-evidence
+```theorem-evidence
 {
   "sections": {
     "Export": {
@@ -237,27 +237,26 @@ does not silently inherit a turn-path `redactSensitive: false`.
     },
     "Trace sinks": {
       "supports": [
-        { "kind": "source", "path": "src/observability/trace-sink.ts" },
         { "kind": "source", "path": "src/observability/trace.ts" },
-        { "kind": "contract_test", "path": "tests/observability/trace.test.ts" }
-      ]
-    },
-    "Trace records": {
-      "supports": [
-        { "kind": "source", "path": "src/observability/trace-record.ts" },
-        { "kind": "contract_test", "path": "tests/observability/trace.test.ts" }
+        { "kind": "contract_test", "path": "tests/observability/policy.test.ts" }
       ]
     },
     "Sensitive storage": {
       "supports": [
         { "kind": "source", "path": "src/observability/trace-record.ts" },
-        { "kind": "contract_test", "path": "tests/observability/trace.test.ts" }
+        { "kind": "contract_test", "path": "tests/observability/policy.test.ts" }
+      ]
+    },
+    "Trace records": {
+      "supports": [
+        { "kind": "source", "path": "src/observability/trace-record.ts" },
+        { "kind": "contract_test", "path": "tests/observability/policy.test.ts" }
       ]
     },
     "Exported API": {
       "supports": [
         { "kind": "source", "path": "src/observability/mod.ts" },
-        { "kind": "contract_test", "path": "tests/observability/trace.test.ts" }
+        { "kind": "contract_test", "path": "tests/observability/policy.test.ts" }
       ]
     }
   }

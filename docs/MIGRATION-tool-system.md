@@ -32,7 +32,7 @@ Spec: `tmp/specs/tool-system.md` (working design notes — not published docs)
 
 ```ts
 import { z } from 'zod';
-import { registerTool, registerHarnessTools } from 'theorum';
+import { registerTool, registerHarnessTools } from '@theoremai/agents';
 
 registerHarnessTools(); // ask_user, etc.
 

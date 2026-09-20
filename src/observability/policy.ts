@@ -7,7 +7,7 @@
  * @module
  */
 
-import { TheorumError } from '../guardrails/error.ts';
+import { TheoremError } from '../guardrails/error.ts';
 import { isJsonlTraceDestination, isTraceSink, requireTraceDestination } from './destinations.ts';
 import { resolveObservabilityPolicy } from './resolve-policy.ts';
 import { jsonlSink, noopSink } from './trace.ts';
@@ -62,7 +62,7 @@ function sinkFromWriteTo(
     );
   }
   if (!isTraceSink(destination)) {
-    throw new TheorumError(`Trace destination '${writeTo}' is not a usable writer`);
+    throw new TheoremError(`Trace destination '${writeTo}' is not a usable writer`);
   }
   return bindOnWriteError(destination, policy.onWriteError);
 }

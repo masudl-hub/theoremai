@@ -12,10 +12,14 @@ import '../../src/providers/create-provider.ts';
 import '../../src/providers/probe.ts';
 
 /** Assembled so this file does not contain the banned whole-token literal. */
-const BANNED_GLOBAL = ['__theorum', 'TestInternals'].join('');
+const BANNED_GLOBALS = [
+  ['__theorem', 'TestInternals'].join(''),
+];
 
 Deno.test('loading public surface does not install a global test-internals bag', () => {
   const g = globalThis as Record<string, unknown>;
-  assertEquals(Object.hasOwn(g, BANNED_GLOBAL), false);
-  assertEquals(g[BANNED_GLOBAL], undefined);
+  for (const banned of BANNED_GLOBALS) {
+    assertEquals(Object.hasOwn(g, banned), false);
+    assertEquals(g[banned], undefined);
+  }
 });

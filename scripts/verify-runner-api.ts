@@ -14,7 +14,7 @@
  *                      baseline clean delivery
  *
  * Rate limit: ≥4 s between API calls (≤15 RPM).
- * Keys: loaded from THEORUM_ENV_FILE or ../theorum-frontend/.env.local.
+ * Keys: loaded from THEOREM_ENV_FILE or ../theorem-frontend/.env.local.
  * Default provider: openrouter (`--provider gemini` to switch).
  *
  * Usage:
@@ -107,9 +107,9 @@ function loadEnvFile(path: string): void {
 
 function defaultEnvFile(): string | undefined {
   const candidates = [
-    Deno.env.get('THEORUM_ENV_FILE'),
-    '../theorum-frontend/.env.local',
-    '../../theorum-frontend/.env.local',
+    Deno.env.get('THEOREM_ENV_FILE'),
+    '../theorem-frontend/.env.local',
+    '../../theorem-frontend/.env.local',
   ].filter(Boolean) as string[];
   for (const path of candidates) {
     try {
@@ -350,8 +350,8 @@ function makeProvider(profileId: string): ModelProvider {
   return createProvider(profile, {
     openAiGateway: {
       apiKey: key,
-      siteUrl: 'https://theorum.dev',
-      siteName: 'Theorum Runner Verify',
+      siteUrl: 'https://theorem.dev',
+      siteName: 'Theorem Runner Verify',
     },
   });
 }

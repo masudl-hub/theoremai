@@ -194,7 +194,7 @@ function printInboundFuzzResults(results: InboundFuzzResult[]): InboundFuzzResul
  */
 export function runInboundGuardrailFuzz(options?: { quiet?: boolean }): boolean {
   if (!options?.quiet) {
-    console.log('\n🔓 Theorum Guardrail Inbound Fuzz\n');
+    console.log('\n🔓 Theorem Guardrail Inbound Fuzz\n');
   }
 
   registerFuzzProfile();

@@ -1,5 +1,5 @@
 /**
- * Deterministic turn runner for THEORUM.
+ * Deterministic turn runner for THEOREM.
  *
  * @module
  */

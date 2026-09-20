@@ -1,4 +1,4 @@
-import type { TurnBlob, TurnEvent } from 'theorum';
+import type { TurnBlob, TurnEvent } from '../../../mod.ts';
 import {
 	appendAssistantEventsToHistory,
 	appendUserDraftToHistory,

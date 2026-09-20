@@ -1,7 +1,7 @@
 id: no-lint-suppression
 language: TypeScript
 severity: error
-message: Lint suppressions are banned in Theorum. Fix the code.
+message: Lint suppressions are banned in Theorem. Fix the code.
 rule:
   any:
     - pattern: '// biome-ignore $REST'

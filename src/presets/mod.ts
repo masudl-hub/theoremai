@@ -1,5 +1,5 @@
 /**
- * Optional THEORUM presets.
+ * Optional THEOREM presets.
  *
  * Presets register host-convenience catalogs (provider builtins, media
  * vocabularies, later model packs) without baking product opinions into the kernel.

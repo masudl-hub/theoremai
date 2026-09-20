@@ -1,4 +1,4 @@
-# THEORUM — Tool-result multimodal fidelity
+# THEOREM — Tool-result multimodal fidelity
 
 > **Type:** Spec · current  
 > **Status:** Complete  

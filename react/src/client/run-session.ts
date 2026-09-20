@@ -8,8 +8,8 @@ import {
 	type InterfaceTurnSession,
 	type TranscriptBlock,
 } from '../../../src/interface/mod.ts';
-import type { ToolCredential } from 'theorum/kernel';
-import { lexiconText } from 'theorum';
+import type { ToolCredential } from '../../../src/kernel/mod.ts';
+import { lexiconText, type TurnEvent } from '../../../mod.ts';
 import { attachPreviewData, encodeFiles } from './encode-files';
 import { continueAfterTool, finalizeTurnStream, streamFoldedTurn, toTurnMedia } from './run-commit';
 import type { PlaygroundRunPayload } from './run-payload';
@@ -281,7 +281,7 @@ async function resumeDeniedGatedTool(args: {
 					message: lexiconText('session.tool_denied', { tool: args.gated.name }),
 				},
 			},
-		} as import('theorum').TurnEvent;
+		} as TurnEvent;
 	});
 	const session = {
 		...args.session,

@@ -1,4 +1,4 @@
-import { TheorumError } from '../../../guardrails/error.ts';
+import { TheoremError } from '../../../guardrails/error.ts';
 import { wireInteractionPart } from '../../../kernel/interaction-parts.ts';
 import { getStructured } from '../../../kernel/registry/schemas.ts';
 import { getTool } from '../../../kernel/tools/registry.ts';
@@ -156,10 +156,10 @@ export function attachResponseFormat(
 ): void {
   if (req.speech) {
     if (req.image) {
-      throw new TheorumError('cannot mix speech and image response formats');
+      throw new TheoremError('cannot mix speech and image response formats');
     }
     if (req.structured) {
-      throw new TheorumError('cannot mix speech and structured response formats');
+      throw new TheoremError('cannot mix speech and structured response formats');
     }
     camel.responseFormat = { type: 'audio' };
     camel.responseModalities = ['audio'];
@@ -231,7 +231,7 @@ function wireInteractionsTools(req: ProviderCompleteRequest): Record<string, unk
     const entry = getTool(id);
     const type = entry?.type === 'builtin' ? entry.wire.interactions : undefined;
     if (!type) {
-      throw new TheorumError(`Builtin '${id}' has no Interactions wire type`);
+      throw new TheoremError(`Builtin '${id}' has no Interactions wire type`);
     }
     if (type === 'google_maps') {
       tools.push(wireGoogleMapsTool(req));
@@ -271,7 +271,7 @@ export function applyOptionalRequestFields(
   }
   if (req.system) {
     if (systemHoldsUserInput(req.system, req.input)) {
-      throw new TheorumError('User payload must not be copied into system instructions');
+      throw new TheoremError('User payload must not be copied into system instructions');
     }
     camel.systemInstruction = req.system;
   }

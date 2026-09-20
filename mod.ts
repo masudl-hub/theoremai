@@ -1,5 +1,5 @@
 /**
- * THEORUM public API.
+ * THEOREM public API.
  *
  * Import this entrypoint when an application wants the complete kernel surface:
  * profile registration, turn execution, provider constructors, guardrails,
@@ -7,7 +7,7 @@
  *
  * @example
  * ```ts
- * import { defineProfile, registerProfile, runTurn } from "jsr:@theorum/core";
+ * import { defineProfile, registerProfile, runTurn } from "jsr:@theoremai/agents";
  *
  * const profile = defineProfile({
  *   id: "assistant.basic",
@@ -49,7 +49,7 @@ export {
   isAbortError,
   PUBLIC_CANARY,
   publicError,
-  TheorumError,
+  TheoremError,
   throwIfAborted,
   toErrorEvent,
 } from './src/guardrails/error.ts';

@@ -1,10 +1,10 @@
 /**
  * Render headless attachment validation issues (semantic codes + params) as
  * user-facing strings via the kernel lexicon defaults. Hosts override copy
- * with `overrideLexicon` from `theorum` or by rendering codes themselves.
+ * with `overrideLexicon` from `@theoremai/agents` or by rendering codes themselves.
  */
 
-import { type LexiconKey, lexiconText } from 'theorum';
+import { type LexiconKey, lexiconText } from '../../../mod.ts';
 import type { AttachmentValidationIssue } from '../../../src/interface/mod.ts';
 
 const ISSUE_LEXICON: Record<AttachmentValidationIssue['code'], LexiconKey> = {

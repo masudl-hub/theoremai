@@ -1,19 +1,19 @@
-# Migration: ownership boundary ("Host decides, Theorum runs")
+# Migration: ownership boundary ("Host decides, Theorem runs")
 
 Breaking cut. No deprecation aliases.
 
-## Removed: `theorum/playground` entrypoint
+## Removed: playground entrypoint
 
-Demo fixtures moved to the **repo-private** package `@theorum/playground`
-(`playground/` in the theorum repo). It is never published.
+Demo fixtures moved to the **repo-private** package `@theoremai/playground`
+(`playground/` in the repo). It is never published.
 
 ```diff
-- import { demoToolSpecs } from 'theorum/playground';
-+ import { demoToolSpecs } from '@theorum/playground';
+- import { demoToolSpecs } from '@theoremai/playground';
++ import { demoToolSpecs } from '@theoremai/playground';
 ```
 
-Hosts link it with `"@theorum/playground": "file:../theorum/playground"`.
-`PLAYGROUND_AUTH_TYPES` / `PlaygroundAuthType` remain on `theorum/schema`
+Hosts link it with `"@theoremai/playground": "file:../theorem/playground"`.
+`PLAYGROUND_AUTH_TYPES` / `PlaygroundAuthType` remain on `@theoremai/agents/schema`
 (authoring vocabulary, not demo product).
 
 ## Removed: `quotaMessage`
@@ -52,7 +52,7 @@ live in the repo-private React package (`COMPOSER_PRIMARY_LABELS`,
 + AttachmentValidationIssue { code: 'too_many_files', params: { maxFiles } }
 ```
 
-`@theorum/react` renders via `attachmentIssueText` (lexicon defaults).
+`@theoremai/react` renders via `attachmentIssueText` (lexicon defaults).
 Hosts may render codes themselves.
 
 ## Invariant

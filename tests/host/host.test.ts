@@ -1,5 +1,5 @@
 import { assertEquals } from '@std/assert';
-import { TheorumError } from '../../src/guardrails/error.ts';
+import { TheoremError } from '../../src/guardrails/error.ts';
 import {
   caughtStatus,
   flushMintTrace,
@@ -33,7 +33,7 @@ Deno.test('host reply helpers map status codes and JSON bodies', async () => {
   const res = json(HTTP_OK, { ok: true }, { 'Access-Control-Allow-Origin': '*' });
   assertEquals(res.status, HTTP_OK);
   assertEquals(await res.json(), { ok: true });
-  assertEquals(caughtStatus(new TheorumError('bad request')), 400);
+  assertEquals(caughtStatus(new TheoremError('bad request')), 400);
   assertEquals(caughtStatus(new Error('boom')), 500);
   assertEquals(HTTP_BUSY, 429);
   assertEquals(HTTP_METHOD, 405);

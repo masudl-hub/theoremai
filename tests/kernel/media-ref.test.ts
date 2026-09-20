@@ -5,7 +5,7 @@
  */
 import '../fixtures/test-host.ts';
 import { assertEquals, assertThrows } from '@std/assert';
-import { TheorumError } from '../../src/guardrails/error.ts';
+import { TheoremError } from '../../src/guardrails/error.ts';
 import { isMediaRefPart, wireInteractionPart } from '../../src/kernel/interaction-parts.ts';
 import {
   assertAttachmentLimits,
@@ -40,7 +40,7 @@ Deno.test('ingress rejects a media reference whose MIME the profile does not acc
           attachments: [{ mimeType: 'video/mp4', uri: 'files/abc123' }],
         },
       }),
-    TheorumError,
+    TheoremError,
     "MIME 'video/mp4' is not accepted on chat",
   );
 });
@@ -52,9 +52,9 @@ Deno.test('a media reference never runs base64 or byte limits; file count still 
   assertAttachmentLimits([ref], TINY);
   assertThrows(
     () => assertAttachmentLimits([{ mimeType: 'image/png', data: 'aGVsbG8=' }], TINY),
-    TheorumError,
+    TheoremError,
   );
-  assertThrows(() => assertAttachmentLimits([ref, ref], TINY), TheorumError, 'Only 1 file');
+  assertThrows(() => assertAttachmentLimits([ref, ref], TINY), TheoremError, 'Only 1 file');
   // Text-mime sanitization only rewrites inline bytes; a ref passes through untouched.
   const csvRef = { mimeType: 'text/csv', uri: 'files/csv1' };
   const sanitized = sanitizeTurnBlobs([csvRef], undefined, TINY);

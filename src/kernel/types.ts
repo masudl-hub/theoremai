@@ -1,8 +1,8 @@
 /**
- * Shared type contracts for THEORUM profiles, turns, provider adapters, tools,
+ * Shared type contracts for THEOREM profiles, turns, provider adapters, tools,
  * guardrails, and stream events.
  *
- * Import from `jsr:@theorum/core/kernel` or `theorum/kernel` when a host app needs types without
+ * Import from `@theoremai/agents/kernel` or `jsr:@theoremai/agents/kernel` when a host app needs types without
  * importing provider implementations.
  *
  * @module
@@ -412,7 +412,7 @@ export interface ProfileStreamingSpec {
   /**
    * Profile-only source of truth for upstream stream vs batch.
    * `sse` → stream; `buffered` → non-SSE where the transport supports it.
-   * Omit → THEORUM defaults to SSE (`ResolvedGeneration.stream === true`).
+   * Omit → THEOREM defaults to SSE (`ResolvedGeneration.stream === true`).
    */
   mode?: StreamMode;
   /** When false, filter `thought` events from the turn stream. */
@@ -445,7 +445,7 @@ export interface ProfileModelFields {
   allowModelSelect?: boolean;
   /**
    * Tool-loop ceiling. `<= 0` = unbounded; `1` = one-shot; `> 1` = hard cap.
-   * Omit → unbounded (no THEORUM invent of `1`).
+   * Omit → unbounded (no THEOREM invent of `1`).
    */
   maxSteps?: number;
   key?: OverflowKeySlot;
@@ -571,7 +571,7 @@ export interface InteractionMediaPart {
 
 /**
  * Media part carried by reference (e.g. a Gemini Files `files/<id>` uri).
- * The host owns the upload and cleanup; THEORUM only carries the reference.
+ * The host owns the upload and cleanup; THEOREM only carries the reference.
  * Wired by the Google Interactions adapter; other adapters reject it.
  */
 export interface InteractionMediaRefPart {
@@ -580,7 +580,7 @@ export interface InteractionMediaRefPart {
   uri: string;
 }
 
-/** Any provider input part accepted by THEORUM's provider contract. */
+/** Any provider input part accepted by THEOREM's provider contract. */
 export type InteractionPart = InteractionTextPart | InteractionMediaPart | InteractionMediaRefPart;
 
 /** Native image response request passed to image-capable providers. */
@@ -703,7 +703,7 @@ export interface TurnRequest {
    */
   host?: unknown;
   /**
-   * Optional abort signal. When aborted, THEORUM stops the turn and cancels
+   * Optional abort signal. When aborted, THEOREM stops the turn and cancels
    * in-flight provider HTTP where the adapter supports it.
    */
   signal?: AbortSignal;
@@ -753,7 +753,7 @@ export interface ProviderGenerationConfig {
   store?: boolean;
   /**
    * Upstream stream vs batch, derived from `outputs.streaming.mode`.
-   * `true` = SSE (THEORUM default when mode is omitted); `false` = buffered.
+   * `true` = SSE (THEOREM default when mode is omitted); `false` = buffered.
    */
   stream?: boolean;
   thinking?: ThinkingLevel;
@@ -796,7 +796,7 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
   interactionOnlyInput?: Record<string, unknown>[];
   /**
    * Tool-loop ceiling. `undefined` or `<= 0` = unbounded.
-   * Taken from `profile.maxSteps` with no THEORUM invent.
+   * Taken from `profile.maxSteps` with no THEOREM invent.
    */
   maxSteps?: number;
   structured: StructuredSchemaId | null;

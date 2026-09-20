@@ -2,7 +2,7 @@
  * Host cutout-trace helpers for apps that mint a final audit row after an
  * upstream side effect (for example image cutout).
  *
- * Prefer importing from `theorum/host`.
+ * Prefer importing from `@theoremai/agents/host`.
  *
  * @module
  */

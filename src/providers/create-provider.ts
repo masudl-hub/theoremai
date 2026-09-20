@@ -10,7 +10,7 @@
  * @module
  */
 
-import { TheorumError } from '../guardrails/error.ts';
+import { TheoremError } from '../guardrails/error.ts';
 import { requireModelProfile } from '../kernel/registry/resolve.ts';
 import { soleModelId } from '../kernel/registry/sole-model.ts';
 import { isValidPair } from '../kernel/schema.ts';
@@ -52,19 +52,19 @@ function bindingForProvider(input: Profile, modelId?: ModelId): ModelBinding {
   const profile = requireModelProfile(input, 'createProvider');
   const id = modelId ?? profile.defaultModel ?? soleModelId(profile.models);
   if (!id) {
-    throw new TheorumError(
+    throw new TheoremError(
       `createProvider: profile '${profile.id}' must set defaultModel when multiple models are declared`,
     );
   }
   const binding = profile.models[id];
   if (!binding) {
-    throw new TheorumError(`createProvider: profile '${profile.id}' has no model '${id}'`);
+    throw new TheoremError(`createProvider: profile '${profile.id}' has no model '${id}'`);
   }
   return binding;
 }
 
 /**
- * Lazy-load an adapter on first `complete`. When `THEORUM_IMPORT_PROBE=1`,
+ * Lazy-load an adapter on first `complete`. When `THEOREM_IMPORT_PROBE=1`,
  * emits `LOADED:<label>` exactly once at load time (import-isolation tests).
  */
 function lazyAdapter(label: string, load: () => Promise<ModelProvider>): ModelProvider {
@@ -125,27 +125,27 @@ export function createProvider(
   const { protocol, provider } = bindingForProvider(profile, modelId);
 
   if (!isValidPair(protocol, provider)) {
-    throw new TheorumError(
+    throw new TheoremError(
       `createProvider: unsupported protocol/provider pair '${protocol}'/'${provider}'`,
     );
   }
 
   if (protocol === 'geminiInteractions' && provider === 'google') {
     if (!options.gemini) {
-      throw new TheorumError('createProvider requires gemini transport for google Interactions');
+      throw new TheoremError('createProvider requires gemini transport for google Interactions');
     }
     return lazyGoogleInteractions(options.gemini);
   }
 
   if (protocol === 'geminiLive' && provider === 'google') {
-    throw new TheorumError(
+    throw new TheoremError(
       "createProvider does not support type 'live' / geminiLive — use runSession(req, { gemini })",
     );
   }
 
   if (protocol === 'openAi' && provider === 'openrouter') {
     if (!options.openAiGateway) {
-      throw new TheorumError('createProvider requires openAiGateway config for openAi/openrouter');
+      throw new TheoremError('createProvider requires openAiGateway config for openAi/openrouter');
     }
     if (isSpeechRole(profile)) {
       return lazySpeech(options.openAiGateway);
@@ -158,14 +158,14 @@ export function createProvider(
 
   if (protocol === 'openAi' && provider === 'local') {
     if (isImageRole(profile)) {
-      throw new TheorumError(
+      throw new TheoremError(
         'createProvider: type image requires openrouter provider for openAi protocol',
       );
     }
     return lazyLocal(options.local);
   }
 
-  throw new TheorumError(
+  throw new TheoremError(
     `createProvider: unsupported protocol/provider pair '${protocol}'/'${provider}'`,
   );
 }

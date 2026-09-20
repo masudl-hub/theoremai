@@ -6,7 +6,7 @@ import type {
 	ToolAuthType,
 	ToolLoadTier,
 	ToolPermission,
-} from 'theorum/schema';
+} from '../../../src/kernel/schema.ts';
 
 export type StructuredRegistration = {
 	id: string;

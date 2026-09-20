@@ -1,5 +1,5 @@
 /**
- * THEORUM tool registry and execution.
+ * THEOREM tool registry and execution.
  *
  * @module
  */

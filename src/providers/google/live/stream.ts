@@ -7,7 +7,7 @@
  * @module
  */
 
-import { TheorumError } from '../../../guardrails/error.ts';
+import { TheoremError } from '../../../guardrails/error.ts';
 import type { ProviderCompleteRequest, TurnEvent } from '../../../kernel/types.ts';
 import {
   buildGeminiLiveClientContent,
@@ -55,7 +55,7 @@ export function performLiveSetup(ws: WebSocket, req: ProviderCompleteRequest): P
     const timeout = setTimeout(() => {
       if (!setupResolved) {
         setupResolved = true;
-        reject(new TheorumError(`Gemini Live setup timed out after ${SETUP_TIMEOUT_MS}ms`));
+        reject(new TheoremError(`Gemini Live setup timed out after ${SETUP_TIMEOUT_MS}ms`));
       }
     }, SETUP_TIMEOUT_MS);
 
@@ -74,7 +74,7 @@ export function performLiveSetup(ws: WebSocket, req: ProviderCompleteRequest): P
       clearTimeout(timeout);
       if (!setupResolved) {
         setupResolved = true;
-        reject(new TheorumError('Gemini Live WebSocket error during setup'));
+        reject(new TheoremError('Gemini Live WebSocket error during setup'));
       }
     };
 
@@ -83,7 +83,7 @@ export function performLiveSetup(ws: WebSocket, req: ProviderCompleteRequest): P
       if (!setupResolved) {
         setupResolved = true;
         reject(
-          new TheorumError(
+          new TheoremError(
             `Gemini Live WebSocket closed during setup (${evt.code}: ${evt.reason})`,
           ),
         );
@@ -97,7 +97,7 @@ export function performLiveSetup(ws: WebSocket, req: ProviderCompleteRequest): P
         if (parsed.reason === 'empty') return;
         clearTimeout(timeout);
         setupResolved = true;
-        reject(new TheorumError('malformed Gemini Live message during setup'));
+        reject(new TheoremError('malformed Gemini Live message during setup'));
         return;
       }
 
@@ -105,7 +105,7 @@ export function performLiveSetup(ws: WebSocket, req: ProviderCompleteRequest): P
       if (errMsg) {
         clearTimeout(timeout);
         setupResolved = true;
-        reject(new TheorumError(errMsg));
+        reject(new TheoremError(errMsg));
         return;
       }
 
@@ -216,7 +216,7 @@ export function attachLiveSessionHandlers(ws: WebSocket, liveQueue: LiveQueue): 
         if (parsed.reason === 'empty') return;
         liveQueue.push({
           type: 'error',
-          error: new TheorumError('malformed Gemini Live message'),
+          error: new TheoremError('malformed Gemini Live message'),
         });
         return;
       }
@@ -224,7 +224,7 @@ export function attachLiveSessionHandlers(ws: WebSocket, liveQueue: LiveQueue): 
 
       const errMsg = readGeminiLiveErrorMessage(parsed.value);
       if (errMsg) {
-        liveQueue.push({ type: 'error', error: new TheorumError(errMsg) });
+        liveQueue.push({ type: 'error', error: new TheoremError(errMsg) });
         return;
       }
 
@@ -243,7 +243,7 @@ export function attachLiveSessionHandlers(ws: WebSocket, liveQueue: LiveQueue): 
 
   ws.onerror = () => {
     if (!liveQueue.isClosed()) {
-      liveQueue.push({ type: 'error', error: new TheorumError('Gemini Live WebSocket error') });
+      liveQueue.push({ type: 'error', error: new TheoremError('Gemini Live WebSocket error') });
     }
   };
 

@@ -4,7 +4,7 @@
  * sources, produces numbers that look authoritative and are not.
  *
  * These tests use fixtures only — no network. The corpus fetch is exercised by
- * running `theorum guardrails-eval`, not by the unit suite.
+ * running `agents guardrails-eval`, not by the unit suite.
  */
 import '../fixtures/test-host.ts';
 import {

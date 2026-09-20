@@ -1,13 +1,13 @@
 /**
  * Host-registered trace destinations for profile `observability.writeTo` ids.
  *
- * THEORUM does not invent filesystem roots. Hosts register a named destination
+ * THEOREM does not invent filesystem roots. Hosts register a named destination
  * once per process; profiles reference it by id.
  *
  * @module
  */
 
-import { TheorumError } from '../guardrails/error.ts';
+import { TheoremError } from '../guardrails/error.ts';
 import type { TraceSink } from './trace-sink.ts';
 
 /** JSONL directory destination — retention comes from profile policy at resolve time. */
@@ -25,7 +25,7 @@ const destinations = new Map<string, TraceDestination>();
 function jsonlDestination(dir: string): JsonlTraceDestination {
   const trimmed = dir.trim();
   if (!trimmed) {
-    throw new TheorumError('jsonlDestination requires a non-empty directory');
+    throw new TheoremError('jsonlDestination requires a non-empty directory');
   }
   return { kind: 'jsonl', dir: trimmed };
 }
@@ -50,17 +50,17 @@ function isTraceSink(value: TraceDestination): value is TraceSink {
 function registerTraceDestination(id: string, destination: TraceDestination): void {
   const key = id.trim();
   if (!key) {
-    throw new TheorumError('registerTraceDestination requires a non-empty id');
+    throw new TheoremError('registerTraceDestination requires a non-empty id');
   }
   if (isJsonlTraceDestination(destination)) {
     if (!destination.dir.trim()) {
-      throw new TheorumError(`Trace destination '${key}' jsonl dir must be non-empty`);
+      throw new TheoremError(`Trace destination '${key}' jsonl dir must be non-empty`);
     }
     destinations.set(key, { kind: 'jsonl', dir: destination.dir.trim() });
     return;
   }
   if (!isTraceSink(destination)) {
-    throw new TheorumError(`Trace destination '${key}' must be a TraceSink or jsonl destination`);
+    throw new TheoremError(`Trace destination '${key}' must be a TraceSink or jsonl destination`);
   }
   destinations.set(key, destination);
 }
@@ -74,7 +74,7 @@ function getTraceDestination(id: string): TraceDestination | undefined {
 function requireTraceDestination(id: string): TraceDestination {
   const found = getTraceDestination(id);
   if (!found) {
-    throw new TheorumError(`Trace destination '${id}' is not registered`);
+    throw new TheoremError(`Trace destination '${id}' is not registered`);
   }
   return found;
 }

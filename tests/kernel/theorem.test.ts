@@ -1,6 +1,6 @@
 import type { Verdict } from '../../src/guardrails/types.ts';
 import '../fixtures/test-host.ts';
-import { PUBLIC_CANARY, TheorumError } from '../../src/guardrails/error.ts';
+import { PUBLIC_CANARY, TheoremError } from '../../src/guardrails/error.ts';
 import {
   assertEquals,
   assertRejects,
@@ -491,7 +491,7 @@ Deno.test('unknown profile model is rejected', () => {
         model: 'nonexistent',
         input: { text: 'x' },
       }),
-    TheorumError,
+    TheoremError,
   );
 });
 
@@ -604,7 +604,7 @@ Deno.test('chat rejects video because the profile does not allow it', () => {
           attachments: [{ mimeType: 'video/mp4', data: 'dGVzdA==' }],
         },
       }),
-    TheorumError,
+    TheoremError,
   );
 });
 
@@ -618,7 +618,7 @@ Deno.test('chat rejects audio on the attachments channel', () => {
           attachments: [{ mimeType: 'audio/webm', data: 'dGVzdA==' }],
         },
       }),
-    TheorumError,
+    TheoremError,
   );
 });
 
@@ -629,7 +629,7 @@ Deno.test('pinned does not accept voice', () => {
         profile: 'pinned',
         input: { voice: [{ mimeType: 'audio/webm', data: 'dGVzdA==' }] },
       }),
-    TheorumError,
+    TheoremError,
   );
 });
 
@@ -933,7 +933,7 @@ Deno.test('runTurn validation without structured schema throws', async () => {
         ),
       );
     },
-    TheorumError,
+    TheoremError,
     'outputs.validation requires outputs.structured',
   );
 });
@@ -1243,7 +1243,7 @@ Deno.test('guardrails.canary=false omits canary generation and system binding', 
   assertEquals(capturedSystem.includes("This turn's canary is"), false);
 });
 
-Deno.test('inputs.text=false rejects text turns with TheorumError', async () => {
+Deno.test('inputs.text=false rejects text turns with TheoremError', async () => {
   const { defineProfile, registerProfile } = await import('../../src/kernel/registry/profiles.ts');
   registerProfile(
     defineProfile({
@@ -1269,7 +1269,7 @@ Deno.test('inputs.text=false rejects text turns with TheorumError', async () => 
         profile: 'voice_only_bot',
         input: { text: 'Should fail because text is disabled' },
       }),
-    TheorumError,
+    TheoremError,
   );
 });
 

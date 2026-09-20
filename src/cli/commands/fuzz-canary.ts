@@ -208,7 +208,7 @@ function printResults(results: ChannelResult[]): boolean {
 
 /** Run adversarial canary fuzz; returns true when no bypasses or false alarms. */
 export async function fuzzCanaryCommand(options?: { canary?: string }): Promise<boolean> {
-  console.log('\n🔐 Theorum Canary Egress Adversarial Fuzzer\n');
+  console.log('\n🔐 Theorem Canary Egress Adversarial Fuzzer\n');
 
   clearProfiles();
   registerFuzzCanaryProfile();

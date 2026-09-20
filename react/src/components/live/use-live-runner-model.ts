@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { liveIngressEnabledFromSpec } from 'theorum';
+import { liveIngressEnabledFromSpec } from '../../../../mod.ts';
 import type { LiveProfileInterface } from '../../../../src/interface/mod.ts';
 import { liveStateLabel } from '../../client/live/live-state';
 import type { PlaygroundRunPayload } from '../../client/run-payload';

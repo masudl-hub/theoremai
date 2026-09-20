@@ -1,13 +1,13 @@
 {
-  "name": "@theorum/playground",
+  "name": "@theoremai/playground",
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "Repo-private playground fixtures for theorum hosts: travel concierge demo seeds, local function handlers, JSON Schema stubs. Never published — demo product belongs to the host, not the kernel.",
+  "description": "Repo-private playground fixtures for theorem hosts: travel concierge demo seeds, local function handlers, JSON Schema stubs. Never published — demo product belongs to the host, not the kernel.",
   "exports": {
     ".": "./mod.ts"
   },
   "peerDependencies": {
-    "theorum": "*"
+    "@theoremai/agents": "*"
   }
 }

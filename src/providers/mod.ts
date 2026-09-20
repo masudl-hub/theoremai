@@ -1,11 +1,11 @@
 /**
- * Provider adapters for THEORUM's `ModelProvider` contract.
+ * Provider adapters for THEOREM's `ModelProvider` contract.
  *
  * Host apps should use `createProvider(profile, options)` — the single door.
  * Credentials are always supplied by the host application.
  *
  * For direct local adapter access (bypassing the factory), import
- * `@theorum/core/providers/local`.
+ * `@theoremai/agents/providers/local`.
  *
  * @module
  */

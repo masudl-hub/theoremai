@@ -1,5 +1,5 @@
 import { runEnforcer } from '../../../guardrails/egress.ts';
-import { TheorumError, throwIfAborted, toErrorEvent } from '../../../guardrails/error.ts';
+import { TheoremError, throwIfAborted, toErrorEvent } from '../../../guardrails/error.ts';
 import { guardrailFromVerdict } from '../../../guardrails/events.ts';
 import { lexiconText } from '../../../guardrails/lexicon.ts';
 import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
@@ -158,13 +158,13 @@ async function evaluateValidationOutcome(args: {
   }
   const structuredId = generation.structured;
   if (!structuredId) {
-    throw new TheorumError(
+    throw new TheoremError(
       'outputs.validation requires outputs.structured with a JSON Schema', // lexicon-exempt: developer contract error
     );
   }
   const spec = getStructured(structuredId);
   if (!spec.jsonSchema) {
-    throw new TheorumError(
+    throw new TheoremError(
       `structured schema '${structuredId}' has no jsonSchema for validation`, // lexicon-exempt: developer contract error
     );
   }

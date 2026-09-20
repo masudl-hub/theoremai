@@ -8,7 +8,7 @@
  *   GEMINI_API_KEY_CRUCIBLE   → slotC
  *   GEMINI_API_KEY            → paid (overflow)
  *
- * Or point THEORUM_ENV_FILE at a .env file to load from there.
+ * Or point THEOREM_ENV_FILE at a .env file to load from there.
  *
  * Usage:
  *   deno run --allow-read --allow-write --allow-net --allow-sys --allow-env scripts/integration-matrix.ts
@@ -42,7 +42,7 @@ function loadEnvFile(path: string): void {
   }
 }
 
-const envFile = Deno.env.get('THEORUM_ENV_FILE');
+const envFile = Deno.env.get('THEOREM_ENV_FILE');
 if (envFile) loadEnvFile(envFile);
 
 const vault: KeyVault = {

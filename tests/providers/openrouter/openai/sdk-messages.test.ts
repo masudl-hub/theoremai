@@ -1,5 +1,5 @@
 import '../../../fixtures/test-host.ts';
-import { TheorumError } from '../../../../src/guardrails/error.ts';
+import { TheoremError } from '../../../../src/guardrails/error.ts';
 import { assertEquals, assertThrows } from '../../../../src/kernel/engine/assert.ts';
 import { resolveTurn } from '../../../../src/kernel/registry/resolve.ts';
 import type {
@@ -191,7 +191,7 @@ Deno.test('assistantToolCallMessage throws on invalid JSON args', () => {
     role: 'assistant',
     tool_calls: [{ id: 'c1', type: 'function', function: { name: 'fn', arguments: 'bad' } }],
   };
-  assertThrows(() => assistantToolCallMessage(msg), TheorumError);
+  assertThrows(() => assistantToolCallMessage(msg), TheoremError);
 });
 
 Deno.test('historyToSdk dispatches tool messages', () => {
@@ -283,10 +283,10 @@ Deno.test('buildAiSdkMessages handles no history', () => {
 
 Deno.test('AI SDK message builder rejects media references in input and tool results', () => {
   const ref: InteractionPart = { type: 'image', mimeType: 'image/png', uri: 'files/img1' };
-  assertThrows(() => sdkPart(ref), TheorumError, 'media references are not supported on openAi');
+  assertThrows(() => sdkPart(ref), TheoremError, 'media references are not supported on openAi');
   assertThrows(
     () => sdkContentFromParts([{ type: 'text', text: 'hi' }, ref]),
-    TheorumError,
+    TheoremError,
     'media references are not supported on openAi',
   );
   const toolMsg: TurnHistoryMessage = {
@@ -298,7 +298,7 @@ Deno.test('AI SDK message builder rejects media references in input and tool res
   };
   assertThrows(
     () => toolResultMessage(toolMsg),
-    TheorumError,
+    TheoremError,
     'media references are not supported on openAi',
   );
 });

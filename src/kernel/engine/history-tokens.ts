@@ -2,7 +2,7 @@
  * Local estimate of conversational history tokens (compaction `meter: 'history'`).
  *
  * **Text** — tiktoken `o200k_base` via `gpt-tokenizer` (GPT-4o / GPT-5 / o-series
- * default encoding). This is THEORUM's declared local BPE counter. Gemini has
+ * default encoding). This is THEOREM's declared local BPE counter. Gemini has
  * no open JS tokenizer; hosts that need Gemini `countTokens` pass
  * `TurnInput.historyTokens`.
  *

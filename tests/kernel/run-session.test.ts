@@ -1,6 +1,6 @@
 import { assertEquals, assertRejects } from '@std/assert';
 import { z } from 'zod';
-import { TheorumError } from '../../src/guardrails/error.ts';
+import { TheoremError } from '../../src/guardrails/error.ts';
 import { runSession } from '../../src/kernel/engine/session/mod.ts';
 import {
   clearProfiles,
@@ -98,7 +98,7 @@ Deno.test('runSession rejects non-live profiles', async () => {
         { profile: profile.id },
         { gemini: { vault: { slotA: 'k', slotB: undefined, slotC: undefined, paid: undefined } } },
       ),
-    TheorumError,
+    TheoremError,
     "runSession requires profile.type 'live'",
   );
 });
@@ -118,7 +118,7 @@ Deno.test('runSession requires registered live profile with gemini vault', async
           },
         },
       ),
-    TheorumError,
+    TheoremError,
   );
   assertEquals(profile.type, 'live');
 });
@@ -160,7 +160,7 @@ Deno.test('runSession sendVideo rejects when live.ingress.video is disabled', as
 
   await assertRejects(
     () => session.sendVideo({ data: 'abc', mimeType: 'image/jpeg' }),
-    TheorumError,
+    TheoremError,
     'live.ingress.video is disabled',
   );
   (mock as unknown as MockLiveWebSocket)?.close();
@@ -204,7 +204,7 @@ Deno.test('runSession sendText rejects when live.ingress.text is disabled', asyn
 
   await assertRejects(
     () => session.sendText('hello'),
-    TheorumError,
+    TheoremError,
     'live.ingress.text is disabled',
   );
   (mock as unknown as MockLiveWebSocket)?.close();
@@ -519,7 +519,7 @@ Deno.test('runSession refuses a snapshot that declares tools outside tools.allow
 
   await assertRejects(
     () => openWithMock({ profile: narrow.id, path: 'live-call', snapshot }),
-    TheorumError,
+    TheoremError,
     'outside tools.allow: snap_t1, snap_t2',
   );
 });

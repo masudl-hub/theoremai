@@ -4,7 +4,7 @@
  * @module
  */
 
-import { TheorumError } from '../../guardrails/error.ts';
+import { TheoremError } from '../../guardrails/error.ts';
 import { MEDIA_INPUT_KINDS } from '../schema.ts';
 import type {
   MediaInputKind,
@@ -72,7 +72,7 @@ function mediaChannelForMime(profile: Profile, mime: string): MediaInputChannel 
 function requireModelBinding(profile: ModelProfile, modelId: ModelId): ModelBinding {
   const binding = profile.models[modelId];
   if (!binding) {
-    throw new TheorumError(`Profile ${profile.id} has no model binding for '${modelId}'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError(`Profile ${profile.id} has no model binding for '${modelId}'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return binding;
 }

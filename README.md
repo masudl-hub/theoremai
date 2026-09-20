@@ -8,24 +8,17 @@
   |___|  |__| |__||_______||_______||___|  |_||_______||_|   |_|
 ```
 
-# THEORUM: The Flat Agent Kernel
+# THEOREM: The Flat Agent Kernel
 
-**Current release: `1.1.3`** (`jsr:@theorum/core` / npm `theorum`).
-
-> ⚠️ **Package Migration Notice:**
-> Starting with version 2.0, the package and scope are officially rebranded from `theorum` / `@theorum/core` to **`@theoremai/agents`** on both **npm** and **JSR**.
-> - **npm**: `npm install @theoremai/agents` (deprecating `theorum`)
-> - **JSR**: `deno add jsr:@theoremai/agents` (deprecating `jsr:@theorum/core`)
->
-> All legacy `theorum` / `jsr:@theorum/core` v1.x releases are deprecated in favor of `@theoremai/agents`.
+**Current release: `2.0.0`** (`jsr:@theoremai/agents` / npm `@theoremai/agents`).
 
 > **"Profiles describe the contract. Providers move bytes. The runner enforces the turn."**
 
-THEORUM is a compact TypeScript agent kernel for apps that need deterministic agent execution without embedding product logic inside the runtime. It gives a host application one runner, typed profiles, multimodal input normalization, a registered tool system with per-turn gating, provider adapters, trace sinks, and guardrail hooks.
+THEOREM is a compact TypeScript agent kernel for apps that need deterministic agent execution without embedding product logic inside the runtime. It gives a host application one runner, typed profiles, multimodal input normalization, a registered tool system with per-turn gating, provider adapters, trace sinks, and guardrail hooks.
 
 The package is intentionally **not** an agent product. It ships no app profiles, no prompts, no secrets, no database policy, no business rules, and no channel-specific UX. Those belong in the host application.
 
-OpenRouter chat transport is powered by Vercel AI SDK Core under the adapter. THEORUM keeps the runner contract, guardrails, tool permissions, egress, media buffering, and trace event shape; AI SDK handles the OpenRouter request/stream/tool-call normalization layer.
+OpenRouter chat transport is powered by Vercel AI SDK Core under the adapter. THEOREM keeps the runner contract, guardrails, tool permissions, egress, media buffering, and trace event shape; AI SDK handles the OpenRouter request/stream/tool-call normalization layer.
 
 ---
 
@@ -55,7 +48,7 @@ the JSR and npm packages.
 
 ## Architecture
 
-THEORUM is organized around a deliberately small execution boundary.
+THEOREM is organized around a deliberately small execution boundary.
 
 ```mermaid
 flowchart TD
@@ -68,7 +61,7 @@ flowchart TD
         Policy["Business rules"]
     end
 
-    subgraph Kernel["THEORUM"]
+    subgraph Kernel["THEOREM"]
         Resolve["resolveTurn"]
         Guard["sanitize + canary + egress"]
         Runner["runTurn"]
@@ -162,21 +155,21 @@ buffered assistant text from that attempt, then the turn emits terminal `done`.
 ### Deno / JSR
 
 ```bash
-deno add jsr:@theorum/core
+deno add jsr:@theoremai/agents
 ```
 
 ```ts
-import { defineProfile, registerProfile, runTurn } from "jsr:@theorum/core";
+import { defineProfile, registerProfile, runTurn } from "jsr:@theoremai/agents";
 ```
 
 ### npm
 
 ```bash
-npm install theorum
+npm install @theoremai/agents
 ```
 
 ```ts
-import { defineProfile, registerProfile, runTurn } from "theorum";
+import { defineProfile, registerProfile, runTurn } from "@theoremai/agents";
 ```
 
 ---
@@ -192,7 +185,7 @@ import {
   runTurn,
   type ModelProvider,
   type TurnEvent,
-} from "jsr:@theorum/core";
+} from "jsr:@theoremai/agents";
 
 const profile = defineProfile({
   type: "text",
@@ -251,7 +244,7 @@ for await (const event of runTurn(
 
 ## Registered Tools
 
-THEORUM separates tool concerns into four layers.
+THEOREM separates tool concerns into four layers.
 
 | Layer | Owner | Purpose |
 | :--- | :--- | :--- |
@@ -262,7 +255,7 @@ THEORUM separates tool concerns into four layers.
 
 ```ts
 import { z } from 'zod';
-import { registerTool, invokeTool, runTurn } from 'theorum';
+import { registerTool, invokeTool, runTurn } from '@theoremai/agents';
 
 registerTool({
   type: 'function',
@@ -354,10 +347,10 @@ Quota is optional. If a profile omits `guardrails.quota`, the quota helper retur
 
 ## Provider Adapters
 
-THEORUM includes provider adapters but does not own credentials. Bind them with one door:
+THEOREM includes provider adapters but does not own credentials. Bind them with one door:
 
 ```ts
-import { createProvider, runTurn } from "jsr:@theorum/core";
+import { createProvider, runTurn } from "jsr:@theoremai/agents";
 
 const provider = createProvider(profile, {
   gemini: { vault: hostGeminiKeyVault, fetch },
@@ -380,13 +373,13 @@ for await (const event of runTurn({ profile: profile.id, input: { text: "…" } 
 | `openAi` + `openrouter` (speech role) | OpenRouter `/audio/speech` |
 | `openAi` + `local` | Local OpenAI-compatible `/v1/chat/completions` (Ollama, llama.cpp, vLLM, LM Studio, …) |
 
-Local adapters take an optional `baseUrl` (default `http://127.0.0.1:11434`). THEORUM does not read `OLLAMA_HOST`; hosts that honor that env should resolve it and pass `local.baseUrl`. History `parts` (including images) are mapped on the wire; `done` events include a normalized `stop` from the OpenAI `finish_reason`.
+Local adapters take an optional `baseUrl` (default `http://127.0.0.1:11434`). THEOREM does not read `OLLAMA_HOST`; hosts that honor that env should resolve it and pass `local.baseUrl`. History `parts` (including images) are mapped on the wire; `done` events include a normalized `stop` from the OpenAI `finish_reason`.
 
-OpenRouter uses Vercel AI SDK Core inside THEORUM's provider adapter. Provider
+OpenRouter uses Vercel AI SDK Core inside THEOREM's provider adapter. Provider
 adapters load **lazily on the first `complete` call** for the selected transport —
-not when importing THEORUM. Importing `createProvider` alone does not pull in
+not when importing THEOREM. Importing `createProvider` alone does not pull in
 Google Interactions, OpenRouter/AI SDK, speech, or local adapter graphs.
-The OpenRouter adapter still emits THEORUM `TurnEvent` values and preserves raw
+The OpenRouter adapter still emits THEOREM `TurnEvent` values and preserves raw
 provider evidence for citations/provenance where the normalized SDK stream does
 not expose enough detail. Use `createProvider` for all turns; adapter modules
 stay internal to the providers package.
@@ -397,32 +390,32 @@ stay internal to the providers package.
 
 | Entrypoint | Purpose |
 | :--- | :--- |
-| `jsr:@theorum/core` / `theorum` | Main kernel API: profiles, schemas, runner, core types, provider constructors, declarative HTTP/MCP tool execution. |
-| `jsr:@theorum/core/kernel` / `theorum/kernel` | Profile/turn types, tool catalog, `requireModelBinding`, thinking clamps over host model maps. |
-| `jsr:@theorum/core/providers` / `theorum/providers` | `createProvider` + Gemini vault types + host option bags. |
-| `jsr:@theorum/core/providers/local` / `theorum/providers/local` | Direct local OpenAI-compat adapter (`createLocalProvider`, `DEFAULT_LOCAL_BASE_URL`). |
-| `jsr:@theorum/core/guardrails` / `theorum/guardrails` | Sanitization, canary/egress gates, public error mapping, inbound injection/sensitive-data primitives. |
-| `jsr:@theorum/core/guardrails/testing` / `theorum/guardrails/testing` | Adversarial corpus + fuzz helpers (test/harness only). |
-| `jsr:@theorum/core/observability` / `theorum/observability` | Trace sinks and trace record helpers. |
-| `jsr:@theorum/core/host` / `theorum/host` | Optional Deno HTTP helpers (`json`, status mapping, cutout mint flush). |
-| `jsr:@theorum/core/cli` / `theorum/cli` | Profile inspection and stress-test CLI (`theorum` binary on npm). |
-| `jsr:@theorum/core/presets` / `theorum/presets` | Optional convenience packs (`registerGooglePreset`, …). |
-| `jsr:@theorum/core/presets/google` / `theorum/presets/google` | Google builtins (search/maps/urlContext/codeExecution) + Interactions/OpenRouter wire metadata. |
+| `jsr:@theoremai/agents` / `@theoremai/agents` | Main kernel API: profiles, schemas, runner, core types, provider constructors, declarative HTTP/MCP tool execution. |
+| `jsr:@theoremai/agents/kernel` / `@theoremai/agents/kernel` | Profile/turn types, tool catalog, `requireModelBinding`, thinking clamps over host model maps. |
+| `jsr:@theoremai/agents/providers` / `@theoremai/agents/providers` | `createProvider` + Gemini vault types + host option bags. |
+| `jsr:@theoremai/agents/providers/local` / `@theoremai/agents/providers/local` | Direct local OpenAI-compat adapter (`createLocalProvider`, `DEFAULT_LOCAL_BASE_URL`). |
+| `jsr:@theoremai/agents/guardrails` / `@theoremai/agents/guardrails` | Sanitization, canary/egress gates, public error mapping, inbound injection/sensitive-data primitives. |
+| `jsr:@theoremai/agents/guardrails/testing` / `@theoremai/agents/guardrails/testing` | Adversarial corpus + fuzz helpers (test/harness only). |
+| `jsr:@theoremai/agents/observability` / `@theoremai/agents/observability` | Trace sinks and trace record helpers. |
+| `jsr:@theoremai/agents/host` / `@theoremai/agents/host` | Optional Deno HTTP helpers (`json`, status mapping, cutout mint flush). |
+| `jsr:@theoremai/agents/cli` / `@theoremai/agents/cli` | Profile inspection and stress-test CLI (`agents` binary on npm). |
+| `jsr:@theoremai/agents/presets` / `@theoremai/agents/presets` | Optional convenience packs (`registerGooglePreset`, …). |
+| `jsr:@theoremai/agents/presets/google` / `@theoremai/agents/presets/google` | Google builtins (search/maps/urlContext/codeExecution) + Interactions/OpenRouter wire metadata. |
 
 Demo fixtures (travel concierge seeds, local handlers) live in the **repo-private**
-`@theorum/playground` package under `playground/` — never published with the kernel.
-Hosts that need them link `file:../theorum/playground`.
+`@theoremai/playground` package under `playground/` — never published with the kernel.
+Hosts that need them link `file:../theorem/playground`.
 
 Internal files remain present in source for maintainability, but package consumers should use the public entrypoints above.
 
 ### Exported API (`mod.ts`)
 
-Named exports from the root barrel (same symbols hosts get from `theorum` /
-`jsr:@theorum/core`):
+Named exports from the root barrel (same symbols hosts get from `@theoremai/agents` /
+`jsr:@theoremai/agents`):
 
 | Group | Symbols |
 | --- | --- |
-| Guardrails errors | `describeError`, `isAbortError`, `publicError`, `TheorumError`, `throwIfAborted`, `toErrorEvent`, `PUBLIC_CANARY` |
+| Guardrails errors | `describeError`, `isAbortError`, `publicError`, `TheoremError`, `throwIfAborted`, `toErrorEvent`, `PUBLIC_CANARY` |
 | Network guardrails | `assertSafeUrl`, `isLocalhostName`, `isPrivateOrLocalAddress` |
 | Guardrail vocabulary | `AdvisoryLevel`, `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailAction`, `GuardrailContext`, `GuardrailEvent`, `OutboundPayload`, `Provenance`, `ToolOrigin`, `ScanText`, `EgressEnforcer`, `EgressOnBlock`, `ProfileEgressSpec`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `NetworkGuardrailSpec`, `CanaryGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `DetectionOptions`, `GuardedToolText`, `TurnTaint`, `TaintGate`, `TaintGuardrailSpec`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES`, `TOOL_ORIGINS`, `EGRESS_ON_BLOCK` |
 | Guardrail policy | `resolveGuardrailPolicy`, `detectionForTrust`, `detectionForProfile`, `collectEgressHits`, `hitRules`, `EGRESS_RULES`, `runEnforcer` |
@@ -442,7 +435,7 @@ Named exports from the root barrel (same symbols hosts get from `theorum` /
 | Stop / resume | `ProfileTurnBehaviourSpec`, `ProfileTurnResumptionSpec`, `TurnContinueFrom`, `TurnStop`, `TurnStopKind`, `ContinueStopKind`, `CONTINUE_STOP_KINDS`, `AUTO_CONTINUE_DELAY_MS`, `CONTINUE_INSTRUCTION`, `DEFAULT_ALLOW_CONTINUE`, `DEFAULT_AUTO_CONTINUE`, `GenerationStopError`, `isContinueStopKind`, `isGenerationStopError`, `isResumeableStop`, `isUserCancelledStop`, `profileAllowsSteering`, `profileAllowsInject`, `profileTurnResumption`, `shouldAutoContinue`, `turnStopFromClientStreamEnd`, `turnStopFromInteractionStatus`, `turnStopFromOpenAiFinishReason` |
 | Stages (target foundation) | `TURN_STAGES`, `TURN_INJECT_STAGES`, `STAGE_AFFORDANCES`, `STAGE_AFFORDANCE_MATRIX`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `applyStageResult`, `parseAwaitingUserInput`, `parseToolGate`, `isTurnStage`, `isTurnInjectStage`, `isToolGateKind`, `isAwaitingUserInput`, `stageAllowsAffordance`, `stageEventFields`, `profileAllowsInject`, `StageAffordance`, `StageContext`, `StageResult`, `StageMutate`, `StageHandler`, `StageApplyInput`, `StageApplyOutput`, `StageApplyWarning`, `StageApplyWarningCode`, `StageEventExtra`, `AwaitingUserInput`, `ToolGate` — contract [`docs/contracts/stages.md`](docs/contracts/stages.md) |
 | Observability | `jsonlSink`, `memorySink`, `noopSink`, `resolveTraceDir`, `sinkFromDir`, `writeTrace`, `registerTraceDestination`, `jsonlDestination`, `requireTraceDestination`, `getTraceDestination`, `listTraceDestinationIds`, `clearTraceDestinations`, `isJsonlTraceDestination`, `isTraceSink`, `resolveTraceWriter`, `resolveObservabilityPolicy`, `TraceRecord`, `TraceSink`, `JsonlSinkOptions`, `JsonlTraceDestination`, `TraceDestination`, `ProfileObservabilitySpec`, `ResolvedObservabilityPolicy`, `ResolvedTraceInclude`, `ResolvedTraceScrub`, `TraceIncludeSpec`, `TraceScrubSpec` |
-| Providers | `CreateProviderOptions`, `GeminiTransport`, `KeyVault`, `LocalProviderConfig`, `OpenAiGatewayConfig`, `createProvider` (local: `theorum/providers/local` → `createLocalProvider`, `DEFAULT_LOCAL_BASE_URL`) |
+| Providers | `CreateProviderOptions`, `GeminiTransport`, `KeyVault`, `LocalProviderConfig`, `OpenAiGatewayConfig`, `createProvider` (local: `@theoremai/agents/providers/local` → `createLocalProvider`, `DEFAULT_LOCAL_BASE_URL`) |
 
 Kernel types re-exported through this barrel follow `export type *` from
 `src/kernel/types.ts` (behavioral detail for contributors: repo
@@ -452,11 +445,11 @@ Kernel types re-exported through this barrel follow `export type *` from
 
 ## Documentation
 
-THEORUM keeps **package docs** and **repo contracts** separate.
+THEOREM keeps **package docs** and **repo contracts** separate.
 
 | Surface | What it is | In the published package? |
 | --- | --- | --- |
-| **This README** | How hosts use THEORUM (API, boundaries, examples) | Yes |
+| **This README** | How hosts use THEOREM (API, boundaries, examples) | Yes |
 | **Repo contracts** (`docs/contracts/*.md`) | Maintainer ownership + behavioral specs for docs-truth | **No** — GitHub / clone only |
 | **Docs-truth** (`docs/DOCS_TRUTH.md`, `docs/_map.mjs`) | Lint graph that enforces those contracts | **No** |
 
@@ -464,16 +457,16 @@ On GitHub, module contracts:
 
 | Doc (repo only) | Export |
 | :--- | :--- |
-| [`docs/contracts/kernel.md`](docs/contracts/kernel.md) | `theorum/kernel` |
+| [`docs/contracts/kernel.md`](docs/contracts/kernel.md) | `@theoremai/agents/kernel` |
 | [`docs/contracts/stages.md`](docs/contracts/stages.md) | Turn stages — slices 1–3 landed on branch; release cut when docs match product |
-| [`docs/contracts/providers.md`](docs/contracts/providers.md) | `theorum/providers` |
-| [`docs/contracts/guardrails.md`](docs/contracts/guardrails.md) | `theorum/guardrails` |
-| [`docs/contracts/observability.md`](docs/contracts/observability.md) | `theorum/observability` |
-| [`docs/contracts/host.md`](docs/contracts/host.md) | `theorum/host` |
+| [`docs/contracts/providers.md`](docs/contracts/providers.md) | `@theoremai/agents/providers` |
+| [`docs/contracts/guardrails.md`](docs/contracts/guardrails.md) | `@theoremai/agents/guardrails` |
+| [`docs/contracts/observability.md`](docs/contracts/observability.md) | `@theoremai/agents/observability` |
+| [`docs/contracts/host.md`](docs/contracts/host.md) | `@theoremai/agents/host` |
 | [`docs/contracts/kernel.md`](docs/contracts/kernel.md) (repo-private headless interface) | `src/interface/` |
-| [`docs/contracts/cli.md`](docs/contracts/cli.md) | `theorum/cli` |
-| [`docs/contracts/presets.md`](docs/contracts/presets.md) | `theorum/presets` |
-| [`docs/contracts/presets-google.md`](docs/contracts/presets-google.md) | `theorum/presets/google` |
+| [`docs/contracts/cli.md`](docs/contracts/cli.md) | `@theoremai/agents/cli` |
+| [`docs/contracts/presets.md`](docs/contracts/presets.md) | `@theoremai/agents/presets` |
+| [`docs/contracts/presets-google.md`](docs/contracts/presets-google.md) | `@theoremai/agents/presets/google` |
 
 Migrating from per-turn `dynamicTools`? See
 [`docs/MIGRATION-tool-system.md`](docs/MIGRATION-tool-system.md).
@@ -519,9 +512,9 @@ PR CI runs JSR and npm dry-run checks in the required `publish-dry-run` job.
 Run the packaged CLI locally:
 
 ```bash
-deno task theorum --help
+deno task agents --help
 # or after npm install -g / npx:
-# npx theorum --help
+# npx agents --help
 ```
 
 Build the npm package from the Deno source (publish only from `npm/`):
@@ -532,7 +525,7 @@ cd npm
 npm pack
 ```
 
-Run an OpenRouter provider smoke test with a host-resolved key. The key is passed as an argument and is never read from a Theorum `.env` file.
+Run an OpenRouter provider smoke test with a host-resolved key. The key is passed as an argument and is never read from a Theorem `.env` file.
 
 ```bash
 deno run --allow-net scripts/verify-provider-smoke.ts --api-key "$OPENROUTER_API_KEY"
@@ -551,11 +544,11 @@ deno run --allow-net scripts/verify-provider-smoke.ts \
 
 ## Package Boundary
 
-THEORUM is ready for host applications when these statements stay true:
+THEOREM is ready for host applications when these statements stay true:
 
 ```toml
 [boundary]
-# Rule: "Host decides, Theorum runs."
+# Rule: "Host decides, Theorem runs."
 profiles_in_package = false
 demos_in_package = false
 env_files_in_package = false
@@ -569,7 +562,7 @@ realtime_duplex_voice = "out of scope"
 ```
 
 **Facts vs policy.** Provider facts may ship (model capabilities, wire shapes,
-protocol metadata — e.g. `theorum/presets/google`). Product policy may not
+protocol metadata — e.g. `@theoremai/agents/presets/google`). Product policy may not
 (prompts, personas, end-user copy, demo apps, channel behavior). Every
 user- or model-visible string is either host-supplied or an overridable
 registered default in the kernel lexicon (`overrideLexicon`). Behavioral
@@ -586,12 +579,12 @@ Invariant properties (machine-checked where noted):
 | P4 | Inert extras — optional entrypoints removable without behavior change | publish-bundle gate excludes `playground/` |
 
 Provider adapters load **lazily** on the first `complete` for that transport —
-`createProvider` and `theorum/providers` stay a thin barrel (`src/providers/mod.ts`);
+`createProvider` and `@theoremai/agents/providers` stay a thin barrel (`src/providers/mod.ts`);
 implementation modules (e.g. `google/interactions/`, `openrouter/`, `local/`) are
 not pulled in at import time. `trace-attach` lazy-loads Interactions wire helpers
 only for `geminiInteractions` traces.
 
-If an app needs domain rules, platform delivery policy, product copy, database access, or session memory, that belongs outside THEORUM.
+If an app needs domain rules, platform delivery policy, product copy, database access, or session memory, that belongs outside THEOREM.
 
 ---
 
@@ -599,19 +592,19 @@ If an app needs domain rules, platform delivery policy, product copy, database a
 
 MIT License. Copyright (c) ORCHID AI LLC.
 
-```theorum-evidence
+```theorem-evidence
 {
   "sections": {
     "Core Principles": {
       "supports": [
         { "kind": "source", "path": "mod.ts" },
-        { "kind": "contract_test", "path": "tests/kernel/theorum.test.ts" }
+        { "kind": "contract_test", "path": "tests/kernel/theorem.test.ts" }
       ]
     },
     "Architecture": {
       "supports": [
         { "kind": "source", "path": "src/kernel/engine/runner.ts" },
-        { "kind": "contract_test", "path": "tests/kernel/theorum.test.ts" }
+        { "kind": "contract_test", "path": "tests/kernel/theorem.test.ts" }
       ]
     },
     "Public Entrypoints": {

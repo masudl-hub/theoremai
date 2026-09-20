@@ -1,5 +1,5 @@
 /**
- * Public-safe error mapping for THEORUM.
+ * Public-safe error mapping for THEOREM.
  *
  * Kernel internals may contain provider status text, tool names, or exception
  * details. This module maps those failures to stable user-safe strings from the
@@ -10,7 +10,7 @@
  */
 
 import { lexiconDefault, lexiconText } from './lexicon.ts';
-import { TheorumError } from './theorum-error.ts';
+import { TheoremError } from './theorem-error.ts';
 
 /** Internal marker for provider or transport failure. */
 const UPSTREAM_FAILED = 'upstream failed';
@@ -100,7 +100,7 @@ const RULES: ErrorRule[] = [
   },
   {
     match: (t) =>
-      // lexicon-exempt: substring fingerprints against internal TheorumError messages
+      // lexicon-exempt: substring fingerprints against internal TheoremError messages
       t.includes('not enabled on this turn') ||
       t.includes('not allowed') ||
       t.includes('not registered') ||
@@ -111,7 +111,7 @@ const RULES: ErrorRule[] = [
   },
   {
     match: (t) =>
-      // lexicon-exempt: substring fingerprints against internal TheorumError messages
+      // lexicon-exempt: substring fingerprints against internal TheoremError messages
       t.includes('MIME') ||
       t.includes('does not accept attachments') || // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       t.includes('does not accept voice'), // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -134,13 +134,13 @@ const RULES: ErrorRule[] = [
     resolve: () => publicCopy('public.file_size'),
   },
   {
-    // lexicon-exempt: substring fingerprint against internal TheorumError messages
+    // lexicon-exempt: substring fingerprint against internal TheoremError messages
     match: (t) => t.includes('aspect or size'),
     resolve: () => publicCopy('public.image_size'),
   },
   {
     match: (t) =>
-      // lexicon-exempt: substring fingerprints against internal TheorumError messages
+      // lexicon-exempt: substring fingerprints against internal TheoremError messages
       t.includes('must pin thinking') || t.includes('has no models'),
     resolve: () => publicCopy('public.generic'),
   },
@@ -191,7 +191,7 @@ function publicError(err: unknown): string {
   if (typeof err === 'string') {
     return publicText(err);
   }
-  if (err instanceof TheorumError) {
+  if (err instanceof TheoremError) {
     return publicText(err.message);
   }
   return publicCopy('public.unavailable');
@@ -238,7 +238,7 @@ export {
   PUBLIC_IMAGE_SIZE,
   PUBLIC_UNAVAILABLE,
   publicError,
-  TheorumError,
+  TheoremError,
   throwIfAborted,
   toErrorEvent,
   UPSTREAM_FAILED,

@@ -1,4 +1,4 @@
-import { lexiconText } from 'theorum';
+import { lexiconText } from '../../../../mod.ts';
 import type { LiveSessionClient } from '../../client/live-client';
 import type { LiveToolGatePrompt } from '../../client/live/live-tool';
 import { continueGatedToolInvocation, type ToolGateResolution } from '../../client/tool-resume';

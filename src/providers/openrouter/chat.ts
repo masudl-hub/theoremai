@@ -1,7 +1,7 @@
 /**
  * OpenRouter provider adapter powered by Vercel AI SDK Core.
  *
- * THEORUM keeps the public `ModelProvider` and `TurnEvent` contract; AI SDK
+ * THEOREM keeps the public `ModelProvider` and `TurnEvent` contract; AI SDK
  * owns the OpenRouter call, stream parsing, provider compatibility, and tool
  * call normalization. Message assembly delegates to `openai/sdk-messages.ts`.
  *
@@ -17,7 +17,7 @@ import {
   type ToolSet,
   tool,
 } from 'ai';
-import { isAbortError, TheorumError, toErrorEvent } from '../../guardrails/error.ts';
+import { isAbortError, TheoremError, toErrorEvent } from '../../guardrails/error.ts';
 import { extractUsageTokens, parseStructuredOutput } from '../../kernel/engine/delta.ts';
 import { turnStopFromOpenAiFinishReason } from '../../kernel/stop.ts';
 import type {
@@ -463,7 +463,7 @@ export function* finalEvents(
   if (req.structured && acc.text) {
     const parsed = parseStructuredOutput(acc.text);
     if (!parsed.ok) {
-      yield toErrorEvent(new TheorumError(parsed.error));
+      yield toErrorEvent(new TheoremError(parsed.error));
       return;
     }
     yield { type: 'structured', structured: parsed.structured };

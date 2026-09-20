@@ -1,4 +1,4 @@
-# Kernel (`theorum/kernel`)
+# Kernel (`@theoremai/agents/kernel`)
 
 Type-first contracts for profiles, turns, tools, compaction, stop/resume, and
 `runTurn`. Import here when a host needs the kernel surface without pulling
@@ -8,9 +8,9 @@ provider adapters.
 
 | Field | Value |
 | --- | --- |
-| Import | `theorum/kernel` / `jsr:@theorum/core/kernel` |
+| Import | `@theoremai/agents/kernel` / `jsr:@theoremai/agents/kernel` |
 | Module | `src/kernel/mod.ts` |
-| Also on | Root `theorum` / `mod.ts` re-exports the same interface helpers and many kernel exports |
+| Also on | Root `@theoremai/agents` / `mod.ts` re-exports the same interface helpers and many kernel exports |
 
 ## Ownership
 
@@ -20,7 +20,7 @@ provider adapters.
 
 ## Facts and policy
 
-**Rule: "Host decides, Theorum runs."** Two hosts shipping contradictory
+**Rule: "Host decides, Theorem runs."** Two hosts shipping contradictory
 products can run the same unforked kernel version; no end user and no model
 may observe a decision the host did not make.
 
@@ -29,7 +29,7 @@ protocol metadata — presets/google). Product policy may not (prompts, personas
 end-user copy, demo apps, channel behavior). The kernel may ship overridable
 defaults for mechanism text via the guardrails lexicon; it may not ship
 unreplaceable copy or bundled product. Demo fixtures live in the repo-private
-`playground/` package (`@theorum/playground`), never in the published artifact.
+`playground/` package (`@theoremai/playground`), never in the published artifact.
 
 | Id | Property |
 | --- | --- |
@@ -40,8 +40,8 @@ unreplaceable copy or bundled product. Demo fixtures live in the repo-private
 
 Continue-instruction text defaults to `CONTINUE_INSTRUCTION` and is overridable
 per profile at `turnBehaviour.resumption.continueInstruction` (or process-wide
-via `overrideLexicon`). Composer labels in `theorum/interface` are semantic
-keys only; English lives in `@theorum/react`.
+via `overrideLexicon`). Composer labels in `src/interface/` are semantic
+keys only; English lives in `@theoremai/react`.
 
 ## Profiles
 
@@ -95,7 +95,7 @@ provider alias essences (`image/jpg`, `audio/x-wav`, `video/x-ms-wmv`, …). The
 OpenAI-compat adapters forward a part's MIME verbatim on every `MediaInputKind`,
 so their accepted set is open-ended and contributes no additional rows; what
 they cannot carry — a `uri` reference part — is refused at request time with
-`TheorumError` rather than by a second MIME table (see
+`TheoremError` rather than by a second MIME table (see
 `docs/contracts/providers.md`).
 
 A host declares what it accepts only in `inputs.attachments.accept` /
@@ -103,7 +103,7 @@ A host declares what it accepts only in `inputs.attachments.accept` /
 public answer to "does this profile take this file, and on which `TurnInput`
 channel" — hosts filter and route channel ingress with it and keep no MIME table
 of their own. `resolveInputParts` applies the same acceptance on the turn and
-throws `TheorumError` for a MIME the profile does not accept.
+throws `TheoremError` for a MIME the profile does not accept.
 
 Turn media arrives on `TurnInput.attachments` as either inline bytes or a
 provider file reference:
@@ -117,7 +117,7 @@ provider file reference:
 `wireInteractionPart` emits `{ type, mimeType, uri }` for a reference part; the
 Google Interactions adapter snake-cases it to the documented Files input
 `{ "type": "video", "uri": "files/<id>", "mime_type": "video/mp4" }`. Every other
-adapter (OpenAI compat, AI SDK, Gemini Live) throws `TheorumError` for reference
+adapter (OpenAI compat, AI SDK, Gemini Live) throws `TheoremError` for reference
 parts — see `docs/contracts/providers.md`.
 
 `models.*.protocol` is `PROTOCOLS` (`geminiInteractions` | `openAi` | `geminiLive`).
@@ -137,10 +137,10 @@ as `session_id` (distinct from `projectId` and Gemini `previousInteractionId`).
 `TurnTokens` may include `cached` / `cacheWrite` when the provider reports cache
 read/write counts.
 
-THEORUM does not invent provider-API defaults for optional wire fields.
+THEOREM does not invent provider-API defaults for optional wire fields.
 Hosts must set required fields explicitly (`type`, `models`, per-binding
 `protocol` / `provider` / `apiId`).
-First-party THEORUM opinions that *are* applied when the host omits a knob:
+First-party THEOREM opinions that *are* applied when the host omits a knob:
 guardrails default on, and Interactions streaming defaults to SSE
 (`outputs.streaming.mode` omitted → `stream: true`).
 
@@ -208,7 +208,7 @@ Live sessions emit the same stage names around utterance cycles and
 partial assistant text/artifact from a resumeable stop.
 
 `runTurn`, `runSession`, `resolveTurn`, and `projectProfile` refuse a `'host'`
-profile with `TheorumError` (`requireModelProfile`); host profiles only execute
+profile with `TheoremError` (`requireModelProfile`); host profiles only execute
 tools through `invokeTool`.
 
 Optional `compactionProvider` on `TurnRequest` when the compactor profile uses a
@@ -247,7 +247,7 @@ verbatim to browsers or end-user SSE** unless you intend to expose diagnostics.
 | `text`, `media`, `structured`, `grounding` | yes | yes (after egress/canary gates) |
 | `thought` | yes (also in trace when filtered from stream) | only when profile allows |
 
-Use `forClient` / `forClientEvents` from `theorum/host` before WebSocket or SSE
+Use `forClient` / `forClientEvents` from `@theoremai/agents/host` before WebSocket or SSE
 flush. Pass a trace sink (`memorySink`, `jsonlSink`) as the third argument to
 `runTurn` for wire-level audit (`upstreamLog`).
 
@@ -255,15 +255,15 @@ flush. Pass a trace sink (`memorySink`, `jsonlSink`) as the third argument to
 `tool_call_id`, and opaque `metadata` across turns.
 
 Google Interactions code execution (`codeExecution` builtin) is a server-side
-tool: THEORUM does not run Python. Hosts receive the sandbox timeline as
+tool: THEOREM does not run Python. Hosts receive the sandbox timeline as
 `evidence` events (streamed SSE deltas, or a batched replay of `steps[]` when
 `outputs.streaming.mode === 'buffered'`). Generated plots/annotated images arrive as
 `media`. `maxSteps` does not bound Google's internal code loop; it only bounds
 host function-calling round trips. The sandbox runtime cap (~30s per execution)
-is Google's, not a THEORUM setting.
+is Google's, not a THEOREM setting.
 
 Streaming is controlled solely by `outputs.streaming.mode` on the profile
-(`'sse'` or `'buffered'`). When omitted, THEORUM defaults to SSE
+(`'sse'` or `'buffered'`). When omitted, THEOREM defaults to SSE
 (`ResolvedGeneration.stream === true`).
 There is no per-turn stream override.
 
@@ -303,7 +303,7 @@ own the tool registry open a session. The registry-owning process resolves the
 snapshot with `prepareTurnToolSnapshot(profile, request, modelId)` and hands it
 across as data; `runSession` declares `snapshot.wire` at setup instead of
 resolving locally. The profile's `tools.allow` remains the ceiling: any custom
-id in the snapshot outside it is refused with `TheorumError`. Without a snapshot
+id in the snapshot outside it is refused with `TheoremError`. Without a snapshot
 and without the registry, a session declares no tools.
 
 ```ts
@@ -366,7 +366,7 @@ when a server rejects an unsupported protocol version (JSON-RPC or HTTP error bo
 
 Both HTTP and MCP tools integrate with:
 - **Network Guardrails** (`guardrails.network`): SSRF protection blocking loopback and private subnets unless `allowPrivateNetworks: true` is configured. Owned by the guardrails contract — see `docs/contracts/guardrails.md#network`.
-- **Stateless OAuth 2.1 & PKCE** (`theorum/auth`): RFC 7636 PKCE S256, RFC 9728 discovery, RFC 8414 AS metadata, RFC 9207 `iss` mix-up defense, RFC 8707 resource indicators, and stateless HMAC-signed state envelopes.
+- **Stateless OAuth 2.1 & PKCE** (`src/kernel/auth`): RFC 7636 PKCE S256, RFC 9728 discovery, RFC 8414 AS metadata, RFC 9207 `iss` mix-up defense, RFC 8707 resource indicators, and stateless HMAC-signed state envelopes.
 - **Unauthenticated Handling**: Gates the turn via `ToolGate { kind: 'auth' }` (`tool.phase: 'gate'`, `stop.kind: 'gate'`) or reports synthetic error findings to the model per `onUnauthenticated: 'pause' | 'report_to_model'` (schema policy name remains `pause`).
 - **Token Rotation**: Proactively refreshes expiring OAuth tokens during turns, emitting progress events so the host can update its credential store.
 
@@ -427,7 +427,7 @@ fire on the `invokeTool` path: `sanitizeInput` and `redactSensitive` (the
 detectors run over model-supplied arguments, tool result text, and tool failure
 text), `network` (SSRF clearance for declarative HTTP and MCP targets), and
 `taint` (the confused-deputy gate, plus its advisory guidance on fenced remote
-results). `defineProfile` throws a `TheorumError` naming the field for
+results). `defineProfile` throws a `TheoremError` naming the field for
 `guardrails.quota`, `guardrails.canary`, and `guardrails.egress`: a host profile
 runs no model, so quota counts nothing, no system prompt exists for a canary to
 bind to, and egress gates user-visible model text in the turn runner, which a
@@ -496,7 +496,7 @@ Profile `guardrails`:
 
 | Flag | Effect |
 | --- | --- |
-| `quota` | Host HTTP helper only (`theorum/guardrails`); not enforced inside `runTurn` |
+| `quota` | Host HTTP helper only (`@theoremai/agents/guardrails`); not enforced inside `runTurn` |
 | `canary` | Per-turn canary token; egress checks leakage |
 | `sanitizeInput` / `redactSensitive` | Pre-provider text/blob scrub |
 | `egress` | Host `enforce` hook; `onBlock`: `reject_to_agent` or `refuse_to_user` |
@@ -505,7 +505,8 @@ Profile `guardrails`:
 
 Optional per-model policy on `ModelBinding.compaction`. Kernel owns trigger, split,
 and timing; host owns persistence/reassembly unless `timing: 'before'` runs the
-compactor inline.
+compactor inline. History token estimation is handled via BPE / character fallback
+or explicit host metadata (`input.historyTokens`).
 
 ```ts
 compaction: {
@@ -729,7 +730,7 @@ exchange already carries the URL.
 
 Headless contract for stash / queue / steer (Seance-aligned). Kernel owns stages +
 `onStage` inject + `AbortSignal`; the interface owns pending list ops and the action matrix;
-`@theorum/react` owns UI.
+`@theoremai/react` owns UI.
 
 | Intent | Lifetime |
 | --- | --- |
@@ -776,7 +777,7 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
 | Interface (headless) | `interfaceFrom`, `interfaceFromProfile`, `interfaceFromProjected`, `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime`, `sanitizeUserDraft`, `prepareUserTurn`, `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `resetBlockIds`, `streamThoughtsEnabled`, `collectPromotedMediaFromToolOutput`, `promotedMediaFromUrlString`, `PromotedToolMedia`, `defaultInterfaceEffort`, `defaultInterfaceModel`, `effortSelectEnabled`, `generationSelectEnabled`, `interfaceEffortOptions`, `interfaceModelOptions`, `modelSelectEnabled`, `appendAssistantEventsToHistory`, `appendToolDenialToHistory`, `appendToolExchangeToHistory`, `appendUserDraftToHistory`, `historyFromTranscriptBlocks`, `applyTurnEventsToSession`, `branchInterfaceTurnSession`, `emptyInterfaceTurnSession`, `abandonGatedToolSession`, `gatedToolFromEvents`, `awaitingFromEvents`, `promotedToolIdsFromEvents`, `toolSnapshotFromEvents`, `COMPOSER_PENDING_KINDS`, `cloneUserTurnDraft`, `composerPendingPreview`, `consumeNextComposerQueue`, `consumeNextComposerSteer`, `convertSteersToFrontQueued`, `createComposerPendingMessage`, `moveComposerPendingWithinKind`, `orderComposerPendingMessages`, `promoteComposerPendingKind`, `removeComposerPendingMessage`, `resolveComposerMenuActions`, `resolveComposerPrimary`, `updateComposerPendingDraft`, `userDraftHasPayload`, `userDraftToSteerInject`, `AttachmentValidationCode`, `AttachmentValidationIssue`, `AttachmentValidationParams`, `AttachmentValidationResult`, `AwaitingToolContext`, `ComposerActionContext`, `ComposerMenuAction`, `ComposerPendingKind`, `ComposerPendingMessage`, `ComposerPrimaryAction`, `ComposerProfileInterface`, `ComposerRunPhase`, `CreateComposerPendingMessageArgs`, `FoldTurnEventsOptions`, `GatedToolContext`, `ImageProfileInterface`, `InterfaceEffortOption`, `InterfaceModelOption`, `LiveProfileInterface`, `LiveResolvedTools`, `PendingAttachment`, `PrepareUserTurnResult`, `ProfileGuardrailsView`, `ProfileObservabilityView`, `ProfileInputsInterface`, `ProfileInterface`, `ProfileInterfaceSource`, `ResolvedTools`, `SpeechProfileInterface`, `TextProfileInterface`, `TranscriptBlock`, `TranscriptBlockKind`, `UserTurnDraft`, `UserTurnHistoryMedia`, `InterfaceTurnSession` |
 | Attachments (kernel) | `assertAttachmentLimits`, `maxBytesForMime`, `requireMediaLimits`, `resolveMediaLimits`, `sanitizeCsvText`, `sanitizeTurnBlobs`, `sanitizeTurnBlobsForProfile` |
 
-```theorum-evidence
+```theorem-evidence
 {
   "sections": {
     "Export": {
@@ -817,7 +818,7 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
         { "kind": "source", "path": "src/kernel/engine/runner/stream.ts" },
         { "kind": "source", "path": "src/kernel/engine/runner/gates.ts" },
         { "kind": "source", "path": "src/kernel/registry/resolve.ts" },
-        { "kind": "contract_test", "path": "tests/kernel/theorum.test.ts" },
+        { "kind": "contract_test", "path": "tests/kernel/theorem.test.ts" },
         { "kind": "contract_test", "path": "tests/kernel/turn-stages.test.ts" },
         { "kind": "contract_test", "path": "tests/kernel/abort.test.ts" }
       ]
@@ -826,7 +827,7 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
       "supports": [
         { "kind": "source", "path": "src/kernel/types.ts" },
         { "kind": "source", "path": "src/kernel/engine/delta.ts" },
-        { "kind": "contract_test", "path": "tests/kernel/theorum.test.ts" },
+        { "kind": "contract_test", "path": "tests/kernel/theorem.test.ts" },
         { "kind": "contract_test", "path": "tests/kernel/delta.test.ts" }
       ]
     },
@@ -839,14 +840,14 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
         { "kind": "source", "path": "src/kernel/schema.ts" },
         { "kind": "source", "path": "src/guardrails/network.ts" },
         { "kind": "contract_test", "path": "tests/kernel/tools.test.ts" },
-        { "kind": "contract_test", "path": "tests/kernel/theorum.test.ts" },
+        { "kind": "contract_test", "path": "tests/kernel/theorem.test.ts" },
         { "kind": "contract_test", "path": "tests/guardrails/network.test.ts" }
       ]
     },
     "Outputs and guardrails": {
       "supports": [
         { "kind": "source", "path": "src/kernel/engine/runner/gates.ts" },
-        { "kind": "contract_test", "path": "tests/kernel/theorum.test.ts" }
+        { "kind": "contract_test", "path": "tests/kernel/theorem.test.ts" }
       ]
     },
     "Compaction": {
@@ -888,7 +889,7 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
         { "kind": "source", "path": "src/interface/mod.ts" },
         { "kind": "source", "path": "src/kernel/auth/mod.ts" },
         { "kind": "source", "path": "src/guardrails/network.ts" },
-        { "kind": "contract_test", "path": "tests/kernel/theorum.test.ts" },
+        { "kind": "contract_test", "path": "tests/kernel/theorem.test.ts" },
         { "kind": "contract_test", "path": "tests/kernel/auth.test.ts" },
         { "kind": "contract_test", "path": "tests/guardrails/network.test.ts" },
         { "kind": "contract_test", "path": "tests/interface/headless.test.ts" }

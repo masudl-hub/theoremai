@@ -8,7 +8,7 @@
  * Wire-format message building delegates to the shared `openai/compat` module.
  * SSE parsing delegates to the shared `parseSseStream` from `sse.ts`.
  *
- * Hosts pass `baseUrl` explicitly. THEORUM does not read `OLLAMA_HOST` or other
+ * Hosts pass `baseUrl` explicitly. THEOREM does not read `OLLAMA_HOST` or other
  * environment variables (see docs/contracts/providers.md).
  *
  * @module

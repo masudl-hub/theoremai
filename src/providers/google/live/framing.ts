@@ -6,7 +6,7 @@
  * @module
  */
 
-import { TheorumError } from '../../../guardrails/error.ts';
+import { TheoremError } from '../../../guardrails/error.ts';
 import { groundingFromEvent } from '../../../kernel/engine/delta.ts';
 import { isMediaRefPart } from '../../../kernel/interaction-parts.ts';
 import { getTool } from '../../../kernel/tools/registry.ts';
@@ -195,7 +195,7 @@ export function buildGeminiLiveSetupMessage(req: ProviderCompleteRequest): Recor
 /** Live carries inline bytes only — provider file references are rejected until support is verified. */
 function inlineMediaPart(part: Exclude<InteractionPart, { type: 'text' }>): InteractionMediaPart {
   if (isMediaRefPart(part)) {
-    throw new TheorumError('media references are not supported on geminiLive');
+    throw new TheoremError('media references are not supported on geminiLive');
   }
   return part;
 }

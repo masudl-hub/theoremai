@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Copy-manifest lint — P2 enforcement for "Host decides, Theorum runs."
+ * Copy-manifest lint — P2 enforcement for "Host decides, Theorem runs."
  *
  * Scans **all** of `src/kernel`, `src/guardrails`, and `src/interface` for
  * prose-like string literals (≥3 alphabetic words) outside the lexicon.

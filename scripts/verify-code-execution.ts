@@ -34,7 +34,7 @@ const modelId = valueAfterFlag('--model') ?? 'gemini-2.5-flash';
 const thinkingLevel = valueAfterFlag('--thinking') ?? 'high';
 
 if (!apiKey) {
-  console.error('missing --api-key (host must pass credentials; THEORUM does not read env)');
+  console.error('missing --api-key (host must pass credentials; THEOREM does not read env)');
   Deno.exit(1);
 }
 

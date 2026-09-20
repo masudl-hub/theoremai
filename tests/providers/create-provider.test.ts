@@ -1,4 +1,4 @@
-import { TheorumError } from '../../src/guardrails/error.ts';
+import { TheoremError } from '../../src/guardrails/error.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import type { Provider } from '../../src/kernel/types.ts';
 import { createProvider, isImageRole, isSpeechRole } from '../../src/providers/create-provider.ts';
@@ -40,7 +40,7 @@ Deno.test('createProvider throws when gemini transport is missing for geminiInte
   } catch (err) {
     thrown = err;
   }
-  assertEquals(thrown instanceof TheorumError, true);
+  assertEquals(thrown instanceof TheoremError, true);
   assertEquals(
     (thrown as Error).message,
     'createProvider requires gemini transport for google Interactions',
@@ -63,7 +63,7 @@ Deno.test('createProvider throws when openAiGateway config is missing for openAi
   } catch (err) {
     thrown = err;
   }
-  assertEquals(thrown instanceof TheorumError, true);
+  assertEquals(thrown instanceof TheoremError, true);
   assertEquals(
     (thrown as Error).message,
     'createProvider requires openAiGateway config for openAi/openrouter',
@@ -90,7 +90,7 @@ Deno.test('createProvider throws for openAi/local image profile', () => {
   } catch (err) {
     thrown = err;
   }
-  assertEquals(thrown instanceof TheorumError, true);
+  assertEquals(thrown instanceof TheoremError, true);
   assertEquals(
     (thrown as Error).message,
     'createProvider: type image requires openrouter provider for openAi protocol',
@@ -111,7 +111,7 @@ Deno.test('createProvider throws for unsupported protocol/provider pairs', () =>
   } catch (err) {
     thrown = err;
   }
-  assertEquals(thrown instanceof TheorumError, true);
+  assertEquals(thrown instanceof TheoremError, true);
   assertEquals(
     (thrown as Error).message,
     "createProvider: unsupported protocol/provider pair 'openAi'/'google'",
@@ -169,7 +169,7 @@ Deno.test('createProvider rejects geminiLive — use runSession', () => {
   } catch (err) {
     thrown = err;
   }
-  assertEquals(thrown instanceof TheorumError, true);
+  assertEquals(thrown instanceof TheoremError, true);
   assertEquals(
     (thrown as Error).message,
     "createProvider does not support type 'live' / geminiLive — use runSession(req, { gemini })",

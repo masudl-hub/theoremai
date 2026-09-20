@@ -10,7 +10,7 @@
  * @module
  */
 
-import { TheorumError } from '../../../guardrails/error.ts';
+import { TheoremError } from '../../../guardrails/error.ts';
 import { isMediaRefPart } from '../../../kernel/interaction-parts.ts';
 import { getStructured } from '../../../kernel/registry/schemas.ts';
 import type {
@@ -45,7 +45,7 @@ function fallbackToolCallId(name?: string): string {
 function parseToolInput(raw: string): Record<string, unknown> {
   const parsed = parseToolArgumentsObject(raw);
   if (!parsed.ok) {
-    throw new TheorumError(parsed.error);
+    throw new TheoremError(parsed.error);
   }
   return parsed.value;
 }
@@ -56,7 +56,7 @@ function rejectMediaRef(
   part: InteractionPart,
 ): asserts part is Exclude<InteractionPart, InteractionMediaRefPart> {
   if (isMediaRefPart(part)) {
-    throw new TheorumError('media references are not supported on openAi');
+    throw new TheoremError('media references are not supported on openAi');
   }
 }
 

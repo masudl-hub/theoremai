@@ -74,7 +74,7 @@ function printRunEvidence(event: TurnEvent, verbose: boolean): void {
   }
 }
 
-/** Print one turn event for `theorum run`. */
+/** Print one turn event for `agents run`. */
 function printRunEvent(event: TurnEvent, options: CliEventLogOptions = {}): void {
   const verbose = options.verbose === true;
 
@@ -118,7 +118,7 @@ function printTestEvidence(event: TurnEvent, verbose: boolean): void {
   }
 }
 
-/** Print one turn event for `theorum test`. */
+/** Print one turn event for `agents test`. */
 function printTestEvent(event: TurnEvent, options: CliEventLogOptions = {}): void {
   const verbose = options.verbose === true;
 

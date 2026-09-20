@@ -33,6 +33,7 @@ const ARTIFACT_FILES = [
   'package-lock.json',
   'deno.lock',
   '.npmignore',
+  'snyk',
 ] as const;
 
 /** Repo-maintainer markdown that must stay out of JSR / npm publish. */
@@ -164,7 +165,7 @@ async function findOversizedFiles(): Promise<string[]> {
   }
 
   for await (const entry of Deno.readDir(root)) {
-    if (entry.name === '.git' || entry.name === 'node_modules') continue;
+    if (entry.name === '.git' || entry.name === 'node_modules' || ARTIFACT_FILES.includes(entry.name as never)) continue;
     if (!entry.isFile) continue;
     const path = `${root}/${entry.name}`;
     const stat = await Deno.stat(path);
@@ -213,7 +214,9 @@ async function assertPublicEntrypointsOmitTestHooks(): Promise<void> {
   const hits: string[] = [];
   for (const rel of entrypoints) {
     const text = await Deno.readTextFile(`${root}/${rel}`);
-    if (/exposeForTests|__theorumTestInternals|THEORUM_TEST_INTERNALS|_internals/.test(text)) {
+    if (
+      /exposeForTests|__theor(?:um|em)TestInternals|THEOREM_TEST_INTERNALS|_internals/.test(text)
+    ) {
       hits.push(rel);
     }
   }
@@ -224,7 +227,7 @@ async function assertPublicEntrypointsOmitTestHooks(): Promise<void> {
 
 /** Global test backdoors must not exist anywhere under src/ (natural spellings). */
 async function assertNoGlobalTestInternals(): Promise<void> {
-  const banned = /exposeForTests|__theorumTestInternals|THEORUM_TEST_INTERNALS/;
+  const banned = /exposeForTests|__theor(?:um|em)TestInternals|THEOREM_TEST_INTERNALS/;
   const hits: string[] = [];
   for await (const file of walkFiles(`${root}/src`)) {
     if (!file.endsWith('.ts')) continue;
@@ -235,7 +238,7 @@ async function assertNoGlobalTestInternals(): Promise<void> {
   }
   if (hits.length > 0) {
     throw new Error(
-      `src/ must not contain exposeForTests / __theorumTestInternals / THEORUM_TEST_INTERNALS:\n  ${hits.join('\n  ')}`,
+      `src/ must not contain exposeForTests / __theoremTestInternals / THEOREM_TEST_INTERNALS:\n  ${hits.join('\n  ')}`,
     );
   }
 }

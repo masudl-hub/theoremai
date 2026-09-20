@@ -1,11 +1,11 @@
 /**
- * Profile resolution for THEORUM turns.
+ * Profile resolution for THEOREM turns.
  *
  * @module
  */
 
 import { mintCanary } from '../../guardrails/canary.ts';
-import { TheorumError } from '../../guardrails/error.ts';
+import { TheoremError } from '../../guardrails/error.ts';
 import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import { sanitizeTurnRequest } from '../../guardrails/sanitize.ts';
 import { profileTurnResumption } from '../stop.ts';
@@ -40,7 +40,7 @@ import { providerUsesKeySlots, resolveKeySlot } from './vault.ts';
 /** Narrow to a model-binding profile; `host` never runs a model. */
 function requireModelProfile(profile: Profile, door: string): ModelProfile {
   if (profile.type === 'host') {
-    throw new TheorumError(
+    throw new TheoremError(
       `Profile ${profile.id}: type 'host' never runs a model — ${door} is not supported; execute tools with invokeTool`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
@@ -50,16 +50,16 @@ function requireModelProfile(profile: Profile, door: string): ModelProfile {
 function pickModel(profile: ModelProfile, requested?: string): ModelId {
   if (requested) {
     if (!profile.allowModelSelect) {
-      throw new TheorumError(`Profile ${profile.id} does not allow model selection`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      throw new TheoremError(`Profile ${profile.id} does not allow model selection`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
     if (!profile.models[requested]) {
-      throw new TheorumError(`Unknown model '${requested}' for ${profile.id}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      throw new TheoremError(`Unknown model '${requested}' for ${profile.id}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
     return requested;
   }
   const defaultId = profile.defaultModel ?? soleModelId(profile.models);
   if (!defaultId || !profile.models[defaultId]) {
-    throw new TheorumError(`Profile ${profile.id} has no default model`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError(`Profile ${profile.id} has no default model`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return defaultId;
 }
@@ -73,26 +73,26 @@ function resolveEffort(
   const efforts = binding.efforts;
   if (!efforts || Object.keys(efforts).length === 0) {
     if (requested) {
-      throw new TheorumError(`Profile ${profile.id} model '${modelId}' has no selectable efforts`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      throw new TheoremError(`Profile ${profile.id} model '${modelId}' has no selectable efforts`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
     return undefined;
   }
   const keys = Object.keys(efforts);
   if (requested) {
     if (!binding.allowEffortSelect) {
-      throw new TheorumError(
+      throw new TheoremError(
         `Profile ${profile.id} model '${modelId}' does not allow effort selection`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
     const level = efforts[requested];
     if (!level) {
-      throw new TheorumError(`Unknown effort '${requested}' for ${profile.id} model '${modelId}'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      throw new TheoremError(`Unknown effort '${requested}' for ${profile.id} model '${modelId}'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
     return level;
   }
   const alias = binding.defaultEffort ?? (keys.length === 1 ? keys[0] : undefined);
   if (!alias) {
-    throw new TheorumError(
+    throw new TheoremError(
       `Profile ${profile.id} model '${modelId}' must set defaultEffort when more than one effort is declared`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
@@ -134,7 +134,7 @@ function resolveStructured(
 }
 
 /**
- * THEORUM prefers SSE when the host omits `outputs.streaming.mode`.
+ * THEOREM prefers SSE when the host omits `outputs.streaming.mode`.
  * Explicit `'buffered'` opts out; `'sse'` (or omit) yields `stream: true`.
  */
 function resolveStreamFlag(profile: ModelProfile): boolean {
@@ -166,7 +166,7 @@ function assertTurnResumption(profile: ModelProfile, req: TurnRequest): void {
     return;
   }
   if (profile.type === 'live') {
-    throw new TheorumError(
+    throw new TheoremError(
       `Profile ${profile.id}: type 'live' uses live.sessionResumption, not turnBehaviour.resumption/continueFrom`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
@@ -177,15 +177,15 @@ function assertTurnResumption(profile: ModelProfile, req: TurnRequest): void {
   }
   const attempt = req.continuation;
   if (attempt === undefined) {
-    throw new TheorumError(
+    throw new TheoremError(
       `Profile ${profile.id}: continueFrom requires TurnRequest.continuation when turnBehaviour.resumption.maxContinues is set`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   if (attempt < 1) {
-    throw new TheorumError(`Profile ${profile.id}: continuation must be >= 1`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError(`Profile ${profile.id}: continuation must be >= 1`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   if (attempt > max) {
-    throw new TheorumError(
+    throw new TheoremError(
       `Profile ${profile.id}: continuation ${attempt} exceeds turnBehaviour.resumption.maxContinues (${max})`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }

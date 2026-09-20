@@ -163,19 +163,19 @@ Deno.test('noopSink drops traces without filesystem access', async () => {
 Deno.test('trace dir never resolves inside the clone', () => {
   assertEquals(
     resolveTraceDir({
-      dir: './theorum/traces',
-      fallbackDir: '/Users/me/.local/share/theorum/traces',
+      dir: './theorem/traces',
+      fallbackDir: '/Users/me/.local/share/theorem/traces',
       cwd: '/Users/me/Development/host-app',
     }),
-    '/Users/me/.local/share/theorum/traces',
+    '/Users/me/.local/share/theorem/traces',
   );
   assertEquals(
     resolveTraceDir({
-      dir: '/app/theorum/traces',
-      fallbackDir: '/var/lib/theorum-traces',
+      dir: '/app/theorem/traces',
+      fallbackDir: '/var/lib/theorem-traces',
       cwd: '/app',
     }),
-    '/var/lib/theorum-traces',
+    '/var/lib/theorem-traces',
   );
 });
 
@@ -261,7 +261,7 @@ Deno.test('buildRecord and trace utilities test all edge cases, canaries, saniti
       },
       {
         type: 'evidence',
-        evidence: { provider: 'openrouter', citations: ['https://theorum.dev'] },
+        evidence: { provider: 'openrouter', citations: ['https://theorem.dev'] },
       },
       {
         type: 'error',

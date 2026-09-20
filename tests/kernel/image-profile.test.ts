@@ -1,6 +1,6 @@
 import '../fixtures/test-host.ts';
 import { wrapUserData } from '../../src/guardrails/canary.ts';
-import { TheorumError } from '../../src/guardrails/error.ts';
+import { TheoremError } from '../../src/guardrails/error.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { runTurn } from '../../src/kernel/engine/runner.ts';
 import { registerProfile } from '../../src/kernel/registry/profiles.ts';
@@ -63,7 +63,7 @@ Deno.test('image rejects too many reference images', () => {
   }));
   assertThrows(
     () => resolveTurn({ profile: 'image', input: { text: 'x', attachments: images } }),
-    TheorumError,
+    TheoremError,
   );
 });
 
@@ -74,7 +74,7 @@ Deno.test('image rejects mime the image model does not take', () => {
         profile: 'image',
         input: { text: 'x', attachments: [{ mimeType: 'image/gif', data: 'x' }] },
       }),
-    TheorumError,
+    TheoremError,
   );
 });
 
@@ -250,7 +250,7 @@ Deno.test('media validations allow omitted aspect/size; reject structured mixing
   );
   assertThrows(
     () => resolveTurn({ profile: 'mixed_media_profile', input: { text: 'test' } }),
-    TheorumError,
+    TheoremError,
   );
 
   // Prompt-enforced structured + image is allowed (no competing responseFormat)

@@ -15,7 +15,7 @@ import {
 	userDraftHasPayload,
 	userDraftToSteerInject,
 } from '../../src/interface/mod.ts';
-import type { ToolCredential } from 'theorum/kernel';
+import type { ToolCredential } from '../../src/kernel/mod.ts';
 import {
 	abandonGatedInterfaceTool,
 	applyTurnResultToTranscript,
@@ -101,7 +101,7 @@ function beginAbortableTurn(args: {
 	};
 }
 
-export function useTheorumRunActions(args: {
+export function useTheoremRunActions(args: {
 	iface: ComposerProfileInterface | null;
 	payload: PlaygroundRunPayload | null;
 	phase: ComposerRunPhase;

@@ -1,7 +1,7 @@
 /**
  * Guardrails testing surface — adversarial corpus, fuzz runners, live attack builders.
  *
- * Import via `theorum/guardrails/testing` (not published on the production guardrails entry).
+ * Import via `@theoremai/agents/guardrails/testing` (not published on the production guardrails entry).
  *
  * @module
  */

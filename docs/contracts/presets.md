@@ -1,4 +1,4 @@
-# Presets (`theorum/presets`)
+# Presets (`@theoremai/agents/presets`)
 
 Optional convenience packs. Presets register host-convenience catalogs
 (provider builtins, media vocabularies) without baking product opinions into the
@@ -8,7 +8,7 @@ kernel.
 
 | Field | Value |
 | --- | --- |
-| Import | `theorum/presets` / `jsr:@theorum/core/presets` |
+| Import | `@theoremai/agents/presets` / `jsr:@theoremai/agents/presets` |
 | Module | `src/presets/mod.ts` |
 
 ## Ownership
@@ -27,7 +27,7 @@ kernel.
 | Registration | `registerTools` API | `registerGooglePreset()` at host startup |
 
 Call preset registration **before** registering profiles that allowlist preset
-builtins. Import `theorum/presets/google` when you only need the Google pack.
+builtins. Import `@theoremai/agents/presets/google` when you only need the Google pack.
 
 Presets are optional — the kernel runs without them when hosts register their
 own tools and vocabularies directly via `registerTools`.
@@ -50,7 +50,7 @@ This barrel re-exports the Google pack:
 | `GOOGLE_IMAGE_ASPECT_RATIOS`, `GOOGLE_IMAGE_INPUT_MIMES`, `GOOGLE_IMAGE_SIZES`, `GOOGLE_VOICE_INPUT_MIMES`, `GOOGLE_SPEECH_VOICES` | Profile authoring constants |
 | `GoogleImageAspectRatio`, `GoogleImageInputMime`, `GoogleImagePins`, `GoogleImageSize`, `GoogleVoiceInputMime`, `GoogleSpeechVoice` | Typed pins and vocabularies |
 
-```theorum-evidence
+```theorem-evidence
 {
   "sections": {
     "Export": {
@@ -69,13 +69,13 @@ This barrel re-exports the Google pack:
       "supports": [
         { "kind": "source", "path": "src/presets/mod.ts" },
         { "kind": "source", "path": "src/presets/google.ts" },
-        { "kind": "contract_test", "path": "tests/kernel/theorum.test.ts" }
+        { "kind": "contract_test", "path": "tests/kernel/theorem.test.ts" }
       ]
     },
     "When to use": {
       "supports": [
         { "kind": "source", "path": "src/presets/google.ts" },
-        { "kind": "contract_test", "path": "tests/kernel/theorum.test.ts" }
+        { "kind": "contract_test", "path": "tests/kernel/theorem.test.ts" }
       ]
     },
     "Exported API": {

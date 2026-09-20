@@ -7,7 +7,7 @@
  * @module
  */
 
-import { TheorumError } from '../../../guardrails/error.ts';
+import { TheoremError } from '../../../guardrails/error.ts';
 import { isMediaRefPart } from '../../../kernel/interaction-parts.ts';
 import type {
   ImageResponseFormat,
@@ -49,7 +49,7 @@ export function wireInputReferences(input: InteractionPart[]): Record<string, un
       continue;
     }
     if (isMediaRefPart(part)) {
-      throw new TheorumError('media references are not supported on openAi');
+      throw new TheoremError('media references are not supported on openAi');
     }
     references.push(wireInputReference(part));
   }

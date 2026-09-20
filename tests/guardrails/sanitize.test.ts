@@ -1,5 +1,5 @@
 import '../fixtures/test-host.ts';
-import { TheorumError } from '../../src/guardrails/error.ts';
+import { TheoremError } from '../../src/guardrails/error.ts';
 import {
   PROJECT_ID_MAX,
   redactSensitiveOnly,
@@ -208,7 +208,7 @@ Deno.test('more attachments than the profile allows are rejected', () => {
   }));
   assertThrows(
     () => resolveTurn({ profile: 'chat', input: { text: 'x', attachments: images } }),
-    TheorumError,
+    TheoremError,
   );
 });
 
@@ -304,7 +304,7 @@ Deno.test('limitsByMime enforces granular per-mime byte limits', async () => {
           attachments: [{ mimeType: 'image/png', data: b64Image1_5MB }],
         },
       }),
-    TheorumError,
+    TheoremError,
   );
 
   // 3MB PDF (over base 2MB, but under 5MB PDF limit -> should pass)
@@ -349,12 +349,12 @@ Deno.test('attachments.ts edge cases: formatting, 1-file message, latin1 decodin
     outputs: { structured: null },
     guardrails: { quota: { perDay: 1 } },
   };
-  assertThrows(() => requireMediaLimits(noLimitsProfile), TheorumError);
+  assertThrows(() => requireMediaLimits(noLimitsProfile), TheoremError);
 
   // sanitizeTurnBlobs without limits
   assertThrows(
     () => sanitizeTurnBlobs([{ mimeType: 'image/png', data: 'abc' }], undefined, undefined),
-    TheorumError,
+    TheoremError,
   );
 
   // sanitizeTurnBlobs with latin1 invalid utf-8 text file

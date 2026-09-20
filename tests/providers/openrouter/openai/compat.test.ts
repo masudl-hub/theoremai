@@ -1,4 +1,4 @@
-import { TheorumError } from '../../../../src/guardrails/error.ts';
+import { TheoremError } from '../../../../src/guardrails/error.ts';
 import { assertEquals, assertThrows } from '../../../../src/kernel/engine/assert.ts';
 import {
   fallbackToolCallId,
@@ -34,8 +34,8 @@ Deno.test('parseToolInput parses valid JSON', () => {
 });
 
 Deno.test('parseToolInput throws on invalid JSON', () => {
-  assertThrows(() => parseToolInput('not json'), TheorumError);
-  assertThrows(() => parseToolInput('[1]'), TheorumError);
+  assertThrows(() => parseToolInput('not json'), TheoremError);
+  assertThrows(() => parseToolInput('[1]'), TheoremError);
 });
 
 Deno.test('stringDefault uses fallback for undefined', () => {

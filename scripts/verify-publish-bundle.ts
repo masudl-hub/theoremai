@@ -13,6 +13,7 @@ const ARTIFACT_DIRS = [
   'traces',
   'npm',
   'node_modules',
+  '.cursor',
   '.fallow',
   '.github',
   'tests',

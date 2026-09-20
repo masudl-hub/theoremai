@@ -165,7 +165,12 @@ async function findOversizedFiles(): Promise<string[]> {
   }
 
   for await (const entry of Deno.readDir(root)) {
-    if (entry.name === '.git' || entry.name === 'node_modules' || ARTIFACT_FILES.includes(entry.name as never)) continue;
+    if (
+      entry.name === '.git' ||
+      entry.name === 'node_modules' ||
+      ARTIFACT_FILES.includes(entry.name as never)
+    )
+      continue;
     if (!entry.isFile) continue;
     const path = `${root}/${entry.name}`;
     const stat = await Deno.stat(path);

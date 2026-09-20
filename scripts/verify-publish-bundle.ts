@@ -27,6 +27,9 @@ const ARTIFACT_DIRS = [
 const ARTIFACT_FILES = [
   'knip.json',
   'stryker.config.json',
+  'stryker.guardrails-targeted.config.json',
+  'stryker.guardrails.config.json',
+  'stryker.tools.config.json',
   'stryker.log',
   '.fallowrc.jsonc',
   'biome.json',

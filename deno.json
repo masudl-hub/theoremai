@@ -31,6 +31,7 @@
     "exclude": [
       ".fallow/",
       ".fallowrc.jsonc",
+      ".cursor/",
       ".github/",
       ".gitignore",
       ".npmignore",
@@ -40,6 +41,9 @@
       "docs/",
       "knip.json",
       "stryker.config.json",
+      "stryker.guardrails-targeted.config.json",
+      "stryker.guardrails.config.json",
+      "stryker.tools.config.json",
       "stryker.log",
       ".stryker-tmp/",
       ".stryker-cache/",

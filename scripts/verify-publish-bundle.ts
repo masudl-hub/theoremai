@@ -13,6 +13,7 @@ const ARTIFACT_DIRS = [
   'traces',
   'npm',
   'node_modules',
+  '.cursor',
   '.fallow',
   '.github',
   'tests',
@@ -26,6 +27,9 @@ const ARTIFACT_DIRS = [
 const ARTIFACT_FILES = [
   'knip.json',
   'stryker.config.json',
+  'stryker.guardrails-targeted.config.json',
+  'stryker.guardrails.config.json',
+  'stryker.tools.config.json',
   'stryker.log',
   '.fallowrc.jsonc',
   'biome.json',
@@ -165,7 +169,12 @@ async function findOversizedFiles(): Promise<string[]> {
   }
 
   for await (const entry of Deno.readDir(root)) {
-    if (entry.name === '.git' || entry.name === 'node_modules' || ARTIFACT_FILES.includes(entry.name as never)) continue;
+    if (
+      entry.name === '.git' ||
+      entry.name === 'node_modules' ||
+      ARTIFACT_FILES.includes(entry.name as never)
+    )
+      continue;
     if (!entry.isFile) continue;
     const path = `${root}/${entry.name}`;
     const stat = await Deno.stat(path);

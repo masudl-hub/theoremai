@@ -72,6 +72,10 @@ import { assertLiveIngress } from '../live-ingress.ts';
 
 export type { LiveSession, SessionRequest };
 
+/**
+ * Host-provided transport dependencies for `runSession` on a Gemini Live profile.
+ * `openWebSocket` exists for non-browser runtimes and deterministic tests.
+ */
 export interface RunSessionOptions {
   gemini: GeminiTransport;
   /** Override socket open (Cloudflare fetch-upgrade, tests). Default: `new WebSocket(url)`. */

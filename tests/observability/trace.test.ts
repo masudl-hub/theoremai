@@ -1,5 +1,5 @@
 import '../fixtures/test-host.ts';
-import { assertEquals } from '../../src/kernel/engine/assert.ts';
+import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { runTurn } from '../../src/kernel/engine/runner.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
 import {
@@ -154,6 +154,16 @@ Deno.test('runTurn forwards Interactions state controls and preserves host metad
 Deno.test('sinkFromDir is a noop when trace dir is empty', async () => {
   const sink = sinkFromDir('');
   await sink.write(stubRecord());
+});
+
+Deno.test('jsonlSink rejects unsafe trace directories before filesystem access', () => {
+  assertThrows(() => jsonlSink('traces'), Error, 'absolute');
+  assertThrows(() => jsonlSink(`${Deno.cwd()}/traces`), Error, 'outside');
+  assertThrows(
+    () => jsonlSink(`${Deno.cwd()}/../${Deno.cwd().split('/').at(-1)}/traces`),
+    Error,
+    'outside',
+  );
 });
 
 Deno.test('noopSink drops traces without filesystem access', async () => {

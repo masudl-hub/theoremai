@@ -128,6 +128,30 @@ Deno.test('jsonlDestination rejects empty dir', () => {
   assertThrows(() => jsonlDestination('  '), Error, 'non-empty');
 });
 
+Deno.test('jsonlDestination rejects relative and checkout-local dirs', () => {
+  assertThrows(() => jsonlDestination('traces'), Error, 'absolute');
+  assertThrows(() => jsonlDestination(`${Deno.cwd()}/traces`), Error, 'outside');
+});
+
+Deno.test('registerTraceDestination revalidates raw jsonl descriptors', () => {
+  clearTraceDestinations();
+  assertThrows(
+    () => registerTraceDestination('raw-jsonl', { kind: 'jsonl', dir: 'traces' }),
+    Error,
+    'absolute',
+  );
+  assertThrows(
+    () =>
+      registerTraceDestination('raw-jsonl', {
+        kind: 'jsonl',
+        dir: `${Deno.cwd()}/../${Deno.cwd().split('/').at(-1)}/traces`,
+      }),
+    Error,
+    'outside',
+  );
+  clearTraceDestinations();
+});
+
 Deno.test('runTurn uses profile.observability.writeTo when sink omitted', async () => {
   clearTraceDestinations();
   const into: TraceRecord[] = [];

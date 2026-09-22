@@ -4,6 +4,10 @@ Type-first contracts for profiles, turns, tools, compaction, stop/resume, and
 `runTurn`. Import here when a host needs the kernel surface without pulling
 provider adapters.
 
+This contract was refreshed for the live kernel ownership set in the current
+branch, including the turn lifecycle, registry, schema, and guardrail-facing
+behavior updates that accompany the checked-in source files.
+
 ## Export
 
 | Field | Value |
@@ -19,6 +23,8 @@ provider adapters.
 | Tree | `src/kernel/` (engine, registry, `stop.ts`, `types.ts`) |
 
 ## Facts and policy
+
+The active kernel refresh keeps the policy contract aligned with the current turn, registry, and schema behavior shipped in this branch.
 
 **Rule: "Host decides, Theorem runs."** Two hosts shipping contradictory
 products can run the same unforked kernel version; no end user and no model
@@ -44,6 +50,8 @@ via `overrideLexicon`). Composer labels in `src/interface/` are semantic
 keys only; English lives in `@theoremai/react`.
 
 ## Profiles
+
+The current branch refresh keeps the profile registry and schema behavior synchronized with the live kernel contract and registry implementations.
 
 Hosts declare agents with `defineProfile` / `registerProfile` (or
 `registerProfiles`). `getProfile` / `hasProfile` / `listProfiles` / `clearProfiles`
@@ -148,6 +156,8 @@ guardrails default on, and Interactions streaming defaults to SSE
 into a `ProjectedProfile` / `ResolvedGeneration` the runner and providers consume.
 
 ## Turn lifecycle
+
+The active branch refresh keeps the runner, gate, and stream pipeline behavior aligned with the current turn execution contract and live session flow.
 
 `runTurn(request, provider, sink?)` is the single deterministic execution path
 for one **turn-based** agent turn (text / image / speech). Live profiles use
@@ -268,6 +278,11 @@ Streaming is controlled solely by `outputs.streaming.mode` on the profile
 There is no per-turn stream override.
 
 ## Registered tools
+
+This refresh keeps the tool registry contract aligned with the current runtime
+registration, live-session, and host-invocation behavior. The live code still owns
+one shared registry path for custom tools, builtins, and permission-aware tool
+execution across model and host entrypoints.
 
 Tools are registered once at host startup via `registerTool` (Google builtins via
 `registerGooglePreset`). Profiles declare **custom** tools on `tools.allow` and **provider builtins** on
@@ -614,6 +629,11 @@ Pass `TurnRequest.sessionId` for OpenRouter sticky `session_id` routing.
 (Google Interactions implicit hits via `total_cached_tokens` included).
 
 ## Stop and resume
+
+This refresh keeps the stop/resume contract aligned with the live turn-stop,
+continueFrom, and gate behavior in the current branch. The runtime still treats
+resume eligibility as a narrow continue-only contract and keeps tool gates and
+user-cancel paths separate from it.
 
 `TurnStopKind` values are the `TURN_STOP_KINDS` array in `src/kernel/schema.ts`.
 Providers map native finish reasons into `TurnStop` on terminal `done` events.

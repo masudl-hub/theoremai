@@ -197,6 +197,10 @@ export interface ProfileGraphFacet {
   ownsFields?: readonly string[];
 }
 
+/**
+ * Immutable profile-editor catalog. Hosts can use it to render compatible facets
+ * and detect profile-field drift without duplicating the kernel's structure.
+ */
 export const PROFILE_GRAPH: readonly ProfileGraphFacet[] = PROFILE_GRAPH_DEF;
 
 /** Spine (and root) facets visible for a profile type, in catalog order. */

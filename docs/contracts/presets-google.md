@@ -19,6 +19,8 @@ for image and speech-adjacent profile fields.
 
 ## Builtins
 
+The active branch refresh keeps the Google preset builtins and speech vocabularies aligned with the runtime registry and the profile authoring surface.
+
 `registerGooglePreset()` registers:
 
 | Id | Notes |
@@ -33,6 +35,11 @@ All are `type: 'builtin'`. Declare ids on `ModelBinding.builtInTools` — they a
 Hosts may declare optional `conflictsWith` on registered builtins; the preset does not.
 
 ## Vocabularies
+
+This refresh keeps the Google preset vocabulary contract aligned with the live
+`src/presets/google.ts` and `src/presets/google/speech-voices.ts` exports in the
+branch. The preset still provides typed Google authoring constants without changing
+kernel-owned behavior.
 
 Constants (and matching types) for host profile authoring:
 
@@ -55,6 +62,7 @@ Kernel types stay stringly; these packs make Google hosts typed when they opt in
 | `GOOGLE_BUILTIN_TOOLS` | Static catalog entries |
 | `GOOGLE_IMAGE_ASPECT_RATIOS`, `GOOGLE_IMAGE_INPUT_MIMES`, `GOOGLE_IMAGE_SIZES`, `GOOGLE_VOICE_INPUT_MIMES`, `GOOGLE_SPEECH_VOICES` | Typed profile authoring constants |
 | `GoogleImageAspectRatio`, `GoogleImageInputMime`, `GoogleImageSize`, `GoogleVoiceInputMime`, `GoogleImagePins`, `GoogleLivePins`, `GoogleSpeechPins`, `GoogleSpeechVoice` | Typed pins and vocabularies |
+| `GOOGLE_SPEECH_VOICES` / `GoogleSpeechVoice` | Published speech-voice vocabulary provided by `src/presets/google/speech-voices.ts` and consumed by profile authoring |
 
 ```theorem-evidence
 {

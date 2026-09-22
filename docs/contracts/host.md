@@ -99,6 +99,8 @@ turns. Skip entirely for non-HTTP or non-Deno hosts.
 
 ## Structured JSON preview
 
+The current branch refresh keep the streaming JSON preview helpers aligned with the in-flight structured-output behavior used by live hosts.
+
 `readStreamingJsonStringField(jsonText, key)` reads one string field from
 **incomplete** JSON while structured output streams as text deltas. Hosts use
 it for live UI previews; it is not a JSON validator and never throws on truncated

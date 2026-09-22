@@ -79,6 +79,7 @@ export const LEXICON_KEYS = [
   'tool.unsupported_type',
 ] as const;
 
+/** Key accepted by the kernel's host-overridable message lexicon. */
 export type LexiconKey = (typeof LEXICON_KEYS)[number];
 
 /** Host-supplied replacement templates, `{param}` placeholders included. */

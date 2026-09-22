@@ -7,6 +7,7 @@
 import { TheoremError } from '../../guardrails/error.ts';
 import type { LiveIngressSpec, LiveProfile, Profile } from '../types.ts';
 
+/** Realtime media channel that a Live profile may enable or disable. */
 export type LiveIngressChannel = keyof LiveIngressSpec;
 
 const LIVE_INGRESS_CHANNELS: LiveIngressChannel[] = ['audio', 'video', 'text'];

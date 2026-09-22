@@ -1,24 +1,201 @@
-```text
- _______  __   __  _______  _______  ______    __   __  __   __
-|       ||  | |  ||       ||       ||    _ |  |  | |  ||  |_|  |
-|_     _||  |_|  ||    ___||   _   ||   | ||  |  | |  ||       |
-  |   |  |       ||   |___ |  | |  ||   |_||_ |  |_|  ||       |
-  |   |  |       ||    ___||  |_|  ||    __  ||       ||       |
-  |   |  |   _   ||   |___ |       ||   |  | ||       || ||_|| |
-  |___|  |__| |__||_______||_______||___|  |_||_______||_|   |_|
-```
+<p align="center">
+  <a href="https://github.com/masudl-hub/theoremai">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset=".github/assets/theorem-logo-dark.svg">
+      <source media="(prefers-color-scheme: light)" srcset=".github/assets/theorem-logo-light.svg">
+      <img width="380" alt="THEOREM" src=".github/assets/theorem-logo-light.svg">
+    </picture>
+  </a>
+</p>
 
-# THEOREM: The Flat Agent Kernel
+<h3 align="center">
+  A security-first turn kernel for TypeScript agents.
+</h3>
 
-**Current release: `2.0.0`** (`jsr:@theoremai/agents` / npm `@theoremai/agents`).
+<p align="center">
+  Guardrails, egress checks, and tool gating as a strict, stateless runtime —<br>
+  on its own, or next to the agent framework you already use.
+</p>
+
+<p align="center">
+  <a href="#highlights"><strong>Highlights</strong></a> •
+  <a href="#where-theorem-fits"><strong>Where it fits</strong></a> •
+  <a href="#quickstart"><strong>Quickstart</strong></a> •
+  <a href="#registered-tools"><strong>Tools</strong></a> •
+  <a href="#guardrails-and-egress"><strong>Guardrails</strong></a> •
+  <a href="#provider-adapters"><strong>Providers</strong></a> •
+  <a href="#documentation"><strong>Docs</strong></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/masudl-hub/theoremai/actions/workflows/ci.yml"><img src="https://github.com/masudl-hub/theoremai/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://jsr.io/@theoremai/agents"><img src="https://jsr.io/badges/@theoremai/agents" alt="JSR"></a>
+  <a href="https://jsr.io/@theoremai/agents/score"><img src="https://jsr.io/badges/@theoremai/agents/score" alt="JSR score"></a>
+  <a href="https://www.npmjs.com/package/@theoremai/agents"><img src="https://img.shields.io/npm/v/@theoremai/agents?logo=npm&label=npm&color=cb3837" alt="npm"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/masudl-hub/theoremai/actions/workflows/security.yml"><img src="https://github.com/masudl-hub/theoremai/actions/workflows/security.yml/badge.svg" alt="Security"></a>
+  <a href="https://github.com/masudl-hub/theoremai/actions/workflows/security.yml"><img src="https://img.shields.io/badge/Semgrep-scanned-6e4aff?logo=semgrep&logoColor=white" alt="Semgrep"></a>
+  <a href="https://github.com/masudl-hub/theoremai/actions/workflows/security.yml"><img src="https://img.shields.io/badge/Snyk-monitored-4c4a73?logo=snyk&logoColor=white" alt="Snyk"></a>
+  <a href="./stryker.guardrails.config.json"><img src="https://img.shields.io/badge/Stryker-mutation%20tested-e74c3c" alt="Stryker mutation testing"></a>
+  <a href="./biome.json"><img src="https://img.shields.io/badge/lint-Biome%20%2B%20ast--grep-60a5fa?logo=biome&logoColor=white" alt="Biome and ast-grep"></a>
+  <a href="./docs/DOCS_TRUTH.md"><img src="https://img.shields.io/badge/docs-truth%20linted-2ea44f" alt="Docs-truth"></a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white" alt="TypeScript">
+  <img src="https://img.shields.io/badge/Deno-2.x-000000?logo=deno&logoColor=white" alt="Deno 2">
+  <img src="https://img.shields.io/badge/Node-22-5fa04e?logo=nodedotjs&logoColor=white" alt="Node 22">
+</p>
+
+## What is THEOREM?
+
+THEOREM is a compact TypeScript **turn kernel**: one runner that executes a single agent turn
+deterministically and enforces the contract around it — what comes in, which tools may run,
+and what is allowed to leave.
+
+It is deliberately **not** a full agent framework. It ships no memory, no workflow engine, no
+RAG, no database, no prompts, and no product policy. Those belong to your application — or to
+a framework such as [Mastra](https://mastra.ai), LangGraph.js, or the AI SDK's agent layer.
+THEOREM is the strict runtime you reach for when a turn has to be **auditable**: every input
+sanitized, every tool call gated, every outbound reply checked, every trace routed where *you*
+say.
 
 > **"Profiles describe the contract. Providers move bytes. The runner enforces the turn."**
 
-THEOREM is a compact TypeScript agent kernel for apps that need deterministic agent execution without embedding product logic inside the runtime. It gives a host application one runner, typed profiles, multimodal input normalization, a registered tool system with per-turn gating, provider adapters, trace sinks, and guardrail hooks.
+**Current release: `2.0.0`** — `jsr:@theoremai/agents` · npm `@theoremai/agents`.
 
-The package is intentionally **not** an agent product. It ships no app profiles, no prompts, no secrets, no database policy, no business rules, and no channel-specific UX. Those belong in the host application.
+## Highlights
 
-OpenRouter chat transport is powered by Vercel AI SDK Core under the adapter. THEOREM keeps the runner contract, guardrails, tool permissions, egress, media buffering, and trace event shape; AI SDK handles the OpenRouter request/stream/tool-call normalization layer.
+### Guard the turn
+
+- 🛡️ **Ingress sanitization** — user text, history, and attachments are normalized, size-limited, and scanned for injection and sensitive data before the model sees them.
+- 🐤 **Canary tokens** — a per-turn canary is bound into the system prompt; any leak is caught mid-stream and blocked before bytes reach the client.
+- 🚪 **Egress enforcement with repair** — a typed, host-owned egress hook inspects assistant text and can reject back to the model for up to `maxRetries` repair attempts.
+- 🧪 **Adversarial by default** — ships an inbound-payload and secrets corpus plus fuzz helpers (`@theoremai/agents/guardrails/testing`) so hosts can attack their own profiles.
+
+### Gate every tool
+
+- 🔐 **Five layers, not one flag** — host catalog → profile allowlist → per-turn opt-in → load-tier visibility (T0/T1/T2) → permission (`auto` · `session_consent` · `always_confirm`).
+- ⏸️ **Pause and resume that don't leak authority** — tool pauses resume through `invokeTool`; truncated replies continue through `continueFrom` and must be re-gated by the host. The two paths never mix.
+- 🧾 **Zod contracts** — every function tool declares input and output schemas at registration.
+
+### Stay out of your way
+
+- 🧊 **Stateless and ambient-free** — no `.env` reads, no bundled DB, no default trace target. Importing the kernel with every Deno permission denied is a tested invariant.
+- 🔌 **One provider door** — `createProvider` routes Google Interactions, OpenRouter (via AI SDK Core), speech, and any local OpenAI-compatible server. Adapters load lazily.
+- 📡 **Host-injected traces** — structured trace records go to sinks and destinations you register, with scrub and include policy on the profile.
+- 🦕 **Deno-native, npm-ready** — authored for Deno/JSR, published to npm, typed end to end.
+
+## Where THEOREM fits
+
+THEOREM is narrow on purpose. Pick the layer that matches the problem:
+
+| You need… | Reach for | Why |
+| :--- | :--- | :--- |
+| Agents, workflows, memory, RAG, evals, a dev playground | A full framework (e.g. Mastra) | Batteries included; the fastest path to a product. |
+| Provider-agnostic streaming and tool calls, nothing else | Vercel AI SDK | Thin, widely adopted model client. |
+| A turn you can **audit** — sanitized input, gated tools, checked egress, host-owned traces | **THEOREM** | The kernel *is* the enforcement boundary; it holds no state and no policy. |
+| Both | A framework for orchestration **+** THEOREM for the routes that need strict guarantees | Keep the ecosystem; move the high-risk turns onto a runtime you can reason about. |
+
+THEOREM is a good fit when you run several products on one shared core, when regulated or
+private data can appear in a reply, or when you must be able to say exactly which tools a
+model could call and where every byte went. If none of that applies, a full framework will get
+you further, faster. No framework adapter ships today; THEOREM runs next to one, not inside it.
+
+---
+
+## Quickstart
+
+### Install
+
+#### Deno / JSR
+
+```bash
+deno add jsr:@theoremai/agents
+```
+
+```ts
+import { defineProfile, registerProfile, runTurn } from "jsr:@theoremai/agents";
+```
+
+#### npm
+
+```bash
+npm install @theoremai/agents
+```
+
+```ts
+import { defineProfile, registerProfile, runTurn } from "@theoremai/agents";
+```
+
+### Minimal example
+
+This example uses a local mock provider so it runs without secrets. Real provider keys should be passed into the provider adapter by the host application.
+
+```ts
+import {
+  defineProfile,
+  registerProfile,
+  runTurn,
+  type ModelProvider,
+  type TurnEvent,
+} from "jsr:@theoremai/agents";
+
+const profile = defineProfile({
+  type: "text",
+  id: "assistant.basic",
+  identity: {
+    handle: "assistant",
+    system: "Answer plainly.",
+  },
+  model: {
+    protocol: "openAi",
+    provider: "openrouter",
+    allow: ["hostFastModel"],
+    config: {
+      hostFastModel: {
+        apiId: "perplexity/sonar",
+        thinking: { on: "high", off: "minimal" },
+        thinkingLevels: ["minimal", "low", "medium", "high"],
+        summaries: { on: "auto", off: "none" },
+        maxOutputTokens: 8192,
+        temperature: 1,
+        builtInTools: [],
+      },
+    },
+    thinking: "minimal",
+    maxSteps: 1,
+  },
+  tools: { allow: [] },
+  inputs: { text: true },
+  outputs: {
+    streaming: { streamThoughts: false },
+  },
+  guardrails: {
+    quota: { perDay: 100 }, // Optional. Omit when the host owns metering.
+  },
+});
+
+registerProfile(profile);
+
+const provider: ModelProvider = {
+  async *complete(): AsyncIterable<TurnEvent> {
+    yield { type: "text", text: "The turn completed." };
+    yield { type: "tokens", tokens: { input: 8, output: 4, total: 12 } };
+    yield { type: "done" };
+  },
+};
+
+for await (const event of runTurn(
+  { profile: "assistant.basic", input: { text: "Ping" } },
+  provider,
+)) {
+  console.log(event);
+}
+```
 
 ---
 
@@ -36,9 +213,14 @@ traces = "Profile observability + host-registered destinations; no env vars or b
 [non_goals]
 app_profiles = "No bundled assistants, demos, product personas, or business tasks"
 secrets = "No .env files, no ambient key reads in the kernel"
+memory_and_workflows = "No session memory, workflow graphs, or RAG; compose those in the host or a framework"
 realtime_voice = "Not included yet; persistent duplex sessions stay host-owned"
 product_copy = "No channel wording, refusal copy, iMessage/Alexa/Web policy, or UX defaults"
 ```
+
+OpenRouter chat transport is powered by Vercel AI SDK Core under the adapter. THEOREM keeps the
+runner contract, guardrails, tool permissions, egress, media buffering, and trace event shape;
+AI SDK handles the OpenRouter request/stream/tool-call normalization layer.
 
 React UI and the headless interface projection remain repo-private under [`react/`](./react/)
 and `src/interface/` while their public contracts are being designed. They are excluded from
@@ -149,99 +331,6 @@ On tool pause the `maxSteps` loop exits (`stop.kind: 'tool'`), egress may still 
 buffered assistant text from that attempt, then the turn emits terminal `done`.
 
 ---
-
-## Install
-
-### Deno / JSR
-
-```bash
-deno add jsr:@theoremai/agents
-```
-
-```ts
-import { defineProfile, registerProfile, runTurn } from "jsr:@theoremai/agents";
-```
-
-### npm
-
-```bash
-npm install @theoremai/agents
-```
-
-```ts
-import { defineProfile, registerProfile, runTurn } from "@theoremai/agents";
-```
-
----
-
-## Minimal Example
-
-This example uses a local mock provider so it runs without secrets. Real provider keys should be passed into the provider adapter by the host application.
-
-```ts
-import {
-  defineProfile,
-  registerProfile,
-  runTurn,
-  type ModelProvider,
-  type TurnEvent,
-} from "jsr:@theoremai/agents";
-
-const profile = defineProfile({
-  type: "text",
-  id: "assistant.basic",
-  identity: {
-    handle: "assistant",
-    system: "Answer plainly.",
-  },
-  model: {
-    protocol: "openAi",
-    provider: "openrouter",
-    allow: ["hostFastModel"],
-    config: {
-      hostFastModel: {
-        apiId: "perplexity/sonar",
-        thinking: { on: "high", off: "minimal" },
-        thinkingLevels: ["minimal", "low", "medium", "high"],
-        summaries: { on: "auto", off: "none" },
-        maxOutputTokens: 8192,
-        temperature: 1,
-        builtInTools: [],
-      },
-    },
-    thinking: "minimal",
-    maxSteps: 1,
-  },
-  tools: { allow: [] },
-  inputs: { text: true },
-  outputs: {
-    streaming: { streamThoughts: false },
-  },
-  guardrails: {
-    quota: { perDay: 100 }, // Optional. Omit when the host owns metering.
-  },
-});
-
-registerProfile(profile);
-
-const provider: ModelProvider = {
-  async *complete(): AsyncIterable<TurnEvent> {
-    yield { type: "text", text: "The turn completed." };
-    yield { type: "tokens", tokens: { input: 8, output: 4, total: 12 } };
-    yield { type: "done" };
-  },
-};
-
-for await (const event of runTurn(
-  { profile: "assistant.basic", input: { text: "Ping" } },
-  provider,
-)) {
-  console.log(event);
-}
-```
-
----
-
 ## Registered Tools
 
 THEOREM separates tool concerns into four layers.
@@ -341,6 +430,20 @@ const guardedProfile = defineProfile({
 
 The egress function is host-owned. One application may block internal tool names, another may block regulated disclosures, and another may disable egress entirely for a trusted development profile.
 
+### How the guardrails are tested
+
+Security claims are only as good as the tests behind them. THEOREM checks its own boundary
+several ways:
+
+| Check | What it covers | Where |
+| :--- | :--- | :--- |
+| Adversarial corpus | Inbound injection payloads and secret shapes, shipped for hosts to reuse | `src/guardrails/corpus/`, `@theoremai/agents/guardrails/testing` |
+| Fuzzing | Randomized guardrail and canary inputs through the CLI harness | `tests/cli/fuzz-guardrails.test.ts`, `tests/cli/fuzz-canary.test.ts` |
+| Mutation testing | Stryker mutates guardrail, provider, and tool code and requires the suite to kill the mutants (break threshold 75%) | `stryker.guardrails.config.json`, `stryker.config.json`, `stryker.tools.config.json` |
+| Static analysis | Semgrep TypeScript + secrets rulesets over `src/`, `mod.ts`, and `scripts/` | `.github/workflows/security.yml` |
+| Dependency scanning | Snyk scan of the npm lockfile for high-severity advisories | `.github/workflows/security.yml`, `.snyk` |
+| Zero-permission import | The kernel constructs with every Deno permission denied | `tests/kernel/zero-permission-import.test.ts` |
+
 Quota is optional. If a profile omits `guardrails.quota`, the quota helper returns `not_configured` so the host can decide whether that route should be unmetered, rejected, or handled by a separate rate limiter.
 
 ---
@@ -408,7 +511,10 @@ Hosts that need them link `file:../theorem/playground`.
 
 Internal files remain present in source for maintainability, but package consumers should use the public entrypoints above.
 
-### Exported API (`mod.ts`)
+### Exported API
+
+<details>
+<summary>Every named export from the root barrel (<code>mod.ts</code>)</summary>
 
 Named exports from the root barrel (same symbols hosts get from `@theoremai/agents` /
 `jsr:@theoremai/agents`):
@@ -436,6 +542,8 @@ Named exports from the root barrel (same symbols hosts get from `@theoremai/agen
 | Stages (target foundation) | `TURN_STAGES`, `TURN_INJECT_STAGES`, `STAGE_AFFORDANCES`, `STAGE_AFFORDANCE_MATRIX`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `applyStageResult`, `parseAwaitingUserInput`, `parseToolGate`, `isTurnStage`, `isTurnInjectStage`, `isToolGateKind`, `isAwaitingUserInput`, `stageAllowsAffordance`, `stageEventFields`, `profileAllowsInject`, `StageAffordance`, `StageContext`, `StageResult`, `StageMutate`, `StageHandler`, `StageApplyInput`, `StageApplyOutput`, `StageApplyWarning`, `StageApplyWarningCode`, `StageEventExtra`, `AwaitingUserInput`, `ToolGate` — contract [`docs/contracts/stages.md`](docs/contracts/stages.md) |
 | Observability | `jsonlSink`, `memorySink`, `noopSink`, `resolveTraceDir`, `sinkFromDir`, `writeTrace`, `registerTraceDestination`, `jsonlDestination`, `requireTraceDestination`, `getTraceDestination`, `listTraceDestinationIds`, `clearTraceDestinations`, `isJsonlTraceDestination`, `isTraceSink`, `resolveTraceWriter`, `resolveObservabilityPolicy`, `TraceRecord`, `TraceSink`, `JsonlSinkOptions`, `JsonlTraceDestination`, `TraceDestination`, `ProfileObservabilitySpec`, `ResolvedObservabilityPolicy`, `ResolvedTraceInclude`, `ResolvedTraceScrub`, `TraceIncludeSpec`, `TraceScrubSpec` |
 | Providers | `CreateProviderOptions`, `GeminiTransport`, `KeyVault`, `LocalProviderConfig`, `OpenAiGatewayConfig`, `createProvider` (local: `@theoremai/agents/providers/local` → `createLocalProvider`, `DEFAULT_LOCAL_BASE_URL`) |
+
+</details>
 
 Kernel types re-exported through this barrel follow `export type *` from
 `src/kernel/types.ts` (behavioral detail for contributors: repo
@@ -485,6 +593,11 @@ Document health is enforced by `npm run lint:docs` — the **first** step of
   are not silently dropped (`ENOBUFS`)
 - Pre-commit runs `lint:docs` automatically (`prepare` installs the hook on `npm install`)
 
+The current branch refresh keeps the package README and the repo contract docs in
+step with the live runtime graph: docs-truth validates both the package boundary
+and the behavioral sections that changed in the guardrails, kernel, and preset
+surface.
+
 ---
 
 ## Development
@@ -508,6 +621,15 @@ npm publish --dry-run --access public --tag ci-validate
 ```
 
 PR CI runs JSR and npm dry-run checks in the required `publish-dry-run` job.
+Run the security scans locally (CI runs the same checks in the `Security` workflow):
+
+```bash
+semgrep scan --config p/typescript --config p/secrets --metrics=off --error \
+  --exclude tests --exclude npm --exclude playground --exclude react --exclude tmp \
+  src mod.ts scripts
+snyk test --file=package-lock.json --severity-threshold=high
+npx stryker run stryker.guardrails.config.json
+```
 
 Run the packaged CLI locally:
 

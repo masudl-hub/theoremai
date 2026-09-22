@@ -18,6 +18,7 @@ const UPSTREAM_FAILED = 'upstream failed';
 /** Snapshot of the registered default (ignores host overrides). Stable for tests. */
 const PUBLIC_GENERIC: string = lexiconDefault('public.generic');
 const PUBLIC_UNAVAILABLE: string = lexiconDefault('public.unavailable');
+/** Stable public-safe message used when output exposes a canary token. */
 const PUBLIC_CANARY: string = lexiconDefault('public.canary');
 const PUBLIC_ACTION: string = lexiconDefault('public.action');
 const PUBLIC_FILE_TYPE: string = lexiconDefault('public.file_type');

@@ -13,6 +13,10 @@
 /** Marker substituted for a repeated reference so a cycle terminates. */
 const CIRCULAR = '[circular]';
 
+/**
+ * Best-effort text representation for scanning. `unscannable` is true only when
+ * serialization could not safely render the payload for inspection.
+ */
 export interface ScanText {
   text: string;
   /** True when the payload could not be rendered and was not inspected. */

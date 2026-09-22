@@ -241,6 +241,7 @@ export interface McpToolDef<TIn = unknown, TOut = unknown> extends ToolBase, Too
   auth?: HttpToolAuthConfig;
 }
 
+/** Normalized tool definition held by the process-local registry. */
 export type RegisteredTool<TIn = unknown, TOut = unknown> =
   | BuiltinToolDef
   | FunctionToolDef<TIn, TOut>
@@ -262,6 +263,7 @@ export type ToolDefinitionInput<TIn = unknown, TOut = unknown> =
       output: z.ZodType<TOut>;
     });
 
+/** Provider-facing function declaration derived from a registered tool. */
 export interface WireFunctionTool {
   type: 'function';
   name: string;
@@ -269,6 +271,7 @@ export interface WireFunctionTool {
   parameters: Record<string, unknown>;
 }
 
+/** Immutable tool visibility and provider-wire snapshot resolved for one turn. */
 export interface TurnToolSnapshot {
   builtins: ToolId[];
   /** Tool ids eligible this turn (custom: allow + path; builtin: model builtInTools + path). */
@@ -302,6 +305,7 @@ export interface ToolLoadContext {
 /** Profile-owned T1 selection — which eligible T1 tools to wire at turn start. */
 export type ToolPolicy = (ctx: ToolLoadContext) => ToolId[] | Promise<ToolId[]>;
 
+/** Host request to execute one registered tool outside the model turn loop. */
 export interface InvokeToolRequest {
   profile: string;
   name: string;
@@ -335,6 +339,7 @@ export interface InvokeToolRequest {
   onStage?: import('../stages.ts').StageHandler;
 }
 
+/** Profile policy that selects and configures tools available to model turns. */
 export interface ProfileToolsSpec {
   /** Custom function tools this profile may run. Builtins live on models.*.builtInTools. */
   allow: ToolId[];
@@ -431,6 +436,7 @@ export type ToolCallPhase =
   /** Provider cancelled an in-flight tool call (e.g. live barge-in). */
   | 'cancel';
 
+/** Provider or kernel tool-call event emitted during a turn. */
 export interface ToolCallEvent {
   name: string;
   /** Provider-native id or kernel-assigned call id. */

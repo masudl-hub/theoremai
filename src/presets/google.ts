@@ -28,6 +28,7 @@ type GoogleLivePins = Omit<ProfileLiveSpec, 'voice'> & {
   voice?: GoogleSpeechVoice;
 };
 
+/** Aspect ratios accepted by the Google image preset. */
 const GOOGLE_IMAGE_ASPECT_RATIOS = [
   '1:1',
   '3:2',
@@ -41,19 +42,26 @@ const GOOGLE_IMAGE_ASPECT_RATIOS = [
   '21:9',
 ] as const;
 
+/** Output sizes currently exposed by the Google image preset. */
 const GOOGLE_IMAGE_SIZES = ['1K'] as const;
 
+/** MIME type accepted for image input by the Google convenience preset. */
 type GoogleImageInputMime = (typeof GOOGLE_IMAGE_INPUT_MIMES)[number];
+/** MIME type accepted for voice input by the Google convenience preset. */
 type GoogleVoiceInputMime = (typeof GOOGLE_VOICE_INPUT_MIMES)[number];
+/** Aspect-ratio option accepted by the Google image preset. */
 type GoogleImageAspectRatio = (typeof GOOGLE_IMAGE_ASPECT_RATIOS)[number];
+/** Output-size option accepted by the Google image preset. */
 type GoogleImageSize = (typeof GOOGLE_IMAGE_SIZES)[number];
 
+/** Image profile fields narrowed to values supported by the Google preset. */
 type GoogleImagePins = Omit<ProfileImageSpec, 'aspectRatio' | 'size' | 'mimeType'> & {
   aspectRatio?: GoogleImageAspectRatio;
   size?: GoogleImageSize;
   mimeType?: GoogleImageInputMime | 'image/jpeg';
 };
 
+/** Built-in Google tools registered by the Google convenience preset. */
 const GOOGLE_BUILTIN_TOOLS = [
   {
     type: 'builtin' as const,

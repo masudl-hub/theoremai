@@ -90,6 +90,8 @@ for await (const event of runTurn(request, provider)) {
 
 ## Trace destinations
 
+The current observability refresh keeps the destination registry and sink selection behavior aligned with the live source files in this branch.
+
 | API | Role |
 | --- | --- |
 | `registerTraceDestination(id, dest)` | Register a `TraceSink` or `{ kind: 'jsonl', dir }` |
@@ -98,6 +100,8 @@ for await (const event of runTurn(request, provider)) {
 | `listTraceDestinationIds` / `clearTraceDestinations` | Introspection / tests |
 
 ## Trace sinks
+
+The branch-level trace updates keep the sink implementations and write path synchronized with the runtime event handling and destination behavior.
 
 Pass a `TraceSink` as the optional third argument to `runTurn`, or resolve one
 from profile policy:

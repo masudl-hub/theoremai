@@ -8,31 +8,44 @@
  * @module
  */
 
-import { createOpenRouter, type OpenRouterChatSettings } from '@openrouter/ai-sdk-provider';
+import {
+  createOpenRouter,
+  type OpenRouterChatSettings,
+} from "@openrouter/ai-sdk-provider";
 import {
   jsonSchema,
   type ModelMessage,
   streamText,
   type TextStreamPart,
-  type ToolSet,
   tool,
-} from 'ai';
-import { isAbortError, TheoremError, toErrorEvent } from '../../guardrails/error.ts';
-import { extractUsageTokens, parseStructuredOutput } from '../../kernel/engine/delta.ts';
-import { turnStopFromOpenAiFinishReason } from '../../kernel/stop.ts';
+  type ToolSet,
+} from "ai";
+import {
+  isAbortError,
+  TheoremError,
+  toErrorEvent,
+} from "../../guardrails/error.ts";
+import {
+  extractUsageTokens,
+  parseStructuredOutput,
+} from "../../kernel/engine/delta.ts";
+import { turnStopFromOpenAiFinishReason } from "../../kernel/stop.ts";
 import type {
   ModelProvider,
   ProviderCompleteRequest,
   TurnEvent,
   TurnTokens,
   WireFunctionTool,
-} from '../../kernel/types.ts';
-import type { OpenAiGatewayConfig } from '../types.ts';
-import { cacheControlJson } from './cache-control.ts';
-import { resolveOpenRouterPlugins } from './openai/chat-payload.ts';
-import { openAiGatewayHeaders, resolveResponseFormat } from './openai/compat.ts';
-import { buildAiSdkMessages } from './openai/sdk-messages.ts';
-import { resolveOpenAiGatewayApiKey } from './resolve-api-key.ts';
+} from "../../kernel/types.ts";
+import type { OpenAiGatewayConfig } from "../types.ts";
+import { cacheControlJson } from "./cache-control.ts";
+import { resolveOpenRouterPlugins } from "./openai/chat-payload.ts";
+import {
+  openAiGatewayHeaders,
+  resolveResponseFormat,
+} from "./openai/compat.ts";
+import { buildAiSdkMessages } from "./openai/sdk-messages.ts";
+import { resolveOpenAiGatewayApiKey } from "./resolve-api-key.ts";
 
 export interface StreamAccumulator {
   text: string;
@@ -55,8 +68,8 @@ export type JsonValue =
   | null
   | JsonValue[]
   | {
-      [key: string]: JsonValue;
-    };
+    [key: string]: JsonValue;
+  };
 export type ProviderOptions = Record<string, { [key: string]: JsonValue }>;
 
 export function trimApiKey(explicitKey?: string): string | undefined {
@@ -68,7 +81,7 @@ export function trimApiKey(explicitKey?: string): string | undefined {
 
 export function createAccumulator(): StreamAccumulator {
   return {
-    text: '',
+    text: "",
     evidenceSeen: false,
     emittedTokens: false,
     errored: false,
@@ -80,29 +93,35 @@ export function sourceEvent(part: {
   title?: string | null;
   url?: string;
 }): TurnEvent {
-  if (part.sourceType !== 'url') {
+  if (part.sourceType !== "url") {
     return {
-      type: 'evidence',
-      evidence: { provider: 'openrouter', raw: part as Record<string, unknown> },
+      type: "evidence",
+      evidence: {
+        provider: "openrouter",
+        raw: part as Record<string, unknown>,
+      },
     };
   }
-  const title = part.title ?? part.url ?? '';
+  const title = part.title ?? part.url ?? "";
   return {
-    type: 'evidence',
+    type: "evidence",
     evidence: {
-      provider: 'openrouter',
+      provider: "openrouter",
       raw: part as Record<string, unknown>,
       citations: part.url ? [part.url] : [],
-      sources: part.url ? [{ title, uri: part.url, type: 'web' as const }] : [],
+      sources: part.url ? [{ title, uri: part.url, type: "web" as const }] : [],
     },
   };
 }
 
 export function schemaForTool(decl: WireFunctionTool): Record<string, unknown> {
-  return decl.parameters ?? { type: 'object', properties: {}, additionalProperties: true };
+  return decl.parameters ??
+    { type: "object", properties: {}, additionalProperties: true };
 }
 
-export function buildTools(wireTools?: WireFunctionTool[]): ToolSet | undefined {
+export function buildTools(
+  wireTools?: WireFunctionTool[],
+): ToolSet | undefined {
   if (!wireTools || wireTools.length === 0) {
     return undefined;
   }
@@ -116,13 +135,17 @@ export function buildTools(wireTools?: WireFunctionTool[]): ToolSet | undefined 
   return tools;
 }
 
-function openRouterSettings(req: ProviderCompleteRequest): OpenRouterChatSettings | undefined {
+function openRouterSettings(
+  req: ProviderCompleteRequest,
+): OpenRouterChatSettings | undefined {
   const { plugins, webSearch } = resolveOpenRouterPlugins(req.builtins);
   if (plugins.length === 0 && !webSearch) {
     return undefined;
   }
   const settings: OpenRouterChatSettings = {};
-  if (plugins.length > 0) settings.plugins = plugins as OpenRouterChatSettings['plugins'];
+  if (plugins.length > 0) {
+    settings.plugins = plugins as OpenRouterChatSettings["plugins"];
+  }
   if (webSearch) settings.web_search_options = {};
   return settings;
 }
@@ -140,7 +163,8 @@ export function tokensFromUsage(usage: {
   const input = usage.inputTokens ?? 0;
   const output = usage.outputTokens ?? 0;
   const total = usage.totalTokens ?? input + output;
-  const cached = usage.inputTokenDetails?.cacheReadTokens ?? usage.cachedInputTokens ?? undefined;
+  const cached = usage.inputTokenDetails?.cacheReadTokens ??
+    usage.cachedInputTokens ?? undefined;
   const cacheWrite = usage.inputTokenDetails?.cacheWriteTokens ?? undefined;
   if (
     input === 0 &&
@@ -161,7 +185,7 @@ export function tokensFromUsage(usage: {
 }
 
 export function rawRecord(value: unknown): Record<string, unknown> | undefined {
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
     return value as Record<string, unknown>;
   }
   return undefined;
@@ -171,7 +195,7 @@ export function stringArray(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) {
     return undefined;
   }
-  const out = value.filter((item): item is string => typeof item === 'string');
+  const out = value.filter((item): item is string => typeof item === "string");
   return out.length > 0 ? out : undefined;
 }
 
@@ -183,18 +207,20 @@ export function metadataRecord(
 }
 
 export function citationCandidates(raw: Record<string, unknown>): unknown[] {
-  const openrouter = metadataRecord(raw, 'openrouter') ?? {};
+  const openrouter = metadataRecord(raw, "openrouter") ?? {};
   return [
     raw.citations,
-    metadataRecord(raw, 'providerMetadata')?.citations,
-    metadataRecord(raw, 'provider_metadata')?.citations,
+    metadataRecord(raw, "providerMetadata")?.citations,
+    metadataRecord(raw, "provider_metadata")?.citations,
     openrouter.citations,
-    metadataRecord(openrouter, 'providerMetadata')?.citations,
-    metadataRecord(openrouter, 'provider_metadata')?.citations,
+    metadataRecord(openrouter, "providerMetadata")?.citations,
+    metadataRecord(openrouter, "provider_metadata")?.citations,
   ];
 }
 
-export function nestedCitations(raw: Record<string, unknown>): string[] | undefined {
+export function nestedCitations(
+  raw: Record<string, unknown>,
+): string[] | undefined {
   for (const candidate of citationCandidates(raw)) {
     const citations = stringArray(candidate);
     if (citations) {
@@ -204,8 +230,10 @@ export function nestedCitations(raw: Record<string, unknown>): string[] | undefi
   return undefined;
 }
 
-export function metadataAnnotations(raw: Record<string, unknown>): unknown[] | undefined {
-  const openrouter = metadataRecord(raw, 'openrouter');
+export function metadataAnnotations(
+  raw: Record<string, unknown>,
+): unknown[] | undefined {
+  const openrouter = metadataRecord(raw, "openrouter");
   if (Array.isArray(raw.annotations)) {
     return raw.annotations;
   }
@@ -230,13 +258,15 @@ export function evidenceFromMetadata(
   }
   acc.evidenceSeen = true;
   return {
-    type: 'evidence',
-    evidence: { provider: 'openrouter', raw, citations, annotations },
+    type: "evidence",
+    evidence: { provider: "openrouter", raw, citations, annotations },
   };
 }
 
-export function toolArguments(input: unknown): Record<string, unknown> | undefined {
-  if (input && typeof input === 'object' && !Array.isArray(input)) {
+export function toolArguments(
+  input: unknown,
+): Record<string, unknown> | undefined {
+  if (input && typeof input === "object" && !Array.isArray(input)) {
     return input as Record<string, unknown>;
   }
   if (input === undefined) {
@@ -245,19 +275,23 @@ export function toolArguments(input: unknown): Record<string, unknown> | undefin
   return { value: input };
 }
 
-export function toolResultData(output: unknown): Record<string, unknown> | undefined {
+export function toolResultData(
+  output: unknown,
+): Record<string, unknown> | undefined {
   return rawRecord(output);
 }
 
-export function rawThoughtEvent(raw: Record<string, unknown>): TurnEvent | undefined {
+export function rawThoughtEvent(
+  raw: Record<string, unknown>,
+): TurnEvent | undefined {
   const choices = raw.choices;
   if (!Array.isArray(choices)) {
     return undefined;
   }
   for (const choice of choices) {
     const delta = rawRecord(rawRecord(choice)?.delta);
-    if (typeof delta?.thinking === 'string') {
-      return { type: 'thought', text: delta.thinking };
+    if (typeof delta?.thinking === "string") {
+      return { type: "thought", text: delta.thinking };
     }
   }
   return undefined;
@@ -306,17 +340,20 @@ export function rawEvents(raw: unknown, acc: StreamAccumulator): TurnEvent[] {
     const usage = extractUsageTokens(record.usage);
     if (usage) {
       acc.emittedTokens = true;
-      events.push({ type: 'tokens', tokens: usage });
+      events.push({ type: "tokens", tokens: usage });
     }
   }
   const choices = Array.isArray(record.choices) ? record.choices : [];
   for (const choice of choices) {
     const row = rawRecord(choice);
     if (!row) continue;
-    if (typeof row.finish_reason === 'string' || row.finish_reason === null) {
+    if (typeof row.finish_reason === "string" || row.finish_reason === null) {
       acc.finishReason = row.finish_reason as string | null;
     }
-    if (typeof row.native_finish_reason === 'string' || row.native_finish_reason === null) {
+    if (
+      typeof row.native_finish_reason === "string" ||
+      row.native_finish_reason === null
+    ) {
       acc.nativeFinishReason = row.native_finish_reason as string | null;
     }
   }
@@ -329,7 +366,7 @@ export function toolCallEvent(part: {
   input?: unknown;
 }): TurnEvent {
   return {
-    type: 'tool',
+    type: "tool",
     tool: {
       name: part.toolName,
       arguments: toolArguments(part.input),
@@ -344,14 +381,16 @@ export function toolResultEvent(part: {
   input?: unknown;
   output?: unknown;
 }): TurnEvent {
-  const output = typeof part.output === 'string' ? part.output : toolResultData(part.output);
+  const output = typeof part.output === "string"
+    ? part.output
+    : toolResultData(part.output);
   return {
-    type: 'tool',
+    type: "tool",
     tool: {
       name: part.toolName,
       arguments: toolArguments(part.input),
       id: part.toolCallId,
-      phase: 'complete',
+      phase: "complete",
       output,
     },
   };
@@ -370,20 +409,23 @@ export function tokenEvent(part: {
   };
 }): TurnEvent | undefined {
   const tokens = tokensFromUsage(part.totalUsage);
-  return tokens ? { type: 'tokens', tokens } : undefined;
+  return tokens ? { type: "tokens", tokens } : undefined;
 }
 
 export function providerMetadataEvent(
   part: TextStreamPart<ToolSet>,
   acc: StreamAccumulator,
 ): TurnEvent | undefined {
-  if (!('providerMetadata' in part)) {
+  if (!("providerMetadata" in part)) {
     return undefined;
   }
   return evidenceFromMetadata(part.providerMetadata, acc);
 }
 
-export function eventFromPart(part: TextStreamPart<ToolSet>, acc: StreamAccumulator): TurnEvent[] {
+export function eventFromPart(
+  part: TextStreamPart<ToolSet>,
+  acc: StreamAccumulator,
+): TurnEvent[] {
   const mapped = primaryEventFromPart(part, acc);
   if (mapped) {
     return [mapped];
@@ -397,23 +439,23 @@ export function primaryEventFromPart(
   acc: StreamAccumulator,
 ): TurnEvent | undefined {
   switch (part.type) {
-    case 'text-delta':
+    case "text-delta":
       acc.text += part.text;
-      return { type: 'text', text: part.text };
-    case 'reasoning-delta':
-      return { type: 'thought', text: part.text };
-    case 'tool-call':
+      return { type: "text", text: part.text };
+    case "reasoning-delta":
+      return { type: "thought", text: part.text };
+    case "tool-call":
       return toolCallEvent(part);
-    case 'tool-result':
+    case "tool-result":
       return toolResultEvent(part);
-    case 'source': {
+    case "source": {
       if (acc.evidenceSeen) return undefined;
       acc.evidenceSeen = true;
       return sourceEvent(part);
     }
-    case 'finish':
+    case "finish":
       return finishEvent(part, acc);
-    case 'error':
+    case "error":
       acc.errored = true;
       return toErrorEvent(part.error);
     default:
@@ -466,11 +508,14 @@ export function* finalEvents(
       yield toErrorEvent(new TheoremError(parsed.error));
       return;
     }
-    yield { type: 'structured', structured: parsed.structured };
+    yield { type: "structured", structured: parsed.structured };
   }
   yield {
-    type: 'done',
-    stop: turnStopFromOpenAiFinishReason(acc.finishReason, acc.nativeFinishReason),
+    type: "done",
+    stop: turnStopFromOpenAiFinishReason(
+      acc.finishReason,
+      acc.nativeFinishReason,
+    ),
   };
 }
 
@@ -484,7 +529,7 @@ function createStreamContext(
     baseURL: config.baseUrl,
     headers: openAiGatewayHeaders(config),
     fetch: config.fetch,
-    compatibility: 'strict',
+    compatibility: "strict",
   });
   return {
     openrouter,
@@ -500,10 +545,10 @@ export function systemDelivery(req: ProviderCompleteRequest): {
   if (!req.system) {
     return {};
   }
-  if (req.cache?.mode === 'system') {
+  if (req.cache?.mode === "system") {
     return {
       systemMessage: {
-        role: 'system',
+        role: "system",
         content: req.system,
         providerOptions: {
           openrouter: { cacheControl: cacheControlJson(req.cache) },
@@ -538,6 +583,13 @@ function streamTextOptions(
   };
 }
 
+function shouldEmitProviderEvent(
+  req: ProviderCompleteRequest,
+  event: TurnEvent,
+): boolean {
+  return event.type !== "thought" || req.summaries !== "none";
+}
+
 async function* yieldAiSdkStream(
   req: ProviderCompleteRequest,
   acc: StreamAccumulator,
@@ -545,21 +597,27 @@ async function* yieldAiSdkStream(
 ): AsyncGenerator<TurnEvent> {
   const result = streamText(streamTextOptions(req, context));
   for await (const part of result.stream) {
-    if (part.type === 'raw') {
-      req.tapUpstream?.(rawRecord(part.rawValue) ?? { rawValue: part.rawValue });
+    if (part.type === "raw") {
+      req.tapUpstream?.(
+        rawRecord(part.rawValue) ?? { rawValue: part.rawValue },
+      );
       for (const event of rawEvents(part.rawValue, acc)) {
-        yield event;
+        if (shouldEmitProviderEvent(req, event)) {
+          yield event;
+        }
       }
       continue;
     }
     for (const event of eventFromPart(part, acc)) {
-      yield event;
+      if (shouldEmitProviderEvent(req, event)) {
+        yield event;
+      }
     }
   }
 }
 
 export function missingOpenRouterKey(): TurnEvent {
-  return toErrorEvent('missing OpenRouter API key');
+  return toErrorEvent("missing OpenRouter API key");
 }
 
 async function* streamOpenRouter(
@@ -587,9 +645,11 @@ async function* streamOpenRouter(
   }
 }
 
-export function providerOptionsFor(req: ProviderCompleteRequest): ProviderOptions | undefined {
+export function providerOptionsFor(
+  req: ProviderCompleteRequest,
+): ProviderOptions | undefined {
   const openrouter: Record<string, JsonValue> = {};
-  if (req.thinking && req.thinking !== 'none') {
+  if (req.thinking && req.thinking !== "none") {
     openrouter.reasoning = { effort: req.thinking };
   }
   const responseFormat = resolveResponseFormat(req.structured) as
@@ -598,7 +658,7 @@ export function providerOptionsFor(req: ProviderCompleteRequest): ProviderOption
   if (responseFormat) {
     openrouter.response_format = responseFormat;
   }
-  if (req.cache?.mode === 'automatic') {
+  if (req.cache?.mode === "automatic") {
     openrouter.cacheControl = cacheControlJson(req.cache);
   }
   if (req.sessionId) {
@@ -609,7 +669,9 @@ export function providerOptionsFor(req: ProviderCompleteRequest): ProviderOption
 }
 
 /** Create a `ModelProvider` backed by OpenRouter through AI SDK Core. */
-export function createOpenRouterProvider(config: OpenAiGatewayConfig = {}): ModelProvider {
+export function createOpenRouterProvider(
+  config: OpenAiGatewayConfig = {},
+): ModelProvider {
   return {
     complete: (req: ProviderCompleteRequest) => streamOpenRouter(req, config),
   };

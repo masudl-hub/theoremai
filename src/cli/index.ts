@@ -1,3 +1,11 @@
+/**
+ * Command-line entrypoint for inspecting registered profiles, running turns, and
+ * exercising the kernel's guardrail and performance tools. It reads profiles
+ * registered by the embedding host; it does not supply application profiles.
+ *
+ * @module
+ */
+
 import { benchCommand } from './commands/bench.ts';
 import { fuzzCanaryCommand } from './commands/fuzz-canary.ts';
 import { fuzzGuardrailsCommand } from './commands/fuzz-guardrails.ts';
@@ -187,6 +195,12 @@ function handleProfile(flags: ParsedFlags): void {
   showProfileCommand(id);
 }
 
+/**
+ * Runs a CLI command with supplied arguments, defaulting to `Deno.args`.
+ *
+ * Unknown or omitted commands print help. Commands that cannot continue report
+ * their error to stderr and exit with status 1.
+ */
 export async function main(cliArgs = Deno.args): Promise<void> {
   const flags = parseFlags(cliArgs);
   const command = flags._[0] || (flags.help ? 'help' : 'help');

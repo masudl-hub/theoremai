@@ -160,6 +160,7 @@ export type SessionEventKind =
   | 'working'
   | 'idle';
 
+/** Provider-neutral control signal emitted by a live session. */
 export interface SessionEvent {
   kind: SessionEventKind;
   /** Parsed drain window when the provider supplied a duration; omit when unknown. */
@@ -1058,6 +1059,7 @@ export type LiveExecuteToolArgs = {
   host?: unknown;
 };
 
+/** Outcome of executing a registry tool through an open live session. */
 export type LiveExecuteToolResult = {
   outputRaw?: unknown;
   outputModel?: ModelToolResult;
@@ -1066,6 +1068,10 @@ export type LiveExecuteToolResult = {
   gated?: ToolGate;
 };
 
+/**
+ * Open Gemini Live session returned by `runSession`. It streams events until
+ * `close()` and exposes realtime media ingress and staged tool execution.
+ */
 export interface LiveSession {
   readonly profileId: ProfileId;
   readonly canary: string;

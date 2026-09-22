@@ -51,6 +51,10 @@ import { soleModelId } from './sole-model.ts';
 
 const profiles = new Map<string, Profile>();
 
+/**
+ * Common host-authored fields for text, image, speech, and live profiles. A host
+ * profile is deliberately separate because it invokes tools without a model turn.
+ */
 export type ProfileDefinitionBase = {
   id: Profile['id'];
   identity: ProfileIdentity;
@@ -64,6 +68,7 @@ export type ProfileDefinitionBase = {
   observability?: ProfileObservabilitySpec;
 };
 
+/** Host definition for a turn-based text profile with declared tools and input media policy. */
 export type TextProfileDefinition = ProfileDefinitionBase & {
   type: 'text';
   tools: ProfileToolsSpec;
@@ -71,6 +76,7 @@ export type TextProfileDefinition = ProfileDefinitionBase & {
   turnBehaviour?: ProfileTurnBehaviourSpec;
 };
 
+/** Host definition for a turn-based image profile with declared image output constraints. */
 export type ImageProfileDefinition = ProfileDefinitionBase & {
   type: 'image';
   image: NonNullable<ImageProfile['image']>;
@@ -79,12 +85,14 @@ export type ImageProfileDefinition = ProfileDefinitionBase & {
   turnBehaviour?: ProfileTurnBehaviourSpec;
 };
 
+/** Host definition for a turn-based speech profile with declared speech output constraints. */
 export type SpeechProfileDefinition = ProfileDefinitionBase & {
   type: 'speech';
   speech: NonNullable<SpeechProfile['speech']>;
   turnBehaviour?: ProfileTurnBehaviourSpec;
 };
 
+/** Host definition for a Gemini Live profile with realtime tool and session settings. */
 export type LiveProfileDefinition = ProfileDefinitionBase & {
   type: 'live';
   live: NonNullable<LiveProfile['live']>;

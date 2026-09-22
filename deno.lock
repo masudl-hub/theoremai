@@ -1425,7 +1425,7 @@
         "npm:@biomejs/biome@^2.5.8",
         "npm:@openrouter/ai-sdk-provider@3",
         "npm:@stryker-mutator/core@10",
-        "npm:ai@7",
+        "npm:ai@^7.0.108",
         "npm:fallow@3.17.0",
         "npm:gpt-tokenizer@4"
       ]

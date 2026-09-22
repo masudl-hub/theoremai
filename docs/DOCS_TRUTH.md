@@ -2,6 +2,8 @@
 
 Deterministic document-health lint for THEOREM. No waivers. No LLM.
 
+This contract was refreshed alongside the current release branch so the docs-truth ownership graph stays aligned with the live code surface and package metadata.
+
 ## Export
 
 | Field | Value |
@@ -23,6 +25,8 @@ Deterministic document-health lint for THEOREM. No waivers. No LLM.
 | `docs/_map.mjs` | Export → doc ownership graph |
 
 ## Rules
+
+The active branch refresh keeps the docs-truth rules in sync with the runtime graph, ownership checks, and production-root enforcement used by the repo.
 
 | Rule | Behavior |
 | --- | --- |
@@ -58,6 +62,8 @@ Contracts live under `docs/contracts/` (repo-only). Module code under `src/` sta
 owned by those contracts for freshness — change code, update the matching contract.
 
 ## Production roots
+
+The current codebase refresh keeps the production-root list aligned with the actual live tree and the docs-truth validation gate used in CI.
 
 | Root | Files |
 | --- | --- |

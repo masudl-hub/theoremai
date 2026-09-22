@@ -512,8 +512,10 @@ export const MCP_PROTOCOL_VERSIONS = [
   '2025-03-26',
 ] as const;
 
+/** Streamable HTTP MCP protocol revision supported by the kernel. */
 export type McpProtocolVersion = (typeof MCP_PROTOCOL_VERSIONS)[number];
 
+/** Minimal JSON-RPC response shape consumed from an MCP server. */
 export type McpRpcResponse = {
   jsonrpc?: string;
   id?: unknown;

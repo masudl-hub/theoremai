@@ -47,7 +47,7 @@
   ],
   "dependencies": {
     "@openrouter/ai-sdk-provider": "^3.0.0",
-    "ai": "^7.0.0",
+    "ai": "^7.0.108",
     "gpt-tokenizer": "^4.0.0"
   },
   "peerDependencies": {

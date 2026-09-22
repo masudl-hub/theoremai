@@ -9,6 +9,7 @@
  * @module
  */
 
+import { TheoremError } from '../guardrails/error.ts';
 import type { TraceRecord } from './trace-record.ts';
 import type { TraceSink } from './trace-sink.ts';
 
@@ -100,6 +101,7 @@ async function pickFile(dir: string, now: number, rotateBytes: number): Promise<
  * @param optionsOrNow - Retention/rotate options, or a `now` clock (legacy)
  */
 function jsonlSink(dir: string, optionsOrNow?: JsonlSinkOptions | (() => number)): TraceSink {
+  const safeDir = validateTraceDir(dir);
   const options: JsonlSinkOptions =
     typeof optionsOrNow === 'function' ? { now: optionsOrNow } : (optionsOrNow ?? {});
   const now = options.now ?? Date.now;
@@ -108,9 +110,9 @@ function jsonlSink(dir: string, optionsOrNow?: JsonlSinkOptions | (() => number)
   return {
     write: async (record) => {
       const at = now();
-      await Deno.mkdir(dir, { recursive: true });
-      await pruneTraces(dir, at, retainForDays);
-      const path = await pickFile(dir, at, rotateBytes);
+      await Deno.mkdir(safeDir, { recursive: true });
+      await pruneTraces(safeDir, at, retainForDays);
+      const path = await pickFile(safeDir, at, rotateBytes);
       await Deno.writeTextFile(path, `${JSON.stringify(record)}\n`, { append: true });
     },
   };
@@ -127,6 +129,38 @@ function insideDir(path: string, root: string): boolean {
   return path.startsWith(`${base}/`);
 }
 
+function normalizeAbsolutePath(path: string): string {
+  const trimmed = path.trim();
+  if (!trimmed) {
+    throw new TheoremError('trace directory must be non-empty');
+  }
+  if (!trimmed.startsWith('/')) {
+    throw new TheoremError('trace directory must be absolute');
+  }
+  const parts: string[] = [];
+  for (const part of trimmed.split('/')) {
+    if (!part || part === '.') {
+      continue;
+    }
+    if (part === '..') {
+      parts.pop();
+      continue;
+    }
+    parts.push(part);
+  }
+  return `/${parts.join('/')}`;
+}
+
+/** Normalize and validate a trace directory before any filesystem operation. */
+function validateTraceDir(dir: string, cwd = Deno.cwd()): string {
+  const normalized = normalizeAbsolutePath(dir);
+  const normalizedCwd = normalizeAbsolutePath(cwd);
+  if (insideDir(normalized, normalizedCwd)) {
+    throw new TheoremError('trace directory must be outside the project checkout');
+  }
+  return normalized;
+}
+
 /** Resolve a trace directory while refusing relative paths or paths inside the clone. */
 function resolveTraceDir(args: {
   dir?: string;
@@ -141,13 +175,19 @@ function resolveTraceDir(args: {
   if (!dir) {
     return undefined;
   }
-  if (!dir.startsWith('/') || insideDir(dir, cwd)) {
+  try {
+    return validateTraceDir(dir, cwd);
+  } catch {
     dir = args.fallbackDir;
   }
-  if (!dir || insideDir(dir, cwd)) {
+  if (!dir) {
     return undefined;
   }
-  return dir;
+  try {
+    return validateTraceDir(dir, cwd);
+  } catch {
+    return undefined;
+  }
 }
 
 /** Build a JSONL sink from a host-supplied directory or return a noop sink. */
@@ -160,4 +200,12 @@ function sinkFromDir(dir?: string, fallbackDir?: string): TraceSink {
 }
 
 export type { JsonlSinkOptions };
-export { jsonlSink, memorySink, noopSink, resolveTraceDir, sinkFromDir, writeTrace };
+export {
+  jsonlSink,
+  memorySink,
+  noopSink,
+  resolveTraceDir,
+  sinkFromDir,
+  validateTraceDir,
+  writeTrace,
+};

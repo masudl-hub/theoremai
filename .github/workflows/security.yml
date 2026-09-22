@@ -1,0 +1,54 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Install Semgrep
+        run: python3 -m pip install --user semgrep==1.176.0
+
+      - name: Semgrep scan (TypeScript + secrets rulesets)
+        run: |
+          semgrep scan \
+            --config p/typescript \
+            --config p/secrets \
+            --metrics=off \
+            --error \
+            --exclude tests --exclude npm --exclude playground --exclude react --exclude tmp \
+            src mod.ts scripts
+
+  snyk:
+    runs-on: ubuntu-latest
+    env:
+      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+
+      - name: Skip without SNYK_TOKEN
+        if: env.SNYK_TOKEN == ''
+        run: echo "::notice::SNYK_TOKEN is not configured; Snyk dependency scan skipped."
+
+      - name: Snyk dependency scan
+        if: env.SNYK_TOKEN != ''
+        run: npx --yes snyk@1.1307.3 test --file=package-lock.json --severity-threshold=high

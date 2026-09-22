@@ -76,9 +76,11 @@ function sanitizeSlots(
   return out;
 }
 
+/** Maximum length retained for a sanitized host project identifier. */
 const PROJECT_ID_MAX = 128;
 const PROJECT_ID_OK = /^[A-Za-z0-9._-]+$/;
 
+/** Trims and validates a project identifier, returning undefined for invalid input. */
 function sanitizeProjectId(id: string | undefined): string | undefined {
   if (!id) {
     return undefined;

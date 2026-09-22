@@ -117,8 +117,6 @@ for await (const event of runTurn(request, provider, jsonlSink(hostTraceDir))) {
 | `noopSink()` | Drop records (default when omitted and no profile writeTo) |
 | `memorySink(into)` | Append `TraceRecord`s to a caller-owned array |
 | `jsonlSink(dir, options?)` | Daily rotating JSONL under a host-chosen directory |
-| `sinkFromDir(dir)` | Resolve a directory sink helper |
-| `resolveTraceDir(...)` | Path helper for hosts assembling a trace root |
 | `TraceSink.onError` | Optional hook for build/write failures (never fails the turn) |
 
 `jsonlSink` writes `turns-YYYY-MM-DD.jsonl`, rotates around `rotateAfterMiB`
@@ -203,7 +201,6 @@ does not silently inherit a turn-path `redactSensitive: false`.
 | `ProfileObservabilitySpec`, `TraceIncludeSpec`, `TraceScrubSpec` | type |
 | `ResolvedObservabilityPolicy`, `ResolvedTraceInclude`, `ResolvedTraceScrub` | type |
 | `jsonlSink`, `memorySink`, `noopSink` | function |
-| `resolveTraceDir`, `sinkFromDir` | function |
 | `writeTrace` | function |
 | `registerTraceDestination`, `jsonlDestination`, `requireTraceDestination`, `getTraceDestination` | function |
 | `listTraceDestinationIds`, `clearTraceDestinations` | function |

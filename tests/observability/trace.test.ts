@@ -2,13 +2,7 @@ import '../fixtures/test-host.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { runTurn } from '../../src/kernel/engine/runner.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
-import {
-  jsonlSink,
-  memorySink,
-  noopSink,
-  resolveTraceDir,
-  sinkFromDir,
-} from '../../src/observability/trace.ts';
+import { jsonlSink, memorySink, noopSink } from '../../src/observability/trace.ts';
 import type { TraceRecord } from '../../src/observability/trace-record.ts';
 
 function stubRecord(): TraceRecord {
@@ -151,11 +145,6 @@ Deno.test('runTurn forwards Interactions state controls and preserves host metad
   });
 });
 
-Deno.test('sinkFromDir is a noop when trace dir is empty', async () => {
-  const sink = sinkFromDir('');
-  await sink.write(stubRecord());
-});
-
 Deno.test('jsonlSink rejects unsafe trace directories before filesystem access', () => {
   assertThrows(() => jsonlSink('traces'), Error, 'absolute');
   assertThrows(() => jsonlSink(`${Deno.cwd()}/traces`), Error, 'outside');
@@ -168,25 +157,6 @@ Deno.test('jsonlSink rejects unsafe trace directories before filesystem access',
 
 Deno.test('noopSink drops traces without filesystem access', async () => {
   await noopSink().write(stubRecord());
-});
-
-Deno.test('trace dir never resolves inside the clone', () => {
-  assertEquals(
-    resolveTraceDir({
-      dir: './theorem/traces',
-      fallbackDir: '/Users/me/.local/share/theorem/traces',
-      cwd: '/Users/me/Development/host-app',
-    }),
-    '/Users/me/.local/share/theorem/traces',
-  );
-  assertEquals(
-    resolveTraceDir({
-      dir: '/app/theorem/traces',
-      fallbackDir: '/var/lib/theorem-traces',
-      cwd: '/app',
-    }),
-    '/var/lib/theorem-traces',
-  );
 });
 
 Deno.test('jsonl sink writes a day file and drops stale turns', async () => {
@@ -403,16 +373,4 @@ Deno.test('writeTrace swallows sink failures safely', async () => {
   await writeTrace(failingSink, Promise.resolve(stubRecord()));
   assertEquals(seen.length, 1);
   assertEquals(seen[0] instanceof Error && (seen[0] as Error).message, 'Disk full');
-});
-
-Deno.test('resolveTraceDir rejects missing and identical directory roots', () => {
-  assertEquals(resolveTraceDir({ cwd: '/app' }), undefined);
-  assertEquals(
-    resolveTraceDir({
-      dir: '/app/traces',
-      fallbackDir: '/fallback/traces',
-      cwd: '/app/traces/',
-    }),
-    '/fallback/traces',
-  );
 });

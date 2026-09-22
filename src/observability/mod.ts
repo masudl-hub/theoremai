@@ -29,8 +29,6 @@ export {
   jsonlSink,
   memorySink,
   noopSink,
-  resolveTraceDir,
-  sinkFromDir,
   writeTrace,
 } from './trace.ts';
 export type { TraceRecord } from './trace-record.ts';

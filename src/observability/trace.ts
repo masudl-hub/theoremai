@@ -152,60 +152,14 @@ function normalizeAbsolutePath(path: string): string {
 }
 
 /** Normalize and validate a trace directory before any filesystem operation. */
-function validateTraceDir(dir: string, cwd = Deno.cwd()): string {
+function validateTraceDir(dir: string): string {
   const normalized = normalizeAbsolutePath(dir);
-  const normalizedCwd = normalizeAbsolutePath(cwd);
+  const normalizedCwd = normalizeAbsolutePath(Deno.cwd());
   if (insideDir(normalized, normalizedCwd)) {
     throw new TheoremError('trace directory must be outside the project checkout');
   }
   return normalized;
 }
 
-/** Resolve a trace directory while refusing relative paths or paths inside the clone. */
-function resolveTraceDir(args: {
-  dir?: string;
-  fallbackDir?: string;
-  cwd?: string;
-}): string | undefined {
-  const cwd = args.cwd ?? Deno.cwd();
-  if (args.dir === '') {
-    return undefined;
-  }
-  let dir = args.dir?.trim() || args.fallbackDir;
-  if (!dir) {
-    return undefined;
-  }
-  try {
-    return validateTraceDir(dir, cwd);
-  } catch {
-    dir = args.fallbackDir;
-  }
-  if (!dir) {
-    return undefined;
-  }
-  try {
-    return validateTraceDir(dir, cwd);
-  } catch {
-    return undefined;
-  }
-}
-
-/** Build a JSONL sink from a host-supplied directory or return a noop sink. */
-function sinkFromDir(dir?: string, fallbackDir?: string): TraceSink {
-  const resolved = resolveTraceDir({ dir, fallbackDir });
-  if (!resolved) {
-    return noopSink();
-  }
-  return jsonlSink(resolved);
-}
-
 export type { JsonlSinkOptions };
-export {
-  jsonlSink,
-  memorySink,
-  noopSink,
-  resolveTraceDir,
-  sinkFromDir,
-  validateTraceDir,
-  writeTrace,
-};
+export { jsonlSink, memorySink, noopSink, validateTraceDir, writeTrace };

@@ -425,9 +425,7 @@ export {
   registerTraceDestination,
   requireTraceDestination,
   resolveObservabilityPolicy,
-  resolveTraceDir,
   resolveTraceWriter,
-  sinkFromDir,
   writeTrace,
 } from './src/observability/mod.ts';
 export * from './src/presets/mod.ts';

@@ -871,7 +871,7 @@ several ways:
 | :--- | :--- | :--- |
 | Adversarial corpus | Inbound injection payloads and secret shapes, shipped for hosts to reuse | `src/guardrails/corpus/`, `@theoremai/agents/guardrails/testing` |
 | Fuzzing | Randomized guardrail and canary inputs through the CLI harness | `tests/cli/fuzz-guardrails.test.ts`, `tests/cli/fuzz-canary.test.ts` |
-| Mutation testing | Stryker mutates guardrail and tool code and requires the suite to kill the mutants (break threshold 75% for guardrails). merges to `main` mutate the files they change; a manually triggered sweep covers everything | `.github/workflows/mutation.yml`, `stryker.guardrails.config.json`, `stryker.tools.config.json` |
+| Mutation testing | Stryker mutates guardrail and tool code and requires the suite to kill the mutants (break threshold 75% for guardrails). merges to `main` mutate the files they change; a weekly sweep covers everything | `.github/workflows/mutation.yml`, `stryker.guardrails.config.json`, `stryker.tools.config.json` |
 | Static analysis | Semgrep TypeScript + secrets rulesets over `src/`, `mod.ts`, and `scripts/` | `.github/workflows/security.yml` |
 | Dependency and code scanning | Snyk Open Source over every lockfile (dev dependencies included, medium severity and up), Snyk Code static analysis, and continuous monitoring of `main` | `.github/workflows/security.yml`, `.snyk` |
 | Zero-permission import | The kernel constructs with every Deno permission denied | `tests/kernel/zero-permission-import.test.ts` |
@@ -1061,7 +1061,7 @@ npx stryker run stryker.guardrails.config.json --mutate src/guardrails/canary.ts
 
 The full guardrails sweep is about 4,600 mutants and takes over an hour on one machine, so
 mutate the files you touched locally before pushing. Merges to `main` rerun Stryker on the
-changed files, and the full sweep runs on demand with `gh workflow run mutation.yml --ref main`.
+changed files, and the full sweep runs weekly or on demand with `gh workflow run mutation.yml --ref main`.
 
 Run the packaged CLI locally:
 

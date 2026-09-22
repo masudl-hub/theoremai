@@ -3,7 +3,8 @@ name: Mutation
 # Stryker's command runner reruns the Deno suite once per mutant (~1s each), so the
 # guardrails config (~4.6k mutants) would take well over an hour in one job.
 # Mutate locally before pushing. A merge to main mutates only the changed files
-# each config covers; the full sweep runs on demand, sharded across parallel jobs.
+# each config covers; the weekly (or on-demand) sweep shards the full run across
+# parallel jobs.
 
 on:
   push:
@@ -15,6 +16,8 @@ on:
       - 'src/providers/google/interactions/stream.ts'
       - 'stryker.*.json'
       - '.github/workflows/mutation.yml'
+  schedule:
+    - cron: '41 5 * * 0'
   workflow_dispatch:
 
 permissions:
@@ -98,7 +101,7 @@ jobs:
           retention-days: 14
 
   sweep:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:

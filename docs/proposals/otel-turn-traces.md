@@ -243,6 +243,12 @@ estimator.messages(history);                    // what compaction uses today
 - **Behavior change the agent can notice:** where old history is cut short and how much history a proactive wake keeps now follow real token counts. For English text this is close to today; emoji, other languages and code count more accurately. Nothing else changes.
 - Not in scope: the `TEXT_TRUNCATE_TOKENS` (10,000) and `PROACTIVE_LIVE_TOKEN_BUDGET` limits themselves. They are flagged for a separate review.
 
+## Re-check after main merge (22/09/2026, 29e81c9)
+
+- The cited files changed mostly by the Theorum → Theorem rename; the line references still hold.
+- **New: OpenRouter drops thought events when `summaries: 'none'`** (`providers/openrouter/chat.ts`, `shouldEmitProviderEvent`). The trace then has no reasoning *text*, but `gen_ai.usage.reasoning.output_tokens` still comes from provider usage. Contract test: reasoning count present, thought text absent, under `summaries: 'none'`.
+- **New: `validateTraceDir`** rejects trace directories inside the project checkout. The main path (`registerTraceDestination` / `jsonlDestination`) throws at startup. The optional helpers `resolveTraceDir` / `sinkFromDir` instead fell back silently to a second directory or to discarding traces. **J (locked): deleted** in this branch, along with their exports, tests and doc rows, so a bad trace directory fails at startup on the one remaining path.
+
 ## Decisions (locked 22/09/2026, round 2)
 
 - **A. Collector.** Theorem ships only `toOtlpJson` (no encoder dependency). Getting data into a viewer goes through the standard OpenTelemetry Collector (OTLP/JSON in, protobuf out). Theorem documents a reference Collector config. The host owns running it: for Bonsai that's local dev tooling in the Bonsai repo, not Theorem.
@@ -272,5 +278,5 @@ Every Theorem-side item was re-read for Bonsai assumptions:
 - **H. Retention.** The default is unlimited; it's configurable through Theorem's existing trace retention setting. Each row stores `retain_until`, computed at write time from that setting (null = keep forever). A `pg_cron` job deletes rows past `retain_until`, so the job decides nothing itself and the setting has one owner. The profile cascade still deletes traces whenever the account goes.
   - **Survey finding (verified):** today `retainForDays` applies only to the JSONL destination (`src/observability/types.ts:82`). It is a required number, so there is no way to say "keep forever", and the default of 14 is defined twice (`resolve-policy.ts:18`, `trace.ts:16`), which is drift.
   - **Fix in this change:** one default constant. The resolved retention is passed to every destination, including a host `TraceSink`, so the Supabase sink reads the same setting the JSONL writer does.
-  - **I-1 (locked):** `retainForDays: null` means keep forever. The type becomes `number | null`; `0` and negative numbers are rejected at profile validation.
-  - **I-2 (locked):** Theorem's default stays 14 days. Bonsai's profiles declare `retainForDays: null`.
+  - **I-1 (locked):** `retainForDays <= 0` means keep forever, matching `maxSteps` (`src/kernel/schema.ts:659`: "<=0 unbounded"). It stays a plain `number`; the Supabase sink writes `retain_until` null for any value <= 0.
+  - **I-2 (locked):** Theorem's default stays 14 days. Bonsai's profiles declare `retainForDays: 0`. Known difference from `maxSteps`: leaving `maxSteps` out means unbounded, while leaving `retainForDays` out means 14 days.

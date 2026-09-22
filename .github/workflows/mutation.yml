@@ -2,11 +2,11 @@ name: Mutation
 
 # Stryker's command runner reruns the Deno suite once per mutant (~1s each), so the
 # guardrails config (~4.6k mutants) would take well over an hour in one job.
-# PRs mutate only the changed files each config covers; the weekly sweep shards
-# the full run across parallel jobs.
+# Mutate locally before pushing. A merge to main mutates only the changed files
+# each config covers; the full sweep runs on demand, sharded across parallel jobs.
 
 on:
-  pull_request:
+  push:
     branches: [main]
     paths:
       - 'src/guardrails/**'
@@ -15,8 +15,6 @@ on:
       - 'src/providers/google/interactions/stream.ts'
       - 'stryker.*.json'
       - '.github/workflows/mutation.yml'
-  schedule:
-    - cron: '41 5 * * 0'
   workflow_dispatch:
 
 permissions:
@@ -28,7 +26,7 @@ concurrency:
 
 jobs:
   changed:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
@@ -51,11 +49,11 @@ jobs:
       - name: Pick files to mutate
         id: scope
         env:
-          BASE: ${{ github.event.pull_request.base.sha }}
+          BASE: ${{ github.event.before }}
           FILES: ${{ matrix.files }}
           EXCLUDE: ${{ matrix.exclude }}
         run: |
-          changed=$(git diff --name-only --diff-filter=AMR "$BASE"...HEAD \
+          changed=$(git diff --name-only --diff-filter=AMR "$BASE" HEAD \
             | grep -E "$FILES" | grep -Ev "$EXCLUDE" | paste -sd, - || true)
           if [ -z "$changed" ]; then
             echo "::notice::No ${{ matrix.config }} source files changed; mutation run skipped."
@@ -100,7 +98,7 @@ jobs:
           retention-days: 14
 
   sweep:
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:

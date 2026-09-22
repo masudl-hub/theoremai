@@ -16,13 +16,11 @@
 	},
 	"dependencies": {
 		"@tabler/icons-react": "^3.46.0",
-		"dompurify": "^3.4.15",
 		"isomorphic-dompurify": "^4.3.0",
 		"marked": "^18.0.12"
 	},
 	"devDependencies": {
 		"@theoremai/agents": "file:..",
-		"@types/dompurify": "^3.0.5",
 		"@types/react": "^19.0.0",
 		"@types/react-dom": "^19.0.0",
 		"react": "^19.0.0",

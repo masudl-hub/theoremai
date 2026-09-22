@@ -30,7 +30,6 @@ import { runTurn } from "../src/kernel/engine/runner.ts";
 import {
   defineProfile,
   getProfile,
-  type ProfileDefinition,
   registerProfile,
   type TextProfileDefinition,
 } from "../src/kernel/registry/profiles.ts";

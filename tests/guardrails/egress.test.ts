@@ -238,13 +238,8 @@ Deno.test('runEnforcer fails closed for incomplete canonical verdicts', async ()
     );
     assertEquals(verdict.action, 'block');
     if (verdict.action === 'block') {
-      assertEquals(verdict.hits, [
-        { rule: EGRESS_RULES.enforcerError, severity: 'high' },
-      ]);
-      assertEquals(
-        verdict.rejection,
-        'Egress policy returned an invalid verdict shape',
-      );
+      assertEquals(verdict.hits, [{ rule: EGRESS_RULES.enforcerError, severity: 'high' }]);
+      assertEquals(verdict.rejection, 'Egress policy returned an invalid verdict shape');
     }
   }
 });
@@ -258,36 +253,42 @@ Deno.test('runEnforcer normalizes legacy verdicts without trusting malformed fie
     );
 
   assertEquals(await runLegacy({ blocked: false }), { action: 'allow' });
-  assertEquals(await runLegacy({
-    blocked: true,
-    text: 'Safe refusal',
-    rejectionMessage: 'blocked',
-    hits: [
-      'legacy.string',
-      { rule: 'legacy.object', severity: 'low' },
-      { rule: 'legacy.default-severity', severity: 'invalid' },
-      null,
-    ],
-  }), {
-    action: 'block',
-    hits: [
-      { rule: 'legacy.string', severity: 'high' },
-      { rule: 'legacy.object', severity: 'low' },
-      { rule: 'legacy.default-severity', severity: 'high' },
-    ],
-    rejection: 'blocked',
-    refusal: 'Safe refusal',
-  });
-  assertEquals(await runLegacy({
-    blocked: true,
-    text: '   ',
-    rejectionMessage: '   ',
-    hits: 'not-an-array',
-  }), {
-    action: 'block',
-    hits: [{ rule: EGRESS_RULES.enforcerError, severity: 'high' }],
-    rejection: 'Egress blocked',
-  });
+  assertEquals(
+    await runLegacy({
+      blocked: true,
+      text: 'Safe refusal',
+      rejectionMessage: 'blocked',
+      hits: [
+        'legacy.string',
+        { rule: 'legacy.object', severity: 'low' },
+        { rule: 'legacy.default-severity', severity: 'invalid' },
+        null,
+      ],
+    }),
+    {
+      action: 'block',
+      hits: [
+        { rule: 'legacy.string', severity: 'high' },
+        { rule: 'legacy.object', severity: 'low' },
+        { rule: 'legacy.default-severity', severity: 'high' },
+      ],
+      rejection: 'blocked',
+      refusal: 'Safe refusal',
+    },
+  );
+  assertEquals(
+    await runLegacy({
+      blocked: true,
+      text: '   ',
+      rejectionMessage: '   ',
+      hits: 'not-an-array',
+    }),
+    {
+      action: 'block',
+      hits: [{ rule: EGRESS_RULES.enforcerError, severity: 'high' }],
+      rejection: 'Egress blocked',
+    },
+  );
   assertEquals(await runLegacy({ blocked: true, hits: [] }), {
     action: 'block',
     hits: [{ rule: EGRESS_RULES.enforcerError, severity: 'high' }],
@@ -315,11 +316,7 @@ Deno.test('runEnforcer preserves complete canonical verdict variants', async () 
     },
   ];
   for (const expected of verdicts) {
-    const actual = await runEnforcer(
-      () => expected,
-      { text: 'untrusted output' },
-      egressCtx(),
-    );
+    const actual = await runEnforcer(() => expected, { text: 'untrusted output' }, egressCtx());
     assertEquals(actual, expected);
   }
 });

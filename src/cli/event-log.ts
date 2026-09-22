@@ -83,7 +83,9 @@ function printRunEvent(event: TurnEvent, options: CliEventLogOptions = {}): void
   } else if (event.type === 'text' && event.text) {
     Deno.stdout.write(new TextEncoder().encode(event.text));
   } else if (event.type === 'tool' && event.tool) {
-    Deno.stdout.write(new TextEncoder().encode(`\n\x1b[33m⚡ [Tool Call] ${event.tool.name}\x1b[0m: `));
+    Deno.stdout.write(
+      new TextEncoder().encode(`\n\x1b[33m⚡ [Tool Call] ${event.tool.name}\x1b[0m: `),
+    );
     console.log(event.tool.arguments);
   } else if (event.type === 'evidence') {
     printRunEvidence(event, verbose);

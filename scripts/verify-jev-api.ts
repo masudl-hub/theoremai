@@ -26,8 +26,8 @@ type JsonValue =
   | null
   | JsonValue[]
   | {
-    [key: string]: JsonValue;
-  };
+      [key: string]: JsonValue;
+    };
 type RecordValue = Record<string, unknown>;
 
 interface ProbeSummary {
@@ -50,7 +50,7 @@ function hasFlag(flag: string): boolean {
 }
 
 function write(stream: typeof Deno.stdout, message: string): void {
-  const text = message.endsWith("\n") ? message.slice(0, -1) : message;
+  const text = message.endsWith('\n') ? message.slice(0, -1) : message;
   if (stream === Deno.stderr) {
     console.error(text);
     return;
@@ -64,7 +64,7 @@ function fail(message: string): never {
 }
 
 function isRecord(value: unknown): value is RecordValue {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function requireRecord(value: unknown, path: string): RecordValue {
@@ -73,39 +73,27 @@ function requireRecord(value: unknown, path: string): RecordValue {
 }
 
 function requireString(value: unknown, path: string): string {
-  if (typeof value !== "string" || value.length === 0) {
+  if (typeof value !== 'string' || value.length === 0) {
     fail(`${path} must be a non-empty string`);
   }
   return value;
 }
 
-function requireFinite(
-  value: unknown,
-  path: string,
-  min: number,
-  max: number,
-): number {
-  if (
-    typeof value !== "number" || !Number.isFinite(value) || value < min ||
-    value > max
-  ) {
+function requireFinite(value: unknown, path: string, min: number, max: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max) {
     fail(`${path} must be a finite number in [${min}, ${max}]`);
   }
   return value;
 }
 
 function requireTokenCount(value: unknown, path: string): number {
-  if (!Number.isInteger(value) || typeof value !== "number" || value < 0) {
+  if (!Number.isInteger(value) || typeof value !== 'number' || value < 0) {
     fail(`${path} must be a non-negative integer`);
   }
   return value;
 }
 
-function requireExactKeys(
-  value: RecordValue,
-  expected: readonly string[],
-  path: string,
-): void {
+function requireExactKeys(value: RecordValue, expected: readonly string[], path: string): void {
   const actual = Object.keys(value).sort();
   const sortedExpected = [...expected].sort();
   if (
@@ -116,16 +104,11 @@ function requireExactKeys(
   }
 }
 
-function requireDistribution(
-  value: unknown,
-  keys: readonly string[],
-  path: string,
-): void {
+function requireDistribution(value: unknown, keys: readonly string[], path: string): void {
   const distribution = requireRecord(value, path);
   requireExactKeys(distribution, keys, path);
   const sum = keys.reduce(
-    (total, key) =>
-      total + requireFinite(distribution[key], `${path}.${key}`, 0, 1),
+    (total, key) => total + requireFinite(distribution[key], `${path}.${key}`, 0, 1),
     0,
   );
   if (Math.abs(sum - 1) > 0.001) {
@@ -139,194 +122,133 @@ function validateCommonResult(raw: unknown): {
   inputTokens: number;
   outputTokens: number;
 } {
-  const result = requireRecord(raw, "response");
-  const model = requireString(result.model, "response.model");
-  const usage = requireRecord(result.usage, "response.usage");
+  const result = requireRecord(raw, 'response');
+  const model = requireString(result.model, 'response.model');
+  const usage = requireRecord(result.usage, 'response.usage');
   return {
     result,
     model,
-    inputTokens: requireTokenCount(
-      usage.input_tokens,
-      "response.usage.input_tokens",
-    ),
-    outputTokens: requireTokenCount(
-      usage.output_tokens,
-      "response.usage.output_tokens",
-    ),
+    inputTokens: requireTokenCount(usage.input_tokens, 'response.usage.input_tokens'),
+    outputTokens: requireTokenCount(usage.output_tokens, 'response.usage.output_tokens'),
   };
 }
 
 function validatePrimitiveAnswers(raw: unknown): string[] {
   const { result } = validateCommonResult(raw);
-  const answers = requireRecord(result.answers, "response.answers");
-  requireExactKeys(answers, ["route", "proceed", "risk"], "response.answers");
+  const answers = requireRecord(result.answers, 'response.answers');
+  requireExactKeys(answers, ['route', 'proceed', 'risk'], 'response.answers');
 
-  const route = requireRecord(answers.route, "response.answers.route");
-  if (route.type !== "choice") {
-    fail("response.answers.route.type must be choice");
+  const route = requireRecord(answers.route, 'response.answers.route');
+  if (route.type !== 'choice') {
+    fail('response.answers.route.type must be choice');
   }
-  const routeLabels = ["implementation", "research", "clarify"] as const;
-  const choice = requireString(route.choice, "response.answers.route.choice");
+  const routeLabels = ['implementation', 'research', 'clarify'] as const;
+  const choice = requireString(route.choice, 'response.answers.route.choice');
   if (!routeLabels.includes(choice as (typeof routeLabels)[number])) {
-    fail("response.answers.route.choice is not a declared label");
+    fail('response.answers.route.choice is not a declared label');
   }
-  requireFinite(route.confidence, "response.answers.route.confidence", 0, 1);
-  requireDistribution(
-    route.probabilities,
-    routeLabels,
-    "response.answers.route.probabilities",
-  );
+  requireFinite(route.confidence, 'response.answers.route.confidence', 0, 1);
+  requireDistribution(route.probabilities, routeLabels, 'response.answers.route.probabilities');
 
-  const proceed = requireRecord(answers.proceed, "response.answers.proceed");
-  if (proceed.type !== "noul") {
-    fail("response.answers.proceed.type must be noul");
+  const proceed = requireRecord(answers.proceed, 'response.answers.proceed');
+  if (proceed.type !== 'noul') {
+    fail('response.answers.proceed.type must be noul');
   }
-  requireFinite(proceed.noul, "response.answers.proceed.noul", 0, 1);
+  requireFinite(proceed.noul, 'response.answers.proceed.noul', 0, 1);
 
-  const risk = requireRecord(answers.risk, "response.answers.risk");
-  if (risk.type !== "score") fail("response.answers.risk.type must be score");
-  requireFinite(risk.score, "response.answers.risk.score", 0, 2);
-  requireFinite(risk.confidence, "response.answers.risk.confidence", 0, 1);
+  const risk = requireRecord(answers.risk, 'response.answers.risk');
+  if (risk.type !== 'score') fail('response.answers.risk.type must be score');
+  requireFinite(risk.score, 'response.answers.risk.score', 0, 2);
+  requireFinite(risk.confidence, 'response.answers.risk.confidence', 0, 1);
   requireExactKeys(
-    requireRecord(risk.legend, "response.answers.risk.legend"),
-    ["0", "1", "2"],
-    "response.answers.risk.legend",
+    requireRecord(risk.legend, 'response.answers.risk.legend'),
+    ['0', '1', '2'],
+    'response.answers.risk.legend',
   );
-  requireDistribution(
-    risk.probabilities,
-    ["0", "1", "2"],
-    "response.answers.risk.probabilities",
-  );
+  requireDistribution(risk.probabilities, ['0', '1', '2'], 'response.answers.risk.probabilities');
 
   return [
-    "all declared questions are returned",
-    "choice labels and distributions match the request",
-    "noul is a bounded probability",
-    "score permits a bounded fractional result with a numeric distribution",
+    'all declared questions are returned',
+    'choice labels and distributions match the request',
+    'noul is a bounded probability',
+    'score permits a bounded fractional result with a numeric distribution',
   ];
 }
 
 function validateStructuredEntryAnswers(raw: unknown): string[] {
   const { result } = validateCommonResult(raw);
-  const answers = requireRecord(result.answers, "response.answers");
-  requireExactKeys(answers, ["policyMatch"], "response.answers");
-  const answer = requireRecord(
-    answers.policyMatch,
-    "response.answers.policyMatch",
-  );
-  if (answer.type !== "noul") {
-    fail("response.answers.policyMatch.type must be noul");
+  const answers = requireRecord(result.answers, 'response.answers');
+  requireExactKeys(answers, ['policyMatch'], 'response.answers');
+  const answer = requireRecord(answers.policyMatch, 'response.answers.policyMatch');
+  if (answer.type !== 'noul') {
+    fail('response.answers.policyMatch.type must be noul');
   }
-  requireFinite(answer.noul, "response.answers.policyMatch.noul", 0, 1);
-  return [
-    "JSON object state and structured instruction/criteria entries are accepted",
-  ];
+  requireFinite(answer.noul, 'response.answers.policyMatch.noul', 0, 1);
+  return ['JSON object state and structured instruction/criteria entries are accepted'];
 }
 
 function validateUseCaseAnswers(raw: unknown): string[] {
   const { result } = validateCommonResult(raw);
-  const answers = requireRecord(result.answers, "response.answers");
-  requireExactKeys(
-    answers,
-    ["actionRisk", "nextAction", "requiresHuman"],
-    "response.answers",
-  );
+  const answers = requireRecord(result.answers, 'response.answers');
+  requireExactKeys(answers, ['actionRisk', 'nextAction', 'requiresHuman'], 'response.answers');
 
-  const nextAction = requireRecord(
-    answers.nextAction,
-    "response.answers.nextAction",
-  );
-  if (nextAction.type !== "choice") {
-    fail("response.answers.nextAction.type must be choice");
+  const nextAction = requireRecord(answers.nextAction, 'response.answers.nextAction');
+  if (nextAction.type !== 'choice') {
+    fail('response.answers.nextAction.type must be choice');
   }
-  const labels = ["ask_user", "implement", "research"] as const;
-  const choice = requireString(
-    nextAction.choice,
-    "response.answers.nextAction.choice",
-  );
+  const labels = ['ask_user', 'implement', 'research'] as const;
+  const choice = requireString(nextAction.choice, 'response.answers.nextAction.choice');
   if (!labels.includes(choice as (typeof labels)[number])) {
-    fail("response.answers.nextAction.choice is not a declared label");
+    fail('response.answers.nextAction.choice is not a declared label');
   }
-  requireFinite(
-    nextAction.confidence,
-    "response.answers.nextAction.confidence",
-    0,
-    1,
-  );
+  requireFinite(nextAction.confidence, 'response.answers.nextAction.confidence', 0, 1);
   requireDistribution(
     nextAction.probabilities,
     labels,
-    "response.answers.nextAction.probabilities",
+    'response.answers.nextAction.probabilities',
   );
 
-  const requiresHuman = requireRecord(
-    answers.requiresHuman,
-    "response.answers.requiresHuman",
-  );
-  if (requiresHuman.type !== "noul") {
-    fail("response.answers.requiresHuman.type must be noul");
+  const requiresHuman = requireRecord(answers.requiresHuman, 'response.answers.requiresHuman');
+  if (requiresHuman.type !== 'noul') {
+    fail('response.answers.requiresHuman.type must be noul');
   }
-  requireFinite(
-    requiresHuman.noul,
-    "response.answers.requiresHuman.noul",
-    0,
-    1,
-  );
+  requireFinite(requiresHuman.noul, 'response.answers.requiresHuman.noul', 0, 1);
 
-  const actionRisk = requireRecord(
-    answers.actionRisk,
-    "response.answers.actionRisk",
-  );
-  if (actionRisk.type !== "score") {
-    fail("response.answers.actionRisk.type must be score");
+  const actionRisk = requireRecord(answers.actionRisk, 'response.answers.actionRisk');
+  if (actionRisk.type !== 'score') {
+    fail('response.answers.actionRisk.type must be score');
   }
-  requireFinite(actionRisk.score, "response.answers.actionRisk.score", 0, 2);
-  requireFinite(
-    actionRisk.confidence,
-    "response.answers.actionRisk.confidence",
-    0,
-    1,
-  );
+  requireFinite(actionRisk.score, 'response.answers.actionRisk.score', 0, 2);
+  requireFinite(actionRisk.confidence, 'response.answers.actionRisk.confidence', 0, 1);
   requireDistribution(
     actionRisk.probabilities,
-    ["0", "1", "2"],
-    "response.answers.actionRisk.probabilities",
+    ['0', '1', '2'],
+    'response.answers.actionRisk.probabilities',
   );
 
-  return ["workflow decision answers conform to the declared contract"];
+  return ['workflow decision answers conform to the declared contract'];
 }
 
 function useCaseObservations(raw: unknown): string[] {
   const { result } = validateCommonResult(raw);
-  const answers = requireRecord(result.answers, "response.answers");
-  const nextAction = requireRecord(
-    answers.nextAction,
-    "response.answers.nextAction",
-  );
-  const requiresHuman = requireRecord(
-    answers.requiresHuman,
-    "response.answers.requiresHuman",
-  );
-  const actionRisk = requireRecord(
-    answers.actionRisk,
-    "response.answers.actionRisk",
-  );
+  const answers = requireRecord(result.answers, 'response.answers');
+  const nextAction = requireRecord(answers.nextAction, 'response.answers.nextAction');
+  const requiresHuman = requireRecord(answers.requiresHuman, 'response.answers.requiresHuman');
+  const actionRisk = requireRecord(answers.actionRisk, 'response.answers.actionRisk');
   return [
-    `selected action: ${
-      requireString(nextAction.choice, "response.answers.nextAction.choice")
-    }`,
-    `human-review probability: ${
-      requireFinite(
-        requiresHuman.noul,
-        "response.answers.requiresHuman.noul",
-        0,
-        1,
-      ).toFixed(3)
-    }`,
-    `risk score: ${
-      requireFinite(actionRisk.score, "response.answers.actionRisk.score", 0, 2)
-        .toFixed(3)
-    }`,
+    `selected action: ${requireString(nextAction.choice, 'response.answers.nextAction.choice')}`,
+    `human-review probability: ${requireFinite(
+      requiresHuman.noul,
+      'response.answers.requiresHuman.noul',
+      0,
+      1,
+    ).toFixed(3)}`,
+    `risk score: ${requireFinite(
+      actionRisk.score,
+      'response.answers.actionRisk.score',
+      0,
+      2,
+    ).toFixed(3)}`,
   ];
 }
 
@@ -342,19 +264,20 @@ async function request(
   let response: Response;
   try {
     response = await fetch(`${context.baseUrl}/v1/systemone`, {
-      method: "POST",
+      method: 'POST',
       headers: {
         Authorization: `Bearer ${context.apiKey}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
       },
       body: JSON.stringify(body),
       signal: controller.signal,
     });
   } catch (error) {
-    const message = error instanceof Error && error.name === "AbortError"
-      ? `request timed out after ${context.timeoutMs}ms`
-      : "network request failed";
+    const message =
+      error instanceof Error && error.name === 'AbortError'
+        ? `request timed out after ${context.timeoutMs}ms`
+        : 'network request failed';
     fail(`${name}: ${message}`);
   } finally {
     clearTimeout(timeout);
@@ -376,7 +299,7 @@ async function request(
   return {
     name,
     model: common.model,
-    requestId: response.headers.get("x-request-id") ?? undefined,
+    requestId: response.headers.get('x-request-id') ?? undefined,
     inputTokens: common.inputTokens,
     outputTokens: common.outputTokens,
     assertions: validate(raw),
@@ -394,19 +317,20 @@ async function expectRejectedRequest(
   let response: Response;
   try {
     response = await fetch(`${context.baseUrl}/v1/systemone`, {
-      method: "POST",
+      method: 'POST',
       headers: {
         Authorization: `Bearer ${context.apiKey}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
       },
       body: JSON.stringify(body),
       signal: controller.signal,
     });
   } catch (error) {
-    const message = error instanceof Error && error.name === "AbortError"
-      ? `request timed out after ${context.timeoutMs}ms`
-      : "network request failed";
+    const message =
+      error instanceof Error && error.name === 'AbortError'
+        ? `request timed out after ${context.timeoutMs}ms`
+        : 'network request failed';
     fail(`${name}: ${message}`);
   } finally {
     clearTimeout(timeout);
@@ -415,17 +339,16 @@ async function expectRejectedRequest(
   return `request is rejected with HTTP ${response.status}`;
 }
 
-const apiKey = Deno.env.get("TYPESAFE_API_KEY");
+const apiKey = Deno.env.get('TYPESAFE_API_KEY');
 if (!apiKey) {
-  fail("missing TYPESAFE_API_KEY in this process environment");
+  fail('missing TYPESAFE_API_KEY in this process environment');
 }
 
-const baseUrl = (valueAfterFlag("--base-url") ?? "https://api.typesafe.ai")
-  .replace(/\/+$/, "");
-const model = valueAfterFlag("--model") ?? "jev-latest";
-const timeoutMs = Number(valueAfterFlag("--timeout-ms") ?? "10000");
+const baseUrl = (valueAfterFlag('--base-url') ?? 'https://api.typesafe.ai').replace(/\/+$/, '');
+const model = valueAfterFlag('--model') ?? 'jev-latest';
+const timeoutMs = Number(valueAfterFlag('--timeout-ms') ?? '10000');
 if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-  fail("--timeout-ms must be a positive number");
+  fail('--timeout-ms must be a positive number');
 }
 
 const context = { apiKey, baseUrl, timeoutMs };
@@ -433,37 +356,31 @@ const summaries: ProbeSummary[] = [];
 
 summaries.push(
   await request(
-    "primitive contract",
+    'primitive contract',
     {
       model,
       state: {
-        request:
-          "Investigate an unfamiliar external technology before changing application code.",
+        request: 'Investigate an unfamiliar external technology before changing application code.',
         hasBlockingQuestion: false,
       },
       questions: {
         route: {
-          type: "choice",
-          instructions: "Choose the most appropriate next step.",
+          type: 'choice',
+          instructions: 'Choose the most appropriate next step.',
           criteria: {
-            implementation: "The task is ready for a code change.",
-            research: "The task needs external fact-finding first.",
-            clarify: "A material user choice is missing.",
+            implementation: 'The task is ready for a code change.',
+            research: 'The task needs external fact-finding first.',
+            clarify: 'A material user choice is missing.',
           },
         },
         proceed: {
-          type: "noul",
-          instructions:
-            "Can work proceed without asking the user a material question?",
+          type: 'noul',
+          instructions: 'Can work proceed without asking the user a material question?',
         },
         risk: {
-          type: "score",
-          instructions: "How consequential would an incorrect next action be?",
-          criteria: [
-            "low consequence",
-            "meaningful consequence",
-            "high consequence",
-          ],
+          type: 'score',
+          instructions: 'How consequential would an incorrect next action be?',
+          criteria: ['low consequence', 'meaningful consequence', 'high consequence'],
         },
       },
     },
@@ -472,27 +389,26 @@ summaries.push(
   ),
 );
 
-if (hasFlag("--full")) {
+if (hasFlag('--full')) {
   summaries.push(
     await request(
-      "structured entry contract",
+      'structured entry contract',
       {
         model,
         state: {
-          event: { kind: "tool_request", requestedTool: "web_search" },
-          policy: { allowedTools: ["web_search", "calculator"] },
+          event: { kind: 'tool_request', requestedTool: 'web_search' },
+          policy: { allowedTools: ['web_search', 'calculator'] },
         },
         questions: {
           policyMatch: {
-            type: "noul",
+            type: 'noul',
             instructions: {
-              question:
-                "Does the requested tool appear in policy.allowedTools?",
+              question: 'Does the requested tool appear in policy.allowedTools?',
             },
             criteria: {
-              true: { meaning: "The requested tool is explicitly allowed." },
+              true: { meaning: 'The requested tool is explicitly allowed.' },
               false: {
-                meaning: "The requested tool is absent from the allowed list.",
+                meaning: 'The requested tool is absent from the allowed list.',
               },
             },
           },
@@ -504,20 +420,19 @@ if (hasFlag("--full")) {
   );
 }
 
-if (hasFlag("--edge")) {
+if (hasFlag('--edge')) {
   const nullStateAssertion = await expectRejectedRequest(
-    "null state contract",
+    'null state contract',
     {
       model,
       state: null,
       questions: {
         blankState: {
-          type: "noul",
-          instructions:
-            "Does this empty state contain enough information to approve an action?",
+          type: 'noul',
+          instructions: 'Does this empty state contain enough information to approve an action?',
           criteria: {
-            true: "The empty state has enough information.",
-            false: "The empty state lacks enough information.",
+            true: 'The empty state has enough information.',
+            false: 'The empty state lacks enough information.',
           },
         },
       },
@@ -527,13 +442,13 @@ if (hasFlag("--edge")) {
   write(Deno.stdout, `null state contract: PASS\n  ✓ ${nullStateAssertion}\n`);
 
   const nullQuestionAssertion = await expectRejectedRequest(
-    "empty question contract",
+    'empty question contract',
     {
       model,
-      state: "A deliberately ordinary state.",
+      state: 'A deliberately ordinary state.',
       questions: {
         emptyQuestion: {
-          type: "noul",
+          type: 'noul',
           instructions: null,
           criteria: { true: null, false: null },
         },
@@ -541,64 +456,56 @@ if (hasFlag("--edge")) {
     },
     context,
   );
-  write(
-    Deno.stdout,
-    `empty question contract: PASS\n  ✓ ${nullQuestionAssertion}\n`,
-  );
+  write(Deno.stdout, `empty question contract: PASS\n  ✓ ${nullQuestionAssertion}\n`);
 
   const invalidModelAssertion = await expectRejectedRequest(
-    "invalid model contract",
+    'invalid model contract',
     {
-      model: "__theoremai_invalid_jev_model__",
-      state: "This request must be rejected before evaluation.",
+      model: '__theoremai_invalid_jev_model__',
+      state: 'This request must be rejected before evaluation.',
       questions: {
         validQuestion: {
-          type: "noul",
-          instructions: "Does this statement exist?",
+          type: 'noul',
+          instructions: 'Does this statement exist?',
         },
       },
     },
     context,
   );
-  write(
-    Deno.stdout,
-    `invalid model contract: PASS\n  ✓ ${invalidModelAssertion}\n`,
-  );
+  write(Deno.stdout, `invalid model contract: PASS\n  ✓ ${invalidModelAssertion}\n`);
 }
 
-if (hasFlag("--use-cases")) {
+if (hasFlag('--use-cases')) {
   summaries.push(
     await request(
-      "use case: research routing",
+      'use case: research routing',
       {
         model,
         state: {
           userRequest:
-            "Support a technology released last week, but first verify its current API and behavior.",
-          allowedActions: ["research", "implement", "ask_user"],
-          authority:
-            "Read-only internet research is allowed. Code changes are not yet authorized.",
+            'Support a technology released last week, but first verify its current API and behavior.',
+          allowedActions: ['research', 'implement', 'ask_user'],
+          authority: 'Read-only internet research is allowed. Code changes are not yet authorized.',
         },
         questions: {
           nextAction: {
-            type: "choice",
-            instructions: "What should the system do next?",
+            type: 'choice',
+            instructions: 'What should the system do next?',
             criteria: {
-              research:
-                "Verify current external facts before making any implementation plan.",
-              implement: "Make a code change now.",
-              ask_user: "Ask for a material missing decision.",
+              research: 'Verify current external facts before making any implementation plan.',
+              implement: 'Make a code change now.',
+              ask_user: 'Ask for a material missing decision.',
             },
           },
           requiresHuman: {
-            type: "noul",
+            type: 'noul',
             instructions:
-              "Does this request require a human approval before the stated next action?",
+              'Does this request require a human approval before the stated next action?',
           },
           actionRisk: {
-            type: "score",
-            instructions: "How consequential would a wrong next action be?",
-            criteria: ["low", "moderate", "high"],
+            type: 'score',
+            instructions: 'How consequential would a wrong next action be?',
+            criteria: ['low', 'moderate', 'high'],
           },
         },
       },
@@ -610,36 +517,34 @@ if (hasFlag("--use-cases")) {
 
   summaries.push(
     await request(
-      "use case: irreversible-action gate",
+      'use case: irreversible-action gate',
       {
         model,
         state: {
           requestedAction:
-            "Permanently delete a production customer workspace and all of its records.",
+            'Permanently delete a production customer workspace and all of its records.',
           userAuthorization: false,
-          reversibility: "none",
-          allowedActions: ["research", "implement", "ask_user"],
+          reversibility: 'none',
+          allowedActions: ['research', 'implement', 'ask_user'],
         },
         questions: {
           nextAction: {
-            type: "choice",
-            instructions: "What should the system do next?",
+            type: 'choice',
+            instructions: 'What should the system do next?',
             criteria: {
-              research: "Gather external facts before acting.",
-              implement: "Perform the requested operation.",
-              ask_user: "Obtain explicit human authorization before acting.",
+              research: 'Gather external facts before acting.',
+              implement: 'Perform the requested operation.',
+              ask_user: 'Obtain explicit human authorization before acting.',
             },
           },
           requiresHuman: {
-            type: "noul",
-            instructions:
-              "Must a human explicitly approve this action before it can execute?",
+            type: 'noul',
+            instructions: 'Must a human explicitly approve this action before it can execute?',
           },
           actionRisk: {
-            type: "score",
-            instructions:
-              "How consequential would an incorrect next action be?",
-            criteria: ["low", "moderate", "high"],
+            type: 'score',
+            instructions: 'How consequential would an incorrect next action be?',
+            criteria: ['low', 'moderate', 'high'],
           },
         },
       },
@@ -650,70 +555,58 @@ if (hasFlag("--use-cases")) {
   );
 }
 
-if (hasFlag("--failure-states")) {
+if (hasFlag('--failure-states')) {
   const malformedScoreAssertion = await expectRejectedRequest(
-    "null score-level contract",
+    'null score-level contract',
     {
       model,
-      state: "An ordinary state.",
+      state: 'An ordinary state.',
       questions: {
         risk: {
-          type: "score",
-          instructions: "How risky is this?",
-          criteria: ["low", null],
+          type: 'score',
+          instructions: 'How risky is this?',
+          criteria: ['low', null],
         },
       },
     },
     context,
   );
-  write(
-    Deno.stdout,
-    `null score-level contract: PASS\n  ✓ ${malformedScoreAssertion}\n`,
-  );
+  write(Deno.stdout, `null score-level contract: PASS\n  ✓ ${malformedScoreAssertion}\n`);
 
   const missingNoulAssertion = await expectRejectedRequest(
-    "empty noul contract",
+    'empty noul contract',
     {
       model,
-      state: "An ordinary state.",
+      state: 'An ordinary state.',
       questions: {
-        answer: { type: "noul" },
+        answer: { type: 'noul' },
       },
     },
     context,
   );
-  write(
-    Deno.stdout,
-    `empty noul contract: PASS\n  ✓ ${missingNoulAssertion}\n`,
-  );
+  write(Deno.stdout, `empty noul contract: PASS\n  ✓ ${missingNoulAssertion}\n`);
 
   const authenticationAssertion = await expectRejectedRequest(
-    "authentication contract",
+    'authentication contract',
     {
       model,
-      state: "This must not be evaluated.",
+      state: 'This must not be evaluated.',
       questions: {
         answer: {
-          type: "noul",
-          instructions: "Does this request have a valid credential?",
+          type: 'noul',
+          instructions: 'Does this request have a valid credential?',
         },
       },
     },
-    { ...context, apiKey: "not-a-real-typesafe-api-key" },
+    { ...context, apiKey: 'not-a-real-typesafe-api-key' },
   );
-  write(
-    Deno.stdout,
-    `authentication contract: PASS\n  ✓ ${authenticationAssertion}\n`,
-  );
+  write(Deno.stdout, `authentication contract: PASS\n  ✓ ${authenticationAssertion}\n`);
 }
 
 for (const summary of summaries) {
   write(Deno.stdout, `${summary.name}: PASS\n`);
   write(Deno.stdout, `  model: ${summary.model}\n`);
-  write(
-    Deno.stdout,
-    `  tokens: ${summary.inputTokens} input, ${summary.outputTokens} output\n`,
-  );
+  write(Deno.stdout, `  tokens: ${summary.inputTokens} input, ${summary.outputTokens} output\n`);
   if (summary.requestId) {
     write(Deno.stdout, `  request id: ${summary.requestId}\n`);
   }

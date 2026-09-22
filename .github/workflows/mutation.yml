@@ -1,0 +1,159 @@
+name: Mutation
+
+# Stryker's command runner reruns the Deno suite once per mutant (~1s each), so the
+# guardrails config (~4.6k mutants) would take well over an hour in one job.
+# PRs mutate only the changed files each config covers; the weekly sweep shards
+# the full run across parallel jobs.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/guardrails/**'
+      - 'src/kernel/tools/execute.ts'
+      - 'src/kernel/tools/resolve.ts'
+      - 'src/providers/google/interactions/stream.ts'
+      - 'stryker.*.json'
+      - '.github/workflows/mutation.yml'
+  schedule:
+    - cron: '41 5 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changed:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - config: guardrails
+            # Mirrors the mutate globs in stryker.guardrails.config.json.
+            files: '^src/guardrails/.*\.ts$'
+            exclude: '^src/guardrails/(corpus/|testing\.ts$|mod\.ts$)'
+          - config: tools
+            files: '^(src/kernel/tools/(execute|resolve)\.ts|src/providers/google/interactions/stream\.ts)$'
+            exclude: '^$'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Pick files to mutate
+        id: scope
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          FILES: ${{ matrix.files }}
+          EXCLUDE: ${{ matrix.exclude }}
+        run: |
+          changed=$(git diff --name-only --diff-filter=AMR "$BASE"...HEAD \
+            | grep -E "$FILES" | grep -Ev "$EXCLUDE" | paste -sd, - || true)
+          if [ -z "$changed" ]; then
+            echo "::notice::No ${{ matrix.config }} source files changed; mutation run skipped."
+          else
+            echo "Mutating: $changed"
+          fi
+          echo "mutate=$changed" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Deno
+        if: steps.scope.outputs.mutate != ''
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed
+        with:
+          deno-version: v2.x
+
+      - name: Setup Node
+        if: steps.scope.outputs.mutate != ''
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        if: steps.scope.outputs.mutate != ''
+        run: npm ci
+
+      - name: Stryker (changed files)
+        if: steps.scope.outputs.mutate != ''
+        env:
+          MUTATE: ${{ steps.scope.outputs.mutate }}
+        run: |
+          npx stryker run stryker.${{ matrix.config }}.config.json \
+            --mutate "$MUTATE" --concurrency 4 --force \
+            --reporters clear-text,progress,html
+
+      - name: Upload report
+        if: always() && steps.scope.outputs.mutate != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mutation-report-${{ matrix.config }}
+          path: reports/mutation/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  sweep:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: guardrails-eval
+            config: guardrails
+            mutate: 'src/guardrails/eval/**/*.ts'
+          - shard: guardrails-inbound
+            config: guardrails
+            mutate: 'src/guardrails/injection.ts,src/guardrails/tool-result.ts,src/guardrails/types.ts,src/guardrails/tool-directives.ts,src/guardrails/normalize.ts'
+          - shard: guardrails-outbound
+            config: guardrails
+            mutate: 'src/guardrails/live-outbound-gate.ts,src/guardrails/sanitize.ts,src/guardrails/network.ts,src/guardrails/error.ts,src/guardrails/progressive-yield.ts'
+          # Everything else the config covers, so new guardrails files land here.
+          - shard: guardrails-rest
+            config: guardrails
+            mutate: 'src/guardrails/**/*.ts,!src/guardrails/corpus/**,!src/guardrails/testing.ts,!src/guardrails/mod.ts,!src/guardrails/eval/**,!src/guardrails/injection.ts,!src/guardrails/tool-result.ts,!src/guardrails/types.ts,!src/guardrails/tool-directives.ts,!src/guardrails/normalize.ts,!src/guardrails/live-outbound-gate.ts,!src/guardrails/sanitize.ts,!src/guardrails/network.ts,!src/guardrails/error.ts,!src/guardrails/progressive-yield.ts'
+          - shard: tools
+            config: tools
+            mutate: ''
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed
+        with:
+          deno-version: v2.x
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Stryker (${{ matrix.shard }})
+        env:
+          MUTATE: ${{ matrix.mutate }}
+        run: |
+          npx stryker run stryker.${{ matrix.config }}.config.json \
+            ${MUTATE:+--mutate "$MUTATE"} --concurrency 4 --force \
+            --reporters clear-text,progress,html
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mutation-report-${{ matrix.shard }}
+          path: reports/mutation/
+          if-no-files-found: ignore
+          retention-days: 30

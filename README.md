@@ -873,7 +873,7 @@ several ways:
 | Fuzzing | Randomized guardrail and canary inputs through the CLI harness | `tests/cli/fuzz-guardrails.test.ts`, `tests/cli/fuzz-canary.test.ts` |
 | Mutation testing | Stryker mutates guardrail and tool code and requires the suite to kill the mutants (break threshold 75% for guardrails). PRs mutate the files they change; a weekly sweep covers everything | `.github/workflows/mutation.yml`, `stryker.guardrails.config.json`, `stryker.tools.config.json` |
 | Static analysis | Semgrep TypeScript + secrets rulesets over `src/`, `mod.ts`, and `scripts/` | `.github/workflows/security.yml` |
-| Dependency scanning | Snyk scan of the npm lockfile for high-severity advisories | `.github/workflows/security.yml`, `.snyk` |
+| Dependency and code scanning | Snyk Open Source over every lockfile (dev dependencies included, medium severity and up), Snyk Code static analysis, and continuous monitoring of `main` | `.github/workflows/security.yml`, `.snyk` |
 | Zero-permission import | The kernel constructs with every Deno permission denied | `tests/kernel/zero-permission-import.test.ts` |
 
 ---
@@ -1054,7 +1054,8 @@ Run the security scans locally (CI runs the same checks in the `Security` workfl
 semgrep scan --config p/typescript --config p/secrets --metrics=off --error \
   --exclude tests --exclude npm --exclude playground --exclude react --exclude tmp \
   src mod.ts scripts
-snyk test --file=package-lock.json --severity-threshold=high
+snyk test --all-projects --dev --exclude=playground,npm,tmp --severity-threshold=medium
+snyk code test --severity-threshold=medium
 npx stryker run stryker.guardrails.config.json --mutate src/guardrails/canary.ts --concurrency 4
 ```
 

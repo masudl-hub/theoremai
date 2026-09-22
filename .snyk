@@ -5,3 +5,5 @@ patch: {}
 exclude:
   code:
     - tests/**
+    - npm/**
+    - tmp/**

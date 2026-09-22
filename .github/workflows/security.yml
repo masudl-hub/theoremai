@@ -47,8 +47,30 @@ jobs:
 
       - name: Skip without SNYK_TOKEN
         if: env.SNYK_TOKEN == ''
-        run: echo "::notice::SNYK_TOKEN is not configured; Snyk dependency scan skipped."
+        run: echo "::notice::SNYK_TOKEN is not configured; Snyk scans skipped."
 
-      - name: Snyk dependency scan
+      # Every lockfile in the repo (root + react/), dev dependencies included:
+      # they run in CI and on contributor machines. playground/ has no lockfile
+      # and npm/ is build output.
+      - name: Snyk Open Source (all projects)
         if: env.SNYK_TOKEN != ''
-        run: npx --yes snyk@1.1307.3 test --file=package-lock.json --severity-threshold=high
+        run: |
+          npx --yes snyk@1.1307.3 test \
+            --all-projects --dev \
+            --exclude=playground,npm,tmp \
+            --severity-threshold=medium
+
+      # Static analysis of the source itself (exclusions live in .snyk).
+      - name: Snyk Code
+        if: env.SNYK_TOKEN != ''
+        run: npx --yes snyk@1.1307.3 code test --severity-threshold=medium
+
+      # Snapshot main's dependency tree so Snyk alerts on newly disclosed issues
+      # between pushes.
+      - name: Snyk monitor
+        if: env.SNYK_TOKEN != '' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          npx --yes snyk@1.1307.3 monitor \
+            --all-projects --dev \
+            --exclude=playground,npm,tmp \
+            --project-tags=repo=theoremai

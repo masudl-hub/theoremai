@@ -4,6 +4,10 @@ Generic inbound and outbound guardrail primitives. App-specific policy,
 product copy, and channel UX remain host-owned — this entry ships reusable
 detectors, sanitizers, public error mapping, and optional per-day quota slots.
 
+This contract reflects the current guardrail-security refresh in the branch,
+including canary, egress, quota, and tool-boundary updates that must stay in
+sync with the owning code modules.
+
 ## Export
 
 | Field | Value |
@@ -51,6 +55,12 @@ Owns every module under `src/guardrails/`.
 | `createCanaryGateSession` / `filterCanaryGatedEvents` | Canary-only batch helper (Live production uses `live-outbound-gate`) |
 
 ## Egress
+
+This refresh keeps the egress policy aligned with the active canary, live-outbound,
+and progressive-yield gate implementations in the branch. The runtime still uses the
+same host-owned `guardrails.egress.enforce` hook; this contract now records the
+current enforcement model and the exact block semantics that the guardrail code is
+expected to uphold.
 
 Hosts may supply `guardrails.egress.enforce` or use the bundled helper:
 
@@ -247,6 +257,11 @@ Fuzz runners register minimal stub profiles via `registerProfile` (for example
 
 ## Public errors
 
+This refresh keeps the public error contract aligned with the guardrails error and
+canary gate code paths now checked in the branch. The canonical surface remains
+`TheoremError` → `publicError(err)`, with outbound gating and canary leaks mapping to
+public user-visible copy rather than raw detector text.
+
 `TheoremError` marks expected contract failures. Never show raw internal
 messages to end users — map through `publicError(err)` (or `toErrorEvent` for
 streams).
@@ -272,6 +287,11 @@ extend there when adding new stable public mappings.
 
 ## Trust levels
 
+This refresh keeps the trust-level contract aligned with the current guardrail
+policy and type definitions in the branch. The code still distinguishes trusted,
+assembled, and untrusted text by origin and narrow resolution through
+`detectionForTrust`; this doc is the source of truth for that contract.
+
 Text is guarded by where it came from, not by which call site happens to reach it.
 `TrustLevel` has three values and `detectionForTrust` narrows a resolved policy to
 each:
@@ -296,6 +316,11 @@ Assembled text is **not** trusted: a host-built prompt interpolates retrieval
 output and user data, so it is permeable and takes full detection.
 
 ## Sanitization
+
+This refresh keeps the sanitization contract aligned with the active inbound and
+canary gate logic in the branch. The current implementation still resolves all
+pre-provider scrub paths through `resolveGuardrailPolicy`, with no split behavior by
+caller or transport.
 
 Driven by profile `guardrails.sanitizeInput`, `guardrails.redactSensitive`, and
 `guardrails.canary`, all defaulting on (`canary: false` opts out). Every path
@@ -344,6 +369,11 @@ when enabled, outbound paths. Use `redactSensitiveOnly` on model output when
 injection patterns should not run.
 
 ## Tool boundary
+
+This refresh keeps the tool boundary contract aligned with the active tool-result,
+remote tooling, and directive-detection code in the branch. The current runtime still
+treats tool output as a privileged boundary with provenance, taint, and guardrail
+fencing enforced before it can be fed back to the model.
 
 The surface where untrusted bytes re-enter the model's context carrying the
 model's own authority. A tool result is not user text: the model asked for it, so
@@ -533,7 +563,7 @@ Emission sites (non-`allow` only):
 | Stage | Path |
 | --- | --- |
 | `input` / `history` / `system` | `sanitizeTurnRequestWithEvents` at turn start |
-| `tool_call` / tool result | `executeRegisteredTool` (args, taint, result) |
+| `tool_call` / tool result | `executeRegisteredTool` (args, taint, result) and `src/guardrails/tool-result.ts` event shaping |
 | `output_delta` | Progressive-yield / canary mid-stream |
 | `output_final` | End-of-attempt egress in `gates.ts` |
 | `network` | `guardToolTarget` before HTTP/MCP |
@@ -544,7 +574,8 @@ Emission sites (non-`allow` only):
 `observability.include.guardrailDecisions` is true (default). Match previews
 follow `guardrailMatchPreview`. Helpers: `guardrailFromVerdict`,
 `guardrailFromHits`, `guardrailTurnEvent`, `projectGuardrailTurnEvent`,
-`hitFromSpan`, `projectGuardrailEvent`.
+`hitFromSpan`, `projectGuardrailEvent`, plus the tool-boundary event shaping in
+`src/guardrails/tool-result.ts`.
 
 ## Network
 
@@ -581,6 +612,10 @@ rather than its content policy — leaving it at defaults is the safe choice.
 
 ## Quota
 
+This refresh keeps the quota contract aligned with the live quota gate and the
+host-owned slot logic used in the current branch. The code still treats quota as an
+HTTP host concern, not a kernel-internal turn enforcement feature.
+
 **Not** enforced inside `runTurn`. HTTP hosts call:
 
 ```ts
@@ -612,6 +647,11 @@ English fallback — hosts render from the code (and optional host message).
 `resetSlots()` clears in-memory state (tests).
 
 ## Lexicon
+
+This refresh keeps the lexicon contract aligned with the live default copy and the
+host override path in the branch. The runtime still treats all user/model-facing
+English phrases as lexicon-owned defaults unless the host supplies a per-profile or
+process override.
 
 Every English string the kernel may emit toward a user or a model is registered
 in `src/guardrails/lexicon.ts` under a stable `LexiconKey`. Hosts replace

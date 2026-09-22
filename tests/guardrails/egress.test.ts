@@ -3,7 +3,12 @@ import { mintCanary, USER_CLOSE, USER_OPEN } from '../../src/guardrails/canary.t
 import { TEST_OPENAI_KEY, TEST_SSN } from '../../src/guardrails/corpus/secrets.ts';
 import { INJ_IGNORE } from '../../src/guardrails/corpus/strings.ts';
 import { EGRESS_RULES, runEnforcer, standardEgressEnforce } from '../../src/guardrails/egress.ts';
-import type { GuardrailContext, OutboundPayload, Verdict } from '../../src/guardrails/types.ts';
+import type {
+  EgressEnforcer,
+  GuardrailContext,
+  OutboundPayload,
+  Verdict,
+} from '../../src/guardrails/types.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 
 function egressCtx(canary?: string): GuardrailContext {
@@ -175,4 +180,143 @@ Deno.test('runEnforcer passes a normal verdict straight through', async () => {
     (await runEnforcer(() => ({ action: 'allow' }), { text: 'ok' }, egressCtx())).action,
     'allow',
   );
+});
+
+Deno.test('runEnforcer fails closed for incomplete canonical verdicts', async () => {
+  for (const malformed of [
+    null,
+    42,
+    'not a verdict',
+    { action: 'unknown' },
+    { action: 'redact' },
+    { action: 'redact', text: 42, hits: [] },
+    { action: 'redact', text: 'safe replacement', hits: [{}] },
+    { action: 'flag' },
+    { action: 'flag', hits: [{ rule: '', severity: 'high' }] },
+    { action: 'flag', hits: [{ rule: '   ', severity: 'high' }] },
+    { action: 'flag', hits: [{ rule: 42, severity: 'high' }] },
+    { action: 'flag', hits: [{ rule: 'x', severity: 'not-a-severity' }] },
+    { action: 'flag', hits: [{ rule: 'x', severity: 'high', match: 42 }] },
+    { action: 'flag', hits: [{ rule: 'x', severity: 'high', span: {} }] },
+    { action: 'flag', hits: [{ rule: 'x', severity: 'high', span: 'bad' }] },
+    {
+      action: 'flag',
+      hits: [{ rule: 'x', severity: 'high', span: { start: '0', end: 1 } }],
+    },
+    {
+      action: 'flag',
+      hits: [{ rule: 'x', severity: 'high', span: { start: 0, end: '1' } }],
+    },
+    {
+      action: 'flag',
+      hits: [{ rule: 'x', severity: 'high', span: { start: NaN, end: 1 } }],
+    },
+    {
+      action: 'flag',
+      hits: [{ rule: 'x', severity: 'high', span: { start: 0, end: Infinity } }],
+    },
+    {
+      action: 'flag',
+      hits: [
+        { rule: 'valid', severity: 'high' },
+        { rule: '', severity: 'high' },
+      ],
+    },
+    { action: 'block' },
+    {
+      action: 'block',
+      hits: [{ rule: 'x', severity: 'not-a-severity' }],
+      rejection: 'blocked',
+    },
+    { action: 'block', hits: [], rejection: 42 },
+    { action: 'block', hits: [], rejection: 'blocked', refusal: 42 },
+  ]) {
+    const verdict = await runEnforcer(
+      (() => malformed) as unknown as EgressEnforcer,
+      { text: 'untrusted output' },
+      egressCtx(),
+    );
+    assertEquals(verdict.action, 'block');
+    if (verdict.action === 'block') {
+      assertEquals(verdict.hits, [{ rule: EGRESS_RULES.enforcerError, severity: 'high' }]);
+      assertEquals(verdict.rejection, 'Egress policy returned an invalid verdict shape');
+    }
+  }
+});
+
+Deno.test('runEnforcer normalizes legacy verdicts without trusting malformed fields', async () => {
+  const runLegacy = (value: unknown) =>
+    runEnforcer(
+      (() => value) as unknown as EgressEnforcer,
+      { text: 'untrusted output' },
+      egressCtx(),
+    );
+
+  assertEquals(await runLegacy({ blocked: false }), { action: 'allow' });
+  assertEquals(
+    await runLegacy({
+      blocked: true,
+      text: 'Safe refusal',
+      rejectionMessage: 'blocked',
+      hits: [
+        'legacy.string',
+        { rule: 'legacy.object', severity: 'low' },
+        { rule: 'legacy.default-severity', severity: 'invalid' },
+        null,
+      ],
+    }),
+    {
+      action: 'block',
+      hits: [
+        { rule: 'legacy.string', severity: 'high' },
+        { rule: 'legacy.object', severity: 'low' },
+        { rule: 'legacy.default-severity', severity: 'high' },
+      ],
+      rejection: 'blocked',
+      refusal: 'Safe refusal',
+    },
+  );
+  assertEquals(
+    await runLegacy({
+      blocked: true,
+      text: '   ',
+      rejectionMessage: '   ',
+      hits: 'not-an-array',
+    }),
+    {
+      action: 'block',
+      hits: [{ rule: EGRESS_RULES.enforcerError, severity: 'high' }],
+      rejection: 'Egress blocked',
+    },
+  );
+  assertEquals(await runLegacy({ blocked: true, hits: [] }), {
+    action: 'block',
+    hits: [{ rule: EGRESS_RULES.enforcerError, severity: 'high' }],
+    rejection: 'Egress blocked',
+  });
+});
+
+Deno.test('runEnforcer preserves complete canonical verdict variants', async () => {
+  const hit = {
+    rule: 'x',
+    severity: 'medium' as const,
+    match: 'preview',
+    span: { start: 0, end: 7 },
+  };
+  const verdicts: Verdict[] = [
+    { action: 'allow' },
+    { action: 'redact', text: 'safe replacement', hits: [hit] },
+    { action: 'flag', hits: [hit] },
+    { action: 'block', hits: [hit], rejection: 'blocked' },
+    {
+      action: 'block',
+      hits: [hit],
+      rejection: 'blocked',
+      refusal: 'safe refusal',
+    },
+  ];
+  for (const expected of verdicts) {
+    const actual = await runEnforcer(() => expected, { text: 'untrusted output' }, egressCtx());
+    assertEquals(actual, expected);
+  }
 });

@@ -1,9 +1,9 @@
 /**
  * Chat markdown → sanitized HTML for assistant body rendering.
- * Kept intentionally small: GFM via marked, then DOMPurify (browser).
+ * Kept intentionally small: GFM via marked, then DOMPurify.
  */
 
-import DOMPurify from 'dompurify';
+import DOMPurify from 'isomorphic-dompurify';
 import { marked } from 'marked';
 
 marked.setOptions({
@@ -24,22 +24,8 @@ function ensureLinkHooks(): void {
 	});
 }
 
-/** Escape HTML so SSR/node never emits markup without DOMPurify. */
-function escapeHtmlText(raw: string): string {
-	return raw
-		.replaceAll('&', '&amp;')
-		.replaceAll('<', '&lt;')
-		.replaceAll('>', '&gt;')
-		.replaceAll('"', '&quot;')
-		.replaceAll("'", '&#39;');
-}
-
 export function renderChatMarkdown(markdown: string): string {
 	const raw = marked.parse(markdown, { async: false });
-	if (typeof document === 'undefined') {
-		// SSR / node tests: escape rather than half-strip tags (run UI is browser-only).
-		return escapeHtmlText(typeof raw === 'string' ? raw : String(raw));
-	}
 	ensureLinkHooks();
 	return DOMPurify.sanitize(raw, {
 		USE_PROFILES: { html: true },

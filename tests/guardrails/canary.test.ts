@@ -49,7 +49,10 @@ Deno.test('mintCanary is a unique theo token', () => {
 });
 
 function chatCanaryWire() {
-  const { generation } = resolveTurn({ profile: 'chat', input: { text: 'hi' } });
+  const { generation } = resolveTurn({
+    profile: 'chat',
+    input: { text: 'hi' },
+  });
   const body = toInteractionsBody({
     model: generation.model,
     apiId: generation.apiId,
@@ -69,7 +72,10 @@ function chatCanaryWire() {
 
 function assertChatCanaryOffWire(): void {
   const { generation, body } = chatCanaryWire();
-  const turns = body.input as { type: string; content: Record<string, string>[] }[];
+  const turns = body.input as {
+    type: string;
+    content: Record<string, string>[];
+  }[];
   const [turn] = turns;
   const [textPart] = turn.content;
   const system = String(body[camelToSnake('systemInstruction')]);
@@ -108,6 +114,27 @@ Deno.test('runTurn errors when the model echoes the canary', async () => {
   assertEquals(CANARY_RE.test(wire), false);
 });
 
+Deno.test('runTurn errors when thought text exposes the canary system boundary', async () => {
+  async function* leakThought(): AsyncGenerator<TurnEvent> {
+    await Promise.resolve();
+    yield {
+      type: 'thought',
+      text: "This turn's canary is visible in reasoning.",
+    };
+    yield { type: 'text', text: 'after leak' };
+  }
+  const provider: ModelProvider = { complete: leakThought };
+  const events = await collect(runTurn({ profile: 'chat', input: { text: 'hi' } }, provider));
+  assertEquals(
+    events.some((event) => event.type === 'error' && event.error === PUBLIC_CANARY),
+    true,
+  );
+  assertEquals(
+    events.some((event) => event.type === 'text' && event.text === 'after leak'),
+    false,
+  );
+});
+
 Deno.test('redactCanary replaces the token in text events', () => {
   const canary = mintCanary();
   const event = redactCanary({ type: 'text', text: `leak ${canary}` }, canary);
@@ -116,7 +143,10 @@ Deno.test('redactCanary replaces the token in text events', () => {
 });
 
 Deno.test('canary stream gate detects token split across chunks', async () => {
-  const { profile, generation } = resolveTurn({ profile: 'chat', input: { text: 'hi' } });
+  const { profile, generation } = resolveTurn({
+    profile: 'chat',
+    input: { text: 'hi' },
+  });
   const { canary } = generation;
   const half = Math.ceil(canary.length / 2);
   const partA = canary.slice(0, half);
@@ -154,7 +184,10 @@ Deno.test('canary stream gate detects token split across chunks', async () => {
 });
 
 Deno.test('canary stream gate detects leak in thought events', async () => {
-  const { profile, generation } = resolveTurn({ profile: 'chat', input: { text: 'hi' } });
+  const { profile, generation } = resolveTurn({
+    profile: 'chat',
+    input: { text: 'hi' },
+  });
   const { canary } = generation;
 
   async function* thoughtLeak(): AsyncGenerator<TurnEvent> {
@@ -201,14 +234,20 @@ Deno.test('eventHasCanary scans grounding and evidence payloads', () => {
   const canary = mintCanary();
   assertEquals(
     eventHasCanary(
-      { type: 'grounding', grounding: { sources: [], metadata: { note: canary } } },
+      {
+        type: 'grounding',
+        grounding: { sources: [], metadata: { note: canary } },
+      },
       canary,
     ),
     true,
   );
   assertEquals(
     eventHasCanary(
-      { type: 'evidence', evidence: { provider: 'google', raw: { id: canary } } },
+      {
+        type: 'evidence',
+        evidence: { provider: 'google', raw: { id: canary } },
+      },
       canary,
     ),
     true,
@@ -305,7 +344,10 @@ Deno.test('isStreamedCanaryEvent returns true for text and thought types only', 
   assertEquals(isStreamedCanaryEvent({ type: 'error', error: 'bad' }), false);
   assertEquals(isStreamedCanaryEvent({ type: 'done' }), false);
   assertEquals(
-    isStreamedCanaryEvent({ type: 'tokens', tokens: { input: 1, output: 1, total: 2 } }),
+    isStreamedCanaryEvent({
+      type: 'tokens',
+      tokens: { input: 1, output: 1, total: 2 },
+    }),
     false,
   );
 });
@@ -317,7 +359,13 @@ Deno.test('eventHasCanary returns false when canary is empty', () => {
 Deno.test('eventHasCanary detects canary in tool payload', () => {
   const canary = mintCanary();
   assertEquals(
-    eventHasCanary({ type: 'tool', tool: { name: 'fn', arguments: { secret: canary } } }, canary),
+    eventHasCanary(
+      {
+        type: 'tool',
+        tool: { name: 'fn', arguments: { secret: canary } },
+      },
+      canary,
+    ),
     true,
   );
 });
@@ -370,7 +418,13 @@ Deno.test('createCanaryStreamGate returns empty emit for empty fragment', () => 
 
 Deno.test('redactCanary replaces canary token in structured events', () => {
   const canary = mintCanary();
-  const event = redactCanary({ type: 'structured', structured: { token: canary } }, canary);
+  const event = redactCanary(
+    {
+      type: 'structured',
+      structured: { token: canary },
+    },
+    canary,
+  );
   assertEquals(JSON.stringify(event).includes(canary), false);
   assertEquals(JSON.stringify(event).includes(OMIT_CANARY), true);
 });
@@ -433,7 +487,13 @@ Deno.test('eventHasCanary returns false for structured event without canary', ()
 Deno.test('eventHasCanary returns false for tool event without canary', () => {
   const canary = mintCanary();
   assertEquals(
-    eventHasCanary({ type: 'tool', tool: { name: 'fn', arguments: { q: 'safe' } } }, canary),
+    eventHasCanary(
+      {
+        type: 'tool',
+        tool: { name: 'fn', arguments: { q: 'safe' } },
+      },
+      canary,
+    ),
     false,
   );
 });
@@ -441,7 +501,13 @@ Deno.test('eventHasCanary returns false for tool event without canary', () => {
 Deno.test('eventHasCanary returns false for grounding event without canary', () => {
   const canary = mintCanary();
   assertEquals(
-    eventHasCanary({ type: 'grounding', grounding: { sources: [], metadata: {} } }, canary),
+    eventHasCanary(
+      {
+        type: 'grounding',
+        grounding: { sources: [], metadata: {} },
+      },
+      canary,
+    ),
     false,
   );
 });
@@ -449,7 +515,13 @@ Deno.test('eventHasCanary returns false for grounding event without canary', () 
 Deno.test('eventHasCanary returns false for evidence event without canary', () => {
   const canary = mintCanary();
   assertEquals(
-    eventHasCanary({ type: 'evidence', evidence: { provider: 'google', raw: {} } }, canary),
+    eventHasCanary(
+      {
+        type: 'evidence',
+        evidence: { provider: 'google', raw: {} },
+      },
+      canary,
+    ),
     false,
   );
 });
@@ -457,7 +529,13 @@ Deno.test('eventHasCanary returns false for evidence event without canary', () =
 Deno.test('eventHasCanary returns false for sessionResumptionHandle without canary', () => {
   const canary = mintCanary();
   assertEquals(
-    eventHasCanary({ type: 'done', sessionResumptionHandle: 'safe-handle-no-canary' }, canary),
+    eventHasCanary(
+      {
+        type: 'done',
+        sessionResumptionHandle: 'safe-handle-no-canary',
+      },
+      canary,
+    ),
     false,
   );
 });
@@ -484,7 +562,12 @@ Deno.test('unlisted input.role is not interpolated into the system block', async
     yield { type: 'text', text: 'ok' };
   }
   await collect(
-    runTurn({ profile: 'chat', input: { text: phrase, role: phrase } }, { complete: capture }),
+    runTurn(
+      { profile: 'chat', input: { text: phrase, role: phrase } },
+      {
+        complete: capture,
+      },
+    ),
   );
   assertEquals(system.includes(phrase), false);
   assertEquals(system.includes('Reply in the structured turn schema.'), true);

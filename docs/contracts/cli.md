@@ -4,6 +4,9 @@ Profile inspection and stress-test CLI. On npm this entry is also the
 `agents` binary. Hosts must register profiles (and providers) in-process
 before commands that execute turns — the CLI does not embed app profiles.
 
+This contract was refreshed to cover the active CLI dispatch and event-log
+changes in the current branch so the published surface and the repo docs stay in step.
+
 ## Export
 
 | Field | Value |
@@ -22,6 +25,8 @@ before commands that execute turns — the CLI does not embed app profiles.
 | `src/cli/matrix/*` | Permutation synthesizer + fixtures |
 
 ## Commands
+
+The active branch refresh keeps the CLI contract aligned with the current command routing, event logging, and matrix-driven stress tooling.
 
 ```text
 agents <command> [options]

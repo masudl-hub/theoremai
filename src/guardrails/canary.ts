@@ -10,11 +10,13 @@ const CANARY_PREFIX = 'theo-';
 const CANARY_BYTES = 16;
 const HEX_RADIX = 16;
 const HEX_PAD = 2;
+/** Literal placeholder substituted for a canary when an event is redacted. */
 const OMIT_CANARY = '[omitted - canary]';
 const FENCE = /<\/?user_data>/gi;
 /** Base64 prefix hint for the literal string "theo". */
 const B64_THEO_HINT = 'dGhlbw';
 
+/** Creates a 128-bit, cryptographically random token for one turn's canary binding. */
 function mintCanary(): string {
   const bytes = new Uint8Array(CANARY_BYTES);
   crypto.getRandomValues(bytes);
@@ -29,6 +31,10 @@ function stripUserFences(text: string): string {
   return text.replaceAll(FENCE, '').trim();
 }
 
+/**
+ * Removes pre-existing user-data fences, trims the input, and encloses the result
+ * in the canonical user-data fence used by the guardrail prompt contract.
+ */
 function wrapUserData(text: string): string {
   return `${USER_OPEN}\n${stripUserFences(text)}\n${USER_CLOSE}`;
 }
@@ -57,6 +63,11 @@ function bindCanary(system: string, canary: string, bindNote?: string): string {
   return `${system}\n\n${note}`;
 }
 
+/**
+ * Returns whether text contains a canary literally, as its base64 encoding, or
+ * as spaced hexadecimal characters. This is leak detection, not general-purpose
+ * encoded-data detection.
+ */
 function scanTextForCanaryLeak(text: string, canary: string): boolean {
   if (!text || !canary) {
     return false;
@@ -85,6 +96,10 @@ function scanTextForCanaryLeak(text: string, canary: string): boolean {
   return false;
 }
 
+/**
+ * Checks the content-bearing fields currently emitted by a turn event, including
+ * text, errors, structured payloads, tool data, evidence, and session metadata.
+ */
 function eventHasCanary(event: TurnEvent, canary: string): boolean {
   if (!canary) {
     return false;
@@ -122,13 +137,19 @@ function eventHasCanary(event: TurnEvent, canary: string): boolean {
   return false;
 }
 
+/** Result of scanning one streamed window: either a leak or the prefix safe to emit. */
 type CanaryGateResult = { leak: true } | { leak: false; emit: string };
 
+/**
+ * Incremental canary scanner that retains `canary.length - 1` trailing characters
+ * so a token split across adjacent stream chunks is not released prematurely.
+ */
 interface CanaryStreamGate {
   process: (fragment: string) => CanaryGateResult;
   flush: () => CanaryGateResult;
 }
 
+/** Creates an incremental scanner for one canary token; call `flush` at stream end. */
 function createCanaryStreamGate(canary: string): CanaryStreamGate {
   const overlap = Math.max(0, canary.length - 1);
   let pending = '';
@@ -167,6 +188,7 @@ function isStreamedCanaryEvent(
   return event.type === 'text' || event.type === 'thought';
 }
 
+/** Replaces literal canary occurrences in every string field of an event. */
 function redactCanary(event: TurnEvent, canary: string): TurnEvent {
   const next = mapStrings(event, (text) => text.replaceAll(canary, OMIT_CANARY));
   if (next && typeof next === 'object') {

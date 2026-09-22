@@ -13,7 +13,7 @@ function providerCompleteRequest(
     store: isInteractions ? generation.store : undefined,
     stream: isInteractions ? generation.stream : undefined,
     thinking: generation.thinking,
-    summaries: isInteractions ? generation.summaries : undefined,
+    summaries: generation.summaries,
     maxOutputTokens: generation.maxOutputTokens,
     temperature: generation.temperature,
     builtins: generation.builtins,

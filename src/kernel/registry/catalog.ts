@@ -18,11 +18,16 @@ import type {
 /** `TurnInput` field a media file rides in. */
 type MediaInputChannel = 'attachments' | 'voice';
 
+/** Normalizes a MIME value to lower-case type/subtype, removing all parameters. */
 function mimeEssence(mime: string): string {
   const [base] = mime.split(';');
   return (base ?? '').trim().toLowerCase();
 }
 
+/**
+ * Returns whether an accept list permits a MIME value. Rules are normalized and
+ * support a subtype wildcard such as `image/*`; parameter values are ignored.
+ */
 function mimeAllowed(accept: string[], mime: string): boolean {
   const actual = mimeEssence(mime);
   return accept.some((rule) => {
@@ -34,6 +39,7 @@ function mimeAllowed(accept: string[], mime: string): boolean {
   });
 }
 
+/** Maps a normalized MIME value to a kernel-supported media input kind, if any. */
 function mediaKindForMime(mime: string): MediaInputKind | undefined {
   return MEDIA_INPUT_KINDS[mimeEssence(mime)];
 }

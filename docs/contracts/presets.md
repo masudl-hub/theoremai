@@ -20,6 +20,8 @@ kernel.
 
 ## Role in the package
 
+The current preset refresh keeps the optional Google tooling pack aligned with the package surface and the live profile authoring path in this branch.
+
 | Concern | Kernel | Preset |
 | --- | --- | --- |
 | Tool ids | `string` allowlist | Registers `googleSearch`, `googleMaps`, `urlContext`, `codeExecution` |
@@ -34,12 +36,18 @@ own tools and vocabularies directly via `registerTools`.
 
 ## When to use
 
+The active branch refresh keeps the preset guidance aligned with the shipped Google builtins and the host-owned alternative path for custom tool catalogs.
+
 | Use preset | Skip preset |
 | --- | --- |
 | Google Gemini hosts wanting typed pins + search/maps/url/code-execution builtins | Custom tool catalog entirely host-owned |
 | Quick start matching Google Interactions wire types | Non-Google providers only |
 
 ## Exported API
+
+This refresh keeps the preset barrel contract aligned with the current Google pack
+and the live runtime export path. The package still treats presets as optional
+host convenience registrations rather than a part of the kernel policy surface.
 
 This barrel re-exports the Google pack:
 

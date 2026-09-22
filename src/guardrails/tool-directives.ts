@@ -73,13 +73,27 @@ function matches(patterns: RegExp[], text: string): boolean {
   });
 }
 
-/** Word-boundary match for a tool name, escaped so registry names cannot inject. */
+function isToolNameBoundary(ch: string | undefined): boolean {
+  return ch === undefined || !/[a-z0-9_-]/i.test(ch);
+}
+
+/** Word-boundary match for a tool name without compiling registry input as a pattern. */
 function mentionsTool(text: string, tool: string): boolean {
   if (tool.length < 3) {
     return false;
   }
-  const escaped = tool.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`(?:^|[^\\w-])${escaped}(?:$|[^\\w-])`, 'i').test(text);
+  const haystack = text.toLowerCase();
+  const needle = tool.toLowerCase();
+  let at = haystack.indexOf(needle);
+  while (at >= 0) {
+    const before = haystack[at - 1];
+    const after = haystack[at + needle.length];
+    if (isToolNameBoundary(before) && isToolNameBoundary(after)) {
+      return true;
+    }
+    at = haystack.indexOf(needle, at + needle.length);
+  }
+  return false;
 }
 
 /**

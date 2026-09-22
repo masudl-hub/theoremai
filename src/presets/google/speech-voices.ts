@@ -41,4 +41,5 @@ export const GOOGLE_SPEECH_VOICES = [
   'Sulafat',
 ] as const;
 
+/** Voice identifier accepted by the Google speech preset. */
 export type GoogleSpeechVoice = (typeof GOOGLE_SPEECH_VOICES)[number];

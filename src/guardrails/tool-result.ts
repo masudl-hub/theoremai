@@ -28,6 +28,7 @@ import type {
   Verdict,
 } from './types.ts';
 
+/** Closing delimiter for model-facing fenced tool content. */
 const TOOL_CLOSE = '</tool_data>';
 const TOOL_OPEN = '<tool_data';
 
@@ -110,6 +111,10 @@ function advisoryNotice(advisory: AdvisoryLevel): string {
   return lexiconText(advisory === 'high' ? 'advisory.notice_high' : 'advisory.notice_elevated');
 }
 
+/**
+ * Model-facing, fenced tool text and the optional event produced while guardrails
+ * prepared it. A missing event means no guardrail action needed recording.
+ */
 export interface GuardedToolText {
   /** Text to hand the model, fenced and redacted. */
   text: string;

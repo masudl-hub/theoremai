@@ -183,16 +183,56 @@ function isDocsPath(relPath) {
 }
 
 /** Minimal glob match for biome `files.includes` entries (`*` / `**` only). */
+function wildcardMatch(value, pattern) {
+	const input = String(value);
+	const tokens = [];
+	for (let i = 0; i < pattern.length; i += 1) {
+		if (pattern[i] === '*') {
+			const isGlobstar = pattern[i + 1] === '*';
+			tokens.push({ kind: isGlobstar ? 'globstar' : 'star' });
+			if (isGlobstar) i += 1;
+		} else {
+			tokens.push({ kind: 'char', value: pattern[i] });
+		}
+	}
+
+	let states = new Set([0]);
+	for (const ch of input) {
+		const next = new Set();
+		for (const state of states) {
+			const token = tokens[state];
+			if (!token) continue;
+			if (token.kind === 'globstar') {
+				next.add(state);
+				next.add(state + 1);
+			} else if (token.kind === 'star') {
+				if (ch !== '/') next.add(state);
+				next.add(state + 1);
+			} else if (token.value === ch) {
+				next.add(state + 1);
+			}
+		}
+		states = next;
+	}
+
+	let pending = states;
+	for (;;) {
+		const expanded = new Set(pending);
+		for (const state of pending) {
+			if (tokens[state]?.kind === 'globstar' || tokens[state]?.kind === 'star') {
+				expanded.add(state + 1);
+			}
+		}
+		if (expanded.size === pending.size) return expanded.has(tokens.length);
+		pending = expanded;
+	}
+}
+
 function matchIncludeGlob(file, pattern) {
 	const normalizedFile = file.replaceAll('\\', '/');
 	const normalizedPattern = pattern.replaceAll('\\', '/');
 	if (normalizedPattern.startsWith('!')) return false;
-	const escaped = normalizedPattern
-		.replace(/[.+^${}()|[\]\\]/g, '\\$&')
-		.replace(/\*\*/g, '§§')
-		.replace(/\*/g, '[^/]*')
-		.replace(/§§/g, '.*');
-	return new RegExp(`^${escaped}$`).test(normalizedFile);
+	return wildcardMatch(normalizedFile, normalizedPattern);
 }
 
 function readBiomeIncludes(root) {

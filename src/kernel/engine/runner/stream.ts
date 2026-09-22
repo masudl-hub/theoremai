@@ -70,10 +70,6 @@ function canaryOnlyImmediateStop(policy: ResolvedGuardrailPolicy): boolean {
   return !policy.egress?.enforce;
 }
 
-function hasCanaryHit(hits: GuardrailHit[]): boolean {
-  return hits.some((hit) => hit.rule === EGRESS_RULES.canary);
-}
-
 async function* yieldProviderEvents(args: {
   profile: Profile;
   generation: ResolvedGeneration;
@@ -122,8 +118,11 @@ async function* yieldProviderEvents(args: {
     const result = await gate.flush();
     lastStreamType = undefined;
     if (result.blocked) {
-      if (hasCanaryHit(result.hits) && canary && canaryOnlyImmediateStop(policy)) {
-        yield* yieldCanaryLeak(canary, { type: emitType, text: gate.accumulated() });
+      if (canary && canaryOnlyImmediateStop(policy)) {
+        yield* yieldCanaryLeak(canary, {
+          type: emitType,
+          text: gate.accumulated(),
+        });
         return 'stop';
       }
       yield* drainBlockedDelta(result.hits);
@@ -156,7 +155,7 @@ async function* yieldProviderEvents(args: {
     lastStreamType = event.type;
     const result = await gate.process(event.text ?? '');
     if (result.blocked) {
-      if (hasCanaryHit(result.hits) && canary && canaryOnlyImmediateStop(policy)) {
+      if (canary && canaryOnlyImmediateStop(policy)) {
         yield* yieldCanaryLeak(canary, event);
         return 'stop';
       }

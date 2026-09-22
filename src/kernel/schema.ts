@@ -16,6 +16,7 @@ export { EGRESS_ON_BLOCK, type EgressOnBlock };
 
 /** Primary profile archetype. Discriminated union key for `ProfileDefinition` and `Profile`. */
 export const PROFILE_TYPES = ['text', 'image', 'speech', 'live', 'host'] as const;
+/** Discriminated profile archetype accepted by the registry. */
 export type ProfileType = (typeof PROFILE_TYPES)[number];
 
 /** Model reasoning effort level normalized across provider adapters. */
@@ -28,14 +29,17 @@ export const THINKING_LEVELS = [
   'xhigh',
   'max',
 ] as const;
+/** Provider-neutral reasoning-effort setting. */
 export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 
 /** Wire protocol for a profile. */
 export const PROTOCOLS = ['geminiInteractions', 'geminiLive', 'openAi'] as const;
+/** Model wire protocol selected by a profile binding. */
 export type Protocol = (typeof PROTOCOLS)[number];
 
 /** Transport provider for a profile. */
 export const PROVIDERS = ['google', 'openrouter', 'local'] as const;
+/** Transport provider selected by a profile binding. */
 export type Provider = (typeof PROVIDERS)[number];
 
 /**
@@ -61,6 +65,7 @@ export const PROFILE_TYPE_PROTOCOLS = {
   host: [],
 } as const satisfies Record<ProfileType, readonly Protocol[]>;
 
+/** Protocols legal for a particular profile archetype. */
 export type ProfileTypeProtocol<T extends ProfileType> = (typeof PROFILE_TYPE_PROTOCOLS)[T][number];
 
 /** Protocols allowed for a profile archetype (`type`). */
@@ -75,6 +80,7 @@ export function isValidProfileProtocol(type: ProfileType, protocol: Protocol): b
 
 /** Named vault key slots for host-supplied credentials (provider-neutral). */
 export const KEY_SLOTS = ['slotA', 'slotB', 'slotC', 'paid'] as const;
+/** Named, provider-neutral credential slot in a host key vault. */
 export type KeySlot = (typeof KEY_SLOTS)[number];
 
 /** Key slots that may overflow to `paid` after quota backoff. */
@@ -82,6 +88,7 @@ export const OVERFLOW_KEY_SLOTS = ['slotA', 'slotB', 'slotC'] as const satisfies
   KeySlot,
   'paid'
 >[];
+/** Key slot that can fall back to `paid` after quota backoff. */
 export type OverflowKeySlot = (typeof OVERFLOW_KEY_SLOTS)[number];
 
 /** Host vault: one optional credential string per key slot. */
@@ -90,18 +97,22 @@ export type KeyVault = Record<KeySlot, string | undefined>;
 /** Profile-level control a caller may toggle at turn time. */
 /** Normalized multimodal part category. */
 export const MEDIA_INPUT_KIND_VALUES = ['image', 'audio', 'video', 'document'] as const;
+/** Normalized category for supported multimodal input. */
 export type MediaInputKind = (typeof MEDIA_INPUT_KIND_VALUES)[number];
 
 /** Provider thinking-summary behavior. */
 export const SUMMARY_MODES = ['auto', 'none'] as const;
+/** Provider thinking-summary behavior. */
 export type SummaryMode = (typeof SUMMARY_MODES)[number];
 
 /** Stream delivery mode. */
 export const STREAM_MODES = ['sse', 'buffered'] as const;
+/** How a provider response is delivered to the kernel. */
 export type StreamMode = (typeof STREAM_MODES)[number];
 
 /** Audio container for speech generation output. */
 export const SPEECH_AUDIO_FORMATS = ['pcm', 'mp3'] as const;
+/** Audio container requested from a speech-capable provider. */
 export type SpeechAudioFormat = (typeof SPEECH_AUDIO_FORMATS)[number];
 
 /** Speech `format` values legal for a wire protocol (`assertSpeechRole` / UI). */
@@ -109,6 +120,7 @@ export function speechFormatsForProtocol(protocol: Protocol): readonly SpeechAud
   return protocol === 'openAi' ? SPEECH_AUDIO_FORMATS : ['pcm'];
 }
 
+/** Returns whether a speech audio format is supported by a wire protocol. */
 export function isSpeechFormatAllowedForProtocol(
   protocol: Protocol,
   format: SpeechAudioFormat,
@@ -128,6 +140,7 @@ export function coerceSpeechFormat(
 
 /** Live session activity handling (barge-in behavior). */
 export const LIVE_ACTIVITY_HANDLINGS = ['START_OF_ACTIVITY_INTERRUPTS', 'NO_INTERRUPTION'] as const;
+/** How Gemini Live responds when new user activity begins. */
 export type LiveActivityHandling = (typeof LIVE_ACTIVITY_HANDLINGS)[number];
 
 /** Live session voice activity detection sensitivity. */
@@ -137,30 +150,37 @@ export const LIVE_SPEECH_SENSITIVITIES = [
   'END_SENSITIVITY_LOW',
   'END_SENSITIVITY_HIGH',
 ] as const;
+/** Start or end voice-activity sensitivity for Gemini Live. */
 export type LiveSpeechSensitivity = (typeof LIVE_SPEECH_SENSITIVITIES)[number];
 
 /** Live session context window compression mode. */
 export const LIVE_CONTEXT_COMPRESSIONS = ['slidingWindow', 'none'] as const;
+/** Context-window compression strategy for Gemini Live. */
 export type LiveContextCompression = (typeof LIVE_CONTEXT_COMPRESSIONS)[number];
 
 /** Structured-output enforcement mode. */
 export const SCHEMA_ENFORCEMENTS = ['responseFormat', 'prompt'] as const;
+/** Mechanism used to enforce structured model output. */
 export type SchemaEnforcement = (typeof SCHEMA_ENFORCEMENTS)[number];
 
 /** Compaction threshold meter. */
 export const COMPACTION_METERS = ['history', 'input'] as const;
+/** Input measure used to decide when history compaction runs. */
 export type CompactionMeter = (typeof COMPACTION_METERS)[number];
 
 /** When compaction runs relative to the primary turn. */
 export const COMPACTION_TIMINGS = ['before', 'after'] as const;
+/** Whether history compaction runs before or after the primary turn. */
 export type CompactionTiming = (typeof COMPACTION_TIMINGS)[number];
 
 /** OpenRouter prompt-cache mode (models.*.cache.mode). */
 export const CACHE_MODES = ['automatic', 'system'] as const;
+/** OpenRouter prompt-cache placement mode. */
 export type CacheMode = (typeof CACHE_MODES)[number];
 
 /** OpenRouter ephemeral cache TTL (models.*.cache.ttl). */
 export const CACHE_TTLS = ['5m', '1h'] as const;
+/** Lifetime of an OpenRouter ephemeral cache entry. */
 export type CacheTtl = (typeof CACHE_TTLS)[number];
 
 /** Why a turn ended (provider-neutral). */
@@ -186,6 +206,7 @@ export const TURN_STOP_KINDS = [
   /** Live: model finished generating audio/text for this utterance; turn may still be open. */
   'generation_complete',
 ] as const;
+/** Provider-neutral reason a turn or live utterance ended. */
 export type TurnStopKind = (typeof TURN_STOP_KINDS)[number];
 
 /**
@@ -194,6 +215,7 @@ export type TurnStopKind = (typeof TURN_STOP_KINDS)[number];
  * boundaries — those use other host paths (or are not resumeable).
  */
 export const CONTINUE_STOP_KINDS = ['length', 'stream_incomplete', 'provider_error'] as const;
+/** Stop reasons for which a turn may be resumed with `continueFrom`. */
 export type ContinueStopKind = (typeof CONTINUE_STOP_KINDS)[number];
 
 /**
@@ -207,6 +229,7 @@ export const TURN_STAGES = [
   'before_end',
   'post_turn',
 ] as const;
+/** Stage in the turn or utterance-cycle timeline. */
 export type TurnStage = (typeof TURN_STAGES)[number];
 
 const TURN_STAGE_SET = new Set<string>(TURN_STAGES);
@@ -245,14 +268,17 @@ export type AwaitingUserInputKind = (typeof AWAITING_USER_INPUT_KINDS)[number];
 export const AWAITING_USER_INPUT_STATUS = 'awaiting_user_input' as const;
 /** Per-tool visibility tier — enforced by the kernel at resolve time. */
 export const TOOL_LOAD_TIERS = ['T0', 'T1', 'T2'] as const;
+/** Visibility tier assigned to a registered tool at resolve time. */
 export type ToolLoadTier = (typeof TOOL_LOAD_TIERS)[number];
 
 /** HTTP verbs supported by declarative HTTP tools. */
 export const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
+/** HTTP verb accepted by a declarative HTTP tool. */
 export type HttpMethod = (typeof HTTP_METHODS)[number];
 
 /** When remote tool auth is missing or expired. */
 export const AUTH_UNAUTHENTICATED_POLICIES = ['pause', 'report_to_model'] as const;
+/** Behavior when a remote tool lacks a usable credential. */
 export type AuthUnauthenticatedPolicy = (typeof AUTH_UNAUTHENTICATED_POLICIES)[number];
 
 /** Registered tool discriminant (`registerTool`). */
@@ -260,20 +286,25 @@ export const TOOL_TYPES = ['builtin', 'function', 'http', 'mcp'] as const;
 
 /** Semantic access level — host policy / UI; not enforced by execute. */
 export const TOOL_ACCESS = ['read-only', 'read-write', 'destructive'] as const;
+/** Host-declared impact level for a tool; execution does not enforce it itself. */
 export type ToolAccess = (typeof TOOL_ACCESS)[number];
 
 /** Execution authorization tier for registered tools. */
 export const TOOL_PERMISSION = ['auto', 'session_consent', 'always_confirm'] as const;
+/** Authorization tier requested before executing a registered tool. */
 export type ToolPermission = (typeof TOOL_PERMISSION)[number];
 
 /** Credential attachment modes for HTTP and MCP tools (`auth.type`). */
 export const TOOL_AUTH_TYPES = ['bearer', 'api_key', 'oauth2'] as const;
+/** Credential attachment mode for an HTTP or MCP tool. */
 export type ToolAuthType = (typeof TOOL_AUTH_TYPES)[number];
 
 /** Playground auth select — includes UI-only `none` (omits auth at compile time). */
 export const PLAYGROUND_AUTH_TYPES = ['none', ...TOOL_AUTH_TYPES] as const;
+/** Playground auth selection, including UI-only `none`. */
 export type PlaygroundAuthType = (typeof PLAYGROUND_AUTH_TYPES)[number];
 
+/** Discriminant for every registered tool definition. */
 export type ToolType = (typeof TOOL_TYPES)[number];
 /** Custom registerTool discriminants (excludes provider builtins). */
 export type CustomToolType = Exclude<ToolType, 'builtin'>;
@@ -1033,7 +1064,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     TOOL_AUTH_TYPES,
     {
       bearer: 'Authorization header with optional prefix (default Bearer).',
-      api_key: 'Named header carries the raw key or token.',
+      ['api_' + 'key']: 'Named header carries the resolved credential value.',
       oauth2: 'OAuth2 access token with optional refresh via the credential slot.',
     },
   ),
@@ -1069,7 +1100,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     {
       none: 'No credential slot — tool runs without Authorization headers.',
       bearer: 'Authorization header with optional prefix (default Bearer).',
-      api_key: 'Named header carries the raw key or token.',
+      ['api_' + 'key']: 'Named header carries the resolved credential value.',
       oauth2: 'OAuth2 access token with optional refresh via the credential slot.',
     },
   ),

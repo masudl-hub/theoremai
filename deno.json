@@ -86,6 +86,7 @@
     "ci": "npm run check:ci",
     "hooks:install": "npm run hooks:install",
     "verify:provider-smoke": "deno run --allow-net scripts/verify-provider-smoke.ts",
+    "verify:jev-api": "deno run --allow-env --allow-net scripts/verify-jev-api.ts",
     "verify:canary-api": "deno run --allow-read --allow-net --allow-env --allow-sys scripts/verify-guardrails-api.ts",
     "verify:guardrails-api": "deno run --allow-read --allow-net --allow-env --allow-sys scripts/verify-guardrails-api.ts",
     "verify:tools-api": "deno run --allow-read --allow-net --allow-env --allow-sys scripts/verify-tools-api.ts",

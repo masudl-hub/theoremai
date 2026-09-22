@@ -26,6 +26,10 @@ import type {
   ResolvedGuardrailPolicy,
 } from './types.ts';
 
+/**
+ * Mutable outbound guardrail state for one live session. It retains progressive
+ * stream state, tracks withheld output, and records the last streamed event kind.
+ */
 export interface LiveOutboundGateSession {
   policy: ResolvedGuardrailPolicy;
   context: GuardrailContext;
@@ -35,6 +39,7 @@ export interface LiveOutboundGateSession {
   withholdVisible: boolean;
 }
 
+/** Result of a live outbound operation: events to emit, output to withhold, or no work. */
 export type LiveOutboundBatchResult =
   | { action: 'emit'; events: TurnEvent[] }
   | { action: 'withhold'; error: string; events?: TurnEvent[] }
@@ -44,6 +49,10 @@ function egressSpec(session: LiveOutboundGateSession): ProfileEgressSpec | undef
   return session.policy.egress;
 }
 
+/**
+ * Creates outbound guardrail state for a live profile. A canary is only attached
+ * when the resolved profile policy enables it and the caller supplied a token.
+ */
 function createLiveOutboundGateSession(profile: Profile, canary?: string): LiveOutboundGateSession {
   const policy = resolveGuardrailPolicy(profile.guardrails);
   const useCanary = policy.canary && Boolean(canary);
@@ -262,6 +271,10 @@ async function finalizeEgressEnforce(
   return undefined;
 }
 
+/**
+ * Flushes withheld stream text and applies the final egress decision at the end
+ * of a live utterance. Call once after the provider has finished emitting events.
+ */
 async function finalizeLiveOutboundTurn(
   session: LiveOutboundGateSession,
 ): Promise<LiveOutboundBatchResult> {

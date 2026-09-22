@@ -35,6 +35,7 @@ const PERMISSION_SET = new Set<string>(TOOL_PERMISSION);
 
 /** Closed set of kernel-applied stage affordances. */
 export const STAGE_AFFORDANCES = ['inject', 'abort', 'deny', 'confirm', 'mutate'] as const;
+/** Kernel action a host stage handler may request. */
 export type StageAffordance = (typeof STAGE_AFFORDANCES)[number];
 
 /**
@@ -100,10 +101,12 @@ export interface StageResult {
 /** What `mutate` replaces: the stage's subject. */
 export type StageMutate = { input: unknown } | { output: unknown };
 
+/** Host callback that observes a stage and may request a valid stage action. */
 export type StageHandler = (
   ctx: StageContext,
 ) => StageResult | undefined | Promise<StageResult | undefined>;
 
+/** Machine-readable reason the kernel rejected or ignored a stage result field. */
 export type StageApplyWarningCode =
   | 'affordance_not_allowed'
   | 'inject_not_allowed'
@@ -116,12 +119,14 @@ export type StageApplyWarningCode =
   | 'unknown_field'
   | 'result_invalid';
 
+/** Diagnostic emitted when a stage result contains an invalid or unavailable affordance. */
 export interface StageApplyWarning {
   code: StageApplyWarningCode;
   message: string;
   field: string;
 }
 
+/** Untrusted host stage result and the runtime facts used to apply it safely. */
 export interface StageApplyInput {
   stage: TurnStage;
   /** Host return — treated as untrusted (`unknown` at the boundary). */
@@ -138,6 +143,7 @@ export interface StageApplyInput {
   mutable?: boolean;
 }
 
+/** Validated, kernel-applicable subset of a host stage result and its warnings. */
 export interface StageApplyOutput {
   inject?: TurnHistoryMessage[];
   abort?: boolean | { reason?: string };
@@ -584,6 +590,7 @@ export function applyStageResult(input: StageApplyInput): StageApplyOutput {
   return out;
 }
 
+/** Optional fields added to the emitted event that records a stage application. */
 export type StageEventExtra = {
   callId?: string;
   toolName?: string;

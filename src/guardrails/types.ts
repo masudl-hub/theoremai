@@ -19,6 +19,7 @@
  * - `untrusted` — user input, tool results, attachments, delegated agents.
  */
 export const TRUST_LEVELS = ['trusted', 'assembled', 'untrusted'] as const;
+/** Origin trust classification for text entering a model context. */
 export type TrustLevel = (typeof TRUST_LEVELS)[number];
 
 /** Boundary a guardrail check runs at. */
@@ -36,14 +37,17 @@ export const GUARDRAIL_STAGES = [
   'live_outbound',
   'trace',
 ] as const;
+/** A boundary at which a guardrail check can run. */
 export type GuardrailStage = (typeof GUARDRAIL_STAGES)[number];
 
 /** How serious a hit is. Does not decide what happens next — that is `onBlock`. */
 export const SEVERITIES = ['info', 'low', 'medium', 'high'] as const;
+/** Severity assigned to a guardrail finding. */
 export type Severity = (typeof SEVERITIES)[number];
 
 /** Egress block handling. */
 export const EGRESS_ON_BLOCK = ['reject_to_agent', 'refuse_to_user'] as const;
+/** The action to take when an egress guardrail blocks output. */
 export type EgressOnBlock = (typeof EGRESS_ON_BLOCK)[number];
 
 /** One detector match. */
@@ -79,6 +83,7 @@ export type Verdict =
       refusal?: string;
     };
 
+/** The action selected by a guardrail verdict. */
 export type GuardrailAction = Verdict['action'];
 
 /**
@@ -90,6 +95,7 @@ export type GuardrailAction = Verdict['action'];
  * reads as authoritative, which is why depth is tracked separately.
  */
 export const TOOL_ORIGINS = ['local', 'builtin', 'http', 'mcp', 'delegated'] as const;
+/** Source category for a registered tool result. */
 export type ToolOrigin = (typeof TOOL_ORIGINS)[number];
 
 /** Where a piece of content entered the turn from. */
@@ -142,9 +148,12 @@ export interface TurnTaint {
  * named a tool the model can call, or several signals agreed.
  */
 export const ADVISORY_LEVELS = ['none', 'elevated', 'high'] as const;
+/** Strength of advisory tool-ingress signals. */
 export type AdvisoryLevel = (typeof ADVISORY_LEVELS)[number];
 
+/** Ordered taint-gate values from reporting only through write-capability refusal. */
 export const TAINT_GATES = ['off', 'destructive', 'write'] as const;
+/** Least-severe tool capability refused after untrusted content is read. */
 export type TaintGate = (typeof TAINT_GATES)[number];
 
 /**

@@ -170,7 +170,11 @@ Deno.test('createOpenRouterProvider streams reasoning, text, tools, tokens, and 
     {
       role: 'assistant',
       tool_calls: [
-        { id: 'tc_1', type: 'function', function: { name: 'lookup', arguments: '{"q":"plant"}' } },
+        {
+          id: 'tc_1',
+          type: 'function',
+          function: { name: 'lookup', arguments: '{"q":"plant"}' },
+        },
       ],
     },
     { role: 'tool', name: 'lookup', tool_call_id: 'tc_1', content: 'Monstera' },
@@ -221,6 +225,31 @@ Deno.test('createOpenRouterProvider streams reasoning, text, tools, tokens, and 
   assertEquals(tokenEvents[0]?.tokens?.output, EXPECTED_OUTPUT_TOKENS);
   assertEquals(tokenEvents[0]?.tokens?.total, EXPECTED_TOTAL_TOKENS);
   assertEquals(events.filter((e) => e.type === 'done').length, 1);
+});
+
+Deno.test('createOpenRouterProvider suppresses thought events when summaries are disabled', async () => {
+  const provider = createOpenRouterProvider({
+    apiKey: 'mock-auth-token',
+    fetch: () => Promise.resolve(sseResponse(mockStreamChunks())),
+  });
+
+  const req = createMockTurnRequest('pinned', 'How often to water?');
+  req.structured = null;
+  req.summaries = 'none';
+  const events = await collect(provider.complete(req));
+
+  assertEquals(
+    events.some((event) => event.type === 'thought'),
+    false,
+  );
+  assertEquals(
+    events
+      .filter((event) => event.type === 'text')
+      .map((event) => event.text)
+      .join(''),
+    'hello world.',
+  );
+  assertEquals(events.filter((event) => event.type === 'done').length, 1);
 });
 
 Deno.test('createOpenRouterProvider preserves citation evidence from provider payloads', async () => {
@@ -366,7 +395,9 @@ Deno.test('createOpenRouterProvider sends response_format for structured request
       capturedBody = JSON.parse(String(init?.body));
       return Promise.resolve(
         sseResponse([
-          `data: ${JSON.stringify({ choices: [{ delta: { content: '{"answer":"ok"}' } }] })}\n\n`,
+          `data: ${JSON.stringify({
+            choices: [{ delta: { content: '{"answer":"ok"}' } }],
+          })}\n\n`,
           'data: [DONE]\n\n',
         ]),
       );
@@ -469,7 +500,13 @@ Deno.test('createOpenRouterProvider extracts evidence from openrouter.provider_m
 Deno.test('createOpenRouterProvider extracts evidence annotations from SSE chunk', async () => {
   const chunk = JSON.stringify({
     choices: [{ delta: { content: 'annotated' } }],
-    annotations: [{ type: 'url_citation', url: 'https://example.com/ann', title: 'Ann' }],
+    annotations: [
+      {
+        type: 'url_citation',
+        url: 'https://example.com/ann',
+        title: 'Ann',
+      },
+    ],
   });
   const provider = createOpenRouterProvider({
     apiKey: 'test-key',
@@ -563,7 +600,11 @@ Deno.test('createOpenRouterProvider wires tool result history with fallback ids'
     {
       role: 'assistant',
       tool_calls: [
-        { id: 'tc1', type: 'function', function: { name: 'calc', arguments: '{"x":1}' } },
+        {
+          id: 'tc1',
+          type: 'function',
+          function: { name: 'calc', arguments: '{"x":1}' },
+        },
       ],
     },
     { role: 'tool', name: 'calc', tool_call_id: 'tc1', content: '42' },
@@ -589,7 +630,9 @@ Deno.test('createOpenRouterProvider emits structured event for valid JSON output
     fetch: () =>
       Promise.resolve(
         sseResponse([
-          `data: ${JSON.stringify({ choices: [{ delta: { content: '{"answer":"42"}' } }] })}\n\n`,
+          `data: ${JSON.stringify({
+            choices: [{ delta: { content: '{"answer":"42"}' } }],
+          })}\n\n`,
           'data: [DONE]\n\n',
         ]),
       ),
@@ -611,7 +654,9 @@ Deno.test('createOpenRouterProvider errors when structured output is invalid JSO
     fetch: () =>
       Promise.resolve(
         sseResponse([
-          `data: ${JSON.stringify({ choices: [{ delta: { content: 'not valid json' } }] })}\n\n`,
+          `data: ${JSON.stringify({
+            choices: [{ delta: { content: 'not valid json' } }],
+          })}\n\n`,
           'data: [DONE]\n\n',
         ]),
       ),
@@ -910,7 +955,12 @@ Deno.test('createOpenRouterProvider extracts openrouter.annotations evidence', a
   const chunk = JSON.stringify({
     choices: [{ delta: { content: 'annotated' } }],
     openrouter: {
-      annotations: [{ type: 'url_citation', url: 'https://example.com/or-ann' }],
+      annotations: [
+        {
+          type: 'url_citation',
+          url: 'https://example.com/or-ann',
+        },
+      ],
     },
   });
   const provider = createOpenRouterProvider({
@@ -1283,7 +1333,9 @@ Deno.test('stringArray returns string arrays', () => {
 });
 
 Deno.test('metadataRecord extracts nested record', () => {
-  assertEquals(metadataRecord({ key: { nested: true } }, 'key'), { nested: true });
+  assertEquals(metadataRecord({ key: { nested: true } }, 'key'), {
+    nested: true,
+  });
   assertEquals(metadataRecord({ key: 'string' }, 'key'), undefined);
   assertEquals(metadataRecord({}, 'missing'), undefined);
 });
@@ -1579,7 +1631,10 @@ Deno.test('primaryEventFromPart maps error', () => {
 
 Deno.test('primaryEventFromPart skips duplicate source events', () => {
   const acc = createAccumulator();
-  const source = adversarialPart('source', { sourceType: 'url', url: 'https://a.com' });
+  const source = adversarialPart('source', {
+    sourceType: 'url',
+    url: 'https://a.com',
+  });
   const first = primaryEventFromPart(source, acc);
   assertEquals(first?.type, 'evidence');
   assertEquals(acc.evidenceSeen, true);
@@ -1594,7 +1649,9 @@ Deno.test('primaryEventFromPart returns undefined for unknown types', () => {
 
 Deno.test('eventFromPart falls through to providerMetadata', () => {
   const acc = createAccumulator();
-  const part = adversarialPart('step-start', { providerMetadata: { citations: ['url'] } });
+  const part = adversarialPart('step-start', {
+    providerMetadata: { citations: ['url'] },
+  });
   const events = eventFromPart(part, acc);
   assertEquals(events.length, 1);
   assertEquals(events[0].type, 'evidence');
@@ -1671,7 +1728,10 @@ Deno.test('providerOptionsFor includes automatic cacheControl and session_id', (
   req.cache = { mode: 'automatic', ttl: '5m' };
   req.sessionId = 'sticky-1';
   const opts = providerOptionsFor(req);
-  assertEquals(field(opts, 'openrouter', 'cacheControl'), { type: 'ephemeral', ttl: '5m' });
+  assertEquals(field(opts, 'openrouter', 'cacheControl'), {
+    type: 'ephemeral',
+    ttl: '5m',
+  });
   assertEquals(field(opts, 'openrouter', 'session_id'), 'sticky-1');
 });
 
@@ -1690,11 +1750,17 @@ Deno.test('systemDelivery uses instructions for automatic/default and XOR system
   base.thinking = 'none';
   base.structured = null;
 
-  const automatic = systemDelivery({ ...base, cache: { mode: 'automatic', ttl: '1h' } });
+  const automatic = systemDelivery({
+    ...base,
+    cache: { mode: 'automatic', ttl: '1h' },
+  });
   assertEquals(automatic.instructions, 'Stable persona');
   assertEquals(automatic.systemMessage, undefined);
 
-  const systemMode = systemDelivery({ ...base, cache: { mode: 'system', ttl: '5m' } });
+  const systemMode = systemDelivery({
+    ...base,
+    cache: { mode: 'system', ttl: '5m' },
+  });
   assertEquals(systemMode.instructions, undefined);
   assertEquals(systemMode.systemMessage?.role, 'system');
   assertEquals(field(systemMode.systemMessage, 'providerOptions', 'openrouter', 'cacheControl'), {
@@ -1753,7 +1819,9 @@ Deno.test('providerMetadataEvent returns undefined without providerMetadata', ()
 
 Deno.test('providerMetadataEvent extracts evidence', () => {
   const acc = createAccumulator();
-  const part = adversarialPart('step-finish', { providerMetadata: { citations: ['url'] } });
+  const part = adversarialPart('step-finish', {
+    providerMetadata: { citations: ['url'] },
+  });
   const ev = providerMetadataEvent(part, acc);
   assertEquals(ev?.type, 'evidence');
 });

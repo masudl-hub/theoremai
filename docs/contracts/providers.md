@@ -46,6 +46,8 @@ Owns every module under `src/providers/`.
 
 ## Package boundary
 
+The active provider refresh keeps the credential, adapter, and multi-model boundaries aligned with the current branch's OpenRouter and Google provider code.
+
 | Rule | Detail |
 | --- | --- |
 | No `.env` in repo | Hosts pass credentials explicitly |
@@ -110,6 +112,8 @@ open-ended. The only per-adapter refusal is the reference part, raised as a
 
 ## OpenRouter
 
+The current branch refresh keeps the OpenRouter adapter behavior aligned with the request/usage and gateway code that ships from the provider surface.
+
 Internal adapter behind `createProvider` for `openAi` + `openrouter` chat. Hosts
 use `createProvider(profile, { openAiGateway })` — there is no separate public
 OpenRouter entrypoint.
@@ -159,6 +163,8 @@ via AI SDK `providerOptions.openrouter` (`cacheControl` / `session_id`) — the 
 | Stop | `turnStopFromInteractionStatus` on terminal status |
 
 ## Google Live
+
+The branch refresh keeps the Gemini Live session flow, transport gating, and session-boundary rules aligned with the current runtime path and provider tests.
 
 Live profiles use **`runSession`**, not `createProvider` / `ModelProvider.complete()`.
 

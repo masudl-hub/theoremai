@@ -13,6 +13,7 @@ const B64_TRIPLET = 3;
 const CSV_FORMULA = /(^|,)(\s*)("?)(?:([=@])|([+-])(?![0-9."]))/gm;
 const B64_BODY = /^[A-Za-z0-9+/]*={0,2}$/;
 const TEXT_MIMES = new Set(['text/csv', 'text/plain', 'text/markdown']);
+/** Returns complete attachment limits only when every required global limit is set. */
 function resolveMediaLimits(inputs: MimeInputs): MediaLimits | undefined {
   const { maxFiles, maxBytes, maxTurnBytes, limitsByMime } = inputs;
   if (maxFiles && maxBytes && maxTurnBytes) {
@@ -21,6 +22,7 @@ function resolveMediaLimits(inputs: MimeInputs): MediaLimits | undefined {
   return undefined;
 }
 
+/** Resolves a MIME-specific byte cap, then its category wildcard, then the global cap. */
 function maxBytesForMime(mimeType: string, limits: MediaLimits): number {
   if (limits.limitsByMime) {
     const cleanMime = mimeType.split(';')[0]?.trim().toLowerCase() ?? '';
@@ -41,6 +43,10 @@ function isTurnMediaRef(item: TurnBlob | TurnMediaRef): item is TurnMediaRef {
   return 'uri' in item;
 }
 
+/**
+ * Returns a turn-capable profile's attachment limits or throws when its profile
+ * type cannot accept attachments or it omitted a complete limits declaration.
+ */
 function requireMediaLimits(profile: Profile): MediaLimits {
   if (profile.type === 'speech') {
     throw new TheoremError(`Profile ${profile.id} (speech) does not accept media input`); // lexicon-exempt: developer contract error
@@ -93,6 +99,7 @@ function decodeText(bytes: Uint8Array): string {
   }
 }
 
+/** Prefixes CSV formula-like cells with an apostrophe before they reach a model. */
 function sanitizeCsvText(text: string): string {
   return text.replace(CSV_FORMULA, (_full, ...groups: string[]) => {
     const [a, b, c, d, e] = groups;
@@ -162,6 +169,10 @@ function hasTurnBlobs(attachments?: TurnAttachments, voice?: TurnBlob[]): boolea
   return (attachments?.length ?? 0) > 0 || (voice?.length ?? 0) > 0;
 }
 
+/**
+ * Enforces attachment limits and sanitizes inline text and CSV blobs. Provider
+ * file references pass through unchanged because the kernel has no bytes to scan.
+ */
 function sanitizeTurnBlobs(
   attachments: Array<TurnBlob | TurnMediaRef> | undefined,
   voice: TurnBlob[] | undefined,
@@ -182,6 +193,7 @@ function sanitizeTurnBlobs(
   };
 }
 
+/** Looks up a profile's limits before sanitizing its turn attachments and voice blobs. */
 function sanitizeTurnBlobsForProfile(
   profileId: string,
   attachments: Array<TurnBlob | TurnMediaRef> | undefined,

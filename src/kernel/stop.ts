@@ -242,6 +242,7 @@ export class GenerationStopError extends Error {
   }
 }
 
+/** Narrows an unknown error to a controlled generation-stop signal. */
 export function isGenerationStopError(err: unknown): err is GenerationStopError {
   return err instanceof GenerationStopError;
 }

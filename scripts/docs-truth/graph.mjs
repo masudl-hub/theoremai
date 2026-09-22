@@ -27,29 +27,57 @@ export function normalizeHeading(value) {
   return String(value).toLowerCase().replace(/[`*]/g, '').replace(/\s+/g, ' ').trim();
 }
 
+function wildcardMatch(value, pattern) {
+  const input = String(value);
+  const tokens = [];
+  for (let i = 0; i < pattern.length; i += 1) {
+    if (pattern[i] === '*') {
+      const isGlobstar = pattern[i + 1] === '*';
+      tokens.push({ kind: isGlobstar ? 'globstar' : 'star' });
+      if (isGlobstar) i += 1;
+    } else {
+      tokens.push({ kind: 'char', value: pattern[i] });
+    }
+  }
+
+  let states = new Set([0]);
+  for (const ch of input) {
+    const next = new Set();
+    for (const state of states) {
+      const token = tokens[state];
+      if (!token) continue;
+      if (token.kind === 'globstar') {
+        next.add(state);
+        next.add(state + 1);
+      } else if (token.kind === 'star') {
+        if (ch !== '/') next.add(state);
+        next.add(state + 1);
+      } else if (token.value === ch) {
+        next.add(state + 1);
+      }
+    }
+    states = next;
+  }
+
+  let pending = states;
+  for (;;) {
+    const expanded = new Set(pending);
+    for (const state of pending) {
+      if (tokens[state]?.kind === 'globstar' || tokens[state]?.kind === 'star') {
+        expanded.add(state + 1);
+      }
+    }
+    if (expanded.size === pending.size) return expanded.has(tokens.length);
+    pending = expanded;
+  }
+}
+
 export function pathRuleMatches(rule, file) {
   const normalizedRule = normalizePath(rule);
   const normalizedFile = normalizePath(file);
 
-  if (normalizedRule.includes('**')) {
-    const escaped = normalizedRule
-      .split('**')
-      .map((part) =>
-        part
-          .split('*')
-          .map((segment) => segment.replace(/[|\\{}()[\]^$+?.]/g, '\\$&'))
-          .join('[^/]*'),
-      )
-      .join('.*');
-    return new RegExp(`^${escaped}$`).test(normalizedFile);
-  }
-
   if (normalizedRule.includes('*')) {
-    const escaped = normalizedRule
-      .split('*')
-      .map((part) => part.replace(/[|\\{}()[\]^$+?.]/g, '\\$&'))
-      .join('[^/]*');
-    return new RegExp(`^${escaped}$`).test(normalizedFile);
+    return wildcardMatch(normalizedFile, normalizedRule);
   }
 
   if (normalizedRule.endsWith('/')) {

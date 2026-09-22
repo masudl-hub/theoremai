@@ -9,6 +9,7 @@ interface Slot {
   busy: boolean;
 }
 
+/** Outcome of reserving a profile's per-client daily quota slot. */
 type QuotaSlotStatus = 'ok' | 'busy' | 'quota' | 'not_configured';
 
 const slots = new Map<string, Slot>();
@@ -29,10 +30,12 @@ function slotKey(profileId: string, ip: string): string {
   return `${profileId}:${ip}`;
 }
 
+/** Returns whether a local request lacks the proxy header needed for quota identity. */
 function skipQuota(peer: string, req: Request): boolean {
   return isLoopback(peer) && !cfConnectingIp(req);
 }
 
+/** Resolves the client identity, preferring Cloudflare's header for local peers. */
 function clientIp(peer: string, req: Request): string {
   if (isLoopback(peer)) {
     const cf = cfConnectingIp(req);
@@ -46,6 +49,10 @@ function clientIp(peer: string, req: Request): string {
   return 'unknown';
 }
 
+/**
+ * Reserves one profile-and-client daily quota slot. The reservation stays busy
+ * until `releaseSlot` is called, preventing concurrent turns from overspending.
+ */
 function takeSlot(profile: Profile, ip: string, now: number): QuotaSlotStatus {
   const quota = resolveGuardrailPolicy(profile.guardrails).quota;
   if (!quota) {
@@ -69,6 +76,7 @@ function takeSlot(profile: Profile, ip: string, now: number): QuotaSlotStatus {
   return 'ok';
 }
 
+/** Releases an active quota reservation without decrementing its daily count. */
 function releaseSlot(profile: Profile, ip: string): void {
   const slot = slots.get(slotKey(profile.id, ip));
   if (slot) {
@@ -103,6 +111,7 @@ function quotaExhausted(profile: Profile): QuotaExhausted | undefined {
   };
 }
 
+/** Clears all process-local quota counters; intended for tests or host resets. */
 function resetSlots(): void {
   slots.clear();
 }

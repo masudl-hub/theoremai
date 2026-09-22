@@ -84,10 +84,12 @@ function registerTools(defs: ToolDefinitionInput[]): RegisteredTool[] {
   return defs.map((def) => registerTool(def));
 }
 
+/** Gets a process-registered tool by name without throwing for an unknown name. */
 function getTool(name: string): RegisteredTool | undefined {
   return tools.get(name);
 }
 
+/** Gets a process-registered tool or throws when the name is unknown. */
 function requireTool(name: string): RegisteredTool {
   const tool = getTool(name);
   if (!tool) {
@@ -96,26 +98,31 @@ function requireTool(name: string): RegisteredTool {
   return tool;
 }
 
+/** Returns whether a process-registered tool exists under a name. */
 function hasTool(name: string): boolean {
   return tools.has(name);
 }
 
+/** Lists current process-registered tools in registration order. */
 function listTools(): RegisteredTool[] {
   return [...tools.values()];
 }
 
+/** Lists names of registered provider builtins. */
 function listBuiltinIds(): string[] {
   return listTools()
     .filter((t) => t.type === 'builtin')
     .map((t) => t.name);
 }
 
+/** Lists names of registered local function tools. */
 function listFunctionIds(): string[] {
   return listTools()
     .filter((t) => t.type === 'function')
     .map((t) => t.name);
 }
 
+/** Clears the process-local tool registry; primarily useful for test isolation. */
 function resetTools(): void {
   tools.clear();
 }

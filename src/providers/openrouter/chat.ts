@@ -83,7 +83,10 @@ export function sourceEvent(part: {
   if (part.sourceType !== 'url') {
     return {
       type: 'evidence',
-      evidence: { provider: 'openrouter', raw: part as Record<string, unknown> },
+      evidence: {
+        provider: 'openrouter',
+        raw: part as Record<string, unknown>,
+      },
     };
   }
   const title = part.title ?? part.url ?? '';
@@ -122,7 +125,9 @@ function openRouterSettings(req: ProviderCompleteRequest): OpenRouterChatSetting
     return undefined;
   }
   const settings: OpenRouterChatSettings = {};
-  if (plugins.length > 0) settings.plugins = plugins as OpenRouterChatSettings['plugins'];
+  if (plugins.length > 0) {
+    settings.plugins = plugins as OpenRouterChatSettings['plugins'];
+  }
   if (webSearch) settings.web_search_options = {};
   return settings;
 }
@@ -538,6 +543,10 @@ function streamTextOptions(
   };
 }
 
+function shouldEmitProviderEvent(req: ProviderCompleteRequest, event: TurnEvent): boolean {
+  return event.type !== 'thought' || req.summaries !== 'none';
+}
+
 async function* yieldAiSdkStream(
   req: ProviderCompleteRequest,
   acc: StreamAccumulator,
@@ -548,12 +557,16 @@ async function* yieldAiSdkStream(
     if (part.type === 'raw') {
       req.tapUpstream?.(rawRecord(part.rawValue) ?? { rawValue: part.rawValue });
       for (const event of rawEvents(part.rawValue, acc)) {
-        yield event;
+        if (shouldEmitProviderEvent(req, event)) {
+          yield event;
+        }
       }
       continue;
     }
     for (const event of eventFromPart(part, acc)) {
-      yield event;
+      if (shouldEmitProviderEvent(req, event)) {
+        yield event;
+      }
     }
   }
 }

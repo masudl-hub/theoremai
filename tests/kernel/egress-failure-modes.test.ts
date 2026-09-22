@@ -27,7 +27,10 @@ function profile(
       tools: { allow: [] },
       inputs: { text: true },
       outputs: {},
-      guardrails: { quota: { perDay: 50 }, egress: { onBlock, maxRetries, enforce } },
+      guardrails: {
+        quota: { perDay: 50 },
+        egress: { onBlock, maxRetries, enforce },
+      },
     }),
   );
 }
@@ -63,7 +66,11 @@ Deno.test('a mid-stream block followed by a passing final verdict releases the t
   profile('fm_inconsistent', (): Verdict => {
     // First call is the mid-stream window; the second sees the whole attempt.
     return call++ === 0
-      ? { action: 'block', hits: [{ rule: 'partial', severity: 'low' }], rejection: 'partial' }
+      ? {
+          action: 'block',
+          hits: [{ rule: 'partial', severity: 'low' }],
+          rejection: 'partial',
+        }
       : { action: 'allow' };
   });
 
@@ -160,5 +167,46 @@ Deno.test('refuse_to_user with refusal copy emits exactly that copy', async () =
   );
 
   const events = await collect('fm_with_copy', says('leaky'));
+  assertEquals(texts(events), ['I cannot share that.']);
+});
+
+Deno.test('legacy egress blocked verdict with text is treated as refusal copy', async () => {
+  profile('fm_legacy_copy', (() => ({
+    blocked: true,
+    text: 'Legacy refusal.',
+    hits: ['legacy'],
+    rejectionMessage: 'blocked',
+  })) as unknown as EgressEnforcer);
+
+  const events = await collect('fm_legacy_copy', says('leaky'));
+  assertEquals(texts(events), ['Legacy refusal.']);
+  assertEquals(
+    events.some((e) => e.type === 'error'),
+    false,
+  );
+});
+
+Deno.test('final egress inspects thought text as well as visible text', async () => {
+  profile(
+    'fm_thought_leak',
+    ({ text }): Verdict =>
+      text.includes('secret-thought')
+        ? {
+            action: 'block',
+            hits: [{ rule: 'thought_leak', severity: 'high' }],
+            rejection: 'thought leaked',
+            refusal: 'I cannot share that.',
+          }
+        : { action: 'allow' },
+  );
+
+  const provider: ModelProvider = {
+    async *complete() {
+      yield { type: 'thought', text: 'secret-thought' };
+      yield { type: 'text', text: 'safe visible text' };
+    },
+  };
+
+  const events = await collect('fm_thought_leak', provider);
   assertEquals(texts(events), ['I cannot share that.']);
 });

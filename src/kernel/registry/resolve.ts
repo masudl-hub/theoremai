@@ -47,6 +47,10 @@ function requireModelProfile(profile: Profile, door: string): ModelProfile {
   return profile;
 }
 
+/**
+ * Chooses a profile model, honoring an explicit request only when selection is
+ * allowed; otherwise resolves the declared default or sole available model.
+ */
 function pickModel(profile: ModelProfile, requested?: string): ModelId {
   if (requested) {
     if (!profile.allowModelSelect) {

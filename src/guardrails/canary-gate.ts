@@ -13,16 +13,22 @@ import {
   isStreamedCanaryEvent,
 } from './canary.ts';
 
+/** Stateful canary scanner for an ordered sequence of turn events. */
 export interface CanaryGateSession {
   canary: string;
   gate: CanaryStreamGate;
   lastStreamType?: 'text' | 'thought';
 }
 
+/** Creates a canary-only gate session for batched filtering of streamed and non-streamed events. */
 function createCanaryGateSession(canary: string): CanaryGateSession {
   return { canary, gate: createCanaryStreamGate(canary) };
 }
 
+/**
+ * Filters one event batch, withholding streamed overlap and reporting the first
+ * canary leak before an unsafe event is returned to the caller.
+ */
 function filterCanaryGatedEvents(
   session: CanaryGateSession,
   events: TurnEvent[],

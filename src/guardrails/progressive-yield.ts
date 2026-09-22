@@ -20,8 +20,10 @@ const PEM_BEGIN = '-----BEGIN';
 
 export type ProgressiveYieldOk = { blocked: false; emit: string };
 export type ProgressiveYieldBlocked = { blocked: true; hits: GuardrailHit[] };
+/** Result from scanning a stream fragment: a blocked verdict or text safe to release. */
 export type ProgressiveYieldResult = ProgressiveYieldOk | ProgressiveYieldBlocked;
 
+/** Options for an incremental outbound stream gate, including its context and holdback policy. */
 export interface ProgressiveYieldGateOptions {
   /** Stage facts handed to `enforce`; also carries the turn canary. */
   context: GuardrailContext;
@@ -31,6 +33,10 @@ export interface ProgressiveYieldGateOptions {
   holdback?: number;
 }
 
+/**
+ * Incremental outbound gate that scans accumulated output and releases only
+ * prefixes outside its retained lookback window.
+ */
 interface ProgressiveYieldGate {
   process: (fragment: string) => Promise<ProgressiveYieldResult>;
   flush: () => Promise<ProgressiveYieldResult>;
@@ -62,6 +68,7 @@ function holdbackForWindow(window: string, base: number): number {
   return Math.max(base, window.length - begin);
 }
 
+/** Creates a progressive gate for outbound stream fragments; flush it when the stream ends. */
 function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): ProgressiveYieldGate {
   const { context } = options;
   const baseHoldback = resolveHoldback(context.canary, options.holdback);

@@ -33,7 +33,7 @@ const WITHHELD = 'Turn withheld: egress disclosure violation'; // lexicon-exempt
 function collectAttemptText(events: TurnEvent[]): string {
   const parts: string[] = [];
   for (const event of events) {
-    if (event.type === 'text' && event.text) {
+    if ((event.type === 'text' || event.type === 'thought') && event.text) {
       parts.push(event.text);
     }
   }
@@ -109,7 +109,10 @@ async function evaluateEgressOutcome(args: {
   // The policy supplied safe replacement prose — release that instead.
   if (verdict.action === 'redact') {
     return {
-      outcome: { action: 'refusal', event: { type: 'text', text: verdict.text } },
+      outcome: {
+        action: 'refusal',
+        event: { type: 'text', text: verdict.text },
+      },
       guardrail,
     };
   }
@@ -137,7 +140,10 @@ async function evaluateEgressOutcome(args: {
     return { outcome: { action: 'retry', nextRequest }, guardrail };
   }
 
-  return { outcome: { action: 'withhold', event: toErrorEvent(WITHHELD) }, guardrail };
+  return {
+    outcome: { action: 'withhold', event: toErrorEvent(WITHHELD) },
+    guardrail,
+  };
 }
 
 type ValidationOutcome =

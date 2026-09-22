@@ -8,6 +8,7 @@
  */
 
 import { TheoremError } from '../guardrails/error.ts';
+import { validateTraceDir } from './trace.ts';
 import type { TraceSink } from './trace-sink.ts';
 
 /** JSONL directory destination — retention comes from profile policy at resolve time. */
@@ -23,13 +24,15 @@ const destinations = new Map<string, TraceDestination>();
 
 /** Build a JSONL destination descriptor for `registerTraceDestination`. */
 function jsonlDestination(dir: string): JsonlTraceDestination {
-  const trimmed = dir.trim();
-  if (!trimmed) {
-    throw new TheoremError('jsonlDestination requires a non-empty directory');
+  try {
+    return { kind: 'jsonl', dir: validateTraceDir(dir) };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new TheoremError(`jsonlDestination ${message}`);
   }
-  return { kind: 'jsonl', dir: trimmed };
 }
 
+/** Narrows a trace destination to a JSONL-directory descriptor. */
 function isJsonlTraceDestination(value: TraceDestination): value is JsonlTraceDestination {
   return (
     typeof value === 'object' &&
@@ -40,6 +43,7 @@ function isJsonlTraceDestination(value: TraceDestination): value is JsonlTraceDe
   );
 }
 
+/** Narrows a trace destination to a host-provided async trace sink. */
 function isTraceSink(value: TraceDestination): value is TraceSink {
   return (
     typeof value === 'object' && value !== null && typeof (value as TraceSink).write === 'function'
@@ -53,10 +57,7 @@ function registerTraceDestination(id: string, destination: TraceDestination): vo
     throw new TheoremError('registerTraceDestination requires a non-empty id');
   }
   if (isJsonlTraceDestination(destination)) {
-    if (!destination.dir.trim()) {
-      throw new TheoremError(`Trace destination '${key}' jsonl dir must be non-empty`);
-    }
-    destinations.set(key, { kind: 'jsonl', dir: destination.dir.trim() });
+    destinations.set(key, jsonlDestination(destination.dir));
     return;
   }
   if (!isTraceSink(destination)) {

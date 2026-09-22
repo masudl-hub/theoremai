@@ -17,6 +17,8 @@ reports/
 # Lint / analysis local caches
 .fallow/
 snyk
+.semgrep-results.json
+.snyk-*.json
 
 # Secrets & host-injected runtime data
 .env

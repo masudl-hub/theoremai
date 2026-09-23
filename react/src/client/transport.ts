@@ -54,11 +54,13 @@ export type TheoremTurnRequest = {
 	replay?: Pick<TheoremReplay, 'sessionPermissions'>;
 };
 
-/** Approve a tool call the host paused on a gate; the host runs it as the model asked. */
+/**
+ * Approve a tool call the host paused on a gate; the host runs it as the model asked.
+ * The tool's registered permission decides how long the approval lasts, not the client.
+ */
 export type TheoremInvokeRequest = {
 	/** Call id of the paused tool call (`tool.callId` on its gate event). */
 	gateId: string;
-	decision: 'allow' | 'allow_session';
 	/** User-entered secrets for an auth gate. */
 	credentials?: Record<string, ToolCredential>;
 	replay?: TheoremReplay;

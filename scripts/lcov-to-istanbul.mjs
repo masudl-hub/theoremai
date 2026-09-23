@@ -89,5 +89,5 @@ for (const block of lcov.split('end_of_record')) {
   }
 }
 
-await writeFile(outPath, `${JSON.stringify(coverage, null, 2)}\n`);
+await writeFile(outPath, `${JSON.stringify(coverage)}\n`);
 console.log(`wrote ${outPath} (${Object.keys(coverage).length} files)`);

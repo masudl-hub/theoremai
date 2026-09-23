@@ -9,15 +9,15 @@ import {
 	type UserTurnDraft,
 } from '../../../src/interface/mod.ts';
 import type { ToolCredential } from '../../../src/kernel/mod.ts';
-import { attachmentIssueText } from './attachment-issues';
-import { filesToPending } from './encode-files';
+import { attachmentIssueText } from './attachment-issues.ts';
+import { filesToPending } from './encode-files.ts';
 import {
 	isTheoremStreamError,
 	type TheoremInvokeRequest,
 	type TheoremReplay,
 	type TheoremTurnInput,
 	type TheoremTurnRequest,
-} from './transport';
+} from './transport.ts';
 
 export function turnInputFromSession(
 	session: InterfaceTurnSession,
@@ -80,7 +80,6 @@ export function buildInvokeRequest(
 	session: InterfaceTurnSession,
 	args: {
 		gateId: string;
-		decision: TheoremInvokeRequest['decision'];
 		name: string;
 		input: unknown;
 		resume?: TheoremReplay['resume'];
@@ -90,7 +89,6 @@ export function buildInvokeRequest(
 ): TheoremInvokeRequest {
 	return {
 		gateId: args.gateId,
-		decision: args.decision,
 		...(args.credentials ? { credentials: args.credentials } : {}),
 		replay: {
 			name: args.name,

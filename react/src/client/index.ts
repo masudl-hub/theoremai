@@ -13,11 +13,6 @@ export type { LiveToolGatePrompt } from './live/live-tool';
 export type { LiveConnectPhase, LiveSessionStatus } from './live-client';
 export { LiveSessionClient } from './live-client';
 export {
-	type PlaygroundLiveToolResult,
-	parsePlaygroundLiveToolResult,
-	toolInvokeResultFromEvents,
-} from './playground-tool-result';
-export {
 	abandonGatedInterfaceTool,
 	applyTurnResultToTranscript,
 	resumeInterfaceTool,

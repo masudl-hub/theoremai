@@ -437,6 +437,40 @@ Deno.test('collectPromotedMediaFromToolOutput ignores non-http and extensionless
   );
 });
 
+Deno.test('collectPromotedMediaFromToolOutput keeps one copy of a resized MediaWiki file: largest to view, smallest to preview', () => {
+  const file = 'Lisboa_-_Portugal.jpg';
+  assertEquals(
+    collectPromotedMediaFromToolOutput({
+      thumbnail: {
+        source: `https://thumb.wikimedia.org/wikipedia/commons/thumb/f/f2/${file}/330px-${file}?utm_source=api&utm_content=thumbnail`,
+      },
+      originalimage: {
+        source: `https://upload.wikimedia.org/wikipedia/commons/f/f2/${file}?utm_source=api&utm_content=thumbnail_unscaled`,
+      },
+      other: 'https://upload.wikimedia.org/wikipedia/commons/a/ab/Other.jpg',
+    }).map((media) => [media.url, media.previewUrl]),
+    [
+      [
+        `https://upload.wikimedia.org/wikipedia/commons/f/f2/${file}?utm_source=api&utm_content=thumbnail_unscaled`,
+        `https://thumb.wikimedia.org/wikipedia/commons/thumb/f/f2/${file}/330px-${file}?utm_source=api&utm_content=thumbnail`,
+      ],
+      ['https://upload.wikimedia.org/wikipedia/commons/a/ab/Other.jpg', undefined],
+    ],
+  );
+  assertEquals(
+    collectPromotedMediaFromToolOutput([
+      `https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e5/${file}/330px-${file}`,
+      `https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e5/${file}/3840px-${file}`,
+    ]).map((media) => [media.url, media.previewUrl]),
+    [
+      [
+        `https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e5/${file}/3840px-${file}`,
+        `https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e5/${file}/330px-${file}`,
+      ],
+    ],
+  );
+});
+
 Deno.test('foldTurnEvents maps structured, media, grounding, evidence, and error', () => {
   resetBlockIds();
   const blocks = foldTurnEvents([

@@ -30,8 +30,8 @@ function clampAttachPreviewLeft(anchorLeft: number, viewportWidth: number): numb
 export function resolveAttachPreviewStyle(
 	anchor: Pick<DOMRect, 'left' | 'top' | 'bottom'>,
 	viewport: { width: number; height: number } = {
-		width: typeof window !== 'undefined' ? globalThis.innerWidth : 0,
-		height: typeof window !== 'undefined' ? globalThis.innerHeight : 0,
+		width: (globalThis as { innerWidth?: number }).innerWidth ?? 0,
+		height: (globalThis as { innerHeight?: number }).innerHeight ?? 0,
 	},
 ): AttachPreviewStyle {
 	const left = clampAttachPreviewLeft(anchor.left, viewport.width);

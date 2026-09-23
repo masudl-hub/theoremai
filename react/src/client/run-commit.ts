@@ -9,12 +9,11 @@ import {
 	type TranscriptBlock,
 	type UserTurnHistoryMedia,
 } from '../../../src/interface/mod.ts';
-import type { PlaygroundRunPayload } from './run-payload';
+import type { TheoremTransport } from './transport';
 import {
-	buildTurnRequestBody,
+	buildTurnRequest,
 	foldAssistantTurn,
-	playgroundFailureFromError,
-	streamPlaygroundTurn,
+	turnFailureFromError,
 	turnInputFromSession,
 } from './turn-client';
 
@@ -114,7 +113,7 @@ async function streamFoldedEvents(
 
 export async function continueAfterTool(args: {
 	iface: ComposerProfileInterface;
-	payload: PlaygroundRunPayload;
+	transport: TheoremTransport;
 	session: InterfaceTurnSession;
 	onStream: (blocks: TranscriptBlock[]) => void;
 	seedEvents: TurnEvent[];
@@ -126,8 +125,8 @@ export async function continueAfterTool(args: {
 	try {
 		const events = await streamFoldedEvents(
 			(onEvent) =>
-				streamPlaygroundTurn(
-					buildTurnRequestBody(args.payload, args.session, turnInputFromSession(args.session)),
+				args.transport.turn(
+					buildTurnRequest(args.iface, args.session, turnInputFromSession(args.session)),
 					onEvent,
 				),
 			args.onStream,
@@ -149,7 +148,7 @@ export async function continueAfterTool(args: {
 			assistantBlocks: foldAssistantTurn(args.iface, events),
 		};
 	} catch (err) {
-		return playgroundFailureFromError(err);
+		return turnFailureFromError(err);
 	}
 }
 

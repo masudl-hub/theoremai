@@ -158,6 +158,10 @@ export function InkWaveform({
 			aria-hidden="true"
 			viewBox={`0 0 ${String(viewWidth)} ${String(viewHeight)}`}
 			preserveAspectRatio={preserveAspect}
+			// Attribute defaults for hosts without ink-controls.css (the Astryx UI);
+			// the live stylesheet overrides them where it loads.
+			width="100%"
+			height="100%"
 		>
 			{bars.map((bar) => (
 				<line
@@ -168,6 +172,8 @@ export function InkWaveform({
 					y1={viewHeight}
 					y2={bar.y2}
 					strokeWidth={strokeWidth}
+					stroke="currentColor"
+					strokeLinecap="square"
 				/>
 			))}
 		</svg>

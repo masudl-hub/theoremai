@@ -7,27 +7,25 @@ import {
 	gatedToolFromEvents,
 	type InterfaceTurnSession,
 	type TranscriptBlock,
+	type UserTurnDraft,
 } from '../../../src/interface/mod.ts';
 import type { ToolCredential } from '../../../src/kernel/mod.ts';
 import { lexiconText, type TurnEvent } from '../../../mod.ts';
 import { attachPreviewData, encodeFiles } from './encode-files';
 import { continueAfterTool, finalizeTurnStream, streamFoldedTurn, toTurnMedia } from './run-commit';
-import type { PlaygroundRunPayload } from './run-payload';
+import { type EncodedBlob, isAbortError, type TheoremTransport } from './transport';
 import {
 	applyToolDecisionToSessionPermissions,
 	buildInvokeToolResume,
 	type ToolDecisionAction,
 } from './tool-resume';
 import {
-	buildInvokeRequestBody,
-	buildTurnRequestBody,
+	buildInvokeRequest,
+	buildTurnRequest,
 	foldAssistantTurn,
-	isAbortError,
-	playgroundFailureFromError,
 	prepareComposerTurn,
 	projectUserTurn,
-	streamPlaygroundInvoke,
-	streamPlaygroundTurn,
+	turnFailureFromError,
 	turnInputFromSession,
 } from './turn-client';
 
@@ -43,7 +41,7 @@ function turnFailureFromCaught(err: unknown, signal?: AbortSignal): TurnFailure 
 	if (isAbortError(err) || signal?.aborted) {
 		return { ok: false, error: 'Cancelled', aborted: true };
 	}
-	return playgroundFailureFromError(err);
+	return turnFailureFromError(err);
 }
 
 function sessionHasGatedTool(session: InterfaceTurnSession): boolean {
@@ -59,13 +57,13 @@ export type StreamTurnSuccess = {
 
 type PreparedUserTurn = {
 	ok: true;
-	draft: import('../../../src/interface/mod.ts').UserTurnDraft;
+	draft: UserTurnDraft;
 	blocks: TranscriptBlock[];
 };
 
 async function streamPreparedInterfaceTurn(args: {
 	iface: ComposerProfileInterface;
-	payload: PlaygroundRunPayload;
+	transport: TheoremTransport;
 	session: InterfaceTurnSession;
 	prepared: PreparedUserTurn;
 	encodedAttachments?: Awaited<ReturnType<typeof encodeFiles>>;
@@ -100,8 +98,8 @@ async function streamPreparedInterfaceTurn(args: {
 		onStream: args.onStream,
 		seedEvents: [],
 		stream: (onEvent) =>
-			streamPlaygroundTurn(
-				buildTurnRequestBody(args.payload, session, input, { turnId: args.turnId }),
+			args.transport.turn(
+				buildTurnRequest(args.iface, session, input, { turnId: args.turnId }),
 				onEvent,
 				args.signal,
 			),
@@ -141,7 +139,7 @@ function assertNotGated(session: InterfaceTurnSession): TurnFailure | null {
 
 export type StreamInterfaceTurnBaseArgs = {
 	iface: ComposerProfileInterface;
-	payload: PlaygroundRunPayload;
+	transport: TheoremTransport;
 	session: InterfaceTurnSession;
 	onStream: (blocks: TranscriptBlock[]) => void;
 	/** Fires once user blocks are ready (with media preview data) before the assistant stream. */
@@ -157,28 +155,21 @@ export type StreamInterfaceTurnArgs = StreamInterfaceTurnBaseArgs & {
 };
 
 export type StreamInterfaceDraftTurnArgs = StreamInterfaceTurnBaseArgs & {
-	draft: import('../../../src/interface/mod.ts').UserTurnDraft;
+	draft: UserTurnDraft;
 };
+
+type PreparedTurnOutcome =
+	| { ok: false; issues: readonly string[] }
+	| {
+			ok: true;
+			prepared: PreparedUserTurn;
+			encodedAttachments?: EncodedBlob[];
+			encodedVoice?: EncodedBlob[];
+	  };
 
 async function runPreparedTurnStream(
 	args: StreamInterfaceTurnBaseArgs & {
-		prepare: () =>
-			| Promise<
-					| { ok: false; issues: readonly string[] }
-					| {
-							ok: true;
-							prepared: PreparedUserTurn;
-							encodedAttachments?: Array<{ name: string; mimeType: string; data: string }>;
-							encodedVoice?: Array<{ name: string; mimeType: string; data: string }>;
-					  }
-			  >
-			| { ok: false; issues: readonly string[] }
-			| {
-					ok: true;
-					prepared: PreparedUserTurn;
-					encodedAttachments?: Array<{ name: string; mimeType: string; data: string }>;
-					encodedVoice?: Array<{ name: string; mimeType: string; data: string }>;
-			  };
+		prepare: () => PreparedTurnOutcome | Promise<PreparedTurnOutcome>;
 	},
 ): Promise<StreamTurnSuccess | TurnFailure> {
 	const blocked = assertNotGated(args.session);
@@ -191,7 +182,7 @@ async function runPreparedTurnStream(
 		}
 		return await streamPreparedInterfaceTurn({
 			iface: args.iface,
-			payload: args.payload,
+			transport: args.transport,
 			session: args.session,
 			prepared: outcome.prepared,
 			encodedAttachments: outcome.encodedAttachments,
@@ -252,7 +243,7 @@ export async function streamInterfaceDraftTurn(
 
 async function resumeDeniedGatedTool(args: {
 	iface: ComposerProfileInterface;
-	payload: PlaygroundRunPayload;
+	transport: TheoremTransport;
 	session: InterfaceTurnSession;
 	onStream: (blocks: TranscriptBlock[]) => void;
 	gated: NonNullable<InterfaceTurnSession['gatedTool']>;
@@ -293,10 +284,10 @@ async function resumeDeniedGatedTool(args: {
 }
 
 function appendTerminalToolToHistory(
-	history: InterfaceHistoryMessage[],
+	history: InterfaceTurnSession['history'],
 	gated: NonNullable<InterfaceTurnSession['gatedTool']>,
 	invokeEvents: readonly TurnEvent[],
-): InterfaceHistoryMessage[] {
+): InterfaceTurnSession['history'] {
 	const completedTool = invokeEvents.findLast(
 		(event) =>
 			event.type === 'tool' &&
@@ -332,7 +323,7 @@ function appendTerminalToolToHistory(
 
 async function resumeAllowedGatedTool(args: {
 	iface: ComposerProfileInterface;
-	payload: PlaygroundRunPayload;
+	transport: TheoremTransport;
 	session: InterfaceTurnSession;
 	action: Exclude<ToolDecisionAction, 'deny'>;
 	onStream: (blocks: TranscriptBlock[]) => void;
@@ -342,6 +333,8 @@ async function resumeAllowedGatedTool(args: {
 	| { ok: true; session: InterfaceTurnSession; assistantBlocks: TranscriptBlock[] }
 	| TurnFailure
 > {
+	const gateId = args.gated.callId;
+	if (!gateId) return { ok: false, error: 'This tool call cannot be resumed.' };
 	let session: InterfaceTurnSession = { ...args.session };
 	const invokePermissions = applyToolDecisionToSessionPermissions(
 		session.sessionPermissions,
@@ -365,8 +358,10 @@ async function resumeAllowedGatedTool(args: {
 			onStream: args.onStream,
 			seedEvents: session.assistantEvents,
 			stream: (onEvent) =>
-				streamPlaygroundInvoke(
-					buildInvokeRequestBody(args.payload, session, {
+				args.transport.invoke(
+					buildInvokeRequest(args.iface, session, {
+						gateId,
+						decision: args.action,
 						name: args.gated.name,
 						input: args.gated.input,
 						resume,
@@ -405,7 +400,7 @@ async function resumeAllowedGatedTool(args: {
 
 export async function resumeInterfaceTool(args: {
 	iface: ComposerProfileInterface;
-	payload: PlaygroundRunPayload;
+	transport: TheoremTransport;
 	session: InterfaceTurnSession;
 	action: ToolDecisionAction;
 	interactiveValue?: unknown;

@@ -184,6 +184,8 @@ export interface MediaBlock extends TranscriptBlockBase {
    * Absent when `data` is set (kernel `media` events).
    */
   url?: string;
+  /** A smaller copy of `url` for previews, when the tool output offered one. */
+  previewUrl?: string;
 }
 
 export interface GroundingBlock extends TranscriptBlockBase {

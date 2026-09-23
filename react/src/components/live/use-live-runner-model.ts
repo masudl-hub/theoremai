@@ -1,22 +1,90 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { liveIngressEnabledFromSpec } from '../../../../mod.ts';
 import type { LiveProfileInterface } from '../../../../src/interface/mod.ts';
+import type { LiveCaptionState, LiveCaptionTurn } from '../../client/live/live-captions';
 import { liveStateLabel } from '../../client/live/live-state';
-import type { PlaygroundRunPayload } from '../../client/run-payload';
 import { useLiveRunnerControls } from './use-live-runner-controls';
 import { useLiveRunnerGate, useLiveRunnerUiState } from './use-live-runner-ui';
 import { useLiveSessionClient } from './use-live-session-client';
 
-/** Owns LiveRunner state, session client, and stage callbacks. */
-export function useLiveRunnerModel(iface: LiveProfileInterface, payload: PlaygroundRunPayload) {
+type LiveControls = ReturnType<typeof useLiveRunnerControls>;
+
+/**
+ * Calls start from the landing (voice, or video + voice), not on mount. Once
+ * started, the call view stays until a reload; ending leaves Start call. Each
+ * restart is a new conversation; earlier calls' captions stay, above a divider.
+ */
+function useLiveCallLifecycle(
+	controls: LiveControls,
+	captionsRef: MutableRefObject<LiveCaptionState>,
+	sessionActive: boolean,
+	videoAvailable: boolean,
+) {
+	const [callStarted, setCallStarted] = useState(false);
+	const [ended, setEnded] = useState(false);
+	const videoOnConnectRef = useRef(false);
+
+	const startCall = useCallback(
+		(options: { video: boolean }) => {
+			videoOnConnectRef.current = options.video && videoAvailable;
+			setCallStarted(true);
+			setEnded(false);
+			void controls.startSession();
+		},
+		[controls, videoAvailable],
+	);
+
+	// Camera capture needs a live session, so a video call turns it on once connected.
+	useEffect(() => {
+		if (!sessionActive || !videoOnConnectRef.current) return;
+		videoOnConnectRef.current = false;
+		void controls.handleToggleVideo();
+	}, [controls, sessionActive]);
+
+	const handleEnd = useCallback(() => {
+		videoOnConnectRef.current = false;
+		controls.teardownSession();
+		setEnded(true);
+	}, [controls]);
+
+	const [pastCalls, setPastCalls] = useState<LiveCaptionTurn[][]>([]);
+
+	const handleRestart = useCallback(async () => {
+		const previous = captionsRef.current.turns;
+		if (previous.length > 0) setPastCalls((calls) => [...calls, previous]);
+		setEnded(false);
+		await controls.handleRestart();
+	}, [controls, captionsRef]);
+
+	const teardownSessionRef = useRef(controls.teardownSession);
+	teardownSessionRef.current = controls.teardownSession;
+
+	useEffect(() => {
+		return () => {
+			teardownSessionRef.current();
+		};
+	}, []);
+
+	return { callStarted, ended, pastCalls, startCall, handleEnd, handleRestart };
+}
+
+/**
+ * Owns LiveRunner state, session client, and stage callbacks.
+ * `registerProfile` resolves the live profile id the relay should open — hosts
+ * with a fixed profile return it directly; the playground registers its draft.
+ */
+export function useLiveRunnerModel(
+	iface: LiveProfileInterface,
+	registerProfile: () => Promise<string>,
+) {
 	const ui = useLiveRunnerUiState();
 	const gate = useLiveRunnerGate({
 		setCaptions: ui.setCaptions,
 		setActiveTool: ui.setActiveTool,
 		setError: ui.setError,
 	});
-	const payloadRef = useRef(payload);
-	payloadRef.current = payload;
+	const registerProfileRef = useRef(registerProfile);
+	registerProfileRef.current = registerProfile;
 
 	const voiceAvailable = liveIngressEnabledFromSpec(iface.live.ingress, 'audio');
 	const videoAvailable = liveIngressEnabledFromSpec(iface.live.ingress, 'video');
@@ -48,7 +116,6 @@ export function useLiveRunnerModel(iface: LiveProfileInterface, payload: Playgro
 		setSessionActive: ui.setSessionActive,
 		setError: ui.setError,
 		setCaptions: ui.setCaptions,
-		setCaptionFocus: ui.setCaptionFocus,
 		setInputLevel: ui.setInputLevel,
 		setOutputLevel: ui.setOutputLevel,
 		setActiveTool: ui.setActiveTool,
@@ -62,7 +129,7 @@ export function useLiveRunnerModel(iface: LiveProfileInterface, payload: Playgro
 		clientRef,
 		videoCaptureRef: ui.videoCaptureRef,
 		captionsRef: ui.captionsRef,
-		payloadRef,
+		registerProfileRef,
 		statusRef: ui.statusRef,
 		isMutedRef: ui.isMutedRef,
 		sessionPermissionsRef: ui.sessionPermissionsRef,
@@ -71,7 +138,6 @@ export function useLiveRunnerModel(iface: LiveProfileInterface, payload: Playgro
 		cancelGateDecision: gate.cancelGateDecision,
 		stopVideo: ui.stopVideo,
 		resetCaptions: ui.resetCaptions,
-		focusLatestCaption: ui.focusLatestCaption,
 		sessionActive: ui.sessionActive,
 		textAvailable,
 		videoAvailable,
@@ -82,7 +148,6 @@ export function useLiveRunnerModel(iface: LiveProfileInterface, payload: Playgro
 		setCaptions: ui.setCaptions,
 		setError: ui.setError,
 		setIsMuted: ui.setIsMuted,
-		setTextComposerOpen: ui.setTextComposerOpen,
 		setSessionActive: ui.setSessionActive,
 		setSessionPermissions: ui.setSessionPermissions,
 		setStatus: ui.setStatus,
@@ -94,25 +159,17 @@ export function useLiveRunnerModel(iface: LiveProfileInterface, payload: Playgro
 		setIsVideoOn: ui.setIsVideoOn,
 	});
 
-	const handleEnd = useCallback(() => {
-		controls.teardownSession();
-	}, [controls]);
-
-	const startSessionRef = useRef(controls.startSession);
-	const teardownSessionRef = useRef(controls.teardownSession);
-	startSessionRef.current = controls.startSession;
-	teardownSessionRef.current = controls.teardownSession;
-
-	useEffect(() => {
-		void startSessionRef.current();
-		return () => {
-			teardownSessionRef.current();
-		};
-	}, []);
+	const { callStarted, ended, pastCalls, startCall, handleEnd, handleRestart } = useLiveCallLifecycle(
+		controls,
+		ui.captionsRef,
+		ui.sessionActive,
+		videoAvailable,
+	);
 
 	return {
 		handle: iface.identity.handle,
-		captionFocus: ui.captionFocus,
+		callStarted,
+		pastCalls,
 		captions: ui.captions,
 		error: ui.error,
 		inputLevel: ui.inputLevel,
@@ -123,23 +180,22 @@ export function useLiveRunnerModel(iface: LiveProfileInterface, payload: Playgro
 		stateLabel,
 		status: ui.status,
 		textAvailable,
-		textComposerOpen: ui.textComposerOpen,
 		textDraft: ui.textDraft,
 		toolActive: ui.activeTool !== null || gate.gatePrompt !== null,
 		videoAvailable,
 		videoFacingMode: ui.videoFacingMode,
 		videoPreview: ui.videoPreview,
 		voiceAvailable,
-		canRestart: !ui.sessionActive && ui.everConnected && ui.status !== 'connecting',
+		// Also after ending (or failing) before the first connect, so the call can't get stuck.
+		canRestart: !ui.sessionActive && ui.status !== 'connecting' && (ui.everConnected || ended || ui.error !== ''),
 		gatePrompt: gate.gatePrompt,
-		setCaptionFocus: ui.setCaptionFocus,
 		setTextDraft: ui.setTextDraft,
 		handleEnd,
-		handleRestart: controls.handleRestart,
+		startCall,
+		handleRestart,
 		handleSendText: controls.handleSendText,
 		handleToggleMic: controls.handleToggleMic,
 		handleFlipCamera: controls.handleFlipCamera,
-		handleToggleTextComposer: controls.handleToggleTextComposer,
 		handleToggleVideo: controls.handleToggleVideo,
 		resolveGateDecision: gate.resolveGateDecision,
 	};

@@ -20,3 +20,28 @@ export type {
   PlaygroundToolSeed,
   PlaygroundToolSpecSeed,
 } from './types.ts';
+export { registerPlaygroundLiveProfile } from './live-register.ts';
+export type {
+  FunctionToolRegistration,
+  HttpToolRegistration,
+  McpToolRegistration,
+  StructuredRegistration,
+  ToolRegistration,
+} from './registrations.ts';
+export {
+  clearPlaygroundRunPayload,
+  createPlaygroundRunId,
+  loadPlaygroundRunPayload,
+  PLAYGROUND_RUN_INDEX_KEY,
+  PLAYGROUND_RUN_PAYLOAD_CAP,
+  PLAYGROUND_RUN_PAYLOAD_KEY,
+  PLAYGROUND_RUN_PAYLOAD_KEY_PREFIX,
+  type PlaygroundRunIndex,
+  type PlaygroundRunIndexEntry,
+  type PlaygroundRunPayload,
+  playgroundRunPayloadKey,
+  readPlaygroundRunIdFromUrl,
+  savePlaygroundRunPayload,
+  upsertPlaygroundRunIndex,
+} from './run-payload.ts';
+export { createPlaygroundTransport, playgroundInterface } from './transport.ts';

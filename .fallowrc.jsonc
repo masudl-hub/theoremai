@@ -24,6 +24,9 @@
     "tests/fixtures/**/*.ts",
     "tests/fixtures/**/*.js",
     "react/src/index.ts",
+    "react/src/ui/index.ts",
+    "react/src/server/mod.ts",
+    "react/src/live.ts",
     "react/src/client/index.ts"
   ],
   "ignoreDependencies": ["@ast-grep/cli", "@theoremai/agents"],

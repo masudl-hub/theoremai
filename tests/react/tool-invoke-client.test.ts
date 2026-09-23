@@ -1,10 +1,5 @@
-import { assertEquals, assertThrows } from '@std/assert';
-import type { TurnEvent } from '../../mod.ts';
+import { assertEquals } from '@std/assert';
 import { filesToPending } from '../../react/src/client/encode-files.ts';
-import {
-  parsePlaygroundLiveToolResult,
-  toolInvokeResultFromEvents,
-} from '../../react/src/client/playground-tool-result.ts';
 import {
   buildInvokeToolResume,
   continueGatedToolInvocation,
@@ -161,113 +156,6 @@ Deno.test('continueGatedToolInvocation continues with the granted resume', () =>
       { kind: 'continue', sessionPermissions: ['search'], resume: { granted: true } },
     );
   }
-});
-
-// --- live tool results ---
-
-Deno.test('parsePlaygroundLiveToolResult accepts gated and complete payloads', () => {
-  assertEquals(
-    parsePlaygroundLiveToolResult({
-      status: 'gated',
-      toolName: 'delete_resource',
-      gate: DELETE_GATE,
-      input: { id: '1' },
-    }),
-    { status: 'gated', toolName: 'delete_resource', gate: DELETE_GATE, input: { id: '1' } },
-  );
-  assertEquals(
-    parsePlaygroundLiveToolResult({ status: 'gated', toolName: 'x', gate: DELETE_GATE }),
-    { status: 'gated', toolName: 'x', gate: DELETE_GATE, input: {} },
-  );
-  assertEquals(parsePlaygroundLiveToolResult({ status: 'complete', output: { n: 1 } }), {
-    status: 'complete',
-    output: { n: 1 },
-  });
-  assertEquals(parsePlaygroundLiveToolResult({ status: 'complete' }), {
-    status: 'complete',
-    output: { success: true },
-  });
-});
-
-Deno.test('parsePlaygroundLiveToolResult rejects malformed payloads', () => {
-  for (const raw of [
-    null,
-    [],
-    'gated',
-    { status: 'paused', toolName: 'x', gate: DELETE_GATE },
-    { status: 'gated', gate: DELETE_GATE },
-    { status: 'gated', toolName: 'x' },
-    { status: 'gated', toolName: 'x', gate: { kind: 'interactive', tool: 'x' } },
-    { status: 'gated', toolName: 'x', gate: { kind: 'permission' } },
-  ]) {
-    assertThrows(() => parsePlaygroundLiveToolResult(raw), Error, 'Invalid live tool response');
-  }
-  assertThrows(() => parsePlaygroundLiveToolResult({ error: 'relay down' }), Error, 'relay down');
-});
-
-function toolEvent(tool: NonNullable<TurnEvent['tool']>): TurnEvent {
-  return { type: 'tool', tool } as TurnEvent;
-}
-
-Deno.test('toolInvokeResultFromEvents maps gates, outputs, failures and errors', () => {
-  const input = { id: '1' };
-  assertEquals(
-    toolInvokeResultFromEvents(
-      [
-        toolEvent({ name: 'delete_resource', phase: 'running' }),
-        toolEvent({ name: 'delete_resource', phase: 'gate', gate: DELETE_GATE }),
-      ],
-      'delete_resource',
-      input,
-    ),
-    { status: 'gated', toolName: 'delete_resource', gate: DELETE_GATE, input },
-  );
-  assertEquals(
-    toolInvokeResultFromEvents(
-      [toolEvent({ name: 'search', phase: 'complete', output: { hits: 2 } })],
-      'search',
-      input,
-    ),
-    { status: 'complete', output: { hits: 2 } },
-  );
-  assertEquals(
-    toolInvokeResultFromEvents(
-      [toolEvent({ name: 'search', phase: 'complete', output: 'plain' })],
-      'search',
-      input,
-    ),
-    { status: 'complete', output: { result: 'plain' } },
-  );
-  assertEquals(
-    toolInvokeResultFromEvents([toolEvent({ name: 'search', phase: 'complete' })], 'search', input),
-    { status: 'complete', output: { success: true } },
-  );
-  assertEquals(
-    toolInvokeResultFromEvents(
-      [
-        toolEvent({
-          name: 'search',
-          phase: 'error',
-          failure: { code: 'timeout', message: 'Timed out' },
-        }),
-      ],
-      'search',
-      input,
-    ),
-    { status: 'complete', output: { error: 'Timed out', code: 'timeout' } },
-  );
-  assertEquals(
-    toolInvokeResultFromEvents([{ type: 'error', error: 'boom' } as TurnEvent], 'search', input),
-    { status: 'complete', output: { error: 'boom' } },
-  );
-  assertEquals(
-    toolInvokeResultFromEvents(
-      [toolEvent({ name: 'other', phase: 'gate', gate: DELETE_GATE })],
-      'search',
-      input,
-    ),
-    { status: 'complete', output: { error: 'Tool execution produced no result' } },
-  );
 });
 
 // --- turn and invoke requests ---

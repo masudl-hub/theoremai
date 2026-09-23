@@ -44,6 +44,11 @@ function requireModelProfile(profile: Profile, door: string): ModelProfile {
       `Profile ${profile.id}: type 'host' never runs a model — ${door} is not supported; execute tools with invokeTool`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
+  if (profile.type === 'decision') {
+    throw new TheoremError(
+      `Profile ${profile.id}: type 'decision' runs through runDecision — ${door} is not supported`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
   return profile;
 }
 

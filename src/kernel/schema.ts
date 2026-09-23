@@ -15,7 +15,7 @@ import { GOOGLE_SPEECH_VOICES } from '../presets/google/speech-voices.ts';
 export { EGRESS_ON_BLOCK, type EgressOnBlock };
 
 /** Primary profile archetype. Discriminated union key for `ProfileDefinition` and `Profile`. */
-export const PROFILE_TYPES = ['text', 'image', 'speech', 'live', 'host'] as const;
+export const PROFILE_TYPES = ['text', 'image', 'speech', 'live', 'decision', 'host'] as const;
 /** Discriminated profile archetype accepted by the registry. */
 export type ProfileType = (typeof PROFILE_TYPES)[number];
 
@@ -62,6 +62,7 @@ export const PROFILE_TYPE_PROTOCOLS = {
   image: ['geminiInteractions', 'openAi'],
   speech: ['geminiInteractions', 'openAi'],
   live: ['geminiLive'],
+  decision: [],
   host: [],
 } as const satisfies Record<ProfileType, readonly Protocol[]>;
 
@@ -511,7 +512,7 @@ export function catalogPathFor(keys: readonly string[]): string {
 export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   id: field('string', 'Host-owned profile identifier.'),
   type: field(
-    "'text' | 'image' | 'speech' | 'live' | 'host'",
+    "'text' | 'image' | 'speech' | 'live' | 'decision' | 'host'",
     'Required profile archetype. host = tool-execution ceiling for invokeTool; never runs a model.',
   ),
   identity: field(
@@ -554,6 +555,11 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
     },
   ),
   'models.*.apiId': field('string', 'Provider wire model id.'),
+  decision: field(
+    '{ contract: DecisionContractId }',
+    'Native decision contract for a Jev profile.',
+  ),
+  'decision.contract': field('string', 'Host-owned decision contract identifier.'),
   'models.*.efforts': field(
     'Record<string, ThinkingLevel>',
     'Alias → thinking level. One entry = fixed; two+ may be selectable at turn time.',

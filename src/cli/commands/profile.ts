@@ -22,7 +22,7 @@ function formatProfileInputs(p: ModelProfile): string {
 }
 
 function formatProfileTools(p: Profile): string {
-  if (p.type === 'speech') {
+  if (p.type === 'speech' || p.type === 'decision') {
     return 'none';
   }
   return p.tools.allow?.length ? p.tools.allow.join(', ') : 'none';
@@ -33,6 +33,15 @@ function printProfileCard(p: Profile): void {
   if (p.type === 'host') {
     console.log(` • Profile: ${p.id.padEnd(16)} [host]`);
     console.log(`   - Tools:      ${tools}`);
+    console.log('-'.repeat(70));
+    return;
+  }
+  if (p.type === 'decision') {
+    console.log(` • Profile: ${p.id.padEnd(16)} (handle: ${p.identity.handle}) [decision]`);
+    console.log(`   - Models:     ${Object.keys(p.models).join(', ') || 'default'}`);
+    console.log(`   - Inputs:     JSON state`);
+    console.log(`   - Contract:   ${p.decision.contract}`);
+    console.log(`   - Key Slot: ${p.key ?? '(unset)'}`);
     console.log('-'.repeat(70));
     return;
   }

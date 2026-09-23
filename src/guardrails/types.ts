@@ -296,6 +296,23 @@ export interface ProfileGuardrailsSpec {
   taint?: TaintGuardrailSpec;
 }
 
+/** Pre-dispatch policy for structured state leaving a decision profile. */
+export type DecisionDisclosureVerdict = Extract<Verdict, { action: 'allow' | 'block' }>;
+
+export type DecisionDisclosureEnforcer = (
+  state: unknown,
+  context: { destination: 'typesafe'; profileId: string; model: string; questionIds: string[] },
+) => DecisionDisclosureVerdict | Promise<DecisionDisclosureVerdict>;
+
+/** Guards reachable from the native decision execution path. */
+/**
+ * Keeps the shared guardrail vocabulary structurally compatible while the
+ * decision registry rejects every inherited field as inert in this release.
+ */
+export interface DecisionGuardrailsSpec extends Partial<ProfileGuardrailsSpec> {
+  disclosure?: { enforce: DecisionDisclosureEnforcer };
+}
+
 /** The guardrail field names a `host` profile may set. */
 export const HOST_GUARDRAIL_FIELDS = [
   'sanitizeInput',

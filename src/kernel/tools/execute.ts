@@ -243,7 +243,12 @@ export function formatToolFailureForModel(
 
 /** True when this tool is the profile's T2 loader: its output drives the snapshot. */
 function loadsT2(tool: FunctionToolDef, ctx: ToolContext): boolean {
-  if (ctx.profile.type === 'speech' || ctx.profile.type === 'live' || ctx.profile.type === 'host') {
+  if (
+    ctx.profile.type === 'speech' ||
+    ctx.profile.type === 'live' ||
+    ctx.profile.type === 'host' ||
+    ctx.profile.type === 'decision'
+  ) {
     return false;
   }
   return ctx.profile.tools.t2Loader === tool.name;
@@ -640,7 +645,11 @@ function registeredEligibilityFailure(args: {
   snapshot?: TurnToolSnapshot;
 }): ToolFailure | undefined {
   const { tool, profile, name, resume, snapshot } = args;
-  if (profile.type === 'speech' || !profile.tools.allow.includes(name)) {
+  if (
+    profile.type === 'speech' ||
+    profile.type === 'decision' ||
+    !profile.tools.allow.includes(name)
+  ) {
     return {
       code: 'not_allowed',
       message: lexiconText('tool.not_allowed', { tool: name, profile: profile.id }),

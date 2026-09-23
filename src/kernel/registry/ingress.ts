@@ -127,7 +127,12 @@ function assertMediaMime(mime: string): MediaInputKind {
 }
 
 function profileInputs(profile: Profile) {
-  if (profile.type === 'speech' || profile.type === 'live' || profile.type === 'host') {
+  if (
+    profile.type === 'speech' ||
+    profile.type === 'live' ||
+    profile.type === 'host' ||
+    profile.type === 'decision'
+  ) {
     return undefined;
   }
   return profile.inputs;
@@ -169,6 +174,9 @@ function mediaParts(
 
 function extractTextPart(profile: Profile, req: TurnRequest): InteractionPart | null {
   const { text, repair, history } = req.input ?? {};
+  if (profile.type === 'decision') {
+    throw new TheoremError(`Profile ${profile.id} (decision) does not accept turn input`); // lexicon-exempt: developer contract error
+  }
   if (profile.type === 'speech') {
     if (!text?.trim()) {
       throw new TheoremError(`Profile ${profile.id} (speech) requires text input`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)

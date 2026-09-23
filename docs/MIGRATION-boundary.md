@@ -12,7 +12,7 @@ Demo fixtures moved to the **repo-private** package `@theoremai/playground`
 + import { demoToolSpecs } from '@theoremai/playground';
 ```
 
-Hosts link it with `"@theoremai/playground": "file:../theorem/playground"`.
+Hosts link it with `"@theoremai/playground": "file:../theoremai/playground"`.
 `PLAYGROUND_AUTH_TYPES` / `PlaygroundAuthType` remain on `@theoremai/agents/schema`
 (authoring vocabulary, not demo product).
 

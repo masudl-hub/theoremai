@@ -2,12 +2,12 @@
 
 React projection of the repo-private headless interface (`src/interface/`) — runners, transcript, composer, live stage.
 
-Lives next to the kernel at `theorem/react/` so React apps depend on:
+Lives next to the kernel at `theoremai/react/` so React apps depend on:
 
 - `@theoremai/agents` (kernel)
 - `@theoremai/react` (this package)
 
-No Svelte. The playground site (`theorem-frontend`) hosts a thin Vite SPA at `apps/run` that imports this package; the info-site graph stays Svelte and only writes a `PlaygroundRunPayload` handoff.
+No Svelte. The playground site (`theoremai-frontend`) hosts a thin Vite SPA at `apps/run` that imports this package; the info-site graph stays Svelte and only writes a `PlaygroundRunPayload` handoff.
 
 ## Imports
 
@@ -33,9 +33,9 @@ import {
 
 ```text
 Development/
-  theorem/           # kernel + this package
+  theoremai/           # kernel + this package
     react/
-  theorem-frontend/  # site; apps/run consumes file:../theorem/react
+  theoremai-frontend/  # site; apps/run consumes file:../../../theoremai/react
 ```
 
 ## Composer pending intents

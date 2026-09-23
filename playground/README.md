@@ -10,7 +10,7 @@ decides, Theorem runs" — forbids bundled assistants and demo product in the
 stays out of every npm/JSR artifact. Consumers link it directly, e.g.
 
 ```json
-{ "@theoremai/playground": "file:../theorem/playground" }
+{ "@theoremai/playground": "file:../theoremai/playground" }
 ```
 
 ## Surface (`mod.ts`)

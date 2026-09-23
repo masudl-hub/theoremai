@@ -949,7 +949,7 @@ const session = await runSession({ profile: "support.voice" }, { gemini: { vault
 
 Demo fixtures (travel concierge seeds, local handlers) live in the **repo-private**
 `@theoremai/playground` package under `playground/` — never published with the kernel.
-Hosts that need them link `file:../theorem/playground`.
+Hosts that need them link `file:../theoremai/playground`.
 
 Internal files remain present in source for maintainability, but package consumers should use the public entrypoints above.
 

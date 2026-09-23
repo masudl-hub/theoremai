@@ -356,11 +356,10 @@ From `src/providers/local/mod.ts` (`@theoremai/agents/providers/local`):
 
 From `src/providers/google/live/mod.ts` (`@theoremai/agents/providers/google/live`):
 
-| Group | Symbols |
+| Export | Kind |
 | --- | --- |
-| Session | `openGoogleLiveSession`, `GoogleLiveConnection`, `OpenLiveWebSocket` |
-| Stream | `attachLiveSessionHandlers`, `createLiveQueue`, `performLiveSetup`, `readGeminiLiveErrorMessage`, `readMessageData`, `sendInitialPayloads`, `turnPhaseFromMessage`, `LiveQueue`, `LiveTurnPhase`, `SessionQueueItem` |
-| Framing | `buildGeminiLiveWebSocketUrl`, `buildGeminiLiveSetupMessage`, `buildGeminiLiveClientContent`, `buildGeminiLiveRealtimeInput`, `buildGeminiLiveToolResponse`, `buildGeminiLiveToolResponses`, `wireFunctionDeclaration`, `wireLiveTools`, `liveFunctionResponsePayload`, `liveFrameInput`, `parseGeminiLiveMessage`, `parseFunctionArguments`, `extractLiveUsageTokens`, `newLiveFold`, `foldGeminiLiveServerMessage`, `parseGoAwayTimeLeftMs`, `readLiveInteractionStatus`, `LiveFold`, `LiveInteractionStatus`, `ParsedLiveMessage` |
+| `openGoogleLiveSession` | function |
+| `GoogleLiveConnection`, `OpenLiveWebSocket` | types |
 
 ```theorem-evidence
 {

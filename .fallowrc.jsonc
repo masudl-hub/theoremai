@@ -1,16 +1,7 @@
 {
   "$schema": "./node_modules/fallow/schema.json",
+  // Published entry points come from package.json `exports` (fallow reads it).
   "entry": [
-    "mod.ts",
-    "src/kernel/mod.ts",
-    "src/providers/mod.ts",
-    "src/providers/local/mod.ts",
-    "src/guardrails/mod.ts",
-    "src/observability/mod.ts",
-    "src/presets/mod.ts",
-    "src/presets/google.ts",
-    "src/host/mod.ts",
-    "src/cli/index.ts",
     // Unpublished headless interface surface; still an analysis entry for react + tests.
     "src/interface/mod.ts",
     "tests/cli/**/*.ts",

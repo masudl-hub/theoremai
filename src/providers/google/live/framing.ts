@@ -63,7 +63,7 @@ export function wireFunctionDeclaration(decl: WireFunctionTool): Record<string, 
  * one `functionDeclarations` entry. Which builtins a model takes is the API's
  * answer (probe 23/09/2026: a model without one closes the socket with 1007).
  */
-export function wireLiveTools(req: ProviderCompleteRequest): Array<Record<string, unknown>> {
+function wireLiveTools(req: ProviderCompleteRequest): Array<Record<string, unknown>> {
   const tools: Array<Record<string, unknown>> = [];
   for (const id of req.builtins) {
     tools.push({ [requireBuiltinWire(id, 'live')]: {} });

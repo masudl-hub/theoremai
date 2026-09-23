@@ -72,7 +72,7 @@ owned by those contracts for freshness — change code, update the matching cont
 | --- | --- |
 | `npm run lint` | Runs `lint:docs` first, then `deno lint`, biome, ast-grep, and fallow |
 | `deno task lint` | Same as `npm run lint` |
-| `npm run check:ci` / `deno task ci` | Full CI gate: docs-truth, deno lint, biome, ast-grep, verify:publish, fallow, typecheck (`mod.ts` plus the subprocess probe fixtures the tests spawn unchecked), and tests (publish check before fallow, which writes `coverage/`) |
+| `npm run check:ci` / `deno task ci` | Full CI gate: docs-truth, deno lint, biome, ast-grep, verify:publish, fallow, typecheck (`mod.ts`, the subprocess probe fixtures the tests spawn unchecked, `scripts/*.ts`, and `react/` via its own `tsc`, since it imports kernel source by relative path), and tests (publish check before fallow, which writes `coverage/`) |
 | CI | `lint:docs` (with `THEOREM_DOCS_BASE`), `deno lint`, then `lint:biome` + `lint:ast-grep` + `lint:fallow` (`FALLOW_AUDIT_BASE=origin/<base>`) |
 | Pre-commit | `npm run lint:docs` (auto-installed by `prepare` / `hooks:install`) |
 | Pre-push | `fallow audit --base origin/main` (uses `coverage/coverage-final.json` when present) |

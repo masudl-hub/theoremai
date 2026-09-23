@@ -4,6 +4,9 @@
 	"private": true,
 	"type": "module",
 	"description": "React bindings for Theorem: headless hooks + transport, an Astryx chat UI, and a Web-standard server handler.",
+	"scripts": {
+		"typecheck": "tsc -p ."
+	},
 	"exports": {
 		".": "./src/index.ts",
 		"./ui": "./src/ui/index.ts",

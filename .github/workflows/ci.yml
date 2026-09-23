@@ -80,6 +80,9 @@ jobs:
       - name: Type check
         run: deno check mod.ts tests/fixtures/probes/ scripts/*.ts
 
+      - name: Type check react
+        run: npm run check:react
+
       - name: Verify publish bundle
         run: deno task verify:publish
 

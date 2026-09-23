@@ -58,6 +58,7 @@
     "build:npm": "deno run --allow-read --allow-write --allow-env --allow-net --allow-run=npm scripts/build-npm.ts",
     "test": "deno test --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run --ignore=npm/ tests/",
     "coverage": "rm -rf coverage && deno test --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run --ignore=npm/ --coverage=coverage tests/ && deno coverage coverage --lcov --output=coverage/lcov.info && node scripts/lcov-to-istanbul.mjs",
+    "check:react": "npm --prefix react ci && npm --prefix react run typecheck",
     "lint:biome": "biome check --error-on-warnings .",
     "lint:ast-grep": "ast-grep scan",
     "lint:fallow": "npm run coverage && fallow audit --base \"${FALLOW_AUDIT_BASE:-origin/main}\" --coverage coverage/coverage-final.json",
@@ -68,7 +69,7 @@
     "hooks:install": "node ./scripts/hooks/install.mjs",
     "prepare": "node ./scripts/hooks/install.mjs",
     "lint": "npm run lint:docs && deno lint && npm run lint:biome && npm run lint:ast-grep && npm run lint:fallow",
-    "check:ci": "npm run lint:docs && deno lint && npm run lint:biome && npm run lint:ast-grep && deno task verify:publish && npm run lint:fallow && deno check mod.ts tests/fixtures/probes/ scripts/*.ts && deno task test"
+    "check:ci": "npm run lint:docs && deno lint && npm run lint:biome && npm run lint:ast-grep && deno task verify:publish && npm run lint:fallow && deno check mod.ts tests/fixtures/probes/ scripts/*.ts && npm run check:react && deno task test"
   },
   "devDependencies": {
     "@ast-grep/cli": "^0.41.0",

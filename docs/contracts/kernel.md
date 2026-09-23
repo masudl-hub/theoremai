@@ -740,8 +740,11 @@ only through local source aliases.
 
 `foldTurnEvents` maps kernel `media` events (base64) and also promotes http(s)
 image / video / audio URLs found in completed tool `output` into `media` blocks
-with `url` set (extension-based MIME guess). Tool JSON in the tool block is
-unchanged. `historyFromTranscriptBlocks` still ignores media blocks — the tool
+with `url` set (extension-based MIME guess). Copies of one file are promoted
+once: a MediaWiki `/thumb/…/<N>px-` resize and its original share a key
+(last two host labels + path, `utm_*` params ignored); the largest copy is
+`url` and the smallest, when different, is `previewUrl`. Tool JSON in the tool
+block is unchanged. `historyFromTranscriptBlocks` still ignores media blocks — the tool
 exchange already carries the URL.
 | History | `appendUserDraftToHistory`, `userDraftToSteerInject`, … |
 | Composer intents | `createComposerPendingMessage`, `orderComposerPendingMessages`, `consumeNextComposerSteer` / `Queue`, `convertSteersToFrontQueued`, `resolveComposerPrimary`, `resolveComposerMenuActions` |
@@ -796,6 +799,10 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
 | Stages (target foundation) | `TURN_STAGES`, `TURN_INJECT_STAGES`, `STAGE_AFFORDANCES`, `STAGE_AFFORDANCE_MATRIX`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `applyStageResult`, `parseAwaitingUserInput`, `parseToolGate`, `isTurnStage`, `isTurnInjectStage`, `isToolGateKind`, `isAwaitingUserInput`, `stageAllowsAffordance`, `stageEventFields`, `profileAllowsInject`, `StageAffordance`, `StageContext`, `StageResult`, `StageMutate`, `StageHandler`, `StageApplyInput`, `StageApplyOutput`, `StageApplyWarning`, `StageApplyWarningCode`, `StageEventExtra`, `AwaitingUserInput`, `ToolGate` — see [`stages.md`](stages.md). Slices 1–3 landed on branch; publish when release cut matches docs. |
 | Interface (headless) | `interfaceFrom`, `interfaceFromProfile`, `interfaceFromProjected`, `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime`, `sanitizeUserDraft`, `prepareUserTurn`, `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `resetBlockIds`, `streamThoughtsEnabled`, `collectPromotedMediaFromToolOutput`, `promotedMediaFromUrlString`, `PromotedToolMedia`, `defaultInterfaceEffort`, `defaultInterfaceModel`, `effortSelectEnabled`, `generationSelectEnabled`, `interfaceEffortOptions`, `interfaceModelOptions`, `modelSelectEnabled`, `appendAssistantEventsToHistory`, `appendToolDenialToHistory`, `appendToolExchangeToHistory`, `appendUserDraftToHistory`, `historyFromTranscriptBlocks`, `applyTurnEventsToSession`, `branchInterfaceTurnSession`, `emptyInterfaceTurnSession`, `abandonGatedToolSession`, `gatedToolFromEvents`, `awaitingFromEvents`, `promotedToolIdsFromEvents`, `toolSnapshotFromEvents`, `COMPOSER_PENDING_KINDS`, `cloneUserTurnDraft`, `composerPendingPreview`, `consumeNextComposerQueue`, `consumeNextComposerSteer`, `convertSteersToFrontQueued`, `createComposerPendingMessage`, `moveComposerPendingWithinKind`, `orderComposerPendingMessages`, `promoteComposerPendingKind`, `removeComposerPendingMessage`, `resolveComposerMenuActions`, `resolveComposerPrimary`, `updateComposerPendingDraft`, `userDraftHasPayload`, `userDraftToSteerInject`, `AttachmentValidationCode`, `AttachmentValidationIssue`, `AttachmentValidationParams`, `AttachmentValidationResult`, `AwaitingToolContext`, `ComposerActionContext`, `ComposerMenuAction`, `ComposerPendingKind`, `ComposerPendingMessage`, `ComposerPrimaryAction`, `ComposerProfileInterface`, `ComposerRunPhase`, `CreateComposerPendingMessageArgs`, `FoldTurnEventsOptions`, `GatedToolContext`, `ImageProfileInterface`, `InterfaceEffortOption`, `InterfaceModelOption`, `LiveProfileInterface`, `LiveResolvedTools`, `PendingAttachment`, `PrepareUserTurnResult`, `ProfileGuardrailsView`, `ProfileObservabilityView`, `ProfileInputsInterface`, `ProfileInterface`, `ProfileInterfaceSource`, `ResolvedTools`, `SpeechProfileInterface`, `TextProfileInterface`, `TranscriptBlock`, `TranscriptBlockKind`, `UserTurnDraft`, `UserTurnHistoryMedia`, `InterfaceTurnSession` |
 | Attachments (kernel) | `assertAttachmentLimits`, `maxBytesForMime`, `requireMediaLimits`, `resolveMediaLimits`, `sanitizeCsvText`, `sanitizeTurnBlobs`, `sanitizeTurnBlobsForProfile` |
+
+`PromotedToolMedia` and `media` `TranscriptBlock`s carry an optional
+`previewUrl`: a smaller copy of `url` for thumbnails, when the tool output
+offered one.
 
 ```theorem-evidence
 {

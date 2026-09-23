@@ -8,6 +8,8 @@
 export type PromotedToolMedia = {
   url: string;
   mimeType: string;
+  /** A smaller copy of the same file, when the output also carried one. */
+  previewUrl?: string;
 };
 
 const EXT_MIME: Readonly<Record<string, string>> = {
@@ -54,20 +56,56 @@ export function promotedMediaFromUrlString(raw: string): PromotedToolMedia | und
   return { url: parsed.href, mimeType };
 }
 
+/** MediaWiki resizes: `…/thumb/<a>/<ab>/<File>/<N>px-<File>` is `<N>` wide; the original is `…/<a>/<ab>/<File>`. */
+const MEDIAWIKI_THUMB = /^(.*)\/thumb(\/.+\/([^/]+))\/(\d+)px-\3(?:\.[a-z0-9]+)?$/i;
+
+/**
+ * The underlying file, so one picture at several sizes counts once (Wikipedia
+ * summaries carry `thumbnail` and `originalimage`, sometimes on different
+ * wikimedia.org hosts). `width` ranks copies; the original ranks highest.
+ */
+function mediaAsset(url: string): { key: string; width: number } {
+  const parsed = new URL(url);
+  const site = parsed.hostname.split('.').slice(-2).join('.');
+  // Tracking parameters never change the file; other query parameters may.
+  for (const name of [...parsed.searchParams.keys()]) {
+    if (name.startsWith('utm_')) parsed.searchParams.delete(name);
+  }
+  const thumb = MEDIAWIKI_THUMB.exec(parsed.pathname);
+  const pathname = thumb ? `${thumb[1]}${thumb[2]}` : parsed.pathname;
+  return {
+    key: `${site}${pathname}${parsed.search}`,
+    width: thumb ? Number(thumb[4]) : Number.POSITIVE_INFINITY,
+  };
+}
+
 /**
  * Depth-first walk of tool output collecting unique http(s) image/video/audio URLs.
- * Order follows first encounter in JSON tree order.
+ * Order follows first encounter in JSON tree order. One file at several sizes
+ * is promoted once: `url` is its largest copy, `previewUrl` its smallest.
  */
 export function collectPromotedMediaFromToolOutput(output: unknown): PromotedToolMedia[] {
-  const seen = new Set<string>();
+  const seen = new Map<string, { index: number; largest: number; smallest: number }>();
   const out: PromotedToolMedia[] = [];
 
   const visit = (value: unknown): void => {
     if (typeof value === 'string') {
       const media = promotedMediaFromUrlString(value);
-      if (media && !seen.has(media.url)) {
-        seen.add(media.url);
+      if (!media) return;
+      const asset = mediaAsset(media.url);
+      const prior = seen.get(asset.key);
+      if (!prior) {
+        seen.set(asset.key, { index: out.length, largest: asset.width, smallest: asset.width });
         out.push(media);
+        return;
+      }
+      const current = out[prior.index] as PromotedToolMedia;
+      if (asset.width > prior.largest) {
+        prior.largest = asset.width;
+        out[prior.index] = { ...current, url: media.url, previewUrl: current.previewUrl ?? current.url };
+      } else if (asset.width < prior.smallest) {
+        prior.smallest = asset.width;
+        out[prior.index] = { ...current, previewUrl: media.url };
       }
       return;
     }

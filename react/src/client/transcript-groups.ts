@@ -28,8 +28,6 @@ export type ComposedAssistantTurn = {
 
 const USER_KINDS = new Set(['user-text', 'user-attachment', 'user-voice']);
 
-const BODY_KINDS = new Set(['text', 'media', 'structured', 'grounding', 'evidence', 'error']);
-
 function isUserTranscriptBlock(block: TranscriptBlock): boolean {
 	return USER_KINDS.has(block.kind);
 }
@@ -136,14 +134,13 @@ function lastToolIndexOf(blocks: readonly TranscriptBlock[]): number {
 
 function pushTextBlock(
 	block: Extract<TranscriptBlock, { kind: 'text' }>,
-	args: { streaming: boolean; hasTools: boolean; index: number; lastToolIndex: number },
+	args: { hasTools: boolean; index: number; lastToolIndex: number },
 	trace: TraceItem[],
 	body: TranscriptBlock[],
 ): void {
-	const isNarration =
-		(args.streaming && args.hasTools) ||
-		(!args.streaming && args.hasTools && args.index < args.lastToolIndex);
-	if (isNarration) {
+	// Text before a tool call is narration; text after the latest one is the
+	// answer, streamed in place. If another tool call follows, it becomes narration.
+	if (args.hasTools && args.index < args.lastToolIndex) {
 		if (block.text.trim()) {
 			trace.push({ kind: 'narration', id: block.id, text: block.text });
 		}
@@ -154,7 +151,7 @@ function pushTextBlock(
 
 function classifyNonGateBlock(
 	block: TranscriptBlock,
-	args: { streaming: boolean; hasTools: boolean; index: number; lastToolIndex: number },
+	args: { hasTools: boolean; index: number; lastToolIndex: number },
 	trace: TraceItem[],
 	body: TranscriptBlock[],
 ): void {
@@ -172,19 +169,6 @@ function classifyNonGateBlock(
 		pushTextBlock(block, args, trace, body);
 		return;
 	}
-	pushBodyKind(block, args, body);
-}
-
-function pushBodyKind(
-	block: TranscriptBlock,
-	args: { streaming: boolean; hasTools: boolean },
-	body: TranscriptBlock[],
-): void {
-	if (BODY_KINDS.has(block.kind)) {
-		if (args.streaming && args.hasTools && block.kind !== 'error') return;
-		body.push(block);
-		return;
-	}
 	body.push(block);
 }
 
@@ -194,15 +178,11 @@ function pushBodyKind(
  * - `thought` → always reasoning in the trace
  * - non-gate `tool` → tool item in the trace
  * - gate `tool` → interactive card outside the collapsed list
- * - While streaming: all `text` → narration (final markdown hidden to avoid double)
- * - When done: `text` before/between tools → narration; trailing answer kinds → body
+ * - `text` before/between tools → narration; text and answer kinds after the
+ *   latest tool → body (while streaming too, so the answer streams formatted)
  * - No tools: thoughts still go to trace; remaining kinds → body
  */
-export function composeAssistantTurn(
-	blocks: readonly TranscriptBlock[],
-	args: { streaming?: boolean } = {},
-): ComposedAssistantTurn {
-	const streaming = args.streaming === true;
+export function composeAssistantTurn(blocks: readonly TranscriptBlock[]): ComposedAssistantTurn {
 	const visible = blocks.filter((block) => !isHiddenTranscriptBlock(block));
 	const gatedTools = visible.filter(isGatedTool);
 	const nonGate = visible.filter((block) => !isGatedTool(block));
@@ -212,7 +192,7 @@ export function composeAssistantTurn(
 	const trace: TraceItem[] = [];
 	const body: TranscriptBlock[] = [];
 	for (const [index, block] of nonGate.entries()) {
-		classifyNonGateBlock(block, { streaming, hasTools, index, lastToolIndex }, trace, body);
+		classifyNonGateBlock(block, { hasTools, index, lastToolIndex }, trace, body);
 	}
 
 	return {

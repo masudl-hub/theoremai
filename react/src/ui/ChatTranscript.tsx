@@ -14,7 +14,7 @@ import { Icon } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { type LightboxMedia, useLightbox } from '@astryxdesign/core/Lightbox';
 import { useStreamingText } from '@astryxdesign/core/hooks';
-import { Markdown } from '@astryxdesign/core/Markdown';
+import { Markdown, type MarkdownComponents } from '@astryxdesign/core/Markdown';
 import { Text } from '@astryxdesign/core/Text';
 import { Thumbnail } from '@astryxdesign/core/Thumbnail';
 import { Timestamp } from '@astryxdesign/core/Timestamp';
@@ -195,32 +195,63 @@ function lightboxMedia(src: string, mimeType: string): LightboxMedia | undefined
 	return undefined;
 }
 
-/** Generated image or video as an Astryx Thumbnail that opens the Lightbox. */
-function VisualMedia({ media }: { media: LightboxMedia }) {
-	const lightbox = useLightbox({ media, hasZoom: media.type === 'image' });
+type MediaTranscriptBlock = Extract<TranscriptBlock, { kind: 'media' }>;
+
+/** Full-size media for the Lightbox, and the smaller copy (if any) for its Thumbnail. */
+type GalleryItem = { media: LightboxMedia; preview: string };
+
+/** Image or video media: shown as Thumbnails in a gallery row, not as its own body row. */
+function galleryItemOf(block: TranscriptBlock): GalleryItem | undefined {
+	if (block.kind !== 'media') return undefined;
+	const src = mediaSrc(block);
+	const media = src ? lightboxMedia(src, block.mimeType) : undefined;
+	return media ? { media, preview: block.previewUrl ?? media.src } : undefined;
+}
+
+/**
+ * Consecutive images and videos as one wrapping row of Astryx Thumbnails that
+ * share a Lightbox gallery (Astryx's `useLightbox({ media: [...] })` pattern).
+ */
+function MediaGallery({ items }: { items: GalleryItem[] }) {
+	const lightbox = useLightbox({ media: items.map((item) => item.media), hasZoom: true });
 	return (
-		<>
-			<Thumbnail
-				src={media.type === 'image' ? media.src : undefined}
-				alt={media.alt}
-				label={media.alt}
-				onClick={() => lightbox.open()}
-			/>
+		<HStack gap={2} wrap="wrap">
+			{items.map(({ media: item, preview }, i) => (
+				<Thumbnail
+					key={item.src}
+					src={item.type === 'image' ? preview : undefined}
+					alt={item.alt}
+					label={item.alt}
+					onClick={() => lightbox.open(i)}
+				/>
+			))}
 			{lightbox.element}
-		</>
+		</HStack>
 	);
 }
 
-function MediaBlock({ block }: { block: Extract<TranscriptBlock, { kind: 'media' }> }) {
+function MediaBlock({ block }: { block: MediaTranscriptBlock }) {
 	const src = mediaSrc(block);
-	if (!src) return <Text color="secondary">{block.mimeType}</Text>;
-	const visual = lightboxMedia(src, block.mimeType);
-	if (visual) return <VisualMedia media={visual} />;
-	if (block.mimeType.startsWith('audio/')) {
+	if (src && block.mimeType.startsWith('audio/')) {
 		// biome-ignore lint/a11y/useMediaCaption: model audio output
 		return <audio controls preload="metadata" src={src} />;
 	}
 	return <Text color="secondary">{block.mimeType}</Text>;
+}
+
+type BodyRow = { kind: 'block'; block: TranscriptBlock } | { kind: 'gallery'; items: GalleryItem[] };
+
+/** Runs of images/videos become one gallery row; everything else is a row of its own. */
+function bodyRows(body: readonly TranscriptBlock[]): BodyRow[] {
+	const rows: BodyRow[] = [];
+	for (const block of body) {
+		const item = galleryItemOf(block);
+		const last = rows.at(-1);
+		if (item && last?.kind === 'gallery') last.items.push(item);
+		else if (item) rows.push({ kind: 'gallery', items: [item] });
+		else rows.push({ kind: 'block', block });
+	}
+	return rows;
 }
 
 function Sources({ block }: { block: Extract<TranscriptBlock, { kind: 'grounding' | 'evidence' }> }) {
@@ -236,19 +267,33 @@ function Sources({ block }: { block: Extract<TranscriptBlock, { kind: 'grounding
 }
 
 /**
- * Streamed reply text. Guardrails release text in batches (the last one when
+ * Streamed text (the reply, or the latest thought). Guardrails release text in batches (the last one when
  * the stream closes), and Astryx's reveal snaps to the full text once
  * `isStreaming` goes false — so keep the reveal on until Astryx's own
  * `useStreamingText` has caught up with everything received.
  */
-function StreamedMarkdown({ text, streaming }: { text: string; streaming: boolean }) {
+function StreamedMarkdown({
+	text,
+	streaming,
+	density,
+	components,
+}: {
+	text: string;
+	streaming: boolean;
+	density?: 'compact';
+	components?: Partial<MarkdownComponents>;
+}) {
 	const [revealing, setRevealing] = useState(streaming);
 	if (streaming && !revealing) setRevealing(true);
 	const shown = useStreamingText(text, revealing);
 	useEffect(() => {
 		if (!streaming && shown.length >= text.length) setRevealing(false);
 	}, [streaming, shown, text]);
-	return <Markdown isStreaming={revealing}>{text}</Markdown>;
+	return (
+		<Markdown isStreaming={revealing} density={density} components={components}>
+			{text}
+		</Markdown>
+	);
 }
 
 function BodyBlock({ block, streaming }: { block: TranscriptBlock; streaming: boolean }) {
@@ -300,7 +345,25 @@ function ToolCall({ tool }: { tool: ToolBlock['tool'] }) {
 }
 
 /** Consecutive tool items collapse into one ChatToolCalls group. */
-function TraceList({ items }: { items: readonly TraceItem[] }) {
+/**
+ * Thinking reads as quieter text than the reply. Astryx has no reasoning
+ * component, and Markdown draws its own Text, so restyle through its
+ * documented `components` seam.
+ */
+const THOUGHT_MARKDOWN: Partial<MarkdownComponents> = {
+	paragraph: ({ children }) => (
+		<Text size="sm" color="secondary" display="block" as="p">
+			{children}
+		</Text>
+	),
+	heading: ({ children }) => (
+		<Text size="sm" color="secondary" weight="semibold" display="block" as="p">
+			{children}
+		</Text>
+	),
+};
+
+function TraceList({ items, streaming }: { items: readonly TraceItem[]; streaming: boolean }) {
 	const rows: ReactNode[] = [];
 	let tools: ChatToolCallItem[] = [];
 	const flush = () => {
@@ -308,16 +371,20 @@ function TraceList({ items }: { items: readonly TraceItem[] }) {
 		rows.push(<ChatToolCalls key={tools[0]?.key} calls={tools} />);
 		tools = [];
 	};
-	for (const item of items) {
+	for (const [i, item] of items.entries()) {
 		if (item.kind === 'tool') {
 			tools.push(toolCallItem(item.id, item.block.tool));
 			continue;
 		}
 		flush();
 		rows.push(
-			<Text key={item.id} size="sm" color="secondary" as="div">
-				<Markdown density="compact">{item.text}</Markdown>
-			</Text>,
+			<StreamedMarkdown
+				key={item.id}
+				text={item.text}
+				streaming={streaming && i === items.length - 1}
+				density="compact"
+				components={THOUGHT_MARKDOWN}
+			/>,
 		);
 	}
 	flush();
@@ -359,13 +426,19 @@ function AssistantTurn(props: {
 	onBranch?: () => void;
 	handlers: BlockHandlers;
 }) {
-	const [traceOpen, setTraceOpen] = useState(false);
+	// Open while the turn runs so its thinking and tool calls can be followed;
+	// folds away when the turn ends.
+	const [traceOpen, setTraceOpen] = useState(props.streaming);
+	const [wasStreaming, setWasStreaming] = useState(props.streaming);
+	if (wasStreaming !== props.streaming) {
+		setWasStreaming(props.streaming);
+		setTraceOpen(props.streaming);
+	}
 	const now = useSecondTicker(props.streaming && props.startedAt !== undefined);
 	const end = props.streaming ? now : props.endedAt;
 	const elapsedMs = props.startedAt !== undefined && end !== undefined ? end - props.startedAt : undefined;
-	const { trace, gatedTools, body, hasTrace } = composeAssistantTurn(props.blocks, {
-		streaming: props.streaming,
-	});
+	const { trace, gatedTools, body, hasTrace } = composeAssistantTurn(props.blocks);
+	const rows = bodyRows(body);
 	const status = workStatusLabel({ streaming: props.streaming, hasTrace, elapsedMs });
 	const copyText = assistantTurnCopyText(body.length > 0 ? body : props.blocks);
 
@@ -395,21 +468,25 @@ function AssistantTurn(props: {
 							isOpen={traceOpen}
 							onOpenChange={setTraceOpen}
 						>
-							<TraceList items={trace} />
+							<TraceList items={trace} streaming={props.streaming} />
 						</Collapsible>
 					) : null}
 					{gatedTools.map((block) => (
 						<GateCard key={block.id} block={block} handlers={props.handlers} />
 					))}
-					{body.map((block, i) => (
-						<BodyBlock
-							// By position: the committed turn re-mints block ids, and a
-							// remount would cut the text reveal short.
-							key={i}
-							block={block}
-							streaming={props.streaming && i === body.length - 1}
-						/>
-					))}
+					{rows.map((row, i) =>
+						row.kind === 'gallery' ? (
+							<MediaGallery key={i} items={row.items} />
+						) : (
+							<BodyBlock
+								// By position: the committed turn re-mints block ids, and a
+								// remount would cut the text reveal short.
+								key={i}
+								block={row.block}
+								streaming={props.streaming && i === rows.length - 1}
+							/>
+						),
+					)}
 			</VStack>
 		</ChatMessage>
 	);

@@ -19,6 +19,8 @@ import {
 } from '../../react/src/client/live/live-mic-forward.ts';
 import { liveStateLabel } from '../../react/src/client/live/live-state.ts';
 import { transcriptBlockCopyText } from '../../react/src/client/transcript-block-text.ts';
+import { composeAssistantTurn } from '../../react/src/client/transcript-groups.ts';
+import type { TranscriptBlock } from '../../src/interface/mod.ts';
 import { voiceFormatLabel, voiceLabelFromMime } from '../../react/src/client/voice-label.ts';
 
 Deno.test('transcriptBlockCopyText formats all block kinds', () => {
@@ -393,4 +395,18 @@ Deno.test('stash shortcut is mod+shift+S', async () => {
   assertEquals(isStashShortcut(key), false);
   assertEquals(isStashShortcut({ ...key, metaKey: true, shiftKey: false }), false);
   assertEquals(isStashShortcut({ ...key, metaKey: true, altKey: true }), false);
+});
+
+Deno.test('composeAssistantTurn streams the answer after the latest tool in the body', () => {
+	const tool = { id: 't', kind: 'tool', tool: { name: 'plan_day', phase: 'complete' } } as TranscriptBlock;
+	const blocks: TranscriptBlock[] = [
+		{ id: 'r', kind: 'thought', text: 'Planning' },
+		{ id: 'n', kind: 'text', text: 'Let me check.' },
+		tool,
+		{ id: 'm', kind: 'media', mimeType: 'image/jpeg', url: 'https://example.com/a.jpg' },
+		{ id: 'a', kind: 'text', text: 'Here is **the plan**.' },
+	];
+	const turn = composeAssistantTurn(blocks);
+	assertEquals(turn.trace.map((item) => item.kind), ['reasoning', 'narration', 'tool']);
+	assertEquals(turn.body.map((block) => block.id), ['m', 'a']);
 });

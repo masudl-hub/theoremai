@@ -4,10 +4,10 @@
  * Adversarial tool-system pressure test — kernel invoke matrix + real Gemini
  * Interactions turns (text runner). Not Gemini Live (`type: 'live'`).
  *
- * Loads keys from THEOREM_ENV_FILE or ../theorem-frontend/.env.local (GEMINI_API_KEY).
+ * Loads keys from THEOREM_ENV_FILE or ../theoremai-frontend/.env.local (GEMINI_API_KEY).
  *
  * Usage:
- *   THEOREM_ENV_FILE=../theorem-frontend/.env.local deno task verify:tools-api
+ *   THEOREM_ENV_FILE=../theoremai-frontend/.env.local deno task verify:tools-api
  *   ... --invoke-only     # skip provider API (deterministic kernel path)
  *   ... --api-only        # skip invoke matrix
  *   ... --limit 5         # cap API cases (debug)
@@ -27,48 +27,11 @@ import { createProvider } from '../src/providers/create-provider.ts';
 import { geminiModels, HOST_BINDINGS } from '../tests/fixtures/models.ts';
 import '../tests/fixtures/test-host.ts';
 import { registerHarnessTools } from '../src/kernel/tools/harness.ts';
+import { loadHostEnv } from './host-env.ts';
 
 // ---------------------------------------------------------------------------
 // Env
 // ---------------------------------------------------------------------------
-
-function loadEnvFile(path: string): void {
-  let text: string;
-  try {
-    text = Deno.readTextFileSync(path);
-  } catch {
-    return;
-  }
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const eq = trimmed.indexOf('=');
-    if (eq < 0) continue;
-    const key = trimmed.slice(0, eq).trim();
-    if (Deno.env.get(key) !== undefined) continue;
-    let val = trimmed.slice(eq + 1).trim();
-    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-      val = val.slice(1, -1);
-    }
-    Deno.env.set(key, val);
-  }
-}
-
-function defaultEnvFile(): string | undefined {
-  for (const path of [
-    Deno.env.get('THEOREM_ENV_FILE'),
-    '../theorem-frontend/.env.local',
-    '../../theorem-frontend/.env.local',
-  ].filter(Boolean) as string[]) {
-    try {
-      Deno.statSync(path);
-      return path;
-    } catch {
-      /* next */
-    }
-  }
-  return undefined;
-}
 
 function valueAfterFlag(flag: string): string | undefined {
   const idx = Deno.args.indexOf(flag);
@@ -80,11 +43,7 @@ function hasFlag(flag: string): boolean {
   return Deno.args.includes(flag);
 }
 
-const envPath = defaultEnvFile();
-if (envPath) {
-  loadEnvFile(envPath);
-  console.log(`Loaded env from ${envPath}`);
-}
+loadHostEnv();
 
 // ---------------------------------------------------------------------------
 // Fixtures

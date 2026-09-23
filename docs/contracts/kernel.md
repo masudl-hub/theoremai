@@ -551,8 +551,9 @@ carried. See [observability.md](./observability.md#trace-records).
 `resolveTurnTools` for a host profile yields `gated = visible = executable =
 tools.allow`, `builtins = []`, and `wire` from `buildWire`. `expandT1Policy`,
 `promoteLoadedTools`, and the T2 loader promotion are no-ops. `ModelProfile`
-(`Exclude<Profile, HostProfile>`) names every type that binds models;
-`requireModelProfile` narrows to it and throws for `host`.
+(`Exclude<Profile, HostProfile | DecisionProfile>`) names every type that runs
+a model turn (a decision profile binds models but runs through `runDecision`); `requireModelProfile` narrows to it and throws for `host` and
+`decision`.
 
 Profile `turnBehaviour` (top-level on chat/image/speech):
 

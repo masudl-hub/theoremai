@@ -661,7 +661,7 @@ export type Profile =
   | DecisionProfile
   | HostProfile;
 
-/** Profiles that bind models — every type except `host`. */
+/** Profiles that run a model turn — every type except `host` and `decision` (which runs through `runDecision`). */
 export type ModelProfile = Exclude<Profile, HostProfile | DecisionProfile>;
 
 /** Text part sent to provider adapters after input normalization. */

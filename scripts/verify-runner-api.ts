@@ -14,7 +14,7 @@
  *                      baseline clean delivery
  *
  * Rate limit: ≥4 s between API calls (≤15 RPM).
- * Keys: loaded from THEOREM_ENV_FILE or ../theorem-frontend/.env.local.
+ * Keys: loaded from THEOREM_ENV_FILE or ../theoremai-frontend/.env.local.
  * Default provider: openrouter (`--provider gemini` to switch).
  *
  * Usage:
@@ -36,6 +36,7 @@ import {
 } from '../src/kernel/registry/profiles.ts';
 import type { ModelProvider, TurnEvent, TurnHistoryMessage } from '../src/kernel/types.ts';
 import { createProvider } from '../src/providers/create-provider.ts';
+import { loadHostEnv } from './host-env.ts';
 
 // ---------------------------------------------------------------------------
 // CLI
@@ -77,45 +78,6 @@ const PROVIDER_KIND = resolveProviderKind();
 // ---------------------------------------------------------------------------
 // Env loader
 // ---------------------------------------------------------------------------
-
-function loadEnvFile(path: string): void {
-  let text: string;
-  try {
-    text = Deno.readTextFileSync(path);
-  } catch {
-    return;
-  }
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const eq = trimmed.indexOf('=');
-    if (eq < 0) continue;
-    const key = trimmed.slice(0, eq).trim();
-    if (Deno.env.get(key) !== undefined) continue;
-    let val = trimmed.slice(eq + 1).trim();
-    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-      val = val.slice(1, -1);
-    }
-    Deno.env.set(key, val);
-  }
-}
-
-function defaultEnvFile(): string | undefined {
-  const candidates = [
-    Deno.env.get('THEOREM_ENV_FILE'),
-    '../theorem-frontend/.env.local',
-    '../../theorem-frontend/.env.local',
-  ].filter(Boolean) as string[];
-  for (const path of candidates) {
-    try {
-      Deno.statSync(path);
-      return path;
-    } catch {
-      /* next */
-    }
-  }
-  return undefined;
-}
 
 // ---------------------------------------------------------------------------
 // Rate limiter: ≥4 s between API calls (≤15 RPM)
@@ -1379,11 +1341,7 @@ function printReport(results: Array<{ group: string; name: string } & CaseResult
 const ALL_GROUPS = ['egress', 'compaction', 'tokens', 'integrity'];
 
 async function main(): Promise<void> {
-  const envPath = defaultEnvFile();
-  if (envPath) {
-    loadEnvFile(envPath);
-    console.log(`Loaded env from ${envPath}`);
-  }
+  loadHostEnv();
 
   const activeGroups = GROUP_FILTER ?? ALL_GROUPS;
   const unknownGroups = activeGroups.filter((g) => !ALL_GROUPS.includes(g));

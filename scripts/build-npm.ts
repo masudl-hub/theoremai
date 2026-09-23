@@ -29,7 +29,6 @@ await build({
   compilerOptions: {
     lib: ['ES2022', 'DOM', 'DOM.Iterable'],
     target: 'ES2022',
-    strict: true,
   },
   package: {
     name: '@theoremai/agents',

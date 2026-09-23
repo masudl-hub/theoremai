@@ -37,19 +37,22 @@ import { soleModelId } from './sole-model.ts';
 import { resolveTurnSystemPrompt } from './system-prompt.ts';
 import { providerUsesKeySlots, resolveKeySlot } from './vault.ts';
 
-/** Narrow to a model-binding profile; `host` never runs a model. */
+/** True for a profile that runs a model turn; `host` and `decision` never do. */
+function isModelProfile(profile: Profile): profile is ModelProfile {
+  return profile.type !== 'host' && profile.type !== 'decision';
+}
+
+/** Narrow to a profile that runs a model turn, or throw naming the door it cannot use. */
 function requireModelProfile(profile: Profile, door: string): ModelProfile {
+  if (isModelProfile(profile)) return profile;
   if (profile.type === 'host') {
     throw new TheoremError(
       `Profile ${profile.id}: type 'host' never runs a model — ${door} is not supported; execute tools with invokeTool`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
-  if (profile.type === 'decision') {
-    throw new TheoremError(
-      `Profile ${profile.id}: type 'decision' runs through runDecision — ${door} is not supported`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    );
-  }
-  return profile;
+  throw new TheoremError(
+    `Profile ${profile.id}: type 'decision' runs through runDecision — ${door} is not supported`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  );
 }
 
 /**
@@ -297,4 +300,11 @@ function projectProfile(id: Profile['id']): ProjectedProfile {
   return projectProfileObject(getProfile(id));
 }
 
-export { pickModel, projectProfile, projectProfileObject, requireModelProfile, resolveTurn };
+export {
+  isModelProfile,
+  pickModel,
+  projectProfile,
+  projectProfileObject,
+  requireModelProfile,
+  resolveTurn,
+};

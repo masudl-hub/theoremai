@@ -12,7 +12,12 @@ import {
   registerProfile,
   registerProfiles,
 } from '../../src/kernel/registry/profiles.ts';
-import { projectProfile, resolveTurn } from '../../src/kernel/registry/resolve.ts';
+import {
+  isModelProfile,
+  projectProfile,
+  requireModelProfile,
+  resolveTurn,
+} from '../../src/kernel/registry/resolve.ts';
 import { registerTool } from '../../src/kernel/tools/mod.ts';
 import { resolveTurnTools } from '../../src/kernel/tools/resolve.ts';
 import type { ModelProvider } from '../../src/kernel/types.ts';
@@ -494,6 +499,44 @@ Deno.test("resolveTurn, runTurn, runSession and projectProfile refuse a 'host' p
       ),
     TheoremError,
     "type 'host'",
+  );
+});
+
+Deno.test("isModelProfile and requireModelProfile refuse 'host' and 'decision' profiles", () => {
+  registerProfile({ type: 'host', id: 'model_gate_host', tools: { allow: [] } });
+  registerProfile(
+    defineProfile({
+      type: 'decision',
+      id: 'model_gate_decision',
+      identity: { handle: 'Decision' },
+      models: { jev: { apiId: 'jev-latest', timeoutMs: 1000 } },
+      inputs: { state: 'json', maxStateBytes: 1000 },
+      decision: { contract: 'test.v1' },
+    }),
+  );
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      id: 'model_gate_text',
+      identity: { handle: 'Text' },
+      ...geminiModels('gemini35FlashLite'),
+      tools: { allow: [] },
+      inputs: { text: true },
+    }),
+  );
+  assertEquals(isModelProfile(getProfile('model_gate_host')), false);
+  assertEquals(isModelProfile(getProfile('model_gate_decision')), false);
+  assertEquals(isModelProfile(getProfile('model_gate_text')), true);
+  assertEquals(requireModelProfile(getProfile('model_gate_text'), 'test').id, 'model_gate_text');
+  assertThrows(
+    () => requireModelProfile(getProfile('model_gate_host'), 'test'),
+    TheoremError,
+    "type 'host' never runs a model",
+  );
+  assertThrows(
+    () => requireModelProfile(getProfile('model_gate_decision'), 'test'),
+    TheoremError,
+    "type 'decision' runs through runDecision",
   );
 });
 

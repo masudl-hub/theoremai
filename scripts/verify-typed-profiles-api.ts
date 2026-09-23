@@ -28,45 +28,13 @@ import type {
 } from '../src/kernel/types.ts';
 import { registerGooglePreset } from '../src/presets/google.ts';
 import { createProvider } from '../src/providers/create-provider.ts';
+import { loadHostEnv } from './host-env.ts';
 
 // ---------------------------------------------------------------------------
 // Load Env
 // ---------------------------------------------------------------------------
 
-function loadEnvFile(path: string): void {
-  try {
-    const text = Deno.readTextFileSync(path);
-    for (const line of text.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      const eq = trimmed.indexOf('=');
-      if (eq < 0) continue;
-      const key = trimmed.slice(0, eq).trim();
-      if (Deno.env.get(key) !== undefined) continue;
-      let val = trimmed.slice(eq + 1).trim();
-      if (
-        (val.startsWith('"') && val.endsWith('"')) ||
-        (val.startsWith("'") && val.endsWith("'"))
-      ) {
-        val = val.slice(1, -1);
-      }
-      Deno.env.set(key, val);
-    }
-  } catch {
-    // Ignore missing
-  }
-}
-
-const envCandidates = [
-  Deno.env.get('THEOREM_ENV_FILE'),
-  '../theorem-frontend/.env.local',
-  '../../theorem-frontend/.env.local',
-  './.env.local',
-].filter(Boolean) as string[];
-
-for (const c of envCandidates) {
-  loadEnvFile(c);
-}
+loadHostEnv();
 
 const openRouterKey = Deno.env.get('OPENROUTER_API_KEY')?.trim();
 const geminiKey = Deno.env.get('GEMINI_API_KEY')?.trim();
@@ -87,12 +55,13 @@ registerGooglePreset();
 // ---------------------------------------------------------------------------
 
 registerTool({
+  type: 'function',
   name: 'calculate_sum',
   description: 'Add two numbers together and return the result',
   category: 'math',
-  access: 'read',
-  loadTier: 'always',
-  permission: 'none',
+  access: 'read-only',
+  loadTier: 'T0',
+  permission: 'auto',
   paths: ['*'],
   input: z.object({
     a: z.number().describe('First number'),
@@ -195,7 +164,7 @@ if (openRouterKey) {
     const errEvent = events.find((e) => e.type === 'error');
     if (errEvent) {
       console.log(
-        `    (Note: free tier model returned error event: ${errEvent.error?.message ?? errEvent.error?.code})`,
+        `    (Note: free tier model returned error event: ${errEvent.errorInternal ?? errEvent.error})`,
       );
     }
 
@@ -310,8 +279,8 @@ if (geminiKey) {
       events.push(event);
     }
 
-    const toolCalls = events.filter((e) => e.type === 'tool_call');
-    const toolResults = events.filter((e) => e.type === 'tool_result');
+    const toolCalls = events.filter((e) => e.type === 'tool' && e.tool?.phase === 'running');
+    const toolResults = events.filter((e) => e.type === 'tool' && e.tool?.phase === 'complete');
     const done = events.find((e) => e.type === 'done');
 
     if (!done) throw new Error('Missing done event');

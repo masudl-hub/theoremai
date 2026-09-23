@@ -1,7 +1,7 @@
 import { runTurn } from '../../kernel/engine/runner.ts';
 import { sumTokens } from '../../kernel/engine/usage.ts';
 import { getProfile, listProfiles } from '../../kernel/registry/profiles.ts';
-import { requireModelProfile } from '../../kernel/registry/resolve.ts';
+import { isModelProfile, requireModelProfile } from '../../kernel/registry/resolve.ts';
 import type { ModelProfile, ModelProvider, TurnRequest, TurnTokens } from '../../kernel/types.ts';
 import { createCliTraceCapture, printTestEvent, printTraceRecord } from '../event-log.ts';
 import {
@@ -132,8 +132,8 @@ function resolveTargetProfiles(
   all: boolean | undefined,
 ): ModelProfile[] | null {
   if (all) {
-    // Host profiles never run a model, so there is no turn matrix to execute.
-    return listProfiles().filter((profile): profile is ModelProfile => profile.type !== 'host');
+    // Host and decision profiles run no model turn, so they have no turn matrix.
+    return listProfiles().filter(isModelProfile);
   }
   if (profileId) {
     try {

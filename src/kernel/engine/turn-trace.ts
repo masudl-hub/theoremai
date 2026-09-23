@@ -47,6 +47,7 @@ import type {
   TurnTokens,
   TurnTraceLink,
 } from '../types.ts';
+import { findLast } from '../util/find-last.ts';
 import type { CallUsage } from './runner/usage.ts';
 import { sumTokens } from './usage.ts';
 
@@ -880,9 +881,9 @@ function endTurnSpan(root: SpanHandle, end: TurnEnd): void {
   const tokens = sumTokens(
     end.seen.flatMap((ev) => (ev.type === 'tokens' && ev.tokens ? [ev.tokens] : [])),
   );
-  const done = end.seen.findLast((ev) => ev.type === 'done');
+  const done = findLast(end.seen, (ev) => ev.type === 'done');
   const stop = done?.stop?.kind;
-  const publicError = end.seen.findLast((ev) => ev.type === 'error')?.error;
+  const publicError = findLast(end.seen, (ev) => ev.type === 'error')?.error;
   const threw = end.thrown !== undefined;
   if (threw) recordException(root, end.thrown);
   const failed = threw || (stop !== undefined && FAILED_STOPS.has(stop));

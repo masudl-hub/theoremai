@@ -12,6 +12,7 @@ import { executeSingleTest, testProfileCommand } from '../src/cli/commands/test.
 import { synthesizeMatrixCombos } from '../src/cli/matrix/synthesizer.ts';
 import { runTurn } from '../src/kernel/engine/runner.ts';
 import { defineProfile, getProfile, registerProfile } from '../src/kernel/registry/profiles.ts';
+import { requireModelProfile } from '../src/kernel/registry/resolve.ts';
 import { registerStructured } from '../src/kernel/registry/schemas.ts';
 import type {
   BuiltinToolId,
@@ -53,6 +54,7 @@ registerStructured('liveCodeAnswer', {
 });
 
 const PROFILE = 'live.code_execution';
+const PROFILE_BUFFERED = 'live.code_execution.buffered';
 const PROFILE_STRUCTURED = 'live.code_execution.structured';
 
 function effortAlias(level: string): string {
@@ -79,23 +81,30 @@ function flashBinding(builtInTools: BuiltinToolId[]): ModelBinding {
   };
 }
 
+const streamed = defineProfile({
+  type: 'text',
+  id: PROFILE,
+  identity: {
+    handle: 'code-exec-live',
+    system:
+      'You have code_execution. Prefer executing Python for arithmetic, plots, and failures. Be concise.',
+  },
+  models: { flash: flashBinding(['codeExecution', 'googleSearch']) },
+  defaultModel: 'flash',
+  maxSteps: 3,
+  key: 'slotA',
+  tools: { allow: [] },
+  inputs: { text: true },
+  outputs: {},
+  guardrails: { quota: { perDay: 1000 } },
+});
+registerProfile(streamed);
+// Stream vs batch is profile-owned (`outputs.streaming.mode`); same profile, buffered.
 registerProfile(
   defineProfile({
-    type: 'text',
-    id: PROFILE,
-    identity: {
-      handle: 'code-exec-live',
-      system:
-        'You have code_execution. Prefer executing Python for arithmetic, plots, and failures. Be concise.',
-    },
-    models: { flash: flashBinding(['codeExecution', 'googleSearch']) },
-    defaultModel: 'flash',
-    maxSteps: 3,
-    key: 'slotA',
-    tools: { allow: [] },
-    inputs: { text: true },
-    outputs: {},
-    guardrails: { quota: { perDay: 1000 } },
+    ...streamed,
+    id: PROFILE_BUFFERED,
+    outputs: { streaming: { mode: 'buffered' } },
   }),
 );
 
@@ -189,7 +198,7 @@ const asserted: CaseResult[] = [];
 console.log(`\n${'='.repeat(70)}\n CLI MATRIX via testProfileCommand\n${'='.repeat(70)}`);
 console.log(
   'matrix combos:',
-  synthesizeMatrixCombos(getProfile(PROFILE))
+  synthesizeMatrixCombos(requireModelProfile(getProfile(PROFILE), 'verify-code-execution'))
     .map((c) => c.name)
     .join(' | '),
 );
@@ -228,7 +237,6 @@ asserted.push(
     'stream arithmetic',
     {
       profile: PROFILE,
-      stream: true,
       effort: turnEffort,
       input: { text: 'Use code_execution: print(sum(range(1, 101))). Reply with only the number.' },
     },
@@ -249,8 +257,7 @@ asserted.push(
   await runCase(
     'batch arithmetic',
     {
-      profile: PROFILE,
-      stream: false,
+      profile: PROFILE_BUFFERED,
       effort: turnEffort,
       input: { text: 'Use code_execution: print(sum(range(1, 51))). Reply with only the number.' },
     },

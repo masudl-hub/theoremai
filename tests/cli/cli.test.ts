@@ -17,7 +17,7 @@ import {
   synthesizeMatrixCombos,
   synthesizeStressCombo,
 } from '../../src/cli/matrix/synthesizer.ts';
-import { getProfile } from '../../src/kernel/registry/profiles.ts';
+import { defineProfile, getProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ModelProvider, Profile, TurnEvent } from '../../src/kernel/types.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 
@@ -292,6 +292,40 @@ Deno.test('testProfileCommand and CLI main router test flag parsing and commands
   // Missing profile
   const noProfileRes = await testProfileCommand(undefined, { all: false });
   assertEquals(noProfileRes, false);
+});
+
+Deno.test('testProfileCommand --all skips profiles that run no model turn', async () => {
+  registerProfile({ type: 'host', id: 'cli_all_host', tools: { allow: [] } });
+  registerProfile(
+    defineProfile({
+      type: 'decision',
+      id: 'cli_all_decision',
+      identity: { handle: 'Decision' },
+      models: { jev: { apiId: 'jev-latest', timeoutMs: 1000 } },
+      inputs: { state: 'json', maxStateBytes: 1000 },
+      decision: { contract: 'test.v1' },
+    }),
+  );
+  const printed: string[] = [];
+  const log = console.log;
+  console.log = (...args: unknown[]) => printed.push(args.join(' '));
+  try {
+    await testProfileCommand(undefined, {
+      all: true,
+      lite: true,
+      provider: {
+        async *complete() {
+          yield { type: 'text', text: 'ok' };
+        },
+      },
+    });
+  } finally {
+    console.log = log;
+  }
+  const tested = printed.flatMap((line) => /Profile:\s+(\S+)/.exec(line)?.[1] ?? []);
+  assertEquals(tested.includes('chat'), true);
+  assertEquals(tested.includes('cli_all_host'), false);
+  assertEquals(tested.includes('cli_all_decision'), false);
 });
 
 Deno.test('executeSingleTest sums every call and labels totals that include estimates', async () => {

@@ -80,7 +80,6 @@ export function buildInvokeRequest(
 	session: InterfaceTurnSession,
 	args: {
 		gateId: string;
-		decision: TheoremInvokeRequest['decision'];
 		name: string;
 		input: unknown;
 		resume?: TheoremReplay['resume'];
@@ -90,7 +89,6 @@ export function buildInvokeRequest(
 ): TheoremInvokeRequest {
 	return {
 		gateId: args.gateId,
-		decision: args.decision,
 		...(args.credentials ? { credentials: args.credentials } : {}),
 		replay: {
 			name: args.name,

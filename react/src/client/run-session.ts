@@ -15,8 +15,8 @@ import { attachPreviewData, encodeFiles } from './encode-files';
 import { continueAfterTool, finalizeTurnStream, streamFoldedTurn, toTurnMedia } from './run-commit';
 import { type EncodedBlob, isAbortError, type TheoremTransport } from './transport';
 import {
-	applyToolDecisionToSessionPermissions,
 	buildInvokeToolResume,
+	sessionPermissionsAfterApproval,
 	type ToolDecisionAction,
 } from './tool-resume';
 import {
@@ -325,7 +325,6 @@ async function resumeAllowedGatedTool(args: {
 	iface: ComposerProfileInterface;
 	transport: TheoremTransport;
 	session: InterfaceTurnSession;
-	action: Exclude<ToolDecisionAction, 'deny'>;
 	onStream: (blocks: TranscriptBlock[]) => void;
 	credentials?: Record<string, ToolCredential>;
 	gated: NonNullable<InterfaceTurnSession['gatedTool']>;
@@ -336,14 +335,11 @@ async function resumeAllowedGatedTool(args: {
 	const gateId = args.gated.callId;
 	if (!gateId) return { ok: false, error: 'This tool call cannot be resumed.' };
 	let session: InterfaceTurnSession = { ...args.session };
-	const invokePermissions = applyToolDecisionToSessionPermissions(
+	const sessionPermissions = sessionPermissionsAfterApproval(
 		session.sessionPermissions,
 		args.gated.name,
-		args.action,
 		args.gated.permission,
 	);
-	const sessionPermissions =
-		args.action === 'allow_session' ? invokePermissions : session.sessionPermissions;
 
 	let resume: ReturnType<typeof buildInvokeToolResume>;
 	try {
@@ -361,11 +357,10 @@ async function resumeAllowedGatedTool(args: {
 				args.transport.invoke(
 					buildInvokeRequest(args.iface, session, {
 						gateId,
-						decision: args.action,
 						name: args.gated.name,
 						input: args.gated.input,
 						resume,
-						sessionPermissions: invokePermissions,
+						sessionPermissions,
 						credentials: args.credentials,
 					}),
 					onEvent,
@@ -417,7 +412,7 @@ export async function resumeInterfaceTool(args: {
 	if (args.action === 'deny') {
 		return await resumeDeniedGatedTool({ ...args, gated });
 	}
-	return await resumeAllowedGatedTool({ ...args, action: args.action, gated });
+	return await resumeAllowedGatedTool({ ...args, gated });
 }
 
 export function applyTurnResultToTranscript(args: {

@@ -12,13 +12,13 @@ import { VStack } from '@astryxdesign/core/VStack';
 import { useState } from 'react';
 import type { ToolCredential, ToolGate } from '../../../src/kernel/mod.ts';
 
-export type ToolDecision = 'allow' | 'allow_session' | 'deny';
+export type ToolDecision = 'allow' | 'deny';
 
-const DECISION_LABEL: Record<ToolDecision, string> = {
-	allow: 'Approved once',
-	allow_session: 'Approved for this session',
-	deny: 'Denied',
-};
+/** What an approval means is the tool registrant's call: `session_consent` lasts the session. */
+function decisionLabel(decision: ToolDecision, gate: ToolGate): string {
+	if (decision === 'deny') return 'Denied';
+	return gate.permission === 'session_consent' ? 'Approved for this session' : 'Approved once';
+}
 
 function formatInput(value: unknown): string {
 	if (typeof value === 'string') return value;
@@ -63,7 +63,7 @@ export function ApprovalCard({ gate, toolName, input, onDecision }: ApprovalCard
 					badge="Approval required"
 					title="Tool:"
 					toolName={toolName}
-					tag={gate.permission ?? 'session_consent'}
+					tag={gate.permission ?? gate.kind}
 				/>
 				{gate.summary ? <Text>{gate.summary}</Text> : null}
 				{args ? (
@@ -74,11 +74,10 @@ export function ApprovalCard({ gate, toolName, input, onDecision }: ApprovalCard
 				{decided === null ? (
 					<HStack gap={2} justify="end">
 						<Button label="Deny" variant="ghost" onClick={() => decide('deny')} />
-						<Button label="Always allow this session" variant="secondary" onClick={() => decide('allow_session')} />
 						<Button label="Approve" variant="primary" onClick={() => decide('allow')} />
 					</HStack>
 				) : (
-					<Badge variant={decided === 'deny' ? 'error' : 'success'} label={DECISION_LABEL[decided]} />
+					<Badge variant={decided === 'deny' ? 'error' : 'success'} label={decisionLabel(decided, gate)} />
 				)}
 			</VStack>
 		</Card>

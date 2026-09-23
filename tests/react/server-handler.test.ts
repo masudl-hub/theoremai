@@ -339,7 +339,6 @@ Deno.test('invoke only runs a call the server paused, with the model input', asy
         transport.invoke(
           {
             gateId: 'made-up',
-            decision: 'allow',
             replay: {
               name: 'handler_delete',
               input: { id: 'attacker' },
@@ -363,7 +362,6 @@ Deno.test('invoke only runs a call the server paused, with the model input', asy
     transport.invoke(
       {
         gateId: gate.callId,
-        decision: 'allow',
         replay: { name: 'handler_delete', input: { id: 'attacker' } },
       },
       onEvent,
@@ -374,8 +372,7 @@ Deno.test('invoke only runs a call the server paused, with the model input', asy
 
   // Each approval runs the call once.
   await assertRejects(
-    () =>
-      collect((onEvent) => transport.invoke({ gateId: gate.callId, decision: 'allow' }, onEvent)),
+    () => collect((onEvent) => transport.invoke({ gateId: gate.callId }, onEvent)),
     Error,
     'no longer waiting',
   );
@@ -392,28 +389,25 @@ Deno.test("another session can't approve this session's paused call", async () =
   const attacker = transportFor(handler);
   const gate = gateOf(await collect((onEvent) => victim.turn({ input: { text: 'x' } }, onEvent)));
   await assertRejects(
-    () =>
-      collect((onEvent) => attacker.invoke({ gateId: gate.callId, decision: 'allow' }, onEvent)),
+    () => collect((onEvent) => attacker.invoke({ gateId: gate.callId }, onEvent)),
     Error,
     'no longer waiting',
   );
   assertEquals(ran, []);
   // The victim can still approve their own call.
-  await collect((onEvent) => victim.invoke({ gateId: gate.callId, decision: 'allow' }, onEvent));
+  await collect((onEvent) => victim.invoke({ gateId: gate.callId }, onEvent));
   assertEquals(ran, ['victim-record']);
 });
 
-Deno.test('allow_session is remembered by the server, not the client', async () => {
+Deno.test('approving a session_consent tool is remembered by the server, not the client', async () => {
   const handler = createTheoremHandler({
-    profile: profile('handler-allow-session', ['handler_share']),
+    profile: profile('handler-session-consent', ['handler_share']),
     provider: () => toolCallingProvider('handler_share', 'r1'),
   });
   const transport = transportFor(handler);
   const first = await collect((onEvent) => transport.turn({ input: { text: 'a' } }, onEvent));
   const gate = gateOf(first);
-  await collect((onEvent) =>
-    transport.invoke({ gateId: gate.callId, decision: 'allow_session' }, onEvent),
-  );
+  await collect((onEvent) => transport.invoke({ gateId: gate.callId }, onEvent));
   const second = await collect((onEvent) => transport.turn({ input: { text: 'b' } }, onEvent));
   assertEquals(toolPhase(second, 'handler_share'), 'complete');
 
@@ -421,6 +415,18 @@ Deno.test('allow_session is remembered by the server, not the client', async () 
   const other = transportFor(handler);
   const fresh = await collect((onEvent) => other.turn({ input: { text: 'c' } }, onEvent));
   assertEquals(toolPhase(fresh, 'handler_share'), 'gate');
+});
+
+Deno.test('approving an always_confirm tool covers that call only', async () => {
+  const handler = createTheoremHandler({
+    profile: profile('handler-always-confirm', ['handler_delete']),
+    provider: () => toolCallingProvider('handler_delete', 'once'),
+  });
+  const transport = transportFor(handler);
+  const first = await collect((onEvent) => transport.turn({ input: { text: 'a' } }, onEvent));
+  await collect((onEvent) => transport.invoke({ gateId: gateOf(first).callId }, onEvent));
+  const second = await collect((onEvent) => transport.turn({ input: { text: 'b' } }, onEvent));
+  assertEquals(toolPhase(second, 'handler_delete'), 'gate');
 });
 
 Deno.test('system-role messages from the client never reach the model', async () => {

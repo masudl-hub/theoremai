@@ -6,9 +6,9 @@ import {
   toolInvokeResultFromEvents,
 } from '../../react/src/client/playground-tool-result.ts';
 import {
-  applyToolDecisionToSessionPermissions,
   buildInvokeToolResume,
   continueGatedToolInvocation,
+  sessionPermissionsAfterApproval,
 } from '../../react/src/client/tool-resume.ts';
 import {
   buildInvokeRequest,
@@ -64,60 +64,41 @@ function textInterface(
 const fast = HOST_BINDINGS.gemini35FlashLite;
 const smart = HOST_BINDINGS.gemini31ProPreview;
 
-// --- session permissions: only an explicit approval grants anything ---
+// --- session permissions: the registrant's tier decides how long an approval lasts ---
 
-Deno.test('allow_session grants the tool for the rest of the session', () => {
-  assertEquals(applyToolDecisionToSessionPermissions([], 'delete_resource', 'allow_session'), [
-    'delete_resource',
-  ]);
-});
-
-Deno.test('allow on a session_consent tool records the consent once', () => {
-  const once = applyToolDecisionToSessionPermissions(
-    [],
-    'delete_resource',
-    'allow',
-    'session_consent',
-  );
+Deno.test('approving a session_consent tool grants it for the session, once', () => {
+  const once = sessionPermissionsAfterApproval([], 'delete_resource', 'session_consent');
   assertEquals(once, ['delete_resource']);
-  assertEquals(
-    applyToolDecisionToSessionPermissions(once, 'delete_resource', 'allow', 'session_consent'),
-    ['delete_resource'],
-  );
-  assertEquals(applyToolDecisionToSessionPermissions(once, 'delete_resource', 'allow_session'), [
+  assertEquals(checkPermission('delete_resource', 'session_consent', once), null);
+  assertEquals(sessionPermissionsAfterApproval(once, 'delete_resource', 'session_consent'), [
     'delete_resource',
   ]);
 });
 
-Deno.test('allow without session_consent and deny grant nothing', () => {
+Deno.test('approving any other gate grants this call only', () => {
   const existing = ['search'];
   for (const permission of [undefined, 'auto', 'always_confirm'] as const) {
-    assertEquals(
-      applyToolDecisionToSessionPermissions(existing, 'delete_resource', 'allow', permission),
-      ['search'],
-    );
+    assertEquals(sessionPermissionsAfterApproval(existing, 'delete_resource', permission), [
+      'search',
+    ]);
   }
+});
+
+Deno.test('an approved always_confirm tool still gates on its next call', () => {
+  const after = sessionPermissionsAfterApproval([], 'wire_money', 'always_confirm');
+  assertEquals(checkPermission('wire_money', 'always_confirm', after)?.kind, 'permission');
   assertEquals(
-    applyToolDecisionToSessionPermissions(existing, 'delete_resource', 'deny', 'session_consent'),
-    ['search'],
+    checkPermission('wire_money', 'always_confirm', after, buildInvokeToolResume()),
+    null,
   );
 });
 
-Deno.test('session grants never touch other tools or mutate the input', () => {
+Deno.test('session grants never touch other tools, add a wildcard or mutate the input', () => {
   const existing = Object.freeze(['search']) as readonly string[];
-  const next = applyToolDecisionToSessionPermissions(existing, 'delete_resource', 'allow_session');
+  const next = sessionPermissionsAfterApproval(existing, 'delete_resource', 'session_consent');
   assertEquals(next, ['search', 'delete_resource']);
   assertEquals(existing, ['search']);
   assertEquals(next.includes('*'), false);
-});
-
-Deno.test('a session grant cannot skip an always_confirm tool', () => {
-  const granted = applyToolDecisionToSessionPermissions([], 'wire_money', 'allow_session');
-  assertEquals(checkPermission('wire_money', 'always_confirm', granted)?.kind, 'permission');
-  assertEquals(
-    checkPermission('wire_money', 'always_confirm', granted, buildInvokeToolResume()),
-    null,
-  );
 });
 
 // --- gate resume ---
@@ -154,40 +135,32 @@ Deno.test('continueGatedToolInvocation passes auth credentials through without g
 });
 
 Deno.test('continueGatedToolInvocation continues with the granted resume', () => {
-  const allowOnce = continueGatedToolInvocation({
+  const sessionConsent = continueGatedToolInvocation({
     toolName: 'delete_resource',
     gate: DELETE_GATE,
-    sessionPermissions: [],
-    resolution: { action: 'allow' },
-  });
-  assertEquals(allowOnce, {
-    kind: 'continue',
-    sessionPermissions: ['delete_resource'],
-    resume: { granted: true },
-  });
-
-  const confirmed = continueGatedToolInvocation({
-    toolName: 'send_email',
-    gate: { kind: 'confirmation', permission: 'always_confirm' },
     sessionPermissions: ['search'],
     resolution: { action: 'allow' },
   });
-  assertEquals(confirmed, {
+  assertEquals(sessionConsent, {
     kind: 'continue',
-    sessionPermissions: ['search'],
+    sessionPermissions: ['search', 'delete_resource'],
     resume: { granted: true },
   });
 
-  const forSession = continueGatedToolInvocation({
-    toolName: 'send_email',
-    gate: { kind: 'permission', permission: 'session_consent' },
-    sessionPermissions: ['search'],
-    resolution: { action: 'allow_session' },
-  });
-  assertEquals(forSession.kind === 'continue' && forSession.sessionPermissions, [
-    'search',
-    'send_email',
-  ]);
+  for (const gate of [
+    { kind: 'permission', permission: 'always_confirm' },
+    { kind: 'confirmation' },
+  ] as const) {
+    assertEquals(
+      continueGatedToolInvocation({
+        toolName: 'send_email',
+        gate,
+        sessionPermissions: ['search'],
+        resolution: { action: 'allow' },
+      }),
+      { kind: 'continue', sessionPermissions: ['search'], resume: { granted: true } },
+    );
+  }
 });
 
 // --- live tool results ---
@@ -385,10 +358,9 @@ Deno.test('buildInvokeRequest replays the snapshot, promoted tools and selected 
       toolSnapshot: snapshot,
       inputTokens: 5,
     }),
-    { gateId: 'call-1', decision: 'allow', name: 'search', input: { q: 'hotels' } },
+    { gateId: 'call-1', name: 'search', input: { q: 'hotels' } },
   );
   assertEquals(body.gateId, 'call-1');
-  assertEquals(body.decision, 'allow');
   assertEquals(body.credentials, undefined);
   assertEquals(body.replay?.name, 'search');
   assertEquals(body.replay?.input, { q: 'hotels' });
@@ -404,7 +376,6 @@ Deno.test('buildInvokeRequest prefers explicit permissions and omits empty repla
   const credentials = { api: { type: 'bearer', token: 't0k' } } as const;
   const body = buildInvokeRequest(iface, session({ sessionPermissions: ['search'] }), {
     gateId: 'call-2',
-    decision: 'allow_session',
     name: 'fetch_report',
     input: {},
     resume: { granted: true },

@@ -40,7 +40,7 @@ import {
 	promotedToolIdsFromEvents,
 	toolSnapshotFromEvents,
 } from '../../../src/interface/mod.ts';
-import { applyToolDecisionToSessionPermissions } from '../client/tool-resume.ts';
+import { sessionPermissionsAfterApproval } from '../client/tool-resume.ts';
 import type {
 	TheoremInvokeRequest,
 	TheoremSteerRequest,
@@ -156,9 +156,6 @@ function assertTurnBody(body: unknown): asserts body is TheoremTurnRequest {
 function assertInvokeBody(body: unknown): asserts body is TheoremInvokeRequest {
 	if (!isRecord(body) || typeof body.gateId !== 'string' || !body.gateId) {
 		throw new HttpError(400, 'gateId is required');
-	}
-	if (body.decision !== 'allow' && body.decision !== 'allow_session') {
-		throw new HttpError(400, "decision must be 'allow' or 'allow_session'");
 	}
 }
 
@@ -425,10 +422,9 @@ async function* invokeEvents(
 		const pending = state.gates[body.gateId];
 		if (!pending) return undefined;
 		delete state.gates[body.gateId];
-		state.permissions = applyToolDecisionToSessionPermissions(
+		state.permissions = sessionPermissionsAfterApproval(
 			state.permissions,
 			pending.name,
-			body.decision,
 			pending.gate.permission,
 		);
 		return { pending, permissions: [...state.permissions] };

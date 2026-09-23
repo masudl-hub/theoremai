@@ -13,6 +13,7 @@ const ARTIFACT_DIRS = [
   'traces',
   'npm',
   'node_modules',
+  '.claude',
   '.cursor',
   '.fallow',
   '.github',
@@ -38,6 +39,7 @@ const ARTIFACT_FILES = [
   'deno.lock',
   '.npmignore',
   'snyk',
+  '.snyk',
 ] as const;
 
 /** Repo-maintainer markdown that must stay out of JSR / npm publish. */
@@ -293,9 +295,29 @@ async function assertNoPlaygroundInBundles(): Promise<void> {
   }
 }
 
+/**
+ * `deno.json` `exports` is the published export map (JSR, and the npm build
+ * reads it). `package.json` `exports` is the repo map a local checkout resolves
+ * through, so it may add repo-only entries but must carry every published one
+ * at the same path.
+ */
+async function assertPublishedExportsInPackageMap(): Promise<void> {
+  const read = async (file: string) =>
+    (JSON.parse(await Deno.readTextFile(`${root}/${file}`)) as { exports?: Record<string, string> })
+      .exports ?? {};
+  const published = await read('deno.json');
+  const repo = await read('package.json');
+  const missing = Object.entries(published).filter(([name, path]) => repo[name] !== path);
+  if (missing.length > 0) {
+    const lines = missing.map(([name, path]) => `  ${name} -> ${path}`).join('\n');
+    throw new Error(`package.json exports must carry every deno.json export:\n${lines}`);
+  }
+}
+
 async function main(): Promise<void> {
   const exclude = await readPublishExclude();
   assertPublishExcludeCoversArtifacts(exclude);
+  await assertPublishedExportsInPackageMap();
   await assertNpmPackageFilesOmitRepoDocs();
   await assertNoFrontendOrInterfaceInBundles();
   await assertNoPlaygroundInBundles();
@@ -312,7 +334,7 @@ async function main(): Promise<void> {
   }
 
   console.log(
-    'verify-publish-bundle: exclude list covers artifacts; repo docs omitted from package; playground absent from all bundles; no exported _internals; no global test internals in src/; no oversized local files.',
+    'verify-publish-bundle: exclude list covers artifacts; published exports in package map; repo docs omitted from package; playground absent from all bundles; no exported _internals; no global test internals in src/; no oversized local files.',
   );
 }
 

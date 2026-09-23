@@ -15,7 +15,7 @@ import {
 } from '../../../src/interface/mod.ts';
 import { applyTurnResultToTranscript } from '../client/index';
 import type { TheoremTransport } from '../client/transport';
-import { useTheoremChatActions } from './use-theorem-chat-actions';
+import { type RunTurnStream, useTheoremChatActions } from './use-theorem-chat-actions';
 import { type SetSession, useTheoremChatState } from './use-theorem-chat-state';
 
 export type UseTheoremChatOptions = {
@@ -60,31 +60,13 @@ function useDefaultGeneration(
 	}, [session.selectedEffort, session.selectedModel, setSession, iface]);
 }
 
+type ChatState = ReturnType<typeof useTheoremChatState>;
+
 /**
- * Headless chat model: transcript, streaming, composer drafts, pending
- * queue / steer / stash, tool gates. Render it with `@theoremai/react/ui` or
- * your own components.
+ * Runs one turn's stream into the transcript: live partials while it streams,
+ * then the committed result (or the error) and the pending queue's next step.
  */
-export function useTheoremChat({ transport, iface }: UseTheoremChatOptions) {
-	const state = useTheoremChatState();
-	useDefaultGeneration(iface, state.session, state.setSession);
-
-	const gated = state.session.gatedTool !== null;
-	const phase: ComposerRunPhase = state.busy ? 'streaming' : gated ? 'gated' : 'idle';
-
-	const handleGenerationChange = useCallback(
-		(next: { modelId: string; effort?: string }) => {
-			const effort =
-				next.effort ?? (iface ? defaultInterfaceEffort(iface, next.modelId) : undefined);
-			state.setSession((prev) => ({
-				...prev,
-				selectedModel: next.modelId,
-				...(effort ? { selectedEffort: effort } : { selectedEffort: undefined }),
-			}));
-		},
-		[iface, state],
-	);
-
+function useRunTurnStream(iface: ComposerProfileInterface | null, state: ChatState): RunTurnStream {
 	const onRunEnded = useCallback(
 		(nextPending: ComposerPendingMessage[], drain: boolean) => {
 			const converted = convertSteersToFrontQueued(nextPending);
@@ -95,7 +77,7 @@ export function useTheoremChat({ transport, iface }: UseTheoremChatOptions) {
 		[state],
 	);
 
-	const runTurnStream = useCallback(
+	return useCallback(
 		async (
 			run: (onStream: (partial: TranscriptBlock[]) => void) => Promise<TurnOk | TurnFail>,
 			options: { userBlocksAlreadyApplied?: boolean } = {},
@@ -160,38 +142,14 @@ export function useTheoremChat({ transport, iface }: UseTheoremChatOptions) {
 		[iface, onRunEnded, state],
 	);
 
-	const actions = useTheoremChatActions({
-		iface,
-		transport,
-		phase,
-		gated,
-		draftText: state.draftText,
-		pendingFiles: state.pendingFiles,
-		pendingVoice: state.pendingVoice,
-		clearComposer: state.clearComposer,
-		runTurnStream,
-		sessionRef: state.sessionRef,
-		blocksRef: state.blocksRef,
-		abortRef: state.abortRef,
-		turnIdRef: state.turnIdRef,
-		busyRef: state.busyRef,
-		runPromiseRef: state.runPromiseRef,
-		allowQueueDrainRef: state.allowQueueDrainRef,
-		setBlocks: state.setBlocks,
-		setStreamBlocks: state.setStreamBlocks,
-		setSession: state.setSession,
-		setChatStarted: state.setChatStarted,
-		setStreaming: state.setStreaming,
-		setPendingMessages: state.setPendingMessages,
-		setDraftText: state.setDraftText,
-		setPendingFiles: state.setPendingFiles,
-		setPendingVoice: state.setPendingVoice,
-		setIssues: state.setIssues,
-		setError: state.setError,
-		setErrorInternal: state.setErrorInternal,
-		pendingRef: state.pendingRef,
-	});
+}
 
+/** Start the next queued message once the run goes idle, when the run that ended allows it. */
+function useQueueDrain(
+	phase: ComposerRunPhase,
+	state: ChatState,
+	startTurnFromDraft: (draft: ComposerPendingMessage['draft']) => Promise<void>,
+): void {
 	const drainQueue = useCallback(async () => {
 		if (
 			state.drainLockRef.current ||
@@ -205,11 +163,11 @@ export function useTheoremChat({ transport, iface }: UseTheoremChatOptions) {
 		state.drainLockRef.current = true;
 		state.setPendingMessages(remaining);
 		try {
-			await actions.startTurnFromDraft(message.draft);
+			await startTurnFromDraft(message.draft);
 		} finally {
 			state.drainLockRef.current = false;
 		}
-	}, [actions, state]);
+	}, [startTurnFromDraft, state]);
 
 	useEffect(() => {
 		if (phase !== 'idle' || !state.allowQueueDrainRef.current) return;
@@ -220,6 +178,39 @@ export function useTheoremChat({ transport, iface }: UseTheoremChatOptions) {
 		state.allowQueueDrainRef.current = false;
 		void drainQueue();
 	}, [drainQueue, phase, state]);
+
+}
+
+/**
+ * Headless chat model: transcript, streaming, composer drafts, pending
+ * queue / steer / stash, tool gates. Render it with `@theoremai/react/ui` or
+ * your own components.
+ */
+export function useTheoremChat({ transport, iface }: UseTheoremChatOptions) {
+	const state = useTheoremChatState();
+	useDefaultGeneration(iface, state.session, state.setSession);
+
+	const gated = state.session.gatedTool !== null;
+	const phase: ComposerRunPhase = state.busy ? 'streaming' : gated ? 'gated' : 'idle';
+
+	const handleGenerationChange = useCallback(
+		(next: { modelId: string; effort?: string }) => {
+			const effort =
+				next.effort ?? (iface ? defaultInterfaceEffort(iface, next.modelId) : undefined);
+			state.setSession((prev) => ({
+				...prev,
+				selectedModel: next.modelId,
+				...(effort ? { selectedEffort: effort } : { selectedEffort: undefined }),
+			}));
+		},
+		[iface, state],
+	);
+
+	const runTurnStream = useRunTurnStream(iface, state);
+
+	const actions = useTheoremChatActions({ ...state, iface, transport, phase, gated, runTurnStream });
+
+	useQueueDrain(phase, state, actions.startTurnFromDraft);
 
 	const handleBranch = useCallback(
 		(index: number) => {

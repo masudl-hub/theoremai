@@ -32,7 +32,7 @@ import {
 	IconStack2,
 	IconX,
 } from '@tabler/icons-react';
-import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { type ChangeEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import {
 	type ComposerMenuAction,
 	type ComposerPendingMessage,
@@ -43,11 +43,9 @@ import {
 	interfaceEffortOptions,
 	interfaceModelOptions,
 	modelSelectEnabled,
-	resolveComposerMenuActions,
-	resolveComposerPrimary,
-	userDraftHasPayload,
 } from '../../../src/interface/mod.ts';
 import { stageComposerFiles } from '../client/composer-attachments';
+import { composerActionState } from '../client/composer-primary';
 import { composerDrawerSummary } from '../client/composer-drawer';
 import { isStashShortcut, resolveComposerHint, STASH_SHORTCUT } from '../client/composer-hints';
 import {
@@ -95,14 +93,6 @@ const KIND_LABEL: Record<ComposerPendingMessage['kind'], string> = {
 	queue: 'Queued',
 	stash: 'Stashed',
 };
-
-function fileSpecs(files: readonly File[]) {
-	return files.map((file) => ({
-		name: file.name,
-		mimeType: file.type || 'application/octet-stream',
-		sizeBytes: file.size,
-	}));
-}
 
 const isImage = (file: File) => file.type.startsWith('image/');
 
@@ -154,6 +144,63 @@ function PendingRow(props: {
 	);
 }
 
+type ModelOption = ReturnType<typeof interfaceModelOptions>[number];
+type EffortOption = ReturnType<typeof interfaceEffortOptions>[number];
+
+/** The model and effort choices this profile offers; efforts only for a chosen model. */
+function generationOptions(iface: ComposerProfileInterface, selectedModel?: string) {
+	const models = modelSelectEnabled(iface) ? interfaceModelOptions(iface) : [];
+	const efforts =
+		selectedModel && effortSelectEnabled(iface, selectedModel) ? interfaceEffortOptions(iface, selectedModel) : [];
+	return { models, efforts };
+}
+
+function ModelSelector(props: {
+	models: readonly ModelOption[];
+	value?: string;
+	isDisabled: boolean;
+	onChange: (modelId: string) => void;
+}) {
+	if (props.models.length === 0) return null;
+	return (
+		<Selector
+			label="Model"
+			isLabelHidden
+			size="sm"
+			variant="ghost"
+			startIcon={<IconCpu size={14} />}
+			placement="above"
+			isDisabled={props.isDisabled}
+			value={props.value ?? ''}
+			options={props.models.map((m) => ({ value: m.id, label: m.id, description: m.label !== m.id ? m.label : undefined }))}
+			onChange={props.onChange}
+		/>
+	);
+}
+
+function EffortSelector(props: {
+	efforts: readonly EffortOption[];
+	value?: string;
+	isDisabled: boolean;
+	onChange: (effort: string) => void;
+}) {
+	if (props.efforts.length === 0) return null;
+	return (
+		<Selector
+			label="Effort"
+			isLabelHidden
+			size="sm"
+			variant="ghost"
+			startIcon={<IconBrain size={14} />}
+			placement="above"
+			isDisabled={props.isDisabled}
+			value={props.value ?? ''}
+			options={props.efforts.map((e) => ({ value: e.alias, label: e.alias, description: e.level }))}
+			onChange={props.onChange}
+		/>
+	);
+}
+
 function GenerationSelect(props: {
 	iface: ComposerProfileInterface;
 	selectedModel?: string;
@@ -161,43 +208,24 @@ function GenerationSelect(props: {
 	isDisabled: boolean;
 	onChange: ChatComposerBarProps['onGenerationChange'];
 }) {
-	const models = modelSelectEnabled(props.iface) ? interfaceModelOptions(props.iface) : [];
-	const efforts = effortSelectEnabled(props.iface, props.selectedModel)
-		? interfaceEffortOptions(props.iface, props.selectedModel)
-		: [];
-	if (models.length === 0 && efforts.length === 0) return null;
+	const { models, efforts } = generationOptions(props.iface, props.selectedModel);
+	if (models.length + efforts.length === 0) return null;
 	return (
 		<HStack gap={1}>
-			{models.length > 0 ? (
-				<Selector
-					label="Model"
-					isLabelHidden
-					size="sm"
-					variant="ghost"
-					startIcon={<IconCpu size={14} />}
-					placement="above"
-					isDisabled={props.isDisabled}
-					value={props.selectedModel ?? ''}
-					options={models.map((m) => ({ value: m.id, label: m.id, description: m.label !== m.id ? m.label : undefined }))}
-					onChange={(modelId) => props.onChange({ modelId })}
-				/>
-			) : null}
-			{efforts.length > 0 && props.selectedModel ? (
-				<Selector
-					label="Effort"
-					isLabelHidden
-					size="sm"
-					variant="ghost"
-					startIcon={<IconBrain size={14} />}
-					placement="above"
-					isDisabled={props.isDisabled}
-					value={props.selectedEffort ?? ''}
-					options={efforts.map((e) => ({ value: e.alias, label: e.alias, description: e.level }))}
-					onChange={(effort) => {
-						if (props.selectedModel) props.onChange({ modelId: props.selectedModel, effort });
-					}}
-				/>
-			) : null}
+			<ModelSelector
+				models={models}
+				value={props.selectedModel}
+				isDisabled={props.isDisabled}
+				onChange={(modelId) => props.onChange({ modelId })}
+			/>
+			<EffortSelector
+				efforts={efforts}
+				value={props.selectedEffort}
+				isDisabled={props.isDisabled}
+				onChange={(effort) => {
+					if (props.selectedModel) props.onChange({ modelId: props.selectedModel, effort });
+				}}
+			/>
 		</HStack>
 	);
 }
@@ -213,11 +241,153 @@ function composerStatus(args: {
 	return warning ? { type: 'warning', message: warning } : undefined;
 }
 
+type StagedFile = { file: File; index: number; preview?: string };
+
+/** Pending messages, then two uniform rows: 64px tiles (images, voice notes), then file tokens. */
+function PendingDrawer(props: {
+	summary: { count: number; label: string };
+	messages: readonly ComposerPendingMessage[];
+	imageFiles: readonly StagedFile[];
+	otherFiles: readonly StagedFile[];
+	voiceFiles: readonly File[];
+	voiceUrls: readonly (string | undefined)[];
+	pendingActions: Omit<Parameters<typeof PendingRow>[0], 'message'>;
+	onAttachmentRemove: (index: number) => void;
+	onVoiceRemove: () => void;
+}) {
+	return (
+		<ChatComposerDrawer count={props.summary.count} label={props.summary.label}>
+			<VStack gap={2} width="100%">
+				{props.messages.map((message) => (
+					<PendingRow key={message.id} message={message} {...props.pendingActions} />
+				))}
+				{props.imageFiles.length + props.voiceFiles.length > 0 ? (
+					<HStack gap={2} wrap="wrap" vAlign="center">
+						{props.imageFiles.map(({ file, index, preview }) => (
+							<Thumbnail
+								key={`${file.name}:${String(index)}`}
+								src={preview}
+								alt={file.name}
+								label={file.name}
+								onRemove={() => props.onAttachmentRemove(index)}
+							/>
+						))}
+						{props.voiceFiles.map((file, index) => (
+							<VoiceNote
+								key={`voice:${file.name}`}
+								src={props.voiceUrls[index] ?? ''}
+								mimeType={file.type || undefined}
+								onRemove={props.onVoiceRemove}
+							/>
+						))}
+					</HStack>
+				) : null}
+				{props.otherFiles.length > 0 ? (
+					<HStack gap={2} wrap="wrap">
+						{props.otherFiles.map(({ file, index }) => (
+							<Token
+								key={`${file.name}:${String(index)}`}
+								label={file.name}
+								onRemove={() => props.onAttachmentRemove(index)}
+							/>
+						))}
+					</HStack>
+				) : null}
+			</VStack>
+		</ChatComposerDrawer>
+	);
+}
+
+/** A hidden file input behind the paperclip button. */
+function AttachFilesButton({ accept, onFiles }: { accept?: string; onFiles: (files: File[]) => void }) {
+	const fileInputRef = useRef<HTMLInputElement | null>(null);
+	function handleChange(event: ChangeEvent<HTMLInputElement>) {
+		const input = event.currentTarget;
+		const incoming = input.files ? [...input.files] : [];
+		input.value = '';
+		if (incoming.length > 0) onFiles(incoming);
+	}
+	return (
+		<>
+			<input ref={fileInputRef} type="file" multiple hidden accept={accept} onChange={handleChange} />
+			<IconButton
+				label="Attach files"
+				tooltip="Attach files"
+				size="sm"
+				variant="ghost"
+				icon={<IconPaperclip size={16} />}
+				onClick={() => fileInputRef.current?.click()}
+			/>
+		</>
+	);
+}
+
+function SendMenu({ actions, onAction }: { actions: readonly ComposerMenuAction[]; onAction: (action: ComposerMenuAction) => void }) {
+	if (actions.length === 0) return null;
+	return (
+		<DropdownMenu
+			button={{
+				label: 'More send options',
+				isIconOnly: true,
+				icon: <IconStack2 size={16} />,
+				variant: 'ghost',
+			}}
+			hasChevron={false}
+			placement="above"
+			items={actions.map((action) => ({
+				id: action,
+				label: COMPOSER_MENU_ACTION_LABELS[action],
+				description: COMPOSER_MENU_ACTION_DESCRIPTIONS[action],
+				...(action === 'stash' ? { endContent: <Kbd keys={STASH_SHORTCUT} /> } : {}),
+				onClick: () => onAction(action),
+			}))}
+		/>
+	);
+}
+
+function RecordButton({ recording, onToggle }: { recording: boolean; onToggle: () => void }) {
+	const label = recording ? 'Stop recording' : 'Record voice';
+	return (
+		<IconButton
+			label={label}
+			tooltip={label}
+			size="md"
+			variant={recording ? 'destructive' : 'ghost'}
+			icon={recording ? <IconPlayerRecordFilled size={16} /> : <IconMicrophone size={16} />}
+			onClick={onToggle}
+		/>
+	);
+}
+
+/** Astryx's slot for contextual info (header, right side). */
+function ComposerHint({ hint, onAction }: { hint: NonNullable<ReturnType<typeof resolveComposerHint>>; onAction: () => void }) {
+	return (
+		<HStack gap={2} vAlign="center">
+			<Text size="sm" color="secondary">
+				{hint.message}
+			</Text>
+			<Button label={hint.actionLabel} size="sm" variant="ghost" onClick={onAction} />
+			<Kbd keys={hint.shortcut} />
+		</HStack>
+	);
+}
+
+/** Staged files split into image tiles and file tokens, with object URLs for previews and voice notes. */
+function useStagedFiles(pendingFiles: readonly File[], pendingVoice: readonly File[]) {
+	const previews = useObjectUrls(pendingFiles, isImage);
+	const voiceUrls = useObjectUrls(pendingVoice, () => true);
+	const staged: StagedFile[] = pendingFiles.map((file, index) => ({ file, index, preview: previews[index] }));
+	return {
+		imageFiles: staged.filter((entry) => entry.preview !== undefined),
+		otherFiles: staged.filter((entry) => entry.preview === undefined),
+		voiceUrls,
+	};
+}
+
 /** Astryx composer wired to Theorem's send / stop / queue / steer / stash matrix. */
 export function ChatComposerBar(props: ChatComposerBarProps) {
 	const { iface, phase } = props;
 	const inputs = iface.inputs;
-	const fileInputRef = useRef<HTMLInputElement | null>(null);
 	const [notice, setNotice] = useState('');
 	const pendingFiles = useMemo(() => [...props.pendingFiles], [props.pendingFiles]);
 	const voice = useComposerVoice({
@@ -226,25 +396,18 @@ export function ChatComposerBar(props: ChatComposerBarProps) {
 		onVoiceStaged: props.onVoiceStaged,
 		onVoiceClear: props.onVoiceClear,
 	});
-	const previews = useObjectUrls(props.pendingFiles, isImage);
-	const voiceUrls = useObjectUrls(props.pendingVoice, () => true);
-	const staged = props.pendingFiles.map((file, index) => ({ file, index, preview: previews[index] }));
-	const imageFiles = staged.filter((entry) => entry.preview !== undefined);
-	const otherFiles = staged.filter((entry) => entry.preview === undefined);
+	const stagedFiles = useStagedFiles(props.pendingFiles, props.pendingVoice);
 
 	useEffect(() => () => voice.disposeRecorder(), [voice.disposeRecorder]);
 
-	const allowSteering = 'allowSteering' in iface ? Boolean(iface.allowSteering) : false;
-	const hasPayload = userDraftHasPayload({
-		...(props.draftText.trim() ? { text: props.draftText } : {}),
-		...(props.pendingFiles.length ? { attachments: fileSpecs(props.pendingFiles) } : {}),
-		...(props.pendingVoice.length ? { voice: fileSpecs(props.pendingVoice) } : {}),
+	const { primary, menuActions, primaryDisabled } = composerActionState({
+		iface,
+		phase,
+		draftText: props.draftText,
+		pendingFiles: props.pendingFiles,
+		pendingVoice: props.pendingVoice,
+		recording: voice.recording,
 	});
-	const primary = resolveComposerPrimary({ phase, hasPayload, allowSteering });
-	const menuActions = resolveComposerMenuActions({ phase, hasPayload, allowSteering });
-	const primaryDisabled =
-		voice.recording || primary === 'none' || ((primary === 'send' || primary === 'queue') && !hasPayload);
-
 	const canStash = menuActions.includes('stash');
 	const editorRef = useRef<HTMLDivElement | null>(null);
 	const hint = resolveComposerHint({
@@ -259,11 +422,7 @@ export function ChatComposerBar(props: ChatComposerBarProps) {
 		else props.onSubmit();
 	}
 
-	function handleFiles(event: ChangeEvent<HTMLInputElement>) {
-		const input = event.currentTarget;
-		const incoming = input.files ? [...input.files] : [];
-		input.value = '';
-		if (incoming.length === 0) return;
+	function stageFiles(incoming: File[]) {
 		const staged = stageComposerFiles({
 			existing: pendingFiles,
 			incoming,
@@ -280,116 +439,32 @@ export function ChatComposerBar(props: ChatComposerBarProps) {
 		pendingMessages: props.pendingMessages,
 		attachmentCount: props.pendingFiles.length + props.pendingVoice.length,
 	});
-	const drawer =
-		drawerSummary ? (
-			<ChatComposerDrawer count={drawerSummary.count} label={drawerSummary.label}>
-				<VStack gap={2} width="100%">
-					{props.pendingMessages.map((message) => (
-						<PendingRow
-							key={message.id}
-							message={message}
-							onMove={props.onPendingMove}
-							onRemove={props.onPendingRemove}
-							onQueue={props.onPendingQueue}
-							onRestore={props.onPendingRestore}
-							onSendNow={props.onPendingSendNow}
-						/>
-					))}
-					{/* Two uniform rows: 64px tiles (images, voice notes), then file tokens. */}
-					{imageFiles.length + props.pendingVoice.length > 0 ? (
-						<HStack gap={2} wrap="wrap" vAlign="center">
-							{imageFiles.map(({ file, index, preview }) => (
-								<Thumbnail
-									key={`${file.name}:${String(index)}`}
-									src={preview}
-									alt={file.name}
-									label={file.name}
-									onRemove={() => props.onAttachmentRemove(index)}
-								/>
-							))}
-							{props.pendingVoice.map((file, index) => (
-								<VoiceNote
-									key={`voice:${file.name}`}
-									src={voiceUrls[index] ?? ''}
-									mimeType={file.type || undefined}
-									onRemove={() => voice.discardRecordingOrVoice()}
-								/>
-							))}
-						</HStack>
-					) : null}
-					{otherFiles.length > 0 ? (
-						<HStack gap={2} wrap="wrap">
-							{otherFiles.map(({ file, index }) => (
-								<Token
-									key={`${file.name}:${String(index)}`}
-									label={file.name}
-									onRemove={() => props.onAttachmentRemove(index)}
-								/>
-							))}
-						</HStack>
-					) : null}
-				</VStack>
-			</ChatComposerDrawer>
-		) : undefined;
-
-	const headerActions = inputs.attachments ? (
-		<>
-			<input
-				ref={fileInputRef}
-				type="file"
-				multiple
-				hidden
-				accept={inputs.attachments.acceptAttr}
-				onChange={handleFiles}
-			/>
-			<IconButton
-				label="Attach files"
-				tooltip="Attach files"
-				size="sm"
-				variant="ghost"
-				icon={<IconPaperclip size={16} />}
-				onClick={() => fileInputRef.current?.click()}
-			/>
-		</>
+	const drawer = drawerSummary ? (
+		<PendingDrawer
+			summary={drawerSummary}
+			messages={props.pendingMessages}
+			{...stagedFiles}
+			voiceFiles={props.pendingVoice}
+			pendingActions={{
+				onMove: props.onPendingMove,
+				onRemove: props.onPendingRemove,
+				onQueue: props.onPendingQueue,
+				onRestore: props.onPendingRestore,
+				onSendNow: props.onPendingSendNow,
+			}}
+			onAttachmentRemove={props.onAttachmentRemove}
+			onVoiceRemove={() => voice.discardRecordingOrVoice()}
+		/>
 	) : undefined;
 
 	// Astryx: sendActions render to the left of the send button, at size="md".
-	const sendActions =
-		inputs.voice || menuActions.length > 0 ? (
-			<>
-				{menuActions.length > 0 ? (
-					<DropdownMenu
-						button={{
-							label: 'More send options',
-							isIconOnly: true,
-							icon: <IconStack2 size={16} />,
-							variant: 'ghost',
-						}}
-						hasChevron={false}
-						placement="above"
-						items={menuActions.map((action) => ({
-							id: action,
-							label: COMPOSER_MENU_ACTION_LABELS[action],
-							description: COMPOSER_MENU_ACTION_DESCRIPTIONS[action],
-							...(action === 'stash' ? { endContent: <Kbd keys={STASH_SHORTCUT} /> } : {}),
-							onClick: () => props.onMenuAction(action),
-						}))}
-					/>
-				) : null}
-				{inputs.voice ? (
-					<IconButton
-						label={voice.recording ? 'Stop recording' : 'Record voice'}
-						tooltip={voice.recording ? 'Stop recording' : 'Record voice'}
-						size="md"
-						variant={voice.recording ? 'destructive' : 'ghost'}
-						icon={voice.recording ? <IconPlayerRecordFilled size={16} /> : <IconMicrophone size={16} />}
-						onClick={() => {
-							void voice.toggleRecording();
-						}}
-					/>
-				) : null}
-			</>
-		) : undefined;
+	const sendActions: ReactNode = (
+		<>
+			<SendMenu actions={menuActions} onAction={props.onMenuAction} />
+			{inputs.voice ? <RecordButton recording={voice.recording} onToggle={() => void voice.toggleRecording()} /> : null}
+		</>
+	);
+	const placeholder = props.placeholder ?? `Message @${iface.identity.handle}`;
 
 	return (
 		<ChatComposer
@@ -401,9 +476,7 @@ export function ChatComposerBar(props: ChatComposerBarProps) {
 			onSubmit={runPrimary}
 			onStop={props.onStop}
 			isStopShown={primary === 'stop'}
-			placeholder={
-				voice.recording ? 'Listening…' : (props.placeholder ?? `Message @${iface.identity.handle}`)
-			}
+			placeholder={voice.recording ? 'Listening…' : placeholder}
 			input={
 				<ChatComposerInput
 					ref={editorRef}
@@ -417,19 +490,10 @@ export function ChatComposerBar(props: ChatComposerBarProps) {
 				/>
 			}
 			drawer={drawer}
-			headerActions={headerActions}
-			// Astryx's slot for contextual info (header, right side).
-			headerContext={
-				hint ? (
-					<HStack gap={2} vAlign="center">
-						<Text size="sm" color="secondary">
-							{hint.message}
-						</Text>
-						<Button label={hint.actionLabel} size="sm" variant="ghost" onClick={() => props.onMenuAction('stash')} />
-						<Kbd keys={hint.shortcut} />
-					</HStack>
-				) : undefined
+			headerActions={
+				inputs.attachments ? <AttachFilesButton accept={inputs.attachments.acceptAttr} onFiles={stageFiles} /> : undefined
 			}
+			headerContext={hint ? <ComposerHint hint={hint} onAction={() => props.onMenuAction('stash')} /> : undefined}
 			footerActions={
 				<GenerationSelect
 					iface={iface}

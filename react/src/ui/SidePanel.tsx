@@ -16,7 +16,7 @@ import { type ReactNode, type RefObject, useCallback, useId, useState } from 're
  * Layout as `containerRef` so the percentages resolve), dragged between a
  * readable minimum and half.
  */
-export const SIDE_PANEL_SIZING = {
+const SIDE_PANEL_SIZING = {
 	defaultSize: '33%',
 	minSize: 280,
 	maxSize: '50%',

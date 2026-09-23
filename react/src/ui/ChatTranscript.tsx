@@ -30,8 +30,11 @@ import type { ToolCredential } from '../../../src/kernel/mod.ts';
 import { chipsFromBlock } from '../client/source-chips';
 import {
 	assistantTurnCopyText,
+	assistantTurnTiming,
 	composeAssistantTurn,
+	groupTimeKey,
 	groupTranscriptBlocks,
+	pendingPromptOf,
 	type TraceItem,
 	workStatusLabel,
 } from '../client/transcript-groups';
@@ -168,9 +171,16 @@ function ImageAttachment({ src, name }: { src: string; name: string }) {
 	);
 }
 
+type UserFileBlock = Extract<TranscriptBlock, { kind: 'user-attachment' | 'user-voice' }>;
+
 function UserBlock({ block, metadata }: { block: TranscriptBlock; metadata?: ReactNode }) {
 	if (block.kind === 'user-text') return <ChatMessageBubble metadata={metadata}>{block.text}</ChatMessageBubble>;
 	if (block.kind !== 'user-attachment' && block.kind !== 'user-voice') return null;
+	return <UserFile block={block} />;
+}
+
+/** An attached image or voice note inline; any other file as a Token. */
+function UserFile({ block }: { block: UserFileBlock }) {
 	const src = dataUrl(block.mimeType, block.data);
 	if (src && block.mimeType.startsWith('image/')) {
 		return <ImageAttachment src={src} name={block.name} />;
@@ -342,9 +352,14 @@ function StreamedMarkdown({
 }
 
 function BodyBlock({ block, streaming }: { block: TranscriptBlock; streaming: boolean }) {
+	if (block.kind === 'text') return <StreamedMarkdown text={block.text} streaming={streaming} />;
+	if (block.kind === 'tool') return <ToolCall tool={block.tool} />;
+	return <ResultBlock block={block} />;
+}
+
+/** Non-streaming answer rows: errors, sources, structured output and media. */
+function ResultBlock({ block }: { block: TranscriptBlock }) {
 	switch (block.kind) {
-		case 'text':
-			return <StreamedMarkdown text={block.text} streaming={streaming} />;
 		case 'error':
 			return <Banner status="error" title={block.message} />;
 		case 'grounding':
@@ -354,8 +369,6 @@ function BodyBlock({ block, streaming }: { block: TranscriptBlock; streaming: bo
 			return <CodeBlock code={JSON.stringify(block.value, null, 2)} language="json" size="sm" />;
 		case 'media':
 			return <MediaBlock block={block} />;
-		case 'tool':
-			return <ToolCall tool={block.tool} />;
 		default:
 			return null;
 	}
@@ -459,6 +472,52 @@ function GateCard({ block, handlers }: { block: ToolBlock; handlers: BlockHandle
 	);
 }
 
+/** Live elapsed time while the turn streams; its final duration once it ends. */
+function useTurnElapsed(streaming: boolean, startedAt?: number, endedAt?: number): number | undefined {
+	const now = useSecondTicker(streaming && startedAt !== undefined);
+	const end = streaming ? now : endedAt;
+	return startedAt !== undefined && end !== undefined ? end - startedAt : undefined;
+}
+
+/**
+ * The turn's work status; with a trace, a Collapsible over its thinking and
+ * tool calls, open while the turn runs so they can be followed, folded away
+ * when it ends.
+ */
+function TurnStatus(props: { status: string; trace: readonly TraceItem[]; hasTrace: boolean; streaming: boolean }) {
+	const { status, streaming } = props;
+	const [traceOpen, setTraceOpen] = useState(streaming);
+	const [wasStreaming, setWasStreaming] = useState(streaming);
+	if (wasStreaming !== streaming) {
+		setWasStreaming(streaming);
+		setTraceOpen(streaming);
+	}
+	if (!status) return null;
+	const label = (
+		<Text size="sm" color="secondary">
+			{status}
+		</Text>
+	);
+	if (!props.hasTrace) return label;
+	return (
+		<Collapsible trigger={label} isOpen={traceOpen} onOpenChange={setTraceOpen}>
+			<TraceList items={props.trace} streaming={streaming} />
+		</Collapsible>
+	);
+}
+
+function BodyRowView({ row, streaming, imageOutput }: { row: BodyRow; streaming: boolean; imageOutput?: ImageOutput }) {
+	if (row.kind === 'block') return <BodyBlock block={row.block} streaming={streaming} />;
+	if (imageOutput) return <GeneratedGallery items={row.items} ratio={imageOutput.ratio} />;
+	return <MediaGallery items={row.items} />;
+}
+
+/** An image profile's placeholder until the turn's first image arrives. */
+function PendingImage(props: { imageOutput?: ImageOutput; streaming: boolean; rows: readonly BodyRow[] }) {
+	if (!props.imageOutput || !props.streaming || props.rows.some((row) => row.kind === 'gallery')) return null;
+	return <GeneratingImage ratio={props.imageOutput.ratio} />;
+}
+
 function AssistantTurn(props: {
 	blocks: TranscriptBlock[];
 	handle: string;
@@ -471,17 +530,7 @@ function AssistantTurn(props: {
 	handlers: BlockHandlers;
 	imageOutput?: ImageOutput;
 }) {
-	// Open while the turn runs so its thinking and tool calls can be followed;
-	// folds away when the turn ends.
-	const [traceOpen, setTraceOpen] = useState(props.streaming);
-	const [wasStreaming, setWasStreaming] = useState(props.streaming);
-	if (wasStreaming !== props.streaming) {
-		setWasStreaming(props.streaming);
-		setTraceOpen(props.streaming);
-	}
-	const now = useSecondTicker(props.streaming && props.startedAt !== undefined);
-	const end = props.streaming ? now : props.endedAt;
-	const elapsedMs = props.startedAt !== undefined && end !== undefined ? end - props.startedAt : undefined;
+	const elapsedMs = useTurnElapsed(props.streaming, props.startedAt, props.endedAt);
 	const { trace, gatedTools, body, hasTrace } = composeAssistantTurn(props.blocks);
 	const rows = bodyRows(body);
 	const status = workStatusLabel({ streaming: props.streaming, hasTrace, elapsedMs });
@@ -491,52 +540,24 @@ function AssistantTurn(props: {
 		<ChatMessage
 			sender="assistant"
 			name={props.handle}
-			metadata={
-				props.streaming ? undefined : (
-					<MessageChrome at={props.at} copyText={copyText} />
-				)
-			}
+			metadata={props.streaming ? undefined : <MessageChrome at={props.at} copyText={copyText} />}
 		>
 			<VStack gap={3} width="100%">
-					{status && !hasTrace ? (
-						<Text size="sm" color="secondary">
-							{status}
-						</Text>
-					) : null}
-					{status && hasTrace ? (
-						<Collapsible
-							trigger={
-								<Text size="sm" color="secondary">
-									{status}
-								</Text>
-							}
-							isOpen={traceOpen}
-							onOpenChange={setTraceOpen}
-						>
-							<TraceList items={trace} streaming={props.streaming} />
-						</Collapsible>
-					) : null}
-					{gatedTools.map((block) => (
-						<GateCard key={block.id} block={block} handlers={props.handlers} />
-					))}
-					{rows.map((row, i) =>
-						row.kind === 'gallery' && props.imageOutput ? (
-							<GeneratedGallery key={i} items={row.items} ratio={props.imageOutput.ratio} />
-						) : row.kind === 'gallery' ? (
-							<MediaGallery key={i} items={row.items} />
-						) : (
-							<BodyBlock
-								// By position: the committed turn re-mints block ids, and a
-								// remount would cut the text reveal short.
-								key={i}
-								block={row.block}
-								streaming={props.streaming && i === rows.length - 1}
-							/>
-						),
-					)}
-					{props.imageOutput && props.streaming && !rows.some((row) => row.kind === 'gallery') ? (
-						<GeneratingImage ratio={props.imageOutput.ratio} />
-					) : null}
+				<TurnStatus status={status} trace={trace} hasTrace={hasTrace} streaming={props.streaming} />
+				{gatedTools.map((block) => (
+					<GateCard key={block.id} block={block} handlers={props.handlers} />
+				))}
+				{rows.map((row, i) => (
+					<BodyRowView
+						// By position: the committed turn re-mints block ids, and a
+						// remount would cut the text reveal short.
+						key={i}
+						row={row}
+						streaming={props.streaming && i === rows.length - 1}
+						imageOutput={props.imageOutput}
+					/>
+				))}
+				<PendingImage imageOutput={props.imageOutput} streaming={props.streaming} rows={rows} />
 			</VStack>
 		</ChatMessage>
 	);
@@ -570,57 +591,32 @@ export function ChatTranscript({
 }: ChatTranscriptProps) {
 	const groups = useMemo(() => groupTranscriptBlocks(blocks), [blocks]);
 	const timeOf = useBlockTimes(blocks);
-	const lastUserKey = groups.findLast((group) => group.kind === 'user')?.key;
-	const turnEnds = useTurnEndTimes(streaming, lastUserKey);
-	const pendingPrompt = groups.at(-1)?.kind === 'user' ? groups.at(-1) : undefined;
+	const turnEnds = useTurnEndTimes(streaming, groups.findLast((group) => group.kind === 'user')?.key);
+	const pendingPrompt = streaming ? pendingPromptOf(groups) : undefined;
 	const handlers: BlockHandlers = {
 		indexOf: (block) => blocks.findIndex((entry) => entry.id === block.id),
 		onToolDecision,
 		onAuthCredential,
 	};
+	const turn = { handle, handlers, imageOutput };
 
 	return (
 		<ChatMessageList isStreaming={streaming} emptyState={emptyState}>
-			{groups.map((group, i) => {
-				const at = timeOf(group.blocks[0]?.id ?? group.key);
-				if (group.kind === 'user') {
-					return <UserTurn key={group.key} blocks={group.blocks} at={at} />;
-				}
-				const live = streaming && i === groups.length - 1;
-				const prompt = groups[i - 1];
-				const endedAt = prompt?.kind === 'user' ? turnEnds.get(prompt.key) : undefined;
-				// Only turns sent in this session are timed; loaded history has no end.
-				const startedAt =
-					prompt?.kind === 'user' && (live || endedAt !== undefined)
-						? timeOf(prompt.blocks[0]?.id ?? prompt.key)
-						: undefined;
-				return (
-					<AssistantTurn
-						// Keyed by its prompt, not its blocks: the reply stays mounted from the
-						// "Working…" placeholder through streaming and commit (which re-keys blocks).
-						key={prompt?.kind === 'user' ? `${prompt.key}:reply` : group.key}
-						blocks={group.blocks}
-						handle={handle}
-						streaming={live}
-						at={at}
-						startedAt={startedAt}
-						endedAt={endedAt}
-						handlers={handlers}
-						imageOutput={imageOutput}
-					/>
-				);
+			{groups.map((group, index) => {
+				const at = timeOf(groupTimeKey(group));
+				if (group.kind === 'user') return <UserTurn key={group.key} blocks={group.blocks} at={at} />;
+				const { key, live, ...timing } = assistantTurnTiming({ groups, index, streaming, timeOf, turnEnds });
+				return <AssistantTurn key={key} {...turn} {...timing} blocks={group.blocks} streaming={live} at={at} />;
 			})}
 			{/* Nothing streamed back yet: show the reply's "Working…" status right away. */}
-			{streaming && pendingPrompt ? (
+			{pendingPrompt ? (
 				<AssistantTurn
 					key={`${pendingPrompt.key}:reply`}
+					{...turn}
 					blocks={[]}
-					handle={handle}
 					streaming
-					at={timeOf(pendingPrompt.blocks[0]?.id ?? pendingPrompt.key)}
-					startedAt={timeOf(pendingPrompt.blocks[0]?.id ?? pendingPrompt.key)}
-					handlers={handlers}
-					imageOutput={imageOutput}
+					at={timeOf(groupTimeKey(pendingPrompt))}
+					startedAt={timeOf(groupTimeKey(pendingPrompt))}
 				/>
 			) : null}
 		</ChatMessageList>

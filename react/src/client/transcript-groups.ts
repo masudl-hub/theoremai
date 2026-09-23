@@ -66,22 +66,6 @@ export function assistantTurnCopyText(blocks: readonly TranscriptBlock[]): strin
 		.join('\n\n');
 }
 
-export function toolPhaseLabel(phase: string | undefined): string {
-	switch (phase) {
-		case 'complete':
-			return 'done';
-		case 'error':
-			return 'error';
-		case 'gate':
-			return 'gated';
-		case 'running':
-		case 'progress':
-			return 'running';
-		default:
-			return phase ?? 'called';
-	}
-}
-
 /** Wall-clock duration copy matching Seance's builder-trace formatter. */
 function formatWorkDuration(durationMs: number): string {
 	const ms = Math.max(0, durationMs);
@@ -201,4 +185,45 @@ export function composeAssistantTurn(blocks: readonly TranscriptBlock[]): Compos
 		body,
 		hasTrace: trace.length > 0,
 	};
+}
+
+/** The id a group's timestamp is recorded under: its first block, else its key. */
+export function groupTimeKey(group: TranscriptTurnGroup): string {
+	return group.blocks[0]?.id ?? group.key;
+}
+
+/** The trailing user group while its reply has not started streaming back. */
+export function pendingPromptOf(groups: readonly TranscriptTurnGroup[]): TranscriptTurnGroup | undefined {
+	const last = groups.at(-1);
+	return last?.kind === 'user' ? last : undefined;
+}
+
+export type AssistantTurnTiming = {
+	/**
+	 * Keyed by its prompt, not its blocks: the reply stays mounted from the
+	 * "Working…" placeholder through streaming and commit (which re-keys blocks).
+	 */
+	key: string;
+	live: boolean;
+	startedAt?: number;
+	endedAt?: number;
+};
+
+/**
+ * Key and timing for the assistant group at `index`. Only turns sent in this
+ * session are timed; loaded history has no end.
+ */
+export function assistantTurnTiming(args: {
+	groups: readonly TranscriptTurnGroup[];
+	index: number;
+	streaming: boolean;
+	timeOf: (id: string) => number;
+	turnEnds: ReadonlyMap<string, number>;
+}): AssistantTurnTiming {
+	const live = args.streaming && args.index === args.groups.length - 1;
+	const prompt = args.groups[args.index - 1];
+	if (prompt?.kind !== 'user') return { key: args.groups[args.index]?.key ?? String(args.index), live };
+	const endedAt = args.turnEnds.get(prompt.key);
+	const startedAt = live || endedAt !== undefined ? args.timeOf(groupTimeKey(prompt)) : undefined;
+	return { key: `${prompt.key}:reply`, live, startedAt, endedAt };
 }

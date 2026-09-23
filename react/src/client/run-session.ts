@@ -13,7 +13,7 @@ import type { ToolCredential } from '../../../src/kernel/mod.ts';
 import { lexiconText, type TurnEvent } from '../../../mod.ts';
 import { attachPreviewData, encodeFiles } from './encode-files';
 import { continueAfterTool, finalizeTurnStream, streamFoldedTurn, toTurnMedia } from './run-commit';
-import { isAbortError, type TheoremTransport } from './transport';
+import { type EncodedBlob, isAbortError, type TheoremTransport } from './transport';
 import {
 	applyToolDecisionToSessionPermissions,
 	buildInvokeToolResume,
@@ -158,25 +158,18 @@ export type StreamInterfaceDraftTurnArgs = StreamInterfaceTurnBaseArgs & {
 	draft: UserTurnDraft;
 };
 
+type PreparedTurnOutcome =
+	| { ok: false; issues: readonly string[] }
+	| {
+			ok: true;
+			prepared: PreparedUserTurn;
+			encodedAttachments?: EncodedBlob[];
+			encodedVoice?: EncodedBlob[];
+	  };
+
 async function runPreparedTurnStream(
 	args: StreamInterfaceTurnBaseArgs & {
-		prepare: () =>
-			| Promise<
-					| { ok: false; issues: readonly string[] }
-					| {
-							ok: true;
-							prepared: PreparedUserTurn;
-							encodedAttachments?: Array<{ name: string; mimeType: string; data: string }>;
-							encodedVoice?: Array<{ name: string; mimeType: string; data: string }>;
-					  }
-			  >
-			| { ok: false; issues: readonly string[] }
-			| {
-					ok: true;
-					prepared: PreparedUserTurn;
-					encodedAttachments?: Array<{ name: string; mimeType: string; data: string }>;
-					encodedVoice?: Array<{ name: string; mimeType: string; data: string }>;
-			  };
+		prepare: () => PreparedTurnOutcome | Promise<PreparedTurnOutcome>;
 	},
 ): Promise<StreamTurnSuccess | TurnFailure> {
 	const blocked = assertNotGated(args.session);

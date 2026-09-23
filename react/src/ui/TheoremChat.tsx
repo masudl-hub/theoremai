@@ -106,28 +106,19 @@ type ChatBodyProps = Omit<TheoremChatProps, 'endpoint' | 'http' | 'transport' | 
 	iface: ComposerProfileInterface;
 };
 
-function ChatBody({
-	transport,
+/** The composer bar wired to a `useTheoremChat` model. */
+function ChatComposerForChat({
+	chat,
 	iface,
 	placeholder,
-	emptyState,
-	density,
-	maxWidth = DEFAULT_CHAT_MAX_WIDTH,
-	scrollRef,
-	className,
-	style,
-}: ChatBodyProps) {
-	const chat = useTheoremChat({ transport, iface });
-	const blocks = useMemo(() => [...chat.blocks, ...chat.streamBlocks], [chat.blocks, chat.streamBlocks]);
-	const handle = iface.identity.handle;
-	const landing = blocks.length === 0;
-	const inputRef = useRef<ChatComposerInputHandle | null>(null);
-	const composerRef = useComposerGlide(landing, inputRef);
-	const layoutRef = useRef<HTMLDivElement | null>(null);
-	const inspector = useTraceInspector(iface, layoutRef);
-	const header = <SidePanelHeader>{inspector.toggle}</SidePanelHeader>;
-
-	const composer = (
+	inputRef,
+}: {
+	chat: ReturnType<typeof useTheoremChat>;
+	iface: ComposerProfileInterface;
+	placeholder?: string;
+	inputRef: RefObject<ChatComposerInputHandle | null>;
+}) {
+	return (
 		<ChatComposerBar
 			iface={iface}
 			draftText={chat.draftText}
@@ -175,6 +166,32 @@ function ChatBody({
 				if (message) void chat.handleSendNow(message);
 			}}
 		/>
+	);
+}
+
+function ChatBody({
+	transport,
+	iface,
+	placeholder,
+	emptyState,
+	density,
+	maxWidth = DEFAULT_CHAT_MAX_WIDTH,
+	scrollRef,
+	className,
+	style,
+}: ChatBodyProps) {
+	const chat = useTheoremChat({ transport, iface });
+	const blocks = useMemo(() => [...chat.blocks, ...chat.streamBlocks], [chat.blocks, chat.streamBlocks]);
+	const handle = iface.identity.handle;
+	const landing = blocks.length === 0;
+	const inputRef = useRef<ChatComposerInputHandle | null>(null);
+	const composerRef = useComposerGlide(landing, inputRef);
+	const layoutRef = useRef<HTMLDivElement | null>(null);
+	const inspector = useTraceInspector(iface, layoutRef);
+	const header = <SidePanelHeader>{inspector.toggle}</SidePanelHeader>;
+
+	const composer = (
+		<ChatComposerForChat chat={chat} iface={iface} placeholder={placeholder} inputRef={inputRef} />
 	);
 
 	// Before the first message: the composer alone, centred (Astryx AI chat

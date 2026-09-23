@@ -1,11 +1,72 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { liveIngressEnabledFromSpec } from '../../../../mod.ts';
 import type { LiveProfileInterface } from '../../../../src/interface/mod.ts';
-import type { LiveCaptionTurn } from '../../client/live/live-captions';
+import type { LiveCaptionState, LiveCaptionTurn } from '../../client/live/live-captions';
 import { liveStateLabel } from '../../client/live/live-state';
 import { useLiveRunnerControls } from './use-live-runner-controls';
 import { useLiveRunnerGate, useLiveRunnerUiState } from './use-live-runner-ui';
 import { useLiveSessionClient } from './use-live-session-client';
+
+type LiveControls = ReturnType<typeof useLiveRunnerControls>;
+
+/**
+ * Calls start from the landing (voice, or video + voice), not on mount. Once
+ * started, the call view stays until a reload; ending leaves Start call. Each
+ * restart is a new conversation; earlier calls' captions stay, above a divider.
+ */
+function useLiveCallLifecycle(
+	controls: LiveControls,
+	captionsRef: MutableRefObject<LiveCaptionState>,
+	sessionActive: boolean,
+	videoAvailable: boolean,
+) {
+	const [callStarted, setCallStarted] = useState(false);
+	const [ended, setEnded] = useState(false);
+	const videoOnConnectRef = useRef(false);
+
+	const startCall = useCallback(
+		(options: { video: boolean }) => {
+			videoOnConnectRef.current = options.video && videoAvailable;
+			setCallStarted(true);
+			setEnded(false);
+			void controls.startSession();
+		},
+		[controls, videoAvailable],
+	);
+
+	// Camera capture needs a live session, so a video call turns it on once connected.
+	useEffect(() => {
+		if (!sessionActive || !videoOnConnectRef.current) return;
+		videoOnConnectRef.current = false;
+		void controls.handleToggleVideo();
+	}, [controls, sessionActive]);
+
+	const handleEnd = useCallback(() => {
+		videoOnConnectRef.current = false;
+		controls.teardownSession();
+		setEnded(true);
+	}, [controls]);
+
+	const [pastCalls, setPastCalls] = useState<LiveCaptionTurn[][]>([]);
+
+	const handleRestart = useCallback(async () => {
+		const previous = captionsRef.current.turns;
+		if (previous.length > 0) setPastCalls((calls) => [...calls, previous]);
+		setEnded(false);
+		await controls.handleRestart();
+	}, [controls, captionsRef]);
+
+	const teardownSessionRef = useRef(controls.teardownSession);
+	teardownSessionRef.current = controls.teardownSession;
+
+	useEffect(() => {
+		return () => {
+			teardownSessionRef.current();
+		};
+	}, []);
+
+	return { callStarted, ended, pastCalls, startCall, handleEnd, handleRestart };
+}
 
 /** Owns LiveRunner state, session client, and stage callbacks. */
 /**
@@ -98,53 +159,12 @@ export function useLiveRunnerModel(
 		setIsVideoOn: ui.setIsVideoOn,
 	});
 
-	// Calls start from the landing (voice, or video + voice), not on mount.
-	// Once started, the call view stays until a reload; ending leaves Start call.
-	const [callStarted, setCallStarted] = useState(false);
-	const [ended, setEnded] = useState(false);
-	const videoOnConnectRef = useRef(false);
-
-	const startCall = useCallback(
-		(options: { video: boolean }) => {
-			videoOnConnectRef.current = options.video && videoAvailable;
-			setCallStarted(true);
-			setEnded(false);
-			void controls.startSession();
-		},
-		[controls, videoAvailable],
+	const { callStarted, ended, pastCalls, startCall, handleEnd, handleRestart } = useLiveCallLifecycle(
+		controls,
+		ui.captionsRef,
+		ui.sessionActive,
+		videoAvailable,
 	);
-
-	// Camera capture needs a live session, so a video call turns it on once connected.
-	useEffect(() => {
-		if (!ui.sessionActive || !videoOnConnectRef.current) return;
-		videoOnConnectRef.current = false;
-		void controls.handleToggleVideo();
-	}, [controls, ui.sessionActive]);
-
-	const handleEnd = useCallback(() => {
-		videoOnConnectRef.current = false;
-		controls.teardownSession();
-		setEnded(true);
-	}, [controls]);
-
-	// Each restart is a new conversation; earlier calls' captions stay, above a divider.
-	const [pastCalls, setPastCalls] = useState<LiveCaptionTurn[][]>([]);
-
-	const handleRestart = useCallback(async () => {
-		const previous = ui.captionsRef.current.turns;
-		if (previous.length > 0) setPastCalls((calls) => [...calls, previous]);
-		setEnded(false);
-		await controls.handleRestart();
-	}, [controls, ui.captionsRef]);
-
-	const teardownSessionRef = useRef(controls.teardownSession);
-	teardownSessionRef.current = controls.teardownSession;
-
-	useEffect(() => {
-		return () => {
-			teardownSessionRef.current();
-		};
-	}, []);
 
 	return {
 		handle: iface.identity.handle,

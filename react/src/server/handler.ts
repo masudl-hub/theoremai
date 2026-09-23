@@ -229,253 +229,288 @@ function cookieSession(request: Request): Session {
 	};
 }
 
+type SessionMutator = {
+	/** Serialise read-modify-write per session so concurrent requests don't lose updates. */
+	mutate<T>(sessionId: string, change: (state: TheoremSessionState) => T): Promise<T>;
+	read(sessionId: string): Promise<TheoremSessionState>;
+};
+
+function createSessionMutator(store: TheoremSessionStore): SessionMutator {
+	const locks = new Map<string, Promise<unknown>>();
+	return {
+		mutate(sessionId, change) {
+			const previous = locks.get(sessionId) ?? Promise.resolve();
+			const next = previous.then(async () => {
+				const state = (await store.load(sessionId)) ?? emptySessionState();
+				const result = change(state);
+				state.gates = pruneGates(state.gates, Date.now());
+				state.interactions = state.interactions.slice(-MAX_INTERACTIONS);
+				await store.save(sessionId, state);
+				return result;
+			});
+			const settled = next.catch(() => {});
+			locks.set(sessionId, settled);
+			void settled.then(() => {
+				if (locks.get(sessionId) === settled) locks.delete(sessionId);
+			});
+			return next;
+		},
+		async read(sessionId) {
+			return (await store.load(sessionId)) ?? emptySessionState();
+		},
+	};
+}
+
+/** Everything a request needs from the handler that serves it. */
+type HandlerContext = {
+	options: TheoremHandlerOptions;
+	profile: Profile;
+	iface: ProfileInterface;
+	inbox: SteerInbox;
+	sessions: SessionMutator;
+};
+
+async function sessionOf(ctx: HandlerContext, request: Request): Promise<Session> {
+	if (!ctx.options.session) return cookieSession(request);
+	const id = (await ctx.options.session(request))?.trim();
+	if (!id) throw new HttpError(401, 'Sign in to continue.');
+	return { id };
+}
+
+function publicMessage(ctx: HandlerContext, err: unknown, request: Request): string {
+	if (err instanceof HttpError) return err.message;
+	return ctx.options.onError?.(err, { request }) ?? GENERIC_ERROR;
+}
+
+function eventStream(ctx: HandlerContext, request: Request, source: () => AsyncIterable<TurnEvent>): Response {
+	const encoder = new TextEncoder();
+	const line = (value: unknown) => encoder.encode(`${JSON.stringify(value)}\n`);
+	const stream = new ReadableStream<Uint8Array>({
+		async start(controller) {
+			try {
+				for await (const event of source()) {
+					controller.enqueue(line(forClient(event, ctx.options.clientEvents)));
+				}
+			} catch (err) {
+				if (!request.signal.aborted) {
+					controller.enqueue(line({ type: 'error', error: publicMessage(ctx, err, request) }));
+				}
+			}
+			controller.close();
+		},
+	});
+	return new Response(stream, { headers: NDJSON_HEADERS });
+}
+
+function providerFor(ctx: HandlerContext, request: Request, model?: string): ModelProvider | Promise<ModelProvider> {
+	if (typeof ctx.options.provider === 'function') return ctx.options.provider({ request, model });
+	return createProvider(ctx.profile, ctx.options.provider, model);
+}
+
+/** Steer inboxes are scoped to the session, so a turn id alone can't reach another user's turn. */
+function inboxKey(sessionId: string, turnId: string): string {
+	return `${sessionId}\u0000${turnId}`;
+}
+
+function steerStage(inbox: SteerInbox, key: string): StageHandler {
+	return async ({ stage }) => {
+		if (!STEER_STAGES.has(stage)) return;
+		const inject: TurnHistoryMessage[] | undefined = await inbox.consume(key);
+		return inject?.length ? { inject } : undefined;
+	};
+}
+
+type OutcomeContext = { turnInput: TurnInput; model?: string; promoted?: string[] };
+
+/** The exact paused call the user may now approve, when the stream stopped on a gate. */
+function pendingGateFrom(events: TurnEvent[], context: OutcomeContext): { callId: string; gate: PendingToolGate } | undefined {
+	const gated = gatedToolFromEvents(events);
+	if (gated?.callId === undefined) return undefined;
+	return {
+		callId: gated.callId,
+		gate: {
+			name: gated.name,
+			input: gated.input,
+			gate: { kind: gated.gateKind, permission: gated.permission },
+			snapshot: toolSnapshotFromEvents(events),
+			promoted: [...new Set([...(context.promoted ?? []), ...promotedToolIdsFromEvents(events)])],
+			turnInput: context.turnInput,
+			model: context.model,
+			createdAt: Date.now(),
+		},
+	};
+}
+
+/**
+ * Record what the stream established: interaction ids for continuation and,
+ * when it paused on a gate, the exact call the user may now approve.
+ */
+async function recordOutcome(
+	sessions: SessionMutator,
+	sessionId: string,
+	events: TurnEvent[],
+	context: OutcomeContext,
+): Promise<void> {
+	const interactionIds = events.flatMap((event) =>
+		event.type === 'done' && event.interactionId ? [event.interactionId] : [],
+	);
+	const pending = pendingGateFrom(events, context);
+	if (!interactionIds.length && !pending) return;
+	await sessions.mutate(sessionId, (state) => {
+		state.interactions.push(...interactionIds);
+		if (pending?.callId) state.gates[pending.callId] = pending.gate;
+	});
+}
+
+async function* recorded(
+	sessions: SessionMutator,
+	sessionId: string,
+	events: AsyncIterable<TurnEvent>,
+	context: OutcomeContext,
+): AsyncGenerator<TurnEvent> {
+	const seen: TurnEvent[] = [];
+	for await (const event of events) {
+		seen.push(event);
+		if (event.type === 'done') await recordOutcome(sessions, sessionId, seen, context);
+		yield event;
+	}
+}
+
+async function* turnEvents(
+	ctx: HandlerContext,
+	request: Request,
+	session: Session,
+	body: TheoremTurnRequest,
+): AsyncGenerator<TurnEvent> {
+	const state = await ctx.sessions.read(session.id);
+	const provider = await providerFor(ctx, request, body.model);
+	const input = userTurnInput(body.input);
+	// Only continue provider-side conversations this session started.
+	const previousInteractionId =
+		body.previousInteractionId && state.interactions.includes(body.previousInteractionId)
+			? body.previousInteractionId
+			: undefined;
+	const turnId = body.turnId?.trim();
+	const key = turnId ? inboxKey(session.id, turnId) : undefined;
+	if (key) await ctx.inbox.open(key);
+	try {
+		const events = runTurn(
+			{
+				profile: ctx.profile.id,
+				input,
+				previousInteractionId,
+				sessionPermissions: state.permissions,
+				signal: request.signal,
+				host: ctx.options.host?.(request),
+				...(body.model ? { model: body.model } : {}),
+				...(body.effort ? { effort: body.effort } : {}),
+				...(key ? { onStage: steerStage(ctx.inbox, key) } : {}),
+			},
+			provider,
+		);
+		yield* recorded(ctx.sessions, session.id, events, { turnInput: input, model: body.model });
+	} finally {
+		if (key) await ctx.inbox.close(key);
+	}
+}
+
+async function* invokeEvents(
+	ctx: HandlerContext,
+	request: Request,
+	session: Session,
+	body: TheoremInvokeRequest,
+): AsyncGenerator<TurnEvent> {
+	// Take the paused call out of the session: each approval runs it once, exactly as the model asked.
+	const approved = await ctx.sessions.mutate(session.id, (state) => {
+		const pending = state.gates[body.gateId];
+		if (!pending) return undefined;
+		delete state.gates[body.gateId];
+		state.permissions = applyToolDecisionToSessionPermissions(
+			state.permissions,
+			pending.name,
+			body.decision,
+			pending.gate.permission,
+		);
+		return { pending, permissions: [...state.permissions] };
+	});
+	if (!approved) throw new HttpError(409, 'That tool call is no longer waiting for approval.');
+	const { pending, permissions } = approved;
+	const events = invokeTool({
+		profile: ctx.profile.id,
+		name: pending.name,
+		input: pending.input,
+		resume: { granted: true },
+		sessionPermissions: permissions,
+		...(pending.gate.kind === 'auth' && body.credentials ? { credentials: body.credentials } : {}),
+		turnInput: pending.turnInput,
+		snapshot: pending.snapshot,
+		promoted: pending.promoted,
+		model: pending.model,
+		signal: request.signal,
+		host: ctx.options.host?.(request),
+	});
+	yield* recorded(ctx.sessions, session.id, events, {
+		turnInput: pending.turnInput,
+		model: pending.model,
+		promoted: pending.promoted,
+	});
+}
+
+async function steer(ctx: HandlerContext, session: Session, body: unknown): Promise<Response> {
+	assertSteerBody(body);
+	const inject = conversationOnly(body.inject).filter((message) => message.role === 'user');
+	if (!inject.length) throw new HttpError(400, 'inject must contain user messages');
+	const accepted = await ctx.inbox.enqueue(inboxKey(session.id, body.turnId.trim()), inject);
+	if (!accepted) throw new HttpError(409, 'That turn is no longer running.');
+	return jsonResponse(200, { ok: true });
+}
+
+async function route(ctx: HandlerContext, request: Request, session: Session): Promise<Response> {
+	const target = routeOf(request);
+	if (request.method === 'GET' && target === '') return jsonResponse(200, { interface: ctx.iface });
+	if (request.method !== 'POST' || target === '') {
+		return jsonResponse(405, { error: 'Method not allowed' });
+	}
+	const body = await readJson<unknown>(request);
+	if (target === 'turn') {
+		assertTurnBody(body);
+		return eventStream(ctx, request, () => turnEvents(ctx, request, session, body));
+	}
+	if (target === 'invoke') {
+		assertInvokeBody(body);
+		// Resolve the approval before streaming so a stale one is a 409, not a stream error.
+		const events = invokeEvents(ctx, request, session, body);
+		const first = await events.next();
+		return eventStream(ctx, request, async function* () {
+			if (!first.done) yield first.value;
+			yield* events;
+		});
+	}
+	return steer(ctx, session, body);
+}
+
 export function createTheoremHandler(options: TheoremHandlerOptions): (request: Request) => Promise<Response> {
 	const profile = defineProfile(options.profile as ProfileDefinition);
 	if (profile.type === 'live' || profile.type === 'host') {
 		throw new Error(`createTheoremHandler serves turn-based profiles; got type '${profile.type}'.`);
 	}
 	registerProfile(profile);
-	const iface = clientInterface(profile);
-	const inbox = options.steerInbox ?? createMemorySteerInbox();
-	const store = options.sessionStore ?? createMemorySessionStore();
-	const locks = new Map<string, Promise<unknown>>();
-
-	/** Serialise read-modify-write per session so concurrent requests don't lose updates. */
-	function mutate<T>(sessionId: string, change: (state: TheoremSessionState) => T): Promise<T> {
-		const previous = locks.get(sessionId) ?? Promise.resolve();
-		const next = previous.then(async () => {
-			const state = (await store.load(sessionId)) ?? emptySessionState();
-			const result = change(state);
-			state.gates = pruneGates(state.gates, Date.now());
-			state.interactions = state.interactions.slice(-MAX_INTERACTIONS);
-			await store.save(sessionId, state);
-			return result;
-		});
-		const settled = next.catch(() => {});
-		locks.set(sessionId, settled);
-		void settled.then(() => {
-			if (locks.get(sessionId) === settled) locks.delete(sessionId);
-		});
-		return next;
-	}
-
-	async function readState(sessionId: string): Promise<TheoremSessionState> {
-		return (await store.load(sessionId)) ?? emptySessionState();
-	}
-
-	async function sessionOf(request: Request): Promise<Session> {
-		if (!options.session) return cookieSession(request);
-		const id = (await options.session(request))?.trim();
-		if (!id) throw new HttpError(401, 'Sign in to continue.');
-		return { id };
-	}
-
-	function publicMessage(err: unknown, request: Request): string {
-		if (err instanceof HttpError) return err.message;
-		return options.onError?.(err, { request }) ?? GENERIC_ERROR;
-	}
-
-	function eventStream(request: Request, source: () => AsyncIterable<TurnEvent>): Response {
-		const encoder = new TextEncoder();
-		const line = (value: unknown) => encoder.encode(`${JSON.stringify(value)}\n`);
-		const stream = new ReadableStream<Uint8Array>({
-			async start(controller) {
-				try {
-					for await (const event of source()) {
-						controller.enqueue(line(forClient(event, options.clientEvents)));
-					}
-				} catch (err) {
-					if (!request.signal.aborted) {
-						controller.enqueue(line({ type: 'error', error: publicMessage(err, request) }));
-					}
-				}
-				controller.close();
-			},
-		});
-		return new Response(stream, { headers: NDJSON_HEADERS });
-	}
-
-	function providerFor(request: Request, model?: string): ModelProvider | Promise<ModelProvider> {
-		if (typeof options.provider === 'function') return options.provider({ request, model });
-		return createProvider(profile, options.provider, model);
-	}
-
-	/** Steer inboxes are scoped to the session, so a turn id alone can't reach another user's turn. */
-	function inboxKey(sessionId: string, turnId: string): string {
-		return `${sessionId}\u0000${turnId}`;
-	}
-
-	function steerStage(key: string): StageHandler {
-		return async ({ stage }) => {
-			if (!STEER_STAGES.has(stage)) return;
-			const inject: TurnHistoryMessage[] | undefined = await inbox.consume(key);
-			return inject?.length ? { inject } : undefined;
-		};
-	}
-
-	/**
-	 * Record what the stream established: interaction ids for continuation and,
-	 * when it paused on a gate, the exact call the user may now approve.
-	 */
-	async function recordOutcome(
-		sessionId: string,
-		events: TurnEvent[],
-		context: { turnInput: TurnInput; model?: string; promoted?: string[] },
-	): Promise<void> {
-		const interactionIds = events.flatMap((event) =>
-			event.type === 'done' && event.interactionId ? [event.interactionId] : [],
-		);
-		const gated = gatedToolFromEvents(events);
-		const gate: PendingToolGate | undefined =
-			gated?.callId !== undefined
-				? {
-						name: gated.name,
-						input: gated.input,
-						gate: { kind: gated.gateKind, permission: gated.permission },
-						snapshot: toolSnapshotFromEvents(events),
-						promoted: [
-							...new Set([...(context.promoted ?? []), ...promotedToolIdsFromEvents(events)]),
-						],
-						turnInput: context.turnInput,
-						model: context.model,
-						createdAt: Date.now(),
-					}
-				: undefined;
-		if (!interactionIds.length && !gate) return;
-		await mutate(sessionId, (state) => {
-			state.interactions.push(...interactionIds);
-			if (gate && gated?.callId) state.gates[gated.callId] = gate;
-		});
-	}
-
-	async function* recorded(
-		sessionId: string,
-		events: AsyncIterable<TurnEvent>,
-		context: Parameters<typeof recordOutcome>[2],
-	): AsyncGenerator<TurnEvent> {
-		const seen: TurnEvent[] = [];
-		for await (const event of events) {
-			seen.push(event);
-			if (event.type === 'done') await recordOutcome(sessionId, seen, context);
-			yield event;
-		}
-	}
-
-	async function* turnEvents(
-		request: Request,
-		session: Session,
-		body: TheoremTurnRequest,
-	): AsyncGenerator<TurnEvent> {
-		const state = await readState(session.id);
-		const provider = await providerFor(request, body.model);
-		const input = userTurnInput(body.input);
-		// Only continue provider-side conversations this session started.
-		const previousInteractionId =
-			body.previousInteractionId && state.interactions.includes(body.previousInteractionId)
-				? body.previousInteractionId
-				: undefined;
-		const turnId = body.turnId?.trim();
-		const key = turnId ? inboxKey(session.id, turnId) : undefined;
-		if (key) await inbox.open(key);
-		try {
-			const events = runTurn(
-				{
-					profile: profile.id,
-					input,
-					previousInteractionId,
-					sessionPermissions: state.permissions,
-					signal: request.signal,
-					host: options.host?.(request),
-					...(body.model ? { model: body.model } : {}),
-					...(body.effort ? { effort: body.effort } : {}),
-					...(key ? { onStage: steerStage(key) } : {}),
-				},
-				provider,
-			);
-			yield* recorded(session.id, events, { turnInput: input, model: body.model });
-		} finally {
-			if (key) await inbox.close(key);
-		}
-	}
-
-	async function* invokeEvents(
-		request: Request,
-		session: Session,
-		body: TheoremInvokeRequest,
-	): AsyncGenerator<TurnEvent> {
-		// Take the paused call out of the session: each approval runs it once, exactly as the model asked.
-		const approved = await mutate(session.id, (state) => {
-			const pending = state.gates[body.gateId];
-			if (!pending) return undefined;
-			delete state.gates[body.gateId];
-			state.permissions = applyToolDecisionToSessionPermissions(
-				state.permissions,
-				pending.name,
-				body.decision,
-				pending.gate.permission,
-			);
-			return { pending, permissions: [...state.permissions] };
-		});
-		if (!approved) throw new HttpError(409, 'That tool call is no longer waiting for approval.');
-		const { pending, permissions } = approved;
-		const events = invokeTool({
-			profile: profile.id,
-			name: pending.name,
-			input: pending.input,
-			resume: { granted: true },
-			sessionPermissions: permissions,
-			...(pending.gate.kind === 'auth' && body.credentials ? { credentials: body.credentials } : {}),
-			turnInput: pending.turnInput,
-			snapshot: pending.snapshot,
-			promoted: pending.promoted,
-			model: pending.model,
-			signal: request.signal,
-			host: options.host?.(request),
-		});
-		yield* recorded(session.id, events, {
-			turnInput: pending.turnInput,
-			model: pending.model,
-			promoted: pending.promoted,
-		});
-	}
-
-	async function route(request: Request, session: Session): Promise<Response> {
-		const target = routeOf(request);
-		if (request.method === 'GET' && target === '') return jsonResponse(200, { interface: iface });
-		if (request.method !== 'POST' || target === '') {
-			return jsonResponse(405, { error: 'Method not allowed' });
-		}
-		const body = await readJson<unknown>(request);
-		if (target === 'turn') {
-			assertTurnBody(body);
-			return eventStream(request, () => turnEvents(request, session, body));
-		}
-		if (target === 'invoke') {
-			assertInvokeBody(body);
-			// Resolve the approval before streaming so a stale one is a 409, not a stream error.
-			const events = invokeEvents(request, session, body);
-			const first = await events.next();
-			return eventStream(request, async function* () {
-				if (!first.done) yield first.value;
-				yield* events;
-			});
-		}
-		assertSteerBody(body);
-		const inject = conversationOnly(body.inject).filter((message) => message.role === 'user');
-		if (!inject.length) throw new HttpError(400, 'inject must contain user messages');
-		const accepted = await inbox.enqueue(inboxKey(session.id, body.turnId.trim()), inject);
-		if (!accepted) throw new HttpError(409, 'That turn is no longer running.');
-		return jsonResponse(200, { ok: true });
-	}
+	const ctx: HandlerContext = {
+		options,
+		profile,
+		iface: clientInterface(profile),
+		inbox: options.steerInbox ?? createMemorySteerInbox(),
+		sessions: createSessionMutator(options.sessionStore ?? createMemorySessionStore()),
+	};
 
 	return async (request) => {
 		let session: Session | undefined;
 		try {
-			session = await sessionOf(request);
-			return withSessionCookie(await route(request, session), session);
+			session = await sessionOf(ctx, request);
+			return withSessionCookie(await route(ctx, request, session), session);
 		} catch (err) {
 			const status = err instanceof HttpError ? err.status : 500;
-			return withSessionCookie(jsonResponse(status, { error: publicMessage(err, request) }), session);
+			return withSessionCookie(jsonResponse(status, { error: publicMessage(ctx, err, request) }), session);
 		}
 	};
 }

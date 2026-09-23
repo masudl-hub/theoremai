@@ -13,7 +13,7 @@ import type { TurnEvent, TurnHistoryMessage } from '../../../mod.ts';
 import type { ProfileInterface } from '../../../src/interface/mod.ts';
 import type { ToolCredential, TurnToolSnapshot } from '../../../src/kernel/mod.ts';
 
-type EncodedBlob = { name: string; mimeType: string; data: string };
+export type EncodedBlob = { name: string; mimeType: string; data: string };
 
 /** Turn input as sent over the wire (media is base64-encoded). */
 export type TheoremTurnInput = {

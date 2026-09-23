@@ -52,7 +52,7 @@ function newTurnId(): string {
 		: `turn-${Date.now()}`;
 }
 
-type RunTurnStream = (
+export type RunTurnStream = (
 	run: (onStream: (blocks: TranscriptBlock[]) => void) => Promise<
 		| {
 				ok: true;
@@ -64,8 +64,6 @@ type RunTurnStream = (
 	>,
 	options?: { userBlocksAlreadyApplied?: boolean },
 ) => Promise<void>;
-
-export type { RunTurnStream };
 
 function reportCaughtError(
 	setError: (value: string) => void,
@@ -97,7 +95,7 @@ function beginAbortableTurn(args: {
 	};
 }
 
-export function useTheoremChatActions(args: {
+export type TheoremChatActionArgs = {
 	iface: ComposerProfileInterface | null;
 	transport: TheoremTransport;
 	phase: ComposerRunPhase;
@@ -131,7 +129,10 @@ export function useTheoremChatActions(args: {
 	setError: (value: string) => void;
 	setErrorInternal: (value: string) => void;
 	pendingRef: MutableRefObject<ComposerPendingMessage[]>;
-}) {
+};
+
+/** Starts a turn from the composer's fields, or from an encoded draft (queued or send-now). */
+function useTurnStarters(args: TheoremChatActionArgs) {
 	const startTurnFromFields = useCallback(
 		async (fields: { text: string; files: File[]; voice: File[] }) => {
 			const started = beginAbortableTurn(args);
@@ -189,6 +190,11 @@ export function useTheoremChatActions(args: {
 		[args],
 	);
 
+	return { startTurnFromFields, startTurnFromDraft };
+}
+
+/** Queue / steer / stash the composer draft, and restore a pending message into the composer. */
+function usePendingActions(args: TheoremChatActionArgs) {
 	const enqueuePending = useCallback(
 		async (kind: 'queue' | 'steer' | 'stash') => {
 			if (
@@ -230,6 +236,88 @@ export function useTheoremChatActions(args: {
 		},
 		[args],
 	);
+
+	const handlePendingRestore = useCallback(
+		async (id: string) => {
+			const message = args.pendingRef.current.find((m) => m.id === id);
+			if (!message) return;
+			const currentDraft = composerFieldsPayload(
+				args.draftText,
+				args.pendingFiles,
+				args.pendingVoice,
+			);
+			try {
+				let nextPending = removeComposerPendingMessage(args.pendingRef.current, id);
+				if (userDraftHasPayload(currentDraft)) {
+					const stashDraft = await encodeComposerDraft({
+						text: args.draftText,
+						pendingFiles: args.pendingFiles,
+						pendingVoice: args.pendingVoice,
+					});
+					const stash = createComposerPendingMessage({ kind: 'stash', draft: stashDraft });
+					nextPending = orderComposerPendingMessages([...nextPending, stash]);
+				}
+				const restored = composerFieldsFromDraft(message.draft);
+				args.setPendingMessages(nextPending);
+				args.setDraftText(restored.text);
+				args.setPendingFiles(restored.files);
+				args.setPendingVoice(restored.voice);
+				args.setIssues([]);
+			} catch (err) {
+				reportCaughtError(args.setError, args.setErrorInternal, err);
+			}
+		},
+		[args],
+	);
+
+	return { enqueuePending, handlePendingRestore };
+}
+
+/** Resume a gated tool with an approval decision or a credential. */
+function useGateActions(args: TheoremChatActionArgs) {
+	const resumeGatedTool = useCallback(
+		async (
+			action: ToolDecisionAction,
+			extra?: { interactiveValue?: unknown; credentials?: Record<string, ToolCredential> },
+		) => {
+			const composer = args.iface;
+			if (!composer) return;
+			await args.runTurnStream((onStream) =>
+				resumeInterfaceTool({
+					iface: composer,
+					transport: args.transport,
+					session: args.sessionRef.current,
+					action,
+					interactiveValue: extra?.interactiveValue,
+					credentials: extra?.credentials,
+					onStream,
+				}),
+			);
+		},
+		[args],
+	);
+
+	const handleToolDecision = useCallback(
+		async (_index: number, action: ToolDecisionAction, interactiveValue?: unknown) => {
+			await resumeGatedTool(action, { interactiveValue });
+		},
+		[resumeGatedTool],
+	);
+
+	const handleAuthCredential = useCallback(
+		async (_index: number, slot: string, credential: ToolCredential) => {
+			await resumeGatedTool('allow', { credentials: { [slot]: credential } });
+		},
+		[resumeGatedTool],
+	);
+
+	return { handleToolDecision, handleAuthCredential };
+}
+
+export function useTheoremChatActions(args: TheoremChatActionArgs) {
+	const { startTurnFromFields, startTurnFromDraft } = useTurnStarters(args);
+	const { enqueuePending, handlePendingRestore } = usePendingActions(args);
+	const { handleToolDecision, handleAuthCredential } = useGateActions(args);
 
 	const handleStop = useCallback(() => {
 		args.abortRef.current?.abort();
@@ -308,75 +396,6 @@ export function useTheoremChatActions(args: {
 			if (action === 'send_now') void handleSendNow();
 		},
 		[enqueuePending, handleSendNow],
-	);
-
-	const resumeGatedTool = useCallback(
-		async (
-			action: ToolDecisionAction,
-			extra?: { interactiveValue?: unknown; credentials?: Record<string, ToolCredential> },
-		) => {
-			const composer = args.iface;
-			if (!composer) return;
-			await args.runTurnStream((onStream) =>
-				resumeInterfaceTool({
-					iface: composer,
-					transport: args.transport,
-					session: args.sessionRef.current,
-					action,
-					interactiveValue: extra?.interactiveValue,
-					credentials: extra?.credentials,
-					onStream,
-				}),
-			);
-		},
-		[args],
-	);
-
-	const handleToolDecision = useCallback(
-		async (_index: number, action: ToolDecisionAction, interactiveValue?: unknown) => {
-			await resumeGatedTool(action, { interactiveValue });
-		},
-		[resumeGatedTool],
-	);
-
-	const handleAuthCredential = useCallback(
-		async (_index: number, slot: string, credential: ToolCredential) => {
-			await resumeGatedTool('allow', { credentials: { [slot]: credential } });
-		},
-		[resumeGatedTool],
-	);
-
-	const handlePendingRestore = useCallback(
-		async (id: string) => {
-			const message = args.pendingRef.current.find((m) => m.id === id);
-			if (!message) return;
-			const currentDraft = composerFieldsPayload(
-				args.draftText,
-				args.pendingFiles,
-				args.pendingVoice,
-			);
-			try {
-				let nextPending = removeComposerPendingMessage(args.pendingRef.current, id);
-				if (userDraftHasPayload(currentDraft)) {
-					const stashDraft = await encodeComposerDraft({
-						text: args.draftText,
-						pendingFiles: args.pendingFiles,
-						pendingVoice: args.pendingVoice,
-					});
-					const stash = createComposerPendingMessage({ kind: 'stash', draft: stashDraft });
-					nextPending = orderComposerPendingMessages([...nextPending, stash]);
-				}
-				const restored = composerFieldsFromDraft(message.draft);
-				args.setPendingMessages(nextPending);
-				args.setDraftText(restored.text);
-				args.setPendingFiles(restored.files);
-				args.setPendingVoice(restored.voice);
-				args.setIssues([]);
-			} catch (err) {
-				reportCaughtError(args.setError, args.setErrorInternal, err);
-			}
-		},
-		[args],
 	);
 
 	return {

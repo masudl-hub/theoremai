@@ -96,11 +96,32 @@ function credentialFromSecret(authType: string, secret: string): ToolCredential 
 	return { type: 'bearer', token: secret };
 }
 
+type AuthChallenge = Partial<NonNullable<ToolGate['authChallenge']>>;
+
+function AuthChallengeDetails({ challenge }: { challenge: AuthChallenge }) {
+	return (
+		<>
+			<Text>{challenge.message || 'This tool requires valid authentication credentials to proceed.'}</Text>
+			{challenge.resource ? (
+				<Text size="sm" color="secondary">
+					Resource: {challenge.resource}
+				</Text>
+			) : null}
+			{challenge.requiredScopes?.length ? (
+				<HStack gap={1} wrap="wrap">
+					{challenge.requiredScopes.map((scope) => (
+						<Token key={scope} label={scope} size="sm" />
+					))}
+				</HStack>
+			) : null}
+		</>
+	);
+}
+
 export function AuthChallengeCard({ gate, toolName, onSubmitCredential }: AuthChallengeCardProps) {
-	const challenge = gate.authChallenge;
-	const authType = challenge?.authType || 'bearer';
-	const slot = challenge?.slot || 'default';
-	const authUrl = challenge?.authorizationUrl;
+	const challenge: AuthChallenge = gate.authChallenge ?? {};
+	const authType = challenge.authType || 'bearer';
+	const slot = challenge.slot || 'default';
 	const [secret, setSecret] = useState('');
 	const [submitted, setSubmitted] = useState(false);
 
@@ -115,24 +136,10 @@ export function AuthChallengeCard({ gate, toolName, onSubmitCredential }: AuthCh
 		<Card padding={4}>
 			<VStack gap={3}>
 				<CardHeader badge="Sign-in required" title="Authentication:" toolName={toolName} tag={authType} />
-				<Text>
-					{challenge?.message || 'This tool requires valid authentication credentials to proceed.'}
-				</Text>
-				{challenge?.resource ? (
-					<Text size="sm" color="secondary">
-						Resource: {challenge.resource}
-					</Text>
-				) : null}
-				{challenge?.requiredScopes?.length ? (
-					<HStack gap={1} wrap="wrap">
-						{challenge.requiredScopes.map((scope) => (
-							<Token key={scope} label={scope} size="sm" />
-						))}
-					</HStack>
-				) : null}
+				<AuthChallengeDetails challenge={challenge} />
 				<AuthAction
 					authType={authType}
-					authUrl={authUrl}
+					authUrl={challenge.authorizationUrl}
 					slot={slot}
 					secret={secret}
 					submitted={submitted}

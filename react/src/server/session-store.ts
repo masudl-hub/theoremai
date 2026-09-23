@@ -46,9 +46,9 @@ export interface TheoremSessionStore {
 	save(sessionId: string, state: TheoremSessionState): void | Promise<void>;
 }
 
-export const MAX_PENDING_GATES = 32;
+const MAX_PENDING_GATES = 32;
 export const MAX_INTERACTIONS = 256;
-export const GATE_TTL_MS = 30 * 60 * 1000;
+const GATE_TTL_MS = 30 * 60 * 1000;
 
 export function emptySessionState(): TheoremSessionState {
 	return { permissions: [], gates: {}, interactions: [] };

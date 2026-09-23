@@ -20,7 +20,16 @@ import {
 import { liveStateLabel } from '../../react/src/client/live/live-state.ts';
 import { transcriptBlockCopyText } from '../../react/src/client/transcript-block-text.ts';
 import { formatAttachmentSize, resolveAttachPreviewStyle } from '../../react/src/client/attachment-hover-preview.ts';
-import { composeAssistantTurn, groupTranscriptBlocks, workStatusLabel } from '../../react/src/client/transcript-groups.ts';
+import {
+	assistantTurnTiming,
+	composeAssistantTurn,
+	groupTimeKey,
+	groupTranscriptBlocks,
+	pendingPromptOf,
+	type TranscriptTurnGroup,
+	workStatusLabel,
+} from '../../react/src/client/transcript-groups.ts';
+import { composerActionState } from '../../react/src/client/composer-primary.ts';
 import { resolveScrollToBottomScrollTop } from '../../react/src/client/transcript-scroll.ts';
 import type { TranscriptBlock } from '../../src/interface/mod.ts';
 import { voiceFormatLabel, voiceLabelFromMime } from '../../react/src/client/voice-label.ts';
@@ -457,4 +466,60 @@ Deno.test('resolveAttachPreviewStyle opens above when there is room, else below'
 Deno.test('resolveScrollToBottomScrollTop targets the live edge', () => {
 	assertEquals(resolveScrollToBottomScrollTop({ scrollHeight: 1400, clientHeight: 600 }), 800);
 	assertEquals(resolveScrollToBottomScrollTop({ scrollHeight: 400, clientHeight: 600 }), 0);
+});
+
+Deno.test('assistantTurnTiming keys replies by their prompt and times only this session', () => {
+	const user = (key: string): TranscriptTurnGroup => ({ kind: 'user', key, blocks: [] });
+	const reply = (key: string): TranscriptTurnGroup => ({ kind: 'assistant', key, blocks: [] });
+	const groups = [user('u1'), reply('a1'), user('u2'), reply('a2')];
+	const timeOf = (id: string) => (id === 'u1' ? 10 : 20);
+	const turnEnds = new Map([['u1', 15]]);
+	assertEquals(assistantTurnTiming({ groups, index: 1, streaming: true, timeOf, turnEnds }), {
+		key: 'u1:reply',
+		live: false,
+		startedAt: 10,
+		endedAt: 15,
+	});
+	assertEquals(assistantTurnTiming({ groups, index: 3, streaming: true, timeOf, turnEnds }), {
+		key: 'u2:reply',
+		live: true,
+		startedAt: 20,
+		endedAt: undefined,
+	});
+	// Loaded history: no end recorded, not live, so untimed.
+	assertEquals(assistantTurnTiming({ groups, index: 3, streaming: false, timeOf, turnEnds }), {
+		key: 'u2:reply',
+		live: false,
+		startedAt: undefined,
+		endedAt: undefined,
+	});
+	assertEquals(assistantTurnTiming({ groups: [reply('a0')], index: 0, streaming: false, timeOf, turnEnds }), {
+		key: 'a0',
+		live: false,
+	});
+	assertEquals(pendingPromptOf(groups), undefined);
+	assertEquals(pendingPromptOf(groups.slice(0, 3))?.key, 'u2');
+	assertEquals(groupTimeKey(user('u9')), 'u9');
+});
+
+Deno.test('composerActionState gates the primary button on payload, phase and recording', () => {
+	const iface = { allowSteering: true } as unknown as Parameters<typeof composerActionState>[0]['iface'];
+	const base = { iface, draftText: '', pendingFiles: [], pendingVoice: [], recording: false } as const;
+	const empty = composerActionState({ ...base, phase: 'idle' });
+	assertEquals(empty.primary, 'none');
+	assertEquals(empty.primaryDisabled, true);
+	assertEquals(empty.menuActions, []);
+	const drafted = composerActionState({ ...base, phase: 'idle', draftText: 'hi' });
+	assertEquals(drafted.primaryDisabled, false);
+	assertEquals(composerActionState({ ...base, phase: 'idle', draftText: 'hi', recording: true }).primaryDisabled, true);
+	const voiced = composerActionState({ ...base, phase: 'idle', pendingVoice: [new File(['a'], 'v.webm')] });
+	assertEquals(voiced.primaryDisabled, false);
+	const filed = composerActionState({ ...base, phase: 'idle', pendingFiles: [new File(['a'], 'a.txt', { type: 'text/plain' })] });
+	assertEquals(filed.primaryDisabled, false);
+	const streaming = composerActionState({ ...base, phase: 'streaming' });
+	assertEquals(streaming.primary, 'stop');
+	assertEquals(streaming.primaryDisabled, false);
+	const steering = composerActionState({ ...base, phase: 'streaming', draftText: 'more' });
+	assertEquals(steering.primary, 'queue');
+	assertEquals(steering.menuActions, ['queue', 'steer', 'send_now', 'stash']);
 });

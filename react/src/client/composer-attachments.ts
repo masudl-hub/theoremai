@@ -35,7 +35,7 @@ export function imagesDroppedMessage(limit: number, dropped: number): string {
 }
 
 /** Whether a staged file counts against `maxInputImages` (the kernel counts `image/*`). */
-export function isImageFile(file: File): boolean {
+function isImageFile(file: File): boolean {
 	return file.type.startsWith('image/');
 }
 
@@ -43,7 +43,7 @@ export function isImageFile(file: File): boolean {
  * Drop incoming images past `maxImages`, counting images already staged.
  * Non-image files always pass through; `maxFiles` is applied afterwards.
  */
-export function capIncomingImages(
+function capIncomingImages(
 	existing: readonly File[],
 	incoming: readonly File[],
 	maxImages: number | undefined,

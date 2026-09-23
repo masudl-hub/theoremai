@@ -210,8 +210,8 @@ const LONG_FLASH = 40_000;
 
 function withTools(id: ProfileId, extra: ToolId[]) {
   const profile = getProfile(id);
-  if (profile.type === 'speech') {
-    throw new Error(`withTools: profile '${id}' is speech`);
+  if (profile.type === 'speech' || profile.type === 'decision') {
+    throw new Error(`withTools: profile '${id}' does not support tools`);
   }
   return withProfileTools(profile, extra);
 }

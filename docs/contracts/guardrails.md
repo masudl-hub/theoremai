@@ -296,6 +296,10 @@ Text is guarded by where it came from, not by which call site happens to reach i
 `TrustLevel` has three values and `detectionForTrust` narrows a resolved policy to
 each:
 
+Decision state is not assigned a text trust level in this release: it is bounded
+JSON rather than a turn payload. Its separate `DecisionDisclosureEnforcer` is an
+explicit allow-or-block host boundary, documented in [Decision disclosure](#decision-disclosure).
+
 | Trust | Origin | Injection redaction | Sensitive redaction |
 | --- | --- | --- | --- |
 | `trusted` | `identity.system` — author-time profile copy | Never | Never |
@@ -680,6 +684,17 @@ in the lexicon or carry an explicit reason:
 | `// lexicon-exempt: <reason>` | Same or previous line |
 | `lexicon-exempt-file: <reason>` | Comment in the first 40 lines (non-runtime fixtures / authoring meta only) |
 
+## Decision disclosure
+
+Decision profiles do not run the turn egress lifecycle. Their only active
+guardrail is `guardrails.disclosure.enforce`, a host pre-dispatch check over the
+JSON state that would leave the process for TypeSafe Jev. It returns only
+`allow` or `block`; a block prevents the request and surfaces a `DecisionError`
+with kind `disclosure_blocked`. The registry rejects the inherited shared
+guardrail fields (quota, sanitization, redaction, canary, egress, network, and
+taint) on decision profiles because none have meaningful semantics on this
+bounded request path.
+
 ## Exported API
 
 From `src/guardrails/mod.ts`:
@@ -688,7 +703,7 @@ From `src/guardrails/mod.ts`:
 | --- | --- |
 | Public errors | `describeError`, `isAbortError`, `publicError`, `TheoremError`, `throwIfAborted`, `toErrorEvent`, `PUBLIC_ACTION`, `PUBLIC_CANARY`, `PUBLIC_CANCELLED`, `PUBLIC_FILE_COUNT`, `PUBLIC_FILE_SIZE`, `PUBLIC_FILE_TYPE`, `PUBLIC_GENERIC`, `PUBLIC_IMAGE_SIZE`, `PUBLIC_UNAVAILABLE`, `UPSTREAM_FAILED` |
 | Injection / sensitive | `injectionSpans`, `sensitiveSpans` |
-| Vocabulary | `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailEvent`, `Provenance`, `ToolOrigin`, `GuardrailAction`, `GuardrailContext`, `OutboundPayload`, `EgressEnforcer`, `EgressOnBlock`, `ProfileEgressSpec`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `NetworkGuardrailSpec`, `CanaryGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES`, `EGRESS_ON_BLOCK` |
+| Vocabulary | `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailEvent`, `Provenance`, `ToolOrigin`, `GuardrailAction`, `GuardrailContext`, `OutboundPayload`, `EgressEnforcer`, `EgressOnBlock`, `ProfileEgressSpec`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `DecisionDisclosureVerdict`, `DecisionDisclosureEnforcer`, `DecisionGuardrailsSpec`, `NetworkGuardrailSpec`, `CanaryGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES`, `EGRESS_ON_BLOCK` |
 | Policy | `resolveGuardrailPolicy`, `detectionForTrust`, `DetectionOptions` |
 | Tool boundary | `guardToolResult`, `guardToolFailureText`, `inspectToolArguments`, `toolCallEvent`, `wrapToolData`, `isRemoteOrigin`, `composeToolText`, `checkTaintGate`, `recordTaint`, `isTainted`, `isSuspicious`, `directiveHits`, `looksDirective`, `advisoryLevel`, `DIRECTIVE_RULES`, `ADVISORY_LEVELS`, `AdvisoryLevel`, `TOOL_CLOSE`, `TOOL_ORIGINS`, `TAINT_GATES`, `GuardedToolText`, `Provenance`, `ToolOrigin`, `TurnTaint`, `TaintGate`, `TaintGuardrailSpec`, `GuardrailEvent` |
 | Serialization | `textForScan`, `scanTextOf`, `ScanText` |

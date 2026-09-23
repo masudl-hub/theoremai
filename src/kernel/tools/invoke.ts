@@ -29,6 +29,10 @@ async function prepareInvokeSnapshot(
 ): Promise<TurnToolSnapshot> {
   const req = turnRequestFromInvoke(request);
   // Host profiles bind no model — the allow list is the whole snapshot.
+  if (profile.type === 'decision') {
+    // lexicon-exempt: developer contract error
+    throw new Error(`Profile ${profile.id}: type 'decision' cannot invoke tools`);
+  }
   const model = profile.type === 'host' ? undefined : pickModel(profile, request.model);
   return await prepareTurnToolSnapshot(profile, req, model);
 }

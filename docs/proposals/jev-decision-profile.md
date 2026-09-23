@@ -1,6 +1,7 @@
-# Jev decision profile — proposed specification
+# Jev decision profile — specification
 
-**Status:** proposed; no public kernel API is introduced by this document.
+**Status:** native kernel core implemented on `codex/jev-decision-profile`;
+trace, state-detection, and frontend integration intentionally deferred.
 
 ## Goal
 
@@ -20,10 +21,10 @@ V1 provides one native Jev adapter and one execution door:
 const result = await runDecision({
   profile: 'triage',
   state: { authorization: 'none', operation: 'delete-account' },
-  questions: [
-    choice('action', ['execute', 'ask_user', 'decline']),
-    score('risk', ['low', 'high']),
-  ],
+  questions: {
+    action: choice('Choose the next action.', ['execute', 'ask_user', 'decline']),
+    risk: score('Assess consequence.', ['low', 'high']),
+  },
 });
 ```
 
@@ -33,6 +34,27 @@ to present or act on it.
 V1 does not add chat completion compatibility, media understanding, tools,
 system prompts, history, streaming, output repair, retries after an ambiguous
 request, or a generic multi-provider decision abstraction.
+
+## Current implementation boundary
+
+The branch implements profile registration and validation, model selection,
+flat or vault-injected API-key resolution, `runDecision`, the native TypeSafe
+System One request, response validation, timeout/cancellation, and the
+pre-dispatch disclosure allow/block hook. It is covered by deterministic
+fixture tests and a live smoke test of the runner against Jev `1.13.0`.
+
+The following work is deliberately **not** included while the surrounding
+trace, state, and frontend systems are actively changing:
+
+- `DecisionTraceRecord` and integration with profile trace destinations,
+  sampling, and scrub policy;
+- recursive state detection/reporting and decision-specific guardrail events;
+- the headless `DecisionProfileInterface` and any frontend decision surface;
+- registered decision-contract storage and richer contract versioning.
+
+`sanitizeInput` and `redactSensitive` are therefore not accepted as active
+decision behavior in this slice. Hosts must prepare and approve decision state
+before calling `runDecision`; `disclosure.enforce` is the supported V1 boundary.
 
 ## Architectural position
 

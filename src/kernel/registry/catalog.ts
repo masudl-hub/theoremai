@@ -46,7 +46,12 @@ function mediaKindForMime(mime: string): MediaInputKind | undefined {
 
 /** The `accept` list a profile declares for one input channel, if it declares one. */
 function profileAccept(profile: Profile, channel: MediaInputChannel): string[] | undefined {
-  if (profile.type === 'speech' || profile.type === 'live' || profile.type === 'host') {
+  if (
+    profile.type === 'speech' ||
+    profile.type === 'live' ||
+    profile.type === 'host' ||
+    profile.type === 'decision'
+  ) {
     return undefined;
   }
   const inputs = profile.inputs;

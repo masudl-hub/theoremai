@@ -36,7 +36,7 @@ export function applyBuiltinMutualExclusions(requested: string[]): string[] {
 }
 
 export function resolveAllowedCustomToolIds(profile: Profile, req: TurnRequest): ToolId[] {
-  if (profile.type === 'speech') {
+  if (profile.type === 'speech' || profile.type === 'decision') {
     return [];
   }
   return profile.tools.allow.filter((id) => {
@@ -156,7 +156,7 @@ export function resolveTurnTools(
 ): TurnToolSnapshot {
   const customAllowed = resolveAllowedCustomToolIds(profile, req);
   const modelBuiltins =
-    profile.type === 'host' || modelId === undefined
+    profile.type === 'host' || profile.type === 'decision' || modelId === undefined
       ? []
       : resolveModelBuiltinIds(profile, req, modelId);
   const gated = [...customAllowed, ...modelBuiltins];
@@ -204,7 +204,12 @@ export async function expandT1Policy(
   profile: Profile,
   req: TurnRequest,
 ): Promise<void> {
-  if (profile.type === 'speech' || profile.type === 'live' || profile.type === 'host') {
+  if (
+    profile.type === 'speech' ||
+    profile.type === 'live' ||
+    profile.type === 'host' ||
+    profile.type === 'decision'
+  ) {
     return;
   }
   const t1Policy = profile.tools.t1Policy;
@@ -300,7 +305,11 @@ export function promoteLoadedTools(
 }
 
 export function promotionFailure(id: string, profile: Profile): ToolFailure | undefined {
-  if (profile.type === 'speech' || !profile.tools.allow.includes(id)) {
+  if (
+    profile.type === 'speech' ||
+    profile.type === 'decision' ||
+    !profile.tools.allow.includes(id)
+  ) {
     return {
       code: 'invalid_output',
       message: `tools.t2Loader attempted to promote tool '${id}' outside profile allow`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)

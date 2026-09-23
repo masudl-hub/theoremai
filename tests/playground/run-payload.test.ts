@@ -9,7 +9,7 @@ import {
   readPlaygroundRunIdFromUrl,
   savePlaygroundRunPayloadRecord,
   upsertPlaygroundRunIndex,
-} from '../../react/src/client/run-payload-core.ts';
+} from '../../playground/run-payload-core.ts';
 
 function memoryStorage(): Storage {
   const map = new Map<string, string>();

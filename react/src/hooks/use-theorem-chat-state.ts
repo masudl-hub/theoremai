@@ -1,17 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { defineProfile } from '../../mod.ts';
+import { useCallback, useRef, useState } from 'react';
 import {
 	type ComposerPendingMessage,
-	defaultInterfaceEffort,
-	defaultInterfaceModel,
 	emptyInterfaceTurnSession,
 	type InterfaceTurnSession,
-	interfaceFromProfile,
-	type ComposerProfileInterface,
-	type LiveProfileInterface,
 	type TranscriptBlock,
-} from '../../src/interface/mod.ts';
-import type { PlaygroundRunPayload } from './client/index';
+} from '../../../src/interface/mod.ts';
 
 type SetSession = (
 	value: InterfaceTurnSession | ((prev: InterfaceTurnSession) => InterfaceTurnSession),
@@ -19,10 +12,8 @@ type SetSession = (
 
 export type { SetSession };
 
-/** Composer / transcript / session state for TheoremRunApp. */
-export function useTheoremRunAppState() {
-	const [payload, setPayload] = useState<PlaygroundRunPayload | null>(null);
-	const [ready, setReady] = useState(false);
+/** Composer / transcript / session state behind {@link useTheoremChat}. */
+export function useTheoremChatState() {
 	const [blocks, setBlocks] = useState<TranscriptBlock[]>([]);
 	const [streamBlocks, setStreamBlocks] = useState<TranscriptBlock[]>([]);
 	const [draftText, setDraftText] = useState('');
@@ -78,10 +69,6 @@ export function useTheoremRunAppState() {
 	}, []);
 
 	return {
-		payload,
-		setPayload,
-		ready,
-		setReady,
 		blocks,
 		setBlocks,
 		streamBlocks,
@@ -121,77 +108,4 @@ export function useTheoremRunAppState() {
 		scheduleStreamBlocks,
 		clearComposer,
 	};
-}
-
-/** Load payload + derive iface / liveIface / title. */
-export function useTheoremRunBootstrap(args: {
-	missingPayloadHref: string;
-	readRunId: () => string | null;
-	loadPayload: (runId: string) => PlaygroundRunPayload | null;
-	payload: PlaygroundRunPayload | null;
-	setPayload: (p: PlaygroundRunPayload | null) => void;
-	setReady: (ready: boolean) => void;
-	session: InterfaceTurnSession;
-	setSession: SetSession;
-}) {
-	useEffect(() => {
-		const runId = args.readRunId();
-		if (!runId) {
-			globalThis.location.href = args.missingPayloadHref;
-			return;
-		}
-		const loaded = args.loadPayload(runId);
-		if (!loaded) {
-			globalThis.location.href = args.missingPayloadHref;
-			return;
-		}
-		args.setPayload(loaded);
-		args.setReady(true);
-	}, [
-		args.loadPayload,
-		args.missingPayloadHref,
-		args.readRunId,
-		args.setPayload,
-		args.setReady,
-	]);
-
-	const iface = useMemo(() => {
-		if (!args.payload || args.payload.profile.type === 'live') return null;
-		return interfaceFromProfile(defineProfile(args.payload.profile)) as ComposerProfileInterface;
-	}, [args.payload]);
-
-	const liveIface = useMemo(() => {
-		if (args.payload?.profile.type !== 'live') return null;
-		return interfaceFromProfile(defineProfile(args.payload.profile)) as LiveProfileInterface;
-	}, [args.payload]);
-
-	const titleHandle = useMemo(() => {
-		if (!args.payload) return 'Run';
-		return interfaceFromProfile(defineProfile(args.payload.profile)).identity.handle;
-	}, [args.payload]);
-
-	useEffect(() => {
-		if (!iface) return;
-		const model = args.session.selectedModel ?? defaultInterfaceModel(iface);
-		if (!model) return;
-		const effort = defaultInterfaceEffort(iface, model);
-		if (!args.session.selectedModel || (effort && !args.session.selectedEffort)) {
-			args.setSession((prev) => ({
-				...prev,
-				selectedModel: prev.selectedModel ?? model,
-				...(effort ? { selectedEffort: prev.selectedEffort ?? effort } : {}),
-			}));
-		}
-	}, [
-		args.session.selectedEffort,
-		args.session.selectedModel,
-		args.setSession,
-		iface,
-	]);
-
-	useEffect(() => {
-		document.title = `${titleHandle} · Theorem Playground`;
-	}, [titleHandle]);
-
-	return { iface, liveIface, titleHandle };
 }

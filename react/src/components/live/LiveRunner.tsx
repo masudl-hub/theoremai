@@ -1,12 +1,12 @@
 import type { LiveProfileInterface } from '../../../../src/interface/mod.ts';
-import type { PlaygroundRunPayload } from '../../client/run-payload';
 import { LiveStage } from './LiveStage';
 import { LiveToolGatePanel } from './LiveToolGatePanel';
 import { useLiveRunnerModel } from './use-live-runner-model';
 
 export type LiveRunnerProps = {
 	iface: LiveProfileInterface;
-	payload: PlaygroundRunPayload;
+	/** Resolve the live profile id to open on the relay. */
+	registerProfile: () => Promise<string>;
 };
 
 function LiveRunnerView(props: ReturnType<typeof useLiveRunnerModel>) {
@@ -63,7 +63,7 @@ function LiveRunnerView(props: ReturnType<typeof useLiveRunnerModel>) {
 	);
 }
 
-export function LiveRunner({ iface, payload }: LiveRunnerProps) {
-	const model = useLiveRunnerModel(iface, payload);
+export function LiveRunner({ iface, registerProfile }: LiveRunnerProps) {
+	const model = useLiveRunnerModel(iface, registerProfile);
 	return <LiveRunnerView {...model} />;
 }

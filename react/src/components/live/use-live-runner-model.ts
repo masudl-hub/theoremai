@@ -2,21 +2,27 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { liveIngressEnabledFromSpec } from '../../../../mod.ts';
 import type { LiveProfileInterface } from '../../../../src/interface/mod.ts';
 import { liveStateLabel } from '../../client/live/live-state';
-import type { PlaygroundRunPayload } from '../../client/run-payload';
 import { useLiveRunnerControls } from './use-live-runner-controls';
 import { useLiveRunnerGate, useLiveRunnerUiState } from './use-live-runner-ui';
 import { useLiveSessionClient } from './use-live-session-client';
 
 /** Owns LiveRunner state, session client, and stage callbacks. */
-export function useLiveRunnerModel(iface: LiveProfileInterface, payload: PlaygroundRunPayload) {
+/**
+ * `registerProfile` resolves the live profile id the relay should open — hosts
+ * with a fixed profile return it directly; the playground registers its draft.
+ */
+export function useLiveRunnerModel(
+	iface: LiveProfileInterface,
+	registerProfile: () => Promise<string>,
+) {
 	const ui = useLiveRunnerUiState();
 	const gate = useLiveRunnerGate({
 		setCaptions: ui.setCaptions,
 		setActiveTool: ui.setActiveTool,
 		setError: ui.setError,
 	});
-	const payloadRef = useRef(payload);
-	payloadRef.current = payload;
+	const registerProfileRef = useRef(registerProfile);
+	registerProfileRef.current = registerProfile;
 
 	const voiceAvailable = liveIngressEnabledFromSpec(iface.live.ingress, 'audio');
 	const videoAvailable = liveIngressEnabledFromSpec(iface.live.ingress, 'video');
@@ -62,7 +68,7 @@ export function useLiveRunnerModel(iface: LiveProfileInterface, payload: Playgro
 		clientRef,
 		videoCaptureRef: ui.videoCaptureRef,
 		captionsRef: ui.captionsRef,
-		payloadRef,
+		registerProfileRef,
 		statusRef: ui.statusRef,
 		isMutedRef: ui.isMutedRef,
 		sessionPermissionsRef: ui.sessionPermissionsRef,

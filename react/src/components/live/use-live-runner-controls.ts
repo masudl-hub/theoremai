@@ -3,21 +3,19 @@ import {
 	applyLiveTranscript,
 	type LiveCaptionState,
 } from '../../client/live/live-captions';
-import { registerPlaygroundLiveProfile } from '../../client/live/live-session';
 import {
 	type LiveFacingMode,
 	type LiveVideoCapture,
 	startLiveVideoCapture,
 } from '../../client/live/live-video';
 import type { LiveSessionClient, LiveSessionStatus } from '../../client/live-client';
-import type { PlaygroundRunPayload } from '../../client/run-payload';
 
 /** Media + session lifecycle handlers for LiveRunner. */
 export function useLiveRunnerControls(args: {
 	clientRef: MutableRefObject<LiveSessionClient | null>;
 	videoCaptureRef: MutableRefObject<LiveVideoCapture | null>;
 	captionsRef: MutableRefObject<LiveCaptionState>;
-	payloadRef: MutableRefObject<PlaygroundRunPayload>;
+	registerProfileRef: MutableRefObject<() => Promise<string>>;
 	statusRef: MutableRefObject<LiveSessionStatus>;
 	isMutedRef: MutableRefObject<boolean>;
 	sessionPermissionsRef: MutableRefObject<string[]>;
@@ -69,7 +67,7 @@ export function useLiveRunnerControls(args: {
 		args.setError('');
 		args.resetCaptions();
 		try {
-			const profileId = await registerPlaygroundLiveProfile(args.payloadRef.current);
+			const profileId = await args.registerProfileRef.current();
 			const liveClient = args.ensureClient(profileId);
 			if (args.statusRef.current === 'disconnected' || args.statusRef.current === 'error') {
 				await liveClient.connect();

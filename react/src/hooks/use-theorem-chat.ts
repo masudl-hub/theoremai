@@ -2,33 +2,26 @@ import { useCallback, useEffect } from 'react';
 import {
 	branchInterfaceTurnSession,
 	type ComposerPendingMessage,
+	type ComposerProfileInterface,
 	type ComposerRunPhase,
 	consumeNextComposerQueue,
 	convertSteersToFrontQueued,
 	defaultInterfaceEffort,
+	defaultInterfaceModel,
 	orderComposerPendingMessages,
 	promoteComposerPendingKind,
 	type InterfaceTurnSession,
 	type TranscriptBlock,
-} from '../../src/interface/mod.ts';
-import {
-	applyTurnResultToTranscript,
-	loadPlaygroundRunPayload,
-	type PlaygroundRunPayload,
-	readPlaygroundRunIdFromUrl,
-} from './client/index';
-import { useTheoremRunActions } from './use-theorem-run-actions';
-import { useTheoremRunAppState, useTheoremRunBootstrap } from './use-theorem-run-app-state';
+} from '../../../src/interface/mod.ts';
+import { applyTurnResultToTranscript } from '../client/index';
+import type { TheoremTransport } from '../client/transport';
+import { useTheoremChatActions } from './use-theorem-chat-actions';
+import { type SetSession, useTheoremChatState } from './use-theorem-chat-state';
 
-export type TheoremRunAppProps = {
-	/** Where to send the user when no payload is present. */
-	missingPayloadHref?: string;
-	/** Back-link to the authoring playground. */
-	playgroundHref?: string;
-	/** Override run-id resolution (tests / product hosts). Default: `?run=` from the URL. */
-	readRunId?: () => string | null;
-	/** Override payload load (tests / product hosts). Default: localStorage handoff by run id. */
-	loadPayload?: (runId: string) => PlaygroundRunPayload | null;
+export type UseTheoremChatOptions = {
+	transport: TheoremTransport;
+	/** Composer interface for the host profile — see `useTheoremInterface`. `null` while loading. */
+	iface: ComposerProfileInterface | null;
 };
 
 type TurnOk = {
@@ -46,23 +39,35 @@ type TurnFail = {
 	aborted?: boolean;
 };
 
-export function useTheoremRunAppModel({
-	missingPayloadHref = '/#playground',
-	playgroundHref = '/#playground',
-	readRunId = readPlaygroundRunIdFromUrl,
-	loadPayload = loadPlaygroundRunPayload,
-}: TheoremRunAppProps) {
-	const state = useTheoremRunAppState();
-	const { iface, liveIface } = useTheoremRunBootstrap({
-		missingPayloadHref,
-		readRunId,
-		loadPayload,
-		payload: state.payload,
-		setPayload: state.setPayload,
-		setReady: state.setReady,
-		session: state.session,
-		setSession: state.setSession,
-	});
+/** Seed the session with the profile's default model / effort once the interface loads. */
+function useDefaultGeneration(
+	iface: ComposerProfileInterface | null,
+	session: InterfaceTurnSession,
+	setSession: SetSession,
+): void {
+	useEffect(() => {
+		if (!iface) return;
+		const model = session.selectedModel ?? defaultInterfaceModel(iface);
+		if (!model) return;
+		const effort = defaultInterfaceEffort(iface, model);
+		if (!session.selectedModel || (effort && !session.selectedEffort)) {
+			setSession((prev) => ({
+				...prev,
+				selectedModel: prev.selectedModel ?? model,
+				...(effort ? { selectedEffort: prev.selectedEffort ?? effort } : {}),
+			}));
+		}
+	}, [session.selectedEffort, session.selectedModel, setSession, iface]);
+}
+
+/**
+ * Headless chat model: transcript, streaming, composer drafts, pending
+ * queue / steer / stash, tool gates. Render it with `@theoremai/react/ui` or
+ * your own components.
+ */
+export function useTheoremChat({ transport, iface }: UseTheoremChatOptions) {
+	const state = useTheoremChatState();
+	useDefaultGeneration(iface, state.session, state.setSession);
 
 	const gated = state.session.gatedTool !== null;
 	const phase: ComposerRunPhase = state.busy ? 'streaming' : gated ? 'gated' : 'idle';
@@ -95,7 +100,7 @@ export function useTheoremRunAppModel({
 			run: (onStream: (partial: TranscriptBlock[]) => void) => Promise<TurnOk | TurnFail>,
 			options: { userBlocksAlreadyApplied?: boolean } = {},
 		) => {
-			if (!iface || !state.payload || state.busyRef.current) return;
+			if (!iface || state.busyRef.current) return;
 			state.setError('');
 			state.setErrorInternal('');
 			state.busyRef.current = true;
@@ -153,9 +158,9 @@ export function useTheoremRunAppModel({
 		[iface, onRunEnded, state],
 	);
 
-	const actions = useTheoremRunActions({
+	const actions = useTheoremChatActions({
 		iface,
-		payload: state.payload,
+		transport,
 		phase,
 		gated,
 		draftText: state.draftText,
@@ -240,10 +245,6 @@ export function useTheoremRunAppModel({
 	);
 
 	return {
-		playgroundHref,
-		ready: state.ready,
-		payload: state.payload,
-		liveIface,
 		iface,
 		blocks: state.blocks,
 		chatStarted: state.chatStarted,

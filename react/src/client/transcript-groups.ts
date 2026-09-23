@@ -99,12 +99,22 @@ function formatWorkDuration(durationMs: number): string {
 	return `${String(minutes)}m ${String(seconds)}s`;
 }
 
+/** Whole-second ticker while a turn runs: "0s", "12s", "1m 5s". */
+function formatLiveDuration(durationMs: number): string {
+	const total = Math.floor(Math.max(0, durationMs) / 1_000);
+	if (total < 60) return `${String(total)}s`;
+	return `${String(Math.floor(total / 60))}m ${String(total % 60)}s`;
+}
+
+/** "Working for 12s" while streaming (when the start is known), "Worked for 3.2s" after. */
 export function workStatusLabel(args: {
 	streaming: boolean;
 	hasTrace: boolean;
 	elapsedMs?: number;
 }): string {
-	if (args.streaming) return 'Working…';
+	if (args.streaming) {
+		return args.elapsedMs === undefined ? 'Working…' : `Working for ${formatLiveDuration(args.elapsedMs)}`;
+	}
 	const duration =
 		args.elapsedMs !== undefined && args.elapsedMs > 0 ? formatWorkDuration(args.elapsedMs) : null;
 	if (duration) return `Worked for ${duration}`;

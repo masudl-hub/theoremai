@@ -6,7 +6,7 @@ import type {
 	ComposerRunPhase,
 	InterfaceTurnSession,
 	TranscriptBlock,
-} from '../../src/interface/mod.ts';
+} from '../../../src/interface/mod.ts';
 import {
 	convertSteersToFrontQueued,
 	createComposerPendingMessage,
@@ -14,20 +14,19 @@ import {
 	removeComposerPendingMessage,
 	userDraftHasPayload,
 	userDraftToSteerInject,
-} from '../../src/interface/mod.ts';
-import type { ToolCredential } from '../../src/kernel/mod.ts';
+} from '../../../src/interface/mod.ts';
+import type { ToolCredential } from '../../../src/kernel/mod.ts';
 import {
 	abandonGatedInterfaceTool,
 	applyTurnResultToTranscript,
 	composerFieldsFromDraft,
 	encodeComposerDraft,
-	type PlaygroundRunPayload,
-	postPlaygroundSteer,
 	resumeInterfaceTool,
 	streamInterfaceDraftTurn,
 	streamInterfaceTurn,
 	type ToolDecisionAction,
-} from './client/index';
+} from '../client/index';
+import type { TheoremTransport } from '../client/transport';
 
 function composerFieldsPayload(
 	text: string,
@@ -79,31 +78,28 @@ function reportCaughtError(
 
 function beginAbortableTurn(args: {
 	iface: ComposerProfileInterface | null;
-	payload: PlaygroundRunPayload | null;
 	abortRef: MutableRefObject<AbortController | null>;
 	turnIdRef: MutableRefObject<string | null>;
 }): {
 	composer: ComposerProfileInterface;
-	runPayload: PlaygroundRunPayload;
 	turnId: string;
 	signal: AbortSignal;
 } | null {
-	if (!args.iface || !args.payload) return null;
+	if (!args.iface) return null;
 	const controller = new AbortController();
 	args.abortRef.current = controller;
 	const turnId = newTurnId();
 	args.turnIdRef.current = turnId;
 	return {
 		composer: args.iface,
-		runPayload: args.payload,
 		turnId,
 		signal: controller.signal,
 	};
 }
 
-export function useTheoremRunActions(args: {
+export function useTheoremChatActions(args: {
 	iface: ComposerProfileInterface | null;
-	payload: PlaygroundRunPayload | null;
+	transport: TheoremTransport;
 	phase: ComposerRunPhase;
 	gated: boolean;
 	draftText: string;
@@ -144,7 +140,7 @@ export function useTheoremRunActions(args: {
 				(onStream) =>
 					streamInterfaceTurn({
 						iface: started.composer,
-						payload: started.runPayload,
+						transport: args.transport,
 						session: args.sessionRef.current,
 						text: fields.text,
 						pendingFiles: fields.files,
@@ -173,7 +169,7 @@ export function useTheoremRunActions(args: {
 				(onStream) =>
 					streamInterfaceDraftTurn({
 						iface: started.composer,
-						payload: started.runPayload,
+						transport: args.transport,
 						session: args.sessionRef.current,
 						draft,
 						signal: started.signal,
@@ -224,7 +220,7 @@ export function useTheoremRunActions(args: {
 				}
 				const inject = userDraftToSteerInject(draft);
 				if (inject.length === 0) return;
-				await postPlaygroundSteer({ turnId, inject });
+				await args.transport.steer({ turnId, inject });
 			} catch (err) {
 				reportCaughtError(args.setError, args.setErrorInternal, err);
 			}
@@ -311,18 +307,17 @@ export function useTheoremRunActions(args: {
 		[enqueuePending, handleSendNow],
 	);
 
-	const resumeWithPayload = useCallback(
+	const resumeGatedTool = useCallback(
 		async (
 			action: ToolDecisionAction,
 			extra?: { interactiveValue?: unknown; credentials?: Record<string, ToolCredential> },
 		) => {
 			const composer = args.iface;
-			const runPayload = args.payload;
-			if (!composer || !runPayload) return;
+			if (!composer) return;
 			await args.runTurnStream((onStream) =>
 				resumeInterfaceTool({
 					iface: composer,
-					payload: runPayload,
+					transport: args.transport,
 					session: args.sessionRef.current,
 					action,
 					interactiveValue: extra?.interactiveValue,
@@ -336,16 +331,16 @@ export function useTheoremRunActions(args: {
 
 	const handleToolDecision = useCallback(
 		async (_index: number, action: ToolDecisionAction, interactiveValue?: unknown) => {
-			await resumeWithPayload(action, { interactiveValue });
+			await resumeGatedTool(action, { interactiveValue });
 		},
-		[resumeWithPayload],
+		[resumeGatedTool],
 	);
 
 	const handleAuthCredential = useCallback(
 		async (_index: number, slot: string, credential: ToolCredential) => {
-			await resumeWithPayload('allow', { credentials: { [slot]: credential } });
+			await resumeGatedTool('allow', { credentials: { [slot]: credential } });
 		},
-		[resumeWithPayload],
+		[resumeGatedTool],
 	);
 
 	const handlePendingRestore = useCallback(

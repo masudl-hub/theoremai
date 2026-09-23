@@ -4,8 +4,8 @@
  * @module
  */
 
-import type { ProfileDefinition } from '../../../mod.ts';
-import type { StructuredRegistration, ToolRegistration } from './registrations';
+import type { ProfileDefinition } from '../mod.ts';
+import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
 import {
 	clearPlaygroundRunPayloadRecord,
 	createPlaygroundRunId,
@@ -20,7 +20,7 @@ import {
 	readPlaygroundRunIdFromUrl,
 	savePlaygroundRunPayloadRecord,
 	upsertPlaygroundRunIndex,
-} from './run-payload-core';
+} from './run-payload-core.ts';
 
 export {
 	createPlaygroundRunId,

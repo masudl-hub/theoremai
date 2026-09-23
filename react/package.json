@@ -3,28 +3,46 @@
 	"version": "0.0.1",
 	"private": true,
 	"type": "module",
-	"description": "React projection of theorem src/interface — runners, transcript, composer, live stage.",
+	"description": "React bindings for Theorem: headless hooks + transport, an Astryx chat UI, and a Web-standard server handler.",
 	"exports": {
 		".": "./src/index.ts",
+		"./ui": "./src/ui/index.ts",
+		"./server": "./src/server/mod.ts",
+		"./live": "./src/live.ts",
 		"./client": "./src/client/index.ts",
 		"./styles/*": "./src/styles/*"
 	},
 	"peerDependencies": {
+		"@astryxdesign/core": "0.6.2",
+		"@astryxdesign/theme-neutral": "0.6.2",
+		"@stylexjs/stylex": "0.19.0",
 		"@theoremai/agents": "*",
 		"react": "^19.0.0",
 		"react-dom": "^19.0.0"
 	},
 	"dependencies": {
-		"@tabler/icons-react": "^3.46.0",
-		"isomorphic-dompurify": "^4.3.0",
-		"marked": "^18.0.12"
+		"@tabler/icons-react": "^3.46.0"
 	},
 	"devDependencies": {
+		"@astryxdesign/core": "0.6.2",
+		"@astryxdesign/theme-neutral": "0.6.2",
+		"@stylexjs/stylex": "0.19.0",
 		"@theoremai/agents": "file:..",
 		"@types/react": "^19.0.0",
 		"@types/react-dom": "^19.0.0",
 		"react": "^19.0.0",
 		"react-dom": "^19.0.0",
 		"typescript": "^6.0.3"
+	},
+	"peerDependenciesMeta": {
+		"@astryxdesign/core": {
+			"optional": true
+		},
+		"@astryxdesign/theme-neutral": {
+			"optional": true
+		},
+		"@stylexjs/stylex": {
+			"optional": true
+		}
 	}
 }

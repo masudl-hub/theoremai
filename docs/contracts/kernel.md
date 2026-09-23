@@ -10,6 +10,7 @@ provider adapters.
 | --- | --- |
 | Import | `@theoremai/agents/kernel` / `jsr:@theoremai/agents/kernel` |
 | Module | `src/kernel/mod.ts` |
+| Schema subpath | `@theoremai/agents/schema` → `src/kernel/schema.ts` |
 | Also on | Root `@theoremai/agents` / `mod.ts` re-exports the same interface helpers and many kernel exports |
 
 ## Ownership

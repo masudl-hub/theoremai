@@ -943,6 +943,9 @@ const session = await runSession({ profile: "support.voice" }, { gemini: { vault
 | `jsr:@theoremai/agents/cli` / `@theoremai/agents/cli` | Profile inspection and stress-test CLI (`agents` binary on npm). |
 | `jsr:@theoremai/agents/presets` / `@theoremai/agents/presets` | Optional convenience packs (`registerGooglePreset`, …). |
 | `jsr:@theoremai/agents/presets/google` / `@theoremai/agents/presets/google` | Google builtins (search/maps/urlContext/codeExecution) + Interactions/OpenRouter wire metadata. |
+| `jsr:@theoremai/agents/presets/google/speech-voices` / `@theoremai/agents/presets/google/speech-voices` | Gemini TTS voice names for `speech.voice` (`GOOGLE_SPEECH_VOICES`); no registry imports. |
+| `jsr:@theoremai/agents/schema` / `@theoremai/agents/schema` | Profile vocabulary and field catalog (closed unions, field metadata) for host UIs and docs; no Deno APIs. |
+| `jsr:@theoremai/agents/providers/google/live` / `@theoremai/agents/providers/google/live` | Gemini Live framing and session helpers (`openGoogleLiveSession`); live runs through `runSession`. |
 
 Demo fixtures (travel concierge seeds, local handlers) live in the **repo-private**
 `@theoremai/playground` package under `playground/` — never published with the kernel.

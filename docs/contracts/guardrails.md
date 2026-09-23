@@ -687,7 +687,9 @@ From `src/guardrails/testing.ts` (test / harness only):
 
 | Group | Symbols |
 | --- | --- |
-| Fuzz / red-team | `inboundFuzzPayloads`, `runInboundGuardrailFuzz`, `buildLiveAttacks`, `buildCanaryEgressAttacks`, `filterLiveAttacks`, `summarizeAttackBank` |
+| Fuzz / red-team | `inboundFuzzPayloads`, `inboundPayloadByName`, `runInboundGuardrailFuzz`, `buildLiveAttacks`, `buildCanaryEgressAttacks`, `canaryEgressCatalog`, `filterLiveAttacks`, `summarizeAttackBank`, `FIXED_CANARY`, `CanaryEgressAttack`, `CanaryEgressCatalogEntry`, `InboundFuzzPayload`, `InboundFuzzResult`, `LiveAttack` |
+| Corpus | `createCorpusCache`, `parseLabelledCsv`, `recordsFromYaml`, `SOURCES`, `CorpusSample`, `CorpusSource` |
+| Evaluation | `runGuardrailEval`, `formatReport`, `DETECTORS`, `scoreAll`, `scoreDetector`, `formatScores`, `EvalOptions`, `EvalReport`, `DetectorScore`, `EvalDetector` |
 
 ```theorem-evidence
 {

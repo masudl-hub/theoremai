@@ -11,6 +11,7 @@ environment variables and does not ship `.env` files.
 | Import | `@theoremai/agents/providers` / `jsr:@theoremai/agents/providers` |
 | Module | `src/providers/mod.ts` |
 | Local subpath | `@theoremai/agents/providers/local` → `src/providers/local/mod.ts` |
+| Live subpath | `@theoremai/agents/providers/google/live` → `src/providers/google/live/mod.ts` |
 | Also on | Root `@theoremai/agents` re-exports `createProvider` |
 
 ## Ownership
@@ -352,6 +353,14 @@ From `src/providers/local/mod.ts` (`@theoremai/agents/providers/local`):
 | --- | --- |
 | `createLocalProvider` | function |
 | `DEFAULT_LOCAL_BASE_URL` | const |
+
+From `src/providers/google/live/mod.ts` (`@theoremai/agents/providers/google/live`):
+
+| Group | Symbols |
+| --- | --- |
+| Session | `openGoogleLiveSession`, `GoogleLiveConnection`, `OpenLiveWebSocket` |
+| Stream | `attachLiveSessionHandlers`, `createLiveQueue`, `performLiveSetup`, `readGeminiLiveErrorMessage`, `readMessageData`, `sendInitialPayloads`, `turnPhaseFromMessage`, `LiveQueue`, `LiveTurnPhase`, `SessionQueueItem` |
+| Framing | `buildGeminiLiveWebSocketUrl`, `buildGeminiLiveSetupMessage`, `buildGeminiLiveClientContent`, `buildGeminiLiveRealtimeInput`, `buildGeminiLiveToolResponse`, `buildGeminiLiveToolResponses`, `wireFunctionDeclaration`, `wireLiveTools`, `liveFunctionResponsePayload`, `liveFrameInput`, `parseGeminiLiveMessage`, `parseFunctionArguments`, `extractLiveUsageTokens`, `newLiveFold`, `foldGeminiLiveServerMessage`, `parseGoAwayTimeLeftMs`, `readLiveInteractionStatus`, `LiveFold`, `LiveInteractionStatus`, `ParsedLiveMessage` |
 
 ```theorem-evidence
 {

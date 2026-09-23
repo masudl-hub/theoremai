@@ -26,7 +26,10 @@
     "./host": "./src/host/mod.ts",
     "./cli": "./src/cli/index.ts",
     "./presets": "./src/presets/mod.ts",
-    "./presets/google": "./src/presets/google.ts"
+    "./presets/google": "./src/presets/google.ts",
+    "./presets/google/speech-voices": "./src/presets/google/speech-voices.ts",
+    "./schema": "./src/kernel/schema.ts",
+    "./providers/google/live": "./src/providers/google/live/mod.ts"
   },
   "publish": {
     "exclude": [

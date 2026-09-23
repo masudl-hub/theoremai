@@ -9,6 +9,7 @@ for image and speech-adjacent profile fields.
 | --- | --- |
 | Import | `@theoremai/agents/presets/google` / `jsr:@theoremai/agents/presets/google` |
 | Module | `src/presets/google.ts` |
+| Voices subpath | `@theoremai/agents/presets/google/speech-voices` → `src/presets/google/speech-voices.ts` |
 
 ## Ownership
 

@@ -11,22 +11,15 @@ import { loadGraph, normalizePath } from './graph.mjs';
 
 const repoRoot = process.cwd();
 
-const ENTRY_MODS = [
-  { export: '.', mod: 'mod.ts', docFromEntry: 'package' },
-  { export: './kernel', mod: 'src/kernel/mod.ts', docFromEntry: 'kernel' },
-  { export: './providers', mod: 'src/providers/mod.ts', docFromEntry: 'providers' },
-  {
-    export: './providers/local',
-    mod: 'src/providers/local/mod.ts',
-    docFromEntry: 'providers-local',
-  },
-  { export: './guardrails', mod: 'src/guardrails/mod.ts', docFromEntry: 'guardrails' },
-  { export: './observability', mod: 'src/observability/mod.ts', docFromEntry: 'observability' },
-  { export: './host', mod: 'src/host/mod.ts', docFromEntry: 'host' },
-  { export: './cli', mod: 'src/cli/index.ts', docFromEntry: 'cli' },
-  { export: './presets', mod: 'src/presets/mod.ts', docFromEntry: 'presets' },
-  { export: './presets/google', mod: 'src/presets/google.ts', docFromEntry: 'presets-google' },
-];
+/** Published entry points: `deno.json` exports, each owned by the graph entry that names it. */
+async function entryMods(entries) {
+  const { exports } = JSON.parse(await readFile(path.resolve(repoRoot, 'deno.json'), 'utf8'));
+  return Object.entries(exports).map(([name, mod]) => ({
+    name,
+    mod,
+    owner: Object.values(entries).find((entry) => entry.export === name),
+  }));
+}
 
 function parseExportNames(source) {
   const names = new Set();
@@ -54,10 +47,10 @@ async function main() {
   const entries = graph.entries ?? {};
   const errors = [];
 
-  for (const { mod, docFromEntry } of ENTRY_MODS) {
-    const entry = entries[docFromEntry];
+  const mods = await entryMods(entries);
+  for (const { name, mod, owner: entry } of mods) {
     if (!entry?.doc) {
-      errors.push(`export-drift: missing graph entry ${docFromEntry}`);
+      errors.push(`export-drift: no graph entry with a doc owns export ${name}`);
       continue;
     }
     const modPath = normalizePath(mod);
@@ -85,7 +78,7 @@ async function main() {
     console.error(`export drift error: ${error}`);
   }
   if (errors.length) process.exit(1);
-  console.log(`export-drift: ${ENTRY_MODS.length} entrypoints checked`);
+  console.log(`export-drift: ${mods.length} entrypoints checked`);
 }
 
 await main();

@@ -1,9 +1,8 @@
 import type { ToolCredential, ToolGate, ToolPermission } from '../../../src/kernel/mod.ts';
 
-export type ToolDecisionAction = 'allow' | 'allow_session' | 'deny';
+export type ToolDecisionAction = 'allow' | 'deny';
 
 export type ToolGateResolution =
-	| { action: 'deny' }
 	| { action: ToolDecisionAction }
 	| { action: 'auth'; credentials: Record<string, ToolCredential> };
 
@@ -12,20 +11,19 @@ export type InvokeToolResumeInput = {
 	granted?: boolean;
 };
 
-export function applyToolDecisionToSessionPermissions(
+/**
+ * Session permissions after the user approves a gated call. The registrant's tier decides:
+ * a `session_consent` approval lasts the session; any other gate is approved for this call only.
+ */
+export function sessionPermissionsAfterApproval(
 	sessionPermissions: readonly string[],
 	toolName: string,
-	action: ToolDecisionAction,
 	permission?: ToolPermission,
 ): string[] {
-	let next = [...sessionPermissions];
-	if (action === 'allow_session' && !next.includes(toolName)) {
-		next = [...next, toolName];
+	if (permission !== 'session_consent' || sessionPermissions.includes(toolName)) {
+		return [...sessionPermissions];
 	}
-	if (action === 'allow' && permission === 'session_consent') {
-		next = [...new Set([...next, toolName])];
-	}
-	return next;
+	return [...sessionPermissions, toolName];
 }
 
 /** Gate resume always uses `granted: true` (ask_user answers are a new user turn). */
@@ -57,10 +55,9 @@ export function continueGatedToolInvocation(args: {
 
 	return {
 		kind: 'continue',
-		sessionPermissions: applyToolDecisionToSessionPermissions(
+		sessionPermissions: sessionPermissionsAfterApproval(
 			args.sessionPermissions,
 			args.toolName,
-			args.resolution.action,
 			args.gate.permission,
 		),
 		resume: buildInvokeToolResume(args.gate.kind),

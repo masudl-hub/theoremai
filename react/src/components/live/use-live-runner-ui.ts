@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import type { CaptionFocus } from '../../client/live/caption-focus';
 import { applyLiveTurnToolEvent } from '../../client/live/apply-live-turn-tool-event';
 import {
 	clearLiveCaptionInterim,
 	emptyLiveCaptionState,
-	latestLiveCaptionTurnId,
 	type LiveCaptionState,
 } from '../../client/live/live-captions';
 import type { LiveToolGatePrompt } from '../../client/live/live-tool';
@@ -22,10 +20,8 @@ export function useLiveRunnerUiState() {
 	const [isVideoOn, setIsVideoOn] = useState(false);
 	const [activeTool, setActiveTool] = useState<string | null>(null);
 	const [captions, setCaptions] = useState<LiveCaptionState>(emptyLiveCaptionState);
-	const [captionFocus, setCaptionFocus] = useState<CaptionFocus>(null);
 	const [error, setError] = useState('');
 	const [textDraft, setTextDraft] = useState('');
-	const [textComposerOpen, setTextComposerOpen] = useState(false);
 	const [sessionActive, setSessionActive] = useState(false);
 	const [sessionPermissions, setSessionPermissions] = useState<string[]>([]);
 	const [everConnected, setEverConnected] = useState(false);
@@ -47,14 +43,8 @@ export function useLiveRunnerUiState() {
 		if (sessionActive) setEverConnected(true);
 	}, [sessionActive]);
 
-	const focusLatestCaption = useCallback((next: LiveCaptionState) => {
-		const latestId = latestLiveCaptionTurnId(next);
-		if (latestId) setCaptionFocus(latestId);
-	}, []);
-
 	const resetCaptions = useCallback(() => {
 		setCaptions(emptyLiveCaptionState());
-		setCaptionFocus(null);
 	}, []);
 
 	const stopVideo = useCallback(() => {
@@ -84,14 +74,10 @@ export function useLiveRunnerUiState() {
 		setActiveTool,
 		captions,
 		setCaptions,
-		captionFocus,
-		setCaptionFocus,
 		error,
 		setError,
 		textDraft,
 		setTextDraft,
-		textComposerOpen,
-		setTextComposerOpen,
 		sessionActive,
 		setSessionActive,
 		sessionPermissions,
@@ -106,7 +92,6 @@ export function useLiveRunnerUiState() {
 		isMutedRef,
 		sessionPermissionsRef,
 		statusRef,
-		focusLatestCaption,
 		resetCaptions,
 		stopVideo,
 	};

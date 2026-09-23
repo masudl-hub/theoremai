@@ -1,5 +1,12 @@
 import { assertEquals } from '@std/assert';
 import {
+  formatAttachmentSize,
+  resolveAttachPreviewStyle,
+} from '../../react/src/client/attachment-hover-preview.ts';
+import { composerDrawerSummary } from '../../react/src/client/composer-drawer.ts';
+import { isStashShortcut, resolveComposerHint } from '../../react/src/client/composer-hints.ts';
+import { composerActionState } from '../../react/src/client/composer-primary.ts';
+import {
   computeInkBarTargets,
   INK_WAVE_BAR_COUNT,
   inkWaveDriver,
@@ -19,7 +26,23 @@ import {
 } from '../../react/src/client/live/live-mic-forward.ts';
 import { liveStateLabel } from '../../react/src/client/live/live-state.ts';
 import { transcriptBlockCopyText } from '../../react/src/client/transcript-block-text.ts';
+import {
+  assistantTurnTiming,
+  composeAssistantTurn,
+  groupTimeKey,
+  groupTranscriptBlocks,
+  pendingPromptOf,
+  type TranscriptTurnGroup,
+  workStatusLabel,
+} from '../../react/src/client/transcript-groups.ts';
+import { resolveScrollToBottomScrollTop } from '../../react/src/client/transcript-scroll.ts';
 import { voiceFormatLabel, voiceLabelFromMime } from '../../react/src/client/voice-label.ts';
+import { interfaceFromProfile, type TranscriptBlock } from '../../src/interface/mod.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
+import { registerGooglePreset } from '../../src/presets/google.ts';
+import { CHAT_MEDIA_LIMITS, geminiModels } from '../fixtures/models.ts';
+
+registerGooglePreset();
 
 Deno.test('transcriptBlockCopyText formats all block kinds', () => {
   assertEquals(transcriptBlockCopyText({ kind: 'user-text', id: '1', text: 'hello' }), 'hello');
@@ -355,4 +378,235 @@ Deno.test('shouldForwardMicFrame, liveTranscriptFromEvidence, applyLiveToolTurnE
   );
   assertEquals(accum.toolCalls.length, 2);
   assertEquals(accum.toolCalls[1].error, 'oops');
+});
+
+Deno.test('composer drawer summary names what is waiting, by kind', () => {
+  const kinds = (...list: ('steer' | 'queue' | 'stash')[]) => list.map((kind) => ({ kind }));
+  assertEquals(composerDrawerSummary({ pendingMessages: [], attachmentCount: 0 }), null);
+  assertEquals(
+    composerDrawerSummary({ pendingMessages: kinds('queue', 'queue'), attachmentCount: 0 }),
+    {
+      count: 2,
+      label: 'queued',
+    },
+  );
+  assertEquals(composerDrawerSummary({ pendingMessages: [], attachmentCount: 1 }), {
+    count: 1,
+    label: 'attached',
+  });
+  assertEquals(
+    composerDrawerSummary({
+      pendingMessages: kinds('stash', 'queue', 'queue', 'steer'),
+      attachmentCount: 1,
+    }),
+    { count: 5, label: '1 steering · 2 queued · 1 stashed · 1 attached' },
+  );
+});
+
+Deno.test('composer hint suggests stashing only when the whole draft is selected', () => {
+  const full = resolveComposerHint({
+    draftText: 'plan the launch',
+    selectedText: 'plan the launch',
+    canStash: true,
+  });
+  assertEquals(full?.id, 'stash-selected-draft');
+  assertEquals(full?.message, 'Replacing this?');
+  assertEquals(
+    resolveComposerHint({ draftText: 'plan the launch', selectedText: 'plan', canStash: true }),
+    null,
+  );
+  assertEquals(resolveComposerHint({ draftText: '', selectedText: '', canStash: true }), null);
+  assertEquals(
+    resolveComposerHint({
+      draftText: 'plan the launch',
+      selectedText: 'plan the launch',
+      canStash: false,
+    }),
+    null,
+  );
+});
+
+Deno.test('stash shortcut is mod+shift+S', () => {
+  const key = { code: 'KeyS', metaKey: false, ctrlKey: false, shiftKey: true, altKey: false };
+  assertEquals(isStashShortcut({ ...key, metaKey: true }), true);
+  assertEquals(isStashShortcut({ ...key, ctrlKey: true }), true);
+  assertEquals(isStashShortcut(key), false);
+  assertEquals(isStashShortcut({ ...key, metaKey: true, shiftKey: false }), false);
+  assertEquals(isStashShortcut({ ...key, metaKey: true, altKey: true }), false);
+});
+
+Deno.test('composeAssistantTurn streams the answer after the latest tool in the body', () => {
+  const tool = {
+    id: 't',
+    kind: 'tool',
+    tool: { name: 'plan_day', phase: 'complete' },
+  } as TranscriptBlock;
+  const blocks: TranscriptBlock[] = [
+    { id: 'r', kind: 'thought', text: 'Planning' },
+    { id: 'n', kind: 'text', text: 'Let me check.' },
+    tool,
+    { id: 'm', kind: 'media', mimeType: 'image/jpeg', url: 'https://example.com/a.jpg' },
+    { id: 'a', kind: 'text', text: 'Here is **the plan**.' },
+  ];
+  const turn = composeAssistantTurn(blocks);
+  assertEquals(
+    turn.trace.map((item) => item.kind),
+    ['reasoning', 'narration', 'tool'],
+  );
+  assertEquals(
+    turn.body.map((block) => block.id),
+    ['m', 'a'],
+  );
+});
+
+Deno.test('groupTranscriptBlocks keeps tools and text in one assistant turn', () => {
+  const blocks = [
+    { id: 'user-1', kind: 'user-text', text: 'hi' },
+    { id: 'tool-1', kind: 'tool', tool: { name: 'joke', phase: 'complete', output: { a: 1 } } },
+    { id: 'turn-1', kind: 'text', text: 'punchline' },
+    { id: 'user-2', kind: 'user-text', text: 'lol' },
+  ] as TranscriptBlock[];
+  const groups = groupTranscriptBlocks(blocks);
+  assertEquals(
+    groups.map((group) => group.kind),
+    ['user', 'assistant', 'user'],
+  );
+  assertEquals(groups[1]?.blocks.length, 2);
+});
+
+Deno.test('composeAssistantTurn keeps a plain reply in the body', () => {
+  const turn = composeAssistantTurn([{ id: 't-1', kind: 'text', text: 'hello **world**' }]);
+  assertEquals(turn.hasTrace, false);
+  assertEquals(
+    turn.body.map((block) => block.kind),
+    ['text'],
+  );
+});
+
+Deno.test('workStatusLabel says Working… while streaming and Worked for <duration> after', () => {
+  assertEquals(workStatusLabel({ streaming: true, hasTrace: false }), 'Working…');
+  assertEquals(workStatusLabel({ streaming: true, hasTrace: true }), 'Working…');
+  assertEquals(workStatusLabel({ streaming: false, hasTrace: false }), '');
+  assertEquals(
+    workStatusLabel({ streaming: false, hasTrace: true, elapsedMs: 2300 }),
+    'Worked for 2.3s',
+  );
+  assertEquals(
+    workStatusLabel({ streaming: false, hasTrace: false, elapsedMs: 2300 }),
+    'Worked for 2.3s',
+  );
+  assertEquals(workStatusLabel({ streaming: false, hasTrace: true }), 'Worked');
+});
+
+Deno.test('formatAttachmentSize covers B/KB/MB', () => {
+  assertEquals(formatAttachmentSize(0), '');
+  assertEquals(formatAttachmentSize(512), '512 B');
+  assertEquals(formatAttachmentSize(2048), '2.0 KB');
+  assertEquals(formatAttachmentSize(2 * 1024 * 1024), '2.0 MB');
+});
+
+Deno.test('resolveAttachPreviewStyle opens above when there is room, else below', () => {
+  const above = resolveAttachPreviewStyle(
+    { left: 40, top: 220, bottom: 250 },
+    { width: 800, height: 600 },
+  );
+  assertEquals([above.left, above.bottom, above.top], [40, 600 - 220 + 6, undefined]);
+  const below = resolveAttachPreviewStyle(
+    { left: 40, top: 40, bottom: 70 },
+    { width: 800, height: 600 },
+  );
+  assertEquals([below.top, below.bottom], [70 + 6, undefined]);
+});
+
+Deno.test('resolveScrollToBottomScrollTop targets the live edge', () => {
+  assertEquals(resolveScrollToBottomScrollTop({ scrollHeight: 1400, clientHeight: 600 }), 800);
+  assertEquals(resolveScrollToBottomScrollTop({ scrollHeight: 400, clientHeight: 600 }), 0);
+});
+
+Deno.test('assistantTurnTiming keys replies by their prompt and times only this session', () => {
+  const user = (key: string): TranscriptTurnGroup => ({ kind: 'user', key, blocks: [] });
+  const reply = (key: string): TranscriptTurnGroup => ({ kind: 'assistant', key, blocks: [] });
+  const groups = [user('u1'), reply('a1'), user('u2'), reply('a2')];
+  const timeOf = (id: string) => (id === 'u1' ? 10 : 20);
+  const turnEnds = new Map([['u1', 15]]);
+  assertEquals(assistantTurnTiming({ groups, index: 1, streaming: true, timeOf, turnEnds }), {
+    key: 'u1:reply',
+    live: false,
+    startedAt: 10,
+    endedAt: 15,
+  });
+  assertEquals(assistantTurnTiming({ groups, index: 3, streaming: true, timeOf, turnEnds }), {
+    key: 'u2:reply',
+    live: true,
+    startedAt: 20,
+    endedAt: undefined,
+  });
+  // Loaded history: no end recorded, not live, so untimed.
+  assertEquals(assistantTurnTiming({ groups, index: 3, streaming: false, timeOf, turnEnds }), {
+    key: 'u2:reply',
+    live: false,
+    startedAt: undefined,
+    endedAt: undefined,
+  });
+  assertEquals(
+    assistantTurnTiming({ groups: [reply('a0')], index: 0, streaming: false, timeOf, turnEnds }),
+    {
+      key: 'a0',
+      live: false,
+    },
+  );
+  assertEquals(pendingPromptOf(groups), undefined);
+  assertEquals(pendingPromptOf(groups.slice(0, 3))?.key, 'u2');
+  assertEquals(groupTimeKey(user('u9')), 'u9');
+});
+
+Deno.test('composerActionState gates the primary button on payload, phase and recording', () => {
+  const iface = interfaceFromProfile(
+    defineProfile({
+      id: 'react.composer.actions',
+      type: 'text',
+      identity: { handle: 'composer_bot', system: 'You reply.' },
+      ...geminiModels('gemini35FlashLite'),
+      tools: { allow: [] },
+      inputs: { text: true, ...CHAT_MEDIA_LIMITS },
+    }),
+  );
+  if (iface.type !== 'text') throw new Error('expected a text interface');
+  assertEquals(iface.allowSteering, true);
+  const base = {
+    iface,
+    draftText: '',
+    pendingFiles: [],
+    pendingVoice: [],
+    recording: false,
+  } as const;
+  const empty = composerActionState({ ...base, phase: 'idle' });
+  assertEquals(empty.primary, 'none');
+  assertEquals(empty.primaryDisabled, true);
+  assertEquals(empty.menuActions, []);
+  const drafted = composerActionState({ ...base, phase: 'idle', draftText: 'hi' });
+  assertEquals(drafted.primaryDisabled, false);
+  assertEquals(
+    composerActionState({ ...base, phase: 'idle', draftText: 'hi', recording: true })
+      .primaryDisabled,
+    true,
+  );
+  const voiced = composerActionState({
+    ...base,
+    phase: 'idle',
+    pendingVoice: [new File(['a'], 'v.webm')],
+  });
+  assertEquals(voiced.primaryDisabled, false);
+  const filed = composerActionState({
+    ...base,
+    phase: 'idle',
+    pendingFiles: [new File(['a'], 'a.txt', { type: 'text/plain' })],
+  });
+  assertEquals(filed.primaryDisabled, false);
+  const streaming = composerActionState({ ...base, phase: 'streaming' });
+  assertEquals(streaming.primary, 'stop');
+  assertEquals(streaming.primaryDisabled, false);
+  const steering = composerActionState({ ...base, phase: 'streaming', draftText: 'more' });
+  assertEquals(steering.primary, 'queue');
+  assertEquals(steering.menuActions, ['queue', 'steer', 'send_now', 'stash']);
 });

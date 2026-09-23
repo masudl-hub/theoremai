@@ -3,21 +3,19 @@ import {
 	applyLiveTranscript,
 	type LiveCaptionState,
 } from '../../client/live/live-captions';
-import { registerPlaygroundLiveProfile } from '../../client/live/live-session';
 import {
 	type LiveFacingMode,
 	type LiveVideoCapture,
 	startLiveVideoCapture,
 } from '../../client/live/live-video';
-import type { LiveSessionClient, LiveSessionStatus } from '../../client/live-client';
-import type { PlaygroundRunPayload } from '../../client/run-payload';
+import type { LiveConnectPhase, LiveSessionClient, LiveSessionStatus } from '../../client/live-client';
 
 /** Media + session lifecycle handlers for LiveRunner. */
 export function useLiveRunnerControls(args: {
 	clientRef: MutableRefObject<LiveSessionClient | null>;
 	videoCaptureRef: MutableRefObject<LiveVideoCapture | null>;
 	captionsRef: MutableRefObject<LiveCaptionState>;
-	payloadRef: MutableRefObject<PlaygroundRunPayload>;
+	registerProfileRef: MutableRefObject<() => Promise<string>>;
 	statusRef: MutableRefObject<LiveSessionStatus>;
 	isMutedRef: MutableRefObject<boolean>;
 	sessionPermissionsRef: MutableRefObject<string[]>;
@@ -26,7 +24,6 @@ export function useLiveRunnerControls(args: {
 	cancelGateDecision: (reason?: string) => void;
 	stopVideo: () => void;
 	resetCaptions: () => void;
-	focusLatestCaption: (next: LiveCaptionState) => void;
 	sessionActive: boolean;
 	textAvailable: boolean;
 	videoAvailable: boolean;
@@ -37,11 +34,10 @@ export function useLiveRunnerControls(args: {
 	setCaptions: Dispatch<SetStateAction<LiveCaptionState>>;
 	setError: Dispatch<SetStateAction<string>>;
 	setIsMuted: Dispatch<SetStateAction<boolean>>;
-	setTextComposerOpen: Dispatch<SetStateAction<boolean>>;
 	setSessionActive: Dispatch<SetStateAction<boolean>>;
 	setSessionPermissions: Dispatch<SetStateAction<string[]>>;
 	setStatus: Dispatch<SetStateAction<LiveSessionStatus>>;
-	setConnectPhase: Dispatch<SetStateAction<import('../../client/live-client').LiveConnectPhase | null>>;
+	setConnectPhase: Dispatch<SetStateAction<LiveConnectPhase | null>>;
 	setInputLevel: Dispatch<SetStateAction<number>>;
 	setOutputLevel: Dispatch<SetStateAction<number>>;
 	setVideoPreview: Dispatch<SetStateAction<HTMLVideoElement | null>>;
@@ -54,7 +50,6 @@ export function useLiveRunnerControls(args: {
 		args.stopVideo();
 		args.setIsMuted(false);
 		args.isMutedRef.current = false;
-		args.setTextComposerOpen(false);
 		args.setSessionActive(false);
 		args.setSessionPermissions([]);
 		args.sessionPermissionsRef.current = [];
@@ -69,7 +64,7 @@ export function useLiveRunnerControls(args: {
 		args.setError('');
 		args.resetCaptions();
 		try {
-			const profileId = await registerPlaygroundLiveProfile(args.payloadRef.current);
+			const profileId = await args.registerProfileRef.current();
 			const liveClient = args.ensureClient(profileId);
 			if (args.statusRef.current === 'disconnected' || args.statusRef.current === 'error') {
 				await liveClient.connect();
@@ -89,12 +84,6 @@ export function useLiveRunnerControls(args: {
 		});
 		args.captionsRef.current = next;
 		args.setCaptions(next);
-		args.focusLatestCaption(next);
-	}, [args]);
-
-	const handleToggleTextComposer = useCallback(() => {
-		if (!args.textAvailable) return;
-		args.setTextComposerOpen((open) => !open);
 	}, [args]);
 
 	const handleToggleVideo = useCallback(async () => {
@@ -145,7 +134,6 @@ export function useLiveRunnerControls(args: {
 		teardownSession,
 		startSession,
 		handleSendText,
-		handleToggleTextComposer,
 		handleToggleVideo,
 		handleFlipCamera,
 		handleToggleMic,

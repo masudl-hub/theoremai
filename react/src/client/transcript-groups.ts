@@ -28,8 +28,6 @@ export type ComposedAssistantTurn = {
 
 const USER_KINDS = new Set(['user-text', 'user-attachment', 'user-voice']);
 
-const BODY_KINDS = new Set(['text', 'media', 'structured', 'grounding', 'evidence', 'error']);
-
 function isUserTranscriptBlock(block: TranscriptBlock): boolean {
 	return USER_KINDS.has(block.kind);
 }
@@ -68,22 +66,6 @@ export function assistantTurnCopyText(blocks: readonly TranscriptBlock[]): strin
 		.join('\n\n');
 }
 
-export function toolPhaseLabel(phase: string | undefined): string {
-	switch (phase) {
-		case 'complete':
-			return 'done';
-		case 'error':
-			return 'error';
-		case 'gate':
-			return 'gated';
-		case 'running':
-		case 'progress':
-			return 'running';
-		default:
-			return phase ?? 'called';
-	}
-}
-
 /** Wall-clock duration copy matching Seance's builder-trace formatter. */
 function formatWorkDuration(durationMs: number): string {
 	const ms = Math.max(0, durationMs);
@@ -99,12 +81,22 @@ function formatWorkDuration(durationMs: number): string {
 	return `${String(minutes)}m ${String(seconds)}s`;
 }
 
+/** Whole-second ticker while a turn runs: "0s", "12s", "1m 5s". */
+function formatLiveDuration(durationMs: number): string {
+	const total = Math.floor(Math.max(0, durationMs) / 1_000);
+	if (total < 60) return `${String(total)}s`;
+	return `${String(Math.floor(total / 60))}m ${String(total % 60)}s`;
+}
+
+/** "Working for 12s" while streaming (when the start is known), "Worked for 3.2s" after. */
 export function workStatusLabel(args: {
 	streaming: boolean;
 	hasTrace: boolean;
 	elapsedMs?: number;
 }): string {
-	if (args.streaming) return 'Working…';
+	if (args.streaming) {
+		return args.elapsedMs === undefined ? 'Working…' : `Working for ${formatLiveDuration(args.elapsedMs)}`;
+	}
 	const duration =
 		args.elapsedMs !== undefined && args.elapsedMs > 0 ? formatWorkDuration(args.elapsedMs) : null;
 	if (duration) return `Worked for ${duration}`;
@@ -126,14 +118,13 @@ function lastToolIndexOf(blocks: readonly TranscriptBlock[]): number {
 
 function pushTextBlock(
 	block: Extract<TranscriptBlock, { kind: 'text' }>,
-	args: { streaming: boolean; hasTools: boolean; index: number; lastToolIndex: number },
+	args: { hasTools: boolean; index: number; lastToolIndex: number },
 	trace: TraceItem[],
 	body: TranscriptBlock[],
 ): void {
-	const isNarration =
-		(args.streaming && args.hasTools) ||
-		(!args.streaming && args.hasTools && args.index < args.lastToolIndex);
-	if (isNarration) {
+	// Text before a tool call is narration; text after the latest one is the
+	// answer, streamed in place. If another tool call follows, it becomes narration.
+	if (args.hasTools && args.index < args.lastToolIndex) {
 		if (block.text.trim()) {
 			trace.push({ kind: 'narration', id: block.id, text: block.text });
 		}
@@ -144,7 +135,7 @@ function pushTextBlock(
 
 function classifyNonGateBlock(
 	block: TranscriptBlock,
-	args: { streaming: boolean; hasTools: boolean; index: number; lastToolIndex: number },
+	args: { hasTools: boolean; index: number; lastToolIndex: number },
 	trace: TraceItem[],
 	body: TranscriptBlock[],
 ): void {
@@ -162,19 +153,6 @@ function classifyNonGateBlock(
 		pushTextBlock(block, args, trace, body);
 		return;
 	}
-	pushBodyKind(block, args, body);
-}
-
-function pushBodyKind(
-	block: TranscriptBlock,
-	args: { streaming: boolean; hasTools: boolean },
-	body: TranscriptBlock[],
-): void {
-	if (BODY_KINDS.has(block.kind)) {
-		if (args.streaming && args.hasTools && block.kind !== 'error') return;
-		body.push(block);
-		return;
-	}
 	body.push(block);
 }
 
@@ -184,15 +162,11 @@ function pushBodyKind(
  * - `thought` → always reasoning in the trace
  * - non-gate `tool` → tool item in the trace
  * - gate `tool` → interactive card outside the collapsed list
- * - While streaming: all `text` → narration (final markdown hidden to avoid double)
- * - When done: `text` before/between tools → narration; trailing answer kinds → body
+ * - `text` before/between tools → narration; text and answer kinds after the
+ *   latest tool → body (while streaming too, so the answer streams formatted)
  * - No tools: thoughts still go to trace; remaining kinds → body
  */
-export function composeAssistantTurn(
-	blocks: readonly TranscriptBlock[],
-	args: { streaming?: boolean } = {},
-): ComposedAssistantTurn {
-	const streaming = args.streaming === true;
+export function composeAssistantTurn(blocks: readonly TranscriptBlock[]): ComposedAssistantTurn {
 	const visible = blocks.filter((block) => !isHiddenTranscriptBlock(block));
 	const gatedTools = visible.filter(isGatedTool);
 	const nonGate = visible.filter((block) => !isGatedTool(block));
@@ -202,7 +176,7 @@ export function composeAssistantTurn(
 	const trace: TraceItem[] = [];
 	const body: TranscriptBlock[] = [];
 	for (const [index, block] of nonGate.entries()) {
-		classifyNonGateBlock(block, { streaming, hasTools, index, lastToolIndex }, trace, body);
+		classifyNonGateBlock(block, { hasTools, index, lastToolIndex }, trace, body);
 	}
 
 	return {
@@ -211,4 +185,45 @@ export function composeAssistantTurn(
 		body,
 		hasTrace: trace.length > 0,
 	};
+}
+
+/** The id a group's timestamp is recorded under: its first block, else its key. */
+export function groupTimeKey(group: TranscriptTurnGroup): string {
+	return group.blocks[0]?.id ?? group.key;
+}
+
+/** The trailing user group while its reply has not started streaming back. */
+export function pendingPromptOf(groups: readonly TranscriptTurnGroup[]): TranscriptTurnGroup | undefined {
+	const last = groups.at(-1);
+	return last?.kind === 'user' ? last : undefined;
+}
+
+export type AssistantTurnTiming = {
+	/**
+	 * Keyed by its prompt, not its blocks: the reply stays mounted from the
+	 * "Working…" placeholder through streaming and commit (which re-keys blocks).
+	 */
+	key: string;
+	live: boolean;
+	startedAt?: number;
+	endedAt?: number;
+};
+
+/**
+ * Key and timing for the assistant group at `index`. Only turns sent in this
+ * session are timed; loaded history has no end.
+ */
+export function assistantTurnTiming(args: {
+	groups: readonly TranscriptTurnGroup[];
+	index: number;
+	streaming: boolean;
+	timeOf: (id: string) => number;
+	turnEnds: ReadonlyMap<string, number>;
+}): AssistantTurnTiming {
+	const live = args.streaming && args.index === args.groups.length - 1;
+	const prompt = args.groups[args.index - 1];
+	if (prompt?.kind !== 'user') return { key: args.groups[args.index]?.key ?? String(args.index), live };
+	const endedAt = args.turnEnds.get(prompt.key);
+	const startedAt = live || endedAt !== undefined ? args.timeOf(groupTimeKey(prompt)) : undefined;
+	return { key: `${prompt.key}:reply`, live, startedAt, endedAt };
 }

@@ -89,6 +89,7 @@ function appendPromotedToolMedia(
       kind: 'media',
       mimeType: media.mimeType,
       url: media.url,
+      ...(media.previewUrl ? { previewUrl: media.previewUrl } : {}),
     });
   }
 }

@@ -78,7 +78,7 @@ jobs:
         run: npm ci
 
       - name: Type check
-        run: deno check mod.ts
+        run: deno check mod.ts tests/fixtures/probes/
 
       - name: Verify publish bundle
         run: deno task verify:publish

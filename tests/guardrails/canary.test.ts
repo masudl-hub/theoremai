@@ -12,10 +12,11 @@ import {
   USER_OPEN,
   wrapUserData,
 } from '../../src/guardrails/canary.ts';
-import { PUBLIC_CANARY, TheoremError } from '../../src/guardrails/error.ts';
-import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
+import { PUBLIC_CANARY } from '../../src/guardrails/error.ts';
+import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { yieldProviderEvents } from '../../src/kernel/engine/runner/stream.ts';
 import { runTurn } from '../../src/kernel/engine/runner.ts';
+import { providerCompleteRequest } from '../../src/kernel/registry/provider-request.ts';
 import { resolveTurn } from '../../src/kernel/registry/resolve.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
 import { camelToSnake, toInteractionsBody } from '../../src/providers/google/interactions/mod.ts';
@@ -112,6 +113,10 @@ Deno.test('runTurn errors when the model echoes the canary', async () => {
   );
   assertEquals(wire.includes(OMIT_CANARY), true);
   assertEquals(CANARY_RE.test(wire), false);
+  assertEquals(events.findLast((event) => event.type === 'done')?.stop, {
+    kind: 'filtered',
+    native: 'canary',
+  });
 });
 
 Deno.test('runTurn errors when thought text exposes the canary system boundary', async () => {
@@ -163,9 +168,9 @@ Deno.test('canary stream gate detects token split across chunks', async () => {
     yieldProviderEvents({
       profile,
       generation,
-      system: bindCanary('sys', canary),
+      request: providerCompleteRequest(generation, bindCanary('sys', canary)),
       provider: { complete: splitLeak },
-      upstream: [],
+      call: { tap: () => {}, observe: () => {} },
     }),
   );
 
@@ -199,9 +204,9 @@ Deno.test('canary stream gate detects leak in thought events', async () => {
     yieldProviderEvents({
       profile,
       generation,
-      system: bindCanary('sys', canary),
+      request: providerCompleteRequest(generation, bindCanary('sys', canary)),
       provider: { complete: thoughtLeak },
-      upstream: [],
+      call: { tap: () => {}, observe: () => {} },
     }),
   );
 
@@ -251,31 +256,6 @@ Deno.test('eventHasCanary scans grounding and evidence payloads', () => {
       canary,
     ),
     true,
-  );
-});
-
-Deno.test('toInteractionsBody rejects user payload copied into system', () => {
-  const { generation } = resolveTurn({
-    profile: 'chat',
-    input: { text: 'unique-user-payload-xyz' },
-  });
-  assertThrows(
-    () =>
-      toInteractionsBody({
-        model: generation.model,
-        apiId: generation.apiId,
-        thinking: generation.thinking,
-        summaries: generation.summaries,
-        maxOutputTokens: generation.maxOutputTokens,
-        temperature: generation.temperature,
-        builtins: generation.builtins,
-        system: wrapUserData('unique-user-payload-xyz'),
-        input: generation.input,
-        structured: generation.structured,
-        image: generation.image,
-        keySlot: generation.keySlot,
-      }),
-    TheoremError,
   );
 });
 

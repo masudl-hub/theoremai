@@ -14,15 +14,10 @@ import type {
   Profile,
   ThinkingLevel,
 } from '../types.ts';
+import { mimeEssence } from '../util/mime.ts';
 
 /** `TurnInput` field a media file rides in. */
 type MediaInputChannel = 'attachments' | 'voice';
-
-/** Normalizes a MIME value to lower-case type/subtype, removing all parameters. */
-function mimeEssence(mime: string): string {
-  const [base] = mime.split(';');
-  return (base ?? '').trim().toLowerCase();
-}
 
 /**
  * Returns whether an accept list permits a MIME value. Rules are normalized and

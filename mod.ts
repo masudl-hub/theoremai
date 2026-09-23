@@ -181,16 +181,12 @@ export {
   sanitizeProjectId,
   sanitizeText,
   sanitizeTurnRequest,
-  sanitizeTurnRequestForTrace,
   sanitizeTurnRequestWithEvents,
 } from './src/guardrails/sanitize.ts';
 export type { CompactionSplit, CompactionTokens } from './src/kernel/engine/compaction.ts';
 export {
   compactionMeter,
   compactionNeeded,
-  estimateHistoryTokens,
-  HISTORY_MEDIA_TOKENS,
-  HISTORY_TEXT_ENCODING,
   resolveCompactionTokens,
   resolveHistoryTokens,
   shouldCompact,
@@ -209,6 +205,18 @@ export {
 export { runTurn } from './src/kernel/engine/runner.ts';
 export type { RunSessionOptions } from './src/kernel/engine/session/mod.ts';
 export { runSession } from './src/kernel/engine/session/mod.ts';
+export type {
+  MediaPayload,
+  MediaTokenFamily,
+  TokenCount,
+  TokenEstimator,
+} from './src/kernel/engine/token-estimate.ts';
+export {
+  loadTokenEstimator,
+  mediaTokenFamily,
+  TOKEN_TEXT_ENCODING,
+} from './src/kernel/engine/token-estimate.ts';
+export { sumTokens } from './src/kernel/engine/usage.ts';
 export type {
   ProfileGraphEditor,
   ProfileGraphFacet,
@@ -402,19 +410,42 @@ export type * from './src/kernel/types.ts';
 export type {
   JsonlSinkOptions,
   JsonlTraceDestination,
+  OtlpAnyValue,
+  OtlpKeyValue,
+  OtlpSpan,
+  OtlpTraceRequest,
   ProfileObservabilitySpec,
   ResolvedObservabilityPolicy,
   ResolvedTraceInclude,
   ResolvedTraceScrub,
+  SpanHandle,
+  SpanLinkInput,
+  SpanOptions,
+  TraceAttributes,
+  TraceAttributeValue,
+  TraceBytes,
+  TraceClock,
+  TraceContent,
   TraceDestination,
   TraceIncludeSpec,
+  TraceJson,
   TraceRecord,
   TraceScrubSpec,
   TraceSink,
+  TraceSpan,
+  TraceSpanEvent,
+  TraceSpanKind,
+  TraceSpanLink,
+  TraceSpanStatus,
+  TraceTree,
+  TraceWriteContext,
 } from './src/observability/mod.ts';
 export {
+  buildRecord,
   clearTraceDestinations,
+  contentOf,
   getTraceDestination,
+  inlineContent,
   isJsonlTraceDestination,
   isTraceSink,
   jsonlDestination,
@@ -426,6 +457,11 @@ export {
   requireTraceDestination,
   resolveObservabilityPolicy,
   resolveTraceWriter,
+  startTrace,
+  toOtlpJson,
+  traceBytes,
+  traceContent,
+  traceJson,
   writeTrace,
 } from './src/observability/mod.ts';
 export * from './src/presets/mod.ts';

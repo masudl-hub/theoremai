@@ -1,16 +1,17 @@
 import '../../fixtures/test-host.ts';
 import { OMIT_CANARY } from '../../../src/guardrails/canary.ts';
 import { assertEquals } from '../../../src/kernel/engine/assert.ts';
+import { sha256 } from '../../../src/kernel/engine/hash.ts';
 import { runTurn } from '../../../src/kernel/engine/runner.ts';
 import type { KeyVault, TurnEvent } from '../../../src/kernel/types.ts';
 import { memorySink } from '../../../src/observability/trace.ts';
-import type { TraceRecord } from '../../../src/observability/trace-record.ts';
+import { contentOf, type TraceRecord } from '../../../src/observability/trace-record.ts';
+import type { TraceAttributeValue, TraceSpan } from '../../../src/observability/trace-span.ts';
 import { camelToSnake } from '../../../src/providers/google/interactions/framing.ts';
 import { createInteractionsProvider } from '../../../src/providers/google/interactions/stream.ts';
 import {
-  isImageBlob,
+  inlineBytesKey,
   redactCanaryInTree,
-  scrubEntry,
   scrubRecord,
   scrubUpstream,
   tapeUpstream,
@@ -35,44 +36,55 @@ async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
   return out;
 }
 
-function assertFullTape(row: TraceRecord): void {
-  const upstreamLog = row.upstreamLog as Record<string, unknown>[];
-  const wire = row.wire as Record<string, unknown>;
-  const usage = row.usage as Record<string, unknown>;
-  const reqHeaders = upstreamLog[0]?.headers as Record<string, string>;
-  assertEquals(upstreamLog[0]?.eventType, 'http_request');
-  assertEquals(upstreamLog[0]?.method, 'POST');
-  assertEquals(reqHeaders['x-goog-api-key'], '[redacted]');
-  assertEquals(upstreamLog[1]?.eventType, 'http_response');
-  assertEquals(upstreamLog[1]?.status, HTTP_OK);
+function spanNamed(record: TraceRecord, name: string): TraceSpan {
+  const span = record.spans.find((s) => s.name === name);
+  if (!span) {
+    throw new Error(`no span ${name}`);
+  }
+  return span;
+}
+
+/** Every event of `name` on `span`, its `key` attribute read back from content. */
+function eventContent(record: TraceRecord, span: TraceSpan, name: string, key: string): unknown[] {
+  return span.events
+    .filter((event) => event.name === name)
+    .map((event) => JSON.parse(contentOf(record, event.attributes[key]) ?? 'null'));
+}
+
+function assertFullTape(record: TraceRecord): void {
+  const call = spanNamed(record, 'generate_content gemini-3.5-flash-lite');
+  const post = spanNamed(record, 'POST');
+  assertEquals(post.parentSpanId, call.spanId);
+  assertEquals(post.attributes['http.request.header.x-goog-api-key'], ['[redacted]']);
+  assertEquals(post.attributes['http.response.status_code'], HTTP_OK);
+  // The body was a 200; the call failed on its content, not the try.
+  assertEquals(post.status, { code: 'OK' });
+  const rows = eventContent(record, call, 'theorem.upstream.row', 'row') as Record<
+    string,
+    unknown
+  >[];
   assertEquals(
-    upstreamLog.some((item) => item.event_type === 'interaction.completed'),
-    true,
+    rows.map((row) => row.sseEvent),
+    ['interaction.created', 'step.delta', 'step.delta', 'interaction.completed', 'done'],
   );
+  assertEquals(JSON.stringify(rows).includes('sig-blob'), true);
+  assertEquals(call.attributes['theorem.model.id'], 'gemini35FlashLite');
+  assertEquals(call.attributes['gen_ai.usage.input_tokens'], INPUT_TOKENS);
+  assertEquals(call.attributes['gen_ai.usage.output_tokens'], OUTPUT_TOKENS);
+  assertEquals(call.attributes['gen_ai.response.id'], 'v1_x');
+  const [wire] = eventContent(record, post, 'theorem.wire.request', 'body') as Record<
+    string,
+    unknown
+  >[];
+  assertEquals(Object.hasOwn(wire ?? {}, 'store'), false);
+  assertEquals(Object.hasOwn(wire ?? {}, camelToSnake('previousInteractionId')), false);
+  // The wire's system text is the recorded instruction, stored once and referenced.
+  const [system] = call.attributes['gen_ai.system_instructions'] as TraceAttributeValue[];
   assertEquals(
-    upstreamLog.some((item) => item.eventType === 'sse_done'),
-    true,
+    (wire?.[camelToSnake('systemInstruction')] as Record<string, unknown> | undefined)
+      ?.content_sha256,
+    (system as Record<string, unknown>).content_sha256,
   );
-  assertEquals(
-    upstreamLog.some((item) => item.sseEvent === 'interaction.created'),
-    true,
-  );
-  assertEquals(JSON.stringify(upstreamLog).includes('sig-blob'), true);
-  assertEquals(row.previousInteractionId, null);
-  assertEquals(row.store, null);
-  assertEquals(row.streamed, true);
-  assertEquals(row.title, 'hi');
-  assertEquals(row.model, {
-    id: 'gemini35FlashLite',
-    apiId: 'gemini-3.5-flash-lite',
-  });
-  assertEquals(usage.total_input_tokens, INPUT_TOKENS);
-  assertEquals(usage.total_output_tokens, OUTPUT_TOKENS);
-  assertEquals(Object.hasOwn(wire, 'store'), false);
-  assertEquals(typeof wire[camelToSnake('systemInstruction')], 'string');
-  assertEquals(Object.hasOwn(wire, camelToSnake('previousInteractionId')), false);
-  assertEquals(row.upstream?.id, 'v1_x');
-  assertEquals(row.upstream?.finish, 'completed');
 }
 
 function sseResponse(events: unknown[]): Response {
@@ -91,15 +103,15 @@ function sseResponse(events: unknown[]): Response {
 Deno.test('tapeUpstream hashes image data and redacts canary', async () => {
   const canary = 'theo-deadbeef';
   const raw = JSON.parse(
-    '{"event_type":"step.delta","delta":{"type":"image","mime_type":"image/jpeg","data":"secret-bytes"},"note":"leaked theo-deadbeef"}',
+    '{"event_type":"step.delta","delta":{"type":"image","mime_type":"image/jpeg","data":"c2VjcmV0LWJ5dGVz"},"note":"leaked theo-deadbeef"}',
   );
-  const out = (await tapeUpstream(raw, canary)) as Record<string, unknown>;
+  const out = (await tapeUpstream(raw, [canary])) as Record<string, unknown>;
   const delta = out.delta as Record<string, unknown>;
   assertEquals(delta.type, 'image');
   assertEquals(delta.dataKind, 'sha256');
   assertEquals(typeof delta.data, 'string');
-  assertEquals(delta.data === 'secret-bytes', false);
-  assertEquals(JSON.stringify(out).includes('secret-bytes'), false);
+  assertEquals(delta.data === 'c2VjcmV0LWJ5dGVz', false);
+  assertEquals(JSON.stringify(out).includes('c2VjcmV0LWJ5dGVz'), false);
   assertEquals(JSON.stringify(out).includes(canary), false);
   assertEquals(JSON.stringify(out).includes(OMIT_CANARY), true);
 });
@@ -108,7 +120,7 @@ Deno.test('tapeUpstream keeps usage and interaction id', async () => {
   const raw = JSON.parse(
     '{"event_type":"interaction.completed","interaction":{"id":"v1_abc","status":"completed","usage":{"total_input_tokens":11,"total_cached_tokens":0}}}',
   );
-  const out = (await tapeUpstream(raw, '')) as Record<string, unknown>;
+  const out = (await tapeUpstream(raw, [])) as Record<string, unknown>;
   const interaction = out.interaction as Record<string, unknown>;
   assertEquals(interaction.id, 'v1_abc');
   const usage = interaction.usage as Record<string, unknown>;
@@ -129,7 +141,7 @@ Deno.test('runTurn traces wire, usage, and every Interactions SSE row', async ()
           JSON.parse(
             '{"event_type":"step.delta","delta":{"type":"thought_signature","signature":"sig-blob"}}',
           ),
-          JSON.parse('{"event_type":"content.delta","delta":{"type":"text","text":"yo"}}'),
+          JSON.parse('{"event_type":"step.delta","index":0,"delta":{"type":"text","text":"yo"}}'),
           JSON.parse(
             '{"event_type":"interaction.completed","interaction":{"id":"v1_x","status":"completed","usage":{"total_input_tokens":11,"total_output_tokens":2}}}',
           ),
@@ -143,17 +155,17 @@ Deno.test('runTurn traces wire, usage, and every Interactions SSE row', async ()
   // when the turn passes no `onStage` handler.
   assertEquals(
     events.map((event) => event.type),
-    ['stage', 'text', 'tokens', 'error', 'stage', 'done', 'stage'],
+    ['stage', 'text', 'error', 'tokens', 'stage', 'done', 'stage'],
   );
   assertEquals(
     events.filter((e) => e.type === 'stage').map((e) => e.stage),
     ['pre_turn', 'before_end', 'post_turn'],
   );
-  const [row] = into;
-  if (!row) {
+  const [record] = into;
+  if (!record) {
     throw new Error('missing trace');
   }
-  assertFullTape(row);
+  assertFullTape(record);
 });
 
 Deno.test('tapFetch handles non-Error thrown values and default fetch fallback', async () => {
@@ -187,65 +199,70 @@ Deno.test('runTurn traces upstream error response bodies', async () => {
     fetch: () => Promise.resolve(new Response('quota-detail', { status: 500 })),
   });
   await collect(runTurn({ profile: 'chat', input: { text: 'hi' } }, provider, memorySink(into)));
-  const [row] = into;
-  if (!row) {
+  const [record] = into;
+  if (!record) {
     throw new Error('missing trace');
   }
-  const upstreamLog = row.upstreamLog as Record<string, unknown>[];
-  assertEquals(
-    upstreamLog.some(
-      (item) => item.eventType === 'http_error_body' && item.body === 'quota-detail',
-    ),
-    true,
-  );
+  const post = spanNamed(record, 'POST');
+  assertEquals(post.status, { code: 'ERROR', message: '500' });
+  assertEquals(eventContent(record, post, 'theorem.upstream.row', 'row'), [
+    { eventType: 'http_error_body', body: 'quota-detail' },
+  ]);
 });
 
-Deno.test('isImageBlob detects type image or media', () => {
-  assertEquals(isImageBlob({ type: 'image' }), true);
-  assertEquals(isImageBlob({ type: 'media' }), true);
-  assertEquals(isImageBlob({ type: 'text' }), false);
+Deno.test('inlineBytesKey finds the bytes of each observed wire shape', () => {
+  assertEquals(inlineBytesKey({ type: 'image', mime_type: 'image/png', data: 'x' }), 'data');
+  assertEquals(inlineBytesKey({ type: 'audio', mime_type: 'audio/l16', data: 'x' }), 'data');
+  assertEquals(inlineBytesKey({ b64_json: 'x', media_type: 'image/jpeg' }), 'b64_json');
+  assertEquals(inlineBytesKey({ mimeType: 'image/png', data: 'x' }), 'data');
+  assertEquals(inlineBytesKey({ mime_type: 'image/png' }), undefined);
+  assertEquals(inlineBytesKey({ type: 'image', data: 'x' }), undefined);
+  assertEquals(inlineBytesKey({ b64_json: 'x' }), undefined);
+  assertEquals(inlineBytesKey({}), undefined);
 });
 
-Deno.test('isImageBlob detects mimeType or mime_type strings', () => {
-  assertEquals(isImageBlob({ mimeType: 'image/png' }), true);
-  assertEquals(isImageBlob({ mime_type: 'image/png' }), true);
-  assertEquals(isImageBlob({ mimeType: 42 }), false);
-  assertEquals(isImageBlob({}), false);
-});
-
-Deno.test('scrubEntry hashes data for image blobs', async () => {
-  const rec = { type: 'image', data: 'bytes' };
-  const [key, value] = await scrubEntry(rec, 'data', 'bytes');
-  assertEquals(key, 'data');
-  assertEquals(typeof value, 'string');
-  assertEquals(value === 'bytes', false);
-});
-
-Deno.test('scrubEntry passes through non-data keys recursively', async () => {
-  const rec = { type: 'text', note: 'hi' };
-  const [key, value] = await scrubEntry(rec, 'note', 'hi');
-  assertEquals(key, 'note');
-  assertEquals(value, 'hi');
-});
-
-Deno.test('scrubEntry does not hash data when not an image blob', async () => {
-  const rec = { type: 'text', data: 'plain' };
-  const [key, value] = await scrubEntry(rec, 'data', 'plain');
-  assertEquals(key, 'data');
-  assertEquals(value, 'plain');
-});
-
-Deno.test('scrubRecord sets dataKind sha256 for image blobs with string data', async () => {
-  const out = await scrubRecord({ type: 'image', mimeType: 'image/png', data: 'raw-bytes' });
+Deno.test('scrubRecord hashes mime_type data and marks the record', async () => {
+  const out = await scrubRecord({ type: 'image', mime_type: 'image/png', data: 'cmF3LWJ5dGVz' });
+  assertEquals(out.data, await sha256('raw-bytes'));
   assertEquals(out.dataKind, 'sha256');
-  assertEquals(typeof out.data, 'string');
-  assertEquals(out.data === 'raw-bytes', false);
+  assertEquals(out.mime_type, 'image/png');
 });
 
-Deno.test('scrubRecord leaves dataKind unset for non-image records', async () => {
-  const out = await scrubRecord({ type: 'text', data: 'plain' });
-  assertEquals(Object.hasOwn(out, 'dataKind'), false);
-  assertEquals(out.data, 'plain');
+Deno.test('scrubRecord hashes an images endpoint b64_json entry', async () => {
+  const out = await scrubRecord({ b64_json: 'cmF3LWJ5dGVz', media_type: 'image/jpeg' });
+  assertEquals(out.b64_json, await sha256('raw-bytes'));
+  assertEquals(out.dataKind, 'sha256');
+});
+
+Deno.test('scrubUpstream hashes a base64 data url wherever it sits', async () => {
+  const out = await scrubUpstream({
+    images: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,cmF3LWJ5dGVz' } }],
+  });
+  assertEquals(out, {
+    images: [
+      {
+        type: 'image_url',
+        image_url: { url: `data:image/png;sha256,${await sha256('raw-bytes')}` },
+      },
+    ],
+  });
+});
+
+Deno.test('inline data that is not base64 is hashed as text and labelled', async () => {
+  const out = await scrubUpstream({
+    part: { mime_type: 'image/png', data: 'not base64!' },
+    url: 'data:image/png;base64,not base64!',
+  });
+  const hash = await sha256('not base64!');
+  assertEquals(out, {
+    part: { mime_type: 'image/png', data: hash, dataKind: 'text_sha256' },
+    url: `data:image/png;text_sha256,${hash}`,
+  });
+});
+
+Deno.test('scrubRecord keeps data without a mime_type and adds no marker', async () => {
+  const out = await scrubRecord({ type: 'reasoning.encrypted', data: 'opaque' });
+  assertEquals(out, { type: 'reasoning.encrypted', data: 'opaque' });
 });
 
 Deno.test('scrubUpstream recurses through arrays', async () => {
@@ -260,14 +277,14 @@ Deno.test('scrubUpstream returns primitives unchanged', async () => {
   assertEquals(await scrubUpstream(undefined), undefined);
 });
 
-Deno.test('redactCanaryInTree returns value unchanged when canary is empty', () => {
+Deno.test('redactCanaryInTree returns value unchanged with no canaries', () => {
   const value = { note: 'leaked secret' };
-  assertEquals(redactCanaryInTree(value, ''), value);
+  assertEquals(redactCanaryInTree(value, []), value);
 });
 
 Deno.test('redactCanaryInTree replaces every canary occurrence in strings', () => {
   const value = { a: 'has secret and secret again', b: ['secret'] };
-  const out = redactCanaryInTree(value, 'secret') as { a: string; b: string[] };
+  const out = redactCanaryInTree(value, ['secret']) as { a: string; b: string[] };
   assertEquals(out.a.includes('secret'), false);
   assertEquals(out.b[0]?.includes('secret'), false);
 });

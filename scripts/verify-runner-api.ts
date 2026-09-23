@@ -26,8 +26,8 @@
  */
 
 import type { OutboundPayload, Verdict } from '../src/guardrails/types.ts';
-import { estimateHistoryTokens } from '../src/kernel/engine/compaction.ts';
 import { runTurn } from '../src/kernel/engine/runner.ts';
+import { loadTokenEstimator } from '../src/kernel/engine/token-estimate.ts';
 import {
   defineProfile,
   getProfile,
@@ -997,6 +997,11 @@ function compactionCases(): Case[] {
 // ── GROUP: tokens ──────────────────────────────────────────────────────────
 // ---------------------------------------------------------------------------
 
+/** Local o200k estimate of a text-only history (no media, so no family rule applies). */
+async function estimateHistoryText(history: TurnHistoryMessage[]): Promise<number> {
+  return (await (await loadTokenEstimator()).messages(history, undefined)).tokens;
+}
+
 function tokenCases(): Case[] {
   return [
     // Empty history: local estimate = 0, no API call needed
@@ -1004,11 +1009,11 @@ function tokenCases(): Case[] {
       group: 'tokens',
       name: 'token-empty-history',
       async run() {
-        const estimate = await estimateHistoryTokens([]);
+        const estimate = await estimateHistoryText([]);
         const ok = estimate === 0;
         return {
           passed: ok,
-          detail: `estimateHistoryTokens([]) = ${estimate}`,
+          detail: `estimateHistoryText([]) = ${estimate}`,
           calls: 0,
         };
       },
@@ -1021,7 +1026,7 @@ function tokenCases(): Case[] {
       async run() {
         const before = totalApiCalls;
         const h = history2();
-        const estimate = await estimateHistoryTokens(h);
+        const estimate = await estimateHistoryText(h);
         const p = makeProvider(PLAIN_ID);
         const events = await runOnce(PLAIN_ID, p, {
           text: 'Summarize in one sentence.',
@@ -1057,7 +1062,7 @@ function tokenCases(): Case[] {
       async run() {
         const before = totalApiCalls;
         const h = history5();
-        const estimate = await estimateHistoryTokens(h);
+        const estimate = await estimateHistoryText(h);
         const p = makeProvider(PLAIN_ID);
         const events = await runOnce(PLAIN_ID, p, {
           text: 'Summarize in one sentence.',
@@ -1093,7 +1098,7 @@ function tokenCases(): Case[] {
       async run() {
         const before = totalApiCalls;
         const h = history10();
-        const estimate = await estimateHistoryTokens(h);
+        const estimate = await estimateHistoryText(h);
         const p = makeProvider(PLAIN_ID);
         const events = await runOnce(PLAIN_ID, p, {
           text: 'Summarize in one sentence.',
@@ -1127,7 +1132,7 @@ function tokenCases(): Case[] {
 
     // historyTokens override: when provided, it must be used for compaction (not the estimate)
     // Verify by setting historyTokens=30 (above threshold) and checking signal fires
-    // despite estimateHistoryTokens for the tiny history being below threshold
+    // despite estimateHistoryText for the tiny history being below threshold
     {
       group: 'tokens',
       name: 'token-host-override-wins',
@@ -1138,7 +1143,7 @@ function tokenCases(): Case[] {
           { role: 'user', content: 'hi' },
           { role: 'assistant', content: 'hello' },
         ];
-        const estimate = await estimateHistoryTokens(h);
+        const estimate = await estimateHistoryText(h);
         if (estimate >= 25) {
           return {
             passed: false,
@@ -1306,8 +1311,8 @@ function integrityCases(): Case[] {
         });
         const tokLong = lastInputTokens(evLong) ?? 0;
 
-        const hostShort = await estimateHistoryTokens([]);
-        const hostLong = await estimateHistoryTokens(longHistory);
+        const hostShort = await estimateHistoryText([]);
+        const hostLong = await estimateHistoryText(longHistory);
         const ok = PROVIDER_KIND === 'openrouter' ? hostLong > hostShort : tokLong > tokShort;
         return {
           passed: ok,

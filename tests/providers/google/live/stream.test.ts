@@ -106,12 +106,13 @@ Deno.test('createLiveQueue queues session batches and resolves async next', asyn
     type: 'batch',
     events: [{ type: 'text', text: 'hi' }],
     turnPhase: 'streaming',
+    row: { serverContent: { modelTurn: { parts: [{ text: 'hi' }] } } },
   });
   const item1 = await queue.next();
   assertEquals(item1?.type, 'batch');
 
   const pendingNext = queue.next();
-  queue.push({ type: 'closed' });
+  queue.push({ type: 'closed', code: 1000, reason: '' });
   const item2 = await pendingNext;
   assertEquals(item2?.type, 'closed');
 
@@ -122,25 +123,42 @@ Deno.test('createLiveQueue queues session batches and resolves async next', asyn
   assertExists(queue);
 });
 
-Deno.test('turnPhaseFromMessage: interactionStatus is authoritative over turnComplete', () => {
+Deno.test('turnPhaseFromMessage: serverContent.interactionStatus is authoritative over turnComplete', () => {
   assertEquals(turnPhaseFromMessage({ serverContent: { turnComplete: true } }, []), 'complete');
   assertEquals(
     turnPhaseFromMessage({ serverContent: { modelTurn: { parts: [] } } }, []),
     'streaming',
   );
+  // gemini-3.8-live-extended-thinking (probe 23/09/2026): a tool flow sends
+  // turnComplete + IN_PROGRESS before the tool call, then turnComplete + IDLE.
+  assertEquals(
+    turnPhaseFromMessage(
+      { serverContent: { turnComplete: true, interactionStatus: 'IN_PROGRESS' } },
+      [],
+    ),
+    'streaming',
+  );
+  assertEquals(
+    turnPhaseFromMessage({ serverContent: { turnComplete: true, interactionStatus: 'IDLE' } }, []),
+    'complete',
+  );
+  // Only serverContent carries it; a top-level field is not the wire shape.
   assertEquals(
     turnPhaseFromMessage(
       { serverContent: { turnComplete: true }, interactionStatus: 'IN_PROGRESS' },
       [],
     ),
-    'streaming',
+    'complete',
   );
-  assertEquals(turnPhaseFromMessage({ interactionStatus: 'IDLE' }, []), 'complete');
-  assertEquals(turnPhaseFromMessage({ interaction_status: 'IDLE' }, []), 'complete');
   assertEquals(
-    turnPhaseFromMessage({ serverContent: { interrupted: true }, interactionStatus: 'IDLE' }, [
+    turnPhaseFromMessage({ serverContent: { interrupted: true, interactionStatus: 'IDLE' } }, [
       { type: 'done', interrupted: true, stop: { kind: 'interrupted' } },
     ]),
     'abort',
   );
+});
+
+Deno.test('turnPhaseFromMessage: an empty frame keeps the turn streaming', () => {
+  // gemini-3.8-live sends bare `{}` frames mid-turn (probe 23/09/2026).
+  assertEquals(turnPhaseFromMessage({}, []), 'streaming');
 });

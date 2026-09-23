@@ -463,7 +463,7 @@ Deno.test('foldTurnEvents maps structured, media, grounding, evidence, and error
       type: 'done',
       stop: { kind: 'completed' },
       interactionId: 'ix-1',
-      compaction: { needed: true, meter: 'input', tokens: 10, history: [] },
+      compaction: { needed: true, meter: 'input', tokens: 10, unknownMedia: 0, history: [] },
     },
   ]);
   assertEquals(

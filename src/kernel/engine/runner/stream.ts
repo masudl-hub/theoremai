@@ -13,8 +13,14 @@ import type {
   ResolvedGuardrailPolicy,
 } from '../../../guardrails/types.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
-import { providerCompleteRequest } from '../../registry/provider-request.ts';
-import type { ModelProvider, Profile, ResolvedGeneration, TurnEvent } from '../../types.ts';
+import type {
+  ModelProvider,
+  Profile,
+  ProviderCompleteRequest,
+  ResolvedGeneration,
+  TurnEvent,
+} from '../../types.ts';
+import type { CallTrace } from '../turn-trace.ts';
 
 /** Mutable control flags shared with the step runner during one provider stream. */
 interface OutboundStreamControl {
@@ -53,6 +59,8 @@ function* yieldCanaryLeak(canary: string, event: TurnEvent): Generator<TurnEvent
   }
   yield redactCanary(event, canary);
   yield toErrorEvent('canary leaked');
+  // The turn ends because our guardrail blocked the output, not because the model finished.
+  yield { type: 'done', stop: { kind: 'filtered', native: 'canary' } };
 }
 
 function* yieldDeltaBlock(hits: GuardrailHit[]): Generator<TurnEvent> {
@@ -73,13 +81,15 @@ function canaryOnlyImmediateStop(policy: ResolvedGuardrailPolicy): boolean {
 async function* yieldProviderEvents(args: {
   profile: Profile;
   generation: ResolvedGeneration;
-  system: string;
+  /** What the adapter is asked to send (`providerCompleteRequest`). */
+  request: ProviderCompleteRequest;
   provider: ModelProvider;
-  upstream: Record<string, unknown>[];
+  /** This call's recorder: sees every tap row and every provider event before any gate. */
+  call: Pick<CallTrace, 'tap' | 'observe'>;
   signal?: AbortSignal;
   control?: OutboundStreamControl;
 }): AsyncGenerator<TurnEvent> {
-  const { profile, generation, system, provider, upstream, signal, control } = args;
+  const { profile, generation, request, provider, call, signal, control } = args;
   const { canary } = generation;
   const policy = resolveGuardrailPolicy(profile.guardrails);
   const context: GuardrailContext = {
@@ -169,13 +179,9 @@ async function* yieldProviderEvents(args: {
   }
 
   throwIfAborted(signal);
-  for await (const event of provider.complete({
-    ...providerCompleteRequest(generation, system),
-    signal,
-    tapUpstream: (row) => {
-      upstream.push(row);
-    },
-  })) {
+  let providerFailed = false;
+  for await (const event of provider.complete({ ...request, signal, tapUpstream: call.tap })) {
+    call.observe(event);
     throwIfAborted(signal);
 
     if (isStreamedCanaryEvent(event)) {
@@ -204,6 +210,9 @@ async function* yieldProviderEvents(args: {
       continue;
     }
 
+    if (event.type === 'error') {
+      providerFailed = true;
+    }
     yield* processNormalEvent(event);
   }
 
@@ -212,6 +221,10 @@ async function* yieldProviderEvents(args: {
     if (flushed === 'stop') {
       return;
     }
+  }
+  if (providerFailed) {
+    // An error from the provider outranks any `done` it sent: the call's output is not whole.
+    yield { type: 'done', stop: { kind: 'provider_error' } };
   }
 }
 

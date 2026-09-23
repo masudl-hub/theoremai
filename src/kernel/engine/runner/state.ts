@@ -1,17 +1,37 @@
 import type { TurnTaint } from '../../../guardrails/types.ts';
+import type { SpanHandle } from '../../../observability/trace-span.ts';
 import type { TurnToolSnapshot } from '../../tools/types.ts';
 import type {
+  InteractionPart,
+  ModelBinding,
+  Profile,
   ResolvedGeneration,
   TurnEvent,
   TurnHistoryMessage,
   TurnRequest,
   TurnStop,
 } from '../../types.ts';
+import type { MediaTokenFamily } from '../token-estimate.ts';
+import type { CallUsage } from './usage.ts';
+
+/** Where this turn's spans go. */
+interface TurnTraceState {
+  /** The turn's `invoke_agent` span; model calls and tools open under it. */
+  root: SpanHandle;
+  /** Validation / egress attempt the next model call belongs to (0-based). */
+  attempt: number;
+  /** Model calls made so far. */
+  calls: number;
+  /** The turn's model binding, for `gen_ai.provider.name`. */
+  binding: ModelBinding | undefined;
+}
 
 interface StepExecutionState {
+  trace: TurnTraceState;
   currentHistory: TurnHistoryMessage[];
   stepCount: number;
-  sawTokensEvent: boolean;
+  /** Media family of the turn's model binding, for estimating unreported usage. */
+  mediaFamily: MediaTokenFamily | undefined;
   allEmittedEvents: TurnEvent[];
   attemptEvents: TurnEvent[];
   /**
@@ -35,16 +55,16 @@ interface StepExecutionState {
   toolSnapshot?: TurnToolSnapshot;
   /** Latest Google Interactions id observed on the current provider stream. */
   lastInteractionId?: string;
-  /** Pending Interactions `function_result` continuation for the next provider step. */
+  /**
+   * Pending Interactions continuation for the next provider step: tool results
+   * and stage injects, sent as `continuation`.
+   */
   interactionsContinuation?: {
     previousInteractionId: string;
-    input: Record<string, unknown>[];
+    messages: TurnHistoryMessage[];
   };
-  /**
-   * Generation whose opening `input` was folded into `currentHistory` for steering.
-   * Compared by identity so repair retries (new generation) fold again.
-   */
-  foldedForGeneration?: ResolvedGeneration;
+  /** Usage of the last model call; a continuation's prompt estimate extends it. */
+  lastCall?: CallUsage;
 }
 
 interface AttemptFlowState {
@@ -54,12 +74,50 @@ interface AttemptFlowState {
 }
 
 function recordStepEvent(event: TurnEvent, state: StepExecutionState): void {
-  if (event.type === 'tokens') {
-    state.sawTokensEvent = true;
-  }
   state.allEmittedEvents.push(event);
   state.attemptEvents.push(event);
 }
 
-export type { AttemptFlowState, StepExecutionState };
-export { recordStepEvent };
+/** Append user parts to turn history as one user message (plain text stays a string). */
+function appendUserInput(state: StepExecutionState, parts: readonly InteractionPart[]): void {
+  if (parts.length === 0) return;
+  const textOnly = parts.every((p) => p.type === 'text');
+  state.currentHistory.push(
+    textOnly
+      ? { role: 'user', content: parts.map((p) => (p.type === 'text' ? p.text : '')).join('') }
+      : { role: 'user', parts: [...parts] },
+  );
+}
+
+/**
+ * Step state for one turn. A text turn's history grows inside the turn (tool
+ * steps, stage injects, repair retries), so its opening input moves into turn
+ * history here and everything later lands after it; `generation.input` is then
+ * empty. Image and speech turns are one call that reads only the input, so
+ * theirs stays put.
+ */
+function openTurnState(args: {
+  profile: Profile;
+  generation: ResolvedGeneration;
+  trace: TurnTraceState;
+  mediaFamily: MediaTokenFamily | undefined;
+  allEmittedEvents?: TurnEvent[];
+}): StepExecutionState {
+  const { profile, generation } = args;
+  const state: StepExecutionState = {
+    trace: args.trace,
+    currentHistory: [...(generation.history ?? [])],
+    stepCount: 0,
+    mediaFamily: args.mediaFamily,
+    allEmittedEvents: args.allEmittedEvents ?? [],
+    attemptEvents: [],
+  };
+  if (profile.type === 'text') {
+    appendUserInput(state, generation.input);
+    generation.input = [];
+  }
+  return state;
+}
+
+export type { AttemptFlowState, StepExecutionState, TurnTraceState };
+export { appendUserInput, openTurnState, recordStepEvent };

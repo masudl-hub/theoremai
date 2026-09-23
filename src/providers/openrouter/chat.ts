@@ -11,6 +11,7 @@
 import { createOpenRouter, type OpenRouterChatSettings } from '@openrouter/ai-sdk-provider';
 import {
   jsonSchema,
+  type LanguageModelUsage,
   type ModelMessage,
   streamText,
   type TextStreamPart,
@@ -18,20 +19,24 @@ import {
   tool,
 } from 'ai';
 import { isAbortError, TheoremError, toErrorEvent } from '../../guardrails/error.ts';
-import { extractUsageTokens, parseStructuredOutput } from '../../kernel/engine/delta.ts';
+import { reportedTokens, usageCount } from '../../kernel/engine/usage.ts';
 import { turnStopFromOpenAiFinishReason } from '../../kernel/stop.ts';
 import type {
   ModelProvider,
   ProviderCompleteRequest,
   TurnEvent,
+  TurnResponse,
   TurnTokens,
   WireFunctionTool,
 } from '../../kernel/types.ts';
+import { parseStructuredOutput } from '../shared/structured-output.ts';
+import { tapFetch } from '../shared/upstream-tap.ts';
 import type { OpenAiGatewayConfig } from '../types.ts';
 import { cacheControlJson } from './cache-control.ts';
 import { resolveOpenRouterPlugins } from './openai/chat-payload.ts';
 import { openAiGatewayHeaders, resolveResponseFormat } from './openai/compat.ts';
 import { buildAiSdkMessages } from './openai/sdk-messages.ts';
+import { openAiResponse, openAiUsageTokens } from './openai/usage.ts';
 import { resolveOpenAiGatewayApiKey } from './resolve-api-key.ts';
 
 export interface StreamAccumulator {
@@ -41,6 +46,8 @@ export interface StreamAccumulator {
   errored: boolean;
   finishReason?: string | null;
   nativeFinishReason?: string | null;
+  /** Response identity from the raw rows (`id`, `model`). */
+  response?: TurnResponse;
 }
 
 interface OpenRouterStreamContext {
@@ -132,37 +139,18 @@ function openRouterSettings(req: ProviderCompleteRequest): OpenRouterChatSetting
   return settings;
 }
 
-export function tokensFromUsage(usage: {
-  inputTokens?: number | null;
-  outputTokens?: number | null;
-  totalTokens?: number | null;
-  inputTokenDetails?: {
-    cacheReadTokens?: number | null;
-    cacheWriteTokens?: number | null;
-  } | null;
-  cachedInputTokens?: number | null;
-}): TurnTokens | undefined {
-  const input = usage.inputTokens ?? 0;
-  const output = usage.outputTokens ?? 0;
-  const total = usage.totalTokens ?? input + output;
-  const cached = usage.inputTokenDetails?.cacheReadTokens ?? usage.cachedInputTokens ?? undefined;
-  const cacheWrite = usage.inputTokenDetails?.cacheWriteTokens ?? undefined;
-  if (
-    input === 0 &&
-    output === 0 &&
-    total === 0 &&
-    !(cached && cached > 0) &&
-    !(cacheWrite && cacheWrite > 0)
-  ) {
-    return undefined;
-  }
-  return {
-    input,
-    output,
-    total,
-    ...(cached && cached > 0 ? { cached } : {}),
-    ...(cacheWrite && cacheWrite > 0 ? { cacheWrite } : {}),
-  };
+/**
+ * AI SDK `totalUsage` → `TurnTokens`. Used only when the raw OpenRouter stream
+ * carried no `usage` row (`rawEvents` reads that one first, with cost).
+ */
+export function tokensFromUsage(usage: LanguageModelUsage): TurnTokens | undefined {
+  return reportedTokens({
+    input: usageCount(usage.inputTokens),
+    output: usageCount(usage.outputTokens),
+    thinking: usageCount(usage.outputTokenDetails?.reasoningTokens),
+    cached: usageCount(usage.inputTokenDetails?.cacheReadTokens),
+    cacheWrite: usageCount(usage.inputTokenDetails?.cacheWriteTokens),
+  });
 }
 
 export function rawRecord(value: unknown): Record<string, unknown> | undefined {
@@ -294,6 +282,7 @@ export function rawEvents(raw: unknown, acc: StreamAccumulator): TurnEvent[] {
   if (!record) {
     return [];
   }
+  acc.response = openAiResponse(record) ?? acc.response;
   const events: TurnEvent[] = [];
   const thought = rawThoughtEvent(record);
   if (thought) {
@@ -308,7 +297,7 @@ export function rawEvents(raw: unknown, acc: StreamAccumulator): TurnEvent[] {
     events.push(messageEvidence);
   }
   if (!acc.emittedTokens) {
-    const usage = extractUsageTokens(record.usage);
+    const usage = openAiUsageTokens(record.usage);
     if (usage) {
       acc.emittedTokens = true;
       events.push({ type: 'tokens', tokens: usage });
@@ -362,18 +351,7 @@ export function toolResultEvent(part: {
   };
 }
 
-export function tokenEvent(part: {
-  totalUsage: {
-    inputTokens?: number | null;
-    outputTokens?: number | null;
-    totalTokens?: number | null;
-    inputTokenDetails?: {
-      cacheReadTokens?: number | null;
-      cacheWriteTokens?: number | null;
-    } | null;
-    cachedInputTokens?: number | null;
-  };
-}): TurnEvent | undefined {
+export function tokenEvent(part: { totalUsage: LanguageModelUsage }): TurnEvent | undefined {
   const tokens = tokensFromUsage(part.totalUsage);
   return tokens ? { type: 'tokens', tokens } : undefined;
 }
@@ -427,19 +405,7 @@ export function primaryEventFromPart(
 }
 
 export function finishEvent(
-  part: {
-    finishReason?: string | null;
-    totalUsage?: {
-      inputTokens?: number | null;
-      outputTokens?: number | null;
-      totalTokens?: number | null;
-      inputTokenDetails?: {
-        cacheReadTokens?: number | null;
-        cacheWriteTokens?: number | null;
-      } | null;
-      cachedInputTokens?: number | null;
-    };
-  },
+  part: { finishReason?: string | null; totalUsage?: LanguageModelUsage },
   acc: StreamAccumulator,
 ): TurnEvent | undefined {
   if (part.finishReason != null) {
@@ -476,6 +442,7 @@ export function* finalEvents(
   yield {
     type: 'done',
     stop: turnStopFromOpenAiFinishReason(acc.finishReason, acc.nativeFinishReason),
+    ...(acc.response ? { response: acc.response } : {}),
   };
 }
 
@@ -488,7 +455,8 @@ function createStreamContext(
     apiKey,
     baseURL: config.baseUrl,
     headers: openAiGatewayHeaders(config),
-    fetch: config.fetch,
+    // The AI SDK retries internally; tapping its fetch tapes every try.
+    fetch: tapFetch(req.tapUpstream, config.fetch ?? fetch, req.keySlot),
     compatibility: 'strict',
   });
   return {

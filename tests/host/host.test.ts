@@ -9,24 +9,22 @@ import {
   HTTP_OK,
   json,
 } from '../../src/host/mod.ts';
+import { resolveObservabilityPolicy } from '../../src/observability/resolve-policy.ts';
 import { memorySink } from '../../src/observability/trace.ts';
-import type { TraceRecord } from '../../src/observability/trace-record.ts';
+import { buildRecord, contentOf, type TraceRecord } from '../../src/observability/trace-record.ts';
+import { startTrace } from '../../src/observability/trace-span.ts';
 
-function stubRecord(): TraceRecord {
-  return {
-    v: 1,
-    id: 'x',
-    ts: Date.now() - 5,
-    ms: 1,
-    streamed: true,
-    cancelled: false,
-    previousInteractionId: null,
-    store: false,
-    profile: 'chat',
-    input: { attachments: [], voice: [] },
-    events: [],
-    ok: true,
-  };
+const CUTOUT_MS = 12;
+const NANOS_PER_MS = 1_000_000n;
+
+async function heldTurn(): Promise<TraceRecord> {
+  const tree = startTrace('invoke_agent chat', { attributes: { 'gen_ai.agent.name': 'chat' } });
+  tree.root.end();
+  return await buildRecord({
+    spans: tree.collect(),
+    policy: resolveObservabilityPolicy(undefined),
+    metadata: { user: 'u1' },
+  });
 }
 
 Deno.test('host reply helpers map status codes and JSON bodies', async () => {
@@ -40,19 +38,41 @@ Deno.test('host reply helpers map status codes and JSON bodies', async () => {
   assertEquals(HTTP_NOT_FOUND, 404);
 });
 
-Deno.test('flushMintTrace attaches cutout metadata onto a held trace row', async () => {
+Deno.test('flushMintTrace writes the held turn, then a cutout span under its root', async () => {
   const into: TraceRecord[] = [];
-  const held = [stubRecord()];
+  const turn = await heldTurn();
 
   await flushMintTrace({
-    held,
+    held: [turn],
     app: { route: 'vinylator' },
-    cutout: { ok: false, ms: 12, error: 'cutout failed' },
+    cutout: {
+      ok: false,
+      ms: CUTOUT_MS,
+      url: 'https://cutout.example/v1/cut?key=secret',
+      http: { status: 502 },
+      error: 'cutout failed',
+    },
     sink: memorySink(into),
   });
 
-  assertEquals(into.length, 1);
-  assertEquals(into[0]?.ok, false);
-  assertEquals(into[0]?.error, 'cutout failed');
-  assertEquals(into[0]?.app, { route: 'vinylator' });
+  const [first, second] = into;
+  assertEquals(first, turn);
+  const [span] = second?.spans ?? [];
+  const [root] = turn.spans;
+  assertEquals(span?.name, 'cutout');
+  assertEquals(span?.traceId, root?.traceId);
+  assertEquals(span?.parentSpanId, root?.spanId);
+  assertEquals(span?.status, { code: 'ERROR' });
+  assertEquals(span?.attributes['url.path'], '/v1/cut');
+  assertEquals(
+    span?.events.map((e) => e.name),
+    ['theorem.upstream.row', 'exception'],
+  );
+  const failure = span?.events[1]?.attributes['exception.message'];
+  assertEquals(second && contentOf(second, failure), 'cutout failed');
+  assertEquals(
+    BigInt(span?.endTimeUnixNano ?? 0) - BigInt(span?.startTimeUnixNano ?? 0),
+    BigInt(CUTOUT_MS) * NANOS_PER_MS,
+  );
+  assertEquals(second?.metadata, { user: 'u1', app: { route: 'vinylator' } });
 });

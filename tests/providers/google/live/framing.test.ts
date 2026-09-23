@@ -5,18 +5,24 @@ import type { ProviderCompleteRequest } from '../../../../src/kernel/types.ts';
 import {
   buildGeminiLiveClientContent,
   buildGeminiLiveRealtimeInput,
-  buildGeminiLiveRealtimeText,
   buildGeminiLiveSetupMessage,
   buildGeminiLiveToolResponse,
   buildGeminiLiveToolResponses,
   buildGeminiLiveWebSocketUrl,
   extractLiveUsageTokens,
   foldGeminiLiveServerMessage,
+  type LiveFold,
+  newLiveFold,
   parseFunctionArguments,
   parseGeminiLiveMessage,
   parseGoAwayTimeLeftMs,
   wireFunctionDeclaration,
 } from '../../../../src/providers/google/live/framing.ts';
+
+/** One server message on a fresh connection. */
+function foldMessage(message: Record<string, unknown>, fold: LiveFold = newLiveFold()) {
+  return foldGeminiLiveServerMessage(message, fold);
+}
 
 Deno.test('buildGeminiLiveWebSocketUrl encodes api key parameter', () => {
   const url = buildGeminiLiveWebSocketUrl('test-key-123');
@@ -186,7 +192,7 @@ Deno.test('buildGeminiLiveSetupMessage seeds historyConfig only when history is 
   assertEquals(setupMsg.setup.historyConfig?.initialHistoryInClientContent, true);
 });
 
-Deno.test('buildGeminiLiveSetupMessage includes tool declarations when provided', () => {
+Deno.test('buildGeminiLiveSetupMessage declares builtins as their own tools and functions together', () => {
   registerTool({
     type: 'builtin',
     name: 'liveSearch',
@@ -196,7 +202,7 @@ Deno.test('buildGeminiLiveSetupMessage includes tool declarations when provided'
     paths: ['*'],
     loadTier: 'T0',
     permission: 'auto',
-    wire: { live: 'google_search' },
+    wire: { live: 'googleSearch' },
   });
 
   const req: ProviderCompleteRequest = {
@@ -221,21 +227,46 @@ Deno.test('buildGeminiLiveSetupMessage includes tool declarations when provided'
   };
 
   const setupMsg = buildGeminiLiveSetupMessage(req) as {
-    setup: {
-      tools: Array<{ functionDeclarations: Array<{ name: string; description?: string }> }>;
-    };
+    setup: { tools: Array<Record<string, unknown>> };
   };
-
-  assertEquals(Array.isArray(setupMsg.setup.tools), true);
-  assertEquals(setupMsg.setup.tools.length, 1);
-  const decls = setupMsg.setup.tools[0]?.functionDeclarations ?? [];
+  // The setup shape every Live model accepted for search (probe 23/09/2026).
+  assertEquals(setupMsg.setup.tools[0], { googleSearch: {} });
+  const decls = setupMsg.setup.tools[1]?.functionDeclarations as Array<{ name: string }>;
   assertEquals(
-    decls.some((d) => d.name === 'liveSearch'),
-    true,
+    decls.map((d) => d.name),
+    ['getCurrentWeather'],
   );
-  assertEquals(
-    decls.some((d) => d.name === 'getCurrentWeather'),
-    true,
+  assertEquals(setupMsg.setup.tools.length, 2);
+});
+
+Deno.test('buildGeminiLiveSetupMessage rejects a builtin with no Live wire type', () => {
+  registerTool({
+    type: 'builtin',
+    name: 'interactionsOnly',
+    description: 'Interactions-only builtin',
+    category: 'web',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    wire: { interactions: 'google_search' },
+  });
+  assertThrows(
+    () =>
+      buildGeminiLiveSetupMessage({
+        model: 'gemini-3.1-flash-live-preview',
+        apiId: 'gemini-3.1-flash-live-preview',
+        system: '',
+        thinking: 'none',
+        maxOutputTokens: 100,
+        temperature: 0,
+        builtins: ['interactionsOnly'],
+        input: [],
+        structured: null,
+        image: null,
+      }),
+    TheoremError,
+    "Builtin 'interactionsOnly' has no wire.live",
   );
 });
 
@@ -256,6 +287,116 @@ Deno.test('buildGeminiLiveClientContent formats conversation history', () => {
   assertEquals(content.clientContent.turns[0]?.parts[0]?.text, 'Hello there');
   assertEquals(content.clientContent.turns[1]?.role, 'model');
   assertEquals(content.clientContent.turns[1]?.parts[0]?.text, 'General Kenobi!');
+});
+
+Deno.test('buildGeminiLiveClientContent sends history content first, then parts', () => {
+  assertEquals(
+    buildGeminiLiveClientContent([
+      {
+        role: 'user',
+        content: 'What is on this leaf?',
+        parts: [{ type: 'image', mimeType: 'image/png', data: 'iVBORw0=' }],
+      },
+    ]),
+    {
+      clientContent: {
+        turns: [
+          {
+            role: 'user',
+            parts: [
+              { text: 'What is on this leaf?' },
+              { inlineData: { mimeType: 'image/png', data: 'iVBORw0=' } },
+            ],
+          },
+        ],
+        turnComplete: true,
+      },
+    },
+  );
+});
+
+Deno.test('buildGeminiLiveClientContent replays tool calls and results as function parts', () => {
+  assertEquals(
+    buildGeminiLiveClientContent([
+      { role: 'user', content: 'Where is order A1042?' },
+      {
+        role: 'assistant',
+        content: 'Checking.',
+        tool_calls: [
+          {
+            id: 'call_1',
+            type: 'function',
+            function: { name: 'lookup_order', arguments: '{"order_id":"A1042"}' },
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        tool_call_id: 'call_1',
+        name: 'lookup_order',
+        content: '{"status":"shipped"}',
+        parts: [{ type: 'image', mimeType: 'image/png', data: 'iVBORw0=' }],
+      },
+    ]),
+    {
+      clientContent: {
+        turns: [
+          { role: 'user', parts: [{ text: 'Where is order A1042?' }] },
+          {
+            role: 'model',
+            parts: [
+              { text: 'Checking.' },
+              {
+                functionCall: { id: 'call_1', name: 'lookup_order', args: { order_id: 'A1042' } },
+              },
+            ],
+          },
+          {
+            role: 'user',
+            parts: [
+              {
+                functionResponse: {
+                  id: 'call_1',
+                  name: 'lookup_order',
+                  response: { result: '{"status":"shipped"}' },
+                  parts: [{ inlineData: { mimeType: 'image/png', data: 'iVBORw0=' } }],
+                },
+              },
+            ],
+          },
+        ],
+        turnComplete: true,
+      },
+    },
+  );
+});
+
+Deno.test('buildGeminiLiveClientContent sends only the tool fields history carries', () => {
+  assertEquals(buildGeminiLiveClientContent([{ role: 'tool', content: 'done' }]), {
+    clientContent: {
+      turns: [{ role: 'user', parts: [{ functionResponse: { response: { result: 'done' } } }] }],
+      turnComplete: true,
+    },
+  });
+});
+
+Deno.test('buildGeminiLiveClientContent rejects malformed tool-call history arguments', () => {
+  assertThrows(
+    () =>
+      buildGeminiLiveClientContent([
+        {
+          role: 'assistant',
+          tool_calls: [
+            {
+              id: 'call_1',
+              type: 'function',
+              function: { name: 'lookup_order', arguments: '{"a"' },
+            },
+          ],
+        },
+      ]),
+    TheoremError,
+  );
 });
 
 Deno.test('buildGeminiLiveRealtimeInput serializes audio, video, and text parts', () => {
@@ -281,9 +422,20 @@ Deno.test('buildGeminiLiveRealtimeInput serializes audio, video, and text parts'
   assertEquals(videoMsg.realtimeInput.video.data, 'dGVzdA==');
 });
 
-Deno.test('buildGeminiLiveRealtimeText creates text input payload', () => {
-  const textMsg = buildGeminiLiveRealtimeText('hello') as { realtimeInput: { text: string } };
-  assertEquals(textMsg.realtimeInput.text, 'hello');
+Deno.test('buildGeminiLiveRealtimeInput creates text input payload', () => {
+  assertEquals(buildGeminiLiveRealtimeInput({ type: 'text', text: 'hello' }), {
+    realtimeInput: { text: 'hello' },
+  });
+});
+
+Deno.test('buildGeminiLiveRealtimeInput sends the mime it is given', () => {
+  // 'audio/pcm' with no rate is accepted on every Live model (probe 23/09/2026).
+  assertEquals(
+    buildGeminiLiveRealtimeInput({ type: 'audio', mimeType: 'audio/pcm', data: 'AQ==' }),
+    {
+      realtimeInput: { audio: { mimeType: 'audio/pcm', data: 'AQ==' } },
+    },
+  );
 });
 
 Deno.test('buildGeminiLiveToolResponse formats function responses', () => {
@@ -328,7 +480,7 @@ Deno.test('buildGeminiLiveToolResponses batches multiple function responses', ()
 
 Deno.test('foldGeminiLiveServerMessage handles model audio, text, transcriptions, and interruption', () => {
   // 1. Text and thinking
-  const textEvts = foldGeminiLiveServerMessage({
+  const textEvts = foldMessage({
     serverContent: {
       modelTurn: {
         parts: [
@@ -345,7 +497,7 @@ Deno.test('foldGeminiLiveServerMessage handles model audio, text, transcriptions
   assertEquals(textEvts[1]?.text, 'Here is the answer');
 
   // 2. Interruption
-  const interruptedEvts = foldGeminiLiveServerMessage({
+  const interruptedEvts = foldMessage({
     serverContent: {
       interrupted: true,
     },
@@ -358,7 +510,7 @@ Deno.test('foldGeminiLiveServerMessage handles model audio, text, transcriptions
   // 3. Audio chunk wrapped into WAV
   // 4 bytes of PCM (2 samples: 0, 0)
   const pcmBase64 = btoa(String.fromCharCode(0, 0, 0, 0));
-  const audioEvts = foldGeminiLiveServerMessage({
+  const audioEvts = foldMessage({
     serverContent: {
       modelTurn: {
         parts: [{ inlineData: { mimeType: 'audio/pcm;rate=24000', data: pcmBase64 } }],
@@ -368,10 +520,21 @@ Deno.test('foldGeminiLiveServerMessage handles model audio, text, transcriptions
   assertEquals(audioEvts.length, 1);
   assertEquals(audioEvts[0]?.type, 'media');
   assertEquals(audioEvts[0]?.media?.mimeType, 'audio/wav');
-  assertExists(audioEvts[0]?.media?.data);
+  const wav = new DataView(
+    Uint8Array.from(atob(audioEvts[0]?.media?.data ?? ''), (c) => c.charCodeAt(0)).buffer,
+  );
+  assertEquals(wav.getUint32(24, true), 24000);
+
+  // A mime without a stated rate is not wrapped at a guessed one.
+  const unstated = foldMessage({
+    serverContent: {
+      modelTurn: { parts: [{ inlineData: { mimeType: 'audio/pcm', data: pcmBase64 } }] },
+    },
+  });
+  assertEquals(unstated[0]?.media, { mimeType: 'audio/pcm', data: pcmBase64 });
 
   // 4. Session resumption update
-  const resumeEvts = foldGeminiLiveServerMessage({
+  const resumeEvts = foldMessage({
     sessionResumptionUpdate: {
       newHandle: 'handle_xyz_987',
       resumable: true,
@@ -384,7 +547,7 @@ Deno.test('foldGeminiLiveServerMessage handles model audio, text, transcriptions
 });
 
 Deno.test('foldGeminiLiveServerMessage folds output and interim transcriptions mid-turn', () => {
-  const outputOnly = foldGeminiLiveServerMessage({
+  const outputOnly = foldMessage({
     serverContent: {
       outputTranscription: { text: 'spoken by model' },
     },
@@ -394,7 +557,7 @@ Deno.test('foldGeminiLiveServerMessage folds output and interim transcriptions m
   assertEquals(outputOnly[0]?.text, 'spoken by model');
   assertEquals(outputOnly[0]?.evidence?.kind, 'output_transcription');
 
-  const both = foldGeminiLiveServerMessage({
+  const both = foldMessage({
     serverContent: {
       inputTranscription: { text: 'user hello' },
       outputTranscription: { text: 'agent hello' },
@@ -405,7 +568,7 @@ Deno.test('foldGeminiLiveServerMessage folds output and interim transcriptions m
     ['input_transcription', 'output_transcription'],
   );
 
-  const interim = foldGeminiLiveServerMessage({
+  const interim = foldMessage({
     serverContent: {
       interimInputTranscription: { text: 'hel' },
     },
@@ -415,27 +578,41 @@ Deno.test('foldGeminiLiveServerMessage folds output and interim transcriptions m
 });
 
 Deno.test('foldGeminiLiveServerMessage folds goAway, tool cancel, waitingForInput, generationComplete', () => {
-  const goAway = foldGeminiLiveServerMessage({
+  const goAway = foldMessage({
     goAway: { timeLeft: '10s' },
   });
   assertEquals(goAway[0]?.type, 'session');
   assertEquals(goAway[0]?.session?.kind, 'closing_soon');
   assertEquals(goAway[0]?.session?.timeLeftMs, 10_000);
 
-  const cancel = foldGeminiLiveServerMessage({
-    toolCallCancellation: { ids: ['call_1', 'call_2'] },
-  });
-  assertEquals(cancel.length, 2);
-  assertEquals(cancel[0]?.tool?.phase, 'cancel');
-  assertEquals(cancel[0]?.tool?.id, 'call_1');
-  assertEquals(cancel[1]?.tool?.id, 'call_2');
+  const fold = newLiveFold();
+  foldMessage(
+    {
+      toolCall: {
+        functionCalls: [
+          { id: 'call_1', name: 'get_soil_moisture', args: {} },
+          { id: 'call_2', name: 'get_light_level', args: {} },
+        ],
+      },
+    },
+    fold,
+  );
+  // The wire shape (probe 23/09/2026): ids only.
+  const cancel = foldMessage({ toolCallCancellation: { ids: ['call_1', 'call_2'] } }, fold);
+  assertEquals(
+    cancel.map((ev) => ev.tool),
+    [
+      { id: 'call_1', name: 'get_soil_moisture', phase: 'cancel' },
+      { id: 'call_2', name: 'get_light_level', phase: 'cancel' },
+    ],
+  );
 
-  const waiting = foldGeminiLiveServerMessage({
+  const waiting = foldMessage({
     serverContent: { waitingForInput: true },
   });
   assertEquals(waiting[0]?.session?.kind, 'waiting_for_input');
 
-  const genDone = foldGeminiLiveServerMessage({
+  const genDone = foldMessage({
     serverContent: { generationComplete: true },
   });
   assertEquals(genDone[0]?.type, 'done');
@@ -443,7 +620,7 @@ Deno.test('foldGeminiLiveServerMessage folds goAway, tool cancel, waitingForInpu
 });
 
 Deno.test('foldGeminiLiveServerMessage emits resumable false without a new handle', () => {
-  const evts = foldGeminiLiveServerMessage({
+  const evts = foldMessage({
     sessionResumptionUpdate: { resumable: false },
   });
   assertEquals(evts.length, 1);
@@ -452,10 +629,12 @@ Deno.test('foldGeminiLiveServerMessage emits resumable false without a new handl
   assertEquals(evts[0]?.sessionResumptionHandle, undefined);
 });
 
-Deno.test('parseGoAwayTimeLeftMs parses seconds and duration strings', () => {
-  assertEquals(parseGoAwayTimeLeftMs(10), 10_000);
+Deno.test('parseGoAwayTimeLeftMs reads a protobuf Duration string', () => {
   assertEquals(parseGoAwayTimeLeftMs('10s'), 10_000);
   assertEquals(parseGoAwayTimeLeftMs('1.5s'), 1_500);
+  assertEquals(parseGoAwayTimeLeftMs('0s'), 0);
+  assertEquals(parseGoAwayTimeLeftMs(10), undefined);
+  assertEquals(parseGoAwayTimeLeftMs('10'), undefined);
   assertEquals(parseGoAwayTimeLeftMs(''), undefined);
   assertEquals(parseGoAwayTimeLeftMs(undefined), undefined);
 });
@@ -472,30 +651,49 @@ Deno.test('parseGeminiLiveMessage distinguishes empty from malformed', () => {
   assertEquals(parseGeminiLiveMessage('null'), { ok: false, reason: 'malformed' });
 });
 
-Deno.test('extractLiveUsageTokens parses token counts', () => {
-  const empty = extractLiveUsageTokens({});
-  assertEquals(empty, undefined);
+// Counts are a live gemini-3.1-flash-live-preview response (22/09/2026).
+Deno.test('extractLiveUsageTokens adds thoughts to output and total', () => {
+  assertEquals(extractLiveUsageTokens({}), undefined);
+  assertEquals(
+    extractLiveUsageTokens({
+      promptTokenCount: 155,
+      responseTokenCount: 67,
+      totalTokenCount: 222,
+      thoughtsTokenCount: 95,
+    }),
+    { input: 155, output: 162, thinking: 95, total: 317 },
+  );
+});
 
-  const tokens = extractLiveUsageTokens({
-    promptTokenCount: 15,
-    responseTokenCount: 25,
-    thoughtsTokenCount: 5,
-    totalTokenCount: 40,
-  });
-  assertEquals(tokens?.input, 15);
-  assertEquals(tokens?.output, 25);
-  assertEquals(tokens?.thinking, 5);
-  assertEquals(tokens?.total, 40);
+Deno.test('extractLiveUsageTokens keeps per-modality details as reported, lower-cased', () => {
+  // Recorded shape (23/09/2026): details list only some prompt tokens.
+  assertEquals(
+    extractLiveUsageTokens({
+      promptTokenCount: 200,
+      responseTokenCount: 300,
+      totalTokenCount: 500,
+      promptTokensDetails: [{ modality: 'TEXT', tokenCount: 150 }],
+      responseTokensDetails: [{ modality: 'AUDIO', tokenCount: 300 }],
+    }),
+    {
+      input: 200,
+      output: 300,
+      total: 500,
+      byModality: { input: { text: 150 }, output: { audio: 300 } },
+    },
+  );
+});
 
-  const snakeTokens = extractLiveUsageTokens({
-    prompt_token_count: 10,
-    response_token_count: 20,
-    total_token_count: 30,
-  });
-  assertEquals(snakeTokens?.input, 10);
-  assertEquals(snakeTokens?.output, 20);
-  assertEquals(snakeTokens?.total, 30);
-  assertEquals(snakeTokens?.thinking, undefined);
+Deno.test('extractLiveUsageTokens adds tool-use prompt tokens to input and keeps cache share', () => {
+  assertEquals(
+    extractLiveUsageTokens({
+      promptTokenCount: 100,
+      responseTokenCount: 10,
+      toolUsePromptTokenCount: 40,
+      cachedContentTokenCount: 60,
+    }),
+    { input: 140, output: 10, toolUse: 40, cached: 60, total: 150 },
+  );
 });
 
 Deno.test('wireFunctionDeclaration uppercases JSON Schema types for Gemini Live', () => {
@@ -538,7 +736,7 @@ Deno.test('parseFunctionArguments handles strings, objects, and malformed inputs
 });
 
 Deno.test('foldGeminiLiveServerMessage emits malformed_arguments on bad tool JSON', () => {
-  const events = foldGeminiLiveServerMessage({
+  const events = foldMessage({
     toolCall: {
       functionCalls: [{ id: 'call_bad', name: 'search', args: '{not-json' }],
     },
@@ -550,7 +748,7 @@ Deno.test('foldGeminiLiveServerMessage emits malformed_arguments on bad tool JSO
 });
 
 Deno.test('foldGeminiLiveServerMessage handles tool calls and usage tokens', () => {
-  const events = foldGeminiLiveServerMessage({
+  const events = foldMessage({
     toolCall: {
       functionCalls: [{ id: 'call_1', name: 'search', args: '{"q": "deno"}' }],
     },
@@ -619,17 +817,90 @@ Deno.test('wireLiveTools declares every live function NON_BLOCKING', () => {
 });
 
 Deno.test('foldGeminiLiveServerMessage folds interactionStatus and turnComplete into session events', () => {
-  const working = foldGeminiLiveServerMessage({
-    serverContent: { turnComplete: true },
-    interactionStatus: 'IN_PROGRESS',
+  const working = foldMessage({
+    serverContent: { turnComplete: true, interactionStatus: 'IN_PROGRESS' },
   });
   assertEquals(
     working.map((ev) => (ev.type === 'session' ? ev.session?.kind : ev.type)),
     ['turn_complete', 'working'],
   );
 
-  const idle = foldGeminiLiveServerMessage({ interaction_status: 'IDLE' });
+  const idle = foldMessage({ serverContent: { interactionStatus: 'IDLE' } });
   assertEquals(idle, [{ type: 'session', session: { kind: 'idle' } }]);
 
-  assertEquals(foldGeminiLiveServerMessage({ interactionStatus: 'BOGUS' }), []);
+  assertEquals(foldMessage({ serverContent: { interactionStatus: 'BOGUS' } }), []);
+  assertEquals(foldMessage({ interactionStatus: 'IDLE' }), []);
+  assertEquals(foldMessage({}), []);
+});
+
+Deno.test('foldGeminiLiveServerMessage emits grounding from serverContent.groundingMetadata', () => {
+  // Shape recorded from gemini-3.1-flash-live-preview with googleSearch (23/09/2026).
+  const groundingMetadata = {
+    groundingChunks: [
+      { web: { uri: 'https://grounding.example/redirect/a', title: 'rhs.org.uk' } },
+    ],
+    searchEntryPoint: { renderedContent: '<div class="chip">chelsea</div>' },
+    webSearchQueries: ['chelsea best in show'],
+  };
+  const events = foldMessage({ serverContent: { groundingMetadata } });
+  assertEquals(events, [
+    {
+      type: 'grounding',
+      grounding: {
+        metadata: groundingMetadata,
+        chunks: groundingMetadata.groundingChunks,
+        searchHtml: '<div class="chip">chelsea</div>',
+        sources: [
+          { type: 'web', uri: 'https://grounding.example/redirect/a', title: 'rhs.org.uk' },
+        ],
+      },
+    },
+  ]);
+  assertEquals(foldMessage({ serverContent: { grounding_metadata: groundingMetadata } }), []);
+});
+
+Deno.test('a Live cancel for a call the connection never issued is an error', () => {
+  const events = foldMessage({ toolCallCancellation: { ids: ['call_9'] } });
+  assertEquals(
+    events.map((ev) => ev.type),
+    ['error'],
+  );
+  assertEquals(events[0]?.errorInternal?.includes('call_9'), true);
+});
+
+Deno.test('foldGeminiLiveServerMessage folds voiceActivity as evidence', () => {
+  // gemini-3.1-flash-live-preview (probe 23/09/2026).
+  const voiceActivity = { type: 'ACTIVITY_START', audioOffset: '0.360s' };
+  assertEquals(foldMessage({ serverContent: {}, voiceActivity }), [
+    {
+      type: 'evidence',
+      evidence: { provider: 'google', kind: 'voice_activity', raw: voiceActivity },
+    },
+  ]);
+});
+
+Deno.test('foldGeminiLiveServerMessage folds a codeExecutionResult part as evidence', () => {
+  // gemini-2.5-flash-native-audio reports a URL fetch this way (probe 23/09/2026).
+  const result = { outcome: 'OUTCOME_OK', output: 'Browsing the web.' };
+  assertEquals(
+    foldMessage({ serverContent: { modelTurn: { parts: [{ codeExecutionResult: result }] } } }),
+    [
+      {
+        type: 'evidence',
+        evidence: {
+          provider: 'google',
+          kind: 'code_execution_result',
+          result: 'Browsing the web.',
+          isError: false,
+          raw: result,
+        },
+      },
+    ],
+  );
+  const failed = foldMessage({
+    serverContent: {
+      modelTurn: { parts: [{ codeExecutionResult: { outcome: 'OUTCOME_FAILED' } }] },
+    },
+  });
+  assertEquals(failed[0]?.evidence?.isError, true);
 });

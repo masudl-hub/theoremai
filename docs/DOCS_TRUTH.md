@@ -2,8 +2,6 @@
 
 Deterministic document-health lint for THEOREM. No waivers. No LLM.
 
-This contract was refreshed alongside the current release branch so the docs-truth ownership graph stays aligned with the live code surface and package metadata.
-
 ## Export
 
 | Field | Value |
@@ -25,8 +23,6 @@ This contract was refreshed alongside the current release branch so the docs-tru
 | `docs/_map.mjs` | Export → doc ownership graph |
 
 ## Rules
-
-The active branch refresh keeps the docs-truth rules in sync with the runtime graph, ownership checks, and production-root enforcement used by the repo.
 
 | Rule | Behavior |
 | --- | --- |
@@ -63,8 +59,6 @@ owned by those contracts for freshness — change code, update the matching cont
 
 ## Production roots
 
-The current codebase refresh keeps the production-root list aligned with the actual live tree and the docs-truth validation gate used in CI.
-
 | Root | Files |
 | --- | --- |
 | `mod.ts` | Package barrel (`@theoremai/agents`) |
@@ -78,7 +72,7 @@ The current codebase refresh keeps the production-root list aligned with the act
 | --- | --- |
 | `npm run lint` | Runs `lint:docs` first, then `deno lint`, biome, ast-grep, and fallow |
 | `deno task lint` | Same as `npm run lint` |
-| `npm run check:ci` / `deno task ci` | Full CI gate: docs-truth, deno lint, biome, ast-grep, fallow, typecheck, verify:publish, and tests |
+| `npm run check:ci` / `deno task ci` | Full CI gate: docs-truth, deno lint, biome, ast-grep, verify:publish, fallow, typecheck (`mod.ts` plus the subprocess probe fixtures the tests spawn unchecked), and tests (publish check before fallow, which writes `coverage/`) |
 | CI | `lint:docs` (with `THEOREM_DOCS_BASE`), `deno lint`, then `lint:biome` + `lint:ast-grep` + `lint:fallow` (`FALLOW_AUDIT_BASE=origin/<base>`) |
 | Pre-commit | `npm run lint:docs` (auto-installed by `prepare` / `hooks:install`) |
 | Pre-push | `fallow audit --base origin/main` (uses `coverage/coverage-final.json` when present) |

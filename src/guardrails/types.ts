@@ -204,8 +204,9 @@ export interface GuardrailContext {
 /**
  * One guardrail decision, as it reaches the host and the trace.
  *
- * Carries rule identity and offsets, never the matched content, so a trace sink
- * can count and locate hits without becoming a second copy of the secret.
+ * Carries rule identity and offsets. Matched text rides only under
+ * `observability.include.guardrailMatchPreview`, so by default a trace sink can
+ * count and locate hits without becoming a second copy of the secret.
  */
 export interface GuardrailEvent {
   stage: GuardrailStage;

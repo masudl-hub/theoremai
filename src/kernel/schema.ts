@@ -660,6 +660,10 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
     'boolean',
     'Gemini Interactions: prefer previous_interaction_id over client-owned history. Omit → host/turn decides.',
   ),
+  'models.*.server': field(
+    'string',
+    'Local server hosting the model (ollama, vllm, …). Traces report it as gen_ai.provider.name. Only valid when provider is local.',
+  ),
   defaultModel: field('ModelId', 'Default model id when the turn omits model.'),
   allowModelSelect: field('boolean', 'Turn may pass model. Requires two or more models keys.'),
   maxSteps: field(
@@ -951,7 +955,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   ),
   'observability.sampleRate': field(
     'number',
-    'Fraction of turns to record (0–1). Default 1. Ignored when runTurn passes an explicit sink.',
+    'Fraction of traces to record (0–1), decided by trace id so a trace is kept or dropped whole. Default 1. Ignored when runTurn passes an explicit sink.',
   ),
   'observability.include': field(
     'TraceIncludeSpec',
@@ -959,15 +963,15 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   ),
   'observability.include.upstreamLog': field(
     'boolean',
-    'Scrubbed provider HTTP/SSE rows. Default true.',
+    'theorem.upstream.row events: each scrubbed provider row at its arrival time. Default true.',
   ),
   'observability.include.outboundWire': field(
     'boolean',
-    'Scrubbed outbound request body. Default false.',
+    'theorem.wire.request events: the scrubbed request body of each HTTP try. Default false.',
   ),
   'observability.include.evidenceRaw': field(
     'boolean',
-    'Verbatim provider step JSON on events. Default false.',
+    'The provider raw payload on theorem.grounding events. Default false.',
   ),
   'observability.include.usage': field('boolean', 'Token / usage fields. Default true.'),
   'observability.include.guardrailDecisions': field(
@@ -977,6 +981,10 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   'observability.include.guardrailMatchPreview': field(
     'boolean',
     'Keep GuardrailHit.match (capped matched substring) on stream + TraceRecord. Default false — debugging only.',
+  ),
+  'observability.resource': field(
+    'Record<string, TraceAttributeValue>',
+    'Process attributes stamped on every TraceRecord (e.g. service.name). Default {}.',
   ),
   'observability.scrub': field(
     'TraceScrubSpec',
@@ -993,7 +1001,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   'observability.scrub.canary': field('boolean', 'Never persist the canary token. Default true.'),
   'observability.retainForDays': field(
     'number',
-    'JSONL retention days when writeTo resolves to a jsonl destination. Default 14.',
+    'Days to keep each record, handed to every destination with the record; <=0 keeps records forever. Default 14.',
   ),
   'observability.rotateAfterMiB': field(
     'number',

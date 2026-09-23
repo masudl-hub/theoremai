@@ -1,8 +1,9 @@
 import '../../fixtures/test-host.ts';
-import type { TextStreamPart, ToolSet } from 'ai';
+import type { LanguageModelUsage, TextStreamPart, ToolSet } from 'ai';
 import { PUBLIC_UNAVAILABLE } from '../../../src/guardrails/error.ts';
 import { assertEquals } from '../../../src/kernel/engine/assert.ts';
 import { resolveTurn } from '../../../src/kernel/registry/resolve.ts';
+import { registerTool } from '../../../src/kernel/tools/mod.ts';
 import type { ProviderCompleteRequest, TurnEvent } from '../../../src/kernel/types.ts';
 import {
   buildTools,
@@ -443,6 +444,35 @@ Deno.test('createOpenRouterProvider passes web_search_options for googleSearch b
   assertEquals(capturedBody?.plugins, undefined);
 });
 
+Deno.test('createOpenRouterProvider errors on a builtin with no OpenRouter wire, without calling upstream', async () => {
+  registerTool({
+    type: 'builtin',
+    name: 'liveOnly',
+    description: 'Live-only builtin',
+    category: 'web',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    wire: { live: 'liveOnly' },
+  });
+  let called = false;
+  const provider = createOpenRouterProvider({
+    apiKey: 'test-key',
+    fetch: () => {
+      called = true;
+      return Promise.resolve(sseResponse(['data: [DONE]\n\n']));
+    },
+  });
+
+  const req = createMockTurnRequest('pinned', 'find a nursery');
+  req.builtins = ['liveOnly'];
+  const events = await collect(provider.complete(req));
+  const error = events.find((e) => e.type === 'error');
+  assertEquals(error?.errorInternal?.includes("Builtin 'liveOnly' has no wire.openRouter"), true);
+  assertEquals(called, false);
+});
+
 Deno.test('createOpenRouterProvider emits tool call events with id, name, and parsed arguments', async () => {
   const toolChunk = JSON.stringify({
     choices: [
@@ -580,7 +610,7 @@ Deno.test('createOpenRouterProvider yields error on HTTP non-200', async () => {
   assertEquals(events[0]?.error, PUBLIC_UNAVAILABLE);
 });
 
-Deno.test('createOpenRouterProvider wires tool result history with fallback ids', async () => {
+Deno.test('createOpenRouterProvider wires tool result history', async () => {
   let capturedBody: Record<string, unknown> | undefined;
   const provider = createOpenRouterProvider({
     apiKey: 'test-key',
@@ -608,20 +638,32 @@ Deno.test('createOpenRouterProvider wires tool result history with fallback ids'
       ],
     },
     { role: 'tool', name: 'calc', tool_call_id: 'tc1', content: '42' },
-    { role: 'tool', content: 'orphan result' },
     { role: 'assistant', parts: [{ type: 'text', text: 'summary' }] },
     { role: 'user', content: 'follow-up' },
   ];
   await collect(provider.complete(req));
 
   const messages = capturedBody?.messages as Array<Record<string, unknown>>;
-  assertEquals(messages.length > 0, true);
-
   const toolMsgs = messages.filter((m) => m.role === 'tool');
-  assertEquals(toolMsgs.length, 2);
+  assertEquals(toolMsgs, [{ role: 'tool', tool_call_id: 'tc1', content: '42', name: 'calc' }]);
+});
 
-  const assistantMsgs = messages.filter((m) => m.role === 'assistant');
-  assertEquals(assistantMsgs.length >= 2, true);
+Deno.test('createOpenRouterProvider sends nothing for a tool result without its call id', async () => {
+  let sent = false;
+  const provider = createOpenRouterProvider({
+    apiKey: 'test-key',
+    fetch: () => {
+      sent = true;
+      return Promise.resolve(sseResponse(['data: [DONE]\n\n']));
+    },
+  });
+
+  const req = createMockTurnRequest('pinned', 'test');
+  req.history = [{ role: 'tool', content: 'orphan result' }];
+  const events = await collect(provider.complete(req));
+
+  assertEquals(sent, false);
+  assertEquals(events.at(-1)?.type, 'error');
 });
 
 Deno.test('createOpenRouterProvider emits structured event for valid JSON output', async () => {
@@ -1271,47 +1313,63 @@ Deno.test('buildTools creates tool set', () => {
   assertEquals('search' in (tools as R), true);
 });
 
-function mockUsage(
-  input: number | null,
-  output: number | null,
-  total: number | null,
-): {
-  inputTokens?: number | null;
-  outputTokens?: number | null;
-  totalTokens?: number | null;
-} {
+function usage(counts: {
+  input?: number;
+  output?: number;
+  reasoning?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+}): LanguageModelUsage {
   return {
-    inputTokens: input,
-    outputTokens: output,
-    totalTokens: total,
+    inputTokens: counts.input,
+    inputTokenDetails: {
+      noCacheTokens: undefined,
+      cacheReadTokens: counts.cacheRead,
+      cacheWriteTokens: counts.cacheWrite,
+    },
+    outputTokens: counts.output,
+    outputTokenDetails: { textTokens: undefined, reasoningTokens: counts.reasoning },
+    totalTokens:
+      counts.input === undefined && counts.output === undefined
+        ? undefined
+        : (counts.input ?? 0) + (counts.output ?? 0),
   };
 }
 
-Deno.test('tokensFromUsage returns undefined for all zeros', () => {
-  assertEquals(tokensFromUsage(mockUsage(0, 0, 0)), undefined);
+Deno.test('tokensFromUsage returns undefined for all zeros and for no counts', () => {
+  assertEquals(tokensFromUsage(usage({ input: 0, output: 0 })), undefined);
+  assertEquals(tokensFromUsage(usage({})), undefined);
 });
 
-Deno.test('tokensFromUsage maps non-zero usage', () => {
-  assertEquals(tokensFromUsage(mockUsage(10, 5, 15)), {
+Deno.test('tokensFromUsage maps reported input and output', () => {
+  assertEquals(tokensFromUsage(usage({ input: 10, output: 5 })), {
     input: 10,
     output: 5,
     total: 15,
   });
 });
 
-Deno.test('tokensFromUsage computes total from input+output when null', () => {
-  assertEquals(tokensFromUsage(mockUsage(10, 5, null)), {
-    input: 10,
-    output: 5,
-    total: 15,
-  });
-});
-
-Deno.test('tokensFromUsage handles null input/output', () => {
-  assertEquals(tokensFromUsage(mockUsage(null, null, 5)), {
+Deno.test('tokensFromUsage marks an unreported side estimated', () => {
+  assertEquals(tokensFromUsage(usage({ output: 5 })), {
     input: 0,
-    output: 0,
+    output: 5,
     total: 5,
+    estimated: ['input'],
+  });
+  assertEquals(tokensFromUsage(usage({ input: 10 })), {
+    input: 10,
+    output: 0,
+    total: 10,
+    estimated: ['output'],
+  });
+});
+
+Deno.test('tokensFromUsage keeps reasoning as a share of output', () => {
+  assertEquals(tokensFromUsage(usage({ input: 10, output: 50, reasoning: 30 })), {
+    input: 10,
+    output: 50,
+    thinking: 30,
+    total: 60,
   });
 });
 
@@ -1545,7 +1603,7 @@ Deno.test('toolResultEvent includes string output on complete phase', () => {
 Deno.test('tokenEvent returns undefined for zero usage', () => {
   const part = {
     type: 'finish' as const,
-    totalUsage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+    totalUsage: usage({ input: 0, output: 0 }),
   };
   assertEquals(tokenEvent(part), undefined);
 });
@@ -1553,7 +1611,7 @@ Deno.test('tokenEvent returns undefined for zero usage', () => {
 Deno.test('tokenEvent returns token event for non-zero usage', () => {
   const part = {
     type: 'finish' as const,
-    totalUsage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+    totalUsage: usage({ input: 10, output: 5 }),
   };
   const ev = tokenEvent(part);
   assertEquals(ev?.type, 'tokens');
@@ -1564,7 +1622,7 @@ Deno.test('finishEvent suppresses duplicate token emission', () => {
   const acc = createAccumulator();
   const part = {
     type: 'finish' as const,
-    totalUsage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+    totalUsage: usage({ input: 10, output: 5 }),
   };
   const first = finishEvent(part, acc);
   assertEquals(first?.type, 'tokens');
@@ -1706,6 +1764,14 @@ Deno.test('finalEvents emits done only when no structured text', () => {
   assertEquals(events[0].type, 'done');
 });
 
+Deno.test('finalEvents carries the response identity the raw rows sent', () => {
+  const acc = createAccumulator();
+  rawEvents({ id: 'gen-7', model: 'vendor/model-a', choices: [] }, acc);
+  const req = createMockTurnRequest('pinned', 'test');
+  const [done] = [...finalEvents(req, acc)];
+  assertEquals(done?.response, { id: 'gen-7', model: 'vendor/model-a' });
+});
+
 Deno.test('providerOptionsFor returns undefined for no thinking no structured', () => {
   const req = createMockTurnRequest('pinned', 'test');
   req.thinking = 'none';
@@ -1778,15 +1844,13 @@ Deno.test('systemDelivery uses instructions for automatic/default and XOR system
 });
 
 Deno.test('tokensFromUsage maps AI SDK cache read/write details', () => {
-  assertEquals(
-    tokensFromUsage({
-      inputTokens: 100,
-      outputTokens: 5,
-      totalTokens: 105,
-      inputTokenDetails: { cacheReadTokens: 80, cacheWriteTokens: 20 },
-    }),
-    { input: 100, output: 5, total: 105, cached: 80, cacheWrite: 20 },
-  );
+  assertEquals(tokensFromUsage(usage({ input: 100, output: 5, cacheRead: 80, cacheWrite: 20 })), {
+    input: 100,
+    output: 5,
+    cached: 80,
+    cacheWrite: 20,
+    total: 105,
+  });
 });
 
 Deno.test('rawEvents emits tokens with cached from usage', () => {

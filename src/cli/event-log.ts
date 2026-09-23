@@ -6,7 +6,7 @@
 
 import type { TurnEvent } from '../kernel/types.ts';
 import { jsonlSink, memorySink } from '../observability/trace.ts';
-import type { TraceRecord } from '../observability/trace-record.ts';
+import { inlineContent, type TraceRecord } from '../observability/trace-record.ts';
 import type { TraceSink } from '../observability/trace-sink.ts';
 
 export interface CliEventLogOptions {
@@ -28,9 +28,9 @@ function createCliTraceCapture(traceDir?: string): CliTraceCapture {
   return {
     records,
     sink: {
-      write: async (record) => {
+      write: async (record, context) => {
         for (const sink of sinks) {
-          await sink.write(record);
+          await sink.write(record, context);
         }
       },
     },
@@ -145,6 +145,16 @@ function printTestEvent(event: TurnEvent, options: CliEventLogOptions = {}): voi
   }
 }
 
+/** Every provider row the record holds, in span order, read back from content. */
+/** Every provider row in the record, rebuilt with its interned text. */
+function upstreamRows(record: TraceRecord): unknown[] {
+  return record.spans.flatMap((span) =>
+    span.events.flatMap((event) =>
+      event.name === 'theorem.upstream.row' ? [inlineContent(record, event.attributes.row)] : [],
+    ),
+  );
+}
+
 /** Dump the last captured trace record after a CLI turn. */
 function printTraceRecord(record: TraceRecord | undefined, verbose: boolean): void {
   if (!record) {
@@ -155,9 +165,10 @@ function printTraceRecord(record: TraceRecord | undefined, verbose: boolean): vo
   console.log('\n\x1b[35m════ TRACE RECORD ════\x1b[0m');
   console.log(JSON.stringify(record, null, 2));
 
-  if (verbose && record.upstreamLog) {
+  const rows = verbose ? upstreamRows(record) : [];
+  if (rows.length > 0) {
     console.log('\n\x1b[35m════ UPSTREAM LOG ════\x1b[0m');
-    console.log(JSON.stringify(record.upstreamLog, null, 2));
+    console.log(JSON.stringify(rows, null, 2));
   }
 }
 

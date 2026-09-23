@@ -209,6 +209,12 @@ export interface ModelBinding {
    * instead of client-owned history. Omit → host/turn decides.
    */
   persistViaInteractionId?: boolean;
+  /**
+   * Local server that hosts the model (e.g. `ollama`, `vllm`, `llama.cpp`).
+   * Traces report it as `gen_ai.provider.name`; omit → the attribute is absent.
+   * `defineProfile` accepts only when `provider` is `local`.
+   */
+  server?: string;
 }
 
 /**
@@ -239,6 +245,8 @@ export interface CompactionTriggerContext {
   compactAt: number;
   /** Which meter produced `tokens`. */
   meter: CompactionMeter;
+  /** Media parts not counted in `tokens` — no verified rule for this model. */
+  unknownMedia: number;
 }
 
 /**
@@ -764,6 +772,19 @@ export interface TurnInput {
 /** Host request after kernel ingress normalization. */
 export type NormalizedTurnRequest = TurnRequest & { input: TurnInput };
 
+/**
+ * An earlier trace this one follows from. Recorded as a span link on the
+ * root, so a developer can walk a conversation across records.
+ */
+export interface TurnTraceLink {
+  /** The earlier root's `traceparent` (its terminal `done.traceparent`). */
+  traceparent: string;
+  /** `resume` after a pause, `continue` after a resumeable stop, `retry` of a failed turn. */
+  kind: 'resume' | 'continue' | 'retry';
+  /** How the earlier turn stopped, when the host knows. */
+  stop?: TurnStopKind;
+}
+
 /** Host request for a single deterministic agent turn. */
 export interface TurnRequest {
   profile: ProfileId;
@@ -796,6 +817,16 @@ export interface TurnRequest {
   path?: string;
   /** Host-owned metadata preserved for traces; the kernel does not interpret it. */
   metadata?: Record<string, unknown>;
+  /**
+   * W3C `traceparent` of the host span this turn runs under. The turn's root
+   * span joins that trace as its child; without it the turn starts a new trace.
+   * A malformed value throws.
+   */
+  traceparent?: string;
+  /** Host conversation id, recorded as `gen_ai.conversation.id`. */
+  conversationId?: string;
+  /** Earlier turns this one resumes, continues or retries. */
+  links?: TurnTraceLink[];
   /**
    * Opaque application context handed to tool `handler` / `preTool` and
    * `tools.t1Policy` as `ctx.host`. The kernel never reads, logs, traces, or
@@ -890,10 +921,11 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
   sessionPermissions?: string[];
   history?: TurnHistoryMessage[];
   /**
-   * Interactions-only: when set, sent as the request `input` array instead of
-   * history + user parts (e.g. a lone `function_result` continuation step).
+   * Interactions-only: messages sent after `previousInteractionId` (tool
+   * results, stage injects) instead of history + user parts. The model reads
+   * the stored interaction plus these.
    */
-  interactionOnlyInput?: Record<string, unknown>[];
+  continuation?: TurnHistoryMessage[];
   /**
    * Tool-loop ceiling. `undefined` or `<= 0` = unbounded.
    * Taken from `profile.maxSteps` with no THEOREM invent.
@@ -921,19 +953,80 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
   host?: unknown;
 }
 
-/** Token accounting emitted by providers or fallback estimation. */
+/** Money a provider reported for one model call. */
+export interface TurnCost {
+  /** What the provider charged, in US dollars. */
+  usd: number;
+  /** What the upstream model vendor charged the provider, when reported (OpenRouter). */
+  upstreamUsd?: number;
+  /**
+   * Set on a sum (`sumTokens`) when some summed calls reported a cost and
+   * others did not: `usd` covers only the calls that did.
+   */
+  partial?: true;
+}
+
+/** A side of `TurnTokens` the provider did not report. */
+export type TurnTokenSide = 'input' | 'output';
+
+/**
+ * Token accounting for one model call, one `tokens` event per call.
+ *
+ * Meanings follow the OpenTelemetry GenAI conventions on every provider:
+ * `input` counts everything the model read (cached prompt and provider
+ * tool-use tokens included), `output` everything it wrote (reasoning
+ * included), and `total` is `input + output`.
+ */
 export interface TurnTokens {
   input: number;
   output: number;
+  /** Reasoning share of `output`. */
   thinking?: number;
+  /** Provider tool-use share of `input` (Google code execution / URL context results). */
   toolUse?: number;
-  /** Google code-execution / tool intermediate tokens when the API reports them. */
-  intermediate?: number;
-  /** Prompt tokens read from provider cache (cache hit). */
+  /** Share of `input` read from provider cache (cache hit). */
   cached?: number;
-  /** Prompt tokens written into provider cache. */
+  /** Share of `input` written into provider cache. */
   cacheWrite?: number;
   total: number;
+  /** Provider-reported cost. Absent when the provider reports none. */
+  cost?: TurnCost;
+  /**
+   * Sides the provider did not report. The runner replaces each with the one
+   * token estimator's count before the event reaches the host. Absent = both
+   * sides provider-reported.
+   */
+  estimated?: TurnTokenSide[];
+  /**
+   * Media parts left out of an estimated side because no verified rule counts
+   * them, per side. Absent when every part was counted.
+   */
+  unknownMedia?: Partial<Record<TurnTokenSide, number>>;
+  /**
+   * Provider-reported shares of each side by modality (`text`, `image`,
+   * `audio`, …, lower-case). Providers list only some modalities, so the
+   * shares need not add up to the side. Absent = not reported.
+   */
+  byModality?: Partial<Record<TurnTokenSide, Record<string, number>>>;
+  /** Provider-side grounding tool use, as the provider reported it. Absent = not reported. */
+  grounding?: TurnGroundingCount[];
+}
+
+/** A provider response's identity, as the wire sent it. Live sends neither field. */
+export interface TurnResponse {
+  /** Provider response id (OpenAI-compatible `id`, Interactions `id`). */
+  id?: string;
+  /** Model that served the call, as the provider names it. */
+  model?: string;
+}
+
+/** One grounding tool's use in a call (Interactions `grounding_tool_count`). */
+export interface TurnGroundingCount {
+  /** Provider's tool name, e.g. `google_search`. */
+  type: string;
+  count: number;
+  /** Search queries the tool ran. Absent = not reported. */
+  searchQueryCount?: number;
 }
 
 /** Normalized citation or place source surfaced from a provider. */
@@ -962,9 +1055,10 @@ export interface ProviderEvidenceEvent {
   sources?: GroundingSource[];
   /**
    * Discriminant for evidence payloads.
-   * Live ASR uses `input_transcription` / `output_transcription`;
-   * resumption uses `session_resumption`; Interactions code execution uses
-   * `code_execution_call` / `code_execution_result`.
+   * Live ASR uses `input_transcription` / `output_transcription`; Live
+   * `voiceActivity` uses `voice_activity`; resumption uses
+   * `session_resumption`; code execution uses `code_execution_call` /
+   * `code_execution_result` (Live sends only results).
    */
   kind?:
     | 'code_execution_call'
@@ -972,6 +1066,7 @@ export interface ProviderEvidenceEvent {
     | 'input_transcription'
     | 'output_transcription'
     | 'session_resumption'
+    | 'voice_activity'
     | string;
   /** Generated Python (or other) source from `code_execution_call.arguments.code`. */
   code?: string;
@@ -989,6 +1084,12 @@ export interface ProviderEvidenceEvent {
   interim?: boolean;
   /** Live session resumption: whether the handle may be used to resume. */
   resumable?: boolean;
+  /**
+   * The provider started this step and never finished it (the stream ended
+   * first). `raw` holds what arrived. A partial tool call is evidence only and
+   * never runs.
+   */
+  partial?: boolean;
 }
 
 /** Compaction signal emitted in the `done` event when `timing: 'after'`. */
@@ -998,11 +1099,16 @@ export interface CompactionSignal {
   meter: CompactionMeter;
   /** Token count used for the compaction decision. */
   tokens: number;
+  /** Media parts not counted in `tokens` — no verified rule for this model. */
+  unknownMedia: number;
   /**
-   * Provider-reported full-prompt input tokens from this turn, when known.
-   * Always observability; also the decision value when `meter: 'input'`.
+   * Full-prompt input tokens of this turn's last model call, when one
+   * completed. Always observability; also the decision value when
+   * `meter: 'input'`.
    */
   promptTokens?: number;
+  /** True when `promptTokens` is the token estimator's count — the provider reported none. */
+  promptTokensEstimated?: boolean;
   history: TurnHistoryMessage[];
 }
 
@@ -1037,6 +1143,13 @@ export interface TurnEvent {
   /** Why the turn ended. Present on terminal `done` events when known. */
   stop?: TurnStop;
   /**
+   * On the terminal `done`: the turn's root span as a W3C `traceparent`. Pass
+   * it in a later request's `links` to connect the two records.
+   */
+  traceparent?: string;
+  /** On a provider's `done`: the response it identified, when the wire sends it. */
+  response?: TurnResponse;
+  /**
    * Turn tool visibility snapshot when `stop.kind === 'tool'`.
    * Hosts pass this to `invokeTool({ snapshot })` so T1/T2 resume matches the gated turn.
    */
@@ -1065,7 +1178,7 @@ export interface TurnEvent {
  *
  * Several fields are **Google Interactions-only** and omitted otherwise:
  * `previousInteractionId`, `store`, `stream`, `summaries`,
- * `interactionOnlyInput`.
+ * `continuation`.
  * Adapters must tolerate their absence. `keySlot` is shared by Google and
  * OpenRouter vault resolution (required for Google; optional for OpenRouter).
  */
@@ -1079,11 +1192,11 @@ export interface ProviderCompleteRequest extends Omit<ProviderGenerationConfig, 
   input: InteractionPart[];
   history?: TurnHistoryMessage[];
   /**
-   * Interactions-only: when set, sent as the request `input` array instead of
-   * history + user parts (e.g. a lone `function_result` continuation step).
-   * Omitted for non-Google providers.
+   * Interactions-only: messages sent after `previousInteractionId` (tool
+   * results, stage injects) instead of history + user parts; the adapter maps
+   * them like history. Omitted for non-Google providers.
    */
-  interactionOnlyInput?: Record<string, unknown>[];
+  continuation?: TurnHistoryMessage[];
   /** Function tool wire declarations derived from the turn tool snapshot. */
   wireTools?: WireFunctionTool[];
   structured: StructuredSchemaId | null;
@@ -1133,7 +1246,18 @@ export interface SessionRequest {
    */
   snapshot?: TurnToolSnapshot;
   signal?: AbortSignal;
+  /** Host-owned metadata preserved on every record the session writes. */
   metadata?: Record<string, unknown>;
+  /**
+   * W3C `traceparent` of the host span this session runs under. The session's
+   * root span joins that trace as its child; without it the session starts a
+   * new trace. A malformed value throws.
+   */
+  traceparent?: string;
+  /** Host conversation id, recorded as `gen_ai.conversation.id`. */
+  conversationId?: string;
+  /** Earlier sessions or turns this one resumes or continues. */
+  links?: TurnTraceLink[];
   /**
    * Session-lifetime stage handler (`docs/contracts/stages.md`). Immutable for
    * the session; no `setOnStage`.
@@ -1175,8 +1299,10 @@ export interface LiveSession {
   readonly profileId: ProfileId;
   readonly canary: string;
   events(): AsyncGenerator<TurnEvent, void, undefined>;
-  sendAudio(args: { data: string; mimeType?: string }): Promise<void>;
-  sendVideo(args: { data: string; mimeType?: string }): Promise<void>;
+  /** `mimeType` states the audio as sent (`audio/pcm;rate=16000`); the API rejects what it cannot take. */
+  sendAudio(args: { data: string; mimeType: string }): Promise<void>;
+  /** `mimeType` states the frame as sent (`image/jpeg`). */
+  sendVideo(args: { data: string; mimeType: string }): Promise<void>;
   sendText(text: string): Promise<void>;
   /**
    * Registry tool execute with stages. Pumps `stage`/`tool` into `events()`.

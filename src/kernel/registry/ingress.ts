@@ -177,31 +177,16 @@ function extractTextPart(profile: Profile, req: TurnRequest): InteractionPart | 
   if (profile.type === 'decision') {
     throw new TheoremError(`Profile ${profile.id} (decision) does not accept turn input`); // lexicon-exempt: developer contract error
   }
-  if (profile.type === 'speech') {
-    if (!text?.trim()) {
-      throw new TheoremError(`Profile ${profile.id} (speech) requires text input`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    }
-    let promptText = text;
-    if (repair) {
-      promptText = synthesizeRepairPrompt({ profile, repair, history });
-    }
-    return { type: 'text', text: wrapUserData(promptText) };
+  if (profile.type === 'speech' && !text?.trim()) {
+    throw new TheoremError(`Profile ${profile.id} (speech) requires text input`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
-  const inputs = profileInputs(profile);
-  if (inputs?.text === false) {
-    if (text) {
-      throw new TheoremError(`Profile ${profile.id} does not accept text input`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    }
-    return null;
+  if (profile.type !== 'speech' && profileInputs(profile)?.text === false && text) {
+    throw new TheoremError(`Profile ${profile.id} does not accept text input`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
-  let promptText = text;
-  if (repair) {
-    promptText = synthesizeRepairPrompt({ profile, repair, history });
-  }
-  if (!promptText) {
-    return null;
-  }
-  return { type: 'text', text: wrapUserData(promptText) };
+  // A repair is the kernel's, not the user's: it replaces the text on a retry
+  // whether or not the profile takes text from the user.
+  const promptText = repair ? synthesizeRepairPrompt({ profile, repair, history }) : text;
+  return promptText ? { type: 'text', text: wrapUserData(promptText) } : null;
 }
 
 function extractMediaParts(profile: Profile, model: ModelId, req: TurnRequest): InteractionPart[] {

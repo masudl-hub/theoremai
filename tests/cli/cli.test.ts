@@ -293,3 +293,28 @@ Deno.test('testProfileCommand and CLI main router test flag parsing and commands
   const noProfileRes = await testProfileCommand(undefined, { all: false });
   assertEquals(noProfileRes, false);
 });
+
+Deno.test('executeSingleTest sums every call and labels totals that include estimates', async () => {
+  const printed: string[] = [];
+  const log = console.log;
+  console.log = (...args: unknown[]) => printed.push(args.join(' '));
+  try {
+    const res = await executeSingleTest(
+      { profile: 'chat', input: { text: 'test' } },
+      'Token total',
+      {
+        async *complete() {
+          yield { type: 'text', text: 'hello world' };
+          yield { type: 'tokens', tokens: { input: 0, output: 4, total: 4, estimated: ['input'] } };
+        },
+      },
+    );
+    assertEquals(res.passed, true);
+    assertEquals(res.tokens?.estimated, ['input']);
+    assertEquals(res.tokens?.output, 4);
+    const status = printed.find((line) => line.includes('STATUS: PASSED')) ?? '';
+    assertEquals(status.includes(`${res.tokens?.total} tokens, includes estimates)`), true);
+  } finally {
+    console.log = log;
+  }
+});

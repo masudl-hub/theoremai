@@ -328,7 +328,7 @@ async function* runRemotePreBodyStages(args: {
   if (pre.kind === 'gated') {
     return { kind: 'gated', gate: pre.gate };
   }
-  return failureOutcome(pre.failure, true);
+  return { ...failureOutcome(pre.failure, true), ...(pre.denied ? { denied: true } : {}) };
 }
 
 async function* remoteParseAndPermit(

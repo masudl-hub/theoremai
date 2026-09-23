@@ -13,7 +13,8 @@ and call
 `invokeTool({ profile, name, input, host })` from `@theoremai/agents/kernel`. The `host`
 slot carries opaque application context to `handler` / `preTool`
 (and turn stages — see `docs/contracts/stages.md`) and is never traced or sent
-to a provider. See `docs/contracts/kernel.md` (“Host profile” and “Host context
+to a provider. Application context that belongs in the trace goes in
+`metadata`, which the invoke's trace record stores untouched. See `docs/contracts/kernel.md` (“Host profile” and “Host context
 slot”).
 
 ## Export
@@ -90,16 +91,25 @@ only to turn event payloads.
 
 | Export | Role |
 | --- | --- |
-| `flushMintTrace` | Flush pending cutout mint records after a turn |
-| `CutoutTape` | Tape type for mint/cutout correlation |
+| `flushMintTrace` | Write a held turn record, then one `cutout` record in the same trace |
+| `CutoutTape` | What the host observed: `ok`, `ms`, `url`, input/output hashes, the upstream exchange, error text |
 | `TraceSink` (imported) | From `src/observability/trace-sink.ts`, the type-only sink contract |
 
-Use when your Deno HTTP host records mint/cutout telemetry alongside THEOREM
-turns. Skip entirely for non-HTTP or non-Deno hosts.
+For a side effect the host makes after a turn (for example an image cutout)
+that belongs in that turn's trace. Run the turn into a `memorySink`, make the
+call, then pass the held record, the tape, the host's `app` metadata and the
+real sink to `flushMintTrace`:
+
+- The turn record is written unchanged.
+- The second record holds one `cutout` span (CLIENT) whose parent is the turn's
+  root, timed to end now and to have lasted `ms`. It carries `server.address` /
+  `url.path`, `theorem.cutout.input.sha256` / `theorem.cutout.output.sha256`,
+  the exchange as a `theorem.upstream.row` event, and any error text as an
+  `exception` event stored by hash. Status is `OK` or `ERROR` from `ok`.
+- It is built under the observability policy of the profile the turn ran on and
+  carries the turn's metadata plus `app`.
 
 ## Structured JSON preview
-
-The current branch refresh keep the streaming JSON preview helpers aligned with the in-flight structured-output behavior used by live hosts.
 
 `readStreamingJsonStringField(jsonText, key)` reads one string field from
 **incomplete** JSON while structured output streams as text deltas. Hosts use

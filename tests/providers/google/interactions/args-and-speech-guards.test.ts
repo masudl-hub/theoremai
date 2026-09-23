@@ -10,31 +10,11 @@ import {
   isVoiceProfile,
   missingSpeechAudioError,
   newStreamFold,
-  parseArgumentsObject,
   shouldReportMissingSpeechAudio,
 } from '../../../../src/providers/google/interactions/stream.ts';
 
-Deno.test('F-06 pressure: parseArgumentsObject edge matrix', () => {
-  assertEquals(parseArgumentsObject(''), { ok: true, value: {} });
-  assertEquals(parseArgumentsObject('   '), { ok: true, value: {} });
-  assertEquals(parseArgumentsObject(undefined), { ok: true, value: {} });
-  assertEquals(parseArgumentsObject(null), { ok: true, value: {} });
-  assertEquals(parseArgumentsObject('{"a":1}'), { ok: true, value: { a: 1 } });
-  assertEquals(parseArgumentsObject({ a: 1 }), { ok: true, value: { a: 1 } });
-
-  assertEquals(parseArgumentsObject('null').ok, false);
-  assertEquals(parseArgumentsObject('[1]').ok, false);
-  assertEquals(parseArgumentsObject('42').ok, false);
-  assertEquals(parseArgumentsObject('true').ok, false);
-  assertEquals(parseArgumentsObject('{"a":').ok, false);
-  assertEquals(parseArgumentsObject('"{\\"a\\":1}"').ok, false);
-  assertEquals(parseArgumentsObject([1]).ok, false);
-  assertEquals(parseArgumentsObject(1).ok, false);
-});
-
 Deno.test('F-06 pressure: emitToolCallFromRawArguments never invents quiet {}', () => {
-  const fold = newStreamFold();
-  const events = emitToolCallFromRawArguments({ id: 'c1', name: 't' }, '{bad', fold);
+  const events = emitToolCallFromRawArguments({ id: 'c1', name: 't' }, '{bad');
   assertEquals(events.length, 1);
   assertEquals(events[0]?.tool?.phase, 'error');
   assertEquals(events[0]?.tool?.failure?.code, 'malformed_arguments');
@@ -49,7 +29,7 @@ Deno.test('F-04 pressure: missing-audio gate matrix', () => {
   text.text = 'hi';
   const media = newStreamFold();
   media.text = 'hi';
-  media.sawStreamedMedia = true;
+  media.sawMedia = true;
 
   assertEquals(isVoiceProfile(voice), true);
   assertEquals(shouldReportMissingSpeechAudio(voice, text), true);

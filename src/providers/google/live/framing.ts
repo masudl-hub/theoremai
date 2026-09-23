@@ -6,10 +6,12 @@
  * @module
  */
 
-import { TheoremError } from '../../../guardrails/error.ts';
-import { groundingFromEvent } from '../../../kernel/engine/delta.ts';
-import { isMediaRefPart } from '../../../kernel/interaction-parts.ts';
-import { getTool } from '../../../kernel/tools/registry.ts';
+import { TheoremError, toErrorEvent } from '../../../guardrails/error.ts';
+import { asRecord } from '../../../kernel/engine/record.ts';
+import { reportedTokens, usageCount } from '../../../kernel/engine/usage.ts';
+import { historyMessageParts, isMediaRefPart } from '../../../kernel/interaction-parts.ts';
+import { mediaKindForMime } from '../../../kernel/registry/catalog.ts';
+import { requireBuiltinWire } from '../../../kernel/tools/registry.ts';
 import type {
   InteractionMediaPart,
   InteractionPart,
@@ -20,9 +22,15 @@ import type {
   TurnTokens,
   WireFunctionTool,
 } from '../../../kernel/types.ts';
-import { base64ToBytes, bytesToBase64, wrapPcmAsWav } from '../../shared/pcm.ts';
-import { parseToolArgumentsObject } from '../../shared/tool-args.ts';
+import { pcmMediaAsWav } from '../../shared/pcm.ts';
+import {
+  historyToolArguments,
+  historyToolIdentity,
+  parseToolArgumentsObject,
+} from '../../shared/tool-args.ts';
+import { groundingFromLiveMetadata } from '../grounding.ts';
 import { GEMINI_LIVE_WS_URL } from '../urls.ts';
+import { byModality, modalityCounts } from '../usage.ts';
 import { toGeminiOpenApiSchema } from './openapi-schema.ts';
 
 /** Construct authenticated WebSocket URL for Gemini Live API. */
@@ -31,9 +39,9 @@ export function buildGeminiLiveWebSocketUrl(apiKey: string): string {
 }
 
 /**
- * Live tools are always declared non-blocking: the kernel session already runs
- * tool execution asynchronously and honours `toolCallCancellation`, so the model
- * is free to keep speaking while a call is in flight.
+ * Live tools are always declared non-blocking: the host runs each call through
+ * `LiveSession.executeTool` while the model keeps speaking, and a cancel reaches
+ * the host as a `tool` event with `phase: 'cancel'`.
  */
 const LIVE_FUNCTION_BEHAVIOR = 'NON_BLOCKING';
 
@@ -50,25 +58,21 @@ export function wireFunctionDeclaration(decl: WireFunctionTool): Record<string, 
   };
 }
 
+/**
+ * Builtins are their own tool entries (`{ googleSearch: {} }`), functions share
+ * one `functionDeclarations` entry. Which builtins a model takes is the API's
+ * answer (probe 23/09/2026: a model without one closes the socket with 1007).
+ */
 export function wireLiveTools(req: ProviderCompleteRequest): Array<Record<string, unknown>> {
-  const functionDeclarations: Array<Record<string, unknown>> = [];
+  const tools: Array<Record<string, unknown>> = [];
   for (const id of req.builtins) {
-    const entry = getTool(id);
-    if (entry?.type === 'builtin' && entry.wire.live) {
-      functionDeclarations.push({
-        name: id,
-        description: entry.description,
-        behavior: LIVE_FUNCTION_BEHAVIOR,
-      });
-    }
+    tools.push({ [requireBuiltinWire(id, 'live')]: {} });
   }
-  for (const decl of req.wireTools ?? []) {
-    functionDeclarations.push(wireFunctionDeclaration(decl));
+  const functionDeclarations = (req.wireTools ?? []).map(wireFunctionDeclaration);
+  if (functionDeclarations.length > 0) {
+    tools.push({ functionDeclarations });
   }
-  if (functionDeclarations.length === 0) {
-    return [];
-  }
-  return [{ functionDeclarations }];
+  return tools;
 }
 
 function buildLiveGenerationConfig(req: ProviderCompleteRequest): Record<string, unknown> {
@@ -205,23 +209,51 @@ function inlineData(part: Exclude<InteractionPart, { type: 'text' }>): Record<st
   return { mimeType: inline.mimeType, data: inline.data };
 }
 
+function contentPart(part: InteractionPart): Record<string, unknown> {
+  return part.type === 'text' ? { text: part.text } : { inlineData: inlineData(part) };
+}
+
+/**
+ * A `tool` message as one `functionResponse` part in a `user` turn (probed 23/09/2026).
+ * Text parts are the `result`; media rides nested in `functionResponse.parts`.
+ */
+function functionResponseTurn(msg: TurnHistoryMessage): Record<string, unknown> {
+  const parts = historyMessageParts(msg);
+  const result = parts
+    .map((part) => (part.type === 'text' ? part.text : ''))
+    .filter(Boolean)
+    .join('\n');
+  const media = parts.filter((part) => part.type !== 'text').map(contentPart);
+  return {
+    role: 'user',
+    parts: [
+      {
+        functionResponse: {
+          ...historyToolIdentity({ id: msg.tool_call_id, name: msg.name }),
+          response: { result },
+          ...(media.length > 0 ? { parts: media } : {}),
+        },
+      },
+    ],
+  };
+}
+
 /** Format a single history message into a Google turn object. */
 function historyTurnToGoogleTurn(msg: TurnHistoryMessage): Record<string, unknown> {
+  if (msg.role === 'tool') {
+    return functionResponseTurn(msg);
+  }
   const role = msg.role === 'assistant' ? 'model' : 'user';
-  const parts: Array<Record<string, unknown>> = [];
-
-  if (msg.content) {
-    parts.push({ text: msg.content });
+  const parts = historyMessageParts(msg).map(contentPart);
+  for (const call of msg.role === 'assistant' ? (msg.tool_calls ?? []) : []) {
+    parts.push({
+      functionCall: {
+        id: call.id,
+        name: call.function.name,
+        args: historyToolArguments(call.function.arguments),
+      },
+    });
   }
-
-  for (const part of msg.parts ?? []) {
-    if (part.type === 'text') {
-      parts.push({ text: part.text });
-    } else {
-      parts.push({ inlineData: inlineData(part) });
-    }
-  }
-
   return { role, parts };
 }
 
@@ -251,39 +283,13 @@ export function buildGeminiLiveRealtimeInput(input: InteractionPart): Record<str
   }
   const part = inlineMediaPart(input);
 
-  if (part.type === 'audio') {
-    return {
-      realtimeInput: {
-        audio: {
-          mimeType: part.mimeType.includes('rate=') ? part.mimeType : 'audio/pcm;rate=16000',
-          data: part.data,
-        },
-      },
-    };
-  }
-
-  // Image / video frame
-  return {
-    realtimeInput: {
-      video: {
-        mimeType: part.mimeType || 'image/jpeg',
-        data: part.data,
-      },
-    },
-  };
+  // The part's mime as given: the API reads the rate from it and rejects what it cannot take.
+  const media = { mimeType: part.mimeType, data: part.data };
+  return { realtimeInput: part.type === 'audio' ? { audio: media } : { video: media } };
 }
 
-/** Build a `realtimeInput` message with text. */
-export function buildGeminiLiveRealtimeText(text: string): Record<string, unknown> {
-  return {
-    realtimeInput: {
-      text,
-    },
-  };
-}
-
-/** Build the Gemini Live `response` struct for a function result. */
-function liveFunctionResponsePayload(output: unknown): Record<string, unknown> {
+/** Build the Gemini Live `response` struct for a function result: what the model reads. */
+export function liveFunctionResponsePayload(output: unknown): Record<string, unknown> {
   if (
     typeof output === 'object' &&
     output !== null &&
@@ -319,6 +325,83 @@ export function buildGeminiLiveToolResponses(
   };
 }
 
+/** A `functionResponse` as the tool message the model reads: its `response`, as sent. */
+function functionResponseMessage(response: Record<string, unknown>): TurnHistoryMessage {
+  return {
+    role: 'tool',
+    ...(typeof response.id === 'string' ? { tool_call_id: response.id } : {}),
+    ...(typeof response.name === 'string' ? { name: response.name } : {}),
+    content: JSON.stringify(response.response ?? null),
+  };
+}
+
+function records(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item): Record<string, unknown>[] => {
+    const record = asRecord(item);
+    return record ? [record] : [];
+  });
+}
+
+/** One `clientContent` turn as kernel messages: its content, then any function responses. */
+function clientTurnMessages(turn: Record<string, unknown>): TurnHistoryMessage[] {
+  const parts: InteractionPart[] = [];
+  const calls: NonNullable<TurnHistoryMessage['tool_calls']> = [];
+  const responses: TurnHistoryMessage[] = [];
+  for (const part of records(turn.parts)) {
+    const inline = asRecord(part.inlineData);
+    const call = asRecord(part.functionCall);
+    const response = asRecord(part.functionResponse);
+    if (typeof part.text === 'string') {
+      parts.push({ type: 'text', text: part.text });
+    } else if (inline && typeof inline.mimeType === 'string' && typeof inline.data === 'string') {
+      const type = mediaKindForMime(inline.mimeType) ?? 'document';
+      parts.push({ type, mimeType: inline.mimeType, data: inline.data });
+    } else if (call) {
+      calls.push({
+        id: typeof call.id === 'string' ? call.id : '',
+        type: 'function',
+        function: { name: String(call.name ?? ''), arguments: JSON.stringify(call.args ?? {}) },
+      });
+    } else if (response) {
+      responses.push(functionResponseMessage(response));
+    }
+  }
+  const role = turn.role === 'model' ? 'assistant' : 'user';
+  const content: TurnHistoryMessage[] =
+    parts.length > 0 || calls.length > 0
+      ? [{ role, parts, ...(calls.length > 0 ? { tool_calls: calls } : {}) }]
+      : [];
+  return [...content, ...responses];
+}
+
+/**
+ * What one outbound frame gives the model to read, as kernel messages in the
+ * order sent. Setup and control frames (activity markers, `audioStreamEnd`)
+ * give none.
+ */
+export function liveFrameInput(frame: Record<string, unknown>): TurnHistoryMessage[] {
+  const realtime = asRecord(frame.realtimeInput);
+  if (realtime) {
+    const audio = asRecord(realtime.audio);
+    const video = asRecord(realtime.video);
+    const media = audio ?? video;
+    if (media && typeof media.mimeType === 'string' && typeof media.data === 'string') {
+      const type = audio ? 'audio' : 'video';
+      return [{ role: 'user', parts: [{ type, mimeType: media.mimeType, data: media.data }] }];
+    }
+    return typeof realtime.text === 'string'
+      ? [{ role: 'user', parts: [{ type: 'text', text: realtime.text }] }]
+      : [];
+  }
+  const client = asRecord(frame.clientContent);
+  if (client) {
+    return records(client.turns).flatMap(clientTurnMessages);
+  }
+  const toolResponse = asRecord(frame.toolResponse);
+  return toolResponse ? records(toolResponse.functionResponses).map(functionResponseMessage) : [];
+}
+
 /** Parse raw WebSocket message text / buffer into a JSON record. */
 export type ParsedLiveMessage =
   | { ok: true; value: Record<string, unknown> }
@@ -349,30 +432,32 @@ export function parseFunctionArguments(raw: unknown): ReturnType<typeof parseToo
   return parseToolArgumentsObject(raw);
 }
 
-function readTokenCount(
-  metadata: Record<string, unknown>,
-  camelKey: string,
-  snakeKey: string,
-): number {
-  const val = metadata[camelKey] ?? metadata[snakeKey];
-  return typeof val === 'number' ? val : 0;
-}
-
+/**
+ * Live `usageMetadata` → `TurnTokens`. Live sends one row per model response,
+ * at its `turnComplete`, covering that response alone; the prompt count grows
+ * because each response re-reads the session.
+ *
+ * Live probe (gemini-3.1-flash-live-preview, 22/09/2026): `thoughtsTokenCount`
+ * sits outside both `responseTokenCount` and `totalTokenCount`, so it is added
+ * to output. `toolUsePromptTokenCount` (not seen in that probe) is added to
+ * input, as on Interactions.
+ */
 export function extractLiveUsageTokens(metadata: Record<string, unknown>): TurnTokens | undefined {
-  const prompt = readTokenCount(metadata, 'promptTokenCount', 'prompt_token_count');
-  const output = readTokenCount(metadata, 'responseTokenCount', 'response_token_count');
-  const thinking = readTokenCount(metadata, 'thoughtsTokenCount', 'thoughts_token_count');
-  const rawTotal = metadata.totalTokenCount ?? metadata.total_token_count;
-  const total = typeof rawTotal === 'number' ? rawTotal : prompt + output;
-  if (prompt === 0 && output === 0 && total === 0) {
-    return undefined;
-  }
-  return {
-    input: prompt,
-    output,
-    thinking: thinking > 0 ? thinking : undefined,
-    total,
-  };
+  const prompt = usageCount(metadata.promptTokenCount);
+  const response = usageCount(metadata.responseTokenCount);
+  const thoughts = usageCount(metadata.thoughtsTokenCount) ?? 0;
+  const toolUse = usageCount(metadata.toolUsePromptTokenCount) ?? 0;
+  return reportedTokens({
+    input: prompt ? prompt + toolUse : undefined,
+    output: response === undefined ? undefined : response + thoughts,
+    thinking: thoughts,
+    toolUse,
+    cached: usageCount(metadata.cachedContentTokenCount),
+    byModality: byModality(
+      modalityCounts(metadata.promptTokensDetails, 'tokenCount'),
+      modalityCounts(metadata.responseTokensDetails, 'tokenCount'),
+    ),
+  });
 }
 
 function foldSessionUpdate(message: Record<string, unknown>, events: TurnEvent[]): void {
@@ -396,13 +481,28 @@ function foldSessionUpdate(message: Record<string, unknown>, events: TurnEvent[]
   });
 }
 
-function foldToolCalls(message: Record<string, unknown>, events: TurnEvent[]): void {
+/** What one Live connection remembers across server messages. */
+export interface LiveFold {
+  /** Tool call names by id, for the cancel that names only ids. */
+  calls: Map<string, string>;
+}
+
+export function newLiveFold(): LiveFold {
+  return { calls: new Map() };
+}
+
+function foldToolCalls(
+  message: Record<string, unknown>,
+  fold: LiveFold,
+  events: TurnEvent[],
+): void {
   const toolCall = message.toolCall as
     | { functionCalls?: Array<{ id?: string; name?: string; args?: unknown }> }
     | undefined;
   if (!toolCall?.functionCalls || !Array.isArray(toolCall.functionCalls)) return;
   for (const call of toolCall.functionCalls) {
     if (!call.name) continue;
+    if (call.id) fold.calls.set(call.id, call.name);
     const parsed = parseFunctionArguments(call.args);
     if (!parsed.ok) {
       events.push({
@@ -432,41 +532,56 @@ function foldToolCalls(message: Record<string, unknown>, events: TurnEvent[]): v
   }
 }
 
-function foldToolCancellations(message: Record<string, unknown>, events: TurnEvent[]): void {
+/**
+ * `toolCallCancellation: { ids }` (probe 23/09/2026: gemini-3.1-flash-live and
+ * gemini-2.5-flash-native-audio on barge-in; gemini-3.8-live never sends it).
+ * It names only ids, so each cancel takes its name from the call this
+ * connection issued.
+ */
+function foldToolCancellations(
+  message: Record<string, unknown>,
+  fold: LiveFold,
+  events: TurnEvent[],
+): void {
   const cancellation = message.toolCallCancellation as { ids?: unknown } | undefined;
   const ids = cancellation?.ids;
   if (!Array.isArray(ids)) return;
   for (const id of ids) {
-    if (typeof id !== 'string' || id.length === 0) continue;
-    events.push({
-      type: 'tool',
-      tool: {
-        id,
-        name: '',
-        phase: 'cancel',
-      },
-    });
+    const name = typeof id === 'string' ? fold.calls.get(id) : undefined;
+    if (!name) {
+      // Every observed cancel names a call this connection issued; anything else is a wire change.
+      events.push(
+        toErrorEvent(new TheoremError(`Live cancelled a tool call it never issued: ${String(id)}`)),
+      );
+      continue;
+    }
+    fold.calls.delete(id);
+    events.push({ type: 'tool', tool: { id, name, phase: 'cancel' } });
   }
 }
 
-/** Parse Gemini goAway.timeLeft (seconds number, "10s", duration string) → ms when known. */
+/**
+ * `voiceActivity: { type: 'ACTIVITY_START' | 'ACTIVITY_END', audioOffset: '0.360s' }`
+ * (probe 23/09/2026: gemini-3.1-flash-live only), as `evidence` with the
+ * message as `raw`.
+ */
+function foldVoiceActivity(message: Record<string, unknown>, events: TurnEvent[]): void {
+  const voiceActivity = asRecord(message.voiceActivity);
+  if (!voiceActivity) return;
+  events.push({
+    type: 'evidence',
+    evidence: { provider: 'google', kind: 'voice_activity', raw: voiceActivity },
+  });
+}
+
+/**
+ * `goAway.timeLeft` → milliseconds. It is a protobuf Duration, which JSON
+ * encodes as seconds with an `s` suffix (`"10s"`, `"1.5s"`).
+ */
 export function parseGoAwayTimeLeftMs(timeLeft: unknown): number | undefined {
-  if (typeof timeLeft === 'number' && Number.isFinite(timeLeft) && timeLeft >= 0) {
-    return Math.round(timeLeft * 1000);
-  }
   if (typeof timeLeft !== 'string') return undefined;
-  const trimmed = timeLeft.trim();
-  if (!trimmed) return undefined;
-  const seconds = Number(trimmed);
-  if (Number.isFinite(seconds) && seconds >= 0) {
-    return Math.round(seconds * 1000);
-  }
-  const match = /^(\d+(?:\.\d+)?)\s*s$/i.exec(trimmed);
-  if (match?.[1]) {
-    const s = Number(match[1]);
-    if (Number.isFinite(s) && s >= 0) return Math.round(s * 1000);
-  }
-  return undefined;
+  const match = /^(\d+(?:\.\d+)?)s$/.exec(timeLeft);
+  return match?.[1] ? Math.round(Number(match[1]) * 1000) : undefined;
 }
 
 function foldGoAway(message: Record<string, unknown>, events: TurnEvent[]): void {
@@ -484,37 +599,46 @@ function foldGoAway(message: Record<string, unknown>, events: TurnEvent[]): void
 
 interface ModelTurnPart {
   text?: string;
-  thought?: string | boolean;
+  thought?: boolean;
   inlineData?: { mimeType?: string; data?: string };
+  codeExecutionResult?: { outcome?: string; output?: string };
 }
 
+/**
+ * Output audio arrives as `inlineData` with `mimeType: 'audio/pcm;rate=24000'`
+ * (probes 23/09/2026, every Live model); it becomes WAV at the stated rate.
+ * Thinking models mark reasoning text with `thought: true`.
+ */
 function foldModelPart(part: ModelTurnPart, events: TurnEvent[]): void {
   if (part.text) {
-    if (part.thought) {
-      events.push({ type: 'thought', text: part.text });
-    } else {
-      events.push({ type: 'text', text: part.text });
-    }
+    events.push({ type: part.thought === true ? 'thought' : 'text', text: part.text });
   }
-  if (part.inlineData?.data) {
-    const mime = part.inlineData.mimeType ?? 'audio/pcm;rate=24000';
-    if (
-      mime.startsWith('audio/pcm') ||
-      mime.startsWith('audio/raw') ||
-      mime.startsWith('audio/l16')
-    ) {
-      const wav = wrapPcmAsWav(base64ToBytes(part.inlineData.data), 24000);
-      events.push({
-        type: 'media',
-        media: { mimeType: 'audio/wav', data: bytesToBase64(wav) },
-      });
-    } else {
-      events.push({
-        type: 'media',
-        media: { mimeType: mime, data: part.inlineData.data },
-      });
-    }
+  const { mimeType, data } = part.inlineData ?? {};
+  if (mimeType && data) {
+    events.push({ type: 'media', media: pcmMediaAsWav({ mimeType, data }) });
   }
+  if (part.codeExecutionResult) {
+    events.push(codeExecutionResultEvidence(part.codeExecutionResult));
+  }
+}
+
+/**
+ * `codeExecutionResult: { outcome, output }` (probe 23/09/2026:
+ * gemini-2.5-flash-native-audio reports each search / URL fetch this way, e.g.
+ * `OUTCOME_OK` / `Browsing the web.`). No `executableCode` part was seen on any
+ * Live model.
+ */
+function codeExecutionResultEvidence(result: { outcome?: string; output?: string }): TurnEvent {
+  return {
+    type: 'evidence',
+    evidence: {
+      provider: 'google',
+      kind: 'code_execution_result',
+      ...(typeof result.output === 'string' ? { result: result.output } : {}),
+      ...(typeof result.outcome === 'string' ? { isError: result.outcome !== 'OUTCOME_OK' } : {}),
+      raw: result as Record<string, unknown>,
+    },
+  };
 }
 
 function foldTranscription(
@@ -536,13 +660,11 @@ function foldTranscription(
 }
 
 function foldLiveGrounding(serverContent: Record<string, unknown>, events: TurnEvent[]): void {
-  const groundingEvent = groundingFromEvent({
-    groundingMetadata: serverContent.groundingMetadata ?? serverContent.grounding_metadata,
-  });
+  const groundingEvent = groundingFromLiveMetadata(serverContent.groundingMetadata);
   if (groundingEvent) {
     events.push(groundingEvent);
   }
-  const urlContext = serverContent.urlContextMetadata ?? serverContent.url_context_metadata;
+  const urlContext = serverContent.urlContextMetadata;
   if (urlContext && typeof urlContext === 'object') {
     events.push({
       type: 'evidence',
@@ -557,11 +679,16 @@ function foldLiveGrounding(serverContent: Record<string, unknown>, events: TurnE
 
 export type LiveInteractionStatus = 'IN_PROGRESS' | 'IDLE';
 
-/** Read the server-side `interactionStatus` when the message carries one. */
+/**
+ * `serverContent.interactionStatus`, sent beside `turnComplete` by models that
+ * keep working after a turn (gemini-3.8-live-extended-thinking, probe
+ * 23/09/2026: `IN_PROGRESS` on each intermediate `turnComplete` of a tool
+ * flow, `IDLE` on the last).
+ */
 export function readLiveInteractionStatus(
   message: Record<string, unknown>,
 ): LiveInteractionStatus | undefined {
-  const raw = message.interactionStatus ?? message.interaction_status;
+  const raw = asRecord(message.serverContent)?.interactionStatus;
   if (raw === 'IN_PROGRESS' || raw === 'IDLE') return raw;
   return undefined;
 }
@@ -587,14 +714,14 @@ function foldServerContent(message: Record<string, unknown>, events: TurnEvent[]
     });
   }
 
-  if (serverContent.waitingForInput === true || serverContent.waiting_for_input === true) {
+  if (serverContent.waitingForInput === true) {
     events.push({
       type: 'session',
       session: { kind: 'waiting_for_input' },
     });
   }
 
-  if (serverContent.generationComplete === true || serverContent.generation_complete === true) {
+  if (serverContent.generationComplete === true) {
     events.push({
       type: 'done',
       stop: { kind: 'generation_complete' as const },
@@ -617,7 +744,7 @@ function foldServerContent(message: Record<string, unknown>, events: TurnEvent[]
 
   foldLiveGrounding(serverContent, events);
 
-  if (serverContent.turnComplete === true || serverContent.turn_complete === true) {
+  if (serverContent.turnComplete === true) {
     events.push({ type: 'session', session: { kind: 'turn_complete' } });
   }
 }
@@ -637,13 +764,15 @@ function foldUsageMetadata(message: Record<string, unknown>, events: TurnEvent[]
  */
 export function foldGeminiLiveServerMessage(
   message: Record<string, unknown> | null | undefined,
+  fold: LiveFold,
 ): TurnEvent[] {
   if (!message || typeof message !== 'object') return [];
   const events: TurnEvent[] = [];
   foldGoAway(message, events);
   foldSessionUpdate(message, events);
-  foldToolCalls(message, events);
-  foldToolCancellations(message, events);
+  foldToolCalls(message, fold, events);
+  foldToolCancellations(message, fold, events);
+  foldVoiceActivity(message, events);
   foldServerContent(message, events);
   foldInteractionStatus(message, events);
   foldUsageMetadata(message, events);

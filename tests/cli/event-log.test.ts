@@ -24,7 +24,7 @@ Deno.test('createCliTraceCapture records turns and supports jsonl mirror', async
   }
 
   assertEquals(capture.records.length, 1);
-  assertEquals(capture.records[0]?.ok, true);
+  assertEquals(capture.records[0]?.spans[0]?.status, { code: 'OK' });
 
   const files = [];
   for await (const entry of Deno.readDir(dir)) {

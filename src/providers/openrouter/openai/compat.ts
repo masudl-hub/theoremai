@@ -2,8 +2,8 @@
  * Shared helpers for building OpenAI-compatible chat completion payloads.
  *
  * Used by local.ts (raw fetch), openai/chat-payload.ts (REST payload), and
- * Used by openrouter/chat.ts (headers + response format). Message bodies for the AI SDK
- * path are built by `openai/sdk-messages.ts`, which shares tool helpers here.
+ * openrouter/chat.ts (headers + response format). Message bodies for the AI SDK
+ * path are built by `openai/sdk-messages.ts`.
  * Single source of truth for message wire format, tool declarations,
  * structured response format, and gateway headers.
  *
@@ -11,7 +11,7 @@
  */
 
 import { TheoremError } from '../../../guardrails/error.ts';
-import { isMediaRefPart } from '../../../kernel/interaction-parts.ts';
+import { historyMessageParts, isMediaRefPart } from '../../../kernel/interaction-parts.ts';
 import { getStructured } from '../../../kernel/registry/schemas.ts';
 import type {
   InteractionMediaPart,
@@ -22,7 +22,7 @@ import type {
   TurnHistoryMessage,
   WireFunctionTool,
 } from '../../../kernel/types.ts';
-import { parseToolArgumentsObject } from '../../shared/tool-args.ts';
+import { historyToolIdentity } from '../../shared/tool-args.ts';
 
 // ── gateway header config ───────────────────────────
 
@@ -30,24 +30,6 @@ import { parseToolArgumentsObject } from '../../shared/tool-args.ts';
 interface GatewayHeaderConfig {
   siteUrl?: string;
   siteName?: string;
-}
-
-// ── shared tool helpers ─────────────────────────────
-
-function stringDefault(value: string | undefined, fallback: string): string {
-  return value === undefined ? fallback : value;
-}
-
-function fallbackToolCallId(name?: string): string {
-  return `call_${stringDefault(name, 'tool')}`;
-}
-
-function parseToolInput(raw: string): Record<string, unknown> {
-  const parsed = parseToolArgumentsObject(raw);
-  if (!parsed.ok) {
-    throw new TheoremError(parsed.error);
-  }
-  return parsed.value;
 }
 
 // ── content wire format ─────────────────────────────
@@ -121,27 +103,18 @@ export function wireMessageContent(parts: InteractionPart[]): unknown {
 
 /**
  * Map a single TurnHistoryMessage to an OpenAI-compat wire message.
- * Tool messages receive a fallback tool_call_id when the source omits one.
+ * Tool messages carry `tool_call_id` / `name` only where history has them.
  * Assistant tool_calls are mapped to strip non-standard fields.
  */
 function wireHistoryMessage(msg: TurnHistoryMessage): Record<string, unknown> {
+  // Text-only messages collapse to one string (see wireMessageContent).
+  const content = wireMessageContent(historyMessageParts(msg));
   if (msg.role === 'tool') {
-    let content: unknown = msg.content ?? '';
-    if (msg.parts && msg.parts.length > 0) {
-      // Prefer multimodal parts; if only text parts, wireMessageContent collapses to string.
-      content = wireMessageContent(msg.parts);
-    }
     return {
       role: 'tool',
-      tool_call_id: msg.tool_call_id ?? fallbackToolCallId(msg.name),
-      name: msg.name,
+      ...historyToolIdentity({ tool_call_id: msg.tool_call_id, name: msg.name }),
       content,
     };
-  }
-
-  let content: unknown = msg.content ?? '';
-  if (msg.parts && msg.parts.length > 0) {
-    content = wireMessageContent(msg.parts);
   }
 
   const wired: Record<string, unknown> = {
@@ -260,12 +233,4 @@ function openAiGatewayHeaders(config: GatewayHeaderConfig): Record<string, strin
 // ── exports ─────────────────────────────────────────
 
 export type { GatewayHeaderConfig };
-export {
-  buildChatMessages,
-  fallbackToolCallId,
-  openAiGatewayHeaders,
-  parseToolInput,
-  resolveResponseFormat,
-  stringDefault,
-  wireTools,
-};
+export { buildChatMessages, openAiGatewayHeaders, resolveResponseFormat, wireTools };

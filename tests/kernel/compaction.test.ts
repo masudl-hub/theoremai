@@ -6,9 +6,6 @@ import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import {
   compactionMeter,
   compactionNeeded,
-  estimateHistoryTokens,
-  HISTORY_MEDIA_TOKENS,
-  HISTORY_TEXT_ENCODING,
   resolveCompactionTokens,
   resolveHistoryTokens,
   shouldCompact,
@@ -19,12 +16,9 @@ import { runTurn } from '../../src/kernel/engine/runner.ts';
 import {
   compactionMeter as publicCompactionMeter,
   compactionNeeded as publicCompactionNeeded,
-  estimateHistoryTokens as publicEstimateHistoryTokens,
-  HISTORY_MEDIA_TOKENS as publicMediaTokens,
   resolveCompactionTokens as publicResolveCompactionTokens,
   resolveHistoryTokens as publicResolveHistoryTokens,
   splitForCompaction as publicSplitForCompaction,
-  HISTORY_TEXT_ENCODING as publicTextEncoding,
 } from '../../src/kernel/mod.ts';
 import { defineProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
 import type {
@@ -35,7 +29,21 @@ import type {
   TurnHistoryMessage,
   TurnInput,
 } from '../../src/kernel/types.ts';
+import { bytesToBase64 } from '../../src/kernel/util/base64.ts';
+import { memorySink } from '../../src/observability/trace.ts';
+import { contentOf, type TraceRecord } from '../../src/observability/trace-record.ts';
+import type { TraceAttributes } from '../../src/observability/trace-span.ts';
+import { pngBytes } from '../fixtures/media-bytes.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
+
+/** Media family of the fixture speaker model (`gemini-3.5-flash-lite`). */
+const FAMILY = 'gemini-3' as const;
+/** Live `countTokens` for a 1920×1080 image on Gemini 3 (22/09/2026). */
+const HD_IMAGE_TOKENS = 1100;
+
+function hdImage(): { type: 'image'; mimeType: string; data: string } {
+  return { type: 'image', mimeType: 'image/png', data: bytesToBase64(pngBytes(1920, 1080)) };
+}
 
 function msg(role: TurnHistoryMessage['role'], content: string): TurnHistoryMessage {
   return { role, content };
@@ -105,11 +113,8 @@ Deno.test('compactionNeeded returns false at exact threshold', () => {
 
 Deno.test('resolveHistoryTokens prefers host historyTokens over estimate', async () => {
   assertEquals(
-    await resolveHistoryTokens({
-      historyTokens: 12_345,
-      history: [msg('user', 'short')],
-    }),
-    12_345,
+    await resolveHistoryTokens({ historyTokens: 12_345, history: [msg('user', 'short')] }, FAMILY),
+    { tokens: 12_345, unknownMedia: 0 },
   );
 });
 
@@ -118,13 +123,17 @@ Deno.test('resolveHistoryTokens uses tiktoken o200k_base, not chars/4', async ()
   const bpe = encode(sample).length;
   assertEquals(bpe > 0, true);
   assertEquals(bpe !== Math.ceil(sample.length / 4), true);
-  assertEquals(await resolveHistoryTokens({ history: [msg('user', sample)] }), bpe);
+  assertEquals(await resolveHistoryTokens({ history: [msg('user', sample)] }, FAMILY), {
+    tokens: bpe,
+    unknownMedia: 0,
+  });
 });
 
 Deno.test('resolveHistoryTokens is 0 for empty or missing history', async () => {
-  assertEquals(await resolveHistoryTokens(undefined), 0);
-  assertEquals(await resolveHistoryTokens({}), 0);
-  assertEquals(await resolveHistoryTokens({ history: [] }), 0);
+  const none = { tokens: 0, unknownMedia: 0 };
+  assertEquals(await resolveHistoryTokens(undefined, FAMILY), none);
+  assertEquals(await resolveHistoryTokens({}, FAMILY), none);
+  assertEquals(await resolveHistoryTokens({ history: [] }, FAMILY), none);
 });
 
 Deno.test('resolveHistoryTokens ignores inputTokens under history meter', async () => {
@@ -132,7 +141,10 @@ Deno.test('resolveHistoryTokens ignores inputTokens under history meter', async 
     inputTokens: 50_000,
     history: [msg('user', 'abcd')],
   };
-  assertEquals(await resolveHistoryTokens(input), encode('abcd').length);
+  assertEquals(await resolveHistoryTokens(input, FAMILY), {
+    tokens: encode('abcd').length,
+    unknownMedia: 0,
+  });
 });
 
 // --- splitForCompaction with exchange count ---
@@ -146,7 +158,11 @@ Deno.test('splitForCompaction retains last N exchanges by count', async () => {
     ...exchange('topic C', 'answer C'),
   ];
 
-  const result = await splitForCompaction(history, { ...DEFAULT_SPEC, previousExchanges: 3 });
+  const result = await splitForCompaction(
+    history,
+    { ...DEFAULT_SPEC, previousExchanges: 3 },
+    FAMILY,
+  );
   assertEquals(result.toCompact.length, 4);
   assertEquals(result.toRetain.length, 6);
   assertEquals(result.toRetain[0].content, 'topic A');
@@ -154,7 +170,11 @@ Deno.test('splitForCompaction retains last N exchanges by count', async () => {
 
 Deno.test('splitForCompaction retains all when fewer exchanges than requested', async () => {
   const history = [...exchange('hello', 'hi'), ...exchange('bye', 'later')];
-  const result = await splitForCompaction(history, { ...DEFAULT_SPEC, previousExchanges: 5 });
+  const result = await splitForCompaction(
+    history,
+    { ...DEFAULT_SPEC, previousExchanges: 5 },
+    FAMILY,
+  );
   assertEquals(result.toCompact.length, 0);
   assertEquals(result.toRetain.length, 4);
 });
@@ -163,7 +183,11 @@ Deno.test('splitForCompaction retains all when fewer exchanges than requested', 
 
 Deno.test('splitForCompaction compacts everything when previousExchanges is 0', async () => {
   const history = [...exchange('a', 'b'), ...exchange('c', 'd')];
-  const result = await splitForCompaction(history, { ...DEFAULT_SPEC, previousExchanges: 0 });
+  const result = await splitForCompaction(
+    history,
+    { ...DEFAULT_SPEC, previousExchanges: 0 },
+    FAMILY,
+  );
   assertEquals(result.toCompact.length, 4);
   assertEquals(result.toRetain.length, 0);
 });
@@ -175,11 +199,11 @@ Deno.test('splitForCompaction retains exchanges within token budget fraction', a
   const longExchange = exchange('x'.repeat(2000), 'y'.repeat(2000));
   const history = [...longExchange, ...shortExchange, ...shortExchange];
 
-  const result = await splitForCompaction(history, {
-    ...DEFAULT_SPEC,
-    previousExchanges: 0.5,
-    maxTokens: 100,
-  });
+  const result = await splitForCompaction(
+    history,
+    { ...DEFAULT_SPEC, previousExchanges: 0.5, maxTokens: 100 },
+    FAMILY,
+  );
 
   assertEquals(result.toRetain.length, 4);
   assertEquals(result.toCompact.length, 2);
@@ -187,18 +211,15 @@ Deno.test('splitForCompaction retains exchanges within token budget fraction', a
 
 Deno.test('splitForCompaction fraction counts media parts in the retain budget', async () => {
   const imageExchange: TurnHistoryMessage[] = [
-    {
-      role: 'user',
-      parts: [{ type: 'image', mimeType: 'image/png', data: 'x'.repeat(2000) }],
-    },
+    { role: 'user', parts: [hdImage()] },
     msg('assistant', 'ok'),
   ];
   const shortExchange = exchange('hi', 'hello');
-  const result = await splitForCompaction([...imageExchange, ...shortExchange, ...shortExchange], {
-    ...DEFAULT_SPEC,
-    previousExchanges: 0.5,
-    maxTokens: 100,
-  });
+  const result = await splitForCompaction(
+    [...imageExchange, ...shortExchange, ...shortExchange],
+    { ...DEFAULT_SPEC, previousExchanges: 0.5, maxTokens: 2 * HD_IMAGE_TOKENS },
+    FAMILY,
+  );
   assertEquals(result.toRetain.length, 4);
   assertEquals(result.toCompact.length, 2);
 });
@@ -206,7 +227,7 @@ Deno.test('splitForCompaction fraction counts media parts in the retain budget',
 // --- splitForCompaction with empty history ---
 
 Deno.test('splitForCompaction handles empty history', async () => {
-  const result = await splitForCompaction([], DEFAULT_SPEC);
+  const result = await splitForCompaction([], DEFAULT_SPEC, FAMILY);
   assertEquals(result.toCompact.length, 0);
   assertEquals(result.toRetain.length, 0);
 });
@@ -223,7 +244,11 @@ Deno.test('splitForCompaction groups tool messages with their exchange', async (
     msg('assistant', 'welcome'),
   ];
 
-  const result = await splitForCompaction(history, { ...DEFAULT_SPEC, previousExchanges: 1 });
+  const result = await splitForCompaction(
+    history,
+    { ...DEFAULT_SPEC, previousExchanges: 1 },
+    FAMILY,
+  );
   assertEquals(result.toCompact.length, 4);
   assertEquals(result.toRetain.length, 2);
   assertEquals(result.toRetain[0].content, 'thanks');
@@ -632,9 +657,107 @@ Deno.test('timing after fires from history estimate without historyTokens', asyn
 
   const doneEvent = events.find((e) => e.type === 'done');
   assertEquals(doneEvent?.compaction?.needed, true);
-  assertEquals(doneEvent?.compaction?.tokens, await resolveHistoryTokens({ history: longHistory }));
+  assertEquals(
+    doneEvent?.compaction?.tokens,
+    (await resolveHistoryTokens({ history: longHistory }, FAMILY)).tokens,
+  );
   assertEquals(doneEvent?.compaction?.promptTokens, 50_000);
   assertEquals(doneEvent?.compaction?.meter, 'history');
+});
+
+// --- Trace: every compaction decision is on the turn root ---
+
+async function tracedTurn(
+  profile: string,
+  input: TurnInput,
+  provider: ModelProvider,
+): Promise<{ record: TraceRecord; decision: TraceAttributes | undefined }> {
+  const records: TraceRecord[] = [];
+  for await (const _ of runTurn({ profile, input }, provider, memorySink(records))) {
+    // drain
+  }
+  const [record] = records;
+  if (!record) throw new Error('no record');
+  const decision = record.spans[0]?.events.find((e) => e.name === 'theorem.compaction');
+  return { record, decision: decision?.attributes };
+}
+
+Deno.test('a compaction that ran records its decision, what it replaced, and the summary', async () => {
+  const speaker = registerCompactionPair('compaction.trace.before', BEFORE_SPEC);
+  let calls = 0;
+  const provider: ModelProvider = {
+    complete: () => {
+      calls++;
+      const text = calls === 1 ? 'Summary of old conversation' : 'response';
+      return (async function* () {
+        yield { type: 'text' as const, text };
+        yield { type: 'done' as const };
+      })();
+    },
+  };
+  const history = [
+    ...exchange('old 1', 'answer 1'),
+    ...exchange('old 2', 'answer 2'),
+    ...exchange('recent 1', 'recent answer 1'),
+    ...exchange('recent 2', 'recent answer 2'),
+  ];
+  const { record, decision } = await tracedTurn(
+    speaker,
+    { text: 'new question', historyTokens: 600, history },
+    provider,
+  );
+  const { summary, ...rest } = decision ?? {};
+  assertEquals(rest, {
+    timing: 'before',
+    meter: 'history',
+    budget: 1000,
+    threshold: 0.5,
+    tokens_before: 600,
+    unknown_media: 0,
+    needed: true,
+    compacted: true,
+    messages_before: 8,
+    messages_after: 5,
+  });
+  assertEquals(contentOf(record, summary), 'Summary of old conversation');
+  assertEquals(record.spans[0]?.attributes['gen_ai.conversation.compacted'], true);
+});
+
+Deno.test('a compaction that was not needed still records the count it compared', async () => {
+  const speaker = registerCompactionPair('compaction.trace.after', AFTER_SPEC);
+  const { decision } = await tracedTurn(
+    speaker,
+    { text: 'question', historyTokens: 100, history: SMALL_HISTORY },
+    tokenProvider(50_000),
+  );
+  assertEquals(decision, {
+    timing: 'after',
+    meter: 'history',
+    budget: 1000,
+    threshold: 0.5,
+    tokens_before: 100,
+    unknown_media: 0,
+    needed: false,
+  });
+});
+
+Deno.test('a compaction with no count to meter records the count as absent', async () => {
+  const speaker = registerCompactionPair('compaction.trace.unknown', {
+    ...BEFORE_SPEC,
+    meter: 'input',
+  });
+  const { decision } = await tracedTurn(
+    speaker,
+    { text: 'question', history: SMALL_HISTORY },
+    tokenProvider(50),
+  );
+  assertEquals(decision, {
+    timing: 'before',
+    meter: 'input',
+    budget: 1000,
+    threshold: 0.5,
+    needed: false,
+  });
 });
 
 // --- Pressure: Orchid-shaped profile, estimator, fallback tokens, overrides ---
@@ -657,103 +780,69 @@ Deno.test('orchid 2000@0.75 threshold is strict greater-than 1500', () => {
   assertEquals(compactionNeeded(1501, spec), true);
 });
 
-Deno.test('resolveHistoryTokens counts text parts, media stubs, and tool_call arguments', async () => {
+Deno.test('resolveHistoryTokens counts text parts, tool_call arguments, and verified media', async () => {
+  const count = (history: TurnHistoryMessage[]) => resolveHistoryTokens({ history }, FAMILY);
+  assertEquals(await count([{ role: 'user', parts: [{ type: 'text', text: 'abcdefgh' }] }]), {
+    tokens: encode('abcdefgh').length,
+    unknownMedia: 0,
+  });
   assertEquals(
-    await resolveHistoryTokens({
-      history: [{ role: 'user', parts: [{ type: 'text', text: 'abcdefgh' }] }],
-    }),
-    encode('abcdefgh').length,
+    await count([
+      {
+        role: 'assistant',
+        tool_calls: [
+          { id: 'c1', type: 'function', function: { name: 'search', arguments: 'abcd' } },
+        ],
+      },
+    ]),
+    { tokens: encode('search').length + encode('abcd').length, unknownMedia: 0 },
   );
   assertEquals(
-    await resolveHistoryTokens({
-      history: [
-        {
-          role: 'assistant',
-          tool_calls: [
-            {
-              id: 'c1',
-              type: 'function',
-              function: { name: 'search', arguments: 'abcd' },
-            },
-          ],
-        },
-      ],
-    }),
-    encode('abcd').length,
+    await count([{ role: 'user', parts: [{ type: 'text', text: 'abcd' }, hdImage()] }]),
+    { tokens: encode('abcd').length + HD_IMAGE_TOKENS, unknownMedia: 0 },
   );
-  assertEquals(
-    await resolveHistoryTokens({
-      history: [
-        {
-          role: 'user',
-          parts: [{ type: 'image', mimeType: 'image/png', data: 'x'.repeat(4000) }],
-        },
+});
+
+Deno.test('resolveHistoryTokens reports media it cannot count instead of guessing', async () => {
+  const unreadable: TurnHistoryMessage[] = [
+    {
+      role: 'user',
+      parts: [
+        { type: 'image', mimeType: 'image/png', data: '' },
+        { type: 'video', mimeType: 'video/mp4', data: 'dmlkZW8=' },
+        { type: 'text', text: 'abcd' },
       ],
-    }),
-    HISTORY_MEDIA_TOKENS.image,
-  );
+    },
+  ];
+  assertEquals(await resolveHistoryTokens({ history: unreadable }, FAMILY), {
+    tokens: encode('abcd').length,
+    unknownMedia: 2,
+  });
   assertEquals(
-    await resolveHistoryTokens({
-      history: [
-        {
-          role: 'user',
-          parts: [{ type: 'image', mimeType: 'image/png', data: '' }],
-        },
-      ],
-    }),
-    HISTORY_MEDIA_TOKENS.image,
-  );
-  assertEquals(
-    await resolveHistoryTokens({
-      history: [
-        {
-          role: 'user',
-          parts: [{ type: 'video', mimeType: 'video/mp4', data: 'v'.repeat(12) }],
-        },
-      ],
-    }),
-    HISTORY_MEDIA_TOKENS.video,
-  );
-  assertEquals(
-    await resolveHistoryTokens({
-      history: [
-        {
-          role: 'user',
-          parts: [{ type: 'audio', mimeType: 'audio/wav', data: '' }],
-        },
-      ],
-    }),
-    HISTORY_MEDIA_TOKENS.audio,
-  );
-  assertEquals(
-    await resolveHistoryTokens({
-      history: [
-        {
-          role: 'user',
-          parts: [
-            { type: 'text', text: 'abcd' },
-            { type: 'image', mimeType: 'image/png', data: 'efgh' },
-          ],
-        },
-      ],
-    }),
-    encode('abcd').length + HISTORY_MEDIA_TOKENS.image,
+    await resolveHistoryTokens({ history: [{ role: 'user', parts: [hdImage()] }] }, undefined),
+    {
+      tokens: 0,
+      unknownMedia: 1,
+    },
   );
 });
 
 Deno.test('resolveHistoryTokens: historyTokens 0 wins over a large estimate', async () => {
   assertEquals(
-    await resolveHistoryTokens({
-      historyTokens: 0,
-      history: [msg('user', 'x'.repeat(8000))],
-    }),
-    0,
+    await resolveHistoryTokens(
+      { historyTokens: 0, history: [msg('user', 'x'.repeat(8000))] },
+      FAMILY,
+    ),
+    { tokens: 0, unknownMedia: 0 },
   );
 });
 
 Deno.test('resolveHistoryTokens: inputTokens does not suppress a large estimate', async () => {
   const history = [msg('user', 'abcdefgh')];
-  assertEquals(await resolveHistoryTokens({ inputTokens: 1, history }), encode('abcdefgh').length);
+  assertEquals(await resolveHistoryTokens({ inputTokens: 1, history }, FAMILY), {
+    tokens: encode('abcdefgh').length,
+    unknownMedia: 0,
+  });
 });
 
 Deno.test('public barrel re-exports compaction helpers', () => {
@@ -762,13 +851,6 @@ Deno.test('public barrel re-exports compaction helpers', () => {
   assertEquals(publicResolveCompactionTokens, resolveCompactionTokens);
   assertEquals(publicCompactionMeter, compactionMeter);
   assertEquals(publicSplitForCompaction, splitForCompaction);
-  assertEquals(publicEstimateHistoryTokens, estimateHistoryTokens);
-  assertEquals(publicMediaTokens, HISTORY_MEDIA_TOKENS);
-  assertEquals(publicTextEncoding, HISTORY_TEXT_ENCODING);
-  assertEquals(HISTORY_TEXT_ENCODING, 'o200k_base');
-  assertEquals(HISTORY_MEDIA_TOKENS.image, 258);
-  assertEquals(HISTORY_MEDIA_TOKENS.audio, 32);
-  assertEquals(HISTORY_MEDIA_TOKENS.video, 263);
   assertEquals(compactionMeter(DEFAULT_SPEC), 'history');
 });
 
@@ -787,42 +869,32 @@ Deno.test('sanitizeTurnRequest preserves historyTokens and inputTokens', () => {
   assertEquals(safe.input.inputTokens, 99_999);
 });
 
-Deno.test('orchid after: many history media parts fire; payload size does not', async () => {
+Deno.test('orchid after: history images count by the model rule, not payload size', async () => {
   const speaker = registerCompactionPair('compaction.orchid.image', ORCHID_SPEC);
-  const oneHuge: TurnHistoryMessage[] = [
-    {
-      role: 'user',
-      parts: [{ type: 'image', mimeType: 'image/png', data: 'x'.repeat(6002) }],
-    },
+  const oneImage: TurnHistoryMessage[] = [
+    { role: 'user', parts: [hdImage()] },
     msg('assistant', 'ok'),
   ];
-  const manyStubs: TurnHistoryMessage[] = [
-    {
-      role: 'user',
-      parts: Array.from({ length: 6 }, () => ({
-        type: 'image' as const,
-        mimeType: 'image/png',
-        data: '',
-      })),
-    },
+  const twoImages: TurnHistoryMessage[] = [
+    { role: 'user', parts: [hdImage(), hdImage()] },
     msg('assistant', 'ok'),
   ];
-  const hugeEvents = await collectEvents(
+  const oneEvents = await collectEvents(
     speaker,
-    { text: 'q', history: oneHuge },
+    { text: 'q', history: oneImage },
     tokenProvider(12),
   );
-  const stubEvents = await collectEvents(
+  const twoEvents = await collectEvents(
     speaker,
-    { text: 'q', history: manyStubs },
+    { text: 'q', history: twoImages },
     tokenProvider(12),
   );
-  assertEquals(hugeEvents.find((e) => e.type === 'done')?.compaction, undefined);
-  assertEquals(stubEvents.find((e) => e.type === 'done')?.compaction?.needed, true);
-  assertEquals(
-    stubEvents.find((e) => e.type === 'done')?.compaction?.tokens,
-    await resolveHistoryTokens({ history: manyStubs }),
-  );
+  assertEquals(oneEvents.find((e) => e.type === 'done')?.compaction, undefined);
+  const signal = twoEvents.find((e) => e.type === 'done')?.compaction;
+  assertEquals(signal?.needed, true);
+  assertEquals(signal?.tokens, (await resolveHistoryTokens({ history: twoImages }, FAMILY)).tokens);
+  assertEquals(signal?.tokens !== undefined && signal.tokens > 2 * HD_IMAGE_TOKENS, true);
+  assertEquals(signal?.unknownMedia, 0);
 });
 
 Deno.test('orchid after: API prompt tokens over 1500 with short history do not fire', async () => {
@@ -893,7 +965,10 @@ Deno.test('orchid after: inputTokens under threshold does not hide a large histo
   );
   const done = events.find((e) => e.type === 'done');
   assertEquals(done?.compaction?.needed, true);
-  assertEquals(done?.compaction?.tokens, await resolveHistoryTokens({ history: longHistory }));
+  assertEquals(
+    done?.compaction?.tokens,
+    (await resolveHistoryTokens({ history: longHistory }, FAMILY)).tokens,
+  );
   assertEquals(done?.compaction?.promptTokens, 1);
 });
 
@@ -972,7 +1047,7 @@ Deno.test('orchid after: signal history is request history, not this turn output
 Deno.test('orchid previousExchanges 8 keeps last 8 of 10 exchanges', async () => {
   const spec: CompactionSpec = { ...ORCHID_SPEC, profile: 'x' };
   const history = Array.from({ length: 10 }, (_, i) => exchange(`u${i}`, `a${i}`)).flat();
-  const { toCompact, toRetain } = await splitForCompaction(history, spec);
+  const { toCompact, toRetain } = await splitForCompaction(history, spec, FAMILY);
   assertEquals(toCompact.length, 4);
   assertEquals(toRetain.length, 16);
   assertEquals(toRetain[0].content, 'u2');
@@ -1134,33 +1209,60 @@ const INPUT_AFTER_SPEC = {
 };
 const INPUT_BEFORE_SPEC = { ...INPUT_AFTER_SPEC, timing: 'before' as const };
 
-Deno.test('resolveCompactionTokens input meter prefers promptTokens then host inputTokens', async () => {
+Deno.test('resolveCompactionTokens input meter prefers the last call then host inputTokens', async () => {
   const spec: CompactionSpec = { ...INPUT_AFTER_SPEC, profile: 'x' };
   assertEquals(
     await resolveCompactionTokens({
       spec,
       input: { inputTokens: 100 },
-      promptTokens: 900,
+      prompt: { input: 900, output: 10, total: 910 },
+      family: FAMILY,
     }),
-    { meter: 'input', tokens: 900 },
+    { meter: 'input', tokens: 900, unknownMedia: 0 },
   );
-  assertEquals(await resolveCompactionTokens({ spec, input: { inputTokens: 100 } }), {
-    meter: 'input',
-    tokens: 100,
-  });
-  assertEquals(await resolveCompactionTokens({ spec, input: {} }), undefined);
+  assertEquals(
+    await resolveCompactionTokens({
+      spec,
+      input: { inputTokens: 100 },
+      prompt: {
+        input: 900,
+        output: 10,
+        total: 910,
+        estimated: ['input', 'output'],
+        unknownMedia: { input: 2, output: 1 },
+      },
+      family: FAMILY,
+    }),
+    { meter: 'input', tokens: 900, unknownMedia: 2 },
+  );
+  assertEquals(
+    await resolveCompactionTokens({ spec, input: { inputTokens: 100 }, family: FAMILY }),
+    {
+      meter: 'input',
+      tokens: 100,
+      unknownMedia: 0,
+    },
+  );
+  assertEquals(await resolveCompactionTokens({ spec, input: {}, family: FAMILY }), undefined);
   assertEquals(
     await resolveCompactionTokens({
       spec: { ...DEFAULT_SPEC, meter: 'history' },
       input: { history: [msg('user', 'abcd')], inputTokens: 50_000 },
+      family: FAMILY,
     }),
-    { meter: 'history', tokens: encode('abcd').length },
+    { meter: 'history', tokens: encode('abcd').length, unknownMedia: 0 },
   );
 });
 
 Deno.test('shouldCompact uses default threshold when trigger is omitted', async () => {
-  assertEquals(await shouldCompact({ meter: 'history', tokens: 80_000 }, DEFAULT_SPEC), true);
-  assertEquals(await shouldCompact({ meter: 'history', tokens: 50_000 }, DEFAULT_SPEC), false);
+  assertEquals(
+    await shouldCompact({ meter: 'history', unknownMedia: 0, tokens: 80_000 }, DEFAULT_SPEC),
+    true,
+  );
+  assertEquals(
+    await shouldCompact({ meter: 'history', unknownMedia: 0, tokens: 50_000 }, DEFAULT_SPEC),
+    false,
+  );
 });
 
 Deno.test('shouldCompact defers to custom trigger', async () => {
@@ -1172,9 +1274,18 @@ Deno.test('shouldCompact defers to custom trigger', async () => {
     ...DEFAULT_SPEC,
     trigger: (ctx) => ctx.tokens > 10,
   };
-  assertEquals(await shouldCompact({ meter: 'history', tokens: 99_999 }, forcedOff), false);
-  assertEquals(await shouldCompact({ meter: 'history', tokens: 11 }, forcedOn), true);
-  assertEquals(await shouldCompact({ meter: 'history', tokens: 5 }, forcedOn), false);
+  assertEquals(
+    await shouldCompact({ meter: 'history', unknownMedia: 0, tokens: 99_999 }, forcedOff),
+    false,
+  );
+  assertEquals(
+    await shouldCompact({ meter: 'history', unknownMedia: 0, tokens: 11 }, forcedOn),
+    true,
+  );
+  assertEquals(
+    await shouldCompact({ meter: 'history', unknownMedia: 0, tokens: 5 }, forcedOn),
+    false,
+  );
 });
 
 Deno.test('shouldCompact awaits async trigger', async () => {
@@ -1185,17 +1296,20 @@ Deno.test('shouldCompact awaits async trigger', async () => {
       return ctx.meter === 'input' && ctx.tokens > ctx.compactAt * ctx.maxTokens;
     },
   };
-  assertEquals(await shouldCompact({ meter: 'input', tokens: 80_000 }, spec), true);
+  assertEquals(
+    await shouldCompact({ meter: 'input', unknownMedia: 0, tokens: 80_000 }, spec),
+    true,
+  );
 });
 
-Deno.test('estimateHistoryTokens media-only history does not require host historyTokens', async () => {
-  const tokens = await estimateHistoryTokens([
+Deno.test('resolveHistoryTokens media-only history does not require host historyTokens', async () => {
+  assertEquals(
+    await resolveHistoryTokens({ history: [{ role: 'user', parts: [hdImage()] }] }, FAMILY),
     {
-      role: 'user',
-      parts: [{ type: 'image', mimeType: 'image/png', data: '' }],
+      tokens: HD_IMAGE_TOKENS,
+      unknownMedia: 0,
     },
-  ]);
-  assertEquals(tokens, HISTORY_MEDIA_TOKENS.image);
+  );
 });
 
 Deno.test('meter input after fires from provider tokens.input', async () => {
@@ -1210,6 +1324,28 @@ Deno.test('meter input after fires from provider tokens.input', async () => {
   assertEquals(done?.compaction?.meter, 'input');
   assertEquals(done?.compaction?.tokens, 800);
   assertEquals(done?.compaction?.promptTokens, 800);
+  assertEquals(done?.compaction?.promptTokensEstimated, undefined);
+});
+
+Deno.test('meter input after fires from the estimate when the provider reports no usage', async () => {
+  const speaker = registerCompactionPair('compaction.input.after.estimated', INPUT_AFTER_SPEC);
+  const history = exchange(bulky(), 'ok');
+  const provider: ModelProvider = {
+    complete: () =>
+      (async function* () {
+        yield { type: 'text' as const, text: 'response' };
+        yield { type: 'done' as const };
+      })(),
+  };
+  const events = await collectEvents(speaker, { text: 'q', history }, provider);
+  const tokens = events.find((e) => e.type === 'tokens')?.tokens;
+  const signal = events.find((e) => e.type === 'done')?.compaction;
+  assertEquals(tokens?.estimated, ['input', 'output']);
+  assertEquals(signal?.needed, true);
+  assertEquals(signal?.tokens, tokens?.input);
+  assertEquals(signal?.promptTokens, tokens?.input);
+  assertEquals(signal?.promptTokensEstimated, true);
+  assertEquals((tokens?.input ?? 0) > encode(bulky()).length, true);
 });
 
 Deno.test('meter input after does not fire when provider tokens are under threshold', async () => {

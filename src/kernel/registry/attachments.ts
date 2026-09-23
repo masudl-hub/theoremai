@@ -4,6 +4,8 @@ import { lexiconText } from '../../guardrails/lexicon.ts';
 import { sensitiveSpans } from '../../guardrails/sensitive.ts';
 import { applySpans } from '../../observability/spans.ts';
 import type { MediaLimits, MimeInputs, Profile, TurnBlob, TurnMediaRef } from '../types.ts';
+import { base64ToBytes, bytesToBase64 } from '../util/base64.ts';
+import { mimeEssence } from '../util/mime.ts';
 import { getProfile } from './profiles.ts';
 
 const B64_PAD = 2;
@@ -25,7 +27,7 @@ function resolveMediaLimits(inputs: MimeInputs): MediaLimits | undefined {
 /** Resolves a MIME-specific byte cap, then its category wildcard, then the global cap. */
 function maxBytesForMime(mimeType: string, limits: MediaLimits): number {
   if (limits.limitsByMime) {
-    const cleanMime = mimeType.split(';')[0]?.trim().toLowerCase() ?? '';
+    const cleanMime = mimeEssence(mimeType);
     if (limits.limitsByMime[cleanMime]) {
       return limits.limitsByMime[cleanMime];
     }
@@ -72,23 +74,6 @@ function b64DecodedLen(data: string): number {
     pad = 1;
   }
   return Math.floor((data.length * B64_TRIPLET) / B64_WORD) - pad;
-}
-
-function decodeB64(data: string): Uint8Array {
-  const binary = atob(data);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
-}
-
-function encodeB64(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-  return btoa(binary);
 }
 
 function decodeText(bytes: Uint8Array): string {
@@ -156,11 +141,11 @@ function sanitizeAttachment<T extends TurnBlob | TurnMediaRef>(blob: T): T {
     return blob;
   }
   const { mimeType, data } = blob;
-  if (!TEXT_MIMES.has(mimeType.split(';')[0]?.trim().toLowerCase() ?? '')) {
+  if (!TEXT_MIMES.has(mimeEssence(mimeType))) {
     return blob;
   }
-  const bytes = sanitizeTextBytes(mimeType, decodeB64(data));
-  return { mimeType, data: encodeB64(bytes) } as T;
+  const bytes = sanitizeTextBytes(mimeType, base64ToBytes(data));
+  return { mimeType, data: bytesToBase64(bytes) } as T;
 }
 
 type TurnAttachments = Array<TurnBlob | TurnMediaRef>;

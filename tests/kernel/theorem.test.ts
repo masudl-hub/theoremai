@@ -28,6 +28,9 @@ import type {
   TurnEvent,
   TurnRequest,
 } from '../../src/kernel/types.ts';
+import { memorySink } from '../../src/observability/trace.ts';
+import { contentOf } from '../../src/observability/trace-record.ts';
+import type { TraceAttributes } from '../../src/observability/trace-span.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 import { invokeRegisteredTool, withProfileTools } from '../fixtures/test-tools.ts';
 
@@ -690,10 +693,14 @@ Deno.test('runTurn executes profile validation and auto-corrects', async () => {
     if (callCount === 1) {
       yield { type: 'structured', structured: { code: 'bad' } };
     } else {
+      // The repair is the next user message after the question; nothing is re-sent as input.
+      assertEquals(req.input, []);
       assertEquals(
-        req.input.some((p) => p.type === 'text' && p.text.includes('code must be good')),
-        true,
+        req.history?.map((m) => m.role),
+        ['user', 'user'],
       );
+      assertStringIncludes(String(req.history?.[0]?.content), 'make code');
+      assertStringIncludes(String(req.history?.[1]?.content), 'code must be good');
       yield { type: 'structured', structured: { code: 'good' } };
     }
   }
@@ -826,12 +833,8 @@ Deno.test('runTurn retries when required field is missing', async () => {
       yield { type: 'structured', structured: { message: 'no code yet' } };
       return;
     }
-    assertEquals(
-      req.input.some(
-        (p) => p.type === 'text' && p.text.includes("required field 'code' is missing"),
-      ),
-      true,
-    );
+    assertEquals(req.input, []);
+    assertStringIncludes(String(req.history?.at(-1)?.content), "required field 'code' is missing");
     yield { type: 'structured', structured: { code: 'good' } };
   }
 
@@ -1089,9 +1092,7 @@ Deno.test('runTurn autonomous loop re-calls provider until text emitted or step 
 
   const step2 = requestLog[1];
   assertEquals(step2?.previousInteractionId, 'v1_sensor');
-  const continuationText = String(
-    (step2?.interactionOnlyInput?.[0] as { result?: Array<{ text?: string }> })?.result?.[0]?.text,
-  );
+  const continuationText = String(step2?.continuation?.[0]?.content);
   assertStringIncludes(continuationText, 'Sensor raw value: 22%');
   assertEquals(step2?.history, []);
   assertEquals(step2?.input, []);
@@ -1149,16 +1150,11 @@ Deno.test('runTurn sends every Interactions function_result in one continuation'
   }
 
   assertEquals(callCount, 2);
-  const continuation = requestLog[1]?.interactionOnlyInput ?? [];
+  const continuation = requestLog[1]?.continuation ?? [];
   assertEquals(continuation.length, 2);
-  assertStringIncludes(
-    String((continuation[0] as { result?: Array<{ text?: string }> }).result?.[0]?.text),
-    '22%',
-  );
-  assertStringIncludes(
-    String((continuation[1] as { result?: Array<{ text?: string }> }).result?.[0]?.text),
-    'shipped',
-  );
+  assertEquals(continuation[0]?.role, 'tool');
+  assertStringIncludes(String(continuation[0]?.content), '22%');
+  assertStringIncludes(String(continuation[1]?.content), 'shipped');
 });
 
 Deno.test('runTurn falls back to function_result history when Interactions id is missing', async () => {
@@ -1204,10 +1200,14 @@ Deno.test('runTurn falls back to function_result history when Interactions id is
   }
 
   assertEquals(callCount, 2);
+  // The question stays ahead of the tool result it led to.
   const step2History = historyLog[1] ?? [];
-  assertEquals(step2History.length, 1);
-  assertEquals(step2History[0]?.role, 'tool');
-  assertEquals(step2History[0]?.tool_call_id, 'call_sensor_1');
+  assertEquals(
+    step2History.map((m) => m.role),
+    ['user', 'tool'],
+  );
+  assertStringIncludes(String(step2History[0]?.content), 'Check soil');
+  assertEquals(step2History[1]?.tool_call_id, 'call_sensor_1');
 });
 
 Deno.test('guardrails.canary=false omits canary generation and system binding', async () => {
@@ -1299,13 +1299,8 @@ Deno.test('outputs.streaming.streamThoughts=false filters out thought events fro
   };
 
   const events: import('../../src/kernel/types.ts').TurnEvent[] = [];
-  let capturedTraceEvents: import('../../src/observability/trace-record.ts').TraceEvent[] = [];
-  const mockSink: import('../../src/observability/trace-sink.ts').TraceSink = {
-    write: (record) => {
-      capturedTraceEvents = record.events;
-      return Promise.resolve();
-    },
-  };
+  const records: import('../../src/observability/trace-record.ts').TraceRecord[] = [];
+  const mockSink = memorySink(records);
 
   for await (const ev of runTurn(
     { profile: 'quiet_bot', input: { text: 'solve problem' } },
@@ -1329,11 +1324,14 @@ Deno.test('outputs.streaming.streamThoughts=false filters out thought events fro
     true,
   );
 
-  // But preserved in trace record for audit/storage
-  assertEquals(
-    capturedTraceEvents.some((e) => e.type === 'thought' && e.text === 'internal deep thoughts...'),
-    true,
-  );
+  // But preserved in the trace: the model call's output holds the reasoning.
+  const [record] = records;
+  const call = record?.spans.find((span) => span.name.startsWith('generate_content'));
+  const [message] = (call?.attributes['gen_ai.output.messages'] ?? []) as {
+    parts: TraceAttributes[];
+  }[];
+  const reasoning = message?.parts.find((part) => part.type === 'reasoning');
+  assertEquals(record && contentOf(record, reasoning), 'internal deep thoughts...');
 });
 
 Deno.test('registered tool exception is safely caught and converted to error finding', async () => {
@@ -1370,9 +1368,7 @@ Deno.test('registered tool exception is safely caught and converted to error fin
           interactionId: 'v1_crash',
         };
       } else {
-        const resultStep = req.interactionOnlyInput?.[0];
-        const blocks = resultStep?.result as Array<{ text?: string }> | undefined;
-        receivedToolError = String(blocks?.[0]?.text ?? '');
+        receivedToolError = String(req.continuation?.[0]?.content ?? '');
         yield { type: 'text', text: 'Handled error gracefully.' };
       }
     },
@@ -1733,9 +1729,11 @@ Deno.test('guardrails.egress reject_to_agent triggers auto-repair retry loop', a
           text: 'Here is what internal_tool_abc returned.',
         };
       } else {
-        // Verify model received the repair request in input
-        const inputStr = JSON.stringify(req.input);
-        assertStringIncludes(inputStr, 'Do not mention internal_tool_abc');
+        // The repair request is the next user message in history.
+        assertStringIncludes(
+          String(req.history?.at(-1)?.content),
+          'Do not mention internal_tool_abc',
+        );
         yield { type: 'text', text: 'Here is the clean public answer.' };
       }
     },

@@ -27,12 +27,13 @@ import {
 import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import { sanitizeTurnRequest } from '../../../guardrails/sanitize.ts';
 import { resolveObservabilityPolicy } from '../../../observability/resolve-policy.ts';
+import type { TraceSink } from '../../../observability/trace-sink.ts';
 import type { GeminiTransport } from '../../../providers/google/keys.ts';
 import {
   buildGeminiLiveRealtimeInput,
-  buildGeminiLiveRealtimeText,
   buildGeminiLiveToolResponse,
   buildGeminiLiveToolResponses,
+  liveFunctionResponsePayload,
 } from '../../../providers/google/live/framing.ts';
 import { openGoogleLiveSession } from '../../../providers/google/live/session.ts';
 import type { ToolCredential } from '../../auth/types.ts';
@@ -45,14 +46,10 @@ import {
   executeRegisteredTool,
   formatToolFailureForModel,
   formatToolResult,
+  type ToolExecuteSettlement,
 } from '../../tools/execute.ts';
 import { cloneTurnToolSnapshot } from '../../tools/resolve.ts';
-import type {
-  ModelToolResult,
-  ToolFailure,
-  ToolGate,
-  TurnToolSnapshot,
-} from '../../tools/types.ts';
+import type { ModelToolResult, ToolFailure, TurnToolSnapshot } from '../../tools/types.ts';
 import type {
   InteractionPart,
   LiveExecuteToolArgs,
@@ -69,6 +66,8 @@ import type {
 } from '../../types.ts';
 import { prepareLiveInboundText } from '../live-inbound.ts';
 import { assertLiveIngress } from '../live-ingress.ts';
+import { mediaTokenFamily } from '../token-estimate.ts';
+import { type LiveCloser, type LiveTrace, startLiveTrace } from './session-trace.ts';
 
 export type { LiveSession, SessionRequest };
 
@@ -214,6 +213,30 @@ async function applyOutbound(
   return out;
 }
 
+/**
+ * The output a settled Live call sends upstream, or `undefined` when nothing
+ * is sent (a gate, or no result). The model reads it as the `functionResponse`.
+ */
+function liveToolOutput(s: ToolExecuteSettlement): unknown {
+  const outputModel = s.modelResult;
+  if (s.gated || (outputModel === undefined && !s.failure)) return undefined;
+  const upstream =
+    outputModel ??
+    ({
+      finding: s.failure ? `Tool error (${s.failure.code}): ${s.failure.message}` : 'error',
+      data: s.failure,
+    } satisfies ModelToolResult);
+  return upstream.data ?? upstream;
+}
+
+/** What the model reads back from a Live call: the `functionResponse.response` sent. */
+function liveReadBack(s: ToolExecuteSettlement): { text: string } | undefined {
+  const output = liveToolOutput(s);
+  return output === undefined
+    ? undefined
+    : { text: JSON.stringify(liveFunctionResponsePayload(output)) };
+}
+
 function* drainPendingHostEvents(pendingHostEvents: TurnEvent[]): Generator<TurnEvent> {
   while (pendingHostEvents.length > 0) {
     const pending = pendingHostEvents.shift();
@@ -274,6 +297,7 @@ function buildLiveSession(args: {
   historySeed?: TurnHistoryMessage[];
   /** Open cycle for initial setup input when present. */
   openInitialCycle: boolean;
+  trace: LiveTrace;
 }): LiveSession {
   const {
     profile,
@@ -287,6 +311,7 @@ function buildLiveSession(args: {
     sessionPermissions,
     path,
     snapshot,
+    trace,
   } = args;
 
   let closed = false;
@@ -372,7 +397,18 @@ function buildLiveSession(args: {
     if (closed) {
       throw new TheoremError('Live session is closed'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
-    connection.send(JSON.stringify(payload));
+    connection.send(payload);
+  };
+
+  const closeSocket = (code: number, reason: string, initiator: LiveCloser) => {
+    trace.socketClosed(code, reason, initiator);
+    connection.close(code, reason);
+  };
+
+  /** A `done` names the response span it ends. */
+  const stampDone = (ev: TurnEvent): TurnEvent => {
+    const traceparent = ev.type === 'done' ? trace.responseTraceparent() : undefined;
+    return traceparent ? { ...ev, traceparent } : ev;
   };
 
   const runCycleStage = async (
@@ -389,6 +425,7 @@ function buildLiveSession(args: {
       injectAllowed: profileAllowsInject(profile),
       host: sessionHost,
       signal,
+      span: trace.root,
     });
     let result = await gen.next();
     while (!result.done) {
@@ -404,10 +441,11 @@ function buildLiveSession(args: {
   const ingestPreparedLiveText = (text: string) => {
     const prepared = prepareLiveInboundText(profile, text);
     if (prepared.guardrail) {
+      trace.inbound(prepared.guardrail);
       enqueuePending(prepared.guardrail);
     }
     recordUserText(prepared.text);
-    sendJson(buildGeminiLiveRealtimeText(prepared.text));
+    sendJson(buildGeminiLiveRealtimeInput({ type: 'text', text: prepared.text }));
   };
 
   const applyInjectTexts = (texts: string[]) => {
@@ -478,20 +516,37 @@ function buildLiveSession(args: {
     profileId: profile.id,
     canary,
     async *events(): AsyncGenerator<TurnEvent> {
+      // Who closes the socket when the loop ends: the host, unless THEOREM stops it.
+      let closer: LiveCloser = 'host';
+      let thrown: unknown;
       try {
         for await (const item of connection.batches()) {
           throwIfAborted(signal);
+          trace.receive(item);
           yield* drainPendingHostEvents(pendingHostEvents);
           if (item.type === 'closed') {
             break;
           }
           if (item.type === 'error') {
+            closer = 'theorem';
             yield toErrorEvent(item.error);
             break;
           }
-          const gated = await applyOutbound(gate, item.events, item.turnPhase, (error) => {
-            withholdClose = error;
-          });
+          if (item.type === 'row') {
+            continue;
+          }
+          // Usage is held per response and emitted once, reported or estimated, by `settle`.
+          const gated = await applyOutbound(
+            gate,
+            item.events.filter((ev) => ev.type !== 'tokens'),
+            item.turnPhase,
+            (error) => {
+              withholdClose = error;
+            },
+          );
+          for (const ev of gated) {
+            if (ev.guardrail) trace.outbound(ev);
+          }
 
           const doneBatch = yield* yieldLiveNonDoneEvents(
             gated,
@@ -499,6 +554,8 @@ function buildLiveSession(args: {
             withholdClose,
             recordAssistantText,
           );
+          const tokens = await trace.settle();
+          if (tokens) yield tokens;
 
           const interrupted = doneBatch.some((ev) => ev.type === 'done' && ev.interrupted);
           const completeBoundary =
@@ -509,27 +566,32 @@ function buildLiveSession(args: {
           if (completeBoundary && cycle === 'open') {
             const boundaryDone = boundaryDoneEvents(doneBatch, item.turnPhase, interrupted);
             for await (const ev of endCycleAroundDone(boundaryDone)) {
-              yield projectGuardrailTurnEvent(ev, includeMatch);
+              yield projectGuardrailTurnEvent(stampDone(ev), includeMatch);
             }
             yield* drainPendingHostEvents(pendingHostEvents);
           } else if (doneBatch.length > 0) {
             for (const ev of doneBatch) {
-              yield projectGuardrailTurnEvent(ev, includeMatch);
+              yield projectGuardrailTurnEvent(stampDone(ev), includeMatch);
             }
           }
 
           if (withholdClose) {
-            connection.close(1011, 'guardrail withheld');
+            closer = 'theorem';
             break;
           }
         }
         yield* drainPendingHostEvents(pendingHostEvents);
+      } catch (err) {
+        thrown = err;
+        throw err;
       } finally {
         closed = true;
-        connection.close();
+        if (withholdClose) closeSocket(1011, 'guardrail withheld', closer);
+        else closeSocket(1000, 'session-closed', closer);
+        await trace.close({ thrown });
       }
     },
-    sendAudio(audio: { data: string; mimeType?: string }): Promise<void> {
+    sendAudio(audio: { data: string; mimeType: string }): Promise<void> {
       return withIngress(async () => {
         if (!audio.data) return;
         assertLiveIngress(profile, 'audio');
@@ -538,13 +600,13 @@ function buildLiveSession(args: {
         sendJson(
           buildGeminiLiveRealtimeInput({
             type: 'audio',
-            mimeType: audio.mimeType ?? 'audio/pcm;rate=16000',
+            mimeType: audio.mimeType,
             data: audio.data,
           }),
         );
       });
     },
-    sendVideo(video: { data: string; mimeType?: string }): Promise<void> {
+    sendVideo(video: { data: string; mimeType: string }): Promise<void> {
       return withIngress(async () => {
         assertLiveIngress(profile, 'video');
         const opened = await openCycleIfNeeded();
@@ -552,7 +614,7 @@ function buildLiveSession(args: {
         sendJson(
           buildGeminiLiveRealtimeInput({
             type: 'video',
-            mimeType: video.mimeType ?? 'image/jpeg',
+            mimeType: video.mimeType,
             data: video.data,
           }),
         );
@@ -571,6 +633,7 @@ function buildLiveSession(args: {
         throw new TheoremError('Live session is closed'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       }
       const handlers = onStage ? [onStage] : [];
+      const record = trace.toolRecord(toolArgs.callId);
       const exec = executeRegisteredTool({
         profile,
         name: toolArgs.name,
@@ -595,31 +658,23 @@ function buildLiveSession(args: {
           host: toolArgs.host ?? sessionHost,
           signal,
         },
+        openSpan: record.open,
+        readBack: liveReadBack,
       });
 
-      let settlement: Awaited<ReturnType<typeof exec.next>>['value'];
-      while (true) {
-        const next = await exec.next();
-        if (next.done) {
-          settlement = next.value;
-          break;
+      let s: ToolExecuteSettlement;
+      try {
+        while (true) {
+          const next = await exec.next();
+          if (next.done) {
+            s = next.value;
+            break;
+          }
+          enqueuePending(next.value);
         }
-        enqueuePending(next.value);
+      } finally {
+        record.finish();
       }
-
-      if (!settlement || typeof settlement !== 'object') {
-        return {};
-      }
-
-      const s = settlement as {
-        modelResult?: ModelToolResult;
-        gated?: ToolGate;
-        failure?: ToolFailure;
-        awaiting?: boolean;
-        outputRaw?: unknown;
-        callNotStarted?: boolean;
-        pendingInject?: TurnHistoryMessage[];
-      };
 
       if (s.gated) {
         return { gated: s.gated };
@@ -637,7 +692,8 @@ function buildLiveSession(args: {
       }
 
       const outputModel = s.modelResult;
-      if (outputModel !== undefined || s.failure) {
+      const output = liveToolOutput(s);
+      if (output !== undefined) {
         recordToolSettle({
           name: toolArgs.name,
           callId: toolArgs.callId,
@@ -645,15 +701,7 @@ function buildLiveSession(args: {
           output: s.outputRaw ?? outputModel?.data ?? outputModel,
           failure: s.failure,
         });
-        const upstream =
-          outputModel ??
-          ({
-            finding: s.failure ? `Tool error (${s.failure.code}): ${s.failure.message}` : 'error',
-            data: s.failure,
-          } satisfies ModelToolResult);
-        sendJson(
-          buildGeminiLiveToolResponse(toolArgs.callId, toolArgs.name, upstream.data ?? upstream),
-        );
+        sendJson(buildGeminiLiveToolResponse(toolArgs.callId, toolArgs.name, output));
       }
 
       return {
@@ -670,10 +718,12 @@ function buildLiveSession(args: {
       sendJson(buildGeminiLiveToolResponses(responses));
     },
     close(reason = 'session-closed'): Promise<void> {
-      if (closed) return Promise.resolve();
-      closed = true;
-      connection.close(1000, reason);
-      return Promise.resolve();
+      if (!closed) {
+        closed = true;
+        closeSocket(1000, reason, 'host');
+      }
+      // The session record is sealed here; frames the host reads after closing are not in it.
+      return trace.close({});
     },
   };
 
@@ -687,7 +737,9 @@ function buildLiveSession(args: {
 }
 
 /**
- * Open a gated Gemini Live session for a `type: 'live'` profile.
+ * Open a gated Gemini Live session for a `type: 'live'` profile, and trace it
+ * (`session-trace.ts`): the session record is written however the session
+ * ends, including when opening it fails.
  *
  * Hosts bridge browser sockets and tool dispatch; THEOREM owns Gemini WS,
  * framing, inbound prep, outbound canary/egress gates, and live stages.
@@ -695,6 +747,21 @@ function buildLiveSession(args: {
 export async function runSession(
   req: SessionRequest,
   options: RunSessionOptions,
+  sinkOverride?: TraceSink,
+): Promise<LiveSession> {
+  const trace = startLiveTrace(req, sinkOverride);
+  try {
+    return await openTracedSession(req, options, trace);
+  } catch (err) {
+    await trace.close({ thrown: err });
+    throw err;
+  }
+}
+
+async function openTracedSession(
+  req: SessionRequest,
+  options: RunSessionOptions,
+  trace: LiveTrace,
 ): Promise<LiveSession> {
   const turnReq = toTurnRequest(req);
   const safe = sanitizeTurnRequest(turnReq);
@@ -720,7 +787,17 @@ export async function runSession(
   const completeReq: ProviderCompleteRequest = {
     ...providerCompleteRequest(generation, system),
     signal: safe.signal,
+    tapUpstream: trace.sent,
   };
+  const binding = profile.models[generation.model];
+  trace.bind({
+    request: completeReq,
+    generation,
+    binding,
+    family: binding ? mediaTokenFamily(binding) : undefined,
+    system,
+    canary: generation.canary,
+  });
 
   const gate = createLiveOutboundGateSession(profile, generation.canary || undefined);
   const connection = await openGoogleLiveSession(
@@ -728,6 +805,7 @@ export async function runSession(
     options.gemini,
     options.openWebSocket,
   );
+  trace.setup(connection.setup);
 
   return buildLiveSession({
     profile,
@@ -743,5 +821,6 @@ export async function runSession(
     snapshot: gen0.tools,
     historySeed: req.history,
     openInitialCycle: hasInitialInput,
+    trace,
   });
 }

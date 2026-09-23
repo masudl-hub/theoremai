@@ -74,6 +74,7 @@ function observabilityView(
     sampleRate: policy.sampleRate,
     include: policy.include,
     scrub: policy.scrub,
+    resource: policy.resource,
     retainForDays: policy.retainForDays,
     rotateAfterMiB: policy.rotateAfterMiB,
     hasOnWriteError: Boolean(policy.onWriteError),

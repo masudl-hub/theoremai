@@ -22,6 +22,7 @@
     "./guardrails": "./src/guardrails/mod.ts",
     "./guardrails/testing": "./src/guardrails/testing.ts",
     "./observability": "./src/observability/mod.ts",
+    "./observability/openinference": "./src/observability/openinference.ts",
     "./host": "./src/host/mod.ts",
     "./cli": "./src/cli/index.ts",
     "./presets": "./src/presets/mod.ts",
@@ -29,6 +30,7 @@
   },
   "publish": {
     "exclude": [
+      ".claude/",
       ".fallow/",
       ".fallowrc.jsonc",
       ".cursor/",
@@ -60,6 +62,7 @@
       "src/interface/",
       "sgconfig.yml",
       "snyk",
+      ".snyk",
       "src/**/*.md",
       "tests/"
     ]

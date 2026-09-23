@@ -59,7 +59,7 @@ Remains the **text** projection for `content` and for adapters that only accept 
 | **Google Interactions** | `function_result.result` = `parts.map(wireInteractionPart)` (shared with live continuation); if no parts, `[{ type: 'text', text: content }]` |
 | **OpenRouter / AI SDK** | Tool message `output`: multimodal `content` value when `parts` present; else `{ type: 'text', value: content }` |
 | **OpenAI-compat REST** | Tool `content`: if `parts` present, wire via the same multimodal content mapper as user messages (text / image_url / input_audio / file-equivalent); else string `content` |
-| **Gemini Live** | Keep JSON `response: { result }` from tool output; Live function responses are structured JSON, not multimodal turns. Do not pretend Live can inline tool media the same way. Text finding/data still flow. |
+| **Gemini Live** | A `user` turn with one `functionResponse`: text parts newline-joined as `response: { result }`, media as nested `functionResponse.parts[].inlineData` (probed 23/09/2026: the model reads the image). |
 
 ## 5. Compaction
 
@@ -71,6 +71,7 @@ When folding history to text for compaction, represent non-text parts as markers
 2. Text-only tools unchanged (`parts` omitted).
 3. Invalid / unknown part shapes are dropped at projection (do not throw the turn).
 4. Provider wire limitations are named in §4 — no silent empty media parts for video/document on OpenAI-compat (map to file-equivalent or explicit text marker).
+5. Tool call id and tool name reach the wire only when history carries them (`historyToolIdentity`). No adapter invents one; a provider that needs a missing one rejects the request (the AI SDK throws `AI_InvalidPromptError` before sending).
 
 ## 7. Tests
 

@@ -170,7 +170,7 @@ Deno.test('createLocalProvider streams text, tokens, and completed stop', async 
       });
       return Promise.resolve(
         sseResponse([
-          'data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n',
+          'data: {"id":"chatcmpl-1","model":"llama3.2","choices":[{"delta":{"content":"Hi"}}]}\n\n',
           'data: {"choices":[{"delta":{"content":"!"},"finish_reason":"stop"}]}\n\n',
           'data: {"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5},"choices":[]}\n\n',
           'data: [DONE]\n\n',
@@ -195,6 +195,7 @@ Deno.test('createLocalProvider streams text, tokens, and completed stop', async 
   const done = events.find((e) => e.type === 'done');
   assertEquals(done?.stop?.kind, 'completed');
   assertEquals(done?.stop?.native, 'stop');
+  assertEquals(done?.response, { id: 'chatcmpl-1', model: 'llama3.2' });
 });
 
 Deno.test('createLocalProvider maps finish_reason length and tool_calls', async () => {

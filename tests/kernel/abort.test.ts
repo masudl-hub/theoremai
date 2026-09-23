@@ -70,8 +70,9 @@ Deno.test('runTurn cancels an in-flight provider and ends with cancelled done', 
     ),
   );
   assertEquals(sawAbort, true);
-  assertEquals(into[0]?.cancelled, true);
-  assertEquals(into[0]?.ok, false);
+  const [root] = into[0]?.spans ?? [];
+  assertEquals(root?.attributes['theorem.stop.kind'], 'cancelled');
+  assertEquals(root?.status, { code: 'UNSET' });
   assertEquals(
     events.some((e) => e.type === 'done' && e.stop?.kind === 'cancelled'),
     true,

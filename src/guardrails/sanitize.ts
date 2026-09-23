@@ -284,25 +284,6 @@ function sanitizeTurnRequestWithEvents(req: TurnRequest): {
   };
 }
 
-/**
- * Trace-safe request sanitize. Prefers full `sanitizeTurnRequest`; if blob/policy
- * checks throw, still redacts text and keeps attachments for hashing — never invents empty input.
- */
-function sanitizeTurnRequestForTrace(req: TurnRequest): {
-  request: NormalizedTurnRequest;
-  sanitizeError?: string;
-} {
-  try {
-    return { request: sanitizeTurnRequest(req) };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return {
-      request: sanitizeTurnRequestText(req, req.profile).request,
-      sanitizeError: message,
-    };
-  }
-}
-
 export {
   detectionForProfile,
   detectText,
@@ -312,6 +293,5 @@ export {
   sanitizeProjectId,
   sanitizeText,
   sanitizeTurnRequest,
-  sanitizeTurnRequestForTrace,
   sanitizeTurnRequestWithEvents,
 };

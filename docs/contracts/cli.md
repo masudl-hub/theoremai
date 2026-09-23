@@ -4,9 +4,6 @@ Profile inspection and stress-test CLI. On npm this entry is also the
 `agents` binary. Hosts must register profiles (and providers) in-process
 before commands that execute turns — the CLI does not embed app profiles.
 
-This contract was refreshed to cover the active CLI dispatch and event-log
-changes in the current branch so the published surface and the repo docs stay in step.
-
 ## Export
 
 | Field | Value |
@@ -26,8 +23,6 @@ changes in the current branch so the published surface and the repo docs stay in
 
 ## Commands
 
-The active branch refresh keeps the CLI contract aligned with the current command routing, event logging, and matrix-driven stress tooling.
-
 ```text
 agents <command> [options]
 ```
@@ -46,6 +41,10 @@ agents <command> [options]
 | `help` | Usage |
 
 Exit code `1` on failed `test` runs. `run` requires `--profile` (or `-p`).
+A passing `test` prints the turn's token total (`sumTokens` over every model
+call's `tokens` event), followed by `, includes estimates` when any call's
+count was estimated: `✓ STATUS: PASSED (took 2.31s, 1234 tokens, includes estimates)`.
+`TestRunResult.tokens` carries the full sum.
 Both `test` and `run` print Google `code_execution_*` (and other) `evidence`
 events when a host-supplied provider yields them — hosts still must pass an
 explicit `ModelProvider` (the CLI never reads API keys).
@@ -54,7 +53,7 @@ explicit `ModelProvider` (the CLI never reads API keys).
 
 | Flag | Effect |
 | --- | --- |
-| `--verbose`, `-v` | Print `errorInternal` and `evidence.raw` while the turn runs; with `--trace`, also print `upstreamLog` after the record |
+| `--verbose`, `-v` | Print `errorInternal` and `evidence.raw` while the turn runs; with `--trace`, also print the record's upstream rows (`theorem.upstream.row`) after it |
 | `--trace` | Attach a trace sink; dump the full `TraceRecord` JSON after each turn |
 | `--trace-dir <path>` | Also append trace JSONL under the given directory (in addition to `--trace` console dump) |
 

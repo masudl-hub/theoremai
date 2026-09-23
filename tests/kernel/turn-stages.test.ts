@@ -162,7 +162,7 @@ Deno.test('stages: post_tool inject after tools before next model step', async (
 
   const stages: string[] = [];
   let call = 0;
-  let secondInteractionInput: Record<string, unknown>[] | undefined;
+  let continuation: TurnHistoryMessage[] | undefined;
   const provider: ModelProvider = {
     complete: async function* (req: ProviderCompleteRequest) {
       call++;
@@ -174,7 +174,7 @@ Deno.test('stages: post_tool inject after tools before next model step', async (
         yield { type: 'done', interactionId: 'ix-1' };
         return;
       }
-      secondInteractionInput = req.interactionOnlyInput;
+      continuation = req.continuation;
       yield { type: 'text', text: 'after tools' };
       yield { type: 'done' };
     },
@@ -214,10 +214,11 @@ Deno.test('stages: post_tool inject after tools before next model step', async (
     events.some((e) => e.type === 'text' && e.text === 'after tools'),
     true,
   );
-  const wire = JSON.stringify(secondInteractionInput ?? []);
-  assertStringIncludes(wire, 'function_result');
-  assertStringIncludes(wire, 'also do this');
-  assertStringIncludes(wire, 'user_input');
+  assertEquals(
+    continuation?.map((m) => m.role),
+    ['tool', 'user'],
+  );
+  assertEquals(continuation?.[1]?.content, 'also do this');
 });
 
 Deno.test('stages: before_end inject re-enters the model step under maxSteps', async () => {

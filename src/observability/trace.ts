@@ -10,33 +10,40 @@
  */
 
 import { TheoremError } from '../guardrails/error.ts';
+import { DEFAULT_ROTATE_MIB } from './resolve-policy.ts';
 import type { TraceRecord } from './trace-record.ts';
 import type { TraceSink } from './trace-sink.ts';
+import type { ResolvedObservabilityPolicy } from './types.ts';
 
-const DEFAULT_RETAIN_DAYS = 14;
 const HOURS_PER_DAY = 24;
 const MIN_PER_HOUR = 60;
 const SEC_PER_MIN = 60;
 const MS_PER_SEC = 1000;
 const KIB = 1024;
 const MIB = KIB * KIB;
-const DEFAULT_ROTATE_MIB = 32;
 const FILE_DAY = /^turns-(\d{4}-\d{2}-\d{2})(?:-\d+)?\.jsonl$/;
 
-/** Options for daily rotating JSONL sinks. */
+/**
+ * Options for daily rotating JSONL sinks. Retention is not here: it arrives
+ * with each write (`TraceWriteContext`), from the profile that wrote the record.
+ */
 interface JsonlSinkOptions {
-  retainForDays?: number;
   rotateAfterMiB?: number;
   now?: () => number;
 }
 
 /**
- * Write a trace record without allowing trace failures to fail the turn.
- * Build/write errors are forwarded to `sink.onError` when provided.
+ * Write a trace record under the policy it was built with, without allowing
+ * trace failures to fail the turn. Build/write errors are forwarded to
+ * `sink.onError` when provided.
  */
-async function writeTrace(sink: TraceSink, record: Promise<TraceRecord>): Promise<void> {
+async function writeTrace(
+  sink: TraceSink,
+  record: Promise<TraceRecord>,
+  policy: ResolvedObservabilityPolicy,
+): Promise<void> {
   try {
-    await sink.write(await record);
+    await sink.write(await record, { retainForDays: policy.retainForDays });
   } catch (err) {
     try {
       sink.onError?.(err);
@@ -69,7 +76,11 @@ function fileDay(name: string): string | undefined {
   return FILE_DAY.exec(name)?.[1];
 }
 
+/** Remove day files older than `retainForDays`; `<= 0` keeps every file. */
 async function pruneTraces(dir: string, now: number, retainForDays: number): Promise<void> {
+  if (retainForDays <= 0) {
+    return;
+  }
   const retainMs = retainForDays * HOURS_PER_DAY * MIN_PER_HOUR * SEC_PER_MIN * MS_PER_SEC;
   const cutoff = now - retainMs;
   for await (const entry of Deno.readDir(dir)) {
@@ -95,23 +106,22 @@ async function pickFile(dir: string, now: number, rotateBytes: number): Promise<
 }
 
 /**
- * Trace sink that writes daily rotating JSONL files under a host-selected directory.
+ * Trace sink that writes daily rotating JSONL files under a host-selected
+ * directory, and on each write removes day files older than the record's
+ * retention (`<= 0` keeps every file).
  *
  * @param dir - Absolute host-chosen directory
- * @param optionsOrNow - Retention/rotate options, or a `now` clock (legacy)
+ * @param options - Rotate size and a test clock
  */
-function jsonlSink(dir: string, optionsOrNow?: JsonlSinkOptions | (() => number)): TraceSink {
+function jsonlSink(dir: string, options: JsonlSinkOptions = {}): TraceSink {
   const safeDir = validateTraceDir(dir);
-  const options: JsonlSinkOptions =
-    typeof optionsOrNow === 'function' ? { now: optionsOrNow } : (optionsOrNow ?? {});
   const now = options.now ?? Date.now;
-  const retainForDays = options.retainForDays ?? DEFAULT_RETAIN_DAYS;
   const rotateBytes = (options.rotateAfterMiB ?? DEFAULT_ROTATE_MIB) * MIB;
   return {
-    write: async (record) => {
+    write: async (record, context) => {
       const at = now();
       await Deno.mkdir(safeDir, { recursive: true });
-      await pruneTraces(safeDir, at, retainForDays);
+      await pruneTraces(safeDir, at, context.retainForDays);
       const path = await pickFile(safeDir, at, rotateBytes);
       await Deno.writeTextFile(path, `${JSON.stringify(record)}\n`, { append: true });
     },

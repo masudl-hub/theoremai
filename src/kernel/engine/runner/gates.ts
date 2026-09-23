@@ -9,8 +9,8 @@ import type {
   OutboundPayload,
   ProfileEgressSpec,
 } from '../../../guardrails/types.ts';
+import { resolveInputParts } from '../../registry/ingress.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
-import { resolveTurn } from '../../registry/resolve.ts';
 import { getStructured } from '../../registry/schemas.ts';
 import { injectWouldExceedMaxSteps } from '../../stages.ts';
 import type {
@@ -20,15 +20,19 @@ import type {
   ResolvedGeneration,
   TurnEvent,
   TurnRequest,
+  TurnStop,
 } from '../../types.ts';
 import { findLast } from '../../util/find-last.ts';
+import { guardrailAttributes } from '../turn-trace.ts';
 import { collectValidationFailures, formatValidationFailures } from './schema-validation.ts';
 import { applyTurnStage } from './stages.ts';
-import type { AttemptFlowState, StepExecutionState } from './state.ts';
+import { type AttemptFlowState, appendUserInput, type StepExecutionState } from './state.ts';
 import { executeAttempt } from './steps.ts';
 
 /** Internal reason recorded when a turn is withheld; mapped to public copy on emit. */
 const WITHHELD = 'Turn withheld: egress disclosure violation'; // lexicon-exempt: internal marker mapped by publicError
+/** A turn whose final output the egress check blocked (withheld or replaced by policy copy). */
+const EGRESS_FILTERED_STOP: TurnStop = { kind: 'filtered', native: 'egress' };
 
 function collectAttemptText(events: TurnEvent[]): string {
   const parts: string[] = [];
@@ -215,10 +219,34 @@ function* yieldBufferedAttemptEvents(
   }
 }
 
-function updateFlowForRetry(flow: AttemptFlowState, nextReq: TurnRequest): void {
+/**
+ * Start the next attempt with the repair added. The turn is not resolved again:
+ * the retry keeps attempt 1's canary, tools and system prompt, and only the
+ * repair prompt is new.
+ */
+function updateFlowForRetry(
+  flow: AttemptFlowState,
+  state: StepExecutionState,
+  profile: Profile,
+  nextReq: TurnRequest,
+  reason: 'egress' | 'validation',
+): void {
   flow.currentAttempt++;
+  state.trace.attempt = flow.currentAttempt;
+  state.trace.root.event('theorem.attempt.retry', { attempt: flow.currentAttempt, reason });
   flow.currentReq = nextReq;
-  flow.currentGen = resolveTurn(sanitizeTurnRequest(nextReq)).generation;
+  const safe = sanitizeTurnRequest(nextReq);
+  const model = flow.currentGen.model;
+  if (profile.type === 'text') {
+    // The conversation is already in turn history: the repair is its next user message.
+    appendUserInput(
+      state,
+      resolveInputParts(profile, model, { ...safe, input: { repair: safe.input?.repair } }),
+    );
+    return;
+  }
+  // An image or speech call reads only its input: the repair replaces the prompt.
+  flow.currentGen = { ...flow.currentGen, input: resolveInputParts(profile, model, safe) };
 }
 
 async function* handleEgressGate(
@@ -239,21 +267,26 @@ async function* handleEgressGate(
   });
 
   if (guardrail) {
+    if (guardrail.guardrail) {
+      state.trace.root.event('theorem.guardrail', guardrailAttributes(guardrail.guardrail));
+    }
     state.allEmittedEvents.push(guardrail);
     yield guardrail;
   }
 
   if (outcome.action === 'refusal') {
+    state.lastStop = EGRESS_FILTERED_STOP;
     state.allEmittedEvents.push(outcome.event);
     yield outcome.event;
     return 'terminal';
   }
   if (outcome.action === 'withhold') {
+    state.lastStop = EGRESS_FILTERED_STOP;
     yield outcome.event;
     return 'terminal';
   }
   if (outcome.action === 'retry') {
-    updateFlowForRetry(flow, outcome.nextRequest);
+    updateFlowForRetry(flow, state, profile, outcome.nextRequest, 'egress');
     return 'continue';
   }
   return 'pass';
@@ -263,6 +296,7 @@ async function* handleValidationGate(
   validation: NonNullable<ProfileOutputsSpec['validation']>,
   flow: AttemptFlowState,
   state: StepExecutionState,
+  profile: Profile,
   latestStructured: unknown,
   maxRetries: number,
 ): AsyncGenerator<TurnEvent, 'continue' | 'terminal' | 'pass'> {
@@ -276,7 +310,7 @@ async function* handleValidationGate(
   });
 
   if (outcome.action === 'retry') {
-    updateFlowForRetry(flow, outcome.nextRequest);
+    updateFlowForRetry(flow, state, profile, outcome.nextRequest, 'validation');
     return 'continue';
   }
   if (outcome.action === 'accept') {
@@ -313,10 +347,9 @@ async function* executeSingleAttemptCycle(args: {
   profile: Profile;
   system: string;
   provider: ModelProvider;
-  upstream: Record<string, unknown>[];
   maxRetries: number;
 }): AsyncGenerator<TurnEvent, AttemptStepAction> {
-  const { flow, state, profile, system, provider, upstream, maxRetries } = args;
+  const { flow, state, profile, system, provider, maxRetries } = args;
   const validation = profileTurnOutputs(profile)?.validation;
   const egress = resolveGuardrailPolicy(profile.guardrails).egress;
 
@@ -335,7 +368,6 @@ async function* executeSingleAttemptCycle(args: {
       generation: flow.currentGen,
       system,
       provider,
-      upstream,
       state,
     });
     latestStructured = attempt.latestStructured;
@@ -391,6 +423,7 @@ async function* executeSingleAttemptCycle(args: {
       validation,
       flow,
       state,
+      profile,
       latestStructured,
       maxRetries,
     );
@@ -416,7 +449,6 @@ async function* runAttemptsWithValidation(
   generation: ResolvedGeneration,
   system: string,
   provider: ModelProvider,
-  upstream: Record<string, unknown>[],
   state: StepExecutionState,
 ): AsyncGenerator<TurnEvent> {
   const maxRetries = Math.max(
@@ -437,7 +469,6 @@ async function* runAttemptsWithValidation(
       profile,
       system,
       provider,
-      upstream,
       maxRetries,
     });
     if (step.status === 'terminal' || step.status === 'success') {

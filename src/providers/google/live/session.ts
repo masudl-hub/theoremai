@@ -17,11 +17,14 @@ import {
   performLiveSetup,
   type SessionQueueItem,
   sendInitialPayloads,
+  sendLiveFrame,
 } from './stream.ts';
 
 export interface GoogleLiveConnection {
-  /** Send a framed JSON payload upstream. */
-  send(payload: string): void;
+  /** The server's `setupComplete` frame. */
+  readonly setup: Record<string, unknown>;
+  /** Send one frame upstream (tapped as a `ws_send` row). */
+  send(payload: Record<string, unknown>): void;
   /** Drain session batches until the socket closes or errors. */
   batches(): AsyncGenerator<SessionQueueItem>;
   close(code?: number, reason?: string): void;
@@ -97,8 +100,9 @@ export async function openGoogleLiveSession(
     throw new DOMException('The operation was aborted.', 'AbortError');
   }
 
+  let setup: Record<string, unknown>;
   try {
-    await performLiveSetup(ws, req);
+    setup = await performLiveSetup(ws, req);
   } catch (err) {
     detachAbort();
     try {
@@ -113,9 +117,10 @@ export async function openGoogleLiveSession(
   sendInitialPayloads(ws, req);
 
   return {
-    send(payload: string) {
+    setup,
+    send(payload: Record<string, unknown>) {
       if (ws.readyState === WebSocket.OPEN) {
-        ws.send(payload);
+        sendLiveFrame(ws, payload, req.tapUpstream);
       }
     },
     async *batches(): AsyncGenerator<SessionQueueItem> {

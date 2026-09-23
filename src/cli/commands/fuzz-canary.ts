@@ -21,6 +21,7 @@ import {
 } from '../../guardrails/live-outbound-gate.ts';
 import { yieldProviderEvents } from '../../kernel/engine/runner/stream.ts';
 import { clearProfiles, getProfile, registerProfile } from '../../kernel/registry/profiles.ts';
+import { providerCompleteRequest } from '../../kernel/registry/provider-request.ts';
 import { resolveTurn } from '../../kernel/registry/resolve.ts';
 import type { ResolvedGeneration, TurnEvent } from '../../kernel/types.ts';
 
@@ -103,9 +104,10 @@ async function runStreamChannel(
     yieldProviderEvents({
       profile: getProfile(FUZZ_PROFILE_ID),
       generation,
-      system: bindCanary('fuzz system', canary),
+      request: providerCompleteRequest(generation, bindCanary('fuzz system', canary)),
       provider: { complete: mockProvider },
-      upstream: [],
+      // The fuzz reads what reaches the client, not the trace.
+      call: { tap: () => {}, observe: () => {} },
     }),
   );
 

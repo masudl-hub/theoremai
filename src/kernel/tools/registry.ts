@@ -13,6 +13,7 @@ import type { z } from 'zod';
 import { TheoremError } from '../../guardrails/error.ts';
 import { jsonSchemaFromZod, validateToolInputSchema, validateToolOutputSchema } from './schema.ts';
 import type {
+  BuiltinWire,
   FunctionToolDef,
   HttpToolDef,
   McpToolDef,
@@ -98,6 +99,16 @@ function requireTool(name: string): RegisteredTool {
   return tool;
 }
 
+/** A registered builtin's wire name on one transport; throws when it has none. */
+function requireBuiltinWire(id: string, transport: keyof BuiltinWire): string {
+  const tool = getTool(id);
+  const wire = tool?.type === 'builtin' ? tool.wire[transport] : undefined;
+  if (!wire) {
+    throw new TheoremError(`Builtin '${id}' has no wire.${transport}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  return wire;
+}
+
 /** Returns whether a process-registered tool exists under a name. */
 function hasTool(name: string): boolean {
   return tools.has(name);
@@ -135,6 +146,7 @@ export {
   listTools,
   registerTool,
   registerTools,
+  requireBuiltinWire,
   requireTool,
   resetTools,
 };

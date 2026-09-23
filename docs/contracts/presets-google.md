@@ -19,27 +19,20 @@ for image and speech-adjacent profile fields.
 
 ## Builtins
 
-The active branch refresh keeps the Google preset builtins and speech vocabularies aligned with the runtime registry and the profile authoring surface.
-
 `registerGooglePreset()` registers:
 
 | Id | Notes |
 | --- | --- |
-| `googleSearch` | Interactions `google_search`; OpenRouter plugin `web` |
-| `googleMaps` | Interactions `google_maps` |
-| `urlContext` | Interactions `url_context` |
-| `codeExecution` | Interactions `code_execution` (server-side Python sandbox) |
+| `googleSearch` | Interactions `google_search`; Live `googleSearch`; OpenRouter plugin `web` |
+| `googleMaps` | Interactions `google_maps`; Live `googleMaps` |
+| `urlContext` | Interactions `url_context`; Live `urlContext` |
+| `codeExecution` | Interactions `code_execution` (server-side Python sandbox); Live `codeExecution` |
 
 All are `type: 'builtin'`. Declare ids on `ModelBinding.builtInTools` — they are on whenever that model is selected (visibility still respects `loadTier`).
 `codeExecution` combines with `googleSearch` on Gemini 3+ and with registered function tools when the profile allows them on Interactions. THEOREM also sends structured `responseFormat` on the same request when both are configured; Google may still reject that pairing at the API. `googleSearch` sets `forcePaidKey: true`, so enabling it selects the paid vault slot unless the model pins `key`. Google's sandbox runtime (~30s) is not a THEOREM knob.
 Hosts may declare optional `conflictsWith` on registered builtins; the preset does not.
 
 ## Vocabularies
-
-This refresh keeps the Google preset vocabulary contract aligned with the live
-`src/presets/google.ts` and `src/presets/google/speech-voices.ts` exports in the
-branch. The preset still provides typed Google authoring constants without changing
-kernel-owned behavior.
 
 Constants (and matching types) for host profile authoring:
 

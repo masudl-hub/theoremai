@@ -12,9 +12,9 @@
  */
 
 import { toErrorEvent } from '../../guardrails/error.ts';
-import { extractUsageTokens } from '../../kernel/engine/delta.ts';
+import { asRecord, nonEmptyString } from '../../kernel/engine/record.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../kernel/types.ts';
-import { bytesToBase64 } from '../shared/pcm.ts';
+import { tapFetch } from '../shared/upstream-tap.ts';
 import type { OpenAiGatewayConfig } from '../types.ts';
 import { buildChatMessages, openAiGatewayHeaders } from './openai/compat.ts';
 import {
@@ -22,6 +22,7 @@ import {
   extractPromptText,
   imageToolParameters,
 } from './openai/image-payload.ts';
+import { openAiUsageTokens } from './openai/usage.ts';
 import { resolveOpenAiGatewayApiKey } from './resolve-api-key.ts';
 
 const HTTP_OK = 200;
@@ -50,138 +51,81 @@ function baseUrl(config: ImageProviderConfig): string {
 }
 
 function* yieldUsage(raw: unknown): Generator<TurnEvent> {
-  const tokens = extractUsageTokens(raw);
+  const tokens = openAiUsageTokens(raw);
   if (!tokens) {
     return;
   }
   yield { type: 'tokens', tokens };
 }
 
-export function mediaFromImagesResponse(
+/**
+ * Images on a `/images` response: `data[]` entries of `b64_json` +
+ * `media_type` (probe 23/09/2026, bytedance-seed/seedream-4.5).
+ */
+export function imagesFromImagesBody(
   body: Record<string, unknown>,
-  fallbackMime?: string,
-): { mimeType: string; data: string } | null {
-  const data = body.data;
-  if (!Array.isArray(data) || data.length === 0) {
-    return null;
-  }
-  const first = data[0];
-  if (!first || typeof first !== 'object') {
-    return null;
-  }
-  const entry = first as Record<string, unknown>;
-  const b64 = typeof entry.b64_json === 'string' ? entry.b64_json : '';
-  if (!b64) {
-    return null;
-  }
-  const mimeType =
-    typeof entry.media_type === 'string' && entry.media_type.length > 0
-      ? entry.media_type
-      : fallbackMime;
-  if (!mimeType) {
-    return null;
-  }
-  return { mimeType, data: b64 };
+): { mimeType: string; data: string }[] {
+  const entries = Array.isArray(body.data) ? body.data : [];
+  return entries.flatMap((value) => {
+    const entry = asRecord(value);
+    const data = nonEmptyString(entry?.b64_json);
+    const mimeType = nonEmptyString(entry?.media_type);
+    return data && mimeType ? [{ mimeType, data }] : [];
+  });
 }
 
-export async function fetchImageAsBase64(
-  url: string,
-  fetchFn: typeof fetch,
-  signal?: AbortSignal,
-): Promise<{ mimeType: string; data: string } | null> {
-  const res = await fetchFn(url, { signal });
-  if (res.status !== HTTP_OK) {
-    return null;
-  }
-  const mimeType = res.headers.get('content-type')?.split(';')[0]?.trim() || 'image/png';
-  const bytes = new Uint8Array(await res.arrayBuffer());
-  if (bytes.length === 0) {
-    return null;
-  }
-  return { mimeType, data: bytesToBase64(bytes) };
-}
-
-export function markdownImageUrls(content: string): string[] {
-  const urls: string[] = [];
-  const pattern = /!\[[^\]]*]\((https?:\/\/[^)\s]+)\)/g;
-  for (const match of content.matchAll(pattern)) {
-    const url = match[1];
-    if (url) {
-      urls.push(url);
-    }
-  }
-  return urls;
-}
-
-export function plainTextFromContent(content: unknown): string {
-  if (typeof content === 'string') {
-    return content.replace(/!\[[^\]]*]\([^)]+\)/g, '').trim();
-  }
-  if (!Array.isArray(content)) {
-    return '';
-  }
-  return content
-    .map((part) => {
-      if (!part || typeof part !== 'object') {
-        return '';
-      }
-      const entry = part as Record<string, unknown>;
-      if (entry.type === 'text' && typeof entry.text === 'string') {
-        return entry.text;
-      }
-      return '';
-    })
-    .join('\n')
-    .replace(/!\[[^\]]*]\([^)]+\)/g, '')
-    .trim();
-}
-
-function httpImageUrlFromPart(entry: Record<string, unknown>): string | undefined {
-  if (entry.type !== 'image_url') {
+/** A `data:<mime>;base64,<bytes>` url as media; any other url carries no inline bytes. */
+function mediaFromDataUrl(url: unknown): { mimeType: string; data: string } | undefined {
+  if (typeof url !== 'string') {
     return undefined;
   }
-  const imageUrl = entry.image_url;
-  if (!imageUrl || typeof imageUrl !== 'object') {
+  const match = /^data:([^;,]+);base64,(.+)$/s.exec(url);
+  if (!match?.[1] || !match[2]) {
     return undefined;
   }
-  const url = (imageUrl as Record<string, unknown>).url;
-  if (typeof url === 'string' && /^https?:\/\//.test(url)) {
-    return url;
-  }
-  return undefined;
+  return { mimeType: match[1], data: match[2] };
 }
 
-function inlineImageUrls(content: unknown): string[] {
-  if (!Array.isArray(content)) {
-    return [];
-  }
-  const urls: string[] = [];
-  for (const part of content) {
-    if (!part || typeof part !== 'object') {
-      continue;
-    }
-    const url = httpImageUrlFromPart(part as Record<string, unknown>);
-    if (url) {
-      urls.push(url);
-    }
-  }
-  return urls;
+/**
+ * Images on a chat completion message. OpenRouter returns them on
+ * `message.images[]` as `{ type: 'image_url', image_url: { url } }` with a
+ * base64 data url (probe 23/09/2026, gemini-3.1-flash-lite with the image
+ * generation tool); `message.content` holds only the text.
+ */
+export function imagesFromChatMessage(
+  message: Record<string, unknown>,
+): { mimeType: string; data: string }[] {
+  const images = Array.isArray(message.images) ? message.images : [];
+  return images.flatMap((entry) => {
+    const media = mediaFromDataUrl(asRecord(asRecord(entry)?.image_url)?.url);
+    return media ? [media] : [];
+  });
 }
 
 async function postJson(
+  req: ProviderCompleteRequest,
   config: ImageProviderConfig,
   apiKey: string,
   path: string,
   body: Record<string, unknown>,
-  signal?: AbortSignal,
 ): Promise<Response> {
-  const fetchFn = config.fetch ?? fetch;
+  const fetchFn = tapFetch(req.tapUpstream, config.fetch ?? fetch, req.keySlot);
   return await fetchFn(`${baseUrl(config)}${path}`, {
     method: 'POST',
     headers: buildImageHeaders(apiKey, config),
     body: JSON.stringify(body),
-    signal,
+    signal: req.signal,
   });
+}
+
+/** The JSON body of a successful response, taped as received. */
+async function readTapedJson(
+  req: ProviderCompleteRequest,
+  res: Response,
+): Promise<Record<string, unknown>> {
+  const body = (await res.json()) as Record<string, unknown>;
+  req.tapUpstream?.(body);
+  return body;
 }
 
 function imageHttpError(res: Response, label: string): TurnEvent | undefined {
@@ -196,7 +140,7 @@ async function requestImages(
   config: ImageProviderConfig,
   apiKey: string,
 ): Promise<Response> {
-  return await postJson(config, apiKey, '/images', buildImagesPayload(req), req.signal);
+  return await postJson(req, config, apiKey, '/images', buildImagesPayload(req));
 }
 
 export function buildInterleavedChatPayload(req: ProviderCompleteRequest): Record<string, unknown> {
@@ -224,13 +168,7 @@ async function requestInterleavedChat(
   config: ImageProviderConfig,
   apiKey: string,
 ): Promise<Response> {
-  return await postJson(
-    config,
-    apiKey,
-    '/chat/completions',
-    buildInterleavedChatPayload(req),
-    req.signal,
-  );
+  return await postJson(req, config, apiKey, '/chat/completions', buildInterleavedChatPayload(req));
 }
 
 export async function* yieldInterleavedChat(
@@ -245,46 +183,28 @@ export async function* yieldInterleavedChat(
     return;
   }
 
-  const body = (await res.json()) as Record<string, unknown>;
+  const body = await readTapedJson(req, res);
   const choices = body.choices;
   if (!Array.isArray(choices) || choices.length === 0) {
     yield toErrorEvent('no chat choices returned for image generation');
     return;
   }
-
-  const first = choices[0];
-  if (!first || typeof first !== 'object') {
-    yield toErrorEvent('invalid chat choice for image generation');
-    return;
-  }
-  const message = (first as Record<string, unknown>).message;
-  if (!message || typeof message !== 'object') {
+  const message = asRecord(asRecord(choices[0])?.message);
+  if (!message) {
     yield toErrorEvent('no assistant message returned for image generation');
     return;
   }
-  const content = (message as Record<string, unknown>).content;
-  const text = plainTextFromContent(content);
+  const text = nonEmptyString(message.content);
   if (text) {
     yield { type: 'text', text };
   }
-
-  const fetchFn = config.fetch ?? fetch;
-  const urls = [
-    ...inlineImageUrls(content),
-    ...(typeof content === 'string' ? markdownImageUrls(content) : []),
-  ];
-  let emittedMedia = false;
-  for (const url of urls) {
-    const media = await fetchImageAsBase64(url, fetchFn, req.signal);
-    if (!media) {
-      continue;
-    }
-    emittedMedia = true;
-    yield { type: 'media', media };
-  }
-  if (!emittedMedia) {
+  const images = imagesFromChatMessage(message);
+  if (images.length === 0) {
     yield toErrorEvent('no image returned from chat image generation');
     return;
+  }
+  for (const media of images) {
+    yield { type: 'media', media };
   }
 
   yield* yieldUsage(body.usage);
@@ -303,14 +223,15 @@ export async function* yieldImagesEndpoint(
     return;
   }
 
-  const body = (await res.json()) as Record<string, unknown>;
-  const media = mediaFromImagesResponse(body, req.image?.mimeType);
-  if (!media) {
+  const body = await readTapedJson(req, res);
+  const images = imagesFromImagesBody(body);
+  if (images.length === 0) {
     yield toErrorEvent('no image returned from image generation');
     return;
   }
-
-  yield { type: 'media', media };
+  for (const media of images) {
+    yield { type: 'media', media };
+  }
   yield* yieldUsage(body.usage);
   yield { type: 'done' };
 }

@@ -54,6 +54,9 @@ async function collect(id: string, provider: ModelProvider): Promise<TurnEvent[]
 const texts = (events: TurnEvent[]): string[] =>
   events.filter((e) => e.type === 'text').map((e) => e.text ?? '');
 
+const EGRESS_FILTERED = { kind: 'filtered', native: 'egress' };
+const stopOf = (events: TurnEvent[]) => events.findLast((e) => e.type === 'done')?.stop;
+
 // ── nothing is dropped silently ──────────────────────────────────────────────
 
 /**
@@ -97,6 +100,7 @@ Deno.test('a policy blocking consistently still withholds', async () => {
     events.some((e) => e.type === 'error'),
     true,
   );
+  assertEquals(stopOf(events), EGRESS_FILTERED);
 });
 
 // ── a policy that throws ─────────────────────────────────────────────────────
@@ -153,6 +157,7 @@ Deno.test('refuse_to_user without refusal copy emits an error, never an empty te
     events.some((e) => e.type === 'error'),
     true,
   );
+  assertEquals(stopOf(events), EGRESS_FILTERED);
 });
 
 Deno.test('refuse_to_user with refusal copy emits exactly that copy', async () => {
@@ -168,6 +173,7 @@ Deno.test('refuse_to_user with refusal copy emits exactly that copy', async () =
 
   const events = await collect('fm_with_copy', says('leaky'));
   assertEquals(texts(events), ['I cannot share that.']);
+  assertEquals(stopOf(events), EGRESS_FILTERED);
 });
 
 Deno.test('legacy egress blocked verdict with text is treated as refusal copy', async () => {

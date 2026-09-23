@@ -23,7 +23,7 @@ function providerCompleteRequest(
     system,
     input: generation.input,
     history: generation.history,
-    interactionOnlyInput: isInteractions ? generation.interactionOnlyInput : undefined,
+    continuation: isInteractions ? generation.continuation : undefined,
     wireTools: generation.tools.wire,
     structured: generation.structured,
     image: generation.image,

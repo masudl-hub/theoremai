@@ -1,11 +1,5 @@
-import { TheoremError } from '../../../../src/guardrails/error.ts';
-import { assertEquals, assertThrows } from '../../../../src/kernel/engine/assert.ts';
-import {
-  fallbackToolCallId,
-  openAiGatewayHeaders,
-  parseToolInput,
-  stringDefault,
-} from '../../../../src/providers/openrouter/openai/compat.ts';
+import { assertEquals } from '../../../../src/kernel/engine/assert.ts';
+import { openAiGatewayHeaders } from '../../../../src/providers/openrouter/openai/compat.ts';
 
 Deno.test('openAiGatewayHeaders returns undefined when no site info', () => {
   assertEquals(openAiGatewayHeaders({}), undefined);
@@ -27,24 +21,4 @@ Deno.test('openAiGatewayHeaders sets both headers', () => {
   const headers = openAiGatewayHeaders({ siteUrl: 'https://a.com', siteName: 'A' });
   assertEquals(headers?.['HTTP-Referer'], 'https://a.com');
   assertEquals(headers?.['X-Title'], 'A');
-});
-
-Deno.test('parseToolInput parses valid JSON', () => {
-  assertEquals(parseToolInput('{"a":1}'), { a: 1 });
-});
-
-Deno.test('parseToolInput throws on invalid JSON', () => {
-  assertThrows(() => parseToolInput('not json'), TheoremError);
-  assertThrows(() => parseToolInput('[1]'), TheoremError);
-});
-
-Deno.test('stringDefault uses fallback for undefined', () => {
-  assertEquals(stringDefault(undefined, 'fb'), 'fb');
-  assertEquals(stringDefault('val', 'fb'), 'val');
-  assertEquals(stringDefault('', 'fb'), '');
-});
-
-Deno.test('fallbackToolCallId generates ID from name', () => {
-  assertEquals(fallbackToolCallId('search'), 'call_search');
-  assertEquals(fallbackToolCallId(undefined), 'call_tool');
 });

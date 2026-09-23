@@ -353,6 +353,20 @@ function assertModelBinding(profileId: string, modelId: ModelId, binding: ModelB
     assertCacheSpec(profileId, modelId, binding);
   }
   assertInteractionsPersistence(profileId, modelId, binding);
+  assertLocalServer(profileId, modelId, binding);
+}
+
+function assertLocalServer(profileId: string, modelId: ModelId, binding: ModelBinding): void {
+  if (binding.server === undefined) {
+    return;
+  }
+  const tag = `Profile ${profileId} model '${modelId}'`;
+  if (binding.provider !== 'local') {
+    throw new TheoremError(`${tag}: server is only valid when provider is 'local'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  if (typeof binding.server !== 'string' || binding.server.trim() === '') {
+    throw new TheoremError(`${tag}: server must be a non-empty string`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
 }
 
 function assertModelEfforts(profileId: string, modelId: ModelId, binding: ModelBinding): void {
@@ -455,9 +469,9 @@ function assertObservability(profileId: string, spec: ProfileObservabilitySpec |
   }
   try {
     const policy = resolveObservabilityPolicy(spec);
-    if (policy.retainForDays <= 0 || !Number.isFinite(policy.retainForDays)) {
+    if (!Number.isFinite(policy.retainForDays)) {
       throw new TheoremError(
-        `Profile ${profileId}: observability.retainForDays must be a positive number`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `Profile ${profileId}: observability.retainForDays must be a finite number`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
     if (policy.rotateAfterMiB <= 0 || !Number.isFinite(policy.rotateAfterMiB)) {
@@ -817,6 +831,14 @@ function hasProfile(id: string): boolean {
   return profiles.has(id);
 }
 
+/**
+ * A profile's observability block, or `undefined` when the id is not
+ * registered — the trace of a turn on an unknown profile still records its failure.
+ */
+function profileObservability(id: string): ProfileObservabilitySpec | undefined {
+  return profiles.get(id)?.observability;
+}
+
 /** List all currently registered profiles. */
 function listProfiles(): Profile[] {
   return Array.from(profiles.values());
@@ -842,6 +864,7 @@ export {
   getProfile,
   hasProfile,
   listProfiles,
+  profileObservability,
   registerProfile,
   registerProfiles,
 };

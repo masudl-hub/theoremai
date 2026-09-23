@@ -19,7 +19,7 @@ import type {
   ToolLoadTier,
   ToolPermission,
 } from '../schema.ts';
-import type { InteractionPart, Profile, ToolId, TurnInput } from '../types.ts';
+import type { InteractionPart, Profile, ToolId, TurnInput, TurnTraceLink } from '../types.ts';
 
 export type {
   AuthUnauthenticatedPolicy,
@@ -95,6 +95,8 @@ export interface ToolContext {
   credentials?: Record<string, ToolCredential>;
   /** Opaque application context from `TurnRequest.host` / `InvokeToolRequest.host`; the kernel never reads it. */
   host?: unknown;
+  /** W3C `traceparent` of this call's `execute_tool` span; parent a tool's own outbound spans on it. */
+  traceparent?: string;
 }
 
 export interface ToolFailure {
@@ -332,6 +334,14 @@ export interface InvokeToolRequest {
   signal?: AbortSignal;
   /** Opaque application context handed to the tool as `ctx.host`; the kernel never reads it. */
   host?: unknown;
+  /** W3C `traceparent` of the host span this invoke runs under (see `TurnRequest.traceparent`). */
+  traceparent?: string;
+  /** Host conversation id, recorded as `gen_ai.conversation.id`. */
+  conversationId?: string;
+  /** Host-owned metadata preserved on this invoke's trace record; the kernel does not interpret it. */
+  metadata?: Record<string, unknown>;
+  /** Earlier turns this invoke follows from, e.g. the paused turn it resumes. */
+  links?: TurnTraceLink[];
   /**
    * Optional stage handler for this invoke — `pre_tool` / `post_tool` only
    * (`docs/contracts/stages.md`).
@@ -392,6 +402,8 @@ export type ToolBodyOutcome =
       failure: ToolFailure;
       /** True when the body never ran. */
       callNotStarted: boolean;
+      /** The host refused the call (`deny`), rather than it failing. */
+      denied?: true;
     };
 
 export interface ModelToolResult {

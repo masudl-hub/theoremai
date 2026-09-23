@@ -602,6 +602,47 @@ Deno.test('defineProfile accepts Interactions store/persist and rejects them on 
   );
 });
 
+Deno.test('defineProfile accepts server on local bindings and rejects it elsewhere', () => {
+  const localBinding = { protocol: 'openAi', provider: 'local', apiId: 'qwen3:8b' } as const;
+  const ok = defineProfile({
+    id: 'server_local_bot',
+    type: 'text',
+    identity: { handle: 'server_local_bot' },
+    models: { qwen: { ...localBinding, server: 'ollama' } },
+    tools: { allow: [] },
+    inputs: { text: true },
+  });
+  assertEquals(ok.models.qwen.server, 'ollama');
+
+  assertThrows(
+    () =>
+      defineProfile({
+        id: 'server_or_bot',
+        type: 'text',
+        identity: { handle: 'server_or_bot' },
+        models: { sonar: { ...HOST_BINDINGS.sonar, server: 'ollama' } },
+        tools: { allow: [] },
+        inputs: { text: true },
+      }),
+    Error,
+    "server is only valid when provider is 'local'",
+  );
+
+  assertThrows(
+    () =>
+      defineProfile({
+        id: 'server_blank_bot',
+        type: 'text',
+        identity: { handle: 'server_blank_bot' },
+        models: { qwen: { ...localBinding, server: '  ' } },
+        tools: { allow: [] },
+        inputs: { text: true },
+      }),
+    Error,
+    'server must be a non-empty string',
+  );
+});
+
 Deno.test('defineProfile rejects invalid cache.mode and cache.ttl', () => {
   assertThrows(
     () =>

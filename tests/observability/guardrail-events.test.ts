@@ -7,6 +7,7 @@ import { requireModelProfile } from '../../src/kernel/registry/resolve.ts';
 import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
 import { memorySink } from '../../src/observability/mod.ts';
 import type { TraceRecord } from '../../src/observability/trace-record.ts';
+import type { TraceAttributes } from '../../src/observability/trace-span.ts';
 
 async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
   const out: TurnEvent[] = [];
@@ -22,6 +23,14 @@ async function* fakeComplete(): AsyncGenerator<TurnEvent> {
 }
 
 const fake: ModelProvider = { complete: fakeComplete };
+
+/** Hits of the input guardrail event on the turn's root span. */
+function inputGuardrailHits(record: TraceRecord | undefined): TraceAttributes[] {
+  const event = record?.spans[0]?.events.find(
+    (e) => e.name === 'theorem.guardrail' && e.attributes.stage === 'input',
+  );
+  return (event?.attributes.hits ?? []) as TraceAttributes[];
+}
 
 Deno.test('runTurn emits sanitize guardrail events and persists them in the trace', async () => {
   const into: TraceRecord[] = [];
@@ -41,14 +50,11 @@ Deno.test('runTurn emits sanitize guardrail events and persists them in the trac
   assertEquals((guardrail?.guardrail?.hits.length ?? 0) > 0, true);
 
   assertEquals(into.length, 1);
-  const traced = into[0]?.events.find(
-    (e) => e.type === 'guardrail' && e.guardrail?.stage === 'input',
-  );
-  assertEquals(Boolean(traced?.guardrail), true);
-  assertEquals(traced?.guardrail?.hits[0]?.rule, 'sanitize.injection');
+  const [hit] = inputGuardrailHits(into[0]);
+  assertEquals(hit?.rule, 'sanitize.injection');
   // Match preview is opt-in — default stream + JSONL strip it.
   assertEquals(guardrail?.guardrail?.hits[0]?.match, undefined);
-  assertEquals(traced?.guardrail?.hits[0]?.match, undefined);
+  assertEquals(Object.hasOwn(hit ?? {}, 'match'), false);
 });
 
 Deno.test('include.guardrailMatchPreview keeps matched substring on stream and trace', async () => {
@@ -79,10 +85,8 @@ Deno.test('include.guardrailMatchPreview keeps matched substring on stream and t
   assertEquals((guardrail?.guardrail?.hits[0]?.match?.length ?? 0) > 0, true);
 
   assertEquals(into.length, 1);
-  const traced = into[0]?.events.find(
-    (e) => e.type === 'guardrail' && e.guardrail?.stage === 'input',
-  );
-  assertEquals(traced?.guardrail?.hits[0]?.match, guardrail?.guardrail?.hits[0]?.match);
+  const [hit] = inputGuardrailHits(into[0]);
+  assertEquals(hit?.match, guardrail?.guardrail?.hits[0]?.match);
 });
 
 Deno.test('runTurn emits egress guardrail events on block', async () => {
@@ -149,7 +153,7 @@ Deno.test('include.guardrailDecisions false drops guardrail rows from TraceRecor
   );
   assertEquals(into.length, 1);
   assertEquals(
-    into[0]?.events.some((e) => e.type === 'guardrail'),
+    into[0]?.spans.some((span) => span.events.some((e) => e.name === 'theorem.guardrail')),
     false,
   );
 });

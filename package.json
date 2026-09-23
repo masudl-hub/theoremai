@@ -30,6 +30,7 @@
     "./guardrails": "./src/guardrails/mod.ts",
     "./guardrails/testing": "./src/guardrails/testing.ts",
     "./observability": "./src/observability/mod.ts",
+    "./observability/openinference": "./src/observability/openinference.ts",
     "./host": "./src/host/mod.ts",
     "./cli": "./src/cli/index.ts",
     "./presets": "./src/presets/mod.ts",
@@ -67,7 +68,7 @@
     "hooks:install": "node ./scripts/hooks/install.mjs",
     "prepare": "node ./scripts/hooks/install.mjs",
     "lint": "npm run lint:docs && deno lint && npm run lint:biome && npm run lint:ast-grep && npm run lint:fallow",
-    "check:ci": "npm run lint:docs && deno lint && npm run lint:biome && npm run lint:ast-grep && npm run lint:fallow && deno check mod.ts && deno task verify:publish && deno task test"
+    "check:ci": "npm run lint:docs && deno lint && npm run lint:biome && npm run lint:ast-grep && deno task verify:publish && npm run lint:fallow && deno check mod.ts tests/fixtures/probes/ && deno task test"
   },
   "devDependencies": {
     "@ast-grep/cli": "^0.41.0",

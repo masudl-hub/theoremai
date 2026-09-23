@@ -104,6 +104,26 @@ Deno.test('toOpenAiChatPayload wires multimodal user input with image, audio, an
   });
 });
 
+Deno.test('toOpenAiChatPayload sends only the tool identity history carries', () => {
+  const req: ProviderCompleteRequest = {
+    model: 'gemini35FlashLite',
+    apiId: HOST_BINDINGS.gemini35FlashLite.apiId,
+    system: '',
+    summaries: undefined,
+    image: null,
+    input: [{ type: 'text', text: 'next' }],
+    history: [{ role: 'tool', content: '42' }],
+    thinking: 'none',
+    maxOutputTokens: 1024,
+    temperature: 0,
+    builtins: [],
+    wireTools: [],
+    structured: null,
+  };
+  const messages = toOpenAiChatPayload(req).messages as Array<Record<string, unknown>>;
+  assertEquals(messages[0], { role: 'tool', content: '42' });
+});
+
 Deno.test('toOpenAiChatPayload wires history messages with parts, tool_calls, tool results, and plain text', () => {
   const req: ProviderCompleteRequest = {
     model: 'gemini35FlashLite',
@@ -217,19 +237,38 @@ Deno.test('toOpenAiChatPayload wires tool results with multimodal parts', () => 
   const toolResultMsg = messages[1];
   assertEquals(toolResultMsg.role, 'tool');
   assertEquals(toolResultMsg.tool_call_id, 'call_media');
-  const content = toolResultMsg.content as Array<Record<string, unknown>>;
-  assertEquals(content[0], { type: 'text', text: '1. palm' });
-  assertEquals(content[1], {
-    type: 'image_url',
-    image_url: { url: 'data:image/jpeg;base64,/9j/abc' },
-  });
-  assertEquals(content[2], {
-    type: 'file',
-    file: {
-      filename: 'document.bin',
-      file_data: 'data:application/pdf;base64,JVBERi0',
+  assertEquals(toolResultMsg.content, [
+    { type: 'text', text: 'shortlist' },
+    { type: 'text', text: '1. palm' },
+    { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,/9j/abc' } },
+    {
+      type: 'file',
+      file: {
+        filename: 'document.bin',
+        file_data: 'data:application/pdf;base64,JVBERi0',
+      },
     },
-  });
+  ]);
+});
+
+Deno.test('toOpenAiChatPayload joins text-only history content and parts into one string', () => {
+  const req: ProviderCompleteRequest = {
+    model: 'gemini35FlashLite',
+    apiId: HOST_BINDINGS.gemini35FlashLite.apiId,
+    system: '',
+    summaries: undefined,
+    image: null,
+    input: [],
+    history: [{ role: 'user', content: 'first', parts: [{ type: 'text', text: 'second' }] }],
+    thinking: 'none',
+    maxOutputTokens: 1024,
+    temperature: 0,
+    builtins: [],
+    wireTools: [],
+    structured: null,
+  };
+  const messages = toOpenAiChatPayload(req).messages as Array<Record<string, unknown>>;
+  assertEquals(messages, [{ role: 'user', content: 'first\nsecond' }]);
 });
 
 Deno.test('toOpenAiChatPayload formats tools with name, description, and parameters', () => {
@@ -405,7 +444,7 @@ Deno.test('toOpenAiChatPayload routes web builtin to web_search_options and non-
   assertEquals(payload.web_search_options !== undefined, true);
 });
 
-Deno.test('toOpenAiChatPayload omits plugins and web_search_options when builtins have no openRouterPlugin', () => {
+Deno.test('toOpenAiChatPayload throws for a builtin with no OpenRouter wire (googleMaps)', () => {
   const req: ProviderCompleteRequest = {
     model: 'gemini35FlashLite',
     apiId: HOST_BINDINGS.gemini35FlashLite.apiId,
@@ -417,14 +456,16 @@ Deno.test('toOpenAiChatPayload omits plugins and web_search_options when builtin
     thinking: 'none',
     maxOutputTokens: 1024,
     temperature: 0,
-    builtins: ['unknownBuiltin'],
+    builtins: ['googleMaps'],
     wireTools: [],
     structured: null,
   };
 
-  const payload = toOpenAiChatPayload(req);
-  assertEquals(payload.plugins, undefined);
-  assertEquals(payload.web_search_options, undefined);
+  assertThrows(
+    () => toOpenAiChatPayload(req),
+    TheoremError,
+    "Builtin 'googleMaps' has no wire.openRouter",
+  );
 });
 
 Deno.test('toOpenAiChatPayload rejects media references (openAi compat carries inline bytes only)', () => {

@@ -42,40 +42,7 @@ import type {
   ToolContext,
   TurnToolSnapshot,
 } from '../../src/kernel/tools/types.ts';
-import type {
-  ModelProfile,
-  Profile,
-  ProviderCompleteRequest,
-  TurnRequest,
-} from '../../src/kernel/types.ts';
-import {
-  emitPendingFunctionCall,
-  emitUniqueToolEvent,
-  eventType,
-  foldCompleteEvents,
-  foldInteractionSteps,
-  foldStepStop,
-  functionCallKey,
-  isCompleteCodeStep,
-  isCompleteEvent,
-  isDeltaEvent,
-  isRawPcmMime,
-  isVoiceProfile,
-  missingSpeechAudioError,
-  newStreamFold,
-  parseArgumentsObject,
-  readApiErrorMessage,
-  readData,
-  readMime,
-  readNonOkErrorMessage,
-  type StreamFold,
-  scanInteractionsMedia,
-  scanMediaParts,
-  shouldReportMissingSpeechAudio,
-  yieldEvidenceStep,
-  yieldGrounding,
-  yieldTokens,
-} from '../../src/providers/google/interactions/stream.ts';
+import type { ModelProfile, Profile, TurnRequest } from '../../src/kernel/types.ts';
 
 type ToolPhaseEvent = {
   tool: {
@@ -91,7 +58,6 @@ type ToolPhaseEvent = {
   };
 };
 type NamedWire = { name: string };
-type MediaEvent = { type?: string; media: { mimeType: string } };
 type PromoteResult = { promoted: string[] };
 type FailureInfo = { message?: string; code?: string };
 
@@ -383,132 +349,6 @@ Deno.test('tools mutation helpers reject invalid promotion and preserve state at
   assertEquals(result.promoted, ['record_lookup']);
   assertEquals(state.visible, ['record_lookup']);
   assertEquals(state.executable, ['record_lookup']);
-});
-
-Deno.test('tools mutation coverage exercises Interactions media and API error helpers', async () => {
-  assertEquals(readData({ data: 'abc' }), 'abc');
-  assertEquals(readData({ data: '' }), undefined);
-  assertEquals(readData({ data: 1 }), undefined);
-  assertEquals(readMime({ mime_type: 'image/png' }), 'image/png');
-  assertEquals(readMime({ mimeType: 'audio/wav' }), 'audio/wav');
-  assertEquals(readMime({ mimeType: '' }), undefined);
-
-  const media = asIter<MediaEvent>(
-    scanMediaParts([
-      null,
-      { type: 'image', data: 'a', mime_type: 'image/png' },
-      { type: 'audio', data: 'b', mimeType: 'audio/mpeg' },
-      { type: 'media', data: 'c', mimeType: 'video/mp4' },
-      { type: 'video', data: 'd', mimeType: 'video/mp4' },
-      { type: 'text', data: 'ignored' },
-    ]),
-  );
-  assertEquals(media.length, 4);
-  assertEquals(
-    media.map((event) => event.media.mimeType),
-    ['image/png', 'audio/mpeg', 'video/mp4', 'video/mp4'],
-  );
-  assertEquals(asIter(scanMediaParts({})), []);
-  assertEquals(
-    asIter(scanInteractionsMedia({ steps: [{ content: [{ type: 'image', data: 'x' }] }] })).length,
-    1,
-  );
-  assertEquals(asIter(scanInteractionsMedia({ steps: [null, 2] })), []);
-
-  assertEquals(readApiErrorMessage({}), null);
-  assertEquals(readApiErrorMessage({ error: null }), null);
-  assertEquals(readApiErrorMessage({ error: { message: 'bad' } }), 'bad');
-  assertEquals(
-    readApiErrorMessage({ error: { message: 'bad', status: 'INVALID_ARGUMENT' } }),
-    'INVALID_ARGUMENT: bad',
-  );
-  assertEquals(readApiErrorMessage({ error: { message: '' } }), 'Gemini returned an error.');
-  assertEquals(readApiErrorMessage({ error: { message: 4 } }), 'Gemini returned an error.');
-  assertEquals(await readNonOkErrorMessage(new Response('', { status: 503 })), 'HTTP 503');
-  assertEquals(
-    await readNonOkErrorMessage(new Response('not json', { status: 400 })),
-    'Gemini HTTP 400: not json',
-  );
-  assertEquals(
-    await readNonOkErrorMessage(new Response('{"error":{"message":"bad"}}', { status: 400 })),
-    'bad',
-  );
-  assertEquals(
-    await readNonOkErrorMessage(new Response('{"error":{}}', { status: 400 })),
-    'Gemini returned an error.',
-  );
-});
-
-Deno.test('tools mutation coverage distinguishes voice synthesis conditions', () => {
-  const plain = asValue<ProviderCompleteRequest>({ text: 'hello', speech: undefined });
-  const voice = asValue<ProviderCompleteRequest>({
-    text: 'hello',
-    speech: { voice: 'Kore', format: 'pcm' },
-  });
-  const empty = asValue<ProviderCompleteRequest>({
-    text: '',
-    speech: { voice: 'Kore', format: 'pcm' },
-  });
-  const mediaFold = asValue<StreamFold>(newStreamFold());
-  mediaFold.sawStreamedMedia = true;
-  const textFold = asValue<StreamFold>(newStreamFold());
-  textFold.text = 'hello';
-  assertEquals(isVoiceProfile(plain), false);
-  assertEquals(isVoiceProfile(voice), true);
-  assertEquals(shouldReportMissingSpeechAudio(plain, newStreamFold()), false);
-  assertEquals(shouldReportMissingSpeechAudio(voice, textFold), true);
-  assertEquals(shouldReportMissingSpeechAudio(empty, newStreamFold()), true);
-  assertEquals(shouldReportMissingSpeechAudio(voice, mediaFold), false);
-  const missing = asIter<{ type?: string }>(missingSpeechAudioError());
-  assertEquals(missing.length, 1);
-  assertEquals(missing[0]?.type, 'error');
-});
-
-Deno.test('tools mutation coverage exercises stream fold primitives', () => {
-  assertEquals(isRawPcmMime('audio/pcm;rate=24000'), true);
-  assertEquals(isRawPcmMime('AUDIO/RAW'), true);
-  assertEquals(isRawPcmMime('audio/l16'), true);
-  assertEquals(isRawPcmMime('audio/wav'), false);
-  assertEquals(eventType({ event_type: 'x', type: 'y' }), 'x');
-  assertEquals(eventType({ type: 'y' }), 'y');
-  assertEquals(eventType({}), '');
-  assertEquals(isDeltaEvent('content.delta'), true);
-  assertEquals(isDeltaEvent('step.delta'), true);
-  assertEquals(isDeltaEvent('other'), false);
-  assertEquals(isCompleteEvent('interaction.complete'), true);
-  assertEquals(isCompleteEvent('interaction.completed'), true);
-  assertEquals(isCompleteEvent('other'), false);
-  assertEquals(functionCallKey({ name: 'a', id: '1', arguments: { x: 1 } }), 'a:1:{"x":1}');
-  assertEquals(functionCallKey({}), '::{}');
-  assertEquals(parseArgumentsObject('{"x":1}'), { ok: true, value: { x: 1 } });
-  assertEquals(parseArgumentsObject('{bad').ok, false);
-  assertEquals(parseArgumentsObject({ x: 1 }), { ok: true, value: { x: 1 } });
-  assertEquals(parseArgumentsObject([1]).ok, false);
-  assertEquals(parseArgumentsObject(1).ok, false);
-  assertEquals(isCompleteCodeStep({ arguments: {} }), true);
-  assertEquals(isCompleteCodeStep({ result: {} }), true);
-  assertEquals(isCompleteCodeStep({}), false);
-
-  const fold: StreamFold = newStreamFold();
-  const emitted = new Set<string>();
-  assertEquals(asIter(yieldGrounding({})), []);
-  assertEquals(asIter(yieldTokens({})), []);
-  assertEquals(asIter(yieldEvidenceStep({}, emitted)).length, 1);
-  assertEquals(asIter(foldStepStop({ index: 1 }, fold)), []);
-  assertEquals(asIter(foldInteractionSteps({ steps: [] }, fold)), []);
-  assertEquals(
-    asIter(
-      foldInteractionSteps(
-        { steps: [{ type: 'function_call', id: 'i', name: 'n', arguments: '{}' }] },
-        fold,
-      ),
-    ).length,
-    1,
-  );
-  assertEquals(asIter(foldCompleteEvents({}, fold)), []);
-  assertEquals(asIter(emitPendingFunctionCall(1, fold)), []);
-  assertEquals(asIter(emitUniqueToolEvent({ name: 'n', arguments: {} }, fold)).length, 1);
-  assertEquals(asIter(emitUniqueToolEvent({ name: 'n', arguments: {} }, fold)).length, 0);
 });
 
 Deno.test('tools mutation coverage asserts low-level execution event payloads', async () => {

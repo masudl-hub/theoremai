@@ -14,6 +14,7 @@ import {
   buildGeminiLiveRealtimeInput,
   buildGeminiLiveSetupMessage,
   foldGeminiLiveServerMessage,
+  newLiveFold,
   parseGeminiLiveMessage,
   readLiveInteractionStatus,
 } from './framing.ts';
@@ -22,10 +23,29 @@ const SETUP_TIMEOUT_MS = 20_000;
 
 export type LiveTurnPhase = 'streaming' | 'complete' | 'abort';
 
+/** Tap row for a frame sent upstream. Received frames travel on the queue instead. */
+const LIVE_SEND_ROW = 'ws_send';
+
+/** Send one frame, tapping it first. */
+export function sendLiveFrame(
+  ws: LiveSocketSender,
+  payload: Record<string, unknown>,
+  tap: ProviderCompleteRequest['tapUpstream'],
+): void {
+  tap?.({ eventType: LIVE_SEND_ROW, body: payload });
+  ws.send(JSON.stringify(payload));
+}
+
+/**
+ * One received frame, in arrival order: its normalized events (`batch`), or
+ * the frame alone when it folds to nothing (`row`). `row` is the parsed frame,
+ * so the kernel records it beside the events it produced.
+ */
 export type SessionQueueItem =
-  | { type: 'batch'; events: TurnEvent[]; turnPhase: LiveTurnPhase }
-  | { type: 'error'; error: Error }
-  | { type: 'closed' };
+  | { type: 'batch'; events: TurnEvent[]; turnPhase: LiveTurnPhase; row: Record<string, unknown> }
+  | { type: 'row'; row: Record<string, unknown> }
+  | { type: 'error'; error: Error; row?: Record<string, unknown> }
+  | { type: 'closed'; code: number; reason: string };
 
 export async function readMessageData(data: unknown): Promise<string> {
   if (typeof data === 'string') return data;
@@ -49,8 +69,12 @@ export function readGeminiLiveErrorMessage(message: Record<string, unknown>): st
   return 'Gemini returned an error during live session.';
 }
 
-export function performLiveSetup(ws: WebSocket, req: ProviderCompleteRequest): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
+/** Send setup and resolve with the server's `setupComplete` frame. */
+export function performLiveSetup(
+  ws: WebSocket,
+  req: ProviderCompleteRequest,
+): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
     let setupResolved = false;
     const timeout = setTimeout(() => {
       if (!setupResolved) {
@@ -61,8 +85,7 @@ export function performLiveSetup(ws: WebSocket, req: ProviderCompleteRequest): P
 
     ws.onopen = () => {
       try {
-        const setupMsg = buildGeminiLiveSetupMessage(req);
-        ws.send(JSON.stringify(setupMsg));
+        sendLiveFrame(ws, buildGeminiLiveSetupMessage(req), req.tapUpstream);
       } catch (err) {
         clearTimeout(timeout);
         setupResolved = true;
@@ -113,7 +136,7 @@ export function performLiveSetup(ws: WebSocket, req: ProviderCompleteRequest): P
         clearTimeout(timeout);
         setupResolved = true;
         ws.removeEventListener('message', initialMessageHandler);
-        resolve();
+        resolve(parsed.value);
       }
     };
 
@@ -127,14 +150,11 @@ export function sendInitialPayloads(ws: LiveSocketSender, req: ProviderCompleteR
   if (req.history && req.history.length > 0) {
     const historyMsg = buildGeminiLiveClientContent(req.history);
     if (historyMsg) {
-      ws.send(JSON.stringify(historyMsg));
+      sendLiveFrame(ws, historyMsg, req.tapUpstream);
     }
   }
-  if (req.input && req.input.length > 0) {
-    for (const part of req.input) {
-      const inputMsg = buildGeminiLiveRealtimeInput(part);
-      ws.send(JSON.stringify(inputMsg));
-    }
+  for (const part of req.input ?? []) {
+    sendLiveFrame(ws, buildGeminiLiveRealtimeInput(part), req.tapUpstream);
   }
 }
 
@@ -199,15 +219,14 @@ export function turnPhaseFromMessage(
   const status = readLiveInteractionStatus(message);
   if (status === 'IDLE') return 'complete';
   if (status === 'IN_PROGRESS') return 'streaming';
-  const serverContent = message.serverContent as
-    | { turnComplete?: boolean; turn_complete?: boolean }
-    | undefined;
-  if (serverContent?.turnComplete || serverContent?.turn_complete) return 'complete';
+  const serverContent = message.serverContent as { turnComplete?: boolean } | undefined;
+  if (serverContent?.turnComplete === true) return 'complete';
   return 'streaming';
 }
 
 /** Attach handlers that keep the socket open across conversational turns. */
 export function attachLiveSessionHandlers(ws: WebSocket, liveQueue: LiveQueue): void {
+  const fold = newLiveFold();
   ws.onmessage = async (evt: MessageEvent) => {
     try {
       const rawText = await readMessageData(evt.data);
@@ -224,15 +243,17 @@ export function attachLiveSessionHandlers(ws: WebSocket, liveQueue: LiveQueue): 
 
       const errMsg = readGeminiLiveErrorMessage(parsed.value);
       if (errMsg) {
-        liveQueue.push({ type: 'error', error: new TheoremError(errMsg) });
+        liveQueue.push({ type: 'error', error: new TheoremError(errMsg), row: parsed.value });
         return;
       }
 
-      const events = foldGeminiLiveServerMessage(parsed.value);
+      const events = foldGeminiLiveServerMessage(parsed.value, fold);
       const turnPhase = turnPhaseFromMessage(parsed.value, events);
-      if (events.length > 0 || turnPhase !== 'streaming') {
-        liveQueue.push({ type: 'batch', events, turnPhase });
-      }
+      liveQueue.push(
+        events.length > 0 || turnPhase !== 'streaming'
+          ? { type: 'batch', events, turnPhase, row: parsed.value }
+          : { type: 'row', row: parsed.value },
+      );
     } catch (err) {
       liveQueue.push({
         type: 'error',
@@ -247,9 +268,9 @@ export function attachLiveSessionHandlers(ws: WebSocket, liveQueue: LiveQueue): 
     }
   };
 
-  ws.onclose = () => {
+  ws.onclose = (evt) => {
     if (!liveQueue.isClosed()) {
-      liveQueue.push({ type: 'closed' });
+      liveQueue.push({ type: 'closed', code: evt.code, reason: evt.reason });
       liveQueue.close();
     }
   };

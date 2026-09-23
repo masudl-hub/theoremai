@@ -1,145 +1,81 @@
 /**
- * Trace record construction types.
+ * Trace record v3 — spans shaped like OTLP/JSON plus the content they reference.
  *
- * Trace records preserve useful execution evidence while hashing or omitting
- * unsafe media bytes and canary-sensitive content.
+ * Spans hold content as in-memory markers (`trace-span.ts`). Building a record
+ * resolves every marker once, under the profile's scrub and include policy:
+ *
+ * - `$content` text is scrubbed, hashed, and stored in `content` by hash.
+ * - `$bytes` media is hashed over its raw bytes; bytes are never stored. Text
+ *   that is not base64 is hashed as text and marked `invalid_base64`.
+ * - `$json` rows and wire bodies have media hashed, canaries removed, text
+ *   scrubbed, and every string equal to a recorded text replaced by that
+ *   text's reference; the JSON is stored by hash and referenced as
+ *   `json_sha256`, so a reader knows to parse it.
+ *
+ * A reference says how to read it: `{ content_sha256 }` names text in
+ * `content`, `{ json_sha256 }` names JSON in `content`, and a blob's
+ * `content_sha256` (absent from `content`) names bytes that were never stored.
+ * `inlineContent` rebuilds any value from its references.
+ *
+ * Include flags drop whole attribute families or events here, in one place,
+ * so a missing field reads as "not recorded" and the root says which policy
+ * applied (`theorem.record.include`, `theorem.record.scrub`).
  *
  * @module
  */
 
-import { OMIT_CANARY } from '../guardrails/canary.ts';
-import { isAbortError, publicError } from '../guardrails/error.ts';
-import { projectGuardrailEvent } from '../guardrails/hits.ts';
+import { redactSensitiveOnly, sanitizeText } from '../guardrails/sanitize.ts';
+import { sha256, sha256Base64 } from '../kernel/engine/hash.ts';
+import { removeCanaries, tapeUpstream } from '../providers/shared/upstream-tape.ts';
 import {
-  redactSensitiveOnly,
-  sanitizeText,
-  sanitizeTurnRequestForTrace,
-} from '../guardrails/sanitize.ts';
-import { sha256 } from '../kernel/engine/hash.ts';
-import type { Protocol } from '../kernel/schema.ts';
+  isTraceBytes,
+  isTraceContent,
+  isTraceJson,
+  type TraceAttributes,
+  type TraceAttributeValue,
+  type TraceSpan,
+  type TraceSpanEvent,
+} from './trace-span.ts';
 import type {
-  ResolvedGeneration,
-  TurnBlob,
-  TurnEvent,
-  TurnMediaRef,
-  TurnRequest,
-} from '../kernel/types.ts';
-import { resolveObservabilityPolicy } from './resolve-policy.ts';
-import { attachResolved, attachTape, attachUsage } from './trace-attach.ts';
-import { completedInteraction, stopKindFromEvents } from './trace-usage.ts';
-import type {
-  ProfileObservabilitySpec,
   ResolvedObservabilityPolicy,
   ResolvedTraceInclude,
   ResolvedTraceScrub,
 } from './types.ts';
 
-const TRACE_VERSION = 2;
-const TITLE_MAX = 80;
+const TRACE_VERSION = 3;
+/** Pinned OpenTelemetry GenAI semantic conventions the attribute names follow. */
+const TRACE_SCHEMA_URL =
+  'https://github.com/open-telemetry/semantic-conventions-genai/tree/8ffdf56';
 
-/** Hash-only image reference stored in trace records. */
-export interface TraceImage {
-  mimeType: string;
-  /** Content hash for inline bytes; absent for a provider file reference. */
-  sha256?: string;
-  /** Provider file reference when the attachment was supplied by uri. */
-  uri?: string;
-}
-
-/** Trace-safe copy of a public turn event. */
-export interface TraceEvent {
-  type: string;
-  text?: string;
-  tool?: {
-    name: string;
-    arguments?: Record<string, unknown>;
-    result?: { status: string; finding?: string; data?: Record<string, unknown> };
-  };
-  structured?: unknown;
-  media?: TraceImage;
-  grounding?: TurnEvent['grounding'];
-  evidence?: TurnEvent['evidence'];
-  /** Guardrail decision — rule identity and offsets, never matched content. */
-  guardrail?: TurnEvent['guardrail'];
-  error?: string;
-  errorInternal?: string;
-}
-
-/** Complete trace-safe record for one attempted turn. */
+/** One trace record: a turn, a host-invoked tool, or a Live session root or response. */
 interface TraceRecord {
-  v: number;
-  id: string;
-  ts: number;
-  ms: number;
-  streamed: boolean;
-  cancelled: boolean;
-  previousInteractionId: string | null;
-  store: boolean | null;
-  profile: string;
-  title?: string;
-  projectId?: string;
-  modelSelect?: string;
-  effort?: string;
+  v: typeof TRACE_VERSION;
+  schemaUrl: string;
+  /** Host-supplied process attributes (`observability.resource`), e.g. `service.name`. */
+  resource: TraceAttributes;
+  /** Host-owned metadata from the request, passed through untouched. */
   metadata?: Record<string, unknown>;
-  model?: { id: string; apiId: string };
-  keySlot?: string;
-  generation?: {
-    thinking?: string;
-    summaries?: string;
-    temperature?: number;
-    maxOutputTokens?: number;
-    builtins: string[];
-    visibleTools: string[];
-    structured: string | null;
-    image: unknown;
-  };
-  input: {
-    text?: string;
-    role?: string;
-    slots?: Record<string, string>;
-    attachments: TraceImage[];
-    voice: TraceImage[];
-    images?: TraceImage[];
-    audio?: TraceImage[];
-  };
-  wire?: unknown;
-  events: TraceEvent[];
-  /** Raw upstream tap rows (HTTP, SSE, provider events). */
-  upstreamLog?: unknown;
-  usage?: unknown;
-  upstream?: {
-    status?: unknown;
-    id?: unknown;
-    finish?: unknown;
-    serviceTier?: unknown;
-  };
-  ok: boolean;
-  error?: string;
-  errorInternal?: string;
-  app?: Record<string, unknown>;
-  cutout?: {
-    ok: boolean;
-    ms: number;
-    url?: string;
-    inSha256?: string;
-    outSha256?: string;
-    http?: unknown;
-    error?: string;
-  };
+  /** Root first, then in start order. */
+  spans: TraceSpan[];
+  /** sha256 hex → exact scrubbed text; every hash the spans reference. */
+  content: Record<string, string>;
 }
 
-function hashBlobs(blobs: Array<TurnBlob | TurnMediaRef> | undefined): Promise<TraceImage[]> {
-  if (!blobs) {
-    return Promise.resolve([]);
-  }
-  return Promise.all(
-    blobs.map(async (blob) =>
-      'uri' in blob
-        ? { mimeType: blob.mimeType, uri: blob.uri }
-        : { mimeType: blob.mimeType, sha256: await sha256(blob.data) },
-    ),
-  );
-}
+/** Reference keys: stored text, and stored JSON a reader parses. */
+const TEXT_REF = 'content_sha256';
+const JSON_REF = 'json_sha256';
+
+/** Attribute and event families each include flag governs. */
+const USAGE_PREFIXES = ['gen_ai.usage.', 'theorem.usage.'];
+const EVENT_INCLUDE: Record<string, keyof ResolvedTraceInclude> = {
+  'theorem.upstream.row': 'upstreamLog',
+  'theorem.wire.request': 'outboundWire',
+  'theorem.guardrail': 'guardrailDecisions',
+};
+/** Grounding events keep normalized sources; the provider's raw payload needs `evidenceRaw`. */
+const RAW_ATTRIBUTE = 'raw';
+/** Guardrail hits keep the matched text only under `guardrailMatchPreview`. */
+const MATCH_ATTRIBUTE = 'match';
 
 function scrubStoredText(text: string, scrub: ResolvedTraceScrub): string {
   if (scrub.sensitive && scrub.injection) {
@@ -154,220 +90,279 @@ function scrubStoredText(text: string, scrub: ResolvedTraceScrub): string {
   return text;
 }
 
-async function snapshotEvent(
-  event: TurnEvent,
-  include: ResolvedTraceInclude,
-  scrub: ResolvedTraceScrub,
-): Promise<TraceEvent> {
-  const row: TraceEvent = { type: event.type };
-  if (event.text) {
-    row.text = scrubStoredText(event.text, scrub);
-  }
-  if (event.error) {
-    row.error = event.error;
-  }
-  if (event.errorInternal) {
-    row.errorInternal = scrubStoredText(event.errorInternal, scrub);
-  }
-  if (event.structured !== undefined) {
-    row.structured = event.structured;
-  }
-  if (event.tool) {
-    const { name, arguments: args, output, phase, failure } = event.tool;
-    row.tool = { name, arguments: args };
-    if (output !== undefined && phase === 'complete') {
-      const data =
-        typeof output === 'object' && output !== null
-          ? (output as Record<string, unknown>)
-          : { value: output };
-      row.tool.result = {
-        status: 'ok',
-        ...(typeof data.finding === 'string' ? { finding: data.finding } : {}),
-        data,
-      };
-    } else if (phase === 'error' && failure) {
-      row.tool.result = {
-        status: 'error',
-        finding: failure.message,
-      };
-    }
-  }
-  if (event.media) {
-    row.media = {
-      mimeType: event.media.mimeType,
-      sha256: await sha256(event.media.data),
-    };
-  }
-  if (event.grounding) {
-    row.grounding = event.grounding;
-  }
-  if (include.evidenceRaw && event.evidence) {
-    row.evidence = event.evidence;
-  }
-  if (event.guardrail) {
-    row.guardrail = projectGuardrailEvent(event.guardrail, include.guardrailMatchPreview);
-  }
-  return row;
+interface Resolver {
+  scrub: ResolvedTraceScrub;
+  /** Canaries to remove; empty when `scrub.canary` is off. */
+  canaries: readonly string[];
+  content: Record<string, string>;
+  /** Stored text → its hash, for interning rows and bodies. */
+  known: Map<string, string>;
 }
 
-function requestForTrace(req: TurnRequest): {
-  request: TurnRequest;
-  sanitizeError?: string;
-} {
-  return sanitizeTurnRequestForTrace(req);
+async function storeText(text: string, resolver: Resolver): Promise<string> {
+  const hash = await sha256(text);
+  resolver.content[hash] = text;
+  resolver.known.set(text, hash);
+  return hash;
 }
 
-function internalError(err: unknown): string | undefined {
-  if (typeof err === 'string') {
-    return sanitizeText(err);
-  }
-  if (err instanceof Error && err.message) {
-    return sanitizeText(err.message);
-  }
-  return undefined;
+function markerRest(value: Record<string, TraceAttributeValue>, key: string): TraceAttributes {
+  const { [key]: _marker, ...rest } = value;
+  return rest;
 }
 
-function titleFrom(text: string | undefined): string | undefined {
-  if (!text) {
-    return undefined;
+/** Pass 1: text and bytes. `$json` waits for pass 2, when every text is known. */
+async function resolveContent(
+  value: TraceAttributeValue,
+  resolver: Resolver,
+): Promise<TraceAttributeValue> {
+  if (isTraceContent(value)) {
+    const text = removeCanaries(scrubStoredText(value.$content, resolver.scrub), resolver.canaries);
+    return { ...markerRest(value, '$content'), [TEXT_REF]: await storeText(text, resolver) };
   }
-  const trimmed = text.trim().replaceAll(/\s+/g, ' ');
-  if (!trimmed) {
-    return undefined;
+  if (isTraceBytes(value)) {
+    const rest = markerRest(value, '$bytes');
+    const digest = await sha256Base64(value.$bytes);
+    // Not base64: hash the text as given and say so, rather than lose the record.
+    return digest
+      ? { ...rest, content_sha256: digest.hash, bytes: digest.bytes }
+      : { ...rest, invalid_base64: true, text_sha256: await sha256(value.$bytes) };
   }
-  return trimmed.slice(0, TITLE_MAX);
-}
-
-function attachFailure(
-  record: TraceRecord,
-  thrown: unknown,
-  lastErr: TraceEvent | undefined,
-  canary: string | undefined,
-  scrub: ResolvedTraceScrub,
-): void {
-  if (!record.ok) {
-    record.error = publicError(thrown ?? lastErr?.error);
-    const inside = internalError(thrown) ?? lastErr?.errorInternal ?? lastErr?.error;
-    if (inside) {
-      record.errorInternal = scrubStoredText(inside, scrub);
-    }
-  }
-  if (scrub.canary && canary && JSON.stringify(record).includes(canary)) {
-    record.errorInternal = OMIT_CANARY;
-  }
-}
-
-function eventsForTrace(events: TurnEvent[], include: ResolvedTraceInclude): TurnEvent[] {
-  if (include.guardrailDecisions) {
-    return events;
-  }
-  return events.filter((event) => event.type !== 'guardrail');
-}
-
-function asResolvedPolicy(
-  value: ProfileObservabilitySpec | ResolvedObservabilityPolicy | undefined,
-): ResolvedObservabilityPolicy {
-  if (
-    value &&
-    typeof value === 'object' &&
-    'record' in value &&
-    typeof value.record === 'boolean'
-  ) {
+  if (isTraceJson(value)) {
     return value;
   }
-  return resolveObservabilityPolicy(value);
+  return await mapNested(value, (nested) => resolveContent(nested, resolver));
 }
 
-async function buildRecord(args: {
-  req: TurnRequest;
-  events: TurnEvent[];
-  started: number;
-  model?: string;
-  keySlot?: string;
-  thrown?: unknown;
-  upstreamLog?: unknown;
-  canary?: string;
-  system?: string;
-  generation?: ResolvedGeneration;
-  protocol?: Protocol;
-  sanitizedReq?: TurnRequest;
-  /** Profile observability — omit for defaults (safe scrub, standard include). */
-  observability?: ProfileObservabilitySpec | ResolvedObservabilityPolicy;
-}): Promise<TraceRecord> {
-  const { req, events, started, model, keySlot, thrown, upstreamLog, canary, system, generation } =
-    args;
-  const protocol = args.protocol;
-  const policy = asResolvedPolicy(args.observability);
-  const { include, scrub } = policy;
-  const traced = args.sanitizedReq ? { request: args.sanitizedReq } : requestForTrace(req);
-  const safe = traced.request;
-  const input = safe.input ?? {};
-  const traceEvents = eventsForTrace(events, include);
-  const snapped = await Promise.all(
-    traceEvents.map((event) => snapshotEvent(event, include, scrub)),
-  );
-  const lastErr = [...snapped].reverse().find((row) => row.type === 'error');
-  const aborted = isAbortError(thrown);
-
-  const stopKind = stopKindFromEvents(events);
-  const done = completedInteraction(upstreamLog);
-  const interactionStatus = done?.status;
-
-  const cancelled =
-    aborted ||
-    stopKind === 'cancelled' ||
-    (protocol === 'geminiInteractions' && interactionStatus === 'cancelled');
-
-  const ok = !(thrown || lastErr) && !cancelled;
-
-  const record: TraceRecord = {
-    v: TRACE_VERSION,
-    id: crypto.randomUUID(),
-    ts: started,
-    ms: Date.now() - started,
-    streamed: true,
-    cancelled,
-    previousInteractionId: safe.previousInteractionId ?? null,
-    store: safe.store ?? null,
-    profile: safe.profile,
-    input: {
-      text: input.text !== undefined ? scrubStoredText(input.text, scrub) : undefined,
-      role: input.role,
-      slots: input.slots
-        ? Object.fromEntries(
-            Object.entries(input.slots).map(([key, value]) => [key, scrubStoredText(value, scrub)]),
-          )
-        : undefined,
-      attachments: await hashBlobs(input.attachments),
-      voice: await hashBlobs(input.voice),
-    },
-    events: snapped,
-    ok,
-  };
-  const title = titleFrom(record.input.text);
-  if (title) {
-    record.title = title;
+/** Rewrite every string inside `value` (arrays and objects, recursively). */
+function mapStrings(value: unknown, rewrite: (text: string) => unknown): unknown {
+  if (typeof value === 'string') {
+    return rewrite(value);
   }
-  const tapeCanary = scrub.canary ? canary : undefined;
-  await attachTape(record, {
-    upstream: upstreamLog,
-    canary: tapeCanary,
-    system,
-    generation,
-    protocol,
-    include,
-  });
-  attachUsage(record, upstreamLog, done, events, include);
-  attachResolved(record, { safe, model, keySlot, generation });
-  attachFailure(record, thrown, lastErr, canary, scrub);
-  if (traced.sanitizeError && !record.errorInternal) {
-    record.errorInternal = scrubStoredText(
-      `request sanitize for trace failed: ${traced.sanitizeError}`,
-      scrub,
+  if (Array.isArray(value)) {
+    return value.map((item) => mapStrings(item, rewrite));
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, nested]) => [key, mapStrings(nested, rewrite)]),
     );
   }
-  return record;
+  return value;
+}
+
+/** Scrub a row's strings, then reference any string pass 1 already stored. */
+function internRow(row: unknown, resolver: Resolver): unknown {
+  return mapStrings(row, (text) => {
+    const scrubbed = scrubStoredText(text, resolver.scrub);
+    const hash = resolver.known.get(scrubbed);
+    return hash ? { [TEXT_REF]: hash } : scrubbed;
+  });
+}
+
+/** Pass 2: rows and bodies, interned against every text pass 1 stored. */
+async function resolveJson(
+  value: TraceAttributeValue,
+  resolver: Resolver,
+): Promise<TraceAttributeValue> {
+  if (isTraceJson(value)) {
+    const taped = await tapeUpstream(value.$json, resolver.canaries);
+    const text = JSON.stringify(internRow(taped, resolver));
+    const hash = await sha256(text);
+    resolver.content[hash] = text;
+    return { ...markerRest(value, '$json'), [JSON_REF]: hash };
+  }
+  return await mapNested(value, (nested) => resolveJson(nested, resolver));
+}
+
+async function mapNested(
+  value: TraceAttributeValue,
+  map: (nested: TraceAttributeValue) => Promise<TraceAttributeValue>,
+): Promise<TraceAttributeValue> {
+  if (Array.isArray(value)) {
+    return await Promise.all(value.map(map));
+  }
+  if (value && typeof value === 'object') {
+    const pairs = await Promise.all(
+      Object.entries(value).map(async ([key, nested]) => [key, await map(nested)] as const),
+    );
+    return Object.fromEntries(pairs);
+  }
+  return value;
+}
+
+async function resolveAttributes(
+  attributes: TraceAttributes,
+  resolve: (value: TraceAttributeValue) => Promise<TraceAttributeValue>,
+): Promise<TraceAttributes> {
+  const pairs = await Promise.all(
+    Object.entries(attributes).map(async ([key, value]) => [key, await resolve(value)] as const),
+  );
+  return Object.fromEntries(pairs);
+}
+
+async function resolveSpan(
+  span: TraceSpan,
+  resolve: (value: TraceAttributeValue) => Promise<TraceAttributeValue>,
+): Promise<TraceSpan> {
+  const events = await Promise.all(
+    span.events.map(async (event) => ({
+      ...event,
+      attributes: await resolveAttributes(event.attributes, resolve),
+    })),
+  );
+  return { ...span, attributes: await resolveAttributes(span.attributes, resolve), events };
+}
+
+function includedAttributes(attributes: TraceAttributes, include: ResolvedTraceInclude) {
+  if (include.usage) {
+    return attributes;
+  }
+  return Object.fromEntries(
+    Object.entries(attributes).filter(
+      ([key]) => !USAGE_PREFIXES.some((prefix) => key.startsWith(prefix)),
+    ),
+  );
+}
+
+/** Guardrail hits without the text they matched. */
+function withoutMatches(hits: TraceAttributeValue[]): TraceAttributeValue[] {
+  return hits.map((hit) => {
+    if (!hit || typeof hit !== 'object' || Array.isArray(hit)) {
+      return hit;
+    }
+    const { [MATCH_ATTRIBUTE]: _match, ...rest } = hit;
+    return rest;
+  });
+}
+
+function includedEvent(
+  event: TraceSpanEvent,
+  include: ResolvedTraceInclude,
+): TraceSpanEvent | undefined {
+  const flag = EVENT_INCLUDE[event.name];
+  if (flag && !include[flag]) {
+    return undefined;
+  }
+  if (event.name === 'theorem.grounding' && !include.evidenceRaw) {
+    const { [RAW_ATTRIBUTE]: _raw, ...rest } = event.attributes;
+    return { ...event, attributes: rest };
+  }
+  const { hits } = event.attributes;
+  if (event.name === 'theorem.guardrail' && !include.guardrailMatchPreview && Array.isArray(hits)) {
+    return { ...event, attributes: { ...event.attributes, hits: withoutMatches(hits) } };
+  }
+  return event;
+}
+
+function applyInclude(span: TraceSpan, include: ResolvedTraceInclude): TraceSpan {
+  return {
+    ...span,
+    attributes: includedAttributes(span.attributes, include),
+    events: span.events.flatMap((event) => includedEvent(event, include) ?? []),
+  };
+}
+
+function enabledKeys(flags: ResolvedTraceInclude | ResolvedTraceScrub): string[] {
+  return Object.entries(flags).flatMap(([key, on]) => (on ? [key] : []));
+}
+
+/**
+ * Build one record from collected spans (`TraceTree.collect()`), root first.
+ * The root gains the policy it was written under.
+ */
+async function buildRecord(args: {
+  spans: TraceSpan[];
+  policy: ResolvedObservabilityPolicy;
+  /**
+   * Every canary bound in this record (the turn's and any nested turn's);
+   * removed from stored text when `scrub.canary` is on.
+   */
+  canaries?: readonly string[];
+  metadata?: Record<string, unknown>;
+}): Promise<TraceRecord> {
+  const { policy } = args;
+  const resolver: Resolver = {
+    scrub: policy.scrub,
+    canaries: policy.scrub.canary ? (args.canaries ?? []) : [],
+    content: {},
+    known: new Map(),
+  };
+  const included = args.spans.map((span) => applyInclude(span, policy.include));
+  const [root] = included;
+  if (root) {
+    root.attributes = {
+      ...root.attributes,
+      'theorem.record.include': enabledKeys(policy.include),
+      'theorem.record.scrub': enabledKeys(policy.scrub),
+    };
+  }
+  const texts = await Promise.all(
+    included.map((span) => resolveSpan(span, (value) => resolveContent(value, resolver))),
+  );
+  const spans = await Promise.all(
+    texts.map((span) => resolveSpan(span, (value) => resolveJson(value, resolver))),
+  );
+  return {
+    v: TRACE_VERSION,
+    schemaUrl: TRACE_SCHEMA_URL,
+    resource: { ...policy.resource },
+    ...(args.metadata ? { metadata: args.metadata } : {}),
+    spans,
+    content: resolver.content,
+  };
+}
+
+/**
+ * The stored text a `{ content_sha256 }` or `{ json_sha256 }` reference names;
+ * `undefined` for any other value, and for a blob, whose bytes were never stored.
+ */
+function contentOf(
+  record: TraceRecord,
+  value: TraceAttributeValue | undefined,
+): string | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  const hash = value[TEXT_REF] ?? value[JSON_REF];
+  return typeof hash === 'string' ? record.content[hash] : undefined;
+}
+
+/**
+ * `value` with every stored reference replaced by what it names, recursively:
+ *
+ * - `{ content_sha256 }` alone becomes its text; beside other keys (a message
+ *   part) it becomes `content`, the semconv name for a part's text.
+ * - `{ json_sha256 }` alone becomes its parsed JSON; beside other keys its
+ *   object is merged under them. References inside it are rebuilt too.
+ * - A reference whose hash is not in `content` (a blob's bytes) is kept as is.
+ */
+function inlineContent(record: TraceRecord, value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => inlineContent(record, item));
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+  const fields = Object.fromEntries(
+    Object.entries(value).map(([key, nested]) => [key, inlineContent(record, nested)]),
+  );
+  const { [TEXT_REF]: textHash, [JSON_REF]: jsonHash, ...rest } = fields;
+  const text = typeof textHash === 'string' ? record.content[textHash] : undefined;
+  if (text !== undefined) {
+    return Object.keys(rest).length === 0 ? text : { ...rest, content: text };
+  }
+  const json = typeof jsonHash === 'string' ? record.content[jsonHash] : undefined;
+  if (json === undefined) {
+    return fields;
+  }
+  const parsed = inlineContent(record, JSON.parse(json));
+  if (Object.keys(rest).length === 0) {
+    return parsed;
+  }
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? { ...parsed, ...rest }
+    : fields;
 }
 
 export type { TraceRecord };
-export { buildRecord };
+export { buildRecord, contentOf, inlineContent, TRACE_SCHEMA_URL };

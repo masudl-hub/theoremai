@@ -11,7 +11,7 @@
  * @module
  */
 
-import { getTool } from '../../../kernel/tools/registry.ts';
+import { requireBuiltinWire } from '../../../kernel/tools/registry.ts';
 import type { ProviderCompleteRequest } from '../../../kernel/types.ts';
 import { cacheControlFromSpec } from '../cache-control.ts';
 import { buildChatMessages, resolveResponseFormat, wireTools } from './compat.ts';
@@ -85,9 +85,7 @@ function resolveOpenRouterPlugins(builtins: readonly string[]): ResolvedPlugins 
   let webSearch = false;
   const plugins: Array<{ id: string }> = [];
   for (const id of builtins) {
-    const entry = getTool(id);
-    const pluginId = entry?.type === 'builtin' ? entry.wire.openRouter : undefined;
-    if (!pluginId) continue;
+    const pluginId = requireBuiltinWire(id, 'openRouter');
     if (pluginId === 'web') {
       webSearch = true;
     } else {

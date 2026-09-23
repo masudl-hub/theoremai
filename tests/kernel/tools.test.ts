@@ -454,10 +454,7 @@ Deno.test('exposeToModel false omits secret from provider tool result', async ()
     async *complete(req) {
       callCount++;
       if (callCount > 1) {
-        const step = req.interactionOnlyInput?.[0] as {
-          result?: Array<{ text?: string }>;
-        };
-        toolResultText = step?.result?.[0]?.text;
+        toolResultText = req.continuation?.[0]?.content;
         yield { type: 'text', text: 'done' };
         return;
       }

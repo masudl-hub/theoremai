@@ -38,7 +38,7 @@ export type ProfileGuardrailsView = Pick<
 /** Observability visible to UI — TraceSink / onWriteError functions are omitted. */
 export type ProfileObservabilityView = Pick<
   ResolvedObservabilityPolicy,
-  'record' | 'sampleRate' | 'include' | 'scrub' | 'retainForDays' | 'rotateAfterMiB'
+  'record' | 'sampleRate' | 'include' | 'scrub' | 'resource' | 'retainForDays' | 'rotateAfterMiB'
 > & {
   /** false | registered id | 'custom' when writeTo is an inline TraceSink. */
   writeTo: false | string | 'custom' | undefined;

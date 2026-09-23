@@ -17,13 +17,12 @@ import {
   promoteLoadedTools,
   resolveTurnTools,
 } from '../../src/kernel/tools/resolve.ts';
-import type { ModelProvider, ProfileToolsSpec, TurnEvent } from '../../src/kernel/types.ts';
-import {
-  foldArgumentsDelta,
-  foldPayload,
-  foldStepStart,
-  newStreamFold,
-} from '../../src/providers/google/interactions/stream.ts';
+import type {
+  ModelProvider,
+  ProfileToolsSpec,
+  TurnEvent,
+  TurnHistoryMessage,
+} from '../../src/kernel/types.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 import { invokeRegisteredTool } from '../fixtures/test-tools.ts';
 
@@ -49,94 +48,6 @@ function flashProfile(id: string, maxSteps: number, tools: ProfileToolsSpec) {
     }),
   );
 }
-
-// ---------------------------------------------------------------------------
-// Stream parser — alternate wire shapes
-// ---------------------------------------------------------------------------
-
-Deno.test('adversarial/stream: string args via delta + step.stop', () => {
-  const fold = newStreamFold();
-  const events = [
-    ...(foldPayload(
-      {
-        event_type: 'step.start',
-        index: 0,
-        step: { type: 'function_call', id: 'c_delta', name: 'ping_tool' },
-      },
-      fold,
-    ) as TurnEvent[]),
-    ...(foldPayload(
-      {
-        event_type: 'step.delta',
-        index: 0,
-        delta: { type: 'arguments_delta', arguments: '{"step":' },
-      },
-      fold,
-    ) as TurnEvent[]),
-    ...(foldPayload(
-      { event_type: 'step.delta', index: 0, delta: { type: 'arguments', arguments: '1}' } },
-      fold,
-    ) as TurnEvent[]),
-    ...(foldPayload({ event_type: 'step.stop', index: 0 }, fold) as TurnEvent[]),
-  ];
-  const tool = events.find((e) => e.type === 'tool');
-  assertEquals(tool?.tool?.name, 'ping_tool');
-  assertEquals(tool?.tool?.arguments, { step: 1 });
-});
-
-Deno.test('adversarial/stream: step.start id-only flushes empty args on step.stop', () => {
-  const fold = newStreamFold();
-  foldPayload(
-    {
-      event_type: 'step.start',
-      index: 2,
-      step: { type: 'function_call', id: 'c_empty', name: 'stub_tool' },
-    },
-    fold,
-  );
-  const stopped = foldPayload({ event_type: 'step.stop', index: 2 }, fold) as TurnEvent[];
-  assertEquals(stopped.length, 1);
-  assertEquals(stopped[0]?.tool?.arguments, {});
-});
-
-Deno.test('adversarial/stream: malformed JSON args become tool failure events', () => {
-  const fold = newStreamFold();
-  foldStepStart(
-    {
-      event_type: 'step.start',
-      index: 0,
-      step: { type: 'function_call', id: 'c_bad', name: 'ping_tool' },
-    },
-    fold,
-  );
-  foldArgumentsDelta({ type: 'arguments_delta', arguments: '{not json' }, 0, fold);
-  const stopped = foldPayload({ event_type: 'step.stop', index: 0 }, fold) as TurnEvent[];
-  assertEquals(stopped[0]?.type, 'tool');
-  assertEquals(stopped[0]?.tool?.phase, 'error');
-  assertEquals(stopped[0]?.tool?.failure?.code, 'malformed_arguments');
-  assertEquals(stopped[0]?.tool?.arguments, {});
-});
-
-Deno.test('adversarial/stream: duplicate function_call deduped', () => {
-  const fold = newStreamFold();
-  const payload = {
-    event_type: 'step.start',
-    index: 0,
-    step: { type: 'function_call', id: 'c_dup', name: 'stub_tool', arguments: {} },
-  };
-  assertEquals(
-    (foldPayload(payload, fold) as TurnEvent[]).filter((e) => e.type === 'tool').length,
-    0,
-  );
-  assertEquals(
-    (foldPayload(payload, fold) as TurnEvent[]).filter((e) => e.type === 'tool').length,
-    0,
-  );
-  const firstStop = foldPayload({ event_type: 'step.stop', index: 0 }, fold) as TurnEvent[];
-  const secondStop = foldPayload({ event_type: 'step.stop', index: 0 }, fold) as TurnEvent[];
-  assertEquals(firstStop.filter((e) => e.type === 'tool').length, 1);
-  assertEquals(secondStop.filter((e) => e.type === 'tool').length, 0);
-});
 
 Deno.test('adversarial/runTurn: provider malformed_arguments skips handler execution', async () => {
   let handlerCalls = 0;
@@ -618,7 +529,7 @@ Deno.test('adversarial/invoke: promote failure attributes to host target tool', 
 
 Deno.test('adversarial/runTurn: tool error still feeds provider continuation text', async () => {
   flashProfile('error_continuation_probe', 2, { allow: ['crashing_tool'] });
-  let secondInput: unknown;
+  let secondInput: TurnHistoryMessage[] | undefined;
   let calls = 0;
   const provider: ModelProvider = {
     async *complete(req) {
@@ -632,18 +543,16 @@ Deno.test('adversarial/runTurn: tool error still feeds provider continuation tex
         };
         return;
       }
-      secondInput = req.interactionOnlyInput;
+      secondInput = req.continuation;
       yield { type: 'text', text: 'ack' };
     },
   };
   await collect(runTurn({ profile: 'error_continuation_probe', input: { text: 'x' } }, provider));
   assertEquals(calls, 2);
-  const step = (
-    secondInput as { type: string; name: string; result?: Array<{ text?: string }> }[] | undefined
-  )?.[0];
-  assertEquals(step?.type, 'function_result');
+  const step = secondInput?.[0];
+  assertEquals(step?.role, 'tool');
   assertEquals(step?.name, 'crashing_tool');
-  const text = step?.result?.[0]?.text ?? '';
+  const text = step?.content ?? '';
   assertEquals(text.includes('handler_error'), true);
   assertEquals(text.includes('Tool error'), true);
 });
@@ -671,7 +580,7 @@ Deno.test('adversarial/runTurn: builtin function_call surfaces provider_native e
       guardrails: { quota: { perDay: 10 } },
     }),
   );
-  let secondInput: unknown;
+  let secondInput: TurnHistoryMessage[] | undefined;
   let calls = 0;
   const provider: ModelProvider = {
     async *complete(req) {
@@ -685,7 +594,7 @@ Deno.test('adversarial/runTurn: builtin function_call surfaces provider_native e
         };
         return;
       }
-      secondInput = req.interactionOnlyInput;
+      secondInput = req.continuation;
       yield { type: 'text', text: 'ack' };
     },
   };
@@ -696,9 +605,7 @@ Deno.test('adversarial/runTurn: builtin function_call surfaces provider_native e
   assertEquals(tool?.phase, 'error');
   assertEquals(tool?.failure?.code, 'provider_native');
   assertEquals(calls, 2);
-  const text =
-    (secondInput as { result?: Array<{ text?: string }> }[] | undefined)?.[0]?.result?.[0]?.text ??
-    '';
+  const text = secondInput?.[0]?.content ?? '';
   assertEquals(text.includes('provider_native'), true);
 });
 

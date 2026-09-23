@@ -13,6 +13,7 @@ import { HStack } from '@astryxdesign/core/HStack';
 import { Icon } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { type LightboxMedia, useLightbox } from '@astryxdesign/core/Lightbox';
+import { useStreamingText } from '@astryxdesign/core/hooks';
 import { Markdown } from '@astryxdesign/core/Markdown';
 import { Text } from '@astryxdesign/core/Text';
 import { Thumbnail } from '@astryxdesign/core/Thumbnail';
@@ -234,10 +235,26 @@ function Sources({ block }: { block: Extract<TranscriptBlock, { kind: 'grounding
 	);
 }
 
+/**
+ * Streamed reply text. Guardrails release text in batches (the last one when
+ * the stream closes), and Astryx's reveal snaps to the full text once
+ * `isStreaming` goes false — so keep the reveal on until Astryx's own
+ * `useStreamingText` has caught up with everything received.
+ */
+function StreamedMarkdown({ text, streaming }: { text: string; streaming: boolean }) {
+	const [revealing, setRevealing] = useState(streaming);
+	if (streaming && !revealing) setRevealing(true);
+	const shown = useStreamingText(text, revealing);
+	useEffect(() => {
+		if (!streaming && shown.length >= text.length) setRevealing(false);
+	}, [streaming, shown, text]);
+	return <Markdown isStreaming={revealing}>{text}</Markdown>;
+}
+
 function BodyBlock({ block, streaming }: { block: TranscriptBlock; streaming: boolean }) {
 	switch (block.kind) {
 		case 'text':
-			return <Markdown isStreaming={streaming}>{block.text}</Markdown>;
+			return <StreamedMarkdown text={block.text} streaming={streaming} />;
 		case 'error':
 			return <Banner status="error" title={block.message} />;
 		case 'grounding':
@@ -386,7 +403,9 @@ function AssistantTurn(props: {
 					))}
 					{body.map((block, i) => (
 						<BodyBlock
-							key={block.id}
+							// By position: the committed turn re-mints block ids, and a
+							// remount would cut the text reveal short.
+							key={i}
 							block={block}
 							streaming={props.streaming && i === body.length - 1}
 						/>
@@ -426,6 +445,7 @@ export function ChatTranscript({
 	const timeOf = useBlockTimes(blocks);
 	const lastUserKey = groups.findLast((group) => group.kind === 'user')?.key;
 	const turnEnds = useTurnEndTimes(streaming, lastUserKey);
+	const pendingPrompt = groups.at(-1)?.kind === 'user' ? groups.at(-1) : undefined;
 	const handlers: BlockHandlers = {
 		indexOf: (block) => blocks.findIndex((entry) => entry.id === block.id),
 		onToolDecision,
@@ -452,7 +472,9 @@ export function ChatTranscript({
 						: undefined;
 				return (
 					<AssistantTurn
-						key={group.key}
+						// Keyed by its prompt, not its blocks: the reply stays mounted from the
+						// "Working…" placeholder through streaming and commit (which re-keys blocks).
+						key={prompt?.kind === 'user' ? `${prompt.key}:reply` : group.key}
 						blocks={group.blocks}
 						handle={handle}
 						streaming={live}
@@ -464,6 +486,18 @@ export function ChatTranscript({
 					/>
 				);
 			})}
+			{/* Nothing streamed back yet: show the reply's "Working…" status right away. */}
+			{streaming && pendingPrompt ? (
+				<AssistantTurn
+					key={`${pendingPrompt.key}:reply`}
+					blocks={[]}
+					handle={handle}
+					streaming
+					at={timeOf(pendingPrompt.blocks[0]?.id ?? pendingPrompt.key)}
+					startedAt={timeOf(pendingPrompt.blocks[0]?.id ?? pendingPrompt.key)}
+					handlers={handlers}
+				/>
+			) : null}
 		</ChatMessageList>
 	);
 }

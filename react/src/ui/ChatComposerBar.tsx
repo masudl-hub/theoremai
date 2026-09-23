@@ -2,6 +2,8 @@ import { Badge } from '@astryxdesign/core/Badge';
 import {
 	ChatComposer,
 	ChatComposerDrawer,
+	ChatComposerInput,
+	type ChatComposerInputHandle,
 	type ChatComposerStatus,
 	ChatSendButton,
 } from '@astryxdesign/core/Chat';
@@ -50,6 +52,8 @@ import {
 } from '../components/composer-labels';
 import { useComposerVoice } from '../components/use-composer-voice';
 
+const NO_FOCUS_RING = { '--focus-outline-width': '0px' } as React.CSSProperties;
+
 export type ChatComposerBarProps = {
 	iface: ComposerProfileInterface;
 	draftText: string;
@@ -62,6 +66,8 @@ export type ChatComposerBarProps = {
 	selectedModel?: string;
 	selectedEffort?: string;
 	placeholder?: string;
+	/** Imperative handle for the editor (focus, insert). */
+	inputRef?: React.Ref<ChatComposerInputHandle>;
 	onDraftTextChange: (text: string) => void;
 	onFilesSelected: (files: File[]) => void;
 	onAttachmentRemove: (index: number) => void;
@@ -357,6 +363,9 @@ export function ChatComposerBar(props: ChatComposerBarProps) {
 
 	return (
 		<ChatComposer
+			// No keyboard focus ring on the composer (product choice): zero Astryx's
+			// focus-outline token for this subtree. The editor still shows its caret.
+			style={NO_FOCUS_RING}
 			value={props.draftText}
 			onChange={props.onDraftTextChange}
 			onSubmit={runPrimary}
@@ -365,6 +374,7 @@ export function ChatComposerBar(props: ChatComposerBarProps) {
 			placeholder={
 				voice.recording ? 'Listening…' : (props.placeholder ?? `Message @${iface.identity.handle}`)
 			}
+			input={<ChatComposerInput handleRef={props.inputRef} />}
 			drawer={drawer}
 			headerActions={headerActions}
 			footerActions={

@@ -105,7 +105,9 @@ export function useTheoremChat({ transport, iface }: UseTheoremChatOptions) {
 			state.setErrorInternal('');
 			state.busyRef.current = true;
 			state.setBusy(true);
-			state.setStreaming(true);
+			// A new turn goes live with its user message (onUserBlocks), so the
+			// previous reply never renders as streaming in between.
+			if (!options.userBlocksAlreadyApplied) state.setStreaming(true);
 			state.allowQueueDrainRef.current = false;
 
 			const work = (async () => {
@@ -179,6 +181,7 @@ export function useTheoremChat({ transport, iface }: UseTheoremChatOptions) {
 		setStreamBlocks: state.setStreamBlocks,
 		setSession: state.setSession,
 		setChatStarted: state.setChatStarted,
+		setStreaming: state.setStreaming,
 		setPendingMessages: state.setPendingMessages,
 		setDraftText: state.setDraftText,
 		setPendingFiles: state.setPendingFiles,

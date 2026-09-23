@@ -1,12 +1,12 @@
 import { Banner } from '@astryxdesign/core/Banner';
 import { Center } from '@astryxdesign/core/Center';
-import { ChatLayout } from '@astryxdesign/core/Chat';
-import { EmptyState } from '@astryxdesign/core/EmptyState';
+import { type ChatComposerInputHandle, ChatLayout } from '@astryxdesign/core/Chat';
 import { Layout, LayoutContent } from '@astryxdesign/core/Layout';
 import { Spinner } from '@astryxdesign/core/Spinner';
+import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
 import type { DefinedTheme } from '@astryxdesign/core/theme';
-import { type ReactNode, useMemo } from 'react';
+import { type ReactNode, type Ref, type RefObject, useLayoutEffect, useMemo, useRef } from 'react';
 import {
 	type ComposerProfileInterface,
 	moveComposerPendingWithinKind,
@@ -30,12 +30,12 @@ export type TheoremChatProps = {
 	theme?: DefinedTheme;
 	mode?: 'system' | 'light' | 'dark';
 	placeholder?: string;
-	/** Shown before the first message. */
+	/** Shown above the centred composer before the first message. Default: the agent's handle and a prompt. */
 	emptyState?: ReactNode;
 	density?: 'compact' | 'balanced' | 'spacious';
 	/**
 	 * Widest the transcript and composer may grow, as a CSS length. Default
-	 * {@link DEFAULT_CHAT_MAX_WIDTH}: 60% of the chat, or full width on narrow screens.
+	 * {@link DEFAULT_CHAT_MAX_WIDTH}: 50% of the chat, or full width on narrow screens.
 	 */
 	maxWidth?: string;
 	/** Page scroller when the chat is not its own scroll container (e.g. `document.documentElement`). */
@@ -45,20 +45,57 @@ export type TheoremChatProps = {
 };
 
 /**
- * 60% of the chat's width, but never narrower than 640px (or the full width,
+ * 50% of the chat's width, but never narrower than 640px (or the full width,
  * whichever is smaller) — so phones and narrow panes get 100%.
  */
-export const DEFAULT_CHAT_MAX_WIDTH = 'max(60%, min(100%, 640px))';
+export const DEFAULT_CHAT_MAX_WIDTH = 'max(50%, min(100%, 640px))';
 
 /** Centres content in a column no wider than `maxWidth`, using Astryx layout props. */
-function ChatColumn({ maxWidth, children }: { maxWidth: string; children: ReactNode }) {
+function ChatColumn({ maxWidth, ref, children }: { maxWidth: string; ref?: Ref<HTMLElement>; children: ReactNode }) {
 	return (
 		<Center axis="horizontal" width="100%">
-			<VStack width="100%" maxWidth={maxWidth}>
+			<VStack ref={ref} width="100%" maxWidth={maxWidth}>
 				{children}
 			</VStack>
 		</Center>
 	);
+}
+
+/** Reads an Astryx duration token ("410ms" / "0.4s") as milliseconds. */
+function tokenMs(value: string, fallback: number): number {
+	const n = Number.parseFloat(value);
+	if (Number.isNaN(n)) return fallback;
+	return value.trim().endsWith('ms') ? n : n * 1_000;
+}
+
+/**
+ * The composer is centred until the first message, then lives in ChatLayout's
+ * dock. Astryx has no layout-transition helper, so this eases the jump (FLIP)
+ * with Astryx's `--duration-medium` / `--ease-standard` tokens and keeps focus.
+ */
+function useComposerGlide(landing: boolean, inputRef: RefObject<ChatComposerInputHandle | null>) {
+	const columnRef = useRef<HTMLElement | null>(null);
+	const landingTop = useRef<number | null>(null);
+	useLayoutEffect(() => {
+		const el = columnRef.current;
+		if (!el) return;
+		if (landing) {
+			landingTop.current = el.getBoundingClientRect().top;
+			return;
+		}
+		const from = landingTop.current;
+		if (from === null) return;
+		landingTop.current = null;
+		inputRef.current?.focus();
+		const delta = from - el.getBoundingClientRect().top;
+		if (delta === 0 || globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+		const tokens = getComputedStyle(el);
+		el.animate([{ transform: `translateY(${String(delta)}px)` }, { transform: 'none' }], {
+			duration: tokenMs(tokens.getPropertyValue('--duration-medium'), 410),
+			easing: tokens.getPropertyValue('--ease-standard').trim() || 'ease-out',
+		});
+	});
+	return columnRef;
 }
 
 type ChatBodyProps = Omit<TheoremChatProps, 'endpoint' | 'http' | 'transport' | 'theme' | 'mode'> & {
@@ -80,6 +117,94 @@ function ChatBody({
 	const chat = useTheoremChat({ transport, iface });
 	const blocks = useMemo(() => [...chat.blocks, ...chat.streamBlocks], [chat.blocks, chat.streamBlocks]);
 	const handle = iface.identity.handle;
+	const landing = blocks.length === 0;
+	const inputRef = useRef<ChatComposerInputHandle | null>(null);
+	const composerRef = useComposerGlide(landing, inputRef);
+
+	const composer = (
+		<ChatComposerBar
+			iface={iface}
+			draftText={chat.draftText}
+			pendingFiles={chat.pendingFiles}
+			pendingVoice={chat.pendingVoice}
+			pendingMessages={chat.pendingMessages}
+			issues={chat.issues}
+			phase={chat.phase}
+			error={chat.error}
+			selectedModel={chat.session.selectedModel}
+			selectedEffort={chat.session.selectedEffort}
+			placeholder={placeholder}
+			inputRef={inputRef}
+			onDraftTextChange={chat.setDraftText}
+			onFilesSelected={(files) => {
+				chat.setPendingFiles((prev) => [...prev, ...files]);
+				chat.setIssues([]);
+			}}
+			onAttachmentRemove={(index) => {
+				chat.setPendingFiles((prev) => prev.filter((_, i) => i !== index));
+			}}
+			onVoiceStaged={(file) => {
+				chat.setPendingVoice([file]);
+				chat.setIssues([]);
+			}}
+			onVoiceClear={() => chat.setPendingVoice([])}
+			onSubmit={() => {
+				void chat.handleSubmit();
+			}}
+			onStop={chat.handleStop}
+			onMenuAction={chat.handleMenuAction}
+			onGenerationChange={chat.handleGenerationChange}
+			onPendingMove={(id, direction) => {
+				chat.setPendingMessages((prev) => moveComposerPendingWithinKind(prev, id, direction));
+			}}
+			onPendingRemove={(id) => {
+				chat.setPendingMessages((prev) => removeComposerPendingMessage(prev, id));
+			}}
+			onPendingQueue={chat.handlePendingQueue}
+			onPendingRestore={(id) => {
+				void chat.handlePendingRestore(id);
+			}}
+			onPendingSendNow={(id) => {
+				const message = chat.pendingMessages.find((m) => m.id === id);
+				if (message) void chat.handleSendNow(message);
+			}}
+		/>
+	);
+
+	// Before the first message: the composer alone, centred (Astryx AI chat
+	// template landing). paddingInline={3} matches the dock's inset so the
+	// composer keeps its width when it moves.
+	if (landing) {
+		return (
+			<Layout
+				height="fill"
+				className={className}
+				style={style}
+				content={
+					<LayoutContent padding={0}>
+						<VStack minHeight="100%" vAlign="center" gap={8} paddingInline={3}>
+							<ChatColumn maxWidth={maxWidth}>
+								{emptyState ?? (
+									// Greeting type from Astryx's AI chat template.
+									<VStack gap={1}>
+										<Text type="large" as="h2">
+											@{handle}
+										</Text>
+										<Text type="display-2" as="h1">
+											What are we working on?
+										</Text>
+									</VStack>
+								)}
+							</ChatColumn>
+							<ChatColumn ref={composerRef} maxWidth={maxWidth}>
+								{composer}
+							</ChatColumn>
+						</VStack>
+					</LayoutContent>
+				}
+			/>
+		);
+	}
 
 	// Structure from Astryx's AI chat template: Layout › LayoutContent › ChatLayout,
 	// with the composer in ChatLayout's own dock. The dock leaves 12px under the
@@ -95,76 +220,28 @@ function ChatBody({
 						<ChatLayout
 							density={density}
 							scrollRef={scrollRef}
-							emptyState={emptyState ?? <EmptyState title={`@${handle}`} description="Start a conversation." />}
 							composer={
 								<VStack paddingBlockEnd={3}>
-									<ChatColumn maxWidth={maxWidth}>
-										<ChatComposerBar
-											iface={iface}
-											draftText={chat.draftText}
-											pendingFiles={chat.pendingFiles}
-											pendingVoice={chat.pendingVoice}
-											pendingMessages={chat.pendingMessages}
-											issues={chat.issues}
-											phase={chat.phase}
-											error={chat.error}
-											selectedModel={chat.session.selectedModel}
-											selectedEffort={chat.session.selectedEffort}
-											placeholder={placeholder}
-											onDraftTextChange={chat.setDraftText}
-											onFilesSelected={(files) => {
-												chat.setPendingFiles((prev) => [...prev, ...files]);
-												chat.setIssues([]);
-											}}
-											onAttachmentRemove={(index) => {
-												chat.setPendingFiles((prev) => prev.filter((_, i) => i !== index));
-											}}
-											onVoiceStaged={(file) => {
-												chat.setPendingVoice([file]);
-												chat.setIssues([]);
-											}}
-											onVoiceClear={() => chat.setPendingVoice([])}
-											onSubmit={() => {
-												void chat.handleSubmit();
-											}}
-											onStop={chat.handleStop}
-											onMenuAction={chat.handleMenuAction}
-											onGenerationChange={chat.handleGenerationChange}
-											onPendingMove={(id, direction) => {
-												chat.setPendingMessages((prev) => moveComposerPendingWithinKind(prev, id, direction));
-											}}
-											onPendingRemove={(id) => {
-												chat.setPendingMessages((prev) => removeComposerPendingMessage(prev, id));
-											}}
-											onPendingQueue={chat.handlePendingQueue}
-											onPendingRestore={(id) => {
-												void chat.handlePendingRestore(id);
-											}}
-											onPendingSendNow={(id) => {
-												const message = chat.pendingMessages.find((m) => m.id === id);
-												if (message) void chat.handleSendNow(message);
-											}}
-										/>
+									<ChatColumn ref={composerRef} maxWidth={maxWidth}>
+										{composer}
 									</ChatColumn>
 								</VStack>
 							}
 						>
-							{blocks.length > 0 ? (
-								<ChatColumn maxWidth={maxWidth}>
-									<ChatTranscript
-										blocks={blocks}
-										handle={`@${handle}`}
-										streaming={chat.streaming}
-										onBranch={chat.handleBranch}
-										onToolDecision={(index, action, value) => {
-											void chat.handleToolDecision(index, action, value);
-										}}
-										onAuthCredential={(index, slot, credential) => {
-											void chat.handleAuthCredential(index, slot, credential);
-										}}
-									/>
-								</ChatColumn>
-							) : null}
+							<ChatColumn maxWidth={maxWidth}>
+								<ChatTranscript
+									blocks={blocks}
+									handle={`@${handle}`}
+									streaming={chat.streaming}
+									onBranch={chat.handleBranch}
+									onToolDecision={(index, action, value) => {
+										void chat.handleToolDecision(index, action, value);
+									}}
+									onAuthCredential={(index, slot, credential) => {
+										void chat.handleAuthCredential(index, slot, credential);
+									}}
+								/>
+							</ChatColumn>
 						</ChatLayout>
 					</VStack>
 				</LayoutContent>

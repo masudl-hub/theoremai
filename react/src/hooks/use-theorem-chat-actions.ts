@@ -118,6 +118,7 @@ export function useTheoremChatActions(args: {
 	setStreamBlocks: (value: TranscriptBlock[]) => void;
 	setSession: (value: InterfaceTurnSession) => void;
 	setChatStarted: (value: boolean) => void;
+	setStreaming: (value: boolean) => void;
 	setPendingMessages: (
 		value:
 			| ComposerPendingMessage[]
@@ -151,6 +152,7 @@ export function useTheoremChatActions(args: {
 						onUserBlocks: (userBlocks) => {
 							args.setBlocks((prev) => [...prev, ...userBlocks]);
 							args.setChatStarted(true);
+							args.setStreaming(true);
 							args.clearComposer();
 						},
 					}),
@@ -178,6 +180,7 @@ export function useTheoremChatActions(args: {
 						onUserBlocks: (userBlocks) => {
 							args.setBlocks((prev) => [...prev, ...userBlocks]);
 							args.setChatStarted(true);
+							args.setStreaming(true);
 						},
 					}),
 				{ userBlocksAlreadyApplied: true },

@@ -33,6 +33,7 @@ import {
 	type TurnInput,
 } from '../../../mod.ts';
 import { type ClientTurnOptions, forClient } from '../../../src/host/mod.ts';
+import { toBase64Url } from '../../../src/kernel/mod.ts';
 import {
 	gatedToolFromEvents,
 	interfaceFromProfile,
@@ -208,11 +209,7 @@ function readCookie(request: Request, name: string): string | undefined {
 }
 
 function newSessionId(): string {
-	const bytes = crypto.getRandomValues(new Uint8Array(32));
-	return btoa(String.fromCharCode(...bytes))
-		.replaceAll('+', '-')
-		.replaceAll('/', '_')
-		.replace(/=+$/, '');
+	return toBase64Url(crypto.getRandomValues(new Uint8Array(32)));
 }
 
 function cookieSession(request: Request): Session {

@@ -21,7 +21,7 @@ import {
 	shouldForwardMicFrame,
 } from './live/live-mic-forward';
 import { type LiveServerEnvelope, parseLiveServerEnvelope } from './live-messages';
-import { base64ToBytes, bytesToBase64 } from '../../../src/providers/shared/pcm.ts';
+import { base64ToBytes, bytesToBase64 } from '../../../src/kernel/util/base64.ts';
 import { downsampleAndConvertToInt16, pcm16BytesToFloat32 } from './pcm-downsample';
 import micCaptureWorkletUrl from './mic-capture.worklet?worker&url';
 

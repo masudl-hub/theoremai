@@ -7,13 +7,11 @@
  * @module
  */
 
+import { base64ToBytes, bytesToBase64 } from '../util/base64.ts';
+
 /** Encode Uint8Array to RFC 4648 base64url string without padding. */
 export function toBase64Url(bytes: Uint8Array): string {
-  let binary = '';
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return bytesToBase64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 /** Decode RFC 4648 base64url string to Uint8Array. */
@@ -23,12 +21,7 @@ export function fromBase64Url(base64url: string): Uint8Array {
     base64 += '=';
   }
   try {
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    return bytes;
+    return base64ToBytes(base64);
   } catch (err) {
     throw new Error(
       `Invalid base64url encoding: ${err instanceof Error ? err.message : String(err)}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)

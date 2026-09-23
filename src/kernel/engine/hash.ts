@@ -1,3 +1,5 @@
+import { base64ToBytes } from '../util/base64.ts';
+
 const HEX_PAD = 2;
 const HEX_RADIX = 16;
 
@@ -18,13 +20,12 @@ export async function sha256(text: string): Promise<string> {
 export async function sha256Base64(
   base64: string,
 ): Promise<{ hash: string; bytes: number } | undefined> {
-  let decoded: string;
+  let raw: Uint8Array<ArrayBuffer>;
   try {
-    decoded = atob(base64);
+    raw = base64ToBytes(base64);
   } catch {
     return undefined;
   }
-  const raw = Uint8Array.from(decoded, (char) => char.charCodeAt(0));
   const buf = await crypto.subtle.digest('SHA-256', raw);
   return { hash: hexSha256(new Uint8Array(buf)), bytes: raw.byteLength };
 }

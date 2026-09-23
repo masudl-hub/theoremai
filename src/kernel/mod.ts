@@ -17,6 +17,8 @@ export {
   shouldCompact,
   splitForCompaction,
 } from './engine/compaction.ts';
+export type { RunDecisionOptions } from './engine/decision.ts';
+export { DecisionError, runDecision } from './engine/decision.ts';
 export type { LiveIngressChannel } from './engine/live-ingress.ts';
 export {
   assertLiveIngress,
@@ -53,6 +55,7 @@ export {
   requireModelBinding,
 } from './registry/catalog.ts';
 export type {
+  DecisionProfileDefinition,
   HostProfileDefinition,
   ImageProfileDefinition,
   LiveProfileDefinition,

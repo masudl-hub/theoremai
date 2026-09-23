@@ -317,7 +317,11 @@ function invokeRegisteredTool(args: InvokeToolRequest): Promise<TurnEvent[]> {
 }
 
 function withProfileTools(
-  profile: Exclude<Profile, import('../../src/kernel/types.ts').SpeechProfile>,
+  profile: Exclude<
+    Profile,
+    | import('../../src/kernel/types.ts').SpeechProfile
+    | import('../../src/kernel/types.ts').DecisionProfile
+  >,
   extraAllow: string[],
 ): typeof profile {
   return {

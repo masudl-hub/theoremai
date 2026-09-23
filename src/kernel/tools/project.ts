@@ -18,7 +18,7 @@ function projectTool(name: ToolId): RegisteredTool | { name: ToolId; missing: tr
 
 function builtInToolIds(profile: Profile): ToolId[] {
   const seen = new Set<ToolId>();
-  if (profile.type === 'host') {
+  if (profile.type === 'host' || profile.type === 'decision') {
     return [];
   }
   for (const binding of Object.values(profile.models)) {
@@ -30,7 +30,7 @@ function builtInToolIds(profile: Profile): ToolId[] {
 }
 
 function profileAllow(profile: Profile): ToolId[] {
-  if (profile.type === 'speech') {
+  if (profile.type === 'speech' || profile.type === 'decision') {
     return [];
   }
   return profile.tools.allow;

@@ -37,10 +37,10 @@ interface ProfileGraphFacetDef {
  * Mirrors PROFILE_TYPES — value import would cycle through schema re-exports.
  * Drift is gated by tests/kernel/profile-graph.test.ts.
  */
-const ALL: readonly ProfileType[] = ['text', 'image', 'speech', 'live', 'host'];
+const ALL: readonly ProfileType[] = ['text', 'image', 'speech', 'live', 'decision', 'host'];
 
 /** Types that bind models — `host` never runs a model. */
-const MODEL_TYPES: readonly ProfileType[] = ['text', 'image', 'speech', 'live'];
+const MODEL_TYPES: readonly ProfileType[] = ['text', 'image', 'speech', 'live', 'decision'];
 
 /**
  * Authoring-graph catalog. Adding a profile section? Add PROFILE_FIELDS and a row
@@ -58,6 +58,16 @@ const PROFILE_GRAPH_DEF = [
     editor: 'structural',
     label: 'Identity',
     ownsFields: ['id', 'type'],
+  },
+  {
+    id: 'decision',
+    profilePath: 'decision',
+    role: 'spine',
+    profileTypes: ['decision'],
+    optional: false,
+    editor: 'structural',
+    label: 'Decision',
+    ownsFields: ['inputs'],
   },
   {
     id: 'models',

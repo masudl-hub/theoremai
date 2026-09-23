@@ -54,7 +54,7 @@ function requireMediaLimits(profile: Profile): MediaLimits {
   if (profile.type === 'live') {
     throw new TheoremError(`Profile ${profile.id} (live) does not accept turn attachment input`); // lexicon-exempt: developer contract error
   }
-  if (profile.type === 'host') {
+  if (profile.type === 'host' || profile.type === 'decision') {
     throw new TheoremError(`Profile ${profile.id} (host) does not accept turn input`); // lexicon-exempt: developer contract error
   }
   const limits = resolveMediaLimits(profile.inputs ?? {});

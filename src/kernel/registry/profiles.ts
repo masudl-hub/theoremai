@@ -9,6 +9,7 @@
 
 import { TheoremError } from '../../guardrails/error.ts';
 import {
+  type DecisionGuardrailsSpec,
   HOST_GUARDRAIL_FIELDS,
   type HostGuardrailsSpec,
   type ProfileGuardrailsSpec,
@@ -27,6 +28,8 @@ import { isContinueStopKind, type ProfileTurnResumptionSpec } from '../stop.ts';
 import { getTool } from '../tools/registry.ts';
 import type {
   CompactionSpec,
+  DecisionModelBinding,
+  DecisionProfile,
   HostProfile,
   HostProfileToolsSpec,
   ImageProfile,
@@ -101,6 +104,21 @@ export type LiveProfileDefinition = ProfileDefinitionBase & {
   turnBehaviour?: Pick<ProfileTurnBehaviourSpec, 'allowSteering'>;
 };
 
+/** Host definition for native Jev execution. */
+export type DecisionProfileDefinition = {
+  type: 'decision';
+  id: Profile['id'];
+  identity: Pick<ProfileIdentity, 'handle'>;
+  models: Record<ModelId, DecisionModelBinding>;
+  defaultModel?: ModelId;
+  allowModelSelect?: boolean;
+  key?: import('../types.ts').KeySlot;
+  inputs: DecisionProfile['inputs'];
+  decision: DecisionProfile['decision'];
+  guardrails?: DecisionGuardrailsSpec;
+  observability?: ProfileObservabilitySpec;
+};
+
 /** Host-driven tool ceiling — no models, identity, inputs, outputs, turnBehaviour, key, or maxSteps. */
 export type HostProfileDefinition = {
   type: 'host';
@@ -117,7 +135,108 @@ export type ProfileDefinition =
   | ImageProfileDefinition
   | SpeechProfileDefinition
   | LiveProfileDefinition
+  | DecisionProfileDefinition
   | HostProfileDefinition;
+
+const DECISION_ABSENT_FIELDS = [
+  'outputs',
+  'tools',
+  'maxSteps',
+  'turnBehaviour',
+  'image',
+  'speech',
+  'live',
+] as const;
+
+const DECISION_ABSENT_GUARDRAILS = [
+  'quota',
+  'sanitizeInput',
+  'redactSensitive',
+  'canary',
+  'egress',
+  'network',
+  'taint',
+] as const;
+
+function rejectDecisionFields(input: DecisionProfileDefinition): void {
+  const extra = input as DecisionProfileDefinition & Record<string, unknown>;
+  for (const key of DECISION_ABSENT_FIELDS) {
+    if (extra[key] !== undefined) {
+      throw new TheoremError(`Profile ${input.id}: type 'decision' must not set ${key}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    }
+  }
+}
+
+function rejectDecisionGuardrails(input: DecisionProfileDefinition): void {
+  const guardrails = input.guardrails as
+    | (DecisionGuardrailsSpec & Record<string, unknown>)
+    | undefined;
+  for (const key of DECISION_ABSENT_GUARDRAILS) {
+    if (guardrails?.[key] !== undefined) {
+      throw new TheoremError(`Profile ${input.id}: type 'decision' must not set guardrails.${key}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    }
+  }
+}
+
+function validateDecisionBinding(
+  profileId: string,
+  modelId: string,
+  binding: DecisionModelBinding,
+): void {
+  if (!binding.apiId?.trim()) {
+    throw new TheoremError(`Profile ${profileId} model '${modelId}' must set apiId`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  if (
+    binding.timeoutMs !== undefined &&
+    (!Number.isFinite(binding.timeoutMs) || binding.timeoutMs <= 0)
+  ) {
+    throw new TheoremError(`Profile ${profileId} model '${modelId}' timeoutMs must be > 0`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  if (
+    binding.retry?.maxRetries !== undefined &&
+    (!Number.isInteger(binding.retry.maxRetries) || binding.retry.maxRetries < 0)
+  ) {
+    throw new TheoremError(
+      // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Profile ${profileId} model '${modelId}' retry.maxRetries must be a non-negative integer`,
+    );
+  }
+}
+
+function validateDecisionModels(input: DecisionProfileDefinition): ModelId {
+  if (!input.models || Object.keys(input.models).length === 0) {
+    throw new TheoremError(`Profile ${input.id} must declare at least one model`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  const defaultModel = input.defaultModel ?? Object.keys(input.models)[0];
+  if (!defaultModel || !input.models[defaultModel]) {
+    throw new TheoremError(`Profile ${input.id} has no default model`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  if (input.allowModelSelect && Object.keys(input.models).length < 2) {
+    throw new TheoremError(`Profile ${input.id}: allowModelSelect requires at least two models`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  for (const [modelId, binding] of Object.entries(input.models)) {
+    validateDecisionBinding(input.id, modelId, binding);
+  }
+  return defaultModel;
+}
+
+function validateDecisionConfig(input: DecisionProfileDefinition): void {
+  if (input.inputs.state !== 'json') {
+    throw new TheoremError(`Profile ${input.id}: decision inputs.state must be 'json'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  if (!input.decision.contract?.trim()) {
+    throw new TheoremError(`Profile ${input.id}: decision.contract must be non-empty`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+}
+
+function defineDecisionProfile(input: DecisionProfileDefinition): DecisionProfile {
+  rejectDecisionFields(input);
+  rejectDecisionGuardrails(input);
+  const defaultModel = validateDecisionModels(input);
+  validateDecisionConfig(input);
+  assertObservability(input.id, input.observability);
+  return { ...input, defaultModel, identity: { handle: input.identity.handle } };
+}
 
 /** Fields a `host` profile must not carry — rejected when supplied. */
 const HOST_ABSENT_FIELDS = [
@@ -312,7 +431,7 @@ function assertResumption(
 }
 
 function assertTurnBehaviour(profileId: string, input: ProfileDefinition): void {
-  if (input.type === 'host') return;
+  if (input.type === 'host' || input.type === 'decision') return;
   if (input.type === 'live') {
     const tb = input.turnBehaviour as ProfileTurnBehaviourSpec | undefined;
     if (tb?.resumption !== undefined) {
@@ -356,7 +475,11 @@ function assertObservability(profileId: string, spec: ProfileObservabilitySpec |
 }
 
 /** Define a typed profile. Required fields must be set explicitly; optional fields stay optional. */
+function defineProfile(input: TextProfileDefinition): TextProfile;
+function defineProfile(input: ImageProfileDefinition): ImageProfile;
+function defineProfile(input: SpeechProfileDefinition): SpeechProfile;
 function defineProfile(input: LiveProfileDefinition): LiveProfile;
+function defineProfile(input: DecisionProfileDefinition): DecisionProfile;
 function defineProfile(input: HostProfileDefinition): HostProfile;
 function defineProfile(
   input: Exclude<ProfileDefinition, LiveProfileDefinition | HostProfileDefinition>,
@@ -365,6 +488,9 @@ function defineProfile(input: ProfileDefinition): Profile;
 function defineProfile(input: ProfileDefinition): Profile {
   if (input.type === 'host') {
     return defineHostProfile(input);
+  }
+  if (input.type === 'decision') {
+    return defineDecisionProfile(input);
   }
   assertModelsNonEmpty(input.id, input.models);
   assertDefaultModel(input.id, input);
@@ -542,7 +668,7 @@ function assertCompactionRetain(tag: string, spec: CompactionSpec): void {
 }
 
 function profileToolsAllow(profile: Profile): string[] {
-  if (profile.type === 'speech') {
+  if (profile.type === 'speech' || profile.type === 'decision') {
     return [];
   }
   return profile.tools.allow;
@@ -577,7 +703,7 @@ function assertLiveTools(profileId: string, tools: LiveProfileToolsSpec): LivePr
 }
 
 function assertProfileToolLoader(profile: Profile): void {
-  if (profile.type === 'speech') {
+  if (profile.type === 'speech' || profile.type === 'decision') {
     return;
   }
   if (profile.type === 'live') {
@@ -661,6 +787,10 @@ function registerProfile(profileInput: Profile | ProfileDefinition): void {
   assertProfileToolLoader(profile);
   if (profile.type === 'host') {
     // No models, ingress, media limits, or compaction to validate — the tool ceiling is the whole contract.
+    profiles.set(profile.id, profile);
+    return;
+  }
+  if (profile.type === 'decision') {
     profiles.set(profile.id, profile);
     return;
   }

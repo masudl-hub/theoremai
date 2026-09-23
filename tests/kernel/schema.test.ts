@@ -43,8 +43,8 @@ Deno.test('PROFILE_TYPE_PROTOCOLS covers every archetype and only known protocol
   assertEquals([...PROFILE_TYPES].sort().join(), Object.keys(PROFILE_TYPE_PROTOCOLS).sort().join());
   for (const type of PROFILE_TYPES) {
     const allowed = PROFILE_TYPE_PROTOCOLS[type];
-    // host never runs a model, so it is the one archetype with no protocol.
-    assertEquals(allowed.length > 0, type !== 'host');
+    // host and native decision profiles do not select a chat/live wire protocol.
+    assertEquals(allowed.length > 0, type !== 'host' && type !== 'decision');
     for (const protocol of allowed) {
       assertEquals(PROTOCOLS.includes(protocol), true);
       assertEquals(isValidProfileProtocol(type, protocol), true);

@@ -428,6 +428,7 @@ export type {
 } from './stop.ts';
 
 import type {
+  DecisionGuardrailsSpec,
   GuardrailEvent,
   HostGuardrailsSpec,
   ProfileGuardrailsSpec,
@@ -492,6 +493,98 @@ export interface ProfileCommon {
   observability?: ProfileObservabilitySpec;
 }
 
+/** JSON value accepted as native decision state. Media is a host concern. */
+export type DecisionJson =
+  | null
+  | string
+  | number
+  | boolean
+  | DecisionJson[]
+  | { [key: string]: DecisionJson };
+
+/** Native TypeSafe Jev binding; deliberately has no chat protocol/provider pair. */
+export interface DecisionModelBinding {
+  apiId: string;
+  key?: KeySlot;
+  timeoutMs?: number;
+  retry?: { maxRetries?: number };
+}
+
+export interface DecisionInputsSpec {
+  state: 'json';
+  maxStateBytes?: number;
+}
+
+/** A host-owned decision contract identifier. */
+export type DecisionContractId = string;
+
+/** Native Jev profile. It cannot be passed to chat or live execution doors. */
+export interface DecisionProfile {
+  type: 'decision';
+  id: ProfileId;
+  identity: Pick<ProfileIdentity, 'handle'>;
+  models: Record<ModelId, DecisionModelBinding>;
+  defaultModel?: ModelId;
+  allowModelSelect?: boolean;
+  key?: KeySlot;
+  inputs: DecisionInputsSpec;
+  decision: { contract: DecisionContractId };
+  guardrails?: DecisionGuardrailsSpec;
+  observability?: ProfileObservabilitySpec;
+}
+
+/** Jev's text-or-structured instruction entries. Null is rejected locally. */
+export type DecisionEntry = string | DecisionEntry[] | { [key: string]: DecisionEntry };
+
+export interface DecisionChoiceQuestion {
+  type: 'choice';
+  instructions: DecisionEntry;
+  criteria: Record<string, DecisionEntry>;
+}
+
+export interface DecisionNoulQuestion {
+  type: 'noul';
+  instructions: DecisionEntry;
+  criteria?: Record<string, DecisionEntry>;
+}
+
+export interface DecisionScoreQuestion {
+  type: 'score';
+  instructions: DecisionEntry;
+  criteria: readonly DecisionEntry[];
+}
+
+export type DecisionQuestion =
+  | DecisionChoiceQuestion
+  | DecisionNoulQuestion
+  | DecisionScoreQuestion;
+
+export interface DecisionRequest {
+  profile: ProfileId;
+  state: Exclude<DecisionJson, null>;
+  questions: Record<string, DecisionQuestion>;
+  model?: ModelId;
+  signal?: AbortSignal;
+  metadata?: Record<string, unknown>;
+}
+
+export type DecisionAnswer =
+  | { type: 'choice'; choice: string; confidence: number; probabilities: Record<string, number> }
+  | { type: 'noul'; noul: number }
+  | {
+      type: 'score';
+      score: number;
+      confidence: number;
+      legend: Record<string, number>;
+      probabilities: Record<string, number>;
+    };
+
+export interface DecisionResult {
+  model: string;
+  answers: Record<string, DecisionAnswer>;
+  usage?: { inputTokens: number; outputTokens: number };
+}
+
 /** Text / structured turn engine with optional tool execution. */
 export interface TextProfile extends ProfileCommon {
   type: 'text';
@@ -552,10 +645,16 @@ export interface HostProfile {
 }
 
 /** Complete host-owned agent contract consumed by the kernel. */
-export type Profile = TextProfile | ImageProfile | SpeechProfile | LiveProfile | HostProfile;
+export type Profile =
+  | TextProfile
+  | ImageProfile
+  | SpeechProfile
+  | LiveProfile
+  | DecisionProfile
+  | HostProfile;
 
 /** Profiles that bind models — every type except `host`. */
-export type ModelProfile = Exclude<Profile, HostProfile>;
+export type ModelProfile = Exclude<Profile, HostProfile | DecisionProfile>;
 
 /** Text part sent to provider adapters after input normalization. */
 export interface InteractionTextPart {

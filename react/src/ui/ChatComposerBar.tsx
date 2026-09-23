@@ -1,4 +1,5 @@
 import { Badge } from '@astryxdesign/core/Badge';
+import { Button } from '@astryxdesign/core/Button';
 import {
 	ChatComposer,
 	ChatComposerDrawer,
@@ -10,6 +11,7 @@ import {
 import { DropdownMenu } from '@astryxdesign/core/DropdownMenu';
 import { HStack } from '@astryxdesign/core/HStack';
 import { IconButton } from '@astryxdesign/core/IconButton';
+import { Kbd } from '@astryxdesign/core/Kbd';
 import { Selector } from '@astryxdesign/core/Selector';
 import { StackItem } from '@astryxdesign/core/Stack';
 import { Text } from '@astryxdesign/core/Text';
@@ -46,11 +48,14 @@ import {
 	userDraftHasPayload,
 } from '../../../src/interface/mod.ts';
 import { stageComposerFiles } from '../client/composer-attachments';
+import { composerDrawerSummary } from '../client/composer-drawer';
+import { isStashShortcut, resolveComposerHint, STASH_SHORTCUT } from '../client/composer-hints';
 import {
 	COMPOSER_MENU_ACTION_DESCRIPTIONS,
 	COMPOSER_MENU_ACTION_LABELS,
 } from '../components/composer-labels';
 import { useComposerVoice } from '../components/use-composer-voice';
+import { useEditorSelection } from '../components/use-editor-selection';
 
 const NO_FOCUS_RING = { '--focus-outline-width': '0px' } as React.CSSProperties;
 
@@ -232,6 +237,14 @@ export function ChatComposerBar(props: ChatComposerBarProps) {
 	const primaryDisabled =
 		voice.recording || primary === 'none' || ((primary === 'send' || primary === 'queue') && !hasPayload);
 
+	const canStash = menuActions.includes('stash');
+	const editorRef = useRef<HTMLDivElement | null>(null);
+	const hint = resolveComposerHint({
+		draftText: props.draftText,
+		selectedText: useEditorSelection(editorRef),
+		canStash,
+	});
+
 	function runPrimary() {
 		if (primaryDisabled) return;
 		if (primary === 'stop') props.onStop();
@@ -254,10 +267,13 @@ export function ChatComposerBar(props: ChatComposerBarProps) {
 		setNotice(staged.notice ?? '');
 	}
 
-	const drawerCount = props.pendingMessages.length + props.pendingFiles.length + props.pendingVoice.length;
+	const drawerSummary = composerDrawerSummary({
+		pendingMessages: props.pendingMessages,
+		attachmentCount: props.pendingFiles.length + props.pendingVoice.length,
+	});
 	const drawer =
-		drawerCount > 0 ? (
-			<ChatComposerDrawer count={drawerCount} label="Pending">
+		drawerSummary ? (
+			<ChatComposerDrawer count={drawerSummary.count} label={drawerSummary.label}>
 				<VStack gap={2} width="100%">
 					{props.pendingMessages.map((message) => (
 						<PendingRow
@@ -342,6 +358,7 @@ export function ChatComposerBar(props: ChatComposerBarProps) {
 							id: action,
 							label: COMPOSER_MENU_ACTION_LABELS[action],
 							description: COMPOSER_MENU_ACTION_DESCRIPTIONS[action],
+							...(action === 'stash' ? { endContent: <Kbd keys={STASH_SHORTCUT} /> } : {}),
 							onClick: () => props.onMenuAction(action),
 						}))}
 					/>
@@ -374,9 +391,32 @@ export function ChatComposerBar(props: ChatComposerBarProps) {
 			placeholder={
 				voice.recording ? 'Listening…' : (props.placeholder ?? `Message @${iface.identity.handle}`)
 			}
-			input={<ChatComposerInput handleRef={props.inputRef} />}
+			input={
+				<ChatComposerInput
+					ref={editorRef}
+					handleRef={props.inputRef}
+					onKeyDown={(event) => {
+						// Seance's stash shortcut: only while the composer is focused.
+						if (!isStashShortcut(event)) return;
+						event.preventDefault();
+						if (canStash) props.onMenuAction('stash');
+					}}
+				/>
+			}
 			drawer={drawer}
 			headerActions={headerActions}
+			// Astryx's slot for contextual info (header, right side).
+			headerContext={
+				hint ? (
+					<HStack gap={2} vAlign="center">
+						<Text size="sm" color="secondary">
+							{hint.message}
+						</Text>
+						<Button label={hint.actionLabel} size="sm" variant="ghost" onClick={() => props.onMenuAction('stash')} />
+						<Kbd keys={hint.shortcut} />
+					</HStack>
+				) : undefined
+			}
 			footerActions={
 				<GenerationSelect
 					iface={iface}

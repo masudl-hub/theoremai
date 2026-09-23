@@ -356,3 +356,41 @@ Deno.test('shouldForwardMicFrame, liveTranscriptFromEvidence, applyLiveToolTurnE
   assertEquals(accum.toolCalls.length, 2);
   assertEquals(accum.toolCalls[1].error, 'oops');
 });
+
+Deno.test('composer drawer summary names what is waiting, by kind', async () => {
+  const { composerDrawerSummary } = await import('../../react/src/client/composer-drawer.ts');
+  const kinds = (...list: ('steer' | 'queue' | 'stash')[]) => list.map((kind) => ({ kind }));
+  assertEquals(composerDrawerSummary({ pendingMessages: [], attachmentCount: 0 }), null);
+  assertEquals(composerDrawerSummary({ pendingMessages: kinds('queue', 'queue'), attachmentCount: 0 }), {
+    count: 2,
+    label: 'queued',
+  });
+  assertEquals(composerDrawerSummary({ pendingMessages: [], attachmentCount: 1 }), { count: 1, label: 'attached' });
+  assertEquals(
+    composerDrawerSummary({ pendingMessages: kinds('stash', 'queue', 'queue', 'steer'), attachmentCount: 1 }),
+    { count: 5, label: '1 steering · 2 queued · 1 stashed · 1 attached' },
+  );
+});
+
+Deno.test('composer hint suggests stashing only when the whole draft is selected', async () => {
+  const { resolveComposerHint } = await import('../../react/src/client/composer-hints.ts');
+  const full = resolveComposerHint({ draftText: 'plan the launch', selectedText: 'plan the launch', canStash: true });
+  assertEquals(full?.id, 'stash-selected-draft');
+  assertEquals(full?.message, 'Replacing this?');
+  assertEquals(resolveComposerHint({ draftText: 'plan the launch', selectedText: 'plan', canStash: true }), null);
+  assertEquals(resolveComposerHint({ draftText: '', selectedText: '', canStash: true }), null);
+  assertEquals(
+    resolveComposerHint({ draftText: 'plan the launch', selectedText: 'plan the launch', canStash: false }),
+    null,
+  );
+});
+
+Deno.test('stash shortcut is mod+shift+S', async () => {
+  const { isStashShortcut } = await import('../../react/src/client/composer-hints.ts');
+  const key = { code: 'KeyS', metaKey: false, ctrlKey: false, shiftKey: true, altKey: false };
+  assertEquals(isStashShortcut({ ...key, metaKey: true }), true);
+  assertEquals(isStashShortcut({ ...key, ctrlKey: true }), true);
+  assertEquals(isStashShortcut(key), false);
+  assertEquals(isStashShortcut({ ...key, metaKey: true, shiftKey: false }), false);
+  assertEquals(isStashShortcut({ ...key, metaKey: true, altKey: true }), false);
+});

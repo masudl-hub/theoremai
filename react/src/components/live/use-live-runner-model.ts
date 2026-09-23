@@ -68,8 +68,8 @@ function useLiveCallLifecycle(
 	return { callStarted, ended, pastCalls, startCall, handleEnd, handleRestart };
 }
 
-/** Owns LiveRunner state, session client, and stage callbacks. */
 /**
+ * Owns LiveRunner state, session client, and stage callbacks.
  * `registerProfile` resolves the live profile id the relay should open — hosts
  * with a fixed profile return it directly; the playground registers its draft.
  */

@@ -325,7 +325,7 @@ type OutcomeContext = { turnInput: TurnInput; model?: string; promoted?: string[
 /** The exact paused call the user may now approve, when the stream stopped on a gate. */
 function pendingGateFrom(events: TurnEvent[], context: OutcomeContext): { callId: string; gate: PendingToolGate } | undefined {
 	const gated = gatedToolFromEvents(events);
-	if (gated?.callId === undefined) return undefined;
+	if (!gated?.callId) return undefined;
 	return {
 		callId: gated.callId,
 		gate: {
@@ -358,7 +358,7 @@ async function recordOutcome(
 	if (!interactionIds.length && !pending) return;
 	await sessions.mutate(sessionId, (state) => {
 		state.interactions.push(...interactionIds);
-		if (pending?.callId) state.gates[pending.callId] = pending.gate;
+		if (pending) state.gates[pending.callId] = pending.gate;
 	});
 }
 

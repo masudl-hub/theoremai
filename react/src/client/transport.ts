@@ -228,9 +228,16 @@ export type HttpTransportOptions = HttpOptions & {
 	endpoint?: string;
 };
 
+/** Drops trailing '/'s by scanning back, not with a regex (a `/\/+$/` scan is quadratic on long runs of '/'). */
+function withoutTrailingSlashes(url: string): string {
+	let end = url.length;
+	while (end > 0 && url[end - 1] === '/') end -= 1;
+	return url.slice(0, end);
+}
+
 /** Transport for a host mounted with `createTheoremHandler`. */
 export function createHttpTransport(options: HttpTransportOptions = {}): TheoremTransport {
-	const base = (options.endpoint ?? '/api/theorem').replace(/\/+$/, '');
+	const base = withoutTrailingSlashes(options.endpoint ?? '/api/theorem');
 	return {
 		async describe(signal) {
 			const response = await request(base, { method: 'GET', signal }, options);

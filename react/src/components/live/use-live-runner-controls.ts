@@ -8,7 +8,7 @@ import {
 	type LiveVideoCapture,
 	startLiveVideoCapture,
 } from '../../client/live/live-video';
-import type { LiveSessionClient, LiveSessionStatus } from '../../client/live-client';
+import type { LiveConnectPhase, LiveSessionClient, LiveSessionStatus } from '../../client/live-client';
 
 /** Media + session lifecycle handlers for LiveRunner. */
 export function useLiveRunnerControls(args: {
@@ -37,7 +37,7 @@ export function useLiveRunnerControls(args: {
 	setSessionActive: Dispatch<SetStateAction<boolean>>;
 	setSessionPermissions: Dispatch<SetStateAction<string[]>>;
 	setStatus: Dispatch<SetStateAction<LiveSessionStatus>>;
-	setConnectPhase: Dispatch<SetStateAction<import('../../client/live-client').LiveConnectPhase | null>>;
+	setConnectPhase: Dispatch<SetStateAction<LiveConnectPhase | null>>;
 	setInputLevel: Dispatch<SetStateAction<number>>;
 	setOutputLevel: Dispatch<SetStateAction<number>>;
 	setVideoPreview: Dispatch<SetStateAction<HTMLVideoElement | null>>;

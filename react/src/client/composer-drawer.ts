@@ -22,7 +22,8 @@ export function composerDrawerSummary(args: {
 	].filter((part) => part.n > 0);
 	const count = parts.reduce((sum, part) => sum + part.n, 0);
 	if (count === 0) return null;
+	const [only] = parts;
 	const label =
-		parts.length === 1 ? parts[0]!.word : parts.map((part) => `${String(part.n)} ${part.word}`).join(' · ');
+		parts.length === 1 && only ? only.word : parts.map((part) => `${String(part.n)} ${part.word}`).join(' · ');
 	return { count, label };
 }

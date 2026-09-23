@@ -402,7 +402,6 @@ function ToolCall({ tool }: { tool: ToolBlock['tool'] }) {
 	return <ChatToolCalls calls={[toolCallItem(tool.name, tool)]} />;
 }
 
-/** Consecutive tool items collapse into one ChatToolCalls group. */
 /**
  * Thinking reads as quieter text than the reply. Astryx has no reasoning
  * component, and Markdown draws its own Text, so restyle through its

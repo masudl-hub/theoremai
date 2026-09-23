@@ -68,7 +68,10 @@ Deno.test('stageComposerFiles caps images at maxImages, counting staged ones', (
     incoming: [stubImage('b.png'), stubFile('brief.pdf'), stubImage('c.png'), stubImage('d.png')],
     maxImages: 3,
   });
-  assertEquals(staged.files.map((f) => f.name), ['a.png', 'notes.pdf', 'b.png', 'brief.pdf', 'c.png']);
+  assertEquals(
+    staged.files.map((f) => f.name),
+    ['a.png', 'notes.pdf', 'b.png', 'brief.pdf', 'c.png'],
+  );
   assertEquals(staged.dropped, 1);
   assertEquals(staged.notice, imagesDroppedMessage(3, 1));
 });
@@ -80,12 +83,18 @@ Deno.test('stageComposerFiles applies maxFiles after the image cap', () => {
     maxImages: 1,
     maxFiles: 2,
   });
-  assertEquals(staged.files.map((f) => f.name), ['a.png', 'c.pdf']);
+  assertEquals(
+    staged.files.map((f) => f.name),
+    ['a.png', 'c.pdf'],
+  );
   assertEquals(staged.dropped, 2);
 });
 
 Deno.test('stageComposerFiles leaves images uncapped without maxImages', () => {
-  const staged = stageComposerFiles({ existing: [], incoming: [stubImage('a.png'), stubImage('b.png')] });
+  const staged = stageComposerFiles({
+    existing: [],
+    incoming: [stubImage('a.png'), stubImage('b.png')],
+  });
   assertEquals(staged.files.length, 2);
   assertEquals(staged.notice, undefined);
 });

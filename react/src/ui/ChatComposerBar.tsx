@@ -95,14 +95,11 @@ const KIND_LABEL: Record<ComposerPendingMessage['kind'], string> = {
 };
 
 const isImage = (file: File) => file.type.startsWith('image/');
+const anyFile = () => true;
 
-/** Object URLs for the files `keep` accepts, revoked when the files change. */
+/** Object URLs for the files `keep` (a module-level predicate) accepts, revoked when the files change. */
 function useObjectUrls(files: readonly File[], keep: (file: File) => boolean): (string | undefined)[] {
-	const urls = useMemo(
-		() => files.map((file) => (keep(file) ? URL.createObjectURL(file) : undefined)),
-		// eslint-disable-next-line react-hooks/exhaustive-deps -- `keep` is a module-level predicate.
-		[files],
-	);
+	const urls = useMemo(() => files.map((file) => (keep(file) ? URL.createObjectURL(file) : undefined)), [files, keep]);
 	useEffect(
 		() => () => {
 			for (const url of urls) if (url) URL.revokeObjectURL(url);
@@ -375,7 +372,7 @@ function ComposerHint({ hint, onAction }: { hint: NonNullable<ReturnType<typeof 
 /** Staged files split into image tiles and file tokens, with object URLs for previews and voice notes. */
 function useStagedFiles(pendingFiles: readonly File[], pendingVoice: readonly File[]) {
 	const previews = useObjectUrls(pendingFiles, isImage);
-	const voiceUrls = useObjectUrls(pendingVoice, () => true);
+	const voiceUrls = useObjectUrls(pendingVoice, anyFile);
 	const staged: StagedFile[] = pendingFiles.map((file, index) => ({ file, index, preview: previews[index] }));
 	return {
 		imageFiles: staged.filter((entry) => entry.preview !== undefined),

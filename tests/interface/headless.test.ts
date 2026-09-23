@@ -441,8 +441,12 @@ Deno.test('collectPromotedMediaFromToolOutput keeps one copy of a resized MediaW
   const file = 'Lisboa_-_Portugal.jpg';
   assertEquals(
     collectPromotedMediaFromToolOutput({
-      thumbnail: { source: `https://thumb.wikimedia.org/wikipedia/commons/thumb/f/f2/${file}/330px-${file}?utm_source=api&utm_content=thumbnail` },
-      originalimage: { source: `https://upload.wikimedia.org/wikipedia/commons/f/f2/${file}?utm_source=api&utm_content=thumbnail_unscaled` },
+      thumbnail: {
+        source: `https://thumb.wikimedia.org/wikipedia/commons/thumb/f/f2/${file}/330px-${file}?utm_source=api&utm_content=thumbnail`,
+      },
+      originalimage: {
+        source: `https://upload.wikimedia.org/wikipedia/commons/f/f2/${file}?utm_source=api&utm_content=thumbnail_unscaled`,
+      },
       other: 'https://upload.wikimedia.org/wikipedia/commons/a/ab/Other.jpg',
     }).map((media) => [media.url, media.previewUrl]),
     [
@@ -458,10 +462,12 @@ Deno.test('collectPromotedMediaFromToolOutput keeps one copy of a resized MediaW
       `https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e5/${file}/330px-${file}`,
       `https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e5/${file}/3840px-${file}`,
     ]).map((media) => [media.url, media.previewUrl]),
-    [[
-      `https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e5/${file}/3840px-${file}`,
-      `https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e5/${file}/330px-${file}`,
-    ]],
+    [
+      [
+        `https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e5/${file}/3840px-${file}`,
+        `https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e5/${file}/330px-${file}`,
+      ],
+    ],
   );
 });
 

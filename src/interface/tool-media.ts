@@ -102,7 +102,11 @@ export function collectPromotedMediaFromToolOutput(output: unknown): PromotedToo
       const current = out[prior.index] as PromotedToolMedia;
       if (asset.width > prior.largest) {
         prior.largest = asset.width;
-        out[prior.index] = { ...current, url: media.url, previewUrl: current.previewUrl ?? current.url };
+        out[prior.index] = {
+          ...current,
+          url: media.url,
+          previewUrl: current.previewUrl ?? current.url,
+        };
       } else if (asset.width < prior.smallest) {
         prior.smallest = asset.width;
         out[prior.index] = { ...current, previewUrl: media.url };

@@ -8,6 +8,7 @@
  * @module
  */
 
+import { profileInputs } from '../../kernel/registry/catalog.ts';
 import type { ModelId, ModelProfile, TurnBlob, TurnRequest } from '../../kernel/types.ts';
 import { FIXTURE_PNG_BASE64, FIXTURE_WAV_BASE64, getFixtureForMime } from './fixtures.ts';
 
@@ -50,11 +51,12 @@ function resolveStressModel(profile: ModelProfile): string | undefined {
 }
 
 function resolveStressAttachments(profile: ModelProfile): TurnBlob[] {
-  if (profile.type === 'speech' || profile.type === 'live' || !profile.inputs) {
+  const inputs = profileInputs(profile);
+  if (!inputs) {
     return [];
   }
   const attachments: TurnBlob[] = [];
-  const accept = profile.inputs.attachments?.accept;
+  const accept = inputs.attachments?.accept;
   if (accept && accept.length > 0) {
     const preferredMimes = ['image/png', 'application/pdf', 'text/plain'];
     const chosenMime = preferredMimes.find((m) => accept.includes(m)) ?? accept[0];
@@ -69,11 +71,12 @@ function resolveStressAttachments(profile: ModelProfile): TurnBlob[] {
 }
 
 function resolveStressVoice(profile: ModelProfile): TurnBlob[] {
-  if (profile.type === 'speech' || profile.type === 'live' || !profile.inputs) {
+  const inputs = profileInputs(profile);
+  if (!inputs) {
     return [];
   }
   const voice: TurnBlob[] = [];
-  if (profile.inputs.voice?.accept && profile.inputs.voice.accept.length > 0) {
+  if (inputs.voice?.accept && inputs.voice.accept.length > 0) {
     voice.push({ mimeType: 'audio/wav', data: FIXTURE_WAV_BASE64 });
   }
   return voice;

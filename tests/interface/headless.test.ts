@@ -194,7 +194,7 @@ Deno.test('interfaceFromProfile maps speech to text-only inputs', () => {
 
 Deno.test('inputsFromSpec mirrors interface inputs block', () => {
   const attachment = ATTACHMENT_PROFILE as TextProfile;
-  const inputs = inputsFromSpec('text', attachment.inputs);
+  const inputs = inputsFromSpec(attachment.inputs);
   assertEquals(inputs, composerIface(attachment).inputs);
 });
 
@@ -258,7 +258,7 @@ Deno.test('validateProfileInputs enforces maxFiles and byte caps', () => {
 
 Deno.test('validateProfileInputs requires limits when media is enabled', () => {
   const result = validateProfileInputs(
-    inputsFromSpec('text', {
+    inputsFromSpec({
       text: true,
       attachments: { accept: ['image/png'] },
     }),

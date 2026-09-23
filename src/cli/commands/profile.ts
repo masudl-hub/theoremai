@@ -1,4 +1,5 @@
 import { getProfile, listProfiles } from '../../kernel/registry/profiles.ts';
+import { profileToolAllow } from '../../kernel/tools/resolve.ts';
 import type { ModelProfile, Profile } from '../../kernel/types.ts';
 
 function formatProfileInputs(p: ModelProfile): string {
@@ -22,10 +23,7 @@ function formatProfileInputs(p: ModelProfile): string {
 }
 
 function formatProfileTools(p: Profile): string {
-  if (p.type === 'speech' || p.type === 'decision') {
-    return 'none';
-  }
-  return p.tools.allow?.length ? p.tools.allow.join(', ') : 'none';
+  return profileToolAllow(p).join(', ') || 'none';
 }
 
 function printProfileCard(p: Profile): void {

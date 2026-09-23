@@ -6,7 +6,7 @@
 
 import { maxBytesForMime, resolveMediaLimits } from '../kernel/registry/attachments.ts';
 import { mimeAllowed } from '../kernel/registry/catalog.ts';
-import type { ProfileInputsSpec, ProfileType } from '../kernel/types.ts';
+import type { ProfileInputsSpec } from '../kernel/types.ts';
 import type {
   AttachmentValidationIssue,
   AttachmentValidationResult,
@@ -27,14 +27,8 @@ function attachmentAcceptAttr(accept: string[]): string {
   return accept.join(',');
 }
 
-function inputsFromSpec(
-  type: ProfileType,
-  inputs: ProfileInputsSpec | null | undefined,
-): ProfileInputsInterface {
-  if (type === 'speech' || type === 'live') {
-    return { text: true, attachments: null, voice: null };
-  }
-
+/** `inputs` is null for profile types that declare none (the kernel's `profileInputs`). */
+function inputsFromSpec(inputs: ProfileInputsSpec | null | undefined): ProfileInputsInterface {
   const accept = inputs?.attachments?.accept;
   const voiceAccept = inputs?.voice?.accept;
 

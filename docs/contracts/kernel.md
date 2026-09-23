@@ -57,8 +57,8 @@ A `Profile` binds:
 | `type` | Wire archetype discriminator: `'text'`, `'image'`, `'speech'`, `'live'`, `'host'`, `'decision'` (`PROFILE_TYPES`) |
 | `identity` | `handle`, optional `system` / `systemByRole` — absent on `host` |
 | `model` | `protocol`, `provider`, `allow`, `config`, optional `select` / `thinking` / `controls` / `maxSteps` / `key` — absent on `host` |
-| `tools` | Allowlist ceiling (`allow: ToolId[]`) — present on `text`, `image`, `live`, `host` |
-| `inputs` | Text / attachments / voice / slots / per-mime limits — present on `text`, `image`; absent on `speech` and `live` (live uses `live.ingress` instead) |
+| `tools` | Allowlist ceiling (`allow: ToolId[]`) — present on `text`, `image`, `live`, `host`; absent on `speech` and `decision`. Tier loading (`t1Policy`, `t2Loader`) is declared only on `text` and `image` |
+| `inputs` | Text / attachments / voice / slots / per-mime limits — present on `text`, `image`; absent on `speech` and `live` (live uses `live.ingress` instead); `decision` carries its own `DecisionInputsSpec`, not turn inputs |
 | `image` / `speech` / `live` | Modality-specific pins (top-level, not nested under `outputs`) |
 | `outputs` | Structured, streaming, validation — present on `text`, `image`, `speech`; absent on `live` |
 | `turnBehaviour` | `resumption` (`allowContinue`, `autoContinue`, `maxContinues`) on `text` / `image` / `speech`; `allowSteering` on **text and live** (inject gate via `profileAllowsInject`; see [`stages.md`](stages.md)). Live must omit `turnBehaviour.resumption` (use `live.sessionResumption`) |
@@ -372,8 +372,14 @@ Tools are registered once at host startup via `registerTool` (Google builtins vi
 turn start, T1 via `tools.t1Policy`, T2 via `tools.t2Loader`). On `live` every
 allowed tool (and every model builtin) is wired at session setup regardless of
 `loadTier`; on `host` every allowed tool is executable with no tiers and no path
-gating. `decision` has no tool surface: projection, resolution, invocation, and
-T1/T2 loading all resolve to no tools, while `invokeTool` rejects it explicitly.
+gating. Each of these facts has one owner, and every kernel, CLI, and interface
+reader goes through it: `profileToolAllow` (`tools/resolve.ts`) returns a
+profile's allow list, empty for `speech` and `decision`; `profileToolsSpec`
+returns the tiered spec (`t1Policy`, `t2Loader`) for `text` and `image` only;
+`profileInputs` (`registry/catalog.ts`) returns turn inputs for `text` and
+`image` only. So projection, resolution, execute eligibility, T2 promotion, and
+T1/T2 loading see no tools on `speech` and `decision`, and `invokeTool` rejects
+`decision` explicitly.
 
 A builtin names itself per transport in `wire` (`interactions`, `live`,
 `openRouter`). Every transport reads it with `requireBuiltinWire`, which throws

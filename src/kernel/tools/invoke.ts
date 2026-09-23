@@ -4,7 +4,7 @@
  * @module
  */
 
-import { isAbortError, toErrorEvent } from '../../guardrails/error.ts';
+import { isAbortError, TheoremError, toErrorEvent } from '../../guardrails/error.ts';
 import { resolveTraceWriter } from '../../observability/policy.ts';
 import { writeTrace } from '../../observability/trace.ts';
 import { buildRecord } from '../../observability/trace-record.ts';
@@ -40,11 +40,10 @@ async function prepareInvokeSnapshot(
   profile: Profile,
 ): Promise<TurnToolSnapshot> {
   const req = turnRequestFromInvoke(request);
-  // Host profiles bind no model — the allow list is the whole snapshot.
   if (profile.type === 'decision') {
-    // lexicon-exempt: developer contract error
-    throw new Error(`Profile ${profile.id}: type 'decision' cannot invoke tools`);
+    throw new TheoremError(`Profile ${profile.id}: type 'decision' cannot invoke tools`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
+  // Host profiles bind no model — the allow list is the whole snapshot.
   const model = profile.type === 'host' ? undefined : pickModel(profile, request.model);
   return await prepareTurnToolSnapshot(profile, req, model);
 }

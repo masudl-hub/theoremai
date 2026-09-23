@@ -258,6 +258,7 @@ Deno.test('tools mutation coverage exercises resolver filtering and builtin prom
   assertEquals(
     resolveAllowedCustomToolIds(
       asValue<Profile>({
+        type: 'text',
         tools: { allow: ['stub_tool', 'record_lookup', 'googleSearch', 'missing'] },
       }),
       asValue<TurnRequest>({ path: 'web' }),
@@ -314,24 +315,30 @@ Deno.test('tools mutation coverage exercises resolver filtering and builtin prom
   assertEquals(state.builtins, ['googleSearch', 'googleMaps']);
   assertEquals(
     asValue<FailureInfo | undefined>(
-      promotionFailure('stub_tool', asValue<Profile>({ tools: { allow: ['stub_tool'] } })),
+      promotionFailure(
+        'stub_tool',
+        asValue<Profile>({ type: 'text', tools: { allow: ['stub_tool'] } }),
+      ),
     )?.message,
     "tools.t2Loader attempted to promote tool 'stub_tool' with loadTier 'T0' — only T2 tools may be promoted",
   );
   assertEquals(
     asValue<FailureInfo | undefined>(
-      promotionFailure('missing', asValue<Profile>({ tools: { allow: [] } })),
+      promotionFailure('missing', asValue<Profile>({ type: 'text', tools: { allow: [] } })),
     )?.code,
     'invalid_output',
   );
   assertEquals(
-    promotionFailure('record_lookup', asValue<Profile>({ tools: { allow: ['record_lookup'] } })),
+    promotionFailure(
+      'record_lookup',
+      asValue<Profile>({ type: 'text', tools: { allow: ['record_lookup'] } }),
+    ),
     undefined,
   );
 });
 
 Deno.test('tools mutation helpers reject invalid promotion and preserve state atomically', () => {
-  const profile = { tools: { allow: ['record_lookup'] } } as Profile;
+  const profile = { type: 'text', tools: { allow: ['record_lookup'] } } as Profile;
   const state: TurnToolSnapshot = {
     builtins: [],
     gated: ['record_lookup'],
@@ -450,6 +457,7 @@ Deno.test('tools mutation coverage exercises policy and function execution trans
   await expandT1Policy(
     state,
     asValue<Profile>({
+      type: 'text',
       id: 'profile',
       tools: { allow: ['record_lookup'], t1Policy: () => ['record_lookup'] },
     }),
@@ -460,6 +468,7 @@ Deno.test('tools mutation coverage exercises policy and function execution trans
   await expandT1Policy(
     state,
     asValue<Profile>({
+      type: 'text',
       id: 'profile',
       tools: { allow: ['record_lookup'], t1Policy: () => ['missing', 'record_lookup'] },
     }),

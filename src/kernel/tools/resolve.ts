@@ -5,7 +5,14 @@
  */
 
 import { TheoremError } from '../../guardrails/error.ts';
-import type { ModelId, ModelProfile, Profile, ToolId, TurnRequest } from '../types.ts';
+import type {
+  ModelId,
+  ModelProfile,
+  Profile,
+  ProfileToolsSpec,
+  ToolId,
+  TurnRequest,
+} from '../types.ts';
 import { getTool } from './registry.ts';
 import type {
   PromoteLoadedResult,
@@ -35,11 +42,18 @@ export function applyBuiltinMutualExclusions(requested: string[]): string[] {
   });
 }
 
+/** The profile's `tools.allow`; empty for profile types with no `tools` block. */
+export function profileToolAllow(profile: Profile): readonly ToolId[] {
+  return 'tools' in profile ? profile.tools.allow : [];
+}
+
+/** The tiered tool spec (`t1Policy`, `t2Loader`); only `text` and `image` declare one. */
+export function profileToolsSpec(profile: Profile): ProfileToolsSpec | undefined {
+  return profile.type === 'text' || profile.type === 'image' ? profile.tools : undefined;
+}
+
 export function resolveAllowedCustomToolIds(profile: Profile, req: TurnRequest): ToolId[] {
-  if (profile.type === 'speech' || profile.type === 'decision') {
-    return [];
-  }
-  return profile.tools.allow.filter((id) => {
+  return profileToolAllow(profile).filter((id) => {
     const tool = getTool(id);
     if (!tool || tool.type === 'builtin') {
       return false;
@@ -204,15 +218,7 @@ export async function expandT1Policy(
   profile: Profile,
   req: TurnRequest,
 ): Promise<void> {
-  if (
-    profile.type === 'speech' ||
-    profile.type === 'live' ||
-    profile.type === 'host' ||
-    profile.type === 'decision'
-  ) {
-    return;
-  }
-  const t1Policy = profile.tools.t1Policy;
+  const t1Policy = profileToolsSpec(profile)?.t1Policy;
   if (!t1Policy) {
     return;
   }
@@ -305,11 +311,7 @@ export function promoteLoadedTools(
 }
 
 export function promotionFailure(id: string, profile: Profile): ToolFailure | undefined {
-  if (
-    profile.type === 'speech' ||
-    profile.type === 'decision' ||
-    !profile.tools.allow.includes(id)
-  ) {
+  if (!profileToolAllow(profile).includes(id)) {
     return {
       code: 'invalid_output',
       message: `tools.t2Loader attempted to promote tool '${id}' outside profile allow`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)

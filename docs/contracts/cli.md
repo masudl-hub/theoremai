@@ -41,6 +41,8 @@ agents <command> [options]
 | `help` | Usage |
 
 Exit code `1` on failed `test` runs. `run` requires `--profile` (or `-p`).
+`profile show` and `test` list custom tools from the kernel's `profileToolAllow`,
+so profile types without a `tools` block (`speech`, `decision`) show `none`.
 A passing `test` prints the turn's token total (`sumTokens` over every model
 call's `tokens` event), followed by `, includes estimates` when any call's
 count was estimated: `✓ STATUS: PASSED (took 2.31s, 1234 tokens, includes estimates)`.
@@ -72,7 +74,8 @@ Tool stress / matrix allowlists are `profile.tools.allow` plus each selected
 model's `builtInTools` (via `pickModel` / union across `models`). Builtin
 conflict resolution uses registered tool `type === 'builtin'` metadata.
 The matrix respects those allowlists — e.g. `--search` only applies when
-`googleSearch` is allowlisted, while skipping file/voice synthesizers for `live` and `speech` profiles.
+`googleSearch` is allowlisted, while file/voice synthesizers run only for profiles the kernel's `profileInputs`
+gives turn inputs (`text`, `image`).
 
 ## Exported API
 

@@ -30,6 +30,7 @@ import {
   mimeAllowed,
   mimeEssence,
   profileAccept,
+  profileInputs,
 } from './catalog.ts';
 import { getStructured } from './schemas.ts';
 
@@ -126,18 +127,6 @@ function assertMediaMime(mime: string): MediaInputKind {
   return kind;
 }
 
-function profileInputs(profile: Profile) {
-  if (
-    profile.type === 'speech' ||
-    profile.type === 'live' ||
-    profile.type === 'host' ||
-    profile.type === 'decision'
-  ) {
-    return undefined;
-  }
-  return profile.inputs;
-}
-
 /**
  * Normalize accepted attachments into provider parts. Inline blobs and
  * references share MIME acceptance and kind resolution; references carry the
@@ -180,7 +169,7 @@ function extractTextPart(profile: Profile, req: TurnRequest): InteractionPart | 
   if (profile.type === 'speech' && !text?.trim()) {
     throw new TheoremError(`Profile ${profile.id} (speech) requires text input`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
-  if (profile.type !== 'speech' && profileInputs(profile)?.text === false && text) {
+  if (profileInputs(profile)?.text === false && text) {
     throw new TheoremError(`Profile ${profile.id} does not accept text input`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   // A repair is the kernel's, not the user's: it replaces the text on a retry

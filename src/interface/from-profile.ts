@@ -12,6 +12,7 @@ import { resolveGuardrailPolicy } from '../guardrails/policy.ts';
 import type { ProfileGuardrailsSpec } from '../guardrails/types.ts';
 import { projectProfileObject, requireModelProfile } from '../kernel/registry/resolve.ts';
 import { profileAllowsSteering } from '../kernel/stop.ts';
+import { profileToolAllow, profileToolsSpec } from '../kernel/tools/resolve.ts';
 import type { LiveProfile, ModelProfile, Profile, ProjectedProfile } from '../kernel/types.ts';
 import { resolveObservabilityPolicy } from '../observability/resolve-policy.ts';
 import type { ProfileObservabilitySpec } from '../observability/types.ts';
@@ -85,16 +86,11 @@ function toolsResolved(projected: ProjectedProfile, profile?: ModelProfile): Res
   if (projected.type === 'speech') {
     return { allow: [], resolved: [] };
   }
-  if (profile?.type === 'live') {
+  if (profile) {
+    const t2Loader = profileToolsSpec(profile)?.t2Loader;
     return {
-      allow: profile.tools.allow,
-      resolved: projected.tools,
-    };
-  }
-  if (profile && profile.type !== 'speech') {
-    return {
-      allow: profile.tools.allow,
-      t2Loader: profile.tools.t2Loader,
+      allow: [...profileToolAllow(profile)],
+      ...(t2Loader ? { t2Loader } : {}),
       resolved: projected.tools,
     };
   }
@@ -105,7 +101,7 @@ function toolsResolved(projected: ProjectedProfile, profile?: ModelProfile): Res
 }
 
 function enrich(projected: ProjectedProfile, profile?: ModelProfile): ProfileInterface {
-  const inputs = inputsFromSpec(projected.type, projected.inputs);
+  const inputs = inputsFromSpec(projected.inputs);
   const identity = profile?.identity ?? { handle: projected.handle };
   const guardrails = profile ? guardrailsView(profile.guardrails) : undefined;
   const observability = profile ? observabilityView(profile.observability) : undefined;

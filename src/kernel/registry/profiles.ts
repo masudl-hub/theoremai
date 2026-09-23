@@ -26,6 +26,7 @@ import {
 } from '../schema.ts';
 import { isContinueStopKind, type ProfileTurnResumptionSpec } from '../stop.ts';
 import { getTool } from '../tools/registry.ts';
+import { profileToolAllow, profileToolsSpec } from '../tools/resolve.ts';
 import type {
   CompactionSpec,
   DecisionModelBinding,
@@ -50,6 +51,7 @@ import type {
   SpeechProfile,
   TextProfile,
 } from '../types.ts';
+import { profileInputs } from './catalog.ts';
 import { soleModelId } from './sole-model.ts';
 
 const profiles = new Map<string, Profile>();
@@ -681,15 +683,8 @@ function assertCompactionRetain(tag: string, spec: CompactionSpec): void {
   }
 }
 
-function profileToolsAllow(profile: Profile): string[] {
-  if (profile.type === 'speech' || profile.type === 'decision') {
-    return [];
-  }
-  return profile.tools.allow;
-}
-
 function assertCustomToolsOnly(profile: Profile): void {
-  for (const id of profileToolsAllow(profile)) {
+  for (const id of profileToolAllow(profile)) {
     const tool = getTool(id);
     if (tool?.type === 'builtin') {
       throw new TheoremError(
@@ -717,9 +712,6 @@ function assertLiveTools(profileId: string, tools: LiveProfileToolsSpec): LivePr
 }
 
 function assertProfileToolLoader(profile: Profile): void {
-  if (profile.type === 'speech' || profile.type === 'decision') {
-    return;
-  }
   if (profile.type === 'live') {
     assertLiveTools(profile.id, profile.tools);
     return;
@@ -728,11 +720,11 @@ function assertProfileToolLoader(profile: Profile): void {
     assertHostTools(profile.id, profile.tools);
     return;
   }
-  const loaderId = profile.tools.t2Loader;
+  const loaderId = profileToolsSpec(profile)?.t2Loader;
   if (!loaderId) {
     return;
   }
-  if (!profile.tools.allow.includes(loaderId)) {
+  if (!profileToolAllow(profile).includes(loaderId)) {
     throw new TheoremError(
       `Profile ${profile.id} tools.t2Loader '${loaderId}' must also be listed in tools.allow`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
@@ -779,10 +771,7 @@ function assertCompactionOnlyOnText(profile: ModelProfile): void {
 }
 
 function assertMediaLimits(profile: ModelProfile): void {
-  if (profile.type === 'speech' || profile.type === 'live') {
-    return;
-  }
-  const inputs = profile.inputs;
+  const inputs = profileInputs(profile);
   if (!inputs) {
     return;
   }

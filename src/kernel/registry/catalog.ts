@@ -12,6 +12,7 @@ import type {
   ModelId,
   ModelProfile,
   Profile,
+  ProfileInputsSpec,
   ThinkingLevel,
 } from '../types.ts';
 import { mimeEssence } from '../util/mime.ts';
@@ -39,17 +40,14 @@ function mediaKindForMime(mime: string): MediaInputKind | undefined {
   return MEDIA_INPUT_KINDS[mimeEssence(mime)];
 }
 
+/** The turn inputs spec; only `text` and `image` declare one. */
+function profileInputs(profile: Profile): ProfileInputsSpec | undefined {
+  return profile.type === 'text' || profile.type === 'image' ? profile.inputs : undefined;
+}
+
 /** The `accept` list a profile declares for one input channel, if it declares one. */
 function profileAccept(profile: Profile, channel: MediaInputChannel): string[] | undefined {
-  if (
-    profile.type === 'speech' ||
-    profile.type === 'live' ||
-    profile.type === 'host' ||
-    profile.type === 'decision'
-  ) {
-    return undefined;
-  }
-  const inputs = profile.inputs;
+  const inputs = profileInputs(profile);
   return channel === 'voice' ? inputs?.voice?.accept : inputs?.attachments?.accept;
 }
 
@@ -138,5 +136,6 @@ export {
   mimeEssence,
   modelEntryByApiId,
   profileAccept,
+  profileInputs,
   requireModelBinding,
 };

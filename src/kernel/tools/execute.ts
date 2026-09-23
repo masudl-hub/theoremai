@@ -35,7 +35,7 @@ import {
   modelResultFromOutput,
   parseToolOutput,
 } from './remote.ts';
-import { promoteLoadedTools } from './resolve.ts';
+import { profileToolAllow, profileToolsSpec, promoteLoadedTools } from './resolve.ts';
 import { plainToolInput } from './schema.ts';
 import {
   emitGateSettlement,
@@ -250,15 +250,7 @@ export function formatToolFailureForModel(
 
 /** True when this tool is the profile's T2 loader: its output drives the snapshot. */
 function loadsT2(tool: FunctionToolDef, ctx: ToolContext): boolean {
-  if (
-    ctx.profile.type === 'speech' ||
-    ctx.profile.type === 'live' ||
-    ctx.profile.type === 'host' ||
-    ctx.profile.type === 'decision'
-  ) {
-    return false;
-  }
-  return ctx.profile.tools.t2Loader === tool.name;
+  return profileToolsSpec(ctx.profile)?.t2Loader === tool.name;
 }
 
 function applyT2LoaderPromotion(
@@ -670,11 +662,7 @@ function registeredEligibilityFailure(args: {
   snapshot?: TurnToolSnapshot;
 }): ToolFailure | undefined {
   const { tool, profile, name, resume, snapshot } = args;
-  if (
-    profile.type === 'speech' ||
-    profile.type === 'decision' ||
-    !profile.tools.allow.includes(name)
-  ) {
+  if (!profileToolAllow(profile).includes(name)) {
     return {
       code: 'not_allowed',
       message: lexiconText('tool.not_allowed', { tool: name, profile: profile.id }),

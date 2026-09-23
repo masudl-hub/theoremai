@@ -16,7 +16,6 @@ import type {
   ModelId,
   ModelProfile,
   Profile,
-  ProfileInputsSpec,
   ProjectedProfile,
   ProviderTransport,
   ResolvedGeneration,
@@ -25,7 +24,7 @@ import type {
   ThinkingLevel,
   TurnRequest,
 } from '../types.ts';
-import { requireModelBinding } from './catalog.ts';
+import { profileInputs, requireModelBinding } from './catalog.ts';
 import {
   assertOutputMode,
   assertSpeechRole,
@@ -264,18 +263,11 @@ function primaryImageSpec(profile: ModelProfile) {
   return profile.type === 'image' ? profile.image : null;
 }
 
-function profileInputsOrNull(profile: ModelProfile): ProfileInputsSpec | null {
-  if (profile.type === 'speech' || profile.type === 'live') {
-    return null;
-  }
-  return profile.inputs ?? null;
-}
-
 /** Project a profile object into a safe host/UI inspection object. */
 function projectProfileObject(input: Profile): ProjectedProfile {
   const profile = requireModelProfile(input, 'projectProfile');
   const { identity } = profile;
-  const inputs = profileInputsOrNull(profile);
+  const inputs = profileInputs(profile) ?? null;
   const outputs = profile.type === 'live' ? null : (profile.outputs ?? null);
   return {
     id: profile.id,

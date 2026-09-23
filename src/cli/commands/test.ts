@@ -2,6 +2,7 @@ import { runTurn } from '../../kernel/engine/runner.ts';
 import { sumTokens } from '../../kernel/engine/usage.ts';
 import { getProfile, listProfiles } from '../../kernel/registry/profiles.ts';
 import { isModelProfile, requireModelProfile } from '../../kernel/registry/resolve.ts';
+import { profileToolAllow } from '../../kernel/tools/resolve.ts';
 import type { ModelProfile, ModelProvider, TurnRequest, TurnTokens } from '../../kernel/types.ts';
 import { createCliTraceCapture, printTestEvent, printTraceRecord } from '../event-log.ts';
 import {
@@ -29,7 +30,7 @@ function printTestHeader(req: TurnRequest, testName: string): void {
   const profile = requireModelProfile(getProfile(req.profile), 'agents test');
   const modelId =
     req.model && profile.models[req.model] ? req.model : (Object.keys(profile.models)[0] ?? '');
-  const customs = profile.type === 'speech' ? 'none' : profile.tools.allow.join(', ') || 'none';
+  const customs = profileToolAllow(profile).join(', ') || 'none';
   const builtins = (profile.models[modelId]?.builtInTools ?? []).join(', ') || 'none';
 
   console.log(`\n▶ [THEOREM TEST] ${testName}`);

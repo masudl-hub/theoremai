@@ -2,7 +2,6 @@ import { useCallback, useRef, type Dispatch, type MutableRefObject, type SetStat
 import type { TurnEvent } from '../../../../mod.ts';
 import {
 	applyLiveTranscript,
-	latestLiveCaptionTurnId,
 	type LiveCaptionState,
 } from '../../client/live/live-captions';
 import type { LiveToolGatePrompt } from '../../client/live/live-tool';
@@ -14,7 +13,6 @@ import {
 	type LiveSessionStatus,
 } from '../../client/live-client';
 import type { ToolGateResolution } from '../../client/tool-resume';
-import type { CaptionFocus } from '../../client/live/caption-focus';
 
 export type LiveClientBindings = {
 	voiceAvailable: boolean;
@@ -30,7 +28,6 @@ export type LiveClientBindings = {
 	setSessionActive: Dispatch<SetStateAction<boolean>>;
 	setError: Dispatch<SetStateAction<string>>;
 	setCaptions: Dispatch<SetStateAction<LiveCaptionState>>;
-	setCaptionFocus: Dispatch<SetStateAction<CaptionFocus>>;
 	setInputLevel: Dispatch<SetStateAction<number>>;
 	setOutputLevel: Dispatch<SetStateAction<number>>;
 	setActiveTool: Dispatch<SetStateAction<string | null>>;
@@ -70,9 +67,6 @@ function onLiveTranscript(
 	const next = applyLiveTranscript(bindings.captionsRef.current, text, isUser, meta?.interim);
 	bindings.captionsRef.current = next;
 	bindings.setCaptions(next);
-	if (meta?.interim) return;
-	const latestId = latestLiveCaptionTurnId(next);
-	if (latestId) bindings.setCaptionFocus(latestId);
 }
 
 async function onLiveToolCall(

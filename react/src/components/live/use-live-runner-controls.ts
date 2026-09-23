@@ -24,7 +24,6 @@ export function useLiveRunnerControls(args: {
 	cancelGateDecision: (reason?: string) => void;
 	stopVideo: () => void;
 	resetCaptions: () => void;
-	focusLatestCaption: (next: LiveCaptionState) => void;
 	sessionActive: boolean;
 	textAvailable: boolean;
 	videoAvailable: boolean;
@@ -35,7 +34,6 @@ export function useLiveRunnerControls(args: {
 	setCaptions: Dispatch<SetStateAction<LiveCaptionState>>;
 	setError: Dispatch<SetStateAction<string>>;
 	setIsMuted: Dispatch<SetStateAction<boolean>>;
-	setTextComposerOpen: Dispatch<SetStateAction<boolean>>;
 	setSessionActive: Dispatch<SetStateAction<boolean>>;
 	setSessionPermissions: Dispatch<SetStateAction<string[]>>;
 	setStatus: Dispatch<SetStateAction<LiveSessionStatus>>;
@@ -52,7 +50,6 @@ export function useLiveRunnerControls(args: {
 		args.stopVideo();
 		args.setIsMuted(false);
 		args.isMutedRef.current = false;
-		args.setTextComposerOpen(false);
 		args.setSessionActive(false);
 		args.setSessionPermissions([]);
 		args.sessionPermissionsRef.current = [];
@@ -87,12 +84,6 @@ export function useLiveRunnerControls(args: {
 		});
 		args.captionsRef.current = next;
 		args.setCaptions(next);
-		args.focusLatestCaption(next);
-	}, [args]);
-
-	const handleToggleTextComposer = useCallback(() => {
-		if (!args.textAvailable) return;
-		args.setTextComposerOpen((open) => !open);
 	}, [args]);
 
 	const handleToggleVideo = useCallback(async () => {
@@ -143,7 +134,6 @@ export function useLiveRunnerControls(args: {
 		teardownSession,
 		startSession,
 		handleSendText,
-		handleToggleTextComposer,
 		handleToggleVideo,
 		handleFlipCamera,
 		handleToggleMic,

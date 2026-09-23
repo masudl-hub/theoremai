@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { liveIngressEnabledFromSpec } from '../../../../mod.ts';
 import type { LiveProfileInterface } from '../../../../src/interface/mod.ts';
+import type { LiveCaptionTurn } from '../../client/live/live-captions';
 import { liveStateLabel } from '../../client/live/live-state';
 import { useLiveRunnerControls } from './use-live-runner-controls';
 import { useLiveRunnerGate, useLiveRunnerUiState } from './use-live-runner-ui';
@@ -54,7 +55,6 @@ export function useLiveRunnerModel(
 		setSessionActive: ui.setSessionActive,
 		setError: ui.setError,
 		setCaptions: ui.setCaptions,
-		setCaptionFocus: ui.setCaptionFocus,
 		setInputLevel: ui.setInputLevel,
 		setOutputLevel: ui.setOutputLevel,
 		setActiveTool: ui.setActiveTool,
@@ -77,7 +77,6 @@ export function useLiveRunnerModel(
 		cancelGateDecision: gate.cancelGateDecision,
 		stopVideo: ui.stopVideo,
 		resetCaptions: ui.resetCaptions,
-		focusLatestCaption: ui.focusLatestCaption,
 		sessionActive: ui.sessionActive,
 		textAvailable,
 		videoAvailable,
@@ -88,7 +87,6 @@ export function useLiveRunnerModel(
 		setCaptions: ui.setCaptions,
 		setError: ui.setError,
 		setIsMuted: ui.setIsMuted,
-		setTextComposerOpen: ui.setTextComposerOpen,
 		setSessionActive: ui.setSessionActive,
 		setSessionPermissions: ui.setSessionPermissions,
 		setStatus: ui.setStatus,
@@ -100,17 +98,49 @@ export function useLiveRunnerModel(
 		setIsVideoOn: ui.setIsVideoOn,
 	});
 
+	// Calls start from the landing (voice, or video + voice), not on mount.
+	// Once started, the call view stays until a reload; ending leaves Start call.
+	const [callStarted, setCallStarted] = useState(false);
+	const [ended, setEnded] = useState(false);
+	const videoOnConnectRef = useRef(false);
+
+	const startCall = useCallback(
+		(options: { video: boolean }) => {
+			videoOnConnectRef.current = options.video && videoAvailable;
+			setCallStarted(true);
+			setEnded(false);
+			void controls.startSession();
+		},
+		[controls, videoAvailable],
+	);
+
+	// Camera capture needs a live session, so a video call turns it on once connected.
+	useEffect(() => {
+		if (!ui.sessionActive || !videoOnConnectRef.current) return;
+		videoOnConnectRef.current = false;
+		void controls.handleToggleVideo();
+	}, [controls, ui.sessionActive]);
+
 	const handleEnd = useCallback(() => {
+		videoOnConnectRef.current = false;
 		controls.teardownSession();
+		setEnded(true);
 	}, [controls]);
 
-	const startSessionRef = useRef(controls.startSession);
+	// Each restart is a new conversation; earlier calls' captions stay, above a divider.
+	const [pastCalls, setPastCalls] = useState<LiveCaptionTurn[][]>([]);
+
+	const handleRestart = useCallback(async () => {
+		const previous = ui.captionsRef.current.turns;
+		if (previous.length > 0) setPastCalls((calls) => [...calls, previous]);
+		setEnded(false);
+		await controls.handleRestart();
+	}, [controls, ui.captionsRef]);
+
 	const teardownSessionRef = useRef(controls.teardownSession);
-	startSessionRef.current = controls.startSession;
 	teardownSessionRef.current = controls.teardownSession;
 
 	useEffect(() => {
-		void startSessionRef.current();
 		return () => {
 			teardownSessionRef.current();
 		};
@@ -118,7 +148,8 @@ export function useLiveRunnerModel(
 
 	return {
 		handle: iface.identity.handle,
-		captionFocus: ui.captionFocus,
+		callStarted,
+		pastCalls,
 		captions: ui.captions,
 		error: ui.error,
 		inputLevel: ui.inputLevel,
@@ -129,23 +160,22 @@ export function useLiveRunnerModel(
 		stateLabel,
 		status: ui.status,
 		textAvailable,
-		textComposerOpen: ui.textComposerOpen,
 		textDraft: ui.textDraft,
 		toolActive: ui.activeTool !== null || gate.gatePrompt !== null,
 		videoAvailable,
 		videoFacingMode: ui.videoFacingMode,
 		videoPreview: ui.videoPreview,
 		voiceAvailable,
-		canRestart: !ui.sessionActive && ui.everConnected && ui.status !== 'connecting',
+		// Also after ending (or failing) before the first connect, so the call can't get stuck.
+		canRestart: !ui.sessionActive && ui.status !== 'connecting' && (ui.everConnected || ended || ui.error !== ''),
 		gatePrompt: gate.gatePrompt,
-		setCaptionFocus: ui.setCaptionFocus,
 		setTextDraft: ui.setTextDraft,
 		handleEnd,
-		handleRestart: controls.handleRestart,
+		startCall,
+		handleRestart,
 		handleSendText: controls.handleSendText,
 		handleToggleMic: controls.handleToggleMic,
 		handleFlipCamera: controls.handleFlipCamera,
-		handleToggleTextComposer: controls.handleToggleTextComposer,
 		handleToggleVideo: controls.handleToggleVideo,
 		resolveGateDecision: gate.resolveGateDecision,
 	};

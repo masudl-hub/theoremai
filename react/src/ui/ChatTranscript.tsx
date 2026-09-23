@@ -1,3 +1,4 @@
+import { AspectRatio } from '@astryxdesign/core/AspectRatio';
 import { Banner } from '@astryxdesign/core/Banner';
 import {
 	ChatMessage,
@@ -7,6 +8,7 @@ import {
 	type ChatToolCallItem,
 	ChatToolCalls,
 } from '@astryxdesign/core/Chat';
+import { ClickableCard } from '@astryxdesign/core/ClickableCard';
 import { CodeBlock } from '@astryxdesign/core/CodeBlock';
 import { Collapsible } from '@astryxdesign/core/Collapsible';
 import { HStack } from '@astryxdesign/core/HStack';
@@ -15,12 +17,13 @@ import { IconButton } from '@astryxdesign/core/IconButton';
 import { type LightboxMedia, useLightbox } from '@astryxdesign/core/Lightbox';
 import { useStreamingText } from '@astryxdesign/core/hooks';
 import { Markdown, type MarkdownComponents } from '@astryxdesign/core/Markdown';
+import { Skeleton } from '@astryxdesign/core/Skeleton';
 import { Text } from '@astryxdesign/core/Text';
 import { Thumbnail } from '@astryxdesign/core/Thumbnail';
 import { Timestamp } from '@astryxdesign/core/Timestamp';
 import { Token } from '@astryxdesign/core/Token';
 import { VStack } from '@astryxdesign/core/VStack';
-import { IconCheck, IconCopy, IconGitBranch } from '@tabler/icons-react';
+import { IconCheck, IconCopy } from '@tabler/icons-react';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import type { TranscriptBlock } from '../../../src/interface/mod.ts';
 import type { ToolCredential } from '../../../src/kernel/mod.ts';
@@ -34,6 +37,7 @@ import {
 } from '../client/transcript-groups';
 import { transcriptBlockCopyText } from '../client/transcript-block-text';
 import { ApprovalCard, AuthChallengeCard, type ToolDecision } from './ToolGateCard';
+import { VoiceNote } from './VoiceNote';
 
 type ToolBlock = Extract<TranscriptBlock, { kind: 'tool' }>;
 
@@ -42,11 +46,21 @@ export type ChatTranscriptProps = {
 	/** Assistant display name (profile handle). */
 	handle: string;
 	streaming?: boolean;
-	onBranch?: (index: number) => void;
 	onToolDecision?: (index: number, action: ToolDecision, interactiveValue?: unknown) => void;
 	onAuthCredential?: (index: number, slot: string, credential: ToolCredential) => void;
 	emptyState?: ReactNode;
+	/**
+	 * Set for image profiles: generated images show large, framed to their own
+	 * aspect ratio, with a matching skeleton while one generates.
+	 */
+	imageOutput?: ImageOutput;
 };
+
+/** Image-profile display: `ratio` is the profile's pinned aspect ratio, if any. */
+export type ImageOutput = { ratio?: number };
+
+/** Largest a generated image renders in the transcript. */
+const GENERATED_IMAGE_MAX_WIDTH = 512;
 
 type BlockHandlers = {
 	indexOf: (block: TranscriptBlock) => number;
@@ -134,26 +148,9 @@ function MessageTime({ at }: { at: number }) {
 	return <Timestamp value={at} format="relative_short" isLive />;
 }
 
-function MessageChrome(props: { at: number; copyText: string; onBranch?: () => void }) {
+function MessageChrome(props: { at: number; copyText: string }) {
 	return (
-		<ChatMessageMetadata
-			timestamp={<MessageTime at={props.at} />}
-			footer={
-				<HStack gap={0.5}>
-					<CopyButton text={props.copyText} />
-					{props.onBranch ? (
-						<IconButton
-							label="Branch from here"
-							tooltip="Branch from here"
-							size="sm"
-							variant="ghost"
-							icon={<Icon icon={IconGitBranch} size="xsm" color="secondary" />}
-							onClick={props.onBranch}
-						/>
-					) : null}
-				</HStack>
-			}
-		/>
+		<ChatMessageMetadata timestamp={<MessageTime at={props.at} />} footer={<CopyButton text={props.copyText} />} />
 	);
 }
 
@@ -179,8 +176,7 @@ function UserBlock({ block, metadata }: { block: TranscriptBlock; metadata?: Rea
 		return <ImageAttachment src={src} name={block.name} />;
 	}
 	if (src && block.mimeType.startsWith('audio/')) {
-		// biome-ignore lint/a11y/useMediaCaption: user voice note
-		return <audio controls preload="metadata" src={src} aria-label={block.name} />;
+		return <VoiceNote src={src} mimeType={block.mimeType} />;
 	}
 	return <Token label={block.name} description={block.mimeType} />;
 }
@@ -230,11 +226,60 @@ function MediaGallery({ items }: { items: GalleryItem[] }) {
 	);
 }
 
+/** One generated image, framed to its natural ratio once loaded (the pinned ratio until then). */
+function GeneratedImage(props: { item: GalleryItem; ratio?: number; onOpen: () => void }) {
+	const [natural, setNatural] = useState<number>();
+	return (
+		<ClickableCard label="Open generated image" onClick={props.onOpen} padding={0} width="100%" maxWidth={GENERATED_IMAGE_MAX_WIDTH}>
+			<AspectRatio ratio={natural ?? props.ratio ?? 1} fit="cover">
+				<img
+					src={props.item.preview}
+					alt={props.item.media.alt}
+					onLoad={(event) => {
+						const { naturalWidth, naturalHeight } = event.currentTarget;
+						if (naturalWidth > 0 && naturalHeight > 0) setNatural(naturalWidth / naturalHeight);
+					}}
+				/>
+			</AspectRatio>
+		</ClickableCard>
+	);
+}
+
+/**
+ * Image-profile gallery: images are the answer, so they show large at their
+ * own ratio. Anything else (video) keeps the square Thumbnail.
+ */
+function GeneratedGallery({ items, ratio }: { items: GalleryItem[]; ratio?: number }) {
+	const lightbox = useLightbox({ media: items.map((item) => item.media), hasZoom: true });
+	return (
+		<VStack gap={2} width="100%">
+			{items.map((item, i) =>
+				item.media.type === 'image' ? (
+					<GeneratedImage key={item.media.src} item={item} ratio={ratio} onOpen={() => lightbox.open(i)} />
+				) : (
+					<Thumbnail key={item.media.src} alt={item.media.alt} label={item.media.alt} onClick={() => lightbox.open(i)} />
+				),
+			)}
+			{lightbox.element}
+		</VStack>
+	);
+}
+
+/** Placeholder shaped like the image being generated. */
+function GeneratingImage({ ratio }: { ratio?: number }) {
+	return (
+		<VStack width="100%" maxWidth={GENERATED_IMAGE_MAX_WIDTH}>
+			<AspectRatio ratio={ratio ?? 1}>
+				<Skeleton width="100%" height="100%" radius={3} aria-label="Generating image" />
+			</AspectRatio>
+		</VStack>
+	);
+}
+
 function MediaBlock({ block }: { block: MediaTranscriptBlock }) {
 	const src = mediaSrc(block);
 	if (src && block.mimeType.startsWith('audio/')) {
-		// biome-ignore lint/a11y/useMediaCaption: model audio output
-		return <audio controls preload="metadata" src={src} />;
+		return <VoiceNote src={src} mimeType={block.mimeType} />;
 	}
 	return <Text color="secondary">{block.mimeType}</Text>;
 }
@@ -423,8 +468,8 @@ function AssistantTurn(props: {
 	startedAt?: number;
 	/** When this reply finished streaming. */
 	endedAt?: number;
-	onBranch?: () => void;
 	handlers: BlockHandlers;
+	imageOutput?: ImageOutput;
 }) {
 	// Open while the turn runs so its thinking and tool calls can be followed;
 	// folds away when the turn ends.
@@ -448,7 +493,7 @@ function AssistantTurn(props: {
 			name={props.handle}
 			metadata={
 				props.streaming ? undefined : (
-					<MessageChrome at={props.at} copyText={copyText} onBranch={props.onBranch} />
+					<MessageChrome at={props.at} copyText={copyText} />
 				)
 			}
 		>
@@ -475,7 +520,9 @@ function AssistantTurn(props: {
 						<GateCard key={block.id} block={block} handlers={props.handlers} />
 					))}
 					{rows.map((row, i) =>
-						row.kind === 'gallery' ? (
+						row.kind === 'gallery' && props.imageOutput ? (
+							<GeneratedGallery key={i} items={row.items} ratio={props.imageOutput.ratio} />
+						) : row.kind === 'gallery' ? (
 							<MediaGallery key={i} items={row.items} />
 						) : (
 							<BodyBlock
@@ -487,14 +534,17 @@ function AssistantTurn(props: {
 							/>
 						),
 					)}
+					{props.imageOutput && props.streaming && !rows.some((row) => row.kind === 'gallery') ? (
+						<GeneratingImage ratio={props.imageOutput.ratio} />
+					) : null}
 			</VStack>
 		</ChatMessage>
 	);
 }
 
-function UserTurn(props: { blocks: TranscriptBlock[]; at: number; onBranch?: () => void }) {
+function UserTurn(props: { blocks: TranscriptBlock[]; at: number }) {
 	const copyText = props.blocks.map(transcriptBlockCopyText).filter(Boolean).join('\n\n');
-	const chrome = <MessageChrome at={props.at} copyText={copyText} onBranch={props.onBranch} />;
+	const chrome = <MessageChrome at={props.at} copyText={copyText} />;
 	// Astryx: metadata goes on the last bubble, or on the message when the last
 	// content is unbubbled (an attachment or voice note).
 	const last = props.blocks.at(-1);
@@ -513,10 +563,10 @@ export function ChatTranscript({
 	blocks,
 	handle,
 	streaming = false,
-	onBranch,
 	onToolDecision,
 	onAuthCredential,
 	emptyState,
+	imageOutput,
 }: ChatTranscriptProps) {
 	const groups = useMemo(() => groupTranscriptBlocks(blocks), [blocks]);
 	const timeOf = useBlockTimes(blocks);
@@ -528,16 +578,13 @@ export function ChatTranscript({
 		onToolDecision,
 		onAuthCredential,
 	};
-	const branchAt = (block: TranscriptBlock | undefined) =>
-		onBranch && block ? () => onBranch(handlers.indexOf(block)) : undefined;
 
 	return (
 		<ChatMessageList isStreaming={streaming} emptyState={emptyState}>
 			{groups.map((group, i) => {
 				const at = timeOf(group.blocks[0]?.id ?? group.key);
-				const last = group.blocks.at(-1);
 				if (group.kind === 'user') {
-					return <UserTurn key={group.key} blocks={group.blocks} at={at} onBranch={branchAt(last)} />;
+					return <UserTurn key={group.key} blocks={group.blocks} at={at} />;
 				}
 				const live = streaming && i === groups.length - 1;
 				const prompt = groups[i - 1];
@@ -558,8 +605,8 @@ export function ChatTranscript({
 						at={at}
 						startedAt={startedAt}
 						endedAt={endedAt}
-						onBranch={live ? undefined : branchAt(last)}
 						handlers={handlers}
+						imageOutput={imageOutput}
 					/>
 				);
 			})}
@@ -573,6 +620,7 @@ export function ChatTranscript({
 					at={timeOf(pendingPrompt.blocks[0]?.id ?? pendingPrompt.key)}
 					startedAt={timeOf(pendingPrompt.blocks[0]?.id ?? pendingPrompt.key)}
 					handlers={handlers}
+					imageOutput={imageOutput}
 				/>
 			) : null}
 		</ChatMessageList>

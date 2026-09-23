@@ -19,7 +19,9 @@ import {
 } from '../../react/src/client/live/live-mic-forward.ts';
 import { liveStateLabel } from '../../react/src/client/live/live-state.ts';
 import { transcriptBlockCopyText } from '../../react/src/client/transcript-block-text.ts';
-import { composeAssistantTurn } from '../../react/src/client/transcript-groups.ts';
+import { formatAttachmentSize, resolveAttachPreviewStyle } from '../../react/src/client/attachment-hover-preview.ts';
+import { composeAssistantTurn, groupTranscriptBlocks, workStatusLabel } from '../../react/src/client/transcript-groups.ts';
+import { resolveScrollToBottomScrollTop } from '../../react/src/client/transcript-scroll.ts';
 import type { TranscriptBlock } from '../../src/interface/mod.ts';
 import { voiceFormatLabel, voiceLabelFromMime } from '../../react/src/client/voice-label.ts';
 
@@ -409,4 +411,50 @@ Deno.test('composeAssistantTurn streams the answer after the latest tool in the 
 	const turn = composeAssistantTurn(blocks);
 	assertEquals(turn.trace.map((item) => item.kind), ['reasoning', 'narration', 'tool']);
 	assertEquals(turn.body.map((block) => block.id), ['m', 'a']);
+});
+
+Deno.test('groupTranscriptBlocks keeps tools and text in one assistant turn', () => {
+	const blocks = [
+		{ id: 'user-1', kind: 'user-text', text: 'hi' },
+		{ id: 'tool-1', kind: 'tool', tool: { name: 'joke', phase: 'complete', output: { a: 1 } } },
+		{ id: 'turn-1', kind: 'text', text: 'punchline' },
+		{ id: 'user-2', kind: 'user-text', text: 'lol' },
+	] as TranscriptBlock[];
+	const groups = groupTranscriptBlocks(blocks);
+	assertEquals(groups.map((group) => group.kind), ['user', 'assistant', 'user']);
+	assertEquals(groups[1]?.blocks.length, 2);
+});
+
+Deno.test('composeAssistantTurn keeps a plain reply in the body', () => {
+	const turn = composeAssistantTurn([{ id: 't-1', kind: 'text', text: 'hello **world**' }]);
+	assertEquals(turn.hasTrace, false);
+	assertEquals(turn.body.map((block) => block.kind), ['text']);
+});
+
+Deno.test('workStatusLabel says Working… while streaming and Worked for <duration> after', () => {
+	assertEquals(workStatusLabel({ streaming: true, hasTrace: false }), 'Working…');
+	assertEquals(workStatusLabel({ streaming: true, hasTrace: true }), 'Working…');
+	assertEquals(workStatusLabel({ streaming: false, hasTrace: false }), '');
+	assertEquals(workStatusLabel({ streaming: false, hasTrace: true, elapsedMs: 2300 }), 'Worked for 2.3s');
+	assertEquals(workStatusLabel({ streaming: false, hasTrace: false, elapsedMs: 2300 }), 'Worked for 2.3s');
+	assertEquals(workStatusLabel({ streaming: false, hasTrace: true }), 'Worked');
+});
+
+Deno.test('formatAttachmentSize covers B/KB/MB', () => {
+	assertEquals(formatAttachmentSize(0), '');
+	assertEquals(formatAttachmentSize(512), '512 B');
+	assertEquals(formatAttachmentSize(2048), '2.0 KB');
+	assertEquals(formatAttachmentSize(2 * 1024 * 1024), '2.0 MB');
+});
+
+Deno.test('resolveAttachPreviewStyle opens above when there is room, else below', () => {
+	const above = resolveAttachPreviewStyle({ left: 40, top: 220, bottom: 250 }, { width: 800, height: 600 });
+	assertEquals([above.left, above.bottom, above.top], [40, 600 - 220 + 6, undefined]);
+	const below = resolveAttachPreviewStyle({ left: 40, top: 40, bottom: 70 }, { width: 800, height: 600 });
+	assertEquals([below.top, below.bottom], [70 + 6, undefined]);
+});
+
+Deno.test('resolveScrollToBottomScrollTop targets the live edge', () => {
+	assertEquals(resolveScrollToBottomScrollTop({ scrollHeight: 1400, clientHeight: 600 }), 800);
+	assertEquals(resolveScrollToBottomScrollTop({ scrollHeight: 400, clientHeight: 600 }), 0);
 });

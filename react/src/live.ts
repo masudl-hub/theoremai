@@ -1,11 +1,12 @@
 /**
- * Live (voice / video) runner. Still on the pre-Astryx components and
- * `styles/*.css`; moves to the Astryx UI in a follow-up.
+ * Live (voice / video) runner, on the Astryx UI.
  *
  * @module
  */
 
-export type { InkTooltipProps } from './components/InkTooltip';
-export { InkTooltip } from './components/InkTooltip';
-export type { LiveRunnerProps } from './components/live/LiveRunner';
-export { LiveRunner } from './components/live/LiveRunner';
+import '@astryxdesign/core/reset.css';
+import '@astryxdesign/core/astryx.css';
+import '@astryxdesign/theme-neutral/theme.css';
+
+export type { LiveRunnerProps } from './ui/LiveRunner';
+export { LiveRunner } from './ui/LiveRunner';

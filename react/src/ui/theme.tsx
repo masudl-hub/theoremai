@@ -107,12 +107,30 @@ export const theoremTheme: DefinedTheme = defineTheme({
 				':where([aria-expanded="false"] + *)': { height: '0', paddingTop: '0', contentVisibility: 'hidden' },
 			},
 		},
+		// Side panels (SidePanel's LayoutPanels) slide open and closed by easing
+		// their width, pushing the content over.
+		'layout-panel': {
+			base: {
+				':where([role="complementary"])': {
+					transition: 'width var(--duration-medium) var(--ease-standard)',
+				},
+				// While its ResizeHandle (the sibling before it) drags, follow the pointer.
+				':where([data-resizing] + [role="complementary"])': {
+					transition: 'none',
+				},
+			},
+		},
 	},
 	adaptations: {
 		rules: [
 			{
 				when: { motion: 'reduce' },
-				value: { components: { 'collapsible-content': { base: { transition: 'none' } } } },
+				value: {
+						components: {
+							'collapsible-content': { base: { transition: 'none' } },
+							'layout-panel': { base: { ':where([role="complementary"])': { transition: 'none' } } },
+						},
+					},
 			},
 		],
 	},

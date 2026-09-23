@@ -16,8 +16,11 @@ import { createHttpTransport, type HttpTransportOptions, type TheoremTransport }
 import { useTheoremChat } from '../hooks/use-theorem-chat';
 import { useTheoremInterface } from '../hooks/use-theorem-interface';
 import { ChatComposerBar } from './ChatComposerBar';
+import { parseAspectRatio } from '../client/image-output';
 import { ChatTranscript } from './ChatTranscript';
 import { TheoremThemeProvider } from './theme';
+import { SidePanelHeader } from './SidePanel';
+import { useTraceInspector } from './TraceInspector';
 
 export type TheoremChatProps = {
 	/** Where `createTheoremHandler` is mounted. Default `/api/theorem`. Ignored when `transport` is set. */
@@ -120,6 +123,9 @@ function ChatBody({
 	const landing = blocks.length === 0;
 	const inputRef = useRef<ChatComposerInputHandle | null>(null);
 	const composerRef = useComposerGlide(landing, inputRef);
+	const layoutRef = useRef<HTMLDivElement | null>(null);
+	const inspector = useTraceInspector(iface, layoutRef);
+	const header = <SidePanelHeader>{inspector.toggle}</SidePanelHeader>;
 
 	const composer = (
 		<ChatComposerBar
@@ -177,9 +183,12 @@ function ChatBody({
 	if (landing) {
 		return (
 			<Layout
+				ref={layoutRef}
 				height="fill"
 				className={className}
 				style={style}
+				header={header}
+				end={inspector.panel}
 				content={
 					<LayoutContent padding={0}>
 						<VStack minHeight="100%" vAlign="center" gap={8} paddingInline={3}>
@@ -211,9 +220,12 @@ function ChatBody({
 	// composer; paddingBlockEnd={3} adds 12px more for a 24px bottom margin.
 	return (
 		<Layout
+			ref={layoutRef}
 			height="fill"
 			className={className}
 			style={style}
+			header={header}
+			end={inspector.panel}
 			content={
 				<LayoutContent padding={0}>
 					<VStack height="100%">
@@ -233,7 +245,9 @@ function ChatBody({
 									blocks={blocks}
 									handle={`@${handle}`}
 									streaming={chat.streaming}
-									onBranch={chat.handleBranch}
+									imageOutput={
+										iface.type === 'image' ? { ratio: parseAspectRatio(iface.image.aspectRatio) } : undefined
+									}
 									onToolDecision={(index, action, value) => {
 										void chat.handleToolDecision(index, action, value);
 									}}

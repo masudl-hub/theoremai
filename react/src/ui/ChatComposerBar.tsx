@@ -55,9 +55,10 @@ import {
 	COMPOSER_MENU_ACTION_LABELS,
 } from '../components/composer-labels';
 import { useComposerVoice } from '../components/use-composer-voice';
+import { VoiceNote } from './VoiceNote';
 import { useEditorSelection } from '../components/use-editor-selection';
 
-const NO_FOCUS_RING = { '--focus-outline-width': '0px' } as React.CSSProperties;
+export const NO_FOCUS_RING = { '--focus-outline-width': '0px' } as React.CSSProperties;
 
 export type ChatComposerBarProps = {
 	iface: ComposerProfileInterface;
@@ -103,10 +104,13 @@ function fileSpecs(files: readonly File[]) {
 	}));
 }
 
-/** Object URLs for image previews, revoked when the files change. */
-function useImagePreviews(files: readonly File[]): (string | undefined)[] {
+const isImage = (file: File) => file.type.startsWith('image/');
+
+/** Object URLs for the files `keep` accepts, revoked when the files change. */
+function useObjectUrls(files: readonly File[], keep: (file: File) => boolean): (string | undefined)[] {
 	const urls = useMemo(
-		() => files.map((file) => (file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined)),
+		() => files.map((file) => (keep(file) ? URL.createObjectURL(file) : undefined)),
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- `keep` is a module-level predicate.
 		[files],
 	);
 	useEffect(
@@ -222,7 +226,11 @@ export function ChatComposerBar(props: ChatComposerBarProps) {
 		onVoiceStaged: props.onVoiceStaged,
 		onVoiceClear: props.onVoiceClear,
 	});
-	const previews = useImagePreviews(props.pendingFiles);
+	const previews = useObjectUrls(props.pendingFiles, isImage);
+	const voiceUrls = useObjectUrls(props.pendingVoice, () => true);
+	const staged = props.pendingFiles.map((file, index) => ({ file, index, preview: previews[index] }));
+	const imageFiles = staged.filter((entry) => entry.preview !== undefined);
+	const otherFiles = staged.filter((entry) => entry.preview === undefined);
 
 	useEffect(() => () => voice.disposeRecorder(), [voice.disposeRecorder]);
 
@@ -261,6 +269,7 @@ export function ChatComposerBar(props: ChatComposerBarProps) {
 			incoming,
 			maxFiles: inputs.maxFiles,
 			voiceCount: props.pendingVoice.length,
+			maxImages: iface.type === 'image' ? iface.image.maxInputImages : undefined,
 		});
 		const added = staged.files.slice(pendingFiles.length);
 		if (added.length > 0) props.onFilesSelected(added);
@@ -286,31 +295,35 @@ export function ChatComposerBar(props: ChatComposerBarProps) {
 							onSendNow={props.onPendingSendNow}
 						/>
 					))}
-					{props.pendingFiles.length + props.pendingVoice.length > 0 ? (
-						<HStack gap={2} wrap="wrap">
-							{props.pendingFiles.map((file, index) =>
-								previews[index] ? (
-									<Thumbnail
-										key={`${file.name}:${String(index)}`}
-										src={previews[index]}
-										alt={file.name}
-										label={file.name}
-										onRemove={() => props.onAttachmentRemove(index)}
-									/>
-								) : (
-									<Token
-										key={`${file.name}:${String(index)}`}
-										label={file.name}
-										onRemove={() => props.onAttachmentRemove(index)}
-									/>
-								),
-							)}
-							{props.pendingVoice.map((file) => (
-								<Token
+					{/* Two uniform rows: 64px tiles (images, voice notes), then file tokens. */}
+					{imageFiles.length + props.pendingVoice.length > 0 ? (
+						<HStack gap={2} wrap="wrap" vAlign="center">
+							{imageFiles.map(({ file, index, preview }) => (
+								<Thumbnail
+									key={`${file.name}:${String(index)}`}
+									src={preview}
+									alt={file.name}
+									label={file.name}
+									onRemove={() => props.onAttachmentRemove(index)}
+								/>
+							))}
+							{props.pendingVoice.map((file, index) => (
+								<VoiceNote
 									key={`voice:${file.name}`}
-									label="Voice note"
-									icon={<IconMicrophone size={14} />}
+									src={voiceUrls[index] ?? ''}
+									mimeType={file.type || undefined}
 									onRemove={() => voice.discardRecordingOrVoice()}
+								/>
+							))}
+						</HStack>
+					) : null}
+					{otherFiles.length > 0 ? (
+						<HStack gap={2} wrap="wrap">
+							{otherFiles.map(({ file, index }) => (
+								<Token
+									key={`${file.name}:${String(index)}`}
+									label={file.name}
+									onRemove={() => props.onAttachmentRemove(index)}
 								/>
 							))}
 						</HStack>

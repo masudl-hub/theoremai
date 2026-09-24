@@ -5,11 +5,15 @@
 	"type": "module",
 	"description": "React bindings for Theorem: headless hooks + transport, an Astryx chat UI, and a Web-standard server handler.",
 	"scripts": {
-		"typecheck": "tsc -p ."
+		"typecheck": "tsc -p .",
+		"theme:build": "astryx theme build src/ui/theorem-theme.ts -o src/ui/built/theme.css --icons-specifier ../icons",
+		"theme:check": "astryx theme build src/ui/theorem-theme.ts -o src/ui/built/theme.css --icons-specifier ../icons --check"
 	},
 	"exports": {
 		".": "./src/index.ts",
 		"./ui": "./src/ui/index.ts",
+		"./ui/theme": "./src/ui/theorem-theme.ts",
+		"./ui/icons": "./src/ui/icons.ts",
 		"./server": "./src/server/mod.ts",
 		"./live": "./src/live.ts",
 		"./client": "./src/client/index.ts",
@@ -27,6 +31,7 @@
 		"@tabler/icons-react": "^3.46.0"
 	},
 	"devDependencies": {
+		"@astryxdesign/cli": "0.6.3",
 		"@astryxdesign/core": "0.6.3",
 		"@astryxdesign/theme-neutral": "0.6.3",
 		"@theoremai/agents": "file:..",

@@ -11,7 +11,7 @@
 // `@layer reset`, so any unlayered host CSS still wins over it.
 import '@astryxdesign/core/reset.css';
 import '@astryxdesign/core/astryx.css';
-import '@astryxdesign/theme-neutral/theme.css';
+import './built/theme.css';
 
 export { ChatComposerBar, type ChatComposerBarProps } from './ChatComposerBar';
 export { ChatTranscript, type ChatTranscriptProps } from './ChatTranscript';
@@ -23,9 +23,5 @@ export {
 	type AuthChallengeCardProps,
 	type ToolDecision,
 } from './ToolGateCard';
-export {
-	TheoremThemeProvider,
-	type TheoremThemeProviderProps,
-	tablerIcons,
-	theoremTheme,
-} from './theme';
+export { tablerIcons, theoremTheme } from './built/theorem';
+export { TheoremThemeProvider, type TheoremThemeProviderProps } from './theme';

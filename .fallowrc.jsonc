@@ -18,7 +18,9 @@
     "react/src/ui/index.ts",
     "react/src/server/mod.ts",
     "react/src/live.ts",
-    "react/src/client/index.ts"
+    "react/src/client/index.ts",
+    "react/src/ui/theorem-theme.ts",
+    "react/src/ui/icons.ts"
   ],
   "ignoreDependencies": ["@ast-grep/cli", "@theoremai/agents"],
   // docs-truth loads the ownership graph via dynamic import (graph.mjs → _map.mjs).

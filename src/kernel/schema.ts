@@ -9,8 +9,9 @@
  */
 
 /** lexicon-exempt-file: authoring field-meta / closed unions — not runtime user or model copy (P2) */
-import { EGRESS_ON_BLOCK, type EgressOnBlock } from '../guardrails/types.ts';
+import { EGRESS_ON_BLOCK, type EgressOnBlock, TAINT_GATES } from '../guardrails/types.ts';
 import { GOOGLE_SPEECH_VOICES } from '../presets/google/speech-voices.ts';
+import { profileFieldScope } from './profile-scope.ts';
 
 export { EGRESS_ON_BLOCK, type EgressOnBlock };
 
@@ -450,6 +451,14 @@ export type FieldMeta = {
   options?: readonly string[];
   optionDescriptions?: Record<string, string>;
   optionNote?: string;
+  /**
+   * Profile types the field may be set on, when not every type (from
+   * `PROFILE_FIELD_SCOPE`, inherited from the nearest scoped ancestor).
+   * `defineProfile` rejects the field on any other type.
+   */
+  profileTypes?: readonly ProfileType[];
+  /** Why the other types can't take it. */
+  profileTypesReason?: string;
 };
 
 function field(
@@ -500,11 +509,27 @@ export function catalogPathFor(keys: readonly string[]): string {
   return resolved.join('.');
 }
 
+/** Each field's docs with its profile-type scope from `PROFILE_FIELD_SCOPE`. */
+function withProfileTypes(fields: Record<string, FieldMeta>): Record<string, FieldMeta> {
+  return Object.fromEntries(
+    Object.entries(fields).map(([path, meta]) => {
+      const scope = profileFieldScope(path);
+      return [
+        path,
+        scope
+          ? { ...meta, profileTypes: scope.profileTypes, profileTypesReason: scope.reason }
+          : meta,
+      ];
+    }),
+  );
+}
+
 /**
  * Authoring-surface catalog for `Profile` / `defineProfile`.
- * Hover UIs look up dotted paths. Adding a profile field? Add it here.
+ * Hover UIs look up dotted paths. Adding a profile field? Add it here; if it
+ * belongs to only some profile types, scope it in `PROFILE_FIELD_SCOPE`.
  */
-export const PROFILE_FIELDS: Record<string, FieldMeta> = {
+export const PROFILE_FIELDS: Record<string, FieldMeta> = withProfileTypes({
   id: field('string', 'Host-owned profile identifier.'),
   type: field(
     "'text' | 'image' | 'speech' | 'live' | 'decision' | 'host'",
@@ -672,7 +697,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   ),
   tools: field(
     '{ allow: ToolId[]; t1Policy?; t2Loader? }',
-    'Custom tools (allow), optional T1 policy, optional T2 loader function id. Builtins belong on models.*.builtInTools. Live and host profiles use `{ allow }` only — live wires every allowed tool at session setup; host executes every allowed tool.',
+    'Custom tools (allow), optional T1 policy, optional T2 loader function id. Builtins belong on models.*.builtInTools.',
   ),
   'tools.allow': field(
     'ToolId[]',
@@ -680,11 +705,11 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   ),
   'tools.t1Policy': field(
     '(ctx) => ToolId[] | Promise<ToolId[]>',
-    'Optional T1 policy — which eligible loadTier:T1 tools to wire at turn start. Not supported on type live.',
+    'Optional T1 policy — which eligible loadTier:T1 tools to wire at turn start.',
   ),
   'tools.t2Loader': field(
     'ToolId',
-    'Optional function tool id for T2 promotion. Must be in tools.allow; handler returns { loaded: string[] }. Not supported on type live.',
+    'Optional function tool id for T2 promotion. Must be in tools.allow; handler returns { loaded: string[] }.',
   ),
   inputs: field('ProfileInputsSpec', 'Text, attachment, voice, slot, and size rules.'),
   'inputs.text': field(
@@ -877,7 +902,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   ),
   'turnBehaviour.resumption.continueInstruction': field(
     'string',
-    'Text only. Host replacement for the continue user message on continueFrom turns. Omitted: registered default.',
+    'Host replacement for the continue user message on continueFrom turns. Omitted: registered default.',
   ),
   'turnBehaviour.allowSteering': field(
     'boolean',
@@ -885,7 +910,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   ),
   guardrails: field(
     'ProfileGuardrailsSpec',
-    'Quota, canary, sanitize, redact, egress, network, and taint switches. On type host only the invokeTool-path guards are accepted (HostGuardrailsSpec: sanitizeInput, redactSensitive, network, taint) — quota, canary, and egress guard a model turn and are refused.',
+    'Quota, canary, sanitize, redact, egress, network, taint, and (decision) disclosure switches.',
   ),
   'guardrails.quota': field(
     'QuotaGuardrailSpec',
@@ -943,6 +968,32 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   'guardrails.network.allowedHosts': field(
     'string[]',
     'Explicit hostname allowlist for declarative HTTP and MCP egress.',
+  ),
+  'guardrails.taint': field(
+    'TaintGuardrailSpec',
+    'What the turn may still do after reading untrusted remote content.',
+  ),
+  'guardrails.taint.advisoryGuidance': field(
+    'string',
+    'Host copy appended to the fence when tool content looks directive. Omitted: the observation is stated without guidance.',
+  ),
+  'guardrails.taint.afterRemoteRead': field(
+    unionType(TAINT_GATES),
+    'Least-severe tool capability refused once the turn has read remote content. Default off.',
+    TAINT_GATES,
+    {
+      off: 'Report only.',
+      destructive: 'Refuse hard-to-undo calls.',
+      write: 'Refuse hard-to-undo calls and any state-changing call.',
+    },
+  ),
+  'guardrails.disclosure': field(
+    '{ enforce: DecisionDisclosureEnforcer }',
+    'Pre-dispatch policy for structured state leaving a decision profile.',
+  ),
+  'guardrails.disclosure.enforce': field(
+    '(state, context) => DecisionDisclosureVerdict | Promise<DecisionDisclosureVerdict>',
+    'Allows or blocks the state before it is sent to the decision model.',
   ),
   observability: field(
     'ProfileObservabilitySpec',
@@ -1010,7 +1061,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
     '(err: unknown) => void',
     'Host hook when record build or destination write fails. Must not throw.',
   ),
-};
+});
 
 const TOOL_TYPE_FIELD = field(
   unionType(TOOL_TYPES),
@@ -1172,8 +1223,4 @@ export type {
   ProfileGraphFacetId,
   ProfileGraphRole,
 } from './profile-graph.ts';
-export {
-  PROFILE_GRAPH,
-  profileGraphFacet,
-  spineFacetsForProfileType,
-} from './profile-graph.ts';
+export { PROFILE_GRAPH, profileGraphFacet, spineFacetsForProfileType } from './profile-graph.ts';

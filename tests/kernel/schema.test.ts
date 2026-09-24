@@ -213,7 +213,7 @@ Deno.test('live wires every load tier; host is a model-less profile type', () =>
   assertEquals(protocolsForProfileType('host'), []);
   assertEquals(isValidProfileProtocol('host', 'geminiInteractions'), false);
   assertEquals(fieldMeta('loadTier')?.doc?.includes('wire every allowed tool'), true);
-  assertEquals(fieldMeta('tools.t1Policy')?.doc?.includes('Not supported on type live'), true);
-  assertEquals(fieldMeta('tools.t2Loader')?.doc?.includes('Not supported on type live'), true);
+  assertEquals(fieldMeta('tools.t1Policy')?.profileTypes, ['text', 'image']);
+  assertEquals(fieldMeta('tools.t2Loader')?.profileTypes, ['text', 'image']);
   assertEquals(fieldMeta('type')?.doc?.includes('host'), true);
 });

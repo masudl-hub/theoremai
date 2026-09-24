@@ -268,7 +268,7 @@ Deno.test('defineProfile rejects inputs, outputs, and t2Loader on live profiles'
         } as never),
       ),
     Error,
-    "tools.t2Loader is not supported on type 'live'",
+    "type 'live' must not set tools.t2Loader",
   );
 
   assertThrows(
@@ -280,7 +280,7 @@ Deno.test('defineProfile rejects inputs, outputs, and t2Loader on live profiles'
         } as never),
       ),
     Error,
-    'tools.t1Policy is not supported on type',
+    "type 'live' must not set tools.t1Policy",
   );
 });
 
@@ -484,7 +484,7 @@ Deno.test('host profile rejects models, identity, inputs, outputs, turnBehaviour
         tools: { allow: ['load_tools'], t2Loader: 'load_tools' },
       } as Parameters<typeof registerProfile>[0]),
     Error,
-    "not supported on type 'host'",
+    "type 'host' must not set tools.t2Loader",
   );
   assertThrows(
     () => registerProfile({ ...base, tools: { allow: ['googleSearch'] } }),

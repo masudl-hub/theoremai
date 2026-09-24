@@ -140,7 +140,7 @@ Deno.test('pressure-test: compaction is forbidden on non-text profiles', () => {
       });
     },
     TheoremError,
-    "compaction is only valid on type 'text'",
+    "type 'image' must not set models.gemini31FlashLiteImage.compaction",
   );
 
   // Compaction on speech profile must throw
@@ -166,7 +166,7 @@ Deno.test('pressure-test: compaction is forbidden on non-text profiles', () => {
       });
     },
     TheoremError,
-    "compaction is only valid on type 'text'",
+    "type 'speech' must not set models.gemini31FlashTts.compaction",
   );
 });
 
@@ -371,7 +371,7 @@ Deno.test('pressure-test: turnBehaviour.allowSteering rejected on image', () => 
       });
     },
     TheoremError,
-    "turnBehaviour.allowSteering is only valid on type 'text' or 'live'",
+    "type 'image' must not set turnBehaviour.allowSteering",
   );
 });
 

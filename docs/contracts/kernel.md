@@ -72,9 +72,14 @@ derived from those arrays. `TURN_STAGES` / `TOOL_GATE_KINDS` /
 ([`stages.md`](stages.md)); text `runTurn` mid-turn inject uses `TURN_STAGES` /
 `onStage`. `PROFILE_FIELDS` / `fieldMeta` document every authoring
 path so host UIs and docs hover the live kernel types instead of copying them.
-`PROFILE_GRAPH` projects those sections into the playground authoring graph
-(spine / branch / optional); the frontend must import it rather than inventing
-facet kinds. Drift is gated by `tests/kernel/profile-graph.test.ts`.
+Which profile types may set each path is owned by `PROFILE_FIELD_SCOPE`
+(`src/kernel/profile-scope.ts`): every field's `FieldMeta` carries its
+`profileTypes` and `profileTypesReason`, and `defineProfile` rejects a field set
+on any other type with that reason. `PROFILE_GRAPH` projects those sections into
+the playground authoring graph (spine / branch / optional), taking each facet's
+types from the same scope; the frontend must import it rather than inventing
+facet kinds. Drift is gated by `tests/kernel/profile-graph.test.ts` and
+`tests/kernel/profile-scope.test.ts`.
 
 ### Decision profile
 

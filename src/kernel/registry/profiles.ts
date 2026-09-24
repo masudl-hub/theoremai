@@ -8,15 +8,15 @@
  */
 
 import { TheoremError } from '../../guardrails/error.ts';
-import {
-  type DecisionGuardrailsSpec,
-  HOST_GUARDRAIL_FIELDS,
-  type HostGuardrailsSpec,
-  type ProfileGuardrailsSpec,
+import type {
+  DecisionGuardrailsSpec,
+  HostGuardrailsSpec,
+  ProfileGuardrailsSpec,
 } from '../../guardrails/types.ts';
 import { resolveObservabilityPolicy } from '../../observability/resolve-policy.ts';
 import type { ProfileObservabilitySpec } from '../../observability/types.ts';
 import { assertLiveIngressConfigured } from '../engine/live-ingress.ts';
+import { outOfScopeFields } from '../profile-scope.ts';
 import {
   CACHE_MODES,
   CACHE_TTLS,
@@ -143,48 +143,6 @@ export type ProfileDefinition =
   | DecisionProfileDefinition
   | HostProfileDefinition;
 
-const DECISION_ABSENT_FIELDS = [
-  'defaultModel',
-  'allowModelSelect',
-  'outputs',
-  'tools',
-  'maxSteps',
-  'turnBehaviour',
-  'image',
-  'speech',
-  'live',
-] as const;
-
-const DECISION_ABSENT_GUARDRAILS = [
-  'quota',
-  'sanitizeInput',
-  'redactSensitive',
-  'canary',
-  'egress',
-  'network',
-  'taint',
-] as const;
-
-function rejectDecisionFields(input: DecisionProfileDefinition): void {
-  const extra = input as DecisionProfileDefinition & Record<string, unknown>;
-  for (const key of DECISION_ABSENT_FIELDS) {
-    if (extra[key] !== undefined) {
-      throw new TheoremError(`Profile ${input.id}: type 'decision' must not set ${key}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    }
-  }
-}
-
-function rejectDecisionGuardrails(input: DecisionProfileDefinition): void {
-  const guardrails = input.guardrails as
-    | (DecisionGuardrailsSpec & Record<string, unknown>)
-    | undefined;
-  for (const key of DECISION_ABSENT_GUARDRAILS) {
-    if (guardrails?.[key] !== undefined) {
-      throw new TheoremError(`Profile ${input.id}: type 'decision' must not set guardrails.${key}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    }
-  }
-}
-
 function validateDecisionBinding(
   profileId: string,
   modelId: string,
@@ -229,64 +187,13 @@ function validateDecisionConfig(input: DecisionProfileDefinition): void {
 }
 
 function defineDecisionProfile(input: DecisionProfileDefinition): DecisionProfile {
-  rejectDecisionFields(input);
-  rejectDecisionGuardrails(input);
   validateDecisionModel(input);
   validateDecisionConfig(input);
   assertObservability(input.id, input.observability);
   return { ...input, identity: { handle: input.identity.handle } };
 }
 
-/** Fields a `host` profile must not carry — rejected when supplied. */
-const HOST_ABSENT_FIELDS = [
-  'models',
-  'defaultModel',
-  'allowModelSelect',
-  'identity',
-  'inputs',
-  'outputs',
-  'turnBehaviour',
-  'key',
-  'maxSteps',
-] as const;
-
-/**
- * Guardrails that only a model turn can run, so a host profile must not declare
- * them: `egress` gates user-visible model text in the turn runner, `canary` is
- * minted into a system prompt, and `quota` counts turns. None is reachable from
- * `invokeTool`, so accepting them would register config that guards nothing.
- */
-const HOST_ABSENT_GUARDRAILS = ['quota', 'canary', 'egress'] as const satisfies readonly Exclude<
-  keyof ProfileGuardrailsSpec,
-  keyof HostGuardrailsSpec
->[];
-
-const HOST_GUARDRAIL_REASON: Record<(typeof HOST_ABSENT_GUARDRAILS)[number], string> = {
-  quota: 'quota counts model turns', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  canary: 'canary is minted into a system prompt', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  egress: 'egress gates user-visible model text in the turn runner', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-};
-
-function assertHostGuardrails(profileId: string, guardrails: HostGuardrailsSpec | undefined): void {
-  if (!guardrails) return;
-  const extra = guardrails as ProfileGuardrailsSpec;
-  for (const key of HOST_ABSENT_GUARDRAILS) {
-    if (extra[key] !== undefined) {
-      throw new TheoremError(
-        `Profile ${profileId}: type 'host' must not set guardrails.${key} — a host profile runs no model and ${HOST_GUARDRAIL_REASON[key]}. Host profiles accept ${HOST_GUARDRAIL_FIELDS.join(', ')}.`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      );
-    }
-  }
-}
-
 function defineHostProfile(input: HostProfileDefinition): HostProfile {
-  const extra = input as HostProfileDefinition & Record<string, unknown>;
-  for (const key of HOST_ABSENT_FIELDS) {
-    if (extra[key] !== undefined) {
-      throw new TheoremError(`Profile ${input.id}: type 'host' must not set ${key}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    }
-  }
-  assertHostGuardrails(input.id, input.guardrails);
   assertHostTools(input.id, input.tools);
   assertObservability(input.id, input.observability);
   return {
@@ -301,12 +208,6 @@ function defineHostProfile(input: HostProfileDefinition): HostProfile {
 function assertHostTools(profileId: string, tools: HostProfileToolsSpec | undefined): void {
   if (!Array.isArray(tools?.allow)) {
     throw new TheoremError(`Profile ${profileId}: type 'host' must set tools.allow`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  }
-  const extra = tools as ProfileToolsSpec;
-  if (extra.t1Policy !== undefined || extra.t2Loader !== undefined) {
-    throw new TheoremError(
-      `Profile ${profileId}: tools.t1Policy / tools.t2Loader are not supported on type 'host' — every allowed tool is executable`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    );
   }
 }
 
@@ -445,51 +346,34 @@ function assertResumption(
   assertContinueKindList(profileId, 'autoContinue', resumption.autoContinue);
 }
 
+/**
+ * Reject any field set on a profile type it doesn't belong to. The scope is
+ * `PROFILE_FIELD_SCOPE`, the one owner of which type takes which field; it
+ * covers untyped hosts the definition types can't stop.
+ */
+function assertFieldScope(input: ProfileDefinition): void {
+  const [field] = outOfScopeFields(input);
+  if (!field) return;
+  const { offValue, reason } = field.scope;
+  const allowed = offValue === undefined ? '' : ` (other than ${offValue})`;
+  throw new TheoremError(
+    `Profile ${input.id}: type '${input.type}' must not set ${field.path}${allowed} — ${reason}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  );
+}
+
 function assertTurnBehaviour(profileId: string, input: ProfileDefinition): void {
   if (input.type === 'host' || input.type === 'decision') return;
-  if (input.type === 'live') {
-    const tb = input.turnBehaviour as ProfileTurnBehaviourSpec | undefined;
-    if (tb?.resumption !== undefined) {
-      throw new TheoremError(
-        `Profile ${profileId}: type 'live' uses live.sessionResumption, not turnBehaviour.resumption`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      );
-    }
-    return;
-  }
-  // Image / speech types omit these; untyped hosts still reach them.
   const tb = input.turnBehaviour as ProfileTurnBehaviourSpec | undefined;
-  if (input.type !== 'text' && tb?.allowSteering !== undefined) {
-    throw new TheoremError(
-      `Profile ${profileId}: turnBehaviour.allowSteering is only valid on type 'text' or 'live'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    );
-  }
-  if (input.type !== 'text' && tb?.resumption?.continueInstruction !== undefined) {
-    throw new TheoremError(
-      `Profile ${profileId}: turnBehaviour.resumption.continueInstruction is only valid on type 'text' — image and speech continue by re-sending the request`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    );
-  }
   assertResumption(profileId, tb?.resumption);
 }
 
 /**
  * Speech has no system channel: Gemini TTS rejects developer instructions and
  * OpenAI-compatible `/audio/speech` has no field for one. The canary lives in
- * the system prompt, so it goes too. Checked at runtime for untyped hosts.
+ * the system prompt, so registration stores it off.
  */
 function speechGuardrails(input: SpeechProfileDefinition): SpeechProfile['guardrails'] {
-  const identity = input.identity as ProfileIdentity;
-  if (identity.system !== undefined || identity.systemByRole !== undefined) {
-    throw new TheoremError(
-      `Profile ${input.id}: speech profiles take no identity.system or identity.systemByRole — the input text is the transcript`, // lexicon-exempt: developer contract error
-    );
-  }
-  const guardrails = input.guardrails as ProfileGuardrailsSpec | undefined;
-  if (guardrails?.canary !== undefined && guardrails.canary !== false) {
-    throw new TheoremError(
-      `Profile ${input.id}: speech profiles take no canary — there is no system prompt to bind it into`, // lexicon-exempt: developer contract error
-    );
-  }
-  return { ...(guardrails as SpeechGuardrailsSpec | undefined), canary: false };
+  return { ...input.guardrails, canary: false };
 }
 
 /** Egress counts (`maxRetries`, `holdback`) are whole, non-negative numbers. */
@@ -541,6 +425,7 @@ function defineProfile(
 ): Exclude<Profile, LiveProfile | HostProfile>;
 function defineProfile(input: ProfileDefinition): Profile;
 function defineProfile(input: ProfileDefinition): Profile {
+  assertFieldScope(input);
   if (input.type === 'host') {
     return defineHostProfile(input);
   }
@@ -612,24 +497,14 @@ function defineProfile(input: ProfileDefinition): Profile {
       } satisfies SpeechProfile;
       break;
     case 'live': {
-      const liveInput = input as LiveProfileDefinition & {
-        inputs?: unknown;
-        outputs?: unknown;
-      };
-      if (liveInput.inputs !== undefined) {
-        throw new TheoremError(`Profile ${input.id}: type 'live' must not set inputs`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      }
-      if (liveInput.outputs !== undefined) {
-        throw new TheoremError(`Profile ${input.id}: type 'live' must not set outputs`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      }
       profile = {
         type: 'live',
         id: input.id,
         identity,
         ...modelFields,
         live: input.live,
-        tools: assertLiveTools(input.id, input.tools),
-        turnBehaviour: liveInput.turnBehaviour,
+        tools: { allow: input.tools.allow },
+        turnBehaviour: input.turnBehaviour,
         guardrails,
         observability,
       } satisfies LiveProfile;
@@ -738,28 +613,8 @@ function assertCustomToolsOnly(profile: Profile): void {
   }
 }
 
-function assertLiveTools(profileId: string, tools: LiveProfileToolsSpec): LiveProfileToolsSpec {
-  const extra = tools as ProfileToolsSpec;
-  if (extra.t1Policy !== undefined) {
-    throw new TheoremError(
-      `Profile ${profileId}: tools.t1Policy is not supported on type 'live' — wire T0 tools in tools.allow for session setup`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    );
-  }
-  if (extra.t2Loader !== undefined) {
-    throw new TheoremError(
-      `Profile ${profileId}: tools.t2Loader is not supported on type 'live' — Gemini Live function declarations are fixed at session setup`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    );
-  }
-  return { allow: tools.allow };
-}
-
 function assertProfileToolLoader(profile: Profile): void {
-  if (profile.type === 'live') {
-    assertLiveTools(profile.id, profile.tools);
-    return;
-  }
-  if (profile.type === 'host') {
-    assertHostTools(profile.id, profile.tools);
+  if (profile.type === 'live' || profile.type === 'host') {
     return;
   }
   const loaderId = profileToolsSpec(profile)?.t2Loader;
@@ -799,19 +654,6 @@ function assertModelBuiltInTools(profile: ModelProfile): void {
   }
 }
 
-function assertCompactionOnlyOnText(profile: ModelProfile): void {
-  if (profile.type === 'text') {
-    return;
-  }
-  for (const [modelId, binding] of Object.entries(profile.models)) {
-    if (binding.compaction) {
-      throw new TheoremError(
-        `Profile ${profile.id} model '${modelId}': compaction is only valid on type 'text'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      );
-    }
-  }
-}
-
 function assertMediaLimits(profile: ModelProfile): void {
   const inputs = profileInputs(profile);
   if (!inputs) {
@@ -840,7 +682,6 @@ function registerProfile(profileInput: Profile | ProfileDefinition): void {
     return;
   }
   assertModelBuiltInTools(profile);
-  assertCompactionOnlyOnText(profile);
   assertMediaLimits(profile);
   for (const [modelId, binding] of Object.entries(profile.models)) {
     if (binding.compaction) {

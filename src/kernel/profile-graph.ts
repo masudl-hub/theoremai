@@ -9,6 +9,7 @@
  * @module
  */
 
+import { ALL_PROFILE_TYPES, profileTypesForField } from './profile-scope.ts';
 import type { ProfileType } from './schema.ts';
 
 /** How the playground (or other host UI) should edit this facet. */
@@ -26,7 +27,6 @@ interface ProfileGraphFacetDef {
   readonly profilePath: string;
   readonly role: ProfileGraphRole;
   readonly parent?: string;
-  readonly profileTypes: readonly ProfileType[];
   readonly optional: boolean;
   readonly editor: ProfileGraphEditor;
   readonly label: string;
@@ -34,17 +34,9 @@ interface ProfileGraphFacetDef {
 }
 
 /**
- * Mirrors PROFILE_TYPES — value import would cycle through schema re-exports.
- * Drift is gated by tests/kernel/profile-graph.test.ts.
- */
-const ALL: readonly ProfileType[] = ['text', 'image', 'speech', 'live', 'decision', 'host'];
-
-/** Types that bind models — `host` never runs a model. */
-const MODEL_TYPES: readonly ProfileType[] = ['text', 'image', 'speech', 'live', 'decision'];
-
-/**
  * Authoring-graph catalog. Adding a profile section? Add PROFILE_FIELDS and a row
- * here — never a FacetKind in the frontend.
+ * here — never a FacetKind in the frontend. Each facet's `profileTypes` come
+ * from `PROFILE_FIELD_SCOPE` via its `profilePath` (see `FACET_PROFILE_TYPES`).
  *
  * `ProfileGraphFacetId` is derived from this array; do not maintain a union by hand.
  */
@@ -53,7 +45,6 @@ const PROFILE_GRAPH_DEF = [
     id: 'identity',
     profilePath: 'identity',
     role: 'root',
-    profileTypes: ALL,
     optional: false,
     editor: 'structural',
     label: 'Identity',
@@ -63,7 +54,6 @@ const PROFILE_GRAPH_DEF = [
     id: 'decision',
     profilePath: 'decision',
     role: 'spine',
-    profileTypes: ['decision'],
     optional: false,
     editor: 'structural',
     label: 'Decision',
@@ -73,7 +63,6 @@ const PROFILE_GRAPH_DEF = [
     id: 'models',
     profilePath: 'models',
     role: 'spine',
-    profileTypes: MODEL_TYPES,
     optional: false,
     editor: 'structural',
     label: 'Models',
@@ -84,7 +73,6 @@ const PROFILE_GRAPH_DEF = [
     profilePath: 'models.*',
     role: 'branch',
     parent: 'models',
-    profileTypes: MODEL_TYPES,
     optional: false,
     editor: 'structural',
     label: 'Model binding',
@@ -93,7 +81,6 @@ const PROFILE_GRAPH_DEF = [
     id: 'image',
     profilePath: 'image',
     role: 'spine',
-    profileTypes: ['image'],
     optional: false,
     editor: 'structural',
     label: 'Image',
@@ -102,7 +89,6 @@ const PROFILE_GRAPH_DEF = [
     id: 'speech',
     profilePath: 'speech',
     role: 'spine',
-    profileTypes: ['speech'],
     optional: false,
     editor: 'structural',
     label: 'Speech',
@@ -111,7 +97,6 @@ const PROFILE_GRAPH_DEF = [
     id: 'live',
     profilePath: 'live',
     role: 'spine',
-    profileTypes: ['live'],
     optional: false,
     editor: 'structural',
     label: 'Live',
@@ -120,7 +105,6 @@ const PROFILE_GRAPH_DEF = [
     id: 'tools',
     profilePath: 'tools',
     role: 'spine',
-    profileTypes: ['text', 'image', 'live', 'host'],
     optional: false,
     editor: 'structural',
     label: 'Tools',
@@ -130,7 +114,6 @@ const PROFILE_GRAPH_DEF = [
     profilePath: 'tools.allow',
     role: 'branch',
     parent: 'tools',
-    profileTypes: ['text', 'image', 'live', 'host'],
     optional: true,
     editor: 'structural',
     label: 'Tool',
@@ -139,7 +122,6 @@ const PROFILE_GRAPH_DEF = [
     id: 'inputs',
     profilePath: 'inputs',
     role: 'spine',
-    profileTypes: ['text', 'image'],
     optional: false,
     editor: 'structural',
     label: 'Inputs',
@@ -148,7 +130,6 @@ const PROFILE_GRAPH_DEF = [
     id: 'outputs',
     profilePath: 'outputs',
     role: 'spine',
-    profileTypes: ['text', 'image', 'speech'],
     optional: true,
     editor: 'structural',
     label: 'Outputs',
@@ -157,7 +138,6 @@ const PROFILE_GRAPH_DEF = [
     id: 'turnBehaviour',
     profilePath: 'turnBehaviour',
     role: 'spine',
-    profileTypes: ['text', 'image', 'speech', 'live'],
     optional: true,
     editor: 'structural',
     label: 'Turn behaviour',
@@ -166,7 +146,6 @@ const PROFILE_GRAPH_DEF = [
     id: 'guardrails',
     profilePath: 'guardrails',
     role: 'spine',
-    profileTypes: ALL,
     optional: true,
     editor: 'structural',
     label: 'Guardrails',
@@ -175,7 +154,6 @@ const PROFILE_GRAPH_DEF = [
     id: 'observability',
     profilePath: 'observability',
     role: 'spine',
-    profileTypes: ALL,
     optional: true,
     editor: 'structural',
     label: 'Observability',
@@ -207,11 +185,22 @@ export interface ProfileGraphFacet {
   ownsFields?: readonly string[];
 }
 
+/** The facets whose types differ from their `profilePath`'s scope. */
+const FACET_PROFILE_TYPES: Partial<Record<ProfileGraphFacetId, readonly ProfileType[]>> = {
+  // The root holds `id` and `type`, which every profile has.
+  identity: ALL_PROFILE_TYPES,
+  // A decision's inputs belong to its Decision facet.
+  inputs: profileTypesForField('inputs').filter((type) => type !== 'decision'),
+};
+
 /**
  * Immutable profile-editor catalog. Hosts can use it to render compatible facets
  * and detect profile-field drift without duplicating the kernel's structure.
  */
-export const PROFILE_GRAPH: readonly ProfileGraphFacet[] = PROFILE_GRAPH_DEF;
+export const PROFILE_GRAPH: readonly ProfileGraphFacet[] = PROFILE_GRAPH_DEF.map((facet) => ({
+  ...facet,
+  profileTypes: FACET_PROFILE_TYPES[facet.id] ?? profileTypesForField(facet.profilePath),
+}));
 
 /** Spine (and root) facets visible for a profile type, in catalog order. */
 function spineFacetsForProfileType(type: ProfileType): ProfileGraphFacet[] {

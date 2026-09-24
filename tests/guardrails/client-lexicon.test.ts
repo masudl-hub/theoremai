@@ -34,11 +34,11 @@ Deno.test('clientLexicon is empty without overrides', () => {
 Deno.test('attachmentIssueText words an issue with its file name and the profile lexicon', () => {
   assertEquals(
     attachmentIssueText({ code: 'too_many_images', params: { maxImages: 1 } }),
-    'Only 1 image per message.',
+    'Sorry, only 1 image can be sent per message.',
   );
   assertEquals(
     attachmentIssueText({ code: 'too_many_images', params: { maxImages: 3 } }),
-    'Only 3 images per message.',
+    'Sorry, only 3 images can be sent per message.',
   );
   assertEquals(
     attachmentIssueText(
@@ -52,7 +52,10 @@ Deno.test('attachmentIssueText words an issue with its file name and the profile
     [{ name: 'huge.png', mimeType: 'image/png', sizeBytes: 2 }],
     [],
   );
-  assertEquals(attachmentIssueText(named).startsWith('huge.png: '), true);
+  assertEquals(
+    attachmentIssueText(named),
+    'Sorry, huge.png is too large. Each file needs to be 0.0 MB or smaller.',
+  );
 });
 
 Deno.test('attachmentIssues reports too_many_images past the image cap', () => {

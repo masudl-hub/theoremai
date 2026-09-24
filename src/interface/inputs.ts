@@ -76,12 +76,12 @@ function validateProfileInputs(
   return { ok: issues.length === 0, issues };
 }
 
+/** The first accepted format this browser can record; undefined when it can record none. */
 function pickMediaRecorderMime(accept?: string[]): string | undefined {
-  const supported = (mime: string) => {
-    const recorder = (globalThis as { MediaRecorder?: { isTypeSupported(m: string): boolean } })
-      .MediaRecorder;
-    return recorder === undefined || recorder.isTypeSupported(mime);
-  };
+  const recorder = (globalThis as { MediaRecorder?: { isTypeSupported(m: string): boolean } })
+    .MediaRecorder;
+  if (recorder === undefined) return undefined;
+  const supported = (mime: string) => recorder.isTypeSupported(mime);
   const fromCandidates = (pool: readonly string[]) => pool.find(supported);
   if (accept?.length) {
     return (

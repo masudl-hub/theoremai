@@ -85,7 +85,7 @@ Deno.test('publicError prefers the failure copy over its kind', () => {
   const err = new TheoremError('input', 'too many attachments: 6 > 5', {
     copy: { key: 'attachments.too_many_files', params: { maxFiles: 5 } },
   });
-  assertEquals(publicError(err), 'Only 5 files per message.');
+  assertEquals(publicError(err), 'Sorry, only 5 files can be sent per message.');
 });
 
 Deno.test('wording resolves profile lexicon, then overrideLexicon, then the default', () => {
@@ -117,7 +117,10 @@ Deno.test('toErrorEvent keeps a failure copy for the host boundary', () => {
   };
   const ev = toErrorEvent(new TheoremError('input', 'image/png is 3000000 bytes', { copy }));
   assertEquals(ev.errorCopy, copy);
-  assertEquals(withPublicWording(ev).error, 'Each file must be 2 MB or smaller.');
+  assertEquals(
+    withPublicWording(ev).error,
+    'Sorry, that file is too large. Each file needs to be 2 MB or smaller.',
+  );
 });
 
 Deno.test('withPublicWording words error events with the profile lexicon', () => {

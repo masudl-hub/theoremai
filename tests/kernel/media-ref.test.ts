@@ -65,7 +65,7 @@ Deno.test('a media reference never runs base64 or byte limits; file count still 
     TheoremError,
   );
   assertEquals(tooMany.kind, 'input');
-  assertEquals(publicError(tooMany), 'Only 1 file per message.');
+  assertEquals(publicError(tooMany), 'Sorry, only 1 file can be sent per message.');
   // Text-mime sanitization only rewrites inline bytes; a ref passes through untouched.
   const csvRef = { mimeType: 'text/csv', uri: 'files/csv1' };
   const sanitized = sanitizeTurnBlobs(tiny(), [csvRef], undefined);
@@ -124,10 +124,10 @@ Deno.test('refused files name every reason, one line per problem, in the profile
   assertEquals(
     publicError(err),
     [
-      "clip.mp4: MIME 'video/mp4' is not accepted for attachment input.",
-      'Only 1 file per message.',
-      'photo.png: Each file must be 0.0 MB or smaller.',
-      'Those files together are too large for one message (0.0 MB max).',
+      "Sorry, clip.mp4 is a file type that can't be used here.",
+      'Sorry, only 1 file can be sent per message.',
+      'Sorry, photo.png is too large. Each file needs to be 0.0 MB or smaller.',
+      'Sorry, those files are too large together. Please keep them under 0.0 MB in total.',
     ].join('\n'),
   );
   assertEquals(

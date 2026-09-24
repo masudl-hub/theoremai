@@ -166,9 +166,9 @@ function formatMb(bytes: number): string {
   return Number.isInteger(mb) ? `${String(mb)} MB` : `${mb.toFixed(1)} MB`;
 }
 
-/** `name: ` before a line about one file, when the host sent its name. */
-function fileLabel(params: LexiconParams): string {
-  return params.fileName ? `${String(params.fileName)}: ` : '';
+/** The file's name when the host sent one; the line words itself without it. */
+function fileNameOf(params: LexiconParams): string | undefined {
+  return params.fileName ? String(params.fileName) : undefined;
 }
 
 /**
@@ -191,21 +191,27 @@ const DEFAULTS: Record<LexiconKey, LexiconDefault> = {
   'advisory.guidance': '',
   'attachments.too_many_files': (params) =>
     params.maxFiles === 1
-      ? 'Only 1 file per message.'
-      : `Only ${String(params.maxFiles)} files per message.`,
+      ? 'Sorry, only 1 file can be sent per message.'
+      : `Sorry, only ${String(params.maxFiles)} files can be sent per message.`,
   'attachments.too_many_images': (params) =>
     params.maxImages === 1
-      ? 'Only 1 image per message.'
-      : `Only ${String(params.maxImages)} images per message.`,
+      ? 'Sorry, only 1 image can be sent per message.'
+      : `Sorry, only ${String(params.maxImages)} images can be sent per message.`,
   'attachments.file_too_large': (params) =>
-    `${fileLabel(params)}Each file must be ${formatMb(Number(params.maxBytes))} or smaller.`,
+    `Sorry, ${fileNameOf(params) ?? 'that file'} is too large. Each file needs to be ${formatMb(Number(params.maxBytes))} or smaller.`,
   'attachments.turn_too_large': (params) =>
-    `Those files together are too large for one message (${formatMb(Number(params.maxTurnBytes))} max).`,
-  'attachments.not_accepted': 'This profile does not accept {channel} input.',
-  'attachments.mime_not_allowed': (params) =>
-    `${fileLabel(params)}MIME '${String(params.mimeType)}' is not accepted for ${String(params.channel)} input.`,
-  'attachments.limits_unconfigured':
-    'This profile accepts media but does not define maxFiles, maxBytes, and maxTurnBytes.',
+    `Sorry, those files are too large together. Please keep them under ${formatMb(Number(params.maxTurnBytes))} in total.`,
+  'attachments.not_accepted': (params) =>
+    params.channel === 'voice'
+      ? "Sorry, voice notes can't be used here."
+      : "Sorry, attachments can't be used here.",
+  'attachments.mime_not_allowed': (params) => {
+    const name = fileNameOf(params);
+    return name
+      ? `Sorry, ${name} is a file type that can't be used here.`
+      : "Sorry, that file type can't be used here.";
+  },
+  'attachments.limits_unconfigured': "Sorry, files can't be used here at the moment.",
   'quota.exhausted': (params) =>
     params.perDay === 1
       ? "You've reached today's limit of 1 message. Please come back tomorrow."
@@ -250,12 +256,14 @@ const DEFAULTS: Record<LexiconKey, LexiconDefault> = {
   'session.sign_in': 'Please sign in to continue.',
   'session.gate_expired': 'Sorry, that step is no longer waiting for approval.',
   'session.turn_ended': 'Sorry, that reply has already finished.',
-  'session.gate_pending': 'Resolve the gated tool before sending a new message.',
-  'voice.unsupported': 'This browser cannot record an accepted voice format.',
-  'voice.permission': 'Microphone permission was denied.',
-  'voice.unavailable': 'Microphone unavailable',
-  'voice.failed': 'Recording failed',
-  'voice.empty': 'Recording was empty.',
+  'session.gate_pending':
+    'Please approve or decline the waiting step before sending a new message.',
+  'voice.unsupported': "Sorry, voice notes can't be recorded here.",
+  'voice.permission':
+    "Sorry, the microphone can't be used without permission. Please allow access and try again.",
+  'voice.unavailable': "Sorry, the microphone isn't available at the moment.",
+  'voice.failed': "Sorry, that recording didn't work. Please try again.",
+  'voice.empty': 'Sorry, nothing was recorded. Please try again.',
   'tool.awaiting_user': 'Awaiting user input ({kind}): {prompt}',
   'tool.completed_hidden': 'Completed.',
   'tool.t2_loader_needs_snapshot': "tools.t2Loader '{tool}' requires a turn tool snapshot",

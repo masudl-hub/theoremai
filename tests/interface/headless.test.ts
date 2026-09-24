@@ -21,6 +21,7 @@ import {
   interfaceFromProfile,
   interfaceModelOptions,
   modelSelectEnabled,
+  pickMediaRecorderMime,
   prepareUserTurn,
   promotedToolIdsFromEvents,
   resetBlockIds,
@@ -916,4 +917,34 @@ Deno.test('interfaceFromProfile carries only the client lexicon keys the profile
     lexicon: { 'error.timeout': 'Took too long.', 'taint.reason_tainted': 'Host only.' },
   });
   assertEquals(interfaceFromProfile(profile).lexicon, { 'error.timeout': 'Took too long.' });
+});
+
+function withMediaRecorder(supports: readonly string[] | undefined, run: () => void): void {
+  const scope = globalThis as { MediaRecorder?: unknown };
+  const had = 'MediaRecorder' in scope;
+  const previous = scope.MediaRecorder;
+  if (supports === undefined) delete scope.MediaRecorder;
+  else scope.MediaRecorder = { isTypeSupported: (mime: string) => supports.includes(mime) };
+  try {
+    run();
+  } finally {
+    if (had) scope.MediaRecorder = previous;
+    else delete scope.MediaRecorder;
+  }
+}
+
+Deno.test('pickMediaRecorderMime finds nothing where the browser cannot record', () => {
+  withMediaRecorder(undefined, () => {
+    assertEquals(pickMediaRecorderMime(), undefined);
+    assertEquals(pickMediaRecorderMime(['audio/webm']), undefined);
+  });
+});
+
+Deno.test('pickMediaRecorderMime picks the first accepted format the browser records', () => {
+  withMediaRecorder(['audio/mp4', 'audio/ogg'], () => {
+    assertEquals(pickMediaRecorderMime(), 'audio/mp4');
+    assertEquals(pickMediaRecorderMime(['audio/*']), 'audio/mp4');
+    assertEquals(pickMediaRecorderMime(['audio/ogg']), 'audio/ogg');
+    assertEquals(pickMediaRecorderMime(['audio/webm']), undefined);
+  });
 });

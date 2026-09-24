@@ -80,10 +80,10 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       access: 'read-only',
       permission: 'auto',
       loadTier: 'T0',
-      paths: '*',
+      paths: ['*'],
       endpoint: 'https://geocoding-api.open-meteo.com/v1/search?count=3',
       method: 'GET',
-      queryParams: 'name',
+      queryParams: ['name'],
       inputJson: `{
   "type": "object",
   "properties": {
@@ -121,11 +121,11 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       access: 'read-only',
       permission: 'auto',
       loadTier: 'T0',
-      paths: '*',
+      paths: ['*'],
       endpoint: 'https://nominatim.openstreetmap.org/search?format=json&addressdetails=1',
       method: 'GET',
       headersJson: NOMINATIM_HEADERS,
-      queryParams: 'q, limit',
+      queryParams: ['q', 'limit'],
       inputJson: `{
   "type": "object",
   "properties": {
@@ -147,11 +147,11 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       access: 'read-only',
       permission: 'auto',
       loadTier: 'T0',
-      paths: '*',
+      paths: ['*'],
       endpoint: 'https://nominatim.openstreetmap.org/reverse?format=json',
       method: 'GET',
       headersJson: NOMINATIM_HEADERS,
-      queryParams: 'lat, lon',
+      queryParams: ['lat', 'lon'],
       inputJson: `{
   "type": "object",
   "properties": {
@@ -173,10 +173,10 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       access: 'read-only',
       permission: 'auto',
       loadTier: 'T0',
-      paths: '*',
+      paths: ['*'],
       endpoint: 'https://api.open-meteo.com/v1/forecast?current_weather=true',
       method: 'GET',
-      queryParams: 'latitude, longitude',
+      queryParams: ['latitude', 'longitude'],
       inputJson: `{
   "type": "object",
   "properties": {
@@ -211,10 +211,10 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       access: 'read-only',
       permission: 'auto',
       loadTier: 'T0',
-      paths: '*',
+      paths: ['*'],
       endpoint: 'https://api.sunrise-sunset.org/json',
       method: 'GET',
-      queryParams: 'lat, lng',
+      queryParams: ['lat', 'lng'],
       inputJson: `{
   "type": "object",
   "properties": {
@@ -243,10 +243,10 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       access: 'read-only',
       permission: 'auto',
       loadTier: 'T0',
-      paths: '*',
+      paths: ['*'],
       endpoint: 'https://api.frankfurter.dev/v1/latest',
       method: 'GET',
-      queryParams: 'from, to, amount',
+      queryParams: ['from', 'to', 'amount'],
       inputJson: `{
   "type": "object",
   "properties": {
@@ -276,7 +276,7 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       access: 'read-only',
       permission: 'auto',
       loadTier: 'T0',
-      paths: '*',
+      paths: ['*'],
       inputJson: `{
   "type": "object",
   "properties": {
@@ -308,7 +308,7 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       access: 'read-only',
       permission: 'auto',
       loadTier: 'T0',
-      paths: '*',
+      paths: ['*'],
       inputJson: `{
   "type": "object",
   "properties": {
@@ -340,10 +340,10 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       access: 'read-only',
       permission: 'auto',
       loadTier: 'T0',
-      paths: '*',
+      paths: ['*'],
       endpoint: 'https://en.wikipedia.org/api/rest_v1/page/summary/{title}',
       method: 'GET',
-      pathParams: 'title',
+      pathParams: ['title'],
       inputJson: `{
   "type": "object",
   "properties": {
@@ -371,12 +371,12 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       access: 'read-only',
       permission: 'auto',
       loadTier: 'T0',
-      paths: '*',
+      paths: ['*'],
       // Archive.org advanced search — Open Library TLS is unreachable from many networks.
       endpoint:
         'https://archive.org/advancedsearch.php?output=json&fl[]=identifier&fl[]=title&fl[]=creator',
       method: 'GET',
-      queryParams: 'q, rows',
+      queryParams: ['q', 'rows'],
       inputJson: `{
   "type": "object",
   "properties": {
@@ -398,10 +398,10 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       access: 'read-only',
       permission: 'auto',
       loadTier: 'T0',
-      paths: '*',
+      paths: ['*'],
       endpoint: 'https://api.zippopotam.us/{country}/{postal}',
       method: 'GET',
-      pathParams: 'country, postal',
+      pathParams: ['country', 'postal'],
       inputJson: `{
   "type": "object",
   "properties": {
@@ -424,7 +424,7 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       access: 'read-only',
       permission: 'auto',
       loadTier: 'T0',
-      paths: '*',
+      paths: ['*'],
       serverUrl: 'https://mcp.deepwiki.com/mcp',
       mcpToolName: 'ask_question',
       inputJson: `{
@@ -450,7 +450,7 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       access: 'read-only',
       permission: 'auto',
       loadTier: 'T0',
-      paths: '*',
+      paths: ['*'],
       inputJson: `{ "type": "object", "properties": {} }`,
       outputJson: `{
   "type": "object",
@@ -473,7 +473,7 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       access: 'read-only',
       permission: 'auto',
       loadTier: 'T0',
-      paths: '*',
+      paths: ['*'],
       inputJson: `{
   "type": "object",
   "properties": {
@@ -501,7 +501,7 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       access: 'read-write',
       permission: 'auto',
       loadTier: 'T0',
-      paths: '*',
+      paths: ['*'],
       inputJson: `{
   "type": "object",
   "properties": {
@@ -539,7 +539,7 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       access: 'read-only',
       permission: 'auto',
       loadTier: 'T0',
-      paths: '*',
+      paths: ['*'],
       inputJson: `{
   "type": "object",
   "properties": {
@@ -571,7 +571,7 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       access: 'read-only',
       permission: 'auto',
       loadTier: 'T0',
-      paths: '*',
+      paths: ['*'],
       inputJson: `{
   "type": "object",
   "properties": {
@@ -601,10 +601,10 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       access: 'read-only',
       permission: 'auto',
       loadTier: 'T0',
-      paths: '*',
+      paths: ['*'],
       endpoint: 'https://pokeapi.co/api/v2/pokemon/{name}',
       method: 'GET',
-      pathParams: 'name',
+      pathParams: ['name'],
       inputJson: `{
   "type": "object",
   "properties": {
@@ -633,7 +633,7 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       access: 'read-only',
       permission: 'auto',
       loadTier: 'T2',
-      paths: '*',
+      paths: ['*'],
       endpoint: 'https://catfact.ninja/fact?max_length=160',
       method: 'GET',
       inputJson: `{ "type": "object", "properties": {} }`,
@@ -657,7 +657,7 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       access: 'read-only',
       permission: 'auto',
       loadTier: 'T2',
-      paths: '*',
+      paths: ['*'],
       endpoint: 'https://official-joke-api.appspot.com/random_joke',
       method: 'GET',
       inputJson: `{ "type": "object", "properties": {} }`,
@@ -681,7 +681,7 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       access: 'read-only',
       permission: 'auto',
       loadTier: 'T2',
-      paths: '*',
+      paths: ['*'],
       endpoint: 'https://api.adviceslip.com/advice',
       method: 'GET',
       inputJson: `{ "type": "object", "properties": {} }`,
@@ -708,7 +708,7 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       access: 'read-only',
       permission: 'auto',
       loadTier: 'T2',
-      paths: '*',
+      paths: ['*'],
       endpoint: 'https://dog.ceo/api/breeds/image/random',
       method: 'GET',
       inputJson: `{ "type": "object", "properties": {} }`,

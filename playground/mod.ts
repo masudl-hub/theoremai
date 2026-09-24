@@ -1,8 +1,81 @@
 /**
- * Playground fixtures and helpers — demo graph seeds and function handlers.
+ * Playground fixtures and helpers — the editable draft, its tree, the compiler
+ * that turns it into a profile, source export, demo seeds, and run handoff.
  *
  * @module
  */
+
+export {
+  type CompiledPlayground,
+  compilePlayground,
+  type PlaygroundCompileResult,
+  type PlaygroundIssue,
+  type PlaygroundProfileDefinition,
+} from './compile.ts';
+export {
+  createBlankDraft,
+  defaultModelBinding,
+  defaultToolSpec,
+  draftFacets,
+  draftKey,
+  type EffortDraft,
+  excludeFacet,
+  type GuardrailsDraft,
+  type IdentityDraft,
+  type ImageDraft,
+  includableFacets,
+  includeFacet,
+  type InputsDraft,
+  type LiveDraft,
+  type ModelBindingDraft,
+  type ModelsDraft,
+  newModelBinding,
+  newToolSpec,
+  type ObservabilityDraft,
+  type OutputsDraft,
+  PLAYGROUND_PROFILE_TYPES,
+  type PlaygroundDraft,
+  type PlaygroundProfileType,
+  setProfileType,
+  type SpeechDraft,
+  type ToolsDraft,
+  type ToolSpecDraft,
+  type TurnBehaviourDraft,
+} from './draft.ts';
+export { createExampleDraft } from './example.ts';
+export {
+  allowedBuiltinsForGemini,
+  defaultBindingForProfileType,
+  GEMINI_PLAYGROUND_DEFAULT_API_ID,
+  GEMINI_PLAYGROUND_IMAGE_DEFAULT_API_ID,
+  GEMINI_PLAYGROUND_LIVE_DEFAULT_API_ID,
+  GEMINI_PLAYGROUND_MODELS,
+  GEMINI_PLAYGROUND_TTS_DEFAULT_API_ID,
+  type GeminiPlaygroundModel,
+  geminiPlaygroundModel,
+  isGoogleTransport,
+  isOpenRouterTransport,
+  isProviderBuiltinId,
+  modelBindingViolation,
+  OPENROUTER_PLAYGROUND_API_ID,
+  PLAYGROUND_TRACE_DESTINATION,
+} from './policy.ts';
+export { playgroundSource } from './source.ts';
+export {
+  DEFAULT_TOOL_INPUT_SCHEMA,
+  DEFAULT_TOOL_OUTPUT_SCHEMA,
+  parseJsonSchema,
+  zodExprFromJsonSchema,
+  zodFromJsonSchema,
+} from './tool-schema.ts';
+export {
+  modelBindingNodeId,
+  type PlaygroundNodeRef,
+  playgroundNodeRef,
+  playgroundTree,
+  type PlaygroundTreeNode,
+  toolSpecNodeId,
+} from './tree.ts';
 
 export {
   DEMO_ALLOWED_HOSTS,
@@ -15,11 +88,7 @@ export {
 export type { PlaygroundDemoHandler } from './demo-handlers.ts';
 export { playgroundDemoHandler } from './demo-handlers.ts';
 export { stubOutputFromSchema } from './stub.ts';
-export type {
-  PlaygroundInputsSpec,
-  PlaygroundToolSeed,
-  PlaygroundToolSpecSeed,
-} from './types.ts';
+export type { PlaygroundInputsSpec, PlaygroundToolSeed, PlaygroundToolSpecSeed } from './types.ts';
 export { registerPlaygroundLiveProfile } from './live-register.ts';
 export type {
   FunctionToolRegistration,

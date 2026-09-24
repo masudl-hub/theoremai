@@ -1,8 +1,12 @@
 # @theoremai/playground (repo-private)
 
-Demo fixtures for hosts developing against theorem: the travel concierge demo
-graph seeds, sample HTTP inputs (Open-Meteo, Nominatim, Frankfurter, …), local
-function handlers, and JSON Schema stub generation.
+The playground's authoring logic and demo fixtures: the editable profile draft,
+its tree, the compiler that turns it into a kernel profile, TypeScript source
+export, the travel concierge demo (tool seeds, sample HTTP inputs, local
+function handlers), and the run-tab handoff.
+
+The logic lives here, not in the frontend, so it is type-checked and tested
+against the kernel it compiles for.
 
 This package is **never published**. The kernel's boundary rule — "Host
 decides, Theorem runs" — forbids bundled assistants and demo product in the
@@ -17,6 +21,14 @@ stays out of every npm/JSR artifact. Consumers link it directly, e.g.
 
 | Export | Purpose |
 | --- | --- |
+| `PlaygroundDraft`, `createBlankDraft()`, `createExampleDraft()` | Editable profile draft; blank, or the travel concierge |
+| `setProfileType()`, `includeFacet()`, `excludeFacet()`, `newModelBinding()`, `newToolSpec()` | Draft edits that keep it consistent with `PROFILE_GRAPH` |
+| `playgroundTree()`, `playgroundNodeRef()`, `modelBindingNodeId()`, `toolSpecNodeId()` | The draft as a tree; node ids that issues point at |
+| `compilePlayground()` | Draft → profile definition, custom tools, structured schema; or issues keyed by node |
+| `playgroundSource()` | Compiled draft as a TypeScript module (`registerTool`, `defineProfile`, `registerProfile`) |
+| `modelBindingViolation()`, `GEMINI_PLAYGROUND_MODELS`, … | Which models and built-in tools the public playground allows |
+| `zodFromJsonSchema()`, `parseJsonSchema()` | Authored JSON Schema → Zod for registration |
+| run-payload helpers | Handoff of a compiled draft to the run tab |
 | `demoToolSpecs()`, `demoInputsSpec()` | Travel concierge tool + inputs facet seeds |
 | `DEMO_CONCIERGE_SYSTEM`, `DEMO_ALLOWED_HOSTS` | Demo system prompt and egress allowlist |
 | `DEMO_HTTP_SAMPLE_INPUT`, `demoHttpSampleInput()` | Connection-test payloads for demo HTTP tools |

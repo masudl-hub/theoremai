@@ -3,11 +3,12 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "Repo-private playground fixtures for theorem hosts: travel concierge demo seeds, local function handlers, JSON Schema stubs. Never published — demo product belongs to the host, not the kernel.",
+  "description": "Repo-private playground for theorem hosts: the profile draft, its tree and compiler, source export, and the travel concierge demo. Never published — demo product belongs to the host, not the kernel.",
   "exports": {
     ".": "./mod.ts"
   },
   "peerDependencies": {
-    "@theoremai/agents": "*"
+    "@theoremai/agents": "*",
+    "zod": "^4.1.8"
   }
 }

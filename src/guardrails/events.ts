@@ -43,6 +43,9 @@ function guardrailFromVerdict(
     action: verdict.action,
     hits: verdict.hits,
     ...(provenance ? { provenance } : {}),
+    ...(verdict.action === 'block' && verdict.errorInternal
+      ? { errorInternal: verdict.errorInternal }
+      : {}),
   });
 }
 

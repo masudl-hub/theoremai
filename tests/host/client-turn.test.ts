@@ -19,6 +19,23 @@ Deno.test('forClient leaves error events without errorInternal unchanged', () =>
   assertEquals(forClient(event), event);
 });
 
+Deno.test('forClient strips errorInternal from guardrail events', () => {
+  const event: TurnEvent = {
+    type: 'guardrail',
+    guardrail: {
+      stage: 'output_final',
+      trust: 'untrusted',
+      action: 'block',
+      hits: [{ rule: 'egress.enforcer-error', severity: 'high' }],
+      errorInternal: 'classifier at 10.0.0.7 unreachable',
+    },
+  };
+  const client = forClient(event);
+  assertEquals(client.guardrail?.action, 'block');
+  assertEquals(Object.hasOwn(client.guardrail ?? {}, 'errorInternal'), false);
+  assertEquals(forClientEvents([event])[0]?.guardrail?.errorInternal, undefined);
+});
+
 Deno.test('forClient strips evidence.raw by default', () => {
   const event: TurnEvent = {
     type: 'evidence',

@@ -43,7 +43,8 @@ process-wide with `overrideLexicon({ … })`; the profile wins.
 | `guardrails.quota.message`, `QuotaExhausted` | `quotaExhausted` returns a `rate_limit` `TheoremError`; lexicon `quota.exhausted` (`{perDay}`) |
 | Egress `Verdict.refusal`, legacy verdict `text` | Lexicon `egress.refusal`; the policy only decides |
 | `guardrails.taint.advisoryGuidance` | Lexicon `advisory.guidance` (empty by default) |
-| Kernel egress rejections sent to the model (`Egress blocked: …`, invalid verdict, policy failure) | Lexicon `egress.rejection` (`{rules}`), `egress.invalid_verdict`, `egress.policy_failed` (`{detail}`); policies read the profile lexicon on `GuardrailContext.lexicon` |
+| Kernel egress rejections sent to the model (`Egress blocked: …`, invalid verdict, policy failure) | Lexicon `egress.rejection` (`{rules}`), `egress.invalid_verdict`, `egress.policy_failed`; policies read the profile lexicon on `GuardrailContext.lexicon` |
+| A throwing egress policy's message in the model's repair turn (`egress.policy_failed` `{detail}`) | Builder only: the block verdict's and `guardrail` event's `errorInternal` and the trace's `theorem.guardrail` `error`; `forClient` strips it. `egress.policy_failed` takes no values, so an override using `{detail}` shows it literally |
 | React handler `onError` returning the user message, its generic fallback | `onError` only reports; the user reads `publicError` wording from the profile lexicon (`session.sign_in`, `session.gate_expired`, `session.turn_ended`, `error.<kind>`) |
 | React handler 409 (stale approval, finished turn), 415 (not JSON) | 400 (`request` kind) |
 | Hard-coded taint / repair / tool-failure strings | Lexicon keys (`taint.*`, `repair.*`, `tool.*`, `session.*`, …) |

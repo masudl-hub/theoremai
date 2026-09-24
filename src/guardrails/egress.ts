@@ -6,6 +6,7 @@
 
 import type { RedactSpan } from '../observability/spans.ts';
 import { scanTextForCanaryLeak } from './canary.ts';
+import { describeError } from './error.ts';
 import { hitFromSpan } from './hits.ts';
 import { injectionSpans } from './injection.ts';
 import { lexiconText } from './lexicon.ts';
@@ -126,7 +127,11 @@ function isVerdict(value: unknown): value is Verdict {
     case 'flag':
       return isGuardrailHits(value.hits);
     case 'block':
-      return isGuardrailHits(value.hits) && typeof value.rejection === 'string';
+      return (
+        isGuardrailHits(value.hits) &&
+        typeof value.rejection === 'string' &&
+        (value.errorInternal === undefined || typeof value.errorInternal === 'string')
+      );
     default:
       return false;
   }
@@ -206,7 +211,9 @@ function standardEgressEnforce(payload: OutboundPayload, context: GuardrailConte
  *
  * A policy that throws has reached no decision, so it cannot vouch for the output:
  * the failure becomes a `block`, not a pass. The turn then follows the profile's
- * ordinary `onBlock` handling instead of surfacing a raw host stack trace.
+ * ordinary `onBlock` handling instead of surfacing a raw host stack trace. The
+ * thrown message may carry host internals, so it goes to the builder only
+ * (`errorInternal`); the model reads the lexicon's `egress.policy_failed`.
  */
 async function runEnforcer(
   enforce: EgressEnforcer,
@@ -216,11 +223,11 @@ async function runEnforcer(
   try {
     return normalizeVerdict(await enforce(payload, context), context);
   } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
     return {
       action: 'block',
       hits: [{ rule: EGRESS_RULES.enforcerError, severity: 'high' }],
-      rejection: lexiconText('egress.policy_failed', { detail }, context.lexicon),
+      rejection: lexiconText('egress.policy_failed', {}, context.lexicon),
+      errorInternal: describeError(err),
     };
   }
 }

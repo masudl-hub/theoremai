@@ -152,7 +152,9 @@ Deno.test('runEnforcer converts a thrown policy error into a block', async () =>
   if (verdict.action !== 'block') return;
   assertEquals(verdict.hits[0]?.rule, EGRESS_RULES.enforcerError);
   assertEquals(verdict.hits[0]?.severity, 'high');
-  assertEquals(verdict.rejection.includes('classifier unreachable'), true);
+  // The thrown message is for the builder; the model reads the lexicon line.
+  assertEquals(verdict.rejection, lexiconDefault('egress.policy_failed'));
+  assertEquals(verdict.errorInternal, 'classifier unreachable');
 });
 
 Deno.test('runEnforcer converts a rejected promise into a block', async () => {
@@ -163,7 +165,8 @@ Deno.test('runEnforcer converts a rejected promise into a block', async () => {
   );
   assertEquals(verdict.action, 'block');
   if (verdict.action !== 'block') return;
-  assertEquals(verdict.rejection.includes('policy timed out'), true);
+  assertEquals(verdict.rejection, lexiconDefault('egress.policy_failed'));
+  assertEquals(verdict.errorInternal, 'policy timed out');
 });
 
 Deno.test('runEnforcer passes a normal verdict straight through', async () => {

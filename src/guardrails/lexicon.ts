@@ -250,7 +250,7 @@ const DEFAULTS: Record<LexiconKey, LexiconDefault> = {
   'egress.refusal': "Sorry, that reply couldn't be shared.",
   'egress.rejection': 'Egress blocked: {rules}',
   'egress.invalid_verdict': 'Egress policy returned an invalid verdict shape',
-  'egress.policy_failed': 'Egress policy failed to reach a decision: {detail}',
+  'egress.policy_failed': 'Egress policy failed to reach a decision',
   'session.abandon_gated': "User cancelled gated tool '{tool}' to send a new message.",
   'session.tool_denied': "User denied execution of '{tool}'.",
   'session.sign_in': 'Please sign in to continue.',

@@ -337,6 +337,7 @@ function guardrailAttributes(guardrail: GuardrailEvent): TraceAttributes {
       ...optional('match', hit.match),
     })),
     ...(guardrail.provenance ? { provenance: { ...guardrail.provenance } } : {}),
+    ...(guardrail.errorInternal ? { error: traceContent(guardrail.errorInternal) } : {}),
   };
 }
 

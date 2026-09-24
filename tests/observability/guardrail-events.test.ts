@@ -157,3 +157,62 @@ Deno.test('include.guardrailDecisions false drops guardrail rows from TraceRecor
     false,
   );
 });
+
+Deno.test('a failed egress policy tells the builder why and the model only that it failed', async () => {
+  const base = requireModelProfile(getProfile('chat'), 'test');
+  if (base.type !== 'text') throw new Error('expected text profile');
+  const into: TraceRecord[] = [];
+  registerProfile(
+    defineProfile({
+      ...base,
+      id: 'chat-egress-policy-failed',
+      observability: { writeTo: memorySink(into) },
+      guardrails: {
+        ...base.guardrails,
+        egress: {
+          enforce: () => {
+            throw new Error('classifier at 10.0.0.7 rejected token tk_synthetic_123');
+          },
+          onBlock: 'reject_to_agent',
+          maxRetries: 1,
+        },
+      },
+    }),
+  );
+  const requests: string[] = [];
+  const recording: ModelProvider = {
+    async *complete(...args: unknown[]): AsyncGenerator<TurnEvent> {
+      requests.push(JSON.stringify(args));
+      await Promise.resolve();
+      yield { type: 'text', text: 'ok' };
+    },
+  };
+
+  const events = await collect(
+    runTurn({ profile: 'chat-egress-policy-failed', input: { text: 'hi' } }, recording),
+  );
+
+  // The model's repair turn reads the lexicon line, never the thrown message.
+  assertEquals(requests.length >= 2, true);
+  assertEquals(
+    requests.some((request) => request.includes('Egress policy failed to reach a decision')),
+    true,
+  );
+  assertEquals(
+    requests.some((request) => request.includes('tk_synthetic_123')),
+    false,
+  );
+
+  // The builder reads it on the host stream and in the trace.
+  const blocked = events.find(
+    (e) => e.type === 'guardrail' && e.guardrail?.stage === 'output_final',
+  );
+  assertEquals(
+    blocked?.guardrail?.errorInternal,
+    'classifier at 10.0.0.7 rejected token tk_synthetic_123',
+  );
+  const traced = into[0]?.spans
+    .flatMap((span) => span.events)
+    .find((e) => e.name === 'theorem.guardrail' && e.attributes.stage === 'output_final');
+  assertEquals(Object.hasOwn(traced?.attributes ?? {}, 'error'), true);
+});

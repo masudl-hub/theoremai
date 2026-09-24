@@ -358,7 +358,7 @@ verbatim to browsers or end-user SSE** unless you intend to expose diagnostics.
 | --- | --- | --- |
 | `error` | yes | yes |
 | `errorKind` | yes | yes |
-| `errorInternal` | yes | **never** |
+| `errorInternal` (error events, `guardrail.errorInternal`) | yes | **never** |
 | `evidence` parsed fields (`kind`, `code`, `result`, citations) | yes | when useful in UI |
 | `evidence.raw` | yes | only when you explicitly want provider internals |
 | `text`, `media`, `structured`, `grounding` | yes | yes (after egress/canary gates) |

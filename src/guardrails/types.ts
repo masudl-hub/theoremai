@@ -84,6 +84,11 @@ export type Verdict =
        * With `refuse_to_user` the user reads the lexicon's `egress.refusal`.
        */
       rejection: string;
+      /**
+       * Why the check blocked, for the builder only: it reaches the host and the
+       * trace (content-gated), never the model or a client (`forClient`).
+       */
+      errorInternal?: string;
     };
 
 /** The action selected by a guardrail verdict. */
@@ -211,6 +216,8 @@ export interface GuardrailEvent {
   action: GuardrailAction;
   hits: GuardrailHit[];
   provenance?: Provenance;
+  /** The block verdict's `errorInternal`: builder-only, stripped by `forClient`. */
+  errorInternal?: string;
 }
 
 /**

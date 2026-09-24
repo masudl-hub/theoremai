@@ -75,7 +75,7 @@ type Verdict =
   | { action: 'allow' }
   | { action: 'redact'; text: string; hits: GuardrailHit[] }
   | { action: 'flag'; hits: GuardrailHit[] }
-  | { action: 'block'; hits: GuardrailHit[]; rejection: string };
+  | { action: 'block'; hits: GuardrailHit[]; rejection: string; errorInternal?: string };
 ```
 
 `Verdict` is a discriminated union, so adding a variant fails every unhandled
@@ -134,7 +134,11 @@ for the output. `runEnforcer` wraps every call site — end-of-attempt, mid-stre
 Live — and converts the failure into a `block` carrying `egress.enforcer-error`. The
 turn then follows the profile's ordinary `onBlock` handling instead of surfacing a
 raw host stack trace, and the failure never becomes a silent pass. The user reads
-only lexicon wording, so policy internals cannot reach them.
+only lexicon wording, and so does the model: its repair turn gets
+`egress.policy_failed`, never the thrown message. That message may carry host
+internals, so it goes to the builder only, as the verdict's `errorInternal`. It
+rides the `guardrail` event on the host stream and the trace's `theorem.guardrail`
+event (`error`, content-gated), and `forClient` strips it.
 
 ### Nothing is dropped silently
 

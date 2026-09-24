@@ -216,6 +216,12 @@ export function defaultBindingForProfileType(
   }
 }
 
+/** Why the playground can't run a binding, and the binding field that has to change. */
+export interface ModelBindingViolation {
+  field: 'provider' | 'apiId' | 'builtInTools';
+  message: string;
+}
+
 /**
  * Why the playground can't run this binding, or `null` when it can. Checks only
  * the free-tier keys: which models they may call and which grounding quotas they
@@ -223,30 +229,47 @@ export function defaultBindingForProfileType(
  */
 export function modelBindingViolation(
   binding: Pick<ModelBindingDraft, 'protocol' | 'provider' | 'apiId' | 'builtInTools'>,
-): string | null {
+): ModelBindingViolation | null {
   const apiId = binding.apiId.trim();
   if (isOpenRouterTransport(binding.protocol, binding.provider)) {
-    return apiId === OPENROUTER_PLAYGROUND_API_ID
-      ? null
-      : `OpenRouter models in the playground must use ${OPENROUTER_PLAYGROUND_API_ID}.`;
+    return apiId === OPENROUTER_PLAYGROUND_API_ID ? null : {
+      field: 'apiId',
+      message: `OpenRouter models in the playground must use ${OPENROUTER_PLAYGROUND_API_ID}.`,
+    };
   }
   if (!isGoogleTransport(binding.protocol, binding.provider)) {
-    return `The playground runs Google and OpenRouter models only.`;
+    return {
+      field: 'provider',
+      message: `The playground runs Google and OpenRouter models only.`,
+    };
   }
   const model = geminiPlaygroundModel(apiId);
   if (!model) {
-    return `${apiId} is not a playground Gemini model — pro and unrated models are blocked.`;
+    return {
+      field: 'apiId',
+      message: `${apiId} is not a playground Gemini model — pro and unrated models are blocked.`,
+    };
   }
   const allowed = allowedBuiltinsForGemini(apiId);
   for (const builtin of binding.builtInTools) {
     if (allowed.includes(builtin)) continue;
+    const field = 'builtInTools';
     if (builtin === 'googleMaps') {
-      return `${apiId} has no free-tier map-grounding quota — remove googleMaps.`;
+      return {
+        field,
+        message: `${apiId} has no free-tier map-grounding quota — remove googleMaps.`,
+      };
     }
     if (builtin === 'googleSearch') {
-      return `${apiId} has no free-tier search-grounding quota — remove googleSearch.`;
+      return {
+        field,
+        message: `${apiId} has no free-tier search-grounding quota — remove googleSearch.`,
+      };
     }
-    return `${builtin} is not allowed with ${apiId} on the playground free tier.`;
+    return {
+      field,
+      message: `${builtin} is not allowed with ${apiId} on the playground free tier.`,
+    };
   }
   return null;
 }

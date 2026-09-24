@@ -65,6 +65,49 @@ Deno.test('a binding issue is keyed to its binding node', () => {
     modelBindings: [...draft.modelBindings.slice(0, 2), { ...open, apiId: 'openai/gpt-5' }],
   });
   assertEquals(issueNodes(result), [modelBindingNodeId(open.key)]);
+  assert(!result.ok);
+  assertEquals(result.issues[0].field, 'apiId');
+});
+
+Deno.test('a model with several efforts and no default is an issue on its default effort', () => {
+  const draft = createExampleDraft();
+  const [fast, ...rest] = draft.modelBindings;
+  const result = compilePlayground({
+    ...draft,
+    modelBindings: [{ ...fast, defaultEffort: '' }, ...rest],
+  });
+  assert(!result.ok);
+  assertEquals(
+    result.issues.map(({ nodeId, field }) => ({ nodeId, field })),
+    [{ nodeId: modelBindingNodeId(fast.key), field: 'defaultEffort' }],
+  );
+});
+
+Deno.test('an issue names the draft field at fault, and the list entry when there is one', () => {
+  const draft = createExampleDraft();
+  const [fast, ...rest] = draft.modelBindings;
+  const result = compilePlayground({
+    ...draft,
+    identity: { ...draft.identity, handle: ' ' },
+    modelBindings: [
+      {
+        ...fast,
+        efforts: [fast.efforts[0], { ...fast.efforts[1], alias: fast.efforts[0].alias }],
+        defaultEffort: 'missing',
+      },
+      ...rest,
+    ],
+  });
+  assert(!result.ok);
+  assertEquals(
+    result.issues.map(({ nodeId, field, index }) => ({ nodeId, field, index })),
+    [
+      { nodeId: 'identity', field: 'handle', index: undefined },
+      { nodeId: modelBindingNodeId(fast.key), field: 'efforts', index: 1 },
+      { nodeId: modelBindingNodeId(fast.key), field: 'allowEffortSelect', index: undefined },
+      { nodeId: modelBindingNodeId(fast.key), field: 'defaultEffort', index: undefined },
+    ],
+  );
 });
 
 Deno.test('a duplicate tool name is keyed to the second tool', () => {
@@ -247,9 +290,9 @@ Deno.test('a new image profile starts on the playground Gemini image model', () 
 Deno.test('modelBindingViolation holds the playground to its free-tier keys', () => {
   const gemini = setProfileType(createBlankDraft(), 'text').modelBindings[0];
   assertEquals(modelBindingViolation(gemini), null);
-  assert(modelBindingViolation({ ...gemini, apiId: 'gemini-3-pro' }) !== null);
+  assertEquals(modelBindingViolation({ ...gemini, apiId: 'gemini-3-pro' })?.field, 'apiId');
   const openRouter = { ...gemini, protocol: 'openAi' as const, provider: 'openrouter' as const };
-  assert(modelBindingViolation({ ...openRouter, apiId: 'openai/gpt-5' }) !== null);
+  assertEquals(modelBindingViolation({ ...openRouter, apiId: 'openai/gpt-5' })?.field, 'apiId');
   assertEquals(modelBindingViolation({ ...openRouter, apiId: OPENROUTER_PLAYGROUND_API_ID }), null);
 });
 

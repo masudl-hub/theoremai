@@ -56,6 +56,7 @@ export {
   isGoogleTransport,
   isOpenRouterTransport,
   isProviderBuiltinId,
+  type ModelBindingViolation,
   modelBindingViolation,
   OPENROUTER_PLAYGROUND_API_ID,
   PLAYGROUND_TRACE_DESTINATION,

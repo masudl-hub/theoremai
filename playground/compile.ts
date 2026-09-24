@@ -77,10 +77,17 @@ export type PlaygroundProfileDefinition =
   | SpeechProfileDefinition
   | LiveProfileDefinition;
 
-/** One problem with the draft, on the tree node it belongs to. */
+/**
+ * One problem with the draft, on the tree node it belongs to. `field` names the
+ * draft field at fault (a key of that node's draft, e.g. `handle` on identity or
+ * `defaultEffort` on a model binding) when one field is; `index` is the entry
+ * when that field is a list. Issues about the node as a whole have neither.
+ */
 export interface PlaygroundIssue {
   nodeId: string;
   message: string;
+  field?: string;
+  index?: number;
 }
 
 /** What the playground server registers for a run. */
@@ -95,30 +102,31 @@ export type PlaygroundCompileResult =
   | ({ ok: true } & CompiledPlayground)
   | { ok: false; issues: PlaygroundIssue[] };
 
-type Report = (nodeId: string, message: string) => void;
+type Report = (nodeId: string, message: string, field?: string, index?: number) => void;
 
 /** The list's entries, trimmed, without blanks. */
 function cleanList(list: readonly string[] | undefined): string[] {
   return (list ?? []).map((item) => item.trim()).filter(Boolean);
 }
 
-/** Reports `label` unless `value` is unset or a whole number ≥ `min`. */
+/** Reports `field`, captioned `label`, unless `value` is unset or a whole number ≥ `min`. */
 function checkWhole(
   report: Report,
   nodeId: string,
+  field: string,
   label: string,
   value: number | null,
   min: 0 | 1,
 ): void {
   if (value === null || (Number.isInteger(value) && value >= min)) return;
-  report(nodeId, `${label} must be a ${min ? 'positive' : 'non-negative'} whole number.`);
+  report(nodeId, `${label} must be a ${min ? 'positive' : 'non-negative'} whole number.`, field);
 }
 
 // ── identity ────────────────────────────────────────────────────────────────
 
 function checkIdentity(draft: PlaygroundDraft, report: Report): void {
-  if (!draft.identity.agentId.trim()) report('identity', 'Profile id is required.');
-  if (!draft.identity.handle.trim()) report('identity', 'Handle is required.');
+  if (!draft.identity.agentId.trim()) report('identity', 'Profile id is required.', 'agentId');
+  if (!draft.identity.handle.trim()) report('identity', 'Handle is required.', 'handle');
 }
 
 // ── models ──────────────────────────────────────────────────────────────────
@@ -131,39 +139,42 @@ function compileBinding(
   const nodeId = modelBindingNodeId(binding.key);
   if (!isValidProfileProtocol(type, binding.protocol)) {
     const legal = protocolsForProfileType(type).join(' or ');
-    report(nodeId, `${type} profiles can't use ${binding.protocol} — use ${legal}.`);
+    report(nodeId, `${type} profiles can't use ${binding.protocol} — use ${legal}.`, 'protocol');
   } else if (!isValidPair(binding.protocol, binding.provider)) {
-    report(nodeId, `${binding.protocol} doesn't run on ${binding.provider}.`);
+    report(nodeId, `${binding.protocol} doesn't run on ${binding.provider}.`, 'provider');
   }
   const apiId = binding.apiId.trim();
   if (!apiId) {
-    report(nodeId, 'Wire model id is required.');
+    report(nodeId, 'Wire model id is required.', 'apiId');
   } else {
     const violation = modelBindingViolation(binding);
-    if (violation) report(nodeId, violation);
+    if (violation) report(nodeId, violation.message, violation.field);
   }
 
   const efforts: Record<string, ModelBindingDraft['efforts'][number]['level']> = {};
-  for (const { alias, level } of binding.efforts) {
+  binding.efforts.forEach(({ alias, level }, index) => {
     const name = alias.trim();
-    if (!name) report(nodeId, 'Every effort needs an alias.');
-    else if (name in efforts) report(nodeId, `Effort alias '${name}' is used twice.`);
-    else efforts[name] = level;
-  }
+    if (!name) report(nodeId, 'Every effort needs an alias.', 'efforts', index);
+    else if (name in efforts) {
+      report(nodeId, `Effort alias '${name}' is used twice.`, 'efforts', index);
+    } else efforts[name] = level;
+  });
   const effortCount = Object.keys(efforts).length;
   if (binding.allowEffortSelect && effortCount < 2) {
-    report(nodeId, 'Effort select needs at least two efforts.');
+    report(nodeId, 'Effort select needs at least two efforts.', 'allowEffortSelect');
   }
   const defaultEffort = binding.defaultEffort.trim();
-  if (defaultEffort && !(defaultEffort in efforts)) {
-    report(nodeId, `Default effort '${defaultEffort}' is not one of the efforts.`);
+  if (!defaultEffort && Object.keys(efforts).length > 1) {
+    report(nodeId, 'Pick a default effort — there is more than one.', 'defaultEffort');
+  } else if (defaultEffort && !(defaultEffort in efforts)) {
+    report(nodeId, `Default effort '${defaultEffort}' is not one of the efforts.`, 'defaultEffort');
   }
-  checkWhole(report, nodeId, 'Max output tokens', binding.maxOutputTokens, 1);
+  checkWhole(report, nodeId, 'maxOutputTokens', 'Max output tokens', binding.maxOutputTokens, 1);
   if (
     binding.temperature !== null &&
     !(Number.isFinite(binding.temperature) && binding.temperature >= 0)
   ) {
-    report(nodeId, 'Temperature must be zero or more.');
+    report(nodeId, 'Temperature must be zero or more.', 'temperature');
   }
 
   return {
@@ -193,29 +204,30 @@ function compileModels(
   for (const binding of modelBindings) {
     const compiled = compileBinding(binding, type, report);
     const modelId = binding.modelId.trim();
-    if (!modelId) report(modelBindingNodeId(binding.key), 'Model id is required.');
+    const nodeId = modelBindingNodeId(binding.key);
+    if (!modelId) report(nodeId, 'Model id is required.', 'modelId');
     else if (modelId in models) {
-      report(modelBindingNodeId(binding.key), `Model id '${modelId}' is used twice.`);
+      report(nodeId, `Model id '${modelId}' is used twice.`, 'modelId');
     } else models[modelId] = compiled;
   }
 
   if (!modelBindings.length) report('models', 'Add at least one model.');
   const defaultModel = policy.defaultModel.trim();
   if (defaultModel && !(defaultModel in models)) {
-    report('models', `Default model '${defaultModel}' is not one of the models.`);
+    report('models', `Default model '${defaultModel}' is not one of the models.`, 'defaultModel');
   } else if (!defaultModel && modelBindings.length > 1) {
-    report('models', 'Pick a default model — there is more than one.');
+    report('models', 'Pick a default model — there is more than one.', 'defaultModel');
   }
   if (policy.allowModelSelect && modelBindings.length < 2) {
-    report('models', 'Model select needs at least two models.');
+    report('models', 'Model select needs at least two models.', 'allowModelSelect');
   }
   if (policy.maxSteps !== null && !Number.isInteger(policy.maxSteps)) {
-    report('models', 'Max steps must be a whole number.');
+    report('models', 'Max steps must be a whole number.', 'maxSteps');
   }
   const usesGoogle = modelBindings.some((binding) =>
     isGoogleTransport(binding.protocol, binding.provider)
   );
-  if (usesGoogle && !policy.key) report('models', 'Google models need a key slot.');
+  if (usesGoogle && !policy.key) report('models', 'Google models need a key slot.', 'key');
 
   return {
     models,
@@ -268,14 +280,21 @@ function isUrl(raw: string): boolean {
   }
 }
 
-type Fail = (message: string) => void;
+/** Reports a problem with one of the tool draft's fields. */
+type Fail = (message: string, field: keyof ToolSpecDraft) => void;
 
 function checkToolName(name: string, fail: Fail): void {
-  if (!name) fail('Tool name is required.');
+  if (!name) fail('Tool name is required.', 'toolName');
   else if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(name)) {
-    fail(`Tool name '${name}' must be letters, digits, and underscores, starting with a letter.`);
+    fail(
+      `Tool name '${name}' must be letters, digits, and underscores, starting with a letter.`,
+      'toolName',
+    );
   } else if (isProviderBuiltinId(name)) {
-    fail(`${name} is a provider builtin — turn it on under the model's built-in tools.`);
+    fail(
+      `${name} is a provider builtin — turn it on under the model's built-in tools.`,
+      'toolName',
+    );
   }
 }
 
@@ -284,11 +303,11 @@ function toolCommon(tool: ToolSpecDraft, fail: Fail) {
   const name = tool.toolName.trim();
   checkToolName(name, fail);
   const description = tool.description.trim();
-  if (!description) fail('Description is required.');
+  if (!description) fail('Description is required.', 'description');
   const input = parseJsonSchema(tool.inputJson, 'Input');
-  if (!input.ok) fail(input.error);
+  if (!input.ok) fail(input.error, 'inputJson');
   const output = parseJsonSchema(tool.outputJson, 'Output');
-  if (!output.ok) fail(output.error);
+  if (!output.ok) fail(output.error, 'outputJson');
   const paths = cleanList(tool.paths);
   return {
     name,
@@ -308,21 +327,26 @@ type ToolCommon = ReturnType<typeof toolCommon>;
 /** Headers and auth, which HTTP and MCP tools share. */
 function remoteToolFields(tool: ToolSpecDraft, fail: Fail) {
   const headers = parseHeaders(tool.headersJson);
-  if (headers === null) fail('Headers must be a JSON object of strings.');
+  if (headers === null) fail('Headers must be a JSON object of strings.', 'headersJson');
   const auth = compileAuth(tool);
   return { ...(headers ? { headers } : {}), ...(auth ? { auth } : {}) };
 }
 
 /** A URL field: required, and a full URL. */
-function checkUrl(raw: string | undefined, label: string, fail: Fail): string {
-  const url = raw?.trim() ?? '';
-  if (!url) fail(`${label} is required.`);
-  else if (!isUrl(url)) fail(`${label} must be a full URL.`);
+function checkUrl(
+  tool: ToolSpecDraft,
+  field: 'endpoint' | 'serverUrl',
+  label: string,
+  fail: Fail,
+): string {
+  const url = tool[field]?.trim() ?? '';
+  if (!url) fail(`${label} is required.`, field);
+  else if (!isUrl(url)) fail(`${label} must be a full URL.`, field);
   return url;
 }
 
 function httpTool(tool: ToolSpecDraft, common: ToolCommon, fail: Fail): ToolRegistration {
-  const endpoint = checkUrl(tool.endpoint, 'Endpoint URL', fail);
+  const endpoint = checkUrl(tool, 'endpoint', 'Endpoint URL', fail);
   const pathParams = cleanList(tool.pathParams);
   const queryParams = cleanList(tool.queryParams);
   const bodyParam = tool.bodyParam?.trim();
@@ -342,16 +366,16 @@ function httpTool(tool: ToolSpecDraft, common: ToolCommon, fail: Fail): ToolRegi
 }
 
 function mcpTool(tool: ToolSpecDraft, common: ToolCommon, fail: Fail): ToolRegistration {
-  const serverUrl = checkUrl(tool.serverUrl, 'MCP server URL', fail);
+  const serverUrl = checkUrl(tool, 'serverUrl', 'MCP server URL', fail);
   const mcpToolName = tool.mcpToolName?.trim() ?? '';
-  if (!mcpToolName) fail('MCP tool name is required.');
+  if (!mcpToolName) fail('MCP tool name is required.', 'mcpToolName');
   return { type: 'mcp', ...common, serverUrl, mcpToolName, ...remoteToolFields(tool, fail) };
 }
 
 function functionTool(tool: ToolSpecDraft, common: ToolCommon, fail: Fail): ToolRegistration {
   if (!tool.stubOutputJson?.trim()) return { type: 'function', ...common };
   const stub = parseJsonSchema(tool.stubOutputJson, 'Stub output');
-  if (!stub.ok) fail(stub.error.replace(' JSON Schema', ''));
+  if (!stub.ok) fail(stub.error.replace(' JSON Schema', ''), 'stubOutputJson');
   return { type: 'function', ...common, ...(stub.ok ? { stubResponse: stub.schema } : {}) };
 }
 
@@ -360,9 +384,9 @@ const TOOL_COMPILERS = { http: httpTool, mcp: mcpTool, function: functionTool };
 function compileTool(tool: ToolSpecDraft, report: Report): ToolRegistration | undefined {
   const nodeId = toolSpecNodeId(tool.key);
   let failed = false;
-  const fail: Fail = (message) => {
+  const fail: Fail = (message, field) => {
     failed = true;
-    report(nodeId, message);
+    report(nodeId, message, field);
   };
   const compiled = TOOL_COMPILERS[tool.toolType](tool, toolCommon(tool, fail), fail);
   return failed ? undefined : compiled;
@@ -375,7 +399,7 @@ function compileTools(draft: PlaygroundDraft, withLoader: boolean, report: Repor
     const compiled = compileTool(tool, report);
     if (!compiled) continue;
     if (names.has(compiled.name)) {
-      report(toolSpecNodeId(tool.key), `Tool name '${compiled.name}' is used twice.`);
+      report(toolSpecNodeId(tool.key), `Tool name '${compiled.name}' is used twice.`, 'toolName');
       continue;
     }
     names.add(compiled.name);
@@ -384,7 +408,7 @@ function compileTools(draft: PlaygroundDraft, withLoader: boolean, report: Repor
   const allow = customTools.map((tool) => tool.name);
   const t2Loader = withLoader ? draft.tools.t2Loader.trim() : '';
   if (t2Loader && !names.has(t2Loader)) {
-    report('tools', `T2 loader '${t2Loader}' must be one of the custom tools.`);
+    report('tools', `T2 loader '${t2Loader}' must be one of the custom tools.`, 't2Loader');
   }
   return { customTools, tools: { allow, ...(t2Loader ? { t2Loader } : {}) } };
 }
@@ -392,9 +416,9 @@ function compileTools(draft: PlaygroundDraft, withLoader: boolean, report: Repor
 // ── sections ────────────────────────────────────────────────────────────────
 
 function compileInputs(inputs: InputsDraft, report: Report): ProfileInputsSpec {
-  checkWhole(report, 'inputs', 'Max files', inputs.maxFiles, 1);
-  checkWhole(report, 'inputs', 'Max bytes', inputs.maxBytes, 1);
-  checkWhole(report, 'inputs', 'Max turn bytes', inputs.maxTurnBytes, 1);
+  checkWhole(report, 'inputs', 'maxFiles', 'Max files', inputs.maxFiles, 1);
+  checkWhole(report, 'inputs', 'maxBytes', 'Max bytes', inputs.maxBytes, 1);
+  checkWhole(report, 'inputs', 'maxTurnBytes', 'Max turn bytes', inputs.maxTurnBytes, 1);
   return {
     ...(inputs.text ? {} : { text: false }),
     ...(inputs.attachmentsAccept.length
@@ -414,13 +438,13 @@ function compileOutputs(
   let structured: StructuredRegistration | undefined;
   if (outputs.mode === 'structured') {
     const id = outputs.schemaId.trim();
-    if (!id) report('outputs', 'Structured output needs a schema id.');
+    if (!id) report('outputs', 'Structured output needs a schema id.', 'schemaId');
     const schema = parseJsonSchema(outputs.schemaJson, 'Structured output');
-    if (!schema.ok) report('outputs', schema.error);
+    if (!schema.ok) report('outputs', schema.error, 'schemaJson');
     if (id && schema.ok) structured = { id, spec: { jsonSchema: schema.schema } };
   }
   if (outputs.validationEnabled) {
-    checkWhole(report, 'outputs', 'Validation max retries', outputs.maxRetries, 0);
+    checkWhole(report, 'outputs', 'maxRetries', 'Validation max retries', outputs.maxRetries, 0);
   }
   const validation = outputs.validationEnabled && outputs.maxRetries !== null
     ? { maxRetries: outputs.maxRetries }
@@ -442,7 +466,7 @@ function compileOutputs(
 
 function compileResumption(turn: TurnBehaviourDraft, report: Report) {
   if (!turn.resumeEnabled) return undefined;
-  checkWhole(report, 'turnBehaviour', 'Max continues', turn.maxContinues, 1);
+  checkWhole(report, 'turnBehaviour', 'maxContinues', 'Max continues', turn.maxContinues, 1);
   return {
     ...(turn.allowContinue.length ? { allowContinue: [...turn.allowContinue] } : {}),
     ...(turn.autoContinue.length ? { autoContinue: [...turn.autoContinue] } : {}),
@@ -480,35 +504,55 @@ function compileLexicon(
   allows: (path: string) => boolean,
   report: Report,
 ): LexiconOverrides | undefined {
-  const entries: Array<[nodeId: string, key: LexiconKey, template: string]> = [];
+  const entries: Array<[nodeId: string, field: string, key: LexiconKey, template: string]> = [];
   const turn = draft.turnBehaviour;
   const type = draft.identity.profileType;
   const takesInstruction = type !== '' && CONTINUE_INSTRUCTION_TYPES.includes(type);
   if (facets.has('turnBehaviour') && takesInstruction && turn.resumeEnabled) {
-    entries.push(['turnBehaviour', 'continue.instruction', turn.continueInstruction.trim()]);
+    entries.push([
+      'turnBehaviour',
+      'continueInstruction',
+      'continue.instruction',
+      turn.continueInstruction.trim(),
+    ]);
   }
   const { guardrails } = draft;
   if (facets.has('guardrails') && allows('guardrails.canary') && guardrails.canary) {
-    entries.push(['guardrails', 'canary.bind_note', guardrails.canaryBindNote.trim()]);
+    entries.push([
+      'guardrails',
+      'canaryBindNote',
+      'canary.bind_note',
+      guardrails.canaryBindNote.trim(),
+    ]);
   }
   if (facets.has('guardrails') && allows('guardrails.quota') && guardrails.quotaEnabled) {
-    entries.push(['guardrails', 'quota.exhausted', guardrails.quotaMessage.trim()]);
+    entries.push(['guardrails', 'quotaMessage', 'quota.exhausted', guardrails.quotaMessage.trim()]);
   }
   const { outputs } = draft;
   if (facets.has('outputs') && outputs.validationEnabled) {
-    entries.push(['outputs', 'repair.default_guidance', outputs.repairGuidance.trim()]);
+    entries.push([
+      'outputs',
+      'repairGuidance',
+      'repair.default_guidance',
+      outputs.repairGuidance.trim(),
+    ]);
   }
   if (facets.has('guardrails') && allows('guardrails.egress') && guardrails.egressEnabled) {
-    entries.push(['guardrails', 'egress.default_repair_guidance', guardrails.egressRepairGuidance.trim()]);
+    entries.push([
+      'guardrails',
+      'egressRepairGuidance',
+      'egress.default_repair_guidance',
+      guardrails.egressRepairGuidance.trim(),
+    ]);
   }
   const lexicon: LexiconOverrides = {};
-  for (const [nodeId, key, template] of entries) {
+  for (const [nodeId, field, key, template] of entries) {
     if (!template) continue;
     try {
       validateLexiconOverrides({ [key]: template }, 'Profile lexicon');
       lexicon[key] = template;
     } catch (err) {
-      report(nodeId, describeError(err));
+      report(nodeId, describeError(err), field);
     }
   }
   return Object.keys(lexicon).length ? lexicon : undefined;
@@ -517,10 +561,10 @@ function compileLexicon(
 function compileQuota(guardrails: GuardrailsDraft, report: Report): ProfileGuardrailsSpec['quota'] {
   if (!guardrails.quotaEnabled) return undefined;
   if (guardrails.quotaPerDay === null) {
-    report('guardrails', 'Quota needs turns per day.');
+    report('guardrails', 'Quota needs turns per day.', 'quotaPerDay');
     return undefined;
   }
-  checkWhole(report, 'guardrails', 'Quota per day', guardrails.quotaPerDay, 1);
+  checkWhole(report, 'guardrails', 'quotaPerDay', 'Quota per day', guardrails.quotaPerDay, 1);
   return { perDay: guardrails.quotaPerDay };
 }
 
@@ -529,8 +573,22 @@ function compileEgress(
   report: Report,
 ): ProfileGuardrailsSpec['egress'] {
   if (!guardrails.egressEnabled) return undefined;
-  checkWhole(report, 'guardrails', 'Egress max retries', guardrails.egressMaxRetries, 0);
-  checkWhole(report, 'guardrails', 'Egress holdback', guardrails.egressHoldback, 0);
+  checkWhole(
+    report,
+    'guardrails',
+    'egressMaxRetries',
+    'Egress max retries',
+    guardrails.egressMaxRetries,
+    0,
+  );
+  checkWhole(
+    report,
+    'guardrails',
+    'egressHoldback',
+    'Egress holdback',
+    guardrails.egressHoldback,
+    0,
+  );
   return {
     enforce: standardEgressEnforce,
     ...(guardrails.egressOnBlock ? { onBlock: guardrails.egressOnBlock } : {}),
@@ -544,7 +602,8 @@ function compileNetwork(
   report: Report,
 ): ProfileGuardrailsSpec['network'] {
   const hosts = guardrails.allowedHosts.map((host) => host.trim());
-  if (hosts.some((host) => !host)) report('guardrails', 'Allowed hosts cannot be blank.');
+  const blank = hosts.indexOf('');
+  if (blank !== -1) report('guardrails', 'Allowed hosts cannot be blank.', 'allowedHosts', blank);
   if (!guardrails.allowPrivateNetworks && !hosts.length) return undefined;
   return {
     ...(guardrails.allowPrivateNetworks ? { allowPrivateNetworks: true } : {}),
@@ -583,16 +642,16 @@ function compileObservability(
   const { writeTo } = observability;
   const { sampleRate } = observability;
   if (!(Number.isFinite(sampleRate) && sampleRate >= 0 && sampleRate <= 1)) {
-    report('observability', 'Sample rate must be between 0 and 1.');
+    report('observability', 'Sample rate must be between 0 and 1.', 'sampleRate');
   }
   if (observability.retainForDays !== null && !Number.isFinite(observability.retainForDays)) {
-    report('observability', 'Retain for days must be a number.');
+    report('observability', 'Retain for days must be a number.', 'retainForDays');
   }
   if (
     observability.rotateAfterMiB !== null &&
     !(Number.isFinite(observability.rotateAfterMiB) && observability.rotateAfterMiB > 0)
   ) {
-    report('observability', 'Rotate after MiB must be more than zero.');
+    report('observability', 'Rotate after MiB must be more than zero.', 'rotateAfterMiB');
   }
 
   const include = Object.fromEntries(
@@ -619,7 +678,7 @@ function compileObservability(
 }
 
 function compileImage(image: ImageDraft, report: Report): ProfileImageSpec {
-  checkWhole(report, 'image', 'Max input images', image.maxInputImages, 1);
+  checkWhole(report, 'image', 'maxInputImages', 'Max input images', image.maxInputImages, 1);
   return {
     ...(image.aspectRatio.trim() ? { aspectRatio: image.aspectRatio.trim() } : {}),
     ...(image.size.trim() ? { size: image.size.trim() } : {}),
@@ -643,6 +702,7 @@ function compileSpeech(
       report(
         'speech',
         `${format} output needs every model on openAi; ${refused.modelId} is ${refused.protocol}.`,
+        'format',
       );
     }
   }
@@ -656,8 +716,22 @@ function compileLive(live: LiveDraft, report: Report): ProfileLiveSpec {
   if (!live.ingressAudio && !live.ingressVideo && !live.ingressText) {
     report('live', 'Turn on at least one ingress channel.');
   }
-  checkWhole(report, 'live', 'VAD prefix padding', live.vadPrefixPaddingMs, 0);
-  checkWhole(report, 'live', 'VAD silence duration', live.vadSilenceDurationMs, 0);
+  checkWhole(
+    report,
+    'live',
+    'vadPrefixPaddingMs',
+    'VAD prefix padding',
+    live.vadPrefixPaddingMs,
+    0,
+  );
+  checkWhole(
+    report,
+    'live',
+    'vadSilenceDurationMs',
+    'VAD silence duration',
+    live.vadSilenceDurationMs,
+    0,
+  );
 
   const channels = { audio: live.ingressAudio, video: live.ingressVideo, text: live.ingressText };
   const ingress = Object.fromEntries(
@@ -758,14 +832,19 @@ function assemble(
 /** Validate the draft and compile it; every issue is reported, not just the first. */
 export function compilePlayground(draft: PlaygroundDraft): PlaygroundCompileResult {
   const issues: PlaygroundIssue[] = [];
-  const report: Report = (nodeId, message) => {
-    issues.push({ nodeId, message });
+  const report: Report = (nodeId, message, field, index) => {
+    issues.push({
+      nodeId,
+      message,
+      ...(field !== undefined ? { field } : {}),
+      ...(index !== undefined ? { index } : {}),
+    });
   };
 
   checkIdentity(draft, report);
   const type = draft.identity.profileType;
   if (!type) {
-    report('identity', 'Pick a profile type.');
+    report('identity', 'Pick a profile type.', 'profileType');
     return { ok: false, issues };
   }
   const compiled = assemble(draft, type, report);

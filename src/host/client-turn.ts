@@ -16,8 +16,9 @@ export interface ClientTurnOptions {
   includeEvidenceRaw?: boolean;
 }
 
+/** Raw diagnostic detail rides on error events and on an ended session's close. */
 function stripErrorInternal(event: TurnEvent): TurnEvent {
-  if (event.type !== 'error' || !event.errorInternal) {
+  if (event.errorInternal === undefined) {
     return event;
   }
   const { errorInternal: _internal, ...rest } = event;

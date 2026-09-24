@@ -236,6 +236,8 @@ class LiveTrace {
   private readonly callParents = new Map<string, string>();
   private writes: Promise<void> = Promise.resolve();
   private failure?: Error;
+  /** The provider closed the session after warning it would (`goAway`). */
+  private endedByGoAway = false;
   private socketHasClosed = false;
   private closing?: Promise<void>;
 
@@ -290,8 +292,10 @@ class LiveTrace {
         this.failure ??= item.error;
         return;
       case 'closed':
-        this.socketClosed(item.code, item.reason, 'provider');
-        this.failure ??= item.error;
+        this.socketClosed(item.code, item.reason, 'provider', item);
+        // A close the provider warned of ends the session; it is not the session's failure.
+        if (item.goAway) this.endedByGoAway = true;
+        else this.failure ??= item.error;
         return;
     }
   }
@@ -317,11 +321,34 @@ class LiveTrace {
     if (event.guardrail) this.root.event('theorem.guardrail', guardrailAttributes(event.guardrail));
   }
 
-  /** Record the socket closing; the first close is the one that ended the session. */
-  socketClosed(code: number, reason: string, initiator: LiveCloser): void {
+  /**
+   * Record the socket closing; the first close is the one that ended the
+   * session. A provider close carries its warning (`goAway`) and what the code
+   * means as a failure, so a warned close stays fully diagnosable.
+   */
+  socketClosed(
+    code: number,
+    reason: string,
+    initiator: LiveCloser,
+    provider?: Extract<SessionQueueItem, { type: 'closed' }>,
+  ): void {
     if (this.socketHasClosed) return;
     this.socketHasClosed = true;
-    this.root.event('theorem.session', { kind: 'closed', code, reason, initiator });
+    const goAway = provider?.goAway;
+    this.root.event('theorem.session', {
+      kind: 'closed',
+      code,
+      reason,
+      initiator,
+      ...(provider?.error ? { 'error.type': errorKind(provider.error) } : {}),
+      ...(goAway
+        ? {
+            cause: 'go_away',
+            ...optional('time_left_ms', goAway.timeLeftMs),
+            closed_after_ms: goAway.closedAfterMs,
+          }
+        : {}),
+    });
   }
 
   /**
@@ -383,13 +410,15 @@ class LiveTrace {
       ...(tokens ? usageAttributes(tokens) : {}),
       'theorem.steps': this.responses,
       ...(aborted ? { 'theorem.stop.kind': 'cancelled' } : {}),
+      ...(!aborted && this.endedByGoAway ? { 'theorem.stop.kind': 'go_away' } : {}),
     });
     if (thrown !== undefined) {
       recordException(this.root, thrown);
       this.root.set({ 'error.type': errorKind(thrown) });
       this.root.end({ code: 'ERROR', message: errorKind(thrown) });
     } else {
-      this.root.end(aborted ? { code: 'UNSET' } : { code: 'OK' });
+      // A warned close is no verdict: neither failed nor known to be fine.
+      this.root.end(aborted || this.endedByGoAway ? { code: 'UNSET' } : { code: 'OK' });
     }
     this.write(this.tree.collect());
     await this.writes;

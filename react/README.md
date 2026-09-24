@@ -63,6 +63,10 @@ English. It hands the builder kinds, codes, and states:
   the user. `errorKind` and `errorInternal` are for the builder.
 - Attachment problems are `AttachmentValidationIssue`s; word one with
   `attachmentIssueText(issue, iface.lexicon)` from `@theoremai/agents`.
+- A Live call the provider ended after warning it would is not a failure:
+  `LiveSessionClient`'s `onSessionEnded(session)` gives `session.message`, the
+  profile's `live.session_ended` wording, and `session.ended` (close code,
+  timing, the code's kind) for the builder.
 - Chrome is semantic: `liveState`, `workStatus`, drawer `parts`, hint `id`.
 
 `@theoremai/react/ui` is the default UI. Every line it shows is an Astryx i18n

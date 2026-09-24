@@ -14,6 +14,7 @@ import {
 } from '../../src/guardrails/error.ts';
 import { lexiconDefault, overrideLexicon, resetLexicon } from '../../src/guardrails/lexicon.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
+import type { TurnEvent } from '../../src/kernel/types.ts';
 
 /** The locked user lines, one per kind. */
 const LOCKED: Record<ErrorKind, string> = {
@@ -219,4 +220,22 @@ Deno.test('describeError returns the raw detail', () => {
   assertEquals(describeError(42), '42');
   assertEquals(describeError(null), 'null');
   assertEquals(describeError(new Error('')), 'Error');
+});
+
+Deno.test('withPublicWording words an ended session with the profile lexicon', () => {
+  const ev: TurnEvent = {
+    type: 'session',
+    session: { kind: 'ended', ended: { cause: 'go_away', code: 1000, closedAfterMs: 0 } },
+  };
+  assertEquals(
+    withPublicWording(ev).session?.message,
+    'The call has ended. Please start a new one to carry on.',
+  );
+  const lexicon = { 'live.session_ended': 'That call is over. Start another any time.' };
+  assertEquals(withPublicWording(ev, lexicon).session?.message, lexicon['live.session_ended']);
+  const worded = {
+    ...ev,
+    session: { ...ev.session, kind: 'ended' as const, message: 'Host copy.' },
+  };
+  assertEquals(withPublicWording(worded).session?.message, 'Host copy.');
 });

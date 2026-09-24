@@ -147,6 +147,7 @@ class FakeLiveSocket extends EventTarget {
   onopen: (() => void) | null = null;
   onerror: (() => void) | null = null;
   onclose: ((evt: { code: number; reason: string }) => void) | null = null;
+  onmessage: ((evt: { data: unknown }) => Promise<void>) | null = null;
   sent: string[] = [];
   send(data: string): void {
     this.sent.push(data);
@@ -215,4 +216,29 @@ Deno.test('Live session closes: normal carries no error, abnormal carries its ki
     const item = await queue.next();
     assertEquals(item?.type === 'closed' ? item.error?.kind : 'not closed', kind);
   }
+});
+
+Deno.test('Live session close after goAway carries the warning and keeps the close facts', async () => {
+  const ws = new FakeLiveSocket();
+  const queue = createLiveQueue();
+  attachLiveSessionHandlers(ws as unknown as WebSocket, queue);
+  await ws.onmessage?.({ data: JSON.stringify({ goAway: { timeLeft: '50s' } }) });
+  assertEquals((await queue.next())?.type, 'batch');
+  ws.onclose?.({ code: 1008, reason: 'session limit' });
+  const item = await queue.next();
+  if (item?.type !== 'closed') throw new Error('expected a close');
+  assertEquals(item.code, 1008);
+  assertEquals(item.reason, 'session limit');
+  assertEquals(item.error?.kind, 'unsupported');
+  assertEquals(item.goAway?.timeLeftMs, 50_000);
+  assertEquals(typeof item.goAway?.closedAfterMs, 'number');
+});
+
+Deno.test('Live session close without goAway carries no warning', async () => {
+  const ws = new FakeLiveSocket();
+  const queue = createLiveQueue();
+  attachLiveSessionHandlers(ws as unknown as WebSocket, queue);
+  ws.onclose?.({ code: 1008, reason: 'idle' });
+  const item = await queue.next();
+  assertEquals(item?.type === 'closed' ? item.goAway : 'not closed', undefined);
 });

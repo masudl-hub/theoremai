@@ -218,6 +218,7 @@ function LiveStage({ model }: { model: LiveModel }) {
 					</Text>
 				</VStack>
 				{model.failure ? <Banner status="error" title={model.failure.error} /> : null}
+				{model.sessionEnded ? <Banner status="info" title={model.sessionEnded} /> : null}
 				<StackItem size="fill">
 					<VStack height="100%" vAlign="end">
 						{/* Bars stand on the stage floor, in the icon colour (no Stack colour prop). */}

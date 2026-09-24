@@ -11,6 +11,8 @@
 
 import { bindCanary } from '../../../guardrails/canary.ts';
 import {
+  describeError,
+  errorKind,
   TheoremError,
   throwIfAborted,
   toErrorEvent,
@@ -35,6 +37,7 @@ import {
   liveFunctionResponsePayload,
 } from '../../../providers/google/live/framing.ts';
 import { openGoogleLiveSession } from '../../../providers/google/live/session.ts';
+import type { GoAwayClose, SessionQueueItem } from '../../../providers/google/live/stream.ts';
 import type { ToolCredential } from '../../auth/types.ts';
 import { providerCompleteRequest } from '../../registry/provider-request.ts';
 import { resolveTurn } from '../../registry/resolve.ts';
@@ -79,6 +82,32 @@ export interface RunSessionOptions {
   gemini: GeminiTransport;
   /** Override socket open (Cloudflare fetch-upgrade, tests). Default: `new WebSocket(url)`. */
   openWebSocket?: (url: string) => Promise<WebSocket>;
+}
+
+/**
+ * The provider's close after it warned of it (`goAway`): the session's last
+ * event, not a failure. Every close fact rides along for the builder; the raw
+ * close text is `errorInternal`, which `forClient` strips.
+ */
+function sessionEndedEvent(
+  closed: Extract<SessionQueueItem, { type: 'closed' }>,
+  goAway: GoAwayClose,
+): TurnEvent {
+  const internal = closed.error ? describeError(closed.error) : closed.reason;
+  return {
+    type: 'session',
+    session: {
+      kind: 'ended',
+      ...(goAway.timeLeftMs !== undefined ? { timeLeftMs: goAway.timeLeftMs } : {}),
+      ended: {
+        cause: 'go_away',
+        code: closed.code,
+        closedAfterMs: goAway.closedAfterMs,
+        ...(closed.error ? { errorKind: errorKind(closed.error) } : {}),
+      },
+    },
+    ...(internal ? { errorInternal: internal } : {}),
+  };
 }
 
 /** Inject on live is realtime text ingress only: no tool role, no media parts. */
@@ -508,7 +537,8 @@ function buildLiveSession(args: {
         trace.receive(item);
         yield* drainPendingHostEvents(pendingHostEvents);
         if (item.type === 'closed') {
-          if (item.error) yield toErrorEvent(item.error);
+          if (item.goAway) yield sessionEndedEvent(item, item.goAway);
+          else if (item.error) yield toErrorEvent(item.error);
           break;
         }
         if (item.type === 'error') {

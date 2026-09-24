@@ -78,6 +78,7 @@ builder with their own UI owns every line.
 | Playground transports' `failureLabel` option | Removed; failures carry their kind |
 | `TheoremStreamError(message, …)` | `TheoremStreamError(kind, publicMessage?, internalMessage?)` |
 | Handler stream `{ type: 'error', error }` | `{ type: 'error', error, errorKind }`, as on every error reply |
+| A Live close after the provider's `goAway` (e.g. 1008 at the session limit) → `error` event, `error.unsupported` wording | `session` `ended` event, not an error: `session.message` (lexicon `live.session_ended`), `session.ended { cause, code, closedAfterMs, errorKind? }`, the raw close as `errorInternal`; `LiveSessionClient` `onSessionEnded`; `LiveRunner` shows the line |
 
 `ProfileInterface.lexicon` carries the profile's overrides for the keys a
 browser words (`CLIENT_LEXICON_KEYS`), resolved on the host; the rest stay on

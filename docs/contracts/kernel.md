@@ -297,7 +297,7 @@ different transport than the primary turn.
 | `media` | Generated image/audio bytes + mime |
 | `grounding` | Search/maps grounding: Live `groundingMetadata`, and Interactions tool results (`google_search_result` `search_suggestions`, `google_maps_result` `result[].places`) plus `url_citation` / `place_citation` annotations. Normalized to `sources` plus `chunks[].maps` (`title` / `uri` / `placeId`); the raw payload rides on `metadata` |
 | `evidence` | Provider-native attachments. Google code execution sets `kind` (`code_execution_call` / `code_execution_result`) plus parsed `code` / `result` / `isError` / `id` / `callId`, and always keeps `raw`. Live ASR uses `input_transcription` / `output_transcription` (optional `interim`); Live `voiceActivity` uses `voice_activity` (`raw`); session resumption uses `session_resumption` + `resumable`. `partial: true` marks a step the provider started and never finished (the stream ended first); a partial tool call never runs. |
-| `session` | Live control: `closing_soon` (optional `timeLeftMs`), `waiting_for_input`, `turn_complete` (one spoken response ended), `working` (server still reasoning / awaiting async tools), `idle` (cycle boundary) |
+| `session` | Live control: `closing_soon` (optional `timeLeftMs`); `ended`, the provider's close after it warned of one — not an error: `ended { cause: 'go_away', code, closedAfterMs, errorKind? }` (`errorKind` when the code is not 1000), `timeLeftMs` (the last warning's window), `message` (the user's wording, lexicon `live.session_ended`) and the raw close as `errorInternal`; `waiting_for_input`, `turn_complete` (one spoken response ended), `working` (server still reasoning / awaiting async tools), `idle` (cycle boundary) |
 | `stage` | Turn timeline (`stage`: `pre_turn` \| `pre_tool` \| `post_tool` \| `before_end` \| `post_turn`) — see [`stages.md`](stages.md) |
 | `tokens` | One per model call, after that call's output: `TurnTokens` (see [Token usage](#token-usage)); may gate `meter: 'input'` |
 | `response` | Adapter → runner only, never yielded by `runTurn`: the response identity (`id`, `model`) as soon as the wire names it, and again when it grows or changes. The runner records it on the call's trace span (`gen_ai.response.id` / `gen_ai.response.model`), so a call that fails or is cut by a guardrail still names the model that served it |
@@ -358,7 +358,7 @@ verbatim to browsers or end-user SSE** unless you intend to expose diagnostics.
 | --- | --- | --- |
 | `error` | yes | yes |
 | `errorKind` | yes | yes |
-| `errorInternal` (error events, `guardrail.errorInternal`) | yes | **never** |
+| `errorInternal` (error events, an ended session, `guardrail.errorInternal`) | yes | **never** |
 | `evidence` parsed fields (`kind`, `code`, `result`, citations) | yes | when useful in UI |
 | `evidence.raw` | yes | only when you explicitly want provider internals |
 | `text`, `media`, `structured`, `grounding` | yes | yes (after egress/canary gates) |

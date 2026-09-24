@@ -66,8 +66,25 @@ export type SessionQueueItem =
   | { type: 'batch'; events: TurnEvent[]; turnPhase: LiveTurnPhase; row: Record<string, unknown> }
   | { type: 'row'; row: Record<string, unknown> }
   | { type: 'error'; error: Error; row?: Record<string, unknown> }
-  /** The provider closed the socket; `error` names the failure when the close was not normal. */
-  | { type: 'closed'; code: number; reason: string; error?: TheoremError };
+  /**
+   * The provider closed the socket; `error` names the failure when the close
+   * was not normal. `goAway` is set when the provider warned first.
+   */
+  | { type: 'closed'; code: number; reason: string; error?: TheoremError; goAway?: GoAwayClose };
+
+/** A close the provider warned of (`goAway`): the last warning's window, and when the close came. */
+export interface GoAwayClose {
+  /** The window the last `goAway` gave; omitted when it gave none. */
+  timeLeftMs?: number;
+  /** Milliseconds from the last `goAway` to the close. */
+  closedAfterMs: number;
+}
+
+/** The last `goAway` in a folded frame, if the frame carried one. */
+function goAwayIn(events: readonly TurnEvent[]): { timeLeftMs?: number } | undefined {
+  const warning = events.findLast((ev) => ev.session?.kind === 'closing_soon');
+  return warning ? { timeLeftMs: warning.session?.timeLeftMs } : undefined;
+}
 
 export async function readMessageData(data: unknown): Promise<string> {
   if (typeof data === 'string') return data;
@@ -244,6 +261,8 @@ export function turnPhaseFromMessage(
 /** Attach handlers that keep the socket open across conversational turns. */
 export function attachLiveSessionHandlers(ws: WebSocket, liveQueue: LiveQueue): void {
   const fold = newLiveFold();
+  /** The last `goAway`, and when it arrived (monotonic ms). */
+  let goAway: { timeLeftMs?: number; atMs: number } | undefined;
   ws.onmessage = async (evt: MessageEvent) => {
     try {
       const rawText = await readMessageData(evt.data);
@@ -265,6 +284,8 @@ export function attachLiveSessionHandlers(ws: WebSocket, liveQueue: LiveQueue): 
       }
 
       const events = foldGeminiLiveServerMessage(parsed.value, fold);
+      const warning = goAwayIn(events);
+      if (warning) goAway = { ...warning, atMs: performance.now() };
       const turnPhase = turnPhaseFromMessage(parsed.value, events);
       liveQueue.push(
         events.length > 0 || turnPhase !== 'streaming'
@@ -297,6 +318,14 @@ export function attachLiveSessionHandlers(ws: WebSocket, liveQueue: LiveQueue): 
         ...(evt.code === NORMAL_CLOSE
           ? {}
           : { error: closeError(evt.code, evt.reason, 'session') }),
+        ...(goAway
+          ? {
+              goAway: {
+                ...(goAway.timeLeftMs !== undefined ? { timeLeftMs: goAway.timeLeftMs } : {}),
+                closedAfterMs: Math.round(performance.now() - goAway.atMs),
+              },
+            }
+          : {}),
       });
       liveQueue.close();
     }

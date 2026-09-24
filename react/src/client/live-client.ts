@@ -12,7 +12,7 @@
  * @module
  */
 
-import { describeError, TheoremError, type TurnEvent } from '../../../mod.ts';
+import { describeError, type SessionEvent, TheoremError, type TurnEvent } from '../../../mod.ts';
 import { float32Rms, float32RmsToLevel, timeDomainBytesToLevel } from './audio-level';
 import { isPermissionDeniedError } from './live-errors';
 import {
@@ -81,6 +81,11 @@ export interface LiveClientOptions {
 	onError?: (error: Error) => void;
 	/** Provider signalled the upstream session is draining (e.g. goAway). */
 	onSessionClosing?: (timeLeftMs?: number) => void;
+	/**
+	 * The provider ended the session after warning it would: not a failure.
+	 * `session.message` is the user's line; `session.ended` the close, for the builder.
+	 */
+	onSessionEnded?: (session: SessionEvent) => void;
 	onToolCall?: (
 		name: string,
 		args: Record<string, unknown>,
@@ -526,14 +531,21 @@ export class LiveSessionClient {
 
 	private handleSessionTurnEvent(event: TurnEvent): void {
 		if (event.type !== 'session' || !event.session) return;
-		const { kind, timeLeftMs } = event.session;
-		if (kind === 'closing_soon') {
-			this.options.onSessionClosing?.(timeLeftMs);
-			return;
-		}
-		this.serverWorking = kind === 'working';
+		if (this.notifySessionLifecycle(event.session)) return;
+		this.serverWorking = event.session.kind === 'working';
 		const nextStatus = resolveWorkingStatusTransition(this.status, this.serverWorking);
 		if (nextStatus) this.setStatus(nextStatus);
+	}
+
+	/** Hand the session's closing and end to the host; `true` when it was one of them. */
+	private notifySessionLifecycle(session: SessionEvent): boolean {
+		if (session.kind === 'closing_soon') {
+			this.options.onSessionClosing?.(session.timeLeftMs);
+			return true;
+		}
+		if (session.kind !== 'ended') return false;
+		this.options.onSessionEnded?.(session);
+		return true;
 	}
 
 	/** Status to settle into once model speech stops. */

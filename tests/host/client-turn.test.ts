@@ -19,6 +19,17 @@ Deno.test('forClient leaves error events without errorInternal unchanged', () =>
   assertEquals(forClient(event), event);
 });
 
+Deno.test('forClient strips errorInternal from an ended session', () => {
+  const event: TurnEvent = {
+    type: 'session',
+    session: { kind: 'ended', ended: { cause: 'go_away', code: 1008, closedAfterMs: 41_000 } },
+    errorInternal: 'Gemini Live WebSocket closed during session (1008: session limit)',
+  };
+  const client = forClient(event);
+  assertEquals(Object.hasOwn(client, 'errorInternal'), false);
+  assertEquals(client.session, event.session);
+});
+
 Deno.test('forClient strips errorInternal from guardrail events', () => {
   const event: TurnEvent = {
     type: 'guardrail',

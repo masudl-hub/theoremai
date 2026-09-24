@@ -4,6 +4,7 @@
  */
 import { z } from 'zod';
 import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
+import { forClient } from '../../src/host/client-turn.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { sha256Base64 } from '../../src/kernel/engine/hash.ts';
 import { runSession } from '../../src/kernel/engine/session/mod.ts';
@@ -378,4 +379,55 @@ Deno.test('a normal provider close ends the session without an error', async () 
   await harness.session.close();
   const root = rootOf(sessionRecord(harness.records));
   assertEquals(root.attributes['error.type'], undefined);
+});
+
+Deno.test('a close after goAway ends the session quietly, with every close fact kept', async () => {
+  const harness = await open();
+  await deliver(harness, { goAway: { timeLeft: '50s' } });
+  harness.socket.close(1008, 'session limit');
+  const events = await harness.events;
+  assertEquals(
+    events.some((e) => e.type === 'error'),
+    false,
+  );
+  const ended = events.find((e) => e.session?.kind === 'ended');
+  assertEquals(ended?.session?.message, lexiconDefault('live.session_ended'));
+  assertEquals(ended?.session?.timeLeftMs, 50_000);
+  assertEquals(ended?.session?.ended?.cause, 'go_away');
+  assertEquals(ended?.session?.ended?.code, 1008);
+  assertEquals(ended?.session?.ended?.errorKind, 'unsupported');
+  assertEquals(typeof ended?.session?.ended?.closedAfterMs, 'number');
+  assertEquals(ended?.errorInternal?.includes('1008: session limit'), true);
+  assertEquals(ended && forClient(ended).errorInternal, undefined);
+  await harness.session.close();
+  const root = rootOf(sessionRecord(harness.records));
+  assertEquals(root.status, { code: 'UNSET' });
+  assertEquals(root.attributes['theorem.stop.kind'], 'go_away');
+  assertEquals(root.attributes['error.type'], undefined);
+  const closed = sessionEvents(root).find((e) => e.kind === 'closed');
+  assertEquals(closed?.initiator, 'provider');
+  assertEquals(closed?.code, 1008);
+  assertEquals(closed?.reason, 'session limit');
+  assertEquals(closed?.cause, 'go_away');
+  assertEquals(closed?.time_left_ms, 50_000);
+  assertEquals(closed?.['error.type'], 'unsupported');
+  assertEquals(typeof closed?.closed_after_ms, 'number');
+});
+
+Deno.test('a normal close after goAway ends the session with no failure kind', async () => {
+  const harness = await open();
+  await deliver(harness, { goAway: {} });
+  harness.socket.close(1000, '');
+  const events = await harness.events;
+  const ended = events.find((e) => e.session?.kind === 'ended');
+  assertEquals(ended?.session?.ended?.code, 1000);
+  assertEquals(ended?.session?.ended?.errorKind, undefined);
+  assertEquals(ended?.session?.timeLeftMs, undefined);
+  assertEquals(ended?.errorInternal, undefined);
+  await harness.session.close();
+  const closed = sessionEvents(rootOf(sessionRecord(harness.records))).find(
+    (e) => e.kind === 'closed',
+  );
+  assertEquals(closed?.['error.type'], undefined);
+  assertEquals(closed?.time_left_ms, undefined);
 });

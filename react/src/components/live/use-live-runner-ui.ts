@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import { type LexiconOverrides, TheoremError } from '../../../../mod.ts';
+import { type LexiconOverrides, type SessionEvent, TheoremError } from '../../../../mod.ts';
 import { type ClientFailure, clientFailure } from '../../client/failure';
 import { applyLiveTurnToolEvent } from '../../client/live/apply-live-turn-tool-event';
 import {
@@ -9,6 +9,7 @@ import {
 } from '../../client/live/live-captions';
 import type { LiveToolGatePrompt } from '../../client/live/live-tool';
 import type { LiveFacingMode, LiveVideoCapture } from '../../client/live/live-video';
+import { sessionEndedText } from '../../client/live/session-ended';
 import type { LiveConnectPhase, LiveSessionStatus } from '../../client/live-client';
 import type { ToolGateResolution } from '../../client/tool-resume';
 
@@ -23,6 +24,8 @@ export function useLiveRunnerUiState(lexicon: LexiconOverrides) {
 	const [activeTool, setActiveTool] = useState<string | null>(null);
 	const [captions, setCaptions] = useState<LiveCaptionState>(emptyLiveCaptionState);
 	const [failure, setFailure] = useState<ClientFailure | null>(null);
+	/** The user's line for a session the provider ended after warning it would. */
+	const [sessionEnded, setSessionEnded] = useState<string | null>(null);
 	const [textDraft, setTextDraft] = useState('');
 	const [sessionActive, setSessionActive] = useState(false);
 	const [sessionPermissions, setSessionPermissions] = useState<string[]>([]);
@@ -54,6 +57,17 @@ export function useLiveRunnerUiState(lexicon: LexiconOverrides) {
 
 	const clearFailure = useCallback(() => {
 		setFailure(null);
+	}, []);
+
+	const reportSessionEnded = useCallback(
+		(session: SessionEvent) => {
+			setSessionEnded(sessionEndedText(session, lexicon));
+		},
+		[lexicon],
+	);
+
+	const clearSessionEnded = useCallback(() => {
+		setSessionEnded(null);
 	}, []);
 
 	const resetCaptions = useCallback(() => {
@@ -90,6 +104,9 @@ export function useLiveRunnerUiState(lexicon: LexiconOverrides) {
 		failure,
 		reportFailure,
 		clearFailure,
+		sessionEnded,
+		reportSessionEnded,
+		clearSessionEnded,
 		textDraft,
 		setTextDraft,
 		sessionActive,

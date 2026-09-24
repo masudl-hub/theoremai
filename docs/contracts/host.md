@@ -29,7 +29,7 @@ slot”).
 | Path | Role |
 | --- | --- |
 | `src/host/reply.ts` | JSON responses + HTTP status constants |
-| `src/host/client-turn.ts` | Strip `errorInternal` (error and guardrail events) / `evidence.raw` before client transports |
+| `src/host/client-turn.ts` | Strip `errorInternal` (any event, and guardrail decisions) / `evidence.raw` before client transports |
 | `src/host/mint-trace.ts` | Cutout mint trace flush helpers |
 | `src/host/readStreamingJsonStringField.ts` | Incomplete JSON string preview |
 | `src/host/mod.ts` | Public barrel |
@@ -101,7 +101,7 @@ build a custom relay still may call `processLiveOutboundBatch` /
 
 | Export | Role |
 | --- | --- |
-| `forClient(event, options?)` | Copy one event without `errorInternal` on error and guardrail events (`errorKind` and the user's `error` stay); strips `evidence.raw` unless `includeEvidenceRaw: true`; always strips `GuardrailHit.match` |
+| `forClient(event, options?)` | Copy one event without `errorInternal` (on any event, e.g. an error or an ended Live session, and on guardrail decisions; `errorKind` and the user's `error` stay); strips `evidence.raw` unless `includeEvidenceRaw: true`; always strips `GuardrailHit.match` |
 | `forClientEvents(events, options?)` | Batch helper for Live relays and HTTP stream flush |
 | `ClientTurnOptions` | `{ includeEvidenceRaw?: boolean }` |
 

@@ -152,9 +152,12 @@ export type TurnEventType =
  * - `turn_complete` — one spoken response ended; the server may still be working.
  * - `working` — server is reasoning or awaiting async tool results; more output may follow.
  * - `idle` — server finished all processing; conversational cycle boundary.
+ * - `ended` — the provider ended the session after warning it would
+ *   (`closing_soon`); the last event of the session, not a failure.
  */
 export type SessionEventKind =
   | 'closing_soon'
+  | 'ended'
   | 'waiting_for_input'
   | 'turn_complete'
   | 'working'
@@ -163,8 +166,30 @@ export type SessionEventKind =
 /** Provider-neutral control signal emitted by a live session. */
 export interface SessionEvent {
   kind: SessionEventKind;
-  /** Parsed drain window when the provider supplied a duration; omit when unknown. */
+  /**
+   * Parsed drain window when the provider supplied a duration; omit when unknown.
+   * On `ended`, the window the last warning gave.
+   */
   timeLeftMs?: number;
+  /** On `ended`: how and when the provider closed the session. */
+  ended?: SessionEnded;
+  /** On `ended`: what the user reads — the profile's `live.session_ended` wording. */
+  message?: string;
+}
+
+/**
+ * A session the provider ended after warning it would. The raw close reason
+ * travels as the event's `errorInternal`, for the builder only.
+ */
+export interface SessionEnded {
+  /** The provider warned first (Gemini `goAway`). */
+  cause: 'go_away';
+  /** The provider's WebSocket close code. */
+  code: number;
+  /** Milliseconds from the last warning to the close; compare with `timeLeftMs`. */
+  closedAfterMs: number;
+  /** What the close code means as a failure, when it is not a normal close (1000). */
+  errorKind?: ErrorKind;
 }
 
 /** Host-named model binding — wire routing and generation knobs for one profile model. */
@@ -1197,7 +1222,10 @@ export interface TurnEvent {
    * more specific than its kind's; a list when it found several problems.
    */
   errorCopy?: ErrorCopy | readonly ErrorCopy[];
-  /** Raw diagnostic detail for traces/logs; never surface to end users. */
+  /**
+   * Raw diagnostic detail for traces/logs, on an `error` event or an ended
+   * session's close; never surface to end users (`forClient` strips it).
+   */
   errorInternal?: string;
   /** Compaction signal for `timing: 'after'` profiles. Present only on `done` events. */
   compaction?: CompactionSignal;

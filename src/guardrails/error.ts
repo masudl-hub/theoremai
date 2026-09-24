@@ -122,12 +122,18 @@ function toErrorEvent(err: unknown): {
 
 /**
  * Add the user's wording to an event on its way to the host: an error event's
- * `error`, and a failed tool step's `failure.error`. Wording already set (host
- * copy) is kept.
+ * `error`, a failed tool step's `failure.error`, and an ended session's
+ * `message`. Wording already set (host copy) is kept.
  */
 function withPublicWording(event: TurnEvent, lexicon?: LexiconOverrides): TurnEvent {
   if (event.type === 'error' && event.error === undefined) {
     return { ...event, error: wording(event.errorKind ?? 'internal', event.errorCopy, lexicon) };
+  }
+  if (event.session?.kind === 'ended' && event.session.message === undefined) {
+    return {
+      ...event,
+      session: { ...event.session, message: lexiconText('live.session_ended', {}, lexicon) },
+    };
   }
   const failure = event.tool?.failure;
   if (event.tool && failure && failure.error === undefined) {

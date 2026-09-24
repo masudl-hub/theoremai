@@ -1,5 +1,5 @@
 import { useCallback, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
-import { type LexiconOverrides, TheoremError, type TurnEvent } from '../../../../mod.ts';
+import { type LexiconOverrides, type SessionEvent, TheoremError, type TurnEvent } from '../../../../mod.ts';
 import {
 	applyLiveTranscript,
 	type LiveCaptionState,
@@ -30,6 +30,8 @@ export type LiveClientBindings = {
 	lexicon: LexiconOverrides;
 	reportFailure: (err: unknown) => void;
 	clearFailure: () => void;
+	reportSessionEnded: (session: SessionEvent) => void;
+	clearSessionEnded: () => void;
 	setCaptions: Dispatch<SetStateAction<LiveCaptionState>>;
 	setInputLevel: Dispatch<SetStateAction<number>>;
 	setOutputLevel: Dispatch<SetStateAction<number>>;
@@ -48,6 +50,7 @@ function onLiveStatusChange(
 	if (next === 'listening' || next === 'ready') {
 		bindings.setSessionActive(true);
 		bindings.clearFailure();
+		bindings.clearSessionEnded();
 		return;
 	}
 	if (next !== 'disconnected' && next !== 'error') return;
@@ -145,6 +148,9 @@ export function useLiveSessionClient(bindings: LiveClientBindings) {
 			},
 			onError: (err) => {
 				bindingsRef.current.reportFailure(err);
+			},
+			onSessionEnded: (session) => {
+				bindingsRef.current.reportSessionEnded(session);
 			},
 			onToolCall: (name, args, meta) =>
 				onLiveToolCall(name, args, meta, bindingsRef.current, clientRef),

@@ -75,6 +75,7 @@ export const LEXICON_KEYS = [
   'session.gate_expired',
   'session.turn_ended',
   'session.gate_pending',
+  'live.session_ended',
   'voice.unsupported',
   'voice.permission',
   'voice.unavailable',
@@ -142,6 +143,7 @@ export const CLIENT_LEXICON_KEYS = [
   'session.gate_expired',
   'session.turn_ended',
   'session.gate_pending',
+  'live.session_ended',
   'tool.awaiting_user',
   'tool.completed_hidden',
   'voice.unsupported',
@@ -258,6 +260,7 @@ const DEFAULTS: Record<LexiconKey, LexiconDefault> = {
   'session.turn_ended': 'Sorry, that reply has already finished.',
   'session.gate_pending':
     'Please approve or decline the waiting step before sending a new message.',
+  'live.session_ended': 'The call has ended. Please start a new one to carry on.',
   'voice.unsupported': "Sorry, voice notes can't be recorded here.",
   'voice.permission':
     "Sorry, the microphone can't be used without permission. Please allow access and try again.",

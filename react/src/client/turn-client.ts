@@ -11,6 +11,7 @@ import {
 } from '../../../src/interface/mod.ts';
 import type { ToolCredential } from '../../../src/kernel/mod.ts';
 import { filesToPending } from './encode-files.ts';
+import { defaultModel } from './generation-selection.ts';
 import type {
 	TheoremInvokeRequest,
 	TheoremReplay,
@@ -34,7 +35,7 @@ function resolveModelId(
 	iface: ComposerProfileInterface,
 	session: InterfaceTurnSession,
 ): string | undefined {
-	return session.selectedModel ?? iface.defaultModel ?? Object.keys(iface.models)[0];
+	return session.selectedModel ?? defaultModel(iface);
 }
 
 function resolveEffort(

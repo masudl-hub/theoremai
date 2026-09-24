@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import {
 	branchInterfaceTurnSession,
 	type ComposerPendingMessage,
@@ -13,6 +13,7 @@ import {
 	type TranscriptBlock,
 } from '../../../src/interface/mod.ts';
 import type { TurnFailure } from '../client/failure';
+import { followGenerationDefaults } from '../client/generation-selection';
 import { applyTurnResultToTranscript } from '../client/index';
 import type { TheoremTransport } from '../client/transport';
 import { type RunTurnStream, useTheoremChatActions } from './use-theorem-chat-actions';
@@ -31,23 +32,27 @@ type TurnOk = {
 	assistantBlocks: TranscriptBlock[];
 };
 
-/** Seed the session with the profile's default model / effort once the interface loads. */
+/**
+ * Seed the session with the profile's default model / effort once the interface loads, and keep
+ * it valid as the interface changes: a pick still on the old defaults follows the new ones, and a
+ * pick the profile no longer has falls back to them (see `followGenerationDefaults`).
+ */
 function useDefaultGeneration(
 	iface: ComposerProfileInterface | null,
 	session: InterfaceTurnSession,
 	setSession: SetSession,
 ): void {
+	const previous = useRef<ComposerProfileInterface | undefined>(undefined);
 	useEffect(() => {
 		if (!iface) return;
-		const model = session.selectedModel ?? iface.defaultModel;
-		const effort = defaultInterfaceEffort(iface, model);
-		if (!session.selectedModel || (effort && !session.selectedEffort)) {
-			setSession((prev) => ({
-				...prev,
-				selectedModel: prev.selectedModel ?? model,
-				...(effort ? { selectedEffort: prev.selectedEffort ?? effort } : {}),
-			}));
-		}
+		const next = followGenerationDefaults(
+			iface,
+			{ model: session.selectedModel, effort: session.selectedEffort },
+			previous.current,
+		);
+		previous.current = iface;
+		if (next.model === session.selectedModel && next.effort === session.selectedEffort) return;
+		setSession((prev) => ({ ...prev, selectedModel: next.model, selectedEffort: next.effort }));
 	}, [session.selectedEffort, session.selectedModel, setSession, iface]);
 }
 

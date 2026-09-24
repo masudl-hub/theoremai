@@ -1,5 +1,6 @@
 import '../fixtures/test-host.ts';
-import { canaryLeakSpan, mintCanary } from '../../src/guardrails/canary.ts';
+import { mintCanary } from '../../src/guardrails/canary.ts';
+import { FIXED_CANARY } from '../../src/guardrails/corpus/canary-egress-attacks.ts';
 import { PUBLIC_CANARY } from '../../src/guardrails/error.ts';
 import {
   abortLiveOutboundTurn,
@@ -15,6 +16,9 @@ import type { TurnEvent } from '../../src/kernel/types.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
+
+/** Opening of the fixed canary: text ending in it could still become a leak, so it is held. */
+const LEAD = FIXED_CANARY.slice(0, 6);
 
 function chatProfile() {
   return getProfile('chat');
@@ -228,48 +232,56 @@ Deno.test('processLiveOutboundBatch holds the spoken-reply transcript in the loo
   });
 });
 
-/** A canary-only gate holds one character less than the canary's longest leak form. */
-function canaryHold(canary: string): number {
-  return canaryLeakSpan(canary) - 1;
-}
-
 Deno.test('processLiveOutboundBatch holds audio until the transcript before it clears', async () => {
-  const canary = mintCanary();
-  const s = session(canary);
-  const first = 'a'.repeat(canaryHold(canary));
-  // Frame order is transcript then audio: both held under the lookback.
-  assertEquals(await processLiveOutboundBatch(s, [said(first), audio(1)]), { action: 'idle' });
-  // The next frame's transcript pushes the first past the lookback: it and its audio go.
-  const second = 'b'.repeat(canaryHold(canary));
-  assertEquals(await processLiveOutboundBatch(s, [said(second), audio(2)]), {
+  const s = session(FIXED_CANARY);
+  // The transcript could be the start of a leak: it and the audio after it are held.
+  assertEquals(await processLiveOutboundBatch(s, [said(LEAD), audio(1)]), { action: 'idle' });
+  // The next transcript rules that out, so it goes with its audio; the new opening is held.
+  assertEquals(await processLiveOutboundBatch(s, [said(` then ${LEAD}`), audio(2)]), {
     action: 'emit',
-    events: [said(first), audio(1)],
+    events: [said(LEAD), audio(1), said(' then ')],
   });
   // The cycle's end releases the rest in arrival order.
   assertEquals(await processLiveOutboundBatch(s, [turnComplete]), {
     action: 'emit',
-    events: [said(second), audio(2), turnComplete],
+    events: [said(LEAD), audio(2), turnComplete],
+  });
+});
+
+Deno.test('processLiveOutboundBatch releases at once what cannot start a leak', async () => {
+  const s = session(FIXED_CANARY);
+  assertEquals(await processLiveOutboundBatch(s, [said('spoken by model'), audio(1)]), {
+    action: 'emit',
+    events: [said('spoken by model'), audio(1)],
   });
 });
 
 Deno.test('processLiveOutboundBatch releases a partial transcript chunk in its own shape', async () => {
-  const canary = mintCanary();
-  const s = session(canary);
-  const body = 'c'.repeat(canaryHold(canary) + 10);
-  assertEquals(await processLiveOutboundBatch(s, [said(body), audio(1)]), {
+  const s = session(FIXED_CANARY);
+  assertEquals(await processLiveOutboundBatch(s, [said(`hello ${LEAD}`), audio(1)]), {
     action: 'emit',
-    events: [said('c'.repeat(10))],
+    events: [said('hello ')],
   });
   assertEquals(s.held.length, 2);
+});
+
+Deno.test('processLiveOutboundBatch withholds a canary spoken with separators across frames', async () => {
+  const s = session(FIXED_CANARY);
+  const spoken = [...FIXED_CANARY.toUpperCase()].join(', ');
+  const half = Math.ceil(spoken.length / 2);
+  await processLiveOutboundBatch(s, [said(spoken.slice(0, half)), audio(1)]);
+  const result = await processLiveOutboundBatch(s, [said(spoken.slice(half)), audio(2)]);
+  assertEquals(result.action, 'withhold');
 });
 
 Deno.test('processLiveOutboundBatch withholds a canary spoken across frames with its audio', async () => {
   const canary = mintCanary();
   const s = session(canary);
   const half = Math.ceil(canary.length / 2);
+  // Only what could start the leak is held, with the audio behind it.
   assertEquals(
     await processLiveOutboundBatch(s, [said(`Sure. ${canary.slice(0, half)}`), audio(1)]),
-    { action: 'idle' },
+    { action: 'emit', events: [said('Sure. ')] },
   );
   const result = await processLiveOutboundBatch(s, [said(canary.slice(half)), audio(2)]);
   assertEquals(result.action, 'withhold');
@@ -365,8 +377,8 @@ Deno.test('finalizeLiveOutboundTurn starts the next cycle clean', async () => {
 });
 
 Deno.test('abortLiveOutboundTurn drops held audio', async () => {
-  const s = session(mintCanary());
-  await processLiveOutboundBatch(s, [said('interrupted'), audio(1)]);
+  const s = session(FIXED_CANARY);
+  await processLiveOutboundBatch(s, [said(LEAD), audio(1)]);
   assertEquals(s.held.length, 2);
   abortLiveOutboundTurn(s);
   assertEquals(s.held, []);
@@ -431,15 +443,12 @@ Deno.test('finalizeLiveOutboundTurn emits refuse_to_user for non-canary egress h
 // ── finalizeLiveOutboundTurn — canary-only ────────────────────────────────────
 
 Deno.test('finalizeLiveOutboundTurn flushes progressive gate tail on finalize', async () => {
-  const canary = mintCanary();
-  const s = session(canary);
-  await processLiveOutboundBatch(s, [{ type: 'text', text: 'prefix ' }]);
-  const result = await finalizeLiveOutboundTurn(s);
-  assertEquals(result.action, 'emit');
-  if (result.action === 'emit') {
-    const text = result.events.map((e) => e.text ?? '').join('');
-    assertEquals(text.includes('prefix'), true);
-  }
+  const s = session(FIXED_CANARY);
+  await processLiveOutboundBatch(s, [{ type: 'text', text: `prefix ${LEAD}` }]);
+  assertEquals(await finalizeLiveOutboundTurn(s), {
+    action: 'emit',
+    events: [{ type: 'text', text: LEAD }],
+  });
 });
 
 Deno.test('finalizeLiveOutboundTurn returns idle when there is nothing to emit', async () => {
@@ -478,10 +487,9 @@ Deno.test('abortLiveOutboundTurn without canary does not recreate gate', () => {
   assertEquals(s.gate, null);
 });
 
-Deno.test('processLiveOutboundBatch returns idle when all text is held in lookback', async () => {
-  const canary = mintCanary();
-  const s = session(canary);
-  const result = await processLiveOutboundBatch(s, [{ type: 'text', text: 'hi' }]);
+Deno.test('processLiveOutboundBatch returns idle when all text could start a leak', async () => {
+  const s = session(FIXED_CANARY);
+  const result = await processLiveOutboundBatch(s, [{ type: 'text', text: LEAD }]);
   assertEquals(result.action, 'idle');
 });
 
@@ -670,11 +678,10 @@ Deno.test('processLiveOutboundBatch withholds split canary across batches', asyn
 });
 
 Deno.test('processLiveOutboundBatch releases held text before a following thought', async () => {
-  const canary = mintCanary();
-  const s = session(canary);
-  const text = 'a'.repeat(canaryHold(canary));
+  const s = session(FIXED_CANARY);
+  const text = LEAD;
   const thought: TurnEvent = { type: 'thought', text: 'b'.repeat(100) };
-  // Under the lookback: all of it is held.
+  // It could start a leak: all of it is held.
   assertEquals(await processLiveOutboundBatch(s, [{ type: 'text', text }]), { action: 'idle' });
   assertEquals(await processLiveOutboundBatch(s, [thought]), {
     action: 'emit',

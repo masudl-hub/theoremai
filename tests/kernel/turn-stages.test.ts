@@ -12,6 +12,7 @@ import type {
   TurnHistoryMessage,
 } from '../../src/kernel/types.ts';
 import { geminiModels } from '../fixtures/models.ts';
+import { replyText } from '../fixtures/reply.ts';
 
 async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
   const out: TurnEvent[] = [];
@@ -210,10 +211,7 @@ Deno.test('stages: post_tool inject after tools before next model step', async (
     stageNames(events),
   );
   assertEquals(call, 2);
-  assertEquals(
-    events.some((e) => e.type === 'text' && e.text === 'after tools'),
-    true,
-  );
+  assertEquals(replyText(events), 'after tools');
   assertEquals(
     continuation?.map((m) => m.role),
     ['tool', 'user'],
@@ -277,10 +275,8 @@ Deno.test('stages: before_end inject re-enters the model step under maxSteps', a
 
   assertEquals(call, 2);
   assertEquals(beforeEndCount >= 2, true);
-  assertEquals(
-    events.some((e) => e.type === 'text' && e.text === 'second reply'),
-    true,
-  );
+  // Both steps reply: the re-entered step's text follows the first.
+  assertEquals(replyText(events), 'first replysecond reply');
 });
 
 Deno.test('stages: before_end inject cannot exceed maxSteps across re-entry', async () => {

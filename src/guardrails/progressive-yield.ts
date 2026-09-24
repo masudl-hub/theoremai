@@ -6,7 +6,7 @@
  * @module
  */
 
-import { canaryLeakSpan } from './canary.ts';
+import { canaryHoldFrom } from './canary.ts';
 import { canaryHits, runEnforcer } from './egress.ts';
 import type {
   EgressEnforcer,
@@ -32,7 +32,7 @@ export interface ProgressiveYieldGateOptions {
   enforce?: EgressEnforcer;
   /**
    * Lookback in characters (default: `DEFAULT_HOLDBACK` with `enforce`, none
-   * without). The canary's longest leak form is always held on top.
+   * without). A tail that could start a canary leak is always held on top.
    */
   holdback?: number;
 }
@@ -59,15 +59,12 @@ interface ProgressiveYieldGate {
 }
 
 /**
- * Hold what the scan can detect: the canary's longest leak form, and under
- * `enforce` the policy's span (default `DEFAULT_HOLDBACK`). A canary-only gate
- * matches nothing longer than the canary, so it holds only that.
+ * Fixed lookback for the policy's detectors: `holdback`, or `DEFAULT_HOLDBACK`
+ * under `enforce`. The canary needs none — `canaryHoldFrom` holds exactly the
+ * tail that could start a leak.
  */
 function resolveHoldback(options: ProgressiveYieldGateOptions): number {
-  const { canary } = options.context;
-  const canaryHold = canary ? Math.max(0, canaryLeakSpan(canary) - 1) : 0;
-  const spanHold = options.holdback ?? (options.enforce ? DEFAULT_HOLDBACK : 0);
-  return Math.max(canaryHold, spanHold);
+  return options.holdback ?? (options.enforce ? DEFAULT_HOLDBACK : 0);
 }
 
 /** Under `enforce`, an incomplete PEM body stays held until its END line. */
@@ -118,7 +115,10 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
       return { blocked: false, emit };
     }
     const hold = options.enforce ? holdbackForWindow(accumulated, baseHoldback) : baseHoldback;
-    const safeEnd = Math.max(emitted, accumulated.length - hold);
+    const canaryFrom = context.canary
+      ? emitted + canaryHoldFrom(accumulated.slice(emitted), context.canary)
+      : accumulated.length;
+    const safeEnd = Math.max(emitted, Math.min(accumulated.length - hold, canaryFrom));
     const emit = accumulated.slice(emitted, safeEnd);
     emitted = safeEnd;
     return { blocked: false, emit };

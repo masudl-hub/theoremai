@@ -2,13 +2,19 @@
  * Adversarial canary egress fuzzer.
  *
  * Pipes synthetic model leak attempts through the real runTurn stream gate
- * and Live batch gate, then reports bypasses — output that still contains
- * the raw per-turn canary token where the gate should have blocked.
+ * and Live batch gate, then reports bypasses — output where the attack's
+ * encoded canary still reached the client. The check reads the attack's own
+ * payload, not the detector under test.
  *
  * @module
  */
 
-import { bindCanary, mintCanary, scanTextForCanaryLeak } from '../../guardrails/canary.ts';
+import {
+  bindCanary,
+  isStreamedCanaryEvent,
+  mintCanary,
+  scanTextForCanaryLeak,
+} from '../../guardrails/canary.ts';
 import {
   buildCanaryEgressAttacks,
   type CanaryEgressAttack,
@@ -19,6 +25,7 @@ import {
   finalizeLiveOutboundTurn,
   processLiveOutboundBatch,
 } from '../../guardrails/live-outbound-gate.ts';
+import { scanTextOf } from '../../guardrails/serialize.ts';
 import { yieldProviderEvents } from '../../kernel/engine/runner/stream.ts';
 import { clearProfiles, getProfile, registerProfile } from '../../kernel/registry/profiles.ts';
 import { providerCompleteRequest } from '../../kernel/registry/provider-request.ts';
@@ -27,7 +34,7 @@ import type { ResolvedGeneration, TurnEvent } from '../../kernel/types.ts';
 
 const FUZZ_PROFILE_ID = '__fuzz_canary__';
 
-interface ChannelResult {
+export interface ChannelResult {
   attack: CanaryEgressAttack;
   channel: string;
   blocked: boolean;
@@ -76,16 +83,56 @@ async function collectEvents(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]
   return out;
 }
 
+function clientVisible(events: TurnEvent[]): TurnEvent[] {
+  return events.filter((event) => event.type !== 'error');
+}
+
 function clientVisibleWire(events: TurnEvent[]): string {
-  return JSON.stringify(events.filter((event) => event.type !== 'error'));
+  return JSON.stringify(clientVisible(events));
 }
 
-function literalCanaryReachedClient(events: TurnEvent[], canary: string): boolean {
-  return clientVisibleWire(events).includes(canary);
+/**
+ * Whether the attack's encoded canary reached the client: in the reply as the
+ * client assembles it across chunks and turns, or in any other event.
+ */
+function leakReachedClient(attack: CanaryEgressAttack, events: TurnEvent[]): boolean {
+  if (!attack.shouldBlock) {
+    return false;
+  }
+  const visible = clientVisible(events);
+  const reply = visible
+    .filter(isStreamedCanaryEvent)
+    .map((event) => event.text ?? '')
+    .join('');
+  return (
+    reply.includes(attack.leak) ||
+    visible.some(
+      (event) => !isStreamedCanaryEvent(event) && scanTextOf(event).includes(attack.leak),
+    )
+  );
 }
 
-function gateBlocked(events: TurnEvent[]): boolean {
-  return events.some((event) => event.type === 'error');
+function channelResult(
+  attack: CanaryEgressAttack,
+  channel: string,
+  blocked: boolean,
+  events: TurnEvent[],
+): ChannelResult {
+  const bypassed = leakReachedClient(attack, events);
+  return {
+    attack,
+    channel,
+    blocked,
+    bypassed,
+    falseAlarm: !attack.shouldBlock && blocked,
+    clientWire: clientVisibleWire(events),
+  };
+}
+
+/** A provider stream that yields one attack turn's model output. */
+async function* replay(turn: TurnEvent[]): AsyncGenerator<TurnEvent> {
+  await Promise.resolve();
+  yield* turn;
 }
 
 async function runStreamChannel(
@@ -93,81 +140,47 @@ async function runStreamChannel(
   generation: ResolvedGeneration,
   canary: string,
 ): Promise<ChannelResult> {
-  async function* mockProvider(): AsyncGenerator<TurnEvent> {
-    await Promise.resolve();
-    for (const event of attack.events) {
-      yield event;
+  const events: TurnEvent[] = [];
+  for (const turn of attack.turns) {
+    const turnEvents = await collectEvents(
+      yieldProviderEvents({
+        profile: getProfile(FUZZ_PROFILE_ID),
+        generation,
+        request: providerCompleteRequest(generation, bindCanary('fuzz system', canary)),
+        provider: { complete: () => replay(turn) },
+        // The fuzz reads what reaches the client, not the trace.
+        call: { tap: () => {}, observe: () => {} },
+      }),
+    );
+    events.push(...turnEvents);
+    if (turnEvents.some((event) => event.type === 'error')) {
+      return channelResult(attack, 'runTurn.stream', true, events);
     }
   }
-
-  const events = await collectEvents(
-    yieldProviderEvents({
-      profile: getProfile(FUZZ_PROFILE_ID),
-      generation,
-      request: providerCompleteRequest(generation, bindCanary('fuzz system', canary)),
-      provider: { complete: mockProvider },
-      // The fuzz reads what reaches the client, not the trace.
-      call: { tap: () => {}, observe: () => {} },
-    }),
-  );
-
-  const blocked = gateBlocked(events);
-  const bypassed = attack.shouldBlock && literalCanaryReachedClient(events, canary);
-  const falseAlarm = !attack.shouldBlock && blocked;
-  return {
-    attack,
-    channel: 'runTurn.stream',
-    blocked,
-    bypassed,
-    falseAlarm,
-    clientWire: clientVisibleWire(events),
-  };
+  return channelResult(attack, 'runTurn.stream', false, events);
 }
 
+/** One Live session; each turn is a cycle the provider finishes before the next. */
 async function runLiveBatchChannel(
   attack: CanaryEgressAttack,
   canary: string,
 ): Promise<ChannelResult> {
   const session = createLiveOutboundGateSession(getProfile(FUZZ_PROFILE_ID), canary);
-  const batch = await processLiveOutboundBatch(session, attack.events);
-  if (batch.action === 'withhold') {
-    return {
-      attack,
-      channel: 'live.batch',
-      blocked: true,
-      bypassed: false,
-      falseAlarm: !attack.shouldBlock,
-      clientWire: '',
-    };
+  const events: TurnEvent[] = [];
+  for (const turn of attack.turns) {
+    for (const result of [
+      await processLiveOutboundBatch(session, turn),
+      await finalizeLiveOutboundTurn(session),
+    ]) {
+      if (result.action === 'withhold') {
+        return channelResult(attack, 'live.batch', true, events);
+      }
+      if (result.action === 'emit') {
+        events.push(...result.events);
+      }
+    }
   }
-
-  const emitted: TurnEvent[] = batch.action === 'emit' ? [...batch.events] : [];
-  const finalized = await finalizeLiveOutboundTurn(session);
-  if (finalized.action === 'withhold') {
-    return {
-      attack,
-      channel: 'live.batch',
-      blocked: true,
-      bypassed: false,
-      falseAlarm: !attack.shouldBlock,
-      clientWire: clientVisibleWire(emitted),
-    };
-  }
-  if (finalized.action === 'emit') {
-    emitted.push(...finalized.events);
-  }
-
-  const bypassed = attack.shouldBlock && literalCanaryReachedClient(emitted, canary);
-  const blocked = attack.shouldBlock && !bypassed;
-
-  return {
-    attack,
-    channel: 'live.batch',
-    blocked,
-    bypassed,
-    falseAlarm: false,
-    clientWire: clientVisibleWire(emitted),
-  };
+  return channelResult(attack, 'live.batch', false, events);
 }
 
 function truncate(s: string, max: number): string {
@@ -208,12 +221,26 @@ function printResults(results: ChannelResult[]): boolean {
   return bypassed.length === 0 && falseAlarms.length === 0;
 }
 
+/** One result per attack per channel (runTurn stream, Live batch). */
+export async function runCanaryFuzz(canary: string = FIXED_CANARY): Promise<ChannelResult[]> {
+  clearProfiles();
+  registerFuzzCanaryProfile();
+  try {
+    const generation = resolveFuzzGeneration(canary);
+    const results: ChannelResult[] = [];
+    for (const attack of buildCanaryEgressAttacks(canary)) {
+      results.push(await runStreamChannel(attack, generation, canary));
+      results.push(await runLiveBatchChannel(attack, canary));
+    }
+    return results;
+  } finally {
+    clearProfiles();
+  }
+}
+
 /** Run adversarial canary fuzz; returns true when no bypasses or false alarms. */
 export async function fuzzCanaryCommand(options?: { canary?: string }): Promise<boolean> {
   console.log('\n🔐 Theorem Canary Egress Adversarial Fuzzer\n');
-
-  clearProfiles();
-  registerFuzzCanaryProfile();
 
   const canary = options?.canary ?? FIXED_CANARY;
   if (!/^[0-9a-f]{32}$/.test(canary)) {
@@ -228,24 +255,15 @@ export async function fuzzCanaryCommand(options?: { canary?: string }): Promise<
     return false;
   }
 
-  const generation = resolveFuzzGeneration(canary);
-  const attacks = buildCanaryEgressAttacks(canary);
-  console.log(`Canary: ${canary.slice(0, 12)}… (${attacks.length} attacks × 2 channels)`);
-
-  const results: ChannelResult[] = [];
-  for (const attack of attacks) {
-    results.push(await runStreamChannel(attack, generation, canary));
-    results.push(await runLiveBatchChannel(attack, canary));
-  }
-
   // Spot-check scan helper matches expectations
   if (!scanTextForCanaryLeak(canary, canary)) {
     console.error('scanTextForCanaryLeak failed to detect literal canary');
     return false;
   }
 
+  const results = await runCanaryFuzz(canary);
+  console.log(`Canary: ${canary.slice(0, 12)}… (${results.length / 2} attacks × 2 channels)`);
   const ok = printResults(results);
-  clearProfiles();
   console.log('');
   return ok;
 }

@@ -12,6 +12,7 @@ import { projectProfile, resolveTurn } from '../../src/kernel/registry/resolve.t
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
 import { camelToSnake, toInteractionsBody } from '../../src/providers/google/interactions/mod.ts';
 import { CHAT_MEDIA_LIMITS, geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
+import { eventTypesByReply } from '../fixtures/reply.ts';
 
 async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
   const out: TurnEvent[] = [];
@@ -183,10 +184,15 @@ Deno.test('interactions body requests text and image when includeText is set', (
 
 Deno.test('image runTurn yields media then done', async () => {
   const events = await collect(runTurn({ profile: 'image', input: { text: 'fox' } }, fake));
-  assertEquals(
-    events.map((e) => e.type),
-    ['stage', 'text', 'media', 'tokens', 'stage', 'done', 'stage'],
-  );
+  assertEquals(eventTypesByReply(events), [
+    'stage',
+    'text',
+    'media',
+    'tokens',
+    'stage',
+    'done',
+    'stage',
+  ]);
   const media = events.find((e) => e.type === 'media');
   assertEquals(media?.media?.mimeType, 'image/jpeg');
   // The fake reports no usage: both sides are estimated and the image output is uncounted.

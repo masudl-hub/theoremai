@@ -1,18 +1,20 @@
 import '../fixtures/test-host.ts';
 import {
   bindCanary,
-  canaryLeakSpan,
+  canaryHoldFrom,
   createCanaryStreamGate,
   eventHasCanary,
   isStreamedCanaryEvent,
   mintCanary,
   OMIT_CANARY,
   redactCanary,
+  redactCanaryText,
   scanTextForCanaryLeak,
   USER_CLOSE,
   USER_OPEN,
   wrapUserData,
 } from '../../src/guardrails/canary.ts';
+import { FIXED_CANARY } from '../../src/guardrails/corpus/canary-egress-attacks.ts';
 import { PUBLIC_CANARY } from '../../src/guardrails/error.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { yieldProviderEvents } from '../../src/kernel/engine/runner/stream.ts';
@@ -21,6 +23,7 @@ import { providerCompleteRequest } from '../../src/kernel/registry/provider-requ
 import { resolveTurn } from '../../src/kernel/registry/resolve.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
 import { camelToSnake, toInteractionsBody } from '../../src/providers/google/interactions/mod.ts';
+import { replyText } from '../fixtures/reply.ts';
 
 const CANARY_RE = /^[0-9a-f]{32}$/;
 
@@ -133,10 +136,7 @@ Deno.test('runTurn releases a thought that quotes the bind note without the toke
     events.some((event) => event.type === 'error'),
     false,
   );
-  assertEquals(
-    events.some((event) => event.type === 'text' && event.text === 'after note'),
-    true,
-  );
+  assertEquals(replyText(events), 'after note');
 });
 
 Deno.test('redactCanary replaces the token in text events', () => {
@@ -294,14 +294,50 @@ Deno.test('scanTextForCanaryLeak ignores a different hex token', () => {
   assertEquals(scanTextForCanaryLeak('deadbeeffeedfacecafebabecafebabe', mintCanary()), false);
 });
 
-Deno.test('canaryLeakSpan is the longest detected form', () => {
+Deno.test('scanTextForCanaryLeak reads through case and any separator', () => {
   const canary = mintCanary();
-  assertEquals(canaryLeakSpan(canary), canary.length * 2 - 1);
+  for (const leak of [
+    canary.toUpperCase(),
+    [...canary].join('-'),
+    [...canary].join('\n'),
+    [...canary.toUpperCase()].join(',   '),
+    btoa(canary)
+      .match(/.{1,4}/g)
+      ?.join(' ') ?? '',
+  ]) {
+    assertEquals(scanTextForCanaryLeak(`says ${leak} ok`, canary), true);
+  }
 });
 
-Deno.test('canary stream gate catches a spaced or base64 leak split across chunks', () => {
+Deno.test('scanTextForCanaryLeak ignores prose rich in hex letters', () => {
+  const prose = 'A decade of faded beef jerky, 12 cafes, and 3456 bad facades.'.repeat(20);
+  assertEquals(scanTextForCanaryLeak(prose, FIXED_CANARY), false);
+});
+
+Deno.test('canaryHoldFrom holds only from where a leak could start', () => {
+  const lead = FIXED_CANARY.slice(0, 5);
+  assertEquals(canaryHoldFrom('nothing to hold', FIXED_CANARY), 'nothing to hold'.length);
+  assertEquals(canaryHoldFrom(`say ${lead}`, FIXED_CANARY), 4);
+  // Separators and case inside the opening do not move where it starts.
+  assertEquals(canaryHoldFrom('say 0 - 1 - 2 - 3', FIXED_CANARY), 4);
+  assertEquals(canaryHoldFrom(`say ${btoa(FIXED_CANARY).slice(0, 6)}`, FIXED_CANARY), 4);
+  assertEquals(canaryHoldFrom(`say ${lead}`, ''), `say ${lead}`.length);
+});
+
+Deno.test('redactCanaryText replaces every detected form and keeps the text around it', () => {
+  const canary = FIXED_CANARY;
+  const spaced = [...canary.toUpperCase()].join(' ');
+  assertEquals(
+    redactCanaryText(`a ${spaced} b ${btoa(canary)} c ${canary}`, canary),
+    `a ${OMIT_CANARY} b ${OMIT_CANARY} c ${OMIT_CANARY}`,
+  );
+  assertEquals(redactCanaryText('no leak here', canary), 'no leak here');
+  assertEquals(redactCanaryText('', canary), '');
+});
+
+Deno.test('canary stream gate catches a separated or base64 leak split across chunks', () => {
   const canary = mintCanary();
-  for (const form of [[...canary].join(' '), btoa(canary)]) {
+  for (const form of [[...canary].join(' '), [...canary].join('     '), btoa(canary)]) {
     const gate = createCanaryStreamGate(canary);
     const half = Math.floor(form.length / 2);
     assertEquals(gate.process(`x ${form.slice(0, half)}`).leak, false);
@@ -373,14 +409,10 @@ Deno.test('eventHasCanary detects canary in structured field', () => {
 });
 
 Deno.test('createCanaryStreamGate flush emits remaining safe text in the pending buffer', () => {
-  const canary = mintCanary();
-  const gate = createCanaryStreamGate(canary);
-  gate.process('safe text ');
-  const flushed = gate.flush();
-  assertEquals(flushed.leak, false);
-  if (!flushed.leak) {
-    assertEquals(flushed.emit.includes('safe'), true);
-  }
+  const gate = createCanaryStreamGate(FIXED_CANARY);
+  const lead = FIXED_CANARY.slice(0, 4);
+  assertEquals(gate.process(`safe text ${lead}`), { leak: false, emit: 'safe text ' });
+  assertEquals(gate.flush(), { leak: false, emit: lead });
 });
 
 Deno.test('createCanaryStreamGate flush detects canary split at the end', () => {
@@ -510,17 +542,10 @@ Deno.test('eventHasCanary returns false for sessionResumptionHandle without cana
   );
 });
 
-Deno.test('createCanaryStreamGate emits the correct number of safe bytes for long input', () => {
-  // Holds one character less than the longest leak form.
-  const canary = mintCanary();
-  const gate = createCanaryStreamGate(canary);
-  const text = 'safe text that is definitely longer than the canary overlap window yes it is';
-  const result = gate.process(text);
-  assertEquals(result.leak, false);
-  if (!result.leak) {
-    const expectedEmit = text.length - (canaryLeakSpan(canary) - 1);
-    assertEquals(result.emit.length, expectedEmit);
-  }
+Deno.test('createCanaryStreamGate emits at once text that cannot start a leak', () => {
+  const gate = createCanaryStreamGate(FIXED_CANARY);
+  const text = 'safe text with no opening of the token in it';
+  assertEquals(gate.process(text), { leak: false, emit: text });
 });
 
 Deno.test('unlisted input.role is not interpolated into the system block', async () => {

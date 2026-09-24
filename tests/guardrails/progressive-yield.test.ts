@@ -1,5 +1,6 @@
 import '../fixtures/test-host.ts';
-import { canaryLeakSpan, mintCanary } from '../../src/guardrails/canary.ts';
+import { mintCanary } from '../../src/guardrails/canary.ts';
+import { FIXED_CANARY } from '../../src/guardrails/corpus/canary-egress-attacks.ts';
 import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
 import { EGRESS_RULES, standardEgressEnforce } from '../../src/guardrails/egress.ts';
 import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
@@ -136,18 +137,32 @@ Deno.test('createProgressiveYieldGate holds incomplete PEM until END or flush', 
   assertEquals(gate.unreleased().includes('BEGIN'), true);
 });
 
-Deno.test('createProgressiveYieldGate canary-only holds just the longest canary leak form', async () => {
-  const canary = mintCanary();
-  const gate = createProgressiveYieldGate({ context: ctx(canary) });
+Deno.test('createProgressiveYieldGate canary-only holds just a tail that could start a leak', async () => {
+  const gate = createProgressiveYieldGate({ context: ctx(FIXED_CANARY) });
+  const lead = FIXED_CANARY.slice(0, 5);
+  await gate.process(`${'w'.repeat(500)}${lead}`);
+  assertEquals(gate.unreleased(), lead);
+});
+
+Deno.test('createProgressiveYieldGate canary-only releases at once what cannot start a leak', async () => {
+  const gate = createProgressiveYieldGate({ context: ctx(FIXED_CANARY) });
   await gate.process('w'.repeat(500));
-  assertEquals(gate.unreleased().length, canaryLeakSpan(canary) - 1);
+  assertEquals(gate.unreleased(), '');
+});
+
+Deno.test('createProgressiveYieldGate canary-only holds a separated opening across chunks', async () => {
+  const gate = createProgressiveYieldGate({ context: ctx(FIXED_CANARY) });
+  const spoken = [...FIXED_CANARY.toUpperCase()].join(' - ');
+  const half = Math.ceil(spoken.length / 2);
+  const first = await gate.process(`Sure: ${spoken.slice(0, half)}`);
+  assertEquals(first, { blocked: false, emit: 'Sure: ' });
+  assertEquals((await gate.process(spoken.slice(half))).blocked, true);
 });
 
 Deno.test('createProgressiveYieldGate canary-only does not hold a PEM body', async () => {
-  const canary = mintCanary();
-  const gate = createProgressiveYieldGate({ context: ctx(canary) });
+  const gate = createProgressiveYieldGate({ context: ctx(FIXED_CANARY) });
   await gate.process(`-----BEGIN PRIVATE KEY-----\n${'p'.repeat(200)}`);
-  assertEquals(gate.unreleased().length, canaryLeakSpan(canary) - 1);
+  assertEquals(gate.unreleased(), '');
 });
 
 Deno.test('createProgressiveYieldGate holdback sets the enforce lookback', async () => {
@@ -156,15 +171,15 @@ Deno.test('createProgressiveYieldGate holdback sets the enforce lookback', async
   assertEquals(gate.unreleased().length, 40);
 });
 
-Deno.test('createProgressiveYieldGate never holds less than the canary leak form', async () => {
-  const canary = mintCanary();
+Deno.test('createProgressiveYieldGate holdback 0 still holds a tail that could start a leak', async () => {
   const gate = createProgressiveYieldGate({
-    context: ctx(canary),
+    context: ctx(FIXED_CANARY),
     enforce: allowAll,
     holdback: 0,
   });
-  await gate.process('u'.repeat(500));
-  assertEquals(gate.unreleased().length, canaryLeakSpan(canary) - 1);
+  const lead = FIXED_CANARY.slice(0, 4);
+  await gate.process(`${'u'.repeat(500)}${lead}`);
+  assertEquals(gate.unreleased(), lead);
 });
 
 Deno.test('createOutboundProgressiveGate threads egress.holdback', async () => {

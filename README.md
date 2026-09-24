@@ -59,7 +59,7 @@ or UI copy. Keys, credentials, trace storage, and policy all come from the host.
 ### Guardrails on every turn
 
 - 🛡️ **Input sanitization by trust level** — system prompts you wrote go through untouched; host-assembled prompts, user text, history, attachments, and tool results are scanned for injection and sensitive data.
-- 🐤 **Canary tokens** — each turn binds a fresh token into the system prompt. A leak is caught in literal, base64, or spaced-hex form, even when the stream splits it across chunks.
+- 🐤 **Canary tokens** — each turn binds a fresh token into the system prompt. A leak is caught as written or in base64, in any case and whatever separates its characters, even when the stream splits it across chunks.
 - 🚪 **Egress checks with repair** — your policy sees every reply (text and structured) before release. It can allow, flag, redact, or block, and a block can send the model back to try again.
 - 🧪 **Tested against attacks** — adversarial corpora, fuzzing, and mutation testing cover the guardrail code, and the corpora ship for hosts to test their own profiles.
 
@@ -495,9 +495,9 @@ flowchart TD
 
 Text reaches your client as it clears the progressive-yield window. The window holds back the
 last stretch of output so a secret split across chunks can't slip out. It holds what the scan can
-catch: with only the canary on, one character less than the canary's longest leak form (62
-characters); with `egress.enforce`, `egress.holdback` characters (256 by default), never less
-than the canary's hold. The end-of-attempt verdict is final: anything held
+catch: for the canary, only a tail that could still be the start of a leak (usually nothing, so
+canary-only output streams almost at once); with `egress.enforce`, also `egress.holdback`
+characters (256 by default). The end-of-attempt verdict is final: anything held
 back mid-stream that the final check clears gets released, not dropped.
 
 Thoughts are not guarded: no canary scan, no egress. A thinking model restates its system
@@ -505,8 +505,8 @@ prompt as it reasons, and a host that shows thoughts (`outputs.streaming.streamT
 accepts what they hold.
 
 In Live, the spoken reply's transcript runs through the same window and audio waits behind it:
-speech plays only once its transcript has cleared, so a guarded voice reply starts up to the
-lookback later.
+speech plays only once its transcript has cleared. Canary-only, that is almost at once; under
+`egress.enforce` a guarded voice reply starts up to the lookback later.
 
 ### Stage hooks
 
@@ -819,7 +819,7 @@ flowchart LR
   RETRY --> MODEL
 ```
 
-- **Canary** — each turn mints a fresh random 32-hex token and binds it into the system prompt. If it shows up in the output, whether literal, base64-encoded, or spaced out as hex, the system prompt has leaked. The leaking text is held back, and the client gets a generic public error, never the leaked fragment.
+- **Canary** — each turn mints a fresh random 32-hex token and binds it into the system prompt. If it shows up in the output, as written or base64-encoded, in any case and with anything between its characters, the system prompt has leaked. The leaking text is held back, and the client gets a generic public error, never the leaked fragment.
 - **Egress** — your `EgressEnforcer` sees every outbound payload (streamed text, structured JSON, live transcripts) with its stage and canary, and returns one of four verdicts:
 
 | Verdict | Effect |
@@ -850,8 +850,8 @@ const egress: EgressEnforcer = (payload, ctx) => {
 ```
 
 Streaming doesn't mean giving up these checks. Text is released as it clears a lookback window
-(256 characters by default, and never shorter than a canary), so a secret split across chunks is
-caught before the first half reaches the client. Live sessions apply the same gate at each turn
+(under `egress.enforce`, 256 characters by default; for the canary, only what could start a leak),
+so a secret split across chunks is caught before the first half reaches the client. Live sessions apply the same gate at each turn
 boundary.
 
 ### Tool results: remote content is data

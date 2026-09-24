@@ -1,4 +1,4 @@
-import { OMIT_CANARY } from '../../guardrails/canary.ts';
+import { redactCanaryText } from '../../guardrails/canary.ts';
 import { sha256, sha256Base64 } from '../../kernel/engine/hash.ts';
 import { mapStrings } from '../../kernel/engine/tree.ts';
 
@@ -88,12 +88,9 @@ export function scrubUpstream(value: unknown): Promise<unknown> {
   return Promise.resolve(value);
 }
 
-/** `text` with every canary replaced by the omit marker. */
+/** `text` with every canary leak replaced by the omit marker. */
 export function removeCanaries(text: string, canaries: readonly string[]): string {
-  return canaries.reduce(
-    (out, canary) => (canary ? out.replaceAll(canary, OMIT_CANARY) : out),
-    text,
-  );
+  return canaries.reduce((out, canary) => redactCanaryText(out, canary), text);
 }
 
 export function redactCanaryInTree(value: unknown, canaries: readonly string[]): unknown {

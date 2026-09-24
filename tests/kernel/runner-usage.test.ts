@@ -89,6 +89,22 @@ Deno.test('runTurn estimates a call the provider reported no usage for', async (
   assertEquals(tokens?.unknownMedia, undefined);
 });
 
+Deno.test('runTurn estimates streamed text whole, however the stream split it', async () => {
+  const profile = registerToolProfile('usage_estimated_chunks');
+  const events = await collect(
+    profile,
+    scriptedProvider([
+      [
+        { type: 'text', text: 'hel' },
+        { type: 'text', text: 'lo wor' },
+        { type: 'text', text: 'ld' },
+      ],
+    ]),
+  );
+  const [tokens] = tokensOf(events);
+  assertEquals(tokens?.output, encode('hello world').length);
+});
+
 Deno.test('runTurn keeps the reported side and estimates only the missing one', async () => {
   const profile = registerToolProfile('usage_partial');
   const events = await collect(

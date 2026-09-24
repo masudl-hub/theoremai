@@ -45,8 +45,8 @@ Owns every module under `src/guardrails/`.
 | `mintCanary` | Generate per-turn 32-hex token (128 random bits, no prefix) |
 | `bindCanary` | Append canary note to system prompt |
 | `wrapUserData` | Fence untrusted user text in `<user_data>` |
-| `createCanaryStreamGate` | Rolling holdback for split-token streaming |
-| `scanTextForCanaryLeak` | Literal + base64 + spaced-hex detection |
+| `createCanaryStreamGate` | Holds only a tail that could start a leak, for split-token streaming |
+| `scanTextForCanaryLeak` | The token or its base64, read through case and any separator between its characters |
 | `eventHasCanary` | Scan any `TurnEvent` wire shape |
 | `createCanaryGateSession` / `filterCanaryGatedEvents` | Canary-only batch helper (Live production uses `live-outbound-gate`) |
 
@@ -155,11 +155,16 @@ end-of-attempt. `flag` is advisory and keeps the stream flowing.
 Outbound streaming uses **progressive yield** (`createProgressiveYieldGate` /
 `createOutboundProgressiveGate`): cleared prefixes release while a lookback
 window stays held for split-token matches. The window is what the scan can
-detect: a canary-only gate holds one character less than the canary's longest
-leak form (`canaryLeakSpan`: literal, spaced out, or base64 — 62 characters for
-a minted canary); under `egress.enforce` it holds `egress.holdback` characters
-(default `DEFAULT_HOLDBACK`, 256), never less than the canary's hold, plus any
-incomplete PEM body until its END line. `defineProfile` rejects a
+detect. The canary scan reads only the characters a leak form is written with
+(the token, case-folded; its base64), so separators and case do not hide it,
+and the gate holds just the tail that could still be the start of a leak
+(`canaryHoldFrom`) — usually nothing, so canary-only output streams almost at
+once, and an opening stretched by separators of any length stays held. Under
+`egress.enforce` the gate also holds `egress.holdback` characters (default
+`DEFAULT_HOLDBACK`, 256), plus any incomplete PEM body until its END line.
+`redactCanary` and the trace and upstream-tape scrubbers replace every form the
+scan detects. Not detected yet: the token reversed, in ROT13, spelled out in
+words, or split across turns — `fuzz-canary` reports each as a bypass. `defineProfile` rejects a
 `holdback` or `maxRetries` that is not a non-negative integer. The same constructor backs `runTurn` and
 Live (`processLiveOutboundBatch`). Host `egress.enforce` is authoritative when
 set; otherwise the gate scans for the canary alone and a leak ends
@@ -180,10 +185,10 @@ prompt (canary included) as it reasons; a host that shows thoughts
 and the spoken reply's transcript (`output_transcription` evidence); both run
 through progressive yield (`isStreamedCanaryEvent`). Audio and other media wait
 behind the reply that preceded them and go only once it has cleared, so speech
-is heard after its transcript passes the scan — up to the lookback (62
-transcript characters canary-only, `egress.holdback` under egress) later than
-it would stream unguarded, and a reply shorter than the lookback is heard when
-its cycle's transcript ends. Any
+is heard after its transcript passes the scan: canary-only, only a transcript
+tail that could start a leak waits; under egress, up to `egress.holdback`
+characters, so a reply shorter than that is heard when its cycle's transcript
+ends. Any
 other event (tool call, `turn_complete`, …) releases what is held, in order,
 first. The window spans one conversational cycle: `finalizeLiveOutboundTurn`
 judges the cycle's whole reply and starts the next, `abortLiveOutboundTurn`

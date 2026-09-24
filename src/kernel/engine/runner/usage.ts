@@ -18,7 +18,8 @@
  * earlier response ended; see `heldAfter`) plus what was sent for it.
  *
  * Output estimate: streamed text (a structured result is parsed from it, so it
- * is not counted twice), thought text, and tool-call names and arguments.
+ * is not counted twice), thought text, and tool-call names and arguments. Text
+ * is read in runs of consecutive chunks, not chunk by chunk.
  * Reasoning the provider does not stream (`summaries: 'none'`) cannot be
  * counted. Media no verified rule counts is reported per side in
  * `unknownMedia`; output media always is.
@@ -99,6 +100,28 @@ function addCounts(a: TokenCount, b: TokenCount): TokenCount {
   return { tokens: a.tokens + b.tokens, unknownMedia: a.unknownMedia + b.unknownMedia };
 }
 
+/**
+ * The output's streamed text as the model wrote it: consecutive chunks of one
+ * kind joined, so the estimate does not depend on how the stream was split.
+ */
+function textRuns(output: TurnEvent[], thoughts: boolean): string[] {
+  const runs: string[] = [];
+  let kind: TurnEvent['type'] | undefined;
+  for (const event of output) {
+    if (event.type === 'tool' || event.type === 'media') {
+      kind = undefined;
+    } else if (event.text && (thoughts || event.type !== 'thought')) {
+      if (event.type === kind) {
+        runs.push(`${runs.pop() ?? ''}${event.text}`);
+      } else {
+        runs.push(event.text);
+        kind = event.type;
+      }
+    }
+  }
+  return runs;
+}
+
 /** Output events counted; thoughts only when counting what the model wrote. */
 async function countOutput(usage: CallUsage, thoughts: boolean): Promise<TokenCount> {
   const estimator = await loadTokenEstimator();
@@ -110,9 +133,10 @@ async function countOutput(usage: CallUsage, thoughts: boolean): Promise<TokenCo
       count.tokens +=
         estimator.text(event.tool.name) +
         estimator.text(JSON.stringify(event.tool.arguments ?? {}));
-    } else if (event.text && (thoughts || event.type !== 'thought')) {
-      count.tokens += estimator.text(event.text);
     }
+  }
+  for (const run of textRuns(usage.output, thoughts)) {
+    count.tokens += estimator.text(run);
   }
   return count;
 }

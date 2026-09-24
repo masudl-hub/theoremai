@@ -245,7 +245,7 @@ export interface ProfileEgressSpec {
    * Characters the progressive gate holds back so `enforce` sees a match split
    * across stream chunks before any of it is released (default
    * `DEFAULT_HOLDBACK`, 256). Smaller releases the reply sooner and covers
-   * shorter splits; the canary's longest leak form is always held regardless.
+   * shorter splits; a tail that could start a canary leak is always held regardless.
    */
   holdback?: number;
 }

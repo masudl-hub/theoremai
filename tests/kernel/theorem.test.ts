@@ -32,6 +32,7 @@ import { memorySink } from '../../src/observability/trace.ts';
 import { contentOf } from '../../src/observability/trace-record.ts';
 import type { TraceAttributes } from '../../src/observability/trace-span.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
+import { eventTypesByReply, replyText } from '../fixtures/reply.ts';
 import { invokeRegisteredTool, withProfileTools } from '../fixtures/test-tools.ts';
 
 Deno.test('runner internal helper branches: loaders, tool findings, step ceilings, and fallback handlers', async () => {
@@ -116,8 +117,7 @@ Deno.test('runner internal helper branches: loaders, tool findings, step ceiling
   for await (const ev of runTurn(noHandlerReq, noHandlerProvider)) {
     stubEvents.push(ev);
   }
-  const textEv = stubEvents.find((e) => e.type === 'text');
-  assertEquals(textEv?.text, 'finished');
+  assertEquals(replyText(stubEvents), 'finished');
 
   // 3. Catalog registration is the source of truth for tool metadata
   registerProfile(
@@ -467,7 +467,7 @@ Deno.test('runTurn oneshot yields text structured done', async () => {
   const types = events.map((e) => e.type);
   assertEquals(types.includes('stage'), true);
   assertEquals(
-    types.filter((t) => t !== 'stage'),
+    eventTypesByReply(events).filter((t) => t !== 'stage'),
     ['text', 'structured', 'tokens', 'done'],
   );
   assertEquals(
@@ -803,7 +803,7 @@ Deno.test('runTurn streams thought and text live while validation buffers struct
   assertEquals(types.includes('text'), true);
   assertEquals(types.includes('structured'), true);
   assertEquals(types.filter((t) => t === 'thought').length, 1);
-  assertEquals(types.filter((t) => t === 'text').length, 1);
+  assertEquals(replyText(events), '{"code":');
   assertEquals(types.indexOf('thought') < types.indexOf('structured'), true);
   assertEquals(types.indexOf('text') < types.indexOf('structured'), true);
   assertDoneThenPostTurn(events);
@@ -1081,10 +1081,7 @@ Deno.test('runTurn autonomous loop re-calls provider until text emitted or step 
     events.some((e) => e.type === 'tool'),
     true,
   );
-  assertEquals(
-    events.some((e) => e.type === 'text' && e.text === 'Soil sensor reads 22% moisture.'),
-    true,
-  );
+  assertEquals(replyText(events), 'Soil sensor reads 22% moisture.');
   assertEquals(
     events.some((e) => e.type === 'done'),
     true,
@@ -1315,10 +1312,7 @@ Deno.test('outputs.streaming.streamThoughts=false filters out thought events fro
     events.some((e) => e.type === 'thought'),
     false,
   );
-  assertEquals(
-    events.some((e) => e.type === 'text' && e.text === 'final clean output'),
-    true,
-  );
+  assertEquals(replyText(events), 'final clean output');
   assertEquals(
     events.some((e) => e.type === 'done'),
     true,
@@ -1391,10 +1385,7 @@ Deno.test('registered tool exception is safely caught and converted to error fin
     true,
   );
   assertEquals(receivedToolError.includes('Database connection timed out'), true);
-  assertEquals(
-    events.some((e) => e.type === 'text' && e.text === 'Handled error gracefully.'),
-    true,
-  );
+  assertEquals(replyText(events), 'Handled error gracefully.');
 });
 
 Deno.test('autonomous loop strictly enforces maxSteps ceiling when tool requests repeat endlessly', async () => {

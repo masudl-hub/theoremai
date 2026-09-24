@@ -133,7 +133,7 @@ Deno.test('Interactions speech turn wraps PCM as WAV media', async () => {
   );
   assertEquals(
     events.map((ev) => ev.type),
-    ['media', 'done'],
+    ['media', 'response', 'done'],
   );
   const media = events[0]?.media;
   assertEquals(media?.mimeType, 'audio/wav');
@@ -171,10 +171,10 @@ Deno.test('Interactions speech profile errors when model emits text only (no fak
   );
   assertEquals(
     events.map((event) => event.type),
-    ['text', 'done', 'error'],
+    ['text', 'response', 'done', 'error'],
   );
   assertEquals(events[0]?.text, 'hello');
-  assertEquals(typeof events[2]?.error, 'string');
+  assertEquals(typeof events[3]?.error, 'string');
 });
 
 Deno.test('Interactions non-voice profile does not synthesize speech media from text', async () => {

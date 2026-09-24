@@ -21,7 +21,7 @@ import type {
 import { CHAT_MEDIA_LIMITS, geminiModels } from '../fixtures/models.ts';
 
 const PNG = { mimeType: 'image/png', data: btoa('px') };
-const CANARY = /theo-[0-9a-f]+/;
+const CANARY = /[0-9a-f]{32}/;
 
 async function requestsFor(
   req: TurnRequest,

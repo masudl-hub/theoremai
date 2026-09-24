@@ -89,6 +89,7 @@ export type {
   GuardrailHit,
   GuardrailStage,
   HostGuardrailsSpec,
+  LiveHeldOutput,
   LiveOutboundBatchResult,
   LiveOutboundGateSession,
   NetworkGuardrailSpec,
@@ -112,6 +113,7 @@ export type {
 } from './src/guardrails/mod.ts';
 export {
   ADVISORY_LEVELS,
+  abortLiveOutboundTurn,
   bindCanary,
   checkTaintGate,
   collectEgressHits,
@@ -319,7 +321,6 @@ export {
   protocolsFor,
   protocolsForProfileType,
   providersFor,
-  SCHEMA_ENFORCEMENTS,
   SPEECH_AUDIO_FORMATS,
   STREAM_MODES,
   SUMMARY_MODES,
@@ -360,6 +361,7 @@ export {
   stageEventFields,
 } from './src/kernel/stages.ts';
 export type {
+  MediaTurnBehaviourSpec,
   ProfileTurnBehaviourSpec,
   ProfileTurnResumptionSpec,
   TurnContinueFrom,

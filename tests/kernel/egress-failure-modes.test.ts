@@ -192,7 +192,7 @@ Deno.test('legacy egress blocked verdict with text is treated as refusal copy', 
   );
 });
 
-Deno.test('final egress inspects thought text as well as visible text', async () => {
+Deno.test('final egress inspects reply text, not thoughts', async () => {
   profile(
     'fm_thought_leak',
     ({ text }): Verdict =>
@@ -214,5 +214,53 @@ Deno.test('final egress inspects thought text as well as visible text', async ()
   };
 
   const events = await collect('fm_thought_leak', provider);
+  assertEquals(texts(events), ['safe visible text']);
+  assertEquals(
+    events.filter((e) => e.type === 'thought').map((e) => e.text),
+    ['secret-thought'],
+  );
+});
+
+// ── what streams live is delivered once ──────────────────────────────────────
+
+/** Regression: media streamed live was yielded again when the attempt passed. */
+Deno.test('a passing attempt delivers streamed media once', async () => {
+  profile('fm_media_once', (): Verdict => ({ action: 'allow' }));
+  const media: TurnEvent = { type: 'media', media: { mimeType: 'image/png', data: 'AAAA' } };
+  const provider: ModelProvider = {
+    async *complete() {
+      yield media;
+      yield { type: 'text', text: 'here it is' };
+    },
+  };
+  const events = await collect('fm_media_once', provider);
+  assertEquals(events.filter((e) => e.type === 'media').length, 1);
+  assertEquals(texts(events), ['here it is']);
+});
+
+Deno.test('thoughts keep streaming after a mid-stream block withholds the reply', async () => {
+  profile(
+    'fm_thought_after_block',
+    ({ text }): Verdict =>
+      text.includes('leak')
+        ? {
+            action: 'block',
+            hits: [{ rule: 'leak', severity: 'high' }],
+            rejection: 'leak',
+            refusal: 'I cannot share that.',
+          }
+        : { action: 'allow' },
+  );
+  const provider: ModelProvider = {
+    async *complete() {
+      yield { type: 'text', text: 'leak' };
+      yield { type: 'thought', text: 'still thinking' };
+    },
+  };
+  const events = await collect('fm_thought_after_block', provider);
+  assertEquals(
+    events.filter((e) => e.type === 'thought').map((e) => e.text),
+    ['still thinking'],
+  );
   assertEquals(texts(events), ['I cannot share that.']);
 });

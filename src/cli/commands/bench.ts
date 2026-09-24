@@ -312,7 +312,7 @@ function measureSetupPhases(): PhaseTimings {
   const t2 = performance.now();
 
   pickSystemRole(profile, safe.input?.role);
-  const sys = profile.identity.system ?? '';
+  const sys = profile.type === 'speech' ? '' : (profile.identity.system ?? '');
   const t3 = performance.now();
 
   bindCanary(sys, generation.canary);

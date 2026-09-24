@@ -9,7 +9,6 @@ import {
   type ComposerProfileInterface,
   collectPromotedMediaFromToolOutput,
   defaultInterfaceEffort,
-  defaultInterfaceModel,
   effortSelectEnabled,
   emptyInterfaceTurnSession,
   foldConversationTurn,
@@ -80,8 +79,8 @@ Deno.test('interfaceFromProfile maps identity, inputs, model, and outputs', () =
   const iface = composerIface(ATTACHMENT_PROFILE);
   assertEquals(iface.id, 'interface.text.attachments');
   assertEquals(iface.identity.handle, 'vision_bot');
+  if (iface.type !== 'text') throw new Error('expected text profile');
   assertEquals(iface.identity.system, 'You see images.');
-  assertEquals(iface.type, 'text');
   assertEquals(iface.inputs.text, true);
   assertEquals(iface.inputs.attachments?.accept, ['image/png', 'image/jpeg']);
   assertEquals(iface.inputs.attachments?.acceptAttr, 'image/png,image/jpeg');
@@ -768,6 +767,7 @@ Deno.test('effortSelectEnabled requires allowEffortSelect and two aliases', () =
         defaultEffort: 'fast',
       } satisfies ModelBinding,
     },
+    defaultModel: 'fast',
   };
   assertEquals(effortSelectEnabled(profile, 'fast'), true);
   assertEquals(
@@ -791,7 +791,7 @@ Deno.test('modelSelectEnabled requires allowModelSelect and two models', () => {
     }),
   );
   assertEquals(modelSelectEnabled(iface), true);
-  assertEquals(defaultInterfaceModel(iface), 'gemini35FlashLite');
+  assertEquals(iface.defaultModel, 'gemini35FlashLite');
   assertEquals(
     interfaceModelOptions(iface).map((option) => option.id),
     ['gemini35FlashLite', 'gemini31ProPreview'],
@@ -804,6 +804,7 @@ Deno.test('modelSelectEnabled requires allowModelSelect and two models', () => {
         fast: { ...HOST_BINDINGS.gemini35FlashLite, apiId: 'gemini-3.5-flash-lite' },
         smart: HOST_BINDINGS.gemini31ProPreview,
       },
+      defaultModel: 'fast',
     }),
     [
       { id: 'fast', label: 'gemini-3.5-flash-lite' },
@@ -817,6 +818,7 @@ Deno.test('modelSelectEnabled is false with a single model', () => {
     modelSelectEnabled({
       id: 'iface.model.single',
       models: { gemini35FlashLite: HOST_BINDINGS.gemini35FlashLite },
+      defaultModel: 'gemini35FlashLite',
       allowModelSelect: true,
     }),
     false,
@@ -825,6 +827,7 @@ Deno.test('modelSelectEnabled is false with a single model', () => {
     interfaceModelOptions({
       id: 'iface.model.single',
       models: { gemini35FlashLite: HOST_BINDINGS.gemini35FlashLite },
+      defaultModel: 'gemini35FlashLite',
       allowModelSelect: true,
     }),
     [],

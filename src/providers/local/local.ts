@@ -24,6 +24,7 @@ import type {
 } from '../../kernel/types.ts';
 import { buildChatMessages, wireTools } from '../openrouter/openai/compat.ts';
 import { openAiResponse, openAiUsageTokens } from '../openrouter/openai/usage.ts';
+import { foldResponse } from '../shared/response-identity.ts';
 import { parseSseStream } from '../shared/sse.ts';
 import { parseToolArgumentsObject } from '../shared/tool-args.ts';
 import { tapFetch } from '../shared/upstream-tap.ts';
@@ -142,7 +143,9 @@ async function* streamOpenAiBody(
   let response: TurnResponse | undefined;
   for await (const raw of parseSseStream(body)) {
     tap?.(raw);
-    response = openAiResponse(raw) ?? response;
+    const identity = foldResponse(response, openAiResponse(raw));
+    response = identity.known;
+    if (identity.event) yield identity.event;
     const tokens = openAiUsageTokens(raw.usage);
     if (tokens) yield { type: 'tokens', tokens };
     const choice = firstOpenAiChoice(raw);
@@ -157,7 +160,6 @@ async function* streamOpenAiBody(
   yield {
     type: 'done',
     stop: turnStopFromOpenAiFinishReason(finishReason),
-    ...(response ? { response } : {}),
   };
 }
 

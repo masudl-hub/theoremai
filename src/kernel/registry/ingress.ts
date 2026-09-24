@@ -8,15 +8,16 @@
 
 import { wrapUserData } from '../../guardrails/canary.ts';
 import { TheoremError } from '../../guardrails/error.ts';
+import { lexiconText } from '../../guardrails/lexicon.ts';
 import { synthesizeRepairPrompt } from '../engine/repair.ts';
 import { isSpeechFormatAllowedForProtocol } from '../schema.ts';
+import { profileTurnResumption } from '../stop.ts';
 import type {
   ImageResponseFormat,
   InteractionPart,
   MediaInputKind,
   ModelBinding,
   ModelId,
-  ModelProfile,
   Profile,
   ProfileImageSpec,
   TurnBlob,
@@ -32,24 +33,15 @@ import {
   profileAccept,
   profileInputs,
 } from './catalog.ts';
-import { getStructured } from './schemas.ts';
 
 type PrimaryOutputMode = 'structured' | 'image' | 'speech';
-
-function usesStructuredResponseFormat(structuredId: string | null): boolean {
-  if (!structuredId) {
-    return false;
-  }
-  const spec = getStructured(structuredId);
-  return spec.enforced === 'responseFormat' && spec.jsonSchema != null;
-}
 
 function activePrimaryOutputModes(
   profile: Profile,
   structuredId: string | null,
 ): PrimaryOutputMode[] {
   const modes: PrimaryOutputMode[] = [];
-  if (usesStructuredResponseFormat(structuredId)) {
+  if (structuredId) {
     modes.push('structured');
   }
   if (profile.type === 'image') {
@@ -73,8 +65,7 @@ function assertOutputMode(profile: Profile, structuredId: string | null): void {
   }
   throw new TheoremError(
     `Profile ${profile.id} declares multiple output wire formats (${active.join(', ')}). ` + // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      `Only one of responseFormat JSON schema (outputs.structured with enforced ` + // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      `'responseFormat'), image, or speech may be active.`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      'Only one of a structured JSON schema (outputs.structured), image, or speech may be active.', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   );
 }
 
@@ -85,19 +76,18 @@ function assertImagePins(profile: Profile): ProfileImageSpec {
   return profile.image;
 }
 
-function defaultBinding(profile: ModelProfile): ModelBinding | undefined {
-  const ids = Object.keys(profile.models);
-  const id = profile.defaultModel ?? (ids.length === 1 ? ids[0] : undefined);
-  return id ? profile.models[id] : undefined;
-}
-
-function assertSpeechRole(profile: Profile): void {
+/** Speech turns: the selected model's transport must take the format, and no system prompt rides along. */
+function assertSpeechRole(profile: Profile, binding: ModelBinding, req: TurnRequest): void {
   if (profile.type !== 'speech') {
     return;
   }
+  if (req.system) {
+    throw new TheoremError(
+      `Profile ${profile.id} (speech) takes no system prompt — the input text is the transcript`, // lexicon-exempt: developer contract error
+    );
+  }
   const format = profile.speech.format;
-  const binding = defaultBinding(profile);
-  if (format && binding && !isSpeechFormatAllowedForProtocol(binding.protocol, format)) {
+  if (format && !isSpeechFormatAllowedForProtocol(binding.protocol, format)) {
     throw new TheoremError(
       `Profile ${profile.id}: speech.format '${format}' requires protocol 'openAi' ` + // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         `(geminiInteractions speech returns PCM and emits WAV)`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -174,8 +164,31 @@ function extractTextPart(profile: Profile, req: TurnRequest): InteractionPart | 
   }
   // A repair is the kernel's, not the user's: it replaces the text on a retry
   // whether or not the profile takes text from the user.
-  const promptText = repair ? synthesizeRepairPrompt({ profile, repair, history }) : text;
+  const promptText = repair
+    ? synthesizeRepairPrompt({ profile, repair, history })
+    : (continueText(profile, req) ?? text);
   return promptText ? { type: 'text', text: wrapUserData(promptText) } : null;
+}
+
+/**
+ * A text `continueFrom` turn's user message is the continue instruction, so the
+ * model reads history → partial reply → "continue". Image and speech get none:
+ * their continue re-sends the host's request unchanged.
+ */
+function continueText(profile: Profile, req: TurnRequest): string | undefined {
+  if (!req.continueFrom || profile.type !== 'text') {
+    return undefined;
+  }
+  if (req.input?.text) {
+    throw new TheoremError(
+      `Profile ${profile.id}: a continueFrom turn takes no input.text — its user message is the continue instruction`, // lexicon-exempt: developer contract error
+    );
+  }
+  return lexiconText(
+    'continue.instruction',
+    {},
+    profileTurnResumption(profile)?.continueInstruction,
+  );
 }
 
 function extractMediaParts(profile: Profile, model: ModelId, req: TurnRequest): InteractionPart[] {

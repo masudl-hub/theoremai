@@ -195,7 +195,10 @@ Deno.test('createLocalProvider streams text, tokens, and completed stop', async 
   const done = events.find((e) => e.type === 'done');
   assertEquals(done?.stop?.kind, 'completed');
   assertEquals(done?.stop?.native, 'stop');
-  assertEquals(done?.response, { id: 'chatcmpl-1', model: 'llama3.2' });
+  assertEquals(
+    events.filter((e) => e.type === 'response').map((e) => e.response),
+    [{ id: 'chatcmpl-1', model: 'llama3.2' }],
+  );
 });
 
 Deno.test('createLocalProvider maps finish_reason length and tool_calls', async () => {

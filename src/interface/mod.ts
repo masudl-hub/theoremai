@@ -39,7 +39,6 @@ export {
 export type { InterfaceEffortOption, InterfaceModelOption } from './models.ts';
 export {
   defaultInterfaceEffort,
-  defaultInterfaceModel,
   effortSelectEnabled,
   generationSelectEnabled,
   interfaceEffortOptions,

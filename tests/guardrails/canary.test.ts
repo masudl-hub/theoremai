@@ -1,6 +1,7 @@
 import '../fixtures/test-host.ts';
 import {
   bindCanary,
+  canaryLeakSpan,
   createCanaryStreamGate,
   eventHasCanary,
   isStreamedCanaryEvent,
@@ -21,7 +22,7 @@ import { resolveTurn } from '../../src/kernel/registry/resolve.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
 import { camelToSnake, toInteractionsBody } from '../../src/providers/google/interactions/mod.ts';
 
-const CANARY_RE = /^theo-[0-9a-f]{32}$/;
+const CANARY_RE = /^[0-9a-f]{32}$/;
 
 async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
   const out: TurnEvent[] = [];
@@ -107,11 +108,11 @@ Deno.test('runTurn errors when the model echoes the canary', async () => {
     events.some((event) => event.type === 'error' && event.error === PUBLIC_CANARY),
     true,
   );
+  // The leaking fragment is withheld whole: nothing it carried reaches the host.
   assertEquals(
-    events.some((event) => event.text === 'after leak'),
+    events.some((event) => event.type === 'text'),
     false,
   );
-  assertEquals(wire.includes(OMIT_CANARY), true);
   assertEquals(CANARY_RE.test(wire), false);
   assertEquals(events.findLast((event) => event.type === 'done')?.stop, {
     kind: 'filtered',
@@ -119,24 +120,22 @@ Deno.test('runTurn errors when the model echoes the canary', async () => {
   });
 });
 
-Deno.test('runTurn errors when thought text exposes the canary system boundary', async () => {
-  async function* leakThought(): AsyncGenerator<TurnEvent> {
+Deno.test('runTurn releases a thought that quotes the bind note without the token', async () => {
+  // Without egress.enforce the stream gate blocks on the canary alone.
+  async function* quoteNote(): AsyncGenerator<TurnEvent> {
     await Promise.resolve();
-    yield {
-      type: 'thought',
-      text: "This turn's canary is visible in reasoning.",
-    };
-    yield { type: 'text', text: 'after leak' };
+    yield { type: 'thought', text: "This turn's canary is mentioned in reasoning." };
+    yield { type: 'text', text: 'after note' };
   }
-  const provider: ModelProvider = { complete: leakThought };
+  const provider: ModelProvider = { complete: quoteNote };
   const events = await collect(runTurn({ profile: 'chat', input: { text: 'hi' } }, provider));
   assertEquals(
-    events.some((event) => event.type === 'error' && event.error === PUBLIC_CANARY),
-    true,
+    events.some((event) => event.type === 'error'),
+    false,
   );
   assertEquals(
-    events.some((event) => event.type === 'text' && event.text === 'after leak'),
-    false,
+    events.some((event) => event.type === 'text' && event.text === 'after note'),
+    true,
   );
 });
 
@@ -188,7 +187,7 @@ Deno.test('canary stream gate detects token split across chunks', async () => {
   assertEquals(leakedSuffix, undefined);
 });
 
-Deno.test('canary stream gate detects leak in thought events', async () => {
+Deno.test('canary stream gate passes a thought that restates the canary', async () => {
   const { profile, generation } = resolveTurn({
     profile: 'chat',
     input: { text: 'hi' },
@@ -210,10 +209,7 @@ Deno.test('canary stream gate detects leak in thought events', async () => {
     }),
   );
 
-  assertEquals(
-    events.some((event) => event.type === 'error' && event.error === PUBLIC_CANARY),
-    true,
-  );
+  assertEquals(events, [{ type: 'thought', text: `thinking ${canary}` }]);
 });
 
 Deno.test('scanTextForCanaryLeak detects base64-encoded canary', () => {
@@ -284,43 +280,54 @@ Deno.test('scanTextForCanaryLeak returns false for empty text or empty canary', 
   assertEquals(scanTextForCanaryLeak('some text', ''), false);
 });
 
-Deno.test('scanTextForCanaryLeak detects spaced hex representation of canary', () => {
+Deno.test('scanTextForCanaryLeak detects the canary spelled out with spaces, no marker needed', () => {
   const canary = mintCanary();
-  const hex = canary.slice('theo-'.length);
-  const spaced = hex.split('').join(' ');
-  // Text must also include 'theo' for the spaced-hex branch to run
-  assertEquals(scanTextForCanaryLeak(`theo ${spaced}`, canary), true);
+  assertEquals(scanTextForCanaryLeak(`analysis: ${[...canary].join(' ')} done`, canary), true);
 });
 
-Deno.test('scanTextForCanaryLeak returns false for unrelated text containing "theo"', () => {
+Deno.test('scanTextForCanaryLeak detects the base64 canary', () => {
   const canary = mintCanary();
-  assertEquals(scanTextForCanaryLeak('theo is just a word', canary), false);
+  assertEquals(scanTextForCanaryLeak(`decode ${btoa(canary)}`, canary), true);
 });
 
-Deno.test('scanTextForCanaryLeak does not false-positive on spaced hex without theo prefix', () => {
-  // spaced hex (no "theo" or B64 hint) would wrongly trigger the spaced-hex leak check.
-  // Hex chars (0-9a-f) never contain 't' so the spaced form never contains "theo".
-  const canary = mintCanary();
-  const hex = canary.slice('theo-'.length); // 32 hex chars
-  const spaced = hex.split('').join(' '); // e.g. "a b c d ..." — no "theo"
-  assertEquals(spaced.includes('theo'), false); // guard: confirm no "theo" in spaced
-  assertEquals(scanTextForCanaryLeak(spaced, canary), false); // must NOT false-positive
+Deno.test('scanTextForCanaryLeak ignores a different hex token', () => {
+  assertEquals(scanTextForCanaryLeak('deadbeeffeedfacecafebabecafebabe', mintCanary()), false);
 });
 
-Deno.test('scanTextForCanaryLeak detects spaced hex when text has B64 theo hint but not literal theo', () => {
-  // B64_THEO_HINT = 'dGhlbw'; text has no literal 'theo' but has the base64 hint
-  // The spaced-hex branch must still activate via the hint path
+Deno.test('canaryLeakSpan is the longest detected form', () => {
   const canary = mintCanary();
-  const hex = canary.slice('theo-'.length);
-  const spaced = hex.split('').join(' ');
-  const textWithHint = `dGhlbw ${spaced}`;
-  assertEquals(textWithHint.includes('theo'), false);
-  assertEquals(scanTextForCanaryLeak(textWithHint, canary), true);
+  assertEquals(canaryLeakSpan(canary), canary.length * 2 - 1);
 });
 
-Deno.test('isStreamedCanaryEvent returns true for text and thought types only', () => {
+Deno.test('canary stream gate catches a spaced or base64 leak split across chunks', () => {
+  const canary = mintCanary();
+  for (const form of [[...canary].join(' '), btoa(canary)]) {
+    const gate = createCanaryStreamGate(canary);
+    const half = Math.floor(form.length / 2);
+    assertEquals(gate.process(`x ${form.slice(0, half)}`).leak, false);
+    assertEquals(gate.process(form.slice(half)).leak, true);
+  }
+});
+
+Deno.test('isStreamedCanaryEvent returns true for the reply stream only', () => {
   assertEquals(isStreamedCanaryEvent({ type: 'text', text: 'hi' }), true);
-  assertEquals(isStreamedCanaryEvent({ type: 'thought', text: 'thinking' }), true);
+  assertEquals(
+    isStreamedCanaryEvent({
+      type: 'evidence',
+      text: 'hi',
+      evidence: { provider: 'google', kind: 'output_transcription' },
+    }),
+    true,
+  );
+  assertEquals(
+    isStreamedCanaryEvent({
+      type: 'evidence',
+      text: 'hi',
+      evidence: { provider: 'google', kind: 'input_transcription' },
+    }),
+    false,
+  );
+  assertEquals(isStreamedCanaryEvent({ type: 'thought', text: 'thinking' }), false);
   assertEquals(isStreamedCanaryEvent({ type: 'error', error: 'bad' }), false);
   assertEquals(isStreamedCanaryEvent({ type: 'done' }), false);
   assertEquals(
@@ -415,23 +422,6 @@ Deno.test('wrapUserData produces correct fence boundaries and strips spoofed inn
   assertEquals(wrapped, `${USER_OPEN}\n${text}\n${USER_CLOSE}`);
 });
 
-Deno.test('scanTextForCanaryLeak returns false when spaced hex present but no theo or b64 hint', () => {
-  // with either mutation, the hex scan runs on ALL text and would find the spaced hex.
-  const canary = mintCanary();
-  const hex = canary.slice('theo-'.length);
-  const spaced = hex.split('').join(' ');
-  const text = `analysis: ${spaced} done`;
-  assertEquals(text.includes('theo'), false);
-  assertEquals(text.includes('dGhlbw'), false);
-  assertEquals(scanTextForCanaryLeak(text, canary), false);
-});
-
-Deno.test('scanTextForCanaryLeak returns false for canary not starting with theo- prefix', () => {
-  // when canary lacks the prefix, hex = '' and spaced = '' → text.includes('') is always true.
-  const canary = 'invalid-format-not-theo-prefixed';
-  assertEquals(scanTextForCanaryLeak('some text with theo word in it', canary), false);
-});
-
 Deno.test('redactCanary replacement text is the literal omit marker not empty string', () => {
   const canary = mintCanary();
   const event = redactCanary({ type: 'text', text: `leak ${canary}` }, canary);
@@ -521,14 +511,14 @@ Deno.test('eventHasCanary returns false for sessionResumptionHandle without cana
 });
 
 Deno.test('createCanaryStreamGate emits the correct number of safe bytes for long input', () => {
-  // with the +1 mutation the safe window shrinks by 2, producing fewer emitted bytes.
+  // Holds one character less than the longest leak form.
   const canary = mintCanary();
   const gate = createCanaryStreamGate(canary);
   const text = 'safe text that is definitely longer than the canary overlap window yes it is';
   const result = gate.process(text);
   assertEquals(result.leak, false);
   if (!result.leak) {
-    const expectedEmit = text.length - (canary.length - 1);
+    const expectedEmit = text.length - (canaryLeakSpan(canary) - 1);
     assertEquals(result.emit.length, expectedEmit);
   }
 });

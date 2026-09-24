@@ -14,6 +14,14 @@ const schemas = new Map<string, StructuredSpec>();
 
 /** Register a host-owned structured output schema. */
 function registerStructured(id: string, spec: StructuredSpec): void {
+  if ('enforced' in spec) {
+    throw new TheoremError(
+      `registerStructured '${id}': enforced was removed; every structured schema is sent to the model as its response format`, // lexicon-exempt: developer contract error
+    );
+  }
+  if (!spec.jsonSchema || typeof spec.jsonSchema !== 'object' || Array.isArray(spec.jsonSchema)) {
+    throw new TheoremError(`registerStructured '${id}': jsonSchema must be a JSON Schema object`); // lexicon-exempt: developer contract error
+  }
   schemas.set(id, spec);
 }
 

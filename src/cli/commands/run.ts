@@ -29,7 +29,7 @@ export async function runCommand(options: RunOptions): Promise<void> {
   const prompt = options.prompt || 'Hello! Please introduce your capabilities.';
   if (options.search || options.map) {
     const profile = requireModelProfile(getProfile(options.profile), 'agents run');
-    const selected = options.mode ?? profile.defaultModel ?? Object.keys(profile.models)[0] ?? '';
+    const selected = options.mode ?? profile.defaultModel;
     const builtins = new Set(profile.models[selected]?.builtInTools ?? []);
     if (options.search && !builtins.has('googleSearch')) {
       console.error(

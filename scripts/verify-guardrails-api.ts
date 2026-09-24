@@ -17,7 +17,7 @@
  *   Gemini:     gemini-3.1-flash-lite
  *
  * Usage:
- *   THEOREM_ENV_FILE=../theoremai-frontend/.env.local deno task verify:guardrails-api
+ *   deno task verify:guardrails-api   # vault slots from THEOREM_VAULT_*, see scripts/host-env.ts
  *   deno task verify:guardrails-api -- --provider gemini
  *   deno task verify:guardrails-api -- --inbound-only   # no API calls
  *   deno task verify:guardrails-api -- --category canary,inbound-injection --limit 20
@@ -42,7 +42,7 @@ import { resolveTurn } from '../src/kernel/registry/resolve.ts';
 import type { ModelProvider, TurnEvent, TurnRequest } from '../src/kernel/types.ts';
 import { OMIT_INJECTION, OMIT_SENSITIVE } from '../src/observability/spans.ts';
 import { createProvider } from '../src/providers/create-provider.ts';
-import { loadHostEnv } from './host-env.ts';
+import { hostOpenRouterKey, hostVault, loadHostEnv, OPENROUTER_ENV } from './host-env.ts';
 
 const LIVE_PROFILE_ID = '__live_guardrails_redteam__';
 
@@ -169,8 +169,8 @@ function registerLiveProfile(providerKind: 'openrouter' | 'gemini'): void {
 function createLiveProvider(providerKind: 'openrouter' | 'gemini'): ModelProvider {
   const profile = getProfile(LIVE_PROFILE_ID);
   if (providerKind === 'openrouter') {
-    const apiKey = Deno.env.get('OPENROUTER_API_KEY')?.trim();
-    if (!apiKey) throw new Error('OPENROUTER_API_KEY missing in env file');
+    const apiKey = hostOpenRouterKey();
+    if (!apiKey) throw new Error(`${OPENROUTER_ENV} missing`);
     return createProvider(profile, {
       openAiGateway: {
         apiKey,
@@ -179,11 +179,7 @@ function createLiveProvider(providerKind: 'openrouter' | 'gemini'): ModelProvide
       },
     });
   }
-  const geminiKey = Deno.env.get('GEMINI_API_KEY')?.trim();
-  if (!geminiKey) throw new Error('GEMINI_API_KEY missing in env file');
-  return createProvider(profile, {
-    gemini: { vault: { slotA: geminiKey, slotB: geminiKey, slotC: geminiKey, paid: geminiKey } },
-  });
+  return createProvider(profile, { gemini: { vault: hostVault() } });
 }
 
 function serializedInbound(req: TurnRequest): string {

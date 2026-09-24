@@ -129,6 +129,28 @@ Deno.test('runSession sendVideo rejects when live.ingress.video is disabled', as
   await session.close();
 });
 
+Deno.test('runSession sends setup on an already-open socket (fetch upgrade)', async () => {
+  clearProfiles();
+  resetTools();
+  const profile = registerLiveProfile('session_live_preopened');
+
+  const mock = new MockLiveWebSocket();
+  mock.readyState = 1;
+  const session = await runSession(
+    { profile: profile.id },
+    {
+      gemini: {
+        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
+      },
+      openWebSocket: () => Promise.resolve(mock as unknown as WebSocket),
+    },
+  );
+
+  assertEquals(mock.sent.filter((frame) => frame.includes('"setup"')).length, 1);
+  mock.close();
+  await session.close();
+});
+
 Deno.test('runSession sendText rejects when live.ingress.text is disabled', async () => {
   clearProfiles();
   resetTools();

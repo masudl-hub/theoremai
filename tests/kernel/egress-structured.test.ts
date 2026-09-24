@@ -12,7 +12,7 @@ import { registerStructured } from '../../src/kernel/registry/schemas.ts';
 import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
-registerStructured('egressStructured', { enforced: 'responseFormat' });
+registerStructured('egressStructured', { jsonSchema: { type: 'object' } });
 
 const SECRET = 'internal_tool_abc';
 

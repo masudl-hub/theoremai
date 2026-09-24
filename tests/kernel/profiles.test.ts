@@ -83,6 +83,26 @@ Deno.test('defineProfile rejects observability.sampleRate outside 0–1', () => 
   );
 });
 
+Deno.test('defineProfile rejects a non-integer or negative egress count', () => {
+  for (const egress of [{ holdback: -1 }, { holdback: 1.5 }, { maxRetries: -2 }]) {
+    assertThrows(
+      () =>
+        defineProfile({
+          id: 'bad_egress',
+          type: 'text',
+          identity: { handle: 'bad_egress' },
+          models: modelBindings('gemini35FlashLite'),
+          key: 'slotA',
+          tools: { allow: [] },
+          inputs: { text: true },
+          guardrails: { egress: { enforce: () => ({ action: 'allow' }), ...egress } },
+        }),
+      TheoremError,
+      'must be a non-negative integer',
+    );
+  }
+});
+
 Deno.test('defineProfile rejects illegal protocol/provider pairs', () => {
   assertThrows(
     () =>

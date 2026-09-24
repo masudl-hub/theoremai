@@ -28,16 +28,18 @@ import { collectValidationFailures, formatValidationFailures } from './schema-va
 import { applyTurnStage } from './stages.ts';
 import { type AttemptFlowState, appendUserInput, type StepExecutionState } from './state.ts';
 import { executeAttempt } from './steps.ts';
+import { isWithheldOnBlock } from './stream.ts';
 
 /** Internal reason recorded when a turn is withheld; mapped to public copy on emit. */
 const WITHHELD = 'Turn withheld: egress disclosure violation'; // lexicon-exempt: internal marker mapped by publicError
 /** A turn whose final output the egress check blocked (withheld or replaced by policy copy). */
 const EGRESS_FILTERED_STOP: TurnStop = { kind: 'filtered', native: 'egress' };
 
+/** Reply text only: thoughts are not guarded output (`isGuardedOutput`). */
 function collectAttemptText(events: TurnEvent[]): string {
   const parts: string[] = [];
   for (const event of events) {
-    if ((event.type === 'text' || event.type === 'thought') && event.text) {
+    if (event.type === 'text' && event.text) {
       parts.push(event.text);
     }
   }
@@ -172,14 +174,8 @@ async function evaluateValidationOutcome(args: {
       'outputs.validation requires outputs.structured with a JSON Schema', // lexicon-exempt: developer contract error
     );
   }
-  const spec = getStructured(structuredId);
-  if (!spec.jsonSchema) {
-    throw new TheoremError(
-      `structured schema '${structuredId}' has no jsonSchema for validation`, // lexicon-exempt: developer contract error
-    );
-  }
   const failures = await collectValidationFailures(
-    spec.jsonSchema,
+    getStructured(structuredId).jsonSchema,
     latestStructured,
     validation.fields,
     request.input?.slots,
@@ -211,8 +207,8 @@ function* yieldBufferedAttemptEvents(
     if (ev.type === 'tokens') {
       continue;
     }
-    // When validation-only, thought/text already streamed live.
-    if (alreadyStreamedUserVisible && (ev.type === 'thought' || ev.type === 'text')) {
+    // Thoughts always streamed live; text and media did unless the attempt withheld them.
+    if (ev.type === 'thought' || (alreadyStreamedUserVisible && isWithheldOnBlock(ev))) {
       continue;
     }
     yield ev;
@@ -434,7 +430,7 @@ async function* executeSingleAttemptCycle(args: {
   }
 
   if (validation || egress?.enforce) {
-    // Progressive-yield already released text/thought live under egress — unless it
+    // Progressive-yield already released text and media live under egress — unless it
     // withheld them mid-stream. A passing final verdict on the full text supersedes
     // that partial-window decision, so the buffer is released instead of dropped.
     yield* yieldBufferedAttemptEvents(state.attemptEvents, !state.withheldVisible);

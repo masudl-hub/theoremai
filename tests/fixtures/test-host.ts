@@ -1,7 +1,6 @@
-import { registerProfile } from '../../src/kernel/registry/profiles.ts';
+import { type ProfileDefinition, registerProfile } from '../../src/kernel/registry/profiles.ts';
 import { registerStructured } from '../../src/kernel/registry/schemas.ts';
 import { registerHarnessTools } from '../../src/kernel/tools/mod.ts';
-import type { Profile } from '../../src/kernel/types.ts';
 import type { GoogleImagePins } from '../../src/presets/google.ts';
 import { registerGooglePreset } from '../../src/presets/google.ts';
 import {
@@ -31,9 +30,8 @@ const MESSAGE_SCHEMA = {
   required: ['message'],
 };
 
-registerStructured('chatTurn', { enforced: 'responseFormat', jsonSchema: MESSAGE_SCHEMA });
+registerStructured('chatTurn', { jsonSchema: MESSAGE_SCHEMA });
 registerStructured('htmlTurn', {
-  enforced: 'responseFormat',
   jsonSchema: {
     type: 'object',
     properties: { message: { type: 'string' }, html: { type: 'string' } },
@@ -41,16 +39,13 @@ registerStructured('htmlTurn', {
   },
 });
 registerStructured('tsxTurn', {
-  enforced: 'responseFormat',
   jsonSchema: {
     type: 'object',
     properties: { message: { type: 'string' }, tsx: { type: 'string' } },
     required: ['message'],
   },
 });
-registerStructured('promptTurn', { enforced: 'prompt' });
 registerStructured('validTurn', {
-  enforced: 'responseFormat',
   jsonSchema: {
     type: 'object',
     properties: {
@@ -61,7 +56,6 @@ registerStructured('validTurn', {
   },
 });
 registerStructured('optionalCodeTurn', {
-  enforced: 'responseFormat',
   jsonSchema: {
     type: 'object',
     properties: {
@@ -79,7 +73,7 @@ registerStructured('optionalCodeTurn', {
   },
 });
 
-const chat: Profile = {
+const chat: ProfileDefinition = {
   type: 'text',
   id: 'chat',
   identity: { handle: 'chat', system: 'Reply in the structured turn schema.' },
@@ -102,7 +96,7 @@ const chat: Profile = {
   },
 };
 
-const pinned: Profile = {
+const pinned: ProfileDefinition = {
   type: 'text',
   id: 'pinned',
   identity: { handle: 'pinned', system: 'Keep replies short.' },
@@ -124,7 +118,7 @@ const pinned: Profile = {
   },
 };
 
-const selector: Profile = {
+const selector: ProfileDefinition = {
   type: 'text',
   id: 'selector',
   identity: {
@@ -155,14 +149,14 @@ const selector: Profile = {
     voice: { accept: [...VOICE_INPUT_MIMES] },
     ...CHAT_MEDIA_LIMITS,
   },
-  outputs: { structured: 'promptTurn' },
+  outputs: { structured: null },
   guardrails: {
     canary: true,
     quota: { perDay: CHAT_QUOTA },
   },
 };
 
-const formatter: Profile = {
+const formatter: ProfileDefinition = {
   type: 'text',
   id: 'formatter',
   identity: { handle: 'formatter', system: 'Produce source text in the structured turn schema.' },
@@ -190,7 +184,7 @@ const formatter: Profile = {
   },
 };
 
-const image: Profile = {
+const image: ProfileDefinition = {
   type: 'image',
   id: 'image',
   identity: { handle: 'image', system: 'Generate exactly one image.' },
@@ -215,15 +209,14 @@ const image: Profile = {
   },
 };
 
-const speech: Profile = {
+const speech: ProfileDefinition = {
   type: 'speech',
   id: 'speech',
-  identity: { handle: 'speech', system: 'Speak the user text clearly.' },
+  identity: { handle: 'speech' },
   ...geminiModels('gemini31FlashTts'),
   maxSteps: 1,
   speech: { voice: 'Kore', format: 'pcm' },
   guardrails: {
-    canary: true,
     quota: { perDay: PIN_QUOTA },
   },
 };

@@ -154,10 +154,9 @@ async function countPrompt(
   const estimator = await loadTokenEstimator();
   const wire = generation.tools.wire;
   const tools = wire.length > 0 ? estimator.text(JSON.stringify(wire)) : 0;
-  const jsonSchema = generation.structured
-    ? getStructured(generation.structured).jsonSchema
-    : undefined;
-  const schema = jsonSchema ? estimator.text(JSON.stringify(jsonSchema)) : 0;
+  const schema = generation.structured
+    ? estimator.text(JSON.stringify(getStructured(generation.structured).jsonSchema))
+    : 0;
   const conversation = await countConversation(usage, family);
   return {
     tokens: estimator.text(usage.system) + tools + schema + conversation.tokens,

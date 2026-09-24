@@ -293,18 +293,11 @@ Deno.test('attachResponseFormat leaves camel untouched when nothing is requested
   assertEquals(Object.hasOwn(camel, 'responseFormat'), false);
 });
 
-Deno.test('attachResponseFormat sets json response format for a responseFormat-enforced schema', () => {
+Deno.test('attachResponseFormat sets json response format for a structured schema', () => {
   const req = baseReq({ structured: 'chatTurn' });
   const camel: Record<string, unknown> = {};
   attachResponseFormat(req, camel);
   assertEquals(Array.isArray(camel.responseFormat), true);
-});
-
-Deno.test('attachResponseFormat skips prompt-enforced structured schemas', () => {
-  const req = baseReq({ structured: 'promptTurn' });
-  const camel: Record<string, unknown> = {};
-  attachResponseFormat(req, camel);
-  assertEquals(Object.hasOwn(camel, 'responseFormat'), false);
 });
 
 // attachSpeechConfig

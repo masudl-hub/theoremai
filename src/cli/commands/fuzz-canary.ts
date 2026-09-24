@@ -216,14 +216,14 @@ export async function fuzzCanaryCommand(options?: { canary?: string }): Promise<
   registerFuzzCanaryProfile();
 
   const canary = options?.canary ?? FIXED_CANARY;
-  if (!/^theo-[0-9a-f]{32}$/.test(canary)) {
-    console.error(`Invalid canary shape (expected theo- + 32 hex): ${canary}`);
+  if (!/^[0-9a-f]{32}$/.test(canary)) {
+    console.error(`Invalid canary shape (expected 32 hex): ${canary}`);
     return false;
   }
 
   // Sanity: mint path uses same shape
   const minted = mintCanary();
-  if (!/^theo-[0-9a-f]{32}$/.test(minted)) {
+  if (!/^[0-9a-f]{32}$/.test(minted)) {
     console.error(`mintCanary produced unexpected shape: ${minted}`);
     return false;
   }

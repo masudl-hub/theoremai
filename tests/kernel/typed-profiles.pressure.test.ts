@@ -2,7 +2,7 @@ import { assertEquals, assertThrows } from '@std/assert';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import { defineProfile, getProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
 import { projectProfile, resolveTurn } from '../../src/kernel/registry/resolve.ts';
-import { profileAllowsInject } from '../../src/kernel/stop.ts';
+import { type MediaTurnBehaviourSpec, profileAllowsInject } from '../../src/kernel/stop.ts';
 import { registerGooglePreset } from '../../src/presets/google.ts';
 import { createProvider } from '../../src/providers/create-provider.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
@@ -275,7 +275,6 @@ Deno.test('pressure-test: turnBehaviour.resumption maxContinues enforcement', ()
       profile: 'capped_continue_profile',
       continueFrom: { stop: { kind: 'length' } },
       continuation,
-      input: { text: 'continue please' },
     });
     assertEquals(profile.id, 'capped_continue_profile');
     assertEquals(generation.transport, 'interactions');
@@ -288,7 +287,6 @@ Deno.test('pressure-test: turnBehaviour.resumption maxContinues enforcement', ()
         profile: 'capped_continue_profile',
         continueFrom: { stop: { kind: 'length' } },
         continuation: 4,
-        input: { text: 'continue please' },
       });
     },
     TheoremError,
@@ -302,7 +300,6 @@ Deno.test('pressure-test: turnBehaviour.resumption maxContinues enforcement', ()
         profile: 'capped_continue_profile',
         continueFrom: { stop: { kind: 'length' } },
         continuation: 0,
-        input: { text: 'continue please' },
       });
     },
     TheoremError,
@@ -315,7 +312,6 @@ Deno.test('pressure-test: turnBehaviour.resumption maxContinues enforcement', ()
       resolveTurn({
         profile: 'capped_continue_profile',
         continueFrom: { stop: { kind: 'length' } },
-        input: { text: 'continue please' },
       });
     },
     TheoremError,
@@ -370,7 +366,8 @@ Deno.test('pressure-test: turnBehaviour.allowSteering rejected on image', () => 
         image: { mimeType: 'image/png' },
         tools: { allow: [] },
         inputs: { text: true },
-        turnBehaviour: { allowSteering: true },
+        // The image type omits allowSteering; an untyped host can still send it.
+        turnBehaviour: { allowSteering: true } as MediaTurnBehaviourSpec,
       });
     },
     TheoremError,

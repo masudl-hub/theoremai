@@ -6,7 +6,7 @@
  * @module
  */
 
-import type { ModelBinding, ModelId, ProfileModelFields } from '../../src/kernel/types.ts';
+import type { ModelBinding, ModelId } from '../../src/kernel/types.ts';
 import {
   GOOGLE_IMAGE_ASPECT_RATIOS,
   GOOGLE_IMAGE_INPUT_MIMES,
@@ -139,7 +139,10 @@ function modelBindings(...ids: HostBindingId[]): Record<ModelId, ModelBinding> {
 }
 
 /** Gemini Interactions model fields for fixtures (protocol + provider live on each binding). */
-function geminiModels(...ids: HostBindingId[]): ProfileModelFields & { key: 'slotA' } {
+function geminiModels(...ids: HostBindingId[]): {
+  models: Record<ModelId, ModelBinding>;
+  key: 'slotA';
+} {
   return {
     models: modelBindings(...ids),
     key: 'slotA',

@@ -7,7 +7,6 @@ import {
 	consumeNextComposerQueue,
 	convertSteersToFrontQueued,
 	defaultInterfaceEffort,
-	defaultInterfaceModel,
 	orderComposerPendingMessages,
 	promoteComposerPendingKind,
 	type InterfaceTurnSession,
@@ -47,8 +46,7 @@ function useDefaultGeneration(
 ): void {
 	useEffect(() => {
 		if (!iface) return;
-		const model = session.selectedModel ?? defaultInterfaceModel(iface);
-		if (!model) return;
+		const model = session.selectedModel ?? iface.defaultModel;
 		const effort = defaultInterfaceEffort(iface, model);
 		if (!session.selectedModel || (effort && !session.selectedEffort)) {
 			setSession((prev) => ({

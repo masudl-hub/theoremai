@@ -26,7 +26,6 @@ import type {
   ProfileTypeProtocol,
   Protocol,
   Provider,
-  SchemaEnforcement,
   SpeechAudioFormat,
   StreamMode,
   SummaryMode,
@@ -76,7 +75,6 @@ export type {
   Protocol,
   Provider,
   RegisteredTool,
-  SchemaEnforcement,
   SpeechAudioFormat,
   StreamMode,
   SummaryMode,
@@ -140,6 +138,8 @@ export type TurnEventType =
   | 'grounding'
   | 'evidence'
   | 'tokens'
+  /** Provider → runner only: the response's identity, recorded on the call's trace; `runTurn` never yields it. */
+  | 'response'
   | 'session'
   | 'guardrail'
   | 'stage'
@@ -297,10 +297,9 @@ export interface CompactionSpec {
   trigger?: (ctx: CompactionTriggerContext) => boolean | Promise<boolean>;
 }
 
-/** Host-registered structured output schema and enforcement mode. */
+/** Host-registered structured output: the JSON Schema the model is held to on the wire. */
 export interface StructuredSpec {
-  enforced: SchemaEnforcement;
-  jsonSchema?: Record<string, unknown>;
+  jsonSchema: Record<string, unknown>;
 }
 
 /** Per-turn file, byte, and MIME-specific input limits. */
@@ -429,6 +428,7 @@ export interface ProfileStreamingSpec {
 }
 
 export type {
+  MediaTurnBehaviourSpec,
   ProfileTurnBehaviourSpec,
   ProfileTurnResumptionSpec,
   TurnContinueFrom,
@@ -443,14 +443,19 @@ import type {
 } from '../guardrails/types.ts';
 import type { ProfileObservabilitySpec } from '../observability/types.ts';
 import type { ToolCredential } from './auth/types.ts';
-import type { ProfileTurnBehaviourSpec, TurnContinueFrom, TurnStop } from './stop.ts';
+import type {
+  MediaTurnBehaviourSpec,
+  ProfileTurnBehaviourSpec,
+  TurnContinueFrom,
+  TurnStop,
+} from './stop.ts';
 
 /** Model routing fields shared by every profile type. */
 export interface ProfileModelFields {
   /** Host-named models. Each key is a selectable model id when `allowModelSelect` is set. */
   models: Record<ModelId, ModelBinding>;
-  /** Default model id when the turn omits `model`. Defaults to the only key when there is one. */
-  defaultModel?: ModelId;
+  /** The model a turn runs when it names none; registration fills it with the only key when there is one. */
+  defaultModel: ModelId;
   /** Turn may pass `{ model: "<id>" }`. Requires two or more `models` keys. */
   allowModelSelect?: boolean;
   /**
@@ -492,7 +497,7 @@ export interface ProfileCommon {
   id: ProfileId;
   identity: ProfileIdentity;
   models: Record<ModelId, ModelBinding>;
-  defaultModel?: ModelId;
+  defaultModel: ModelId;
   allowModelSelect?: boolean;
   maxSteps?: number;
   key?: OverflowKeySlot;
@@ -531,9 +536,8 @@ export interface DecisionProfile {
   type: 'decision';
   id: ProfileId;
   identity: Pick<ProfileIdentity, 'handle'>;
+  /** Exactly one model: a decision profile runs one model and never selects. */
   models: Record<ModelId, DecisionModelBinding>;
-  defaultModel?: ModelId;
-  allowModelSelect?: boolean;
   key?: KeySlot;
   inputs: DecisionInputsSpec;
   decision: { contract: DecisionContractId };
@@ -571,7 +575,6 @@ export interface DecisionRequest {
   profile: ProfileId;
   state: Exclude<DecisionJson, null>;
   questions: Record<string, DecisionQuestion>;
-  model?: ModelId;
   signal?: AbortSignal;
   metadata?: Record<string, unknown>;
 }
@@ -608,16 +611,24 @@ export interface ImageProfile extends ProfileCommon {
   image: ProfileImageSpec;
   tools: ProfileToolsSpec;
   inputs: ProfileInputsSpec;
-  /** Resume policy (`allowSteering` is rejected — text/live only). */
-  turnBehaviour?: ProfileTurnBehaviourSpec;
+  turnBehaviour?: MediaTurnBehaviourSpec;
 }
 
-/** Unary TTS — text-in locked by type; no tools / inputs block. */
-export interface SpeechProfile extends ProfileCommon {
+/**
+ * Speech guardrails: no canary. A speech turn has no system channel to bind a
+ * token into (Gemini TTS rejects developer instructions) and yields audio, not
+ * text a canary scan could read.
+ */
+export type SpeechGuardrailsSpec = Omit<ProfileGuardrailsSpec, 'canary'> & { canary?: false };
+
+/** Unary TTS — text-in locked by type; no tools / inputs block. The input text is the transcript; there is no system prompt. */
+export interface SpeechProfile extends Omit<ProfileCommon, 'identity' | 'guardrails'> {
   type: 'speech';
+  identity: Pick<ProfileIdentity, 'handle'>;
+  /** Registration always stores `canary: false`. */
+  guardrails: SpeechGuardrailsSpec & { canary: false };
   speech: ProfileSpeechSpec;
-  /** Resume policy (`allowSteering` is rejected — text/live only). */
-  turnBehaviour?: ProfileTurnBehaviourSpec;
+  turnBehaviour?: MediaTurnBehaviourSpec;
 }
 
 /** Bidirectional live session. */
@@ -839,8 +850,10 @@ export interface TurnRequest {
    */
   signal?: AbortSignal;
   /**
-   * Continue a prior resumeable stop. Kernel appends CONTINUE_INSTRUCTION to
-   * the system prompt; hosts should also pass partial artifact via input/history.
+   * Continue a prior resumeable stop. On text profiles the turn's user message
+   * is the continue instruction (no `input.text`); the host passes the partial
+   * reply as the last assistant message in `input.history`. Image and speech
+   * re-send the original request unchanged.
    */
   continueFrom?: TurnContinueFrom;
   /**
@@ -1147,7 +1160,10 @@ export interface TurnEvent {
    * it in a later request's `links` to connect the two records.
    */
   traceparent?: string;
-  /** On a provider's `done`: the response it identified, when the wire sends it. */
+  /**
+   * On a provider's `response` event: the identity the wire named so far,
+   * emitted as soon as it is named and again when it grows or changes.
+   */
   response?: TurnResponse;
   /**
    * Turn tool visibility snapshot when `stop.kind === 'tool'`.

@@ -762,10 +762,8 @@ function startCallTrace(
       const grounding = groundingEvent(event);
       if (grounding) span.event('theorem.grounding', grounding);
       if (event.type === 'error') errors.push(event);
-      if (event.type === 'done') {
-        response = event.response ?? response;
-        native = event.stop?.native ?? native;
-      }
+      if (event.type === 'response') response = event.response ?? response;
+      if (event.type === 'done') native = event.stop?.native ?? native;
     },
     guardrail: (event) => {
       if (event.guardrail) span.event('theorem.guardrail', guardrailAttributes(event.guardrail));

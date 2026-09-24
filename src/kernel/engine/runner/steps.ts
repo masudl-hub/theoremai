@@ -28,7 +28,7 @@ import { startToolTrace } from '../tool-trace.ts';
 import { startCallTrace } from '../turn-trace.ts';
 import { applyStageInjects } from './stages.ts';
 import { recordStepEvent, type StepExecutionState } from './state.ts';
-import { type OutboundStreamControl, yieldProviderEvents } from './stream.ts';
+import { isWithheldOnBlock, type OutboundStreamControl, yieldProviderEvents } from './stream.ts';
 import { callTokensEvent, observeCallEvent, startCallUsage } from './usage.ts';
 
 function isStepLimitReached(step: number, maxSteps: number): boolean {
@@ -134,16 +134,17 @@ async function* executeAutonomousStep(
         continue;
       }
       recordStepEvent(event, state);
-      const isUserVisible =
-        event.type === 'thought' || event.type === 'text' || event.type === 'media';
-      if (control.withholdVisible && isUserVisible) {
+      if (control.withholdVisible && isWithheldOnBlock(event)) {
         // Progressive-yield blocked this attempt — keep events for egress/repair only.
         // Record the decision so the attempt gate knows nothing reached the host.
         state.withheldVisible = true;
         continue;
       }
-      // Progressive-yield streams text/thought live under egress; holdLate only
-      // buffers non-visible events (e.g. structured) for validation.
+      // Text and media stream via progressive-yield under egress, thoughts
+      // stream unguarded; holdLate only buffers non-visible events (e.g.
+      // structured) for validation.
+      const isUserVisible =
+        event.type === 'thought' || event.type === 'text' || event.type === 'media';
       const streamNow = !buffer.holdLate || isUserVisible;
       if (streamNow) {
         yield event;
@@ -508,7 +509,7 @@ async function* executeAttempt(args: {
   const { profile, generation, system, provider, state } = args;
   let latestStructured: unknown;
   let pendingTools: TurnEvent[] = [];
-  // Text/thought stream via progressive-yield under egress; validation and egress
+  // Text streams via progressive-yield under egress, thoughts unguarded; validation and egress
   // both hold non-visible events (structured) until the attempt gate, so a policy
   // sees the structured payload before any of it reaches the host.
   const holdLate = Boolean(

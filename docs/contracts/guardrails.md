@@ -27,7 +27,7 @@ Owns every module under `src/guardrails/`.
 | `sensitive.ts` | Credential / PII span patterns |
 | `canary.ts` | Per-turn canary mint/bind, stream gate, leak scan |
 | `canary-gate.ts` | Canary-only batch helper (`createCanaryGateSession`) |
-| `live-outbound-gate.ts` | Live outbound progressive-yield (canary + egress lookback) |
+| `live-outbound-gate.ts` | Live outbound progressive-yield (canary + egress lookback; audio held behind its transcript) |
 | `progressive-yield.ts` | Streaming lookback gate for canary / sensitive / host enforce |
 | `egress.ts` | `standardEgressEnforce` / `collectEgressHits` bundled outbound policy |
 | `corpus/` | Adversarial bank (live attacks, inbound fuzz, canary egress catalog) |
@@ -42,7 +42,7 @@ Owns every module under `src/guardrails/`.
 
 | API | Role |
 | --- | --- |
-| `mintCanary` | Generate per-turn `theo-` + 32 hex token |
+| `mintCanary` | Generate per-turn 32-hex token (128 random bits, no prefix) |
 | `bindCanary` | Append canary note to system prompt |
 | `wrapUserData` | Fence untrusted user text in `<user_data>` |
 | `createCanaryStreamGate` | Rolling holdback for split-token streaming |
@@ -154,15 +154,48 @@ end-of-attempt. `flag` is advisory and keeps the stream flowing.
 
 Outbound streaming uses **progressive yield** (`createProgressiveYieldGate` /
 `createOutboundProgressiveGate`): cleared prefixes release while a lookback
-window (default 256 chars, at least canary overlap, plus incomplete PEM bodies)
-stays held for split-token matches. The same constructor backs `runTurn` and
+window stays held for split-token matches. The window is what the scan can
+detect: a canary-only gate holds one character less than the canary's longest
+leak form (`canaryLeakSpan`: literal, spaced out, or base64 — 62 characters for
+a minted canary); under `egress.enforce` it holds `egress.holdback` characters
+(default `DEFAULT_HOLDBACK`, 256), never less than the canary's hold, plus any
+incomplete PEM body until its END line. `defineProfile` rejects a
+`holdback` or `maxRetries` that is not a non-negative integer. The same constructor backs `runTurn` and
 Live (`processLiveOutboundBatch`). Host `egress.enforce` is authoritative when
-set; otherwise the bundled hit collector (`collectEgressHits`) runs.
+set; otherwise the gate scans for the canary alone and a leak ends
+the turn at once. The bundled rules (`collectEgressHits`: canary, sensitive echo,
+system boundary, injection echo) run only through `egress.enforce` — for example
+`standardEgressEnforce` — where the end-of-attempt verdict can release, repair,
+or refuse.
 `outputs.streaming.mode: 'sse'` and `egress.enforce` can both stay on.
 
+**Thoughts are not guarded output.** Only the reply stream flows
+through progressive yield, the end-of-attempt egress payload carries reply text
+and structured output, and no canary scan reads a `thought` event — in `runTurn`,
+Live, and `filterCanaryGatedEvents` alike. A thinking model restates its system
+prompt (canary included) as it reasons; a host that shows thoughts
+(`outputs.streaming.streamThoughts`) accepts what they hold.
+
+**Live speech is guarded like text.** In Live the reply stream is text deltas
+and the spoken reply's transcript (`output_transcription` evidence); both run
+through progressive yield (`isStreamedCanaryEvent`). Audio and other media wait
+behind the reply that preceded them and go only once it has cleared, so speech
+is heard after its transcript passes the scan — up to the lookback (62
+transcript characters canary-only, `egress.holdback` under egress) later than
+it would stream unguarded, and a reply shorter than the lookback is heard when
+its cycle's transcript ends. Any
+other event (tool call, `turn_complete`, …) releases what is held, in order,
+first. The window spans one conversational cycle: `finalizeLiveOutboundTurn`
+judges the cycle's whole reply and starts the next, `abortLiveOutboundTurn`
+(interruption) drops what is held. After a mid-cycle egress hit the rest of the
+cycle is held: a final `allow` releases it, `redact` or a refusal replaces it
+with a `text` event (held audio is dropped), `block` withholds it. A profile
+with neither a canary nor `egress.enforce` has no gate; everything streams.
+
 When progressive yield blocks mid-stream, the runner stops releasing
-text/thought/media to the host and finishes the attempt so end-of-attempt
-refuse / repair / withhold can run on the full accumulated window.
+text/media to the host and finishes the attempt so end-of-attempt
+refuse / repair / withhold can run on the full accumulated window. Thoughts
+keep streaming.
 
 ## Evaluation
 
@@ -309,7 +342,9 @@ output and user data, so it is permeable and takes full detection.
 ## Sanitization
 
 Driven by profile `guardrails.sanitizeInput`, `guardrails.redactSensitive`, and
-`guardrails.canary`, all defaulting on (`canary: false` opts out). Every path
+`guardrails.canary`, all defaulting on (`canary: false` opts out). Speech
+profiles are the exception for the canary: they have no system prompt to bind a
+token into, so registration stores `canary: false` and rejects any other value. Every path
 resolves them through `resolveGuardrailPolicy` — the turn engine, Live ingress,
 and the headless interface all read the same resolved values, so an omitted
 switch cannot mean different things on different paths.
@@ -634,7 +669,7 @@ on unknown keys or missing required placeholders.
 
 | Key family | Examples | Override |
 | --- | --- | --- |
-| Continue | `continue.instruction` | `turnBehaviour.resumption.continueInstruction` or lexicon |
+| Continue (text profiles; the turn's user message) | `continue.instruction` | `turnBehaviour.resumption.continueInstruction` or lexicon |
 | Canary | `canary.bind_note` | `guardrails.canary.bindNote` (must keep `{canary}`) |
 | Taint / advisory | `taint.*`, `advisory.*` | lexicon |
 | Attachments | `attachments.*` | lexicon (structured codes also exposed) |
@@ -678,7 +713,7 @@ From `src/guardrails/mod.ts`:
 | Sanitize | `PROJECT_ID_MAX`, `sanitizeProjectId`, `sanitizeText`, `detectText`, `sanitizeHistory`, `sanitizeTurnRequest`, `sanitizeTurnRequestWithEvents`, `redactSensitiveOnly`, `detectionForProfile` |
 | Events | `guardrailFromHits`, `guardrailFromVerdict`, `guardrailTurnEvent`, `projectGuardrailTurnEvent`, `hitFromSpan`, `matchPreview`, `projectGuardrailEvent`, `GUARDRAIL_MATCH_PREVIEW_MAX` |
 | Canary | `mintCanary`, `bindCanary`, `wrapUserData`, `scanTextForCanaryLeak`, `createCanaryStreamGate`, `eventHasCanary`, `isStreamedCanaryEvent`, `redactCanary`, `OMIT_CANARY`, `USER_OPEN`, `USER_CLOSE`, `createCanaryGateSession`, `filterCanaryGatedEvents`, `CanaryGateResult`, `CanaryGateSession`, `CanaryStreamGate` |
-| Egress / Live | `standardEgressEnforce`, `collectEgressHits`, `hitRules`, `EGRESS_RULES`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `DEFAULT_HOLDBACK`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
+| Egress / Live | `standardEgressEnforce`, `collectEgressHits`, `hitRules`, `EGRESS_RULES`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `DEFAULT_HOLDBACK`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveHeldOutput`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
 | Network | `assertSafeUrl`, `isLocalhostName`, `isPrivateOrLocalAddress`, `NetworkGuardrailSpec` |
 | Quota | `QuotaSlotStatus`, `QuotaExhausted`, `clientIp`, `quotaExhausted`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |
 | Lexicon | `LEXICON_KEYS`, `LexiconKey`, `LexiconOverrides`, `LexiconParams`, `lexiconDefault`, `lexiconText`, `overrideLexicon`, `resetLexicon` |

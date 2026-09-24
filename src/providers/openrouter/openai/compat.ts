@@ -1,7 +1,7 @@
 /**
  * Shared helpers for building OpenAI-compatible chat completion payloads.
  *
- * Used by local.ts (raw fetch), openai/chat-payload.ts (REST payload), and
+ * Used by local.ts (raw fetch), openrouter/image.ts (image payload), and
  * openrouter/chat.ts (headers + response format). Message bodies for the AI SDK
  * path are built by `openai/sdk-messages.ts`.
  * Single source of truth for message wire format, tool declarations,
@@ -10,7 +10,8 @@
  * @module
  */
 
-import { TheoremError } from '../../../guardrails/error.ts';
+import { TheoremError, toErrorEvent } from '../../../guardrails/error.ts';
+import { asRecord } from '../../../kernel/engine/record.ts';
 import { historyMessageParts, isMediaRefPart } from '../../../kernel/interaction-parts.ts';
 import { getStructured } from '../../../kernel/registry/schemas.ts';
 import type {
@@ -19,10 +20,30 @@ import type {
   InteractionPart,
   ProviderCompleteRequest,
   StructuredSchemaId,
+  TurnEvent,
   TurnHistoryMessage,
   WireFunctionTool,
 } from '../../../kernel/types.ts';
 import { historyToolIdentity } from '../../shared/tool-args.ts';
+
+// ── gateway http errors ─────────────────────────────
+
+/**
+ * A non-OK gateway response as an error event. The internal detail carries the
+ * body's `error.message` (or its raw text), so the upstream reason reaches traces.
+ */
+async function httpErrorEvent(res: Response, label: string): Promise<TurnEvent> {
+  const text = (await res.text()).trim();
+  let detail = text;
+  try {
+    const message = asRecord(asRecord(JSON.parse(text))?.error)?.message;
+    if (typeof message === 'string' && message) detail = message;
+  } catch {
+    // Not JSON: the raw body is the detail.
+  }
+  const head = `${label} HTTP ${String(res.status)}`;
+  return toErrorEvent(detail ? `${head}: ${detail}` : head);
+}
 
 // ── gateway header config ───────────────────────────
 
@@ -189,18 +210,11 @@ function wireTools(wireTools?: WireFunctionTool[]): Record<string, unknown>[] | 
 
 // ── structured response format ──────────────────────
 
-/**
- * Resolve a StructuredSchemaId to an OpenAI `response_format` object.
- * Returns undefined when the schema has no JSON schema.
- */
+/** Resolve a StructuredSchemaId to an OpenAI `response_format` object; undefined without one. */
 function resolveResponseFormat(
   structured: StructuredSchemaId | null,
 ): Record<string, unknown> | undefined {
   if (!structured) {
-    return undefined;
-  }
-  const spec = getStructured(structured);
-  if (!spec.jsonSchema) {
     return undefined;
   }
   return {
@@ -208,7 +222,7 @@ function resolveResponseFormat(
     json_schema: {
       name: String(structured),
       strict: true,
-      schema: spec.jsonSchema,
+      schema: getStructured(structured).jsonSchema,
     },
   };
 }
@@ -233,4 +247,10 @@ function openAiGatewayHeaders(config: GatewayHeaderConfig): Record<string, strin
 // ── exports ─────────────────────────────────────────
 
 export type { GatewayHeaderConfig };
-export { buildChatMessages, openAiGatewayHeaders, resolveResponseFormat, wireTools };
+export {
+  buildChatMessages,
+  httpErrorEvent,
+  openAiGatewayHeaders,
+  resolveResponseFormat,
+  wireTools,
+};

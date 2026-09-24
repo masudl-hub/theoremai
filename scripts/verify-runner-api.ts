@@ -14,7 +14,7 @@
  *                      baseline clean delivery
  *
  * Rate limit: ≥4 s between API calls (≤15 RPM).
- * Keys: loaded from THEOREM_ENV_FILE or ../theoremai-frontend/.env.local.
+ * Keys: vault slots from THEOREM_VAULT_* and OPENROUTER_API_KEY (see scripts/host-env.ts).
  * Default provider: openrouter (`--provider gemini` to switch).
  *
  * Usage:
@@ -36,7 +36,7 @@ import {
 } from '../src/kernel/registry/profiles.ts';
 import type { ModelProvider, TurnEvent, TurnHistoryMessage } from '../src/kernel/types.ts';
 import { createProvider } from '../src/providers/create-provider.ts';
-import { loadHostEnv } from './host-env.ts';
+import { hostOpenRouterKey, hostVault, loadHostEnv, OPENROUTER_ENV } from './host-env.ts';
 
 // ---------------------------------------------------------------------------
 // CLI
@@ -309,14 +309,10 @@ function registerAllProfiles(): void {
 function makeProvider(profileId: string): ModelProvider {
   const profile = getProfile(profileId);
   if (PROVIDER_KIND === 'gemini') {
-    const key = Deno.env.get('GEMINI_API_KEY')?.trim();
-    if (!key) throw new Error('GEMINI_API_KEY not set');
-    return createProvider(profile, {
-      gemini: { vault: { slotA: key, slotB: key, slotC: key, paid: key } },
-    });
+    return createProvider(profile, { gemini: { vault: hostVault() } });
   }
-  const key = Deno.env.get('OPENROUTER_API_KEY')?.trim();
-  if (!key) throw new Error('OPENROUTER_API_KEY not set');
+  const key = hostOpenRouterKey();
+  if (!key) throw new Error(`${OPENROUTER_ENV} missing`);
   return createProvider(profile, {
     openAiGateway: {
       apiKey: key,

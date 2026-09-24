@@ -159,11 +159,6 @@ export const LIVE_CONTEXT_COMPRESSIONS = ['slidingWindow', 'none'] as const;
 /** Context-window compression strategy for Gemini Live. */
 export type LiveContextCompression = (typeof LIVE_CONTEXT_COMPRESSIONS)[number];
 
-/** Structured-output enforcement mode. */
-export const SCHEMA_ENFORCEMENTS = ['responseFormat', 'prompt'] as const;
-/** Mechanism used to enforce structured model output. */
-export type SchemaEnforcement = (typeof SCHEMA_ENFORCEMENTS)[number];
-
 /** Compaction threshold meter. */
 export const COMPACTION_METERS = ['history', 'input'] as const;
 /** Input measure used to decide when history compaction runs. */
@@ -882,7 +877,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   ),
   'turnBehaviour.resumption.continueInstruction': field(
     'string',
-    'Host replacement for the continue instruction appended on continueFrom turns. Omitted: registered default.',
+    'Text only. Host replacement for the continue user message on continueFrom turns. Omitted: registered default.',
   ),
   'turnBehaviour.allowSteering': field(
     'boolean',
@@ -932,6 +927,10 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   'guardrails.egress.repairGuidance': field(
     'string',
     'Instruction appended on an egress repair turn.',
+  ),
+  'guardrails.egress.holdback': field(
+    'number',
+    'Characters held back mid-stream so enforce sees split matches (default 256).',
   ),
   'guardrails.network': field(
     'NetworkGuardrailSpec',
@@ -1126,14 +1125,9 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     'Record<string, unknown>',
     'Playground-only: fixed JSON object returned by function tool stubs when no demo handler exists.',
   ),
-  'registerStructured.enforced': field(
-    unionType(SCHEMA_ENFORCEMENTS),
-    'How structured output is enforced on the wire.',
-    SCHEMA_ENFORCEMENTS,
-  ),
   'registerStructured.jsonSchema': field(
     'Record<string, unknown>',
-    'JSON Schema body registered under outputs.structured id.',
+    'JSON Schema body registered under outputs.structured id; sent to the model as its response format.',
   ),
   access: field(unionType(TOOL_ACCESS), 'Semantic access level for policy and UI.', TOOL_ACCESS, {
     'read-only': 'Reads host or remote state; no lasting mutation.',

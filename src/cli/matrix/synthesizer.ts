@@ -9,7 +9,7 @@
  */
 
 import { profileInputs } from '../../kernel/registry/catalog.ts';
-import type { ModelId, ModelProfile, TurnBlob, TurnRequest } from '../../kernel/types.ts';
+import type { ModelProfile, TurnBlob, TurnRequest } from '../../kernel/types.ts';
 import { FIXTURE_PNG_BASE64, FIXTURE_WAV_BASE64, getFixtureForMime } from './fixtures.ts';
 
 export interface MatrixOptions {
@@ -21,11 +21,6 @@ export interface MatrixOptions {
   mode?: string;
   attachmentPaths?: string[];
   voicePath?: string;
-}
-
-function defaultModelId(profile: ModelProfile): ModelId {
-  const ids = Object.keys(profile.models);
-  return profile.defaultModel ?? ids[0] ?? '';
 }
 
 export function synthesizeLiteCombo(profile: ModelProfile): TurnRequest {
@@ -117,7 +112,7 @@ export function synthesizeMatrixCombos(
 /** Ensure CLI grounding flags match model builtInTools. */
 function assertGroundingFlagsOnModel(profile: ModelProfile, options: MatrixOptions): void {
   const modelId =
-    options.mode && profile.models[options.mode] ? options.mode : defaultModelId(profile);
+    options.mode && profile.models[options.mode] ? options.mode : profile.defaultModel;
   const builtins = new Set(profile.models[modelId]?.builtInTools ?? []);
   if (options.search === true && !builtins.has('googleSearch')) {
     throw new Error(`--search requires googleSearch on models.${modelId}.builtInTools`);

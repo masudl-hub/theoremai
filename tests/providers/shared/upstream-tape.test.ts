@@ -101,9 +101,9 @@ function sseResponse(events: unknown[]): Response {
 }
 
 Deno.test('tapeUpstream hashes image data and redacts canary', async () => {
-  const canary = 'theo-deadbeef';
+  const canary = 'deadbeeffeedfacecafebabecafebabe';
   const raw = JSON.parse(
-    '{"event_type":"step.delta","delta":{"type":"image","mime_type":"image/jpeg","data":"c2VjcmV0LWJ5dGVz"},"note":"leaked theo-deadbeef"}',
+    '{"event_type":"step.delta","delta":{"type":"image","mime_type":"image/jpeg","data":"c2VjcmV0LWJ5dGVz"},"note":"leaked deadbeeffeedfacecafebabecafebabe"}',
   );
   const out = (await tapeUpstream(raw, [canary])) as Record<string, unknown>;
   const delta = out.delta as Record<string, unknown>;

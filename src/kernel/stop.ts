@@ -18,7 +18,7 @@ export interface TurnStop {
 }
 
 /**
- * Default continue instruction for resumeable stops — the registered lexicon
+ * Default continue user message for text resumeable stops — the registered lexicon
  * default (`continue.instruction`). It rarely needs replacing, but hosts may
  * override it per profile via `turnBehaviour.resumption.continueInstruction`
  * or process-wide via `overrideLexicon`.
@@ -57,8 +57,9 @@ export interface ProfileTurnResumptionSpec {
    */
   maxContinues?: number;
   /**
-   * Host replacement for the continue instruction appended on continueFrom
-   * turns. Omitted means the registered default (`CONTINUE_INSTRUCTION`).
+   * Text profiles only: host replacement for the continue instruction sent as
+   * the user message of a continueFrom turn. Omitted means the registered
+   * default (`CONTINUE_INSTRUCTION`).
    */
   continueInstruction?: string;
 }
@@ -87,6 +88,15 @@ export interface ProfileTurnBehaviourSpec {
    * (`profileAllowsInject`). Does not hide stage emission.
    */
   allowSteering?: boolean;
+}
+
+/**
+ * Image / speech turn behaviour: resumption only. A continue re-sends the
+ * host's request unchanged, so there is no continue instruction, and there is
+ * no mid-turn inject to steer.
+ */
+export interface MediaTurnBehaviourSpec {
+  resumption?: Omit<ProfileTurnResumptionSpec, 'continueInstruction'>;
 }
 
 /** Partial state passed when continuing a resumeable stop. */

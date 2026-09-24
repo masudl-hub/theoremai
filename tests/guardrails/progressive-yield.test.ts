@@ -1,12 +1,14 @@
 import '../fixtures/test-host.ts';
-import { mintCanary } from '../../src/guardrails/canary.ts';
+import { canaryLeakSpan, mintCanary } from '../../src/guardrails/canary.ts';
 import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
-import { EGRESS_RULES } from '../../src/guardrails/egress.ts';
+import { EGRESS_RULES, standardEgressEnforce } from '../../src/guardrails/egress.ts';
+import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
 import {
+  createOutboundProgressiveGate,
   createProgressiveYieldGate,
   DEFAULT_HOLDBACK,
 } from '../../src/guardrails/progressive-yield.ts';
-import type { GuardrailContext } from '../../src/guardrails/types.ts';
+import type { EgressEnforcer, GuardrailContext } from '../../src/guardrails/types.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 
 function ctx(canary?: string): GuardrailContext {
@@ -18,8 +20,10 @@ function ctx(canary?: string): GuardrailContext {
   };
 }
 
+const allowAll: EgressEnforcer = () => ({ action: 'allow' });
+
 Deno.test('createProgressiveYieldGate holds lookback then flushes safe tail', async () => {
-  const gate = createProgressiveYieldGate({ context: ctx() });
+  const gate = createProgressiveYieldGate({ context: ctx(), enforce: allowAll });
   const body = `${'x'.repeat(DEFAULT_HOLDBACK + 10)}ok`;
   const mid = await gate.process(body);
   assertEquals(mid.blocked, false);
@@ -49,8 +53,14 @@ Deno.test('createProgressiveYieldGate blocks canary before release', async () =>
   assertEquals(gate.accumulated().includes(canary), true);
 });
 
-Deno.test('createProgressiveYieldGate blocks sensitive spans via bundled policy', async () => {
-  const gate = createProgressiveYieldGate({ context: ctx() });
+Deno.test('createProgressiveYieldGate scans only the canary without a host policy', async () => {
+  const gate = createProgressiveYieldGate({ context: ctx(mintCanary()) });
+  const result = await gate.process(`key=${TEST_OPENAI_KEY} <user_data>`);
+  assertEquals(result.blocked, false);
+});
+
+Deno.test('createProgressiveYieldGate blocks sensitive spans via the bundled policy', async () => {
+  const gate = createProgressiveYieldGate({ context: ctx(), enforce: standardEgressEnforce });
   const result = await gate.process(`key=${TEST_OPENAI_KEY}`);
   assertEquals(result.blocked, true);
   if (result.blocked) {
@@ -107,7 +117,7 @@ Deno.test('createProgressiveYieldGate runs host enforce before emit (no double b
 });
 
 Deno.test('createProgressiveYieldGate unreleased is lookback not yet emitted', async () => {
-  const gate = createProgressiveYieldGate({ context: ctx() });
+  const gate = createProgressiveYieldGate({ context: ctx(), enforce: allowAll });
   await gate.process('y'.repeat(DEFAULT_HOLDBACK + 5));
   assertEquals(gate.unreleased().length > 0, true);
   assertEquals(gate.unreleased().length <= DEFAULT_HOLDBACK, true);
@@ -116,7 +126,7 @@ Deno.test('createProgressiveYieldGate unreleased is lookback not yet emitted', a
 });
 
 Deno.test('createProgressiveYieldGate holds incomplete PEM until END or flush', async () => {
-  const gate = createProgressiveYieldGate({ context: ctx() });
+  const gate = createProgressiveYieldGate({ context: ctx(), enforce: allowAll });
   const begin = '-----BEGIN PRIVATE KEY-----\npartial';
   const mid = await gate.process(`${'z'.repeat(DEFAULT_HOLDBACK)}${begin}`);
   assertEquals(mid.blocked, false);
@@ -124,4 +134,49 @@ Deno.test('createProgressiveYieldGate holds incomplete PEM until END or flush', 
     assertEquals(mid.emit.includes('BEGIN'), false);
   }
   assertEquals(gate.unreleased().includes('BEGIN'), true);
+});
+
+Deno.test('createProgressiveYieldGate canary-only holds just the longest canary leak form', async () => {
+  const canary = mintCanary();
+  const gate = createProgressiveYieldGate({ context: ctx(canary) });
+  await gate.process('w'.repeat(500));
+  assertEquals(gate.unreleased().length, canaryLeakSpan(canary) - 1);
+});
+
+Deno.test('createProgressiveYieldGate canary-only does not hold a PEM body', async () => {
+  const canary = mintCanary();
+  const gate = createProgressiveYieldGate({ context: ctx(canary) });
+  await gate.process(`-----BEGIN PRIVATE KEY-----\n${'p'.repeat(200)}`);
+  assertEquals(gate.unreleased().length, canaryLeakSpan(canary) - 1);
+});
+
+Deno.test('createProgressiveYieldGate holdback sets the enforce lookback', async () => {
+  const gate = createProgressiveYieldGate({ context: ctx(), enforce: allowAll, holdback: 40 });
+  await gate.process('v'.repeat(500));
+  assertEquals(gate.unreleased().length, 40);
+});
+
+Deno.test('createProgressiveYieldGate never holds less than the canary leak form', async () => {
+  const canary = mintCanary();
+  const gate = createProgressiveYieldGate({
+    context: ctx(canary),
+    enforce: allowAll,
+    holdback: 0,
+  });
+  await gate.process('u'.repeat(500));
+  assertEquals(gate.unreleased().length, canaryLeakSpan(canary) - 1);
+});
+
+Deno.test('createOutboundProgressiveGate threads egress.holdback', async () => {
+  const policy = resolveGuardrailPolicy({ egress: { enforce: allowAll, holdback: 12 } });
+  const gate = createOutboundProgressiveGate(policy, ctx());
+  await gate?.process('t'.repeat(100));
+  assertEquals(gate?.unreleased().length, 12);
+});
+
+Deno.test('createOutboundProgressiveGate defaults egress to DEFAULT_HOLDBACK', async () => {
+  const policy = resolveGuardrailPolicy({ egress: { enforce: allowAll } });
+  const gate = createOutboundProgressiveGate(policy, ctx(mintCanary()));
+  await gate?.process('s'.repeat(DEFAULT_HOLDBACK * 2));
+  assertEquals(gate?.unreleased().length, DEFAULT_HOLDBACK);
 });

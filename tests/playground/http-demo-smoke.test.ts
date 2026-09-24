@@ -58,6 +58,7 @@ const profile: Profile = {
   models: {
     default: { protocol: 'openAi', provider: 'openrouter', apiId: 'test' },
   },
+  defaultModel: 'default',
   tools: { allow: [] },
   inputs: { text: true },
   outputs: {},

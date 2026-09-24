@@ -20,7 +20,7 @@ import { mimeEssence } from '../../kernel/util/mime.ts';
 import { pcmFormatFromMime, wrapPcmAsWav } from '../shared/pcm.ts';
 import { tapFetch } from '../shared/upstream-tap.ts';
 import type { OpenAiGatewayConfig } from '../types.ts';
-import { openAiGatewayHeaders } from './openai/compat.ts';
+import { httpErrorEvent, openAiGatewayHeaders } from './openai/compat.ts';
 import { resolveOpenAiGatewayApiKey } from './resolve-api-key.ts';
 
 const HTTP_OK = 200;
@@ -131,7 +131,7 @@ export async function* streamSpeech(
 
   const res = await requestSpeech(apiKey, text, req, config);
   if (res.status !== HTTP_OK) {
-    yield toErrorEvent(`Speech HTTP ${String(res.status)}`);
+    yield await httpErrorEvent(res, 'Speech');
     return;
   }
 

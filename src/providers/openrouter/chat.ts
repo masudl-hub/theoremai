@@ -21,6 +21,7 @@ import {
 import { isAbortError, TheoremError, toErrorEvent } from '../../guardrails/error.ts';
 import { reportedTokens, usageCount } from '../../kernel/engine/usage.ts';
 import { turnStopFromOpenAiFinishReason } from '../../kernel/stop.ts';
+import { requireBuiltinWire } from '../../kernel/tools/registry.ts';
 import type {
   ModelProvider,
   ProviderCompleteRequest,
@@ -29,11 +30,11 @@ import type {
   TurnTokens,
   WireFunctionTool,
 } from '../../kernel/types.ts';
+import { foldResponse } from '../shared/response-identity.ts';
 import { parseStructuredOutput } from '../shared/structured-output.ts';
 import { tapFetch } from '../shared/upstream-tap.ts';
 import type { OpenAiGatewayConfig } from '../types.ts';
 import { cacheControlJson } from './cache-control.ts';
-import { resolveOpenRouterPlugins } from './openai/chat-payload.ts';
 import { openAiGatewayHeaders, resolveResponseFormat } from './openai/compat.ts';
 import { buildAiSdkMessages } from './openai/sdk-messages.ts';
 import { openAiResponse, openAiUsageTokens } from './openai/usage.ts';
@@ -46,7 +47,7 @@ export interface StreamAccumulator {
   errored: boolean;
   finishReason?: string | null;
   nativeFinishReason?: string | null;
-  /** Response identity from the raw rows (`id`, `model`). */
+  /** Response identity the raw rows named so far (`id`, `model`). */
   response?: TurnResponse;
 }
 
@@ -126,8 +127,15 @@ export function buildTools(wireTools?: WireFunctionTool[]): ToolSet | undefined 
   return tools;
 }
 
+/** Builtins as OpenRouter wires them: `web` is `web_search_options`, every other wire a plugin. */
 function openRouterSettings(req: ProviderCompleteRequest): OpenRouterChatSettings | undefined {
-  const { plugins, webSearch } = resolveOpenRouterPlugins(req.builtins);
+  let webSearch = false;
+  const plugins: Array<{ id: string }> = [];
+  for (const id of req.builtins) {
+    const pluginId = requireBuiltinWire(id, 'openRouter');
+    if (pluginId === 'web') webSearch = true;
+    else plugins.push({ id: pluginId });
+  }
   if (plugins.length === 0 && !webSearch) {
     return undefined;
   }
@@ -282,8 +290,9 @@ export function rawEvents(raw: unknown, acc: StreamAccumulator): TurnEvent[] {
   if (!record) {
     return [];
   }
-  acc.response = openAiResponse(record) ?? acc.response;
-  const events: TurnEvent[] = [];
+  const identity = foldResponse(acc.response, openAiResponse(record));
+  acc.response = identity.known;
+  const events: TurnEvent[] = identity.event ? [identity.event] : [];
   const thought = rawThoughtEvent(record);
   if (thought) {
     events.push(thought);
@@ -442,7 +451,6 @@ export function* finalEvents(
   yield {
     type: 'done',
     stop: turnStopFromOpenAiFinishReason(acc.finishReason, acc.nativeFinishReason),
-    ...(acc.response ? { response: acc.response } : {}),
   };
 }
 

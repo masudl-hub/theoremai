@@ -107,10 +107,14 @@ For `length`, `stream_incomplete`, `provider_error`:
 ```ts
 runTurn({
   profile: 'my.bot',
-  continueFrom: { stop: previousDone.stop, partialText: '…' },
-  input: { text: '…' },
+  continueFrom: { stop: previousDone.stop },
+  input: { history: [...priorHistory, { role: 'assistant', content: partialReply }] },
 }, provider);
 ```
+
+On text profiles the continue instruction is the turn's user message, so a
+continue turn takes no `input.text`. Image and speech re-send the original
+request unchanged ([`contracts/kernel.md`](contracts/kernel.md#continue-turn)).
 
 Do **not** use `continueFrom` for tool gates — use `invokeTool`.
 

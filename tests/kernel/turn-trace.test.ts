@@ -88,8 +88,9 @@ Deno.test('turn trace: a call records what the model read and wrote, before guar
     { type: 'thought', text: 'first.' },
     { type: 'text', text: 'Checking ' },
     { type: 'text', text: 'now.' },
+    { type: 'response', response: { id: 'v1_a' } },
     { type: 'tool', tool: { id: 'c1', name: 'fetch_sensor', arguments: { plant: 'fern' } } },
-    { type: 'done', stop: { kind: 'tool', native: 'requires_action' }, response: { id: 'v1_a' } },
+    { type: 'done', stop: { kind: 'tool', native: 'requires_action' } },
   ];
   for (const event of events) {
     call.observe(event);

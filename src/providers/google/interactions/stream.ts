@@ -18,6 +18,7 @@ import type {
   TurnResponse,
 } from '../../../kernel/types.ts';
 import { pcmMediaAsWav } from '../../shared/pcm.ts';
+import { foldResponse } from '../../shared/response-identity.ts';
 import { readSseChunks } from '../../shared/sse.ts';
 import { parseStructuredOutput } from '../../shared/structured-output.ts';
 import { parseToolArgumentsObject } from '../../shared/tool-args.ts';
@@ -66,7 +67,7 @@ export interface StreamFold {
   sawMedia: boolean;
   /** A `done` came out: the interaction reported a status. */
   sawDone: boolean;
-  /** From `interaction.created`, so a stream cut before its end still names its response. */
+  /** Identity named so far: `interaction.created` names it before any output, so a cut call still has it. */
   response?: TurnResponse;
 }
 
@@ -245,16 +246,25 @@ function eventsFromStreamRow(payload: Record<string, unknown>, fold: StreamFold)
       break;
     case 'interaction.created': {
       const interaction = asRecord(payload.interaction);
-      fold.response = interaction ? interactionResponse(interaction) : undefined;
+      if (interaction) events.push(...identityEvents(interaction, fold));
       break;
     }
     case 'interaction.completed': {
       const interaction = asRecord(payload.interaction);
-      if (interaction) events.push(...eventsFromInteractionEnd(interaction));
+      if (interaction) {
+        events.push(...identityEvents(interaction, fold), ...eventsFromInteractionEnd(interaction));
+      }
       break;
     }
   }
   return events;
+}
+
+/** The `response` event when this interaction names more of its identity than the fold knew. */
+function identityEvents(interaction: Record<string, unknown>, fold: StreamFold): TurnEvent[] {
+  const identity = foldResponse(fold.response, interactionResponse(interaction));
+  fold.response = identity.known;
+  return identity.event ? [identity.event] : [];
 }
 
 /** Fold one SSE row into the events it completes. */
@@ -269,7 +279,10 @@ export function foldBody(body: Record<string, unknown>, fold: StreamFold): TurnE
     const step = asRecord(value);
     return step ? eventsFromStep(step) : [];
   });
-  return delivered([...fromSteps, ...eventsFromInteractionEnd(body)], fold);
+  return delivered(
+    [...identityEvents(body, fold), ...fromSteps, ...eventsFromInteractionEnd(body)],
+    fold,
+  );
 }
 
 export function* finalizeStructured(
@@ -333,11 +346,7 @@ async function* parseInteractionsSse(
   }
   if (!fold.sawDone) {
     // The stream ended before the interaction reported a status: it did not complete.
-    yield {
-      type: 'done',
-      stop: { kind: 'stream_incomplete' },
-      ...(fold.response ? { response: fold.response } : {}),
-    };
+    yield { type: 'done', stop: { kind: 'stream_incomplete' } };
   }
 }
 

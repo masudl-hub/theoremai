@@ -24,6 +24,7 @@ const testProfile: Profile = {
       temperature: 0.5,
     },
   },
+  defaultModel: 'test-model',
   tools: {
     allow: [
       'fetch_user_profile',

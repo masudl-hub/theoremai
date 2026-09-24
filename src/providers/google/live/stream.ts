@@ -83,7 +83,7 @@ export function performLiveSetup(
       }
     }, SETUP_TIMEOUT_MS);
 
-    ws.onopen = () => {
+    const sendSetup = () => {
       try {
         sendLiveFrame(ws, buildGeminiLiveSetupMessage(req), req.tapUpstream);
       } catch (err) {
@@ -141,6 +141,14 @@ export function performLiveSetup(
     };
 
     ws.addEventListener('message', initialMessageHandler);
+
+    // A fetch-upgraded socket (Cloudflare `resp.webSocket.accept()`) is already
+    // open and never fires `open`.
+    if (ws.readyState === WebSocket.OPEN) {
+      sendSetup();
+    } else {
+      ws.onopen = sendSetup;
+    }
   });
 }
 

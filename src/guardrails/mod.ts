@@ -73,6 +73,7 @@ export {
   resetLexicon,
 } from './lexicon.ts';
 export type {
+  LiveHeldOutput,
   LiveOutboundBatchResult,
   LiveOutboundGateSession,
 } from './live-outbound-gate.ts';

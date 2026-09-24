@@ -36,6 +36,7 @@ import type {
   ImageProfile,
   LiveProfile,
   LiveProfileToolsSpec,
+  MediaTurnBehaviourSpec,
   ModelBinding,
   ModelId,
   ModelProfile,
@@ -48,6 +49,7 @@ import type {
   ProfileTurnBehaviourSpec,
   Protocol,
   Provider,
+  SpeechGuardrailsSpec,
   SpeechProfile,
   TextProfile,
 } from '../types.ts';
@@ -87,14 +89,16 @@ export type ImageProfileDefinition = ProfileDefinitionBase & {
   image: NonNullable<ImageProfile['image']>;
   tools: ProfileToolsSpec;
   inputs: ProfileInputsSpec;
-  turnBehaviour?: ProfileTurnBehaviourSpec;
+  turnBehaviour?: MediaTurnBehaviourSpec;
 };
 
 /** Host definition for a turn-based speech profile with declared speech output constraints. */
-export type SpeechProfileDefinition = ProfileDefinitionBase & {
+export type SpeechProfileDefinition = Omit<ProfileDefinitionBase, 'identity' | 'guardrails'> & {
   type: 'speech';
+  identity: SpeechProfile['identity'];
+  guardrails?: SpeechGuardrailsSpec;
   speech: NonNullable<SpeechProfile['speech']>;
-  turnBehaviour?: ProfileTurnBehaviourSpec;
+  turnBehaviour?: MediaTurnBehaviourSpec;
 };
 
 /** Host definition for a Gemini Live profile with realtime tool and session settings. */
@@ -111,9 +115,8 @@ export type DecisionProfileDefinition = {
   type: 'decision';
   id: Profile['id'];
   identity: Pick<ProfileIdentity, 'handle'>;
+  /** Exactly one model. */
   models: Record<ModelId, DecisionModelBinding>;
-  defaultModel?: ModelId;
-  allowModelSelect?: boolean;
   key?: import('../types.ts').KeySlot;
   inputs: DecisionProfile['inputs'];
   decision: DecisionProfile['decision'];
@@ -141,6 +144,8 @@ export type ProfileDefinition =
   | HostProfileDefinition;
 
 const DECISION_ABSENT_FIELDS = [
+  'defaultModel',
+  'allowModelSelect',
   'outputs',
   'tools',
   'maxSteps',
@@ -205,21 +210,13 @@ function validateDecisionBinding(
   }
 }
 
-function validateDecisionModels(input: DecisionProfileDefinition): ModelId {
-  if (!input.models || Object.keys(input.models).length === 0) {
-    throw new TheoremError(`Profile ${input.id} must declare at least one model`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+function validateDecisionModel(input: DecisionProfileDefinition): void {
+  const modelId = input.models ? soleModelId(input.models) : undefined;
+  const binding = modelId ? input.models[modelId] : undefined;
+  if (!modelId || !binding) {
+    throw new TheoremError(`Profile ${input.id}: type 'decision' must declare exactly one model`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
-  const defaultModel = input.defaultModel ?? Object.keys(input.models)[0];
-  if (!defaultModel || !input.models[defaultModel]) {
-    throw new TheoremError(`Profile ${input.id} has no default model`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  }
-  if (input.allowModelSelect && Object.keys(input.models).length < 2) {
-    throw new TheoremError(`Profile ${input.id}: allowModelSelect requires at least two models`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  }
-  for (const [modelId, binding] of Object.entries(input.models)) {
-    validateDecisionBinding(input.id, modelId, binding);
-  }
-  return defaultModel;
+  validateDecisionBinding(input.id, modelId, binding);
 }
 
 function validateDecisionConfig(input: DecisionProfileDefinition): void {
@@ -234,10 +231,10 @@ function validateDecisionConfig(input: DecisionProfileDefinition): void {
 function defineDecisionProfile(input: DecisionProfileDefinition): DecisionProfile {
   rejectDecisionFields(input);
   rejectDecisionGuardrails(input);
-  const defaultModel = validateDecisionModels(input);
+  validateDecisionModel(input);
   validateDecisionConfig(input);
   assertObservability(input.id, input.observability);
-  return { ...input, defaultModel, identity: { handle: input.identity.handle } };
+  return { ...input, identity: { handle: input.identity.handle } };
 }
 
 /** Fields a `host` profile must not carry — rejected when supplied. */
@@ -319,7 +316,8 @@ function assertModelsNonEmpty(profileId: string, models: Record<ModelId, ModelBi
   }
 }
 
-function assertDefaultModel(profileId: string, input: ProfileDefinitionBase): void {
+/** The one owner of a model profile's default: the declared one, else the only key. */
+function resolveDefaultModel(profileId: string, input: ProfileDefinitionBase): ModelId {
   const ids = Object.keys(input.models);
   const inferred = input.defaultModel ?? soleModelId(input.models);
   if (!inferred) {
@@ -333,6 +331,7 @@ function assertDefaultModel(profileId: string, input: ProfileDefinitionBase): vo
   if (input.allowModelSelect && ids.length < 2) {
     throw new TheoremError(`Profile ${profileId} allowModelSelect requires at least two models`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
+  return inferred;
 }
 
 function assertModelBinding(profileId: string, modelId: ModelId, binding: ModelBinding): void {
@@ -414,7 +413,7 @@ function assertTypeProtocols(profile: ModelProfile): void {
 function profileModelFields(input: ProfileDefinitionBase): ProfileModelFields {
   return {
     models: input.models,
-    defaultModel: input.defaultModel ?? soleModelId(input.models),
+    defaultModel: resolveDefaultModel(input.id, input),
     allowModelSelect: input.allowModelSelect,
     maxSteps: input.maxSteps,
     key: input.key,
@@ -457,12 +456,52 @@ function assertTurnBehaviour(profileId: string, input: ProfileDefinition): void 
     }
     return;
   }
-  if (input.type !== 'text' && input.turnBehaviour?.allowSteering !== undefined) {
+  // Image / speech types omit these; untyped hosts still reach them.
+  const tb = input.turnBehaviour as ProfileTurnBehaviourSpec | undefined;
+  if (input.type !== 'text' && tb?.allowSteering !== undefined) {
     throw new TheoremError(
       `Profile ${profileId}: turnBehaviour.allowSteering is only valid on type 'text' or 'live'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
-  assertResumption(profileId, input.turnBehaviour?.resumption);
+  if (input.type !== 'text' && tb?.resumption?.continueInstruction !== undefined) {
+    throw new TheoremError(
+      `Profile ${profileId}: turnBehaviour.resumption.continueInstruction is only valid on type 'text' — image and speech continue by re-sending the request`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  assertResumption(profileId, tb?.resumption);
+}
+
+/**
+ * Speech has no system channel: Gemini TTS rejects developer instructions and
+ * OpenAI-compatible `/audio/speech` has no field for one. The canary lives in
+ * the system prompt, so it goes too. Checked at runtime for untyped hosts.
+ */
+function speechGuardrails(input: SpeechProfileDefinition): SpeechProfile['guardrails'] {
+  const identity = input.identity as ProfileIdentity;
+  if (identity.system !== undefined || identity.systemByRole !== undefined) {
+    throw new TheoremError(
+      `Profile ${input.id}: speech profiles take no identity.system or identity.systemByRole — the input text is the transcript`, // lexicon-exempt: developer contract error
+    );
+  }
+  const guardrails = input.guardrails as ProfileGuardrailsSpec | undefined;
+  if (guardrails?.canary !== undefined && guardrails.canary !== false) {
+    throw new TheoremError(
+      `Profile ${input.id}: speech profiles take no canary — there is no system prompt to bind it into`, // lexicon-exempt: developer contract error
+    );
+  }
+  return { ...(guardrails as SpeechGuardrailsSpec | undefined), canary: false };
+}
+
+/** Egress counts (`maxRetries`, `holdback`) are whole, non-negative numbers. */
+function assertEgress(profileId: string, guardrails: ProfileGuardrailsSpec | undefined): void {
+  for (const key of ['maxRetries', 'holdback'] as const) {
+    const value = guardrails?.egress?.[key];
+    if (value !== undefined && (!Number.isInteger(value) || value < 0)) {
+      throw new TheoremError(
+        `Profile ${profileId}: guardrails.egress.${key} must be a non-negative integer`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
+  }
 }
 
 function assertObservability(profileId: string, spec: ProfileObservabilitySpec | undefined): void {
@@ -509,18 +548,21 @@ function defineProfile(input: ProfileDefinition): Profile {
     return defineDecisionProfile(input);
   }
   assertModelsNonEmpty(input.id, input.models);
-  assertDefaultModel(input.id, input);
   assertTurnBehaviour(input.id, input);
+  assertEgress(input.id, input.guardrails as ProfileGuardrailsSpec | undefined);
   assertObservability(input.id, input.observability);
   for (const [modelId, binding] of Object.entries(input.models)) {
     assertModelBinding(input.id, modelId, binding);
   }
 
-  const identity: ProfileIdentity = {
-    handle: input.identity.handle,
-    system: input.identity.system,
-    systemByRole: input.identity.systemByRole,
-  };
+  const identity: ProfileIdentity =
+    input.type === 'speech'
+      ? { handle: input.identity.handle }
+      : {
+          handle: input.identity.handle,
+          system: input.identity.system,
+          systemByRole: input.identity.systemByRole,
+        };
   const guardrails = input.guardrails;
   const observability = input.observability;
   const modelFields = profileModelFields(input);
@@ -565,7 +607,7 @@ function defineProfile(input: ProfileDefinition): Profile {
         speech: input.speech,
         outputs: input.outputs,
         turnBehaviour: input.turnBehaviour,
-        guardrails,
+        guardrails: speechGuardrails(input),
         observability,
       } satisfies SpeechProfile;
       break;

@@ -241,6 +241,13 @@ export interface ProfileEgressSpec {
   onBlock?: EgressOnBlock;
   maxRetries?: number;
   repairGuidance?: string;
+  /**
+   * Characters the progressive gate holds back so `enforce` sees a match split
+   * across stream chunks before any of it is released (default
+   * `DEFAULT_HOLDBACK`, 256). Smaller releases the reply sooner and covers
+   * shorter splits; the canary's longest leak form is always held regardless.
+   */
+  holdback?: number;
 }
 
 /** SSRF and network access policy for HTTP and remote MCP tools. */

@@ -2,7 +2,7 @@
  * Convert THEOREM turn input into Vercel AI SDK `ModelMessage[]`.
  *
  * Semantic twin of `openai/compat.ts` (REST wire format). OpenRouter's AI SDK
- * adapter uses this module; local and payload paths use `buildChatMessages`.
+ * adapter uses this module; local and image paths use `buildChatMessages`.
  *
  * @module
  */

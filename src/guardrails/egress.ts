@@ -44,16 +44,16 @@ function hitsFromSpans(
 }
 
 /** Hits from the bundled outbound policy (canary / sensitive / boundary / injection). */
+/** A canary leak. Never carries the live token — placeholder only. */
+const CANARY_HIT: GuardrailHit = { rule: EGRESS_RULES.canary, severity: 'high', match: '[canary]' };
+
+/** The canary hit, when `text` leaks it. */
+function canaryHits(text: string, canary?: string): GuardrailHit[] {
+  return canary && scanTextForCanaryLeak(text, canary) ? [CANARY_HIT] : [];
+}
+
 function collectEgressHits(text: string, canary?: string): GuardrailHit[] {
-  const hits: GuardrailHit[] = [];
-  if (canary && scanTextForCanaryLeak(text, canary)) {
-    // Never put the live canary token into match — placeholder only.
-    hits.push({
-      rule: EGRESS_RULES.canary,
-      severity: 'high',
-      match: '[canary]',
-    });
-  }
+  const hits = canaryHits(text, canary);
   hits.push(...hitsFromSpans(text, sensitiveSpans(text), EGRESS_RULES.sensitive, 'high')); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   const boundary = SYSTEM_BOUNDARY.exec(text);
   if (boundary && boundary.index !== undefined) {
@@ -223,4 +223,4 @@ async function runEnforcer(
   }
 }
 
-export { collectEgressHits, hitRules, runEnforcer, standardEgressEnforce };
+export { CANARY_HIT, canaryHits, collectEgressHits, hitRules, runEnforcer, standardEgressEnforce };

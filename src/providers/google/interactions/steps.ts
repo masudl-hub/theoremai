@@ -234,12 +234,10 @@ function interactionResponse(interaction: Record<string, unknown>): TurnResponse
 function doneFromInteractionStatus(interaction: Record<string, unknown>): TurnEvent | undefined {
   const { status } = interaction;
   if (typeof status !== 'string') return undefined;
-  const response = interactionResponse(interaction);
   return {
     type: 'done',
     stop: turnStopFromInteractionStatus(status),
     ...(typeof interaction.id === 'string' ? { interactionId: interaction.id } : {}),
-    ...(response ? { response } : {}),
   };
 }
 

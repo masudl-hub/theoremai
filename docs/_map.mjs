@@ -198,7 +198,6 @@ const graph = {
         'tests/providers/local/local.test.ts',
         'tests/providers/openrouter/chat.test.ts',
         'tests/providers/openrouter/speech.test.ts',
-        'tests/providers/openrouter/openai/chat-payload.test.ts',
         'tests/providers/openrouter/openai/compat.test.ts',
         'tests/providers/openrouter/openai/sdk-messages.test.ts',
         'tests/providers/openrouter/openai/usage.test.ts',
@@ -228,7 +227,6 @@ const graph = {
         {
           paths: [
             'src/providers/openrouter/chat.ts',
-            'src/providers/openrouter/openai/chat-payload.ts',
             'src/providers/openrouter/openai/usage.ts',
           ],
           sections: ['OpenRouter'],

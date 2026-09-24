@@ -20,6 +20,7 @@ const profile: Profile = {
       builtInTools: [],
     },
   },
+  defaultModel: 'm',
   live: { voice: 'Aoede' },
   tools: { allow: [] },
   guardrails: { sanitizeInput: true, redactSensitive: true },

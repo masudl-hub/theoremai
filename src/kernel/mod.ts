@@ -137,7 +137,6 @@ export {
   protocolsFor,
   protocolsForProfileType,
   providersFor,
-  SCHEMA_ENFORCEMENTS,
   SPEECH_AUDIO_FORMATS,
   STREAM_MODES,
   SUMMARY_MODES,
@@ -178,6 +177,7 @@ export {
   stageEventFields,
 } from './stages.ts';
 export type {
+  MediaTurnBehaviourSpec,
   ProfileTurnBehaviourSpec,
   ProfileTurnResumptionSpec,
   TurnContinueFrom,

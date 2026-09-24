@@ -157,11 +157,7 @@ export function attachResponseFormat(
   if (!req.structured) {
     return;
   }
-  const spec = getStructured(req.structured);
-  if (spec.enforced !== 'responseFormat' || !spec.jsonSchema) {
-    return;
-  }
-  camel.responseFormat = jsonResponseFormat(spec.jsonSchema);
+  camel.responseFormat = jsonResponseFormat(getStructured(req.structured).jsonSchema);
 }
 
 export function attachSpeechConfig(

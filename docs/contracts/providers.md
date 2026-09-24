@@ -25,7 +25,6 @@ Owns every module under `src/providers/`.
 | `openrouter/chat.ts` | OpenRouter chat adapter (internal; lazy-loaded) |
 | `openrouter/openai/compat.ts` | Shared OpenAI REST wire format (messages, tools, headers) |
 | `openrouter/openai/sdk-messages.ts` | THEOREM → AI SDK `ModelMessage[]` (OpenRouter chat) |
-| `openrouter/openai/chat-payload.ts` | OpenAI chat payload + OpenRouter plugins (internal) |
 | `openrouter/openai/usage.ts` | OpenAI-compatible `usage` → `TurnTokens` (`openAiUsageTokens`), shared by OpenRouter chat, OpenRouter images, and local |
 | `openrouter/speech.ts` | OpenAI `/audio/speech` transport (openrouter speech role) |
 | `openrouter/image.ts` | OpenAI `/images` transport; chat + server tool when `includeText` |
@@ -78,8 +77,8 @@ const provider = createProvider(profile, {
 
 `createProvider` reads the selected **`ModelBinding`** from `profile.models`
 (`protocol` / `provider` on that binding). When a profile declares multiple
-models, pass optional `modelId` (defaults to `profile.defaultModel`, or the sole
-model key when only one is declared).
+models, pass optional `modelId` (defaults to `profile.defaultModel`, which
+registration always sets: the declared default, else the sole model key).
 
 Legal pairs are `PROTOCOL_PROVIDERS` in `src/kernel/schema.ts` (`isValidPair`).
 Routing table:
@@ -132,17 +131,15 @@ OpenRouter entrypoint.
 Chat and speech requests use `ProviderCompleteRequest.apiId` on the wire — same
 field as Google Interactions and local OpenAI-compat paths.
 
-`toOpenAiChatPayload` maps `ProviderCompleteRequest` → OpenAI chat-completions
-body (messages, tools, structured output). `reasoning.effort` is set only when
-`thinking` is present and not `'none'`. When `cache.mode` is `automatic`, the
-payload includes top-level `cache_control`; when `system`, the system message
-content block carries `cache_control`. Optional `sessionId` becomes `session_id`.
-
 `createOpenRouterProvider(config)` (internal) streams normalized `TurnEvent`s;
-terminal `done.stop` via `turnStopFromOpenAiFinishReason`. Cache policy is applied
-via AI SDK `providerOptions.openrouter` (`cacheControl` / `session_id`) — the same
-`cacheControlFromSpec` / `cacheControlJson` helpers as the REST payload path
-(`src/providers/openrouter/cache-control.ts`).
+terminal `done.stop` via `turnStopFromOpenAiFinishReason`. Request options ride
+AI SDK `providerOptions.openrouter`: `reasoning.effort` only when `thinking` is
+present and not `'none'`, `response_format` for structured output, and optional
+`sessionId` as `session_id`. When `cache.mode` is `automatic`, `cacheControl`
+is top-level; when `system`, the system message carries it instead of
+`instructions` (`cacheControlJson`, `src/providers/openrouter/cache-control.ts`).
+Builtins map through `wire.openRouter`: `web` becomes `web_search_options`,
+every other wire a plugin.
 
 Usage: the raw OpenRouter `usage` row is read first (`openAiUsageTokens`); AI
 SDK `totalUsage` (`tokensFromUsage`) is used only when the stream carried no
@@ -162,8 +159,8 @@ Token usage in the kernel contract).
 | --- | --- |
 | History | `user_input` / `model_output` steps; OpenAI-shaped `assistant.tool_calls` → `function_call` (not empty text; arguments via `historyToolArguments`); `tool` → `function_result`. A continuation request (`previousInteractionId` + `continuation`) maps its messages the same way instead of history + input. Every step carries `historyMessageParts` (`content` as a text part, then `parts`); a message with neither is one empty text part. |
 | Multimodal | `image` / `audio` / `video` / `document` parts, inline (`data`) or by Files API reference (`uri` → `{ type, uri, mime_type }`) |
-| Structured | `responseFormat` JSON schema when enforced. When structured is requested and model text is not valid JSON, providers emit an `error` event (never silently skip). |
-| Output modes | responseFormat JSON schema, image, and speech are mutually exclusive; prompt-enforced structured schemas and free text are not. Image profiles may opt into interleaved text via `image.includeText`. |
+| Structured | `responseFormat` JSON schema whenever the profile names a structured schema. When structured is requested and model text is not valid JSON, providers emit an `error` event (never silently skip). |
+| Output modes | A structured JSON schema, image, and speech are mutually exclusive. Image profiles may opt into interleaved text via `image.includeText`. |
 | Tools | Registry builtins (`wire.interactions`) + function schemas from `generation.tools.wire`. When `googleMaps` is enabled and `TurnRequest.googleMapsLocation` is set, Interactions receives `tools: [{ type: "google_maps", latitude, longitude }]`. |
 | Code execution | Builtin `codeExecution` → `{ type: "code_execution" }`. `code_execution_call` (`arguments.code`, `arguments.language`, `id`) and `code_execution_result` (`result`, `is_error`, `call_id`) steps become one `evidence` each (`kind`, `code`, `result`, `isError`, `raw`). Search/maps/`url_context` steps are also `evidence`. Structured `responseFormat` is still attached when both are requested. |
 | Stream fold | One step, two deliveries (probed 23/09/2026). SSE rows are `step.start` / `step.delta` / `step.stop` per `index`, then `interaction.completed` (no `steps`). `function_call`, code execution and builtin steps merge their start and deltas and are emitted once, whole, at `step.stop` (`arguments_delta` strings concatenate); `thought` and `model_output` deltas emit as they arrive. A step still open when the stream ends is emitted as `evidence` with `partial: true` (`raw` holds what arrived); a partial `function_call` never becomes a tool call. A row that is not a JSON object is an `error`. Buffered bodies emit the same events from `steps[]`. `interaction.created` / `interaction.status_update` emit nothing. |
@@ -285,6 +282,13 @@ When `profile.type === 'speech'` and protocol/provider is
 | OpenAI | `openrouter/speech.ts` | `/audio/speech` | `mp3` allowed via `response_format`. The response carries no usage; the runner estimates the call. The response's `content-type` states the audio; raw PCM with a rate is wrapped as WAV. |
 | Interactions | `google/interactions/mod.ts` | `responseFormat: { type: 'audio' }` | Real PCM → WAV only. Missing audio on a speech-role turn (text-only or empty) yields an `error` event — never invents PCM from text bytes. `mp3` rejected at resolve. |
 
+Speech turns carry no system prompt. The input text is the transcript: Gemini
+TTS rejects developer instructions ("Developer instruction is not enabled") and
+`/audio/speech` has no field for one. So `defineProfile` rejects
+`identity.system` / `identity.systemByRole` and any canary on a speech profile
+(registration stores `guardrails.canary: false`), and `resolveTurn` rejects a
+host `TurnRequest.system` on a speech turn.
+
 Speech-role turns (`req.speech`) must receive real audio media from the model.
 Missing audio — whether the model returned text only or nothing at all — yields
 an `error` event. The adapter never casts text bytes into a fake WAV/PCM
@@ -391,9 +395,7 @@ From `src/providers/google/live/mod.ts` (`@theoremai/agents/providers/google/liv
     "OpenRouter": {
       "supports": [
         { "kind": "source", "path": "src/providers/openrouter/chat.ts" },
-        { "kind": "source", "path": "src/providers/openrouter/openai/chat-payload.ts" },
         { "kind": "contract_test", "path": "tests/providers/openrouter/chat.test.ts" },
-        { "kind": "contract_test", "path": "tests/providers/openrouter/openai/chat-payload.test.ts" },
         { "kind": "contract_test", "path": "tests/providers/openrouter/openai/compat.test.ts" },
         { "kind": "contract_test", "path": "tests/providers/openrouter/openai/sdk-messages.test.ts" }
       ]

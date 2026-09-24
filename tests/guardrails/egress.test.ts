@@ -94,8 +94,11 @@ Deno.test('standardEgressEnforce blocks "This turn\\u2019s canary is" boundary m
   assertEquals(rules(verdict).includes(EGRESS_RULES.boundary), true);
 });
 
-Deno.test('standardEgressEnforce without canary: no canary hit even if text has theo-prefix', () => {
-  assertEquals(rules(enforce('theo-deadbeef')).includes(EGRESS_RULES.canary), false);
+Deno.test('standardEgressEnforce without canary: no canary hit on a hex token', () => {
+  assertEquals(
+    rules(enforce('deadbeeffeedfacecafebabecafebabe')).includes(EGRESS_RULES.canary),
+    false,
+  );
 });
 
 Deno.test('standardEgressEnforce blocks closing user_data fence tag', () => {

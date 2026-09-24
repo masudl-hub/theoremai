@@ -1,19 +1,16 @@
 import type {
 	AuthUnauthenticatedPolicy,
 	HttpMethod,
-	SchemaEnforcement,
 	ToolAccess,
 	ToolAuthType,
 	ToolLoadTier,
 	ToolPermission,
 } from '../src/kernel/schema.ts';
+import type { StructuredSpec } from '../src/kernel/types.ts';
 
 export type StructuredRegistration = {
 	id: string;
-	spec: {
-		enforced: SchemaEnforcement;
-		jsonSchema?: Record<string, unknown>;
-	};
+	spec: StructuredSpec;
 };
 
 /** Compiled custom tool ready for host registerTool + export source. */

@@ -32,7 +32,6 @@ import {
   resolveInputParts,
 } from './ingress.ts';
 import { getProfile } from './profiles.ts';
-import { soleModelId } from './sole-model.ts';
 import { resolveTurnSystemPrompt } from './system-prompt.ts';
 import { providerUsesKeySlots, resolveKeySlot } from './vault.ts';
 
@@ -56,7 +55,7 @@ function requireModelProfile(profile: Profile, door: string): ModelProfile {
 
 /**
  * Chooses a profile model, honoring an explicit request only when selection is
- * allowed; otherwise resolves the declared default or sole available model.
+ * allowed; otherwise the profile's default, which registration guarantees.
  */
 function pickModel(profile: ModelProfile, requested?: string): ModelId {
   if (requested) {
@@ -68,11 +67,7 @@ function pickModel(profile: ModelProfile, requested?: string): ModelId {
     }
     return requested;
   }
-  const defaultId = profile.defaultModel ?? soleModelId(profile.models);
-  if (!defaultId || !profile.models[defaultId]) {
-    throw new TheoremError(`Profile ${profile.id} has no default model`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  }
-  return defaultId;
+  return profile.defaultModel;
 }
 
 function resolveEffort(
@@ -217,10 +212,9 @@ function resolveTurn(req: TurnRequest): {
   const builtins = toolSnapshot.builtins;
   const structured = resolveStructured(profile, input.slots);
   assertOutputMode(profile, structured);
-  assertSpeechRole(profile);
-  const pinnedKey = profile.key ?? binding.key;
+  assertSpeechRole(profile, binding, safe);
   const keySlot = providerUsesKeySlots(binding.provider)
-    ? resolveKeySlot(pinnedKey, binding, builtins, binding.provider === 'google')
+    ? resolveKeySlot(profile.key, binding, builtins, binding.provider === 'google')
     : undefined;
   const previousInteractionId =
     binding.persistViaInteractionId === false ? undefined : safe.previousInteractionId;

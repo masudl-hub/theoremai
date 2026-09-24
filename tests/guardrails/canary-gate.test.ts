@@ -13,7 +13,6 @@ Deno.test('createCanaryGateSession initializes canary and gate', () => {
   assertEquals(session.canary, canary);
   assertEquals(typeof session.gate.process, 'function');
   assertEquals(typeof session.gate.flush, 'function');
-  assertEquals(session.lastStreamType, undefined);
 });
 
 Deno.test('filterCanaryGatedEvents passes non-streaming events without canary', () => {
@@ -47,15 +46,6 @@ Deno.test('filterCanaryGatedEvents emits safe text from streaming events', () =>
   }
 });
 
-Deno.test('filterCanaryGatedEvents sets lastStreamType on the session', () => {
-  const session = createCanaryGateSession(mintCanary());
-  assertEquals(session.lastStreamType, undefined);
-  filterCanaryGatedEvents(session, [{ type: 'thought', text: 'thinking...' }]);
-  assertEquals(session.lastStreamType, 'thought');
-  filterCanaryGatedEvents(session, [{ type: 'text', text: 'reply' }]);
-  assertEquals(session.lastStreamType, 'text');
-});
-
 Deno.test('filterCanaryGatedEvents stops immediately on a canary leak in a stream event', () => {
   const canary = mintCanary();
   const session = createCanaryGateSession(canary);
@@ -87,12 +77,12 @@ Deno.test('filterCanaryGatedEvents handles an empty event list', () => {
   }
 });
 
-Deno.test('filterCanaryGatedEvents handles thought-type streaming event', () => {
+Deno.test('filterCanaryGatedEvents passes thoughts through unguarded, canary included', () => {
   const canary = mintCanary();
   const session = createCanaryGateSession(canary);
-  const result = filterCanaryGatedEvents(session, [{ type: 'thought', text: 'safe thinking' }]);
-  assertEquals(result.leaked, false);
-  assertEquals(session.lastStreamType, 'thought');
+  const thought: TurnEvent = { type: 'thought', text: `restating: ${canary}` };
+  const result = filterCanaryGatedEvents(session, [thought]);
+  assertEquals(result, { leaked: false, events: [thought] });
 });
 
 Deno.test('filterCanaryGatedEvents detects canary at every chunk partition boundary', () => {
@@ -109,4 +99,17 @@ Deno.test('filterCanaryGatedEvents detects canary at every chunk partition bound
       throw new Error(`canary leak missed at split index ${splitIdx}`);
     }
   }
+});
+
+Deno.test('filterCanaryGatedEvents catches a canary split across spoken-reply transcript chunks', () => {
+  const canary = mintCanary();
+  const session = createCanaryGateSession(canary);
+  const said = (text: string): TurnEvent => ({
+    type: 'evidence',
+    text,
+    evidence: { provider: 'google', kind: 'output_transcription' },
+  });
+  const half = Math.ceil(canary.length / 2);
+  assertEquals(filterCanaryGatedEvents(session, [said(canary.slice(0, half))]).leaked, false);
+  assertEquals(filterCanaryGatedEvents(session, [said(canary.slice(half))]).leaked, true);
 });

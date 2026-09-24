@@ -36,7 +36,7 @@ function printProfileCard(p: Profile): void {
   }
   if (p.type === 'decision') {
     console.log(` • Profile: ${p.id.padEnd(16)} (handle: ${p.identity.handle}) [decision]`);
-    console.log(`   - Models:     ${Object.keys(p.models).join(', ') || 'default'}`);
+    console.log(`   - Model:      ${Object.keys(p.models).join(', ')}`);
     console.log(`   - Inputs:     JSON state`);
     console.log(`   - Contract:   ${p.decision.contract}`);
     console.log(`   - Key Slot: ${p.key ?? '(unset)'}`);

@@ -12,7 +12,6 @@
 
 import { TheoremError } from '../guardrails/error.ts';
 import { requireModelProfile } from '../kernel/registry/resolve.ts';
-import { soleModelId } from '../kernel/registry/sole-model.ts';
 import { isValidPair } from '../kernel/schema.ts';
 import type {
   ModelBinding,
@@ -50,12 +49,7 @@ export function isImageRole(profile: Profile): boolean {
 
 function bindingForProvider(input: Profile, modelId?: ModelId): ModelBinding {
   const profile = requireModelProfile(input, 'createProvider');
-  const id = modelId ?? profile.defaultModel ?? soleModelId(profile.models);
-  if (!id) {
-    throw new TheoremError(
-      `createProvider: profile '${profile.id}' must set defaultModel when multiple models are declared`,
-    );
-  }
+  const id = modelId ?? profile.defaultModel;
   const binding = profile.models[id];
   if (!binding) {
     throw new TheoremError(`createProvider: profile '${profile.id}' has no model '${id}'`);

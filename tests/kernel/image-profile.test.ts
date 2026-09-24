@@ -3,7 +3,11 @@ import { wrapUserData } from '../../src/guardrails/canary.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { runTurn } from '../../src/kernel/engine/runner.ts';
-import { registerProfile } from '../../src/kernel/registry/profiles.ts';
+import {
+  defineProfile,
+  type ProfileDefinition,
+  registerProfile,
+} from '../../src/kernel/registry/profiles.ts';
 import { projectProfile, resolveTurn } from '../../src/kernel/registry/resolve.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
 import { camelToSnake, toInteractionsBody } from '../../src/providers/google/interactions/mod.ts';
@@ -207,9 +211,7 @@ Deno.test('image projection exposes image pins not tools', () => {
   assertEquals(ui.models.gemini31FlashLiteImage.summaries, false);
 });
 
-Deno.test('media validations allow omitted aspect/size; reject structured mixing and invalid mime', async () => {
-  const { registerProfile, defineProfile } = await import('../../src/kernel/registry/profiles.ts');
-
+Deno.test('media validations allow omitted aspect/size; reject structured mixing and invalid mime', () => {
   // Image pins without aspect/size — provider defaults apply
   registerProfile(
     defineProfile({
@@ -236,7 +238,7 @@ Deno.test('media validations allow omitted aspect/size; reject structured mixing
     includeText: false,
   });
 
-  // Image pins with responseFormat-enforced structured output
+  // Image pins with a structured schema: two wire output formats
   registerProfile(
     defineProfile({
       id: 'mixed_media_profile',
@@ -256,29 +258,6 @@ Deno.test('media validations allow omitted aspect/size; reject structured mixing
     () => resolveTurn({ profile: 'mixed_media_profile', input: { text: 'test' } }),
     TheoremError,
   );
-
-  // Prompt-enforced structured + image is allowed (no competing responseFormat)
-  registerProfile(
-    defineProfile({
-      id: 'image_with_prompt_schema',
-      type: 'image',
-      identity: { handle: 'image_with_prompt_schema' },
-      ...geminiModels('gemini31FlashLiteImage'),
-      image: { aspectRatio: '1:1', size: '1K', mimeType: 'image/jpeg' },
-      tools: { allow: [] },
-      inputs: { text: true },
-      outputs: {
-        structured: 'promptTurn',
-      },
-      guardrails: { quota: { perDay: 10 } },
-    }),
-  );
-  const promptImage = resolveTurn({
-    profile: 'image_with_prompt_schema',
-    input: { text: 'fox' },
-  }).generation;
-  assertEquals(promptImage.structured, 'promptTurn');
-  assertEquals(promptImage.image?.type, 'image');
 
   // codeExecution on image profiles is a host/model choice — kernel does not block it
   registerProfile(
@@ -351,7 +330,7 @@ Deno.test('speech profiles use top-level speech pins', () => {
     identity: { handle: 'speech_output_test' },
     ...geminiModels('gemini31FlashTts'),
     speech: { voice: 'Kore', format: 'pcm' },
-    guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
+    guardrails: { sanitizeInput: false, redactSensitive: false },
   });
   assertEquals(
     resolveTurn({ profile: 'speech_output_test', input: { text: 'hi' } }).generation.speech,
@@ -359,5 +338,86 @@ Deno.test('speech profiles use top-level speech pins', () => {
       voice: 'Kore',
       format: 'pcm',
     },
+  );
+});
+
+function speechDefinition(overrides: Record<string, unknown>): ProfileDefinition {
+  return {
+    type: 'speech',
+    id: 'speech_contract',
+    identity: { handle: 'speech_contract' },
+    ...geminiModels('gemini31FlashTts'),
+    speech: { voice: 'Kore' },
+    ...overrides,
+  } as ProfileDefinition;
+}
+
+Deno.test('speech profiles store canary off and resolve no system prompt or canary', () => {
+  const profile = defineProfile(speechDefinition({}));
+  assertEquals(profile.type === 'speech' && profile.guardrails, { canary: false });
+  registerProfile(profile);
+  const { generation } = resolveTurn({ profile: 'speech_contract', input: { text: 'hi' } });
+  assertEquals(generation.canary, '');
+  assertEquals(generation.resolvedSystem, '');
+});
+
+Deno.test('speech profiles reject a system prompt and a canary', () => {
+  for (const overrides of [
+    { identity: { handle: 'speech_contract', system: 'Speak warmly.' } },
+    { identity: { handle: 'speech_contract', systemByRole: { a: 'Speak warmly.' } } },
+    { guardrails: { canary: true } },
+    { guardrails: { canary: { bindNote: 'token {canary}' } } },
+  ]) {
+    assertThrows(() => defineProfile(speechDefinition(overrides)), TheoremError);
+  }
+});
+
+Deno.test('speech turns reject a host system prompt', () => {
+  registerProfile(speechDefinition({}));
+  assertThrows(
+    () =>
+      resolveTurn({ profile: 'speech_contract', system: 'Speak warmly.', input: { text: 'hi' } }),
+    TheoremError,
+  );
+});
+
+Deno.test('image and speech continueFrom re-send the request with nothing added', () => {
+  registerProfile(speechDefinition({}));
+  for (const req of [
+    { profile: 'image', input: { text: 'sleepy fox' } },
+    { profile: 'speech_contract', input: { text: 'hi' } },
+  ]) {
+    const fresh = resolveTurn(req).generation;
+    const resumed = resolveTurn({
+      ...req,
+      continueFrom: { stop: { kind: 'provider_error' } },
+    }).generation;
+    assertEquals(resumed.input, fresh.input);
+    assertEquals(resumed.resolvedSystem, fresh.resolvedSystem);
+  }
+});
+
+Deno.test('image and speech profiles reject turnBehaviour.resumption.continueInstruction', () => {
+  const turnBehaviour = { resumption: { continueInstruction: 'Keep going.' } };
+  assertThrows(
+    () => defineProfile(speechDefinition({ turnBehaviour })),
+    TheoremError,
+    'continueInstruction',
+  );
+  assertThrows(
+    () =>
+      defineProfile({
+        type: 'image',
+        id: 'image_continue_instruction',
+        identity: { handle: 'image_continue_instruction' },
+        ...geminiModels('gemini31FlashLiteImage'),
+        maxSteps: 1,
+        image: { aspectRatio: '1:1', size: '1K', mimeType: 'image/jpeg' },
+        tools: { allow: [] },
+        inputs: { text: true },
+        turnBehaviour,
+      } as unknown as ProfileDefinition),
+    TheoremError,
+    'continueInstruction',
   );
 });

@@ -344,6 +344,7 @@ Deno.test('attachments.ts edge cases: formatting, 1-file message, latin1 decodin
     id: 'no-limits',
     identity: { handle: 'no-limits' },
     ...geminiModels('gemini35FlashLite'),
+    defaultModel: 'gemini35FlashLite',
     tools: { allow: [] },
     inputs: { text: true },
     outputs: { structured: null },

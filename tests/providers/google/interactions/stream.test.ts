@@ -180,7 +180,7 @@ Deno.test('JSON Schema property names stay camelCase inside response_format.sche
   assertEquals(Object.hasOwn(schema.properties as Record<string, unknown>, 'html'), true);
 });
 
-Deno.test('prompt-enforced schema omits JSON response_format', () => {
+Deno.test('a profile without structured output sends no response_format', () => {
   const { generation } = resolveTurn({
     profile: 'selector',
     model: 'gemini35FlashLite',
@@ -310,10 +310,10 @@ Deno.test('provider POSTs Interactions JSON when stream is false', async () => {
   assertEquals(postedStream, false);
   assertEquals(
     events.map((e) => (e.type === 'evidence' ? `${e.evidence?.kind}` : e.type)),
-    ['code_execution_call', 'code_execution_result', 'text', 'done'],
+    ['response', 'code_execution_call', 'code_execution_result', 'text', 'done'],
   );
-  assertEquals(events[0]?.evidence?.code, 'print(1)');
-  assertEquals(events[1]?.evidence?.result, '1\n');
+  assertEquals(events[1]?.evidence?.code, 'print(1)');
+  assertEquals(events[2]?.evidence?.result, '1\n');
 });
 
 Deno.test('buffered body emits its function_call step as a tool call', async () => {
@@ -339,6 +339,7 @@ Deno.test('buffered body emits its function_call step as a tool call', async () 
   });
   const events = await collect(provider.complete({ ...fromChatProfile(), stream: false }));
   assertEquals(events, [
+    { type: 'response', response: { id: 'v1_tool' } },
     {
       type: 'tool',
       tool: { id: 'call_1', name: 'get_soil_moisture', arguments: { plant: 'plant A' } },
@@ -347,7 +348,6 @@ Deno.test('buffered body emits its function_call step as a tool call', async () 
       type: 'done',
       stop: { kind: 'tool', native: 'requires_action' },
       interactionId: 'v1_tool',
-      response: { id: 'v1_tool' },
     },
   ]);
 });
@@ -364,7 +364,8 @@ Deno.test('buffered body emits its thought summary', () => {
     },
     newStreamFold(),
   );
-  assertEquals(events.slice(0, 2), [
+  assertEquals(events.slice(0, 3), [
+    { type: 'response', response: { id: 'v1_thought' } },
     { type: 'thought', text: 'Weighing it.' },
     { type: 'text', text: 'Done.' },
   ]);
@@ -431,11 +432,11 @@ Deno.test('provider POSTs Interactions SSE on the resolved key slot', async () =
   assertEquals(events, [
     { type: 'thought', text: 'hmm' },
     { type: 'text', text: '{"message":"ok"}' },
+    { type: 'response', response: { id: 'v1_int' } },
     {
       type: 'done',
       stop: { kind: 'completed', native: 'completed' },
       interactionId: 'v1_int',
-      response: { id: 'v1_int' },
     },
     { type: 'structured', structured: { message: 'ok' } },
   ]);
@@ -938,13 +939,13 @@ Deno.test('a stream cut off before the interaction reports a status stops as str
   const events = await collect(provider.complete({ ...fromChatProfile(), structured: null }));
   assertEquals(
     events.map((ev) => ev.type),
-    ['text', 'evidence', 'done'],
+    ['response', 'text', 'evidence', 'done'],
   );
-  assertEquals(events[1]?.evidence?.partial, true);
-  assertEquals(events[1]?.evidence?.kind, 'function_call');
-  assertEquals(events[2]?.stop, { kind: 'stream_incomplete' });
-  // `interaction.created` named the response, so the cut stream still does.
-  assertEquals(events[2]?.response, { id: 'v1_cut', model: 'gemini-test-flash' });
+  // `interaction.created` named the response before any output, so the cut stream still does.
+  assertEquals(events[0]?.response, { id: 'v1_cut', model: 'gemini-test-flash' });
+  assertEquals(events[2]?.evidence?.partial, true);
+  assertEquals(events[2]?.evidence?.kind, 'function_call');
+  assertEquals(events[3]?.stop, { kind: 'stream_incomplete' });
 });
 
 Deno.test('a stream row that is not a JSON object is an error', async () => {
@@ -976,7 +977,7 @@ Deno.test('a stream row that is not a JSON object is an error', async () => {
   );
 });
 
-Deno.test('lifecycle rows and usage outside interaction.completed emit nothing', () => {
+Deno.test('lifecycle rows emit only the identity interaction.created names; stray usage emits nothing', () => {
   assertEquals(
     foldRows([
       row('interaction.created', { interaction: { id: 'v1_int', status: 'in_progress' } }),
@@ -987,7 +988,7 @@ Deno.test('lifecycle rows and usage outside interaction.completed emit nothing',
         usage: { total_input_tokens: 3, total_output_tokens: 7 },
       }),
     ]),
-    [],
+    [{ type: 'response', response: { id: 'v1_int' } }],
   );
 });
 

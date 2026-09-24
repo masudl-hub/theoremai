@@ -16,7 +16,7 @@ import { asRecord, nonEmptyString } from '../../kernel/engine/record.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../kernel/types.ts';
 import { tapFetch } from '../shared/upstream-tap.ts';
 import type { OpenAiGatewayConfig } from '../types.ts';
-import { buildChatMessages, openAiGatewayHeaders } from './openai/compat.ts';
+import { buildChatMessages, httpErrorEvent, openAiGatewayHeaders } from './openai/compat.ts';
 import {
   buildImagesPayload,
   extractPromptText,
@@ -128,13 +128,6 @@ async function readTapedJson(
   return body;
 }
 
-function imageHttpError(res: Response, label: string): TurnEvent | undefined {
-  if (res.status !== HTTP_OK) {
-    return toErrorEvent(`${label} HTTP ${String(res.status)}`);
-  }
-  return undefined;
-}
-
 async function requestImages(
   req: ProviderCompleteRequest,
   config: ImageProviderConfig,
@@ -177,9 +170,8 @@ export async function* yieldInterleavedChat(
   apiKey: string,
 ): AsyncGenerator<TurnEvent> {
   const res = await requestInterleavedChat(req, config, apiKey);
-  const httpErr = imageHttpError(res, 'Image chat');
-  if (httpErr) {
-    yield httpErr;
+  if (res.status !== HTTP_OK) {
+    yield await httpErrorEvent(res, 'Image chat');
     return;
   }
 
@@ -217,9 +209,8 @@ export async function* yieldImagesEndpoint(
   apiKey: string,
 ): AsyncGenerator<TurnEvent> {
   const res = await requestImages(req, config, apiKey);
-  const httpErr = imageHttpError(res, 'Image');
-  if (httpErr) {
-    yield httpErr;
+  if (res.status !== HTTP_OK) {
+    yield await httpErrorEvent(res, 'Image');
     return;
   }
 

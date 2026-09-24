@@ -92,6 +92,7 @@ Deno.test('include.guardrailMatchPreview keeps matched substring on stream and t
 Deno.test('runTurn emits egress guardrail events on block', async () => {
   // `egress` is a model-turn guardrail, so the base must be narrowed past `host`.
   const base = requireModelProfile(getProfile('chat'), 'test');
+  if (base.type !== 'text') throw new Error('expected text profile');
   registerProfile(
     defineProfile({
       ...base,

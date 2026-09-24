@@ -3,6 +3,7 @@
 import { TheoremError } from '../../guardrails/error.ts';
 import type { DecisionDisclosureVerdict } from '../../guardrails/types.ts';
 import { getProfile } from '../registry/profiles.ts';
+import { soleModelId } from '../registry/sole-model.ts';
 import type {
   DecisionAnswer,
   DecisionJson,
@@ -55,23 +56,14 @@ function requireDecisionProfile(id: string): DecisionProfile {
   return profile;
 }
 
-function selectModel(
-  profile: DecisionProfile,
-  requested?: string,
-): [ModelId, DecisionProfile['models'][string]] {
-  if (requested) {
-    if (!profile.allowModelSelect) {
-      throw new TheoremError(`Profile ${profile.id} does not allow model selection`); // lexicon-exempt: developer contract error
-    }
-    const binding = profile.models[requested];
-    if (!binding) throw new TheoremError(`Unknown model '${requested}' for ${profile.id}`); // lexicon-exempt: developer contract error
-    return [requested, binding];
+/** The profile's one model; registration guarantees exactly one. */
+function decisionModel(profile: DecisionProfile): [ModelId, DecisionProfile['models'][string]] {
+  const modelId = soleModelId(profile.models);
+  const binding = modelId ? profile.models[modelId] : undefined;
+  if (!modelId || !binding) {
+    throw new TheoremError(`Profile ${profile.id}: type 'decision' must declare exactly one model`); // lexicon-exempt: developer contract error
   }
-  const modelId = profile.defaultModel;
-  if (!modelId || !profile.models[modelId]) {
-    throw new TheoremError(`Profile ${profile.id} has no default model`); // lexicon-exempt: developer contract error
-  }
-  return [modelId, profile.models[modelId]];
+  return [modelId, binding];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -186,6 +178,13 @@ function validateQuestion(id: string, question: DecisionQuestion): void {
 }
 
 function validateRequest(request: DecisionRequest, profile: DecisionProfile): void {
+  if ((request as DecisionRequest & { model?: unknown }).model !== undefined) {
+    throw new DecisionError(
+      'invalid_request',
+      // lexicon-exempt: developer contract error
+      'Decision requests do not select a model; the profile runs its one model',
+    );
+  }
   if (!isNonNullJson(request.state)) {
     throw new DecisionError('invalid_request', 'Decision state must be non-null JSON'); // lexicon-exempt: developer contract error
   }
@@ -331,7 +330,7 @@ export async function runDecision(
 ): Promise<DecisionResult> {
   const profile = requireDecisionProfile(request.profile);
   validateRequest(request, profile);
-  const [modelId, binding] = selectModel(profile, request.model);
+  const [modelId, binding] = decisionModel(profile);
   await enforceDisclosure(profile, modelId, request);
   const apiKey = requireApiKey(profile, binding, options);
   const controller = new AbortController();

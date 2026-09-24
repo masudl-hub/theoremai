@@ -1,5 +1,5 @@
-import { eventHasCanary, isStreamedCanaryEvent, redactCanary } from '../../../guardrails/canary.ts';
-import { EGRESS_RULES } from '../../../guardrails/egress.ts';
+import { eventHasCanary, isStreamedCanaryEvent } from '../../../guardrails/canary.ts';
+import { CANARY_HIT } from '../../../guardrails/egress.ts';
 import { publicError, throwIfAborted, toErrorEvent } from '../../../guardrails/error.ts';
 import { guardrailFromHits } from '../../../guardrails/events.ts';
 import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
@@ -24,7 +24,7 @@ import type { CallTrace } from '../turn-trace.ts';
 
 /** Mutable control flags shared with the step runner during one provider stream. */
 interface OutboundStreamControl {
-  /** Stop releasing text/thought/media to the host; keep recording for egress. */
+  /** Stop releasing text/media to the host; keep recording for egress. Thoughts are unguarded. */
   withholdVisible: boolean;
 }
 
@@ -47,17 +47,9 @@ function* processNormalEvent(event: TurnEvent): Generator<TurnEvent> {
   }
 }
 
-function* yieldCanaryLeak(canary: string, event: TurnEvent): Generator<TurnEvent> {
-  const guardrail = guardrailFromHits(
-    'output_delta',
-    'untrusted',
-    [{ rule: EGRESS_RULES.canary, severity: 'high', match: '[canary]' }],
-    'block',
-  );
-  if (guardrail) {
-    yield guardrail;
-  }
-  yield redactCanary(event, canary);
+/** The offending text never reaches the host: redaction cannot cover a partial or encoded token. */
+function* yieldCanaryLeak(): Generator<TurnEvent> {
+  yield* yieldDeltaBlock([CANARY_HIT]);
   yield toErrorEvent('canary leaked');
   // The turn ends because our guardrail blocked the output, not because the model finished.
   yield { type: 'done', stop: { kind: 'filtered', native: 'canary' } };
@@ -70,8 +62,9 @@ function* yieldDeltaBlock(hits: GuardrailHit[]): Generator<TurnEvent> {
   }
 }
 
-function isHostVisible(event: TurnEvent): boolean {
-  return event.type === 'text' || event.type === 'thought' || event.type === 'media';
+/** Host-visible output a mid-stream block withholds. Thoughts are not guarded (`isGuardedOutput`). */
+function isWithheldOnBlock(event: TurnEvent): boolean {
+  return event.type === 'text' || event.type === 'media';
 }
 
 function canaryOnlyImmediateStop(policy: ResolvedGuardrailPolicy): boolean {
@@ -99,7 +92,8 @@ async function* yieldProviderEvents(args: {
     ...(canary ? { canary } : {}),
   };
   const gate: ProgressiveYieldGate | null = createOutboundProgressiveGate(policy, context);
-  let lastStreamType: 'text' | 'thought' | undefined;
+  /** The streamed event whose reply sits in the gate's lookback; released tails keep its shape. */
+  let pendingStream: TurnEvent | null = null;
   let withholdVisible = false;
 
   function armWithhold(): void {
@@ -111,41 +105,41 @@ async function* yieldProviderEvents(args: {
     return withholdVisible;
   }
 
-  async function* drainBlockedDelta(hits: GuardrailHit[]): AsyncGenerator<TurnEvent, void> {
+  async function* drainBlockedDelta(
+    hits: GuardrailHit[],
+    template: TurnEvent,
+  ): AsyncGenerator<TurnEvent, void> {
     yield* yieldDeltaBlock(hits);
     // Arm withhold before recording the unreleased tail so the step runner
     // does not forward that text to the host.
     armWithhold();
     const tail = gate?.drainUnreleased();
-    if (tail) yield { type: 'text', text: tail };
+    if (tail) yield { ...template, text: tail };
   }
 
   async function* flushGate(): AsyncGenerator<TurnEvent, 'stop' | 'pass'> {
-    if (!gate || !lastStreamType) {
+    if (!(gate && pendingStream)) {
       return 'pass';
     }
-    const emitType = lastStreamType;
+    const template = pendingStream;
     const result = await gate.flush();
-    lastStreamType = undefined;
+    pendingStream = null;
     if (result.blocked) {
       if (canary && canaryOnlyImmediateStop(policy)) {
-        yield* yieldCanaryLeak(canary, {
-          type: emitType,
-          text: gate.accumulated(),
-        });
+        yield* yieldCanaryLeak();
         return 'stop';
       }
-      yield* drainBlockedDelta(result.hits);
+      yield* drainBlockedDelta(result.hits, template);
       return 'pass';
     }
     if (result.emit) {
-      yield* processNormalEvent({ type: emitType, text: result.emit });
+      yield* processNormalEvent({ ...template, text: result.emit });
     }
     return 'pass';
   }
 
   async function* gateStreamEvent(
-    event: TurnEvent & { type: 'text' | 'thought' },
+    event: TurnEvent,
   ): AsyncGenerator<TurnEvent, 'continue' | 'stop'> {
     if (!gate) {
       yield* processNormalEvent(event);
@@ -153,23 +147,17 @@ async function* yieldProviderEvents(args: {
     }
     if (withholding()) {
       // Keep recording ungated fragments for egress context; host will not see them.
-      yield { type: event.type, text: event.text ?? '' };
+      yield { ...event, text: event.text ?? '' };
       return 'continue';
     }
-    if (lastStreamType && lastStreamType !== event.type) {
-      const flushed = yield* flushGate();
-      if (flushed === 'stop') {
-        return 'stop';
-      }
-    }
-    lastStreamType = event.type;
+    pendingStream = event;
     const result = await gate.process(event.text ?? '');
     if (result.blocked) {
       if (canary && canaryOnlyImmediateStop(policy)) {
-        yield* yieldCanaryLeak(canary, event);
+        yield* yieldCanaryLeak();
         return 'stop';
       }
-      yield* drainBlockedDelta(result.hits);
+      yield* drainBlockedDelta(result.hits, event);
       return 'continue';
     }
     if (result.emit) {
@@ -183,6 +171,10 @@ async function* yieldProviderEvents(args: {
   for await (const event of provider.complete({ ...request, signal, tapUpstream: call.tap })) {
     call.observe(event);
     throwIfAborted(signal);
+    if (event.type === 'response') {
+      // Identity is the trace's alone; the call span already recorded it.
+      continue;
+    }
 
     if (isStreamedCanaryEvent(event)) {
       const status = yield* gateStreamEvent(event);
@@ -192,19 +184,18 @@ async function* yieldProviderEvents(args: {
       continue;
     }
 
-    if (gate && lastStreamType) {
-      const flushed = yield* flushGate();
-      if (flushed === 'stop') {
-        return;
-      }
-    }
-
-    if (canary && eventHasCanary(event, canary)) {
-      yield* yieldCanaryLeak(canary, event);
+    // Release held reply text first so the host sees events in order.
+    const flushed = yield* flushGate();
+    if (flushed === 'stop') {
       return;
     }
 
-    if (withholding() && isHostVisible(event)) {
+    if (canary && eventHasCanary(event, canary)) {
+      yield* yieldCanaryLeak();
+      return;
+    }
+
+    if (withholding() && isWithheldOnBlock(event)) {
       // Record for attempt egress / repair; step runner withholds from host.
       yield event;
       continue;
@@ -216,11 +207,9 @@ async function* yieldProviderEvents(args: {
     yield* processNormalEvent(event);
   }
 
-  if (gate && lastStreamType) {
-    const flushed = yield* flushGate();
-    if (flushed === 'stop') {
-      return;
-    }
+  const flushed = yield* flushGate();
+  if (flushed === 'stop') {
+    return;
   }
   if (providerFailed) {
     // An error from the provider outranks any `done` it sent: the call's output is not whole.
@@ -229,4 +218,4 @@ async function* yieldProviderEvents(args: {
 }
 
 export type { OutboundStreamControl };
-export { shouldSkipStreamEvent, yieldProviderEvents };
+export { isWithheldOnBlock, shouldSkipStreamEvent, yieldProviderEvents };

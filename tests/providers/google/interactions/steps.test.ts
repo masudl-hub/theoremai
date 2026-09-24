@@ -268,7 +268,7 @@ Deno.test('interactions steps: an interaction without usage has no tokens event'
   assertEquals(extractTokenEvent({ id: 'x' }), undefined);
 });
 
-Deno.test('interactions steps: eventsFromInteractionEnd emits tokens then a done carrying the status', () => {
+Deno.test('interactions steps: eventsFromInteractionEnd emits tokens then a done carrying the status, never the identity', () => {
   const events = eventsFromInteractionEnd({
     id: 'int_tool',
     model: 'gemini-test-flash',
@@ -281,7 +281,6 @@ Deno.test('interactions steps: eventsFromInteractionEnd emits tokens then a done
       type: 'done',
       stop: { kind: 'tool', native: 'requires_action' },
       interactionId: 'int_tool',
-      response: { id: 'int_tool', model: 'gemini-test-flash' },
     },
   ]);
   assertEquals(eventsFromInteractionEnd({ id: 'int_run', status: 'in_progress' }), [
@@ -289,7 +288,6 @@ Deno.test('interactions steps: eventsFromInteractionEnd emits tokens then a done
       type: 'done',
       stop: { kind: 'stream_incomplete', native: 'in_progress' },
       interactionId: 'int_run',
-      response: { id: 'int_run' },
     },
   ]);
 });

@@ -1764,12 +1764,14 @@ Deno.test('finalEvents emits done only when no structured text', () => {
   assertEquals(events[0].type, 'done');
 });
 
-Deno.test('finalEvents carries the response identity the raw rows sent', () => {
+Deno.test('rawEvents emits the response identity once, when a row first names it', () => {
   const acc = createAccumulator();
-  rawEvents({ id: 'gen-7', model: 'vendor/model-a', choices: [] }, acc);
+  const first = rawEvents({ id: 'gen-7', model: 'vendor/model-a', choices: [] }, acc);
+  assertEquals(first[0], { type: 'response', response: { id: 'gen-7', model: 'vendor/model-a' } });
+  assertEquals(rawEvents({ id: 'gen-7', model: 'vendor/model-a', choices: [] }, acc), []);
   const req = createMockTurnRequest('pinned', 'test');
   const [done] = [...finalEvents(req, acc)];
-  assertEquals(done?.response, { id: 'gen-7', model: 'vendor/model-a' });
+  assertEquals(done?.response, undefined);
 });
 
 Deno.test('providerOptionsFor returns undefined for no thinking no structured', () => {

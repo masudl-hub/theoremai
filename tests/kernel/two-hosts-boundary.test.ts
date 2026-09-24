@@ -43,8 +43,8 @@ async function runContinue(profileId: string, provider: ModelProvider): Promise<
   for await (const _event of runTurn(
     {
       profile: profileId,
-      input: { text: 'ping' },
-      continueFrom: { stop: { kind: 'length' }, partialText: 'partial' },
+      input: { history: [{ role: 'assistant', content: 'partial' }] },
+      continueFrom: { stop: { kind: 'length' } },
     },
     provider,
   )) {
@@ -84,17 +84,17 @@ Deno.test('two hosts: contradictory overrides never leak across turns', async ()
 
   overrideLexicon({ 'public.generic': HOST_A_PUBLIC });
 
-  let systemA = '';
-  let systemB = '';
+  let inputA = '';
+  let inputB = '';
   const recordingA: ModelProvider = {
     async *complete(req) {
-      systemA = req.system;
+      inputA = JSON.stringify([req.input, req.history]);
       yield* mockProvider('ok-a').complete(req);
     },
   };
   const recordingB: ModelProvider = {
     async *complete(req) {
-      systemB = req.system;
+      inputB = JSON.stringify([req.input, req.history]);
       yield* mockProvider('ok-b').complete(req);
     },
   };
@@ -103,13 +103,13 @@ Deno.test('two hosts: contradictory overrides never leak across turns', async ()
   overrideLexicon({ 'public.generic': HOST_B_PUBLIC });
   await runContinue(profileB.id, recordingB);
 
-  assertStringIncludes(systemA, HOST_A_CONTINUE);
-  assertStringIncludes(systemB, HOST_B_CONTINUE);
-  assertEquals(systemA.includes(HOST_B_CONTINUE), false);
-  assertEquals(systemB.includes(HOST_A_CONTINUE), false);
-  assertEquals(systemA.includes(CONTINUE_INSTRUCTION), false);
-  assertEquals(systemB.includes(CONTINUE_INSTRUCTION), false);
-  assertEquals(systemA.includes(lexiconDefault('continue.instruction')), false);
+  assertStringIncludes(inputA, HOST_A_CONTINUE);
+  assertStringIncludes(inputB, HOST_B_CONTINUE);
+  assertEquals(inputA.includes(HOST_B_CONTINUE), false);
+  assertEquals(inputB.includes(HOST_A_CONTINUE), false);
+  assertEquals(inputA.includes(CONTINUE_INSTRUCTION), false);
+  assertEquals(inputB.includes(CONTINUE_INSTRUCTION), false);
+  assertEquals(inputA.includes(lexiconDefault('continue.instruction')), false);
 
   assertEquals(quotaExhausted(profileA), {
     code: 'quota_exhausted',

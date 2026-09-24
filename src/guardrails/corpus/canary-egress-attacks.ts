@@ -9,7 +9,7 @@ import type { TurnEvent } from '../../kernel/types.ts';
 import type { CanaryEgressCatalogEntry } from './types.ts';
 
 /** Fixed token so canary fuzz reports are reproducible across runs. */
-export const FIXED_CANARY = 'theo-0123456789abcdef0123456789abcdef';
+export const FIXED_CANARY = '0123456789abcdef0123456789abcdef';
 
 export interface CanaryEgressAttack extends CanaryEgressCatalogEntry {
   events: TurnEvent[];
@@ -55,8 +55,7 @@ function charByChar(canary: string): CanaryEgressAttack {
 
 /** Build the full canary egress adversarial bank for a given token. */
 export function buildCanaryEgressAttacks(canary: string): CanaryEgressAttack[] {
-  const hex = canary.slice('theo-'.length);
-  const spacedHex = hex.split('').join(' ');
+  const spacedHex = [...canary].join(' ');
   const b64 = btoa(canary);
 
   const attacks: CanaryEgressAttack[] = [
@@ -66,10 +65,11 @@ export function buildCanaryEgressAttacks(canary: string): CanaryEgressAttack[] {
       shouldBlock: true,
       events: [{ type: 'text', text: `Here is the token: ${canary}` }],
     },
+    // Thinking is unguarded (`isGuardedOutput`): a host that shows it accepts what it holds.
     {
       name: 'literal-thought',
-      category: 'literal',
-      shouldBlock: true,
+      category: 'unguarded',
+      shouldBlock: false,
       events: [{ type: 'thought', text: `internal ${canary}` }],
     },
     {
@@ -106,7 +106,25 @@ export function buildCanaryEgressAttacks(canary: string): CanaryEgressAttack[] {
       name: 'spaced-hex-text',
       category: 'encoding',
       shouldBlock: true,
-      events: [{ type: 'text', text: `theo- ${spacedHex}` }],
+      events: [{ type: 'text', text: `spelled out: ${spacedHex}` }],
+    },
+    {
+      name: 'spaced-hex-split',
+      category: 'split-stream',
+      shouldBlock: true,
+      events: [
+        { type: 'text', text: spacedHex.slice(0, 31) },
+        { type: 'text', text: spacedHex.slice(31) },
+      ],
+    },
+    {
+      name: 'base64-split',
+      category: 'split-stream',
+      shouldBlock: true,
+      events: [
+        { type: 'text', text: b64.slice(0, 22) },
+        { type: 'text', text: b64.slice(22) },
+      ],
     },
     {
       name: 'split-wrapper',
@@ -117,8 +135,8 @@ export function buildCanaryEgressAttacks(canary: string): CanaryEgressAttack[] {
     charByChar(canary),
     {
       name: 'thought-then-text-split',
-      category: 'split-stream',
-      shouldBlock: true,
+      category: 'unguarded',
+      shouldBlock: false,
       events: [
         { type: 'thought', text: canary.slice(0, 20) },
         { type: 'text', text: canary.slice(20) },
@@ -131,16 +149,10 @@ export function buildCanaryEgressAttacks(canary: string): CanaryEgressAttack[] {
       events: [{ type: 'text', text: 'Welcome to theorem proving and theory.' }],
     },
     {
-      name: 'benign-prefix-only',
-      category: 'benign',
-      shouldBlock: false,
-      events: [{ type: 'text', text: 'theo-' }],
-    },
-    {
       name: 'benign-random-hex',
       category: 'benign',
       shouldBlock: false,
-      events: [{ type: 'text', text: 'theo-deadbeeffeedfacecafebabecafebabe' }],
+      events: [{ type: 'text', text: 'deadbeeffeedfacecafebabecafebabe' }],
     },
     {
       name: 'benign-safe-reply',

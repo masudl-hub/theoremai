@@ -35,10 +35,17 @@ const CLOSE_KINDS: Readonly<Record<number, ErrorKind>> = {
 /** A normal close once the session is open. */
 const NORMAL_CLOSE = 1000;
 
-/** The failure a provider close reports, named by its close code. */
+/**
+ * Google refuses an over-quota Live key with a close whose reason says so
+ * ("You exceeded your current quota, …"); the code alone (1011) reads as
+ * `unavailable`. The reason is the only signal the close carries.
+ */
+const QUOTA_CLOSE_RE = /\bquota\b/i;
+
+/** The failure a provider close reports: a quota refusal by its reason, else by its close code. */
 function closeError(code: number, reason: string, during: 'setup' | 'session'): TheoremError {
   return new TheoremError(
-    CLOSE_KINDS[code] ?? 'unavailable',
+    QUOTA_CLOSE_RE.test(reason) ? 'rate_limit' : (CLOSE_KINDS[code] ?? 'unavailable'),
     `Gemini Live WebSocket closed during ${during} (${code}: ${reason})`,
   );
 }

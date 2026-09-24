@@ -41,6 +41,7 @@ import {
 } from '../../../observability/trace-span.ts';
 import type { ResolvedObservabilityPolicy } from '../../../observability/types.ts';
 import { liveFrameInput } from '../../../providers/google/live/framing.ts';
+import { LIVE_OVERFLOW_ROW } from '../../../providers/google/live/session.ts';
 import type { SessionQueueItem } from '../../../providers/google/live/stream.ts';
 import { profileObservability } from '../../registry/profiles.ts';
 import type {
@@ -260,6 +261,10 @@ class LiveTrace {
 
   /** The adapter's `tapUpstream`: every frame sent, as it is sent. */
   readonly sent = (row: Record<string, unknown>): void => {
+    if (row.eventType === LIVE_OVERFLOW_ROW) {
+      this.keyOverflow(row);
+      return;
+    }
     const frame = asRecord(row.body);
     if (!frame) return;
     const body = withoutHandle(frame);
@@ -270,6 +275,19 @@ class LiveTrace {
     this.pendingInput.add(liveFrameInput(frame));
     this.pendingFrames.push({ timeUnixNano: this.root.nowUnixNano(), body });
   };
+
+  /** The pinned key was refused for quota at setup; the session reopens on `paid`, which its responses name. */
+  private keyOverflow(row: Record<string, unknown>): void {
+    this.root.event('theorem.session', {
+      kind: 'key_overflow',
+      key_slot: String(row.from),
+      to_key_slot: 'paid',
+      'error.type': String(row.errorKind),
+      error: String(row.error),
+    });
+    const bound = this.bound;
+    if (bound) this.bound = { ...bound, request: { ...bound.request, keySlot: 'paid' } };
+  }
 
   /** The server's `setupComplete` frame. */
   setup(frame: Record<string, unknown>): void {

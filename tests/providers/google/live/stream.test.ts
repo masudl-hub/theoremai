@@ -185,6 +185,20 @@ Deno.test('Live setup failures carry the kind of their close code', async () => 
   }
 });
 
+Deno.test('Live closes that name a quota are rate_limit, whatever their code', async () => {
+  const reason = 'You exceeded your current quota, please check your plan and billing details.';
+  assertEquals(
+    (await setupFailure((ws) => ws.onclose?.({ code: 1011, reason }))).kind,
+    'rate_limit',
+  );
+  const ws = new FakeLiveSocket();
+  const queue = createLiveQueue();
+  attachLiveSessionHandlers(ws as unknown as WebSocket, queue);
+  ws.onclose?.({ code: 1011, reason });
+  const item = await queue.next();
+  assertEquals(item?.type === 'closed' ? item.error?.kind : 'not closed', 'rate_limit');
+});
+
 Deno.test('Live setup: a socket error is network, an error frame is its status kind', async () => {
   assertEquals((await setupFailure((ws) => ws.onerror?.())).kind, 'network');
   const denied = await setupFailure((ws) =>

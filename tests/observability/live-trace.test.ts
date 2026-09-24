@@ -431,3 +431,91 @@ Deno.test('a normal close after goAway ends the session with no failure kind', a
   assertEquals(closed?.['error.type'], undefined);
   assertEquals(closed?.time_left_ms, undefined);
 });
+
+/** A socket whose setup Google refuses for quota. */
+class QuotaRefusedSocket extends MockLiveWebSocket {
+  override send(data: string): void {
+    this.sent.push(data);
+    queueMicrotask(() => this.close(1011, 'You exceeded your current quota.'));
+  }
+}
+
+Deno.test('a quota refusal at setup reopens on paid, and the trace names the refusal and the key that served', async () => {
+  const records: TraceRecord[] = [];
+  const urls: string[] = [];
+  const sockets: MockLiveWebSocket[] = [];
+  const session = await runSession(
+    { profile: PROFILE },
+    {
+      gemini: {
+        vault: { slotA: 'free-key', slotB: undefined, slotC: undefined, paid: 'paid-key' },
+      },
+      openWebSocket: (url) => {
+        urls.push(url);
+        const socket = urls.length === 1 ? new QuotaRefusedSocket() : new MockLiveWebSocket();
+        sockets.push(socket);
+        setTimeout(() => socket.open(), 0);
+        return Promise.resolve(socket as unknown as WebSocket);
+      },
+    },
+    memorySink(records),
+  );
+  const drained = (async () => {
+    for await (const _ of session.events()) {
+      // drain
+    }
+  })();
+  await session.sendText('hello');
+  sockets[1]?.deliver({ serverContent: { modelTurn: { parts: [{ text: 'Hi.' }] } } });
+  sockets[1]?.deliver(complete);
+  await tick();
+  await tick();
+  await session.close();
+  await drained;
+
+  assertEquals(
+    urls.map((url) => new URL(url).searchParams.get('key')),
+    ['free-key', 'paid-key'],
+  );
+  const root = rootOf(sessionRecord(records));
+  const [overflow] = sessionEvents(root);
+  assertEquals(overflow?.kind, 'key_overflow');
+  assertEquals(overflow?.key_slot, 'slotA');
+  assertEquals(overflow?.to_key_slot, 'paid');
+  assertEquals(overflow?.['error.type'], 'rate_limit');
+  assertEquals(String(overflow?.error).includes('exceeded your current quota'), true);
+  assertEquals(
+    sessionEvents(root).map((e) => e.kind),
+    ['key_overflow', 'setup_complete', 'closed'],
+  );
+  const [response] = recordNamed(records, 'generate_content');
+  assertEquals(rootOf(response).attributes['theorem.key_slot'], 'paid');
+});
+
+Deno.test('a quota refusal with no distinct paid key fails the open as rate_limit', async () => {
+  const records: TraceRecord[] = [];
+  let opens = 0;
+  let failure: unknown;
+  try {
+    await runSession(
+      { profile: PROFILE },
+      {
+        gemini: {
+          vault: { slotA: 'free-key', slotB: undefined, slotC: undefined, paid: undefined },
+        },
+        openWebSocket: () => {
+          opens += 1;
+          const socket = new QuotaRefusedSocket();
+          setTimeout(() => socket.open(), 0);
+          return Promise.resolve(socket as unknown as WebSocket);
+        },
+      },
+      memorySink(records),
+    );
+  } catch (err) {
+    failure = err;
+  }
+  assertEquals(opens, 1);
+  assertEquals((failure as { kind?: string } | undefined)?.kind, 'rate_limit');
+  assertEquals(rootOf(records[0]).attributes['error.type'], 'rate_limit');
+});

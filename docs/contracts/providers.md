@@ -100,7 +100,10 @@ Errors:
   unreadable payload is `bad_response`. OpenRouter reads the AI SDK error's
   `statusCode`; a mid-stream provider error without one is `unavailable`. Gemini
   Live closes map by close code (1006 → `network`, 1007 / 1008 →
-  `unsupported`, others → `unavailable`): during setup the open rejects; once
+  `unsupported`, others → `unavailable`), except a close whose reason names a
+  quota, which is `rate_limit` whatever its code (Google refuses an over-quota
+  key at setup with 1011 "You exceeded your current quota, …" — probe
+  24/09/2026): during setup the open rejects; once
   open, any close other than 1000 reaches the host as an `error` event before
   the session ends — unless the provider warned first (`goAway`). A warned
   close, whatever its code, ends the session with a `session` `ended` event
@@ -356,7 +359,12 @@ createProvider(profile, {
 | Slots | `slotA`, `slotB`, `slotC`, `paid` |
 | Selection | `models.*.key` / `ModelBinding.key` / `builtInTools` (`forcePaidKey`) |
 
-Overflow to `paid` is host policy, not inferred here.
+A quota refusal on a free slot retries once on `paid` when the vault holds a
+distinct key there: an HTTP 429 (`fetchGemini`), and a Live setup refused for
+quota (`openGoogleLiveSession`, tapped as a `ws_overflow` row; the session
+trace records `theorem.session { kind: "key_overflow" }` and its responses name
+`theorem.key_slot: paid`). A host that must never spend on `paid` leaves it
+empty.
 
 A profile that names no key where one is required is `TheoremError('config', …)`;
 a slot the host's vault leaves empty is `auth`.

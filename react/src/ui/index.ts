@@ -25,13 +25,17 @@ export {
 } from './ToolGateCard';
 export { tablerIcons, theoremTheme } from './built/theorem';
 export {
-	COMPOSER_HINT_LABELS,
-	COMPOSER_MENU_ACTION_DESCRIPTIONS,
-	COMPOSER_MENU_ACTION_LABELS,
-	COMPOSER_PRIMARY_LABELS,
 	composerDrawerLabel,
+	type LabelText,
 	liveStateLabel,
-	VOICE_NOTE_LABEL,
+	THEOREM_UI_CATALOG,
+	type TheoremLabelKey,
+	type TheoremLabelOverrides,
+	type TheoremLabels,
+	type TheoremLabelValues,
+	type TheoremUiCatalog,
+	voiceNoteName,
 	workStatusLabel,
 } from './labels';
+export { TheoremLabelsProvider, type TheoremLabelsProviderProps, useLabels } from './labels-provider';
 export { TheoremThemeProvider, type TheoremThemeProviderProps } from './theme';

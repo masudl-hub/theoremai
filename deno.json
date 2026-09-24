@@ -74,6 +74,7 @@
     "@openrouter/ai-sdk-provider": "npm:@openrouter/ai-sdk-provider@^3.0.0",
     "ai": "npm:ai@^7.0.0",
     "gpt-tokenizer": "npm:gpt-tokenizer@^4.0.0",
+    "intl-messageformat": "npm:intl-messageformat@^11.2.9",
     "zod": "npm:zod@^4.1.8",
     "@std/assert": "jsr:@std/assert@^1.0.0",
     "@deno/dnt": "jsr:@deno/dnt@0.43.2"

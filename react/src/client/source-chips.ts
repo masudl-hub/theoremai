@@ -41,7 +41,7 @@ function chipsFromEvidence(evidence: Extract<SourceChipBlock, { kind: 'evidence'
 }
 
 function chipFromCitation(citation: string, index: number): SourceChip {
-	const href = citation.startsWith('http') ? citation : undefined;
+	const href = webHref(citation);
 	return {
 		key: `e-cit-${String(index)}`,
 		label: href ? hostLabel(href) : truncate(citation, 48),
@@ -54,9 +54,20 @@ function chipFromSource(source: GroundingSource, key: string): SourceChip {
 	return {
 		key,
 		label: source.title.trim() || hostLabel(source.uri) || source.type,
-		href: source.uri || undefined,
+		href: webHref(source.uri),
 		kind: source.type,
 	};
+}
+
+/**
+ * A source is linked only at an http(s) URL. Sources come from the model and
+ * from tool output, so a `javascript:`, `data:` or other scheme never becomes
+ * a clickable link.
+ */
+function webHref(uri: string): string | undefined {
+	if (!URL.canParse(uri)) return undefined;
+	const url = new URL(uri);
+	return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : undefined;
 }
 
 function hostLabel(uri: string): string {

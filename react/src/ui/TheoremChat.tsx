@@ -18,6 +18,8 @@ import { useTheoremInterface } from '../hooks/use-theorem-interface';
 import { ChatComposerBar } from './ChatComposerBar';
 import { parseAspectRatio } from '../client/image-output';
 import { ChatTranscript } from './ChatTranscript';
+import type { TheoremLabels } from './labels';
+import { TheoremLabelsProvider, useLabels } from './labels-provider';
 import { TheoremThemeProvider } from './theme';
 import { SidePanelHeader } from './SidePanel';
 import { useTraceInspector } from './TraceInspector';
@@ -32,6 +34,12 @@ export type TheoremChatProps = {
 	/** Astryx theme. Omit to inherit the host's `<Theme>` or use `theoremTheme`. */
 	theme?: DefinedTheme;
 	mode?: 'system' | 'light' | 'dark';
+	/**
+	 * Replacement lines by locale, for any `@theorem.*` key in
+	 * `THEOREM_UI_CATALOG` or any of Astryx's `@astryx.*` keys. The locale is
+	 * the host's Astryx `InternationalizationProvider` locale (default `en`).
+	 */
+	labels?: TheoremLabels;
 	placeholder?: string;
 	/** Shown above the centred composer before the first message. Default: the agent's handle and a prompt. */
 	emptyState?: ReactNode;
@@ -101,7 +109,7 @@ function useComposerGlide(landing: boolean, inputRef: RefObject<ChatComposerInpu
 	return columnRef;
 }
 
-type ChatBodyProps = Omit<TheoremChatProps, 'endpoint' | 'http' | 'transport' | 'theme' | 'mode'> & {
+type ChatBodyProps = Omit<TheoremChatProps, 'endpoint' | 'http' | 'transport' | 'theme' | 'mode' | 'labels'> & {
 	transport: TheoremTransport;
 	iface: ComposerProfileInterface;
 };
@@ -180,9 +188,10 @@ function ChatBody({
 	className,
 	style,
 }: ChatBodyProps) {
+	const t = useLabels();
 	const chat = useTheoremChat({ transport, iface });
 	const blocks = useMemo(() => [...chat.blocks, ...chat.streamBlocks], [chat.blocks, chat.streamBlocks]);
-	const handle = iface.identity.handle;
+	const handle = t('@theorem.agent.handle', { handle: iface.identity.handle });
 	const landing = blocks.length === 0;
 	const inputRef = useRef<ChatComposerInputHandle | null>(null);
 	const composerRef = useComposerGlide(landing, inputRef);
@@ -214,10 +223,10 @@ function ChatBody({
 									// Greeting type from Astryx's AI chat template.
 									<VStack gap={1}>
 										<Text type="large" as="h2">
-											@{handle}
+											{handle}
 										</Text>
 										<Text type="display-2" as="h1">
-											What are we working on?
+											{t('@theorem.chat.greeting')}
 										</Text>
 									</VStack>
 								)}
@@ -260,7 +269,7 @@ function ChatBody({
 							<ChatColumn maxWidth={maxWidth}>
 								<ChatTranscript
 									blocks={blocks}
-									handle={`@${handle}`}
+									handle={handle}
 									streaming={chat.streaming}
 									imageOutput={
 										iface.type === 'image' ? { ratio: parseAspectRatio(iface.image.aspectRatio) } : undefined
@@ -281,9 +290,12 @@ function ChatBody({
 	);
 }
 
-function ChatForTransport(props: Omit<TheoremChatProps, 'endpoint' | 'http' | 'theme' | 'mode'> & { transport: TheoremTransport }) {
+function ChatForTransport(
+	props: Omit<TheoremChatProps, 'endpoint' | 'http' | 'theme' | 'mode' | 'labels'> & { transport: TheoremTransport },
+) {
+	const t = useLabels();
 	const described = useTheoremInterface(props.transport);
-	if (described.status === 'loading') return <Spinner size="lg" label="Loading…" />;
+	if (described.status === 'loading') return <Spinner size="lg" label={t('@theorem.chat.loading')} />;
 	if (described.status === 'error') {
 		return <Banner status="error" title={described.failure.error} />;
 	}
@@ -291,8 +303,8 @@ function ChatForTransport(props: Omit<TheoremChatProps, 'endpoint' | 'http' | 't
 		return (
 			<Banner
 				status="warning"
-				title="Live profiles aren't supported here"
-				description="Use LiveRunner from @theoremai/react/live."
+				title={t('@theorem.chat.live_unsupported.title')}
+				description={t('@theorem.chat.live_unsupported.description')}
 			/>
 		);
 	}
@@ -306,7 +318,7 @@ function ChatForTransport(props: Omit<TheoremChatProps, 'endpoint' | 'http' | 't
  * <TheoremChat endpoint="/api/theorem" />
  * ```
  */
-export function TheoremChat({ endpoint, http, transport, theme, mode, ...rest }: TheoremChatProps) {
+export function TheoremChat({ endpoint, http, transport, theme, mode, labels, ...rest }: TheoremChatProps) {
 	const resolved = useMemo(
 		() => transport ?? createHttpTransport({ ...http, endpoint }),
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- `http` identity is caller-owned; endpoint drives reconnection.
@@ -314,7 +326,9 @@ export function TheoremChat({ endpoint, http, transport, theme, mode, ...rest }:
 	);
 	return (
 		<TheoremThemeProvider theme={theme} mode={mode}>
-			<ChatForTransport {...rest} transport={resolved} />
+			<TheoremLabelsProvider labels={labels}>
+				<ChatForTransport {...rest} transport={resolved} />
+			</TheoremLabelsProvider>
 		</TheoremThemeProvider>
 	);
 }

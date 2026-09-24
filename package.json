@@ -75,6 +75,7 @@
     "@ast-grep/cli": "^0.41.0",
     "@biomejs/biome": "^2.5.8",
     "@stryker-mutator/core": "^10.0.0",
-    "fallow": "3.17.0"
+    "fallow": "3.17.0",
+    "intl-messageformat": "^11.2.9"
   }
 }

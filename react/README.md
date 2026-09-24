@@ -12,22 +12,15 @@ No Svelte. The playground site (`theoremai-frontend`) hosts a thin Vite SPA at `
 ## Imports
 
 ```ts
-import { TheoremRunApp } from '@theoremai/react';
-import {
-  createPlaygroundRunId,
-  savePlaygroundRunPayload,
-  loadPlaygroundRunPayload,
-  readPlaygroundRunIdFromUrl,
-} from '@theoremai/react/client';
+import { useTheoremChat, useTheoremInterface } from '@theoremai/react'; // headless hooks + transport
+import { TheoremChat } from '@theoremai/react/ui'; // Astryx chat UI
+import { LiveRunner } from '@theoremai/react/live'; // Astryx voice / video UI
+import { createTheoremHandler } from '@theoremai/react/server'; // host side
 ```
 
-## Run handoff
-
-1. Playground compiles the graph, calls `createPlaygroundRunId()`, and
-   `savePlaygroundRunPayload(payload, runId)` (keyed localStorage).
-2. Opens `/playground/run/?run=<runId>` in a new tab.
-3. `TheoremRunApp` reads `?run=`, loads that key, and **keeps** it (refresh-safe).
-4. A new Run creates a new id. Storage retains at most 8 runs (oldest pruned).
+The playground's run-tab handoff (`savePlaygroundRunPayload`,
+`readPlaygroundRunIdFromUrl`, …) lives in `@theoremai/playground`; see
+[`playground/README.md`](../playground/README.md).
 
 ## Local layout
 
@@ -72,7 +65,30 @@ English. It hands the builder kinds, codes, and states:
   `attachmentIssueText(issue, iface.lexicon)` from `@theoremai/agents`.
 - Chrome is semantic: `liveState`, `workStatus`, drawer `parts`, hint `id`.
 
-`@theoremai/react/ui` is the default UI. Its chrome wording lives in
-`src/ui/labels.ts` (`COMPOSER_PRIMARY_LABELS`, `liveStateLabel`,
-`workStatusLabel`, …); a builder with their own UI replaces all of it.
+`@theoremai/react/ui` is the default UI. Every line it shows is an Astryx i18n
+message: Theorem's under `@theorem.*` keys (`THEOREM_UI_CATALOG`, each with a
+description and the ICU values it takes), Astryx's own under `@astryx.*`. The
+builder owns all of them; `labels` replaces any line, per locale:
+
+```tsx
+<TheoremChat
+  labels={{
+    en: {
+      '@theorem.chat.greeting': 'What shall we plan?',
+      '@theorem.composer.placeholder': 'Write to @{handle}',
+      '@astryx.chatSendButton.send': 'Go',
+    },
+    de: { '@theorem.chat.greeting': 'Woran arbeiten wir?' },
+  }}
+/>
+```
+
+`LiveRunner` takes the same prop. The locale is the host's Astryx
+`InternationalizationProvider` locale (`en` without one); a host's own Astryx
+`messages` and `overrides` also apply, and win over the defaults. Labels are
+checked on mount: an unknown `@theorem.*` key, a message that is not valid ICU,
+a value the line is not given, or a key outside `@theorem.*` / `@astryx.*`
+throws, naming the locale and key. Label values render as text, never HTML.
+
+A builder with their own UI replaces all of it.
 `scripts/docs-truth/copy-lint.mjs` keeps prose out of the headless directories.

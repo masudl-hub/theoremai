@@ -52,8 +52,8 @@ process-wide with `overrideLexicon({ … })`; the profile wins.
 
 The repo-private `src/interface/` layer emits `ComposerPrimaryAction` /
 `ComposerMenuAction` keys only (`send` / `stop` / `queue` / …). English labels
-live in the React package's default UI (`@theoremai/react/ui`:
-`COMPOSER_PRIMARY_LABELS`, `COMPOSER_MENU_ACTION_LABELS`). Neither surface is
+live in the React package's default UI (`@theoremai/react/ui`), as
+`@theorem.composer.menu.*` lines in `THEOREM_UI_CATALOG`. Neither surface is
 published for now.
 
 ## React: headless hooks, failures, and default wording
@@ -68,11 +68,12 @@ builder with their own UI owns every line.
 | `useTheoremChat` → `error`, `errorInternal`; `useTheoremInterface` → `error` | `failure: ClientFailure \| null` (`{ error, errorKind, errorInternal? }`); `error` is the profile lexicon's wording |
 | Composer drop notices (`attachmentsDroppedMessage`, `imagesDroppedMessage`) | `issues: AttachmentValidationIssue[]` (`too_many_files`, `too_many_images`); word each with `attachmentIssueText(issue, iface.lexicon)` from `@theoremai/agents` |
 | `attachmentIssueText` from `@theoremai/react` | `attachmentIssueText` from `@theoremai/agents` (kernel) |
-| `liveStateLabel` (client) | `liveState(args)` → `LiveState` key; the default wording is `liveStateLabel(state, toolName)` in `ui/` |
+| `liveStateLabel` (client) | `liveState(args)` → `LiveState` key; the default wording is `@theorem.live.state.*` in `ui/labels` |
 | Live runner `error`, `stateLabel` | `failure`, `liveState`, `activeTool` |
 | Composer voice `voiceError` | `failure: VoiceFailure` (`code`: `unsupported` / `permission` / `unavailable` / `failed` / `empty` / `too_many_files`) |
-| `workStatusLabel`, drawer `label`, hint `message` / `actionLabel` | `workStatus` → `{ phase, elapsedMs? }`, drawer `parts`, hint `id`; wording in `ui/labels` (`workStatusLabel`, `composerDrawerLabel`, `COMPOSER_HINT_LABELS`) |
-| `voiceLabelFromMime` fallback `'voice note'` | `undefined`; the default UI shows `VOICE_NOTE_LABEL` |
+| `workStatusLabel`, drawer `label`, hint `message` / `actionLabel` | `workStatus` → `{ phase, elapsedMs? }`, drawer `parts`, hint `id`; wording in `ui/labels` (`@theorem.transcript.work*`, `@theorem.composer.drawer.*`, `@theorem.composer.hint.*`) |
+| `voiceLabelFromMime`, `voiceFormatLabel` | `voiceFormatFromMime` → format or `undefined`; the default UI words it with `@theorem.voice_note.name` / `.unnamed` |
+| Default UI chrome constants (`COMPOSER_PRIMARY_LABELS`, `COMPOSER_MENU_ACTION_LABELS`, `COMPOSER_HINT_LABELS`, `VOICE_NOTE_LABEL`, …) | `THEOREM_UI_CATALOG` (`@theorem.*` Astryx i18n keys); replace any line, and Astryx's own `@astryx.*` lines, with the `labels` prop on `TheoremChat` / `LiveRunner` |
 | Playground transports' `failureLabel` option | Removed; failures carry their kind |
 | `TheoremStreamError(message, …)` | `TheoremStreamError(kind, publicMessage?, internalMessage?)` |
 | Handler stream `{ type: 'error', error }` | `{ type: 'error', error, errorKind }`, as on every error reply |

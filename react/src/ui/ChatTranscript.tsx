@@ -38,7 +38,8 @@ import {
 	type TraceItem,
 	workStatus,
 } from '../client/transcript-groups';
-import { workStatusLabel } from './labels';
+import { type LabelText, workStatusLabel } from './labels';
+import { TheoremLabelsProvider, useLabels } from './labels-provider';
 import { transcriptBlockCopyText } from './transcript-copy-text';
 import { ApprovalCard, AuthChallengeCard, type ToolDecision } from './ToolGateCard';
 import { VoiceNote } from './VoiceNote';
@@ -110,12 +111,14 @@ function useTurnEndTimes(streaming: boolean, lastUserKey: string | undefined): R
 }
 
 function CopyButton({ text }: { text: string }) {
+	const t = useLabels();
 	const [copied, setCopied] = useState(false);
 	if (!text.trim()) return null;
+	const label = t(copied ? '@theorem.transcript.copied' : '@theorem.transcript.copy');
 	return (
 		<IconButton
-			label={copied ? 'Copied' : 'Copy'}
-			tooltip={copied ? 'Copied' : 'Copy'}
+			label={label}
+			tooltip={label}
 			size="sm"
 			variant="ghost"
 			icon={<Icon icon={copied ? IconCheck : IconCopy} size="xsm" color="secondary" />}
@@ -136,6 +139,7 @@ const MINUTE_MS = 60_000;
  * "1m ago", "5m ago", … (its own formatter shows "15s ago" in between).
  */
 function MessageTime({ at }: { at: number }) {
+	const t = useLabels();
 	const [isFresh, setIsFresh] = useState(() => Date.now() - at < MINUTE_MS);
 	useEffect(() => {
 		if (!isFresh) return;
@@ -145,7 +149,7 @@ function MessageTime({ at }: { at: number }) {
 	if (isFresh) {
 		return (
 			<Text type="supporting" color="secondary">
-				now
+				{t('@theorem.transcript.now')}
 			</Text>
 		);
 	}
@@ -196,9 +200,9 @@ function mediaSrc(block: Extract<TranscriptBlock, { kind: 'media' }>): string | 
 	return block.url ?? dataUrl(block.mimeType, block.data);
 }
 
-function lightboxMedia(src: string, mimeType: string): LightboxMedia | undefined {
-	if (mimeType.startsWith('image/')) return { src, alt: 'Generated image', type: 'image' };
-	if (mimeType.startsWith('video/')) return { src, alt: 'Generated video', type: 'video' };
+function lightboxMedia(t: LabelText, src: string, mimeType: string): LightboxMedia | undefined {
+	if (mimeType.startsWith('image/')) return { src, alt: t('@theorem.transcript.generated_image'), type: 'image' };
+	if (mimeType.startsWith('video/')) return { src, alt: t('@theorem.transcript.generated_video'), type: 'video' };
 	return undefined;
 }
 
@@ -208,10 +212,10 @@ type MediaTranscriptBlock = Extract<TranscriptBlock, { kind: 'media' }>;
 type GalleryItem = { media: LightboxMedia; preview: string };
 
 /** Image or video media: shown as Thumbnails in a gallery row, not as its own body row. */
-function galleryItemOf(block: TranscriptBlock): GalleryItem | undefined {
+function galleryItemOf(t: LabelText, block: TranscriptBlock): GalleryItem | undefined {
 	if (block.kind !== 'media') return undefined;
 	const src = mediaSrc(block);
-	const media = src ? lightboxMedia(src, block.mimeType) : undefined;
+	const media = src ? lightboxMedia(t, src, block.mimeType) : undefined;
 	return media ? { media, preview: block.previewUrl ?? media.src } : undefined;
 }
 
@@ -239,9 +243,10 @@ function MediaGallery({ items }: { items: GalleryItem[] }) {
 
 /** One generated image, framed to its natural ratio once loaded (the pinned ratio until then). */
 function GeneratedImage(props: { item: GalleryItem; ratio?: number; onOpen: () => void }) {
+	const t = useLabels();
 	const [natural, setNatural] = useState<number>();
 	return (
-		<ClickableCard label="Open generated image" onClick={props.onOpen} padding={0} width="100%" maxWidth={GENERATED_IMAGE_MAX_WIDTH}>
+		<ClickableCard label={t('@theorem.transcript.open_generated_image')} onClick={props.onOpen} padding={0} width="100%" maxWidth={GENERATED_IMAGE_MAX_WIDTH}>
 			<AspectRatio ratio={natural ?? props.ratio ?? 1} fit="cover">
 				<img
 					src={props.item.preview}
@@ -278,10 +283,11 @@ function GeneratedGallery({ items, ratio }: { items: GalleryItem[]; ratio?: numb
 
 /** Placeholder shaped like the image being generated. */
 function GeneratingImage({ ratio }: { ratio?: number }) {
+	const t = useLabels();
 	return (
 		<VStack width="100%" maxWidth={GENERATED_IMAGE_MAX_WIDTH}>
 			<AspectRatio ratio={ratio ?? 1}>
-				<Skeleton width="100%" height="100%" radius={3} aria-label="Generating image" />
+				<Skeleton width="100%" height="100%" radius={3} aria-label={t('@theorem.transcript.generating_image')} />
 			</AspectRatio>
 		</VStack>
 	);
@@ -298,10 +304,10 @@ function MediaBlock({ block }: { block: MediaTranscriptBlock }) {
 type BodyRow = { kind: 'block'; block: TranscriptBlock } | { kind: 'gallery'; items: GalleryItem[] };
 
 /** Runs of images/videos become one gallery row; everything else is a row of its own. */
-function bodyRows(body: readonly TranscriptBlock[]): BodyRow[] {
+function bodyRows(t: LabelText, body: readonly TranscriptBlock[]): BodyRow[] {
 	const rows: BodyRow[] = [];
 	for (const block of body) {
-		const item = galleryItemOf(block);
+		const item = galleryItemOf(t, block);
 		const last = rows.at(-1);
 		if (item && last?.kind === 'gallery') last.items.push(item);
 		else if (item) rows.push({ kind: 'gallery', items: [item] });
@@ -311,10 +317,11 @@ function bodyRows(body: readonly TranscriptBlock[]): BodyRow[] {
 }
 
 function Sources({ block }: { block: Extract<TranscriptBlock, { kind: 'grounding' | 'evidence' }> }) {
+	const t = useLabels();
 	const chips = chipsFromBlock(block);
 	if (chips.length === 0) return null;
 	return (
-		<HStack gap={1} wrap="wrap" aria-label="Sources">
+		<HStack gap={1} wrap="wrap" aria-label={t('@theorem.transcript.sources')}>
 			{chips.map((chip) => (
 				<Token key={chip.key} label={chip.label} description={chip.kind} href={chip.href} size="sm" />
 			))}
@@ -530,10 +537,11 @@ function AssistantTurn(props: {
 	handlers: BlockHandlers;
 	imageOutput?: ImageOutput;
 }) {
+	const t = useLabels();
 	const elapsedMs = useTurnElapsed(props.streaming, props.startedAt, props.endedAt);
 	const { trace, gatedTools, body, hasTrace } = composeAssistantTurn(props.blocks);
-	const rows = bodyRows(body);
-	const status = workStatusLabel(workStatus({ streaming: props.streaming, hasTrace, elapsedMs }));
+	const rows = bodyRows(t, body);
+	const status = workStatusLabel(t, workStatus({ streaming: props.streaming, hasTrace, elapsedMs }));
 	const copyText = assistantTurnCopyText(body.length > 0 ? body : props.blocks);
 
 	return (
@@ -564,7 +572,11 @@ function AssistantTurn(props: {
 }
 
 function UserTurn(props: { blocks: TranscriptBlock[]; at: number }) {
-	const copyText = props.blocks.map(transcriptBlockCopyText).filter(Boolean).join('\n\n');
+	const t = useLabels();
+	const copyText = props.blocks
+		.map((block) => transcriptBlockCopyText(t, block))
+		.filter(Boolean)
+		.join('\n\n');
 	const chrome = <MessageChrome at={props.at} copyText={copyText} />;
 	// Astryx: metadata goes on the last bubble, or on the message when the last
 	// content is unbubbled (an attachment or voice note).
@@ -580,7 +592,15 @@ function UserTurn(props: { blocks: TranscriptBlock[]; at: number }) {
 }
 
 /** Theorem transcript blocks rendered as Astryx chat messages. */
-export function ChatTranscript({
+export function ChatTranscript(props: ChatTranscriptProps) {
+	return (
+		<TheoremLabelsProvider>
+			<ChatTranscriptBody {...props} />
+		</TheoremLabelsProvider>
+	);
+}
+
+function ChatTranscriptBody({
 	blocks,
 	handle,
 	streaming = false,

@@ -4,8 +4,9 @@ import { Icon } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconX } from '@tabler/icons-react';
-import { voiceLabelFromMime } from '../client/voice-label';
-import { VOICE_NOTE_LABEL } from './labels';
+import { voiceFormatFromMime } from '../client/voice-label';
+import { voiceNoteName } from './labels';
+import { useLabels } from './labels-provider';
 import { InkWaveform } from '../components/InkWaveform';
 import { useVoicePlayback } from '../components/use-voice-playback';
 
@@ -26,13 +27,15 @@ export type VoiceNoteProps = {
  * uses): click to play or pause; the bars move while it plays.
  */
 export function VoiceNote({ src, mimeType = 'audio/webm', label, onRemove }: VoiceNoteProps) {
+	const t = useLabels();
 	const { playing, outputLevel, toggle, audioProps } = useVoicePlayback();
-	const name = label ?? voiceLabelFromMime(mimeType) ?? VOICE_NOTE_LABEL;
+	const name = label ?? voiceNoteName(t, voiceFormatFromMime(mimeType));
+	const remove = t('@theorem.voice_note.remove', { name });
 
 	return (
 		<HStack gap={1} vAlign="center">
 			<ClickableCard
-				label={playing ? `Pause ${name}` : `Play ${name}`}
+				label={t(playing ? '@theorem.voice_note.pause' : '@theorem.voice_note.play', { name })}
 				onClick={() => {
 					void toggle();
 				}}
@@ -58,7 +61,7 @@ export function VoiceNote({ src, mimeType = 'audio/webm', label, onRemove }: Voi
 				</VStack>
 			</ClickableCard>
 			{onRemove ? (
-				<IconButton label={`Remove ${name}`} tooltip={`Remove ${name}`} variant="ghost" size="sm" icon={<Icon icon={IconX} />} onClick={onRemove} />
+				<IconButton label={remove} tooltip={remove} variant="ghost" size="sm" icon={<Icon icon={IconX} />} onClick={onRemove} />
 			) : null}
 			{/* biome-ignore lint/a11y/useMediaCaption: voice note; played via the card */}
 			<audio {...audioProps} src={src} hidden />

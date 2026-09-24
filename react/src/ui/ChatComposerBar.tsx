@@ -57,12 +57,8 @@ import {
 } from '../client/composer-hints';
 import type { ClientFailure } from '../client/failure';
 import { useComposerVoice, type VoiceFailure } from '../components/use-composer-voice';
-import {
-	COMPOSER_HINT_LABELS,
-	COMPOSER_MENU_ACTION_DESCRIPTIONS,
-	COMPOSER_MENU_ACTION_LABELS,
-	composerDrawerLabel,
-} from './labels';
+import { composerDrawerLabel } from './labels';
+import { TheoremLabelsProvider, useLabels } from './labels-provider';
 import { VoiceNote } from './VoiceNote';
 import { useEditorSelection } from '../components/use-editor-selection';
 
@@ -99,12 +95,6 @@ export type ChatComposerBarProps = {
 	onPendingSendNow: (id: string) => void;
 };
 
-const KIND_LABEL: Record<ComposerPendingMessage['kind'], string> = {
-	steer: 'Steer',
-	queue: 'Queued',
-	stash: 'Stashed',
-};
-
 const isImage = (file: File) => file.type.startsWith('image/');
 const anyFile = () => true;
 
@@ -129,24 +119,34 @@ function PendingRow(props: {
 	onSendNow: ChatComposerBarProps['onPendingSendNow'];
 }) {
 	const { message } = props;
+	const t = useLabels();
 	const icon = (Glyph: typeof IconX) => <Glyph size={14} />;
+	const edit = t('@theorem.composer.pending.edit');
+	const queue = t('@theorem.composer.pending.queue_action');
+	const sendNow = t('@theorem.composer.pending.send_now');
+	const moveUp = t('@theorem.composer.pending.move_up');
+	const moveDown = t('@theorem.composer.pending.move_down');
+	const remove = t('@theorem.composer.pending.remove');
 	return (
 		<HStack gap={1} align="center" width="100%">
-			<Badge variant={message.kind === 'steer' ? 'info' : 'neutral'} label={KIND_LABEL[message.kind]} />
+			<Badge
+				variant={message.kind === 'steer' ? 'info' : 'neutral'}
+				label={t(`@theorem.composer.pending.${message.kind}`)}
+			/>
 			<StackItem size="fill">
 				<Text size="sm" maxLines={1} hasTruncateTooltip>
 					{composerPendingPreview(message)}
 				</Text>
 			</StackItem>
 			<HStack gap={0.5}>
-				<IconButton label="Edit" tooltip="Edit" size="sm" variant="ghost" icon={icon(IconPencil)} onClick={() => props.onRestore(message.id)} />
+				<IconButton label={edit} tooltip={edit} size="sm" variant="ghost" icon={icon(IconPencil)} onClick={() => props.onRestore(message.id)} />
 				{message.kind === 'stash' ? (
-					<IconButton label="Queue" tooltip="Queue" size="sm" variant="ghost" icon={icon(IconCornerDownLeft)} onClick={() => props.onQueue(message.id)} />
+					<IconButton label={queue} tooltip={queue} size="sm" variant="ghost" icon={icon(IconCornerDownLeft)} onClick={() => props.onQueue(message.id)} />
 				) : null}
-				<IconButton label="Send now" tooltip="Send now" size="sm" variant="ghost" icon={icon(IconSend)} onClick={() => props.onSendNow(message.id)} />
-				<IconButton label="Move up" tooltip="Move up" size="sm" variant="ghost" icon={icon(IconArrowUp)} onClick={() => props.onMove(message.id, 'up')} />
-				<IconButton label="Move down" tooltip="Move down" size="sm" variant="ghost" icon={icon(IconArrowDown)} onClick={() => props.onMove(message.id, 'down')} />
-				<IconButton label="Remove" tooltip="Remove" size="sm" variant="ghost" icon={icon(IconX)} onClick={() => props.onRemove(message.id)} />
+				<IconButton label={sendNow} tooltip={sendNow} size="sm" variant="ghost" icon={icon(IconSend)} onClick={() => props.onSendNow(message.id)} />
+				<IconButton label={moveUp} tooltip={moveUp} size="sm" variant="ghost" icon={icon(IconArrowUp)} onClick={() => props.onMove(message.id, 'up')} />
+				<IconButton label={moveDown} tooltip={moveDown} size="sm" variant="ghost" icon={icon(IconArrowDown)} onClick={() => props.onMove(message.id, 'down')} />
+				<IconButton label={remove} tooltip={remove} size="sm" variant="ghost" icon={icon(IconX)} onClick={() => props.onRemove(message.id)} />
 			</HStack>
 		</HStack>
 	);
@@ -169,10 +169,11 @@ function ModelSelector(props: {
 	isDisabled: boolean;
 	onChange: (modelId: string) => void;
 }) {
+	const t = useLabels();
 	if (props.models.length === 0) return null;
 	return (
 		<Selector
-			label="Model"
+			label={t('@theorem.composer.model')}
 			isLabelHidden
 			size="sm"
 			variant="ghost"
@@ -192,10 +193,11 @@ function EffortSelector(props: {
 	isDisabled: boolean;
 	onChange: (effort: string) => void;
 }) {
+	const t = useLabels();
 	if (props.efforts.length === 0) return null;
 	return (
 		<Selector
-			label="Effort"
+			label={t('@theorem.composer.effort')}
 			isLabelHidden
 			size="sm"
 			variant="ghost"
@@ -268,8 +270,9 @@ function PendingDrawer(props: {
 	onAttachmentRemove: (index: number) => void;
 	onVoiceRemove: () => void;
 }) {
+	const t = useLabels();
 	return (
-		<ChatComposerDrawer count={props.summary.count} label={composerDrawerLabel(props.summary)}>
+		<ChatComposerDrawer count={props.summary.count} label={composerDrawerLabel(t, props.summary)}>
 			<VStack gap={2} width="100%">
 				{props.messages.map((message) => (
 					<PendingRow key={message.id} message={message} {...props.pendingActions} />
@@ -313,6 +316,8 @@ function PendingDrawer(props: {
 
 /** A hidden file input behind the paperclip button. */
 function AttachFilesButton({ accept, onFiles }: { accept?: string; onFiles: (files: File[]) => void }) {
+	const t = useLabels();
+	const label = t('@theorem.composer.attach');
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
 	function handleChange(event: ChangeEvent<HTMLInputElement>) {
 		const input = event.currentTarget;
@@ -324,8 +329,8 @@ function AttachFilesButton({ accept, onFiles }: { accept?: string; onFiles: (fil
 		<>
 			<input ref={fileInputRef} type="file" multiple hidden accept={accept} onChange={handleChange} />
 			<IconButton
-				label="Attach files"
-				tooltip="Attach files"
+				label={label}
+				tooltip={label}
 				size="sm"
 				variant="ghost"
 				icon={<IconPaperclip size={16} />}
@@ -336,11 +341,12 @@ function AttachFilesButton({ accept, onFiles }: { accept?: string; onFiles: (fil
 }
 
 function SendMenu({ actions, onAction }: { actions: readonly ComposerMenuAction[]; onAction: (action: ComposerMenuAction) => void }) {
+	const t = useLabels();
 	if (actions.length === 0) return null;
 	return (
 		<DropdownMenu
 			button={{
-				label: 'More send options',
+				label: t('@theorem.composer.send_options'),
 				isIconOnly: true,
 				icon: <IconStack2 size={16} />,
 				variant: 'ghost',
@@ -349,8 +355,8 @@ function SendMenu({ actions, onAction }: { actions: readonly ComposerMenuAction[
 			placement="above"
 			items={actions.map((action) => ({
 				id: action,
-				label: COMPOSER_MENU_ACTION_LABELS[action],
-				description: COMPOSER_MENU_ACTION_DESCRIPTIONS[action],
+				label: t(`@theorem.composer.menu.${action}`),
+				description: t(`@theorem.composer.menu.${action}.description`),
 				...(action === 'stash' ? { endContent: <Kbd keys={STASH_SHORTCUT} /> } : {}),
 				onClick: () => onAction(action),
 			}))}
@@ -359,7 +365,8 @@ function SendMenu({ actions, onAction }: { actions: readonly ComposerMenuAction[
 }
 
 function RecordButton({ recording, onToggle }: { recording: boolean; onToggle: () => void }) {
-	const label = recording ? 'Stop recording' : 'Record voice';
+	const t = useLabels();
+	const label = t(recording ? '@theorem.composer.stop_recording' : '@theorem.composer.record');
 	return (
 		<IconButton
 			label={label}
@@ -374,13 +381,13 @@ function RecordButton({ recording, onToggle }: { recording: boolean; onToggle: (
 
 /** Astryx's slot for contextual info (header, right side). */
 function ComposerHint({ hint, onAction }: { hint: ComposerHintData; onAction: () => void }) {
-	const labels = COMPOSER_HINT_LABELS[hint.id];
+	const t = useLabels();
 	return (
 		<HStack gap={2} vAlign="center">
 			<Text size="sm" color="secondary">
-				{labels.message}
+				{t(`@theorem.composer.hint.${hint.id}.message`)}
 			</Text>
-			<Button label={labels.actionLabel} size="sm" variant="ghost" onClick={onAction} />
+			<Button label={t(`@theorem.composer.hint.${hint.id}.action`)} size="sm" variant="ghost" onClick={onAction} />
 			<Kbd keys={hint.shortcut} />
 		</HStack>
 	);
@@ -400,7 +407,16 @@ function useStagedFiles(pendingFiles: readonly File[], pendingVoice: readonly Fi
 
 /** Astryx composer wired to Theorem's send / stop / queue / steer / stash matrix. */
 export function ChatComposerBar(props: ChatComposerBarProps) {
+	return (
+		<TheoremLabelsProvider>
+			<ChatComposerBarBody {...props} />
+		</TheoremLabelsProvider>
+	);
+}
+
+function ChatComposerBarBody(props: ChatComposerBarProps) {
 	const { iface, phase } = props;
+	const t = useLabels();
 	const inputs = iface.inputs;
 	const [stagingIssues, setStagingIssues] = useState<AttachmentValidationIssue[]>([]);
 	const pendingFiles = useMemo(() => [...props.pendingFiles], [props.pendingFiles]);
@@ -479,7 +495,7 @@ export function ChatComposerBar(props: ChatComposerBarProps) {
 			{inputs.voice ? <RecordButton recording={voice.recording} onToggle={() => void voice.toggleRecording()} /> : null}
 		</>
 	);
-	const placeholder = props.placeholder ?? `Message @${iface.identity.handle}`;
+	const placeholder = props.placeholder ?? t('@theorem.composer.placeholder', { handle: iface.identity.handle });
 
 	return (
 		<ChatComposer
@@ -491,7 +507,7 @@ export function ChatComposerBar(props: ChatComposerBarProps) {
 			onSubmit={runPrimary}
 			onStop={props.onStop}
 			isStopShown={primary === 'stop'}
-			placeholder={voice.recording ? 'Listening…' : placeholder}
+			placeholder={voice.recording ? t('@theorem.composer.listening') : placeholder}
 			input={
 				<ChatComposerInput
 					ref={editorRef}

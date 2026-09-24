@@ -9,6 +9,7 @@
 
 import { type ErrorKind, TheoremError } from '../../../guardrails/error.ts';
 import type { ProviderCompleteRequest, TurnEvent } from '../../../kernel/types.ts';
+import { findLast } from '../../../kernel/util/find-last.ts';
 import { readGeminiApiError } from '../api-error.ts';
 import {
   buildGeminiLiveClientContent,
@@ -82,7 +83,7 @@ export interface GoAwayClose {
 
 /** The last `goAway` in a folded frame, if the frame carried one. */
 function goAwayIn(events: readonly TurnEvent[]): { timeLeftMs?: number } | undefined {
-  const warning = events.findLast((ev) => ev.session?.kind === 'closing_soon');
+  const warning = findLast(events, (ev) => ev.session?.kind === 'closing_soon');
   return warning ? { timeLeftMs: warning.session?.timeLeftMs } : undefined;
 }
 

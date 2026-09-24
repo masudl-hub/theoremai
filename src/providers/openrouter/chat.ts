@@ -586,6 +586,8 @@ export function providerOptionsFor(req: ProviderCompleteRequest): ProviderOption
     | undefined;
   if (responseFormat) {
     openrouter.response_format = responseFormat;
+    // Route only to endpoints that honour the schema; one that ignores it answers in prose.
+    openrouter.provider = { require_parameters: true };
   }
   if (req.cache?.mode === 'automatic') {
     openrouter.cacheControl = cacheControlJson(req.cache);

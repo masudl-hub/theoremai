@@ -1,10 +1,12 @@
 import '../fixtures/test-host.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { runTurn } from '../../src/kernel/engine/runner.ts';
+import { registerProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
 import { jsonlSink, memorySink, noopSink } from '../../src/observability/trace.ts';
-import type { TraceRecord } from '../../src/observability/trace-record.ts';
+import { inlineContent, type TraceRecord } from '../../src/observability/trace-record.ts';
 import type { TraceAttributes, TraceSpan } from '../../src/observability/trace-span.ts';
+import { HOST_BINDINGS } from '../fixtures/models.ts';
 import { STUB_WRITE, stubRecord } from '../fixtures/trace-record.ts';
 
 async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
@@ -76,6 +78,62 @@ Deno.test('runTurn traces projectId and hashes media not bytes', async () => {
   assertEquals(media?.mime_type, 'image/jpeg');
   assertEquals(typeof media?.content_sha256, 'string');
   assertEquals(JSON.stringify(record).includes(MEDIA_BASE64), false);
+});
+
+Deno.test('runTurn records what the host received on the turn root, beside what the model wrote', async () => {
+  registerProfile({
+    type: 'text',
+    id: 'trace_quiet_thoughts',
+    identity: { handle: 'quiet', system: 'Reply briefly.' },
+    models: { gemini35FlashLite: HOST_BINDINGS.gemini35FlashLite },
+    maxSteps: 1,
+    key: 'slotA',
+    tools: { allow: [] },
+    inputs: { text: true },
+    outputs: { structured: null, streaming: { streamThoughts: false } },
+  });
+  const provider: ModelProvider = {
+    async *complete() {
+      await Promise.resolve();
+      yield { type: 'thought', text: 'Private plan.' };
+      yield { type: 'text', text: 'Water ' };
+      yield { type: 'text', text: 'weekly.' };
+      yield { type: 'structured', structured: { cadence: 'weekly' } };
+      yield { type: 'done', stop: { kind: 'completed' } };
+    },
+  };
+  const into: TraceRecord[] = [];
+  await collect(
+    runTurn(
+      { profile: 'trace_quiet_thoughts', input: { text: 'fern?' } },
+      provider,
+      memorySink(into),
+    ),
+  );
+  const [record] = into;
+  if (!record) {
+    throw new Error('missing trace');
+  }
+  const [root] = record.spans;
+  // The profile keeps thoughts off the stream: the host never saw the plan.
+  assertEquals(inlineContent(record, root?.attributes['gen_ai.output.messages']), [
+    {
+      role: 'assistant',
+      parts: [
+        { type: 'text', content: 'Water weekly.' },
+        { type: 'structured', content: { cadence: 'weekly' } },
+      ],
+      finish_reason: 'stop',
+    },
+  ]);
+  const [produced] = inlineContent(
+    record,
+    modelCall(record).attributes['gen_ai.output.messages'],
+  ) as { parts: { type: string }[] }[];
+  assertEquals(
+    produced?.parts.map((part) => part.type),
+    ['reasoning', 'text', 'structured'],
+  );
 });
 
 Deno.test('runTurn traces explicit Interactions state controls', async () => {

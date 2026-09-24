@@ -48,7 +48,7 @@ import {
   splitForCompaction,
 } from '../compaction.ts';
 import { type MediaTokenFamily, mediaTokenFamily } from '../token-estimate.ts';
-import { endTurnSpan, guardrailAttributes, turnSpanOptions } from '../turn-trace.ts';
+import { endTurnSpan, guardrailAttributes, OutputFold, turnSpanOptions } from '../turn-trace.ts';
 import { runAttemptsWithValidation } from './gates.ts';
 import { applyTurnStage } from './stages.ts';
 import { openTurnState, type StepExecutionState, type TurnTraceState } from './state.ts';
@@ -61,14 +61,21 @@ function projectForObs(
   return projectGuardrailTurnEvent(event, policy?.include.guardrailMatchPreview ?? false);
 }
 
+/** Record an event as delivered to the host; every yield to the host passes through here. */
+function deliver(ctx: TraceCtx, out: TurnEvent): TurnEvent {
+  ctx.seen.push(out);
+  ctx.delivered.add(out, ctx.root.nowUnixNano());
+  return out;
+}
+
 function* emitObservedStage(
-  ctx: { seen: TurnEvent[]; observability?: ResolvedObservabilityPolicy },
+  ctx: TraceCtx,
   stageEv: TurnEvent,
   profile: Profile,
 ): Generator<TurnEvent> {
   const stageOut = projectForObs(stageEv, ctx.observability);
-  ctx.seen.push(stageOut);
-  if (!shouldSkipStreamEvent(stageOut, profile)) yield stageOut;
+  if (shouldSkipStreamEvent(stageOut, profile)) return;
+  yield deliver(ctx, stageOut);
 }
 
 function getCompactionSpec(profile: ModelProfile, modelId: string): CompactionSpec | undefined {
@@ -338,8 +345,7 @@ async function* streamTurnEvents(
   })) {
     const attached = await maybeAttachAfter(event, ctx, gen, compactionSpec);
     const out = projectForObs(attached, ctx.observability);
-    ctx.seen.push(out);
-    if (!shouldSkipStreamEvent(out, profile)) yield out;
+    if (!shouldSkipStreamEvent(out, profile)) yield deliver(ctx, out);
 
     if (out.type === 'done' && ctx.state) {
       // Skip duplicate post_turn when pre_turn abort already emitted it inside emitTurn.
@@ -367,7 +373,10 @@ async function* streamTurnEvents(
 
 type TraceCtx = {
   req: TurnRequest;
+  /** Every event the host received. */
   seen: TurnEvent[];
+  /** The same events as output parts. */
+  delivered: OutputFold;
   /** This turn's `invoke_agent` span. */
   root: SpanHandle;
   /** Step-state trace handle, once the turn's model binding is known. */
@@ -389,7 +398,16 @@ type TraceCtx = {
 };
 
 function newTraceCtx(req: TurnRequest, root: SpanHandle, canaries: string[] = []): TraceCtx {
-  return { req, seen: [], root, compacting: false, compacted: false, canary: '', canaries };
+  return {
+    req,
+    seen: [],
+    delivered: new OutputFold(),
+    root,
+    compacting: false,
+    compacted: false,
+    canary: '',
+    canaries,
+  };
 }
 
 /** Close the turn's span from what the host saw and what the step state counted. */
@@ -397,6 +415,7 @@ function endTurn(ctx: TraceCtx, thrown?: unknown): void {
   const calls = ctx.trace?.calls ?? 0;
   endTurnSpan(ctx.root, {
     seen: ctx.seen,
+    delivered: ctx.delivered,
     attempts: calls > 0 ? (ctx.trace?.attempt ?? 0) + 1 : 0,
     calls,
     compacted: ctx.compacted,
@@ -466,8 +485,7 @@ async function* emitCancelledDoneAfterAbort(ctx: TraceCtx): AsyncGenerator<TurnE
   const stop = { kind: 'cancelled' as const };
   const done: TurnEvent = { type: 'done', stop, traceparent: ctx.root.traceparent() };
   const outDone = projectForObs(done, ctx.observability);
-  ctx.seen.push(outDone);
-  yield outDone;
+  yield deliver(ctx, outDone);
 
   const profile = getProfile(ctx.req.profile);
   const gen = ctx.generation;
@@ -502,9 +520,7 @@ async function* runTurnBody(ctx: TraceCtx, provider: ModelProvider): AsyncGenera
   ctx.safe = sanitized.request;
   for (const event of sanitized.events) {
     if (event.guardrail) ctx.root.event('theorem.guardrail', guardrailAttributes(event.guardrail));
-    const out = projectForObs(event, ctx.observability);
-    ctx.seen.push(out);
-    yield out;
+    yield deliver(ctx, projectForObs(event, ctx.observability));
   }
   const { profile, generation: gen } = resolveTurn(ctx.safe);
   await expandT1Policy(gen.tools, profile, ctx.safe);

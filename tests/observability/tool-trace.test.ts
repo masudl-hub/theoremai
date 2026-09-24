@@ -11,7 +11,11 @@ import { invokeTool } from '../../src/kernel/tools/mod.ts';
 import { registerTool } from '../../src/kernel/tools/registry.ts';
 import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
 import { memorySink } from '../../src/observability/trace.ts';
-import { contentOf, type TraceRecord } from '../../src/observability/trace-record.ts';
+import {
+  contentOf,
+  inlineContent,
+  type TraceRecord,
+} from '../../src/observability/trace-record.ts';
 import {
   formatTraceparent,
   type TraceAttributes,
@@ -116,7 +120,7 @@ Deno.test('a tool call is one span under the turn, with what went in and came ba
   assertEquals(a['gen_ai.tool.call.id'], 'c1');
   assertEquals(a['gen_ai.tool.type'], 'function');
   assertEquals(contentOf(record, a['gen_ai.tool.call.arguments']), '{"orderId":"A1"}');
-  assertEquals(contentOf(record, a['theorem.tool.data']), '{"finding":"shipped"}');
+  assertEquals(inlineContent(record, a['theorem.tool.data']), { finding: 'shipped' });
   assertEquals(contentOf(record, a['gen_ai.tool.call.result'])?.includes('shipped'), true);
   assertEquals(
     [

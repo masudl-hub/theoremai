@@ -15,7 +15,9 @@
  * - the call's usage, response identity and stop.
  *
  * Request attributes (`gen_ai.request.*`) are what Theorem asked the adapter
- * to send; the wire body on each `POST` is what was sent.
+ * to send; the wire body on each `POST` is what was sent. `gen_ai.request.stream`
+ * alone is read from the wire body, since an adapter may stream or buffer
+ * whatever it was asked.
  *
  * @module
  */
@@ -48,6 +50,7 @@ import type {
   TurnTraceLink,
 } from '../types.ts';
 import { findLast } from '../util/find-last.ts';
+import { asRecord } from './record.ts';
 import type { CallUsage } from './runner/usage.ts';
 import { sumTokens } from './usage.ts';
 
@@ -155,7 +158,11 @@ class OutputFold {
         this.appendText('reasoning', event.text ?? '');
         return;
       case 'tool':
-        if (event.tool) this.push(toolCallPart(event.tool));
+        // The call itself; the kernel's phase events that follow are its execution.
+        if (event.tool && event.tool.phase === undefined) this.push(toolCallPart(event.tool));
+        return;
+      case 'structured':
+        this.push({ type: 'structured', content: traceJson(event.structured ?? null) });
         return;
       case 'media':
         if (event.media) this.push(mediaPart(event.media));
@@ -395,7 +402,9 @@ function providerName(binding: ModelBinding | undefined): string | undefined {
   }
 }
 
-function outputType(req: ProviderCompleteRequest): string {
+function outputType(req: ProviderCompleteRequest, transport: ProviderTransport): string {
+  // Live answers in audio: its setup asks for `responseModalities: ['AUDIO']` (live/framing.ts).
+  if (transport === 'geminiLive') return 'speech';
   if (req.structured) return 'json';
   if (req.image) return 'image';
   if (req.speech) return 'speech';
@@ -413,7 +422,6 @@ function requestAttributes(
     ...optional('gen_ai.provider.name', provider),
     'gen_ai.request.model': req.apiId,
     'theorem.model.id': req.model,
-    ...optional('gen_ai.request.stream', req.stream),
     ...optional('gen_ai.request.temperature', req.temperature),
     ...optional('gen_ai.request.max_tokens', req.maxOutputTokens),
     ...optional('gen_ai.request.reasoning.level', req.thinking),
@@ -422,7 +430,7 @@ function requestAttributes(
     ...(req.wireTools?.length
       ? { 'gen_ai.tool.definitions': traceContent(JSON.stringify(req.wireTools)) }
       : {}),
-    'gen_ai.output.type': outputType(req),
+    'gen_ai.output.type': outputType(req, transport),
     ...optional('theorem.key_slot', req.keySlot),
     ...controlAttributes(req),
   };
@@ -524,11 +532,10 @@ class HttpTries {
   /** Status of the latest response; `error.type` of a failed call. */
   lastStatus?: number;
   private awaitingFirstChunk = false;
+  /** Whether the open try asked for a streamed response. */
+  private streamed = false;
 
-  constructor(
-    private readonly call: SpanHandle,
-    private readonly streamed: boolean,
-  ) {}
+  constructor(private readonly call: SpanHandle) {}
 
   /** Handle one tap row; returns false for a provider data row. */
   row(row: Record<string, unknown>): boolean {
@@ -559,6 +566,9 @@ class HttpTries {
       },
     });
     this.tries += 1;
+    // The body sent decides, not the profile: an adapter may stream or buffer regardless.
+    this.streamed = asRecord(row.body)?.stream === true;
+    if (this.streamed) this.call.set({ 'gen_ai.request.stream': true });
     if ('body' in row) {
       this.current.event('theorem.wire.request', { body: traceJson(row.body) });
     } else if (typeof row.bodyKind === 'string') {
@@ -714,7 +724,7 @@ function responseAttributes(
  * Open the span for one model call; `open` places it (a child of the turn's
  * root, or the root of a Live response's own record). `usage` is the call's
  * usage record; its conversation is what the model reads. It is read again at
- * the end, so input sent while the call ran (a Live tool result) is included.
+ * the end, since a Live response sets its conversation only when it closes.
  */
 function startCallTrace(
   open: (name: string, options: SpanOptions) => SpanHandle,
@@ -740,7 +750,7 @@ function startCallTrace(
       ...optional('theorem.attempt', args.attempt),
     },
   });
-  const http = new HttpTries(span, req.stream !== false);
+  const http = new HttpTries(span);
   const output = new OutputFold();
   const heard = new OutputFold();
   const errors: TurnEvent[] = [];
@@ -862,6 +872,8 @@ const FINISHED_STOPS = new Set<TurnStop['kind']>(['completed', 'length', 'genera
 interface TurnEnd {
   /** Every event the host received. */
   seen: readonly TurnEvent[];
+  /** Those events as output parts, folded as they were delivered. */
+  delivered: OutputFold;
   /** Validation / egress attempts that made a model call. */
   attempts: number;
   /** Model calls made. */
@@ -885,7 +897,14 @@ function endTurnSpan(root: SpanHandle, end: TurnEnd): void {
   const threw = end.thrown !== undefined;
   if (threw) recordException(root, end.thrown);
   const failed = threw || (stop !== undefined && FAILED_STOPS.has(stop));
+  // What the host received, beside each call's `output.messages` (what the model produced).
+  const delivered: TraceMessage = {
+    role: 'assistant',
+    parts: end.delivered.parts,
+    ...optional('finish_reason', callOutcome(done?.stop, failed, undefined).finish),
+  };
   root.set({
+    'gen_ai.output.messages': [delivered],
     ...(tokens ? usageAttributes(tokens) : {}),
     ...(stop ? { 'theorem.stop.kind': stop } : {}),
     'theorem.attempts': end.attempts,
@@ -907,6 +926,7 @@ export {
   endTurnSpan,
   errorName,
   guardrailAttributes,
+  OutputFold,
   optional,
   recordException,
   startCallTrace,

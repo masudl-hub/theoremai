@@ -48,8 +48,9 @@ import {
   formatToolResult,
   type ToolExecuteSettlement,
 } from '../../tools/execute.ts';
+import { modelResultFromOutput } from '../../tools/remote.ts';
 import { cloneTurnToolSnapshot } from '../../tools/resolve.ts';
-import type { ModelToolResult, ToolFailure, TurnToolSnapshot } from '../../tools/types.ts';
+import type { ToolFailure, TurnToolSnapshot } from '../../tools/types.ts';
 import type {
   InteractionPart,
   LiveExecuteToolArgs,
@@ -215,18 +216,13 @@ async function applyOutbound(
 
 /**
  * The output a settled Live call sends upstream, or `undefined` when nothing
- * is sent (a gate, or no result). The model reads it as the `functionResponse`.
+ * is sent (a gate, or no result). The model reads it as the `functionResponse`:
+ * the same guarded text a turn sends, never the tool's raw output.
  */
-function liveToolOutput(s: ToolExecuteSettlement): unknown {
-  const outputModel = s.modelResult;
-  if (s.gated || (outputModel === undefined && !s.failure)) return undefined;
-  const upstream =
-    outputModel ??
-    ({
-      finding: s.failure ? `Tool error (${s.failure.code}): ${s.failure.message}` : 'error',
-      data: s.failure,
-    } satisfies ModelToolResult);
-  return upstream.data ?? upstream;
+function liveToolOutput(s: ToolExecuteSettlement): string | undefined {
+  if (s.gated) return undefined;
+  const result = s.modelResult ?? (s.failure ? formatToolFailureForModel(s.failure) : undefined);
+  return result ? formatToolResult(result) : undefined;
 }
 
 /** What the model reads back from a Live call: the `functionResponse.response` sent. */
@@ -358,10 +354,7 @@ function buildLiveSession(args: {
     const modelResult = tool.failure
       ? formatToolFailureForModel(tool.failure)
       : tool.output !== undefined
-        ? {
-            finding: typeof tool.output === 'string' ? tool.output : JSON.stringify(tool.output),
-            data: tool.output,
-          }
+        ? modelResultFromOutput(tool.output)
         : formatToolFailureForModel({
             code: 'error',
             message: 'Tool settled without output', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -512,83 +505,91 @@ function buildLiveSession(args: {
     return next;
   };
 
+  /** The session's events, as the host receives them. */
+  const streamToHost = async function* (): AsyncGenerator<TurnEvent> {
+    // Who closes the socket when the loop ends: the host, unless THEOREM stops it.
+    let closer: LiveCloser = 'host';
+    let thrown: unknown;
+    try {
+      for await (const item of connection.batches()) {
+        throwIfAborted(signal);
+        trace.receive(item);
+        yield* drainPendingHostEvents(pendingHostEvents);
+        if (item.type === 'closed') {
+          break;
+        }
+        if (item.type === 'error') {
+          closer = 'theorem';
+          yield toErrorEvent(item.error);
+          break;
+        }
+        if (item.type === 'row') {
+          continue;
+        }
+        // Usage is held per response and emitted once, reported or estimated, by `settle`.
+        const gated = await applyOutbound(
+          gate,
+          item.events.filter((ev) => ev.type !== 'tokens'),
+          item.turnPhase,
+          (error) => {
+            withholdClose = error;
+          },
+        );
+        for (const ev of gated) {
+          if (ev.guardrail) trace.outbound(ev);
+        }
+
+        const doneBatch = yield* yieldLiveNonDoneEvents(
+          gated,
+          includeMatch,
+          withholdClose,
+          recordAssistantText,
+        );
+        const tokens = await trace.settle();
+        if (tokens) yield tokens;
+
+        const interrupted = doneBatch.some((ev) => ev.type === 'done' && ev.interrupted);
+        const completeBoundary =
+          item.turnPhase === 'complete' || item.turnPhase === 'abort' || doneBatch.length > 0;
+
+        // Boundary batches (`interactionStatus: IDLE`, or bare `turnComplete` when the
+        // provider sends no status) often have no folded `done` — still end the cycle.
+        if (completeBoundary && cycle === 'open') {
+          const boundaryDone = boundaryDoneEvents(doneBatch, item.turnPhase, interrupted);
+          for await (const ev of endCycleAroundDone(boundaryDone)) {
+            yield projectGuardrailTurnEvent(stampDone(ev), includeMatch);
+          }
+          yield* drainPendingHostEvents(pendingHostEvents);
+        } else if (doneBatch.length > 0) {
+          for (const ev of doneBatch) {
+            yield projectGuardrailTurnEvent(stampDone(ev), includeMatch);
+          }
+        }
+
+        if (withholdClose) {
+          closer = 'theorem';
+          break;
+        }
+      }
+      yield* drainPendingHostEvents(pendingHostEvents);
+    } catch (err) {
+      thrown = err;
+      throw err;
+    } finally {
+      closed = true;
+      if (withholdClose) closeSocket(1011, 'guardrail withheld', closer);
+      else closeSocket(1000, 'session-closed', closer);
+      await trace.close({ thrown });
+    }
+  };
+
   const session: LiveSession = {
     profileId: profile.id,
     canary,
     async *events(): AsyncGenerator<TurnEvent> {
-      // Who closes the socket when the loop ends: the host, unless THEOREM stops it.
-      let closer: LiveCloser = 'host';
-      let thrown: unknown;
-      try {
-        for await (const item of connection.batches()) {
-          throwIfAborted(signal);
-          trace.receive(item);
-          yield* drainPendingHostEvents(pendingHostEvents);
-          if (item.type === 'closed') {
-            break;
-          }
-          if (item.type === 'error') {
-            closer = 'theorem';
-            yield toErrorEvent(item.error);
-            break;
-          }
-          if (item.type === 'row') {
-            continue;
-          }
-          // Usage is held per response and emitted once, reported or estimated, by `settle`.
-          const gated = await applyOutbound(
-            gate,
-            item.events.filter((ev) => ev.type !== 'tokens'),
-            item.turnPhase,
-            (error) => {
-              withholdClose = error;
-            },
-          );
-          for (const ev of gated) {
-            if (ev.guardrail) trace.outbound(ev);
-          }
-
-          const doneBatch = yield* yieldLiveNonDoneEvents(
-            gated,
-            includeMatch,
-            withholdClose,
-            recordAssistantText,
-          );
-          const tokens = await trace.settle();
-          if (tokens) yield tokens;
-
-          const interrupted = doneBatch.some((ev) => ev.type === 'done' && ev.interrupted);
-          const completeBoundary =
-            item.turnPhase === 'complete' || item.turnPhase === 'abort' || doneBatch.length > 0;
-
-          // Boundary batches (`interactionStatus: IDLE`, or bare `turnComplete` when the
-          // provider sends no status) often have no folded `done` — still end the cycle.
-          if (completeBoundary && cycle === 'open') {
-            const boundaryDone = boundaryDoneEvents(doneBatch, item.turnPhase, interrupted);
-            for await (const ev of endCycleAroundDone(boundaryDone)) {
-              yield projectGuardrailTurnEvent(stampDone(ev), includeMatch);
-            }
-            yield* drainPendingHostEvents(pendingHostEvents);
-          } else if (doneBatch.length > 0) {
-            for (const ev of doneBatch) {
-              yield projectGuardrailTurnEvent(stampDone(ev), includeMatch);
-            }
-          }
-
-          if (withholdClose) {
-            closer = 'theorem';
-            break;
-          }
-        }
-        yield* drainPendingHostEvents(pendingHostEvents);
-      } catch (err) {
-        thrown = err;
-        throw err;
-      } finally {
-        closed = true;
-        if (withholdClose) closeSocket(1011, 'guardrail withheld', closer);
-        else closeSocket(1000, 'session-closed', closer);
-        await trace.close({ thrown });
+      for await (const event of streamToHost()) {
+        trace.delivered(event);
+        yield event;
       }
     },
     sendAudio(audio: { data: string; mimeType: string }): Promise<void> {

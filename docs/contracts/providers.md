@@ -135,7 +135,11 @@ field as Google Interactions and local OpenAI-compat paths.
 terminal `done.stop` via `turnStopFromOpenAiFinishReason`. Request options ride
 AI SDK `providerOptions.openrouter`: `reasoning.effort` only when `thinking` is
 present and not `'none'`, `response_format` for structured output, and optional
-`sessionId` as `session_id`. When `cache.mode` is `automatic`, `cacheControl`
+`sessionId` as `session_id`. Structured output also sends
+`provider.require_parameters: true`: OpenRouter routes only to an endpoint that
+supports every parameter sent, and answers 404 when none does. A profile must
+set only what its model supports (for example, no `temperature` on a model that
+rejects it); Theorem does not drop parameters for it. When `cache.mode` is `automatic`, `cacheControl`
 is top-level; when `system`, the system message carries it instead of
 `instructions` (`cacheControlJson`, `src/providers/openrouter/cache-control.ts`).
 Builtins map through `wire.openRouter`: `web` becomes `web_search_options`,

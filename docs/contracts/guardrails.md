@@ -427,6 +427,11 @@ in the body are stripped before wrapping, so a result cannot claim a friendlier
 provenance than it has. Local host tools are detected but not fenced — fencing a
 local tool's output would change prompts hosts have already tuned.
 
+**What the model reads.** Each result once: a tool's own `finding` leads and the
+rest of its output follows as `data`; a result with no `finding` is its output
+alone. Every transport sends this one guarded text — Live's `functionResponse`
+carries it as `result`, never the tool's raw output.
+
 **Detection.** `finding` and the structured `data` half are guarded together, since
 both reach the model; hiding an injection payload one level down in the JSON does
 not evade it. Failure messages are guarded too — an unguarded remote error string

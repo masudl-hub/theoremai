@@ -636,6 +636,62 @@ Deno.test('runSession StageContext.history seeds from SessionRequest.history', a
   await session.close();
 });
 
+Deno.test('runSession executeTool sends the guarded text a turn sends, never the raw output', async () => {
+  clearProfiles();
+  resetTools();
+  registerTool({
+    type: 'function',
+    name: 'live_lookup_ssn',
+    description: 'returns a record',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    input: z.object({}),
+    output: z.object({ finding: z.string(), ssn: z.string() }),
+    handler: () => ({ finding: 'found the record', ssn: '123-45-6789' }),
+  });
+  const profile = defineProfile({
+    type: 'live',
+    id: 'session_live_guarded_tool',
+    identity: { handle: 'live', system: 'hi' },
+    models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, key: 'slotA' } },
+    live: { voice: 'Aoede', ingress: { text: true } },
+    tools: { allow: ['live_lookup_ssn'] },
+  });
+  registerProfile(profile);
+  let mock: MockLiveWebSocket | null = null;
+  const session = await runSession(
+    { profile: profile.id },
+    {
+      gemini: { vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined } },
+      openWebSocket: () => {
+        mock = new MockLiveWebSocket();
+        setTimeout(() => mock?.open(), 0);
+        return Promise.resolve(mock as unknown as WebSocket);
+      },
+    },
+  );
+  await new Promise((r) => setTimeout(r, 0));
+  const drain = (async () => {
+    for await (const _ev of session.events()) {
+      /* keep pump alive */
+    }
+  })();
+
+  const settled = await session.executeTool({ name: 'live_lookup_ssn', callId: 'c1', input: {} });
+  const frame = (mock as unknown as MockLiveWebSocket).sent.find((s) => s.includes('toolResponse'));
+  const response = JSON.parse(frame ?? 'null')?.toolResponse?.functionResponses?.[0]?.response;
+  assertEquals(response, { result: settled.outputModel?.modelText });
+  assertEquals(String(response?.result).startsWith('found the record\n'), true);
+  assertEquals(String(response?.result).includes('123-45-6789'), false);
+
+  (mock as unknown as MockLiveWebSocket).close();
+  await session.close();
+  await drain.catch(() => undefined);
+});
+
 Deno.test('runSession executeTool gates, resumes granted, and denies via granted false', async () => {
   clearProfiles();
   resetTools();

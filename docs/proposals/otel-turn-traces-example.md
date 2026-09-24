@@ -65,6 +65,7 @@ interface TraceSpan {
 | `gen_ai.agent.name` | profile id |
 | `gen_ai.conversation.id` | from the host (`TurnRequest`); absent when the host sets none |
 | `gen_ai.input.messages` | the turn's new user input only (text, attachments, voice), as parts |
+| `gen_ai.output.messages` | what the host received: one assistant message folded from the events the turn delivered, after guardrails (text, `reasoning` when the profile streams thoughts, `tool_call` once per call, media, `structured`). Its `finish_reason` is the last `done`'s. Each call's own `output.messages` is what the model produced. |
 | `gen_ai.usage.*` | sum (`sumTokens`) of this agent's own model calls. Nested agents (compaction, specialists) carry their own usage, so nothing is counted twice. |
 | `gen_ai.conversation.compacted` | `true` when compaction ran in this turn |
 | `theorem.stop.kind` | the last `done`'s stop: `completed` / `length` / `tool` / `gate` / `filtered` / `provider_error` / `cancelled` / `stream_incomplete` / `interrupted` / `generation_complete`. Absent when the turn threw before any `done`. |
@@ -113,18 +114,19 @@ interface TraceSpan {
 | `gen_ai.provider.name` | `gcp.gemini`, `openrouter`, or a declared `local` server; absent when unknown |
 | `gen_ai.request.model` / `gen_ai.response.model` | api id sent / model the provider says answered |
 | `theorem.model.id` | the profile's model alias |
-| `gen_ai.request.stream`, `.temperature`, `.max_tokens`, `.reasoning.level` | as requested |
+| `gen_ai.request.stream` | `true` only when the call streamed: its HTTP body asked for a stream, or it is a Live response. Absent means not streamed, as semconv reads it. |
+| `gen_ai.request.temperature`, `.max_tokens`, `.reasoning.level` | as requested |
 | `gen_ai.request.previous_response.id` | Interactions continuation |
 | `theorem.request.builtins` | provider-run tools requested (`[]` when none) |
 | `theorem.request.store`, `.summaries`, `.structured`, `.session_id`, `.cache`, `.image`, `.speech`, `.live` | request controls semconv has no names for, as requested. `live` holds voice, VAD, session resumption, context compression, proactive audio, transcription and `resumed`; a resumption handle is a credential and is never recorded. |
 | `gen_ai.response.id` | as the provider reported it; absent when not reported |
 | `gen_ai.response.finish_reasons` (chat) / `gen_ai.response.status` (Gemini) | the provider's own stop value. Absent when the call was stopped (cancelled, interrupted), because the provider never said. |
-| `gen_ai.response.time_to_first_chunk` | seconds from the start of the successful HTTP try to its first chunk |
+| `gen_ai.response.time_to_first_chunk` | seconds from the start of the successful streamed HTTP try to its first chunk |
 | `gen_ai.system_instructions`, `gen_ai.tool.definitions` | hash parts (identical across calls, so one hash each) |
 | `gen_ai.input.messages` | everything the model read on this call, in kernel order. On a continuation this includes the stored interaction. |
 | `theorem.input.sent_from` | index in `input.messages` where the wire payload starts (continuations send only the tail) |
 | `gen_ai.output.messages` | one assistant message whose `finish_reason` is semconv's (`stop`, `length`, `tool_call`, `content_filter`, `error`). Its parts are text, `reasoning`, `tool_call`, `server_tool_call` / `server_tool_call_response` and media, exactly as received. A cancelled call keeps what arrived before the cancel. |
-| `gen_ai.output.type` | `text` / `json` / `image` / `speech` |
+| `gen_ai.output.type` | `text` / `json` / `image` / `speech`. A Live response is `speech`: Live answers in audio. |
 | `theorem.stop.kind` | this call's stop |
 | `error.type` | on a failed call: the last HTTP status when it was 400 or higher, else `provider_error` |
 | `gen_ai.usage.input_tokens`, `.output_tokens`, `.reasoning.output_tokens`, `.cache_read.input_tokens`, `.cache_write.input_tokens` | normalized (step 1) |
@@ -209,7 +211,7 @@ The example app is the support agent of an outdoor-gear shop (`service.name: har
 | E9 | Long question, then presses stop | Call 1 calls a tool (cost reported); call 2 is cancelled mid-stream | partial output, estimated usage, partial cost, `cancelled` |
 | E10 | (host) "Summarize this ticket" | Attempt 1 returns invalid JSON; the repair attempt returns valid JSON | attempts, `theorem.attempt.retry` |
 | E11 | "Can you check A1099?" | 502, 502, 503: retries exhausted | `ERROR`, public vs internal error, no usage (unknown, not 0) |
-| E12 | Switches to voice | Live session: response 1 calls `lookup_order` and answers; the user interrupts response 2 | session root, per-response records, audio tokens, interruption |
+| E12 | Switches to voice | Live session: response 1 calls `lookup_order`, response 2 reads the result and answers; the user interrupts response 3 | session root, per-response records, audio tokens, interruption |
 
 ## 4. The traces
 
@@ -360,6 +362,14 @@ The host handles the approval in one request of its own (span `7a3f1c9e2b4d6081`
         "gen_ai.agent.name": "support",
         "gen_ai.conversation.id": "conv_7Qm2",
         "gen_ai.input.messages": [],
+        "gen_ai.output.messages": [
+          { "role": "assistant", "finish_reason": "stop", "parts": [
+            { "type": "reasoning", "content_sha256": "#e4.c1.think" },
+            { "type": "tool_call", "id": "call_e4_1", "name": "issue_refund", "arguments": { "content_sha256": "#e3.c1.args" } },
+            { "type": "reasoning", "content_sha256": "#e4.c2.think" },
+            { "type": "text", "content_sha256": "#e4.c2.text" }
+          ] }
+        ],
         "gen_ai.usage.input_tokens": 6491,
         "gen_ai.usage.cache_read.input_tokens": 6016,
         "gen_ai.usage.output_tokens": 115,
@@ -707,27 +717,33 @@ A session writes each record as soon as it is complete, so a long session never 
 
 ```
 record R1 (written at its turnComplete)                  parent = session span
-generate_content gemini-3.1-flash-live-preview  step 1   [2.100 → 9.870]  OK  stop=generation_complete
+generate_content gemini-3.1-flash-live-preview  step 1   [2.100 → 6.410]  OK  stop=generation_complete
+│  output.type: speech
 │  input.messages:  user: blob audio "#e12.in1"          (one part over the contiguous audio chunks sent)
 │                   user: text "#e12.in1.heard"          (theorem.source: input_transcription)
-│                   tool: tool_call_response "#e12.t1.result"
-│  output.messages: tool_call lookup_order; blob audio "#e12.out1";
-│                   text "#e12.out1.said"                (theorem.source: output_transcription)
-│  usage: input 3,402 (audio 70, text 3,332) output 96 (audio 81, text 15)
-│  events: theorem.wire.request per frame at its send time (the toolResponse included);
-│          theorem.upstream.row per server frame
+│  output.messages: blob audio "#e12.out1"; text "#e12.out1.said" (theorem.source: output_transcription);
+│                   tool_call lookup_order
+│  theorem.output.delivered: the same parts, as the host received them after guardrails
+│  usage: input 3,402 (audio 70, text 3,332) output 41 (audio 33, text 8)
+│  events: theorem.wire.request per frame at its send time; theorem.upstream.row per server frame
 │
 └─ record T1 (written when the call settles)             parent = R1's span
    execute_tool lookup_order                             OK
 
 record R2 (written at its turnComplete)                  parent = session span
-generate_content …  step 2                               UNSET  stop=interrupted
+generate_content …  step 2                               [6.380 → 9.870]  OK  stop=generation_complete
+   input.messages:  tool: tool_call_response "#e12.t1.result"   (sent as R1 completed; R2 reads it)
+   output.messages: blob audio "#e12.out2"; text "#e12.out2.said"
+   events: theorem.wire.request { the toolResponse frame } at its send time
+
+record R3 (written at its turnComplete)                  parent = session span
+generate_content …  step 3                               UNSET  stop=interrupted
    output.messages: the audio and transcript produced before the barge-in; no finish_reason
    usage: as reported (Live reports per response); estimated sides listed when it did not report
 
 record S (written at close)                              parent = the host's traceparent
-invoke_agent support.voice                               [0.000 → 48.200]  OK  theorem.steps=2
-   gen_ai.usage.* = sum of R1 and R2
+invoke_agent support.voice                               [0.000 → 48.200]  OK  theorem.steps=3
+   gen_ai.usage.* = sum of R1, R2 and R3
    events: theorem.wire.request { setup frame }; theorem.upstream.row { setupComplete }
            theorem.session { kind: "setup_complete" }
            theorem.session { kind: "voice_activity", activity, audio_offset }
@@ -736,13 +752,14 @@ invoke_agent support.voice                               [0.000 → 48.200]  OK 
 ```
 
 - **Response boundaries:** a response record opens at its first response-scoped event and closes at the provider's `turnComplete`. Each `done` the host receives carries the response span's `traceparent`.
-- **Input is new input only.** A response's `input.messages` holds what was sent since the previous response: realtime audio, text and tool responses. It is never the whole session: with sliding-window compression the provider drops earlier context, so what the model read of the session is unknowable.
+- **Input is new input only.** A response's `input.messages` holds what was sent since the previous response opened: realtime audio, text and tool responses. A tool response belongs to the response after the one that asked: Live completes the asking response as the result lands and answers in a new one. It is never the whole session: with sliding-window compression the provider drops earlier context, so what the model read of the session is unknowable.
 - **Transcripts are labeled.** `theorem.source` says a text part is the provider's transcript, not something anyone typed. Speech heard after the model began answering is input for the next response.
+- **What the host received.** `theorem.output.delivered` on each response is its output as the host received it, after guardrails, beside `output.messages` (what the model produced). A transcript of the user's speech is input, so it stays on `input.messages`.
 - **Tool calls** each write their own record under the response that asked for them. A call the provider cancels is a `theorem.tool.cancel { gen_ai.tool.call.id, gen_ai.tool.name }` event on the response.
 - **Session events** (`theorem.session`) cover `setup_complete`, `session_resumption`, `voice_activity`, `closing_soon` (with `time_left_ms` when the provider gives one), `waiting_for_input`, `working`, `idle` and `closed { code, reason, initiator }`. `initiator` is `host`, `provider` or `theorem`.
 - **The resumption handle is a credential.** Frames are recorded without it, `theorem.request.live` records only `resumed`, and events record only that a handle was issued.
 - **Status:** the session is `ERROR` when it threw or the provider closed it with a code other than 1000 (`error.type` is the code), `UNSET` with `theorem.stop.kind=cancelled` when the host aborted it, and `OK` otherwise.
-- If the Worker is evicted mid-session, R1, T1 and R2 survive and record S is missing. A viewer shows a trace without its root, which is honest.
+- If the Worker is evicted mid-session, R1, T1, R2 and R3 survive and record S is missing. A viewer shows a trace without its root, which is honest. Every response and tool record carries `gen_ai.agent.name` and `gen_ai.conversation.id` itself, so each one still says whose it is.
 
 ## 5. Questions the traces answer
 
@@ -750,7 +767,7 @@ invoke_agent support.voice                               [0.000 → 48.200]  OK 
 |---|---|
 | What exactly did the model see on call N of turn T? | that `chat` span's `system_instructions` + `tool.definitions` + `input.messages` → `content` |
 | What exactly was sent on the wire? | `theorem.wire.request` on each `POST` (on the response for Live), interned body → `content` |
-| What did the user see vs what the model produced? | `output.messages` (model) vs guardrail events (what was withheld or rewritten, by rule and offset) |
+| What did the user see vs what the model produced? | `invoke_agent` `output.messages` (what the host received) vs each call's `output.messages` (what the model produced); guardrail events say which rule withheld or rewrote what, and where |
 | Cost of a conversation / user / day | sum `theorem.usage.cost_usd` over `chat` spans filtered by `gen_ai.conversation.id` / `metadata` / time; `partial` and absent costs are counted separately |
 | Tokens by model, provider, modality, cache hit rate | `chat` span `gen_ai.usage.*` grouped by `request.model` / `provider.name` |
 | How much of the total is estimated? | `theorem.usage.estimated` per call |

@@ -416,6 +416,7 @@ Deno.test('createOpenRouterProvider sends response_format for structured request
   const jsonSchema = rf?.json_schema as Record<string, unknown>;
   assertEquals(jsonSchema?.name, 'htmlTurn');
   assertEquals(jsonSchema?.strict, true);
+  assertEquals(capturedBody?.provider, { require_parameters: true });
 });
 
 Deno.test('createOpenRouterProvider passes web_search_options for googleSearch builtin', async () => {

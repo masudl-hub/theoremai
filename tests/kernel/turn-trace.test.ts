@@ -1,6 +1,6 @@
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { startCallUsage } from '../../src/kernel/engine/runner/usage.ts';
-import { startCallTrace, usageAttributes } from '../../src/kernel/engine/turn-trace.ts';
+import { OutputFold, startCallTrace, usageAttributes } from '../../src/kernel/engine/turn-trace.ts';
 import type { ModelBinding, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
 import {
   type SpanHandle,
@@ -130,6 +130,26 @@ Deno.test('turn trace: a call records what the model read and wrote, before guar
   assertEquals(Object.hasOwn(a, 'theorem.input.sent_from'), false);
 });
 
+Deno.test('turn trace: a tool call is one part; its execution phases add none', () => {
+  const fold = new OutputFold();
+  const call = { callId: 'c1', name: 'fetch_sensor', arguments: { plant: 'fern' } };
+  const events: TurnEvent[] = [
+    { type: 'text', text: 'Checking.' },
+    { type: 'tool', tool: call },
+    { type: 'tool', tool: { ...call, phase: 'running' } },
+    { type: 'tool', tool: { ...call, phase: 'complete', output: { moisture: 0.4 } } },
+    { type: 'text', text: 'Moist.' },
+  ];
+  for (const event of events) {
+    fold.add(event, '1');
+  }
+  assertEquals(fold.parts, [
+    { type: 'text', ...traceContent('Checking.') },
+    { type: 'tool_call', name: 'fetch_sensor', arguments: traceContent('{"plant":"fern"}') },
+    { type: 'text', ...traceContent('Moist.') },
+  ]);
+});
+
 Deno.test('turn trace: a continuation reads the stored interaction and marks where the wire starts', () => {
   const tree = trace();
   const first = startCallUsage('s', { history: [], input: [{ type: 'text', text: 'Hi' }] });
@@ -181,10 +201,11 @@ Deno.test('turn trace: each HTTP try is a POST span with its slot, body and back
     attempt: 0,
   });
   const url = 'https://api.example/v1/interactions?key=secret';
-  call.tap({ eventType: 'http_request', method: 'POST', url, keySlot: 'slotA', body: { a: 1 } });
+  const body = { stream: true };
+  call.tap({ eventType: 'http_request', method: 'POST', url, keySlot: 'slotA', body });
   call.tap({ eventType: 'http_response', status: HTTP_QUOTA, headers: {} });
   call.tap({ eventType: 'http_error_body', body: 'quota' });
-  call.tap({ eventType: 'http_request', method: 'POST', url, keySlot: 'paid', body: { a: 1 } });
+  call.tap({ eventType: 'http_request', method: 'POST', url, keySlot: 'paid', body });
   call.tap({ eventType: 'http_response', status: HTTP_OK, headers: {} });
   call.tap({ event_type: 'interaction.created' });
   call.end({ stop: { kind: 'completed' } });
@@ -211,8 +232,33 @@ Deno.test('turn trace: each HTTP try is a POST span with its slot, body and back
     chat.events.map((e) => e.name),
     ['theorem.upstream.row'],
   );
+  assertEquals(attrs(chat)['gen_ai.request.stream'], true);
   assertEquals(typeof attrs(chat)['gen_ai.response.time_to_first_chunk'], 'number');
   assertEquals(attrs(chat)['theorem.key_slot'], 'paid');
+});
+
+Deno.test('turn trace: a buffered body is not streaming, whatever the request asked', () => {
+  const tree = trace();
+  const call = startCallTrace(under(tree), {
+    req: request({ stream: true }),
+    usage: startCallUsage('s', { history: [], input: [] }),
+    binding,
+    transport: 'openAiCompat',
+    step: 0,
+    attempt: 0,
+  });
+  call.tap({
+    eventType: 'http_request',
+    method: 'POST',
+    url: 'https://api.example/v1/images',
+    body: { model: 'image-test' },
+  });
+  call.tap({ eventType: 'http_response', status: HTTP_OK, headers: {} });
+  call.tap({ data: [{ b64_json: 'aGk=' }] });
+  call.end({ stop: { kind: 'completed' } });
+  const chat = spanNamed(tree.collect(), 'chat gemini-test-flash');
+  assertEquals(attrs(chat)['gen_ai.request.stream'], undefined);
+  assertEquals(attrs(chat)['gen_ai.response.time_to_first_chunk'], undefined);
 });
 
 Deno.test('turn trace: a provider error fails the call; a cancel leaves it unset with no finish', () => {

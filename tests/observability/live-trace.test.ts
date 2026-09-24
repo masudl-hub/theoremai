@@ -10,7 +10,11 @@ import { defineProfile, registerProfile } from '../../src/kernel/registry/profil
 import { registerTool } from '../../src/kernel/tools/registry.ts';
 import type { LiveSession, SessionRequest, TurnEvent } from '../../src/kernel/types.ts';
 import { memorySink } from '../../src/observability/trace.ts';
-import { contentOf, type TraceRecord } from '../../src/observability/trace-record.ts';
+import {
+  contentOf,
+  inlineContent,
+  type TraceRecord,
+} from '../../src/observability/trace-record.ts';
 import type { TraceAttributes, TraceSpan } from '../../src/observability/trace-span.ts';
 import { MockLiveWebSocket } from '../fixtures/live-socket.ts';
 import { HOST_BINDINGS } from '../fixtures/models.ts';
@@ -127,7 +131,7 @@ function partsOf(message: TraceAttributes | undefined): TraceAttributes[] {
 const complete = { serverContent: { turnComplete: true }, usageMetadata: USAGE };
 
 Deno.test('a response is its own record under the session, with what was sent for it', async () => {
-  const harness = await open();
+  const harness = await open({ conversationId: 'conv-live-1' });
   await harness.session.sendText('where is my order');
   await deliver(
     harness,
@@ -144,6 +148,10 @@ Deno.test('a response is its own record under the session, with what was sent fo
   assertEquals([call.traceId, call.parentSpanId], [root.traceId, root.spanId]);
   assertEquals(call.kind, 'CLIENT');
   assertEquals(call.status, { code: 'OK' });
+  assertEquals(call.attributes['gen_ai.request.stream'], true);
+  assertEquals(call.attributes['gen_ai.output.type'], 'speech');
+  assertEquals(call.attributes['gen_ai.agent.name'], PROFILE);
+  assertEquals(call.attributes['gen_ai.conversation.id'], 'conv-live-1');
   const [input] = messages(call, 'gen_ai.input.messages');
   const [text] = partsOf(input);
   assertEquals(input?.role, 'user');
@@ -173,6 +181,36 @@ Deno.test('a response is its own record under the session, with what was sent fo
   );
   const done = events.find((e) => e.type === 'done');
   assertEquals(done?.traceparent, `00-${call.traceId}-${call.spanId}-01`);
+});
+
+Deno.test('a response records what the host received beside what the model produced', async () => {
+  const harness = await open();
+  await harness.session.sendText('read me the note');
+  await deliver(
+    harness,
+    { serverContent: { modelTurn: { parts: [{ text: 'The note says ' }] } } },
+    { serverContent: { modelTurn: { parts: [{ text: harness.session.canary }] } } },
+    complete,
+  );
+  const events = await finish(harness);
+  const [response] = recordNamed(harness.records, 'generate_content');
+  const call = rootOf(response);
+  const hostText = events
+    .filter((e) => e.type === 'text')
+    .map((e) => e.text)
+    .join('');
+  if (!response) throw new Error('no response record');
+  // The gate withheld the canary and the text that led to it; the record shows what got through.
+  assertEquals(
+    events.some((e) => e.type === 'guardrail'),
+    true,
+  );
+  assertEquals(hostText.includes(harness.session.canary), false);
+  assertEquals(inlineContent(response, call.attributes['theorem.output.delivered']), [
+    { role: 'assistant', parts: [{ type: 'text', content: hostText }] },
+  ]);
+  const [produced] = messages(call, 'gen_ai.output.messages');
+  assertEquals(contentOf(response, partsOf(produced)[0])?.startsWith('The note says '), true);
 });
 
 Deno.test('an interrupted response is UNSET with no finish reason, and keeps its usage', async () => {
@@ -223,21 +261,30 @@ Deno.test('a resumption handle is never recorded', async () => {
   assertEquals(resumption, { kind: 'session_resumption', resumable: true, handle_issued: true });
 });
 
-Deno.test('a tool call is its own record under the response that asked, recording what the model reads', async () => {
+Deno.test('a tool call is its own record under the response that asked; the next response reads its result', async () => {
   const harness = await open();
   await deliver(harness, { toolCall: { functionCalls: [{ id: 'c1', name: TOOL, args: {} }] } });
   await harness.session.executeTool({ name: TOOL, callId: 'c1', input: {} });
-  await deliver(harness, complete);
+  // As Live orders it: the asking response completes as the result lands, then the answer.
+  await deliver(
+    harness,
+    complete,
+    { serverContent: { modelTurn: { parts: [{ text: 'It shipped.' }] } } },
+    complete,
+  );
   await finish(harness);
 
   const [toolRecord] = recordNamed(harness.records, 'execute_tool');
-  const [response] = recordNamed(harness.records, 'generate_content');
+  const [asking, response] = recordNamed(harness.records, 'generate_content');
   const tool = rootOf(toolRecord);
+  const asked = rootOf(asking);
   const call = rootOf(response);
-  assertEquals([tool.traceId, tool.parentSpanId], [call.traceId, call.spanId]);
+  assertEquals([tool.traceId, tool.parentSpanId], [asked.traceId, asked.spanId]);
+  assertEquals(messages(asked, 'gen_ai.input.messages'), []);
   assertEquals(tool.attributes['gen_ai.agent.name'], PROFILE);
   const read = toolRecord && contentOf(toolRecord, tool.attributes['gen_ai.tool.call.result']);
-  assertEquals(JSON.parse(read ?? 'null'), { result: { finding: 'shipped', status: 'shipped' } });
+  // The guarded text a turn would send, never the raw output: summary, then the rest of the data.
+  assertEquals(JSON.parse(read ?? 'null'), { result: 'shipped\n{"status":"shipped"}' });
   const sent = messages(call, 'gen_ai.input.messages').find((m) => m.role === 'tool');
   assertEquals(response && contentOf(response, partsOf(sent)[0]?.response), read);
 });

@@ -192,17 +192,19 @@ export function projectForModel(tool: FunctionToolDef, output: unknown): ModelTo
       data: leanToolResultData(output),
     };
   }
-  const finding =
-    typeof output === 'object' && output !== null && 'finding' in output
-      ? String((output as { finding?: unknown }).finding)
-      : JSON.stringify(output);
   const parts =
     isRecord(output) && 'parts' in output ? coerceToolResultParts(output.parts) : undefined;
-  return {
-    finding: sanitizeText(finding),
-    data: leanToolResultData(output),
-    ...(parts ? { parts } : {}),
-  };
+  const lean = leanToolResultData(output);
+  // A tool's own summary leads; the rest of its output follows as data, the summary not repeated.
+  const summarized = isRecord(lean) && 'finding' in lean;
+  const { finding: summary, ...rest } = summarized ? lean : {};
+  const result = summarized
+    ? {
+        finding: String(summary),
+        ...(Object.keys(rest).length > 0 ? { data: rest } : {}),
+      }
+    : modelResultFromOutput(lean);
+  return { ...result, ...(parts ? { parts } : {}) };
 }
 
 /**
@@ -239,12 +241,8 @@ export function formatToolFailureForModel(
     : sanitizeText(failure.message);
   return {
     finding: `Tool error (${failure.code}): ${safe}`,
-    data: {
-      ok: false,
-      code: failure.code,
-      message: safe,
-      ...(failure.details !== undefined ? { details: failure.details } : {}),
-    },
+    // The finding already says the code and message; only details are new.
+    ...(failure.details !== undefined ? { data: { details: failure.details } } : {}),
   };
 }
 

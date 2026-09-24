@@ -11,8 +11,10 @@
  *
  * A response is opened by its first response-scoped event, starts at the first
  * input frame it holds (so its duration includes the time the model spent
- * listening), and holds the input sent since the previous response: realtime input, text, and tool responses
- * sent while no response was open. Its `gen_ai.input.messages` is that input
+ * listening), and holds the input sent since the previous response opened:
+ * realtime input, text, and tool responses. A tool response is read by the
+ * response after the one that asked (the asking one completes as the result
+ * lands), so it is that response's input. Its `gen_ai.input.messages` is that input
  * only, never the whole session: with sliding-window compression the provider
  * drops earlier context, so what the model read of the session is unknowable.
  * Wire frames are recorded where their input is attributed, at the time they
@@ -66,6 +68,7 @@ import {
   type CallTrace,
   errorName,
   guardrailAttributes,
+  OutputFold,
   optional,
   recordException,
   startCallTrace,
@@ -204,6 +207,8 @@ interface OpenResponse {
   call: CallTrace;
   usage: CallUsage;
   input: LiveInput;
+  /** What the host received of its output, after guardrails. */
+  delivered: OutputFold;
   /** The model has begun its output; later input transcription is for the next response. */
   answering: boolean;
   /** `interrupted` outranks `generation_complete`: output stopped before it ended. */
@@ -264,13 +269,7 @@ class LiveTrace {
       this.root.event('theorem.wire.request', { body: traceJson(body) });
       return;
     }
-    const input = liveFrameInput(frame);
-    if ('toolResponse' in frame && this.response) {
-      this.response.input.add(input);
-      this.response.call.span.event('theorem.wire.request', { body: traceJson(body) });
-      return;
-    }
-    this.pendingInput.add(input);
+    this.pendingInput.add(liveFrameInput(frame));
     this.pendingFrames.push({ timeUnixNano: this.root.nowUnixNano(), body });
   };
 
@@ -298,6 +297,16 @@ class LiveTrace {
         this.socketClosed(item.code, item.reason, 'provider');
         return;
     }
+  }
+
+  /**
+   * One event as the host received it. Output reaches the host only after
+   * `receive` opened its response, so every output part lands on the open one;
+   * a transcript of the user's speech is input, recorded where it was heard.
+   */
+  delivered(event: TurnEvent): void {
+    if (event.evidence?.kind === 'input_transcription') return;
+    this.response?.delivered.add(event, this.root.nowUnixNano());
   }
 
   /** A guardrail decision on the model's output: on the open response. */
@@ -453,6 +462,8 @@ class LiveTrace {
       (name, options) => {
         tree = startTrace(name, {
           ...options,
+          // Each record stands alone (the session record may never be written): it names its agent.
+          attributes: { ...this.identity, ...options.attributes },
           traceparent: this.root.traceparent(),
           clock: this.tree.clock,
           ...(startTimeUnixNano ? { startTimeUnixNano } : {}),
@@ -471,6 +482,8 @@ class LiveTrace {
       // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       throw new TheoremError('Live response span was not opened');
     }
+    // A Live response streams over the session socket; no HTTP try says so.
+    call.span.set({ 'gen_ai.request.stream': true });
     for (const frame of this.pendingFrames) {
       call.span.event('theorem.wire.request', { body: traceJson(frame.body) }, frame.timeUnixNano);
     }
@@ -479,6 +492,7 @@ class LiveTrace {
       call,
       usage,
       input: this.pendingInput,
+      delivered: new OutputFold(),
       answering: false,
       complete: false,
     };
@@ -509,6 +523,10 @@ class LiveTrace {
       ? await callTokensEvent(response.usage, bound.generation, bound.family)
       : undefined;
     if (answered) this.held = await heldAfter(response.usage, bound.family);
+    // Beside `output.messages` (what the model produced): what the host received of it.
+    response.call.span.set({
+      'theorem.output.delivered': [{ role: 'assistant', parts: response.delivered.parts }],
+    });
     response.call.end({
       ...(tokens?.tokens ? { tokens: tokens.tokens } : {}),
       stop: end.cancelled ? { kind: 'cancelled' } : response.stop,

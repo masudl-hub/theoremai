@@ -304,7 +304,7 @@ Deno.test('Declarative HTTP Tool executes successfully with auth header and para
 
     assertEquals(requestedUrl, 'https://api.example.com/users/usr_123?includeHistory=true');
     assertEquals(authHeader, 'Bearer valid-secret-token');
-    assertEquals((settlement?.modelResult?.data as { name: string })?.name, 'Alice');
+    assertEquals((settlement?.outputRaw as { name: string })?.name, 'Alice');
 
     const completeEvent = events.find((e) => e.tool?.phase === 'complete');
     assertEquals(Boolean(completeEvent), true);
@@ -444,7 +444,7 @@ Deno.test('Remote MCP Tool executes successfully per 2026-07-28 spec', async () 
     assertEquals(receivedHeaders.accept, 'application/json, text/event-stream');
     assertEquals(receivedHeaders['x-api-key'], 'lin_api_key_xyz');
 
-    const data = settlement?.modelResult?.data as { issueId: string } | undefined;
+    const data = settlement?.outputRaw as { issueId: string } | undefined;
     assertEquals(data?.issueId, 'LIN-101');
     const completeEvent = events.find((e) => e.tool?.phase === 'complete');
     assertEquals(Boolean(completeEvent), true);
@@ -798,10 +798,7 @@ Deno.test('Remote MCP Tool retries unsupported protocol versions then succeeds',
       'call_mcp_retry',
     );
     assertEquals(attempt >= 2, true);
-    assertEquals(
-      (settlement?.modelResult?.data as { issueId?: string } | undefined)?.issueId,
-      'LIN-202',
-    );
+    assertEquals((settlement?.outputRaw as { issueId?: string } | undefined)?.issueId, 'LIN-202');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -862,10 +859,7 @@ Deno.test('Remote MCP Tool retries HTTP 400 unsupported protocol versions then s
     );
     assertEquals(attempt >= 2, true);
     assertEquals(secondProtocol, '2025-11-25');
-    assertEquals(
-      (settlement?.modelResult?.data as { issueId?: string } | undefined)?.issueId,
-      'LIN-400',
-    );
+    assertEquals((settlement?.outputRaw as { issueId?: string } | undefined)?.issueId, 'LIN-400');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -926,7 +920,6 @@ Deno.test('Declarative HTTP Tool post_tool mutate re-validates and replaces what
       events.push(next.value);
     }
     assertEquals(settlement?.outputRaw, { name: 'Alice' });
-    assertEquals((settlement?.modelResult?.data as { ssn?: string })?.ssn, undefined);
     assertEquals(settlement?.modelResult?.modelText?.includes('123-45-6789'), false);
     assertEquals(settlement?.failure, undefined);
     // One terminal event, after post_tool, carrying what the model actually got.

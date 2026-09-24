@@ -298,11 +298,12 @@ export function parseToolOutput<T>(
   return checked;
 }
 
+/**
+ * A result with no summary of its own: the output itself is the finding. It is
+ * not repeated as `data`, which `composeToolText` would append a second time.
+ */
 export function modelResultFromOutput(data: unknown): ModelToolResult {
-  return {
-    finding: typeof data === 'string' ? data : JSON.stringify(data),
-    data,
-  };
+  return { finding: typeof data === 'string' ? data : JSON.stringify(data) };
 }
 
 function failureOutcome(

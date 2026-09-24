@@ -141,14 +141,15 @@ Deno.test('tools mutation helpers project and format model results exactly', () 
   const visible = { exposeToModel: true } as FunctionToolDef;
   const hidden = { exposeToModel: false } as FunctionToolDef;
   assertEquals(projectForModel(hidden, { finding: 'secret' }), { finding: 'Completed.' });
-  assertEquals(projectForModel(visible, { finding: 'hello' }), {
-    finding: 'hello',
-    data: { finding: 'hello' },
-  });
-  assertEquals(projectForModel(visible, { value: 2 }), {
-    finding: '{"value":2}',
-    data: { value: 2 },
-  });
+  assertEquals(projectForModel(visible, { finding: 'hello' }), { finding: 'hello' });
+  assertEquals(projectForModel(visible, { value: 2 }), { finding: '{"value":2}' });
+  // The model reads each result once: no summary means the output is the finding, not repeated.
+  assertEquals(formatToolResult(projectForModel(visible, { value: 2 })), '{"value":2}');
+  assertEquals(formatToolResult(projectForModel(visible, { finding: 'hello' })), 'hello');
+  assertEquals(
+    formatToolResult(projectForModel(visible, { finding: 'hello', n: 1 })),
+    'hello\n{"n":1}',
+  );
   assertEquals(
     projectForModel(visible, {
       finding: 'shortlist',
@@ -162,7 +163,7 @@ Deno.test('tools mutation helpers project and format model results exactly', () 
     }),
     {
       finding: 'shortlist',
-      data: { finding: 'shortlist', items: [{ index: 1 }] },
+      data: { items: [{ index: 1 }] },
       parts: [
         { type: 'text', text: '1. palm' },
         { type: 'image', mimeType: 'image/jpeg', data: '/9j/abc' },
@@ -172,20 +173,19 @@ Deno.test('tools mutation helpers project and format model results exactly', () 
   assertEquals(
     formatToolResult({
       finding: 'shortlist',
-      data: { finding: 'shortlist', items: [{ index: 1 }] },
+      data: { items: [{ index: 1 }] },
       parts: [{ type: 'image', mimeType: 'image/jpeg', data: '/9j/abc' }],
     }),
-    'shortlist\n{"finding":"shortlist","items":[{"index":1}]}',
+    'shortlist\n{"items":[{"index":1}]}',
   );
   assertEquals(formatToolResult({ finding: 'ok' }), 'ok');
   assertEquals(formatToolResult({ finding: 'ok', data: { n: 1 } }), 'ok\n{"n":1}');
   assertEquals(formatToolFailureForModel({ code: 'bad', message: 'no' }), {
     finding: 'Tool error (bad): no',
-    data: { ok: false, code: 'bad', message: 'no' },
   });
   assertEquals(formatToolFailureForModel({ code: 'bad', message: 'no', details: { field: 'x' } }), {
     finding: 'Tool error (bad): no',
-    data: { ok: false, code: 'bad', message: 'no', details: { field: 'x' } },
+    data: { details: { field: 'x' } },
   });
 });
 

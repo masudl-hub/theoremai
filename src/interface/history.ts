@@ -14,6 +14,7 @@ import {
   projectForModel,
 } from '../kernel/tools/execute.ts';
 import { getTool } from '../kernel/tools/registry.ts';
+import { modelResultFromOutput } from '../kernel/tools/remote.ts';
 import type { InteractionPart, TurnBlob, TurnEvent, TurnHistoryMessage } from '../kernel/types.ts';
 import type { TranscriptBlock, UserTurnDraft } from './types.ts';
 
@@ -29,7 +30,7 @@ function toolOutputForHistory(name: string, output: unknown): string {
   if (typeof output === 'object' && output !== null && 'finding' in output) {
     return formatToolResult(output as { finding: string; data?: unknown });
   }
-  return formatToolResult({ finding: JSON.stringify(output), data: output });
+  return formatToolResult(modelResultFromOutput(output));
 }
 
 function blobToPart(blob: TurnBlob): InteractionPart {

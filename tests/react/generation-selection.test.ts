@@ -25,7 +25,7 @@ function binding(
   return (draft) => ({
     ...draft,
     modelBindings: draft.modelBindings.map((entry) =>
-      entry.modelId === modelId ? { ...entry, ...change } : entry
+      entry.modelId === modelId ? { ...entry, ...change } : entry,
     ),
   });
 }
@@ -36,18 +36,18 @@ Deno.test('the first interface seeds its default model and effort', () => {
 
 Deno.test('a pick on the old default effort follows the new default', () => {
   const next = iface(binding('fast', { defaultEffort: 'deep' }));
-  assertEquals(
-    followGenerationDefaults(next, { model: 'fast', effort: 'fast' }, iface()),
-    { model: 'fast', effort: 'deep' },
-  );
+  assertEquals(followGenerationDefaults(next, { model: 'fast', effort: 'fast' }, iface()), {
+    model: 'fast',
+    effort: 'deep',
+  });
 });
 
 Deno.test('a pick on the old default model follows the new one, with its default effort', () => {
   const next = iface((draft) => ({ ...draft, models: { ...draft.models, defaultModel: 'smart' } }));
-  assertEquals(
-    followGenerationDefaults(next, { model: 'fast', effort: 'deep' }, iface()),
-    { model: 'smart', effort: 'normal' },
-  );
+  assertEquals(followGenerationDefaults(next, { model: 'fast', effort: 'deep' }, iface()), {
+    model: 'smart',
+    effort: 'normal',
+  });
 });
 
 Deno.test('a pick off the defaults is kept when they change', () => {
@@ -55,36 +55,39 @@ Deno.test('a pick off the defaults is kept when they change', () => {
     ...binding('smart', { defaultEffort: 'deep' })(draft),
     models: { ...draft.models, defaultModel: 'open' },
   }));
-  assertEquals(
-    followGenerationDefaults(next, { model: 'smart', effort: 'deep' }, iface()),
-    { model: 'smart', effort: 'deep' },
-  );
+  assertEquals(followGenerationDefaults(next, { model: 'smart', effort: 'deep' }, iface()), {
+    model: 'smart',
+    effort: 'deep',
+  });
 });
 
 Deno.test('a picked model follows its own default effort when that changes', () => {
   const next = iface(binding('smart', { defaultEffort: 'deep' }));
-  assertEquals(
-    followGenerationDefaults(next, { model: 'smart', effort: 'normal' }, iface()),
-    { model: 'smart', effort: 'deep' },
-  );
+  assertEquals(followGenerationDefaults(next, { model: 'smart', effort: 'normal' }, iface()), {
+    model: 'smart',
+    effort: 'deep',
+  });
 });
 
 Deno.test('a pick the profile no longer has falls back to the defaults', () => {
   const renamed = iface(
     binding('fast', {
-      efforts: [{ alias: 'fast', level: 'minimal' }, { alias: 'hard', level: 'high' }],
+      efforts: [
+        { alias: 'fast', level: 'minimal' },
+        { alias: 'hard', level: 'high' },
+      ],
     }),
   );
-  assertEquals(
-    followGenerationDefaults(renamed, { model: 'fast', effort: 'deep' }, iface()),
-    { model: 'fast', effort: 'fast' },
-  );
+  assertEquals(followGenerationDefaults(renamed, { model: 'fast', effort: 'deep' }, iface()), {
+    model: 'fast',
+    effort: 'fast',
+  });
   const removed = iface((draft) => ({
     ...draft,
     modelBindings: draft.modelBindings.filter((entry) => entry.modelId !== 'smart'),
   }));
-  assertEquals(
-    followGenerationDefaults(removed, { model: 'smart', effort: 'deep' }, iface()),
-    { model: 'fast', effort: 'fast' },
-  );
+  assertEquals(followGenerationDefaults(removed, { model: 'smart', effort: 'deep' }, iface()), {
+    model: 'fast',
+    effort: 'fast',
+  });
 });

@@ -14,7 +14,12 @@
  * @module
  */
 
-import { isAbortError, toErrorEvent } from '../../guardrails/error.ts';
+import {
+  isAbortError,
+  kindOfHttpStatus,
+  TheoremError,
+  toErrorEvent,
+} from '../../guardrails/error.ts';
 import { turnStopFromOpenAiFinishReason } from '../../kernel/stop.ts';
 import type {
   ModelProvider,
@@ -27,7 +32,7 @@ import { openAiResponse, openAiUsageTokens } from '../openrouter/openai/usage.ts
 import { foldResponse } from '../shared/response-identity.ts';
 import { parseSseStream } from '../shared/sse.ts';
 import { parseToolArgumentsObject } from '../shared/tool-args.ts';
-import { tapFetch } from '../shared/upstream-tap.ts';
+import { networkFetch, tapFetch } from '../shared/upstream-tap.ts';
 import type { LocalProviderConfig } from '../types.ts';
 
 /** Default OpenAI-compat base when the host omits `baseUrl` (Ollama's default port). */
@@ -95,6 +100,7 @@ export function flushPending(pending: Map<number, PendingToolCall>): TurnEvent[]
           phase: 'error',
           failure: {
             code: 'malformed_arguments',
+            kind: 'bad_response',
             message: parsed.error,
             details: { raw: parsed.raw },
           },
@@ -116,19 +122,27 @@ async function* streamComplete(
   req: ProviderCompleteRequest,
   fetchFn: typeof globalThis.fetch,
 ): AsyncGenerator<TurnEvent> {
-  const res = await tapFetch(req.tapUpstream, fetchFn)(`${baseUrl}/v1/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(buildBody(req)),
-    signal: req.signal,
-  });
+  const res = await tapFetch(req.tapUpstream, networkFetch(fetchFn))(
+    `${baseUrl}/v1/chat/completions`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(buildBody(req)),
+      signal: req.signal,
+    },
+  );
   if (!res.ok) {
     const text = await res.text();
-    yield toErrorEvent(`LLM HTTP ${res.status}: ${text.slice(0, 300)}`);
+    yield toErrorEvent(
+      new TheoremError(
+        kindOfHttpStatus(res.status),
+        `LLM HTTP ${res.status}: ${text.slice(0, 300)}`,
+      ),
+    );
     return;
   }
   if (!res.body) {
-    yield toErrorEvent('empty response body');
+    yield toErrorEvent(new TheoremError('bad_response', 'empty response body'));
     return;
   }
   yield* streamOpenAiBody(res.body, req.tapUpstream);

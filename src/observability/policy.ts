@@ -75,7 +75,7 @@ function sinkFromWriteTo(
     );
   }
   if (!isTraceSink(destination)) {
-    throw new TheoremError(`Trace destination '${writeTo}' is not a usable writer`);
+    throw new TheoremError('config', `Trace destination '${writeTo}' is not a usable writer`);
   }
   return bindOnWriteError(destination, policy.onWriteError);
 }

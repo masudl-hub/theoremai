@@ -2,8 +2,10 @@
 /**
  * Copy-manifest lint — P2 enforcement for "Host decides, Theorem runs."
  *
- * Scans **all** of `src/kernel`, `src/guardrails`, and `src/interface` for
- * prose-like string literals (≥3 alphabetic words) outside the lexicon.
+ * Scans **all** of `src/kernel`, `src/guardrails`, `src/interface`, and the
+ * headless React package (`react/src` except `ui/`, the default UI that owns its
+ * own wording) for prose-like string literals (≥3 alphabetic words) outside the
+ * lexicon.
  *
  * Escape hatches (must state a reason):
  *   - `// lexicon-exempt: <reason>` on the same or previous line
@@ -21,7 +23,15 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const SCAN_ROOTS = ['src/kernel', 'src/guardrails', 'src/interface'];
+const SCAN_ROOTS = [
+  'src/kernel',
+  'src/guardrails',
+  'src/interface',
+  'react/src/client',
+  'react/src/components',
+  'react/src/hooks',
+  'react/src/server',
+];
 const AUTO_SKIP = new Set(['src/guardrails/lexicon.ts']);
 
 const EXEMPT_LINE_RE = /lexicon-exempt\s*:/;
@@ -33,7 +43,7 @@ function walk(dir) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) out.push(...walk(full));
-    else if (entry.isFile() && entry.name.endsWith('.ts')) out.push(full);
+    else if (entry.isFile() && /\.tsx?$/.test(entry.name)) out.push(full);
   }
   return out;
 }
@@ -145,4 +155,4 @@ if (violations.length) {
   process.exit(1);
 }
 
-console.log('copy-lint: ok (full tree: src/kernel, src/guardrails, src/interface)');
+console.log(`copy-lint: ok (full tree: ${SCAN_ROOTS.join(', ')})`);

@@ -490,6 +490,7 @@ export const DYNAMIC_FIELD_PARENTS: ReadonlySet<string> = new Set([
   'models',
   'models.*.efforts',
   'identity.systemByRole',
+  'lexicon',
   'inputs.slots',
   'inputs.limitsByMime',
   'outputs.validation.fields',
@@ -853,10 +854,6 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withProfileTypes({
     'Host-owned validator function for this structured output field.',
   ),
   'outputs.validation.maxRetries': field('number', 'Repair-turn ceiling after a validator reject.'),
-  'outputs.validation.repairGuidance': field(
-    'string',
-    'Instruction appended on a validation repair turn.',
-  ),
   'outputs.streaming': field('ProfileStreamingSpec', 'How the turn emits live events.'),
   'outputs.streaming.mode': field(
     unionType(STREAM_MODES),
@@ -900,10 +897,6 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withProfileTypes({
     'number',
     'Max continueFrom rounds the kernel accepts (compared to TurnRequest.continuation).',
   ),
-  'turnBehaviour.resumption.continueInstruction': field(
-    'string',
-    'Host replacement for the continue user message on continueFrom turns. Omitted: registered default.',
-  ),
   'turnBehaviour.allowSteering': field(
     'boolean',
     'Text and live. When true (default), host onStage inject affordances are applied. Image/speech must omit.',
@@ -917,17 +910,9 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withProfileTypes({
     'Host HTTP helper — not enforced inside runTurn.',
   ),
   'guardrails.quota.perDay': field('number', 'Daily turn cap used by host quota middleware.'),
-  'guardrails.quota.message': field(
-    'string',
-    'Host copy surfaced by quotaExhausted when the quota trips. The kernel ships no fallback.',
-  ),
   'guardrails.canary': field(
-    'boolean | CanaryGuardrailSpec',
-    'Per-turn canary token bound to system prompt. Default true; set false to opt out; object form supplies bindNote.',
-  ),
-  'guardrails.canary.bindNote': field(
-    'string',
-    'Host template appended to the system prompt; must contain the {canary} placeholder. Omitted: registered default.',
+    'boolean',
+    "Per-turn canary token bound to system prompt. Default true; set false to opt out. The bind note is lexicon 'canary.bind_note'.",
   ),
   'guardrails.sanitizeInput': field('boolean', 'Strip inbound injection spans.'),
   'guardrails.redactSensitive': field('boolean', 'Redact sensitive spans.'),
@@ -945,14 +930,10 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withProfileTypes({
     EGRESS_ON_BLOCK,
     {
       reject_to_agent: 'Feeds rejection error back to model for automatic repair turn.',
-      refuse_to_user: 'Halts turn immediately and returns refusal to user.',
+      refuse_to_user: 'Halts turn immediately and shows the lexicon egress.refusal line.',
     },
   ),
   'guardrails.egress.maxRetries': field('number', 'Repair-turn ceiling after an egress block.'),
-  'guardrails.egress.repairGuidance': field(
-    'string',
-    'Instruction appended on an egress repair turn.',
-  ),
   'guardrails.egress.holdback': field(
     'number',
     'Characters held back mid-stream so enforce sees split matches (default 256).',
@@ -973,10 +954,6 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withProfileTypes({
     'TaintGuardrailSpec',
     'What the turn may still do after reading untrusted remote content.',
   ),
-  'guardrails.taint.advisoryGuidance': field(
-    'string',
-    'Host copy appended to the fence when tool content looks directive. Omitted: the observation is stated without guidance.',
-  ),
   'guardrails.taint.afterRemoteRead': field(
     unionType(TAINT_GATES),
     'Least-severe tool capability refused once the turn has read remote content. Default off.',
@@ -994,6 +971,14 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withProfileTypes({
   'guardrails.disclosure.enforce': field(
     '(state, context) => DecisionDisclosureVerdict | Promise<DecisionDisclosureVerdict>',
     'Allows or blocks the state before it is sent to the decision model.',
+  ),
+  lexicon: field(
+    'LexiconOverrides',
+    "This profile's wording, by lexicon key: user-facing error lines (error.<kind>), notices, and model-facing notes. Wins over overrideLexicon and the defaults.",
+  ),
+  'lexicon.*': field(
+    'string',
+    'The wording for one lexicon key. Keys with placeholders must keep them (canary.bind_note keeps {canary}).',
   ),
   observability: field(
     'ProfileObservabilitySpec',

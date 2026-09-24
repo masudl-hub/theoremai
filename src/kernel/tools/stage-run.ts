@@ -120,7 +120,8 @@ export async function* runPreToolPipeline(args: {
       kind: 'failed',
       failure: {
         code: 'invalid_input',
-        message: lexiconText('tool.input_invalid_after_mutate'),
+        kind: 'bad_response',
+        message: lexiconText('tool.input_invalid_after_mutate', {}, args.ctx.profile.lexicon),
         details: reparsed.error.flatten(),
       },
     };
@@ -160,7 +161,12 @@ async function* runPreToolStages(args: {
     return { ok: false, kind: 'aborted', aborted: applied.abort };
   }
   if (applied.deny) {
-    return { ok: false, kind: 'failed', failure: applied.deny, denied: true };
+    return {
+      ok: false,
+      kind: 'failed',
+      failure: { ...applied.deny, kind: 'blocked' },
+      denied: true,
+    };
   }
   if (applied.confirm) {
     const gate: ToolGate = {

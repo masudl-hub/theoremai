@@ -9,9 +9,8 @@
  */
 
 import { bindCanary } from '../../../guardrails/canary.ts';
-import { isAbortError, throwIfAborted } from '../../../guardrails/error.ts';
+import { isAbortError, throwIfAborted, withPublicWording } from '../../../guardrails/error.ts';
 import { projectGuardrailTurnEvent } from '../../../guardrails/events.ts';
-import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import { sanitizeTurnRequestWithEvents } from '../../../guardrails/sanitize.ts';
 import { resolveTraceWriter } from '../../../observability/policy.ts';
 import { resolveObservabilityPolicy } from '../../../observability/resolve-policy.ts';
@@ -25,7 +24,7 @@ import {
   traceContent,
 } from '../../../observability/trace-span.ts';
 import type { ResolvedObservabilityPolicy } from '../../../observability/types.ts';
-import { getProfile, profileObservability } from '../../registry/profiles.ts';
+import { getProfile, profileLexicon, profileObservability } from '../../registry/profiles.ts';
 import { resolveTurn } from '../../registry/resolve.ts';
 import { cloneTurnToolSnapshot, expandT1Policy } from '../../tools/resolve.ts';
 import type {
@@ -61,8 +60,12 @@ function projectForObs(
   return projectGuardrailTurnEvent(event, policy?.include.guardrailMatchPreview ?? false);
 }
 
-/** Record an event as delivered to the host; every yield to the host passes through here. */
-function deliver(ctx: TraceCtx, out: TurnEvent): TurnEvent {
+/**
+ * Record an event as delivered to the host; every yield to the host passes
+ * through here, so it is where an error gets the user's wording.
+ */
+function deliver(ctx: TraceCtx, event: TurnEvent): TurnEvent {
+  const out = withPublicWording(event, profileLexicon(ctx.req.profile));
   ctx.seen.push(out);
   ctx.delivered.add(out, ctx.root.nowUnixNano());
   return out;
@@ -537,11 +540,7 @@ async function* runTurnBody(ctx: TraceCtx, provider: ModelProvider): AsyncGenera
   const compactionSpec = ctx.compacting ? undefined : getCompactionSpec(profile, gen.model);
   await maybeCompactBefore(ctx, gen, compactionSpec, provider);
 
-  ctx.system = bindCanary(
-    gen.resolvedSystem,
-    ctx.canary,
-    resolveGuardrailPolicy(profile.guardrails).canaryBindNote,
-  );
+  ctx.system = bindCanary(gen.resolvedSystem, ctx.canary, profile.lexicon);
 
   yield* streamTurnEvents(ctx, profile, gen, provider, compactionSpec);
 }

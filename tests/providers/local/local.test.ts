@@ -248,6 +248,7 @@ Deno.test('flushPending emits malformed_arguments on bad tool JSON', () => {
   assertEquals(events.length, 3);
   assertEquals(events[0]?.tool?.phase, 'error');
   assertEquals(events[0]?.tool?.failure?.code, 'malformed_arguments');
+  assertEquals(events[0]?.tool?.failure?.kind, 'bad_response');
   assertEquals(events[1]?.tool?.arguments, { x: 1 });
   assertEquals(events[1]?.tool?.phase, undefined);
   assertEquals(events[2]?.tool?.arguments, {});

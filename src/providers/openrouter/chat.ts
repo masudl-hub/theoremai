@@ -10,15 +10,25 @@
 
 import { createOpenRouter, type OpenRouterChatSettings } from '@openrouter/ai-sdk-provider';
 import {
+  AISDKError,
+  APICallError,
   jsonSchema,
   type LanguageModelUsage,
   type ModelMessage,
+  RetryError,
+  StreamProviderError,
   streamText,
   type TextStreamPart,
   type ToolSet,
   tool,
 } from 'ai';
-import { isAbortError, TheoremError, toErrorEvent } from '../../guardrails/error.ts';
+import {
+  isAbortError,
+  kindOfHttpStatus,
+  TheoremError,
+  toErrorEvent,
+} from '../../guardrails/error.ts';
+import { asRecord } from '../../kernel/engine/record.ts';
 import { reportedTokens, usageCount } from '../../kernel/engine/usage.ts';
 import { turnStopFromOpenAiFinishReason } from '../../kernel/stop.ts';
 import { requireBuiltinWire } from '../../kernel/tools/registry.ts';
@@ -31,8 +41,8 @@ import type {
   WireFunctionTool,
 } from '../../kernel/types.ts';
 import { foldResponse } from '../shared/response-identity.ts';
-import { parseStructuredOutput } from '../shared/structured-output.ts';
-import { tapFetch } from '../shared/upstream-tap.ts';
+import { structuredEvent } from '../shared/structured-output.ts';
+import { networkError, tapFetch } from '../shared/upstream-tap.ts';
 import type { OpenAiGatewayConfig } from '../types.ts';
 import { cacheControlJson } from './cache-control.ts';
 import { openAiGatewayHeaders, resolveResponseFormat } from './openai/compat.ts';
@@ -407,7 +417,7 @@ export function primaryEventFromPart(
       return finishEvent(part, acc);
     case 'error':
       acc.errored = true;
-      return toErrorEvent(part.error);
+      return toErrorEvent(streamPartError(part.error));
     default:
       return undefined;
   }
@@ -441,12 +451,9 @@ export function* finalEvents(
     return;
   }
   if (req.structured && acc.text) {
-    const parsed = parseStructuredOutput(acc.text);
-    if (!parsed.ok) {
-      yield toErrorEvent(new TheoremError(parsed.error));
-      return;
-    }
-    yield { type: 'structured', structured: parsed.structured };
+    const event = structuredEvent(acc.text);
+    yield event;
+    if (event.type === 'error') return;
   }
   yield {
     type: 'done',
@@ -547,10 +554,6 @@ async function* yieldAiSdkStream(
   }
 }
 
-export function missingOpenRouterKey(): TurnEvent {
-  return toErrorEvent('missing OpenRouter API key');
-}
-
 async function* streamOpenRouter(
   req: ProviderCompleteRequest,
   config: OpenAiGatewayConfig,
@@ -572,8 +575,44 @@ async function* streamOpenRouter(
     if (isAbortError(err)) {
       throw err;
     }
-    yield toErrorEvent(err);
+    yield toErrorEvent(sdkError(err));
   }
+}
+
+/**
+ * An AI SDK failure with its kind. A failure that carries OpenRouter's HTTP
+ * status (a call's response, or an error sent mid-stream) reports that
+ * status; a call that got no response could not reach OpenRouter; a
+ * mid-stream error without a status is OpenRouter's own; any other SDK error
+ * is a reply the SDK could not read. Retries report their last failure.
+ */
+function sdkError(err: unknown): unknown {
+  if (RetryError.isInstance(err)) {
+    return sdkError(err.lastError);
+  }
+  if (!AISDKError.isInstance(err)) {
+    return err;
+  }
+  const status = asRecord(err)?.statusCode;
+  const kind =
+    typeof status === 'number'
+      ? kindOfHttpStatus(status)
+      : APICallError.isInstance(err)
+        ? 'network'
+        : StreamProviderError.isInstance(err)
+          ? 'unavailable'
+          : 'bad_response';
+  return new TheoremError(kind, err.message, { cause: err });
+}
+
+/**
+ * A stream's error part with its kind. Besides SDK errors, a body that breaks
+ * mid-read arrives as a plain error: OpenRouter could not be reached.
+ */
+function streamPartError(error: unknown): unknown {
+  return AISDKError.isInstance(error) || RetryError.isInstance(error)
+    ? sdkError(error)
+    : networkError(error);
 }
 
 export function providerOptionsFor(req: ProviderCompleteRequest): ProviderOptions | undefined {

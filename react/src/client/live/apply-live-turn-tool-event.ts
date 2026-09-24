@@ -1,19 +1,25 @@
 import type { TurnEvent } from '../../../../mod.ts';
+import { TheoremStreamError } from '../transport.ts';
 
 type LiveToolEventArgs = {
 	gateOpen: boolean;
 	clearInterim: () => void;
 	clearActiveTool: () => void;
-	setError: (message: string) => void;
+	reportFailure: (err: unknown) => void;
 	setActiveTool: (name: string) => void;
 };
 
 export type { LiveToolEventArgs };
 
-function toolFailureMessage(tool: NonNullable<TurnEvent['tool']>): string {
-	if (tool.failure?.message) return tool.failure.message;
-	if (tool.name) return `Tool '${tool.name}' failed`;
-	return 'Tool call failed';
+/**
+ * A failed tool step as the host reported it: the user reads its wording (else
+ * the lexicon's for its kind); the model's `message` stays builder detail.
+ */
+function toolStepFailure(tool: NonNullable<TurnEvent['tool']>): TheoremStreamError {
+	const failure = tool.failure;
+	return failure
+		? new TheoremStreamError(failure.kind, failure.error, failure.message)
+		: new TheoremStreamError('failed');
 }
 
 function clearToolUnlessGated(args: LiveToolEventArgs): void {
@@ -26,7 +32,7 @@ function applyToolPhase(tool: NonNullable<TurnEvent['tool']>, args: LiveToolEven
 		return;
 	}
 	if (tool.phase === 'error') {
-		args.setError(toolFailureMessage(tool));
+		args.reportFailure(toolStepFailure(tool));
 		clearToolUnlessGated(args);
 		return;
 	}

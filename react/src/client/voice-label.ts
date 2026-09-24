@@ -7,10 +7,10 @@ export function voiceFormatLabel(file: File): string {
 	return ext ? `voice.${ext}` : 'voice.audio';
 }
 
-/** Aria / fallback label for a voice note pill from MIME type. */
-export function voiceLabelFromMime(mime: string): string {
+/** Format label for a voice note pill from MIME type; undefined when the format is unknown. */
+export function voiceLabelFromMime(mime: string): string | undefined {
 	const fromMime = voiceExtensionFromMime(mime.toLowerCase());
-	return fromMime ? `voice.${fromMime}` : 'voice note';
+	return fromMime ? `voice.${fromMime}` : undefined;
 }
 
 function voiceExtensionFromMime(mime: string): string | undefined {

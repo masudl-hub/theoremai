@@ -1,6 +1,6 @@
 import { eventHasCanary, isStreamedCanaryEvent } from '../../../guardrails/canary.ts';
-import { CANARY_HIT } from '../../../guardrails/egress.ts';
-import { publicError, throwIfAborted, toErrorEvent } from '../../../guardrails/error.ts';
+import { CANARY_HIT, WITHHELD_REASON } from '../../../guardrails/egress.ts';
+import { TheoremError, throwIfAborted, toErrorEvent } from '../../../guardrails/error.ts';
 import { guardrailFromHits } from '../../../guardrails/events.ts';
 import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import {
@@ -34,23 +34,10 @@ function shouldSkipStreamEvent(event: TurnEvent, profile: Profile): boolean {
   );
 }
 
-function* processNormalEvent(event: TurnEvent): Generator<TurnEvent> {
-  if (event.type === 'error') {
-    const internal = event.errorInternal ?? event.error ?? '';
-    yield {
-      type: 'error',
-      error: publicError(event.error ?? internal),
-      ...(internal ? { errorInternal: internal } : {}),
-    };
-  } else {
-    yield event;
-  }
-}
-
 /** The offending text never reaches the host: redaction cannot cover a partial or encoded token. */
 function* yieldCanaryLeak(): Generator<TurnEvent> {
   yield* yieldDeltaBlock([CANARY_HIT]);
-  yield toErrorEvent('canary leaked');
+  yield toErrorEvent(new TheoremError('safety', WITHHELD_REASON.canary));
   // The turn ends because our guardrail blocked the output, not because the model finished.
   yield { type: 'done', stop: { kind: 'filtered', native: 'canary' } };
 }
@@ -89,6 +76,7 @@ async function* yieldProviderEvents(args: {
     stage: 'output_final',
     trust: 'untrusted',
     profileId: profile.id,
+    ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
     ...(canary ? { canary } : {}),
   };
   const gate: ProgressiveYieldGate | null = createOutboundProgressiveGate(policy, context);
@@ -133,7 +121,7 @@ async function* yieldProviderEvents(args: {
       return 'pass';
     }
     if (result.emit) {
-      yield* processNormalEvent({ ...template, text: result.emit });
+      yield { ...template, text: result.emit };
     }
     return 'pass';
   }
@@ -142,7 +130,7 @@ async function* yieldProviderEvents(args: {
     event: TurnEvent,
   ): AsyncGenerator<TurnEvent, 'continue' | 'stop'> {
     if (!gate) {
-      yield* processNormalEvent(event);
+      yield event;
       return 'continue';
     }
     if (withholding()) {
@@ -161,7 +149,7 @@ async function* yieldProviderEvents(args: {
       return 'continue';
     }
     if (result.emit) {
-      yield* processNormalEvent({ ...event, text: result.emit });
+      yield { ...event, text: result.emit };
     }
     return 'continue';
   }
@@ -204,7 +192,7 @@ async function* yieldProviderEvents(args: {
     if (event.type === 'error') {
       providerFailed = true;
     }
-    yield* processNormalEvent(event);
+    yield event;
   }
 
   const flushed = yield* flushGate();

@@ -1,6 +1,6 @@
 {
   "name": "@theoremai/agents",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "A flat TypeScript agent kernel for typed profiles, deterministic turn execution, registered tools, provider adapters, guardrails, and host-injected traces.",
   "license": "MIT",
   "repository": {

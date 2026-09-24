@@ -1,5 +1,4 @@
 import '../../../fixtures/test-host.ts';
-import { PUBLIC_UNAVAILABLE } from '../../../../src/guardrails/error.ts';
 import { assertEquals } from '../../../../src/kernel/engine/assert.ts';
 import { resolveTurn } from '../../../../src/kernel/registry/resolve.ts';
 import type { KeyVault, ProviderCompleteRequest, TurnEvent } from '../../../../src/kernel/types.ts';
@@ -15,8 +14,6 @@ import {
   foldPayload,
   newStreamFold,
   openStepEvents,
-  readApiErrorMessage,
-  readNonOkErrorMessage,
 } from '../../../../src/providers/google/interactions/stream.ts';
 import { INTERACTIONS_JSON_URL, INTERACTIONS_URL } from '../../../../src/providers/google/urls.ts';
 import { wrapPcmAsWav } from '../../../../src/providers/shared/pcm.ts';
@@ -523,13 +520,13 @@ Deno.test('non-OK Gemini response becomes an error event', async () => {
   assertEquals(events, [
     {
       type: 'error',
-      error: PUBLIC_UNAVAILABLE,
+      errorKind: 'unavailable',
       errorInternal: 'Gemini HTTP 500: nope',
     },
   ]);
 });
 
-Deno.test('thrown fetch errors become upstream failed', async () => {
+Deno.test('thrown fetch errors become network errors', async () => {
   const provider = createInteractionsProvider({
     vault,
     wait: noWait,
@@ -539,7 +536,7 @@ Deno.test('thrown fetch errors become upstream failed', async () => {
   assertEquals(events, [
     {
       type: 'error',
-      error: PUBLIC_UNAVAILABLE,
+      errorKind: 'network',
       errorInternal: 'fetch failed: dns',
     },
   ]);
@@ -848,6 +845,7 @@ Deno.test('streamed function_call with unparseable arguments becomes a tool fail
   assertEquals(events.length, 1);
   assertEquals(events[0]?.tool?.phase, 'error');
   assertEquals(events[0]?.tool?.failure?.code, 'malformed_arguments');
+  assertEquals(events[0]?.tool?.failure?.kind, 'bad_response');
 });
 
 Deno.test('a step still open when the stream ends waits, then comes out as partial evidence', () => {
@@ -1010,35 +1008,6 @@ Deno.test('foldPayload turns an SSE error event into an error event', () => {
   assertEquals(events.length, 1);
   assertEquals(events[0]?.type, 'error');
   assertEquals(events[0]?.errorInternal, COMBINED_ERROR);
-});
-
-Deno.test('readApiErrorMessage reads only the error object', () => {
-  assertEquals(
-    readApiErrorMessage({ error: { code: 400, message: 'bad', status: 'INVALID_ARGUMENT' } }),
-    'INVALID_ARGUMENT: bad',
-  );
-  assertEquals(readApiErrorMessage({ error: { code: 500 } }), 'Gemini returned an error.');
-  assertEquals(readApiErrorMessage({ error: { message: '' } }), 'Gemini returned an error.');
-  assertEquals(readApiErrorMessage({ error: null }), null);
-  assertEquals(readApiErrorMessage({ error: 'bad' }), null);
-  assertEquals(readApiErrorMessage({ event_type: 'error', message: 'bad' }), null);
-  assertEquals(readApiErrorMessage({ event_type: 'step.delta' }), null);
-});
-
-Deno.test('readNonOkErrorMessage reads the error body, else the raw text, else the status', async () => {
-  assertEquals(await readNonOkErrorMessage(new Response('', { status: 503 })), 'HTTP 503');
-  assertEquals(
-    await readNonOkErrorMessage(new Response('not json', { status: 400 })),
-    'Gemini HTTP 400: not json',
-  );
-  assertEquals(
-    await readNonOkErrorMessage(new Response('{"error":{"message":"bad"}}', { status: 400 })),
-    'bad',
-  );
-  assertEquals(
-    await readNonOkErrorMessage(new Response('{"error":{}}', { status: 400 })),
-    'Gemini returned an error.',
-  );
 });
 
 Deno.test('provider emits error event when SSE stream returns an API error payload', async () => {

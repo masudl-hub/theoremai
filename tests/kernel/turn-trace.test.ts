@@ -273,7 +273,7 @@ Deno.test('turn trace: a provider error fails the call; a cancel leaves it unset
   });
   failed.tap({ eventType: 'http_request', method: 'POST', url: 'https://api.example/x' });
   failed.tap({ eventType: 'http_response', status: 500, headers: {} });
-  failed.observe({ type: 'error', error: 'Try again', errorInternal: 'upstream 500' });
+  failed.observe({ type: 'error', errorKind: 'unavailable', errorInternal: 'upstream 500' });
   failed.end({ stop: { kind: 'provider_error' } });
   const cancelled = startCallTrace(under(tree), {
     req: request(),
@@ -287,8 +287,10 @@ Deno.test('turn trace: a provider error fails the call; a cancel leaves it unset
   cancelled.end({ stop: { kind: 'cancelled' } });
   const calls = tree.collect().filter((s) => s.name.startsWith('generate_content'));
   const [bad, stopped] = calls as [TraceSpan, TraceSpan];
-  assertEquals(bad.status, { code: 'ERROR', message: 'provider_error' });
-  assertEquals(attrs(bad)['error.type'], '500');
+  assertEquals(bad.status, { code: 'ERROR', message: 'unavailable' });
+  assertEquals(attrs(bad)['error.type'], 'unavailable');
+  const [post] = tree.collect().filter((s) => s.parentSpanId === bad.spanId && s.name === 'POST');
+  assertEquals(attrs(post as TraceSpan)['error.type'], '500');
   assertEquals(
     bad.events.map((e) => e.name),
     ['exception'],

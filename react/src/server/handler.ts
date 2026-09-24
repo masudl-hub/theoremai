@@ -21,18 +21,22 @@ import {
 	type CreateProviderOptions,
 	createProvider,
 	defineProfile,
+	errorKind,
 	invokeTool,
+	lexiconText,
 	type ModelProvider,
 	type Profile,
 	type ProfileDefinition,
+	publicError,
 	registerProfile,
 	runTurn,
 	type StageHandler,
+	TheoremError,
 	type TurnEvent,
 	type TurnHistoryMessage,
 	type TurnInput,
 } from '../../../mod.ts';
-import { type ClientTurnOptions, forClient } from '../../../src/host/mod.ts';
+import { type ClientTurnOptions, caughtStatus, forClient, HTTP_METHOD } from '../../../src/host/mod.ts';
 import { toBase64Url } from '../../../src/kernel/mod.ts';
 import {
 	gatedToolFromEvents,
@@ -88,13 +92,12 @@ export type TheoremHandlerOptions = {
 	/** Forwarded to `forClient` when projecting events for the browser. */
 	clientEvents?: ClientTurnOptions;
 	/**
-	 * Called with any error the handler catches. Return a message to show users;
-	 * by default they see a generic message so provider details never leak.
+	 * Called with any error the handler catches, for reporting. Users read the
+	 * profile's lexicon wording for the error's kind, never the error itself.
 	 */
-	onError?: (err: unknown, ctx: { request: Request }) => string | undefined;
+	onError?: (err: unknown, ctx: { request: Request }) => void;
 };
 
-const GENERIC_ERROR = 'Something went wrong. Try again.';
 const STEER_STAGES = new Set(['pre_turn', 'post_tool', 'before_end']);
 const SESSION_COOKIE = 'theorem_session';
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
@@ -103,15 +106,6 @@ const NDJSON_HEADERS = {
 	'content-type': 'application/x-ndjson; charset=utf-8',
 	'cache-control': 'no-store',
 } as const;
-
-class HttpError extends Error {
-	constructor(
-		readonly status: number,
-		message: string,
-	) {
-		super(message);
-	}
-}
 
 type Session = { id: string; setCookie?: string };
 
@@ -137,12 +131,14 @@ async function readJson<T>(request: Request): Promise<T> {
 	// JSON-only POSTs can't be sent by a cross-site form, and force a CORS preflight.
 	const type = request.headers.get('content-type') ?? '';
 	if (!type.toLowerCase().startsWith('application/json')) {
-		throw new HttpError(415, 'Content-Type must be application/json');
+		// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
+		throw new TheoremError('request', 'Content-Type must be application/json');
 	}
 	try {
 		return (await request.json()) as T;
-	} catch {
-		throw new HttpError(400, 'Request body must be JSON');
+	} catch (cause) {
+		// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
+		throw new TheoremError('request', 'Request body must be JSON', { cause });
 	}
 }
 
@@ -151,21 +147,25 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function assertTurnBody(body: unknown): asserts body is TheoremTurnRequest {
-	if (!isRecord(body) || !isRecord(body.input)) throw new HttpError(400, 'input is required');
+	// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
+	if (!isRecord(body) || !isRecord(body.input)) throw new TheoremError('request', 'input is required');
 }
 
 function assertInvokeBody(body: unknown): asserts body is TheoremInvokeRequest {
 	if (!isRecord(body) || typeof body.gateId !== 'string' || !body.gateId) {
-		throw new HttpError(400, 'gateId is required');
+		// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
+		throw new TheoremError('request', 'gateId is required');
 	}
 }
 
 function assertSteerBody(body: unknown): asserts body is TheoremSteerRequest {
 	if (!isRecord(body) || typeof body.turnId !== 'string' || !body.turnId.trim()) {
-		throw new HttpError(400, 'turnId is required');
+		// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
+		throw new TheoremError('request', 'turnId is required');
 	}
 	if (!Array.isArray(body.inject) || body.inject.length === 0) {
-		throw new HttpError(400, 'inject must be a non-empty array');
+		// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
+		throw new TheoremError('request', 'inject must be a non-empty array');
 	}
 }
 
@@ -259,7 +259,6 @@ function createSessionMutator(store: TheoremSessionStore): SessionMutator {
 type HandlerContext = {
 	options: TheoremHandlerOptions;
 	profile: Profile;
-	iface: ProfileInterface;
 	inbox: SteerInbox;
 	sessions: SessionMutator;
 };
@@ -267,13 +266,19 @@ type HandlerContext = {
 async function sessionOf(ctx: HandlerContext, request: Request): Promise<Session> {
 	if (!ctx.options.session) return cookieSession(request);
 	const id = (await ctx.options.session(request))?.trim();
-	if (!id) throw new HttpError(401, 'Sign in to continue.');
+	if (!id) {
+		// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
+		throw new TheoremError('auth', 'the session resolver refused the request', {
+			copy: { key: 'session.sign_in' },
+		});
+	}
 	return { id };
 }
 
+/** Reports the error to the host, then words it for the user from the profile's lexicon. */
 function publicMessage(ctx: HandlerContext, err: unknown, request: Request): string {
-	if (err instanceof HttpError) return err.message;
-	return ctx.options.onError?.(err, { request }) ?? GENERIC_ERROR;
+	ctx.options.onError?.(err, { request });
+	return publicError(err, ctx.profile.lexicon);
 }
 
 function eventStream(ctx: HandlerContext, request: Request, source: () => AsyncIterable<TurnEvent>): Response {
@@ -287,7 +292,9 @@ function eventStream(ctx: HandlerContext, request: Request, source: () => AsyncI
 				}
 			} catch (err) {
 				if (!request.signal.aborted) {
-					controller.enqueue(line({ type: 'error', error: publicMessage(ctx, err, request) }));
+					controller.enqueue(
+						line({ type: 'error', error: publicMessage(ctx, err, request), errorKind: errorKind(err) }),
+					);
 				}
 			}
 			controller.close();
@@ -426,7 +433,12 @@ async function* invokeEvents(
 		);
 		return { pending, permissions: [...state.permissions] };
 	});
-	if (!approved) throw new HttpError(409, 'That tool call is no longer waiting for approval.');
+	if (!approved) {
+		// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
+		throw new TheoremError('request', `gate ${body.gateId} is not pending`, {
+			copy: { key: 'session.gate_expired' },
+		});
+	}
 	const { pending, permissions } = approved;
 	const events = invokeTool({
 		profile: ctx.profile.id,
@@ -452,17 +464,26 @@ async function* invokeEvents(
 async function steer(ctx: HandlerContext, session: Session, body: unknown): Promise<Response> {
 	assertSteerBody(body);
 	const inject = conversationOnly(body.inject).filter((message) => message.role === 'user');
-	if (!inject.length) throw new HttpError(400, 'inject must contain user messages');
+	// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
+	if (!inject.length) throw new TheoremError('request', 'inject must contain user messages');
 	const accepted = await ctx.inbox.enqueue(inboxKey(session.id, body.turnId.trim()), inject);
-	if (!accepted) throw new HttpError(409, 'That turn is no longer running.');
+	if (!accepted) {
+		// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
+		throw new TheoremError('request', `turn ${body.turnId.trim()} is not running`, {
+			copy: { key: 'session.turn_ended' },
+		});
+	}
 	return jsonResponse(200, { ok: true });
 }
 
 async function route(ctx: HandlerContext, request: Request, session: Session): Promise<Response> {
 	const target = routeOf(request);
-	if (request.method === 'GET' && target === '') return jsonResponse(200, { interface: ctx.iface });
+	if (request.method === 'GET' && target === '') return jsonResponse(200, { interface: clientInterface(ctx.profile) });
 	if (request.method !== 'POST' || target === '') {
-		return jsonResponse(405, { error: 'Method not allowed' });
+		return jsonResponse(HTTP_METHOD, {
+			error: lexiconText('error.request', {}, ctx.profile.lexicon),
+			errorKind: 'request',
+		});
 	}
 	const body = await readJson<unknown>(request);
 	if (target === 'turn') {
@@ -471,7 +492,7 @@ async function route(ctx: HandlerContext, request: Request, session: Session): P
 	}
 	if (target === 'invoke') {
 		assertInvokeBody(body);
-		// Resolve the approval before streaming so a stale one is a 409, not a stream error.
+		// Resolve the approval before streaming so a stale one is a reply status, not a stream error.
 		const events = invokeEvents(ctx, request, session, body);
 		const first = await events.next();
 		return eventStream(ctx, request, async function* () {
@@ -485,13 +506,13 @@ async function route(ctx: HandlerContext, request: Request, session: Session): P
 export function createTheoremHandler(options: TheoremHandlerOptions): (request: Request) => Promise<Response> {
 	const profile = defineProfile(options.profile as ProfileDefinition);
 	if (profile.type === 'live' || profile.type === 'host') {
+		// lexicon-exempt: builder config error at setup; no user sees it
 		throw new Error(`createTheoremHandler serves turn-based profiles; got type '${profile.type}'.`);
 	}
 	registerProfile(profile);
 	const ctx: HandlerContext = {
 		options,
 		profile,
-		iface: clientInterface(profile),
 		inbox: options.steerInbox ?? createMemorySteerInbox(),
 		sessions: createSessionMutator(options.sessionStore ?? createMemorySessionStore()),
 	};
@@ -502,8 +523,11 @@ export function createTheoremHandler(options: TheoremHandlerOptions): (request: 
 			session = await sessionOf(ctx, request);
 			return withSessionCookie(await route(ctx, request, session), session);
 		} catch (err) {
-			const status = err instanceof HttpError ? err.status : 500;
-			return withSessionCookie(jsonResponse(status, { error: publicMessage(ctx, err, request) }), session);
+			const error = publicMessage(ctx, err, request);
+			return withSessionCookie(
+				jsonResponse(caughtStatus(err), { error, errorKind: errorKind(err) }),
+				session,
+			);
 		}
 	};
 }

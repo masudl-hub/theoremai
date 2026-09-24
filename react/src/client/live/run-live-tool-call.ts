@@ -1,4 +1,4 @@
-import { lexiconText } from '../../../../mod.ts';
+import { type LexiconOverrides, lexiconText, TheoremError } from '../../../../mod.ts';
 import type { LiveSessionClient } from '../../client/live-client';
 import type { LiveToolGatePrompt } from '../../client/live/live-tool';
 import { continueGatedToolInvocation, type ToolGateResolution } from '../../client/tool-resume';
@@ -10,13 +10,18 @@ function asOutputRecord(value: unknown, fallback: Record<string, unknown>): Reco
 	return fallback;
 }
 
+/**
+ * Settle a gated call as denied on the relay. The user reads `failure`; the
+ * model reads the relay's output, else the lexicon's `session.tool_denied`.
+ */
 async function settleDeniedTool(args: {
 	client: LiveSessionClient;
 	name: string;
 	callId: string;
 	input: Record<string, unknown>;
-	message: string;
-	setError: (message: string) => void;
+	failure: TheoremError;
+	lexicon: LexiconOverrides;
+	reportFailure: (err: unknown) => void;
 }): Promise<Record<string, unknown>> {
 	const settled = await args.client.executeToolOnRelay({
 		name: args.name,
@@ -24,9 +29,10 @@ async function settleDeniedTool(args: {
 		input: args.input,
 		resume: { granted: false },
 	});
-	const output = asOutputRecord(settled.output, { error: args.message });
-	args.setError(args.message);
-	return 'error' in output ? output : { ...output, error: args.message };
+	const denied = lexiconText('session.tool_denied', { tool: args.name }, args.lexicon);
+	const output = asOutputRecord(settled.output, { error: denied });
+	args.reportFailure(args.failure);
+	return 'error' in output ? output : { ...output, error: denied };
 }
 
 type LiveToolLoopState = {
@@ -44,7 +50,8 @@ async function advanceLiveToolGate(args: {
 	state: LiveToolLoopState;
 	waitForGateDecision: (prompt: LiveToolGatePrompt) => Promise<ToolGateResolution>;
 	setSessionPermissions: (next: string[]) => void;
-	setError: (message: string) => void;
+	lexicon: LexiconOverrides;
+	reportFailure: (err: unknown) => void;
 }): Promise<{ done: true; output: Record<string, unknown> } | { done: false; state: LiveToolLoopState }> {
 	const resolution = await args.waitForGateDecision({
 		toolName: args.name,
@@ -65,8 +72,14 @@ async function advanceLiveToolGate(args: {
 				name: args.name,
 				callId: args.callId,
 				input: args.toolArgs,
-				message: lexiconText('session.tool_denied', { tool: args.name }),
-				setError: args.setError,
+				failure: new TheoremError(
+					'declined',
+					// lexicon-exempt: internal diagnostic; the user reads session.tool_denied
+					`user denied ${args.name}`,
+					{ copy: { key: 'session.tool_denied', params: { tool: args.name } } },
+				),
+				lexicon: args.lexicon,
+				reportFailure: args.reportFailure,
 			}),
 		};
 	}
@@ -102,9 +115,11 @@ export async function runLiveToolCall(args: {
 	sessionPermissions: string[];
 	setSessionPermissions: (next: string[]) => void;
 	waitForGateDecision: (prompt: LiveToolGatePrompt) => Promise<ToolGateResolution>;
-	setError: (message: string) => void;
+	/** The interface's `lexicon`: the profile's wording. */
+	lexicon: LexiconOverrides;
+	reportFailure: (err: unknown) => void;
 }): Promise<Record<string, unknown>> {
-	const { client, name, toolArgs, callId, waitForGateDecision, setError, setSessionPermissions } =
+	const { client, name, toolArgs, callId, waitForGateDecision, lexicon, reportFailure, setSessionPermissions } =
 		args;
 	let state: LiveToolLoopState = {
 		resume: undefined,
@@ -120,20 +135,18 @@ export async function runLiveToolCall(args: {
 			resume: state.resume,
 			credentials: state.credentials,
 		});
-		if (result.status === 'complete') {
-			const output = asOutputRecord(result.output, { result: result.output });
-			const outputError = typeof output.error === 'string' ? output.error : undefined;
-			if (outputError) setError(outputError);
-			return output;
-		}
+		// A failed step reaches the user through its tool event; the output is the model's.
+		if (result.status === 'complete') return asOutputRecord(result.output, { result: result.output });
 		if (!result.gate) {
 			return settleDeniedTool({
 				client,
 				name,
 				callId,
 				input: toolArgs,
-				message: `Tool gated without gate payload for '${name}'.`,
-				setError,
+				// lexicon-exempt: internal diagnostic; the user reads error.bad_response
+				failure: new TheoremError('bad_response', `relay gated ${name} without a gate`),
+				lexicon,
+				reportFailure,
 			});
 		}
 		const stepped = await advanceLiveToolGate({
@@ -145,7 +158,8 @@ export async function runLiveToolCall(args: {
 			state,
 			waitForGateDecision,
 			setSessionPermissions,
-			setError,
+			lexicon,
+			reportFailure,
 		});
 		if (stepped.done) return stepped.output;
 		state = stepped.state;

@@ -76,7 +76,7 @@ function mediaChannelForMime(profile: Profile, mime: string): MediaInputChannel 
 function requireModelBinding(profile: ModelProfile, modelId: ModelId): ModelBinding {
   const binding = profile.models[modelId];
   if (!binding) {
-    throw new TheoremError(`Profile ${profile.id} has no model binding for '${modelId}'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', `Profile ${profile.id} has no model binding for '${modelId}'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return binding;
 }

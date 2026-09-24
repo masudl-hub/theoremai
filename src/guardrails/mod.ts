@@ -33,23 +33,19 @@ export {
   runEnforcer,
   standardEgressEnforce,
 } from './egress.ts';
+export type { ErrorCopy, ErrorKind, TheoremErrorOptions } from './error.ts';
 export {
   describeError,
+  ERROR_KINDS,
+  errorKind,
   isAbortError,
-  PUBLIC_ACTION,
-  PUBLIC_CANARY,
-  PUBLIC_CANCELLED,
-  PUBLIC_FILE_COUNT,
-  PUBLIC_FILE_SIZE,
-  PUBLIC_FILE_TYPE,
-  PUBLIC_GENERIC,
-  PUBLIC_IMAGE_SIZE,
-  PUBLIC_UNAVAILABLE,
+  isTimeoutError,
+  kindOfHttpStatus,
   publicError,
   TheoremError,
   throwIfAborted,
   toErrorEvent,
-  UPSTREAM_FAILED,
+  withPublicWording,
 } from './error.ts';
 export {
   guardrailFromHits,
@@ -64,8 +60,9 @@ export {
   projectGuardrailEvent,
 } from './hits.ts';
 export { injectionSpans } from './injection.ts';
-export type { LexiconKey, LexiconOverrides, LexiconParams } from './lexicon.ts';
+export type { ClientLexiconKey, LexiconKey, LexiconOverrides, LexiconParams } from './lexicon.ts';
 export {
+  CLIENT_LEXICON_KEYS,
   LEXICON_KEYS,
   lexiconDefault,
   lexiconText,
@@ -95,7 +92,7 @@ export {
   createProgressiveYieldGate,
   DEFAULT_HOLDBACK,
 } from './progressive-yield.ts';
-export type { QuotaExhausted, QuotaSlotStatus } from './quota.ts';
+export type { QuotaSlotStatus } from './quota.ts';
 export {
   clientIp,
   quotaExhausted,
@@ -141,7 +138,6 @@ export {
 } from './tool-result.ts';
 export type {
   AdvisoryLevel,
-  CanaryGuardrailSpec,
   EgressEnforcer,
   EgressOnBlock,
   GuardrailAction,

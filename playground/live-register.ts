@@ -6,7 +6,6 @@ export async function registerPlaygroundLiveProfile(payload: PlaygroundRunPayloa
   const data = await postJson<{ profileId: string }>(
     '/api/playground/live/register',
     { profile: payload.profile, customTools: payload.customTools },
-    { failureLabel: 'Live register failed' },
   );
   return data.profileId;
 }

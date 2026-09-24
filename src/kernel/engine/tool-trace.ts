@@ -8,6 +8,7 @@
  * @module
  */
 
+import { errorKind } from '../../guardrails/error.ts';
 import type { ToolOrigin } from '../../guardrails/types.ts';
 import {
   type SpanHandle,
@@ -16,10 +17,9 @@ import {
   traceJson,
 } from '../../observability/trace-span.ts';
 import type { ToolPermission } from '../schema.ts';
-import type { ToolGate } from '../tools/types.ts';
+import type { ToolFailure, ToolGate } from '../tools/types.ts';
 import type { InteractionPart, TurnEvent } from '../types.ts';
 import {
-  errorName,
   guardrailAttributes,
   optional,
   recordException,
@@ -52,8 +52,8 @@ interface ToolCallEnd {
   result?: { text: string; parts?: readonly InteractionPart[] };
   /** The tool's raw output, present only when its body completed. */
   data?: { value: unknown };
-  /** The failure code, on `error`. */
-  errorType?: string;
+  /** The failure, on `error`: its kind (`error.type`) and the tool's code for it. */
+  failure?: Pick<ToolFailure, 'code' | 'kind'>;
   /** Thrown out of the call (not an abort). */
   thrown?: unknown;
 }
@@ -135,7 +135,7 @@ function startToolTrace(
       if (end.thrown !== undefined) recordException(span, end.thrown);
       const errorType =
         end.outcome === 'error'
-          ? (end.errorType ?? (end.thrown === undefined ? undefined : errorName(end.thrown)))
+          ? (end.failure?.kind ?? (end.thrown === undefined ? undefined : errorKind(end.thrown)))
           : undefined;
       span.set({
         ...(end.result ? { 'gen_ai.tool.call.result': traceContent(end.result.text) } : {}),
@@ -144,6 +144,7 @@ function startToolTrace(
           : {}),
         ...(end.data ? { 'theorem.tool.data': traceJson(end.data.value) } : {}),
         'theorem.tool.outcome': end.outcome,
+        ...optional('theorem.tool.failure.code', end.failure?.code),
         ...optional('error.type', errorType),
       });
       const code = OUTCOME_STATUS[end.outcome];

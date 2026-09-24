@@ -8,7 +8,7 @@ Deterministic document-health lint for THEOREM. No waivers. No LLM.
 | --- | --- |
 | CLI | `scripts/docs-truth/cli.mjs` (`lint`, `inventory`, `freshness`) |
 | Export drift | `scripts/docs-truth/export-drift.mjs` (barrel exports vs contracts) |
-| Copy lint | `scripts/docs-truth/copy-lint.mjs` (P2 — full-tree prose in `src/kernel` / `src/guardrails` / `src/interface` must live in the lexicon or carry an explicit exempt) |
+| Copy lint | `scripts/docs-truth/copy-lint.mjs` (P2 — full-tree prose in `src/kernel` / `src/guardrails` / `src/interface` and the headless `react/src` directories (not `ui/`) must live in the lexicon or carry an explicit exempt) |
 | Graph | `docs/_map.mjs` |
 
 ## Ownership
@@ -33,7 +33,7 @@ Deterministic document-health lint for THEOREM. No waivers. No LLM.
 | Owned fallback | Owned files → at least one behavioral section hunk |
 | Evidence | ≥2 supports; behavioral sections require `contract_test` |
 | Export drift | Entry `mod.ts` export names appear in owner contract (checked by `export-drift.mjs`) |
-| Copy lint | Full-tree prose (≥3 words) in `src/kernel` / `src/guardrails` / `src/interface` outside `lexicon.ts` fails (`copy-lint.mjs`); `// lexicon-exempt:` / `lexicon-exempt-file:` require a reason |
+| Copy lint | Full-tree prose (≥3 words) in `src/kernel` / `src/guardrails` / `src/interface` and headless `react/src` (`client`, `components`, `hooks`, `server`) outside `lexicon.ts` fails (`copy-lint.mjs`); `// lexicon-exempt:` / `lexicon-exempt-file:` require a reason |
 
 ## Package vs repo documentation
 

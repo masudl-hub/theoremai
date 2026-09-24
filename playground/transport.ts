@@ -40,16 +40,14 @@ export function createPlaygroundTransport(
       postNdjson('/api/playground/turn', { ...compiled, ...replay, ...body }, onEvent, {
         ...options,
         signal,
-        failureLabel: 'Turn failed',
       }),
     invoke: ({ replay, credentials }, onEvent, signal) =>
       postNdjson('/api/playground/invoke', { ...compiled, ...replay, credentials }, onEvent, {
         ...options,
         signal,
-        failureLabel: 'Invoke failed',
       }),
     async steer(body) {
-      await postJson('/api/playground/turn/steer', body, { ...options, failureLabel: 'Steer failed' });
+      await postJson('/api/playground/turn/steer', body, options);
     },
   };
 }

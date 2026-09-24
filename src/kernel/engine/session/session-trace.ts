@@ -26,7 +26,7 @@
  * @module
  */
 
-import { isAbortError, TheoremError } from '../../../guardrails/error.ts';
+import { errorKind, isAbortError, TheoremError } from '../../../guardrails/error.ts';
 import { resolveTraceWriter } from '../../../observability/policy.ts';
 import { writeTrace } from '../../../observability/trace.ts';
 import { buildRecord } from '../../../observability/trace-record.ts';
@@ -66,7 +66,6 @@ import {
 import type { MediaTokenFamily, TokenCount } from '../token-estimate.ts';
 import {
   type CallTrace,
-  errorName,
   guardrailAttributes,
   OutputFold,
   optional,
@@ -79,9 +78,6 @@ import { sumTokens } from '../usage.ts';
 
 /** Who closed the socket. */
 type LiveCloser = 'host' | 'provider' | 'theorem';
-
-/** The normal WebSocket close code; any other close by the provider is a failure. */
-const NORMAL_CLOSE = 1000;
 
 /** Events that are the model's output: they mark a response as answering. */
 const OUTPUT_EVENTS = new Set<TurnEvent['type']>(['text', 'thought', 'media', 'tool']);
@@ -240,7 +236,7 @@ class LiveTrace {
   private readonly callParents = new Map<string, string>();
   private writes: Promise<void> = Promise.resolve();
   private failure?: Error;
-  private closedBy?: { code: number; initiator: LiveCloser };
+  private socketHasClosed = false;
   private closing?: Promise<void>;
 
   constructor(
@@ -295,6 +291,7 @@ class LiveTrace {
         return;
       case 'closed':
         this.socketClosed(item.code, item.reason, 'provider');
+        this.failure ??= item.error;
         return;
     }
   }
@@ -322,8 +319,8 @@ class LiveTrace {
 
   /** Record the socket closing; the first close is the one that ended the session. */
   socketClosed(code: number, reason: string, initiator: LiveCloser): void {
-    if (this.closedBy) return;
-    this.closedBy = { code, initiator };
+    if (this.socketHasClosed) return;
+    this.socketHasClosed = true;
     this.root.event('theorem.session', { kind: 'closed', code, reason, initiator });
   }
 
@@ -382,8 +379,6 @@ class LiveTrace {
     }
     this.pendingFrames = [];
     const tokens = sumTokens(this.tokens);
-    const providerFailed =
-      this.closedBy?.initiator === 'provider' && this.closedBy.code !== NORMAL_CLOSE;
     this.root.set({
       ...(tokens ? usageAttributes(tokens) : {}),
       'theorem.steps': this.responses,
@@ -391,12 +386,8 @@ class LiveTrace {
     });
     if (thrown !== undefined) {
       recordException(this.root, thrown);
-      this.root.set({ 'error.type': errorName(thrown) });
-      this.root.end({ code: 'ERROR', message: errorName(thrown) });
-    } else if (providerFailed) {
-      const code = String(this.closedBy?.code);
-      this.root.set({ 'error.type': code });
-      this.root.end({ code: 'ERROR', message: code });
+      this.root.set({ 'error.type': errorKind(thrown) });
+      this.root.end({ code: 'ERROR', message: errorKind(thrown) });
     } else {
       this.root.end(aborted ? { code: 'UNSET' } : { code: 'OK' });
     }
@@ -453,7 +444,7 @@ class LiveTrace {
     const bound = this.bound;
     if (!bound) {
       // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      throw new TheoremError('Live trace received a response before it was bound');
+      throw new TheoremError('internal', 'Live trace received a response before it was bound');
     }
     const usage = startCallUsage(bound.system, { history: [], input: [] }, this.held);
     const startTimeUnixNano = this.pendingFrames[0]?.timeUnixNano;
@@ -480,7 +471,7 @@ class LiveTrace {
     );
     if (!tree) {
       // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      throw new TheoremError('Live response span was not opened');
+      throw new TheoremError('internal', 'Live response span was not opened');
     }
     // A Live response streams over the session socket; no HTTP try says so.
     call.span.set({ 'gen_ai.request.stream': true });

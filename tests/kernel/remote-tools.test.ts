@@ -144,6 +144,7 @@ Deno.test('Declarative HTTP Tool preTool deny settles with modelResult + post_to
   }
 
   assertEquals(settlement?.failure?.code, 'not_authorized');
+  assertEquals(settlement?.failure?.kind, 'blocked');
   assertEquals(settlement?.callNotStarted, true);
   assertEquals(Boolean(settlement?.modelResult?.finding?.includes('not_authorized')), true);
   const postTool = events.find((e) => e.type === 'stage' && e.stage === 'post_tool');
@@ -231,6 +232,7 @@ Deno.test('Declarative HTTP Tool triggers SSRF guardrail on private IP without p
 
   const errorEvent = events.find((e) => e.tool?.phase === 'error');
   assertEquals(errorEvent?.tool?.failure?.code, 'network_blocked');
+  assertEquals(errorEvent?.tool?.failure?.kind, 'blocked');
   assertEquals(errorEvent?.tool?.failure?.message.includes('blocked by network guardrail'), true);
 });
 
@@ -349,6 +351,7 @@ Deno.test('Declarative HTTP Tool fails when required path param is missing', asy
 
   const err = events.find((e) => e.tool?.phase === 'error');
   assertEquals(err?.tool?.failure?.code, 'invalid_input');
+  assertEquals(err?.tool?.failure?.kind, 'bad_response');
   assertEquals(err?.tool?.failure?.message.includes('Missing required path parameter'), true);
 });
 
@@ -641,6 +644,10 @@ Deno.test('Remote MCP Tool reports invalid input and network blocks', async () =
     invalid.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.code,
     'invalid_input',
   );
+  assertEquals(
+    invalid.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.kind,
+    'bad_response',
+  );
 
   resetTools();
   registerTool({
@@ -671,6 +678,7 @@ Deno.test('Remote MCP Tool reports invalid input and network blocks', async () =
     events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.code,
     'network_blocked',
   );
+  assertEquals(events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.kind, 'blocked');
 });
 
 Deno.test('Remote MCP Tool surfaces RPC, tool, HTTP, and schema failures', async () => {
@@ -695,6 +703,10 @@ Deno.test('Remote MCP Tool surfaces RPC, tool, HTTP, and schema failures', async
       rpcErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.code,
       'mcp_rpc_error_-32000',
     );
+    assertEquals(
+      rpcErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.kind,
+      'failed',
+    );
 
     globalThis.fetch = (() =>
       Promise.resolve(
@@ -712,6 +724,18 @@ Deno.test('Remote MCP Tool surfaces RPC, tool, HTTP, and schema failures', async
       toolErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.code,
       'mcp_tool_execution_failed',
     );
+    assertEquals(
+      toolErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.kind,
+      'failed',
+    );
+
+    globalThis.fetch = (() =>
+      Promise.resolve(new Response('no token', { status: 401 }))) as typeof fetch;
+    const authErr = await collectToolRun('linear_issue', input, 'call_mcp_auth_err');
+    assertEquals(
+      authErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.kind,
+      'auth',
+    );
 
     globalThis.fetch = (() =>
       Promise.resolve(new Response('nope', { status: 500 }))) as typeof fetch;
@@ -719,6 +743,10 @@ Deno.test('Remote MCP Tool surfaces RPC, tool, HTTP, and schema failures', async
     assertEquals(
       httpErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.code,
       'mcp_http_500',
+    );
+    assertEquals(
+      httpErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.kind,
+      'failed',
     );
 
     globalThis.fetch = (() =>
@@ -737,6 +765,10 @@ Deno.test('Remote MCP Tool surfaces RPC, tool, HTTP, and schema failures', async
       schemaErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.code,
       'invalid_output',
     );
+    assertEquals(
+      schemaErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.kind,
+      'bad_response',
+    );
 
     globalThis.fetch = (() => {
       throw new Error('socket reset');
@@ -745,6 +777,10 @@ Deno.test('Remote MCP Tool surfaces RPC, tool, HTTP, and schema failures', async
     assertEquals(
       netErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.code,
       'network_error',
+    );
+    assertEquals(
+      netErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.kind,
+      'network',
     );
   } finally {
     globalThis.fetch = originalFetch;

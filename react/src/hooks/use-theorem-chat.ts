@@ -12,6 +12,7 @@ import {
 	type InterfaceTurnSession,
 	type TranscriptBlock,
 } from '../../../src/interface/mod.ts';
+import type { TurnFailure } from '../client/failure';
 import { applyTurnResultToTranscript } from '../client/index';
 import type { TheoremTransport } from '../client/transport';
 import { type RunTurnStream, useTheoremChatActions } from './use-theorem-chat-actions';
@@ -28,14 +29,6 @@ type TurnOk = {
 	session: InterfaceTurnSession;
 	userBlocks?: TranscriptBlock[];
 	assistantBlocks: TranscriptBlock[];
-};
-
-type TurnFail = {
-	ok: false;
-	error: string;
-	errorInternal?: string;
-	issues?: string[];
-	aborted?: boolean;
 };
 
 /** Seed the session with the profile's default model / effort once the interface loads. */
@@ -77,12 +70,11 @@ function useRunTurnStream(iface: ComposerProfileInterface | null, state: ChatSta
 
 	return useCallback(
 		async (
-			run: (onStream: (partial: TranscriptBlock[]) => void) => Promise<TurnOk | TurnFail>,
+			run: (onStream: (partial: TranscriptBlock[]) => void) => Promise<TurnOk | TurnFailure>,
 			options: { userBlocksAlreadyApplied?: boolean } = {},
 		) => {
 			if (!iface || state.busyRef.current) return;
-			state.setError('');
-			state.setErrorInternal('');
+			state.setFailure(null);
 			state.busyRef.current = true;
 			state.setBusy(true);
 			// A new turn goes live with its user message (onUserBlocks), so the
@@ -106,8 +98,8 @@ function useRunTurnStream(iface: ComposerProfileInterface | null, state: ChatSta
 
 				if (!result.ok) {
 					if (!result.aborted) {
-						state.setError(result.error);
-						state.setErrorInternal(result.errorInternal ?? '');
+						const { error, errorKind, errorInternal } = result;
+						state.setFailure({ error, errorKind, ...(errorInternal ? { errorInternal } : {}) });
 						if (result.issues) state.setIssues(result.issues);
 					}
 					state.setStreamBlocks([]);
@@ -219,9 +211,9 @@ export function useTheoremChat({ transport, iface }: UseTheoremChatOptions) {
 			state.busyRef.current = false;
 			state.setBusy(false);
 			state.setChatStarted(kept.length > 0);
-			state.setSession((prevSession) => branchInterfaceTurnSession(prevSession, kept));
+			state.setSession((prevSession) => branchInterfaceTurnSession(prevSession, kept, iface?.lexicon));
 		},
-		[state],
+		[iface, state],
 	);
 
 	const handlePendingQueue = useCallback(
@@ -241,8 +233,7 @@ export function useTheoremChat({ transport, iface }: UseTheoremChatOptions) {
 		blocks: state.blocks,
 		chatStarted: state.chatStarted,
 		draftText: state.draftText,
-		error: state.error,
-		errorInternal: state.errorInternal,
+		failure: state.failure,
 		issues: state.issues,
 		pendingFiles: state.pendingFiles,
 		pendingMessages: state.pendingMessages,

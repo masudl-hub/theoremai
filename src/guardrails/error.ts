@@ -1,39 +1,32 @@
 /**
- * Public-safe error mapping for THEOREM.
+ * Public-safe errors for THEOREM: two worlds from one fact.
  *
- * Kernel internals may contain provider status text, tool names, or exception
- * details. This module maps those failures to stable user-safe strings from the
- * kernel lexicon (`public.*` keys) so hosts can override them via
- * `overrideLexicon`.
+ * Every failure carries an `ErrorKind`, decided where it happens (a
+ * `TheoremError`, a provider's HTTP status). The builder reads the kind and the
+ * raw detail (`errorKind`, `errorInternal`, the trace's `error.type`); the user
+ * reads the kind's wording (`error.<kind>`), which the profile's `lexicon`, then
+ * `overrideLexicon`, may replace. Nothing is guessed from message text.
  *
  * @module
  */
 
-import { lexiconDefault, lexiconText } from './lexicon.ts';
-import { TheoremError } from './theorem-error.ts';
-
-/** Internal marker for provider or transport failure. */
-const UPSTREAM_FAILED = 'upstream failed';
-
-/** Snapshot of the registered default (ignores host overrides). Stable for tests. */
-const PUBLIC_GENERIC: string = lexiconDefault('public.generic');
-const PUBLIC_UNAVAILABLE: string = lexiconDefault('public.unavailable');
-/** Stable public-safe message used when output exposes a canary token. */
-const PUBLIC_CANARY: string = lexiconDefault('public.canary');
-const PUBLIC_ACTION: string = lexiconDefault('public.action');
-const PUBLIC_FILE_TYPE: string = lexiconDefault('public.file_type');
-const PUBLIC_FILE_SIZE: string = lexiconDefault('public.file_size');
-const PUBLIC_FILE_COUNT: string = lexiconDefault('public.file_count');
-const PUBLIC_IMAGE_SIZE: string = lexiconDefault('public.image_size');
-const PUBLIC_CANCELLED: string = lexiconDefault('public.cancelled');
+import type { ToolCallEvent } from '../kernel/tools/types.ts';
+import type { TurnEvent } from '../kernel/types.ts';
+import { type LexiconOverrides, type LexiconParams, lexiconText } from './lexicon.ts';
+import { type ErrorCopy, type ErrorKind, TheoremError } from './theorem-error.ts';
 
 /** True when `err` is an abort (DOMException or Error named AbortError). */
 function isAbortError(err: unknown): boolean {
-  if (!err || typeof err !== 'object') {
-    return false;
-  }
-  const name = (err as { name?: unknown }).name;
-  return name === 'AbortError';
+  return errorName(err) === 'AbortError';
+}
+
+/** True when `err` is a timeout (`AbortSignal.timeout`, or an abort whose reason is a TimeoutError). */
+function isTimeoutError(err: unknown): boolean {
+  return errorName(err) === 'TimeoutError';
+}
+
+function errorName(err: unknown): unknown {
+  return err && typeof err === 'object' ? (err as { name?: unknown }).name : undefined;
 }
 
 /** Throw if `signal` is already aborted. */
@@ -42,160 +35,59 @@ function throwIfAborted(signal?: AbortSignal): void {
     return;
   }
   const { reason } = signal;
-  if (isAbortError(reason)) {
+  if (isAbortError(reason) || isTimeoutError(reason)) {
     throw reason;
   }
   throw new DOMException('The operation was aborted.', 'AbortError'); // lexicon-exempt: DOM AbortError fingerprint
 }
 
-type PublicKey =
-  | 'public.generic'
-  | 'public.unavailable'
-  | 'public.canary'
-  | 'public.action'
-  | 'public.file_type'
-  | 'public.file_size'
-  | 'public.file_count'
-  | 'public.image_size'
-  | 'public.cancelled'
-  | 'public.bad_request'
-  | 'public.invalid_question';
-
-/** Resolve public copy at call time so `overrideLexicon` takes effect. */
-function publicCopy(key: PublicKey): string {
-  return lexiconText(key);
+/**
+ * The kind of a thrown value. A `TheoremError` names its own; an abort is a
+ * cancel, or a timeout when the signal timed out; anything else escaped every
+ * boundary that names kinds, which is a THEOREM bug.
+ */
+function errorKind(err: unknown): ErrorKind {
+  if (err instanceof TheoremError) return err.kind;
+  if (isTimeoutError(err)) return 'timeout';
+  if (isAbortError(err)) return 'cancelled';
+  return 'internal';
 }
 
-/** Upstream/internal message fingerprints → public lexicon keys (not emit copy). */
-const EXACT: Record<string, PublicKey> = {
-  [UPSTREAM_FAILED]: 'public.unavailable', // lexicon-exempt: internal marker
-  'empty Gemini stream': 'public.unavailable', // lexicon-exempt: upstream fingerprint
-  'canary leaked': 'public.canary', // lexicon-exempt: internal marker
-  'The operation was aborted.': 'public.cancelled', // lexicon-exempt: AbortError fingerprint
-  'This operation was aborted': 'public.cancelled', // lexicon-exempt: AbortError fingerprint
-  'Turn withheld: egress disclosure violation': 'public.canary', // lexicon-exempt: internal marker
-  'expected JSON object': 'public.bad_request', // lexicon-exempt: upstream fingerprint
-  'structured output was not valid JSON': 'public.bad_request', // lexicon-exempt: upstream fingerprint
-  'malformed Gemini Live message': 'public.unavailable', // lexicon-exempt: upstream fingerprint
-  'malformed Gemini Live message during setup': 'public.unavailable', // lexicon-exempt: upstream fingerprint
-  'user input cannot be placed in the system block': 'public.generic', // lexicon-exempt: internal marker
-  'attachment data must be base64': 'public.file_type', // lexicon-exempt: internal marker
-  'attachment is too large': 'public.file_size', // lexicon-exempt: internal marker
-  'attachments exceed the per-turn budget': 'public.file_size', // lexicon-exempt: internal marker
-  'Tool input validation failed': 'public.invalid_question', // lexicon-exempt: internal marker
-  'This profile does not accept text input': 'public.action', // lexicon-exempt: internal marker
-};
-
-interface ErrorRule {
-  match: (text: string) => boolean;
-  resolve: (text: string) => string;
+/** The kind of a provider's non-OK HTTP status. */
+function kindOfHttpStatus(status: number): ErrorKind {
+  if (status === 401 || status === 402 || status === 403) return 'auth';
+  if (status === 408 || status === 504 || status === 524) return 'timeout';
+  if (status === 429) return 'rate_limit';
+  if (status >= 500) return 'unavailable';
+  return 'unsupported';
 }
 
-const RULES: ErrorRule[] = [
-  {
-    match: (t) =>
-      /^(Gemini|OpenRouter|TTS|OpenRouter TTS|Speech) HTTP/.test(t) ||
-      t.includes('TTS HTTP') ||
-      t.includes('Speech HTTP'),
-    resolve: () => publicCopy('public.unavailable'),
-  },
-  {
-    match: (t) =>
-      // lexicon-exempt: substring fingerprints against internal TheoremError messages
-      t.includes('not enabled on this turn') ||
-      t.includes('not allowed') ||
-      t.includes('not registered') ||
-      t.includes('Unknown model select') || // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      t.includes('Grounding tools') ||
-      (t.includes('live.ingress.') && t.includes('is disabled')),
-    resolve: () => publicCopy('public.action'),
-  },
-  {
-    match: (t) =>
-      // lexicon-exempt: substring fingerprints against internal TheoremError messages
-      t.includes('MIME') ||
-      t.includes('does not accept attachments') || // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      t.includes('does not accept voice'), // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    resolve: () => publicCopy('public.file_type'),
-  },
-  {
-    match: (t) => t.startsWith('At most'),
-    resolve: () => publicCopy('public.file_count'),
-  },
-  {
-    match: (t) =>
-      // lexicon-exempt: match already-lexicon attachment copy before remapping
-      (t.startsWith('Only ') && t.includes('file')) ||
-      t.startsWith('Each file must be') || // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      t.startsWith('Those files together'), // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    resolve: (t) => t,
-  },
-  {
-    match: (t) => t.includes('attachment'),
-    resolve: () => publicCopy('public.file_size'),
-  },
-  {
-    // lexicon-exempt: substring fingerprint against internal TheoremError messages
-    match: (t) => t.includes('aspect or size'),
-    resolve: () => publicCopy('public.image_size'),
-  },
-  {
-    match: (t) =>
-      // lexicon-exempt: substring fingerprints against internal TheoremError messages
-      t.includes('must pin thinking') || t.includes('has no models'),
-    resolve: () => publicCopy('public.generic'),
-  },
-];
-
-const PUBLIC_KEYS: readonly PublicKey[] = [
-  'public.generic',
-  'public.unavailable',
-  'public.canary',
-  'public.action',
-  'public.file_type',
-  'public.file_size',
-  'public.file_count',
-  'public.image_size',
-  'public.cancelled',
-  'public.bad_request',
-  'public.invalid_question',
-];
-
-function isAlreadyPublic(text: string): boolean {
-  return PUBLIC_KEYS.some((key) => lexiconText(key) === text || lexiconDefault(key) === text);
+/** The user's wording for a kind: the profile's `lexicon` → `overrideLexicon` → default. */
+function kindText(kind: ErrorKind, lexicon?: LexiconOverrides, params?: LexiconParams): string {
+  return lexiconText(`error.${kind}`, params, lexicon);
 }
 
-function publicText(text: string): string {
-  if (/aborted/i.test(text)) {
-    return publicCopy('public.cancelled');
-  }
-  if (isAlreadyPublic(text)) {
-    return text;
-  }
-  const exact = EXACT[text];
-  if (exact) {
-    return publicCopy(exact);
-  }
-  for (const rule of RULES) {
-    if (rule.match(text)) {
-      return rule.resolve(text);
-    }
-  }
-  return publicCopy('public.generic');
+/**
+ * The user's wording for a failure: its own copy when it carries one (a line per
+ * problem when it carries several), else its kind's.
+ */
+function wording(
+  kind: ErrorKind,
+  copy: ErrorCopy | readonly ErrorCopy[] | undefined,
+  lexicon?: LexiconOverrides,
+): string {
+  if (!copy) return kindText(kind, lexicon);
+  const lines = Array.isArray(copy) ? copy : [copy as ErrorCopy];
+  return lines.map((line) => lexiconText(line.key, line.params, lexicon)).join('\n');
 }
 
-/** Convert an unknown thrown value or internal message to user-safe text. */
-function publicError(err: unknown): string {
-  if (isAbortError(err)) {
-    return publicCopy('public.cancelled');
-  }
-  if (typeof err === 'string') {
-    return publicText(err);
-  }
-  if (err instanceof TheoremError) {
-    return publicText(err.message);
-  }
-  return publicCopy('public.unavailable');
+/**
+ * User-safe text for a thrown value: its own wording when it carries one
+ * (`TheoremError.copy`), else its kind's. Pass the profile's `lexicon` so a
+ * profile's wording wins.
+ */
+function publicError(err: unknown, lexicon?: LexiconOverrides): string {
+  return wording(errorKind(err), err instanceof TheoremError ? err.copy : undefined, lexicon);
 }
 
 /** Raw diagnostic text for hosts, traces, and logs (never shown to end users). */
@@ -210,37 +102,55 @@ function describeError(err: unknown): string {
 }
 
 /**
- * Stream error event with a public-safe `error` and a preserved `errorInternal`.
- * Providers and the runner should emit this instead of public-only error strings
- * so traces and host logs are never a black box.
+ * An error event as a producer knows it: the kind and the raw detail. The
+ * user's wording is added where the event reaches the host
+ * (`withPublicWording`), the one place that knows the profile.
  */
 function toErrorEvent(err: unknown): {
   type: 'error';
-  error: string;
+  errorKind: ErrorKind;
+  errorCopy?: ErrorCopy | readonly ErrorCopy[];
   errorInternal: string;
 } {
   return {
     type: 'error',
-    error: publicError(err),
+    errorKind: errorKind(err),
+    ...(err instanceof TheoremError && err.copy ? { errorCopy: err.copy } : {}),
     errorInternal: describeError(err),
   };
 }
 
+/**
+ * Add the user's wording to an event on its way to the host: an error event's
+ * `error`, and a failed tool step's `failure.error`. Wording already set (host
+ * copy) is kept.
+ */
+function withPublicWording(event: TurnEvent, lexicon?: LexiconOverrides): TurnEvent {
+  if (event.type === 'error' && event.error === undefined) {
+    return { ...event, error: wording(event.errorKind ?? 'internal', event.errorCopy, lexicon) };
+  }
+  const failure = event.tool?.failure;
+  if (event.tool && failure && failure.error === undefined) {
+    const tool: ToolCallEvent = {
+      ...event.tool,
+      failure: { ...failure, error: kindText(failure.kind, lexicon, { tool: event.tool.name }) },
+    };
+    return { ...event, tool };
+  }
+  return event;
+}
+
+export type { ErrorCopy, ErrorKind, TheoremErrorOptions } from './theorem-error.ts';
+export { ERROR_KINDS } from './theorem-error.ts';
 export {
   describeError,
+  errorKind,
   isAbortError,
-  PUBLIC_ACTION,
-  PUBLIC_CANARY,
-  PUBLIC_CANCELLED,
-  PUBLIC_FILE_COUNT,
-  PUBLIC_FILE_SIZE,
-  PUBLIC_FILE_TYPE,
-  PUBLIC_GENERIC,
-  PUBLIC_IMAGE_SIZE,
-  PUBLIC_UNAVAILABLE,
+  isTimeoutError,
+  kindOfHttpStatus,
   publicError,
   TheoremError,
   throwIfAborted,
   toErrorEvent,
-  UPSTREAM_FAILED,
+  withPublicWording,
 };

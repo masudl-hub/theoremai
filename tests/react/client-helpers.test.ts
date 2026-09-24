@@ -24,8 +24,7 @@ import {
   liveTranscriptFromEvidence,
   shouldForwardMicFrame,
 } from '../../react/src/client/live/live-mic-forward.ts';
-import { liveStateLabel } from '../../react/src/client/live/live-state.ts';
-import { transcriptBlockCopyText } from '../../react/src/client/transcript-block-text.ts';
+import { liveState } from '../../react/src/client/live/live-state.ts';
 import {
   assistantTurnTiming,
   composeAssistantTurn,
@@ -33,10 +32,17 @@ import {
   groupTranscriptBlocks,
   pendingPromptOf,
   type TranscriptTurnGroup,
-  workStatusLabel,
+  workStatus,
 } from '../../react/src/client/transcript-groups.ts';
 import { resolveScrollToBottomScrollTop } from '../../react/src/client/transcript-scroll.ts';
 import { voiceFormatLabel, voiceLabelFromMime } from '../../react/src/client/voice-label.ts';
+import {
+  COMPOSER_HINT_LABELS,
+  composerDrawerLabel,
+  liveStateLabel,
+  workStatusLabel,
+} from '../../react/src/ui/labels.ts';
+import { transcriptBlockCopyText } from '../../react/src/ui/transcript-copy-text.ts';
 import { interfaceFromProfile, type TranscriptBlock } from '../../src/interface/mod.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { registerGooglePreset } from '../../src/presets/google.ts';
@@ -83,9 +89,9 @@ Deno.test('transcriptBlockCopyText formats all block kinds', () => {
     transcriptBlockCopyText({
       kind: 'tool',
       id: '6b',
-      tool: { name: 'calc', failure: { code: 'bad', message: 'err' } },
+      tool: { name: 'calc', failure: { code: 'bad', kind: 'failed', message: 'err' } },
     }),
-    'Tool: calc\n\n{\n  "code": "bad",\n  "message": "err"\n}',
+    'Tool: calc\n\n{\n  "code": "bad",\n  "kind": "failed",\n  "message": "err"\n}',
   );
   assertEquals(
     transcriptBlockCopyText({ kind: 'tool', id: '6c', tool: { name: 'calc' } }),
@@ -221,13 +227,18 @@ Deno.test('inkWaveDriver and computeInkBarTargets calculate animations', () => {
   assertEquals(stepped, [0.5, 0.5]);
 });
 
-Deno.test('liveStateLabel maps all states and connect phases', () => {
+/** The default UI's status line for a live call's state. */
+function liveLine(args: Parameters<typeof liveState>[0]): string {
+  return liveStateLabel(liveState(args), args.toolName);
+}
+
+Deno.test('liveState maps all states and connect phases; liveStateLabel words them', () => {
   assertEquals(
-    liveStateLabel({ status: 'ready', connectPhase: null, toolName: 'search', isMuted: false }),
+    liveLine({ status: 'ready', connectPhase: null, toolName: 'search', isMuted: false }),
     'calling search',
   );
   assertEquals(
-    liveStateLabel({
+    liveLine({
       status: 'connecting',
       connectPhase: 'socket',
       toolName: null,
@@ -236,7 +247,7 @@ Deno.test('liveStateLabel maps all states and connect phases', () => {
     'connecting',
   );
   assertEquals(
-    liveStateLabel({
+    liveLine({
       status: 'connecting',
       connectPhase: 'microphone',
       toolName: null,
@@ -245,19 +256,19 @@ Deno.test('liveStateLabel maps all states and connect phases', () => {
     'requesting mic',
   );
   assertEquals(
-    liveStateLabel({ status: 'speaking', connectPhase: null, toolName: null, isMuted: false }),
+    liveLine({ status: 'speaking', connectPhase: null, toolName: null, isMuted: false }),
     'speaking',
   );
   assertEquals(
-    liveStateLabel({ status: 'listening', connectPhase: null, toolName: null, isMuted: false }),
+    liveLine({ status: 'listening', connectPhase: null, toolName: null, isMuted: false }),
     'listening',
   );
   assertEquals(
-    liveStateLabel({ status: 'listening', connectPhase: null, toolName: null, isMuted: true }),
+    liveLine({ status: 'listening', connectPhase: null, toolName: null, isMuted: true }),
     'muted',
   );
   assertEquals(
-    liveStateLabel({
+    liveLine({
       status: 'listening',
       connectPhase: null,
       toolName: null,
@@ -267,15 +278,15 @@ Deno.test('liveStateLabel maps all states and connect phases', () => {
     'connected',
   );
   assertEquals(
-    liveStateLabel({ status: 'connecting', connectPhase: null, toolName: null, isMuted: false }),
+    liveLine({ status: 'connecting', connectPhase: null, toolName: null, isMuted: false }),
     'connecting',
   );
   assertEquals(
-    liveStateLabel({ status: 'error', connectPhase: null, toolName: null, isMuted: false }),
+    liveLine({ status: 'error', connectPhase: null, toolName: null, isMuted: false }),
     'error',
   );
   assertEquals(
-    liveStateLabel({ status: 'disconnected', connectPhase: null, toolName: null, isMuted: false }),
+    liveLine({ status: 'disconnected', connectPhase: null, toolName: null, isMuted: false }),
     'ended',
   );
 });
@@ -286,7 +297,7 @@ Deno.test('voiceFormatLabel and voiceLabelFromMime parse voice formats', () => {
   assertEquals(voiceLabelFromMime('audio/mpeg'), 'voice.mp3');
   assertEquals(voiceLabelFromMime('audio/mp4'), 'voice.m4a');
   assertEquals(voiceLabelFromMime('audio/ogg'), 'voice.ogg');
-  assertEquals(voiceLabelFromMime('application/octet-stream'), 'voice note');
+  assertEquals(voiceLabelFromMime('application/octet-stream'), undefined);
 
   const fileWebm = new File([''], 'test.webm', { type: 'audio/webm' });
   assertEquals(voiceFormatLabel(fileWebm), 'voice.webm');
@@ -383,23 +394,22 @@ Deno.test('shouldForwardMicFrame, liveTranscriptFromEvidence, applyLiveToolTurnE
 Deno.test('composer drawer summary names what is waiting, by kind', () => {
   const kinds = (...list: ('steer' | 'queue' | 'stash')[]) => list.map((kind) => ({ kind }));
   assertEquals(composerDrawerSummary({ pendingMessages: [], attachmentCount: 0 }), null);
-  assertEquals(
-    composerDrawerSummary({ pendingMessages: kinds('queue', 'queue'), attachmentCount: 0 }),
-    {
-      count: 2,
-      label: 'queued',
-    },
-  );
-  assertEquals(composerDrawerSummary({ pendingMessages: [], attachmentCount: 1 }), {
-    count: 1,
-    label: 'attached',
+  const queued = composerDrawerSummary({
+    pendingMessages: kinds('queue', 'queue'),
+    attachmentCount: 0,
   });
+  assertEquals(queued, { count: 2, parts: [{ kind: 'queue', n: 2 }] });
+  assertEquals(queued && composerDrawerLabel(queued), 'queued');
+  const attached = composerDrawerSummary({ pendingMessages: [], attachmentCount: 1 });
+  assertEquals(attached && composerDrawerLabel(attached), 'attached');
+  const mixed = composerDrawerSummary({
+    pendingMessages: kinds('stash', 'queue', 'queue', 'steer'),
+    attachmentCount: 1,
+  });
+  assertEquals(mixed?.count, 5);
   assertEquals(
-    composerDrawerSummary({
-      pendingMessages: kinds('stash', 'queue', 'queue', 'steer'),
-      attachmentCount: 1,
-    }),
-    { count: 5, label: '1 steering · 2 queued · 1 stashed · 1 attached' },
+    mixed && composerDrawerLabel(mixed),
+    '1 steering · 2 queued · 1 stashed · 1 attached',
   );
 });
 
@@ -410,7 +420,7 @@ Deno.test('composer hint suggests stashing only when the whole draft is selected
     canStash: true,
   });
   assertEquals(full?.id, 'stash-selected-draft');
-  assertEquals(full?.message, 'Replacing this?');
+  assertEquals(full && COMPOSER_HINT_LABELS[full.id].message, 'Replacing this?');
   assertEquals(
     resolveComposerHint({ draftText: 'plan the launch', selectedText: 'plan', canStash: true }),
     null,
@@ -483,19 +493,18 @@ Deno.test('composeAssistantTurn keeps a plain reply in the body', () => {
   );
 });
 
-Deno.test('workStatusLabel says Working… while streaming and Worked for <duration> after', () => {
-  assertEquals(workStatusLabel({ streaming: true, hasTrace: false }), 'Working…');
-  assertEquals(workStatusLabel({ streaming: true, hasTrace: true }), 'Working…');
-  assertEquals(workStatusLabel({ streaming: false, hasTrace: false }), '');
-  assertEquals(
-    workStatusLabel({ streaming: false, hasTrace: true, elapsedMs: 2300 }),
-    'Worked for 2.3s',
-  );
-  assertEquals(
-    workStatusLabel({ streaming: false, hasTrace: false, elapsedMs: 2300 }),
-    'Worked for 2.3s',
-  );
-  assertEquals(workStatusLabel({ streaming: false, hasTrace: true }), 'Worked');
+/** The default UI's status line for a turn's work. */
+function workLine(args: Parameters<typeof workStatus>[0]): string {
+  return workStatusLabel(workStatus(args));
+}
+
+Deno.test('workStatus is working while streaming and worked after; workStatusLabel words it', () => {
+  assertEquals(workLine({ streaming: true, hasTrace: false }), 'Working…');
+  assertEquals(workLine({ streaming: true, hasTrace: true }), 'Working…');
+  assertEquals(workLine({ streaming: false, hasTrace: false }), '');
+  assertEquals(workLine({ streaming: false, hasTrace: true, elapsedMs: 2300 }), 'Worked for 2.3s');
+  assertEquals(workLine({ streaming: false, hasTrace: false, elapsedMs: 2300 }), 'Worked for 2.3s');
+  assertEquals(workLine({ streaming: false, hasTrace: true }), 'Worked');
 });
 
 Deno.test('formatAttachmentSize covers B/KB/MB', () => {

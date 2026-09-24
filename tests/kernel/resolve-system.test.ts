@@ -2,13 +2,13 @@ import '../fixtures/test-host.ts';
 import { assertEquals, assertThrows } from '@std/assert';
 import { wrapUserData } from '../../src/guardrails/canary.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
+import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
 import {
   clearProfiles,
   defineProfile,
   registerProfile,
 } from '../../src/kernel/registry/profiles.ts';
 import { resolveTurn } from '../../src/kernel/registry/resolve.ts';
-import { CONTINUE_INSTRUCTION } from '../../src/kernel/stop.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
 const PROFILE_ID = 'resolve-system.test';
@@ -55,7 +55,9 @@ Deno.test('resolveTurn sends the continue instruction as the user message, not s
     continueFrom: { stop: { kind: 'length' } },
   });
   assertEquals(generation.resolvedSystem, 'STATIC_PROFILE_SYSTEM');
-  assertEquals(generation.input, [{ type: 'text', text: wrapUserData(CONTINUE_INSTRUCTION) }]);
+  assertEquals(generation.input, [
+    { type: 'text', text: wrapUserData(lexiconDefault('continue.instruction')) },
+  ]);
 });
 
 Deno.test('resolveTurn rejects input.text on a text continueFrom turn', () => {

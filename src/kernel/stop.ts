@@ -7,8 +7,12 @@
  * @module
  */
 
-import { lexiconDefault } from '../guardrails/lexicon.ts';
-import { CONTINUE_STOP_KINDS, type ContinueStopKind, type TurnStopKind } from './schema.ts';
+import {
+  CONTINUE_STOP_KINDS,
+  type ContinueStopKind,
+  type ProfileType,
+  type TurnStopKind,
+} from './schema.ts';
 
 /** Normalized stop attached to terminal `done` events and host continue requests. */
 export interface TurnStop {
@@ -18,12 +22,10 @@ export interface TurnStop {
 }
 
 /**
- * Default continue user message for text resumeable stops — the registered lexicon
- * default (`continue.instruction`). It rarely needs replacing, but hosts may
- * override it per profile via `turnBehaviour.resumption.continueInstruction`
- * or process-wide via `overrideLexicon`.
+ * Profile types whose continue turn sends the continue instruction. Image and
+ * speech continue by re-sending the host's request unchanged.
  */
-export const CONTINUE_INSTRUCTION: string = lexiconDefault('continue.instruction');
+export const CONTINUE_INSTRUCTION_TYPES: readonly ProfileType[] = ['text'];
 
 /** Default kinds hosts may offer Continue for (= full ContinueStopKind set). */
 export const DEFAULT_ALLOW_CONTINUE: readonly ContinueStopKind[] = CONTINUE_STOP_KINDS;
@@ -56,12 +58,6 @@ export interface ProfileTurnResumptionSpec {
    * When omitted, only kind allowlists apply (no count cap).
    */
   maxContinues?: number;
-  /**
-   * Text profiles only: host replacement for the continue instruction sent as
-   * the user message of a continueFrom turn. Omitted means the registered
-   * default (`CONTINUE_INSTRUCTION`).
-   */
-  continueInstruction?: string;
 }
 
 const CONTINUE_KIND_SET = new Set<string>(CONTINUE_STOP_KINDS);
@@ -96,7 +92,7 @@ export interface ProfileTurnBehaviourSpec {
  * no mid-turn inject to steer.
  */
 export interface MediaTurnBehaviourSpec {
-  resumption?: Omit<ProfileTurnResumptionSpec, 'continueInstruction'>;
+  resumption?: ProfileTurnResumptionSpec;
 }
 
 /** Partial state passed when continuing a resumeable stop. */

@@ -199,7 +199,7 @@ export function buildGeminiLiveSetupMessage(req: ProviderCompleteRequest): Recor
 /** Live carries inline bytes only — provider file references are rejected until support is verified. */
 function inlineMediaPart(part: Exclude<InteractionPart, { type: 'text' }>): InteractionMediaPart {
   if (isMediaRefPart(part)) {
-    throw new TheoremError('media references are not supported on geminiLive');
+    throw new TheoremError('unsupported', 'media references are not supported on geminiLive');
   }
   return part;
 }
@@ -514,6 +514,7 @@ function foldToolCalls(
           phase: 'error',
           failure: {
             code: 'malformed_arguments',
+            kind: 'bad_response',
             message: parsed.error,
             details: { raw: parsed.raw },
           },
@@ -551,7 +552,12 @@ function foldToolCancellations(
     if (!name) {
       // Every observed cancel names a call this connection issued; anything else is a wire change.
       events.push(
-        toErrorEvent(new TheoremError(`Live cancelled a tool call it never issued: ${String(id)}`)),
+        toErrorEvent(
+          new TheoremError(
+            'bad_response',
+            `Live cancelled a tool call it never issued: ${String(id)}`,
+          ),
+        ),
       );
       continue;
     }

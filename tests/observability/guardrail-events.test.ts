@@ -102,7 +102,6 @@ Deno.test('runTurn emits egress guardrail events on block', async () => {
         egress: {
           enforce: standardEgressEnforce,
           onBlock: 'refuse_to_user',
-          repairGuidance: 'scrub',
         },
       },
     }),

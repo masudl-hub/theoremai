@@ -16,11 +16,15 @@ const schemas = new Map<string, StructuredSpec>();
 function registerStructured(id: string, spec: StructuredSpec): void {
   if ('enforced' in spec) {
     throw new TheoremError(
+      'config',
       `registerStructured '${id}': enforced was removed; every structured schema is sent to the model as its response format`, // lexicon-exempt: developer contract error
     );
   }
   if (!spec.jsonSchema || typeof spec.jsonSchema !== 'object' || Array.isArray(spec.jsonSchema)) {
-    throw new TheoremError(`registerStructured '${id}': jsonSchema must be a JSON Schema object`); // lexicon-exempt: developer contract error
+    throw new TheoremError(
+      'config',
+      `registerStructured '${id}': jsonSchema must be a JSON Schema object`, // lexicon-exempt: developer contract error
+    );
   }
   schemas.set(id, spec);
 }
@@ -29,7 +33,7 @@ function registerStructured(id: string, spec: StructuredSpec): void {
 function getStructured(id: string): StructuredSpec {
   const spec = schemas.get(id);
   if (!spec) {
-    throw new TheoremError(`Unknown structured schema '${id}'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', `Unknown structured schema '${id}'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return spec;
 }

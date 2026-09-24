@@ -8,6 +8,7 @@ import type { RedactSpan } from '../observability/spans.ts';
 import { scanTextForCanaryLeak } from './canary.ts';
 import { hitFromSpan } from './hits.ts';
 import { injectionSpans } from './injection.ts';
+import { lexiconText } from './lexicon.ts';
 import { sensitiveSpans } from './sensitive.ts';
 import { textForScan } from './serialize.ts';
 import type {
@@ -45,6 +46,12 @@ function hitsFromSpans(
 
 /** Hits from the bundled outbound policy (canary / sensitive / boundary / injection). */
 /** A canary leak. Never carries the live token — placeholder only. */
+/** Why a reply was withheld, for the builder (`errorInternal`); the user reads `error.safety`. */
+const WITHHELD_REASON = {
+  canary: 'canary leaked',
+  egress: 'Turn withheld: egress disclosure violation', // lexicon-exempt: internal diagnostic — the user reads error.safety
+} as const;
+
 const CANARY_HIT: GuardrailHit = { rule: EGRESS_RULES.canary, severity: 'high', match: '[canary]' };
 
 /** The canary hit, when `text` leaks it. */
@@ -119,11 +126,7 @@ function isVerdict(value: unknown): value is Verdict {
     case 'flag':
       return isGuardrailHits(value.hits);
     case 'block':
-      return (
-        isGuardrailHits(value.hits) &&
-        typeof value.rejection === 'string' &&
-        (value.refusal === undefined || typeof value.refusal === 'string')
-      );
+      return isGuardrailHits(value.hits) && typeof value.rejection === 'string';
     default:
       return false;
   }
@@ -150,7 +153,7 @@ function legacyHits(value: unknown): GuardrailHit[] {
   return hits.length ? hits : [{ rule: EGRESS_RULES.enforcerError, severity: 'high' }];
 }
 
-function normalizeVerdict(value: unknown): Verdict {
+function normalizeVerdict(value: unknown, context: GuardrailContext): Verdict {
   if (isVerdict(value)) {
     return value;
   }
@@ -158,22 +161,17 @@ function normalizeVerdict(value: unknown): Verdict {
     if (!value.blocked) {
       return { action: 'allow' };
     }
-    const text = typeof value.text === 'string' ? value.text : '';
+    const hits = legacyHits(value.hits);
     const rejection =
       typeof value.rejectionMessage === 'string' && value.rejectionMessage.trim()
         ? value.rejectionMessage
-        : 'Egress blocked';
-    return {
-      action: 'block',
-      hits: legacyHits(value.hits),
-      rejection,
-      ...(text.trim() ? { refusal: text } : {}),
-    };
+        : lexiconText('egress.rejection', { rules: hitRules(hits).join(', ') }, context.lexicon);
+    return { action: 'block', hits, rejection };
   }
   return {
     action: 'block',
     hits: [{ rule: EGRESS_RULES.enforcerError, severity: 'high' }],
-    rejection: 'Egress policy returned an invalid verdict shape', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    rejection: lexiconText('egress.invalid_verdict', {}, context.lexicon),
   };
 }
 
@@ -193,9 +191,13 @@ function standardEgressEnforce(payload: OutboundPayload, context: GuardrailConte
     return { action: 'allow' };
   }
   return {
-    action: 'block', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    action: 'block',
     hits,
-    rejection: `Egress blocked: ${hitRules(hits).join(', ')}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    rejection: lexiconText(
+      'egress.rejection',
+      { rules: hitRules(hits).join(', ') },
+      context.lexicon,
+    ),
   };
 }
 
@@ -212,15 +214,23 @@ async function runEnforcer(
   context: GuardrailContext,
 ): Promise<Verdict> {
   try {
-    return normalizeVerdict(await enforce(payload, context));
+    return normalizeVerdict(await enforce(payload, context), context);
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     return {
       action: 'block',
       hits: [{ rule: EGRESS_RULES.enforcerError, severity: 'high' }],
-      rejection: `Egress policy failed to reach a decision: ${detail}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      rejection: lexiconText('egress.policy_failed', { detail }, context.lexicon),
     };
   }
 }
 
-export { CANARY_HIT, canaryHits, collectEgressHits, hitRules, runEnforcer, standardEgressEnforce };
+export {
+  CANARY_HIT,
+  canaryHits,
+  collectEgressHits,
+  hitRules,
+  runEnforcer,
+  standardEgressEnforce,
+  WITHHELD_REASON,
+};

@@ -1,7 +1,6 @@
 import { mapStrings } from '../kernel/engine/tree.ts';
 import type { TurnEvent } from '../kernel/types.ts';
-import { TheoremError } from './error.ts';
-import { lexiconText } from './lexicon.ts';
+import { type LexiconOverrides, lexiconText } from './lexicon.ts';
 import { scanTextOf } from './serialize.ts';
 
 const USER_OPEN = '<user_data>';
@@ -39,21 +38,15 @@ function wrapUserData(text: string): string {
 /**
  * Append the canary bind note to the host's system prompt.
  *
- * The note is mechanism text with an overridable registered default
- * (`canary.bind_note` in the lexicon) or a per-profile template
- * (`guardrails.canary.bindNote`). Either way the template must contain the
- * `{canary}` placeholder — a note without the token binds nothing.
+ * The note is the lexicon's `canary.bind_note`: the profile's `lexicon`, then
+ * `overrideLexicon`, then the default. Every override is checked for the
+ * `{canary}` placeholder when it is set — a note without the token binds nothing.
  */
-function bindCanary(system: string, canary: string, bindNote?: string): string {
+function bindCanary(system: string, canary: string, lexicon?: LexiconOverrides): string {
   if (!canary) {
     return system;
   }
-  if (bindNote !== undefined && !bindNote.includes('{canary}')) {
-    throw new TheoremError(
-      'guardrails.canary.bindNote must contain the {canary} placeholder', // lexicon-exempt: developer contract error
-    );
-  }
-  const note = lexiconText('canary.bind_note', { canary }, bindNote);
+  const note = lexiconText('canary.bind_note', { canary }, lexicon);
   if (!system) {
     return note;
   }

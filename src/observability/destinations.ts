@@ -28,7 +28,7 @@ function jsonlDestination(dir: string): JsonlTraceDestination {
     return { kind: 'jsonl', dir: validateTraceDir(dir) };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    throw new TheoremError(`jsonlDestination ${message}`);
+    throw new TheoremError('config', `jsonlDestination ${message}`);
   }
 }
 
@@ -54,14 +54,17 @@ function isTraceSink(value: TraceDestination): value is TraceSink {
 function registerTraceDestination(id: string, destination: TraceDestination): void {
   const key = id.trim();
   if (!key) {
-    throw new TheoremError('registerTraceDestination requires a non-empty id');
+    throw new TheoremError('config', 'registerTraceDestination requires a non-empty id');
   }
   if (isJsonlTraceDestination(destination)) {
     destinations.set(key, jsonlDestination(destination.dir));
     return;
   }
   if (!isTraceSink(destination)) {
-    throw new TheoremError(`Trace destination '${key}' must be a TraceSink or jsonl destination`);
+    throw new TheoremError(
+      'config',
+      `Trace destination '${key}' must be a TraceSink or jsonl destination`,
+    );
   }
   destinations.set(key, destination);
 }
@@ -75,7 +78,7 @@ function getTraceDestination(id: string): TraceDestination | undefined {
 function requireTraceDestination(id: string): TraceDestination {
   const found = getTraceDestination(id);
   if (!found) {
-    throw new TheoremError(`Trace destination '${id}' is not registered`);
+    throw new TheoremError('config', `Trace destination '${id}' is not registered`);
   }
   return found;
 }

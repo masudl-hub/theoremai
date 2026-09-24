@@ -4,6 +4,7 @@
  * Structured output now travels in the outbound payload.
  */
 import '../fixtures/test-host.ts';
+import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
 import type { Verdict } from '../../src/guardrails/types.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { runTurn } from '../../src/kernel/engine/runner.ts';
@@ -47,7 +48,6 @@ function registerStructuredEgressProfile(id: string, onBlock: 'refuse_to_user'):
                 action: 'block',
                 hits: [{ rule: 'internal_tool_name', severity: 'high' }],
                 rejection: 'Do not mention internal tool names.',
-                refusal: 'That reply was withheld.',
               };
             }
             return { action: 'allow' };
@@ -77,7 +77,7 @@ Deno.test('egress inspects structured output and blocks a leak carried only in J
     events.some((e) => e.type === 'structured'),
     false,
   );
-  assertEquals(events.find((e) => e.type === 'text')?.text, 'That reply was withheld.');
+  assertEquals(events.find((e) => e.type === 'text')?.text, lexiconDefault('egress.refusal'));
 });
 
 Deno.test('egress redact releases the policy text in place of the model output', async () => {

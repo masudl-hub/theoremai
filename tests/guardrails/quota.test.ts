@@ -1,4 +1,6 @@
 import '../fixtures/test-host.ts';
+import { publicError } from '../../src/guardrails/error.ts';
+import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
 import {
   clientIp,
   quotaExhausted,
@@ -7,6 +9,7 @@ import {
   skipQuota,
   takeSlot,
 } from '../../src/guardrails/quota.ts';
+import { caughtStatus } from '../../src/host/reply.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile, getProfile } from '../../src/kernel/registry/profiles.ts';
 import { geminiModels } from '../fixtures/models.ts';
@@ -97,29 +100,29 @@ Deno.test('profile quotas do not share a bucket', () => {
   releaseSlot(chatProfile, ip);
 });
 
-Deno.test('quotaExhausted returns structured data with no kernel English', () => {
-  const image = getProfile('image');
-  assertEquals(quotaExhausted(image), {
-    code: 'quota_exhausted',
-    perDay: 4,
-  });
+Deno.test('quotaExhausted is a rate_limit error the user reads as the quota line', () => {
+  const err = quotaExhausted(getProfile('image'));
+  assertEquals(err?.kind, 'rate_limit');
+  assertEquals(caughtStatus(err), 429);
+  assertEquals(publicError(err), lexiconDefault('quota.exhausted', { perDay: 4 }));
+  assertEquals(
+    publicError(err),
+    "You've reached today's limit of 4 messages. Please come back tomorrow.",
+  );
 });
 
-Deno.test('quotaExhausted includes host message only when set on the profile', () => {
+Deno.test('quotaExhausted wording comes from the profile lexicon', () => {
   const profile = defineProfile({
     type: 'text',
     identity: { handle: 'metered', system: 'test' },
     tools: { allow: [] },
     inputs: { text: true },
     id: 'quota-with-message',
-    guardrails: { quota: { perDay: 2, message: 'Host copy: daily limit reached' } },
+    guardrails: { quota: { perDay: 2 } },
+    lexicon: { 'quota.exhausted': 'Host copy: {perDay} a day' },
     ...geminiModels('gemini35FlashLite'),
   });
-  assertEquals(quotaExhausted(profile), {
-    code: 'quota_exhausted',
-    perDay: 2,
-    message: 'Host copy: daily limit reached',
-  });
+  assertEquals(publicError(quotaExhausted(profile), profile.lexicon), 'Host copy: 2 a day');
 });
 
 Deno.test('quotaExhausted is undefined when the profile omits quota', () => {

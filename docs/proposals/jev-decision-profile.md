@@ -205,11 +205,17 @@ type DecisionFailure =
   | { code: 'permission'; status: 403 }
   | { code: 'rate_limited'; status: 429; retryAfterMs?: number }
   | { code: 'unavailable'; status?: number }
+  | { code: 'network' }
   | { code: 'timeout' }
   | { code: 'cancelled' }
   | { code: 'malformed_response' }
   | { code: 'disclosure_blocked' };
 ```
+
+`DecisionError` is a `TheoremError`: each code reports an error kind
+(`authentication` / `permission` → `auth`, `network` → `network`,
+`malformed_response` → `bad_response`, `disclosure_blocked` → `blocked`, …), so
+`publicError(err, profile.lexicon)` words it like any other failure.
 
 No `TurnEvent` is emitted. A host that wants a user-visible explanation must
 generate or render one on its own explicit path.

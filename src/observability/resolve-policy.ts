@@ -48,10 +48,10 @@ function clampSampleRate(value: number | undefined): number {
     return 1;
   }
   if (!Number.isFinite(value)) {
-    throw new TheoremError('observability.sampleRate must be a finite number');
+    throw new TheoremError('config', 'observability.sampleRate must be a finite number');
   }
   if (value < 0 || value > 1) {
-    throw new TheoremError('observability.sampleRate must be between 0 and 1 inclusive');
+    throw new TheoremError('config', 'observability.sampleRate must be between 0 and 1 inclusive');
   }
   return value;
 }

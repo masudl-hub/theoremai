@@ -1,4 +1,4 @@
-import { TheoremError, UPSTREAM_FAILED } from '../../../src/guardrails/error.ts';
+import { TheoremError } from '../../../src/guardrails/error.ts';
 import { assertEquals } from '../../../src/kernel/engine/assert.ts';
 import { resolveOpenAiGatewayApiKey } from '../../../src/providers/openrouter/resolve-api-key.ts';
 
@@ -55,5 +55,5 @@ Deno.test('resolveOpenAiGatewayApiKey fails closed on empty vault slot', () => {
     thrown = err;
   }
   assertEquals(thrown instanceof TheoremError, true);
-  assertEquals((thrown as Error).message, UPSTREAM_FAILED);
+  assertEquals((thrown as TheoremError).kind, 'auth');
 });

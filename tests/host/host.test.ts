@@ -1,5 +1,5 @@
 import { assertEquals } from '@std/assert';
-import { TheoremError } from '../../src/guardrails/error.ts';
+import { ERROR_KINDS, TheoremError } from '../../src/guardrails/error.ts';
 import {
   caughtStatus,
   flushMintTrace,
@@ -31,8 +31,33 @@ Deno.test('host reply helpers map status codes and JSON bodies', async () => {
   const res = json(HTTP_OK, { ok: true }, { 'Access-Control-Allow-Origin': '*' });
   assertEquals(res.status, HTTP_OK);
   assertEquals(await res.json(), { ok: true });
-  assertEquals(caughtStatus(new TheoremError('bad request')), 400);
   assertEquals(caughtStatus(new Error('boom')), 500);
+  assertEquals(caughtStatus(new DOMException('gone', 'AbortError')), 499);
+});
+
+Deno.test('caughtStatus replies with the status of the error kind', () => {
+  const statuses = Object.fromEntries(
+    ERROR_KINDS.map((kind) => [kind, caughtStatus(new TheoremError(kind, 'synthetic'))]),
+  );
+  assertEquals(statuses, {
+    config: 500,
+    request: 400,
+    input: 422,
+    action: 403,
+    auth: 401,
+    rate_limit: 429,
+    unsupported: 422,
+    unavailable: 503,
+    bad_response: 502,
+    network: 502,
+    timeout: 504,
+    safety: 422,
+    blocked: 403,
+    declined: 409,
+    failed: 502,
+    cancelled: 499,
+    internal: 500,
+  });
   assertEquals(HTTP_BUSY, 429);
   assertEquals(HTTP_METHOD, 405);
   assertEquals(HTTP_NOT_FOUND, 404);

@@ -138,12 +138,12 @@ Deno.test('disclosure block prevents the Jev request', async () => {
 Deno.test('runDecision normalizes Jev HTTP failures', async () => {
   clearProfiles();
   registerProfile(profile());
-  for (const [status, code] of [
-    [400, 'invalid_request'],
-    [401, 'authentication'],
-    [403, 'permission'],
-    [429, 'rate_limited'],
-    [500, 'unavailable'],
+  for (const [status, code, kind] of [
+    [400, 'invalid_request', 'request'],
+    [401, 'authentication', 'auth'],
+    [403, 'permission', 'auth'],
+    [429, 'rate_limited', 'rate_limit'],
+    [500, 'unavailable', 'unavailable'],
   ] as const) {
     const error = await assertRejects(
       () =>
@@ -154,8 +154,25 @@ Deno.test('runDecision normalizes Jev HTTP failures', async () => {
       DecisionError,
     );
     assertEquals(error.code, code);
+    assertEquals(error.kind, kind);
     assertEquals(error.status, status);
   }
+});
+
+Deno.test('runDecision reports a transport failure as a network error', async () => {
+  clearProfiles();
+  registerProfile(profile());
+  const error = await assertRejects(
+    () =>
+      runDecision(request(), {
+        apiKey: 'test-key',
+        fetch: () => Promise.reject(new TypeError('connection reset')),
+      }),
+    DecisionError,
+  );
+  assertEquals(error.code, 'network');
+  assertEquals(error.kind, 'network');
+  assertEquals(error.status, undefined);
 });
 
 Deno.test('invalid local decision questions make no network request', async () => {

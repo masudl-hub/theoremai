@@ -20,8 +20,9 @@ import type {
 import { pcmMediaAsWav } from '../../shared/pcm.ts';
 import { foldResponse } from '../../shared/response-identity.ts';
 import { readSseChunks } from '../../shared/sse.ts';
-import { parseStructuredOutput } from '../../shared/structured-output.ts';
+import { structuredEvent } from '../../shared/structured-output.ts';
 import { parseToolArgumentsObject } from '../../shared/tool-args.ts';
+import { readGeminiApiError, readNonOkError } from '../api-error.ts';
 import { groundingFromDelta } from '../grounding.ts';
 import { fetchGemini, type GeminiTransport } from '../keys.ts';
 import { INTERACTIONS_JSON_URL, INTERACTIONS_URL } from '../urls.ts';
@@ -96,6 +97,7 @@ export function emitToolCallFromRawArguments(
           phase: 'error',
           failure: {
             code: 'malformed_arguments',
+            kind: 'bad_response',
             message: 'function call is missing a name',
             details: { raw: rawArguments },
           },
@@ -115,6 +117,7 @@ export function emitToolCallFromRawArguments(
           phase: 'error',
           failure: {
             code: 'malformed_arguments',
+            kind: 'bad_response',
             message: parsed.error,
             details: { raw: parsed.raw },
           },
@@ -226,11 +229,15 @@ function delivered(events: TurnEvent[], fold: StreamFold): TurnEvent[] {
 function eventsFromStreamRow(payload: Record<string, unknown>, fold: StreamFold): TurnEvent[] {
   if (payload.eventType === 'sse_unparsed') {
     // Every observed Interactions row is a JSON object; anything else is a wire change.
-    return [toErrorEvent(new TheoremError('Interactions stream row was not a JSON object'))];
+    return [
+      toErrorEvent(
+        new TheoremError('bad_response', 'Interactions stream row was not a JSON object'),
+      ),
+    ];
   }
-  const apiError = readApiErrorMessage(payload);
+  const apiError = readGeminiApiError(payload);
   if (apiError) {
-    return [toErrorEvent(new TheoremError(apiError))];
+    return [toErrorEvent(apiError)];
   }
   const grounding = groundingFromDelta(payload);
   const events: TurnEvent[] = grounding ? [grounding] : [];
@@ -292,12 +299,7 @@ export function* finalizeStructured(
   if (!req.structured || !fold.text) {
     return;
   }
-  const parsed = parseStructuredOutput(fold.text);
-  if (!parsed.ok) {
-    yield toErrorEvent(new TheoremError(parsed.error));
-    return;
-  }
-  yield { type: 'structured', structured: parsed.structured };
+  yield structuredEvent(fold.text);
 }
 
 export function isVoiceProfile(req: ProviderCompleteRequest): boolean {
@@ -315,7 +317,9 @@ export function shouldReportMissingSpeechAudio(
 
 /** Speech-role turns must receive real audio; never invent PCM from text bytes. */
 export function* missingSpeechAudioError(): Generator<TurnEvent> {
-  yield toErrorEvent(new TheoremError('speech audio was not returned by the model'));
+  yield toErrorEvent(
+    new TheoremError('bad_response', 'speech audio was not returned by the model'),
+  );
 }
 
 async function* parseInteractionsSse(
@@ -323,7 +327,7 @@ async function* parseInteractionsSse(
   req: ProviderCompleteRequest,
 ): AsyncGenerator<TurnEvent> {
   if (!response.body) {
-    yield toErrorEvent('empty response body');
+    yield toErrorEvent(new TheoremError('bad_response', 'empty response body'));
     return;
   }
   const fold = newStreamFold();
@@ -350,42 +354,6 @@ async function* parseInteractionsSse(
   }
 }
 
-/**
- * The message of an Interactions error: the SSE `error` event
- * (`{ event_type: 'error', error: { code, message } }`) or a non-OK body
- * (`{ error: { code, message, status } }`).
- */
-export function readApiErrorMessage(record: Record<string, unknown>): string | null {
-  const error = asRecord(record.error);
-  if (!error) {
-    return null;
-  }
-  if (typeof error.message === 'string' && error.message.length > 0) {
-    const status = typeof error.status === 'string' ? error.status : null;
-    return status ? `${status}: ${error.message}` : error.message;
-  }
-  return 'Gemini returned an error.';
-}
-
-export async function readNonOkErrorMessage(response: Response): Promise<string> {
-  try {
-    const text = await response.text();
-    if (!text.trim()) return `HTTP ${response.status}`;
-    try {
-      const parsed = JSON.parse(text) as unknown;
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        const msg = readApiErrorMessage(parsed as Record<string, unknown>);
-        if (msg) return msg;
-      }
-    } catch {
-      // JSON parse failed; return raw body below.
-    }
-    return `Gemini HTTP ${response.status}: ${text}`;
-  } catch {
-    return `HTTP ${response.status}`;
-  }
-}
-
 /** POST the request to `url`; a non-2xx status throws with the provider's message. */
 async function postInteractions(
   url: string,
@@ -393,7 +361,7 @@ async function postInteractions(
   transport: GeminiTransport,
 ): Promise<Response> {
   if (!req.keySlot) {
-    throw new TheoremError('Request requires keySlot');
+    throw new TheoremError('config', 'Request requires keySlot');
   }
   const init: RequestInit = {
     method: 'POST',
@@ -403,7 +371,7 @@ async function postInteractions(
   };
   const response = await fetchGemini(url, init, req.keySlot, transport, req.tapUpstream);
   if (response.status !== HTTP_OK) {
-    throw new TheoremError(await readNonOkErrorMessage(response));
+    throw await readNonOkError(response);
   }
   return response;
 }
@@ -415,9 +383,9 @@ async function* fetchInteractionsOnce(
   const response = await postInteractions(INTERACTIONS_JSON_URL, req, transport);
   const text = await response.text();
   const parsed = JSON.parse(text) as Record<string, unknown>;
-  const apiError = readApiErrorMessage(parsed);
+  const apiError = readGeminiApiError(parsed);
   if (apiError) {
-    throw new TheoremError(apiError);
+    throw apiError;
   }
   req.tapUpstream?.(parsed);
   const fold = newStreamFold();

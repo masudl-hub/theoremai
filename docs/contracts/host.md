@@ -39,11 +39,29 @@ slot”).
 | Export | Role |
 | --- | --- |
 | `json(status, body, cors)` | JSON `Response` with merged CORS headers |
-| `caughtStatus(err)` | `400` for `TheoremError`, else `500` |
+| `caughtStatus(err)` | The status of the error's kind (below); an unrecognised throw is `internal` → `500` |
 | `HTTP_OK` | `200` |
 | `HTTP_BUSY` | `429` |
 | `HTTP_NOT_FOUND` | `404` |
 | `HTTP_METHOD` | `405` |
+
+`caughtStatus` by kind:
+
+| Kind | Status | Kind | Status |
+| --- | --- | --- | --- |
+| `config` | 500 | `bad_response` | 502 |
+| `request` | 400 | `network` | 502 |
+| `input` | 422 | `timeout` | 504 |
+| `action` | 403 | `safety` | 422 |
+| `auth` | 401 | `blocked` | 403 |
+| `rate_limit` | 429 | `declined` | 409 |
+| `unsupported` | 422 | `failed` | 502 |
+| `unavailable` | 503 | `cancelled` | 499 (client closed request) |
+| | | `internal` | 500 |
+
+`auth` is 401 whichever key was refused. When the refused key is the host's own
+provider key rather than one the caller supplied, the host may prefer to reply
+500 itself.
 
 Example:
 
@@ -53,11 +71,14 @@ import { caughtStatus, HTTP_BUSY, json } from "@theoremai/agents/host";
 try {
   return json(200, { ok: true }, cors);
 } catch (err) {
-  return json(caughtStatus(err), { error: publicError(err) }, cors);
+  // Pass the profile's lexicon so its wording wins over the defaults.
+  return json(caughtStatus(err), { error: publicError(err, profile.lexicon) }, cors);
 }
 ```
 
-Quota busy responses typically use `HTTP_BUSY` after `takeSlot` returns `busy`.
+Quota busy responses typically use `HTTP_BUSY` after `takeSlot` returns `busy`;
+when it returns `quota`, reply with `quotaExhausted(profile)` as above (`429`,
+the lexicon's `quota.exhausted`).
 
 ## Client-safe turn events
 
@@ -80,12 +101,12 @@ build a custom relay still may call `processLiveOutboundBatch` /
 
 | Export | Role |
 | --- | --- |
-| `forClient(event, options?)` | Copy one event without `errorInternal`; strips `evidence.raw` unless `includeEvidenceRaw: true`; always strips `GuardrailHit.match` |
+| `forClient(event, options?)` | Copy one event without `errorInternal` (`errorKind` and the user's `error` stay); strips `evidence.raw` unless `includeEvidenceRaw: true`; always strips `GuardrailHit.match` |
 | `forClientEvents(events, options?)` | Batch helper for Live relays and HTTP stream flush |
 | `ClientTurnOptions` | `{ includeEvidenceRaw?: boolean }` |
 
-HTTP error responses should still use `publicError(err)` — `forClient` applies
-only to turn event payloads.
+HTTP error responses should still use `publicError(err, profile.lexicon)` —
+`forClient` applies only to turn event payloads.
 
 ## Cutout mint trace
 

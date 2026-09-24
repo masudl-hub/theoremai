@@ -54,6 +54,7 @@ export function* startToolExecution<T>(
   if (!parsed.success) {
     yield failureEvent(base, {
       code: 'invalid_input',
+      kind: 'bad_response',
       message: 'Tool input validation failed', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       details: parsed.error.flatten(),
     });
@@ -85,7 +86,7 @@ export function* guardToolTarget(
         hits: [{ rule: 'network.blocked', severity: 'high' }],
       },
     };
-    yield failureEvent(base, { code: 'network_blocked', message: messageOf(err) });
+    yield failureEvent(base, { code: 'network_blocked', kind: 'blocked', message: messageOf(err) });
     return undefined;
   }
 }

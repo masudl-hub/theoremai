@@ -12,7 +12,6 @@ import {
   formatToolResult,
   isGateResumeGranted,
   isResumeContinuation,
-  isToolPause,
   notLoadedMessage,
   permissionGranted,
   projectForModel,
@@ -51,7 +50,7 @@ type ToolPhaseEvent = {
     step?: { name: string };
     artifact?: { id: string };
     warning?: { code: string };
-    failure?: { code: string; message: string };
+    failure?: { code: string; kind: string; message: string };
     gate?: { kind: string };
     output?: unknown;
     pause?: { kind: string };
@@ -88,12 +87,6 @@ Deno.test('tools mutation helpers classify resume, pauses, and permissions preci
   assertEquals(isGateResumeGranted({ value: true }), false);
   assertEquals(isGateResumeGranted({ granted: true }), true);
   assertEquals(isGateResumeGranted({ granted: false, value: 1 }), false);
-
-  assertEquals(isToolPause({ kind: 'confirmation' }), true);
-  assertEquals(isToolPause({ kind: 'permission' }), true);
-  assertEquals(isToolPause({ kind: 'auth' }), true);
-  assertEquals(isToolPause({ kind: 'interactive' }), true);
-  assertEquals(isToolPause({ code: 'x', message: 'failure' }), false);
 
   assertEquals(permissionGranted('probe', undefined), false);
   assertEquals(permissionGranted('probe', []), false);
@@ -373,7 +366,7 @@ Deno.test('tools mutation coverage asserts low-level execution event payloads', 
   );
   assertEquals(invalid.next().value, { ok: false });
 
-  const builtinCtx = asValue<ToolContext>({});
+  const builtinCtx = asValue<ToolContext>({ profile: {} });
   const builtin = executeBuiltin(
     { name: 'googleSearch' },
     builtinCtx,
@@ -383,7 +376,9 @@ Deno.test('tools mutation coverage asserts low-level execution event payloads', 
     }),
   ) as AsyncGenerator;
   assertEquals((await builtin.next()).value.tool.phase, 'running');
-  assertEquals((await builtin.next()).value.tool.failure.code, 'provider_native');
+  const builtinFailure = (await builtin.next()).value.tool.failure;
+  assertEquals(builtinFailure.code, 'provider_native');
+  assertEquals(builtinFailure.kind, 'request');
   const missing = executeBuiltin(
     { name: 'googleSearch' },
     builtinCtx,
@@ -393,7 +388,9 @@ Deno.test('tools mutation coverage asserts low-level execution event payloads', 
     }),
   ) as AsyncGenerator;
   await missing.next();
-  assertEquals((await missing.next()).value.tool.failure.code, 'not_loaded');
+  const missingFailure = (await missing.next()).value.tool.failure;
+  assertEquals(missingFailure.code, 'not_loaded');
+  assertEquals(missingFailure.kind, 'request');
 });
 
 Deno.test('tools mutation coverage exercises resolver duplicate and conflict transitions', () => {
@@ -574,8 +571,10 @@ Deno.test('tools mutation coverage exercises policy and function execution trans
   );
   const noOutput = await run(makeTool({ handler: () => undefined }), { value: 1 });
   assertEquals(toolEventAt(noOutput, 1).tool.failure?.code, 'invalid_output');
+  assertEquals(toolEventAt(noOutput, 1).tool.failure?.kind, 'bad_response');
   const badOutput = await run(makeTool({ handler: () => ({ finding: 3 }) }), { value: 1 });
   assertEquals(toolEventAt(badOutput, 1).tool.failure?.code, 'invalid_output');
+  assertEquals(toolEventAt(badOutput, 1).tool.failure?.kind, 'bad_response');
   const handlerError = await run(
     makeTool({
       handler: () => {
@@ -585,6 +584,7 @@ Deno.test('tools mutation coverage exercises policy and function execution trans
     { value: 1 },
   );
   assertEquals(toolEventAt(handlerError, 1).tool.failure?.code, 'handler_error');
+  assertEquals(toolEventAt(handlerError, 1).tool.failure?.kind, 'failed');
   const streamTool = makeTool({
     handler: async function* () {
       yield { kind: 'progress', data: 1 };

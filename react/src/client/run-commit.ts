@@ -9,18 +9,15 @@ import {
 	type TranscriptBlock,
 	type UserTurnHistoryMedia,
 } from '../../../src/interface/mod.ts';
+import { type TurnFailure, turnFailure } from './failure';
 import type { TheoremTransport } from './transport';
-import {
-	buildTurnRequest,
-	foldAssistantTurn,
-	turnFailureFromError,
-	turnInputFromSession,
-} from './turn-client';
+import { buildTurnRequest, foldAssistantTurn, turnInputFromSession } from './turn-client';
 
 function commitCompletedTurn(
 	session: InterfaceTurnSession,
 	events: TurnEvent[],
 	media: UserTurnHistoryMedia,
+	lexicon: ComposerProfileInterface['lexicon'],
 ): InterfaceTurnSession {
 	const history = session.pendingUserDraft
 		? appendUserDraftToHistory(session.history, session.pendingUserDraft, media)
@@ -28,7 +25,7 @@ function commitCompletedTurn(
 
 	return {
 		...applyTurnEventsToSession(session, events),
-		history: appendAssistantEventsToHistory(history, events),
+		history: appendAssistantEventsToHistory(history, events, lexicon),
 		gatedTool: null,
 		assistantEvents: [],
 		pendingUserDraft: null,
@@ -41,10 +38,11 @@ function commitContinuationTurn(
 	session: InterfaceTurnSession,
 	seedLength: number,
 	events: TurnEvent[],
+	lexicon: ComposerProfileInterface['lexicon'],
 ): InterfaceTurnSession {
 	return {
 		...applyTurnEventsToSession(session, events),
-		history: appendAssistantEventsToHistory(session.history, events.slice(seedLength)),
+		history: appendAssistantEventsToHistory(session.history, events.slice(seedLength), lexicon),
 		gatedTool: null,
 		assistantEvents: [],
 		pendingUserDraft: null,
@@ -76,11 +74,12 @@ function pauseContinuationTurn(
 	session: InterfaceTurnSession,
 	seedLength: number,
 	events: TurnEvent[],
+	lexicon: ComposerProfileInterface['lexicon'],
 ): InterfaceTurnSession {
 	const gated = gatedToolFromEvents(events);
 	return {
 		...applyTurnEventsToSession(session, events),
-		history: appendAssistantEventsToHistory(session.history, events.slice(seedLength)),
+		history: appendAssistantEventsToHistory(session.history, events.slice(seedLength), lexicon),
 		gatedTool: gated,
 		assistantEvents: [...events],
 		pendingUserDraft: null,
@@ -119,7 +118,7 @@ export async function continueAfterTool(args: {
 	seedEvents: TurnEvent[];
 }): Promise<
 	| { ok: true; session: InterfaceTurnSession; assistantBlocks: TranscriptBlock[] }
-	| { ok: false; error: string; errorInternal?: string }
+	| TurnFailure
 > {
 	const seedLength = args.seedEvents.length;
 	try {
@@ -137,18 +136,18 @@ export async function continueAfterTool(args: {
 		if (gatedToolFromEvents(events)) {
 			return {
 				ok: true,
-				session: pauseContinuationTurn(args.session, seedLength, events),
+				session: pauseContinuationTurn(args.session, seedLength, events, args.iface.lexicon),
 				assistantBlocks: foldAssistantTurn(args.iface, events),
 			};
 		}
 
 		return {
 			ok: true,
-			session: commitContinuationTurn(args.session, seedLength, events),
+			session: commitContinuationTurn(args.session, seedLength, events, args.iface.lexicon),
 			assistantBlocks: foldAssistantTurn(args.iface, events),
 		};
 	} catch (err) {
-		return turnFailureFromError(err);
+		return turnFailure(err, args.iface.lexicon);
 	}
 }
 
@@ -156,11 +155,12 @@ export function finalizeTurnStream(args: {
 	session: InterfaceTurnSession;
 	events: TurnEvent[];
 	media: UserTurnHistoryMedia;
+	lexicon: ComposerProfileInterface['lexicon'];
 }): InterfaceTurnSession {
 	if (gatedToolFromEvents(args.events)) {
 		return pauseTurn(args.session, args.events, args.media);
 	}
-	return commitCompletedTurn(args.session, args.events, args.media);
+	return commitCompletedTurn(args.session, args.events, args.media, args.lexicon);
 }
 
 export function streamFoldedTurn(args: {

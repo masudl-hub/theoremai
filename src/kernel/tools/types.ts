@@ -8,6 +8,7 @@
  */
 
 import type { z } from 'zod';
+import type { ErrorKind } from '../../guardrails/theorem-error.ts';
 import type { GuardrailHit, Provenance, TurnTaint } from '../../guardrails/types.ts';
 import type { ToolCredential } from '../auth/types.ts';
 import type {
@@ -99,9 +100,16 @@ export interface ToolContext {
   traceparent?: string;
 }
 
+/** A tool step that did not produce a result. */
 export interface ToolFailure {
+  /** What went wrong, for the builder. Stable per failure site; a host `post_tool` deny sets its own. */
   code: string;
+  /** What kind of failure it is; the user's wording (`error.<kind>`) follows from it. */
+  kind: ErrorKind;
+  /** What the model reads in the tool result. */
   message: string;
+  /** User-safe wording, added where the event reaches the host. Never sent to the model. */
+  error?: string;
   details?: unknown;
 }
 

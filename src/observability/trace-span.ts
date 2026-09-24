@@ -194,7 +194,7 @@ function parseTraceparent(value: string): { traceId: string; spanId: string } {
   const traceId = match?.[1];
   const spanId = match?.[2];
   if (!traceId || !spanId || ALL_ZERO.test(traceId) || ALL_ZERO.test(spanId)) {
-    throw new TheoremError(`traceparent is not a valid W3C trace context: '${value}'`);
+    throw new TheoremError('request', `traceparent is not a valid W3C trace context: '${value}'`);
   }
   return { traceId, spanId };
 }

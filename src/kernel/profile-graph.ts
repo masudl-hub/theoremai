@@ -48,7 +48,7 @@ const PROFILE_GRAPH_DEF = [
     optional: false,
     editor: 'structural',
     label: 'Identity',
-    ownsFields: ['id', 'type'],
+    ownsFields: ['id', 'type', 'lexicon'],
   },
   {
     id: 'decision',

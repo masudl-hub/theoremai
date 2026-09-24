@@ -403,27 +403,26 @@ Deno.test('image and speech continueFrom re-send the request with nothing added'
   }
 });
 
-Deno.test('image and speech profiles reject turnBehaviour.resumption.continueInstruction', () => {
-  const turnBehaviour = { resumption: { continueInstruction: 'Keep going.' } };
-  assertThrows(
-    () => defineProfile(speechDefinition({ turnBehaviour })),
-    TheoremError,
-    'continueInstruction',
+Deno.test('image and speech profiles take a lexicon; continueFrom still adds nothing', () => {
+  const lexicon = { 'continue.instruction': 'Keep going.', 'error.internal': 'Host copy.' };
+  registerProfile(speechDefinition({ id: 'speech_lexicon', lexicon }));
+  registerProfile(
+    defineProfile({
+      type: 'image',
+      id: 'image_lexicon',
+      identity: { handle: 'image_lexicon' },
+      ...geminiModels('gemini31FlashLiteImage'),
+      maxSteps: 1,
+      image: { aspectRatio: '1:1', size: '1K', mimeType: 'image/jpeg' },
+      tools: { allow: [] },
+      inputs: { text: true },
+      lexicon,
+    }),
   );
-  assertThrows(
-    () =>
-      defineProfile({
-        type: 'image',
-        id: 'image_continue_instruction',
-        identity: { handle: 'image_continue_instruction' },
-        ...geminiModels('gemini31FlashLiteImage'),
-        maxSteps: 1,
-        image: { aspectRatio: '1:1', size: '1K', mimeType: 'image/jpeg' },
-        tools: { allow: [] },
-        inputs: { text: true },
-        turnBehaviour,
-      } as unknown as ProfileDefinition),
-    TheoremError,
-    'continueInstruction',
-  );
+  for (const profile of ['speech_lexicon', 'image_lexicon']) {
+    const req = { profile, input: { text: 'hi' } };
+    const resumed = resolveTurn({ ...req, continueFrom: { stop: { kind: 'provider_error' } } });
+    assertEquals(resumed.generation.input, resolveTurn(req).generation.input);
+    assertEquals(JSON.stringify(resumed.generation).includes('Keep going.'), false);
+  }
 });

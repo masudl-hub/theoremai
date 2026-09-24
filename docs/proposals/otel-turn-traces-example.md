@@ -76,7 +76,7 @@ interface TraceSpan {
 | `theorem.usage.unknown_media` | media counted by no rule, per side |
 | `theorem.record.include`, `theorem.record.scrub` | the include and scrub flags that were on (for example `["upstreamLog", "outboundWire", "usage", "guardrailDecisions"]`), so a missing field reads as "not recorded" and never as "did not happen" |
 | `theorem.error.public` | hash of the error the caller received, on a failed turn |
-| `error.type` | the thrown error's name, or the failing stop (`provider_error`, `stream_incomplete`) |
+| `error.type` | the failure's kind (`rate_limit`, `unavailable`, … — see [Public errors](../contracts/guardrails.md#public-errors)), or the failing stop (`provider_error`, `stream_incomplete`) when nothing named a kind |
 | `theorem.clock` | `io` inside a Cloudflare Worker (P6) |
 
 **Status:** `ERROR` for `provider_error`, `stream_incomplete` or a throw. `OK` for `completed`, `length` and `generation_complete`. `UNSET` for the stops a person or policy chose (`tool`, `gate`, `filtered`, `cancelled`, `interrupted`).
@@ -128,7 +128,7 @@ interface TraceSpan {
 | `gen_ai.output.messages` | one assistant message whose `finish_reason` is semconv's (`stop`, `length`, `tool_call`, `content_filter`, `error`). Its parts are text, `reasoning`, `tool_call`, `server_tool_call` / `server_tool_call_response` and media, exactly as received. A cancelled call keeps what arrived before the cancel. |
 | `gen_ai.output.type` | `text` / `json` / `image` / `speech`. A Live response is `speech`: Live answers in audio. |
 | `theorem.stop.kind` | this call's stop |
-| `error.type` | on a failed call: the last HTTP status when it was 400 or higher, else `provider_error` |
+| `error.type` | on a failed call: the failure's kind; the HTTP status stays on each `POST` |
 | `gen_ai.usage.input_tokens`, `.output_tokens`, `.reasoning.output_tokens`, `.cache_read.input_tokens`, `.cache_write.input_tokens` | normalized (step 1) |
 | `gen_ai.usage.{text,image,audio}.{input,output}_tokens` | per-modality counts, when the provider reports them (Google does; OpenRouter does not). Other modalities go under `theorem.usage.*`. |
 | `theorem.usage.tool_use.input_tokens` | Google tool-use tokens (already inside input) |
@@ -149,7 +149,7 @@ interface TraceSpan {
 - `exception`: one per provider error (`exception.type: "provider_error"`, message by hash), plus a throw.
 
 **Children:** one `POST` HTTP client span per try (HTTP semconv).
-- Attributes: `http.request.method`, `server.address`, `url.path` (never the query), `http.response.status_code`, `http.request.resend_count`, `error.type` (the status, or the thrown error's name), `theorem.key_slot`, and `theorem.retry.backoff_ms`, the wait before this try.
+- Attributes: `http.request.method`, `server.address`, `url.path` (never the query), `http.response.status_code`, `http.request.resend_count`, `error.type` (the status, or the thrown error's name — HTTP convention), `theorem.key_slot`, and `theorem.retry.backoff_ms`, the wait before this try.
 - Headers are recorded as `http.request.header.<name>` / `http.response.header.<name>` (`[value]`). Any header whose name matches key, auth, cookie, secret or token is `[redacted]` before a span sees it.
 - Events: `theorem.wire.request` (the request body, interned like rows; `{ body_kind }` when the body is not JSON), kept only under `outboundWire`; the provider's error body as a `theorem.upstream.row`; `exception` when the try threw.
 - **Status:** `ERROR` for a status of 400 or higher, or a throw. A provider error inside a 200 body is the call's failure, not the try's. `UNSET` when the call was stopped mid-body.
@@ -171,7 +171,8 @@ interface TraceSpan {
 | `theorem.tool.permission` | `auto` / `session_consent` / `always_confirm` |
 | `theorem.tool.approved` | `true` when the host resumed the call with approval |
 | `theorem.step` | the model call that asked for it |
-| `error.type` | on `error` (for example `malformed_arguments`, `TimeoutError`) |
+| `error.type` | on `error`: the failure's kind (for example `bad_response`, `failed`) |
+| `theorem.tool.failure.code` | on `error`: the failure's code (for example `malformed_arguments`, `handler_error`) |
 
 **Events:**
 - `theorem.stage`: `pre_tool` / `post_tool`, same shape as on the turn.
@@ -317,7 +318,8 @@ The host handles the approval in one request of its own (span `7a3f1c9e2b4d6081`
         "theorem.tool.approved": true,
         "gen_ai.tool.call.result": { "content_sha256": "#e4.t1.failure" },
         "theorem.tool.outcome": "error",
-        "error.type": "TimeoutError",
+        "error.type": "failed",
+        "theorem.tool.failure.code": "handler_error",
         "theorem.record.include": ["upstreamLog", "outboundWire", "usage", "guardrailDecisions"],
         "theorem.record.scrub": ["sensitive", "injection", "canary"]
       },
@@ -329,7 +331,7 @@ The host handles the approval in one request of its own (span `7a3f1c9e2b4d6081`
       "links": [
         { "traceId": "a3ce929d0e0e47364bf92f3577b34da6", "spanId": "53995c3f42cd8ad8", "attributes": { "theorem.link.kind": "resume", "theorem.stop.kind": "gate" } }
       ],
-      "status": { "code": "ERROR", "message": "TimeoutError" }
+      "status": { "code": "ERROR", "message": "failed" }
     }
   ],
   "content": {
@@ -640,7 +642,7 @@ Root `gen_ai.usage.input_tokens` is 4,354 and `gen_ai.usage.text.input_tokens` i
 record A (trace T7)
 invoke_agent support                          OK
 ├─ chat … step 1        tool_call draft_email, arguments: raw string "{\"to\": \"warranty@ridgeline" (truncated JSON)
-├─ execute_tool draft_email                   ERROR  error.type=malformed_arguments  (arguments hash = the raw string)
+├─ execute_tool draft_email                   ERROR  error.type=bad_response  failure.code=malformed_arguments  (arguments hash = the raw string)
 ├─ chat … step 2        tool_call draft_email (valid)
 ├─ execute_tool draft_email   spanId=9c3e…    OK
 └─ chat … step 3        text
@@ -698,17 +700,17 @@ The retry event says only why a new attempt started. What failed validation is a
 ### 4.11 E11: provider failure
 
 ```
-invoke_agent support                          ERROR provider_error  stop=provider_error  error.type=provider_error
+invoke_agent support                          ERROR unavailable  stop=provider_error  error.type=unavailable
 │                                             theorem.error.public="#e11.public"
-└─ chat … step 1                              ERROR provider_error  stop=provider_error  error.type="503"
+└─ chat … step 1                              ERROR unavailable  stop=provider_error  error.type=unavailable
    ├─ POST  ERROR 502   resend_count=0
    ├─ POST  ERROR 502   resend_count=1  backoff_ms=500
    └─ POST  ERROR 503   resend_count=2  backoff_ms=1000
-   events: exception { exception.type: "provider_error", exception.message: "#e11.internal" }
+   events: exception { exception.type: "TheoremError", exception.message: "#e11.internal" }
 ```
 
-- **Public vs internal:** `theorem.error.public` is what the caller received. The call's `exception.message` is the provider's own message. Both are stored by hash under the scrub.
-- **Where the status lives:** each `POST` carries its own status and the provider's error body as a `theorem.upstream.row`. The call's `error.type` is the last try's status.
+- **Public vs internal:** `error.type` is the builder's kind; `theorem.error.public` is what the caller received, the kind's wording from the profile's lexicon. The call's `exception.message` is the provider's own message. Both are stored by hash under the scrub.
+- **Where the status lives:** each `POST` carries its own status and the provider's error body as a `theorem.upstream.row`. The call's `error.type` is the kind that status maps to (`503` → `unavailable`).
 - **No usage:** the chat has no `gen_ai.usage.*` at all. Nothing was reported, and a failed call is not estimated (step 1 rule). The root has none either, so the turn's usage reads as unknown, not 0.
 
 ### 4.12 E12: Live voice session
@@ -758,7 +760,7 @@ invoke_agent support.voice                               [0.000 → 48.200]  OK 
 - **Tool calls** each write their own record under the response that asked for them. A call the provider cancels is a `theorem.tool.cancel { gen_ai.tool.call.id, gen_ai.tool.name }` event on the response.
 - **Session events** (`theorem.session`) cover `setup_complete`, `session_resumption`, `voice_activity`, `closing_soon` (with `time_left_ms` when the provider gives one), `waiting_for_input`, `working`, `idle` and `closed { code, reason, initiator }`. `initiator` is `host`, `provider` or `theorem`.
 - **The resumption handle is a credential.** Frames are recorded without it, `theorem.request.live` records only `resumed`, and events record only that a handle was issued.
-- **Status:** the session is `ERROR` when it threw or the provider closed it with a code other than 1000 (`error.type` is the code), `UNSET` with `theorem.stop.kind=cancelled` when the host aborted it, and `OK` otherwise.
+- **Status:** the session is `ERROR` when it threw or the provider closed it with a code other than 1000 (`error.type` is the kind: 1006 `network`, 1007 / 1008 `unsupported`, others `unavailable`), `UNSET` with `theorem.stop.kind=cancelled` when the host aborted it, and `OK` otherwise.
 - If the Worker is evicted mid-session, R1, T1, R2 and R3 survive and record S is missing. A viewer shows a trace without its root, which is honest. Every response and tool record carries `gen_ai.agent.name` and `gen_ai.conversation.id` itself, so each one still says whose it is.
 
 ## 5. Questions the traces answer
@@ -779,7 +781,7 @@ invoke_agent support.voice                               [0.000 → 48.200]  OK 
 | When was context compacted, what replaced it, and why? | `theorem.compaction` (the decision, every turn) + its `summary` hash |
 | Which searches grounded an answer, and what did they cite? | `server_tool_call` parts + `theorem.grounding` (`sources`, `annotations`) |
 | Did this answer follow a pause/approval? | root `links` (`resume`) + `theorem.tool.approved` on the resumed call |
-| Error rate by provider / status code | HTTP try spans `http.response.status_code`; `chat` `error.type` |
+| Error rate by provider / status code / kind | HTTP try spans `http.response.status_code`; `chat` and `execute_tool` `error.type` (the kind) |
 | Was this recorded at all? | `theorem.record.include` / `scrub` on the root |
 | What was the model asked to do beyond the prompt? | `theorem.request.*` (builtins, store, structured, image, speech, live) |
 | Why did a Live session end? | `theorem.session { kind: "closed", code, reason, initiator }` |

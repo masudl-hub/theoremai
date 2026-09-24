@@ -10,7 +10,7 @@
  * @module
  */
 
-import { TheoremError, toErrorEvent } from '../../../guardrails/error.ts';
+import { kindOfHttpStatus, TheoremError, toErrorEvent } from '../../../guardrails/error.ts';
 import { asRecord } from '../../../kernel/engine/record.ts';
 import { historyMessageParts, isMediaRefPart } from '../../../kernel/interaction-parts.ts';
 import { getStructured } from '../../../kernel/registry/schemas.ts';
@@ -42,7 +42,9 @@ async function httpErrorEvent(res: Response, label: string): Promise<TurnEvent> 
     // Not JSON: the raw body is the detail.
   }
   const head = `${label} HTTP ${String(res.status)}`;
-  return toErrorEvent(detail ? `${head}: ${detail}` : head);
+  return toErrorEvent(
+    new TheoremError(kindOfHttpStatus(res.status), detail ? `${head}: ${detail}` : head),
+  );
 }
 
 // ── gateway header config ───────────────────────────
@@ -59,7 +61,7 @@ function rejectMediaRef(
   part: InteractionPart,
 ): asserts part is Exclude<InteractionPart, InteractionMediaRefPart> {
   if (isMediaRefPart(part)) {
-    throw new TheoremError('media references are not supported on openAi');
+    throw new TheoremError('unsupported', 'media references are not supported on openAi');
   }
 }
 

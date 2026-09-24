@@ -4,7 +4,7 @@
  * @module
  */
 
-import { sanitizeTurnBlobsForProfile } from '../kernel/registry/attachments.ts';
+import { sanitizeTurnBlobs } from '../kernel/registry/attachments.ts';
 import { getProfile } from '../kernel/registry/profiles.ts';
 import type { NormalizedTurnRequest, TurnEvent, TurnRequest } from '../kernel/types.ts';
 import { applySpans } from '../observability/spans.ts';
@@ -266,11 +266,10 @@ function sanitizeTurnRequestWithEvents(req: TurnRequest): {
 } {
   const { request: textSafe, events } = sanitizeTurnRequestText(req, req.profile);
   const input = textSafe.input ?? {};
-  const { attachments, voice } = sanitizeTurnBlobsForProfile(
-    req.profile,
-    input.attachments,
-    input.voice,
-  );
+  const { attachments, voice } =
+    input.attachments?.length || input.voice?.length
+      ? sanitizeTurnBlobs(getProfile(req.profile), input.attachments, input.voice)
+      : input;
   return {
     request: {
       ...textSafe,

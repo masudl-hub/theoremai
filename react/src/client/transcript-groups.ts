@@ -66,41 +66,19 @@ export function assistantTurnCopyText(blocks: readonly TranscriptBlock[]): strin
 		.join('\n\n');
 }
 
-/** Wall-clock duration copy matching Seance's builder-trace formatter. */
-function formatWorkDuration(durationMs: number): string {
-	const ms = Math.max(0, durationMs);
-	if (ms < 1_000) return `${String(Math.round(ms))}ms`;
-	if (ms < 10_000) {
-		const seconds = Math.round(ms / 100) / 10;
-		return `${seconds.toFixed(seconds % 1 === 0 ? 0 : 1)}s`;
-	}
-	if (ms < 60_000) return `${String(Math.round(ms / 1_000))}s`;
-	const minutes = Math.floor(ms / 60_000);
-	const seconds = Math.round((ms % 60_000) / 1_000);
-	if (seconds === 0) return `${String(minutes)}m`;
-	return `${String(minutes)}m ${String(seconds)}s`;
-}
+/** A turn's work, for the status line: running, or done (with its duration when known). */
+export type WorkStatus = { phase: 'working' | 'worked'; elapsedMs?: number };
 
-/** Whole-second ticker while a turn runs: "0s", "12s", "1m 5s". */
-function formatLiveDuration(durationMs: number): string {
-	const total = Math.floor(Math.max(0, durationMs) / 1_000);
-	if (total < 60) return `${String(total)}s`;
-	return `${String(Math.floor(total / 60))}m ${String(total % 60)}s`;
-}
-
-/** "Working for 12s" while streaming (when the start is known), "Worked for 3.2s" after. */
-export function workStatusLabel(args: {
+/** Working while streaming; worked after, when it has a duration or a trace; else nothing to show. */
+export function workStatus(args: {
 	streaming: boolean;
 	hasTrace: boolean;
 	elapsedMs?: number;
-}): string {
-	if (args.streaming) {
-		return args.elapsedMs === undefined ? 'Working…' : `Working for ${formatLiveDuration(args.elapsedMs)}`;
-	}
-	const duration =
-		args.elapsedMs !== undefined && args.elapsedMs > 0 ? formatWorkDuration(args.elapsedMs) : null;
-	if (duration) return `Worked for ${duration}`;
-	return args.hasTrace ? 'Worked' : '';
+}): WorkStatus | null {
+	const elapsed = args.elapsedMs !== undefined ? { elapsedMs: args.elapsedMs } : {};
+	if (args.streaming) return { phase: 'working', ...elapsed };
+	if (args.elapsedMs !== undefined && args.elapsedMs > 0) return { phase: 'worked', elapsedMs: args.elapsedMs };
+	return args.hasTrace ? { phase: 'worked' } : null;
 }
 
 function isGatedTool(

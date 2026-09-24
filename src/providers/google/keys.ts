@@ -7,9 +7,9 @@
  * @module
  */
 
-import { isAbortError, TheoremError, UPSTREAM_FAILED } from '../../guardrails/error.ts';
+import { isAbortError, TheoremError } from '../../guardrails/error.ts';
 import type { KeySlot, KeyVault, ProviderCompleteRequest } from '../../kernel/types.ts';
-import { tapFetch } from '../shared/upstream-tap.ts';
+import { networkError, tapFetch } from '../shared/upstream-tap.ts';
 
 /** Google Interactions / Live transport: shared `KeyVault` + optional fetch/wait. */
 interface GeminiTransport {
@@ -62,7 +62,7 @@ export function isTransientThrown(err: unknown): boolean {
 export function requireKey(vault: KeyVault, slot: KeySlot): string {
   const key = vault[slot];
   if (!key) {
-    throw new TheoremError(UPSTREAM_FAILED);
+    throw new TheoremError('auth', `gemini.vault has no key in slot '${slot}'`);
   }
   return key;
 }
@@ -119,7 +119,7 @@ async function fetchWithBackoff(args: FetchAttempt): Promise<Response> {
     return fetchWithBackoff({ ...args, attempt: args.attempt + 1 });
   } catch (err) {
     if (isAbortError(err) || !isTransientThrown(err) || args.attempt === LAST_ATTEMPT) {
-      throw err;
+      throw networkError(err);
     }
     await wait(backoffMs(args.attempt));
     return fetchWithBackoff({ ...args, attempt: args.attempt + 1 });

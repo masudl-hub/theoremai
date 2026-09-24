@@ -32,7 +32,8 @@ export function useLiveRunnerControls(args: {
 	textDraft: string;
 	setTextDraft: Dispatch<SetStateAction<string>>;
 	setCaptions: Dispatch<SetStateAction<LiveCaptionState>>;
-	setError: Dispatch<SetStateAction<string>>;
+	reportFailure: (err: unknown) => void;
+	clearFailure: () => void;
 	setIsMuted: Dispatch<SetStateAction<boolean>>;
 	setSessionActive: Dispatch<SetStateAction<boolean>>;
 	setSessionPermissions: Dispatch<SetStateAction<string[]>>;
@@ -61,7 +62,7 @@ export function useLiveRunnerControls(args: {
 	}, [args]);
 
 	const startSession = useCallback(async () => {
-		args.setError('');
+		args.clearFailure();
 		args.resetCaptions();
 		try {
 			const profileId = await args.registerProfileRef.current();
@@ -70,7 +71,7 @@ export function useLiveRunnerControls(args: {
 				await liveClient.connect();
 			}
 		} catch (err) {
-			args.setError(err instanceof Error ? err.message : String(err));
+			args.reportFailure(err);
 		}
 	}, [args]);
 
@@ -101,7 +102,7 @@ export function useLiveRunnerControls(args: {
 			args.setVideoFacingMode(capture.facingMode());
 			args.setIsVideoOn(true);
 		} catch (err) {
-			args.setError(err instanceof Error ? err.message : String(err));
+			args.reportFailure(err);
 			args.stopVideo();
 		}
 	}, [args]);
@@ -114,7 +115,7 @@ export function useLiveRunnerControls(args: {
 			args.setVideoFacingMode(facing);
 			args.setVideoPreview(capture.video);
 		} catch (err) {
-			args.setError(err instanceof Error ? err.message : String(err));
+			args.reportFailure(err);
 		}
 	}, [args]);
 

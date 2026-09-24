@@ -185,7 +185,6 @@ export type {
 } from './stop.ts';
 export {
   AUTO_CONTINUE_DELAY_MS,
-  CONTINUE_INSTRUCTION,
   DEFAULT_ALLOW_CONTINUE,
   DEFAULT_AUTO_CONTINUE,
   GenerationStopError,

@@ -11,7 +11,7 @@
  * @module
  */
 
-import { lexiconText } from './lexicon.ts';
+import { type LexiconOverrides, lexiconText } from './lexicon.ts';
 import { detectionForTrust } from './policy.ts';
 import { sanitizeText } from './sanitize.ts';
 import { textForScan } from './serialize.ts';
@@ -89,13 +89,16 @@ function wrapToolData(
   text: string,
   provenance: Provenance,
   advisory: AdvisoryLevel = 'none',
-  guidance?: string,
+  lexicon?: LexiconOverrides,
 ): string {
+  const guidance = lexiconText('advisory.guidance', {}, lexicon).trim();
   const attrs =
     `tool="${provenance.tool}" origin="${provenance.origin}"` +
     (advisory === 'none' ? '' : ` advisory="${advisory}"`);
   const notice =
-    advisory === 'none' ? '' : `${advisoryNotice(advisory)}${guidance ? ` ${guidance}` : ''}\n`;
+    advisory === 'none'
+      ? ''
+      : `${advisoryNotice(advisory, lexicon)}${guidance ? ` ${guidance}` : ''}\n`;
   return `<${'tool_data'} ${attrs}>\n${notice}${stripToolFences(text)}\n${TOOL_CLOSE}`;
 }
 
@@ -103,12 +106,13 @@ function wrapToolData(
  * The kernel's own statement of what it observed.
  *
  * Deliberately an observation, not an instruction: what the agent should do about
- * it is product behaviour, supplied by the host as `advisoryGuidance`. Emitted
+ * it is product behaviour, supplied by the host as lexicon `advisory.guidance`. Emitted
  * only when signals fired, so it stays rare enough to carry weight — a warning on
  * every fetch is one the model learns to skip.
  */
-function advisoryNotice(advisory: AdvisoryLevel): string {
-  return lexiconText(advisory === 'high' ? 'advisory.notice_high' : 'advisory.notice_elevated');
+function advisoryNotice(advisory: AdvisoryLevel, lexicon: LexiconOverrides | undefined): string {
+  const key = advisory === 'high' ? 'advisory.notice_high' : 'advisory.notice_elevated';
+  return lexiconText(key, {}, lexicon);
 }
 
 /**
@@ -160,6 +164,7 @@ function guardToolResult(
   provenance: Provenance,
   policy: ResolvedGuardrailPolicy,
   callableTools: readonly string[] = [],
+  lexicon?: LexiconOverrides,
 ): GuardedToolText {
   const composed = composeToolText(finding, data);
   const options = detectionForTrust(policy, 'untrusted');
@@ -170,9 +175,7 @@ function guardToolResult(
   const remote = isRemoteOrigin(provenance.origin);
   const suspicious = remote ? directiveHits(composed, callableTools) : [];
   const advisory = advisoryLevel(suspicious);
-  const fenced = remote
-    ? wrapToolData(redacted, provenance, advisory, policy.taint?.advisoryGuidance)
-    : redacted;
+  const fenced = remote ? wrapToolData(redacted, provenance, advisory, lexicon) : redacted;
 
   const hits: GuardrailHit[] = [
     ...(changed ? [{ rule: 'tool_result.redacted', severity: 'medium' as const }] : []),
@@ -319,6 +322,7 @@ function checkTaintGate(
   taint: TurnTaint | undefined,
   access: string,
   policy: ResolvedGuardrailPolicy,
+  lexicon?: LexiconOverrides,
 ): Verdict {
   if (!isTainted(taint)) {
     return { action: 'allow' };
@@ -340,11 +344,15 @@ function checkTaintGate(
     return { action: 'flag', hits };
   }
   const read = taint?.sources.map((s) => s.tool).join(', ') ?? '';
-  const reason = lexiconText(suspicious ? 'taint.reason_steered' : 'taint.reason_tainted');
+  const reason = lexiconText(
+    suspicious ? 'taint.reason_steered' : 'taint.reason_tainted',
+    {},
+    lexicon,
+  );
   return {
     action: 'block',
     hits,
-    rejection: lexiconText('taint.blocked', { access, sources: read, reason }),
+    rejection: lexiconText('taint.blocked', { access, sources: read, reason }, lexicon),
   };
 }
 

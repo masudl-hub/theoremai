@@ -26,8 +26,12 @@ import {
   type SpeechProfileDefinition,
   standardEgressEnforce,
   type TextProfileDefinition,
+  describeError,
+  type LexiconKey,
+  type LexiconOverrides,
   TheoremError,
 } from '../mod.ts';
+import { validateLexiconOverrides } from '../src/guardrails/lexicon.ts';
 import {
   HTTP_METHODS,
   isValidPair,
@@ -44,6 +48,7 @@ import type {
   ProfileSpeechSpec,
 } from '../src/kernel/types.ts';
 import { outOfScopeFields, profileTypesForField } from '../src/kernel/profile-scope.ts';
+import { CONTINUE_INSTRUCTION_TYPES } from '../src/kernel/stop.ts';
 import { resolveObservabilityPolicy } from '../src/observability/mod.ts';
 import type {
   GuardrailsDraft,
@@ -417,12 +422,8 @@ function compileOutputs(
   if (outputs.validationEnabled) {
     checkWhole(report, 'outputs', 'Validation max retries', outputs.maxRetries, 0);
   }
-  const repairGuidance = outputs.repairGuidance.trim();
-  const validation = outputs.validationEnabled
-    ? {
-      ...(outputs.maxRetries !== null ? { maxRetries: outputs.maxRetries } : {}),
-      ...(repairGuidance ? { repairGuidance } : {}),
-    }
+  const validation = outputs.validationEnabled && outputs.maxRetries !== null
+    ? { maxRetries: outputs.maxRetries }
     : {};
   const streaming = {
     ...(outputs.streamMode ? { mode: outputs.streamMode } : {}),
@@ -442,12 +443,10 @@ function compileOutputs(
 function compileResumption(turn: TurnBehaviourDraft, report: Report) {
   if (!turn.resumeEnabled) return undefined;
   checkWhole(report, 'turnBehaviour', 'Max continues', turn.maxContinues, 1);
-  const continueInstruction = turn.continueInstruction.trim();
   return {
     ...(turn.allowContinue.length ? { allowContinue: [...turn.allowContinue] } : {}),
     ...(turn.autoContinue.length ? { autoContinue: [...turn.autoContinue] } : {}),
     ...(turn.maxContinues !== null ? { maxContinues: turn.maxContinues } : {}),
-    ...(continueInstruction ? { continueInstruction } : {}),
   };
 }
 
@@ -464,19 +463,55 @@ function compileTurnBehaviour(
   return Object.keys(spec).length ? spec : undefined;
 }
 
-function compileCanary(
-  guardrails: GuardrailsDraft,
-  withCanary: boolean,
-  report: Report,
-): ProfileGuardrailsSpec['canary'] {
-  const bindNote = guardrails.canaryBindNote.trim();
-  if (withCanary && guardrails.canary && bindNote && !bindNote.includes('{canary}')) {
-    report('guardrails', 'Canary bind note must contain {canary}.');
-  }
-  if (guardrails.canary && bindNote) return { bindNote };
+function compileCanary(guardrails: GuardrailsDraft): ProfileGuardrailsSpec['canary'] {
   return guardrails.canary !== resolveGuardrailPolicy(undefined).canary
     ? guardrails.canary
     : undefined;
+}
+
+/**
+ * The profile's wording: the drafts' continue instruction, canary bind note,
+ * quota message, and repair guidance, each checked by the kernel's own lexicon rules and reported on the
+ * node that owns it.
+ */
+function compileLexicon(
+  draft: PlaygroundDraft,
+  facets: ReadonlySet<string>,
+  allows: (path: string) => boolean,
+  report: Report,
+): LexiconOverrides | undefined {
+  const entries: Array<[nodeId: string, key: LexiconKey, template: string]> = [];
+  const turn = draft.turnBehaviour;
+  const type = draft.identity.profileType;
+  const takesInstruction = type !== '' && CONTINUE_INSTRUCTION_TYPES.includes(type);
+  if (facets.has('turnBehaviour') && takesInstruction && turn.resumeEnabled) {
+    entries.push(['turnBehaviour', 'continue.instruction', turn.continueInstruction.trim()]);
+  }
+  const { guardrails } = draft;
+  if (facets.has('guardrails') && allows('guardrails.canary') && guardrails.canary) {
+    entries.push(['guardrails', 'canary.bind_note', guardrails.canaryBindNote.trim()]);
+  }
+  if (facets.has('guardrails') && allows('guardrails.quota') && guardrails.quotaEnabled) {
+    entries.push(['guardrails', 'quota.exhausted', guardrails.quotaMessage.trim()]);
+  }
+  const { outputs } = draft;
+  if (facets.has('outputs') && outputs.validationEnabled) {
+    entries.push(['outputs', 'repair.default_guidance', outputs.repairGuidance.trim()]);
+  }
+  if (facets.has('guardrails') && allows('guardrails.egress') && guardrails.egressEnabled) {
+    entries.push(['guardrails', 'egress.default_repair_guidance', guardrails.egressRepairGuidance.trim()]);
+  }
+  const lexicon: LexiconOverrides = {};
+  for (const [nodeId, key, template] of entries) {
+    if (!template) continue;
+    try {
+      validateLexiconOverrides({ [key]: template }, 'Profile lexicon');
+      lexicon[key] = template;
+    } catch (err) {
+      report(nodeId, describeError(err));
+    }
+  }
+  return Object.keys(lexicon).length ? lexicon : undefined;
 }
 
 function compileQuota(guardrails: GuardrailsDraft, report: Report): ProfileGuardrailsSpec['quota'] {
@@ -486,8 +521,7 @@ function compileQuota(guardrails: GuardrailsDraft, report: Report): ProfileGuard
     return undefined;
   }
   checkWhole(report, 'guardrails', 'Quota per day', guardrails.quotaPerDay, 1);
-  const message = guardrails.quotaMessage.trim();
-  return { perDay: guardrails.quotaPerDay, ...(message ? { message } : {}) };
+  return { perDay: guardrails.quotaPerDay };
 }
 
 function compileEgress(
@@ -497,12 +531,10 @@ function compileEgress(
   if (!guardrails.egressEnabled) return undefined;
   checkWhole(report, 'guardrails', 'Egress max retries', guardrails.egressMaxRetries, 0);
   checkWhole(report, 'guardrails', 'Egress holdback', guardrails.egressHoldback, 0);
-  const repairGuidance = guardrails.egressRepairGuidance.trim();
   return {
     enforce: standardEgressEnforce,
     ...(guardrails.egressOnBlock ? { onBlock: guardrails.egressOnBlock } : {}),
     ...(guardrails.egressMaxRetries !== null ? { maxRetries: guardrails.egressMaxRetries } : {}),
-    ...(repairGuidance ? { repairGuidance } : {}),
     ...(guardrails.egressHoldback !== null ? { holdback: guardrails.egressHoldback } : {}),
   };
 }
@@ -522,12 +554,11 @@ function compileNetwork(
 
 function compileGuardrails(
   guardrails: GuardrailsDraft,
-  withCanary: boolean,
   report: Report,
 ): ProfileGuardrailsSpec | undefined {
   const defaults = resolveGuardrailPolicy(undefined);
   const parts: ProfileGuardrailsSpec = {
-    canary: compileCanary(guardrails, withCanary, report),
+    canary: compileCanary(guardrails),
     sanitizeInput: guardrails.sanitizeInput !== defaults.sanitizeInput
       ? guardrails.sanitizeInput
       : undefined,
@@ -698,8 +729,9 @@ function assemble(
     ? compileTurnBehaviour(draft.turnBehaviour, allows('turnBehaviour.resumption'), report)
     : undefined;
   const guardrails = facets.has('guardrails')
-    ? compileGuardrails(draft.guardrails, allows('guardrails.canary'), report)
+    ? compileGuardrails(draft.guardrails, report)
     : undefined;
+  const lexicon = compileLexicon(draft, facets, allows, report);
   const observability = facets.has('observability')
     ? compileObservability(draft.observability, report)
     : undefined;
@@ -718,6 +750,7 @@ function assemble(
     ...(turnBehaviour ? { turnBehaviour } : {}),
     ...(guardrails ? { guardrails } : {}),
     ...(observability ? { observability } : {}),
+    ...(lexicon ? { lexicon } : {}),
   });
   return { profile, customTools, ...(structured ? { structured } : {}) };
 }

@@ -5,6 +5,7 @@ import { IconButton } from '@astryxdesign/core/IconButton';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconX } from '@tabler/icons-react';
 import { voiceLabelFromMime } from '../client/voice-label';
+import { VOICE_NOTE_LABEL } from './labels';
 import { InkWaveform } from '../components/InkWaveform';
 import { useVoicePlayback } from '../components/use-voice-playback';
 
@@ -26,7 +27,7 @@ export type VoiceNoteProps = {
  */
 export function VoiceNote({ src, mimeType = 'audio/webm', label, onRemove }: VoiceNoteProps) {
 	const { playing, outputLevel, toggle, audioProps } = useVoicePlayback();
-	const name = label ?? voiceLabelFromMime(mimeType);
+	const name = label ?? voiceLabelFromMime(mimeType) ?? VOICE_NOTE_LABEL;
 
 	return (
 		<HStack gap={1} vAlign="center">

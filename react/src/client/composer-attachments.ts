@@ -1,8 +1,10 @@
 /**
  * Stage file picks against profile `maxFiles` (shared with voice) and, on
- * image profiles, `image.maxInputImages`. Excess incoming files are dropped;
- * caller surfaces the notice.
+ * image profiles, `maxImages`. Excess incoming files are dropped; each limit
+ * hit is an issue the caller words (`attachmentIssueText`).
  */
+
+import type { AttachmentValidationIssue } from '../../../src/interface/mod.ts';
 
 export type StageComposerFilesArgs = {
 	existing: readonly File[];
@@ -11,28 +13,16 @@ export type StageComposerFilesArgs = {
 	maxFiles?: number;
 	/** Staged voice notes that share the same maxFiles budget. */
 	voiceCount?: number;
-	/** Image profile `image.maxInputImages`: cap on staged `image/*` files. When omitted, no cap. */
+	/** Profile `inputs.maxImages`: cap on staged `image/*` files. When omitted, no cap. */
 	maxImages?: number;
 };
 
 export type StageComposerFilesResult = {
 	files: File[];
 	dropped: number;
-	/** Set when any incoming file was dropped for the limit. */
-	notice?: string;
+	/** One per limit that dropped a file (`too_many_images`, `too_many_files`). */
+	issues: AttachmentValidationIssue[];
 };
-
-/** User-facing notice when picks exceed `maxFiles`. */
-export function attachmentsDroppedMessage(limit: number, dropped: number): string {
-	const verb = dropped === 1 ? 'attachment was' : 'attachments were';
-	return `${String(limit)} is the limit, ${String(dropped)} ${verb} dropped.`;
-}
-
-/** User-facing notice when picks exceed `maxInputImages`. */
-export function imagesDroppedMessage(limit: number, dropped: number): string {
-	const verb = dropped === 1 ? 'image was' : 'images were';
-	return `${String(limit)} ${limit === 1 ? 'image is' : 'images is'} the limit, ${String(dropped)} ${verb} dropped.`;
-}
 
 /** Whether a staged file counts against `maxInputImages` (the kernel counts `image/*`). */
 function isImageFile(file: File): boolean {
@@ -64,27 +54,27 @@ function capIncomingImages(
 /** Append `incoming` to `existing`, dropping images past maxImages, then overflow past maxFiles − voice. */
 export function stageComposerFiles(args: StageComposerFilesArgs): StageComposerFilesResult {
 	const images = capIncomingImages(args.existing, args.incoming, args.maxImages);
-	const imageNotice =
-		images.dropped > 0 && args.maxImages !== undefined ? imagesDroppedMessage(args.maxImages, images.dropped) : undefined;
+	const issues: AttachmentValidationIssue[] =
+		images.dropped > 0 && args.maxImages !== undefined
+			? [{ code: 'too_many_images', params: { maxImages: args.maxImages } }]
+			: [];
 	const incoming = images.kept;
 	const voiceCount = Math.max(0, args.voiceCount ?? 0);
 	const maxFiles = args.maxFiles;
 	if (maxFiles === undefined || !Number.isFinite(maxFiles) || maxFiles < 0) {
-		return { files: [...args.existing, ...incoming], dropped: images.dropped, notice: imageNotice };
+		return { files: [...args.existing, ...incoming], dropped: images.dropped, issues };
 	}
 
 	const room = Math.max(0, maxFiles - voiceCount - args.existing.length);
 	if (incoming.length <= room) {
-		return { files: [...args.existing, ...incoming], dropped: images.dropped, notice: imageNotice };
+		return { files: [...args.existing, ...incoming], dropped: images.dropped, issues };
 	}
 
 	const kept = room === 0 ? [] : incoming.slice(0, room);
-	const dropped = incoming.length - kept.length;
-	const fileNotice = attachmentsDroppedMessage(maxFiles, dropped);
 	return {
-		files: kept.length === 0 ? [...args.existing] : [...args.existing, ...kept],
-		dropped: images.dropped + dropped,
-		notice: imageNotice ? `${imageNotice} ${fileNotice}` : fileNotice,
+		files: [...args.existing, ...kept],
+		dropped: images.dropped + incoming.length - kept.length,
+		issues: [...issues, { code: 'too_many_files', params: { maxFiles } }],
 	};
 }
 

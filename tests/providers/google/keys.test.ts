@@ -1,5 +1,5 @@
 import '../../fixtures/test-host.ts';
-import { TheoremError, UPSTREAM_FAILED } from '../../../src/guardrails/error.ts';
+import { TheoremError } from '../../../src/guardrails/error.ts';
 import { assertEquals } from '../../../src/kernel/engine/assert.ts';
 import {
   defineProfile,
@@ -201,7 +201,7 @@ Deno.test('missing free key throws before any fetch', async () => {
       },
     });
   } catch (err) {
-    threw = err instanceof TheoremError && err.message === UPSTREAM_FAILED;
+    threw = err instanceof TheoremError && err.kind === 'auth';
   }
   assertEquals(threw, true);
 });
@@ -327,7 +327,7 @@ Deno.test('requireKey throws TheoremError when the slot has no key', () => {
   try {
     requireKey({ ...vault, slotA: undefined }, 'slotA');
   } catch (err) {
-    threw = err instanceof TheoremError && err.message === UPSTREAM_FAILED;
+    threw = err instanceof TheoremError && err.kind === 'auth';
   }
   assertEquals(threw, true);
 });

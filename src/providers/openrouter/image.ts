@@ -11,10 +11,10 @@
  * @module
  */
 
-import { toErrorEvent } from '../../guardrails/error.ts';
+import { TheoremError, toErrorEvent } from '../../guardrails/error.ts';
 import { asRecord, nonEmptyString } from '../../kernel/engine/record.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../kernel/types.ts';
-import { tapFetch } from '../shared/upstream-tap.ts';
+import { networkFetch, tapFetch } from '../shared/upstream-tap.ts';
 import type { OpenAiGatewayConfig } from '../types.ts';
 import { buildChatMessages, httpErrorEvent, openAiGatewayHeaders } from './openai/compat.ts';
 import {
@@ -109,7 +109,7 @@ async function postJson(
   path: string,
   body: Record<string, unknown>,
 ): Promise<Response> {
-  const fetchFn = tapFetch(req.tapUpstream, config.fetch ?? fetch, req.keySlot);
+  const fetchFn = tapFetch(req.tapUpstream, networkFetch(config.fetch ?? fetch), req.keySlot);
   return await fetchFn(`${baseUrl(config)}${path}`, {
     method: 'POST',
     headers: buildImageHeaders(apiKey, config),
@@ -178,12 +178,16 @@ export async function* yieldInterleavedChat(
   const body = await readTapedJson(req, res);
   const choices = body.choices;
   if (!Array.isArray(choices) || choices.length === 0) {
-    yield toErrorEvent('no chat choices returned for image generation');
+    yield toErrorEvent(
+      new TheoremError('bad_response', 'no chat choices returned for image generation'),
+    );
     return;
   }
   const message = asRecord(asRecord(choices[0])?.message);
   if (!message) {
-    yield toErrorEvent('no assistant message returned for image generation');
+    yield toErrorEvent(
+      new TheoremError('bad_response', 'no assistant message returned for image generation'),
+    );
     return;
   }
   const text = nonEmptyString(message.content);
@@ -192,7 +196,9 @@ export async function* yieldInterleavedChat(
   }
   const images = imagesFromChatMessage(message);
   if (images.length === 0) {
-    yield toErrorEvent('no image returned from chat image generation');
+    yield toErrorEvent(
+      new TheoremError('bad_response', 'no image returned from chat image generation'),
+    );
     return;
   }
   for (const media of images) {
@@ -217,7 +223,7 @@ export async function* yieldImagesEndpoint(
   const body = await readTapedJson(req, res);
   const images = imagesFromImagesBody(body);
   if (images.length === 0) {
-    yield toErrorEvent('no image returned from image generation');
+    yield toErrorEvent(new TheoremError('bad_response', 'no image returned from image generation'));
     return;
   }
   for (const media of images) {
@@ -240,13 +246,13 @@ export async function* streamImage(
   }
 
   if (!req.image) {
-    yield toErrorEvent('missing image response format');
+    yield toErrorEvent(new TheoremError('request', 'missing image response format'));
     return;
   }
 
   const prompt = extractPromptText(req.input);
   if (!prompt) {
-    yield toErrorEvent('empty text for image generation');
+    yield toErrorEvent(new TheoremError('request', 'empty text for image generation'));
     return;
   }
 

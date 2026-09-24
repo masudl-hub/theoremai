@@ -36,7 +36,8 @@ Deno.test('a turn that fails before the model still records its raw input and wh
   assertEquals(record && contentOf(record, text), 'user said this');
   assertEquals(image?.mime_type, 'image/png');
   assertEquals(typeof image?.content_sha256, 'string');
-  assertEquals(root?.status.code, 'ERROR');
+  assertEquals(root?.status, { code: 'ERROR', message: 'config' });
+  assertEquals(root?.attributes['error.type'], 'config');
   assertEquals(
     root?.events.some((e) => e.name === 'exception'),
     true,

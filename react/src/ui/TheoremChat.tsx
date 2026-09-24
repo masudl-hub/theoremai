@@ -127,7 +127,7 @@ function ChatComposerForChat({
 			pendingMessages={chat.pendingMessages}
 			issues={chat.issues}
 			phase={chat.phase}
-			error={chat.error}
+			failure={chat.failure}
 			selectedModel={chat.session.selectedModel}
 			selectedEffort={chat.session.selectedEffort}
 			placeholder={placeholder}
@@ -285,7 +285,7 @@ function ChatForTransport(props: Omit<TheoremChatProps, 'endpoint' | 'http' | 't
 	const described = useTheoremInterface(props.transport);
 	if (described.status === 'loading') return <Spinner size="lg" label="Loading…" />;
 	if (described.status === 'error') {
-		return <Banner status="error" title="Couldn't reach the agent" description={described.error.message} />;
+		return <Banner status="error" title={described.failure.error} />;
 	}
 	if (described.iface.type === 'live') {
 		return (

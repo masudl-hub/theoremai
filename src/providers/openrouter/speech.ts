@@ -7,7 +7,7 @@
  * @module
  */
 
-import { toErrorEvent } from '../../guardrails/error.ts';
+import { TheoremError, toErrorEvent } from '../../guardrails/error.ts';
 import type {
   InteractionPart,
   ModelProvider,
@@ -18,7 +18,7 @@ import type {
 import { bytesToBase64 } from '../../kernel/util/base64.ts';
 import { mimeEssence } from '../../kernel/util/mime.ts';
 import { pcmFormatFromMime, wrapPcmAsWav } from '../shared/pcm.ts';
-import { tapFetch } from '../shared/upstream-tap.ts';
+import { networkFetch, tapFetch } from '../shared/upstream-tap.ts';
 import type { OpenAiGatewayConfig } from '../types.ts';
 import { httpErrorEvent, openAiGatewayHeaders } from './openai/compat.ts';
 import { resolveOpenAiGatewayApiKey } from './resolve-api-key.ts';
@@ -78,7 +78,7 @@ export async function requestSpeech(
   req: ProviderCompleteRequest,
   config: SpeechProviderConfig,
 ): Promise<Response> {
-  const fetchFn = tapFetch(req.tapUpstream, config.fetch ?? fetch, req.keySlot);
+  const fetchFn = tapFetch(req.tapUpstream, networkFetch(config.fetch ?? fetch), req.keySlot);
   const baseUrl = config.baseUrl?.replace(/\/+$/, '') ?? 'https://openrouter.ai/api/v1';
   const url = `${baseUrl}/audio/speech`;
   return await fetchFn(url, {
@@ -125,7 +125,7 @@ export async function* streamSpeech(
 
   const text = extractInputText(req.input);
   if (!text) {
-    yield toErrorEvent('empty text for speech');
+    yield toErrorEvent(new TheoremError('request', 'empty text for speech'));
     return;
   }
 
@@ -145,7 +145,7 @@ export async function* streamSpeech(
     data: bytesToBase64(rawBytes),
   });
   if (rawBytes.length === 0) {
-    yield toErrorEvent('no audio returned from speech');
+    yield toErrorEvent(new TheoremError('bad_response', 'no audio returned from speech'));
     return;
   }
 

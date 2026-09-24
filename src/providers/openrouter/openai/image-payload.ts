@@ -49,7 +49,7 @@ export function wireInputReferences(input: InteractionPart[]): Record<string, un
       continue;
     }
     if (isMediaRefPart(part)) {
-      throw new TheoremError('media references are not supported on openAi');
+      throw new TheoremError('unsupported', 'media references are not supported on openAi');
     }
     references.push(wireInputReference(part));
   }

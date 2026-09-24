@@ -1,4 +1,4 @@
-import { runEnforcer } from '../../../guardrails/egress.ts';
+import { runEnforcer, WITHHELD_REASON } from '../../../guardrails/egress.ts';
 import { TheoremError, throwIfAborted, toErrorEvent } from '../../../guardrails/error.ts';
 import { guardrailFromVerdict } from '../../../guardrails/events.ts';
 import { lexiconText } from '../../../guardrails/lexicon.ts';
@@ -30,8 +30,6 @@ import { type AttemptFlowState, appendUserInput, type StepExecutionState } from 
 import { executeAttempt } from './steps.ts';
 import { isWithheldOnBlock } from './stream.ts';
 
-/** Internal reason recorded when a turn is withheld; mapped to public copy on emit. */
-const WITHHELD = 'Turn withheld: egress disclosure violation'; // lexicon-exempt: internal marker mapped by publicError
 /** A turn whose final output the egress check blocked (withheld or replaced by policy copy). */
 const EGRESS_FILTERED_STOP: TurnStop = { kind: 'filtered', native: 'egress' };
 
@@ -100,6 +98,7 @@ async function evaluateEgressOutcome(args: {
     stage: 'output_final',
     trust: 'untrusted',
     profileId: profile.id,
+    ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
     ...(generation.canary ? { canary: generation.canary } : {}),
     ...(request.input?.slots ? { slots: request.input.slots } : {}),
     ...(request.input?.role ? { role: request.input.role } : {}),
@@ -124,30 +123,25 @@ async function evaluateEgressOutcome(args: {
   }
 
   if (egress.onBlock === 'refuse_to_user') {
-    // Only emit a text turn when the policy supplied copy. Without it the kernel
-    // has nothing to say — an empty text event reads as a successful empty reply —
-    // so fall back to the same withheld error the exhausted-retry path uses.
-    return {
-      outcome: verdict.refusal
-        ? { action: 'refusal', event: { type: 'text', text: verdict.refusal } }
-        : { action: 'withhold', event: toErrorEvent(WITHHELD) },
-      guardrail,
-    };
+    const text = lexiconText('egress.refusal', {}, profile.lexicon);
+    return { outcome: { action: 'refusal', event: { type: 'text', text } }, guardrail };
   }
 
   if (canRetry) {
-    const repairGuidance = egress.repairGuidance || lexiconText('egress.default_repair_guidance');
     const nextRequest = buildRepairRequest(
       request,
       payload.text,
       verdict.rejection,
-      repairGuidance,
+      lexiconText('egress.default_repair_guidance', {}, profile.lexicon),
     );
     return { outcome: { action: 'retry', nextRequest }, guardrail };
   }
 
   return {
-    outcome: { action: 'withhold', event: toErrorEvent(WITHHELD) },
+    outcome: {
+      action: 'withhold',
+      event: toErrorEvent(new TheoremError('safety', WITHHELD_REASON.egress)),
+    },
     guardrail,
   };
 }
@@ -171,6 +165,7 @@ async function evaluateValidationOutcome(args: {
   const structuredId = generation.structured;
   if (!structuredId) {
     throw new TheoremError(
+      'config',
       'outputs.validation requires outputs.structured with a JSON Schema', // lexicon-exempt: developer contract error
     );
   }
@@ -185,12 +180,7 @@ async function evaluateValidationOutcome(args: {
   }
   const error = formatValidationFailures(failures);
   if (canRetry) {
-    const nextRequest = buildRepairRequest(
-      request,
-      latestStructured,
-      error,
-      validation.repairGuidance,
-    );
+    const nextRequest = buildRepairRequest(request, latestStructured, error);
     return { action: 'retry', nextRequest };
   }
   return {
@@ -232,17 +222,16 @@ function updateFlowForRetry(
   state.trace.root.event('theorem.attempt.retry', { attempt: flow.currentAttempt, reason });
   flow.currentReq = nextReq;
   const safe = sanitizeTurnRequest(nextReq);
-  const model = flow.currentGen.model;
   if (profile.type === 'text') {
     // The conversation is already in turn history: the repair is its next user message.
     appendUserInput(
       state,
-      resolveInputParts(profile, model, { ...safe, input: { repair: safe.input?.repair } }),
+      resolveInputParts(profile, { ...safe, input: { repair: safe.input?.repair } }),
     );
     return;
   }
   // An image or speech call reads only its input: the repair replaces the prompt.
-  flow.currentGen = { ...flow.currentGen, input: resolveInputParts(profile, model, safe) };
+  flow.currentGen = { ...flow.currentGen, input: resolveInputParts(profile, safe) };
 }
 
 async function* handleEgressGate(

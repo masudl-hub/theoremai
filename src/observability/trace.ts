@@ -142,10 +142,10 @@ function insideDir(path: string, root: string): boolean {
 function normalizeAbsolutePath(path: string): string {
   const trimmed = path.trim();
   if (!trimmed) {
-    throw new TheoremError('trace directory must be non-empty');
+    throw new TheoremError('config', 'trace directory must be non-empty');
   }
   if (!trimmed.startsWith('/')) {
-    throw new TheoremError('trace directory must be absolute');
+    throw new TheoremError('config', 'trace directory must be absolute');
   }
   const parts: string[] = [];
   for (const part of trimmed.split('/')) {
@@ -166,7 +166,7 @@ function validateTraceDir(dir: string): string {
   const normalized = normalizeAbsolutePath(dir);
   const normalizedCwd = normalizeAbsolutePath(Deno.cwd());
   if (insideDir(normalized, normalizedCwd)) {
-    throw new TheoremError('trace directory must be outside the project checkout');
+    throw new TheoremError('config', 'trace directory must be outside the project checkout');
   }
   return normalized;
 }

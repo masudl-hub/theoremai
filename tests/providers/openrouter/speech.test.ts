@@ -1,5 +1,4 @@
 import { assertEquals } from '@std/assert';
-import { PUBLIC_GENERIC, PUBLIC_UNAVAILABLE } from '../../../src/guardrails/error.ts';
 import type { InteractionPart, ProviderCompleteRequest } from '../../../src/kernel/types.ts';
 import {
   buildPayload,
@@ -37,7 +36,7 @@ Deno.test('streamSpeech yields error when apiKey is missing', async () => {
   }
   assertEquals(events.length, 1);
   assertEquals(events[0]?.type, 'error');
-  assertEquals((events[0] as { error: string }).error, PUBLIC_GENERIC);
+  assertEquals((events[0] as { errorKind: string }).errorKind, 'auth');
 });
 
 Deno.test('streamSpeech yields error on empty input text', async () => {
@@ -48,7 +47,7 @@ Deno.test('streamSpeech yields error on empty input text', async () => {
   }
   assertEquals(events.length, 1);
   assertEquals(events[0]?.type, 'error');
-  assertEquals((events[0] as { error: string }).error, PUBLIC_GENERIC);
+  assertEquals((events[0] as { errorKind: string }).errorKind, 'request');
 });
 
 Deno.test('streamSpeech handles HTTP error from speech endpoint', async () => {
@@ -61,7 +60,7 @@ Deno.test('streamSpeech handles HTTP error from speech endpoint', async () => {
   }
   assertEquals(events.length, 1);
   assertEquals(events[0]?.type, 'error');
-  assertEquals((events[0] as { error: string }).error, PUBLIC_UNAVAILABLE);
+  assertEquals((events[0] as { errorKind: string }).errorKind, 'auth');
 });
 
 Deno.test('streamSpeech yields error when response is empty', async () => {
@@ -80,7 +79,7 @@ Deno.test('streamSpeech yields error when response is empty', async () => {
   }
   assertEquals(events.length, 1);
   assertEquals(events[0]?.type, 'error');
-  assertEquals((events[0] as { error: string }).error, PUBLIC_GENERIC);
+  assertEquals((events[0] as { errorKind: string }).errorKind, 'bad_response');
 });
 
 Deno.test('streamSpeech yields media and done on successful synthesis (no usage reported)', async () => {

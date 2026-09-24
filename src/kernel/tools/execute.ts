@@ -5,7 +5,7 @@
  */
 
 import { isAbortError, throwIfAborted } from '../../guardrails/error.ts';
-import { lexiconText } from '../../guardrails/lexicon.ts';
+import { type LexiconOverrides, lexiconText } from '../../guardrails/lexicon.ts';
 import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import { sanitizeText } from '../../guardrails/sanitize.ts';
 import {
@@ -125,19 +125,6 @@ export function leanToolResultData(output: unknown): unknown {
   return rest;
 }
 
-/** @deprecated Gates use `ToolGate` / `phase: 'gate'`. Kept for type narrowing during migration. */
-export function isToolPause(value: ToolFailure | { kind: string }): value is {
-  kind: 'interactive' | 'confirmation' | 'permission' | 'auth';
-} {
-  return (
-    'kind' in value &&
-    (value.kind === 'interactive' ||
-      value.kind === 'confirmation' ||
-      value.kind === 'permission' ||
-      value.kind === 'auth')
-  );
-}
-
 export function* yieldHandlerSideEvent(
   base: Pick<ToolCallEvent, 'name' | 'callId' | 'arguments'>,
   event: Exclude<ToolStreamEvent, { kind: 'complete' }>,
@@ -182,13 +169,21 @@ async function* runHandler<TIn, TOut>(
   return output;
 }
 
-export function projectForModel(tool: FunctionToolDef, output: unknown): ModelToolResult {
+export function projectForModel(
+  tool: FunctionToolDef,
+  output: unknown,
+  lexicon?: LexiconOverrides,
+): ModelToolResult {
   if (tool.exposeToModel === false) {
-    return { finding: 'Completed.' };
+    return { finding: lexiconText('tool.completed_hidden', {}, lexicon) };
   }
   if (isAwaitingUserInput(output)) {
     return {
-      finding: lexiconText('tool.awaiting_user', { kind: output.kind, prompt: output.prompt }),
+      finding: lexiconText(
+        'tool.awaiting_user',
+        { kind: output.kind, prompt: output.prompt },
+        lexicon,
+      ),
       data: leanToolResultData(output),
     };
   }
@@ -232,7 +227,7 @@ export function formatToolResult(result: ModelToolResult): string {
  * the kernel frames it as a system report.
  */
 export function formatToolFailureForModel(
-  failure: ToolFailure,
+  failure: Pick<ToolFailure, 'code' | 'message' | 'details'>,
   provenance?: Provenance,
   policy: ReturnType<typeof resolveGuardrailPolicy> = resolveGuardrailPolicy(undefined),
 ): ModelToolResult {
@@ -265,7 +260,12 @@ function applyT2LoaderPromotion(
       ok: false,
       failure: {
         code: 'invalid_output',
-        message: lexiconText('tool.t2_loader_needs_snapshot', { tool: tool.name }),
+        kind: 'bad_response',
+        message: lexiconText(
+          'tool.t2_loader_needs_snapshot',
+          { tool: tool.name },
+          ctx.profile.lexicon,
+        ),
       },
     };
   }
@@ -275,7 +275,8 @@ function applyT2LoaderPromotion(
       ok: false,
       failure: {
         code: 'invalid_output',
-        message: lexiconText('tool.t2_loader_shape', { tool: tool.name }),
+        kind: 'bad_response',
+        message: lexiconText('tool.t2_loader_shape', { tool: tool.name }, ctx.profile.lexicon),
       },
     };
   }
@@ -290,7 +291,8 @@ function applyT2LoaderPromotion(
       ok: false,
       failure: {
         code: 'invalid_output',
-        message: lexiconText('tool.t2_loader_output_invalid'),
+        kind: 'bad_response',
+        message: lexiconText('tool.t2_loader_output_invalid', {}, ctx.profile.lexicon),
         details: rechecked.error.flatten(),
       },
     };
@@ -380,7 +382,7 @@ async function* settleToolCall(args: {
     });
     if (post.deny) {
       denied = true;
-      failure = { code: post.deny.code, message: post.deny.message };
+      failure = { code: post.deny.code, kind: 'blocked', message: post.deny.message };
       modelResult = yield* guard(formatToolFailureForModel(failure));
       outputRaw = undefined;
       awaiting = false;
@@ -453,7 +455,7 @@ function resultGuard(
   const provenance = provenanceFor(tool);
   const policy = resolveGuardrailPolicy(ctx.profile.guardrails);
   const callableTools = snapshot?.executable ?? [];
-  return (result) => guardResult(result, provenance, policy, callableTools);
+  return (result) => guardResult(result, provenance, policy, callableTools, ctx.profile.lexicon);
 }
 
 /** Tool `preTool` + host `pre_tool` + mutate re-parse, mapped onto a function-tool settlement. */
@@ -494,6 +496,7 @@ type ParsedOutput =
 function makeReproject(
   parse: (value: unknown) => ParsedOutput,
   project: (data: unknown) => ModelToolResult,
+  lexicon: LexiconOverrides | undefined,
 ): Reproject {
   return (output) => {
     const checked = parse(output);
@@ -502,7 +505,8 @@ function makeReproject(
         ok: false,
         failure: {
           code: 'invalid_output',
-          message: lexiconText('tool.output_invalid_after_mutate'),
+          kind: 'bad_response',
+          message: lexiconText('tool.output_invalid_after_mutate', {}, lexicon),
           details: checked.error.flatten(),
         },
       };
@@ -526,7 +530,11 @@ export async function* executeFunction(
     return yield* settleToolFailure(
       guard,
       base,
-      { code: 'invalid_input', message: lexiconText('tool.input_invalid') },
+      {
+        code: 'invalid_input',
+        kind: 'bad_response',
+        message: lexiconText('tool.input_invalid', {}, ctx.profile.lexicon),
+      },
       stages,
       { toolName: tool.name, callId, callNotStarted: true },
     );
@@ -560,16 +568,21 @@ export async function* executeFunction(
   try {
     output = yield* runHandler(tool.handler, input as never, ctx, base);
   } catch (err) {
-    return yield* fail({ code: 'handler_error', message: messageOf(err) });
+    return yield* fail({ code: 'handler_error', kind: 'failed', message: messageOf(err) });
   }
   if (output === undefined) {
-    return yield* fail({ code: 'invalid_output', message: lexiconText('tool.handler_no_output') });
+    return yield* fail({
+      code: 'invalid_output',
+      kind: 'bad_response',
+      message: lexiconText('tool.handler_no_output', {}, ctx.profile.lexicon),
+    });
   }
   const checked = tool.output.safeParse(output);
   if (!checked.success) {
     return yield* fail({
       code: 'invalid_output',
-      message: lexiconText('tool.output_invalid'),
+      kind: 'bad_response',
+      message: lexiconText('tool.output_invalid', {}, ctx.profile.lexicon),
       details: checked.error.flatten(),
     });
   }
@@ -589,27 +602,31 @@ export async function* executeFunction(
     guard,
     provisional: {
       outputRaw: promoted.output,
-      modelResult: projectForModel(tool, promoted.output),
+      modelResult: projectForModel(tool, promoted.output, ctx.profile.lexicon),
     },
     ...(ownsOutput
       ? {}
       : {
           reproject: makeReproject(
             (v) => tool.output.safeParse(v),
-            (data) => projectForModel(tool, data),
+            (data) => projectForModel(tool, data, ctx.profile.lexicon),
+            ctx.profile.lexicon,
           ),
         }),
   });
 }
 
-export function notLoadedMessage(tool: { name: string; loadTier?: string }): string {
+export function notLoadedMessage(
+  tool: { name: string; loadTier?: string },
+  lexicon?: LexiconOverrides,
+): string {
   if (tool.loadTier === 'T1') {
-    return lexiconText('tool.not_wired_t1', { tool: tool.name });
+    return lexiconText('tool.not_wired_t1', { tool: tool.name }, lexicon);
   }
   if (tool.loadTier === 'T2') {
-    return lexiconText('tool.not_loaded_t2', { tool: tool.name });
+    return lexiconText('tool.not_loaded_t2', { tool: tool.name }, lexicon);
   }
-  return lexiconText('tool.not_visible', { tool: tool.name });
+  return lexiconText('tool.not_visible', { tool: tool.name }, lexicon);
 }
 
 export function extractLoadedIds(output: unknown): string[] | undefined {
@@ -638,14 +655,16 @@ export async function* executeBuiltin(
   if (!snapshot.builtins.includes(tool.name)) {
     const failure: ToolFailure = {
       code: 'not_loaded',
-      message: lexiconText('tool.builtin_not_enabled', { tool: tool.name }),
+      kind: 'request',
+      message: lexiconText('tool.builtin_not_enabled', { tool: tool.name }, ctx.profile.lexicon),
     };
     yield failureEvent(base, failure);
     return earlyFailure(failure);
   }
   const failure: ToolFailure = {
     code: 'provider_native',
-    message: lexiconText('tool.provider_native', { tool: tool.name }),
+    kind: 'request',
+    message: lexiconText('tool.provider_native', { tool: tool.name }, ctx.profile.lexicon),
   };
   yield failureEvent(base, failure);
   return earlyFailure(failure);
@@ -663,18 +682,31 @@ function registeredEligibilityFailure(args: {
   if (!profileToolAllow(profile).includes(name)) {
     return {
       code: 'not_allowed',
-      message: lexiconText('tool.not_allowed', { tool: name, profile: profile.id }),
+      kind: 'blocked',
+      message: lexiconText(
+        'tool.not_allowed',
+        { tool: name, profile: profile.id },
+        profile.lexicon,
+      ),
     };
   }
   if (!snapshot) return undefined;
   const continuing = isResumeContinuation(resume);
   if (!continuing && !snapshot.gated.includes(name)) {
-    return { code: 'not_gated', message: lexiconText('tool.not_eligible', { tool: name }) };
+    return {
+      code: 'not_gated',
+      kind: 'request',
+      message: lexiconText('tool.not_eligible', { tool: name }, profile.lexicon),
+    };
   }
   if (!snapshot.visible.includes(name)) {
     const skipLoadCheck = continuing && tool.loadTier === 'T0';
     if (!skipLoadCheck) {
-      return { code: 'not_loaded', message: notLoadedMessage(tool) };
+      return {
+        code: 'not_loaded',
+        kind: 'request',
+        message: notLoadedMessage(tool, profile.lexicon),
+      };
     }
   }
   return undefined;
@@ -688,8 +720,9 @@ async function* settleRemoteOutcome(args: {
   safeInput: unknown;
   stages?: ToolStageSupport;
   guard: ResultGuard;
+  lexicon: LexiconOverrides | undefined;
 }): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
-  const { outcome, tool, base, callId, safeInput, stages, guard } = args;
+  const { outcome, tool, base, callId, safeInput, stages, guard, lexicon } = args;
   const name = tool.name;
 
   if (outcome.kind === 'gated') {
@@ -719,7 +752,11 @@ async function* settleRemoteOutcome(args: {
     stages,
     guard,
     provisional: { outputRaw: outcome.outputRaw, modelResult: outcome.modelResult },
-    reproject: makeReproject((v) => parseToolOutput(tool.output, v), modelResultFromOutput),
+    reproject: makeReproject(
+      (v) => parseToolOutput(tool.output, v),
+      modelResultFromOutput,
+      lexicon,
+    ),
   });
 }
 
@@ -782,7 +819,7 @@ function toolCallEnd(
     outcome,
     ...(result ? { result } : {}),
     ...(!failure && 'outputRaw' in settlement ? { data: { value: settlement.outputRaw } } : {}),
-    ...(failure ? { errorType: failure.code } : {}),
+    ...(failure ? { failure } : {}),
   };
 }
 
@@ -853,7 +890,8 @@ async function* runRegisteredTool(
   if (!tool) {
     const failure: ToolFailure = {
       code: 'unknown_tool',
-      message: lexiconText('tool.not_registered', { tool: name }),
+      kind: 'request',
+      message: lexiconText('tool.not_registered', { tool: name }, profile.lexicon),
     };
     yield failureEvent(base, failure);
     return earlyFailure(failure);
@@ -862,7 +900,8 @@ async function* runRegisteredTool(
     if (!snapshot) {
       const failure: ToolFailure = {
         code: 'provider_native',
-        message: lexiconText('tool.builtin_needs_snapshot', { tool: name }),
+        kind: 'request',
+        message: lexiconText('tool.builtin_needs_snapshot', { tool: name }, profile.lexicon),
       };
       yield failureEvent(base, failure);
       return earlyFailure(failure);
@@ -888,7 +927,11 @@ async function* runRegisteredTool(
     return yield* settleToolFailure(
       resultGuard(tool, { ...ctx, callId, profile }, snapshot),
       base,
-      { code: 'denied', message: lexiconText('session.tool_denied', { tool: name }) },
+      {
+        code: 'denied',
+        kind: 'declined',
+        message: lexiconText('session.tool_denied', { tool: name }, profile.lexicon),
+      },
       stages,
       { toolName: name, callId, input: safeInput, callNotStarted: true, denied: true },
     );
@@ -903,7 +946,7 @@ async function* runRegisteredTool(
     yield { type: 'guardrail', guardrail: argEvent };
   }
 
-  const taintVerdict = checkTaintGate(ctx.turn?.taint, tool.access, policy);
+  const taintVerdict = checkTaintGate(ctx.turn?.taint, tool.access, policy, profile.lexicon);
   const taintEvent = toolCallEvent(taintVerdict, provenance);
   if (taintEvent) {
     yield { type: 'guardrail', guardrail: taintEvent };
@@ -911,6 +954,7 @@ async function* runRegisteredTool(
   if (taintVerdict.action === 'block') {
     const failure: ToolFailure = {
       code: 'tainted_turn',
+      kind: 'blocked',
       message: taintVerdict.rejection,
     };
     yield failureEvent(base, failure);
@@ -937,7 +981,8 @@ async function* settleByType(
   if (tool.type !== 'http' && tool.type !== 'mcp') {
     return earlyFailure({
       code: 'unknown_tool',
-      message: lexiconText('tool.unsupported_type', { tool: name }),
+      kind: 'request',
+      message: lexiconText('tool.unsupported_type', { tool: name }, fullCtx.profile.lexicon),
     });
   }
   // HTTP / MCP: schema → permission → auth → preTool → body (inside remote).
@@ -953,6 +998,7 @@ async function* settleByType(
     safeInput,
     stages,
     guard: resultGuard(tool, fullCtx, snapshot),
+    lexicon: fullCtx.profile.lexicon,
   });
 }
 
@@ -967,8 +1013,16 @@ function* guardResult(
   provenance: Provenance,
   policy: ReturnType<typeof resolveGuardrailPolicy>,
   callableTools: readonly string[],
+  lexicon: LexiconOverrides | undefined,
 ): Generator<TurnEvent, ModelToolResult> {
-  const guarded = guardToolResult(result.finding, result.data, provenance, policy, callableTools);
+  const guarded = guardToolResult(
+    result.finding,
+    result.data,
+    provenance,
+    policy,
+    callableTools,
+    lexicon,
+  );
   if (guarded.event) {
     yield { type: 'guardrail', guardrail: guarded.event };
   }

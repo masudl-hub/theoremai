@@ -341,7 +341,7 @@ function recordProviderToolFailure(
   }).end({
     outcome: 'error',
     result: { text: formatToolResult(modelResult) },
-    errorType: failure.code,
+    failure,
   });
   recordToolModelResult(state, toolEv, modelResult, generation, useInteractionsContinuation);
   return enriched;
@@ -434,6 +434,7 @@ async function* handlePendingTools(
         callId,
         {
           code: 'malformed_arguments',
+          kind: 'bad_response',
           message: 'Provider tool call is missing a function name', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         },
         generation,

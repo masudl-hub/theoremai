@@ -75,7 +75,7 @@ export async function openGoogleLiveSession(
   openWebSocket: OpenLiveWebSocket = defaultOpenWebSocket,
 ): Promise<GoogleLiveConnection> {
   if (!req.keySlot) {
-    throw new TheoremError('Request requires keySlot');
+    throw new TheoremError('config', 'Request requires keySlot');
   }
   const apiKey = requireKey(transport.vault, req.keySlot);
   const wsUrl = buildGeminiLiveWebSocketUrl(apiKey);

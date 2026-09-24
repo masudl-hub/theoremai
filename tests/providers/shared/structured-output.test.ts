@@ -1,13 +1,14 @@
 import { assertEquals } from '@std/assert';
-import { parseStructuredOutput } from '../../../src/providers/shared/structured-output.ts';
+import { structuredEvent } from '../../../src/providers/shared/structured-output.ts';
 
-Deno.test('structured output: parseStructuredOutput parses JSON and fails loudly otherwise', () => {
-  assertEquals(parseStructuredOutput('{"status":"ok"}'), {
-    ok: true,
+Deno.test('structured output: structuredEvent parses JSON and fails loudly otherwise', () => {
+  assertEquals(structuredEvent('{"status":"ok"}'), {
+    type: 'structured',
     structured: { status: 'ok' },
   });
-  assertEquals(parseStructuredOutput('not json'), {
-    ok: false,
-    error: 'structured output was not valid JSON',
+  assertEquals(structuredEvent('not json'), {
+    type: 'error',
+    errorKind: 'bad_response',
+    errorInternal: 'structured output was not valid JSON',
   });
 });

@@ -5,6 +5,11 @@
  * @module
  */
 
+export type {
+  AttachmentValidationCode,
+  AttachmentValidationIssue,
+  AttachmentValidationParams,
+} from '../kernel/types.ts';
 export {
   buildUserTurnBlocks,
   foldConversationTurn,
@@ -85,9 +90,6 @@ export {
   promotedMediaFromUrlString,
 } from './tool-media.ts';
 export type {
-  AttachmentValidationCode,
-  AttachmentValidationIssue,
-  AttachmentValidationParams,
   AttachmentValidationResult,
   ComposerProfileInterface,
   FoldTurnEventsOptions,

@@ -794,6 +794,7 @@ Deno.test('runSession executeTool gates, resumes granted, and denies via granted
     resume: { granted: false },
   });
   assertEquals(denied.failure?.code, 'denied');
+  assertEquals(denied.failure?.kind, 'declined');
   assertEquals(stages.includes('post_tool'), true);
 
   (mock as unknown as MockLiveWebSocket).close();

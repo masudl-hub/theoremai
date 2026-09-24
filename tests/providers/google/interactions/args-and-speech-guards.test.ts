@@ -18,6 +18,7 @@ Deno.test('F-06 pressure: emitToolCallFromRawArguments never invents quiet {}', 
   assertEquals(events.length, 1);
   assertEquals(events[0]?.tool?.phase, 'error');
   assertEquals(events[0]?.tool?.failure?.code, 'malformed_arguments');
+  assertEquals(events[0]?.tool?.failure?.kind, 'bad_response');
   assertEquals(events[0]?.tool?.arguments, {});
 });
 

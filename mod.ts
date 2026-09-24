@@ -44,10 +44,12 @@
  * @module
  */
 
+export type { ErrorCopy, ErrorKind, TheoremErrorOptions } from './src/guardrails/error.ts';
 export {
   describeError,
+  ERROR_KINDS,
+  errorKind,
   isAbortError,
-  PUBLIC_CANARY,
   publicError,
   TheoremError,
   throwIfAborted,
@@ -65,8 +67,14 @@ export {
   matchPreview,
   projectGuardrailEvent,
 } from './src/guardrails/hits.ts';
-export type { LexiconKey, LexiconOverrides, LexiconParams } from './src/guardrails/lexicon.ts';
+export type {
+  ClientLexiconKey,
+  LexiconKey,
+  LexiconOverrides,
+  LexiconParams,
+} from './src/guardrails/lexicon.ts';
 export {
+  CLIENT_LEXICON_KEYS,
   LEXICON_KEYS,
   lexiconDefault,
   lexiconText,
@@ -77,7 +85,6 @@ export type {
   AdvisoryLevel,
   CanaryGateResult,
   CanaryGateSession,
-  CanaryGuardrailSpec,
   CanaryStreamGate,
   DetectionOptions,
   EgressEnforcer,
@@ -166,7 +173,7 @@ export {
   isLocalhostName,
   isPrivateOrLocalAddress,
 } from './src/guardrails/network.ts';
-export type { QuotaExhausted, QuotaSlotStatus } from './src/guardrails/quota.ts';
+export type { QuotaSlotStatus } from './src/guardrails/quota.ts';
 export {
   clientIp,
   quotaExhausted,
@@ -230,14 +237,18 @@ export {
   profileGraphFacet,
   spineFacetsForProfileType,
 } from './src/kernel/profile-graph.ts';
+export type { AttachmentFacts, AttachmentRules } from './src/kernel/registry/attachments.ts';
 export {
-  assertAttachmentLimits,
+  assertTurnAttachments,
+  attachmentIssueCopy,
+  attachmentIssues,
+  attachmentIssueText,
+  attachmentsRefused,
   maxBytesForMime,
   requireMediaLimits,
   resolveMediaLimits,
   sanitizeCsvText,
   sanitizeTurnBlobs,
-  sanitizeTurnBlobsForProfile,
 } from './src/kernel/registry/attachments.ts';
 export type { MediaInputChannel } from './src/kernel/registry/catalog.ts';
 export {
@@ -369,7 +380,6 @@ export type {
 } from './src/kernel/stop.ts';
 export {
   AUTO_CONTINUE_DELAY_MS,
-  CONTINUE_INSTRUCTION,
   DEFAULT_ALLOW_CONTINUE,
   DEFAULT_AUTO_CONTINUE,
   GenerationStopError,

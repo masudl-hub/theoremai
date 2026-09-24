@@ -1,5 +1,8 @@
-import { assertEquals } from '../../../src/kernel/engine/assert.ts';
+import { TheoremError } from '../../../src/guardrails/error.ts';
+import { assertEquals, assertRejects } from '../../../src/kernel/engine/assert.ts';
 import {
+  networkError,
+  networkFetch,
   tapeHeaders,
   tapeHeaderValue,
   tapFetch,
@@ -78,4 +81,30 @@ Deno.test('tapFetch does not call tap when tap is undefined', async () => {
   const tapped = tapFetch(undefined, send);
   const res = await tapped('https://example.com/no-tap');
   assertEquals(res.status, 200);
+});
+
+Deno.test('networkError makes a transport failure a network error', () => {
+  const cause = new TypeError('fetch failed: dns');
+  const err = networkError(cause);
+  assertEquals(err instanceof TheoremError && err.kind, 'network');
+  assertEquals(err instanceof TheoremError && err.message, 'fetch failed: dns');
+  assertEquals(err instanceof TheoremError && err.cause === cause, true);
+});
+
+Deno.test('networkError keeps a kind already decided, a cancel, and a timeout', () => {
+  const decided = new TheoremError('auth', 'no key');
+  const abort = new DOMException('aborted', 'AbortError');
+  const timeout = new DOMException('timed out', 'TimeoutError');
+  assertEquals(networkError(decided) === decided, true);
+  assertEquals(networkError(abort) === abort, true);
+  assertEquals(networkError(timeout) === timeout, true);
+});
+
+Deno.test('networkFetch passes responses through and reports a rejection as network', async () => {
+  const ok = new Response('fine', { status: 503 });
+  assertEquals(await networkFetch(() => Promise.resolve(ok))('https://example.test'), ok);
+  const failing = networkFetch(() => Promise.reject(new TypeError('connection reset')));
+  await assertRejects(() => failing('https://example.test'), TheoremError, 'connection reset');
+  const err = await failing('https://example.test').catch((e: unknown) => e);
+  assertEquals(err instanceof TheoremError && err.kind, 'network');
 });

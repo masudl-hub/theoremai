@@ -22,6 +22,7 @@
  * @module
  */
 
+import { type ErrorKind, errorKind } from '../../guardrails/error.ts';
 import type { GuardrailEvent } from '../../guardrails/types.ts';
 import {
   type SpanHandle,
@@ -529,7 +530,7 @@ class HttpTries {
   private tries = 0;
   private current?: SpanHandle;
   private last?: SpanHandle;
-  /** Status of the latest response; `error.type` of a failed call. */
+  /** Status of the latest response; how a try still open at call end ended. */
   lastStatus?: number;
   private awaitingFirstChunk = false;
   /** Whether the open try asked for a streamed response. */
@@ -636,14 +637,19 @@ function httpStatus(
     return { code: 'ERROR', message: String(status) };
   }
   if (thrown !== undefined) {
-    return { code: 'ERROR', message: errorName(thrown) };
+    return { code: 'ERROR', message: errorKind(thrown) };
   }
   return cancelled ? { code: 'UNSET' } : { code: 'OK' };
 }
 
-/** The name a thrown value is recorded under (`error.type`, `exception.type`). */
+/** The class a thrown value is recorded under (`exception.type`); `error.type` is its kind. */
 function errorName(err: unknown): string {
   return err instanceof Error ? err.name : 'Error';
+}
+
+/** An error event's kind; every producer names one, so a missing kind is a THEOREM bug. */
+function eventKind(event: TurnEvent): ErrorKind {
+  return event.errorKind ?? 'internal';
 }
 
 /** A thrown value as a semconv `exception` event. */
@@ -681,22 +687,19 @@ interface CallTrace {
 /** Stops where the model did not finish its output: no finish reason, status `UNSET`. */
 const STOPPED_CALLS = new Set<TurnStop['kind']>(['cancelled', 'interrupted']);
 
-/** How a call ended: its span status, finish reason, and the error type when it failed. */
+/** How a call ended: its span status, finish reason, and the error kind when it failed. */
 function callOutcome(
   stop: TurnStop | undefined,
-  failed: boolean,
-  lastStatus: number | undefined,
+  failure: ErrorKind | undefined,
 ): { stopped: boolean; finish?: string; status: TraceSpanStatus; attributes: TraceAttributes } {
   const stopped = stop !== undefined && STOPPED_CALLS.has(stop.kind);
   const finish = stop && !stopped ? (FINISH_REASON[stop.kind] ?? stop.kind) : undefined;
-  if (failed) {
-    const errorType =
-      lastStatus && lastStatus >= HTTP_ERROR ? String(lastStatus) : 'provider_error';
+  if (failure) {
     return {
       stopped,
       finish,
-      status: { code: 'ERROR', message: 'provider_error' },
-      attributes: { 'error.type': errorType },
+      status: { code: 'ERROR', message: failure },
+      attributes: { 'error.type': failure },
     };
   }
   return { stopped, finish, status: { code: stopped ? 'UNSET' : 'OK' }, attributes: {} };
@@ -781,13 +784,15 @@ function startCallTrace(
     end: (end) => {
       for (const error of errors) {
         span.event('exception', {
-          'exception.type': 'provider_error',
+          'exception.type': eventKind(error),
           'exception.message': traceContent(error.errorInternal ?? error.error ?? ''),
         });
       }
       if (end.thrown !== undefined) recordException(span, end.thrown);
-      const failed = errors.length > 0 || end.thrown !== undefined;
-      const outcome = callOutcome(end.stop, failed, http.lastStatus);
+      const lastError = errors.at(-1);
+      const failure =
+        end.thrown !== undefined ? errorKind(end.thrown) : lastError && eventKind(lastError);
+      const outcome = callOutcome(end.stop, failure);
       const outputMessage: TraceMessage = {
         role: 'assistant',
         parts: output.parts,
@@ -893,15 +898,18 @@ function endTurnSpan(root: SpanHandle, end: TurnEnd): void {
   );
   const done = findLast(end.seen, (ev) => ev.type === 'done');
   const stop = done?.stop?.kind;
-  const publicError = findLast(end.seen, (ev) => ev.type === 'error')?.error;
+  const errorEvent = findLast(end.seen, (ev) => ev.type === 'error');
+  const publicError = errorEvent?.error;
   const threw = end.thrown !== undefined;
   if (threw) recordException(root, end.thrown);
   const failed = threw || (stop !== undefined && FAILED_STOPS.has(stop));
+  // The builder's name for the failure: the thrown value's kind, else the error event's, else the stop.
+  const failure = threw ? errorKind(end.thrown) : errorEvent ? eventKind(errorEvent) : stop;
   // What the host received, beside each call's `output.messages` (what the model produced).
   const delivered: TraceMessage = {
     role: 'assistant',
     parts: end.delivered.parts,
-    ...optional('finish_reason', callOutcome(done?.stop, failed, undefined).finish),
+    ...optional('finish_reason', callOutcome(done?.stop, undefined).finish),
   };
   root.set({
     'gen_ai.output.messages': [delivered],
@@ -911,11 +919,10 @@ function endTurnSpan(root: SpanHandle, end: TurnEnd): void {
     'theorem.steps': end.calls,
     ...(end.compacted ? { 'gen_ai.conversation.compacted': true } : {}),
     ...(failed && publicError ? { 'theorem.error.public': traceContent(publicError) } : {}),
-    ...(threw ? { 'error.type': errorName(end.thrown) } : {}),
-    ...(failed && !threw && stop ? { 'error.type': stop } : {}),
+    ...(failed && failure ? { 'error.type': failure } : {}),
   });
   if (failed) {
-    root.end({ code: 'ERROR', ...(stop && !threw ? { message: stop } : {}) });
+    root.end({ code: 'ERROR', ...(failure ? { message: failure } : {}) });
   } else {
     root.end(stop && !FINISHED_STOPS.has(stop) ? { code: 'UNSET' } : { code: 'OK' });
   }
@@ -924,7 +931,6 @@ function endTurnSpan(root: SpanHandle, end: TurnEnd): void {
 export type { CallEnd, CallTrace, TracePart, TurnEnd };
 export {
   endTurnSpan,
-  errorName,
   guardrailAttributes,
   OutputFold,
   optional,

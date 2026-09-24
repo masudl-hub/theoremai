@@ -1,6 +1,5 @@
 import '../../fixtures/test-host.ts';
 import type { LanguageModelUsage, TextStreamPart, ToolSet } from 'ai';
-import { PUBLIC_UNAVAILABLE } from '../../../src/guardrails/error.ts';
 import { assertEquals } from '../../../src/kernel/engine/assert.ts';
 import { resolveTurn } from '../../../src/kernel/registry/resolve.ts';
 import { registerTool } from '../../../src/kernel/tools/mod.ts';
@@ -16,7 +15,6 @@ import {
   finishEvent,
   metadataAnnotations,
   metadataRecord,
-  missingOpenRouterKey,
   nestedCitations,
   primaryEventFromPart,
   providerMetadataEvent,
@@ -590,12 +588,12 @@ Deno.test('createOpenRouterProvider maps openRouterSettings for non-web plugins'
   assertEquals(capturedBody?.web_search_options, undefined);
 });
 
-Deno.test('createOpenRouterProvider missing key error includes descriptive message', async () => {
+Deno.test('createOpenRouterProvider missing key is an auth error', async () => {
   const provider = createOpenRouterProvider({ apiKey: '   ' });
   const events = await collect(provider.complete(createMockTurnRequest('pinned', 'x')));
   assertEquals(events.length, 1);
   assertEquals(events[0]?.type, 'error');
-  assertEquals(typeof events[0]?.error, 'string');
+  assertEquals(events[0]?.errorKind, 'auth');
 });
 
 Deno.test('createOpenRouterProvider yields error on HTTP non-200', async () => {
@@ -608,7 +606,74 @@ Deno.test('createOpenRouterProvider yields error on HTTP non-200', async () => {
   const events = await collect(provider.complete(req));
   assertEquals(events.length, 1);
   assertEquals(events[0]?.type, 'error');
-  assertEquals(events[0]?.error, PUBLIC_UNAVAILABLE);
+  assertEquals(events[0]?.errorKind, 'auth');
+});
+
+Deno.test('createOpenRouterProvider reports an unreachable OpenRouter as a network error', async () => {
+  const provider = createOpenRouterProvider({
+    apiKey: 'test-key',
+    fetch: () => Promise.reject(new TypeError('connection reset')),
+  });
+  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'x')));
+  assertEquals(
+    events.filter((e) => e.type === 'error').map((e) => e.errorKind),
+    ['network'],
+  );
+});
+
+Deno.test('createOpenRouterProvider takes a mid-stream error kind from its code', async () => {
+  for (const [code, kind] of [
+    [502, 'unavailable'],
+    [429, 'rate_limit'],
+    ['provider_down', 'unavailable'],
+  ] as const) {
+    const provider = createOpenRouterProvider({
+      apiKey: 'test-key',
+      fetch: () =>
+        Promise.resolve(
+          sseResponse([
+            `data: ${JSON.stringify({ choices: [{ delta: { content: 'Part' } }] })}\n\n`,
+            `data: ${JSON.stringify({ error: { code, message: 'upstream went away' } })}\n\n`,
+            'data: [DONE]\n\n',
+          ]),
+        ),
+    });
+    const events = await collect(provider.complete(createMockTurnRequest('pinned', 'x')));
+    const error = events.find((e) => e.type === 'error');
+    assertEquals(error?.errorKind, kind);
+    assertEquals(error?.errorInternal?.includes('upstream went away'), true);
+  }
+});
+
+Deno.test('createOpenRouterProvider reports a body that breaks mid-read as a network error', async () => {
+  const enc = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(
+        enc.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: 'Part' } }] })}\n\n`),
+      );
+      controller.error(new TypeError('error reading a body from connection'));
+    },
+  });
+  const provider = createOpenRouterProvider({
+    apiKey: 'test-key',
+    fetch: () =>
+      Promise.resolve(new Response(body, { headers: { 'Content-Type': 'text/event-stream' } })),
+  });
+  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'x')));
+  assertEquals(events.find((e) => e.type === 'error')?.errorKind, 'network');
+});
+
+Deno.test('createOpenRouterProvider reports an unreadable stream chunk as a bad response', async () => {
+  const provider = createOpenRouterProvider({
+    apiKey: 'test-key',
+    fetch: () =>
+      Promise.resolve(
+        sseResponse([`data: ${JSON.stringify({ nonsense: true })}\n\n`, 'data: [DONE]\n\n']),
+      ),
+  });
+  const events = await collect(provider.complete(createMockTurnRequest('pinned', 'x')));
+  assertEquals(events.find((e) => e.type === 'error')?.errorKind, 'bad_response');
 });
 
 Deno.test('createOpenRouterProvider wires tool result history', async () => {
@@ -712,7 +777,7 @@ Deno.test('createOpenRouterProvider errors when structured output is invalid JSO
     false,
   );
   const errorEv = events.find((e) => e.type === 'error');
-  assertEquals(errorEv?.error, 'Something was wrong with that request.');
+  assertEquals(errorEv?.errorKind, 'bad_response');
   assertEquals(errorEv?.errorInternal, 'structured output was not valid JSON');
   assertEquals(
     events.some((e) => e.type === 'done'),
@@ -1743,7 +1808,7 @@ Deno.test('finalEvents errors when structured text is not valid JSON', () => {
   const events = [...finalEvents(req, acc)];
   assertEquals(events.length, 1);
   assertEquals(events[0]?.type, 'error');
-  assertEquals(events[0]?.error, 'Something was wrong with that request.');
+  assertEquals(events[0]?.errorKind, 'bad_response');
   assertEquals(events[0]?.errorInternal, 'structured output was not valid JSON');
 });
 
@@ -1872,11 +1937,6 @@ Deno.test('rawEvents emits tokens with cached from usage', () => {
   const tokenEv = events.find((e) => e.type === 'tokens');
   assertEquals(tokenEv?.tokens?.cached, 40);
   assertEquals(acc.emittedTokens, true);
-});
-
-Deno.test('missingOpenRouterKey returns error event', () => {
-  const ev = missingOpenRouterKey();
-  assertEquals(ev.type, 'error');
 });
 
 Deno.test('providerMetadataEvent returns undefined without providerMetadata', () => {

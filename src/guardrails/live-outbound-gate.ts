@@ -8,21 +8,23 @@
  *     is heard only after its transcript clears the scan
  *   • any other event releases what is held (in order), then passes after a
  *     whole-event canary scan
- *   • canary-only profiles withhold immediately on leak (PUBLIC_CANARY)
+ *   • canary-only profiles withhold immediately on leak
  *   • with egress.enforce, a hit withholds the rest of the cycle; finalize
  *     releases it (allow), rewrites it (redact), or refuses/withholds it (block)
  *
  * Scope is one conversational cycle: finalize and abort start the next one.
- * Live has no repair loop — blocked turns map to refuse_to_user copy or PUBLIC_CANARY.
+ * Live has no repair loop — a blocked turn is refuse_to_user copy, or withheld
+ * (a `safety` error).
  *
  * @module
  */
 
 import type { Profile, TurnEvent } from '../kernel/types.ts';
 import { eventHasCanary, isStreamedCanaryEvent } from './canary.ts';
-import { EGRESS_RULES, runEnforcer } from './egress.ts';
-import { PUBLIC_CANARY } from './error.ts';
+import { CANARY_HIT, runEnforcer, WITHHELD_REASON } from './egress.ts';
+import { TheoremError } from './error.ts';
 import { guardrailFromHits, guardrailFromVerdict } from './events.ts';
+import { lexiconText } from './lexicon.ts';
 import { resolveGuardrailPolicy } from './policy.ts';
 import {
   createOutboundProgressiveGate,
@@ -66,7 +68,7 @@ export interface LiveOutboundGateSession {
 /** Result of a live outbound operation: events to emit, output to withhold, or no work. */
 export type LiveOutboundBatchResult =
   | { action: 'emit'; events: TurnEvent[] }
-  | { action: 'withhold'; error: string; events?: TurnEvent[] }
+  | { action: 'withhold'; error: TheoremError; events?: TurnEvent[] }
   | { action: 'idle' };
 
 function egressSpec(session: LiveOutboundGateSession): ProfileEgressSpec | undefined {
@@ -85,6 +87,7 @@ function createLiveOutboundGateSession(profile: Profile, canary?: string): LiveO
     trust: 'untrusted',
     profileId: profile.id,
     ...(useCanary ? { canary } : {}),
+    ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
   };
   return {
     policy,
@@ -109,19 +112,15 @@ function canaryOnlyImmediateWithhold(session: LiveOutboundGateSession): boolean 
   return !egressSpec(session)?.enforce;
 }
 
-function canaryHit(): GuardrailHit[] {
-  return [{ rule: EGRESS_RULES.canary, severity: 'high', match: '[canary]' }];
-}
-
 function withholdResult(
-  error: string,
+  reason: string,
   hits: GuardrailHit[],
   prior: TurnEvent[] = [],
 ): LiveOutboundBatchResult {
   const guardrail = guardrailFromHits('live_outbound', 'untrusted', hits, 'block');
   return {
     action: 'withhold',
-    error,
+    error: new TheoremError('safety', reason),
     events: [...prior, ...(guardrail ? [guardrail] : [])],
   };
 }
@@ -176,7 +175,7 @@ function applyScan(
     return undefined;
   }
   if (canaryOnlyImmediateWithhold(session)) {
-    return withholdResult(PUBLIC_CANARY, result.hits, into);
+    return withholdResult(WITHHELD_REASON.canary, result.hits, into);
   }
   session.withholdVisible = true;
   const guardrail = guardrailFromHits('live_outbound', 'untrusted', result.hits, 'block');
@@ -263,7 +262,7 @@ async function processLiveOutboundBatch(
     }
 
     if (session.context.canary && eventHasCanary(event, session.context.canary)) {
-      return withholdResult(PUBLIC_CANARY, canaryHit(), toEmit);
+      return withholdResult(WITHHELD_REASON.canary, [CANARY_HIT], toEmit);
     }
 
     toEmit.push(event);
@@ -295,10 +294,11 @@ async function finalEgressVerdict(
     return { action: 'emit', events: [...events, { type: 'text', text: verdict.text }] };
   }
   if (verdict.action === 'block') {
-    if (egress.onBlock === 'refuse_to_user' && verdict.refusal) {
-      return { action: 'emit', events: [...events, { type: 'text', text: verdict.refusal }] };
+    if (egress.onBlock === 'refuse_to_user') {
+      const text = lexiconText('egress.refusal', {}, session.context.lexicon);
+      return { action: 'emit', events: [...events, { type: 'text', text }] };
     }
-    return withholdResult(PUBLIC_CANARY, verdict.hits, prior);
+    return withholdResult(WITHHELD_REASON.egress, verdict.hits, prior);
   }
   releaseHeld(session, gate, gate.accumulated().length, events);
   return emitOrIdle(events);

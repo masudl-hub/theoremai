@@ -317,6 +317,36 @@ export interface MimeInputs extends Partial<MediaLimits> {
   voice?: { accept: string[] };
 }
 
+export type AttachmentValidationCode =
+  | 'mime_not_allowed'
+  | 'too_many_files'
+  | 'too_many_images'
+  | 'file_too_large'
+  | 'turn_too_large'
+  | 'attachments_not_accepted'
+  | 'voice_not_accepted'
+  | 'limits_unconfigured';
+
+/**
+ * Structured parameters for rendering one validation issue. Validation emits
+ * codes + params only; the wording is the lexicon's `attachments.*` lines.
+ */
+export interface AttachmentValidationParams {
+  maxFiles?: number;
+  maxImages?: number;
+  maxBytes?: number;
+  maxTurnBytes?: number;
+  mimeType?: string;
+  channel?: 'attachment' | 'voice';
+}
+
+/** One reason a turn's files were refused; `fileName` names the file when the problem is one file's. */
+export interface AttachmentValidationIssue {
+  code: AttachmentValidationCode;
+  params?: AttachmentValidationParams;
+  fileName?: string;
+}
+
 /** Structured schema selector driven by an input slot. */
 export interface StructuredBySlot {
   by: string;
@@ -347,7 +377,6 @@ export interface ProfileValidationSpec {
    */
   fields?: Record<string, ProfileValidator>;
   maxRetries?: number;
-  repairGuidance?: string;
 }
 
 /**
@@ -435,6 +464,8 @@ export type {
   TurnStop,
 } from './stop.ts';
 
+import type { LexiconOverrides } from '../guardrails/lexicon.ts';
+import type { ErrorCopy, ErrorKind } from '../guardrails/theorem-error.ts';
 import type {
   DecisionGuardrailsSpec,
   GuardrailEvent,
@@ -504,6 +535,8 @@ export interface ProfileCommon {
   outputs?: ProfileOutputsSpec;
   guardrails?: ProfileGuardrailsSpec;
   observability?: ProfileObservabilitySpec;
+  /** This profile's wording: replaces any lexicon default, and any `overrideLexicon` entry, for this profile. */
+  lexicon?: LexiconOverrides;
 }
 
 /** JSON value accepted as native decision state. Media is a host concern. */
@@ -543,6 +576,8 @@ export interface DecisionProfile {
   decision: { contract: DecisionContractId };
   guardrails?: DecisionGuardrailsSpec;
   observability?: ProfileObservabilitySpec;
+  /** This profile's wording: replaces any lexicon default, and any `overrideLexicon` entry, for this profile. */
+  lexicon?: LexiconOverrides;
 }
 
 /** Jev's text-or-structured instruction entries. Null is rejected locally. */
@@ -661,6 +696,8 @@ export interface HostProfile {
   tools: HostProfileToolsSpec;
   guardrails?: HostGuardrailsSpec;
   observability?: ProfileObservabilitySpec;
+  /** This profile's wording: replaces any lexicon default, and any `overrideLexicon` entry, for this profile. */
+  lexicon?: LexiconOverrides;
 }
 
 /** Complete host-owned agent contract consumed by the kernel. */
@@ -722,6 +759,8 @@ export interface ImageResponseFormat {
 export interface TurnBlob {
   mimeType: string;
   data: string;
+  /** The file's name, used only to tell the user which file was refused; never sent to the model. */
+  name?: string;
 }
 
 /**
@@ -731,6 +770,8 @@ export interface TurnBlob {
 export interface TurnMediaRef {
   mimeType: string;
   uri: string;
+  /** The file's name, used only to tell the user which file was refused; never sent to the model. */
+  name?: string;
 }
 
 /** Provider-neutral history message preserving text, parts, tools, and metadata. */
@@ -1147,8 +1188,15 @@ export interface TurnEvent {
   sessionResumptionHandle?: string;
   /** True when a user utterance interrupted an in-flight live model response (barge-in). */
   interrupted?: boolean;
-  /** Public-safe failure text for hosts to show users. */
+  /** Public-safe failure text for hosts to show users: the wording for `errorKind`. */
   error?: string;
+  /** What kind of failure an `error` event is — for the builder, in code. */
+  errorKind?: ErrorKind;
+  /**
+   * The lexicon key and parameters behind `error` when the failure has wording
+   * more specific than its kind's; a list when it found several problems.
+   */
+  errorCopy?: ErrorCopy | readonly ErrorCopy[];
   /** Raw diagnostic detail for traces/logs; never surface to end users. */
   errorInternal?: string;
   /** Compaction signal for `timing: 'after'` profiles. Present only on `done` events. */

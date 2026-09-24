@@ -8,6 +8,7 @@
  */
 
 import { TheoremError } from '../../guardrails/error.ts';
+import { type LexiconOverrides, validateLexiconOverrides } from '../../guardrails/lexicon.ts';
 import type {
   DecisionGuardrailsSpec,
   HostGuardrailsSpec,
@@ -73,6 +74,7 @@ export type ProfileDefinitionBase = {
   outputs?: ProfileOutputsSpec;
   guardrails?: ProfileGuardrailsSpec;
   observability?: ProfileObservabilitySpec;
+  lexicon?: LexiconOverrides;
 };
 
 /** Host definition for a turn-based text profile with declared tools and input media policy. */
@@ -122,6 +124,7 @@ export type DecisionProfileDefinition = {
   decision: DecisionProfile['decision'];
   guardrails?: DecisionGuardrailsSpec;
   observability?: ProfileObservabilitySpec;
+  lexicon?: LexiconOverrides;
 };
 
 /** Host-driven tool ceiling — no models, identity, inputs, outputs, turnBehaviour, key, or maxSteps. */
@@ -132,6 +135,7 @@ export type HostProfileDefinition = {
   /** Only the guards that fire on the `invokeTool` path — see {@link HostGuardrailsSpec}. */
   guardrails?: HostGuardrailsSpec;
   observability?: ProfileObservabilitySpec;
+  lexicon?: LexiconOverrides;
 };
 
 /** Host-authored profile definition — discriminated on `type`. No THEOREM defaults. */
@@ -149,19 +153,23 @@ function validateDecisionBinding(
   binding: DecisionModelBinding,
 ): void {
   if (!binding.apiId?.trim()) {
-    throw new TheoremError(`Profile ${profileId} model '${modelId}' must set apiId`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', `Profile ${profileId} model '${modelId}' must set apiId`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   if (
     binding.timeoutMs !== undefined &&
     (!Number.isFinite(binding.timeoutMs) || binding.timeoutMs <= 0)
   ) {
-    throw new TheoremError(`Profile ${profileId} model '${modelId}' timeoutMs must be > 0`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError(
+      'config',
+      `Profile ${profileId} model '${modelId}' timeoutMs must be > 0`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
   }
   if (
     binding.retry?.maxRetries !== undefined &&
     (!Number.isInteger(binding.retry.maxRetries) || binding.retry.maxRetries < 0)
   ) {
     throw new TheoremError(
+      'config',
       // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       `Profile ${profileId} model '${modelId}' retry.maxRetries must be a non-negative integer`,
     );
@@ -172,17 +180,20 @@ function validateDecisionModel(input: DecisionProfileDefinition): void {
   const modelId = input.models ? soleModelId(input.models) : undefined;
   const binding = modelId ? input.models[modelId] : undefined;
   if (!modelId || !binding) {
-    throw new TheoremError(`Profile ${input.id}: type 'decision' must declare exactly one model`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError(
+      'config',
+      `Profile ${input.id}: type 'decision' must declare exactly one model`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
   }
   validateDecisionBinding(input.id, modelId, binding);
 }
 
 function validateDecisionConfig(input: DecisionProfileDefinition): void {
   if (input.inputs.state !== 'json') {
-    throw new TheoremError(`Profile ${input.id}: decision inputs.state must be 'json'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', `Profile ${input.id}: decision inputs.state must be 'json'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   if (!input.decision.contract?.trim()) {
-    throw new TheoremError(`Profile ${input.id}: decision.contract must be non-empty`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', `Profile ${input.id}: decision.contract must be non-empty`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
 }
 
@@ -202,18 +213,19 @@ function defineHostProfile(input: HostProfileDefinition): HostProfile {
     tools: { allow: input.tools.allow },
     guardrails: input.guardrails,
     observability: input.observability,
+    lexicon: input.lexicon,
   } satisfies HostProfile;
 }
 
 function assertHostTools(profileId: string, tools: HostProfileToolsSpec | undefined): void {
   if (!Array.isArray(tools?.allow)) {
-    throw new TheoremError(`Profile ${profileId}: type 'host' must set tools.allow`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', `Profile ${profileId}: type 'host' must set tools.allow`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
 }
 
 function assertModelsNonEmpty(profileId: string, models: Record<ModelId, ModelBinding>): void {
   if (Object.keys(models).length === 0) {
-    throw new TheoremError(`Profile ${profileId} must declare at least one model`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', `Profile ${profileId} must declare at least one model`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
 }
 
@@ -223,30 +235,38 @@ function resolveDefaultModel(profileId: string, input: ProfileDefinitionBase): M
   const inferred = input.defaultModel ?? soleModelId(input.models);
   if (!inferred) {
     throw new TheoremError(
+      'config',
       `Profile ${profileId} must set defaultModel when more than one model is declared`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   if (!input.models[inferred]) {
-    throw new TheoremError(`Profile ${profileId} defaultModel '${inferred}' is not declared`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError(
+      'config',
+      `Profile ${profileId} defaultModel '${inferred}' is not declared`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
   }
   if (input.allowModelSelect && ids.length < 2) {
-    throw new TheoremError(`Profile ${profileId} allowModelSelect requires at least two models`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError(
+      'config',
+      `Profile ${profileId} allowModelSelect requires at least two models`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
   }
   return inferred;
 }
 
 function assertModelBinding(profileId: string, modelId: ModelId, binding: ModelBinding): void {
   if (!binding.protocol) {
-    throw new TheoremError(`Profile ${profileId} model '${modelId}' must set protocol`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', `Profile ${profileId} model '${modelId}' must set protocol`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   if (!binding.provider) {
-    throw new TheoremError(`Profile ${profileId} model '${modelId}' must set provider`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', `Profile ${profileId} model '${modelId}' must set provider`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   if (!binding.apiId) {
-    throw new TheoremError(`Profile ${profileId} model '${modelId}' must set apiId`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', `Profile ${profileId} model '${modelId}' must set apiId`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   if (!isValidPair(binding.protocol as Protocol, binding.provider as Provider)) {
     throw new TheoremError(
+      'config',
       `Profile ${profileId} model '${modelId}': protocol '${binding.protocol}' is not valid for provider '${binding.provider}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
@@ -264,10 +284,10 @@ function assertLocalServer(profileId: string, modelId: ModelId, binding: ModelBi
   }
   const tag = `Profile ${profileId} model '${modelId}'`;
   if (binding.provider !== 'local') {
-    throw new TheoremError(`${tag}: server is only valid when provider is 'local'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', `${tag}: server is only valid when provider is 'local'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   if (typeof binding.server !== 'string' || binding.server.trim() === '') {
-    throw new TheoremError(`${tag}: server must be a non-empty string`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', `${tag}: server must be a non-empty string`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
 }
 
@@ -276,6 +296,7 @@ function assertModelEfforts(profileId: string, modelId: ModelId, binding: ModelB
   if (!efforts || Object.keys(efforts).length === 0) {
     if (binding.defaultEffort || binding.allowEffortSelect) {
       throw new TheoremError(
+        'config',
         `Profile ${profileId} model '${modelId}': defaultEffort and allowEffortSelect require efforts`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
@@ -285,16 +306,19 @@ function assertModelEfforts(profileId: string, modelId: ModelId, binding: ModelB
   const defaultAlias = binding.defaultEffort ?? (keys.length === 1 ? keys[0] : undefined);
   if (!defaultAlias) {
     throw new TheoremError(
+      'config',
       `Profile ${profileId} model '${modelId}' must set defaultEffort when more than one effort is declared`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   if (!efforts[defaultAlias]) {
     throw new TheoremError(
+      'config',
       `Profile ${profileId} model '${modelId}' defaultEffort '${defaultAlias}' is not declared`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   if (binding.allowEffortSelect && keys.length < 2) {
     throw new TheoremError(
+      'config',
       `Profile ${profileId} model '${modelId}' allowEffortSelect requires at least two efforts`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
@@ -305,6 +329,7 @@ function assertTypeProtocols(profile: ModelProfile): void {
     if (!isValidProfileProtocol(profile.type, binding.protocol)) {
       const valid = protocolsForProfileType(profile.type).join(', ');
       throw new TheoremError(
+        'config',
         `Profile ${profile.id} model '${modelId}': type '${profile.type}' cannot use protocol '${binding.protocol}'. Supported: ${valid}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
@@ -330,6 +355,7 @@ function assertContinueKindList(
   for (const kind of kinds) {
     if (!isContinueStopKind(kind)) {
       throw new TheoremError(
+        'config',
         `Profile ${profileId}: turnBehaviour.resumption.${path} may only include ContinueStopKind ` + // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
           `(length | stream_incomplete | provider_error); got '${kind}'`,
       );
@@ -357,6 +383,7 @@ function assertFieldScope(input: ProfileDefinition): void {
   const { offValue, reason } = field.scope;
   const allowed = offValue === undefined ? '' : ` (other than ${offValue})`;
   throw new TheoremError(
+    'config',
     `Profile ${input.id}: type '${input.type}' must not set ${field.path}${allowed} — ${reason}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   );
 }
@@ -382,6 +409,7 @@ function assertEgress(profileId: string, guardrails: ProfileGuardrailsSpec | und
     const value = guardrails?.egress?.[key];
     if (value !== undefined && (!Number.isInteger(value) || value < 0)) {
       throw new TheoremError(
+        'config',
         `Profile ${profileId}: guardrails.egress.${key} must be a non-negative integer`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
@@ -396,11 +424,13 @@ function assertObservability(profileId: string, spec: ProfileObservabilitySpec |
     const policy = resolveObservabilityPolicy(spec);
     if (!Number.isFinite(policy.retainForDays)) {
       throw new TheoremError(
+        'config',
         `Profile ${profileId}: observability.retainForDays must be a finite number`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
     if (policy.rotateAfterMiB <= 0 || !Number.isFinite(policy.rotateAfterMiB)) {
       throw new TheoremError(
+        'config',
         `Profile ${profileId}: observability.rotateAfterMiB must be a positive number`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
@@ -409,7 +439,7 @@ function assertObservability(profileId: string, spec: ProfileObservabilitySpec |
       throw err;
     }
     const message = err instanceof Error ? err.message : String(err);
-    throw new TheoremError(`Profile ${profileId}: ${message}`);
+    throw new TheoremError('config', `Profile ${profileId}: ${message}`);
   }
 }
 
@@ -426,6 +456,7 @@ function defineProfile(
 function defineProfile(input: ProfileDefinition): Profile;
 function defineProfile(input: ProfileDefinition): Profile {
   assertFieldScope(input);
+  if (input.lexicon) validateLexiconOverrides(input.lexicon, `Profile ${input.id}`);
   if (input.type === 'host') {
     return defineHostProfile(input);
   }
@@ -450,6 +481,7 @@ function defineProfile(input: ProfileDefinition): Profile {
         };
   const guardrails = input.guardrails;
   const observability = input.observability;
+  const lexicon = input.lexicon;
   const modelFields = profileModelFields(input);
 
   let profile: ModelProfile;
@@ -466,6 +498,7 @@ function defineProfile(input: ProfileDefinition): Profile {
         turnBehaviour: input.turnBehaviour,
         guardrails,
         observability,
+        lexicon,
       } satisfies TextProfile;
       break;
     case 'image':
@@ -481,6 +514,7 @@ function defineProfile(input: ProfileDefinition): Profile {
         turnBehaviour: input.turnBehaviour,
         guardrails,
         observability,
+        lexicon,
       } satisfies ImageProfile;
       break;
     case 'speech':
@@ -494,6 +528,7 @@ function defineProfile(input: ProfileDefinition): Profile {
         turnBehaviour: input.turnBehaviour,
         guardrails: speechGuardrails(input),
         observability,
+        lexicon,
       } satisfies SpeechProfile;
       break;
     case 'live': {
@@ -507,13 +542,14 @@ function defineProfile(input: ProfileDefinition): Profile {
         turnBehaviour: input.turnBehaviour,
         guardrails,
         observability,
+        lexicon,
       } satisfies LiveProfile;
       assertLiveIngressConfigured(profile);
       break;
     }
     default: {
       const _exhaustive: never = input;
-      throw new TheoremError(`Unknown profile type '${String(_exhaustive)}'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      throw new TheoremError('config', `Unknown profile type '${String(_exhaustive)}'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
   }
   assertTypeProtocols(profile);
@@ -525,10 +561,11 @@ function assertCompactionSpec(profileId: string, modelId: ModelId, spec: Compact
   assertCompactionBudget(tag, spec);
   assertCompactionRetain(tag, spec);
   if (spec.meter != null && spec.meter !== 'history' && spec.meter !== 'input') {
-    throw new TheoremError(`${tag}: meter must be 'history' or 'input'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', `${tag}: meter must be 'history' or 'input'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   if (!profiles.has(spec.profile)) {
     throw new TheoremError(
+      'config',
       `${tag}: compaction profile '${spec.profile}' must be registered before '${profileId}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
@@ -542,14 +579,18 @@ function assertCacheSpec(profileId: string, modelId: ModelId, binding: ModelBind
   const tag = `Profile ${profileId} model '${modelId}'`;
   if (binding.provider !== 'openrouter' || binding.protocol !== 'openAi') {
     throw new TheoremError(
+      'config',
       `${tag}: cache is only valid when protocol is 'openAi' and provider is 'openrouter'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   if (!(CACHE_MODES as readonly string[]).includes(spec.mode)) {
-    throw new TheoremError(`${tag}: cache.mode must be one of ${CACHE_MODES.join(' | ')}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError(
+      'config',
+      `${tag}: cache.mode must be one of ${CACHE_MODES.join(' | ')}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
   }
   if (spec.ttl != null && !(CACHE_TTLS as readonly string[]).includes(spec.ttl)) {
-    throw new TheoremError(`${tag}: cache.ttl must be one of ${CACHE_TTLS.join(' | ')}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', `${tag}: cache.ttl must be one of ${CACHE_TTLS.join(' | ')}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
 }
 
@@ -571,32 +612,34 @@ function assertInteractionsPersistence(
         ? 'store'
         : 'persistViaInteractionId';
   throw new TheoremError(
+    'config',
     `Profile ${profileId} model '${modelId}': ${which} is only valid when protocol is 'geminiInteractions' and provider is 'google'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   );
 }
 
 function assertCompactionBudget(tag: string, spec: CompactionSpec): void {
   if (spec.maxTokens <= 0) {
-    throw new TheoremError(`${tag}: maxTokens must be > 0`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', `${tag}: maxTokens must be > 0`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   if (spec.compactAt <= 0 || spec.compactAt >= 1) {
-    throw new TheoremError(`${tag}: compactAt must be in (0, 1)`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', `${tag}: compactAt must be in (0, 1)`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
 }
 
 function assertCompactionRetain(tag: string, spec: CompactionSpec): void {
   if (spec.previousExchanges < 0) {
-    throw new TheoremError(`${tag}: previousExchanges must be >= 0`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', `${tag}: previousExchanges must be >= 0`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   if (spec.previousExchanges > 0 && spec.previousExchanges < 1) {
     if (spec.previousExchanges >= spec.compactAt) {
       throw new TheoremError(
+        'config',
         `${tag}: previousExchanges as fraction (${spec.previousExchanges}) must be < compactAt (${spec.compactAt})`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
   }
   if (spec.previousExchanges >= 1 && !Number.isInteger(spec.previousExchanges)) {
-    throw new TheoremError(`${tag}: previousExchanges >= 1 must be an integer`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', `${tag}: previousExchanges >= 1 must be an integer`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
 }
 
@@ -605,6 +648,7 @@ function assertCustomToolsOnly(profile: Profile): void {
     const tool = getTool(id);
     if (tool?.type === 'builtin') {
       throw new TheoremError(
+        'config',
         profile.type === 'host'
           ? `Profile ${profile.id} lists builtin '${id}' in tools.allow — type 'host' never runs a model` // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
           : `Profile ${profile.id} lists builtin '${id}' in tools.allow — declare it on models.*.builtInTools instead`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -623,12 +667,14 @@ function assertProfileToolLoader(profile: Profile): void {
   }
   if (!profileToolAllow(profile).includes(loaderId)) {
     throw new TheoremError(
+      'config',
       `Profile ${profile.id} tools.t2Loader '${loaderId}' must also be listed in tools.allow`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   const tool = getTool(loaderId);
   if (tool?.type !== 'function') {
     throw new TheoremError(
+      'config',
       `Profile ${profile.id} tools.t2Loader '${loaderId}' must be a registered type: 'function' tool`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
@@ -648,6 +694,7 @@ function assertModelBuiltInTools(profile: ModelProfile): void {
     const tool = getTool(id);
     if (tool?.type !== 'builtin') {
       throw new TheoremError(
+        'config',
         `Profile ${profile.id} model '${modelId}' lists '${id}' in builtInTools — not a registered builtin`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
@@ -662,7 +709,10 @@ function assertMediaLimits(profile: ModelProfile): void {
   const { attachments, voice, maxFiles, maxBytes, maxTurnBytes } = inputs;
   if (attachments || voice) {
     if (!(maxFiles && maxBytes && maxTurnBytes)) {
-      throw new TheoremError(`Profile ${profile.id} must set maxFiles, maxBytes, and maxTurnBytes`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      throw new TheoremError(
+        'config',
+        `Profile ${profile.id} must set maxFiles, maxBytes, and maxTurnBytes`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
     }
   }
 }
@@ -711,6 +761,14 @@ function profileObservability(id: string): ProfileObservabilitySpec | undefined 
   return profiles.get(id)?.observability;
 }
 
+/**
+ * A profile's wording overrides, or `undefined` when it sets none or the id
+ * is not registered (the caller's own lookup reports that).
+ */
+function profileLexicon(id: string): LexiconOverrides | undefined {
+  return profiles.get(id)?.lexicon;
+}
+
 /** List all currently registered profiles. */
 function listProfiles(): Profile[] {
   return Array.from(profiles.values());
@@ -725,7 +783,7 @@ function clearProfiles(): void {
 function getProfile(id: string): Profile {
   const profile = profiles.get(id);
   if (!profile) {
-    throw new TheoremError(`Unknown profile '${id}'`);
+    throw new TheoremError('config', `Unknown profile '${id}'`);
   }
   return profile;
 }
@@ -736,6 +794,7 @@ export {
   getProfile,
   hasProfile,
   listProfiles,
+  profileLexicon,
   profileObservability,
   registerProfile,
   registerProfiles,

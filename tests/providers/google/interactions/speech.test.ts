@@ -174,7 +174,7 @@ Deno.test('Interactions speech profile errors when model emits text only (no fak
     ['text', 'response', 'done', 'error'],
   );
   assertEquals(events[0]?.text, 'hello');
-  assertEquals(typeof events[3]?.error, 'string');
+  assertEquals(events[3]?.errorKind, 'bad_response');
 });
 
 Deno.test('Interactions non-voice profile does not synthesize speech media from text', async () => {

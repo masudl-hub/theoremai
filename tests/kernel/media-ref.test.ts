@@ -5,17 +5,23 @@
  */
 import '../fixtures/test-host.ts';
 import { assertEquals, assertThrows } from '@std/assert';
-import { TheoremError } from '../../src/guardrails/error.ts';
+import { publicError, TheoremError } from '../../src/guardrails/error.ts';
 import { isMediaRefPart, wireInteractionPart } from '../../src/kernel/interaction-parts.ts';
 import {
-  assertAttachmentLimits,
+  assertTurnAttachments,
   isTurnMediaRef,
   sanitizeTurnBlobs,
 } from '../../src/kernel/registry/attachments.ts';
+import { getProfile } from '../../src/kernel/registry/profiles.ts';
 import { resolveTurn } from '../../src/kernel/registry/resolve.ts';
-import type { InteractionPart, MediaLimits } from '../../src/kernel/types.ts';
+import type { InteractionPart, Profile } from '../../src/kernel/types.ts';
 
-const TINY: MediaLimits = { maxFiles: 1, maxBytes: 1, maxTurnBytes: 1 };
+/** The chat fixture with a one-file, one-byte ceiling. */
+function tiny(): Profile {
+  const chat = getProfile('chat');
+  if (chat.type !== 'text') throw new Error('chat fixture is a text profile');
+  return { ...chat, inputs: { ...chat.inputs, maxFiles: 1, maxBytes: 1, maxTurnBytes: 1 } };
+}
 
 Deno.test('ingress accepts a media reference and emits a ref part', () => {
   const { generation } = resolveTurn({
@@ -41,7 +47,7 @@ Deno.test('ingress rejects a media reference whose MIME the profile does not acc
         },
       }),
     TheoremError,
-    "MIME 'video/mp4' is not accepted on chat",
+    'attachments refused: mime_not_allowed',
   );
 });
 
@@ -49,15 +55,20 @@ Deno.test('a media reference never runs base64 or byte limits; file count still 
   const ref = { mimeType: 'image/png', uri: 'files/abc123' };
   assertEquals(isTurnMediaRef(ref), true);
   // A one-byte ceiling would reject any inline blob, but refs carry no bytes.
-  assertAttachmentLimits([ref], TINY);
+  assertTurnAttachments(tiny(), [ref], undefined);
   assertThrows(
-    () => assertAttachmentLimits([{ mimeType: 'image/png', data: 'aGVsbG8=' }], TINY),
+    () => assertTurnAttachments(tiny(), [{ mimeType: 'image/png', data: 'aGVsbG8=' }], undefined),
     TheoremError,
   );
-  assertThrows(() => assertAttachmentLimits([ref, ref], TINY), TheoremError, 'Only 1 file');
+  const tooMany = assertThrows(
+    () => assertTurnAttachments(tiny(), [ref, ref], undefined),
+    TheoremError,
+  );
+  assertEquals(tooMany.kind, 'input');
+  assertEquals(publicError(tooMany), 'Only 1 file per message.');
   // Text-mime sanitization only rewrites inline bytes; a ref passes through untouched.
   const csvRef = { mimeType: 'text/csv', uri: 'files/csv1' };
-  const sanitized = sanitizeTurnBlobs([csvRef], undefined, TINY);
+  const sanitized = sanitizeTurnBlobs(tiny(), [csvRef], undefined);
   assertEquals(sanitized.attachments, [csvRef]);
 });
 
@@ -88,4 +99,41 @@ Deno.test('wireInteractionPart emits { type, mimeType, uri } for a ref part', ()
   });
   assertEquals(isMediaRefPart({ type: 'text', text: 'x' }), false);
   assertEquals(isMediaRefPart({ type: 'image', mimeType: 'image/png', data: 'x' }), false);
+});
+
+Deno.test('refused files name every reason, one line per problem, in the profile lexicon', () => {
+  const profile = tiny();
+  const err = assertThrows(
+    () =>
+      assertTurnAttachments(
+        profile,
+        [
+          { mimeType: 'image/png', data: 'aGVsbG8=', name: 'photo.png' },
+          { mimeType: 'video/mp4', uri: 'files/v1', name: 'clip.mp4' },
+        ],
+        undefined,
+      ),
+    TheoremError,
+  );
+  assertEquals(err.kind, 'input');
+  assertEquals(
+    err.message,
+    'attachments refused: mime_not_allowed, too_many_files, file_too_large, turn_too_large',
+  );
+  assertEquals(err.message.includes('photo.png'), false);
+  assertEquals(
+    publicError(err),
+    [
+      "clip.mp4: MIME 'video/mp4' is not accepted for attachment input.",
+      'Only 1 file per message.',
+      'photo.png: Each file must be 0.0 MB or smaller.',
+      'Those files together are too large for one message (0.0 MB max).',
+    ].join('\n'),
+  );
+  assertEquals(
+    publicError(err, { 'attachments.file_too_large': '{fileName} is over the limit' }).split(
+      '\n',
+    )[2],
+    'photo.png is over the limit',
+  );
 });

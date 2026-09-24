@@ -3,6 +3,7 @@
  */
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
+import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { sha256 } from '../../src/kernel/engine/hash.ts';
 import { runTurn } from '../../src/kernel/engine/runner.ts';
@@ -174,15 +175,36 @@ Deno.test('the model reads back the same text the span records', async () => {
   assertEquals(contentOf(record, toolSpan(record).attributes['gen_ai.tool.call.result']), seen[0]);
 });
 
-Deno.test('a failing tool is ERROR with its failure code and no raw output', async () => {
+Deno.test('a failing tool is ERROR with its kind and code and no raw output', async () => {
   const span = toolSpan(
     await turnRecord({ id: 'c1', name: 'crashing_tool', arguments: { id: '1' } }),
   );
-  assertEquals(span.status, { code: 'ERROR', message: 'handler_error' });
+  assertEquals(span.status, { code: 'ERROR', message: 'failed' });
   assertEquals(span.attributes['theorem.tool.outcome'], 'error');
-  assertEquals(span.attributes['error.type'], 'handler_error');
+  assertEquals(span.attributes['error.type'], 'failed');
+  assertEquals(span.attributes['theorem.tool.failure.code'], 'handler_error');
   assertEquals('theorem.tool.data' in span.attributes, false);
   assertEquals('gen_ai.tool.call.result' in span.attributes, true);
+});
+
+Deno.test('a provider error types the turn and the call by its kind', async () => {
+  const into: TraceRecord[] = [];
+  const failing: ModelProvider = {
+    async *complete() {
+      yield { type: 'error', errorKind: 'rate_limit', errorInternal: 'upstream 429' };
+    },
+  };
+  await drain(runTurn({ profile: PROFILE, input: { text: 'go' } }, failing, memorySink(into)));
+  const [record] = into;
+  const [root] = record?.spans ?? [];
+  const call = record?.spans.find((span) => span.name.startsWith('generate_content'));
+  assertEquals(root?.attributes['error.type'], 'rate_limit');
+  assertEquals(root?.status, { code: 'ERROR', message: 'rate_limit' });
+  assertEquals(call?.attributes['error.type'], 'rate_limit');
+  assertEquals(
+    record && contentOf(record, root?.attributes['theorem.error.public']),
+    lexiconDefault('error.rate_limit'),
+  );
 });
 
 Deno.test('a denied call is UNSET, not a failure', async () => {
@@ -209,10 +231,17 @@ Deno.test('malformed arguments are recorded as the raw text the model sent', asy
     name: 'lookup_order',
     arguments: {},
     phase: 'error',
-    failure: { code: 'malformed_arguments', message: 'bad json', details: { raw } },
+    failure: {
+      code: 'malformed_arguments',
+      kind: 'bad_response',
+      message: 'bad json',
+      details: { raw },
+    },
   });
   const span = toolSpan(record);
-  assertEquals(span.status, { code: 'ERROR', message: 'malformed_arguments' });
+  assertEquals(span.status, { code: 'ERROR', message: 'bad_response' });
+  assertEquals(span.attributes['error.type'], 'bad_response');
+  assertEquals(span.attributes['theorem.tool.failure.code'], 'malformed_arguments');
   assertEquals(contentOf(record, span.attributes['gen_ai.tool.call.arguments']), raw);
   assertEquals('gen_ai.tool.call.result' in span.attributes, true);
 });

@@ -232,7 +232,7 @@ export function assertSafeUrl(urlStr: string, policy?: NetworkGuardrailSpec): UR
   try {
     parsed = new URL(urlStr);
   } catch {
-    throw new TheoremError(`Invalid URL provided: "${urlStr}"`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('request', `Invalid URL provided: "${urlStr}"`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
 
   const allowPrivate = policy?.allowPrivateNetworks ?? false;
@@ -252,6 +252,7 @@ export function assertSafeUrl(urlStr: string, policy?: NetworkGuardrailSpec): UR
 
   if (!allowedSchemes.includes(parsed.protocol)) {
     throw new TheoremError(
+      'blocked',
       `URL scheme "${parsed.protocol}" is not permitted by network policy. Allowed: ${allowedSchemes.join(', ')}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
@@ -260,12 +261,14 @@ export function assertSafeUrl(urlStr: string, policy?: NetworkGuardrailSpec): UR
   if (!allowPrivate) {
     if (isLocalhostName(hostname)) {
       throw new TheoremError(
+        'blocked',
         `Access to loopback target "${hostname}" blocked by network guardrail. Enable allowPrivateNetworks to permit local addresses.`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
 
     if (isPrivateOrLocalIPv4(hostname)) {
       throw new TheoremError(
+        'blocked',
         `Access to private IPv4 address "${hostname}" blocked by network guardrail.`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
@@ -274,6 +277,7 @@ export function assertSafeUrl(urlStr: string, policy?: NetworkGuardrailSpec): UR
       hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname;
     if (isPrivateOrLocalIPv6(strippedV6)) {
       throw new TheoremError(
+        'blocked',
         `Access to private IPv6 address "${hostname}" blocked by network guardrail.`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }

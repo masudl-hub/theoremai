@@ -43,6 +43,7 @@ import type { ToolGateResolution } from '../client/tool-resume';
 import { InkWaveform } from '../components/InkWaveform';
 import { useLiveRunnerModel } from '../components/live/use-live-runner-model';
 import { NO_FOCUS_RING } from './ChatComposerBar';
+import { liveStateLabel } from './labels';
 import { SidePanel, SidePanelHeader, SidePanelToggle, useSidePanel } from './SidePanel';
 import { ApprovalCard, AuthChallengeCard } from './ToolGateCard';
 import { DEFAULT_CHAT_MAX_WIDTH } from './TheoremChat';
@@ -193,10 +194,10 @@ function LiveStage({ model }: { model: LiveModel }) {
 						@{model.handle}
 					</Text>
 					<Text size="sm" color="secondary">
-						{model.stateLabel}
+						{liveStateLabel(model.liveState, model.activeTool)}
 					</Text>
 				</VStack>
-				{model.error ? <Banner status="error" title={model.error} /> : null}
+				{model.failure ? <Banner status="error" title={model.failure.error} /> : null}
 				<StackItem size="fill">
 					<VStack height="100%" vAlign="end">
 						{/* Bars stand on the stage floor, in the icon colour (no Stack colour prop). */}

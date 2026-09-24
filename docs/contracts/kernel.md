@@ -39,9 +39,11 @@ unreplaceable copy or bundled product. Demo fixtures live in the repo-private
 | P3 | No buried policy — behavioral defaults are declared typed profile-schema fields, never only implementation constants |
 | P4 | Inert extras — deleting optional packages (playground) changes no kernel behavior |
 
-Continue-instruction text defaults to `CONTINUE_INSTRUCTION` and is overridable
-per text profile at `turnBehaviour.resumption.continueInstruction` (or process-wide
-via `overrideLexicon`). Composer labels in `src/interface/` are semantic
+Continue-instruction text is the lexicon's `continue.instruction`, overridable
+per profile (`lexicon`) or process-wide (`overrideLexicon`). Only text profiles
+send it (`CONTINUE_INSTRUCTION_TYPES` in `src/kernel/stop.ts`, which the
+playground also reads); image and speech continue by re-sending the host's
+request unchanged. Composer labels in `src/interface/` are semantic
 keys only; English lives in `@theoremai/react`.
 
 ## Profiles
@@ -127,16 +129,29 @@ A host declares what it accepts only in `inputs.attachments.accept` /
 `inputs.voice.accept`. `mediaChannelForMime(profile, mime)` (`catalog.ts`) is the
 public answer to "does this profile take this file, and on which `TurnInput`
 channel" — hosts filter and route channel ingress with it and keep no MIME table
-of their own. `resolveInputParts` applies the same acceptance on the turn and
-throws `TheoremError` for a MIME the profile does not accept.
+of their own.
+
+One check decides whether a turn's files are accepted: `attachmentIssues(rules,
+files, clips)` (`attachments.ts`). It returns every reason at once — channel not
+accepted, MIME not accepted, too many files, a file over its byte cap, the turn
+over its total — each file's issue carrying the file's `name` when the host sent
+one. The turn is all-or-nothing: `assertTurnAttachments` (run by input
+sanitization and by `resolveInputParts`) throws one `input` `TheoremError` whose
+`copy` is a list, one lexicon line per issue (`attachmentIssueCopy`), so the
+user reads every reason and the builder reads the codes in `errorInternal`
+(`attachmentsRefused` builds that error). `attachmentIssueText(issue, lexicon)`
+words one issue for a client that reports issues itself (the composer). An image
+profile's reference-image cap adds `too_many_images` (`{maxImages}`). The
+headless interface's `validateProfileInputs` runs the same check before a send.
+The name is never sent to the model.
 
 Turn media arrives on `TurnInput.attachments` as either inline bytes or a
 provider file reference:
 
 | Input | Shape | Ingress |
 | --- | --- | --- |
-| `TurnBlob` | `{ mimeType, data }` (base64) | MIME acceptance, kind resolution, base64 check, per-file / per-turn byte limits, text-MIME sanitization |
-| `TurnMediaRef` | `{ mimeType, uri }` (e.g. Gemini Files `files/<id>`) | MIME acceptance and kind resolution only — no base64 or byte limits; the host owns upload and cleanup |
+| `TurnBlob` | `{ mimeType, data, name? }` (base64) | MIME acceptance, kind resolution, base64 check, per-file / per-turn byte limits, text-MIME sanitization |
+| `TurnMediaRef` | `{ mimeType, uri, name? }` (e.g. Gemini Files `files/<id>`) | MIME acceptance, file count and kind resolution only — no base64 or byte limits; the host owns upload and cleanup |
 | `InteractionMediaRefPart` | `{ type: MediaInputKind, mimeType, uri }` | Provider part emitted for a `TurnMediaRef`; `isMediaRefPart` narrows it |
 
 `wireInteractionPart` emits `{ type, mimeType, uri }` for a reference part; the
@@ -241,7 +256,7 @@ Live sessions emit the same stage names around utterance cycles and
     `tokens` event (see [Token usage](#token-usage)).
 
 `continueFrom` on `TurnRequest` resumes a resumeable stop. On a text profile the
-turn's user message is `CONTINUE_INSTRUCTION` (a continue turn takes no
+turn's user message is the lexicon's `continue.instruction` (a continue turn takes no
 `input.text`); the host passes the partial reply as the last assistant message in
 `input.history`. On image and speech nothing is added: the host re-sends the
 original request and the turn runs it again in full. The kernel does not read
@@ -287,7 +302,7 @@ different transport than the primary turn.
 | `tokens` | One per model call, after that call's output: `TurnTokens` (see [Token usage](#token-usage)); may gate `meter: 'input'` |
 | `response` | Adapter → runner only, never yielded by `runTurn`: the response identity (`id`, `model`) as soon as the wire names it, and again when it grows or changes. The runner records it on the call's trace span (`gen_ai.response.id` / `gen_ai.response.model`), so a call that fails or is cut by a guardrail still names the model that served it |
 | `done` | Terminal or live boundary: `stop` (`completed` / `interrupted` / `generation_complete` / …), `compaction`; when `stop.kind === 'tool'`, optional `tools` (`TurnToolSnapshot`) for host `invokeTool` resume |
-| `error` | Public-safe `error` string; optional `errorInternal` for host logs only |
+| `error` | `errorKind` (builder), `errorInternal` (host logs only), and `error`, the user's wording for the kind (profile `lexicon` → `overrideLexicon` → default) — see [Public errors](guardrails.md#public-errors) |
 
 ### Token usage
 
@@ -342,6 +357,7 @@ verbatim to browsers or end-user SSE** unless you intend to expose diagnostics.
 | Field | Host logs / traces | End-user transport |
 | --- | --- | --- |
 | `error` | yes | yes |
+| `errorKind` | yes | yes |
 | `errorInternal` | yes | **never** |
 | `evidence` parsed fields (`kind`, `code`, `result`, citations) | yes | when useful in UI |
 | `evidence.raw` | yes | only when you explicitly want provider internals |
@@ -505,7 +521,7 @@ Profile `outputs` pins behavior the kernel enforces before adapters run:
 | --- | --- |
 | `structured` | Schema id or slot-mapped ids; `responseFormat` vs prompt enforcement |
 | `streaming` | `mode`, `streamThoughts` |
-| `validation` | Field validators + `maxRetries` + `repairGuidance` |
+| `validation` | Field validators + `maxRetries` (repair guidance is the lexicon's `repair.default_guidance`) |
 
 Top-level modality pins (after `model`, not under `outputs`):
 
@@ -580,7 +596,6 @@ Profile `turnBehaviour` (top-level on chat/image/speech):
 | `resumption.allowContinue` | Stop kinds eligible for a continueFrom turn |
 | `resumption.autoContinue` | Stop kinds the host may auto-continue without a CTA |
 | `resumption.maxContinues` | Max continueFrom rounds the kernel accepts (enforced) |
-| `resumption.continueInstruction` | **Text only.** Replaces the continue user message |
 | `allowSteering` | **Text and live.** Gates **inject** via `profileAllowsInject` / stages. Stage events always emit. Image/speech must omit |
 
 Stop / cancel is not a profile field: composer `ProfileInterface` always projects `canStop: true`
@@ -634,7 +649,7 @@ Profile `guardrails`:
 | `quota` | Host HTTP helper only (`@theoremai/agents/guardrails`); not enforced inside `runTurn` |
 | `canary` | Per-turn canary token; egress checks leakage |
 | `sanitizeInput` / `redactSensitive` | Pre-provider text/blob scrub |
-| `egress` | Host `enforce` hook; `onBlock`: `reject_to_agent` or `refuse_to_user`; `maxRetries`; `repairGuidance`; `holdback` (mid-stream lookback, default 256) |
+| `egress` | Host `enforce` hook; `onBlock`: `reject_to_agent` or `refuse_to_user`; `maxRetries`; `holdback`; repair guidance is the lexicon's `egress.default_repair_guidance` (mid-stream lookback, default 256) |
 
 ## Compaction
 
@@ -808,7 +823,6 @@ turnBehaviour: {
 | `DEFAULT_ALLOW_CONTINUE` | = `CONTINUE_STOP_KINDS` |
 | `DEFAULT_AUTO_CONTINUE` | length, stream_incomplete |
 | `AUTO_CONTINUE_DELAY_MS` | `1500` — suggested pause before one-shot auto-continue |
-| `CONTINUE_INSTRUCTION` | Default continue user message on text profiles |
 | `isContinueStopKind` | Narrow to continue-eligible kinds |
 | `isResumeableStop` | Profile `allowContinue` or default; always false outside ContinueStopKind |
 | `shouldAutoContinue` | One silent resume; never outside ContinueStopKind |
@@ -931,10 +945,10 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
 | Tools | `registerTool`, `registerTools`, `invokeTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `listBuiltinIds`, `listFunctionIds`, `resetTools`, `formatToolResult`, `projectForModel`, `coerceToolResultParts`, `leanToolResultData`, `wireInteractionPart`, `isMediaRefPart`, `prepareTurnToolSnapshot`, `buildHttpToolTarget`, `executeHttpTool`, `executeMcpTool`, `parseMcpRpcResponse`, `isUnsupportedMcpProtocolError`, `MCP_PROTOCOL_VERSIONS`, `McpProtocolVersion`, `resolveToolAuth` |
 | Auth (stateless OAuth/PKCE) | `createOAuthPkceFlow`, `exchangeOAuthPkce`, `refreshOAuthToken`, `discoverResourceMetadata`, `discoverAuthServerMetadata`, `validateIssuer`, `generateCodeVerifier`, `computeCodeChallenge`, `sealStatePayload`, `unsealStatePayload` |
 | Structured | `getStructured`, `registerStructured` |
-| Stop / resume | `ProfileTurnBehaviourSpec`, `MediaTurnBehaviourSpec`, `ProfileTurnResumptionSpec`, `TurnContinueFrom`, `TurnStop`, `TurnStopKind`, `ContinueStopKind`, `CONTINUE_STOP_KINDS`, `AUTO_CONTINUE_DELAY_MS`, `CONTINUE_INSTRUCTION`, `DEFAULT_ALLOW_CONTINUE`, `DEFAULT_AUTO_CONTINUE`, `GenerationStopError`, `isContinueStopKind`, `isGenerationStopError`, `isResumeableStop`, `isUserCancelledStop`, `profileAllowsSteering`, `profileAllowsInject`, `profileTurnResumption`, `shouldAutoContinue`, `turnStopFromClientStreamEnd`, `turnStopFromInteractionStatus`, `turnStopFromOpenAiFinishReason` |
+| Stop / resume | `ProfileTurnBehaviourSpec`, `MediaTurnBehaviourSpec`, `ProfileTurnResumptionSpec`, `TurnContinueFrom`, `TurnStop`, `TurnStopKind`, `ContinueStopKind`, `CONTINUE_STOP_KINDS`, `AUTO_CONTINUE_DELAY_MS`, `DEFAULT_ALLOW_CONTINUE`, `DEFAULT_AUTO_CONTINUE`, `GenerationStopError`, `isContinueStopKind`, `isGenerationStopError`, `isResumeableStop`, `isUserCancelledStop`, `profileAllowsSteering`, `profileAllowsInject`, `profileTurnResumption`, `shouldAutoContinue`, `turnStopFromClientStreamEnd`, `turnStopFromInteractionStatus`, `turnStopFromOpenAiFinishReason` |
 | Stages (target foundation) | `TURN_STAGES`, `TURN_INJECT_STAGES`, `STAGE_AFFORDANCES`, `STAGE_AFFORDANCE_MATRIX`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `applyStageResult`, `parseAwaitingUserInput`, `parseToolGate`, `isTurnStage`, `isTurnInjectStage`, `isToolGateKind`, `isAwaitingUserInput`, `stageAllowsAffordance`, `stageEventFields`, `profileAllowsInject`, `StageAffordance`, `StageContext`, `StageResult`, `StageMutate`, `StageHandler`, `StageApplyInput`, `StageApplyOutput`, `StageApplyWarning`, `StageApplyWarningCode`, `StageEventExtra`, `AwaitingUserInput`, `ToolGate` — see [`stages.md`](stages.md). Slices 1–3 landed on branch; publish when release cut matches docs. |
 | Interface (headless) | `interfaceFrom`, `interfaceFromProfile`, `interfaceFromProjected`, `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime`, `sanitizeUserDraft`, `prepareUserTurn`, `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `resetBlockIds`, `streamThoughtsEnabled`, `collectPromotedMediaFromToolOutput`, `promotedMediaFromUrlString`, `PromotedToolMedia`, `defaultInterfaceEffort`, `effortSelectEnabled`, `generationSelectEnabled`, `interfaceEffortOptions`, `interfaceModelOptions`, `modelSelectEnabled`, `appendAssistantEventsToHistory`, `appendToolDenialToHistory`, `appendToolExchangeToHistory`, `appendUserDraftToHistory`, `historyFromTranscriptBlocks`, `applyTurnEventsToSession`, `branchInterfaceTurnSession`, `emptyInterfaceTurnSession`, `abandonGatedToolSession`, `gatedToolFromEvents`, `awaitingFromEvents`, `promotedToolIdsFromEvents`, `toolSnapshotFromEvents`, `COMPOSER_PENDING_KINDS`, `cloneUserTurnDraft`, `composerPendingPreview`, `consumeNextComposerQueue`, `consumeNextComposerSteer`, `convertSteersToFrontQueued`, `createComposerPendingMessage`, `moveComposerPendingWithinKind`, `orderComposerPendingMessages`, `promoteComposerPendingKind`, `removeComposerPendingMessage`, `resolveComposerMenuActions`, `resolveComposerPrimary`, `updateComposerPendingDraft`, `userDraftHasPayload`, `userDraftToSteerInject`, `AttachmentValidationCode`, `AttachmentValidationIssue`, `AttachmentValidationParams`, `AttachmentValidationResult`, `AwaitingToolContext`, `ComposerActionContext`, `ComposerMenuAction`, `ComposerPendingKind`, `ComposerPendingMessage`, `ComposerPrimaryAction`, `ComposerProfileInterface`, `ComposerRunPhase`, `CreateComposerPendingMessageArgs`, `FoldTurnEventsOptions`, `GatedToolContext`, `ImageProfileInterface`, `InterfaceEffortOption`, `InterfaceModelOption`, `LiveProfileInterface`, `LiveResolvedTools`, `PendingAttachment`, `PrepareUserTurnResult`, `ProfileGuardrailsView`, `ProfileObservabilityView`, `ProfileInputsInterface`, `ProfileInterface`, `ProfileInterfaceSource`, `ResolvedTools`, `SpeechProfileInterface`, `TextProfileInterface`, `TranscriptBlock`, `TranscriptBlockKind`, `UserTurnDraft`, `UserTurnHistoryMedia`, `InterfaceTurnSession` |
-| Attachments (kernel) | `assertAttachmentLimits`, `maxBytesForMime`, `requireMediaLimits`, `resolveMediaLimits`, `sanitizeCsvText`, `sanitizeTurnBlobs`, `sanitizeTurnBlobsForProfile` |
+| Attachments (kernel) | `attachmentIssues`, `attachmentIssueCopy`, `attachmentIssueText`, `attachmentsRefused`, `assertTurnAttachments`, `maxBytesForMime`, `requireMediaLimits`, `resolveMediaLimits`, `sanitizeCsvText`, `sanitizeTurnBlobs`, `AttachmentFacts`, `AttachmentRules` |
 
 `PromotedToolMedia` and `media` `TranscriptBlock`s carry an optional
 `previewUrl`: a smaller copy of `url` for thumbnails, when the tool output

@@ -1,5 +1,5 @@
 import { useCallback, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
-import type { TurnEvent } from '../../../../mod.ts';
+import { type LexiconOverrides, TheoremError, type TurnEvent } from '../../../../mod.ts';
 import {
 	applyLiveTranscript,
 	type LiveCaptionState,
@@ -26,7 +26,10 @@ export type LiveClientBindings = {
 	setConnectPhase: Dispatch<SetStateAction<LiveConnectPhase | null>>;
 	setStatus: Dispatch<SetStateAction<LiveSessionStatus>>;
 	setSessionActive: Dispatch<SetStateAction<boolean>>;
-	setError: Dispatch<SetStateAction<string>>;
+	/** The interface's `lexicon`: the profile's wording. */
+	lexicon: LexiconOverrides;
+	reportFailure: (err: unknown) => void;
+	clearFailure: () => void;
 	setCaptions: Dispatch<SetStateAction<LiveCaptionState>>;
 	setInputLevel: Dispatch<SetStateAction<number>>;
 	setOutputLevel: Dispatch<SetStateAction<number>>;
@@ -44,7 +47,7 @@ function onLiveStatusChange(
 	bindings.setStatus(next);
 	if (next === 'listening' || next === 'ready') {
 		bindings.setSessionActive(true);
-		bindings.setError('');
+		bindings.clearFailure();
 		return;
 	}
 	if (next !== 'disconnected' && next !== 'error') return;
@@ -77,9 +80,13 @@ async function onLiveToolCall(
 	clientRef: MutableRefObject<LiveSessionClient | null>,
 ): Promise<Record<string, unknown>> {
 	bindings.setActiveTool(name);
-	bindings.setError('');
+	bindings.clearFailure();
 	const client = clientRef.current;
-	if (!client) return { error: 'Live session is not connected' };
+	if (!client) {
+		// lexicon-exempt: internal diagnostic; the user reads error.request
+		bindings.reportFailure(new TheoremError('request', 'live tool call with no session client'));
+		return {};
+	}
 	const callId = meta.callId || `call_${Date.now()}`;
 	try {
 		return await runLiveToolCall({
@@ -93,12 +100,12 @@ async function onLiveToolCall(
 				bindings.setSessionPermissions(next);
 			},
 			waitForGateDecision: bindings.waitForGateDecision,
-			setError: bindings.setError,
+			lexicon: bindings.lexicon,
+			reportFailure: bindings.reportFailure,
 		});
 	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		bindings.setError(message);
-		return { error: message };
+		bindings.reportFailure(err);
+		return {};
 	} finally {
 		if (!bindings.gatePromptRef.current) bindings.setActiveTool(null);
 	}
@@ -136,8 +143,8 @@ export function useLiveSessionClient(bindings: LiveClientBindings) {
 					current.setOutputLevel(level);
 				}
 			},
-			onError: (message) => {
-				bindingsRef.current.setError(message);
+			onError: (err) => {
+				bindingsRef.current.reportFailure(err);
 			},
 			onToolCall: (name, args, meta) =>
 				onLiveToolCall(name, args, meta, bindingsRef.current, clientRef),

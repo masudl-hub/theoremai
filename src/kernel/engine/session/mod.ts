@@ -11,10 +11,10 @@
 
 import { bindCanary } from '../../../guardrails/canary.ts';
 import {
-  publicError,
   TheoremError,
   throwIfAborted,
   toErrorEvent,
+  withPublicWording,
 } from '../../../guardrails/error.ts';
 import { projectGuardrailTurnEvent } from '../../../guardrails/events.ts';
 import {
@@ -24,7 +24,6 @@ import {
   type LiveOutboundGateSession,
   processLiveOutboundBatch,
 } from '../../../guardrails/live-outbound-gate.ts';
-import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import { sanitizeTurnRequest } from '../../../guardrails/sanitize.ts';
 import { resolveObservabilityPolicy } from '../../../observability/resolve-policy.ts';
 import type { TraceSink } from '../../../observability/trace-sink.ts';
@@ -97,6 +96,7 @@ function liveInjectTexts(messages: readonly TurnHistoryMessage[]): string[] {
 function assertLiveProfile(profile: Profile): asserts profile is LiveProfile {
   if (profile.type !== 'live') {
     throw new TheoremError(
+      'request',
       `runSession requires profile.type 'live' (got '${profile.type}' for ${profile.id})`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
@@ -122,7 +122,7 @@ function sessionSnapshotWithinAllow(
   if (outside.size > 0) {
     // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     const detail = `session snapshot declares tools outside tools.allow: ${[...outside].join(', ')}`;
-    throw new TheoremError(`Profile ${profile.id}: ${detail}`);
+    throw new TheoremError('config', `Profile ${profile.id}: ${detail}`);
   }
   return cloneTurnToolSnapshot(snapshot);
 }
@@ -175,7 +175,7 @@ async function applyOutbound(
   gate: LiveOutboundGateSession,
   events: TurnEvent[],
   turnPhase: 'streaming' | 'complete' | 'abort',
-  onWithhold: (error: string) => void,
+  onWithhold: () => void,
 ): Promise<TurnEvent[]> {
   if (turnPhase === 'abort') {
     abortLiveOutboundTurn(gate);
@@ -191,8 +191,8 @@ async function applyOutbound(
   const batch = await processLiveOutboundBatch(gate, events);
   const out: TurnEvent[] = [];
   if (batch.action === 'withhold') {
-    onWithhold(batch.error);
-    return [...(batch.events ?? []), { type: 'error', error: batch.error }];
+    onWithhold();
+    return [...(batch.events ?? []), toErrorEvent(batch.error)];
   }
   if (batch.action === 'emit') {
     out.push(...batch.events);
@@ -201,8 +201,8 @@ async function applyOutbound(
   if (turnPhase === 'complete') {
     const finalized = await finalizeLiveOutboundTurn(gate);
     if (finalized.action === 'withhold') {
-      onWithhold(finalized.error);
-      return [...out, { type: 'error', error: finalized.error }];
+      onWithhold();
+      return [...out, toErrorEvent(finalized.error)];
     }
     if (finalized.action === 'emit') {
       out.push(...finalized.events);
@@ -256,19 +256,11 @@ function boundaryDoneEvents(
 function* yieldLiveNonDoneEvents(
   gated: TurnEvent[],
   includeMatch: boolean | undefined,
-  withholdClose: string | undefined,
   recordAssistantText: (text: string) => void,
 ): Generator<TurnEvent, TurnEvent[]> {
   const doneBatch = gated.filter((ev) => ev.type === 'done');
   for (const ev of gated) {
     if (ev.type === 'done') continue;
-    if (ev.type === 'error') {
-      yield {
-        ...ev,
-        error: publicError(ev.error ?? withholdClose ?? 'guardrail withheld'),
-      };
-      continue;
-    }
     if (ev.type === 'text' && typeof ev.text === 'string') {
       recordAssistantText(ev.text);
     }
@@ -311,7 +303,7 @@ function buildLiveSession(args: {
   } = args;
 
   let closed = false;
-  let withholdClose: string | undefined;
+  let withholdClose = false;
   const pendingHostEvents: TurnEvent[] = [];
   const includeMatch = resolveObservabilityPolicy(profile.observability).include
     .guardrailMatchPreview;
@@ -388,7 +380,7 @@ function buildLiveSession(args: {
 
   const sendJson = (payload: Record<string, unknown>) => {
     if (closed) {
-      throw new TheoremError('Live session is closed'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      throw new TheoremError('request', 'Live session is closed'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
     connection.send(payload);
   };
@@ -516,6 +508,7 @@ function buildLiveSession(args: {
         trace.receive(item);
         yield* drainPendingHostEvents(pendingHostEvents);
         if (item.type === 'closed') {
+          if (item.error) yield toErrorEvent(item.error);
           break;
         }
         if (item.type === 'error') {
@@ -531,20 +524,15 @@ function buildLiveSession(args: {
           gate,
           item.events.filter((ev) => ev.type !== 'tokens'),
           item.turnPhase,
-          (error) => {
-            withholdClose = error;
+          () => {
+            withholdClose = true;
           },
         );
         for (const ev of gated) {
           if (ev.guardrail) trace.outbound(ev);
         }
 
-        const doneBatch = yield* yieldLiveNonDoneEvents(
-          gated,
-          includeMatch,
-          withholdClose,
-          recordAssistantText,
-        );
+        const doneBatch = yield* yieldLiveNonDoneEvents(gated, includeMatch, recordAssistantText);
         const tokens = await trace.settle();
         if (tokens) yield tokens;
 
@@ -587,7 +575,8 @@ function buildLiveSession(args: {
     profileId: profile.id,
     canary,
     async *events(): AsyncGenerator<TurnEvent> {
-      for await (const event of streamToHost()) {
+      for await (const raw of streamToHost()) {
+        const event = withPublicWording(raw, profile.lexicon);
         trace.delivered(event);
         yield event;
       }
@@ -631,7 +620,7 @@ function buildLiveSession(args: {
     },
     async executeTool(toolArgs: LiveExecuteToolArgs): Promise<LiveExecuteToolResult> {
       if (closed) {
-        throw new TheoremError('Live session is closed'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        throw new TheoremError('request', 'Live session is closed'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       }
       const handlers = onStage ? [onStage] : [];
       const record = trace.toolRecord(toolArgs.callId);
@@ -780,11 +769,7 @@ async function openTracedSession(
   const hasInitialInput = Boolean(req.input && req.input.length > 0);
   generation = applyInitialInput(generation, req.input);
 
-  const system = bindCanary(
-    generation.resolvedSystem,
-    generation.canary,
-    resolveGuardrailPolicy(profile.guardrails).canaryBindNote,
-  );
+  const system = bindCanary(generation.resolvedSystem, generation.canary, profile.lexicon);
   const completeReq: ProviderCompleteRequest = {
     ...providerCompleteRequest(generation, system),
     signal: safe.signal,

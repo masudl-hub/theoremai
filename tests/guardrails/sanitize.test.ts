@@ -354,27 +354,39 @@ Deno.test('attachments.ts edge cases: formatting, 1-file message, latin1 decodin
 
   // sanitizeTurnBlobs without limits
   assertThrows(
-    () => sanitizeTurnBlobs([{ mimeType: 'image/png', data: 'abc' }], undefined, undefined),
+    () => sanitizeTurnBlobs(noLimitsProfile, [{ mimeType: 'image/png', data: 'abc' }], undefined),
     TheoremError,
   );
 
-  // sanitizeTurnBlobs with latin1 invalid utf-8 text file
-  const invalidUtf8 = btoa(String.fromCharCode(0xff, 0xfe, 0xfd));
-  const sanitized = sanitizeTurnBlobs([{ mimeType: 'text/plain', data: invalidUtf8 }], undefined, {
-    maxFiles: 5,
-    maxBytes: 10_000_000,
-    maxTurnBytes: 10_000_000,
+  const withLimits = (limitsByMime?: Record<string, number>): Profile => ({
+    ...noLimitsProfile,
+    inputs: {
+      text: true,
+      attachments: { accept: ['text/plain', 'image/*'] },
+      maxFiles: 5,
+      maxBytes: 10_000_000,
+      maxTurnBytes: 10_000_000,
+      ...(limitsByMime ? { limitsByMime } : {}),
+    },
   });
+
+  // sanitizeTurnBlobs with latin1 invalid utf-8 text file; the name rides along
+  const invalidUtf8 = btoa(String.fromCharCode(0xff, 0xfe, 0xfd));
+  const sanitized = sanitizeTurnBlobs(
+    withLimits(),
+    [{ mimeType: 'text/plain', data: invalidUtf8, name: 'notes.txt' }],
+    undefined,
+  );
   assertEquals(sanitized.attachments?.length, 1);
+  assertEquals(sanitized.attachments?.[0]?.name, 'notes.txt');
 
   // Wildcard category limits (e.g. image/*)
   const pngBlob = { mimeType: 'image/png', data: btoa('test data') };
-  const wildcardSanitized = sanitizeTurnBlobs([pngBlob], undefined, {
-    maxFiles: 5,
-    maxBytes: 10_000_000,
-    maxTurnBytes: 10_000_000,
-    limitsByMime: { 'image/*': 100_000 },
-  });
+  const wildcardSanitized = sanitizeTurnBlobs(
+    withLimits({ 'image/*': 100_000 }),
+    [pngBlob],
+    undefined,
+  );
   assertEquals(wildcardSanitized.attachments?.length, 1);
 });
 

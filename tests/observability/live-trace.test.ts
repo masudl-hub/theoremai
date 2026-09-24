@@ -3,6 +3,7 @@
  * `executeTool` call.
  */
 import { z } from 'zod';
+import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { sha256Base64 } from '../../src/kernel/engine/hash.ts';
 import { runSession } from '../../src/kernel/engine/session/mod.ts';
@@ -326,7 +327,7 @@ Deno.test('a response with no reported usage has one estimated usage event', asy
   assertEquals(tokens[0]?.tokens?.estimated, ['input', 'output']);
 });
 
-Deno.test('a session that fails to open still writes its record', async () => {
+Deno.test('a session that fails to open still writes its record, typed by its kind', async () => {
   const records: TraceRecord[] = [];
   let failed = false;
   try {
@@ -344,9 +345,37 @@ Deno.test('a session that fails to open still writes its record', async () => {
   }
   const root = rootOf(records[0]);
   assertEquals(failed, true);
-  assertEquals(root.status.code, 'ERROR');
+  assertEquals(root.status, { code: 'ERROR', message: 'auth' });
+  assertEquals(root.attributes['error.type'], 'auth');
   assertEquals(
     root.events.some((e) => e.name === 'exception'),
     true,
   );
+});
+
+Deno.test('a provider close mid-session reaches the host as an error with its kind', async () => {
+  const harness = await open();
+  harness.socket.close(1011, 'upstream overloaded');
+  const events = await harness.events;
+  const error = events.find((e) => e.type === 'error');
+  assertEquals(error?.errorKind, 'unavailable');
+  assertEquals(error?.error, lexiconDefault('error.unavailable'));
+  await harness.session.close();
+  const root = rootOf(sessionRecord(harness.records));
+  assertEquals(root.status, { code: 'ERROR', message: 'unavailable' });
+  assertEquals(root.attributes['error.type'], 'unavailable');
+  assertEquals(sessionEvents(root).at(-1)?.initiator, 'provider');
+});
+
+Deno.test('a normal provider close ends the session without an error', async () => {
+  const harness = await open();
+  harness.socket.close(1000, '');
+  const events = await harness.events;
+  assertEquals(
+    events.some((e) => e.type === 'error'),
+    false,
+  );
+  await harness.session.close();
+  const root = rootOf(sessionRecord(harness.records));
+  assertEquals(root.attributes['error.type'], undefined);
 });

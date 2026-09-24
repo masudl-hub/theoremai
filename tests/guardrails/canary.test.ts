@@ -15,7 +15,6 @@ import {
   wrapUserData,
 } from '../../src/guardrails/canary.ts';
 import { FIXED_CANARY } from '../../src/guardrails/corpus/canary-egress-attacks.ts';
-import { PUBLIC_CANARY } from '../../src/guardrails/error.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { yieldProviderEvents } from '../../src/kernel/engine/runner/stream.ts';
 import { runTurn } from '../../src/kernel/engine/runner.ts';
@@ -108,7 +107,7 @@ Deno.test('runTurn errors when the model echoes the canary', async () => {
   const events = await collect(runTurn({ profile: 'chat', input: { text: 'hi' } }, provider));
   const wire = JSON.stringify(events);
   assertEquals(
-    events.some((event) => event.type === 'error' && event.error === PUBLIC_CANARY),
+    events.some((event) => event.type === 'error' && event.errorKind === 'safety'),
     true,
   );
   // The leaking fragment is withheld whole: nothing it carried reaches the host.
@@ -174,7 +173,7 @@ Deno.test('canary stream gate detects token split across chunks', async () => {
   );
 
   assertEquals(
-    events.some((event) => event.type === 'error' && event.error === PUBLIC_CANARY),
+    events.some((event) => event.type === 'error' && event.errorKind === 'safety'),
     true,
   );
   assertEquals(

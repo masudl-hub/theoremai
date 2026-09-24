@@ -1,6 +1,6 @@
 import type { Verdict } from '../../src/guardrails/types.ts';
 import '../fixtures/test-host.ts';
-import { PUBLIC_CANARY, TheoremError } from '../../src/guardrails/error.ts';
+import { TheoremError } from '../../src/guardrails/error.ts';
 import {
   assertEquals,
   assertRejects,
@@ -460,6 +460,7 @@ Deno.test('invokeTool ask_user is denied until allowed', async () => {
   const toolEv = events.findLast((e) => e.type === 'tool' && e.tool?.name === 'ask_user');
   assertEquals(toolEv?.tool?.phase, 'error');
   assertEquals(toolEv?.tool?.failure?.code, 'not_allowed');
+  assertEquals(toolEv?.tool?.failure?.kind, 'blocked');
 });
 
 Deno.test('runTurn oneshot yields text structured done', async () => {
@@ -680,10 +681,10 @@ Deno.test('runTurn executes profile validation and auto-corrects', async () => {
           },
         },
         maxRetries: 1,
-        repairGuidance: 'emit good code',
       },
     },
     guardrails: { quota: { perDay: 10 } },
+    lexicon: { 'repair.default_guidance': 'emit good code' },
   });
 
   let callCount = 0;
@@ -701,6 +702,7 @@ Deno.test('runTurn executes profile validation and auto-corrects', async () => {
       );
       assertStringIncludes(String(req.history?.[0]?.content), 'make code');
       assertStringIncludes(String(req.history?.[1]?.content), 'code must be good');
+      assertStringIncludes(String(req.history?.[1]?.content), 'emit good code');
       yield { type: 'structured', structured: { code: 'good' } };
     }
   }
@@ -739,7 +741,6 @@ Deno.test('runTurn skips optional field validators when optional path is omitted
           },
         },
         maxRetries: 3,
-        repairGuidance: 'do not invent code',
       },
     },
     guardrails: { quota: { perDay: 10 } },
@@ -820,7 +821,7 @@ Deno.test('runTurn retries when required field is missing', async () => {
     inputs: { text: true },
     outputs: {
       structured: 'validTurn',
-      validation: { maxRetries: 1, repairGuidance: 'include code' },
+      validation: { maxRetries: 1 },
     },
     guardrails: { quota: { perDay: 10 } },
   });
@@ -869,7 +870,6 @@ Deno.test('runTurn validates nested required under present optional object', asy
           },
         },
         maxRetries: 1,
-        repairGuidance: 'fix mermaid',
       },
     },
     guardrails: { quota: { perDay: 10 } },
@@ -1651,13 +1651,13 @@ Deno.test('guardrails.egress refuse_to_user delivers in-character refusal withou
               action: 'block',
               hits: [{ rule: 'internal_tool_name', severity: 'high' }],
               rejection: 'Do not mention internal tool names.',
-              refusal: "i can't discuss internal wiring.",
             };
           }
           return { action: 'allow' };
         },
       },
     },
+    lexicon: { 'egress.refusal': "i can't discuss internal wiring." },
   });
 
   const mockProvider: import('../../src/kernel/types.ts').ModelProvider = {
@@ -1792,7 +1792,7 @@ Deno.test('guardrails.egress reject_to_agent withholds turn when retries exhaust
 
   assertEquals(callCount, 2); // Initial attempt (0) + 1 retry = 2 attempts
   const errorEv = events.find((e) => e.type === 'error');
-  assertEquals(errorEv?.error, PUBLIC_CANARY);
+  assertEquals(errorEv?.errorKind, 'safety');
   const textEv = events.find((e) => e.type === 'text');
   assertEquals(textEv, undefined);
 });

@@ -2,12 +2,13 @@
  * Profile → `ProfileInterface` projection.
  *
  * Kernel `projectProfileObject` is the single inspection projection; this module
- * only enriches `inputs` (acceptAttr) and attaches serializable guardrails /
- * observability views.
+ * only enriches `inputs` (acceptAttr, an image profile's image cap) and attaches
+ * serializable guardrails / observability views and the client's lexicon.
  *
  * @module
  */
 
+import { clientLexicon } from '../guardrails/lexicon.ts';
 import { resolveGuardrailPolicy } from '../guardrails/policy.ts';
 import type { ProfileGuardrailsSpec } from '../guardrails/types.ts';
 import { projectProfileObject, requireModelProfile } from '../kernel/registry/resolve.ts';
@@ -22,6 +23,7 @@ import type {
   LiveProfileInterface,
   LiveResolvedTools,
   ProfileGuardrailsView,
+  ProfileInputsInterface,
   ProfileInterface,
   ProfileInterfaceSource,
   ProfileObservabilityView,
@@ -100,6 +102,14 @@ function toolsResolved(projected: ProjectedProfile, profile?: ModelProfile): Res
   return { allow, resolved: projected.tools };
 }
 
+/** An image profile's reference-image cap, where the composer reads its other limits. */
+function withImageCap(
+  inputs: ProfileInputsInterface,
+  maxImages: number | undefined,
+): ProfileInputsInterface {
+  return maxImages === undefined ? inputs : { ...inputs, maxImages };
+}
+
 function enrich(projected: ProjectedProfile, profile?: ModelProfile): ProfileInterface {
   const inputs = inputsFromSpec(projected.inputs);
   const identity = profile?.identity ?? { handle: projected.handle };
@@ -117,6 +127,7 @@ function enrich(projected: ProjectedProfile, profile?: ModelProfile): ProfileInt
     outputs,
     guardrails,
     observability,
+    lexicon: clientLexicon(profile?.lexicon),
   };
 
   switch (projected.type) {
@@ -135,7 +146,7 @@ function enrich(projected: ProjectedProfile, profile?: ModelProfile): ProfileInt
         ...shared,
         type: 'image',
         image: projected.image ?? {},
-        inputs,
+        inputs: withImageCap(inputs, projected.image?.maxInputImages),
         tools: toolsResolved(projected, profile),
         turnBehaviour: profile?.type === 'image' ? profile.turnBehaviour : undefined,
         canStop: true,

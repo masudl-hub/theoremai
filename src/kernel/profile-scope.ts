@@ -128,10 +128,6 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
     profileTypes: ['text', 'image', 'speech'],
     reason: 'live resumes through live.sessionResumption',
   },
-  'turnBehaviour.resumption.continueInstruction': {
-    profileTypes: ['text'],
-    reason: 'image and speech continue by re-sending the request',
-  },
   'turnBehaviour.allowSteering': {
     profileTypes: ['text', 'live'],
     reason: 'image and speech turns take no mid-turn input',

@@ -24,4 +24,14 @@ export {
 	type ToolDecision,
 } from './ToolGateCard';
 export { tablerIcons, theoremTheme } from './built/theorem';
+export {
+	COMPOSER_HINT_LABELS,
+	COMPOSER_MENU_ACTION_DESCRIPTIONS,
+	COMPOSER_MENU_ACTION_LABELS,
+	COMPOSER_PRIMARY_LABELS,
+	composerDrawerLabel,
+	liveStateLabel,
+	VOICE_NOTE_LABEL,
+	workStatusLabel,
+} from './labels';
 export { TheoremThemeProvider, type TheoremThemeProviderProps } from './theme';

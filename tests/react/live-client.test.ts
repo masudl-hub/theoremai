@@ -1,10 +1,13 @@
 import { assertEquals } from '@std/assert';
+import type { TurnEvent } from '../../mod.ts';
 import {
   float32Rms,
   float32RmsToLevel,
   INPUT_LEVEL_GAIN,
   timeDomainBytesToLevel,
 } from '../../react/src/client/audio-level.ts';
+import { clientFailure } from '../../react/src/client/failure.ts';
+import { applyLiveTurnToolEvent } from '../../react/src/client/live/apply-live-turn-tool-event.ts';
 import { isPermissionDeniedError } from '../../react/src/client/live-errors.ts';
 import { parseLiveServerEnvelope } from '../../react/src/client/live-messages.ts';
 import {
@@ -64,7 +67,7 @@ Deno.test('parseLiveServerEnvelope parses ready, events, error, and tool result 
     }),
     {
       type: 'error',
-      error: 'Relay disconnected',
+      body: { type: 'error', error: 'Relay disconnected' },
     },
   );
 
@@ -118,4 +121,46 @@ Deno.test('downsampleAndConvertToInt16 converts sample rates and round-trips wit
   assertEquals(recoveredFloat32.length, float32.length);
   assertEquals(Math.abs(recoveredFloat32[0] - float32[0]) < 0.001, true);
   assertEquals(Math.abs(recoveredFloat32[1] - float32[1]) < 0.001, true);
+});
+
+function liveToolFailure(event: TurnEvent) {
+  const reported: unknown[] = [];
+  applyLiveTurnToolEvent(event, {
+    gateOpen: false,
+    clearInterim: () => {},
+    clearActiveTool: () => {},
+    reportFailure: (err) => reported.push(err),
+    setActiveTool: () => {},
+  });
+  assertEquals(reported.length, 1);
+  return clientFailure(reported[0], { 'error.failed': 'Tool failed.' });
+}
+
+Deno.test('a live tool error shows the user wording, never the model message', () => {
+  const failure = liveToolFailure({
+    type: 'tool',
+    tool: {
+      name: 'search',
+      phase: 'error',
+      failure: {
+        code: 'upstream',
+        kind: 'unavailable',
+        message: 'model: retry later',
+        error: 'Search is down.',
+      },
+    },
+  } as TurnEvent);
+  assertEquals(failure, {
+    error: 'Search is down.',
+    errorKind: 'unavailable',
+    errorInternal: 'model: retry later',
+  });
+});
+
+Deno.test('a live tool error without a failure is worded from the lexicon', () => {
+  const failure = liveToolFailure({
+    type: 'tool',
+    tool: { name: 'search', phase: 'error' },
+  } as TurnEvent);
+  assertEquals(failure, { error: 'Tool failed.', errorKind: 'failed' });
 });

@@ -1,5 +1,6 @@
 import type { Profile } from '../kernel/types.ts';
 import { resolveGuardrailPolicy } from './policy.ts';
+import { TheoremError } from './theorem-error.ts';
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
 
@@ -85,30 +86,20 @@ function releaseSlot(profile: Profile, ip: string): void {
 }
 
 /**
- * Structured quota-trip report. The kernel authors no copy here: `message` is
- * present if and only if the host set `guardrails.quota.message`.
+ * The failure a tripped quota reports, or `undefined` when the profile has no
+ * quota configured. Kind `rate_limit`; the user reads `quota.exhausted` from the
+ * lexicon (`publicError(err, profile.lexicon)`).
  */
-interface QuotaExhausted {
-  code: 'quota_exhausted';
-  perDay: number;
-  message?: string;
-}
-
-/**
- * Structured data for a tripped quota, or `undefined` when the profile has no
- * quota configured. Hosts render their own copy from `code` / `perDay` /
- * `message` — there is no English fallback in the kernel.
- */
-function quotaExhausted(profile: Profile): QuotaExhausted | undefined {
+function quotaExhausted(profile: Profile): TheoremError | undefined {
   const quota = resolveGuardrailPolicy(profile.guardrails).quota;
   if (!quota) {
     return undefined;
   }
-  return {
-    code: 'quota_exhausted',
-    perDay: quota.perDay,
-    ...(quota.message !== undefined ? { message: quota.message } : {}),
-  };
+  return new TheoremError(
+    'rate_limit',
+    `${profile.id} used its daily quota of ${quota.perDay} turns`, // lexicon-exempt: internal diagnostic; the user reads the copy key
+    { copy: { key: 'quota.exhausted', params: { perDay: quota.perDay } } },
+  );
 }
 
 /** Clears all process-local quota counters; intended for tests or host resets. */
@@ -116,5 +107,5 @@ function resetSlots(): void {
   slots.clear();
 }
 
-export type { QuotaExhausted, QuotaSlotStatus };
+export type { QuotaSlotStatus };
 export { clientIp, quotaExhausted, releaseSlot, resetSlots, skipQuota, takeSlot };

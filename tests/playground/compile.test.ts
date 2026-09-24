@@ -114,11 +114,49 @@ Deno.test('a draft compiles only the fields its type takes in the schema', () =>
   });
   assertEquals(profile.type, 'image');
   assertEquals(profile.turnBehaviour, { resumption: {} });
+  assertEquals(profile.lexicon, undefined);
 
   const live = setProfileType(image, 'live');
   const liveProfile = compiled({ ...live, tools: { t2Loader: 'not_checked' } }).profile;
   assert(liveProfile.type === 'live');
   assertEquals(Object.keys(liveProfile.tools), ['allow']);
+});
+
+Deno.test('the continue instruction and canary bind note compile into the profile lexicon', () => {
+  const text = includeFacet(includeFacet(createExampleDraft(), 'turnBehaviour'), 'guardrails');
+  const draft = {
+    ...text,
+    turnBehaviour: {
+      ...text.turnBehaviour,
+      resumeEnabled: true,
+      continueInstruction: ' Keep going. ',
+    },
+    guardrails: {
+      ...text.guardrails,
+      canary: true,
+      canaryBindNote: 'Token {canary} stays secret.',
+    },
+  };
+  const { profile } = compiled(draft);
+  assertEquals(profile.lexicon, {
+    'continue.instruction': 'Keep going.',
+    'canary.bind_note': 'Token {canary} stays secret.',
+  });
+  const off = compiled({
+    ...draft,
+    turnBehaviour: { ...draft.turnBehaviour, resumeEnabled: false },
+    guardrails: { ...draft.guardrails, canary: false },
+  });
+  assertEquals(off.profile.lexicon, undefined);
+});
+
+Deno.test('a canary bind note without {canary} is an issue on the guardrails node', () => {
+  const text = includeFacet(createExampleDraft(), 'guardrails');
+  const result = compilePlayground({
+    ...text,
+    guardrails: { ...text.guardrails, canary: true, canaryBindNote: 'No token here.' },
+  });
+  assertEquals(issueNodes(result), ['guardrails']);
 });
 
 Deno.test('includeFacet only adds facets the type allows', () => {

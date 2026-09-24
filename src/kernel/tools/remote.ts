@@ -13,6 +13,7 @@
  */
 
 import { lexiconText } from '../../guardrails/lexicon.ts';
+import type { ErrorKind } from '../../guardrails/theorem-error.ts';
 import { refreshOAuthToken } from '../auth/oauth.ts';
 import type { OAuth2Credential, ToolCredential } from '../auth/types.ts';
 import type { TurnEvent } from '../types.ts';
@@ -346,7 +347,11 @@ async function* remoteParseAndPermit(
     return {
       ok: false,
       outcome: failureOutcome(
-        { code: 'invalid_input', message: lexiconText('tool.input_invalid') },
+        {
+          code: 'invalid_input',
+          kind: 'bad_response',
+          message: lexiconText('tool.input_invalid', {}, ctx.profile.lexicon),
+        },
         true,
       ),
     };
@@ -378,7 +383,7 @@ function outcomeFromUnauth(authRes: {
     };
   }
   return failureOutcome(
-    { code: 'not_authorized', message: 'Tool authentication required' }, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    { code: 'not_authorized', kind: 'auth', message: 'Tool authentication required' }, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     true,
   );
 }
@@ -409,7 +414,7 @@ async function* remoteAuthAndPreBody(args: {
 }
 
 function networkFailureOutcome(err: unknown): ToolBodyOutcome {
-  return failureOutcome({ code: 'network_error', message: messageOf(err) }, false);
+  return failureOutcome({ code: 'network_error', kind: 'network', message: messageOf(err) }, false);
 }
 
 /**
@@ -440,7 +445,11 @@ export async function* executeHttpTool(
       tool.mapping,
     );
   } catch (err) {
-    const failure: ToolFailure = { code: 'invalid_input', message: messageOf(err) };
+    const failure: ToolFailure = {
+      code: 'invalid_input',
+      kind: 'bad_response',
+      message: messageOf(err),
+    };
     return failureOutcome(failure, true);
   }
 
@@ -448,6 +457,7 @@ export async function* executeHttpTool(
   if (!targetUrl) {
     const failure: ToolFailure = {
       code: 'network_blocked',
+      kind: 'blocked',
       message: 'HTTP target blocked by network policy', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     };
     return failureOutcome(failure, true);
@@ -474,6 +484,7 @@ export async function* executeHttpTool(
       const errText = await response.text();
       const failure: ToolFailure = {
         code: `http_${response.status}`,
+        kind: kindOfToolHttpStatus(response.status),
         message: `HTTP ${response.status} from ${targetUrl.hostname}: ${errText}`,
       };
       return failureOutcome(failure, false);
@@ -489,6 +500,7 @@ export async function* executeHttpTool(
     if (!checked.success) {
       const failure: ToolFailure = {
         code: 'invalid_output',
+        kind: 'bad_response',
         message: 'HTTP response did not match tool output schema', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         details: checked.error.flatten(),
       };
@@ -638,6 +650,7 @@ async function fetchMcpProtocolAttempt(
       kind: 'failure',
       failure: {
         code: `mcp_http_${response.status}`,
+        kind: kindOfToolHttpStatus(response.status),
         message: `MCP server error HTTP ${response.status}: ${text.slice(0, 300)}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       },
     };
@@ -654,6 +667,7 @@ async function fetchMcpProtocolAttempt(
       kind: 'failure',
       failure: {
         code: 'invalid_response',
+        kind: 'bad_response',
         message: `MCP server returned non-JSON response: ${text.slice(0, 200)}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       },
     };
@@ -695,6 +709,11 @@ async function negotiateMcpRpc(
   return { lastProtocolError };
 }
 
+/** A tool server's non-OK HTTP status: refused credentials are `auth`; anything else, the step failed. */
+function kindOfToolHttpStatus(status: number): ErrorKind {
+  return status === 401 || status === 403 ? 'auth' : 'failed';
+}
+
 function extractMcpOutput(result: McpRpcResponse['result']): unknown {
   if (result?.content && Array.isArray(result.content)) {
     return result.content.map((c) => c.text ?? '').join('\n');
@@ -706,6 +725,7 @@ function mcpResultFailure(rpcResponse: McpRpcResponse): ToolFailure | undefined 
   if (rpcResponse.error) {
     return {
       code: `mcp_rpc_error_${rpcResponse.error.code}`,
+      kind: 'failed',
       message: rpcResponse.error.message,
       details: rpcResponse.error.data,
     };
@@ -714,6 +734,7 @@ function mcpResultFailure(rpcResponse: McpRpcResponse): ToolFailure | undefined 
   if (result?.isError) {
     return {
       code: 'mcp_tool_execution_failed',
+      kind: 'failed',
       message: result.content?.map((c) => c.text ?? '').join('\n') ?? 'MCP Tool execution error', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     };
   }
@@ -737,6 +758,7 @@ function interpretMcpRpc(
       ok: false,
       failure: {
         code: 'mcp_protocol_error',
+        kind: 'failed',
         message: negotiated.lastProtocolError?.message ?? 'MCP protocol negotiation failed', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         details: negotiated.lastProtocolError?.data,
       },
@@ -752,6 +774,7 @@ function interpretMcpRpc(
       ok: false,
       failure: {
         code: 'invalid_output',
+        kind: 'bad_response',
         message: 'MCP output schema validation failed', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         details: checked.error.flatten(),
       },
@@ -777,7 +800,7 @@ export async function* executeMcpTool(
   const targetUrl = yield* guardToolTarget(tool.serverUrl, ctx, base);
   if (!targetUrl) {
     return failureOutcome(
-      { code: 'network_blocked', message: 'MCP target blocked by network policy' }, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      { code: 'network_blocked', kind: 'blocked', message: 'MCP target blocked by network policy' }, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       true,
     );
   }

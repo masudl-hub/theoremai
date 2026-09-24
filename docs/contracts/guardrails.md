@@ -21,7 +21,7 @@ Owns every module under `src/guardrails/`.
 | --- | --- |
 | `types.ts` | Guardrail vocabulary — trust levels, stages, `Verdict`, profile policy shape |
 | `policy.ts` | `resolveGuardrailPolicy` / `detectionForTrust` — the one place defaults are applied |
-| `error.ts` | `TheoremError`, `publicError`, abort helpers |
+| `error.ts` | Error kinds, `TheoremError`, user wording (`publicError`, `withPublicWording`), abort helpers |
 | `sanitize.ts` | Turn + text sanitization |
 | `injection.ts` | Prompt-injection span patterns |
 | `sensitive.ts` | Credential / PII span patterns |
@@ -75,7 +75,7 @@ type Verdict =
   | { action: 'allow' }
   | { action: 'redact'; text: string; hits: GuardrailHit[] }
   | { action: 'flag'; hits: GuardrailHit[] }
-  | { action: 'block'; hits: GuardrailHit[]; rejection: string; refusal?: string };
+  | { action: 'block'; hits: GuardrailHit[]; rejection: string };
 ```
 
 `Verdict` is a discriminated union, so adding a variant fails every unhandled
@@ -86,19 +86,16 @@ type Verdict =
 | `allow` | Buffered events release unchanged |
 | `flag` | Advisory — hits are recorded, the turn still releases |
 | `redact` | `verdict.text` is released in place of the model's output |
-| `block` | `onBlock` decides: `refuse_to_user` emits `verdict.refusal`, `reject_to_agent` feeds `verdict.rejection` into a repair turn, and an exhausted retry budget withholds the turn |
+| `block` | `onBlock` decides: `refuse_to_user` emits the lexicon's `egress.refusal` as a text turn, `reject_to_agent` feeds `verdict.rejection` into a repair turn (the bundled policy words it with the lexicon's `egress.rejection` via `GuardrailContext.lexicon`), and an exhausted retry budget withholds the turn |
 
-`refuse_to_user` emits a text turn **only when the policy supplied `refusal` copy**.
-Without it the kernel has nothing of its own to say — product copy is host-owned —
-so the turn is withheld with the same error the exhausted-retry path emits, never an
-empty text event that would read as a successful blank reply.
+The policy decides; it never writes what the user reads. The refusal is the
+lexicon's `egress.refusal`, which the profile's `lexicon` can replace.
 
 A turn the egress gate withholds or answers with refusal copy ends with stop
 `filtered`, `native: 'egress'`; a canary leak ends it with `native: 'canary'`.
 Neither is continue-eligible (see `kernel.md` → Resume policy).
 
-The two block-time strings have different audiences and are not interchangeable:
-`rejection` is written for the model on a repair turn, `refusal` is user-facing copy.
+`rejection` is written for the model on a repair turn; the user never sees it.
 
 A `GuardrailHit` carries rule identity and offsets. The matched text rides only
 under `observability.include.guardrailMatchPreview` (see [Guardrail events](#guardrail-events)):
@@ -136,8 +133,8 @@ A host `enforce` that throws or rejects has reached no decision, so it cannot vo
 for the output. `runEnforcer` wraps every call site — end-of-attempt, mid-stream, and
 Live — and converts the failure into a `block` carrying `egress.enforcer-error`. The
 turn then follows the profile's ordinary `onBlock` handling instead of surfacing a
-raw host stack trace, and the failure never becomes a silent pass. No `refusal` is
-attached, so policy internals cannot reach the user.
+raw host stack trace, and the failure never becomes a silent pass. The user reads
+only lexicon wording, so policy internals cannot reach them.
 
 ### Nothing is dropped silently
 
@@ -291,28 +288,73 @@ Fuzz runners register minimal stub profiles via `registerProfile` (for example
 
 ## Public errors
 
-`TheoremError` marks expected contract failures. Never show raw internal
-messages to end users — map through `publicError(err)` (or `toErrorEvent` for
-streams).
+Every failure has two readers. The builder reads the **kind** and the raw
+detail; the user reads the kind's **wording**. Both come from one fact, the
+`ErrorKind`, decided where the failure happens — a `TheoremError(kind, …)`, a
+provider's HTTP status (`kindOfHttpStatus`), a tool failure's `kind`. Nothing
+is guessed from message text; a value that reaches a boundary without a kind is
+`internal` (a THEOREM bug).
 
-Progressive-yield / egress blocks on the outbound stream use the same public
-surface: canary leaks and host `egress.enforce` withhold map to `PUBLIC_CANARY`
-(or `refuse_to_user` copy when configured). Do not expose detector hit names or
-raw leaked fragments on the client wire.
-
-| Internal marker | Public copy |
+| World | Where it reads |
 | --- | --- |
-| `UPSTREAM_FAILED` | `PUBLIC_UNAVAILABLE` |
-| `canary leaked` / egress violations | `PUBLIC_CANARY` |
-| Abort | `PUBLIC_CANCELLED` |
-| Tool / MIME / size denials | `PUBLIC_ACTION` / `PUBLIC_FILE_*` |
-| Tool not registered / not enabled on turn / not allowed on profile | `PUBLIC_ACTION` |
+| Builder | `errorKind`, `errorInternal` on error events; `TheoremError.kind`; `ToolFailure.kind` + `code`; the trace's `error.type` (the kind) |
+| User | `error` on error events and `failure.error` on failed tool steps — the lexicon's `error.<kind>` |
 
-`describeError` returns structured detail for logs. `throwIfAborted(signal)`
-rethrows `AbortError` when a turn should stop early.
+Kinds (`ERROR_KINDS`): `config`, `request`, `input`, `action`, `auth`,
+`rate_limit`, `unsupported`, `unavailable`, `bad_response`, `network`,
+`timeout`, `safety`, `blocked`, `declined`, `failed`, `cancelled`, `internal`.
 
-Exact-message and regex rules live in `error.ts` (`EXACT`, `RULES` arrays) —
-extend there when adding new stable public mappings.
+Wording resolves the profile's `lexicon` → `overrideLexicon` → the default.
+Defaults are never forced: any profile type may carry a `lexicon` with any
+key. A failure more specific than its kind carries its own copy
+(`TheoremError(kind, message, { copy: { key, params } })`, surfaced as
+`errorCopy`), which wins over the kind's line. A failure that found several
+problems carries a list — one line per problem, joined by newlines (a refused
+turn's files: every reason, each naming its file). Tool-step wording may use
+`{tool}`.
+
+Producers emit `toErrorEvent(err)` — `{ type: 'error', errorKind, errorCopy?,
+errorInternal }`, no user wording. The runner and session add it where the
+event reaches the host (`withPublicWording(event, profile.lexicon)`), the one
+place that knows the profile. A host that catches a throw words it with
+`publicError(err, profile.lexicon)`.
+
+Canary leaks and host `egress.enforce` withholds on the outbound stream are
+kind `safety` (or `refuse_to_user` copy when configured). Detector hit names and
+leaked fragments never reach the client wire.
+
+### Provider failures
+
+| Signal | Kind |
+| --- | --- |
+| HTTP 401 / 402 / 403 | `auth` |
+| HTTP 408 / 504 / 524 | `timeout` |
+| HTTP 429 | `rate_limit` |
+| HTTP ≥ 500 | `unavailable` |
+| Other HTTP ≥ 400 | `unsupported` |
+| Request never reached the provider | `network` |
+| Unreadable or invalid provider payload | `bad_response` |
+| Mid-stream provider error without a status | `unavailable` |
+
+### Tool failures
+
+The kind is set where the tool fails, beside its `code`; the code is detail,
+not the key.
+
+| Where it fails (`ToolFailure.code`) | Kind |
+| --- | --- |
+| `network_blocked`, `tainted_turn`, `not_allowed`; a host `pre_tool` / `post_tool` deny (host code, default `not_authorized`) | `blocked` |
+| `denied` | `declined` |
+| A remote tool without its credential (`not_authorized`); tool HTTP 401 / 403 | `auth` |
+| `network_error` | `network` |
+| `invalid_*`, `malformed_arguments` | `bad_response` |
+| `handler_error`, `mcp_*`, other tool HTTP statuses | `failed` |
+| `unknown_tool`, `not_loaded`, `not_gated`, `provider_native` | `request` |
+| `cancelled` | `cancelled` |
+
+`describeError` returns the raw detail for logs. `throwIfAborted(signal)`
+rethrows the abort (or timeout) reason when a turn should stop early;
+`isAbortError` / `isTimeoutError` read the error name only.
 
 ## Trust levels
 
@@ -498,7 +540,7 @@ callable tool, or two different signal kinds agreed.
 
 The kernel states only what it observed. What the agent should *do* — ask the user,
 refuse, proceed carefully — is product behaviour, supplied by the host as
-`guardrails.taint.advisoryGuidance` and appended to the notice. Clean content is
+lexicon `advisory.guidance` (empty by default) and appended to the notice. Clean content is
 never annotated, so the warning stays rare enough to carry weight.
 
 This is where imprecision is absorbed, and it is the only thing the content
@@ -662,10 +704,11 @@ try {
 `takeSlot` reads `resolveGuardrailPolicy(profile.guardrails).quota` — a missing
 guardrails object is treated like missing quota config.
 
-`quotaExhausted(profile)` returns structured data only:
-`{ code: 'quota_exhausted', perDay, message? }`. `message` is present if and
-only if the host set `guardrails.quota.message`. The kernel authors **no**
-English fallback — hosts render from the code (and optional host message).
+`quotaExhausted(profile)` returns the tripped quota as a `TheoremError` of kind
+`rate_limit` (or `undefined` with no quota configured). Reply with
+`json(caughtStatus(err), { error: publicError(err, profile.lexicon) }, cors)`:
+`429` and the lexicon's `quota.exhausted` line (`{perDay}`), which the
+profile's `lexicon` can replace.
 `resetSlots()` clears in-memory state (tests).
 
 ## Lexicon
@@ -673,22 +716,28 @@ English fallback — hosts render from the code (and optional host message).
 Every English string the kernel may emit toward a user or a model is registered
 in `src/guardrails/lexicon.ts` under a stable `LexiconKey`. Hosts replace
 defaults process-wide with `overrideLexicon({ … })` (same registration pattern
-as `registerTraceDestination`). Profile fields that supply copy win over the
-process override for that emit site. `overrideLexicon` throws `TheoremError`
-on unknown keys or missing required placeholders.
+as `registerTraceDestination`) and per profile with the profile's `lexicon`,
+which wins over the process override. Every profile type takes a `lexicon`.
+Both throw `TheoremError('config', …)` on unknown keys or a missing required
+placeholder.
 
 | Key family | Examples | Override |
 | --- | --- | --- |
-| Continue (text profiles; the turn's user message) | `continue.instruction` | `turnBehaviour.resumption.continueInstruction` or lexicon |
-| Canary | `canary.bind_note` | `guardrails.canary.bindNote` (must keep `{canary}`) |
+| Continue (text profiles; the turn's user message) | `continue.instruction` | lexicon |
+| Canary | `canary.bind_note` | lexicon (must keep `{canary}`) |
 | Taint / advisory | `taint.*`, `advisory.*` | lexicon |
 | Attachments | `attachments.*` | lexicon (structured codes also exposed) |
-| Public errors | `public.*` | lexicon (`publicError` resolves at call time) |
-| Repair / egress | `repair.*`, `egress.default_repair_guidance` | host `repairGuidance` fields or lexicon |
-| Session | `session.abandon_gated` | lexicon |
+| Errors | `error.<kind>` | lexicon (resolved where the event reaches the host) |
+| Quota | `quota.exhausted` | lexicon (`quotaExhausted` → `rate_limit`) |
+| Repair / egress | `repair.*` (`repair.default_guidance` is the validation repair guidance), `egress.default_repair_guidance`, `egress.refusal`, `egress.rejection`, `egress.invalid_verdict`, `egress.policy_failed` | lexicon |
+| Session | `session.abandon_gated`, `session.tool_denied`, `session.sign_in`, `session.gate_expired`, `session.turn_ended`, `session.gate_pending` | lexicon |
+| Voice (browser recording) | `voice.unsupported`, `voice.permission`, `voice.unavailable`, `voice.failed`, `voice.empty` | lexicon |
+| Tools | `tool.*` (model-facing), `tool.completed_hidden` | lexicon |
 
 The copy-manifest lint (`scripts/docs-truth/copy-lint.mjs`) scans the **full**
-`src/kernel`, `src/guardrails`, and `src/interface` trees. Only
+`src/kernel`, `src/guardrails`, and `src/interface` trees, and the headless
+React directories (`react/src/client`, `components`, `hooks`, `server`; the
+default UI in `react/src/ui` words its own chrome). Only
 `src/guardrails/lexicon.ts` is auto-skipped. Everything else must either live
 in the lexicon or carry an explicit reason:
 
@@ -703,7 +752,7 @@ Decision profiles do not run the turn egress lifecycle. Their only active
 guardrail is `guardrails.disclosure.enforce`, a host pre-dispatch check over the
 JSON state that would leave the process for TypeSafe Jev. It returns only
 `allow` or `block`; a block prevents the request and surfaces a `DecisionError`
-with kind `disclosure_blocked`. The registry rejects the inherited shared
+with code `disclosure_blocked` (kind `blocked`). The registry rejects the inherited shared
 guardrail fields (quota, sanitization, redaction, canary, egress, network, and
 taint) on decision profiles because none have meaningful semantics on this
 bounded request path.
@@ -714,7 +763,7 @@ From `src/guardrails/mod.ts`:
 
 | Group | Symbols |
 | --- | --- |
-| Public errors | `describeError`, `isAbortError`, `publicError`, `TheoremError`, `throwIfAborted`, `toErrorEvent`, `PUBLIC_ACTION`, `PUBLIC_CANARY`, `PUBLIC_CANCELLED`, `PUBLIC_FILE_COUNT`, `PUBLIC_FILE_SIZE`, `PUBLIC_FILE_TYPE`, `PUBLIC_GENERIC`, `PUBLIC_IMAGE_SIZE`, `PUBLIC_UNAVAILABLE`, `UPSTREAM_FAILED` |
+| Errors | `ERROR_KINDS`, `ErrorKind`, `ErrorCopy`, `TheoremError`, `TheoremErrorOptions`, `errorKind`, `kindOfHttpStatus`, `publicError`, `toErrorEvent`, `withPublicWording`, `describeError`, `isAbortError`, `isTimeoutError`, `throwIfAborted` |
 | Injection / sensitive | `injectionSpans`, `sensitiveSpans` |
 | Vocabulary | `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailEvent`, `Provenance`, `ToolOrigin`, `GuardrailAction`, `GuardrailContext`, `OutboundPayload`, `EgressEnforcer`, `EgressOnBlock`, `ProfileEgressSpec`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `DecisionDisclosureVerdict`, `DecisionDisclosureEnforcer`, `DecisionGuardrailsSpec`, `NetworkGuardrailSpec`, `CanaryGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES`, `EGRESS_ON_BLOCK` |
 | Policy | `resolveGuardrailPolicy`, `detectionForTrust`, `DetectionOptions` |
@@ -726,7 +775,7 @@ From `src/guardrails/mod.ts`:
 | Egress / Live | `standardEgressEnforce`, `collectEgressHits`, `hitRules`, `EGRESS_RULES`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `DEFAULT_HOLDBACK`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveHeldOutput`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
 | Network | `assertSafeUrl`, `isLocalhostName`, `isPrivateOrLocalAddress`, `NetworkGuardrailSpec` |
 | Quota | `QuotaSlotStatus`, `QuotaExhausted`, `clientIp`, `quotaExhausted`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |
-| Lexicon | `LEXICON_KEYS`, `LexiconKey`, `LexiconOverrides`, `LexiconParams`, `lexiconDefault`, `lexiconText`, `overrideLexicon`, `resetLexicon` |
+| Lexicon | `LEXICON_KEYS`, `LexiconKey`, `CLIENT_LEXICON_KEYS`, `ClientLexiconKey`, `LexiconOverrides`, `LexiconParams`, `lexiconDefault`, `lexiconText`, `overrideLexicon`, `resetLexicon` |
 
 From `src/guardrails/testing.ts` (test / harness only):
 

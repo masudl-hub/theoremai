@@ -9,6 +9,8 @@
  * @module
  */
 
+import type { LexiconOverrides } from './lexicon.ts';
+
 /**
  * Origin trust for text entering the model's context.
  *
@@ -77,10 +79,11 @@ export type Verdict =
   | {
       action: 'block';
       hits: GuardrailHit[];
-      /** Sent to the model on a repair turn when `onBlock` is `reject_to_agent`. */
+      /**
+       * Sent to the model on a repair turn when `onBlock` is `reject_to_agent`.
+       * With `refuse_to_user` the user reads the lexicon's `egress.refusal`.
+       */
       rejection: string;
-      /** Shown to the user when `onBlock` is `refuse_to_user`. Host-owned copy. */
-      refusal?: string;
     };
 
 /** The action selected by a guardrail verdict. */
@@ -168,14 +171,6 @@ export type TaintGate = (typeof TAINT_GATES)[number];
  */
 export interface TaintGuardrailSpec {
   /**
-   * Host copy appended to the fence when tool content looks directive.
-   *
-   * The kernel states what it observed; what the agent should *do* about it —
-   * ask the user, refuse, proceed carefully — is product behaviour and stays
-   * host-owned. Omitted means the observation is stated without guidance.
-   */
-  advisoryGuidance?: string;
-  /**
    * Least-severe tool capability refused once the turn has read remote content.
    *
    * - `off` (default) — report only.
@@ -199,6 +194,8 @@ export interface GuardrailContext {
   slots?: Record<string, string>;
   /** Set on tool-shaped stages; absent for user and system text. */
   provenance?: Provenance;
+  /** The profile's lexicon, so a policy's rejection reads in the host's wording. */
+  lexicon?: LexiconOverrides;
 }
 
 /**
@@ -240,7 +237,6 @@ export interface ProfileEgressSpec {
   enforce: EgressEnforcer;
   onBlock?: EgressOnBlock;
   maxRetries?: number;
-  repairGuidance?: string;
   /**
    * Characters the progressive gate holds back so `enforce` sees a match split
    * across stream chunks before any of it is released (default
@@ -269,32 +265,18 @@ export interface NetworkGuardrailSpec {
 /** Optional daily turn quota consumed by host HTTP middleware. */
 export interface QuotaGuardrailSpec {
   perDay: number;
-  /**
-   * Host copy surfaced when the quota trips. The kernel never authors this:
-   * `quotaExhausted` returns structured data (`code`, `perDay`) and includes
-   * this string only when the host set it.
-   */
-  message?: string;
-}
-
-/**
- * Per-turn canary switches. `true` / `false` toggles minting with the
- * registered default bind note; the object form supplies host copy.
- */
-export interface CanaryGuardrailSpec {
-  /**
-   * Host template appended to the system prompt binding the canary. Must
-   * contain the `{canary}` placeholder; `bindCanary` refuses a note that lost
-   * the token. Omitted means the lexicon default (`canary.bind_note`).
-   */
-  bindNote?: string;
 }
 
 /** Profile guardrail switches enforced by the kernel. */
 export interface ProfileGuardrailsSpec {
   /** Optional daily turn quota; omitted means quota enforcement is not configured. */
   quota?: QuotaGuardrailSpec;
-  canary?: boolean | CanaryGuardrailSpec;
+  /**
+   * Mint a per-turn canary into the system prompt. Default true. The note
+   * that binds it is the lexicon's `canary.bind_note` (the profile's `lexicon`
+   * may replace it).
+   */
+  canary?: boolean;
   sanitizeInput?: boolean;
   redactSensitive?: boolean;
   egress?: ProfileEgressSpec;
@@ -357,8 +339,6 @@ export interface ResolvedGuardrailPolicy {
   sanitizeInput: boolean;
   redactSensitive: boolean;
   canary: boolean;
-  /** Host bind-note template from `guardrails.canary.bindNote`, when set. */
-  canaryBindNote?: string;
   egress?: ProfileEgressSpec;
   network?: NetworkGuardrailSpec;
   quota?: QuotaGuardrailSpec;

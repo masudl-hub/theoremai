@@ -3,8 +3,9 @@ import { TheoremError } from '../../../../src/guardrails/error.ts';
 import type { GeminiTransport } from '../../../../src/providers/google/keys.ts';
 import { openGoogleLiveSession } from '../../../../src/providers/google/live/session.ts';
 import {
+  attachLiveSessionHandlers,
   createLiveQueue,
-  readGeminiLiveErrorMessage,
+  performLiveSetup,
   readMessageData,
   sendInitialPayloads,
   turnPhaseFromMessage,
@@ -56,29 +57,6 @@ Deno.test('readMessageData handles strings, ArrayBuffers, and Blobs', async () =
 
   const fromNumber = await readMessageData(12345);
   assertEquals(fromNumber, '12345');
-});
-
-Deno.test('readGeminiLiveErrorMessage extracts error details', () => {
-  assertEquals(readGeminiLiveErrorMessage({}), null);
-  assertEquals(readGeminiLiveErrorMessage({ error: null }), null);
-  assertEquals(
-    readGeminiLiveErrorMessage({
-      error: { message: 'Invalid payload', status: 'INVALID_ARGUMENT' },
-    }),
-    'INVALID_ARGUMENT: Invalid payload',
-  );
-  assertEquals(
-    readGeminiLiveErrorMessage({
-      error: { message: 'Quota exceeded' },
-    }),
-    'Quota exceeded',
-  );
-  assertEquals(
-    readGeminiLiveErrorMessage({
-      error: { status: 'UNKNOWN' },
-    }),
-    'Gemini returned an error during live session.',
-  );
 });
 
 Deno.test('sendInitialPayloads sends history and input payloads over websocket', () => {
@@ -161,4 +139,80 @@ Deno.test('turnPhaseFromMessage: serverContent.interactionStatus is authoritativ
 Deno.test('turnPhaseFromMessage: an empty frame keeps the turn streaming', () => {
   // gemini-3.8-live sends bare `{}` frames mid-turn (probe 23/09/2026).
   assertEquals(turnPhaseFromMessage({}, []), 'streaming');
+});
+
+/** A socket that stays connecting until the test fires its handlers. */
+class FakeLiveSocket extends EventTarget {
+  readyState: number = WebSocket.CONNECTING;
+  onopen: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  onclose: ((evt: { code: number; reason: string }) => void) | null = null;
+  sent: string[] = [];
+  send(data: string): void {
+    this.sent.push(data);
+  }
+}
+
+function liveRequest() {
+  return stubCompleteRequest({
+    model: 'gemini-3.1-flash-live-preview',
+    apiId: 'gemini-3.1-flash-live-preview',
+    keySlot: 'slotA',
+  });
+}
+
+async function setupFailure(fire: (ws: FakeLiveSocket) => void): Promise<TheoremError> {
+  const ws = new FakeLiveSocket();
+  const setup = performLiveSetup(ws as unknown as WebSocket, liveRequest());
+  fire(ws);
+  const err = await setup.catch((e: unknown) => e);
+  if (!(err instanceof TheoremError)) throw new Error('expected a TheoremError');
+  return err;
+}
+
+Deno.test('Live setup failures carry the kind of their close code', async () => {
+  for (const [code, kind] of [
+    [1006, 'network'],
+    [1007, 'unsupported'],
+    [1008, 'unsupported'],
+    [1011, 'unavailable'],
+    [1013, 'unavailable'],
+    [1000, 'unavailable'],
+  ] as const) {
+    const err = await setupFailure((ws) => ws.onclose?.({ code, reason: 'closed' }));
+    assertEquals(err.kind, kind);
+  }
+});
+
+Deno.test('Live setup: a socket error is network, an error frame is its status kind', async () => {
+  assertEquals((await setupFailure((ws) => ws.onerror?.())).kind, 'network');
+  const denied = await setupFailure((ws) =>
+    ws.dispatchEvent(
+      new MessageEvent('message', {
+        data: JSON.stringify({ error: { code: 403, message: 'key rejected' } }),
+      }),
+    ),
+  );
+  assertEquals(denied.kind, 'auth');
+  const garbled = await setupFailure((ws) =>
+    ws.dispatchEvent(new MessageEvent('message', { data: '{not json' })),
+  );
+  assertEquals(garbled.kind, 'bad_response');
+});
+
+Deno.test('Live session closes: normal carries no error, abnormal carries its kind', async () => {
+  for (const [code, kind] of [
+    [1000, undefined],
+    [1006, 'network'],
+    [1008, 'unsupported'],
+    [1011, 'unavailable'],
+    [4000, 'unavailable'],
+  ] as const) {
+    const ws = new FakeLiveSocket();
+    const queue = createLiveQueue();
+    attachLiveSessionHandlers(ws as unknown as WebSocket, queue);
+    ws.onclose?.({ code, reason: 'closed' });
+    const item = await queue.next();
+    assertEquals(item?.type === 'closed' ? item.error?.kind : 'not closed', kind);
+  }
 });

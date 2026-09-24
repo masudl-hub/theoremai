@@ -1,3 +1,9 @@
+import {
+  describeError,
+  isAbortError,
+  isTimeoutError,
+  TheoremError,
+} from '../../guardrails/error.ts';
 import type { KeySlot, ProviderCompleteRequest } from '../../kernel/types.ts';
 
 const SECRET_HEADER = /key|auth|cookie|secret|token/i;
@@ -79,6 +85,28 @@ export function tapFetch(
     } catch (err) {
       tap(throwRow(err));
       throw err;
+    }
+  };
+}
+
+/**
+ * The upstream could not be reached: a fetch rejection that is not an abort or
+ * a timeout, since fetch rejects only when no response came back.
+ */
+export function networkError(err: unknown): unknown {
+  if (err instanceof TheoremError || isAbortError(err) || isTimeoutError(err)) {
+    return err;
+  }
+  return new TheoremError('network', describeError(err), { cause: err });
+}
+
+/** `send`, with a transport failure reported as a `network` error. */
+export function networkFetch(send: typeof fetch = fetch): typeof fetch {
+  return async (url, init) => {
+    try {
+      return await send(url, init);
+    } catch (err) {
+      throw networkError(err);
     }
   };
 }

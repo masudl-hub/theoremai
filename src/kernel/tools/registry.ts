@@ -94,7 +94,7 @@ function getTool(name: string): RegisteredTool | undefined {
 function requireTool(name: string): RegisteredTool {
   const tool = getTool(name);
   if (!tool) {
-    throw new TheoremError(`Tool '${name}' is not registered`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', `Tool '${name}' is not registered`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return tool;
 }
@@ -104,7 +104,7 @@ function requireBuiltinWire(id: string, transport: keyof BuiltinWire): string {
   const tool = getTool(id);
   const wire = tool?.type === 'builtin' ? tool.wire[transport] : undefined;
   if (!wire) {
-    throw new TheoremError(`Builtin '${id}' has no wire.${transport}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', `Builtin '${id}' has no wire.${transport}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return wire;
 }

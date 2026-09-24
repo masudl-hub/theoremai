@@ -1,9 +1,10 @@
 /**
  * Failure modes of the egress gate: nothing is dropped without a signal, a policy
- * that throws fails closed instead of killing the turn, and a refusal with no copy
- * emits an error rather than an empty text turn.
+ * that throws fails closed instead of killing the turn, and a refusal shows the
+ * lexicon's `egress.refusal`, never text the policy wrote.
  */
 import '../fixtures/test-host.ts';
+import { type LexiconOverrides, lexiconDefault } from '../../src/guardrails/lexicon.ts';
 import type { EgressEnforcer, Verdict } from '../../src/guardrails/types.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { runTurn } from '../../src/kernel/engine/runner.ts';
@@ -16,6 +17,7 @@ function profile(
   enforce: EgressEnforcer,
   onBlock: 'refuse_to_user' | 'reject_to_agent' = 'refuse_to_user',
   maxRetries = 0,
+  lexicon?: LexiconOverrides,
 ): void {
   registerProfile(
     defineProfile({
@@ -31,6 +33,7 @@ function profile(
         quota: { perDay: 50 },
         egress: { onBlock, maxRetries, enforce },
       },
+      ...(lexicon ? { lexicon } : {}),
     }),
   );
 }
@@ -89,6 +92,8 @@ Deno.test('a policy blocking consistently still withholds', async () => {
       hits: [{ rule: 'always', severity: 'high' }],
       rejection: 'always blocked',
     }),
+    'reject_to_agent',
+    1,
   );
 
   const events = await collect('fm_consistent_block', says('leaky output'));
@@ -111,14 +116,7 @@ Deno.test('a policy that throws fails closed instead of killing the turn', async
   });
 
   const events = await collect('fm_throws', says('sensitive answer'));
-  assertEquals(
-    texts(events).some((t) => t.includes('sensitive answer')),
-    false,
-  );
-  assertEquals(
-    events.some((e) => e.type === 'error'),
-    true,
-  );
+  assertEquals(texts(events), [lexiconDefault('egress.refusal')]);
 });
 
 Deno.test('a policy that throws can still be repaired against', async () => {
@@ -139,11 +137,11 @@ Deno.test('a policy that throws can still be repaired against', async () => {
   assertEquals(texts(events).join(''), 'answer');
 });
 
-// ── refusal with no copy ─────────────────────────────────────────────────────
+// ── refusal copy ─────────────────────────────────────────────────────────────
 
-Deno.test('refuse_to_user without refusal copy emits an error, never an empty text turn', async () => {
+Deno.test('refuse_to_user shows the lexicon refusal, never policy text', async () => {
   profile(
-    'fm_no_copy',
+    'fm_default_copy',
     (): Verdict => ({
       action: 'block',
       hits: [{ rule: 'leak', severity: 'high' }],
@@ -151,45 +149,31 @@ Deno.test('refuse_to_user without refusal copy emits an error, never an empty te
     }),
   );
 
-  const events = await collect('fm_no_copy', says('leaky'));
-  assertEquals(texts(events), []);
-  assertEquals(
-    events.some((e) => e.type === 'error'),
-    true,
-  );
-  assertEquals(stopOf(events), EGRESS_FILTERED);
-});
-
-Deno.test('refuse_to_user with refusal copy emits exactly that copy', async () => {
-  profile(
-    'fm_with_copy',
-    (): Verdict => ({
-      action: 'block',
-      hits: [{ rule: 'leak', severity: 'high' }],
-      rejection: 'blocked',
-      refusal: 'I cannot share that.',
-    }),
-  );
-
-  const events = await collect('fm_with_copy', says('leaky'));
-  assertEquals(texts(events), ['I cannot share that.']);
-  assertEquals(stopOf(events), EGRESS_FILTERED);
-});
-
-Deno.test('legacy egress blocked verdict with text is treated as refusal copy', async () => {
-  profile('fm_legacy_copy', (() => ({
-    blocked: true,
-    text: 'Legacy refusal.',
-    hits: ['legacy'],
-    rejectionMessage: 'blocked',
-  })) as unknown as EgressEnforcer);
-
-  const events = await collect('fm_legacy_copy', says('leaky'));
-  assertEquals(texts(events), ['Legacy refusal.']);
+  const events = await collect('fm_default_copy', says('leaky'));
+  assertEquals(texts(events), [lexiconDefault('egress.refusal')]);
   assertEquals(
     events.some((e) => e.type === 'error'),
     false,
   );
+  assertEquals(stopOf(events), EGRESS_FILTERED);
+});
+
+Deno.test('refuse_to_user shows the profile lexicon refusal', async () => {
+  profile(
+    'fm_profile_copy',
+    (): Verdict => ({
+      action: 'block',
+      hits: [{ rule: 'leak', severity: 'high' }],
+      rejection: 'blocked',
+    }),
+    'refuse_to_user',
+    0,
+    { 'egress.refusal': 'I cannot share that.' },
+  );
+
+  const events = await collect('fm_profile_copy', says('leaky'));
+  assertEquals(texts(events), ['I cannot share that.']);
+  assertEquals(stopOf(events), EGRESS_FILTERED);
 });
 
 Deno.test('final egress inspects reply text, not thoughts', async () => {
@@ -201,7 +185,6 @@ Deno.test('final egress inspects reply text, not thoughts', async () => {
             action: 'block',
             hits: [{ rule: 'thought_leak', severity: 'high' }],
             rejection: 'thought leaked',
-            refusal: 'I cannot share that.',
           }
         : { action: 'allow' },
   );
@@ -247,7 +230,6 @@ Deno.test('thoughts keep streaming after a mid-stream block withholds the reply'
             action: 'block',
             hits: [{ rule: 'leak', severity: 'high' }],
             rejection: 'leak',
-            refusal: 'I cannot share that.',
           }
         : { action: 'allow' },
   );
@@ -262,5 +244,5 @@ Deno.test('thoughts keep streaming after a mid-stream block withholds the reply'
     events.filter((e) => e.type === 'thought').map((e) => e.text),
     ['still thinking'],
   );
-  assertEquals(texts(events), ['I cannot share that.']);
+  assertEquals(texts(events), [lexiconDefault('egress.refusal')]);
 });

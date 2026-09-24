@@ -745,6 +745,7 @@ Deno.test('foldGeminiLiveServerMessage emits malformed_arguments on bad tool JSO
   assertEquals(events[0]?.type, 'tool');
   assertEquals(events[0]?.tool?.phase, 'error');
   assertEquals(events[0]?.tool?.failure?.code, 'malformed_arguments');
+  assertEquals(events[0]?.tool?.failure?.kind, 'bad_response');
 });
 
 Deno.test('foldGeminiLiveServerMessage handles tool calls and usage tokens', () => {

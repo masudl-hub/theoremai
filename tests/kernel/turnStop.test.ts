@@ -2,7 +2,6 @@ import '../fixtures/test-host.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import {
   AUTO_CONTINUE_DELAY_MS,
-  CONTINUE_INSTRUCTION,
   GenerationStopError,
   isContinueStopKind,
   isGenerationStopError,
@@ -59,7 +58,6 @@ Deno.test('resume policy helpers', () => {
   assertEquals(shouldAutoContinue({ kind: 'stream_incomplete' }), true);
   assertEquals(shouldAutoContinue({ kind: 'cancelled' }), false);
   assertEquals(shouldAutoContinue({ kind: 'length' }, []), false);
-  assertEquals(CONTINUE_INSTRUCTION.length > 20, true);
   assertEquals(AUTO_CONTINUE_DELAY_MS, 1_500);
 });
 

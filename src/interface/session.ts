@@ -4,7 +4,8 @@
  * @module
  */
 
-import { lexiconText } from '../guardrails/lexicon.ts';
+import { withPublicWording } from '../guardrails/error.ts';
+import { type LexiconOverrides, lexiconText } from '../guardrails/lexicon.ts';
 import { isAwaitingUserInput } from '../kernel/stages.ts';
 import type { ToolGate, TurnToolSnapshot } from '../kernel/tools/types.ts';
 import type { ModelId, ToolId, TurnEvent, TurnHistoryMessage } from '../kernel/types.ts';
@@ -170,10 +171,11 @@ function applyTurnEventsToSession(
 function branchInterfaceTurnSession(
   session: InterfaceTurnSession,
   blocks: readonly TranscriptBlock[],
+  lexicon: LexiconOverrides | undefined,
 ): InterfaceTurnSession {
   return {
     ...emptyInterfaceTurnSession(),
-    history: historyFromTranscriptBlocks(blocks),
+    history: historyFromTranscriptBlocks(blocks, lexicon),
     sessionPermissions: [...session.sessionPermissions],
     inputTokens: session.inputTokens,
     historyTokens: session.historyTokens,
@@ -185,23 +187,28 @@ function branchInterfaceTurnSession(
 function markGatedToolCancelled(
   events: readonly TurnEvent[],
   gated: GatedToolContext,
+  lexicon: LexiconOverrides | undefined,
 ): TurnEvent[] {
   return events.map((event): TurnEvent => {
     if (event.type !== 'tool') return event;
     if (event.tool?.phase !== 'gate') return event;
-    return {
-      type: 'tool',
-      tool: {
-        name: gated.name,
-        callId: gated.callId ?? event.tool.callId,
-        arguments: gated.arguments ?? event.tool.arguments,
-        phase: 'error',
-        failure: {
-          code: 'cancelled',
-          message: lexiconText('session.abandon_gated', { tool: gated.name }),
+    return withPublicWording(
+      {
+        type: 'tool',
+        tool: {
+          name: gated.name,
+          callId: gated.callId ?? event.tool.callId,
+          arguments: gated.arguments ?? event.tool.arguments,
+          phase: 'error',
+          failure: {
+            code: 'cancelled',
+            kind: 'cancelled',
+            message: lexiconText('session.abandon_gated', { tool: gated.name }, lexicon),
+          },
         },
       },
-    };
+      lexicon,
+    );
   });
 }
 
@@ -212,7 +219,10 @@ function markGatedToolCancelled(
  * and clears gate state. Used by send-now while gated (leave the wait, then
  * start a new user turn).
  */
-function abandonGatedToolSession(session: InterfaceTurnSession): {
+function abandonGatedToolSession(
+  session: InterfaceTurnSession,
+  lexicon: LexiconOverrides | undefined,
+): {
   session: InterfaceTurnSession;
   finalizedEvents: TurnEvent[];
 } {
@@ -221,18 +231,19 @@ function abandonGatedToolSession(session: InterfaceTurnSession): {
     return { session, finalizedEvents: [...session.assistantEvents] };
   }
 
-  const finalizedEvents = markGatedToolCancelled(session.assistantEvents, gated);
+  const finalizedEvents = markGatedToolCancelled(session.assistantEvents, gated, lexicon);
   const history = appendToolDenialToHistory(
-    appendAssistantEventsToHistory(session.history, finalizedEvents),
+    appendAssistantEventsToHistory(session.history, finalizedEvents, lexicon),
     {
       name: gated.name,
       callId: gated.callId,
       arguments: gated.arguments,
       failure: {
         code: 'cancelled',
-        message: lexiconText('session.abandon_gated', { tool: gated.name }),
+        message: lexiconText('session.abandon_gated', { tool: gated.name }, lexicon),
       },
     },
+    lexicon,
   );
 
   return {

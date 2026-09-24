@@ -130,10 +130,10 @@ export function attachResponseFormat(
 ): void {
   if (req.speech) {
     if (req.image) {
-      throw new TheoremError('cannot mix speech and image response formats');
+      throw new TheoremError('config', 'cannot mix speech and image response formats');
     }
     if (req.structured) {
-      throw new TheoremError('cannot mix speech and structured response formats');
+      throw new TheoremError('config', 'cannot mix speech and structured response formats');
     }
     camel.responseFormat = { type: 'audio' };
     camel.responseModalities = ['audio'];

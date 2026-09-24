@@ -642,6 +642,7 @@ Deno.test('appendAssistantEventsToHistory folds text and completed tools', () =>
         },
       },
     ],
+    undefined,
   );
   assertEquals(history.length, 3);
   assertEquals(history[0]?.role, 'assistant');
@@ -650,11 +651,15 @@ Deno.test('appendAssistantEventsToHistory folds text and completed tools', () =>
 });
 
 Deno.test('appendToolDenialToHistory uses kernel failure formatting', () => {
-  const history = appendToolDenialToHistory([], {
-    name: 'delete_resource',
-    callId: 'c-del',
-    arguments: { id: '1' },
-  });
+  const history = appendToolDenialToHistory(
+    [],
+    {
+      name: 'delete_resource',
+      callId: 'c-del',
+      arguments: { id: '1' },
+    },
+    undefined,
+  );
   assertEquals(history[1]?.role, 'tool');
   assertEquals(history[1]?.content?.includes('denied'), true);
   assertEquals(history[1]?.content?.includes('Tool error'), true);
@@ -748,6 +753,7 @@ Deno.test('branchInterfaceTurnSession rebuilds history and clears interaction id
       { id: 'u1', kind: 'user-text', text: 'kept' },
       { id: 'a1', kind: 'text', text: 'reply' },
     ],
+    undefined,
   );
   assertEquals(session.previousInteractionId, undefined);
   assertEquals(session.history.length, 2);
@@ -835,10 +841,13 @@ Deno.test('modelSelectEnabled is false with a single model', () => {
 });
 
 Deno.test('historyFromTranscriptBlocks round-trips user and assistant text', () => {
-  const history = historyFromTranscriptBlocks([
-    { id: 'u1', kind: 'user-text', text: 'Hi' },
-    { id: 'a1', kind: 'text', text: 'Hey' },
-  ]);
+  const history = historyFromTranscriptBlocks(
+    [
+      { id: 'u1', kind: 'user-text', text: 'Hi' },
+      { id: 'a1', kind: 'text', text: 'Hey' },
+    ],
+    undefined,
+  );
   assertEquals(history, [
     { role: 'user', content: 'Hi' },
     { role: 'assistant', content: 'Hey' },
@@ -856,10 +865,11 @@ Deno.test('appendAssistantEventsToHistory records a failed tool call so no tool_
           id: 'c1',
           arguments: { q: 'x' },
           phase: 'error',
-          failure: { code: 'policy_refused', message: 'withheld by policy' },
+          failure: { code: 'policy_refused', kind: 'blocked', message: 'withheld by policy' },
         },
       },
     ],
+    undefined,
   );
   const assistant = history.find((m) => m.role === 'assistant');
   const tool = history.find((m) => m.role === 'tool');
@@ -871,23 +881,39 @@ Deno.test('appendAssistantEventsToHistory records a failed tool call so no tool_
 });
 
 Deno.test('historyFromTranscriptBlocks records a failed tool block as a paired result', () => {
-  const history = historyFromTranscriptBlocks([
-    {
-      id: 'tool-c9',
-      kind: 'tool',
-      tool: {
-        name: 'delete_resource',
-        callId: 'c9',
-        arguments: { id: '1' },
-        phase: 'error',
-        failure: { code: 'denied', message: 'not allowed' },
+  const history = historyFromTranscriptBlocks(
+    [
+      {
+        id: 'tool-c9',
+        kind: 'tool',
+        tool: {
+          name: 'delete_resource',
+          callId: 'c9',
+          arguments: { id: '1' },
+          phase: 'error',
+          failure: { code: 'denied', kind: 'declined', message: 'not allowed' },
+        },
       },
-    },
-  ]);
+    ],
+    undefined,
+  );
   assertEquals(
     history.some((m) => m.role === 'assistant' && (m.tool_calls?.length ?? 0) > 0),
     true,
   );
   const tool = history.find((m) => m.role === 'tool');
   assertEquals(tool?.content?.includes('not allowed'), true);
+});
+
+Deno.test('interfaceFromProfile carries only the client lexicon keys the profile overrides', () => {
+  const profile = defineProfile({
+    id: 'interface.text.lexicon',
+    type: 'text',
+    identity: { handle: 'worded' },
+    ...geminiModels('gemini35FlashLite'),
+    tools: { allow: [] },
+    inputs: { text: true },
+    lexicon: { 'error.timeout': 'Took too long.', 'taint.reason_tainted': 'Host only.' },
+  });
+  assertEquals(interfaceFromProfile(profile).lexicon, { 'error.timeout': 'Took too long.' });
 });

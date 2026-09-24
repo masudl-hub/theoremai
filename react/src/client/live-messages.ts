@@ -4,7 +4,8 @@ import type { ToolGate } from '../../../src/kernel/mod.ts';
 export type LiveServerEnvelope =
 	| { type: 'ready'; profile?: string; sessionId?: string }
 	| { type: 'events'; events: TurnEvent[] }
-	| { type: 'error'; error: string }
+	/** The relay's error body (`error`, `errorKind`, `errorInternal`), read as a host error. */
+	| { type: 'error'; body: Record<string, unknown> }
 	| {
 			type: 'executeToolResult';
 			callId: string;
@@ -41,8 +42,8 @@ function parseEvents(record: Record<string, unknown>): LiveServerEnvelope | null
 	return { type: 'events', events: record.events.filter(isTurnEvent) };
 }
 
-function parseError(record: Record<string, unknown>): LiveServerEnvelope | null {
-	return typeof record.error === 'string' ? { type: 'error', error: record.error } : null;
+function parseError(record: Record<string, unknown>): LiveServerEnvelope {
+	return { type: 'error', body: record };
 }
 
 function parseToolFailure(

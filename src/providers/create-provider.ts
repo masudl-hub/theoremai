@@ -52,7 +52,10 @@ function bindingForProvider(input: Profile, modelId?: ModelId): ModelBinding {
   const id = modelId ?? profile.defaultModel;
   const binding = profile.models[id];
   if (!binding) {
-    throw new TheoremError(`createProvider: profile '${profile.id}' has no model '${id}'`);
+    throw new TheoremError(
+      'config',
+      `createProvider: profile '${profile.id}' has no model '${id}'`,
+    );
   }
   return binding;
 }
@@ -120,26 +123,34 @@ export function createProvider(
 
   if (!isValidPair(protocol, provider)) {
     throw new TheoremError(
+      'config',
       `createProvider: unsupported protocol/provider pair '${protocol}'/'${provider}'`,
     );
   }
 
   if (protocol === 'geminiInteractions' && provider === 'google') {
     if (!options.gemini) {
-      throw new TheoremError('createProvider requires gemini transport for google Interactions');
+      throw new TheoremError(
+        'config',
+        'createProvider requires gemini transport for google Interactions',
+      );
     }
     return lazyGoogleInteractions(options.gemini);
   }
 
   if (protocol === 'geminiLive' && provider === 'google') {
     throw new TheoremError(
+      'request',
       "createProvider does not support type 'live' / geminiLive — use runSession(req, { gemini })",
     );
   }
 
   if (protocol === 'openAi' && provider === 'openrouter') {
     if (!options.openAiGateway) {
-      throw new TheoremError('createProvider requires openAiGateway config for openAi/openrouter');
+      throw new TheoremError(
+        'config',
+        'createProvider requires openAiGateway config for openAi/openrouter',
+      );
     }
     if (isSpeechRole(profile)) {
       return lazySpeech(options.openAiGateway);
@@ -153,6 +164,7 @@ export function createProvider(
   if (protocol === 'openAi' && provider === 'local') {
     if (isImageRole(profile)) {
       throw new TheoremError(
+        'config',
         'createProvider: type image requires openrouter provider for openAi protocol',
       );
     }
@@ -160,6 +172,7 @@ export function createProvider(
   }
 
   throw new TheoremError(
+    'config',
     `createProvider: unsupported protocol/provider pair '${protocol}'/'${provider}'`,
   );
 }

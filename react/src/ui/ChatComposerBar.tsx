@@ -33,7 +33,9 @@ import {
 	IconX,
 } from '@tabler/icons-react';
 import { type ChangeEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { attachmentIssueText, type LexiconOverrides } from '../../../mod.ts';
 import {
+	type AttachmentValidationIssue,
 	type ComposerMenuAction,
 	type ComposerPendingMessage,
 	type ComposerProfileInterface,
@@ -46,13 +48,21 @@ import {
 } from '../../../src/interface/mod.ts';
 import { stageComposerFiles } from '../client/composer-attachments';
 import { composerActionState } from '../client/composer-primary';
-import { composerDrawerSummary } from '../client/composer-drawer';
-import { isStashShortcut, resolveComposerHint, STASH_SHORTCUT } from '../client/composer-hints';
+import { type ComposerDrawerSummary, composerDrawerSummary } from '../client/composer-drawer';
 import {
+	type ComposerHint as ComposerHintData,
+	isStashShortcut,
+	resolveComposerHint,
+	STASH_SHORTCUT,
+} from '../client/composer-hints';
+import type { ClientFailure } from '../client/failure';
+import { useComposerVoice, type VoiceFailure } from '../components/use-composer-voice';
+import {
+	COMPOSER_HINT_LABELS,
 	COMPOSER_MENU_ACTION_DESCRIPTIONS,
 	COMPOSER_MENU_ACTION_LABELS,
-} from '../components/composer-labels';
-import { useComposerVoice } from '../components/use-composer-voice';
+	composerDrawerLabel,
+} from './labels';
 import { VoiceNote } from './VoiceNote';
 import { useEditorSelection } from '../components/use-editor-selection';
 
@@ -64,9 +74,10 @@ export type ChatComposerBarProps = {
 	pendingFiles: readonly File[];
 	pendingVoice: readonly File[];
 	pendingMessages: readonly ComposerPendingMessage[];
-	issues: readonly string[];
+	/** Files the last send refused, one per reason; worded with the profile's lexicon. */
+	issues: readonly AttachmentValidationIssue[];
 	phase: ComposerRunPhase;
-	error: string;
+	failure: ClientFailure | null;
 	selectedModel?: string;
 	selectedEffort?: string;
 	placeholder?: string;
@@ -228,13 +239,18 @@ function GenerationSelect(props: {
 }
 
 function composerStatus(args: {
-	error: string;
-	issues: readonly string[];
-	notice: string;
-	voiceError: string;
+	failure: ClientFailure | null;
+	issues: readonly AttachmentValidationIssue[];
+	voiceFailure: VoiceFailure | null;
+	lexicon: LexiconOverrides;
 }): ChatComposerStatus | undefined {
-	if (args.error) return { type: 'error', message: args.error };
-	const warning = [...args.issues, args.notice, args.voiceError].filter(Boolean).join(' ');
+	if (args.failure) return { type: 'error', message: args.failure.error };
+	const warning = [
+		...args.issues.map((issue) => attachmentIssueText(issue, args.lexicon)),
+		args.voiceFailure?.error,
+	]
+		.filter(Boolean)
+		.join(' ');
 	return warning ? { type: 'warning', message: warning } : undefined;
 }
 
@@ -242,7 +258,7 @@ type StagedFile = { file: File; index: number; preview?: string };
 
 /** Pending messages, then two uniform rows: 64px tiles (images, voice notes), then file tokens. */
 function PendingDrawer(props: {
-	summary: { count: number; label: string };
+	summary: ComposerDrawerSummary;
 	messages: readonly ComposerPendingMessage[];
 	imageFiles: readonly StagedFile[];
 	otherFiles: readonly StagedFile[];
@@ -253,7 +269,7 @@ function PendingDrawer(props: {
 	onVoiceRemove: () => void;
 }) {
 	return (
-		<ChatComposerDrawer count={props.summary.count} label={props.summary.label}>
+		<ChatComposerDrawer count={props.summary.count} label={composerDrawerLabel(props.summary)}>
 			<VStack gap={2} width="100%">
 				{props.messages.map((message) => (
 					<PendingRow key={message.id} message={message} {...props.pendingActions} />
@@ -357,13 +373,14 @@ function RecordButton({ recording, onToggle }: { recording: boolean; onToggle: (
 }
 
 /** Astryx's slot for contextual info (header, right side). */
-function ComposerHint({ hint, onAction }: { hint: NonNullable<ReturnType<typeof resolveComposerHint>>; onAction: () => void }) {
+function ComposerHint({ hint, onAction }: { hint: ComposerHintData; onAction: () => void }) {
+	const labels = COMPOSER_HINT_LABELS[hint.id];
 	return (
 		<HStack gap={2} vAlign="center">
 			<Text size="sm" color="secondary">
-				{hint.message}
+				{labels.message}
 			</Text>
-			<Button label={hint.actionLabel} size="sm" variant="ghost" onClick={onAction} />
+			<Button label={labels.actionLabel} size="sm" variant="ghost" onClick={onAction} />
 			<Kbd keys={hint.shortcut} />
 		</HStack>
 	);
@@ -385,10 +402,11 @@ function useStagedFiles(pendingFiles: readonly File[], pendingVoice: readonly Fi
 export function ChatComposerBar(props: ChatComposerBarProps) {
 	const { iface, phase } = props;
 	const inputs = iface.inputs;
-	const [notice, setNotice] = useState('');
+	const [stagingIssues, setStagingIssues] = useState<AttachmentValidationIssue[]>([]);
 	const pendingFiles = useMemo(() => [...props.pendingFiles], [props.pendingFiles]);
 	const voice = useComposerVoice({
 		inputs,
+		lexicon: iface.lexicon,
 		pendingFiles,
 		onVoiceStaged: props.onVoiceStaged,
 		onVoiceClear: props.onVoiceClear,
@@ -425,11 +443,11 @@ export function ChatComposerBar(props: ChatComposerBarProps) {
 			incoming,
 			maxFiles: inputs.maxFiles,
 			voiceCount: props.pendingVoice.length,
-			maxImages: iface.type === 'image' ? iface.image.maxInputImages : undefined,
+			maxImages: inputs.maxImages,
 		});
 		const added = staged.files.slice(pendingFiles.length);
 		if (added.length > 0) props.onFilesSelected(added);
-		setNotice(staged.notice ?? '');
+		setStagingIssues(staged.issues);
 	}
 
 	const drawerSummary = composerDrawerSummary({
@@ -510,10 +528,10 @@ export function ChatComposerBar(props: ChatComposerBarProps) {
 				/>
 			}
 			status={composerStatus({
-				error: props.error,
-				issues: props.issues,
-				notice,
-				voiceError: voice.voiceError,
+				failure: props.failure,
+				issues: [...props.issues, ...stagingIssues],
+				voiceFailure: voice.failure,
+				lexicon: iface.lexicon,
 			})}
 		/>
 	);

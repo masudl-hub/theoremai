@@ -72,7 +72,7 @@ export function parseToolArgumentsObject(raw: unknown): ParsedToolArguments {
 export function historyToolArguments(raw: unknown): Record<string, unknown> {
   const parsed = parseToolArgumentsObject(raw);
   if (!parsed.ok) {
-    throw new TheoremError(parsed.error);
+    throw new TheoremError('bad_response', parsed.error);
   }
   return parsed.value;
 }

@@ -4,7 +4,12 @@
  * @module
  */
 
-import { isAbortError, TheoremError, toErrorEvent } from '../../guardrails/error.ts';
+import {
+  isAbortError,
+  TheoremError,
+  toErrorEvent,
+  withPublicWording,
+} from '../../guardrails/error.ts';
 import { resolveTraceWriter } from '../../observability/policy.ts';
 import { writeTrace } from '../../observability/trace.ts';
 import { buildRecord } from '../../observability/trace-record.ts';
@@ -16,7 +21,7 @@ import {
 } from '../../observability/trace-span.ts';
 import { startToolTrace, type ToolCallEnd, toolSpanName } from '../engine/tool-trace.ts';
 import { optional, traceLinks } from '../engine/turn-trace.ts';
-import { getProfile, profileObservability } from '../registry/profiles.ts';
+import { getProfile, profileLexicon, profileObservability } from '../registry/profiles.ts';
 import { pickModel } from '../registry/resolve.ts';
 import type { Profile, TurnEvent, TurnRequest } from '../types.ts';
 import { executeRegisteredTool, newCallId, toolCallArguments } from './execute.ts';
@@ -41,7 +46,7 @@ async function prepareInvokeSnapshot(
 ): Promise<TurnToolSnapshot> {
   const req = turnRequestFromInvoke(request);
   if (profile.type === 'decision') {
-    throw new TheoremError(`Profile ${profile.id}: type 'decision' cannot invoke tools`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('request', `Profile ${profile.id}: type 'decision' cannot invoke tools`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   // Host profiles bind no model — the allow list is the whole snapshot.
   const model = profile.type === 'host' ? undefined : pickModel(profile, request.model);
@@ -84,7 +89,17 @@ async function* invokeTool(
       call: { arguments: toolCallArguments(plainToolInput(request.input)) },
     }).end(end);
   try {
-    yield* invokeTraced(request, callId, openSpan, failBeforeTool, tree.root.traceparent());
+    const lexicon = profileLexicon(request.profile);
+    const traceparent = tree.root.traceparent();
+    for await (const event of invokeTraced(
+      request,
+      callId,
+      openSpan,
+      failBeforeTool,
+      traceparent,
+    )) {
+      yield withPublicWording(event, lexicon);
+    }
   } catch (err) {
     failBeforeTool(
       isAbortError(err) ? { outcome: 'cancelled' } : { outcome: 'error', thrown: err },
@@ -118,7 +133,7 @@ async function* invokeTraced(
   if (request.promoted?.length) {
     const { failure } = promoteLoadedTools(snapshot, request.promoted, profile);
     if (failure) {
-      failBeforeTool({ outcome: 'error', errorType: failure.code });
+      failBeforeTool({ outcome: 'error', failure });
       yield {
         type: 'tool',
         tool: {

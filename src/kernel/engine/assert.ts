@@ -1,5 +1,5 @@
 /** lexicon-exempt-file: test assertion helpers shipped under src for Deno tests — not runtime user or model copy (P2) */
-type ErrorConstructor = new (message?: string) => Error;
+type ErrorConstructor = abstract new (...args: never[]) => Error;
 
 function assertEquals(left: unknown, right: unknown): void {
   const same = JSON.stringify(left) === JSON.stringify(right);

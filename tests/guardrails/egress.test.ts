@@ -3,6 +3,7 @@ import { mintCanary, USER_CLOSE, USER_OPEN } from '../../src/guardrails/canary.t
 import { TEST_OPENAI_KEY, TEST_SSN } from '../../src/guardrails/corpus/secrets.ts';
 import { INJ_IGNORE } from '../../src/guardrails/corpus/strings.ts';
 import { EGRESS_RULES, runEnforcer, standardEgressEnforce } from '../../src/guardrails/egress.ts';
+import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
 import type {
   EgressEnforcer,
   GuardrailContext,
@@ -165,19 +166,6 @@ Deno.test('runEnforcer converts a rejected promise into a block', async () => {
   assertEquals(verdict.rejection.includes('policy timed out'), true);
 });
 
-Deno.test('runEnforcer never adds a refusal, so onBlock cannot leak policy internals', async () => {
-  const verdict = await runEnforcer(
-    () => {
-      throw new Error('secret internal detail');
-    },
-    { text: 'anything' },
-    egressCtx(),
-  );
-  assertEquals(verdict.action, 'block');
-  if (verdict.action !== 'block') return;
-  assertEquals(verdict.refusal, undefined);
-});
-
 Deno.test('runEnforcer passes a normal verdict straight through', async () => {
   assertEquals(
     (await runEnforcer(() => ({ action: 'allow' }), { text: 'ok' }, egressCtx())).action,
@@ -232,7 +220,6 @@ Deno.test('runEnforcer fails closed for incomplete canonical verdicts', async ()
       rejection: 'blocked',
     },
     { action: 'block', hits: [], rejection: 42 },
-    { action: 'block', hits: [], rejection: 'blocked', refusal: 42 },
   ]) {
     const verdict = await runEnforcer(
       (() => malformed) as unknown as EgressEnforcer,
@@ -259,7 +246,6 @@ Deno.test('runEnforcer normalizes legacy verdicts without trusting malformed fie
   assertEquals(
     await runLegacy({
       blocked: true,
-      text: 'Safe refusal',
       rejectionMessage: 'blocked',
       hits: [
         'legacy.string',
@@ -276,27 +262,46 @@ Deno.test('runEnforcer normalizes legacy verdicts without trusting malformed fie
         { rule: 'legacy.default-severity', severity: 'high' },
       ],
       rejection: 'blocked',
-      refusal: 'Safe refusal',
     },
   );
   assertEquals(
     await runLegacy({
       blocked: true,
-      text: '   ',
       rejectionMessage: '   ',
       hits: 'not-an-array',
     }),
     {
       action: 'block',
       hits: [{ rule: EGRESS_RULES.enforcerError, severity: 'high' }],
-      rejection: 'Egress blocked',
+      rejection: lexiconDefault('egress.rejection', { rules: EGRESS_RULES.enforcerError }),
     },
   );
   assertEquals(await runLegacy({ blocked: true, hits: [] }), {
     action: 'block',
     hits: [{ rule: EGRESS_RULES.enforcerError, severity: 'high' }],
-    rejection: 'Egress blocked',
+    rejection: lexiconDefault('egress.rejection', { rules: EGRESS_RULES.enforcerError }),
   });
+});
+
+Deno.test('kernel rejections read in the profile lexicon', async () => {
+  const lexicon = {
+    'egress.rejection': 'Host copy: {rules}',
+    'egress.policy_failed': 'Host copy failed',
+  };
+  const blocked = await runEnforcer(
+    () => ({ blocked: true, hits: ['legacy.rule'] }) as unknown as Verdict,
+    { text: 'x' },
+    { ...egressCtx(), lexicon },
+  );
+  assertEquals(blocked.action === 'block' && blocked.rejection, 'Host copy: legacy.rule');
+  const failed = await runEnforcer(
+    () => {
+      throw new Error('policy crashed');
+    },
+    { text: 'x' },
+    { ...egressCtx(), lexicon },
+  );
+  assertEquals(failed.action === 'block' && failed.rejection, 'Host copy failed');
 });
 
 Deno.test('runEnforcer preserves complete canonical verdict variants', async () => {
@@ -311,12 +316,6 @@ Deno.test('runEnforcer preserves complete canonical verdict variants', async () 
     { action: 'redact', text: 'safe replacement', hits: [hit] },
     { action: 'flag', hits: [hit] },
     { action: 'block', hits: [hit], rejection: 'blocked' },
-    {
-      action: 'block',
-      hits: [hit],
-      rejection: 'blocked',
-      refusal: 'safe refusal',
-    },
   ];
   for (const expected of verdicts) {
     const actual = await runEnforcer(() => expected, { text: 'untrusted output' }, egressCtx());

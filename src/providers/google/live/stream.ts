@@ -7,8 +7,9 @@
  * @module
  */
 
-import { TheoremError } from '../../../guardrails/error.ts';
+import { type ErrorKind, TheoremError } from '../../../guardrails/error.ts';
 import type { ProviderCompleteRequest, TurnEvent } from '../../../kernel/types.ts';
+import { readGeminiApiError } from '../api-error.ts';
 import {
   buildGeminiLiveClientContent,
   buildGeminiLiveRealtimeInput,
@@ -20,6 +21,26 @@ import {
 } from './framing.ts';
 
 const SETUP_TIMEOUT_MS = 20_000;
+
+/** The kind of a provider close, by WebSocket close code (RFC 6455 §7.4.1); any other code is `unavailable`. */
+const CLOSE_KINDS: Readonly<Record<number, ErrorKind>> = {
+  1006: 'network',
+  1007: 'unsupported',
+  1008: 'unsupported',
+  1011: 'unavailable',
+  1013: 'unavailable',
+};
+
+/** A normal close once the session is open. */
+const NORMAL_CLOSE = 1000;
+
+/** The failure a provider close reports, named by its close code. */
+function closeError(code: number, reason: string, during: 'setup' | 'session'): TheoremError {
+  return new TheoremError(
+    CLOSE_KINDS[code] ?? 'unavailable',
+    `Gemini Live WebSocket closed during ${during} (${code}: ${reason})`,
+  );
+}
 
 export type LiveTurnPhase = 'streaming' | 'complete' | 'abort';
 
@@ -45,7 +66,8 @@ export type SessionQueueItem =
   | { type: 'batch'; events: TurnEvent[]; turnPhase: LiveTurnPhase; row: Record<string, unknown> }
   | { type: 'row'; row: Record<string, unknown> }
   | { type: 'error'; error: Error; row?: Record<string, unknown> }
-  | { type: 'closed'; code: number; reason: string };
+  /** The provider closed the socket; `error` names the failure when the close was not normal. */
+  | { type: 'closed'; code: number; reason: string; error?: TheoremError };
 
 export async function readMessageData(data: unknown): Promise<string> {
   if (typeof data === 'string') return data;
@@ -58,17 +80,6 @@ export async function readMessageData(data: unknown): Promise<string> {
   return String(data);
 }
 
-export function readGeminiLiveErrorMessage(message: Record<string, unknown>): string | null {
-  const error = message.error;
-  if (!error || typeof error !== 'object') return null;
-  const record = error as { message?: unknown; status?: unknown; code?: unknown };
-  if (typeof record.message === 'string' && record.message.length > 0) {
-    const status = typeof record.status === 'string' ? record.status : null;
-    return status ? `${status}: ${record.message}` : record.message;
-  }
-  return 'Gemini returned an error during live session.';
-}
-
 /** Send setup and resolve with the server's `setupComplete` frame. */
 export function performLiveSetup(
   ws: WebSocket,
@@ -79,7 +90,9 @@ export function performLiveSetup(
     const timeout = setTimeout(() => {
       if (!setupResolved) {
         setupResolved = true;
-        reject(new TheoremError(`Gemini Live setup timed out after ${SETUP_TIMEOUT_MS}ms`));
+        reject(
+          new TheoremError('timeout', `Gemini Live setup timed out after ${SETUP_TIMEOUT_MS}ms`),
+        );
       }
     }, SETUP_TIMEOUT_MS);
 
@@ -97,7 +110,7 @@ export function performLiveSetup(
       clearTimeout(timeout);
       if (!setupResolved) {
         setupResolved = true;
-        reject(new TheoremError('Gemini Live WebSocket error during setup'));
+        reject(new TheoremError('network', 'Gemini Live WebSocket error during setup'));
       }
     };
 
@@ -105,11 +118,7 @@ export function performLiveSetup(
       clearTimeout(timeout);
       if (!setupResolved) {
         setupResolved = true;
-        reject(
-          new TheoremError(
-            `Gemini Live WebSocket closed during setup (${evt.code}: ${evt.reason})`,
-          ),
-        );
+        reject(closeError(evt.code, evt.reason, 'setup'));
       }
     };
 
@@ -120,15 +129,15 @@ export function performLiveSetup(
         if (parsed.reason === 'empty') return;
         clearTimeout(timeout);
         setupResolved = true;
-        reject(new TheoremError('malformed Gemini Live message during setup'));
+        reject(new TheoremError('bad_response', 'malformed Gemini Live message during setup'));
         return;
       }
 
-      const errMsg = readGeminiLiveErrorMessage(parsed.value);
-      if (errMsg) {
+      const apiError = readGeminiApiError(parsed.value);
+      if (apiError) {
         clearTimeout(timeout);
         setupResolved = true;
-        reject(new TheoremError(errMsg));
+        reject(apiError);
         return;
       }
 
@@ -243,15 +252,15 @@ export function attachLiveSessionHandlers(ws: WebSocket, liveQueue: LiveQueue): 
         if (parsed.reason === 'empty') return;
         liveQueue.push({
           type: 'error',
-          error: new TheoremError('malformed Gemini Live message'),
+          error: new TheoremError('bad_response', 'malformed Gemini Live message'),
         });
         return;
       }
       if (parsed.value.setupComplete) return;
 
-      const errMsg = readGeminiLiveErrorMessage(parsed.value);
-      if (errMsg) {
-        liveQueue.push({ type: 'error', error: new TheoremError(errMsg), row: parsed.value });
+      const apiError = readGeminiApiError(parsed.value);
+      if (apiError) {
+        liveQueue.push({ type: 'error', error: apiError, row: parsed.value });
         return;
       }
 
@@ -272,13 +281,23 @@ export function attachLiveSessionHandlers(ws: WebSocket, liveQueue: LiveQueue): 
 
   ws.onerror = () => {
     if (!liveQueue.isClosed()) {
-      liveQueue.push({ type: 'error', error: new TheoremError('Gemini Live WebSocket error') });
+      liveQueue.push({
+        type: 'error',
+        error: new TheoremError('network', 'Gemini Live WebSocket error'),
+      });
     }
   };
 
   ws.onclose = (evt) => {
     if (!liveQueue.isClosed()) {
-      liveQueue.push({ type: 'closed', code: evt.code, reason: evt.reason });
+      liveQueue.push({
+        type: 'closed',
+        code: evt.code,
+        reason: evt.reason,
+        ...(evt.code === NORMAL_CLOSE
+          ? {}
+          : { error: closeError(evt.code, evt.reason, 'session') }),
+      });
       liveQueue.close();
     }
   };

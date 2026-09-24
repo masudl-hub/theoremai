@@ -1,5 +1,4 @@
 import { assertEquals } from '@std/assert';
-import { PUBLIC_GENERIC } from '../../../src/guardrails/error.ts';
 import type { ImageResponseFormat, ProviderCompleteRequest } from '../../../src/kernel/types.ts';
 import {
   buildImageHeaders,
@@ -136,7 +135,7 @@ Deno.test('streamImage yields error when apiKey is missing', async () => {
   }
   assertEquals(events.length, 1);
   assertEquals(events[0]?.type, 'error');
-  assertEquals((events[0] as { error: string }).error, PUBLIC_GENERIC);
+  assertEquals((events[0] as { errorKind: string }).errorKind, 'auth');
 });
 
 Deno.test('streamImage yields error on empty prompt text', async () => {
@@ -146,7 +145,7 @@ Deno.test('streamImage yields error on empty prompt text', async () => {
   }
   assertEquals(events.length, 1);
   assertEquals(events[0]?.type, 'error');
-  assertEquals((events[0] as { error: string }).error, PUBLIC_GENERIC);
+  assertEquals((events[0] as { errorKind: string }).errorKind, 'request');
 });
 
 Deno.test('yieldImagesEndpoint maps /images JSON to media and tokens', async () => {
@@ -193,7 +192,7 @@ Deno.test('yieldImagesEndpoint yields error on HTTP failure', async () => {
   }
   assertEquals(events.length, 1);
   assertEquals(events[0]?.type, 'error');
-  assertEquals((events[0] as { error: string }).error, PUBLIC_GENERIC);
+  assertEquals((events[0] as { errorKind: string }).errorKind, 'unavailable');
 });
 
 Deno.test('yieldInterleavedChat yields text, media, tokens and done, taping each row', async () => {

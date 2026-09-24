@@ -43,7 +43,7 @@ Owns every module under `src/providers/`.
 | `local/mod.ts` | Subpath export for direct local adapter access |
 | `shared/sse.ts` | SSE line parser |
 | `shared/pcm.ts` | PCM → WAV for every transport that returns raw audio (Live, Interactions, OpenRouter speech). The format comes from the mime each transport states (`rate=`, `channels=`); a raw PCM mime without `rate=` passes through unwrapped. Samples are 16-bit little-endian on all three (measured 23/09/2026). Base64 via the one kernel codec, `src/kernel/util/base64.ts`; adapters do not define their own |
-| `shared/structured-output.ts` | `parseStructuredOutput`: model text → JSON, or a hard failure (OpenRouter, Interactions) |
+| `shared/structured-output.ts` | `structuredEvent`: model text → a `structured` event, or a `bad_response` error event (OpenRouter, Interactions) |
 | `shared/tool-args.ts` | Shared tool-argument JSON parse: `parseToolArgumentsObject` (Result, for streamed calls) and `historyToolArguments` (throws `TheoremError`, for history rebuilt into a request). Never invents `{}` / `{ _raw }`; an empty or absent argument string is a no-argument call. `historyToolIdentity` keeps a history tool message's call id and name only where present — no adapter invents either (Interactions, Live, OpenAI-compat, AI SDK). |
 | `shared/upstream-tape.ts` / `shared/upstream-tap.ts` | Test / tap hooks (not public exports) |
 | `probe.ts` | Env-gated `LOADED:<label>` writer used only by `createProvider`'s lazy loader (`THEOREM_IMPORT_PROBE=1`). Not a test backdoor; adapters must not import it. |
@@ -91,8 +91,19 @@ Routing table:
 
 Errors:
 
-- Missing credential block → `TheoremError` naming the required option.
-- Unsupported pair → `TheoremError` with protocol/provider in the message.
+- Missing credential block → `TheoremError('auth', …)` naming the required option.
+- Unsupported pair → `TheoremError('config', …)` with protocol/provider in the message.
+- Every adapter names the kind where the failure happens and emits
+  `toErrorEvent(err)` (`errorKind` + `errorInternal`, no user wording): a non-OK
+  status through `kindOfHttpStatus`; a request that never reached the provider
+  is `network` (`networkError` / `networkFetch` in `shared/upstream-tap.ts`); an
+  unreadable payload is `bad_response`. OpenRouter reads the AI SDK error's
+  `statusCode`; a mid-stream provider error without one is `unavailable`. Gemini
+  Live closes map by close code (1006 → `network`, 1007 / 1008 →
+  `unsupported`, others → `unavailable`): during setup the open rejects; once
+  open, any close other than 1000 reaches the host as an `error` event before
+  the session ends. See
+  [Public errors](guardrails.md#public-errors).
 
 OpenRouter Vercel AI SDK loads **only** on first `complete` for `openAi` +
 `openrouter` chat. Google and local never import it.
@@ -343,6 +354,9 @@ createProvider(profile, {
 | Selection | `models.*.key` / `ModelBinding.key` / `builtInTools` (`forcePaidKey`) |
 
 Overflow to `paid` is host policy, not inferred here.
+
+A profile that names no key where one is required is `TheoremError('config', …)`;
+a slot the host's vault leaves empty is `auth`.
 
 ## Exported API
 

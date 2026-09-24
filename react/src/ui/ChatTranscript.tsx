@@ -36,9 +36,10 @@ import {
 	groupTranscriptBlocks,
 	pendingPromptOf,
 	type TraceItem,
-	workStatusLabel,
+	workStatus,
 } from '../client/transcript-groups';
-import { transcriptBlockCopyText } from '../client/transcript-block-text';
+import { workStatusLabel } from './labels';
+import { transcriptBlockCopyText } from './transcript-copy-text';
 import { ApprovalCard, AuthChallengeCard, type ToolDecision } from './ToolGateCard';
 import { VoiceNote } from './VoiceNote';
 
@@ -532,7 +533,7 @@ function AssistantTurn(props: {
 	const elapsedMs = useTurnElapsed(props.streaming, props.startedAt, props.endedAt);
 	const { trace, gatedTools, body, hasTrace } = composeAssistantTurn(props.blocks);
 	const rows = bodyRows(body);
-	const status = workStatusLabel({ streaming: props.streaming, hasTrace, elapsedMs });
+	const status = workStatusLabel(workStatus({ streaming: props.streaming, hasTrace, elapsedMs }));
 	const copyText = assistantTurnCopyText(body.length > 0 ? body : props.blocks);
 
 	return (

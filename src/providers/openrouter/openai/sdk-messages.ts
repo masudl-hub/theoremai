@@ -20,7 +20,7 @@ import { historyToolArguments, historyToolIdentity } from '../../shared/tool-arg
 
 function inlineMediaPart(part: Exclude<InteractionPart, { type: 'text' }>): InteractionMediaPart {
   if (isMediaRefPart(part)) {
-    throw new TheoremError('media references are not supported on openAi');
+    throw new TheoremError('unsupported', 'media references are not supported on openAi');
   }
   return part;
 }

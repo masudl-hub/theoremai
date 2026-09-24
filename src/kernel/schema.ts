@@ -11,6 +11,7 @@
 /** lexicon-exempt-file: authoring field-meta / closed unions — not runtime user or model copy (P2) */
 import { EGRESS_ON_BLOCK, type EgressOnBlock, TAINT_GATES } from '../guardrails/types.ts';
 import { GOOGLE_SPEECH_VOICES } from '../presets/google/speech-voices.ts';
+import { PROFILE_FIELD_PRESENCE } from './profile-presence.ts';
 import { profileFieldScope } from './profile-scope.ts';
 
 export { EGRESS_ON_BLOCK, type EgressOnBlock };
@@ -459,6 +460,13 @@ export type FieldMeta = {
   profileTypes?: readonly ProfileType[];
   /** Why the other types can't take it. */
   profileTypesReason?: string;
+  /**
+   * The profile must set the field: always (`true`), or only in the case named
+   * (from `PROFILE_FIELD_PRESENCE`).
+   */
+  required?: true | string;
+  /** What leaving the field out does, as a short phrase a blank control can show. */
+  unset?: string;
 };
 
 function field(
@@ -510,16 +518,21 @@ export function catalogPathFor(keys: readonly string[]): string {
   return resolved.join('.');
 }
 
-/** Each field's docs with its profile-type scope from `PROFILE_FIELD_SCOPE`. */
-function withProfileTypes(fields: Record<string, FieldMeta>): Record<string, FieldMeta> {
+/**
+ * Each field's docs with its profile-type scope from `PROFILE_FIELD_SCOPE` and
+ * its presence from `PROFILE_FIELD_PRESENCE`.
+ */
+function withScopeAndPresence(fields: Record<string, FieldMeta>): Record<string, FieldMeta> {
   return Object.fromEntries(
     Object.entries(fields).map(([path, meta]) => {
       const scope = profileFieldScope(path);
       return [
         path,
-        scope
-          ? { ...meta, profileTypes: scope.profileTypes, profileTypesReason: scope.reason }
-          : meta,
+        {
+          ...meta,
+          ...(scope ? { profileTypes: scope.profileTypes, profileTypesReason: scope.reason } : {}),
+          ...PROFILE_FIELD_PRESENCE[path],
+        },
       ];
     }),
   );
@@ -528,13 +541,16 @@ function withProfileTypes(fields: Record<string, FieldMeta>): Record<string, Fie
 /**
  * Authoring-surface catalog for `Profile` / `defineProfile`.
  * Hover UIs look up dotted paths. Adding a profile field? Add it here; if it
- * belongs to only some profile types, scope it in `PROFILE_FIELD_SCOPE`.
+ * belongs to only some profile types, scope it in `PROFILE_FIELD_SCOPE`; if a
+ * profile must set it or leaving it out does something to note, record that in
+ * `PROFILE_FIELD_PRESENCE`.
  */
-export const PROFILE_FIELDS: Record<string, FieldMeta> = withProfileTypes({
+export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   id: field('string', 'Host-owned profile identifier.'),
   type: field(
     "'text' | 'image' | 'speech' | 'live' | 'decision' | 'host'",
     'Required profile archetype. host = tool-execution ceiling for invokeTool; never runs a model.',
+    PROFILE_TYPES,
   ),
   identity: field(
     '{ handle, system?, systemByRole? }',

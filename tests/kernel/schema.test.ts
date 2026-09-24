@@ -125,6 +125,7 @@ Deno.test('PROFILE_FIELDS protocol / accept / text match live unions', () => {
   const profileType = fieldMeta('type');
   assertEquals(profileType?.type.includes('text'), true);
   assertEquals(profileType?.type.includes('live'), true);
+  assertEquals(profileType?.options, PROFILE_TYPES);
 
   const accept = fieldMeta('inputs.attachments.accept');
   assertEquals(accept?.type, 'string[]');

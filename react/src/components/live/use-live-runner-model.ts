@@ -3,6 +3,7 @@ import { liveIngressEnabledFromSpec } from '../../../../mod.ts';
 import type { LiveProfileInterface } from '../../../../src/interface/mod.ts';
 import type { LiveCaptionState, LiveCaptionTurn } from '../../client/live/live-captions';
 import { liveState } from '../../client/live/live-state';
+import { createTraceFeed } from '../../client/trace-feed';
 import { useLiveRunnerControls } from './use-live-runner-controls';
 import { useLiveRunnerGate, useLiveRunnerUiState } from './use-live-runner-ui';
 import { useLiveSessionClient } from './use-live-session-client';
@@ -102,8 +103,11 @@ export function useLiveRunnerModel(
 		[ui.activeTool, ui.connectPhase, ui.isMuted, ui.status, voiceAvailable],
 	);
 
+	// One feed per runner: every session it opens adds its records.
+	const traces = useMemo(createTraceFeed, []);
 	const { clientRef, ensureClient, clearClient } = useLiveSessionClient({
 		voiceAvailable,
+		traces,
 		handleLiveTurnEvent: gate.handleLiveTurnEvent,
 		waitForGateDecision: gate.waitForGateDecision,
 		captionsRef: ui.captionsRef,
@@ -173,6 +177,7 @@ export function useLiveRunnerModel(
 
 	return {
 		handle: iface.identity.handle,
+		traces,
 		callStarted,
 		pastCalls,
 		captions: ui.captions,

@@ -12,7 +12,7 @@
  * @module
  */
 
-import { describeError, type SessionEvent, TheoremError, type TurnEvent } from '../../../mod.ts';
+import { describeError, type SessionEvent, TheoremError, type TraceRecord, type TurnEvent } from '../../../mod.ts';
 import { float32Rms, float32RmsToLevel, timeDomainBytesToLevel } from './audio-level';
 import { isPermissionDeniedError } from './live-errors';
 import {
@@ -77,6 +77,8 @@ export interface LiveClientOptions {
 	onConnectPhase?: (phase: LiveConnectPhase | null) => void;
 	onTranscript?: (text: string, isUser: boolean, meta?: { interim?: boolean }) => void;
 	onTurnEvent?: (event: TurnEvent) => void;
+	/** A trace record the session wrote, when the relay delivers them. */
+	onTrace?: (record: TraceRecord) => void;
 	/** A failure, typed by kind; word it with `clientFailure` and the interface's `lexicon`. */
 	onError?: (error: Error) => void;
 	/** Provider signalled the upstream session is draining (e.g. goAway). */
@@ -479,6 +481,10 @@ export class LiveSessionClient {
 		}
 		if (payload.type === 'executeToolResult') {
 			this.handleExecuteToolResultEnvelope(payload);
+			return true;
+		}
+		if (payload.type === 'trace') {
+			this.options.onTrace?.(payload.record);
 			return true;
 		}
 		if (payload.type === 'error') {

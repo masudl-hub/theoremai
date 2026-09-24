@@ -13,9 +13,12 @@ import {
 	type LiveSessionStatus,
 } from '../../client/live-client';
 import type { ToolGateResolution } from '../../client/tool-resume';
+import type { TraceFeed } from '../../client/trace-feed';
 
 export type LiveClientBindings = {
 	voiceAvailable: boolean;
+	/** Where the session's trace records go, when the relay delivers them. */
+	traces: TraceFeed;
 	handleLiveTurnEvent: (event: TurnEvent) => void;
 	waitForGateDecision: (prompt: LiveToolGatePrompt) => Promise<ToolGateResolution>;
 	captionsRef: MutableRefObject<LiveCaptionState>;
@@ -137,6 +140,9 @@ export function useLiveSessionClient(bindings: LiveClientBindings) {
 			},
 			onTurnEvent: (event) => {
 				bindingsRef.current.handleLiveTurnEvent(event);
+			},
+			onTrace: (record) => {
+				bindingsRef.current.traces.push(record);
 			},
 			onVolumeLevel: (level, isUser) => {
 				const current = bindingsRef.current;

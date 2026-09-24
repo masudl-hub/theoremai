@@ -29,6 +29,8 @@ stays out of every npm/JSR artifact. Consumers link it directly, e.g.
 | `modelBindingViolation()`, `GEMINI_PLAYGROUND_MODELS`, … | Which models and built-in tools the public playground allows |
 | `zodFromJsonSchema()`, `parseJsonSchema()` | Authored JSON Schema → Zod for registration |
 | run-payload helpers | Handoff of a compiled draft to the run tab |
+| `createPlaygroundTransport()`, `playgroundInterface()` | The run tab's transport for a compiled draft; its `traces` feed receives the records each run writes |
+| `createPlaygroundTraceRouter()`, `PLAYGROUND_RUN_METADATA_KEY`, `PlaygroundTraceLine` | Trace delivery: the server registers the router's sink for `PLAYGROUND_TRACE_DESTINATION`; each run opens a route and passes its metadata, and gets back `{ type: 'trace', record }` lines (after a text run's events, or on the Live socket as each record is written) |
 | `demoToolSpecs()`, `demoInputsSpec()` | Travel concierge tool + inputs facet seeds |
 | `DEMO_CONCIERGE_SYSTEM`, `DEMO_ALLOWED_HOSTS` | Demo system prompt and egress allowlist |
 | `DEMO_HTTP_SAMPLE_INPUT`, `demoHttpSampleInput()` | Connection-test payloads for demo HTTP tools |

@@ -22,6 +22,7 @@ import {
 import { kindOfHttpStatus } from '../../../src/guardrails/mod.ts';
 import type { ProfileInterface } from '../../../src/interface/mod.ts';
 import type { ToolCredential, TurnToolSnapshot } from '../../../src/kernel/mod.ts';
+import type { TraceFeed } from './trace-feed.ts';
 
 export type EncodedBlob = { name: string; mimeType: string; data: string };
 
@@ -90,6 +91,8 @@ export interface TheoremTransport {
 	turn(request: TheoremTurnRequest, onEvent: TurnEventSink, signal?: AbortSignal): Promise<void>;
 	invoke(request: TheoremInvokeRequest, onEvent: TurnEventSink, signal?: AbortSignal): Promise<void>;
 	steer(request: TheoremSteerRequest): Promise<void>;
+	/** Trace records the host sends back, when it delivers them (the playground does). */
+	traces?: TraceFeed;
 }
 
 /**
@@ -139,26 +142,29 @@ export function hostError(body: HostErrorBody, fallbackKind: ErrorKind): Theorem
 	);
 }
 
+/** One NDJSON line: a turn event, or a host's own line type beside them. */
+type StreamLine = { type: string };
+
 /** Any `{ type: 'error' }` line ends the stream as a {@link TheoremStreamError}. */
-function parseStreamLine(line: string): TurnEvent {
-	const event = JSON.parse(line) as TurnEvent;
-	if (event.type === 'error') throw hostError(event, 'internal');
-	return event;
+function parseStreamLine<Line extends StreamLine>(line: string): Line {
+	const parsed = JSON.parse(line) as Line & HostErrorBody;
+	if (parsed.type === 'error') throw hostError(parsed, 'internal');
+	return parsed;
 }
 
-function flushNdjsonChunk(buffer: string, onEvent: TurnEventSink): string {
+function flushNdjsonChunk<Line extends StreamLine>(buffer: string, onLine: (line: Line) => void): string {
 	const lines = buffer.split('\n');
 	const rest = lines.pop() ?? '';
 	for (const line of lines) {
 		if (!line.trim()) continue;
-		onEvent(parseStreamLine(line));
+		onLine(parseStreamLine<Line>(line));
 	}
 	return rest;
 }
 
-async function readNdjsonStream(
+async function readNdjsonStream<Line extends StreamLine>(
 	response: Response,
-	onEvent: TurnEventSink,
+	onLine: (line: Line) => void,
 	signal?: AbortSignal,
 ): Promise<void> {
 	if (!response.body) throw new TheoremError('bad_response', 'stream reply has no body'); // lexicon-exempt: internal diagnostic
@@ -176,10 +182,10 @@ async function readNdjsonStream(
 			throwIfAborted(signal);
 			const { done, value } = await reader.read();
 			if (done) break;
-			buffer = flushNdjsonChunk(buffer + decoder.decode(value, { stream: true }), onEvent);
+			buffer = flushNdjsonChunk(buffer + decoder.decode(value, { stream: true }), onLine);
 		}
 		const tail = buffer.trim();
-		if (tail) onEvent(parseStreamLine(tail));
+		if (tail) onLine(parseStreamLine<Line>(tail));
 	} finally {
 		signal?.removeEventListener('abort', onAbort);
 	}
@@ -227,11 +233,11 @@ async function request(
 	}
 }
 
-/** POST JSON and stream NDJSON turn events back. */
-export async function postNdjson(
+/** POST JSON and stream NDJSON lines back: turn events, unless the host adds its own line types. */
+export async function postNdjson<Line extends StreamLine = TurnEvent>(
 	url: string,
 	body: unknown,
-	onEvent: TurnEventSink,
+	onLine: (line: Line) => void,
 	options: HttpOptions & { signal?: AbortSignal } = {},
 ): Promise<void> {
 	const response = await request(
@@ -240,7 +246,7 @@ export async function postNdjson(
 		options,
 	);
 	if (!response.ok) throw await failureFromResponse(response);
-	await readNdjsonStream(response, onEvent, options.signal);
+	await readNdjsonStream(response, onLine, options.signal);
 }
 
 /** POST JSON and read a JSON reply. */

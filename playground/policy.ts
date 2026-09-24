@@ -30,8 +30,9 @@ export const GEMINI_PLAYGROUND_IMAGE_DEFAULT_API_ID = 'gemini-3.1-flash-lite-ima
 export const GEMINI_PLAYGROUND_LIVE_DEFAULT_API_ID = 'gemini-3.1-flash-live-preview';
 
 /**
- * Trace destination the playground server registers for `observability.writeTo`.
- * It keeps nothing yet; turn traces will be delivered to the run tab's inspector.
+ * Trace destination the playground server registers for `observability.writeTo`,
+ * with a trace router's sink (`createPlaygroundTraceRouter`): each record goes
+ * back to the run tab's inspector. The server keeps nothing.
  */
 export const PLAYGROUND_TRACE_DESTINATION = 'playground';
 

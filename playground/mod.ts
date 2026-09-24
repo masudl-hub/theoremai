@@ -75,6 +75,13 @@ export {
 } from './requirements.ts';
 export { playgroundSource } from './source.ts';
 export {
+  createPlaygroundTraceRouter,
+  PLAYGROUND_RUN_METADATA_KEY,
+  type PlaygroundTraceLine,
+  type PlaygroundTraceRoute,
+  type PlaygroundTraceRouter,
+} from './traces.ts';
+export {
   DEFAULT_TOOL_INPUT_SCHEMA,
   DEFAULT_TOOL_OUTPUT_SCHEMA,
   parseJsonSchema,

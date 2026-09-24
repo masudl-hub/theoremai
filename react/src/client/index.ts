@@ -26,6 +26,7 @@ export type {
 export {
 	continueGatedToolInvocation,
 } from './tool-resume';
+export { createTraceFeed, type TraceFeed } from './trace-feed';
 export { buildInvokeRequest, buildTurnRequest, turnInputFromSession } from './turn-client';
 export {
 	createHttpTransport,

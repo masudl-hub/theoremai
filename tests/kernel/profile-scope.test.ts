@@ -17,10 +17,18 @@ function ancestorScope(path: string) {
 }
 
 /** `{ a: { b: value } }` for `a.b`; `*` becomes a binding key. */
+/** A scoped path with every `*` segment named `probe`. */
+function concretePath(path: string): string {
+  return path
+    .split('.')
+    .map((key) => (key === '*' ? 'probe' : key))
+    .join('.');
+}
+
 function setAt(path: string, value: unknown): Record<string, unknown> {
   let out: unknown = value;
-  for (const key of path.split('.').reverse()) {
-    out = { [key === '*' ? 'probe' : key]: out };
+  for (const key of concretePath(path).split('.').reverse()) {
+    out = { [key]: out };
   }
   return out as Record<string, unknown>;
 }
@@ -60,7 +68,7 @@ Deno.test('defineProfile rejects each scoped field on a type outside its scope',
       if (scope.profileTypes.includes(type)) continue;
       // The ancestor's own rejection covers types it excludes.
       if (parent && !parent.profileTypes.includes(type)) continue;
-      const concrete = path.replace('*', 'probe');
+      const concrete = concretePath(path);
       assertThrows(
         () => defineProfile({ id: 'scope_probe', type, ...setAt(path, true) } as never),
         TheoremError,

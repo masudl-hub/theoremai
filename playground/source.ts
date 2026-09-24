@@ -49,7 +49,9 @@ function literal(value: unknown, depth: number): string {
     );
     return `{\n${lines.join('\n')}\n${close}}`;
   }
-  return JSON.stringify(value);
+  if (value === null || typeof value === 'boolean') return String(value);
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  throw new Error(`Playground source cannot write a ${typeof value} value.`);
 }
 
 function toolSource(tool: ToolRegistration): string {

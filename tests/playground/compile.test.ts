@@ -25,6 +25,7 @@ import {
   toolSpecNodeId,
   zodFromJsonSchema,
 } from '../../playground/mod.ts';
+import { quoteSource } from '../../playground/tool-schema.ts';
 
 function compiled(draft: PlaygroundDraft) {
   const result = compilePlayground(draft);
@@ -260,4 +261,11 @@ Deno.test('zodFromJsonSchema keeps required fields and passes extras', () => {
   });
   assert(!schema.safeParse({ tags: [] }).success);
   assertEquals(schema.parse({ name: 'a', extra: 1 }), { name: 'a', extra: 1 });
+});
+
+Deno.test('quoteSource writes a string that evaluates back to itself, script-safe', () => {
+  const text = `it's "quoted" \\ </script> \u2028\u2029 done`;
+  const quoted = quoteSource(text);
+  assertEquals(new Function(`return ${quoted};`)(), text);
+  assertEquals(/[<>\u2028\u2029]/.test(quoted), false);
 });

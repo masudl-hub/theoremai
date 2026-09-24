@@ -90,9 +90,22 @@ export function zodFromJsonSchema(schema: JsonSchema): ZodType {
   return z.looseObject(shape);
 }
 
+/** Characters escaped even inside a string literal, so pasted source can't close a `<script>` or break a line. */
+const UNSAFE_SOURCE_CHARS: Record<string, string> = {
+  '<': '\\u003C',
+  '>': '\\u003E',
+  '\u2028': '\\u2028',
+  '\u2029': '\\u2029',
+};
+
 /** A single-quoted TypeScript string literal. */
 export function quoteSource(text: string): string {
-  return `'${JSON.stringify(text).slice(1, -1).replaceAll('\\"', '"').replaceAll("'", "\\'")}'`;
+  const body = JSON.stringify(text)
+    .slice(1, -1)
+    .replaceAll('\\"', '"')
+    .replaceAll("'", "\\'")
+    .replace(/[<>\u2028\u2029]/g, (char) => UNSAFE_SOURCE_CHARS[char] ?? char);
+  return `'${body}'`;
 }
 
 /** An object key as TypeScript source: bare when it is an identifier. */

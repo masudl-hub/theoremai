@@ -25,6 +25,7 @@
  *   deno task verify:runner-api -- --verbose
  */
 
+import type { LexiconOverrides } from '../src/guardrails/lexicon.ts';
 import type { OutboundPayload, Verdict } from '../src/guardrails/types.ts';
 import { runTurn } from '../src/kernel/engine/runner.ts';
 import { loadTokenEstimator } from '../src/kernel/engine/token-estimate.ts';
@@ -127,17 +128,8 @@ function alwaysBlock(_payload: OutboundPayload): Verdict {
   };
 }
 
-/** refuse_to_user delivers this copy as a text event — never an error withhold. */
+/** refuse_to_user delivers the profile's `egress.refusal` as a text event — never an error withhold. */
 const REFUSE_USER_COPY = "I can't share that.";
-
-function alwaysRefuseToUser(_payload: OutboundPayload): Verdict {
-  return {
-    action: 'block',
-    hits: [{ rule: 'always', severity: 'high' }],
-    rejection: 'Always blocked.',
-    refusal: REFUSE_USER_COPY,
-  };
-}
 
 function blockOnMarker(payload: OutboundPayload): Verdict {
   if (payload.text.includes('[BLOCKED_MARKER]')) {
@@ -198,7 +190,11 @@ function modelFields(apiId: string): Pick<TextProfileDefinition, 'models' | 'max
   };
 }
 
-function simpleProfile(id: string, guardrails: TextProfileDefinition['guardrails'] = {}): void {
+function simpleProfile(
+  id: string,
+  guardrails: TextProfileDefinition['guardrails'] = {},
+  lexicon?: LexiconOverrides,
+): void {
   registerProfile(
     defineProfile({
       type: 'text',
@@ -208,6 +204,7 @@ function simpleProfile(id: string, guardrails: TextProfileDefinition['guardrails
       tools: { allow: [] },
       inputs: { text: true },
       guardrails: guardrails ?? {},
+      ...(lexicon ? { lexicon } : {}),
     }),
   );
 }
@@ -267,25 +264,35 @@ function registerAllProfiles(): void {
   });
 
   // Egress: always-block, refuse_to_user (no retries regardless of maxRetries)
-  simpleProfile(REFUSE_USER_ID, {
-    egress: {
-      onBlock: 'refuse_to_user',
-      maxRetries: 2,
-      enforce: alwaysRefuseToUser,
+  simpleProfile(
+    REFUSE_USER_ID,
+    {
+      egress: {
+        onBlock: 'refuse_to_user',
+        maxRetries: 2,
+        enforce: alwaysBlock,
+      },
     },
-  });
+    { 'egress.refusal': REFUSE_USER_COPY },
+  );
 
   // Egress: marker-block, reject_to_agent, maxRetries=1
-  simpleProfile(REPAIR_1_ID, {
-    canary: true,
-    sanitizeInput: true,
-    egress: {
-      onBlock: 'reject_to_agent',
-      maxRetries: 1,
-      repairGuidance: 'Remove any [BLOCKED_MARKER] text and give a short helpful reply.',
-      enforce: blockOnMarker,
+  simpleProfile(
+    REPAIR_1_ID,
+    {
+      canary: true,
+      sanitizeInput: true,
+      egress: {
+        onBlock: 'reject_to_agent',
+        maxRetries: 1,
+        enforce: blockOnMarker,
+      },
     },
-  });
+    {
+      'egress.default_repair_guidance':
+        'Remove any [BLOCKED_MARKER] text and give a short helpful reply.',
+    },
+  );
 
   // Compaction sub-profile (registered before owning profiles)
   simpleProfile(COMPACT_SUB_ID, {});

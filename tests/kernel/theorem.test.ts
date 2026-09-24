@@ -28,12 +28,12 @@ import type {
   TurnEvent,
   TurnRequest,
 } from '../../src/kernel/types.ts';
-import { memorySink } from '../../src/observability/trace.ts';
 import { contentOf } from '../../src/observability/trace-record.ts';
 import type { TraceAttributes } from '../../src/observability/trace-span.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 import { eventTypesByReply, replyText } from '../fixtures/reply.ts';
 import { invokeRegisteredTool, withProfileTools } from '../fixtures/test-tools.ts';
+import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
 
 Deno.test('runner internal helper branches: loaders, tool findings, step ceilings, and fallback handlers', async () => {
   registerProfile(
@@ -1297,7 +1297,7 @@ Deno.test('outputs.streaming.streamThoughts=false filters out thought events fro
 
   const events: import('../../src/kernel/types.ts').TurnEvent[] = [];
   const records: import('../../src/observability/trace-record.ts').TraceRecord[] = [];
-  const mockSink = memorySink(records);
+  const mockSink = catalogedSink(records);
 
   for await (const ev of runTurn(
     { profile: 'quiet_bot', input: { text: 'solve problem' } },
@@ -1989,3 +1989,5 @@ Deno.test('registered tool preTool throwing error propagates from runTurn', asyn
   }
   assertEquals(threw, true);
 });
+
+catalogGate();

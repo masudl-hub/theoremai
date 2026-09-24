@@ -4,7 +4,6 @@ import { assertEquals } from '../../../src/kernel/engine/assert.ts';
 import { sha256 } from '../../../src/kernel/engine/hash.ts';
 import { runTurn } from '../../../src/kernel/engine/runner.ts';
 import type { KeyVault, TurnEvent } from '../../../src/kernel/types.ts';
-import { memorySink } from '../../../src/observability/trace.ts';
 import { contentOf, type TraceRecord } from '../../../src/observability/trace-record.ts';
 import type { TraceAttributeValue, TraceSpan } from '../../../src/observability/trace-span.ts';
 import { camelToSnake } from '../../../src/providers/google/interactions/framing.ts';
@@ -16,6 +15,7 @@ import {
   scrubUpstream,
   tapeUpstream,
 } from '../../../src/providers/shared/upstream-tape.ts';
+import { catalogedSink, catalogGate } from '../../fixtures/trace-catalog.ts';
 
 const INPUT_TOKENS = 11;
 const OUTPUT_TOKENS = 2;
@@ -149,7 +149,7 @@ Deno.test('runTurn traces wire, usage, and every Interactions SSE row', async ()
       ),
   });
   const events = await collect(
-    runTurn({ profile: 'chat', input: { text: 'hi' } }, provider, memorySink(into)),
+    runTurn({ profile: 'chat', input: { text: 'hi' } }, provider, catalogedSink(into)),
   );
   // Text profiles always emit turn stages (`pre_turn` → … → `post_turn`) even
   // when the turn passes no `onStage` handler.
@@ -198,7 +198,7 @@ Deno.test('runTurn traces upstream error response bodies', async () => {
     wait: () => Promise.resolve(),
     fetch: () => Promise.resolve(new Response('quota-detail', { status: 500 })),
   });
-  await collect(runTurn({ profile: 'chat', input: { text: 'hi' } }, provider, memorySink(into)));
+  await collect(runTurn({ profile: 'chat', input: { text: 'hi' } }, provider, catalogedSink(into)));
   const [record] = into;
   if (!record) {
     throw new Error('missing trace');
@@ -288,3 +288,5 @@ Deno.test('redactCanaryInTree replaces every canary occurrence in strings', () =
   assertEquals(out.a.includes('secret'), false);
   assertEquals(out.b[0]?.includes('secret'), false);
 });
+
+catalogGate();

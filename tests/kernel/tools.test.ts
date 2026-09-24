@@ -21,10 +21,10 @@ import {
 import { validateToolInputSchema } from '../../src/kernel/tools/schema.ts';
 import type { ToolContext, ToolLoadContext } from '../../src/kernel/tools/types.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
-import { memorySink } from '../../src/observability/trace.ts';
 import type { TraceRecord } from '../../src/observability/trace-record.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 import { invokeRegisteredTool } from '../fixtures/test-tools.ts';
+import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
 
 async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
   const out: TurnEvent[] = [];
@@ -1314,7 +1314,7 @@ Deno.test('host never appears in TurnEvents, trace records, gates, gate input, o
     runTurn(
       { profile: 'host_sentinel_bot', input: { text: 'delete' }, host },
       provider,
-      memorySink(records),
+      catalogedSink(records),
     ),
   );
   const gate = events.find((e) => e.tool?.phase === 'gate')?.tool?.gate;
@@ -1926,3 +1926,5 @@ Deno.test('pre_tool: tool-local preTool is skipped on a granted resume but host 
   assertEquals(hostRan, 1);
   assertEquals(settlement.outputRaw, { finding: 'ran' });
 });
+
+catalogGate();

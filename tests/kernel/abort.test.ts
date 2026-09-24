@@ -2,8 +2,8 @@ import '../fixtures/test-host.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { runTurn } from '../../src/kernel/engine/runner.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
-import { memorySink } from '../../src/observability/trace.ts';
 import type { TraceRecord } from '../../src/observability/trace-record.ts';
+import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
 
 async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
   const out: TurnEvent[] = [];
@@ -66,7 +66,7 @@ Deno.test('runTurn cancels an in-flight provider and ends with cancelled done', 
     runTurn(
       { profile: 'chat', input: { text: 'hi' }, signal: controller.signal },
       provider,
-      memorySink(into),
+      catalogedSink(into),
     ),
   );
   assertEquals(sawAbort, true);
@@ -79,3 +79,5 @@ Deno.test('runTurn cancels an in-flight provider and ends with cancelled done', 
   );
   assertEquals(events.at(-1)?.stage, 'post_turn');
 });
+
+catalogGate();

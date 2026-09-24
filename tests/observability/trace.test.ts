@@ -3,10 +3,11 @@ import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { runTurn } from '../../src/kernel/engine/runner.ts';
 import { registerProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
-import { jsonlSink, memorySink, noopSink } from '../../src/observability/trace.ts';
+import { jsonlSink, noopSink } from '../../src/observability/trace.ts';
 import { inlineContent, type TraceRecord } from '../../src/observability/trace-record.ts';
 import type { TraceAttributes, TraceSpan } from '../../src/observability/trace-span.ts';
 import { HOST_BINDINGS } from '../fixtures/models.ts';
+import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
 import { STUB_WRITE, stubRecord } from '../fixtures/trace-record.ts';
 
 async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
@@ -52,7 +53,7 @@ Deno.test('runTurn traces projectId and hashes media not bytes', async () => {
         },
       },
       fake,
-      memorySink(into),
+      catalogedSink(into),
     ),
   );
   assertEquals(into.length, 1);
@@ -107,7 +108,7 @@ Deno.test('runTurn records what the host received on the turn root, beside what 
     runTurn(
       { profile: 'trace_quiet_thoughts', input: { text: 'fern?' } },
       provider,
-      memorySink(into),
+      catalogedSink(into),
     ),
   );
   const [record] = into;
@@ -147,7 +148,7 @@ Deno.test('runTurn traces explicit Interactions state controls', async () => {
         input: { text: 'continue' },
       },
       { complete: fakeComplete },
-      memorySink(into),
+      catalogedSink(into),
     ),
   );
   const [record] = into;
@@ -183,7 +184,7 @@ Deno.test('runTurn forwards Interactions state controls and preserves host metad
         input: { text: 'continue with metadata' },
       },
       provider,
-      memorySink(into),
+      catalogedSink(into),
     ),
   );
 
@@ -243,3 +244,5 @@ Deno.test('jsonl sink keeps every file when retention is 0 or less', async () =>
     assertEquals(await exists(stale), true);
   }
 });
+
+catalogGate();

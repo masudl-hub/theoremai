@@ -55,6 +55,8 @@ interface TraceSpan {
 
 ## 2. Span catalogue
 
+The shipped wording for every span, attribute, event and value is the trace catalog in code (`src/observability/trace-catalog.ts`, see [the observability contract](../contracts/observability.md#trace-catalog)); where these tables and the catalog differ, the catalog is current.
+
 ### `invoke_agent {profile}`: one turn (INTERNAL)
 
 **Opens** when `runTurn` is entered. **Closes** at flush. A span still open at flush closes as `ERROR` / `unclosed`.

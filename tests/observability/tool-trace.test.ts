@@ -11,7 +11,6 @@ import { defineProfile, registerProfile } from '../../src/kernel/registry/profil
 import { invokeTool } from '../../src/kernel/tools/mod.ts';
 import { registerTool } from '../../src/kernel/tools/registry.ts';
 import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
-import { memorySink } from '../../src/observability/trace.ts';
 import {
   contentOf,
   inlineContent,
@@ -23,6 +22,7 @@ import {
   type TraceSpan,
 } from '../../src/observability/trace-span.ts';
 import { geminiModels } from '../fixtures/models.ts';
+import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
 
 const PROFILE = 'tool_trace_probe';
 const HOST_TRACE = '4bf92f3577b34da6a3ce929d0e0e4736';
@@ -93,7 +93,7 @@ async function drain(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
 async function turnRecord(...calls: NonNullable<TurnEvent['tool']>[]): Promise<TraceRecord> {
   const into: TraceRecord[] = [];
   await drain(
-    runTurn({ profile: PROFILE, input: { text: 'go' } }, asking(...calls), memorySink(into)),
+    runTurn({ profile: PROFILE, input: { text: 'go' } }, asking(...calls), catalogedSink(into)),
   );
   const [record] = into;
   if (!record) throw new Error('no record');
@@ -168,7 +168,7 @@ Deno.test('the model reads back the same text the span records', async () => {
     }),
   );
   await drain(
-    runTurn({ profile: `${PROFILE}_2`, input: { text: 'go' } }, provider, memorySink(into)),
+    runTurn({ profile: `${PROFILE}_2`, input: { text: 'go' } }, provider, catalogedSink(into)),
   );
   const [record] = into;
   if (!record) throw new Error('no record');
@@ -194,7 +194,7 @@ Deno.test('a provider error types the turn and the call by its kind', async () =
       yield { type: 'error', errorKind: 'rate_limit', errorInternal: 'upstream 429' };
     },
   };
-  await drain(runTurn({ profile: PROFILE, input: { text: 'go' } }, failing, memorySink(into)));
+  await drain(runTurn({ profile: PROFILE, input: { text: 'go' } }, failing, catalogedSink(into)));
   const [record] = into;
   const [root] = record?.spans ?? [];
   const call = record?.spans.find((span) => span.name.startsWith('generate_content'));
@@ -277,7 +277,7 @@ Deno.test('a host invoke writes its own record, rooted under the host span', asy
         conversationId: 'conv_1',
         metadata: { user: 'u_1' },
       },
-      memorySink(into),
+      catalogedSink(into),
     ),
   );
   const [record] = into;
@@ -303,7 +303,7 @@ Deno.test('a host invoke that fails before the tool still records why', async ()
     await drain(
       invokeTool(
         { profile: 'no_such_profile', name: 'lookup_order', input: { orderId: 'A1' } },
-        memorySink(into),
+        catalogedSink(into),
       ),
     );
   } catch {
@@ -322,3 +322,5 @@ Deno.test('a host invoke that fails before the tool still records why', async ()
     '{"orderId":"A1"}',
   );
 });
+
+catalogGate();

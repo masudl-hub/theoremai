@@ -30,11 +30,11 @@ import type {
   TurnInput,
 } from '../../src/kernel/types.ts';
 import { bytesToBase64 } from '../../src/kernel/util/base64.ts';
-import { memorySink } from '../../src/observability/trace.ts';
 import { contentOf, type TraceRecord } from '../../src/observability/trace-record.ts';
 import type { TraceAttributes } from '../../src/observability/trace-span.ts';
 import { pngBytes } from '../fixtures/media-bytes.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
+import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
 
 /** Media family of the fixture speaker model (`gemini-3.5-flash-lite`). */
 const FAMILY = 'gemini-3' as const;
@@ -673,7 +673,7 @@ async function tracedTurn(
   provider: ModelProvider,
 ): Promise<{ record: TraceRecord; decision: TraceAttributes | undefined }> {
   const records: TraceRecord[] = [];
-  for await (const _ of runTurn({ profile, input }, provider, memorySink(records))) {
+  for await (const _ of runTurn({ profile, input }, provider, catalogedSink(records))) {
     // drain
   }
   const [record] = records;
@@ -1424,3 +1424,5 @@ Deno.test('meter input before does not compact without inputTokens even if histo
   );
   assertEquals(callCount, 1);
 });
+
+catalogGate();

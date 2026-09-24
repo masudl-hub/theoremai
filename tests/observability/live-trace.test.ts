@@ -11,7 +11,6 @@ import { runSession } from '../../src/kernel/engine/session/mod.ts';
 import { defineProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
 import { registerTool } from '../../src/kernel/tools/registry.ts';
 import type { LiveSession, SessionRequest, TurnEvent } from '../../src/kernel/types.ts';
-import { memorySink } from '../../src/observability/trace.ts';
 import {
   contentOf,
   inlineContent,
@@ -20,6 +19,7 @@ import {
 import type { TraceAttributes, TraceSpan } from '../../src/observability/trace-span.ts';
 import { MockLiveWebSocket } from '../fixtures/live-socket.ts';
 import { HOST_BINDINGS } from '../fixtures/models.ts';
+import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
 
 const PROFILE = 'live_trace_probe';
 const TOOL = 'live_trace_lookup';
@@ -80,7 +80,7 @@ async function open(extra: Partial<SessionRequest> = {}): Promise<Harness> {
         return Promise.resolve(socket as unknown as WebSocket);
       },
     },
-    memorySink(records),
+    catalogedSink(records),
   );
   if (!socket) throw new Error('no socket');
   const events = (async () => {
@@ -339,7 +339,7 @@ Deno.test('a session that fails to open still writes its record, typed by its ki
           vault: { slotA: undefined, slotB: undefined, slotC: undefined, paid: undefined },
         },
       },
-      memorySink(records),
+      catalogedSink(records),
     );
   } catch {
     failed = true;
@@ -458,7 +458,7 @@ Deno.test('a quota refusal at setup reopens on paid, and the trace names the ref
         return Promise.resolve(socket as unknown as WebSocket);
       },
     },
-    memorySink(records),
+    catalogedSink(records),
   );
   const drained = (async () => {
     for await (const _ of session.events()) {
@@ -510,7 +510,7 @@ Deno.test('a quota refusal with no distinct paid key fails the open as rate_limi
           return Promise.resolve(socket as unknown as WebSocket);
         },
       },
-      memorySink(records),
+      catalogedSink(records),
     );
   } catch (err) {
     failure = err;
@@ -519,3 +519,5 @@ Deno.test('a quota refusal with no distinct paid key fails the open as rate_limi
   assertEquals((failure as { kind?: string } | undefined)?.kind, 'rate_limit');
   assertEquals(rootOf(records[0]).attributes['error.type'], 'rate_limit');
 });
+
+catalogGate();

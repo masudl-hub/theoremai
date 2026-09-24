@@ -4,9 +4,10 @@
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { runTurn } from '../../src/kernel/engine/runner.ts';
 import { resolveObservabilityPolicy } from '../../src/observability/resolve-policy.ts';
-import { memorySink, writeTrace } from '../../src/observability/trace.ts';
+import { writeTrace } from '../../src/observability/trace.ts';
 import { contentOf, type TraceRecord } from '../../src/observability/trace-record.ts';
 import type { TraceAttributes } from '../../src/observability/trace-span.ts';
+import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
 import { stubRecord } from '../fixtures/trace-record.ts';
 
 Deno.test('a turn that fails before the model still records its raw input and why', async () => {
@@ -19,7 +20,7 @@ Deno.test('a turn that fails before the model still records its raw input and wh
         input: { text: 'user said this', attachments: [{ mimeType: 'image/png', data: 'YWJj' }] },
       },
       { complete: async function* () {} },
-      memorySink(into),
+      catalogedSink(into),
     )) {
       // drain
     }
@@ -88,3 +89,5 @@ Deno.test('writeTrace ignores onError throws so the turn stays alive', async () 
     resolveObservabilityPolicy(undefined),
   );
 });
+
+catalogGate();

@@ -235,6 +235,34 @@ The full span catalogue — every attribute, event, status rule and stop kind,
 drawn in twelve worked traces including a Live voice session — is
 [the worked example](../proposals/otel-turn-traces-example.md).
 
+## Trace catalog
+
+What a record holds is named and described once, in code
+(`src/observability/trace-catalog.ts`), so a viewer never invents wording for
+it. The playground's trace panel reads it; a host's own tooling can too.
+
+| Lookup | Returns |
+| --- | --- |
+| `traceSpanMeta(span)` | What the span is (`Turn`, `Live session`, `Model call`, `Live response`, `Tool call`, `HTTP try`, `Cutout`, else `Host span`), decided from what it recorded, plus its subject: the agent, model, tool or path |
+| `traceAttributeMeta(key)` | `{ label, doc, format, group, options?, open?, fields? }` for a span attribute, including the modality-usage and recorded-header families; `undefined` for a key Theorem does not write |
+| `traceEventMeta(name)` | `{ label, doc, attributes }` for a span event |
+| `traceEventAttributeMeta(event, key)` | The event's own entry for the key, else the span attribute of that key |
+| `TRACE_ATTRIBUTE_GROUPS`, `TRACE_STATUS`, `TRACE_FIELDS` | Labels for attribute groups, the three status codes, and a record's and span's own fields |
+
+`format` says how a value reads (`tokens`, `usd`, `milliseconds`, `content`,
+`messages`, …). `options` describes a closed set's values and is keyed by the
+kernel's own enum types, so a new stop kind, error kind, tool outcome, key
+slot, guardrail stage or session kind fails the type check until it is
+described; `open: true` marks a set whose other values are real and show as
+is (provider names, HTTP error types). `fields` describes the keys inside an
+object value (Live settings, guardrail hits, sign-in details). A key with no
+entry is still a real attribute: viewers show it under its raw name.
+
+Two gates keep the catalog whole: a test scans every kernel and host source
+for quoted attribute keys and event names, and the traced test suites write
+through a sink that fails the file on any recorded key, event, value or
+nested key the catalog cannot describe.
+
 ## OTLP export
 
 `toOtlpJson(records)` reshapes trace records into one OTLP/JSON
@@ -334,6 +362,9 @@ the module.
 | `listTraceDestinationIds`, `clearTraceDestinations` | function |
 | `isJsonlTraceDestination`, `isTraceSink` | function |
 | `resolveObservabilityPolicy`, `resolveTraceWriter` | function |
+| `traceSpanMeta`, `traceAttributeMeta`, `traceEventMeta`, `traceEventAttributeMeta` | function |
+| `TRACE_ATTRIBUTE_GROUPS`, `TRACE_STATUS`, `TRACE_FIELDS` | const |
+| `TraceSpanMeta`, `TraceAttributeMeta`, `TraceEventMeta`, `TraceOptionMeta`, `TraceAttributeGroup`, `TraceValueFormat` | type |
 
 ```theorem-evidence
 {
@@ -383,6 +414,13 @@ the module.
         { "kind": "contract_test", "path": "tests/observability/trace-record.test.ts" },
         { "kind": "contract_test", "path": "tests/observability/live-trace.test.ts" },
         { "kind": "contract_test", "path": "tests/observability/tool-trace.test.ts" }
+      ]
+    },
+    "Trace catalog": {
+      "supports": [
+        { "kind": "source", "path": "src/observability/trace-catalog.ts" },
+        { "kind": "contract_test", "path": "tests/observability/trace-catalog.test.ts" },
+        { "kind": "contract_test", "path": "tests/observability/live-trace.test.ts" }
       ]
     },
     "OTLP export": {

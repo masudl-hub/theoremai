@@ -6,6 +6,8 @@
  * register named destinations, declare `profile.observability`, and/or pass a
  * sink into `runTurn`. Hosts record their own spans with `startTrace`, seal
  * them with `buildRecord`, and read stored content back with `contentOf`.
+ * Viewers name and describe what a record holds with the trace catalog
+ * (`traceSpanMeta`, `traceAttributeMeta`, `traceEventMeta`).
  *
  * @module
  */
@@ -35,6 +37,23 @@ export {
   noopSink,
   writeTrace,
 } from './trace.ts';
+export type {
+  TraceAttributeGroup,
+  TraceAttributeMeta,
+  TraceEventMeta,
+  TraceOptionMeta,
+  TraceSpanMeta,
+  TraceValueFormat,
+} from './trace-catalog.ts';
+export {
+  TRACE_ATTRIBUTE_GROUPS,
+  TRACE_FIELDS,
+  TRACE_STATUS,
+  traceAttributeMeta,
+  traceEventAttributeMeta,
+  traceEventMeta,
+  traceSpanMeta,
+} from './trace-catalog.ts';
 export type { TraceRecord } from './trace-record.ts';
 export { buildRecord, contentOf, inlineContent } from './trace-record.ts';
 export type { TraceSink, TraceWriteContext } from './trace-sink.ts';

@@ -6,8 +6,8 @@ import '../fixtures/test-host.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { runTurn } from '../../src/kernel/engine/runner.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
-import { memorySink } from '../../src/observability/trace.ts';
 import type { TraceRecord } from '../../src/observability/trace-record.ts';
+import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
 
 const IDENTITY = { id: 'gen-1', model: 'vendor/model-a' };
 
@@ -20,7 +20,7 @@ async function traced(
   for await (const event of runTurn(
     { profile: 'chat', input: { text: 'hi' } },
     provider,
-    memorySink(into),
+    catalogedSink(into),
   )) {
     events.push(event);
   }
@@ -67,3 +67,5 @@ Deno.test('a call that fails after the wire named it still records which model s
   );
   assertEquals([id, model], [IDENTITY.id, IDENTITY.model]);
 });
+
+catalogGate();

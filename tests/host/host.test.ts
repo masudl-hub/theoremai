@@ -10,9 +10,9 @@ import {
   json,
 } from '../../src/host/mod.ts';
 import { resolveObservabilityPolicy } from '../../src/observability/resolve-policy.ts';
-import { memorySink } from '../../src/observability/trace.ts';
 import { buildRecord, contentOf, type TraceRecord } from '../../src/observability/trace-record.ts';
 import { startTrace } from '../../src/observability/trace-span.ts';
+import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
 
 const CUTOUT_MS = 12;
 const NANOS_PER_MS = 1_000_000n;
@@ -77,7 +77,7 @@ Deno.test('flushMintTrace writes the held turn, then a cutout span under its roo
       http: { status: 502 },
       error: 'cutout failed',
     },
-    sink: memorySink(into),
+    sink: catalogedSink(into),
   });
 
   const [first, second] = into;
@@ -101,3 +101,5 @@ Deno.test('flushMintTrace writes the held turn, then a cutout span under its roo
   );
   assertEquals(second?.metadata, { user: 'u1', app: { route: 'vinylator' } });
 });
+
+catalogGate();

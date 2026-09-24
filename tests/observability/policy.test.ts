@@ -6,13 +6,13 @@ import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
 import {
   clearTraceDestinations,
   jsonlDestination,
-  memorySink,
   registerTraceDestination,
   resolveObservabilityPolicy,
   resolveTraceWriter,
 } from '../../src/observability/mod.ts';
 import type { TraceRecord } from '../../src/observability/trace-record.ts';
 import type { TraceSink, TraceWriteContext } from '../../src/observability/trace-sink.ts';
+import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
 import { STUB_WRITE, stubRecord, stubSpan } from '../fixtures/trace-record.ts';
 
 async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
@@ -69,7 +69,7 @@ Deno.test('resolveObservabilityPolicy rejects sampleRate outside 0–1', () => {
 Deno.test('resolveTraceWriter uses registered destination from writeTo id', async () => {
   clearTraceDestinations();
   const into: TraceRecord[] = [];
-  registerTraceDestination('mem', memorySink(into));
+  registerTraceDestination('mem', catalogedSink(into));
   const { sink, policy } = resolveTraceWriter({
     observability: { writeTo: 'mem' },
   });
@@ -83,7 +83,7 @@ Deno.test('resolveTraceWriter sampleRate 0 drops writes; override sink ignores s
   clearTraceDestinations();
   const sampled: TraceRecord[] = [];
   const forced: TraceRecord[] = [];
-  registerTraceDestination('mem', memorySink(sampled));
+  registerTraceDestination('mem', catalogedSink(sampled));
   const stub = stubRecord();
   const dropped = resolveTraceWriter({
     observability: { writeTo: 'mem', sampleRate: 0 },
@@ -92,7 +92,7 @@ Deno.test('resolveTraceWriter sampleRate 0 drops writes; override sink ignores s
   assertEquals(sampled.length, 0);
 
   const overridden = resolveTraceWriter({
-    override: memorySink(forced),
+    override: catalogedSink(forced),
     observability: { writeTo: 'mem', sampleRate: 0 },
   });
   await overridden.sink.write(stub, STUB_WRITE);
@@ -131,7 +131,7 @@ Deno.test('registerTraceDestination revalidates raw jsonl descriptors', () => {
 Deno.test('runTurn uses profile.observability.writeTo when sink omitted', async () => {
   clearTraceDestinations();
   const into: TraceRecord[] = [];
-  registerTraceDestination('chat-mem', memorySink(into));
+  registerTraceDestination('chat-mem', catalogedSink(into));
   const base = getProfile('chat');
   registerProfile(
     defineProfile({
@@ -180,7 +180,7 @@ Deno.test('runTurn explicit sink overrides profile.observability', async () => {
   clearTraceDestinations();
   const profileInto: TraceRecord[] = [];
   const overrideInto: TraceRecord[] = [];
-  registerTraceDestination('chat-mem', memorySink(profileInto));
+  registerTraceDestination('chat-mem', catalogedSink(profileInto));
   const base = getProfile('chat');
   registerProfile(
     defineProfile({
@@ -196,7 +196,7 @@ Deno.test('runTurn explicit sink overrides profile.observability', async () => {
         input: { text: 'hi' },
       },
       fake,
-      memorySink(overrideInto),
+      catalogedSink(overrideInto),
     ),
   );
   assertEquals(profileInto.length, 0);
@@ -207,7 +207,7 @@ Deno.test('runTurn explicit sink overrides profile.observability', async () => {
 Deno.test('sampleRate keeps or drops every record of one trace together', async () => {
   clearTraceDestinations();
   const into: TraceRecord[] = [];
-  registerTraceDestination('sampled', memorySink(into));
+  registerTraceDestination('sampled', catalogedSink(into));
   const { sink } = resolveTraceWriter({ observability: { writeTo: 'sampled', sampleRate: 0.5 } });
   const record = (traceId: string, spanId: string): TraceRecord => ({
     ...stubRecord(),
@@ -225,3 +225,5 @@ Deno.test('sampleRate keeps or drops every record of one trace together', async 
   );
   clearTraceDestinations();
 });
+
+catalogGate();

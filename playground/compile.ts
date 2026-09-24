@@ -65,8 +65,14 @@ import type {
   TurnBehaviourDraft,
 } from './draft.ts';
 import { draftFacets } from './draft.ts';
-import { isGoogleTransport, isProviderBuiltinId, modelBindingViolation } from './policy.ts';
+import { isProviderBuiltinId, modelBindingViolation } from './policy.ts';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
+import {
+  defaultEffortRequired,
+  defaultModelRequired,
+  inputLimitsRequired,
+  keySlotRequired,
+} from './requirements.ts';
 import { parseJsonSchema } from './tool-schema.ts';
 import { modelBindingNodeId, toolSpecNodeId } from './tree.ts';
 
@@ -164,7 +170,7 @@ function compileBinding(
     report(nodeId, 'Effort select needs at least two efforts.', 'allowEffortSelect');
   }
   const defaultEffort = binding.defaultEffort.trim();
-  if (!defaultEffort && Object.keys(efforts).length > 1) {
+  if (!defaultEffort && defaultEffortRequired(binding)) {
     report(nodeId, 'Pick a default effort — there is more than one.', 'defaultEffort');
   } else if (defaultEffort && !(defaultEffort in efforts)) {
     report(nodeId, `Default effort '${defaultEffort}' is not one of the efforts.`, 'defaultEffort');
@@ -184,7 +190,7 @@ function compileBinding(
     ...(effortCount ? { efforts } : {}),
     ...(defaultEffort ? { defaultEffort } : {}),
     ...(binding.allowEffortSelect ? { allowEffortSelect: true } : {}),
-    ...(binding.summaries ? { summaries: true } : {}),
+    ...(binding.summaries !== null ? { summaries: binding.summaries } : {}),
     ...(binding.maxOutputTokens !== null ? { maxOutputTokens: binding.maxOutputTokens } : {}),
     ...(binding.temperature !== null ? { temperature: binding.temperature } : {}),
     ...(binding.builtInTools.length ? { builtInTools: [...binding.builtInTools] } : {}),
@@ -215,7 +221,7 @@ function compileModels(
   const defaultModel = policy.defaultModel.trim();
   if (defaultModel && !(defaultModel in models)) {
     report('models', `Default model '${defaultModel}' is not one of the models.`, 'defaultModel');
-  } else if (!defaultModel && modelBindings.length > 1) {
+  } else if (!defaultModel && defaultModelRequired(draft)) {
     report('models', 'Pick a default model — there is more than one.', 'defaultModel');
   }
   if (policy.allowModelSelect && modelBindings.length < 2) {
@@ -224,10 +230,9 @@ function compileModels(
   if (policy.maxSteps !== null && !Number.isInteger(policy.maxSteps)) {
     report('models', 'Max steps must be a whole number.', 'maxSteps');
   }
-  const usesGoogle = modelBindings.some((binding) =>
-    isGoogleTransport(binding.protocol, binding.provider)
-  );
-  if (usesGoogle && !policy.key) report('models', 'Google models need a key slot.', 'key');
+  if (keySlotRequired(draft) && !policy.key) {
+    report('models', 'Google models need a key slot.', 'key');
+  }
 
   return {
     models,
@@ -416,6 +421,17 @@ function compileTools(draft: PlaygroundDraft, withLoader: boolean, report: Repor
 // ── sections ────────────────────────────────────────────────────────────────
 
 function compileInputs(inputs: InputsDraft, report: Report): ProfileInputsSpec {
+  if (inputLimitsRequired(inputs)) {
+    const limits = [
+      ['maxFiles', 'Max files', inputs.maxFiles],
+      ['maxBytes', 'Max bytes', inputs.maxBytes],
+      ['maxTurnBytes', 'Max turn bytes', inputs.maxTurnBytes],
+    ] as const;
+    for (const [field, label, value] of limits) {
+      if (value !== null) continue;
+      report('inputs', `${label} is required with attachments or voice.`, field);
+    }
+  }
   checkWhole(report, 'inputs', 'maxFiles', 'Max files', inputs.maxFiles, 1);
   checkWhole(report, 'inputs', 'maxBytes', 'Max bytes', inputs.maxBytes, 1);
   checkWhole(report, 'inputs', 'maxTurnBytes', 'Max turn bytes', inputs.maxTurnBytes, 1);

@@ -110,6 +110,45 @@ Deno.test('an issue names the draft field at fault, and the list entry when ther
   );
 });
 
+Deno.test('attachments or voice need every input limit, each an issue on its field', () => {
+  const draft = createExampleDraft();
+  const result = compilePlayground({
+    ...draft,
+    inputs: { ...draft.inputs, maxFiles: null, maxBytes: null, maxTurnBytes: null },
+  });
+  assert(!result.ok);
+  assertEquals(
+    result.issues.map(({ nodeId, field }) => ({ nodeId, field })),
+    [
+      { nodeId: 'inputs', field: 'maxFiles' },
+      { nodeId: 'inputs', field: 'maxBytes' },
+      { nodeId: 'inputs', field: 'maxTurnBytes' },
+    ],
+  );
+  compiled({
+    ...draft,
+    inputs: {
+      ...draft.inputs,
+      attachmentsAccept: [],
+      voiceAccept: [],
+      maxFiles: null,
+      maxBytes: null,
+      maxTurnBytes: null,
+    },
+  });
+});
+
+Deno.test('summaries compile on, off, or left to the provider', () => {
+  const draft = createExampleDraft();
+  const [fast, ...rest] = draft.modelBindings;
+  const summaries = (value: boolean | null) =>
+    compiled({ ...draft, modelBindings: [{ ...fast, summaries: value }, ...rest] })
+      .profile.models[fast.modelId].summaries;
+  assertEquals(summaries(true), true);
+  assertEquals(summaries(false), false);
+  assertEquals(summaries(null), undefined);
+});
+
 Deno.test('a duplicate tool name is keyed to the second tool', () => {
   const draft = createExampleDraft();
   const copy = defaultToolSpec({ toolName: draft.toolSpecs[0].toolName });

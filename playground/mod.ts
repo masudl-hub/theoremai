@@ -44,6 +44,12 @@ export {
 } from './draft.ts';
 export { createExampleDraft } from './example.ts';
 export {
+  type AcceptSection,
+  acceptSections,
+  expandAccept,
+  nextAccept,
+} from './media-accept.ts';
+export {
   allowedBuiltinsForGemini,
   defaultBindingForProfileType,
   GEMINI_PLAYGROUND_DEFAULT_API_ID,
@@ -61,6 +67,12 @@ export {
   OPENROUTER_PLAYGROUND_API_ID,
   PLAYGROUND_TRACE_DESTINATION,
 } from './policy.ts';
+export {
+  defaultEffortRequired,
+  defaultModelRequired,
+  inputLimitsRequired,
+  keySlotRequired,
+} from './requirements.ts';
 export { playgroundSource } from './source.ts';
 export {
   DEFAULT_TOOL_INPUT_SCHEMA,

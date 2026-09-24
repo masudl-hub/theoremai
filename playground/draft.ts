@@ -87,7 +87,8 @@ export interface ModelBindingDraft {
   efforts: EffortDraft[];
   defaultEffort: string;
   allowEffortSelect: boolean;
-  summaries: boolean;
+  /** Thought summaries: on, off, or `null` to leave it to the provider. */
+  summaries: boolean | null;
   maxOutputTokens: number | null;
   temperature: number | null;
   builtInTools: string[];
@@ -237,7 +238,7 @@ export function defaultModelBinding(partial?: Partial<ModelBindingDraft>): Model
     efforts: [],
     defaultEffort: '',
     allowEffortSelect: false,
-    summaries: false,
+    summaries: null,
     maxOutputTokens: null,
     temperature: null,
     builtInTools: [],

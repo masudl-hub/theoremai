@@ -4,11 +4,11 @@ import { Collapsible } from '@astryxdesign/core/Collapsible';
 import { HStack } from '@astryxdesign/core/HStack';
 import { Icon } from '@astryxdesign/core/Icon';
 import { MetadataList, MetadataListItem } from '@astryxdesign/core/MetadataList';
-import { ProgressBar } from '@astryxdesign/core/ProgressBar';
 import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconArrowLeft } from '@tabler/icons-react';
 import type { ReactNode } from 'react';
+import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import {
 	TRACE_ATTRIBUTE_GROUPS,
 	TRACE_FIELDS,
@@ -54,41 +54,59 @@ function numberAttribute(node: TraceNode, key: string): number | undefined {
 	return typeof value === 'number' ? value : undefined;
 }
 
-/** Input, cached, thinking and output tokens as bars: cached of input, thinking of output, each side of the whole. */
+const TOKEN_KEYS = [
+	'gen_ai.usage.input_tokens',
+	'gen_ai.usage.cache_read.input_tokens',
+	'gen_ai.usage.output_tokens',
+	'gen_ai.usage.reasoning.output_tokens',
+] as const;
+
+/** Height of one bar's row in the tokens chart, in pixels. */
+const TOKEN_ROW_PX = 36;
+/** Width of the chart's label column, in pixels. */
+const TOKEN_LABEL_PX = 120;
+/** Room right of the longest bar for its count, in pixels. */
+const TOKEN_VALUE_PX = 64;
+
+/** Input, cached, output and thinking tokens as one bar chart; a count the span didn't report is left out. */
 function TokensCard({ node }: { node: TraceNode }) {
 	const format = useTraceFormat();
-	const input = numberAttribute(node, 'gen_ai.usage.input_tokens');
-	const output = numberAttribute(node, 'gen_ai.usage.output_tokens');
-	if (input === undefined && output === undefined) return null;
-	const total = (input ?? 0) + (output ?? 0);
-	const bars: { key: string; of: number }[] = [
-		{ key: 'gen_ai.usage.input_tokens', of: total },
-		{ key: 'gen_ai.usage.cache_read.input_tokens', of: input ?? 0 },
-		{ key: 'gen_ai.usage.output_tokens', of: total },
-		{ key: 'gen_ai.usage.reasoning.output_tokens', of: output ?? 0 },
-	];
+	const rows = TOKEN_KEYS.flatMap((key) => {
+		const value = numberAttribute(node, key);
+		return value === undefined ? [] : [{ label: traceAttributeMeta(key)?.label ?? key, value }];
+	});
+	if (rows.length === 0) return null;
 	return (
 		<Card padding={3} variant="muted">
 			<VStack gap={2}>
 				<Text weight="medium">{format.t('@theorem.panel.trace.tokens')}</Text>
-				{bars.flatMap(({ key, of }) => {
-					const value = numberAttribute(node, key);
-					const label = traceAttributeMeta(key)?.label ?? key;
-					if (value === undefined) return [];
-					return [
-						<VStack key={key} gap={1}>
-							<Text type="supporting">{label}</Text>
-							<ProgressBar
-								label={label}
-								isLabelHidden
-								hasValueLabel
-								value={value}
-								max={Math.max(of, value)}
-								formatValueLabel={(count) => format.number(count)}
-							/>
-						</VStack>,
-					];
-				})}
+				<ResponsiveContainer width="100%" height={rows.length * TOKEN_ROW_PX}>
+					<BarChart data={rows} layout="vertical" margin={{ top: 0, right: TOKEN_VALUE_PX, bottom: 0, left: 0 }}>
+						<XAxis type="number" hide />
+						<YAxis
+							type="category"
+							dataKey="label"
+							width={TOKEN_LABEL_PX}
+							tickLine={false}
+							axisLine={false}
+							tick={{ fill: 'var(--color-text-secondary)' }}
+						/>
+						<Tooltip
+							cursor={false}
+							formatter={(value) => (typeof value === 'number' ? format.number(value) : String(value))}
+						/>
+						<Bar
+							dataKey="value"
+							fill="var(--color-accent)"
+							isAnimationActive={false}
+							label={{
+								position: 'right',
+								fill: 'var(--color-text-primary)',
+								formatter: (value: unknown) => (typeof value === 'number' ? format.number(value) : ''),
+							}}
+						/>
+					</BarChart>
+				</ResponsiveContainer>
 			</VStack>
 		</Card>
 	);

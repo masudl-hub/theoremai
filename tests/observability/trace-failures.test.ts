@@ -1,59 +1,48 @@
 /**
  * Trace failure honesty — no test-host fixture (profile registry independent).
  */
-import { sanitizeTurnRequestForTrace } from '../../src/guardrails/sanitize.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
+import { runTurn } from '../../src/kernel/engine/runner.ts';
+import { resolveObservabilityPolicy } from '../../src/observability/resolve-policy.ts';
 import { writeTrace } from '../../src/observability/trace.ts';
-import { buildRecord, type TraceRecord } from '../../src/observability/trace-record.ts';
+import { contentOf, type TraceRecord } from '../../src/observability/trace-record.ts';
+import type { TraceAttributes } from '../../src/observability/trace-span.ts';
+import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
+import { stubRecord } from '../fixtures/trace-record.ts';
 
-function stubRecord(): TraceRecord {
-  return {
-    v: 1,
-    id: 'x',
-    ts: 1,
-    ms: 1,
-    streamed: true,
-    cancelled: false,
-    previousInteractionId: null,
-    store: false,
-    profile: 'chat',
-    input: { attachments: [], voice: [] },
-    events: [],
-    ok: true,
-  };
-}
-
-Deno.test('sanitizeTurnRequestForTrace keeps text when blob sanitize throws', () => {
-  const traced = sanitizeTurnRequestForTrace({
-    profile: 'no-such-profile-for-trace',
-    input: {
-      text: 'keep this prompt',
-      attachments: [{ mimeType: 'image/png', data: 'YWJj' }],
-    },
-  });
-  assertEquals(traced.request.input?.text, 'keep this prompt');
-  assertEquals(traced.request.input?.attachments?.length, 1);
-  assertEquals(typeof traced.sanitizeError, 'string');
-  assertEquals(traced.sanitizeError?.includes('Unknown profile'), true);
-});
-
-Deno.test('buildRecord never invents empty input when request sanitize fails', async () => {
-  const rec = await buildRecord({
-    req: {
-      profile: 'no-such-profile-for-trace',
-      input: {
-        text: 'user said this',
-        attachments: [{ mimeType: 'image/png', data: 'YWJj' }],
+Deno.test('a turn that fails before the model still records its raw input and why', async () => {
+  const into: TraceRecord[] = [];
+  let thrown: unknown;
+  try {
+    for await (const _ of runTurn(
+      {
+        profile: 'no-such-profile-for-trace',
+        input: { text: 'user said this', attachments: [{ mimeType: 'image/png', data: 'YWJj' }] },
       },
-    },
-    events: [],
-    started: Date.now(),
-  });
-  assertEquals(rec.input.text, 'user said this');
-  assertEquals(rec.input.attachments.length, 1);
-  assertEquals(rec.input.attachments[0]?.mimeType, 'image/png');
-  assertEquals(typeof rec.input.attachments[0]?.sha256, 'string');
-  assertEquals(String(rec.errorInternal).includes('request sanitize for trace failed'), true);
+      { complete: async function* () {} },
+      catalogedSink(into),
+    )) {
+      // drain
+    }
+  } catch (err) {
+    thrown = err;
+  }
+  assertEquals(thrown instanceof Error, true);
+  const [record] = into;
+  const root = record?.spans[0];
+  const [message] = (root?.attributes['gen_ai.input.messages'] ?? []) as {
+    parts: TraceAttributes[];
+  }[];
+  const [text, image] = message?.parts ?? [];
+  assertEquals(record && contentOf(record, text), 'user said this');
+  assertEquals(image?.mime_type, 'image/png');
+  assertEquals(typeof image?.content_sha256, 'string');
+  assertEquals(root?.status, { code: 'ERROR', message: 'config' });
+  assertEquals(root?.attributes['error.type'], 'config');
+  assertEquals(
+    root?.events.some((e) => e.name === 'exception'),
+    true,
+  );
 });
 
 Deno.test('writeTrace reports sink failures via onError without throwing', async () => {
@@ -66,6 +55,7 @@ Deno.test('writeTrace reports sink failures via onError without throwing', async
       },
     },
     Promise.resolve(stubRecord()),
+    resolveObservabilityPolicy(undefined),
   );
   assertEquals(seen.length, 1);
   assertEquals(seen[0] instanceof Error && (seen[0] as Error).message, 'Disk full');
@@ -81,6 +71,7 @@ Deno.test('writeTrace reports record-build failures via onError without throwing
       },
     },
     Promise.reject(new Error('build blew up')),
+    resolveObservabilityPolicy(undefined),
   );
   assertEquals(seen.length, 1);
   assertEquals(seen[0] instanceof Error && (seen[0] as Error).message, 'build blew up');
@@ -95,5 +86,8 @@ Deno.test('writeTrace ignores onError throws so the turn stays alive', async () 
       },
     },
     Promise.resolve(stubRecord()),
+    resolveObservabilityPolicy(undefined),
   );
 });
+
+catalogGate();

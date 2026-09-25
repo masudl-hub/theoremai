@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-net --allow-read
+#!/usr/bin/env -S deno run --allow-net --allow-read --allow-sys --allow-env
 
 /**
  * Host live harness for Interactions `codeExecution`.
@@ -12,6 +12,7 @@ import { executeSingleTest, testProfileCommand } from '../src/cli/commands/test.
 import { synthesizeMatrixCombos } from '../src/cli/matrix/synthesizer.ts';
 import { runTurn } from '../src/kernel/engine/runner.ts';
 import { defineProfile, getProfile, registerProfile } from '../src/kernel/registry/profiles.ts';
+import { requireModelProfile } from '../src/kernel/registry/resolve.ts';
 import { registerStructured } from '../src/kernel/registry/schemas.ts';
 import type {
   BuiltinToolId,
@@ -22,6 +23,7 @@ import type {
 } from '../src/kernel/types.ts';
 import { registerGooglePreset } from '../src/presets/google.ts';
 import { createProvider } from '../src/providers/create-provider.ts';
+import { hostVault, loadHostEnv, VAULT_ENV } from './host-env.ts';
 
 function valueAfterFlag(flag: string): string | undefined {
   const idx = Deno.args.indexOf(flag);
@@ -29,19 +31,19 @@ function valueAfterFlag(flag: string): string | undefined {
   return Deno.args[idx + 1];
 }
 
-const apiKey = valueAfterFlag('--api-key');
-const modelId = valueAfterFlag('--model') ?? 'gemini-2.5-flash';
+loadHostEnv();
+const vault = hostVault();
+const modelId = valueAfterFlag('--model') ?? 'gemini-3.5-flash-lite';
 const thinkingLevel = valueAfterFlag('--thinking') ?? 'high';
 
-if (!apiKey) {
-  console.error('missing --api-key (host must pass credentials; THEOREM does not read env)');
+if (!vault.slotA) {
+  console.error(`${VAULT_ENV.slotA} unset (this script reads it; Theorem itself never reads env)`);
   Deno.exit(1);
 }
 
 registerGooglePreset();
 
 registerStructured('liveCodeAnswer', {
-  enforced: 'responseFormat',
   jsonSchema: {
     type: 'object',
     properties: {
@@ -53,6 +55,7 @@ registerStructured('liveCodeAnswer', {
 });
 
 const PROFILE = 'live.code_execution';
+const PROFILE_BUFFERED = 'live.code_execution.buffered';
 const PROFILE_STRUCTURED = 'live.code_execution.structured';
 
 function effortAlias(level: string): string {
@@ -79,23 +82,30 @@ function flashBinding(builtInTools: BuiltinToolId[]): ModelBinding {
   };
 }
 
+const streamed = defineProfile({
+  type: 'text',
+  id: PROFILE,
+  identity: {
+    handle: 'code-exec-live',
+    system:
+      'You have code_execution. Prefer executing Python for arithmetic, plots, and failures. Be concise.',
+  },
+  models: { flash: flashBinding(['codeExecution', 'googleSearch']) },
+  defaultModel: 'flash',
+  maxSteps: 3,
+  key: 'slotA',
+  tools: { allow: [] },
+  inputs: { text: true },
+  outputs: {},
+  guardrails: { quota: { perDay: 1000 } },
+});
+registerProfile(streamed);
+// Stream vs batch is profile-owned (`outputs.streaming.mode`); same profile, buffered.
 registerProfile(
   defineProfile({
-    type: 'text',
-    id: PROFILE,
-    identity: {
-      handle: 'code-exec-live',
-      system:
-        'You have code_execution. Prefer executing Python for arithmetic, plots, and failures. Be concise.',
-    },
-    models: { flash: flashBinding(['codeExecution', 'googleSearch']) },
-    defaultModel: 'flash',
-    maxSteps: 3,
-    key: 'slotA',
-    tools: { allow: [] },
-    inputs: { text: true },
-    outputs: {},
-    guardrails: { quota: { perDay: 1000 } },
+    ...streamed,
+    id: PROFILE_BUFFERED,
+    outputs: { streaming: { mode: 'buffered' } },
   }),
 );
 
@@ -120,7 +130,7 @@ registerProfile(
 
 const provider: ModelProvider = createProvider(getProfile(PROFILE), {
   gemini: {
-    vault: { slotA: apiKey, slotB: apiKey, slotC: apiKey, paid: apiKey },
+    vault,
     wait: () => Promise.resolve(),
   },
 });
@@ -165,7 +175,7 @@ async function runCase(
       } else if (event.type === 'structured') {
         console.log(`  structured ${JSON.stringify(event.structured)}`);
       } else if (event.type === 'error') {
-        console.log(`  error ${event.error}`);
+        console.log(`  error ${event.errorInternal ?? event.error}`);
       } else if (event.type === 'text' && event.text) {
         console.log(`  text ${JSON.stringify(event.text).slice(0, 100)}`);
       }
@@ -189,13 +199,14 @@ const asserted: CaseResult[] = [];
 console.log(`\n${'='.repeat(70)}\n CLI MATRIX via testProfileCommand\n${'='.repeat(70)}`);
 console.log(
   'matrix combos:',
-  synthesizeMatrixCombos(getProfile(PROFILE))
+  synthesizeMatrixCombos(requireModelProfile(getProfile(PROFILE), 'verify-code-execution'))
     .map((c) => c.name)
     .join(' | '),
 );
 const matrixOk = await testProfileCommand(PROFILE, {
   matrix: true,
   provider,
+  verbose: true,
 });
 asserted.push({
   name: 'cli matrix (no provider error)',
@@ -208,7 +219,6 @@ asserted.push(
   await (async () => {
     const req = {
       profile: PROFILE,
-      model: 'flash',
       effort: turnEffort,
       input: {
         text: 'Use code_execution once: print(sum(range(1, 11))). Reply with only the number.',
@@ -228,12 +238,12 @@ asserted.push(
     'stream arithmetic',
     {
       profile: PROFILE,
-      stream: true,
       effort: turnEffort,
       input: { text: 'Use code_execution: print(sum(range(1, 101))). Reply with only the number.' },
     },
     (got) => {
-      if (got.errors.length) return `error event: ${got.errors[0]?.error}`;
+      if (got.errors.length)
+        return `error event: ${got.errors[0]?.errorInternal ?? got.errors[0]?.error}`;
       if (got.calls.length < 1) return 'missing code_execution_call';
       if (got.results.length < 1) return 'missing code_execution_result';
       if (got.results.some((r) => r?.isError === true)) return 'unexpected isError=true';
@@ -249,13 +259,13 @@ asserted.push(
   await runCase(
     'batch arithmetic',
     {
-      profile: PROFILE,
-      stream: false,
+      profile: PROFILE_BUFFERED,
       effort: turnEffort,
       input: { text: 'Use code_execution: print(sum(range(1, 51))). Reply with only the number.' },
     },
     (got) => {
-      if (got.errors.length) return `error event: ${got.errors[0]?.error}`;
+      if (got.errors.length)
+        return `error event: ${got.errors[0]?.errorInternal ?? got.errors[0]?.error}`;
       if (got.calls.length < 1) return 'missing call in batch';
       if (got.results.length < 1) return 'missing result in batch';
       if (!got.text.includes('1275') && !got.results.some((r) => r?.result?.includes('1275'))) {
@@ -274,12 +284,14 @@ asserted.push(
       effort: turnEffort,
       input: {
         text:
-          'Use code_execution exactly once to evaluate 1/0 in Python. ' +
+          'Use code_execution exactly once to run exactly this Python, unchanged: print(1/0) ' +
+          '(no try/except, let the exception propagate). ' +
           'Then briefly say whether the sandbox reported an error.',
       },
     },
     (got) => {
-      if (got.errors.length) return `turn error: ${got.errors[0]?.error}`;
+      if (got.errors.length)
+        return `turn error: ${got.errors[0]?.errorInternal ?? got.errors[0]?.error}`;
       if (got.calls.length < 1) return 'missing call';
       if (!got.results.some((r) => r?.isError === true)) {
         return `expected isError=true, results=${JSON.stringify(
@@ -304,7 +316,8 @@ asserted.push(
       },
     },
     (got) => {
-      if (got.errors.length) return `error: ${got.errors[0]?.error}`;
+      if (got.errors.length)
+        return `error: ${got.errors[0]?.errorInternal ?? got.errors[0]?.error}`;
       if (got.calls.length < 2) return `expected >=2 calls, got ${got.calls.length}`;
       if (got.results.length < 2) return `expected >=2 results, got ${got.results.length}`;
       const joined = `${got.text}\n${got.results.map((r) => r?.result ?? '').join('\n')}`;
@@ -329,7 +342,8 @@ asserted.push(
       },
     },
     (got) => {
-      if (got.errors.length) return `error: ${got.errors[0]?.error}`;
+      if (got.errors.length)
+        return `error: ${got.errors[0]?.errorInternal ?? got.errors[0]?.error}`;
       if (got.calls.length < 1) return 'missing call';
       if (got.media.length < 1) {
         return `expected media image from plot, got media=${got.media.length} results=${got.results.length}`;
@@ -355,7 +369,8 @@ asserted.push(
       },
     },
     (got) => {
-      if (got.errors.length) return `error: ${got.errors[0]?.error}`;
+      if (got.errors.length)
+        return `error: ${got.errors[0]?.errorInternal ?? got.errors[0]?.error}`;
       if (got.calls.length < 1) return 'missing code call';
       // Search may appear as grounding/evidence; code result should include 12.
       const joined = `${got.text}\n${got.results.map((r) => r?.result ?? '').join('\n')}`;
@@ -378,7 +393,7 @@ asserted.push(
     (got) => {
       // Pairing is undocumented: fail only on turn errors or missing code entirely.
       if (got.errors.length) {
-        return `API/turn error (pairing unsupported?): ${got.errors[0]?.error}`;
+        return `API/turn error (pairing unsupported?): ${got.errors[0]?.errorInternal ?? got.errors[0]?.error}`;
       }
       if (got.calls.length < 1) return 'no code call';
       if (got.structured && typeof got.structured === 'object') {

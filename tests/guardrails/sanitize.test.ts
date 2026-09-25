@@ -1,7 +1,7 @@
 import '../fixtures/test-host.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
+import { hitFromSpan } from '../../src/guardrails/hits.ts';
 import {
-  PROJECT_ID_MAX,
   redactSensitiveOnly,
   sanitizeProjectId,
   sanitizeText,
@@ -162,10 +162,8 @@ Deno.test('projectId keeps safe ids and drops junk', () => {
   assertEquals(sanitizeProjectId('proj_1.2-a'), 'proj_1.2-a');
   assertEquals(sanitizeProjectId('  ab  '), 'ab');
   assertEquals(sanitizeProjectId('has space'), undefined);
-  assertEquals(
-    sanitizeProjectId('x'.repeat(PROJECT_ID_MAX + PROJECT_ID_MAX))?.length,
-    PROJECT_ID_MAX,
-  );
+  const long = 'x'.repeat(1000);
+  assertEquals(sanitizeProjectId(long), long);
 });
 
 Deno.test('csv formula cells get a quote prefix while numeric text stays intact', () => {
@@ -327,15 +325,15 @@ Deno.test('attachments.ts edge cases: formatting, 1-file message, latin1 decodin
 
   assertEquals(
     lexiconText('attachments.too_many_files', { maxFiles: 1 }),
-    'Only 1 file per message.',
+    'Sorry, only 1 file can be sent per message.',
   );
   assertEquals(
     lexiconText('attachments.file_too_large', { maxBytes: 1_572_864 }),
-    'Each file must be 1.5 MB or smaller.',
+    'Sorry, that file is too large. Each file needs to be 1.5 MB or smaller.',
   );
   assertEquals(
     lexiconText('attachments.turn_too_large', { maxTurnBytes: 1_572_864 }),
-    'Those files together are too large for one message (1.5 MB max).',
+    'Sorry, those files are too large together. Please keep them under 1.5 MB in total.',
   );
 
   // requireMediaLimits on profile without limits
@@ -344,6 +342,7 @@ Deno.test('attachments.ts edge cases: formatting, 1-file message, latin1 decodin
     id: 'no-limits',
     identity: { handle: 'no-limits' },
     ...geminiModels('gemini35FlashLite'),
+    defaultModel: 'gemini35FlashLite',
     tools: { allow: [] },
     inputs: { text: true },
     outputs: { structured: null },
@@ -353,27 +352,39 @@ Deno.test('attachments.ts edge cases: formatting, 1-file message, latin1 decodin
 
   // sanitizeTurnBlobs without limits
   assertThrows(
-    () => sanitizeTurnBlobs([{ mimeType: 'image/png', data: 'abc' }], undefined, undefined),
+    () => sanitizeTurnBlobs(noLimitsProfile, [{ mimeType: 'image/png', data: 'abc' }], undefined),
     TheoremError,
   );
 
-  // sanitizeTurnBlobs with latin1 invalid utf-8 text file
-  const invalidUtf8 = btoa(String.fromCharCode(0xff, 0xfe, 0xfd));
-  const sanitized = sanitizeTurnBlobs([{ mimeType: 'text/plain', data: invalidUtf8 }], undefined, {
-    maxFiles: 5,
-    maxBytes: 10_000_000,
-    maxTurnBytes: 10_000_000,
+  const withLimits = (limitsByMime?: Record<string, number>): Profile => ({
+    ...noLimitsProfile,
+    inputs: {
+      text: true,
+      attachments: { accept: ['text/plain', 'image/*'] },
+      maxFiles: 5,
+      maxBytes: 10_000_000,
+      maxTurnBytes: 10_000_000,
+      ...(limitsByMime ? { limitsByMime } : {}),
+    },
   });
+
+  // sanitizeTurnBlobs with latin1 invalid utf-8 text file; the name rides along
+  const invalidUtf8 = btoa(String.fromCharCode(0xff, 0xfe, 0xfd));
+  const sanitized = sanitizeTurnBlobs(
+    withLimits(),
+    [{ mimeType: 'text/plain', data: invalidUtf8, name: 'notes.txt' }],
+    undefined,
+  );
   assertEquals(sanitized.attachments?.length, 1);
+  assertEquals(sanitized.attachments?.[0]?.name, 'notes.txt');
 
   // Wildcard category limits (e.g. image/*)
   const pngBlob = { mimeType: 'image/png', data: btoa('test data') };
-  const wildcardSanitized = sanitizeTurnBlobs([pngBlob], undefined, {
-    maxFiles: 5,
-    maxBytes: 10_000_000,
-    maxTurnBytes: 10_000_000,
-    limitsByMime: { 'image/*': 100_000 },
-  });
+  const wildcardSanitized = sanitizeTurnBlobs(
+    withLimits({ 'image/*': 100_000 }),
+    [pngBlob],
+    undefined,
+  );
   assertEquals(wildcardSanitized.attachments?.length, 1);
 });
 
@@ -523,4 +534,12 @@ Deno.test('sanitizeHistory omits absent keys rather than setting them to undefin
   assertEquals('parts' in userMsg, false);
   assertEquals('tool_calls' in userMsg, false);
   assertEquals('metadata' in userMsg, false);
+});
+
+Deno.test('a span hit keeps the whole text it caught, however long', () => {
+  const pem = `-----BEGIN PRIVATE KEY-----\n${'A'.repeat(2000)}\n-----END PRIVATE KEY-----`;
+  const text = `before ${pem} after`;
+  const start = text.indexOf(pem);
+  const hit = hitFromSpan(text, { start, end: start + pem.length }, 'sensitive.pem', 'high');
+  assertEquals(hit.match, pem);
 });

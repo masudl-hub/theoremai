@@ -8,7 +8,8 @@
  * @module
  */
 
-import type { ModelId, ModelProfile, TurnBlob, TurnRequest } from '../../kernel/types.ts';
+import { profileInputs } from '../../kernel/registry/catalog.ts';
+import type { ModelProfile, TurnBlob, TurnRequest } from '../../kernel/types.ts';
 import { FIXTURE_PNG_BASE64, FIXTURE_WAV_BASE64, getFixtureForMime } from './fixtures.ts';
 
 export interface MatrixOptions {
@@ -20,11 +21,6 @@ export interface MatrixOptions {
   mode?: string;
   attachmentPaths?: string[];
   voicePath?: string;
-}
-
-function defaultModelId(profile: ModelProfile): ModelId {
-  const ids = Object.keys(profile.models);
-  return profile.defaultModel ?? ids[0] ?? '';
 }
 
 export function synthesizeLiteCombo(profile: ModelProfile): TurnRequest {
@@ -50,11 +46,12 @@ function resolveStressModel(profile: ModelProfile): string | undefined {
 }
 
 function resolveStressAttachments(profile: ModelProfile): TurnBlob[] {
-  if (profile.type === 'speech' || profile.type === 'live' || !profile.inputs) {
+  const inputs = profileInputs(profile);
+  if (!inputs) {
     return [];
   }
   const attachments: TurnBlob[] = [];
-  const accept = profile.inputs.attachments?.accept;
+  const accept = inputs.attachments?.accept;
   if (accept && accept.length > 0) {
     const preferredMimes = ['image/png', 'application/pdf', 'text/plain'];
     const chosenMime = preferredMimes.find((m) => accept.includes(m)) ?? accept[0];
@@ -69,11 +66,12 @@ function resolveStressAttachments(profile: ModelProfile): TurnBlob[] {
 }
 
 function resolveStressVoice(profile: ModelProfile): TurnBlob[] {
-  if (profile.type === 'speech' || profile.type === 'live' || !profile.inputs) {
+  const inputs = profileInputs(profile);
+  if (!inputs) {
     return [];
   }
   const voice: TurnBlob[] = [];
-  if (profile.inputs.voice?.accept && profile.inputs.voice.accept.length > 0) {
+  if (inputs.voice?.accept && inputs.voice.accept.length > 0) {
     voice.push({ mimeType: 'audio/wav', data: FIXTURE_WAV_BASE64 });
   }
   return voice;
@@ -114,7 +112,7 @@ export function synthesizeMatrixCombos(
 /** Ensure CLI grounding flags match model builtInTools. */
 function assertGroundingFlagsOnModel(profile: ModelProfile, options: MatrixOptions): void {
   const modelId =
-    options.mode && profile.models[options.mode] ? options.mode : defaultModelId(profile);
+    options.mode && profile.models[options.mode] ? options.mode : profile.defaultModel;
   const builtins = new Set(profile.models[modelId]?.builtInTools ?? []);
   if (options.search === true && !builtins.has('googleSearch')) {
     throw new Error(`--search requires googleSearch on models.${modelId}.builtInTools`);

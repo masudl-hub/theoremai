@@ -5,4 +5,5 @@ src/**/*.md
 playground/
 react/
 src/interface/
+src/guardrails/eval/
 snyk

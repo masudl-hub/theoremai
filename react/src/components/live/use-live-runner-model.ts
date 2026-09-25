@@ -2,7 +2,8 @@ import { type MutableRefObject, useCallback, useEffect, useMemo, useRef, useStat
 import { liveIngressEnabledFromSpec } from '../../../../mod.ts';
 import type { LiveProfileInterface } from '../../../../src/interface/mod.ts';
 import type { LiveCaptionState, LiveCaptionTurn } from '../../client/live/live-captions';
-import { liveStateLabel } from '../../client/live/live-state';
+import { liveState } from '../../client/live/live-state';
+import { createTraceFeed } from '../../client/trace-feed';
 import { useLiveRunnerControls } from './use-live-runner-controls';
 import { useLiveRunnerGate, useLiveRunnerUiState } from './use-live-runner-ui';
 import { useLiveSessionClient } from './use-live-session-client';
@@ -77,11 +78,11 @@ export function useLiveRunnerModel(
 	iface: LiveProfileInterface,
 	registerProfile: () => Promise<string>,
 ) {
-	const ui = useLiveRunnerUiState();
+	const ui = useLiveRunnerUiState(iface.lexicon);
 	const gate = useLiveRunnerGate({
 		setCaptions: ui.setCaptions,
 		setActiveTool: ui.setActiveTool,
-		setError: ui.setError,
+		reportFailure: ui.reportFailure,
 	});
 	const registerProfileRef = useRef(registerProfile);
 	registerProfileRef.current = registerProfile;
@@ -90,9 +91,9 @@ export function useLiveRunnerModel(
 	const videoAvailable = liveIngressEnabledFromSpec(iface.live.ingress, 'video');
 	const textAvailable = liveIngressEnabledFromSpec(iface.live.ingress, 'text');
 
-	const stateLabel = useMemo(
+	const state = useMemo(
 		() =>
-			liveStateLabel({
+			liveState({
 				status: ui.status,
 				connectPhase: ui.connectPhase,
 				toolName: ui.activeTool,
@@ -102,8 +103,11 @@ export function useLiveRunnerModel(
 		[ui.activeTool, ui.connectPhase, ui.isMuted, ui.status, voiceAvailable],
 	);
 
+	// One feed per runner: every session it opens adds its records.
+	const traces = useMemo(createTraceFeed, []);
 	const { clientRef, ensureClient, clearClient } = useLiveSessionClient({
 		voiceAvailable,
+		traces,
 		handleLiveTurnEvent: gate.handleLiveTurnEvent,
 		waitForGateDecision: gate.waitForGateDecision,
 		captionsRef: ui.captionsRef,
@@ -114,7 +118,11 @@ export function useLiveRunnerModel(
 		setConnectPhase: ui.setConnectPhase,
 		setStatus: ui.setStatus,
 		setSessionActive: ui.setSessionActive,
-		setError: ui.setError,
+		lexicon: iface.lexicon,
+		reportFailure: ui.reportFailure,
+		clearFailure: ui.clearFailure,
+		reportSessionEnded: ui.reportSessionEnded,
+		clearSessionEnded: ui.clearSessionEnded,
 		setCaptions: ui.setCaptions,
 		setInputLevel: ui.setInputLevel,
 		setOutputLevel: ui.setOutputLevel,
@@ -146,7 +154,8 @@ export function useLiveRunnerModel(
 		textDraft: ui.textDraft,
 		setTextDraft: ui.setTextDraft,
 		setCaptions: ui.setCaptions,
-		setError: ui.setError,
+		reportFailure: ui.reportFailure,
+		clearFailure: ui.clearFailure,
 		setIsMuted: ui.setIsMuted,
 		setSessionActive: ui.setSessionActive,
 		setSessionPermissions: ui.setSessionPermissions,
@@ -168,16 +177,19 @@ export function useLiveRunnerModel(
 
 	return {
 		handle: iface.identity.handle,
+		traces,
 		callStarted,
 		pastCalls,
 		captions: ui.captions,
-		error: ui.error,
+		failure: ui.failure,
+		sessionEnded: ui.sessionEnded,
 		inputLevel: ui.inputLevel,
 		isMuted: ui.isMuted,
 		isVideoOn: ui.isVideoOn,
 		outputLevel: ui.outputLevel,
 		sessionActive: ui.sessionActive,
-		stateLabel,
+		liveState: state,
+		activeTool: ui.activeTool,
 		status: ui.status,
 		textAvailable,
 		textDraft: ui.textDraft,
@@ -187,7 +199,7 @@ export function useLiveRunnerModel(
 		videoPreview: ui.videoPreview,
 		voiceAvailable,
 		// Also after ending (or failing) before the first connect, so the call can't get stuck.
-		canRestart: !ui.sessionActive && ui.status !== 'connecting' && (ui.everConnected || ended || ui.error !== ''),
+		canRestart: !ui.sessionActive && ui.status !== 'connecting' && (ui.everConnected || ended || ui.failure !== null),
 		gatePrompt: gate.gatePrompt,
 		setTextDraft: ui.setTextDraft,
 		handleEnd,

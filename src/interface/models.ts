@@ -50,15 +50,6 @@ function generationSelectEnabled(
   return modelSelectEnabled(profile) || effortSelectEnabled(profile, modelId);
 }
 
-/** Initial selection — `defaultModel`, else the sole declared model id. */
-function defaultInterfaceModel(profile: ModelSelectProfile): ModelId | undefined {
-  if (profile.defaultModel && profile.models[profile.defaultModel]) {
-    return profile.defaultModel;
-  }
-  const ids = Object.keys(profile.models);
-  return ids.length === 1 ? ids[0] : ids[0];
-}
-
 /** Default effort alias for a model binding. */
 function defaultInterfaceEffort(
   profile: ModelSelectProfile,
@@ -94,7 +85,6 @@ function interfaceEffortOptions(
 
 export {
   defaultInterfaceEffort,
-  defaultInterfaceModel,
   effortSelectEnabled,
   generationSelectEnabled,
   interfaceEffortOptions,

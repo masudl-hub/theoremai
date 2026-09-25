@@ -1,12 +1,13 @@
 /**
  * Progressive-yield outbound gate — stream cleared prefixes while holding a
- * lookback window so canary / sensitive / boundary / injection (and optional
- * host `egress.enforce`) can inspect split-token matches before release.
+ * lookback window so the canary scan, or the host `egress.enforce` policy when
+ * set, can inspect split-token matches before release.
  *
  * @module
  */
 
-import { collectEgressHits, runEnforcer } from './egress.ts';
+import { canaryHoldFrom } from './canary.ts';
+import { canaryHits, runEnforcer } from './egress.ts';
 import type {
   EgressEnforcer,
   GuardrailContext,
@@ -14,7 +15,7 @@ import type {
   ResolvedGuardrailPolicy,
 } from './types.ts';
 
-/** Default lookback for span detectors that are not canary-sized. */
+/** Default lookback under `egress.enforce`, whose detectors match spans longer than a canary. */
 const DEFAULT_HOLDBACK = 256;
 const PEM_BEGIN = '-----BEGIN';
 
@@ -29,7 +30,10 @@ export interface ProgressiveYieldGateOptions {
   context: GuardrailContext;
   /** When set, each step runs this policy on the accumulated window before emit. */
   enforce?: EgressEnforcer;
-  /** Floor for lookback beyond canary overlap (characters). */
+  /**
+   * Lookback in characters (default: `DEFAULT_HOLDBACK` with `enforce`, none
+   * without). A tail that could start a canary leak is always held on top.
+   */
   holdback?: number;
 }
 
@@ -54,11 +58,16 @@ interface ProgressiveYieldGate {
   drainUnreleased: () => string;
 }
 
-function resolveHoldback(canary: string | undefined, holdback: number | undefined): number {
-  const canaryHold = canary ? Math.max(0, canary.length - 1) : 0;
-  return Math.max(canaryHold, holdback ?? DEFAULT_HOLDBACK);
+/**
+ * Fixed lookback for the policy's detectors: `holdback`, or `DEFAULT_HOLDBACK`
+ * under `enforce`. The canary needs none — `canaryHoldFrom` holds exactly the
+ * tail that could start a leak.
+ */
+function resolveHoldback(options: ProgressiveYieldGateOptions): number {
+  return options.holdback ?? (options.enforce ? DEFAULT_HOLDBACK : 0);
 }
 
+/** Under `enforce`, an incomplete PEM body stays held until its END line. */
 function holdbackForWindow(window: string, base: number): number {
   // Incomplete PEM bodies can be large; do not release past BEGIN until END/flush.
   const begin = window.lastIndexOf(PEM_BEGIN);
@@ -71,7 +80,7 @@ function holdbackForWindow(window: string, base: number): number {
 /** Creates a progressive gate for outbound stream fragments; flush it when the stream ends. */
 function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): ProgressiveYieldGate {
   const { context } = options;
-  const baseHoldback = resolveHoldback(context.canary, options.holdback);
+  const baseHoldback = resolveHoldback(options);
   let accumulated = '';
   let emitted = 0;
 
@@ -89,7 +98,9 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
       // Host enforce is authoritative when present (matches end-of-attempt egress).
       return null;
     }
-    const hits = collectEgressHits(window, context.canary);
+    // Without a host policy there is no end-of-attempt verdict to defer to, so
+    // the gate blocks on the canary alone; the bundled rules run via egress.enforce.
+    const hits = canaryHits(window, context.canary);
     return hits.length > 0 ? hits : null;
   }
 
@@ -103,8 +114,11 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
       emitted = accumulated.length;
       return { blocked: false, emit };
     }
-    const hold = holdbackForWindow(accumulated, baseHoldback);
-    const safeEnd = Math.max(emitted, accumulated.length - hold);
+    const hold = options.enforce ? holdbackForWindow(accumulated, baseHoldback) : baseHoldback;
+    const canaryFrom = context.canary
+      ? emitted + canaryHoldFrom(accumulated.slice(emitted), context.canary)
+      : accumulated.length;
+    const safeEnd = Math.max(emitted, Math.min(accumulated.length - hold, canaryFrom));
     const emit = accumulated.slice(emitted, safeEnd);
     emitted = safeEnd;
     return { blocked: false, emit };
@@ -139,13 +153,14 @@ function createOutboundProgressiveGate(
   policy: ResolvedGuardrailPolicy,
   context: GuardrailContext,
 ): ProgressiveYieldGate | null {
-  const enforce = policy.egress?.enforce;
-  if (!enforce && !context.canary) {
+  const egress = policy.egress;
+  if (!egress?.enforce && !context.canary) {
     return null;
   }
   return createProgressiveYieldGate({
     context,
-    ...(enforce ? { enforce } : {}),
+    ...(egress?.enforce ? { enforce: egress.enforce } : {}),
+    ...(egress?.holdback === undefined ? {} : { holdback: egress.holdback }),
   });
 }
 

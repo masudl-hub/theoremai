@@ -2,6 +2,7 @@ import { assertEquals, assertRejects } from '@std/assert';
 import {
   clearProfiles,
   DecisionError,
+  type DecisionModelBinding,
   type DecisionRequest,
   defineProfile,
   registerProfile,
@@ -137,12 +138,12 @@ Deno.test('disclosure block prevents the Jev request', async () => {
 Deno.test('runDecision normalizes Jev HTTP failures', async () => {
   clearProfiles();
   registerProfile(profile());
-  for (const [status, code] of [
-    [400, 'invalid_request'],
-    [401, 'authentication'],
-    [403, 'permission'],
-    [429, 'rate_limited'],
-    [500, 'unavailable'],
+  for (const [status, code, kind] of [
+    [400, 'invalid_request', 'request'],
+    [401, 'authentication', 'auth'],
+    [403, 'permission', 'auth'],
+    [429, 'rate_limited', 'rate_limit'],
+    [500, 'unavailable', 'unavailable'],
   ] as const) {
     const error = await assertRejects(
       () =>
@@ -153,8 +154,25 @@ Deno.test('runDecision normalizes Jev HTTP failures', async () => {
       DecisionError,
     );
     assertEquals(error.code, code);
+    assertEquals(error.kind, kind);
     assertEquals(error.status, status);
   }
+});
+
+Deno.test('runDecision reports a transport failure as a network error', async () => {
+  clearProfiles();
+  registerProfile(profile());
+  const error = await assertRejects(
+    () =>
+      runDecision(request(), {
+        apiKey: 'test-key',
+        fetch: () => Promise.reject(new TypeError('connection reset')),
+      }),
+    DecisionError,
+  );
+  assertEquals(error.code, 'network');
+  assertEquals(error.kind, 'network');
+  assertEquals(error.status, undefined);
 });
 
 Deno.test('invalid local decision questions make no network request', async () => {
@@ -180,6 +198,50 @@ Deno.test('invalid local decision questions make no network request', async () =
       ),
     Error,
     "Decision score 'invalid' must declare criteria",
+  );
+  assertEquals(calls, 0);
+});
+
+Deno.test('decision profile declares exactly one model', () => {
+  const counts: Record<string, DecisionModelBinding>[] = [
+    {},
+    { a: { apiId: 'jev-a' }, b: { apiId: 'jev-b' } },
+  ];
+  for (const models of counts) {
+    assertRejects(
+      () => Promise.resolve().then(() => defineProfile({ ...profile('model-count'), models })),
+      Error,
+      "type 'decision' must declare exactly one model",
+    );
+  }
+});
+
+Deno.test('decision profile rejects model-selection fields', () => {
+  for (const field of [{ defaultModel: 'jev' }, { allowModelSelect: true }]) {
+    assertRejects(
+      () =>
+        Promise.resolve().then(() => defineProfile({ ...profile('selection'), ...field } as never)),
+      Error,
+      `type 'decision' must not set ${Object.keys(field)[0]}`,
+    );
+  }
+});
+
+Deno.test('a decision request that names a model makes no network request', async () => {
+  clearProfiles();
+  registerProfile(profile());
+  let calls = 0;
+  await assertRejects(
+    () =>
+      runDecision({ ...request(), model: 'jev' } as DecisionRequest, {
+        apiKey: 'test-key',
+        fetch: () => {
+          calls += 1;
+          return Promise.resolve(new Response('{}'));
+        },
+      }),
+    Error,
+    'Decision requests do not select a model',
   );
   assertEquals(calls, 0);
 });

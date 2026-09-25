@@ -1,7 +1,8 @@
-#!/usr/bin/env -S deno run --allow-net
+#!/usr/bin/env -S deno run --allow-net --allow-sys --allow-env --allow-read
 
 import type { ProviderCompleteRequest } from '../src/kernel/types.ts';
 import { createOpenRouterProvider } from '../src/providers/openrouter/chat.ts';
+import { hostOpenRouterKey, loadHostEnv, OPENROUTER_ENV } from './host-env.ts';
 
 function valueAfterFlag(flag: string): string | undefined {
   const idx = Deno.args.indexOf(flag);
@@ -11,15 +12,15 @@ function valueAfterFlag(flag: string): string | undefined {
   return Deno.args[idx + 1];
 }
 
-const apiKey = valueAfterFlag('--api-key');
+loadHostEnv();
+const apiKey = hostOpenRouterKey();
 const model = valueAfterFlag('--model') ?? 'sonar';
 const apiId = valueAfterFlag('--api-id') ?? 'perplexity/sonar';
 
 if (!apiKey) {
   Deno.stdout.writeSync(
     new TextEncoder().encode(
-      'Error: missing --api-key.\n' +
-        'Theorem does not read environment variables; pass credentials from the host app or local wrapper.\n',
+      `Error: ${OPENROUTER_ENV} unset. This script reads it; Theorem itself never reads env.\n`,
     ),
   );
   Deno.exit(1);

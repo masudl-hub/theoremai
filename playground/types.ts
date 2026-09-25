@@ -17,15 +17,15 @@ export type PlaygroundToolSpecSeed = {
   access: ToolAccess;
   permission: ToolPermission;
   loadTier: ToolLoadTier;
-  paths: string;
+  paths: string[];
   inputJson: string;
   outputJson: string;
   stubOutputJson?: string;
   endpoint?: string;
   method?: HttpMethod;
   headersJson?: string;
-  pathParams?: string;
-  queryParams?: string;
+  pathParams?: string[];
+  queryParams?: string[];
   bodyParam?: string;
   serverUrl?: string;
   mcpToolName?: string;
@@ -34,7 +34,7 @@ export type PlaygroundToolSpecSeed = {
   authHeaderName?: string;
   authHeaderPrefix?: string;
   authUnauthenticated?: AuthUnauthenticatedPolicy;
-  authScopes?: string;
+  authScopes?: string[];
   authClientId?: string;
   authRedirectUri?: string;
 };

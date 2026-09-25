@@ -1,5 +1,6 @@
 import type { TurnEvent } from '../../../mod.ts';
 import {
+	type AttachmentValidationIssue,
 	type ComposerProfileInterface,
 	foldTurnEvents,
 	type InterfaceTurnSession,
@@ -8,15 +9,13 @@ import {
 	type TranscriptBlock,
 	type UserTurnDraft,
 } from '../../../src/interface/mod.ts';
-import type { ToolCredential } from '../../../src/kernel/mod.ts';
-import { attachmentIssueText } from './attachment-issues.ts';
 import { filesToPending } from './encode-files.ts';
-import {
-	isTheoremStreamError,
-	type TheoremInvokeRequest,
-	type TheoremReplay,
-	type TheoremTurnInput,
-	type TheoremTurnRequest,
+import { defaultModel } from './generation-selection.ts';
+import type {
+	TheoremInvokeRequest,
+	TheoremReplay,
+	TheoremTurnInput,
+	TheoremTurnRequest,
 } from './transport.ts';
 
 export function turnInputFromSession(
@@ -35,7 +34,7 @@ function resolveModelId(
 	iface: ComposerProfileInterface,
 	session: InterfaceTurnSession,
 ): string | undefined {
-	return session.selectedModel ?? iface.defaultModel ?? Object.keys(iface.models)[0];
+	return session.selectedModel ?? defaultModel(iface);
 }
 
 function resolveEffort(
@@ -84,12 +83,12 @@ export function buildInvokeRequest(
 		input: unknown;
 		resume?: TheoremReplay['resume'];
 		sessionPermissions?: string[];
-		credentials?: Record<string, ToolCredential>;
+		secret?: string;
 	},
 ): TheoremInvokeRequest {
 	return {
 		gateId: args.gateId,
-		...(args.credentials ? { credentials: args.credentials } : {}),
+		...(args.secret === undefined ? {} : { secret: args.secret }),
 		replay: {
 			name: args.name,
 			input: args.input,
@@ -106,12 +105,10 @@ export function buildInvokeRequest(
 export function projectUserTurn(
 	iface: ComposerProfileInterface,
 	draft: UserTurnDraft,
-): { ok: true; blocks: TranscriptBlock[]; draft: UserTurnDraft } | { ok: false; issues: string[] } {
-	const prepared = prepareUserTurn(iface.inputs, draft, iface.guardrails);
-	if (!prepared.ok) {
-		return { ok: false, issues: prepared.issues.map(attachmentIssueText) };
-	}
-	return { ok: true, blocks: prepared.blocks, draft: prepared.draft };
+):
+	| { ok: true; blocks: TranscriptBlock[]; draft: UserTurnDraft }
+	| { ok: false; issues: AttachmentValidationIssue[] } {
+	return prepareUserTurn(iface.inputs, draft, iface.guardrails);
 }
 
 export function prepareComposerTurn(
@@ -134,20 +131,4 @@ export function foldAssistantTurn(
 	return foldTurnEvents(events, {
 		showThoughts: streamThoughtsEnabled(iface.outputs),
 	}).filter((block) => block.kind !== 'turn-done');
-}
-
-export function turnFailureFromError(err: unknown): {
-	ok: false;
-	error: string;
-	errorInternal?: string;
-} {
-	if (isTheoremStreamError(err)) {
-		return {
-			ok: false,
-			error: err.publicMessage,
-			...(err.internalMessage ? { errorInternal: err.internalMessage } : {}),
-		};
-	}
-	const message = err instanceof Error ? err.message : String(err);
-	return { ok: false, error: message };
 }

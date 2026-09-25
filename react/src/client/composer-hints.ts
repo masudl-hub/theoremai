@@ -6,10 +6,9 @@
 /** Stash shortcut in Astryx `Kbd` notation (`mod` is ⌘ on macOS, Ctrl elsewhere). */
 export const STASH_SHORTCUT = 'mod+shift+s';
 
+/** Which hint applies, and its shortcut; the UI words it. */
 export type ComposerHint = {
 	id: 'stash-selected-draft';
-	message: string;
-	actionLabel: string;
 	shortcut: string;
 };
 
@@ -24,7 +23,7 @@ export function isStashShortcut(event: {
 	return event.code === 'KeyS' && event.shiftKey && !event.altKey && (event.metaKey || event.ctrlKey);
 }
 
-/** "Replacing this?" — shown while the whole draft is selected in the focused input and it can be stashed. */
+/** The stash hint — shown while the whole draft is selected in the focused input and it can be stashed. */
 export function resolveComposerHint(args: {
 	draftText: string;
 	selectedText: string;
@@ -34,8 +33,6 @@ export function resolveComposerHint(args: {
 	if (!args.canStash || !draft || args.selectedText.trim() !== draft) return null;
 	return {
 		id: 'stash-selected-draft',
-		message: 'Replacing this?',
-		actionLabel: 'Stash it',
 		shortcut: STASH_SHORTCUT,
 	};
 }

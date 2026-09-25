@@ -13,7 +13,8 @@ and call
 `invokeTool({ profile, name, input, host })` from `@theoremai/agents/kernel`. The `host`
 slot carries opaque application context to `handler` / `preTool`
 (and turn stages — see `docs/contracts/stages.md`) and is never traced or sent
-to a provider. See `docs/contracts/kernel.md` (“Host profile” and “Host context
+to a provider. Application context that belongs in the trace goes in
+`metadata`, which the invoke's trace record stores untouched. See `docs/contracts/kernel.md` (“Host profile” and “Host context
 slot”).
 
 ## Export
@@ -28,7 +29,7 @@ slot”).
 | Path | Role |
 | --- | --- |
 | `src/host/reply.ts` | JSON responses + HTTP status constants |
-| `src/host/client-turn.ts` | Strip `errorInternal` / `evidence.raw` before client transports |
+| `src/host/client-turn.ts` | Strip `errorInternal` (any event, and guardrail decisions) / `evidence.raw` before client transports |
 | `src/host/mint-trace.ts` | Cutout mint trace flush helpers |
 | `src/host/readStreamingJsonStringField.ts` | Incomplete JSON string preview |
 | `src/host/mod.ts` | Public barrel |
@@ -38,11 +39,29 @@ slot”).
 | Export | Role |
 | --- | --- |
 | `json(status, body, cors)` | JSON `Response` with merged CORS headers |
-| `caughtStatus(err)` | `400` for `TheoremError`, else `500` |
+| `caughtStatus(err)` | The status of the error's kind (below); an unrecognised throw is `internal` → `500` |
 | `HTTP_OK` | `200` |
 | `HTTP_BUSY` | `429` |
 | `HTTP_NOT_FOUND` | `404` |
 | `HTTP_METHOD` | `405` |
+
+`caughtStatus` by kind:
+
+| Kind | Status | Kind | Status |
+| --- | --- | --- | --- |
+| `config` | 500 | `bad_response` | 502 |
+| `request` | 400 | `network` | 502 |
+| `input` | 422 | `timeout` | 504 |
+| `action` | 403 | `safety` | 422 |
+| `auth` | 401 | `blocked` | 403 |
+| `rate_limit` | 429 | `declined` | 409 |
+| `unsupported` | 422 | `failed` | 502 |
+| `unavailable` | 503 | `cancelled` | 499 (client closed request) |
+| | | `internal` | 500 |
+
+`auth` is 401 whichever key was refused. When the refused key is the host's own
+provider key rather than one the caller supplied, the host may prefer to reply
+500 itself.
 
 Example:
 
@@ -52,11 +71,14 @@ import { caughtStatus, HTTP_BUSY, json } from "@theoremai/agents/host";
 try {
   return json(200, { ok: true }, cors);
 } catch (err) {
-  return json(caughtStatus(err), { error: publicError(err) }, cors);
+  // Pass the profile's lexicon so its wording wins over the defaults.
+  return json(caughtStatus(err), { error: publicError(err, profile.lexicon) }, cors);
 }
 ```
 
-Quota busy responses typically use `HTTP_BUSY` after `takeSlot` returns `busy`.
+Quota busy responses typically use `HTTP_BUSY` after `takeSlot` returns `busy`;
+when it returns `quota`, reply with `quotaExhausted(profile)` as above (`429`,
+the lexicon's `quota.exhausted`).
 
 ## Client-safe turn events
 
@@ -79,27 +101,36 @@ build a custom relay still may call `processLiveOutboundBatch` /
 
 | Export | Role |
 | --- | --- |
-| `forClient(event, options?)` | Copy one event without `errorInternal`; strips `evidence.raw` unless `includeEvidenceRaw: true`; always strips `GuardrailHit.match` |
+| `forClient(event, options?)` | Copy one event without `errorInternal` (on any event, e.g. an error or an ended Live session, and on guardrail decisions; `errorKind` and the user's `error` stay); strips `evidence.raw` unless `includeEvidenceRaw: true`; always strips `GuardrailHit.match` |
 | `forClientEvents(events, options?)` | Batch helper for Live relays and HTTP stream flush |
 | `ClientTurnOptions` | `{ includeEvidenceRaw?: boolean }` |
 
-HTTP error responses should still use `publicError(err)` — `forClient` applies
-only to turn event payloads.
+HTTP error responses should still use `publicError(err, profile.lexicon)` —
+`forClient` applies only to turn event payloads.
 
 ## Cutout mint trace
 
 | Export | Role |
 | --- | --- |
-| `flushMintTrace` | Flush pending cutout mint records after a turn |
-| `CutoutTape` | Tape type for mint/cutout correlation |
+| `flushMintTrace` | Write a held turn record, then one `cutout` record in the same trace |
+| `CutoutTape` | What the host observed: `ok`, `ms`, `url`, input/output hashes, the upstream exchange, error text |
 | `TraceSink` (imported) | From `src/observability/trace-sink.ts`, the type-only sink contract |
 
-Use when your Deno HTTP host records mint/cutout telemetry alongside THEOREM
-turns. Skip entirely for non-HTTP or non-Deno hosts.
+For a side effect the host makes after a turn (for example an image cutout)
+that belongs in that turn's trace. Run the turn into a `memorySink`, make the
+call, then pass the held record, the tape, the host's `app` metadata and the
+real sink to `flushMintTrace`:
+
+- The turn record is written unchanged.
+- The second record holds one `cutout` span (CLIENT) whose parent is the turn's
+  root, timed to end now and to have lasted `ms`. It carries `server.address` /
+  `url.path`, `theorem.cutout.input.sha256` / `theorem.cutout.output.sha256`,
+  the exchange as a `theorem.upstream.row` event, and any error text as an
+  `exception` event stored by hash. Status is `OK` or `ERROR` from `ok`.
+- It is built under the observability policy of the profile the turn ran on and
+  carries the turn's metadata plus `app`.
 
 ## Structured JSON preview
-
-The current branch refresh keep the streaming JSON preview helpers aligned with the in-flight structured-output behavior used by live hosts.
 
 `readStreamingJsonStringField(jsonText, key)` reads one string field from
 **incomplete** JSON while structured output streams as text deltas. Hosts use

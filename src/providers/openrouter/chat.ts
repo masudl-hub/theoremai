@@ -10,28 +10,44 @@
 
 import { createOpenRouter, type OpenRouterChatSettings } from '@openrouter/ai-sdk-provider';
 import {
+  AISDKError,
+  APICallError,
   jsonSchema,
+  type LanguageModelUsage,
   type ModelMessage,
+  RetryError,
+  StreamProviderError,
   streamText,
   type TextStreamPart,
   type ToolSet,
   tool,
 } from 'ai';
-import { isAbortError, TheoremError, toErrorEvent } from '../../guardrails/error.ts';
-import { extractUsageTokens, parseStructuredOutput } from '../../kernel/engine/delta.ts';
+import {
+  isAbortError,
+  kindOfHttpStatus,
+  TheoremError,
+  toErrorEvent,
+} from '../../guardrails/error.ts';
+import { asRecord } from '../../kernel/engine/record.ts';
+import { reportedTokens, usageCount } from '../../kernel/engine/usage.ts';
 import { turnStopFromOpenAiFinishReason } from '../../kernel/stop.ts';
+import { requireBuiltinWire } from '../../kernel/tools/registry.ts';
 import type {
   ModelProvider,
   ProviderCompleteRequest,
   TurnEvent,
+  TurnResponse,
   TurnTokens,
   WireFunctionTool,
 } from '../../kernel/types.ts';
+import { foldResponse } from '../shared/response-identity.ts';
+import { structuredEvent } from '../shared/structured-output.ts';
+import { networkError, tapFetch } from '../shared/upstream-tap.ts';
 import type { OpenAiGatewayConfig } from '../types.ts';
 import { cacheControlJson } from './cache-control.ts';
-import { resolveOpenRouterPlugins } from './openai/chat-payload.ts';
 import { openAiGatewayHeaders, resolveResponseFormat } from './openai/compat.ts';
 import { buildAiSdkMessages } from './openai/sdk-messages.ts';
+import { openAiResponse, openAiUsageTokens } from './openai/usage.ts';
 import { resolveOpenAiGatewayApiKey } from './resolve-api-key.ts';
 
 export interface StreamAccumulator {
@@ -41,6 +57,8 @@ export interface StreamAccumulator {
   errored: boolean;
   finishReason?: string | null;
   nativeFinishReason?: string | null;
+  /** Response identity the raw rows named so far (`id`, `model`). */
+  response?: TurnResponse;
 }
 
 interface OpenRouterStreamContext {
@@ -119,8 +137,15 @@ export function buildTools(wireTools?: WireFunctionTool[]): ToolSet | undefined 
   return tools;
 }
 
+/** Builtins as OpenRouter wires them: `web` is `web_search_options`, every other wire a plugin. */
 function openRouterSettings(req: ProviderCompleteRequest): OpenRouterChatSettings | undefined {
-  const { plugins, webSearch } = resolveOpenRouterPlugins(req.builtins);
+  let webSearch = false;
+  const plugins: Array<{ id: string }> = [];
+  for (const id of req.builtins) {
+    const pluginId = requireBuiltinWire(id, 'openRouter');
+    if (pluginId === 'web') webSearch = true;
+    else plugins.push({ id: pluginId });
+  }
   if (plugins.length === 0 && !webSearch) {
     return undefined;
   }
@@ -132,37 +157,18 @@ function openRouterSettings(req: ProviderCompleteRequest): OpenRouterChatSetting
   return settings;
 }
 
-export function tokensFromUsage(usage: {
-  inputTokens?: number | null;
-  outputTokens?: number | null;
-  totalTokens?: number | null;
-  inputTokenDetails?: {
-    cacheReadTokens?: number | null;
-    cacheWriteTokens?: number | null;
-  } | null;
-  cachedInputTokens?: number | null;
-}): TurnTokens | undefined {
-  const input = usage.inputTokens ?? 0;
-  const output = usage.outputTokens ?? 0;
-  const total = usage.totalTokens ?? input + output;
-  const cached = usage.inputTokenDetails?.cacheReadTokens ?? usage.cachedInputTokens ?? undefined;
-  const cacheWrite = usage.inputTokenDetails?.cacheWriteTokens ?? undefined;
-  if (
-    input === 0 &&
-    output === 0 &&
-    total === 0 &&
-    !(cached && cached > 0) &&
-    !(cacheWrite && cacheWrite > 0)
-  ) {
-    return undefined;
-  }
-  return {
-    input,
-    output,
-    total,
-    ...(cached && cached > 0 ? { cached } : {}),
-    ...(cacheWrite && cacheWrite > 0 ? { cacheWrite } : {}),
-  };
+/**
+ * AI SDK `totalUsage` → `TurnTokens`. Used only when the raw OpenRouter stream
+ * carried no `usage` row (`rawEvents` reads that one first, with cost).
+ */
+export function tokensFromUsage(usage: LanguageModelUsage): TurnTokens | undefined {
+  return reportedTokens({
+    input: usageCount(usage.inputTokens),
+    output: usageCount(usage.outputTokens),
+    thinking: usageCount(usage.outputTokenDetails?.reasoningTokens),
+    cached: usageCount(usage.inputTokenDetails?.cacheReadTokens),
+    cacheWrite: usageCount(usage.inputTokenDetails?.cacheWriteTokens),
+  });
 }
 
 export function rawRecord(value: unknown): Record<string, unknown> | undefined {
@@ -294,7 +300,9 @@ export function rawEvents(raw: unknown, acc: StreamAccumulator): TurnEvent[] {
   if (!record) {
     return [];
   }
-  const events: TurnEvent[] = [];
+  const identity = foldResponse(acc.response, openAiResponse(record));
+  acc.response = identity.known;
+  const events: TurnEvent[] = identity.event ? [identity.event] : [];
   const thought = rawThoughtEvent(record);
   if (thought) {
     events.push(thought);
@@ -308,7 +316,7 @@ export function rawEvents(raw: unknown, acc: StreamAccumulator): TurnEvent[] {
     events.push(messageEvidence);
   }
   if (!acc.emittedTokens) {
-    const usage = extractUsageTokens(record.usage);
+    const usage = openAiUsageTokens(record.usage);
     if (usage) {
       acc.emittedTokens = true;
       events.push({ type: 'tokens', tokens: usage });
@@ -362,18 +370,7 @@ export function toolResultEvent(part: {
   };
 }
 
-export function tokenEvent(part: {
-  totalUsage: {
-    inputTokens?: number | null;
-    outputTokens?: number | null;
-    totalTokens?: number | null;
-    inputTokenDetails?: {
-      cacheReadTokens?: number | null;
-      cacheWriteTokens?: number | null;
-    } | null;
-    cachedInputTokens?: number | null;
-  };
-}): TurnEvent | undefined {
+export function tokenEvent(part: { totalUsage: LanguageModelUsage }): TurnEvent | undefined {
   const tokens = tokensFromUsage(part.totalUsage);
   return tokens ? { type: 'tokens', tokens } : undefined;
 }
@@ -420,26 +417,14 @@ export function primaryEventFromPart(
       return finishEvent(part, acc);
     case 'error':
       acc.errored = true;
-      return toErrorEvent(part.error);
+      return toErrorEvent(streamPartError(part.error));
     default:
       return undefined;
   }
 }
 
 export function finishEvent(
-  part: {
-    finishReason?: string | null;
-    totalUsage?: {
-      inputTokens?: number | null;
-      outputTokens?: number | null;
-      totalTokens?: number | null;
-      inputTokenDetails?: {
-        cacheReadTokens?: number | null;
-        cacheWriteTokens?: number | null;
-      } | null;
-      cachedInputTokens?: number | null;
-    };
-  },
+  part: { finishReason?: string | null; totalUsage?: LanguageModelUsage },
   acc: StreamAccumulator,
 ): TurnEvent | undefined {
   if (part.finishReason != null) {
@@ -466,12 +451,9 @@ export function* finalEvents(
     return;
   }
   if (req.structured && acc.text) {
-    const parsed = parseStructuredOutput(acc.text);
-    if (!parsed.ok) {
-      yield toErrorEvent(new TheoremError(parsed.error));
-      return;
-    }
-    yield { type: 'structured', structured: parsed.structured };
+    const event = structuredEvent(acc.text);
+    yield event;
+    if (event.type === 'error') return;
   }
   yield {
     type: 'done',
@@ -488,7 +470,8 @@ function createStreamContext(
     apiKey,
     baseURL: config.baseUrl,
     headers: openAiGatewayHeaders(config),
-    fetch: config.fetch,
+    // The AI SDK retries internally; tapping its fetch tapes every try.
+    fetch: tapFetch(req.tapUpstream, config.fetch ?? fetch, req.keySlot),
     compatibility: 'strict',
   });
   return {
@@ -571,10 +554,6 @@ async function* yieldAiSdkStream(
   }
 }
 
-export function missingOpenRouterKey(): TurnEvent {
-  return toErrorEvent('missing OpenRouter API key');
-}
-
 async function* streamOpenRouter(
   req: ProviderCompleteRequest,
   config: OpenAiGatewayConfig,
@@ -596,8 +575,44 @@ async function* streamOpenRouter(
     if (isAbortError(err)) {
       throw err;
     }
-    yield toErrorEvent(err);
+    yield toErrorEvent(sdkError(err));
   }
+}
+
+/**
+ * An AI SDK failure with its kind. A failure that carries OpenRouter's HTTP
+ * status (a call's response, or an error sent mid-stream) reports that
+ * status; a call that got no response could not reach OpenRouter; a
+ * mid-stream error without a status is OpenRouter's own; any other SDK error
+ * is a reply the SDK could not read. Retries report their last failure.
+ */
+function sdkError(err: unknown): unknown {
+  if (RetryError.isInstance(err)) {
+    return sdkError(err.lastError);
+  }
+  if (!AISDKError.isInstance(err)) {
+    return err;
+  }
+  const status = asRecord(err)?.statusCode;
+  const kind =
+    typeof status === 'number'
+      ? kindOfHttpStatus(status)
+      : APICallError.isInstance(err)
+        ? 'network'
+        : StreamProviderError.isInstance(err)
+          ? 'unavailable'
+          : 'bad_response';
+  return new TheoremError(kind, err.message, { cause: err });
+}
+
+/**
+ * A stream's error part with its kind. Besides SDK errors, a body that breaks
+ * mid-read arrives as a plain error: OpenRouter could not be reached.
+ */
+function streamPartError(error: unknown): unknown {
+  return AISDKError.isInstance(error) || RetryError.isInstance(error)
+    ? sdkError(error)
+    : networkError(error);
 }
 
 export function providerOptionsFor(req: ProviderCompleteRequest): ProviderOptions | undefined {
@@ -610,6 +625,8 @@ export function providerOptionsFor(req: ProviderCompleteRequest): ProviderOption
     | undefined;
   if (responseFormat) {
     openrouter.response_format = responseFormat;
+    // Route only to endpoints that honour the schema; one that ignores it answers in prose.
+    openrouter.provider = { require_parameters: true };
   }
   if (req.cache?.mode === 'automatic') {
     openrouter.cacheControl = cacheControlJson(req.cache);

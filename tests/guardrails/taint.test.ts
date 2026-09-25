@@ -189,6 +189,7 @@ Deno.test('a write after a remote read is refused when the profile gates it', as
       (e) => e.type === 'tool' && e.tool?.name === 'send_email' && e.tool?.phase === 'error',
     );
     assertEquals(failure?.tool?.failure?.code, 'tainted_turn');
+    assertEquals(failure?.tool?.failure?.kind, 'blocked');
 
     const blocked = events.find((e) => e.type === 'guardrail' && e.guardrail?.action === 'block');
     assertEquals(blocked?.guardrail?.stage, 'tool_call');

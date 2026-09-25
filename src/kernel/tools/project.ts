@@ -6,6 +6,7 @@
 
 import type { Profile, ToolId } from '../types.ts';
 import { getTool } from './registry.ts';
+import { profileToolAllow } from './resolve.ts';
 import type { RegisteredTool } from './types.ts';
 
 function projectTool(name: ToolId): RegisteredTool | { name: ToolId; missing: true } {
@@ -29,15 +30,8 @@ function builtInToolIds(profile: Profile): ToolId[] {
   return [...seen];
 }
 
-function profileAllow(profile: Profile): ToolId[] {
-  if (profile.type === 'speech' || profile.type === 'decision') {
-    return [];
-  }
-  return profile.tools.allow;
-}
-
 function projectTools(profile: Profile): Array<RegisteredTool | { name: ToolId; missing: true }> {
-  const ids = [...profileAllow(profile), ...builtInToolIds(profile)];
+  const ids = [...profileToolAllow(profile), ...builtInToolIds(profile)];
   return ids.map((name) => projectTool(name));
 }
 

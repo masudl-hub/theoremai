@@ -1,55 +1,12 @@
-import { type ZodType, z } from 'zod';
-import { DEMO_HTTP_SAMPLE_INPUT, demoToolSpecs } from '../../playground/concierge-demo.ts';
+import {
+  DEMO_ALLOWED_HOSTS,
+  DEMO_HTTP_SAMPLE_INPUT,
+  demoToolSpecs,
+} from '../../playground/concierge-demo.ts';
+import { zodFromJsonSchema } from '../../playground/tool-schema.ts';
 import { executeRegisteredTool } from '../../src/kernel/tools/execute.ts';
 import { registerTool, resetTools } from '../../src/kernel/tools/registry.ts';
 import type { Profile } from '../../src/kernel/types.ts';
-
-function jsonSchemaFields(schema: Record<string, unknown>): {
-  props: Record<string, Record<string, unknown>>;
-  required: Set<string>;
-} {
-  const props = (schema.properties ?? {}) as Record<string, Record<string, unknown>>;
-  const required = new Set(
-    Array.isArray(schema.required)
-      ? schema.required.filter((k): k is string => typeof k === 'string')
-      : [],
-  );
-  return { props, required };
-}
-
-function propToZod(prop: Record<string, unknown>): ZodType {
-  const t = prop.type;
-  if (t === 'string' || (Array.isArray(t) && t.includes('string'))) return z.string();
-  if (t === 'number' || t === 'integer') return z.number();
-  if (t === 'boolean') return z.boolean();
-  if (t === 'array') {
-    const items = prop.items;
-    if (items && typeof items === 'object' && !Array.isArray(items)) {
-      return z.array(propToZod(items as Record<string, unknown>));
-    }
-    return z.array(z.unknown());
-  }
-  if (t === 'object' || prop.properties) {
-    return zodFromJsonSchema(prop);
-  }
-  return z.unknown();
-}
-
-function zodFromJsonSchema(schema: Record<string, unknown>): ZodType {
-  if (schema.type === 'array') {
-    return propToZod(schema);
-  }
-  const { props, required } = jsonSchemaFields(schema);
-  const shape: Record<string, ZodType> = {};
-  for (const [key, prop] of Object.entries(props)) {
-    const field = propToZod(prop);
-    shape[key] = required.has(key) ? field : field.optional();
-  }
-  if (Object.keys(shape).length === 0) {
-    return z.looseObject({});
-  }
-  return z.looseObject(shape);
-}
 
 const profile: Profile = {
   id: 'demo',
@@ -58,39 +15,18 @@ const profile: Profile = {
   models: {
     default: { protocol: 'openAi', provider: 'openrouter', apiId: 'test' },
   },
+  defaultModel: 'default',
   tools: { allow: [] },
   inputs: { text: true },
   outputs: {},
   guardrails: {
     network: {
-      allowedHosts: [
-        'geocoding-api.open-meteo.com',
-        'nominatim.openstreetmap.org',
-        'api.open-meteo.com',
-        'api.sunrise-sunset.org',
-        'api.frankfurter.app',
-        'api.frankfurter.dev',
-        'en.wikipedia.org',
-        'archive.org',
-        'api.zippopotam.us',
-        'pokeapi.co',
-        'catfact.ninja',
-        'official-joke-api.appspot.com',
-        'api.adviceslip.com',
-        'dog.ceo',
-      ],
+      allowedHosts: DEMO_ALLOWED_HOSTS.split(',').map((host) => host.trim()),
     },
   },
 };
 
 const SAMPLE_INPUT = DEMO_HTTP_SAMPLE_INPUT;
-
-function parseCsv(raw?: string): string[] {
-  return (raw ?? '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
 
 function registerDemoHttpTools(): string[] {
   resetTools();
@@ -111,13 +47,13 @@ function registerDemoHttpTools(): string[] {
       access: data.access,
       permission: data.permission,
       loadTier: data.loadTier,
-      paths: parseCsv(data.paths).length ? parseCsv(data.paths) : ['*'],
+      paths: data.paths.length ? data.paths : ['*'],
       endpoint,
       method: data.method ?? 'GET',
       headers: data.headersJson ? JSON.parse(data.headersJson) : undefined,
       mapping: {
-        pathParams: parseCsv(data.pathParams).length ? parseCsv(data.pathParams) : undefined,
-        queryParams: parseCsv(data.queryParams).length ? parseCsv(data.queryParams) : undefined,
+        pathParams: data.pathParams?.length ? data.pathParams : undefined,
+        queryParams: data.queryParams?.length ? data.queryParams : undefined,
         bodyParam: data.bodyParam?.trim() || undefined,
       },
       input: zodFromJsonSchema(JSON.parse(data.inputJson)),

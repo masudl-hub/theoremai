@@ -7,8 +7,8 @@
 import type { ModelProfile } from '../types.ts';
 
 function pickSystemRole(profile: ModelProfile, requested?: string): string {
-  const { identity } = profile;
-  const { handle, systemByRole } = identity;
+  const { handle } = profile.identity;
+  const systemByRole = profile.type === 'speech' ? undefined : profile.identity.systemByRole;
   if (requested && systemByRole && Object.hasOwn(systemByRole, requested)) {
     return requested;
   }

@@ -10,33 +10,42 @@
  */
 
 import { TheoremError } from '../guardrails/error.ts';
+import { DEFAULT_ROTATE_MIB } from './resolve-policy.ts';
 import type { TraceRecord } from './trace-record.ts';
 import type { TraceSink } from './trace-sink.ts';
+import type { ResolvedObservabilityPolicy } from './types.ts';
 
-const DEFAULT_RETAIN_DAYS = 14;
 const HOURS_PER_DAY = 24;
 const MIN_PER_HOUR = 60;
 const SEC_PER_MIN = 60;
 const MS_PER_SEC = 1000;
 const KIB = 1024;
+const OWNER_ONLY_DIR = 0o700;
+const OWNER_ONLY_FILE = 0o600;
 const MIB = KIB * KIB;
-const DEFAULT_ROTATE_MIB = 32;
 const FILE_DAY = /^turns-(\d{4}-\d{2}-\d{2})(?:-\d+)?\.jsonl$/;
 
-/** Options for daily rotating JSONL sinks. */
+/**
+ * Options for daily rotating JSONL sinks. Retention is not here: it arrives
+ * with each write (`TraceWriteContext`), from the profile that wrote the record.
+ */
 interface JsonlSinkOptions {
-  retainForDays?: number;
   rotateAfterMiB?: number;
   now?: () => number;
 }
 
 /**
- * Write a trace record without allowing trace failures to fail the turn.
- * Build/write errors are forwarded to `sink.onError` when provided.
+ * Write a trace record under the policy it was built with, without allowing
+ * trace failures to fail the turn. Build/write errors are forwarded to
+ * `sink.onError` when provided.
  */
-async function writeTrace(sink: TraceSink, record: Promise<TraceRecord>): Promise<void> {
+async function writeTrace(
+  sink: TraceSink,
+  record: Promise<TraceRecord>,
+  policy: ResolvedObservabilityPolicy,
+): Promise<void> {
   try {
-    await sink.write(await record);
+    await sink.write(await record, { retainForDays: policy.retainForDays });
   } catch (err) {
     try {
       sink.onError?.(err);
@@ -69,7 +78,11 @@ function fileDay(name: string): string | undefined {
   return FILE_DAY.exec(name)?.[1];
 }
 
+/** Remove day files older than `retainForDays`; `<= 0` keeps every file. */
 async function pruneTraces(dir: string, now: number, retainForDays: number): Promise<void> {
+  if (retainForDays <= 0) {
+    return;
+  }
   const retainMs = retainForDays * HOURS_PER_DAY * MIN_PER_HOUR * SEC_PER_MIN * MS_PER_SEC;
   const cutoff = now - retainMs;
   for await (const entry of Deno.readDir(dir)) {
@@ -95,25 +108,28 @@ async function pickFile(dir: string, now: number, rotateBytes: number): Promise<
 }
 
 /**
- * Trace sink that writes daily rotating JSONL files under a host-selected directory.
+ * Trace sink that writes daily rotating JSONL files under a host-selected
+ * directory, and on each write removes day files older than the record's
+ * retention (`<= 0` keeps every file).
  *
  * @param dir - Absolute host-chosen directory
- * @param optionsOrNow - Retention/rotate options, or a `now` clock (legacy)
+ * @param options - Rotate size and a test clock
  */
-function jsonlSink(dir: string, optionsOrNow?: JsonlSinkOptions | (() => number)): TraceSink {
+function jsonlSink(dir: string, options: JsonlSinkOptions = {}): TraceSink {
   const safeDir = validateTraceDir(dir);
-  const options: JsonlSinkOptions =
-    typeof optionsOrNow === 'function' ? { now: optionsOrNow } : (optionsOrNow ?? {});
   const now = options.now ?? Date.now;
-  const retainForDays = options.retainForDays ?? DEFAULT_RETAIN_DAYS;
   const rotateBytes = (options.rotateAfterMiB ?? DEFAULT_ROTATE_MIB) * MIB;
   return {
-    write: async (record) => {
+    write: async (record, context) => {
       const at = now();
-      await Deno.mkdir(safeDir, { recursive: true });
-      await pruneTraces(safeDir, at, retainForDays);
+      // Records hold conversation content: readable by the host's user only.
+      await Deno.mkdir(safeDir, { recursive: true, mode: OWNER_ONLY_DIR });
+      await pruneTraces(safeDir, at, context.retainForDays);
       const path = await pickFile(safeDir, at, rotateBytes);
-      await Deno.writeTextFile(path, `${JSON.stringify(record)}\n`, { append: true });
+      await Deno.writeTextFile(path, `${JSON.stringify(record)}\n`, {
+        append: true,
+        mode: OWNER_ONLY_FILE,
+      });
     },
   };
 }
@@ -132,10 +148,10 @@ function insideDir(path: string, root: string): boolean {
 function normalizeAbsolutePath(path: string): string {
   const trimmed = path.trim();
   if (!trimmed) {
-    throw new TheoremError('trace directory must be non-empty');
+    throw new TheoremError('config', 'trace directory must be non-empty');
   }
   if (!trimmed.startsWith('/')) {
-    throw new TheoremError('trace directory must be absolute');
+    throw new TheoremError('config', 'trace directory must be absolute');
   }
   const parts: string[] = [];
   for (const part of trimmed.split('/')) {
@@ -152,60 +168,14 @@ function normalizeAbsolutePath(path: string): string {
 }
 
 /** Normalize and validate a trace directory before any filesystem operation. */
-function validateTraceDir(dir: string, cwd = Deno.cwd()): string {
+function validateTraceDir(dir: string): string {
   const normalized = normalizeAbsolutePath(dir);
-  const normalizedCwd = normalizeAbsolutePath(cwd);
+  const normalizedCwd = normalizeAbsolutePath(Deno.cwd());
   if (insideDir(normalized, normalizedCwd)) {
-    throw new TheoremError('trace directory must be outside the project checkout');
+    throw new TheoremError('config', 'trace directory must be outside the project checkout');
   }
   return normalized;
 }
 
-/** Resolve a trace directory while refusing relative paths or paths inside the clone. */
-function resolveTraceDir(args: {
-  dir?: string;
-  fallbackDir?: string;
-  cwd?: string;
-}): string | undefined {
-  const cwd = args.cwd ?? Deno.cwd();
-  if (args.dir === '') {
-    return undefined;
-  }
-  let dir = args.dir?.trim() || args.fallbackDir;
-  if (!dir) {
-    return undefined;
-  }
-  try {
-    return validateTraceDir(dir, cwd);
-  } catch {
-    dir = args.fallbackDir;
-  }
-  if (!dir) {
-    return undefined;
-  }
-  try {
-    return validateTraceDir(dir, cwd);
-  } catch {
-    return undefined;
-  }
-}
-
-/** Build a JSONL sink from a host-supplied directory or return a noop sink. */
-function sinkFromDir(dir?: string, fallbackDir?: string): TraceSink {
-  const resolved = resolveTraceDir({ dir, fallbackDir });
-  if (!resolved) {
-    return noopSink();
-  }
-  return jsonlSink(resolved);
-}
-
 export type { JsonlSinkOptions };
-export {
-  jsonlSink,
-  memorySink,
-  noopSink,
-  resolveTraceDir,
-  sinkFromDir,
-  validateTraceDir,
-  writeTrace,
-};
+export { jsonlSink, memorySink, noopSink, validateTraceDir, writeTrace };

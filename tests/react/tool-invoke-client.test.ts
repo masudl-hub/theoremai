@@ -116,16 +116,25 @@ Deno.test('continueGatedToolInvocation denies without a resume or new permission
   );
 });
 
-Deno.test('continueGatedToolInvocation passes auth credentials through without granting', () => {
-  const credentials = { api: { type: 'bearer', token: 't0k' } } as const;
+Deno.test('continueGatedToolInvocation passes a typed secret through without granting', () => {
   assertEquals(
     continueGatedToolInvocation({
       toolName: 'fetch_report',
       gate: { kind: 'auth' },
       sessionPermissions: [],
-      resolution: { action: 'auth', credentials },
+      resolution: { action: 'auth', secret: 't0k' },
     }),
-    { kind: 'auth', credentials },
+    { kind: 'auth', secret: 't0k' },
+  );
+  // After an OAuth callback there is nothing to send: the server holds the token.
+  assertEquals(
+    continueGatedToolInvocation({
+      toolName: 'fetch_report',
+      gate: { kind: 'auth' },
+      sessionPermissions: [],
+      resolution: { action: 'auth' },
+    }),
+    { kind: 'auth', secret: undefined },
   );
 });
 
@@ -249,7 +258,7 @@ Deno.test('buildInvokeRequest replays the snapshot, promoted tools and selected 
     { gateId: 'call-1', name: 'search', input: { q: 'hotels' } },
   );
   assertEquals(body.gateId, 'call-1');
-  assertEquals(body.credentials, undefined);
+  assertEquals('secret' in body, false);
   assertEquals(body.replay?.name, 'search');
   assertEquals(body.replay?.input, { q: 'hotels' });
   assertEquals(body.replay?.snapshot, snapshot);
@@ -261,16 +270,15 @@ Deno.test('buildInvokeRequest replays the snapshot, promoted tools and selected 
 
 Deno.test('buildInvokeRequest prefers explicit permissions and omits empty replay fields', () => {
   const iface = textInterface('react.invoke.explicit', { fast });
-  const credentials = { api: { type: 'bearer', token: 't0k' } } as const;
   const body = buildInvokeRequest(iface, session({ sessionPermissions: ['search'] }), {
     gateId: 'call-2',
     name: 'fetch_report',
     input: {},
     resume: { granted: true },
     sessionPermissions: ['search', 'fetch_report'],
-    credentials,
+    secret: 't0k',
   });
-  assertEquals(body.credentials, credentials);
+  assertEquals(body.secret, 't0k');
   assertEquals(body.replay?.resume, { granted: true });
   assertEquals(body.replay?.sessionPermissions, ['search', 'fetch_report']);
   assertEquals('snapshot' in (body.replay ?? {}), false);

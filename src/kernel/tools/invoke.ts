@@ -4,12 +4,29 @@
  * @module
  */
 
-import { toErrorEvent } from '../../guardrails/error.ts';
-import { getProfile } from '../registry/profiles.ts';
+import {
+  isAbortError,
+  TheoremError,
+  toErrorEvent,
+  withPublicWording,
+} from '../../guardrails/error.ts';
+import { resolveTraceWriter } from '../../observability/policy.ts';
+import { writeTrace } from '../../observability/trace.ts';
+import { buildRecord } from '../../observability/trace-record.ts';
+import type { TraceSink } from '../../observability/trace-sink.ts';
+import {
+  type SpanHandle,
+  startTrace,
+  type TraceAttributes,
+} from '../../observability/trace-span.ts';
+import { startToolTrace, type ToolCallEnd, toolSpanName } from '../engine/tool-trace.ts';
+import { optional, traceLinks } from '../engine/turn-trace.ts';
+import { getProfile, profileLexicon, profileObservability } from '../registry/profiles.ts';
 import { pickModel } from '../registry/resolve.ts';
 import type { Profile, TurnEvent, TurnRequest } from '../types.ts';
-import { executeRegisteredTool, newCallId } from './execute.ts';
+import { executeRegisteredTool, newCallId, toolCallArguments } from './execute.ts';
 import { cloneTurnToolSnapshot, prepareTurnToolSnapshot, promoteLoadedTools } from './resolve.ts';
+import { plainToolInput } from './schema.ts';
 import type { InvokeToolRequest, TurnToolSnapshot } from './types.ts';
 
 function turnRequestFromInvoke(request: InvokeToolRequest): TurnRequest {
@@ -28,19 +45,87 @@ async function prepareInvokeSnapshot(
   profile: Profile,
 ): Promise<TurnToolSnapshot> {
   const req = turnRequestFromInvoke(request);
-  // Host profiles bind no model — the allow list is the whole snapshot.
   if (profile.type === 'decision') {
-    // lexicon-exempt: developer contract error
-    throw new Error(`Profile ${profile.id}: type 'decision' cannot invoke tools`);
+    throw new TheoremError('request', `Profile ${profile.id}: type 'decision' cannot invoke tools`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
+  // Host profiles bind no model — the allow list is the whole snapshot.
   const model = profile.type === 'host' ? undefined : pickModel(profile, request.model);
   return await prepareTurnToolSnapshot(profile, req, model);
 }
 
-/** Execute a registered tool without calling a model provider. */
-async function* invokeTool(request: InvokeToolRequest): AsyncGenerator<TurnEvent> {
-  const profile = getProfile(request.profile);
+/**
+ * Execute a registered tool without calling a model provider, and write its
+ * trace record: one `execute_tool` root under the host's `traceparent`.
+ *
+ * The record is written however the call ends, including when the host stops
+ * reading early or the call fails before the tool is reached.
+ */
+async function* invokeTool(
+  request: InvokeToolRequest,
+  sinkOverride?: TraceSink,
+): AsyncGenerator<TurnEvent> {
+  const { sink, policy } = resolveTraceWriter({
+    override: sinkOverride,
+    observability: profileObservability(request.profile),
+  });
   const callId = newCallId(request.name);
+  const tree = startTrace(toolSpanName(request.name), {
+    attributes: {
+      'gen_ai.agent.name': request.profile,
+      ...optional('gen_ai.conversation.id', request.conversationId),
+    },
+    links: traceLinks(request.links),
+    ...(request.traceparent ? { traceparent: request.traceparent } : {}),
+  });
+  // The root is this call's span: the executor stamps it rather than opening one.
+  const openSpan = (_name: string, attributes: TraceAttributes) => {
+    tree.root.set(attributes);
+    return tree.root;
+  };
+  const failBeforeTool = (end: ToolCallEnd) =>
+    startToolTrace(openSpan, {
+      name: request.name,
+      callId,
+      call: { arguments: toolCallArguments(plainToolInput(request.input)) },
+    }).end(end);
+  try {
+    const lexicon = profileLexicon(request.profile);
+    const traceparent = tree.root.traceparent();
+    for await (const event of invokeTraced(
+      request,
+      callId,
+      openSpan,
+      failBeforeTool,
+      traceparent,
+    )) {
+      yield withPublicWording(event, lexicon);
+    }
+  } catch (err) {
+    failBeforeTool(
+      isAbortError(err) ? { outcome: 'cancelled' } : { outcome: 'error', thrown: err },
+    );
+    throw err;
+  } finally {
+    await writeTrace(
+      sink,
+      buildRecord({
+        spans: tree.collect(),
+        policy,
+        ...(request.metadata ? { metadata: request.metadata } : {}),
+      }),
+      policy,
+    );
+  }
+}
+
+async function* invokeTraced(
+  request: InvokeToolRequest,
+  callId: string,
+  openSpan: (name: string, attributes: TraceAttributes) => SpanHandle,
+  failBeforeTool: (end: ToolCallEnd) => void,
+  traceparent: string,
+): AsyncGenerator<TurnEvent> {
+  const profile = getProfile(request.profile);
   const snapshot = request.snapshot
     ? cloneTurnToolSnapshot(request.snapshot)
     : await prepareInvokeSnapshot(request, profile);
@@ -48,6 +133,7 @@ async function* invokeTool(request: InvokeToolRequest): AsyncGenerator<TurnEvent
   if (request.promoted?.length) {
     const { failure } = promoteLoadedTools(snapshot, request.promoted, profile);
     if (failure) {
+      failBeforeTool({ outcome: 'error', failure });
       yield {
         type: 'tool',
         tool: {
@@ -57,7 +143,7 @@ async function* invokeTool(request: InvokeToolRequest): AsyncGenerator<TurnEvent
           failure,
         },
       };
-      yield { type: 'done', stop: { kind: 'completed' } };
+      yield { type: 'done', stop: { kind: 'completed' }, traceparent };
       return;
     }
   }
@@ -74,12 +160,14 @@ async function* invokeTool(request: InvokeToolRequest): AsyncGenerator<TurnEvent
       ctx: {
         sessionPermissions: request.sessionPermissions,
         credentials: request.credentials,
+        resolveHost: request.resolveHost,
         path: request.path,
         signal: request.signal,
         resume: request.resume,
         host: request.host,
       },
       snapshot,
+      openSpan,
       stages: {
         handlers,
         profile,
@@ -110,6 +198,7 @@ async function* invokeTool(request: InvokeToolRequest): AsyncGenerator<TurnEvent
     type: 'done',
     stop: { kind: stopKind },
     ...(sawGate ? { tools: snapshot } : {}),
+    traceparent,
   };
 }
 

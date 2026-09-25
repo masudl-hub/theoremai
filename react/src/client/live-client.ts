@@ -12,7 +12,7 @@
  * @module
  */
 
-import type { TurnEvent } from '../../../mod.ts';
+import { describeError, type SessionEvent, TheoremError, type TraceRecord, type TurnEvent } from '../../../mod.ts';
 import { float32Rms, float32RmsToLevel, timeDomainBytesToLevel } from './audio-level';
 import { isPermissionDeniedError } from './live-errors';
 import {
@@ -21,8 +21,9 @@ import {
 	shouldForwardMicFrame,
 } from './live/live-mic-forward';
 import { type LiveServerEnvelope, parseLiveServerEnvelope } from './live-messages';
-import { base64ToBytes, bytesToBase64 } from '../../../src/providers/shared/pcm.ts';
+import { base64ToBytes, bytesToBase64 } from '../../../src/kernel/util/base64.ts';
 import { downsampleAndConvertToInt16, pcm16BytesToFloat32 } from './pcm-downsample';
+import { hostError } from './transport';
 import micCaptureWorkletUrl from './mic-capture.worklet?worker&url';
 
 type LiveToolCall = {
@@ -76,9 +77,17 @@ export interface LiveClientOptions {
 	onConnectPhase?: (phase: LiveConnectPhase | null) => void;
 	onTranscript?: (text: string, isUser: boolean, meta?: { interim?: boolean }) => void;
 	onTurnEvent?: (event: TurnEvent) => void;
-	onError?: (error: string) => void;
+	/** A trace record the session wrote, when the relay delivers them. */
+	onTrace?: (record: TraceRecord) => void;
+	/** A failure, typed by kind; word it with `clientFailure` and the interface's `lexicon`. */
+	onError?: (error: Error) => void;
 	/** Provider signalled the upstream session is draining (e.g. goAway). */
 	onSessionClosing?: (timeLeftMs?: number) => void;
+	/**
+	 * The provider ended the session after warning it would: not a failure.
+	 * `session.message` is the user's line; `session.ended` the close, for the builder.
+	 */
+	onSessionEnded?: (session: SessionEvent) => void;
 	onToolCall?: (
 		name: string,
 		args: Record<string, unknown>,
@@ -87,6 +96,11 @@ export interface LiveClientOptions {
 	/** Fired when the relay assigns a live session id (steer inbox key). */
 	onSessionReady?: (info: { sessionId?: string; profile?: string }) => void;
 	onVolumeLevel?: (level: number, isUser: boolean) => void;
+}
+
+/** A caught value as an `Error`; one that is not keeps its text as `internal` detail. */
+function asError(err: unknown): Error {
+	return err instanceof Error ? err : new TheoremError('internal', describeError(err), { cause: err });
 }
 
 function safeDisconnect(node?: { disconnect?: () => void } | null): void {
@@ -212,10 +226,10 @@ export class LiveSessionClient {
 		this.cleanupAudio();
 	}
 
-	private failConnect(message: string, denied = false): void {
+	private failConnect(error: Error): void {
 		if (this.status === 'error' || this.status === 'disconnected') return;
 		this.teardownConnection();
-		this.options.onError?.(denied ? 'Permission denied...' : message);
+		this.options.onError?.(error);
 		this.setStatus('error');
 	}
 
@@ -244,7 +258,8 @@ export class LiveSessionClient {
 
 			this.connectTimeout = setTimeout(() => {
 				if (this.status === 'connecting') {
-					this.failConnect('Live connection timed out');
+					// lexicon-exempt: internal diagnostic; the user reads error.timeout
+					this.failConnect(new TheoremError('timeout', 'live connect timed out'));
 				}
 			}, 20_000);
 
@@ -254,7 +269,8 @@ export class LiveSessionClient {
 
 			this.ws.onclose = () => {
 				if (this.status === 'connecting') {
-					this.failConnect('Live connection closed before ready');
+					// lexicon-exempt: internal diagnostic; the user reads error.network
+					this.failConnect(new TheoremError('network', 'live socket closed before ready'));
 					return;
 				}
 				this.teardownConnection();
@@ -262,14 +278,11 @@ export class LiveSessionClient {
 			};
 
 			this.ws.onerror = () => {
-				this.failConnect('WebSocket live connection error');
+				// lexicon-exempt: internal diagnostic; the user reads error.network
+				this.failConnect(new TheoremError('network', 'live socket error'));
 			};
 		} catch (err) {
-			const error = err as DOMException & Error;
-			this.failConnect(
-				error.message || 'Failed to start live session',
-				isPermissionDeniedError(err),
-			);
+			this.failConnect(new TheoremError('internal', describeError(err), { cause: err }));
 		}
 	}
 
@@ -303,10 +316,12 @@ export class LiveSessionClient {
 			this.setConnectPhase(null);
 			this.setStatus('listening');
 		} catch (err) {
-			const error = err as DOMException & Error;
+			const denied = isPermissionDeniedError(err);
 			this.failConnect(
-				error.message || 'Failed to access microphone',
-				isPermissionDeniedError(err),
+				new TheoremError(denied ? 'auth' : 'internal', describeError(err), {
+					cause: err,
+					copy: { key: denied ? 'voice.permission' : 'voice.unavailable' },
+				}),
 			);
 		} finally {
 			this.micActivating = false;
@@ -425,13 +440,11 @@ export class LiveSessionClient {
 					const payload = parseLiveServerEnvelope(JSON.parse(data) as unknown);
 					if (payload) await this.processServerEnvelope(payload);
 				} catch (err) {
-					this.options.onError?.((err as Error).message || 'Failed to parse live server event');
+					this.options.onError?.(new TheoremError('bad_response', describeError(err), { cause: err }));
 				}
 			})
 			.catch((err: unknown) => {
-				this.options.onError?.(
-					err instanceof Error ? err.message : 'Failed to handle live server event',
-				);
+				this.options.onError?.(asError(err));
 			});
 	}
 
@@ -470,8 +483,13 @@ export class LiveSessionClient {
 			this.handleExecuteToolResultEnvelope(payload);
 			return true;
 		}
+		if (payload.type === 'trace') {
+			this.options.onTrace?.(payload.record);
+			return true;
+		}
 		if (payload.type === 'error') {
-			this.options.onError?.(payload.error);
+			// The relay's kind and wording when it sent them, else `unavailable`.
+			this.options.onError?.(hostError(payload.body, 'unavailable'));
 			this.setStatus('error');
 			return true;
 		}
@@ -519,14 +537,21 @@ export class LiveSessionClient {
 
 	private handleSessionTurnEvent(event: TurnEvent): void {
 		if (event.type !== 'session' || !event.session) return;
-		const { kind, timeLeftMs } = event.session;
-		if (kind === 'closing_soon') {
-			this.options.onSessionClosing?.(timeLeftMs);
-			return;
-		}
-		this.serverWorking = kind === 'working';
+		if (this.notifySessionLifecycle(event.session)) return;
+		this.serverWorking = event.session.kind === 'working';
 		const nextStatus = resolveWorkingStatusTransition(this.status, this.serverWorking);
 		if (nextStatus) this.setStatus(nextStatus);
+	}
+
+	/** Hand the session's closing and end to the host; `true` when it was one of them. */
+	private notifySessionLifecycle(session: SessionEvent): boolean {
+		if (session.kind === 'closing_soon') {
+			this.options.onSessionClosing?.(session.timeLeftMs);
+			return true;
+		}
+		if (session.kind !== 'ended') return false;
+		this.options.onSessionEnded?.(session);
+		return true;
 	}
 
 	/** Status to settle into once model speech stops. */
@@ -569,7 +594,7 @@ export class LiveSessionClient {
 					await this.enqueueAudioChunk(chunk.data, chunk.mimeType);
 				})
 				.catch((err: unknown) => {
-					this.options.onError?.(err instanceof Error ? err.message : 'Failed to play audio chunk');
+					this.options.onError?.(asError(err));
 				});
 		}
 	}
@@ -594,14 +619,13 @@ export class LiveSessionClient {
 			}
 
 			if (this.options.onToolCall) {
-				// Host may run UI / credentials; then we prefer session.executeTool on the relay.
+				// Host may run its own gate UI; then we prefer session.executeTool on the relay.
 				try {
 					await this.options.onToolCall(call.name, call.arguments, {
 						callId: call.id,
 					});
 				} catch (err) {
-					const message = (err as Error).message || 'Tool execution failed';
-					this.sendToolErrorResponse(call.id, call.name, message);
+					this.sendToolErrorResponse(call.id, call.name, describeError(err));
 				}
 				continue;
 			}
@@ -624,10 +648,14 @@ export class LiveSessionClient {
 		callId: string;
 		input?: unknown;
 		resume?: { value?: unknown; granted?: boolean };
-		credentials?: Record<string, unknown>;
+		/**
+		 * The key the user typed at a bearer or API-key sign-in gate, sent once:
+		 * the relay saves it for the session (`credentialFromTypedSecret`).
+		 */
+		secret?: string;
 	}): Promise<Extract<LiveServerEnvelope, { type: 'executeToolResult' }>> {
 		if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-			throw new Error('Live session is not connected');
+			throw new TheoremError('request', 'live session is not connected'); // lexicon-exempt: internal diagnostic
 		}
 		const resultPromise = new Promise<Extract<LiveServerEnvelope, { type: 'executeToolResult' }>>(
 			(resolve, reject) => {
@@ -641,7 +669,7 @@ export class LiveSessionClient {
 				callId: args.callId,
 				input: args.input,
 				resume: args.resume,
-				credentials: args.credentials,
+				secret: args.secret,
 			}),
 		);
 		return resultPromise;
@@ -690,7 +718,7 @@ export class LiveSessionClient {
 				}
 			};
 		} catch (err) {
-			this.options.onError?.((err as Error).message || 'Failed to play audio chunk');
+			this.options.onError?.(asError(err));
 		}
 	}
 

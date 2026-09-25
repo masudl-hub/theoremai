@@ -4,14 +4,15 @@ export {
 	INPUT_LEVEL_GAIN,
 	timeDomainBytesToLevel,
 } from './audio-level';
-export { attachmentIssueText } from './attachment-issues';
 export { filesToPending, pendingAttachmentsToFiles } from './encode-files';
 export { composerFieldsFromDraft, type ComposerDraftFields } from './decode-composer-draft';
 export { encodeComposerDraft } from './encode-composer-draft';
-export { liveStateLabel } from './live/live-state';
+export { type ClientFailure, clientFailure, type TurnFailure } from './failure';
+export { type LiveState, liveState } from './live/live-state';
 export type { LiveToolGatePrompt } from './live/live-tool';
 export type { LiveConnectPhase, LiveSessionStatus } from './live-client';
 export { LiveSessionClient } from './live-client';
+export { isOAuthComplete, notifyOAuthComplete } from './oauth-popup';
 export {
 	abandonGatedInterfaceTool,
 	applyTurnResultToTranscript,
@@ -26,12 +27,12 @@ export type {
 export {
 	continueGatedToolInvocation,
 } from './tool-resume';
+export { createTraceFeed, type TraceFeed } from './trace-feed';
 export { buildInvokeRequest, buildTurnRequest, turnInputFromSession } from './turn-client';
 export {
 	createHttpTransport,
 	type HttpOptions,
 	type HttpTransportOptions,
-	isAbortError,
 	isTheoremStreamError,
 	postJson,
 	postNdjson,

@@ -6,10 +6,10 @@
 
 import { resolveGuardrailPolicy } from '../guardrails/policy.ts';
 import { sanitizeText } from '../guardrails/sanitize.ts';
+import type { AttachmentValidationIssue } from '../kernel/types.ts';
 import { buildUserTurnBlocks } from './blocks.ts';
 import { validateProfileInputs } from './inputs.ts';
 import type {
-  AttachmentValidationIssue,
   ProfileGuardrailsView,
   ProfileInputsInterface,
   TranscriptBlock,

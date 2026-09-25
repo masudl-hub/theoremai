@@ -126,7 +126,7 @@ function validateToolWireSchema(
   const errors: string[] = [];
   walkSchema(schema, '$', mode, errors);
   if (errors.length > 0) {
-    throw new TheoremError(`Invalid tool ${label} schema: ${errors.join('; ')}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', `Invalid tool ${label} schema: ${errors.join('; ')}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
 }
 
@@ -218,4 +218,19 @@ export function plainToolInput(input: unknown): unknown {
     out[key] = plainToolInput((input as Record<string, unknown>)[key]);
   }
   return out;
+}
+
+/**
+ * The scheme and authority of an endpoint template. They are fixed text: a
+ * placeholder there would let the tool's input choose the host its credential
+ * is sent to, so the template is refused.
+ */
+export function assertFixedEndpointOrigin(endpoint: string): void {
+  const origin = /^[a-z][a-z0-9+.-]*:\/\/[^/?#]*/i.exec(endpoint)?.[0];
+  if (!origin || /[{}]/.test(origin)) {
+    throw new TheoremError(
+      'config',
+      `Endpoint "${endpoint}" must start with a fixed scheme and host; placeholders belong in the path or query`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
 }

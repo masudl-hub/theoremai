@@ -9,8 +9,10 @@
  */
 
 /** lexicon-exempt-file: authoring field-meta / closed unions — not runtime user or model copy (P2) */
-import { EGRESS_ON_BLOCK, type EgressOnBlock } from '../guardrails/types.ts';
+import { EGRESS_ON_BLOCK, type EgressOnBlock, TAINT_GATES } from '../guardrails/types.ts';
 import { GOOGLE_SPEECH_VOICES } from '../presets/google/speech-voices.ts';
+import { PROFILE_FIELD_PRESENCE } from './profile-presence.ts';
+import { profileFieldScope } from './profile-scope.ts';
 
 export { EGRESS_ON_BLOCK, type EgressOnBlock };
 
@@ -153,16 +155,6 @@ export const LIVE_SPEECH_SENSITIVITIES = [
 ] as const;
 /** Start or end voice-activity sensitivity for Gemini Live. */
 export type LiveSpeechSensitivity = (typeof LIVE_SPEECH_SENSITIVITIES)[number];
-
-/** Live session context window compression mode. */
-export const LIVE_CONTEXT_COMPRESSIONS = ['slidingWindow', 'none'] as const;
-/** Context-window compression strategy for Gemini Live. */
-export type LiveContextCompression = (typeof LIVE_CONTEXT_COMPRESSIONS)[number];
-
-/** Structured-output enforcement mode. */
-export const SCHEMA_ENFORCEMENTS = ['responseFormat', 'prompt'] as const;
-/** Mechanism used to enforce structured model output. */
-export type SchemaEnforcement = (typeof SCHEMA_ENFORCEMENTS)[number];
 
 /** Compaction threshold meter. */
 export const COMPACTION_METERS = ['history', 'input'] as const;
@@ -406,6 +398,19 @@ export const ATTACHMENT_ACCEPT_MIMES: readonly string[] = [
   ...mimesOf('document'),
 ];
 
+/**
+ * The attachment `accept` values an image profile may list: images, video and
+ * PDF, the inputs image models document reading. Also the allowlist each of its
+ * `accept` entries must fall within.
+ */
+export const IMAGE_ATTACHMENT_ACCEPT_MIMES: readonly string[] = [
+  'image/*',
+  'video/*',
+  ...mimesOf('image'),
+  ...mimesOf('video'),
+  'application/pdf',
+];
+
 /** Voice `accept` values the kernel can classify (wildcard + known audio types). */
 export const VOICE_ACCEPT_MIMES: readonly string[] = ['audio/*', ...mimesOf('audio')];
 
@@ -455,6 +460,21 @@ export type FieldMeta = {
   options?: readonly string[];
   optionDescriptions?: Record<string, string>;
   optionNote?: string;
+  /**
+   * Profile types the field may be set on, when not every type (from
+   * `PROFILE_FIELD_SCOPE`, inherited from the nearest scoped ancestor).
+   * `defineProfile` rejects the field on any other type.
+   */
+  profileTypes?: readonly ProfileType[];
+  /** Why the other types can't take it. */
+  profileTypesReason?: string;
+  /**
+   * The profile must set the field: always (`true`), or only in the case named
+   * (from `PROFILE_FIELD_PRESENCE`).
+   */
+  required?: true | string;
+  /** What leaving the field out does, as a short phrase a blank control can show. */
+  unset?: string;
 };
 
 function field(
@@ -486,6 +506,7 @@ export const DYNAMIC_FIELD_PARENTS: ReadonlySet<string> = new Set([
   'models',
   'models.*.efforts',
   'identity.systemByRole',
+  'lexicon',
   'inputs.slots',
   'inputs.limitsByMime',
   'outputs.validation.fields',
@@ -506,14 +527,38 @@ export function catalogPathFor(keys: readonly string[]): string {
 }
 
 /**
- * Authoring-surface catalog for `Profile` / `defineProfile`.
- * Hover UIs look up dotted paths. Adding a profile field? Add it here.
+ * Each field's docs with its profile-type scope from `PROFILE_FIELD_SCOPE` and
+ * its presence from `PROFILE_FIELD_PRESENCE`.
  */
-export const PROFILE_FIELDS: Record<string, FieldMeta> = {
+function withScopeAndPresence(fields: Record<string, FieldMeta>): Record<string, FieldMeta> {
+  return Object.fromEntries(
+    Object.entries(fields).map(([path, meta]) => {
+      const scope = profileFieldScope(path);
+      return [
+        path,
+        {
+          ...meta,
+          ...(scope ? { profileTypes: scope.profileTypes, profileTypesReason: scope.reason } : {}),
+          ...PROFILE_FIELD_PRESENCE[path],
+        },
+      ];
+    }),
+  );
+}
+
+/**
+ * Authoring-surface catalog for `Profile` / `defineProfile`.
+ * Hover UIs look up dotted paths. Adding a profile field? Add it here; if it
+ * belongs to only some profile types, scope it in `PROFILE_FIELD_SCOPE`; if a
+ * profile must set it or leaving it out does something to note, record that in
+ * `PROFILE_FIELD_PRESENCE`.
+ */
+export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   id: field('string', 'Host-owned profile identifier.'),
   type: field(
     "'text' | 'image' | 'speech' | 'live' | 'decision' | 'host'",
     'Required profile archetype. host = tool-execution ceiling for invokeTool; never runs a model.',
+    PROFILE_TYPES,
   ),
   identity: field(
     '{ handle, system?, systemByRole? }',
@@ -660,6 +705,10 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
     'boolean',
     'Gemini Interactions: prefer previous_interaction_id over client-owned history. Omit → host/turn decides.',
   ),
+  'models.*.server': field(
+    'string',
+    'Local server hosting the model (ollama, vllm, …). Traces report it as gen_ai.provider.name. Only valid when provider is local.',
+  ),
   defaultModel: field('ModelId', 'Default model id when the turn omits model.'),
   allowModelSelect: field('boolean', 'Turn may pass model. Requires two or more models keys.'),
   maxSteps: field(
@@ -673,7 +722,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   ),
   tools: field(
     '{ allow: ToolId[]; t1Policy?; t2Loader? }',
-    'Custom tools (allow), optional T1 policy, optional T2 loader function id. Builtins belong on models.*.builtInTools. Live and host profiles use `{ allow }` only — live wires every allowed tool at session setup; host executes every allowed tool.',
+    'Custom tools (allow), optional T1 policy, optional T2 loader function id. Builtins belong on models.*.builtInTools.',
   ),
   'tools.allow': field(
     'ToolId[]',
@@ -681,11 +730,11 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   ),
   'tools.t1Policy': field(
     '(ctx) => ToolId[] | Promise<ToolId[]>',
-    'Optional T1 policy — which eligible loadTier:T1 tools to wire at turn start. Not supported on type live.',
+    'Optional T1 policy — which eligible loadTier:T1 tools to wire at turn start.',
   ),
   'tools.t2Loader': field(
     'ToolId',
-    'Optional function tool id for T2 promotion. Must be in tools.allow; handler returns { loaded: string[] }. Not supported on type live.',
+    'Optional function tool id for T2 promotion. Must be in tools.allow; handler returns { loaded: string[] }.',
   ),
   inputs: field('ProfileInputsSpec', 'Text, attachment, voice, slot, and size rules.'),
   'inputs.text': field(
@@ -695,7 +744,8 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   'inputs.attachments': field('{ accept: string[] }', 'File upload allowlist.'),
   'inputs.attachments.accept': field(
     'string[]',
-    'MIME allowlist for uploaded files. Type-prefix wildcards (image/*, …) are allowed.',
+    'MIME allowlist for uploaded files. Type-prefix wildcards (image/*, …) are allowed. ' +
+      'An image profile takes images, video and PDF only (IMAGE_ATTACHMENT_ACCEPT_MIMES).',
     ATTACHMENT_ACCEPT_MIMES,
     'Kernel-known types (plus wildcards). Hosts may list any MIME; unknown types are rejected at ingress.',
   ),
@@ -737,7 +787,6 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   'image.aspectRatio': field('string', 'Optional output aspect ratio. Omitted → provider default.'),
   'image.size': field('string', 'Optional output size / resolution. Omitted → provider default.'),
   'image.mimeType': field('string', 'Output MIME for generated images.'),
-  'image.maxInputImages': field('number', 'Cap on reference images in one turn.'),
   'image.includeText': field(
     'boolean',
     'When true, request interleaved assistant text alongside generated images.',
@@ -805,9 +854,20 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
     'Enable session resumption handles across WebSocket reconnects.',
   ),
   'live.contextCompression': field(
-    unionType(LIVE_CONTEXT_COMPRESSIONS),
-    'Context window compression mechanism.',
-    LIVE_CONTEXT_COMPRESSIONS,
+    'LiveContextCompressionSpec',
+    'Context window compression: shrinks the context once it reaches the trigger.',
+  ),
+  'live.contextCompression.triggerTokens': field(
+    'number',
+    'Context tokens, counted before a turn, that start compression.',
+  ),
+  'live.contextCompression.slidingWindow': field(
+    'LiveSlidingWindowSpec',
+    'Drops the oldest turns down to the target; the system instruction stays.',
+  ),
+  'live.contextCompression.slidingWindow.targetTokens': field(
+    'number',
+    'Tokens kept after compressing; below the trigger.',
   ),
   'live.proactiveAudio': field(
     'boolean',
@@ -829,10 +889,6 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
     'Host-owned validator function for this structured output field.',
   ),
   'outputs.validation.maxRetries': field('number', 'Repair-turn ceiling after a validator reject.'),
-  'outputs.validation.repairGuidance': field(
-    'string',
-    'Instruction appended on a validation repair turn.',
-  ),
   'outputs.streaming': field('ProfileStreamingSpec', 'How the turn emits live events.'),
   'outputs.streaming.mode': field(
     unionType(STREAM_MODES),
@@ -854,7 +910,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   ),
   'turnBehaviour.resumption.allowContinue': field(
     'ContinueStopKind[]',
-    'Kinds eligible for a Continue / continueFrom turn. Not tool/cancelled/completed/filtered/live boundaries.',
+    'Stops that may be continued (continueFrom). Omitted → all three. Tool, cancelled, completed and filtered stops never are.',
     CONTINUE_STOP_KINDS,
     {
       length: 'Model hit maximum output token ceiling.',
@@ -864,7 +920,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   ),
   'turnBehaviour.resumption.autoContinue': field(
     'ContinueStopKind[]',
-    'Kinds the host may auto-continue once without a CTA. Subset of ContinueStopKind.',
+    'Stops the host continues once on its own, without asking. Omitted → length and stream_incomplete; [] → none.',
     CONTINUE_STOP_KINDS,
     {
       length: 'Model hit maximum output token ceiling.',
@@ -874,11 +930,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   ),
   'turnBehaviour.resumption.maxContinues': field(
     'number',
-    'Max continueFrom rounds the kernel accepts (compared to TurnRequest.continuation).',
-  ),
-  'turnBehaviour.resumption.continueInstruction': field(
-    'string',
-    'Host replacement for the continue instruction appended on continueFrom turns. Omitted: registered default.',
+    'How many times one reply may be continued. Omitted → no cap. Once set, each continue must carry its count (TurnRequest.continuation).',
   ),
   'turnBehaviour.allowSteering': field(
     'boolean',
@@ -886,24 +938,16 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   ),
   guardrails: field(
     'ProfileGuardrailsSpec',
-    'Quota, canary, sanitize, redact, egress, network, and taint switches. On type host only the invokeTool-path guards are accepted (HostGuardrailsSpec: sanitizeInput, redactSensitive, network, taint) — quota, canary, and egress guard a model turn and are refused.',
+    'Quota, canary, sanitize, redact, egress, network, taint, and (decision) disclosure switches.',
   ),
   'guardrails.quota': field(
     'QuotaGuardrailSpec',
     'Host HTTP helper — not enforced inside runTurn.',
   ),
   'guardrails.quota.perDay': field('number', 'Daily turn cap used by host quota middleware.'),
-  'guardrails.quota.message': field(
-    'string',
-    'Host copy surfaced by quotaExhausted when the quota trips. The kernel ships no fallback.',
-  ),
   'guardrails.canary': field(
-    'boolean | CanaryGuardrailSpec',
-    'Per-turn canary token bound to system prompt. Default true; set false to opt out; object form supplies bindNote.',
-  ),
-  'guardrails.canary.bindNote': field(
-    'string',
-    'Host template appended to the system prompt; must contain the {canary} placeholder. Omitted: registered default.',
+    'boolean',
+    "Per-turn canary token bound to system prompt. Default true; set false to opt out. The bind note is lexicon 'canary.bind_note'.",
   ),
   'guardrails.sanitizeInput': field('boolean', 'Strip inbound injection spans.'),
   'guardrails.redactSensitive': field('boolean', 'Redact sensitive spans.'),
@@ -921,13 +965,13 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
     EGRESS_ON_BLOCK,
     {
       reject_to_agent: 'Feeds rejection error back to model for automatic repair turn.',
-      refuse_to_user: 'Halts turn immediately and returns refusal to user.',
+      refuse_to_user: 'Halts turn immediately and shows the lexicon egress.refusal line.',
     },
   ),
   'guardrails.egress.maxRetries': field('number', 'Repair-turn ceiling after an egress block.'),
-  'guardrails.egress.repairGuidance': field(
-    'string',
-    'Instruction appended on an egress repair turn.',
+  'guardrails.egress.holdback': field(
+    'number',
+    'Characters held back mid-stream so enforce sees split matches (default 256).',
   ),
   'guardrails.network': field(
     'NetworkGuardrailSpec',
@@ -941,6 +985,36 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
     'string[]',
     'Explicit hostname allowlist for declarative HTTP and MCP egress.',
   ),
+  'guardrails.taint': field(
+    'TaintGuardrailSpec',
+    'What the turn may still do after reading untrusted remote content.',
+  ),
+  'guardrails.taint.afterRemoteRead': field(
+    unionType(TAINT_GATES),
+    'Least-severe tool capability refused once the turn has read remote content. Default off.',
+    TAINT_GATES,
+    {
+      off: 'Report only.',
+      destructive: 'Refuse hard-to-undo calls.',
+      write: 'Refuse hard-to-undo calls and any state-changing call.',
+    },
+  ),
+  'guardrails.disclosure': field(
+    '{ enforce: DecisionDisclosureEnforcer }',
+    'Pre-dispatch policy for structured state leaving a decision profile.',
+  ),
+  'guardrails.disclosure.enforce': field(
+    '(state, context) => DecisionDisclosureVerdict | Promise<DecisionDisclosureVerdict>',
+    'Allows or blocks the state before it is sent to the decision model.',
+  ),
+  lexicon: field(
+    'LexiconOverrides',
+    "This profile's wording, by lexicon key: user-facing error lines (error.<kind>), notices, and model-facing notes. Wins over overrideLexicon and the defaults.",
+  ),
+  'lexicon.*': field(
+    'string',
+    'The wording for one lexicon key. Keys with placeholders must keep them (canary.bind_note keeps {canary}).',
+  ),
   observability: field(
     'ProfileObservabilitySpec',
     'Trace destination, scrub, include, and sampling policy for this profile.',
@@ -951,7 +1025,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   ),
   'observability.sampleRate': field(
     'number',
-    'Fraction of turns to record (0–1). Default 1. Ignored when runTurn passes an explicit sink.',
+    'Fraction of traces to record (0–1), decided by trace id so a trace is kept or dropped whole. Default 1. Ignored when runTurn passes an explicit sink.',
   ),
   'observability.include': field(
     'TraceIncludeSpec',
@@ -959,15 +1033,15 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   ),
   'observability.include.upstreamLog': field(
     'boolean',
-    'Scrubbed provider HTTP/SSE rows. Default true.',
+    'theorem.upstream.row events: each scrubbed provider row at its arrival time. Default true.',
   ),
   'observability.include.outboundWire': field(
     'boolean',
-    'Scrubbed outbound request body. Default false.',
+    'theorem.wire.request events: the scrubbed request body of each HTTP try. Default false.',
   ),
   'observability.include.evidenceRaw': field(
     'boolean',
-    'Verbatim provider step JSON on events. Default false.',
+    'The provider raw payload on theorem.grounding events. Default false.',
   ),
   'observability.include.usage': field('boolean', 'Token / usage fields. Default true.'),
   'observability.include.guardrailDecisions': field(
@@ -976,7 +1050,11 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   ),
   'observability.include.guardrailMatchPreview': field(
     'boolean',
-    'Keep GuardrailHit.match (capped matched substring) on stream + TraceRecord. Default false — debugging only.',
+    'Keep GuardrailHit.match (the exact matched text) on stream + TraceRecord. Default false — debugging only.',
+  ),
+  'observability.resource': field(
+    'Record<string, TraceAttributeValue>',
+    'Process attributes stamped on every TraceRecord (e.g. service.name). Default {}.',
   ),
   'observability.scrub': field(
     'TraceScrubSpec',
@@ -993,7 +1071,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
   'observability.scrub.canary': field('boolean', 'Never persist the canary token. Default true.'),
   'observability.retainForDays': field(
     'number',
-    'JSONL retention days when writeTo resolves to a jsonl destination. Default 14.',
+    'Days to keep each record, handed to every destination with the record; <=0 keeps records forever. Default 14.',
   ),
   'observability.rotateAfterMiB': field(
     'number',
@@ -1003,7 +1081,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = {
     '(err: unknown) => void',
     'Host hook when record build or destination write fails. Must not throw.',
   ),
-};
+});
 
 const TOOL_TYPE_FIELD = field(
   unionType(TOOL_TYPES),
@@ -1038,7 +1116,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   ),
   endpoint: field(
     'string',
-    'HTTP URL template for declarative tools. Use {param} placeholders for path segments.',
+    'HTTP URL template for declarative tools. Use {param} placeholders for path segments; the scheme and host are fixed text.',
   ),
   method: field(unionType(HTTP_METHODS), 'HTTP verb for declarative tools.', HTTP_METHODS),
   headers: field(
@@ -1118,14 +1196,21 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     'Record<string, unknown>',
     'Playground-only: fixed JSON object returned by function tool stubs when no demo handler exists.',
   ),
-  'registerStructured.enforced': field(
-    unionType(SCHEMA_ENFORCEMENTS),
-    'How structured output is enforced on the wire.',
-    SCHEMA_ENFORCEMENTS,
+  'playground.sampleInput': field(
+    'Record<string, unknown>',
+    "Playground-only: tool input for the connection test, filling the endpoint's path, query and body. Not saved.",
+  ),
+  'playground.inputSchema': field(
+    'Record<string, unknown>',
+    'Playground-only: the tool input as a JSON Schema object, sent to the model as its parameters.',
+  ),
+  'playground.outputSchema': field(
+    'Record<string, unknown>',
+    'Playground-only: the tool result as a JSON Schema object. A function tool with no stub output returns a stand-in built from it.',
   ),
   'registerStructured.jsonSchema': field(
     'Record<string, unknown>',
-    'JSON Schema body registered under outputs.structured id.',
+    'JSON Schema body registered under outputs.structured id; sent to the model as its response format.',
   ),
   access: field(unionType(TOOL_ACCESS), 'Semantic access level for policy and UI.', TOOL_ACCESS, {
     'read-only': 'Reads host or remote state; no lasting mutation.',
@@ -1170,8 +1255,4 @@ export type {
   ProfileGraphFacetId,
   ProfileGraphRole,
 } from './profile-graph.ts';
-export {
-  PROFILE_GRAPH,
-  profileGraphFacet,
-  spineFacetsForProfileType,
-} from './profile-graph.ts';
+export { PROFILE_GRAPH, profileGraphFacet, spineFacetsForProfileType } from './profile-graph.ts';

@@ -1,76 +1,33 @@
 /**
- * Live integration matrix — exercises every registered profile against the real
- * Gemini API using free-tier keys from the host app's .env.
+ * Live integration matrix — exercises every registered fixture profile against
+ * the real Gemini API. The dev fills the vault slots (THEOREM_VAULT_*, see
+ * scripts/host-env.ts) with whichever keys they choose.
  *
- * Reads keys from env vars (set them directly or via a .env loader):
- *   GEMINI_API_KEY_PORTFOLIO  → slotA
- *   GEMINI_API_KEY_STUDIO     → slotB
- *   GEMINI_API_KEY_CRUCIBLE   → slotC
- *   GEMINI_API_KEY            → paid (overflow)
- *
- * Or point THEOREM_ENV_FILE at a .env file to load from there.
- *
- * Usage:
- *   deno run --allow-read --allow-write --allow-net --allow-sys --allow-env scripts/integration-matrix.ts
+ * Usage (profile ids narrow the run; default: every profile):
+ *   deno run --allow-read --allow-write --allow-net --allow-sys --allow-env scripts/integration-matrix.ts [profile...]
  */
 
 import '../tests/fixtures/test-host.ts';
 import { testProfileCommand } from '../src/cli/commands/test.ts';
 import { listProfiles } from '../src/kernel/registry/profiles.ts';
+import { isModelProfile } from '../src/kernel/registry/resolve.ts';
 import { createProvider } from '../src/providers/create-provider.ts';
-import type { KeyVault } from '../src/providers/google/keys.ts';
+import { hostVault, loadHostEnv } from './host-env.ts';
 
-function loadEnvFile(path: string): void {
-  let text: string;
-  try {
-    text = Deno.readTextFileSync(path);
-  } catch {
-    return;
-  }
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const eq = trimmed.indexOf('=');
-    if (eq < 0) continue;
-    const key = trimmed.slice(0, eq).trim();
-    if (Deno.env.get(key) !== undefined) continue;
-    let val = trimmed.slice(eq + 1).trim();
-    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-      val = val.slice(1, -1);
-    }
-    Deno.env.set(key, val);
-  }
-}
+loadHostEnv();
 
-const envFile = Deno.env.get('THEOREM_ENV_FILE');
-if (envFile) loadEnvFile(envFile);
-
-const vault: KeyVault = {
-  slotA: Deno.env.get('GEMINI_API_KEY_PORTFOLIO') || undefined,
-  slotB: Deno.env.get('GEMINI_API_KEY_STUDIO') || undefined,
-  slotC: Deno.env.get('GEMINI_API_KEY_CRUCIBLE') || undefined,
-  paid: Deno.env.get('GEMINI_API_KEY') || undefined,
-};
-
-const missing = Object.entries(vault)
-  .filter(([, v]) => !v)
-  .map(([k]) => k);
-
-if (missing.length > 0) {
-  console.error(`Missing vault keys: ${missing.join(', ')}`);
-  Deno.exit(1);
-}
-
-console.log('Vault loaded — all slots populated.');
+const vault = hostVault();
 
 const profiles = listProfiles();
 console.log(`Registered profiles: ${profiles.map((p) => p.id).join(', ')}`);
 
-const geminiProfiles = profiles.filter((p) =>
-  Object.values(p.models).some(
-    (binding) => binding.protocol === 'geminiInteractions' && binding.provider === 'google',
-  ),
-);
+const geminiProfiles = profiles
+  .filter(isModelProfile)
+  .filter((p) =>
+    Object.values(p.models).some(
+      (binding) => binding.protocol === 'geminiInteractions' && binding.provider === 'google',
+    ),
+  );
 
 console.log(
   `\nRunning matrix for ${geminiProfiles.length} Gemini profiles: ${geminiProfiles.map((p) => p.id).join(', ')}\n`,
@@ -78,10 +35,19 @@ console.log(
 
 const provider = createProvider(geminiProfiles[0], { gemini: { vault } });
 
-const success = await testProfileCommand(undefined, {
-  all: true,
-  matrix: true,
-  provider,
-});
+let success = true;
+if (Deno.args.length === 0) {
+  success = await testProfileCommand(undefined, {
+    all: true,
+    matrix: true,
+    provider,
+    verbose: true,
+  });
+} else {
+  for (const profileId of Deno.args) {
+    success =
+      (await testProfileCommand(profileId, { matrix: true, provider, verbose: true })) && success;
+  }
+}
 
 Deno.exit(success ? 0 : 1);

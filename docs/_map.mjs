@@ -144,12 +144,20 @@ const graph = {
           sections: ['Facts and policy'],
         },
         {
-          paths: ['src/kernel/engine/compaction.ts', 'src/kernel/engine/history-tokens.ts'],
+          paths: [
+            'src/kernel/engine/compaction.ts',
+            'src/kernel/engine/token-estimate.ts',
+            'src/kernel/engine/media-probe/**',
+          ],
           sections: ['Compaction'],
         },
         {
           paths: ['src/kernel/stop.ts'],
           sections: ['Stop and resume'],
+        },
+        {
+          paths: ['src/kernel/engine/usage.ts', 'src/kernel/engine/runner/usage.ts'],
+          sections: ['Stream events'],
         },
         {
           paths: ['src/kernel/engine/runner/**', 'src/kernel/engine/runner.ts'],
@@ -190,9 +198,9 @@ const graph = {
         'tests/providers/local/local.test.ts',
         'tests/providers/openrouter/chat.test.ts',
         'tests/providers/openrouter/speech.test.ts',
-        'tests/providers/openrouter/openai/chat-payload.test.ts',
         'tests/providers/openrouter/openai/compat.test.ts',
         'tests/providers/openrouter/openai/sdk-messages.test.ts',
+        'tests/providers/openrouter/openai/usage.test.ts',
         'tests/providers/shared/pcm.test.ts',
         'tests/providers/shared/sse.test.ts',
         'tests/providers/shared/upstream-tape.test.ts',
@@ -219,7 +227,7 @@ const graph = {
         {
           paths: [
             'src/providers/openrouter/chat.ts',
-            'src/providers/openrouter/openai/chat-payload.ts',
+            'src/providers/openrouter/openai/usage.ts',
           ],
           sections: ['OpenRouter'],
         },
@@ -337,6 +345,7 @@ const graph = {
       export: './observability',
       doc: 'docs/contracts/observability.md',
       owns: ['src/observability/'],
+      owns_except: ['src/observability/openinference.ts'],
       validates: ['tests/observability/'],
       required_sections: [
         'Export',
@@ -346,6 +355,7 @@ const graph = {
         'Trace sinks',
         'Sensitive storage',
         'Trace records',
+        'OTLP export',
         'Exported API',
       ],
       section_triggers: [
@@ -353,6 +363,19 @@ const graph = {
         { paths: ['src/observability/destinations.ts'], sections: ['Trace destinations'] },
         { paths: ['src/observability/trace.ts'], sections: ['Trace sinks'] },
         { paths: ['src/observability/trace-record.ts'], sections: ['Trace records', 'Sensitive storage'] },
+        { paths: ['src/observability/trace-span.ts'], sections: ['Trace records'] },
+        { paths: ['src/observability/otlp.ts'], sections: ['OTLP export'] },
+      ],
+    },
+
+    'observability-openinference': {
+      export: './observability/openinference',
+      doc: 'docs/contracts/observability.md',
+      owns: ['src/observability/openinference.ts'],
+      validates: ['tests/observability/openinference.test.ts'],
+      required_sections: ['Export', 'OpenInference attributes', 'Exported API'],
+      section_triggers: [
+        { paths: ['src/observability/openinference.ts'], sections: ['OpenInference attributes'] },
       ],
     },
 

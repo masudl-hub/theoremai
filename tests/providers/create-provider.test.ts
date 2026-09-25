@@ -158,8 +158,10 @@ Deno.test('createProvider rejects geminiLive — use runSession', () => {
         key: 'slotA' as const,
       },
     },
+    defaultModel: 'gemini31FlashLive',
     live: { voice: 'Aoede' },
     tools: { allow: [] as string[] },
+    turnBehaviour: undefined,
   };
   let thrown: unknown;
   try {

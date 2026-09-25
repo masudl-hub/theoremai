@@ -2,22 +2,17 @@ import { build, emptyDir } from '@deno/dnt';
 
 const outDir = './npm';
 const version = JSON.parse(await Deno.readTextFile('./package.json')).version as string;
+// deno.json `exports` is the one export map; npm gets the same entry points.
+const exportMap = JSON.parse(await Deno.readTextFile('./deno.json')).exports as Record<
+  string,
+  string
+>;
 
 await emptyDir(outDir);
 
 await build({
   entryPoints: [
-    { name: '.', path: './mod.ts' },
-    { name: './kernel', path: './src/kernel/mod.ts' },
-    { name: './providers', path: './src/providers/mod.ts' },
-    { name: './providers/local', path: './src/providers/local/mod.ts' },
-    { name: './guardrails', path: './src/guardrails/mod.ts' },
-    { name: './guardrails/testing', path: './src/guardrails/testing.ts' },
-    { name: './observability', path: './src/observability/mod.ts' },
-    { name: './host', path: './src/host/mod.ts' },
-    { name: './cli', path: './src/cli/index.ts' },
-    { name: './presets', path: './src/presets/mod.ts' },
-    { name: './presets/google', path: './src/presets/google.ts' },
+    ...Object.entries(exportMap).map(([name, path]) => ({ name, path })),
     {
       kind: 'bin',
       name: 'agents',
@@ -34,7 +29,6 @@ await build({
   compilerOptions: {
     lib: ['ES2022', 'DOM', 'DOM.Iterable'],
     target: 'ES2022',
-    strict: true,
   },
   package: {
     name: '@theoremai/agents',

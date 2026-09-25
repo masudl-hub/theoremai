@@ -73,7 +73,7 @@ const GOOGLE_BUILTIN_TOOLS = [
     loadTier: 'T0' as const,
     permission: 'auto' as const,
     forcePaidKey: true,
-    wire: { interactions: 'google_search', openRouter: 'web' },
+    wire: { interactions: 'google_search', openRouter: 'web', live: 'googleSearch' },
   },
   {
     type: 'builtin' as const,
@@ -84,7 +84,7 @@ const GOOGLE_BUILTIN_TOOLS = [
     paths: ['*'],
     loadTier: 'T0' as const,
     permission: 'auto' as const,
-    wire: { interactions: 'google_maps' },
+    wire: { interactions: 'google_maps', live: 'googleMaps' },
   },
   {
     type: 'builtin' as const,
@@ -95,7 +95,7 @@ const GOOGLE_BUILTIN_TOOLS = [
     paths: ['*'],
     loadTier: 'T0' as const,
     permission: 'auto' as const,
-    wire: { interactions: 'url_context' },
+    wire: { interactions: 'url_context', live: 'urlContext' },
   },
   {
     type: 'builtin' as const,
@@ -106,7 +106,7 @@ const GOOGLE_BUILTIN_TOOLS = [
     paths: ['*'],
     loadTier: 'T0' as const,
     permission: 'auto' as const,
-    wire: { interactions: 'code_execution' },
+    wire: { interactions: 'code_execution', live: 'codeExecution' },
   },
 ];
 

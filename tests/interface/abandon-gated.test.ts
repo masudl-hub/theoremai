@@ -40,7 +40,7 @@ Deno.test('abandonGatedToolSession: clears gate and records cancelled tool', () 
     assistantEvents: events,
   };
 
-  const { session, finalizedEvents } = abandonGatedToolSession(before);
+  const { session, finalizedEvents } = abandonGatedToolSession(before, undefined);
   assertEquals(session.gatedTool, null);
   assertEquals(session.assistantEvents, []);
   assertEquals(
@@ -61,6 +61,6 @@ Deno.test('abandonGatedToolSession: clears gate and records cancelled tool', () 
 
 Deno.test('abandonGatedToolSession: no-op when not gated', () => {
   const session = emptyInterfaceTurnSession();
-  const next = abandonGatedToolSession(session);
+  const next = abandonGatedToolSession(session, undefined);
   assertEquals(next.session, session);
 });

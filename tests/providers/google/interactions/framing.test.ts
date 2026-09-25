@@ -16,7 +16,6 @@ import {
   historySteps,
   inputStepsFromRequest,
   jsonResponseFormat,
-  systemHoldsUserInput,
   toGoogleValue,
   toInteractionsBody,
   userInputStep,
@@ -141,16 +140,38 @@ Deno.test('historyStep maps user role to user_input', () => {
   });
 });
 
-Deno.test('historyStep prefers parts over content when parts are present', () => {
+Deno.test('historyStep sends content first, then parts', () => {
   const msg: TurnHistoryMessage = {
     role: 'user',
-    content: 'ignored',
+    content: 'from content',
     parts: [{ type: 'text', text: 'from parts' }],
   };
   assertEquals(historyStep(msg), {
     type: 'user_input',
-    content: [{ type: 'text', text: 'from parts' }],
+    content: [
+      { type: 'text', text: 'from content' },
+      { type: 'text', text: 'from parts' },
+    ],
   });
+});
+
+Deno.test('historySteps keeps assistant content and parts ahead of function calls', () => {
+  const steps = historySteps({
+    role: 'assistant',
+    content: 'Checking the forecast.',
+    parts: [{ type: 'image', mimeType: 'image/png', data: 'iVBORw0=' }],
+    tool_calls: [{ id: 'c1', type: 'function', function: { name: 'weather', arguments: '{}' } }],
+  });
+  assertEquals(steps, [
+    {
+      type: 'model_output',
+      content: [
+        { type: 'text', text: 'Checking the forecast.' },
+        { type: 'image', mimeType: 'image/png', data: 'iVBORw0=' },
+      ],
+    },
+    { type: 'function_call', id: 'c1', name: 'weather', arguments: {} },
+  ]);
 });
 
 Deno.test('historyStep falls back to empty text when content is missing', () => {
@@ -164,26 +185,6 @@ Deno.test('historyStep treats an empty parts array as absent and falls back to c
     type: 'user_input',
     content: [{ type: 'text', text: 'text fallback' }],
   });
-});
-
-// systemHoldsUserInput
-
-Deno.test('systemHoldsUserInput returns true when a text part is embedded in system', () => {
-  const parts: InteractionPart[] = [{ type: 'text', text: 'secret' }];
-  assertEquals(systemHoldsUserInput('prefix secret suffix', parts), true);
-});
-
-Deno.test('systemHoldsUserInput returns false when no text part is in system', () => {
-  const parts: InteractionPart[] = [{ type: 'text', text: 'secret' }];
-  assertEquals(systemHoldsUserInput('unrelated system prompt', parts), false);
-});
-
-Deno.test('systemHoldsUserInput ignores non-text parts and empty text', () => {
-  const parts: InteractionPart[] = [
-    { type: 'image', mimeType: 'image/png', data: 'x' },
-    { type: 'text', text: '' },
-  ];
-  assertEquals(systemHoldsUserInput('anything', parts), false);
 });
 
 // jsonResponseFormat
@@ -292,18 +293,11 @@ Deno.test('attachResponseFormat leaves camel untouched when nothing is requested
   assertEquals(Object.hasOwn(camel, 'responseFormat'), false);
 });
 
-Deno.test('attachResponseFormat sets json response format for a responseFormat-enforced schema', () => {
+Deno.test('attachResponseFormat sets json response format for a structured schema', () => {
   const req = baseReq({ structured: 'chatTurn' });
   const camel: Record<string, unknown> = {};
   attachResponseFormat(req, camel);
   assertEquals(Array.isArray(camel.responseFormat), true);
-});
-
-Deno.test('attachResponseFormat skips prompt-enforced structured schemas', () => {
-  const req = baseReq({ structured: 'promptTurn' });
-  const camel: Record<string, unknown> = {};
-  attachResponseFormat(req, camel);
-  assertEquals(Object.hasOwn(camel, 'responseFormat'), false);
 });
 
 // attachSpeechConfig
@@ -441,22 +435,39 @@ Deno.test('toGoogleValue preserves JSON Schema property names inside parameters'
   assertEquals(params.required, ['orderId']);
 });
 
-Deno.test('inputStepsFromRequest uses interactionOnlyInput when provided', () => {
+Deno.test('inputStepsFromRequest maps continuation messages like history', () => {
   const req = baseReq({
     history: [{ role: 'user', content: 'old' }],
     input: [{ type: 'text', text: 'ignored' }],
-    interactionOnlyInput: [
-      {
-        type: 'function_result',
-        name: 'lookup_order',
-        call_id: 'call_1',
-        result: [{ type: 'text', text: 'ok' }],
-      },
+    continuation: [
+      { role: 'tool', name: 'lookup_order', tool_call_id: 'call_1', content: 'ok' },
+      { role: 'user', content: 'Also check stock' },
     ],
   });
-  const steps = inputStepsFromRequest(req);
-  assertEquals(steps.length, 1);
-  assertEquals(steps[0]?.type, 'function_result');
+  assertEquals(inputStepsFromRequest(req), [
+    {
+      type: 'function_result',
+      name: 'lookup_order',
+      call_id: 'call_1',
+      result: [{ type: 'text', text: 'ok' }],
+    },
+    { type: 'user_input', content: [{ type: 'text', text: 'Also check stock' }] },
+  ]);
+});
+
+Deno.test('historySteps rejects history tool calls with malformed arguments', () => {
+  for (const args of ['not json', '[1]', '"text"']) {
+    assertThrows(
+      () =>
+        historySteps({
+          role: 'assistant',
+          tool_calls: [
+            { id: 'call_1', type: 'function', function: { name: 'lookup_order', arguments: args } },
+          ],
+        }),
+      TheoremError,
+    );
+  }
 });
 
 Deno.test('historyStep maps tool role messages to function_result steps', () => {
@@ -474,7 +485,14 @@ Deno.test('historyStep maps tool role messages to function_result steps', () => 
   });
 });
 
-Deno.test('historyStep maps tool role parts through wirePart', () => {
+Deno.test('historyStep sends only the tool identity history carries', () => {
+  assertEquals(historyStep({ role: 'tool', content: 'done' }), {
+    type: 'function_result',
+    result: [{ type: 'text', text: 'done' }],
+  });
+});
+
+Deno.test('historyStep maps tool role content and parts through wirePart', () => {
   const step = historyStep({
     role: 'tool',
     name: 'fetch_stock_media',
@@ -491,6 +509,7 @@ Deno.test('historyStep maps tool role parts through wirePart', () => {
     name: 'fetch_stock_media',
     call_id: 'call_media',
     result: [
+      { type: 'text', text: 'shortlist\n{"items":[]}' },
       { type: 'text', text: '1. palm' },
       { type: 'image', mimeType: 'image/jpeg', data: '/9j/abc' },
       { type: 'audio', mimeType: 'audio/wav', data: 'UklG' },
@@ -608,14 +627,6 @@ Deno.test('baseInteractionsBody swaps in speech config and omits thinking knobs 
 });
 
 // toInteractionsBody
-
-Deno.test('toInteractionsBody rejects a system prompt that already contains user input', () => {
-  const req = baseReq({
-    system: 'leaked hi text',
-    input: [{ type: 'text', text: 'hi' }],
-  });
-  assertThrows(() => toInteractionsBody(req), TheoremError);
-});
 
 Deno.test('toInteractionsBody builds a full snake_case wire body', () => {
   const req = baseReq({

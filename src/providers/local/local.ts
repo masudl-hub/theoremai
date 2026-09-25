@@ -14,12 +14,25 @@
  * @module
  */
 
-import { isAbortError, toErrorEvent } from '../../guardrails/error.ts';
+import {
+  isAbortError,
+  kindOfHttpStatus,
+  TheoremError,
+  toErrorEvent,
+} from '../../guardrails/error.ts';
 import { turnStopFromOpenAiFinishReason } from '../../kernel/stop.ts';
-import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../kernel/types.ts';
+import type {
+  ModelProvider,
+  ProviderCompleteRequest,
+  TurnEvent,
+  TurnResponse,
+} from '../../kernel/types.ts';
 import { buildChatMessages, wireTools } from '../openrouter/openai/compat.ts';
+import { openAiResponse, openAiUsageTokens } from '../openrouter/openai/usage.ts';
+import { foldResponse } from '../shared/response-identity.ts';
 import { parseSseStream } from '../shared/sse.ts';
 import { parseToolArgumentsObject } from '../shared/tool-args.ts';
+import { networkFetch, tapFetch } from '../shared/upstream-tap.ts';
 import type { LocalProviderConfig } from '../types.ts';
 
 /** Default OpenAI-compat base when the host omits `baseUrl` (Ollama's default port). */
@@ -41,12 +54,6 @@ interface OpenAiChoice {
   index: number;
   delta?: OpenAiDelta;
   finish_reason?: string | null;
-}
-
-interface OpenAiUsage {
-  prompt_tokens?: number;
-  completion_tokens?: number;
-  total_tokens?: number;
 }
 
 export type PendingToolCall = { id: string; name: string; args: string };
@@ -93,6 +100,7 @@ export function flushPending(pending: Map<number, PendingToolCall>): TurnEvent[]
           phase: 'error',
           failure: {
             code: 'malformed_arguments',
+            kind: 'bad_response',
             message: parsed.error,
             details: { raw: parsed.raw },
           },
@@ -114,30 +122,43 @@ async function* streamComplete(
   req: ProviderCompleteRequest,
   fetchFn: typeof globalThis.fetch,
 ): AsyncGenerator<TurnEvent> {
-  const res = await fetchFn(`${baseUrl}/v1/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(buildBody(req)),
-    signal: req.signal,
-  });
+  const res = await tapFetch(req.tapUpstream, networkFetch(fetchFn))(
+    `${baseUrl}/v1/chat/completions`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(buildBody(req)),
+      signal: req.signal,
+    },
+  );
   if (!res.ok) {
     const text = await res.text();
-    yield toErrorEvent(`LLM HTTP ${res.status}: ${text.slice(0, 300)}`);
+    yield toErrorEvent(
+      new TheoremError(kindOfHttpStatus(res.status), `LLM HTTP ${res.status}: ${text}`),
+    );
     return;
   }
   if (!res.body) {
-    yield toErrorEvent('empty response body');
+    yield toErrorEvent(new TheoremError('bad_response', 'empty response body'));
     return;
   }
-  yield* streamOpenAiBody(res.body);
+  yield* streamOpenAiBody(res.body, req.tapUpstream);
 }
 
-async function* streamOpenAiBody(body: ReadableStream<Uint8Array>): AsyncGenerator<TurnEvent> {
+async function* streamOpenAiBody(
+  body: ReadableStream<Uint8Array>,
+  tap: ProviderCompleteRequest['tapUpstream'],
+): AsyncGenerator<TurnEvent> {
   const pending = new Map<number, PendingToolCall>();
   let finishReason: string | null | undefined;
+  let response: TurnResponse | undefined;
   for await (const raw of parseSseStream(body)) {
-    const usageEvent = tokensFromUsage(readOpenAiUsage(raw));
-    if (usageEvent) yield usageEvent;
+    tap?.(raw);
+    const identity = foldResponse(response, openAiResponse(raw));
+    response = identity.known;
+    if (identity.event) yield identity.event;
+    const tokens = openAiUsageTokens(raw.usage);
+    if (tokens) yield { type: 'tokens', tokens };
     const choice = firstOpenAiChoice(raw);
     if (!choice) continue;
     yield* eventsFromChoiceDelta(choice.delta, pending);
@@ -147,18 +168,9 @@ async function* streamOpenAiBody(body: ReadableStream<Uint8Array>): AsyncGenerat
     }
   }
   for (const event of flushPending(pending)) yield event;
-  yield { type: 'done', stop: turnStopFromOpenAiFinishReason(finishReason) };
-}
-
-function readOpenAiUsage(raw: Record<string, unknown>): OpenAiUsage | undefined {
-  const usage = raw.usage;
-  if (!usage || typeof usage !== 'object' || Array.isArray(usage)) return undefined;
-  const row = usage as Record<string, unknown>;
-  return {
-    prompt_tokens: typeof row.prompt_tokens === 'number' ? row.prompt_tokens : undefined,
-    completion_tokens:
-      typeof row.completion_tokens === 'number' ? row.completion_tokens : undefined,
-    total_tokens: typeof row.total_tokens === 'number' ? row.total_tokens : undefined,
+  yield {
+    type: 'done',
+    stop: turnStopFromOpenAiFinishReason(finishReason),
   };
 }
 
@@ -179,18 +191,6 @@ function firstOpenAiChoice(raw: Record<string, unknown>): OpenAiChoice | undefin
       typeof row.finish_reason === 'string' || row.finish_reason === null
         ? (row.finish_reason as string | null)
         : undefined,
-  };
-}
-
-function tokensFromUsage(usage: OpenAiUsage | undefined): TurnEvent | undefined {
-  if (!usage) return undefined;
-  return {
-    type: 'tokens',
-    tokens: {
-      input: usage.prompt_tokens ?? 0,
-      output: usage.completion_tokens ?? 0,
-      total: usage.total_tokens ?? 0,
-    },
   };
 }
 

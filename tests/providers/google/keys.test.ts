@@ -1,5 +1,5 @@
 import '../../fixtures/test-host.ts';
-import { TheoremError, UPSTREAM_FAILED } from '../../../src/guardrails/error.ts';
+import { TheoremError } from '../../../src/guardrails/error.ts';
 import { assertEquals } from '../../../src/kernel/engine/assert.ts';
 import {
   defineProfile,
@@ -12,13 +12,11 @@ import {
   backoffMs,
   canOverflow,
   fetchGemini,
-  isQuota,
   isTransientHttp,
   isTransientThrown,
   requireKey,
   waitDefault,
   withApiKey,
-  withGeminiKey,
 } from '../../../src/providers/google/keys.ts';
 
 const vault: KeyVault = {
@@ -158,56 +156,6 @@ Deno.test('url context does not force paid', () => {
   );
 });
 
-Deno.test('withGeminiKey stays on the free key when it succeeds', async () => {
-  const used: string[] = [];
-  const out = await withGeminiKey(
-    'slotA',
-    (apiKey) => {
-      used.push(apiKey);
-      return Promise.resolve('ok');
-    },
-    { vault, wait: noWait },
-  );
-  assertEquals(out, 'ok');
-  assertEquals(used, ['free-a-key']);
-});
-
-Deno.test('withGeminiKey overflows to paid after quota backoff on a key slot', async () => {
-  const used: string[] = [];
-  const out = await withGeminiKey(
-    'slotC',
-    (apiKey) => {
-      used.push(apiKey);
-      if (apiKey !== 'paid-key') {
-        return Promise.reject(new Error('429 RESOURCE_EXHAUSTED'));
-      }
-      return Promise.resolve('ok');
-    },
-    { vault, wait: noWait },
-  );
-  assertEquals(out, 'ok');
-  assertEquals(used, ['free-c-key', 'free-c-key', 'free-c-key', 'paid-key']);
-});
-
-Deno.test('withGeminiKey never overflows when the slot is already paid', async () => {
-  const used: string[] = [];
-  let threw = false;
-  try {
-    await withGeminiKey(
-      'paid',
-      (apiKey) => {
-        used.push(apiKey);
-        return Promise.reject(new Error('429'));
-      },
-      { vault, wait: noWait },
-    );
-  } catch (err) {
-    threw = err instanceof Error && err.message === '429';
-  }
-  assertEquals(threw, true);
-  assertEquals(used, ['paid-key', 'paid-key', 'paid-key']);
-});
-
 Deno.test('fetchGemini never starts on paid for a key slot that is not 429', async () => {
   const used: string[] = [];
   const res = await fetchGemini('https://example.com/v1', { method: 'POST', body: '{}' }, 'slotB', {
@@ -253,12 +201,12 @@ Deno.test('missing free key throws before any fetch', async () => {
       },
     });
   } catch (err) {
-    threw = err instanceof TheoremError && err.message === UPSTREAM_FAILED;
+    threw = err instanceof TheoremError && err.kind === 'auth';
   }
   assertEquals(threw, true);
 });
 
-Deno.test('fetchGemini and withGeminiKey retry on transient network errors before succeeding', async () => {
+Deno.test('fetchGemini retries on transient network errors before succeeding', async () => {
   let attempts = 0;
   const res = await fetchGemini('https://example.com/v1/ping', { method: 'GET' }, 'slotA', {
     vault,
@@ -273,29 +221,32 @@ Deno.test('fetchGemini and withGeminiKey retry on transient network errors befor
   });
   assertEquals(res.status, HTTP_OK);
   assertEquals(attempts, 2);
-
-  let keyAttempts = 0;
-  const result = await withGeminiKey(
-    'slotA',
-    () => {
-      keyAttempts++;
-      if (keyAttempts === 1) {
-        return Promise.reject(new Error('network connection reset'));
-      }
-      return Promise.resolve('data');
-    },
-    { vault, wait: noWait },
-  );
-  assertEquals(result, 'data');
-  assertEquals(keyAttempts, 2);
 });
 
-Deno.test('isQuota detects quota-shaped errors', () => {
-  assertEquals(isQuota('429'), true);
-  assertEquals(isQuota('RESOURCE_EXHAUSTED'), true);
-  assertEquals(isQuota('quota'), true);
-  assertEquals(isQuota('500'), false);
-  assertEquals(isQuota('not found'), false);
+Deno.test('fetchGemini tapes every try under the slot it was sent with', async () => {
+  const rows: Record<string, unknown>[] = [];
+  await fetchGemini(
+    'https://example.com/v1?key=strip-me',
+    { method: 'POST', body: '{"model":"m"}' },
+    'slotA',
+    {
+      vault,
+      wait: noWait,
+      fetch: (_url, init) => Promise.resolve(responseForKey(headerApiKey(init))),
+    },
+    (row) => rows.push(row),
+  );
+  const requests = rows.filter((row) => row.eventType === 'http_request');
+  assertEquals(
+    requests.map((row) => row.keySlot),
+    ['slotA', 'slotA', 'slotA', 'paid'],
+  );
+  assertEquals(requests[0]?.url, 'https://example.com/v1');
+  assertEquals(requests[0]?.body, { model: 'm' });
+  assertEquals(
+    rows.filter((row) => row.eventType === 'http_response').map((row) => row.status),
+    [429, 429, 429, HTTP_OK],
+  );
 });
 
 Deno.test('isTransientHttp flags retryable status codes only', () => {
@@ -376,7 +327,7 @@ Deno.test('requireKey throws TheoremError when the slot has no key', () => {
   try {
     requireKey({ ...vault, slotA: undefined }, 'slotA');
   } catch (err) {
-    threw = err instanceof TheoremError && err.message === UPSTREAM_FAILED;
+    threw = err instanceof TheoremError && err.kind === 'auth';
   }
   assertEquals(threw, true);
 });

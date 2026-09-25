@@ -2,15 +2,13 @@
 
 Deterministic document-health lint for THEOREM. No waivers. No LLM.
 
-This contract was refreshed alongside the current release branch so the docs-truth ownership graph stays aligned with the live code surface and package metadata.
-
 ## Export
 
 | Field | Value |
 | --- | --- |
 | CLI | `scripts/docs-truth/cli.mjs` (`lint`, `inventory`, `freshness`) |
 | Export drift | `scripts/docs-truth/export-drift.mjs` (barrel exports vs contracts) |
-| Copy lint | `scripts/docs-truth/copy-lint.mjs` (P2 — full-tree prose in `src/kernel` / `src/guardrails` / `src/interface` must live in the lexicon or carry an explicit exempt) |
+| Copy lint | `scripts/docs-truth/copy-lint.mjs` (P2 — full-tree prose in `src/kernel` / `src/guardrails` / `src/interface` and the headless `react/src` directories (not `ui/`) must live in the lexicon or carry an explicit exempt) |
 | Graph | `docs/_map.mjs` |
 
 ## Ownership
@@ -26,8 +24,6 @@ This contract was refreshed alongside the current release branch so the docs-tru
 
 ## Rules
 
-The active branch refresh keeps the docs-truth rules in sync with the runtime graph, ownership checks, and production-root enforcement used by the repo.
-
 | Rule | Behavior |
 | --- | --- |
 | Full ownership | Every production-root file has exactly one `owns` entry in `docs/_map.mjs` |
@@ -37,7 +33,7 @@ The active branch refresh keeps the docs-truth rules in sync with the runtime gr
 | Owned fallback | Owned files → at least one behavioral section hunk |
 | Evidence | ≥2 supports; behavioral sections require `contract_test` |
 | Export drift | Entry `mod.ts` export names appear in owner contract (checked by `export-drift.mjs`) |
-| Copy lint | Full-tree prose (≥3 words) in `src/kernel` / `src/guardrails` / `src/interface` outside `lexicon.ts` fails (`copy-lint.mjs`); `// lexicon-exempt:` / `lexicon-exempt-file:` require a reason |
+| Copy lint | Full-tree prose (≥3 words) in `src/kernel` / `src/guardrails` / `src/interface` and headless `react/src` (`client`, `components`, `hooks`, `server`) outside `lexicon.ts` fails (`copy-lint.mjs`); `// lexicon-exempt:` / `lexicon-exempt-file:` require a reason |
 
 ## Package vs repo documentation
 
@@ -63,8 +59,6 @@ owned by those contracts for freshness — change code, update the matching cont
 
 ## Production roots
 
-The current codebase refresh keeps the production-root list aligned with the actual live tree and the docs-truth validation gate used in CI.
-
 | Root | Files |
 | --- | --- |
 | `mod.ts` | Package barrel (`@theoremai/agents`) |
@@ -78,7 +72,7 @@ The current codebase refresh keeps the production-root list aligned with the act
 | --- | --- |
 | `npm run lint` | Runs `lint:docs` first, then `deno lint`, biome, ast-grep, and fallow |
 | `deno task lint` | Same as `npm run lint` |
-| `npm run check:ci` / `deno task ci` | Full CI gate: docs-truth, deno lint, biome, ast-grep, fallow, typecheck, verify:publish, and tests |
+| `npm run check:ci` / `deno task ci` | Full CI gate: docs-truth, deno lint, biome, ast-grep, verify:publish, fallow, typecheck (`mod.ts`, the subprocess probe fixtures the tests spawn unchecked, `scripts/*.ts`, and `react/` via its own `tsc`, since it imports kernel source by relative path), and tests (publish check before fallow, which writes `coverage/`) |
 | CI | `lint:docs` (with `THEOREM_DOCS_BASE`), `deno lint`, then `lint:biome` + `lint:ast-grep` + `lint:fallow` (`FALLOW_AUDIT_BASE=origin/<base>`) |
 | Pre-commit | `npm run lint:docs` (auto-installed by `prepare` / `hooks:install`) |
 | Pre-push | `fallow audit --base origin/main` (uses `coverage/coverage-final.json` when present) |

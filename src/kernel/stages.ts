@@ -14,6 +14,8 @@ import { guardrailFromHits } from '../guardrails/events.ts';
 import { detectionForTrust, resolveGuardrailPolicy } from '../guardrails/policy.ts';
 import { sanitizeHistory } from '../guardrails/sanitize.ts';
 import type { GuardrailHit } from '../guardrails/types.ts';
+import type { SpanHandle } from '../observability/trace-span.ts';
+import { guardrailAttributes } from './engine/turn-trace.ts';
 import {
   AWAITING_USER_INPUT_KINDS,
   AWAITING_USER_INPUT_STATUS,
@@ -26,6 +28,7 @@ import {
 import type { TurnStop } from './stop.ts';
 import type { ModelToolResult, ToolFailure, ToolGate } from './tools/types.ts';
 import type { Profile, TurnEvent, TurnHistoryMessage } from './types.ts';
+import { isRecord } from './util/record.ts';
 
 /** Canonical homes: schema (`TurnStage`, `ToolGateKind`), tools/types (`ToolGate`). */
 export type { AwaitingUserInputKind, ToolGate };
@@ -156,10 +159,6 @@ export interface StageApplyOutput {
 /** True when the affordance is physically allowed at `stage` (ignores inject gate). */
 export function stageAllowsAffordance(stage: TurnStage, affordance: StageAffordance): boolean {
   return STAGE_AFFORDANCE_MATRIX[stage].includes(affordance);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function warn(
@@ -640,11 +639,18 @@ export interface RunStageArgs extends StageCallBag {
   mutable?: boolean;
   host?: unknown;
   signal?: AbortSignal;
+  /** Span that records this stage as a `theorem.stage` event. */
+  span?: SpanHandle;
 }
 
 /** Applied stage output. `inject` is sanitized and always present. */
 export interface RunStageOutput extends Omit<StageApplyOutput, 'inject'> {
   inject: TurnHistoryMessage[];
+}
+
+/** True when the merged stage output applies `key`. */
+function appliedAffordance(applied: StageApplyOutput, key: StageAffordance): boolean {
+  return key === 'inject' ? Boolean(applied.inject?.length) : Boolean(applied[key]);
 }
 
 /**
@@ -711,6 +717,7 @@ export async function* runStage(args: RunStageArgs): AsyncGenerator<TurnEvent, R
     mutable,
     host,
     signal,
+    span,
     ...bag
   } = args;
   throwIfAborted(signal);
@@ -726,9 +733,13 @@ export async function* runStage(args: RunStageArgs): AsyncGenerator<TurnEvent, R
     stop: bag.stop,
   });
 
-  if (handlers.length === 0) return { warnings: [], inject: [] };
+  if (handlers.length === 0) {
+    span?.event('theorem.stage', { stage, affordance: [] });
+    return { warnings: [], inject: [] };
+  }
 
   const ctx: StageContext = { stage, step, history, host, ...bag };
+  const startedMs = span?.msSinceStart();
   const applied = mergeApplied(
     await applyHandlers(
       handlers,
@@ -737,6 +748,12 @@ export async function* runStage(args: RunStageArgs): AsyncGenerator<TurnEvent, R
       signal,
     ),
   );
+  span?.event('theorem.stage', {
+    stage,
+    ...(startedMs === undefined ? {} : { hook_ms: span.msSinceStart() - startedMs }),
+    affordance: STAGE_AFFORDANCES.filter((key) => appliedAffordance(applied, key)),
+    ...(applied.warnings.length > 0 ? { warnings: applied.warnings.map((w) => w.code) } : {}),
+  });
 
   if (applied.warnings.length > 0) {
     yield {
@@ -754,6 +771,8 @@ export async function* runStage(args: RunStageArgs): AsyncGenerator<TurnEvent, R
     hits,
   );
   const redacted = guardrailFromHits('history', 'untrusted', hits, 'redact');
+  if (redacted?.guardrail)
+    span?.event('theorem.guardrail', guardrailAttributes(redacted.guardrail));
   if (redacted) yield redacted;
   return { ...rest, inject: sanitized };
 }

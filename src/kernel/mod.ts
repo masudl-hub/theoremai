@@ -9,9 +9,6 @@ export type { CompactionSplit, CompactionTokens } from './engine/compaction.ts';
 export {
   compactionMeter,
   compactionNeeded,
-  estimateHistoryTokens,
-  HISTORY_MEDIA_TOKENS,
-  HISTORY_TEXT_ENCODING,
   resolveCompactionTokens,
   resolveHistoryTokens,
   shouldCompact,
@@ -31,6 +28,18 @@ export {
 export { runTurn } from './engine/runner.ts';
 export type { RunSessionOptions } from './engine/session/mod.ts';
 export { runSession } from './engine/session/mod.ts';
+export type {
+  MediaPayload,
+  MediaTokenFamily,
+  TokenCount,
+  TokenEstimator,
+} from './engine/token-estimate.ts';
+export {
+  loadTokenEstimator,
+  mediaTokenFamily,
+  TOKEN_TEXT_ENCODING,
+} from './engine/token-estimate.ts';
+export { sumTokens } from './engine/usage.ts';
 export { isMediaRefPart, wireInteractionPart } from './interaction-parts.ts';
 export type {
   ProfileGraphEditor,
@@ -107,6 +116,7 @@ export {
   EXTRA_FIELDS,
   fieldMeta,
   HTTP_METHODS,
+  IMAGE_ATTACHMENT_ACCEPT_MIMES,
   isSpeechFormatAllowedForProtocol,
   isToolGateKind,
   isTurnInjectStage,
@@ -128,7 +138,6 @@ export {
   protocolsFor,
   protocolsForProfileType,
   providersFor,
-  SCHEMA_ENFORCEMENTS,
   SPEECH_AUDIO_FORMATS,
   STREAM_MODES,
   SUMMARY_MODES,
@@ -169,6 +178,7 @@ export {
   stageEventFields,
 } from './stages.ts';
 export type {
+  MediaTurnBehaviourSpec,
   ProfileTurnBehaviourSpec,
   ProfileTurnResumptionSpec,
   TurnContinueFrom,
@@ -176,7 +186,6 @@ export type {
 } from './stop.ts';
 export {
   AUTO_CONTINUE_DELAY_MS,
-  CONTINUE_INSTRUCTION,
   DEFAULT_ALLOW_CONTINUE,
   DEFAULT_AUTO_CONTINUE,
   GenerationStopError,

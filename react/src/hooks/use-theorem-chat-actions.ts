@@ -1,5 +1,7 @@
 import { useCallback, type MutableRefObject } from 'react';
+import { TheoremError } from '../../../mod.ts';
 import type {
+	AttachmentValidationIssue,
 	ComposerMenuAction,
 	ComposerPendingMessage,
 	ComposerProfileInterface,
@@ -15,7 +17,6 @@ import {
 	userDraftHasPayload,
 	userDraftToSteerInject,
 } from '../../../src/interface/mod.ts';
-import type { ToolCredential } from '../../../src/kernel/mod.ts';
 import {
 	abandonGatedInterfaceTool,
 	applyTurnResultToTranscript,
@@ -26,6 +27,7 @@ import {
 	streamInterfaceTurn,
 	type ToolDecisionAction,
 } from '../client/index';
+import { type ClientFailure, clientFailure, type TurnFailure } from '../client/failure';
 import type { TheoremTransport } from '../client/transport';
 
 function composerFieldsPayload(
@@ -60,19 +62,10 @@ export type RunTurnStream = (
 				userBlocks?: TranscriptBlock[];
 				assistantBlocks: TranscriptBlock[];
 		  }
-		| { ok: false; error: string; errorInternal?: string; issues?: string[]; aborted?: boolean }
+		| TurnFailure
 	>,
 	options?: { userBlocksAlreadyApplied?: boolean },
 ) => Promise<void>;
-
-function reportCaughtError(
-	setError: (value: string) => void,
-	setErrorInternal: (value: string) => void,
-	err: unknown,
-): void {
-	setError(err instanceof Error ? err.message : String(err));
-	setErrorInternal('');
-}
 
 function beginAbortableTurn(args: {
 	iface: ComposerProfileInterface | null;
@@ -125,9 +118,8 @@ export type TheoremChatActionArgs = {
 	setDraftText: (value: string) => void;
 	setPendingFiles: (value: File[]) => void;
 	setPendingVoice: (value: File[]) => void;
-	setIssues: (value: string[]) => void;
-	setError: (value: string) => void;
-	setErrorInternal: (value: string) => void;
+	setIssues: (value: AttachmentValidationIssue[]) => void;
+	setFailure: (value: ClientFailure | null) => void;
 	pendingRef: MutableRefObject<ComposerPendingMessage[]>;
 };
 
@@ -193,6 +185,20 @@ function useTurnStarters(args: TheoremChatActionArgs) {
 	return { startTurnFromFields, startTurnFromDraft };
 }
 
+/** A steer with no running turn: the user reads `session.turn_ended`; queued steers move to the front. */
+function steerAfterTurnEnded(args: TheoremChatActionArgs, messageId: string): void {
+	args.setFailure(
+		clientFailure(
+			// lexicon-exempt: internal diagnostic; the user reads session.turn_ended
+			new TheoremError('request', 'steer: no active turn', { copy: { key: 'session.turn_ended' } }),
+			args.iface?.lexicon,
+		),
+	);
+	args.setPendingMessages((prev) =>
+		orderComposerPendingMessages(convertSteersToFrontQueued(removeComposerPendingMessage(prev, messageId))),
+	);
+}
+
 /** Queue / steer / stash the composer draft, and restore a pending message into the composer. */
 function usePendingActions(args: TheoremChatActionArgs) {
 	const enqueuePending = useCallback(
@@ -218,20 +224,14 @@ function usePendingActions(args: TheoremChatActionArgs) {
 				if (kind !== 'steer') return;
 				const turnId = args.turnIdRef.current;
 				if (!turnId) {
-					args.setError('No active turn to steer.');
-					args.setErrorInternal('');
-					args.setPendingMessages((prev) =>
-						orderComposerPendingMessages(
-							convertSteersToFrontQueued(removeComposerPendingMessage(prev, message.id)),
-						),
-					);
+					steerAfterTurnEnded(args, message.id);
 					return;
 				}
 				const inject = userDraftToSteerInject(draft);
 				if (inject.length === 0) return;
 				await args.transport.steer({ turnId, inject });
 			} catch (err) {
-				reportCaughtError(args.setError, args.setErrorInternal, err);
+				args.setFailure(clientFailure(err, args.iface?.lexicon));
 			}
 		},
 		[args],
@@ -264,7 +264,7 @@ function usePendingActions(args: TheoremChatActionArgs) {
 				args.setPendingVoice(restored.voice);
 				args.setIssues([]);
 			} catch (err) {
-				reportCaughtError(args.setError, args.setErrorInternal, err);
+				args.setFailure(clientFailure(err, args.iface?.lexicon));
 			}
 		},
 		[args],
@@ -278,7 +278,7 @@ function useGateActions(args: TheoremChatActionArgs) {
 	const resumeGatedTool = useCallback(
 		async (
 			action: ToolDecisionAction,
-			extra?: { interactiveValue?: unknown; credentials?: Record<string, ToolCredential> },
+			extra?: { interactiveValue?: unknown; secret?: string },
 		) => {
 			const composer = args.iface;
 			if (!composer) return;
@@ -289,7 +289,7 @@ function useGateActions(args: TheoremChatActionArgs) {
 					session: args.sessionRef.current,
 					action,
 					interactiveValue: extra?.interactiveValue,
-					credentials: extra?.credentials,
+					secret: extra?.secret,
 					onStream,
 				}),
 			);
@@ -304,20 +304,20 @@ function useGateActions(args: TheoremChatActionArgs) {
 		[resumeGatedTool],
 	);
 
-	const handleAuthCredential = useCallback(
-		async (_index: number, slot: string, credential: ToolCredential) => {
-			await resumeGatedTool('allow', { credentials: { [slot]: credential } });
+	const handleAuthenticated = useCallback(
+		async (_index: number, secret?: string) => {
+			await resumeGatedTool('allow', { secret });
 		},
 		[resumeGatedTool],
 	);
 
-	return { handleToolDecision, handleAuthCredential };
+	return { handleToolDecision, handleAuthenticated };
 }
 
 export function useTheoremChatActions(args: TheoremChatActionArgs) {
 	const { startTurnFromFields, startTurnFromDraft } = useTurnStarters(args);
 	const { enqueuePending, handlePendingRestore } = usePendingActions(args);
-	const { handleToolDecision, handleAuthCredential } = useGateActions(args);
+	const { handleToolDecision, handleAuthenticated } = useGateActions(args);
 
 	const handleStop = useCallback(() => {
 		args.abortRef.current?.abort();
@@ -405,7 +405,7 @@ export function useTheoremChatActions(args: TheoremChatActionArgs) {
 		handleSendNow,
 		handleMenuAction,
 		handleToolDecision,
-		handleAuthCredential,
+		handleAuthenticated,
 		handlePendingRestore,
 		enqueuePending,
 	};

@@ -11,8 +11,14 @@
 
 import type { z } from 'zod';
 import { TheoremError } from '../../guardrails/error.ts';
-import { jsonSchemaFromZod, validateToolInputSchema, validateToolOutputSchema } from './schema.ts';
+import {
+  assertFixedEndpointOrigin,
+  jsonSchemaFromZod,
+  validateToolInputSchema,
+  validateToolOutputSchema,
+} from './schema.ts';
 import type {
+  BuiltinWire,
   FunctionToolDef,
   HttpToolDef,
   McpToolDef,
@@ -36,6 +42,7 @@ function normalizeHttp<TIn = unknown, TOut = unknown>(
     output: z.ZodType<TOut>;
   },
 ): HttpToolDef<TIn, TOut> {
+  assertFixedEndpointOrigin(def.endpoint);
   return { ...def, type: 'http', ...schemasFromZod(def.input, def.output) };
 }
 
@@ -93,9 +100,19 @@ function getTool(name: string): RegisteredTool | undefined {
 function requireTool(name: string): RegisteredTool {
   const tool = getTool(name);
   if (!tool) {
-    throw new TheoremError(`Tool '${name}' is not registered`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', `Tool '${name}' is not registered`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return tool;
+}
+
+/** A registered builtin's wire name on one transport; throws when it has none. */
+function requireBuiltinWire(id: string, transport: keyof BuiltinWire): string {
+  const tool = getTool(id);
+  const wire = tool?.type === 'builtin' ? tool.wire[transport] : undefined;
+  if (!wire) {
+    throw new TheoremError('config', `Builtin '${id}' has no wire.${transport}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  return wire;
 }
 
 /** Returns whether a process-registered tool exists under a name. */
@@ -135,6 +152,7 @@ export {
   listTools,
   registerTool,
   registerTools,
+  requireBuiltinWire,
   requireTool,
   resetTools,
 };

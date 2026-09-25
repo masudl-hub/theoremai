@@ -14,7 +14,7 @@
  *                      baseline clean delivery
  *
  * Rate limit: ≥4 s between API calls (≤15 RPM).
- * Keys: loaded from THEOREM_ENV_FILE or ../theorem-frontend/.env.local.
+ * Keys: vault slots from THEOREM_VAULT_* and OPENROUTER_API_KEY (see scripts/host-env.ts).
  * Default provider: openrouter (`--provider gemini` to switch).
  *
  * Usage:
@@ -25,9 +25,10 @@
  *   deno task verify:runner-api -- --verbose
  */
 
+import type { LexiconOverrides } from '../src/guardrails/lexicon.ts';
 import type { OutboundPayload, Verdict } from '../src/guardrails/types.ts';
-import { estimateHistoryTokens } from '../src/kernel/engine/compaction.ts';
 import { runTurn } from '../src/kernel/engine/runner.ts';
+import { loadTokenEstimator } from '../src/kernel/engine/token-estimate.ts';
 import {
   defineProfile,
   getProfile,
@@ -36,6 +37,7 @@ import {
 } from '../src/kernel/registry/profiles.ts';
 import type { ModelProvider, TurnEvent, TurnHistoryMessage } from '../src/kernel/types.ts';
 import { createProvider } from '../src/providers/create-provider.ts';
+import { hostOpenRouterKey, hostVault, loadHostEnv, OPENROUTER_ENV } from './host-env.ts';
 
 // ---------------------------------------------------------------------------
 // CLI
@@ -77,45 +79,6 @@ const PROVIDER_KIND = resolveProviderKind();
 // ---------------------------------------------------------------------------
 // Env loader
 // ---------------------------------------------------------------------------
-
-function loadEnvFile(path: string): void {
-  let text: string;
-  try {
-    text = Deno.readTextFileSync(path);
-  } catch {
-    return;
-  }
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const eq = trimmed.indexOf('=');
-    if (eq < 0) continue;
-    const key = trimmed.slice(0, eq).trim();
-    if (Deno.env.get(key) !== undefined) continue;
-    let val = trimmed.slice(eq + 1).trim();
-    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-      val = val.slice(1, -1);
-    }
-    Deno.env.set(key, val);
-  }
-}
-
-function defaultEnvFile(): string | undefined {
-  const candidates = [
-    Deno.env.get('THEOREM_ENV_FILE'),
-    '../theorem-frontend/.env.local',
-    '../../theorem-frontend/.env.local',
-  ].filter(Boolean) as string[];
-  for (const path of candidates) {
-    try {
-      Deno.statSync(path);
-      return path;
-    } catch {
-      /* next */
-    }
-  }
-  return undefined;
-}
 
 // ---------------------------------------------------------------------------
 // Rate limiter: ≥4 s between API calls (≤15 RPM)
@@ -165,17 +128,8 @@ function alwaysBlock(_payload: OutboundPayload): Verdict {
   };
 }
 
-/** refuse_to_user delivers this copy as a text event — never an error withhold. */
+/** refuse_to_user delivers the profile's `egress.refusal` as a text event — never an error withhold. */
 const REFUSE_USER_COPY = "I can't share that.";
-
-function alwaysRefuseToUser(_payload: OutboundPayload): Verdict {
-  return {
-    action: 'block',
-    hits: [{ rule: 'always', severity: 'high' }],
-    rejection: 'Always blocked.',
-    refusal: REFUSE_USER_COPY,
-  };
-}
 
 function blockOnMarker(payload: OutboundPayload): Verdict {
   if (payload.text.includes('[BLOCKED_MARKER]')) {
@@ -236,7 +190,11 @@ function modelFields(apiId: string): Pick<TextProfileDefinition, 'models' | 'max
   };
 }
 
-function simpleProfile(id: string, guardrails: TextProfileDefinition['guardrails'] = {}): void {
+function simpleProfile(
+  id: string,
+  guardrails: TextProfileDefinition['guardrails'] = {},
+  lexicon?: LexiconOverrides,
+): void {
   registerProfile(
     defineProfile({
       type: 'text',
@@ -246,6 +204,7 @@ function simpleProfile(id: string, guardrails: TextProfileDefinition['guardrails
       tools: { allow: [] },
       inputs: { text: true },
       guardrails: guardrails ?? {},
+      ...(lexicon ? { lexicon } : {}),
     }),
   );
 }
@@ -305,25 +264,35 @@ function registerAllProfiles(): void {
   });
 
   // Egress: always-block, refuse_to_user (no retries regardless of maxRetries)
-  simpleProfile(REFUSE_USER_ID, {
-    egress: {
-      onBlock: 'refuse_to_user',
-      maxRetries: 2,
-      enforce: alwaysRefuseToUser,
+  simpleProfile(
+    REFUSE_USER_ID,
+    {
+      egress: {
+        onBlock: 'refuse_to_user',
+        maxRetries: 2,
+        enforce: alwaysBlock,
+      },
     },
-  });
+    { 'egress.refusal': REFUSE_USER_COPY },
+  );
 
   // Egress: marker-block, reject_to_agent, maxRetries=1
-  simpleProfile(REPAIR_1_ID, {
-    canary: true,
-    sanitizeInput: true,
-    egress: {
-      onBlock: 'reject_to_agent',
-      maxRetries: 1,
-      repairGuidance: 'Remove any [BLOCKED_MARKER] text and give a short helpful reply.',
-      enforce: blockOnMarker,
+  simpleProfile(
+    REPAIR_1_ID,
+    {
+      canary: true,
+      sanitizeInput: true,
+      egress: {
+        onBlock: 'reject_to_agent',
+        maxRetries: 1,
+        enforce: blockOnMarker,
+      },
     },
-  });
+    {
+      'egress.default_repair_guidance':
+        'Remove any [BLOCKED_MARKER] text and give a short helpful reply.',
+    },
+  );
 
   // Compaction sub-profile (registered before owning profiles)
   simpleProfile(COMPACT_SUB_ID, {});
@@ -347,14 +316,10 @@ function registerAllProfiles(): void {
 function makeProvider(profileId: string): ModelProvider {
   const profile = getProfile(profileId);
   if (PROVIDER_KIND === 'gemini') {
-    const key = Deno.env.get('GEMINI_API_KEY')?.trim();
-    if (!key) throw new Error('GEMINI_API_KEY not set');
-    return createProvider(profile, {
-      gemini: { vault: { slotA: key, slotB: key, slotC: key, paid: key } },
-    });
+    return createProvider(profile, { gemini: { vault: hostVault() } });
   }
-  const key = Deno.env.get('OPENROUTER_API_KEY')?.trim();
-  if (!key) throw new Error('OPENROUTER_API_KEY not set');
+  const key = hostOpenRouterKey();
+  if (!key) throw new Error(`${OPENROUTER_ENV} missing`);
   return createProvider(profile, {
     openAiGateway: {
       apiKey: key,
@@ -997,6 +962,11 @@ function compactionCases(): Case[] {
 // ── GROUP: tokens ──────────────────────────────────────────────────────────
 // ---------------------------------------------------------------------------
 
+/** Local o200k estimate of a text-only history (no media, so no family rule applies). */
+async function estimateHistoryText(history: TurnHistoryMessage[]): Promise<number> {
+  return (await (await loadTokenEstimator()).messages(history, undefined)).tokens;
+}
+
 function tokenCases(): Case[] {
   return [
     // Empty history: local estimate = 0, no API call needed
@@ -1004,11 +974,11 @@ function tokenCases(): Case[] {
       group: 'tokens',
       name: 'token-empty-history',
       async run() {
-        const estimate = await estimateHistoryTokens([]);
+        const estimate = await estimateHistoryText([]);
         const ok = estimate === 0;
         return {
           passed: ok,
-          detail: `estimateHistoryTokens([]) = ${estimate}`,
+          detail: `estimateHistoryText([]) = ${estimate}`,
           calls: 0,
         };
       },
@@ -1021,7 +991,7 @@ function tokenCases(): Case[] {
       async run() {
         const before = totalApiCalls;
         const h = history2();
-        const estimate = await estimateHistoryTokens(h);
+        const estimate = await estimateHistoryText(h);
         const p = makeProvider(PLAIN_ID);
         const events = await runOnce(PLAIN_ID, p, {
           text: 'Summarize in one sentence.',
@@ -1057,7 +1027,7 @@ function tokenCases(): Case[] {
       async run() {
         const before = totalApiCalls;
         const h = history5();
-        const estimate = await estimateHistoryTokens(h);
+        const estimate = await estimateHistoryText(h);
         const p = makeProvider(PLAIN_ID);
         const events = await runOnce(PLAIN_ID, p, {
           text: 'Summarize in one sentence.',
@@ -1093,7 +1063,7 @@ function tokenCases(): Case[] {
       async run() {
         const before = totalApiCalls;
         const h = history10();
-        const estimate = await estimateHistoryTokens(h);
+        const estimate = await estimateHistoryText(h);
         const p = makeProvider(PLAIN_ID);
         const events = await runOnce(PLAIN_ID, p, {
           text: 'Summarize in one sentence.',
@@ -1127,7 +1097,7 @@ function tokenCases(): Case[] {
 
     // historyTokens override: when provided, it must be used for compaction (not the estimate)
     // Verify by setting historyTokens=30 (above threshold) and checking signal fires
-    // despite estimateHistoryTokens for the tiny history being below threshold
+    // despite estimateHistoryText for the tiny history being below threshold
     {
       group: 'tokens',
       name: 'token-host-override-wins',
@@ -1138,7 +1108,7 @@ function tokenCases(): Case[] {
           { role: 'user', content: 'hi' },
           { role: 'assistant', content: 'hello' },
         ];
-        const estimate = await estimateHistoryTokens(h);
+        const estimate = await estimateHistoryText(h);
         if (estimate >= 25) {
           return {
             passed: false,
@@ -1306,8 +1276,8 @@ function integrityCases(): Case[] {
         });
         const tokLong = lastInputTokens(evLong) ?? 0;
 
-        const hostShort = await estimateHistoryTokens([]);
-        const hostLong = await estimateHistoryTokens(longHistory);
+        const hostShort = await estimateHistoryText([]);
+        const hostLong = await estimateHistoryText(longHistory);
         const ok = PROVIDER_KIND === 'openrouter' ? hostLong > hostShort : tokLong > tokShort;
         return {
           passed: ok,
@@ -1374,11 +1344,7 @@ function printReport(results: Array<{ group: string; name: string } & CaseResult
 const ALL_GROUPS = ['egress', 'compaction', 'tokens', 'integrity'];
 
 async function main(): Promise<void> {
-  const envPath = defaultEnvFile();
-  if (envPath) {
-    loadEnvFile(envPath);
-    console.log(`Loaded env from ${envPath}`);
-  }
+  loadHostEnv();
 
   const activeGroups = GROUP_FILTER ?? ALL_GROUPS;
   const unknownGroups = activeGroups.filter((g) => !ALL_GROUPS.includes(g));

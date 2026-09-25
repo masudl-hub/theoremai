@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import { type LexiconOverrides, type SessionEvent, TheoremError } from '../../../../mod.ts';
+import { type ClientFailure, clientFailure } from '../../client/failure';
 import { applyLiveTurnToolEvent } from '../../client/live/apply-live-turn-tool-event';
 import {
 	clearLiveCaptionInterim,
@@ -7,11 +9,12 @@ import {
 } from '../../client/live/live-captions';
 import type { LiveToolGatePrompt } from '../../client/live/live-tool';
 import type { LiveFacingMode, LiveVideoCapture } from '../../client/live/live-video';
+import { sessionEndedText } from '../../client/live/session-ended';
 import type { LiveConnectPhase, LiveSessionStatus } from '../../client/live-client';
 import type { ToolGateResolution } from '../../client/tool-resume';
 
-/** UI + media state bag for the live runner. */
-export function useLiveRunnerUiState() {
+/** UI + media state bag for the live runner. `lexicon` is the interface's: the profile's wording. */
+export function useLiveRunnerUiState(lexicon: LexiconOverrides) {
 	const [status, setStatus] = useState<LiveSessionStatus>('disconnected');
 	const [connectPhase, setConnectPhase] = useState<LiveConnectPhase | null>(null);
 	const [inputLevel, setInputLevel] = useState(0);
@@ -20,7 +23,9 @@ export function useLiveRunnerUiState() {
 	const [isVideoOn, setIsVideoOn] = useState(false);
 	const [activeTool, setActiveTool] = useState<string | null>(null);
 	const [captions, setCaptions] = useState<LiveCaptionState>(emptyLiveCaptionState);
-	const [error, setError] = useState('');
+	const [failure, setFailure] = useState<ClientFailure | null>(null);
+	/** The user's line for a session the provider ended after warning it would. */
+	const [sessionEnded, setSessionEnded] = useState<string | null>(null);
 	const [textDraft, setTextDraft] = useState('');
 	const [sessionActive, setSessionActive] = useState(false);
 	const [sessionPermissions, setSessionPermissions] = useState<string[]>([]);
@@ -42,6 +47,28 @@ export function useLiveRunnerUiState() {
 	useEffect(() => {
 		if (sessionActive) setEverConnected(true);
 	}, [sessionActive]);
+
+	const reportFailure = useCallback(
+		(err: unknown) => {
+			setFailure(clientFailure(err, lexicon));
+		},
+		[lexicon],
+	);
+
+	const clearFailure = useCallback(() => {
+		setFailure(null);
+	}, []);
+
+	const reportSessionEnded = useCallback(
+		(session: SessionEvent) => {
+			setSessionEnded(sessionEndedText(session, lexicon));
+		},
+		[lexicon],
+	);
+
+	const clearSessionEnded = useCallback(() => {
+		setSessionEnded(null);
+	}, []);
 
 	const resetCaptions = useCallback(() => {
 		setCaptions(emptyLiveCaptionState());
@@ -74,8 +101,12 @@ export function useLiveRunnerUiState() {
 		setActiveTool,
 		captions,
 		setCaptions,
-		error,
-		setError,
+		failure,
+		reportFailure,
+		clearFailure,
+		sessionEnded,
+		reportSessionEnded,
+		clearSessionEnded,
 		textDraft,
 		setTextDraft,
 		sessionActive,
@@ -101,7 +132,7 @@ export function useLiveRunnerUiState() {
 export function useLiveRunnerGate(args: {
 	setCaptions: Dispatch<SetStateAction<LiveCaptionState>>;
 	setActiveTool: Dispatch<SetStateAction<string | null>>;
-	setError: Dispatch<SetStateAction<string>>;
+	reportFailure: (err: unknown) => void;
 }) {
 	const [gatePrompt, setGatePrompt] = useState<LiveToolGatePrompt | null>(null);
 	const gatePromptRef = useRef(gatePrompt);
@@ -119,7 +150,7 @@ export function useLiveRunnerGate(args: {
 				clearActiveTool: () => {
 					args.setActiveTool(null);
 				},
-				setError: args.setError,
+				reportFailure: args.reportFailure,
 				setActiveTool: args.setActiveTool,
 			});
 		},
@@ -141,10 +172,9 @@ export function useLiveRunnerGate(args: {
 		setGatePrompt(null);
 	}, []);
 
-	const cancelGateDecision = useCallback((reason = 'Live session ended') => {
-		if (gateRejectRef.current) {
-			gateRejectRef.current(new Error(reason));
-		}
+	const cancelGateDecision = useCallback(() => {
+		// lexicon-exempt: internal diagnostic; the user reads error.cancelled
+		gateRejectRef.current?.(new TheoremError('cancelled', 'live session ended with a gate open'));
 		gateResolverRef.current = null;
 		gateRejectRef.current = null;
 		setGatePrompt(null);

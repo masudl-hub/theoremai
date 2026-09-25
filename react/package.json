@@ -4,28 +4,38 @@
 	"private": true,
 	"type": "module",
 	"description": "React bindings for Theorem: headless hooks + transport, an Astryx chat UI, and a Web-standard server handler.",
+	"scripts": {
+		"typecheck": "tsc -p .",
+		"theme:build": "astryx theme build src/ui/theorem-theme.ts -o src/ui/built/theme.css --icons-specifier ../icons",
+		"theme:check": "astryx theme build src/ui/theorem-theme.ts -o src/ui/built/theme.css --icons-specifier ../icons --check"
+	},
 	"exports": {
 		".": "./src/index.ts",
 		"./ui": "./src/ui/index.ts",
+		"./ui/theme": "./src/ui/theorem-theme.ts",
+		"./ui/icons": "./src/ui/icons.ts",
 		"./server": "./src/server/mod.ts",
 		"./live": "./src/live.ts",
 		"./client": "./src/client/index.ts",
 		"./styles/*": "./src/styles/*"
 	},
 	"peerDependencies": {
-		"@astryxdesign/core": "0.6.2",
-		"@astryxdesign/theme-neutral": "0.6.2",
+		"@astryxdesign/core": "0.6.3",
+		"@astryxdesign/theme-neutral": "0.6.3",
 		"@stylexjs/stylex": "0.19.0",
 		"@theoremai/agents": "*",
 		"react": "^19.0.0",
 		"react-dom": "^19.0.0"
 	},
 	"dependencies": {
-		"@tabler/icons-react": "^3.46.0"
+		"@tabler/icons-react": "^3.46.0",
+		"intl-messageformat": "^11.2.9",
+		"recharts": "^3.10.1"
 	},
 	"devDependencies": {
-		"@astryxdesign/core": "0.6.2",
-		"@astryxdesign/theme-neutral": "0.6.2",
+		"@astryxdesign/cli": "0.6.3",
+		"@astryxdesign/core": "0.6.3",
+		"@astryxdesign/theme-neutral": "0.6.3",
 		"@theoremai/agents": "file:..",
 		"@types/react": "^19.0.0",
 		"@types/react-dom": "^19.0.0",

@@ -4,7 +4,7 @@
  * @module
  */
 
-import { sanitizeTurnBlobsForProfile } from '../kernel/registry/attachments.ts';
+import { sanitizeTurnBlobs } from '../kernel/registry/attachments.ts';
 import { getProfile } from '../kernel/registry/profiles.ts';
 import type { NormalizedTurnRequest, TurnEvent, TurnRequest } from '../kernel/types.ts';
 import { applySpans } from '../observability/spans.ts';
@@ -17,7 +17,7 @@ import type { GuardrailHit, GuardrailStage, TrustLevel } from './types.ts';
 
 /**
  * Detect and redact injection / sensitive spans. Returns hits for observability
- * (rule + offsets + optional `match` preview for debugging).
+ * (rule + offsets + optional exact `match` for debugging).
  */
 function detectText(
   text: string,
@@ -76,20 +76,12 @@ function sanitizeSlots(
   return out;
 }
 
-/** Maximum length retained for a sanitized host project identifier. */
-const PROJECT_ID_MAX = 128;
 const PROJECT_ID_OK = /^[A-Za-z0-9._-]+$/;
 
 /** Trims and validates a project identifier, returning undefined for invalid input. */
 function sanitizeProjectId(id: string | undefined): string | undefined {
-  if (!id) {
-    return undefined;
-  }
-  const trimmed = id.trim().slice(0, PROJECT_ID_MAX);
-  if (!PROJECT_ID_OK.test(trimmed)) {
-    return undefined;
-  }
-  return trimmed;
+  const trimmed = id?.trim();
+  return trimmed && PROJECT_ID_OK.test(trimmed) ? trimmed : undefined;
 }
 
 function sanitizeRepair(
@@ -266,11 +258,10 @@ function sanitizeTurnRequestWithEvents(req: TurnRequest): {
 } {
   const { request: textSafe, events } = sanitizeTurnRequestText(req, req.profile);
   const input = textSafe.input ?? {};
-  const { attachments, voice } = sanitizeTurnBlobsForProfile(
-    req.profile,
-    input.attachments,
-    input.voice,
-  );
+  const { attachments, voice } =
+    input.attachments?.length || input.voice?.length
+      ? sanitizeTurnBlobs(getProfile(req.profile), input.attachments, input.voice)
+      : input;
   return {
     request: {
       ...textSafe,
@@ -284,34 +275,13 @@ function sanitizeTurnRequestWithEvents(req: TurnRequest): {
   };
 }
 
-/**
- * Trace-safe request sanitize. Prefers full `sanitizeTurnRequest`; if blob/policy
- * checks throw, still redacts text and keeps attachments for hashing — never invents empty input.
- */
-function sanitizeTurnRequestForTrace(req: TurnRequest): {
-  request: NormalizedTurnRequest;
-  sanitizeError?: string;
-} {
-  try {
-    return { request: sanitizeTurnRequest(req) };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return {
-      request: sanitizeTurnRequestText(req, req.profile).request,
-      sanitizeError: message,
-    };
-  }
-}
-
 export {
   detectionForProfile,
   detectText,
-  PROJECT_ID_MAX,
   redactSensitiveOnly,
   sanitizeHistory,
   sanitizeProjectId,
   sanitizeText,
   sanitizeTurnRequest,
-  sanitizeTurnRequestForTrace,
   sanitizeTurnRequestWithEvents,
 };

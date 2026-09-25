@@ -4,8 +4,6 @@ import { stubProfile } from '../profiles.ts';
 
 function baseProfile(
   model: {
-    thinking: 'minimal';
-    key: 'slotA';
     protocol: 'geminiInteractions' | 'openAi';
     provider: 'google' | 'openrouter' | 'local';
   },

@@ -21,15 +21,16 @@ export function stubProfile(opts: {
     redactSensitive: true,
     quota: { perDay: 1 },
   } as const;
+  const modelFields = { models: { stub: binding }, defaultModel: 'stub' };
 
   if (role === 'speech') {
     return {
       type: 'speech',
       id,
       identity: { handle: id },
-      models: { stub: binding },
+      ...modelFields,
       speech: { voice: 'Kore', format: 'pcm' },
-      guardrails,
+      guardrails: { ...guardrails, canary: false },
     };
   }
   if (role === 'image') {
@@ -37,7 +38,7 @@ export function stubProfile(opts: {
       type: 'image',
       id,
       identity: { handle: id },
-      models: { stub: binding },
+      ...modelFields,
       image: { aspectRatio: '1:1', size: '1K', mimeType: 'image/png' },
       tools: { allow: [] },
       inputs: { text: true },
@@ -49,7 +50,7 @@ export function stubProfile(opts: {
       type: 'live',
       id,
       identity: { handle: id },
-      models: { stub: binding },
+      ...modelFields,
       live: { voice: 'Aoede' },
       tools: { allow: [] },
       guardrails,
@@ -59,7 +60,7 @@ export function stubProfile(opts: {
     type: 'text',
     id,
     identity: { handle: id },
-    models: { stub: binding },
+    ...modelFields,
     tools: { allow: [] },
     inputs: { text: true },
     outputs: { structured: null },

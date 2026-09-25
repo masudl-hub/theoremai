@@ -1,8 +1,9 @@
 /** Native, single-request execution for TypeSafe Jev decision profiles. */
 
-import { TheoremError } from '../../guardrails/error.ts';
+import { type ErrorKind, TheoremError } from '../../guardrails/error.ts';
 import type { DecisionDisclosureVerdict } from '../../guardrails/types.ts';
 import { getProfile } from '../registry/profiles.ts';
+import { soleModelId } from '../registry/sole-model.ts';
 import type {
   DecisionAnswer,
   DecisionJson,
@@ -13,26 +14,32 @@ import type {
   KeyVault,
   ModelId,
 } from '../types.ts';
+import { isRecord } from '../util/record.ts';
 
 const TYPESAFE_SYSTEM_ONE_URL = 'https://api.typesafe.ai/v1/systemone';
+
+/** Each native-decision failure code and the error kind it reports. */
+const DECISION_ERROR_KINDS = {
+  invalid_request: 'request',
+  authentication: 'auth',
+  permission: 'auth',
+  rate_limited: 'rate_limit',
+  unavailable: 'unavailable',
+  network: 'network',
+  timeout: 'timeout',
+  cancelled: 'cancelled',
+  malformed_response: 'bad_response',
+  disclosure_blocked: 'blocked',
+} as const satisfies Record<string, ErrorKind>;
 
 /** A normalized native-decision failure; response bodies are deliberately omitted. */
 export class DecisionError extends TheoremError {
   constructor(
-    readonly code:
-      | 'invalid_request'
-      | 'authentication'
-      | 'permission'
-      | 'rate_limited'
-      | 'unavailable'
-      | 'timeout'
-      | 'cancelled'
-      | 'malformed_response'
-      | 'disclosure_blocked',
+    readonly code: keyof typeof DECISION_ERROR_KINDS,
     message: string,
     readonly status?: number,
   ) {
-    super(message);
+    super(DECISION_ERROR_KINDS[code], message);
   }
 }
 
@@ -48,6 +55,7 @@ function requireDecisionProfile(id: string): DecisionProfile {
   const profile = getProfile(id);
   if (profile.type !== 'decision') {
     throw new TheoremError(
+      'request',
       // lexicon-exempt: developer contract error
       `runDecision requires profile.type 'decision' (got '${profile.type}' for ${profile.id})`,
     );
@@ -55,27 +63,17 @@ function requireDecisionProfile(id: string): DecisionProfile {
   return profile;
 }
 
-function selectModel(
-  profile: DecisionProfile,
-  requested?: string,
-): [ModelId, DecisionProfile['models'][string]] {
-  if (requested) {
-    if (!profile.allowModelSelect) {
-      throw new TheoremError(`Profile ${profile.id} does not allow model selection`); // lexicon-exempt: developer contract error
-    }
-    const binding = profile.models[requested];
-    if (!binding) throw new TheoremError(`Unknown model '${requested}' for ${profile.id}`); // lexicon-exempt: developer contract error
-    return [requested, binding];
+/** The profile's one model; registration guarantees exactly one. */
+function decisionModel(profile: DecisionProfile): [ModelId, DecisionProfile['models'][string]] {
+  const modelId = soleModelId(profile.models);
+  const binding = modelId ? profile.models[modelId] : undefined;
+  if (!modelId || !binding) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profile.id}: type 'decision' must declare exactly one model`, // lexicon-exempt: developer contract error
+    );
   }
-  const modelId = profile.defaultModel;
-  if (!modelId || !profile.models[modelId]) {
-    throw new TheoremError(`Profile ${profile.id} has no default model`); // lexicon-exempt: developer contract error
-  }
-  return [modelId, profile.models[modelId]];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+  return [modelId, binding];
 }
 
 function finite(value: unknown, path: string, min = 0, max = 1): number {
@@ -186,6 +184,13 @@ function validateQuestion(id: string, question: DecisionQuestion): void {
 }
 
 function validateRequest(request: DecisionRequest, profile: DecisionProfile): void {
+  if ((request as DecisionRequest & { model?: unknown }).model !== undefined) {
+    throw new DecisionError(
+      'invalid_request',
+      // lexicon-exempt: developer contract error
+      'Decision requests do not select a model; the profile runs its one model',
+    );
+  }
   if (!isNonNullJson(request.state)) {
     throw new DecisionError('invalid_request', 'Decision state must be non-null JSON'); // lexicon-exempt: developer contract error
   }
@@ -287,7 +292,7 @@ async function sendDecisionRequest(args: {
     if (args.request.signal?.aborted)
       throw new DecisionError('cancelled', 'Decision request was cancelled'); // lexicon-exempt: developer contract error
     if (args.signal.aborted) throw new DecisionError('timeout', 'Decision request timed out'); // lexicon-exempt: developer contract error
-    throw new DecisionError('unavailable', 'Jev network request failed'); // lexicon-exempt: upstream contract error
+    throw new DecisionError('network', 'Jev network request failed'); // lexicon-exempt: upstream contract error
   }
 }
 
@@ -331,7 +336,7 @@ export async function runDecision(
 ): Promise<DecisionResult> {
   const profile = requireDecisionProfile(request.profile);
   validateRequest(request, profile);
-  const [modelId, binding] = selectModel(profile, request.model);
+  const [modelId, binding] = decisionModel(profile);
   await enforceDisclosure(profile, modelId, request);
   const apiKey = requireApiKey(profile, binding, options);
   const controller = new AbortController();

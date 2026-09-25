@@ -17,7 +17,6 @@ import {
 export interface CanaryGateSession {
   canary: string;
   gate: CanaryStreamGate;
-  lastStreamType?: 'text' | 'thought';
 }
 
 /** Creates a canary-only gate session for batched filtering of streamed and non-streamed events. */
@@ -27,7 +26,9 @@ function createCanaryGateSession(canary: string): CanaryGateSession {
 
 /**
  * Filters one event batch, withholding streamed overlap and reporting the first
- * canary leak before an unsafe event is returned to the caller.
+ * canary leak before an unsafe event is returned to the caller. Only the reply
+ * stream (`isStreamedCanaryEvent`) goes through the gate; thoughts are unguarded
+ * (`isGuardedOutput`).
  */
 function filterCanaryGatedEvents(
   session: CanaryGateSession,
@@ -36,7 +37,6 @@ function filterCanaryGatedEvents(
   const out: TurnEvent[] = [];
   for (const event of events) {
     if (isStreamedCanaryEvent(event)) {
-      session.lastStreamType = event.type;
       const result = session.gate.process(event.text ?? '');
       if (result.leak) {
         return { leaked: true };

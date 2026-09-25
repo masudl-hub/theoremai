@@ -1,18 +1,11 @@
 {
   "$schema": "./node_modules/fallow/schema.json",
+  // Published entry points come from package.json `exports` (fallow reads it).
   "entry": [
-    "mod.ts",
-    "src/kernel/mod.ts",
-    "src/providers/mod.ts",
-    "src/providers/local/mod.ts",
-    "src/guardrails/mod.ts",
-    "src/observability/mod.ts",
-    "src/presets/mod.ts",
-    "src/presets/google.ts",
-    "src/host/mod.ts",
-    "src/cli/index.ts",
     // Unpublished headless interface surface; still an analysis entry for react + tests.
     "src/interface/mod.ts",
+    // Repo-only guardrail eval harness, run by scripts/guardrails-eval.ts (scripts/ is ignored).
+    "src/guardrails/eval/mod.ts",
     "tests/cli/**/*.ts",
     "tests/kernel/**/*.ts",
     "tests/guardrails/**/*.ts",
@@ -27,7 +20,9 @@
     "react/src/ui/index.ts",
     "react/src/server/mod.ts",
     "react/src/live.ts",
-    "react/src/client/index.ts"
+    "react/src/client/index.ts",
+    "react/src/ui/theorem-theme.ts",
+    "react/src/ui/icons.ts"
   ],
   "ignoreDependencies": ["@ast-grep/cli", "@theoremai/agents"],
   // docs-truth loads the ownership graph via dynamic import (graph.mjs → _map.mjs).

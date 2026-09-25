@@ -1,9 +1,10 @@
 /**
  * Failure modes of the egress gate: nothing is dropped without a signal, a policy
- * that throws fails closed instead of killing the turn, and a refusal with no copy
- * emits an error rather than an empty text turn.
+ * that throws fails closed instead of killing the turn, and a refusal shows the
+ * lexicon's `egress.refusal`, never text the policy wrote.
  */
 import '../fixtures/test-host.ts';
+import { type LexiconOverrides, lexiconDefault } from '../../src/guardrails/lexicon.ts';
 import type { EgressEnforcer, Verdict } from '../../src/guardrails/types.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { runTurn } from '../../src/kernel/engine/runner.ts';
@@ -16,6 +17,7 @@ function profile(
   enforce: EgressEnforcer,
   onBlock: 'refuse_to_user' | 'reject_to_agent' = 'refuse_to_user',
   maxRetries = 0,
+  lexicon?: LexiconOverrides,
 ): void {
   registerProfile(
     defineProfile({
@@ -31,6 +33,7 @@ function profile(
         quota: { perDay: 50 },
         egress: { onBlock, maxRetries, enforce },
       },
+      ...(lexicon ? { lexicon } : {}),
     }),
   );
 }
@@ -53,6 +56,9 @@ async function collect(id: string, provider: ModelProvider): Promise<TurnEvent[]
 
 const texts = (events: TurnEvent[]): string[] =>
   events.filter((e) => e.type === 'text').map((e) => e.text ?? '');
+
+const EGRESS_FILTERED = { kind: 'filtered', native: 'egress' };
+const stopOf = (events: TurnEvent[]) => events.findLast((e) => e.type === 'done')?.stop;
 
 // ── nothing is dropped silently ──────────────────────────────────────────────
 
@@ -86,6 +92,8 @@ Deno.test('a policy blocking consistently still withholds', async () => {
       hits: [{ rule: 'always', severity: 'high' }],
       rejection: 'always blocked',
     }),
+    'reject_to_agent',
+    1,
   );
 
   const events = await collect('fm_consistent_block', says('leaky output'));
@@ -97,6 +105,7 @@ Deno.test('a policy blocking consistently still withholds', async () => {
     events.some((e) => e.type === 'error'),
     true,
   );
+  assertEquals(stopOf(events), EGRESS_FILTERED);
 });
 
 // ── a policy that throws ─────────────────────────────────────────────────────
@@ -107,14 +116,7 @@ Deno.test('a policy that throws fails closed instead of killing the turn', async
   });
 
   const events = await collect('fm_throws', says('sensitive answer'));
-  assertEquals(
-    texts(events).some((t) => t.includes('sensitive answer')),
-    false,
-  );
-  assertEquals(
-    events.some((e) => e.type === 'error'),
-    true,
-  );
+  assertEquals(texts(events), [lexiconDefault('egress.refusal')]);
 });
 
 Deno.test('a policy that throws can still be repaired against', async () => {
@@ -135,11 +137,11 @@ Deno.test('a policy that throws can still be repaired against', async () => {
   assertEquals(texts(events).join(''), 'answer');
 });
 
-// ── refusal with no copy ─────────────────────────────────────────────────────
+// ── refusal copy ─────────────────────────────────────────────────────────────
 
-Deno.test('refuse_to_user without refusal copy emits an error, never an empty text turn', async () => {
+Deno.test('refuse_to_user shows the lexicon refusal, never policy text', async () => {
   profile(
-    'fm_no_copy',
+    'fm_default_copy',
     (): Verdict => ({
       action: 'block',
       hits: [{ rule: 'leak', severity: 'high' }],
@@ -147,46 +149,34 @@ Deno.test('refuse_to_user without refusal copy emits an error, never an empty te
     }),
   );
 
-  const events = await collect('fm_no_copy', says('leaky'));
-  assertEquals(texts(events), []);
-  assertEquals(
-    events.some((e) => e.type === 'error'),
-    true,
-  );
-});
-
-Deno.test('refuse_to_user with refusal copy emits exactly that copy', async () => {
-  profile(
-    'fm_with_copy',
-    (): Verdict => ({
-      action: 'block',
-      hits: [{ rule: 'leak', severity: 'high' }],
-      rejection: 'blocked',
-      refusal: 'I cannot share that.',
-    }),
-  );
-
-  const events = await collect('fm_with_copy', says('leaky'));
-  assertEquals(texts(events), ['I cannot share that.']);
-});
-
-Deno.test('legacy egress blocked verdict with text is treated as refusal copy', async () => {
-  profile('fm_legacy_copy', (() => ({
-    blocked: true,
-    text: 'Legacy refusal.',
-    hits: ['legacy'],
-    rejectionMessage: 'blocked',
-  })) as unknown as EgressEnforcer);
-
-  const events = await collect('fm_legacy_copy', says('leaky'));
-  assertEquals(texts(events), ['Legacy refusal.']);
+  const events = await collect('fm_default_copy', says('leaky'));
+  assertEquals(texts(events), [lexiconDefault('egress.refusal')]);
   assertEquals(
     events.some((e) => e.type === 'error'),
     false,
   );
+  assertEquals(stopOf(events), EGRESS_FILTERED);
 });
 
-Deno.test('final egress inspects thought text as well as visible text', async () => {
+Deno.test('refuse_to_user shows the profile lexicon refusal', async () => {
+  profile(
+    'fm_profile_copy',
+    (): Verdict => ({
+      action: 'block',
+      hits: [{ rule: 'leak', severity: 'high' }],
+      rejection: 'blocked',
+    }),
+    'refuse_to_user',
+    0,
+    { 'egress.refusal': 'I cannot share that.' },
+  );
+
+  const events = await collect('fm_profile_copy', says('leaky'));
+  assertEquals(texts(events), ['I cannot share that.']);
+  assertEquals(stopOf(events), EGRESS_FILTERED);
+});
+
+Deno.test('final egress inspects reply text, not thoughts', async () => {
   profile(
     'fm_thought_leak',
     ({ text }): Verdict =>
@@ -195,7 +185,6 @@ Deno.test('final egress inspects thought text as well as visible text', async ()
             action: 'block',
             hits: [{ rule: 'thought_leak', severity: 'high' }],
             rejection: 'thought leaked',
-            refusal: 'I cannot share that.',
           }
         : { action: 'allow' },
   );
@@ -208,5 +197,52 @@ Deno.test('final egress inspects thought text as well as visible text', async ()
   };
 
   const events = await collect('fm_thought_leak', provider);
-  assertEquals(texts(events), ['I cannot share that.']);
+  assertEquals(texts(events), ['safe visible text']);
+  assertEquals(
+    events.filter((e) => e.type === 'thought').map((e) => e.text),
+    ['secret-thought'],
+  );
+});
+
+// ── what streams live is delivered once ──────────────────────────────────────
+
+/** Regression: media streamed live was yielded again when the attempt passed. */
+Deno.test('a passing attempt delivers streamed media once', async () => {
+  profile('fm_media_once', (): Verdict => ({ action: 'allow' }));
+  const media: TurnEvent = { type: 'media', media: { mimeType: 'image/png', data: 'AAAA' } };
+  const provider: ModelProvider = {
+    async *complete() {
+      yield media;
+      yield { type: 'text', text: 'here it is' };
+    },
+  };
+  const events = await collect('fm_media_once', provider);
+  assertEquals(events.filter((e) => e.type === 'media').length, 1);
+  assertEquals(texts(events), ['here it is']);
+});
+
+Deno.test('thoughts keep streaming after a mid-stream block withholds the reply', async () => {
+  profile(
+    'fm_thought_after_block',
+    ({ text }): Verdict =>
+      text.includes('leak')
+        ? {
+            action: 'block',
+            hits: [{ rule: 'leak', severity: 'high' }],
+            rejection: 'leak',
+          }
+        : { action: 'allow' },
+  );
+  const provider: ModelProvider = {
+    async *complete() {
+      yield { type: 'text', text: 'leak' };
+      yield { type: 'thought', text: 'still thinking' };
+    },
+  };
+  const events = await collect('fm_thought_after_block', provider);
+  assertEquals(
+    events.filter((e) => e.type === 'thought').map((e) => e.text),
+    ['still thinking'],
+  );
+  assertEquals(texts(events), [lexiconDefault('egress.refusal')]);
 });

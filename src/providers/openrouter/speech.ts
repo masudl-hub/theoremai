@@ -7,18 +7,20 @@
  * @module
  */
 
-import { toErrorEvent } from '../../guardrails/error.ts';
+import { TheoremError, toErrorEvent } from '../../guardrails/error.ts';
 import type {
   InteractionPart,
   ModelProvider,
   ProfileSpeechSpec,
   ProviderCompleteRequest,
-  SpeechAudioFormat,
   TurnEvent,
 } from '../../kernel/types.ts';
-import { bytesToBase64, wrapPcmAsWav } from '../shared/pcm.ts';
+import { bytesToBase64 } from '../../kernel/util/base64.ts';
+import { mimeEssence } from '../../kernel/util/mime.ts';
+import { pcmFormatFromMime, wrapPcmAsWav } from '../shared/pcm.ts';
+import { networkFetch, tapFetch } from '../shared/upstream-tap.ts';
 import type { OpenAiGatewayConfig } from '../types.ts';
-import { openAiGatewayHeaders } from './openai/compat.ts';
+import { httpErrorEvent, openAiGatewayHeaders } from './openai/compat.ts';
 import { resolveOpenAiGatewayApiKey } from './resolve-api-key.ts';
 
 const HTTP_OK = 200;
@@ -76,7 +78,7 @@ export async function requestSpeech(
   req: ProviderCompleteRequest,
   config: SpeechProviderConfig,
 ): Promise<Response> {
-  const fetchFn = config.fetch ?? fetch;
+  const fetchFn = tapFetch(req.tapUpstream, networkFetch(config.fetch ?? fetch), req.keySlot);
   const baseUrl = config.baseUrl?.replace(/\/+$/, '') ?? 'https://openrouter.ai/api/v1';
   const url = `${baseUrl}/audio/speech`;
   return await fetchFn(url, {
@@ -87,33 +89,24 @@ export async function requestSpeech(
   });
 }
 
+/**
+ * The response's `content-type` states the audio (probe 23/09/2026:
+ * `audio/pcm;rate=24000;channels=1` for `pcm`). Raw PCM with a stated rate is
+ * wrapped as WAV; anything else keeps its reported type.
+ */
 export function* yieldSpeechSuccess(
   rawBytes: Uint8Array,
-  text: string,
-  format?: SpeechAudioFormat,
-  contentType?: string | null,
+  contentType: string | null,
 ): Generator<TurnEvent> {
-  let mediaMime = contentType?.split(';')[0]?.trim() || 'application/octet-stream';
-  let mediaBytes = rawBytes;
+  const format = pcmFormatFromMime(contentType ?? '');
+  const media = format
+    ? { mimeType: 'audio/wav', data: bytesToBase64(wrapPcmAsWav(rawBytes, format)) }
+    : {
+        mimeType: mimeEssence(contentType ?? '') || 'application/octet-stream',
+        data: bytesToBase64(rawBytes),
+      };
 
-  if (format === 'pcm') {
-    mediaMime = 'audio/wav';
-    mediaBytes = wrapPcmAsWav(rawBytes);
-  } else if (format === 'mp3') {
-    mediaMime = 'audio/mpeg';
-  }
-
-  yield {
-    type: 'media',
-    media: { mimeType: mediaMime, data: bytesToBase64(mediaBytes) },
-  };
-
-  const inputTokens = Math.max(1, Math.round(text.length / 4));
-  const outputTokens = Math.max(1, Math.round(rawBytes.length / 100));
-  yield {
-    type: 'tokens',
-    tokens: { input: inputTokens, output: outputTokens, total: inputTokens + outputTokens },
-  };
+  yield { type: 'media', media };
 
   yield { type: 'done' };
 }
@@ -132,25 +125,31 @@ export async function* streamSpeech(
 
   const text = extractInputText(req.input);
   if (!text) {
-    yield toErrorEvent('empty text for speech');
+    yield toErrorEvent(new TheoremError('request', 'empty text for speech'));
     return;
   }
 
   const res = await requestSpeech(apiKey, text, req, config);
   if (res.status !== HTTP_OK) {
-    yield toErrorEvent(`Speech HTTP ${String(res.status)}`);
+    yield await httpErrorEvent(res, 'Speech');
     return;
   }
 
   const arrayBuffer = await res.arrayBuffer();
   const rawBytes = new Uint8Array(arrayBuffer);
+  const contentType = res.headers.get('content-type');
+  // The audio body as a tape row; the tape keeps its hash, not its bytes.
+  req.tapUpstream?.({
+    eventType: 'http_body',
+    mime_type: contentType ?? '',
+    data: bytesToBase64(rawBytes),
+  });
   if (rawBytes.length === 0) {
-    yield toErrorEvent('no audio returned from speech');
+    yield toErrorEvent(new TheoremError('bad_response', 'no audio returned from speech'));
     return;
   }
 
-  const format = req.speech?.format;
-  for (const ev of yieldSpeechSuccess(rawBytes, text, format, res.headers.get('content-type'))) {
+  for (const ev of yieldSpeechSuccess(rawBytes, contentType)) {
     yield ev;
   }
 }

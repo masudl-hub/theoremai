@@ -148,15 +148,23 @@ If both `InvokeToolRequest.onStage` and an ambient turn/session handler exist,
 **both** run at tool stages: tool-local ambient first is N/A; order is
 **tool `preTool` → request `onStage` → turn/session `onStage`**.
 
+Every stage run records one `theorem.stage` span event —
+`{ stage, affordance, hook_ms?, warnings? }` — on the span it belongs to:
+turn stages on the `invoke_agent` root, Live cycle stages on the session root,
+`pre_tool` / `post_tool` on that call's `execute_tool` span. `affordance` lists
+what the handlers applied (`inject`, `abort`, `deny`, `confirm`, `mutate`;
+`[]` when nothing, or no handler ran); `hook_ms` is present only when handlers
+ran; `warnings` lists warning codes. See
+[observability.md](./observability.md#trace-records).
+
 ### Inject application (every inject site)
 
 1. Reject inject when inject gate is false (no-op).
 2. Drop any inject message with `role: 'tool'` (same as today).
 3. Run the same sanitize path as today’s steer injects (`sanitizeHistory` +
    untrusted-input policy from the profile).
-4. Text / Interactions: append to turn history; when
-   `interactionsContinuation` is active, also append `user_input` steps (same
-   as today’s steer fold).
+4. Text / Interactions: append to turn history, after the opening input; when
+   `interactionsContinuation` is active, also append `user_input` steps.
 5. Live: apply as live ingress only — **text** via `sendText` (or equivalent
    realtime text). **No** `TurnMediaRef` / history `parts` inject on live
    (live already refuses media refs). Other modalities out of scope for inject.
@@ -299,7 +307,8 @@ OpenRouter, AI SDK, Gemini Live tool responses.
 
 `pre_turn` once per user turn. `before_end` before every true end attempt
 (including after egress/validation repair). Inject re-entry and repair each
-consume the normal step / attempt accounting.
+consume the normal step / attempt accounting. A repair is the next user message
+in turn history, so a `before_end` inject on the retry lands after it.
 
 ### Budgets
 
@@ -325,9 +334,9 @@ consume the normal step / attempt accounting.
 | `before_end` | No further autonomous work (no pending tools, or batch finished without gate); **before** egress/validation finalize. Inject → re-enter step loop if under `maxSteps` |
 | `post_turn` | Immediately after terminal `done` |
 
-`pre_turn` history fold (opening user input into history when a handler is
-present) preserves today’s Interactions-safe behavior, keyed off `onStage`
-presence instead of `onSteer`.
+On a text turn the opening user input is already the last message of
+`history` when `pre_turn` runs, with or without a handler
+([kernel.md](./kernel.md)); image and speech turns keep it as the call input.
 
 ---
 

@@ -47,3 +47,6 @@ yarn-error.log*
 # Temp scratch
 .tmp/
 tmp/
+
+# Local agent sessions and worktrees
+.claude/

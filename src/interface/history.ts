@@ -6,7 +6,7 @@
  * @module
  */
 
-import { lexiconText } from '../guardrails/lexicon.ts';
+import { type LexiconOverrides, lexiconText } from '../guardrails/lexicon.ts';
 import { mediaKindForMime } from '../kernel/registry/catalog.ts';
 import {
   formatToolFailureForModel,
@@ -14,6 +14,7 @@ import {
   projectForModel,
 } from '../kernel/tools/execute.ts';
 import { getTool } from '../kernel/tools/registry.ts';
+import { modelResultFromOutput } from '../kernel/tools/remote.ts';
 import type { InteractionPart, TurnBlob, TurnEvent, TurnHistoryMessage } from '../kernel/types.ts';
 import type { TranscriptBlock, UserTurnDraft } from './types.ts';
 
@@ -21,15 +22,19 @@ function toolCallId(tool: { name: string; callId?: string; id?: string }): strin
   return tool.id ?? tool.callId ?? `call_${tool.name}`;
 }
 
-function toolOutputForHistory(name: string, output: unknown): string {
+function toolOutputForHistory(
+  name: string,
+  output: unknown,
+  lexicon: LexiconOverrides | undefined,
+): string {
   const registered = getTool(name);
   if (registered?.type === 'function') {
-    return formatToolResult(projectForModel(registered, output));
+    return formatToolResult(projectForModel(registered, output, lexicon));
   }
   if (typeof output === 'object' && output !== null && 'finding' in output) {
     return formatToolResult(output as { finding: string; data?: unknown });
   }
-  return formatToolResult({ finding: JSON.stringify(output), data: output });
+  return formatToolResult(modelResultFromOutput(output));
 }
 
 function blobToPart(blob: TurnBlob): InteractionPart {
@@ -140,8 +145,9 @@ function appendToolExchangeToHistory(
     arguments?: Record<string, unknown>;
     output: unknown;
   },
+  lexicon: LexiconOverrides | undefined,
 ): TurnHistoryMessage[] {
-  return appendToolCallPair(history, tool, toolOutputForHistory(tool.name, tool.output));
+  return appendToolCallPair(history, tool, toolOutputForHistory(tool.name, tool.output, lexicon));
 }
 
 /** Record a host-side tool denial using kernel failure formatting. */
@@ -155,10 +161,11 @@ function appendToolDenialToHistory(
     /** Override default deny copy (e.g. send-now cancel while gated). */
     failure?: { code: string; message: string };
   },
+  lexicon: LexiconOverrides | undefined,
 ): TurnHistoryMessage[] {
   const failure = tool.failure ?? {
     code: 'denied',
-    message: lexiconText('session.tool_denied', { tool: tool.name }),
+    message: lexiconText('session.tool_denied', { tool: tool.name }, lexicon),
   };
   return appendToolCallPair(history, tool, formatToolResult(formatToolFailureForModel(failure)));
 }
@@ -167,6 +174,7 @@ function appendToolDenialToHistory(
 function appendAssistantEventsToHistory(
   history: TurnHistoryMessage[],
   events: readonly TurnEvent[],
+  lexicon: LexiconOverrides | undefined,
 ): TurnHistoryMessage[] {
   let next = history;
   let textBuf = '';
@@ -196,26 +204,34 @@ function appendAssistantEventsToHistory(
     if (tool.phase === 'error' && tool.failure) {
       // A denied or failed call still owes the provider one result for its call id.
       flushText();
-      next = appendToolDenialToHistory(next, {
-        name: tool.name,
-        callId: tool.callId,
-        id: tool.id,
-        arguments: tool.arguments,
-        failure: tool.failure,
-      });
+      next = appendToolDenialToHistory(
+        next,
+        {
+          name: tool.name,
+          callId: tool.callId,
+          id: tool.id,
+          arguments: tool.arguments,
+          failure: tool.failure,
+        },
+        lexicon,
+      );
       continue;
     }
     if (tool.phase !== 'complete' || tool.output === undefined) {
       continue;
     }
     flushText();
-    next = appendToolExchangeToHistory(next, {
-      name: tool.name,
-      callId: tool.callId,
-      id: tool.id,
-      arguments: tool.arguments,
-      output: tool.output,
-    });
+    next = appendToolExchangeToHistory(
+      next,
+      {
+        name: tool.name,
+        callId: tool.callId,
+        id: tool.id,
+        arguments: tool.arguments,
+        output: tool.output,
+      },
+      lexicon,
+    );
   }
 
   flushText();
@@ -229,7 +245,10 @@ function appendAssistantEventsToHistory(
  * are omitted here — optional preview `data` on those blocks is UI-only and does
  * not rebuild into host history.
  */
-function historyFromTranscriptBlocks(blocks: readonly TranscriptBlock[]): TurnHistoryMessage[] {
+function historyFromTranscriptBlocks(
+  blocks: readonly TranscriptBlock[],
+  lexicon: LexiconOverrides | undefined,
+): TurnHistoryMessage[] {
   let history: TurnHistoryMessage[] = [];
 
   for (const block of blocks) {
@@ -246,13 +265,17 @@ function historyFromTranscriptBlocks(blocks: readonly TranscriptBlock[]): TurnHi
       continue;
     }
     if (block.kind === 'tool' && block.tool.phase === 'error' && block.tool.failure) {
-      history = appendToolDenialToHistory(history, {
-        name: block.tool.name,
-        callId: block.tool.callId,
-        id: block.tool.id,
-        arguments: block.tool.arguments,
-        failure: block.tool.failure,
-      });
+      history = appendToolDenialToHistory(
+        history,
+        {
+          name: block.tool.name,
+          callId: block.tool.callId,
+          id: block.tool.id,
+          arguments: block.tool.arguments,
+          failure: block.tool.failure,
+        },
+        lexicon,
+      );
       continue;
     }
     if (
@@ -260,13 +283,17 @@ function historyFromTranscriptBlocks(blocks: readonly TranscriptBlock[]): TurnHi
       block.tool.phase === 'complete' &&
       block.tool.output !== undefined
     ) {
-      history = appendToolExchangeToHistory(history, {
-        name: block.tool.name,
-        callId: block.tool.callId,
-        id: block.tool.id,
-        arguments: block.tool.arguments,
-        output: block.tool.output,
-      });
+      history = appendToolExchangeToHistory(
+        history,
+        {
+          name: block.tool.name,
+          callId: block.tool.callId,
+          id: block.tool.id,
+          arguments: block.tool.arguments,
+          output: block.tool.output,
+        },
+        lexicon,
+      );
     }
   }
 

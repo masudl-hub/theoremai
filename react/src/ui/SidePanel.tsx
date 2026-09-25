@@ -22,6 +22,11 @@ const SIDE_PANEL_SIZING = {
 	maxSize: '50%',
 } as const satisfies UseResizableSingleConfig;
 
+/** Whether a side panel is wide enough for two readable columns: twice its minimum. */
+export function isSidePanelWide(size: number): boolean {
+	return size >= SIDE_PANEL_SIZING.minSize * 2;
+}
+
 /** A side panel's open state and size. `containerRef` is the Layout its percentages resolve against. */
 export function useSidePanel(containerRef: RefObject<HTMLDivElement | null>, initiallyOpen: boolean) {
 	const id = useId();
@@ -42,21 +47,24 @@ export function SidePanelHeader({ children }: { children?: ReactNode }) {
 	);
 }
 
+/** A side panel's words: its name, and its toggle and drag handle actions. */
+export type SidePanelLabels = { name: string; show: string; hide: string; resize: string };
+
 /** Shows or hides one side panel (`panelId` from useSidePanel). */
 export function SidePanelToggle({
-	label,
+	labels,
 	icon,
 	panelId,
 	open,
 	onToggle,
 }: {
-	label: string;
+	labels: SidePanelLabels;
 	icon: ReactNode;
 	panelId: string;
 	open: boolean;
 	onToggle: () => void;
 }) {
-	const action = `${open ? 'Hide' : 'Show'} ${label.toLowerCase()}`;
+	const action = open ? labels.hide : labels.show;
 	return (
 		<IconButton
 			label={action}
@@ -72,7 +80,7 @@ export function SidePanelToggle({
 
 export type SidePanelProps = {
 	id?: string;
-	label: string;
+	labels: SidePanelLabels;
 	/** From `useResizable`: the panel's width and its handle's drag state. */
 	resizable: ResizableRegion;
 	/**
@@ -92,7 +100,7 @@ export type SidePanelProps = {
  * raised card inset from the layout edge and bottom instead of a flat pane.
  * For more than one panel, nest Layouts, one panel each, as the template does.
  */
-export function SidePanel({ id, label, resizable, open = true, padding, children }: SidePanelProps) {
+export function SidePanel({ id, labels, resizable, open = true, padding, children }: SidePanelProps) {
 	return (
 		<>
 			{open ? (
@@ -102,12 +110,12 @@ export function SidePanel({ id, label, resizable, open = true, padding, children
 					hasDivider={false}
 					isAlwaysVisible={false}
 					resizable={resizable.props}
-					label={`Resize ${label.toLowerCase()}`}
+					label={labels.resize}
 				/>
 			) : null}
 			<LayoutPanel
 				id={id}
-				label={label}
+				label={labels.name}
 				role="complementary"
 				width={open ? resizable.size : 0}
 				hasDivider={false}

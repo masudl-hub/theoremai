@@ -13,14 +13,9 @@ import type {
   CompactionTriggerContext,
   TurnHistoryMessage,
   TurnInput,
+  TurnTokens,
 } from '../types.ts';
-import { estimateHistoryTokens } from './history-tokens.ts';
-
-export {
-  estimateHistoryTokens,
-  HISTORY_MEDIA_TOKENS,
-  HISTORY_TEXT_ENCODING,
-} from './history-tokens.ts';
+import { loadTokenEstimator, type MediaTokenFamily } from './token-estimate.ts';
 
 /** Result of splitting history for compaction. */
 export interface CompactionSplit {
@@ -35,6 +30,12 @@ export interface CompactionTokens {
   meter: CompactionMeter;
   /** Token count compared to `compactAt * maxTokens`. */
   tokens: number;
+  /**
+   * Media parts left out of `tokens` because no verified rule counts them
+   * for this model (see `token-estimate.ts`). Always 0 for host-supplied and
+   * provider-reported counts.
+   */
+  unknownMedia: number;
 }
 
 /** Effective meter; defaults to `'history'`. */
@@ -64,23 +65,30 @@ function findExchangeBoundaries(history: TurnHistoryMessage[]): number[] {
 /**
  * History token count for `meter: 'history'`.
  *
- * Prefers host-supplied `input.historyTokens`. Otherwise estimates from
- * `input.history` (tiktoken `o200k_base` + media stubs). Empty/missing → 0.
- * The BPE import runs only when an estimate needs text encoding.
+ * Prefers host-supplied `input.historyTokens`. Otherwise estimates
+ * `input.history` with the one token estimator, counting media by the model
+ * family's verified rule. Empty/missing → 0.
  */
-export async function resolveHistoryTokens(input?: TurnInput): Promise<number> {
+export async function resolveHistoryTokens(
+  input: TurnInput | undefined,
+  family: MediaTokenFamily | undefined,
+): Promise<Omit<CompactionTokens, 'meter'>> {
   if (input?.historyTokens != null) {
-    return input.historyTokens;
+    return { tokens: input.historyTokens, unknownMedia: 0 };
   }
-  return await estimateHistoryTokens(input?.history ?? []);
+  const history = input?.history ?? [];
+  if (history.length === 0) return { tokens: 0, unknownMedia: 0 };
+  return await (await loadTokenEstimator()).messages(history, family);
 }
 
 /**
  * Resolve the token count used for the compaction threshold.
  *
- * - `meter: 'history'` (default) — `historyTokens` or estimate of `history`.
- * - `meter: 'input'` — prefer `promptTokens` (this turn's provider
- *   `tokens.input`, for `timing: 'after'`), else host `input.inputTokens`
+ * - `meter: 'history'` (default) — `historyTokens` or estimate of `history`
+ *   (media counted by `family`'s rule; unknown media reported, not guessed).
+ * - `meter: 'input'` — prefer `prompt.input` (this turn's last model call,
+ *   for `timing: 'after'`; the estimator's count when the provider reported
+ *   none, with its uncounted prompt media), else host `input.inputTokens`
  *   (previous turn, for `timing: 'before'`). Missing/non-positive → undefined
  *   (do not fire).
  *
@@ -89,22 +97,21 @@ export async function resolveHistoryTokens(input?: TurnInput): Promise<number> {
 export async function resolveCompactionTokens(args: {
   spec: CompactionSpec;
   input?: TurnInput;
-  /** Provider full-prompt input tokens from this turn, when known. */
-  promptTokens?: number;
+  /** Tokens of this turn's last model call, when one completed. */
+  prompt?: TurnTokens;
+  /** Media family of the turn's model binding (`mediaTokenFamily`). */
+  family: MediaTokenFamily | undefined;
 }): Promise<CompactionTokens | undefined> {
   const meter = compactionMeter(args.spec);
   if (meter === 'history') {
-    return { meter, tokens: await resolveHistoryTokens(args.input) };
+    return { meter, ...(await resolveHistoryTokens(args.input, args.family)) };
   }
-  const fromPrompt =
-    args.promptTokens != null && args.promptTokens > 0 ? args.promptTokens : undefined;
-  const fromHost =
-    args.input?.inputTokens != null && args.input.inputTokens > 0
-      ? args.input.inputTokens
-      : undefined;
-  const tokens = fromPrompt ?? fromHost;
-  if (tokens == null) return undefined;
-  return { meter, tokens };
+  if (args.prompt && args.prompt.input > 0) {
+    return { meter, tokens: args.prompt.input, unknownMedia: args.prompt.unknownMedia?.input ?? 0 };
+  }
+  const fromHost = args.input?.inputTokens;
+  if (fromHost == null || fromHost <= 0) return undefined;
+  return { meter, tokens: fromHost, unknownMedia: 0 };
 }
 
 /** Whether compaction should fire for a resolved token count (token-threshold only). */
@@ -128,6 +135,7 @@ export async function shouldCompact(
       maxTokens: spec.maxTokens,
       compactAt: spec.compactAt,
       meter: resolved.meter,
+      unknownMedia: resolved.unknownMedia,
     };
     return await spec.trigger(ctx);
   }
@@ -141,11 +149,13 @@ export async function shouldCompact(
  * - `0` — compact everything, retain nothing.
  * - `≥ 1` (integer) — retain the last N exchanges.
  * - `(0, 1)` — retain exchanges that fit within this fraction of `maxTokens`,
- *   walking backwards from the most recent (always uses the history estimator).
+ *   walking backwards from the most recent (token estimator; unknown media is
+ *   not counted).
  */
 export async function splitForCompaction(
   history: TurnHistoryMessage[],
   spec: CompactionSpec,
+  family: MediaTokenFamily | undefined,
 ): Promise<CompactionSplit> {
   if (history.length === 0) {
     return { toCompact: [], toRetain: [] };
@@ -168,13 +178,14 @@ export async function splitForCompaction(
     cutIndex = boundaries[boundaries.length - keep];
   } else {
     const budget = spec.previousExchanges * spec.maxTokens;
+    const estimator = await loadTokenEstimator();
     let accumulated = 0;
     cutIndex = history.length;
     for (let i = boundaries.length - 1; i >= 0; i--) {
       const exchangeStart = boundaries[i];
       const exchangeEnd = i < boundaries.length - 1 ? boundaries[i + 1] : history.length;
       const exchangeMessages = history.slice(exchangeStart, exchangeEnd);
-      const exchangeTokens = await estimateHistoryTokens(exchangeMessages);
+      const exchangeTokens = (await estimator.messages(exchangeMessages, family)).tokens;
       if (accumulated + exchangeTokens > budget) {
         break;
       }

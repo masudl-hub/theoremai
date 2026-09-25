@@ -1,10 +1,11 @@
-import type { ToolCredential, ToolGate, ToolPermission } from '../../../src/kernel/mod.ts';
+import type { ToolGate, ToolPermission } from '../../../src/kernel/mod.ts';
 
 export type ToolDecisionAction = 'allow' | 'deny';
 
 export type ToolGateResolution =
 	| { action: ToolDecisionAction }
-	| { action: 'auth'; credentials: Record<string, ToolCredential> };
+	/** Signed in: `secret` is a key the user typed; after an OAuth callback there is none. */
+	| { action: 'auth'; secret?: string };
 
 export type InvokeToolResumeInput = {
 	value?: unknown;
@@ -33,7 +34,7 @@ export function buildInvokeToolResume(_gateKind?: ToolGate['kind']): InvokeToolR
 
 export type GatedToolContinue =
 	| { kind: 'denied' }
-	| { kind: 'auth'; credentials: Record<string, ToolCredential> }
+	| { kind: 'auth'; secret?: string }
 	| {
 			kind: 'continue';
 			resume: InvokeToolResumeInput;
@@ -50,7 +51,7 @@ export function continueGatedToolInvocation(args: {
 		return { kind: 'denied' };
 	}
 	if (args.resolution.action === 'auth') {
-		return { kind: 'auth', credentials: args.resolution.credentials };
+		return { kind: 'auth', secret: args.resolution.secret };
 	}
 
 	return {

@@ -6,6 +6,23 @@
  * @module
  */
 
+import { TheoremError } from '../../guardrails/error.ts';
+
+/**
+ * Tool identity fields (call id, tool name) from host history, kept only where
+ * the message carries them. Adapters never invent an id or name: a provider
+ * that needs a missing one rejects the request, and that error is the answer.
+ */
+export function historyToolIdentity(
+  fields: Record<string, string | undefined>,
+): Record<string, string> {
+  const present: Record<string, string> = {};
+  for (const [key, value] of Object.entries(fields)) {
+    if (value !== undefined) present[key] = value;
+  }
+  return present;
+}
+
 export type ParsedToolArguments =
   | { ok: true; value: Record<string, unknown> }
   | { ok: false; error: string; raw: string };
@@ -25,13 +42,13 @@ export function parseToolArgumentsObject(raw: unknown): ParsedToolArguments {
       return {
         ok: false,
         error: 'tool arguments JSON must be an object',
-        raw: trimmed,
+        raw,
       };
     } catch {
       return {
         ok: false,
         error: 'malformed tool arguments JSON',
-        raw: trimmed,
+        raw,
       };
     }
   }
@@ -46,4 +63,16 @@ export function parseToolArgumentsObject(raw: unknown): ParsedToolArguments {
     error: 'tool arguments must be a JSON object',
     raw: String(raw),
   };
+}
+
+/**
+ * Tool-call arguments from host history, rebuilt for a provider request.
+ * Malformed or non-object JSON throws `TheoremError`.
+ */
+export function historyToolArguments(raw: unknown): Record<string, unknown> {
+  const parsed = parseToolArgumentsObject(raw);
+  if (!parsed.ok) {
+    throw new TheoremError('bad_response', parsed.error);
+  }
+  return parsed.value;
 }

@@ -1,8 +1,9 @@
-import { throwIfAborted } from '../../../guardrails/error.ts';
+import { isAbortError, throwIfAborted } from '../../../guardrails/error.ts';
 import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import { recordTaint } from '../../../guardrails/tool-result.ts';
-import { wireInteractionPart } from '../../interaction-parts.ts';
+import type { TraceAttributes } from '../../../observability/trace-span.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
+import { providerCompleteRequest } from '../../registry/provider-request.ts';
 import { injectWouldExceedMaxSteps } from '../../stages.ts';
 import { profileAllowsInject } from '../../stop.ts';
 import type { ToolExecuteSettlement } from '../../tools/execute.ts';
@@ -13,7 +14,7 @@ import {
   newCallId,
   type ToolStageSupport,
 } from '../../tools/execute.ts';
-import type { ModelToolResult } from '../../tools/types.ts';
+import type { ModelToolResult, ToolFailure } from '../../tools/types.ts';
 import type {
   ModelProvider,
   Profile,
@@ -21,10 +22,14 @@ import type {
   TurnEvent,
   TurnHistoryMessage,
   TurnRequest,
+  TurnStop,
 } from '../../types.ts';
+import { startToolTrace } from '../tool-trace.ts';
+import { startCallTrace } from '../turn-trace.ts';
 import { applyStageInjects } from './stages.ts';
 import { recordStepEvent, type StepExecutionState } from './state.ts';
-import { type OutboundStreamControl, yieldProviderEvents } from './stream.ts';
+import { isWithheldOnBlock, type OutboundStreamControl, yieldProviderEvents } from './stream.ts';
+import { callTokensEvent, observeCallEvent, startCallUsage } from './usage.ts';
 
 function isStepLimitReached(step: number, maxSteps: number): boolean {
   if (maxSteps === undefined || maxSteps <= 0) {
@@ -38,14 +43,14 @@ function generationForProviderStep(
   state: StepExecutionState,
 ): ResolvedGeneration {
   if (state.interactionsContinuation) {
-    const { previousInteractionId, input } = state.interactionsContinuation;
+    const { previousInteractionId, messages } = state.interactionsContinuation;
     state.interactionsContinuation = undefined;
     return {
       ...generation,
       history: [],
       input: [],
       previousInteractionId,
-      interactionOnlyInput: input,
+      continuation: [...messages],
     };
   }
   return { ...generation, history: state.currentHistory };
@@ -63,7 +68,6 @@ async function* executeAutonomousStep(
     generation: ResolvedGeneration;
     system: string;
     provider: ModelProvider;
-    upstream: Record<string, unknown>[];
     signal?: AbortSignal;
   },
   state: StepExecutionState,
@@ -71,53 +75,108 @@ async function* executeAutonomousStep(
     holdLate: false,
   },
 ): AsyncGenerator<TurnEvent, { pendingTools: TurnEvent[]; latestStructured?: unknown }> {
-  const { generation, system, provider, upstream, signal } = args;
+  const { generation, system, provider, signal } = args;
+  const continuation = state.interactionsContinuation;
+  const usage = startCallUsage(
+    system,
+    continuation && state.lastCall
+      ? { previous: state.lastCall, continuation: continuation.messages }
+      : { history: state.currentHistory, input: generation.input },
+  );
+  state.lastCall = usage;
   const genForStep = generationForProviderStep(generation, state);
+  const request = providerCompleteRequest(genForStep, system);
+  state.trace.calls += 1;
+  const call = startCallTrace((name, options) => state.trace.root.child(name, options), {
+    req: request,
+    usage,
+    binding: state.trace.binding,
+    transport: genForStep.transport,
+    step: state.stepCount,
+    attempt: state.trace.attempt,
+  });
   const pendingTools: TurnEvent[] = [];
   let latestStructured: unknown;
+  // The stop this call ended with after gates: a canary block or provider
+  // error outranks what the provider reported.
+  let stop: TurnStop | undefined;
   const control: OutboundStreamControl = { withholdVisible: false };
 
-  for await (const event of yieldProviderEvents({
-    profile: args.profile,
-    generation: genForStep,
-    system,
-    provider,
-    upstream,
-    signal,
-    control,
-  })) {
-    captureInteractionId(event, state);
-    if (event.type === 'structured') {
-      latestStructured = event.structured;
-    }
-    if (event.type === 'done') {
-      if (event.stop) {
-        state.lastStop = event.stop;
+  try {
+    for await (const event of yieldProviderEvents({
+      profile: args.profile,
+      generation: genForStep,
+      request,
+      provider,
+      call,
+      signal,
+      control,
+    })) {
+      captureInteractionId(event, state);
+      if (observeCallEvent(usage, event)) {
+        continue;
       }
-      continue;
+      if (event.type === 'guardrail') {
+        call.guardrail(event);
+      }
+      if (event.type === 'structured') {
+        latestStructured = event.structured;
+      }
+      if (event.type === 'done') {
+        if (event.stop) {
+          stop = event.stop;
+          state.lastStop = event.stop;
+        }
+        continue;
+      }
+      if (event.type === 'tool' && event.tool) {
+        pendingTools.push(event);
+        continue;
+      }
+      recordStepEvent(event, state);
+      if (control.withholdVisible && isWithheldOnBlock(event)) {
+        // Progressive-yield blocked this attempt — keep events for egress/repair only.
+        // Record the decision so the attempt gate knows nothing reached the host.
+        state.withheldVisible = true;
+        continue;
+      }
+      // Text and media stream via progressive-yield under egress, thoughts
+      // stream unguarded; holdLate only buffers non-visible events (e.g.
+      // structured) for validation.
+      const isUserVisible =
+        event.type === 'thought' || event.type === 'text' || event.type === 'media';
+      const streamNow = !buffer.holdLate || isUserVisible;
+      if (streamNow) {
+        yield event;
+      }
     }
-    if (event.type === 'tool' && event.tool) {
-      pendingTools.push(event);
-      continue;
-    }
-    recordStepEvent(event, state);
-    const isUserVisible =
-      event.type === 'thought' || event.type === 'text' || event.type === 'media';
-    if (control.withholdVisible && isUserVisible) {
-      // Progressive-yield blocked this attempt — keep events for egress/repair only.
-      // Record the decision so the attempt gate knows nothing reached the host.
-      state.withheldVisible = true;
-      continue;
-    }
-    // Progressive-yield streams text/thought live under egress; holdLate only
-    // buffers non-visible events (e.g. structured) for validation.
-    const streamNow = !buffer.holdLate || event.type === 'tokens' || isUserVisible;
-    if (streamNow) {
-      yield event;
-    }
+  } catch (err) {
+    call.end(isAbortError(err) ? { stop: { kind: 'cancelled' } } : { stop, thrown: err });
+    throw err;
+  }
+
+  const tokens = await callTokensEvent(usage, generation, state.mediaFamily);
+  call.end({ tokens: tokens?.tokens, stop });
+  if (tokens) {
+    recordStepEvent(tokens, state);
+    yield tokens;
   }
 
   return { pendingTools, latestStructured };
+}
+
+function toolResultMessage(
+  name: string,
+  callId: string,
+  result: ModelToolResult,
+): TurnHistoryMessage {
+  return {
+    role: 'tool',
+    tool_call_id: callId,
+    name,
+    content: formatToolResult(result),
+    ...(result.parts && result.parts.length > 0 ? { parts: result.parts } : {}),
+  };
 }
 
 function appendInteractionsToolResultToHistory(
@@ -129,13 +188,7 @@ function appendInteractionsToolResultToHistory(
   if (!tool) {
     return;
   }
-  history.push({
-    role: 'tool',
-    tool_call_id: tool.id ?? tool.callId ?? `call_${tool.name}`,
-    name: tool.name,
-    content: formatToolResult(result),
-    ...(result.parts && result.parts.length > 0 ? { parts: result.parts } : {}),
-  });
+  history.push(toolResultMessage(tool.name, tool.id ?? tool.callId ?? `call_${tool.name}`, result));
 }
 
 function appendToolTurnToHistory(
@@ -161,13 +214,7 @@ function appendToolTurnToHistory(
       },
     ],
   });
-  history.push({
-    role: 'tool',
-    tool_call_id: callId,
-    name: tool.name,
-    content: formatToolResult(result),
-    ...(result.parts && result.parts.length > 0 ? { parts: result.parts } : {}),
-  });
+  history.push(toolResultMessage(tool.name, callId, result));
 }
 
 function queueInteractionsToolContinuation(
@@ -184,25 +231,21 @@ function queueInteractionsToolContinuation(
   if (!previousInteractionId) {
     return;
   }
-  const step = {
-    type: 'function_result',
-    name: tool.name,
-    call_id: tool.id ?? tool.callId ?? `call_${tool.name}`,
-    result:
-      result.parts && result.parts.length > 0
-        ? result.parts.map(wireInteractionPart)
-        : [{ type: 'text', text: formatToolResult(result) }],
-  };
+  const message = toolResultMessage(
+    tool.name,
+    tool.id ?? tool.callId ?? `call_${tool.name}`,
+    result,
+  );
   if (
     state.interactionsContinuation &&
     state.interactionsContinuation.previousInteractionId === previousInteractionId
   ) {
-    state.interactionsContinuation.input.push(step);
+    state.interactionsContinuation.messages.push(message);
     return;
   }
   state.interactionsContinuation = {
     previousInteractionId,
-    input: [step],
+    messages: [message],
   };
 }
 
@@ -263,12 +306,22 @@ async function* drainToolExecEvents(
   return { settlement: next.value, sawGate };
 }
 
+/** Opens a turn tool call's `execute_tool` span under the turn's root. */
+function toolSpanOpener(state: StepExecutionState) {
+  return (name: string, attributes: TraceAttributes) =>
+    state.trace.root.child(name, { attributes });
+}
+
+/**
+ * Settle a call the provider handed over already failed (malformed arguments,
+ * no function name): nothing runs, and the model reads the failure back.
+ */
 function recordProviderToolFailure(
   state: StepExecutionState,
   toolEv: TurnEvent,
   tool: NonNullable<TurnEvent['tool']>,
   callId: string,
-  failure: { code: string; message: string },
+  failure: ToolFailure,
   generation: ResolvedGeneration,
   useInteractionsContinuation: boolean,
   patch?: Partial<NonNullable<TurnEvent['tool']>>,
@@ -279,13 +332,18 @@ function recordProviderToolFailure(
     ...patch,
   });
   state.allEmittedEvents.push(enriched);
-  recordToolModelResult(
-    state,
-    toolEv,
-    formatToolFailureForModel(failure),
-    generation,
-    useInteractionsContinuation,
-  );
+  const modelResult = formatToolFailureForModel(failure);
+  startToolTrace(toolSpanOpener(state), {
+    name: enriched.tool?.name ?? '',
+    callId,
+    call: tool,
+    step: state.stepCount,
+  }).end({
+    outcome: 'error',
+    result: { text: formatToolResult(modelResult) },
+    failure,
+  });
+  recordToolModelResult(state, toolEv, modelResult, generation, useInteractionsContinuation);
   return enriched;
 }
 
@@ -335,7 +393,7 @@ async function* handlePendingTools(
   generation: ResolvedGeneration,
   profile: Profile,
   state: StepExecutionState,
-  safe?: TurnRequest,
+  { onStage, signal, credentials, resolveHost }: Partial<TurnRequest> = {},
 ): AsyncGenerator<TurnEvent, boolean> {
   let executed = false;
   let sawGate = false;
@@ -356,13 +414,12 @@ async function* handlePendingTools(
     }
 
     if (tool.phase === 'error' && tool.failure) {
-      const enriched = enrichToolEvent(tool, callId);
-      state.allEmittedEvents.push(enriched);
-      yield enriched;
-      recordToolModelResult(
+      yield recordProviderToolFailure(
         state,
         toolEv,
-        formatToolFailureForModel(tool.failure),
+        tool,
+        callId,
+        tool.failure,
         generation,
         useInteractionsContinuation,
       );
@@ -377,6 +434,7 @@ async function* handlePendingTools(
         callId,
         {
           code: 'malformed_arguments',
+          kind: 'bad_response',
           message: 'Provider tool call is missing a function name', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         },
         generation,
@@ -387,14 +445,14 @@ async function* handlePendingTools(
     }
 
     const stages: ToolStageSupport = {
-      handlers: safe?.onStage ? [safe.onStage] : [],
+      handlers: onStage ? [onStage] : [],
       profile,
       step: state.stepCount,
       history: () => state.currentHistory,
       injectAllowed: profileAllowsInject(profile),
       injectWouldExceedMaxSteps: injectWouldExceedMaxSteps(state.stepCount, generation.maxSteps),
       host: generation.host,
-      signal: safe?.signal,
+      signal,
     };
 
     const drained = yield* drainToolExecEvents(
@@ -407,13 +465,15 @@ async function* handlePendingTools(
           sessionPermissions: generation.sessionPermissions,
           path: generation.tools.path,
           turn: { step: state.stepCount, taint: state.taint },
-          credentials: safe?.credentials,
+          credentials,
+          resolveHost,
           host: generation.host,
           resume: undefined,
-          signal: safe?.signal,
+          signal,
         },
         snapshot: generation.tools,
         stages,
+        openSpan: toolSpanOpener(state),
       }),
       tool,
       callId,
@@ -446,13 +506,12 @@ async function* executeAttempt(args: {
   generation: ResolvedGeneration;
   system: string;
   provider: ModelProvider;
-  upstream: Record<string, unknown>[];
   state: StepExecutionState;
 }): AsyncGenerator<TurnEvent, { pendingTools: TurnEvent[]; latestStructured?: unknown }> {
-  const { profile, generation, system, provider, upstream, state } = args;
+  const { profile, generation, system, provider, state } = args;
   let latestStructured: unknown;
   let pendingTools: TurnEvent[] = [];
-  // Text/thought stream via progressive-yield under egress; validation and egress
+  // Text streams via progressive-yield under egress, thoughts unguarded; validation and egress
   // both hold non-visible events (structured) until the attempt gate, so a policy
   // sees the structured payload before any of it reaches the host.
   const holdLate = Boolean(
@@ -469,7 +528,7 @@ async function* executeAttempt(args: {
     // Mid-loop inject lives on `post_tool` (after tools). Opening inject is `pre_turn`
     // outside this loop.
     const stepResult = yield* executeAutonomousStep(
-      { profile, generation, system, provider, upstream, signal: args.safe.signal },
+      { profile, generation, system, provider, signal: args.safe.signal },
       state,
       { holdLate },
     );

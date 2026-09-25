@@ -34,6 +34,10 @@ jobs:
       - name: Install npm lint tools
         run: npm ci
 
+      # Fallow resolves the react package's script bins (e.g. `astryx`) from its node_modules.
+      - name: Install react dependencies
+        run: npm --prefix react ci
+
       - name: Docs truth
         run: npm run lint:docs
         env:
@@ -78,7 +82,10 @@ jobs:
         run: npm ci
 
       - name: Type check
-        run: deno check mod.ts
+        run: deno check mod.ts tests/fixtures/probes/ scripts/*.ts
+
+      - name: Type check react
+        run: npm run check:react
 
       - name: Verify publish bundle
         run: deno task verify:publish

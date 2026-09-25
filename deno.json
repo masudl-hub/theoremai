@@ -1,6 +1,6 @@
 {
   "name": "@theoremai/agents",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "A flat TypeScript agent kernel for typed profiles, deterministic turn execution, registered tools, provider adapters, guardrails, and host-injected traces.",
   "license": "MIT",
   "keywords": [
@@ -22,13 +22,18 @@
     "./guardrails": "./src/guardrails/mod.ts",
     "./guardrails/testing": "./src/guardrails/testing.ts",
     "./observability": "./src/observability/mod.ts",
+    "./observability/openinference": "./src/observability/openinference.ts",
     "./host": "./src/host/mod.ts",
     "./cli": "./src/cli/index.ts",
     "./presets": "./src/presets/mod.ts",
-    "./presets/google": "./src/presets/google.ts"
+    "./presets/google": "./src/presets/google.ts",
+    "./presets/google/speech-voices": "./src/presets/google/speech-voices.ts",
+    "./schema": "./src/kernel/schema.ts",
+    "./providers/google/live": "./src/providers/google/live/mod.ts"
   },
   "publish": {
     "exclude": [
+      ".claude/",
       ".fallow/",
       ".fallowrc.jsonc",
       ".cursor/",
@@ -58,8 +63,10 @@
       "scripts/",
       "react/",
       "src/interface/",
+      "src/guardrails/eval/",
       "sgconfig.yml",
       "snyk",
+      ".snyk",
       "src/**/*.md",
       "tests/"
     ]
@@ -68,12 +75,13 @@
     "@openrouter/ai-sdk-provider": "npm:@openrouter/ai-sdk-provider@^3.0.0",
     "ai": "npm:ai@^7.0.0",
     "gpt-tokenizer": "npm:gpt-tokenizer@^4.0.0",
+    "intl-messageformat": "npm:intl-messageformat@^11.2.9",
     "zod": "npm:zod@^4.1.8",
     "@std/assert": "jsr:@std/assert@^1.0.0",
     "@deno/dnt": "jsr:@deno/dnt@0.43.2"
   },
   "tasks": {
-    "guardrails:eval": "deno run --allow-net --allow-read --allow-write src/cli/index.ts guardrails-eval",
+    "guardrails:eval": "deno run --allow-net --allow-read --allow-write --allow-env scripts/guardrails-eval.ts",
     "agents": "deno run --allow-read --allow-write --allow-net src/cli/index.ts",
     "fuzz": "deno run --allow-read --allow-write --allow-net src/cli/index.ts fuzz",
     "fuzz-canary": "deno run --allow-read --allow-write --allow-net src/cli/index.ts fuzz-canary",
@@ -81,11 +89,11 @@
     "test": "deno test --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run --ignore=npm/ tests/",
     "check": "deno check mod.ts",
     "verify:publish": "deno run --allow-read scripts/verify-publish-bundle.ts",
-    "lint": "npm run lint",
-    "lint:docs": "npm run lint:docs",
-    "ci": "npm run check:ci",
-    "hooks:install": "npm run hooks:install",
-    "verify:provider-smoke": "deno run --allow-net scripts/verify-provider-smoke.ts",
+    "lint": "node --run lint",
+    "lint:docs": "node --run lint:docs",
+    "ci": "node --run check:ci",
+    "hooks:install": "node --run hooks:install",
+    "verify:provider-smoke": "deno run --allow-net --allow-sys --allow-env --allow-read scripts/verify-provider-smoke.ts",
     "verify:jev-api": "deno run --allow-env --allow-net scripts/verify-jev-api.ts",
     "verify:canary-api": "deno run --allow-read --allow-net --allow-env --allow-sys scripts/verify-guardrails-api.ts",
     "verify:guardrails-api": "deno run --allow-read --allow-net --allow-env --allow-sys scripts/verify-guardrails-api.ts",

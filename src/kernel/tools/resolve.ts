@@ -5,7 +5,14 @@
  */
 
 import { TheoremError } from '../../guardrails/error.ts';
-import type { ModelId, ModelProfile, Profile, ToolId, TurnRequest } from '../types.ts';
+import type {
+  ModelId,
+  ModelProfile,
+  Profile,
+  ProfileToolsSpec,
+  ToolId,
+  TurnRequest,
+} from '../types.ts';
 import { getTool } from './registry.ts';
 import type {
   PromoteLoadedResult,
@@ -35,11 +42,18 @@ export function applyBuiltinMutualExclusions(requested: string[]): string[] {
   });
 }
 
+/** The profile's `tools.allow`; empty for profile types with no `tools` block. */
+export function profileToolAllow(profile: Profile): readonly ToolId[] {
+  return 'tools' in profile ? profile.tools.allow : [];
+}
+
+/** The tiered tool spec (`t1Policy`, `t2Loader`); only `text` and `image` declare one. */
+export function profileToolsSpec(profile: Profile): ProfileToolsSpec | undefined {
+  return profile.type === 'text' || profile.type === 'image' ? profile.tools : undefined;
+}
+
 export function resolveAllowedCustomToolIds(profile: Profile, req: TurnRequest): ToolId[] {
-  if (profile.type === 'speech' || profile.type === 'decision') {
-    return [];
-  }
-  return profile.tools.allow.filter((id) => {
+  return profileToolAllow(profile).filter((id) => {
     const tool = getTool(id);
     if (!tool || tool.type === 'builtin') {
       return false;
@@ -204,15 +218,7 @@ export async function expandT1Policy(
   profile: Profile,
   req: TurnRequest,
 ): Promise<void> {
-  if (
-    profile.type === 'speech' ||
-    profile.type === 'live' ||
-    profile.type === 'host' ||
-    profile.type === 'decision'
-  ) {
-    return;
-  }
-  const t1Policy = profile.tools.t1Policy;
+  const t1Policy = profileToolsSpec(profile)?.t1Policy;
   if (!t1Policy) {
     return;
   }
@@ -228,12 +234,12 @@ export async function expandT1Policy(
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    throw new TheoremError(`Profile '${profile.id}' tools.t1Policy rejected: ${msg}`, {
+    throw new TheoremError('config', `Profile '${profile.id}' tools.t1Policy rejected: ${msg}`, {
       cause: err,
     });
   }
   if (!Array.isArray(selected)) {
-    throw new TheoremError(`Profile '${profile.id}' tools.t1Policy must return ToolId[]`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', `Profile '${profile.id}' tools.t1Policy must return ToolId[]`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   for (const id of selected) {
     if (!state.gated.includes(id)) {
@@ -272,6 +278,7 @@ export function promoteLoadedTools(
         promoted: [],
         failure: {
           code: 'invalid_output',
+          kind: 'bad_response',
           message: 'tools.t2Loader loaded ids must be plain strings', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         },
       };
@@ -286,6 +293,7 @@ export function promoteLoadedTools(
         promoted: [],
         failure: {
           code: 'invalid_output',
+          kind: 'bad_response',
           message: `Tool '${id}' is not registered`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         },
       };
@@ -305,13 +313,10 @@ export function promoteLoadedTools(
 }
 
 export function promotionFailure(id: string, profile: Profile): ToolFailure | undefined {
-  if (
-    profile.type === 'speech' ||
-    profile.type === 'decision' ||
-    !profile.tools.allow.includes(id)
-  ) {
+  if (!profileToolAllow(profile).includes(id)) {
     return {
       code: 'invalid_output',
+      kind: 'bad_response',
       message: `tools.t2Loader attempted to promote tool '${id}' outside profile allow`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     };
   }
@@ -319,18 +324,21 @@ export function promotionFailure(id: string, profile: Profile): ToolFailure | un
   if (!tool) {
     return {
       code: 'invalid_output',
+      kind: 'bad_response',
       message: `tools.t2Loader attempted to promote unknown tool '${id}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     };
   }
   if (tool.type === 'builtin') {
     return {
       code: 'invalid_output',
+      kind: 'bad_response',
       message: `tools.t2Loader attempted to promote builtin '${id}' — only custom tools may be promoted`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     };
   }
   if (tool.loadTier !== 'T2') {
     return {
       code: 'invalid_output',
+      kind: 'bad_response',
       message: `tools.t2Loader attempted to promote tool '${id}' with loadTier '${tool.loadTier}' — only T2 tools may be promoted`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     };
   }

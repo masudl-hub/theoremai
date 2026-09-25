@@ -1,4 +1,5 @@
 import type { PendingAttachment, TranscriptBlock } from '../../../src/interface/mod.ts';
+import { base64ToBytes, bytesToBase64 } from '../../../src/kernel/util/base64.ts';
 
 export function filesToPending(files: readonly File[]): PendingAttachment[] {
 	return files.map((file) => ({
@@ -6,10 +7,6 @@ export function filesToPending(files: readonly File[]): PendingAttachment[] {
 		mimeType: file.type || 'application/octet-stream',
 		sizeBytes: file.size,
 	}));
-}
-
-function base64ToBytes(base64: string): Uint8Array {
-	return Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
 }
 
 /**
@@ -36,16 +33,6 @@ export function pendingAttachmentsToFiles(
 	return files;
 }
 
-async function fileToBase64(file: File): Promise<string> {
-	const buffer = await file.arrayBuffer();
-	const bytes = new Uint8Array(buffer);
-	let binary = '';
-	for (const byte of bytes) {
-		binary += String.fromCharCode(byte);
-	}
-	return btoa(binary);
-}
-
 export async function encodeFiles(
 	files: readonly File[],
 ): Promise<Array<{ name: string; mimeType: string; data: string }>> {
@@ -54,7 +41,7 @@ export async function encodeFiles(
 		out.push({
 			name: file.name,
 			mimeType: file.type || 'application/octet-stream',
-			data: await fileToBase64(file),
+			data: bytesToBase64(new Uint8Array(await file.arrayBuffer())),
 		});
 	}
 	return out;

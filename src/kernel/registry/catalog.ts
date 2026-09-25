@@ -12,23 +12,19 @@ import type {
   ModelId,
   ModelProfile,
   Profile,
+  ProfileInputsSpec,
   ThinkingLevel,
 } from '../types.ts';
+import { mimeEssence } from '../util/mime.ts';
 
 /** `TurnInput` field a media file rides in. */
 type MediaInputChannel = 'attachments' | 'voice';
-
-/** Normalizes a MIME value to lower-case type/subtype, removing all parameters. */
-function mimeEssence(mime: string): string {
-  const [base] = mime.split(';');
-  return (base ?? '').trim().toLowerCase();
-}
 
 /**
  * Returns whether an accept list permits a MIME value. Rules are normalized and
  * support a subtype wildcard such as `image/*`; parameter values are ignored.
  */
-function mimeAllowed(accept: string[], mime: string): boolean {
+function mimeAllowed(accept: readonly string[], mime: string): boolean {
   const actual = mimeEssence(mime);
   return accept.some((rule) => {
     const allowed = mimeEssence(rule);
@@ -44,17 +40,14 @@ function mediaKindForMime(mime: string): MediaInputKind | undefined {
   return MEDIA_INPUT_KINDS[mimeEssence(mime)];
 }
 
+/** The turn inputs spec; only `text` and `image` declare one. */
+function profileInputs(profile: Profile): ProfileInputsSpec | undefined {
+  return profile.type === 'text' || profile.type === 'image' ? profile.inputs : undefined;
+}
+
 /** The `accept` list a profile declares for one input channel, if it declares one. */
 function profileAccept(profile: Profile, channel: MediaInputChannel): string[] | undefined {
-  if (
-    profile.type === 'speech' ||
-    profile.type === 'live' ||
-    profile.type === 'host' ||
-    profile.type === 'decision'
-  ) {
-    return undefined;
-  }
-  const inputs = profile.inputs;
+  const inputs = profileInputs(profile);
   return channel === 'voice' ? inputs?.voice?.accept : inputs?.attachments?.accept;
 }
 
@@ -83,7 +76,7 @@ function mediaChannelForMime(profile: Profile, mime: string): MediaInputChannel 
 function requireModelBinding(profile: ModelProfile, modelId: ModelId): ModelBinding {
   const binding = profile.models[modelId];
   if (!binding) {
-    throw new TheoremError(`Profile ${profile.id} has no model binding for '${modelId}'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', `Profile ${profile.id} has no model binding for '${modelId}'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return binding;
 }
@@ -143,5 +136,6 @@ export {
   mimeEssence,
   modelEntryByApiId,
   profileAccept,
+  profileInputs,
   requireModelBinding,
 };

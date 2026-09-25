@@ -44,7 +44,7 @@ function resolveKeySlot(
     return profileKey;
   }
   if (required) {
-    throw new TheoremError('Profile must set key or models.*.key'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', 'Profile must set key or models.*.key'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return undefined;
 }

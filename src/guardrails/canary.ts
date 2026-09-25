@@ -1,20 +1,16 @@
 import { mapStrings } from '../kernel/engine/tree.ts';
 import type { TurnEvent } from '../kernel/types.ts';
-import { TheoremError } from './error.ts';
-import { lexiconText } from './lexicon.ts';
+import { type LexiconOverrides, lexiconText } from './lexicon.ts';
 import { scanTextOf } from './serialize.ts';
 
 const USER_OPEN = '<user_data>';
 const USER_CLOSE = '</user_data>';
-const CANARY_PREFIX = 'theo-';
 const CANARY_BYTES = 16;
 const HEX_RADIX = 16;
 const HEX_PAD = 2;
 /** Literal placeholder substituted for a canary when an event is redacted. */
 const OMIT_CANARY = '[omitted - canary]';
 const FENCE = /<\/?user_data>/gi;
-/** Base64 prefix hint for the literal string "theo". */
-const B64_THEO_HINT = 'dGhlbw';
 
 /** Creates a 128-bit, cryptographically random token for one turn's canary binding. */
 function mintCanary(): string {
@@ -24,7 +20,7 @@ function mintCanary(): string {
   for (const byte of bytes) {
     hex += byte.toString(HEX_RADIX).padStart(HEX_PAD, '0');
   }
-  return `${CANARY_PREFIX}${hex}`;
+  return hex;
 }
 
 function stripUserFences(text: string): string {
@@ -42,21 +38,15 @@ function wrapUserData(text: string): string {
 /**
  * Append the canary bind note to the host's system prompt.
  *
- * The note is mechanism text with an overridable registered default
- * (`canary.bind_note` in the lexicon) or a per-profile template
- * (`guardrails.canary.bindNote`). Either way the template must contain the
- * `{canary}` placeholder — a note without the token binds nothing.
+ * The note is the lexicon's `canary.bind_note`: the profile's `lexicon`, then
+ * `overrideLexicon`, then the default. Every override is checked for the
+ * `{canary}` placeholder when it is set — a note without the token binds nothing.
  */
-function bindCanary(system: string, canary: string, bindNote?: string): string {
+function bindCanary(system: string, canary: string, lexicon?: LexiconOverrides): string {
   if (!canary) {
     return system;
   }
-  if (bindNote !== undefined && !bindNote.includes('{canary}')) {
-    throw new TheoremError(
-      'guardrails.canary.bindNote must contain the {canary} placeholder', // lexicon-exempt: developer contract error
-    );
-  }
-  const note = lexiconText('canary.bind_note', { canary }, bindNote);
+  const note = lexiconText('canary.bind_note', { canary }, lexicon);
   if (!system) {
     return note;
   }
@@ -64,44 +54,139 @@ function bindCanary(system: string, canary: string, bindNote?: string): string {
 }
 
 /**
- * Returns whether text contains a canary literally, as its base64 encoding, or
- * as spaced hexadecimal characters. This is leak detection, not general-purpose
+ * One shape a leaked canary is detected in. The scan reads only the characters
+ * the form is written with, so whatever separates them — spaces, dashes, line
+ * breaks — and, for the literal form, their case do not hide the token.
+ */
+interface CanaryLeakForm {
+  value: string;
+  keeps: (char: string) => boolean;
+  foldCase: boolean;
+}
+
+const BASE64_CHAR = /^[A-Za-z0-9+/=]$/;
+
+/**
+ * Every form a leaked canary is detected in: the token itself and its base64.
+ * The token carries no fixed prefix, so no form depends on a marker the model
+ * could drop or split off.
+ */
+function canaryLeakForms(canary: string): CanaryLeakForm[] {
+  const literal = canary.toLowerCase();
+  const alphabet = new Set(literal.split(''));
+  const forms: CanaryLeakForm[] = [
+    { value: literal, keeps: (char) => alphabet.has(char.toLowerCase()), foldCase: true },
+  ];
+  try {
+    forms.push({ value: btoa(canary), keeps: (char) => BASE64_CHAR.test(char), foldCase: false });
+  } catch {
+    /* a host canary outside Latin-1 has no base64 form */
+  }
+  return forms;
+}
+
+/** The characters of `text` a form reads, with the offset in `text` each came from. */
+interface CanaryProjection {
+  kept: string;
+  at: number[];
+}
+
+function projectFor(text: string, form: CanaryLeakForm): CanaryProjection {
+  let kept = '';
+  const at: number[] = [];
+  for (let index = 0; index < text.length; index++) {
+    const char = text.charAt(index);
+    if (form.keeps(char)) {
+      kept += form.foldCase ? char.toLowerCase() : char;
+      at.push(index);
+    }
+  }
+  return { kept, at };
+}
+
+/** Offsets `[start, end)` of `text` covering each leak, ordered by start. */
+function canaryLeakRanges(text: string, canary: string): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  for (const form of canaryLeakForms(canary)) {
+    const { kept, at } = projectFor(text, form);
+    const size = form.value.length;
+    for (
+      let found = kept.indexOf(form.value);
+      found >= 0;
+      found = kept.indexOf(form.value, found + size)
+    ) {
+      ranges.push([at[found] ?? 0, (at[found + size - 1] ?? 0) + 1]);
+    }
+  }
+  return ranges.sort((a, b) => a[0] - b[0]);
+}
+
+/**
+ * Returns whether text contains a canary in any detected leak form
+ * (`canaryLeakForms`). This is leak detection, not general-purpose
  * encoded-data detection.
  */
 function scanTextForCanaryLeak(text: string, canary: string): boolean {
   if (!text || !canary) {
     return false;
   }
-  if (text.includes(canary)) {
-    return true;
+  return canaryLeakForms(canary).some((form) => projectFor(text, form).kept.includes(form.value));
+}
+
+/**
+ * Offset from which `text` must stay held: the earliest point where what
+ * follows is the start of a leak form, and so could still grow into a leak.
+ * Everything before it is safe to release whatever arrives next.
+ */
+function canaryHoldFrom(text: string, canary: string): number {
+  let from = text.length;
+  if (!canary) {
+    return from;
   }
-  try {
-    const encoded = btoa(canary);
-    if (text.includes(encoded)) {
-      return true;
+  for (const form of canaryLeakForms(canary)) {
+    const { kept, at } = projectFor(text, form);
+    for (let size = Math.min(kept.length, form.value.length - 1); size > 0; size--) {
+      if (kept.endsWith(form.value.slice(0, size))) {
+        from = Math.min(from, at[kept.length - size] ?? from);
+        break;
+      }
     }
-  } catch {
-    /* ignore invalid btoa input */
   }
-  if (!text.includes('theo') && !text.includes(B64_THEO_HINT)) {
-    return false;
+  return from;
+}
+
+/** `text` with every detected canary leak replaced by `OMIT_CANARY`. */
+function redactCanaryText(text: string, canary: string): string {
+  if (!text || !canary) {
+    return text;
   }
-  const hex = canary.startsWith(CANARY_PREFIX) ? canary.slice(CANARY_PREFIX.length) : '';
-  if (hex.length > 0) {
-    const spaced = hex.split('').join(' ');
-    if (text.includes(spaced)) {
-      return true;
+  let out = '';
+  let from = 0;
+  for (const [start, end] of canaryLeakRanges(text, canary)) {
+    if (start >= from) {
+      out += `${text.slice(from, start)}${OMIT_CANARY}`;
     }
+    from = Math.max(from, end);
   }
-  return false;
+  return out + text.slice(from);
+}
+
+/**
+ * Thinking is not guarded output: a host that shows `thought` events accepts
+ * what they contain, and a thinking model restates its system prompt as it
+ * reasons. Every outbound gate reads this before scanning.
+ */
+function isGuardedOutput(event: TurnEvent): boolean {
+  return event.type !== 'thought';
 }
 
 /**
  * Checks the content-bearing fields currently emitted by a turn event, including
  * text, errors, structured payloads, tool data, evidence, and session metadata.
+ * Unguarded output (`isGuardedOutput`) never carries a leak.
  */
 function eventHasCanary(event: TurnEvent, canary: string): boolean {
-  if (!canary) {
+  if (!canary || !isGuardedOutput(event)) {
     return false;
   }
   if (event.text && scanTextForCanaryLeak(event.text, canary)) {
@@ -141,8 +226,9 @@ function eventHasCanary(event: TurnEvent, canary: string): boolean {
 type CanaryGateResult = { leak: true } | { leak: false; emit: string };
 
 /**
- * Incremental canary scanner that retains `canary.length - 1` trailing characters
- * so a token split across adjacent stream chunks is not released prematurely.
+ * Incremental canary scanner that retains the tail that could start a leak
+ * (`canaryHoldFrom`), so a leak split across adjacent stream chunks is not
+ * released prematurely.
  */
 interface CanaryStreamGate {
   process: (fragment: string) => CanaryGateResult;
@@ -151,14 +237,13 @@ interface CanaryStreamGate {
 
 /** Creates an incremental scanner for one canary token; call `flush` at stream end. */
 function createCanaryStreamGate(canary: string): CanaryStreamGate {
-  const overlap = Math.max(0, canary.length - 1);
   let pending = '';
 
   function step(window: string): CanaryGateResult {
     if (scanTextForCanaryLeak(window, canary)) {
       return { leak: true };
     }
-    const safeEnd = Math.max(0, window.length - overlap);
+    const safeEnd = canaryHoldFrom(window, canary);
     const emit = window.slice(0, safeEnd);
     pending = window.slice(safeEnd);
     return { leak: false, emit };
@@ -182,15 +267,21 @@ function createCanaryStreamGate(canary: string): CanaryStreamGate {
   };
 }
 
-function isStreamedCanaryEvent(
-  event: TurnEvent,
-): event is TurnEvent & { type: 'text' | 'thought' } {
-  return event.type === 'text' || event.type === 'thought';
+/**
+ * The reply as it streams: text deltas, and the transcript of spoken output
+ * (Live `output_transcription` evidence). The one stream the outbound gates
+ * scan progressively; everything else is scanned whole per event.
+ */
+function isStreamedCanaryEvent(event: TurnEvent): boolean {
+  return (
+    event.type === 'text' ||
+    (event.type === 'evidence' && event.evidence?.kind === 'output_transcription')
+  );
 }
 
-/** Replaces literal canary occurrences in every string field of an event. */
+/** Replaces every detected canary leak in every string field of an event. */
 function redactCanary(event: TurnEvent, canary: string): TurnEvent {
-  const next = mapStrings(event, (text) => text.replaceAll(canary, OMIT_CANARY));
+  const next = mapStrings(event, (text) => redactCanaryText(text, canary));
   if (next && typeof next === 'object') {
     return next as TurnEvent;
   }
@@ -200,12 +291,14 @@ function redactCanary(event: TurnEvent, canary: string): TurnEvent {
 export type { CanaryGateResult, CanaryStreamGate };
 export {
   bindCanary,
+  canaryHoldFrom,
   createCanaryStreamGate,
   eventHasCanary,
   isStreamedCanaryEvent,
   mintCanary,
   OMIT_CANARY,
   redactCanary,
+  redactCanaryText,
   scanTextForCanaryLeak,
   USER_CLOSE,
   USER_OPEN,

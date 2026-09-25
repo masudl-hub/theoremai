@@ -5,10 +5,8 @@
  * @module
  */
 
-import { lexiconText } from '../../guardrails/lexicon.ts';
 import { detectionForTrust, resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import { sanitizeText } from '../../guardrails/sanitize.ts';
-import { profileTurnResumption } from '../stop.ts';
 import type { ModelProfile, TurnRequest } from '../types.ts';
 import { pickSystemRole } from './system-role.ts';
 
@@ -22,8 +20,10 @@ import { pickSystemRole } from './system-role.ts';
  * `assembled` in `sanitizeTurnRequest` and is not exempt.
  */
 function systemFromProfile(profile: ModelProfile, role: string): string {
-  const { identity } = profile;
-  const { systemByRole, system } = identity;
+  if (profile.type === 'speech') {
+    return '';
+  }
+  const { systemByRole, system } = profile.identity;
   const text = systemByRole?.[role] || system || '';
   if (!text) {
     return '';
@@ -35,11 +35,7 @@ function systemFromProfile(profile: ModelProfile, role: string): string {
 /** Merge profile + host turn system synchronously at resolve time. */
 function resolveTurnSystemPrompt(profile: ModelProfile, req: TurnRequest): string {
   const role = pickSystemRole(profile, req.input?.role);
-  // Profile override wins; otherwise the registered lexicon default.
-  const continueSys = req.continueFrom
-    ? lexiconText('continue.instruction', {}, profileTurnResumption(profile)?.continueInstruction)
-    : '';
-  return [systemFromProfile(profile, role), req.system, continueSys].filter(Boolean).join('\n\n');
+  return [systemFromProfile(profile, role), req.system].filter(Boolean).join('\n\n');
 }
 
 export { resolveTurnSystemPrompt };

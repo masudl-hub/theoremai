@@ -1,13 +1,14 @@
 import { TheoremError } from '../../../guardrails/error.ts';
-import { wireInteractionPart } from '../../../kernel/interaction-parts.ts';
+import { historyMessageParts, wireInteractionPart } from '../../../kernel/interaction-parts.ts';
 import { getStructured } from '../../../kernel/registry/schemas.ts';
-import { getTool } from '../../../kernel/tools/registry.ts';
+import { requireBuiltinWire } from '../../../kernel/tools/registry.ts';
 import type {
   InteractionPart,
   ProviderCompleteRequest,
   TurnHistoryMessage,
   WireFunctionTool,
 } from '../../../kernel/types.ts';
+import { historyToolArguments, historyToolIdentity } from '../../shared/tool-args.ts';
 
 export function camelToSnake(key: string): string {
   return key.replaceAll(/[A-Z]/g, (ch) => `_${ch.toLowerCase()}`);
@@ -43,32 +44,19 @@ export function userInputStep(parts: InteractionPart[]): Record<string, unknown>
   return { type: USER_INPUT, content: parts.map(wirePart) };
 }
 
-function functionResultStep(msg: TurnHistoryMessage): Record<string, unknown> {
-  const result =
-    msg.parts && msg.parts.length > 0
-      ? msg.parts.map(wirePart)
-      : [{ type: 'text', text: msg.content ?? '' }];
-  return {
-    type: 'function_result',
-    name: msg.name ?? '',
-    call_id: msg.tool_call_id ?? '',
-    result,
-  };
+/** Wire content for a history message; an empty message is one empty text part. */
+function historyContent(msg: TurnHistoryMessage): Record<string, string>[] {
+  const parts = historyMessageParts(msg);
+  return parts.length > 0 ? parts.map(wirePart) : [{ type: 'text', text: '' }];
 }
 
-/** Parse OpenAI-style tool-call `arguments` JSON into an Interactions object. */
-function functionCallArguments(raw: string): Record<string, unknown> {
-  const trimmed = raw.trim();
-  if (!trimmed) return {};
-  try {
-    const parsed: unknown = JSON.parse(trimmed);
-    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
-    }
-    return { value: parsed };
-  } catch {
-    return { value: raw };
-  }
+function functionResultStep(msg: TurnHistoryMessage): Record<string, unknown> {
+  const result = historyContent(msg);
+  return {
+    type: 'function_result',
+    ...historyToolIdentity({ name: msg.name, call_id: msg.tool_call_id }),
+    result,
+  };
 }
 
 function functionCallStep(call: {
@@ -80,7 +68,7 @@ function functionCallStep(call: {
     type: 'function_call',
     id: call.id,
     name: call.function.name,
-    arguments: functionCallArguments(call.function.arguments),
+    arguments: historyToolArguments(call.function.arguments),
   };
   if (call.thoughtSignature) {
     step.thoughtSignature = call.thoughtSignature;
@@ -94,10 +82,7 @@ function textOrPartsStep(
 ): Record<string, unknown> {
   // Google Interactions input steps: assistant history is `model_output` (not `model_turn`).
   const type = role === 'assistant' ? 'model_output' : 'user_input';
-  if (msg.parts && msg.parts.length > 0) {
-    return { type, content: msg.parts.map(wirePart) };
-  }
-  return { type, content: [{ type: 'text', text: msg.content ?? '' }] };
+  return { type, content: historyContent(msg) };
 }
 
 /**
@@ -113,9 +98,7 @@ export function historySteps(msg: TurnHistoryMessage): Record<string, unknown>[]
 
   if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
     const steps: Record<string, unknown>[] = [];
-    const hasParts = Boolean(msg.parts && msg.parts.length > 0);
-    const hasText = Boolean(msg.content?.trim());
-    if (hasParts || hasText) {
+    if (historyMessageParts(msg).length > 0) {
       steps.push(textOrPartsStep('assistant', msg));
     }
     for (const call of msg.tool_calls) {
@@ -137,15 +120,6 @@ export function historyStep(msg: TurnHistoryMessage): Record<string, unknown> {
   return steps[0] ?? { type: 'user_input', content: [{ type: 'text', text: '' }] };
 }
 
-export function systemHoldsUserInput(system: string, parts: InteractionPart[]): boolean {
-  for (const part of parts) {
-    if (part.type === 'text' && part.text && system.includes(part.text)) {
-      return true;
-    }
-  }
-  return false;
-}
-
 export function jsonResponseFormat(schema: Record<string, unknown>): unknown[] {
   return [{ type: 'text', mimeType: 'application/json', schema }];
 }
@@ -156,10 +130,10 @@ export function attachResponseFormat(
 ): void {
   if (req.speech) {
     if (req.image) {
-      throw new TheoremError('cannot mix speech and image response formats');
+      throw new TheoremError('config', 'cannot mix speech and image response formats');
     }
     if (req.structured) {
-      throw new TheoremError('cannot mix speech and structured response formats');
+      throw new TheoremError('config', 'cannot mix speech and structured response formats');
     }
     camel.responseFormat = { type: 'audio' };
     camel.responseModalities = ['audio'];
@@ -183,11 +157,7 @@ export function attachResponseFormat(
   if (!req.structured) {
     return;
   }
-  const spec = getStructured(req.structured);
-  if (spec.enforced !== 'responseFormat' || !spec.jsonSchema) {
-    return;
-  }
-  camel.responseFormat = jsonResponseFormat(spec.jsonSchema);
+  camel.responseFormat = jsonResponseFormat(getStructured(req.structured).jsonSchema);
 }
 
 export function attachSpeechConfig(
@@ -228,11 +198,7 @@ function wireGoogleMapsTool(req: ProviderCompleteRequest): Record<string, unknow
 function wireInteractionsTools(req: ProviderCompleteRequest): Record<string, unknown>[] {
   const tools: Record<string, unknown>[] = [];
   for (const id of req.builtins) {
-    const entry = getTool(id);
-    const type = entry?.type === 'builtin' ? entry.wire.interactions : undefined;
-    if (!type) {
-      throw new TheoremError(`Builtin '${id}' has no Interactions wire type`);
-    }
+    const type = requireBuiltinWire(id, 'interactions');
     if (type === 'google_maps') {
       tools.push(wireGoogleMapsTool(req));
       continue;
@@ -246,8 +212,8 @@ function wireInteractionsTools(req: ProviderCompleteRequest): Record<string, unk
 }
 
 export function inputStepsFromRequest(req: ProviderCompleteRequest): Record<string, unknown>[] {
-  if (req.interactionOnlyInput && req.interactionOnlyInput.length > 0) {
-    return req.interactionOnlyInput;
+  if (req.continuation && req.continuation.length > 0) {
+    return req.continuation.flatMap(historySteps);
   }
   const inputSteps: Record<string, unknown>[] = [];
   for (const h of req.history ?? []) {
@@ -270,9 +236,6 @@ export function applyOptionalRequestFields(
     camel.previousInteractionId = req.previousInteractionId;
   }
   if (req.system) {
-    if (systemHoldsUserInput(req.system, req.input)) {
-      throw new TheoremError('User payload must not be copied into system instructions');
-    }
     camel.systemInstruction = req.system;
   }
   const tools = wireInteractionsTools(req);

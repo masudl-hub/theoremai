@@ -12,6 +12,7 @@ import type {
   TurnHistoryMessage,
 } from '../../src/kernel/types.ts';
 import { geminiModels } from '../fixtures/models.ts';
+import { replyText } from '../fixtures/reply.ts';
 
 async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
   const out: TurnEvent[] = [];
@@ -162,7 +163,7 @@ Deno.test('stages: post_tool inject after tools before next model step', async (
 
   const stages: string[] = [];
   let call = 0;
-  let secondInteractionInput: Record<string, unknown>[] | undefined;
+  let continuation: TurnHistoryMessage[] | undefined;
   const provider: ModelProvider = {
     complete: async function* (req: ProviderCompleteRequest) {
       call++;
@@ -174,7 +175,7 @@ Deno.test('stages: post_tool inject after tools before next model step', async (
         yield { type: 'done', interactionId: 'ix-1' };
         return;
       }
-      secondInteractionInput = req.interactionOnlyInput;
+      continuation = req.continuation;
       yield { type: 'text', text: 'after tools' };
       yield { type: 'done' };
     },
@@ -210,14 +211,12 @@ Deno.test('stages: post_tool inject after tools before next model step', async (
     stageNames(events),
   );
   assertEquals(call, 2);
+  assertEquals(replyText(events), 'after tools');
   assertEquals(
-    events.some((e) => e.type === 'text' && e.text === 'after tools'),
-    true,
+    continuation?.map((m) => m.role),
+    ['tool', 'user'],
   );
-  const wire = JSON.stringify(secondInteractionInput ?? []);
-  assertStringIncludes(wire, 'function_result');
-  assertStringIncludes(wire, 'also do this');
-  assertStringIncludes(wire, 'user_input');
+  assertEquals(continuation?.[1]?.content, 'also do this');
 });
 
 Deno.test('stages: before_end inject re-enters the model step under maxSteps', async () => {
@@ -276,10 +275,8 @@ Deno.test('stages: before_end inject re-enters the model step under maxSteps', a
 
   assertEquals(call, 2);
   assertEquals(beforeEndCount >= 2, true);
-  assertEquals(
-    events.some((e) => e.type === 'text' && e.text === 'second reply'),
-    true,
-  );
+  // Both steps reply: the re-entered step's text follows the first.
+  assertEquals(replyText(events), 'first replysecond reply');
 });
 
 Deno.test('stages: before_end inject cannot exceed maxSteps across re-entry', async () => {

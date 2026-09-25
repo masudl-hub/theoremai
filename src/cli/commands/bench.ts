@@ -15,7 +15,9 @@
 
 import { bindCanary, eventHasCanary, mintCanary } from '../../guardrails/canary.ts';
 import { sanitizeTurnRequest } from '../../guardrails/sanitize.ts';
+import { startCallUsage } from '../../kernel/engine/runner/usage.ts';
 import { runTurn } from '../../kernel/engine/runner.ts';
+import { startCallTrace } from '../../kernel/engine/turn-trace.ts';
 import { clearProfiles, registerProfile } from '../../kernel/registry/profiles.ts';
 import { resolveTurn } from '../../kernel/registry/resolve.ts';
 import { pickSystemRole } from '../../kernel/registry/system-role.ts';
@@ -25,7 +27,9 @@ import type {
   TurnEvent,
   TurnRequest,
 } from '../../kernel/types.ts';
+import { resolveObservabilityPolicy } from '../../observability/resolve-policy.ts';
 import { buildRecord } from '../../observability/trace-record.ts';
+import { startTrace } from '../../observability/trace-span.ts';
 
 export interface BenchOptions {
   chunks?: number;
@@ -101,6 +105,23 @@ function buildBenchRequest(): TurnRequest {
   };
 }
 
+/** What a bare consumer sends a provider: the bench prompt, no kernel shaping. */
+function benchProviderRequest(text: string): ProviderCompleteRequest {
+  return {
+    model: 'bench-model',
+    apiId: 'bench-model',
+    thinking: 'none',
+    summaries: undefined,
+    maxOutputTokens: 4096,
+    temperature: 0,
+    builtins: [],
+    system: '',
+    input: [{ type: 'text', text }],
+    structured: null,
+    image: null,
+  };
+}
+
 interface TimingResult {
   ttfe: number;
   ttft: number;
@@ -118,19 +139,7 @@ async function measureRawProvider(provider: ModelProvider): Promise<TimingResult
   let gotFirstText = false;
 
   // Simulate what a bare consumer does — no kernel overhead
-  const fakeReq: ProviderCompleteRequest = {
-    model: 'bench-model',
-    apiId: 'bench-model',
-    thinking: 'none',
-    summaries: undefined,
-    maxOutputTokens: 4096,
-    temperature: 0,
-    builtins: [],
-    system: '',
-    input: [{ type: 'text', text: req.input?.text ?? '' }],
-    structured: null,
-    image: null,
-  };
+  const fakeReq = benchProviderRequest(req.input?.text ?? '');
 
   for await (const event of provider.complete(fakeReq)) {
     if (!gotFirst) {
@@ -303,7 +312,7 @@ function measureSetupPhases(): PhaseTimings {
   const t2 = performance.now();
 
   pickSystemRole(profile, safe.input?.role);
-  const sys = profile.identity.system ?? '';
+  const sys = profile.type === 'speech' ? '' : (profile.identity.system ?? '');
   const t3 = performance.now();
 
   bindCanary(sys, generation.canary);
@@ -348,7 +357,9 @@ function printPhaseBreakdown(iterations: number): void {
 interface MicroResult {
   label: string;
   totalMs: number;
-  perEventNs: number;
+  /** What one measured unit is: a stream event, or a whole turn. */
+  per: 'event' | 'turn';
+  perUnitNs: number;
 }
 
 function microCanaryCheck(chunks: TurnEvent[], iterations: number): MicroResult {
@@ -364,7 +375,8 @@ function microCanaryCheck(chunks: TurnEvent[], iterations: number): MicroResult 
   return {
     label: 'eventHasCanary',
     totalMs: elapsed,
-    perEventNs: (elapsed / total) * 1e6,
+    per: 'event',
+    perUnitNs: (elapsed / total) * 1e6,
   };
 }
 
@@ -385,7 +397,8 @@ function microArrayPush(chunks: TurnEvent[], iterations: number): MicroResult {
   return {
     label: 'Array.push ×3',
     totalMs: elapsed,
-    perEventNs: (elapsed / total) * 1e6,
+    per: 'event',
+    perUnitNs: (elapsed / total) * 1e6,
   };
 }
 
@@ -417,7 +430,8 @@ async function microAsyncGenOverhead(
   return {
     label: 'AsyncGen ×4 layers',
     totalMs: elapsed,
-    perEventNs: (elapsed / total) * 1e6,
+    per: 'event',
+    perUnitNs: (elapsed / total) * 1e6,
   };
 }
 
@@ -435,26 +449,40 @@ function microAbortCheck(chunks: TurnEvent[], iterations: number): MicroResult {
   return {
     label: 'signal.aborted check',
     totalMs: elapsed,
-    perEventNs: (elapsed / total) * 1e6,
+    per: 'event',
+    perUnitNs: (elapsed / total) * 1e6,
   };
 }
 
+/** Record one model call over `chunks`, then build its trace record, as a turn does. */
 async function microTraceRecord(chunks: TurnEvent[], iterations: number): Promise<MicroResult> {
-  const req = buildBenchRequest();
+  const text = buildBenchRequest().input?.text ?? '';
+  const req = benchProviderRequest(text);
+  const policy = resolveObservabilityPolicy(undefined);
   const start = performance.now();
   for (let i = 0; i < iterations; i++) {
-    await buildRecord({
+    const tree = startTrace(`invoke_agent ${BENCH_PROFILE_ID}`);
+    const call = startCallTrace((name, options) => tree.root.child(name, options), {
       req,
-      events: chunks,
-      started: Date.now(),
-      model: 'bench-model',
+      usage: startCallUsage('', { history: [], input: req.input }),
+      binding: undefined,
+      transport: 'interactions',
+      step: 0,
+      attempt: 0,
     });
+    for (const chunk of chunks) {
+      call.observe(chunk);
+    }
+    call.end({ stop: { kind: 'completed' } });
+    tree.root.end();
+    await buildRecord({ spans: tree.collect(), policy });
   }
   const elapsed = performance.now() - start;
   return {
-    label: 'buildRecord (trace)',
+    label: 'record call + buildRecord (trace)',
     totalMs: elapsed,
-    perEventNs: (elapsed / iterations) * 1e6,
+    per: 'turn',
+    perUnitNs: (elapsed / iterations) * 1e6,
   };
 }
 
@@ -499,11 +527,11 @@ async function printMicroBenchmarks(chunks: TurnEvent[], iterations: number): Pr
   console.log('\nPer-Event Micro-Benchmarks');
   console.log('─'.repeat(72));
   for (const r of results) {
-    const perEvent =
-      r.label === 'buildRecord (trace)'
-        ? `${fmtMs(r.totalMs / Math.min(iterations, 20)).padStart(10)}/turn`
-        : `${fmtNs(r.perEventNs).padStart(8)}/event`;
-    console.log(`  ${r.label.padEnd(24)} ${perEvent}    (${fmtMs(r.totalMs)} total)`);
+    const perUnit =
+      r.per === 'turn'
+        ? `${fmtMs(r.perUnitNs / 1e6).padStart(10)}/turn`
+        : `${fmtNs(r.perUnitNs).padStart(8)}/event`;
+    console.log(`  ${r.label.padEnd(24)} ${perUnit}    (${fmtMs(r.totalMs)} total)`);
   }
 
   microSanitizeScaling();

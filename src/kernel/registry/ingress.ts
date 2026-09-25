@@ -8,47 +8,32 @@
 
 import { wrapUserData } from '../../guardrails/canary.ts';
 import { TheoremError } from '../../guardrails/error.ts';
+import { lexiconText } from '../../guardrails/lexicon.ts';
 import { synthesizeRepairPrompt } from '../engine/repair.ts';
 import { isSpeechFormatAllowedForProtocol } from '../schema.ts';
+import { CONTINUE_INSTRUCTION_TYPES } from '../stop.ts';
 import type {
   ImageResponseFormat,
   InteractionPart,
   MediaInputKind,
   ModelBinding,
-  ModelId,
-  ModelProfile,
   Profile,
   ProfileImageSpec,
   TurnBlob,
   TurnMediaRef,
   TurnRequest,
 } from '../types.ts';
-import { assertAttachmentLimits, isTurnMediaRef, requireMediaLimits } from './attachments.ts';
-import {
-  type MediaInputChannel,
-  mediaKindForMime,
-  mimeAllowed,
-  mimeEssence,
-  profileAccept,
-} from './catalog.ts';
-import { getStructured } from './schemas.ts';
+import { assertTurnAttachments, isTurnMediaRef } from './attachments.ts';
+import { mediaKindForMime, mimeEssence, profileInputs } from './catalog.ts';
 
 type PrimaryOutputMode = 'structured' | 'image' | 'speech';
-
-function usesStructuredResponseFormat(structuredId: string | null): boolean {
-  if (!structuredId) {
-    return false;
-  }
-  const spec = getStructured(structuredId);
-  return spec.enforced === 'responseFormat' && spec.jsonSchema != null;
-}
 
 function activePrimaryOutputModes(
   profile: Profile,
   structuredId: string | null,
 ): PrimaryOutputMode[] {
   const modes: PrimaryOutputMode[] = [];
-  if (usesStructuredResponseFormat(structuredId)) {
+  if (structuredId) {
     modes.push('structured');
   }
   if (profile.type === 'image') {
@@ -71,33 +56,34 @@ function assertOutputMode(profile: Profile, structuredId: string | null): void {
     return;
   }
   throw new TheoremError(
+    'config',
     `Profile ${profile.id} declares multiple output wire formats (${active.join(', ')}). ` + // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      `Only one of responseFormat JSON schema (outputs.structured with enforced ` + // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      `'responseFormat'), image, or speech may be active.`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      'Only one of a structured JSON schema (outputs.structured), image, or speech may be active.', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   );
 }
 
 function assertImagePins(profile: Profile): ProfileImageSpec {
   if (profile.type !== 'image') {
-    throw new TheoremError(`Profile ${profile.id} is not type 'image'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('request', `Profile ${profile.id} is not type 'image'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return profile.image;
 }
 
-function defaultBinding(profile: ModelProfile): ModelBinding | undefined {
-  const ids = Object.keys(profile.models);
-  const id = profile.defaultModel ?? (ids.length === 1 ? ids[0] : undefined);
-  return id ? profile.models[id] : undefined;
-}
-
-function assertSpeechRole(profile: Profile): void {
+/** Speech turns: the selected model's transport must take the format, and no system prompt rides along. */
+function assertSpeechRole(profile: Profile, binding: ModelBinding, req: TurnRequest): void {
   if (profile.type !== 'speech') {
     return;
   }
-  const format = profile.speech.format;
-  const binding = defaultBinding(profile);
-  if (format && binding && !isSpeechFormatAllowedForProtocol(binding.protocol, format)) {
+  if (req.system) {
     throw new TheoremError(
+      'config',
+      `Profile ${profile.id} (speech) takes no system prompt — the input text is the transcript`, // lexicon-exempt: developer contract error
+    );
+  }
+  const format = profile.speech.format;
+  if (format && !isSpeechFormatAllowedForProtocol(binding.protocol, format)) {
+    throw new TheoremError(
+      'config',
       `Profile ${profile.id}: speech.format '${format}' requires protocol 'openAi' ` + // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         `(geminiInteractions speech returns PCM and emits WAV)`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
@@ -121,48 +107,19 @@ function resolveImageFormat(profile: Profile): ImageResponseFormat | null {
 function assertMediaMime(mime: string): MediaInputKind {
   const kind = mediaKindForMime(mime);
   if (!kind) {
-    throw new TheoremError(`MIME '${mime}' is not a supported media input type`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('input', `MIME '${mime}' is not a supported media input type`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return kind;
 }
 
-function profileInputs(profile: Profile) {
-  if (
-    profile.type === 'speech' ||
-    profile.type === 'live' ||
-    profile.type === 'host' ||
-    profile.type === 'decision'
-  ) {
-    return undefined;
-  }
-  return profile.inputs;
-}
-
 /**
- * Normalize accepted attachments into provider parts. Inline blobs and
- * references share MIME acceptance and kind resolution; references carry the
+ * Normalize accepted attachments (`assertTurnAttachments` ran first) into
+ * provider parts. Inline blobs and references share kind resolution; references carry the
  * uri through untouched (no base64, no byte limits — the host owns the upload).
  */
-function mediaParts(
-  profile: Profile,
-  model: ModelId,
-  blobs: Array<TurnBlob | TurnMediaRef>,
-  channel: MediaInputChannel,
-): InteractionPart[] {
-  const accept = profileAccept(profile, channel);
-  if (!accept) {
-    throw new TheoremError(`Profile ${profile.id} does not accept ${channel}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  }
-  const maxInputImages = profile.type === 'image' ? profile.image.maxInputImages : undefined;
-  const imageCount = blobs.filter((blob) => mediaKindForMime(blob.mimeType) === 'image').length;
-  if (maxInputImages !== undefined && imageCount > maxInputImages) {
-    throw new TheoremError(`At most ${maxInputImages} reference images on ${model}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  }
+function mediaParts(blobs: Array<TurnBlob | TurnMediaRef>): InteractionPart[] {
   return blobs.map((blob) => {
     const kind = assertMediaMime(blob.mimeType);
-    if (!mimeAllowed(accept, blob.mimeType)) {
-      throw new TheoremError(`MIME '${blob.mimeType}' is not accepted on ${profile.id}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    }
     const essence = mimeEssence(blob.mimeType);
     const mimeType = essence === 'image/jpg' ? 'image/jpeg' : essence;
     if (isTurnMediaRef(blob)) {
@@ -175,66 +132,72 @@ function mediaParts(
 function extractTextPart(profile: Profile, req: TurnRequest): InteractionPart | null {
   const { text, repair, history } = req.input ?? {};
   if (profile.type === 'decision') {
-    throw new TheoremError(`Profile ${profile.id} (decision) does not accept turn input`); // lexicon-exempt: developer contract error
+    throw new TheoremError(
+      'request',
+      `Profile ${profile.id} (decision) does not accept turn input`, // lexicon-exempt: developer contract error
+    );
   }
-  if (profile.type === 'speech') {
-    if (!text?.trim()) {
-      throw new TheoremError(`Profile ${profile.id} (speech) requires text input`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    }
-    let promptText = text;
-    if (repair) {
-      promptText = synthesizeRepairPrompt({ profile, repair, history });
-    }
-    return { type: 'text', text: wrapUserData(promptText) };
+  if (profile.type === 'speech' && !text?.trim()) {
+    throw new TheoremError('request', `Profile ${profile.id} (speech) requires text input`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
-  const inputs = profileInputs(profile);
-  if (inputs?.text === false) {
-    if (text) {
-      throw new TheoremError(`Profile ${profile.id} does not accept text input`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    }
-    return null;
+  if (profileInputs(profile)?.text === false && text) {
+    throw new TheoremError('request', `Profile ${profile.id} does not accept text input`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
-  let promptText = text;
-  if (repair) {
-    promptText = synthesizeRepairPrompt({ profile, repair, history });
-  }
-  if (!promptText) {
-    return null;
-  }
-  return { type: 'text', text: wrapUserData(promptText) };
+  // A repair is the kernel's, not the user's: it replaces the text on a retry
+  // whether or not the profile takes text from the user.
+  const promptText = repair
+    ? synthesizeRepairPrompt({ profile, repair, history })
+    : (continueText(profile, req) ?? text);
+  return promptText ? { type: 'text', text: wrapUserData(promptText) } : null;
 }
 
-function extractMediaParts(profile: Profile, model: ModelId, req: TurnRequest): InteractionPart[] {
+/**
+ * A text `continueFrom` turn's user message is the continue instruction, so the
+ * model reads history → partial reply → "continue". Image and speech get none:
+ * their continue re-sends the host's request unchanged.
+ */
+function continueText(profile: Profile, req: TurnRequest): string | undefined {
+  if (!req.continueFrom || !CONTINUE_INSTRUCTION_TYPES.includes(profile.type)) {
+    return undefined;
+  }
+  if (req.input?.text) {
+    throw new TheoremError(
+      'request',
+      `Profile ${profile.id}: a continueFrom turn takes no input.text — its user message is the continue instruction`, // lexicon-exempt: developer contract error
+    );
+  }
+  return lexiconText('continue.instruction', {}, profile.lexicon);
+}
+
+function extractMediaParts(profile: Profile, req: TurnRequest): InteractionPart[] {
   if (profile.type === 'speech') {
     const { attachments, voice } = req.input ?? {};
     if ((attachments?.length ?? 0) + (voice?.length ?? 0) > 0) {
-      throw new TheoremError(`Profile ${profile.id} (speech) does not accept media input`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      throw new TheoremError('input', `Profile ${profile.id} (speech) does not accept media input`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
     return [];
   }
   const { attachments, voice } = req.input ?? {};
   const files = attachments ?? [];
   const clips = voice ?? [];
-  if (files.length + clips.length > 0) {
-    assertAttachmentLimits([...files, ...clips], requireMediaLimits(profile));
-  }
+  assertTurnAttachments(profile, files, clips);
   const parts: InteractionPart[] = [];
   if (files.length > 0) {
-    parts.push(...mediaParts(profile, model, files, 'attachments'));
+    parts.push(...mediaParts(files));
   }
   if (clips.length > 0) {
-    parts.push(...mediaParts(profile, model, clips, 'voice'));
+    parts.push(...mediaParts(clips));
   }
   return parts;
 }
 
-function resolveInputParts(profile: Profile, model: ModelId, req: TurnRequest): InteractionPart[] {
+function resolveInputParts(profile: Profile, req: TurnRequest): InteractionPart[] {
   const parts: InteractionPart[] = [];
   const textPart = extractTextPart(profile, req);
   if (textPart) {
     parts.push(textPart);
   }
-  parts.push(...extractMediaParts(profile, model, req));
+  parts.push(...extractMediaParts(profile, req));
   return parts;
 }
 

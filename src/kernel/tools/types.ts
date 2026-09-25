@@ -8,8 +8,10 @@
  */
 
 import type { z } from 'zod';
+import type { ResolveHost } from '../../guardrails/network.ts';
+import type { ErrorKind } from '../../guardrails/theorem-error.ts';
 import type { GuardrailHit, Provenance, TurnTaint } from '../../guardrails/types.ts';
-import type { ToolCredential } from '../auth/types.ts';
+import type { OAuthEndpoints, ToolCredential } from '../auth/types.ts';
 import type {
   AuthUnauthenticatedPolicy,
   HttpMethod,
@@ -19,7 +21,7 @@ import type {
   ToolLoadTier,
   ToolPermission,
 } from '../schema.ts';
-import type { InteractionPart, Profile, ToolId, TurnInput } from '../types.ts';
+import type { InteractionPart, Profile, ToolId, TurnInput, TurnTraceLink } from '../types.ts';
 
 export type {
   AuthUnauthenticatedPolicy,
@@ -93,13 +95,24 @@ export interface ToolContext {
   turn?: { step: number; taint?: TurnTaint };
   resume?: InvokeToolResume;
   credentials?: Record<string, ToolCredential>;
+  /** The host's name resolver for remote tools and their OAuth refreshes. */
+  resolveHost?: ResolveHost;
   /** Opaque application context from `TurnRequest.host` / `InvokeToolRequest.host`; the kernel never reads it. */
   host?: unknown;
+  /** W3C `traceparent` of this call's `execute_tool` span; parent a tool's own outbound spans on it. */
+  traceparent?: string;
 }
 
+/** A tool step that did not produce a result. */
 export interface ToolFailure {
+  /** What went wrong, for the builder. Stable per failure site; a host `post_tool` deny sets its own. */
   code: string;
+  /** What kind of failure it is; the user's wording (`error.<kind>`) follows from it. */
+  kind: ErrorKind;
+  /** What the model reads in the tool result. */
   message: string;
+  /** User-safe wording, added where the event reaches the host. Never sent to the model. */
+  error?: string;
   details?: unknown;
 }
 
@@ -204,13 +217,8 @@ export interface HttpToolAuthConfig {
   headerName?: string; // defaults to 'Authorization'
   headerPrefix?: string; // defaults to 'Bearer '
   onUnauthenticated?: AuthUnauthenticatedPolicy; // defaults to 'pause'
-  /** Pre-resolved AS/resource metadata to bypass network discovery */
-  preResolved?: {
-    issuer?: string;
-    authorizationEndpoint?: string;
-    tokenEndpoint?: string;
-    resource?: string;
-  };
+  /** Pre-resolved AS endpoints and the resource, named on the auth gate for the host's flow */
+  preResolved?: Partial<OAuthEndpoints & { resource: string }>;
   scopes?: string[];
   clientId?: string;
   redirectUri?: string;
@@ -328,10 +336,20 @@ export interface InvokeToolRequest {
   sessionPermissions?: string[];
   /** Host credentials for authenticated HTTP / MCP tools keyed by auth slot. */
   credentials?: Record<string, ToolCredential>;
+  /** Resolver for remote tool host names (see `TurnRequest.resolveHost`). */
+  resolveHost?: ResolveHost;
   path?: string;
   signal?: AbortSignal;
   /** Opaque application context handed to the tool as `ctx.host`; the kernel never reads it. */
   host?: unknown;
+  /** W3C `traceparent` of the host span this invoke runs under (see `TurnRequest.traceparent`). */
+  traceparent?: string;
+  /** Host conversation id, recorded as `gen_ai.conversation.id`. */
+  conversationId?: string;
+  /** Host-owned metadata preserved on this invoke's trace record; the kernel does not interpret it. */
+  metadata?: Record<string, unknown>;
+  /** Earlier turns this invoke follows from, e.g. the paused turn it resumes. */
+  links?: TurnTraceLink[];
   /**
    * Optional stage handler for this invoke — `pre_tool` / `post_tool` only
    * (`docs/contracts/stages.md`).
@@ -392,6 +410,8 @@ export type ToolBodyOutcome =
       failure: ToolFailure;
       /** True when the body never ran. */
       callNotStarted: boolean;
+      /** The host refused the call (`deny`), rather than it failing. */
+      denied?: true;
     };
 
 export interface ModelToolResult {

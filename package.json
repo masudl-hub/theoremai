@@ -1,6 +1,6 @@
 {
   "name": "@theoremai/agents",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "A flat TypeScript agent kernel for typed profiles, deterministic turn execution, registered tools, provider adapters, guardrails, and host-injected traces.",
   "license": "MIT",
   "repository": {
@@ -30,6 +30,7 @@
     "./guardrails": "./src/guardrails/mod.ts",
     "./guardrails/testing": "./src/guardrails/testing.ts",
     "./observability": "./src/observability/mod.ts",
+    "./observability/openinference": "./src/observability/openinference.ts",
     "./host": "./src/host/mod.ts",
     "./cli": "./src/cli/index.ts",
     "./presets": "./src/presets/mod.ts",
@@ -57,6 +58,7 @@
     "build:npm": "deno run --allow-read --allow-write --allow-env --allow-net --allow-run=npm scripts/build-npm.ts",
     "test": "deno test --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run --ignore=npm/ tests/",
     "coverage": "rm -rf coverage && deno test --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run --ignore=npm/ --coverage=coverage tests/ && deno coverage coverage --lcov --output=coverage/lcov.info && node scripts/lcov-to-istanbul.mjs",
+    "check:react": "npm --prefix react ci && npm --prefix react run typecheck && npm --prefix react run theme:check",
     "lint:biome": "biome check --error-on-warnings .",
     "lint:ast-grep": "ast-grep scan",
     "lint:fallow": "npm run coverage && fallow audit --base \"${FALLOW_AUDIT_BASE:-origin/main}\" --coverage coverage/coverage-final.json",
@@ -67,12 +69,13 @@
     "hooks:install": "node ./scripts/hooks/install.mjs",
     "prepare": "node ./scripts/hooks/install.mjs",
     "lint": "npm run lint:docs && deno lint && npm run lint:biome && npm run lint:ast-grep && npm run lint:fallow",
-    "check:ci": "npm run lint:docs && deno lint && npm run lint:biome && npm run lint:ast-grep && npm run lint:fallow && deno check mod.ts && deno task verify:publish && deno task test"
+    "check:ci": "npm run lint:docs && deno lint && npm run lint:biome && npm run lint:ast-grep && deno task verify:publish && npm run lint:fallow && deno check mod.ts tests/fixtures/probes/ scripts/*.ts && npm run check:react && deno task test"
   },
   "devDependencies": {
     "@ast-grep/cli": "^0.41.0",
     "@biomejs/biome": "^2.5.8",
     "@stryker-mutator/core": "^10.0.0",
-    "fallow": "3.17.0"
+    "fallow": "3.17.0",
+    "intl-messageformat": "^11.2.9"
   }
 }

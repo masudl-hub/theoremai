@@ -10,479 +10,286 @@
  */
 
 import { isAbortError, TheoremError, toErrorEvent } from '../../../guardrails/error.ts';
-import {
-  codeExecutionEvidence,
-  codeExecutionStepKey,
-  eventsFromComplete,
-  eventsFromDelta,
-  extractTokenEvent,
-  googleBuiltinEvidence,
-  groundingFromEvent,
-  isCodeExecutionType,
-  isGoogleBuiltinStepType,
-  mergeCodeExecutionPayload,
-  parseStructuredOutput,
-} from '../../../kernel/engine/delta.ts';
 import { asRecord } from '../../../kernel/engine/record.ts';
-import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../../kernel/types.ts';
-import { base64ToBytes, bytesToBase64, wrapPcmAsWav } from '../../shared/pcm.ts';
+import type {
+  ModelProvider,
+  ProviderCompleteRequest,
+  TurnEvent,
+  TurnResponse,
+} from '../../../kernel/types.ts';
+import { pcmMediaAsWav } from '../../shared/pcm.ts';
+import { foldResponse } from '../../shared/response-identity.ts';
 import { readSseChunks } from '../../shared/sse.ts';
-import { type ParsedToolArguments, parseToolArgumentsObject } from '../../shared/tool-args.ts';
-import { tapFetch } from '../../shared/upstream-tap.ts';
+import { structuredEvent } from '../../shared/structured-output.ts';
+import { parseToolArgumentsObject } from '../../shared/tool-args.ts';
+import { readGeminiApiError, readNonOkError } from '../api-error.ts';
+import { groundingFromDelta } from '../grounding.ts';
 import { fetchGemini, type GeminiTransport } from '../keys.ts';
 import { INTERACTIONS_JSON_URL, INTERACTIONS_URL } from '../urls.ts';
 import { toInteractionsBody } from './framing.ts';
+import {
+  codeExecutionEvidence,
+  eventsFromDelta,
+  eventsFromInteractionEnd,
+  eventsFromModelOutputStep,
+  eventsFromThoughtStep,
+  interactionResponse,
+  isCodeExecutionType,
+  isGoogleBuiltinStepType,
+  rawStepEvidence,
+} from './steps.ts';
 
 const HTTP_OK = 200;
 
-export interface PendingFunctionCall {
-  id?: string;
-  name?: string;
-  arguments: string;
-}
+/*
+ * One step, two deliveries (probes 23/09/2026, gemini-3.8-flash and
+ * gemini-3.1-pro-preview):
+ *
+ * - Buffered (`stream: false`): the body's `steps[]` hold every step whole.
+ * - Stream: `step.start` (index, step with `id` / `call_id` / `name` and an
+ *   empty `signature`), then `step.delta` rows, then `step.stop` (index only).
+ *   Text, thought summaries and media stream as their own deltas. A
+ *   `function_call` starts with `arguments: {}` and streams the JSON string in
+ *   `arguments_delta` rows; `code_execution_*` and builtin steps send their
+ *   `arguments` / `result` / `is_error` / `signature` whole, in one delta.
+ *
+ * Streamed steps are merged per index and converted at `step.stop` by the same
+ * `eventsFromStep` the buffered body uses, so both modes emit each step once
+ * and whole. A step still open when the stream ends was never finished by the
+ * provider: it is emitted as `evidence` marked `partial` with what arrived, and
+ * a partial `function_call` never becomes a tool call.
+ */
 
 export interface StreamFold {
+  /** Model text so far, for structured output. */
   text: string;
-  functionCalls: Map<number, PendingFunctionCall>;
-  emittedToolKeys: Set<string>;
-  emittedEvidenceKeys: Set<string>;
-  codeSteps: Map<number, Record<string, unknown>>;
-  sawStreamedMedia: boolean;
-}
-
-export function isRawPcmMime(mime: string): boolean {
-  const lower = mime.toLowerCase();
-  return (
-    lower.startsWith('audio/pcm') || lower.startsWith('audio/raw') || lower.startsWith('audio/l16')
-  );
-}
-
-export function normalizeSpeechMedia(event: TurnEvent, speech: boolean): TurnEvent {
-  if (!speech || event.type !== 'media' || !event.media) {
-    return event;
-  }
-  const { media } = event;
-  if (!isRawPcmMime(media.mimeType)) {
-    return event;
-  }
-  const pcm = base64ToBytes(media.data);
-  const wav = wrapPcmAsWav(pcm, 24000);
-  return {
-    type: 'media',
-    media: { mimeType: 'audio/wav', data: bytesToBase64(wav) },
-  };
+  /** Open `function_call`, `code_execution_*` and builtin steps by `index`. */
+  steps: Map<number, Record<string, unknown>>;
+  sawMedia: boolean;
+  /** A `done` came out: the interaction reported a status. */
+  sawDone: boolean;
+  /** Identity named so far: `interaction.created` names it before any output, so a cut call still has it. */
+  response?: TurnResponse;
 }
 
 export function newStreamFold(): StreamFold {
-  return {
-    text: '',
-    functionCalls: new Map(),
-    emittedToolKeys: new Set(),
-    emittedEvidenceKeys: new Set(),
-    codeSteps: new Map(),
-    sawStreamedMedia: false,
-  };
+  return { text: '', steps: new Map(), sawMedia: false, sawDone: false };
 }
 
-export function eventType(payload: Record<string, unknown>): string {
-  return String(payload.event_type ?? payload.type ?? '');
+function isMergedStepType(type: string): boolean {
+  return type === 'function_call' || isCodeExecutionType(type) || isGoogleBuiltinStepType(type);
 }
 
-export function isDeltaEvent(type: string): boolean {
-  return type === 'content.delta' || type === 'step.delta';
-}
-
-export function isCompleteEvent(type: string): boolean {
-  return type === 'interaction.complete' || type === 'interaction.completed';
-}
-
-export function* yieldGrounding(event: Record<string, unknown>): Generator<TurnEvent> {
-  const g = groundingFromEvent(event);
-  if (g) {
-    yield g;
+/** Emit a tool call, or a structured tool failure when the name or arguments are unusable. */
+export function emitToolCallFromRawArguments(
+  tool: { id?: string; name: string },
+  rawArguments: unknown,
+): TurnEvent[] {
+  const name = tool.name.trim();
+  if (!name) {
+    return [
+      {
+        type: 'tool',
+        tool: {
+          id: tool.id,
+          name: '',
+          arguments: {},
+          phase: 'error',
+          failure: {
+            code: 'malformed_arguments',
+            kind: 'bad_response',
+            message: 'function call is missing a name',
+            details: { raw: rawArguments },
+          },
+        },
+      },
+    ];
   }
-}
-
-export function* yieldTokens(event: Record<string, unknown>): Generator<TurnEvent> {
-  const tokens = extractTokenEvent(event);
-  if (tokens) {
-    yield tokens;
+  const parsed = parseToolArgumentsObject(rawArguments);
+  if (!parsed.ok) {
+    return [
+      {
+        type: 'tool',
+        tool: {
+          id: tool.id,
+          name,
+          arguments: {},
+          phase: 'error',
+          failure: {
+            code: 'malformed_arguments',
+            kind: 'bad_response',
+            message: parsed.error,
+            details: { raw: parsed.raw },
+          },
+        },
+      },
+    ];
   }
+  return [{ type: 'tool', tool: { id: tool.id, name, arguments: parsed.value } }];
 }
 
-export function functionCallKey(tool: {
-  name?: string;
-  id?: string;
-  arguments?: Record<string, unknown>;
-}): string {
-  return `${tool.name ?? ''}:${tool.id ?? ''}:${JSON.stringify(tool.arguments ?? {})}`;
-}
-
-export function* yieldEvidenceStep(
-  step: Record<string, unknown>,
-  emittedKeys: Set<string>,
-): Generator<TurnEvent> {
-  const event = googleBuiltinEvidence(step);
-  const ev = event.evidence;
-  if (!ev) return;
-  const kind = String(ev.kind ?? ev.raw?.type ?? '');
-  const id =
-    (typeof ev.callId === 'string' && ev.callId) ||
-    (typeof ev.id === 'string' && ev.id) ||
-    (typeof ev.raw?.call_id === 'string' && ev.raw.call_id) ||
-    (typeof ev.raw?.id === 'string' && ev.raw.id) ||
-    '';
-  const hasResult = ev.raw?.result !== undefined;
-  // Stub maps/search starts often arrive before `result`; allow a second emit once result lands.
-  const key = `${kind}:${id}:${hasResult ? 'result' : 'stub'}:${ev.code ?? ''}`;
-  if (emittedKeys.has(key)) return;
-  // Prefer the result-bearing emit: drop the stub key so hosts don't keep an empty payload.
-  if (hasResult) {
-    emittedKeys.delete(`${kind}:${id}:stub:`);
-  }
-  emittedKeys.add(key);
-  yield event;
-}
-
-function recordCodeStep(
-  index: number,
-  delta: Record<string, unknown>,
-  steps: Map<number, Record<string, unknown>>,
-): void {
-  const existing = steps.get(index);
-  if (!existing) {
-    steps.set(index, delta);
-    return;
-  }
-  mergeCodeExecutionPayload(existing, delta);
-}
-
-export function isCompleteCodeStep(step: Record<string, unknown>): boolean {
-  return step.arguments !== undefined || step.result !== undefined;
-}
-
-function* flushCompletedCodeSteps(
-  steps: Map<number, Record<string, unknown>>,
-  emittedKeys: Set<string>,
-): Generator<TurnEvent> {
-  for (const [index, step] of steps) {
-    if (!isCompleteCodeStep(step)) {
-      continue;
-    }
-    const key = codeExecutionStepKey(step);
-    if (!key || emittedKeys.has(key)) {
-      continue;
-    }
-    const event = codeExecutionEvidence(step);
-    if (event) {
-      emittedKeys.add(key);
-      steps.delete(index);
-      yield event;
-    }
-  }
-}
-
-export function foldStepStart(payload: Record<string, unknown>, fold: StreamFold): TurnEvent[] {
-  const step = asRecord(payload.step);
-  if (!step) return [];
+/** One whole step — a buffered `steps[]` entry, or a streamed step merged up to `step.stop`. */
+export function eventsFromStep(step: Record<string, unknown>): TurnEvent[] {
   const type = String(step.type ?? '');
-  const index = typeof payload.index === 'number' ? payload.index : 0;
   if (type === 'function_call') {
-    // Always buffer until step.stop. Gemini often sends arguments: {} on start, then
-    // streams the real JSON via arguments_delta — early emit would run with empty args
-    // and leave a nameless pending for the deltas.
-    const existing = fold.functionCalls.get(index);
-    let argumentsStr = existing?.arguments ?? '';
-    if (typeof step.arguments === 'string') {
-      argumentsStr = step.arguments;
-    } else if (step.arguments !== undefined && typeof step.arguments === 'object') {
-      argumentsStr = JSON.stringify(step.arguments);
-    }
-    fold.functionCalls.set(index, {
-      id: typeof step.id === 'string' ? step.id : existing?.id,
-      name: typeof step.name === 'string' ? step.name : existing?.name,
-      arguments: argumentsStr,
-    });
-    return [];
+    const id = typeof step.id === 'string' ? step.id : undefined;
+    const name = typeof step.name === 'string' ? step.name : '';
+    return emitToolCallFromRawArguments({ id, name }, step.arguments);
   }
   if (isCodeExecutionType(type)) {
-    recordCodeStep(index, step, fold.codeSteps);
-    return Array.from(flushCompletedCodeSteps(fold.codeSteps, fold.emittedEvidenceKeys));
+    return [codeExecutionEvidence(step)];
   }
   if (isGoogleBuiltinStepType(type)) {
-    return Array.from(yieldEvidenceStep(step, fold.emittedEvidenceKeys));
+    return [rawStepEvidence(step)];
+  }
+  if (type === 'thought') {
+    return eventsFromThoughtStep(step);
+  }
+  if (type === 'model_output') {
+    return eventsFromModelOutputStep(step);
   }
   return [];
 }
 
-export type { ParsedToolArguments };
-
-export function parseArgumentsObject(raw: unknown): ParsedToolArguments {
-  return parseToolArgumentsObject(raw);
+function stepIndex(payload: Record<string, unknown>): number {
+  return typeof payload.index === 'number' ? payload.index : 0;
 }
 
-export function emitUniqueToolEvent(
-  tool: {
-    id?: string;
-    name: string;
-    arguments: Record<string, unknown>;
-    phase?: 'error';
-    failure?: { code: string; message: string; details?: unknown };
-  },
-  fold: StreamFold,
-): TurnEvent[] {
-  const key = functionCallKey(tool);
-  if (fold.emittedToolKeys.has(key)) return [];
-  fold.emittedToolKeys.add(key);
-  return [{ type: 'tool', tool }];
-}
-
-/** Emit a tool call, or a structured tool failure when arguments cannot be parsed. */
-export function emitToolCallFromRawArguments(
-  tool: { id?: string; name: string },
-  rawArguments: unknown,
-  fold: StreamFold,
-): TurnEvent[] {
-  const name = tool.name.trim();
-  if (!name) {
-    return emitUniqueToolEvent(
-      {
-        id: tool.id,
-        name: '',
-        arguments: {},
-        phase: 'error',
-        failure: {
-          code: 'malformed_arguments',
-          message: 'function call is missing a name',
-          details: { rawArguments },
-        },
-      },
-      fold,
-    );
+function foldStepStart(payload: Record<string, unknown>, fold: StreamFold): void {
+  const step = asRecord(payload.step);
+  if (step && isMergedStepType(String(step.type ?? ''))) {
+    fold.steps.set(stepIndex(payload), { ...step });
   }
-  const parsed = parseArgumentsObject(rawArguments);
-  if (!parsed.ok) {
-    return emitUniqueToolEvent(
-      {
-        id: tool.id,
-        name,
-        arguments: {},
-        phase: 'error',
-        failure: {
-          code: 'malformed_arguments',
-          message: parsed.error,
-          details: { raw: parsed.raw },
-        },
-      },
-      fold,
-    );
-  }
-  return emitUniqueToolEvent({ id: tool.id, name, arguments: parsed.value }, fold);
 }
 
-export function foldArgumentsDelta(
-  delta: Record<string, unknown>,
-  index: number,
-  fold: StreamFold,
-): void {
-  const existing = fold.functionCalls.get(index) ?? { arguments: '' };
-  const chunk = typeof delta.arguments === 'string' ? delta.arguments : '';
-  if (!chunk) {
-    fold.functionCalls.set(index, existing);
-    return;
-  }
-  // Replace empty / `{}` placeholder from step.start so streamed JSON is not concatenated onto it.
-  if (existing.arguments === '' || existing.arguments === '{}') {
-    existing.arguments = chunk;
-  } else {
-    existing.arguments += chunk;
-  }
-  fold.functionCalls.set(index, existing);
-}
-
-export function foldFunctionCallDelta(
-  delta: Record<string, unknown>,
-  fold: StreamFold,
-): TurnEvent[] {
-  const id = typeof delta.id === 'string' ? delta.id : undefined;
-  const name = typeof delta.name === 'string' ? delta.name : '';
-  return emitToolCallFromRawArguments({ id, name }, delta.arguments, fold);
-}
-
-export function foldDeltaPayload(payload: Record<string, unknown>, fold: StreamFold): TurnEvent[] {
+function foldStepDelta(payload: Record<string, unknown>, fold: StreamFold): TurnEvent[] {
   const delta = asRecord(payload.delta);
   if (!delta) {
     return [];
   }
-  const stepType = String(delta.type ?? '');
-  const index = typeof payload.index === 'number' ? payload.index : 0;
-  if (stepType === 'arguments_delta' || stepType === 'arguments') {
-    foldArgumentsDelta(delta, index, fold);
+  const open = fold.steps.get(stepIndex(payload));
+  if (!open) {
+    return eventsFromDelta(delta);
+  }
+  if (delta.type === 'arguments_delta') {
+    // Replaces the `arguments: {}` placeholder from `step.start` with the streamed JSON string.
+    const sofar = typeof open.arguments === 'string' ? open.arguments : '';
+    open.arguments = sofar + (typeof delta.arguments === 'string' ? delta.arguments : '');
     return [];
   }
-  if (stepType === 'function_call') {
-    return foldFunctionCallDelta(delta, fold);
-  }
-  if (isCodeExecutionType(stepType)) {
-    recordCodeStep(index, delta, fold.codeSteps);
-    return Array.from(flushCompletedCodeSteps(fold.codeSteps, fold.emittedEvidenceKeys));
-  }
-  if (isGoogleBuiltinStepType(stepType)) {
-    return Array.from(yieldEvidenceStep(delta, fold.emittedEvidenceKeys));
-  }
-  const events: TurnEvent[] = [];
-  for (const ev of eventsFromDelta(delta)) {
-    if (ev.type === 'text' && ev.text) {
-      fold.text += ev.text;
-    }
-    events.push(ev);
-  }
-  return events;
-}
-
-export function readData(part: Record<string, unknown>): string | undefined {
-  const data = part.data;
-  if (typeof data === 'string' && data.length > 0) return data;
-  return undefined;
-}
-
-export function readMime(part: Record<string, unknown>): string | undefined {
-  const mime = part.mime_type ?? part.mimeType;
-  if (typeof mime === 'string' && mime.length > 0) return mime;
-  return undefined;
-}
-
-export function* yieldMediaChunk(part: Record<string, unknown>): Generator<TurnEvent> {
-  const data = readData(part);
-  if (!data) return;
-  const mime = readMime(part) ?? 'application/octet-stream';
-  if (isRawPcmMime(mime)) {
-    const wav = wrapPcmAsWav(base64ToBytes(data), 24000);
-    yield {
-      type: 'media',
-      media: { mimeType: 'audio/wav', data: bytesToBase64(wav) },
-    };
-    return;
-  }
-  yield { type: 'media', media: { mimeType: mime, data } };
-}
-
-export function* scanMediaParts(content: unknown): Generator<TurnEvent> {
-  if (!Array.isArray(content)) return;
-  for (const item of content) {
-    if (!item || typeof item !== 'object') continue;
-    const part = item as Record<string, unknown>;
-    const type = typeof part.type === 'string' ? part.type : '';
-    if (type === 'image' || type === 'audio' || type === 'media' || type === 'video') {
-      yield* yieldMediaChunk(part);
-    }
-  }
-}
-
-export function emitPendingFunctionCall(index: number, fold: StreamFold): TurnEvent[] {
-  const pending = fold.functionCalls.get(index);
-  if (!pending) return [];
-  fold.functionCalls.delete(index);
-  return emitToolCallFromRawArguments(
-    { id: pending.id, name: pending.name ?? '' },
-    pending.arguments || {},
-    fold,
-  );
-}
-
-export function foldStepStop(payload: Record<string, unknown>, fold: StreamFold): TurnEvent[] {
-  const index = typeof payload.index === 'number' ? payload.index : 0;
-  const fromFunctionCall = emitPendingFunctionCall(index, fold);
-  if (fromFunctionCall.length > 0) {
-    return fromFunctionCall;
-  }
-  const step = asRecord(payload.step);
-  if (!step) return [];
-  const stepType = String(step.type ?? '');
-  if (isGoogleBuiltinStepType(stepType)) {
-    return Array.from(yieldEvidenceStep(step, fold.emittedEvidenceKeys));
-  }
-  if (isCodeExecutionType(stepType)) {
-    return [codeExecutionEvidence(step)];
-  }
+  Object.assign(open, delta);
   return [];
 }
 
-export function foldInteractionSteps(
-  interaction: Record<string, unknown>,
-  fold: StreamFold,
-): TurnEvent[] {
-  const events: TurnEvent[] = [];
-  const steps = interaction.steps;
-  if (!Array.isArray(steps)) return events;
-
-  for (const s of steps) {
-    const step = asRecord(s);
-    if (!step) continue;
-    const stepType = String(step.type ?? '');
-    if (stepType === 'function_call') {
-      const id = typeof step.id === 'string' ? step.id : undefined;
-      const name = typeof step.name === 'string' ? step.name : '';
-      events.push(...emitToolCallFromRawArguments({ id, name }, step.arguments, fold));
-    }
+function foldStepStop(payload: Record<string, unknown>, fold: StreamFold): TurnEvent[] {
+  const index = stepIndex(payload);
+  const step = fold.steps.get(index);
+  if (!step) {
+    return [];
   }
+  fold.steps.delete(index);
+  return eventsFromStep(step);
+}
+
+/** A step the stream opened and never stopped, as `partial` evidence. */
+function partialStepEvidence(step: Record<string, unknown>): TurnEvent {
+  const event = isCodeExecutionType(String(step.type ?? ''))
+    ? codeExecutionEvidence(step)
+    : rawStepEvidence(step);
+  return event.evidence ? { ...event, evidence: { ...event.evidence, partial: true } } : event;
+}
+
+/** Every step still open, as `partial` evidence; the fold holds none afterwards. */
+export function openStepEvents(fold: StreamFold): TurnEvent[] {
+  const events = [...fold.steps.values()].map(partialStepEvidence);
+  fold.steps.clear();
   return events;
 }
 
-export function foldCompleteEvents(
-  payload: Record<string, unknown>,
-  fold: StreamFold,
-): TurnEvent[] {
-  const events: TurnEvent[] = [];
-  const fromComp = eventsFromComplete(payload, fold.text.length > 0);
-  for (const ev of fromComp) {
-    if (ev.type === 'evidence' && ev.evidence?.raw) {
-      const key = codeExecutionStepKey(ev.evidence.raw);
-      if (fold.emittedEvidenceKeys.has(key)) continue;
-      fold.emittedEvidenceKeys.add(key);
+/**
+ * Record what the caller receives: text for structured output, and media —
+ * raw PCM wrapped as WAV at the format its mime states.
+ */
+function delivered(events: TurnEvent[], fold: StreamFold): TurnEvent[] {
+  return events.map((ev) => {
+    if (ev.type === 'done') {
+      fold.sawDone = true;
     }
-    if (ev.type === 'media') {
-      fold.sawStreamedMedia = true;
+    if (ev.type === 'text' && ev.text) {
+      fold.text += ev.text;
     }
-    events.push(ev);
-  }
-  return events;
+    if (ev.type !== 'media' || !ev.media) {
+      return ev;
+    }
+    fold.sawMedia = true;
+    return { ...ev, media: pcmMediaAsWav(ev.media) };
+  });
 }
 
-export function foldPayload(payload: Record<string, unknown>, fold: StreamFold): TurnEvent[] {
-  const apiError = readApiErrorMessage(payload);
+function eventsFromStreamRow(payload: Record<string, unknown>, fold: StreamFold): TurnEvent[] {
+  if (payload.eventType === 'sse_unparsed') {
+    // Every observed Interactions row is a JSON object; anything else is a wire change.
+    return [
+      toErrorEvent(
+        new TheoremError('bad_response', 'Interactions stream row was not a JSON object'),
+      ),
+    ];
+  }
+  const apiError = readGeminiApiError(payload);
   if (apiError) {
-    return [toErrorEvent(new TheoremError(apiError))];
+    return [toErrorEvent(apiError)];
   }
-  const events: TurnEvent[] = [];
-  for (const ev of yieldGrounding(payload)) events.push(ev);
-
-  const type = eventType(payload);
-  if (!isCompleteEvent(type)) {
-    for (const ev of yieldTokens(payload)) events.push(ev);
-  }
-
-  if (type === 'step.start') {
-    events.push(...foldStepStart(payload, fold));
-    return events;
-  }
-  if (type === 'step.stop') {
-    events.push(...foldStepStop(payload, fold));
-    return events;
-  }
-  if (isDeltaEvent(type)) {
-    events.push(...foldDeltaPayload(payload, fold));
-    return events;
-  }
-  if (type === 'interaction.status_update' || isCompleteEvent(type)) {
-    const interaction = asRecord(payload.interaction) ?? payload;
-    events.push(...foldInteractionSteps(interaction, fold));
-    if (isCompleteEvent(type)) {
-      events.push(...foldCompleteEvents(payload, fold));
+  const grounding = groundingFromDelta(payload);
+  const events: TurnEvent[] = grounding ? [grounding] : [];
+  switch (payload.event_type) {
+    case 'step.start':
+      foldStepStart(payload, fold);
+      break;
+    case 'step.delta':
+      events.push(...foldStepDelta(payload, fold));
+      break;
+    case 'step.stop':
+      events.push(...foldStepStop(payload, fold));
+      break;
+    case 'interaction.created': {
+      const interaction = asRecord(payload.interaction);
+      if (interaction) events.push(...identityEvents(interaction, fold));
+      break;
     }
-    return events;
+    case 'interaction.completed': {
+      const interaction = asRecord(payload.interaction);
+      if (interaction) {
+        events.push(...identityEvents(interaction, fold), ...eventsFromInteractionEnd(interaction));
+      }
+      break;
+    }
   }
   return events;
+}
+
+/** The `response` event when this interaction names more of its identity than the fold knew. */
+function identityEvents(interaction: Record<string, unknown>, fold: StreamFold): TurnEvent[] {
+  const identity = foldResponse(fold.response, interactionResponse(interaction));
+  fold.response = identity.known;
+  return identity.event ? [identity.event] : [];
+}
+
+/** Fold one SSE row into the events it completes. */
+export function foldPayload(payload: Record<string, unknown>, fold: StreamFold): TurnEvent[] {
+  return delivered(eventsFromStreamRow(payload, fold), fold);
+}
+
+/** Every event of a buffered (`stream: false`) interaction body. */
+export function foldBody(body: Record<string, unknown>, fold: StreamFold): TurnEvent[] {
+  const steps = Array.isArray(body.steps) ? body.steps : [];
+  const fromSteps = steps.flatMap((value) => {
+    const step = asRecord(value);
+    return step ? eventsFromStep(step) : [];
+  });
+  return delivered(
+    [...identityEvents(body, fold), ...fromSteps, ...eventsFromInteractionEnd(body)],
+    fold,
+  );
 }
 
 export function* finalizeStructured(
@@ -492,24 +299,7 @@ export function* finalizeStructured(
   if (!req.structured || !fold.text) {
     return;
   }
-  const parsed = parseStructuredOutput(fold.text);
-  if (!parsed.ok) {
-    yield toErrorEvent(new TheoremError(parsed.error));
-    return;
-  }
-  yield { type: 'structured', structured: parsed.structured };
-}
-
-export function* scanInteractionsMedia(json: Record<string, unknown>): Generator<TurnEvent> {
-  const steps = json.steps;
-  if (!Array.isArray(steps)) {
-    return;
-  }
-  for (const step of steps) {
-    if (!step || typeof step !== 'object') continue;
-    const content = (step as Record<string, unknown>).content;
-    yield* scanMediaParts(content);
-  }
+  yield structuredEvent(fold.text);
 }
 
 export function isVoiceProfile(req: ProviderCompleteRequest): boolean {
@@ -522,12 +312,14 @@ export function shouldReportMissingSpeechAudio(
 ): boolean {
   // Any speech-role completion without real audio is a failure — including
   // empty turns (no text and no media). Never invent PCM from text.
-  return isVoiceProfile(req) && !fold.sawStreamedMedia;
+  return isVoiceProfile(req) && !fold.sawMedia;
 }
 
 /** Speech-role turns must receive real audio; never invent PCM from text bytes. */
 export function* missingSpeechAudioError(): Generator<TurnEvent> {
-  yield toErrorEvent(new TheoremError('speech audio was not returned by the model'));
+  yield toErrorEvent(
+    new TheoremError('bad_response', 'speech audio was not returned by the model'),
+  );
 }
 
 async function* parseInteractionsSse(
@@ -535,158 +327,80 @@ async function* parseInteractionsSse(
   req: ProviderCompleteRequest,
 ): AsyncGenerator<TurnEvent> {
   if (!response.body) {
-    yield toErrorEvent('empty response body');
+    yield toErrorEvent(new TheoremError('bad_response', 'empty response body'));
     return;
   }
   const fold = newStreamFold();
-  const speech = Boolean(req.speech);
-  let hasError = false;
   for await (const row of readSseChunks(response.body)) {
     req.tapUpstream?.(row);
     if (row.eventType === 'sse_done') {
       break;
     }
     const events = foldPayload(row, fold);
-    for (const ev of events) {
-      if (ev.type === 'media') {
-        fold.sawStreamedMedia = true;
-      }
-      if (ev.type === 'error') {
-        hasError = true;
-      }
-      yield normalizeSpeechMedia(ev, speech);
-    }
-    if (hasError) {
+    yield* events;
+    if (events.some((ev) => ev.type === 'error')) {
+      yield* openStepEvents(fold);
       return;
     }
   }
-  if (hasError) {
-    return;
-  }
-  yield* flushCompletedCodeSteps(fold.codeSteps, fold.emittedEvidenceKeys);
+  yield* openStepEvents(fold);
   yield* finalizeStructured(req, fold);
   if (shouldReportMissingSpeechAudio(req, fold)) {
     yield* missingSpeechAudioError();
   }
-}
-
-export function readApiErrorMessage(record: Record<string, unknown>): string | null {
-  const error = record.error;
-  if (!error) {
-    if (
-      record.sseEvent === 'error' ||
-      record.eventType === 'error' ||
-      record.event_type === 'error' ||
-      record.type === 'error'
-    ) {
-      const msg = typeof record.message === 'string' ? record.message : null;
-      return msg || 'Gemini returned an error.';
-    }
-    return null;
-  }
-  if (typeof error === 'string' && error.length > 0) {
-    return error;
-  }
-  if (typeof error !== 'object') return null;
-  const errorRecord = error as { message?: unknown; status?: unknown; code?: unknown };
-  if (typeof errorRecord.message === 'string' && errorRecord.message.length > 0) {
-    const status = typeof errorRecord.status === 'string' ? errorRecord.status : null;
-    return status ? `${status}: ${errorRecord.message}` : errorRecord.message;
-  }
-  return 'Gemini returned an error.';
-}
-
-export async function readNonOkErrorMessage(response: Response): Promise<string> {
-  try {
-    const text = await response.text();
-    if (!text.trim()) return `HTTP ${response.status}`;
-    try {
-      const parsed = JSON.parse(text) as unknown;
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        const msg = readApiErrorMessage(parsed as Record<string, unknown>);
-        if (msg) return msg;
-      }
-    } catch {
-      // JSON parse failed; return raw body below.
-    }
-    return `Gemini HTTP ${response.status}: ${text}`;
-  } catch {
-    return `HTTP ${response.status}`;
+  if (!fold.sawDone) {
+    // The stream ended before the interaction reported a status: it did not complete.
+    yield { type: 'done', stop: { kind: 'stream_incomplete' } };
   }
 }
 
-function prepareInteractionsFetch(req: ProviderCompleteRequest): {
-  slot: NonNullable<ProviderCompleteRequest['keySlot']>;
-  init: RequestInit;
-} {
+/** POST the request to `url`; a non-2xx status throws with the provider's message. */
+async function postInteractions(
+  url: string,
+  req: ProviderCompleteRequest,
+  transport: GeminiTransport,
+): Promise<Response> {
   if (!req.keySlot) {
-    throw new TheoremError('Request requires keySlot');
+    throw new TheoremError('config', 'Request requires keySlot');
   }
-  const body = JSON.stringify(toInteractionsBody(req));
-  return {
-    slot: req.keySlot,
-    init: {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body,
-      signal: req.signal,
-    },
+  const init: RequestInit = {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(toInteractionsBody(req)),
+    signal: req.signal,
   };
+  const response = await fetchGemini(url, init, req.keySlot, transport, req.tapUpstream);
+  if (response.status !== HTTP_OK) {
+    throw await readNonOkError(response);
+  }
+  return response;
 }
 
 async function* fetchInteractionsOnce(
   req: ProviderCompleteRequest,
   transport: GeminiTransport,
 ): AsyncGenerator<TurnEvent> {
-  const { slot, init } = prepareInteractionsFetch(req);
-  const response = await fetchGemini(INTERACTIONS_JSON_URL, init, slot, transport);
-  if (response.status !== HTTP_OK) {
-    const reason = await readNonOkErrorMessage(response);
-    throw new TheoremError(reason);
-  }
+  const response = await postInteractions(INTERACTIONS_JSON_URL, req, transport);
   const text = await response.text();
   const parsed = JSON.parse(text) as Record<string, unknown>;
-  const apiError = readApiErrorMessage(parsed);
+  const apiError = readGeminiApiError(parsed);
   if (apiError) {
-    throw new TheoremError(apiError);
+    throw apiError;
   }
   req.tapUpstream?.(parsed);
-  yield* yieldGrounding(parsed);
-  yield* yieldTokens(parsed);
   const fold = newStreamFold();
-  for (const ev of scanInteractionsMedia(parsed)) {
-    fold.sawStreamedMedia = true;
-    yield ev;
-  }
-  for (const ev of eventsFromComplete(parsed, fold.text.length > 0)) {
-    if (ev.type === 'text' && ev.text) fold.text += ev.text;
-    yield ev;
-  }
+  yield* foldBody(parsed, fold);
   yield* finalizeStructured(req, fold);
   if (shouldReportMissingSpeechAudio(req, fold)) {
     yield* missingSpeechAudioError();
   }
 }
 
-export function withTap(req: ProviderCompleteRequest, transport: GeminiTransport): GeminiTransport {
-  if (!req.tapUpstream) {
-    return transport;
-  }
-  const fetchFn = tapFetch(req.tapUpstream, transport.fetch ?? fetch);
-  return { ...transport, fetch: fetchFn };
-}
-
 async function* streamInteractions(
   req: ProviderCompleteRequest,
   transport: GeminiTransport,
 ): AsyncGenerator<TurnEvent> {
-  const { slot, init } = prepareInteractionsFetch(req);
-  const customTransport = withTap(req, transport);
-  const response = await fetchGemini(INTERACTIONS_URL, init, slot, customTransport);
-  if (response.status !== HTTP_OK) {
-    const reason = await readNonOkErrorMessage(response);
-    throw new TheoremError(reason);
-  }
+  const response = await postInteractions(INTERACTIONS_URL, req, transport);
   yield* parseInteractionsSse(response, req);
 }
 

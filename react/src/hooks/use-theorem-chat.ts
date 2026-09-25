@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import {
 	branchInterfaceTurnSession,
 	type ComposerPendingMessage,
@@ -7,12 +7,13 @@ import {
 	consumeNextComposerQueue,
 	convertSteersToFrontQueued,
 	defaultInterfaceEffort,
-	defaultInterfaceModel,
 	orderComposerPendingMessages,
 	promoteComposerPendingKind,
 	type InterfaceTurnSession,
 	type TranscriptBlock,
 } from '../../../src/interface/mod.ts';
+import type { TurnFailure } from '../client/failure';
+import { followGenerationDefaults } from '../client/generation-selection';
 import { applyTurnResultToTranscript } from '../client/index';
 import type { TheoremTransport } from '../client/transport';
 import { type RunTurnStream, useTheoremChatActions } from './use-theorem-chat-actions';
@@ -31,32 +32,27 @@ type TurnOk = {
 	assistantBlocks: TranscriptBlock[];
 };
 
-type TurnFail = {
-	ok: false;
-	error: string;
-	errorInternal?: string;
-	issues?: string[];
-	aborted?: boolean;
-};
-
-/** Seed the session with the profile's default model / effort once the interface loads. */
+/**
+ * Seed the session with the profile's default model / effort once the interface loads, and keep
+ * it valid as the interface changes: a pick still on the old defaults follows the new ones, and a
+ * pick the profile no longer has falls back to them (see `followGenerationDefaults`).
+ */
 function useDefaultGeneration(
 	iface: ComposerProfileInterface | null,
 	session: InterfaceTurnSession,
 	setSession: SetSession,
 ): void {
+	const previous = useRef<ComposerProfileInterface | undefined>(undefined);
 	useEffect(() => {
 		if (!iface) return;
-		const model = session.selectedModel ?? defaultInterfaceModel(iface);
-		if (!model) return;
-		const effort = defaultInterfaceEffort(iface, model);
-		if (!session.selectedModel || (effort && !session.selectedEffort)) {
-			setSession((prev) => ({
-				...prev,
-				selectedModel: prev.selectedModel ?? model,
-				...(effort ? { selectedEffort: prev.selectedEffort ?? effort } : {}),
-			}));
-		}
+		const next = followGenerationDefaults(
+			iface,
+			{ model: session.selectedModel, effort: session.selectedEffort },
+			previous.current,
+		);
+		previous.current = iface;
+		if (next.model === session.selectedModel && next.effort === session.selectedEffort) return;
+		setSession((prev) => ({ ...prev, selectedModel: next.model, selectedEffort: next.effort }));
 	}, [session.selectedEffort, session.selectedModel, setSession, iface]);
 }
 
@@ -79,12 +75,11 @@ function useRunTurnStream(iface: ComposerProfileInterface | null, state: ChatSta
 
 	return useCallback(
 		async (
-			run: (onStream: (partial: TranscriptBlock[]) => void) => Promise<TurnOk | TurnFail>,
+			run: (onStream: (partial: TranscriptBlock[]) => void) => Promise<TurnOk | TurnFailure>,
 			options: { userBlocksAlreadyApplied?: boolean } = {},
 		) => {
 			if (!iface || state.busyRef.current) return;
-			state.setError('');
-			state.setErrorInternal('');
+			state.setFailure(null);
 			state.busyRef.current = true;
 			state.setBusy(true);
 			// A new turn goes live with its user message (onUserBlocks), so the
@@ -108,8 +103,8 @@ function useRunTurnStream(iface: ComposerProfileInterface | null, state: ChatSta
 
 				if (!result.ok) {
 					if (!result.aborted) {
-						state.setError(result.error);
-						state.setErrorInternal(result.errorInternal ?? '');
+						const { error, errorKind, errorInternal } = result;
+						state.setFailure({ error, errorKind, ...(errorInternal ? { errorInternal } : {}) });
 						if (result.issues) state.setIssues(result.issues);
 					}
 					state.setStreamBlocks([]);
@@ -221,9 +216,9 @@ export function useTheoremChat({ transport, iface }: UseTheoremChatOptions) {
 			state.busyRef.current = false;
 			state.setBusy(false);
 			state.setChatStarted(kept.length > 0);
-			state.setSession((prevSession) => branchInterfaceTurnSession(prevSession, kept));
+			state.setSession((prevSession) => branchInterfaceTurnSession(prevSession, kept, iface?.lexicon));
 		},
-		[state],
+		[iface, state],
 	);
 
 	const handlePendingQueue = useCallback(
@@ -243,8 +238,7 @@ export function useTheoremChat({ transport, iface }: UseTheoremChatOptions) {
 		blocks: state.blocks,
 		chatStarted: state.chatStarted,
 		draftText: state.draftText,
-		error: state.error,
-		errorInternal: state.errorInternal,
+		failure: state.failure,
 		issues: state.issues,
 		pendingFiles: state.pendingFiles,
 		pendingMessages: state.pendingMessages,
@@ -258,7 +252,7 @@ export function useTheoremChat({ transport, iface }: UseTheoremChatOptions) {
 		setPendingVoice: state.setPendingVoice,
 		setPendingMessages: state.setPendingMessages,
 		setIssues: state.setIssues,
-		handleAuthCredential: actions.handleAuthCredential,
+		handleAuthenticated: actions.handleAuthenticated,
 		handleBranch,
 		handleSubmit: actions.handleSubmit,
 		handleStop: actions.handleStop,

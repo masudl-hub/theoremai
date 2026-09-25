@@ -10,23 +10,24 @@
  */
 
 import type { TraceSink } from './trace-sink.ts';
+import type { TraceAttributes } from './trace-span.ts';
 
 /** Which payloads land in each TraceRecord. Omitted keys use resolved defaults. */
 export interface TraceIncludeSpec {
-  /** Scrubbed provider HTTP/SSE rows. Default: true. */
+  /** Scrubbed provider rows and frames (`theorem.upstream.row` events). Default: true. */
   upstreamLog?: boolean;
-  /** Scrubbed outbound request body. Default: false. */
+  /** Scrubbed outbound request bodies (`theorem.wire.request` events). Default: false. */
   outboundWire?: boolean;
-  /** Verbatim provider step JSON (`events[].evidence.raw`). Default: false. */
+  /** The provider's raw grounding payload (`raw` on `theorem.grounding` events). Default: false. */
   evidenceRaw?: boolean;
-  /** Token / usage fields. Default: true. */
+  /** Usage attributes (`gen_ai.usage.*`, `theorem.usage.*`). Default: true. */
   usage?: boolean;
   /**
-   * Persist `{ type: 'guardrail' }` decisions into the TraceRecord. Default: true.
+   * Guardrail decisions (`theorem.guardrail` events). Default: true.
    */
   guardrailDecisions?: boolean;
   /**
-   * Keep `GuardrailHit.match` (exact matched substring, capped) on guardrail
+   * Keep `GuardrailHit.match` (the exact matched text, whole) on guardrail
    * events in the live stream and TraceRecord. Default: false — debugging only;
    * treat like server logs when enabled.
    */
@@ -65,8 +66,9 @@ export interface ProfileObservabilitySpec {
   writeTo?: false | string | TraceSink;
 
   /**
-   * Fraction of turns to record, 0–1 inclusive.
-   * Omitted → 1 (every turn). `0` means record none.
+   * Fraction of traces to record, 0–1 inclusive. Decided by trace id, so every
+   * record of one trace is kept or dropped together.
+   * Omitted → 1 (every trace). `0` means record none.
    */
   sampleRate?: number;
 
@@ -74,12 +76,23 @@ export interface ProfileObservabilitySpec {
   include?: TraceIncludeSpec;
 
   /**
+   * Process attributes stamped on every record this profile writes
+   * (`TraceRecord.resource`), e.g. `{ 'service.name': 'harbor-support' }`.
+   * Omitted → `{}`.
+   */
+  resource?: TraceAttributes;
+
+  /**
    * Scrubbing of stored records — independent of turn-path guardrails.
    * Defaults stay on even when `guardrails.redactSensitive` is false.
    */
   scrub?: TraceScrubSpec;
 
-  /** JSONL retention days when the resolved destination is JSONL. Default: 14. */
+  /**
+   * Days to keep each record, handed to every destination with the record
+   * (`TraceWriteContext`): the JSONL writer prunes by it, a host store computes
+   * its own expiry from it. `<= 0` keeps records forever. Default: 14.
+   */
   retainForDays?: number;
 
   /** JSONL rotate threshold in MiB when the resolved destination is JSONL. Default: 32. */
@@ -114,12 +127,13 @@ export interface ResolvedTraceScrub {
  * Every path resolves through `resolveObservabilityPolicy`.
  */
 export interface ResolvedObservabilityPolicy {
-  /** False when omitted, `writeTo: false`, or sampleRate drops the turn. */
+  /** False when the block is omitted or `writeTo` is `false`/absent. Sampling applies per trace at write time. */
   record: boolean;
   writeTo: false | string | TraceSink | undefined;
   sampleRate: number;
   include: ResolvedTraceInclude;
   scrub: ResolvedTraceScrub;
+  resource: TraceAttributes;
   retainForDays: number;
   rotateAfterMiB: number;
   onWriteError?: (err: unknown) => void;

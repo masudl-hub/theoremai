@@ -21,10 +21,10 @@ import {
 import { validateToolInputSchema } from '../../src/kernel/tools/schema.ts';
 import type { ToolContext, ToolLoadContext } from '../../src/kernel/tools/types.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
-import { memorySink } from '../../src/observability/trace.ts';
 import type { TraceRecord } from '../../src/observability/trace-record.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 import { invokeRegisteredTool } from '../fixtures/test-tools.ts';
+import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
 
 async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
   const out: TurnEvent[] = [];
@@ -188,6 +188,7 @@ Deno.test('path-mismatched allowed tool returns not_gated not not_loaded', async
   const toolEv = events.findLast((e) => e.tool?.name === 'web_only_tool');
   assertEquals(toolEv?.tool?.phase, 'error');
   assertEquals(toolEv?.tool?.failure?.code, 'not_gated');
+  assertEquals(toolEv?.tool?.failure?.kind, 'request');
 });
 
 Deno.test('provider tool call for unregistered name yields unknown_tool', async () => {
@@ -217,6 +218,7 @@ Deno.test('provider tool call for unregistered name yields unknown_tool', async 
   const toolEv = events.findLast((e) => e.tool?.name === 'summon_dragon');
   assertEquals(toolEv?.tool?.phase, 'error');
   assertEquals(toolEv?.tool?.failure?.code, 'unknown_tool');
+  assertEquals(toolEv?.tool?.failure?.kind, 'request');
 });
 
 Deno.test('preTool confirmation emits gate not error', async () => {
@@ -284,8 +286,11 @@ Deno.test('preTool deny settles modelResult + post_tool callNotStarted', async (
       injectAllowed: false,
     },
   });
-  let settlement: { callNotStarted?: boolean; failure?: { code: string }; modelResult?: unknown } =
-    {};
+  let settlement: {
+    callNotStarted?: boolean;
+    failure?: { code: string; kind: string };
+    modelResult?: unknown;
+  } = {};
   while (true) {
     const next = await exec.next();
     if (next.done) {
@@ -296,6 +301,7 @@ Deno.test('preTool deny settles modelResult + post_tool callNotStarted', async (
   }
   assertEquals(settlement.callNotStarted, true);
   assertEquals(settlement.failure?.code, 'not_authorized');
+  assertEquals(settlement.failure?.kind, 'blocked');
   assertEquals(Boolean(settlement.modelResult), true);
   const post = events.find((e) => e.type === 'stage' && e.stage === 'post_tool');
   assertEquals(post?.type === 'stage' ? post.callNotStarted : undefined, true);
@@ -454,10 +460,7 @@ Deno.test('exposeToModel false omits secret from provider tool result', async ()
     async *complete(req) {
       callCount++;
       if (callCount > 1) {
-        const step = req.interactionOnlyInput?.[0] as {
-          result?: Array<{ text?: string }>;
-        };
-        toolResultText = step?.result?.[0]?.text;
+        toolResultText = req.continuation?.[0]?.content;
         yield { type: 'text', text: 'done' };
         return;
       }
@@ -583,6 +586,7 @@ Deno.test('loader promote rejects non-T2 tool ids', () => {
   );
   const result = promoteLoadedTools(snapshot, ['stub_tool'], profile);
   assertEquals(result.failure?.code, 'invalid_output');
+  assertEquals(result.failure?.kind, 'bad_response');
   assertEquals(result.promoted, []);
 });
 
@@ -659,6 +663,7 @@ Deno.test('T1 not_loaded message cites t1Policy', async () => {
   const toolEv = events.findLast((e) => e.tool?.name === 't1_not_loaded_probe');
   assertEquals(toolEv?.tool?.phase, 'error');
   assertEquals(toolEv?.tool?.failure?.code, 'not_loaded');
+  assertEquals(toolEv?.tool?.failure?.kind, 'request');
   assertEquals(toolEv?.tool?.failure?.message?.includes('t1Policy'), true);
 });
 
@@ -684,6 +689,7 @@ Deno.test('invokeTool resume cannot bypass T2 not_loaded without promoted', asyn
   const toolEv = events.findLast((e) => e.tool?.name === 'record_lookup');
   assertEquals(toolEv?.tool?.phase, 'error');
   assertEquals(toolEv?.tool?.failure?.code, 'not_loaded');
+  assertEquals(toolEv?.tool?.failure?.kind, 'request');
 });
 
 Deno.test('invokeTool resume runs T2 when promoted ids are supplied', async () => {
@@ -768,6 +774,7 @@ Deno.test('empty resume object does not bypass T2 load checks', async () => {
   const toolEv = events.findLast((e) => e.tool?.name === 'record_lookup');
   assertEquals(toolEv?.tool?.phase, 'error');
   assertEquals(toolEv?.tool?.failure?.code, 'not_loaded');
+  assertEquals(toolEv?.tool?.failure?.kind, 'request');
 });
 
 Deno.test('loader output lists only ids actually promoted', async () => {
@@ -1307,7 +1314,7 @@ Deno.test('host never appears in TurnEvents, trace records, gates, gate input, o
     runTurn(
       { profile: 'host_sentinel_bot', input: { text: 'delete' }, host },
       provider,
-      memorySink(records),
+      catalogedSink(records),
     ),
   );
   const gate = events.find((e) => e.tool?.phase === 'gate')?.tool?.gate;
@@ -1530,6 +1537,7 @@ Deno.test('post_tool mutate that fails the output schema settles as invalid_outp
       ctx.stage === 'post_tool' ? { mutate: { output: { finding: 42 } } } : undefined,
   });
   assertEquals(settlement.failure?.code, 'invalid_output');
+  assertEquals(settlement.failure?.kind, 'bad_response');
   assertEquals(settlement.modelResult?.modelText?.includes('after mutate'), true);
   assertEquals(
     events.some((e) => e.type === 'tool' && e.tool?.phase === 'error'),
@@ -1550,6 +1558,7 @@ Deno.test('post_tool deny swaps a completed result for a failure the model sees'
   });
   assertEquals(settlement.failure, {
     code: 'policy_refused',
+    kind: 'blocked',
     message: 'result withheld by policy',
   });
   assertEquals(settlement.modelResult?.modelText?.includes('hunter2'), false);
@@ -1861,6 +1870,7 @@ Deno.test('pre_tool mutate: replaced input is re-parsed, failing input settles i
   assertEquals(good.outputRaw, { finding: 'n=2' });
   const bad = await run({ n: 'two' });
   assertEquals(bad.failure?.code, 'invalid_input');
+  assertEquals(bad.failure?.kind, 'bad_response');
   assertEquals(bad.callNotStarted, true);
 });
 
@@ -1916,3 +1926,5 @@ Deno.test('pre_tool: tool-local preTool is skipped on a granted resume but host 
   assertEquals(hostRan, 1);
   assertEquals(settlement.outputRaw, { finding: 'ran' });
 });
+
+catalogGate();

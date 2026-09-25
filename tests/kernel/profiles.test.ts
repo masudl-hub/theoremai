@@ -12,7 +12,12 @@ import {
   registerProfile,
   registerProfiles,
 } from '../../src/kernel/registry/profiles.ts';
-import { projectProfile, resolveTurn } from '../../src/kernel/registry/resolve.ts';
+import {
+  isModelProfile,
+  projectProfile,
+  requireModelProfile,
+  resolveTurn,
+} from '../../src/kernel/registry/resolve.ts';
 import { registerTool } from '../../src/kernel/tools/mod.ts';
 import { resolveTurnTools } from '../../src/kernel/tools/resolve.ts';
 import type { ModelProvider } from '../../src/kernel/types.ts';
@@ -76,6 +81,26 @@ Deno.test('defineProfile rejects observability.sampleRate outside 0–1', () => 
     Error,
     'sampleRate',
   );
+});
+
+Deno.test('defineProfile rejects a non-integer or negative egress count', () => {
+  for (const egress of [{ holdback: -1 }, { holdback: 1.5 }, { maxRetries: -2 }]) {
+    assertThrows(
+      () =>
+        defineProfile({
+          id: 'bad_egress',
+          type: 'text',
+          identity: { handle: 'bad_egress' },
+          models: modelBindings('gemini35FlashLite'),
+          key: 'slotA',
+          tools: { allow: [] },
+          inputs: { text: true },
+          guardrails: { egress: { enforce: () => ({ action: 'allow' }), ...egress } },
+        }),
+      TheoremError,
+      'must be a non-negative integer',
+    );
+  }
 });
 
 Deno.test('defineProfile rejects illegal protocol/provider pairs', () => {
@@ -243,7 +268,7 @@ Deno.test('defineProfile rejects inputs, outputs, and t2Loader on live profiles'
         } as never),
       ),
     Error,
-    "tools.t2Loader is not supported on type 'live'",
+    "type 'live' must not set tools.t2Loader",
   );
 
   assertThrows(
@@ -255,7 +280,7 @@ Deno.test('defineProfile rejects inputs, outputs, and t2Loader on live profiles'
         } as never),
       ),
     Error,
-    'tools.t1Policy is not supported on type',
+    "type 'live' must not set tools.t1Policy",
   );
 });
 
@@ -459,7 +484,7 @@ Deno.test('host profile rejects models, identity, inputs, outputs, turnBehaviour
         tools: { allow: ['load_tools'], t2Loader: 'load_tools' },
       } as Parameters<typeof registerProfile>[0]),
     Error,
-    "not supported on type 'host'",
+    "type 'host' must not set tools.t2Loader",
   );
   assertThrows(
     () => registerProfile({ ...base, tools: { allow: ['googleSearch'] } }),
@@ -494,6 +519,44 @@ Deno.test("resolveTurn, runTurn, runSession and projectProfile refuse a 'host' p
       ),
     TheoremError,
     "type 'host'",
+  );
+});
+
+Deno.test("isModelProfile and requireModelProfile refuse 'host' and 'decision' profiles", () => {
+  registerProfile({ type: 'host', id: 'model_gate_host', tools: { allow: [] } });
+  registerProfile(
+    defineProfile({
+      type: 'decision',
+      id: 'model_gate_decision',
+      identity: { handle: 'Decision' },
+      models: { jev: { apiId: 'jev-latest', timeoutMs: 1000 } },
+      inputs: { state: 'json', maxStateBytes: 1000 },
+      decision: { contract: 'test.v1' },
+    }),
+  );
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      id: 'model_gate_text',
+      identity: { handle: 'Text' },
+      ...geminiModels('gemini35FlashLite'),
+      tools: { allow: [] },
+      inputs: { text: true },
+    }),
+  );
+  assertEquals(isModelProfile(getProfile('model_gate_host')), false);
+  assertEquals(isModelProfile(getProfile('model_gate_decision')), false);
+  assertEquals(isModelProfile(getProfile('model_gate_text')), true);
+  assertEquals(requireModelProfile(getProfile('model_gate_text'), 'test').id, 'model_gate_text');
+  assertThrows(
+    () => requireModelProfile(getProfile('model_gate_host'), 'test'),
+    TheoremError,
+    "type 'host' never runs a model",
+  );
+  assertThrows(
+    () => requireModelProfile(getProfile('model_gate_decision'), 'test'),
+    TheoremError,
+    "type 'decision' runs through runDecision",
   );
 });
 
@@ -599,6 +662,47 @@ Deno.test('defineProfile accepts Interactions store/persist and rejects them on 
       }),
     Error,
     'store is only valid when protocol is',
+  );
+});
+
+Deno.test('defineProfile accepts server on local bindings and rejects it elsewhere', () => {
+  const localBinding = { protocol: 'openAi', provider: 'local', apiId: 'qwen3:8b' } as const;
+  const ok = defineProfile({
+    id: 'server_local_bot',
+    type: 'text',
+    identity: { handle: 'server_local_bot' },
+    models: { qwen: { ...localBinding, server: 'ollama' } },
+    tools: { allow: [] },
+    inputs: { text: true },
+  });
+  assertEquals(ok.models.qwen.server, 'ollama');
+
+  assertThrows(
+    () =>
+      defineProfile({
+        id: 'server_or_bot',
+        type: 'text',
+        identity: { handle: 'server_or_bot' },
+        models: { sonar: { ...HOST_BINDINGS.sonar, server: 'ollama' } },
+        tools: { allow: [] },
+        inputs: { text: true },
+      }),
+    Error,
+    "server is only valid when provider is 'local'",
+  );
+
+  assertThrows(
+    () =>
+      defineProfile({
+        id: 'server_blank_bot',
+        type: 'text',
+        identity: { handle: 'server_blank_bot' },
+        models: { qwen: { ...localBinding, server: '  ' } },
+        tools: { allow: [] },
+        inputs: { text: true },
+      }),
+    Error,
+    'server must be a non-empty string',
   );
 });
 

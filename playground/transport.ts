@@ -10,19 +10,30 @@
  * @module
  */
 
-import { defineProfile } from '../mod.ts';
+import { defineProfile, type TurnEvent } from '../mod.ts';
+import { createTraceFeed, type TraceFeed } from '../react/src/client/trace-feed.ts';
 import {
   type HttpOptions,
   postJson,
   postNdjson,
   type TheoremTransport,
+  type TurnEventSink,
 } from '../react/src/client/transport.ts';
 import { interfaceFromProfile, type ProfileInterface } from '../src/interface/mod.ts';
 import type { PlaygroundRunPayload } from './run-payload.ts';
+import type { PlaygroundTraceLine } from './traces.ts';
 
 /** Client-side interface for the draft profile carried by a run payload. */
 export function playgroundInterface(payload: PlaygroundRunPayload): ProfileInterface {
   return interfaceFromProfile(defineProfile(payload.profile));
+}
+
+/** A run stream's lines: turn events, then the trace records the run wrote. */
+function routeLines(onEvent: TurnEventSink, traces: TraceFeed) {
+  return (line: TurnEvent | PlaygroundTraceLine) => {
+    if (line.type === 'trace') traces.push(line.record);
+    else onEvent(line);
+  };
 }
 
 export function createPlaygroundTransport(
@@ -34,22 +45,26 @@ export function createPlaygroundTransport(
     customTools: payload.customTools,
     structured: payload.structured,
   };
+  const traces = createTraceFeed();
   return {
     describe: () => Promise.resolve(playgroundInterface(payload)),
     turn: ({ replay, ...body }, onEvent, signal) =>
-      postNdjson('/api/playground/turn', { ...compiled, ...replay, ...body }, onEvent, {
-        ...options,
-        signal,
-        failureLabel: 'Turn failed',
-      }),
-    invoke: ({ replay, credentials }, onEvent, signal) =>
-      postNdjson('/api/playground/invoke', { ...compiled, ...replay, credentials }, onEvent, {
-        ...options,
-        signal,
-        failureLabel: 'Invoke failed',
-      }),
+      postNdjson(
+        '/api/playground/turn',
+        { ...compiled, ...replay, ...body },
+        routeLines(onEvent, traces),
+        { ...options, signal },
+      ),
+    invoke: ({ replay, secret }, onEvent, signal) =>
+      postNdjson(
+        '/api/playground/invoke',
+        { ...compiled, ...replay, ...(secret === undefined ? {} : { secret }) },
+        routeLines(onEvent, traces),
+        { ...options, signal },
+      ),
     async steer(body) {
-      await postJson('/api/playground/turn/steer', body, { ...options, failureLabel: 'Steer failed' });
+      await postJson('/api/playground/turn/steer', body, options);
     },
+    traces,
   };
 }

@@ -11,6 +11,7 @@ import { TheoremError } from '../guardrails/error.ts';
 import { isJsonlTraceDestination, isTraceSink, requireTraceDestination } from './destinations.ts';
 import { resolveObservabilityPolicy } from './resolve-policy.ts';
 import { jsonlSink, noopSink } from './trace.ts';
+import type { TraceRecord } from './trace-record.ts';
 import type { TraceSink } from './trace-sink.ts';
 import type { ProfileObservabilitySpec, ResolvedObservabilityPolicy } from './types.ts';
 
@@ -19,12 +20,27 @@ function bindOnWriteError(sink: TraceSink, onWriteError?: (err: unknown) => void
     return sink;
   }
   return {
-    write: (record) => sink.write(record),
+    write: (record, context) => sink.write(record, context),
     onError: sink.onError ?? onWriteError,
   };
 }
 
-function withSampleRate(sink: TraceSink, sampleRate: number, random: () => number): TraceSink {
+/** Trace-id bits the sampling decision reads: the low 32 (8 hex digits). */
+const SAMPLE_HEX_DIGITS = 8;
+const SAMPLE_SPACE = 2 ** 32;
+
+/**
+ * Keep a record when its trace is sampled. The decision is a function of the
+ * trace id (OpenTelemetry `TraceIdRatioBased`), so every record of one trace
+ * (a turn, its specialists, a Live session's responses and tools, a host's
+ * cutout) is kept or dropped together, in any process.
+ */
+function traceSampled(record: TraceRecord, sampleRate: number): boolean {
+  const traceId = record.spans[0]?.traceId ?? '';
+  return Number.parseInt(traceId.slice(-SAMPLE_HEX_DIGITS), 16) / SAMPLE_SPACE < sampleRate;
+}
+
+function withSampleRate(sink: TraceSink, sampleRate: number): TraceSink {
   if (sampleRate >= 1) {
     return sink;
   }
@@ -32,9 +48,9 @@ function withSampleRate(sink: TraceSink, sampleRate: number, random: () => numbe
     return noopSink();
   }
   return {
-    write: async (record) => {
-      if (random() < sampleRate) {
-        await sink.write(record);
+    write: async (record, context) => {
+      if (traceSampled(record, sampleRate)) {
+        await sink.write(record, context);
       }
     },
     onError: sink.onError,
@@ -54,15 +70,12 @@ function sinkFromWriteTo(
   const destination = requireTraceDestination(writeTo);
   if (isJsonlTraceDestination(destination)) {
     return bindOnWriteError(
-      jsonlSink(destination.dir, {
-        retainForDays: policy.retainForDays,
-        rotateAfterMiB: policy.rotateAfterMiB,
-      }),
+      jsonlSink(destination.dir, { rotateAfterMiB: policy.rotateAfterMiB }),
       policy.onWriteError,
     );
   }
   if (!isTraceSink(destination)) {
-    throw new TheoremError(`Trace destination '${writeTo}' is not a usable writer`);
+    throw new TheoremError('config', `Trace destination '${writeTo}' is not a usable writer`);
   }
   return bindOnWriteError(destination, policy.onWriteError);
 }
@@ -77,8 +90,6 @@ function sinkFromWriteTo(
 function resolveTraceWriter(args: {
   override?: TraceSink;
   observability?: ProfileObservabilitySpec;
-  /** Injectable for deterministic sampleRate tests. */
-  random?: () => number;
 }): { sink: TraceSink; policy: ResolvedObservabilityPolicy } {
   const policy = resolveObservabilityPolicy(args.observability);
   if (args.override) {
@@ -92,11 +103,7 @@ function resolveTraceWriter(args: {
   }
   return {
     policy,
-    sink: withSampleRate(
-      sinkFromWriteTo(policy.writeTo, policy),
-      policy.sampleRate,
-      args.random ?? Math.random,
-    ),
+    sink: withSampleRate(sinkFromWriteTo(policy.writeTo, policy), policy.sampleRate),
   };
 }
 

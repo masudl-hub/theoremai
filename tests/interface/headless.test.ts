@@ -9,7 +9,6 @@ import {
   type ComposerProfileInterface,
   collectPromotedMediaFromToolOutput,
   defaultInterfaceEffort,
-  defaultInterfaceModel,
   effortSelectEnabled,
   emptyInterfaceTurnSession,
   foldConversationTurn,
@@ -22,6 +21,7 @@ import {
   interfaceFromProfile,
   interfaceModelOptions,
   modelSelectEnabled,
+  pickMediaRecorderMime,
   prepareUserTurn,
   promotedToolIdsFromEvents,
   resetBlockIds,
@@ -80,8 +80,8 @@ Deno.test('interfaceFromProfile maps identity, inputs, model, and outputs', () =
   const iface = composerIface(ATTACHMENT_PROFILE);
   assertEquals(iface.id, 'interface.text.attachments');
   assertEquals(iface.identity.handle, 'vision_bot');
+  if (iface.type !== 'text') throw new Error('expected text profile');
   assertEquals(iface.identity.system, 'You see images.');
-  assertEquals(iface.type, 'text');
   assertEquals(iface.inputs.text, true);
   assertEquals(iface.inputs.attachments?.accept, ['image/png', 'image/jpeg']);
   assertEquals(iface.inputs.attachments?.acceptAttr, 'image/png,image/jpeg');
@@ -194,7 +194,7 @@ Deno.test('interfaceFromProfile maps speech to text-only inputs', () => {
 
 Deno.test('inputsFromSpec mirrors interface inputs block', () => {
   const attachment = ATTACHMENT_PROFILE as TextProfile;
-  const inputs = inputsFromSpec('text', attachment.inputs);
+  const inputs = inputsFromSpec(attachment.inputs);
   assertEquals(inputs, composerIface(attachment).inputs);
 });
 
@@ -258,7 +258,7 @@ Deno.test('validateProfileInputs enforces maxFiles and byte caps', () => {
 
 Deno.test('validateProfileInputs requires limits when media is enabled', () => {
   const result = validateProfileInputs(
-    inputsFromSpec('text', {
+    inputsFromSpec({
       text: true,
       attachments: { accept: ['image/png'] },
     }),
@@ -497,7 +497,7 @@ Deno.test('foldTurnEvents maps structured, media, grounding, evidence, and error
       type: 'done',
       stop: { kind: 'completed' },
       interactionId: 'ix-1',
-      compaction: { needed: true, meter: 'input', tokens: 10, history: [] },
+      compaction: { needed: true, meter: 'input', tokens: 10, unknownMedia: 0, history: [] },
     },
   ]);
   assertEquals(
@@ -643,6 +643,7 @@ Deno.test('appendAssistantEventsToHistory folds text and completed tools', () =>
         },
       },
     ],
+    undefined,
   );
   assertEquals(history.length, 3);
   assertEquals(history[0]?.role, 'assistant');
@@ -651,11 +652,15 @@ Deno.test('appendAssistantEventsToHistory folds text and completed tools', () =>
 });
 
 Deno.test('appendToolDenialToHistory uses kernel failure formatting', () => {
-  const history = appendToolDenialToHistory([], {
-    name: 'delete_resource',
-    callId: 'c-del',
-    arguments: { id: '1' },
-  });
+  const history = appendToolDenialToHistory(
+    [],
+    {
+      name: 'delete_resource',
+      callId: 'c-del',
+      arguments: { id: '1' },
+    },
+    undefined,
+  );
   assertEquals(history[1]?.role, 'tool');
   assertEquals(history[1]?.content?.includes('denied'), true);
   assertEquals(history[1]?.content?.includes('Tool error'), true);
@@ -749,6 +754,7 @@ Deno.test('branchInterfaceTurnSession rebuilds history and clears interaction id
       { id: 'u1', kind: 'user-text', text: 'kept' },
       { id: 'a1', kind: 'text', text: 'reply' },
     ],
+    undefined,
   );
   assertEquals(session.previousInteractionId, undefined);
   assertEquals(session.history.length, 2);
@@ -768,6 +774,7 @@ Deno.test('effortSelectEnabled requires allowEffortSelect and two aliases', () =
         defaultEffort: 'fast',
       } satisfies ModelBinding,
     },
+    defaultModel: 'fast',
   };
   assertEquals(effortSelectEnabled(profile, 'fast'), true);
   assertEquals(
@@ -791,7 +798,7 @@ Deno.test('modelSelectEnabled requires allowModelSelect and two models', () => {
     }),
   );
   assertEquals(modelSelectEnabled(iface), true);
-  assertEquals(defaultInterfaceModel(iface), 'gemini35FlashLite');
+  assertEquals(iface.defaultModel, 'gemini35FlashLite');
   assertEquals(
     interfaceModelOptions(iface).map((option) => option.id),
     ['gemini35FlashLite', 'gemini31ProPreview'],
@@ -804,6 +811,7 @@ Deno.test('modelSelectEnabled requires allowModelSelect and two models', () => {
         fast: { ...HOST_BINDINGS.gemini35FlashLite, apiId: 'gemini-3.5-flash-lite' },
         smart: HOST_BINDINGS.gemini31ProPreview,
       },
+      defaultModel: 'fast',
     }),
     [
       { id: 'fast', label: 'gemini-3.5-flash-lite' },
@@ -817,6 +825,7 @@ Deno.test('modelSelectEnabled is false with a single model', () => {
     modelSelectEnabled({
       id: 'iface.model.single',
       models: { gemini35FlashLite: HOST_BINDINGS.gemini35FlashLite },
+      defaultModel: 'gemini35FlashLite',
       allowModelSelect: true,
     }),
     false,
@@ -825,6 +834,7 @@ Deno.test('modelSelectEnabled is false with a single model', () => {
     interfaceModelOptions({
       id: 'iface.model.single',
       models: { gemini35FlashLite: HOST_BINDINGS.gemini35FlashLite },
+      defaultModel: 'gemini35FlashLite',
       allowModelSelect: true,
     }),
     [],
@@ -832,10 +842,13 @@ Deno.test('modelSelectEnabled is false with a single model', () => {
 });
 
 Deno.test('historyFromTranscriptBlocks round-trips user and assistant text', () => {
-  const history = historyFromTranscriptBlocks([
-    { id: 'u1', kind: 'user-text', text: 'Hi' },
-    { id: 'a1', kind: 'text', text: 'Hey' },
-  ]);
+  const history = historyFromTranscriptBlocks(
+    [
+      { id: 'u1', kind: 'user-text', text: 'Hi' },
+      { id: 'a1', kind: 'text', text: 'Hey' },
+    ],
+    undefined,
+  );
   assertEquals(history, [
     { role: 'user', content: 'Hi' },
     { role: 'assistant', content: 'Hey' },
@@ -853,10 +866,11 @@ Deno.test('appendAssistantEventsToHistory records a failed tool call so no tool_
           id: 'c1',
           arguments: { q: 'x' },
           phase: 'error',
-          failure: { code: 'policy_refused', message: 'withheld by policy' },
+          failure: { code: 'policy_refused', kind: 'blocked', message: 'withheld by policy' },
         },
       },
     ],
+    undefined,
   );
   const assistant = history.find((m) => m.role === 'assistant');
   const tool = history.find((m) => m.role === 'tool');
@@ -868,23 +882,69 @@ Deno.test('appendAssistantEventsToHistory records a failed tool call so no tool_
 });
 
 Deno.test('historyFromTranscriptBlocks records a failed tool block as a paired result', () => {
-  const history = historyFromTranscriptBlocks([
-    {
-      id: 'tool-c9',
-      kind: 'tool',
-      tool: {
-        name: 'delete_resource',
-        callId: 'c9',
-        arguments: { id: '1' },
-        phase: 'error',
-        failure: { code: 'denied', message: 'not allowed' },
+  const history = historyFromTranscriptBlocks(
+    [
+      {
+        id: 'tool-c9',
+        kind: 'tool',
+        tool: {
+          name: 'delete_resource',
+          callId: 'c9',
+          arguments: { id: '1' },
+          phase: 'error',
+          failure: { code: 'denied', kind: 'declined', message: 'not allowed' },
+        },
       },
-    },
-  ]);
+    ],
+    undefined,
+  );
   assertEquals(
     history.some((m) => m.role === 'assistant' && (m.tool_calls?.length ?? 0) > 0),
     true,
   );
   const tool = history.find((m) => m.role === 'tool');
   assertEquals(tool?.content?.includes('not allowed'), true);
+});
+
+Deno.test('interfaceFromProfile carries only the client lexicon keys the profile overrides', () => {
+  const profile = defineProfile({
+    id: 'interface.text.lexicon',
+    type: 'text',
+    identity: { handle: 'worded' },
+    ...geminiModels('gemini35FlashLite'),
+    tools: { allow: [] },
+    inputs: { text: true },
+    lexicon: { 'error.timeout': 'Took too long.', 'taint.reason_tainted': 'Host only.' },
+  });
+  assertEquals(interfaceFromProfile(profile).lexicon, { 'error.timeout': 'Took too long.' });
+});
+
+function withMediaRecorder(supports: readonly string[] | undefined, run: () => void): void {
+  const scope = globalThis as { MediaRecorder?: unknown };
+  const had = 'MediaRecorder' in scope;
+  const previous = scope.MediaRecorder;
+  if (supports === undefined) delete scope.MediaRecorder;
+  else scope.MediaRecorder = { isTypeSupported: (mime: string) => supports.includes(mime) };
+  try {
+    run();
+  } finally {
+    if (had) scope.MediaRecorder = previous;
+    else delete scope.MediaRecorder;
+  }
+}
+
+Deno.test('pickMediaRecorderMime finds nothing where the browser cannot record', () => {
+  withMediaRecorder(undefined, () => {
+    assertEquals(pickMediaRecorderMime(), undefined);
+    assertEquals(pickMediaRecorderMime(['audio/webm']), undefined);
+  });
+});
+
+Deno.test('pickMediaRecorderMime picks the first accepted format the browser records', () => {
+  withMediaRecorder(['audio/mp4', 'audio/ogg'], () => {
+    assertEquals(pickMediaRecorderMime(), 'audio/mp4');
+    assertEquals(pickMediaRecorderMime(['audio/*']), 'audio/mp4');
+    assertEquals(pickMediaRecorderMime(['audio/ogg']), 'audio/ogg');
+    assertEquals(pickMediaRecorderMime(['audio/webm']), undefined);
+  });
 });

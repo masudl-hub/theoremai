@@ -1,4 +1,4 @@
-import { runEnforcer } from '../../../guardrails/egress.ts';
+import { runEnforcer, WITHHELD_REASON } from '../../../guardrails/egress.ts';
 import { TheoremError, throwIfAborted, toErrorEvent } from '../../../guardrails/error.ts';
 import { guardrailFromVerdict } from '../../../guardrails/events.ts';
 import { lexiconText } from '../../../guardrails/lexicon.ts';
@@ -9,8 +9,8 @@ import type {
   OutboundPayload,
   ProfileEgressSpec,
 } from '../../../guardrails/types.ts';
+import { resolveInputParts } from '../../registry/ingress.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
-import { resolveTurn } from '../../registry/resolve.ts';
 import { getStructured } from '../../registry/schemas.ts';
 import { injectWouldExceedMaxSteps } from '../../stages.ts';
 import type {
@@ -20,20 +20,24 @@ import type {
   ResolvedGeneration,
   TurnEvent,
   TurnRequest,
+  TurnStop,
 } from '../../types.ts';
 import { findLast } from '../../util/find-last.ts';
+import { guardrailAttributes } from '../turn-trace.ts';
 import { collectValidationFailures, formatValidationFailures } from './schema-validation.ts';
 import { applyTurnStage } from './stages.ts';
-import type { AttemptFlowState, StepExecutionState } from './state.ts';
+import { type AttemptFlowState, appendUserInput, type StepExecutionState } from './state.ts';
 import { executeAttempt } from './steps.ts';
+import { isWithheldOnBlock } from './stream.ts';
 
-/** Internal reason recorded when a turn is withheld; mapped to public copy on emit. */
-const WITHHELD = 'Turn withheld: egress disclosure violation'; // lexicon-exempt: internal marker mapped by publicError
+/** A turn whose final output the egress check blocked (withheld or replaced by policy copy). */
+const EGRESS_FILTERED_STOP: TurnStop = { kind: 'filtered', native: 'egress' };
 
+/** Reply text only: thoughts are not guarded output (`isGuardedOutput`). */
 function collectAttemptText(events: TurnEvent[]): string {
   const parts: string[] = [];
   for (const event of events) {
-    if ((event.type === 'text' || event.type === 'thought') && event.text) {
+    if (event.type === 'text' && event.text) {
       parts.push(event.text);
     }
   }
@@ -94,6 +98,7 @@ async function evaluateEgressOutcome(args: {
     stage: 'output_final',
     trust: 'untrusted',
     profileId: profile.id,
+    ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
     ...(generation.canary ? { canary: generation.canary } : {}),
     ...(request.input?.slots ? { slots: request.input.slots } : {}),
     ...(request.input?.role ? { role: request.input.role } : {}),
@@ -118,30 +123,25 @@ async function evaluateEgressOutcome(args: {
   }
 
   if (egress.onBlock === 'refuse_to_user') {
-    // Only emit a text turn when the policy supplied copy. Without it the kernel
-    // has nothing to say — an empty text event reads as a successful empty reply —
-    // so fall back to the same withheld error the exhausted-retry path uses.
-    return {
-      outcome: verdict.refusal
-        ? { action: 'refusal', event: { type: 'text', text: verdict.refusal } }
-        : { action: 'withhold', event: toErrorEvent(WITHHELD) },
-      guardrail,
-    };
+    const text = lexiconText('egress.refusal', {}, profile.lexicon);
+    return { outcome: { action: 'refusal', event: { type: 'text', text } }, guardrail };
   }
 
   if (canRetry) {
-    const repairGuidance = egress.repairGuidance || lexiconText('egress.default_repair_guidance');
     const nextRequest = buildRepairRequest(
       request,
       payload.text,
       verdict.rejection,
-      repairGuidance,
+      lexiconText('egress.default_repair_guidance', {}, profile.lexicon),
     );
     return { outcome: { action: 'retry', nextRequest }, guardrail };
   }
 
   return {
-    outcome: { action: 'withhold', event: toErrorEvent(WITHHELD) },
+    outcome: {
+      action: 'withhold',
+      event: toErrorEvent(new TheoremError('safety', WITHHELD_REASON.egress)),
+    },
     guardrail,
   };
 }
@@ -165,17 +165,12 @@ async function evaluateValidationOutcome(args: {
   const structuredId = generation.structured;
   if (!structuredId) {
     throw new TheoremError(
+      'config',
       'outputs.validation requires outputs.structured with a JSON Schema', // lexicon-exempt: developer contract error
     );
   }
-  const spec = getStructured(structuredId);
-  if (!spec.jsonSchema) {
-    throw new TheoremError(
-      `structured schema '${structuredId}' has no jsonSchema for validation`, // lexicon-exempt: developer contract error
-    );
-  }
   const failures = await collectValidationFailures(
-    spec.jsonSchema,
+    getStructured(structuredId).jsonSchema,
     latestStructured,
     validation.fields,
     request.input?.slots,
@@ -185,12 +180,7 @@ async function evaluateValidationOutcome(args: {
   }
   const error = formatValidationFailures(failures);
   if (canRetry) {
-    const nextRequest = buildRepairRequest(
-      request,
-      latestStructured,
-      error,
-      validation.repairGuidance,
-    );
+    const nextRequest = buildRepairRequest(request, latestStructured, error);
     return { action: 'retry', nextRequest };
   }
   return {
@@ -207,18 +197,41 @@ function* yieldBufferedAttemptEvents(
     if (ev.type === 'tokens') {
       continue;
     }
-    // When validation-only, thought/text already streamed live.
-    if (alreadyStreamedUserVisible && (ev.type === 'thought' || ev.type === 'text')) {
+    // Thoughts always streamed live; text and media did unless the attempt withheld them.
+    if (ev.type === 'thought' || (alreadyStreamedUserVisible && isWithheldOnBlock(ev))) {
       continue;
     }
     yield ev;
   }
 }
 
-function updateFlowForRetry(flow: AttemptFlowState, nextReq: TurnRequest): void {
+/**
+ * Start the next attempt with the repair added. The turn is not resolved again:
+ * the retry keeps attempt 1's canary, tools and system prompt, and only the
+ * repair prompt is new.
+ */
+function updateFlowForRetry(
+  flow: AttemptFlowState,
+  state: StepExecutionState,
+  profile: Profile,
+  nextReq: TurnRequest,
+  reason: 'egress' | 'validation',
+): void {
   flow.currentAttempt++;
+  state.trace.attempt = flow.currentAttempt;
+  state.trace.root.event('theorem.attempt.retry', { attempt: flow.currentAttempt, reason });
   flow.currentReq = nextReq;
-  flow.currentGen = resolveTurn(sanitizeTurnRequest(nextReq)).generation;
+  const safe = sanitizeTurnRequest(nextReq);
+  if (profile.type === 'text') {
+    // The conversation is already in turn history: the repair is its next user message.
+    appendUserInput(
+      state,
+      resolveInputParts(profile, { ...safe, input: { repair: safe.input?.repair } }),
+    );
+    return;
+  }
+  // An image or speech call reads only its input: the repair replaces the prompt.
+  flow.currentGen = { ...flow.currentGen, input: resolveInputParts(profile, safe) };
 }
 
 async function* handleEgressGate(
@@ -239,21 +252,26 @@ async function* handleEgressGate(
   });
 
   if (guardrail) {
+    if (guardrail.guardrail) {
+      state.trace.root.event('theorem.guardrail', guardrailAttributes(guardrail.guardrail));
+    }
     state.allEmittedEvents.push(guardrail);
     yield guardrail;
   }
 
   if (outcome.action === 'refusal') {
+    state.lastStop = EGRESS_FILTERED_STOP;
     state.allEmittedEvents.push(outcome.event);
     yield outcome.event;
     return 'terminal';
   }
   if (outcome.action === 'withhold') {
+    state.lastStop = EGRESS_FILTERED_STOP;
     yield outcome.event;
     return 'terminal';
   }
   if (outcome.action === 'retry') {
-    updateFlowForRetry(flow, outcome.nextRequest);
+    updateFlowForRetry(flow, state, profile, outcome.nextRequest, 'egress');
     return 'continue';
   }
   return 'pass';
@@ -263,6 +281,7 @@ async function* handleValidationGate(
   validation: NonNullable<ProfileOutputsSpec['validation']>,
   flow: AttemptFlowState,
   state: StepExecutionState,
+  profile: Profile,
   latestStructured: unknown,
   maxRetries: number,
 ): AsyncGenerator<TurnEvent, 'continue' | 'terminal' | 'pass'> {
@@ -276,7 +295,7 @@ async function* handleValidationGate(
   });
 
   if (outcome.action === 'retry') {
-    updateFlowForRetry(flow, outcome.nextRequest);
+    updateFlowForRetry(flow, state, profile, outcome.nextRequest, 'validation');
     return 'continue';
   }
   if (outcome.action === 'accept') {
@@ -313,10 +332,9 @@ async function* executeSingleAttemptCycle(args: {
   profile: Profile;
   system: string;
   provider: ModelProvider;
-  upstream: Record<string, unknown>[];
   maxRetries: number;
 }): AsyncGenerator<TurnEvent, AttemptStepAction> {
-  const { flow, state, profile, system, provider, upstream, maxRetries } = args;
+  const { flow, state, profile, system, provider, maxRetries } = args;
   const validation = profileTurnOutputs(profile)?.validation;
   const egress = resolveGuardrailPolicy(profile.guardrails).egress;
 
@@ -335,7 +353,6 @@ async function* executeSingleAttemptCycle(args: {
       generation: flow.currentGen,
       system,
       provider,
-      upstream,
       state,
     });
     latestStructured = attempt.latestStructured;
@@ -391,6 +408,7 @@ async function* executeSingleAttemptCycle(args: {
       validation,
       flow,
       state,
+      profile,
       latestStructured,
       maxRetries,
     );
@@ -401,7 +419,7 @@ async function* executeSingleAttemptCycle(args: {
   }
 
   if (validation || egress?.enforce) {
-    // Progressive-yield already released text/thought live under egress — unless it
+    // Progressive-yield already released text and media live under egress — unless it
     // withheld them mid-stream. A passing final verdict on the full text supersedes
     // that partial-window decision, so the buffer is released instead of dropped.
     yield* yieldBufferedAttemptEvents(state.attemptEvents, !state.withheldVisible);
@@ -416,7 +434,6 @@ async function* runAttemptsWithValidation(
   generation: ResolvedGeneration,
   system: string,
   provider: ModelProvider,
-  upstream: Record<string, unknown>[],
   state: StepExecutionState,
 ): AsyncGenerator<TurnEvent> {
   const maxRetries = Math.max(
@@ -437,7 +454,6 @@ async function* runAttemptsWithValidation(
       profile,
       system,
       provider,
-      upstream,
       maxRetries,
     });
     if (step.status === 'terminal' || step.status === 'success') {

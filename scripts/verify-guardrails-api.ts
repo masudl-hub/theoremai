@@ -17,7 +17,7 @@
  *   Gemini:     gemini-3.1-flash-lite
  *
  * Usage:
- *   THEOREM_ENV_FILE=../theorem-frontend/.env.local deno task verify:guardrails-api
+ *   deno task verify:guardrails-api   # vault slots from THEOREM_VAULT_*, see scripts/host-env.ts
  *   deno task verify:guardrails-api -- --provider gemini
  *   deno task verify:guardrails-api -- --inbound-only   # no API calls
  *   deno task verify:guardrails-api -- --category canary,inbound-injection --limit 20
@@ -42,6 +42,7 @@ import { resolveTurn } from '../src/kernel/registry/resolve.ts';
 import type { ModelProvider, TurnEvent, TurnRequest } from '../src/kernel/types.ts';
 import { OMIT_INJECTION, OMIT_SENSITIVE } from '../src/observability/spans.ts';
 import { createProvider } from '../src/providers/create-provider.ts';
+import { hostOpenRouterKey, hostVault, loadHostEnv, OPENROUTER_ENV } from './host-env.ts';
 
 const LIVE_PROFILE_ID = '__live_guardrails_redteam__';
 
@@ -79,28 +80,6 @@ interface GuardrailResult {
   error?: string;
 }
 
-function loadEnvFile(path: string): void {
-  let text: string;
-  try {
-    text = Deno.readTextFileSync(path);
-  } catch {
-    return;
-  }
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const eq = trimmed.indexOf('=');
-    if (eq < 0) continue;
-    const key = trimmed.slice(0, eq).trim();
-    if (Deno.env.get(key) !== undefined) continue;
-    let val = trimmed.slice(eq + 1).trim();
-    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-      val = val.slice(1, -1);
-    }
-    Deno.env.set(key, val);
-  }
-}
-
 function valueAfterFlag(flag: string): string | undefined {
   const idx = Deno.args.indexOf(flag);
   if (idx < 0) return undefined;
@@ -109,23 +88,6 @@ function valueAfterFlag(flag: string): string | undefined {
 
 function hasFlag(flag: string): boolean {
   return Deno.args.includes(flag);
-}
-
-function defaultEnvFile(): string | undefined {
-  const candidates = [
-    Deno.env.get('THEOREM_ENV_FILE'),
-    '../theorem-frontend/.env.local',
-    '../../theorem-frontend/.env.local',
-  ].filter(Boolean) as string[];
-  for (const path of candidates) {
-    try {
-      Deno.statSync(path);
-      return path;
-    } catch {
-      /* next */
-    }
-  }
-  return undefined;
 }
 
 function registerLiveProfile(providerKind: 'openrouter' | 'gemini'): void {
@@ -207,8 +169,8 @@ function registerLiveProfile(providerKind: 'openrouter' | 'gemini'): void {
 function createLiveProvider(providerKind: 'openrouter' | 'gemini'): ModelProvider {
   const profile = getProfile(LIVE_PROFILE_ID);
   if (providerKind === 'openrouter') {
-    const apiKey = Deno.env.get('OPENROUTER_API_KEY')?.trim();
-    if (!apiKey) throw new Error('OPENROUTER_API_KEY missing in env file');
+    const apiKey = hostOpenRouterKey();
+    if (!apiKey) throw new Error(`${OPENROUTER_ENV} missing`);
     return createProvider(profile, {
       openAiGateway: {
         apiKey,
@@ -217,11 +179,7 @@ function createLiveProvider(providerKind: 'openrouter' | 'gemini'): ModelProvide
       },
     });
   }
-  const geminiKey = Deno.env.get('GEMINI_API_KEY')?.trim();
-  if (!geminiKey) throw new Error('GEMINI_API_KEY missing in env file');
-  return createProvider(profile, {
-    gemini: { vault: { slotA: geminiKey, slotB: geminiKey, slotC: geminiKey, paid: geminiKey } },
-  });
+  return createProvider(profile, { gemini: { vault: hostVault() } });
 }
 
 function serializedInbound(req: TurnRequest): string {
@@ -432,11 +390,7 @@ function printReport(
 }
 
 export async function main(): Promise<void> {
-  const envPath = Deno.env.get('THEOREM_ENV_FILE') ?? defaultEnvFile();
-  if (envPath) {
-    loadEnvFile(envPath);
-    console.log(`Loaded env from ${envPath}`);
-  }
+  loadHostEnv();
 
   const inboundOnly = hasFlag('--inbound-only');
   const providerKind = (valueAfterFlag('--provider') ?? 'openrouter') as 'openrouter' | 'gemini';

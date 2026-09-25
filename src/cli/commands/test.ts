@@ -1,7 +1,9 @@
 import { runTurn } from '../../kernel/engine/runner.ts';
+import { sumTokens } from '../../kernel/engine/usage.ts';
 import { getProfile, listProfiles } from '../../kernel/registry/profiles.ts';
-import { requireModelProfile } from '../../kernel/registry/resolve.ts';
-import type { ModelProfile, ModelProvider, TurnRequest } from '../../kernel/types.ts';
+import { isModelProfile, requireModelProfile } from '../../kernel/registry/resolve.ts';
+import { profileToolAllow } from '../../kernel/tools/resolve.ts';
+import type { ModelProfile, ModelProvider, TurnRequest, TurnTokens } from '../../kernel/types.ts';
 import { createCliTraceCapture, printTestEvent, printTraceRecord } from '../event-log.ts';
 import {
   buildCustomTurnRequest,
@@ -13,12 +15,13 @@ export interface TestRunResult {
   passed: boolean;
   name: string;
   durationSec: number;
-  tokensTotal?: number;
+  /** The turn's usage, summed over every model call (`sumTokens`). */
+  tokens?: TurnTokens;
   error?: string;
 }
 
 interface TestExecutionAccumulator {
-  totalTokens: number;
+  calls: TurnTokens[];
   hasError: boolean;
   errorMessage: string;
 }
@@ -27,7 +30,7 @@ function printTestHeader(req: TurnRequest, testName: string): void {
   const profile = requireModelProfile(getProfile(req.profile), 'agents test');
   const modelId =
     req.model && profile.models[req.model] ? req.model : (Object.keys(profile.models)[0] ?? '');
-  const customs = profile.type === 'speech' ? 'none' : profile.tools.allow.join(', ') || 'none';
+  const customs = profileToolAllow(profile).join(', ') || 'none';
   const builtins = (profile.models[modelId]?.builtInTools ?? []).join(', ') || 'none';
 
   console.log(`\n▶ [THEOREM TEST] ${testName}`);
@@ -52,7 +55,7 @@ function processTestEvent(
   options: CliTestOptions,
 ): void {
   if (event.type === 'tokens' && event.tokens) {
-    acc.totalTokens = event.tokens.total;
+    acc.calls.push(event.tokens);
   }
   if (event.type === 'error' && event.error) {
     acc.hasError = true;
@@ -64,14 +67,16 @@ function processTestEvent(
 function printTestResult(
   passed: boolean,
   durationSec: number,
-  acc: TestExecutionAccumulator,
+  tokens: TurnTokens | undefined,
+  errorMessage: string,
 ): void {
   if (passed) {
+    const estimates = tokens?.estimated ? ', includes estimates' : '';
     console.log(
-      `\n  ✓ STATUS: PASSED (took ${durationSec.toFixed(2)}s, ${acc.totalTokens ? `${acc.totalTokens} tokens` : 'ok'})`,
+      `\n  ✓ STATUS: PASSED (took ${durationSec.toFixed(2)}s, ${tokens?.total ? `${tokens.total} tokens${estimates}` : 'ok'})`,
     );
   } else {
-    console.log(`\n  ✗ STATUS: FAILED: ${acc.errorMessage} (${durationSec.toFixed(2)}s)`);
+    console.log(`\n  ✗ STATUS: FAILED: ${errorMessage} (${durationSec.toFixed(2)}s)`);
   }
 }
 
@@ -86,7 +91,7 @@ export async function executeSingleTest(
   printTestHeader(req, testName);
 
   const acc: TestExecutionAccumulator = {
-    totalTokens: 0,
+    calls: [],
     hasError: false,
     errorMessage: '',
   };
@@ -111,13 +116,14 @@ export async function executeSingleTest(
 
   const durationSec = (Date.now() - start) / 1000;
   const passed = !acc.hasError;
-  printTestResult(passed, durationSec, acc);
+  const tokens = sumTokens(acc.calls);
+  printTestResult(passed, durationSec, tokens, acc.errorMessage);
 
   return {
     passed,
     name: testName,
     durationSec,
-    tokensTotal: acc.totalTokens,
+    ...(tokens ? { tokens } : {}),
     error: acc.errorMessage,
   };
 }
@@ -127,8 +133,8 @@ function resolveTargetProfiles(
   all: boolean | undefined,
 ): ModelProfile[] | null {
   if (all) {
-    // Host profiles never run a model, so there is no turn matrix to execute.
-    return listProfiles().filter((profile): profile is ModelProfile => profile.type !== 'host');
+    // Host and decision profiles run no model turn, so they have no turn matrix.
+    return listProfiles().filter(isModelProfile);
   }
   if (profileId) {
     try {

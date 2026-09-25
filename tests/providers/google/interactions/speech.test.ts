@@ -1,7 +1,6 @@
 import '../../../fixtures/test-host.ts';
 import { assertEquals, assertThrows } from '@std/assert';
 import { TheoremError } from '../../../../src/guardrails/error.ts';
-import { eventsFromComplete, eventsFromDelta } from '../../../../src/kernel/engine/delta.ts';
 import { getProfile, registerProfile } from '../../../../src/kernel/registry/profiles.ts';
 import { resolveTurn } from '../../../../src/kernel/registry/resolve.ts';
 import type { KeyVault, TurnEvent } from '../../../../src/kernel/types.ts';
@@ -33,9 +32,15 @@ async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
   return out;
 }
 
-function sseEvent(raw: string): unknown {
-  return JSON.parse(raw);
+/** A `step.delta` row as the stream sends it (shape recorded 23/09/2026). */
+function deltaRow(delta: Record<string, unknown>): Record<string, unknown> {
+  return { event_type: 'step.delta', index: 0, delta };
 }
+
+const COMPLETED_ROW = {
+  event_type: 'interaction.completed',
+  interaction: { id: 'v1_tts', status: 'completed' },
+};
 
 function sseResponse(events: unknown[]): Response {
   const payload = events.map((event) => `data: ${JSON.stringify(event)}\n`).join('\n');
@@ -84,27 +89,6 @@ Deno.test('Interactions body for speech uses audio response_format and speech_co
   assertEquals(gen[camelToSnake('thinkingSummaries')], undefined);
 });
 
-Deno.test('delta extracts audio and output_audio media', () => {
-  assertEquals(eventsFromDelta({ type: 'audio', mimeType: 'audio/pcm', data: 'abc' }), [
-    { type: 'media', media: { mimeType: 'audio/pcm', data: 'abc' } },
-  ]);
-  assertEquals(eventsFromDelta({ type: 'audio', data: 'raw' }), [
-    { type: 'media', media: { mimeType: 'audio/pcm', data: 'raw' } },
-  ]);
-
-  const complete = eventsFromComplete(
-    {
-      event_type: 'interaction.complete',
-      interaction: { output_audio: { data: 'pcmbytes' } },
-    },
-    false,
-  );
-  assertEquals(complete[0], {
-    type: 'media',
-    media: { mimeType: 'audio/pcm', data: 'pcmbytes' },
-  });
-});
-
 Deno.test('Interactions speech turn wraps PCM as WAV media', async () => {
   const pcm = new Uint8Array([1, 2, 3, 4]);
   const pcmB64 = btoa(String.fromCharCode(...pcm));
@@ -118,9 +102,15 @@ Deno.test('Interactions speech turn wraps PCM as WAV media', async () => {
     fetch: () =>
       Promise.resolve(
         sseResponse([
-          sseEvent(
-            `{"event_type":"content.delta","delta":{"type":"audio","mime_type":"audio/pcm","data":"${pcmB64}"}}`,
-          ),
+          // gemini-3.1-flash-tts-preview streams `audio/l16` with the format beside it.
+          deltaRow({
+            type: 'audio',
+            mime_type: 'audio/l16',
+            sample_rate: 24000,
+            channels: 1,
+            data: pcmB64,
+          }),
+          COMPLETED_ROW,
         ]),
       ),
   });
@@ -141,11 +131,13 @@ Deno.test('Interactions speech turn wraps PCM as WAV media', async () => {
       keySlot: generation.keySlot,
     }),
   );
-  assertEquals(events.length, 1);
-  assertEquals(events[0]?.type, 'media');
+  assertEquals(
+    events.map((ev) => ev.type),
+    ['media', 'response', 'done'],
+  );
   const media = events[0]?.media;
   assertEquals(media?.mimeType, 'audio/wav');
-  const wavBytes = wrapPcmAsWav(pcm, 24000);
+  const wavBytes = wrapPcmAsWav(pcm, { sampleRate: 24000, channels: 1 });
   assertEquals(media?.data, btoa(String.fromCharCode(...wavBytes)));
 });
 
@@ -158,12 +150,7 @@ Deno.test('Interactions speech profile errors when model emits text only (no fak
     vault,
     wait: noWait,
     fetch: () =>
-      Promise.resolve(
-        sseResponse([
-          sseEvent('{"event_type":"content.delta","delta":{"type":"text","text":"hello"}}'),
-          sseEvent('{"event_type":"interaction.complete","interaction":{}}'),
-        ]),
-      ),
+      Promise.resolve(sseResponse([deltaRow({ type: 'text', text: 'hello' }), COMPLETED_ROW])),
   });
   const events = await collect(
     provider.complete({
@@ -182,11 +169,12 @@ Deno.test('Interactions speech profile errors when model emits text only (no fak
       keySlot: generation.keySlot,
     }),
   );
-  assertEquals(events.length, 2);
-  assertEquals(events[0]?.type, 'text');
+  assertEquals(
+    events.map((event) => event.type),
+    ['text', 'response', 'done', 'error'],
+  );
   assertEquals(events[0]?.text, 'hello');
-  assertEquals(events[1]?.type, 'error');
-  assertEquals(typeof events[1]?.error, 'string');
+  assertEquals(events[3]?.errorKind, 'bad_response');
 });
 
 Deno.test('Interactions non-voice profile does not synthesize speech media from text', async () => {
@@ -198,12 +186,7 @@ Deno.test('Interactions non-voice profile does not synthesize speech media from 
     vault,
     wait: noWait,
     fetch: () =>
-      Promise.resolve(
-        sseResponse([
-          sseEvent('{"event_type":"content.delta","delta":{"type":"text","text":"hello"}}'),
-          sseEvent('{"event_type":"interaction.complete","interaction":{}}'),
-        ]),
-      ),
+      Promise.resolve(sseResponse([deltaRow({ type: 'text', text: 'hello' }), COMPLETED_ROW])),
   });
   const events = await collect(
     provider.complete({

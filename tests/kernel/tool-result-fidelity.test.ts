@@ -3,7 +3,7 @@
  */
 import '../fixtures/test-host.ts';
 import { assertEquals } from '@std/assert';
-import { wireInteractionPart } from '../../src/kernel/interaction-parts.ts';
+import { historyMessageParts, wireInteractionPart } from '../../src/kernel/interaction-parts.ts';
 import {
   coerceToolResultParts,
   formatToolResult,
@@ -48,7 +48,7 @@ Deno.test('tool-result fidelity round-trip: project → adapters keep media part
     type: 'function_result',
     name: 'fetch_stock_media',
     call_id: 'call_1',
-    result: projected.parts?.map(wireInteractionPart),
+    result: historyMessageParts(historyMsg).map(wireInteractionPart),
   });
 
   const sdk = toolResultMessage(historyMsg);
@@ -58,6 +58,7 @@ Deno.test('tool-result fidelity round-trip: project → adapters keep media part
   assertEquals(part.output, {
     type: 'content',
     value: [
+      { type: 'text', text: historyMsg.content },
       { type: 'text', text: '1. palm' },
       {
         type: 'file',

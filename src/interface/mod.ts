@@ -5,6 +5,11 @@
  * @module
  */
 
+export type {
+  AttachmentValidationCode,
+  AttachmentValidationIssue,
+  AttachmentValidationParams,
+} from '../kernel/types.ts';
 export {
   buildUserTurnBlocks,
   foldConversationTurn,
@@ -39,7 +44,6 @@ export {
 export type { InterfaceEffortOption, InterfaceModelOption } from './models.ts';
 export {
   defaultInterfaceEffort,
-  defaultInterfaceModel,
   effortSelectEnabled,
   generationSelectEnabled,
   interfaceEffortOptions,
@@ -70,6 +74,7 @@ export type {
   AwaitingToolContext,
   GatedToolContext,
   InterfaceTurnSession,
+  ToolGateAuth,
 } from './session.ts';
 export {
   abandonGatedToolSession,
@@ -86,9 +91,6 @@ export {
   promotedMediaFromUrlString,
 } from './tool-media.ts';
 export type {
-  AttachmentValidationCode,
-  AttachmentValidationIssue,
-  AttachmentValidationParams,
   AttachmentValidationResult,
   ComposerProfileInterface,
   FoldTurnEventsOptions,

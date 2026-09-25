@@ -1,10 +1,12 @@
 import { useCallback, useRef, useState } from 'react';
 import {
+	type AttachmentValidationIssue,
 	type ComposerPendingMessage,
 	emptyInterfaceTurnSession,
 	type InterfaceTurnSession,
 	type TranscriptBlock,
 } from '../../../src/interface/mod.ts';
+import type { ClientFailure } from '../client/failure';
 
 type SetSession = (
 	value: InterfaceTurnSession | ((prev: InterfaceTurnSession) => InterfaceTurnSession),
@@ -20,9 +22,8 @@ export function useTheoremChatState() {
 	const [pendingFiles, setPendingFiles] = useState<File[]>([]);
 	const [pendingVoice, setPendingVoice] = useState<File[]>([]);
 	const [pendingMessages, setPendingMessages] = useState<ComposerPendingMessage[]>([]);
-	const [issues, setIssues] = useState<string[]>([]);
-	const [error, setError] = useState('');
-	const [errorInternal, setErrorInternal] = useState('');
+	const [issues, setIssues] = useState<AttachmentValidationIssue[]>([]);
+	const [failure, setFailure] = useState<ClientFailure | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [chatStarted, setChatStarted] = useState(false);
 	const [streaming, setStreaming] = useState(false);
@@ -83,10 +84,8 @@ export function useTheoremChatState() {
 		setPendingMessages,
 		issues,
 		setIssues,
-		error,
-		setError,
-		errorInternal,
-		setErrorInternal,
+		failure,
+		setFailure,
 		busy,
 		setBusy,
 		chatStarted,

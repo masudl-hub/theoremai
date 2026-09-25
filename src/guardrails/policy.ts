@@ -22,13 +22,10 @@ export interface DetectionOptions {
  * to opt out of minting a per-turn token into the system prompt.
  */
 function resolveGuardrailPolicy(spec: ProfileGuardrailsSpec | undefined): ResolvedGuardrailPolicy {
-  const canarySpec = spec?.canary;
   return {
     sanitizeInput: spec?.sanitizeInput ?? true,
     redactSensitive: spec?.redactSensitive ?? true,
-    // Object form configures the bind note; minting stays on.
-    canary: typeof canarySpec === 'boolean' ? canarySpec : true,
-    canaryBindNote: typeof canarySpec === 'object' ? canarySpec.bindNote : undefined,
+    canary: spec?.canary ?? true,
     egress: spec?.egress,
     network: spec?.network,
     quota: spec?.quota,

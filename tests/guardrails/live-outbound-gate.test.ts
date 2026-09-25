@@ -1,6 +1,7 @@
 import '../fixtures/test-host.ts';
 import { mintCanary } from '../../src/guardrails/canary.ts';
-import { PUBLIC_CANARY } from '../../src/guardrails/error.ts';
+import { FIXED_CANARY } from '../../src/guardrails/corpus/canary-egress-attacks.ts';
+import { type LexiconOverrides, lexiconDefault } from '../../src/guardrails/lexicon.ts';
 import {
   abortLiveOutboundTurn,
   createLiveOutboundGateSession,
@@ -16,6 +17,9 @@ import { geminiModels } from '../fixtures/models.ts';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
+/** Opening of the fixed canary: text ending in it could still become a leak, so it is held. */
+const LEAD = FIXED_CANARY.slice(0, 6);
+
 function chatProfile() {
   return getProfile('chat');
 }
@@ -27,7 +31,7 @@ function session(canary?: string) {
 function egressProfile(
   id: string,
   enforce: EgressEnforcer,
-  extras: { onBlock?: 'refuse_to_user'; canary?: boolean } = {},
+  extras: { onBlock?: 'refuse_to_user'; canary?: boolean; lexicon?: LexiconOverrides } = {},
 ) {
   registerProfile(
     defineProfile({
@@ -45,6 +49,7 @@ function egressProfile(
           enforce,
         },
       },
+      ...(extras.lexicon ? { lexicon: extras.lexicon } : {}),
     }),
   );
   return getProfile(id);
@@ -54,14 +59,9 @@ function passEnforce(): Verdict {
   return { action: 'allow' };
 }
 
-/** Blocking verdict with an optional user-facing refusal. */
-function blockVerdict(rule: string, refusal?: string): Verdict {
-  return {
-    action: 'block',
-    hits: [{ rule, severity: 'high' }],
-    rejection: 'blocked',
-    ...(refusal ? { refusal } : {}),
-  };
+/** Blocking verdict for one rule. */
+function blockVerdict(rule: string): Verdict {
+  return { action: 'block', hits: [{ rule, severity: 'high' }], rejection: 'blocked' };
 }
 
 // ── createLiveOutboundGateSession ─────────────────────────────────────────────
@@ -113,7 +113,7 @@ Deno.test('processLiveOutboundBatch withholds when canary appears in a stream ev
   const result = await processLiveOutboundBatch(s, [{ type: 'text', text: canary }]);
   assertEquals(result.action, 'withhold');
   if (result.action === 'withhold') {
-    assertEquals(result.error, PUBLIC_CANARY);
+    assertEquals(result.error.kind, 'safety');
   }
 });
 
@@ -201,22 +201,184 @@ Deno.test('processLiveOutboundBatch streams cleared prefixes under egress.enforc
   }
 });
 
-Deno.test('processLiveOutboundBatch emits transcription evidence immediately under egress.enforce', async () => {
-  const profile = egressProfile('live_egress_asr_passthrough', passEnforce);
-  const s = createLiveOutboundGateSession(profile);
+// ── speech: spoken-reply transcript and audio ────────────────────────────────
 
-  const result = await processLiveOutboundBatch(s, [
-    {
-      type: 'evidence',
-      text: 'spoken by model',
-      evidence: { provider: 'google', kind: 'output_transcription' },
-    },
-  ]);
+function said(text: string): TurnEvent {
+  return {
+    type: 'evidence',
+    text,
+    evidence: { provider: 'google', kind: 'output_transcription' },
+  };
+}
+
+function audio(n: number): TurnEvent {
+  return { type: 'media', media: { mimeType: 'audio/wav', data: `pcm-${n}` } };
+}
+
+const turnComplete: TurnEvent = { type: 'session', session: { kind: 'turn_complete' } };
+
+Deno.test('processLiveOutboundBatch holds the spoken-reply transcript in the lookback', async () => {
+  const profile = egressProfile('live_egress_asr_hold', passEnforce);
+  const s = createLiveOutboundGateSession(profile);
+  assertEquals(await processLiveOutboundBatch(s, [said('spoken by model')]), { action: 'idle' });
+  assertEquals(s.gate?.accumulated(), 'spoken by model');
+  assertEquals(await finalizeLiveOutboundTurn(s), {
+    action: 'emit',
+    events: [said('spoken by model')],
+  });
+});
+
+Deno.test('processLiveOutboundBatch holds audio until the transcript before it clears', async () => {
+  const s = session(FIXED_CANARY);
+  // The transcript could be the start of a leak: it and the audio after it are held.
+  assertEquals(await processLiveOutboundBatch(s, [said(LEAD), audio(1)]), { action: 'idle' });
+  // The next transcript rules that out, so it goes with its audio; the new opening is held.
+  assertEquals(await processLiveOutboundBatch(s, [said(` then ${LEAD}`), audio(2)]), {
+    action: 'emit',
+    events: [said(LEAD), audio(1), said(' then ')],
+  });
+  // The cycle's end releases the rest in arrival order.
+  assertEquals(await processLiveOutboundBatch(s, [turnComplete]), {
+    action: 'emit',
+    events: [said(LEAD), audio(2), turnComplete],
+  });
+});
+
+Deno.test('processLiveOutboundBatch releases at once what cannot start a leak', async () => {
+  const s = session(FIXED_CANARY);
+  assertEquals(await processLiveOutboundBatch(s, [said('spoken by model'), audio(1)]), {
+    action: 'emit',
+    events: [said('spoken by model'), audio(1)],
+  });
+});
+
+Deno.test('processLiveOutboundBatch releases a partial transcript chunk in its own shape', async () => {
+  const s = session(FIXED_CANARY);
+  assertEquals(await processLiveOutboundBatch(s, [said(`hello ${LEAD}`), audio(1)]), {
+    action: 'emit',
+    events: [said('hello ')],
+  });
+  assertEquals(s.held.length, 2);
+});
+
+Deno.test('processLiveOutboundBatch withholds a canary spoken with separators across frames', async () => {
+  const s = session(FIXED_CANARY);
+  const spoken = [...FIXED_CANARY.toUpperCase()].join(', ');
+  const half = Math.ceil(spoken.length / 2);
+  await processLiveOutboundBatch(s, [said(spoken.slice(0, half)), audio(1)]);
+  const result = await processLiveOutboundBatch(s, [said(spoken.slice(half)), audio(2)]);
+  assertEquals(result.action, 'withhold');
+});
+
+Deno.test('processLiveOutboundBatch withholds a canary spoken across frames with its audio', async () => {
+  const canary = mintCanary();
+  const s = session(canary);
+  const half = Math.ceil(canary.length / 2);
+  // Only what could start the leak is held, with the audio behind it.
+  assertEquals(
+    await processLiveOutboundBatch(s, [said(`Sure. ${canary.slice(0, half)}`), audio(1)]),
+    { action: 'emit', events: [said('Sure. ')] },
+  );
+  const result = await processLiveOutboundBatch(s, [said(canary.slice(half)), audio(2)]);
+  assertEquals(result.action, 'withhold');
+  if (result.action === 'withhold') {
+    assertEquals(result.error.kind, 'safety');
+    assertEquals(
+      result.events?.some((e) => e.type === 'media' || e.type === 'evidence'),
+      false,
+    );
+  }
+});
+
+Deno.test('processLiveOutboundBatch passes audio straight through without a gate', async () => {
+  const s = session();
+  assertEquals(await processLiveOutboundBatch(s, [said('hi'), audio(1)]), {
+    action: 'emit',
+    events: [said('hi'), audio(1)],
+  });
+});
+
+Deno.test('processLiveOutboundBatch releases audio at once when nothing is held before it', async () => {
+  const s = session(mintCanary());
+  assertEquals(await processLiveOutboundBatch(s, [audio(1)]), {
+    action: 'emit',
+    events: [audio(1)],
+  });
+});
+
+Deno.test('finalizeLiveOutboundTurn releases a withheld cycle when the final verdict allows', async () => {
+  let calls = 0;
+  const profile = egressProfile('live_egress_allow_after_hit', () => {
+    calls += 1;
+    return calls === 1 ? blockVerdict('egress.flaky') : { action: 'allow' };
+  });
+  const s = createLiveOutboundGateSession(profile);
+  const mid = await processLiveOutboundBatch(s, [said('hello'), audio(1)]);
+  assertEquals(mid.action, 'emit');
+  if (mid.action === 'emit') {
+    assertEquals(
+      mid.events.map((e) => e.type),
+      ['guardrail'],
+    );
+  }
+  assertEquals(s.withholdVisible, true);
+  assertEquals(await processLiveOutboundBatch(s, [said(' there')]), { action: 'idle' });
+  assertEquals(await finalizeLiveOutboundTurn(s), {
+    action: 'emit',
+    events: [said('hello'), audio(1), said(' there')],
+  });
+});
+
+Deno.test('finalizeLiveOutboundTurn drops withheld audio when the reply is refused', async () => {
+  const profile = egressProfile(
+    'live_egress_refuse_audio',
+    () => blockVerdict('egress.injection-echo'),
+    { onBlock: 'refuse_to_user' },
+  );
+  const s = createLiveOutboundGateSession(profile);
+  await processLiveOutboundBatch(s, [said('leaky'), audio(1)]);
+  const result = await finalizeLiveOutboundTurn(s);
   assertEquals(result.action, 'emit');
   if (result.action === 'emit') {
-    assertEquals(result.events[0]?.evidence?.kind, 'output_transcription');
-    assertEquals(result.events[0]?.text, 'spoken by model');
+    assertEquals(
+      result.events.map((e) => e.type),
+      ['guardrail', 'text'],
+    );
+    assertEquals(result.events.at(-1)?.text, lexiconDefault('egress.refusal'));
   }
+});
+
+Deno.test('finalizeLiveOutboundTurn starts the next cycle clean', async () => {
+  const profile = egressProfile(
+    'live_egress_next_cycle',
+    (payload) =>
+      typeof payload.text === 'string' && payload.text.includes('bad')
+        ? blockVerdict('egress.bad')
+        : { action: 'allow' },
+    { onBlock: 'refuse_to_user' },
+  );
+  const s = createLiveOutboundGateSession(profile);
+  await processLiveOutboundBatch(s, [said('bad')]);
+  assertEquals(s.withholdVisible, true);
+  await finalizeLiveOutboundTurn(s);
+  assertEquals(s.withholdVisible, false);
+  assertEquals(s.gate?.accumulated(), '');
+  assertEquals(s.held, []);
+  // The next cycle is judged on its own reply and is heard.
+  assertEquals(await processLiveOutboundBatch(s, [said('good'), audio(2)]), { action: 'idle' });
+  assertEquals(await finalizeLiveOutboundTurn(s), {
+    action: 'emit',
+    events: [said('good'), audio(2)],
+  });
+});
+
+Deno.test('abortLiveOutboundTurn drops held audio', async () => {
+  const s = session(FIXED_CANARY);
+  await processLiveOutboundBatch(s, [said(LEAD), audio(1)]);
+  assertEquals(s.held.length, 2);
+  abortLiveOutboundTurn(s);
+  assertEquals(s.held, []);
+  assertEquals(await finalizeLiveOutboundTurn(s), { action: 'idle' });
 });
 
 Deno.test('finalizeLiveOutboundTurn withholds when egress.enforce blocks', async () => {
@@ -232,16 +394,14 @@ Deno.test('finalizeLiveOutboundTurn withholds when egress.enforce blocks', async
   const result = await finalizeLiveOutboundTurn(s);
   assertEquals(result.action, 'withhold');
   if (result.action === 'withhold') {
-    assertEquals(result.error, PUBLIC_CANARY);
+    assertEquals(result.error.kind, 'safety');
   }
 });
 
 Deno.test('finalizeLiveOutboundTurn emits refuse_to_user text when onBlock is set', async () => {
-  const profile = egressProfile(
-    'live_egress_refuse',
-    () => blockVerdict('egress.canary-leak', 'That reply was blocked.'),
-    { onBlock: 'refuse_to_user' },
-  );
+  const profile = egressProfile('live_egress_refuse', () => blockVerdict('egress.canary-leak'), {
+    onBlock: 'refuse_to_user',
+  });
   const s = createLiveOutboundGateSession(profile, mintCanary());
   await processLiveOutboundBatch(s, [{ type: 'text', text: 'hello' }]);
   assertEquals(s.withholdVisible, true);
@@ -249,7 +409,7 @@ Deno.test('finalizeLiveOutboundTurn emits refuse_to_user text when onBlock is se
   assertEquals(result.action, 'emit');
   if (result.action === 'emit') {
     const refusal = result.events.find((e) => e.type === 'text');
-    assertEquals(refusal?.text, 'That reply was blocked.');
+    assertEquals(refusal?.text, lexiconDefault('egress.refusal'));
     assertEquals(
       result.events.some((e) => e.type === 'guardrail'),
       true,
@@ -257,10 +417,24 @@ Deno.test('finalizeLiveOutboundTurn emits refuse_to_user text when onBlock is se
   }
 });
 
+Deno.test('finalizeLiveOutboundTurn refuses in the profile lexicon wording', async () => {
+  const profile = egressProfile('live_egress_refuse_lexicon', () => blockVerdict('egress.bad'), {
+    onBlock: 'refuse_to_user',
+    lexicon: { 'egress.refusal': 'Host refusal.' },
+  });
+  const s = createLiveOutboundGateSession(profile);
+  await processLiveOutboundBatch(s, [{ type: 'text', text: 'hello' }]);
+  const result = await finalizeLiveOutboundTurn(s);
+  assertEquals(result.action, 'emit');
+  if (result.action === 'emit') {
+    assertEquals(result.events.find((e) => e.type === 'text')?.text, 'Host refusal.');
+  }
+});
+
 Deno.test('finalizeLiveOutboundTurn emits refuse_to_user for non-canary egress hits', async () => {
   const profile = egressProfile(
     'live_egress_refuse_inj',
-    () => blockVerdict('egress.injection-echo', 'That reply was blocked.'),
+    () => blockVerdict('egress.injection-echo'),
     { onBlock: 'refuse_to_user' },
   );
   const s = createLiveOutboundGateSession(profile);
@@ -270,22 +444,19 @@ Deno.test('finalizeLiveOutboundTurn emits refuse_to_user for non-canary egress h
   assertEquals(result.action, 'emit');
   if (result.action === 'emit') {
     const refusal = result.events.find((e) => e.type === 'text');
-    assertEquals(refusal?.text, 'That reply was blocked.');
+    assertEquals(refusal?.text, lexiconDefault('egress.refusal'));
   }
 });
 
 // ── finalizeLiveOutboundTurn — canary-only ────────────────────────────────────
 
 Deno.test('finalizeLiveOutboundTurn flushes progressive gate tail on finalize', async () => {
-  const canary = mintCanary();
-  const s = session(canary);
-  await processLiveOutboundBatch(s, [{ type: 'text', text: 'prefix ' }]);
-  const result = await finalizeLiveOutboundTurn(s);
-  assertEquals(result.action, 'emit');
-  if (result.action === 'emit') {
-    const text = result.events.map((e) => e.text ?? '').join('');
-    assertEquals(text.includes('prefix'), true);
-  }
+  const s = session(FIXED_CANARY);
+  await processLiveOutboundBatch(s, [{ type: 'text', text: `prefix ${LEAD}` }]);
+  assertEquals(await finalizeLiveOutboundTurn(s), {
+    action: 'emit',
+    events: [{ type: 'text', text: LEAD }],
+  });
 });
 
 Deno.test('finalizeLiveOutboundTurn returns idle when there is nothing to emit', async () => {
@@ -312,7 +483,8 @@ Deno.test('abortLiveOutboundTurn clears progressive state and resets the gate', 
   s.withholdVisible = true;
   abortLiveOutboundTurn(s);
   assertEquals(s.withholdVisible, false);
-  assertEquals(s.lastStreamType, undefined);
+  assertEquals(s.held, []);
+  assertEquals(s.releasedTo, 0);
   assertEquals(s.gate !== null, true);
   assertEquals(s.gate?.accumulated(), '');
 });
@@ -323,19 +495,27 @@ Deno.test('abortLiveOutboundTurn without canary does not recreate gate', () => {
   assertEquals(s.gate, null);
 });
 
-Deno.test('processLiveOutboundBatch returns idle when all text is held in lookback', async () => {
-  const canary = mintCanary();
-  const s = session(canary);
-  const result = await processLiveOutboundBatch(s, [{ type: 'text', text: 'hi' }]);
+Deno.test('processLiveOutboundBatch returns idle when all text could start a leak', async () => {
+  const s = session(FIXED_CANARY);
+  const result = await processLiveOutboundBatch(s, [{ type: 'text', text: LEAD }]);
   assertEquals(result.action, 'idle');
 });
 
-Deno.test('processLiveOutboundBatch holds short thought in lookback under egress', async () => {
-  const profile = egressProfile('live_egress_hold_thought', passEnforce);
+Deno.test('processLiveOutboundBatch passes thoughts unscanned under egress', async () => {
+  const profile = egressProfile('live_egress_thought', () => blockVerdict('any.text'));
   const s = createLiveOutboundGateSession(profile);
-  const result = await processLiveOutboundBatch(s, [{ type: 'thought', text: 'inner reasoning' }]);
-  assertEquals(result.action, 'idle');
-  assertEquals(s.gate?.accumulated(), 'inner reasoning');
+  const thought: TurnEvent = { type: 'thought', text: 'inner reasoning' };
+  const result = await processLiveOutboundBatch(s, [thought]);
+  assertEquals(result, { action: 'emit', events: [thought] });
+  assertEquals(s.gate?.accumulated(), '');
+  assertEquals(await finalizeLiveOutboundTurn(s), { action: 'idle' });
+});
+
+Deno.test('processLiveOutboundBatch passes a thought that restates the canary', async () => {
+  const canary = mintCanary();
+  const s = session(canary);
+  const thought: TurnEvent = { type: 'thought', text: `The canary is ${canary}.` };
+  assertEquals(await processLiveOutboundBatch(s, [thought]), { action: 'emit', events: [thought] });
 });
 
 Deno.test('createLiveOutboundGateSession with canary=false profile ignores provided canary', () => {
@@ -409,7 +589,7 @@ Deno.test('finalizeLiveOutboundTurn emits redact text in place of the model outp
 });
 
 Deno.test('finalizeLiveOutboundTurn onBlock defaults to withhold for non-canary hits', async () => {
-  // No `refusal` on the verdict: onBlock has nothing to show, so the turn is withheld.
+  // onBlock defaults to reject_to_agent; with no retries left the turn is withheld.
   const profile = egressProfile('live_refuse_both_parts', () =>
     blockVerdict('egress.injection-echo'),
   );
@@ -471,7 +651,7 @@ Deno.test('finalizeLiveOutboundTurn is idle when gate pending is empty after emp
   const canary = mintCanary();
   const s = session(canary);
   await processLiveOutboundBatch(s, [{ type: 'text', text: '' }]);
-  assertEquals(s.lastStreamType, 'text');
+  assertEquals(s.held, []);
   const result = await finalizeLiveOutboundTurn(s);
   assertEquals(result.action, 'idle');
 });
@@ -505,15 +685,33 @@ Deno.test('processLiveOutboundBatch withholds split canary across batches', asyn
   assertEquals(result.action, 'withhold');
 });
 
-Deno.test('processLiveOutboundBatch type switch delivers thought content after text', async () => {
-  const canary = mintCanary();
-  const s = session(canary);
-  await processLiveOutboundBatch(s, [{ type: 'text', text: 'a'.repeat(100) }]);
-  await processLiveOutboundBatch(s, [{ type: 'thought', text: 'b'.repeat(100) }]);
-  const result = await finalizeLiveOutboundTurn(s);
-  assertEquals(result.action === 'emit' || result.action === 'idle', true);
-  if (result.action === 'emit') {
-    const joined = result.events.map((e) => e.text ?? '').join('');
-    assertEquals(joined.includes('a') || joined.includes('b'), true);
-  }
+Deno.test('processLiveOutboundBatch releases held text before a following thought', async () => {
+  const s = session(FIXED_CANARY);
+  const text = LEAD;
+  const thought: TurnEvent = { type: 'thought', text: 'b'.repeat(100) };
+  // It could start a leak: all of it is held.
+  assertEquals(await processLiveOutboundBatch(s, [{ type: 'text', text }]), { action: 'idle' });
+  assertEquals(await processLiveOutboundBatch(s, [thought]), {
+    action: 'emit',
+    events: [{ type: 'text', text }, thought],
+  });
+});
+
+Deno.test('processLiveOutboundBatch under egress holds the profile holdback', async () => {
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
+      id: 'live_egress_short_hold',
+      ...geminiModels('gemini35FlashLite'),
+      inputs: { text: true },
+      guardrails: { quota: { perDay: 100 }, egress: { enforce: passEnforce, holdback: 20 } },
+    }),
+  );
+  const s = createLiveOutboundGateSession(getProfile('live_egress_short_hold'));
+  assertEquals(await processLiveOutboundBatch(s, [said('x'.repeat(30)), audio(1)]), {
+    action: 'emit',
+    events: [said('x'.repeat(10))],
+  });
 });

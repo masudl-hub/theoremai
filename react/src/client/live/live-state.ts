@@ -9,16 +9,28 @@ export type LiveSessionStatus =
 	| 'working'
 	| 'error';
 
-export function liveStateLabel(args: {
+/** What a live call is doing, for its status line; the UI words it. */
+export type LiveState =
+	| 'calling_tool'
+	| 'connecting'
+	| 'requesting_mic'
+	| 'speaking'
+	| 'connected'
+	| 'muted'
+	| 'listening'
+	| 'error'
+	| 'ended';
+
+export function liveState(args: {
 	status: LiveSessionStatus;
 	connectPhase: LiveConnectPhase | null;
 	toolName: string | null;
 	isMuted: boolean;
 	voiceEnabled?: boolean;
-}): string {
-	if (args.toolName) return `calling ${args.toolName}`;
+}): LiveState {
+	if (args.toolName) return 'calling_tool';
 	if (args.connectPhase === 'socket') return 'connecting';
-	if (args.connectPhase === 'microphone') return 'requesting mic';
+	if (args.connectPhase === 'microphone') return 'requesting_mic';
 	if (args.status === 'speaking') return 'speaking';
 	if (args.status === 'listening' || args.status === 'ready') {
 		if (args.voiceEnabled === false) return 'connected';

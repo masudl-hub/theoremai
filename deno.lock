@@ -3,6 +3,7 @@
   "specifiers": {
     "jsr:@david/code-block-writer@^13.0.3": "13.0.3",
     "jsr:@deno/dnt@0.43.2": "0.43.2",
+    "jsr:@std/assert@*": "1.0.19",
     "jsr:@std/assert@1": "1.0.19",
     "jsr:@std/fmt@1": "1.0.10",
     "jsr:@std/fs@1": "1.0.24",
@@ -20,6 +21,7 @@
     "npm:ai@^7.0.108": "7.0.108_zod@4.5.4",
     "npm:fallow@3.17.0": "3.17.0",
     "npm:gpt-tokenizer@4": "4.0.0",
+    "npm:intl-messageformat@^11.2.9": "11.2.15",
     "npm:zod@^4.1.8": "4.5.4"
   },
   "jsr": {
@@ -541,6 +543,18 @@
       "integrity": "sha512-/OcyxHuCKabzQ9hKIjM/CFJ9fr30n0Mw5MK6nzi5rn26mbYUgh073UZq4FONOpPJ/FqHtC726rxpgBtR4qS+gg==",
       "os": ["win32"],
       "cpu": ["x64"]
+    },
+    "@formatjs/fast-memoize@3.1.7": {
+      "integrity": "sha512-zXfhLpvA6T7+efdt9JLbBwZ00tT7NsBMDVnDu8rpHeNNv8KfRZAMo2gkG0k9lK/Nzc//3kJ9pImsfuJxk3KhUA=="
+    },
+    "@formatjs/icu-messageformat-parser@3.5.18": {
+      "integrity": "sha512-wX1efcL8d7K5QapOTRsP/OLTA/kpwe4LwqWyNxDNg5iRs8i9jJbCyxB5P8jc4KOW5oiLzz2DJr+BRY5xMV9+bA==",
+      "dependencies": [
+        "@formatjs/icu-skeleton-parser"
+      ]
+    },
+    "@formatjs/icu-skeleton-parser@2.1.11": {
+      "integrity": "sha512-j8cUmOJzVgkHuS0QiQ6ga76UIoLOFSAMWhs7aZJztH3aAdCOAE6vpC8KVvFB4cU10ON0y2/5oOVmPJ43s2lTwA=="
     },
     "@inquirer/ansi@2.0.7": {
       "integrity": "sha512-3eTuUO1vH2cZm2ZKHeQxnOqlTi9EfZDGgIe3BL3I4u+rJHocr9Fz86M4fjYABPvFnQG/gGK551HqDiIcETwU6Q=="
@@ -1140,6 +1154,13 @@
     "inherits@2.0.4": {
       "integrity": "sha512-k/vGaX4/Yla3WzyMCvTQOXYeIHvqOKtnqBduzTHpzpQZzAskKMhZ2K+EnBiSM9zGSoIFeMpXKxa4dYeZIQqewQ=="
     },
+    "intl-messageformat@11.2.15": {
+      "integrity": "sha512-W4VNytsXyWgW5lvVchmsb9xgA5rSKqoflu3/IQ9UCtB0z4R+Bx9MoEkwFT/+30RCl/KzUoH0QGGe9lppF5SuvQ==",
+      "dependencies": [
+        "@formatjs/fast-memoize",
+        "@formatjs/icu-messageformat-parser"
+      ]
+    },
     "is-plain-obj@4.1.0": {
       "integrity": "sha512-+Pgi+vMuUNkJyExiMBt5IlFoMyKnr5zhJ4Uspz58WOhBF5QoIZkFyNHIbBAtHwzVAgk5RtndVNsDRN61/mmDqg=="
     },
@@ -1418,6 +1439,7 @@
       "npm:@openrouter/ai-sdk-provider@3",
       "npm:ai@7",
       "npm:gpt-tokenizer@4",
+      "npm:intl-messageformat@^11.2.9",
       "npm:zod@^4.1.8"
     ],
     "packageJson": {
@@ -1428,7 +1450,8 @@
         "npm:@stryker-mutator/core@10",
         "npm:ai@^7.0.108",
         "npm:fallow@3.17.0",
-        "npm:gpt-tokenizer@4"
+        "npm:gpt-tokenizer@4",
+        "npm:intl-messageformat@^11.2.9"
       ]
     }
   }

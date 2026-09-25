@@ -4,12 +4,14 @@
  * sources, produces numbers that look authoritative and are not.
  *
  * These tests use fixtures only — no network. The corpus fetch is exercised by
- * running `agents guardrails-eval`, not by the unit suite.
+ * running `deno task guardrails:eval`; the unit suite pins only where the token goes,
+ * against a stubbed fetch.
  */
 import '../fixtures/test-host.ts';
 import {
   type CorpusCache,
   type CorpusSample,
+  createCorpusCache,
   fetchRows,
   parseLabelledCsv,
   REVIEWED_SOURCES,
@@ -135,6 +137,37 @@ const alwaysFires: EvalDetector = {
 function sample(text: string, attack: boolean, category: string): CorpusSample {
   return { text, attack, source: 'src-a', category };
 }
+
+Deno.test('the Hugging Face token goes to Hugging Face hosts only', async () => {
+  const dir = await Deno.makeTempDir();
+  const sent = new Map<string, string | null>();
+  const realFetch = globalThis.fetch;
+  const priorToken = Deno.env.get('HF_TOKEN');
+  Deno.env.set('HF_TOKEN', 'hf_synthetic_token');
+  globalThis.fetch = (input: string | URL | Request, init?: RequestInit) => {
+    const url = input instanceof Request ? input.url : String(input);
+    sent.set(new URL(url).hostname, new Headers(init?.headers).get('Authorization'));
+    return Promise.resolve(new Response('label,text\n'));
+  };
+  try {
+    const cache = createCorpusCache(dir);
+    await cache.fetchText('https://huggingface.co/datasets/x/resolve/main/a.csv', 'a.csv');
+    await cache.fetchText('https://cdn-lfs.huggingface.co/x/b.csv', 'b.csv');
+    await cache.fetchText('https://raw.githubusercontent.com/x/y/main/c.csv', 'c.csv');
+    await cache.fetchText('https://huggingface.co.evil.example/d.csv', 'd.csv');
+  } finally {
+    globalThis.fetch = realFetch;
+    if (priorToken === undefined) Deno.env.delete('HF_TOKEN');
+    else Deno.env.set('HF_TOKEN', priorToken);
+    await Deno.remove(dir, { recursive: true });
+  }
+  assertEquals(Object.fromEntries(sent), {
+    'huggingface.co': 'Bearer hf_synthetic_token',
+    'cdn-lfs.huggingface.co': 'Bearer hf_synthetic_token',
+    'raw.githubusercontent.com': null,
+    'huggingface.co.evil.example': null,
+  });
+});
 
 Deno.test('scoreDetector separates false positives by benign category', () => {
   const score = scoreDetector(alwaysFires, 'src-a', [

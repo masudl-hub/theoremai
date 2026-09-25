@@ -2,31 +2,27 @@
  * Convert THEOREM turn input into Vercel AI SDK `ModelMessage[]`.
  *
  * Semantic twin of `openai/compat.ts` (REST wire format). OpenRouter's AI SDK
- * adapter uses this module; local and payload paths use `buildChatMessages`.
+ * adapter uses this module; local and image paths use `buildChatMessages`.
  *
  * @module
  */
 
 import type { ModelMessage } from 'ai';
 import { TheoremError } from '../../../guardrails/error.ts';
-import { isMediaRefPart } from '../../../kernel/interaction-parts.ts';
+import { historyMessageParts, isMediaRefPart } from '../../../kernel/interaction-parts.ts';
 import type {
   InteractionMediaPart,
   InteractionPart,
   ProviderCompleteRequest,
   TurnHistoryMessage,
 } from '../../../kernel/types.ts';
-import { fallbackToolCallId, parseToolInput } from './compat.ts';
+import { historyToolArguments, historyToolIdentity } from '../../shared/tool-args.ts';
 
 function inlineMediaPart(part: Exclude<InteractionPart, { type: 'text' }>): InteractionMediaPart {
   if (isMediaRefPart(part)) {
-    throw new TheoremError('media references are not supported on openAi');
+    throw new TheoremError('unsupported', 'media references are not supported on openAi');
   }
   return part;
-}
-
-function stringDefault(value: string | undefined, fallback: string): string {
-  return value === undefined ? fallback : value;
 }
 
 export function sdkPart(input: InteractionPart): Record<string, unknown> {
@@ -55,24 +51,15 @@ export function sdkContentFromParts(
   return parts.map(sdkPart);
 }
 
-export function sdkContentFromOptionalParts(
-  parts: InteractionPart[] | undefined,
-  text: string | undefined,
-): string | Array<Record<string, unknown>> {
-  if (!parts || parts.length === 0) {
-    return stringDefault(text, '');
-  }
-  return sdkContentFromParts(parts);
-}
-
 export function toolResultMessage(msg: TurnHistoryMessage): ModelMessage {
-  const toolName = stringDefault(msg.name, 'tool');
-  const toolCallId = stringDefault(msg.tool_call_id, fallbackToolCallId(msg.name));
+  const parts = historyMessageParts(msg);
+  const content = sdkContentFromParts(parts);
   const output =
-    msg.parts && msg.parts.length > 0
-      ? {
+    typeof content === 'string'
+      ? { type: 'text' as const, value: content }
+      : {
           type: 'content' as const,
-          value: msg.parts.map((input) => {
+          value: parts.map((input) => {
             if (input.type === 'text') {
               return { type: 'text' as const, text: input.text };
             }
@@ -84,8 +71,7 @@ export function toolResultMessage(msg: TurnHistoryMessage): ModelMessage {
               data: { type: 'data' as const, data: part.data },
             };
           }),
-        }
-      : { type: 'text' as const, value: stringDefault(msg.content, '') };
+        };
 
   // AI SDK ToolModelMessage is a branded union; structural tool-result is correct at runtime.
   return {
@@ -93,8 +79,8 @@ export function toolResultMessage(msg: TurnHistoryMessage): ModelMessage {
     content: [
       {
         type: 'tool-result',
-        toolCallId,
-        toolName,
+        // The AI SDK rejects a missing id or name (`AI_InvalidPromptError`).
+        ...historyToolIdentity({ toolCallId: msg.tool_call_id, toolName: msg.name }),
         output,
       },
     ],
@@ -105,20 +91,24 @@ export function assistantToolCallMessage(msg: TurnHistoryMessage): ModelMessage 
   if (!msg.tool_calls || msg.tool_calls.length === 0) {
     return null;
   }
+  const said = sdkContentFromParts(historyMessageParts(msg));
+  const lead = typeof said === 'string' ? (said ? [{ type: 'text', text: said }] : []) : said;
   return {
     role: 'assistant',
-    content: msg.tool_calls.map((call) => ({
-      type: 'tool-call',
-      toolCallId: call.id,
-      toolName: call.function.name,
-      input: parseToolInput(call.function.arguments),
-    })),
+    content: [
+      ...lead,
+      ...msg.tool_calls.map((call) => ({
+        type: 'tool-call',
+        toolCallId: call.id,
+        toolName: call.function.name,
+        input: historyToolArguments(call.function.arguments),
+      })),
+    ],
   } as ModelMessage;
 }
 
 export function contentHistoryMessage(msg: TurnHistoryMessage): ModelMessage {
-  const content = sdkContentFromOptionalParts(msg.parts, msg.content);
-  return { role: msg.role, content } as ModelMessage;
+  return { role: msg.role, content: sdkContentFromParts(historyMessageParts(msg)) } as ModelMessage;
 }
 
 export function historyToSdk(msg: TurnHistoryMessage): ModelMessage | null {

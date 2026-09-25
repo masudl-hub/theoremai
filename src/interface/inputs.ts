@@ -4,11 +4,10 @@
  * @module
  */
 
-import { maxBytesForMime, resolveMediaLimits } from '../kernel/registry/attachments.ts';
+import { attachmentIssues, resolveMediaLimits } from '../kernel/registry/attachments.ts';
 import { mimeAllowed } from '../kernel/registry/catalog.ts';
-import type { ProfileInputsSpec, ProfileType } from '../kernel/types.ts';
+import type { ProfileInputsSpec } from '../kernel/types.ts';
 import type {
-  AttachmentValidationIssue,
   AttachmentValidationResult,
   PendingAttachment,
   ProfileInputsInterface,
@@ -27,14 +26,8 @@ function attachmentAcceptAttr(accept: string[]): string {
   return accept.join(',');
 }
 
-function inputsFromSpec(
-  type: ProfileType,
-  inputs: ProfileInputsSpec | null | undefined,
-): ProfileInputsInterface {
-  if (type === 'speech' || type === 'live') {
-    return { text: true, attachments: null, voice: null };
-  }
-
+/** `inputs` is null for profile types that declare none (the kernel's `profileInputs`). */
+function inputsFromSpec(inputs: ProfileInputsSpec | null | undefined): ProfileInputsInterface {
   const accept = inputs?.attachments?.accept;
   const voiceAccept = inputs?.voice?.accept;
 
@@ -63,104 +56,31 @@ function toProfileInputsSpec(inputs: ProfileInputsInterface): ProfileInputsSpec 
   };
 }
 
-function issue(
-  code: AttachmentValidationIssue['code'],
-  params?: AttachmentValidationIssue['params'],
-  fileName?: string,
-): AttachmentValidationIssue {
-  return { code, params, fileName };
-}
-
-function validateMime(
-  accept: string[],
-  files: PendingAttachment[],
-  channel: 'attachment' | 'voice',
-): AttachmentValidationIssue[] {
-  const issues: AttachmentValidationIssue[] = [];
-  for (const file of files) {
-    if (!mimeAllowed(accept, file.mimeType)) {
-      issues.push(issue('mime_not_allowed', { mimeType: file.mimeType, channel }, file.name));
-    }
-  }
-  return issues;
-}
-
-function validateLimits(
-  files: PendingAttachment[],
-  limits: NonNullable<ReturnType<typeof resolveMediaLimits>>,
-): AttachmentValidationIssue[] {
-  const issues: AttachmentValidationIssue[] = [];
-  if (files.length > limits.maxFiles) {
-    issues.push(issue('too_many_files', { maxFiles: limits.maxFiles }));
-    return issues;
-  }
-
-  let total = 0;
-  for (const file of files) {
-    const maxAllowed = maxBytesForMime(file.mimeType, limits);
-    if (file.sizeBytes > maxAllowed) {
-      issues.push(issue('file_too_large', { maxBytes: maxAllowed }, file.name));
-    }
-    total += file.sizeBytes;
-  }
-
-  if (total > limits.maxTurnBytes) {
-    issues.push(issue('turn_too_large', { maxTurnBytes: limits.maxTurnBytes }));
-  }
-
-  return issues;
-}
-
-/** Validate staged files against resolved profile `inputs`. */
+/** Validate staged files against resolved profile `inputs`: the kernel's one attachment check. */
 function validateProfileInputs(
   inputs: ProfileInputsInterface,
   draft: Pick<UserTurnDraft, 'attachments' | 'voice'>,
 ): AttachmentValidationResult {
-  const attachments = draft.attachments ?? [];
-  const voice = draft.voice ?? [];
-  if (attachments.length === 0 && voice.length === 0) {
-    return { ok: true, issues: [] };
-  }
-
-  if (attachments.length > 0 && !inputs.attachments) {
-    return {
-      ok: false,
-      issues: [issue('attachments_not_accepted', { channel: 'attachment' })],
-    };
-  }
-  if (voice.length > 0 && !inputs.voice) {
-    return {
-      ok: false,
-      issues: [issue('voice_not_accepted', { channel: 'voice' })],
-    };
-  }
-
-  const spec = toProfileInputsSpec(inputs);
-  const issues: AttachmentValidationIssue[] = [];
-
-  if (attachments.length > 0 && inputs.attachments) {
-    issues.push(...validateMime(inputs.attachments.accept, attachments, 'attachment'));
-  }
-  if (voice.length > 0 && inputs.voice) {
-    issues.push(...validateMime(inputs.voice.accept, voice, 'voice'));
-  }
-
-  const limits = resolveMediaLimits(spec);
-  if (!limits) {
-    issues.push(issue('limits_unconfigured'));
-    return { ok: false, issues };
-  }
-
-  issues.push(...validateLimits([...attachments, ...voice], limits));
+  const facts = (files: PendingAttachment[] | undefined) =>
+    (files ?? []).map(({ name, mimeType, sizeBytes }) => ({ name, mimeType, sizeBytes }));
+  const issues = attachmentIssues(
+    {
+      attachments: inputs.attachments?.accept,
+      voice: inputs.voice?.accept,
+      limits: resolveMediaLimits(toProfileInputsSpec(inputs)),
+    },
+    facts(draft.attachments),
+    facts(draft.voice),
+  );
   return { ok: issues.length === 0, issues };
 }
 
+/** The first accepted format this browser can record; undefined when it can record none. */
 function pickMediaRecorderMime(accept?: string[]): string | undefined {
-  const supported = (mime: string) => {
-    const recorder = (globalThis as { MediaRecorder?: { isTypeSupported(m: string): boolean } })
-      .MediaRecorder;
-    return recorder === undefined || recorder.isTypeSupported(mime);
-  };
+  const recorder = (globalThis as { MediaRecorder?: { isTypeSupported(m: string): boolean } })
+    .MediaRecorder;
+  if (recorder === undefined) return undefined;
+  const supported = (mime: string) => recorder.isTypeSupported(mime);
   const fromCandidates = (pool: readonly string[]) => pool.find(supported);
   if (accept?.length) {
     return (

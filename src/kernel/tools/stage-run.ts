@@ -9,6 +9,7 @@
 
 import type { z } from 'zod';
 import { lexiconText } from '../../guardrails/lexicon.ts';
+import type { SpanHandle } from '../../observability/trace-span.ts';
 import { runStage, type StageHandler, type StageResult, stageEventFields } from '../stages.ts';
 import type { Profile, TurnEvent, TurnHistoryMessage } from '../types.ts';
 import type { ToolCallBase } from './events.ts';
@@ -30,6 +31,8 @@ export interface ToolStageSupport {
   applyInject?: (messages: TurnHistoryMessage[]) => void;
   host?: unknown;
   signal?: AbortSignal;
+  /** The call's `execute_tool` span; `pre_tool` / `post_tool` record on it. */
+  span?: SpanHandle;
 }
 
 /** Stage support when only a tool-local `preTool` is present. */
@@ -54,7 +57,13 @@ export type PreBodyOutcome =
   | { ok: true; input: unknown }
   | { ok: false; kind: 'aborted'; aborted: true | { reason?: string } }
   | { ok: false; kind: 'gated'; gate: ToolGate }
-  | { ok: false; kind: 'failed'; failure: ToolFailure };
+  | {
+      ok: false;
+      kind: 'failed';
+      failure: ToolFailure;
+      /** The host refused the call (`deny`), rather than it failing. */
+      denied?: true;
+    };
 
 export type PostToolStageOutcome = {
   abort?: boolean | { reason?: string };
@@ -111,7 +120,8 @@ export async function* runPreToolPipeline(args: {
       kind: 'failed',
       failure: {
         code: 'invalid_input',
-        message: lexiconText('tool.input_invalid_after_mutate'),
+        kind: 'bad_response',
+        message: lexiconText('tool.input_invalid_after_mutate', {}, args.ctx.profile.lexicon),
         details: reparsed.error.flatten(),
       },
     };
@@ -141,6 +151,7 @@ async function* runPreToolStages(args: {
     injectAllowed: false,
     host: stages.host,
     signal: stages.signal,
+    span: stages.span,
     callId,
     tool: toolName,
     input,
@@ -150,7 +161,12 @@ async function* runPreToolStages(args: {
     return { ok: false, kind: 'aborted', aborted: applied.abort };
   }
   if (applied.deny) {
-    return { ok: false, kind: 'failed', failure: applied.deny };
+    return {
+      ok: false,
+      kind: 'failed',
+      failure: { ...applied.deny, kind: 'blocked' },
+      denied: true,
+    };
   }
   if (applied.confirm) {
     const gate: ToolGate = {
@@ -194,6 +210,7 @@ export async function* runPostToolStages(args: {
     mutable,
     host: stages.host,
     signal: stages.signal,
+    span: stages.span,
     callId,
     tool: toolName,
   });

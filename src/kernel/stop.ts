@@ -7,8 +7,12 @@
  * @module
  */
 
-import { lexiconDefault } from '../guardrails/lexicon.ts';
-import { CONTINUE_STOP_KINDS, type ContinueStopKind, type TurnStopKind } from './schema.ts';
+import {
+  CONTINUE_STOP_KINDS,
+  type ContinueStopKind,
+  type ProfileType,
+  type TurnStopKind,
+} from './schema.ts';
 
 /** Normalized stop attached to terminal `done` events and host continue requests. */
 export interface TurnStop {
@@ -18,12 +22,10 @@ export interface TurnStop {
 }
 
 /**
- * Default continue instruction for resumeable stops — the registered lexicon
- * default (`continue.instruction`). It rarely needs replacing, but hosts may
- * override it per profile via `turnBehaviour.resumption.continueInstruction`
- * or process-wide via `overrideLexicon`.
+ * Profile types whose continue turn sends the continue instruction. Image and
+ * speech continue by re-sending the host's request unchanged.
  */
-export const CONTINUE_INSTRUCTION: string = lexiconDefault('continue.instruction');
+export const CONTINUE_INSTRUCTION_TYPES: readonly ProfileType[] = ['text'];
 
 /** Default kinds hosts may offer Continue for (= full ContinueStopKind set). */
 export const DEFAULT_ALLOW_CONTINUE: readonly ContinueStopKind[] = CONTINUE_STOP_KINDS;
@@ -46,21 +48,17 @@ export interface ProfileTurnResumptionSpec {
    */
   allowContinue?: ContinueStopKind[];
   /**
-   * Kinds the host may auto-continue without a CTA.
+   * Kinds the host continues once on its own, without asking.
+   * When omitted, length / stream_incomplete are; `[]` means none.
    * Kernel does not loop; hosts call continueFrom and pass `continuation`.
    */
   autoContinue?: ContinueStopKind[];
   /**
-   * Max continueFrom rounds the kernel will accept for this profile.
+   * How many times one reply may be continued for this profile.
    * Compared against `TurnRequest.continuation` (1-based continue attempt).
    * When omitted, only kind allowlists apply (no count cap).
    */
   maxContinues?: number;
-  /**
-   * Host replacement for the continue instruction appended on continueFrom
-   * turns. Omitted means the registered default (`CONTINUE_INSTRUCTION`).
-   */
-  continueInstruction?: string;
 }
 
 const CONTINUE_KIND_SET = new Set<string>(CONTINUE_STOP_KINDS);
@@ -89,6 +87,15 @@ export interface ProfileTurnBehaviourSpec {
   allowSteering?: boolean;
 }
 
+/**
+ * Image / speech turn behaviour: resumption only. A continue re-sends the
+ * host's request unchanged, so there is no continue instruction, and there is
+ * no mid-turn inject to steer.
+ */
+export interface MediaTurnBehaviourSpec {
+  resumption?: ProfileTurnResumptionSpec;
+}
+
 /** Partial state passed when continuing a resumeable stop. */
 export interface TurnContinueFrom {
   stop: TurnStop;
@@ -115,15 +122,18 @@ export function isUserCancelledStop(stop: TurnStop | undefined): boolean {
   return stop?.kind === 'cancelled';
 }
 
-/** True when profile policy allows one silent auto-continue for this stop. */
+/**
+ * True when profile policy allows one silent auto-continue for this stop: it is
+ * in `autoContinue` (default length / stream_incomplete) and may be continued at
+ * all under `allowContinue`. Pass the profile's `profileTurnResumption(profile)`.
+ */
 export function shouldAutoContinue(
   stop: TurnStop | undefined,
-  autoContinue: readonly ContinueStopKind[] | undefined = DEFAULT_AUTO_CONTINUE,
+  policy?: Pick<ProfileTurnResumptionSpec, 'allowContinue' | 'autoContinue'>,
 ): boolean {
   if (!stop || !isContinueStopKind(stop.kind)) return false;
-  const list = autoContinue ?? DEFAULT_AUTO_CONTINUE;
-  if (list.length === 0) return false;
-  return list.includes(stop.kind) && isResumeableStop(stop);
+  const auto = policy?.autoContinue ?? DEFAULT_AUTO_CONTINUE;
+  return auto.includes(stop.kind) && isResumeableStop(stop, policy?.allowContinue);
 }
 
 /** Read nested `turnBehaviour.resumption` from a non-live profile. */

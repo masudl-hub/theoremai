@@ -1,12 +1,14 @@
 import type { ComposerPendingMessage } from '../../../src/interface/mod.ts';
 
-/** Collapsed-drawer header for Astryx's `ChatComposerDrawer` (a count badge, then a label). */
-export type ComposerDrawerSummary = { count: number; label: string };
+/** What waits in the composer, by kind; the UI words each kind. */
+export type ComposerDrawerKind = 'steer' | 'queue' | 'stash' | 'attached';
+
+/** Collapsed-drawer header: the total, then each waiting kind's count, in display order. */
+export type ComposerDrawerSummary = { count: number; parts: { kind: ComposerDrawerKind; n: number }[] };
 
 /**
  * What's waiting in the composer, by kind: steering, queued, stashed, attached
- * (files and voice notes). The badge carries the total; a single kind's label is
- * just its word ("[2] queued"), a mix spells out each count ("[4] 2 queued · 1 attached · 1 stashed").
+ * (files and voice notes). Null when nothing waits.
  */
 export function composerDrawerSummary(args: {
 	pendingMessages: readonly Pick<ComposerPendingMessage, 'kind'>[];
@@ -14,16 +16,12 @@ export function composerDrawerSummary(args: {
 }): ComposerDrawerSummary | null {
 	const countOf = (kind: ComposerPendingMessage['kind']) =>
 		args.pendingMessages.filter((message) => message.kind === kind).length;
-	const parts = [
-		{ word: 'steering', n: countOf('steer') },
-		{ word: 'queued', n: countOf('queue') },
-		{ word: 'stashed', n: countOf('stash') },
-		{ word: 'attached', n: args.attachmentCount },
+	const parts: ComposerDrawerSummary['parts'] = [
+		{ kind: 'steer' as const, n: countOf('steer') },
+		{ kind: 'queue' as const, n: countOf('queue') },
+		{ kind: 'stash' as const, n: countOf('stash') },
+		{ kind: 'attached' as const, n: args.attachmentCount },
 	].filter((part) => part.n > 0);
 	const count = parts.reduce((sum, part) => sum + part.n, 0);
-	if (count === 0) return null;
-	const [only] = parts;
-	const label =
-		parts.length === 1 && only ? only.word : parts.map((part) => `${String(part.n)} ${part.word}`).join(' · ');
-	return { count, label };
+	return count === 0 ? null : { count, parts };
 }

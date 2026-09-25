@@ -170,7 +170,7 @@ Deno.test('createLocalProvider streams text, tokens, and completed stop', async 
       });
       return Promise.resolve(
         sseResponse([
-          'data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n',
+          'data: {"id":"chatcmpl-1","model":"llama3.2","choices":[{"delta":{"content":"Hi"}}]}\n\n',
           'data: {"choices":[{"delta":{"content":"!"},"finish_reason":"stop"}]}\n\n',
           'data: {"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5},"choices":[]}\n\n',
           'data: [DONE]\n\n',
@@ -195,6 +195,10 @@ Deno.test('createLocalProvider streams text, tokens, and completed stop', async 
   const done = events.find((e) => e.type === 'done');
   assertEquals(done?.stop?.kind, 'completed');
   assertEquals(done?.stop?.native, 'stop');
+  assertEquals(
+    events.filter((e) => e.type === 'response').map((e) => e.response),
+    [{ id: 'chatcmpl-1', model: 'llama3.2' }],
+  );
 });
 
 Deno.test('createLocalProvider maps finish_reason length and tool_calls', async () => {
@@ -244,20 +248,22 @@ Deno.test('flushPending emits malformed_arguments on bad tool JSON', () => {
   assertEquals(events.length, 3);
   assertEquals(events[0]?.tool?.phase, 'error');
   assertEquals(events[0]?.tool?.failure?.code, 'malformed_arguments');
+  assertEquals(events[0]?.tool?.failure?.kind, 'bad_response');
   assertEquals(events[1]?.tool?.arguments, { x: 1 });
   assertEquals(events[1]?.tool?.phase, undefined);
   assertEquals(events[2]?.tool?.arguments, {});
   assertEquals(pending.size, 0);
 });
 
-Deno.test('createLocalProvider yields error event on HTTP failure', async () => {
+Deno.test('createLocalProvider yields error event on HTTP failure, with the whole body', async () => {
+  const body = `${'overloaded\n'.repeat(100)}retry later`;
   const provider = createLocalProvider({
-    fetch: () => Promise.resolve(new Response('nope', { status: 503 })),
+    fetch: () => Promise.resolve(new Response(body, { status: 503 })),
   });
   const events = await collect(provider.complete(baseReq()));
   assertEquals(events.length, 1);
   assertEquals(events[0].type, 'error');
-  assertEquals(String(events[0].errorInternal ?? '').includes('503'), true);
+  assertEquals(String(events[0].errorInternal ?? '').endsWith(`LLM HTTP 503: ${body}`), true);
 });
 
 Deno.test('createLocalProvider reads finish_reason when delta is absent', async () => {

@@ -17,13 +17,12 @@ import {
   promoteLoadedTools,
   resolveTurnTools,
 } from '../../src/kernel/tools/resolve.ts';
-import type { ModelProvider, ProfileToolsSpec, TurnEvent } from '../../src/kernel/types.ts';
-import {
-  foldArgumentsDelta,
-  foldPayload,
-  foldStepStart,
-  newStreamFold,
-} from '../../src/providers/google/interactions/stream.ts';
+import type {
+  ModelProvider,
+  ProfileToolsSpec,
+  TurnEvent,
+  TurnHistoryMessage,
+} from '../../src/kernel/types.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 import { invokeRegisteredTool } from '../fixtures/test-tools.ts';
 
@@ -49,94 +48,6 @@ function flashProfile(id: string, maxSteps: number, tools: ProfileToolsSpec) {
     }),
   );
 }
-
-// ---------------------------------------------------------------------------
-// Stream parser — alternate wire shapes
-// ---------------------------------------------------------------------------
-
-Deno.test('adversarial/stream: string args via delta + step.stop', () => {
-  const fold = newStreamFold();
-  const events = [
-    ...(foldPayload(
-      {
-        event_type: 'step.start',
-        index: 0,
-        step: { type: 'function_call', id: 'c_delta', name: 'ping_tool' },
-      },
-      fold,
-    ) as TurnEvent[]),
-    ...(foldPayload(
-      {
-        event_type: 'step.delta',
-        index: 0,
-        delta: { type: 'arguments_delta', arguments: '{"step":' },
-      },
-      fold,
-    ) as TurnEvent[]),
-    ...(foldPayload(
-      { event_type: 'step.delta', index: 0, delta: { type: 'arguments', arguments: '1}' } },
-      fold,
-    ) as TurnEvent[]),
-    ...(foldPayload({ event_type: 'step.stop', index: 0 }, fold) as TurnEvent[]),
-  ];
-  const tool = events.find((e) => e.type === 'tool');
-  assertEquals(tool?.tool?.name, 'ping_tool');
-  assertEquals(tool?.tool?.arguments, { step: 1 });
-});
-
-Deno.test('adversarial/stream: step.start id-only flushes empty args on step.stop', () => {
-  const fold = newStreamFold();
-  foldPayload(
-    {
-      event_type: 'step.start',
-      index: 2,
-      step: { type: 'function_call', id: 'c_empty', name: 'stub_tool' },
-    },
-    fold,
-  );
-  const stopped = foldPayload({ event_type: 'step.stop', index: 2 }, fold) as TurnEvent[];
-  assertEquals(stopped.length, 1);
-  assertEquals(stopped[0]?.tool?.arguments, {});
-});
-
-Deno.test('adversarial/stream: malformed JSON args become tool failure events', () => {
-  const fold = newStreamFold();
-  foldStepStart(
-    {
-      event_type: 'step.start',
-      index: 0,
-      step: { type: 'function_call', id: 'c_bad', name: 'ping_tool' },
-    },
-    fold,
-  );
-  foldArgumentsDelta({ type: 'arguments_delta', arguments: '{not json' }, 0, fold);
-  const stopped = foldPayload({ event_type: 'step.stop', index: 0 }, fold) as TurnEvent[];
-  assertEquals(stopped[0]?.type, 'tool');
-  assertEquals(stopped[0]?.tool?.phase, 'error');
-  assertEquals(stopped[0]?.tool?.failure?.code, 'malformed_arguments');
-  assertEquals(stopped[0]?.tool?.arguments, {});
-});
-
-Deno.test('adversarial/stream: duplicate function_call deduped', () => {
-  const fold = newStreamFold();
-  const payload = {
-    event_type: 'step.start',
-    index: 0,
-    step: { type: 'function_call', id: 'c_dup', name: 'stub_tool', arguments: {} },
-  };
-  assertEquals(
-    (foldPayload(payload, fold) as TurnEvent[]).filter((e) => e.type === 'tool').length,
-    0,
-  );
-  assertEquals(
-    (foldPayload(payload, fold) as TurnEvent[]).filter((e) => e.type === 'tool').length,
-    0,
-  );
-  const firstStop = foldPayload({ event_type: 'step.stop', index: 0 }, fold) as TurnEvent[];
-  const secondStop = foldPayload({ event_type: 'step.stop', index: 0 }, fold) as TurnEvent[];
-  assertEquals(firstStop.filter((e) => e.type === 'tool').length, 1);
-  assertEquals(secondStop.filter((e) => e.type === 'tool').length, 0);
-});
 
 Deno.test('adversarial/runTurn: provider malformed_arguments skips handler execution', async () => {
   let handlerCalls = 0;
@@ -168,6 +79,7 @@ Deno.test('adversarial/runTurn: provider malformed_arguments skips handler execu
           phase: 'error',
           failure: {
             code: 'malformed_arguments',
+            kind: 'bad_response',
             message: 'malformed tool arguments JSON',
             details: { raw: '{bad' },
           },
@@ -186,6 +98,7 @@ Deno.test('adversarial/runTurn: provider malformed_arguments skips handler execu
   assertEquals(handlerCalls, 0);
   assertEquals(lastTool(events, 'malformed_args_probe')?.phase, 'error');
   assertEquals(lastTool(events, 'malformed_args_probe')?.failure?.code, 'malformed_arguments');
+  assertEquals(lastTool(events, 'malformed_args_probe')?.failure?.kind, 'bad_response');
 });
 
 // ---------------------------------------------------------------------------
@@ -238,6 +151,7 @@ Deno.test('adversarial/runTurn: first tool error does not block second tool', as
     runTurn({ profile: 'batch_error_probe', input: { text: 'x' } }, provider),
   );
   assertEquals(lastTool(events, 'crashing_tool')?.failure?.code, 'handler_error');
+  assertEquals(lastTool(events, 'crashing_tool')?.failure?.kind, 'failed');
   assertEquals(lastTool(events, 'stub_tool')?.phase, 'complete');
 });
 
@@ -318,6 +232,7 @@ Deno.test('adversarial/handler: stream throws after progress', async () => {
     true,
   );
   assertEquals(lastTool(events, 'stream_throw_probe')?.failure?.code, 'handler_error');
+  assertEquals(lastTool(events, 'stream_throw_probe')?.failure?.kind, 'failed');
 });
 
 Deno.test('adversarial/handler: stream never yields complete', async () => {
@@ -343,6 +258,7 @@ Deno.test('adversarial/handler: stream never yields complete', async () => {
     input: {},
   });
   assertEquals(lastTool(events, 'stream_hang_probe')?.failure?.code, 'invalid_output');
+  assertEquals(lastTool(events, 'stream_hang_probe')?.failure?.kind, 'bad_response');
 });
 
 Deno.test('adversarial/handler: abort signal during execution', async () => {
@@ -409,6 +325,7 @@ Deno.test('adversarial/preTool: deny object not gate', async () => {
   const t = lastTool(events, 'preflight_fail_probe');
   assertEquals(t?.phase, 'error');
   assertEquals(t?.failure?.code, 'not_authorized');
+  assertEquals(t?.failure?.kind, 'blocked');
 });
 
 // ---------------------------------------------------------------------------
@@ -439,6 +356,7 @@ Deno.test('adversarial/t2Loader: loaded must be string[] not numbers', async () 
     input: {},
   });
   assertEquals(lastTool(events, 'bad_loader_shape')?.failure?.code, 'invalid_output');
+  assertEquals(lastTool(events, 'bad_loader_shape')?.failure?.kind, 'bad_response');
 });
 
 Deno.test('adversarial/promote: invalid id fails with zero side effects', () => {
@@ -463,6 +381,7 @@ Deno.test('adversarial/promote: invalid id fails with zero side effects', () => 
   const beforeVisible = [...snapshot.visible];
   const result = promoteLoadedTools(snapshot, ['record_lookup', 'stub_tool'], profile);
   assertEquals(result.failure?.code, 'invalid_output');
+  assertEquals(result.failure?.kind, 'bad_response');
   assertEquals(result.promoted, []);
   assertEquals(snapshot.visible, beforeVisible);
 });
@@ -505,7 +424,9 @@ Deno.test('adversarial/promote: invalid id in batch does not unlock later tools'
     runTurn({ profile: 'partial_batch_probe', input: { text: 'x' } }, provider),
   );
   assertEquals(lastTool(events, 'load_tools')?.failure?.code, 'invalid_output');
+  assertEquals(lastTool(events, 'load_tools')?.failure?.kind, 'bad_response');
   assertEquals(lastTool(events, 'record_lookup')?.failure?.code, 'not_loaded');
+  assertEquals(lastTool(events, 'record_lookup')?.failure?.kind, 'request');
 });
 
 Deno.test('adversarial/runTurn: geminiInteractions T2 promotion expands wire on continuation', async () => {
@@ -555,7 +476,7 @@ Deno.test('adversarial/t1Policy: throw propagates', async () => {
   flashProfile('t1_throw_probe', 1, {
     allow: ['stub_tool'],
     t1Policy: () => {
-      throw new TheoremError('t1 selector exploded');
+      throw new TheoremError('config', 't1 selector exploded');
     },
   });
   await assertRejects(
@@ -614,11 +535,12 @@ Deno.test('adversarial/invoke: promote failure attributes to host target tool', 
   });
   const t = lastTool(events, 'stub_tool');
   assertEquals(t?.failure?.code, 'invalid_output');
+  assertEquals(t?.failure?.kind, 'bad_response');
 });
 
 Deno.test('adversarial/runTurn: tool error still feeds provider continuation text', async () => {
   flashProfile('error_continuation_probe', 2, { allow: ['crashing_tool'] });
-  let secondInput: unknown;
+  let secondInput: TurnHistoryMessage[] | undefined;
   let calls = 0;
   const provider: ModelProvider = {
     async *complete(req) {
@@ -632,18 +554,16 @@ Deno.test('adversarial/runTurn: tool error still feeds provider continuation tex
         };
         return;
       }
-      secondInput = req.interactionOnlyInput;
+      secondInput = req.continuation;
       yield { type: 'text', text: 'ack' };
     },
   };
   await collect(runTurn({ profile: 'error_continuation_probe', input: { text: 'x' } }, provider));
   assertEquals(calls, 2);
-  const step = (
-    secondInput as { type: string; name: string; result?: Array<{ text?: string }> }[] | undefined
-  )?.[0];
-  assertEquals(step?.type, 'function_result');
+  const step = secondInput?.[0];
+  assertEquals(step?.role, 'tool');
   assertEquals(step?.name, 'crashing_tool');
-  const text = step?.result?.[0]?.text ?? '';
+  const text = step?.content ?? '';
   assertEquals(text.includes('handler_error'), true);
   assertEquals(text.includes('Tool error'), true);
 });
@@ -671,7 +591,7 @@ Deno.test('adversarial/runTurn: builtin function_call surfaces provider_native e
       guardrails: { quota: { perDay: 10 } },
     }),
   );
-  let secondInput: unknown;
+  let secondInput: TurnHistoryMessage[] | undefined;
   let calls = 0;
   const provider: ModelProvider = {
     async *complete(req) {
@@ -685,7 +605,7 @@ Deno.test('adversarial/runTurn: builtin function_call surfaces provider_native e
         };
         return;
       }
-      secondInput = req.interactionOnlyInput;
+      secondInput = req.continuation;
       yield { type: 'text', text: 'ack' };
     },
   };
@@ -695,10 +615,9 @@ Deno.test('adversarial/runTurn: builtin function_call surfaces provider_native e
   const tool = lastTool(events, 'googleSearch');
   assertEquals(tool?.phase, 'error');
   assertEquals(tool?.failure?.code, 'provider_native');
+  assertEquals(tool?.failure?.kind, 'request');
   assertEquals(calls, 2);
-  const text =
-    (secondInput as { result?: Array<{ text?: string }> }[] | undefined)?.[0]?.result?.[0]?.text ??
-    '';
+  const text = secondInput?.[0]?.content ?? '';
   assertEquals(text.includes('provider_native'), true);
 });
 
@@ -782,6 +701,7 @@ Deno.test('adversarial/fuzz: loaded[] with 1000 unknown ids fails atomically', (
   const result = promoteLoadedTools(snapshot, ids, profile);
   assertEquals(result.promoted, []);
   assertEquals(result.failure?.code, 'invalid_output');
+  assertEquals(result.failure?.kind, 'bad_response');
   assertEquals(snapshot.visible, beforeVisible);
 });
 
@@ -859,6 +779,7 @@ Deno.test('adversarial/fuzz: loaded[] rejects __proto__ id', () => {
   const result = promoteLoadedTools(snapshot, ['record_lookup', '__proto__'], profile);
   assertEquals(result.promoted, []);
   assertEquals(result.failure?.code, 'invalid_output');
+  assertEquals(result.failure?.kind, 'bad_response');
   assertEquals(snapshot.visible, beforeVisible);
 });
 

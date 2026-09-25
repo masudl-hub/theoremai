@@ -15,12 +15,15 @@ import type {
   ResolvedTraceScrub,
 } from './types.ts';
 
+/** Default record retention in days; `<= 0` keeps records forever. */
 const DEFAULT_RETAIN_DAYS = 14;
+/** Default JSONL file size, in MiB, before the writer rotates to a new file. */
 const DEFAULT_ROTATE_MIB = 32;
 
 function resolveInclude(spec: ProfileObservabilitySpec | undefined): ResolvedTraceInclude {
-  // When no observability block is authored, preserve historical buildRecord
-  // behavior (wire + evidence included). Authored blocks default those off.
+  // No authored block records only through an explicit capture sink (tests,
+  // `runTurn(..., sink)`), which keeps wire and raw evidence. Authored blocks
+  // default those two off.
   const authored = spec !== undefined;
   return {
     upstreamLog: spec?.include?.upstreamLog ?? true,
@@ -45,10 +48,10 @@ function clampSampleRate(value: number | undefined): number {
     return 1;
   }
   if (!Number.isFinite(value)) {
-    throw new TheoremError('observability.sampleRate must be a finite number');
+    throw new TheoremError('config', 'observability.sampleRate must be a finite number');
   }
   if (value < 0 || value > 1) {
-    throw new TheoremError('observability.sampleRate must be between 0 and 1 inclusive');
+    throw new TheoremError('config', 'observability.sampleRate must be between 0 and 1 inclusive');
   }
   return value;
 }
@@ -59,7 +62,7 @@ function clampSampleRate(value: number | undefined): number {
  * Omitted block → record false (noop). Explicit `writeTo: false` → record false.
  * A writeTo target with sampleRate 0 still resolves record false at write time.
  */
-export function resolveObservabilityPolicy(
+function resolveObservabilityPolicy(
   spec: ProfileObservabilitySpec | undefined,
 ): ResolvedObservabilityPolicy {
   const writeTo = spec?.writeTo;
@@ -71,8 +74,11 @@ export function resolveObservabilityPolicy(
     sampleRate,
     include: resolveInclude(spec),
     scrub: resolveScrub(spec),
+    resource: { ...(spec?.resource ?? {}) },
     retainForDays: spec?.retainForDays ?? DEFAULT_RETAIN_DAYS,
     rotateAfterMiB: spec?.rotateAfterMiB ?? DEFAULT_ROTATE_MIB,
     onWriteError: spec?.onWriteError,
   };
 }
+
+export { DEFAULT_RETAIN_DAYS, DEFAULT_ROTATE_MIB, resolveObservabilityPolicy };

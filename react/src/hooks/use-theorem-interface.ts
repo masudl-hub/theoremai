@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react';
 import type { ProfileInterface } from '../../../src/interface/mod.ts';
+import { type ClientFailure, clientFailure } from '../client/failure';
 import type { TheoremTransport } from '../client/transport';
 
+/** `failure` is worded with the default lexicon: the profile's is not known until it loads. */
 export type TheoremInterfaceState =
-	| { status: 'loading'; iface: null; error: null }
-	| { status: 'ready'; iface: ProfileInterface; error: null }
-	| { status: 'error'; iface: null; error: Error };
+	| { status: 'loading'; iface: null; failure: null }
+	| { status: 'ready'; iface: ProfileInterface; failure: null }
+	| { status: 'error'; iface: null; failure: ClientFailure };
 
-const LOADING: TheoremInterfaceState = { status: 'loading', iface: null, error: null };
+const LOADING: TheoremInterfaceState = { status: 'loading', iface: null, failure: null };
 
 /** Ask the transport for the host profile's client-safe interface. */
 export function useTheoremInterface(transport: TheoremTransport): TheoremInterfaceState {
@@ -15,15 +17,16 @@ export function useTheoremInterface(transport: TheoremTransport): TheoremInterfa
 
 	useEffect(() => {
 		const controller = new AbortController();
-		setState(LOADING);
+		// A new transport keeps the last interface up until it describes itself, so swapping one
+		// in (a recompiled playground profile) doesn't blank the chat to a spinner.
+		setState((previous) => (previous.status === 'ready' ? previous : LOADING));
 		transport.describe(controller.signal).then(
 			(iface) => {
-				if (!controller.signal.aborted) setState({ status: 'ready', iface, error: null });
+				if (!controller.signal.aborted) setState({ status: 'ready', iface, failure: null });
 			},
 			(err: unknown) => {
 				if (controller.signal.aborted) return;
-				const error = err instanceof Error ? err : new Error(String(err));
-				setState({ status: 'error', iface: null, error });
+				setState({ status: 'error', iface: null, failure: clientFailure(err) });
 			},
 		);
 		return () => {

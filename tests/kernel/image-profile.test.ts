@@ -3,11 +3,16 @@ import { wrapUserData } from '../../src/guardrails/canary.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { runTurn } from '../../src/kernel/engine/runner.ts';
-import { registerProfile } from '../../src/kernel/registry/profiles.ts';
+import {
+  defineProfile,
+  type ProfileDefinition,
+  registerProfile,
+} from '../../src/kernel/registry/profiles.ts';
 import { projectProfile, resolveTurn } from '../../src/kernel/registry/resolve.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
 import { camelToSnake, toInteractionsBody } from '../../src/providers/google/interactions/mod.ts';
 import { CHAT_MEDIA_LIMITS, geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
+import { eventTypesByReply } from '../fixtures/reply.ts';
 
 async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
   const out: TurnEvent[] = [];
@@ -179,12 +184,21 @@ Deno.test('interactions body requests text and image when includeText is set', (
 
 Deno.test('image runTurn yields media then done', async () => {
   const events = await collect(runTurn({ profile: 'image', input: { text: 'fox' } }, fake));
-  assertEquals(
-    events.map((e) => e.type),
-    ['stage', 'text', 'media', 'stage', 'tokens', 'done', 'stage'],
-  );
+  assertEquals(eventTypesByReply(events), [
+    'stage',
+    'text',
+    'media',
+    'tokens',
+    'stage',
+    'done',
+    'stage',
+  ]);
   const media = events.find((e) => e.type === 'media');
   assertEquals(media?.media?.mimeType, 'image/jpeg');
+  // The fake reports no usage: both sides are estimated and the image output is uncounted.
+  const tokens = events.find((e) => e.type === 'tokens')?.tokens;
+  assertEquals(tokens?.estimated, ['input', 'output']);
+  assertEquals(tokens?.unknownMedia, { output: 1 });
 });
 
 Deno.test('chat profile does not attach image response format', () => {
@@ -199,13 +213,10 @@ Deno.test('image projection exposes image pins not tools', () => {
   assertEquals(ui.outputs?.structured, null);
   assertEquals(ui.image?.mimeType, 'image/jpeg');
   assertEquals(ui.image?.size, '1K');
-  assertEquals(ui.image?.maxInputImages, 14);
   assertEquals(ui.models.gemini31FlashLiteImage.summaries, false);
 });
 
-Deno.test('media validations allow omitted aspect/size; reject structured mixing and invalid mime', async () => {
-  const { registerProfile, defineProfile } = await import('../../src/kernel/registry/profiles.ts');
-
+Deno.test('media validations allow omitted aspect/size; reject structured mixing and invalid mime', () => {
   // Image pins without aspect/size — provider defaults apply
   registerProfile(
     defineProfile({
@@ -232,7 +243,7 @@ Deno.test('media validations allow omitted aspect/size; reject structured mixing
     includeText: false,
   });
 
-  // Image pins with responseFormat-enforced structured output
+  // Image pins with a structured schema: two wire output formats
   registerProfile(
     defineProfile({
       id: 'mixed_media_profile',
@@ -252,29 +263,6 @@ Deno.test('media validations allow omitted aspect/size; reject structured mixing
     () => resolveTurn({ profile: 'mixed_media_profile', input: { text: 'test' } }),
     TheoremError,
   );
-
-  // Prompt-enforced structured + image is allowed (no competing responseFormat)
-  registerProfile(
-    defineProfile({
-      id: 'image_with_prompt_schema',
-      type: 'image',
-      identity: { handle: 'image_with_prompt_schema' },
-      ...geminiModels('gemini31FlashLiteImage'),
-      image: { aspectRatio: '1:1', size: '1K', mimeType: 'image/jpeg' },
-      tools: { allow: [] },
-      inputs: { text: true },
-      outputs: {
-        structured: 'promptTurn',
-      },
-      guardrails: { quota: { perDay: 10 } },
-    }),
-  );
-  const promptImage = resolveTurn({
-    profile: 'image_with_prompt_schema',
-    input: { text: 'fox' },
-  }).generation;
-  assertEquals(promptImage.structured, 'promptTurn');
-  assertEquals(promptImage.image?.type, 'image');
 
   // codeExecution on image profiles is a host/model choice — kernel does not block it
   registerProfile(
@@ -347,7 +335,7 @@ Deno.test('speech profiles use top-level speech pins', () => {
     identity: { handle: 'speech_output_test' },
     ...geminiModels('gemini31FlashTts'),
     speech: { voice: 'Kore', format: 'pcm' },
-    guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
+    guardrails: { sanitizeInput: false, redactSensitive: false },
   });
   assertEquals(
     resolveTurn({ profile: 'speech_output_test', input: { text: 'hi' } }).generation.speech,
@@ -355,5 +343,121 @@ Deno.test('speech profiles use top-level speech pins', () => {
       voice: 'Kore',
       format: 'pcm',
     },
+  );
+});
+
+function speechDefinition(overrides: Record<string, unknown>): ProfileDefinition {
+  return {
+    type: 'speech',
+    id: 'speech_contract',
+    identity: { handle: 'speech_contract' },
+    ...geminiModels('gemini31FlashTts'),
+    speech: { voice: 'Kore' },
+    ...overrides,
+  } as ProfileDefinition;
+}
+
+Deno.test('speech profiles store canary off and resolve no system prompt or canary', () => {
+  const profile = defineProfile(speechDefinition({}));
+  assertEquals(profile.type === 'speech' && profile.guardrails, { canary: false });
+  registerProfile(profile);
+  const { generation } = resolveTurn({ profile: 'speech_contract', input: { text: 'hi' } });
+  assertEquals(generation.canary, '');
+  assertEquals(generation.resolvedSystem, '');
+});
+
+Deno.test('speech profiles reject a system prompt and a canary', () => {
+  for (const overrides of [
+    { identity: { handle: 'speech_contract', system: 'Speak warmly.' } },
+    { identity: { handle: 'speech_contract', systemByRole: { a: 'Speak warmly.' } } },
+    { guardrails: { canary: true } },
+    { guardrails: { canary: { bindNote: 'token {canary}' } } },
+  ]) {
+    assertThrows(() => defineProfile(speechDefinition(overrides)), TheoremError);
+  }
+});
+
+Deno.test('speech turns reject a host system prompt', () => {
+  registerProfile(speechDefinition({}));
+  assertThrows(
+    () =>
+      resolveTurn({ profile: 'speech_contract', system: 'Speak warmly.', input: { text: 'hi' } }),
+    TheoremError,
+  );
+});
+
+Deno.test('image and speech continueFrom re-send the request with nothing added', () => {
+  registerProfile(speechDefinition({}));
+  for (const req of [
+    { profile: 'image', input: { text: 'sleepy fox' } },
+    { profile: 'speech_contract', input: { text: 'hi' } },
+  ]) {
+    const fresh = resolveTurn(req).generation;
+    const resumed = resolveTurn({
+      ...req,
+      continueFrom: { stop: { kind: 'provider_error' } },
+    }).generation;
+    assertEquals(resumed.input, fresh.input);
+    assertEquals(resumed.resolvedSystem, fresh.resolvedSystem);
+  }
+});
+
+Deno.test('image and speech profiles take a lexicon; continueFrom still adds nothing', () => {
+  const lexicon = { 'continue.instruction': 'Keep going.', 'error.internal': 'Host copy.' };
+  registerProfile(speechDefinition({ id: 'speech_lexicon', lexicon }));
+  registerProfile(
+    defineProfile({
+      type: 'image',
+      id: 'image_lexicon',
+      identity: { handle: 'image_lexicon' },
+      ...geminiModels('gemini31FlashLiteImage'),
+      maxSteps: 1,
+      image: { aspectRatio: '1:1', size: '1K', mimeType: 'image/jpeg' },
+      tools: { allow: [] },
+      inputs: { text: true },
+      lexicon,
+    }),
+  );
+  for (const profile of ['speech_lexicon', 'image_lexicon']) {
+    const req = { profile, input: { text: 'hi' } };
+    const resumed = resolveTurn({ ...req, continueFrom: { stop: { kind: 'provider_error' } } });
+    assertEquals(resumed.generation.input, resolveTurn(req).generation.input);
+    assertEquals(JSON.stringify(resumed.generation).includes('Keep going.'), false);
+  }
+});
+
+function imageWithInputs(id: string, inputs: Record<string, unknown>): ProfileDefinition {
+  return {
+    id,
+    type: 'image',
+    identity: { handle: id },
+    ...geminiModels('gemini31FlashLiteImage'),
+    image: { mimeType: 'image/jpeg' },
+    tools: { allow: [] },
+    inputs: { text: true, ...CHAT_MEDIA_LIMITS, ...inputs },
+  } as ProfileDefinition;
+}
+
+Deno.test('image attachments take images, video and PDF', () => {
+  const accept = ['image/*', 'video/mp4', 'application/pdf'];
+  const profile = defineProfile(imageWithInputs('image_accepts', { attachments: { accept } }));
+  assertEquals(profile.type === 'image' && profile.inputs.attachments?.accept, accept);
+});
+
+Deno.test('image attachments refuse audio, text and other documents', () => {
+  for (const mime of ['audio/wav', 'text/plain', 'application/json', '*/*']) {
+    assertThrows(
+      () => defineProfile(imageWithInputs('image_refuses', { attachments: { accept: [mime] } })),
+      TheoremError,
+      `PDF only, not ${mime}`,
+    );
+  }
+});
+
+Deno.test('an image profile takes no voice', () => {
+  assertThrows(
+    () => defineProfile(imageWithInputs('image_voice', { voice: { accept: ['audio/wav'] } })),
+    TheoremError,
+    'must not set inputs.voice',
   );
 });

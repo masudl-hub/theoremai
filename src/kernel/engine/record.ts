@@ -5,4 +5,12 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   return undefined;
 }
 
-export { asRecord };
+/** The string when it has non-whitespace content; otherwise undefined. */
+function nonEmptyString(value: unknown): string | undefined {
+  if (typeof value === 'string' && value.trim()) {
+    return value;
+  }
+  return undefined;
+}
+
+export { asRecord, nonEmptyString };

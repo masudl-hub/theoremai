@@ -9,6 +9,7 @@ import {
 } from '../../src/kernel/registry/profiles.ts';
 import { prepareTurnToolSnapshot, registerTool, resetTools } from '../../src/kernel/tools/mod.ts';
 
+import { MockLiveWebSocket } from '../fixtures/live-socket.ts';
 import { HOST_BINDINGS } from '../fixtures/models.ts';
 
 function registerLiveProfile(id: string) {
@@ -27,45 +28,6 @@ function registerLiveProfile(id: string) {
   });
   registerProfile(profile);
   return profile;
-}
-
-/** Minimal WebSocket stand-in that completes Live setup and accepts scripted upstream frames. */
-class MockLiveWebSocket extends EventTarget {
-  readyState = 0;
-  sent: string[] = [];
-  onopen: ((ev: Event) => void) | null = null;
-  onmessage: ((ev: MessageEvent) => void) | null = null;
-  onerror: ((ev: Event) => void) | null = null;
-  onclose: ((ev: CloseEvent) => void) | null = null;
-
-  send(data: string): void {
-    this.sent.push(data);
-    if (data.includes('"setup"')) {
-      queueMicrotask(() => {
-        this.dispatchEvent(
-          new MessageEvent('message', { data: JSON.stringify({ setupComplete: true }) }),
-        );
-      });
-    }
-  }
-
-  close(code = 1000, reason = ''): void {
-    this.readyState = 3;
-    this.onclose?.(new CloseEvent('close', { code, reason }));
-    this.dispatchEvent(new CloseEvent('close', { code, reason }));
-  }
-
-  open(): void {
-    this.readyState = 1;
-    this.onopen?.(new Event('open'));
-    this.dispatchEvent(new Event('open'));
-  }
-
-  deliver(payload: unknown): void {
-    const data = JSON.stringify(payload);
-    this.onmessage?.(new MessageEvent('message', { data }));
-    this.dispatchEvent(new MessageEvent('message', { data }));
-  }
 }
 
 Deno.test('runSession rejects non-live profiles', async () => {
@@ -164,6 +126,28 @@ Deno.test('runSession sendVideo rejects when live.ingress.video is disabled', as
     'live.ingress.video is disabled',
   );
   (mock as unknown as MockLiveWebSocket)?.close();
+  await session.close();
+});
+
+Deno.test('runSession sends setup on an already-open socket (fetch upgrade)', async () => {
+  clearProfiles();
+  resetTools();
+  const profile = registerLiveProfile('session_live_preopened');
+
+  const mock = new MockLiveWebSocket();
+  mock.readyState = 1;
+  const session = await runSession(
+    { profile: profile.id },
+    {
+      gemini: {
+        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
+      },
+      openWebSocket: () => Promise.resolve(mock as unknown as WebSocket),
+    },
+  );
+
+  assertEquals(mock.sent.filter((frame) => frame.includes('"setup"')).length, 1);
+  mock.close();
   await session.close();
 });
 
@@ -652,6 +636,62 @@ Deno.test('runSession StageContext.history seeds from SessionRequest.history', a
   await session.close();
 });
 
+Deno.test('runSession executeTool sends the guarded text a turn sends, never the raw output', async () => {
+  clearProfiles();
+  resetTools();
+  registerTool({
+    type: 'function',
+    name: 'live_lookup_ssn',
+    description: 'returns a record',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    input: z.object({}),
+    output: z.object({ finding: z.string(), ssn: z.string() }),
+    handler: () => ({ finding: 'found the record', ssn: '123-45-6789' }),
+  });
+  const profile = defineProfile({
+    type: 'live',
+    id: 'session_live_guarded_tool',
+    identity: { handle: 'live', system: 'hi' },
+    models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, key: 'slotA' } },
+    live: { voice: 'Aoede', ingress: { text: true } },
+    tools: { allow: ['live_lookup_ssn'] },
+  });
+  registerProfile(profile);
+  let mock: MockLiveWebSocket | null = null;
+  const session = await runSession(
+    { profile: profile.id },
+    {
+      gemini: { vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined } },
+      openWebSocket: () => {
+        mock = new MockLiveWebSocket();
+        setTimeout(() => mock?.open(), 0);
+        return Promise.resolve(mock as unknown as WebSocket);
+      },
+    },
+  );
+  await new Promise((r) => setTimeout(r, 0));
+  const drain = (async () => {
+    for await (const _ev of session.events()) {
+      /* keep pump alive */
+    }
+  })();
+
+  const settled = await session.executeTool({ name: 'live_lookup_ssn', callId: 'c1', input: {} });
+  const frame = (mock as unknown as MockLiveWebSocket).sent.find((s) => s.includes('toolResponse'));
+  const response = JSON.parse(frame ?? 'null')?.toolResponse?.functionResponses?.[0]?.response;
+  assertEquals(response, { result: settled.outputModel?.modelText });
+  assertEquals(String(response?.result).startsWith('found the record\n'), true);
+  assertEquals(String(response?.result).includes('123-45-6789'), false);
+
+  (mock as unknown as MockLiveWebSocket).close();
+  await session.close();
+  await drain.catch(() => undefined);
+});
+
 Deno.test('runSession executeTool gates, resumes granted, and denies via granted false', async () => {
   clearProfiles();
   resetTools();
@@ -754,6 +794,7 @@ Deno.test('runSession executeTool gates, resumes granted, and denies via granted
     resume: { granted: false },
   });
   assertEquals(denied.failure?.code, 'denied');
+  assertEquals(denied.failure?.kind, 'declined');
   assertEquals(stages.includes('post_tool'), true);
 
   (mock as unknown as MockLiveWebSocket).close();

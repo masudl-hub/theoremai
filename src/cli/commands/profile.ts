@@ -1,4 +1,5 @@
 import { getProfile, listProfiles } from '../../kernel/registry/profiles.ts';
+import { profileToolAllow } from '../../kernel/tools/resolve.ts';
 import type { ModelProfile, Profile } from '../../kernel/types.ts';
 
 function formatProfileInputs(p: ModelProfile): string {
@@ -14,7 +15,7 @@ function formatProfileInputs(p: ModelProfile): string {
     return 'none';
   }
   if (spec.text !== false) inputs.push('text');
-  if (spec.voice) inputs.push('voice');
+  if (p.type !== 'image' && p.inputs?.voice) inputs.push('voice');
   if (spec.attachments) {
     inputs.push(`attachments [${spec.attachments.accept?.join(', ')}]`);
   }
@@ -22,10 +23,7 @@ function formatProfileInputs(p: ModelProfile): string {
 }
 
 function formatProfileTools(p: Profile): string {
-  if (p.type === 'speech' || p.type === 'decision') {
-    return 'none';
-  }
-  return p.tools.allow?.length ? p.tools.allow.join(', ') : 'none';
+  return profileToolAllow(p).join(', ') || 'none';
 }
 
 function printProfileCard(p: Profile): void {
@@ -38,7 +36,7 @@ function printProfileCard(p: Profile): void {
   }
   if (p.type === 'decision') {
     console.log(` • Profile: ${p.id.padEnd(16)} (handle: ${p.identity.handle}) [decision]`);
-    console.log(`   - Models:     ${Object.keys(p.models).join(', ') || 'default'}`);
+    console.log(`   - Model:      ${Object.keys(p.models).join(', ')}`);
     console.log(`   - Inputs:     JSON state`);
     console.log(`   - Contract:   ${p.decision.contract}`);
     console.log(`   - Key Slot: ${p.key ?? '(unset)'}`);

@@ -9,9 +9,20 @@
  * @module
  */
 
-import type { TurnEvent, TurnHistoryMessage } from '../../../mod.ts';
+import {
+	describeError,
+	ERROR_KINDS,
+	type ErrorKind,
+	isAbortError,
+	TheoremError,
+	throwIfAborted,
+	type TurnEvent,
+	type TurnHistoryMessage,
+} from '../../../mod.ts';
+import { kindOfHttpStatus } from '../../../src/guardrails/mod.ts';
 import type { ProfileInterface } from '../../../src/interface/mod.ts';
-import type { ToolCredential, TurnToolSnapshot } from '../../../src/kernel/mod.ts';
+import type { TurnToolSnapshot } from '../../../src/kernel/mod.ts';
+import type { TraceFeed } from './trace-feed.ts';
 
 export type EncodedBlob = { name: string; mimeType: string; data: string };
 
@@ -61,8 +72,12 @@ export type TheoremTurnRequest = {
 export type TheoremInvokeRequest = {
 	/** Call id of the paused tool call (`tool.callId` on its gate event). */
 	gateId: string;
-	/** User-entered secrets for an auth gate. */
-	credentials?: Record<string, ToolCredential>;
+	/**
+	 * The key or token the user typed at a bearer or API-key sign-in gate. The
+	 * server saves it for the session and never sends it back; an OAuth gate
+	 * resumes with the gate id alone, once the host's callback saved the token.
+	 */
+	secret?: string;
 	replay?: TheoremReplay;
 };
 
@@ -80,17 +95,25 @@ export interface TheoremTransport {
 	turn(request: TheoremTurnRequest, onEvent: TurnEventSink, signal?: AbortSignal): Promise<void>;
 	invoke(request: TheoremInvokeRequest, onEvent: TurnEventSink, signal?: AbortSignal): Promise<void>;
 	steer(request: TheoremSteerRequest): Promise<void>;
+	/** Trace records the host sends back, when it delivers them (the playground does). */
+	traces?: TraceFeed;
 }
 
-/** Public-safe stream failure; `internalMessage` is only set when the host exposes it. */
+/**
+ * A failure the host reported: its kind, the host's wording when it sent one
+ * (the profile's lexicon, applied on the host), and raw detail when the host
+ * exposes it. `clientFailure` words it for the user.
+ */
 export class TheoremStreamError extends Error {
-	readonly publicMessage: string;
+	readonly kind: ErrorKind;
+	readonly publicMessage?: string;
 	readonly internalMessage?: string;
 
-	constructor(publicMessage: string, internalMessage?: string) {
-		super(publicMessage);
+	constructor(kind: ErrorKind, publicMessage?: string, internalMessage?: string) {
+		super(internalMessage ?? publicMessage ?? kind);
 		this.name = 'TheoremStreamError';
-		this.publicMessage = publicMessage;
+		this.kind = kind;
+		if (publicMessage) this.publicMessage = publicMessage;
 		if (internalMessage) this.internalMessage = internalMessage;
 	}
 }
@@ -99,44 +122,56 @@ export function isTheoremStreamError(err: unknown): err is TheoremStreamError {
 	return err instanceof TheoremStreamError;
 }
 
-export function isAbortError(err: unknown): boolean {
-	return (
-		(err instanceof DOMException && err.name === 'AbortError') ||
-		(err instanceof Error && (err.name === 'AbortError' || /aborted/i.test(err.message)))
+/** The trimmed string, or undefined when absent or blank. */
+function textOf(value: unknown): string | undefined {
+	const text = typeof value === 'string' ? value.trim() : '';
+	return text || undefined;
+}
+
+/** A host error reply's body (JSON reply or `{ type: 'error' }` stream line). */
+export type HostErrorBody = { error?: unknown; errorKind?: unknown; errorInternal?: unknown };
+
+function isErrorKind(value: unknown): value is ErrorKind {
+	return typeof value === 'string' && (ERROR_KINDS as readonly string[]).includes(value);
+}
+
+/** A host's error body as a failure: its kind when valid (else `fallbackKind`), wording, and detail. */
+export function hostError(body: HostErrorBody, fallbackKind: ErrorKind): TheoremStreamError {
+	const publicMessage = textOf(body.error);
+	const internal = textOf(body.errorInternal);
+	return new TheoremStreamError(
+		isErrorKind(body.errorKind) ? body.errorKind : fallbackKind,
+		publicMessage,
+		internal && internal !== publicMessage ? internal : undefined,
 	);
 }
 
-function streamErrorFromEvent(event: { error?: string; errorInternal?: string }): TheoremStreamError {
-	const pub = typeof event.error === 'string' ? event.error.trim() : '';
-	const internal = typeof event.errorInternal === 'string' ? event.errorInternal.trim() : '';
-	const publicMessage = pub || 'Something went wrong. Try again.';
-	const internalMessage = internal && internal !== publicMessage ? internal : undefined;
-	return new TheoremStreamError(publicMessage, internalMessage);
-}
+/** One NDJSON line: a turn event, or a host's own line type beside them. */
+export type StreamLine = { type: string };
 
 /** Any `{ type: 'error' }` line ends the stream as a {@link TheoremStreamError}. */
-function parseStreamLine(line: string): TurnEvent {
-	const event = JSON.parse(line) as TurnEvent | { type: 'error'; error?: string; errorInternal?: string };
-	if (event.type === 'error') throw streamErrorFromEvent(event);
-	return event;
+function parseStreamLine<Line extends StreamLine>(line: string): Line {
+	const parsed = JSON.parse(line) as Line & HostErrorBody;
+	if (parsed.type === 'error') throw hostError(parsed, 'internal');
+	return parsed;
 }
 
-function flushNdjsonChunk(buffer: string, onEvent: TurnEventSink): string {
+function flushNdjsonChunk<Line extends StreamLine>(buffer: string, onLine: (line: Line) => void): string {
 	const lines = buffer.split('\n');
 	const rest = lines.pop() ?? '';
 	for (const line of lines) {
 		if (!line.trim()) continue;
-		onEvent(parseStreamLine(line));
+		onLine(parseStreamLine<Line>(line));
 	}
 	return rest;
 }
 
-async function readNdjsonStream(
+async function readNdjsonStream<Line extends StreamLine>(
 	response: Response,
-	onEvent: TurnEventSink,
+	onLine: (line: Line) => void,
 	signal?: AbortSignal,
 ): Promise<void> {
-	if (!response.body) throw new Error('Stream missing body');
+	if (!response.body) throw new TheoremError('bad_response', 'stream reply has no body'); // lexicon-exempt: internal diagnostic
 
 	const reader = response.body.getReader();
 	const decoder = new TextDecoder();
@@ -148,13 +183,13 @@ async function readNdjsonStream(
 
 	try {
 		for (;;) {
-			if (signal?.aborted) throw new DOMException('The operation was aborted.', 'AbortError');
+			throwIfAborted(signal);
 			const { done, value } = await reader.read();
 			if (done) break;
-			buffer = flushNdjsonChunk(buffer + decoder.decode(value, { stream: true }), onEvent);
+			buffer = flushNdjsonChunk(buffer + decoder.decode(value, { stream: true }), onLine);
 		}
 		const tail = buffer.trim();
-		if (tail) onEvent(parseStreamLine(tail));
+		if (tail) onLine(parseStreamLine<Line>(tail));
 	} finally {
 		signal?.removeEventListener('abort', onAbort);
 	}
@@ -175,9 +210,13 @@ async function resolveHeaders(options: HttpOptions): Promise<Headers> {
 	return headers;
 }
 
-async function failureFromResponse(response: Response, label: string): Promise<Error> {
-	const payload = (await response.json().catch(() => ({}))) as { error?: string };
-	return new Error(payload.error ?? `${label} (${String(response.status)})`);
+/** A non-OK reply as a failure: the host's kind and wording, else the status's kind. */
+async function failureFromResponse(response: Response): Promise<TheoremStreamError> {
+	const body = (await response.json().catch(() => ({}))) as HostErrorBody;
+	return hostError(
+		{ ...body, errorInternal: body.errorInternal ?? `HTTP ${String(response.status)}` },
+		kindOfHttpStatus(response.status),
+	);
 }
 
 async function request(
@@ -193,35 +232,35 @@ async function request(
 			credentials: options.credentials ?? 'same-origin',
 		});
 	} catch (err) {
-		if (isAbortError(err)) throw new DOMException('The operation was aborted.', 'AbortError');
-		throw err;
+		if (isAbortError(err)) throw err;
+		throw new TheoremError('network', describeError(err), { cause: err });
 	}
 }
 
-/** POST JSON and stream NDJSON turn events back. */
-export async function postNdjson(
+/** POST JSON and stream NDJSON lines back: turn events, unless the host adds its own line types. */
+export async function postNdjson<Line extends StreamLine = TurnEvent>(
 	url: string,
 	body: unknown,
-	onEvent: TurnEventSink,
-	options: HttpOptions & { signal?: AbortSignal; failureLabel?: string } = {},
+	onLine: (line: Line) => void,
+	options: HttpOptions & { signal?: AbortSignal } = {},
 ): Promise<void> {
 	const response = await request(
 		url,
 		{ method: 'POST', body: JSON.stringify(body), signal: options.signal },
 		options,
 	);
-	if (!response.ok) throw await failureFromResponse(response, options.failureLabel ?? 'Request failed');
-	await readNdjsonStream(response, onEvent, options.signal);
+	if (!response.ok) throw await failureFromResponse(response);
+	await readNdjsonStream(response, onLine, options.signal);
 }
 
 /** POST JSON and read a JSON reply. */
 export async function postJson<T>(
 	url: string,
 	body: unknown,
-	options: HttpOptions & { failureLabel?: string } = {},
+	options: HttpOptions = {},
 ): Promise<T> {
 	const response = await request(url, { method: 'POST', body: JSON.stringify(body) }, options);
-	if (!response.ok) throw await failureFromResponse(response, options.failureLabel ?? 'Request failed');
+	if (!response.ok) throw await failureFromResponse(response);
 	return (await response.json()) as T;
 }
 
@@ -243,19 +282,15 @@ export function createHttpTransport(options: HttpTransportOptions = {}): Theorem
 	return {
 		async describe(signal) {
 			const response = await request(base, { method: 'GET', signal }, options);
-			if (!response.ok) throw await failureFromResponse(response, 'Describe failed');
+			if (!response.ok) throw await failureFromResponse(response);
 			return ((await response.json()) as { interface: ProfileInterface }).interface;
 		},
 		turn: ({ replay: _replay, ...body }, onEvent, signal) =>
-			postNdjson(`${base}/turn`, body, onEvent, { ...options, signal, failureLabel: 'Turn failed' }),
+			postNdjson(`${base}/turn`, body, onEvent, { ...options, signal }),
 		invoke: ({ replay: _replay, ...body }, onEvent, signal) =>
-			postNdjson(`${base}/invoke`, body, onEvent, {
-				...options,
-				signal,
-				failureLabel: 'Invoke failed',
-			}),
+			postNdjson(`${base}/invoke`, body, onEvent, { ...options, signal }),
 		async steer(body) {
-			await postJson(`${base}/steer`, body, { ...options, failureLabel: 'Steer failed' });
+			await postJson(`${base}/steer`, body, options);
 		},
 	};
 }

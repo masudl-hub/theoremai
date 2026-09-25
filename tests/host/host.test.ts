@@ -1,5 +1,5 @@
 import { assertEquals } from '@std/assert';
-import { TheoremError } from '../../src/guardrails/error.ts';
+import { ERROR_KINDS, TheoremError } from '../../src/guardrails/error.ts';
 import {
   caughtStatus,
   flushMintTrace,
@@ -9,50 +9,97 @@ import {
   HTTP_OK,
   json,
 } from '../../src/host/mod.ts';
-import { memorySink } from '../../src/observability/trace.ts';
-import type { TraceRecord } from '../../src/observability/trace-record.ts';
+import { resolveObservabilityPolicy } from '../../src/observability/resolve-policy.ts';
+import { buildRecord, contentOf, type TraceRecord } from '../../src/observability/trace-record.ts';
+import { startTrace } from '../../src/observability/trace-span.ts';
+import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
 
-function stubRecord(): TraceRecord {
-  return {
-    v: 1,
-    id: 'x',
-    ts: Date.now() - 5,
-    ms: 1,
-    streamed: true,
-    cancelled: false,
-    previousInteractionId: null,
-    store: false,
-    profile: 'chat',
-    input: { attachments: [], voice: [] },
-    events: [],
-    ok: true,
-  };
+const CUTOUT_MS = 12;
+const NANOS_PER_MS = 1_000_000n;
+
+async function heldTurn(): Promise<TraceRecord> {
+  const tree = startTrace('invoke_agent chat', { attributes: { 'gen_ai.agent.name': 'chat' } });
+  tree.root.end();
+  return await buildRecord({
+    spans: tree.collect(),
+    policy: resolveObservabilityPolicy(undefined),
+    metadata: { user: 'u1' },
+  });
 }
 
 Deno.test('host reply helpers map status codes and JSON bodies', async () => {
   const res = json(HTTP_OK, { ok: true }, { 'Access-Control-Allow-Origin': '*' });
   assertEquals(res.status, HTTP_OK);
   assertEquals(await res.json(), { ok: true });
-  assertEquals(caughtStatus(new TheoremError('bad request')), 400);
   assertEquals(caughtStatus(new Error('boom')), 500);
+  assertEquals(caughtStatus(new DOMException('gone', 'AbortError')), 499);
+});
+
+Deno.test('caughtStatus replies with the status of the error kind', () => {
+  const statuses = Object.fromEntries(
+    ERROR_KINDS.map((kind) => [kind, caughtStatus(new TheoremError(kind, 'synthetic'))]),
+  );
+  assertEquals(statuses, {
+    config: 500,
+    request: 400,
+    input: 422,
+    action: 403,
+    auth: 401,
+    rate_limit: 429,
+    unsupported: 422,
+    unavailable: 503,
+    bad_response: 502,
+    network: 502,
+    timeout: 504,
+    safety: 422,
+    blocked: 403,
+    declined: 409,
+    failed: 502,
+    cancelled: 499,
+    internal: 500,
+  });
   assertEquals(HTTP_BUSY, 429);
   assertEquals(HTTP_METHOD, 405);
   assertEquals(HTTP_NOT_FOUND, 404);
 });
 
-Deno.test('flushMintTrace attaches cutout metadata onto a held trace row', async () => {
+Deno.test('flushMintTrace writes the held turn, then a cutout span under its root', async () => {
   const into: TraceRecord[] = [];
-  const held = [stubRecord()];
+  const turn = await heldTurn();
 
   await flushMintTrace({
-    held,
+    held: [turn],
     app: { route: 'vinylator' },
-    cutout: { ok: false, ms: 12, error: 'cutout failed' },
-    sink: memorySink(into),
+    cutout: {
+      ok: false,
+      ms: CUTOUT_MS,
+      url: 'https://cutout.example/v1/cut?key=secret',
+      http: { status: 502 },
+      error: 'cutout failed',
+    },
+    sink: catalogedSink(into),
   });
 
-  assertEquals(into.length, 1);
-  assertEquals(into[0]?.ok, false);
-  assertEquals(into[0]?.error, 'cutout failed');
-  assertEquals(into[0]?.app, { route: 'vinylator' });
+  const [first, second] = into;
+  assertEquals(first, turn);
+  const [span] = second?.spans ?? [];
+  const [root] = turn.spans;
+  assertEquals(span?.name, 'cutout');
+  assertEquals(span?.traceId, root?.traceId);
+  assertEquals(span?.parentSpanId, root?.spanId);
+  assertEquals(span?.status, { code: 'ERROR' });
+  assertEquals(span?.attributes['url.path'], '/v1/cut');
+  assertEquals(
+    span?.events.map((e) => e.name),
+    ['theorem.upstream.row', 'exception'],
+  );
+  const failure = span?.events[1]?.attributes['exception.message'];
+  assertEquals(second && contentOf(second, failure), 'cutout failed');
+  assertEquals(
+    BigInt(span?.endTimeUnixNano ?? 0) - BigInt(span?.startTimeUnixNano ?? 0),
+    BigInt(CUTOUT_MS) * NANOS_PER_MS,
+  );
+  assertEquals(second?.metadata, { user: 'u1', app: { route: 'vinylator' } });
 });
+
+catalogGate();

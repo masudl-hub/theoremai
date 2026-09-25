@@ -19,7 +19,7 @@ export function stubCompleteRequest(overrides: StubOverrides = {}): ProviderComp
     system: overrides.system ?? 'Be brief.',
     input: overrides.input ?? [{ type: 'text', text: 'Hello' }],
     history: overrides.history,
-    interactionOnlyInput: overrides.interactionOnlyInput,
+    continuation: overrides.continuation,
     wireTools: overrides.wireTools,
     structured: overrides.structured ?? null,
     image: overrides.image ?? null,

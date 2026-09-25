@@ -7,9 +7,11 @@
  * @module
  */
 
+import type { LexiconOverrides } from '../guardrails/lexicon.ts';
 import type { ResolvedGuardrailPolicy } from '../guardrails/types.ts';
 import type { LiveProfileToolsSpec, ProfileToolsSpec } from '../kernel/tools/types.ts';
 import type {
+  AttachmentValidationIssue,
   GroundingEvent,
   ImageProfile,
   LiveProfile,
@@ -38,7 +40,7 @@ export type ProfileGuardrailsView = Pick<
 /** Observability visible to UI — TraceSink / onWriteError functions are omitted. */
 export type ProfileObservabilityView = Pick<
   ResolvedObservabilityPolicy,
-  'record' | 'sampleRate' | 'include' | 'scrub' | 'retainForDays' | 'rotateAfterMiB'
+  'record' | 'sampleRate' | 'include' | 'scrub' | 'resource' | 'retainForDays' | 'rotateAfterMiB'
 > & {
   /** false | registered id | 'custom' when writeTo is an inline TraceSink. */
   writeTo: false | string | 'custom' | undefined;
@@ -69,8 +71,10 @@ export type LiveResolvedTools = LiveProfileToolsSpec & {
 
 export type TextProfileInterface = Omit<
   TextProfile,
-  'inputs' | 'tools' | 'guardrails' | 'observability'
+  'inputs' | 'tools' | 'guardrails' | 'observability' | 'lexicon'
 > & {
+  /** Client keys' overrides (`CLIENT_LEXICON_KEYS`), resolved on the host; pass to `lexiconText`. */
+  lexicon: LexiconOverrides;
   inputs: ProfileInputsInterface;
   tools: ResolvedTools;
   guardrails?: ProfileGuardrailsView;
@@ -83,8 +87,10 @@ export type TextProfileInterface = Omit<
 
 export type ImageProfileInterface = Omit<
   ImageProfile,
-  'inputs' | 'tools' | 'guardrails' | 'observability'
+  'inputs' | 'tools' | 'guardrails' | 'observability' | 'lexicon'
 > & {
+  /** Client keys' overrides (`CLIENT_LEXICON_KEYS`), resolved on the host; pass to `lexiconText`. */
+  lexicon: LexiconOverrides;
   inputs: ProfileInputsInterface;
   tools: ResolvedTools;
   guardrails?: ProfileGuardrailsView;
@@ -93,7 +99,12 @@ export type ImageProfileInterface = Omit<
   canStop: true;
 };
 
-export type SpeechProfileInterface = Omit<SpeechProfile, 'guardrails' | 'observability'> & {
+export type SpeechProfileInterface = Omit<
+  SpeechProfile,
+  'guardrails' | 'observability' | 'lexicon'
+> & {
+  /** Client keys' overrides (`CLIENT_LEXICON_KEYS`), resolved on the host; pass to `lexiconText`. */
+  lexicon: LexiconOverrides;
   inputs: ProfileInputsInterface;
   guardrails?: ProfileGuardrailsView;
   observability?: ProfileObservabilityView;
@@ -101,7 +112,12 @@ export type SpeechProfileInterface = Omit<SpeechProfile, 'guardrails' | 'observa
   canStop: true;
 };
 
-export type LiveProfileInterface = Omit<LiveProfile, 'tools' | 'guardrails' | 'observability'> & {
+export type LiveProfileInterface = Omit<
+  LiveProfile,
+  'tools' | 'guardrails' | 'observability' | 'lexicon'
+> & {
+  /** Client keys' overrides (`CLIENT_LEXICON_KEYS`), resolved on the host; pass to `lexiconText`. */
+  lexicon: LexiconOverrides;
   tools: LiveResolvedTools;
   guardrails?: ProfileGuardrailsView;
   observability?: ProfileObservabilityView;
@@ -230,34 +246,6 @@ export interface PendingAttachment {
   sizeBytes: number;
   /** Optional base64 payload copied onto the transcript block for UI preview. */
   data?: string;
-}
-
-export type AttachmentValidationCode =
-  | 'mime_not_allowed'
-  | 'too_many_files'
-  | 'file_too_large'
-  | 'turn_too_large'
-  | 'attachments_not_accepted'
-  | 'voice_not_accepted'
-  | 'limits_unconfigured';
-
-/**
- * Structured parameters for rendering one validation issue. The headless
- * interface emits codes + params only; English lives in the lexicon defaults
- * and is rendered by the host UI layer (e.g. `@theoremai/react`).
- */
-export interface AttachmentValidationParams {
-  maxFiles?: number;
-  maxBytes?: number;
-  maxTurnBytes?: number;
-  mimeType?: string;
-  channel?: 'attachment' | 'voice';
-}
-
-export interface AttachmentValidationIssue {
-  code: AttachmentValidationCode;
-  params?: AttachmentValidationParams;
-  fileName?: string;
 }
 
 export interface AttachmentValidationResult {

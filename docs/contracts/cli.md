@@ -4,9 +4,6 @@ Profile inspection and stress-test CLI. On npm this entry is also the
 `agents` binary. Hosts must register profiles (and providers) in-process
 before commands that execute turns — the CLI does not embed app profiles.
 
-This contract was refreshed to cover the active CLI dispatch and event-log
-changes in the current branch so the published surface and the repo docs stay in step.
-
 ## Export
 
 | Field | Value |
@@ -21,12 +18,10 @@ changes in the current branch so the published surface and the repo docs stay in
 | --- | --- |
 | `src/cli/index.ts` | Argument parser + command dispatch |
 | `src/cli/event-log.ts` | Shared `run`/`test` event printing + `--trace` capture |
-| `src/cli/commands/*` | `bench`, `fuzz`, `test`, `run`, `profile`, `guardrails-eval` |
+| `src/cli/commands/*` | `bench`, `fuzz`, `test`, `run`, `profile` |
 | `src/cli/matrix/*` | Permutation synthesizer + fixtures |
 
 ## Commands
-
-The active branch refresh keeps the CLI contract aligned with the current command routing, event logging, and matrix-driven stress tooling.
 
 ```text
 agents <command> [options]
@@ -38,7 +33,7 @@ agents <command> [options]
 | `verify:canary-api` | Alias for `verify:guardrails-api` |
 | `fuzz` | Adversarial inbound sanitization fuzzer; exit `1` on expected miss |
 | `fuzz-canary` | Adversarial canary egress fuzzer (`runTurn` stream gate + Live batch gate); exit `1` on bypass |
-| `guardrails-eval` | Score guardrail detectors against external corpora (`--cache-dir`, `--limit`) |
+| `guardrails:eval` | Repo-only task, not in the published CLI: score guardrail detectors against external corpora (`--cache-dir`, `--limit`) |
 | `bench` | Synthetic kernel performance benchmark (`--chunks`, `--iterations`, `--warmup`) |
 | `test` | Stress matrix or custom profile tests (`--profile`, `--all`, `--lite`, `--matrix`, `--mode`, `--search`, `--map`, `--verbose`, `--trace`, `--trace-dir`) |
 | `run` | Execute a turn with streaming output (`--profile`, `--prompt`, `--mode`, `--verbose`, `--trace`, `--trace-dir`, …) |
@@ -46,6 +41,12 @@ agents <command> [options]
 | `help` | Usage |
 
 Exit code `1` on failed `test` runs. `run` requires `--profile` (or `-p`).
+`profile show` and `test` list custom tools from the kernel's `profileToolAllow`,
+so profile types without a `tools` block (`speech`, `decision`) show `none`.
+A passing `test` prints the turn's token total (`sumTokens` over every model
+call's `tokens` event), followed by `, includes estimates` when any call's
+count was estimated: `✓ STATUS: PASSED (took 2.31s, 1234 tokens, includes estimates)`.
+`TestRunResult.tokens` carries the full sum.
 Both `test` and `run` print Google `code_execution_*` (and other) `evidence`
 events when a host-supplied provider yields them — hosts still must pass an
 explicit `ModelProvider` (the CLI never reads API keys).
@@ -54,7 +55,7 @@ explicit `ModelProvider` (the CLI never reads API keys).
 
 | Flag | Effect |
 | --- | --- |
-| `--verbose`, `-v` | Print `errorInternal` and `evidence.raw` while the turn runs; with `--trace`, also print `upstreamLog` after the record |
+| `--verbose`, `-v` | Print `errorInternal` and `evidence.raw` while the turn runs; with `--trace`, also print the record's upstream rows (`theorem.upstream.row`) after it |
 | `--trace` | Attach a trace sink; dump the full `TraceRecord` JSON after each turn |
 | `--trace-dir <path>` | Also append trace JSONL under the given directory (in addition to `--trace` console dump) |
 
@@ -73,7 +74,8 @@ Tool stress / matrix allowlists are `profile.tools.allow` plus each selected
 model's `builtInTools` (via `pickModel` / union across `models`). Builtin
 conflict resolution uses registered tool `type === 'builtin'` metadata.
 The matrix respects those allowlists — e.g. `--search` only applies when
-`googleSearch` is allowlisted, while skipping file/voice synthesizers for `live` and `speech` profiles.
+`googleSearch` is allowlisted, while file/voice synthesizers run only for profiles the kernel's `profileInputs`
+gives turn inputs (`text`, `image`).
 
 ## Exported API
 

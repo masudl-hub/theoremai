@@ -44,10 +44,12 @@
  * @module
  */
 
+export type { ErrorCopy, ErrorKind, TheoremErrorOptions } from './src/guardrails/error.ts';
 export {
   describeError,
+  ERROR_KINDS,
+  errorKind,
   isAbortError,
-  PUBLIC_CANARY,
   publicError,
   TheoremError,
   throwIfAborted,
@@ -60,13 +62,17 @@ export {
   projectGuardrailTurnEvent,
 } from './src/guardrails/events.ts';
 export {
-  GUARDRAIL_MATCH_PREVIEW_MAX,
   hitFromSpan,
-  matchPreview,
   projectGuardrailEvent,
 } from './src/guardrails/hits.ts';
-export type { LexiconKey, LexiconOverrides, LexiconParams } from './src/guardrails/lexicon.ts';
+export type {
+  ClientLexiconKey,
+  LexiconKey,
+  LexiconOverrides,
+  LexiconParams,
+} from './src/guardrails/lexicon.ts';
 export {
+  CLIENT_LEXICON_KEYS,
   LEXICON_KEYS,
   lexiconDefault,
   lexiconText,
@@ -77,7 +83,6 @@ export type {
   AdvisoryLevel,
   CanaryGateResult,
   CanaryGateSession,
-  CanaryGuardrailSpec,
   CanaryStreamGate,
   DetectionOptions,
   EgressEnforcer,
@@ -89,6 +94,7 @@ export type {
   GuardrailHit,
   GuardrailStage,
   HostGuardrailsSpec,
+  LiveHeldOutput,
   LiveOutboundBatchResult,
   LiveOutboundGateSession,
   NetworkGuardrailSpec,
@@ -112,6 +118,7 @@ export type {
 } from './src/guardrails/mod.ts';
 export {
   ADVISORY_LEVELS,
+  abortLiveOutboundTurn,
   bindCanary,
   checkTaintGate,
   collectEgressHits,
@@ -159,12 +166,19 @@ export {
   wrapToolData,
   wrapUserData,
 } from './src/guardrails/mod.ts';
+export type {
+  DnsOverHttpsOptions,
+  GuardedFetchOptions,
+  ResolveHost,
+} from './src/guardrails/network.ts';
 export {
   assertSafeUrl,
+  dnsOverHttpsResolver,
+  fetchGuarded,
   isLocalhostName,
   isPrivateOrLocalAddress,
 } from './src/guardrails/network.ts';
-export type { QuotaExhausted, QuotaSlotStatus } from './src/guardrails/quota.ts';
+export type { QuotaSlotStatus } from './src/guardrails/quota.ts';
 export {
   clientIp,
   quotaExhausted,
@@ -176,21 +190,16 @@ export {
 export {
   detectionForProfile,
   detectText,
-  PROJECT_ID_MAX,
   redactSensitiveOnly,
   sanitizeProjectId,
   sanitizeText,
   sanitizeTurnRequest,
-  sanitizeTurnRequestForTrace,
   sanitizeTurnRequestWithEvents,
 } from './src/guardrails/sanitize.ts';
 export type { CompactionSplit, CompactionTokens } from './src/kernel/engine/compaction.ts';
 export {
   compactionMeter,
   compactionNeeded,
-  estimateHistoryTokens,
-  HISTORY_MEDIA_TOKENS,
-  HISTORY_TEXT_ENCODING,
   resolveCompactionTokens,
   resolveHistoryTokens,
   shouldCompact,
@@ -210,6 +219,18 @@ export { runTurn } from './src/kernel/engine/runner.ts';
 export type { RunSessionOptions } from './src/kernel/engine/session/mod.ts';
 export { runSession } from './src/kernel/engine/session/mod.ts';
 export type {
+  MediaPayload,
+  MediaTokenFamily,
+  TokenCount,
+  TokenEstimator,
+} from './src/kernel/engine/token-estimate.ts';
+export {
+  loadTokenEstimator,
+  mediaTokenFamily,
+  TOKEN_TEXT_ENCODING,
+} from './src/kernel/engine/token-estimate.ts';
+export { sumTokens } from './src/kernel/engine/usage.ts';
+export type {
   ProfileGraphEditor,
   ProfileGraphFacet,
   ProfileGraphFacetId,
@@ -220,14 +241,18 @@ export {
   profileGraphFacet,
   spineFacetsForProfileType,
 } from './src/kernel/profile-graph.ts';
+export type { AttachmentFacts, AttachmentRules } from './src/kernel/registry/attachments.ts';
 export {
-  assertAttachmentLimits,
+  assertTurnAttachments,
+  attachmentIssueCopy,
+  attachmentIssues,
+  attachmentIssueText,
+  attachmentsRefused,
   maxBytesForMime,
   requireMediaLimits,
   resolveMediaLimits,
   sanitizeCsvText,
   sanitizeTurnBlobs,
-  sanitizeTurnBlobsForProfile,
 } from './src/kernel/registry/attachments.ts';
 export type { MediaInputChannel } from './src/kernel/registry/catalog.ts';
 export {
@@ -287,6 +312,7 @@ export {
   EXTRA_FIELDS,
   fieldMeta,
   HTTP_METHODS,
+  IMAGE_ATTACHMENT_ACCEPT_MIMES,
   isSpeechFormatAllowedForProtocol,
   isToolGateKind,
   isTurnInjectStage,
@@ -295,7 +321,6 @@ export {
   isValidProfileProtocol,
   KEY_SLOTS,
   LIVE_ACTIVITY_HANDLINGS,
-  LIVE_CONTEXT_COMPRESSIONS,
   LIVE_SPEECH_SENSITIVITIES,
   MEDIA_INPUT_KIND_VALUES,
   MEDIA_INPUT_KINDS,
@@ -311,7 +336,6 @@ export {
   protocolsFor,
   protocolsForProfileType,
   providersFor,
-  SCHEMA_ENFORCEMENTS,
   SPEECH_AUDIO_FORMATS,
   STREAM_MODES,
   SUMMARY_MODES,
@@ -352,6 +376,7 @@ export {
   stageEventFields,
 } from './src/kernel/stages.ts';
 export type {
+  MediaTurnBehaviourSpec,
   ProfileTurnBehaviourSpec,
   ProfileTurnResumptionSpec,
   TurnContinueFrom,
@@ -359,7 +384,6 @@ export type {
 } from './src/kernel/stop.ts';
 export {
   AUTO_CONTINUE_DELAY_MS,
-  CONTINUE_INSTRUCTION,
   DEFAULT_ALLOW_CONTINUE,
   DEFAULT_AUTO_CONTINUE,
   GenerationStopError,
@@ -402,19 +426,49 @@ export type * from './src/kernel/types.ts';
 export type {
   JsonlSinkOptions,
   JsonlTraceDestination,
+  OtlpAnyValue,
+  OtlpKeyValue,
+  OtlpSpan,
+  OtlpTraceRequest,
   ProfileObservabilitySpec,
   ResolvedObservabilityPolicy,
   ResolvedTraceInclude,
   ResolvedTraceScrub,
+  SpanHandle,
+  SpanLinkInput,
+  SpanOptions,
+  TraceAttributeGroup,
+  TraceAttributeMeta,
+  TraceAttributes,
+  TraceAttributeValue,
+  TraceBytes,
+  TraceClock,
+  TraceContent,
   TraceDestination,
+  TraceEventMeta,
   TraceIncludeSpec,
+  TraceJson,
+  TraceOptionMeta,
   TraceRecord,
   TraceScrubSpec,
   TraceSink,
+  TraceSpan,
+  TraceSpanEvent,
+  TraceSpanKind,
+  TraceSpanLink,
+  TraceSpanMeta,
+  TraceSpanStatus,
+  TraceSpanType,
+  TraceTree,
+  TraceValueFormat,
+  TraceWriteContext,
 } from './src/observability/mod.ts';
 export {
+  buildRecord,
   clearTraceDestinations,
+  contentOf,
   getTraceDestination,
+  inlineContent,
   isJsonlTraceDestination,
   isTraceSink,
   jsonlDestination,
@@ -425,9 +479,20 @@ export {
   registerTraceDestination,
   requireTraceDestination,
   resolveObservabilityPolicy,
-  resolveTraceDir,
   resolveTraceWriter,
-  sinkFromDir,
+  startTrace,
+  TRACE_ATTRIBUTE_GROUPS,
+  TRACE_FIELDS,
+  TRACE_SPAN_TYPES,
+  TRACE_STATUS,
+  toOtlpJson,
+  traceAttributeMeta,
+  traceBytes,
+  traceContent,
+  traceEventAttributeMeta,
+  traceEventMeta,
+  traceJson,
+  traceSpanMeta,
   writeTrace,
 } from './src/observability/mod.ts';
 export * from './src/presets/mod.ts';

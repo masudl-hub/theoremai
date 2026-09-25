@@ -1,3 +1,5 @@
+import { TheoremError } from '../../../../mod.ts';
+
 const JPEG_QUALITY = 0.62;
 const FRAME_INTERVAL_MS = 400;
 
@@ -34,13 +36,12 @@ export function startLiveVideoCapture(
 		video.muted = true;
 		video.playsInline = true;
 		video.setAttribute('playsinline', '');
-		video.setAttribute('aria-label', 'Camera preview');
 
 		const canvas = document.createElement('canvas');
 		const context = canvas.getContext('2d');
 		if (!context) {
 			for (const track of stream.getTracks()) track.stop();
-			throw new Error('Canvas unavailable for live video');
+			throw new TheoremError('unsupported', 'no 2d canvas for live video'); // lexicon-exempt: internal diagnostic
 		}
 
 		let timer: ReturnType<typeof setInterval> | null = null;

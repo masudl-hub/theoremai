@@ -1,5 +1,4 @@
 import { assertEquals } from '@std/assert';
-import { PUBLIC_GENERIC, PUBLIC_UNAVAILABLE } from '../../../src/guardrails/error.ts';
 import type { InteractionPart, ProviderCompleteRequest } from '../../../src/kernel/types.ts';
 import {
   buildPayload,
@@ -10,7 +9,6 @@ import {
   streamSpeech,
   yieldSpeechSuccess,
 } from '../../../src/providers/openrouter/speech.ts';
-import { wrapPcmAsWav } from '../../../src/providers/shared/pcm.ts';
 import { HOST_BINDINGS } from '../../fixtures/models.ts';
 
 function createMockSpeechRequest(text: string): ProviderCompleteRequest {
@@ -30,52 +28,6 @@ function createMockSpeechRequest(text: string): ProviderCompleteRequest {
   };
 }
 
-Deno.test('wrapPcmAsWav creates valid 44-byte RIFF/WAVE header', () => {
-  const pcm = new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7]);
-  const wav = wrapPcmAsWav(pcm, 24000);
-
-  assertEquals(wav.length, 44 + pcm.length);
-  const view = new DataView(wav.buffer);
-
-  const riff = String.fromCharCode(
-    view.getUint8(0),
-    view.getUint8(1),
-    view.getUint8(2),
-    view.getUint8(3),
-  );
-  assertEquals(riff, 'RIFF');
-
-  const wave = String.fromCharCode(
-    view.getUint8(8),
-    view.getUint8(9),
-    view.getUint8(10),
-    view.getUint8(11),
-  );
-  assertEquals(wave, 'WAVE');
-
-  const fmt = String.fromCharCode(
-    view.getUint8(12),
-    view.getUint8(13),
-    view.getUint8(14),
-    view.getUint8(15),
-  );
-  assertEquals(fmt, 'fmt ');
-
-  assertEquals(view.getUint16(20, true), 1);
-  assertEquals(view.getUint16(22, true), 1);
-  assertEquals(view.getUint32(24, true), 24000);
-  assertEquals(view.getUint16(34, true), 16);
-
-  const dataTag = String.fromCharCode(
-    view.getUint8(36),
-    view.getUint8(37),
-    view.getUint8(38),
-    view.getUint8(39),
-  );
-  assertEquals(dataTag, 'data');
-  assertEquals(view.getUint32(40, true), pcm.length);
-});
-
 Deno.test('streamSpeech yields error when apiKey is missing', async () => {
   const req = createMockSpeechRequest('Hello world');
   const events = [];
@@ -84,7 +36,7 @@ Deno.test('streamSpeech yields error when apiKey is missing', async () => {
   }
   assertEquals(events.length, 1);
   assertEquals(events[0]?.type, 'error');
-  assertEquals((events[0] as { error: string }).error, PUBLIC_GENERIC);
+  assertEquals((events[0] as { errorKind: string }).errorKind, 'auth');
 });
 
 Deno.test('streamSpeech yields error on empty input text', async () => {
@@ -95,7 +47,7 @@ Deno.test('streamSpeech yields error on empty input text', async () => {
   }
   assertEquals(events.length, 1);
   assertEquals(events[0]?.type, 'error');
-  assertEquals((events[0] as { error: string }).error, PUBLIC_GENERIC);
+  assertEquals((events[0] as { errorKind: string }).errorKind, 'request');
 });
 
 Deno.test('streamSpeech handles HTTP error from speech endpoint', async () => {
@@ -108,7 +60,7 @@ Deno.test('streamSpeech handles HTTP error from speech endpoint', async () => {
   }
   assertEquals(events.length, 1);
   assertEquals(events[0]?.type, 'error');
-  assertEquals((events[0] as { error: string }).error, PUBLIC_UNAVAILABLE);
+  assertEquals((events[0] as { errorKind: string }).errorKind, 'auth');
 });
 
 Deno.test('streamSpeech yields error when response is empty', async () => {
@@ -127,10 +79,10 @@ Deno.test('streamSpeech yields error when response is empty', async () => {
   }
   assertEquals(events.length, 1);
   assertEquals(events[0]?.type, 'error');
-  assertEquals((events[0] as { error: string }).error, PUBLIC_GENERIC);
+  assertEquals((events[0] as { errorKind: string }).errorKind, 'bad_response');
 });
 
-Deno.test('streamSpeech yields media, tokens, and done on successful synthesis', async () => {
+Deno.test('streamSpeech yields media and done on successful synthesis (no usage reported)', async () => {
   const req = {
     ...createMockSpeechRequest('Hello, welcome to the demo!'),
     speech: { format: 'pcm' as const },
@@ -150,7 +102,7 @@ Deno.test('streamSpeech yields media, tokens, and done on successful synthesis',
       new Response(mockPcmBytes, {
         status: 200,
         headers: {
-          'Content-Type': 'audio/pcm',
+          'Content-Type': 'audio/pcm;rate=24000;channels=1',
           'X-Generation-Id': 'gen-12345',
         },
       }),
@@ -175,18 +127,42 @@ Deno.test('streamSpeech yields media, tokens, and done on successful synthesis',
   assertEquals(capturedBody.voice, 'Orus');
   assertEquals(capturedBody.response_format, 'pcm');
 
-  assertEquals(events.length, 3);
+  assertEquals(events.length, 2);
   assertEquals(events[0]?.type, 'media');
   const mediaEvent = events[0] as { media: { mimeType: string; data: string } };
   assertEquals(mediaEvent.media.mimeType, 'audio/wav');
   assertEquals(typeof mediaEvent.media.data, 'string');
 
-  assertEquals(events[1]?.type, 'tokens');
-  const tokenEvent = events[1] as { tokens: { input: number; output: number; total: number } };
-  assertEquals(tokenEvent.tokens.input > 0, true);
-  assertEquals(tokenEvent.tokens.output > 0, true);
+  assertEquals(events[1]?.type, 'done');
+});
 
-  assertEquals(events[2]?.type, 'done');
+Deno.test('streamSpeech tapes the request, the response and the audio body', async () => {
+  const pcm = new Uint8Array([1, 2, 3, 4]);
+  const mockFetch: typeof fetch = () =>
+    Promise.resolve(
+      new Response(pcm, {
+        status: 200,
+        headers: { 'Content-Type': 'audio/pcm;rate=24000;channels=1' },
+      }),
+    );
+  const taped: Record<string, unknown>[] = [];
+  const req = {
+    ...createMockSpeechRequest('Hello'),
+    speech: { format: 'pcm' as const },
+    tapUpstream: (row: Record<string, unknown>) => taped.push(row),
+  };
+  for await (const _event of streamSpeech(req, { apiKey: 'key', fetch: mockFetch })) {
+    // drain
+  }
+  assertEquals(
+    taped.map((row) => row.eventType),
+    ['http_request', 'http_response', 'http_body'],
+  );
+  assertEquals(taped[2], {
+    eventType: 'http_body',
+    mime_type: 'audio/pcm;rate=24000;channels=1',
+    data: btoa(String.fromCharCode(...pcm)),
+  });
 });
 
 Deno.test('streamSpeech respects outputs.speech voice and format mp3', async () => {
@@ -330,20 +306,32 @@ Deno.test('buildPayload uses apiId on the wire', () => {
 
 // -- yieldSpeechSuccess -------------------------------------------
 
-Deno.test('yieldSpeechSuccess wraps pcm bytes as wav media', () => {
+Deno.test('yieldSpeechSuccess wraps pcm at the rate and channels the content-type states', () => {
   const rawBytes = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
-  const events = [...yieldSpeechSuccess(rawBytes, 'hello world', 'pcm')];
+  const events = [...yieldSpeechSuccess(rawBytes, 'audio/pcm;rate=16000;channels=2')];
 
-  assertEquals(events.length, 3);
-  assertEquals(events[0]?.type, 'media');
+  assertEquals(events.length, 2);
   const mediaEvent = events[0] as { media: { mimeType: string; data: string } };
   assertEquals(mediaEvent.media.mimeType, 'audio/wav');
-  assertEquals(typeof mediaEvent.media.data, 'string');
+  const wav = Uint8Array.from(atob(mediaEvent.media.data), (c) => c.charCodeAt(0));
+  const view = new DataView(wav.buffer);
+  assertEquals(view.getUint16(22, true), 2);
+  assertEquals(view.getUint32(24, true), 16000);
+  assertEquals(wav.slice(44), rawBytes);
+});
+
+Deno.test('yieldSpeechSuccess keeps pcm without a stated rate unwrapped', () => {
+  const rawBytes = new Uint8Array([1, 2, 3, 4]);
+  const events = [...yieldSpeechSuccess(rawBytes, 'audio/pcm')];
+
+  const mediaEvent = events[0] as { media: { mimeType: string; data: string } };
+  assertEquals(mediaEvent.media.mimeType, 'audio/pcm');
+  assertEquals(mediaEvent.media.data, btoa(String.fromCharCode(...rawBytes)));
 });
 
 Deno.test('yieldSpeechSuccess passes mp3 bytes through unwrapped', () => {
   const rawBytes = new Uint8Array([0xff, 0xfb, 0x90, 0x64]);
-  const events = [...yieldSpeechSuccess(rawBytes, 'hello world', 'mp3')];
+  const events = [...yieldSpeechSuccess(rawBytes, 'audio/mpeg')];
 
   assertEquals(events[0]?.type, 'media');
   const mediaEvent = events[0] as { media: { mimeType: string; data: string } };
@@ -351,32 +339,10 @@ Deno.test('yieldSpeechSuccess passes mp3 bytes through unwrapped', () => {
   assertEquals(mediaEvent.media.data, btoa(String.fromCharCode(...rawBytes)));
 });
 
-Deno.test('yieldSpeechSuccess computes token counts from text and byte lengths', () => {
-  const rawBytes = new Uint8Array(250);
-  const text = 'a'.repeat(40);
-  const events = [...yieldSpeechSuccess(rawBytes, text, 'mp3')];
-
-  assertEquals(events[1]?.type, 'tokens');
-  const tokenEvent = events[1] as { tokens: { input: number; output: number; total: number } };
-  assertEquals(tokenEvent.tokens.input, 10);
-  assertEquals(tokenEvent.tokens.output, 3);
-  assertEquals(tokenEvent.tokens.total, 13);
-});
-
-Deno.test('yieldSpeechSuccess floors token counts at 1', () => {
-  const rawBytes = new Uint8Array(1);
-  const events = [...yieldSpeechSuccess(rawBytes, 'a', 'mp3')];
-
-  const tokenEvent = events[1] as { tokens: { input: number; output: number; total: number } };
-  assertEquals(tokenEvent.tokens.input, 1);
-  assertEquals(tokenEvent.tokens.output, 1);
-  assertEquals(tokenEvent.tokens.total, 2);
-});
-
 Deno.test('yieldSpeechSuccess ends with a done event', () => {
   const rawBytes = new Uint8Array([1, 2, 3]);
-  const events = [...yieldSpeechSuccess(rawBytes, 'hi', 'mp3')];
-  assertEquals(events[2]?.type, 'done');
+  const events = [...yieldSpeechSuccess(rawBytes, 'audio/mpeg')];
+  assertEquals(events[1]?.type, 'done');
 });
 
 Deno.test('createSpeechProvider exposes complete() and requestSpeech sends POST', async () => {

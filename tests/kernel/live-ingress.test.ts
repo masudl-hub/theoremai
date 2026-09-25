@@ -58,6 +58,7 @@ Deno.test('hasAnyLiveIngress rejects all-disabled ingress', () => {
     id: 'live_blocked',
     identity: { handle: 'live', system: 'hi' },
     models: liveBase.models,
+    defaultModel: 'gemini31FlashLive',
     live: { ingress: { audio: false, video: false, text: false } },
     tools: { allow: [] },
   };

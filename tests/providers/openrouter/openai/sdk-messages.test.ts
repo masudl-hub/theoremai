@@ -12,7 +12,6 @@ import {
   buildAiSdkMessages,
   contentHistoryMessage,
   historyToSdk,
-  sdkContentFromOptionalParts,
   sdkContentFromParts,
   sdkPart,
   toolResultMessage,
@@ -114,10 +113,10 @@ Deno.test('toolResultMessage builds tool result message', () => {
   assertEquals(part.output, { type: 'text', value: 'result data' });
 });
 
-Deno.test('toolResultMessage prefers multimodal parts over content', () => {
+Deno.test('toolResultMessage sends content first, then multimodal parts', () => {
   const msg: TurnHistoryMessage = {
     role: 'tool',
-    content: 'text projection without bytes',
+    content: 'two results',
     tool_call_id: 'call_img',
     name: 'fetch_stock_media',
     parts: [
@@ -133,6 +132,7 @@ Deno.test('toolResultMessage prefers multimodal parts over content', () => {
   assertEquals(part.output, {
     type: 'content',
     value: [
+      { type: 'text', text: 'two results' },
       { type: 'text', text: '1. palm' },
       {
         type: 'file',
@@ -148,15 +148,11 @@ Deno.test('toolResultMessage prefers multimodal parts over content', () => {
   });
 });
 
-Deno.test('toolResultMessage uses fallback IDs', () => {
-  const msg: TurnHistoryMessage = { role: 'tool' };
-  const result = toolResultMessage(msg);
-  if (result.role !== 'tool') throw new Error('expected tool message');
-  const part = result.content[0];
-  if (part.type !== 'tool-result') throw new Error('expected tool-result part');
-  assertEquals(part.toolCallId, 'call_tool');
-  assertEquals(part.toolName, 'tool');
-  assertEquals(part.output, { type: 'text', value: '' });
+Deno.test('toolResultMessage sends only the tool identity history carries', () => {
+  assertEquals(toolResultMessage({ role: 'tool' }), {
+    role: 'tool',
+    content: [{ type: 'tool-result', output: { type: 'text', value: '' } }],
+  });
 });
 
 Deno.test('assistantToolCallMessage returns null without tool calls', () => {
@@ -184,6 +180,28 @@ Deno.test('assistantToolCallMessage maps tool calls', () => {
   assertEquals(part.toolCallId, 'c1');
   assertEquals(part.toolName, 'search');
   assertEquals(part.input, { q: 'x' });
+});
+
+Deno.test('assistantToolCallMessage keeps content and parts before the tool calls', () => {
+  const msg: TurnHistoryMessage = {
+    role: 'assistant',
+    content: 'Checking the forecast.',
+    parts: [{ type: 'document', mimeType: 'application/pdf', data: 'JVBERi0=' }],
+    tool_calls: [{ id: 'c1', type: 'function', function: { name: 'weather', arguments: '{}' } }],
+  };
+  const result = assistantToolCallMessage(msg);
+  if (result?.role !== 'assistant') throw new Error('expected assistant message');
+  assertEquals(result.content, [
+    { type: 'text', text: 'Checking the forecast.' },
+    { type: 'file', mediaType: 'application/pdf', data: 'JVBERi0=' },
+    { type: 'tool-call', toolCallId: 'c1', toolName: 'weather', input: {} },
+  ]);
+  const textOnly = assistantToolCallMessage({ ...msg, parts: undefined });
+  if (textOnly?.role !== 'assistant') throw new Error('expected assistant message');
+  assertEquals(textOnly.content, [
+    { type: 'text', text: 'Checking the forecast.' },
+    { type: 'tool-call', toolCallId: 'c1', toolName: 'weather', input: {} },
+  ]);
 });
 
 Deno.test('assistantToolCallMessage throws on invalid JSON args', () => {
@@ -222,17 +240,6 @@ Deno.test('historyToSdk dispatches content messages', () => {
   assertEquals(result.content, 'hello');
 });
 
-Deno.test('sdkContentFromOptionalParts uses text fallback when no parts', () => {
-  assertEquals(sdkContentFromOptionalParts(undefined, 'fallback'), 'fallback');
-  assertEquals(sdkContentFromOptionalParts([], 'fallback'), 'fallback');
-  assertEquals(sdkContentFromOptionalParts(undefined, undefined), '');
-});
-
-Deno.test('sdkContentFromOptionalParts uses parts when available', () => {
-  const parts: InteractionPart[] = [{ type: 'text', text: 'from parts' }];
-  assertEquals(sdkContentFromOptionalParts(parts, 'fallback'), 'from parts');
-});
-
 Deno.test('contentHistoryMessage builds message with parts', () => {
   const msg: TurnHistoryMessage = {
     role: 'user',
@@ -242,6 +249,27 @@ Deno.test('contentHistoryMessage builds message with parts', () => {
   if (result.role !== 'user') throw new Error('expected user message');
   assertEquals(result.role, 'user');
   assertEquals(result.content, 'hello');
+});
+
+Deno.test('contentHistoryMessage sends content and parts together', () => {
+  const msg: TurnHistoryMessage = {
+    role: 'user',
+    content: 'What is on this leaf?',
+    parts: [{ type: 'image', mimeType: 'image/png', data: 'iVBORw0=' }],
+  };
+  const result = contentHistoryMessage(msg);
+  if (result.role !== 'user') throw new Error('expected user message');
+  assertEquals(result.content, [
+    { type: 'text', text: 'What is on this leaf?' },
+    { type: 'image', image: 'data:image/png;base64,iVBORw0=' },
+  ]);
+  const text = contentHistoryMessage({
+    role: 'user',
+    content: 'first',
+    parts: [{ type: 'text', text: 'second' }],
+  });
+  if (text.role !== 'user') throw new Error('expected user message');
+  assertEquals(text.content, 'first\nsecond');
 });
 
 Deno.test('contentHistoryMessage builds message with content string', () => {

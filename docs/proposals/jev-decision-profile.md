@@ -37,8 +37,8 @@ request, or a generic multi-provider decision abstraction.
 
 ## Current implementation boundary
 
-The branch implements profile registration and validation, model selection,
-flat or vault-injected API-key resolution, `runDecision`, the native TypeSafe
+The branch implements profile registration and validation of the profile's one
+model, flat or vault-injected API-key resolution, `runDecision`, the native TypeSafe
 System One request, response validation, timeout/cancellation, and the
 pre-dispatch disclosure allow/block hook. It is covered by deterministic
 fixture tests and a live smoke test of the runner against Jev `1.13.0`.
@@ -114,9 +114,8 @@ interface DecisionProfile {
   id: ProfileId;
   identity: { handle: string };
 
+  /** Exactly one model: a decision profile runs one model and never selects. */
   models: Record<ModelId, DecisionModelBinding>;
-  defaultModel?: ModelId;
-  allowModelSelect?: boolean;
   key?: OverflowKeySlot;
 
   inputs: DecisionInputsSpec;
@@ -132,11 +131,11 @@ native execution path. If a second decision engine is added later, adapters
 belong behind `runDecision`; adding a transport-shaped field now would make the
 profile claim behavior it does not have.
 
-The registry retains the familiar `models`, `defaultModel`,
-`allowModelSelect`, and vault-key ergonomics. This requires extracting the
-generic model-selection fields from chat-specific `ModelBinding` rather than
-widening `ModelBinding` until its required `protocol` and `provider` fields
-become optional.
+The registry retains the familiar `models` map and vault-key ergonomics, but
+the map holds exactly one model. `defaultModel` and `allowModelSelect` are
+rejected, and a request cannot name a model. `DecisionModelBinding` is its own
+type rather than a widened chat `ModelBinding`, so `protocol` and `provider`
+stay required there.
 
 ## Decision contracts and requests
 
@@ -168,7 +167,6 @@ interface DecisionRequest {
   profile: ProfileId;
   state: DecisionJson;
   questions: readonly DecisionQuestion[];
-  model?: ModelId;
   signal?: AbortSignal;
   metadata?: Record<string, unknown>;
 }
@@ -207,11 +205,17 @@ type DecisionFailure =
   | { code: 'permission'; status: 403 }
   | { code: 'rate_limited'; status: 429; retryAfterMs?: number }
   | { code: 'unavailable'; status?: number }
+  | { code: 'network' }
   | { code: 'timeout' }
   | { code: 'cancelled' }
   | { code: 'malformed_response' }
   | { code: 'disclosure_blocked' };
 ```
+
+`DecisionError` is a `TheoremError`: each code reports an error kind
+(`authentication` / `permission` → `auth`, `network` → `network`,
+`malformed_response` → `bad_response`, `disclosure_blocked` → `blocked`, …), so
+`publicError(err, profile.lexicon)` words it like any other failure.
 
 No `TurnEvent` is emitted. A host that wants a user-visible explanation must
 generate or render one on its own explicit path.
@@ -267,7 +271,7 @@ sampling, retention, and scrub configuration. It introduces a distinct
 
 A record includes:
 
-- profile id and selected model alias / resolved `apiId`;
+- profile id and the model alias / resolved `apiId`;
 - timing, outcome, normalized failure code, and usage;
 - contract id and question ids/types;
 - state and result hashes, plus scrubbed summaries only when policy permits;
@@ -279,7 +283,7 @@ default. A trace write failure never changes the decision outcome.
 ## Interface and wrong-door behavior
 
 `projectProfile` and the headless interface need a `DecisionProfileInterface`.
-It exposes identity, model selection, JSON-state input capability, contract id,
+It exposes identity, the profile's model, JSON-state input capability, contract id,
 and serializable policy views. It does not expose a composer, transcript,
 attachments, tool palette, streaming controls, or chat output schema.
 
@@ -294,7 +298,7 @@ runDecision(non-decision)       -> deterministic profile-type error
 
 ## Native adapter behavior
 
-The adapter sends one System One request to TypeSafe with the selected `apiId`,
+The adapter sends one System One request to TypeSafe with the model's `apiId`,
 state, and questions. It verifies the response model, answer ids/types,
 probability labels and sums where applicable, scores, confidences, legends, and
 non-negative usage counters.
@@ -321,7 +325,7 @@ The script never prints or persists the credential.
 
 1. Add the `decision` discriminant, schema metadata, profile graph facet, and
    definition validation. Add explicit rejection for chat-only/inert fields.
-2. Extract generic model selection and profile projection primitives without
+2. Extract generic profile projection primitives without
    weakening `ModelBinding` or `ModelProfile`'s chat transport guarantees.
 3. Add decision contracts, request/result types, `runDecision`, and wrong-door
    errors. Export the new surface from the kernel barrel.
@@ -338,7 +342,7 @@ The script never prints or persists the credential.
   and turn behavior on it.
 - Profile graph, field metadata, registry projection, and headless interface
   exhaustiveness tests cover `decision`.
-- Model selection and key-slot resolution work without making `ModelBinding`
+- Single-model binding and key-slot resolution work without making `ModelBinding`
   permissive or changing existing text/image/speech/live behavior.
 - No decision request can reach `createProvider`, `runTurn`, or `runSession`.
 - Invalid local requests and disclosure blocks make zero network calls.

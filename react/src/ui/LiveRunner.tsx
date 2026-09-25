@@ -43,6 +43,8 @@ import type { ToolGateResolution } from '../client/tool-resume';
 import { InkWaveform } from '../components/InkWaveform';
 import { useLiveRunnerModel } from '../components/live/use-live-runner-model';
 import { NO_FOCUS_RING } from './ChatComposerBar';
+import { liveStateLabel, type TheoremLabels } from './labels';
+import { TheoremLabelsProvider, useLabels } from './labels-provider';
 import { SidePanel, SidePanelHeader, SidePanelToggle, useSidePanel } from './SidePanel';
 import { ApprovalCard, AuthChallengeCard } from './ToolGateCard';
 import { DEFAULT_CHAT_MAX_WIDTH } from './TheoremChat';
@@ -52,6 +54,8 @@ export type LiveRunnerProps = {
 	iface: LiveProfileInterface;
 	/** Resolve the live profile id to open on the relay. */
 	registerProfile: () => Promise<string>;
+	/** Replacement lines by locale, as on `TheoremChat`. */
+	labels?: TheoremLabels;
 };
 
 type LiveModel = ReturnType<typeof useLiveRunnerModel>;
@@ -67,15 +71,30 @@ const WAVE_HEIGHT = 320;
  * in a toolbar, and tool gates in a dialog. Offers the trace inspector when
  * the profile records traces.
  */
-export function LiveRunner({ iface, registerProfile }: LiveRunnerProps) {
+export function LiveRunner({ labels, ...props }: LiveRunnerProps) {
+	return (
+		<TheoremLabelsProvider labels={labels}>
+			<LiveRunnerBody {...props} />
+		</TheoremLabelsProvider>
+	);
+}
+
+function LiveRunnerBody({ iface, registerProfile }: Omit<LiveRunnerProps, 'labels'>) {
+	const t = useLabels();
 	const model = useLiveRunnerModel(iface, registerProfile);
 	// Both panels size against the whole live layout, so a third means the same for each.
 	const layoutRef = useRef<HTMLDivElement | null>(null);
-	const inspector = useTraceInspector(iface, layoutRef);
+	const inspector = useTraceInspector(iface, layoutRef, model.traces);
 	const captions = useSidePanel(layoutRef, true);
+	const captionLabels = {
+		name: t('@theorem.panel.captions.name'),
+		show: t('@theorem.panel.captions.show'),
+		hide: t('@theorem.panel.captions.hide'),
+		resize: t('@theorem.panel.captions.resize'),
+	};
 	const captionsToggle = (
 		<SidePanelToggle
-			label="Captions"
+			labels={captionLabels}
 			icon={<Icon icon={IconMessage} />}
 			panelId={captions.id}
 			open={captions.open}
@@ -118,7 +137,7 @@ export function LiveRunner({ iface, registerProfile }: LiveRunnerProps) {
 						<Layout
 							height="fill"
 							end={
-								<SidePanel id={captions.id} label="Captions" resizable={captions.resizable} open={captions.open} padding={0}>
+								<SidePanel id={captions.id} labels={captionLabels} resizable={captions.resizable} open={captions.open} padding={0}>
 									<LiveCaptions model={model} />
 								</SidePanel>
 							}
@@ -143,6 +162,7 @@ export function LiveRunner({ iface, registerProfile }: LiveRunnerProps) {
  * composer would be. Video starts camera and mic together.
  */
 function LiveLanding({ model }: { model: LiveModel }) {
+	const t = useLabels();
 	return (
 		<VStack minHeight="100%" vAlign="center" gap={8} paddingInline={3}>
 			<Center axis="horizontal" width="100%">
@@ -150,22 +170,22 @@ function LiveLanding({ model }: { model: LiveModel }) {
 					{/* Greeting type from Astryx's AI chat template, as on the chat landing. */}
 					<VStack gap={1}>
 						<Text type="large" as="h2">
-							@{model.handle}
+							{t('@theorem.agent.handle', { handle: model.handle })}
 						</Text>
 						<Text type="display-2" as="h1">
-							Ready when you are.
+							{t('@theorem.live.greeting')}
 						</Text>
 					</VStack>
 					<HStack gap={2} wrap="wrap">
 						<Button
-							label={model.voiceAvailable ? 'Start voice call' : 'Start call'}
+							label={t(model.voiceAvailable ? '@theorem.live.start_voice_call' : '@theorem.live.start_call')}
 							variant="primary"
 							icon={<Icon icon={IconPhone} />}
 							onClick={() => model.startCall({ video: false })}
 						/>
 						{model.videoAvailable ? (
 							<Button
-								label="Start video call"
+								label={t('@theorem.live.start_video_call')}
 								variant="secondary"
 								icon={<Icon icon={IconVideo} />}
 								onClick={() => model.startCall({ video: true })}
@@ -183,6 +203,7 @@ function LiveLanding({ model }: { model: LiveModel }) {
  * all in one column the waveform's width.
  */
 function LiveStage({ model }: { model: LiveModel }) {
+	const t = useLabels();
 	const ref = useEnterMotion<HTMLElement>();
 	return (
 		<VStack ref={ref} height="100%" hAlign="center">
@@ -190,13 +211,14 @@ function LiveStage({ model }: { model: LiveModel }) {
 				{/* Tag styled and placed as the chat names the agent on its messages. */}
 				<VStack gap={0.5}>
 					<Text type="label" color="secondary">
-						@{model.handle}
+						{t('@theorem.agent.handle', { handle: model.handle })}
 					</Text>
 					<Text size="sm" color="secondary">
-						{model.stateLabel}
+						{liveStateLabel(t, model.liveState, model.activeTool)}
 					</Text>
 				</VStack>
-				{model.error ? <Banner status="error" title={model.error} /> : null}
+				{model.failure ? <Banner status="error" title={model.failure.error} /> : null}
+				{model.sessionEnded ? <Banner status="info" title={model.sessionEnded} /> : null}
 				<StackItem size="fill">
 					<VStack height="100%" vAlign="end">
 						{/* Bars stand on the stage floor, in the icon colour (no Stack colour prop). */}
@@ -249,6 +271,7 @@ function useEnterMotion<T extends HTMLElement>() {
  * what a click does, as End call does: a slash means "turn this off".
  */
 function LiveControls({ model }: { model: LiveModel }) {
+	const t = useLabels();
 	const inactive = !model.sessionActive;
 	const controls: ReactNode[] = [];
 
@@ -256,8 +279,8 @@ function LiveControls({ model }: { model: LiveModel }) {
 		controls.push(
 			<ToggleButton
 				key="mic"
-				label="Microphone"
-				tooltip={model.isMuted ? 'Unmute' : 'Mute'}
+				label={t('@theorem.live.microphone')}
+				tooltip={t(model.isMuted ? '@theorem.live.unmute' : '@theorem.live.mute')}
 				isIconOnly
 				isPressed={!model.isMuted}
 				isDisabled={inactive}
@@ -271,8 +294,8 @@ function LiveControls({ model }: { model: LiveModel }) {
 		controls.push(
 			<ToggleButton
 				key="video"
-				label="Camera"
-				tooltip={model.isVideoOn ? 'Turn camera off' : 'Turn camera on'}
+				label={t('@theorem.live.camera')}
+				tooltip={t(model.isVideoOn ? '@theorem.live.camera_off' : '@theorem.live.camera_on')}
 				isIconOnly
 				isPressed={model.isVideoOn}
 				isDisabled={inactive}
@@ -287,8 +310,8 @@ function LiveControls({ model }: { model: LiveModel }) {
 			controls.push(
 				<IconButton
 					key="flip"
-					label="Flip camera"
-					tooltip="Flip camera"
+					label={t('@theorem.live.flip_camera')}
+					tooltip={t('@theorem.live.flip_camera')}
 					variant="ghost"
 					isDisabled={inactive}
 					icon={<Icon icon={IconCameraRotate} />}
@@ -303,8 +326,8 @@ function LiveControls({ model }: { model: LiveModel }) {
 		model.canRestart ? (
 			<IconButton
 				key="call"
-				label="Start call"
-				tooltip="Start call"
+				label={t('@theorem.live.start_call')}
+				tooltip={t('@theorem.live.start_call')}
 				variant="primary"
 				icon={<Icon icon={IconPhone} />}
 				onClick={() => {
@@ -314,8 +337,8 @@ function LiveControls({ model }: { model: LiveModel }) {
 		) : (
 			<IconButton
 				key="call"
-				label="End call"
-				tooltip="End call"
+				label={t('@theorem.live.end_call')}
+				tooltip={t('@theorem.live.end_call')}
 				variant="destructive"
 				isDisabled={inactive}
 				icon={<Icon icon={IconPhoneOff} />}
@@ -326,7 +349,7 @@ function LiveControls({ model }: { model: LiveModel }) {
 
 	return (
 		<Toolbar
-			label="Call controls"
+			label={t('@theorem.live.controls')}
 			dividers={['top']}
 			centerContent={
 				<HStack gap={2} vAlign="center">
@@ -342,8 +365,9 @@ function LiveControls({ model }: { model: LiveModel }) {
  * being heard, and the text composer in its dock when the profile takes text.
  */
 function LiveCaptions({ model }: { model: LiveModel }) {
+	const t = useLabels();
 	const { interimAgent } = model.captions;
-	const agentName = `@${model.handle}`;
+	const agentName = t('@theorem.agent.handle', { handle: model.handle });
 	const composer = model.textAvailable ? (
 		<ChatComposer
 			style={NO_FOCUS_RING}
@@ -351,7 +375,7 @@ function LiveCaptions({ model }: { model: LiveModel }) {
 			onChange={model.setTextDraft}
 			onSubmit={model.handleSendText}
 			isDisabled={!model.sessionActive}
-			placeholder={`Message ${agentName}`}
+			placeholder={t('@theorem.composer.placeholder', { handle: model.handle })}
 			input={<ChatComposerInput />}
 			sendButton={<ChatSendButton />}
 		/>
@@ -361,7 +385,7 @@ function LiveCaptions({ model }: { model: LiveModel }) {
 		...model.pastCalls.flatMap((turns, call) => [
 			...turns.map((turn) => captionMessage(`${String(call)}:${turn.id}`, turn.role, turn.text, agentName)),
 			<ChatSystemMessage key={`session-${String(call + 1)}`} variant="divider">
-				New session
+				{t('@theorem.live.new_session')}
 			</ChatSystemMessage>,
 		]),
 		...captionMessages(model.captions, agentName),
@@ -380,8 +404,8 @@ function LiveCaptions({ model }: { model: LiveModel }) {
 				emptyState={
 					<EmptyState
 						icon={<Icon icon={IconSubtitles} size="lg" color="secondary" />}
-						title="No captions yet"
-						description="What you and the agent say will show here."
+						title={t('@theorem.panel.captions.empty.title')}
+						description={t('@theorem.panel.captions.empty.description')}
 						isCompact
 					/>
 				}
@@ -420,6 +444,7 @@ function captionMessage(key: string, role: 'user' | 'agent', text: string, agent
  * below AspectRatio, so it carries its own fill and mirror styles.
  */
 function LiveVideoPreview({ video, facingMode }: { video: HTMLVideoElement; facingMode: LiveFacingMode }) {
+	const t = useLabels();
 	const hostRef = useRef<HTMLDivElement | null>(null);
 
 	useEffect(() => {
@@ -438,7 +463,7 @@ function LiveVideoPreview({ video, facingMode }: { video: HTMLVideoElement; faci
 
 	return (
 		<AspectRatio ratio={4 / 3} fit="cover">
-			<div ref={hostRef} aria-label="Camera preview" role="img" />
+			<div ref={hostRef} aria-label={t('@theorem.live.camera_preview')} role="img" />
 		</AspectRatio>
 	);
 }
@@ -466,8 +491,8 @@ function LiveToolGateDialog({
 					<AuthChallengeCard
 						gate={prompt.gate}
 						toolName={prompt.gate.tool}
-						onSubmitCredential={(slot, credential) => {
-							onResolve({ action: 'auth', credentials: { [slot]: credential } });
+						onAuthenticated={(secret) => {
+							onResolve({ action: 'auth', secret });
 						}}
 					/>
 				) : (

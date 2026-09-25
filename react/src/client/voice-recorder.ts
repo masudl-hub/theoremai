@@ -1,13 +1,16 @@
+import { describeError } from '../../../mod.ts';
 import { pickMediaRecorderMime } from '../../../src/interface/mod.ts';
 import { timeDomainBytesToLevel } from './audio-level';
 
-export type VoiceRecorderFailureCode = 'unsupported' | 'permission' | 'empty' | 'device';
+/** Why recording failed; the user reads lexicon `voice.<code>`. */
+export type VoiceRecorderFailureCode = 'unsupported' | 'permission' | 'unavailable' | 'failed' | 'empty';
 
 class VoiceRecorderFailure extends Error {
 	readonly code: VoiceRecorderFailureCode;
 
-	constructor(code: VoiceRecorderFailureCode, message: string) {
-		super(message);
+	/** `detail` is raw diagnostic text for the builder, never shown to the user. */
+	constructor(code: VoiceRecorderFailureCode, detail?: string) {
+		super(detail ?? code);
 		this.name = 'VoiceRecorderFailure';
 		this.code = code;
 	}
@@ -48,10 +51,7 @@ export class ComposerVoiceRecorder {
 
 		const mime = pickMediaRecorderMime(this.accept);
 		if (!mime) {
-			throw new VoiceRecorderFailure(
-				'unsupported',
-				'This browser cannot record an accepted voice format.',
-			);
+			throw new VoiceRecorderFailure('unsupported');
 		}
 
 		try {
@@ -64,11 +64,10 @@ export class ComposerVoiceRecorder {
 				},
 			});
 		} catch (err) {
-			if (isPermissionDenied(err)) {
-				throw new VoiceRecorderFailure('permission', 'Microphone permission was denied.');
-			}
-			const message = err instanceof Error ? err.message : String(err);
-			throw new VoiceRecorderFailure('device', message);
+			throw new VoiceRecorderFailure(
+				isPermissionDenied(err) ? 'permission' : 'unavailable',
+				describeError(err),
+			);
 		}
 
 		this.mime = mime;
@@ -85,18 +84,19 @@ export class ComposerVoiceRecorder {
 	// fallow-ignore-next-line unused-class-member -- called from useComposerVoice via recorder refs
 	async stop(): Promise<File> {
 		if (!this.recorder || !this.recording) {
-			throw new VoiceRecorderFailure('empty', 'No voice recording in progress.');
+			// lexicon-exempt: internal diagnostic; the user reads voice.empty
+			throw new VoiceRecorderFailure('empty', 'stop without a recording');
 		}
 
 		const recorder = this.recorder;
 		const blob = await new Promise<Blob>((resolve, reject) => {
 			recorder.onerror = () => {
-				reject(new VoiceRecorderFailure('device', 'Recording failed'));
+				reject(new VoiceRecorderFailure('failed'));
 			};
 			recorder.onstop = () => {
 				const parts = this.chunks;
 				if (parts.length === 0) {
-					reject(new VoiceRecorderFailure('empty', 'Recording was empty'));
+					reject(new VoiceRecorderFailure('empty'));
 					return;
 				}
 				resolve(new Blob(parts, { type: this.mime }));
@@ -109,7 +109,7 @@ export class ComposerVoiceRecorder {
 		this.disposeTracks();
 
 		if (blob.size === 0) {
-			throw new VoiceRecorderFailure('empty', 'Recording was empty.');
+			throw new VoiceRecorderFailure('empty');
 		}
 
 		const ext = extensionForMime(this.mime);

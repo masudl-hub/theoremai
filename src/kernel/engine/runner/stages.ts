@@ -1,6 +1,6 @@
 /**
  * Text `runTurn` wiring around the stage spine: record stage events in step
- * state, fold the opening input, and append sanitized injects to turn history.
+ * state and append sanitized injects to turn history.
  *
  * Contract: `docs/contracts/stages.md`. The stage itself runs in `runStage`.
  *
@@ -8,7 +8,6 @@
  */
 
 import { throwIfAborted } from '../../../guardrails/error.ts';
-import { wireInteractionPart } from '../../interaction-parts.ts';
 import {
   runStage,
   type StageApplyWarning,
@@ -20,40 +19,6 @@ import { profileAllowsInject } from '../../stop.ts';
 import type { Profile, ResolvedGeneration, TurnEvent, TurnHistoryMessage } from '../../types.ts';
 import type { StepExecutionState } from './state.ts';
 
-function stageMessageToInteractionStep(msg: TurnHistoryMessage): Record<string, unknown> {
-  const type = msg.role === 'assistant' ? 'model_output' : 'user_input';
-  if (msg.parts && msg.parts.length > 0) {
-    return {
-      type,
-      content: msg.parts.map(wireInteractionPart),
-    };
-  }
-  return { type, content: [{ type: 'text', text: msg.content ?? '' }] };
-}
-
-/** Move opening user `generation.input` into history (Interactions-safe fold). */
-function foldGenerationInputIntoHistory(
-  generation: ResolvedGeneration,
-  state: StepExecutionState,
-): void {
-  if (state.foldedForGeneration === generation) return;
-  state.foldedForGeneration = generation;
-  if (generation.input.length === 0) return;
-  const textOnly = generation.input.every((p) => p.type === 'text');
-  if (textOnly) {
-    state.currentHistory.push({
-      role: 'user',
-      content: generation.input.map((p) => (p.type === 'text' ? p.text : '')).join(''),
-    });
-  } else {
-    state.currentHistory.push({
-      role: 'user',
-      parts: [...generation.input],
-    });
-  }
-  generation.input = [];
-}
-
 export interface ApplyTurnStageArgs extends StageCallBag {
   profile: Profile;
   generation: ResolvedGeneration;
@@ -62,8 +27,6 @@ export interface ApplyTurnStageArgs extends StageCallBag {
   step: number;
   onStage?: StageHandler;
   signal?: AbortSignal;
-  /** Fold generation.input into history when true (pre_turn + handler present). */
-  foldInput?: boolean;
   /** Another provider step would exceed maxSteps — reject inject. */
   injectWouldExceedMaxSteps?: boolean;
   host?: unknown;
@@ -88,7 +51,7 @@ export function applyStageInjects(
   if (state.interactionsContinuation) {
     for (const msg of inject) {
       if (msg.role === 'tool') continue;
-      state.interactionsContinuation.input.push(stageMessageToInteractionStep(msg));
+      state.interactionsContinuation.messages.push(msg);
     }
   }
   return inject.length;
@@ -98,11 +61,8 @@ export function applyStageInjects(
 export async function* applyTurnStage(
   args: ApplyTurnStageArgs,
 ): AsyncGenerator<TurnEvent, ApplyTurnStageResult> {
-  const { profile, generation, state, onStage, foldInput, host, ...call } = args;
+  const { profile, generation, state, onStage, host, ...call } = args;
   throwIfAborted(call.signal);
-  if (foldInput && onStage) {
-    foldGenerationInputIntoHistory(generation, state);
-  }
   const run = runStage({
     ...call,
     history: state.currentHistory,
@@ -110,6 +70,7 @@ export async function* applyTurnStage(
     guardrails: profile.guardrails,
     injectAllowed: profileAllowsInject(profile),
     host: host ?? generation.host,
+    span: state.trace.root,
   });
   let next = await run.next();
   while (!next.done) {

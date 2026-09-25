@@ -65,18 +65,36 @@ interface CanaryLeakForm {
 }
 
 const BASE64_CHAR = /^[A-Za-z0-9+/=]$/;
+const ROT13_SHIFT = 13;
+const LATIN_LETTERS = 26;
+const LOWER_A = 'a'.charCodeAt(0);
+
+function rot13(text: string): string {
+  return text.replace(/[a-z]/g, (char) =>
+    String.fromCharCode(((char.charCodeAt(0) - LOWER_A + ROT13_SHIFT) % LATIN_LETTERS) + LOWER_A),
+  );
+}
+
+/** A form read case-folded through only the characters `value` is written with. */
+function ownAlphabetForm(value: string): CanaryLeakForm {
+  const alphabet = new Set(value.split(''));
+  return { value, keeps: (char) => alphabet.has(char.toLowerCase()), foldCase: true };
+}
 
 /**
- * Every form a leaked canary is detected in: the token itself and its base64.
- * The token carries no fixed prefix, so no form depends on a marker the model
- * could drop or split off.
+ * Every form a leaked canary is detected in: the token itself, reversed, its
+ * ROT13, and its base64. The token carries no fixed prefix, so no form depends
+ * on a marker the model could drop or split off.
  */
 function canaryLeakForms(canary: string): CanaryLeakForm[] {
   const literal = canary.toLowerCase();
-  const alphabet = new Set(literal.split(''));
-  const forms: CanaryLeakForm[] = [
-    { value: literal, keeps: (char) => alphabet.has(char.toLowerCase()), foldCase: true },
-  ];
+  const forms: CanaryLeakForm[] = [];
+  // A token that reads the same reversed, or has no letters to rotate, is already covered.
+  for (const value of [literal, [...literal].reverse().join(''), rot13(literal)]) {
+    if (!forms.some((form) => form.value === value)) {
+      forms.push(ownAlphabetForm(value));
+    }
+  }
   try {
     forms.push({ value: btoa(canary), keeps: (char) => BASE64_CHAR.test(char), foldCase: false });
   } catch {

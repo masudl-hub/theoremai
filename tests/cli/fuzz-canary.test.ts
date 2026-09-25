@@ -2,7 +2,7 @@ import { assertEquals } from '@std/assert';
 import { runCanaryFuzz } from '../../src/cli/commands/fuzz-canary.ts';
 
 /** Leak shapes the scan does not detect yet; each is a bypass until it does. */
-const UNDETECTED = ['reversed-text', 'rot13-text', 'spelled-words-text', 'split-across-turns'];
+const UNDETECTED = ['spelled-words-text', 'split-across-turns'];
 
 Deno.test('fuzz-canary catches every other leak on both channels, with no false alarms', async () => {
   const results = await runCanaryFuzz();

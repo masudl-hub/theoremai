@@ -99,15 +99,24 @@ function separatedLeaks(canary: string): CanaryEgressAttack[] {
   ];
 }
 
-/** Leaks outside what the scan detects today: reported as bypasses until it does. */
-function transformedLeaks(canary: string): CanaryEgressAttack[] {
+/** Leaks the scan reads as a transform of the token: reversed, or ROT13. */
+function rewrittenLeaks(canary: string): CanaryEgressAttack[] {
   const reversed = [...canary].reverse().join('');
   const rotated = rot13(canary);
+  const spacedRotated = [...rotated.toUpperCase()].join(' ');
+  return [
+    leakIn('reversed-text', 'transform', reversed, [`backwards: ${reversed}`]),
+    leakIn('reversed-split', 'split-stream', reversed, halves(reversed)),
+    leakIn('rot13-text', 'transform', rotated, [`rot13: ${rotated}`]),
+    leakIn('rot13-spaced-split', 'split-stream', spacedRotated, halves(spacedRotated)),
+  ];
+}
+
+/** Leaks outside what the scan detects today: reported as bypasses until it does. */
+function transformedLeaks(canary: string): CanaryEgressAttack[] {
   const words = spelledOut(canary);
   const [first = '', second = ''] = halves(canary);
   return [
-    leakIn('reversed-text', 'transform', reversed, [`backwards: ${reversed}`]),
-    leakIn('rot13-text', 'transform', rotated, [`rot13: ${rotated}`]),
     leakIn('spelled-words-text', 'transform', words, [`read aloud: ${words}`]),
     {
       name: 'split-across-turns',
@@ -159,6 +168,7 @@ export function buildCanaryEgressAttacks(canary: string): CanaryEgressAttack[] {
       turns: [[{ type: 'evidence', evidence: { provider: 'google', raw: { canary } } }]],
     },
     ...separatedLeaks(canary),
+    ...rewrittenLeaks(canary),
     leakIn('split-wrapper', 'split-stream', canary, halves(`prefix ${canary} suffix`)),
     leakIn('char-by-char', 'split-stream', canary, [...canary]),
     ...transformedLeaks(canary),
@@ -190,6 +200,12 @@ export function buildCanaryEgressAttacks(canary: string): CanaryEgressAttack[] {
       category: 'benign',
       shouldBlock: false,
       turns: [[say('A decade of faded beef jerky, 12 cafes, and 3456 bad facades.')]],
+    },
+    {
+      name: 'benign-rot13-prose',
+      category: 'benign',
+      shouldBlock: false,
+      turns: [[say('Snoopy spoons 12 prosperous pears, 3456 onions, and poor roses on promo.')]],
     },
     {
       name: 'benign-safe-reply',

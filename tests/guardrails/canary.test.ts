@@ -344,6 +344,72 @@ Deno.test('canary stream gate catches a separated or base64 leak split across ch
   }
 });
 
+function reversed(text: string): string {
+  return [...text].reverse().join('');
+}
+
+function rot13(text: string): string {
+  return text.replace(/[a-z]/g, (char) =>
+    String.fromCharCode(((char.charCodeAt(0) - 'a'.charCodeAt(0) + 13) % 26) + 'a'.charCodeAt(0)),
+  );
+}
+
+Deno.test('scanTextForCanaryLeak detects the canary reversed or in ROT13, through case and separators', () => {
+  const canary = mintCanary();
+  for (const form of [reversed(canary), rot13(canary)]) {
+    for (const leak of [form, form.toUpperCase(), [...form].join(' - ')]) {
+      assertEquals(scanTextForCanaryLeak(`says ${leak} ok`, canary), true);
+    }
+  }
+});
+
+Deno.test('canaryHoldFrom holds the opening of a reversed or ROT13 leak', () => {
+  // Letters first, so the ROT13 opening differs from the token's own.
+  const canary = 'abcdef0123456789abcdef0123456789';
+  assertEquals(canaryHoldFrom(`hi, ${reversed(canary).slice(0, 5)}`, canary), 4);
+  assertEquals(canaryHoldFrom(`hi, ${rot13(canary).slice(0, 5)}`, canary), 4);
+  assertEquals(canaryHoldFrom('hi, N o P q', canary), 4);
+});
+
+Deno.test('canary stream gate catches a reversed or ROT13 leak split across chunks', () => {
+  const canary = mintCanary();
+  for (const form of [reversed(canary), rot13(canary), [...rot13(canary).toUpperCase()].join(' ')]) {
+    const gate = createCanaryStreamGate(canary);
+    const half = Math.floor(form.length / 2);
+    const first = gate.process(`hi, ${form.slice(0, half)}`);
+    assertEquals(first.leak, false);
+    assertEquals(gate.process(form.slice(half)).leak, true);
+  }
+});
+
+Deno.test('redactCanaryText replaces a reversed or ROT13 leak and keeps the text around it', () => {
+  const canary = FIXED_CANARY;
+  const spacedRot = [...rot13(canary)].join(' ');
+  assertEquals(
+    redactCanaryText(`a ${reversed(canary)} b ${spacedRot} c`, canary),
+    `a ${OMIT_CANARY} b ${OMIT_CANARY} c`,
+  );
+});
+
+Deno.test('prose rich in ROT13 letters streams through without a leak', () => {
+  const prose = 'Snoopy spoons 12 prosperous pears, 3456 onions, and poor roses on promo. '.repeat(20);
+  const canary = mintCanary();
+  assertEquals(scanTextForCanaryLeak(prose, canary), false);
+  assertEquals(scanTextForCanaryLeak(reversed(prose), canary), false);
+  const gate = createCanaryStreamGate(canary);
+  let emitted = '';
+  for (const piece of prose.match(/.{1,7}/gs) ?? []) {
+    const step = gate.process(piece);
+    assertEquals(step.leak, false);
+    if (!step.leak) emitted += step.emit;
+  }
+  const end = gate.flush();
+  assertEquals(end.leak, false);
+  if (!end.leak) emitted += end.emit;
+  assertEquals(emitted, prose);
+  assertEquals(redactCanaryText(prose, canary), prose);
+});
+
 Deno.test('isStreamedCanaryEvent returns true for the reply stream only', () => {
   assertEquals(isStreamedCanaryEvent({ type: 'text', text: 'hi' }), true);
   assertEquals(

@@ -1,7 +1,7 @@
 import '../fixtures/test-host.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
+import { hitFromSpan } from '../../src/guardrails/hits.ts';
 import {
-  PROJECT_ID_MAX,
   redactSensitiveOnly,
   sanitizeProjectId,
   sanitizeText,
@@ -162,10 +162,8 @@ Deno.test('projectId keeps safe ids and drops junk', () => {
   assertEquals(sanitizeProjectId('proj_1.2-a'), 'proj_1.2-a');
   assertEquals(sanitizeProjectId('  ab  '), 'ab');
   assertEquals(sanitizeProjectId('has space'), undefined);
-  assertEquals(
-    sanitizeProjectId('x'.repeat(PROJECT_ID_MAX + PROJECT_ID_MAX))?.length,
-    PROJECT_ID_MAX,
-  );
+  const long = 'x'.repeat(1000);
+  assertEquals(sanitizeProjectId(long), long);
 });
 
 Deno.test('csv formula cells get a quote prefix while numeric text stays intact', () => {
@@ -536,4 +534,12 @@ Deno.test('sanitizeHistory omits absent keys rather than setting them to undefin
   assertEquals('parts' in userMsg, false);
   assertEquals('tool_calls' in userMsg, false);
   assertEquals('metadata' in userMsg, false);
+});
+
+Deno.test('a span hit keeps the whole text it caught, however long', () => {
+  const pem = `-----BEGIN PRIVATE KEY-----\n${'A'.repeat(2000)}\n-----END PRIVATE KEY-----`;
+  const text = `before ${pem} after`;
+  const start = text.indexOf(pem);
+  const hit = hitFromSpan(text, { start, end: start + pem.length }, 'sensitive.pem', 'high');
+  assertEquals(hit.match, pem);
 });

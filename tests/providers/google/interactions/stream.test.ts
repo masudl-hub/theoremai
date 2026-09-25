@@ -770,7 +770,7 @@ Deno.test('foldPayload emits grounding chunks from google_maps_result places', (
   const firstChunk = grounding?.chunks?.[0] as
     | { maps?: { title?: string; placeId?: string } }
     | undefined;
-  assertEquals(firstChunk?.maps?.title, 'Swansons Nursery');
+  assertEquals(firstChunk?.maps?.title, 'Swansons Nursery - Google Maps');
   assertEquals(firstChunk?.maps?.placeId, 'ChIJ_primary');
   assertEquals(grounding?.sources?.[0]?.placeId, 'ChIJ_primary');
 });
@@ -797,7 +797,7 @@ Deno.test('foldPayload emits grounding from a text_annotation_delta place_citati
   assertEquals(grounding?.sources?.length, 1);
   assertEquals(grounding?.chunks?.length, 1);
   assertEquals(grounding?.sources?.[0]?.placeId, 'ChIJ_cite');
-  assertEquals(grounding?.sources?.[0]?.title, 'Swansons Nursery');
+  assertEquals(grounding?.sources?.[0]?.title, 'Swansons Nursery - Google Maps');
 });
 
 Deno.test('streamed function_call waits for step.stop and parses the streamed arguments', () => {

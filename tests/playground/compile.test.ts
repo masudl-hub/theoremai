@@ -6,10 +6,13 @@ import {
   createExampleDraft,
   defaultToolSpec,
   demoToolSpecs,
+  draftAllows,
+  draftFacets,
   excludeFacet,
   GEMINI_PLAYGROUND_DEFAULT_API_ID,
   GEMINI_PLAYGROUND_IMAGE_DEFAULT_API_ID,
   GEMINI_PLAYGROUND_LIVE_DEFAULT_API_ID,
+  GEMINI_PLAYGROUND_LIVE_INPUT_TOKENS,
   GEMINI_PLAYGROUND_TTS_DEFAULT_API_ID,
   includeFacet,
   modelBindingNodeId,
@@ -158,16 +161,17 @@ Deno.test('a duplicate tool name is keyed to the second tool', () => {
   assertEquals(issueNodes(result), [toolSpecNodeId(copy.key)]);
 });
 
-Deno.test('setProfileType to live swaps bindings and drops facets live lacks', () => {
+Deno.test('setProfileType to live swaps bindings and hides facets live lacks', () => {
   const live = setProfileType(createExampleDraft(), 'live');
   assertEquals(live.modelBindings.length, 1);
   assertEquals(live.modelBindings[0].protocol, 'geminiLive');
   assertEquals(live.modelBindings[0].apiId, GEMINI_PLAYGROUND_LIVE_DEFAULT_API_ID);
   assertEquals(live.models.defaultModel, '');
   assertEquals(live.models.key, 'slotA');
-  assertEquals(live.included, ['turnBehaviour', 'guardrails', 'observability']);
+  assertEquals(draftFacets(live).includes('outputs'), false);
   const { profile } = compiled(live);
   assertEquals(profile.type, 'live');
+  assertEquals(draftFacets(setProfileType(live, 'text')).includes('outputs'), true);
 });
 
 Deno.test('live compression compiles to a sliding window, blanks left to the provider', () => {
@@ -178,12 +182,12 @@ Deno.test('live compression compiles to a sliding window, blanks left to the pro
   assertEquals(bare.live.contextCompression, { slidingWindow: {} });
   const set = compiled({
     ...live,
-    live: { ...on, compressionTriggerTokens: 100_000, compressionTargetTokens: 40_000 },
+    live: { ...on, compressionTriggerTokens: 52_000, compressionTargetTokens: 26_000 },
   }).profile;
   assert(set.type === 'live');
   assertEquals(set.live.contextCompression, {
-    triggerTokens: 100_000,
-    slidingWindow: { targetTokens: 40_000 },
+    triggerTokens: 52_000,
+    slidingWindow: { targetTokens: 26_000 },
   });
 });
 
@@ -203,6 +207,34 @@ Deno.test('a compression target at or above the trigger is keyed to the target',
     result.issues.map((issue) => issue.field),
     ['compressionTargetTokens'],
   );
+});
+
+Deno.test("compression stays within the free key's Live input tokens", () => {
+  const live = setProfileType(createExampleDraft(), 'live');
+  const over = GEMINI_PLAYGROUND_LIVE_INPUT_TOKENS + 1;
+  const fields = (trigger: number | null, target: number | null) => {
+    const result = compilePlayground({
+      ...live,
+      live: {
+        ...live.live,
+        contextCompression: true,
+        compressionTriggerTokens: trigger,
+        compressionTargetTokens: target,
+      },
+    });
+    return result.ok ? [] : result.issues.map((issue) => issue.field);
+  };
+  assertEquals(fields(GEMINI_PLAYGROUND_LIVE_INPUT_TOKENS, null), []);
+  assertEquals(fields(over, null), ['compressionTriggerTokens']);
+  assertEquals(fields(null, GEMINI_PLAYGROUND_LIVE_INPUT_TOKENS), ['compressionTargetTokens']);
+});
+
+Deno.test('draftAllows reads the kernel field scope for the draft type', () => {
+  const example = createExampleDraft();
+  assertEquals(draftAllows(example, 'turnBehaviour.allowSteering'), true);
+  assertEquals(draftAllows(setProfileType(example, 'image'), 'turnBehaviour.allowSteering'), false);
+  assertEquals(draftAllows(setProfileType(example, 'live'), 'turnBehaviour.resumption'), false);
+  assertEquals(draftAllows(createBlankDraft(), 'guardrails.canary'), false);
 });
 
 Deno.test('setProfileType keeps what the author typed for the way back', () => {
@@ -257,7 +289,7 @@ Deno.test('a draft compiles only the fields its type takes in the schema', () =>
     },
   });
   assertEquals(profile.type, 'image');
-  assertEquals(profile.turnBehaviour, { resumption: {} });
+  assertEquals(profile.turnBehaviour, { resumption: { autoContinue: [] } });
   assertEquals(profile.lexicon, undefined);
 
   const live = setProfileType(image, 'live');

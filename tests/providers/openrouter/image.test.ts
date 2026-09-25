@@ -1,4 +1,5 @@
-import { assertEquals } from '@std/assert';
+import { assertEquals, assertStringIncludes, assertThrows } from '@std/assert';
+import { TheoremError } from '../../../src/guardrails/error.ts';
 import type { ImageResponseFormat, ProviderCompleteRequest } from '../../../src/kernel/types.ts';
 import {
   buildImageHeaders,
@@ -269,7 +270,7 @@ Deno.test('createImageProvider exposes complete()', () => {
   assertEquals(headers.Authorization, 'Bearer test-key');
 });
 
-Deno.test('wireInputReferences ignores non-image parts', () => {
+Deno.test('wireInputReferences wires image parts and skips the text prompt', () => {
   const ref = wireInputReference({ type: 'image', mimeType: 'image/png', data: 'abc' });
   assertEquals(ref.type, 'image_url');
 
@@ -277,13 +278,26 @@ Deno.test('wireInputReferences ignores non-image parts', () => {
   attachImagePins(dummyPayload, IMAGE);
   assertEquals(dummyPayload.aspect_ratio, '16:9');
 
+  assertEquals(wireInputReferences([{ type: 'text', text: 'hello' }]), []);
   assertEquals(
     wireInputReferences([
       { type: 'text', text: 'hello' },
-      { type: 'audio', mimeType: 'audio/wav', data: 'x' },
+      { type: 'image', mimeType: 'image/png', data: 'abc' },
     ]),
-    [],
+    [ref],
   );
+});
+
+Deno.test('wireInputReferences refuses media /images cannot take', () => {
+  for (const part of [
+    { type: 'audio', mimeType: 'audio/wav', data: 'x' },
+    { type: 'video', mimeType: 'video/mp4', data: 'x' },
+    { type: 'document', mimeType: 'application/pdf', data: 'x' },
+  ] as const) {
+    const error = assertThrows(() => wireInputReferences([part]), TheoremError);
+    assertEquals(error.kind, 'unsupported');
+    assertStringIncludes(error.message, part.mimeType);
+  }
 });
 
 Deno.test('imageToolParameters maps image pins for chat tool parameters', () => {

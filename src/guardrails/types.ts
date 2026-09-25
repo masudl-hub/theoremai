@@ -60,7 +60,7 @@ export interface GuardrailHit {
   /** Offsets into the inspected text; absent for whole-payload checks. */
   span?: { start: number; end: number };
   /**
-   * Exact matched substring (capped). Present when detectors had the source text.
+   * Exact matched text, whole. Present when detectors had the source text.
    * Stripped from host/trace unless `observability.include.guardrailMatchPreview`.
    */
   match?: string;

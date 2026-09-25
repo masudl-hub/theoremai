@@ -62,9 +62,7 @@ export {
   projectGuardrailTurnEvent,
 } from './src/guardrails/events.ts';
 export {
-  GUARDRAIL_MATCH_PREVIEW_MAX,
   hitFromSpan,
-  matchPreview,
   projectGuardrailEvent,
 } from './src/guardrails/hits.ts';
 export type {
@@ -168,8 +166,15 @@ export {
   wrapToolData,
   wrapUserData,
 } from './src/guardrails/mod.ts';
+export type {
+  DnsOverHttpsOptions,
+  GuardedFetchOptions,
+  ResolveHost,
+} from './src/guardrails/network.ts';
 export {
   assertSafeUrl,
+  dnsOverHttpsResolver,
+  fetchGuarded,
   isLocalhostName,
   isPrivateOrLocalAddress,
 } from './src/guardrails/network.ts';
@@ -185,7 +190,6 @@ export {
 export {
   detectionForProfile,
   detectText,
-  PROJECT_ID_MAX,
   redactSensitiveOnly,
   sanitizeProjectId,
   sanitizeText,
@@ -308,6 +312,7 @@ export {
   EXTRA_FIELDS,
   fieldMeta,
   HTTP_METHODS,
+  IMAGE_ATTACHMENT_ACCEPT_MIMES,
   isSpeechFormatAllowedForProtocol,
   isToolGateKind,
   isTurnInjectStage,

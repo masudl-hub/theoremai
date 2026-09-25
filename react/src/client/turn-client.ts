@@ -9,7 +9,6 @@ import {
 	type TranscriptBlock,
 	type UserTurnDraft,
 } from '../../../src/interface/mod.ts';
-import type { ToolCredential } from '../../../src/kernel/mod.ts';
 import { filesToPending } from './encode-files.ts';
 import { defaultModel } from './generation-selection.ts';
 import type {
@@ -84,12 +83,12 @@ export function buildInvokeRequest(
 		input: unknown;
 		resume?: TheoremReplay['resume'];
 		sessionPermissions?: string[];
-		credentials?: Record<string, ToolCredential>;
+		secret?: string;
 	},
 ): TheoremInvokeRequest {
 	return {
 		gateId: args.gateId,
-		...(args.credentials ? { credentials: args.credentials } : {}),
+		...(args.secret === undefined ? {} : { secret: args.secret }),
 		replay: {
 			name: args.name,
 			input: args.input,

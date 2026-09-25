@@ -20,6 +20,8 @@ const MIN_PER_HOUR = 60;
 const SEC_PER_MIN = 60;
 const MS_PER_SEC = 1000;
 const KIB = 1024;
+const OWNER_ONLY_DIR = 0o700;
+const OWNER_ONLY_FILE = 0o600;
 const MIB = KIB * KIB;
 const FILE_DAY = /^turns-(\d{4}-\d{2}-\d{2})(?:-\d+)?\.jsonl$/;
 
@@ -120,10 +122,14 @@ function jsonlSink(dir: string, options: JsonlSinkOptions = {}): TraceSink {
   return {
     write: async (record, context) => {
       const at = now();
-      await Deno.mkdir(safeDir, { recursive: true });
+      // Records hold conversation content: readable by the host's user only.
+      await Deno.mkdir(safeDir, { recursive: true, mode: OWNER_ONLY_DIR });
       await pruneTraces(safeDir, at, context.retainForDays);
       const path = await pickFile(safeDir, at, rotateBytes);
-      await Deno.writeTextFile(path, `${JSON.stringify(record)}\n`, { append: true });
+      await Deno.writeTextFile(path, `${JSON.stringify(record)}\n`, {
+        append: true,
+        mode: OWNER_ONLY_FILE,
+      });
     },
   };
 }

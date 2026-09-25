@@ -1,5 +1,5 @@
 /**
- * Web Crypto utilities for OAuth 2.1 PKCE and stateless sealed state envelopes.
+ * Web Crypto utilities for OAuth 2.1 PKCE and stateless encrypted state envelopes.
  *
  * All operations use standard `crypto.subtle` and `crypto.getRandomValues`,
  * ensuring 100% portability across Node, Deno, Bun, Cloudflare Workers, and browsers.
@@ -69,88 +69,133 @@ export async function computeCodeChallenge(verifier: string): Promise<string> {
 export interface SealedStatePayload {
   codeVerifier: string;
   expectedIssuer: string;
-  resource?: string;
+  /** The authorization server sends `iss` on its responses (RFC 9207), so one without it is refused. */
+  issRequired: boolean;
+  /** The token endpoint of `expectedIssuer`, fixed when the flow began. */
+  tokenEndpoint: string;
+  /** The resource (RFC 8707) the token is requested for. */
+  resource: string;
   redirectUri: string;
   expiresAt: number; // unix timestamp in ms
   clientId: string;
-  extra?: Record<string, unknown>;
+  /** SHA-256 of the host's session binding: the callback must come from the session that began the flow. */
+  sessionBinding: string;
+}
+
+/** The sealing key's strength: a secret shorter than 256 bits would be the weak link. */
+const MIN_SECRET_BYTES = 32;
+
+/** HKDF `info`, so this key is never the same as any other use of the host's secret. */
+const STATE_KEY_INFO = 'theorem/oauth-state/v1';
+
+/** AES-GCM's standard 96-bit nonce. */
+const IV_BYTES = 12;
+
+/**
+ * A fresh HKDF salt per state, so every state has its own key: no key ever
+ * sees enough random nonces for one to repeat.
+ */
+const SALT_BYTES = 32;
+
+/**
+ * The envelope's version, first in the sealed string and authenticated with
+ * it, so a later scheme can be told apart and an old one is never guessed at.
+ */
+const ENVELOPE_VERSION = 'v1';
+
+async function stateKey(secret: string, salt: Uint8Array): Promise<CryptoKey> {
+  const encoder = new TextEncoder();
+  const secretBytes = encoder.encode(secret);
+  if (secretBytes.length < MIN_SECRET_BYTES) {
+    throw new RangeError(
+      `OAuth state secret must be at least ${MIN_SECRET_BYTES} bytes; got ${secretBytes.length}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  const base = await crypto.subtle.importKey(
+    'raw',
+    secretBytes as unknown as BufferSource,
+    'HKDF',
+    false,
+    ['deriveKey'],
+  );
+  return crypto.subtle.deriveKey(
+    {
+      name: 'HKDF',
+      hash: 'SHA-256',
+      salt: salt as unknown as BufferSource,
+      info: encoder.encode(STATE_KEY_INFO) as unknown as BufferSource,
+    },
+    base,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt'],
+  );
+}
+
+/** The version, bound into the ciphertext's authentication tag. */
+function envelopeHeader(): BufferSource {
+  return new TextEncoder().encode(ENVELOPE_VERSION) as unknown as BufferSource;
 }
 
 /**
- * Create a stateless HMAC-SHA256 signed envelope for OAuth `state`.
- * This allows a stateless backend to recover the code_verifier and expected issuer
- * upon receiving the OAuth callback, without any database or session cache.
+ * Seal the OAuth `state` with AES-256-GCM under a key derived from `secret`.
+ * The state travels through the browser and the authorization server, so it
+ * is encrypted, not only signed: the PKCE verifier inside must stay secret.
  */
 export async function sealStatePayload(
   payload: SealedStatePayload,
   secret: string,
 ): Promise<string> {
-  const encoder = new TextEncoder();
-  const jsonStr = JSON.stringify(payload);
-  const payloadBytes = encoder.encode(jsonStr);
-  const payloadB64 = toBase64Url(payloadBytes);
-
-  const key = await crypto.subtle.importKey(
-    'raw',
-    encoder.encode(secret) as unknown as BufferSource,
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
-
-  const signature = await crypto.subtle.sign(
-    'HMAC',
+  const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
+  const key = await stateKey(secret, salt);
+  const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
+  const plaintext = new TextEncoder().encode(JSON.stringify(payload));
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: iv as unknown as BufferSource, additionalData: envelopeHeader() },
     key,
-    encoder.encode(payloadB64) as unknown as BufferSource,
+    plaintext as unknown as BufferSource,
   );
-  const signatureB64 = toBase64Url(new Uint8Array(signature));
-
-  return `${payloadB64}.${signatureB64}`;
+  return [
+    ENVELOPE_VERSION,
+    toBase64Url(salt),
+    toBase64Url(iv),
+    toBase64Url(new Uint8Array(ciphertext)),
+  ].join('.');
 }
 
 /**
- * Unpack and verify an HMAC-SHA256 signed `state` envelope.
- * Validates cryptographic signature and expiration timestamp.
+ * Open a sealed `state`: it must decrypt and authenticate under `secret`, and
+ * must not have expired.
  */
 export async function unsealStatePayload(
   sealed: string,
   secret: string,
 ): Promise<SealedStatePayload> {
-  const parts = sealed.split('.');
-  if (parts.length !== 2) {
+  const [version, saltB64, ivB64, ciphertextB64, ...rest] = sealed.split('.');
+  if (version !== ENVELOPE_VERSION || ciphertextB64 === undefined || rest.length > 0) {
     throw new Error('Invalid sealed state format'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
-  const [payloadB64, signatureB64] = parts;
-  const encoder = new TextEncoder();
-
-  const key = await crypto.subtle.importKey(
-    'raw',
-    encoder.encode(secret) as unknown as BufferSource,
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['verify'],
-  );
-
-  const signatureBytes = fromBase64Url(signatureB64);
-  const isValid = await crypto.subtle.verify(
-    'HMAC',
-    key,
-    signatureBytes as unknown as BufferSource,
-    encoder.encode(payloadB64) as unknown as BufferSource,
-  );
-
-  if (!isValid) {
+  const key = await stateKey(secret, fromBase64Url(saltB64 ?? ''));
+  let plaintext: ArrayBuffer;
+  try {
+    plaintext = await crypto.subtle.decrypt(
+      {
+        name: 'AES-GCM',
+        iv: fromBase64Url(ivB64 ?? '') as unknown as BufferSource,
+        additionalData: envelopeHeader(),
+      },
+      key,
+      fromBase64Url(ciphertextB64 ?? '') as unknown as BufferSource,
+    );
+  } catch {
     throw new Error(
-      'OAuth state HMAC signature verification failed: state has been tampered with or corrupted', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      'OAuth state could not be opened: it was tampered with, corrupted, or sealed with another secret', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 
-  const payloadJson = new TextDecoder().decode(fromBase64Url(payloadB64));
-  const payload = JSON.parse(payloadJson) as SealedStatePayload;
-
+  const payload = JSON.parse(new TextDecoder().decode(plaintext)) as SealedStatePayload;
   if (Date.now() > payload.expiresAt) {
     throw new Error('OAuth state has expired'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
-
   return payload;
 }

@@ -252,7 +252,7 @@ export function useTheoremChat({ transport, iface }: UseTheoremChatOptions) {
 		setPendingVoice: state.setPendingVoice,
 		setPendingMessages: state.setPendingMessages,
 		setIssues: state.setIssues,
-		handleAuthCredential: actions.handleAuthCredential,
+		handleAuthenticated: actions.handleAuthenticated,
 		handleBranch,
 		handleSubmit: actions.handleSubmit,
 		handleStop: actions.handleStop,

@@ -213,7 +213,6 @@ Deno.test('image projection exposes image pins not tools', () => {
   assertEquals(ui.outputs?.structured, null);
   assertEquals(ui.image?.mimeType, 'image/jpeg');
   assertEquals(ui.image?.size, '1K');
-  assertEquals(ui.image?.maxInputImages, 14);
   assertEquals(ui.models.gemini31FlashLiteImage.summaries, false);
 });
 
@@ -425,4 +424,40 @@ Deno.test('image and speech profiles take a lexicon; continueFrom still adds not
     assertEquals(resumed.generation.input, resolveTurn(req).generation.input);
     assertEquals(JSON.stringify(resumed.generation).includes('Keep going.'), false);
   }
+});
+
+function imageWithInputs(id: string, inputs: Record<string, unknown>): ProfileDefinition {
+  return {
+    id,
+    type: 'image',
+    identity: { handle: id },
+    ...geminiModels('gemini31FlashLiteImage'),
+    image: { mimeType: 'image/jpeg' },
+    tools: { allow: [] },
+    inputs: { text: true, ...CHAT_MEDIA_LIMITS, ...inputs },
+  } as ProfileDefinition;
+}
+
+Deno.test('image attachments take images, video and PDF', () => {
+  const accept = ['image/*', 'video/mp4', 'application/pdf'];
+  const profile = defineProfile(imageWithInputs('image_accepts', { attachments: { accept } }));
+  assertEquals(profile.type === 'image' && profile.inputs.attachments?.accept, accept);
+});
+
+Deno.test('image attachments refuse audio, text and other documents', () => {
+  for (const mime of ['audio/wav', 'text/plain', 'application/json', '*/*']) {
+    assertThrows(
+      () => defineProfile(imageWithInputs('image_refuses', { attachments: { accept: [mime] } })),
+      TheoremError,
+      `PDF only, not ${mime}`,
+    );
+  }
+});
+
+Deno.test('an image profile takes no voice', () => {
+  assertThrows(
+    () => defineProfile(imageWithInputs('image_voice', { voice: { accept: ['audio/wav'] } })),
+    TheoremError,
+    'must not set inputs.voice',
+  );
 });

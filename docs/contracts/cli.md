@@ -18,7 +18,7 @@ before commands that execute turns — the CLI does not embed app profiles.
 | --- | --- |
 | `src/cli/index.ts` | Argument parser + command dispatch |
 | `src/cli/event-log.ts` | Shared `run`/`test` event printing + `--trace` capture |
-| `src/cli/commands/*` | `bench`, `fuzz`, `test`, `run`, `profile`, `guardrails-eval` |
+| `src/cli/commands/*` | `bench`, `fuzz`, `test`, `run`, `profile` |
 | `src/cli/matrix/*` | Permutation synthesizer + fixtures |
 
 ## Commands
@@ -33,7 +33,7 @@ agents <command> [options]
 | `verify:canary-api` | Alias for `verify:guardrails-api` |
 | `fuzz` | Adversarial inbound sanitization fuzzer; exit `1` on expected miss |
 | `fuzz-canary` | Adversarial canary egress fuzzer (`runTurn` stream gate + Live batch gate); exit `1` on bypass |
-| `guardrails-eval` | Score guardrail detectors against external corpora (`--cache-dir`, `--limit`) |
+| `guardrails:eval` | Repo-only task, not in the published CLI: score guardrail detectors against external corpora (`--cache-dir`, `--limit`) |
 | `bench` | Synthetic kernel performance benchmark (`--chunks`, `--iterations`, `--warmup`) |
 | `test` | Stress matrix or custom profile tests (`--profile`, `--all`, `--lite`, `--matrix`, `--mode`, `--search`, `--map`, `--verbose`, `--trace`, `--trace-dir`) |
 | `run` | Execute a turn with streaming output (`--profile`, `--prompt`, `--mode`, `--verbose`, `--trace`, `--trace-dir`, …) |

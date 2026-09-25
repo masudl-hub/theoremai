@@ -459,7 +459,6 @@ function ChatComposerBarBody(props: ChatComposerBarProps) {
 			incoming,
 			maxFiles: inputs.maxFiles,
 			voiceCount: props.pendingVoice.length,
-			maxImages: inputs.maxImages,
 		});
 		const added = staged.files.slice(pendingFiles.length);
 		if (added.length > 0) props.onFilesSelected(added);

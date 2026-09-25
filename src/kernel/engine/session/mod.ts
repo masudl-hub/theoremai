@@ -26,6 +26,7 @@ import {
   type LiveOutboundGateSession,
   processLiveOutboundBatch,
 } from '../../../guardrails/live-outbound-gate.ts';
+import type { ResolveHost } from '../../../guardrails/network.ts';
 import { sanitizeTurnRequest } from '../../../guardrails/sanitize.ts';
 import { resolveObservabilityPolicy } from '../../../observability/resolve-policy.ts';
 import type { TraceSink } from '../../../observability/trace-sink.ts';
@@ -307,6 +308,7 @@ function buildLiveSession(args: {
   onStage?: StageHandler;
   host?: unknown;
   credentials?: Record<string, ToolCredential>;
+  resolveHost?: ResolveHost;
   sessionPermissions?: string[];
   path?: string;
   snapshot: TurnToolSnapshot;
@@ -325,6 +327,7 @@ function buildLiveSession(args: {
     onStage,
     host: sessionHost,
     credentials: sessionCredentials,
+    resolveHost,
     sessionPermissions,
     path,
     snapshot,
@@ -662,6 +665,7 @@ function buildLiveSession(args: {
         ctx: {
           sessionPermissions,
           credentials: toolArgs.credentials ?? sessionCredentials,
+          resolveHost,
           path,
           signal,
           resume: toolArgs.resume,
@@ -832,6 +836,7 @@ async function openTracedSession(
     onStage: req.onStage,
     host: req.host,
     credentials: req.credentials,
+    resolveHost: req.resolveHost,
     sessionPermissions: req.sessionPermissions,
     path: req.path,
     snapshot: gen0.tools,

@@ -57,7 +57,17 @@ Deno.test('resume policy helpers', () => {
   assertEquals(shouldAutoContinue({ kind: 'length' }), true);
   assertEquals(shouldAutoContinue({ kind: 'stream_incomplete' }), true);
   assertEquals(shouldAutoContinue({ kind: 'cancelled' }), false);
-  assertEquals(shouldAutoContinue({ kind: 'length' }, []), false);
+  assertEquals(shouldAutoContinue({ kind: 'length' }, { autoContinue: [] }), false);
+  assertEquals(
+    shouldAutoContinue({ kind: 'provider_error' }, { autoContinue: ['provider_error'] }),
+    true,
+  );
+  // A stop the profile doesn't let be continued is never continued on its own.
+  assertEquals(
+    shouldAutoContinue({ kind: 'length' }, { allowContinue: ['provider_error'] }),
+    false,
+  );
+  assertEquals(shouldAutoContinue({ kind: 'length' }, { allowContinue: ['length'] }), true);
   assertEquals(AUTO_CONTINUE_DELAY_MS, 1_500);
 });
 

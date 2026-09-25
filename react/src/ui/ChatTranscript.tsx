@@ -26,7 +26,6 @@ import { VStack } from '@astryxdesign/core/VStack';
 import { IconCheck, IconCopy } from '@tabler/icons-react';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import type { TranscriptBlock } from '../../../src/interface/mod.ts';
-import type { ToolCredential } from '../../../src/kernel/mod.ts';
 import { chipsFromBlock } from '../client/source-chips';
 import {
 	assistantTurnCopyText,
@@ -52,7 +51,8 @@ export type ChatTranscriptProps = {
 	handle: string;
 	streaming?: boolean;
 	onToolDecision?: (index: number, action: ToolDecision, interactiveValue?: unknown) => void;
-	onAuthCredential?: (index: number, slot: string, credential: ToolCredential) => void;
+	/** Signed in at a gate: `secret` is a key the user typed; after an OAuth callback there is none. */
+	onAuthenticated?: (index: number, secret?: string) => void;
 	emptyState?: ReactNode;
 	/**
 	 * Set for image profiles: generated images show large, framed to their own
@@ -70,7 +70,7 @@ const GENERATED_IMAGE_MAX_WIDTH = 512;
 type BlockHandlers = {
 	indexOf: (block: TranscriptBlock) => number;
 	onToolDecision?: ChatTranscriptProps['onToolDecision'];
-	onAuthCredential?: ChatTranscriptProps['onAuthCredential'];
+	onAuthenticated?: ChatTranscriptProps['onAuthenticated'];
 };
 
 /** First-seen time per block id, so timestamps don't jump while streaming. */
@@ -465,7 +465,7 @@ function GateCard({ block, handlers }: { block: ToolBlock; handlers: BlockHandle
 			<AuthChallengeCard
 				gate={tool.gate}
 				toolName={tool.name}
-				onSubmitCredential={(slot, credential) => handlers.onAuthCredential?.(index, slot, credential)}
+				onAuthenticated={(secret) => handlers.onAuthenticated?.(index, secret)}
 			/>
 		);
 	}
@@ -605,7 +605,7 @@ function ChatTranscriptBody({
 	handle,
 	streaming = false,
 	onToolDecision,
-	onAuthCredential,
+	onAuthenticated,
 	emptyState,
 	imageOutput,
 }: ChatTranscriptProps) {
@@ -616,7 +616,7 @@ function ChatTranscriptBody({
 	const handlers: BlockHandlers = {
 		indexOf: (block) => blocks.findIndex((entry) => entry.id === block.id),
 		onToolDecision,
-		onAuthCredential,
+		onAuthenticated,
 	};
 	const turn = { handle, handlers, imageOutput };
 

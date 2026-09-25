@@ -12,6 +12,8 @@ export { type LiveState, liveState } from './live/live-state';
 export type { LiveToolGatePrompt } from './live/live-tool';
 export type { LiveConnectPhase, LiveSessionStatus } from './live-client';
 export { LiveSessionClient } from './live-client';
+export { notifyOAuthComplete } from './oauth-callback';
+export { isOAuthComplete } from './oauth-popup';
 export {
 	abandonGatedInterfaceTool,
 	applyTurnResultToTranscript,

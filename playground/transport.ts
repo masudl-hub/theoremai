@@ -55,10 +55,10 @@ export function createPlaygroundTransport(
         routeLines(onEvent, traces),
         { ...options, signal },
       ),
-    invoke: ({ replay, credentials }, onEvent, signal) =>
+    invoke: ({ replay, secret }, onEvent, signal) =>
       postNdjson(
         '/api/playground/invoke',
-        { ...compiled, ...replay, credentials },
+        { ...compiled, ...replay, ...(secret === undefined ? {} : { secret }) },
         routeLines(onEvent, traces),
         { ...options, signal },
       ),

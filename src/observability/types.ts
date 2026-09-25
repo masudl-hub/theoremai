@@ -27,7 +27,7 @@ export interface TraceIncludeSpec {
    */
   guardrailDecisions?: boolean;
   /**
-   * Keep `GuardrailHit.match` (exact matched substring, capped) on guardrail
+   * Keep `GuardrailHit.match` (the exact matched text, whole) on guardrail
    * events in the live stream and TraceRecord. Default: false — debugging only;
    * treat like server logs when enabled.
    */

@@ -134,10 +134,7 @@ async function* streamComplete(
   if (!res.ok) {
     const text = await res.text();
     yield toErrorEvent(
-      new TheoremError(
-        kindOfHttpStatus(res.status),
-        `LLM HTTP ${res.status}: ${text.slice(0, 300)}`,
-      ),
+      new TheoremError(kindOfHttpStatus(res.status), `LLM HTTP ${res.status}: ${text}`),
     );
     return;
   }

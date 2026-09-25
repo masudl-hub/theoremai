@@ -194,7 +194,6 @@ const image: ProfileDefinition = {
     aspectRatio: '1:1',
     size: '1K',
     mimeType: 'image/jpeg',
-    maxInputImages: 14,
   } satisfies GoogleImagePins,
   tools: { allow: [] },
   inputs: {

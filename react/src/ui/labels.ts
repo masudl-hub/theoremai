@@ -167,7 +167,7 @@ export const THEOREM_UI_CATALOG = {
 	'@theorem.gate.auth.authorize': { defaultMessage: 'Authorize with provider', description: 'Opens the OAuth sign-in.' },
 	'@theorem.gate.auth.provided': {
 		defaultMessage: 'Credential provided for {slot}',
-		description: 'After submitting a credential.',
+		description: 'After submitting a credential or finishing an OAuth sign-in.',
 		params: ['slot'],
 	},
 	'@theorem.gate.auth.api_key': { defaultMessage: 'API key', description: 'Secret field label, API-key tools.' },

@@ -3,28 +3,38 @@
  *
  * Implements:
  * - URL parameter substitution and query/body mapping
- * - Network SSRF guardrail enforcement via `assertSafeUrl`
- * - Credential resolution (bearer, api_key, oauth2)
- * - Proactive OAuth token refresh with progress event emission
+ * - Network SSRF guardrail enforcement on the target and every redirect hop
+ * - Endpoint templates whose scheme and host are fixed, so input never picks the host
+ * - Credential resolution (bearer, api_key, oauth2), sent only to the configured origin
+ * - Proactive OAuth token refresh, one per grant at a time; the progress event names
+ *   the slot, never the secret, and a refused refresh's server text stays internal
+ * - A response that repeats its credential is stripped of it
  * - ToolGate { kind: 'auth' } emission or model error reporting
  * - Streamable HTTP MCP JSON-RPC protocol (`tools/call`) per 2026-07-28 spec
  *
  * @module
  */
 
+import { errorKind } from '../../guardrails/error.ts';
 import { lexiconText } from '../../guardrails/lexicon.ts';
+import { fetchGuarded, type ResolveHost } from '../../guardrails/network.ts';
 import type { ErrorKind } from '../../guardrails/theorem-error.ts';
-import { refreshOAuthToken } from '../auth/oauth.ts';
-import type { OAuth2Credential, ToolCredential } from '../auth/types.ts';
+import type { NetworkGuardrailSpec } from '../../guardrails/types.ts';
+import { refreshOAuthToken, tokenAudienceCovers } from '../auth/oauth.ts';
+import type { OAuth2Credential, OAuthTransportOptions, ToolCredential } from '../auth/types.ts';
+import { mapStrings } from '../engine/tree.ts';
 import type { TurnEvent } from '../types.ts';
 import {
   guardToolTarget,
   messageOf,
+  networkBlocked,
   startToolExecution,
   type ToolCallBase,
   toolEvent,
+  toolNetworkPolicy,
 } from './events.ts';
 import { checkPermission } from './permission.ts';
+import { assertFixedEndpointOrigin } from './schema.ts';
 import { runPreToolPipeline, type ToolStageSupport } from './stage-run.ts';
 import type {
   HttpToolAuthConfig,
@@ -39,6 +49,10 @@ import type {
 
 export type AuthResolveResult = {
   headers: Record<string, string>;
+  /** The credential value sent; the response is stripped of it before anyone reads it. */
+  secret?: string;
+  /** The resource (RFC 8707) an OAuth token was issued for; it goes nowhere else. */
+  audience?: string;
   unauthenticated?: boolean;
   modelMessage?: string;
   gate?: ToolGate;
@@ -100,14 +114,48 @@ function resolveStaticCredential(
         headerName: 'Authorization',
         headerPrefix: 'Bearer ',
       }),
+      secret: credential.token,
     };
   }
   if (credential.type === 'api_key') {
     const headerName = credential.headerName ?? authConfig.headerName ?? 'Authorization';
     const headerPrefix = credential.headerPrefix ?? authConfig.headerPrefix ?? '';
-    return { headers: { [headerName]: `${headerPrefix}${credential.key}` } };
+    return {
+      headers: { [headerName]: `${headerPrefix}${credential.key}` },
+      secret: credential.key,
+    };
   }
   return undefined;
+}
+
+/**
+ * Refreshes in flight, by grant. Calls that find the same expired token share
+ * one refresh: with rotating refresh tokens a second request would present a
+ * spent token, which a server may treat as theft and revoke the whole grant.
+ */
+const refreshesInFlight = new Map<string, Promise<OAuth2Credential>>();
+
+function refreshOnce(
+  credential: OAuth2Credential,
+  refreshToken: string,
+  transport: OAuthTransportOptions,
+): Promise<OAuth2Credential> {
+  const grant = `${credential.tokenEndpoint}\n${refreshToken}`;
+  const inFlight = refreshesInFlight.get(grant);
+  if (inFlight) return inFlight;
+  const refresh = refreshOAuthToken({
+    refreshToken,
+    tokenEndpoint: credential.tokenEndpoint,
+    clientId: credential.clientId,
+    resource: credential.resource,
+    scope: credential.scope,
+    issuer: credential.issuer,
+    ...transport,
+  }).then((result) => result.credential);
+  refreshesInFlight.set(grant, refresh);
+  const settle = () => refreshesInFlight.delete(grant);
+  refresh.then(settle, settle);
+  return refresh;
 }
 
 async function* resolveOAuth2Credential(
@@ -119,52 +167,57 @@ async function* resolveOAuth2Credential(
   policy: string,
 ): AsyncGenerator<TurnEvent, AuthResolveResult> {
   const slot = authConfig.slot;
-  let activeToken = credential.accessToken;
-  const now = Date.now();
-  const isExpired = credential.expiresAt !== undefined && credential.expiresAt <= now + 30000;
+  const bound = { issuer: credential.issuer, resource: credential.resource };
+  // A token goes only to the resource it was issued for; one that names none
+  // has nowhere it may go, so the user signs in again.
+  if (typeof credential.resource !== 'string' || credential.resource.length === 0) {
+    const message = `OAuth credential for '${toolName}' (slot: '${slot}') does not name the resource it was issued for.`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    return unauthenticatedResult(toolName, authConfig, message, policy, bound);
+  }
+  let active = credential;
+  const isExpired =
+    credential.expiresAt !== undefined && credential.expiresAt <= Date.now() + 30000;
 
   if (isExpired && credential.refreshToken) {
     try {
-      const refreshResult = await refreshOAuthToken({
-        refreshToken: credential.refreshToken,
-        tokenEndpoint: credential.tokenEndpoint,
-        clientId: credential.clientId,
-        resource: credential.resource,
-        scope: credential.scope,
-        issuer: credential.issuer,
+      active = await refreshOnce(credential, credential.refreshToken, {
+        network: toolNetworkPolicy(ctx),
+        resolveHost: ctx.resolveHost,
       });
-      activeToken = refreshResult.credential.accessToken;
-      yield toolEvent(base, {
-        phase: 'progress',
-        data: {
-          kind: 'auth_token_refreshed',
-          slot,
-          credential: refreshResult.credential,
-        },
-      });
-      if (ctx.credentials) {
-        ctx.credentials[slot] = refreshResult.credential;
-      }
     } catch (err) {
-      const message = `Failed to refresh OAuth token for '${toolName}' (slot: '${slot}'): ${err instanceof Error ? err.message : String(err)}`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      return unauthenticatedResult(toolName, authConfig, message, policy, {
-        issuer: credential.issuer,
-        resource: credential.resource,
-      });
+      // The server's own words are untrusted text: they go to the host as
+      // `errorInternal`, never to the model or the client.
+      yield {
+        ...toolEvent(base, {
+          phase: 'progress',
+          data: { kind: 'auth_token_refresh_failed', slot },
+        }),
+        errorInternal: messageOf(err),
+      };
+      const message = `Failed to refresh OAuth token for '${toolName}' (slot: '${slot}').`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      return unauthenticatedResult(toolName, authConfig, message, policy, bound);
     }
-  } else if (isExpired && !credential.refreshToken) {
-    const message = `OAuth token expired for '${toolName}' (slot: '${slot}') and no refresh token is available.`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    return unauthenticatedResult(toolName, authConfig, message, policy, {
-      issuer: credential.issuer,
-      resource: credential.resource,
+    // The refreshed credential replaces the slot in the host's `credentials`
+    // record; the event only names the slot, so no token rides the stream.
+    if (ctx.credentials) {
+      ctx.credentials[slot] = active;
+    }
+    yield toolEvent(base, {
+      phase: 'progress',
+      data: { kind: 'auth_token_refreshed', slot },
     });
+  } else if (isExpired) {
+    const message = `OAuth token expired for '${toolName}' (slot: '${slot}') and no refresh token is available.`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    return unauthenticatedResult(toolName, authConfig, message, policy, bound);
   }
 
   return {
-    headers: authHeaderPair(authConfig, activeToken, {
+    headers: authHeaderPair(authConfig, active.accessToken, {
       headerName: 'Authorization',
       headerPrefix: 'Bearer ',
     }),
+    secret: active.accessToken,
+    audience: credential.resource,
   };
 }
 
@@ -204,6 +257,17 @@ export async function* resolveToolAuth(
 
 export type HttpToolMapping = NonNullable<HttpToolDef['mapping']>;
 
+/**
+ * One path parameter, encoded. `encodeURIComponent` leaves `.` and `..` as they
+ * are and a URL resolves them, walking the endpoint's path; they are refused.
+ */
+function pathSegment(param: string, value: string): string {
+  if (value === '.' || value === '..') {
+    throw new Error(`Path parameter "${param}" cannot be "${value}"`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  return encodeURIComponent(value);
+}
+
 export type HttpToolTarget = {
   url: string;
   body?: string;
@@ -219,12 +283,13 @@ export function buildHttpToolTarget(
   input: Record<string, unknown>,
   mapping?: HttpToolMapping,
 ): HttpToolTarget {
+  assertFixedEndpointOrigin(endpoint);
   let urlStr = endpoint;
   const pathParams = mapping?.pathParams ?? [];
   for (const param of pathParams) {
     const val = input[param];
     if (val !== undefined) {
-      urlStr = urlStr.replaceAll(`{${param}}`, encodeURIComponent(String(val)));
+      urlStr = urlStr.replaceAll(`{${param}}`, pathSegment(param, String(val)));
     }
   }
 
@@ -396,7 +461,14 @@ async function* remoteAuthAndPreBody(args: {
   stages?: ToolStageSupport;
 }): AsyncGenerator<
   TurnEvent,
-  { ok: true; input: unknown; authHeaders: Record<string, string> } | ToolBodyOutcome
+  | {
+      ok: true;
+      input: unknown;
+      authHeaders: Record<string, string>;
+      secret?: string;
+      audience?: string;
+    }
+  | ToolBodyOutcome
 > {
   const authRes = yield* resolveToolAuth(args.tool.name, args.tool.auth, args.ctx, args.base);
   const unauth = outcomeFromUnauth(authRes);
@@ -410,11 +482,63 @@ async function* remoteAuthAndPreBody(args: {
     stages: args.stages,
   });
   if (!('ok' in preBody)) return preBody;
-  return { ok: true, input: preBody.input, authHeaders: authRes.headers ?? {} };
+  return {
+    ok: true,
+    input: preBody.input,
+    authHeaders: authRes.headers ?? {},
+    ...(authRes.secret ? { secret: authRes.secret } : {}),
+    ...(authRes.audience ? { audience: authRes.audience } : {}),
+  };
 }
 
-function networkFailureOutcome(err: unknown): ToolBodyOutcome {
+/** A request that threw: a redirect hop the network policy refused, or no response at all. */
+function* thrownOutcome(err: unknown): Generator<TurnEvent, ToolBodyOutcome> {
+  if (errorKind(err) === 'blocked') {
+    return failureOutcome(yield* networkBlocked(err), false);
+  }
   return failureOutcome({ code: 'network_error', kind: 'network', message: messageOf(err) }, false);
+}
+
+/** What stands in for a credential a response repeated. */
+const OMIT_CREDENTIAL = '[omitted - credential]';
+
+/**
+ * A response that repeats the credential it was sent with (an echo endpoint, a
+ * debug error page) is stripped of it, so the value never reaches the model,
+ * the trace, or the client.
+ */
+function withoutSecret(outcome: ToolBodyOutcome, secret: string | undefined): ToolBodyOutcome {
+  if (!secret) return outcome;
+  const strip = (text: string) => text.replaceAll(secret, OMIT_CREDENTIAL);
+  if (outcome.kind === 'ok') {
+    const outputRaw = mapStrings(outcome.outputRaw, strip);
+    return { kind: 'ok', outputRaw, modelResult: modelResultFromOutput(outputRaw) };
+  }
+  if (outcome.kind === 'failed') {
+    const { failure } = outcome;
+    return {
+      ...outcome,
+      failure: {
+        ...failure,
+        message: strip(failure.message),
+        ...(failure.details === undefined ? {} : { details: mapStrings(failure.details, strip) }),
+      },
+    };
+  }
+  return outcome;
+}
+
+/** An OAuth token goes only to the resource it was issued for (RFC 8707); any other target gets no request. */
+function audienceOutcome(audience: string | undefined, url: URL): ToolBodyOutcome | undefined {
+  if (!audience || tokenAudienceCovers(audience, url)) return undefined;
+  return failureOutcome(
+    {
+      code: 'credential_audience_mismatch',
+      kind: 'config',
+      message: `The OAuth token for "${audience}" cannot be sent to "${url.origin}${url.pathname}"`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    },
+    true,
+  );
 }
 
 /**
@@ -453,32 +577,41 @@ export async function* executeHttpTool(
     return failureOutcome(failure, true);
   }
 
-  const targetUrl = yield* guardToolTarget(target.url, ctx, base);
-  if (!targetUrl) {
-    const failure: ToolFailure = {
-      code: 'network_blocked',
-      kind: 'blocked',
-      message: 'HTTP target blocked by network policy', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    };
-    return failureOutcome(failure, true);
-  }
+  const guarded = yield* guardToolTarget(target.url, ctx);
+  if (!guarded.ok) return failureOutcome(guarded.failure, true);
+  const targetUrl = guarded.url;
+  const misdirected = audienceOutcome(prepared.audience, targetUrl);
+  if (misdirected) return misdirected;
 
-  const headers: Record<string, string> = {
-    Accept: 'application/json',
-    ...tool.headers,
-    ...prepared.authHeaders,
-  };
+  return withoutSecret(
+    yield* sendHttpRequest(tool, targetUrl, target.body, prepared.authHeaders, ctx),
+    prepared.secret,
+  );
+}
+
+async function* sendHttpRequest(
+  tool: HttpToolDef,
+  targetUrl: URL,
+  body: string | undefined,
+  authHeaders: Record<string, string>,
+  ctx: ToolContext,
+): AsyncGenerator<TurnEvent, ToolBodyOutcome> {
+  const headers: Record<string, string> = { Accept: 'application/json' };
   if (tool.method !== 'GET') {
     headers['Content-Type'] = 'application/json';
   }
 
   try {
-    const response = await fetch(targetUrl.toString(), {
-      method: tool.method,
-      headers,
-      body: target.body,
-      signal: ctx.signal,
-    });
+    const response = await fetchGuarded(
+      targetUrl.href,
+      { method: tool.method, headers, body, signal: ctx.signal },
+      {
+        policy: toolNetworkPolicy(ctx),
+        followRedirects: true,
+        originBoundHeaders: { ...tool.headers, ...authHeaders },
+        resolveHost: ctx.resolveHost,
+      },
+    );
 
     if (!response.ok) {
       const errText = await response.text();
@@ -513,7 +646,7 @@ export async function* executeHttpTool(
       outputRaw: checked.data,
     };
   } catch (err) {
-    return networkFailureOutcome(err);
+    return yield* thrownOutcome(err);
   }
 }
 
@@ -567,7 +700,7 @@ export function parseMcpRpcResponse(text: string): McpRpcResponse {
 
   const last = messages.at(-1);
   if (!last) {
-    throw new Error(`MCP server returned non-JSON response: ${text.slice(0, 200)}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new Error(`MCP server returned non-JSON response: ${text}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return last;
 }
@@ -593,7 +726,7 @@ function unsupportedProtocolFromHttpBody(text: string): McpRpcResponse['error'] 
   }
   // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   if (text.toLowerCase().includes('unsupported protocol version')) {
-    return { code: -32600, message: text.slice(0, 300) };
+    return { code: -32600, message: text };
   }
   return undefined;
 }
@@ -604,14 +737,24 @@ type McpFetchOutcome =
   | { kind: 'protocol_retry'; error: McpRpcResponse['error'] }
   | { kind: 'failure'; failure: ToolFailure };
 
+/** Where one MCP call goes and what rides with it. */
+type McpTransport = {
+  url: string;
+  /** Protocol headers, sent on every hop. */
+  headers: Record<string, string>;
+  /** Host-configured headers and credentials: the configured origin only. */
+  originBoundHeaders: Record<string, string>;
+  policy?: NetworkGuardrailSpec;
+  resolveHost?: ResolveHost;
+  signal?: AbortSignal;
+};
+
 async function fetchMcpProtocolAttempt(
-  targetUrl: string,
-  baseHeaders: Record<string, string>,
+  transport: McpTransport,
   rpcId: string | number,
   mcpToolName: string,
   input: unknown,
   protocolVersion: string,
-  signal: AbortSignal | undefined,
 ): Promise<McpFetchOutcome> {
   const jsonRpcPayload = {
     jsonrpc: '2.0',
@@ -626,15 +769,21 @@ async function fetchMcpProtocolAttempt(
     },
   };
 
-  const response = await fetch(targetUrl, {
-    method: 'POST',
-    headers: {
-      ...baseHeaders,
-      'MCP-Protocol-Version': protocolVersion,
+  const response = await fetchGuarded(
+    transport.url,
+    {
+      method: 'POST',
+      headers: { ...transport.headers, 'MCP-Protocol-Version': protocolVersion },
+      body: JSON.stringify(jsonRpcPayload),
+      signal: transport.signal,
     },
-    body: JSON.stringify(jsonRpcPayload),
-    signal,
-  });
+    {
+      policy: transport.policy,
+      followRedirects: true,
+      originBoundHeaders: transport.originBoundHeaders,
+      resolveHost: transport.resolveHost,
+    },
+  );
 
   const text = await response.text();
 
@@ -651,7 +800,7 @@ async function fetchMcpProtocolAttempt(
       failure: {
         code: `mcp_http_${response.status}`,
         kind: kindOfToolHttpStatus(response.status),
-        message: `MCP server error HTTP ${response.status}: ${text.slice(0, 300)}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        message: `MCP server error HTTP ${response.status}: ${text}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       },
     };
   }
@@ -668,19 +817,17 @@ async function fetchMcpProtocolAttempt(
       failure: {
         code: 'invalid_response',
         kind: 'bad_response',
-        message: `MCP server returned non-JSON response: ${text.slice(0, 200)}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        message: `MCP server returned non-JSON response: ${text}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       },
     };
   }
 }
 
 async function negotiateMcpRpc(
-  targetUrl: string,
-  baseHeaders: Record<string, string>,
+  transport: McpTransport,
   rpcId: string | number,
   mcpToolName: string,
   input: unknown,
-  signal: AbortSignal | undefined,
 ): Promise<{
   rpc?: McpRpcResponse;
   failure?: ToolFailure;
@@ -689,13 +836,11 @@ async function negotiateMcpRpc(
   let lastProtocolError: McpRpcResponse['error'];
   for (const protocolVersion of MCP_PROTOCOL_VERSIONS) {
     const outcome = await fetchMcpProtocolAttempt(
-      targetUrl,
-      baseHeaders,
+      transport,
       rpcId,
       mcpToolName,
       input,
       protocolVersion,
-      signal,
     );
     if (outcome.kind === 'retry' || outcome.kind === 'protocol_retry') {
       if (outcome.kind === 'protocol_retry') lastProtocolError = outcome.error;
@@ -797,35 +942,49 @@ export async function* executeMcpTool(
   const permitted = yield* remoteParseAndPermit(tool, rawInput, ctx, base);
   if (!permitted.ok) return permitted.outcome;
 
-  const targetUrl = yield* guardToolTarget(tool.serverUrl, ctx, base);
-  if (!targetUrl) {
-    return failureOutcome(
-      { code: 'network_blocked', kind: 'blocked', message: 'MCP target blocked by network policy' }, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      true,
-    );
-  }
+  const guarded = yield* guardToolTarget(tool.serverUrl, ctx);
+  if (!guarded.ok) return failureOutcome(guarded.failure, true);
 
   let input: unknown = permitted.input;
 
   const prepared = yield* remoteAuthAndPreBody({ tool, input, ctx, base, stages });
   if (!('ok' in prepared)) return prepared;
   input = prepared.input;
+  const misdirected = audienceOutcome(prepared.audience, guarded.url);
+  if (misdirected) return misdirected;
 
+  return withoutSecret(
+    yield* sendMcpRequest(tool, guarded.url, input, prepared.authHeaders, ctx, base),
+    prepared.secret,
+  );
+}
+
+async function* sendMcpRequest(
+  tool: McpToolDef,
+  url: URL,
+  input: unknown,
+  authHeaders: Record<string, string>,
+  ctx: ToolContext,
+  base: ToolCallBase,
+): AsyncGenerator<TurnEvent, ToolBodyOutcome> {
   try {
     const interpreted = interpretMcpRpc(
       tool,
       await negotiateMcpRpc(
-        targetUrl.toString(),
         {
-          'Content-Type': 'application/json',
-          Accept: 'application/json, text/event-stream',
-          ...tool.headers,
-          ...prepared.authHeaders,
+          url: url.href,
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json, text/event-stream',
+          },
+          originBoundHeaders: { ...tool.headers, ...authHeaders },
+          policy: toolNetworkPolicy(ctx),
+          resolveHost: ctx.resolveHost,
+          signal: ctx.signal,
         },
         base.callId ?? Date.now(),
         tool.mcpToolName,
         input,
-        ctx.signal,
       ),
     );
     if (!interpreted.ok) {
@@ -837,6 +996,6 @@ export async function* executeMcpTool(
       outputRaw: interpreted.data,
     };
   } catch (err) {
-    return networkFailureOutcome(err);
+    return yield* thrownOutcome(err);
   }
 }

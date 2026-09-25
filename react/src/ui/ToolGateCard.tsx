@@ -9,8 +9,9 @@ import { Text } from '@astryxdesign/core/Text';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { Token } from '@astryxdesign/core/Token';
 import { VStack } from '@astryxdesign/core/VStack';
-import { useState } from 'react';
-import type { ToolCredential, ToolGate } from '../../../src/kernel/mod.ts';
+import { useCallback, useEffect, useState } from 'react';
+import type { ToolGate } from '../../../src/kernel/mod.ts';
+import { isOAuthComplete } from '../client/oauth-popup';
 import type { LabelText } from './labels';
 import { TheoremLabelsProvider, useLabels } from './labels-provider';
 
@@ -102,13 +103,12 @@ function ApprovalBody({ gate, toolName, input, onDecision }: ApprovalCardProps) 
 export type AuthChallengeCardProps = {
 	gate: ToolGate;
 	toolName: string;
-	onSubmitCredential?: (slot: string, credential: ToolCredential) => void;
+	/**
+	 * Signed in: `secret` is the key the user typed, for the server to save; after
+	 * an OAuth sign-in (the popup's `notifyOAuthComplete`) there is none.
+	 */
+	onAuthenticated?: (secret?: string) => void;
 };
-
-function credentialFromSecret(authType: string, secret: string): ToolCredential {
-	if (authType === 'api_key') return { type: 'api_key', key: secret };
-	return { type: 'bearer', token: secret };
-}
 
 type AuthChallenge = Partial<NonNullable<ToolGate['authChallenge']>>;
 
@@ -141,19 +141,42 @@ export function AuthChallengeCard(props: AuthChallengeCardProps) {
 	);
 }
 
-function AuthChallengeBody({ gate, toolName, onSubmitCredential }: AuthChallengeCardProps) {
+/** Wait for the sign-in popup to report its slot signed in. */
+function useOAuthPopup(slot: string, onComplete: () => void): (url: string) => void {
+	const [popup, setPopup] = useState<Window | null>(null);
+	useEffect(() => {
+		if (!popup) return;
+		function onMessage(event: MessageEvent) {
+			if (!popup || !isOAuthComplete(event, { popup, slot, origin: globalThis.location.origin })) return;
+			setPopup(null);
+			onComplete();
+		}
+		globalThis.addEventListener('message', onMessage);
+		return () => globalThis.removeEventListener('message', onMessage);
+	}, [popup, slot, onComplete]);
+	return (url) => setPopup(globalThis.open(url, '_blank', 'width=600,height=700'));
+}
+
+function AuthChallengeBody({ gate, toolName, onAuthenticated }: AuthChallengeCardProps) {
 	const t = useLabels();
 	const challenge: AuthChallenge = gate.authChallenge ?? {};
 	const authType = challenge.authType || 'bearer';
 	const slot = challenge.slot || 'default';
 	const [secret, setSecret] = useState('');
 	const [submitted, setSubmitted] = useState(false);
+	const onOAuthComplete = useCallback(() => {
+		setSubmitted(true);
+		onAuthenticated?.();
+	}, [onAuthenticated]);
+	const openSignIn = useOAuthPopup(slot, onOAuthComplete);
 
 	function submit() {
 		const value = secret.trim();
 		if (!value) return;
+		// The key goes to the server once; the browser keeps no copy.
+		setSecret('');
 		setSubmitted(true);
-		onSubmitCredential?.(slot, credentialFromSecret(authType, value));
+		onAuthenticated?.(value);
 	}
 
 	return (
@@ -174,6 +197,7 @@ function AuthChallengeBody({ gate, toolName, onSubmitCredential }: AuthChallenge
 					submitted={submitted}
 					onSecretChange={setSecret}
 					onSubmit={submit}
+					onOpenSignIn={openSignIn}
 				/>
 			</VStack>
 		</Card>
@@ -188,8 +212,12 @@ function AuthAction(props: {
 	submitted: boolean;
 	onSecretChange: (value: string) => void;
 	onSubmit: () => void;
+	onOpenSignIn: (url: string) => void;
 }) {
 	const t = useLabels();
+	if (props.submitted) {
+		return <Badge variant="success" label={t('@theorem.gate.auth.provided', { slot: props.slot })} />;
+	}
 	if (props.authType === 'oauth2') {
 		if (!props.authUrl) {
 			return <Text color="secondary">{t('@theorem.gate.auth.no_oauth')}</Text>;
@@ -199,13 +227,10 @@ function AuthAction(props: {
 				label={t('@theorem.gate.auth.authorize')}
 				variant="primary"
 				onClick={() => {
-					globalThis.open(props.authUrl, '_blank', 'width=600,height=700');
+					if (props.authUrl) props.onOpenSignIn(props.authUrl);
 				}}
 			/>
 		);
-	}
-	if (props.submitted) {
-		return <Badge variant="success" label={t('@theorem.gate.auth.provided', { slot: props.slot })} />;
 	}
 	const label = t(props.authType === 'api_key' ? '@theorem.gate.auth.api_key' : '@theorem.gate.auth.bearer');
 	return (

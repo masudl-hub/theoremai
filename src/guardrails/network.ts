@@ -1,9 +1,18 @@
 /**
- * Network SSRF guardrails for HTTP and remote MCP tools.
+ * Network SSRF guardrails for HTTP tools, remote MCP tools, and OAuth.
  *
  * Enforces URL scheme safety and blocks loopback, private RFC 1918,
  * link-local (cloud metadata 169.254.x.x), and multicast targets unless
- * explicitly permitted by profile guardrail configuration.
+ * explicitly permitted by profile guardrail configuration. Every redirect
+ * hop is checked the same way, and origin-bound headers never follow a
+ * redirect off the origin they were configured for.
+ *
+ * The URL check judges literal addresses and local host names. A public name
+ * whose DNS answers a private address passes it, so `fetchGuarded` also takes
+ * a host-supplied resolver and refuses a hop when any address the name
+ * resolves to is private. That lookup is separate from the connection's own,
+ * so it stops names that point inward but not a DNS server that changes its
+ * answer between the two (rebinding); only the host's egress layer can.
  *
  * @module
  */
@@ -239,12 +248,7 @@ export function assertSafeUrl(urlStr: string, policy?: NetworkGuardrailSpec): UR
   const allowedHosts = policy?.allowedHosts?.map((h) => h.toLowerCase()) ?? [];
   const hostname = parsed.hostname.toLowerCase();
 
-  // If host is explicitly whitelisted, allow it
-  if (allowedHosts.includes(hostname)) {
-    return parsed;
-  }
-
-  // Scheme validation
+  // An allowed host is exempt from the address checks, never from the scheme.
   const defaultSchemes = allowPrivate ? ['http:', 'https:'] : ['https:'];
   const allowedSchemes = policy?.allowedSchemes
     ? policy.allowedSchemes.map((s) => (s.endsWith(':') ? s.toLowerCase() : `${s.toLowerCase()}:`))
@@ -257,8 +261,8 @@ export function assertSafeUrl(urlStr: string, policy?: NetworkGuardrailSpec): UR
     );
   }
 
-  // Unless private networks are allowed, block localhost and private subnets
-  if (!allowPrivate) {
+  // Unless private networks or this host are allowed, block localhost and private subnets
+  if (!allowPrivate && !allowedHosts.includes(hostname)) {
     if (isLocalhostName(hostname)) {
       throw new TheoremError(
         'blocked',
@@ -284,4 +288,179 @@ export function assertSafeUrl(urlStr: string, policy?: NetworkGuardrailSpec): UR
   }
 
   return parsed;
+}
+
+/** The Fetch standard's redirect limit — the one `redirect: 'follow'` applies. */
+const FETCH_REDIRECT_LIMIT = 20;
+
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+/** Options for {@link fetchGuarded}. */
+export interface GuardedFetchOptions {
+  /** Network policy every hop must clear. */
+  policy?: NetworkGuardrailSpec;
+  /** Follow redirects, clearing each hop; when false a redirect comes back as the response. */
+  followRedirects: boolean;
+  /**
+   * Headers for the first request's origin only: credentials and host-configured
+   * headers. Once a redirect leaves that origin they are never sent again.
+   */
+  originBoundHeaders?: Record<string, string>;
+  /**
+   * Resolves each hop's host name before it is fetched; the hop is refused when
+   * any address is private or the name does not resolve. Skipped for literal
+   * addresses and wherever `policy` already permits private targets.
+   */
+  resolveHost?: ResolveHost;
+  fetchFn?: typeof fetch;
+}
+
+/** A host name's IPv4 and IPv6 addresses; empty when the name does not exist. */
+export type ResolveHost = (hostname: string, signal?: AbortSignal) => Promise<readonly string[]>;
+
+const IPV4_LITERAL = /^\d{1,3}(\.\d{1,3}){3}$/;
+
+/** Refuse `target` when its name resolves to a private address, or to nothing. */
+async function assertResolvesPublic(
+  target: URL,
+  options: GuardedFetchOptions,
+  signal: AbortSignal | null | undefined,
+): Promise<void> {
+  const { resolveHost, policy } = options;
+  const hostname = target.hostname.toLowerCase();
+  if (
+    resolveHost === undefined ||
+    policy?.allowPrivateNetworks === true ||
+    policy?.allowedHosts?.some((h) => h.toLowerCase() === hostname) === true ||
+    hostname.startsWith('[') ||
+    IPV4_LITERAL.test(hostname)
+  ) {
+    return;
+  }
+  const addresses = await resolveHost(hostname, signal ?? undefined);
+  if (addresses.length === 0) {
+    throw new TheoremError('blocked', `Host "${hostname}" did not resolve to an address.`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  const inward = addresses.find(isPrivateOrLocalAddress);
+  if (inward !== undefined) {
+    throw new TheoremError(
+      'blocked',
+      `Host "${hostname}" resolves to private address "${inward}", blocked by network guardrail.`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+}
+
+/** A 301/302 turns a POST into a GET, and a 303 turns anything but HEAD into a GET (Fetch standard). */
+function redirectsToGet(status: number, method: string): boolean {
+  if (status === 303) return method !== 'HEAD';
+  return (status === 301 || status === 302) && method === 'POST';
+}
+
+/**
+ * `fetch` through the network guard: the target and every redirect hop must
+ * clear `policy`, and origin-bound headers stay on their origin.
+ * Throws a `TheoremError` (`blocked`) when a hop is refused.
+ */
+export async function fetchGuarded(
+  url: string,
+  init: Omit<RequestInit, 'redirect' | 'body'> & { body?: string },
+  options: GuardedFetchOptions,
+): Promise<Response> {
+  const fetchFn = options.fetchFn ?? fetch;
+  let target = assertSafeUrl(url, options.policy);
+  await assertResolvesPublic(target, options, init.signal);
+  const origin = target.origin;
+  const headers = new Headers(init.headers);
+  let method = init.method ?? 'GET';
+  let body = init.body;
+  let onOrigin = true;
+  for (let hop = 0; ; hop++) {
+    const sent = new Headers(headers);
+    if (onOrigin) {
+      for (const [name, value] of Object.entries(options.originBoundHeaders ?? {})) {
+        sent.set(name, value);
+      }
+    }
+    const response = await fetchFn(target.href, {
+      ...init,
+      method,
+      headers: sent,
+      body,
+      redirect: 'manual',
+    });
+    const location = response.headers.get('location');
+    if (!options.followRedirects || !REDIRECT_STATUSES.has(response.status) || location === null) {
+      return response;
+    }
+    await response.body?.cancel();
+    if (hop === FETCH_REDIRECT_LIMIT) {
+      throw new TheoremError('network', `Too many redirects from "${url}"`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    }
+    target = assertSafeUrl(new URL(location, target).href, options.policy);
+    await assertResolvesPublic(target, options, init.signal);
+    onOrigin &&= target.origin === origin;
+    if (redirectsToGet(response.status, method)) {
+      method = 'GET';
+      body = undefined;
+      headers.delete('content-type');
+    }
+  }
+}
+
+/** Options for {@link dnsOverHttpsResolver}. */
+export interface DnsOverHttpsOptions {
+  /** A DNS JSON API endpoint, e.g. `https://cloudflare-dns.com/dns-query`. */
+  endpoint: string;
+  fetchFn?: typeof fetch;
+}
+
+const DNS_TYPE_A = 1;
+const DNS_TYPE_AAAA = 28;
+const DNS_NOERROR = 0;
+const DNS_NXDOMAIN = 3;
+
+/**
+ * A {@link ResolveHost} over DNS-over-HTTPS (the DNS JSON API), for runtimes
+ * with `fetch` but no DNS lookup, such as Cloudflare Workers. It asks the
+ * endpoint, not the machine's resolver, so names only an internal resolver
+ * knows are not seen; a server host should resolve through its own DNS.
+ */
+export function dnsOverHttpsResolver(options: DnsOverHttpsOptions): ResolveHost {
+  const fetchFn = options.fetchFn ?? fetch;
+  const query = async (hostname: string, type: number, signal?: AbortSignal) => {
+    const url = new URL(options.endpoint);
+    url.searchParams.set('name', hostname);
+    url.searchParams.set('type', String(type));
+    const response = await fetchFn(url.href, {
+      headers: { accept: 'application/dns-json' },
+      ...(signal ? { signal } : {}),
+    });
+    if (!response.ok) {
+      throw new TheoremError(
+        'network',
+        `DNS lookup for "${hostname}" failed: HTTP ${response.status}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
+    const answer = (await response.json()) as {
+      Status?: number;
+      Answer?: { type?: number; data?: string }[];
+    };
+    if (answer.Status === DNS_NXDOMAIN) return [];
+    if (answer.Status !== DNS_NOERROR) {
+      throw new TheoremError(
+        'network',
+        `DNS lookup for "${hostname}" failed: status ${answer.Status}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
+    return (answer.Answer ?? []).flatMap((record) =>
+      record.type === type && typeof record.data === 'string' ? [record.data] : [],
+    );
+  };
+  return async (hostname, signal) => {
+    const [v4, v6] = await Promise.all([
+      query(hostname, DNS_TYPE_A, signal),
+      query(hostname, DNS_TYPE_AAAA, signal),
+    ]);
+    return [...v4, ...v6];
+  };
 }

@@ -229,6 +229,12 @@ function huggingFaceToken(): string | undefined {
   }
 }
 
+/** The Hugging Face token goes to Hugging Face only, never to the other corpus hosts. */
+function isHuggingFace(url: string): boolean {
+  const host = new URL(url).hostname;
+  return host === 'huggingface.co' || host.endsWith('.huggingface.co');
+}
+
 /** Create a cache that reads from disk when present and fetches when not. */
 function createCorpusCache(dir: string): CorpusCache {
   return {
@@ -242,7 +248,7 @@ function createCorpusCache(dir: string): CorpusCache {
       }
       // A gated dataset needs a token the runner may or may not have; the caller
       // decides whether a miss is fatal.
-      const token = huggingFaceToken();
+      const token = isHuggingFace(url) ? huggingFaceToken() : undefined;
       const response = await fetch(url, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });

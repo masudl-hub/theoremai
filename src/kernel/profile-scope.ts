@@ -115,6 +115,10 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
     reason:
       'speech input is the transcript, live ingress is live.ingress, and a host profile takes no turns',
   },
+  'inputs.voice': {
+    profileTypes: ['text'],
+    reason: 'no image model reads audio, and a decision takes JSON state',
+  },
   outputs: {
     profileTypes: ['text', 'image', 'speech'],
     reason:

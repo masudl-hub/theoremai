@@ -11,7 +11,12 @@
 
 import type { z } from 'zod';
 import { TheoremError } from '../../guardrails/error.ts';
-import { jsonSchemaFromZod, validateToolInputSchema, validateToolOutputSchema } from './schema.ts';
+import {
+  assertFixedEndpointOrigin,
+  jsonSchemaFromZod,
+  validateToolInputSchema,
+  validateToolOutputSchema,
+} from './schema.ts';
 import type {
   BuiltinWire,
   FunctionToolDef,
@@ -37,6 +42,7 @@ function normalizeHttp<TIn = unknown, TOut = unknown>(
     output: z.ZodType<TOut>;
   },
 ): HttpToolDef<TIn, TOut> {
+  assertFixedEndpointOrigin(def.endpoint);
   return { ...def, type: 'http', ...schemasFromZod(def.input, def.output) };
 }
 

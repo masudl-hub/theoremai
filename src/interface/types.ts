@@ -57,8 +57,6 @@ export interface ProfileInputsInterface {
   maxTurnBytes?: number;
   limitsByMime?: Record<string, number>;
   slots?: Record<string, string[]>;
-  /** An image profile's `image.maxInputImages`: the most reference images one turn takes. */
-  maxImages?: number;
 }
 
 /** `profile.tools` plus resolved registry entries (turn profiles). */

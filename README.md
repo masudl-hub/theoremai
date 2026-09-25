@@ -67,7 +67,7 @@ or UI copy. Keys, credentials, trace storage, and policy all come from the host.
 
 - 🔧 **Function, HTTP, MCP, and provider tools in one registry** — Zod schemas, streamed progress, and the same execution pipeline for all of them.
 - 🔐 **Gating in layers** — host catalog → profile allowlist → route paths → load tier (T0 / T1 / T2) → permission (`auto` · `session_consent` · `always_confirm`) → your own `preTool` and stage hooks.
-- 🔑 **OAuth 2.1 with PKCE built in** — discovery, HMAC-sealed state, issuer checks, resource indicators, and automatic token refresh for HTTP and MCP tools.
+- 🔑 **OAuth 2.1 with PKCE built in** — discovery, encrypted state, issuer checks, resource indicators, and automatic token refresh for HTTP and MCP tools.
 - 🧯 **Remote content handled as data** — HTTP and MCP results are fenced and labelled by origin. Content that tries to steer the model gets an advisory, and a turn that has read remote content can be blocked from destructive calls.
 
 ### Runs anywhere, owns nothing
@@ -379,7 +379,7 @@ defineProfile({
   models: {
     image: { protocol: "geminiInteractions", provider: "google", apiId: "gemini-3-pro-image", key: "paid" },
   },
-  image: { aspectRatio: "16:9", mimeType: "image/png", maxInputImages: 3, includeText: true },
+  image: { aspectRatio: "16:9", mimeType: "image/png", includeText: true },
   tools: { allow: [] },
   inputs: {
     text: true,
@@ -721,13 +721,16 @@ HTTP and MCP tools with `type: "oauth2"` auth don't need an OAuth library. When 
 token the user hasn't granted, the call becomes an auth gate. The helpers in
 `@theoremai/agents/kernel` run the rest:
 
-- **Discovery** — protected-resource metadata (RFC 9728), then authorization-server metadata (RFC 8414).
+- **Discovery** — protected-resource metadata (RFC 9728), then authorization-server metadata (RFC 8414). The metadata must name exactly the resource and issuer that were asked for, every endpoint must be HTTPS, and the server must advertise S256. Discovery and token requests go through the network guard and never follow redirects.
 - **PKCE** — S256 challenge (RFC 7636); the verifier never leaves your server.
-- **Stateless state** — the verifier and flow details are sealed into an HMAC-signed `state` with a TTL, so there's no session table to maintain.
-- **Mix-up protection** — the `iss` returned on the callback must match the discovered issuer (RFC 9207), and the redirect URI must match.
-- **Resource indicators** — tokens are bound to the tool's resource server (RFC 8707).
+- **Stateless state** — the verifier and flow details (issuer, token endpoint, redirect URI, resource) are encrypted into `state` (AES-256-GCM) with a TTL, so there's no session table to maintain and nothing in the URL is readable. Every state gets its own key (a fresh HKDF salt), and the envelope names its version. `signingSecret` must be at least 32 bytes and carry 256 bits of entropy: 32 random bytes, base64-encoded.
+- **Session binding** — pass the same `sessionBinding` to both calls: a value tied to the user's browser session that an attacker can't know or set, such as your session id or a random value in an HttpOnly cookie. A callback from any other session is refused, so an attacker can't get their own account's token saved into someone else's (login CSRF, RFC 6749 §10.12).
+- **Mix-up protection** — the `iss` returned on the callback must match the discovered issuer (RFC 9207), and is required when the server says it sends one. The redirect URI must match, and the code is exchanged only at the token endpoint sealed into `state`.
+- **Resource indicators** — every token is bound to the resource the flow was for (RFC 8707), and a tool never sends a token to a URL outside that resource. A credential that names no resource is not used; the call gates for sign-in instead.
+- **Strict inputs** — `redirectUri` must be HTTPS, HTTP on a loopback host, or a reverse-domain app scheme, without a fragment (RFC 8252). Each scope must be a single RFC 6749 scope token, and `stateTtlMs` must be a positive number.
 - **Client ID Metadata Documents** — `clientId` can be an HTTPS URL, so you don't have to register a client with every server.
-- **Refresh** — tokens within 30 seconds of expiry are refreshed before the call. The turn emits `auth_token_refreshed` with the new credential so you can save it.
+- **Refresh** — tokens within 30 seconds of expiry are refreshed before the call. The new credential replaces its slot in the `credentials` record you passed in, and the turn emits `auth_token_refreshed` naming the slot, so you know to save it. The token itself never rides the event stream. Calls that find the same expired token share one refresh, so a rotating refresh token is never presented twice. A refused refresh emits `auth_token_refresh_failed`: the server's own text rides only in `errorInternal`, which `forClient` strips, and never reaches the model.
+- **Echoed credentials** — a response that repeats the token or key it was sent with (an echo endpoint, a debug error page) has that value replaced with `[omitted - credential]` before the model, the trace, or the client sees it.
 
 ```ts
 import { invokeTool, runTurn } from "@theoremai/agents";
@@ -742,6 +745,7 @@ for await (const event of runTurn(request, provider)) {
       redirectUri: "https://app.example/oauth/callback",
       scopes: event.tool.gate.authChallenge?.requiredScopes,
       signingSecret: secrets.oauthStateSecret,
+      sessionBinding: session.id,
     });
     redirect(flow.authorizationUrl);
   }
@@ -755,6 +759,7 @@ const { credential } = await exchangeOAuthPkce({
   iss: params.get("iss") ?? undefined,
   redirectUri: "https://app.example/oauth/callback",
   signingSecret: secrets.oauthStateSecret,
+  sessionBinding: session.id,
 });
 await db.credentials.put(user.id, "tracker", credential);
 
@@ -771,7 +776,8 @@ for await (const event of invokeTool({
 ```
 
 Credentials travel per turn in `TurnRequest.credentials`, keyed by slot. The kernel never
-stores them. A tool whose auth is `onUnauthenticated: "report_to_model"` tells the model it
+stores them, and they never belong in the browser: `createTheoremHandler` keeps them in a
+server-side credential store (see [`react/README.md`](react/README.md#tool-credentials)). A tool whose auth is `onUnauthenticated: "report_to_model"` tells the model it
 isn't signed in instead of gating, for tools the agent can manage without.
 
 **Migration:** [`docs/MIGRATION-tool-system.md`](docs/MIGRATION-tool-system.md) covers the
@@ -796,8 +802,8 @@ Each piece of text is scanned according to where it came from:
 
 `sanitizeInput` neutralizes prompt-injection patterns. `redactSensitive` masks secrets and
 personal data (keys, tokens, card numbers, and more) before the model sees them. Each hit becomes
-a `guardrail` event with its rule, severity, and a short preview, so your UI and traces can
-show what changed.
+a `guardrail` event with its rule and severity (and, if you turn on
+`guardrailMatchPreview`, the exact text it caught), so your UI and traces can show what changed.
 
 ### Going out: canary, egress, and validation
 
@@ -865,7 +871,7 @@ A tool result can be the way an attack gets in. Theorem handles it like this:
 - **Directive advisory** — content that names a tool the model can call, gives the agent orders, or claims authority it can't have, *and* points at an external address or URL, gets an `advisory` attribute and a short notice, plus your lexicon `advisory.guidance`. It informs the model; it doesn't block.
 - **Taint gate** — with `taint.afterRemoteRead: "destructive"`, once a turn has read remote content, destructive calls are refused for the rest of it (`"write"` refuses `read-write` calls too). The refusal names the tools whose output tainted the turn, so the model can explain it instead of retrying.
 - **Argument inspection** — the model's arguments are scanned before the body runs. A credential-shaped value about to be sent out as a parameter raises a `tool_call.sensitive-argument` event. It's reported, not rewritten.
-- **Network** — HTTP and MCP targets are checked against `network.allowedHosts` and `allowedSchemes`, and loopback, private, link-local, cloud-metadata, and CGNAT ranges (IPv4 and IPv6) are refused unless `allowPrivateNetworks` is set.
+- **Network** — HTTP and MCP targets are checked against `network.allowedHosts` and `allowedSchemes`, and loopback, private, link-local, cloud-metadata, and CGNAT ranges (IPv4 and IPv6) are refused unless `allowPrivateNetworks` is set. `allowedHosts` exempts a host from the address checks, never from `allowedSchemes`. Redirects are followed one hop at a time and each hop is checked the same way; auth and configured headers go only to the tool's own origin and are never re-sent once a redirect leaves it. Path parameters can't be `.` or `..`.
 - **Redaction** — both the result and its structured data, plus failure messages, go through the same detection as user input before the model reads them.
 
 ### Quota and observability
@@ -977,20 +983,20 @@ Named exports from the root barrel (same symbols hosts get from `@theoremai/agen
 | Group | Symbols |
 | --- | --- |
 | Guardrails errors | `ERROR_KINDS`, `ErrorKind`, `ErrorCopy`, `TheoremError`, `TheoremErrorOptions`, `errorKind`, `publicError`, `toErrorEvent`, `describeError`, `isAbortError`, `throwIfAborted` |
-| Network guardrails | `assertSafeUrl`, `isLocalhostName`, `isPrivateOrLocalAddress` |
+| Network guardrails | `assertSafeUrl`, `fetchGuarded`, `dnsOverHttpsResolver`, `isLocalhostName`, `isPrivateOrLocalAddress`, `GuardedFetchOptions`, `ResolveHost`, `DnsOverHttpsOptions` |
 | Guardrail vocabulary | `AdvisoryLevel`, `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailAction`, `GuardrailContext`, `GuardrailEvent`, `OutboundPayload`, `Provenance`, `ToolOrigin`, `ScanText`, `EgressEnforcer`, `EgressOnBlock`, `ProfileEgressSpec`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `NetworkGuardrailSpec`, `CanaryGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `DetectionOptions`, `GuardedToolText`, `TurnTaint`, `TaintGate`, `TaintGuardrailSpec`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES`, `TOOL_ORIGINS`, `EGRESS_ON_BLOCK` |
 | Guardrail policy | `resolveGuardrailPolicy`, `detectionForTrust`, `detectionForProfile`, `collectEgressHits`, `hitRules`, `EGRESS_RULES`, `runEnforcer` |
 | Tool boundary | `guardToolResult`, `guardToolFailureText`, `inspectToolArguments`, `toolCallEvent`, `wrapToolData`, `isRemoteOrigin`, `composeToolText`, `checkTaintGate`, `recordTaint`, `isTainted`, `isSuspicious`, `directiveHits`, `looksDirective`, `advisoryLevel`, `DIRECTIVE_RULES`, `ADVISORY_LEVELS`, `TOOL_CLOSE`, `TOOL_ORIGINS`, `TAINT_GATES`, `textForScan`, `scanTextOf` |
 | Quota | `QuotaSlotStatus`, `QuotaExhausted`, `clientIp`, `quotaExhausted`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |
 | Lexicon | `LEXICON_KEYS`, `LexiconKey`, `CLIENT_LEXICON_KEYS`, `ClientLexiconKey`, `LexiconOverrides`, `LexiconParams`, `lexiconDefault`, `lexiconText`, `overrideLexicon`, `resetLexicon` |
-| Sanitize | `PROJECT_ID_MAX`, `sanitizeProjectId`, `sanitizeText`, `detectText`, `sanitizeTurnRequest`, `sanitizeTurnRequestWithEvents`, `redactSensitiveOnly`, `guardrailFromHits`, `guardrailFromVerdict`, `guardrailTurnEvent`, `projectGuardrailTurnEvent`, `hitFromSpan`, `matchPreview`, `projectGuardrailEvent`, `GUARDRAIL_MATCH_PREVIEW_MAX` |
+| Sanitize | `sanitizeProjectId`, `sanitizeText`, `detectText`, `sanitizeTurnRequest`, `sanitizeTurnRequestWithEvents`, `redactSensitiveOnly`, `guardrailFromHits`, `guardrailFromVerdict`, `guardrailTurnEvent`, `projectGuardrailTurnEvent`, `hitFromSpan`, `projectGuardrailEvent` |
 | Canary / egress | `mintCanary`, `bindCanary`, `wrapUserData`, `scanTextForCanaryLeak`, `redactCanary`, `OMIT_CANARY`, `createCanaryStreamGate`, `eventHasCanary`, `createCanaryGateSession`, `filterCanaryGatedEvents`, `CanaryGateResult`, `CanaryGateSession`, `CanaryStreamGate`, `standardEgressEnforce`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `DEFAULT_HOLDBACK`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveHeldOutput`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
 | Compaction | `CompactionSplit`, `CompactionTokens`, `compactionMeter`, `compactionNeeded`, `resolveCompactionTokens`, `resolveHistoryTokens`, `shouldCompact`, `splitForCompaction` |
 | Token estimate | `loadTokenEstimator`, `mediaTokenFamily`, `TOKEN_TEXT_ENCODING`, `MediaPayload`, `MediaTokenFamily`, `TokenCount`, `TokenEstimator`, `sumTokens` |
 | Runner | `runTurn`, `runSession`, `runDecision`, `RunSessionOptions`, `RunDecisionOptions`, `DecisionError`, `prepareLiveInboundText`, `liveIngressEnabled`, `liveIngressEnabledFromSpec`, `liveIngressChannelDefault`, `hasAnyLiveIngress`, `assertLiveIngress`, `assertLiveIngressConfigured`, `LiveIngressChannel` |
 | Attachments | `attachmentIssues`, `attachmentIssueCopy`, `attachmentIssueText`, `attachmentsRefused`, `assertTurnAttachments`, `maxBytesForMime`, `requireMediaLimits`, `resolveMediaLimits`, `sanitizeCsvText`, `sanitizeTurnBlobs`, `AttachmentFacts`, `AttachmentRules` |
 | Catalog | `clampThinkingLevel`, `clampThinkingLevelForApiId`, `mediaChannelForMime`, `MediaInputChannel`, `mediaKindForMime`, `mimeAllowed`, `mimeEssence`, `modelEntryByApiId`, `requireModelBinding` |
-| Schema | `PROFILE_FIELDS`, `PROFILE_GRAPH`, `PROFILE_TYPES`, `PROFILE_TYPE_PROTOCOLS`, `protocolsForProfileType`, `isValidProfileProtocol`, `EXTRA_FIELDS`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `spineFacetsForProfileType`, `profileGraphFacet`, `ProfileGraphFacet`, `ProfileGraphFacetId`, `ProfileGraphEditor`, `ProfileGraphRole`, `PROTOCOLS`, `PROVIDERS`, `PROTOCOL_PROVIDERS`, `providersFor`, `protocolsFor`, `isValidPair`, `coerceProvider`, `coerceProtocol`, `coerceSpeechFormat`, `isSpeechFormatAllowedForProtocol`, `speechFormatsForProtocol`, `THINKING_LEVELS`, `KEY_SLOTS`, `OVERFLOW_KEY_SLOTS`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `COMPACTION_METERS`, `COMPACTION_TIMINGS`, `CACHE_MODES`, `CACHE_TTLS`, `TURN_STAGES`, `TURN_INJECT_STAGES`, `TURN_STOP_KINDS`, `CONTINUE_STOP_KINDS`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES`, `AUTH_UNAUTHENTICATED_POLICIES`, `HTTP_METHODS`, `PLAYGROUND_AUTH_TYPES`, `TOOL_AUTH_TYPES`, `AuthUnauthenticatedPolicy`, `CustomToolType`, `HttpMethod`, `PlaygroundAuthType`, `ToolAccess`, `ToolAuthType`, `ToolPermission`, `ToolType`, `LIVE_ACTIVITY_HANDLINGS`, `LIVE_SPEECH_SENSITIVITIES`, `EGRESS_ON_BLOCK`, `EgressOnBlock` |
+| Schema | `PROFILE_FIELDS`, `PROFILE_GRAPH`, `PROFILE_TYPES`, `PROFILE_TYPE_PROTOCOLS`, `protocolsForProfileType`, `isValidProfileProtocol`, `EXTRA_FIELDS`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `spineFacetsForProfileType`, `profileGraphFacet`, `ProfileGraphFacet`, `ProfileGraphFacetId`, `ProfileGraphEditor`, `ProfileGraphRole`, `PROTOCOLS`, `PROVIDERS`, `PROTOCOL_PROVIDERS`, `providersFor`, `protocolsFor`, `isValidPair`, `coerceProvider`, `coerceProtocol`, `coerceSpeechFormat`, `isSpeechFormatAllowedForProtocol`, `speechFormatsForProtocol`, `THINKING_LEVELS`, `KEY_SLOTS`, `OVERFLOW_KEY_SLOTS`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `IMAGE_ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `COMPACTION_METERS`, `COMPACTION_TIMINGS`, `CACHE_MODES`, `CACHE_TTLS`, `TURN_STAGES`, `TURN_INJECT_STAGES`, `TURN_STOP_KINDS`, `CONTINUE_STOP_KINDS`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES`, `AUTH_UNAUTHENTICATED_POLICIES`, `HTTP_METHODS`, `PLAYGROUND_AUTH_TYPES`, `TOOL_AUTH_TYPES`, `AuthUnauthenticatedPolicy`, `CustomToolType`, `HttpMethod`, `PlaygroundAuthType`, `ToolAccess`, `ToolAuthType`, `ToolPermission`, `ToolType`, `LIVE_ACTIVITY_HANDLINGS`, `LIVE_SPEECH_SENSITIVITIES`, `EGRESS_ON_BLOCK`, `EgressOnBlock` |
 | Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `LiveProfileDefinition`, `HostProfileDefinition`, `DecisionProfileDefinition`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `resolveTurn`, `pickModel` |
 | Tools | `registerTool`, `registerTools`, `invokeTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `listBuiltinIds`, `listFunctionIds`, `resetTools`, `formatToolResult`, `prepareTurnToolSnapshot`, `buildHttpToolTarget`, `executeHttpTool`, `executeMcpTool`, `parseMcpRpcResponse`, `isUnsupportedMcpProtocolError`, `MCP_PROTOCOL_VERSIONS`, `McpProtocolVersion`, `resolveToolAuth` |
 | Structured | `getStructured`, `registerStructured` |

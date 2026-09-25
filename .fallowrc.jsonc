@@ -4,6 +4,8 @@
   "entry": [
     // Unpublished headless interface surface; still an analysis entry for react + tests.
     "src/interface/mod.ts",
+    // Repo-only guardrail eval harness, run by scripts/guardrails-eval.ts (scripts/ is ignored).
+    "src/guardrails/eval/mod.ts",
     "tests/cli/**/*.ts",
     "tests/kernel/**/*.ts",
     "tests/guardrails/**/*.ts",

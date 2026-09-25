@@ -160,6 +160,7 @@ async function* invokeTraced(
       ctx: {
         sessionPermissions: request.sessionPermissions,
         credentials: request.credentials,
+        resolveHost: request.resolveHost,
         path: request.path,
         signal: request.signal,
         resume: request.resume,

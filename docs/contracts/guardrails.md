@@ -105,7 +105,7 @@ interface GuardrailHit {
   rule: string;                              // e.g. 'egress.canary-leak'
   severity: 'info' | 'low' | 'medium' | 'high';
   span?: { start: number; end: number };     // offsets into the inspected text
-  match?: string;                            // capped; stripped unless guardrailMatchPreview
+  match?: string;                            // exact text; stripped unless guardrailMatchPreview
 }
 ```
 
@@ -215,7 +215,9 @@ deno task guardrails:eval
 ```
 
 Corpora are fetched on demand and cached under `.guardrail-corpus/` (gitignored,
-never published). Nothing third-party is vendored.
+never published). Nothing third-party is vendored. The harness itself
+(`src/guardrails/eval/`, `scripts/guardrails-eval.ts`) is repo-only: it is excluded
+from the published package and is not part of `@theoremai/agents/guardrails/testing`.
 
 | Source | Licence | Role |
 | --- | --- | --- |
@@ -406,7 +408,7 @@ switch cannot mean different things on different paths.
 | `sanitizeTurnRequest` | Full turn: text, slots, tool arguments, blobs |
 | `sanitizeTurnRequestWithEvents` | Same + `{ type: 'guardrail' }` events for redacted stages |
 | `detectText` | Detect + redact one string; returns `{ text, hits }` |
-| `sanitizeProjectId` | Bound project id strings (`PROJECT_ID_MAX`) |
+| `sanitizeProjectId` | Trim a project id; drop it unless it is only letters, digits, `.`, `_`, `-` |
 | `detectionForProfile` | Resolved detection switches for one profile at one trust level |
 | `sanitizeHistory` | Sanitize historical turn exchanges |
 
@@ -622,7 +624,7 @@ hits without a second copy of the secret:
 ```
 
 `hits` carry rule identity, severity, and offsets. Detectors may also attach
-`match` (exact matched substring, capped at 512 chars). The host stream and the
+`match` (the exact matched text, whole). The host stream and the
 trace's `theorem.guardrail` events strip `match` unless
 `observability.include.guardrailMatchPreview` is true (default **false** — treat like server logs when enabled). Canary leaks
 use the placeholder `[canary]`, never the live token. `forClient` /
@@ -651,8 +653,27 @@ follow `guardrailMatchPreview`. Helpers: `guardrailFromVerdict`,
 
 ## Network
 
-SSRF policy for declarative HTTP tools and remote MCP servers. `assertSafeUrl`
-runs at both remote call sites and throws `TheoremError` on a blocked target.
+SSRF policy for declarative HTTP tools, remote MCP servers, token refresh, and
+the OAuth helpers. `assertSafeUrl` runs on every outbound URL and throws
+`TheoremError` on a blocked target; a blocked tool target settles as one
+`network_blocked` failure with a `network` guardrail event.
+
+Redirects are followed manually, one hop at a time (Fetch-standard limit of 20
+and method rewrite), and every hop passes the same check. Tool auth and
+configured headers go to the configured origin only and are never re-sent once a
+redirect leaves it. OAuth discovery and token requests do not follow redirects.
+
+`fetchGuarded` takes an optional `resolveHost`. With it, every hop's host name
+is resolved first and the hop is refused when any address is private or the name
+does not resolve; literal addresses, `allowedHosts`, and `allowPrivateNetworks`
+skip the lookup. Hosts pass one as `resolveHost` on `TurnRequest`,
+`InvokeToolRequest`, `SessionRequest`, and the OAuth helpers' options, and it
+covers remote HTTP and MCP tools, token refresh, discovery, and token exchange.
+`dnsOverHttpsResolver` builds one over the DNS JSON API for runtimes without a
+DNS lookup, such as Workers. The lookup is separate from the
+connection's own, so it stops names that point inward but not a DNS server that
+changes its answer between the two (rebinding); that stays the host egress
+layer's job.
 
 ```ts
 guardrails: {
@@ -671,11 +692,14 @@ space, and any scheme outside `allowedSchemes`. IPv6 forms of the same ranges,
 including IPv4-mapped addresses, are covered.
 
 `allowedHosts` permits a specific hostname or address regardless of subnet, for
-hosts that genuinely need to reach an internal service.
+hosts that genuinely need to reach an internal service. It exempts the host from
+the address checks only; `allowedSchemes` still applies.
 
 | API | Role |
 | --- | --- |
 | `assertSafeUrl` | Validate one URL against a `NetworkGuardrailSpec`; throws when blocked |
+| `fetchGuarded` | `fetch` with every hop cleared, origin-bound headers, and an optional `resolveHost` |
+| `dnsOverHttpsResolver` | A `ResolveHost` over a DNS JSON API endpoint |
 | `isPrivateOrLocalAddress` | Predicate for an IP or hostname |
 | `isLocalhostName` | Loopback hostname predicate |
 
@@ -774,11 +798,11 @@ From `src/guardrails/mod.ts`:
 | Policy | `resolveGuardrailPolicy`, `detectionForTrust`, `DetectionOptions` |
 | Tool boundary | `guardToolResult`, `guardToolFailureText`, `inspectToolArguments`, `toolCallEvent`, `wrapToolData`, `isRemoteOrigin`, `composeToolText`, `checkTaintGate`, `recordTaint`, `isTainted`, `isSuspicious`, `directiveHits`, `looksDirective`, `advisoryLevel`, `DIRECTIVE_RULES`, `ADVISORY_LEVELS`, `AdvisoryLevel`, `TOOL_CLOSE`, `TOOL_ORIGINS`, `TAINT_GATES`, `GuardedToolText`, `Provenance`, `ToolOrigin`, `TurnTaint`, `TaintGate`, `TaintGuardrailSpec`, `GuardrailEvent` |
 | Serialization | `textForScan`, `scanTextOf`, `ScanText` |
-| Sanitize | `PROJECT_ID_MAX`, `sanitizeProjectId`, `sanitizeText`, `detectText`, `sanitizeHistory`, `sanitizeTurnRequest`, `sanitizeTurnRequestWithEvents`, `redactSensitiveOnly`, `detectionForProfile` |
-| Events | `guardrailFromHits`, `guardrailFromVerdict`, `guardrailTurnEvent`, `projectGuardrailTurnEvent`, `hitFromSpan`, `matchPreview`, `projectGuardrailEvent`, `GUARDRAIL_MATCH_PREVIEW_MAX` |
+| Sanitize | `sanitizeProjectId`, `sanitizeText`, `detectText`, `sanitizeHistory`, `sanitizeTurnRequest`, `sanitizeTurnRequestWithEvents`, `redactSensitiveOnly`, `detectionForProfile` |
+| Events | `guardrailFromHits`, `guardrailFromVerdict`, `guardrailTurnEvent`, `projectGuardrailTurnEvent`, `hitFromSpan`, `projectGuardrailEvent` |
 | Canary | `mintCanary`, `bindCanary`, `wrapUserData`, `scanTextForCanaryLeak`, `createCanaryStreamGate`, `eventHasCanary`, `isStreamedCanaryEvent`, `redactCanary`, `OMIT_CANARY`, `USER_OPEN`, `USER_CLOSE`, `createCanaryGateSession`, `filterCanaryGatedEvents`, `CanaryGateResult`, `CanaryGateSession`, `CanaryStreamGate` |
 | Egress / Live | `standardEgressEnforce`, `collectEgressHits`, `hitRules`, `EGRESS_RULES`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `DEFAULT_HOLDBACK`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveHeldOutput`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
-| Network | `assertSafeUrl`, `isLocalhostName`, `isPrivateOrLocalAddress`, `NetworkGuardrailSpec` |
+| Network | `assertSafeUrl`, `fetchGuarded`, `dnsOverHttpsResolver`, `isLocalhostName`, `isPrivateOrLocalAddress`, `GuardedFetchOptions`, `ResolveHost`, `DnsOverHttpsOptions`, `NetworkGuardrailSpec` |
 | Quota | `QuotaSlotStatus`, `QuotaExhausted`, `clientIp`, `quotaExhausted`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |
 | Lexicon | `LEXICON_KEYS`, `LexiconKey`, `CLIENT_LEXICON_KEYS`, `ClientLexiconKey`, `LexiconOverrides`, `LexiconParams`, `lexiconDefault`, `lexiconText`, `overrideLexicon`, `resetLexicon` |
 
@@ -787,8 +811,6 @@ From `src/guardrails/testing.ts` (test / harness only):
 | Group | Symbols |
 | --- | --- |
 | Fuzz / red-team | `inboundFuzzPayloads`, `inboundPayloadByName`, `runInboundGuardrailFuzz`, `buildLiveAttacks`, `buildCanaryEgressAttacks`, `canaryEgressCatalog`, `filterLiveAttacks`, `summarizeAttackBank`, `FIXED_CANARY`, `CanaryEgressAttack`, `CanaryEgressCatalogEntry`, `InboundFuzzPayload`, `InboundFuzzResult`, `LiveAttack` |
-| Corpus | `createCorpusCache`, `parseLabelledCsv`, `recordsFromYaml`, `SOURCES`, `CorpusSample`, `CorpusSource` |
-| Evaluation | `runGuardrailEval`, `formatReport`, `DETECTORS`, `scoreAll`, `scoreDetector`, `formatScores`, `EvalOptions`, `EvalReport`, `DetectorScore`, `EvalDetector` |
 
 ```theorem-evidence
 {

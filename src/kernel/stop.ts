@@ -48,12 +48,13 @@ export interface ProfileTurnResumptionSpec {
    */
   allowContinue?: ContinueStopKind[];
   /**
-   * Kinds the host may auto-continue without a CTA.
+   * Kinds the host continues once on its own, without asking.
+   * When omitted, length / stream_incomplete are; `[]` means none.
    * Kernel does not loop; hosts call continueFrom and pass `continuation`.
    */
   autoContinue?: ContinueStopKind[];
   /**
-   * Max continueFrom rounds the kernel will accept for this profile.
+   * How many times one reply may be continued for this profile.
    * Compared against `TurnRequest.continuation` (1-based continue attempt).
    * When omitted, only kind allowlists apply (no count cap).
    */
@@ -121,15 +122,18 @@ export function isUserCancelledStop(stop: TurnStop | undefined): boolean {
   return stop?.kind === 'cancelled';
 }
 
-/** True when profile policy allows one silent auto-continue for this stop. */
+/**
+ * True when profile policy allows one silent auto-continue for this stop: it is
+ * in `autoContinue` (default length / stream_incomplete) and may be continued at
+ * all under `allowContinue`. Pass the profile's `profileTurnResumption(profile)`.
+ */
 export function shouldAutoContinue(
   stop: TurnStop | undefined,
-  autoContinue: readonly ContinueStopKind[] | undefined = DEFAULT_AUTO_CONTINUE,
+  policy?: Pick<ProfileTurnResumptionSpec, 'allowContinue' | 'autoContinue'>,
 ): boolean {
   if (!stop || !isContinueStopKind(stop.kind)) return false;
-  const list = autoContinue ?? DEFAULT_AUTO_CONTINUE;
-  if (list.length === 0) return false;
-  return list.includes(stop.kind) && isResumeableStop(stop);
+  const auto = policy?.autoContinue ?? DEFAULT_AUTO_CONTINUE;
+  return auto.includes(stop.kind) && isResumeableStop(stop, policy?.allowContinue);
 }
 
 /** Read nested `turnBehaviour.resumption` from a non-live profile. */

@@ -32,8 +32,10 @@ import {
   TheoremError,
 } from '../mod.ts';
 import { validateLexiconOverrides } from '../src/guardrails/lexicon.ts';
+import { mimeAllowed } from '../src/kernel/registry/catalog.ts';
 import {
   HTTP_METHODS,
+  IMAGE_ATTACHMENT_ACCEPT_MIMES,
   isValidPair,
   isValidProfileProtocol,
   protocolsForProfileType,
@@ -48,8 +50,7 @@ import type {
   ProfileOutputsSpec,
   ProfileSpeechSpec,
 } from '../src/kernel/types.ts';
-import { outOfScopeFields, profileTypesForField } from '../src/kernel/profile-scope.ts';
-import { CONTINUE_INSTRUCTION_TYPES } from '../src/kernel/stop.ts';
+import { outOfScopeFields } from '../src/kernel/profile-scope.ts';
 import { resolveObservabilityPolicy } from '../src/observability/mod.ts';
 import type {
   GuardrailsDraft,
@@ -65,8 +66,12 @@ import type {
   ToolSpecDraft,
   TurnBehaviourDraft,
 } from './draft.ts';
-import { draftFacets } from './draft.ts';
-import { isProviderBuiltinId, modelBindingViolation } from './policy.ts';
+import { draftAllows, draftFacets, takesContinueInstruction } from './draft.ts';
+import {
+  GEMINI_PLAYGROUND_LIVE_INPUT_TOKENS,
+  isProviderBuiltinId,
+  modelBindingViolation,
+} from './policy.ts';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
 import {
   defaultEffortRequired,
@@ -421,7 +426,21 @@ function compileTools(draft: PlaygroundDraft, withLoader: boolean, report: Repor
 
 // ── sections ────────────────────────────────────────────────────────────────
 
-function compileInputs(inputs: InputsDraft, report: Report): ProfileInputsSpec {
+function compileInputs(
+  inputs: InputsDraft,
+  type: PlaygroundProfileType,
+  report: Report,
+): ProfileInputsSpec {
+  const outside = type === 'image'
+    ? inputs.attachmentsAccept.filter((rule) => !mimeAllowed(IMAGE_ATTACHMENT_ACCEPT_MIMES, rule))
+    : [];
+  if (outside.length) {
+    report(
+      'inputs',
+      `An image profile takes images, video and PDF only, not ${outside.join(', ')}.`,
+      'attachmentsAccept',
+    );
+  }
   if (inputLimitsRequired(inputs)) {
     const limits = [
       ['maxFiles', 'Max files', inputs.maxFiles],
@@ -486,7 +505,8 @@ function compileResumption(turn: TurnBehaviourDraft, report: Report) {
   checkWhole(report, 'turnBehaviour', 'maxContinues', 'Max continues', turn.maxContinues, 1);
   return {
     ...(turn.allowContinue.length ? { allowContinue: [...turn.allowContinue] } : {}),
-    ...(turn.autoContinue.length ? { autoContinue: [...turn.autoContinue] } : {}),
+    // Always written: left out, the kernel auto-continues length and stream_incomplete.
+    autoContinue: [...turn.autoContinue],
     ...(turn.maxContinues !== null ? { maxContinues: turn.maxContinues } : {}),
   };
 }
@@ -523,9 +543,7 @@ function compileLexicon(
 ): LexiconOverrides | undefined {
   const entries: Array<[nodeId: string, field: string, key: LexiconKey, template: string]> = [];
   const turn = draft.turnBehaviour;
-  const type = draft.identity.profileType;
-  const takesInstruction = type !== '' && CONTINUE_INSTRUCTION_TYPES.includes(type);
-  if (facets.has('turnBehaviour') && takesInstruction && turn.resumeEnabled) {
+  if (facets.has('turnBehaviour') && takesContinueInstruction(draft) && turn.resumeEnabled) {
     entries.push([
       'turnBehaviour',
       'continueInstruction',
@@ -694,13 +712,11 @@ function compileObservability(
   return Object.keys(spec).length ? spec : undefined;
 }
 
-function compileImage(image: ImageDraft, report: Report): ProfileImageSpec {
-  checkWhole(report, 'image', 'maxInputImages', 'Max input images', image.maxInputImages, 1);
+function compileImage(image: ImageDraft): ProfileImageSpec {
   return {
     ...(image.aspectRatio.trim() ? { aspectRatio: image.aspectRatio.trim() } : {}),
     ...(image.size.trim() ? { size: image.size.trim() } : {}),
     ...(image.mimeType.trim() ? { mimeType: image.mimeType.trim() } : {}),
-    ...(image.maxInputImages !== null ? { maxInputImages: image.maxInputImages } : {}),
     ...(image.includeText ? { includeText: true } : {}),
   };
 }
@@ -750,29 +766,7 @@ function compileLive(live: LiveDraft, report: Report): ProfileLiveSpec {
     0,
   );
 
-  if (live.contextCompression) {
-    checkWhole(
-      report,
-      'live',
-      'compressionTriggerTokens',
-      'Compression trigger',
-      live.compressionTriggerTokens,
-      1,
-    );
-    checkWhole(
-      report,
-      'live',
-      'compressionTargetTokens',
-      'Compression target',
-      live.compressionTargetTokens,
-      1,
-    );
-    const trigger = live.compressionTriggerTokens;
-    const target = live.compressionTargetTokens;
-    if (trigger !== null && target !== null && target >= trigger) {
-      report('live', 'Compression target must be below the trigger.', 'compressionTargetTokens');
-    }
-  }
+  if (live.contextCompression) checkCompression(live, report);
 
   const channels = { audio: live.ingressAudio, video: live.ingressVideo, text: live.ingressText };
   const ingress = Object.fromEntries(
@@ -800,6 +794,48 @@ function compileLive(live: LiveDraft, report: Report): ProfileLiveSpec {
     ...(live.proactiveAudio ? { proactiveAudio: true } : {}),
     ...(Object.keys(transcription).length ? { transcription } : {}),
   };
+}
+
+/**
+ * The sliding window's numbers: whole, within the free key's input, and the target below the
+ * trigger.
+ */
+function checkCompression(live: LiveDraft, report: Report): void {
+  checkWhole(
+    report,
+    'live',
+    'compressionTriggerTokens',
+    'Compression trigger',
+    live.compressionTriggerTokens,
+    1,
+  );
+  checkWhole(
+    report,
+    'live',
+    'compressionTargetTokens',
+    'Compression target',
+    live.compressionTargetTokens,
+    1,
+  );
+  const trigger = live.compressionTriggerTokens;
+  const target = live.compressionTargetTokens;
+  const cap = GEMINI_PLAYGROUND_LIVE_INPUT_TOKENS.toLocaleString('en-US');
+  if (trigger !== null && trigger > GEMINI_PLAYGROUND_LIVE_INPUT_TOKENS) {
+    report(
+      'live',
+      `Compression trigger can't exceed the free key's ${cap} input tokens.`,
+      'compressionTriggerTokens',
+    );
+  }
+  if (target !== null && target >= (trigger ?? GEMINI_PLAYGROUND_LIVE_INPUT_TOKENS)) {
+    report(
+      'live',
+      trigger !== null
+        ? 'Compression target must be below the trigger.'
+        : `Compression target must be below the free key's ${cap} input tokens.`,
+      'compressionTargetTokens',
+    );
+  }
 }
 
 /** The draft's sliding window; a blank number is left to the provider. */
@@ -841,7 +877,7 @@ function assemble(
   report: Report,
 ): Omit<CompiledPlayground, 'agentId'> {
   const facets = new Set<string>(draftFacets(draft));
-  const allows = (path: string) => profileTypesForField(path).includes(type);
+  const allows = (path: string) => draftAllows(draft, path);
   const system = draft.identity.system.trim();
   const modelFields = compileModels(draft, type, report);
   const { outputs, structured } = facets.has('outputs')
@@ -866,11 +902,11 @@ function assemble(
     id: draft.identity.agentId.trim(),
     identity: { handle: draft.identity.handle.trim(), ...(system ? { system } : {}) },
     ...modelFields,
-    ...(facets.has('image') ? { image: compileImage(draft.image, report) } : {}),
+    ...(facets.has('image') ? { image: compileImage(draft.image) } : {}),
     ...(facets.has('speech') ? { speech: compileSpeech(draft.speech, draft, report) } : {}),
     ...(facets.has('live') ? { live: compileLive(draft.live, report) } : {}),
     ...(tools ? { tools } : {}),
-    ...(facets.has('inputs') ? { inputs: compileInputs(draft.inputs, report) } : {}),
+    ...(facets.has('inputs') ? { inputs: compileInputs(draft.inputs, type, report) } : {}),
     ...(outputs ? { outputs } : {}),
     ...(turnBehaviour ? { turnBehaviour } : {}),
     ...(guardrails ? { guardrails } : {}),

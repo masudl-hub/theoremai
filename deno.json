@@ -63,6 +63,7 @@
       "scripts/",
       "react/",
       "src/interface/",
+      "src/guardrails/eval/",
       "sgconfig.yml",
       "snyk",
       ".snyk",
@@ -80,7 +81,7 @@
     "@deno/dnt": "jsr:@deno/dnt@0.43.2"
   },
   "tasks": {
-    "guardrails:eval": "deno run --allow-net --allow-read --allow-write src/cli/index.ts guardrails-eval",
+    "guardrails:eval": "deno run --allow-net --allow-read --allow-write --allow-env scripts/guardrails-eval.ts",
     "agents": "deno run --allow-read --allow-write --allow-net src/cli/index.ts",
     "fuzz": "deno run --allow-read --allow-write --allow-net src/cli/index.ts fuzz",
     "fuzz-canary": "deno run --allow-read --allow-write --allow-net src/cli/index.ts fuzz-canary",

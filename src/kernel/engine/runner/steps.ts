@@ -393,7 +393,7 @@ async function* handlePendingTools(
   generation: ResolvedGeneration,
   profile: Profile,
   state: StepExecutionState,
-  safe?: TurnRequest,
+  { onStage, signal, credentials, resolveHost }: Partial<TurnRequest> = {},
 ): AsyncGenerator<TurnEvent, boolean> {
   let executed = false;
   let sawGate = false;
@@ -445,14 +445,14 @@ async function* handlePendingTools(
     }
 
     const stages: ToolStageSupport = {
-      handlers: safe?.onStage ? [safe.onStage] : [],
+      handlers: onStage ? [onStage] : [],
       profile,
       step: state.stepCount,
       history: () => state.currentHistory,
       injectAllowed: profileAllowsInject(profile),
       injectWouldExceedMaxSteps: injectWouldExceedMaxSteps(state.stepCount, generation.maxSteps),
       host: generation.host,
-      signal: safe?.signal,
+      signal,
     };
 
     const drained = yield* drainToolExecEvents(
@@ -465,10 +465,11 @@ async function* handlePendingTools(
           sessionPermissions: generation.sessionPermissions,
           path: generation.tools.path,
           turn: { step: state.stepCount, taint: state.taint },
-          credentials: safe?.credentials,
+          credentials,
+          resolveHost,
           host: generation.host,
           resume: undefined,
-          signal: safe?.signal,
+          signal,
         },
         snapshot: generation.tools,
         stages,

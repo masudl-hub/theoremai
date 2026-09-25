@@ -491,8 +491,8 @@ function LiveToolGateDialog({
 					<AuthChallengeCard
 						gate={prompt.gate}
 						toolName={prompt.gate.tool}
-						onSubmitCredential={(slot, credential) => {
-							onResolve({ action: 'auth', credentials: { [slot]: credential } });
+						onAuthenticated={(secret) => {
+							onResolve({ action: 'auth', secret });
 						}}
 					/>
 				) : (

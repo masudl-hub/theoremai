@@ -1,7 +1,7 @@
 /**
- * Guardrail hit helpers — match previews and host/trace projection.
+ * Guardrail hit helpers — span hits and host/trace projection.
  *
- * Detectors may attach `match` (the exact substring). Projection strips it unless
+ * A span hit carries `match`, the exact text it caught. Projection strips it unless
  * the host opted into `observability.include.guardrailMatchPreview`.
  *
  * @module
@@ -9,19 +9,7 @@
 
 import type { GuardrailEvent, GuardrailHit, Severity } from './types.ts';
 
-/** Cap for `GuardrailHit.match` so PEM / long blobs do not explode logs. */
-const GUARDRAIL_MATCH_PREVIEW_MAX = 512;
-
-/** Slice + cap the matched substring for debugging. */
-function matchPreview(text: string, start: number, end: number): string {
-  const raw = text.slice(start, end);
-  if (raw.length <= GUARDRAIL_MATCH_PREVIEW_MAX) {
-    return raw;
-  }
-  return `${raw.slice(0, GUARDRAIL_MATCH_PREVIEW_MAX)}…`;
-}
-
-/** Build a span hit with an optional match preview from the inspected text. */
+/** A span hit, with the exact text it caught from the inspected text. */
 function hitFromSpan(
   text: string,
   span: { start: number; end: number },
@@ -32,7 +20,7 @@ function hitFromSpan(
     rule,
     severity,
     span: { start: span.start, end: span.end },
-    match: matchPreview(text, span.start, span.end),
+    match: text.slice(span.start, span.end),
   };
 }
 
@@ -54,4 +42,4 @@ function projectGuardrailEvent(event: GuardrailEvent, includeMatch: boolean): Gu
   };
 }
 
-export { GUARDRAIL_MATCH_PREVIEW_MAX, hitFromSpan, matchPreview, projectGuardrailEvent };
+export { hitFromSpan, projectGuardrailEvent };

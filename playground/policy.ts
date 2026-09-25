@@ -30,6 +30,13 @@ export const GEMINI_PLAYGROUND_IMAGE_DEFAULT_API_ID = 'gemini-3.1-flash-lite-ima
 export const GEMINI_PLAYGROUND_LIVE_DEFAULT_API_ID = 'gemini-3.1-flash-live-preview';
 
 /**
+ * Most input tokens a Live session takes on the free key. The model pages list 131,072, but the
+ * free key holds a session to about half, so this is playground policy, not the model's limit.
+ * Context compression's trigger and target stay within it.
+ */
+export const GEMINI_PLAYGROUND_LIVE_INPUT_TOKENS = 65_536;
+
+/**
  * Trace destination the playground server registers for `observability.writeTo`,
  * with a trace router's sink (`createPlaygroundTraceRouter`): each record goes
  * back to the run tab's inspector. The server keeps nothing.

@@ -16,7 +16,7 @@ export interface ClientTurnOptions {
   includeEvidenceRaw?: boolean;
 }
 
-/** Raw diagnostic detail rides on error events and on an ended session's close. */
+/** Raw diagnostic detail rides on error events, an ended session's close, and a refused OAuth refresh. */
 function stripErrorInternal(event: TurnEvent): TurnEvent {
   if (event.errorInternal === undefined) {
     return event;

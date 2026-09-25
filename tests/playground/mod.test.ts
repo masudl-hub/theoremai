@@ -4,6 +4,8 @@ import {
   demoInputsSpec,
   demoToolSpecs,
   playgroundDemoHandler,
+  sampleFromJsonSchema,
+  sampleToolInput,
   stubOutputFromSchema,
 } from '../../playground/mod.ts';
 
@@ -40,6 +42,43 @@ Deno.test('stubOutputFromSchema maps properties', () => {
   });
   assertEquals(typeof stub.name, 'string');
   assertEquals(stub.count, 0);
+});
+
+Deno.test('sampleFromJsonSchema fills required fields, preferring declared examples', () => {
+  const sample = sampleFromJsonSchema({
+    type: 'object',
+    properties: {
+      city: { type: 'string', examples: ['Lisbon'] },
+      units: { type: 'string', enum: ['metric', 'imperial'] },
+      days: { type: 'integer', minimum: 3 },
+      exact: { type: 'boolean' },
+      tags: { type: 'array', items: { type: 'string' } },
+      where: {
+        type: 'object',
+        properties: { lat: { type: 'number', default: 38.7 }, note: { type: 'string' } },
+        required: ['lat'],
+      },
+      note: { type: 'string' },
+    },
+    required: ['city', 'units', 'days', 'exact', 'tags', 'where', 'missing'],
+  });
+  assertEquals(sample, {
+    city: 'Lisbon',
+    units: 'metric',
+    days: 3,
+    exact: true,
+    tags: [],
+    where: { lat: 38.7 },
+  });
+});
+
+Deno.test('sampleToolInput prefers the demo input, then the schema', () => {
+  assertEquals(sampleToolInput('get_weather', ''), { latitude: 48.85, longitude: 2.35 });
+  assertEquals(
+    sampleToolInput('my_tool', '{"properties":{"q":{"type":"string"}},"required":["q"]}'),
+    { q: 'example' },
+  );
+  assertEquals(sampleToolInput('my_tool', 'not json'), undefined);
 });
 
 Deno.test('demoInputsSpec enables multimodal inputs', () => {

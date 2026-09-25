@@ -255,14 +255,15 @@ Deno.test('flushPending emits malformed_arguments on bad tool JSON', () => {
   assertEquals(pending.size, 0);
 });
 
-Deno.test('createLocalProvider yields error event on HTTP failure', async () => {
+Deno.test('createLocalProvider yields error event on HTTP failure, with the whole body', async () => {
+  const body = `${'overloaded\n'.repeat(100)}retry later`;
   const provider = createLocalProvider({
-    fetch: () => Promise.resolve(new Response('nope', { status: 503 })),
+    fetch: () => Promise.resolve(new Response(body, { status: 503 })),
   });
   const events = await collect(provider.complete(baseReq()));
   assertEquals(events.length, 1);
   assertEquals(events[0].type, 'error');
-  assertEquals(String(events[0].errorInternal ?? '').includes('503'), true);
+  assertEquals(String(events[0].errorInternal ?? '').endsWith(`LLM HTTP 503: ${body}`), true);
 });
 
 Deno.test('createLocalProvider reads finish_reason when delta is absent', async () => {

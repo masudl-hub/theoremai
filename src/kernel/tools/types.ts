@@ -8,9 +8,10 @@
  */
 
 import type { z } from 'zod';
+import type { ResolveHost } from '../../guardrails/network.ts';
 import type { ErrorKind } from '../../guardrails/theorem-error.ts';
 import type { GuardrailHit, Provenance, TurnTaint } from '../../guardrails/types.ts';
-import type { ToolCredential } from '../auth/types.ts';
+import type { OAuthEndpoints, ToolCredential } from '../auth/types.ts';
 import type {
   AuthUnauthenticatedPolicy,
   HttpMethod,
@@ -94,6 +95,8 @@ export interface ToolContext {
   turn?: { step: number; taint?: TurnTaint };
   resume?: InvokeToolResume;
   credentials?: Record<string, ToolCredential>;
+  /** The host's name resolver for remote tools and their OAuth refreshes. */
+  resolveHost?: ResolveHost;
   /** Opaque application context from `TurnRequest.host` / `InvokeToolRequest.host`; the kernel never reads it. */
   host?: unknown;
   /** W3C `traceparent` of this call's `execute_tool` span; parent a tool's own outbound spans on it. */
@@ -214,13 +217,8 @@ export interface HttpToolAuthConfig {
   headerName?: string; // defaults to 'Authorization'
   headerPrefix?: string; // defaults to 'Bearer '
   onUnauthenticated?: AuthUnauthenticatedPolicy; // defaults to 'pause'
-  /** Pre-resolved AS/resource metadata to bypass network discovery */
-  preResolved?: {
-    issuer?: string;
-    authorizationEndpoint?: string;
-    tokenEndpoint?: string;
-    resource?: string;
-  };
+  /** Pre-resolved AS endpoints and the resource, named on the auth gate for the host's flow */
+  preResolved?: Partial<OAuthEndpoints & { resource: string }>;
   scopes?: string[];
   clientId?: string;
   redirectUri?: string;
@@ -338,6 +336,8 @@ export interface InvokeToolRequest {
   sessionPermissions?: string[];
   /** Host credentials for authenticated HTTP / MCP tools keyed by auth slot. */
   credentials?: Record<string, ToolCredential>;
+  /** Resolver for remote tool host names (see `TurnRequest.resolveHost`). */
+  resolveHost?: ResolveHost;
   path?: string;
   signal?: AbortSignal;
   /** Opaque application context handed to the tool as `ctx.host`; the kernel never reads it. */

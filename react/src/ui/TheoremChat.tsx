@@ -277,8 +277,8 @@ function ChatBody({
 									onToolDecision={(index, action, value) => {
 										void chat.handleToolDecision(index, action, value);
 									}}
-									onAuthCredential={(index, slot, credential) => {
-										void chat.handleAuthCredential(index, slot, credential);
+									onAuthenticated={(index, secret) => {
+										void chat.handleAuthenticated(index, secret);
 									}}
 								/>
 							</ChatColumn>

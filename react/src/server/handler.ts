@@ -13,6 +13,8 @@
  * decision that grants authority. Tool permissions, which paused calls may run
  * (and with what input), and which provider interactions may be continued are
  * kept in a server-side session — request bodies can't grant any of them.
+ * Tool credentials are held on the server too: a key the user types at a gate
+ * is sent once and saved, and no credential is ever sent back to the browser.
  *
  * @module
  */
@@ -32,12 +34,13 @@ import {
 	runTurn,
 	type StageHandler,
 	TheoremError,
+	type ToolGate,
 	type TurnEvent,
 	type TurnHistoryMessage,
 	type TurnInput,
 } from '../../../mod.ts';
 import { type ClientTurnOptions, caughtStatus, forClient, HTTP_METHOD } from '../../../src/host/mod.ts';
-import { toBase64Url } from '../../../src/kernel/mod.ts';
+import { credentialFromTypedSecret, toBase64Url } from '../../../src/kernel/mod.ts';
 import {
 	gatedToolFromEvents,
 	interfaceFromProfile,
@@ -53,9 +56,13 @@ import type {
 	TheoremTurnRequest,
 } from '../client/transport.ts';
 import {
+	createMemoryCredentialStore,
+	type TheoremCredentialStore,
+	type TheoremCredentials,
+} from './credential-store.ts';
+import {
 	createMemorySessionStore,
 	emptySessionState,
-	MAX_INTERACTIONS,
 	type PendingToolGate,
 	pruneGates,
 	type TheoremSessionState,
@@ -87,6 +94,21 @@ export type TheoremHandlerOptions = {
 	session?: (request: Request) => string | undefined | Promise<string | undefined>;
 	/** Default: in-process memory. Use a shared store when requests can reach different instances. */
 	sessionStore?: TheoremSessionStore;
+	/**
+	 * Tool credentials by session. Your OAuth callback route saves the token here
+	 * under the same session id; every turn reads from here. Default: in-process
+	 * memory — pass the same instance to your callback route.
+	 */
+	credentialStore?: TheoremCredentialStore;
+	/**
+	 * The sign-in URL for an OAuth gate: begin the flow with `createOAuthPkceFlow`,
+	 * binding it to `sessionId`, and return its `authorizationUrl`. Without it an
+	 * OAuth gate carries no sign-in URL.
+	 */
+	authorizationUrl?: (
+		challenge: NonNullable<ToolGate['authChallenge']>,
+		ctx: { request: Request; sessionId: string },
+	) => string | Promise<string>;
 	/** Default: in-process memory. Use a shared store when turns and steers can land on different instances. */
 	steerInbox?: SteerInbox;
 	/** Forwarded to `forClient` when projecting events for the browser. */
@@ -212,9 +234,19 @@ function newSessionId(): string {
 	return toBase64Url(crypto.getRandomValues(new Uint8Array(32)));
 }
 
-function cookieSession(request: Request): Session {
+/**
+ * The session id the handler issued in its cookie, for a host route outside the
+ * handler (an OAuth callback) that saves credentials under it. Hosts that pass
+ * a `session` resolver use their own id instead.
+ */
+export function theoremSessionId(request: Request): string | undefined {
 	const existing = readCookie(request, SESSION_COOKIE);
-	if (existing && SESSION_ID_PATTERN.test(existing)) return { id: existing };
+	return existing && SESSION_ID_PATTERN.test(existing) ? existing : undefined;
+}
+
+function cookieSession(request: Request): Session {
+	const existing = theoremSessionId(request);
+	if (existing) return { id: existing };
 	const id = newSessionId();
 	const secure = new URL(request.url).protocol === 'https:' ? '; Secure' : '';
 	return {
@@ -223,34 +255,61 @@ function cookieSession(request: Request): Session {
 	};
 }
 
+/** Serialise read-modify-write per session so concurrent requests don't lose updates. */
+function createSessionLock(): <T>(sessionId: string, work: () => Promise<T>) => Promise<T> {
+	const locks = new Map<string, Promise<unknown>>();
+	return (sessionId, work) => {
+		const next = (locks.get(sessionId) ?? Promise.resolve()).then(work);
+		const settled = next.catch(() => {});
+		locks.set(sessionId, settled);
+		void settled.then(() => {
+			if (locks.get(sessionId) === settled) locks.delete(sessionId);
+		});
+		return next;
+	};
+}
+
 type SessionMutator = {
-	/** Serialise read-modify-write per session so concurrent requests don't lose updates. */
 	mutate<T>(sessionId: string, change: (state: TheoremSessionState) => T): Promise<T>;
 	read(sessionId: string): Promise<TheoremSessionState>;
 };
 
 function createSessionMutator(store: TheoremSessionStore): SessionMutator {
-	const locks = new Map<string, Promise<unknown>>();
+	const locked = createSessionLock();
 	return {
 		mutate(sessionId, change) {
-			const previous = locks.get(sessionId) ?? Promise.resolve();
-			const next = previous.then(async () => {
+			return locked(sessionId, async () => {
 				const state = (await store.load(sessionId)) ?? emptySessionState();
 				const result = change(state);
 				state.gates = pruneGates(state.gates, Date.now());
-				state.interactions = state.interactions.slice(-MAX_INTERACTIONS);
 				await store.save(sessionId, state);
 				return result;
 			});
-			const settled = next.catch(() => {});
-			locks.set(sessionId, settled);
-			void settled.then(() => {
-				if (locks.get(sessionId) === settled) locks.delete(sessionId);
-			});
-			return next;
 		},
 		async read(sessionId) {
 			return (await store.load(sessionId)) ?? emptySessionState();
+		},
+	};
+}
+
+type CredentialVault = {
+	read(sessionId: string): Promise<TheoremCredentials>;
+	/** Replace one slot, leaving the session's other credentials as they are. */
+	put(sessionId: string, slot: string, credential: TheoremCredentials[string]): Promise<void>;
+};
+
+function createCredentialVault(store: TheoremCredentialStore): CredentialVault {
+	const locked = createSessionLock();
+	return {
+		async read(sessionId) {
+			return (await store.load(sessionId)) ?? {};
+		},
+		put(sessionId, slot, credential) {
+			return locked(sessionId, async () => {
+				const credentials = (await store.load(sessionId)) ?? {};
+				credentials[slot] = credential;
+				await store.save(sessionId, credentials);
+			});
 		},
 	};
 }
@@ -261,6 +320,7 @@ type HandlerContext = {
 	profile: Profile;
 	inbox: SteerInbox;
 	sessions: SessionMutator;
+	credentials: CredentialVault;
 };
 
 async function sessionOf(ctx: HandlerContext, request: Request): Promise<Session> {
@@ -332,7 +392,7 @@ function pendingGateFrom(events: TurnEvent[], context: OutcomeContext): { callId
 		gate: {
 			name: gated.name,
 			input: gated.input,
-			gate: { kind: gated.gateKind, permission: gated.permission },
+			gate: { kind: gated.gateKind, permission: gated.permission, ...(gated.auth ? { auth: gated.auth } : {}) },
 			snapshot: toolSnapshotFromEvents(events),
 			promoted: [...new Set([...(context.promoted ?? []), ...promotedToolIdsFromEvents(events)])],
 			turnInput: context.turnInput,
@@ -377,6 +437,52 @@ async function* recorded(
 	}
 }
 
+/** The slot a refreshed OAuth token replaced, from its `auth_token_refreshed` event. */
+function refreshedSlot(event: TurnEvent): string | undefined {
+	const data = event.type === 'tool' && event.tool?.phase === 'progress' ? event.tool.data : undefined;
+	return isRecord(data) && data.kind === 'auth_token_refreshed' && typeof data.slot === 'string'
+		? data.slot
+		: undefined;
+}
+
+/** An OAuth gate given the host's sign-in URL. */
+async function withAuthorizationUrl(
+	ctx: HandlerContext,
+	request: Request,
+	sessionId: string,
+	event: TurnEvent,
+): Promise<TurnEvent> {
+	const tool = event.type === 'tool' && event.tool?.phase === 'gate' ? event.tool : undefined;
+	const challenge = tool?.gate?.authChallenge;
+	if (!tool?.gate || challenge?.authType !== 'oauth2' || !ctx.options.authorizationUrl) return event;
+	const authorizationUrl = await ctx.options.authorizationUrl(challenge, { request, sessionId });
+	return {
+		...event,
+		tool: { ...tool, gate: { ...tool.gate, authChallenge: { ...challenge, authorizationUrl } } },
+	};
+}
+
+/**
+ * The server's side of a turn's credentials. The kernel writes a refreshed
+ * token into the `credentials` record it was given: that slot is saved before
+ * the event goes on, so a rotated refresh token is never lost to a closed
+ * stream. An OAuth gate gets the host's sign-in URL.
+ */
+async function* withCredentials(
+	ctx: HandlerContext,
+	request: Request,
+	sessionId: string,
+	credentials: TheoremCredentials,
+	events: AsyncIterable<TurnEvent>,
+): AsyncGenerator<TurnEvent> {
+	for await (const event of events) {
+		const slot = refreshedSlot(event);
+		const credential = slot ? credentials[slot] : undefined;
+		if (slot && credential) await ctx.credentials.put(sessionId, slot, credential);
+		yield await withAuthorizationUrl(ctx, request, sessionId, event);
+	}
+}
+
 async function* turnEvents(
 	ctx: HandlerContext,
 	request: Request,
@@ -384,6 +490,7 @@ async function* turnEvents(
 	body: TheoremTurnRequest,
 ): AsyncGenerator<TurnEvent> {
 	const state = await ctx.sessions.read(session.id);
+	const credentials = await ctx.credentials.read(session.id);
 	const provider = await providerFor(ctx, request, body.model);
 	const input = userTurnInput(body.input);
 	// Only continue provider-side conversations this session started.
@@ -401,6 +508,7 @@ async function* turnEvents(
 				input,
 				previousInteractionId,
 				sessionPermissions: state.permissions,
+				credentials,
 				signal: request.signal,
 				host: ctx.options.host?.(request),
 				...(body.model ? { model: body.model } : {}),
@@ -409,10 +517,27 @@ async function* turnEvents(
 			},
 			provider,
 		);
-		yield* recorded(ctx.sessions, session.id, events, { turnInput: input, model: body.model });
+		yield* recorded(ctx.sessions, session.id, withCredentials(ctx, request, session.id, credentials, events), {
+			turnInput: input,
+			model: body.model,
+		});
 	} finally {
 		if (key) await ctx.inbox.close(key);
 	}
+}
+
+/** The key the user typed at a sign-in gate, as the credential its slot waits for. */
+function typedCredential(
+	pending: PendingToolGate,
+	secret: unknown,
+): { slot: string; credential: TheoremCredentials[string] } | undefined {
+	if (secret === undefined) return undefined;
+	const auth = pending.gate.kind === 'auth' ? pending.gate.auth : undefined;
+	if (!auth) {
+		// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
+		throw new TheoremError('request', 'a typed credential answers only a sign-in gate');
+	}
+	return { slot: auth.slot, credential: credentialFromTypedSecret(auth.authType, secret) };
 }
 
 async function* invokeEvents(
@@ -425,13 +550,15 @@ async function* invokeEvents(
 	const approved = await ctx.sessions.mutate(session.id, (state) => {
 		const pending = state.gates[body.gateId];
 		if (!pending) return undefined;
+		// A refused secret leaves the gate pending, so the user can try again.
+		const typed = typedCredential(pending, body.secret);
 		delete state.gates[body.gateId];
 		state.permissions = sessionPermissionsAfterApproval(
 			state.permissions,
 			pending.name,
 			pending.gate.permission,
 		);
-		return { pending, permissions: [...state.permissions] };
+		return { pending, typed, permissions: [...state.permissions] };
 	});
 	if (!approved) {
 		// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
@@ -439,14 +566,16 @@ async function* invokeEvents(
 			copy: { key: 'session.gate_expired' },
 		});
 	}
-	const { pending, permissions } = approved;
+	const { pending, typed, permissions } = approved;
+	if (typed) await ctx.credentials.put(session.id, typed.slot, typed.credential);
+	const credentials = await ctx.credentials.read(session.id);
 	const events = invokeTool({
 		profile: ctx.profile.id,
 		name: pending.name,
 		input: pending.input,
 		resume: { granted: true },
 		sessionPermissions: permissions,
-		...(pending.gate.kind === 'auth' && body.credentials ? { credentials: body.credentials } : {}),
+		credentials,
 		turnInput: pending.turnInput,
 		snapshot: pending.snapshot,
 		promoted: pending.promoted,
@@ -454,7 +583,7 @@ async function* invokeEvents(
 		signal: request.signal,
 		host: ctx.options.host?.(request),
 	});
-	yield* recorded(ctx.sessions, session.id, events, {
+	yield* recorded(ctx.sessions, session.id, withCredentials(ctx, request, session.id, credentials, events), {
 		turnInput: pending.turnInput,
 		model: pending.model,
 		promoted: pending.promoted,
@@ -515,6 +644,7 @@ export function createTheoremHandler(options: TheoremHandlerOptions): (request: 
 		profile,
 		inbox: options.steerInbox ?? createMemorySteerInbox(),
 		sessions: createSessionMutator(options.sessionStore ?? createMemorySessionStore()),
+		credentials: createCredentialVault(options.credentialStore ?? createMemoryCredentialStore()),
 	};
 
 	return async (request) => {

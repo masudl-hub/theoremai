@@ -21,6 +21,7 @@ import { outOfScopeFields } from '../profile-scope.ts';
 import {
   CACHE_MODES,
   CACHE_TTLS,
+  IMAGE_ATTACHMENT_ACCEPT_MIMES,
   isValidPair,
   isValidProfileProtocol,
   protocolsForProfileType,
@@ -34,6 +35,7 @@ import type {
   DecisionProfile,
   HostProfile,
   HostProfileToolsSpec,
+  ImageInputsSpec,
   ImageProfile,
   LiveContextCompressionSpec,
   LiveProfile,
@@ -55,7 +57,7 @@ import type {
   SpeechProfile,
   TextProfile,
 } from '../types.ts';
-import { profileInputs } from './catalog.ts';
+import { mimeAllowed, profileInputs } from './catalog.ts';
 import { soleModelId } from './sole-model.ts';
 
 const profiles = new Map<string, Profile>();
@@ -91,7 +93,7 @@ export type ImageProfileDefinition = ProfileDefinitionBase & {
   type: 'image';
   image: NonNullable<ImageProfile['image']>;
   tools: ProfileToolsSpec;
-  inputs: ProfileInputsSpec;
+  inputs: ImageInputsSpec;
   turnBehaviour?: MediaTurnBehaviourSpec;
 };
 
@@ -517,6 +519,7 @@ function defineProfile(input: ProfileDefinition): Profile {
         observability,
         lexicon,
       } satisfies ImageProfile;
+      assertImageAccept(profile.id, profile.inputs.attachments?.accept);
       break;
     case 'speech':
       profile = {
@@ -556,6 +559,18 @@ function defineProfile(input: ProfileDefinition): Profile {
   }
   assertTypeProtocols(profile);
   return profile;
+}
+
+/** An image profile's attachments: each `accept` entry within images, video and PDF. */
+function assertImageAccept(profileId: string, accept: string[] | undefined) {
+  const outside = accept?.filter((rule) => !mimeAllowed(IMAGE_ATTACHMENT_ACCEPT_MIMES, rule));
+  if (!outside?.length) return;
+  throw new TheoremError(
+    'config',
+    // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    `Profile ${profileId}: an image profile's attachments take images, video and PDF only, ` +
+      `not ${outside.join(', ')}`,
+  );
 }
 
 /** A live profile's compression numbers: whole and above 0, the target below the trigger. */

@@ -8,38 +8,6 @@
 import { asRecord, nonEmptyString } from '../../kernel/engine/record.ts';
 import type { GroundingEvent, GroundingSource, TurnEvent } from '../../kernel/types.ts';
 
-function cleanMapsTitle(title: string): string {
-  const suffix = 'google maps';
-  const trimmed = title.trimEnd();
-  if (trimmed.length < suffix.length) {
-    return title.trim();
-  }
-  if (trimmed.slice(-suffix.length).toLowerCase() !== suffix) {
-    return title.trim();
-  }
-  let end = trimmed.length - suffix.length;
-  while (end > 0 && /\s/.test(trimmed[end - 1])) {
-    end--;
-  }
-  if (end > 0 && trimmed[end - 1] === '-') {
-    end--;
-    while (end > 0 && /\s/.test(trimmed[end - 1])) {
-      end--;
-    }
-  }
-  return trimmed.slice(0, end).trimEnd();
-}
-
-function isPrimaryMapsPlace(name: string, uri: string): boolean {
-  if (/^Review of\b/i.test(name)) {
-    return false;
-  }
-  if (/\/maps\/reviews\//i.test(uri)) {
-    return false;
-  }
-  return true;
-}
-
 /*
  * Grounding reads only the shapes recorded from the wire (probes 23/09/2026):
  *
@@ -67,7 +35,7 @@ function sourceFromPlace(place: Record<string, unknown>): GroundingSource | unde
   return {
     type: 'maps',
     uri,
-    title: cleanMapsTitle(nonEmptyString(place.name) ?? uri),
+    title: nonEmptyString(place.name) ?? uri,
     ...(placeId ? { placeId } : {}),
   };
 }
@@ -160,10 +128,7 @@ function sourceFromAnnotation(ann: unknown): GroundingSource | undefined {
     return undefined;
   }
   if (record.type === 'place_citation') {
-    const title = cleanMapsTitle(nonEmptyString(record.name) ?? uri);
-    if (!isPrimaryMapsPlace(title, uri)) {
-      return undefined;
-    }
+    const title = nonEmptyString(record.name) ?? uri;
     const placeId = nonEmptyString(record.place_id);
     return { type: 'maps', uri, title, ...(placeId ? { placeId } : {}) };
   }
@@ -195,7 +160,7 @@ function appendPlaceSources(into: GroundingSource[], result: unknown): void {
     for (const placeValue of places) {
       const place = asRecord(placeValue);
       const source = place ? sourceFromPlace(place) : undefined;
-      if (source && isPrimaryMapsPlace(source.title, source.uri)) {
+      if (source) {
         pushUniqueSource(into, source);
       }
     }

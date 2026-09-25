@@ -51,7 +51,7 @@ Deno.test('google grounding: groundingFromDelta reads url and place citations fr
     { type: 'web', title: 'pubmed.example', uri: 'https://grounding.example/redirect/a' },
     {
       type: 'maps',
-      title: 'Thylakoid Lab',
+      title: 'Thylakoid Lab - Google Maps',
       uri: 'https://maps.google.com/maps?cid=1',
       placeId: 'ChIJ_lab',
     },
@@ -59,7 +59,7 @@ Deno.test('google grounding: groundingFromDelta reads url and place citations fr
   assertEquals(groundingEv.grounding?.chunks, [
     {
       maps: {
-        title: 'Thylakoid Lab',
+        title: 'Thylakoid Lab - Google Maps',
         uri: 'https://maps.google.com/maps?cid=1',
         placeId: 'ChIJ_lab',
       },
@@ -105,4 +105,31 @@ Deno.test('google grounding: groundingFromLiveMetadata normalizes Live grounding
     },
   });
   assertEquals(groundingFromLiveMetadata(undefined), undefined);
+});
+
+Deno.test('google grounding: a review place is a source like any other place', () => {
+  const groundingEv = groundingFromDelta({
+    event_type: 'step.delta',
+    index: 2,
+    delta: {
+      type: 'text_annotation_delta',
+      annotations: [
+        {
+          type: 'place_citation',
+          place_id: 'ChIJ_review',
+          name: 'Review of Thylakoid Lab - Google Maps',
+          url: 'https://www.google.com/maps/reviews/data=!1',
+        },
+      ],
+    },
+  });
+  assertExists(groundingEv);
+  assertEquals(groundingEv.grounding?.sources, [
+    {
+      type: 'maps',
+      title: 'Review of Thylakoid Lab - Google Maps',
+      uri: 'https://www.google.com/maps/reviews/data=!1',
+      placeId: 'ChIJ_review',
+    },
+  ]);
 });

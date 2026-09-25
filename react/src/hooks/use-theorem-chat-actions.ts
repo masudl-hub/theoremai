@@ -17,7 +17,6 @@ import {
 	userDraftHasPayload,
 	userDraftToSteerInject,
 } from '../../../src/interface/mod.ts';
-import type { ToolCredential } from '../../../src/kernel/mod.ts';
 import {
 	abandonGatedInterfaceTool,
 	applyTurnResultToTranscript,
@@ -279,7 +278,7 @@ function useGateActions(args: TheoremChatActionArgs) {
 	const resumeGatedTool = useCallback(
 		async (
 			action: ToolDecisionAction,
-			extra?: { interactiveValue?: unknown; credentials?: Record<string, ToolCredential> },
+			extra?: { interactiveValue?: unknown; secret?: string },
 		) => {
 			const composer = args.iface;
 			if (!composer) return;
@@ -290,7 +289,7 @@ function useGateActions(args: TheoremChatActionArgs) {
 					session: args.sessionRef.current,
 					action,
 					interactiveValue: extra?.interactiveValue,
-					credentials: extra?.credentials,
+					secret: extra?.secret,
 					onStream,
 				}),
 			);
@@ -305,20 +304,20 @@ function useGateActions(args: TheoremChatActionArgs) {
 		[resumeGatedTool],
 	);
 
-	const handleAuthCredential = useCallback(
-		async (_index: number, slot: string, credential: ToolCredential) => {
-			await resumeGatedTool('allow', { credentials: { [slot]: credential } });
+	const handleAuthenticated = useCallback(
+		async (_index: number, secret?: string) => {
+			await resumeGatedTool('allow', { secret });
 		},
 		[resumeGatedTool],
 	);
 
-	return { handleToolDecision, handleAuthCredential };
+	return { handleToolDecision, handleAuthenticated };
 }
 
 export function useTheoremChatActions(args: TheoremChatActionArgs) {
 	const { startTurnFromFields, startTurnFromDraft } = useTurnStarters(args);
 	const { enqueuePending, handlePendingRestore } = usePendingActions(args);
-	const { handleToolDecision, handleAuthCredential } = useGateActions(args);
+	const { handleToolDecision, handleAuthenticated } = useGateActions(args);
 
 	const handleStop = useCallback(() => {
 		args.abortRef.current?.abort();
@@ -406,7 +405,7 @@ export function useTheoremChatActions(args: TheoremChatActionArgs) {
 		handleSendNow,
 		handleMenuAction,
 		handleToolDecision,
-		handleAuthCredential,
+		handleAuthenticated,
 		handlePendingRestore,
 		enqueuePending,
 	};

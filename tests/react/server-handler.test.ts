@@ -10,7 +10,12 @@ import {
   type TurnEvent,
 } from '../../mod.ts';
 import { createHttpTransport, TheoremStreamError } from '../../react/src/client/transport.ts';
-import { createTheoremHandler } from '../../react/src/server/mod.ts';
+import {
+  createTheoremHandler,
+  type TheoremCredentialStore,
+  type TheoremCredentials,
+} from '../../react/src/server/mod.ts';
+import type { OAuth2Credential } from '../../src/kernel/auth/types.ts';
 
 const SYSTEM = 'secret persona instructions';
 
@@ -508,4 +513,219 @@ Deno.test('a custom session resolver can refuse anonymous callers', async () => 
     error: lexiconDefault('session.sign_in'),
     errorKind: 'auth',
   });
+});
+
+// --- Tool credentials stay on the server --------------------------------------
+
+registerTool({
+  type: 'http',
+  name: 'handler_tracker',
+  description: 'Read tracker items',
+  category: 'test',
+  access: 'read-only',
+  paths: ['*'],
+  loadTier: 'T0',
+  permission: 'auto',
+  endpoint: 'https://api.tracker.example/items',
+  method: 'GET',
+  auth: { slot: 'tracker', type: 'bearer', onUnauthenticated: 'pause' },
+  input: z.object({ id: z.string() }),
+  output: z.object({ ok: z.boolean() }),
+});
+registerTool({
+  type: 'http',
+  name: 'handler_oauth_tracker',
+  description: 'Read tracker items with OAuth',
+  category: 'test',
+  access: 'read-only',
+  paths: ['*'],
+  loadTier: 'T0',
+  permission: 'auto',
+  endpoint: 'https://api.tracker.example/items',
+  method: 'GET',
+  auth: { slot: 'oauth_tracker', type: 'oauth2', onUnauthenticated: 'pause' },
+  input: z.object({ id: z.string() }),
+  output: z.object({ ok: z.boolean() }),
+});
+
+/** A credential store the test can read, as a host's vault would be. */
+function inspectableStore(): TheoremCredentialStore & { saved: Map<string, TheoremCredentials> } {
+  const saved = new Map<string, TheoremCredentials>();
+  return {
+    saved,
+    load: (sessionId) => structuredClone(saved.get(sessionId)),
+    save: (sessionId, credentials) => {
+      saved.set(sessionId, structuredClone(credentials));
+    },
+  };
+}
+
+/** Stub the tool and token servers; records each tool request's Authorization header. */
+async function withToolServer(
+  run: (sent: (string | null)[]) => Promise<void>,
+  token?: () => Record<string, unknown>,
+): Promise<void> {
+  const original = globalThis.fetch;
+  const sent: (string | null)[] = [];
+  globalThis.fetch = ((input: Request | URL | string, init?: RequestInit) => {
+    const url = input instanceof Request ? input.url : String(input);
+    if (url === 'https://auth.tracker.example/token' && token) {
+      return Promise.resolve(Response.json(token()));
+    }
+    sent.push(new Headers(init?.headers).get('authorization'));
+    return Promise.resolve(Response.json({ ok: true }));
+  }) as typeof fetch;
+  try {
+    await run(sent);
+  } finally {
+    globalThis.fetch = original;
+  }
+}
+
+function oauthCredential(overrides: Partial<OAuth2Credential> = {}): OAuth2Credential {
+  return {
+    type: 'oauth2',
+    issuer: 'https://auth.tracker.example',
+    resource: 'https://api.tracker.example',
+    accessToken: 'oauth-access-token',
+    tokenEndpoint: 'https://auth.tracker.example/token',
+    clientId: 'https://app.example/oauth/client.json',
+    ...overrides,
+  };
+}
+
+Deno.test('a key typed at a sign-in gate is saved on the server and never sent back', async () => {
+  const store = inspectableStore();
+  const handler = createTheoremHandler({
+    profile: profile('handler-typed-key', ['handler_tracker']),
+    provider: () => toolCallingProvider('handler_tracker', 'item-1'),
+    credentialStore: store,
+  });
+  const transport = transportFor(handler);
+  await withToolServer(async (sent) => {
+    const turn = await collect((onEvent) => transport.turn({ input: { text: 'read' } }, onEvent));
+    const gate = gateOf(turn);
+    assertEquals(sent, []);
+
+    const resumed = await collect((onEvent) =>
+      transport.invoke({ gateId: gate.callId, secret: 'typed-key-123' }, onEvent),
+    );
+    assertEquals(toolPhase(resumed, 'handler_tracker'), 'complete');
+    assertEquals(sent, ['Bearer typed-key-123']);
+    assertEquals(JSON.stringify(resumed).includes('typed-key-123'), false);
+    assertEquals(
+      [...store.saved.values()],
+      [{ tracker: { type: 'bearer', token: 'typed-key-123' } }],
+    );
+
+    // The next turn reads the key from the server; the browser sends nothing.
+    const next = await collect((onEvent) => transport.turn({ input: { text: 'again' } }, onEvent));
+    assertEquals(toolPhase(next, 'handler_tracker'), 'complete');
+    assertEquals(sent, ['Bearer typed-key-123', 'Bearer typed-key-123']);
+    assertEquals(JSON.stringify(next).includes('typed-key-123'), false);
+  });
+});
+
+Deno.test('a typed key answers only a sign-in gate, and a refused one leaves the gate pending', async () => {
+  ran.length = 0;
+  const store = inspectableStore();
+  const handler = createTheoremHandler({
+    profile: profile('handler-typed-key-wrong-gate', ['handler_delete']),
+    provider: () => toolCallingProvider('handler_delete', 'kept'),
+    credentialStore: store,
+  });
+  const transport = transportFor(handler);
+  const gate = gateOf(
+    await collect((onEvent) => transport.turn({ input: { text: 'x' } }, onEvent)),
+  );
+  await assertRefused(
+    () => collect((onEvent) => transport.invoke({ gateId: gate.callId, secret: 'stray' }, onEvent)),
+    'error.request',
+  );
+  assertEquals(ran, []);
+  assertEquals(store.saved.size, 0);
+  await collect((onEvent) => transport.invoke({ gateId: gate.callId }, onEvent));
+  assertEquals(ran, ['kept']);
+});
+
+Deno.test('an OAuth gate carries the host sign-in URL and resumes on the token its callback saved', async () => {
+  const store = inspectableStore();
+  const sessions: string[] = [];
+  const handler = createTheoremHandler({
+    profile: profile('handler-oauth-gate', ['handler_oauth_tracker']),
+    provider: () => toolCallingProvider('handler_oauth_tracker', 'item-1'),
+    credentialStore: store,
+    authorizationUrl: (challenge, { sessionId }) => {
+      sessions.push(sessionId);
+      return `https://auth.tracker.example/authorize?slot=${challenge.slot}`;
+    },
+  });
+  const transport = transportFor(handler);
+  await withToolServer(async (sent) => {
+    const turn = await collect((onEvent) => transport.turn({ input: { text: 'read' } }, onEvent));
+    const gateEvent = turn.findLast((e) => e.type === 'tool' && e.tool?.phase === 'gate');
+    assertEquals(
+      gateEvent?.tool?.gate?.authChallenge?.authorizationUrl,
+      'https://auth.tracker.example/authorize?slot=oauth_tracker',
+    );
+    const gate = gateOf(turn);
+
+    // An OAuth gate takes no typed secret; the gate stays pending.
+    await assertRefused(
+      () =>
+        collect((onEvent) => transport.invoke({ gateId: gate.callId, secret: 'pasted' }, onEvent)),
+      'error.request',
+    );
+
+    // The host's callback route saves the token under the session it was bound to.
+    const [sessionId] = sessions;
+    if (!sessionId) throw new Error('expected the hook to name the session');
+    await store.save(sessionId, { oauth_tracker: oauthCredential() });
+
+    const resumed = await collect((onEvent) => transport.invoke({ gateId: gate.callId }, onEvent));
+    assertEquals(toolPhase(resumed, 'handler_oauth_tracker'), 'complete');
+    assertEquals(sent, ['Bearer oauth-access-token']);
+    assertEquals(JSON.stringify(resumed).includes('oauth-access-token'), false);
+  });
+});
+
+Deno.test('a refreshed OAuth token is saved to the store as the turn reports it', async () => {
+  const store = inspectableStore();
+  const handler = createTheoremHandler({
+    profile: profile('handler-oauth-refresh', ['handler_oauth_tracker']),
+    provider: () => toolCallingProvider('handler_oauth_tracker', 'item-1'),
+    credentialStore: store,
+    session: () => 'user-1',
+  });
+  await store.save('user-1', {
+    oauth_tracker: oauthCredential({
+      accessToken: 'expired-access-token',
+      refreshToken: 'old-refresh-token',
+      expiresAt: Date.now() - 5000,
+    }),
+  });
+  await withToolServer(
+    async (sent) => {
+      const events = await collect((onEvent) =>
+        transportFor(handler).turn({ input: { text: 'read' } }, onEvent),
+      );
+      assertEquals(toolPhase(events, 'handler_oauth_tracker'), 'complete');
+      assertEquals(sent, ['Bearer fresh-access-token']);
+      const saved = store.saved.get('user-1')?.oauth_tracker;
+      assertEquals(saved?.type === 'oauth2' ? saved.accessToken : undefined, 'fresh-access-token');
+      assertEquals(
+        saved?.type === 'oauth2' ? saved.refreshToken : undefined,
+        'fresh-refresh-token',
+      );
+      const streamed = JSON.stringify(events);
+      assertEquals(streamed.includes('fresh-access-token'), false);
+      assertEquals(streamed.includes('fresh-refresh-token'), false);
+    },
+    () => ({
+      access_token: 'fresh-access-token',
+      token_type: 'Bearer',
+      expires_in: 3600,
+      refresh_token: 'fresh-refresh-token',
+    }),
+  );
 });

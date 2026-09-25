@@ -15,7 +15,7 @@ function formatProfileInputs(p: ModelProfile): string {
     return 'none';
   }
   if (spec.text !== false) inputs.push('text');
-  if (spec.voice) inputs.push('voice');
+  if (p.type !== 'image' && p.inputs?.voice) inputs.push('voice');
   if (spec.attachments) {
     inputs.push(`attachments [${spec.attachments.accept?.join(', ')}]`);
   }

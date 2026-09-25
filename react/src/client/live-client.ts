@@ -619,7 +619,7 @@ export class LiveSessionClient {
 			}
 
 			if (this.options.onToolCall) {
-				// Host may run UI / credentials; then we prefer session.executeTool on the relay.
+				// Host may run its own gate UI; then we prefer session.executeTool on the relay.
 				try {
 					await this.options.onToolCall(call.name, call.arguments, {
 						callId: call.id,
@@ -648,7 +648,11 @@ export class LiveSessionClient {
 		callId: string;
 		input?: unknown;
 		resume?: { value?: unknown; granted?: boolean };
-		credentials?: Record<string, unknown>;
+		/**
+		 * The key the user typed at a bearer or API-key sign-in gate, sent once:
+		 * the relay saves it for the session (`credentialFromTypedSecret`).
+		 */
+		secret?: string;
 	}): Promise<Extract<LiveServerEnvelope, { type: 'executeToolResult' }>> {
 		if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
 			throw new TheoremError('request', 'live session is not connected'); // lexicon-exempt: internal diagnostic
@@ -665,7 +669,7 @@ export class LiveSessionClient {
 				callId: args.callId,
 				input: args.input,
 				resume: args.resume,
-				credentials: args.credentials,
+				secret: args.secret,
 			}),
 		);
 		return resultPromise;

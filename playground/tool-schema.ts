@@ -90,6 +90,47 @@ export function zodFromJsonSchema(schema: JsonSchema): ZodType {
   return z.looseObject(shape);
 }
 
+/** The schema's own example for a value: `examples[0]`, then `default`, `const`, `enum[0]`. */
+function declaredSample(prop: JsonSchema): { value: unknown } | undefined {
+  if (Array.isArray(prop.examples) && prop.examples.length) return { value: prop.examples[0] };
+  if ('default' in prop) return { value: prop.default };
+  if ('const' in prop) return { value: prop.const };
+  if (Array.isArray(prop.enum) && prop.enum.length) return { value: prop.enum[0] };
+  return undefined;
+}
+
+function sampleValue(prop: JsonSchema): unknown {
+  const declared = declaredSample(prop);
+  if (declared) return declared.value;
+  switch (schemaKind(prop)) {
+    case 'number':
+      return typeof prop.minimum === 'number' ? prop.minimum : 1;
+    case 'boolean':
+      return true;
+    case 'array':
+      return [];
+    case 'object':
+      return sampleFromJsonSchema(prop);
+    case 'string':
+    case 'unknown':
+      return 'example';
+  }
+}
+
+/**
+ * A value for each required field of a JSON Schema object: the schema's own example, default,
+ * const or first enum value when it has one, else a plain one of the field's type.
+ */
+export function sampleFromJsonSchema(schema: JsonSchema): Record<string, unknown> {
+  const { props, required } = schemaFields(schema);
+  const sample: Record<string, unknown> = {};
+  for (const key of required) {
+    const prop = props[key];
+    if (prop) sample[key] = sampleValue(prop);
+  }
+  return sample;
+}
+
 /** Characters escaped even inside a string literal, so pasted source can't close a `<script>` or break a line. */
 const UNSAFE_SOURCE_CHARS: Record<string, string> = {
   '<': '\\u003C',

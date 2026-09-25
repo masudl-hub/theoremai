@@ -117,8 +117,6 @@ export interface ProfileImageSpec {
   size?: string;
   /** Output MIME for generated images. */
   mimeType?: string;
-  /** Cap on reference images in one turn. */
-  maxInputImages?: number;
   /**
    * When true, request interleaved assistant text alongside generated images
    * (Google: `response_format` array with text + image entries).
@@ -343,7 +341,6 @@ export interface MimeInputs extends Partial<MediaLimits> {
 export type AttachmentValidationCode =
   | 'mime_not_allowed'
   | 'too_many_files'
-  | 'too_many_images'
   | 'file_too_large'
   | 'turn_too_large'
   | 'attachments_not_accepted'
@@ -356,7 +353,6 @@ export type AttachmentValidationCode =
  */
 export interface AttachmentValidationParams {
   maxFiles?: number;
-  maxImages?: number;
   maxBytes?: number;
   maxTurnBytes?: number;
   mimeType?: string;
@@ -513,6 +509,7 @@ export type {
 } from './stop.ts';
 
 import type { LexiconOverrides } from '../guardrails/lexicon.ts';
+import type { ResolveHost } from '../guardrails/network.ts';
 import type { ErrorCopy, ErrorKind } from '../guardrails/theorem-error.ts';
 import type {
   DecisionGuardrailsSpec,
@@ -688,12 +685,19 @@ export interface TextProfile extends ProfileCommon {
   turnBehaviour?: ProfileTurnBehaviourSpec;
 }
 
+/**
+ * An image profile's inputs: no voice channel, and attachments within
+ * `IMAGE_ATTACHMENT_ACCEPT`. Every attachment is a reference the model reads;
+ * `maxFiles` caps them.
+ */
+export type ImageInputsSpec = Omit<ProfileInputsSpec, 'voice'>;
+
 /** Image-generation primary role. */
 export interface ImageProfile extends ProfileCommon {
   type: 'image';
   image: ProfileImageSpec;
   tools: ProfileToolsSpec;
-  inputs: ProfileInputsSpec;
+  inputs: ImageInputsSpec;
   turnBehaviour?: MediaTurnBehaviourSpec;
 }
 
@@ -955,8 +959,17 @@ export interface TurnRequest {
   compactionProvider?: ModelProvider;
   /** Optional session resumption handle for continuing live WebSocket sessions. */
   sessionResumptionHandle?: string;
-  /** Host credentials for authenticated HTTP / MCP tools keyed by auth slot. */
+  /**
+   * Host credentials for authenticated HTTP / MCP tools keyed by auth slot. A refreshed
+   * OAuth credential replaces its slot in this record; persist it when the turn emits
+   * `auth_token_refreshed` for that slot.
+   */
   credentials?: Record<string, ToolCredential>;
+  /**
+   * Resolves remote tool and OAuth host names before each request; a name that
+   * resolves to a private address is refused (see `fetchGuarded`).
+   */
+  resolveHost?: ResolveHost;
   /**
    * Turn-stage handler (`docs/contracts/stages.md`).
    * Text `runTurn` emits stages and applies returned affordances.
@@ -1246,8 +1259,9 @@ export interface TurnEvent {
    */
   errorCopy?: ErrorCopy | readonly ErrorCopy[];
   /**
-   * Raw diagnostic detail for traces/logs, on an `error` event or an ended
-   * session's close; never surface to end users (`forClient` strips it).
+   * Raw diagnostic detail for traces/logs, on an `error` event, an ended
+   * session's close, or a refused OAuth refresh (`auth_token_refresh_failed`);
+   * never surface to end users (`forClient` strips it).
    */
   errorInternal?: string;
   /** Compaction signal for `timing: 'after'` profiles. Present only on `done` events. */
@@ -1378,8 +1392,16 @@ export interface SessionRequest {
    * the session; no `setOnStage`.
    */
   onStage?: StageHandler;
-  /** Default credentials for `executeTool` (per-call args override). */
+  /**
+   * Default credentials for `executeTool` (per-call args override). A refreshed OAuth
+   * credential replaces its slot in the record the call used.
+   */
   credentials?: Record<string, ToolCredential>;
+  /**
+   * Resolves remote tool and OAuth host names before each request; a name that
+   * resolves to a private address is refused (see `fetchGuarded`).
+   */
+  resolveHost?: ResolveHost;
   /** Opaque host slot for stages / tool execute (per-call args override). */
   host?: unknown;
 }

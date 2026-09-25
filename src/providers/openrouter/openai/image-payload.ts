@@ -42,11 +42,22 @@ export function wireInputReference(part: InteractionMediaPart): Record<string, u
   };
 }
 
+/**
+ * The `/images` reference list: every image part. Text is the prompt; any other
+ * media is refused, since `/images` takes image references only and a dropped
+ * file would leave the user believing the model saw it.
+ */
 export function wireInputReferences(input: InteractionPart[]): Record<string, unknown>[] {
   const references: Record<string, unknown>[] = [];
   for (const part of input) {
-    if (part.type !== 'image') {
+    if (part.type === 'text') {
       continue;
+    }
+    if (part.type !== 'image') {
+      throw new TheoremError(
+        'unsupported',
+        `${part.mimeType} input is not supported on /images, which takes image references only`,
+      );
     }
     if (isMediaRefPart(part)) {
       throw new TheoremError('unsupported', 'media references are not supported on openAi');

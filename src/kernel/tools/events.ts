@@ -14,6 +14,7 @@ import type { z } from 'zod';
 import { throwIfAborted } from '../../guardrails/error.ts';
 import { assertSafeUrl } from '../../guardrails/network.ts';
 import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
+import type { NetworkGuardrailSpec } from '../../guardrails/types.ts';
 import type { TurnEvent } from '../types.ts';
 import type { ToolCallEvent, ToolContext, ToolFailure } from './types.ts';
 
@@ -64,29 +65,39 @@ export function* startToolExecution<T>(
 }
 
 /**
- * Clear a remote target against the profile's network policy.
- *
- * Returns `undefined` after emitting the failure event when the target is
- * blocked, so HTTP and MCP cannot diverge on what SSRF enforcement means.
+ * A remote request refused by the network policy — its target or a redirect
+ * hop: the guardrail event, and the failure the call settles with.
+ */
+export function* networkBlocked(err: unknown): Generator<TurnEvent, ToolFailure> {
+  yield {
+    type: 'guardrail',
+    guardrail: {
+      stage: 'network',
+      trust: 'untrusted',
+      action: 'block',
+      hits: [{ rule: 'network.blocked', severity: 'high' }],
+    },
+  };
+  return { code: 'network_blocked', kind: 'blocked', message: messageOf(err) };
+}
+
+/**
+ * Clear a remote target against the profile's network policy, so HTTP and
+ * MCP cannot diverge on what SSRF enforcement means. A refused target comes
+ * back as the failure to settle with; the settlement emits the terminal event.
  */
 export function* guardToolTarget(
   url: string,
   ctx: ToolContext,
-  base: ToolCallBase,
-): Generator<TurnEvent, URL | undefined> {
+): Generator<TurnEvent, { ok: true; url: URL } | { ok: false; failure: ToolFailure }> {
   try {
-    return assertSafeUrl(url, resolveGuardrailPolicy(ctx.profile.guardrails).network);
+    return { ok: true, url: assertSafeUrl(url, toolNetworkPolicy(ctx)) };
   } catch (err) {
-    yield {
-      type: 'guardrail',
-      guardrail: {
-        stage: 'network',
-        trust: 'untrusted',
-        action: 'block',
-        hits: [{ rule: 'network.blocked', severity: 'high' }],
-      },
-    };
-    yield failureEvent(base, { code: 'network_blocked', kind: 'blocked', message: messageOf(err) });
-    return undefined;
+    return { ok: false, failure: yield* networkBlocked(err) };
   }
+}
+
+/** The network policy remote tools and their OAuth refreshes clear. */
+export function toolNetworkPolicy(ctx: ToolContext): NetworkGuardrailSpec | undefined {
+  return resolveGuardrailPolicy(ctx.profile.guardrails).network;
 }

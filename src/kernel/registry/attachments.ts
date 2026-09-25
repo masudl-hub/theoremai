@@ -131,14 +131,13 @@ export interface AttachmentFacts {
 }
 
 /**
- * What a profile takes: each channel's `accept` list (absent when it takes none),
- * its complete limits, and an image profile's cap on reference images.
+ * What a profile takes: each channel's `accept` list (absent when it takes none)
+ * and its complete limits.
  */
 export interface AttachmentRules {
   attachments?: string[];
   voice?: string[];
   limits?: MediaLimits;
-  maxImages?: number;
 }
 
 function named(
@@ -201,10 +200,6 @@ function attachmentIssues(
   if (files.length === 0 && clips.length === 0) return issues;
   if (rules.attachments) issues.push(...mimeIssues(rules.attachments, files, 'attachment'));
   if (rules.voice) issues.push(...mimeIssues(rules.voice, clips, 'voice'));
-  const images = files.filter((file) => mimeEssence(file.mimeType).startsWith('image/')).length;
-  if (rules.maxImages !== undefined && images > rules.maxImages) {
-    issues.push({ code: 'too_many_images', params: { maxImages: rules.maxImages } });
-  }
   if (!rules.limits) return [...issues, { code: 'limits_unconfigured' }];
   return [...issues, ...limitIssues([...files, ...clips], rules.limits)];
 }
@@ -212,7 +207,6 @@ function attachmentIssues(
 const ISSUE_KEYS: Record<AttachmentValidationIssue['code'], LexiconKey> = {
   mime_not_allowed: 'attachments.mime_not_allowed',
   too_many_files: 'attachments.too_many_files',
-  too_many_images: 'attachments.too_many_images',
   file_too_large: 'attachments.file_too_large',
   turn_too_large: 'attachments.turn_too_large',
   attachments_not_accepted: 'attachments.not_accepted',
@@ -275,7 +269,6 @@ function assertTurnAttachments(
       attachments: profileAccept(profile, 'attachments'),
       voice: profileAccept(profile, 'voice'),
       limits,
-      maxImages: profile.type === 'image' ? profile.image.maxInputImages : undefined,
     },
     (attachments ?? []).map(factsOf),
     (voice ?? []).map(factsOf),

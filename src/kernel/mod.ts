@@ -116,6 +116,7 @@ export {
   EXTRA_FIELDS,
   fieldMeta,
   HTTP_METHODS,
+  IMAGE_ATTACHMENT_ACCEPT_MIMES,
   isSpeechFormatAllowedForProtocol,
   isToolGateKind,
   isTurnInjectStage,

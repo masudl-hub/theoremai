@@ -16,6 +16,7 @@ export {
   createBlankDraft,
   defaultModelBinding,
   defaultToolSpec,
+  draftAllows,
   draftFacets,
   draftKey,
   type EffortDraft,
@@ -38,6 +39,7 @@ export {
   type PlaygroundProfileType,
   setProfileType,
   type SpeechDraft,
+  takesContinueInstruction,
   type ToolsDraft,
   type ToolSpecDraft,
   type TurnBehaviourDraft,
@@ -55,6 +57,7 @@ export {
   GEMINI_PLAYGROUND_DEFAULT_API_ID,
   GEMINI_PLAYGROUND_IMAGE_DEFAULT_API_ID,
   GEMINI_PLAYGROUND_LIVE_DEFAULT_API_ID,
+  GEMINI_PLAYGROUND_LIVE_INPUT_TOKENS,
   GEMINI_PLAYGROUND_MODELS,
   GEMINI_PLAYGROUND_TTS_DEFAULT_API_ID,
   type GeminiPlaygroundModel,
@@ -87,6 +90,7 @@ export {
   DEFAULT_TOOL_INPUT_SCHEMA,
   DEFAULT_TOOL_OUTPUT_SCHEMA,
   parseJsonSchema,
+  sampleFromJsonSchema,
   zodExprFromJsonSchema,
   zodFromJsonSchema,
 } from './tool-schema.ts';
@@ -109,7 +113,7 @@ export {
 } from './concierge-demo.ts';
 export type { PlaygroundDemoHandler } from './demo-handlers.ts';
 export { playgroundDemoHandler } from './demo-handlers.ts';
-export { stubOutputFromSchema } from './stub.ts';
+export { sampleToolInput, stubOutputFromSchema } from './stub.ts';
 export type { PlaygroundInputsSpec, PlaygroundToolSeed, PlaygroundToolSpecSeed } from './types.ts';
 export { registerPlaygroundLiveProfile } from './live-register.ts';
 export type {

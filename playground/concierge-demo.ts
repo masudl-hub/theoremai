@@ -426,7 +426,7 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       loadTier: 'T0',
       paths: ['*'],
       serverUrl: 'https://mcp.deepwiki.com/mcp',
-      mcpToolName: 'ask_question',
+      mcpToolName: 'ask_wiki_question',
       inputJson: `{
   "type": "object",
   "properties": {

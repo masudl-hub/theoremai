@@ -67,7 +67,7 @@ builder with their own UI owns every line.
 | Was | Now |
 | --- | --- |
 | `useTheoremChat` → `error`, `errorInternal`; `useTheoremInterface` → `error` | `failure: ClientFailure \| null` (`{ error, errorKind, errorInternal? }`); `error` is the profile lexicon's wording |
-| Composer drop notices (`attachmentsDroppedMessage`, `imagesDroppedMessage`) | `issues: AttachmentValidationIssue[]` (`too_many_files`, `too_many_images`); word each with `attachmentIssueText(issue, iface.lexicon)` from `@theoremai/agents` |
+| Composer drop notices (`attachmentsDroppedMessage`, `imagesDroppedMessage`) | `issues: AttachmentValidationIssue[]` (`too_many_files`); word each with `attachmentIssueText(issue, iface.lexicon)` from `@theoremai/agents` |
 | `attachmentIssueText` from `@theoremai/react` | `attachmentIssueText` from `@theoremai/agents` (kernel) |
 | `liveStateLabel` (client) | `liveState(args)` → `LiveState` key; the default wording is `@theorem.live.state.*` in `ui/labels` |
 | Live runner `error`, `stateLabel` | `failure`, `liveState`, `activeTool` |

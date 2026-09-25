@@ -23,7 +23,6 @@ import type {
   LiveProfileInterface,
   LiveResolvedTools,
   ProfileGuardrailsView,
-  ProfileInputsInterface,
   ProfileInterface,
   ProfileInterfaceSource,
   ProfileObservabilityView,
@@ -102,14 +101,6 @@ function toolsResolved(projected: ProjectedProfile, profile?: ModelProfile): Res
   return { allow, resolved: projected.tools };
 }
 
-/** An image profile's reference-image cap, where the composer reads its other limits. */
-function withImageCap(
-  inputs: ProfileInputsInterface,
-  maxImages: number | undefined,
-): ProfileInputsInterface {
-  return maxImages === undefined ? inputs : { ...inputs, maxImages };
-}
-
 function enrich(projected: ProjectedProfile, profile?: ModelProfile): ProfileInterface {
   const inputs = inputsFromSpec(projected.inputs);
   const identity = profile?.identity ?? { handle: projected.handle };
@@ -146,7 +137,7 @@ function enrich(projected: ProjectedProfile, profile?: ModelProfile): ProfileInt
         ...shared,
         type: 'image',
         image: projected.image ?? {},
-        inputs: withImageCap(inputs, projected.image?.maxInputImages),
+        inputs,
         tools: toolsResolved(projected, profile),
         turnBehaviour: profile?.type === 'image' ? profile.turnBehaviour : undefined,
         canStop: true,

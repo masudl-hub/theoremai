@@ -24,7 +24,7 @@ type MediaInputChannel = 'attachments' | 'voice';
  * Returns whether an accept list permits a MIME value. Rules are normalized and
  * support a subtype wildcard such as `image/*`; parameter values are ignored.
  */
-function mimeAllowed(accept: string[], mime: string): boolean {
+function mimeAllowed(accept: readonly string[], mime: string): boolean {
   const actual = mimeEssence(mime);
   return accept.some((rule) => {
     const allowed = mimeEssence(rule);

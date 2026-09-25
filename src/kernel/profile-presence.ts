@@ -53,7 +53,6 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
   'image.aspectRatio': { unset: 'Provider default' },
   'image.size': { unset: 'Provider default' },
   'image.mimeType': { unset: 'Provider default' },
-  'image.maxInputImages': { unset: 'No image cap' },
   'image.includeText': { unset: 'Off' },
   'speech.voice': { unset: 'Provider default' },
   'speech.format': { unset: 'pcm' },

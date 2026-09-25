@@ -68,7 +68,6 @@ function validateProfileInputs(
       attachments: inputs.attachments?.accept,
       voice: inputs.voice?.accept,
       limits: resolveMediaLimits(toProfileInputsSpec(inputs)),
-      maxImages: inputs.maxImages,
     },
     facts(draft.attachments),
     facts(draft.voice),

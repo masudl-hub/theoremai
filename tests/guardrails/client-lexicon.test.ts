@@ -33,19 +33,19 @@ Deno.test('clientLexicon is empty without overrides', () => {
 
 Deno.test('attachmentIssueText words an issue with its file name and the profile lexicon', () => {
   assertEquals(
-    attachmentIssueText({ code: 'too_many_images', params: { maxImages: 1 } }),
-    'Sorry, only 1 image can be sent per message.',
+    attachmentIssueText({ code: 'too_many_files', params: { maxFiles: 1 } }),
+    'Sorry, only 1 file can be sent per message.',
   );
   assertEquals(
-    attachmentIssueText({ code: 'too_many_images', params: { maxImages: 3 } }),
-    'Sorry, only 3 images can be sent per message.',
+    attachmentIssueText({ code: 'too_many_files', params: { maxFiles: 3 } }),
+    'Sorry, only 3 files can be sent per message.',
   );
   assertEquals(
     attachmentIssueText(
-      { code: 'too_many_images', params: { maxImages: 2 } },
-      { 'attachments.too_many_images': 'Max {maxImages} pictures.' },
+      { code: 'too_many_files', params: { maxFiles: 2 } },
+      { 'attachments.too_many_files': 'Max {maxFiles} files.' },
     ),
-    'Max 2 pictures.',
+    'Max 2 files.',
   );
   const [named] = attachmentIssues(
     { attachments: ['image/png'], limits: { maxBytes: 1, maxTurnBytes: 10, maxFiles: 5 } },
@@ -55,21 +55,5 @@ Deno.test('attachmentIssueText words an issue with its file name and the profile
   assertEquals(
     attachmentIssueText(named),
     'Sorry, huge.png is too large. Each file needs to be 0.0 MB or smaller.',
-  );
-});
-
-Deno.test('attachmentIssues reports too_many_images past the image cap', () => {
-  const png = { mimeType: 'image/png', sizeBytes: 1 };
-  assertEquals(
-    attachmentIssues(
-      {
-        attachments: ['image/png'],
-        maxImages: 1,
-        limits: { maxBytes: 10, maxTurnBytes: 100, maxFiles: 5 },
-      },
-      [png, png],
-      [],
-    ),
-    [{ code: 'too_many_images', params: { maxImages: 1 } }],
   );
 });

@@ -10,7 +10,6 @@ import {
 	type TranscriptBlock,
 	type UserTurnDraft,
 } from '../../../src/interface/mod.ts';
-import type { ToolCredential } from '../../../src/kernel/mod.ts';
 import { attachmentsRefused, lexiconText, TheoremError, type TurnEvent } from '../../../mod.ts';
 import { attachPreviewData, encodeFiles } from './encode-files';
 import { type TurnFailure, turnFailure } from './failure';
@@ -330,7 +329,7 @@ async function resumeAllowedGatedTool(args: {
 	transport: TheoremTransport;
 	session: InterfaceTurnSession;
 	onStream: (blocks: TranscriptBlock[]) => void;
-	credentials?: Record<string, ToolCredential>;
+	secret?: string;
 	gated: NonNullable<InterfaceTurnSession['gatedTool']>;
 }): Promise<
 	| { ok: true; session: InterfaceTurnSession; assistantBlocks: TranscriptBlock[] }
@@ -365,7 +364,7 @@ async function resumeAllowedGatedTool(args: {
 						input: args.gated.input,
 						resume,
 						sessionPermissions,
-						credentials: args.credentials,
+						secret: args.secret,
 					}),
 					onEvent,
 				),
@@ -404,7 +403,7 @@ export async function resumeInterfaceTool(args: {
 	action: ToolDecisionAction;
 	interactiveValue?: unknown;
 	onStream: (blocks: TranscriptBlock[]) => void;
-	credentials?: Record<string, ToolCredential>;
+	secret?: string;
 }): Promise<
 	| { ok: true; session: InterfaceTurnSession; assistantBlocks: TranscriptBlock[] }
 	| TurnFailure

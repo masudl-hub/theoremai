@@ -37,7 +37,8 @@ async function settleDeniedTool(args: {
 
 type LiveToolLoopState = {
 	resume: { granted?: boolean } | undefined;
-	credentials: Record<string, unknown> | undefined;
+	/** A key the user just typed, sent on the next call only. */
+	secret: string | undefined;
 	sessionPermissions: string[];
 };
 
@@ -88,7 +89,7 @@ async function advanceLiveToolGate(args: {
 			done: false,
 			state: {
 				...args.state,
-				credentials: { ...args.state.credentials, ...next.credentials },
+				secret: next.secret,
 				resume: undefined,
 			},
 		};
@@ -99,7 +100,7 @@ async function advanceLiveToolGate(args: {
 		state: {
 			sessionPermissions: next.sessionPermissions,
 			resume: next.resume,
-			credentials: undefined,
+			secret: undefined,
 		},
 	};
 }
@@ -123,7 +124,7 @@ export async function runLiveToolCall(args: {
 		args;
 	let state: LiveToolLoopState = {
 		resume: undefined,
-		credentials: undefined,
+		secret: undefined,
 		sessionPermissions: args.sessionPermissions,
 	};
 
@@ -133,7 +134,7 @@ export async function runLiveToolCall(args: {
 			callId,
 			input: toolArgs,
 			resume: state.resume,
-			credentials: state.credentials,
+			secret: state.secret,
 		});
 		// A failed step reaches the user through its tool event; the output is the model's.
 		if (result.status === 'complete') return asOutputRecord(result.output, { result: result.output });

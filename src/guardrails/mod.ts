@@ -54,9 +54,7 @@ export {
   projectGuardrailTurnEvent,
 } from './events.ts';
 export {
-  GUARDRAIL_MATCH_PREVIEW_MAX,
   hitFromSpan,
-  matchPreview,
   projectGuardrailEvent,
 } from './hits.ts';
 export { injectionSpans } from './injection.ts';
@@ -104,7 +102,6 @@ export {
 export {
   detectionForProfile,
   detectText,
-  PROJECT_ID_MAX,
   redactSensitiveOnly,
   sanitizeHistory,
   sanitizeProjectId,

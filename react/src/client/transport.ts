@@ -21,7 +21,7 @@ import {
 } from '../../../mod.ts';
 import { kindOfHttpStatus } from '../../../src/guardrails/mod.ts';
 import type { ProfileInterface } from '../../../src/interface/mod.ts';
-import type { ToolCredential, TurnToolSnapshot } from '../../../src/kernel/mod.ts';
+import type { TurnToolSnapshot } from '../../../src/kernel/mod.ts';
 import type { TraceFeed } from './trace-feed.ts';
 
 export type EncodedBlob = { name: string; mimeType: string; data: string };
@@ -72,8 +72,12 @@ export type TheoremTurnRequest = {
 export type TheoremInvokeRequest = {
 	/** Call id of the paused tool call (`tool.callId` on its gate event). */
 	gateId: string;
-	/** User-entered secrets for an auth gate. */
-	credentials?: Record<string, ToolCredential>;
+	/**
+	 * The key or token the user typed at a bearer or API-key sign-in gate. The
+	 * server saves it for the session and never sends it back; an OAuth gate
+	 * resumes with the gate id alone, once the host's callback saved the token.
+	 */
+	secret?: string;
 	replay?: TheoremReplay;
 };
 

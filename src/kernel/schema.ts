@@ -398,6 +398,19 @@ export const ATTACHMENT_ACCEPT_MIMES: readonly string[] = [
   ...mimesOf('document'),
 ];
 
+/**
+ * The attachment `accept` values an image profile may list: images, video and
+ * PDF, the inputs image models document reading. Also the allowlist each of its
+ * `accept` entries must fall within.
+ */
+export const IMAGE_ATTACHMENT_ACCEPT_MIMES: readonly string[] = [
+  'image/*',
+  'video/*',
+  ...mimesOf('image'),
+  ...mimesOf('video'),
+  'application/pdf',
+];
+
 /** Voice `accept` values the kernel can classify (wildcard + known audio types). */
 export const VOICE_ACCEPT_MIMES: readonly string[] = ['audio/*', ...mimesOf('audio')];
 
@@ -731,7 +744,8 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   'inputs.attachments': field('{ accept: string[] }', 'File upload allowlist.'),
   'inputs.attachments.accept': field(
     'string[]',
-    'MIME allowlist for uploaded files. Type-prefix wildcards (image/*, …) are allowed.',
+    'MIME allowlist for uploaded files. Type-prefix wildcards (image/*, …) are allowed. ' +
+      'An image profile takes images, video and PDF only (IMAGE_ATTACHMENT_ACCEPT_MIMES).',
     ATTACHMENT_ACCEPT_MIMES,
     'Kernel-known types (plus wildcards). Hosts may list any MIME; unknown types are rejected at ingress.',
   ),
@@ -773,7 +787,6 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   'image.aspectRatio': field('string', 'Optional output aspect ratio. Omitted → provider default.'),
   'image.size': field('string', 'Optional output size / resolution. Omitted → provider default.'),
   'image.mimeType': field('string', 'Output MIME for generated images.'),
-  'image.maxInputImages': field('number', 'Cap on reference images in one turn.'),
   'image.includeText': field(
     'boolean',
     'When true, request interleaved assistant text alongside generated images.',
@@ -897,7 +910,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'turnBehaviour.resumption.allowContinue': field(
     'ContinueStopKind[]',
-    'Kinds eligible for a Continue / continueFrom turn. Not tool/cancelled/completed/filtered/live boundaries.',
+    'Stops that may be continued (continueFrom). Omitted → all three. Tool, cancelled, completed and filtered stops never are.',
     CONTINUE_STOP_KINDS,
     {
       length: 'Model hit maximum output token ceiling.',
@@ -907,7 +920,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'turnBehaviour.resumption.autoContinue': field(
     'ContinueStopKind[]',
-    'Kinds the host may auto-continue once without a CTA. Subset of ContinueStopKind.',
+    'Stops the host continues once on its own, without asking. Omitted → length and stream_incomplete; [] → none.',
     CONTINUE_STOP_KINDS,
     {
       length: 'Model hit maximum output token ceiling.',
@@ -917,7 +930,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'turnBehaviour.resumption.maxContinues': field(
     'number',
-    'Max continueFrom rounds the kernel accepts (compared to TurnRequest.continuation).',
+    'How many times one reply may be continued. Omitted → no cap. Once set, each continue must carry its count (TurnRequest.continuation).',
   ),
   'turnBehaviour.allowSteering': field(
     'boolean',
@@ -1037,7 +1050,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'observability.include.guardrailMatchPreview': field(
     'boolean',
-    'Keep GuardrailHit.match (capped matched substring) on stream + TraceRecord. Default false — debugging only.',
+    'Keep GuardrailHit.match (the exact matched text) on stream + TraceRecord. Default false — debugging only.',
   ),
   'observability.resource': field(
     'Record<string, TraceAttributeValue>',
@@ -1103,7 +1116,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   ),
   endpoint: field(
     'string',
-    'HTTP URL template for declarative tools. Use {param} placeholders for path segments.',
+    'HTTP URL template for declarative tools. Use {param} placeholders for path segments; the scheme and host are fixed text.',
   ),
   method: field(unionType(HTTP_METHODS), 'HTTP verb for declarative tools.', HTTP_METHODS),
   headers: field(
@@ -1182,6 +1195,18 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   'playground.stubOutput': field(
     'Record<string, unknown>',
     'Playground-only: fixed JSON object returned by function tool stubs when no demo handler exists.',
+  ),
+  'playground.sampleInput': field(
+    'Record<string, unknown>',
+    "Playground-only: tool input for the connection test, filling the endpoint's path, query and body. Not saved.",
+  ),
+  'playground.inputSchema': field(
+    'Record<string, unknown>',
+    'Playground-only: the tool input as a JSON Schema object, sent to the model as its parameters.',
+  ),
+  'playground.outputSchema': field(
+    'Record<string, unknown>',
+    'Playground-only: the tool result as a JSON Schema object. A function tool with no stub output returns a stand-in built from it.',
   ),
   'registerStructured.jsonSchema': field(
     'Record<string, unknown>',

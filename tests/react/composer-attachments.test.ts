@@ -53,51 +53,6 @@ Deno.test('canStageVoice blocks when files already fill maxFiles', () => {
   assertEquals(canStageVoice({ fileCount: 5 }), true);
 });
 
-function stubImage(name: string): File {
-  return new File([new Uint8Array([1])], name, { type: 'image/png' });
-}
-
-Deno.test('stageComposerFiles caps images at maxImages, counting staged ones', () => {
-  const staged = stageComposerFiles({
-    existing: [stubImage('a.png'), stubFile('notes.pdf')],
-    incoming: [stubImage('b.png'), stubFile('brief.pdf'), stubImage('c.png'), stubImage('d.png')],
-    maxImages: 3,
-  });
-  assertEquals(
-    staged.files.map((f) => f.name),
-    ['a.png', 'notes.pdf', 'b.png', 'brief.pdf', 'c.png'],
-  );
-  assertEquals(staged.dropped, 1);
-  assertEquals(staged.issues, [{ code: 'too_many_images', params: { maxImages: 3 } }]);
-});
-
-Deno.test('stageComposerFiles applies maxFiles after the image cap', () => {
-  const staged = stageComposerFiles({
-    existing: [],
-    incoming: [stubImage('a.png'), stubImage('b.png'), stubFile('c.pdf'), stubFile('d.pdf')],
-    maxImages: 1,
-    maxFiles: 2,
-  });
-  assertEquals(
-    staged.files.map((f) => f.name),
-    ['a.png', 'c.pdf'],
-  );
-  assertEquals(staged.dropped, 2);
-  assertEquals(staged.issues, [
-    { code: 'too_many_images', params: { maxImages: 1 } },
-    { code: 'too_many_files', params: { maxFiles: 2 } },
-  ]);
-});
-
-Deno.test('stageComposerFiles leaves images uncapped without maxImages', () => {
-  const staged = stageComposerFiles({
-    existing: [],
-    incoming: [stubImage('a.png'), stubImage('b.png')],
-  });
-  assertEquals(staged.files.length, 2);
-  assertEquals(staged.issues, []);
-});
-
 Deno.test('parseAspectRatio reads profile ratios', () => {
   assertEquals(parseAspectRatio('16:9'), 16 / 9);
   assertEquals(parseAspectRatio(' 1:1 '), 1);

@@ -17,7 +17,7 @@ import type { GuardrailHit, GuardrailStage, TrustLevel } from './types.ts';
 
 /**
  * Detect and redact injection / sensitive spans. Returns hits for observability
- * (rule + offsets + optional `match` preview for debugging).
+ * (rule + offsets + optional exact `match` for debugging).
  */
 function detectText(
   text: string,
@@ -76,8 +76,6 @@ function sanitizeSlots(
   return out;
 }
 
-/** Maximum length retained for a sanitized host project identifier. */
-const PROJECT_ID_MAX = 128;
 const PROJECT_ID_OK = /^[A-Za-z0-9._-]+$/;
 
 /** Trims and validates a project identifier, returning undefined for invalid input. */
@@ -85,7 +83,7 @@ function sanitizeProjectId(id: string | undefined): string | undefined {
   if (!id) {
     return undefined;
   }
-  const trimmed = id.trim().slice(0, PROJECT_ID_MAX);
+  const trimmed = id.trim();
   if (!PROJECT_ID_OK.test(trimmed)) {
     return undefined;
   }
@@ -286,7 +284,6 @@ function sanitizeTurnRequestWithEvents(req: TurnRequest): {
 export {
   detectionForProfile,
   detectText,
-  PROJECT_ID_MAX,
   redactSensitiveOnly,
   sanitizeHistory,
   sanitizeProjectId,

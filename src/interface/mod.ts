@@ -74,6 +74,7 @@ export type {
   AwaitingToolContext,
   GatedToolContext,
   InterfaceTurnSession,
+  ToolGateAuth,
 } from './session.ts';
 export {
   abandonGatedToolSession,

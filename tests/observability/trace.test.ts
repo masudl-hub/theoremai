@@ -245,4 +245,17 @@ Deno.test('jsonl sink keeps every file when retention is 0 or less', async () =>
   }
 });
 
+Deno.test('jsonl sink creates its directory and files readable by the host user only', async () => {
+  const root = await Deno.makeTempDir();
+  const dir = `${root}/traces`;
+  await jsonlSink(dir, { now: () => Date.parse('2026-08-16T00:00:00.000Z') }).write(
+    stubRecord(),
+    STUB_WRITE,
+  );
+  const permissions = (path: string) => Deno.stat(path).then((info) => (info.mode ?? 0) & 0o777);
+  assertEquals(await permissions(dir), 0o700);
+  assertEquals(await permissions(`${dir}/turns-2026-08-16.jsonl`), 0o600);
+  await Deno.remove(root, { recursive: true });
+});
+
 catalogGate();

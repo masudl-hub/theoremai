@@ -14,9 +14,13 @@
 
 import { liveIngressChannelDefault, profileAllowsInject, resolveGuardrailPolicy } from '../mod.ts';
 import { resolveObservabilityPolicy } from '../src/observability/mod.ts';
+import { mimeAllowed } from '../src/kernel/registry/catalog.ts';
+import { profileTypesForField } from '../src/kernel/profile-scope.ts';
+import { CONTINUE_INSTRUCTION_TYPES } from '../src/kernel/stop.ts';
 import {
   type ContinueStopKind,
   type EgressOnBlock,
+  IMAGE_ATTACHMENT_ACCEPT_MIMES,
   isValidProfileProtocol,
   type LiveActivityHandling,
   type LiveSpeechSensitivity,
@@ -179,7 +183,6 @@ export interface ImageDraft {
   aspectRatio: string;
   size: string;
   mimeType: string;
-  maxInputImages: number | null;
   includeText: boolean;
 }
 
@@ -339,7 +342,7 @@ export function createBlankDraft(): PlaygroundDraft {
     },
     guardrails: defaultGuardrails(),
     observability: defaultObservability(),
-    image: { aspectRatio: '', size: '', mimeType: '', maxInputImages: null, includeText: false },
+    image: { aspectRatio: '', size: '', mimeType: '', includeText: false },
     speech: { voice: '', format: '' },
     live: {
       ingressAudio: liveIngressChannelDefault('audio'),
@@ -378,6 +381,21 @@ export function draftFacets(draft: PlaygroundDraft): ProfileGraphFacetId[] {
   ).map((facet) => facet.id);
 }
 
+/**
+ * Whether the draft's profile type may set the field at `path`, by the kernel's
+ * `PROFILE_FIELD_SCOPE`. False until a type is chosen.
+ */
+export function draftAllows(draft: PlaygroundDraft, path: string): boolean {
+  const type = draft.identity.profileType;
+  return type !== '' && profileTypesForField(path).includes(type);
+}
+
+/** Whether the draft's type takes a continue instruction (lexicon `continue.instruction`). */
+export function takesContinueInstruction(draft: PlaygroundDraft): boolean {
+  const type = draft.identity.profileType;
+  return type !== '' && CONTINUE_INSTRUCTION_TYPES.includes(type);
+}
+
 /** Optional spine facets the draft's type allows but has not included. */
 export function includableFacets(draft: PlaygroundDraft): ProfileGraphFacetId[] {
   const type = draft.identity.profileType;
@@ -391,9 +409,15 @@ export function includableFacets(draft: PlaygroundDraft): ProfileGraphFacetId[] 
   ).map((facet) => facet.id);
 }
 
-function facetAllowsType(id: ProfileGraphFacetId, type: PlaygroundProfileType): boolean {
-  const facet = PROFILE_GRAPH.find((row) => row.id === id);
-  return facet !== undefined && (facet.profileTypes as readonly ProfileType[]).includes(type);
+/** Inputs an image profile can take: no voice, attachments within images, video and PDF. */
+function imageInputs(inputs: InputsDraft): InputsDraft {
+  return {
+    ...inputs,
+    attachmentsAccept: inputs.attachmentsAccept.filter((rule) =>
+      mimeAllowed(IMAGE_ATTACHMENT_ACCEPT_MIMES, rule)
+    ),
+    voiceAccept: [],
+  };
 }
 
 /** A new binding on the playground's default model for the draft's type. */
@@ -420,8 +444,8 @@ export function newToolSpec(draft: PlaygroundDraft): ToolSpecDraft {
  * type) are dropped; when none remain, one binding on the type's playground
  * default takes their place. Model select turns off when fewer than two bindings
  * remain.
- * Optional facets the type doesn't have are dropped from `included`. Every
- * other section keeps what the author typed, so switching back restores it.
+ * Every other section, and `included`, keeps what the author set: a facet the
+ * type lacks drops out of `draftFacets` and comes back when switching back.
  */
 export function setProfileType(
   draft: PlaygroundDraft,
@@ -441,7 +465,7 @@ export function setProfileType(
     modelBindings.some((binding) => isGoogleTransport(binding.protocol, binding.provider));
   return {
     ...retyped,
-    included: draft.included.filter((id) => facetAllowsType(id, type)),
+    inputs: type === 'image' ? imageInputs(draft.inputs) : draft.inputs,
     models: {
       ...draft.models,
       defaultModel: modelIds.has(draft.models.defaultModel) ? draft.models.defaultModel : '',

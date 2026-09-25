@@ -23,6 +23,7 @@ import type {
   TurnTokens,
   WireFunctionTool,
 } from '../../../kernel/types.ts';
+import { isRecord } from '../../../kernel/util/record.ts';
 import { pcmMediaAsWav } from '../../shared/pcm.ts';
 import {
   historyToolArguments,
@@ -421,7 +422,7 @@ export type ParsedLiveMessage =
   | { ok: false; reason: 'empty' | 'malformed' };
 
 export function parseGeminiLiveMessage(raw: unknown): ParsedLiveMessage {
-  if (typeof raw === 'object' && raw !== null && !Array.isArray(raw)) {
+  if (isRecord(raw)) {
     if (raw instanceof ArrayBuffer || raw instanceof Uint8Array) {
       const text = new TextDecoder().decode(raw);
       return parseGeminiLiveMessage(text);

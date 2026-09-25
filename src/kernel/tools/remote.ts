@@ -528,17 +528,27 @@ function withoutSecret(outcome: ToolBodyOutcome, secret: string | undefined): To
   return outcome;
 }
 
-/** An OAuth token goes only to the resource it was issued for (RFC 8707); any other target gets no request. */
-function audienceOutcome(audience: string | undefined, url: URL): ToolBodyOutcome | undefined {
-  if (!audience || tokenAudienceCovers(audience, url)) return undefined;
-  return failureOutcome(
-    {
-      code: 'credential_audience_mismatch',
-      kind: 'config',
-      message: `The OAuth token for "${audience}" cannot be sent to "${url.origin}${url.pathname}"`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    },
-    true,
-  );
+/**
+ * Send with the call's credential. An OAuth token goes only to the resource it
+ * was issued for (RFC 8707), so any other target gets no request; the response
+ * is stripped of the credential if it repeats it.
+ */
+async function* sendWithCredential(
+  prepared: { audience?: string; secret?: string },
+  url: URL,
+  send: () => AsyncGenerator<TurnEvent, ToolBodyOutcome>,
+): AsyncGenerator<TurnEvent, ToolBodyOutcome> {
+  if (prepared.audience && !tokenAudienceCovers(prepared.audience, url)) {
+    return failureOutcome(
+      {
+        code: 'credential_audience_mismatch',
+        kind: 'config',
+        message: `The OAuth token for "${prepared.audience}" cannot be sent to "${url.origin}${url.pathname}"`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      },
+      true,
+    );
+  }
+  return withoutSecret(yield* send(), prepared.secret);
 }
 
 /**
@@ -579,13 +589,8 @@ export async function* executeHttpTool(
 
   const guarded = yield* guardToolTarget(target.url, ctx);
   if (!guarded.ok) return failureOutcome(guarded.failure, true);
-  const targetUrl = guarded.url;
-  const misdirected = audienceOutcome(prepared.audience, targetUrl);
-  if (misdirected) return misdirected;
-
-  return withoutSecret(
-    yield* sendHttpRequest(tool, targetUrl, target.body, prepared.authHeaders, ctx),
-    prepared.secret,
+  return yield* sendWithCredential(prepared, guarded.url, () =>
+    sendHttpRequest(tool, guarded.url, target.body, prepared.authHeaders, ctx),
   );
 }
 
@@ -945,17 +950,10 @@ export async function* executeMcpTool(
   const guarded = yield* guardToolTarget(tool.serverUrl, ctx);
   if (!guarded.ok) return failureOutcome(guarded.failure, true);
 
-  let input: unknown = permitted.input;
-
-  const prepared = yield* remoteAuthAndPreBody({ tool, input, ctx, base, stages });
+  const prepared = yield* remoteAuthAndPreBody({ tool, input: permitted.input, ctx, base, stages });
   if (!('ok' in prepared)) return prepared;
-  input = prepared.input;
-  const misdirected = audienceOutcome(prepared.audience, guarded.url);
-  if (misdirected) return misdirected;
-
-  return withoutSecret(
-    yield* sendMcpRequest(tool, guarded.url, input, prepared.authHeaders, ctx, base),
-    prepared.secret,
+  return yield* sendWithCredential(prepared, guarded.url, () =>
+    sendMcpRequest(tool, guarded.url, prepared.input, prepared.authHeaders, ctx, base),
   );
 }
 

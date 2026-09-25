@@ -1,5 +1,6 @@
 import type { TraceRecord, TurnEvent } from '../../../mod.ts';
 import type { ToolGate } from '../../../src/kernel/mod.ts';
+import { isRecord } from '../../../src/kernel/util/record.ts';
 
 export type LiveServerEnvelope =
 	| { type: 'ready'; profile?: string; sessionId?: string }
@@ -23,9 +24,6 @@ function isTurnEvent(value: unknown): value is TurnEvent {
 	return Boolean(value && typeof value === 'object' && 'type' in value);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
 
 function optionalString(value: unknown): string | undefined {
 	return typeof value === 'string' ? value : undefined;

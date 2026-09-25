@@ -28,6 +28,7 @@ import {
 import type { TurnStop } from './stop.ts';
 import type { ModelToolResult, ToolFailure, ToolGate } from './tools/types.ts';
 import type { Profile, TurnEvent, TurnHistoryMessage } from './types.ts';
+import { isRecord } from './util/record.ts';
 
 /** Canonical homes: schema (`TurnStage`, `ToolGateKind`), tools/types (`ToolGate`). */
 export type { AwaitingUserInputKind, ToolGate };
@@ -158,10 +159,6 @@ export interface StageApplyOutput {
 /** True when the affordance is physically allowed at `stage` (ignores inject gate). */
 export function stageAllowsAffordance(stage: TurnStage, affordance: StageAffordance): boolean {
   return STAGE_AFFORDANCE_MATRIX[stage].includes(affordance);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function warn(

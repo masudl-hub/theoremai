@@ -4,6 +4,7 @@
  * @module
  */
 
+import { isRecord } from '../kernel/util/record.ts';
 import type { RedactSpan } from '../observability/spans.ts';
 import { scanTextForCanaryLeak } from './canary.ts';
 import { describeError } from './error.ts';
@@ -81,10 +82,6 @@ function collectEgressHits(text: string, canary?: string): GuardrailHit[] {
 /** Distinct rule ids in a hit list, in first-seen order — for rejection copy. */
 function hitRules(hits: GuardrailHit[]): string[] {
   return [...new Set(hits.map((hit) => hit.rule))];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object');
 }
 
 function isGuardrailHit(value: unknown): value is GuardrailHit {

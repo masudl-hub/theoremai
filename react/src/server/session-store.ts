@@ -48,19 +48,18 @@ export interface TheoremSessionStore {
 	save(sessionId: string, state: TheoremSessionState): void | Promise<void>;
 }
 
-const GATE_TTL_MS = 30 * 60 * 1000;
-
 export function emptySessionState(): TheoremSessionState {
 	return { permissions: [], gates: {}, interactions: [] };
 }
 
-/** Drop expired gates. */
+/** Drop gates older than `ttlMs`. */
 export function pruneGates(
 	gates: Record<string, PendingToolGate>,
 	now: number,
+	ttlMs: number,
 ): Record<string, PendingToolGate> {
 	return Object.fromEntries(
-		Object.entries(gates).filter(([, gate]) => now - gate.createdAt < GATE_TTL_MS),
+		Object.entries(gates).filter(([, gate]) => now - gate.createdAt < ttlMs),
 	);
 }
 
@@ -71,13 +70,14 @@ export type MemorySessionStoreOptions = {
 	maxSessions?: number;
 };
 
-/** A per-session value kept in process memory: forgotten when idle, oldest evicted first. */
-export type MemorySessionMap<T> = {
-	load(sessionId: string): T | undefined;
-	save(sessionId: string, value: T): void;
+/** A value kept per session id; the shape of every store the handler takes. */
+export type PerSessionStore<T> = {
+	load(sessionId: string): T | undefined | Promise<T | undefined>;
+	save(sessionId: string, value: T): void | Promise<void>;
 };
 
-export function createMemorySessionMap<T>(options: MemorySessionStoreOptions = {}): MemorySessionMap<T> {
+/** A per-session value kept in process memory: forgotten when idle, oldest evicted first. */
+export function createMemorySessionMap<T>(options: MemorySessionStoreOptions = {}): PerSessionStore<T> {
 	const ttlMs = options.ttlMs ?? 24 * 60 * 60 * 1000;
 	const maxSessions = options.maxSessions ?? 10_000;
 	const sessions = new Map<string, { value: T; touched: number }>();

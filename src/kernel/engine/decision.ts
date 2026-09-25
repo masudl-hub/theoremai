@@ -14,6 +14,7 @@ import type {
   KeyVault,
   ModelId,
 } from '../types.ts';
+import { isRecord } from '../util/record.ts';
 
 const TYPESAFE_SYSTEM_ONE_URL = 'https://api.typesafe.ai/v1/systemone';
 
@@ -73,10 +74,6 @@ function decisionModel(profile: DecisionProfile): [ModelId, DecisionProfile['mod
     );
   }
   return [modelId, binding];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function finite(value: unknown, path: string, min = 0, max = 1): number {

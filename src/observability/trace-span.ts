@@ -19,6 +19,7 @@
  */
 
 import { TheoremError } from '../guardrails/error.ts';
+import { isRecord } from '../kernel/util/record.ts';
 
 /** JSON-shaped attribute value (OTLP `AnyValue`). */
 type TraceAttributeValue =
@@ -249,7 +250,7 @@ function toAttributeValue(value: unknown): TraceAttributeValue | undefined {
 }
 
 function isMarker(value: unknown, key: string): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value) && key in value;
+  return isRecord(value) && key in value;
 }
 
 /** True for an in-memory `traceContent` wrapper. */

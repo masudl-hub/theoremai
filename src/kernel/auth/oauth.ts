@@ -16,6 +16,7 @@
  */
 
 import { fetchGuarded } from '../../guardrails/network.ts';
+import { isRecord } from '../util/record.ts';
 import {
   computeCodeChallenge,
   generateCodeVerifier,
@@ -140,10 +141,10 @@ function stringList(data: Record<string, unknown>, field: string): string[] | un
 
 async function metadataObject(response: Response, url: string): Promise<Record<string, unknown>> {
   const data: unknown = await response.json();
-  if (typeof data !== 'object' || data === null || Array.isArray(data)) {
+  if (!isRecord(data)) {
     throw new Error(`OAuth metadata at ${url} is not a JSON object`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
-  return data as Record<string, unknown>;
+  return data;
 }
 
 /**
@@ -414,8 +415,8 @@ async function tokenErrorText(response: Response): Promise<string> {
   } catch {
     return '';
   }
-  if (typeof data !== 'object' || data === null) return '';
-  const { error, error_description: description } = data as Record<string, unknown>;
+  if (!isRecord(data)) return '';
+  const { error, error_description: description } = data;
   if (typeof error !== 'string' || !ERROR_DESCRIPTION.test(error)) return '';
   const told = typeof description === 'string' && ERROR_DESCRIPTION.test(description);
   return told ? `: ${error} (${description})` : `: ${error}`;
@@ -426,10 +427,10 @@ function parseTokenResponse(data: unknown, tokenEndpoint: string): OAuthTokens {
   const fail = (why: string): never => {
     throw new Error(`Token response from ${tokenEndpoint} ${why}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   };
-  if (typeof data !== 'object' || data === null || Array.isArray(data)) {
-    fail('is not a JSON object'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  if (!isRecord(data)) {
+    return fail('is not a JSON object'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
-  const tokens = data as Record<string, unknown>;
+  const tokens = data;
   if (typeof tokens.access_token !== 'string' || tokens.access_token.length === 0) {
     fail('has no access_token'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
@@ -451,141 +452,115 @@ function parseTokenResponse(data: unknown, tokenEndpoint: string): OAuthTokens {
   return tokens as OAuthTokens;
 }
 
+/** Who a token is for and where it came from; fixed by the flow, never by the token response. */
+type TokenGrant = Pick<OAuth2Credential, 'issuer' | 'resource' | 'tokenEndpoint' | 'clientId'>;
+
 /**
- * POST a form-encoded token request and parse the response.
- *
- * The authorization-code exchange and the refresh flow differ only in the body
- * they send and the label on a failure, so the transport, the error shape, and
- * the expiry computation live here once.
+ * POST a form-encoded token request (RFC 6749 §4.1.3, §6) for `grant` and
+ * return the tokens and the credential they make. A refresh passes `previous`,
+ * whose refresh token and scope stay when the server sends no new ones.
  */
-async function postTokenRequest(
+async function requestToken(
   transport: OAuthTransportOptions,
-  tokenEndpoint: string,
-  body: URLSearchParams,
-  failureLabel: string,
-): Promise<{ tokens: OAuthTokens; expiresAt?: number }> {
+  grant: TokenGrant,
+  params: Record<string, string>,
+  previous?: { refreshToken: string; scope?: string },
+): Promise<ExchangePkceCodeResult> {
+  const body = new URLSearchParams({
+    ...params,
+    client_id: grant.clientId,
+    resource: grant.resource,
+  });
   const response = await oauthFetch(
-    tokenEndpoint,
+    grant.tokenEndpoint,
     {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        Accept: 'application/json',
-      },
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
       body: body.toString(),
     },
     transport,
   );
-
   if (!response.ok) {
+    const failed = previous ? 'Token refresh failed' : 'Token exchange failed'; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     throw new Error(
-      `${failureLabel} at ${tokenEndpoint} (HTTP ${response.status})${await tokenErrorText(response)}`,
+      `${failed} at ${grant.tokenEndpoint} (HTTP ${response.status})${await tokenErrorText(response)}`,
     );
   }
-
-  const tokens = parseTokenResponse(await response.json(), tokenEndpoint);
-  const expiresAt =
-    tokens.expires_in !== undefined ? Date.now() + tokens.expires_in * 1000 : undefined;
-  return { tokens, expiresAt };
+  const tokens = parseTokenResponse(await response.json(), grant.tokenEndpoint);
+  const credential: OAuth2Credential = {
+    type: 'oauth2',
+    ...grant,
+    accessToken: tokens.access_token,
+    refreshToken: tokens.refresh_token ?? previous?.refreshToken,
+    expiresAt: tokens.expires_in === undefined ? undefined : Date.now() + tokens.expires_in * 1000,
+    scope: tokens.scope ?? previous?.scope,
+  };
+  return { tokens, credential };
 }
 
 /**
  * Exchange authorization code for access and refresh tokens.
  *
  * Opens the sealed state, requires the session that began the flow (RFC 6749
- * §10.12), the same `redirect_uri` (§4.1.3) and a valid `iss` (RFC 9207), and posts the code, verifier, and resource to
- * the token endpoint sealed when the flow began.
+ * §10.12), the same `redirect_uri` (§4.1.3) and a valid `iss` (RFC 9207), and
+ * posts the code, verifier, and resource to the token endpoint sealed when the
+ * flow began.
  */
 export async function exchangeOAuthPkce(
   options: ExchangePkceCodeOptions,
 ): Promise<ExchangePkceCodeResult> {
-  const statePayload = await unsealStatePayload(options.state, options.signingSecret);
+  const state = await unsealStatePayload(options.state, options.signingSecret);
   const presented = await sessionBindingDigest(options.sessionBinding);
-  if (!sameDigest(presented, statePayload.sessionBinding)) {
+  if (!sameDigest(presented, state.sessionBinding)) {
     throw new Error(
       'OAuth state belongs to another session: the callback did not come from the session that began the flow', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
-
-  if (options.redirectUri !== statePayload.redirectUri) {
+  if (options.redirectUri !== state.redirectUri) {
     throw new Error(
-      `Redirect URI mismatch: expected "${statePayload.redirectUri}", received "${options.redirectUri}"`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Redirect URI mismatch: expected "${state.redirectUri}", received "${options.redirectUri}"`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
+  validateIssuer(state.expectedIssuer, options.iss, state.issRequired);
 
-  validateIssuer(statePayload.expectedIssuer, options.iss, statePayload.issRequired);
-
-  const tokenEndpoint = statePayload.tokenEndpoint;
-  const body = new URLSearchParams();
-  body.set('grant_type', 'authorization_code');
-  body.set('code', options.code);
-  body.set('redirect_uri', statePayload.redirectUri);
-  body.set('client_id', statePayload.clientId);
-  body.set('code_verifier', statePayload.codeVerifier);
-
-  body.set('resource', statePayload.resource);
-
-  const { tokens, expiresAt } = await postTokenRequest(
+  return requestToken(
     options,
-    tokenEndpoint,
-    body,
-    'Token exchange failed', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    {
+      issuer: state.expectedIssuer,
+      resource: state.resource,
+      tokenEndpoint: state.tokenEndpoint,
+      clientId: state.clientId,
+    },
+    {
+      grant_type: 'authorization_code',
+      code: options.code,
+      redirect_uri: state.redirectUri,
+      code_verifier: state.codeVerifier,
+    },
   );
-
-  const credential: OAuth2Credential = {
-    type: 'oauth2',
-    issuer: statePayload.expectedIssuer,
-    resource: statePayload.resource,
-    accessToken: tokens.access_token,
-    refreshToken: tokens.refresh_token,
-    expiresAt,
-    tokenEndpoint,
-    clientId: statePayload.clientId,
-    scope: tokens.scope,
-  };
-
-  return { tokens, credential };
 }
 
-/**
- * Refresh an expired OAuth 2.1 access token.
- */
-export async function refreshOAuthToken(
+/** Refresh an expired OAuth 2.1 access token. */
+export function refreshOAuthToken(
   options: RefreshOAuthTokenOptions,
-): Promise<{ tokens: OAuthTokens; credential: OAuth2Credential }> {
+): Promise<ExchangePkceCodeResult> {
   httpsUrl(options.tokenEndpoint, 'token_endpoint');
   httpsUrl(options.resource, 'resource');
-  const body = new URLSearchParams();
-  body.set('grant_type', 'refresh_token');
-  body.set('refresh_token', options.refreshToken);
-  body.set('client_id', options.clientId);
-
-  body.set('resource', options.resource);
-  if (options.scope) {
-    body.set('scope', options.scope);
-  }
-
-  const { tokens, expiresAt } = await postTokenRequest(
+  return requestToken(
     options,
-    options.tokenEndpoint,
-    body,
-    'Token refresh failed', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    {
+      issuer: options.issuer,
+      resource: options.resource,
+      tokenEndpoint: options.tokenEndpoint,
+      clientId: options.clientId,
+    },
+    {
+      grant_type: 'refresh_token',
+      refresh_token: options.refreshToken,
+      ...(options.scope ? { scope: options.scope } : {}),
+    },
+    { refreshToken: options.refreshToken, scope: options.scope },
   );
-
-  const credential: OAuth2Credential = {
-    type: 'oauth2',
-    issuer: options.issuer,
-    resource: options.resource,
-    accessToken: tokens.access_token,
-    // Preserve existing refresh token if new one is not issued
-    refreshToken: tokens.refresh_token ?? options.refreshToken,
-    expiresAt,
-    tokenEndpoint: options.tokenEndpoint,
-    clientId: options.clientId,
-    scope: tokens.scope ?? options.scope,
-  };
-
-  return { tokens, credential };
 }
 
 /**

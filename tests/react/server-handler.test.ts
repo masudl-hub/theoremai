@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from '@std/assert';
+import { assertEquals, assertRejects, assertThrows } from '@std/assert';
 import { z } from 'zod';
 import {
   type LexiconKey,
@@ -253,8 +253,7 @@ Deno.test('bad requests get 4xx JSON errors', async () => {
 });
 
 Deno.test('live profiles are rejected at construction', () => {
-  let threw = false;
-  try {
+  assertThrows(() =>
     createTheoremHandler({
       profile: {
         type: 'live',
@@ -267,11 +266,8 @@ Deno.test('live profiles are rejected at construction', () => {
         tools: { allow: [] },
       },
       provider: {},
-    });
-  } catch {
-    threw = true;
-  }
-  assertEquals(threw, true);
+    }),
+  );
 });
 
 // --- Trust boundary: request bodies can't grant authority ---------------------
@@ -436,6 +432,33 @@ Deno.test("another session can't approve this session's paused call", async () =
   // The victim can still approve their own call.
   await collect((onEvent) => victim.invoke({ gateId: gate.callId }, onEvent));
   assertEquals(ran, ['victim-record']);
+});
+
+Deno.test("an answer after the host's gateTtlMs is refused and the call never runs", async () => {
+  ran.length = 0;
+  const handler = createTheoremHandler({
+    profile: profile('handler-gate-ttl', ['handler_delete']),
+    provider: () => toolCallingProvider('handler_delete', 'late'),
+    gateTtlMs: 1,
+  });
+  const transport = transportFor(handler);
+  const gate = gateOf(
+    await collect((onEvent) => transport.turn({ input: { text: 'x' } }, onEvent)),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  await assertRefused(
+    () => collect((onEvent) => transport.invoke({ gateId: gate.callId }, onEvent)),
+    'session.gate_expired',
+  );
+  assertEquals(ran, []);
+});
+
+Deno.test('a gateTtlMs that is not a positive number is refused at construction', () => {
+  for (const gateTtlMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assertThrows(() =>
+      createTheoremHandler({ profile: profile('handler-gate-ttl-bad'), provider: {}, gateTtlMs }),
+    );
+  }
 });
 
 Deno.test('approving a session_consent tool is remembered by the server, not the client', async () => {

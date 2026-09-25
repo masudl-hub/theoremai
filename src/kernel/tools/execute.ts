@@ -21,6 +21,7 @@ import type { SpanHandle, TraceAttributes } from '../../observability/trace-span
 import { startToolTrace, type ToolCallEnd, type ToolOutcome } from '../engine/tool-trace.ts';
 import { isAwaitingUserInput } from '../stages.ts';
 import type { InteractionPart, Profile, TurnEvent, TurnHistoryMessage } from '../types.ts';
+import { isRecord } from '../util/record.ts';
 import { failureEvent, messageOf, startToolExecution, toolEvent } from './events.ts';
 import {
   checkPermission,
@@ -86,10 +87,6 @@ function isStreamHandler(handler: unknown): boolean {
 }
 
 const MEDIA_PART_TYPES = new Set(['image', 'audio', 'video', 'document']);
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
 
 /** Validate host-emitted InteractionPart shapes; drop invalid entries. */
 export function coerceToolResultParts(raw: unknown): InteractionPart[] | undefined {
@@ -875,9 +872,7 @@ export async function* executeRegisteredTool(
 
 /** Tool arguments as an object, the shape tool events carry. */
 export function toolCallArguments(safeInput: unknown): Record<string, unknown> {
-  return typeof safeInput === 'object' && safeInput !== null && !Array.isArray(safeInput)
-    ? (safeInput as Record<string, unknown>)
-    : { value: safeInput };
+  return isRecord(safeInput) ? safeInput : { value: safeInput };
 }
 
 async function* runRegisteredTool(

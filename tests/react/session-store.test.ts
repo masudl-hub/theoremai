@@ -1,8 +1,6 @@
 import { assertEquals } from '@std/assert';
 import { type PendingToolGate, pruneGates } from '../../react/src/server/session-store.ts';
 
-const HOUR_MS = 60 * 60 * 1000;
-
 function gate(createdAt: number): PendingToolGate {
   return {
     name: 'issue_refund',
@@ -14,12 +12,12 @@ function gate(createdAt: number): PendingToolGate {
   };
 }
 
-Deno.test('pruneGates keeps every waiting gate and drops only expired ones', () => {
+Deno.test('pruneGates keeps every gate younger than the ttl and drops the rest', () => {
   const now = Date.now();
   const waiting = Object.fromEntries(
     Array.from({ length: 100 }, (_, i) => [`gate_${i}`, gate(now - i)]),
   );
-  const kept = pruneGates({ ...waiting, stale: gate(now - HOUR_MS) }, now);
+  const kept = pruneGates({ ...waiting, stale: gate(now - 5_000) }, now, 2_000);
   assertEquals(Object.keys(kept).length, 100);
   assertEquals('stale' in kept, false);
 });

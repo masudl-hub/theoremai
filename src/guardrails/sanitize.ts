@@ -80,14 +80,8 @@ const PROJECT_ID_OK = /^[A-Za-z0-9._-]+$/;
 
 /** Trims and validates a project identifier, returning undefined for invalid input. */
 function sanitizeProjectId(id: string | undefined): string | undefined {
-  if (!id) {
-    return undefined;
-  }
-  const trimmed = id.trim();
-  if (!PROJECT_ID_OK.test(trimmed)) {
-    return undefined;
-  }
-  return trimmed;
+  const trimmed = id?.trim();
+  return trimmed && PROJECT_ID_OK.test(trimmed) ? trimmed : undefined;
 }
 
 function sanitizeRepair(

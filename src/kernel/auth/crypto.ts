@@ -15,7 +15,7 @@ export function toBase64Url(bytes: Uint8Array): string {
 }
 
 /** Decode RFC 4648 base64url string to Uint8Array. */
-export function fromBase64Url(base64url: string): Uint8Array {
+export function fromBase64Url(base64url: string): Uint8Array<ArrayBuffer> {
   let base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
   while (base64.length % 4 !== 0) {
     base64 += '=';
@@ -103,7 +103,7 @@ const SALT_BYTES = 32;
  */
 const ENVELOPE_VERSION = 'v1';
 
-async function stateKey(secret: string, salt: Uint8Array): Promise<CryptoKey> {
+async function stateKey(secret: string, salt: Uint8Array<ArrayBuffer>): Promise<CryptoKey> {
   const encoder = new TextEncoder();
   const secretBytes = encoder.encode(secret);
   if (secretBytes.length < MIN_SECRET_BYTES) {
@@ -111,19 +111,13 @@ async function stateKey(secret: string, salt: Uint8Array): Promise<CryptoKey> {
       `OAuth state secret must be at least ${MIN_SECRET_BYTES} bytes; got ${secretBytes.length}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
-  const base = await crypto.subtle.importKey(
-    'raw',
-    secretBytes as unknown as BufferSource,
-    'HKDF',
-    false,
-    ['deriveKey'],
-  );
+  const base = await crypto.subtle.importKey('raw', secretBytes, 'HKDF', false, ['deriveKey']);
   return crypto.subtle.deriveKey(
     {
       name: 'HKDF',
       hash: 'SHA-256',
-      salt: salt as unknown as BufferSource,
-      info: encoder.encode(STATE_KEY_INFO) as unknown as BufferSource,
+      salt: salt,
+      info: encoder.encode(STATE_KEY_INFO),
     },
     base,
     { name: 'AES-GCM', length: 256 },
@@ -134,7 +128,7 @@ async function stateKey(secret: string, salt: Uint8Array): Promise<CryptoKey> {
 
 /** The version, bound into the ciphertext's authentication tag. */
 function envelopeHeader(): BufferSource {
-  return new TextEncoder().encode(ENVELOPE_VERSION) as unknown as BufferSource;
+  return new TextEncoder().encode(ENVELOPE_VERSION);
 }
 
 /**
@@ -151,9 +145,9 @@ export async function sealStatePayload(
   const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
   const plaintext = new TextEncoder().encode(JSON.stringify(payload));
   const ciphertext = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv: iv as unknown as BufferSource, additionalData: envelopeHeader() },
+    { name: 'AES-GCM', iv: iv, additionalData: envelopeHeader() },
     key,
-    plaintext as unknown as BufferSource,
+    plaintext,
   );
   return [
     ENVELOPE_VERSION,
@@ -181,11 +175,11 @@ export async function unsealStatePayload(
     plaintext = await crypto.subtle.decrypt(
       {
         name: 'AES-GCM',
-        iv: fromBase64Url(ivB64 ?? '') as unknown as BufferSource,
+        iv: fromBase64Url(ivB64 ?? ''),
         additionalData: envelopeHeader(),
       },
       key,
-      fromBase64Url(ciphertextB64 ?? '') as unknown as BufferSource,
+      fromBase64Url(ciphertextB64 ?? ''),
     );
   } catch {
     throw new Error(

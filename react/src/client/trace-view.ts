@@ -15,6 +15,7 @@ import {
 	traceEventMeta,
 	traceSpanMeta,
 } from '../../../mod.ts';
+import { isRecord } from '../../../src/kernel/util/record.ts';
 
 /**
  * The trace panel's reading of the records a run delivered: one span tree,
@@ -372,9 +373,6 @@ export function filterTraceTree(nodes: readonly TraceNode[], filters: readonly T
 /** Formats whose value is stored text or structure: shown on click, never inline. */
 const STORED_FORMATS: ReadonlySet<TraceAttributeMeta['format']> = new Set(['content', 'json', 'messages', 'parts']);
 
-function isRecordObject(value: unknown): value is Record<string, unknown> {
-	return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function isStringList(value: unknown): value is string[] {
 	return Array.isArray(value) && value.every((item) => typeof item === 'string');
@@ -382,8 +380,8 @@ function isStringList(value: unknown): value is string[] {
 
 /** An object, or a list of objects, as items to read by a catalog entry's fields. */
 function fieldItems(value: unknown): Record<string, unknown>[] | undefined {
-	if (isRecordObject(value)) return [value];
-	return Array.isArray(value) && value.every(isRecordObject) ? value : undefined;
+	if (isRecord(value)) return [value];
+	return Array.isArray(value) && value.every(isRecord) ? value : undefined;
 }
 
 /** How to show an attribute value: by its catalog entry first, then by its shape. */

@@ -196,7 +196,7 @@ function ChatBody({
 	const inputRef = useRef<ChatComposerInputHandle | null>(null);
 	const composerRef = useComposerGlide(landing, inputRef);
 	const layoutRef = useRef<HTMLDivElement | null>(null);
-	const inspector = useTraceInspector(iface, layoutRef);
+	const inspector = useTraceInspector(iface, layoutRef, transport.traces);
 	const header = <SidePanelHeader>{inspector.toggle}</SidePanelHeader>;
 
 	const composer = (

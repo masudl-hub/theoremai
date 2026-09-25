@@ -22,6 +22,11 @@ const SIDE_PANEL_SIZING = {
 	maxSize: '50%',
 } as const satisfies UseResizableSingleConfig;
 
+/** Whether a side panel is wide enough for two readable columns: twice its minimum. */
+export function isSidePanelWide(size: number): boolean {
+	return size >= SIDE_PANEL_SIZING.minSize * 2;
+}
+
 /** A side panel's open state and size. `containerRef` is the Layout its percentages resolve against. */
 export function useSidePanel(containerRef: RefObject<HTMLDivElement | null>, initiallyOpen: boolean) {
 	const id = useId();

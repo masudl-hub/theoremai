@@ -83,6 +83,7 @@ function span(name: string, attributes: TraceSpan['attributes'], events: string[
 Deno.test('a span is named from what it recorded', () => {
   const agent = { 'gen_ai.operation.name': 'invoke_agent', 'gen_ai.agent.name': 'chat' };
   assertEquals(traceSpanMeta(span('invoke_agent chat', agent)), {
+    type: 'turn',
     label: 'Turn',
     doc: 'One exchange: the model calls and tool calls it took to answer.',
     subject: 'chat',
@@ -106,12 +107,14 @@ Deno.test('a span is named from what it recorded', () => {
   assertEquals(traceSpanMeta(span('execute_tool lookup', tool)).subject, 'lookup');
   const post = { 'http.request.method': 'POST', 'url.path': '/v1/x' };
   assertEquals(traceSpanMeta(span('POST', post)), {
+    type: 'http',
     label: 'HTTP try',
     doc: 'One HTTP attempt of a model call.',
     subject: '/v1/x',
   });
   assertEquals(traceSpanMeta(span('cutout', {})).label, 'Cutout');
   assertEquals(traceSpanMeta(span('host step', {})), {
+    type: 'host',
     label: 'Host span',
     doc: 'A step the host recorded itself.',
     subject: 'host step',

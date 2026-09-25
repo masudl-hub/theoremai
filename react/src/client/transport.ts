@@ -143,7 +143,7 @@ export function hostError(body: HostErrorBody, fallbackKind: ErrorKind): Theorem
 }
 
 /** One NDJSON line: a turn event, or a host's own line type beside them. */
-type StreamLine = { type: string };
+export type StreamLine = { type: string };
 
 /** Any `{ type: 'error' }` line ends the stream as a {@link TheoremStreamError}. */
 function parseStreamLine<Line extends StreamLine>(line: string): Line {

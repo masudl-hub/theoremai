@@ -243,11 +243,11 @@ it. The playground's trace panel reads it; a host's own tooling can too.
 
 | Lookup | Returns |
 | --- | --- |
-| `traceSpanMeta(span)` | What the span is (`Turn`, `Live session`, `Model call`, `Live response`, `Tool call`, `HTTP try`, `Cutout`, else `Host span`), decided from what it recorded, plus its subject: the agent, model, tool or path |
+| `traceSpanMeta(span)` | `{ type, label, doc, subject? }`: what the span is (`Turn`, `Live session`, `Model call`, `Live response`, `Tool call`, `HTTP try`, `Cutout`, else `Host span`), decided from what it recorded, plus its subject: the agent, model, tool or path |
 | `traceAttributeMeta(key)` | `{ label, doc, format, group, options?, open?, fields? }` for a span attribute, including the modality-usage and recorded-header families; `undefined` for a key Theorem does not write |
 | `traceEventMeta(name)` | `{ label, doc, attributes }` for a span event |
 | `traceEventAttributeMeta(event, key)` | The event's own entry for the key, else the span attribute of that key |
-| `TRACE_ATTRIBUTE_GROUPS`, `TRACE_STATUS`, `TRACE_FIELDS` | Labels for attribute groups, the three status codes, and a record's and span's own fields |
+| `TRACE_ATTRIBUTE_GROUPS`, `TRACE_STATUS`, `TRACE_FIELDS`, `TRACE_SPAN_TYPES` | Labels for attribute groups, the three status codes, a record's and span's own fields, and the span types (`TraceSpanType`) `traceSpanMeta` returns |
 
 `format` says how a value reads (`tokens`, `usd`, `milliseconds`, `content`,
 `messages`, …). `options` describes a closed set's values and is keyed by the
@@ -363,8 +363,8 @@ the module.
 | `isJsonlTraceDestination`, `isTraceSink` | function |
 | `resolveObservabilityPolicy`, `resolveTraceWriter` | function |
 | `traceSpanMeta`, `traceAttributeMeta`, `traceEventMeta`, `traceEventAttributeMeta` | function |
-| `TRACE_ATTRIBUTE_GROUPS`, `TRACE_STATUS`, `TRACE_FIELDS` | const |
-| `TraceSpanMeta`, `TraceAttributeMeta`, `TraceEventMeta`, `TraceOptionMeta`, `TraceAttributeGroup`, `TraceValueFormat` | type |
+| `TRACE_ATTRIBUTE_GROUPS`, `TRACE_STATUS`, `TRACE_FIELDS`, `TRACE_SPAN_TYPES` | const |
+| `TraceSpanMeta`, `TraceSpanType`, `TraceAttributeMeta`, `TraceEventMeta`, `TraceOptionMeta`, `TraceAttributeGroup`, `TraceValueFormat` | type |
 
 ```theorem-evidence
 {

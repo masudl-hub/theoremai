@@ -108,8 +108,12 @@ interface TraceEventMeta {
   attributes: Readonly<Record<string, TraceAttributeMeta>>;
 }
 
+/** The kinds of span THEOREM writes, plus `host` for a span the host recorded itself. */
+type TraceSpanType = 'turn' | 'session' | 'call' | 'response' | 'tool' | 'http' | 'cutout' | 'host';
+
 /** What a span is, and the thing it acted on (the model, tool or agent), when it names one. */
 interface TraceSpanMeta {
+  type: TraceSpanType;
   label: string;
   doc: string;
   subject?: string;
@@ -147,6 +151,12 @@ const TRACE_FIELDS = {
   metadata: {
     label: 'Request metadata',
     doc: 'The metadata the host passed on the request, untouched.',
+  },
+  span: { label: 'Span', doc: 'One timed step of the trace.' },
+  type: { label: 'Type', doc: 'What the span is: a turn, a model call, a tool call, an HTTP try.' },
+  children: {
+    label: 'Spans',
+    doc: 'The spans inside this one, in start order: model calls, tool calls, HTTP tries.',
   },
   traceId: { label: 'Trace ID', doc: 'Shared by every span of one trace.' },
   spanId: { label: 'Span ID', doc: "This span's id." },
@@ -641,6 +651,16 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
       'request',
       'Context compression',
       'How the provider shrinks a long session.',
+      {
+        mechanism: attr('request', 'Mechanism', 'text', 'How the context is shrunk.'),
+        trigger_tokens: attr(
+          'request',
+          'Trigger',
+          'tokens',
+          'Context size that starts compression.',
+        ),
+        target_tokens: attr('request', 'Keep', 'tokens', 'Context size kept after compressing.'),
+      },
     ),
     proactive_audio: attr(
       'request',
@@ -1221,7 +1241,7 @@ function traceEventAttributeMeta(event: string, key: string): TraceAttributeMeta
 
 // ── spans ───────────────────────────────────────────
 
-const SPANS = {
+const TRACE_SPAN_TYPES: Readonly<Record<TraceSpanType, TraceOptionMeta>> = {
   turn: { label: 'Turn', doc: 'One exchange: the model calls and tool calls it took to answer.' },
   session: { label: 'Live session', doc: 'A Live session, from setup to close.' },
   call: { label: 'Model call', doc: 'One request to a model and its answer.' },
@@ -1230,15 +1250,16 @@ const SPANS = {
   http: { label: 'HTTP try', doc: 'One HTTP attempt of a model call.' },
   cutout: { label: 'Cutout', doc: 'A side effect the host recorded after the turn.' },
   host: { label: 'Host span', doc: 'A step the host recorded itself.' },
-} satisfies Record<string, TraceOptionMeta>;
+};
 
 function stringAttribute(span: TraceSpan, key: string): string | undefined {
   const value = span.attributes[key];
   return typeof value === 'string' ? value : undefined;
 }
 
-function withSubject(meta: TraceOptionMeta, subject: string | undefined): TraceSpanMeta {
-  return subject ? { ...meta, subject } : { ...meta };
+function withSubject(type: TraceSpanType, subject: string | undefined): TraceSpanMeta {
+  const meta = { type, ...TRACE_SPAN_TYPES[type] };
+  return subject ? { ...meta, subject } : meta;
 }
 
 /** What a span is, from what it recorded, and what it acted on. */
@@ -1246,25 +1267,25 @@ function traceSpanMeta(span: TraceSpan): TraceSpanMeta {
   switch (stringAttribute(span, 'gen_ai.operation.name')) {
     case 'invoke_agent':
       return withSubject(
-        span.events.some((event) => event.name === 'theorem.session') ? SPANS.session : SPANS.turn,
+        span.events.some((event) => event.name === 'theorem.session') ? 'session' : 'turn',
         stringAttribute(span, 'gen_ai.agent.name'),
       );
     case 'chat':
     case 'generate_content':
       return withSubject(
-        'theorem.request.live' in span.attributes ? SPANS.response : SPANS.call,
+        'theorem.request.live' in span.attributes ? 'response' : 'call',
         stringAttribute(span, 'gen_ai.request.model'),
       );
     case 'execute_tool':
-      return withSubject(SPANS.tool, stringAttribute(span, 'gen_ai.tool.name'));
+      return withSubject('tool', stringAttribute(span, 'gen_ai.tool.name'));
     default:
       break;
   }
   if ('http.request.method' in span.attributes) {
-    return withSubject(SPANS.http, stringAttribute(span, 'url.path'));
+    return withSubject('http', stringAttribute(span, 'url.path'));
   }
-  if (span.name === 'cutout') return withSubject(SPANS.cutout, stringAttribute(span, 'url.path'));
-  return withSubject(SPANS.host, span.name);
+  if (span.name === 'cutout') return withSubject('cutout', stringAttribute(span, 'url.path'));
+  return withSubject('host', span.name);
 }
 
 export type {
@@ -1273,11 +1294,13 @@ export type {
   TraceEventMeta,
   TraceOptionMeta,
   TraceSpanMeta,
+  TraceSpanType,
   TraceValueFormat,
 };
 export {
   TRACE_ATTRIBUTE_GROUPS,
   TRACE_FIELDS,
+  TRACE_SPAN_TYPES,
   TRACE_STATUS,
   traceAttributeMeta,
   traceEventAttributeMeta,

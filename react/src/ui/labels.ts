@@ -198,6 +198,49 @@ export const THEOREM_UI_CATALOG = {
 		defaultMessage: 'Spans for each turn will show here.',
 		description: 'Empty trace panel.',
 	},
+	'@theorem.panel.trace.summary': {
+		defaultMessage: '{traces, plural, one {# trace} other {# traces}} · {spans, plural, one {# span} other {# spans}}',
+		description: 'Trace panel line under the search: how many traces and spans it holds.',
+		params: ['traces', 'spans'],
+	},
+	'@theorem.panel.trace.separator': { defaultMessage: ' · ', description: 'Between facts on one trace panel line.' },
+	'@theorem.panel.trace.search': { defaultMessage: 'Search spans', description: 'Trace panel search (screen readers).' },
+	'@theorem.panel.trace.search.placeholder': {
+		defaultMessage: 'Filter by type, status, model, text…',
+		description: 'Trace panel search, empty.',
+	},
+	'@theorem.panel.trace.search.text': { defaultMessage: 'Any text', description: 'Search field matching any text a span holds.' },
+	'@theorem.panel.trace.search.text.description': {
+		defaultMessage: 'Names, values and stored text.',
+		description: 'What the any-text search field matches.',
+	},
+	'@theorem.panel.trace.no_match': { defaultMessage: 'No spans match', description: 'Trace panel, when the search matches nothing.' },
+	'@theorem.panel.trace.back': { defaultMessage: 'All spans', description: 'Leaves a span for the span list.' },
+	'@theorem.panel.trace.show_text': { defaultMessage: 'Show text', description: 'Reveals stored text, JSON or messages.' },
+	'@theorem.panel.trace.hide_text': { defaultMessage: 'Hide text', description: 'Hides revealed stored text.' },
+	'@theorem.panel.trace.other': { defaultMessage: 'Other', description: 'Group for attributes the trace catalog does not name.' },
+	'@theorem.panel.trace.yes': { defaultMessage: 'Yes', description: 'A true trace value.' },
+	'@theorem.panel.trace.no': { defaultMessage: 'No', description: 'A false trace value.' },
+	'@theorem.panel.trace.tokens': { defaultMessage: 'Tokens', description: 'Card of token counts.' },
+	'@theorem.panel.trace.errors': { defaultMessage: 'Errors', description: 'Card counting failed spans.' },
+	'@theorem.panel.trace.at_least': {
+		defaultMessage: 'At least {value}',
+		description: 'A total some calls did not report.',
+		params: ['value'],
+	},
+	'@theorem.panel.trace.about': {
+		defaultMessage: 'About {value}',
+		description: 'A total with estimated counts.',
+		params: ['value'],
+	},
+	'@theorem.panel.trace.offset': {
+		defaultMessage: '+{duration}',
+		description: 'When an event happened, after its span started.',
+		params: ['duration'],
+	},
+	'@theorem.panel.trace.unit.milliseconds': { defaultMessage: 'ms', description: 'Unit of a search field in milliseconds.' },
+	'@theorem.panel.trace.unit.seconds': { defaultMessage: 's', description: 'Unit of a search field in seconds.' },
+	'@theorem.panel.trace.unit.usd': { defaultMessage: 'USD', description: 'Unit of a search field in US dollars.' },
 	'@theorem.panel.captions.name': { defaultMessage: 'Captions', description: 'Captions side panel (screen readers).' },
 	'@theorem.panel.captions.show': { defaultMessage: 'Show captions', description: 'Captions panel toggle, closed.' },
 	'@theorem.panel.captions.hide': { defaultMessage: 'Hide captions', description: 'Captions panel toggle, open.' },
@@ -269,7 +312,7 @@ export function composerDrawerLabel(t: LabelText, summary: ComposerDrawerSummary
 }
 
 /** Wall-clock duration, matching Seance's builder-trace formatter: "850ms", "3.2s", "12s", "1m 5s". */
-function workDuration(t: LabelText, durationMs: number): string {
+export function workDuration(t: LabelText, durationMs: number): string {
 	const ms = Math.max(0, durationMs);
 	if (ms < 1_000) return t('@theorem.duration.milliseconds', { ms: Math.round(ms) });
 	if (ms < 10_000) return t('@theorem.duration.seconds', { seconds: Math.round(ms / 100) / 10 });

@@ -84,7 +84,7 @@ function LiveRunnerBody({ iface, registerProfile }: Omit<LiveRunnerProps, 'label
 	const model = useLiveRunnerModel(iface, registerProfile);
 	// Both panels size against the whole live layout, so a third means the same for each.
 	const layoutRef = useRef<HTMLDivElement | null>(null);
-	const inspector = useTraceInspector(iface, layoutRef);
+	const inspector = useTraceInspector(iface, layoutRef, model.traces);
 	const captions = useSidePanel(layoutRef, true);
 	const captionLabels = {
 		name: t('@theorem.panel.captions.name'),

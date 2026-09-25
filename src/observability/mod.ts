@@ -43,11 +43,13 @@ export type {
   TraceEventMeta,
   TraceOptionMeta,
   TraceSpanMeta,
+  TraceSpanType,
   TraceValueFormat,
 } from './trace-catalog.ts';
 export {
   TRACE_ATTRIBUTE_GROUPS,
   TRACE_FIELDS,
+  TRACE_SPAN_TYPES,
   TRACE_STATUS,
   traceAttributeMeta,
   traceEventAttributeMeta,

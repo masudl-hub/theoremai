@@ -18,7 +18,6 @@ import type {
   KeySlot,
   KeyVault,
   LiveActivityHandling,
-  LiveContextCompression,
   LiveSpeechSensitivity,
   MediaInputKind,
   OverflowKeySlot,
@@ -64,7 +63,6 @@ export type {
   KeySlot,
   KeyVault,
   LiveActivityHandling,
-  LiveContextCompression,
   LiveProfileToolsSpec,
   LiveSpeechSensitivity,
   MediaInputKind,
@@ -428,6 +426,31 @@ export interface LiveVadSpec {
   silenceDurationMs?: number;
 }
 
+/**
+ * Context window compression for a live session: once the context reaches the
+ * trigger, the mechanism shrinks it. Without it, Gemini ends audio sessions at
+ * 15 minutes and audio-video sessions at 2.
+ */
+export interface LiveContextCompressionSpec {
+  /**
+   * Context tokens, counted before a turn, that start compression. A whole
+   * number above 0. Omit → provider default (Gemini: 80% of the model's context
+   * window).
+   */
+  triggerTokens?: number;
+  /** Drops the oldest turns; the system instruction stays. Gemini's only mechanism. */
+  slidingWindow: LiveSlidingWindowSpec;
+}
+
+/** Sliding-window compression: the context is cut from the start, down to a target. */
+export interface LiveSlidingWindowSpec {
+  /**
+   * Tokens to keep after compressing. A whole number above 0, below
+   * `triggerTokens`. Omit → provider default (Gemini: half of `triggerTokens`).
+   */
+  targetTokens?: number;
+}
+
 /** Audio transcription toggles for live sessions. */
 export interface LiveTranscriptionSpec {
   input?: boolean;
@@ -461,8 +484,8 @@ export interface ProfileLiveSpec {
   vad?: LiveVadSpec;
   /** Whether session resumption updates and reconnection handles are enabled. */
   sessionResumption?: boolean;
-  /** Context window compression mechanism (e.g. 'slidingWindow' or 'none'). */
-  contextCompression?: LiveContextCompression;
+  /** Context window compression. Omit → none: the provider ends the session at its limit. */
+  contextCompression?: LiveContextCompressionSpec;
   /** Proactivity: allow model to stay silent or ignore irrelevant input. */
   proactiveAudio?: boolean;
   /** Real-time input/output audio transcriptions. */

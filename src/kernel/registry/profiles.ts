@@ -35,6 +35,7 @@ import type {
   HostProfile,
   HostProfileToolsSpec,
   ImageProfile,
+  LiveContextCompressionSpec,
   LiveProfile,
   LiveProfileToolsSpec,
   MediaTurnBehaviourSpec,
@@ -545,6 +546,7 @@ function defineProfile(input: ProfileDefinition): Profile {
         lexicon,
       } satisfies LiveProfile;
       assertLiveIngressConfigured(profile);
+      assertLiveCompression(profile.id, profile.live.contextCompression);
       break;
     }
     default: {
@@ -554,6 +556,28 @@ function defineProfile(input: ProfileDefinition): Profile {
   }
   assertTypeProtocols(profile);
   return profile;
+}
+
+/** A live profile's compression numbers: whole and above 0, the target below the trigger. */
+function assertLiveCompression(profileId: string, spec: LiveContextCompressionSpec | undefined) {
+  if (!spec) return;
+  const tag = `Profile ${profileId} live.contextCompression`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  const trigger = spec.triggerTokens;
+  const target = spec.slidingWindow.targetTokens;
+  assertWholeTokens(`${tag}.triggerTokens`, trigger);
+  assertWholeTokens(`${tag}.slidingWindow.targetTokens`, target);
+  if (trigger !== undefined && target !== undefined && target >= trigger) {
+    throw new TheoremError(
+      'config',
+      // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `${tag}: slidingWindow.targetTokens must be below triggerTokens`,
+    );
+  }
+}
+
+function assertWholeTokens(tag: string, value: number | undefined) {
+  if (value === undefined || (Number.isInteger(value) && value > 0)) return;
+  throw new TheoremError('config', `${tag} must be a whole number above 0`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
 }
 
 function assertCompactionSpec(profileId: string, modelId: ModelId, spec: CompactionSpec): void {

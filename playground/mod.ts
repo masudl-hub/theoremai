@@ -66,6 +66,8 @@ export {
   modelBindingViolation,
   OPENROUTER_PLAYGROUND_API_ID,
   PLAYGROUND_TRACE_DESTINATION,
+  playgroundRunsTransport,
+  servesOtherProfileType,
 } from './policy.ts';
 export {
   defaultEffortRequired,

@@ -19,7 +19,6 @@ import {
   type EgressOnBlock,
   isValidProfileProtocol,
   type LiveActivityHandling,
-  type LiveContextCompression,
   type LiveSpeechSensitivity,
   OVERFLOW_KEY_SLOTS,
   type OverflowKeySlot,
@@ -40,6 +39,7 @@ import {
   defaultBindingForProfileType,
   isGoogleTransport,
   PLAYGROUND_TRACE_DESTINATION,
+  servesOtherProfileType,
 } from './policy.ts';
 import { DEFAULT_TOOL_INPUT_SCHEMA, DEFAULT_TOOL_OUTPUT_SCHEMA } from './tool-schema.ts';
 import type { PlaygroundToolSpecSeed } from './types.ts';
@@ -195,7 +195,10 @@ export interface LiveDraft {
   voice: string;
   sessionResumption: boolean;
   proactiveAudio: boolean;
-  contextCompression: '' | LiveContextCompression;
+  /** Context window compression by sliding window; the two numbers are its trigger and target. */
+  contextCompression: boolean;
+  compressionTriggerTokens: number | null;
+  compressionTargetTokens: number | null;
   transcriptionInput: boolean;
   transcriptionOutput: boolean;
   vadActivityHandling: '' | LiveActivityHandling;
@@ -345,7 +348,9 @@ export function createBlankDraft(): PlaygroundDraft {
       voice: '',
       sessionResumption: false,
       proactiveAudio: false,
-      contextCompression: '',
+      contextCompression: false,
+      compressionTriggerTokens: null,
+      compressionTargetTokens: null,
       transcriptionInput: false,
       transcriptionOutput: false,
       vadActivityHandling: '',
@@ -411,8 +416,10 @@ export function newToolSpec(draft: PlaygroundDraft): ToolSpecDraft {
 
 /**
  * Switch the profile type. Model bindings the type can't use (a turn protocol
- * on live, `geminiLive` on anything else) are dropped; when none remain, one
- * binding on the type's playground default takes their place. Model select turns off when fewer than two bindings remain.
+ * on live, `geminiLive` on anything else, a playground model made for another
+ * type) are dropped; when none remain, one binding on the type's playground
+ * default takes their place. Model select turns off when fewer than two bindings
+ * remain.
  * Optional facets the type doesn't have are dropped from `included`. Every
  * other section keeps what the author typed, so switching back restores it.
  */
@@ -421,7 +428,7 @@ export function setProfileType(
   type: PlaygroundProfileType,
 ): PlaygroundDraft {
   const kept = draft.modelBindings.filter((binding) =>
-    isValidProfileProtocol(type, binding.protocol)
+    isValidProfileProtocol(type, binding.protocol) && !servesOtherProfileType(type, binding)
   );
   const retyped: PlaygroundDraft = {
     ...draft,

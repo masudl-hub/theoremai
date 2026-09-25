@@ -40,6 +40,7 @@ import {
   speechFormatsForProtocol,
 } from '../src/kernel/schema.ts';
 import type {
+  LiveContextCompressionSpec,
   ModelBinding,
   ProfileImageSpec,
   ProfileInputsSpec,
@@ -749,6 +750,30 @@ function compileLive(live: LiveDraft, report: Report): ProfileLiveSpec {
     0,
   );
 
+  if (live.contextCompression) {
+    checkWhole(
+      report,
+      'live',
+      'compressionTriggerTokens',
+      'Compression trigger',
+      live.compressionTriggerTokens,
+      1,
+    );
+    checkWhole(
+      report,
+      'live',
+      'compressionTargetTokens',
+      'Compression target',
+      live.compressionTargetTokens,
+      1,
+    );
+    const trigger = live.compressionTriggerTokens;
+    const target = live.compressionTargetTokens;
+    if (trigger !== null && target !== null && target >= trigger) {
+      report('live', 'Compression target must be below the trigger.', 'compressionTargetTokens');
+    }
+  }
+
   const channels = { audio: live.ingressAudio, video: live.ingressVideo, text: live.ingressText };
   const ingress = Object.fromEntries(
     Object.entries(channels).filter(
@@ -771,9 +796,19 @@ function compileLive(live: LiveDraft, report: Report): ProfileLiveSpec {
     ...(live.voice.trim() ? { voice: live.voice.trim() } : {}),
     ...(Object.keys(vad).length ? { vad } : {}),
     ...(live.sessionResumption ? { sessionResumption: true } : {}),
-    ...(live.contextCompression ? { contextCompression: live.contextCompression } : {}),
+    ...(live.contextCompression ? { contextCompression: contextCompression(live) } : {}),
     ...(live.proactiveAudio ? { proactiveAudio: true } : {}),
     ...(Object.keys(transcription).length ? { transcription } : {}),
+  };
+}
+
+/** The draft's sliding window; a blank number is left to the provider. */
+function contextCompression(live: LiveDraft): LiveContextCompressionSpec {
+  const trigger = live.compressionTriggerTokens;
+  const target = live.compressionTargetTokens;
+  return {
+    ...(trigger !== null ? { triggerTokens: trigger } : {}),
+    slidingWindow: target !== null ? { targetTokens: target } : {},
   };
 }
 

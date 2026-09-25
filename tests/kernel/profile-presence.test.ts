@@ -26,9 +26,11 @@ Deno.test('every presence entry says something', () => {
 });
 
 Deno.test("a model binding's always-required fields are the ones its type requires", () => {
-  const required = ['apiId', 'protocol', 'provider'] as const satisfies readonly RequiredKeys<
-    ModelBinding
-  >[];
+  const required = [
+    'apiId',
+    'protocol',
+    'provider',
+  ] as const satisfies readonly RequiredKeys<ModelBinding>[];
   // Fails to compile if ModelBinding gains a required key the list lacks.
   const exhaustive: (typeof required)[number] = '' as RequiredKeys<ModelBinding>;
   void exhaustive;

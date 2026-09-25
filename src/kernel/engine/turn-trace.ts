@@ -496,7 +496,15 @@ function liveAttributes(
         }
       : {}),
     ...optional('session_resumption', live.sessionResumption),
-    ...optional('context_compression', live.contextCompression),
+    ...(live.contextCompression
+      ? {
+          context_compression: {
+            mechanism: 'sliding_window',
+            ...optional('trigger_tokens', live.contextCompression.triggerTokens),
+            ...optional('target_tokens', live.contextCompression.slidingWindow.targetTokens),
+          },
+        }
+      : {}),
     ...optional('proactive_audio', live.proactiveAudio),
     ...(transcription
       ? {

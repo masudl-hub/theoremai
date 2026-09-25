@@ -52,7 +52,7 @@ Deno.test('buildGeminiLiveSetupMessage constructs standard setup frame', () => {
         silenceDurationMs: 1200,
       },
       sessionResumption: true,
-      contextCompression: 'slidingWindow',
+      contextCompression: { triggerTokens: 100_000, slidingWindow: { targetTokens: 40_000 } },
       proactiveAudio: true,
       transcription: {
         input: true,
@@ -93,7 +93,10 @@ Deno.test('buildGeminiLiveSetupMessage constructs standard setup frame', () => {
     'low',
   );
   assertExists(setupMsg.setup.sessionResumption);
-  assertExists(setupMsg.setup.contextWindowCompression);
+  assertEquals(setupMsg.setup.contextWindowCompression, {
+    triggerTokens: 100_000,
+    slidingWindow: { targetTokens: 40_000 },
+  });
   assertExists(setupMsg.setup.realtimeInputConfig);
   assertExists(setupMsg.setup.inputAudioTranscription);
   assertExists(setupMsg.setup.outputAudioTranscription);
@@ -149,7 +152,7 @@ Deno.test('buildGeminiLiveSetupMessage omits VAD and compression when profile om
   assertEquals(setupMsg.setup.contextWindowCompression, undefined);
 });
 
-Deno.test('buildGeminiLiveSetupMessage omits compression for contextCompression none', () => {
+Deno.test('buildGeminiLiveSetupMessage leaves an empty sliding window to Gemini defaults', () => {
   const req: ProviderCompleteRequest = {
     model: 'gemini-3.1-flash-live-preview',
     apiId: 'gemini-3.1-flash-live-preview',
@@ -161,13 +164,13 @@ Deno.test('buildGeminiLiveSetupMessage omits compression for contextCompression 
     input: [],
     structured: null,
     image: null,
-    live: { voice: 'Puck', contextCompression: 'none' },
+    live: { voice: 'Puck', contextCompression: { slidingWindow: {} } },
   };
 
   const setupMsg = buildGeminiLiveSetupMessage(req) as {
     setup: { contextWindowCompression?: unknown };
   };
-  assertEquals(setupMsg.setup.contextWindowCompression, undefined);
+  assertEquals(setupMsg.setup.contextWindowCompression, { slidingWindow: {} });
 });
 
 Deno.test('buildGeminiLiveSetupMessage seeds historyConfig only when history is present', () => {

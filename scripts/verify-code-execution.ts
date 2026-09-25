@@ -33,7 +33,7 @@ function valueAfterFlag(flag: string): string | undefined {
 
 loadHostEnv();
 const vault = hostVault();
-const modelId = valueAfterFlag('--model') ?? 'gemini-2.5-flash';
+const modelId = valueAfterFlag('--model') ?? 'gemini-3.5-flash-lite';
 const thinkingLevel = valueAfterFlag('--thinking') ?? 'high';
 
 if (!vault.slotA) {
@@ -284,7 +284,8 @@ asserted.push(
       effort: turnEffort,
       input: {
         text:
-          'Use code_execution exactly once to evaluate 1/0 in Python. ' +
+          'Use code_execution exactly once to run exactly this Python, unchanged: print(1/0) ' +
+          '(no try/except, let the exception propagate). ' +
           'Then briefly say whether the sandbox reported an error.',
       },
     },

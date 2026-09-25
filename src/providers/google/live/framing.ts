@@ -15,6 +15,7 @@ import { requireBuiltinWire } from '../../../kernel/tools/registry.ts';
 import type {
   InteractionMediaPart,
   InteractionPart,
+  LiveContextCompressionSpec,
   LiveVadSpec,
   ProviderCompleteRequest,
   TurnEvent,
@@ -106,6 +107,18 @@ function normalizeEndSensitivity(val?: string): string {
   return val?.includes('HIGH') ? 'END_SENSITIVITY_HIGH' : 'END_SENSITIVITY_LOW';
 }
 
+/** Gemini's `contextWindowCompression` for the profile's; unset numbers stay Gemini's. */
+function buildContextWindowCompression(
+  compression: LiveContextCompressionSpec,
+): Record<string, unknown> {
+  const { triggerTokens } = compression;
+  const { targetTokens } = compression.slidingWindow;
+  return {
+    ...(triggerTokens !== undefined ? { triggerTokens } : {}),
+    slidingWindow: targetTokens !== undefined ? { targetTokens } : {},
+  };
+}
+
 function buildLiveRealtimeInputConfig(vad: LiveVadSpec): Record<string, unknown> | undefined {
   const automaticActivityDetection: Record<string, unknown> = {};
   if (vad.startSensitivity !== undefined) {
@@ -185,8 +198,8 @@ export function buildGeminiLiveSetupMessage(req: ProviderCompleteRequest): Recor
     },
     ...(tools.length > 0 ? { tools } : {}),
     ...(sessionResumption ? { sessionResumption } : {}),
-    ...(live?.contextCompression === 'slidingWindow'
-      ? { contextWindowCompression: { slidingWindow: {} } }
+    ...(live?.contextCompression
+      ? { contextWindowCompression: buildContextWindowCompression(live.contextCompression) }
       : {}),
     ...(seedInitialHistory ? { historyConfig: { initialHistoryInClientContent: true } } : {}),
     ...(realtimeInputConfig ? { realtimeInputConfig } : {}),

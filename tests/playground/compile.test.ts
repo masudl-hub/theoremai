@@ -10,6 +10,7 @@ import {
   GEMINI_PLAYGROUND_DEFAULT_API_ID,
   GEMINI_PLAYGROUND_IMAGE_DEFAULT_API_ID,
   GEMINI_PLAYGROUND_LIVE_DEFAULT_API_ID,
+  GEMINI_PLAYGROUND_TTS_DEFAULT_API_ID,
   includeFacet,
   modelBindingNodeId,
   modelBindingViolation,
@@ -142,8 +143,9 @@ Deno.test('summaries compile on, off, or left to the provider', () => {
   const draft = createExampleDraft();
   const [fast, ...rest] = draft.modelBindings;
   const summaries = (value: boolean | null) =>
-    compiled({ ...draft, modelBindings: [{ ...fast, summaries: value }, ...rest] })
-      .profile.models[fast.modelId].summaries;
+    compiled({ ...draft, modelBindings: [{ ...fast, summaries: value }, ...rest] }).profile.models[
+      fast.modelId
+    ].summaries;
   assertEquals(summaries(true), true);
   assertEquals(summaries(false), false);
   assertEquals(summaries(null), undefined);
@@ -168,12 +170,71 @@ Deno.test('setProfileType to live swaps bindings and drops facets live lacks', (
   assertEquals(profile.type, 'live');
 });
 
+Deno.test('live compression compiles to a sliding window, blanks left to the provider', () => {
+  const live = setProfileType(createExampleDraft(), 'live');
+  const on = { ...live.live, contextCompression: true };
+  const bare = compiled({ ...live, live: on }).profile;
+  assert(bare.type === 'live');
+  assertEquals(bare.live.contextCompression, { slidingWindow: {} });
+  const set = compiled({
+    ...live,
+    live: { ...on, compressionTriggerTokens: 100_000, compressionTargetTokens: 40_000 },
+  }).profile;
+  assert(set.type === 'live');
+  assertEquals(set.live.contextCompression, {
+    triggerTokens: 100_000,
+    slidingWindow: { targetTokens: 40_000 },
+  });
+});
+
+Deno.test('a compression target at or above the trigger is keyed to the target', () => {
+  const live = setProfileType(createExampleDraft(), 'live');
+  const result = compilePlayground({
+    ...live,
+    live: {
+      ...live.live,
+      contextCompression: true,
+      compressionTriggerTokens: 50_000,
+      compressionTargetTokens: 50_000,
+    },
+  });
+  assert(!result.ok);
+  assertEquals(
+    result.issues.map((issue) => issue.field),
+    ['compressionTargetTokens'],
+  );
+});
+
 Deno.test('setProfileType keeps what the author typed for the way back', () => {
   const example = createExampleDraft();
   const back = setProfileType(setProfileType(example, 'image'), 'text');
   assertEquals(back.identity.system, example.identity.system);
   assertEquals(back.toolSpecs, example.toolSpecs);
-  assertEquals(back.modelBindings, example.modelBindings);
+});
+
+Deno.test('setProfileType swaps models made for another type for the new default', () => {
+  const image = setProfileType(createExampleDraft(), 'image');
+  assertEquals(
+    image.modelBindings.map((binding) => binding.apiId),
+    [GEMINI_PLAYGROUND_IMAGE_DEFAULT_API_ID],
+  );
+  const speech = setProfileType(image, 'speech');
+  assertEquals(
+    speech.modelBindings.map((binding) => binding.apiId),
+    [GEMINI_PLAYGROUND_TTS_DEFAULT_API_ID],
+  );
+  const text = setProfileType(speech, 'text');
+  assertEquals(
+    text.modelBindings.map((binding) => binding.apiId),
+    [GEMINI_PLAYGROUND_DEFAULT_API_ID],
+  );
+});
+
+Deno.test('setProfileType keeps a binding on a model the playground does not list', () => {
+  const draft = createExampleDraft();
+  const unlisted = { ...draft.modelBindings[0], apiId: 'gemini-unlisted' };
+  const image = setProfileType({ ...draft, modelBindings: [unlisted] }, 'image');
+  assertEquals(image.modelBindings, [unlisted]);
 });
 
 Deno.test('a speech profile compiles without a system prompt or canary', () => {

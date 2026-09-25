@@ -637,10 +637,9 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
       'boolean',
       'Asked for handles to resume the session later.',
     ),
-    context_compression: attr(
+    context_compression: fields(
       'request',
       'Context compression',
-      'text',
       'How the provider shrinks a long session.',
     ),
     proactive_audio: attr(
@@ -652,6 +651,16 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
     transcription: fields(
       'request',
       'Transcription',
+      {
+        mechanism: attr('request', 'Mechanism', 'text', 'How the context is shrunk.'),
+        trigger_tokens: attr(
+          'request',
+          'Trigger',
+          'tokens',
+          'Context size that starts compression.',
+        ),
+        target_tokens: attr('request', 'Keep', 'tokens', 'Context size kept after compressing.'),
+      },
       'Which audio the provider transcribes.',
       BOOLEAN_SIDES,
     ),

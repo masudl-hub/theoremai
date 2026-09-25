@@ -156,11 +156,6 @@ export const LIVE_SPEECH_SENSITIVITIES = [
 /** Start or end voice-activity sensitivity for Gemini Live. */
 export type LiveSpeechSensitivity = (typeof LIVE_SPEECH_SENSITIVITIES)[number];
 
-/** Live session context window compression mode. */
-export const LIVE_CONTEXT_COMPRESSIONS = ['slidingWindow', 'none'] as const;
-/** Context-window compression strategy for Gemini Live. */
-export type LiveContextCompression = (typeof LIVE_CONTEXT_COMPRESSIONS)[number];
-
 /** Compaction threshold meter. */
 export const COMPACTION_METERS = ['history', 'input'] as const;
 /** Input measure used to decide when history compaction runs. */
@@ -846,9 +841,20 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'Enable session resumption handles across WebSocket reconnects.',
   ),
   'live.contextCompression': field(
-    unionType(LIVE_CONTEXT_COMPRESSIONS),
-    'Context window compression mechanism.',
-    LIVE_CONTEXT_COMPRESSIONS,
+    'LiveContextCompressionSpec',
+    'Context window compression: shrinks the context once it reaches the trigger.',
+  ),
+  'live.contextCompression.triggerTokens': field(
+    'number',
+    'Context tokens, counted before a turn, that start compression.',
+  ),
+  'live.contextCompression.slidingWindow': field(
+    'LiveSlidingWindowSpec',
+    'Drops the oldest turns down to the target; the system instruction stays.',
+  ),
+  'live.contextCompression.slidingWindow.targetTokens': field(
+    'number',
+    'Tokens kept after compressing; below the trigger.',
   ),
   'live.proactiveAudio': field(
     'boolean',

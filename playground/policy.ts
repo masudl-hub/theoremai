@@ -39,6 +39,8 @@ export const PLAYGROUND_TRACE_DESTINATION = 'playground';
 export interface GeminiPlaygroundModel {
   id: string;
   label: string;
+  /** The profile type the model is made for. */
+  profileType: PlaygroundProfileType;
   /** Map grounding (`googleMaps`) — the model's map-grounding quota is non-zero. */
   mapGrounding: boolean;
   /** Search grounding (`googleSearch`) — the model's search-grounding quota is non-zero. */
@@ -53,96 +55,126 @@ export const GEMINI_PLAYGROUND_MODELS: readonly GeminiPlaygroundModel[] = [
   {
     id: 'gemini-2.5-flash-lite',
     label: '2.5 Flash Lite',
+    profileType: 'text',
     mapGrounding: true,
     searchGrounding: true,
   },
   {
     id: 'gemini-2.5-flash',
     label: '2.5 Flash',
+    profileType: 'text',
     mapGrounding: true,
     searchGrounding: true,
   },
   {
     id: 'gemini-2.5-flash-preview-tts',
     label: '2.5 Flash TTS',
+    profileType: 'speech',
     mapGrounding: false,
     searchGrounding: true,
   },
   {
     id: 'gemini-3-flash-preview',
     label: '3 Flash',
+    profileType: 'text',
     mapGrounding: false,
     searchGrounding: false,
   },
   {
     id: 'gemini-3.1-flash-lite',
     label: '3.1 Flash Lite',
+    profileType: 'text',
     mapGrounding: true,
     searchGrounding: false,
   },
   {
     id: 'gemini-3.1-flash-lite-image',
     label: '3.1 Flash Lite Image',
+    profileType: 'image',
     mapGrounding: false,
     searchGrounding: false,
   },
   {
     id: 'gemini-3.1-flash-tts-preview',
     label: '3.1 Flash TTS',
+    profileType: 'speech',
     mapGrounding: true,
     searchGrounding: false,
   },
   {
     id: 'gemini-3.5-flash-lite',
     label: '3.5 Flash Lite',
+    profileType: 'text',
     mapGrounding: true,
     searchGrounding: false,
   },
   {
     id: 'gemini-3.5-flash',
     label: '3.5 Flash',
+    profileType: 'text',
     mapGrounding: false,
     searchGrounding: false,
   },
   {
     id: 'gemini-3.6-flash',
     label: '3.6 Flash',
+    profileType: 'text',
     mapGrounding: false,
     searchGrounding: false,
   },
   {
     id: 'gemini-3.7-flash',
     label: '3.7 Flash',
+    profileType: 'text',
+    mapGrounding: false,
+    searchGrounding: false,
+  },
+  {
+    id: 'gemini-3.8-flash-tts',
+    label: '3.8 Flash TTS',
+    profileType: 'speech',
+    mapGrounding: false,
+    searchGrounding: false,
+  },
+  {
+    id: 'gemini-3.8-flash-lite-tts',
+    label: '3.8 Flash Lite TTS',
+    profileType: 'speech',
     mapGrounding: false,
     searchGrounding: false,
   },
   {
     id: 'gemma-4-26b-a4b-it',
     label: 'Gemma 4 26B',
+    profileType: 'text',
     mapGrounding: false,
     searchGrounding: false,
   },
   {
     id: 'gemma-4-31b-it',
     label: 'Gemma 4 31B',
+    profileType: 'text',
     mapGrounding: false,
     searchGrounding: false,
   },
   {
     id: 'gemini-3.1-flash-live-preview',
-    label: '3 Flash Live',
+    label: '3.1 Flash Live',
+    profileType: 'live',
     mapGrounding: false,
     searchGrounding: false,
   },
   {
     id: 'gemini-3.8-live',
     label: '3.8 Live',
+    profileType: 'live',
     mapGrounding: false,
     searchGrounding: false,
   },
   {
     id: 'gemini-3.8-live-extended-thinking',
     label: '3.8 Live Extended Thinking',
+    profileType: 'live',
     mapGrounding: false,
     searchGrounding: false,
   },
@@ -163,6 +195,34 @@ export function isGoogleTransport(protocol: Protocol, provider: Provider): boole
 
 export function isOpenRouterTransport(protocol: Protocol, provider: Provider): boolean {
   return protocol === 'openAi' && provider === 'openrouter';
+}
+
+/**
+ * Whether the playground has a model on this transport for a profile type: Gemini
+ * for every type, OpenRouter's free router for text only (it routes to chat models).
+ */
+export function playgroundRunsTransport(
+  type: PlaygroundProfileType,
+  protocol: Protocol,
+  provider: Provider,
+): boolean {
+  if (isGoogleTransport(protocol, provider)) return true;
+  return isOpenRouterTransport(protocol, provider) && type === 'text';
+}
+
+/**
+ * Whether a binding is on a playground model made for another profile type. A
+ * model the playground doesn't list isn't judged here; `modelBindingViolation`
+ * reports it.
+ */
+export function servesOtherProfileType(
+  type: PlaygroundProfileType,
+  binding: Pick<ModelBindingDraft, 'protocol' | 'provider' | 'apiId'>,
+): boolean {
+  if (isOpenRouterTransport(binding.protocol, binding.provider)) return type !== 'text';
+  if (!isGoogleTransport(binding.protocol, binding.provider)) return false;
+  const model = geminiPlaygroundModel(binding.apiId);
+  return model !== undefined && model.profileType !== type;
 }
 
 /** Whether `name` is a provider builtin id, which a custom tool may not take. */

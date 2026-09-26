@@ -6,7 +6,7 @@
  * @module
  */
 
-import { canaryCarry, canaryHoldFrom } from './canary.ts';
+import { canaryCarry, canaryHoldFrom, canaryScanFrom } from './canary.ts';
 import { canaryHits, runEnforcer } from './egress.ts';
 import type {
   EgressEnforcer,
@@ -92,16 +92,30 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
   const carry = context.canary ? (options.carry ?? '') : '';
   let accumulated = '';
   let emitted = 0;
+  /** How much of the window the canary has already been scanned through, clean. */
+  let scannedTo = 0;
+
+  /**
+   * The canary hits in the carry and this window. Only the text a new leak
+   * could reach back into (`canaryScanFrom`) is reread, so a long reply
+   * costs time in proportion to its length, not its square.
+   */
+  function canaryWindowHits(window: string): GuardrailHit[] {
+    const text = carry + window;
+    const from = canaryScanFrom(text, carry.length + scannedTo);
+    scannedTo = window.length;
+    return canaryHits(text.slice(from), context.canary);
+  }
 
   async function scan(window: string): Promise<GuardrailHit[] | null> {
-    if (carry) {
-      // The carry is canary-only: the host policy judges this window's own text.
-      const carried = canaryHits(carry + window, context.canary);
-      if (carried.length > 0) {
-        return carried;
-      }
-    }
     if (options.enforce) {
+      if (carry) {
+        // The carry is canary-only: the host policy judges this window's own text.
+        const carried = canaryWindowHits(window);
+        if (carried.length > 0) {
+          return carried;
+        }
+      }
       // Mid-stream the gate can only release or stop: emitted prefixes cannot be
       // rewritten, so `redact` stops here and end-of-attempt egress applies the
       // full verdict. `flag` is advisory and keeps the stream flowing.
@@ -116,7 +130,7 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
     }
     // Without a host policy there is no end-of-attempt verdict to defer to, so
     // the gate blocks on the canary alone; the bundled rules run via egress.enforce.
-    const hits = canaryHits(window, context.canary);
+    const hits = canaryWindowHits(window);
     return hits.length > 0 ? hits : null;
   }
 

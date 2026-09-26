@@ -11,6 +11,7 @@ import {
 } from '../../src/guardrails/progressive-yield.ts';
 import type { EgressEnforcer, GuardrailContext } from '../../src/guardrails/types.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
+import { CANARY_OPENING } from '../fixtures/canary.ts';
 
 function ctx(canary?: string): GuardrailContext {
   return {
@@ -75,7 +76,7 @@ Deno.test('createProgressiveYieldGate blocks sensitive spans via the bundled pol
 Deno.test('createProgressiveYieldGate holdback covers split canary across chunks', async () => {
   const canary = mintCanary();
   const gate = createProgressiveYieldGate({ context: ctx(canary) });
-  const half = Math.ceil(canary.length / 2);
+  const half = CANARY_OPENING;
   const first = await gate.process(canary.slice(0, half));
   assertEquals(first.blocked, false);
   if (!first.blocked) {
@@ -153,7 +154,7 @@ Deno.test('createProgressiveYieldGate canary-only releases at once what cannot s
 Deno.test('createProgressiveYieldGate canary-only holds a separated opening across chunks', async () => {
   const gate = createProgressiveYieldGate({ context: ctx(FIXED_CANARY) });
   const spoken = [...FIXED_CANARY.toUpperCase()].join(' - ');
-  const half = Math.ceil(spoken.length / 2);
+  const half = CANARY_OPENING * ' - X'.length;
   const first = await gate.process(`Sure: ${spoken.slice(0, half)}`);
   assertEquals(first, { blocked: false, emit: 'Sure: ' });
   assertEquals((await gate.process(spoken.slice(half))).blocked, true);
@@ -198,11 +199,11 @@ Deno.test('createOutboundProgressiveGate defaults egress to DEFAULT_HOLDBACK', a
 
 Deno.test('createProgressiveYieldGate reads the carry in front of its window', async () => {
   const canary = mintCanary();
-  const half = Math.ceil(canary.length / 2);
+  const half = CANARY_OPENING;
   const first = createProgressiveYieldGate({ context: ctx(canary) });
-  assertEquals(await first.process(`step one ${canary.slice(0, half)}`), {
+  assertEquals(await first.process(`Step: ${canary.slice(0, half)}`), {
     blocked: false,
-    emit: 'step one ',
+    emit: 'Step: ',
   });
   assertEquals((await first.flush()).blocked, false);
   // The next window of the same canary completes the token: one match.

@@ -6,6 +6,7 @@ import {
 } from '../../src/guardrails/canary-gate.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import type { TurnEvent } from '../../src/kernel/types.ts';
+import { CANARY_OPENING } from '../fixtures/canary.ts';
 
 Deno.test('createCanaryGateSession initializes canary and gate', () => {
   const canary = mintCanary();
@@ -59,8 +60,8 @@ Deno.test('filterCanaryGatedEvents stops immediately on a canary leak in a strea
 Deno.test('filterCanaryGatedEvents suppresses empty-emit text events', () => {
   const canary = mintCanary();
   const session = createCanaryGateSession(canary);
-  // Feed almost all of the canary — gate buffers it (overlap window), emitting nothing
-  const almost = canary.slice(0, canary.length - 1);
+  // Feed the canary's opening — the gate holds it, emitting nothing
+  const almost = canary.slice(0, CANARY_OPENING);
   const result = filterCanaryGatedEvents(session, [{ type: 'text', text: almost }]);
   assertEquals(result.leaked, false);
   if (!result.leaked) {
@@ -109,7 +110,7 @@ Deno.test('filterCanaryGatedEvents catches a canary split across spoken-reply tr
     text,
     evidence: { provider: 'google', kind: 'output_transcription' },
   });
-  const half = Math.ceil(canary.length / 2);
+  const half = CANARY_OPENING;
   assertEquals(filterCanaryGatedEvents(session, [said(canary.slice(0, half))]).leaked, false);
   assertEquals(filterCanaryGatedEvents(session, [said(canary.slice(half))]).leaked, true);
 });

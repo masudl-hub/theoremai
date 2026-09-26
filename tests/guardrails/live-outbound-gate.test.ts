@@ -13,6 +13,7 @@ import type { EgressEnforcer, Verdict } from '../../src/guardrails/types.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile, getProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
 import type { TurnEvent } from '../../src/kernel/types.ts';
+import { CANARY_OPENING } from '../fixtures/canary.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -233,7 +234,7 @@ Deno.test('processLiveOutboundBatch holds audio to the end of the cycle', async 
   // The transcript could be the start of a leak: it and the audio after it are held.
   assertEquals(await processLiveOutboundBatch(s, [said(LEAD), audio(1)]), { action: 'idle' });
   // The next transcript rules that out: the text before the audio goes, the audio waits.
-  assertEquals(await processLiveOutboundBatch(s, [said(` then ${LEAD}`), audio(2)]), {
+  assertEquals(await processLiveOutboundBatch(s, [said(` then ${LEAD}.`), audio(2)]), {
     action: 'emit',
     events: [said(LEAD)],
   });
@@ -245,7 +246,7 @@ Deno.test('processLiveOutboundBatch holds audio to the end of the cycle', async 
   // The cycle's end checks the whole transcript and releases the rest in arrival order.
   assertEquals(await finalizeLiveOutboundTurn(s), {
     action: 'emit',
-    events: [audio(1), said(` then ${LEAD}`), audio(2)],
+    events: [audio(1), said(` then ${LEAD}.`), audio(2)],
   });
 });
 
@@ -299,7 +300,7 @@ Deno.test('processLiveOutboundBatch releases a partial transcript chunk in its o
 Deno.test('processLiveOutboundBatch withholds a canary spoken with separators across frames', async () => {
   const s = session(FIXED_CANARY);
   const spoken = [...FIXED_CANARY.toUpperCase()].join(', ');
-  const half = Math.ceil(spoken.length / 2);
+  const half = CANARY_OPENING * ', X'.length;
   await processLiveOutboundBatch(s, [said(spoken.slice(0, half)), audio(1)]);
   const result = await processLiveOutboundBatch(s, [said(spoken.slice(half)), audio(2)]);
   assertEquals(result.action, 'withhold');
@@ -308,7 +309,7 @@ Deno.test('processLiveOutboundBatch withholds a canary spoken with separators ac
 Deno.test('processLiveOutboundBatch withholds a canary spoken across frames with its audio', async () => {
   const canary = mintCanary();
   const s = session(canary);
-  const half = Math.ceil(canary.length / 2);
+  const half = CANARY_OPENING;
   // Only what could start the leak is held, with the audio behind it.
   assertEquals(
     await processLiveOutboundBatch(s, [said(`Sure. ${canary.slice(0, half)}`), audio(1)]),
@@ -495,7 +496,7 @@ Deno.test('finalizeLiveOutboundTurn returns idle when there is nothing to emit',
 Deno.test('processLiveOutboundBatch withholds when progressive canary leak completes', async () => {
   const canary = mintCanary();
   const s = session(canary);
-  const half = Math.ceil(canary.length / 2);
+  const half = CANARY_OPENING;
   await processLiveOutboundBatch(s, [{ type: 'text', text: canary.slice(0, half) }]);
   const result2 = await processLiveOutboundBatch(s, [{ type: 'text', text: canary.slice(half) }]);
   assertEquals(result2.action, 'withhold');
@@ -706,7 +707,7 @@ Deno.test('finalizeLiveOutboundTurn passes accumulated text to egress enforce ct
 Deno.test('processLiveOutboundBatch withholds split canary across batches', async () => {
   const canary = mintCanary();
   const s = session(canary);
-  const half = Math.ceil(canary.length / 2);
+  const half = CANARY_OPENING;
   await processLiveOutboundBatch(s, [{ type: 'text', text: canary.slice(0, half) }]);
   const result = await processLiveOutboundBatch(s, [{ type: 'text', text: canary.slice(half) }]);
   assertEquals(result.action, 'withhold');
@@ -746,7 +747,7 @@ Deno.test('processLiveOutboundBatch under egress holds the profile holdback', as
 Deno.test('processLiveOutboundBatch catches a canary split across cycles', async () => {
   const canary = mintCanary();
   const s = session(canary);
-  const half = Math.ceil(canary.length / 2);
+  const half = CANARY_OPENING;
   await processLiveOutboundBatch(s, [said(`Part one: ${canary.slice(0, half)}`)]);
   assertEquals((await finalizeLiveOutboundTurn(s)).action, 'emit');
   // The session canary is stable: the next cycle reads the last one's opening first.

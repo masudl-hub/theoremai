@@ -2,6 +2,7 @@ import '../fixtures/test-host.ts';
 import {
   bindCanary,
   canaryHoldFrom,
+  canaryScanFrom,
   createCanaryStreamGate,
   eventHasCanary,
   isStreamedCanaryEvent,
@@ -23,6 +24,7 @@ import { providerCompleteRequest } from '../../src/kernel/registry/provider-requ
 import { resolveTurn } from '../../src/kernel/registry/resolve.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
 import { camelToSnake, toInteractionsBody } from '../../src/providers/google/interactions/mod.ts';
+import { CANARY_OPENING } from '../fixtures/canary.ts';
 import { geminiModels } from '../fixtures/models.ts';
 import { replyText } from '../fixtures/reply.ts';
 
@@ -153,7 +155,7 @@ Deno.test('canary stream gate detects token split across chunks', async () => {
     input: { text: 'hi' },
   });
   const { canary } = generation;
-  const half = Math.ceil(canary.length / 2);
+  const half = CANARY_OPENING;
   const partA = canary.slice(0, half);
   const partB = canary.slice(half);
 
@@ -222,7 +224,7 @@ Deno.test('scanTextForCanaryLeak detects base64-encoded canary', () => {
 Deno.test('createCanaryStreamGate holds back prefix until safe', () => {
   const canary = mintCanary();
   const gate = createCanaryStreamGate(canary);
-  const half = Math.ceil(canary.length / 2);
+  const half = CANARY_OPENING;
   const first = gate.process(canary.slice(0, half));
   assertEquals(first.leak, false);
   if (!first.leak) {
@@ -340,7 +342,7 @@ Deno.test('canary stream gate catches a separated or base64 leak split across ch
   const canary = mintCanary();
   for (const form of [[...canary].join(' '), [...canary].join('     '), btoa(canary)]) {
     const gate = createCanaryStreamGate(canary);
-    const half = Math.floor(form.length / 2);
+    const half = CANARY_OPENING;
     assertEquals(gate.process(`x ${form.slice(0, half)}`).leak, false);
     assertEquals(gate.process(form.slice(half)).leak, true);
   }
@@ -381,7 +383,7 @@ Deno.test('canary stream gate catches a reversed or ROT13 leak split across chun
     [...rot13(canary).toUpperCase()].join(' '),
   ]) {
     const gate = createCanaryStreamGate(canary);
-    const half = Math.floor(form.length / 2);
+    const half = CANARY_OPENING;
     const first = gate.process(`hi, ${form.slice(0, half)}`);
     assertEquals(first.leak, false);
     assertEquals(gate.process(form.slice(half)).leak, true);
@@ -492,7 +494,7 @@ Deno.test('createCanaryStreamGate flush detects canary split at the end', () => 
   const canary = mintCanary();
   const gate = createCanaryStreamGate(canary);
   // Feed exactly enough to fill the overlap buffer — will leak on flush
-  const half = Math.ceil(canary.length / 2);
+  const half = CANARY_OPENING;
   gate.process(canary.slice(0, half));
   const result = gate.process(canary.slice(half));
   assertEquals(result.leak, true);
@@ -688,7 +690,7 @@ Deno.test('runTurn catches a canary split across a tool step', async () => {
     async *complete(req) {
       await Promise.resolve();
       const canary = /[0-9a-f]{32}/.exec(req.system ?? '')?.[0] ?? '';
-      const half = Math.ceil(canary.length / 2);
+      const half = CANARY_OPENING;
       call += 1;
       if (call === 1) {
         yield { type: 'text', text: `One: ${canary.slice(0, half)}` };
@@ -713,4 +715,152 @@ Deno.test('runTurn catches a canary split across a tool step', async () => {
     kind: 'filtered',
     native: 'canary',
   });
+});
+
+function hexBytes(canary: string): string {
+  return (canary.match(/../g) ?? [])
+    .map((pair) => String.fromCharCode(Number.parseInt(pair, 16)))
+    .join('');
+}
+
+function charCodes(text: string): number[] {
+  return [...text].map((char) => char.charCodeAt(0));
+}
+
+const FULLWIDTH_OFFSET = 0xfee0;
+const LOOKALIKE: Record<string, string> = { a: 'а', c: 'с', e: 'е' };
+const NATO: Record<string, string> = {
+  a: 'alpha',
+  b: 'bravo',
+  c: 'charlie',
+  d: 'delta',
+  e: 'echo',
+  f: 'foxtrot',
+};
+const DIGIT_NAMES = [
+  'zero',
+  'one',
+  'two',
+  'three',
+  'four',
+  'five',
+  'six',
+  'seven',
+  'eight',
+  'nine',
+];
+
+/** Every way a canary is written that the scan must read as the token. */
+function encodedLeaks(canary: string): Record<string, string> {
+  const hex = charCodes(canary).map((code) => code.toString(16));
+  return {
+    fullwidth: [...canary]
+      .map((char) => String.fromCharCode(char.charCodeAt(0) + FULLWIDTH_OFFSET))
+      .join(''),
+    lookalikes: [...canary].map((char) => LOOKALIKE[char] ?? char).join(''),
+    'prose separators': [...canary].join(', then '),
+    'spelled out': [...canary]
+      .map((char) => DIGIT_NAMES[Number(char)] ?? NATO[char] ?? char)
+      .join(' '),
+    'spelled letters as letters': [...canary]
+      .map((char) => DIGIT_NAMES[Number(char)] ?? char)
+      .join(' '),
+    'base64 inside a sentence': btoa(`token: ${canary}`),
+    'base64 url-safe, unpadded': btoa(canary)
+      .replaceAll('+', '-')
+      .replaceAll('/', '_')
+      .replace(/=+$/, ''),
+    'base64 of the bytes it spells': btoa(hexBytes(canary)),
+    'percent-encoded': hex.map((pair) => `%${pair}`).join(''),
+    'hex dump': hex.join(' '),
+    'html entities': charCodes(canary)
+      .map((code) => `&#${code};`)
+      .join(''),
+    'byte values': charCodes(hexBytes(canary)).join(', '),
+    '0x bytes': (canary.match(/../g) ?? []).map((pair) => `0x${pair}`).join(', '),
+    'first half': canary.slice(0, 16),
+    'halves swapped': `${canary.slice(16)} and ${canary.slice(0, 16)}`,
+  };
+}
+
+Deno.test('scanTextForCanaryLeak reads the canary through every encoding it detects', () => {
+  const canary = mintCanary();
+  for (const [name, leak] of Object.entries(encodedLeaks(canary))) {
+    assertEquals([name, scanTextForCanaryLeak(`<< ${leak} >>`, canary)], [name, true]);
+  }
+});
+
+Deno.test('redactCanaryText removes every encoding it detects', () => {
+  const canary = mintCanary();
+  for (const [name, leak] of Object.entries(encodedLeaks(canary))) {
+    const redacted = redactCanaryText(`<< ${leak} >>`, canary);
+    assertEquals([name, scanTextForCanaryLeak(redacted, canary)], [name, false]);
+    assertEquals([name, redacted.startsWith('<< ') && redacted.endsWith(' >>')], [name, true]);
+  }
+});
+
+Deno.test('scanTextForCanaryLeak needs 16 characters of the token in a run', () => {
+  const canary = mintCanary();
+  assertEquals(scanTextForCanaryLeak(`<< ${canary.slice(3, 19)} >>`, canary), true);
+  assertEquals(scanTextForCanaryLeak(`<< ${canary.slice(3, 18)} >>`, canary), false);
+});
+
+Deno.test('scanTextForCanaryLeak reads token characters more than 32 apart as unrelated', () => {
+  const canary = mintCanary();
+  const filler = ' — and that is the whole story, told slowly — ';
+  assertEquals(scanTextForCanaryLeak([...canary].join(filler), canary), false);
+  // The opening is spent once that much text follows it, so nothing stays held.
+  const text = `say ${canary.slice(0, 6)}${' '.repeat(40)}`;
+  assertEquals(canaryHoldFrom(text, canary), text.length);
+});
+
+Deno.test('scanTextForCanaryLeak ignores numbers, spelled numbers, hashes, and base64', () => {
+  const canary = mintCanary();
+  for (const benign of [
+    'Order 4417 shipped 2024-03-15 for $1,299.00; call 555-0142 or 555-0199 before 18:30.',
+    'One or two ideas, maybe three. Alpha testing starts in five days; bravo to the team.',
+    'Commit 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08 is signed.',
+    `Attachment: ${btoa('The quarterly report is attached, with the appendix and notes.')}`,
+    'Pages 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 are ready.',
+  ]) {
+    assertEquals([benign, scanTextForCanaryLeak(benign, canary)], [benign, false]);
+  }
+});
+
+Deno.test('canaryScanFrom rereads enough to see a leak that ends in new text', () => {
+  const canary = mintCanary();
+  const spelled = encodedLeaks(canary)['spelled out'];
+  const text = `${'x'.repeat(5000)} ${spelled}`;
+  const cut = text.length - 3;
+  // Scanning only from the lookback finds what a scan of the whole text finds.
+  assertEquals(scanTextForCanaryLeak(text.slice(canaryScanFrom(text, cut)), canary), true);
+  assertEquals(canaryScanFrom('short', 5), 0);
+});
+
+Deno.test('canary stream gate catches a spelled-out leak split across chunks', () => {
+  const canary = mintCanary();
+  const spelled = encodedLeaks(canary)['spelled out'];
+  const gate = createCanaryStreamGate(canary);
+  let released = '';
+  let leaked = false;
+  for (const piece of spelled.match(/.{1,5}/gs) ?? []) {
+    const step = gate.process(piece);
+    if (step.leak) {
+      leaked = true;
+      break;
+    }
+    released += step.emit;
+  }
+  assertEquals(leaked, true);
+  // What went out before the stop is less than a leak run.
+  assertEquals(scanTextForCanaryLeak(released, canary), false);
+});
+
+Deno.test('canaryHoldFrom holds a spelled opening through a word the chunk cut off', () => {
+  const canary = 'b8d3e3616fea1b7bfcb0bfb750bffe3d';
+  // "e" is the start of "eight": it must not read as the letter e and break the opening.
+  assertEquals(canaryHoldFrom('Sure: bravo e', canary), 'Sure: '.length);
+  assertEquals(canaryHoldFrom('Sure: bravo eight', canary), 'Sure: '.length);
+  // A cut word that cannot become token characters is not held.
+  assertEquals(canaryHoldFrom('Sure: hel', canary), 'Sure: hel'.length);
 });

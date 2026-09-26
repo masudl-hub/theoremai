@@ -46,7 +46,7 @@ Owns every module under `src/guardrails/`.
 | `bindCanary` | Append canary note to system prompt |
 | `wrapUserData` | Fence untrusted user text in `<user_data>` |
 | `createCanaryStreamGate` | Holds only a tail that could start a leak, for split-token streaming |
-| `scanTextForCanaryLeak` | The token, reversed, in ROT13, or its base64, read through case and any separator between its characters |
+| `scanTextForCanaryLeak` | The token — as written, reversed, in ROT13, spelled out (digit words, NATO letters), as character or byte codes, or in base64 at any offset — read through case, lookalike and fullwidth characters, and separators up to 32 characters; any 16 consecutive characters of it count |
 | `eventHasCanary` | Scan any `TurnEvent` wire shape |
 | `createCanaryGateSession` / `filterCanaryGatedEvents` | Canary-only batch helper (Live production uses `live-outbound-gate`) |
 
@@ -156,11 +156,27 @@ end-of-attempt. `flag` is advisory and keeps the stream flowing.
 Outbound streaming uses **progressive yield** (`createProgressiveYieldGate` /
 `createOutboundProgressiveGate`): cleared prefixes release while a lookback
 window stays held for split-token matches. The window is what the scan can
-detect. The canary scan reads only the characters a leak form is written with
-(the token, reversed, and in ROT13, case-folded; its base64), so separators and case do not hide it,
-and the gate holds just the tail that could still be the start of a leak
-(`canaryHoldFrom`) — usually nothing, so canary-only output streams almost at
-once, and an opening stretched by separators of any length stays held. Under
+detect. The canary scan reads text after Unicode compatibility folding
+(fullwidth and mathematical digits) and folds lookalike letters (Cyrillic,
+Greek) to the Latin ones they imitate. Each leak form is read two ways:
+character by character, keeping only the characters the form is written with,
+and word by word, where a word written only in them counts, a spoken name
+(`zero`…`nine`, `alpha`…`foxtrot`) counts as the character it spells, and any
+other word ("then", "and") is a separator. The forms are the token as written,
+reversed, and in ROT13 (case-folded); its characters as hex or decimal codes
+(xxd, `%`-encoding, `&#…;` entities); the bytes a hex token spells, in decimal;
+and base64 of the token or its bytes at each of the three byte offsets it can
+start at inside larger encoded text, padded or not, standard or URL-safe. Any
+16 consecutive characters of a form (64 bits; 20 of base64, 32 of byte codes)
+are a leak, so a truncated token is caught too. Characters more than 32
+apart are not read as one token, which bounds the hold: the gate holds just
+the tail that could still be the start of a leak (`canaryHoldFrom`) — usually
+nothing, never more than a few words — so canary-only output streams almost at
+once. A scan rereads only the text a new leak could reach back into
+(`canaryScanFrom`), so its cost grows with the reply, not its square. What the
+scan cannot read: arbitrary ciphers and arithmetic (a Caesar shift, the token
+as one big number, base64 of an already transformed token), and a token spread
+one character per sentence. Under
 `egress.enforce` the gate also holds `egress.holdback` characters (default
 `DEFAULT_HOLDBACK`, 256), plus any incomplete PEM body until its END line.
 `redactCanary` and the trace and upstream-tape scrubbers replace every form the
@@ -168,8 +184,7 @@ scan detects. A window that ends on a possible leak opening carries it
 (`canaryCarry`) into the next window of the same canary — the next provider
 call of a `runTurn`, the next Live cycle — so a token split across tool steps
 or cycles is one match: the turn or session ends when it completes, and only
-the chunks before the completing one were released. Not detected yet: the
-token spelled out in words — `fuzz-canary` reports it as a bypass. `defineProfile` rejects a
+the chunks before the completing one were released. `defineProfile` rejects a
 `holdback` or `maxRetries` that is not a non-negative integer. The same constructor backs `runTurn` and
 Live (`processLiveOutboundBatch`). Host `egress.enforce` is authoritative when
 set; otherwise the gate scans for the canary alone and a leak ends

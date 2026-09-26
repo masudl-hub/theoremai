@@ -59,7 +59,7 @@ or UI copy. Keys, credentials, trace storage, and policy all come from the host.
 ### Guardrails on every turn
 
 - 🛡️ **Input sanitization by trust level** — system prompts you wrote go through untouched; host-assembled prompts, user text, history, attachments, and tool results are scanned for injection and sensitive data.
-- 🐤 **Canary tokens** — each turn binds a fresh token into the system prompt. A leak is caught as written, reversed, in ROT13 or in base64, in any case and whatever separates its characters, even when the stream splits it across chunks.
+- 🐤 **Canary tokens** — each turn binds a fresh token into the system prompt. A leak is caught as written, reversed, in ROT13, spelled out, as character codes or in base64, in any case, through lookalike characters and separators, even when the stream splits it across chunks, tool steps, or Live cycles.
 - 🚪 **Egress checks with repair** — your policy sees every reply (text and structured) before release. It can allow, flag, redact, or block, and a block can send the model back to try again.
 - 🧪 **Tested against attacks** — adversarial corpora, fuzzing, and mutation testing cover the guardrail code, and the corpora ship for hosts to test their own profiles.
 
@@ -831,7 +831,7 @@ flowchart LR
   RETRY --> MODEL
 ```
 
-- **Canary** — each turn mints a fresh random 32-hex token and binds it into the system prompt. If it shows up in the output, as written, reversed, in ROT13 or base64-encoded, in any case and with anything between its characters, the system prompt has leaked. The leaking text is held back, and the client gets a generic public error, never the leaked fragment.
+- **Canary** — each turn mints a fresh random 32-hex token and binds it into the system prompt. If it shows up in the output — as written, reversed, in ROT13, spelled out, as character codes or base64-encoded, in any case, through lookalike characters, with words or symbols between its characters, or just 16 characters of it — the system prompt has leaked. The leaking text is held back, and the client gets a generic public error, never the leaked fragment.
 - **Egress** — your `EgressEnforcer` sees every outbound payload (streamed text, structured JSON, live transcripts) with its stage and canary, and returns one of four verdicts:
 
 | Verdict | Effect |

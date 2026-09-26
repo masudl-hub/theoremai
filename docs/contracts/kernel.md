@@ -305,7 +305,8 @@ different transport than the primary turn.
 | `tool` | Tool call (`phase`: `running` / `progress` / `complete` / `gate` / `error` / `cancel`, …; `pause` deprecated) |
 | `structured` | Parsed JSON object when the profile names a structured schema |
 | `media` | Generated image/audio bytes + mime |
-| `grounding` | Search/maps grounding: Live `groundingMetadata`, and Interactions tool results (`google_search_result` `search_suggestions`, `google_maps_result` `result[].places`) plus `url_citation` / `place_citation` annotations. Normalized to `sources` plus `chunks[].maps` (`title` / `uri` / `placeId`); the raw payload rides on `metadata` |
+| `grounding` | Google search metadata: Live `groundingMetadata`, and Interactions tool results (`google_search_result` `search_suggestions` → `searchHtml`). Maps sources add normalized `chunks[].maps` (`title` / `uri` / `placeId`); the raw payload rides on `metadata`. The sources themselves travel as `citation` |
+| `citation` | `sources` (`title` / `uri` / `type` / `placeId?`) a provider or a tool cited. From a provider: Google `url_citation` / `place_citation` annotations and `google_maps_result` places, OpenRouter citations and `url_citation` annotations. From a tool: its `sources(output)` on a completed call, with the call's `callId` (see [Tool sources](#tool-sources)) |
 | `evidence` | Provider-native attachments. Google code execution sets `kind` (`code_execution_call` / `code_execution_result`) plus parsed `code` / `result` / `isError` / `id` / `callId`, and always keeps `raw`. Live ASR uses `input_transcription` / `output_transcription` (optional `interim`); Live `voiceActivity` uses `voice_activity` (`raw`); session resumption uses `session_resumption` + `resumable`. `partial: true` marks a step the provider started and never finished (the stream ended first); a partial tool call never runs. |
 | `session` | Live control: `closing_soon` (optional `timeLeftMs`); `ended`, the provider's close after it warned of one — not an error: `ended { cause: 'go_away', code, closedAfterMs, errorKind? }` (`errorKind` when the code is not 1000), `timeLeftMs` (the last warning's window), `message` (the user's wording, lexicon `live.session_ended`) and the raw close as `errorInternal`; `waiting_for_input`, `turn_complete` (one spoken response ended), `working` (server still reasoning / awaiting async tools), `idle` (cycle boundary) |
 | `stage` | Turn timeline (`stage`: `pre_turn` \| `pre_tool` \| `post_tool` \| `before_end` \| `post_turn`) — see [`stages.md`](stages.md) |
@@ -444,6 +445,19 @@ request-local lookup: a host serving many tenants, such as the playground, build
 a scope per request and runs on it. `registerHarnessTools()` and
 `registerGooglePreset()` fill the default scope; another scope registers
 `askUserTool` and `GOOGLE_BUILTIN_TOOLS` itself.
+
+### Tool sources
+
+A function, HTTP or MCP tool may declare `sources: (output) => Source[]`. Once a
+call completes (after `post_tool`, on the output it settles with), the kernel
+runs it and emits one `citation { sources, callId }` before the terminal
+`complete` event; the transcript shows them on that call. It never runs for a
+call that failed, gated or was refused. Every source is checked against
+`sourceSchema`: one that fails is not cited, and the call gets one tool
+`warning` (`code: 'sources_invalid'`) naming each failure; a throw is the same
+warning and cites nothing. The call still completes and the model's result is
+unchanged. The call's `execute_tool` span records the cited sources as a
+`theorem.grounding` event. A tool that cites nothing omits `sources`.
 
 ### Host context slot
 

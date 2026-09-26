@@ -289,6 +289,7 @@ const source = z.object({
   placeId: z.string().optional(),
 });
 true satisfies Equals<z.infer<typeof source>, Source>;
+export const sourceSchema: z.ZodType<Source> = source;
 
 /** Google grounding search metadata. Sources travel as `citation` events. */
 export interface GroundingEvent {

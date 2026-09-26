@@ -146,7 +146,7 @@ The shipped wording for every span, attribute, event and value is the trace cata
 
 **Events:**
 - `theorem.upstream.row`: each provider data row at its arrival time. Media is replaced by its hash, and any string equal to a known content text is replaced by its text reference; the row is a JSON reference. Kept only under `upstreamLog`.
-- `theorem.grounding`: `{ sources, search_html?, raw? }` from Google grounding, or `{ provider, sources?, citations?, annotations?, raw? }` from other evidence, each payload a JSON reference. Citation annotations live here, not on text parts. `raw` is kept only under `evidenceRaw`.
+- `theorem.grounding`: `{ search_html?, raw? }` from Google grounding, `{ sources }` from a `citation` (a provider's on the model call span, a tool's on its `execute_tool` span), or `{ provider, raw? }` from other evidence, each payload a JSON reference. Citation annotations live here, not on text parts. `raw` is kept only under `evidenceRaw`.
 - `theorem.guardrail`: output-scan decisions.
 - `exception`: one per provider error (`exception.type: "provider_error"`, message by hash), plus a throw.
 

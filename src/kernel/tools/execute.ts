@@ -20,11 +20,13 @@ import type { Provenance, ToolOrigin } from '../../guardrails/types.ts';
 import type { SpanHandle, TraceAttributes } from '../../observability/trace-span.ts';
 import { startToolTrace, type ToolCallEnd, type ToolOutcome } from '../engine/tool-trace.ts';
 import { type InjectUnit, isAwaitingUserInput } from '../stages.ts';
+import type { Source } from '../turn-events.ts';
 import type { InteractionPart, Profile, TurnEvent } from '../types.ts';
 import { isRecord } from '../util/record.ts';
 import {
   failureEvent,
   messageOf,
+  sourceEvents,
   startToolExecution,
   type ToolCallBase,
   toolCallArguments,
@@ -369,8 +371,10 @@ async function* settleToolCall(args: {
   provisional: Provisional;
   guard: ResultGuard;
   reproject?: Reproject;
+  /** The tool's `sources`, run on the output the call settles with. */
+  sources?: (output: unknown) => Source[];
 }): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
-  const { base, toolName, callId, input, stages, provisional, guard, reproject } = args;
+  const { base, toolName, callId, input, stages, provisional, guard, reproject, sources } = args;
   let modelResult = yield* guard(provisional.modelResult);
   let failure = 'failure' in provisional ? provisional.failure : undefined;
   let outputRaw = 'outputRaw' in provisional ? provisional.outputRaw : undefined;
@@ -414,6 +418,7 @@ async function* settleToolCall(args: {
     }
   }
 
+  if (!failure && sources) yield* sourceEvents(base, sources, outputRaw);
   yield failure
     ? failureEvent(base, failure)
     : toolEvent(base, {
@@ -621,6 +626,7 @@ export async function* executeFunction(
       outputRaw: promoted.output,
       modelResult: projectForModel(tool, promoted.output, ctx.profile.lexicon),
     },
+    sources: tool.sources,
     ...(ownsOutput
       ? {}
       : {
@@ -758,6 +764,7 @@ async function* settleRemoteOutcome(args: {
     stages,
     guard,
     provisional: { outputRaw: outcome.outputRaw, modelResult: outcome.modelResult },
+    sources: tool.sources,
     reproject: makeReproject(
       (v) => parseToolOutput(tool.output, v),
       modelResultFromOutput,

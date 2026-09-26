@@ -1138,8 +1138,6 @@ const TRACE_EVENTS: Readonly<Record<string, TraceEventMeta>> = {
     attributes: {
       provider: attr('response', 'Provider', 'id', 'Who supplied the evidence.'),
       sources: attr('response', 'Sources', 'json', 'The sources.'),
-      citations: attr('response', 'Citations', 'json', 'Where the answer cites them.'),
-      annotations: attr('response', 'Annotations', 'json', 'Citation annotations on the text.'),
       search_html: attr('response', 'Search suggestions', 'content', "Google's search widget."),
       raw: attr('response', 'Raw', 'json', "The provider's raw grounding payload."),
     },

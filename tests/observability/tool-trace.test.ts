@@ -59,6 +59,23 @@ registerTool({
   },
 });
 
+const CITED = { title: 'Porto', uri: 'https://example.com/porto', type: 'web' } as const;
+
+registerTool({
+  type: 'function',
+  name: 'tool_trace_cites',
+  description: 'Returns a link it cites',
+  category: 'test',
+  access: 'read-only',
+  paths: ['*'],
+  loadTier: 'T0',
+  permission: 'auto',
+  input: z.object({}),
+  output: z.object({ uri: z.string() }),
+  handler: () => ({ uri: CITED.uri }),
+  sources: () => [CITED],
+});
+
 registerProfile(
   defineProfile({
     type: 'text',
@@ -73,6 +90,7 @@ registerProfile(
         'denied_tool',
         'always_confirm_tool',
         'tool_trace_image',
+        'tool_trace_cites',
       ],
     },
     inputs: { text: true },
@@ -234,6 +252,25 @@ Deno.test('a gated call records the gate and nothing read back', async () => {
   assertEquals('gen_ai.tool.call.result' in span.attributes, false);
   const gate = span.events.find((e) => e.name === 'theorem.gate');
   assertEquals(gate?.attributes.kind, 'permission');
+});
+
+Deno.test('a tool that cites sources streams the citation and records it on its span', async () => {
+  const into: TraceRecord[] = [];
+  const provider = asking([
+    { type: 'tool', tool: { callId: 'c1', name: 'tool_trace_cites', arguments: {} } },
+  ]);
+  const events = await Array.fromAsync(
+    runTurn({ profile: PROFILE, input: { text: 'go' } }, provider, catalogedSink(into)),
+  );
+  assertEquals(lastOf(events, 'citation'), {
+    type: 'citation',
+    sources: [CITED],
+    callId: 'c1',
+  });
+  const [record] = into;
+  if (!record) throw new Error('no record');
+  const grounding = toolSpan(record).events.find((e) => e.name === 'theorem.grounding');
+  assertEquals(contentOf(record, grounding?.attributes.sources), JSON.stringify([CITED]));
 });
 
 Deno.test('malformed arguments are recorded as the raw text the model sent', async () => {

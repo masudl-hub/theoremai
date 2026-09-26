@@ -19,6 +19,7 @@ import {
   withPublicWording,
 } from '../../../guardrails/error.ts';
 import { projectGuardrailTurnEvent } from '../../../guardrails/events.ts';
+import { type LexiconOverrides, lexiconText } from '../../../guardrails/lexicon.ts';
 import {
   abortLiveOutboundTurn,
   createLiveOutboundGateSession,
@@ -40,10 +41,18 @@ import {
 import { openGoogleLiveSession } from '../../../providers/google/live/session.ts';
 import type { GoAwayClose, SessionQueueItem } from '../../../providers/google/live/stream.ts';
 import type { ToolCredential } from '../../auth/types.ts';
+import type { KernelRegistry } from '../../registry/kernel-registry.ts';
 import { providerCompleteRequest } from '../../registry/provider-request.ts';
-import { resolveTurn } from '../../registry/resolve.ts';
+import { resolveTurnInRegistry } from '../../registry/resolve.ts';
 import type { TurnStage } from '../../schema.ts';
-import { runStage, type StageCallBag, type StageHandler } from '../../stages.ts';
+import {
+  type InjectUnit,
+  injectedStageEvent,
+  runStage,
+  type StageCallBag,
+  type StageHandler,
+  stageEventFields,
+} from '../../stages.ts';
 import { profileAllowsInject } from '../../stop.ts';
 import {
   executeRegisteredTool,
@@ -51,9 +60,11 @@ import {
   formatToolResult,
   type ToolExecuteSettlement,
 } from '../../tools/execute.ts';
+import type { ToolRegistry } from '../../tools/registry.ts';
 import { modelResultFromOutput } from '../../tools/remote.ts';
 import { cloneTurnToolSnapshot } from '../../tools/resolve.ts';
 import type { ToolFailure, TurnToolSnapshot } from '../../tools/types.ts';
+import { type ProviderEvent, turnDoneOf } from '../../turn-events.ts';
 import type {
   InteractionPart,
   LiveExecuteToolArgs,
@@ -93,6 +104,7 @@ export interface RunSessionOptions {
 function sessionEndedEvent(
   closed: Extract<SessionQueueItem, { type: 'closed' }>,
   goAway: GoAwayClose,
+  lexicon: LexiconOverrides | undefined,
 ): TurnEvent {
   const internal = closed.error ? describeError(closed.error) : closed.reason;
   return {
@@ -100,6 +112,7 @@ function sessionEndedEvent(
     session: {
       kind: 'ended',
       ...(goAway.timeLeftMs !== undefined ? { timeLeftMs: goAway.timeLeftMs } : {}),
+      message: lexiconText('live.session_ended', {}, lexicon),
       ended: {
         cause: 'go_away',
         code: closed.code,
@@ -112,15 +125,15 @@ function sessionEndedEvent(
 }
 
 /** Inject on live is realtime text ingress only: no tool role, no media parts. */
-function liveInjectTexts(messages: readonly TurnHistoryMessage[]): string[] {
-  const out: string[] = [];
+/** Live ingress takes text: an inject's texts, or `undefined` when any message is not plain text. */
+function liveInjectTexts(messages: readonly TurnHistoryMessage[]): string[] | undefined {
+  const texts: string[] = [];
   for (const msg of messages) {
-    if (msg.role === 'tool') continue;
-    if (msg.parts?.length) continue;
-    const text = msg.content?.trim();
-    if (text) out.push(text);
+    const text = msg.role === 'tool' || msg.parts?.length ? undefined : msg.content?.trim();
+    if (!text) return undefined;
+    texts.push(text);
   }
-  return out;
+  return texts;
 }
 
 function assertLiveProfile(profile: Profile): asserts profile is LiveProfile {
@@ -263,6 +276,19 @@ function liveReadBack(s: ToolExecuteSettlement): { text: string } | undefined {
     : { text: JSON.stringify(liveFunctionResponsePayload(output)) };
 }
 
+/**
+ * A provider batch as the host receives it: a call's `done` becomes the
+ * host's (`turnDoneOf`); `response` stays with the trace, which read the batch.
+ */
+function hostEventsOf(events: readonly ProviderEvent[], snapshot: TurnToolSnapshot): TurnEvent[] {
+  return events.flatMap((ev): TurnEvent[] => {
+    if (ev.type === 'response') return [];
+    if (ev.type !== 'done') return [ev];
+    const { type: _done, ...done } = ev;
+    return [turnDoneOf(done, snapshot)];
+  });
+}
+
 function* drainPendingHostEvents(pendingHostEvents: TurnEvent[]): Generator<TurnEvent> {
   while (pendingHostEvents.length > 0) {
     const pending = pendingHostEvents.shift();
@@ -300,6 +326,7 @@ function* yieldLiveNonDoneEvents(
 }
 
 function buildLiveSession(args: {
+  tools: ToolRegistry;
   profile: LiveProfile;
   canary: string;
   connection: Awaited<ReturnType<typeof openGoogleLiveSession>>;
@@ -424,14 +451,15 @@ function buildLiveSession(args: {
 
   /** A `done` names the response span it ends. */
   const stampDone = (ev: TurnEvent): TurnEvent => {
-    const traceparent = ev.type === 'done' ? trace.responseTraceparent() : undefined;
+    if (ev.type !== 'done') return ev;
+    const traceparent = trace.responseTraceparent();
     return traceparent ? { ...ev, traceparent } : ev;
   };
 
   const runCycleStage = async (
     stage: TurnStage,
     extra?: StageCallBag,
-  ): Promise<{ abort?: boolean | { reason?: string }; injectTexts: string[] }> => {
+  ): Promise<{ abort?: boolean | { reason?: string }; inject: InjectUnit[] }> => {
     const gen = runStage({
       ...extra,
       stage,
@@ -451,7 +479,7 @@ function buildLiveSession(args: {
     }
     return {
       abort: result.value.abort,
-      injectTexts: liveInjectTexts(result.value.inject),
+      inject: result.value.inject,
     };
   };
 
@@ -465,12 +493,40 @@ function buildLiveSession(args: {
     sendJson(buildGeminiLiveRealtimeInput({ type: 'text', text: prepared.text }));
   };
 
-  const applyInjectTexts = (texts: string[]) => {
-    for (const text of texts) {
-      // Cycle already open — write without re-entering pre_turn.
-      assertLiveIngress(profile, 'text');
-      ingestPreparedLiveText(text);
+  /**
+   * Write each inject whole into the open cycle (no re-entry into pre_turn),
+   * then record the named ones that landed. An inject live cannot write as
+   * text is refused whole with a stage warning, never written in part.
+   */
+  const landInject = (
+    stage: TurnStage,
+    units: readonly InjectUnit[],
+    extra?: { callId?: string; toolName?: string },
+  ) => {
+    const landed: InjectUnit[] = [];
+    for (const unit of units) {
+      const texts = liveInjectTexts(unit.messages);
+      if (!texts) {
+        enqueuePending({
+          ...stageEventFields(stage, extra),
+          stageWarnings: [
+            {
+              code: 'inject_invalid_messages',
+              field: 'inject',
+              message: 'live ingress takes plain-text inject messages only; inject refused', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+            },
+          ],
+        });
+        continue;
+      }
+      for (const text of texts) {
+        assertLiveIngress(profile, 'text');
+        ingestPreparedLiveText(text);
+      }
+      landed.push(unit);
     }
+    const event = injectedStageEvent(stage, landed, extra);
+    if (event) enqueuePending(event);
   };
 
   const openCycleIfNeeded = async (): Promise<{ aborted: boolean }> => {
@@ -489,9 +545,7 @@ function buildLiveSession(args: {
       cycle = 'idle';
       return { aborted: true };
     }
-    if (pre.injectTexts.length) {
-      await applyInjectTexts(pre.injectTexts);
-    }
+    landInject('pre_turn', pre.inject);
     return { aborted: false };
   };
 
@@ -509,9 +563,7 @@ function buildLiveSession(args: {
       cycle = 'idle';
       return;
     }
-    if (before.injectTexts.length) {
-      await applyInjectTexts(before.injectTexts);
-    }
+    landInject('before_end', before.inject);
     for (const ev of doneEvents) {
       yield ev;
     }
@@ -540,7 +592,7 @@ function buildLiveSession(args: {
         trace.receive(item);
         yield* drainPendingHostEvents(pendingHostEvents);
         if (item.type === 'closed') {
-          if (item.goAway) yield sessionEndedEvent(item, item.goAway);
+          if (item.goAway) yield sessionEndedEvent(item, item.goAway, profile.lexicon);
           else if (item.error) yield toErrorEvent(item.error);
           break;
         }
@@ -555,14 +607,17 @@ function buildLiveSession(args: {
         // Usage is held per response and emitted once, reported or estimated, by `settle`.
         const gated = await applyOutbound(
           gate,
-          item.events.filter((ev) => ev.type !== 'tokens'),
+          hostEventsOf(
+            item.events.filter((ev) => ev.type !== 'tokens'),
+            snapshot,
+          ),
           item.turnPhase,
           () => {
             withholdClose = true;
           },
         );
         for (const ev of gated) {
-          if (ev.guardrail) trace.outbound(ev);
+          if (ev.type === 'guardrail') trace.outbound(ev);
         }
 
         const doneBatch = yield* yieldLiveNonDoneEvents(gated, includeMatch, recordAssistantText);
@@ -658,6 +713,7 @@ function buildLiveSession(args: {
       const handlers = onStage ? [onStage] : [];
       const record = trace.toolRecord(toolArgs.callId);
       const exec = executeRegisteredTool({
+        tools: args.tools,
         profile,
         name: toolArgs.name,
         input: toolArgs.input ?? {},
@@ -705,14 +761,16 @@ function buildLiveSession(args: {
       }
 
       // post_tool inject on live → schedule text ingress
-      if (s.pendingInject?.length) {
-        const texts = liveInjectTexts(s.pendingInject);
-        if (texts.length) {
-          await withIngress(async () => {
-            const opened = await openCycleIfNeeded();
-            if (!opened.aborted) await applyInjectTexts(texts);
+      const { pendingInject } = s;
+      if (pendingInject) {
+        await withIngress(async () => {
+          const opened = await openCycleIfNeeded();
+          if (opened.aborted) return;
+          landInject('post_tool', pendingInject, {
+            callId: toolArgs.callId,
+            toolName: toolArgs.name,
           });
-        }
+        });
       }
 
       const outputModel = s.modelResult;
@@ -761,21 +819,28 @@ function buildLiveSession(args: {
 }
 
 /**
- * Open a gated Gemini Live session for a `type: 'live'` profile, and trace it
- * (`session-trace.ts`): the session record is written however the session
- * ends, including when opening it fails.
+ * Open a gated Gemini Live session for a `type: 'live'` profile registered in
+ * `registry`, and trace it (`session-trace.ts`): the session record is written
+ * however the session ends, including when opening it fails. A session on an
+ * unknown profile fails to open and is recorded under the standard
+ * observability policy, since there is no profile to read one from.
  *
  * Hosts bridge browser sockets and tool dispatch; THEOREM owns Gemini WS,
  * framing, inbound prep, outbound canary/egress gates, and live stages.
  */
-export async function runSession(
+export async function runSessionInRegistry(
+  registry: KernelRegistry,
   req: SessionRequest,
   options: RunSessionOptions,
   sinkOverride?: TraceSink,
 ): Promise<LiveSession> {
-  const trace = startLiveTrace(req, sinkOverride);
+  const trace = startLiveTrace(
+    req,
+    registry.profiles.find(req.profile)?.observability,
+    sinkOverride,
+  );
   try {
-    return await openTracedSession(req, options, trace);
+    return await openTracedSession(registry, req, options, trace);
   } catch (err) {
     await trace.close({ thrown: err });
     throw err;
@@ -783,15 +848,16 @@ export async function runSession(
 }
 
 async function openTracedSession(
+  registry: KernelRegistry,
   req: SessionRequest,
   options: RunSessionOptions,
   trace: LiveTrace,
 ): Promise<LiveSession> {
   const turnReq = toTurnRequest(req);
-  const safe = sanitizeTurnRequest(turnReq);
+  const safe = sanitizeTurnRequest(turnReq, registry.profiles.get(turnReq.profile));
   throwIfAborted(safe.signal);
 
-  const { profile, generation: gen0 } = resolveTurn(safe);
+  const { profile, generation: gen0 } = resolveTurnInRegistry(registry, safe);
   assertLiveProfile(profile);
 
   if (req.snapshot) {
@@ -805,7 +871,7 @@ async function openTracedSession(
 
   const system = bindCanary(generation.resolvedSystem, generation.canary, profile.lexicon);
   const completeReq: ProviderCompleteRequest = {
-    ...providerCompleteRequest(generation, system),
+    ...providerCompleteRequest(registry.tools, generation, system),
     signal: safe.signal,
     tapUpstream: trace.sent,
   };
@@ -828,6 +894,7 @@ async function openTracedSession(
   trace.setup(connection.setup);
 
   return buildLiveSession({
+    tools: registry.tools,
     profile,
     canary: generation.canary,
     connection,

@@ -6,4 +6,4 @@
  * @module
  */
 
-export { createLocalProvider, DEFAULT_LOCAL_BASE_URL } from './local.ts';
+export { createLocalProvider } from './local.ts';

@@ -1,7 +1,6 @@
 import '../fixtures/test-host.ts';
+import { registerProfile, runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
-import { runTurn } from '../../src/kernel/engine/runner.ts';
-import { registerProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
 import { jsonlSink, noopSink } from '../../src/observability/trace.ts';
 import { inlineContent, type TraceRecord } from '../../src/observability/trace-record.ts';
@@ -9,14 +8,6 @@ import type { TraceAttributes, TraceSpan } from '../../src/observability/trace-s
 import { HOST_BINDINGS } from '../fixtures/models.ts';
 import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
 import { STUB_WRITE, stubRecord } from '../fixtures/trace-record.ts';
-
-async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
-  const out: TurnEvent[] = [];
-  for await (const event of gen) {
-    out.push(event);
-  }
-  return out;
-}
 
 /** Media the model returns: the record must hold its hash, never its bytes. */
 const MEDIA_BASE64 = btoa('secret-bytes');
@@ -42,7 +33,7 @@ function modelCall(record: TraceRecord): TraceSpan {
 
 Deno.test('runTurn traces projectId and hashes media not bytes', async () => {
   const into: TraceRecord[] = [];
-  await collect(
+  await Array.fromAsync(
     runTurn(
       {
         profile: 'image',
@@ -104,7 +95,7 @@ Deno.test('runTurn records what the host received on the turn root, beside what 
     },
   };
   const into: TraceRecord[] = [];
-  await collect(
+  await Array.fromAsync(
     runTurn(
       { profile: 'trace_quiet_thoughts', input: { text: 'fern?' } },
       provider,
@@ -139,7 +130,7 @@ Deno.test('runTurn records what the host received on the turn root, beside what 
 
 Deno.test('runTurn traces explicit Interactions state controls', async () => {
   const into: TraceRecord[] = [];
-  await collect(
+  await Array.fromAsync(
     runTurn(
       {
         profile: 'chat',
@@ -170,7 +161,7 @@ Deno.test('runTurn forwards Interactions state controls and preserves host metad
     },
   };
 
-  await collect(
+  await Array.fromAsync(
     runTurn(
       {
         profile: 'chat',

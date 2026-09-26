@@ -25,7 +25,7 @@ export type {
 export { resolveComposerMenuActions, resolveComposerPrimary } from './composer-actions.ts';
 export type { PrepareUserTurnResult } from './draft.ts';
 export { prepareUserTurn, sanitizeUserDraft } from './draft.ts';
-export { interfaceFrom, interfaceFromProfile, interfaceFromProjected } from './from-profile.ts';
+export { interfaceFromProfile, interfaceFromProjected } from './from-profile.ts';
 export type { UserTurnHistoryMedia } from './history.ts';
 export {
   appendAssistantEventsToHistory,
@@ -33,6 +33,7 @@ export {
   appendToolExchangeToHistory,
   appendUserDraftToHistory,
   historyFromTranscriptBlocks,
+  toolReadBack,
   userDraftToSteerInject,
 } from './history.ts';
 export {
@@ -67,6 +68,7 @@ export {
   orderComposerPendingMessages,
   promoteComposerPendingKind,
   removeComposerPendingMessage,
+  removeLandedSteers,
   updateComposerPendingDraft,
   userDraftHasPayload,
 } from './pending.ts';
@@ -83,7 +85,9 @@ export {
   branchInterfaceTurnSession,
   emptyInterfaceTurnSession,
   gatedToolFromEvents,
+  gatedToolsFromEvents,
 } from './session.ts';
+export { toolCallRanWith, toolCallsOf } from './tool-calls.ts';
 export { promotedToolIdsFromEvents, toolSnapshotFromEvents } from './tool-invoke.ts';
 export type { PromotedToolMedia } from './tool-media.ts';
 export {
@@ -101,7 +105,6 @@ export type {
   ProfileGuardrailsView,
   ProfileInputsInterface,
   ProfileInterface,
-  ProfileInterfaceSource,
   ProfileObservabilityView,
   ResolvedTools,
   SpeechProfileInterface,

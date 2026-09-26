@@ -41,6 +41,8 @@ agents <command> [options]
 | `help` | Usage |
 
 Exit code `1` on failed `test` runs. `run` requires `--profile` (or `-p`).
+Every command runs on the default kernel scope (`defaultKernelScope`): the
+profiles and tools it sees are the ones registered through the global API.
 `profile show` and `test` list custom tools from the kernel's `profileToolAllow`,
 so profile types without a `tools` block (`speech`, `decision`) show `none`.
 A passing `test` prints the turn's token total (`sumTokens` over every model

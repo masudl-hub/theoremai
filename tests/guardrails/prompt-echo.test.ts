@@ -11,9 +11,9 @@ import {
   promptEchoScanFrom,
   scanTextForPromptEcho,
 } from '../../src/guardrails/prompt-echo.ts';
+import { getProfile, registerProfile, runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import { runTurn } from '../../src/kernel/engine/runner.ts';
-import { defineProfile, getProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
 import { geminiModels } from '../fixtures/models.ts';
 import { replyText } from '../fixtures/reply.ts';
@@ -133,7 +133,10 @@ Deno.test('runTurn stops a tool call that carries the system prompt', async () =
   const provider: ModelProvider = {
     async *complete() {
       await Promise.resolve();
-      yield { type: 'tool', tool: { name: 'fetch_sensor', arguments: { note: SYSTEM }, id: 'c1' } };
+      yield {
+        type: 'tool',
+        tool: { name: 'fetch_sensor', arguments: { note: SYSTEM }, callId: 'c1' },
+      };
     },
   };
   const events = await collect(runTurn({ profile, input: { text: 'hi' } }, provider));

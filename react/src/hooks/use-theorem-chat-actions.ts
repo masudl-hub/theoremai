@@ -229,7 +229,7 @@ function usePendingActions(args: TheoremChatActionArgs) {
 				}
 				const inject = userDraftToSteerInject(draft);
 				if (inject.length === 0) return;
-				await args.transport.steer({ turnId, inject });
+				await args.transport.steer({ turnId, id: message.id, inject });
 			} catch (err) {
 				args.setFailure(clientFailure(err, args.iface?.lexicon));
 			}

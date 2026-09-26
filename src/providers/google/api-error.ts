@@ -6,16 +6,22 @@
  * @module
  */
 
-import { kindOfHttpStatus, TheoremError } from '../../guardrails/error.ts';
+import { type ErrorKind, kindOfHttpStatus, TheoremError } from '../../guardrails/error.ts';
 import { asRecord } from '../../kernel/engine/record.ts';
 
 const HTTP_STATUS_MIN = 100;
 const HTTP_STATUS_MAX = 599;
 
+/** Kinds for the named codes Google puts on errors inside an Interactions stream. */
+const STREAM_ERROR_KINDS: Readonly<Record<string, ErrorKind>> = {
+  rate_limit_exceeded: 'rate_limit',
+};
+
 /**
  * The error a record's `error` object states, or null when it has none. The
- * kind comes from `code`, an HTTP status; an error without one names no kind
- * of its own, so it is a response THEOREM cannot use (`bad_response`).
+ * kind comes from `code`: an HTTP status, or a stream error's named code. An
+ * error with neither names no kind of its own, so it is a response THEOREM
+ * cannot use (`bad_response`).
  */
 export function readGeminiApiError(record: Record<string, unknown>): TheoremError | null {
   const error = asRecord(record.error);
@@ -26,7 +32,7 @@ export function readGeminiApiError(record: Record<string, unknown>): TheoremErro
   const kind =
     typeof code === 'number' && code >= HTTP_STATUS_MIN && code <= HTTP_STATUS_MAX
       ? kindOfHttpStatus(code)
-      : 'bad_response';
+      : ((typeof code === 'string' ? STREAM_ERROR_KINDS[code] : undefined) ?? 'bad_response');
   if (typeof message !== 'string' || message.length === 0) {
     return new TheoremError(kind, 'Gemini returned an error.');
   }

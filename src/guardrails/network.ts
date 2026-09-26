@@ -139,65 +139,60 @@ function parseIPv6Words(ip: string): number[] | null {
   return [...leftWords, ...mid, ...rightWords, ...ipv4Words];
 }
 
+type IPv6WordsMatch = (w: readonly number[]) => boolean;
+
+const zeros = (w: readonly number[], from: number, to: number) =>
+  w.slice(from, to).every((x) => x === 0);
+
 /**
- * Checks if an IPv6 address is in a private, loopback, or link-local range:
- * - Loopback: ::1
- * - Unspecified: ::
- * - Link-local: fe80::/10
- * - Unique Local (ULA): fc00::/7 (fc00:: - fdff::)
- * - Multicast: ff00::/8
- * - Documentation: 2001:db8::/32
- * - Discard: 100::/64
- * - IPv4-mapped (::ffff:0:0/96), IPv4-compatible (::/96), and NAT64 (64:ff9b::/96)
+ * IPv6 ranges refused outright:
+ * - Unspecified `::` and loopback `::1`
+ * - Link-local fe80::/10, deprecated site-local fec0::/10, unique local fc00::/7
+ * - Multicast ff00::/8, documentation 2001:db8::/32, discard 100::/64
+ * - Local-use NAT64 64:ff9b:1::/48 (RFC 8215), which translates to IPv4 behind
+ *   the host's own gateway, and Teredo 2001::/32, whose client address is hidden
  */
+const PRIVATE_OR_LOCAL_IPV6_MATCHES: readonly IPv6WordsMatch[] = [
+  (w) => zeros(w, 0, 8),
+  (w) => zeros(w, 0, 7) && w[7] === 1,
+  (w) => ((w[0] ?? 0) & 0xffc0) === 0xfe80,
+  (w) => ((w[0] ?? 0) & 0xffc0) === 0xfec0,
+  (w) => ((w[0] ?? 0) & 0xfe00) === 0xfc00,
+  (w) => ((w[0] ?? 0) & 0xff00) === 0xff00,
+  (w) => w[0] === 0x2001 && w[1] === 0x0db8,
+  (w) => w[0] === 0x0100 && zeros(w, 1, 4),
+  (w) => w[0] === 0x0064 && w[1] === 0xff9b && w[2] === 0x0001,
+  (w) => w[0] === 0x2001 && w[1] === 0x0000,
+];
+
+/**
+ * IPv6 ranges that carry an IPv4 address, judged by that address. `at` is the
+ * word where its two words start.
+ * - IPv4-mapped ::ffff:0:0/96 and IPv4-translated ::ffff:0:0:0/96
+ * - IPv4-compatible ::/96 and NAT64 64:ff9b::/96
+ * - 6to4 2002::/16, whose relay forwards to the embedded address
+ */
+const EMBEDDED_IPV4_RANGES: readonly { match: IPv6WordsMatch; at: number }[] = [
+  { match: (w) => zeros(w, 0, 5) && w[5] === 0xffff, at: 6 },
+  { match: (w) => zeros(w, 0, 4) && w[4] === 0xffff && w[5] === 0, at: 6 },
+  { match: (w) => zeros(w, 0, 6), at: 6 },
+  { match: (w) => w[0] === 0x0064 && w[1] === 0xff9b && zeros(w, 2, 6), at: 6 },
+  { match: (w) => w[0] === 0x2002, at: 1 },
+];
+
+/** Checks if an IPv6 address is private or local, itself or through the IPv4 address it carries. */
 function isPrivateOrLocalIPv6(ip: string): boolean {
   const words = parseIPv6Words(ip);
   if (words?.length !== 8) {
     return false;
   }
-
-  const w0 = words[0] ?? 0;
-  const w1 = words[1] ?? 0;
-
-  // Unspecified ::
-  if (words.every((w) => w === 0)) return true;
-
-  // Loopback ::1
-  if (words.slice(0, 7).every((w) => w === 0) && words[7] === 1) return true;
-
-  // Link-local unicast (fe80::/10)
-  if ((w0 & 0xffc0) === 0xfe80) return true;
-
-  // Unique local address (fc00::/7)
-  if ((w0 & 0xfe00) === 0xfc00) return true;
-
-  // Multicast (ff00::/8)
-  if ((w0 & 0xff00) === 0xff00) return true;
-
-  // Documentation (2001:db8::/32)
-  if (w0 === 0x2001 && w1 === 0x0db8) return true;
-
-  // Discard prefix (100::/64)
-  if (w0 === 0x0100 && words.slice(1, 4).every((w) => w === 0)) return true;
-
-  // IPv4-mapped (::ffff:0:0/96)
-  const isV4Mapped = words.slice(0, 5).every((w) => w === 0) && words[5] === 0xffff;
-  // IPv4-compatible (::/96)
-  const isV4Compatible = words.slice(0, 6).every((w) => w === 0);
-  // NAT64 well-known prefix (64:ff9b::/96)
-  const isNat64 = w0 === 0x0064 && w1 === 0xff9b && words.slice(2, 6).every((w) => w === 0);
-
-  if (isV4Mapped || isV4Compatible || isNat64) {
-    const w6 = words[6] ?? 0;
-    const w7 = words[7] ?? 0;
-    const b0 = (w6 >> 8) & 0xff;
-    const b1 = w6 & 0xff;
-    const b2 = (w7 >> 8) & 0xff;
-    const b3 = w7 & 0xff;
-    return isPrivateOrLocalIPv4Parts(b0, b1, b2, b3);
-  }
-
-  return false;
+  if (PRIVATE_OR_LOCAL_IPV6_MATCHES.some((match) => match(words))) return true;
+  return EMBEDDED_IPV4_RANGES.some(({ match, at }) => {
+    if (!match(words)) return false;
+    const hi = words[at] ?? 0;
+    const lo = words[at + 1] ?? 0;
+    return isPrivateOrLocalIPv4Parts((hi >> 8) & 0xff, hi & 0xff, (lo >> 8) & 0xff, lo & 0xff);
+  });
 }
 
 /** Check if hostname represents localhost or private domain names */

@@ -204,21 +204,54 @@ export function buildCanaryEgressAttacks(canary: string): CanaryEgressAttack[] {
       category: 'literal',
       shouldBlock: true,
       leak: canary,
-      turns: [[{ type: 'tool', tool: { name: 'leak', arguments: { token: canary } } }]],
+      turns: [
+        [
+          {
+            type: 'tool',
+            tool: { name: 'leak', callId: 'call-leak', arguments: { token: canary } },
+          },
+        ],
+      ],
     },
     {
       name: 'literal-grounding',
       category: 'literal',
       shouldBlock: true,
       leak: canary,
-      turns: [[{ type: 'grounding', grounding: { sources: [], metadata: { canary } } }]],
+      turns: [[{ type: 'grounding', grounding: { metadata: { canary } } }]],
+    },
+    {
+      name: 'literal-citation',
+      category: 'literal',
+      shouldBlock: true,
+      leak: canary,
+      turns: [
+        [
+          {
+            type: 'citation',
+            sources: [{ title: canary, uri: 'https://example.com/source', type: 'web' }],
+          },
+        ],
+      ],
     },
     {
       name: 'literal-evidence',
       category: 'literal',
       shouldBlock: true,
       leak: canary,
-      turns: [[{ type: 'evidence', evidence: { provider: 'google', raw: { canary } } }]],
+      turns: [
+        [
+          {
+            type: 'evidence',
+            evidence: {
+              provider: 'google',
+              kind: 'provider_step',
+              step: 'google_search_call',
+              raw: { canary },
+            },
+          },
+        ],
+      ],
     },
     ...separatedLeaks(canary),
     ...rewrittenLeaks(canary),

@@ -10,10 +10,14 @@
 
 import { executeSingleTest, testProfileCommand } from '../src/cli/commands/test.ts';
 import { synthesizeMatrixCombos } from '../src/cli/matrix/synthesizer.ts';
-import { runTurn } from '../src/kernel/engine/runner.ts';
-import { defineProfile, getProfile, registerProfile } from '../src/kernel/registry/profiles.ts';
+import {
+  getProfile,
+  registerProfile,
+  registerStructured,
+  runTurn,
+} from '../src/kernel/default-scope.ts';
+import { defineProfile } from '../src/kernel/registry/profiles.ts';
 import { requireModelProfile } from '../src/kernel/registry/resolve.ts';
-import { registerStructured } from '../src/kernel/registry/schemas.ts';
 import type {
   BuiltinToolId,
   ModelBinding,
@@ -148,10 +152,7 @@ function collect(events: TurnEvent[]) {
   const media = events.filter((e) => e.type === 'media');
   const errors = events.filter((e) => e.type === 'error');
   const structured = events.find((e) => e.type === 'structured')?.structured;
-  const text = events
-    .filter((e) => e.type === 'text')
-    .map((e) => e.text ?? '')
-    .join('');
+  const text = events.flatMap((e) => (e.type === 'text' ? [e.text] : [])).join('');
   return { calls, results, media, errors, structured, text, events };
 }
 
@@ -165,10 +166,12 @@ async function runCase(
   try {
     for await (const event of runTurn(req, provider)) {
       events.push(event);
-      if (event.type === 'evidence' && event.evidence?.kind?.startsWith('code_execution')) {
+      if (event.type === 'evidence' && event.evidence.kind === 'code_execution_call') {
+        console.log(`  evidence ${event.evidence.kind} code=${event.evidence.code.slice(0, 60)}`);
+      } else if (event.type === 'evidence' && event.evidence.kind === 'code_execution_result') {
         const e = event.evidence;
         console.log(
-          `  evidence ${e.kind} code=${(e.code ?? '').slice(0, 60)} result=${(e.result ?? '').slice(0, 60)} isError=${String(e.isError)}`,
+          `  evidence ${e.kind} result=${(e.result ?? '').slice(0, 60)} isError=${String(e.isError)}`,
         );
       } else if (event.type === 'media') {
         console.log(`  media ${event.media?.mimeType} len=${event.media?.data?.length ?? 0}`);

@@ -9,7 +9,10 @@
  * @module
  */
 
+import type { GuardrailEvent, GuardrailHit, Provenance } from './event-schemas.ts';
 import type { LexiconOverrides } from './lexicon.ts';
+
+export type { GuardrailEvent, GuardrailHit, Provenance };
 
 /**
  * Origin trust for text entering the model's context.
@@ -52,20 +55,6 @@ export const EGRESS_ON_BLOCK = ['reject_to_agent', 'refuse_to_user'] as const;
 /** The action to take when an egress guardrail blocks output. */
 export type EgressOnBlock = (typeof EGRESS_ON_BLOCK)[number];
 
-/** One detector match. */
-export interface GuardrailHit {
-  /** Stable rule id, e.g. `injection.instruction-override`. */
-  rule: string;
-  severity: Severity;
-  /** Offsets into the inspected text; absent for whole-payload checks. */
-  span?: { start: number; end: number };
-  /**
-   * Exact matched text, whole. Present when detectors had the source text.
-   * Stripped from host/trace unless `observability.include.guardrailMatchPreview`.
-   */
-  match?: string;
-}
-
 /**
  * Outcome of one guardrail evaluation.
  *
@@ -91,8 +80,15 @@ export type Verdict =
       errorInternal?: string;
     };
 
+/** Every action a guardrail verdict can select. */
+export const GUARDRAIL_ACTIONS = [
+  'allow',
+  'redact',
+  'flag',
+  'block',
+] as const satisfies readonly Verdict['action'][];
 /** The action selected by a guardrail verdict. */
-export type GuardrailAction = Verdict['action'];
+export type GuardrailAction = (typeof GUARDRAIL_ACTIONS)[number];
 
 /**
  * Where a tool result came from.
@@ -105,20 +101,6 @@ export type GuardrailAction = Verdict['action'];
 export const TOOL_ORIGINS = ['local', 'builtin', 'http', 'mcp', 'delegated'] as const;
 /** Source category for a registered tool result. */
 export type ToolOrigin = (typeof TOOL_ORIGINS)[number];
-
-/** Where a piece of content entered the turn from. */
-export interface Provenance {
-  origin: ToolOrigin;
-  /** Registered tool name. */
-  tool: string;
-  /**
-   * Hops from the user's turn. A direct tool call is 1; a tool result produced by
-   * a delegated agent that itself called tools is deeper. Depth matters because a
-   * two-hop delegation can otherwise launder remote content into trusted-looking
-   * output.
-   */
-  depth: number;
-}
 
 /**
  * Untrusted content a turn has already taken into its context.
@@ -206,23 +188,6 @@ export interface GuardrailContext {
   provenance?: Provenance;
   /** The profile's lexicon, so a policy's rejection reads in the host's wording. */
   lexicon?: LexiconOverrides;
-}
-
-/**
- * One guardrail decision, as it reaches the host and the trace.
- *
- * Carries rule identity and offsets. Matched text rides only under
- * `observability.include.guardrailMatchPreview`, so by default a trace sink can
- * count and locate hits without becoming a second copy of the secret.
- */
-export interface GuardrailEvent {
-  stage: GuardrailStage;
-  trust: TrustLevel;
-  action: GuardrailAction;
-  hits: GuardrailHit[];
-  provenance?: Provenance;
-  /** The block verdict's `errorInternal`: builder-only, stripped by `forClient`. */
-  errorInternal?: string;
 }
 
 /**

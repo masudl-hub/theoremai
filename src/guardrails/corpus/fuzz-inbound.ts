@@ -5,7 +5,7 @@
  */
 
 /** lexicon-exempt-file: adversarial corpus fixture — not runtime user or model copy (P2) */
-import { clearProfiles, registerProfile } from '../../kernel/registry/profiles.ts';
+import { clearProfiles, getProfile, registerProfile } from '../../kernel/default-scope.ts';
 import type { TurnRequest } from '../../kernel/types.ts';
 import { injectionSpans } from '../injection.ts';
 import { sanitizeText, sanitizeTurnRequest } from '../sanitize.ts';
@@ -63,7 +63,7 @@ function testTurnRequest(payloads: InboundFuzzPayload[]): InboundFuzzResult[] {
   for (const p of payloads) {
     const textReq: TurnRequest = { profile: FUZZ_PROFILE_ID, input: { text: p.text } };
     try {
-      const safe = sanitizeTurnRequest(textReq);
+      const safe = sanitizeTurnRequest(textReq, getProfile(textReq.profile));
       const output = safe.input?.text ?? '';
       results.push({
         payload: p,
@@ -87,7 +87,7 @@ function testTurnRequest(payloads: InboundFuzzPayload[]): InboundFuzzResult[] {
       input: { text: 'hello', slots: { payload: p.text } },
     };
     try {
-      const safe = sanitizeTurnRequest(slotReq);
+      const safe = sanitizeTurnRequest(slotReq, getProfile(slotReq.profile));
       const output = safe.input?.slots?.payload ?? '';
       results.push({
         payload: p,
@@ -112,7 +112,7 @@ function testTurnRequest(payloads: InboundFuzzPayload[]): InboundFuzzResult[] {
       input: { text: 'hello' },
     };
     try {
-      const safe = sanitizeTurnRequest(sysReq);
+      const safe = sanitizeTurnRequest(sysReq, getProfile(sysReq.profile));
       const output = safe.system ?? '';
       results.push({
         payload: p,
@@ -136,7 +136,7 @@ function testTurnRequest(payloads: InboundFuzzPayload[]): InboundFuzzResult[] {
       input: { text: 'hello', history: [{ role: 'user', content: p.text }] },
     };
     try {
-      const safe = sanitizeTurnRequest(histReq);
+      const safe = sanitizeTurnRequest(histReq, getProfile(histReq.profile));
       const output = safe.input?.history?.[0]?.content ?? '';
       results.push({
         payload: p,

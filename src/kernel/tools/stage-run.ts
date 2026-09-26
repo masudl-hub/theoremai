@@ -10,9 +10,15 @@
 import type { z } from 'zod';
 import { lexiconText } from '../../guardrails/lexicon.ts';
 import type { SpanHandle } from '../../observability/trace-span.ts';
-import { runStage, type StageHandler, type StageResult, stageEventFields } from '../stages.ts';
+import {
+  type InjectUnit,
+  runStage,
+  type StageHandler,
+  type StageResult,
+  stageEventFields,
+} from '../stages.ts';
 import type { Profile, TurnEvent, TurnHistoryMessage } from '../types.ts';
-import type { ToolCallBase } from './events.ts';
+import { type ToolCallBase, toolEvent } from './events.ts';
 import { isGateResumeGranted } from './permission.ts';
 import { plainToolInput } from './schema.ts';
 import type { ModelToolResult, ToolContext, ToolFailure, ToolGate } from './types.ts';
@@ -27,8 +33,6 @@ export interface ToolStageSupport {
   history: () => readonly TurnHistoryMessage[];
   injectAllowed: boolean;
   injectWouldExceedMaxSteps?: boolean;
-  /** Apply sanitized inject messages immediately instead of handing them back. */
-  applyInject?: (messages: TurnHistoryMessage[]) => void;
   host?: unknown;
   signal?: AbortSignal;
   /** The call's `execute_tool` span; `pre_tool` / `post_tool` record on it. */
@@ -67,8 +71,8 @@ export type PreBodyOutcome =
 
 export type PostToolStageOutcome = {
   abort?: boolean | { reason?: string };
-  /** Sanitized inject messages for the caller to apply after recording the tool result. */
-  inject?: TurnHistoryMessage[];
+  /** Sanitized injects for the caller to land after recording the tool result. */
+  inject: InjectUnit[];
   /** Host refused the result: the model gets this failure instead. */
   deny?: { code: string; message: string };
   /** Host replaced the raw output; the caller re-validates and re-projects it. */
@@ -76,7 +80,7 @@ export type PostToolStageOutcome = {
 };
 
 /**
- * Tool-local `preTool` (skipped when resume.granted) → host `pre_tool` →
+ * Tool-local `preTool` (skipped when approved unedited) → host `pre_tool` →
  * mutate re-parse. Emits the gate wire for a host confirm.
  */
 export async function* runPreToolPipeline(args: {
@@ -95,7 +99,9 @@ export async function* runPreToolPipeline(args: {
 }): AsyncGenerator<TurnEvent, PreBodyOutcome> {
   const { tool, ctx, base, stages } = args;
   let toolPreTool: StageResult | undefined;
-  if (tool.preTool && !isGateResumeGranted(ctx.resume)) {
+  // An approval skips the tool's own check it already passed — unless the user edited the arguments.
+  const approvedAsIs = isGateResumeGranted(ctx.resume) && ctx.resume?.edited === undefined;
+  if (tool.preTool && !approvedAsIs) {
     toolPreTool = (await tool.preTool(args.input as never, ctx)) ?? undefined;
   }
   if (!stages && toolPreTool === undefined) {
@@ -104,12 +110,12 @@ export async function* runPreToolPipeline(args: {
   const pre = yield* runPreToolStages({
     stages: stages ?? defaultToolStageSupport(ctx),
     toolName: tool.name,
-    callId: base.callId ?? '',
+    callId: base.callId,
     input: args.input,
     toolPreTool,
   });
   if (!pre.ok) {
-    if (pre.kind === 'gated') yield gateEvent(base, pre.gate);
+    if (pre.kind === 'gated') yield toolEvent(base, { phase: 'gate', gate: pre.gate });
     return pre;
   }
   if (!pre.mutated) return { ok: true, input: pre.input };
@@ -215,30 +221,11 @@ export async function* runPostToolStages(args: {
     tool: toolName,
   });
 
-  const terminal: Omit<PostToolStageOutcome, 'inject'> = {
+  return {
     ...(applied.abort !== undefined ? { abort: applied.abort } : {}),
     ...(applied.deny ? { deny: applied.deny } : {}),
     ...(applied.mutate && 'output' in applied.mutate ? { mutate: applied.mutate } : {}),
-  };
-  if (applied.inject.length === 0) return terminal;
-  // Prefer returning inject for the runner to apply after recording the provider
-  // tool result (Interactions continuation must exist first). When applyInject is
-  // set the caller wants immediate apply (e.g. invokeTool).
-  if (stages.applyInject) {
-    stages.applyInject(applied.inject);
-    return terminal;
-  }
-  return { ...terminal, inject: applied.inject };
-}
-
-function gateEvent(base: ToolCallBase, gate: ToolGate): TurnEvent {
-  return {
-    type: 'tool',
-    tool: {
-      ...base,
-      phase: 'gate',
-      gate,
-    },
+    inject: applied.inject,
   };
 }
 
@@ -255,5 +242,5 @@ export async function* emitGateSettlement(args: {
     callNotStarted: true,
     gate: args.gate,
   });
-  yield gateEvent(args.base, args.gate);
+  yield toolEvent(args.base, { phase: 'gate', gate: args.gate });
 }

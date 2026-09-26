@@ -1,9 +1,10 @@
 import '../fixtures/test-host.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
+import { registerProfile, resolveTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import { defineProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
-import { resolveTurn } from '../../src/kernel/registry/resolve.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { providerUsesKeySlots, resolveKeySlot } from '../../src/kernel/registry/vault.ts';
+import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import type { ModelBinding } from '../../src/kernel/types.ts';
 
 const stubBinding: ModelBinding = {
@@ -19,13 +20,16 @@ Deno.test('providerUsesKeySlots covers google and openrouter only', () => {
 });
 
 Deno.test('resolveKeySlot is optional for openrouter when nothing pins a slot', () => {
-  assertEquals(resolveKeySlot(undefined, stubBinding, [], false), undefined);
+  assertEquals(
+    resolveKeySlot(defaultKernelScope.tools, undefined, stubBinding, [], false),
+    undefined,
+  );
 });
 
 Deno.test('resolveKeySlot is required for google when nothing pins a slot', () => {
   let thrown: unknown;
   try {
-    resolveKeySlot(undefined, stubBinding, [], true);
+    resolveKeySlot(defaultKernelScope.tools, undefined, stubBinding, [], true);
   } catch (err) {
     thrown = err;
   }

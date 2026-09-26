@@ -12,9 +12,20 @@ import {
   toErrorEvent,
   withPublicWording,
 } from '../../src/guardrails/error.ts';
-import { lexiconDefault, overrideLexicon, resetLexicon } from '../../src/guardrails/lexicon.ts';
+import {
+  type LexiconOverrides,
+  lexiconDefault,
+  overrideLexicon,
+  resetLexicon,
+} from '../../src/guardrails/lexicon.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import type { TurnEvent } from '../../src/kernel/types.ts';
+import { firstOf, toolEventsOf } from '../fixtures/events.ts';
+
+/** An event's wording, read back as its error. */
+function wordedError(event: TurnEvent, lexicon?: LexiconOverrides) {
+  return firstOf([withPublicWording(event, lexicon)], 'error');
+}
 
 /** The locked user lines, one per kind. */
 const LOCKED: Record<ErrorKind, string> = {
@@ -119,40 +130,41 @@ Deno.test('toErrorEvent keeps a failure copy for the host boundary', () => {
   const ev = toErrorEvent(new TheoremError('input', 'image/png is 3000000 bytes', { copy }));
   assertEquals(ev.errorCopy, copy);
   assertEquals(
-    withPublicWording(ev).error,
+    wordedError(ev)?.error,
     'Sorry, that file is too large. Each file needs to be 2 MB or smaller.',
   );
 });
 
 Deno.test('withPublicWording words error events with the profile lexicon', () => {
   const ev = toErrorEvent(new TheoremError('auth', 'no key in slot free'));
-  assertEquals(withPublicWording(ev).error, LOCKED.auth);
+  assertEquals(wordedError(ev)?.error, LOCKED.auth);
   const lexicon = { 'error.auth': 'Add your API key in settings to continue.' };
-  assertEquals(withPublicWording(ev, lexicon).error, lexicon['error.auth']);
-  assertEquals(withPublicWording(ev, lexicon).errorInternal, 'no key in slot free');
+  assertEquals(wordedError(ev, lexicon)?.error, lexicon['error.auth']);
+  assertEquals(wordedError(ev, lexicon)?.errorInternal, 'no key in slot free');
 });
 
 Deno.test('withPublicWording keeps wording already set', () => {
   const ev = { ...toErrorEvent(new TheoremError('failed', 'x')), error: 'Host copy.' };
-  assertEquals(withPublicWording(ev).error, 'Host copy.');
+  assertEquals(wordedError(ev)?.error, 'Host copy.');
 });
 
 Deno.test('withPublicWording words a failed tool step with its tool name', () => {
-  const ev = {
-    type: 'tool' as const,
+  const ev: TurnEvent = {
+    type: 'tool',
     tool: {
       name: 'send_email',
-      phase: 'error' as const,
-      failure: { code: 'network_blocked', kind: 'blocked' as const, message: 'blocked host' },
+      callId: 'c1',
+      at: 0,
+      phase: 'error',
+      failure: { code: 'network_blocked', kind: 'blocked', message: 'blocked host' },
     },
   };
-  assertEquals(withPublicWording(ev).tool?.failure?.error, LOCKED.blocked);
+  const failure = (lexicon?: LexiconOverrides) =>
+    toolEventsOf([withPublicWording(ev, lexicon)], 'error')[0]?.failure;
+  assertEquals(failure()?.error, LOCKED.blocked);
   const lexicon = { 'error.blocked': "Sorry, '{tool}' wasn't allowed." };
-  assertEquals(
-    withPublicWording(ev, lexicon).tool?.failure?.error,
-    "Sorry, 'send_email' wasn't allowed.",
-  );
-  assertEquals(withPublicWording(ev, lexicon).tool?.failure?.message, 'blocked host');
+  assertEquals(failure(lexicon)?.error, "Sorry, 'send_email' wasn't allowed.");
+  assertEquals(failure(lexicon)?.message, 'blocked host');
 });
 
 Deno.test('withPublicWording leaves other events untouched', () => {
@@ -220,22 +232,4 @@ Deno.test('describeError returns the raw detail', () => {
   assertEquals(describeError(42), '42');
   assertEquals(describeError(null), 'null');
   assertEquals(describeError(new Error('')), 'Error');
-});
-
-Deno.test('withPublicWording words an ended session with the profile lexicon', () => {
-  const ev: TurnEvent = {
-    type: 'session',
-    session: { kind: 'ended', ended: { cause: 'go_away', code: 1000, closedAfterMs: 0 } },
-  };
-  assertEquals(
-    withPublicWording(ev).session?.message,
-    'The call has ended. Please start a new one to carry on.',
-  );
-  const lexicon = { 'live.session_ended': 'That call is over. Start another any time.' };
-  assertEquals(withPublicWording(ev, lexicon).session?.message, lexicon['live.session_ended']);
-  const worded = {
-    ...ev,
-    session: { ...ev.session, kind: 'ended' as const, message: 'Host copy.' },
-  };
-  assertEquals(withPublicWording(worded).session?.message, 'Host copy.');
 });

@@ -11,11 +11,8 @@ import { isAwaitingUserInput } from '../kernel/stages.ts';
 import type { ToolGate, TurnToolSnapshot } from '../kernel/tools/types.ts';
 import type { ModelId, ToolId, TurnEvent, TurnHistoryMessage } from '../kernel/types.ts';
 import { findLast } from '../kernel/util/find-last.ts';
-import {
-  appendAssistantEventsToHistory,
-  appendToolDenialToHistory,
-  historyFromTranscriptBlocks,
-} from './history.ts';
+import { appendAssistantEventsToHistory, historyFromTranscriptBlocks } from './history.ts';
+import { toolCallsOf } from './tool-calls.ts';
 import { promotedToolIdsFromEvents, toolSnapshotFromEvents } from './tool-invoke.ts';
 import type { TranscriptBlock, UserTurnDraft } from './types.ts';
 
@@ -24,9 +21,11 @@ export type ToolGateAuth = { slot: string; authType: ToolAuthType };
 
 export type GatedToolContext = {
   name: string;
-  input: unknown;
-  callId?: string;
-  arguments?: Record<string, unknown>;
+  callId: string;
+  /** What the model proposed. */
+  arguments: Record<string, unknown>;
+  /** The call's `ToolCallRequest.thoughtSignature`, for recording the call in history. */
+  thoughtSignature?: string;
   gateKind: ToolGate['kind'];
   permission?: ToolGate['permission'];
   summary?: string;
@@ -36,8 +35,8 @@ export type GatedToolContext = {
 
 export type AwaitingToolContext = {
   name: string;
-  callId?: string;
-  arguments?: Record<string, unknown>;
+  callId: string;
+  arguments: Record<string, unknown>;
   kind: string;
   prompt: string;
   options?: string[];
@@ -83,49 +82,49 @@ function emptyInterfaceTurnSession(): InterfaceTurnSession {
   };
 }
 
-function gatedToolFromEvents(events: readonly TurnEvent[]): GatedToolContext | null {
-  const done = findLast(events, (event) => event.type === 'done');
-  if (done?.stop?.kind !== 'gate' && done?.stop?.kind !== 'tool') {
-    return null;
-  }
-  const gateEvent = findLast(
-    events,
-    (event) => event.type === 'tool' && event.tool?.phase === 'gate' && !!event.tool.gate,
+/**
+ * Every call still waiting on its gate, in the order the model made them. One
+ * step can leave several: a gate holds only its own call.
+ */
+function gatedToolsFromEvents(events: readonly TurnEvent[]): GatedToolContext[] {
+  const paused = events.some(
+    (event) => event.type === 'done' && (event.stop.kind === 'gate' || event.stop.kind === 'tool'),
   );
-  const tool = gateEvent?.tool;
-  if (tool?.gate) {
-    return {
-      name: tool.name,
-      input: tool.arguments ?? {},
-      callId: tool.callId ?? tool.id,
-      arguments: tool.arguments,
-      gateKind: tool.gate.kind,
-      permission: tool.gate.permission,
-      summary: tool.gate.summary,
-      ...(tool.gate.authChallenge
-        ? {
-            auth: {
-              slot: tool.gate.authChallenge.slot,
-              authType: tool.gate.authChallenge.authType,
-            },
-          }
-        : {}),
-    };
-  }
-  return null;
+  if (!paused) return [];
+  return toolCallsOf(events).flatMap((call) => {
+    if (call.state?.phase !== 'gate') return [];
+    const { gate } = call.state;
+    return [
+      {
+        name: call.name,
+        callId: call.callId,
+        arguments: call.arguments,
+        ...(call.thoughtSignature ? { thoughtSignature: call.thoughtSignature } : {}),
+        gateKind: gate.kind,
+        permission: gate.permission,
+        summary: gate.summary,
+        ...(gate.kind === 'auth'
+          ? { auth: { slot: gate.authChallenge.slot, authType: gate.authChallenge.authType } }
+          : {}),
+      },
+    ];
+  });
+}
+
+/** The gate the user answers next: the first call still waiting. */
+function gatedToolFromEvents(events: readonly TurnEvent[]): GatedToolContext | null {
+  return gatedToolsFromEvents(events)[0] ?? null;
 }
 
 function awaitingFromEvents(events: readonly TurnEvent[]): AwaitingToolContext | null {
-  const complete = findLast(
-    events,
-    (event) => event.type === 'tool' && event.tool?.phase === 'complete',
-  );
-  const output = complete?.tool?.output;
+  const call = findLast(toolCallsOf(events), (c) => c.state?.phase === 'complete');
+  if (call?.state?.phase !== 'complete') return null;
+  const { output } = call.state;
   if (!isAwaitingUserInput(output)) return null;
   return {
-    name: complete?.tool?.name ?? '',
-    callId: complete?.tool?.callId,
-    arguments: complete?.tool?.arguments,
+    name: call.name,
+    callId: call.callId,
+    arguments: call.arguments,
     kind: output.kind,
     prompt: output.prompt,
     options: output.options,
@@ -143,13 +142,14 @@ function applyTurnEventsToSession(
   let promotedToolIds = session.promotedToolIds;
 
   for (const event of events) {
-    if (event.interactionId) {
+    if ((event.type === 'tokens' || event.type === 'done') && event.interactionId) {
       previousInteractionId = event.interactionId;
     }
-    if (event.tokens?.input) {
+    // A call's own input size, not the turn's sum (`done.tokens`).
+    if (event.type === 'tokens' && event.tokens.input) {
       inputTokens = event.tokens.input;
     }
-    if (event.compaction?.tokens !== undefined) {
+    if (event.type === 'done' && event.compaction?.tokens !== undefined) {
       historyTokens = event.compaction.tokens;
     }
   }
@@ -185,11 +185,10 @@ function applyTurnEventsToSession(
 function branchInterfaceTurnSession(
   session: InterfaceTurnSession,
   blocks: readonly TranscriptBlock[],
-  lexicon: LexiconOverrides | undefined,
 ): InterfaceTurnSession {
   return {
     ...emptyInterfaceTurnSession(),
-    history: historyFromTranscriptBlocks(blocks, lexicon),
+    history: historyFromTranscriptBlocks(blocks),
     sessionPermissions: [...session.sessionPermissions],
     inputTokens: session.inputTokens,
     historyTokens: session.historyTokens,
@@ -198,26 +197,28 @@ function branchInterfaceTurnSession(
   };
 }
 
-function markGatedToolCancelled(
+/** Cancels every call still waiting on a gate. */
+function markGatedToolsCancelled(
   events: readonly TurnEvent[],
-  gated: GatedToolContext,
   lexicon: LexiconOverrides | undefined,
 ): TurnEvent[] {
+  const waiting = new Set(gatedToolsFromEvents(events).map((gated) => gated.callId));
   return events.map((event): TurnEvent => {
     if (event.type !== 'tool') return event;
-    if (event.tool?.phase !== 'gate') return event;
+    if (event.tool.phase !== 'gate' || !waiting.has(event.tool.callId)) return event;
+    const { name, callId } = event.tool;
     return withPublicWording(
       {
         type: 'tool',
         tool: {
-          name: gated.name,
-          callId: gated.callId ?? event.tool.callId,
-          arguments: gated.arguments ?? event.tool.arguments,
+          name,
+          callId,
+          at: Date.now(),
           phase: 'error',
           failure: {
             code: 'cancelled',
             kind: 'cancelled',
-            message: lexiconText('session.abandon_gated', { tool: gated.name }, lexicon),
+            message: lexiconText('session.abandon_gated', { tool: name }, lexicon),
           },
         },
       },
@@ -240,25 +241,13 @@ function abandonGatedToolSession(
   session: InterfaceTurnSession;
   finalizedEvents: TurnEvent[];
 } {
-  const gated = session.gatedTool;
-  if (!gated) {
+  if (!session.gatedTool) {
     return { session, finalizedEvents: [...session.assistantEvents] };
   }
 
-  const finalizedEvents = markGatedToolCancelled(session.assistantEvents, gated, lexicon);
-  const history = appendToolDenialToHistory(
-    appendAssistantEventsToHistory(session.history, finalizedEvents, lexicon),
-    {
-      name: gated.name,
-      callId: gated.callId,
-      arguments: gated.arguments,
-      failure: {
-        code: 'cancelled',
-        message: lexiconText('session.abandon_gated', { tool: gated.name }, lexicon),
-      },
-    },
-    lexicon,
-  );
+  // Each cancelled call's `error` records it in history, once.
+  const finalizedEvents = markGatedToolsCancelled(session.assistantEvents, lexicon);
+  const history = appendAssistantEventsToHistory(session.history, finalizedEvents);
 
   return {
     finalizedEvents,
@@ -282,4 +271,5 @@ export {
   branchInterfaceTurnSession,
   emptyInterfaceTurnSession,
   gatedToolFromEvents,
+  gatedToolsFromEvents,
 };

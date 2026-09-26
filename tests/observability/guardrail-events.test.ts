@@ -1,21 +1,14 @@
 import '../fixtures/test-host.ts';
 import { standardEgressEnforce } from '../../src/guardrails/egress.ts';
+import { getProfile, registerProfile, runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import { runTurn } from '../../src/kernel/engine/runner.ts';
-import { defineProfile, getProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { requireModelProfile } from '../../src/kernel/registry/resolve.ts';
 import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
 import type { TraceRecord } from '../../src/observability/trace-record.ts';
 import type { TraceAttributes } from '../../src/observability/trace-span.ts';
+import { guardrailAt } from '../fixtures/events.ts';
 import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
-
-async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
-  const out: TurnEvent[] = [];
-  for await (const event of gen) {
-    out.push(event);
-  }
-  return out;
-}
 
 async function* fakeComplete(): AsyncGenerator<TurnEvent> {
   await Promise.resolve();
@@ -34,7 +27,7 @@ function inputGuardrailHits(record: TraceRecord | undefined): TraceAttributes[] 
 
 Deno.test('runTurn emits sanitize guardrail events and persists them in the trace', async () => {
   const into: TraceRecord[] = [];
-  const events = await collect(
+  const events = await Array.fromAsync(
     runTurn(
       {
         profile: 'chat',
@@ -44,16 +37,16 @@ Deno.test('runTurn emits sanitize guardrail events and persists them in the trac
       catalogedSink(into),
     ),
   );
-  const guardrail = events.find((e) => e.type === 'guardrail' && e.guardrail?.stage === 'input');
-  assertEquals(Boolean(guardrail?.guardrail), true);
-  assertEquals(guardrail?.guardrail?.action, 'redact');
-  assertEquals((guardrail?.guardrail?.hits.length ?? 0) > 0, true);
+  const guardrail = guardrailAt(events, 'input');
+  assertEquals(Boolean(guardrail), true);
+  assertEquals(guardrail?.action, 'redact');
+  assertEquals((guardrail?.hits.length ?? 0) > 0, true);
 
   assertEquals(into.length, 1);
   const [hit] = inputGuardrailHits(into[0]);
   assertEquals(hit?.rule, 'sanitize.injection');
   // Match preview is opt-in — default stream + JSONL strip it.
-  assertEquals(guardrail?.guardrail?.hits[0]?.match, undefined);
+  assertEquals(guardrail?.hits[0]?.match, undefined);
   assertEquals(Object.hasOwn(hit ?? {}, 'match'), false);
 });
 
@@ -71,7 +64,7 @@ Deno.test('include.guardrailMatchPreview keeps matched substring on stream and t
     }),
   );
 
-  const events = await collect(
+  const events = await Array.fromAsync(
     runTurn(
       {
         profile: 'chat-guardrail-match-preview',
@@ -80,13 +73,13 @@ Deno.test('include.guardrailMatchPreview keeps matched substring on stream and t
       fake,
     ),
   );
-  const guardrail = events.find((e) => e.type === 'guardrail' && e.guardrail?.stage === 'input');
-  assertEquals(typeof guardrail?.guardrail?.hits[0]?.match, 'string');
-  assertEquals((guardrail?.guardrail?.hits[0]?.match?.length ?? 0) > 0, true);
+  const guardrail = guardrailAt(events, 'input');
+  assertEquals(typeof guardrail?.hits[0]?.match, 'string');
+  assertEquals((guardrail?.hits[0]?.match?.length ?? 0) > 0, true);
 
   assertEquals(into.length, 1);
   const [hit] = inputGuardrailHits(into[0]);
-  assertEquals(hit?.match, guardrail?.guardrail?.hits[0]?.match);
+  assertEquals(hit?.match, guardrail?.hits[0]?.match);
 });
 
 Deno.test('runTurn emits egress guardrail events on block', async () => {
@@ -112,7 +105,7 @@ Deno.test('runTurn emits egress guardrail events on block', async () => {
     yield { type: 'text', text: 'Here is a key sk-abcdefghijklmnopqrstuvwxyz0123456789' };
   }
 
-  const events = await collect(
+  const events = await Array.fromAsync(
     runTurn(
       {
         profile: 'chat-egress-obs',
@@ -121,11 +114,9 @@ Deno.test('runTurn emits egress guardrail events on block', async () => {
       { complete: leaky },
     ),
   );
-  const egress = events.find(
-    (e) => e.type === 'guardrail' && e.guardrail?.stage === 'output_final',
-  );
-  assertEquals(Boolean(egress?.guardrail), true);
-  assertEquals(egress?.guardrail?.action, 'block');
+  const egress = guardrailAt(events, 'output_final');
+  assertEquals(Boolean(egress), true);
+  assertEquals(egress?.action, 'block');
 });
 
 Deno.test('include.guardrailDecisions false drops guardrail rows from TraceRecord', async () => {
@@ -142,7 +133,7 @@ Deno.test('include.guardrailDecisions false drops guardrail rows from TraceRecor
     }),
   );
 
-  await collect(
+  await Array.fromAsync(
     runTurn(
       {
         profile: 'chat-no-guardrail-trace',
@@ -188,7 +179,7 @@ Deno.test('a failed egress policy tells the builder why and the model only that 
     },
   };
 
-  const events = await collect(
+  const events = await Array.fromAsync(
     runTurn({ profile: 'chat-egress-policy-failed', input: { text: 'hi' } }, recording),
   );
 
@@ -204,13 +195,8 @@ Deno.test('a failed egress policy tells the builder why and the model only that 
   );
 
   // The builder reads it on the host stream and in the trace.
-  const blocked = events.find(
-    (e) => e.type === 'guardrail' && e.guardrail?.stage === 'output_final',
-  );
-  assertEquals(
-    blocked?.guardrail?.errorInternal,
-    'classifier at 10.0.0.7 rejected token tk_synthetic_123',
-  );
+  const blocked = guardrailAt(events, 'output_final');
+  assertEquals(blocked?.errorInternal, 'classifier at 10.0.0.7 rejected token tk_synthetic_123');
   const traced = into[0]?.spans
     .flatMap((span) => span.events)
     .find((e) => e.name === 'theorem.guardrail' && e.attributes.stage === 'output_final');

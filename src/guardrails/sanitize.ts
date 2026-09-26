@@ -5,8 +5,7 @@
  */
 
 import { sanitizeTurnBlobs } from '../kernel/registry/attachments.ts';
-import { getProfile } from '../kernel/registry/profiles.ts';
-import type { NormalizedTurnRequest, TurnEvent, TurnRequest } from '../kernel/types.ts';
+import type { NormalizedTurnRequest, Profile, TurnEvent, TurnRequest } from '../kernel/types.ts';
 import { applySpans } from '../observability/spans.ts';
 import { guardrailFromHits } from './events.ts';
 import { hitFromSpan } from './hits.ts';
@@ -151,20 +150,9 @@ function sanitizeHistory(
   });
 }
 
-/**
- * Detection switches for one profile at one trust level.
- *
- * Falls back to full detection when the profile is not registered yet, so an
- * unknown id never silently disables guardrails.
- */
-function detectionForProfile(profileId: string, trust: TrustLevel): DetectionOptions {
-  let spec: import('./types.ts').ProfileGuardrailsSpec | undefined;
-  try {
-    spec = getProfile(profileId)?.guardrails;
-  } catch {
-    // If profile not registered yet, default to full guardrails.
-  }
-  return detectionForTrust(resolveGuardrailPolicy(spec), trust);
+/** Detection switches for one profile at one trust level. */
+function detectionForProfile(profile: Profile, trust: TrustLevel): DetectionOptions {
+  return detectionForTrust(resolveGuardrailPolicy(profile.guardrails), trust);
 }
 
 function pushStageEvent(
@@ -191,10 +179,10 @@ function pushStageEvent(
  */
 function sanitizeTurnRequestText(
   req: TurnRequest,
-  profileId: string,
+  profile: Profile,
 ): { request: NormalizedTurnRequest; events: TurnEvent[] } {
-  const untrusted = detectionForProfile(profileId, 'untrusted');
-  const assembled = detectionForProfile(profileId, 'assembled');
+  const untrusted = detectionForProfile(profile, 'untrusted');
+  const assembled = detectionForProfile(profile, 'assembled');
   const input = req.input ?? {};
   const events: TurnEvent[] = [];
   const inputHits: GuardrailHit[] = [];
@@ -243,24 +231,27 @@ function sanitizeTurnRequestText(
   };
 }
 
-/** Sanitize all user-controlled text and blobs in a turn request. */
-function sanitizeTurnRequest(req: TurnRequest): NormalizedTurnRequest {
-  return sanitizeTurnRequestWithEvents(req).request;
+/** Sanitize all user-controlled text and blobs in a turn request under `profile`'s guardrails. */
+function sanitizeTurnRequest(req: TurnRequest, profile: Profile): NormalizedTurnRequest {
+  return sanitizeTurnRequestWithEvents(req, profile).request;
 }
 
 /**
  * Sanitize a turn request and return guardrail events for any redactionsactions spans.
  * Attachments/voice are validated but do not emit content-span events.
  */
-function sanitizeTurnRequestWithEvents(req: TurnRequest): {
+function sanitizeTurnRequestWithEvents(
+  req: TurnRequest,
+  profile: Profile,
+): {
   request: NormalizedTurnRequest;
   events: TurnEvent[];
 } {
-  const { request: textSafe, events } = sanitizeTurnRequestText(req, req.profile);
+  const { request: textSafe, events } = sanitizeTurnRequestText(req, profile);
   const input = textSafe.input ?? {};
   const { attachments, voice } =
     input.attachments?.length || input.voice?.length
-      ? sanitizeTurnBlobs(getProfile(req.profile), input.attachments, input.voice)
+      ? sanitizeTurnBlobs(profile, input.attachments, input.voice)
       : input;
   return {
     request: {

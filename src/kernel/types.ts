@@ -33,8 +33,9 @@ import type {
   TurnStage,
   TurnStopKind,
 } from './schema.ts';
-import type { StageApplyWarning, StageHandler } from './stages.ts';
+import type { StageHandler } from './stages.ts';
 import type {
+  BuiltinWire,
   HostProfileToolsSpec,
   InvokeToolRequest,
   InvokeToolResume,
@@ -50,16 +51,51 @@ import type {
   TurnToolSnapshot,
   WireFunctionTool,
 } from './tools/types.ts';
+import type {
+  CallDone,
+  CompactionSignal,
+  DoneFields,
+  GroundingEvent,
+  InteractionMediaPart,
+  InteractionMediaRefPart,
+  InteractionPart,
+  InteractionTextPart,
+  ProviderEvent,
+  ProviderEvidence,
+  SessionEnded,
+  SessionEvent,
+  SessionEventKind,
+  SessionEventOf,
+  Source,
+  TurnCost,
+  TurnEvent,
+  TurnEventOf,
+  TurnEventType,
+  TurnGroundingCount,
+  TurnHistoryMessage,
+  TurnResponse,
+  TurnTokenSide,
+  TurnTokens,
+} from './turn-events.ts';
 
 export type {
   CacheMode,
   CacheTtl,
+  CallDone,
   CompactionMeter,
+  CompactionSignal,
   CompactionTiming,
   ContinueStopKind,
+  DoneFields,
   FieldMeta,
+  GroundingEvent,
   HostProfileToolsSpec,
+  InteractionMediaPart,
+  InteractionMediaRefPart,
+  InteractionPart,
+  InteractionTextPart,
   InvokeToolRequest,
+  InvokeToolResume,
   KeySlot,
   KeyVault,
   LiveActivityHandling,
@@ -72,18 +108,35 @@ export type {
   ProfileTypeProtocol,
   Protocol,
   Provider,
+  ProviderEvent,
+  ProviderEvidence,
   RegisteredTool,
+  SessionEnded,
+  SessionEvent,
+  SessionEventKind,
+  SessionEventOf,
+  Source,
   SpeechAudioFormat,
   StreamMode,
   SummaryMode,
   ThinkingLevel,
   ToolCallEvent,
+  ToolFailure,
   ToolGate,
   ToolLoadContext,
   ToolLoadTier,
   ToolPolicy,
+  TurnCost,
+  TurnEvent,
+  TurnEventOf,
+  TurnEventType,
+  TurnGroundingCount,
+  TurnHistoryMessage,
+  TurnResponse,
   TurnStage,
   TurnStopKind,
+  TurnTokenSide,
+  TurnTokens,
   TurnToolSnapshot,
   WireFunctionTool,
 };
@@ -98,6 +151,18 @@ export type ToolId = string;
 
 /** Id of a host-registered structured output schema. */
 export type StructuredSchemaId = string;
+
+/** A turn's structured output schema, looked up in its scope when the turn resolved. */
+export interface ResolvedStructured {
+  id: StructuredSchemaId;
+  jsonSchema: Record<string, unknown>;
+}
+
+/** A builtin a provider sends, with its wire names as the turn's scope registered them. */
+export interface ProviderBuiltin {
+  id: BuiltinToolId;
+  wire: BuiltinWire;
+}
 
 /** Host-owned profile identifier. */
 export type ProfileId = string;
@@ -122,70 +187,6 @@ export interface ProfileImageSpec {
    * (Google: `response_format` array with text + image entries).
    */
   includeText?: boolean;
-}
-
-/** Public event types emitted by `runTurn` and provider adapters. */
-export type TurnEventType =
-  | 'thought'
-  | 'text'
-  | 'tool'
-  | 'structured'
-  | 'media'
-  | 'grounding'
-  | 'evidence'
-  | 'tokens'
-  /** Provider → runner only: the response's identity, recorded on the call's trace; `runTurn` never yields it. */
-  | 'response'
-  | 'session'
-  | 'guardrail'
-  | 'stage'
-  | 'done'
-  | 'error';
-
-/**
- * Live session control signals (provider-neutral).
- *
- * - `turn_complete` — one spoken response ended; the server may still be working.
- * - `working` — server is reasoning or awaiting async tool results; more output may follow.
- * - `idle` — server finished all processing; conversational cycle boundary.
- * - `ended` — the provider ended the session after warning it would
- *   (`closing_soon`); the last event of the session, not a failure.
- */
-export type SessionEventKind =
-  | 'closing_soon'
-  | 'ended'
-  | 'waiting_for_input'
-  | 'turn_complete'
-  | 'working'
-  | 'idle';
-
-/** Provider-neutral control signal emitted by a live session. */
-export interface SessionEvent {
-  kind: SessionEventKind;
-  /**
-   * Parsed drain window when the provider supplied a duration; omit when unknown.
-   * On `ended`, the window the last warning gave.
-   */
-  timeLeftMs?: number;
-  /** On `ended`: how and when the provider closed the session. */
-  ended?: SessionEnded;
-  /** On `ended`: what the user reads — the profile's `live.session_ended` wording. */
-  message?: string;
-}
-
-/**
- * A session the provider ended after warning it would. The raw close reason
- * travels as the event's `errorInternal`, for the builder only.
- */
-export interface SessionEnded {
-  /** The provider warned first (Gemini `goAway`). */
-  cause: 'go_away';
-  /** The provider's WebSocket close code. */
-  code: number;
-  /** Milliseconds from the last warning to the close; compare with `timeLeftMs`. */
-  closedAfterMs: number;
-  /** What the close code means as a failure, when it is not a normal close (1000). */
-  errorKind?: ErrorKind;
 }
 
 /** Host-named model binding — wire routing and generation knobs for one profile model. */
@@ -510,21 +511,14 @@ export type {
 
 import type { LexiconOverrides } from '../guardrails/lexicon.ts';
 import type { ResolveHost } from '../guardrails/network.ts';
-import type { ErrorCopy, ErrorKind } from '../guardrails/theorem-error.ts';
 import type {
   DecisionGuardrailsSpec,
-  GuardrailEvent,
   HostGuardrailsSpec,
   ProfileGuardrailsSpec,
 } from '../guardrails/types.ts';
 import type { ProfileObservabilitySpec } from '../observability/types.ts';
 import type { ToolCredential } from './auth/types.ts';
-import type {
-  MediaTurnBehaviourSpec,
-  ProfileTurnBehaviourSpec,
-  TurnContinueFrom,
-  TurnStop,
-} from './stop.ts';
+import type { MediaTurnBehaviourSpec, ProfileTurnBehaviourSpec, TurnContinueFrom } from './stop.ts';
 
 /** Model routing fields shared by every profile type. */
 export interface ProfileModelFields {
@@ -764,33 +758,6 @@ export type Profile =
 /** Profiles that run a model turn — every type except `host` and `decision` (which runs through `runDecision`). */
 export type ModelProfile = Exclude<Profile, HostProfile | DecisionProfile>;
 
-/** Text part sent to provider adapters after input normalization. */
-export interface InteractionTextPart {
-  type: 'text';
-  text: string;
-}
-
-/** Inline media part sent to provider adapters after MIME validation. */
-export interface InteractionMediaPart {
-  type: MediaInputKind;
-  mimeType: string;
-  data: string;
-}
-
-/**
- * Media part carried by reference (e.g. a Gemini Files `files/<id>` uri).
- * The host owns the upload and cleanup; THEOREM only carries the reference.
- * Wired by the Google Interactions adapter; other adapters reject it.
- */
-export interface InteractionMediaRefPart {
-  type: MediaInputKind;
-  mimeType: string;
-  uri: string;
-}
-
-/** Any provider input part accepted by THEOREM's provider contract. */
-export type InteractionPart = InteractionTextPart | InteractionMediaPart | InteractionMediaRefPart;
-
 /** Native image response request passed to image-capable providers. */
 export interface ImageResponseFormat {
   type: 'image';
@@ -824,22 +791,6 @@ export interface TurnMediaRef {
   uri: string;
   /** The file's name, used only to tell the user which file was refused; never sent to the model. */
   name?: string;
-}
-
-/** Provider-neutral history message preserving text, parts, tools, and metadata. */
-export interface TurnHistoryMessage {
-  role: 'system' | 'user' | 'assistant' | 'tool';
-  content?: string;
-  parts?: InteractionPart[];
-  tool_calls?: Array<{
-    id: string;
-    type: 'function';
-    function: { name: string; arguments: string };
-    thoughtSignature?: string;
-  }>;
-  tool_call_id?: string;
-  name?: string;
-  metadata?: Record<string, unknown>;
 }
 
 /** Generic repair request used for validation and egress retry turns. */
@@ -1031,6 +982,13 @@ export type ProviderTransport = 'interactions' | 'geminiLive' | 'openAiCompat';
 export interface ResolvedGeneration extends ProviderGenerationConfig {
   /** Resolved transport — `'interactions'` for Google Gemini Interactions, `'geminiLive'` for Gemini Live WebSocket, `'openAiCompat'` otherwise. */
   transport: ProviderTransport;
+  /**
+   * Whether the turn's steps chain on the stored interaction: a tool result or
+   * stage inject rides `continuation` after `previousInteractionId`. Only an
+   * Interactions binding chains, and never one with `persistViaInteractionId:
+   * false` — its steps each send the full history.
+   */
+  chains: boolean;
   /** Mutable tool visibility and wire snapshot for this turn. */
   tools: TurnToolSnapshot;
   sessionPermissions?: string[];
@@ -1046,7 +1004,7 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
    * Taken from `profile.maxSteps` with no THEOREM invent.
    */
   maxSteps?: number;
-  structured: StructuredSchemaId | null;
+  structured: ResolvedStructured | null;
   image: ImageResponseFormat | null;
   speech?: ProfileSpeechSpec;
   live?: ProfileLiveSpec;
@@ -1068,240 +1026,6 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
   host?: unknown;
 }
 
-/** Money a provider reported for one model call. */
-export interface TurnCost {
-  /** What the provider charged, in US dollars. */
-  usd: number;
-  /** What the upstream model vendor charged the provider, when reported (OpenRouter). */
-  upstreamUsd?: number;
-  /**
-   * Set on a sum (`sumTokens`) when some summed calls reported a cost and
-   * others did not: `usd` covers only the calls that did.
-   */
-  partial?: true;
-}
-
-/** A side of `TurnTokens` the provider did not report. */
-export type TurnTokenSide = 'input' | 'output';
-
-/**
- * Token accounting for one model call, one `tokens` event per call.
- *
- * Meanings follow the OpenTelemetry GenAI conventions on every provider:
- * `input` counts everything the model read (cached prompt and provider
- * tool-use tokens included), `output` everything it wrote (reasoning
- * included), and `total` is `input + output`.
- */
-export interface TurnTokens {
-  input: number;
-  output: number;
-  /** Reasoning share of `output`. */
-  thinking?: number;
-  /** Provider tool-use share of `input` (Google code execution / URL context results). */
-  toolUse?: number;
-  /** Share of `input` read from provider cache (cache hit). */
-  cached?: number;
-  /** Share of `input` written into provider cache. */
-  cacheWrite?: number;
-  total: number;
-  /** Provider-reported cost. Absent when the provider reports none. */
-  cost?: TurnCost;
-  /**
-   * Sides the provider did not report. The runner replaces each with the one
-   * token estimator's count before the event reaches the host. Absent = both
-   * sides provider-reported.
-   */
-  estimated?: TurnTokenSide[];
-  /**
-   * Media parts left out of an estimated side because no verified rule counts
-   * them, per side. Absent when every part was counted.
-   */
-  unknownMedia?: Partial<Record<TurnTokenSide, number>>;
-  /**
-   * Provider-reported shares of each side by modality (`text`, `image`,
-   * `audio`, …, lower-case). Providers list only some modalities, so the
-   * shares need not add up to the side. Absent = not reported.
-   */
-  byModality?: Partial<Record<TurnTokenSide, Record<string, number>>>;
-  /** Provider-side grounding tool use, as the provider reported it. Absent = not reported. */
-  grounding?: TurnGroundingCount[];
-}
-
-/** A provider response's identity, as the wire sent it. Live sends neither field. */
-export interface TurnResponse {
-  /** Provider response id (OpenAI-compatible `id`, Interactions `id`). */
-  id?: string;
-  /** Model that served the call, as the provider names it. */
-  model?: string;
-}
-
-/** One grounding tool's use in a call (Interactions `grounding_tool_count`). */
-export interface TurnGroundingCount {
-  /** Provider's tool name, e.g. `google_search`. */
-  type: string;
-  count: number;
-  /** Search queries the tool ran. Absent = not reported. */
-  searchQueryCount?: number;
-}
-
-/** Normalized citation or place source surfaced from a provider. */
-export interface GroundingSource {
-  title: string;
-  uri: string;
-  type: 'maps' | 'web';
-  /** Google Place id when the source is a Maps place / place_citation. */
-  placeId?: string;
-}
-
-/** Google grounding metadata normalized into a stream event. */
-export interface GroundingEvent {
-  metadata?: Record<string, unknown>;
-  chunks?: unknown[];
-  searchHtml?: string;
-  sources: GroundingSource[];
-}
-
-/** Provider evidence such as OpenRouter citations or Google server-side tool steps. */
-export interface ProviderEvidenceEvent {
-  provider: 'openrouter' | 'google' | string;
-  raw?: Record<string, unknown>;
-  citations?: string[];
-  annotations?: unknown[];
-  sources?: GroundingSource[];
-  /**
-   * Discriminant for evidence payloads.
-   * Live ASR uses `input_transcription` / `output_transcription`; Live
-   * `voiceActivity` uses `voice_activity`; resumption uses
-   * `session_resumption`; code execution uses `code_execution_call` /
-   * `code_execution_result` (Live sends only results).
-   */
-  kind?:
-    | 'code_execution_call'
-    | 'code_execution_result'
-    | 'input_transcription'
-    | 'output_transcription'
-    | 'session_resumption'
-    | 'voice_activity'
-    | string;
-  /** Generated Python (or other) source from `code_execution_call.arguments.code`. */
-  code?: string;
-  /** Language of `code` when the API supplies it (typically `python`). */
-  language?: string;
-  /** Stdout / sandbox output from `code_execution_result.result`. */
-  result?: string;
-  /** `true` when the sandbox reported an execution error. */
-  isError?: boolean;
-  /** Step id (`code_execution_call.id`). */
-  id?: string;
-  /** Links a result to its call (`code_execution_result.call_id`). */
-  callId?: string;
-  /** Live ASR: partial/interim chunk (vs final transcription delta). */
-  interim?: boolean;
-  /** Live session resumption: whether the handle may be used to resume. */
-  resumable?: boolean;
-  /**
-   * The provider started this step and never finished it (the stream ended
-   * first). `raw` holds what arrived. A partial tool call is evidence only and
-   * never runs.
-   */
-  partial?: boolean;
-}
-
-/** Compaction signal emitted in the `done` event when `timing: 'after'`. */
-export interface CompactionSignal {
-  needed: boolean;
-  /** Which meter produced `tokens`. */
-  meter: CompactionMeter;
-  /** Token count used for the compaction decision. */
-  tokens: number;
-  /** Media parts not counted in `tokens` — no verified rule for this model. */
-  unknownMedia: number;
-  /**
-   * Full-prompt input tokens of this turn's last model call, when one
-   * completed. Always observability; also the decision value when
-   * `meter: 'input'`.
-   */
-  promptTokens?: number;
-  /** True when `promptTokens` is the token estimator's count — the provider reported none. */
-  promptTokensEstimated?: boolean;
-  history: TurnHistoryMessage[];
-}
-
-/** Public event yielded by providers and by `runTurn`. */
-export interface TurnEvent {
-  type: TurnEventType;
-  text?: string;
-  tool?: ToolCallEvent & {
-    /** Provider-native tool call id when present. */
-    id?: string;
-    arguments?: Record<string, unknown>;
-  };
-  structured?: unknown;
-  media?: { mimeType: string; data: string };
-  grounding?: GroundingEvent;
-  evidence?: ProviderEvidenceEvent;
-  session?: SessionEvent;
-  /** Guardrail decision for this turn — rule identity and offsets, never content. */
-  guardrail?: GuardrailEvent;
-  tokens?: TurnTokens;
-  interactionId?: string;
-  /** Session resumption handle updated during live sessions. */
-  sessionResumptionHandle?: string;
-  /** True when a user utterance interrupted an in-flight live model response (barge-in). */
-  interrupted?: boolean;
-  /** Public-safe failure text for hosts to show users: the wording for `errorKind`. */
-  error?: string;
-  /** What kind of failure an `error` event is — for the builder, in code. */
-  errorKind?: ErrorKind;
-  /**
-   * The lexicon key and parameters behind `error` when the failure has wording
-   * more specific than its kind's; a list when it found several problems.
-   */
-  errorCopy?: ErrorCopy | readonly ErrorCopy[];
-  /**
-   * Raw diagnostic detail for traces/logs, on an `error` event, an ended
-   * session's close, or a refused OAuth refresh (`auth_token_refresh_failed`);
-   * never surface to end users (`forClient` strips it).
-   */
-  errorInternal?: string;
-  /** Compaction signal for `timing: 'after'` profiles. Present only on `done` events. */
-  compaction?: CompactionSignal;
-  /** Why the turn ended. Present on terminal `done` events when known. */
-  stop?: TurnStop;
-  /**
-   * On the terminal `done`: the turn's root span as a W3C `traceparent`. Pass
-   * it in a later request's `links` to connect the two records.
-   */
-  traceparent?: string;
-  /**
-   * On a provider's `response` event: the identity the wire named so far,
-   * emitted as soon as it is named and again when it grows or changes.
-   */
-  response?: TurnResponse;
-  /**
-   * Turn tool visibility snapshot when `stop.kind === 'tool'`.
-   * Hosts pass this to `invokeTool({ snapshot })` so T1/T2 resume matches the gated turn.
-   */
-  tools?: TurnToolSnapshot;
-  /** Turn-stage name when `type === 'stage'` (`docs/contracts/stages.md`). */
-  stage?: TurnStage;
-  /** Tool call id on `stage` / related tool-stage events. */
-  callId?: string;
-  /** Tool name on `stage` events (`pre_tool` / `post_tool`). Not `tool` (ToolCallEvent). */
-  toolName?: string;
-  /** True when a tool completed with awaiting_user_input (on stage/tool events). */
-  awaiting?: boolean;
-  /** pre_tool gate payload when `tool.phase === 'gate'` or stage carries a gate. */
-  gate?: ToolGate;
-  /** True when pre_tool settled without running the body. */
-  callNotStarted?: boolean;
-  /**
-   * Host-visible stage affordance warnings (`docs/contracts/stages.md`).
-   * Emitted after `onStage` when invalid/rejected fields were dropped.
-   */
-  stageWarnings?: StageApplyWarning[];
-}
-
 /**
  * Provider-neutral request object sent from the kernel to a model adapter.
  *
@@ -1311,7 +1035,10 @@ export interface TurnEvent {
  * Adapters must tolerate their absence. `keySlot` is shared by Google and
  * OpenRouter vault resolution (required for Google; optional for OpenRouter).
  */
-export interface ProviderCompleteRequest extends Omit<ProviderGenerationConfig, 'summaries'> {
+export interface ProviderCompleteRequest
+  extends Omit<ProviderGenerationConfig, 'summaries' | 'builtins'> {
+  /** The turn's builtins with their wire names; adapters read no registry. */
+  builtins: ProviderBuiltin[];
   /**
    * Interactions-only: thinking-summary behavior.
    * Omitted (undefined) for non-Google providers.
@@ -1328,7 +1055,7 @@ export interface ProviderCompleteRequest extends Omit<ProviderGenerationConfig, 
   continuation?: TurnHistoryMessage[];
   /** Function tool wire declarations derived from the turn tool snapshot. */
   wireTools?: WireFunctionTool[];
-  structured: StructuredSchemaId | null;
+  structured: ResolvedStructured | null;
   image: ImageResponseFormat | null;
   speech?: ProfileSpeechSpec;
   live?: ProfileLiveSpec;
@@ -1347,7 +1074,7 @@ export interface ProviderCompleteRequest extends Omit<ProviderGenerationConfig, 
 
 /** Minimal adapter contract every model provider must implement. */
 export interface ModelProvider {
-  complete: (req: ProviderCompleteRequest) => AsyncIterable<TurnEvent>;
+  complete: (req: ProviderCompleteRequest) => AsyncIterable<ProviderEvent>;
 }
 
 /**

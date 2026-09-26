@@ -84,6 +84,8 @@ export type TheoremInvokeRequest = {
 /** Inject user messages into an in-flight turn. */
 export type TheoremSteerRequest = {
 	turnId: string;
+	/** The client's id for this steer; the turn's `stage` event names it in `injected` once it lands. */
+	id: string;
 	inject: TurnHistoryMessage[];
 };
 

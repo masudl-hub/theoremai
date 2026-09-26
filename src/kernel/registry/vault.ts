@@ -5,12 +5,12 @@
  */
 
 import { TheoremError } from '../../guardrails/error.ts';
-import { getTool } from '../tools/registry.ts';
+import type { ToolRegistry } from '../tools/registry.ts';
 import type { BuiltinToolDef } from '../tools/types.ts';
 import type { BuiltinToolId, KeySlot, ModelBinding, Provider } from '../types.ts';
 
-function builtinForcesPaid(id: BuiltinToolId): boolean {
-  const tool = getTool(id);
+function builtinForcesPaid(tools: ToolRegistry, id: BuiltinToolId): boolean {
+  const tool = tools.get(id);
   if (tool?.type !== 'builtin') {
     return false;
   }
@@ -29,6 +29,7 @@ export function providerUsesKeySlots(provider: Provider): boolean {
  * can use a single flat `apiKey` (OpenRouter without a vault).
  */
 function resolveKeySlot(
+  tools: ToolRegistry,
   profileKey: KeySlot | undefined,
   binding: ModelBinding,
   builtins: BuiltinToolId[],
@@ -37,7 +38,7 @@ function resolveKeySlot(
   if (binding.key) {
     return binding.key;
   }
-  if (builtins.some((id) => builtinForcesPaid(id))) {
+  if (builtins.some((id) => builtinForcesPaid(tools, id))) {
     return 'paid';
   }
   if (profileKey) {

@@ -155,10 +155,6 @@ export const THEOREM_UI_CATALOG = {
 	'@theorem.gate.tag.oauth2': { defaultMessage: 'oauth2', description: 'Credential type tag.' },
 	'@theorem.gate.auth.badge': { defaultMessage: 'Sign-in required', description: 'Credential card badge.' },
 	'@theorem.gate.auth.title': { defaultMessage: 'Authentication:', description: 'Before the tool name on the credential card.' },
-	'@theorem.gate.auth.message': {
-		defaultMessage: 'This tool requires valid authentication credentials to proceed.',
-		description: "When the tool's challenge carries no message of its own.",
-	},
 	'@theorem.gate.auth.resource': { defaultMessage: 'Resource: {resource}', description: 'What the credential is for.', params: ['resource'] },
 	'@theorem.gate.auth.no_oauth': {
 		defaultMessage: 'No OAuth authorization endpoint is configured.',

@@ -111,6 +111,26 @@ Deno.test('assertSafeUrl blocks private IPv6 by default', () => {
   );
 });
 
+Deno.test('assertSafeUrl blocks IPv6 ranges that reach private networks', () => {
+  for (const host of [
+    '[fec0::1]', // site-local
+    '[64:ff9b:1::a9fe:a9fe]', // local-use NAT64
+    '[2001:0:4136:e378:8000:63bf:80ff:fffe]', // Teredo
+    '[::ffff:0:7f00:1]', // IPv4-translated 127.0.0.1
+    '[2002:7f00:1::]', // 6to4 of 127.0.0.1
+    '[2002:a9fe:a9fe::1]', // 6to4 of 169.254.169.254
+  ]) {
+    assertThrows(
+      () => assertSafeUrl(`https://${host}/mcp`),
+      Error,
+      'Access to private IPv6 address',
+    );
+  }
+  // 6to4 of a public address and ordinary global unicast still pass
+  assertEquals(assertSafeUrl('https://[2002:808:808::1]/').hostname, '[2002:808:808::1]');
+  assertEquals(assertSafeUrl('https://[2606:4700::1111]/').hostname, '[2606:4700::1111]');
+});
+
 Deno.test('assertSafeUrl blocks evasion techniques and private domains', () => {
   // Trailing dot localhost
   assertThrows(

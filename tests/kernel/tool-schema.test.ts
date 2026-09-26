@@ -1,7 +1,8 @@
 import { z } from 'zod';
+import { getProfile, registerProfile, registerTool } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import { defineProfile, getProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
-import { registerTool } from '../../src/kernel/tools/registry.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
+import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import { resolveTurnTools } from '../../src/kernel/tools/resolve.ts';
 import { jsonSchemaFromZod } from '../../src/kernel/tools/schema.ts';
 import { geminiModels } from '../fixtures/models.ts';
@@ -89,6 +90,7 @@ Deno.test('registerTool wire snapshot preserves Zod input properties', () => {
 
   const profile = getProfile('wire_schema_pressure_bot');
   const snapshot = resolveTurnTools(
+    defaultKernelScope.tools,
     profile,
     { profile: 'wire_schema_pressure_bot', input: { text: 'x' } },
     'gemini35FlashLite',

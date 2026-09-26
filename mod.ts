@@ -44,7 +44,12 @@
  * @module
  */
 
-export type { ErrorCopy, ErrorKind, TheoremErrorOptions } from './src/guardrails/error.ts';
+export type {
+  ErrorCopies,
+  ErrorCopy,
+  ErrorKind,
+  TheoremErrorOptions,
+} from './src/guardrails/error.ts';
 export {
   describeError,
   ERROR_KINDS,
@@ -55,6 +60,11 @@ export {
   throwIfAborted,
   toErrorEvent,
 } from './src/guardrails/error.ts';
+export {
+  errorCopiesSchema,
+  errorKindSchema,
+  guardrailEventSchema,
+} from './src/guardrails/event-schemas.ts';
 export {
   guardrailFromHits,
   guardrailFromVerdict,
@@ -196,6 +206,29 @@ export {
   sanitizeTurnRequest,
   sanitizeTurnRequestWithEvents,
 } from './src/guardrails/sanitize.ts';
+export {
+  clearProfiles,
+  getProfile,
+  getStructured,
+  getTool,
+  hasProfile,
+  hasTool,
+  invokeTool,
+  listProfiles,
+  listTools,
+  projectProfile,
+  registerProfile,
+  registerProfiles,
+  registerStructured,
+  registerTool,
+  registerTools,
+  requireTool,
+  resetTools,
+  resolveTurn,
+  runDecision,
+  runSession,
+  runTurn,
+} from './src/kernel/default-scope.ts';
 export type { CompactionSplit, CompactionTokens } from './src/kernel/engine/compaction.ts';
 export {
   compactionMeter,
@@ -215,9 +248,7 @@ export {
   liveIngressEnabled,
   liveIngressEnabledFromSpec,
 } from './src/kernel/engine/live-ingress.ts';
-export { runTurn } from './src/kernel/engine/runner.ts';
 export type { RunSessionOptions } from './src/kernel/engine/session/mod.ts';
-export { runSession } from './src/kernel/engine/session/mod.ts';
 export type {
   MediaPayload,
   MediaTokenFamily,
@@ -265,25 +296,21 @@ export {
   modelEntryByApiId,
   requireModelBinding,
 } from './src/kernel/registry/catalog.ts';
+export type { KernelRegistry } from './src/kernel/registry/kernel-registry.ts';
+export { createKernelRegistry } from './src/kernel/registry/kernel-registry.ts';
 export type {
   ImageProfileDefinition,
   LiveProfileDefinition,
   ProfileDefinition,
   ProfileDefinitionBase,
+  ProfileRegistry,
   SpeechProfileDefinition,
   TextProfileDefinition,
 } from './src/kernel/registry/profiles.ts';
-export {
-  clearProfiles,
-  defineProfile,
-  getProfile,
-  hasProfile,
-  listProfiles,
-  registerProfile,
-  registerProfiles,
-} from './src/kernel/registry/profiles.ts';
-export { pickModel, projectProfile, resolveTurn } from './src/kernel/registry/resolve.ts';
-export { getStructured, registerStructured } from './src/kernel/registry/schemas.ts';
+export { createProfileRegistry, defineProfile } from './src/kernel/registry/profiles.ts';
+export { pickModel } from './src/kernel/registry/resolve.ts';
+export type { SchemaRegistry } from './src/kernel/registry/schemas.ts';
+export { createSchemaRegistry } from './src/kernel/registry/schemas.ts';
 export type {
   AuthUnauthenticatedPolicy,
   ContinueStopKind,
@@ -352,6 +379,8 @@ export {
   TURN_STOP_KINDS,
   VOICE_ACCEPT_MIMES,
 } from './src/kernel/schema.ts';
+export type { KernelScope } from './src/kernel/scope.ts';
+export { createKernelScope, defaultKernelScope } from './src/kernel/scope.ts';
 export type {
   AwaitingUserInput,
   StageAffordance,
@@ -368,8 +397,6 @@ export type {
 export {
   applyStageResult,
   isAwaitingUserInput,
-  parseAwaitingUserInput,
-  parseToolGate,
   STAGE_AFFORDANCE_MATRIX,
   STAGE_AFFORDANCES,
   stageAllowsAffordance,
@@ -399,29 +426,29 @@ export {
   turnStopFromInteractionStatus,
   turnStopFromOpenAiFinishReason,
 } from './src/kernel/stop.ts';
-export type { McpProtocolVersion, McpRpcResponse } from './src/kernel/tools/mod.ts';
+export type { McpProtocolVersion, McpRpcResponse, ToolRegistry } from './src/kernel/tools/mod.ts';
 export {
+  askUserTool,
   buildHttpToolTarget,
+  createToolRegistry,
   executeHttpTool,
   executeMcpTool,
   formatToolResult,
-  getTool,
-  hasTool,
-  invokeTool,
   isUnsupportedMcpProtocolError,
-  listBuiltinIds,
-  listFunctionIds,
-  listTools,
   MCP_PROTOCOL_VERSIONS,
   parseMcpRpcResponse,
   prepareTurnToolSnapshot,
   registerHarnessTools,
-  registerTool,
-  registerTools,
-  requireTool,
-  resetTools,
   resolveToolAuth,
 } from './src/kernel/tools/mod.ts';
+export {
+  awaitingUserInputSchema,
+  toolGateSchema,
+  turnDoneOf,
+  turnEventSchema,
+  turnHistoryMessageSchema,
+  turnToolSnapshotSchema,
+} from './src/kernel/turn-events.ts';
 export type * from './src/kernel/types.ts';
 export type {
   JsonlSinkOptions,
@@ -492,6 +519,7 @@ export {
   traceEventAttributeMeta,
   traceEventMeta,
   traceJson,
+  traceRecordSchema,
   traceSpanMeta,
   writeTrace,
 } from './src/observability/mod.ts';

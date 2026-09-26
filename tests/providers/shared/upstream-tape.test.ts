@@ -1,9 +1,9 @@
 import '../../fixtures/test-host.ts';
 import { OMIT_CANARY } from '../../../src/guardrails/canary.ts';
+import { runTurn } from '../../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../../src/kernel/engine/assert.ts';
 import { sha256 } from '../../../src/kernel/engine/hash.ts';
-import { runTurn } from '../../../src/kernel/engine/runner.ts';
-import type { KeyVault, TurnEvent } from '../../../src/kernel/types.ts';
+import type { KeyVault } from '../../../src/kernel/types.ts';
 import { contentOf, type TraceRecord } from '../../../src/observability/trace-record.ts';
 import type { TraceAttributeValue, TraceSpan } from '../../../src/observability/trace-span.ts';
 import { camelToSnake } from '../../../src/providers/google/interactions/framing.ts';
@@ -28,14 +28,6 @@ const vault: KeyVault = {
   slotC: 'free-c-key',
   paid: 'paid-key',
 };
-
-async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
-  const out: TurnEvent[] = [];
-  for await (const event of gen) {
-    out.push(event);
-  }
-  return out;
-}
 
 function spanNamed(record: TraceRecord, name: string): TraceSpan {
   const span = record.spans.find((s) => s.name === name);
@@ -149,7 +141,7 @@ Deno.test('runTurn traces wire, usage, and every Interactions SSE row', async ()
         ]),
       ),
   });
-  const events = await collect(
+  const events = await Array.fromAsync(
     runTurn({ profile: 'chat', input: { text: 'hi' } }, provider, catalogedSink(into)),
   );
   // Text profiles always emit turn stages (`pre_turn` → … → `post_turn`) even
@@ -205,7 +197,9 @@ Deno.test('runTurn traces upstream error response bodies', async () => {
     wait: () => Promise.resolve(),
     fetch: () => Promise.resolve(new Response('quota-detail', { status: 500 })),
   });
-  await collect(runTurn({ profile: 'chat', input: { text: 'hi' } }, provider, catalogedSink(into)));
+  await Array.fromAsync(
+    runTurn({ profile: 'chat', input: { text: 'hi' } }, provider, catalogedSink(into)),
+  );
   const [record] = into;
   if (!record) {
     throw new Error('missing trace');

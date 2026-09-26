@@ -1,13 +1,12 @@
 import { TheoremError } from '../../../guardrails/error.ts';
 import { historyMessageParts, wireInteractionPart } from '../../../kernel/interaction-parts.ts';
-import { getStructured } from '../../../kernel/registry/schemas.ts';
-import { requireBuiltinWire } from '../../../kernel/tools/registry.ts';
 import type {
   InteractionPart,
   ProviderCompleteRequest,
   TurnHistoryMessage,
   WireFunctionTool,
 } from '../../../kernel/types.ts';
+import { builtinWire } from '../../shared/builtin-wire.ts';
 import { historyToolArguments, historyToolIdentity } from '../../shared/tool-args.ts';
 
 export function camelToSnake(key: string): string {
@@ -59,21 +58,27 @@ function functionResultStep(msg: TurnHistoryMessage): Record<string, unknown> {
   };
 }
 
-function functionCallStep(call: {
+/**
+ * A history call as input steps: the thought that led to it when it carries
+ * that thought's signature, then the call. Google rejects a current-turn call
+ * replayed without its signature, and rejects a `thought_signature` field on
+ * the call; a `thought` step with the signature ahead of it is accepted (probe
+ * 25/09/2026, gemini-3.1-flash-lite, `store: false`).
+ */
+function functionCallSteps(call: {
   id: string;
   function: { name: string; arguments: string };
   thoughtSignature?: string;
-}): Record<string, unknown> {
-  const step: Record<string, unknown> = {
+}): Record<string, unknown>[] {
+  const step = {
     type: 'function_call',
     id: call.id,
     name: call.function.name,
     arguments: historyToolArguments(call.function.arguments),
   };
-  if (call.thoughtSignature) {
-    step.thoughtSignature = call.thoughtSignature;
-  }
-  return step;
+  return call.thoughtSignature
+    ? [{ type: 'thought', signature: call.thoughtSignature }, step]
+    : [step];
 }
 
 function textOrPartsStep(
@@ -102,7 +107,7 @@ export function historySteps(msg: TurnHistoryMessage): Record<string, unknown>[]
       steps.push(textOrPartsStep('assistant', msg));
     }
     for (const call of msg.tool_calls) {
-      steps.push(functionCallStep(call));
+      steps.push(...functionCallSteps(call));
     }
     return steps;
   }
@@ -157,7 +162,7 @@ export function attachResponseFormat(
   if (!req.structured) {
     return;
   }
-  camel.responseFormat = jsonResponseFormat(getStructured(req.structured).jsonSchema);
+  camel.responseFormat = jsonResponseFormat(req.structured.jsonSchema);
 }
 
 export function attachSpeechConfig(
@@ -197,8 +202,8 @@ function wireGoogleMapsTool(req: ProviderCompleteRequest): Record<string, unknow
 
 function wireInteractionsTools(req: ProviderCompleteRequest): Record<string, unknown>[] {
   const tools: Record<string, unknown>[] = [];
-  for (const id of req.builtins) {
-    const type = requireBuiltinWire(id, 'interactions');
+  for (const builtin of req.builtins) {
+    const type = builtinWire(builtin, 'interactions');
     if (type === 'google_maps') {
       tools.push(wireGoogleMapsTool(req));
       continue;

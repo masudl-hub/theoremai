@@ -1,7 +1,7 @@
 import '../fixtures/test-host.ts';
+import { getProfile, registerProfile, runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
-import { runTurn } from '../../src/kernel/engine/runner.ts';
-import { defineProfile, getProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
 import {
   clearTraceDestinations,
@@ -14,14 +14,6 @@ import type { TraceRecord } from '../../src/observability/trace-record.ts';
 import type { TraceSink, TraceWriteContext } from '../../src/observability/trace-sink.ts';
 import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
 import { STUB_WRITE, stubRecord, stubSpan } from '../fixtures/trace-record.ts';
-
-async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
-  const out: TurnEvent[] = [];
-  for await (const event of gen) {
-    out.push(event);
-  }
-  return out;
-}
 
 async function* fakeComplete(): AsyncGenerator<TurnEvent> {
   await Promise.resolve();
@@ -140,7 +132,7 @@ Deno.test('runTurn uses profile.observability.writeTo when sink omitted', async 
       observability: { writeTo: 'chat-mem' },
     }),
   );
-  await collect(
+  await Array.fromAsync(
     runTurn(
       {
         profile: 'chat-obs',
@@ -171,8 +163,8 @@ Deno.test('every sink receives the retention of the profile that wrote the recor
     }),
   );
   const turn = { profile: 'chat-keep-forever', input: { text: 'hi' } };
-  await collect(runTurn(turn, fake));
-  await collect(runTurn(turn, fake, hostStore));
+  await Array.fromAsync(runTurn(turn, fake));
+  await Array.fromAsync(runTurn(turn, fake, hostStore));
   assertEquals(seen, [{ retainForDays: 0 }, { retainForDays: 0 }]);
 });
 
@@ -189,7 +181,7 @@ Deno.test('runTurn explicit sink overrides profile.observability', async () => {
       observability: { writeTo: 'chat-mem' },
     }),
   );
-  await collect(
+  await Array.fromAsync(
     runTurn(
       {
         profile: 'chat-obs-override',

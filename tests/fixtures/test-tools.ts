@@ -5,7 +5,7 @@
  */
 
 import { z } from 'zod';
-import { invokeTool, registerTool } from '../../src/kernel/tools/mod.ts';
+import { invokeTool, registerTool } from '../../src/kernel/default-scope.ts';
 import type { InvokeToolRequest, Profile, TurnEvent } from '../../src/kernel/types.ts';
 
 const FindingOutput = z.object({ finding: z.string() });
@@ -303,17 +303,9 @@ function registerTestTools(): void {
   });
 }
 
-async function collectToolEvents(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
-  const out: TurnEvent[] = [];
-  for await (const event of gen) {
-    out.push(event);
-  }
-  return out;
-}
-
 /** Invoke a registered tool through the host entrypoint. */
 function invokeRegisteredTool(args: InvokeToolRequest): Promise<TurnEvent[]> {
-  return collectToolEvents(invokeTool(args));
+  return Array.fromAsync(invokeTool(args));
 }
 
 function withProfileTools(
@@ -330,4 +322,4 @@ function withProfileTools(
   };
 }
 
-export { collectToolEvents, invokeRegisteredTool, registerTestTools, withProfileTools };
+export { invokeRegisteredTool, registerTestTools, withProfileTools };

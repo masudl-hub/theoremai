@@ -249,7 +249,8 @@ prompt (canary included) as it reasons; a host that shows thoughts
 and the spoken reply's transcript (`output_transcription` evidence); both run
 through progressive yield (`isStreamedCanaryEvent`). A native-audio model's
 transcript trails the audio it describes and carries no timing, so audio and
-other media are held to the end of the cycle and released once the cycle's
+other media (`LiveHeldOutput.event` is a streamed reply event or a `media`
+event) are held to the end of the cycle and released once the cycle's
 whole transcript has passed: speech is never heard before it is checked. Reply
 text before the first audio streams as it clears (canary-only, only a tail that
 could start a leak waits; under egress, up to `egress.holdback` characters).
@@ -381,13 +382,14 @@ Wording resolves the profile's `lexicon` → `overrideLexicon` → the default.
 Defaults are never forced: any profile type may carry a `lexicon` with any
 key. A failure more specific than its kind carries its own copy
 (`TheoremError(kind, message, { copy: { key, params } })`, surfaced as
-`errorCopy`), which wins over the kind's line. A failure that found several
-problems carries a list — one line per problem, joined by newlines (a refused
+`errorCopy`, typed `ErrorCopies`), which wins over the kind's line. A failure
+that found several problems carries a list — one line per problem, joined by newlines (a refused
 turn's files: every reason, each naming its file). Tool-step wording may use
 `{tool}`.
 
-Producers emit `toErrorEvent(err)` — `{ type: 'error', errorKind, errorCopy?,
-errorInternal }`, no user wording. The runner and session add it where the
+Producers emit `toErrorEvent(err)` — a `ProducedError`, `{ type: 'error',
+errorKind, errorCopy?, errorInternal }` with the raw detail always set and no
+user wording. The runner and session add it where the
 event reaches the host (`withPublicWording(event, profile.lexicon)`), the one
 place that knows the profile. A host that catches a throw words it with
 `publicError(err, profile.lexicon)`.
@@ -469,6 +471,13 @@ else and simply resolves to no detection.
 Assembled text is **not** trusted: a host-built prompt interpolates retrieval
 output and user data, so it is permeable and takes full detection.
 
+The vocabularies (`TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES`, and the
+internal `GUARDRAIL_ACTIONS` behind `GuardrailAction`) live in
+`src/guardrails/types.ts`. The shapes that cross the wire — `GuardrailHit`,
+`Provenance`, `GuardrailEvent`, `ErrorCopy` — are zod schemas in
+`src/guardrails/event-schemas.ts` built from those vocabularies; `types.ts`
+re-exports their inferred types.
+
 ## Sanitization
 
 Driven by profile `guardrails.sanitizeInput`, `guardrails.redactSensitive`, and
@@ -483,11 +492,11 @@ switch cannot mean different things on different paths.
 | API | Role |
 | --- | --- |
 | `sanitizeText` | Strip injection + sensitive spans from one string |
-| `sanitizeTurnRequest` | Full turn: text, slots, tool arguments, blobs |
-| `sanitizeTurnRequestWithEvents` | Same + `{ type: 'guardrail' }` events for redacted stages |
+| `sanitizeTurnRequest(req, profile)` | Full turn: text, slots, tool arguments, blobs, under `profile`'s guardrails |
+| `sanitizeTurnRequestWithEvents(req, profile)` | Same + `{ type: 'guardrail' }` events for redacted stages |
 | `detectText` | Detect + redact one string; returns `{ text, hits }` |
 | `sanitizeProjectId` | Trim a project id; drop it unless it is only letters, digits, `.`, `_`, `-` |
-| `detectionForProfile` | Resolved detection switches for one profile at one trust level |
+| `detectionForProfile(profile, trust)` | Resolved detection switches for one profile at one trust level; the caller passes the profile, so none is looked up |
 | `sanitizeHistory` | Sanitize historical turn exchanges |
 
 `injectionSpans` and `sensitiveSpans` return `RedactSpan[]`; `applySpans`
@@ -766,8 +775,11 @@ guardrails: {
 Blocked by default: loopback (`127.0.0.0/8`, `::1`), RFC 1918 private ranges,
 link-local and cloud metadata (`169.254.0.0/16`), CGNAT (`100.64.0.0/10`),
 documentation and benchmark ranges (RFC 5737, RFC 2544), multicast and reserved
-space, and any scheme outside `allowedSchemes`. IPv6 forms of the same ranges,
-including IPv4-mapped addresses, are covered.
+space, and any scheme outside `allowedSchemes`. IPv6 forms of the same ranges
+are covered: unique-local, link-local and site-local space, and every range that
+carries an IPv4 address (mapped, translated, compatible, NAT64, 6to4) judged by
+that address. Local-use NAT64 (`64:ff9b:1::/48`) and Teredo (`2001::/32`) are
+refused outright.
 
 `allowedHosts` permits a specific hostname or address regardless of subnet, for
 hosts that genuinely need to reach an internal service. It exempts the host from
@@ -837,7 +849,7 @@ placeholder.
 | Quota | `quota.exhausted` | lexicon (`quotaExhausted` → `rate_limit`) |
 | Repair / egress | `repair.*` (`repair.default_guidance` is the validation repair guidance), `egress.default_repair_guidance`, `egress.refusal`, `egress.rejection`, `egress.invalid_verdict`, `egress.policy_failed` | lexicon |
 | Session | `session.abandon_gated`, `session.tool_denied`, `session.sign_in`, `session.gate_expired`, `session.turn_ended`, `session.gate_pending` | lexicon |
-| Live | `live.session_ended` (the provider ended the call after warning it would) | lexicon (resolved where the event reaches the host) |
+| Live | `live.session_ended` (the provider ended the call after warning it would) | lexicon (the Live session words the ended signal's `message` when it closes) |
 | Voice (browser recording) | `voice.unsupported`, `voice.permission`, `voice.unavailable`, `voice.failed`, `voice.empty` | lexicon |
 | Tools | `tool.*` (model-facing), `tool.completed_hidden` | lexicon |
 
@@ -870,9 +882,9 @@ From `src/guardrails/mod.ts`:
 
 | Group | Symbols |
 | --- | --- |
-| Errors | `ERROR_KINDS`, `ErrorKind`, `ErrorCopy`, `TheoremError`, `TheoremErrorOptions`, `errorKind`, `kindOfHttpStatus`, `publicError`, `toErrorEvent`, `withPublicWording`, `describeError`, `isAbortError`, `isTimeoutError`, `throwIfAborted` |
+| Errors | `ERROR_KINDS`, `ErrorKind`, `ErrorCopy`, `ErrorCopies`, `errorKindSchema`, `errorCopiesSchema`, `TheoremError`, `TheoremErrorOptions`, `errorKind`, `kindOfHttpStatus`, `publicError`, `toErrorEvent`, `withPublicWording`, `describeError`, `isAbortError`, `isTimeoutError`, `throwIfAborted` |
 | Injection / sensitive | `injectionSpans`, `sensitiveSpans` |
-| Vocabulary | `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailEvent`, `Provenance`, `ToolOrigin`, `GuardrailAction`, `GuardrailContext`, `OutboundPayload`, `EgressEnforcer`, `EgressOnBlock`, `ProfileEgressSpec`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `DecisionDisclosureVerdict`, `DecisionDisclosureEnforcer`, `DecisionGuardrailsSpec`, `NetworkGuardrailSpec`, `CanaryGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES`, `EGRESS_ON_BLOCK` |
+| Vocabulary | `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailEvent`, `guardrailEventSchema`, `Provenance`, `ToolOrigin`, `GuardrailAction`, `GuardrailContext`, `OutboundPayload`, `EgressEnforcer`, `EgressOnBlock`, `ProfileEgressSpec`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `DecisionDisclosureVerdict`, `DecisionDisclosureEnforcer`, `DecisionGuardrailsSpec`, `NetworkGuardrailSpec`, `CanaryGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES`, `EGRESS_ON_BLOCK` |
 | Policy | `resolveGuardrailPolicy`, `detectionForTrust`, `DetectionOptions` |
 | Tool boundary | `guardToolResult`, `guardToolFailureText`, `inspectToolArguments`, `toolCallEvent`, `wrapToolData`, `isRemoteOrigin`, `composeToolText`, `checkTaintGate`, `recordTaint`, `isTainted`, `isSuspicious`, `directiveHits`, `looksDirective`, `advisoryLevel`, `DIRECTIVE_RULES`, `ADVISORY_LEVELS`, `AdvisoryLevel`, `TOOL_CLOSE`, `TOOL_ORIGINS`, `TAINT_GATES`, `GuardedToolText`, `Provenance`, `ToolOrigin`, `TurnTaint`, `TaintGate`, `TaintGuardrailSpec`, `GuardrailEvent` |
 | Serialization | `textForScan`, `scanTextOf`, `ScanText` |

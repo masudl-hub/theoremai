@@ -10,17 +10,20 @@
  * @module
  */
 
-import { kindOfHttpStatus, TheoremError, toErrorEvent } from '../../../guardrails/error.ts';
+import {
+  kindOfHttpStatus,
+  type ProducedError,
+  TheoremError,
+  toErrorEvent,
+} from '../../../guardrails/error.ts';
 import { asRecord } from '../../../kernel/engine/record.ts';
 import { historyMessageParts, isMediaRefPart } from '../../../kernel/interaction-parts.ts';
-import { getStructured } from '../../../kernel/registry/schemas.ts';
 import type {
   InteractionMediaPart,
   InteractionMediaRefPart,
   InteractionPart,
   ProviderCompleteRequest,
-  StructuredSchemaId,
-  TurnEvent,
+  ResolvedStructured,
   TurnHistoryMessage,
   WireFunctionTool,
 } from '../../../kernel/types.ts';
@@ -32,7 +35,7 @@ import { historyToolIdentity } from '../../shared/tool-args.ts';
  * A non-OK gateway response as an error event. The internal detail carries the
  * body's `error.message` (or its raw text), so the upstream reason reaches traces.
  */
-async function httpErrorEvent(res: Response, label: string): Promise<TurnEvent> {
+async function httpErrorEvent(res: Response, label: string): Promise<ProducedError> {
   const text = (await res.text()).trim();
   let detail = text;
   try {
@@ -212,9 +215,9 @@ function wireTools(wireTools?: WireFunctionTool[]): Record<string, unknown>[] | 
 
 // ── structured response format ──────────────────────
 
-/** Resolve a StructuredSchemaId to an OpenAI `response_format` object; undefined without one. */
+/** A turn's structured schema as an OpenAI `response_format` object; undefined without one. */
 function resolveResponseFormat(
-  structured: StructuredSchemaId | null,
+  structured: ResolvedStructured | null,
 ): Record<string, unknown> | undefined {
   if (!structured) {
     return undefined;
@@ -222,9 +225,9 @@ function resolveResponseFormat(
   return {
     type: 'json_schema',
     json_schema: {
-      name: String(structured),
+      name: structured.id,
       strict: true,
-      schema: getStructured(structured).jsonSchema,
+      schema: structured.jsonSchema,
     },
   };
 }

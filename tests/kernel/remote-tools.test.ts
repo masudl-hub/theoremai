@@ -1,15 +1,14 @@
 import { z } from 'zod';
 import { forClientEvents } from '../../src/host/client-turn.ts';
+import { registerTool, resetTools } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
+import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import type { ToolExecuteSettlement } from '../../src/kernel/tools/execute.ts';
-import {
-  executeRegisteredTool,
-  parseMcpRpcResponse,
-  registerTool,
-  resetTools,
-} from '../../src/kernel/tools/mod.ts';
+import { executeRegisteredTool, parseMcpRpcResponse } from '../../src/kernel/tools/mod.ts';
 import { buildHttpToolTarget } from '../../src/kernel/tools/remote.ts';
 import type { Profile } from '../../src/kernel/types.ts';
+import { isRecord } from '../../src/kernel/util/record.ts';
+import { eventsOf, guardrailAt, toolEventsOf } from '../fixtures/events.ts';
 
 const testProfile: Profile = {
   id: 'test-profile',
@@ -57,7 +56,7 @@ Deno.test('Declarative HTTP Tool gates when credentials are missing and policy i
     auth: {
       slot: 'user_auth',
       type: 'bearer',
-      onUnauthenticated: 'pause',
+      onUnauthenticated: 'gate',
     },
     input: z.object({ id: z.string() }),
     output: z.object({ name: z.string() }),
@@ -68,6 +67,7 @@ Deno.test('Declarative HTTP Tool gates when credentials are missing and policy i
 
   const events = [];
   const exec = executeRegisteredTool({
+    tools: defaultKernelScope.tools,
     profile: testProfile,
     name: 'fetch_user_profile',
     input: { id: 'usr_123' },
@@ -85,13 +85,9 @@ Deno.test('Declarative HTTP Tool gates when credentials are missing and policy i
     events.push(next.value);
   }
 
-  const gateEvent = events.find((e) => e.type === 'tool' && e.tool?.phase === 'gate');
-  assertEquals(Boolean(gateEvent), true);
-  assertEquals(gateEvent?.type === 'tool' ? gateEvent.tool?.gate?.kind : undefined, 'auth');
-  assertEquals(
-    gateEvent?.type === 'tool' ? gateEvent.tool?.gate?.authChallenge?.slot : undefined,
-    'user_auth',
-  );
+  const gate = toolEventsOf(events, 'gate')[0]?.gate;
+  assertEquals(gate?.kind, 'auth');
+  assertEquals(gate?.kind === 'auth' ? gate.authChallenge.slot : undefined, 'user_auth');
   const preToolStage = events.find(
     (e) => e.type === 'stage' && e.stage === 'pre_tool' && e.callNotStarted === true,
   );
@@ -121,6 +117,7 @@ Deno.test('Declarative HTTP Tool preTool deny settles with modelResult + post_to
 
   const events = [];
   const exec = executeRegisteredTool({
+    tools: defaultKernelScope.tools,
     profile: testProfile,
     name: 'http_deny_probe',
     input: {},
@@ -180,6 +177,7 @@ Deno.test('Declarative HTTP Tool reports error finding when policy is report_to_
   });
 
   const exec = executeRegisteredTool({
+    tools: defaultKernelScope.tools,
     profile: testProfile,
     name: 'fetch_user_profile',
     input: { id: 'usr_123' },
@@ -221,6 +219,7 @@ Deno.test('Declarative HTTP Tool triggers SSRF guardrail on private IP without p
 
   const events = [];
   const exec = executeRegisteredTool({
+    tools: defaultKernelScope.tools,
     profile: testProfile,
     name: 'private_internal_api',
     input: {},
@@ -232,14 +231,11 @@ Deno.test('Declarative HTTP Tool triggers SSRF guardrail on private IP without p
     events.push(ev);
   }
 
-  const errorEvents = events.filter((e) => e.tool?.phase === 'error');
+  const errorEvents = toolEventsOf(events, 'error');
   assertEquals(errorEvents.length, 1);
-  assertEquals(errorEvents[0]?.tool?.failure?.code, 'network_blocked');
-  assertEquals(errorEvents[0]?.tool?.failure?.kind, 'blocked');
-  assertEquals(
-    errorEvents[0]?.tool?.failure?.message.includes('blocked by network guardrail'),
-    true,
-  );
+  assertEquals(errorEvents[0]?.failure?.code, 'network_blocked');
+  assertEquals(errorEvents[0]?.failure?.kind, 'blocked');
+  assertEquals(errorEvents[0]?.failure?.message.includes('blocked by network guardrail'), true);
 });
 
 Deno.test('Declarative HTTP Tool executes successfully with auth header and param mapping', async () => {
@@ -286,6 +282,7 @@ Deno.test('Declarative HTTP Tool executes successfully with auth header and para
   try {
     const events = [];
     const exec = executeRegisteredTool({
+      tools: defaultKernelScope.tools,
       profile: testProfile,
       name: 'fetch_user_profile',
       input: { id: 'usr_123', includeHistory: true },
@@ -314,9 +311,9 @@ Deno.test('Declarative HTTP Tool executes successfully with auth header and para
     assertEquals(authHeader, 'Bearer valid-secret-token');
     assertEquals((settlement?.outputRaw as { name: string })?.name, 'Alice');
 
-    const completeEvent = events.find((e) => e.tool?.phase === 'complete');
-    assertEquals(Boolean(completeEvent), true);
-    assertEquals((completeEvent?.tool?.output as { id: string })?.id, 'usr_123');
+    const completes = toolEventsOf(events, 'complete');
+    assertEquals(completes.length, 1);
+    assertEquals(completes[0]?.output, { id: 'usr_123', name: 'Alice' });
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -344,6 +341,7 @@ Deno.test('Declarative HTTP Tool fails when required path param is missing', asy
 
   const events = [];
   const exec = executeRegisteredTool({
+    tools: defaultKernelScope.tools,
     profile: testProfile,
     name: 'fetch_user_profile',
     input: {},
@@ -355,10 +353,10 @@ Deno.test('Declarative HTTP Tool fails when required path param is missing', asy
     events.push(ev);
   }
 
-  const err = events.find((e) => e.tool?.phase === 'error');
-  assertEquals(err?.tool?.failure?.code, 'invalid_input');
-  assertEquals(err?.tool?.failure?.kind, 'bad_response');
-  assertEquals(err?.tool?.failure?.message.includes('Missing required path parameter'), true);
+  const failure = toolEventsOf(events, 'error')[0]?.failure;
+  assertEquals(failure?.code, 'invalid_input');
+  assertEquals(failure?.kind, 'bad_response');
+  assertEquals(failure?.message.includes('Missing required path parameter'), true);
 });
 
 Deno.test('Remote MCP Tool executes successfully per 2026-07-28 spec', async () => {
@@ -418,6 +416,7 @@ Deno.test('Remote MCP Tool executes successfully per 2026-07-28 spec', async () 
   try {
     const events = [];
     const exec = executeRegisteredTool({
+      tools: defaultKernelScope.tools,
       profile: testProfile,
       name: 'linear_issue',
       input: { title: 'Bug in runner', description: 'Investigate SSRF' },
@@ -455,7 +454,7 @@ Deno.test('Remote MCP Tool executes successfully per 2026-07-28 spec', async () 
 
     const data = settlement?.outputRaw as { issueId: string } | undefined;
     assertEquals(data?.issueId, 'LIN-101');
-    const completeEvent = events.find((e) => e.tool?.phase === 'complete');
+    const completeEvent = events.find((e) => e.type === 'tool' && e.tool.phase === 'complete');
     assertEquals(Boolean(completeEvent), true);
   } finally {
     globalThis.fetch = originalFetch;
@@ -535,6 +534,7 @@ Deno.test('Proactive OAuth token refresh names the slot on the stream and update
     };
 
     const exec = executeRegisteredTool({
+      tools: defaultKernelScope.tools,
       profile: testProfile,
       name: 'fetch_user_profile',
       input: {},
@@ -549,12 +549,10 @@ Deno.test('Proactive OAuth token refresh names the slot on the stream and update
     }
 
     // The progress event names the slot; no token rides the event stream.
-    const progressEvent = events.find(
-      (e) =>
-        e.tool?.phase === 'progress' &&
-        (e.tool?.data as { kind?: string })?.kind === 'auth_token_refreshed',
+    assertEquals(
+      toolEventsOf(events, 'progress').map((progress) => progress.data),
+      [{ kind: 'auth_token_refreshed', slot: 'oauth_slot' }],
     );
-    assertEquals(progressEvent?.tool?.data, { kind: 'auth_token_refreshed', slot: 'oauth_slot' });
     const streamed = JSON.stringify(events);
     assertEquals(streamed.includes('new-shiny-access-token'), false);
     assertEquals(streamed.includes('new-refresh-token'), false);
@@ -626,6 +624,7 @@ function registerLinearMcpFixture() {
 async function collectToolRun(name: string, input: unknown, callId: string) {
   const events = [];
   const exec = executeRegisteredTool({
+    tools: defaultKernelScope.tools,
     profile: testProfile,
     name,
     input,
@@ -651,14 +650,8 @@ async function collectToolRun(name: string, input: unknown, callId: string) {
 Deno.test('Remote MCP Tool reports invalid input and network blocks', async () => {
   registerLinearMcpFixture();
   const invalid = await collectToolRun('linear_issue', { title: 1 }, 'call_mcp_invalid');
-  assertEquals(
-    invalid.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.code,
-    'invalid_input',
-  );
-  assertEquals(
-    invalid.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.kind,
-    'bad_response',
-  );
+  assertEquals(toolEventsOf(invalid.events, 'error')[0]?.failure?.code, 'invalid_input');
+  assertEquals(toolEventsOf(invalid.events, 'error')[0]?.failure?.kind, 'bad_response');
 
   resetTools();
   registerTool({
@@ -677,6 +670,7 @@ Deno.test('Remote MCP Tool reports invalid input and network blocks', async () =
   });
   const events = [];
   for await (const ev of executeRegisteredTool({
+    tools: defaultKernelScope.tools,
     profile: testProfile,
     name: 'local_mcp',
     input: {},
@@ -685,11 +679,8 @@ Deno.test('Remote MCP Tool reports invalid input and network blocks', async () =
   })) {
     events.push(ev);
   }
-  assertEquals(
-    events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.code,
-    'network_blocked',
-  );
-  assertEquals(events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.kind, 'blocked');
+  assertEquals(toolEventsOf(events, 'error')[0]?.failure?.code, 'network_blocked');
+  assertEquals(toolEventsOf(events, 'error')[0]?.failure?.kind, 'blocked');
 });
 
 Deno.test('Remote MCP Tool surfaces RPC, tool, HTTP, and schema failures', async () => {
@@ -710,14 +701,8 @@ Deno.test('Remote MCP Tool surfaces RPC, tool, HTTP, and schema failures', async
         ),
       )) as typeof fetch;
     const rpcErr = await collectToolRun('linear_issue', input, 'call_mcp_rpc_err');
-    assertEquals(
-      rpcErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.code,
-      'mcp_rpc_error_-32000',
-    );
-    assertEquals(
-      rpcErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.kind,
-      'failed',
-    );
+    assertEquals(toolEventsOf(rpcErr.events, 'error')[0]?.failure?.code, 'mcp_rpc_error_-32000');
+    assertEquals(toolEventsOf(rpcErr.events, 'error')[0]?.failure?.kind, 'failed');
 
     globalThis.fetch = (() =>
       Promise.resolve(
@@ -732,32 +717,23 @@ Deno.test('Remote MCP Tool surfaces RPC, tool, HTTP, and schema failures', async
       )) as typeof fetch;
     const toolErr = await collectToolRun('linear_issue', input, 'call_mcp_tool_err');
     assertEquals(
-      toolErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.code,
+      toolEventsOf(toolErr.events, 'error')[0]?.failure?.code,
       'mcp_tool_execution_failed',
     );
-    assertEquals(
-      toolErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.kind,
-      'failed',
-    );
+    assertEquals(toolEventsOf(toolErr.events, 'error')[0]?.failure?.kind, 'failed');
 
     globalThis.fetch = (() =>
       Promise.resolve(new Response('no token', { status: 401 }))) as typeof fetch;
     const authErr = await collectToolRun('linear_issue', input, 'call_mcp_auth_err');
-    assertEquals(
-      authErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.kind,
-      'auth',
-    );
+    assertEquals(toolEventsOf(authErr.events, 'error')[0]?.failure?.kind, 'auth');
 
     const errorPage = `${'stack frame\n'.repeat(100)}key lin_api_key_xyz rejected`;
     globalThis.fetch = (() =>
       Promise.resolve(new Response(errorPage, { status: 500 }))) as typeof fetch;
     const httpErr = await collectToolRun('linear_issue', input, 'call_mcp_http_err');
+    assertEquals(toolEventsOf(httpErr.events, 'error')[0]?.failure?.code, 'mcp_http_500');
     assertEquals(
-      httpErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.code,
-      'mcp_http_500',
-    );
-    assertEquals(
-      httpErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.message,
+      toolEventsOf(httpErr.events, 'error')[0]?.failure?.message,
       `MCP server error HTTP 500: ${errorPage.replace('lin_api_key_xyz', '[omitted - credential]')}`,
     );
 
@@ -767,13 +743,10 @@ Deno.test('Remote MCP Tool surfaces RPC, tool, HTTP, and schema failures', async
       )) as typeof fetch;
     const pageErr = await collectToolRun('linear_issue', input, 'call_mcp_page_err');
     assertEquals(
-      pageErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.message,
+      toolEventsOf(pageErr.events, 'error')[0]?.failure?.message,
       `MCP server returned non-JSON response: ${errorPage.replace('lin_api_key_xyz', '[omitted - credential]')}`,
     );
-    assertEquals(
-      httpErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.kind,
-      'failed',
-    );
+    assertEquals(toolEventsOf(httpErr.events, 'error')[0]?.failure?.kind, 'failed');
 
     globalThis.fetch = (() =>
       Promise.resolve(
@@ -787,27 +760,15 @@ Deno.test('Remote MCP Tool surfaces RPC, tool, HTTP, and schema failures', async
         ),
       )) as typeof fetch;
     const schemaErr = await collectToolRun('linear_issue', input, 'call_mcp_schema_err');
-    assertEquals(
-      schemaErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.code,
-      'invalid_output',
-    );
-    assertEquals(
-      schemaErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.kind,
-      'bad_response',
-    );
+    assertEquals(toolEventsOf(schemaErr.events, 'error')[0]?.failure?.code, 'invalid_output');
+    assertEquals(toolEventsOf(schemaErr.events, 'error')[0]?.failure?.kind, 'bad_response');
 
     globalThis.fetch = (() => {
       throw new Error('socket reset');
     }) as typeof fetch;
     const netErr = await collectToolRun('linear_issue', input, 'call_mcp_net_err');
-    assertEquals(
-      netErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.code,
-      'network_error',
-    );
-    assertEquals(
-      netErr.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.kind,
-      'network',
-    );
+    assertEquals(toolEventsOf(netErr.events, 'error')[0]?.failure?.code, 'network_error');
+    assertEquals(toolEventsOf(netErr.events, 'error')[0]?.failure?.kind, 'network');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -956,6 +917,7 @@ Deno.test('Declarative HTTP Tool post_tool mutate re-validates and replaces what
   try {
     const events = [];
     const exec = executeRegisteredTool({
+      tools: defaultKernelScope.tools,
       profile: testProfile,
       name: 'http_post_mutate_probe',
       input: {},
@@ -985,9 +947,9 @@ Deno.test('Declarative HTTP Tool post_tool mutate re-validates and replaces what
     assertEquals(settlement?.modelResult?.modelText?.includes('123-45-6789'), false);
     assertEquals(settlement?.failure, undefined);
     // One terminal event, after post_tool, carrying what the model actually got.
-    const completes = events.filter((e) => e.tool?.phase === 'complete');
+    const completes = toolEventsOf(events, 'complete');
     assertEquals(completes.length, 1);
-    assertEquals(completes[0]?.tool?.output, { name: 'Alice' });
+    assertEquals(completes[0]?.output, { name: 'Alice' });
     assertEquals(JSON.stringify(events).includes('123-45-6789'), false);
   } finally {
     globalThis.fetch = originalFetch;
@@ -1026,6 +988,7 @@ async function runProfileTool(
 ) {
   const events = [];
   for await (const ev of executeRegisteredTool({
+    tools: defaultKernelScope.tools,
     profile: testProfile,
     name: 'fetch_user_profile',
     input: { id },
@@ -1073,7 +1036,7 @@ Deno.test('HTTP tool credentials follow a redirect on their origin and never off
   try {
     const events = await runProfileTool('1', BEARER_SLOT);
     assertEquals(
-      events.some((e) => e.tool?.phase === 'complete'),
+      events.some((e) => e.type === 'tool' && e.tool.phase === 'complete'),
       true,
     );
   } finally {
@@ -1103,13 +1066,10 @@ Deno.test('a redirect hop into a private network is refused as a network block',
   globalThis.fetch = fetchFn;
   try {
     const events = await runProfileTool('1', BEARER_SLOT);
-    const errors = events.filter((e) => e.tool?.phase === 'error');
+    const errors = toolEventsOf(events, 'error');
     assertEquals(errors.length, 1);
-    assertEquals(errors[0]?.tool?.failure?.code, 'network_blocked');
-    assertEquals(
-      events.some((e) => e.type === 'guardrail' && e.guardrail?.stage === 'network'),
-      true,
-    );
+    assertEquals(errors[0]?.failure?.code, 'network_blocked');
+    assertEquals(guardrailAt(events, 'network') !== undefined, true);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1125,10 +1085,7 @@ Deno.test('an MCP server redirecting into a private network is refused', async (
   globalThis.fetch = fetchFn;
   try {
     const run = await collectToolRun('linear_issue', { title: 'Bug', description: 'x' }, 'c');
-    assertEquals(
-      run.events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.code,
-      'network_blocked',
-    );
+    assertEquals(toolEventsOf(run.events, 'error')[0]?.failure?.code, 'network_blocked');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1151,10 +1108,7 @@ Deno.test('an OAuth token is never sent outside the resource it was issued for',
         clientId: 'client-abc',
       },
     });
-    assertEquals(
-      events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.code,
-      'credential_audience_mismatch',
-    );
+    assertEquals(toolEventsOf(events, 'error')[0]?.failure?.code, 'credential_audience_mismatch');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1169,14 +1123,11 @@ Deno.test('a path parameter of "." or ".." is refused before any request', async
   try {
     for (const id of ['..', '.']) {
       const events = await runProfileTool(id, BEARER_SLOT);
-      assertEquals(
-        events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.code,
-        'invalid_input',
-      );
+      assertEquals(toolEventsOf(events, 'error')[0]?.failure?.code, 'invalid_input');
     }
     const dotted = await runProfileTool('...', BEARER_SLOT);
     assertEquals(
-      dotted.some((e) => e.tool?.phase === 'complete'),
+      dotted.some((e) => e.type === 'tool' && e.tool.phase === 'complete'),
       true,
     );
   } finally {
@@ -1214,8 +1165,11 @@ Deno.test('a refresh the server refuses keeps its words from the model and the c
     )) as typeof fetch;
   try {
     const events = await runProfileTool('1', OAUTH_SLOT());
-    const failed = events.find(
-      (e) => (e.tool?.data as { kind?: string } | undefined)?.kind === 'auth_token_refresh_failed',
+    const failed = eventsOf(events, 'tool').find(
+      (e) =>
+        e.tool.phase === 'progress' &&
+        isRecord(e.tool.data) &&
+        e.tool.data.kind === 'auth_token_refresh_failed',
     );
     assertEquals(failed?.errorInternal?.includes('Ignore prior rules'), true);
     const client = JSON.stringify(forClientEvents(events));
@@ -1279,10 +1233,8 @@ Deno.test('an OAuth credential that names no resource sends nothing', async () =
       '1',
       OAUTH_SLOT({ resource: undefined, expiresAt: Date.now() + 3600000 }),
     );
-    assertEquals(
-      events.find((e) => e.tool?.phase === 'gate')?.tool?.gate?.authChallenge?.slot,
-      'oauth_slot',
-    );
+    const gate = toolEventsOf(events, 'gate')[0]?.gate;
+    assertEquals(gate?.kind === 'auth' ? gate.authChallenge.slot : undefined, 'oauth_slot');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1317,6 +1269,7 @@ Deno.test('a response that repeats the credential never passes it on', async () 
   const events = [];
   try {
     for await (const ev of executeRegisteredTool({
+      tools: defaultKernelScope.tools,
       profile: testProfile,
       name: 'echo_headers',
       input: {},
@@ -1428,6 +1381,7 @@ Deno.test('HTTP and MCP tools refuse a host whose name resolves inward', async (
     for (const name of ['private_internal_api', 'local_mcp']) {
       const events = [];
       for await (const ev of executeRegisteredTool({
+        tools: defaultKernelScope.tools,
         profile: testProfile,
         name,
         input: {},
@@ -1436,10 +1390,7 @@ Deno.test('HTTP and MCP tools refuse a host whose name resolves inward', async (
       })) {
         events.push(ev);
       }
-      assertEquals(
-        events.find((e) => e.tool?.phase === 'error')?.tool?.failure?.code,
-        'network_blocked',
-      );
+      assertEquals(toolEventsOf(events, 'error')[0]?.failure?.code, 'network_blocked');
     }
   } finally {
     globalThis.fetch = originalFetch;

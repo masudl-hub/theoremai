@@ -24,7 +24,7 @@ kernel.
 | --- | --- | --- |
 | Tool ids | `string` allowlist | Registers `googleSearch`, `googleMaps`, `urlContext`, `codeExecution`, each with its Interactions and Live wire name |
 | Image/speech pins | Open `string` fields | Typed constants (`GOOGLE_IMAGE_SIZES`, voices, …) |
-| Registration | `registerTools` API | `registerGooglePreset()` at host startup |
+| Registration | `registerTools` API (default scope) or `scope.tools.registerMany` | `registerGooglePreset()` at host startup fills the default scope; `GOOGLE_BUILTIN_TOOLS` fills any other |
 
 Call preset registration **before** registering profiles that allowlist preset
 builtins. Import `@theoremai/agents/presets/google` when you only need the Google pack.
@@ -45,10 +45,11 @@ This barrel re-exports the Google pack:
 
 | Export | Role |
 | --- | --- |
-| `registerGooglePreset` | Register Google builtins into the tool registry |
-| `GOOGLE_BUILTIN_TOOLS` | Catalog entries |
+| `registerGooglePreset` | Register Google builtins into the default scope's tool registry |
+| `GOOGLE_BUILTIN_TOOLS` | Catalog entries; register them into any scope's `tools` |
 | `GOOGLE_IMAGE_ASPECT_RATIOS`, `GOOGLE_IMAGE_INPUT_MIMES`, `GOOGLE_IMAGE_SIZES`, `GOOGLE_VOICE_INPUT_MIMES`, `GOOGLE_SPEECH_VOICES` | Profile authoring constants |
 | `GoogleImageAspectRatio`, `GoogleImageInputMime`, `GoogleImagePins`, `GoogleImageSize`, `GoogleVoiceInputMime`, `GoogleSpeechVoice` | Typed pins and vocabularies |
+| `googleInteractionsPersistence`, `GoogleInteractionsPersistence` | A model binding's `store` and `persistViaInteractionId`, set together |
 
 ```theorem-evidence
 {

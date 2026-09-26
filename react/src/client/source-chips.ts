@@ -1,5 +1,5 @@
 import type { TranscriptBlock } from '../../../src/interface/mod.ts';
-import type { GroundingSource } from '../../../src/kernel/mod.ts';
+import type { Source } from '../../../src/kernel/mod.ts';
 
 export type SourceChip = {
 	key: string;
@@ -8,49 +8,17 @@ export type SourceChip = {
 	kind: string;
 };
 
-export type SourceChipBlock = Extract<TranscriptBlock, { kind: 'grounding' | 'evidence' }>;
+export type SourceChipBlock = Extract<TranscriptBlock, { kind: 'citation' | 'evidence' }>;
 
+/** A citation's sources; a provider step names only its kind. */
 export function chipsFromBlock(block: SourceChipBlock): SourceChip[] {
-	if (block.kind === 'grounding') {
-		return block.grounding.sources.map((source, i) => chipFromSource(source, `g-${String(i)}`));
+	if (block.kind === 'citation') {
+		return block.sources.map((source, i) => chipFromSource(source, `c-${String(i)}`));
 	}
-	return chipsFromEvidence(block.evidence);
+	return [{ key: 'e-kind', label: block.evidence.kind.replaceAll('_', ' '), kind: 'evidence' }];
 }
 
-function chipsFromEvidence(evidence: Extract<SourceChipBlock, { kind: 'evidence' }>['evidence']): SourceChip[] {
-	const chips: SourceChip[] = [];
-
-	if (evidence.sources) {
-		for (const [i, source] of evidence.sources.entries()) {
-			chips.push(chipFromSource(source, `e-src-${String(i)}`));
-		}
-	}
-	if (evidence.citations) {
-		for (const [i, citation] of evidence.citations.entries()) {
-			chips.push(chipFromCitation(citation, i));
-		}
-	}
-	if (chips.length === 0 && evidence.kind) {
-		chips.push({
-			key: 'e-kind',
-			label: evidence.kind.replaceAll('_', ' '),
-			kind: 'evidence',
-		});
-	}
-	return chips;
-}
-
-function chipFromCitation(citation: string, index: number): SourceChip {
-	const href = webHref(citation);
-	return {
-		key: `e-cit-${String(index)}`,
-		label: href ? hostLabel(href) : truncate(citation, 48),
-		href,
-		kind: 'citation',
-	};
-}
-
-function chipFromSource(source: GroundingSource, key: string): SourceChip {
+function chipFromSource(source: Source, key: string): SourceChip {
 	return {
 		key,
 		label: source.title.trim() || hostLabel(source.uri) || source.type,

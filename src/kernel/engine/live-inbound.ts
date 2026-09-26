@@ -9,12 +9,13 @@ import { guardrailFromHits, projectGuardrailTurnEvent } from '../../guardrails/e
 import { detectionForTrust, resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import { detectText } from '../../guardrails/sanitize.ts';
 import { resolveObservabilityPolicy } from '../../observability/resolve-policy.ts';
-import type { Profile, TurnEvent } from '../types.ts';
+import type { TurnEventOf } from '../turn-events.ts';
+import type { Profile } from '../types.ts';
 
 export interface LiveInboundPrepareResult {
   text: string;
   /** Present when inbound sanitize redacted spans. */
-  guardrail?: TurnEvent;
+  guardrail?: TurnEventOf<'guardrail'>;
 }
 
 /**

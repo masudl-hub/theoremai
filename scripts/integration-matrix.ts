@@ -9,7 +9,7 @@
 
 import '../tests/fixtures/test-host.ts';
 import { testProfileCommand } from '../src/cli/commands/test.ts';
-import { listProfiles } from '../src/kernel/registry/profiles.ts';
+import { listProfiles } from '../src/kernel/default-scope.ts';
 import { isModelProfile } from '../src/kernel/registry/resolve.ts';
 import { createProvider } from '../src/providers/create-provider.ts';
 import { hostVault, loadHostEnv } from './host-env.ts';

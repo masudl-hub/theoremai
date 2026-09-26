@@ -6,10 +6,11 @@
 import '../fixtures/test-host.ts';
 import { type LexiconOverrides, lexiconDefault } from '../../src/guardrails/lexicon.ts';
 import type { EgressEnforcer, Verdict } from '../../src/guardrails/types.ts';
+import { registerProfile, runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import { runTurn } from '../../src/kernel/engine/runner.ts';
-import { defineProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
+import { eventsOf, finalStop } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
 function profile(
@@ -54,11 +55,9 @@ async function collect(id: string, provider: ModelProvider): Promise<TurnEvent[]
   return events;
 }
 
-const texts = (events: TurnEvent[]): string[] =>
-  events.filter((e) => e.type === 'text').map((e) => e.text ?? '');
+const texts = (events: TurnEvent[]): string[] => eventsOf(events, 'text').map((e) => e.text ?? '');
 
 const EGRESS_FILTERED = { kind: 'filtered', native: 'egress' };
-const stopOf = (events: TurnEvent[]) => events.findLast((e) => e.type === 'done')?.stop;
 
 // ── nothing is dropped silently ──────────────────────────────────────────────
 
@@ -105,7 +104,7 @@ Deno.test('a policy blocking consistently still withholds', async () => {
     events.some((e) => e.type === 'error'),
     true,
   );
-  assertEquals(stopOf(events), EGRESS_FILTERED);
+  assertEquals(finalStop(events), EGRESS_FILTERED);
 });
 
 // ── a policy that throws ─────────────────────────────────────────────────────
@@ -155,7 +154,7 @@ Deno.test('refuse_to_user shows the lexicon refusal, never policy text', async (
     events.some((e) => e.type === 'error'),
     false,
   );
-  assertEquals(stopOf(events), EGRESS_FILTERED);
+  assertEquals(finalStop(events), EGRESS_FILTERED);
 });
 
 Deno.test('refuse_to_user shows the profile lexicon refusal', async () => {
@@ -173,7 +172,7 @@ Deno.test('refuse_to_user shows the profile lexicon refusal', async () => {
 
   const events = await collect('fm_profile_copy', says('leaky'));
   assertEquals(texts(events), ['I cannot share that.']);
-  assertEquals(stopOf(events), EGRESS_FILTERED);
+  assertEquals(finalStop(events), EGRESS_FILTERED);
 });
 
 Deno.test('final egress inspects reply text, not thoughts', async () => {
@@ -199,7 +198,7 @@ Deno.test('final egress inspects reply text, not thoughts', async () => {
   const events = await collect('fm_thought_leak', provider);
   assertEquals(texts(events), ['safe visible text']);
   assertEquals(
-    events.filter((e) => e.type === 'thought').map((e) => e.text),
+    eventsOf(events, 'thought').map((e) => e.text),
     ['secret-thought'],
   );
 });
@@ -217,7 +216,7 @@ Deno.test('a passing attempt delivers streamed media once', async () => {
     },
   };
   const events = await collect('fm_media_once', provider);
-  assertEquals(events.filter((e) => e.type === 'media').length, 1);
+  assertEquals(eventsOf(events, 'media').length, 1);
   assertEquals(texts(events), ['here it is']);
 });
 
@@ -241,7 +240,7 @@ Deno.test('thoughts keep streaming after a mid-stream block withholds the reply'
   };
   const events = await collect('fm_thought_after_block', provider);
   assertEquals(
-    events.filter((e) => e.type === 'thought').map((e) => e.text),
+    eventsOf(events, 'thought').map((e) => e.text),
     ['still thinking'],
   );
   assertEquals(texts(events), [lexiconDefault('egress.refusal')]);

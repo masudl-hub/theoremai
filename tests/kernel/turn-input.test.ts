@@ -7,10 +7,9 @@ import '../fixtures/test-host.ts';
 import { z } from 'zod';
 import { EGRESS_RULES, standardEgressEnforce } from '../../src/guardrails/egress.ts';
 import type { GuardrailContext, OutboundPayload, Verdict } from '../../src/guardrails/types.ts';
+import { registerProfile, registerTool, runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertStringIncludes } from '../../src/kernel/engine/assert.ts';
-import { runTurn } from '../../src/kernel/engine/runner.ts';
-import { defineProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
-import { registerTool } from '../../src/kernel/tools/mod.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type {
   ModelProvider,
   ProviderCompleteRequest,
@@ -18,6 +17,7 @@ import type {
   TurnHistoryMessage,
   TurnRequest,
 } from '../../src/kernel/types.ts';
+import { eventsOf } from '../fixtures/events.ts';
 import { CHAT_MEDIA_LIMITS, geminiModels } from '../fixtures/models.ts';
 
 const PNG = { mimeType: 'image/png', data: btoa('px') };
@@ -45,7 +45,7 @@ function roles(history: TurnHistoryMessage[] | undefined): string[] {
 
 const toolThenText = (call: number): TurnEvent[] =>
   call === 1
-    ? [{ type: 'tool', tool: { name: 'stub_tool', arguments: { value: 1 }, id: 'c1' } }]
+    ? [{ type: 'tool', tool: { name: 'stub_tool', arguments: { value: 1 }, callId: 'c1' } }]
     : [{ type: 'text', text: 'done' }];
 
 /** Blocks the first attempt's draft so the turn retries once; the standard checks still run. */
@@ -145,7 +145,7 @@ for (const withStage of [false, true]) {
     // Then the repair, text only.
     assertStringIncludes(String(retry?.history?.[1]?.content), 'Say it without the draft.');
     assertEquals(
-      events.filter((e) => e.type === 'text').map((e) => e.text),
+      eventsOf(events, 'text').map((e) => e.text),
       ['a leaf'],
     );
   });
@@ -194,7 +194,9 @@ Deno.test('turn input: a retry keeps the canary-bound system prompt and the tool
   );
   assertEquals(seen[1]?.wireTools, seen[0]?.wireTools);
   assertEquals(
-    events.some((e) => e.guardrail?.hits?.some((hit) => hit.rule === EGRESS_RULES.canary)),
+    eventsOf(events, 'guardrail').some((e) =>
+      e.guardrail.hits?.some((hit) => hit.rule === EGRESS_RULES.canary),
+    ),
     true,
   );
   assertEquals(
@@ -283,8 +285,8 @@ Deno.test('turn input: post_turn after an abort sees the history the model saw',
         controller.abort();
         throw new DOMException('The operation was aborted.', 'AbortError');
       }
-      yield { type: 'tool', tool: { name: 'stub_tool', arguments: { value: 1 }, id: 'c1' } };
-      yield { type: 'done' };
+      yield { type: 'tool', tool: { name: 'stub_tool', arguments: { value: 1 }, callId: 'c1' } };
+      yield { type: 'done', stop: { kind: 'tool' } };
     },
   };
   const events: TurnEvent[] = [];

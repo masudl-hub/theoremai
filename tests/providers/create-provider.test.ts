@@ -118,9 +118,17 @@ Deno.test('createProvider throws for unsupported protocol/provider pairs', () =>
   );
 });
 
-Deno.test('createProvider routes openAi/local without requiring options.local', () => {
+Deno.test('createProvider routes openAi/local only when the host configures local', () => {
   const profile = baseProfile({ protocol: 'openAi', provider: 'local' }, 'text');
-  const provider = createProvider(profile, {});
+  let thrown: unknown;
+  try {
+    createProvider(profile, {});
+  } catch (err) {
+    thrown = err;
+  }
+  assertEquals(thrown instanceof TheoremError, true);
+  assertEquals((thrown as Error).message, 'createProvider requires local config for openAi/local');
+  const provider = createProvider(profile, { local: { baseUrl: 'http://127.0.0.1:8080' } });
   assertEquals(typeof provider.complete, 'function');
   const withUrl = createProvider(profile, { local: { baseUrl: 'http://127.0.0.1:8080' } });
   assertEquals(typeof withUrl.complete, 'function');
@@ -196,6 +204,6 @@ Deno.test('create-provider loads Google adapter only via dynamic import', () => 
 
 Deno.test('create-provider loads local adapter only via dynamic import', () => {
   const profile = baseProfile({ protocol: 'openAi', provider: 'local' }, 'text');
-  const provider = createProvider(profile, {});
+  const provider = createProvider(profile, { local: { baseUrl: 'http://127.0.0.1:8080' } });
   assertEquals(typeof provider.complete, 'function');
 });

@@ -11,24 +11,26 @@ import { asRecord } from '../../../kernel/engine/record.ts';
 import { reportedTokens, usageCount } from '../../../kernel/engine/usage.ts';
 import { historyMessageParts, isMediaRefPart } from '../../../kernel/interaction-parts.ts';
 import { mediaKindForMime } from '../../../kernel/registry/catalog.ts';
-import { requireBuiltinWire } from '../../../kernel/tools/registry.ts';
+import { toolEvent } from '../../../kernel/tools/events.ts';
 import type {
   InteractionMediaPart,
   InteractionPart,
   LiveContextCompressionSpec,
   LiveVadSpec,
   ProviderCompleteRequest,
-  TurnEvent,
+  ProviderEvent,
+  TurnEventOf,
   TurnHistoryMessage,
   TurnTokens,
   WireFunctionTool,
 } from '../../../kernel/types.ts';
 import { isRecord } from '../../../kernel/util/record.ts';
+import { builtinWire } from '../../shared/builtin-wire.ts';
 import { pcmMediaAsWav } from '../../shared/pcm.ts';
 import {
   historyToolArguments,
   historyToolIdentity,
-  parseToolArgumentsObject,
+  toolCallEvents,
 } from '../../shared/tool-args.ts';
 import { groundingFromLiveMetadata } from '../grounding.ts';
 import { GEMINI_LIVE_WS_URL } from '../urls.ts';
@@ -67,8 +69,8 @@ export function wireFunctionDeclaration(decl: WireFunctionTool): Record<string, 
  */
 function wireLiveTools(req: ProviderCompleteRequest): Array<Record<string, unknown>> {
   const tools: Array<Record<string, unknown>> = [];
-  for (const id of req.builtins) {
-    tools.push({ [requireBuiltinWire(id, 'live')]: {} });
+  for (const builtin of req.builtins) {
+    tools.push({ [builtinWire(builtin, 'live')]: {} });
   }
   const functionDeclarations = (req.wireTools ?? []).map(wireFunctionDeclaration);
   if (functionDeclarations.length > 0) {
@@ -304,13 +306,9 @@ export function buildGeminiLiveRealtimeInput(input: InteractionPart): Record<str
 
 /** Build the Gemini Live `response` struct for a function result: what the model reads. */
 export function liveFunctionResponsePayload(output: unknown): Record<string, unknown> {
-  if (
-    typeof output === 'object' &&
-    output !== null &&
-    'error' in output &&
-    typeof (output as { error?: unknown }).error === 'string'
-  ) {
-    return { error: (output as { error: string }).error };
+  const error = asRecord(output)?.error;
+  if (typeof error === 'string') {
+    return { error };
   }
   return { result: output };
 }
@@ -433,17 +431,13 @@ export function parseGeminiLiveMessage(raw: unknown): ParsedLiveMessage {
   }
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return { ok: true, value: parsed as Record<string, unknown> };
+    if (isRecord(parsed)) {
+      return { ok: true, value: parsed };
     }
     return { ok: false, reason: 'malformed' };
   } catch {
     return { ok: false, reason: 'malformed' };
   }
-}
-
-export function parseFunctionArguments(raw: unknown): ReturnType<typeof parseToolArgumentsObject> {
-  return parseToolArgumentsObject(raw);
 }
 
 /**
@@ -474,23 +468,24 @@ export function extractLiveUsageTokens(metadata: Record<string, unknown>): TurnT
   });
 }
 
-function foldSessionUpdate(message: Record<string, unknown>, events: TurnEvent[]): void {
-  const sessionUpdate = message.sessionResumptionUpdate as
-    | { newHandle?: string; resumable?: boolean }
-    | undefined;
-  if (!sessionUpdate || typeof sessionUpdate !== 'object') return;
-  const hasHandle =
-    typeof sessionUpdate.newHandle === 'string' && sessionUpdate.newHandle.length > 0;
-  const hasResumable = typeof sessionUpdate.resumable === 'boolean';
-  if (!hasHandle && !hasResumable) return;
+function foldSessionUpdate(message: Record<string, unknown>, events: ProviderEvent[]): void {
+  const sessionUpdate = asRecord(message.sessionResumptionUpdate);
+  if (!sessionUpdate) return;
+  const handle =
+    typeof sessionUpdate.newHandle === 'string' && sessionUpdate.newHandle.length > 0
+      ? sessionUpdate.newHandle
+      : undefined;
+  const resumable =
+    typeof sessionUpdate.resumable === 'boolean' ? sessionUpdate.resumable : undefined;
+  if (handle === undefined && resumable === undefined) return;
   events.push({
     type: 'evidence',
-    ...(hasHandle ? { sessionResumptionHandle: sessionUpdate.newHandle } : {}),
+    ...(handle !== undefined ? { sessionResumptionHandle: handle } : {}),
     evidence: {
       provider: 'google',
       kind: 'session_resumption',
-      resumable: hasResumable ? sessionUpdate.resumable : hasHandle,
-      raw: sessionUpdate as Record<string, unknown>,
+      resumable: resumable ?? handle !== undefined,
+      raw: sessionUpdate,
     },
   });
 }
@@ -505,45 +500,20 @@ export function newLiveFold(): LiveFold {
   return { calls: new Map() };
 }
 
+/** `toolCall.functionCalls[]`: each call, and its failure when its name or arguments are unusable. */
 function foldToolCalls(
   message: Record<string, unknown>,
   fold: LiveFold,
-  events: TurnEvent[],
+  events: ProviderEvent[],
 ): void {
-  const toolCall = message.toolCall as
-    | { functionCalls?: Array<{ id?: string; name?: string; args?: unknown }> }
-    | undefined;
-  if (!toolCall?.functionCalls || !Array.isArray(toolCall.functionCalls)) return;
-  for (const call of toolCall.functionCalls) {
-    if (!call.name) continue;
-    if (call.id) fold.calls.set(call.id, call.name);
-    const parsed = parseFunctionArguments(call.args);
-    if (!parsed.ok) {
-      events.push({
-        type: 'tool',
-        tool: {
-          id: call.id,
-          name: call.name,
-          arguments: {},
-          phase: 'error',
-          failure: {
-            code: 'malformed_arguments',
-            kind: 'bad_response',
-            message: parsed.error,
-            details: { raw: parsed.raw },
-          },
-        },
-      });
-      continue;
-    }
-    events.push({
-      type: 'tool',
-      tool: {
-        id: call.id,
-        name: call.name,
-        arguments: parsed.value,
-      },
-    });
+  const calls = asRecord(message.toolCall)?.functionCalls;
+  if (!Array.isArray(calls)) return;
+  for (const value of calls) {
+    const call = asRecord(value) ?? {};
+    const id = typeof call.id === 'string' && call.id ? call.id : undefined;
+    const name = typeof call.name === 'string' ? call.name : '';
+    if (id && name) fold.calls.set(id, name);
+    events.push(...toolCallEvents({ id, name }, call.args));
   }
 }
 
@@ -556,14 +526,13 @@ function foldToolCalls(
 function foldToolCancellations(
   message: Record<string, unknown>,
   fold: LiveFold,
-  events: TurnEvent[],
+  events: ProviderEvent[],
 ): void {
-  const cancellation = message.toolCallCancellation as { ids?: unknown } | undefined;
-  const ids = cancellation?.ids;
+  const ids = asRecord(message.toolCallCancellation)?.ids;
   if (!Array.isArray(ids)) return;
   for (const id of ids) {
     const name = typeof id === 'string' ? fold.calls.get(id) : undefined;
-    if (!name) {
+    if (typeof id !== 'string' || !name) {
       // Every observed cancel names a call this connection issued; anything else is a wire change.
       events.push(
         toErrorEvent(
@@ -576,7 +545,7 @@ function foldToolCancellations(
       continue;
     }
     fold.calls.delete(id);
-    events.push({ type: 'tool', tool: { id, name, phase: 'cancel' } });
+    events.push(toolEvent({ name, callId: id }, { phase: 'cancel' }));
   }
 }
 
@@ -585,7 +554,7 @@ function foldToolCancellations(
  * (probe 23/09/2026: gemini-3.1-flash-live only), as `evidence` with the
  * message as `raw`.
  */
-function foldVoiceActivity(message: Record<string, unknown>, events: TurnEvent[]): void {
+function foldVoiceActivity(message: Record<string, unknown>, events: ProviderEvent[]): void {
   const voiceActivity = asRecord(message.voiceActivity);
   if (!voiceActivity) return;
   events.push({
@@ -604,9 +573,9 @@ export function parseGoAwayTimeLeftMs(timeLeft: unknown): number | undefined {
   return match?.[1] ? Math.round(Number(match[1]) * 1000) : undefined;
 }
 
-function foldGoAway(message: Record<string, unknown>, events: TurnEvent[]): void {
-  const goAway = message.goAway as { timeLeft?: unknown } | undefined;
-  if (!goAway || typeof goAway !== 'object') return;
+function foldGoAway(message: Record<string, unknown>, events: ProviderEvent[]): void {
+  const goAway = asRecord(message.goAway);
+  if (!goAway) return;
   const timeLeftMs = parseGoAwayTimeLeftMs(goAway.timeLeft);
   events.push({
     type: 'session',
@@ -617,28 +586,24 @@ function foldGoAway(message: Record<string, unknown>, events: TurnEvent[]): void
   });
 }
 
-interface ModelTurnPart {
-  text?: string;
-  thought?: boolean;
-  inlineData?: { mimeType?: string; data?: string };
-  codeExecutionResult?: { outcome?: string; output?: string };
-}
-
 /**
  * Output audio arrives as `inlineData` with `mimeType: 'audio/pcm;rate=24000'`
  * (probes 23/09/2026, every Live model); it becomes WAV at the stated rate.
  * Thinking models mark reasoning text with `thought: true`.
  */
-function foldModelPart(part: ModelTurnPart, events: TurnEvent[]): void {
-  if (part.text) {
+function foldModelPart(part: Record<string, unknown>, events: ProviderEvent[]): void {
+  if (typeof part.text === 'string' && part.text) {
     events.push({ type: part.thought === true ? 'thought' : 'text', text: part.text });
   }
-  const { mimeType, data } = part.inlineData ?? {};
-  if (mimeType && data) {
+  const inlineData = asRecord(part.inlineData);
+  const mimeType = inlineData?.mimeType;
+  const data = inlineData?.data;
+  if (typeof mimeType === 'string' && mimeType && typeof data === 'string' && data) {
     events.push({ type: 'media', media: pcmMediaAsWav({ mimeType, data }) });
   }
-  if (part.codeExecutionResult) {
-    events.push(codeExecutionResultEvidence(part.codeExecutionResult));
+  const codeExecutionResult = asRecord(part.codeExecutionResult);
+  if (codeExecutionResult) {
+    events.push(codeExecutionResultEvidence(codeExecutionResult));
   }
 }
 
@@ -648,7 +613,7 @@ function foldModelPart(part: ModelTurnPart, events: TurnEvent[]): void {
  * `OUTCOME_OK` / `Browsing the web.`). No `executableCode` part was seen on any
  * Live model.
  */
-function codeExecutionResultEvidence(result: { outcome?: string; output?: string }): TurnEvent {
+function codeExecutionResultEvidence(result: Record<string, unknown>): TurnEventOf<'evidence'> {
   return {
     type: 'evidence',
     evidence: {
@@ -656,17 +621,24 @@ function codeExecutionResultEvidence(result: { outcome?: string; output?: string
       kind: 'code_execution_result',
       ...(typeof result.output === 'string' ? { result: result.output } : {}),
       ...(typeof result.outcome === 'string' ? { isError: result.outcome !== 'OUTCOME_OK' } : {}),
-      raw: result as Record<string, unknown>,
+      raw: result,
     },
   };
 }
 
+/** A transcription row's `text`, when it has any. */
+function transcriptionText(value: unknown): string | undefined {
+  const text = asRecord(value)?.text;
+  return typeof text === 'string' && text ? text : undefined;
+}
+
 function foldTranscription(
-  text: string | undefined,
+  value: unknown,
   kind: 'input_transcription' | 'output_transcription',
-  events: TurnEvent[],
+  events: ProviderEvent[],
   interim?: boolean,
 ): void {
+  const text = transcriptionText(value);
   if (!text) return;
   events.push({
     type: 'evidence',
@@ -679,20 +651,13 @@ function foldTranscription(
   });
 }
 
-function foldLiveGrounding(serverContent: Record<string, unknown>, events: TurnEvent[]): void {
-  const groundingEvent = groundingFromLiveMetadata(serverContent.groundingMetadata);
-  if (groundingEvent) {
-    events.push(groundingEvent);
-  }
-  const urlContext = serverContent.urlContextMetadata;
-  if (urlContext && typeof urlContext === 'object') {
+function foldLiveGrounding(serverContent: Record<string, unknown>, events: ProviderEvent[]): void {
+  events.push(...groundingFromLiveMetadata(serverContent.groundingMetadata));
+  const urlContext = asRecord(serverContent.urlContextMetadata);
+  if (urlContext) {
     events.push({
       type: 'evidence',
-      evidence: {
-        provider: 'google',
-        kind: 'url_context',
-        raw: urlContext as Record<string, unknown>,
-      },
+      evidence: { provider: 'google', kind: 'url_context', raw: urlContext },
     });
   }
 }
@@ -713,7 +678,7 @@ export function readLiveInteractionStatus(
   return undefined;
 }
 
-function foldInteractionStatus(message: Record<string, unknown>, events: TurnEvent[]): void {
+function foldInteractionStatus(message: Record<string, unknown>, events: ProviderEvent[]): void {
   const status = readLiveInteractionStatus(message);
   if (!status) return;
   events.push({
@@ -722,44 +687,30 @@ function foldInteractionStatus(message: Record<string, unknown>, events: TurnEve
   });
 }
 
-function foldServerContent(message: Record<string, unknown>, events: TurnEvent[]): void {
-  const serverContent = message.serverContent as Record<string, unknown> | undefined;
-  if (!serverContent || typeof serverContent !== 'object') return;
+function foldServerContent(message: Record<string, unknown>, events: ProviderEvent[]): void {
+  const serverContent = asRecord(message.serverContent);
+  if (!serverContent) return;
 
   if (serverContent.interrupted === true) {
-    events.push({
-      type: 'done',
-      interrupted: true,
-      stop: { kind: 'interrupted' as const },
-    });
+    events.push({ type: 'done', interrupted: true, stop: { kind: 'interrupted' } });
   }
 
   if (serverContent.waitingForInput === true) {
-    events.push({
-      type: 'session',
-      session: { kind: 'waiting_for_input' },
-    });
+    events.push({ type: 'session', session: { kind: 'waiting_for_input' } });
   }
 
   if (serverContent.generationComplete === true) {
-    events.push({
-      type: 'done',
-      stop: { kind: 'generation_complete' as const },
-    });
+    events.push({ type: 'done', stop: { kind: 'generation_complete' } });
   }
 
-  const inputTranscription = serverContent.inputTranscription as { text?: string } | undefined;
-  foldTranscription(inputTranscription?.text, 'input_transcription', events);
+  foldTranscription(serverContent.inputTranscription, 'input_transcription', events);
+  foldTranscription(serverContent.interimInputTranscription, 'input_transcription', events, true);
+  foldTranscription(serverContent.outputTranscription, 'output_transcription', events);
 
-  const interimInput = serverContent.interimInputTranscription as { text?: string } | undefined;
-  foldTranscription(interimInput?.text, 'input_transcription', events, true);
-
-  const outputTranscription = serverContent.outputTranscription as { text?: string } | undefined;
-  foldTranscription(outputTranscription?.text, 'output_transcription', events);
-
-  const modelTurn = serverContent.modelTurn as { parts?: ModelTurnPart[] } | undefined;
-  for (const part of modelTurn?.parts ?? []) {
-    foldModelPart(part, events);
+  const parts = asRecord(serverContent.modelTurn)?.parts;
+  for (const part of Array.isArray(parts) ? parts : []) {
+    const record = asRecord(part);
+    if (record) foldModelPart(record, events);
   }
 
   foldLiveGrounding(serverContent, events);
@@ -769,25 +720,23 @@ function foldServerContent(message: Record<string, unknown>, events: TurnEvent[]
   }
 }
 
-function foldUsageMetadata(message: Record<string, unknown>, events: TurnEvent[]): void {
-  const usageMetadata = message.usageMetadata as Record<string, unknown> | undefined;
-  if (usageMetadata) {
-    const tokens = extractLiveUsageTokens(usageMetadata);
-    if (tokens) {
-      events.push({ type: 'tokens', tokens });
-    }
+function foldUsageMetadata(message: Record<string, unknown>, events: ProviderEvent[]): void {
+  const usageMetadata = asRecord(message.usageMetadata);
+  const tokens = usageMetadata ? extractLiveUsageTokens(usageMetadata) : undefined;
+  if (tokens) {
+    events.push({ type: 'tokens', tokens });
   }
 }
 
 /**
- * Fold a raw `BidiGenerateContentServerMessage` into normalized `TurnEvent` items.
+ * Fold a raw `BidiGenerateContentServerMessage` into normalized `ProviderEvent` items.
  */
 export function foldGeminiLiveServerMessage(
   message: Record<string, unknown> | null | undefined,
   fold: LiveFold,
-): TurnEvent[] {
+): ProviderEvent[] {
   if (!message || typeof message !== 'object') return [];
-  const events: TurnEvent[] = [];
+  const events: ProviderEvent[] = [];
   foldGoAway(message, events);
   foldSessionUpdate(message, events);
   foldToolCalls(message, fold, events);

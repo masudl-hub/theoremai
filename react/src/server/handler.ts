@@ -22,6 +22,7 @@
 import {
 	type CreateProviderOptions,
 	createProvider,
+	defaultKernelScope,
 	defineProfile,
 	errorKind,
 	invokeTool,
@@ -32,7 +33,6 @@ import {
 	publicError,
 	registerProfile,
 	runTurn,
-	type StageHandler,
 	TheoremError,
 	type ToolGate,
 	type TurnEvent,
@@ -42,7 +42,7 @@ import {
 import { type ClientTurnOptions, caughtStatus, forClient, HTTP_METHOD } from '../../../src/host/mod.ts';
 import { credentialFromTypedSecret, toBase64Url } from '../../../src/kernel/mod.ts';
 import {
-	gatedToolFromEvents,
+	gatedToolsFromEvents,
 	interfaceFromProfile,
 	type ProfileInterface,
 	promotedToolIdsFromEvents,
@@ -51,7 +51,6 @@ import {
 import { sessionPermissionsAfterApproval } from '../client/tool-resume.ts';
 import type {
 	TheoremInvokeRequest,
-	TheoremSteerRequest,
 	TheoremTurnInput,
 	TheoremTurnRequest,
 } from '../client/transport.ts';
@@ -69,7 +68,7 @@ import {
 	type TheoremSessionState,
 	type TheoremSessionStore,
 } from './session-store.ts';
-import { createMemorySteerInbox, type SteerInbox } from './steer-inbox.ts';
+import { createMemorySteerInbox, parseSteerUnit, type SteerInbox, steerStage } from './steer-inbox.ts';
 import { isRecord } from '../../../src/kernel/util/record.ts';
 
 export type TheoremRequestContext = {
@@ -114,7 +113,7 @@ export type TheoremHandlerOptions = {
 	 * OAuth gate carries no sign-in URL.
 	 */
 	authorizationUrl?: (
-		challenge: NonNullable<ToolGate['authChallenge']>,
+		challenge: Extract<ToolGate, { kind: 'auth' }>['authChallenge'],
 		ctx: { request: Request; sessionId: string },
 	) => string | Promise<string>;
 	/** Default: in-process memory. Use a shared store when turns and steers can land on different instances. */
@@ -128,7 +127,6 @@ export type TheoremHandlerOptions = {
 	onError?: (err: unknown, ctx: { request: Request }) => void;
 };
 
-const STEER_STAGES = new Set(['pre_turn', 'post_tool', 'before_end']);
 const SESSION_COOKIE = 'theorem_session';
 const DEFAULT_GATE_TTL_MS = 30 * 60 * 1000;
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
@@ -154,7 +152,7 @@ function withSessionCookie(response: Response, session: Session | undefined): Re
 
 /** Strip server-only identity (system prompts) from the projected interface. */
 function clientInterface(profile: Profile): ProfileInterface {
-	const iface = interfaceFromProfile(profile);
+	const iface = interfaceFromProfile(profile, defaultKernelScope.tools);
 	return { ...iface, identity: { handle: iface.identity.handle } };
 }
 
@@ -186,15 +184,11 @@ function assertInvokeBody(body: unknown): asserts body is TheoremInvokeRequest {
 	}
 }
 
-function assertSteerBody(body: unknown): asserts body is TheoremSteerRequest {
-	if (!isRecord(body) || typeof body.turnId !== 'string' || !body.turnId.trim()) {
-		// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
-		throw new TheoremError('request', 'turnId is required');
-	}
-	if (!Array.isArray(body.inject) || body.inject.length === 0) {
-		// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
-		throw new TheoremError('request', 'inject must be a non-empty array');
-	}
+function steerTurnId(body: unknown): string {
+	const turnId = isRecord(body) && typeof body.turnId === 'string' ? body.turnId.trim() : '';
+	// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
+	if (!turnId) throw new TheoremError('request', 'turnId is required');
+	return turnId;
 }
 
 /** Conversation messages a browser may supply — never system instructions. */
@@ -362,25 +356,15 @@ function inboxKey(sessionId: string, turnId: string): string {
 	return `${sessionId}\u0000${turnId}`;
 }
 
-function steerStage(inbox: SteerInbox, key: string): StageHandler {
-	return async ({ stage }) => {
-		if (!STEER_STAGES.has(stage)) return;
-		const inject: TurnHistoryMessage[] | undefined = await inbox.consume(key);
-		return inject?.length ? { inject } : undefined;
-	};
-}
-
 type OutcomeContext = { turnInput: TurnInput; model?: string; promoted?: string[] };
 
-/** The exact paused call the user may now approve, when the stream stopped on a gate. */
-function pendingGateFrom(events: TurnEvent[], context: OutcomeContext): { callId: string; gate: PendingToolGate } | undefined {
-	const gated = gatedToolFromEvents(events);
-	if (!gated?.callId) return undefined;
-	return {
+/** The exact paused calls the user may now approve, when the stream stopped on gates. */
+function pendingGatesFrom(events: TurnEvent[], context: OutcomeContext): { callId: string; gate: PendingToolGate }[] {
+	return gatedToolsFromEvents(events).map((gated) => ({
 		callId: gated.callId,
 		gate: {
 			name: gated.name,
-			input: gated.input,
+			arguments: gated.arguments,
 			gate: { kind: gated.gateKind, permission: gated.permission, ...(gated.auth ? { auth: gated.auth } : {}) },
 			snapshot: toolSnapshotFromEvents(events),
 			promoted: [...new Set([...(context.promoted ?? []), ...promotedToolIdsFromEvents(events)])],
@@ -388,12 +372,12 @@ function pendingGateFrom(events: TurnEvent[], context: OutcomeContext): { callId
 			model: context.model,
 			createdAt: Date.now(),
 		},
-	};
+	}));
 }
 
 /**
  * Record what the stream established: interaction ids for continuation and,
- * when it paused on a gate, the exact call the user may now approve.
+ * when it paused on gates, the exact calls the user may now approve.
  */
 async function recordOutcome(
 	sessions: LockedStore<TheoremSessionState>,
@@ -404,11 +388,11 @@ async function recordOutcome(
 	const interactionIds = events.flatMap((event) =>
 		event.type === 'done' && event.interactionId ? [event.interactionId] : [],
 	);
-	const pending = pendingGateFrom(events, context);
-	if (!interactionIds.length && !pending) return;
+	const pending = pendingGatesFrom(events, context);
+	if (!interactionIds.length && !pending.length) return;
 	await sessions.mutate(sessionId, (state) => {
 		state.interactions.push(...interactionIds);
-		if (pending) state.gates[pending.callId] = pending.gate;
+		for (const { callId, gate } of pending) state.gates[callId] = gate;
 	});
 }
 
@@ -440,7 +424,7 @@ function saveCredential(
 
 /** The slot a refreshed OAuth token replaced, from its `auth_token_refreshed` event. */
 function refreshedSlot(event: TurnEvent): string | undefined {
-	const data = event.type === 'tool' && event.tool?.phase === 'progress' ? event.tool.data : undefined;
+	const data = event.type === 'tool' && event.tool.phase === 'progress' ? event.tool.data : undefined;
 	return isRecord(data) && data.kind === 'auth_token_refreshed' && typeof data.slot === 'string'
 		? data.slot
 		: undefined;
@@ -453,13 +437,15 @@ async function withAuthorizationUrl(
 	sessionId: string,
 	event: TurnEvent,
 ): Promise<TurnEvent> {
-	const tool = event.type === 'tool' && event.tool?.phase === 'gate' ? event.tool : undefined;
-	const challenge = tool?.gate?.authChallenge;
-	if (!tool?.gate || challenge?.authType !== 'oauth2' || !ctx.options.authorizationUrl) return event;
+	if (event.type !== 'tool' || event.tool.phase !== 'gate') return event;
+	const { tool } = event;
+	const gate = tool.gate.kind === 'auth' ? tool.gate : undefined;
+	if (!gate || gate.authChallenge.authType !== 'oauth2' || !ctx.options.authorizationUrl) return event;
+	const challenge = gate.authChallenge;
 	const authorizationUrl = await ctx.options.authorizationUrl(challenge, { request, sessionId });
 	return {
 		...event,
-		tool: { ...tool, gate: { ...tool.gate, authChallenge: { ...challenge, authorizationUrl } } },
+		tool: { ...tool, gate: { ...gate, authChallenge: { ...challenge, authorizationUrl } } },
 	};
 }
 
@@ -573,7 +559,8 @@ async function* invokeEvents(
 	const events = invokeTool({
 		profile: ctx.profile.id,
 		name: pending.name,
-		input: pending.input,
+		callId: body.gateId,
+		input: pending.arguments,
 		resume: { granted: true },
 		sessionPermissions: permissions,
 		credentials,
@@ -592,14 +579,10 @@ async function* invokeEvents(
 }
 
 async function steer(ctx: HandlerContext, session: Session, body: unknown): Promise<Response> {
-	assertSteerBody(body);
-	const inject = conversationOnly(body.inject).filter((message) => message.role === 'user');
-	// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
-	if (!inject.length) throw new TheoremError('request', 'inject must contain user messages');
-	const accepted = await ctx.inbox.enqueue(inboxKey(session.id, body.turnId.trim()), inject);
-	if (!accepted) {
+	const turnId = steerTurnId(body);
+	if (!(await ctx.inbox.enqueue(inboxKey(session.id, turnId), parseSteerUnit(body)))) {
 		// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
-		throw new TheoremError('request', `turn ${body.turnId.trim()} is not running`, {
+		throw new TheoremError('request', `turn ${turnId} is not running`, {
 			copy: { key: 'session.turn_ended' },
 		});
 	}

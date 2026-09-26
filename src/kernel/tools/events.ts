@@ -15,21 +15,57 @@ import { throwIfAborted } from '../../guardrails/error.ts';
 import { assertSafeUrl } from '../../guardrails/network.ts';
 import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import type { NetworkGuardrailSpec } from '../../guardrails/types.ts';
-import type { TurnEvent } from '../types.ts';
-import type { ToolCallEvent, ToolContext, ToolFailure } from './types.ts';
+import type { TurnEvent, TurnEventOf } from '../types.ts';
+import { isRecord } from '../util/record.ts';
+import type { ToolCallRequest, ToolContext, ToolFailure, ToolPhaseEvent } from './types.ts';
 
 /** Identifying fields repeated on every event for one tool call. */
-export type ToolCallBase = Pick<ToolCallEvent, 'name' | 'callId' | 'arguments'>;
+export type ToolCallBase = Pick<ToolPhaseEvent, 'name' | 'callId'>;
 
-export function toolEvent(base: ToolCallBase, patch: Partial<ToolCallEvent>): TurnEvent {
+export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+
+/** One phase and its fields; `toolEvent` adds the call's identity and `at`. */
+export type ToolPhasePatch = DistributiveOmit<ToolPhaseEvent, keyof ToolCallBase | 'at'>;
+
+/** The one constructor of tool phase events: it stamps `at`. */
+export function toolEvent(base: ToolCallBase, patch: ToolPhasePatch): TurnEventOf<'tool'> {
   return {
     type: 'tool',
-    tool: { ...base, ...patch },
+    tool: { ...patch, name: base.name, callId: base.callId, at: Date.now() },
   };
 }
 
-export function failureEvent(base: ToolCallBase, failure: ToolFailure): TurnEvent {
+export function failureEvent(base: ToolCallBase, failure: ToolFailure): TurnEventOf<'tool'> {
   return toolEvent(base, { phase: 'error', failure });
+}
+
+/** The model's call, as a provider emits it: the first event of every call. */
+export function toolCallRequestEvent(
+  base: ToolCallBase,
+  args: Record<string, unknown>,
+  { thoughtSignature, stepId }: Pick<ToolCallRequest, 'thoughtSignature' | 'stepId'> = {},
+): TurnEventOf<'tool'> {
+  return {
+    type: 'tool',
+    tool: {
+      name: base.name,
+      callId: base.callId,
+      arguments: args,
+      ...(thoughtSignature ? { thoughtSignature } : {}),
+      ...(stepId ? { stepId } : {}),
+    },
+  };
+}
+
+/** A call id for a call the provider sent without one. Unique: readers join a call's events by it. */
+export function newCallId(name: string): string {
+  return `call_${name}_${crypto.randomUUID()}`;
+}
+
+/** Tool arguments as an object, the shape tool events carry: no input is no arguments; a bare value is `{ value }`. */
+export function toolCallArguments(safeInput: unknown): Record<string, unknown> {
+  if (safeInput === undefined) return {};
+  return isRecord(safeInput) ? safeInput : { value: safeInput };
 }
 
 /** Failure text for a thrown value, without leaking a stack. */
@@ -49,7 +85,11 @@ export function* startToolExecution<T>(
   ctx: ToolContext,
   base: ToolCallBase,
 ): Generator<TurnEvent, { ok: true; data: T } | { ok: false }> {
-  yield toolEvent(base, { phase: 'running' });
+  const edited = ctx.resume?.edited;
+  yield toolEvent(base, {
+    phase: 'running',
+    ...(edited ? { edited: { from: edited.from, to: toolCallArguments(rawInput) } } : {}),
+  });
   throwIfAborted(ctx.signal);
   const parsed = tool.input.safeParse(rawInput);
   if (!parsed.success) {

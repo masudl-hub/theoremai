@@ -8,8 +8,9 @@
 
 import type { InvokeToolResume, ToolGate, ToolPermission } from './types.ts';
 
+/** A resume that answers a gate (approved or refused). */
 export function isResumeContinuation(resume?: InvokeToolResume): boolean {
-  return resume?.value !== undefined || typeof resume?.granted === 'boolean';
+  return typeof resume?.granted === 'boolean';
 }
 
 /** Gate resume — only `granted: true` skips confirm/permission/`preTool` re-ask. */

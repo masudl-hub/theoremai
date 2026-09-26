@@ -10,7 +10,13 @@
  * @module
  */
 
-import type { TurnCost, TurnGroundingCount, TurnTokenSide, TurnTokens } from '../types.ts';
+import type {
+  TurnCost,
+  TurnEvent,
+  TurnGroundingCount,
+  TurnTokenSide,
+  TurnTokens,
+} from '../types.ts';
 
 /** Provider usage already mapped to the OpenTelemetry GenAI meanings. */
 export interface ReportedUsage {
@@ -135,6 +141,11 @@ function sumGrounding(calls: TurnTokens[]): TurnGroundingCount[] | undefined {
  * only for BYOK, so its absence is not missing data). Per-modality shares and
  * grounding follow `sumByModality` and `sumGrounding`.
  */
+/** A turn's usage: the sum of its `tokens` events. `done.tokens` and the turn's span both read it. */
+export function sumEventTokens(events: readonly TurnEvent[]): TurnTokens | undefined {
+  return sumTokens(events.flatMap((event) => (event.type === 'tokens' ? [event.tokens] : [])));
+}
+
 export function sumTokens(calls: TurnTokens[]): TurnTokens | undefined {
   if (calls.length === 0) return undefined;
   const add = (pick: (call: TurnTokens) => number | undefined): number =>

@@ -24,10 +24,13 @@ import {
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
   isValidPair,
   isValidProfileProtocol,
+  PROFILE_FIELDS,
+  PROFILE_TYPES,
+  type ProfileType,
   protocolsForProfileType,
 } from '../schema.ts';
 import { isContinueStopKind, type ProfileTurnResumptionSpec } from '../stop.ts';
-import { getTool } from '../tools/registry.ts';
+import type { ToolRegistry } from '../tools/registry.ts';
 import { profileToolAllow, profileToolsSpec } from '../tools/resolve.ts';
 import type {
   CompactionSpec,
@@ -59,8 +62,6 @@ import type {
 } from '../types.ts';
 import { mimeAllowed, profileInputs } from './catalog.ts';
 import { soleModelId } from './sole-model.ts';
-
-const profiles = new Map<string, Profile>();
 
 /**
  * Common host-authored fields for text, image, speech, and live profiles. A host
@@ -375,6 +376,77 @@ function assertResumption(
   assertContinueKindList(profileId, 'autoContinue', resumption.autoContinue);
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** The values at `path`, `*` spanning a map's entries; none once a parent is absent. */
+function valuesAt(root: Record<string, unknown>, path: readonly string[]): unknown[] {
+  let level: unknown[] = [root];
+  for (const key of path) {
+    level = level.flatMap((value) => {
+      if (!isRecord(value)) return [];
+      return key === '*' ? Object.values(value) : [value[key]];
+    });
+  }
+  return level;
+}
+
+/** Fields `PROFILE_FIELDS` marks required for this type, shallowest first. */
+const REQUIRED_PATHS: readonly (readonly [string, readonly ProfileType[] | undefined])[] =
+  Object.entries(PROFILE_FIELDS)
+    .filter(([, meta]) => meta.required === true)
+    .map(([path, meta]) => [path, meta.profileTypes] as const)
+    .sort(([a], [b]) => a.split('.').length - b.split('.').length);
+
+/**
+ * A definition may come from outside the host (a playground draft over the
+ * network), so its shape is checked before anything reads it: an object with
+ * an id and a known type.
+ */
+function assertProfileShape(input: unknown): asserts input is ProfileDefinition {
+  if (!isRecord(input)) {
+    throw new TheoremError('config', 'Profile definition must be an object'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  const id = typeof input.id === 'string' && input.id.trim() ? input.id : undefined;
+  if (!id) {
+    throw new TheoremError('config', 'Profile definition must set id'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  const type = PROFILE_TYPES.find((known) => known === input.type);
+  if (!type) {
+    throw new TheoremError(
+      'config',
+      `Profile ${id}: type must be one of ${PROFILE_TYPES.join(', ')}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+}
+
+/**
+ * Every field `PROFILE_FIELDS` marks required for the definition's type. A
+ * field under an optional parent the definition leaves out is not required.
+ */
+function assertRequiredFields(input: ProfileDefinition): void {
+  const { id, type } = input;
+  const root = input as unknown as Record<string, unknown>;
+  for (const [path, profileTypes] of REQUIRED_PATHS) {
+    if (profileTypes && !profileTypes.includes(type)) continue;
+    const keys = path.split('.');
+    const parents = valuesAt(root, keys.slice(0, -1));
+    const last = keys[keys.length - 1];
+    const missing = parents.some((parent) => {
+      if (!isRecord(parent)) return false;
+      const value = parent[last];
+      return value === undefined || value === null || value === '';
+    });
+    if (missing) {
+      throw new TheoremError(
+        'config',
+        `Profile ${id}: type '${type}' must set ${path}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
+  }
+}
+
 /**
  * Reject any field set on a profile type it doesn't belong to. The scope is
  * `PROFILE_FIELD_SCOPE`, the one owner of which type takes which field; it
@@ -458,7 +530,9 @@ function defineProfile(
 ): Exclude<Profile, LiveProfile | HostProfile>;
 function defineProfile(input: ProfileDefinition): Profile;
 function defineProfile(input: ProfileDefinition): Profile {
+  assertProfileShape(input);
   assertFieldScope(input);
+  assertRequiredFields(input);
   if (input.lexicon) validateLexiconOverrides(input.lexicon, `Profile ${input.id}`);
   if (input.type === 'host') {
     return defineHostProfile(input);
@@ -595,14 +669,19 @@ function assertWholeTokens(tag: string, value: number | undefined) {
   throw new TheoremError('config', `${tag} must be a whole number above 0`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
 }
 
-function assertCompactionSpec(profileId: string, modelId: ModelId, spec: CompactionSpec): void {
+function assertCompactionSpec(
+  registered: ReadonlyMap<string, Profile>,
+  profileId: string,
+  modelId: ModelId,
+  spec: CompactionSpec,
+): void {
   const tag = `Profile ${profileId} model ${modelId} compaction`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   assertCompactionBudget(tag, spec);
   assertCompactionRetain(tag, spec);
   if (spec.meter != null && spec.meter !== 'history' && spec.meter !== 'input') {
     throw new TheoremError('config', `${tag}: meter must be 'history' or 'input'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
-  if (!profiles.has(spec.profile)) {
+  if (!registered.has(spec.profile)) {
     throw new TheoremError(
       'config',
       `${tag}: compaction profile '${spec.profile}' must be registered before '${profileId}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -682,9 +761,9 @@ function assertCompactionRetain(tag: string, spec: CompactionSpec): void {
   }
 }
 
-function assertCustomToolsOnly(profile: Profile): void {
+function assertCustomToolsOnly(tools: ToolRegistry, profile: Profile): void {
   for (const id of profileToolAllow(profile)) {
-    const tool = getTool(id);
+    const tool = tools.get(id);
     if (tool?.type === 'builtin') {
       throw new TheoremError(
         'config',
@@ -696,7 +775,7 @@ function assertCustomToolsOnly(profile: Profile): void {
   }
 }
 
-function assertProfileToolLoader(profile: Profile): void {
+function assertProfileToolLoader(tools: ToolRegistry, profile: Profile): void {
   if (profile.type === 'live' || profile.type === 'host') {
     return;
   }
@@ -710,7 +789,7 @@ function assertProfileToolLoader(profile: Profile): void {
       `Profile ${profile.id} tools.t2Loader '${loaderId}' must also be listed in tools.allow`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
-  const tool = getTool(loaderId);
+  const tool = tools.get(loaderId);
   if (tool?.type !== 'function') {
     throw new TheoremError(
       'config',
@@ -728,9 +807,9 @@ function* modelBuiltinIds(profile: ModelProfile): Generator<{ modelId: string; i
   }
 }
 
-function assertModelBuiltInTools(profile: ModelProfile): void {
+function assertModelBuiltInTools(tools: ToolRegistry, profile: ModelProfile): void {
   for (const { modelId, id } of modelBuiltinIds(profile)) {
-    const tool = getTool(id);
+    const tool = tools.get(id);
     if (tool?.type !== 'builtin') {
       throw new TheoremError(
         'config',
@@ -756,85 +835,65 @@ function assertMediaLimits(profile: ModelProfile): void {
   }
 }
 
-/** Register one host-owned profile in the process-local registry. */
-function registerProfile(profileInput: Profile | ProfileDefinition): void {
-  const profile = defineProfile(profileInput as ProfileDefinition);
-  assertCustomToolsOnly(profile);
-  assertProfileToolLoader(profile);
-  if (profile.type === 'host') {
-    // No models, ingress, media limits, or compaction to validate — the tool ceiling is the whole contract.
-    profiles.set(profile.id, profile);
-    return;
-  }
-  if (profile.type === 'decision') {
-    profiles.set(profile.id, profile);
-    return;
-  }
-  assertModelBuiltInTools(profile);
-  assertMediaLimits(profile);
-  for (const [modelId, binding] of Object.entries(profile.models)) {
-    if (binding.compaction) {
-      assertCompactionSpec(profile.id, modelId, binding.compaction);
+/** One scope's profiles, by id; validated against the same scope's tools. */
+interface ProfileRegistry {
+  /** Define, validate, and register one host-owned profile. */
+  register(profileInput: Profile | ProfileDefinition): void;
+  /** Register several host-owned profiles in order. */
+  registerMany(profilesList: Array<Profile | ProfileDefinition>): void;
+  /** The profile registered under `id`; throws when there is none. */
+  get(id: string): Profile;
+  /** The profile registered under `id`, or `undefined`. */
+  find(id: string): Profile | undefined;
+  has(id: string): boolean;
+  /** Registered profiles in registration order. */
+  list(): Profile[];
+  /** Remove every profile. */
+  clear(): void;
+}
+
+/**
+ * A profile registry of its own. Profiles are checked against `tools`, the
+ * same scope's tool registry, so register a scope's tools before its profiles.
+ */
+function createProfileRegistry(tools: ToolRegistry): ProfileRegistry {
+  const profiles = new Map<string, Profile>();
+  const register = (profileInput: Profile | ProfileDefinition) => {
+    const profile = defineProfile(profileInput as ProfileDefinition);
+    assertCustomToolsOnly(tools, profile);
+    assertProfileToolLoader(tools, profile);
+    // Host and decision profiles have no models, ingress, media limits, or compaction to validate.
+    if (profile.type !== 'host' && profile.type !== 'decision') {
+      assertModelBuiltInTools(tools, profile);
+      assertMediaLimits(profile);
+      for (const [modelId, binding] of Object.entries(profile.models)) {
+        if (binding.compaction) {
+          assertCompactionSpec(profiles, profile.id, modelId, binding.compaction);
+        }
+      }
     }
-  }
-  profiles.set(profile.id, profile);
+    profiles.set(profile.id, profile);
+  };
+  return {
+    register,
+    registerMany(profilesList) {
+      for (const p of profilesList) {
+        register(p);
+      }
+    },
+    get(id) {
+      const profile = profiles.get(id);
+      if (!profile) {
+        throw new TheoremError('config', `Unknown profile '${id}'`);
+      }
+      return profile;
+    },
+    find: (id) => profiles.get(id),
+    has: (id) => profiles.has(id),
+    list: () => [...profiles.values()],
+    clear: () => profiles.clear(),
+  };
 }
 
-/** Register several host-owned profiles in order. */
-function registerProfiles(profilesList: Array<Profile | ProfileDefinition>): void {
-  for (const p of profilesList) {
-    registerProfile(p);
-  }
-}
-
-/** Return whether a profile id is currently registered. */
-function hasProfile(id: string): boolean {
-  return profiles.has(id);
-}
-
-/**
- * A profile's observability block, or `undefined` when the id is not
- * registered — the trace of a turn on an unknown profile still records its failure.
- */
-function profileObservability(id: string): ProfileObservabilitySpec | undefined {
-  return profiles.get(id)?.observability;
-}
-
-/**
- * A profile's wording overrides, or `undefined` when it sets none or the id
- * is not registered (the caller's own lookup reports that).
- */
-function profileLexicon(id: string): LexiconOverrides | undefined {
-  return profiles.get(id)?.lexicon;
-}
-
-/** List all currently registered profiles. */
-function listProfiles(): Profile[] {
-  return Array.from(profiles.values());
-}
-
-/** Clear the process-local registry; intended for tests and host reloads. */
-function clearProfiles(): void {
-  profiles.clear();
-}
-
-/** Fetch a registered profile or throw a `TheoremError`. */
-function getProfile(id: string): Profile {
-  const profile = profiles.get(id);
-  if (!profile) {
-    throw new TheoremError('config', `Unknown profile '${id}'`);
-  }
-  return profile;
-}
-
-export {
-  clearProfiles,
-  defineProfile,
-  getProfile,
-  hasProfile,
-  listProfiles,
-  profileLexicon,
-  profileObservability,
-  registerProfile,
-  registerProfiles,
-};
+export type { ProfileRegistry };
+export { createProfileRegistry, defineProfile };

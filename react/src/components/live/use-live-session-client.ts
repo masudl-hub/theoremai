@@ -1,5 +1,5 @@
 import { useCallback, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
-import { type LexiconOverrides, type SessionEvent, TheoremError, type TurnEvent } from '../../../../mod.ts';
+import { type LexiconOverrides, type SessionEventOf, TheoremError, type TurnEvent } from '../../../../mod.ts';
 import {
 	applyLiveTranscript,
 	type LiveCaptionState,
@@ -8,6 +8,7 @@ import type { LiveToolGatePrompt } from '../../client/live/live-tool';
 import { runLiveToolCall } from '../../client/live/run-live-tool-call';
 import type { LiveFacingMode, LiveVideoCapture } from '../../client/live/live-video';
 import {
+	type LiveConnection,
 	type LiveConnectPhase,
 	LiveSessionClient,
 	type LiveSessionStatus,
@@ -33,7 +34,7 @@ export type LiveClientBindings = {
 	lexicon: LexiconOverrides;
 	reportFailure: (err: unknown) => void;
 	clearFailure: () => void;
-	reportSessionEnded: (session: SessionEvent) => void;
+	reportSessionEnded: (session: SessionEventOf<'ended'>) => void;
 	clearSessionEnded: () => void;
 	setCaptions: Dispatch<SetStateAction<LiveCaptionState>>;
 	setInputLevel: Dispatch<SetStateAction<number>>;
@@ -123,11 +124,11 @@ export function useLiveSessionClient(bindings: LiveClientBindings) {
 	const bindingsRef = useRef(bindings);
 	bindingsRef.current = bindings;
 
-	const ensureClient = useCallback((profileId: string) => {
+	const ensureClient = useCallback((connection: LiveConnection) => {
 		if (clientRef.current) return clientRef.current;
 		const b = bindingsRef.current;
 		const client = new LiveSessionClient({
-			profile: profileId,
+			...connection,
 			voiceIngress: b.voiceAvailable,
 			onConnectPhase: (phase) => {
 				b.setConnectPhase(phase);

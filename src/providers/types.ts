@@ -20,10 +20,7 @@ export interface OpenAiGatewayConfig {
 
 /** Host-supplied config for the local OpenAI-compat provider. */
 export interface LocalProviderConfig {
-  /**
-   * Base URL of the OpenAI-compat server (no trailing slash).
-   * Defaults to `http://127.0.0.1:11434`.
-   */
-  baseUrl?: string;
+  /** Base URL of the OpenAI-compat server, e.g. `http://127.0.0.1:11434` for Ollama. */
+  baseUrl: string;
   fetch?: typeof globalThis.fetch;
 }

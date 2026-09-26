@@ -33,7 +33,7 @@ export {
   runEnforcer,
   standardEgressEnforce,
 } from './egress.ts';
-export type { ErrorCopy, ErrorKind, TheoremErrorOptions } from './error.ts';
+export type { ErrorCopies, ErrorCopy, ErrorKind, TheoremErrorOptions } from './error.ts';
 export {
   describeError,
   ERROR_KINDS,
@@ -47,6 +47,7 @@ export {
   toErrorEvent,
   withPublicWording,
 } from './error.ts';
+export { errorCopiesSchema, errorKindSchema, guardrailEventSchema } from './event-schemas.ts';
 export {
   guardrailFromHits,
   guardrailFromVerdict,

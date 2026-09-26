@@ -1,6 +1,5 @@
-import { runTurn } from '../../kernel/engine/runner.ts';
+import { getProfile, listProfiles, runTurn } from '../../kernel/default-scope.ts';
 import { sumTokens } from '../../kernel/engine/usage.ts';
-import { getProfile, listProfiles } from '../../kernel/registry/profiles.ts';
 import { isModelProfile, requireModelProfile } from '../../kernel/registry/resolve.ts';
 import { profileToolAllow } from '../../kernel/tools/resolve.ts';
 import type { ModelProfile, ModelProvider, TurnRequest, TurnTokens } from '../../kernel/types.ts';

@@ -3,12 +3,8 @@ import { assertEquals, assertThrows } from '@std/assert';
 import { wrapUserData } from '../../src/guardrails/canary.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
-import {
-  clearProfiles,
-  defineProfile,
-  registerProfile,
-} from '../../src/kernel/registry/profiles.ts';
-import { resolveTurn } from '../../src/kernel/registry/resolve.ts';
+import { clearProfiles, registerProfile, resolveTurn } from '../../src/kernel/default-scope.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
 const PROFILE_ID = 'resolve-system.test';

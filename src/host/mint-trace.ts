@@ -7,8 +7,9 @@
  * @module
  */
 
+import { TheoremError } from '../guardrails/error.ts';
 import { urlAttributes } from '../kernel/engine/turn-trace.ts';
-import { profileObservability } from '../kernel/registry/profiles.ts';
+import type { Profile } from '../kernel/types.ts';
 import { resolveTraceWriter } from '../observability/policy.ts';
 import { writeTrace } from '../observability/trace.ts';
 import { buildRecord, type TraceRecord } from '../observability/trace-record.ts';
@@ -54,6 +55,8 @@ function cutoutAttributes(cutout: CutoutTape): TraceAttributes {
  * sink receives that profile's retention and `onWriteError`.
  */
 async function flushMintTrace(args: {
+  /** The profile the held turn ran on; its observability governs both writes. */
+  profile: Profile;
   held: TraceRecord[];
   app: Record<string, unknown>;
   cutout: CutoutTape;
@@ -64,10 +67,16 @@ async function flushMintTrace(args: {
   if (!record || !root || !args.sink) {
     return;
   }
-  const profile = root.attributes[AGENT_NAME];
+  const ranOn = root.attributes[AGENT_NAME];
+  if (ranOn !== args.profile.id) {
+    throw new TheoremError(
+      'config',
+      `flushMintTrace: the held turn ran on '${String(ranOn)}', not '${args.profile.id}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
   const { sink, policy } = resolveTraceWriter({
     override: args.sink,
-    observability: typeof profile === 'string' ? profileObservability(profile) : undefined,
+    observability: args.profile.observability,
   });
   await writeTrace(sink, Promise.resolve(record), policy);
   const { cutout } = args;

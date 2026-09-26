@@ -10,8 +10,9 @@ import {
   takeSlot,
 } from '../../src/guardrails/quota.ts';
 import { caughtStatus } from '../../src/host/reply.ts';
+import { getProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import { defineProfile, getProfile } from '../../src/kernel/registry/profiles.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
 const now = Date.parse('2026-08-16T12:00:00Z');

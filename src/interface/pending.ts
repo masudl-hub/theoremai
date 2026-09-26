@@ -11,6 +11,7 @@
  * @module
  */
 
+import type { TurnEvent } from '../kernel/types.ts';
 import type { UserTurnDraft } from './types.ts';
 
 /** Pending kinds — ordered for display: steers, then queues, then stashes. */
@@ -111,6 +112,19 @@ function convertSteersToFrontQueued(
   const queues = messages.filter((m) => m.kind === 'queue');
   const stashes = messages.filter((m) => m.kind === 'stash');
   return [...steers, ...queues, ...stashes];
+}
+
+/**
+ * Drops the steers a turn event reports as landed in the conversation. A steer
+ * it never names stays pending, so the run's end requeues it.
+ */
+function removeLandedSteers(
+  messages: readonly ComposerPendingMessage[],
+  event: TurnEvent,
+): ComposerPendingMessage[] {
+  if (event.type !== 'stage' || !event.injected?.length) return [...messages];
+  const landed = new Set(event.injected.map((steer) => steer.id));
+  return messages.filter((m) => !(m.kind === 'steer' && landed.has(m.id)));
 }
 
 /** Remove by id; no-op if missing. */
@@ -241,6 +255,7 @@ export {
   orderComposerPendingMessages,
   promoteComposerPendingKind,
   removeComposerPendingMessage,
+  removeLandedSteers,
   updateComposerPendingDraft,
   userDraftHasPayload,
 };

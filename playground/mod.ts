@@ -115,7 +115,8 @@ export type { PlaygroundDemoHandler } from './demo-handlers.ts';
 export { playgroundDemoHandler } from './demo-handlers.ts';
 export { sampleToolInput, stubOutputFromSchema } from './stub.ts';
 export type { PlaygroundInputsSpec, PlaygroundToolSeed, PlaygroundToolSpecSeed } from './types.ts';
-export { registerPlaygroundLiveProfile } from './live-register.ts';
+export type { PlaygroundLiveDraftMessage } from './live-connection.ts';
+export { playgroundLiveConnection } from './live-connection.ts';
 export type {
   FunctionToolRegistration,
   HttpToolRegistration,
@@ -139,4 +140,6 @@ export {
   savePlaygroundRunPayload,
   upsertPlaygroundRunIndex,
 } from './run-payload.ts';
+export { registerPlaygroundTools } from './tools.ts';
+export type { PlaygroundSteerLine } from './transport.ts';
 export { createPlaygroundTransport, playgroundInterface } from './transport.ts';

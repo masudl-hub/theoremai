@@ -39,11 +39,14 @@ import {
   type TraceTree,
   traceJson,
 } from '../../../observability/trace-span.ts';
-import type { ResolvedObservabilityPolicy } from '../../../observability/types.ts';
+import type {
+  ProfileObservabilitySpec,
+  ResolvedObservabilityPolicy,
+} from '../../../observability/types.ts';
 import { liveFrameInput } from '../../../providers/google/live/framing.ts';
 import { LIVE_OVERFLOW_ROW } from '../../../providers/google/live/session.ts';
 import type { SessionQueueItem } from '../../../providers/google/live/stream.ts';
-import { profileObservability } from '../../registry/profiles.ts';
+import type { ProviderEvent, TurnEventOf } from '../../turn-events.ts';
 import type {
   InteractionPart,
   ModelBinding,
@@ -81,7 +84,8 @@ import { sumTokens } from '../usage.ts';
 type LiveCloser = 'host' | 'provider' | 'theorem';
 
 /** Events that are the model's output: they mark a response as answering. */
-const OUTPUT_EVENTS = new Set<TurnEvent['type']>(['text', 'thought', 'media', 'tool']);
+const OUTPUT_EVENTS = new Set<ProviderEvent['type']>(['text', 'thought', 'media', 'tool']);
+const MS_PER_S = 1000;
 
 /** What the session trace needs once the profile is resolved. */
 interface LiveTraceBinding {
@@ -175,12 +179,18 @@ function stringAttribute(key: string, value: unknown): TraceAttributes {
 }
 
 /** A provider session signal as `theorem.session` attributes, or `undefined` for a response event. */
-function sessionSignal(event: TurnEvent): TraceAttributes | undefined {
-  if (event.type === 'session' && event.session && event.session.kind !== 'turn_complete') {
-    return { kind: event.session.kind, ...optional('time_left_ms', event.session.timeLeftMs) };
+function sessionSignal(event: ProviderEvent): TraceAttributes | undefined {
+  if (event.type === 'session') {
+    const { session } = event;
+    if (session.kind === 'turn_complete') return undefined;
+    return {
+      kind: session.kind,
+      ...('timeLeftMs' in session ? optional('time_left_ms', session.timeLeftMs) : {}),
+    };
   }
-  const evidence = event.evidence;
-  if (evidence?.kind === 'voice_activity') {
+  if (event.type !== 'evidence') return undefined;
+  const { evidence } = event;
+  if (evidence.kind === 'voice_activity') {
     const raw = asRecord(evidence.raw);
     return {
       kind: 'voice_activity',
@@ -188,7 +198,7 @@ function sessionSignal(event: TurnEvent): TraceAttributes | undefined {
       ...stringAttribute('audio_offset', raw?.audioOffset),
     };
   }
-  if (evidence?.kind === 'session_resumption') {
+  if (evidence.kind === 'session_resumption') {
     return {
       kind: 'session_resumption',
       ...optional('resumable', evidence.resumable),
@@ -228,7 +238,7 @@ class LiveTrace {
   private lastResponse?: SpanHandle;
   private pendingFrames: PendingFrame[] = [];
   private pendingInput = new LiveInput();
-  private pendingHeard: TurnEvent[] = [];
+  private pendingHeard: ProviderEvent[] = [];
   /** What the provider holds from answered responses, for estimating unreported usage. */
   private held?: TokenCount;
   private readonly tokens: TurnTokens[] = [];
@@ -324,19 +334,19 @@ class LiveTrace {
    * a transcript of the user's speech is input, recorded where it was heard.
    */
   delivered(event: TurnEvent): void {
-    if (event.evidence?.kind === 'input_transcription') return;
+    if (event.type === 'evidence' && event.evidence.kind === 'input_transcription') return;
     this.response?.delivered.add(event, this.root.nowUnixNano());
   }
 
   /** A guardrail decision on the model's output: on the open response. */
-  outbound(event: TurnEvent): void {
-    if (this.response) this.response.call.guardrail(event);
+  outbound(event: TurnEventOf<'guardrail'>): void {
+    if (this.response) this.response.call.guardrail(event.guardrail);
     else this.inbound(event);
   }
 
   /** A guardrail decision on the session (inbound text): on the session span. */
-  inbound(event: TurnEvent): void {
-    if (event.guardrail) this.root.event('theorem.guardrail', guardrailAttributes(event.guardrail));
+  inbound(event: TurnEventOf<'guardrail'>): void {
+    this.root.event('theorem.guardrail', guardrailAttributes(event.guardrail));
   }
 
   /**
@@ -443,20 +453,20 @@ class LiveTrace {
   }
 
   /** Route one provider event: to the session span, or into a response. */
-  private route(event: TurnEvent): void {
+  private route(event: ProviderEvent): void {
     const signal = sessionSignal(event);
     if (signal) {
       this.root.event('theorem.session', signal);
       return;
     }
-    if (event.type === 'tool' && event.tool?.phase === 'cancel') {
+    if (event.type === 'tool' && event.tool.phase === 'cancel') {
       (this.response?.call.span ?? this.root).event('theorem.tool.cancel', {
-        ...optional('gen_ai.tool.call.id', event.tool.id),
+        'gen_ai.tool.call.id': event.tool.callId,
         'gen_ai.tool.name': event.tool.name,
       });
       return;
     }
-    const kind = event.evidence?.kind;
+    const kind = event.type === 'evidence' ? event.evidence.kind : undefined;
     if (kind === 'input_transcription' && !(this.response && !this.response.answering)) {
       // Heard after the model began answering: input for the next response.
       this.pendingHeard.push(event);
@@ -469,13 +479,17 @@ class LiveTrace {
     }
     observeCallEvent(response.usage, event);
     response.call.observe(event);
-    if (OUTPUT_EVENTS.has(event.type) || kind === 'output_transcription') {
+    if (!response.answering && (OUTPUT_EVENTS.has(event.type) || kind === 'output_transcription')) {
+      // The reply's first chunk, from the response's first input frame: what a person waited.
+      response.call.span.set({
+        'gen_ai.response.time_to_first_chunk': response.call.span.msSinceStart() / MS_PER_S,
+      });
       response.answering = true;
     }
-    if (event.type === 'tool' && event.tool?.id) {
-      this.callParents.set(event.tool.id, response.call.span.traceparent());
+    if (event.type === 'tool' && event.tool.phase === undefined) {
+      this.callParents.set(event.tool.callId, response.call.span.traceparent());
     }
-    if (event.type === 'done' && event.stop && response.stop?.kind !== 'interrupted') {
+    if (event.type === 'done' && response.stop?.kind !== 'interrupted') {
       response.stop = event.stop;
     }
   }
@@ -588,12 +602,16 @@ class LiveTrace {
   }
 }
 
-/** Open a session's trace: its `invoke_agent` span under the host's `traceparent`. */
-function startLiveTrace(req: SessionRequest, sinkOverride?: TraceSink): LiveTrace {
-  const { sink, policy } = resolveTraceWriter({
-    override: sinkOverride,
-    observability: profileObservability(req.profile),
-  });
+/**
+ * Open a session's trace: its `invoke_agent` span under the host's `traceparent`,
+ * written under `observability`, the session's profile's block.
+ */
+function startLiveTrace(
+  req: SessionRequest,
+  observability: ProfileObservabilitySpec | undefined,
+  sinkOverride?: TraceSink,
+): LiveTrace {
+  const { sink, policy } = resolveTraceWriter({ override: sinkOverride, observability });
   const identity: TraceAttributes = {
     'gen_ai.agent.name': req.profile,
     ...optional('gen_ai.conversation.id', req.conversationId),

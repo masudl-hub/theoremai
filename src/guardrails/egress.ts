@@ -4,7 +4,7 @@
  * @module
  */
 
-import type { TurnEvent } from '../kernel/types.ts';
+import type { ProviderEvent } from '../kernel/types.ts';
 import { isRecord } from '../kernel/util/record.ts';
 import type { RedactSpan } from '../observability/spans.ts';
 import { guardedEventTexts, scanTextForCanaryLeak } from './canary.ts';
@@ -93,12 +93,19 @@ const PROVIDER_TOOL_KINDS = /^(?:google_|url_context|code_execution)/;
 
 /**
  * The provider's report of a built-in tool it already ran: grounding, and the
- * URL-context, search, and code-execution steps. What it carries has left.
+ * URL-context, search, and code-execution steps, mapped or carried as a
+ * `provider_step` under their own type. What it carries has left.
  */
-function isProviderToolReport(event: TurnEvent): boolean {
-  return (
-    event.type === 'grounding' ||
-    (event.type === 'evidence' && PROVIDER_TOOL_KINDS.test(event.evidence?.kind ?? ''))
+function isProviderToolReport(event: ProviderEvent): boolean {
+  if (event.type === 'grounding') {
+    return true;
+  }
+  if (event.type !== 'evidence') {
+    return false;
+  }
+  const { evidence } = event;
+  return PROVIDER_TOOL_KINDS.test(
+    evidence.kind === 'provider_step' ? evidence.step : evidence.kind,
   );
 }
 
@@ -107,7 +114,11 @@ function isProviderToolReport(event: TurnEvent): boolean {
  * (`guardedEventTexts`). In the report of a provider-side tool they are one
  * `egress.provider-tool-leak`: the call already ran.
  */
-function eventPromptLeakHits(event: TurnEvent, canary?: string, system?: string): GuardrailHit[] {
+function eventPromptLeakHits(
+  event: ProviderEvent,
+  canary?: string,
+  system?: string,
+): GuardrailHit[] {
   const hits = guardedEventTexts(event).flatMap((text) => promptLeakHits(text, canary, system));
   if (hits.length > 0 && isProviderToolReport(event)) {
     return [PROVIDER_TOOL_LEAK_HIT];

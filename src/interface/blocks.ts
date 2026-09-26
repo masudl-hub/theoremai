@@ -4,9 +4,10 @@
  * @module
  */
 
-import type { TurnEvent } from '../kernel/types.ts';
+import type { ToolCallEvent, TurnEvent } from '../kernel/types.ts';
+import { applyToolEvent } from './tool-calls.ts';
 import { collectPromotedMediaFromToolOutput } from './tool-media.ts';
-import type { FoldTurnEventsOptions, TranscriptBlock, UserTurnDraft } from './types.ts';
+import type { FoldTurnEventsOptions, ToolBlock, TranscriptBlock, UserTurnDraft } from './types.ts';
 
 let userBlockCounter = 0;
 let turnBlockCounter = 0;
@@ -32,12 +33,6 @@ function isAppendableTextBlock(
   return block?.kind === kind;
 }
 
-function toolKey(event: TurnEvent, index: number): string {
-  const tool = event.tool;
-  if (!tool) return `tool-${String(index)}`;
-  return tool.callId ?? tool.id ?? `${tool.name}-${String(index)}`;
-}
-
 function appendText(
   blocks: TranscriptBlock[],
   kind: 'text' | 'thought',
@@ -56,31 +51,28 @@ function appendText(
   });
 }
 
-function upsertToolBlock(blocks: TranscriptBlock[], event: TurnEvent, key: string): void {
-  const tool = event.tool;
-  if (!tool) return;
-  const existing = blocks.find((block) => block.kind === 'tool' && block.id === `tool-${key}`);
-  const payload = { ...tool, id: tool.id ?? tool.callId };
-  if (existing && existing.kind === 'tool') {
-    existing.tool = { ...existing.tool, ...payload };
+/** One block per call, keyed by `callId`; each event folds into it (`applyToolEvent`). */
+function upsertToolBlock(blocks: TranscriptBlock[], tool: ToolCallEvent): void {
+  const id = `tool-${tool.callId}`;
+  const existing = blocks.find(
+    (block): block is ToolBlock => block.kind === 'tool' && block.id === id,
+  );
+  const call = applyToolEvent(existing?.tool, tool);
+  if (existing) {
+    existing.tool = call;
     return;
   }
-  blocks.push({
-    id: `tool-${key}`,
-    kind: 'tool',
-    tool: payload,
-  });
+  blocks.push({ id, kind: 'tool', tool: call });
 }
 
 /** Append inline media blocks for http(s) image/video/audio URLs in completed tool output. */
 function appendPromotedToolMedia(
   blocks: TranscriptBlock[],
-  event: TurnEvent,
+  tool: ToolCallEvent,
   idPrefix: string,
   seenUrls: Set<string>,
 ): void {
-  const tool = event.tool;
-  if (tool?.phase !== 'complete' || tool.output === undefined) return;
+  if (tool.phase !== 'complete' || tool.output === undefined) return;
   for (const media of collectPromotedMediaFromToolOutput(tool.output)) {
     if (seenUrls.has(media.url)) continue;
     seenUrls.add(media.url);
@@ -148,7 +140,6 @@ function foldTurnEvents(
   turnBlockCounter = 0;
 
   const blocks: TranscriptBlock[] = [];
-  let toolIndex = 0;
   const promotedMediaUrls = new Set<string>();
 
   for (const event of events) {
@@ -163,13 +154,10 @@ function foldTurnEvents(
           appendText(blocks, 'text', event.text, idPrefix);
         }
         break;
-      case 'tool': {
-        const key = toolKey(event, toolIndex);
-        toolIndex += 1;
-        upsertToolBlock(blocks, event, key);
-        appendPromotedToolMedia(blocks, event, idPrefix, promotedMediaUrls);
+      case 'tool':
+        upsertToolBlock(blocks, event.tool);
+        appendPromotedToolMedia(blocks, event.tool, idPrefix, promotedMediaUrls);
         break;
-      }
       case 'structured':
         blocks.push({
           id: nextBlockId(idPrefix),
@@ -188,22 +176,26 @@ function foldTurnEvents(
         }
         break;
       case 'grounding':
-        if (event.grounding) {
-          blocks.push({
-            id: nextBlockId(idPrefix),
-            kind: 'grounding',
-            grounding: event.grounding,
-          });
-        }
+        blocks.push({
+          id: nextBlockId(idPrefix),
+          kind: 'grounding',
+          grounding: event.grounding,
+        });
+        break;
+      case 'citation':
+        blocks.push({
+          id: nextBlockId(idPrefix),
+          kind: 'citation',
+          sources: event.sources,
+          ...(event.callId !== undefined ? { callId: event.callId } : {}),
+        });
         break;
       case 'evidence':
-        if (event.evidence) {
-          blocks.push({
-            id: nextBlockId(idPrefix),
-            kind: 'evidence',
-            evidence: event.evidence,
-          });
-        }
+        blocks.push({
+          id: nextBlockId(idPrefix),
+          kind: 'evidence',
+          evidence: event.evidence,
+        });
         break;
       case 'error':
         if (event.error) {

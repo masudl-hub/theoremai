@@ -37,6 +37,7 @@ import {
 import { type ReactNode, useEffect, useLayoutEffect, useRef } from 'react';
 import type { LiveProfileInterface } from '../../../src/interface/mod.ts';
 import type { LiveCaptionState } from '../client/live/live-captions';
+import type { LiveConnection } from '../client/live-client';
 import type { LiveToolGatePrompt } from '../client/live/live-tool';
 import type { LiveFacingMode } from '../client/live/live-video';
 import type { ToolGateResolution } from '../client/tool-resume';
@@ -52,8 +53,8 @@ import { useTraceInspector } from './TraceInspector';
 
 export type LiveRunnerProps = {
 	iface: LiveProfileInterface;
-	/** Resolve the live profile id to open on the relay. */
-	registerProfile: () => Promise<string>;
+	/** What the call opens: a profile the host registered, or an open message for the relay. */
+	connection: () => LiveConnection | Promise<LiveConnection>;
 	/** Replacement lines by locale, as on `TheoremChat`. */
 	labels?: TheoremLabels;
 };
@@ -79,9 +80,9 @@ export function LiveRunner({ labels, ...props }: LiveRunnerProps) {
 	);
 }
 
-function LiveRunnerBody({ iface, registerProfile }: Omit<LiveRunnerProps, 'labels'>) {
+function LiveRunnerBody({ iface, connection }: Omit<LiveRunnerProps, 'labels'>) {
 	const t = useLabels();
-	const model = useLiveRunnerModel(iface, registerProfile);
+	const model = useLiveRunnerModel(iface, connection);
 	// Both panels size against the whole live layout, so a third means the same for each.
 	const layoutRef = useRef<HTMLDivElement | null>(null);
 	const inspector = useTraceInspector(iface, layoutRef, model.traces);

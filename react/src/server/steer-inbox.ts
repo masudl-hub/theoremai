@@ -5,9 +5,44 @@
  * @module
  */
 
-import type { TurnHistoryMessage } from '../../../mod.ts';
+import { type StageHandler, TheoremError, type TurnHistoryMessage } from '../../../mod.ts';
+import { isRecord } from '../../../src/kernel/util/record.ts';
 
-export type SteerUnit = TurnHistoryMessage[];
+/** One steer: the client's id for it, reported back in `stage.injected` once it lands. */
+export type SteerUnit = { id: string; messages: TurnHistoryMessage[] };
+
+/** The stages a steer can land at. */
+const STEER_STAGES: ReadonlySet<string> = new Set(['pre_turn', 'post_tool', 'before_end']);
+
+/**
+ * A steer as a client posts it (`{ id, inject }`): a non-empty id and at least
+ * one user message. Other roles are dropped — a client never injects system,
+ * assistant or tool turns.
+ */
+export function parseSteerUnit(body: unknown): SteerUnit {
+	const id = isRecord(body) && typeof body.id === 'string' ? body.id.trim() : '';
+	// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
+	if (!id) throw new TheoremError('request', 'id is required');
+	if (!isRecord(body) || !Array.isArray(body.inject) || body.inject.length === 0) {
+		// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
+		throw new TheoremError('request', 'inject must be a non-empty array');
+	}
+	const messages = body.inject.filter(
+		(message): message is TurnHistoryMessage => isRecord(message) && message.role === 'user',
+	);
+	// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
+	if (!messages.length) throw new TheoremError('request', 'inject must contain user messages');
+	return { id, messages };
+}
+
+/** Lands the inbox's next steer, one per steerable stage, named by its id. */
+export function steerStage(inbox: SteerInbox, key: string): StageHandler {
+	return async ({ stage }) => {
+		if (!STEER_STAGES.has(stage)) return;
+		const unit = await inbox.consume(key);
+		return unit ? { inject: unit.messages, injectId: unit.id } : undefined;
+	};
+}
 
 /**
  * Keyed by client turn id. The default lives in process memory, which is only
@@ -32,7 +67,7 @@ export function createMemorySteerInbox(): SteerInbox {
 		enqueue(turnId, unit) {
 			const queue = queues.get(turnId);
 			if (!queue) return false;
-			queue.push(unit.map((message) => structuredClone(message)));
+			queue.push(structuredClone(unit));
 			return true;
 		},
 		consume(turnId) {

@@ -4,10 +4,10 @@ import { INJ_IGNORE } from '../../src/guardrails/corpus/strings.ts';
 import { detectionForTrust, resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
 import { sanitizeText } from '../../src/guardrails/sanitize.ts';
 import type { Verdict } from '../../src/guardrails/types.ts';
+import { getProfile, registerProfile, runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { prepareLiveInboundText } from '../../src/kernel/engine/live-inbound.ts';
-import { runTurn } from '../../src/kernel/engine/runner.ts';
-import { defineProfile, getProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ModelProvider } from '../../src/kernel/types.ts';
 import { geminiModels } from '../fixtures/models.ts';
 

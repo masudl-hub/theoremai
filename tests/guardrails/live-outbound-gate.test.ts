@@ -10,11 +10,14 @@ import {
 } from '../../src/guardrails/live-outbound-gate.ts';
 import { DEFAULT_HOLDBACK } from '../../src/guardrails/progressive-yield.ts';
 import type { EgressEnforcer, Verdict } from '../../src/guardrails/types.ts';
+import { getProfile, registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import { defineProfile, getProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { TurnEvent } from '../../src/kernel/types.ts';
 import { CANARY_OPENING } from '../fixtures/canary.ts';
+import { firstOf } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
+import { replyText } from '../fixtures/reply.ts';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -93,7 +96,7 @@ Deno.test('processLiveOutboundBatch emits safe text chunks without a canary gate
   const result = await processLiveOutboundBatch(s, [{ type: 'text', text: 'hello' }]);
   assertEquals(result.action, 'emit');
   if (result.action === 'emit') {
-    assertEquals(result.events[0]?.text, 'hello');
+    assertEquals(replyText(result.events), 'hello');
   }
 });
 
@@ -104,7 +107,7 @@ Deno.test('processLiveOutboundBatch emits safe long text chunk through the gate'
   const result = await processLiveOutboundBatch(s, [{ type: 'text', text: longText }]);
   assertEquals(result.action === 'emit' || result.action === 'idle', true);
   if (result.action === 'emit') {
-    assertEquals((result.events[0]?.text?.length ?? 0) > 0, true);
+    assertEquals(replyText(result.events).length > 0, true);
   }
 });
 
@@ -121,14 +124,14 @@ Deno.test('processLiveOutboundBatch withholds when canary appears in a stream ev
 Deno.test('processLiveOutboundBatch withholds when canary appears in a non-stream event', async () => {
   const canary = mintCanary();
   const s = session(canary);
-  const events: TurnEvent[] = [{ type: 'error', error: canary }];
+  const events: TurnEvent[] = [{ type: 'error', errorKind: 'internal', error: canary }];
   const result = await processLiveOutboundBatch(s, events);
   assertEquals(result.action, 'withhold');
 });
 
 Deno.test('processLiveOutboundBatch passes non-stream events without canary', async () => {
   const s = session(mintCanary());
-  const result = await processLiveOutboundBatch(s, [{ type: 'done' }]);
+  const result = await processLiveOutboundBatch(s, [{ type: 'done', stop: { kind: 'completed' } }]);
   assertEquals(result.action, 'emit');
   if (result.action === 'emit') {
     assertEquals(result.events[0]?.type, 'done');
@@ -152,7 +155,10 @@ Deno.test('processLiveOutboundBatch withholds when non-stream event follows a pe
   const canary = mintCanary();
   const s = session(canary);
   await processLiveOutboundBatch(s, [{ type: 'text', text: canary.slice(0, 5) }]);
-  const events: TurnEvent[] = [{ type: 'text', text: canary.slice(5) }, { type: 'done' }];
+  const events: TurnEvent[] = [
+    { type: 'text', text: canary.slice(5) },
+    { type: 'done', stop: { kind: 'completed' } },
+  ];
   const result = await processLiveOutboundBatch(s, events);
   assertEquals(result.action, 'withhold');
 });
@@ -177,7 +183,7 @@ Deno.test('processLiveOutboundBatch holds short text in lookback under egress.en
   assertEquals(final.action, 'emit');
   if (final.action === 'emit') {
     assertEquals(
-      final.events.some((e) => e.text === 'answer'),
+      final.events.some((e) => e.type === 'text' && e.text === 'answer'),
       true,
     );
   }
@@ -190,14 +196,14 @@ Deno.test('processLiveOutboundBatch streams cleared prefixes under egress.enforc
   const result = await processLiveOutboundBatch(s, [{ type: 'text', text: body }]);
   assertEquals(result.action, 'emit');
   if (result.action === 'emit') {
-    const text = result.events.map((e) => e.text ?? '').join('');
+    const text = replyText(result.events);
     assertEquals(text.length > 0, true);
     assertEquals(text.endsWith('tail'), false); // lookback still holds the tail
   }
   const final = await finalizeLiveOutboundTurn(s);
   assertEquals(final.action, 'emit');
   if (final.action === 'emit') {
-    const flushed = final.events.map((e) => e.text ?? '').join('');
+    const flushed = replyText(final.events);
     assertEquals(flushed.includes('tail'), true);
   }
 });
@@ -284,7 +290,10 @@ Deno.test('finalizeLiveOutboundTurn drops audio from a cycle with no transcript'
       end.events.map((e) => e.type),
       ['guardrail'],
     );
-    assertEquals(end.events[0]?.guardrail?.hits[0]?.rule, 'live.untranscribed-audio');
+    assertEquals(
+      firstOf(end.events, 'guardrail')?.guardrail.hits[0]?.rule,
+      'live.untranscribed-audio',
+    );
   }
 });
 
@@ -372,7 +381,7 @@ Deno.test('finalizeLiveOutboundTurn drops withheld audio when the reply is refus
       result.events.map((e) => e.type),
       ['guardrail', 'text'],
     );
-    assertEquals(result.events.at(-1)?.text, lexiconDefault('egress.refusal'));
+    assertEquals(result.events.at(-1), { type: 'text', text: lexiconDefault('egress.refusal') });
   }
 });
 
@@ -416,7 +425,7 @@ Deno.test('finalizeLiveOutboundTurn withholds when egress.enforce blocks', async
   assertEquals(mid.action, 'emit');
   if (mid.action === 'emit') {
     assertEquals(mid.events[0]?.type, 'guardrail');
-    assertEquals(mid.events[0]?.guardrail?.stage, 'live_outbound');
+    assertEquals(firstOf(mid.events, 'guardrail')?.guardrail.stage, 'live_outbound');
   }
   assertEquals(s.withholdVisible, true);
   const result = await finalizeLiveOutboundTurn(s);
@@ -436,7 +445,7 @@ Deno.test('finalizeLiveOutboundTurn emits refuse_to_user text when onBlock is se
   const result = await finalizeLiveOutboundTurn(s);
   assertEquals(result.action, 'emit');
   if (result.action === 'emit') {
-    const refusal = result.events.find((e) => e.type === 'text');
+    const refusal = firstOf(result.events, 'text');
     assertEquals(refusal?.text, lexiconDefault('egress.refusal'));
     assertEquals(
       result.events.some((e) => e.type === 'guardrail'),
@@ -455,7 +464,7 @@ Deno.test('finalizeLiveOutboundTurn refuses in the profile lexicon wording', asy
   const result = await finalizeLiveOutboundTurn(s);
   assertEquals(result.action, 'emit');
   if (result.action === 'emit') {
-    assertEquals(result.events.find((e) => e.type === 'text')?.text, 'Host refusal.');
+    assertEquals(firstOf(result.events, 'text')?.text, 'Host refusal.');
   }
 });
 
@@ -471,7 +480,7 @@ Deno.test('finalizeLiveOutboundTurn emits refuse_to_user for non-canary egress h
   const result = await finalizeLiveOutboundTurn(s);
   assertEquals(result.action, 'emit');
   if (result.action === 'emit') {
-    const refusal = result.events.find((e) => e.type === 'text');
+    const refusal = firstOf(result.events, 'text');
     assertEquals(refusal?.text, lexiconDefault('egress.refusal'));
   }
 });
@@ -579,7 +588,7 @@ Deno.test('finalizeLiveOutboundTurn is idle when gate is null', async () => {
 Deno.test('processLiveOutboundBatch does not accumulate non-text events under egress', async () => {
   const profile = egressProfile('live_type_filter', passEnforce);
   const s = createLiveOutboundGateSession(profile);
-  await processLiveOutboundBatch(s, [{ type: 'done' }]);
+  await processLiveOutboundBatch(s, [{ type: 'done', stop: { kind: 'completed' } }]);
   assertEquals(s.gate?.accumulated() ?? '', '');
 });
 
@@ -591,7 +600,7 @@ Deno.test('finalizeLiveOutboundTurn emits lookback text when enforce passes', as
   assertEquals(result.action, 'emit');
   if (result.action === 'emit') {
     assertEquals(
-      result.events.some((e) => e.text === 'response content'),
+      result.events.some((e) => e.type === 'text' && e.text === 'response content'),
       true,
     );
   }
@@ -611,7 +620,7 @@ Deno.test('finalizeLiveOutboundTurn emits redact text in place of the model outp
   const result = await finalizeLiveOutboundTurn(s);
   assertEquals(result.action, 'emit');
   if (result.action === 'emit') {
-    const rewritten = result.events.find((e) => e.type === 'text');
+    const rewritten = firstOf(result.events, 'text');
     assertEquals(rewritten?.text, 'Rewritten for release.');
   }
 });
@@ -632,7 +641,7 @@ Deno.test('processLiveOutboundBatch emits non-visible event types immediately un
   const s = createLiveOutboundGateSession(profile);
   const result = await processLiveOutboundBatch(s, [
     { type: 'tokens', tokens: { input: 1, output: 1, total: 2 } },
-    { type: 'done' },
+    { type: 'done', stop: { kind: 'completed' } },
   ]);
   assertEquals(result.action, 'emit');
   if (result.action === 'emit') {
@@ -643,7 +652,7 @@ Deno.test('processLiveOutboundBatch emits non-visible event types immediately un
 Deno.test('processLiveOutboundBatch ignores empty text fragments', async () => {
   const profile = egressProfile('live_no_text_field', passEnforce);
   const s = createLiveOutboundGateSession(profile);
-  await processLiveOutboundBatch(s, [{ type: 'text' }]);
+  await processLiveOutboundBatch(s, [{ type: 'text', text: '' }]);
   assertEquals(s.gate?.accumulated() ?? '', '');
 });
 
@@ -656,7 +665,7 @@ Deno.test('processLiveOutboundBatch with canary+egress streams cleared prefixes'
   const result = await processLiveOutboundBatch(s, [{ type: 'text', text: body }]);
   assertEquals(result.action, 'emit');
   if (result.action === 'emit') {
-    assertEquals((result.events[0]?.text?.length ?? 0) > 0, true);
+    assertEquals(replyText(result.events).length > 0, true);
   }
 });
 
@@ -670,7 +679,7 @@ Deno.test('processLiveOutboundBatch with canary-only emits cleared prefixes', as
   assertEquals(result.action, 'emit');
   if (result.action === 'emit') {
     assertEquals(result.events.length > 0, true);
-    const text = result.events.map((e) => e.text ?? '').join('');
+    const text = replyText(result.events);
     assertEquals(text.length > 0, true);
   }
 });

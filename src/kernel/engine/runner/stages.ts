@@ -9,6 +9,9 @@
 
 import { throwIfAborted } from '../../../guardrails/error.ts';
 import {
+  type InjectUnit,
+  injectedStageEvent,
+  injectMessages,
   runStage,
   type StageApplyWarning,
   type StageCallBag,
@@ -16,7 +19,7 @@ import {
   type StageHandler,
 } from '../../stages.ts';
 import { profileAllowsInject } from '../../stop.ts';
-import type { Profile, ResolvedGeneration, TurnEvent, TurnHistoryMessage } from '../../types.ts';
+import type { Profile, ResolvedGeneration, TurnEvent, TurnStage } from '../../types.ts';
 import type { StepExecutionState } from './state.ts';
 
 export interface ApplyTurnStageArgs extends StageCallBag {
@@ -39,13 +42,17 @@ export interface ApplyTurnStageResult {
 }
 
 /**
- * Append already-sanitized inject messages to turn history. Mirrors them into
- * the Interactions continuation when one is active. Returns how many landed.
+ * Append already-sanitized injects to turn history, mirror them into the
+ * Interactions continuation when one is active, then record the `stage` event
+ * naming the ones that landed. Returns how many messages landed.
  */
-export function applyStageInjects(
+export function* applyStageInjects(
   state: StepExecutionState,
-  inject: readonly TurnHistoryMessage[],
-): number {
+  stage: TurnStage,
+  units: readonly InjectUnit[],
+  extra?: { callId?: string; toolName?: string },
+): Generator<TurnEvent, number> {
+  const inject = injectMessages(units);
   if (inject.length === 0) return 0;
   state.currentHistory.push(...inject);
   if (state.interactionsContinuation) {
@@ -53,6 +60,11 @@ export function applyStageInjects(
       if (msg.role === 'tool') continue;
       state.interactionsContinuation.messages.push(msg);
     }
+  }
+  const landed = injectedStageEvent(stage, units, extra);
+  if (landed) {
+    state.allEmittedEvents.push(landed);
+    yield landed;
   }
   return inject.length;
 }
@@ -81,7 +93,7 @@ export async function* applyTurnStage(
   const out = next.value;
   return {
     abort: out.abort,
-    injectCount: applyStageInjects(state, out.inject),
+    injectCount: yield* applyStageInjects(state, call.stage, out.inject),
     warnings: out.warnings,
   };
 }

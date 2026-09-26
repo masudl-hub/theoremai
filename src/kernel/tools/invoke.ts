@@ -21,10 +21,12 @@ import {
 } from '../../observability/trace-span.ts';
 import { startToolTrace, type ToolCallEnd, toolSpanName } from '../engine/tool-trace.ts';
 import { optional, traceLinks } from '../engine/turn-trace.ts';
-import { getProfile, profileLexicon, profileObservability } from '../registry/profiles.ts';
+import type { KernelRegistry } from '../registry/kernel-registry.ts';
 import { pickModel } from '../registry/resolve.ts';
+import { turnDoneOf } from '../turn-events.ts';
 import type { Profile, TurnEvent, TurnRequest } from '../types.ts';
-import { executeRegisteredTool, newCallId, toolCallArguments } from './execute.ts';
+import { failureEvent, newCallId, toolCallArguments, toolCallRequestEvent } from './events.ts';
+import { executeRegisteredTool } from './execute.ts';
 import { cloneTurnToolSnapshot, prepareTurnToolSnapshot, promoteLoadedTools } from './resolve.ts';
 import { plainToolInput } from './schema.ts';
 import type { InvokeToolRequest, TurnToolSnapshot } from './types.ts';
@@ -41,6 +43,7 @@ function turnRequestFromInvoke(request: InvokeToolRequest): TurnRequest {
 }
 
 async function prepareInvokeSnapshot(
+  registry: KernelRegistry,
   request: InvokeToolRequest,
   profile: Profile,
 ): Promise<TurnToolSnapshot> {
@@ -50,25 +53,29 @@ async function prepareInvokeSnapshot(
   }
   // Host profiles bind no model — the allow list is the whole snapshot.
   const model = profile.type === 'host' ? undefined : pickModel(profile, request.model);
-  return await prepareTurnToolSnapshot(profile, req, model);
+  return await prepareTurnToolSnapshot(registry.tools, profile, req, model);
 }
 
 /**
- * Execute a registered tool without calling a model provider, and write its
- * trace record: one `execute_tool` root under the host's `traceparent`.
+ * Execute a tool registered in `registry` without calling a model provider, and
+ * write its trace record: one `execute_tool` root under the host's `traceparent`.
  *
  * The record is written however the call ends, including when the host stops
- * reading early or the call fails before the tool is reached.
+ * reading early or the call fails before the tool is reached. A call on an
+ * unknown profile fails in `invokeTraced` and is recorded under the standard
+ * observability policy, since there is no profile to read one from.
  */
 async function* invokeTool(
+  registry: KernelRegistry,
   request: InvokeToolRequest,
   sinkOverride?: TraceSink,
 ): AsyncGenerator<TurnEvent> {
+  const known = registry.profiles.find(request.profile);
   const { sink, policy } = resolveTraceWriter({
     override: sinkOverride,
-    observability: profileObservability(request.profile),
+    observability: known?.observability,
   });
-  const callId = newCallId(request.name);
+  const callId = request.callId ?? newCallId(request.name);
   const tree = startTrace(toolSpanName(request.name), {
     attributes: {
       'gen_ai.agent.name': request.profile,
@@ -89,9 +96,10 @@ async function* invokeTool(
       call: { arguments: toolCallArguments(plainToolInput(request.input)) },
     }).end(end);
   try {
-    const lexicon = profileLexicon(request.profile);
+    const lexicon = known?.lexicon;
     const traceparent = tree.root.traceparent();
     for await (const event of invokeTraced(
+      registry,
       request,
       callId,
       openSpan,
@@ -119,40 +127,38 @@ async function* invokeTool(
 }
 
 async function* invokeTraced(
+  registry: KernelRegistry,
   request: InvokeToolRequest,
   callId: string,
   openSpan: (name: string, attributes: TraceAttributes) => SpanHandle,
   failBeforeTool: (end: ToolCallEnd) => void,
   traceparent: string,
 ): AsyncGenerator<TurnEvent> {
-  const profile = getProfile(request.profile);
+  const profile = registry.profiles.get(request.profile);
   const snapshot = request.snapshot
     ? cloneTurnToolSnapshot(request.snapshot)
-    : await prepareInvokeSnapshot(request, profile);
+    : await prepareInvokeSnapshot(registry, request, profile);
+
+  // A host's own call is announced like a model's; a model's call was announced by its turn.
+  if (request.callId === undefined) {
+    yield toolCallRequestEvent({ name: request.name, callId }, toolCallArguments(request.input));
+  }
 
   if (request.promoted?.length) {
-    const { failure } = promoteLoadedTools(snapshot, request.promoted, profile);
+    const { failure } = promoteLoadedTools(registry.tools, snapshot, request.promoted, profile);
     if (failure) {
       failBeforeTool({ outcome: 'error', failure });
-      yield {
-        type: 'tool',
-        tool: {
-          name: request.name,
-          callId,
-          phase: 'error',
-          failure,
-        },
-      };
+      yield failureEvent({ name: request.name, callId }, failure);
       yield { type: 'done', stop: { kind: 'completed' }, traceparent };
       return;
     }
   }
 
-  let sawGate = false;
-  let sawError = false;
+  let gated = false;
   try {
     const handlers = request.onStage ? [request.onStage] : [];
-    for await (const event of executeRegisteredTool({
+    const settlement = yield* executeRegisteredTool({
+      tools: registry.tools,
       profile,
       name: request.name,
       input: request.input,
@@ -177,29 +183,12 @@ async function* invokeTraced(
         host: request.host,
         signal: request.signal,
       },
-    })) {
-      yield event;
-      if (event.type !== 'tool') {
-        continue;
-      }
-      if (event.tool?.phase === 'gate') {
-        sawGate = true;
-      }
-      if (event.tool?.phase === 'error') {
-        sawError = true;
-      }
-    }
+    });
+    gated = settlement.gated !== undefined;
   } catch (err) {
     yield toErrorEvent(err);
-    sawError = true;
   }
-  const stopKind = sawGate ? 'gate' : sawError ? 'completed' : 'completed';
-  yield {
-    type: 'done',
-    stop: { kind: stopKind },
-    ...(sawGate ? { tools: snapshot } : {}),
-    traceparent,
-  };
+  yield turnDoneOf({ stop: { kind: gated ? 'gate' : 'completed' }, traceparent }, snapshot);
 }
 
 export { invokeTool };

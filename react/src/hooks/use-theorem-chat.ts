@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
 	branchInterfaceTurnSession,
 	type ComposerPendingMessage,
@@ -9,13 +9,14 @@ import {
 	defaultInterfaceEffort,
 	orderComposerPendingMessages,
 	promoteComposerPendingKind,
+	removeLandedSteers,
 	type InterfaceTurnSession,
 	type TranscriptBlock,
 } from '../../../src/interface/mod.ts';
 import type { TurnFailure } from '../client/failure';
 import { followGenerationDefaults } from '../client/generation-selection';
 import { applyTurnResultToTranscript } from '../client/index';
-import type { TheoremTransport } from '../client/transport';
+import type { TheoremTransport, TurnEventSink } from '../client/transport';
 import { type RunTurnStream, useTheoremChatActions } from './use-theorem-chat-actions';
 import { type SetSession, useTheoremChatState } from './use-theorem-chat-state';
 
@@ -57,6 +58,27 @@ function useDefaultGeneration(
 }
 
 type ChatState = ReturnType<typeof useTheoremChatState>;
+
+/** The streamed blocks, ending on the turn's error unless the stream already carried it. */
+function withTurnError(blocks: TranscriptBlock[], error: string): TranscriptBlock[] {
+	if (blocks.some((block) => block.kind === 'error')) return blocks;
+	return [...blocks, { id: crypto.randomUUID(), kind: 'error', message: error }];
+}
+
+/**
+ * Shows a failed turn's error. A reply that failed partway stays in the
+ * transcript, flagged where it stopped; one that never started shows at the composer.
+ */
+function showTurnFailure(state: ChatState, result: TurnFailure, streamed: TranscriptBlock[]): void {
+	const { error, errorKind, errorInternal } = result;
+	if (streamed.length > 0) {
+		const failed = withTurnError(streamed, error);
+		state.setBlocks((prev) => [...prev, ...failed]);
+	} else {
+		state.setFailure({ error, errorKind, ...(errorInternal ? { errorInternal } : {}) });
+	}
+	if (result.issues) state.setIssues(result.issues);
+}
 
 /**
  * Runs one turn's stream into the transcript: live partials while it streams,
@@ -102,11 +124,8 @@ function useRunTurnStream(iface: ComposerProfileInterface | null, state: ChatSta
 				state.turnIdRef.current = null;
 
 				if (!result.ok) {
-					if (!result.aborted) {
-						const { error, errorKind, errorInternal } = result;
-						state.setFailure({ error, errorKind, ...(errorInternal ? { errorInternal } : {}) });
-						if (result.issues) state.setIssues(result.issues);
-					}
+					if (result.session) state.setSession(result.session);
+					if (!result.aborted) showTurnFailure(state, result, latestStream);
 					state.setStreamBlocks([]);
 					onRunEnded(state.pendingRef.current, false);
 					return;
@@ -177,6 +196,29 @@ function useQueueDrain(
 }
 
 /**
+ * The transport, with each turn's events also clearing the steers they report
+ * as landed, so the run's end requeues only the steers the agent never saw.
+ */
+function useLandedSteerTransport(transport: TheoremTransport, state: ChatState): TheoremTransport {
+	return useMemo(() => {
+		const tap =
+			(onEvent: TurnEventSink): TurnEventSink =>
+			(event) => {
+				if (event.type === 'stage' && event.injected?.length) {
+					state.pendingRef.current = removeLandedSteers(state.pendingRef.current, event);
+					state.setPendingMessages((prev) => removeLandedSteers(prev, event));
+				}
+				onEvent(event);
+			};
+		return {
+			...transport,
+			turn: (request, onEvent, signal) => transport.turn(request, tap(onEvent), signal),
+			invoke: (request, onEvent, signal) => transport.invoke(request, tap(onEvent), signal),
+		};
+	}, [transport, state.pendingRef, state.setPendingMessages]);
+}
+
+/**
  * Headless chat model: transcript, streaming, composer drafts, pending
  * queue / steer / stash, tool gates. Render it with `@theoremai/react/ui` or
  * your own components.
@@ -203,7 +245,15 @@ export function useTheoremChat({ transport, iface }: UseTheoremChatOptions) {
 
 	const runTurnStream = useRunTurnStream(iface, state);
 
-	const actions = useTheoremChatActions({ ...state, iface, transport, phase, gated, runTurnStream });
+	const steerTransport = useLandedSteerTransport(transport, state);
+	const actions = useTheoremChatActions({
+		...state,
+		iface,
+		transport: steerTransport,
+		phase,
+		gated,
+		runTurnStream,
+	});
 
 	useQueueDrain(phase, state, actions.startTurnFromDraft);
 
@@ -216,7 +266,7 @@ export function useTheoremChat({ transport, iface }: UseTheoremChatOptions) {
 			state.busyRef.current = false;
 			state.setBusy(false);
 			state.setChatStarted(kept.length > 0);
-			state.setSession((prevSession) => branchInterfaceTurnSession(prevSession, kept, iface?.lexicon));
+			state.setSession((prevSession) => branchInterfaceTurnSession(prevSession, kept));
 		},
 		[iface, state],
 	);

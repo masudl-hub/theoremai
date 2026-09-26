@@ -1,7 +1,6 @@
 import '../fixtures/test-host.ts';
 import { assertEquals } from '@std/assert';
-import { registerProfile } from '../../src/kernel/registry/profiles.ts';
-import { resolveTurn } from '../../src/kernel/registry/resolve.ts';
+import { registerProfile, resolveTurn } from '../../src/kernel/default-scope.ts';
 import type { ProfileLiveSpec } from '../../src/kernel/types.ts';
 import { geminiModels } from '../fixtures/models.ts';
 

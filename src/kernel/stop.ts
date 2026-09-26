@@ -7,19 +7,10 @@
  * @module
  */
 
-import {
-  CONTINUE_STOP_KINDS,
-  type ContinueStopKind,
-  type ProfileType,
-  type TurnStopKind,
-} from './schema.ts';
+import { CONTINUE_STOP_KINDS, type ContinueStopKind, type ProfileType } from './schema.ts';
+import type { TurnStop } from './turn-events.ts';
 
-/** Normalized stop attached to terminal `done` events and host continue requests. */
-export interface TurnStop {
-  kind: TurnStopKind;
-  /** Raw provider / native reason for diagnostics. */
-  native?: string;
-}
+export type { TurnStop };
 
 /**
  * Profile types whose continue turn sends the continue instruction. Image and

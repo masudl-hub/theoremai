@@ -20,7 +20,8 @@ import type {
 /** A tool call the kernel paused on a gate, as the server saw it. */
 export type PendingToolGate = {
 	name: string;
-	input: unknown;
+	/** The model's arguments; an approval runs the call with exactly these. */
+	arguments: Record<string, unknown>;
 	/** The gate, and for a sign-in gate the credential slot and kind it waits for. */
 	gate: Pick<ToolGate, 'kind' | 'permission'> & { auth?: ToolGateAuth };
 	snapshot?: TurnToolSnapshot;

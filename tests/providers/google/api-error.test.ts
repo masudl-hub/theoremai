@@ -34,6 +34,20 @@ Deno.test('readGeminiApiError ignores a code that is not an HTTP status', () => 
   assertEquals(readGeminiApiError({ error: { code: '429', message: 'x' } })?.kind, 'bad_response');
 });
 
+Deno.test('readGeminiApiError reads the named code of a stream error', () => {
+  assertEquals(
+    readGeminiApiError({
+      error: { code: 'rate_limit_exceeded', message: 'x' },
+      event_type: 'error',
+    })?.kind,
+    'rate_limit',
+  );
+  assertEquals(
+    readGeminiApiError({ error: { code: 'something_new', message: 'x' } })?.kind,
+    'bad_response',
+  );
+});
+
 Deno.test('readNonOkError takes the kind from the status and the detail from the body', async () => {
   assertEquals(shape(await readNonOkError(new Response('', { status: 503 }))), {
     kind: 'unavailable',

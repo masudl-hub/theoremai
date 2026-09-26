@@ -4,7 +4,7 @@ import { type PendingToolGate, pruneGates } from '../../react/src/server/session
 function gate(createdAt: number): PendingToolGate {
   return {
     name: 'issue_refund',
-    input: {},
+    arguments: {},
     gate: { kind: 'permission', permission: 'always_confirm' },
     promoted: [],
     turnInput: { text: 'refund order 42' },

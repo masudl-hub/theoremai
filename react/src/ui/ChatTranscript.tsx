@@ -26,7 +26,7 @@ import { VStack } from '@astryxdesign/core/VStack';
 import { IconCheck, IconCopy } from '@tabler/icons-react';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import type { TranscriptBlock } from '../../../src/interface/mod.ts';
-import { chipsFromBlock } from '../client/source-chips';
+import { chipsFromBlock, type SourceChipBlock } from '../client/source-chips';
 import {
 	assistantTurnCopyText,
 	assistantTurnTiming,
@@ -316,7 +316,7 @@ function bodyRows(t: LabelText, body: readonly TranscriptBlock[]): BodyRow[] {
 	return rows;
 }
 
-function Sources({ block }: { block: Extract<TranscriptBlock, { kind: 'grounding' | 'evidence' }> }) {
+function Sources({ block }: { block: SourceChipBlock }) {
 	const t = useLabels();
 	const chips = chipsFromBlock(block);
 	if (chips.length === 0) return null;
@@ -370,7 +370,7 @@ function ResultBlock({ block }: { block: TranscriptBlock }) {
 	switch (block.kind) {
 		case 'error':
 			return <Banner status="error" title={block.message} />;
-		case 'grounding':
+		case 'citation':
 		case 'evidence':
 			return <Sources block={block} />;
 		case 'structured':
@@ -382,28 +382,32 @@ function ResultBlock({ block }: { block: TranscriptBlock }) {
 	}
 }
 
-function toolStatus(phase: string | undefined): ChatToolCallItem['status'] {
-	if (phase === 'complete') return 'complete';
-	if (phase === 'error') return 'error';
-	if (phase === 'running' || phase === 'progress') return 'running';
-	return 'pending';
+function toolDetail(detail: unknown): ReactNode {
+	return <CodeBlock code={JSON.stringify(detail, null, 2)} language="json" size="sm" />;
 }
 
 function toolCallItem(id: string, tool: ToolBlock['tool']): ChatToolCallItem {
-	const detail = tool.failure ?? tool.output;
-	return {
-		key: id,
-		name: tool.name,
-		status: toolStatus(tool.phase),
-		...(tool.failure !== undefined ? { errorMessage: JSON.stringify(tool.failure) } : {}),
-		...(detail !== undefined
-			? {
-					resultDetail: (
-						<CodeBlock code={JSON.stringify(detail, null, 2)} language="json" size="sm" />
-					),
-				}
-			: {}),
-	};
+	const base = { key: id, name: tool.name };
+	const { state } = tool;
+	switch (state?.phase) {
+		case 'error':
+			return {
+				...base,
+				status: 'error',
+				errorMessage: JSON.stringify(state.failure),
+				resultDetail: toolDetail(state.failure),
+			};
+		case 'complete':
+			return {
+				...base,
+				status: 'complete',
+				...(state.output !== undefined ? { resultDetail: toolDetail(state.output) } : {}),
+			};
+		case 'running':
+			return { ...base, status: 'running' };
+		default:
+			return { ...base, status: 'pending' };
+	}
 }
 
 function ToolCall({ tool }: { tool: ToolBlock['tool'] }) {
@@ -458,12 +462,13 @@ function TraceList({ items, streaming }: { items: readonly TraceItem[]; streamin
 
 function GateCard({ block, handlers }: { block: ToolBlock; handlers: BlockHandlers }) {
 	const { tool } = block;
-	if (!tool.gate) return null;
+	if (tool.state?.phase !== 'gate') return null;
+	const { gate } = tool.state;
 	const index = handlers.indexOf(block);
-	if (tool.gate.kind === 'auth') {
+	if (gate.kind === 'auth') {
 		return (
 			<AuthChallengeCard
-				gate={tool.gate}
+				gate={gate}
 				toolName={tool.name}
 				onAuthenticated={(secret) => handlers.onAuthenticated?.(index, secret)}
 			/>
@@ -471,7 +476,7 @@ function GateCard({ block, handlers }: { block: ToolBlock; handlers: BlockHandle
 	}
 	return (
 		<ApprovalCard
-			gate={tool.gate}
+			gate={gate}
 			toolName={tool.name}
 			input={tool.arguments}
 			onDecision={(action) => handlers.onToolDecision?.(index, action)}

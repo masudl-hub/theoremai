@@ -1,5 +1,4 @@
-import { runTurn } from '../../kernel/engine/runner.ts';
-import { getProfile } from '../../kernel/registry/profiles.ts';
+import { getProfile, runTurn } from '../../kernel/default-scope.ts';
 import { requireModelProfile } from '../../kernel/registry/resolve.ts';
 import type { ModelProvider, TurnRequest } from '../../kernel/types.ts';
 import { createCliTraceCapture, printRunEvent, printTraceRecord } from '../event-log.ts';

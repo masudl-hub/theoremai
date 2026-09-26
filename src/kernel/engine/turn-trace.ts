@@ -36,12 +36,16 @@ import {
   traceJson,
 } from '../../observability/trace-span.ts';
 import { historyMessageParts } from '../interaction-parts.ts';
+import type { ToolCallEvent, ToolCallRequest, ToolFailure } from '../tools/types.ts';
 import type {
   InteractionPart,
   ModelBinding,
   ProviderCompleteRequest,
+  ProviderEvent,
+  ProviderEvidence,
   ProviderTransport,
   TurnEvent,
+  TurnEventOf,
   TurnHistoryMessage,
   TurnInput,
   TurnRequest,
@@ -53,7 +57,7 @@ import type {
 import { findLast } from '../util/find-last.ts';
 import { asRecord } from './record.ts';
 import type { CallUsage } from './runner/usage.ts';
-import { sumTokens } from './usage.ts';
+import { sumEventTokens } from './usage.ts';
 
 type TraceMessage = { [key: string]: TraceAttributeValue };
 type TracePart = { [key: string]: TraceAttributeValue };
@@ -142,39 +146,38 @@ function inputMessages(usage: CallUsage): { input: TraceMessage[]; sentFrom?: nu
 
 // ── output ──────────────────────────────────────────
 
-/** Live transcription evidence kinds. Their text is labelled, never taken for the model's. */
-const TRANSCRIPTION_KINDS = new Set(['input_transcription', 'output_transcription']);
-
 /** Output parts folded from provider events: adjacent deltas of one kind merge. */
 class OutputFold {
   readonly parts: TracePart[] = [];
   private open?: { key: string; text: string; part: TracePart };
+  /** Each call's `tool_call` part by `callId`, for the failure that follows a malformed one. */
+  private readonly calls = new Map<string, TracePart>();
 
-  add(event: TurnEvent, nowUnixNano: string): void {
+  add(event: ProviderEvent, nowUnixNano: string): void {
     switch (event.type) {
       case 'text':
-        this.appendText('text', event.text ?? '');
+        this.appendText('text', event.text);
         return;
       case 'thought':
-        this.appendText('reasoning', event.text ?? '');
+        this.appendText('reasoning', event.text);
         return;
       case 'tool':
-        // The call itself; the kernel's phase events that follow are its execution.
-        if (event.tool && event.tool.phase === undefined) this.push(toolCallPart(event.tool));
+        this.addTool(event.tool);
         return;
       case 'structured':
         this.push({ type: 'structured', content: traceJson(event.structured ?? null) });
         return;
       case 'media':
-        if (event.media) this.push(mediaPart(event.media));
+        this.push(mediaPart(event.media));
         return;
       case 'evidence': {
-        const kind = event.evidence?.kind;
-        if (kind && TRANSCRIPTION_KINDS.has(kind)) {
-          this.appendText('text', event.text ?? '', kind, event.evidence?.interim);
+        const { evidence } = event;
+        // Live transcription: labelled, never taken for the model's own text.
+        if (evidence.kind === 'input_transcription' || evidence.kind === 'output_transcription') {
+          this.appendText('text', event.text ?? '', evidence.kind, evidence.interim);
           return;
         }
-        const part = event.evidence ? serverToolPart(event.evidence, nowUnixNano) : undefined;
+        const part = serverToolPart(evidence, nowUnixNano);
         if (part) this.push(part);
         return;
       }
@@ -207,10 +210,38 @@ class OutputFold {
     this.open = { key, text, part };
   }
 
+  /**
+   * The model's call as a `tool_call` part. A malformed call's failure follows
+   * it from the provider; the part then records the text the model sent.
+   */
+  private addTool(tool: ToolCallEvent): void {
+    if (tool.phase === undefined) {
+      const part = toolCallPart(tool);
+      this.calls.set(tool.callId, part);
+      this.push(part);
+      return;
+    }
+    const call = this.calls.get(tool.callId);
+    const sent = tool.phase === 'error' ? sentArgumentsText(tool.failure) : undefined;
+    if (call && sent !== undefined) Object.assign(call, { arguments: traceContent(sent) });
+  }
+
   private push(part: TracePart): void {
     this.parts.push(part);
     this.open = undefined;
   }
+}
+
+/** A tool call as sent: its parsed arguments, and the failure when they did not parse. */
+interface SentToolCall {
+  arguments: Record<string, unknown>;
+  failure?: ToolFailure;
+}
+
+/** The provider's raw text for arguments that did not parse (`details.raw`). */
+function sentArgumentsText(failure: ToolFailure | undefined): string | undefined {
+  const raw = asRecord(failure?.details)?.raw;
+  return typeof raw === 'string' ? raw : undefined;
 }
 
 /**
@@ -218,23 +249,16 @@ class OutputFold {
  * provider's raw text; parsed ones are the same JSON the kernel sends back in
  * history, so both hash alike.
  */
-function toolArgumentsText(
-  tool: Pick<NonNullable<TurnEvent['tool']>, 'arguments' | 'failure'>,
-): string {
-  const details = tool.failure?.details;
-  const raw =
-    details && typeof details === 'object' && 'raw' in details && typeof details.raw === 'string'
-      ? details.raw
-      : undefined;
-  return raw ?? JSON.stringify(tool.arguments ?? {});
+function toolArgumentsText(call: SentToolCall): string {
+  return sentArgumentsText(call.failure) ?? JSON.stringify(call.arguments);
 }
 
-function toolCallPart(tool: NonNullable<TurnEvent['tool']>): TracePart {
+function toolCallPart(call: ToolCallRequest): TracePart {
   return {
     type: 'tool_call',
-    ...(tool.id ? { id: tool.id } : {}),
-    name: tool.name,
-    arguments: traceContent(toolArgumentsText(tool)),
+    id: call.callId,
+    name: call.name,
+    arguments: traceContent(toolArgumentsText(call)),
   };
 }
 
@@ -250,72 +274,95 @@ function mediaPart(media: { mimeType: string; data: string }): TracePart {
 const CALL_SUFFIX = '_call';
 const RESULT_SUFFIX = '_result';
 
+/** A provider-run tool's call or response, named for the tool. */
+type ServerToolStep =
+  | { side: 'call'; name: string; id?: string }
+  | { side: 'result'; name: string; id?: string };
+
+/** The server tool step this evidence records, if it is one. */
+function serverToolStep(evidence: ProviderEvidence): ServerToolStep | undefined {
+  switch (evidence.kind) {
+    case 'code_execution_call':
+      return { side: 'call', name: 'code_execution', id: evidence.id };
+    case 'code_execution_result':
+      return { side: 'result', name: 'code_execution', id: evidence.callId };
+    case 'provider_step': {
+      const { step, raw } = evidence;
+      if (step.endsWith(CALL_SUFFIX)) {
+        const id = typeof raw?.id === 'string' ? raw.id : undefined;
+        return { side: 'call', name: step.slice(0, -CALL_SUFFIX.length), id };
+      }
+      if (step.endsWith(RESULT_SUFFIX)) {
+        const id = typeof raw?.call_id === 'string' ? raw.call_id : undefined;
+        return { side: 'result', name: step.slice(0, -RESULT_SUFFIX.length), id };
+      }
+      return undefined;
+    }
+    default:
+      return undefined;
+  }
+}
+
 /**
  * A provider-run tool step as a semconv server tool part. The kernel sees a
  * step only once it is whole, so its arrival is `theorem.observed_end`; the
  * row events hold every earlier row's arrival.
  */
-function serverToolPart(
-  evidence: NonNullable<TurnEvent['evidence']>,
-  nowUnixNano: string,
-): TracePart | undefined {
-  const kind = evidence.kind ?? '';
+function serverToolPart(evidence: ProviderEvidence, nowUnixNano: string): TracePart | undefined {
+  const step = serverToolStep(evidence);
+  if (!step) return undefined;
   const observed = {
     'theorem.observed_end': nowUnixNano,
     ...(evidence.partial ? { 'theorem.partial': true } : {}),
   };
-  if (kind.endsWith(CALL_SUFFIX)) {
-    const name = kind.slice(0, -CALL_SUFFIX.length);
+  const payload = { ...traceJson(evidence.raw ?? {}), type: step.name };
+  if (step.side === 'call') {
     return {
       type: 'server_tool_call',
-      ...(evidence.id ? { id: evidence.id } : {}),
-      name,
-      server_tool_call: { ...traceJson(evidence.raw ?? {}), type: name },
+      ...optional('id', step.id),
+      name: step.name,
+      server_tool_call: payload,
       ...observed,
     };
   }
-  if (kind.endsWith(RESULT_SUFFIX)) {
-    const name = kind.slice(0, -RESULT_SUFFIX.length);
-    return {
-      type: 'server_tool_call_response',
-      ...(evidence.callId ? { id: evidence.callId } : {}),
-      server_tool_call_response: { ...traceJson(evidence.raw ?? {}), type: name },
-      ...observed,
-    };
-  }
-  return undefined;
+  return {
+    type: 'server_tool_call_response',
+    ...optional('id', step.id),
+    server_tool_call_response: payload,
+    ...observed,
+  };
 }
 
-/** Grounding and citations as a `theorem.grounding` event; the raw payload needs `evidenceRaw`. */
-function groundingEvent(event: TurnEvent): TraceAttributes | undefined {
-  if (event.type === 'grounding' && event.grounding) {
-    const { sources, searchHtml, metadata, chunks } = event.grounding;
-    return {
-      sources: traceJson(sources),
-      ...(searchHtml ? { search_html: traceContent(searchHtml) } : {}),
-      ...(metadata || chunks ? { raw: traceJson({ metadata, chunks }) } : {}),
-    };
+/**
+ * Search metadata, citations, and other provider evidence as a
+ * `theorem.grounding` event; the raw payload needs `evidenceRaw`.
+ */
+function groundingEvent(event: ProviderEvent): TraceAttributes | undefined {
+  switch (event.type) {
+    case 'grounding': {
+      const { searchHtml, metadata, chunks } = event.grounding;
+      if (!searchHtml && !metadata && !chunks) return undefined;
+      return {
+        ...(searchHtml ? { search_html: traceContent(searchHtml) } : {}),
+        ...(metadata || chunks ? { raw: traceJson({ metadata, chunks }) } : {}),
+      };
+    }
+    case 'citation':
+      return { sources: traceJson(event.sources) };
+    case 'evidence': {
+      const { evidence } = event;
+      if (serverToolStep(evidence)) return undefined;
+      if (evidence.kind === 'input_transcription' || evidence.kind === 'output_transcription') {
+        return undefined;
+      }
+      return {
+        provider: evidence.provider,
+        ...(evidence.raw ? { raw: traceJson(evidence.raw) } : {}),
+      };
+    }
+    default:
+      return undefined;
   }
-  if (
-    event.type === 'evidence' &&
-    event.evidence &&
-    !serverToolKind(event.evidence.kind) &&
-    !TRANSCRIPTION_KINDS.has(event.evidence.kind ?? '')
-  ) {
-    const { provider, sources, citations, annotations, raw } = event.evidence;
-    return {
-      provider,
-      ...(sources ? { sources: traceJson(sources) } : {}),
-      ...(citations ? { citations: traceJson(citations) } : {}),
-      ...(annotations ? { annotations: traceJson(annotations) } : {}),
-      ...(raw ? { raw: traceJson(raw) } : {}),
-    };
-  }
-  return undefined;
-}
-
-function serverToolKind(kind: string | undefined): boolean {
-  return Boolean(kind && (kind.endsWith(CALL_SUFFIX) || kind.endsWith(RESULT_SUFFIX)));
 }
 
 // ── guardrails ──────────────────────────────────────
@@ -446,10 +493,10 @@ function requestAttributes(
 function controlAttributes(req: ProviderCompleteRequest): TraceAttributes {
   const { cache, image, speech, live } = req;
   return {
-    'theorem.request.builtins': [...req.builtins],
+    'theorem.request.builtins': req.builtins.map((b) => b.id),
     ...optional('theorem.request.store', req.store),
     ...optional('theorem.request.summaries', req.summaries),
-    ...optional('theorem.request.structured', req.structured ?? undefined),
+    ...optional('theorem.request.structured', req.structured?.id),
     ...optional('theorem.request.session_id', req.sessionId),
     ...(cache
       ? { 'theorem.request.cache': { mode: cache.mode, ...optional('ttl', cache.ttl) } }
@@ -597,7 +644,8 @@ class HttpTries {
     if (status !== undefined && status >= HTTP_ERROR) {
       this.current?.set({ 'error.type': String(status) });
     } else {
-      this.awaitingFirstChunk = this.streamed;
+      // Streamed or buffered, the first data row is the reply's first chunk: a buffered body is its one chunk.
+      this.awaitingFirstChunk = true;
     }
   }
 
@@ -656,11 +704,6 @@ function errorName(err: unknown): string {
   return err instanceof Error ? err.name : 'Error';
 }
 
-/** An error event's kind; every producer names one, so a missing kind is a THEOREM bug. */
-function eventKind(event: TurnEvent): ErrorKind {
-  return event.errorKind ?? 'internal';
-}
-
 /** A thrown value as a semconv `exception` event. */
 function recordException(span: SpanHandle, err: unknown): void {
   span.event('exception', {
@@ -687,9 +730,9 @@ interface CallTrace {
   /** Pass as the adapter's `tapUpstream`. */
   tap: (row: Record<string, unknown>) => void;
   /** Every provider event, before guardrails. */
-  observe: (event: TurnEvent) => void;
+  observe: (event: ProviderEvent) => void;
   /** A guardrail decision on this call's output. */
-  guardrail: (event: TurnEvent) => void;
+  guardrail: (event: GuardrailEvent) => void;
   end: (end: CallEnd) => void;
 }
 
@@ -765,7 +808,7 @@ function startCallTrace(
   const http = new HttpTries(span);
   const output = new OutputFold();
   const heard = new OutputFold();
-  const errors: TurnEvent[] = [];
+  const errors: TurnEventOf<'error'>[] = [];
   let response: TurnResponse | undefined;
   let native: string | undefined;
 
@@ -775,7 +818,7 @@ function startCallTrace(
       if (!http.row(row)) span.event('theorem.upstream.row', { row: traceJson(row) });
     },
     observe: (event) => {
-      if (event.evidence?.kind === 'input_transcription') {
+      if (event.type === 'evidence' && event.evidence.kind === 'input_transcription') {
         // What the provider heard in the input: labelled, beside what the model read.
         heard.add(event, span.nowUnixNano());
         return;
@@ -784,23 +827,22 @@ function startCallTrace(
       const grounding = groundingEvent(event);
       if (grounding) span.event('theorem.grounding', grounding);
       if (event.type === 'error') errors.push(event);
-      if (event.type === 'response') response = event.response ?? response;
-      if (event.type === 'done') native = event.stop?.native ?? native;
+      if (event.type === 'response') response = event.response;
+      if (event.type === 'done') native = event.stop.native ?? native;
     },
-    guardrail: (event) => {
-      if (event.guardrail) span.event('theorem.guardrail', guardrailAttributes(event.guardrail));
+    guardrail: (guardrail) => {
+      span.event('theorem.guardrail', guardrailAttributes(guardrail));
     },
     end: (end) => {
       for (const error of errors) {
         span.event('exception', {
-          'exception.type': eventKind(error),
+          'exception.type': error.errorKind,
           'exception.message': traceContent(error.errorInternal ?? error.error ?? ''),
         });
       }
       if (end.thrown !== undefined) recordException(span, end.thrown);
       const lastError = errors.at(-1);
-      const failure =
-        end.thrown !== undefined ? errorKind(end.thrown) : lastError && eventKind(lastError);
+      const failure = end.thrown !== undefined ? errorKind(end.thrown) : lastError?.errorKind;
       const outcome = callOutcome(end.stop, failure);
       const outputMessage: TraceMessage = {
         role: 'assistant',
@@ -892,7 +934,6 @@ interface TurnEnd {
   attempts: number;
   /** Model calls made. */
   calls: number;
-  compacted: boolean;
   /** Thrown out of the turn (not an abort). */
   thrown?: unknown;
 }
@@ -902,18 +943,16 @@ interface TurnEnd {
  * calls; a nested turn (compaction) carries its own.
  */
 function endTurnSpan(root: SpanHandle, end: TurnEnd): void {
-  const tokens = sumTokens(
-    end.seen.flatMap((ev) => (ev.type === 'tokens' && ev.tokens ? [ev.tokens] : [])),
-  );
-  const done = findLast(end.seen, (ev) => ev.type === 'done');
-  const stop = done?.stop?.kind;
-  const errorEvent = findLast(end.seen, (ev) => ev.type === 'error');
+  const tokens = sumEventTokens(end.seen);
+  const done = findLast(end.seen, (ev): ev is TurnEventOf<'done'> => ev.type === 'done');
+  const stop = done?.stop.kind;
+  const errorEvent = findLast(end.seen, (ev): ev is TurnEventOf<'error'> => ev.type === 'error');
   const publicError = errorEvent?.error;
   const threw = end.thrown !== undefined;
   if (threw) recordException(root, end.thrown);
   const failed = threw || (stop !== undefined && FAILED_STOPS.has(stop));
   // The builder's name for the failure: the thrown value's kind, else the error event's, else the stop.
-  const failure = threw ? errorKind(end.thrown) : errorEvent ? eventKind(errorEvent) : stop;
+  const failure = threw ? errorKind(end.thrown) : (errorEvent?.errorKind ?? stop);
   // What the host received, beside each call's `output.messages` (what the model produced).
   const delivered: TraceMessage = {
     role: 'assistant',
@@ -926,7 +965,9 @@ function endTurnSpan(root: SpanHandle, end: TurnEnd): void {
     ...(stop ? { 'theorem.stop.kind': stop } : {}),
     'theorem.attempts': end.attempts,
     'theorem.steps': end.calls,
-    ...(end.compacted ? { 'gen_ai.conversation.compacted': true } : {}),
+    ...(end.seen.some((ev) => ev.type === 'compaction')
+      ? { 'gen_ai.conversation.compacted': true }
+      : {}),
     ...(failed && publicError ? { 'theorem.error.public': traceContent(publicError) } : {}),
     ...(failed && failure ? { 'error.type': failure } : {}),
   });
@@ -937,7 +978,7 @@ function endTurnSpan(root: SpanHandle, end: TurnEnd): void {
   }
 }
 
-export type { CallEnd, CallTrace, TracePart, TurnEnd };
+export type { CallEnd, CallTrace, SentToolCall, TracePart, TurnEnd };
 export {
   endTurnSpan,
   guardrailAttributes,

@@ -15,7 +15,13 @@ export {
 	type TheoremCredentialStore,
 	type TheoremCredentials,
 } from './credential-store.ts';
-export { createMemorySteerInbox, type SteerInbox, type SteerUnit } from './steer-inbox.ts';
+export {
+	createMemorySteerInbox,
+	parseSteerUnit,
+	type SteerInbox,
+	steerStage,
+	type SteerUnit,
+} from './steer-inbox.ts';
 export {
 	createMemorySessionStore,
 	type MemorySessionStoreOptions,

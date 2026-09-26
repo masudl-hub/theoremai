@@ -21,6 +21,7 @@ import {
 } from '../../react/src/client/live/live-captions.ts';
 import {
   applyLiveToolTurnEvent,
+  type LiveToolCallDraft,
   liveTranscriptFromEvidence,
   shouldForwardMicFrame,
 } from '../../react/src/client/live/live-mic-forward.ts';
@@ -46,11 +47,18 @@ import {
 import { transcriptBlockCopyText } from '../../react/src/ui/transcript-copy-text.ts';
 import { interfaceFromProfile, type TranscriptBlock } from '../../src/interface/mod.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
+import { defaultKernelScope } from '../../src/kernel/scope.ts';
+import { toolCallRequestEvent, toolEvent } from '../../src/kernel/tools/events.ts';
+import type { ProviderEvidence, Source } from '../../src/kernel/turn-events.ts';
 import { registerGooglePreset } from '../../src/presets/google.ts';
+import { malformedToolCall } from '../../src/providers/shared/tool-args.ts';
+import { foldedCall } from '../fixtures/events.ts';
 import { CHAT_MEDIA_LIMITS, geminiModels } from '../fixtures/models.ts';
 import { defaultLabels as t } from './default-labels.ts';
 
 registerGooglePreset();
+
+const CALC = { name: 'calc', callId: 'c6' };
 
 Deno.test('transcriptBlockCopyText formats all block kinds', () => {
   assertEquals(transcriptBlockCopyText(t, { kind: 'user-text', id: '1', text: 'hello' }), 'hello');
@@ -83,7 +91,7 @@ Deno.test('transcriptBlockCopyText formats all block kinds', () => {
     transcriptBlockCopyText(t, {
       kind: 'tool',
       id: '6',
-      tool: { name: 'calc', output: { res: 42 } },
+      tool: foldedCall(CALC, {}, { phase: 'complete', output: { res: 42 } }),
     }),
     'Tool: calc\n\n{\n  "res": 42\n}',
   );
@@ -91,12 +99,19 @@ Deno.test('transcriptBlockCopyText formats all block kinds', () => {
     transcriptBlockCopyText(t, {
       kind: 'tool',
       id: '6b',
-      tool: { name: 'calc', failure: { code: 'bad', kind: 'failed', message: 'err' } },
+      tool: foldedCall(
+        CALC,
+        {},
+        {
+          phase: 'error',
+          failure: { code: 'bad', kind: 'failed', message: 'err' },
+        },
+      ),
     }),
     'Tool: calc\n\n{\n  "code": "bad",\n  "kind": "failed",\n  "message": "err"\n}',
   );
   assertEquals(
-    transcriptBlockCopyText(t, { kind: 'tool', id: '6c', tool: { name: 'calc' } }),
+    transcriptBlockCopyText(t, { kind: 'tool', id: '6c', tool: foldedCall(CALC, {}) }),
     'Tool: calc',
   );
   assertEquals(
@@ -120,17 +135,25 @@ Deno.test('transcriptBlockCopyText formats all block kinds', () => {
     transcriptBlockCopyText(t, {
       kind: 'grounding',
       id: '9',
-      grounding: { sources: [] },
+      grounding: { searchHtml: '<div>chip</div>' },
     }),
-    '{\n  "sources": []\n}',
+    '{\n  "searchHtml": "<div>chip</div>"\n}',
+  );
+  assertEquals(
+    transcriptBlockCopyText(t, {
+      kind: 'citation',
+      id: '9b',
+      sources: [{ type: 'web', title: 'a', uri: 'https://a.example' }],
+    }),
+    '[\n  {\n    "type": "web",\n    "title": "a",\n    "uri": "https://a.example"\n  }\n]',
   );
   assertEquals(
     transcriptBlockCopyText(t, {
       kind: 'evidence',
       id: '10',
-      evidence: { provider: 'google', sources: [] },
+      evidence: { provider: 'google', kind: 'url_context' },
     }),
-    '{\n  "provider": "google",\n  "sources": []\n}',
+    '{\n  "provider": "google",\n  "kind": "url_context"\n}',
   );
   assertEquals(transcriptBlockCopyText(t, { kind: 'error', id: '11', message: 'fatal' }), 'fatal');
   assertEquals(transcriptBlockCopyText(t, { kind: 'turn-done', id: '12' }), '');
@@ -347,44 +370,48 @@ Deno.test('shouldForwardMicFrame, liveTranscriptFromEvidence, applyLiveToolTurnE
     false,
   );
 
+  const transcript = (evidence: ProviderEvidence, text?: string) =>
+    liveTranscriptFromEvidence({
+      type: 'evidence',
+      evidence,
+      ...(text === undefined ? {} : { text }),
+    });
   assertEquals(
-    liveTranscriptFromEvidence({ kind: 'input_transcription', text: 'abc', interim: true }),
+    transcript({ provider: 'google', kind: 'input_transcription', interim: true }, 'abc'),
     {
       text: 'abc',
       isUser: true,
       interim: true,
     },
   );
-  assertEquals(liveTranscriptFromEvidence({ kind: 'output_transcription', text: 'def' }), {
+  assertEquals(transcript({ provider: 'google', kind: 'output_transcription' }, 'def'), {
     text: 'def',
     isUser: false,
     interim: false,
   });
-  assertEquals(liveTranscriptFromEvidence({ kind: 'unknown', text: 'def' }), null);
-  assertEquals(liveTranscriptFromEvidence({ kind: 'input_transcription', text: '' }), null);
+  assertEquals(transcript({ provider: 'google', kind: 'voice_activity' }, 'def'), null);
+  assertEquals(transcript({ provider: 'google', kind: 'input_transcription' }, ''), null);
+  assertEquals(transcript({ provider: 'google', kind: 'input_transcription' }), null);
 
-  const accum = {
-    cancelledToolIds: new Set<string>(),
-    toolCalls: [] as Array<{
-      id: string;
-      name: string;
-      arguments: Record<string, unknown>;
-      error?: string;
-    }>,
-  };
-  applyLiveToolTurnEvent({ id: 'c1', phase: 'cancel' }, accum);
-  assertEquals(accum.cancelledToolIds.has('c1'), true);
-
-  applyLiveToolTurnEvent({ id: 't1', name: 'search', arguments: { q: 'hi' } }, accum);
-  assertEquals(accum.toolCalls.length, 1);
-  assertEquals(accum.toolCalls[0].name, 'search');
-
+  const accum = { cancelledToolIds: new Set<string>(), toolCalls: [] as LiveToolCallDraft[] };
   applyLiveToolTurnEvent(
-    { id: 't2', name: 'calc', phase: 'error', failure: { message: 'oops' } },
+    toolEvent({ name: 'search', callId: 'c1' }, { phase: 'cancel' }).tool,
     accum,
   );
-  assertEquals(accum.toolCalls.length, 2);
-  assertEquals(accum.toolCalls[1].error, 'oops');
+  assertEquals([...accum.cancelledToolIds], ['c1']);
+
+  applyLiveToolTurnEvent(
+    toolCallRequestEvent({ name: 'search', callId: 't1' }, { q: 'hi' }).tool,
+    accum,
+  );
+  const bad = { name: 'calc', callId: 't2' };
+  for (const event of malformedToolCall(bad, 'oops', '{')) {
+    if (event.type === 'tool') applyLiveToolTurnEvent(event.tool, accum);
+  }
+  assertEquals(accum.toolCalls, [
+    { id: 't1', name: 'search', arguments: { q: 'hi' } },
+    { id: 't2', name: 'calc', arguments: {}, error: 'oops' },
+  ]);
 });
 
 Deno.test('composer drawer summary names what is waiting, by kind', () => {
@@ -442,11 +469,11 @@ Deno.test('stash shortcut is mod+shift+S', () => {
 });
 
 Deno.test('composeAssistantTurn streams the answer after the latest tool in the body', () => {
-  const tool = {
+  const tool: TranscriptBlock = {
     id: 't',
     kind: 'tool',
-    tool: { name: 'plan_day', phase: 'complete' },
-  } as TranscriptBlock;
+    tool: foldedCall({ name: 'plan_day', callId: 'p1' }, {}, { phase: 'complete', output: {} }),
+  };
   const blocks: TranscriptBlock[] = [
     { id: 'r', kind: 'thought', text: 'Planning' },
     { id: 'n', kind: 'text', text: 'Let me check.' },
@@ -575,6 +602,7 @@ Deno.test('composerActionState gates the primary button on payload, phase and re
       tools: { allow: [] },
       inputs: { text: true, ...CHAT_MEDIA_LIMITS },
     }),
+    defaultKernelScope.tools,
   );
   if (iface.type !== 'text') throw new Error('expected a text interface');
   assertEquals(iface.allowSteering, true);
@@ -617,32 +645,37 @@ Deno.test('composerActionState gates the primary button on payload, phase and re
 });
 
 Deno.test('source chips link only http(s) sources', () => {
+  const web = (title: string, uri: string): Source => ({ type: 'web', title, uri });
   const chips = chipsFromBlock({
-    kind: 'evidence',
-    id: 'e1',
-    evidence: {
-      provider: 'openrouter',
-      citations: [
-        'https://www.example.com/a',
-        'javascript:alert(1)',
-        'httpx://example.com',
-        'a plain note',
-      ],
-      sources: [
-        { title: 'Docs', uri: 'http://example.org/docs', type: 'web' },
-        { title: '', uri: 'data:text/html,<script>alert(1)</script>', type: 'web' },
-      ],
-    },
+    kind: 'citation',
+    id: 'c1',
+    sources: [
+      web('Docs', 'http://example.org/docs'),
+      web('', 'https://www.example.com/a'),
+      web('', 'data:text/html,<script>alert(1)</script>'),
+      web('', 'javascript:alert(1)'),
+      web('', 'httpx://example.com'),
+    ],
   });
   assertEquals(
     chips.map((chip) => [chip.label, chip.href]),
     [
       ['Docs', 'http://example.org/docs'],
-      ['web', undefined],
       ['example.com', 'https://www.example.com/a'],
-      ['javascript:alert(1)', undefined],
-      ['httpx://example.com', undefined],
-      ['a plain note', undefined],
+      ['web', undefined],
+      ['web', undefined],
+      ['example.com', undefined],
     ],
+  );
+});
+
+Deno.test('a provider step chip names only its kind', () => {
+  assertEquals(
+    chipsFromBlock({
+      kind: 'evidence',
+      id: 'e1',
+      evidence: { provider: 'google', kind: 'url_context' },
+    }),
+    [{ key: 'e-kind', label: 'url context', kind: 'evidence' }],
   );
 });

@@ -4,8 +4,13 @@
  * @module
  */
 
-import { registerTools } from '../kernel/tools/mod.ts';
-import type { ProfileImageSpec, ProfileLiveSpec, ProfileSpeechSpec } from '../kernel/types.ts';
+import { registerTools } from '../kernel/default-scope.ts';
+import type {
+  ModelBinding,
+  ProfileImageSpec,
+  ProfileLiveSpec,
+  ProfileSpeechSpec,
+} from '../kernel/types.ts';
 import { GOOGLE_SPEECH_VOICES, type GoogleSpeechVoice } from './google/speech-voices.ts';
 
 /** Common Gemini image input MIME allowlist. */
@@ -110,7 +115,22 @@ const GOOGLE_BUILTIN_TOOLS = [
   },
 ];
 
-/** Register Google provider builtins into the process-local tool registry. */
+/** How a Gemini Interactions binding keeps its turns: `store` and `persistViaInteractionId` together. */
+type GoogleInteractionsPersistence = Required<
+  Pick<ModelBinding, 'store' | 'persistViaInteractionId'>
+>;
+
+/**
+ * Spread into a Gemini Interactions binding. Google chains a turn onto the
+ * last one (`previous_interaction_id`) only when it stored that interaction,
+ * so both settings move together: `true` keeps turns on Google and chains
+ * them, `false` stores nothing and the host sends the history every turn.
+ */
+function googleInteractionsPersistence(chained: boolean): GoogleInteractionsPersistence {
+  return { store: chained, persistViaInteractionId: chained };
+}
+
+/** Register the Google builtins in the default scope; a scope of its own takes `GOOGLE_BUILTIN_TOOLS`. */
 function registerGooglePreset(): void {
   registerTools(GOOGLE_BUILTIN_TOOLS);
 }
@@ -120,6 +140,7 @@ export type {
   GoogleImageInputMime,
   GoogleImagePins,
   GoogleImageSize,
+  GoogleInteractionsPersistence,
   GoogleLivePins,
   GoogleSpeechPins,
   GoogleSpeechVoice,
@@ -132,5 +153,6 @@ export {
   GOOGLE_IMAGE_SIZES,
   GOOGLE_SPEECH_VOICES,
   GOOGLE_VOICE_INPUT_MIMES,
+  googleInteractionsPersistence,
   registerGooglePreset,
 };

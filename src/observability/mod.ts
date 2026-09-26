@@ -58,6 +58,7 @@ export {
 } from './trace-catalog.ts';
 export type { TraceRecord } from './trace-record.ts';
 export { buildRecord, contentOf, inlineContent } from './trace-record.ts';
+export { traceRecordSchema } from './trace-schema.ts';
 export type { TraceSink, TraceWriteContext } from './trace-sink.ts';
 export type {
   SpanHandle,

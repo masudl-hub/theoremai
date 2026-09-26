@@ -1,6 +1,6 @@
 import { TheoremError } from '../../../../src/guardrails/error.ts';
+import { registerStructured } from '../../../../src/kernel/default-scope.ts';
 import { assertEquals, assertThrows } from '../../../../src/kernel/engine/assert.ts';
-import { registerStructured } from '../../../../src/kernel/registry/schemas.ts';
 import type { ProviderCompleteRequest } from '../../../../src/kernel/types.ts';
 import {
   buildChatMessages,
@@ -10,6 +10,7 @@ import {
   wireTools,
 } from '../../../../src/providers/openrouter/openai/compat.ts';
 import { HOST_BINDINGS } from '../../../fixtures/models.ts';
+import { resolvedStructured } from '../../../fixtures/provider-request.ts';
 
 function request(overrides: Partial<ProviderCompleteRequest>): ProviderCompleteRequest {
   return {
@@ -260,7 +261,7 @@ Deno.test('resolveResponseFormat formats json_schema, and is undefined without a
   registerStructured('compatSchema', {
     jsonSchema: { type: 'object', properties: { answer: { type: 'string' } } },
   });
-  assertEquals(resolveResponseFormat('compatSchema'), {
+  assertEquals(resolveResponseFormat(resolvedStructured('compatSchema')), {
     type: 'json_schema',
     json_schema: {
       name: 'compatSchema',

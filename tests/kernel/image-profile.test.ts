@@ -1,26 +1,20 @@
 import '../fixtures/test-host.ts';
 import { wrapUserData } from '../../src/guardrails/canary.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
-import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
-import { runTurn } from '../../src/kernel/engine/runner.ts';
 import {
-  defineProfile,
-  type ProfileDefinition,
+  projectProfile,
   registerProfile,
-} from '../../src/kernel/registry/profiles.ts';
-import { projectProfile, resolveTurn } from '../../src/kernel/registry/resolve.ts';
+  resolveTurn,
+  runTurn,
+} from '../../src/kernel/default-scope.ts';
+import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
+import { defineProfile, type ProfileDefinition } from '../../src/kernel/registry/profiles.ts';
+import { providerBuiltins } from '../../src/kernel/registry/provider-request.ts';
+import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
 import { camelToSnake, toInteractionsBody } from '../../src/providers/google/interactions/mod.ts';
 import { CHAT_MEDIA_LIMITS, geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 import { eventTypesByReply } from '../fixtures/reply.ts';
-
-async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
-  const out: TurnEvent[] = [];
-  for await (const event of gen) {
-    out.push(event);
-  }
-  return out;
-}
 
 async function* fakeComplete(req: ProviderCompleteRequest): AsyncGenerator<TurnEvent> {
   await Promise.resolve();
@@ -95,7 +89,7 @@ function googleImageBody() {
     summaries: generation.summaries,
     maxOutputTokens: generation.maxOutputTokens,
     temperature: generation.temperature,
-    builtins: generation.builtins,
+    builtins: providerBuiltins(defaultKernelScope.tools, generation.builtins),
     system: 'sys',
     input: generation.input,
     structured: generation.structured,
@@ -172,7 +166,7 @@ Deno.test('interactions body requests text and image when includeText is set', (
     summaries: generation.summaries,
     maxOutputTokens: generation.maxOutputTokens,
     temperature: generation.temperature,
-    builtins: generation.builtins,
+    builtins: providerBuiltins(defaultKernelScope.tools, generation.builtins),
     system: 'sys',
     input: generation.input,
     structured: generation.structured,
@@ -183,7 +177,7 @@ Deno.test('interactions body requests text and image when includeText is set', (
 });
 
 Deno.test('image runTurn yields media then done', async () => {
-  const events = await collect(runTurn({ profile: 'image', input: { text: 'fox' } }, fake));
+  const events = await Array.fromAsync(runTurn({ profile: 'image', input: { text: 'fox' } }, fake));
   assertEquals(eventTypesByReply(events), [
     'stage',
     'text',

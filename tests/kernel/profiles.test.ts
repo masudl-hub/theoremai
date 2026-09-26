@@ -1,27 +1,25 @@
 import { assertEquals, assertRejects, assertThrows } from '@std/assert';
 import { z } from 'zod';
 import { TheoremError } from '../../src/guardrails/error.ts';
-import { runTurn } from '../../src/kernel/engine/runner.ts';
-import { runSession } from '../../src/kernel/engine/session/mod.ts';
 import {
   clearProfiles,
-  defineProfile,
   getProfile,
   hasProfile,
   listProfiles,
+  projectProfile,
   registerProfile,
   registerProfiles,
-} from '../../src/kernel/registry/profiles.ts';
-import {
-  isModelProfile,
-  projectProfile,
-  requireModelProfile,
+  registerTool,
   resolveTurn,
-} from '../../src/kernel/registry/resolve.ts';
-import { registerTool } from '../../src/kernel/tools/mod.ts';
+  runSession,
+  runTurn,
+} from '../../src/kernel/default-scope.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
+import { isModelProfile, requireModelProfile } from '../../src/kernel/registry/resolve.ts';
+import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import { resolveTurnTools } from '../../src/kernel/tools/resolve.ts';
 import type { ModelProvider } from '../../src/kernel/types.ts';
-import { registerGooglePreset } from '../../src/presets/google.ts';
+import { googleInteractionsPersistence, registerGooglePreset } from '../../src/presets/google.ts';
 import { geminiModels, HOST_BINDINGS, modelBindings } from '../fixtures/models.ts';
 
 registerGooglePreset();
@@ -337,7 +335,12 @@ Deno.test("registerProfile accepts T1/T2 tools on type 'live' and wires all of t
   );
 
   const profile = getProfile('live_tier_bot');
-  const snapshot = resolveTurnTools(profile, { profile: profile.id }, 'gemini31FlashLive');
+  const snapshot = resolveTurnTools(
+    defaultKernelScope.tools,
+    profile,
+    { profile: profile.id },
+    'gemini31FlashLive',
+  );
   const allow = ['live_t0_probe', 'live_t1_probe', 'live_t2_probe'];
   assertEquals(snapshot.gated, allow);
   assertEquals(snapshot.visible, allow);
@@ -376,7 +379,12 @@ Deno.test('live snapshot turns on every gated builtin regardless of loadTier', (
     }),
   );
   const profile = getProfile('live_builtin_bot');
-  const snapshot = resolveTurnTools(profile, { profile: profile.id }, 'gemini31FlashLive');
+  const snapshot = resolveTurnTools(
+    defaultKernelScope.tools,
+    profile,
+    { profile: profile.id },
+    'gemini31FlashLive',
+  );
   assertEquals(snapshot.gated, ['live_builtin_t1']);
   assertEquals(snapshot.builtins, ['live_builtin_t1']);
 });
@@ -412,7 +420,12 @@ Deno.test("registerProfile accepts a 'host' profile with only tools, guardrails,
   assertEquals('identity' in profile, false);
 
   // No tiers, no path gating: gated = visible = executable = allow; no builtins.
-  const snapshot = resolveTurnTools(profile, { profile: profile.id }, undefined);
+  const snapshot = resolveTurnTools(
+    defaultKernelScope.tools,
+    profile,
+    { profile: profile.id },
+    undefined,
+  );
   assertEquals(snapshot.gated, ['host_probe']);
   assertEquals(snapshot.visible, ['host_probe']);
   assertEquals(snapshot.executable, ['host_probe']);
@@ -634,8 +647,7 @@ Deno.test('defineProfile accepts Interactions store/persist and rejects them on 
     models: {
       gemini35FlashLite: {
         ...HOST_BINDINGS.gemini35FlashLite,
-        store: true,
-        persistViaInteractionId: true,
+        ...googleInteractionsPersistence(true),
       },
     },
     key: 'slotA',
@@ -644,6 +656,10 @@ Deno.test('defineProfile accepts Interactions store/persist and rejects them on 
   });
   assertEquals(ok.models.gemini35FlashLite.store, true);
   assertEquals(ok.models.gemini35FlashLite.persistViaInteractionId, true);
+  assertEquals(googleInteractionsPersistence(false), {
+    store: false,
+    persistViaInteractionId: false,
+  });
 
   assertThrows(
     () =>

@@ -30,9 +30,9 @@ import { chipsFromBlock } from '../../react/src/client/source-chips.ts';
 import {
   assistantTurnTiming,
   composeAssistantTurn,
-  groupTimeKey,
   groupTranscriptBlocks,
   pendingPromptOf,
+  replyKey,
   type TranscriptTurnGroup,
   workStatus,
 } from '../../react/src/client/transcript-groups.ts';
@@ -558,30 +558,42 @@ Deno.test('resolveScrollToBottomScrollTop targets the live edge', () => {
 Deno.test('assistantTurnTiming keys replies by their prompt and times only this session', () => {
   const user = (key: string): TranscriptTurnGroup => ({ kind: 'user', key, blocks: [] });
   const reply = (key: string): TranscriptTurnGroup => ({ kind: 'assistant', key, blocks: [] });
-  const groups = [user('u1'), reply('a1'), user('u2'), reply('a2')];
-  const timeOf = (id: string) => (id === 'u1' ? 10 : 20);
-  const turnEnds = new Map([['u1', 15]]);
-  assertEquals(assistantTurnTiming({ groups, index: 1, streaming: true, timeOf, turnEnds }), {
+  // Block ids restart every reply, so both replies' groups carry the same key.
+  const groups = [user('u1'), reply('turn-1'), user('u2'), reply('turn-1')];
+  const timeOf = (key: string) => (key === 'u1' ? 10 : 20);
+  // u1 paused 3 on an approval before it finished.
+  const spans = new Map([
+    ['u1', { pausedMs: 3, endedAt: 15 }],
+    ['u2', { pausedMs: 0 }],
+  ]);
+  assertEquals(replyKey(groups, 1), 'u1:reply');
+  assertEquals(replyKey(groups, 3), 'u2:reply');
+  assertEquals(assistantTurnTiming({ groups, index: 1, streaming: true, timeOf, spans }), {
     key: 'u1:reply',
     live: false,
-    startedAt: 10,
+    startedAt: 13,
     endedAt: 15,
   });
-  assertEquals(assistantTurnTiming({ groups, index: 3, streaming: true, timeOf, turnEnds }), {
+  assertEquals(assistantTurnTiming({ groups, index: 3, streaming: true, timeOf, spans }), {
     key: 'u2:reply',
     live: true,
     startedAt: 20,
     endedAt: undefined,
   });
-  // Loaded history: no end recorded, not live, so untimed.
-  assertEquals(assistantTurnTiming({ groups, index: 3, streaming: false, timeOf, turnEnds }), {
+  // Stopped with no end recorded, or loaded history with no span: untimed.
+  assertEquals(assistantTurnTiming({ groups, index: 3, streaming: false, timeOf, spans }), {
     key: 'u2:reply',
     live: false,
-    startedAt: undefined,
-    endedAt: undefined,
   });
   assertEquals(
-    assistantTurnTiming({ groups: [reply('a0')], index: 0, streaming: false, timeOf, turnEnds }),
+    assistantTurnTiming({ groups, index: 1, streaming: false, timeOf, spans: new Map() }),
+    {
+      key: 'u1:reply',
+      live: false,
+    },
+  );
+  assertEquals(
+    assistantTurnTiming({ groups: [reply('a0')], index: 0, streaming: false, timeOf, spans }),
     {
       key: 'a0',
       live: false,
@@ -589,7 +601,6 @@ Deno.test('assistantTurnTiming keys replies by their prompt and times only this 
   );
   assertEquals(pendingPromptOf(groups), undefined);
   assertEquals(pendingPromptOf(groups.slice(0, 3))?.key, 'u2');
-  assertEquals(groupTimeKey(user('u9')), 'u9');
 });
 
 Deno.test('composerActionState gates the primary button on payload, phase and recording', () => {

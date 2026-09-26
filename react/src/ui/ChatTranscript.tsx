@@ -31,10 +31,12 @@ import {
 	assistantTurnCopyText,
 	assistantTurnTiming,
 	composeAssistantTurn,
-	groupTimeKey,
 	groupTranscriptBlocks,
 	pendingPromptOf,
+	promptReplyKey,
+	replyKey,
 	type TraceItem,
+	type TurnSpan,
 	workStatus,
 } from '../client/transcript-groups';
 import { type LabelText, workStatusLabel } from './labels';
@@ -73,14 +75,14 @@ type BlockHandlers = {
 	onAuthenticated?: ChatTranscriptProps['onAuthenticated'];
 };
 
-/** First-seen time per block id, so timestamps don't jump while streaming. */
-function useBlockTimes(blocks: readonly TranscriptBlock[]): (id: string) => number {
+/** First-seen time per group key, so timestamps don't jump while streaming. */
+function useFirstSeen(keys: readonly string[]): (key: string) => number {
 	const times = useRef(new Map<string, number>());
 	const now = Date.now();
-	for (const block of blocks) {
-		if (!times.current.has(block.id)) times.current.set(block.id, now);
+	for (const key of keys) {
+		if (!times.current.has(key)) times.current.set(key, now);
 	}
-	return (id) => times.current.get(id) ?? now;
+	return (key) => times.current.get(key) ?? now;
 }
 
 /** `Date.now()`, refreshed every second while `isActive`. */
@@ -96,18 +98,26 @@ function useSecondTicker(isActive: boolean): number {
 }
 
 /**
- * When each turn finished, keyed by the user group that started it. The
- * assistant group is re-keyed when the stream is committed, so it can't carry
- * the timing itself; the user group is stable.
+ * Each turn's span, keyed by the user group that started it. A turn stops at
+ * a gate and streams again under the same prompt once it's answered; the wait
+ * in between counts as paused, not worked.
  */
-function useTurnEndTimes(streaming: boolean, lastUserKey: string | undefined): ReadonlyMap<string, number> {
-	const ends = useRef(new Map<string, number>());
-	const wasStreaming = useRef(streaming);
-	if (wasStreaming.current && !streaming && lastUserKey && !ends.current.has(lastUserKey)) {
-		ends.current.set(lastUserKey, Date.now());
+function useTurnSpans(streaming: boolean, lastUserKey: string | undefined): ReadonlyMap<string, TurnSpan> {
+	const spans = useRef(new Map<string, TurnSpan>());
+	// The first send mounts the transcript already streaming; that's the start.
+	const wasStreaming = useRef(false);
+	if (lastUserKey && streaming !== wasStreaming.current) {
+		const now = Date.now();
+		const span = spans.current.get(lastUserKey);
+		if (streaming) {
+			const pausedMs = span?.endedAt === undefined ? 0 : span.pausedMs + now - span.endedAt;
+			spans.current.set(lastUserKey, { pausedMs });
+		} else if (span) {
+			spans.current.set(lastUserKey, { ...span, endedAt: now });
+		}
 	}
 	wasStreaming.current = streaming;
-	return ends.current;
+	return spans.current;
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -615,8 +625,10 @@ function ChatTranscriptBody({
 	imageOutput,
 }: ChatTranscriptProps) {
 	const groups = useMemo(() => groupTranscriptBlocks(blocks), [blocks]);
-	const timeOf = useBlockTimes(blocks);
-	const turnEnds = useTurnEndTimes(streaming, groups.findLast((group) => group.kind === 'user')?.key);
+	const timeOf = useFirstSeen(
+		groups.map((group, index) => (group.kind === 'user' ? group.key : replyKey(groups, index))),
+	);
+	const spans = useTurnSpans(streaming, groups.findLast((group) => group.kind === 'user')?.key);
 	const pendingPrompt = streaming ? pendingPromptOf(groups) : undefined;
 	const handlers: BlockHandlers = {
 		indexOf: (block) => blocks.findIndex((entry) => entry.id === block.id),
@@ -625,25 +637,32 @@ function ChatTranscriptBody({
 	};
 	const turn = { handle, handlers, imageOutput };
 
+	const turns = groups.map((group, index) => {
+		if (group.kind === 'user') return <UserTurn key={group.key} blocks={group.blocks} at={timeOf(group.key)} />;
+		const { key, live, ...timing } = assistantTurnTiming({ groups, index, streaming, timeOf, spans });
+		// A reply is dated when it last stopped: a reply that just finished reads "now".
+		const at = timing.endedAt ?? timeOf(key);
+		return <AssistantTurn key={key} {...turn} {...timing} blocks={group.blocks} streaming={live} at={at} />;
+	});
+	// Nothing streamed back yet: show the reply's "Working…" status right away.
+	// It sits in the same keyed list as the streamed reply, so the reply stays
+	// one message; a remount would read to the layout as a new message.
+	if (pendingPrompt) {
+		turns.push(
+			<AssistantTurn
+				key={promptReplyKey(pendingPrompt)}
+				{...turn}
+				blocks={[]}
+				streaming
+				at={timeOf(pendingPrompt.key)}
+				startedAt={timeOf(pendingPrompt.key)}
+			/>,
+		);
+	}
+
 	return (
 		<ChatMessageList isStreaming={streaming} emptyState={emptyState}>
-			{groups.map((group, index) => {
-				const at = timeOf(groupTimeKey(group));
-				if (group.kind === 'user') return <UserTurn key={group.key} blocks={group.blocks} at={at} />;
-				const { key, live, ...timing } = assistantTurnTiming({ groups, index, streaming, timeOf, turnEnds });
-				return <AssistantTurn key={key} {...turn} {...timing} blocks={group.blocks} streaming={live} at={at} />;
-			})}
-			{/* Nothing streamed back yet: show the reply's "Working…" status right away. */}
-			{pendingPrompt ? (
-				<AssistantTurn
-					key={`${pendingPrompt.key}:reply`}
-					{...turn}
-					blocks={[]}
-					streaming
-					at={timeOf(groupTimeKey(pendingPrompt))}
-					startedAt={timeOf(groupTimeKey(pendingPrompt))}
-				/>
-			) : null}
+			{turns}
 		</ChatMessageList>
 	);
 }

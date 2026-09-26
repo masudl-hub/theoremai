@@ -9,7 +9,7 @@ export type SourceCitation = {
 	icon?: string;
 };
 
-export type SourceCitationBlock = Extract<TranscriptBlock, { kind: 'citation' | 'evidence' }>;
+export type SourceCitationBlock = Extract<TranscriptBlock, { kind: 'citation' }>;
 
 /**
  * Gemini grounding links through this host rather than to the page, and names
@@ -17,12 +17,9 @@ export type SourceCitationBlock = Extract<TranscriptBlock, { kind: 'citation' | 
  */
 const GROUNDING_REDIRECT_HOST = 'vertexaisearch.cloud.google.com';
 
-/** A citation's sources; a provider step names only its kind. */
+/** A citation's sources, in the order they were cited. */
 export function citationsFromBlock(block: SourceCitationBlock): SourceCitation[] {
-	if (block.kind === 'citation') {
-		return block.sources.map((source, i) => citationFromSource(source, `c-${String(i)}`));
-	}
-	return [{ key: 'e-kind', title: block.evidence.kind.replaceAll('_', ' ') }];
+	return block.sources.map((source, i) => citationFromSource(source, `c-${String(i)}`));
 }
 
 function citationFromSource(source: Source, key: string): SourceCitation {

@@ -386,7 +386,6 @@ function ResultBlock({ block }: { block: TranscriptBlock }) {
 		case 'error':
 			return <Banner status="error" title={block.message} />;
 		case 'citation':
-		case 'evidence':
 			return <Sources block={block} />;
 		case 'structured':
 			return <CodeBlock code={JSON.stringify(block.value, null, 2)} language="json" size="sm" />;

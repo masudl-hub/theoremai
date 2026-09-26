@@ -702,14 +702,3 @@ Deno.test('a source favicon names only its site, never the page', () => {
     [favicon('docs.example.org'), favicon('lisboa.pt'), undefined, undefined],
   );
 });
-
-Deno.test('a provider step citation names only its kind', () => {
-  assertEquals(
-    citationsFromBlock({
-      kind: 'evidence',
-      id: 'e1',
-      evidence: { provider: 'google', kind: 'url_context' },
-    }),
-    [{ key: 'e-kind', title: 'url context' }],
-  );
-});

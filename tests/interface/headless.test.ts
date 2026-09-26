@@ -1021,3 +1021,38 @@ Deno.test('a step replays as one assistant message: every call, then each result
     ['a*,b', 'tool:A', 'tool:B', 'c*', 'tool:C', 'All done.'],
   );
 });
+
+Deno.test('a reply cites each source once, in one row per citer', () => {
+  const cafe = {
+    type: 'maps',
+    uri: 'https://maps.google.com/?cid=1',
+    title: 'Cafe',
+    placeId: 'p1',
+  } as const;
+  const bakery = {
+    type: 'maps',
+    uri: 'https://maps.google.com/?cid=2',
+    title: 'Bakery',
+    placeId: 'p2',
+  } as const;
+  const page = { type: 'web', uri: 'https://example.org/', title: 'example.org' } as const;
+  const blocks = foldTurnEvents([
+    { type: 'citation', sources: [cafe, bakery] },
+    { type: 'text', text: 'Try these.' },
+    {
+      type: 'citation',
+      sources: [{ ...cafe, title: 'Cafe - Google Maps', uri: 'https://maps.google.com/?cid=1&x' }],
+    },
+    { type: 'citation', sources: [page], callId: 'c1' },
+    { type: 'citation', sources: [page], callId: 'c1' },
+  ]);
+  assertEquals(
+    blocks
+      .filter((block) => block.kind === 'citation')
+      .map((block) => [block.callId, block.sources.map((s) => s.title)]),
+    [
+      [undefined, ['Cafe', 'Bakery']],
+      ['c1', ['example.org']],
+    ],
+  );
+});

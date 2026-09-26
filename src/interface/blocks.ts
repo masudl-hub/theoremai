@@ -4,10 +4,16 @@
  * @module
  */
 
-import type { ToolCallEvent, TurnEvent } from '../kernel/types.ts';
+import type { Source, ToolCallEvent, TurnEvent, TurnEventOf } from '../kernel/types.ts';
 import { applyToolEvent } from './tool-calls.ts';
 import { collectPromotedMediaFromToolOutput } from './tool-media.ts';
-import type { FoldTurnEventsOptions, ToolBlock, TranscriptBlock, UserTurnDraft } from './types.ts';
+import type {
+  CitationBlock,
+  FoldTurnEventsOptions,
+  ToolBlock,
+  TranscriptBlock,
+  UserTurnDraft,
+} from './types.ts';
 
 let userBlockCounter = 0;
 let turnBlockCounter = 0;
@@ -63,6 +69,43 @@ function upsertToolBlock(blocks: TranscriptBlock[], tool: ToolCallEvent): void {
     return;
   }
   blocks.push({ id, kind: 'tool', tool: call });
+}
+
+/** Same source: one place, or one link. */
+function sameSource(a: Source, b: Source): boolean {
+  if (a.type !== b.type) return false;
+  if (a.placeId && b.placeId) return a.placeId === b.placeId;
+  return a.uri === b.uri;
+}
+
+/**
+ * One sources row per citer: the provider's grounding (no `callId`) or one
+ * tool call. A stream cites the same places more than once (the search result
+ * lists them, then the answer's annotations cite them), so later citations
+ * fold into the row with each source listed once.
+ */
+function foldCitation(
+  blocks: TranscriptBlock[],
+  event: TurnEventOf<'citation'>,
+  idPrefix: string,
+): void {
+  const existing = blocks.find(
+    (block): block is CitationBlock => block.kind === 'citation' && block.callId === event.callId,
+  );
+  const sources = existing ? [...existing.sources] : [];
+  for (const source of event.sources) {
+    if (!sources.some((seen) => sameSource(seen, source))) sources.push(source);
+  }
+  if (existing) {
+    existing.sources = sources;
+    return;
+  }
+  blocks.push({
+    id: nextBlockId(idPrefix),
+    kind: 'citation',
+    sources,
+    ...(event.callId !== undefined ? { callId: event.callId } : {}),
+  });
 }
 
 /** Append inline media blocks for http(s) image/video/audio URLs in completed tool output. */
@@ -183,12 +226,7 @@ function foldTurnEvents(
         });
         break;
       case 'citation':
-        blocks.push({
-          id: nextBlockId(idPrefix),
-          kind: 'citation',
-          sources: event.sources,
-          ...(event.callId !== undefined ? { callId: event.callId } : {}),
-        });
+        foldCitation(blocks, event, idPrefix);
         break;
       case 'evidence':
         blocks.push({

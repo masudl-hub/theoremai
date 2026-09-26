@@ -45,7 +45,7 @@ point it.
 It stays out of your product. There are no bundled prompts, personas, databases, `.env` reads,
 or UI copy. Keys, credentials, trace storage, and policy all come from the host.
 
-**Current release: `2.0.1`** — `jsr:@theoremai/agents` · npm `@theoremai/agents`.
+**Current release: `2.0.2`** — `jsr:@theoremai/agents` · npm `@theoremai/agents`.
 
 ## Highlights
 

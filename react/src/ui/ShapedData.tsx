@@ -3,6 +3,7 @@ import { Collapsible, CollapsibleGroup } from '@astryxdesign/core/Collapsible';
 import { HStack } from '@astryxdesign/core/HStack';
 import { useLocale } from '@astryxdesign/core/i18n';
 import { Link } from '@astryxdesign/core/Link';
+import { List, ListItem } from '@astryxdesign/core/List';
 import { MetadataList, MetadataListItem } from '@astryxdesign/core/MetadataList';
 import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
 import { Table, type TableColumn } from '@astryxdesign/core/Table';
@@ -20,6 +21,8 @@ import { useLabels } from './labels-provider';
  * - an object's nested fields → a collapsible section each, named by the key
  *   (a chain of one-key wrappers reads as one path: "Data › Items");
  * - an object of equal-length lists (Open-Meteo's hourly, daily) → a table;
+ * - a list of objects that each say what they are in a name and a line
+ *   (search results, places) → a List of ListItems, linked when they carry a URL;
  * - a list of small flat objects → a table;
  * - a list of other objects → a divided CollapsibleGroup, each row named by
  *   its title field and tagged with its place or kind;
@@ -40,6 +43,12 @@ const TITLE_KEYS = ['name', 'title', 'label', 'headline', 'subject', 'id'];
 const TAG_KEYS = ['country', 'region', 'state', 'admin1', 'city', 'category', 'type', 'kind', 'status'];
 const MAX_TAGS = 2;
 const MAX_TAG_LENGTH = 24;
+/** Fields that say, in a line, what a row is. */
+const DESCRIPTION_KEYS = ['description', 'summary', 'snippet', 'extract', 'subtitle', 'address', 'display_name', 'text'];
+/** Fields that link a row to its page. */
+const LINK_KEYS = ['url', 'link', 'href'];
+/** Fields a list row shows beyond its name, line, link and tags, at its end. */
+const MAX_LIST_EXTRAS = 2;
 /** A list of flat objects with at most this many fields reads as a table. */
 const MAX_TABLE_COLUMNS = 6;
 /** Rows shown before the rest are left to the JSON view. */
@@ -92,6 +101,33 @@ function humanize(key: string): string {
 function printableUnit(unit: unknown): string | undefined {
 	if (typeof unit !== 'string' || unit === '' || /\s/.test(unit) || unit === 'iso8601') return undefined;
 	return unit;
+}
+
+/** Unit suffixes a key can end in (`distance_m`, `duration_ms`), and the unit each prints as. */
+const SUFFIX_UNITS: Record<string, string> = {
+	m: 'm',
+	km: 'km',
+	mi: 'mi',
+	ms: 'ms',
+	s: 's',
+	sec: 's',
+	min: 'min',
+	h: 'h',
+	kg: 'kg',
+	g: 'g',
+	pct: '%',
+	percent: '%',
+	c: '°C',
+	f: '°F',
+};
+
+/** A field's label and unit: from its `<key>_units` entry, else its key's suffix (`distance_m` → "Distance", m). */
+function fieldLabel(key: string, units?: Row): { label: string; unit?: string } {
+	const listed = printableUnit(units?.[key]);
+	if (listed) return { label: humanize(key), unit: listed };
+	const match = /^(.+?)[_-]([a-z]+)$/i.exec(key);
+	const unit = match?.[2] ? SUFFIX_UNITS[match[2].toLowerCase()] : undefined;
+	return match?.[1] && unit ? { label: humanize(match[1]), unit } : { label: humanize(key) };
 }
 
 /** The `<key>_units` object beside `key`, if there is one. */
@@ -177,10 +213,10 @@ type TableRow = { id: string; cells: Row };
 
 function DataTable({ columns, rows, units }: { columns: readonly string[]; rows: readonly Row[]; units?: Row }) {
 	const tableColumns: TableColumn<TableRow>[] = columns.map((key, index) => {
-		const unit = printableUnit(units?.[key]);
+		const { label, unit } = fieldLabel(key, units);
 		return {
 			key: `c${String(index)}`,
-			header: unit ? `${humanize(key)} (${unit})` : humanize(key),
+			header: unit ? `${label} (${unit})` : label,
 			renderCell: (row) => <Plain value={row.cells[key]} />,
 		};
 	});
@@ -189,6 +225,67 @@ function DataTable({ columns, rows, units }: { columns: readonly string[]; rows:
 		<VStack gap={1}>
 			<Table data={data} columns={tableColumns} idKey="id" density="compact" textOverflow="truncate" />
 			<More total={rows.length} />
+		</VStack>
+	);
+}
+
+/** A row's parts as a ListItem shows them, if a name and a line say what it is. */
+function listRow(item: unknown): { title: string; description: string; href?: string; tags: string[]; extras: [string, unknown][] } | undefined {
+	if (!isRow(item) || !Object.values(item).every(isPlain)) return undefined;
+	const title = titleKey(item);
+	const description = DESCRIPTION_KEYS.find((key) => typeof item[key] === 'string' && item[key] !== '');
+	if (!title || !description) return undefined;
+	const link = LINK_KEYS.find((key) => typeof item[key] === 'string' && /^https?:\/\//.test(item[key] as string));
+	const rowTags = tags(item, title);
+	const extras = Object.entries(item).filter(
+		([key, value]) =>
+			key !== title && key !== description && key !== link && !(TAG_KEYS.includes(key) && rowTags.includes(value as string)),
+	);
+	if (extras.length > MAX_LIST_EXTRAS) return undefined;
+	return {
+		title: String(item[title]),
+		description: item[description] as string,
+		href: link ? (item[link] as string) : undefined,
+		tags: rowTags,
+		extras,
+	};
+}
+
+function DataList({ rows, total }: { rows: readonly NonNullable<ReturnType<typeof listRow>>[]; total: number }) {
+	return (
+		<VStack gap={1}>
+			<List hasDividers density="compact">
+				{rows.slice(0, MAX_ROWS).map((row, index) => (
+					<ListItem
+						// biome-ignore lint/suspicious/noArrayIndexKey: rows have no identity of their own
+						key={index}
+						label={row.title}
+						description={row.description}
+						href={row.href}
+						target={row.href ? '_blank' : undefined}
+						rel={row.href ? 'noreferrer' : undefined}
+						endContent={
+							row.tags.length + row.extras.length > 0 ? (
+								<HStack gap={2} vAlign="center">
+									{row.extras.map(([key, value]) => {
+										const { label, unit } = fieldLabel(key);
+										const shownUnit = typeof value === 'number' ? unit : undefined;
+										return (
+											<Text key={key} type="supporting" color="secondary">
+												{shownUnit ? label : humanize(key)} <Plain value={value} unit={shownUnit} />
+											</Text>
+										);
+									})}
+									{row.tags.map((tag) => (
+										<Token key={tag} label={tag} size="sm" />
+									))}
+								</HStack>
+							) : undefined
+						}
+					/>
+				))}
+			</List>
+			<More total={total} />
 		</VStack>
 	);
 }
@@ -261,11 +358,16 @@ function Fields({ row, depth, units }: { row: Row; depth: number; units?: Row })
 	const nested = entries.filter(([, value]) => !isPlain(unpacked(value)));
 	const fields = plain.length > 0 && (
 		<MetadataList label={{ position: 'start', width: '40%' }}>
-			{plain.map(([key, value]) => (
-				<MetadataListItem key={key} label={humanize(key)}>
-					<Plain value={value} unit={printableUnit(units?.[key])} />
-				</MetadataListItem>
-			))}
+			{plain.map(([key, value]) => {
+				const { label, unit } = fieldLabel(key, units);
+				// A suffix unit only reads onto a number: `country_code` stays "Country code".
+				const shownUnit = typeof value === 'number' ? unit : undefined;
+				return (
+					<MetadataListItem key={key} label={shownUnit ? label : humanize(key)}>
+						<Plain value={value} unit={shownUnit} />
+					</MetadataListItem>
+				);
+			})}
 		</MetadataList>
 	);
 	return (
@@ -317,6 +419,8 @@ function Node({ value: raw, depth, units }: { value: unknown; depth: number; uni
 				</VStack>
 			);
 		}
+		const listed = value.map(listRow);
+		if (listed.every((row) => row !== undefined)) return <DataList rows={listed} total={value.length} />;
 		const columns = tableColumns(value);
 		if (columns) return <DataTable columns={columns} rows={value as Row[]} />;
 		return <Rows items={value} depth={depth} />;

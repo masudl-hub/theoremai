@@ -420,10 +420,12 @@ function toolCallItem(t: LabelText, id: string, tool: ToolBlock['tool']): ChatTo
 	const { state } = tool;
 	switch (state?.phase) {
 		case 'error':
+			// What failed, as the tool reported it; the whole failure is in the detail.
 			return {
 				...base,
 				status: 'error',
-				errorMessage: JSON.stringify(state.failure),
+				target: state.failure.message,
+				errorMessage: state.failure.message,
 				resultDetail: toolDetail(t, tool, toolJson(t('@theorem.transcript.tool_error'), state.failure)),
 			};
 		case 'complete':

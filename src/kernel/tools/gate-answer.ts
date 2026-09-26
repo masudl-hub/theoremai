@@ -7,7 +7,9 @@
  */
 
 import { TheoremError } from '../../guardrails/error.ts';
-import type { ToolPermission } from '../schema.ts';
+import { credentialForSignInGate } from '../auth/typed-secret.ts';
+import type { ApiKeyCredential, BearerCredential } from '../auth/types.ts';
+import type { ToolAuthType, ToolPermission } from '../schema.ts';
 import type { InvokeToolResume } from './types.ts';
 
 /** A gate waits 30 minutes for its answer unless the host sets `gateTtlMs`. */
@@ -66,4 +68,75 @@ export function sessionPermissionsAfterApproval(
     return [...sessionPermissions];
   }
   return [...sessionPermissions, toolName];
+}
+
+/**
+ * The user's answer to one gated call as it arrives: a decision, and with an
+ * approval the user's edit (`input`) or the key typed at a sign-in gate.
+ */
+export type GateAnswerRequest = {
+  callId: string;
+  decision: GateDecision;
+  input?: unknown;
+  secret?: string;
+};
+
+/** A gated call as its host holds it: the model's call and the gate it waits on. */
+export type HeldGatedCall = {
+  name: string;
+  /** The model's input; `edited.from` when the user changes it. */
+  arguments: Record<string, unknown>;
+  permission?: ToolPermission;
+  /** The slot and kind a sign-in gate waits for; absent on any other gate. */
+  auth?: { slot: string; authType: ToolAuthType };
+};
+
+/** What an answer runs the gated call with, and what it leaves the session. */
+export type AnsweredGate = {
+  resume: InvokeToolResume;
+  /** The user's edit when there is one, else the model's input. */
+  input: unknown;
+  sessionPermissions: string[];
+  /** The typed key, as the credential its sign-in slot waits for. */
+  typed?: { slot: string; credential: BearerCredential | ApiKeyCredential };
+};
+
+/**
+ * Answer a gated call, the same way on every host (`createTheoremHandler`,
+ * `runSession`). Only an approval takes an edit or a typed key, and only an
+ * approval widens the session's permissions. A refused key throws, so the
+ * gate keeps waiting for another.
+ */
+export function answerGatedCall(
+  request: GateAnswerRequest,
+  call: HeldGatedCall,
+  sessionPermissions: readonly string[],
+): AnsweredGate {
+  const { callId, decision, input, secret } = request;
+  if ((input !== undefined || secret !== undefined) && decision !== 'approve') {
+    throw new TheoremError(
+      'request',
+      `only an approval takes edited input or a secret (call ${callId})`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  if (decision !== 'approve') {
+    return {
+      resume: resumeForAnswer({ decision }),
+      input: call.arguments,
+      sessionPermissions: [...sessionPermissions],
+    };
+  }
+  const typed = secret === undefined ? undefined : credentialForSignInGate(call.auth, secret);
+  return {
+    resume: resumeForAnswer(
+      input === undefined ? { decision } : { decision, edited: { from: call.arguments } },
+    ),
+    input: input ?? call.arguments,
+    sessionPermissions: sessionPermissionsAfterApproval(
+      sessionPermissions,
+      call.name,
+      call.permission,
+    ),
+    ...(typed ? { typed } : {}),
+  };
 }

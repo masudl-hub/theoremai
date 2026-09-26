@@ -14,13 +14,13 @@ export type { LiveConnectPhase, LiveSessionStatus } from './live-client';
 export { LiveSessionClient } from './live-client';
 export { isOAuthComplete, notifyOAuthComplete } from './oauth-popup';
 export {
-	abandonGatedInterfaceTool,
 	applyTurnResultToTranscript,
 	resumeInterfaceTool,
 	streamInterfaceDraftTurn,
 	streamInterfaceTurn,
 } from './run-session';
 export type {
+	AnsweringGate,
 	ToolDecisionAction,
 	ToolGateResolution,
 } from './tool-resume';
@@ -29,14 +29,17 @@ export {
 } from './tool-resume';
 export { citationsFromBlock, type SourceCitation, type SourceCitationBlock } from './source-citations';
 export { createTraceFeed, type TraceFeed } from './trace-feed';
-export { buildInvokeRequest, buildTurnRequest, turnInputFromSession } from './turn-client';
+export { buildInvokeRequest, buildTurnRequest, turnInputFromSession, type WalkAway } from './turn-client';
 export {
+	type ClientTurnEvent,
 	createHttpTransport,
+	type HostErrorBody,
 	type HttpOptions,
 	type HttpTransportOptions,
 	isTheoremStreamError,
 	postJson,
 	postNdjson,
+	readNdjsonStream,
 	type TheoremInvokeRequest,
 	type TheoremReplay,
 	type TheoremSteerRequest,
@@ -45,4 +48,6 @@ export {
 	type TheoremTurnInput,
 	type TheoremTurnRequest,
 	type TurnEventSink,
+	type UnsupportedEvent,
+	type WireLines,
 } from './transport';

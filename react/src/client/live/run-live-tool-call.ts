@@ -1,4 +1,3 @@
-import { TheoremError } from '../../../../mod.ts';
 import type { ExecuteToolOnRelay } from '../live-messages.ts';
 import type { LiveGateAnswer, LiveToolGatePrompt } from './live-tool.ts';
 import { continueGatedToolInvocation } from '../tool-resume.ts';
@@ -10,45 +9,34 @@ import { continueGatedToolInvocation } from '../tool-resume.ts';
  * cancels while its gate is open is gone: nothing is sent.
  */
 export async function runLiveToolCall(args: {
-	client: { executeToolOnRelay: ExecuteToolOnRelay };
+	executeToolOnRelay: ExecuteToolOnRelay;
 	name: string;
 	toolArgs: Record<string, unknown>;
 	callId: string;
 	sessionPermissions: string[];
 	setSessionPermissions: (next: string[]) => void;
 	waitForGateDecision: (prompt: LiveToolGatePrompt) => Promise<LiveGateAnswer>;
-	reportFailure: (err: unknown) => void;
 }): Promise<void> {
-	const { client, name, toolArgs, callId } = args;
+	const { executeToolOnRelay, name, toolArgs, callId } = args;
 	let sessionPermissions = args.sessionPermissions;
-	let step = await client.executeToolOnRelay({ callId });
+	let step = await executeToolOnRelay({ callId });
 	while (step.status === 'gated') {
 		const { gate } = step;
 		const resolution = await args.waitForGateDecision({ callId, toolName: name, input: toolArgs, gate });
 		if (resolution === 'withdrawn') return;
-		const next = continueGatedToolInvocation({ toolName: name, gate, sessionPermissions, resolution });
-		if (next.kind === 'denied') {
-			await client.executeToolOnRelay({ callId, decision: 'deny' });
-			args.reportFailure(
-				new TheoremError(
-					'declined',
-					// lexicon-exempt: internal diagnostic; the user reads session.tool_denied
-					`user denied ${name}`,
-					{ copy: { key: 'session.tool_denied', params: { tool: name } } },
-				),
-			);
+		const reply = continueGatedToolInvocation({ toolName: name, gate, sessionPermissions, resolution });
+		if (reply.decision === 'deny') {
+			// The session settles the refusal; its tool event tells the user.
+			await executeToolOnRelay({ callId, decision: 'deny' });
 			return;
 		}
-		if (next.kind === 'continue') {
-			sessionPermissions = next.sessionPermissions;
-			args.setSessionPermissions(next.sessionPermissions);
-		}
+		sessionPermissions = reply.sessionPermissions;
+		args.setSessionPermissions(reply.sessionPermissions);
 		// Signed in: a typed key goes once, with the approval; after an OAuth callback there is none.
-		const secret = next.kind === 'auth' ? next.secret : undefined;
-		step = await client.executeToolOnRelay({
+		step = await executeToolOnRelay({
 			callId,
 			decision: 'approve',
-			...(secret !== undefined ? { secret } : {}),
+			...(reply.secret !== undefined ? { secret: reply.secret } : {}),
 		});
 	}
 }

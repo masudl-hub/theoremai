@@ -26,6 +26,7 @@ import {
   shouldForwardMicFrame,
 } from '../../react/src/client/live/live-mic-forward.ts';
 import { liveState } from '../../react/src/client/live/live-state.ts';
+import { applyTurnResultToTranscript } from '../../react/src/client/run-session.ts';
 import { citationsFromBlock } from '../../react/src/client/source-citations.ts';
 import {
   assistantTurnTiming,
@@ -45,7 +46,11 @@ import {
   workStatusLabel,
 } from '../../react/src/ui/labels.ts';
 import { transcriptBlockCopyText } from '../../react/src/ui/transcript-copy-text.ts';
-import { interfaceFromProfile, type TranscriptBlock } from '../../src/interface/mod.ts';
+import {
+  emptyInterfaceTurnSession,
+  interfaceFromProfile,
+  type TranscriptBlock,
+} from '../../src/interface/mod.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import { toolCallRequestEvent, toolEvent } from '../../src/kernel/tools/events.ts';
@@ -553,41 +558,74 @@ Deno.test('resolveScrollToBottomScrollTop targets the live edge', () => {
   assertEquals(resolveScrollToBottomScrollTop({ scrollHeight: 400, clientHeight: 600 }), 0);
 });
 
-Deno.test('assistantTurnTiming keys replies by their prompt and times only this session', () => {
+Deno.test('a committed reply carries its work on its latest turn-done, and its group reads it', () => {
+  const prompt: TranscriptBlock = { id: 'user-1', kind: 'user-text', text: 'hi' };
+  const reply: TranscriptBlock[] = [
+    { id: 'turn-1', kind: 'text', text: 'on it' },
+    { id: 'turn-2', kind: 'turn-done' },
+    { id: 'turn-3', kind: 'text', text: 'done' },
+    { id: 'turn-4', kind: 'turn-done' },
+  ];
+  const merged = applyTurnResultToTranscript({
+    blocks: [prompt],
+    streamBlocks: [],
+    session: emptyInterfaceTurnSession(),
+    assistantBlocks: reply,
+    worked: { workedMs: 4200, endedAt: 99 },
+  });
+  assertEquals(merged.blocks.at(-1), {
+    id: 'turn-4',
+    kind: 'turn-done',
+    workedMs: 4200,
+    endedAt: 99,
+  });
+  assertEquals(merged.blocks.at(-3), { id: 'turn-2', kind: 'turn-done' });
+  const reread = groupTranscriptBlocks(merged.blocks).at(-1);
+  assertEquals(
+    reread?.kind === 'assistant' ? [reread.workedMs, reread.endedAt] : undefined,
+    [4200, 99],
+  );
+});
+
+Deno.test('assistantTurnTiming keys replies by their prompt; a stopped reply reads its time from its blocks', () => {
   const user = (key: string): TranscriptTurnGroup => ({ kind: 'user', key, blocks: [] });
-  const reply = (key: string): TranscriptTurnGroup => ({ kind: 'assistant', key, blocks: [] });
+  const reply = (key: string, workedMs?: number): TranscriptTurnGroup => ({
+    kind: 'assistant',
+    key,
+    blocks: [],
+    ...(workedMs === undefined ? {} : { workedMs, endedAt: 15 }),
+  });
   // Block ids restart every reply, so both replies' groups carry the same key.
-  const groups = [user('u1'), reply('turn-1'), user('u2'), reply('turn-1')];
+  const groups = [user('u1'), reply('turn-1', 2), user('u2'), reply('turn-1')];
   const timeOf = (key: string) => (key === 'u1' ? 10 : 20);
-  // u1 paused 3 on an approval before it finished.
-  const spans = new Map([
-    ['u1', { pausedMs: 3, endedAt: 15 }],
-    ['u2', { pausedMs: 0 }],
-  ]);
+  // u2 paused 3 on an approval before it streamed again.
+  const spans = new Map([['u2', { pausedMs: 3 }]]);
   assertEquals(replyKey(groups, 1), 'u1:reply');
   assertEquals(replyKey(groups, 3), 'u2:reply');
   assertEquals(assistantTurnTiming({ groups, index: 1, streaming: true, timeOf, spans }), {
     key: 'u1:reply',
     live: false,
-    startedAt: 13,
+    workedMs: 2,
     endedAt: 15,
   });
   assertEquals(assistantTurnTiming({ groups, index: 3, streaming: true, timeOf, spans }), {
     key: 'u2:reply',
     live: true,
-    startedAt: 20,
-    endedAt: undefined,
+    startedAt: 23,
   });
-  // Stopped with no end recorded, or loaded history with no span: untimed.
+  // Stopped without a stamp (a host that doesn't stamp, a failed run): untimed.
   assertEquals(assistantTurnTiming({ groups, index: 3, streaming: false, timeOf, spans }), {
     key: 'u2:reply',
     live: false,
   });
+  // The stamp needs no span: it survives a remount or a reload of saved blocks.
   assertEquals(
     assistantTurnTiming({ groups, index: 1, streaming: false, timeOf, spans: new Map() }),
     {
       key: 'u1:reply',
       live: false,
+      workedMs: 2,
+      endedAt: 15,
     },
   );
   assertEquals(

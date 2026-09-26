@@ -677,6 +677,10 @@
     height: 100%;
   }
 
+  .astryx-chat-tool-calls:where(*) [role="button"][aria-expanded] > span:not(:first-child):not(:has(svg)) {
+    align-self: baseline;
+  }
+
   .astryx-layout-panel:where([role="complementary"]) {
     transition: width var(--duration-medium) var(--ease-standard);
   }

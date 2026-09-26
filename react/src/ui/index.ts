@@ -24,6 +24,7 @@ export {
 	type ToolDecision,
 } from './ToolGateCard';
 export { tablerIcons, theoremTheme } from './built/theorem';
+export { useDisclosureMotion } from './disclosure-motion';
 export {
 	composerDrawerLabel,
 	type LabelText,

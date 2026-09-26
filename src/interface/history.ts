@@ -144,7 +144,7 @@ function historyToolCall(call: ToolCall): ToolCallRequest {
 function appendToolDenialToHistory(
   history: TurnHistoryMessage[],
   tool: ToolCallRequest & {
-    /** Override default deny copy (e.g. send-now cancel while gated). */
+    /** Override the default deny copy. */
     failure?: { code: string; message: string };
   },
   lexicon: LexiconOverrides | undefined,
@@ -165,28 +165,58 @@ function settledToolContent(call: ToolCall): string | undefined {
 /**
  * One model step's settled calls: a single assistant message holding every call
  * the step made, then each result. Google replays a step's calls only this way,
- * with the step's thought signature on its first call.
+ * with the step's thought signature on its first call. With `gated: 'open'`, a
+ * call waiting on its gate joins the message too, left without a result.
  */
 function appendToolStepToHistory(
   history: TurnHistoryMessage[],
   calls: readonly ToolCall[],
+  gated: GatedCalls = 'omit',
 ): TurnHistoryMessage[] {
-  const settled = calls.flatMap((call) => {
+  const entries = calls.flatMap((call): { tool: ToolCallRequest; content?: string }[] => {
     const content = settledToolContent(call);
-    return content === undefined ? [] : [{ tool: historyToolCall(call), content }];
+    if (content !== undefined) return [{ tool: historyToolCall(call), content }];
+    return gated === 'open' && call.state?.phase === 'gate'
+      ? [{ tool: historyToolCall(call) }]
+      : [];
   });
-  if (settled.length === 0) return history;
+  if (entries.length === 0) return history;
   return [
     ...history,
-    { role: 'assistant', tool_calls: settled.map(({ tool }) => toolCallEntry(tool)) },
-    ...settled.map(({ tool, content }) => toolResultMessage(tool, content)),
+    { role: 'assistant', tool_calls: entries.map(({ tool }) => toolCallEntry(tool)) },
+    ...entries.flatMap(({ tool, content }) =>
+      content === undefined ? [] : [toolResultMessage(tool, content)],
+    ),
   ];
 }
+
+/** Whether a call waiting on its gate enters history: left out, or open without a result. */
+type GatedCalls = 'omit' | 'open';
 
 /** Fold completed assistant turn events into provider-neutral history rows. */
 function appendAssistantEventsToHistory(
   history: TurnHistoryMessage[],
   events: readonly TurnEvent[],
+): TurnHistoryMessage[] {
+  return foldAssistantEvents(history, events, 'omit');
+}
+
+/**
+ * A reply paused on its gates, as the model reads it when the user walks away:
+ * its gated calls stay open in their step for the host to answer
+ * (`answerOpenToolCalls`) before the user's next message.
+ */
+function appendPausedTurnToHistory(
+  history: TurnHistoryMessage[],
+  events: readonly TurnEvent[],
+): TurnHistoryMessage[] {
+  return foldAssistantEvents(history, events, 'open');
+}
+
+function foldAssistantEvents(
+  history: TurnHistoryMessage[],
+  events: readonly TurnEvent[],
+  gated: GatedCalls,
 ): TurnHistoryMessage[] {
   let next = history;
   let textBuf = '';
@@ -206,7 +236,7 @@ function appendAssistantEventsToHistory(
       return;
     }
     const stepCalls = step.callIds.flatMap((id) => calls.get(id) ?? []);
-    next = appendToolStepToHistory(next, stepCalls);
+    next = appendToolStepToHistory(next, stepCalls, gated);
     step = undefined;
   };
 
@@ -285,11 +315,81 @@ function historyFromTranscriptBlocks(blocks: readonly TranscriptBlock[]): TurnHi
   return history;
 }
 
+/** The history's last message holding tool calls, and where it sits. */
+function lastToolStep(
+  history: readonly TurnHistoryMessage[],
+): { at: number; calls: NonNullable<TurnHistoryMessage['tool_calls']> } | undefined {
+  const at = history.findLastIndex((message) => message.tool_calls !== undefined);
+  const calls = history[at]?.tool_calls;
+  return calls ? { at, calls } : undefined;
+}
+
+/**
+ * The calls the history leaves open: those of its last step with no result
+ * after it, when nothing but results follows that step. Empty otherwise.
+ */
+function openToolCallIds(history: readonly TurnHistoryMessage[]): string[] {
+  const step = lastToolStep(history);
+  if (!step) return [];
+  const after = history.slice(step.at + 1);
+  if (after.some((message) => message.role !== 'tool')) return [];
+  const answered = new Set(after.map((message) => message.tool_call_id));
+  return step.calls.flatMap((call) => (answered.has(call.id) ? [] : [call.id]));
+}
+
+function openCallsMismatch(
+  history: readonly TurnHistoryMessage[],
+  ids: readonly string[],
+): TheoremError {
+  return new TheoremError(
+    'request',
+    `the history leaves open [${openToolCallIds(history).join(', ')}], not [${ids.join(', ')}]`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  );
+}
+
+/** Throws unless the calls the history leaves open are exactly `ids`. */
+function assertOpenToolCalls(history: readonly TurnHistoryMessage[], ids: readonly string[]): void {
+  const open = openToolCallIds(history);
+  if (open.length !== ids.length || open.some((id) => !ids.includes(id))) {
+    throw openCallsMismatch(history, ids);
+  }
+}
+
+/**
+ * The history with its open calls answered: `answers` holds, by call id, the
+ * text the model reads for each one (a settled call's `readBack`). Results
+ * follow their step in the order the model made the calls. Throws unless
+ * `answers` names exactly the calls the history leaves open.
+ */
+function answerOpenToolCalls(
+  history: readonly TurnHistoryMessage[],
+  answers: ReadonlyMap<string, string>,
+): TurnHistoryMessage[] {
+  const ids = [...answers.keys()];
+  assertOpenToolCalls(history, ids);
+  const step = lastToolStep(history);
+  if (!step) return [...history];
+  const results = new Map(
+    history.slice(step.at + 1).map((message) => [message.tool_call_id, message]),
+  );
+  const resultOf = (call: { id: string; function: { name: string } }): TurnHistoryMessage => {
+    const result = results.get(call.id);
+    if (result) return result;
+    const content = answers.get(call.id);
+    if (content === undefined) throw openCallsMismatch(history, ids);
+    return { role: 'tool', tool_call_id: call.id, name: call.function.name, content };
+  };
+  return [...history.slice(0, step.at + 1), ...step.calls.map(resultOf)];
+}
+
 export {
+  answerOpenToolCalls,
   appendAssistantEventsToHistory,
+  appendPausedTurnToHistory,
   appendToolDenialToHistory,
   appendToolExchangeToHistory,
   appendUserDraftToHistory,
+  assertOpenToolCalls,
   historyFromTranscriptBlocks,
   toolReadBack,
   userDraftToSteerInject,

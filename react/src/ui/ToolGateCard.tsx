@@ -12,10 +12,11 @@ import { VStack } from '@astryxdesign/core/VStack';
 import { useCallback, useEffect, useState } from 'react';
 import type { ToolGate } from '../../../src/kernel/mod.ts';
 import { isOAuthComplete } from '../client/oauth-popup';
+import type { ToolDecisionAction } from '../client/tool-resume';
 import type { LabelText } from './labels';
 import { TheoremLabelsProvider, useLabels } from './labels-provider';
 
-export type ToolDecision = 'allow' | 'deny';
+export type ToolDecision = ToolDecisionAction;
 
 /** What an approval means is the tool registrant's call: `session_consent` lasts the session. */
 function decisionLabel(t: LabelText, decision: ToolDecision, gate: ToolGate): string {
@@ -51,6 +52,8 @@ export type ApprovalCardProps = {
 	gate: ToolGate;
 	toolName: string;
 	input?: unknown;
+	/** The decision on its way; it shows in place of the buttons until the gate settles, or they return. */
+	decided?: ToolDecision | null;
 	onDecision?: (action: ToolDecision) => void;
 };
 
@@ -62,15 +65,9 @@ export function ApprovalCard(props: ApprovalCardProps) {
 	);
 }
 
-function ApprovalBody({ gate, toolName, input, onDecision }: ApprovalCardProps) {
+function ApprovalBody({ gate, toolName, input, decided = null, onDecision }: ApprovalCardProps) {
 	const t = useLabels();
-	const [decided, setDecided] = useState<ToolDecision | null>(null);
 	const args = formatInput(input);
-
-	function decide(action: ToolDecision) {
-		setDecided(action);
-		onDecision?.(action);
-	}
 
 	return (
 		<Card padding={4}>
@@ -89,8 +86,8 @@ function ApprovalBody({ gate, toolName, input, onDecision }: ApprovalCardProps) 
 				) : null}
 				{decided === null ? (
 					<HStack gap={2} justify="end">
-						<Button label={t('@theorem.gate.approval.deny')} variant="ghost" onClick={() => decide('deny')} />
-						<Button label={t('@theorem.gate.approval.approve')} variant="primary" onClick={() => decide('allow')} />
+						<Button label={t('@theorem.gate.approval.deny')} variant="ghost" onClick={() => onDecision?.('deny')} />
+						<Button label={t('@theorem.gate.approval.approve')} variant="primary" onClick={() => onDecision?.('allow')} />
 					</HStack>
 				) : (
 					<Badge variant={decided === 'deny' ? 'error' : 'success'} label={decisionLabel(t, decided, gate)} />
@@ -111,6 +108,8 @@ export type AuthChallengeCardProps = {
 	 * an OAuth sign-in (the popup's `notifyOAuthComplete`) there is none.
 	 */
 	onAuthenticated?: (secret?: string) => void;
+	/** Signed in, and the answer is on its way; the sign-in returns if it fails. */
+	submitted?: boolean;
 };
 
 type AuthChallenge = AuthGate['authChallenge'];
@@ -160,16 +159,12 @@ function useOAuthPopup(slot: string, onComplete: () => void): (url: string) => v
 	return (url) => setPopup(globalThis.open(url, '_blank', 'width=600,height=700'));
 }
 
-function AuthChallengeBody({ gate, toolName, onAuthenticated }: AuthChallengeCardProps) {
+function AuthChallengeBody({ gate, toolName, onAuthenticated, submitted = false }: AuthChallengeCardProps) {
 	const t = useLabels();
 	const challenge = gate.authChallenge;
 	const { authType, slot } = challenge;
 	const [secret, setSecret] = useState('');
-	const [submitted, setSubmitted] = useState(false);
-	const onOAuthComplete = useCallback(() => {
-		setSubmitted(true);
-		onAuthenticated?.();
-	}, [onAuthenticated]);
+	const onOAuthComplete = useCallback(() => onAuthenticated?.(), [onAuthenticated]);
 	const openSignIn = useOAuthPopup(slot, onOAuthComplete);
 
 	function submit() {
@@ -177,7 +172,6 @@ function AuthChallengeBody({ gate, toolName, onAuthenticated }: AuthChallengeCar
 		if (!value) return;
 		// The key goes to the server once; the browser keeps no copy.
 		setSecret('');
-		setSubmitted(true);
 		onAuthenticated?.(value);
 	}
 

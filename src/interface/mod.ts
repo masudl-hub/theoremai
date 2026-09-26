@@ -28,10 +28,13 @@ export { prepareUserTurn, sanitizeUserDraft } from './draft.ts';
 export { interfaceFromProfile, interfaceFromProjected } from './from-profile.ts';
 export type { UserTurnHistoryMedia } from './history.ts';
 export {
+  answerOpenToolCalls,
   appendAssistantEventsToHistory,
+  appendPausedTurnToHistory,
   appendToolDenialToHistory,
   appendToolExchangeToHistory,
   appendUserDraftToHistory,
+  assertOpenToolCalls,
   historyFromTranscriptBlocks,
   toolReadBack,
   userDraftToSteerInject,
@@ -72,6 +75,7 @@ export {
   updateComposerPendingDraft,
   userDraftHasPayload,
 } from './pending.ts';
+export { profileInterfaceSchema } from './profile-interface.ts';
 export type {
   AwaitingToolContext,
   GatedToolContext,
@@ -79,7 +83,6 @@ export type {
   ToolGateAuth,
 } from './session.ts';
 export {
-  abandonGatedToolSession,
   applyTurnEventsToSession,
   awaitingFromEvents,
   branchInterfaceTurnSession,
@@ -87,7 +90,8 @@ export {
   gatedToolFromEvents,
   gatedToolsFromEvents,
 } from './session.ts';
-export { toolCallRanWith, toolCallsOf } from './tool-calls.ts';
+export type { SettledToolCallEvent } from './tool-calls.ts';
+export { settlesToolCall, toolCallRanWith, toolCallsOf } from './tool-calls.ts';
 export { promotedToolIdsFromEvents, toolSnapshotFromEvents } from './tool-invoke.ts';
 export type { PromotedToolMedia } from './tool-media.ts';
 export {
@@ -96,17 +100,19 @@ export {
 } from './tool-media.ts';
 export type {
   AttachmentValidationResult,
+  ComposerInterfaceFields,
   ComposerProfileInterface,
   FoldTurnEventsOptions,
   ImageProfileInterface,
   LiveProfileInterface,
-  LiveResolvedTools,
+  ModelBindingView,
   PendingAttachment,
   ProfileGuardrailsView,
   ProfileInputsInterface,
   ProfileInterface,
   ProfileObservabilityView,
-  ResolvedTools,
+  ProfileOutputsView,
+  ProfileToolsView,
   SpeechProfileInterface,
   TextProfileInterface,
   TranscriptBlock,

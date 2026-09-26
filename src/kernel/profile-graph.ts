@@ -48,7 +48,7 @@ const PROFILE_GRAPH_DEF = [
     optional: false,
     editor: 'structural',
     label: 'Identity',
-    ownsFields: ['id', 'type', 'lexicon'],
+    ownsFields: ['id', 'type'],
   },
   {
     id: 'decision',
@@ -157,6 +157,14 @@ const PROFILE_GRAPH_DEF = [
     optional: true,
     editor: 'structural',
     label: 'Observability',
+  },
+  {
+    id: 'wording',
+    profilePath: 'lexicon',
+    role: 'spine',
+    optional: true,
+    editor: 'structural',
+    label: 'Wording',
   },
 ] as const satisfies readonly ProfileGraphFacetDef[];
 

@@ -44,6 +44,11 @@
  * @module
  */
 
+/**
+ * The zod Theorem's schemas are built with. Compose them with this `z`: two
+ * copies of zod, even at one version, do not mix.
+ */
+export { z } from 'zod';
 export type {
   ErrorCopies,
   ErrorCopy,
@@ -444,6 +449,7 @@ export {
 } from './src/kernel/tools/mod.ts';
 export {
   awaitingUserInputSchema,
+  TURN_EVENT_SCHEMAS,
   toolGateSchema,
   turnDoneOf,
   turnEventSchema,

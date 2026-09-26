@@ -1,16 +1,15 @@
 import { AspectRatio } from '@astryxdesign/core/AspectRatio';
-import { Banner } from '@astryxdesign/core/Banner';
 import {
 	ChatMessage,
 	ChatMessageBubble,
 	ChatMessageList,
 	ChatMessageMetadata,
+	type ChatMessageStatus,
 	type ChatToolCallItem,
 	ChatToolCalls,
 } from '@astryxdesign/core/Chat';
 import { Citation } from '@astryxdesign/core/Citation';
 import { ClickableCard } from '@astryxdesign/core/ClickableCard';
-import { CodeBlock } from '@astryxdesign/core/CodeBlock';
 import { Collapsible } from '@astryxdesign/core/Collapsible';
 import { HStack } from '@astryxdesign/core/HStack';
 import { Icon } from '@astryxdesign/core/Icon';
@@ -23,11 +22,13 @@ import { Text } from '@astryxdesign/core/Text';
 import { Thumbnail } from '@astryxdesign/core/Thumbnail';
 import { Timestamp } from '@astryxdesign/core/Timestamp';
 import { Token } from '@astryxdesign/core/Token';
+import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconCheck, IconCopy } from '@tabler/icons-react';
-import { type ReactNode, type RefObject, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import type { TranscriptBlock } from '../../../src/interface/mod.ts';
 import { citationsFromBlock, type SourceCitationBlock } from '../client/source-citations';
+import type { AnsweringGate } from '../client/tool-resume';
 import {
 	assistantTurnCopyText,
 	assistantTurnTiming,
@@ -37,11 +38,14 @@ import {
 	promptReplyKey,
 	replyKey,
 	type TraceItem,
+	type TranscriptTurnGroup,
 	type TurnSpan,
 	workStatus,
 } from '../client/transcript-groups';
+import { useDisclosureMotion } from './disclosure-motion';
 import { type LabelText, workDuration, workStatusLabel } from './labels';
 import { TheoremLabelsProvider, useLabels } from './labels-provider';
+import { ShapedData } from './ShapedData';
 import { transcriptBlockCopyText } from './transcript-copy-text';
 import { ApprovalCard, AuthChallengeCard, type ToolDecision } from './ToolGateCard';
 import { VoiceNote } from './VoiceNote';
@@ -53,7 +57,11 @@ export type ChatTranscriptProps = {
 	/** Assistant display name (profile handle). */
 	handle: string;
 	streaming?: boolean;
-	onToolDecision?: (index: number, action: ToolDecision, interactiveValue?: unknown) => void;
+	/** How far the latest message has got; shown on it unless its turn failed. */
+	delivery?: Exclude<ChatMessageStatus, 'error'> | null;
+	onToolDecision?: (index: number, action: ToolDecision) => void;
+	/** The answer on its way to a gate (`useTheoremChat().answering`). */
+	answering?: AnsweringGate | null;
 	/** Signed in at a gate: `secret` is a key the user typed; after an OAuth callback there is none. */
 	onAuthenticated?: (index: number, secret?: string) => void;
 	emptyState?: ReactNode;
@@ -72,6 +80,7 @@ const GENERATED_IMAGE_MAX_WIDTH = 512;
 
 type BlockHandlers = {
 	indexOf: (block: TranscriptBlock) => number;
+	answering: AnsweringGate | null;
 	onToolDecision?: ChatTranscriptProps['onToolDecision'];
 	onAuthenticated?: ChatTranscriptProps['onAuthenticated'];
 };
@@ -167,9 +176,31 @@ function MessageTime({ at }: { at: number }) {
 	return <Timestamp value={at} format="relative_short" isLive />;
 }
 
-function MessageChrome(props: { at: number; copyText: string }) {
+/** A message's time, copy button and status; a failure's reason shows on hover over its mark. */
+function MessageChrome(props: { at: number; copyText: string; status?: ChatMessageStatus; error?: string }) {
+	const mark = useRef<HTMLElement | null>(null);
+	const failed = props.error !== undefined;
+	const metadata = (
+		<ChatMessageMetadata
+			ref={(row) => {
+				// The status mark is the row's last item; its native title ("Failed") would
+				// cover the tooltip that says why.
+				const last = failed ? row?.lastElementChild : null;
+				mark.current = last instanceof HTMLElement ? last : null;
+				mark.current?.removeAttribute('title');
+			}}
+			timestamp={<MessageTime at={props.at} />}
+			footer={<CopyButton text={props.copyText} />}
+			status={failed ? 'error' : props.status}
+		/>
+	);
+	if (!failed) return metadata;
 	return (
-		<ChatMessageMetadata timestamp={<MessageTime at={props.at} />} footer={<CopyButton text={props.copyText} />} />
+		<>
+			{metadata}
+			{/* The tooltip sits beside the row, inside a user message's end-aligned text. */}
+			<Tooltip anchorRef={mark} content={<div style={{ textAlign: 'start' }}>{props.error}</div>} />
+		</>
 	);
 }
 
@@ -383,12 +414,13 @@ function BodyBlock({ block, streaming }: { block: TranscriptBlock; streaming: bo
 /** Non-streaming answer rows: errors, sources, structured output and media. */
 function ResultBlock({ block }: { block: TranscriptBlock }) {
 	switch (block.kind) {
+		// A failure shows on the message's metadata line (MessageChrome).
 		case 'error':
-			return <Banner status="error" title={block.message} />;
+			return null;
 		case 'citation':
 			return <Sources block={block} />;
 		case 'structured':
-			return <CodeBlock code={JSON.stringify(block.value, null, 2)} language="json" size="sm" />;
+			return <ShapedData value={block.value} />;
 		case 'media':
 			return <MediaBlock block={block} />;
 		default:
@@ -396,23 +428,25 @@ function ResultBlock({ block }: { block: TranscriptBlock }) {
 	}
 }
 
-function toolJson(title: string, value: unknown): ReactNode {
-	return (
-		<CodeBlock title={title} code={JSON.stringify(value, null, 2)} language="json" hasLanguageLabel={false} size="sm" />
-	);
-}
-
 /** A call's detail: what it ran with, then what came back. */
 function toolDetail(t: LabelText, tool: ToolBlock['tool'], result?: ReactNode): ReactNode {
-	const input = tool.edited
-		? toolJson(t('@theorem.transcript.tool_input_edited'), tool.edited.to)
-		: toolJson(t('@theorem.transcript.tool_input'), tool.arguments);
+	const input = tool.edited ? (
+		<ShapedData value={tool.edited.to} title={t('@theorem.transcript.tool_input_edited')} />
+	) : (
+		<ShapedData value={tool.arguments} title={t('@theorem.transcript.tool_input')} />
+	);
 	return (
 		<VStack gap={2}>
 			{input}
 			{result}
 		</VStack>
 	);
+}
+
+/** How long a finished call ran, when both ends were seen. */
+function toolDuration(t: LabelText, tool: ToolBlock['tool']): { duration?: string } {
+	if (tool.startedAt === undefined || tool.endedAt === undefined) return {};
+	return { duration: workDuration(t, tool.endedAt - tool.startedAt) };
 }
 
 function toolCallItem(t: LabelText, id: string, tool: ToolBlock['tool']): ChatToolCallItem {
@@ -426,19 +460,23 @@ function toolCallItem(t: LabelText, id: string, tool: ToolBlock['tool']): ChatTo
 				status: 'error',
 				target: state.failure.message,
 				errorMessage: state.failure.message,
-				resultDetail: toolDetail(t, tool, toolJson(t('@theorem.transcript.tool_error'), state.failure)),
+				resultDetail: toolDetail(
+					t,
+					tool,
+					<ShapedData value={state.failure} title={t('@theorem.transcript.tool_error')} />,
+				),
 			};
 		case 'complete':
 			return {
 				...base,
 				status: 'complete',
-				...(tool.startedAt !== undefined && tool.endedAt !== undefined
-					? { duration: workDuration(t, tool.endedAt - tool.startedAt) }
-					: {}),
+				...toolDuration(t, tool),
 				resultDetail: toolDetail(
 					t,
 					tool,
-					state.output === undefined ? undefined : toolJson(t('@theorem.transcript.tool_output'), state.output),
+					state.output === undefined ? undefined : (
+						<ShapedData value={state.output} title={t('@theorem.transcript.tool_output')} />
+					),
 				),
 			};
 		case 'running':
@@ -505,11 +543,13 @@ function GateCard({ block, handlers }: { block: ToolBlock; handlers: BlockHandle
 	if (tool.state?.phase !== 'gate') return null;
 	const { gate } = tool.state;
 	const index = handlers.indexOf(block);
+	const answer = handlers.answering?.callId === tool.callId ? handlers.answering.action : null;
 	if (gate.kind === 'auth') {
 		return (
 			<AuthChallengeCard
 				gate={gate}
 				toolName={tool.name}
+				submitted={answer === 'auth'}
 				onAuthenticated={(secret) => handlers.onAuthenticated?.(index, secret)}
 			/>
 		);
@@ -519,16 +559,18 @@ function GateCard({ block, handlers }: { block: ToolBlock; handlers: BlockHandle
 			gate={gate}
 			toolName={tool.name}
 			input={tool.arguments}
+			decided={answer === 'auth' ? null : answer}
 			onDecision={(action) => handlers.onToolDecision?.(index, action)}
 		/>
 	);
 }
 
 /** Live elapsed time while the turn streams; its final duration once it ends. */
-function useTurnElapsed(streaming: boolean, startedAt?: number, endedAt?: number): number | undefined {
+/** Live: counted from the start. Stopped: the work its blocks record. */
+function useTurnElapsed(streaming: boolean, startedAt?: number, workedMs?: number): number | undefined {
 	const now = useSecondTicker(streaming && startedAt !== undefined);
-	const end = streaming ? now : endedAt;
-	return startedAt !== undefined && end !== undefined ? end - startedAt : undefined;
+	if (!streaming) return workedMs;
+	return startedAt !== undefined ? now - startedAt : undefined;
 }
 
 /**
@@ -575,15 +617,17 @@ function AssistantTurn(props: {
 	handle: string;
 	streaming: boolean;
 	at: number;
-	/** When the user's message went out; unknown for loaded history. */
+	/** While live: when the reply started, its approval waits skipped. */
 	startedAt?: number;
-	/** When this reply finished streaming. */
-	endedAt?: number;
+	/** Once stopped: how long it worked. */
+	workedMs?: number;
 	handlers: BlockHandlers;
 	imageOutput?: ImageOutput;
+	/** Why the turn failed, if it did. */
+	error?: string;
 }) {
 	const t = useLabels();
-	const elapsedMs = useTurnElapsed(props.streaming, props.startedAt, props.endedAt);
+	const elapsedMs = useTurnElapsed(props.streaming, props.startedAt, props.workedMs);
 	const { trace, gatedTools, body, hasTrace } = composeAssistantTurn(props.blocks);
 	const rows = bodyRows(t, body);
 	const status = workStatusLabel(t, workStatus({ streaming: props.streaming, hasTrace, elapsedMs }));
@@ -593,7 +637,7 @@ function AssistantTurn(props: {
 		<ChatMessage
 			sender="assistant"
 			name={props.handle}
-			metadata={props.streaming ? undefined : <MessageChrome at={props.at} copyText={copyText} />}
+			metadata={props.streaming ? undefined : <MessageChrome at={props.at} copyText={copyText} error={props.error} />}
 		>
 			<VStack gap={3} width="100%">
 				<TurnStatus status={status} trace={trace} hasTrace={hasTrace} streaming={props.streaming} />
@@ -616,13 +660,19 @@ function AssistantTurn(props: {
 	);
 }
 
-function UserTurn(props: { blocks: TranscriptBlock[]; at: number }) {
+function UserTurn(props: {
+	blocks: TranscriptBlock[];
+	at: number;
+	status?: ChatMessageStatus;
+	/** Why the turn failed before any reply. */
+	error?: string;
+}) {
 	const t = useLabels();
 	const copyText = props.blocks
 		.map((block) => transcriptBlockCopyText(t, block))
 		.filter(Boolean)
 		.join('\n\n');
-	const chrome = <MessageChrome at={props.at} copyText={copyText} />;
+	const chrome = <MessageChrome at={props.at} copyText={copyText} status={props.status} error={props.error} />;
 	// Astryx: metadata goes on the last bubble, or on the message when the last
 	// content is unbubbled (an attachment or voice note).
 	const last = props.blocks.at(-1);
@@ -636,44 +686,17 @@ function UserTurn(props: { blocks: TranscriptBlock[]; at: number }) {
 	);
 }
 
-/** Theorem transcript blocks rendered as Astryx chat messages. */
-/**
- * A disclosure the reader opens (a turn's work, a tool group, a call's detail)
- * glides to the top of the transcript, so what it reveals reads from its start.
- * Astryx owns each trigger's open state, so this reads `aria-expanded` after
- * the reader's click or key, never an open the transcript made itself.
- */
-function useScrollToOpened(): RefObject<HTMLDivElement | null> {
-	const ref = useRef<HTMLDivElement>(null);
-	useEffect(() => {
-		const list = ref.current;
-		if (!list) return;
-		const onOpen = (event: Event) => {
-			if (event instanceof KeyboardEvent && event.key !== 'Enter' && event.key !== ' ') return;
-			const trigger = event.target instanceof Element ? event.target.closest('[aria-expanded]') : null;
-			if (!trigger || !list.contains(trigger)) return;
-			requestAnimationFrame(async () => {
-				if (trigger.getAttribute('aria-expanded') !== 'true') return;
-				// Scroll once the panel has grown: until then, a trigger near the
-				// end of the transcript has no room below it to reach the top.
-				const panel = document.getElementById(trigger.getAttribute('aria-controls') ?? '');
-				// A closed-again panel cancels its animation, which rejects `finished`.
-				await Promise.allSettled((panel?.getAnimations() ?? []).map((animation) => animation.finished));
-				if (trigger.getAttribute('aria-expanded') !== 'true') return;
-				const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
-				trigger.scrollIntoView({ behavior: still ? 'auto' : 'smooth', block: 'start' });
-			});
-		};
-		list.addEventListener('click', onOpen);
-		list.addEventListener('keydown', onOpen);
-		return () => {
-			list.removeEventListener('click', onOpen);
-			list.removeEventListener('keydown', onOpen);
-		};
-	}, []);
-	return ref;
+/** Why a turn failed: its error block's message. */
+function failureOf(group: TranscriptTurnGroup | undefined): string | undefined {
+	return group?.blocks.findLast((block) => block.kind === 'error')?.message;
 }
 
+/** A reply that is nothing but its failure: the turn failed before the model answered. */
+function isBareFailure(group: TranscriptTurnGroup | undefined): boolean {
+	return group?.kind === 'assistant' && group.blocks.every((block) => block.kind === 'error');
+}
+
+/** Theorem transcript blocks rendered as Astryx chat messages. */
 export function ChatTranscript(props: ChatTranscriptProps) {
 	return (
 		<TheoremLabelsProvider>
@@ -686,7 +709,9 @@ function ChatTranscriptBody({
 	blocks,
 	handle,
 	streaming = false,
+	delivery,
 	onToolDecision,
+	answering = null,
 	onAuthenticated,
 	emptyState,
 	imageOutput,
@@ -697,20 +722,44 @@ function ChatTranscriptBody({
 	);
 	const spans = useTurnSpans(streaming, groups.findLast((group) => group.kind === 'user')?.key);
 	const pendingPrompt = streaming ? pendingPromptOf(groups) : undefined;
-	const listRef = useScrollToOpened();
+	const listRef = useRef<HTMLDivElement>(null);
+	// Disclosures ease open and shut in place; opening one never moves the transcript.
+	useDisclosureMotion(listRef);
 	const handlers: BlockHandlers = {
 		indexOf: (block) => blocks.findIndex((entry) => entry.id === block.id),
+		answering,
 		onToolDecision,
 		onAuthenticated,
 	};
 	const turn = { handle, handlers, imageOutput };
 
-	const turns = groups.map((group, index) => {
-		if (group.kind === 'user') return <UserTurn key={group.key} blocks={group.blocks} at={timeOf(group.key)} />;
-		const { key, live, ...timing } = assistantTurnTiming({ groups, index, streaming, timeOf, spans });
+	const lastUser = groups.findLastIndex((group) => group.kind === 'user');
+
+	const userTurn = (group: Extract<TranscriptTurnGroup, { kind: 'user' }>, index: number) => {
+		// A turn that failed before any reply shows it on the message itself.
+		const next = groups[index + 1];
+		const error = isBareFailure(next) ? failureOf(next) : undefined;
+		const status = index === lastUser ? (delivery ?? undefined) : undefined;
+		return <UserTurn key={group.key} blocks={group.blocks} at={timeOf(group.key)} status={status} error={error} />;
+	};
+
+	const turns = groups.flatMap((group, index) => {
+		if (group.kind === 'user') return userTurn(group, index);
+		if (isBareFailure(group) && groups[index - 1]?.kind === 'user') return [];
+		const { key, live, endedAt, ...timing } = assistantTurnTiming({ groups, index, streaming, timeOf, spans });
 		// A reply is dated when it last stopped: a reply that just finished reads "now".
-		const at = timing.endedAt ?? timeOf(key);
-		return <AssistantTurn key={key} {...turn} {...timing} blocks={group.blocks} streaming={live} at={at} />;
+		const at = endedAt ?? timeOf(key);
+		return (
+			<AssistantTurn
+				key={key}
+				{...turn}
+				{...timing}
+				blocks={group.blocks}
+				streaming={live}
+				at={at}
+				error={failureOf(group)}
+			/>
+		);
 	});
 	// Nothing streamed back yet: show the reply's "Working…" status right away.
 	// It sits in the same keyed list as the streamed reply, so the reply stays

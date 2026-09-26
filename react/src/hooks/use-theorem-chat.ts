@@ -18,7 +18,7 @@ import { followGenerationDefaults } from '../client/generation-selection';
 import { applyTurnResultToTranscript } from '../client/index';
 import type { TheoremTransport, TurnEventSink } from '../client/transport';
 import { type RunTurnStream, useTheoremChatActions } from './use-theorem-chat-actions';
-import { type SetSession, useTheoremChatState } from './use-theorem-chat-state';
+import { type MessageDelivery, type SetSession, useTheoremChatState } from './use-theorem-chat-state';
 
 export type UseTheoremChatOptions = {
 	transport: TheoremTransport;
@@ -66,18 +66,71 @@ function withTurnError(blocks: TranscriptBlock[], error: string): TranscriptBloc
 }
 
 /**
- * Shows a failed turn's error. A reply that failed partway stays in the
- * transcript, flagged where it stopped; one that never started shows at the composer.
+ * Shows a failed turn's error. Once the message is in the transcript, the
+ * failure is too, closing the turn (the message, or the reply as far as it
+ * got, shows it failed); a message that never went out (refused attachments)
+ * is still in the composer, and a reply that still waits on a gate stays open,
+ * so the failure shows in the composer.
  */
-function showTurnFailure(state: ChatState, result: TurnFailure, streamed: TranscriptBlock[]): void {
+function showTurnFailure(
+	state: ChatState,
+	result: TurnFailure,
+	streamed: TranscriptBlock[],
+	open: boolean,
+): void {
 	const { error, errorKind, errorInternal } = result;
-	if (streamed.length > 0) {
+	if (open) {
+		state.setFailure({ error, errorKind, ...(errorInternal ? { errorInternal } : {}) });
+	} else {
 		const failed = withTurnError(streamed, error);
 		state.setBlocks((prev) => [...prev, ...failed]);
-	} else {
-		state.setFailure({ error, errorKind, ...(errorInternal ? { errorInternal } : {}) });
+		state.setDelivery(null);
 	}
 	if (result.issues) state.setIssues(result.issues);
+}
+
+/**
+ * The run begins: busy, and streaming unless its message goes live when it
+ * posts (onUserBlocks), so the previous reply never renders as streaming in
+ * between. Returns the delivery before it, which a new message replaces.
+ */
+function beginRun(state: ChatState, userBlocksAlreadyApplied: boolean): ChatState['deliveryRef']['current'] {
+	state.setFailure(null);
+	const priorDelivery = state.deliveryRef.current;
+	state.busyRef.current = true;
+	state.setBusy(true);
+	if (!userBlocksAlreadyApplied) state.setStreaming(true);
+	state.allowQueueDrainRef.current = false;
+	return priorDelivery;
+}
+
+/** The run is over: nothing streams, and nothing can stop or steer it. */
+function endRun(state: ChatState): void {
+	state.cancelPendingStreamFrame();
+	state.busyRef.current = false;
+	state.setBusy(false);
+	state.setStreaming(false);
+	state.abortRef.current = null;
+	state.turnIdRef.current = null;
+}
+
+/**
+ * A failed run: its session (when it has one) and its error. A message that
+ * never posted, or an answer that left its reply paused (as it was, or on its
+ * next gate), keeps the transcript as it was, the paused reply waiting in it.
+ */
+function failRun(
+	state: ChatState,
+	result: TurnFailure,
+	stream: { streamed: TranscriptBlock[]; before: TranscriptBlock[] },
+	unposted: boolean,
+): void {
+	const waits = (result.session ?? state.sessionRef.current).gatedTool !== null;
+	const open = unposted || waits;
+	if (result.session) state.setSession(result.session);
+	if (!result.aborted) showTurnFailure(state, result, stream.streamed, open);
+	if (!open) state.setStreamBlocks([]);
+	else state.setStreamBlocks(result.session ? stream.streamed : stream.before);
 }
 
 /**
@@ -85,6 +138,8 @@ function showTurnFailure(state: ChatState, result: TurnFailure, streamed: Transc
  * then the committed result (or the error) and the pending queue's next step.
  */
 function useRunTurnStream(iface: ComposerProfileInterface | null, state: ChatState): RunTurnStream {
+	// The current reply's work across its runs: a gate splits a reply into runs, and the wait between doesn't count.
+	const replyWorkedMs = useRef(0);
 	const onRunEnded = useCallback(
 		(nextPending: ComposerPendingMessage[], drain: boolean) => {
 			const converted = convertSteersToFrontQueued(nextPending);
@@ -97,36 +152,36 @@ function useRunTurnStream(iface: ComposerProfileInterface | null, state: ChatSta
 
 	return useCallback(
 		async (
-			run: (onStream: (partial: TranscriptBlock[]) => void) => Promise<TurnOk | TurnFailure>,
-			options: { userBlocksAlreadyApplied?: boolean } = {},
+			run: (
+				onStream: (partial: TranscriptBlock[]) => void,
+				paused: { workedMs: number },
+			) => Promise<TurnOk | TurnFailure>,
+			options: { userBlocksAlreadyApplied?: boolean; walksAway?: boolean } = {},
 		) => {
 			if (!iface || state.busyRef.current) return;
-			state.setFailure(null);
-			state.busyRef.current = true;
-			state.setBusy(true);
-			// A new turn goes live with its user message (onUserBlocks), so the
-			// previous reply never renders as streaming in between.
-			if (!options.userBlocksAlreadyApplied) state.setStreaming(true);
-			state.allowQueueDrainRef.current = false;
+			const applied = options.userBlocksAlreadyApplied === true;
+			const priorDelivery = beginRun(state, applied);
+			const streamBefore = state.streamBlocksRef.current;
+			const paused = { workedMs: state.sessionRef.current.gatedTool ? replyWorkedMs.current : 0 };
+			// A run that answers a gate (a decision, sign-in) continues its reply; any other, walking away included, starts one.
+			if (!state.sessionRef.current.gatedTool || options.walksAway) replyWorkedMs.current = 0;
+			const runStartedAt = Date.now();
 
 			const work = (async () => {
 				let latestStream: TranscriptBlock[] = [];
 				const result = await run((partial) => {
 					latestStream = partial;
 					state.scheduleStreamBlocks(partial);
-				});
+				}, paused);
 
-				state.cancelPendingStreamFrame();
-				state.busyRef.current = false;
-				state.setBusy(false);
-				state.setStreaming(false);
-				state.abortRef.current = null;
-				state.turnIdRef.current = null;
+				const endedAt = Date.now();
+				replyWorkedMs.current += endedAt - runStartedAt;
+				endRun(state);
 
 				if (!result.ok) {
-					if (result.session) state.setSession(result.session);
-					if (!result.aborted) showTurnFailure(state, result, latestStream);
-					state.setStreamBlocks([]);
+					// A new message posts itself (onUserBlocks) with a fresh delivery.
+					const unposted = applied && state.deliveryRef.current === priorDelivery;
+					failRun(state, result, { streamed: latestStream, before: streamBefore }, unposted);
 					onRunEnded(state.pendingRef.current, false);
 					return;
 				}
@@ -135,8 +190,9 @@ function useRunTurnStream(iface: ComposerProfileInterface | null, state: ChatSta
 					blocks: state.blocksRef.current,
 					streamBlocks: latestStream,
 					session: result.session,
-					userBlocks: options.userBlocksAlreadyApplied ? undefined : result.userBlocks,
+					userBlocks: applied ? undefined : result.userBlocks,
 					assistantBlocks: result.assistantBlocks,
+					worked: { workedMs: replyWorkedMs.current, endedAt },
 				});
 				state.setBlocks(merged.blocks);
 				state.setStreamBlocks(merged.streamBlocks);
@@ -195,11 +251,29 @@ function useQueueDrain(
 
 }
 
+const DELIVERY_ORDER: readonly MessageDelivery[] = ['sending', 'sent', 'delivered', 'read'];
+
+/** The server's own reports (bookkeeping, a failure, the end), which say nothing of the model having the message. */
+const SERVER_EVENTS = new Set(['stage', 'guardrail', 'session', 'error', 'done']);
+/** The reply itself (its thinking and tool calls come before it). */
+const REPLY_EVENTS = new Set(['text', 'structured', 'media']);
+
+/**
+ * How far an event shows the message got: any event means the server took it,
+ * one from the model (thinking, a tool call) means the model has it, and the
+ * reply means it was read.
+ */
+function deliveryOf(event: Parameters<TurnEventSink>[0]): MessageDelivery {
+	if (REPLY_EVENTS.has(event.type)) return 'read';
+	return SERVER_EVENTS.has(event.type) ? 'sent' : 'delivered';
+}
+
 /**
  * The transport, with each turn's events also clearing the steers they report
- * as landed, so the run's end requeues only the steers the agent never saw.
+ * as landed (so the run's end requeues only the steers the agent never saw),
+ * and moving the posted message's delivery forward.
  */
-function useLandedSteerTransport(transport: TheoremTransport, state: ChatState): TheoremTransport {
+function useTappedTransport(transport: TheoremTransport, state: ChatState): TheoremTransport {
 	return useMemo(() => {
 		const tap =
 			(onEvent: TurnEventSink): TurnEventSink =>
@@ -208,6 +282,11 @@ function useLandedSteerTransport(transport: TheoremTransport, state: ChatState):
 					state.pendingRef.current = removeLandedSteers(state.pendingRef.current, event);
 					state.setPendingMessages((prev) => removeLandedSteers(prev, event));
 				}
+				const delivery = state.deliveryRef.current;
+				const reached = deliveryOf(event);
+				if (delivery && DELIVERY_ORDER.indexOf(reached) > DELIVERY_ORDER.indexOf(delivery.status)) {
+					state.setDelivery({ status: reached });
+				}
 				onEvent(event);
 			};
 		return {
@@ -215,7 +294,7 @@ function useLandedSteerTransport(transport: TheoremTransport, state: ChatState):
 			turn: (request, onEvent, signal) => transport.turn(request, tap(onEvent), signal),
 			invoke: (request, onEvent, signal) => transport.invoke(request, tap(onEvent), signal),
 		};
-	}, [transport, state.pendingRef, state.setPendingMessages]);
+	}, [transport, state.pendingRef, state.setPendingMessages, state.deliveryRef, state.setDelivery]);
 }
 
 /**
@@ -245,7 +324,7 @@ export function useTheoremChat({ transport, iface }: UseTheoremChatOptions) {
 
 	const runTurnStream = useRunTurnStream(iface, state);
 
-	const steerTransport = useLandedSteerTransport(transport, state);
+	const steerTransport = useTappedTransport(transport, state);
 	const actions = useTheoremChatActions({
 		...state,
 		iface,
@@ -266,6 +345,8 @@ export function useTheoremChat({ transport, iface }: UseTheoremChatOptions) {
 			state.busyRef.current = false;
 			state.setBusy(false);
 			state.setChatStarted(kept.length > 0);
+			// The kept transcript's last message isn't the one whose delivery was tracked.
+			state.setDelivery(null);
 			state.setSession((prevSession) => branchInterfaceTurnSession(prevSession, kept));
 		},
 		[iface, state],
@@ -289,12 +370,16 @@ export function useTheoremChat({ transport, iface }: UseTheoremChatOptions) {
 		chatStarted: state.chatStarted,
 		draftText: state.draftText,
 		failure: state.failure,
+		/** The answer on its way to a gate, shown on it until the answer settles or fails. */
+		answering: state.answering,
 		issues: state.issues,
 		pendingFiles: state.pendingFiles,
 		pendingMessages: state.pendingMessages,
 		pendingVoice: state.pendingVoice,
 		phase,
 		session: state.session,
+		/** The latest message's delivery; `null` before the first and once its turn failed. */
+		delivery: state.delivery?.status ?? null,
 		streamBlocks: state.streamBlocks,
 		streaming: state.streaming,
 		setDraftText: state.setDraftText,

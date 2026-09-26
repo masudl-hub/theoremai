@@ -7,7 +7,7 @@
  */
 
 import { TheoremError } from '../guardrails/error.ts';
-import type { ToolCallEvent, TurnEvent } from '../kernel/types.ts';
+import type { ToolCallEvent, TurnEvent, TurnEventOf } from '../kernel/types.ts';
 import type { ToolCall } from './types.ts';
 
 /**
@@ -72,4 +72,16 @@ function toolCallRanWith(call: ToolCall): Record<string, unknown> {
   return call.edited?.to ?? call.arguments;
 }
 
-export { applyToolEvent, toolCallRanWith, toolCallsOf };
+/** A tool event that settles its call: the call completed or failed. */
+type SettledToolCallEvent = TurnEventOf<'tool'> & {
+  tool: Extract<ToolCallEvent, { phase: 'complete' | 'error' }>;
+};
+
+/** Whether `event` settles `callId`. */
+function settlesToolCall(event: TurnEvent, callId: string): event is SettledToolCallEvent {
+  if (event.type !== 'tool' || event.tool.callId !== callId) return false;
+  return event.tool.phase === 'complete' || event.tool.phase === 'error';
+}
+
+export type { SettledToolCallEvent };
+export { applyToolEvent, settlesToolCall, toolCallRanWith, toolCallsOf };

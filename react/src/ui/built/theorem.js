@@ -529,6 +529,13 @@ export const theoremTheme = {
         }
       }
     },
+    "chat-tool-calls": {
+      "base": {
+        ":where(*) [role=\"button\"][aria-expanded] > span:not(:first-child):not(:has(svg))": {
+          "alignSelf": "baseline"
+        }
+      }
+    },
     "layout-panel": {
       "base": {
         ":where([role=\"complementary\"])": {

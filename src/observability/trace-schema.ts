@@ -38,6 +38,8 @@ const traceAttributeValue: z.ZodType<TraceAttributeValue> = z.lazy(() =>
 export type TraceAttributes = Record<string, TraceAttributeValue>;
 const traceAttributes = z.record(z.string(), traceAttributeValue);
 true satisfies Equals<z.infer<typeof traceAttributes>, TraceAttributes>;
+/** `TraceAttributes`, checked. */
+export const traceAttributesSchema: z.ZodType<TraceAttributes> = traceAttributes;
 
 /** OTLP span kind. THEOREM emits INTERNAL (agent, tool) and CLIENT (model call). */
 export type TraceSpanKind = 'INTERNAL' | 'CLIENT';

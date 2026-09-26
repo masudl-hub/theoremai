@@ -10,7 +10,14 @@
  * @module
  */
 
-import { defineProfile, TheoremError, type TurnEvent } from '../mod.ts';
+import { z } from 'zod';
+import {
+  defineProfile,
+  TheoremError,
+  traceRecordSchema,
+  TURN_EVENT_SCHEMAS,
+  type TurnEvent,
+} from '../mod.ts';
 import { createTraceFeed, type TraceFeed } from '../react/src/client/trace-feed.ts';
 import {
   type HttpOptions,
@@ -18,11 +25,14 @@ import {
   postNdjson,
   type TheoremTransport,
   type TurnEventSink,
+  type UnsupportedEvent,
+  type WireLines,
 } from '../react/src/client/transport.ts';
 import { interfaceFromProfile, type ProfileInterface } from '../src/interface/mod.ts';
 import { createToolRegistry } from '../src/kernel/tools/registry.ts';
 import type { PlaygroundRunPayload } from './run-payload.ts';
 import { registerPlaygroundTools } from './tools.ts';
+import type { Equals } from '../src/kernel/util/exact-type.ts';
 import type { PlaygroundTraceLine } from './traces.ts';
 
 /** Client-side interface for the draft profile carried by a run payload. */
@@ -40,13 +50,25 @@ export type PlaygroundSteerLine = { type: 'steer_inbox'; inbox: string };
 
 type PlaygroundLine = TurnEvent | PlaygroundTraceLine | PlaygroundSteerLine;
 
+const playgroundTraceLine = z.object({ type: z.literal('trace'), record: traceRecordSchema });
+true satisfies Equals<z.infer<typeof playgroundTraceLine>, PlaygroundTraceLine>;
+const playgroundSteerLine = z.object({ type: z.literal('steer_inbox'), inbox: z.string().min(1) });
+true satisfies Equals<z.infer<typeof playgroundSteerLine>, PlaygroundSteerLine>;
+
+/** A run stream's lines: turn events, and the playground's trace and steer inbox lines beside them. */
+const playgroundLines: WireLines<PlaygroundLine> = {
+  ...TURN_EVENT_SCHEMAS,
+  trace: playgroundTraceLine,
+  steer_inbox: playgroundSteerLine,
+};
+
 /** A run stream's lines: its steer inbox, turn events, and the trace records the run wrote. */
 function routeLines(
   onEvent: TurnEventSink,
   traces: TraceFeed,
   onSteerInbox: (inbox: string) => void,
 ) {
-  return (line: PlaygroundLine) => {
+  return (line: PlaygroundLine | UnsupportedEvent) => {
     if (line.type === 'trace') traces.push(line.record);
     else if (line.type === 'steer_inbox') onSteerInbox(line.inbox);
     else onEvent(line);
@@ -69,25 +91,28 @@ export function createPlaygroundTransport(
   const inboxes = new Map<string, string>();
   return {
     describe: () => Promise.resolve(playgroundInterface(payload)),
-    turn: async ({ replay, turnId, ...body }, onEvent, signal) => {
+    turn: async (request, onEvent, signal) => {
       try {
         await postNdjson(
           '/api/playground/turn',
-          { ...compiled, ...replay, ...body },
+          // The body as `theoremTurnRequestSchema` reads it, beside the compiled draft.
+          { ...compiled, ...request },
+          playgroundLines,
           routeLines(onEvent, traces, (inbox) => {
-            if (turnId) inboxes.set(turnId, inbox);
+            if (request.turnId) inboxes.set(request.turnId, inbox);
           }),
           { ...options, signal },
         );
       } finally {
-        if (turnId) inboxes.delete(turnId);
+        if (request.turnId) inboxes.delete(request.turnId);
       }
     },
-    invoke: ({ gateId, replay, secret }, onEvent, signal) =>
+    invoke: (request, onEvent, signal) =>
       postNdjson(
         '/api/playground/invoke',
-        // The gate's call id, so the result settles the call the model made.
-        { ...compiled, ...replay, callId: gateId, ...(secret === undefined ? {} : { secret }) },
+        // The answer as `theoremInvokeRequestSchema` reads it; `replay` carries the paused call.
+        { ...compiled, ...request },
+        playgroundLines,
         routeLines(onEvent, traces, ignoreSteerInbox),
         { ...options, signal },
       ),
@@ -99,7 +124,8 @@ export function createPlaygroundTransport(
           copy: { key: 'session.turn_ended' },
         });
       }
-      await postJson('/api/playground/turn/steer', { inbox, id, inject }, options);
+      // The server's inbox is the turn it steers, so the body is a `TheoremSteerRequest`.
+      await postJson('/api/playground/turn/steer', { turnId: inbox, id, inject }, options);
     },
     traces,
   };

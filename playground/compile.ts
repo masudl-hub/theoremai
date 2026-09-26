@@ -67,7 +67,7 @@ import type {
   ToolSpecDraft,
   TurnBehaviourDraft,
 } from './draft.ts';
-import { draftAllows, draftFacets, takesContinueInstruction } from './draft.ts';
+import { draftAllows, draftFacets, INLINE_WORDING, takesContinueInstruction } from './draft.ts';
 import {
   GEMINI_PLAYGROUND_LIVE_INPUT_TOKENS,
   isProviderBuiltinId,
@@ -541,8 +541,8 @@ function compileCanary(guardrails: GuardrailsDraft): ProfileGuardrailsSpec['cana
 
 /**
  * The profile's wording: the drafts' continue instruction, canary bind note,
- * quota message, and repair guidance, each checked by the kernel's own lexicon rules and reported on the
- * node that owns it.
+ * quota message, and repair guidance, then the rest from Wording, each checked by the kernel's own
+ * lexicon rules and reported on the node that owns it.
  */
 function compileLexicon(
   draft: PlaygroundDraft,
@@ -588,6 +588,11 @@ function compileLexicon(
       'egress.default_repair_guidance',
       guardrails.egressRepairGuidance.trim(),
     ]);
+  }
+  if (facets.has('wording')) {
+    for (const [key, template] of Object.entries(draft.wording) as [LexiconKey, string][]) {
+      if (!INLINE_WORDING[key]) entries.push(['wording', key, key, template.trim()]);
+    }
   }
   const lexicon: LexiconOverrides = {};
   for (const [nodeId, field, key, template] of entries) {

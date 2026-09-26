@@ -2,8 +2,9 @@
  * Profile → `ProfileInterface` projection.
  *
  * Kernel `projectProfileObject` is the single inspection projection; this module
- * only enriches `inputs` (acceptAttr, an image profile's image cap) and attaches
- * serializable guardrails / observability views and the client's lexicon.
+ * enriches `inputs` (acceptAttr, an image profile's image cap), attaches
+ * guardrails / observability views and the client's lexicon, and passes the
+ * result through `profileInterfaceSchema`, which keeps only JSON the schema names.
  *
  * @module
  */
@@ -19,14 +20,14 @@ import type { LiveProfile, ModelProfile, Profile, ProjectedProfile } from '../ke
 import { resolveObservabilityPolicy } from '../observability/resolve-policy.ts';
 import type { ProfileObservabilitySpec } from '../observability/types.ts';
 import { inputsFromSpec } from './inputs.ts';
+import { profileInterfaceSchema } from './profile-interface.ts';
 import type {
   ComposerProfileInterface,
   LiveProfileInterface,
-  LiveResolvedTools,
   ProfileGuardrailsView,
   ProfileInterface,
   ProfileObservabilityView,
-  ResolvedTools,
+  ProfileToolsView,
 } from './types.ts';
 
 /**
@@ -83,22 +84,15 @@ function observabilityView(
   };
 }
 
-function toolsResolved(projected: ProjectedProfile, profile?: ModelProfile): ResolvedTools {
-  if (projected.type === 'speech') {
-    return { allow: [], resolved: [] };
-  }
+function toolsView(projected: ProjectedProfile, profile?: ModelProfile): ProfileToolsView {
   if (profile) {
     const t2Loader = profileToolsSpec(profile)?.t2Loader;
-    return {
-      allow: [...profileToolAllow(profile)],
-      ...(t2Loader ? { t2Loader } : {}),
-      resolved: projected.tools,
-    };
+    return { allow: [...profileToolAllow(profile)], ...(t2Loader ? { t2Loader } : {}) };
   }
   const allow = projected.tools
     .filter((tool) => !('type' in tool && tool.type === 'builtin'))
     .map((tool) => tool.name);
-  return { allow, resolved: projected.tools };
+  return { allow };
 }
 
 function enrich(projected: ProjectedProfile, profile?: ModelProfile): ProfileInterface {
@@ -123,41 +117,41 @@ function enrich(projected: ProjectedProfile, profile?: ModelProfile): ProfileInt
 
   switch (projected.type) {
     case 'text':
-      return {
+      return profileInterfaceSchema.parse({
         ...shared,
         type: 'text',
         inputs,
-        tools: toolsResolved(projected, profile),
+        tools: toolsView(projected, profile),
         turnBehaviour: profile?.type === 'text' ? profile.turnBehaviour : undefined,
         canStop: true,
         allowSteering: profile ? profileAllowsSteering(profile) : true,
-      } as ProfileInterface;
+      });
     case 'image':
-      return {
+      return profileInterfaceSchema.parse({
         ...shared,
         type: 'image',
         image: projected.image ?? {},
         inputs,
-        tools: toolsResolved(projected, profile),
+        tools: toolsView(projected, profile),
         turnBehaviour: profile?.type === 'image' ? profile.turnBehaviour : undefined,
         canStop: true,
-      } as ProfileInterface;
+      });
     case 'speech':
-      return {
+      return profileInterfaceSchema.parse({
         ...shared,
         type: 'speech',
         speech: projected.speech ?? {},
         inputs,
         turnBehaviour: profile?.type === 'speech' ? profile.turnBehaviour : undefined,
         canStop: true,
-      } as ProfileInterface;
+      });
     case 'live':
-      return {
+      return profileInterfaceSchema.parse({
         ...shared,
         type: 'live',
         live: projected.live ?? {},
-        tools: toolsResolved(projected, profile) as LiveResolvedTools,
-      } as ProfileInterface;
+        tools: { allow: toolsView(projected, profile).allow },
+      });
     default: {
       const exhaustive: never = projected.type;
       return exhaustive;

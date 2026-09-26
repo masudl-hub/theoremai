@@ -6,11 +6,12 @@ import {
 	type ComposerProfileInterface,
 	type InterfaceTurnSession,
 	gatedToolFromEvents,
+	settlesToolCall,
 	type TranscriptBlock,
 	type UserTurnHistoryMedia,
 } from '../../../src/interface/mod.ts';
 import { type TurnFailure, turnFailure } from './failure.ts';
-import type { TheoremTransport } from './transport.ts';
+import type { TheoremTransport, TurnEventSink } from './transport.ts';
 import { buildTurnRequest, foldAssistantTurn, turnInputFromSession } from './turn-client.ts';
 
 /** The turn's history before its reply: a turn not yet started adds the user's message. */
@@ -24,7 +25,7 @@ function turnBaseHistory(
 }
 
 /** The turn is over: every event it streamed, gate resumes included, enters history once. */
-function commitCompletedTurn(
+export function commitCompletedTurn(
 	session: InterfaceTurnSession,
 	events: TurnEvent[],
 	media: UserTurnHistoryMedia = {},
@@ -82,14 +83,19 @@ function withFailedTurnSession(
 	return { ...failure, session: commit(failure.aborted ? seedEvents : events) };
 }
 
-/** Streams into `events`, which the caller owns, so a stream that fails still leaves what it delivered. */
+/**
+ * Streams into `events`, which the caller owns, so a stream that fails still
+ * leaves what it delivered. An `unsupported` line is the host's to read on its
+ * own transport: it never enters the turn, its history or its transcript.
+ */
 async function streamFoldedEvents(
-	stream: (onEvent: (event: TurnEvent) => void) => Promise<void>,
+	stream: (onEvent: TurnEventSink) => Promise<void>,
 	onStream: (blocks: TranscriptBlock[]) => void,
 	iface: ComposerProfileInterface,
 	events: TurnEvent[],
 ): Promise<TurnEvent[]> {
 	await stream((event) => {
+		if (event.type === 'unsupported') return;
 		events.push(event);
 		onStream(foldAssistantTurn(iface, events));
 	});
@@ -158,6 +164,24 @@ export function failTurnStream(args: {
 	);
 }
 
+/**
+ * An answer to `callId`'s gate that failed. Once the call settled, the reply
+ * commits as far as it got, or waits on its next gate; before, the reply waits
+ * on the gate as it did (the host puts the call back), and the answer can go again.
+ */
+export function failGateAnswer(args: {
+	/** The paused session the answer went out from. */
+	session: InterfaceTurnSession;
+	callId: string;
+	/** The paused reply's events, then the answer's as far as they came. */
+	events: TurnEvent[];
+	failure: TurnFailure;
+}): TurnFailure {
+	const answered = args.events.slice(args.session.assistantEvents.length);
+	if (!answered.some((event) => settlesToolCall(event, args.callId))) return args.failure;
+	return { ...args.failure, session: finalizeTurnStream({ session: args.session, events: args.events, media: {} }) };
+}
+
 export function finalizeTurnStream(args: {
 	session: InterfaceTurnSession;
 	events: TurnEvent[];
@@ -174,7 +198,17 @@ export function streamFoldedTurn(args: {
 	onStream: (blocks: TranscriptBlock[]) => void;
 	/** Seeded by the caller, and filled as the stream delivers. */
 	events: TurnEvent[];
-	stream: (onEvent: (event: TurnEvent) => void) => Promise<void>;
+	stream: (onEvent: TurnEventSink) => Promise<void>;
 }): Promise<TurnEvent[]> {
 	return streamFoldedEvents(args.stream, args.onStream, args.iface, args.events);
+}
+
+/** `blocks` with its last `turn-done` carrying the reply's work. */
+export function stampWorked(
+	blocks: TranscriptBlock[],
+	worked: { workedMs: number; endedAt: number },
+): TranscriptBlock[] {
+	const last = blocks.findLastIndex((block) => block.kind === 'turn-done');
+	if (last < 0) return blocks;
+	return blocks.map((block, index) => (index === last ? { ...block, ...worked } : block));
 }

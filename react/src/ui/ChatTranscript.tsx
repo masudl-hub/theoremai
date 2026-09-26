@@ -40,7 +40,7 @@ import {
 	type TurnSpan,
 	workStatus,
 } from '../client/transcript-groups';
-import { type LabelText, workStatusLabel } from './labels';
+import { type LabelText, workDuration, workStatusLabel } from './labels';
 import { TheoremLabelsProvider, useLabels } from './labels-provider';
 import { transcriptBlockCopyText } from './transcript-copy-text';
 import { ApprovalCard, AuthChallengeCard, type ToolDecision } from './ToolGateCard';
@@ -400,7 +400,7 @@ function toolDetail(detail: unknown): ReactNode {
 	return <CodeBlock code={JSON.stringify(detail, null, 2)} language="json" size="sm" />;
 }
 
-function toolCallItem(id: string, tool: ToolBlock['tool']): ChatToolCallItem {
+function toolCallItem(t: LabelText, id: string, tool: ToolBlock['tool']): ChatToolCallItem {
 	const base = { key: id, name: tool.name };
 	const { state } = tool;
 	switch (state?.phase) {
@@ -415,6 +415,9 @@ function toolCallItem(id: string, tool: ToolBlock['tool']): ChatToolCallItem {
 			return {
 				...base,
 				status: 'complete',
+				...(tool.startedAt !== undefined && tool.endedAt !== undefined
+					? { duration: workDuration(t, tool.endedAt - tool.startedAt) }
+					: {}),
 				...(state.output !== undefined ? { resultDetail: toolDetail(state.output) } : {}),
 			};
 		case 'running':
@@ -425,7 +428,8 @@ function toolCallItem(id: string, tool: ToolBlock['tool']): ChatToolCallItem {
 }
 
 function ToolCall({ tool }: { tool: ToolBlock['tool'] }) {
-	return <ChatToolCalls calls={[toolCallItem(tool.name, tool)]} />;
+	const t = useLabels();
+	return <ChatToolCalls calls={[toolCallItem(t, tool.name, tool)]} />;
 }
 
 /**
@@ -447,6 +451,7 @@ const THOUGHT_MARKDOWN: Partial<MarkdownComponents> = {
 };
 
 function TraceList({ items, streaming }: { items: readonly TraceItem[]; streaming: boolean }) {
+	const t = useLabels();
 	const rows: ReactNode[] = [];
 	let tools: ChatToolCallItem[] = [];
 	const flush = () => {
@@ -456,7 +461,7 @@ function TraceList({ items, streaming }: { items: readonly TraceItem[]; streamin
 	};
 	for (const [i, item] of items.entries()) {
 		if (item.kind === 'tool') {
-			tools.push(toolCallItem(item.id, item.block.tool));
+			tools.push(toolCallItem(t, item.id, item.block.tool));
 			continue;
 		}
 		flush();

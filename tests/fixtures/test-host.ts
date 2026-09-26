@@ -1,5 +1,5 @@
-import { type ProfileDefinition, registerProfile } from '../../src/kernel/registry/profiles.ts';
-import { registerStructured } from '../../src/kernel/registry/schemas.ts';
+import { registerProfile, registerStructured } from '../../src/kernel/default-scope.ts';
+import type { ProfileDefinition } from '../../src/kernel/registry/profiles.ts';
 import { registerHarnessTools } from '../../src/kernel/tools/mod.ts';
 import type { GoogleImagePins } from '../../src/presets/google.ts';
 import { registerGooglePreset } from '../../src/presets/google.ts';

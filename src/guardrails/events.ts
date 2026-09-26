@@ -7,7 +7,7 @@
  * @module
  */
 
-import type { TurnEvent } from '../kernel/types.ts';
+import type { TurnEvent, TurnEventOf } from '../kernel/turn-events.ts';
 import { projectGuardrailEvent } from './hits.ts';
 import type {
   GuardrailAction,
@@ -20,7 +20,7 @@ import type {
 } from './types.ts';
 
 /** Wrap a GuardrailEvent as a turn stream event. */
-function guardrailTurnEvent(guardrail: GuardrailEvent): TurnEvent {
+function guardrailTurnEvent(guardrail: GuardrailEvent): TurnEventOf<'guardrail'> {
   return { type: 'guardrail', guardrail };
 }
 
@@ -33,7 +33,7 @@ function guardrailFromVerdict(
   trust: TrustLevel,
   verdict: Verdict,
   provenance?: Provenance,
-): TurnEvent | undefined {
+): TurnEventOf<'guardrail'> | undefined {
   if (verdict.action === 'allow') {
     return undefined;
   }
@@ -56,7 +56,7 @@ function guardrailFromHits(
   hits: GuardrailHit[],
   action: GuardrailAction = 'redact',
   provenance?: Provenance,
-): TurnEvent | undefined {
+): TurnEventOf<'guardrail'> | undefined {
   if (hits.length === 0) {
     return undefined;
   }
@@ -73,8 +73,13 @@ function guardrailFromHits(
  * Project a guardrail turn event for host/trace: strip `hit.match` unless opted in.
  * Non-guardrail events pass through unchanged.
  */
+function projectGuardrailTurnEvent(
+  event: TurnEventOf<'guardrail'>,
+  includeMatch: boolean,
+): TurnEventOf<'guardrail'>;
+function projectGuardrailTurnEvent(event: TurnEvent, includeMatch: boolean): TurnEvent;
 function projectGuardrailTurnEvent(event: TurnEvent, includeMatch: boolean): TurnEvent {
-  if (event.type !== 'guardrail' || !event.guardrail) {
+  if (event.type !== 'guardrail') {
     return event;
   }
   return {

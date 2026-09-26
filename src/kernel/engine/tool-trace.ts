@@ -23,6 +23,7 @@ import {
   guardrailAttributes,
   optional,
   recordException,
+  type SentToolCall,
   toolArgumentsText,
   tracePart,
 } from './turn-trace.ts';
@@ -35,7 +36,7 @@ interface ToolCallStart {
   name: string;
   callId: string;
   /** The call as the model or host sent it; see `toolArgumentsText`. */
-  call: Pick<NonNullable<TurnEvent['tool']>, 'arguments' | 'failure'>;
+  call: SentToolCall;
   /** Absent when the tool is not registered. */
   origin?: ToolOrigin;
   permission?: ToolPermission;
@@ -86,7 +87,7 @@ function toolSpanAttributes(start: ToolCallStart): TraceAttributes {
 
 /** A gate as `theorem.gate` event attributes. The auth `state` is a secret and never recorded. */
 function gateAttributes(gate: ToolGate): TraceAttributes {
-  const auth = gate.authChallenge;
+  const auth = gate.kind === 'auth' ? gate.authChallenge : undefined;
   return {
     kind: gate.kind,
     ...optional('permission', gate.permission),
@@ -126,8 +127,10 @@ function startToolTrace(
   return {
     span,
     observe: (event) => {
-      if (event.guardrail) span.event('theorem.guardrail', guardrailAttributes(event.guardrail));
-      if (event.tool?.phase === 'gate' && event.tool.gate) {
+      if (event.type === 'guardrail') {
+        span.event('theorem.guardrail', guardrailAttributes(event.guardrail));
+      }
+      if (event.type === 'tool' && event.tool.phase === 'gate') {
         span.event('theorem.gate', gateAttributes(event.tool.gate));
       }
     },

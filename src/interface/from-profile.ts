@@ -13,6 +13,7 @@ import { resolveGuardrailPolicy } from '../guardrails/policy.ts';
 import type { ProfileGuardrailsSpec } from '../guardrails/types.ts';
 import { projectProfileObject, requireModelProfile } from '../kernel/registry/resolve.ts';
 import { profileAllowsSteering } from '../kernel/stop.ts';
+import type { ToolRegistry } from '../kernel/tools/registry.ts';
 import { profileToolAllow, profileToolsSpec } from '../kernel/tools/resolve.ts';
 import type { LiveProfile, ModelProfile, Profile, ProjectedProfile } from '../kernel/types.ts';
 import { resolveObservabilityPolicy } from '../observability/resolve-policy.ts';
@@ -24,7 +25,6 @@ import type {
   LiveResolvedTools,
   ProfileGuardrailsView,
   ProfileInterface,
-  ProfileInterfaceSource,
   ProfileObservabilityView,
   ResolvedTools,
 } from './types.ts';
@@ -165,24 +165,24 @@ function enrich(projected: ProjectedProfile, profile?: ModelProfile): ProfileInt
   }
 }
 
-function interfaceFrom(source: ProfileInterfaceSource): ProfileInterface {
-  if ('handle' in source) {
-    return enrich(source);
-  }
+/**
+ * The interface for `input`, its tools resolved from `tools`: the registry of
+ * the scope that runs the profile.
+ */
+function interfaceFromProfile(input: LiveProfile, tools: ToolRegistry): LiveProfileInterface;
+function interfaceFromProfile(
+  input: Exclude<Profile, LiveProfile>,
+  tools: ToolRegistry,
+): ComposerProfileInterface;
+function interfaceFromProfile(input: Profile, tools: ToolRegistry): ProfileInterface;
+function interfaceFromProfile(input: Profile, tools: ToolRegistry): ProfileInterface {
   // Host profiles never run a model and have no composer surface.
-  const profile = requireModelProfile(source, 'interfaceFromProfile');
-  return enrich(projectProfileObject(profile), profile);
-}
-
-function interfaceFromProfile(profile: LiveProfile): LiveProfileInterface;
-function interfaceFromProfile(profile: Exclude<Profile, LiveProfile>): ComposerProfileInterface;
-function interfaceFromProfile(profile: Profile): ProfileInterface;
-function interfaceFromProfile(profile: Profile): ProfileInterface {
-  return interfaceFrom(profile);
+  const profile = requireModelProfile(input, 'interfaceFromProfile');
+  return enrich(projectProfileObject(tools, profile), profile);
 }
 
 function interfaceFromProjected(projected: ProjectedProfile): ProfileInterface {
-  return interfaceFrom(projected);
+  return enrich(projected);
 }
 
-export { interfaceFrom, interfaceFromProfile, interfaceFromProjected };
+export { interfaceFromProfile, interfaceFromProjected };

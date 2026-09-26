@@ -19,8 +19,9 @@
  * @module
  */
 
+import type { TurnEventOf } from '../kernel/turn-events.ts';
 import type { Profile, TurnEvent } from '../kernel/types.ts';
-import { eventHasCanary, isStreamedCanaryEvent } from './canary.ts';
+import { eventHasCanary, isStreamedCanaryEvent, type StreamedReplyEvent } from './canary.ts';
 import { CANARY_HIT, runEnforcer, WITHHELD_REASON } from './egress.ts';
 import { TheoremError } from './error.ts';
 import { guardrailFromHits, guardrailFromVerdict } from './events.ts';
@@ -44,7 +45,7 @@ import type {
  * until the reply before it has cleared.
  */
 export interface LiveHeldOutput {
-  event: TurnEvent;
+  event: StreamedReplyEvent | TurnEventOf<'media'>;
   start: number;
   end: number;
 }
@@ -143,17 +144,20 @@ function releaseHeld(
 ): void {
   const window = gate.accumulated();
   for (let item = session.held[0]; item !== undefined; item = session.held[0]) {
-    const from = Math.max(item.start, session.releasedTo);
-    const upTo = Math.min(item.end, to);
-    if (upTo > from) {
-      into.push({ ...item.event, text: window.slice(from, upTo) });
-      session.releasedTo = upTo;
+    const { event } = item;
+    if (event.type !== 'media') {
+      const from = Math.max(item.start, session.releasedTo);
+      const upTo = Math.min(item.end, to);
+      if (upTo > from) {
+        into.push({ ...event, text: window.slice(from, upTo) });
+        session.releasedTo = upTo;
+      }
     }
     if (item.end > to) {
       return;
     }
-    if (item.start === item.end) {
-      into.push(item.event);
+    if (event.type === 'media') {
+      into.push(event);
     }
     session.held.shift();
   }
@@ -201,7 +205,7 @@ async function flushHeld(
 function holdMedia(
   session: LiveOutboundGateSession,
   gate: ProgressiveYieldGate,
-  event: TurnEvent,
+  event: TurnEventOf<'media'>,
   into: TurnEvent[],
 ): void {
   const at = gate.accumulated().length;
@@ -214,7 +218,7 @@ function holdMedia(
 async function holdStreamChunk(
   session: LiveOutboundGateSession,
   gate: ProgressiveYieldGate,
-  event: TurnEvent,
+  event: StreamedReplyEvent,
   into: TurnEvent[],
 ): Promise<LiveOutboundBatchResult | undefined> {
   const text = event.text ?? '';

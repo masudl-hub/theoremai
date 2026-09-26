@@ -27,11 +27,12 @@
  * @module
  */
 
-import { getStructured } from '../../registry/schemas.ts';
+import type { ToolCallRequest } from '../../tools/types.ts';
 import type {
   InteractionPart,
+  ProviderEvent,
   ResolvedGeneration,
-  TurnEvent,
+  TurnEventOf,
   TurnHistoryMessage,
   TurnTokens,
 } from '../../types.ts';
@@ -41,6 +42,11 @@ import { loadTokenEstimator, type MediaTokenFamily, type TokenCount } from '../t
 type CallConversation =
   | { history: TurnHistoryMessage[]; input: InteractionPart[] }
   | { previous: CallUsage; continuation: TurnHistoryMessage[] };
+
+/** What a call wrote that the output estimate counts: text, thoughts, media, and its tool calls. */
+export type CallOutput =
+  | TurnEventOf<'text' | 'thought' | 'media'>
+  | { type: 'tool'; tool: ToolCallRequest };
 
 /** Usage observed across one model call. */
 interface CallUsage {
@@ -52,7 +58,7 @@ interface CallUsage {
   /** Last usage the provider reported for this call. */
   reported?: TurnTokens;
   /** Output events the estimate counts. */
-  output: TurnEvent[];
+  output: CallOutput[];
   failed: boolean;
 }
 
@@ -77,17 +83,20 @@ function startCallUsage(
  * Record one provider event. Returns true for a `tokens` event, which the
  * runner holds instead of streaming; `callTokensEvent` emits it at call end.
  */
-function observeCallEvent(usage: CallUsage, event: TurnEvent): boolean {
+function observeCallEvent(usage: CallUsage, event: ProviderEvent): boolean {
   switch (event.type) {
     case 'tokens':
-      if (event.tokens) usage.reported = event.tokens;
+      usage.reported = event.tokens;
       return true;
     case 'error':
       usage.failed = true;
       return false;
+    case 'tool':
+      // The model wrote its call; a provider's phase event about it (a malformed call's failure) it did not.
+      if (event.tool.phase === undefined) usage.output.push({ type: 'tool', tool: event.tool });
+      return false;
     case 'text':
     case 'thought':
-    case 'tool':
     case 'media':
       usage.output.push(event);
       return false;
@@ -104,9 +113,9 @@ function addCounts(a: TokenCount, b: TokenCount): TokenCount {
  * The output's streamed text as the model wrote it: consecutive chunks of one
  * kind joined, so the estimate does not depend on how the stream was split.
  */
-function textRuns(output: TurnEvent[], thoughts: boolean): string[] {
+function textRuns(output: CallOutput[], thoughts: boolean): string[] {
   const runs: string[] = [];
-  let kind: TurnEvent['type'] | undefined;
+  let kind: CallOutput['type'] | undefined;
   for (const event of output) {
     if (event.type === 'tool' || event.type === 'media') {
       kind = undefined;
@@ -129,10 +138,9 @@ async function countOutput(usage: CallUsage, thoughts: boolean): Promise<TokenCo
   for (const event of usage.output) {
     if (event.type === 'media') {
       count.unknownMedia += 1;
-    } else if (event.type === 'tool' && event.tool) {
+    } else if (event.type === 'tool') {
       count.tokens +=
-        estimator.text(event.tool.name) +
-        estimator.text(JSON.stringify(event.tool.arguments ?? {}));
+        estimator.text(event.tool.name) + estimator.text(JSON.stringify(event.tool.arguments));
     }
   }
   for (const run of textRuns(usage.output, thoughts)) {
@@ -179,7 +187,7 @@ async function countPrompt(
   const wire = generation.tools.wire;
   const tools = wire.length > 0 ? estimator.text(JSON.stringify(wire)) : 0;
   const schema = generation.structured
-    ? estimator.text(JSON.stringify(getStructured(generation.structured).jsonSchema))
+    ? estimator.text(JSON.stringify(generation.structured.jsonSchema))
     : 0;
   const conversation = await countConversation(usage, family);
   return {
@@ -193,7 +201,7 @@ async function callTokensEvent(
   usage: CallUsage,
   generation: ResolvedGeneration,
   family: MediaTokenFamily | undefined,
-): Promise<TurnEvent | undefined> {
+): Promise<TurnEventOf<'tokens'> | undefined> {
   const reported = usage.reported;
   if (!reported && usage.failed) return undefined;
   const estimated = reported ? (reported.estimated ?? []) : (['input', 'output'] as const);

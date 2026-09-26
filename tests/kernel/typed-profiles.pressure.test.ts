@@ -1,7 +1,12 @@
 import { assertEquals, assertThrows } from '@std/assert';
 import { TheoremError } from '../../src/guardrails/error.ts';
-import { defineProfile, getProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
-import { projectProfile, resolveTurn } from '../../src/kernel/registry/resolve.ts';
+import {
+  getProfile,
+  projectProfile,
+  registerProfile,
+  resolveTurn,
+} from '../../src/kernel/default-scope.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { type MediaTurnBehaviourSpec, profileAllowsInject } from '../../src/kernel/stop.ts';
 import { registerGooglePreset } from '../../src/presets/google.ts';
 import { createProvider } from '../../src/providers/create-provider.ts';

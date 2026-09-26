@@ -1,8 +1,8 @@
+import { isRecord } from '../util/record.ts';
+
+/** The value as a record when it is one (`isRecord`); otherwise undefined. */
 function asRecord(value: unknown): Record<string, unknown> | undefined {
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
-  }
-  return undefined;
+  return isRecord(value) ? value : undefined;
 }
 
 /** The string when it has non-whitespace content; otherwise undefined. */

@@ -27,15 +27,15 @@
 
 import type { LexiconOverrides } from '../src/guardrails/lexicon.ts';
 import type { OutboundPayload, Verdict } from '../src/guardrails/types.ts';
-import { runTurn } from '../src/kernel/engine/runner.ts';
+import { getProfile, registerProfile, runTurn } from '../src/kernel/default-scope.ts';
 import { loadTokenEstimator } from '../src/kernel/engine/token-estimate.ts';
-import {
-  defineProfile,
-  getProfile,
-  registerProfile,
-  type TextProfileDefinition,
-} from '../src/kernel/registry/profiles.ts';
-import type { ModelProvider, TurnEvent, TurnHistoryMessage } from '../src/kernel/types.ts';
+import { defineProfile, type TextProfileDefinition } from '../src/kernel/registry/profiles.ts';
+import type {
+  ModelProvider,
+  TurnEvent,
+  TurnEventOf,
+  TurnHistoryMessage,
+} from '../src/kernel/types.ts';
 import { createProvider } from '../src/providers/create-provider.ts';
 import { hostOpenRouterKey, hostVault, loadHostEnv, OPENROUTER_ENV } from './host-env.ts';
 
@@ -411,16 +411,15 @@ async function runCounting(
 /** Last authoritative `tokens.input` event (not a max across flaky intermediate reports). */
 function lastInputTokens(events: TurnEvent[]): number | undefined {
   for (let i = events.length - 1; i >= 0; i--) {
-    const t = events[i]?.tokens?.input;
+    const event = events[i];
+    const t = event?.type === 'tokens' ? event.tokens.input : undefined;
     if (typeof t === 'number' && t > 0) return t;
   }
   return undefined;
 }
 
 function dumpTokenEvents(events: TurnEvent[]): string {
-  const rows = events
-    .filter((e) => e.type === 'tokens' && e.tokens)
-    .map((e) => JSON.stringify(e.tokens));
+  const rows = events.flatMap((e) => (e.type === 'tokens' ? [JSON.stringify(e.tokens)] : []));
   return rows.length ? rows.join(' | ') : '<none>';
 }
 
@@ -432,8 +431,8 @@ function hasErrorEvent(events: TurnEvent[]): boolean {
   return events.some((e) => e.type === 'error');
 }
 
-function doneOf(events: TurnEvent[]): TurnEvent | undefined {
-  return events.find((e) => e.type === 'done');
+function doneOf(events: TurnEvent[]): TurnEventOf<'done'> | undefined {
+  return events.find((e): e is TurnEventOf<'done'> => e.type === 'done');
 }
 
 // ---------------------------------------------------------------------------

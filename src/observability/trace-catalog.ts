@@ -712,7 +712,7 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
     'response',
     'Time to first chunk',
     'seconds',
-    'From the start of the successful HTTP try to its first chunk.',
+    'From the start of the successful HTTP try, or of a Live response, to its first chunk; a buffered body is its one chunk.',
   ),
 
   // messages

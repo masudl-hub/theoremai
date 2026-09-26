@@ -2,6 +2,7 @@ import '../fixtures/test-host.ts';
 import { assertThrows } from '@std/assert';
 import { encode } from 'gpt-tokenizer/encoding/o200k_base';
 import { sanitizeTurnRequest } from '../../src/guardrails/sanitize.ts';
+import { getProfile, registerProfile, runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import {
   compactionMeter,
@@ -12,7 +13,6 @@ import {
   splitForCompaction,
 } from '../../src/kernel/engine/compaction.ts';
 import { compactionTranscriptLine } from '../../src/kernel/engine/runner/mod.ts';
-import { runTurn } from '../../src/kernel/engine/runner.ts';
 import {
   compactionMeter as publicCompactionMeter,
   compactionNeeded as publicCompactionNeeded,
@@ -20,7 +20,7 @@ import {
   resolveHistoryTokens as publicResolveHistoryTokens,
   splitForCompaction as publicSplitForCompaction,
 } from '../../src/kernel/mod.ts';
-import { defineProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type {
   CompactionSpec,
   ModelBinding,
@@ -32,6 +32,7 @@ import type {
 import { bytesToBase64 } from '../../src/kernel/util/base64.ts';
 import { contentOf, type TraceRecord } from '../../src/observability/trace-record.ts';
 import type { TraceAttributes } from '../../src/observability/trace-span.ts';
+import { eventsOf, firstOf } from '../fixtures/events.ts';
 import { pngBytes } from '../fixtures/media-bytes.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
@@ -434,7 +435,7 @@ function tokenProvider(inputTokens: number): ModelProvider {
           type: 'tokens' as const,
           tokens: { input: inputTokens, output: 50, total: inputTokens + 50 },
         };
-        yield { type: 'done' as const };
+        yield { type: 'done' as const, stop: { kind: 'completed' } };
       })(),
   };
 }
@@ -475,12 +476,12 @@ Deno.test('timing before compacts history before the turn', async () => {
         if (isCompactionCall) {
           compactionTurnFired = true;
           yield { type: 'text' as const, text: 'Summary of old conversation' };
-          yield { type: 'done' as const };
+          yield { type: 'done' as const, stop: { kind: 'completed' } };
           return;
         }
         yield { type: 'text' as const, text: 'response' };
         yield { type: 'tokens' as const, tokens: { input: 200, output: 50, total: 250 } };
-        yield { type: 'done' as const };
+        yield { type: 'done' as const, stop: { kind: 'completed' } };
       })();
     },
   };
@@ -502,7 +503,7 @@ Deno.test('timing before compacts history before the turn', async () => {
   );
 
   assertEquals(compactionTurnFired, true);
-  const textEvents = events.filter((e) => e.type === 'text');
+  const textEvents = eventsOf(events, 'text');
   assertEquals(textEvents.length, 1);
   assertEquals(textEvents[0].text, 'response');
 });
@@ -519,12 +520,12 @@ Deno.test('timing before estimates large history and does not require historyTok
         compactionTurnFired = true;
         return (async function* () {
           yield { type: 'text' as const, text: 'Summary' };
-          yield { type: 'done' as const };
+          yield { type: 'done' as const, stop: { kind: 'completed' } };
         })();
       }
       return (async function* () {
         yield { type: 'text' as const, text: 'response' };
-        yield { type: 'done' as const };
+        yield { type: 'done' as const, stop: { kind: 'completed' } };
       })();
     },
   };
@@ -556,7 +557,7 @@ Deno.test('timing before ignores inputTokens and large provider tokens', async (
       return (async function* () {
         yield { type: 'text' as const, text: 'response' };
         yield { type: 'tokens' as const, tokens: { input: 50_000, output: 50, total: 50_050 } };
-        yield { type: 'done' as const };
+        yield { type: 'done' as const, stop: { kind: 'completed' } };
       })();
     },
   };
@@ -572,8 +573,8 @@ Deno.test('timing before ignores inputTokens and large provider tokens', async (
   );
 
   assertEquals(callCount, 1);
-  assertEquals(events.filter((e) => e.type === 'text')[0].text, 'response');
-  assertEquals(events.find((e) => e.type === 'tokens')?.tokens?.input, 50_000);
+  assertEquals(eventsOf(events, 'text')[0].text, 'response');
+  assertEquals(firstOf(events, 'tokens')?.tokens?.input, 50_000);
 });
 
 // --- Runner integration: timing 'after' ---
@@ -590,8 +591,8 @@ Deno.test('timing after emits compaction signal from host historyTokens', async 
     tokenProvider(50_000),
   );
 
-  const doneEvent = events.find((e) => e.type === 'done');
-  const tokensEvent = events.find((e) => e.type === 'tokens');
+  const doneEvent = firstOf(events, 'done');
+  const tokensEvent = firstOf(events, 'tokens');
   assertEquals(doneEvent?.compaction?.needed, true);
   assertEquals(doneEvent?.compaction?.meter, 'history');
   assertEquals(doneEvent?.compaction?.tokens, 800);
@@ -607,8 +608,8 @@ Deno.test('timing after does not fire from large full-prompt token events', asyn
     tokenProvider(50_000),
   );
 
-  const doneEvent = events.find((e) => e.type === 'done');
-  const tokensEvent = events.find((e) => e.type === 'tokens');
+  const doneEvent = firstOf(events, 'done');
+  const tokensEvent = firstOf(events, 'tokens');
   assertEquals(doneEvent?.compaction, undefined);
   assertEquals(tokensEvent?.tokens?.input, 50_000);
 });
@@ -625,7 +626,7 @@ Deno.test('timing after does not fire when host historyTokens is under threshold
     tokenProvider(50_000),
   );
 
-  assertEquals(events.find((e) => e.type === 'done')?.compaction, undefined);
+  assertEquals(firstOf(events, 'done')?.compaction, undefined);
 });
 
 Deno.test('timing after does not fire for empty history', async () => {
@@ -636,14 +637,14 @@ Deno.test('timing after does not fire for empty history', async () => {
     tokenProvider(50_000),
   );
 
-  assertEquals(events.find((e) => e.type === 'done')?.compaction, undefined);
+  assertEquals(firstOf(events, 'done')?.compaction, undefined);
 });
 
 Deno.test('timing after does not fire for missing history', async () => {
   const speaker = registerCompactionPair('compaction.after.missing', AFTER_SPEC);
   const events = await collectEvents(speaker, { text: 'question' }, tokenProvider(50_000));
 
-  assertEquals(events.find((e) => e.type === 'done')?.compaction, undefined);
+  assertEquals(firstOf(events, 'done')?.compaction, undefined);
 });
 
 Deno.test('timing after fires from history estimate without historyTokens', async () => {
@@ -655,7 +656,7 @@ Deno.test('timing after fires from history estimate without historyTokens', asyn
     tokenProvider(50_000),
   );
 
-  const doneEvent = events.find((e) => e.type === 'done');
+  const doneEvent = firstOf(events, 'done');
   assertEquals(doneEvent?.compaction?.needed, true);
   assertEquals(
     doneEvent?.compaction?.tokens,
@@ -691,7 +692,7 @@ Deno.test('a compaction that ran records its decision, what it replaced, and the
       const text = calls === 1 ? 'Summary of old conversation' : 'response';
       return (async function* () {
         yield { type: 'text' as const, text };
-        yield { type: 'done' as const };
+        yield { type: 'done' as const, stop: { kind: 'completed' } };
       })();
     },
   };
@@ -856,15 +857,18 @@ Deno.test('public barrel re-exports compaction helpers', () => {
 
 Deno.test('sanitizeTurnRequest preserves historyTokens and inputTokens', () => {
   const speaker = registerCompactionPair('compaction.sanitize.tokens', ORCHID_SPEC);
-  const safe = sanitizeTurnRequest({
-    profile: speaker,
-    input: {
-      text: 'hi',
-      historyTokens: 1501,
-      inputTokens: 99_999,
-      history: SMALL_HISTORY,
+  const safe = sanitizeTurnRequest(
+    {
+      profile: speaker,
+      input: {
+        text: 'hi',
+        historyTokens: 1501,
+        inputTokens: 99_999,
+        history: SMALL_HISTORY,
+      },
     },
-  });
+    getProfile(speaker),
+  );
   assertEquals(safe.input.historyTokens, 1501);
   assertEquals(safe.input.inputTokens, 99_999);
 });
@@ -889,8 +893,8 @@ Deno.test('orchid after: history images count by the model rule, not payload siz
     { text: 'q', history: twoImages },
     tokenProvider(12),
   );
-  assertEquals(oneEvents.find((e) => e.type === 'done')?.compaction, undefined);
-  const signal = twoEvents.find((e) => e.type === 'done')?.compaction;
+  assertEquals(firstOf(oneEvents, 'done')?.compaction, undefined);
+  const signal = firstOf(twoEvents, 'done')?.compaction;
   assertEquals(signal?.needed, true);
   assertEquals(signal?.tokens, (await resolveHistoryTokens({ history: twoImages }, FAMILY)).tokens);
   assertEquals(signal?.tokens !== undefined && signal.tokens > 2 * HD_IMAGE_TOKENS, true);
@@ -904,8 +908,8 @@ Deno.test('orchid after: API prompt tokens over 1500 with short history do not f
     { text: 'question', inputTokens: 50_000, history: SMALL_HISTORY },
     tokenProvider(50_000),
   );
-  assertEquals(events.find((e) => e.type === 'done')?.compaction, undefined);
-  assertEquals(events.find((e) => e.type === 'tokens')?.tokens?.input, 50_000);
+  assertEquals(firstOf(events, 'done')?.compaction, undefined);
+  assertEquals(firstOf(events, 'tokens')?.tokens?.input, 50_000);
 });
 
 Deno.test('orchid after: historyTokens 1501 fires; 1500 does not', async () => {
@@ -921,10 +925,10 @@ Deno.test('orchid after: historyTokens 1501 fires; 1500 does not', async () => {
     { text: 'q', historyTokens: 1500, history: SMALL_HISTORY },
     tokenProvider(12),
   );
-  assertEquals(overEvents.find((e) => e.type === 'done')?.compaction?.needed, true);
-  assertEquals(overEvents.find((e) => e.type === 'done')?.compaction?.tokens, 1501);
-  assertEquals(overEvents.find((e) => e.type === 'done')?.compaction?.promptTokens, 12);
-  assertEquals(exactEvents.find((e) => e.type === 'done')?.compaction, undefined);
+  assertEquals(firstOf(overEvents, 'done')?.compaction?.needed, true);
+  assertEquals(firstOf(overEvents, 'done')?.compaction?.tokens, 1501);
+  assertEquals(firstOf(overEvents, 'done')?.compaction?.promptTokens, 12);
+  assertEquals(firstOf(exactEvents, 'done')?.compaction, undefined);
 });
 
 Deno.test('orchid after: huge current-turn text is not in the history meter', async () => {
@@ -938,7 +942,7 @@ Deno.test('orchid after: huge current-turn text is not in the history meter', as
     },
     tokenProvider(20_000),
   );
-  assertEquals(events.find((e) => e.type === 'done')?.compaction, undefined);
+  assertEquals(firstOf(events, 'done')?.compaction, undefined);
 });
 
 Deno.test('orchid after: historyTokens 0 blocks fire despite huge history', async () => {
@@ -952,7 +956,7 @@ Deno.test('orchid after: historyTokens 0 blocks fire despite huge history', asyn
     },
     tokenProvider(50_000),
   );
-  assertEquals(events.find((e) => e.type === 'done')?.compaction, undefined);
+  assertEquals(firstOf(events, 'done')?.compaction, undefined);
 });
 
 Deno.test('orchid after: inputTokens under threshold does not hide a large history estimate', async () => {
@@ -963,7 +967,7 @@ Deno.test('orchid after: inputTokens under threshold does not hide a large histo
     { text: 'q', inputTokens: 1, history: longHistory },
     tokenProvider(1),
   );
-  const done = events.find((e) => e.type === 'done');
+  const done = firstOf(events, 'done');
   assertEquals(done?.compaction?.needed, true);
   assertEquals(
     done?.compaction?.tokens,
@@ -1012,15 +1016,15 @@ Deno.test('orchid after: fallback prompt tokens from a long system prompt do not
       complete: () =>
         (async function* () {
           yield { type: 'text' as const, text: 'response' };
-          yield { type: 'done' as const };
+          yield { type: 'done' as const, stop: { kind: 'completed' } };
         })(),
     },
   )) {
     events.push(ev);
   }
 
-  const tokensEvent = events.find((e) => e.type === 'tokens');
-  const doneEvent = events.find((e) => e.type === 'done');
+  const tokensEvent = firstOf(events, 'tokens');
+  const doneEvent = firstOf(events, 'done');
   const fallbackInput = tokensEvent?.tokens?.input ?? 0;
   assertEquals(fallbackInput > ORCHID_THRESHOLD, true);
   assertEquals(doneEvent?.compaction, undefined);
@@ -1035,7 +1039,7 @@ Deno.test('orchid after: signal history is request history, not this turn output
     { text: 'new question', historyTokens: 1501, history },
     tokenProvider(9),
   );
-  const signal = events.find((e) => e.type === 'done')?.compaction;
+  const signal = firstOf(events, 'done')?.compaction;
   assertEquals(signal?.needed, true);
   assertEquals(signal?.history, history);
   assertEquals(
@@ -1060,7 +1064,7 @@ Deno.test('timing after omits promptTokens when provider reports input 0', async
     { text: 'q', historyTokens: 800, history: SMALL_HISTORY },
     tokenProvider(0),
   );
-  const signal = events.find((e) => e.type === 'done')?.compaction;
+  const signal = firstOf(events, 'done')?.compaction;
   assertEquals(signal?.needed, true);
   assertEquals(signal?.tokens, 800);
   assertEquals(signal?.promptTokens, undefined);
@@ -1074,7 +1078,7 @@ Deno.test('timing before: historyTokens 0 skips nested compact on large history'
       callCount++;
       return (async function* () {
         yield { type: 'text' as const, text: 'response' };
-        yield { type: 'done' as const };
+        yield { type: 'done' as const, stop: { kind: 'completed' } };
       })();
     },
   };
@@ -1165,7 +1169,7 @@ Deno.test('nested compacting turn does not recurse even if compacting profile ha
       profiles.push(req.model);
       return (async function* () {
         yield { type: 'text' as const, text: 'ok' };
-        yield { type: 'done' as const };
+        yield { type: 'done' as const, stop: { kind: 'completed' } };
       })();
     },
   };
@@ -1193,7 +1197,7 @@ Deno.test('nested compacting turn does not recurse even if compacting profile ha
 
   assertEquals(profiles.length, 2);
   assertEquals(
-    events.filter((e) => e.type === 'text').map((e) => e.text),
+    eventsOf(events, 'text').map((e) => e.text),
     ['ok'],
   );
 });
@@ -1319,7 +1323,7 @@ Deno.test('meter input after fires from provider tokens.input', async () => {
     { text: 'q', history: SMALL_HISTORY },
     tokenProvider(800),
   );
-  const done = events.find((e) => e.type === 'done');
+  const done = firstOf(events, 'done');
   assertEquals(done?.compaction?.needed, true);
   assertEquals(done?.compaction?.meter, 'input');
   assertEquals(done?.compaction?.tokens, 800);
@@ -1334,12 +1338,12 @@ Deno.test('meter input after fires from the estimate when the provider reports n
     complete: () =>
       (async function* () {
         yield { type: 'text' as const, text: 'response' };
-        yield { type: 'done' as const };
+        yield { type: 'done' as const, stop: { kind: 'completed' } };
       })(),
   };
   const events = await collectEvents(speaker, { text: 'q', history }, provider);
-  const tokens = events.find((e) => e.type === 'tokens')?.tokens;
-  const signal = events.find((e) => e.type === 'done')?.compaction;
+  const tokens = firstOf(events, 'tokens')?.tokens;
+  const signal = firstOf(events, 'done')?.compaction;
   assertEquals(tokens?.estimated, ['input', 'output']);
   assertEquals(signal?.needed, true);
   assertEquals(signal?.tokens, tokens?.input);
@@ -1355,7 +1359,7 @@ Deno.test('meter input after does not fire when provider tokens are under thresh
     { text: 'q', history: SMALL_HISTORY, historyTokens: 50_000 },
     tokenProvider(100),
   );
-  assertEquals(events.find((e) => e.type === 'done')?.compaction, undefined);
+  assertEquals(firstOf(events, 'done')?.compaction, undefined);
 });
 
 Deno.test('meter input before compacts when host inputTokens exceed threshold', async () => {
@@ -1369,12 +1373,12 @@ Deno.test('meter input before compacts when host inputTokens exceed threshold', 
         compactionTurnFired = true;
         return (async function* () {
           yield { type: 'text' as const, text: 'Summary' };
-          yield { type: 'done' as const };
+          yield { type: 'done' as const, stop: { kind: 'completed' } };
         })();
       }
       return (async function* () {
         yield { type: 'text' as const, text: 'response' };
-        yield { type: 'done' as const };
+        yield { type: 'done' as const, stop: { kind: 'completed' } };
       })();
     },
   };
@@ -1404,7 +1408,7 @@ Deno.test('meter input before does not compact without inputTokens even if histo
       callCount++;
       return (async function* () {
         yield { type: 'text' as const, text: 'response' };
-        yield { type: 'done' as const };
+        yield { type: 'done' as const, stop: { kind: 'completed' } };
       })();
     },
   };

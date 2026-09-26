@@ -23,6 +23,7 @@ import type { NetworkGuardrailSpec } from '../../guardrails/types.ts';
 import { refreshOAuthToken, tokenAudienceCovers } from '../auth/oauth.ts';
 import type { OAuth2Credential, OAuthTransportOptions, ToolCredential } from '../auth/types.ts';
 import { mapStrings } from '../engine/tree.ts';
+import type { AuthUnauthenticatedPolicy } from '../schema.ts';
 import type { TurnEvent } from '../types.ts';
 import {
   guardToolTarget,
@@ -92,11 +93,10 @@ function unauthenticatedResult(
   toolName: string,
   authConfig: HttpToolAuthConfig,
   message: string,
-  policy: string,
+  policy: AuthUnauthenticatedPolicy,
   extras?: { issuer?: string; resource?: string },
 ): AuthResolveResult & { gate?: ToolGate } {
-  if (policy === 'pause') {
-    // Policy name remains `pause` in schema; wire is honest `gate`.
+  if (policy === 'gate') {
     // Do not emit gate here — caller uses emitGateSettlement (pre_tool + gate).
     const gate = buildAuthGate(toolName, authConfig, message, extras);
     return { headers: {}, unauthenticated: true, gate };
@@ -164,7 +164,7 @@ async function* resolveOAuth2Credential(
   credential: OAuth2Credential,
   ctx: ToolContext,
   base: ToolCallBase,
-  policy: string,
+  policy: AuthUnauthenticatedPolicy,
 ): AsyncGenerator<TurnEvent, AuthResolveResult> {
   const slot = authConfig.slot;
   const bound = { issuer: credential.issuer, resource: credential.resource };
@@ -236,7 +236,7 @@ export async function* resolveToolAuth(
   }
 
   const credential = ctx.credentials?.[authConfig.slot];
-  const policy = authConfig.onUnauthenticated ?? 'pause';
+  const policy = authConfig.onUnauthenticated ?? 'gate';
 
   if (!credential) {
     const message = `Authentication required for '${toolName}' (auth slot: '${authConfig.slot}').`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -980,7 +980,7 @@ async function* sendMcpRequest(
           resolveHost: ctx.resolveHost,
           signal: ctx.signal,
         },
-        base.callId ?? Date.now(),
+        base.callId,
         tool.mcpToolName,
         input,
       ),

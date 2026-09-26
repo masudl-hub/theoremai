@@ -16,6 +16,7 @@ import {
   type TheoremCredentials,
 } from '../../react/src/server/mod.ts';
 import type { OAuth2Credential } from '../../src/kernel/auth/types.ts';
+import { eventsOf, toolEventsOf, toolPhases } from '../fixtures/events.ts';
 
 const SYSTEM = 'secret persona instructions';
 
@@ -39,7 +40,7 @@ function textProvider(text: string, seen?: { system?: string }[]): ModelProvider
       (async function* () {
         seen?.push({ system: req.system });
         yield { type: 'text' as const, text };
-        yield { type: 'done' as const };
+        yield { type: 'done' as const, stop: { kind: 'completed' } };
       })(),
   };
 }
@@ -179,7 +180,7 @@ Deno.test("steer reaches only this session's running turn, and only while it run
           }
           await gate;
           yield { type: 'text' as const, text: 'ok' };
-          yield { type: 'done' as const };
+          yield { type: 'done' as const, stop: { kind: 'completed' } };
         })(),
     }),
   });
@@ -193,22 +194,30 @@ Deno.test("steer reaches only this session's running turn, and only while it run
     () =>
       transportFor(handler).steer({
         turnId: 'turn-1',
+        id: 'steer-hijack',
         inject: [{ role: 'user', content: 'hijack' }],
       }),
     'session.turn_ended',
   );
   await transport.steer({
     turnId: 'turn-1',
+    id: 'steer-1',
     inject: [{ role: 'user', content: 'steered' }],
   });
   release();
-  await turn;
+  const events = await turn;
   assertEquals(injected.includes('steered'), true);
   assertEquals(injected.includes('hijack'), false);
+  // The turn names the steer it took in, so the client does not send it again.
+  assertEquals(
+    eventsOf(events, 'stage').flatMap((event) => event.injected ?? []),
+    [{ id: 'steer-1' }],
+  );
   await assertRefused(
     () =>
       transport.steer({
         turnId: 'turn-1',
+        id: 'steer-late',
         inject: [{ role: 'user', content: 'late' }],
       }),
     'session.turn_ended',
@@ -233,6 +242,14 @@ Deno.test('bad requests get 4xx JSON errors', async () => {
     }),
   );
   assertEquals(notJson.status, 400);
+  const steerWithoutId = await handler(
+    new Request(`${BASE}/steer`, {
+      method: 'POST',
+      headers: json,
+      body: JSON.stringify({ turnId: 't', inject: [{ role: 'user', content: 'x' }] }),
+    }),
+  );
+  assertEquals(steerWithoutId.status, 400);
   const formPost = await handler(
     new Request(`${BASE}/turn`, {
       method: 'POST',
@@ -311,26 +328,22 @@ function toolCallingProvider(tool: string, id: string): ModelProvider {
       (async function* () {
         if (req.history?.at(-1)?.role === 'tool') {
           yield { type: 'text' as const, text: 'done' };
+          yield { type: 'done' as const, stop: { kind: 'completed' } };
         } else {
           yield {
             type: 'tool' as const,
-            tool: { name: tool, arguments: { id }, id: 'call-1' },
+            tool: { name: tool, arguments: { id }, callId: 'call-1' },
           };
+          yield { type: 'done' as const, stop: { kind: 'tool' } };
         }
-        yield { type: 'done' as const };
       })(),
   };
 }
 
-function gateOf(events: TurnEvent[]): { callId: string; name: string } {
-  const gate = events.findLast((e) => e.type === 'tool' && e.tool?.phase === 'gate');
-  const callId = gate?.tool?.callId ?? gate?.tool?.id;
-  if (!gate?.tool || !callId) throw new Error('expected the turn to pause on a gate');
-  return { callId, name: gate.tool.name };
-}
-
-function toolPhase(events: TurnEvent[], name: string): string | undefined {
-  return events.findLast((e) => e.type === 'tool' && e.tool?.name === name)?.tool?.phase;
+function pausedGate(events: TurnEvent[]): { callId: string; name: string } {
+  const gate = toolEventsOf(events, 'gate').at(-1);
+  if (!gate) throw new Error('expected the turn to pause on a gate');
+  return { callId: gate.callId, name: gate.name };
 }
 
 function post(handler: Handler, path: string, body: unknown, cookie?: string) {
@@ -359,7 +372,7 @@ Deno.test('client-sent permissions are ignored: gated tools still pause', async 
     .trim()
     .split('\n')
     .map((line) => JSON.parse(line) as TurnEvent);
-  assertEquals(toolPhase(events, 'handler_share'), 'gate');
+  assertEquals(toolPhases(events, 'handler_share').at(-1), 'gate');
 });
 
 Deno.test('invoke only runs a call the server paused, with the model input', async () => {
@@ -391,7 +404,7 @@ Deno.test('invoke only runs a call the server paused, with the model input', asy
   assertEquals(ran, []);
 
   const turn = await collect((onEvent) => transport.turn({ input: { text: 'delete' } }, onEvent));
-  const gate = gateOf(turn);
+  const gate = pausedGate(turn);
   assertEquals(gate.name, 'handler_delete');
   assertEquals(ran, []);
 
@@ -404,7 +417,7 @@ Deno.test('invoke only runs a call the server paused, with the model input', asy
       onEvent,
     ),
   );
-  assertEquals(toolPhase(approved, 'handler_delete'), 'complete');
+  assertEquals(toolPhases(approved, 'handler_delete').at(-1), 'complete');
   assertEquals(ran, ['model-chosen']);
 
   // Each approval runs the call once.
@@ -423,7 +436,9 @@ Deno.test("another session can't approve this session's paused call", async () =
   });
   const victim = transportFor(handler);
   const attacker = transportFor(handler);
-  const gate = gateOf(await collect((onEvent) => victim.turn({ input: { text: 'x' } }, onEvent)));
+  const gate = pausedGate(
+    await collect((onEvent) => victim.turn({ input: { text: 'x' } }, onEvent)),
+  );
   await assertRefused(
     () => collect((onEvent) => attacker.invoke({ gateId: gate.callId }, onEvent)),
     'session.gate_expired',
@@ -442,7 +457,7 @@ Deno.test("an answer after the host's gateTtlMs is refused and the call never ru
     gateTtlMs: 1,
   });
   const transport = transportFor(handler);
-  const gate = gateOf(
+  const gate = pausedGate(
     await collect((onEvent) => transport.turn({ input: { text: 'x' } }, onEvent)),
   );
   await new Promise((resolve) => setTimeout(resolve, 10));
@@ -468,15 +483,15 @@ Deno.test('approving a session_consent tool is remembered by the server, not the
   });
   const transport = transportFor(handler);
   const first = await collect((onEvent) => transport.turn({ input: { text: 'a' } }, onEvent));
-  const gate = gateOf(first);
+  const gate = pausedGate(first);
   await collect((onEvent) => transport.invoke({ gateId: gate.callId }, onEvent));
   const second = await collect((onEvent) => transport.turn({ input: { text: 'b' } }, onEvent));
-  assertEquals(toolPhase(second, 'handler_share'), 'complete');
+  assertEquals(toolPhases(second, 'handler_share').at(-1), 'complete');
 
   // A fresh session starts with nothing granted.
   const other = transportFor(handler);
   const fresh = await collect((onEvent) => other.turn({ input: { text: 'c' } }, onEvent));
-  assertEquals(toolPhase(fresh, 'handler_share'), 'gate');
+  assertEquals(toolPhases(fresh, 'handler_share').at(-1), 'gate');
 });
 
 Deno.test('approving an always_confirm tool covers that call only', async () => {
@@ -486,9 +501,9 @@ Deno.test('approving an always_confirm tool covers that call only', async () => 
   });
   const transport = transportFor(handler);
   const first = await collect((onEvent) => transport.turn({ input: { text: 'a' } }, onEvent));
-  await collect((onEvent) => transport.invoke({ gateId: gateOf(first).callId }, onEvent));
+  await collect((onEvent) => transport.invoke({ gateId: pausedGate(first).callId }, onEvent));
   const second = await collect((onEvent) => transport.turn({ input: { text: 'b' } }, onEvent));
-  assertEquals(toolPhase(second, 'handler_delete'), 'gate');
+  assertEquals(toolPhases(second, 'handler_delete').at(-1), 'gate');
 });
 
 Deno.test('system-role messages from the client never reach the model', async () => {
@@ -502,7 +517,7 @@ Deno.test('system-role messages from the client never reach the model', async ()
             seen.push(`${message.role}:${message.content}`);
           }
           yield { type: 'text' as const, text: 'ok' };
-          yield { type: 'done' as const };
+          yield { type: 'done' as const, stop: { kind: 'completed' } };
         })(),
     }),
   });
@@ -551,7 +566,7 @@ registerTool({
   permission: 'auto',
   endpoint: 'https://api.tracker.example/items',
   method: 'GET',
-  auth: { slot: 'tracker', type: 'bearer', onUnauthenticated: 'pause' },
+  auth: { slot: 'tracker', type: 'bearer', onUnauthenticated: 'gate' },
   input: z.object({ id: z.string() }),
   output: z.object({ ok: z.boolean() }),
 });
@@ -566,7 +581,7 @@ registerTool({
   permission: 'auto',
   endpoint: 'https://api.tracker.example/items',
   method: 'GET',
-  auth: { slot: 'oauth_tracker', type: 'oauth2', onUnauthenticated: 'pause' },
+  auth: { slot: 'oauth_tracker', type: 'oauth2', onUnauthenticated: 'gate' },
   input: z.object({ id: z.string() }),
   output: z.object({ ok: z.boolean() }),
 });
@@ -627,13 +642,13 @@ Deno.test('a key typed at a sign-in gate is saved on the server and never sent b
   const transport = transportFor(handler);
   await withToolServer(async (sent) => {
     const turn = await collect((onEvent) => transport.turn({ input: { text: 'read' } }, onEvent));
-    const gate = gateOf(turn);
+    const gate = pausedGate(turn);
     assertEquals(sent, []);
 
     const resumed = await collect((onEvent) =>
       transport.invoke({ gateId: gate.callId, secret: 'typed-key-123' }, onEvent),
     );
-    assertEquals(toolPhase(resumed, 'handler_tracker'), 'complete');
+    assertEquals(toolPhases(resumed, 'handler_tracker').at(-1), 'complete');
     assertEquals(sent, ['Bearer typed-key-123']);
     assertEquals(JSON.stringify(resumed).includes('typed-key-123'), false);
     assertEquals(
@@ -643,7 +658,7 @@ Deno.test('a key typed at a sign-in gate is saved on the server and never sent b
 
     // The next turn reads the key from the server; the browser sends nothing.
     const next = await collect((onEvent) => transport.turn({ input: { text: 'again' } }, onEvent));
-    assertEquals(toolPhase(next, 'handler_tracker'), 'complete');
+    assertEquals(toolPhases(next, 'handler_tracker').at(-1), 'complete');
     assertEquals(sent, ['Bearer typed-key-123', 'Bearer typed-key-123']);
     assertEquals(JSON.stringify(next).includes('typed-key-123'), false);
   });
@@ -658,7 +673,7 @@ Deno.test('a typed key answers only a sign-in gate, and a refused one leaves the
     credentialStore: store,
   });
   const transport = transportFor(handler);
-  const gate = gateOf(
+  const gate = pausedGate(
     await collect((onEvent) => transport.turn({ input: { text: 'x' } }, onEvent)),
   );
   await assertRefused(
@@ -686,12 +701,12 @@ Deno.test('an OAuth gate carries the host sign-in URL and resumes on the token i
   const transport = transportFor(handler);
   await withToolServer(async (sent) => {
     const turn = await collect((onEvent) => transport.turn({ input: { text: 'read' } }, onEvent));
-    const gateEvent = turn.findLast((e) => e.type === 'tool' && e.tool?.phase === 'gate');
+    const authGate = toolEventsOf(turn, 'gate').at(-1)?.gate;
     assertEquals(
-      gateEvent?.tool?.gate?.authChallenge?.authorizationUrl,
+      authGate?.kind === 'auth' ? authGate.authChallenge.authorizationUrl : undefined,
       'https://auth.tracker.example/authorize?slot=oauth_tracker',
     );
-    const gate = gateOf(turn);
+    const gate = pausedGate(turn);
 
     // An OAuth gate takes no typed secret; the gate stays pending.
     await assertRefused(
@@ -706,7 +721,7 @@ Deno.test('an OAuth gate carries the host sign-in URL and resumes on the token i
     await store.save(sessionId, { oauth_tracker: oauthCredential() });
 
     const resumed = await collect((onEvent) => transport.invoke({ gateId: gate.callId }, onEvent));
-    assertEquals(toolPhase(resumed, 'handler_oauth_tracker'), 'complete');
+    assertEquals(toolPhases(resumed, 'handler_oauth_tracker').at(-1), 'complete');
     assertEquals(sent, ['Bearer oauth-access-token']);
     assertEquals(JSON.stringify(resumed).includes('oauth-access-token'), false);
   });
@@ -732,7 +747,7 @@ Deno.test('a refreshed OAuth token is saved to the store as the turn reports it'
       const events = await collect((onEvent) =>
         transportFor(handler).turn({ input: { text: 'read' } }, onEvent),
       );
-      assertEquals(toolPhase(events, 'handler_oauth_tracker'), 'complete');
+      assertEquals(toolPhases(events, 'handler_oauth_tracker').at(-1), 'complete');
       assertEquals(sent, ['Bearer fresh-access-token']);
       const saved = store.saved.get('user-1')?.oauth_tracker;
       assertEquals(saved?.type === 'oauth2' ? saved.accessToken : undefined, 'fresh-access-token');

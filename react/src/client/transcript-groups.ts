@@ -84,7 +84,7 @@ export function workStatus(args: {
 function isGatedTool(
 	block: TranscriptBlock,
 ): block is Extract<TranscriptBlock, { kind: 'tool' }> {
-	return block.kind === 'tool' && block.tool.phase === 'gate' && Boolean(block.tool.gate);
+	return block.kind === 'tool' && block.tool.state?.phase === 'gate';
 }
 
 function lastToolIndexOf(blocks: readonly TranscriptBlock[]): number {
@@ -139,15 +139,17 @@ function classifyNonGateBlock(
  *
  * - `thought` → always reasoning in the trace
  * - non-gate `tool` → tool item in the trace
- * - gate `tool` → interactive card outside the collapsed list
+ * - first gate `tool` → interactive card outside the collapsed list; later gates → trace
  * - `text` before/between tools → narration; text and answer kinds after the
  *   latest tool → body (while streaming too, so the answer streams formatted)
  * - No tools: thoughts still go to trace; remaining kinds → body
  */
 export function composeAssistantTurn(blocks: readonly TranscriptBlock[]): ComposedAssistantTurn {
 	const visible = blocks.filter((block) => !isHiddenTranscriptBlock(block));
-	const gatedTools = visible.filter(isGatedTool);
-	const nonGate = visible.filter((block) => !isGatedTool(block));
+	// One card at a time: the gate answered next. The step's later gates wait in the trace.
+	const nextGate = visible.find(isGatedTool);
+	const gatedTools = nextGate ? [nextGate] : [];
+	const nonGate = visible.filter((block) => block !== nextGate);
 	const lastToolIndex = lastToolIndexOf(nonGate);
 	const hasTools = lastToolIndex >= 0;
 

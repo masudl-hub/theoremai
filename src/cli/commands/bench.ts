@@ -15,11 +15,15 @@
 
 import { bindCanary, eventHasCanary, mintCanary } from '../../guardrails/canary.ts';
 import { sanitizeTurnRequest } from '../../guardrails/sanitize.ts';
+import {
+  clearProfiles,
+  getProfile,
+  registerProfile,
+  resolveTurn,
+  runTurn,
+} from '../../kernel/default-scope.ts';
 import { startCallUsage } from '../../kernel/engine/runner/usage.ts';
-import { runTurn } from '../../kernel/engine/runner.ts';
 import { startCallTrace } from '../../kernel/engine/turn-trace.ts';
-import { clearProfiles, registerProfile } from '../../kernel/registry/profiles.ts';
-import { resolveTurn } from '../../kernel/registry/resolve.ts';
 import { pickSystemRole } from '../../kernel/registry/system-role.ts';
 import type {
   ModelProvider,
@@ -84,7 +88,7 @@ function generateChunks(count: number): TurnEvent[] {
     type: 'tokens',
     tokens: { input: 10, output: count, total: 10 + count },
   });
-  events.push({ type: 'done' });
+  events.push({ type: 'done', stop: { kind: 'completed' } });
   return events;
 }
 
@@ -305,7 +309,7 @@ function measureSetupPhases(): PhaseTimings {
   const req = buildBenchRequest();
 
   const t0 = performance.now();
-  const safe = sanitizeTurnRequest(req);
+  const safe = sanitizeTurnRequest(req, getProfile(req.profile));
   const t1 = performance.now();
 
   const { profile, generation } = resolveTurn(safe);
@@ -500,7 +504,7 @@ function microSanitizeScaling(): void {
     const runs = 500;
     const start = performance.now();
     for (let i = 0; i < runs; i++) {
-      sanitizeTurnRequest(req);
+      sanitizeTurnRequest(req, getProfile(req.profile));
     }
     const elapsed = performance.now() - start;
     const perCall = elapsed / runs;

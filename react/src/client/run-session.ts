@@ -1,7 +1,5 @@
 import {
 	abandonGatedToolSession,
-	appendToolDenialToHistory,
-	appendToolExchangeToHistory,
 	applyTurnEventsToSession,
 	type AttachmentValidationIssue,
 	type ComposerProfileInterface,
@@ -11,15 +9,21 @@ import {
 	type UserTurnDraft,
 } from '../../../src/interface/mod.ts';
 import { attachmentsRefused, lexiconText, TheoremError, type TurnEvent } from '../../../mod.ts';
-import { attachPreviewData, encodeFiles } from './encode-files';
-import { type TurnFailure, turnFailure } from './failure';
-import { continueAfterTool, finalizeTurnStream, streamFoldedTurn, toTurnMedia } from './run-commit';
-import type { EncodedBlob, TheoremTransport } from './transport';
+import { attachPreviewData, encodeFiles } from './encode-files.ts';
+import { type TurnFailure, turnFailure } from './failure.ts';
+import {
+	continueAfterTool,
+	failTurnStream,
+	finalizeTurnStream,
+	streamFoldedTurn,
+	toTurnMedia,
+} from './run-commit.ts';
+import type { EncodedBlob, TheoremTransport } from './transport.ts';
 import {
 	buildInvokeToolResume,
 	sessionPermissionsAfterApproval,
 	type ToolDecisionAction,
-} from './tool-resume';
+} from './tool-resume.ts';
 import {
 	buildInvokeRequest,
 	buildTurnRequest,
@@ -27,9 +31,9 @@ import {
 	prepareComposerTurn,
 	projectUserTurn,
 	turnInputFromSession,
-} from './turn-client';
+} from './turn-client.ts';
 
-export type { TurnFailure } from './failure';
+export type { TurnFailure } from './failure.ts';
 
 /**
  * A session state the user can't act from (no gate waiting, a gate without a
@@ -91,19 +95,25 @@ async function streamPreparedInterfaceTurn(args: {
 		assistantEvents: [],
 	};
 
-	const events = await streamFoldedTurn({
-		iface: args.iface,
-		onStream: args.onStream,
-		seedEvents: [],
-		stream: (onEvent) =>
-			args.transport.turn(
-				buildTurnRequest(args.iface, session, input, { turnId: args.turnId }),
-				onEvent,
-				args.signal,
-			),
-	});
+	const events: TurnEvent[] = [];
+	try {
+		await streamFoldedTurn({
+			iface: args.iface,
+			onStream: args.onStream,
+			events,
+			stream: (onEvent) =>
+				args.transport.turn(
+					buildTurnRequest(args.iface, session, input, { turnId: args.turnId }),
+					onEvent,
+					args.signal,
+				),
+		});
+	} catch (err) {
+		const failure = turnFailure(err, args.iface.lexicon, args.signal);
+		return failTurnStream({ session, events, media, failure });
+	}
 
-	session = finalizeTurnStream({ session, events, media, lexicon: args.iface.lexicon });
+	session = finalizeTurnStream({ session, events, media });
 
 	return {
 		ok: true,
@@ -245,83 +255,50 @@ async function resumeDeniedGatedTool(args: {
 	| { ok: true; session: InterfaceTurnSession; assistantBlocks: TranscriptBlock[] }
 	| TurnFailure
 > {
-	const history = appendToolDenialToHistory(
-		args.session.history,
-		{ name: args.gated.name, callId: args.gated.callId, arguments: args.gated.arguments },
-		args.iface.lexicon,
-	);
-	const seedEvents = args.session.assistantEvents.map((event) => {
-		const tool = event.type === 'tool' ? event.tool : undefined;
-		if (!tool?.name || tool.phase !== 'gate' || !tool.gate) return event;
+	// Browser-made refusal: deleted when web refusals settle through `/invoke` (turn-event schema, step 4).
+	const seedEvents = args.session.assistantEvents.map((event): TurnEvent => {
+		if (event.type !== 'tool' || event.tool.phase !== 'gate' || event.tool.callId !== args.gated.callId) {
+			return event;
+		}
+		const { name, callId } = event.tool;
 		return {
-			type: 'tool' as const,
+			type: 'tool',
 			tool: {
-				...tool,
-				name: tool.name,
-				phase: 'error' as const,
-				gate: undefined,
-				pause: undefined,
+				name,
+				callId,
+				at: Date.now(),
+				phase: 'error',
 				failure: {
 					code: 'denied',
-					message: lexiconText('session.tool_denied', { tool: args.gated.name }, args.iface.lexicon),
+					kind: 'declined',
+					message: lexiconText('session.tool_denied', { tool: name }, args.iface.lexicon),
 				},
 			},
-		} as TurnEvent;
+		};
 	});
-	const session = {
-		...args.session,
-		history,
-		gatedTool: null,
-		assistantEvents: seedEvents,
-	};
-	return await continueAfterTool({ ...args, session, seedEvents });
+	return await continueOnceSettled({ ...args, session: args.session, events: seedEvents });
 }
 
-function appendTerminalToolToHistory(
-	history: InterfaceTurnSession['history'],
-	gated: NonNullable<InterfaceTurnSession['gatedTool']>,
-	invokeEvents: readonly TurnEvent[],
-	lexicon: ComposerProfileInterface['lexicon'],
-): InterfaceTurnSession['history'] {
-	const completedTool = invokeEvents.findLast(
-		(event) =>
-			event.type === 'tool' &&
-			event.tool?.name === gated.name &&
-			event.tool.phase === 'complete' &&
-			event.tool.output !== undefined,
-	);
-	if (completedTool?.tool?.output !== undefined) {
-		return appendToolExchangeToHistory(
-			history,
-			{
-				name: gated.name,
-				callId: gated.callId,
-				arguments: gated.arguments,
-				output: completedTool.tool.output,
-			},
-			lexicon,
-		);
+/**
+ * After one gate settles: wait on the step's next gate if one is left, else
+ * send the whole step back to the model.
+ */
+async function continueOnceSettled(args: {
+	iface: ComposerProfileInterface;
+	transport: TheoremTransport;
+	session: InterfaceTurnSession;
+	onStream: (blocks: TranscriptBlock[]) => void;
+	events: TurnEvent[];
+}): Promise<
+	| { ok: true; session: InterfaceTurnSession; assistantBlocks: TranscriptBlock[] }
+	| TurnFailure
+> {
+	const gatedTool = gatedToolFromEvents(args.events);
+	const session = { ...args.session, gatedTool, assistantEvents: args.events };
+	if (gatedTool) {
+		return { ok: true, session, assistantBlocks: foldAssistantTurn(args.iface, args.events) };
 	}
-	const failedTool = invokeEvents.findLast(
-		(event) =>
-			event.type === 'tool' &&
-			event.tool?.name === gated.name &&
-			event.tool.phase === 'error' &&
-			event.tool.failure !== undefined,
-	);
-	if (failedTool?.tool?.failure) {
-		return appendToolDenialToHistory(
-			history,
-			{
-				name: gated.name,
-				callId: gated.callId,
-				arguments: gated.arguments,
-				failure: failedTool.tool.failure,
-			},
-			lexicon,
-		);
-	}
-	return history;
+	return await continueAfterTool({ ...args, session, seedEvents: args.events });
 }
 
 async function resumeAllowedGatedTool(args: {
@@ -355,13 +332,13 @@ async function resumeAllowedGatedTool(args: {
 		const invokeEvents = await streamFoldedTurn({
 			iface: args.iface,
 			onStream: args.onStream,
-			seedEvents: session.assistantEvents,
+			events: [...session.assistantEvents],
 			stream: (onEvent) =>
 				args.transport.invoke(
 					buildInvokeRequest(args.iface, session, {
 						gateId,
 						name: args.gated.name,
-						input: args.gated.input,
+						input: args.gated.arguments,
 						resume,
 						sessionPermissions,
 						secret: args.secret,
@@ -370,27 +347,8 @@ async function resumeAllowedGatedTool(args: {
 				),
 		});
 
-		session = {
-			...applyTurnEventsToSession(session, invokeEvents),
-			sessionPermissions,
-			assistantEvents: invokeEvents,
-			gatedTool: gatedToolFromEvents(invokeEvents),
-		};
-
-		if (sessionHasGatedTool(session)) {
-			return {
-				ok: true,
-				session,
-				assistantBlocks: foldAssistantTurn(args.iface, invokeEvents),
-			};
-		}
-
-		session = {
-			...session,
-			history: appendTerminalToolToHistory(session.history, args.gated, invokeEvents, args.iface.lexicon),
-		};
-
-		return await continueAfterTool({ ...args, session, seedEvents: invokeEvents });
+		session = { ...applyTurnEventsToSession(session, invokeEvents), sessionPermissions };
+		return await continueOnceSettled({ ...args, session, events: invokeEvents });
 	} catch (err) {
 		return turnFailure(err, args.iface.lexicon);
 	}

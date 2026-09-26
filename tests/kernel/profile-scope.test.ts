@@ -89,6 +89,6 @@ Deno.test("a scope's off value passes on types outside it", () => {
         guardrails: { canary: false },
       } as never),
     TheoremError,
-    'tools.allow',
+    "type 'host' must set tools",
   );
 });

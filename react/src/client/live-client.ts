@@ -12,7 +12,7 @@
  * @module
  */
 
-import { describeError, type SessionEvent, TheoremError, type TraceRecord, type TurnEvent } from '../../../mod.ts';
+import { describeError, type SessionEvent, type SessionEventOf, TheoremError, type TraceRecord, type TurnEvent, type TurnEventOf } from '../../../mod.ts';
 import { float32Rms, float32RmsToLevel, timeDomainBytesToLevel } from './audio-level';
 import { isPermissionDeniedError } from './live-errors';
 import {
@@ -68,8 +68,16 @@ export type LiveSessionStatus =
 
 export type LiveConnectPhase = 'socket' | 'microphone';
 
+/**
+ * What a live call opens: a profile the host registered, or an `openMessage` the
+ * relay reads first to build the call's profile itself (the playground sends its draft).
+ */
+export type LiveConnection = { profile: string } | { openMessage: Record<string, unknown> };
+
 export interface LiveClientOptions {
 	profile?: string;
+	/** JSON sent before anything else, as the socket opens. */
+	openMessage?: Record<string, unknown>;
 	relayUrl?: string;
 	/** When false, skip microphone capture; session still receives model audio. */
 	voiceIngress?: boolean;
@@ -87,7 +95,7 @@ export interface LiveClientOptions {
 	 * The provider ended the session after warning it would: not a failure.
 	 * `session.message` is the user's line; `session.ended` the close, for the builder.
 	 */
-	onSessionEnded?: (session: SessionEvent) => void;
+	onSessionEnded?: (session: SessionEventOf<'ended'>) => void;
 	onToolCall?: (
 		name: string,
 		args: Record<string, unknown>,
@@ -255,6 +263,13 @@ export class LiveSessionClient {
 
 			this.ws = new WebSocket(url);
 			this.ws.binaryType = 'arraybuffer';
+
+			const { openMessage } = this.options;
+			if (openMessage) {
+				this.ws.onopen = () => {
+					this.ws?.send(JSON.stringify(openMessage));
+				};
+			}
 
 			this.connectTimeout = setTimeout(() => {
 				if (this.status === 'connecting') {
@@ -517,7 +532,7 @@ export class LiveSessionClient {
 				this.collectMediaTurnEvent(event, accum);
 				break;
 			case 'tool':
-				this.collectToolTurnEvent(event, accum);
+				applyLiveToolTurnEvent(event.tool, accum);
 				break;
 			case 'done':
 				this.handleDoneTurnEvent(event);
@@ -525,18 +540,12 @@ export class LiveSessionClient {
 		}
 	}
 
-	private handleEvidenceTurnEvent(event: TurnEvent): void {
-		if (event.type !== 'evidence' || !event.text) return;
-		const transcript = liveTranscriptFromEvidence({
-			kind: event.evidence?.kind,
-			text: event.text,
-			interim: event.evidence?.interim,
-		});
+	private handleEvidenceTurnEvent(event: TurnEventOf<'evidence'>): void {
+		const transcript = liveTranscriptFromEvidence(event);
 		if (transcript) this.options.onTranscript?.(transcript.text, transcript.isUser, { interim: transcript.interim });
 	}
 
-	private handleSessionTurnEvent(event: TurnEvent): void {
-		if (event.type !== 'session' || !event.session) return;
+	private handleSessionTurnEvent(event: TurnEventOf<'session'>): void {
 		if (this.notifySessionLifecycle(event.session)) return;
 		this.serverWorking = event.session.kind === 'working';
 		const nextStatus = resolveWorkingStatusTransition(this.status, this.serverWorking);
@@ -559,8 +568,8 @@ export class LiveSessionClient {
 		return this.serverWorking ? 'working' : 'listening';
 	}
 
-	private collectMediaTurnEvent(event: TurnEvent, accum: InboundTurnAccum): void {
-		if (event.type !== 'media' || !event.media?.data) return;
+	private collectMediaTurnEvent(event: TurnEventOf<'media'>, accum: InboundTurnAccum): void {
+		if (!event.media.data) return;
 		this.setStatus('speaking');
 		accum.mediaChunks.push({
 			data: event.media.data,
@@ -568,17 +577,11 @@ export class LiveSessionClient {
 		});
 	}
 
-	private collectToolTurnEvent(event: TurnEvent, accum: InboundTurnAccum): void {
-		if (event.type !== 'tool' || !event.tool) return;
-		applyLiveToolTurnEvent(event.tool, accum);
-	}
-
-	private handleDoneTurnEvent(event: TurnEvent): void {
-		if (event.type !== 'done') return;
+	private handleDoneTurnEvent(event: TurnEventOf<'done'>): void {
 		if (event.interrupted) {
 			this.cancelPlayback();
 		}
-		if (event.stop?.kind !== 'generation_complete') {
+		if (event.stop.kind !== 'generation_complete') {
 			this.serverWorking = false;
 			this.setStatus('listening');
 		}
@@ -633,7 +636,7 @@ export class LiveSessionClient {
 			// Default: run through LiveSession.executeTool on the relay (stages + upstream).
 			await this.executeToolOnRelay({
 				name: call.name,
-				callId: call.id || `call_${Date.now()}`,
+				callId: call.id,
 				input: call.arguments,
 			});
 		}
@@ -647,7 +650,7 @@ export class LiveSessionClient {
 		name: string;
 		callId: string;
 		input?: unknown;
-		resume?: { value?: unknown; granted?: boolean };
+		resume?: { granted?: boolean };
 		/**
 		 * The key the user typed at a bearer or API-key sign-in gate, sent once:
 		 * the relay saves it for the session (`credentialFromTypedSecret`).

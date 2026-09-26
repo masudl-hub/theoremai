@@ -2,7 +2,7 @@
 
 import { type ErrorKind, TheoremError } from '../../guardrails/error.ts';
 import type { DecisionDisclosureVerdict } from '../../guardrails/types.ts';
-import { getProfile } from '../registry/profiles.ts';
+import type { KernelRegistry } from '../registry/kernel-registry.ts';
 import { soleModelId } from '../registry/sole-model.ts';
 import type {
   DecisionAnswer,
@@ -51,8 +51,8 @@ export interface RunDecisionOptions {
   endpoint?: string;
 }
 
-function requireDecisionProfile(id: string): DecisionProfile {
-  const profile = getProfile(id);
+function requireDecisionProfile(registry: KernelRegistry, id: string): DecisionProfile {
+  const profile = registry.profiles.get(id);
   if (profile.type !== 'decision') {
     throw new TheoremError(
       'request',
@@ -329,12 +329,16 @@ async function resultFromResponse(
   };
 }
 
-/** Execute exactly one Jev System One request. This function never retries an ambiguous POST. */
-export async function runDecision(
+/**
+ * Execute exactly one Jev System One request on a profile registered in
+ * `registry`. This function never retries an ambiguous POST.
+ */
+export async function runDecisionInRegistry(
+  registry: KernelRegistry,
   request: DecisionRequest,
   options: RunDecisionOptions,
 ): Promise<DecisionResult> {
-  const profile = requireDecisionProfile(request.profile);
+  const profile = requireDecisionProfile(registry, request.profile);
   validateRequest(request, profile);
   const [modelId, binding] = decisionModel(profile);
   await enforceDisclosure(profile, modelId, request);

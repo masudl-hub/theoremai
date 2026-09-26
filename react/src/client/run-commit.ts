@@ -9,23 +9,29 @@ import {
 	type TranscriptBlock,
 	type UserTurnHistoryMedia,
 } from '../../../src/interface/mod.ts';
-import { type TurnFailure, turnFailure } from './failure';
-import type { TheoremTransport } from './transport';
-import { buildTurnRequest, foldAssistantTurn, turnInputFromSession } from './turn-client';
+import { type TurnFailure, turnFailure } from './failure.ts';
+import type { TheoremTransport } from './transport.ts';
+import { buildTurnRequest, foldAssistantTurn, turnInputFromSession } from './turn-client.ts';
 
+/** The turn's history before its reply: a turn not yet started adds the user's message. */
+function turnBaseHistory(
+	session: InterfaceTurnSession,
+	media: UserTurnHistoryMedia,
+): InterfaceTurnSession['history'] {
+	return session.pendingUserDraft
+		? appendUserDraftToHistory(session.history, session.pendingUserDraft, media)
+		: session.history;
+}
+
+/** The turn is over: every event it streamed, gate resumes included, enters history once. */
 function commitCompletedTurn(
 	session: InterfaceTurnSession,
 	events: TurnEvent[],
-	media: UserTurnHistoryMedia,
-	lexicon: ComposerProfileInterface['lexicon'],
+	media: UserTurnHistoryMedia = {},
 ): InterfaceTurnSession {
-	const history = session.pendingUserDraft
-		? appendUserDraftToHistory(session.history, session.pendingUserDraft, media)
-		: session.history;
-
 	return {
 		...applyTurnEventsToSession(session, events),
-		history: appendAssistantEventsToHistory(history, events, lexicon),
+		history: appendAssistantEventsToHistory(turnBaseHistory(session, media), events),
 		gatedTool: null,
 		assistantEvents: [],
 		pendingUserDraft: null,
@@ -34,53 +40,19 @@ function commitCompletedTurn(
 	};
 }
 
-function commitContinuationTurn(
-	session: InterfaceTurnSession,
-	seedLength: number,
-	events: TurnEvent[],
-	lexicon: ComposerProfileInterface['lexicon'],
-): InterfaceTurnSession {
-	return {
-		...applyTurnEventsToSession(session, events),
-		history: appendAssistantEventsToHistory(session.history, events.slice(seedLength), lexicon),
-		gatedTool: null,
-		assistantEvents: [],
-		pendingUserDraft: null,
-		toolSnapshot: undefined,
-		promotedToolIds: [],
-	};
-}
-
+/**
+ * The turn waits at a gate. History stops at the user's message and the events
+ * wait in `assistantEvents`, so the gated step enters history whole once it settles.
+ */
 function pauseTurn(
 	session: InterfaceTurnSession,
 	events: TurnEvent[],
-	media: UserTurnHistoryMedia,
+	media: UserTurnHistoryMedia = {},
 ): InterfaceTurnSession {
-	const history = session.pendingUserDraft
-		? appendUserDraftToHistory(session.history, session.pendingUserDraft, media)
-		: session.history;
-
-	const gated = gatedToolFromEvents(events);
 	return {
 		...applyTurnEventsToSession(session, events),
-		history,
-		gatedTool: gated,
-		assistantEvents: [...events],
-		pendingUserDraft: null,
-	};
-}
-
-function pauseContinuationTurn(
-	session: InterfaceTurnSession,
-	seedLength: number,
-	events: TurnEvent[],
-	lexicon: ComposerProfileInterface['lexicon'],
-): InterfaceTurnSession {
-	const gated = gatedToolFromEvents(events);
-	return {
-		...applyTurnEventsToSession(session, events),
-		history: appendAssistantEventsToHistory(session.history, events.slice(seedLength), lexicon),
-		gatedTool: gated,
+		history: turnBaseHistory(session, media),
+		gatedTool: gatedToolFromEvents(events),
 		assistantEvents: [...events],
 		pendingUserDraft: null,
 	};
@@ -96,13 +68,27 @@ export function toTurnMedia(
 	};
 }
 
+/**
+ * A failed turn with the conversation it leaves: the user's message and what the
+ * reply got through (its text and the tool calls that settled), so the next turn
+ * picks up from there. A stopped reply leaves the transcript, so only the message stays.
+ */
+function withFailedTurnSession(
+	failure: TurnFailure,
+	commit: (events: TurnEvent[]) => InterfaceTurnSession,
+	events: TurnEvent[],
+	seedEvents: TurnEvent[] = [],
+): TurnFailure {
+	return { ...failure, session: commit(failure.aborted ? seedEvents : events) };
+}
+
+/** Streams into `events`, which the caller owns, so a stream that fails still leaves what it delivered. */
 async function streamFoldedEvents(
 	stream: (onEvent: (event: TurnEvent) => void) => Promise<void>,
 	onStream: (blocks: TranscriptBlock[]) => void,
 	iface: ComposerProfileInterface,
-	seedEvents: TurnEvent[],
+	events: TurnEvent[],
 ): Promise<TurnEvent[]> {
-	const events = [...seedEvents];
 	await stream((event) => {
 		events.push(event);
 		onStream(foldAssistantTurn(iface, events));
@@ -120,54 +106,75 @@ export async function continueAfterTool(args: {
 	| { ok: true; session: InterfaceTurnSession; assistantBlocks: TranscriptBlock[] }
 	| TurnFailure
 > {
-	const seedLength = args.seedEvents.length;
+	const events = [...args.seedEvents];
+	// The model reads the turn so far: the settled gate and everything before it.
+	const sent = {
+		...args.session,
+		history: appendAssistantEventsToHistory(args.session.history, args.seedEvents),
+	};
 	try {
-		const events = await streamFoldedEvents(
+		await streamFoldedEvents(
 			(onEvent) =>
-				args.transport.turn(
-					buildTurnRequest(args.iface, args.session, turnInputFromSession(args.session)),
-					onEvent,
-				),
+				args.transport.turn(buildTurnRequest(args.iface, sent, turnInputFromSession(sent)), onEvent),
 			args.onStream,
 			args.iface,
-			args.seedEvents,
+			events,
 		);
 
 		if (gatedToolFromEvents(events)) {
 			return {
 				ok: true,
-				session: pauseContinuationTurn(args.session, seedLength, events, args.iface.lexicon),
+				session: pauseTurn(args.session, events),
 				assistantBlocks: foldAssistantTurn(args.iface, events),
 			};
 		}
 
 		return {
 			ok: true,
-			session: commitContinuationTurn(args.session, seedLength, events, args.iface.lexicon),
+			session: commitCompletedTurn(args.session, events),
 			assistantBlocks: foldAssistantTurn(args.iface, events),
 		};
 	} catch (err) {
-		return turnFailure(err, args.iface.lexicon);
+		return withFailedTurnSession(
+			turnFailure(err, args.iface.lexicon),
+			(kept) => commitCompletedTurn(args.session, kept),
+			events,
+			args.seedEvents,
+		);
 	}
+}
+
+/** A turn that failed partway, committed as far as it got. */
+export function failTurnStream(args: {
+	session: InterfaceTurnSession;
+	events: TurnEvent[];
+	media: UserTurnHistoryMedia;
+	failure: TurnFailure;
+}): TurnFailure {
+	return withFailedTurnSession(
+		args.failure,
+		(kept) => commitCompletedTurn(args.session, kept, args.media),
+		args.events,
+	);
 }
 
 export function finalizeTurnStream(args: {
 	session: InterfaceTurnSession;
 	events: TurnEvent[];
 	media: UserTurnHistoryMedia;
-	lexicon: ComposerProfileInterface['lexicon'];
 }): InterfaceTurnSession {
 	if (gatedToolFromEvents(args.events)) {
 		return pauseTurn(args.session, args.events, args.media);
 	}
-	return commitCompletedTurn(args.session, args.events, args.media, args.lexicon);
+	return commitCompletedTurn(args.session, args.events, args.media);
 }
 
 export function streamFoldedTurn(args: {
 	iface: ComposerProfileInterface;
 	onStream: (blocks: TranscriptBlock[]) => void;
-	seedEvents: TurnEvent[];
+	/** Seeded by the caller, and filled as the stream delivers. */
+	events: TurnEvent[];
 	stream: (onEvent: (event: TurnEvent) => void) => Promise<void>;
 }): Promise<TurnEvent[]> {
-	return streamFoldedEvents(args.stream, args.onStream, args.iface, args.seedEvents);
+	return streamFoldedEvents(args.stream, args.onStream, args.iface, args.events);
 }

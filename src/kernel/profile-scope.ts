@@ -75,6 +75,14 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
       'speech has no system channel (the input text is the transcript) and a decision prompts through decision.contract',
   },
   models: { profileTypes: MODEL_PROFILE_TYPES, reason: 'a host profile runs no model' },
+  'models.*.protocol': {
+    profileTypes: TURN_TYPES,
+    reason: 'a decision binds its model by apiId alone',
+  },
+  'models.*.provider': {
+    profileTypes: TURN_TYPES,
+    reason: 'a decision binds its model by apiId alone',
+  },
   'models.*.compaction': {
     profileTypes: ['text'],
     reason: 'only text turns keep a history to compact',

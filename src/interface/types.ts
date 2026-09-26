@@ -9,20 +9,23 @@
 
 import type { LexiconOverrides } from '../guardrails/lexicon.ts';
 import type { ResolvedGuardrailPolicy } from '../guardrails/types.ts';
-import type { LiveProfileToolsSpec, ProfileToolsSpec } from '../kernel/tools/types.ts';
+import type {
+  LiveProfileToolsSpec,
+  ProfileToolsSpec,
+  ToolCallEdit,
+  ToolPhaseEvent,
+} from '../kernel/tools/types.ts';
 import type {
   AttachmentValidationIssue,
   GroundingEvent,
   ImageProfile,
   LiveProfile,
-  Profile,
   ProfileOutputsSpec,
-  ProjectedProfile,
-  ProviderEvidenceEvent,
+  ProviderEvidence,
   RegisteredTool,
+  Source,
   SpeechProfile,
   TextProfile,
-  ToolCallEvent,
   ToolId,
   TurnStop,
   TurnTokens,
@@ -132,8 +135,6 @@ export type ProfileInterface =
 /** Turn/chat composer profiles — excludes live (realtime streams, no turn inputs block). */
 export type ComposerProfileInterface = Exclude<ProfileInterface, LiveProfileInterface>;
 
-export type ProfileInterfaceSource = Profile | ProjectedProfile;
-
 export type TranscriptBlockKind =
   | 'user-text'
   | 'user-attachment'
@@ -144,6 +145,7 @@ export type TranscriptBlockKind =
   | 'structured'
   | 'media'
   | 'grounding'
+  | 'citation'
   | 'evidence'
   | 'error'
   | 'turn-done';
@@ -177,9 +179,37 @@ export interface TextBlock extends TranscriptBlockBase {
   text: string;
 }
 
+/** Where a call stands: the latest phase that changes its status. */
+export type ToolCallState = Extract<
+  ToolPhaseEvent,
+  { phase: 'running' | 'gate' | 'complete' | 'error' | 'cancel' }
+>;
+
+/** One tool call: the model's raw call joined with its phase events by `callId` (`toolCallsOf`). */
+export interface ToolCall {
+  name: string;
+  callId: string;
+  /** What the model proposed. */
+  arguments: Record<string, unknown>;
+  /** The call's `ToolCallRequest.thoughtSignature`: history replays the call with it. */
+  thoughtSignature?: string;
+  /** The call's `ToolCallRequest.stepId`: calls sharing it replay as one assistant message. */
+  stepId?: string;
+  /** The user's edit on approval; `to` is what ran. */
+  edited?: ToolCallEdit;
+  /** Absent while the call has only been made. */
+  state?: ToolCallState;
+  /** When it last started running (epoch ms). */
+  startedAt?: number;
+  /** When it last settled: complete, failed, cancelled or gated (epoch ms). */
+  endedAt?: number;
+  /** Every `artifact` it produced, in order. */
+  artifacts: unknown[];
+}
+
 export interface ToolBlock extends TranscriptBlockBase {
   kind: 'tool';
-  tool: ToolCallEvent & { id?: string };
+  tool: ToolCall;
 }
 
 export interface StructuredBlock extends TranscriptBlockBase {
@@ -209,9 +239,16 @@ export interface GroundingBlock extends TranscriptBlockBase {
   grounding: GroundingEvent;
 }
 
+/** Sources a provider or a tool cited; `callId` names the tool call when a tool did. */
+export interface CitationBlock extends TranscriptBlockBase {
+  kind: 'citation';
+  sources: Source[];
+  callId?: string;
+}
+
 export interface EvidenceBlock extends TranscriptBlockBase {
   kind: 'evidence';
-  evidence: ProviderEvidenceEvent;
+  evidence: ProviderEvidence;
 }
 
 export interface ErrorBlock extends TranscriptBlockBase {
@@ -236,6 +273,7 @@ export type TranscriptBlock =
   | StructuredBlock
   | MediaBlock
   | GroundingBlock
+  | CitationBlock
   | EvidenceBlock
   | ErrorBlock
   | TurnDoneBlock;

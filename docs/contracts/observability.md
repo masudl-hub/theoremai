@@ -177,6 +177,8 @@ carry text inline: `buildRecord` resolves every content marker once, under
 - The root records the policy it was written under:
   `theorem.record.include` and `theorem.record.scrub` list the enabled flags,
   so a missing field reads as "not recorded", never as "did not happen".
+- A record states its format as `v` (`TRACE_VERSION`, now 3);
+  `traceRecordSchema` refuses any other version rather than guessing at its fields.
 
 Restrict trace directories to the host process. Do not expose JSONL files or
 `memorySink` dumps to clients. Use `forClientEvents` before any user-visible
@@ -199,6 +201,12 @@ interface TraceRecord {
   content: Record<string, string>;      // sha256 hex → exact scrubbed text
 }
 ```
+
+The shape is declared once, as `traceRecordSchema` (and one schema per span
+part) in `src/observability/trace-schema.ts`; the types are their inferred
+types, and `trace-span.ts` and `trace-record.ts` import them. A record that
+arrives over a wire (the live relay's `trace` envelope) is parsed with
+`traceRecordSchema` before it is read.
 
 | Writer | Record root | Parent of the root |
 | --- | --- | --- |

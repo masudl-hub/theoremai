@@ -16,25 +16,20 @@ import { sanitizeHistory } from '../guardrails/sanitize.ts';
 import type { GuardrailHit } from '../guardrails/types.ts';
 import type { SpanHandle } from '../observability/trace-span.ts';
 import { guardrailAttributes } from './engine/turn-trace.ts';
-import {
-  AWAITING_USER_INPUT_KINDS,
-  AWAITING_USER_INPUT_STATUS,
-  type AwaitingUserInputKind,
-  isToolGateKind,
-  TOOL_PERMISSION,
-  type ToolPermission,
-  type TurnStage,
-} from './schema.ts';
+import type { StageApplyWarningCode, TurnStage } from './schema.ts';
 import type { TurnStop } from './stop.ts';
 import type { ModelToolResult, ToolFailure, ToolGate } from './tools/types.ts';
+import {
+  type AwaitingUserInput,
+  awaitingUserInputSchema,
+  type StageApplyWarning,
+  type TurnEventOf,
+} from './turn-events.ts';
 import type { Profile, TurnEvent, TurnHistoryMessage } from './types.ts';
 import { isRecord } from './util/record.ts';
 
 /** Canonical homes: schema (`TurnStage`, `ToolGateKind`), tools/types (`ToolGate`). */
-export type { AwaitingUserInputKind, ToolGate };
-
-const AWAITING_KIND_SET = new Set<string>(AWAITING_USER_INPUT_KINDS);
-const PERMISSION_SET = new Set<string>(TOOL_PERMISSION);
+export type { AwaitingUserInput, ToolGate };
 
 /** Closed set of kernel-applied stage affordances. */
 export const STAGE_AFFORDANCES = ['inject', 'abort', 'deny', 'confirm', 'mutate'] as const;
@@ -55,15 +50,7 @@ export const STAGE_AFFORDANCE_MATRIX: Readonly<Record<TurnStage, readonly StageA
     post_turn: Object.freeze([] as const),
   });
 
-const STAGE_RESULT_KEYS = new Set<string>(STAGE_AFFORDANCES);
-
-/** Frozen awaiting completion payload (`docs/contracts/stages.md`). */
-export interface AwaitingUserInput {
-  status: typeof AWAITING_USER_INPUT_STATUS;
-  kind: AwaitingUserInputKind;
-  prompt: string;
-  options?: string[];
-}
+const STAGE_RESULT_KEYS = new Set<string>([...STAGE_AFFORDANCES, 'injectId']);
 
 /** Tool/stop fields shared by text + live stage apply argument bags. */
 export type StageCallBag = {
@@ -92,6 +79,12 @@ export interface StageContext extends StageCallBag {
 /** Host return from `onStage`. */
 export interface StageResult {
   inject?: TurnHistoryMessage[];
+  /**
+   * Names this `inject` so the `stage` event that records it landing says which
+   * one it was (`injected`). An inject named with anything but a non-empty
+   * string is refused whole.
+   */
+  injectId?: string;
   abort?: boolean | { reason?: string };
   /** `pre_tool`: refuse the call. `post_tool`: replace the result with this failure. */
   deny?: { code?: string; message?: string };
@@ -109,25 +102,7 @@ export type StageHandler = (
   ctx: StageContext,
 ) => StageResult | undefined | Promise<StageResult | undefined>;
 
-/** Machine-readable reason the kernel rejected or ignored a stage result field. */
-export type StageApplyWarningCode =
-  | 'affordance_not_allowed'
-  | 'inject_not_allowed'
-  | 'inject_rejected_max_steps'
-  | 'inject_invalid_messages'
-  | 'deny_invalid'
-  | 'confirm_invalid'
-  | 'mutate_invalid'
-  | 'abort_invalid'
-  | 'unknown_field'
-  | 'result_invalid';
-
-/** Diagnostic emitted when a stage result contains an invalid or unavailable affordance. */
-export interface StageApplyWarning {
-  code: StageApplyWarningCode;
-  message: string;
-  field: string;
-}
+export type { StageApplyWarning, StageApplyWarningCode };
 
 /** Untrusted host stage result and the runtime facts used to apply it safely. */
 export interface StageApplyInput {
@@ -146,9 +121,15 @@ export interface StageApplyInput {
   mutable?: boolean;
 }
 
+/** One handler's inject: its messages and, when the host named it, its id. */
+export interface InjectUnit {
+  id?: string;
+  messages: TurnHistoryMessage[];
+}
+
 /** Validated, kernel-applicable subset of a host stage result and its warnings. */
 export interface StageApplyOutput {
-  inject?: TurnHistoryMessage[];
+  inject?: InjectUnit;
   abort?: boolean | { reason?: string };
   deny?: { code: string; message: string };
   confirm?: { summary?: string };
@@ -170,101 +151,9 @@ function warn(
   warnings.push({ code, field, message });
 }
 
-/**
- * Parse tool output as awaiting-user-input. Returns undefined when the shape
- * is absent or invalid (does not throw — callers treat as normal output).
- */
-export function parseAwaitingUserInput(output: unknown): AwaitingUserInput | undefined {
-  if (!isRecord(output)) return undefined;
-  if (output.status !== AWAITING_USER_INPUT_STATUS) return undefined;
-  if (typeof output.kind !== 'string' || !AWAITING_KIND_SET.has(output.kind)) {
-    return undefined;
-  }
-  if (typeof output.prompt !== 'string') return undefined;
-  const prompt = output.prompt.trim();
-  if (!prompt) return undefined;
-
-  let options: string[] | undefined;
-  if (output.options !== undefined) {
-    if (!Array.isArray(output.options)) return undefined;
-    options = [];
-    for (const item of output.options) {
-      if (typeof item !== 'string') return undefined;
-      const trimmed = item.trim();
-      if (!trimmed) return undefined;
-      options.push(trimmed);
-    }
-    if (output.kind === 'choice' && options.length === 0) return undefined;
-  } else if (output.kind === 'choice') {
-    return undefined;
-  }
-
-  const parsed: AwaitingUserInput = {
-    status: AWAITING_USER_INPUT_STATUS,
-    kind: output.kind as AwaitingUserInputKind,
-    prompt,
-  };
-  if (options) parsed.options = options;
-  return parsed;
-}
-
 /** True when output is a valid awaiting completion. */
 export function isAwaitingUserInput(output: unknown): output is AwaitingUserInput {
-  return parseAwaitingUserInput(output) !== undefined;
-}
-
-function parseAuthChallenge(value: unknown): NonNullable<ToolGate['authChallenge']> | undefined {
-  if (!isRecord(value)) return undefined;
-  if (typeof value.slot !== 'string' || !value.slot.trim()) return undefined;
-  if (value.authType !== 'bearer' && value.authType !== 'api_key' && value.authType !== 'oauth2') {
-    return undefined;
-  }
-  if (typeof value.message !== 'string' || !value.message.trim()) return undefined;
-  const authChallenge: NonNullable<ToolGate['authChallenge']> = {
-    slot: value.slot.trim(),
-    authType: value.authType,
-    message: value.message.trim(),
-  };
-  if (typeof value.authorizationUrl === 'string') {
-    authChallenge.authorizationUrl = value.authorizationUrl;
-  }
-  if (typeof value.state === 'string') authChallenge.state = value.state;
-  if (typeof value.issuer === 'string') authChallenge.issuer = value.issuer;
-  if (typeof value.resource === 'string') authChallenge.resource = value.resource;
-  if (Array.isArray(value.requiredScopes)) {
-    const scopes: string[] = [];
-    for (const s of value.requiredScopes) {
-      if (typeof s === 'string' && s.trim()) scopes.push(s.trim());
-    }
-    if (scopes.length > 0) authChallenge.requiredScopes = scopes;
-  }
-  return authChallenge;
-}
-
-/**
- * Normalize / validate a host `ToolGate`. Returns undefined when invalid
- * (defensive — never throws into the runner).
- */
-export function parseToolGate(value: unknown, fallbackTool = ''): ToolGate | undefined {
-  if (!isRecord(value)) return undefined;
-  if (!isToolGateKind(value.kind)) return undefined;
-  const tool =
-    typeof value.tool === 'string' && value.tool.trim() ? value.tool.trim() : fallbackTool.trim();
-  if (!tool) return undefined;
-
-  const gate: ToolGate = { kind: value.kind, tool };
-  if (typeof value.summary === 'string' && value.summary.trim()) {
-    gate.summary = value.summary.trim();
-  }
-  if (typeof value.permission === 'string' && PERMISSION_SET.has(value.permission)) {
-    gate.permission = value.permission as ToolPermission;
-  }
-  if (value.kind === 'auth') {
-    const authChallenge = parseAuthChallenge(value.authChallenge);
-    if (!authChallenge) return undefined;
-    gate.authChallenge = authChallenge;
-  }
-  return gate;
+  return awaitingUserInputSchema.safeParse(output).success;
 }
 
 /**
@@ -383,12 +272,37 @@ function coerceHistoryMessages(
   return out.length > 0 ? out : undefined;
 }
 
+/** The inject's messages under its id; an unusable id refuses the inject whole. */
+function injectUnit(
+  result: Record<string, unknown>,
+  warnings: StageApplyWarning[],
+): InjectUnit | undefined {
+  const messages = coerceHistoryMessages(result.inject, warnings);
+  if (!messages) return undefined;
+  if (result.injectId === undefined) return { messages };
+  if (typeof result.injectId === 'string' && result.injectId.trim()) {
+    return { id: result.injectId, messages };
+  }
+  warn(
+    warnings,
+    'inject_id_invalid',
+    'injectId',
+    'injectId must be a non-empty string; inject refused', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  );
+  return undefined;
+}
+
 function applyInjectField(
   result: Record<string, unknown>,
   input: StageApplyInput,
   out: StageApplyOutput,
 ): void {
-  if (!('inject' in result) || result.inject === undefined) return;
+  if (!('inject' in result) || result.inject === undefined) {
+    if (result.injectId !== undefined) {
+      warn(out.warnings, 'inject_id_invalid', 'injectId', 'injectId without inject ignored'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    }
+    return;
+  }
   const { stage, injectAllowed, injectWouldExceedMaxSteps } = input;
   if (!stageAllowsAffordance(stage, 'inject')) {
     warn(
@@ -412,8 +326,8 @@ function applyInjectField(
       'inject rejected: another model step would exceed maxSteps', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   } else {
-    const messages = coerceHistoryMessages(result.inject, out.warnings);
-    if (messages) out.inject = messages;
+    const unit = injectUnit(result, out.warnings);
+    if (unit) out.inject = unit;
   }
 }
 
@@ -597,11 +511,15 @@ export type StageEventExtra = {
   awaiting?: boolean;
   gate?: ToolGate;
   stop?: TurnStop;
+  injected?: { id: string }[];
 };
 
 /** Build a stream `stage` event. Unknown extra keys are not copied. */
-export function stageEventFields(stage: TurnStage, extra?: Partial<StageEventExtra>): TurnEvent {
-  const event: TurnEvent = { type: 'stage', stage };
+export function stageEventFields(
+  stage: TurnStage,
+  extra?: Partial<StageEventExtra>,
+): TurnEventOf<'stage'> {
+  const event: TurnEventOf<'stage'> = { type: 'stage', stage };
   if (!extra) return event;
   if (extra.callId !== undefined) event.callId = extra.callId;
   if (extra.toolName !== undefined) event.toolName = extra.toolName;
@@ -609,7 +527,28 @@ export function stageEventFields(stage: TurnStage, extra?: Partial<StageEventExt
   if (extra.awaiting !== undefined) event.awaiting = extra.awaiting;
   if (extra.gate !== undefined) event.gate = extra.gate;
   if (extra.stop !== undefined) event.stop = extra.stop;
+  if (extra.injected !== undefined) event.injected = extra.injected;
   return event;
+}
+
+/** Every message of `units`, in order. */
+export function injectMessages(units: readonly InjectUnit[]): TurnHistoryMessage[] {
+  return units.flatMap((unit) => unit.messages);
+}
+
+/**
+ * The `stage` event recording that `units` landed, naming the ones the host
+ * named; `undefined` when none was named. Emit it where the messages land,
+ * never before: an inject that never lands is never reported.
+ */
+export function injectedStageEvent(
+  stage: TurnStage,
+  units: readonly InjectUnit[],
+  extra?: Pick<StageEventExtra, 'callId' | 'toolName'>,
+): TurnEventOf<'stage'> | undefined {
+  const injected = units.flatMap((unit) => (unit.id === undefined ? [] : [{ id: unit.id }]));
+  if (injected.length === 0) return undefined;
+  return stageEventFields(stage, { ...extra, injected });
 }
 
 /** True when another provider step would exceed profile/generation maxSteps. */
@@ -643,14 +582,14 @@ export interface RunStageArgs extends StageCallBag {
   span?: SpanHandle;
 }
 
-/** Applied stage output. `inject` is sanitized and always present. */
+/** Applied stage output: every handler's inject, in call order, sanitized. */
 export interface RunStageOutput extends Omit<StageApplyOutput, 'inject'> {
-  inject: TurnHistoryMessage[];
+  inject: InjectUnit[];
 }
 
 /** True when the merged stage output applies `key`. */
-function appliedAffordance(applied: StageApplyOutput, key: StageAffordance): boolean {
-  return key === 'inject' ? Boolean(applied.inject?.length) : Boolean(applied[key]);
+function appliedAffordance(applied: RunStageOutput, key: StageAffordance): boolean {
+  return key === 'inject' ? applied.inject.length > 0 : Boolean(applied[key]);
 }
 
 /**
@@ -658,14 +597,14 @@ function appliedAffordance(applied: StageApplyOutput, key: StageAffordance): boo
  * lists concatenate, warnings accumulate. `deny` beats `confirm` across handlers
  * exactly as it does within one return.
  */
-function mergeApplied(parts: readonly StageApplyOutput[]): StageApplyOutput {
-  const out: StageApplyOutput = { warnings: parts.flatMap((part) => part.warnings) };
+function mergeApplied(parts: readonly StageApplyOutput[]): RunStageOutput {
+  const out: RunStageOutput = { warnings: parts.flatMap((part) => part.warnings), inject: [] };
   for (const part of parts) {
     if (part.abort !== undefined) out.abort = part.abort;
     if (part.deny) out.deny = part.deny;
     if (part.confirm) out.confirm = part.confirm;
     if (part.mutate) out.mutate = part.mutate;
-    if (part.inject?.length) out.inject = [...(out.inject ?? []), ...part.inject];
+    if (part.inject) out.inject.push(part.inject);
   }
   if (out.deny && out.confirm) {
     warn(out.warnings, 'confirm_invalid', 'confirm', 'confirm ignored because deny is set'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -762,17 +701,16 @@ export async function* runStage(args: RunStageArgs): AsyncGenerator<TurnEvent, R
     };
   }
 
-  const { inject, ...rest } = applied;
-  if (!inject?.length) return { ...rest, inject: [] };
+  if (applied.inject.length === 0) return applied;
   const hits: GuardrailHit[] = [];
-  const sanitized = sanitizeHistory(
-    inject,
-    detectionForTrust(resolveGuardrailPolicy(guardrails), 'untrusted'),
-    hits,
-  );
+  const detection = detectionForTrust(resolveGuardrailPolicy(guardrails), 'untrusted');
+  const sanitized = applied.inject.map((unit) => ({
+    ...unit,
+    messages: sanitizeHistory(unit.messages, detection, hits),
+  }));
   const redacted = guardrailFromHits('history', 'untrusted', hits, 'redact');
   if (redacted?.guardrail)
     span?.event('theorem.guardrail', guardrailAttributes(redacted.guardrail));
   if (redacted) yield redacted;
-  return { ...rest, inject: sanitized };
+  return { ...applied, inject: sanitized };
 }

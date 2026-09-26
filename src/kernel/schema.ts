@@ -180,11 +180,7 @@ export type CacheTtl = (typeof CACHE_TTLS)[number];
 export const TURN_STOP_KINDS = [
   'completed',
   'length',
-  /**
-   * @deprecated Shipping pause fiction (`tool.phase: 'pause'`). Target: use `gate`
-   * for confirm/permission/auth suspension; awaiting is a completed tool result.
-   * Removed when stages slices release.
-   */
+  /** The model called tools and the turn hands them to the host (`done.tools`). */
   'tool',
   /**
    * Honest suspension: `pre_tool` confirm / permission / auth blocked the body.
@@ -247,6 +243,10 @@ export function isTurnInjectStage(value: unknown): value is TurnInjectStage {
 export const TOOL_GATE_KINDS = ['confirmation', 'permission', 'auth'] as const;
 export type ToolGateKind = (typeof TOOL_GATE_KINDS)[number];
 
+/** Why a refused gate settles: the user said no, or walked away. */
+export const TOOL_RESUME_CAUSES = ['declined', 'abandoned'] as const;
+export type ToolResumeCause = (typeof TOOL_RESUME_CAUSES)[number];
+
 const TOOL_GATE_KIND_SET = new Set<string>(TOOL_GATE_KINDS);
 
 /** True when `value` is a known tool-gate kind. */
@@ -256,6 +256,22 @@ export function isToolGateKind(value: unknown): value is ToolGateKind {
 /** `awaiting_user_input.kind` — harness ask_user / human-as-product completions. */
 export const AWAITING_USER_INPUT_KINDS = ['confirm', 'choice', 'text'] as const;
 export type AwaitingUserInputKind = (typeof AWAITING_USER_INPUT_KINDS)[number];
+
+/** Machine-readable reasons the kernel rejected or ignored a stage result field. */
+export const STAGE_APPLY_WARNING_CODES = [
+  'affordance_not_allowed',
+  'inject_not_allowed',
+  'inject_rejected_max_steps',
+  'inject_invalid_messages',
+  'inject_id_invalid',
+  'deny_invalid',
+  'confirm_invalid',
+  'mutate_invalid',
+  'abort_invalid',
+  'unknown_field',
+  'result_invalid',
+] as const;
+export type StageApplyWarningCode = (typeof STAGE_APPLY_WARNING_CODES)[number];
 
 /** Discriminator on tool output for awaiting completions. */
 export const AWAITING_USER_INPUT_STATUS = 'awaiting_user_input' as const;
@@ -270,7 +286,7 @@ export const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
 export type HttpMethod = (typeof HTTP_METHODS)[number];
 
 /** When remote tool auth is missing or expired. */
-export const AUTH_UNAUTHENTICATED_POLICIES = ['pause', 'report_to_model'] as const;
+export const AUTH_UNAUTHENTICATED_POLICIES = ['gate', 'report_to_model'] as const;
 /** Behavior when a remote tool lacks a usable credential. */
 export type AuthUnauthenticatedPolicy = (typeof AUTH_UNAUTHENTICATED_POLICIES)[number];
 

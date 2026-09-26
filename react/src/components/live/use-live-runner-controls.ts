@@ -8,18 +8,23 @@ import {
 	type LiveVideoCapture,
 	startLiveVideoCapture,
 } from '../../client/live/live-video';
-import type { LiveConnectPhase, LiveSessionClient, LiveSessionStatus } from '../../client/live-client';
+import type {
+	LiveConnection,
+	LiveConnectPhase,
+	LiveSessionClient,
+	LiveSessionStatus,
+} from '../../client/live-client';
 
 /** Media + session lifecycle handlers for LiveRunner. */
 export function useLiveRunnerControls(args: {
 	clientRef: MutableRefObject<LiveSessionClient | null>;
 	videoCaptureRef: MutableRefObject<LiveVideoCapture | null>;
 	captionsRef: MutableRefObject<LiveCaptionState>;
-	registerProfileRef: MutableRefObject<() => Promise<string>>;
+	connectionRef: MutableRefObject<() => LiveConnection | Promise<LiveConnection>>;
 	statusRef: MutableRefObject<LiveSessionStatus>;
 	isMutedRef: MutableRefObject<boolean>;
 	sessionPermissionsRef: MutableRefObject<string[]>;
-	ensureClient: (profileId: string) => LiveSessionClient;
+	ensureClient: (connection: LiveConnection) => LiveSessionClient;
 	clearClient: () => void;
 	cancelGateDecision: (reason?: string) => void;
 	stopVideo: () => void;
@@ -65,8 +70,7 @@ export function useLiveRunnerControls(args: {
 		args.clearFailure();
 		args.resetCaptions();
 		try {
-			const profileId = await args.registerProfileRef.current();
-			const liveClient = args.ensureClient(profileId);
+			const liveClient = args.ensureClient(await args.connectionRef.current());
 			if (args.statusRef.current === 'disconnected' || args.statusRef.current === 'error') {
 				await liveClient.connect();
 			}

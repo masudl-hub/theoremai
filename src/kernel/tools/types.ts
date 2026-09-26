@@ -9,7 +9,6 @@
 
 import type { z } from 'zod';
 import type { ResolveHost } from '../../guardrails/network.ts';
-import type { ErrorKind } from '../../guardrails/theorem-error.ts';
 import type { GuardrailHit, Provenance, TurnTaint } from '../../guardrails/types.ts';
 import type { OAuthEndpoints, ToolCredential } from '../auth/types.ts';
 import type {
@@ -17,10 +16,22 @@ import type {
   HttpMethod,
   ToolAccess,
   ToolAuthType,
-  ToolGateKind,
   ToolLoadTier,
   ToolPermission,
+  ToolResumeCause,
 } from '../schema.ts';
+import type {
+  ToolCallEdit,
+  ToolCallEvent,
+  ToolCallRequest,
+  ToolFailure,
+  ToolGate,
+  ToolPhaseEvent,
+  ToolTraceStep,
+  ToolWarning,
+  TurnToolSnapshot,
+  WireFunctionTool,
+} from '../turn-events.ts';
 import type { InteractionPart, Profile, ToolId, TurnInput, TurnTraceLink } from '../types.ts';
 
 export type {
@@ -28,8 +39,17 @@ export type {
   HttpMethod,
   ToolAccess,
   ToolAuthType,
-  ToolGateKind,
+  ToolCallEdit,
+  ToolCallEvent,
+  ToolCallRequest,
+  ToolFailure,
+  ToolGate,
   ToolPermission,
+  ToolPhaseEvent,
+  ToolTraceStep,
+  ToolWarning,
+  TurnToolSnapshot,
+  WireFunctionTool,
 };
 
 export interface ToolLabels {
@@ -63,26 +83,26 @@ export interface BuiltinToolDef extends ToolBase {
   forcePaidKey?: boolean;
 }
 
-export interface InteractiveRender {
-  kind: string;
-  prompt: string;
-  options?: string[];
-  [key: string]: unknown;
-}
-
 export interface InvokeToolResume {
-  /**
-   * Legacy interactive value — unused for gates / ask_user answers.
-   * @deprecated Prefer a new user turn for ask_user answers.
-   */
-  value?: unknown;
   /**
    * Gate resume:
    * - `true` — skip confirm / permission / `preTool` re-ask and run the body
-   * - `false` — settle as deny (synthetic failure + `post_tool`, no body)
+   *   (an `edited` call runs `preTool` in full)
+   * - `false` — settle as a refusal (failure + `post_tool`, no body)
    * - omit — first attempt (or auth credential retry without grant)
    */
   granted?: boolean;
+  /**
+   * Why a refused gate settles (`granted: false`): `declined` — the user said
+   * no (`failure.kind: 'declined'`); `abandoned` — the user walked away
+   * (`failure.kind: 'cancelled'`). Defaults to `declined`.
+   */
+  cause?: ToolResumeCause;
+  /**
+   * The user edited the arguments before approving (`granted: true`); `from`
+   * is the input the model proposed, as the host stored it with the gate.
+   */
+  edited?: { from: Record<string, unknown> };
 }
 
 export interface ToolContext {
@@ -101,65 +121,6 @@ export interface ToolContext {
   host?: unknown;
   /** W3C `traceparent` of this call's `execute_tool` span; parent a tool's own outbound spans on it. */
   traceparent?: string;
-}
-
-/** A tool step that did not produce a result. */
-export interface ToolFailure {
-  /** What went wrong, for the builder. Stable per failure site; a host `post_tool` deny sets its own. */
-  code: string;
-  /** What kind of failure it is; the user's wording (`error.<kind>`) follows from it. */
-  kind: ErrorKind;
-  /** What the model reads in the tool result. */
-  message: string;
-  /** User-safe wording, added where the event reaches the host. Never sent to the model. */
-  error?: string;
-  details?: unknown;
-}
-
-export interface ToolPause {
-  kind: 'interactive' | 'confirmation' | 'permission' | 'auth';
-  tool: string;
-  render?: InteractiveRender;
-  summary?: string;
-  input: unknown;
-  permission?: ToolPermission;
-  /** Auth challenge metadata when kind is 'auth' */
-  authChallenge?: {
-    slot: string;
-    authType: ToolAuthType;
-    message: string;
-    authorizationUrl?: string;
-    state?: string;
-    issuer?: string;
-    resource?: string;
-    requiredScopes?: string[];
-  };
-}
-
-/**
- * Confirm-to-run / permission / auth gate (stages contract).
- * Not ask_user / awaiting — those complete the tool. Replaces ToolPause for gates.
- */
-export interface ToolGate {
-  kind: ToolGateKind;
-  tool: string;
-  permission?: ToolPermission;
-  summary?: string;
-  authChallenge?: NonNullable<ToolPause['authChallenge']>;
-}
-
-export interface ToolWarning {
-  code: string;
-  message: string;
-  severity?: 'info' | 'warning' | 'error';
-}
-
-export interface ToolTraceStep {
-  name: string;
-  kind: string;
-  status: string;
-  inputs?: Record<string, unknown>;
-  outputs?: Record<string, unknown>;
 }
 
 export type ToolStreamEvent<TOut = unknown> =
@@ -216,7 +177,7 @@ export interface HttpToolAuthConfig {
   type: ToolAuthType;
   headerName?: string; // defaults to 'Authorization'
   headerPrefix?: string; // defaults to 'Bearer '
-  onUnauthenticated?: AuthUnauthenticatedPolicy; // defaults to 'pause'
+  onUnauthenticated?: AuthUnauthenticatedPolicy; // defaults to 'gate'
   /** Pre-resolved AS endpoints and the resource, named on the auth gate for the host's flow */
   preResolved?: Partial<OAuthEndpoints & { resource: string }>;
   scopes?: string[];
@@ -271,28 +232,6 @@ export type ToolDefinitionInput<TIn = unknown, TOut = unknown> =
       output: z.ZodType<TOut>;
     });
 
-/** Provider-facing function declaration derived from a registered tool. */
-export interface WireFunctionTool {
-  type: 'function';
-  name: string;
-  description: string;
-  parameters: Record<string, unknown>;
-}
-
-/** Immutable tool visibility and provider-wire snapshot resolved for one turn. */
-export interface TurnToolSnapshot {
-  builtins: ToolId[];
-  /** Tool ids eligible this turn (custom: allow + path; builtin: model builtInTools + path). */
-  gated: ToolId[];
-  /** Schemas sent to the provider (respects loadTier + t2Loader promotion). */
-  visible: ToolId[];
-  /** Kernel-executable tools: eligible, visible, and loaded (excludes builtins). */
-  executable: ToolId[];
-  path?: string;
-  sessionPermissions?: string[];
-  wire: WireFunctionTool[];
-}
-
 export interface PromoteLoadedResult {
   promoted: ToolId[];
   failure?: ToolFailure;
@@ -317,6 +256,13 @@ export type ToolPolicy = (ctx: ToolLoadContext) => ToolId[] | Promise<ToolId[]>;
 export interface InvokeToolRequest {
   profile: string;
   name: string;
+  /**
+   * The model's call this invoke runs, e.g. the paused call a gate approval
+   * resumes: its events carry this id and join the raw call its turn already
+   * announced. Absent for the host's own call, which gets a fresh id and is
+   * announced first like a model's.
+   */
+  callId?: string;
   input: unknown;
   /** Turn input context for `profile.tools.t1Policy` selection (same as `TurnRequest.input`). */
   turnInput?: TurnInput;
@@ -436,42 +382,4 @@ export interface ModelToolResult {
   provenance?: Provenance;
   /** Directive signals found in the content; raises the turn's taint. */
   suspicious?: GuardrailHit[];
-}
-
-export type ToolCallPhase =
-  | 'running'
-  | 'progress'
-  | 'trace'
-  | 'artifact'
-  | 'warning'
-  | 'complete'
-  /**
-   * @deprecated Shipping interactive/confirm pause. Target: `gate` for
-   * confirm/permission/auth; awaiting is `complete` + awaiting payload.
-   */
-  | 'pause'
-  /** pre_tool confirm / permission / auth — body did not run. */
-  | 'gate'
-  | 'error'
-  /** Provider cancelled an in-flight tool call (e.g. live barge-in). */
-  | 'cancel';
-
-/** Provider or kernel tool-call event emitted during a turn. */
-export interface ToolCallEvent {
-  name: string;
-  /** Provider-native id or kernel-assigned call id. */
-  callId?: string;
-  arguments?: Record<string, unknown>;
-  /** Absent on raw provider tool-call events; set by kernel execution. */
-  phase?: ToolCallPhase;
-  data?: unknown;
-  step?: ToolTraceStep;
-  artifact?: unknown;
-  warning?: ToolWarning;
-  output?: unknown;
-  /** @deprecated Target: `gate` for confirm/permission/auth. */
-  pause?: ToolPause;
-  /** pre_tool gate — body did not run. */
-  gate?: ToolGate;
-  failure?: ToolFailure;
 }

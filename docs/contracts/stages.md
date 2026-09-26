@@ -108,6 +108,8 @@ interface StageContext {
 
 interface StageResult {
   inject?: TurnHistoryMessage[];
+  /** Names this inject; the stage event recording it landing carries it in `injected`. */
+  injectId?: string;
   abort?: boolean | { reason?: string };
   /** pre_tool: refuse the call. post_tool: replace the result with this failure. */
   deny?: { code?: string; message?: string };
@@ -168,8 +170,20 @@ ran; `warnings` lists warning codes. See
 5. Live: apply as live ingress only — **text** via `sendText` (or equivalent
    realtime text). **No** `TurnMediaRef` / history `parts` inject on live
    (live already refuses media refs). Other modalities out of scope for inject.
+   An inject with any message live cannot send as plain text (`parts`, or no
+   text) is refused whole with an `inject_invalid_messages` stage warning;
+   none of it is written.
 6. `before_end` inject on text: re-enter the step loop subject to **maxSteps**
    (see Budgets). On live: schedule ingress; does not invent a fake model pull.
+
+**Reporting a landed inject.** A handler names its inject with `injectId` (a
+non-empty string; anything else refuses the inject whole with an
+`inject_id_invalid` warning, as does an `injectId` without an `inject`). Where
+the messages land in the conversation — not when the handler returns — the
+kernel emits `{ type: 'stage', stage, callId?, toolName?, injected: [{ id }] }`
+naming the injects that landed at that stage. An inject that never lands (a
+live cycle that aborts first, a refused live inject) is never reported, so a
+host that sent it knows to send it again. Unnamed injects land unreported.
 
 ### `abort`
 
@@ -295,9 +309,11 @@ OpenRouter, AI SDK, Gemini Live tool responses.
 ### Same-round batch rules
 
 1. Run pending calls **in order**.
-2. On **gate**: emit gate wire for that call; **do not** start its body; **do
-   not** start later siblings in this batch; end with `done.stop.kind: 'gate'`
-   + snapshot (includes already-completed siblings’ results in history).
+2. On **gate**: emit gate wire for that call; **do not** start its body;
+   **continue** siblings — a gate holds only its own call, and a sibling that
+   gates waits too. After the batch, end with `done.stop.kind: 'gate'` +
+   snapshot. Every call of the batch carries the batch's `stepId`, so the host
+   records the batch as one assistant message when it resumes.
 3. On **deny**: write synthetic failure result; `post_tool`; **continue**
    siblings.
 4. On **awaiting / success / error**: `post_tool`; **continue** siblings.
@@ -431,7 +447,7 @@ tool-request events, raw `sendToolResponse`.
 | Awaiting completion | Turn may be `idle` / completed; host UI from tool output; **not** composer `gated` |
 | Gate helpers | `gatedToolFromEvents` (stop `gate`) + `awaitingFromEvents` (complete+awaiting) |
 | Abandon | `abandonGatedToolSession` |
-| Playground steer inbox | FIFO **one consume per inject-capable stage fire**; keyed by turn id (text) or session id (live). Do not consume on `pre_tool` / `post_turn` |
+| Playground steer inbox | FIFO **one consume per inject-capable stage fire**; keyed by turn id (text) or session id (live). Do not consume on `pre_tool` / `post_turn`. Each steer carries the client's id (`TheoremSteerRequest.id`) and is returned as `injectId`, so the turn names it in `stage.injected` once it lands. One owner in `@theoremai/react/server`: `parseSteerUnit` (id + user messages only) and `steerStage(inbox, key)`; a host brings only its `SteerInbox` store |
 | Snapshot | Still on `done` when `stop.kind === 'gate'` (and available on normal `done` when tools ran — not only gates) |
 
 ---

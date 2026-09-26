@@ -10,10 +10,10 @@
  * @module
  */
 
-import type { ToolCallEvent } from '../kernel/tools/types.ts';
+import type { TurnEventOf } from '../kernel/turn-events.ts';
 import type { TurnEvent } from '../kernel/types.ts';
 import { type LexiconOverrides, type LexiconParams, lexiconText } from './lexicon.ts';
-import { type ErrorCopy, type ErrorKind, TheoremError } from './theorem-error.ts';
+import { type ErrorCopies, type ErrorKind, TheoremError } from './theorem-error.ts';
 
 /** True when `err` is an abort (DOMException or Error named AbortError). */
 function isAbortError(err: unknown): boolean {
@@ -73,11 +73,11 @@ function kindText(kind: ErrorKind, lexicon?: LexiconOverrides, params?: LexiconP
  */
 function wording(
   kind: ErrorKind,
-  copy: ErrorCopy | readonly ErrorCopy[] | undefined,
+  copy: ErrorCopies | undefined,
   lexicon?: LexiconOverrides,
 ): string {
   if (!copy) return kindText(kind, lexicon);
-  const lines = Array.isArray(copy) ? copy : [copy as ErrorCopy];
+  const lines = 'key' in copy ? [copy] : copy;
   return lines.map((line) => lexiconText(line.key, line.params, lexicon)).join('\n');
 }
 
@@ -101,17 +101,15 @@ function describeError(err: unknown): string {
   return String(err);
 }
 
+/** An error event as a producer makes it: always with its raw detail. */
+type ProducedError = TurnEventOf<'error'> & { errorInternal: string };
+
 /**
  * An error event as a producer knows it: the kind and the raw detail. The
  * user's wording is added where the event reaches the host
  * (`withPublicWording`), the one place that knows the profile.
  */
-function toErrorEvent(err: unknown): {
-  type: 'error';
-  errorKind: ErrorKind;
-  errorCopy?: ErrorCopy | readonly ErrorCopy[];
-  errorInternal: string;
-} {
+function toErrorEvent(err: unknown): ProducedError {
   return {
     type: 'error',
     errorKind: errorKind(err),
@@ -122,32 +120,28 @@ function toErrorEvent(err: unknown): {
 
 /**
  * Add the user's wording to an event on its way to the host: an error event's
- * `error`, a failed tool step's `failure.error`, and an ended session's
- * `message`. Wording already set (host copy) is kept.
+ * `error` and a failed tool step's `failure.error`. Wording already set (host
+ * copy) is kept.
  */
 function withPublicWording(event: TurnEvent, lexicon?: LexiconOverrides): TurnEvent {
   if (event.type === 'error' && event.error === undefined) {
-    return { ...event, error: wording(event.errorKind ?? 'internal', event.errorCopy, lexicon) };
+    return { ...event, error: wording(event.errorKind, event.errorCopy, lexicon) };
   }
-  if (event.session?.kind === 'ended' && event.session.message === undefined) {
-    return {
-      ...event,
-      session: { ...event.session, message: lexiconText('live.session_ended', {}, lexicon) },
-    };
-  }
-  const failure = event.tool?.failure;
-  if (event.tool && failure && failure.error === undefined) {
-    const tool: ToolCallEvent = {
-      ...event.tool,
-      failure: { ...failure, error: kindText(failure.kind, lexicon, { tool: event.tool.name }) },
-    };
-    return { ...event, tool };
+  if (
+    event.type === 'tool' &&
+    event.tool.phase === 'error' &&
+    event.tool.failure.error === undefined
+  ) {
+    const { tool } = event;
+    const error = kindText(tool.failure.kind, lexicon, { tool: tool.name });
+    return { ...event, tool: { ...tool, failure: { ...tool.failure, error } } };
   }
   return event;
 }
 
-export type { ErrorCopy, ErrorKind, TheoremErrorOptions } from './theorem-error.ts';
+export type { ErrorCopies, ErrorCopy, ErrorKind, TheoremErrorOptions } from './theorem-error.ts';
 export { ERROR_KINDS } from './theorem-error.ts';
+export type { ProducedError };
 export {
   describeError,
   errorKind,

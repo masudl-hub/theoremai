@@ -20,6 +20,7 @@ import {
   wireInputReference,
   wireInputReferences,
 } from '../../../src/providers/openrouter/openai/image-payload.ts';
+import { firstOf } from '../../fixtures/events.ts';
 
 const IMAGE: ImageResponseFormat = {
   type: 'image',
@@ -174,7 +175,7 @@ Deno.test('yieldImagesEndpoint maps /images JSON to media and tokens', async () 
     events.map((event) => event.type),
     ['media', 'tokens', 'done'],
   );
-  assertEquals(events[0]?.media, { mimeType: 'image/png', data: 'img-bytes' });
+  assertEquals(firstOf(events, 'media')?.media, { mimeType: 'image/png', data: 'img-bytes' });
   assertEquals(
     taped.map((row) => row.eventType ?? 'body'),
     ['http_request', 'http_response', 'body'],
@@ -232,8 +233,8 @@ Deno.test('yieldInterleavedChat yields text, media, tokens and done, taping each
     events.map((event) => event.type),
     ['text', 'media', 'tokens', 'done'],
   );
-  assertEquals(events[0]?.text, 'A leaf.');
-  assertEquals(events[1]?.media, { mimeType: 'image/png', data: 'iVBORw0K' });
+  assertEquals(firstOf(events, 'text')?.text, 'A leaf.');
+  assertEquals(firstOf(events, 'media')?.media, { mimeType: 'image/png', data: 'iVBORw0K' });
   assertEquals(
     taped.map((row) => row.eventType ?? 'body'),
     ['http_request', 'http_response', 'body'],

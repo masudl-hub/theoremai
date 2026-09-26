@@ -1,7 +1,9 @@
 import '../../../fixtures/test-host.ts';
 import { TheoremError } from '../../../../src/guardrails/error.ts';
+import { resolveTurn } from '../../../../src/kernel/default-scope.ts';
 import { assertEquals, assertThrows } from '../../../../src/kernel/engine/assert.ts';
-import { resolveTurn } from '../../../../src/kernel/registry/resolve.ts';
+import { providerBuiltins } from '../../../../src/kernel/registry/provider-request.ts';
+import { defaultKernelScope } from '../../../../src/kernel/scope.ts';
 import type {
   InteractionPart,
   ProviderCompleteRequest,
@@ -26,7 +28,7 @@ function createMockTurnRequest(profile: string, text: string): ProviderCompleteR
     summaries: undefined,
     maxOutputTokens: generation.maxOutputTokens,
     temperature: generation.temperature,
-    builtins: generation.builtins,
+    builtins: providerBuiltins(defaultKernelScope.tools, generation.builtins),
     system: 'Host system prompt',
     input: generation.input,
     structured: generation.structured,

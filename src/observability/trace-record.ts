@@ -27,6 +27,7 @@
 import { redactSensitiveOnly, sanitizeText } from '../guardrails/sanitize.ts';
 import { sha256, sha256Base64 } from '../kernel/engine/hash.ts';
 import { removeCanaries, tapeUpstream } from '../providers/shared/upstream-tape.ts';
+import { TRACE_VERSION, type TraceRecord } from './trace-schema.ts';
 import {
   isTraceBytes,
   isTraceContent,
@@ -42,24 +43,9 @@ import type {
   ResolvedTraceScrub,
 } from './types.ts';
 
-const TRACE_VERSION = 3;
 /** Pinned OpenTelemetry GenAI semantic conventions the attribute names follow. */
 const TRACE_SCHEMA_URL =
   'https://github.com/open-telemetry/semantic-conventions-genai/tree/8ffdf56';
-
-/** One trace record: a turn, a host-invoked tool, or a Live session root or response. */
-interface TraceRecord {
-  v: typeof TRACE_VERSION;
-  schemaUrl: string;
-  /** Host-supplied process attributes (`observability.resource`), e.g. `service.name`. */
-  resource: TraceAttributes;
-  /** Host-owned metadata from the request, passed through untouched. */
-  metadata?: Record<string, unknown>;
-  /** Root first, then in start order. */
-  spans: TraceSpan[];
-  /** sha256 hex → exact scrubbed text; every hash the spans reference. */
-  content: Record<string, string>;
-}
 
 /** Reference keys: stored text, and stored JSON a reader parses. */
 const TEXT_REF = 'content_sha256';

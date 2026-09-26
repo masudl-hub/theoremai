@@ -1,6 +1,6 @@
 import type { TurnTaint } from '../../../guardrails/types.ts';
 import type { SpanHandle } from '../../../observability/trace-span.ts';
-import type { TurnToolSnapshot } from '../../tools/types.ts';
+import type { ToolRegistry } from '../../tools/registry.ts';
 import type {
   InteractionPart,
   ModelBinding,
@@ -27,6 +27,8 @@ interface TurnTraceState {
 }
 
 interface StepExecutionState {
+  /** The turn's scope's tools: calls and provider builtins are looked up here. */
+  tools: ToolRegistry;
   trace: TurnTraceState;
   currentHistory: TurnHistoryMessage[];
   stepCount: number;
@@ -51,8 +53,6 @@ interface StepExecutionState {
   taint?: TurnTaint;
   /** Last provider stop from a discarded provider `done` event. */
   lastStop?: TurnStop;
-  /** Tool snapshot at tool pause — emitted on terminal `done` when `stop.kind === 'tool'`. */
-  toolSnapshot?: TurnToolSnapshot;
   /** Latest Google Interactions id observed on the current provider stream. */
   lastInteractionId?: string;
   /**
@@ -97,6 +97,7 @@ function appendUserInput(state: StepExecutionState, parts: readonly InteractionP
  * theirs stays put.
  */
 function openTurnState(args: {
+  tools: ToolRegistry;
   profile: Profile;
   generation: ResolvedGeneration;
   trace: TurnTraceState;
@@ -105,6 +106,7 @@ function openTurnState(args: {
 }): StepExecutionState {
   const { profile, generation } = args;
   const state: StepExecutionState = {
+    tools: args.tools,
     trace: args.trace,
     currentHistory: [...(generation.history ?? [])],
     stepCount: 0,

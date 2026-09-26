@@ -3,9 +3,10 @@
  * leaked token — not the fragment that completed it, not an encoded form.
  */
 import '../fixtures/test-host.ts';
+import { runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import { runTurn } from '../../src/kernel/engine/runner.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
+import { firstOf } from '../fixtures/events.ts';
 
 function canaryOf(req: ProviderCompleteRequest): string {
   return /This turn's canary is (\S+)\./.exec(req.system ?? '')?.[1] ?? '';
@@ -41,7 +42,7 @@ Deno.test('a canary split across text fragments reaches the host in no part', as
     { type: 'text', text: `the note says ${c.slice(0, -4)}` },
     { type: 'text', text: c.slice(-4) },
   ]);
-  assertEquals(events.find((e) => e.type === 'error')?.errorInternal, 'canary leaked');
+  assertEquals(firstOf(events, 'error')?.errorInternal, 'canary leaked');
   const seen = visibleText(events);
   assertEquals(seen.includes(canary.slice(-4)), false);
   assertEquals(seen.includes(canary.slice(0, 8)), false);
@@ -64,13 +65,13 @@ Deno.test('a base64-encoded canary is blocked and never shown to the host', asyn
   const { events, canary } = await hostEvents((c) => [
     { type: 'text', text: `encoded ${btoa(c)}` },
   ]);
-  assertEquals(events.find((e) => e.type === 'error')?.errorInternal, 'canary leaked');
+  assertEquals(firstOf(events, 'error')?.errorInternal, 'canary leaked');
   assertEquals(visibleText(events).includes(btoa(canary)), false);
 });
 
 Deno.test('a canary in a non-streamed event is blocked and never shown to the host', async () => {
   const { events, canary } = await hostEvents((c) => [
-    { type: 'error', error: `failed near ${c}` },
+    { type: 'error', errorKind: 'internal', error: `failed near ${c}` },
   ]);
   assertEquals(
     events.find((e) => e.type === 'error' && e.errorInternal === 'canary leaked') !== undefined,

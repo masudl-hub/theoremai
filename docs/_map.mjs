@@ -160,7 +160,7 @@ const graph = {
           sections: ['Stream events'],
         },
         {
-          paths: ['src/kernel/engine/runner/**', 'src/kernel/engine/runner.ts'],
+          paths: ['src/kernel/engine/runner/**'],
           sections: ['Turn lifecycle'],
         },
         {

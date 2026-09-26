@@ -5,11 +5,10 @@
 import { z } from 'zod';
 import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
 import { forClient } from '../../src/host/client-turn.ts';
+import { registerProfile, registerTool, runSession } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { sha256Base64 } from '../../src/kernel/engine/hash.ts';
-import { runSession } from '../../src/kernel/engine/session/mod.ts';
-import { defineProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
-import { registerTool } from '../../src/kernel/tools/registry.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { LiveSession, SessionRequest, TurnEvent } from '../../src/kernel/types.ts';
 import {
   contentOf,
@@ -17,6 +16,7 @@ import {
   type TraceRecord,
 } from '../../src/observability/trace-record.ts';
 import type { TraceAttributes, TraceSpan } from '../../src/observability/trace-span.ts';
+import { eventsOf, firstOf, sessionEventOf } from '../fixtures/events.ts';
 import { MockLiveWebSocket } from '../fixtures/live-socket.ts';
 import { HOST_BINDINGS } from '../fixtures/models.ts';
 import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
@@ -55,6 +55,21 @@ registerProfile(
       sessionResumption: true,
     },
     tools: { allow: [TOOL] },
+  }),
+);
+
+/** The same live profile with its own ended-call wording. */
+const WORDED_PROFILE = `${PROFILE}_worded`;
+const ENDED_WORDING = 'That call is over. Start another any time.';
+registerProfile(
+  defineProfile({
+    type: 'live',
+    id: WORDED_PROFILE,
+    identity: { handle: 'live', system: 'hi' },
+    models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, key: 'slotA' } },
+    live: { voice: 'Aoede', ingress: { text: true } },
+    tools: { allow: [TOOL] },
+    lexicon: { 'live.session_ended': ENDED_WORDING },
   }),
 );
 
@@ -151,6 +166,8 @@ Deno.test('a response is its own record under the session, with what was sent fo
   assertEquals(call.kind, 'CLIENT');
   assertEquals(call.status, { code: 'OK' });
   assertEquals(call.attributes['gen_ai.request.stream'], true);
+  // The first output frame stamps the person's wait from the response's first input frame.
+  assertEquals(typeof call.attributes['gen_ai.response.time_to_first_chunk'], 'number');
   assertEquals(call.attributes['gen_ai.output.type'], 'speech');
   assertEquals(call.attributes['gen_ai.agent.name'], PROFILE);
   assertEquals(call.attributes['gen_ai.conversation.id'], 'conv-live-1');
@@ -176,12 +193,12 @@ Deno.test('a response is its own record under the session, with what was sent fo
   );
   assertEquals(sessionEvents(root)[1]?.initiator, 'host');
 
-  const tokens = events.filter((e) => e.type === 'tokens');
+  const tokens = eventsOf(events, 'tokens');
   assertEquals(
     tokens.map((e) => e.tokens?.input),
     [12],
   );
-  const done = events.find((e) => e.type === 'done');
+  const done = firstOf(events, 'done');
   assertEquals(done?.traceparent, `00-${call.traceId}-${call.spanId}-01`);
 });
 
@@ -323,7 +340,7 @@ Deno.test('a response with no reported usage has one estimated usage event', asy
     { serverContent: { turnComplete: true } },
   );
   const events = await finish(harness);
-  const tokens = events.filter((e) => e.type === 'tokens');
+  const tokens = eventsOf(events, 'tokens');
   assertEquals(tokens.length, 1);
   assertEquals(tokens[0]?.tokens?.estimated, ['input', 'output']);
 });
@@ -358,7 +375,7 @@ Deno.test('a provider close mid-session reaches the host as an error with its ki
   const harness = await open();
   harness.socket.close(1011, 'upstream overloaded');
   const events = await harness.events;
-  const error = events.find((e) => e.type === 'error');
+  const error = firstOf(events, 'error');
   assertEquals(error?.errorKind, 'unavailable');
   assertEquals(error?.error, lexiconDefault('error.unavailable'));
   await harness.session.close();
@@ -390,15 +407,15 @@ Deno.test('a close after goAway ends the session quietly, with every close fact 
     events.some((e) => e.type === 'error'),
     false,
   );
-  const ended = events.find((e) => e.session?.kind === 'ended');
-  assertEquals(ended?.session?.message, lexiconDefault('live.session_ended'));
-  assertEquals(ended?.session?.timeLeftMs, 50_000);
-  assertEquals(ended?.session?.ended?.cause, 'go_away');
-  assertEquals(ended?.session?.ended?.code, 1008);
-  assertEquals(ended?.session?.ended?.errorKind, 'unsupported');
-  assertEquals(typeof ended?.session?.ended?.closedAfterMs, 'number');
+  const ended = sessionEventOf(events, 'ended');
+  assertEquals(ended?.session.message, lexiconDefault('live.session_ended'));
+  assertEquals(ended?.session.timeLeftMs, 50_000);
+  assertEquals(ended?.session.ended.cause, 'go_away');
+  assertEquals(ended?.session.ended.code, 1008);
+  assertEquals(ended?.session.ended.errorKind, 'unsupported');
+  assertEquals(typeof ended?.session.ended.closedAfterMs, 'number');
   assertEquals(ended?.errorInternal?.includes('1008: session limit'), true);
-  assertEquals(ended && forClient(ended).errorInternal, undefined);
+  assertEquals(ended && firstOf([forClient(ended)], 'session')?.errorInternal, undefined);
   await harness.session.close();
   const root = rootOf(sessionRecord(harness.records));
   assertEquals(root.status, { code: 'UNSET' });
@@ -414,15 +431,24 @@ Deno.test('a close after goAway ends the session quietly, with every close fact 
   assertEquals(typeof closed?.closed_after_ms, 'number');
 });
 
+Deno.test('an ended session speaks in the profile lexicon', async () => {
+  const harness = await open({ profile: WORDED_PROFILE });
+  await deliver(harness, { goAway: {} });
+  harness.socket.close(1000, '');
+  const ended = sessionEventOf(await harness.events, 'ended');
+  assertEquals(ended?.session.message, ENDED_WORDING);
+  await harness.session.close();
+});
+
 Deno.test('a normal close after goAway ends the session with no failure kind', async () => {
   const harness = await open();
   await deliver(harness, { goAway: {} });
   harness.socket.close(1000, '');
   const events = await harness.events;
-  const ended = events.find((e) => e.session?.kind === 'ended');
-  assertEquals(ended?.session?.ended?.code, 1000);
-  assertEquals(ended?.session?.ended?.errorKind, undefined);
-  assertEquals(ended?.session?.timeLeftMs, undefined);
+  const ended = sessionEventOf(events, 'ended');
+  assertEquals(ended?.session.ended.code, 1000);
+  assertEquals(ended?.session.ended.errorKind, undefined);
+  assertEquals(ended?.session.timeLeftMs, undefined);
   assertEquals(ended?.errorInternal, undefined);
   await harness.session.close();
   const closed = sessionEvents(rootOf(sessionRecord(harness.records))).find(

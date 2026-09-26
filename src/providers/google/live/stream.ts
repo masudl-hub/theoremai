@@ -8,7 +8,8 @@
  */
 
 import { type ErrorKind, TheoremError } from '../../../guardrails/error.ts';
-import type { ProviderCompleteRequest, TurnEvent } from '../../../kernel/types.ts';
+import { asRecord } from '../../../kernel/engine/record.ts';
+import type { ProviderCompleteRequest, ProviderEvent } from '../../../kernel/types.ts';
 import { findLast } from '../../../kernel/util/find-last.ts';
 import { readGeminiApiError } from '../api-error.ts';
 import {
@@ -71,7 +72,12 @@ export function sendLiveFrame(
  * so the kernel records it beside the events it produced.
  */
 export type SessionQueueItem =
-  | { type: 'batch'; events: TurnEvent[]; turnPhase: LiveTurnPhase; row: Record<string, unknown> }
+  | {
+      type: 'batch';
+      events: ProviderEvent[];
+      turnPhase: LiveTurnPhase;
+      row: Record<string, unknown>;
+    }
   | { type: 'row'; row: Record<string, unknown> }
   | { type: 'error'; error: Error; row?: Record<string, unknown> }
   /**
@@ -89,9 +95,15 @@ export interface GoAwayClose {
 }
 
 /** The last `goAway` in a folded frame, if the frame carried one. */
-function goAwayIn(events: readonly TurnEvent[]): { timeLeftMs?: number } | undefined {
-  const warning = findLast(events, (ev) => ev.session?.kind === 'closing_soon');
-  return warning ? { timeLeftMs: warning.session?.timeLeftMs } : undefined;
+function goAwayIn(events: readonly ProviderEvent[]): { timeLeftMs?: number } | undefined {
+  const warning = findLast(
+    events,
+    (ev): ev is Extract<ProviderEvent, { type: 'session' }> =>
+      ev.type === 'session' && ev.session.kind === 'closing_soon',
+  );
+  return warning?.session.kind === 'closing_soon'
+    ? { timeLeftMs: warning.session.timeLeftMs }
+    : undefined;
 }
 
 export async function readMessageData(data: unknown): Promise<string> {
@@ -254,15 +266,14 @@ export function createLiveQueue(): LiveQueue {
  */
 export function turnPhaseFromMessage(
   message: Record<string, unknown>,
-  events: TurnEvent[],
+  events: ProviderEvent[],
 ): LiveTurnPhase {
   const interrupted = events.some((ev) => ev.type === 'done' && ev.interrupted === true);
   if (interrupted) return 'abort';
   const status = readLiveInteractionStatus(message);
   if (status === 'IDLE') return 'complete';
   if (status === 'IN_PROGRESS') return 'streaming';
-  const serverContent = message.serverContent as { turnComplete?: boolean } | undefined;
-  if (serverContent?.turnComplete === true) return 'complete';
+  if (asRecord(message.serverContent)?.turnComplete === true) return 'complete';
   return 'streaming';
 }
 

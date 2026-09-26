@@ -36,9 +36,8 @@ import {
   type LiveAttack,
   summarizeAttackBank,
 } from '../src/guardrails/testing.ts';
-import { runTurn } from '../src/kernel/engine/runner.ts';
-import { defineProfile, getProfile, registerProfile } from '../src/kernel/registry/profiles.ts';
-import { resolveTurn } from '../src/kernel/registry/resolve.ts';
+import { getProfile, registerProfile, resolveTurn, runTurn } from '../src/kernel/default-scope.ts';
+import { defineProfile } from '../src/kernel/registry/profiles.ts';
 import type { ModelProvider, TurnEvent, TurnRequest } from '../src/kernel/types.ts';
 import { OMIT_INJECTION, OMIT_SENSITIVE } from '../src/observability/spans.ts';
 import { createProvider } from '../src/providers/create-provider.ts';
@@ -183,7 +182,7 @@ function createLiveProvider(providerKind: 'openrouter' | 'gemini'): ModelProvide
 }
 
 function serializedInbound(req: TurnRequest): string {
-  const safe = sanitizeTurnRequest(req);
+  const safe = sanitizeTurnRequest(req, getProfile(req.profile));
   const parts: string[] = [];
   if (safe.input?.text) parts.push(safe.input.text);
   if (safe.input?.slots) parts.push(JSON.stringify(safe.input.slots));
@@ -231,8 +230,7 @@ function checkInbound(attack: LiveAttack): { miss: boolean; notes: string[] } {
 
 function clientAssistantText(events: TurnEvent[]): string {
   return events
-    .filter((e) => (e.type === 'text' || e.type === 'thought') && e.text)
-    .map((e) => e.text)
+    .flatMap((e) => ((e.type === 'text' || e.type === 'thought') && e.text ? [e.text] : []))
     .join('\n');
 }
 

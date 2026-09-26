@@ -1,9 +1,10 @@
 import '../../../fixtures/test-host.ts';
 import { assertEquals, assertThrows } from '@std/assert';
 import { TheoremError } from '../../../../src/guardrails/error.ts';
-import { getProfile, registerProfile } from '../../../../src/kernel/registry/profiles.ts';
-import { resolveTurn } from '../../../../src/kernel/registry/resolve.ts';
-import type { KeyVault, TurnEvent } from '../../../../src/kernel/types.ts';
+import { getProfile, registerProfile, resolveTurn } from '../../../../src/kernel/default-scope.ts';
+import { providerBuiltins } from '../../../../src/kernel/registry/provider-request.ts';
+import { defaultKernelScope } from '../../../../src/kernel/scope.ts';
+import type { KeyVault } from '../../../../src/kernel/types.ts';
 import { createProvider } from '../../../../src/providers/create-provider.ts';
 import {
   camelToSnake,
@@ -11,6 +12,7 @@ import {
 } from '../../../../src/providers/google/interactions/framing.ts';
 import { createInteractionsProvider } from '../../../../src/providers/google/interactions/stream.ts';
 import { wrapPcmAsWav } from '../../../../src/providers/shared/pcm.ts';
+import { firstOf } from '../../../fixtures/events.ts';
 import { geminiModels } from '../../../fixtures/models.ts';
 
 const vault: KeyVault = {
@@ -22,14 +24,6 @@ const vault: KeyVault = {
 
 function noWait(): Promise<void> {
   return Promise.resolve();
-}
-
-async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
-  const out: TurnEvent[] = [];
-  for await (const event of gen) {
-    out.push(event);
-  }
-  return out;
 }
 
 /** A `step.delta` row as the stream sends it (shape recorded 23/09/2026). */
@@ -71,7 +65,7 @@ Deno.test('Interactions body for speech uses audio response_format and speech_co
     summaries: generation.summaries,
     maxOutputTokens: generation.maxOutputTokens,
     temperature: generation.temperature,
-    builtins: generation.builtins,
+    builtins: providerBuiltins(defaultKernelScope.tools, generation.builtins),
     system: 'sys',
     input: generation.input,
     structured: generation.structured,
@@ -114,7 +108,7 @@ Deno.test('Interactions speech turn wraps PCM as WAV media', async () => {
         ]),
       ),
   });
-  const events = await collect(
+  const events = await Array.fromAsync(
     provider.complete({
       model: generation.model,
       apiId: generation.apiId,
@@ -122,7 +116,7 @@ Deno.test('Interactions speech turn wraps PCM as WAV media', async () => {
       summaries: generation.summaries,
       maxOutputTokens: generation.maxOutputTokens,
       temperature: generation.temperature,
-      builtins: generation.builtins,
+      builtins: providerBuiltins(defaultKernelScope.tools, generation.builtins),
       system: '',
       input: generation.input,
       structured: generation.structured,
@@ -135,7 +129,7 @@ Deno.test('Interactions speech turn wraps PCM as WAV media', async () => {
     events.map((ev) => ev.type),
     ['media', 'response', 'done'],
   );
-  const media = events[0]?.media;
+  const media = firstOf(events, 'media')?.media;
   assertEquals(media?.mimeType, 'audio/wav');
   const wavBytes = wrapPcmAsWav(pcm, { sampleRate: 24000, channels: 1 });
   assertEquals(media?.data, btoa(String.fromCharCode(...wavBytes)));
@@ -152,7 +146,7 @@ Deno.test('Interactions speech profile errors when model emits text only (no fak
     fetch: () =>
       Promise.resolve(sseResponse([deltaRow({ type: 'text', text: 'hello' }), COMPLETED_ROW])),
   });
-  const events = await collect(
+  const events = await Array.fromAsync(
     provider.complete({
       model: generation.model,
       apiId: generation.apiId,
@@ -160,7 +154,7 @@ Deno.test('Interactions speech profile errors when model emits text only (no fak
       summaries: generation.summaries,
       maxOutputTokens: generation.maxOutputTokens,
       temperature: generation.temperature,
-      builtins: generation.builtins,
+      builtins: providerBuiltins(defaultKernelScope.tools, generation.builtins),
       system: '',
       input: generation.input,
       structured: generation.structured,
@@ -173,8 +167,8 @@ Deno.test('Interactions speech profile errors when model emits text only (no fak
     events.map((event) => event.type),
     ['text', 'response', 'done', 'error'],
   );
-  assertEquals(events[0]?.text, 'hello');
-  assertEquals(events[3]?.errorKind, 'bad_response');
+  assertEquals(firstOf(events, 'text')?.text, 'hello');
+  assertEquals(firstOf(events, 'error')?.errorKind, 'bad_response');
 });
 
 Deno.test('Interactions non-voice profile does not synthesize speech media from text', async () => {
@@ -188,7 +182,7 @@ Deno.test('Interactions non-voice profile does not synthesize speech media from 
     fetch: () =>
       Promise.resolve(sseResponse([deltaRow({ type: 'text', text: 'hello' }), COMPLETED_ROW])),
   });
-  const events = await collect(
+  const events = await Array.fromAsync(
     provider.complete({
       model: generation.model,
       apiId: generation.apiId,
@@ -196,7 +190,7 @@ Deno.test('Interactions non-voice profile does not synthesize speech media from 
       summaries: generation.summaries,
       maxOutputTokens: generation.maxOutputTokens,
       temperature: generation.temperature,
-      builtins: generation.builtins,
+      builtins: providerBuiltins(defaultKernelScope.tools, generation.builtins),
       system: '',
       input: generation.input,
       structured: generation.structured,

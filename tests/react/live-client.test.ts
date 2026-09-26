@@ -8,7 +8,6 @@ import {
 } from '../../react/src/client/audio-level.ts';
 import { clientFailure } from '../../react/src/client/failure.ts';
 import { applyLiveTurnToolEvent } from '../../react/src/client/live/apply-live-turn-tool-event.ts';
-import { sessionEndedText } from '../../react/src/client/live/session-ended.ts';
 import { isPermissionDeniedError } from '../../react/src/client/live-errors.ts';
 import { parseLiveServerEnvelope } from '../../react/src/client/live-messages.ts';
 import {
@@ -142,6 +141,8 @@ Deno.test('a live tool error shows the user wording, never the model message', (
     type: 'tool',
     tool: {
       name: 'search',
+      callId: 'call-1',
+      at: 0,
       phase: 'error',
       failure: {
         code: 'upstream',
@@ -150,31 +151,10 @@ Deno.test('a live tool error shows the user wording, never the model message', (
         error: 'Search is down.',
       },
     },
-  } as TurnEvent);
+  });
   assertEquals(failure, {
     error: 'Search is down.',
     errorKind: 'unavailable',
     errorInternal: 'model: retry later',
   });
-});
-
-Deno.test('a live tool error without a failure is worded from the lexicon', () => {
-  const failure = liveToolFailure({
-    type: 'tool',
-    tool: { name: 'search', phase: 'error' },
-  } as TurnEvent);
-  assertEquals(failure, { error: 'Tool failed.', errorKind: 'failed' });
-});
-
-Deno.test('an ended session reads the host wording, else the profile lexicon', () => {
-  const ended = { cause: 'go_away' as const, code: 1000, closedAfterMs: 0 };
-  assertEquals(sessionEndedText({ kind: 'ended', ended, message: 'Host copy.' }), 'Host copy.');
-  assertEquals(
-    sessionEndedText({ kind: 'ended', ended }),
-    'The call has ended. Please start a new one to carry on.',
-  );
-  assertEquals(
-    sessionEndedText({ kind: 'ended', ended }, { 'live.session_ended': 'Call over.' }),
-    'Call over.',
-  );
 });

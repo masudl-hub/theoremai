@@ -17,7 +17,10 @@ Deno.test('createCanaryGateSession initializes canary and gate', () => {
 
 Deno.test('filterCanaryGatedEvents passes non-streaming events without canary', () => {
   const session = createCanaryGateSession(mintCanary());
-  const events: TurnEvent[] = [{ type: 'done' }, { type: 'error', error: 'something' }];
+  const events: TurnEvent[] = [
+    { type: 'done', stop: { kind: 'completed' } },
+    { type: 'error', errorKind: 'internal', error: 'something' },
+  ];
   const result = filterCanaryGatedEvents(session, events);
   assertEquals(result.leaked, false);
   if (!result.leaked) {
@@ -28,7 +31,7 @@ Deno.test('filterCanaryGatedEvents passes non-streaming events without canary', 
 Deno.test('filterCanaryGatedEvents signals leaked when a non-streaming event contains the canary', () => {
   const canary = mintCanary();
   const session = createCanaryGateSession(canary);
-  const events: TurnEvent[] = [{ type: 'error', error: canary }];
+  const events: TurnEvent[] = [{ type: 'error', errorKind: 'internal', error: canary }];
   assertEquals(filterCanaryGatedEvents(session, events).leaked, true);
 });
 
@@ -41,7 +44,7 @@ Deno.test('filterCanaryGatedEvents emits safe text from streaming events', () =>
   const result = filterCanaryGatedEvents(session, events);
   assertEquals(result.leaked, false);
   if (!result.leaked) {
-    const combined = result.events.map((e) => e.text ?? '').join('');
+    const combined = result.events.map((e) => (e.type === 'text' ? e.text : '')).join('');
     assertEquals(combined.includes('hello'), true);
   }
 });

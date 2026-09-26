@@ -4,7 +4,7 @@
  * @module
  */
 
-import type { TurnEvent } from '../kernel/types.ts';
+import type { TurnEvent, TurnEventOf } from '../kernel/turn-events.ts';
 import { jsonlSink, memorySink } from '../observability/trace.ts';
 import { inlineContent, type TraceRecord } from '../observability/trace-record.ts';
 import type { TraceSink } from '../observability/trace-sink.ts';
@@ -37,10 +37,7 @@ function createCliTraceCapture(traceDir?: string): CliTraceCapture {
   };
 }
 
-function printVerboseEvidence(event: TurnEvent): void {
-  if (event.type !== 'evidence' || !event.evidence) {
-    return;
-  }
+function printVerboseEvidence(event: TurnEventOf<'evidence'>): void {
   const e = event.evidence;
   if (e.raw) {
     console.log('\n\x1b[2m[verbose evidence.raw]\x1b[0m');
@@ -55,18 +52,15 @@ function printVerboseError(event: TurnEvent): void {
   console.error(`\n\x1b[2m[verbose errorInternal]\x1b[0m ${event.errorInternal}`);
 }
 
-function printRunEvidence(event: TurnEvent, verbose: boolean): void {
+function printRunEvidence(event: TurnEventOf<'evidence'>, verbose: boolean): void {
   const e = event.evidence;
-  if (!e) {
-    return;
-  }
   if (e.kind === 'code_execution_call') {
-    console.log(`\n\x1b[36m🐍 [code_execution_call]\x1b[0m\n${e.code ?? ''}`);
+    console.log(`\n\x1b[36m🐍 [code_execution_call]\x1b[0m\n${e.code}`);
   } else if (e.kind === 'code_execution_result') {
     console.log(
       `\n\x1b[36m🐍 [code_execution_result]\x1b[0m isError=${String(e.isError)}\n${e.result ?? ''}`,
     );
-  } else if (e.kind) {
+  } else {
     console.log(`\n\x1b[36m📎 [evidence]\x1b[0m ${e.kind}`);
   }
   if (verbose) {
@@ -82,7 +76,7 @@ function printRunEvent(event: TurnEvent, options: CliEventLogOptions = {}): void
     Deno.stdout.write(new TextEncoder().encode(`\x1b[2m${event.text}\x1b[0m`));
   } else if (event.type === 'text' && event.text) {
     Deno.stdout.write(new TextEncoder().encode(event.text));
-  } else if (event.type === 'tool' && event.tool) {
+  } else if (event.type === 'tool' && event.tool.phase === undefined) {
     Deno.stdout.write(
       new TextEncoder().encode(`\n\x1b[33m⚡ [Tool Call] ${event.tool.name}\x1b[0m: `),
     );
@@ -102,18 +96,15 @@ function printRunEvent(event: TurnEvent, options: CliEventLogOptions = {}): void
   }
 }
 
-function printTestEvidence(event: TurnEvent, verbose: boolean): void {
+function printTestEvidence(event: TurnEventOf<'evidence'>, verbose: boolean): void {
   const e = event.evidence;
-  if (!e) {
-    return;
-  }
   if (e.kind === 'code_execution_call') {
-    const preview = (e.code ?? '').replaceAll('\n', ' ').slice(0, 80);
-    console.log(`\n  🐍 [code_execution_call] ${preview || e.id || ''}`);
+    const preview = e.code.replaceAll('\n', ' ').slice(0, 80);
+    console.log(`\n  🐍 [code_execution_call] ${preview || e.id}`);
   } else if (e.kind === 'code_execution_result') {
     const preview = (e.result ?? '').replaceAll('\n', ' ').slice(0, 80);
     console.log(`\n  🐍 [code_execution_result] isError=${String(e.isError)} ${preview}`);
-  } else if (e.kind) {
+  } else {
     console.log(`\n  📎 [evidence] ${e.kind}`);
   }
   if (verbose) {
@@ -127,9 +118,9 @@ function printTestEvent(event: TurnEvent, options: CliEventLogOptions = {}): voi
 
   if (event.type === 'thought' && event.text) {
     Deno.stdout.write(new TextEncoder().encode('.'));
-  } else if (event.type === 'tool' && event.tool) {
+  } else if (event.type === 'tool' && event.tool.phase === undefined) {
     console.log(
-      `\n  ⚡ [Tool Dispatched] ${event.tool.name}(${JSON.stringify(event.tool.arguments ?? {})})`,
+      `\n  ⚡ [Tool Dispatched] ${event.tool.name}(${JSON.stringify(event.tool.arguments)})`,
     );
   } else if (event.type === 'evidence') {
     printTestEvidence(event, verbose);

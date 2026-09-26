@@ -5,6 +5,29 @@
  */
 
 export * from './auth/mod.ts';
+export {
+  clearProfiles,
+  getProfile,
+  getStructured,
+  getTool,
+  hasProfile,
+  hasTool,
+  invokeTool,
+  listProfiles,
+  listTools,
+  projectProfile,
+  registerProfile,
+  registerProfiles,
+  registerStructured,
+  registerTool,
+  registerTools,
+  requireTool,
+  resetTools,
+  resolveTurn,
+  runDecision,
+  runSession,
+  runTurn,
+} from './default-scope.ts';
 export type { CompactionSplit, CompactionTokens } from './engine/compaction.ts';
 export {
   compactionMeter,
@@ -15,7 +38,7 @@ export {
   splitForCompaction,
 } from './engine/compaction.ts';
 export type { RunDecisionOptions } from './engine/decision.ts';
-export { DecisionError, runDecision } from './engine/decision.ts';
+export { DecisionError } from './engine/decision.ts';
 export type { LiveIngressChannel } from './engine/live-ingress.ts';
 export {
   assertLiveIngress,
@@ -25,9 +48,7 @@ export {
   liveIngressEnabled,
   liveIngressEnabledFromSpec,
 } from './engine/live-ingress.ts';
-export { runTurn } from './engine/runner.ts';
 export type { RunSessionOptions } from './engine/session/mod.ts';
-export { runSession } from './engine/session/mod.ts';
 export type {
   MediaPayload,
   MediaTokenFamily,
@@ -63,6 +84,8 @@ export {
   modelEntryByApiId,
   requireModelBinding,
 } from './registry/catalog.ts';
+export type { KernelRegistry } from './registry/kernel-registry.ts';
+export { createKernelRegistry } from './registry/kernel-registry.ts';
 export type {
   DecisionProfileDefinition,
   HostProfileDefinition,
@@ -70,25 +93,14 @@ export type {
   LiveProfileDefinition,
   ProfileDefinition,
   ProfileDefinitionBase,
+  ProfileRegistry,
   SpeechProfileDefinition,
   TextProfileDefinition,
 } from './registry/profiles.ts';
-export {
-  clearProfiles,
-  defineProfile,
-  getProfile,
-  hasProfile,
-  listProfiles,
-  registerProfile,
-  registerProfiles,
-} from './registry/profiles.ts';
-export {
-  projectProfile,
-  projectProfileObject,
-  requireModelProfile,
-  resolveTurn,
-} from './registry/resolve.ts';
-export { getStructured, registerStructured } from './registry/schemas.ts';
+export { createProfileRegistry, defineProfile } from './registry/profiles.ts';
+export { projectProfileObject, requireModelProfile } from './registry/resolve.ts';
+export type { SchemaRegistry } from './registry/schemas.ts';
+export { createSchemaRegistry } from './registry/schemas.ts';
 export type {
   AuthUnauthenticatedPolicy,
   CustomToolType,
@@ -154,6 +166,8 @@ export {
   TURN_STOP_KINDS,
   VOICE_ACCEPT_MIMES,
 } from './schema.ts';
+export type { KernelScope } from './scope.ts';
+export { createKernelScope, defaultKernelScope } from './scope.ts';
 export type {
   AwaitingUserInput,
   StageAffordance,
@@ -170,8 +184,6 @@ export type {
 export {
   applyStageResult,
   isAwaitingUserInput,
-  parseAwaitingUserInput,
-  parseToolGate,
   STAGE_AFFORDANCE_MATRIX,
   STAGE_AFFORDANCES,
   stageAllowsAffordance,
@@ -201,31 +213,30 @@ export {
   turnStopFromInteractionStatus,
   turnStopFromOpenAiFinishReason,
 } from './stop.ts';
-export type { McpProtocolVersion, McpRpcResponse } from './tools/mod.ts';
+export type { McpProtocolVersion, McpRpcResponse, ToolRegistry } from './tools/mod.ts';
 export {
+  askUserTool,
   coerceToolResultParts,
+  createToolRegistry,
   executeHttpTool,
   executeMcpTool,
   executeRegisteredTool,
   formatToolResult,
-  getTool,
-  hasTool,
-  invokeTool,
   isUnsupportedMcpProtocolError,
   leanToolResultData,
-  listBuiltinIds,
-  listFunctionIds,
-  listTools,
   MCP_PROTOCOL_VERSIONS,
   parseMcpRpcResponse,
   prepareTurnToolSnapshot,
   projectForModel,
   registerHarnessTools,
-  registerTool,
-  registerTools,
-  requireTool,
-  resetTools,
   resolveToolAuth,
 } from './tools/mod.ts';
-export type { ToolPause } from './tools/types.ts';
+export {
+  awaitingUserInputSchema,
+  toolGateSchema,
+  turnDoneOf,
+  turnEventSchema,
+  turnHistoryMessageSchema,
+  turnToolSnapshotSchema,
+} from './turn-events.ts';
 export type * from './types.ts';

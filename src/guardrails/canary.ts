@@ -1,5 +1,10 @@
 import { mapStrings } from '../kernel/engine/tree.ts';
-import type { TurnEvent } from '../kernel/types.ts';
+import {
+  type ProviderEvent,
+  type TurnEvent,
+  type TurnEventOf,
+  turnEventSchema,
+} from '../kernel/turn-events.ts';
 import { type LexiconOverrides, lexiconText } from './lexicon.ts';
 import { scanTextOf } from './serialize.ts';
 
@@ -176,50 +181,60 @@ function redactCanaryText(text: string, canary: string): string {
  * what they contain, and a thinking model restates its system prompt as it
  * reasons. Every outbound gate reads this before scanning.
  */
-function isGuardedOutput(event: TurnEvent): boolean {
+function isGuardedOutput(event: ProviderEvent): boolean {
   return event.type !== 'thought';
 }
 
 /**
- * Checks the content-bearing fields currently emitted by a turn event, including
- * text, errors, structured payloads, tool data, evidence, and session metadata.
- * Unguarded output (`isGuardedOutput`) never carries a leak.
+ * What of an event reaches the host as content: the one list every canary
+ * scan reads. Builder-only fields (`errorInternal`), counts, identities, and
+ * media bytes are not content.
  */
-function eventHasCanary(event: TurnEvent, canary: string): boolean {
+function hostContentOf(event: ProviderEvent): unknown {
+  switch (event.type) {
+    case 'text':
+    case 'thought':
+      return event.text;
+    case 'structured':
+      return event.structured;
+    case 'grounding':
+      return event.grounding;
+    case 'citation':
+      return event.sources;
+    case 'compaction':
+      return event.summary;
+    case 'evidence':
+      return [event.evidence, event.text, event.sessionResumptionHandle];
+    case 'session':
+      return event.session;
+    case 'tool':
+      return event.tool;
+    case 'error':
+      return [event.error, event.errorCopy];
+    case 'media':
+    case 'tokens':
+    case 'guardrail':
+    case 'stage':
+    case 'done':
+    case 'response':
+      return undefined;
+    default: {
+      const unhandled: never = event;
+      return unhandled;
+    }
+  }
+}
+
+/**
+ * Whether an event's host content (`hostContentOf`) carries a leak.
+ * Unguarded output (`isGuardedOutput`) never carries one.
+ */
+function eventHasCanary(event: ProviderEvent, canary: string): boolean {
   if (!canary || !isGuardedOutput(event)) {
     return false;
   }
-  if (event.text && scanTextForCanaryLeak(event.text, canary)) {
-    return true;
-  }
-  if (event.error && scanTextForCanaryLeak(event.error, canary)) {
-    return true;
-  }
-  if (
-    event.structured !== undefined &&
-    scanTextForCanaryLeak(scanTextOf(event.structured), canary)
-  ) {
-    return true;
-  }
-  if (event.tool !== undefined && scanTextForCanaryLeak(scanTextOf(event.tool), canary)) {
-    return true;
-  }
-  if (event.grounding !== undefined && scanTextForCanaryLeak(scanTextOf(event.grounding), canary)) {
-    return true;
-  }
-  if (event.evidence !== undefined && scanTextForCanaryLeak(scanTextOf(event.evidence), canary)) {
-    return true;
-  }
-  if (event.session !== undefined && scanTextForCanaryLeak(scanTextOf(event.session), canary)) {
-    return true;
-  }
-  if (
-    event.sessionResumptionHandle &&
-    scanTextForCanaryLeak(event.sessionResumptionHandle, canary)
-  ) {
-    return true;
-  }
-  return false;
+  const content = hostContentOf(event);
+  return content !== undefined && scanTextForCanaryLeak(scanTextOf(content), canary);
 }
 
 /** Result of scanning one streamed window: either a leak or the prefix safe to emit. */
@@ -267,28 +282,28 @@ function createCanaryStreamGate(canary: string): CanaryStreamGate {
   };
 }
 
+/** An event `isStreamedCanaryEvent` accepts: its `text` is the streamed reply. */
+type StreamedReplyEvent = TurnEventOf<'text' | 'evidence'>;
+
 /**
  * The reply as it streams: text deltas, and the transcript of spoken output
  * (Live `output_transcription` evidence). The one stream the outbound gates
  * scan progressively; everything else is scanned whole per event.
  */
-function isStreamedCanaryEvent(event: TurnEvent): boolean {
+function isStreamedCanaryEvent(event: ProviderEvent): event is StreamedReplyEvent {
   return (
     event.type === 'text' ||
-    (event.type === 'evidence' && event.evidence?.kind === 'output_transcription')
+    (event.type === 'evidence' && event.evidence.kind === 'output_transcription')
   );
 }
 
 /** Replaces every detected canary leak in every string field of an event. */
 function redactCanary(event: TurnEvent, canary: string): TurnEvent {
-  const next = mapStrings(event, (text) => redactCanaryText(text, canary));
-  if (next && typeof next === 'object') {
-    return next as TurnEvent;
-  }
-  return event;
+  // Replacing strings keeps the event's shape; the parse re-types it.
+  return turnEventSchema.parse(mapStrings(event, (text) => redactCanaryText(text, canary)));
 }
 
-export type { CanaryGateResult, CanaryStreamGate };
+export type { CanaryGateResult, CanaryStreamGate, StreamedReplyEvent };
 export {
   bindCanary,
   canaryHoldFrom,

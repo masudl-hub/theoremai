@@ -26,11 +26,16 @@ import {
   processLiveOutboundBatch,
 } from '../../guardrails/live-outbound-gate.ts';
 import { scanTextOf } from '../../guardrails/serialize.ts';
+import {
+  clearProfiles,
+  getProfile,
+  registerProfile,
+  resolveTurn,
+} from '../../kernel/default-scope.ts';
 import { yieldProviderEvents } from '../../kernel/engine/runner/stream.ts';
-import { clearProfiles, getProfile, registerProfile } from '../../kernel/registry/profiles.ts';
 import { providerCompleteRequest } from '../../kernel/registry/provider-request.ts';
-import { resolveTurn } from '../../kernel/registry/resolve.ts';
-import type { ResolvedGeneration, TurnEvent } from '../../kernel/types.ts';
+import { defaultKernelScope } from '../../kernel/scope.ts';
+import type { ProviderEvent, ResolvedGeneration, TurnEvent } from '../../kernel/types.ts';
 
 const FUZZ_PROFILE_ID = '__fuzz_canary__';
 
@@ -75,8 +80,8 @@ function resolveFuzzGeneration(canary: string): ResolvedGeneration {
   return { ...generation, canary };
 }
 
-async function collectEvents(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
-  const out: TurnEvent[] = [];
+async function collectEvents<E>(gen: AsyncIterable<E>): Promise<E[]> {
+  const out: E[] = [];
   for await (const event of gen) {
     out.push(event);
   }
@@ -130,7 +135,7 @@ function channelResult(
 }
 
 /** A provider stream that yields one attack turn's model output. */
-async function* replay(turn: TurnEvent[]): AsyncGenerator<TurnEvent> {
+async function* replay(turn: ProviderEvent[]): AsyncGenerator<ProviderEvent> {
   await Promise.resolve();
   yield* turn;
 }
@@ -142,16 +147,22 @@ async function runStreamChannel(
 ): Promise<ChannelResult> {
   const events: TurnEvent[] = [];
   for (const turn of attack.turns) {
-    const turnEvents = await collectEvents(
+    const streamed = await collectEvents(
       yieldProviderEvents({
         profile: getProfile(FUZZ_PROFILE_ID),
         generation,
-        request: providerCompleteRequest(generation, bindCanary('fuzz system', canary)),
+        request: providerCompleteRequest(
+          defaultKernelScope.tools,
+          generation,
+          bindCanary('fuzz system', canary),
+        ),
         provider: { complete: () => replay(turn) },
         // The fuzz reads what reaches the client, not the trace.
         call: { tap: () => {}, observe: () => {} },
       }),
     );
+    // The runner reads the call's `done`; the client never receives it.
+    const turnEvents = streamed.flatMap((event) => (event.type === 'done' ? [] : [event]));
     events.push(...turnEvents);
     if (turnEvents.some((event) => event.type === 'error')) {
       return channelResult(attack, 'runTurn.stream', true, events);

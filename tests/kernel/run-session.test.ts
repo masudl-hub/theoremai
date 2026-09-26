@@ -1,14 +1,18 @@
 import { assertEquals, assertRejects } from '@std/assert';
 import { z } from 'zod';
 import { TheoremError } from '../../src/guardrails/error.ts';
-import { runSession } from '../../src/kernel/engine/session/mod.ts';
 import {
   clearProfiles,
-  defineProfile,
   registerProfile,
-} from '../../src/kernel/registry/profiles.ts';
-import { prepareTurnToolSnapshot, registerTool, resetTools } from '../../src/kernel/tools/mod.ts';
-
+  registerTool,
+  resetTools,
+  runSession,
+} from '../../src/kernel/default-scope.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
+import { defaultKernelScope } from '../../src/kernel/scope.ts';
+import { prepareTurnToolSnapshot } from '../../src/kernel/tools/mod.ts';
+import type { TurnEvent } from '../../src/kernel/types.ts';
+import { eventsOf } from '../fixtures/events.ts';
 import { MockLiveWebSocket } from '../fixtures/live-socket.ts';
 import { HOST_BINDINGS } from '../fixtures/models.ts';
 
@@ -445,6 +449,7 @@ Deno.test('runSession declares a host-supplied snapshot when the registry is not
 
   // The registry-owning process resolves the snapshot …
   const snapshot = await prepareTurnToolSnapshot(
+    defaultKernelScope.tools,
     profile,
     { profile: profile.id, path: 'live-call', input: { text: '' } },
     'gemini31FlashLive',
@@ -493,6 +498,7 @@ Deno.test('runSession refuses a snapshot that declares tools outside tools.allow
   ]);
   registerProfile(wide);
   const snapshot = await prepareTurnToolSnapshot(
+    defaultKernelScope.tools,
     wide,
     { profile: wide.id, path: 'live-call', input: { text: '' } },
     'gemini31FlashLive',
@@ -827,7 +833,7 @@ Deno.test('runSession pre_turn inject schedules realtime text and lands in later
       profile: profile.id,
       onStage: ({ stage, history }) => {
         if (stage === 'pre_turn') {
-          return { inject: [{ role: 'user', content: 'injected steer' }] };
+          return { inject: [{ role: 'user', content: 'injected steer' }], injectId: 'steer-live' };
         }
         if (stage === 'before_end') {
           beforeEndSawInject = history.some(
@@ -853,9 +859,12 @@ Deno.test('runSession pre_turn inject schedules realtime text and lands in later
 
   await new Promise((r) => setTimeout(r, 0));
   const eventsPromise = (async () => {
+    const out: TurnEvent[] = [];
     for await (const ev of session.events()) {
+      out.push(ev);
       if (ev.type === 'done' && beforeEndSawInject) break;
     }
+    return out;
   })();
 
   await session.sendText('user open');
@@ -863,8 +872,87 @@ Deno.test('runSession pre_turn inject schedules realtime text and lands in later
   const injectedWire = liveMock.sent.some((s) => s.includes('injected steer'));
   assertEquals(injectedWire, true);
   liveMock.deliver({ serverContent: { turnComplete: true } });
-  await eventsPromise;
+  const events = await eventsPromise;
   assertEquals(beforeEndSawInject, true);
+  assertEquals(
+    eventsOf(events, 'stage').filter((e) => e.injected !== undefined),
+    [{ type: 'stage', stage: 'pre_turn', injected: [{ id: 'steer-live' }] }],
+  );
+  await session.close();
+});
+
+Deno.test('runSession refuses an inject live cannot write as text, whole, and never reports it landed', async () => {
+  clearProfiles();
+  resetTools();
+  const profile = defineProfile({
+    type: 'live',
+    id: 'session_live_inject_parts',
+    identity: { handle: 'live', system: 'hi' },
+    models: {
+      gemini31FlashLive: {
+        ...HOST_BINDINGS.gemini31FlashLive,
+        key: 'slotA',
+      },
+    },
+    live: { voice: 'Aoede', ingress: { text: true } },
+    tools: { allow: [] },
+  });
+  registerProfile(profile);
+
+  let mock: MockLiveWebSocket | null = null;
+  const session = await runSession(
+    {
+      profile: profile.id,
+      onStage: ({ stage }) => {
+        if (stage !== 'pre_turn') return undefined;
+        return {
+          inject: [
+            { role: 'user', content: 'text half' },
+            { role: 'user', content: 'see photo', parts: [{ type: 'text', text: 'see photo' }] },
+          ],
+          injectId: 'steer-photo',
+        };
+      },
+    },
+    {
+      gemini: {
+        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
+      },
+      openWebSocket: () => {
+        mock = new MockLiveWebSocket();
+        setTimeout(() => mock?.open(), 0);
+        return Promise.resolve(mock as unknown as WebSocket);
+      },
+    },
+  );
+
+  await new Promise((r) => setTimeout(r, 0));
+  const eventsPromise = (async () => {
+    const out: TurnEvent[] = [];
+    for await (const ev of session.events()) {
+      out.push(ev);
+      if (ev.type === 'done') break;
+    }
+    return out;
+  })();
+
+  await session.sendText('open');
+  const liveMock = mock as unknown as MockLiveWebSocket;
+  liveMock.deliver({ serverContent: { turnComplete: true } });
+  const events = await eventsPromise;
+  assertEquals(
+    liveMock.sent.some((s) => s.includes('text half')),
+    false,
+  );
+  const stageEvents = eventsOf(events, 'stage');
+  assertEquals(
+    stageEvents.filter((e) => e.injected !== undefined),
+    [],
+  );
+  assertEquals(
+    stageEvents.flatMap((e) => e.stageWarnings ?? []).map((w) => [w.code, w.field]),
+    [['inject_invalid_messages', 'inject']],
+  );
   await session.close();
 });
 
@@ -894,7 +982,7 @@ Deno.test('runSession before_end inject schedules realtime text and still emits 
       onStage: ({ stage }) => {
         stages.push(stage);
         if (stage === 'before_end') {
-          return { inject: [{ role: 'user', content: 'before-end steer' }] };
+          return { inject: [{ role: 'user', content: 'before-end steer' }], injectId: 'steer-end' };
         }
       },
     },
@@ -915,7 +1003,7 @@ Deno.test('runSession before_end inject schedules realtime text and still emits 
     const out = [];
     for await (const ev of session.events()) {
       out.push(ev);
-      if (stages.includes('post_turn')) break;
+      if (ev.type === 'stage' && ev.stage === 'post_turn') break;
     }
     return out;
   })();
@@ -932,6 +1020,10 @@ Deno.test('runSession before_end inject schedules realtime text and still emits 
   assertEquals(
     liveMock.sent.some((s) => s.includes('before-end steer')),
     true,
+  );
+  assertEquals(
+    eventsOf(events, 'stage').filter((e) => e.injected !== undefined),
+    [{ type: 'stage', stage: 'before_end', injected: [{ id: 'steer-end' }] }],
   );
 
   liveMock.close();

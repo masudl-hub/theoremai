@@ -13,7 +13,7 @@ import type {
   ModelProvider,
   ProfileSpeechSpec,
   ProviderCompleteRequest,
-  TurnEvent,
+  ProviderEvent,
 } from '../../kernel/types.ts';
 import { bytesToBase64 } from '../../kernel/util/base64.ts';
 import { mimeEssence } from '../../kernel/util/mime.ts';
@@ -97,7 +97,7 @@ export async function requestSpeech(
 export function* yieldSpeechSuccess(
   rawBytes: Uint8Array,
   contentType: string | null,
-): Generator<TurnEvent> {
+): Generator<ProviderEvent> {
   const format = pcmFormatFromMime(contentType ?? '');
   const media = format
     ? { mimeType: 'audio/wav', data: bytesToBase64(wrapPcmAsWav(rawBytes, format)) }
@@ -107,14 +107,14 @@ export function* yieldSpeechSuccess(
       };
 
   yield { type: 'media', media };
-
-  yield { type: 'done' };
+  // The endpoint answers whole or not at all: a body with audio completed.
+  yield { type: 'done', stop: { kind: 'completed' } };
 }
 
 export async function* streamSpeech(
   req: ProviderCompleteRequest,
   config: SpeechProviderConfig = {},
-): AsyncGenerator<TurnEvent> {
+): AsyncGenerator<ProviderEvent> {
   let apiKey: string;
   try {
     apiKey = resolveOpenAiGatewayApiKey(config, req.keySlot);

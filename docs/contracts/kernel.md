@@ -46,11 +46,17 @@ playground also reads); image and speech continue by re-sending the host's
 request unchanged. Composer labels in `src/interface/` are semantic
 keys only; English lives in `@theoremai/react`.
 
+Wire shapes are facts, declared once: every turn event is a zod schema in
+`src/kernel/turn-events.ts`, and its TypeScript type is that schema's inferred
+type. Policy modules such as `stop.ts` import those types; they never restate them.
+
 ## Profiles
 
 Hosts declare agents with `defineProfile` / `registerProfile` (or
 `registerProfiles`). `getProfile` / `hasProfile` / `listProfiles` / `clearProfiles`
-manage the in-memory registry.
+manage the default scope's profile registry; `scope.profiles` is another scope's.
+Registration validates a profile's tool allow list against the same scope's
+`tools`, and resolution reads tools and schemas from that scope only.
 
 A `Profile` binds:
 
@@ -193,7 +199,9 @@ into a `ProjectedProfile` / `ResolvedGeneration` the runner and providers consum
 ## Turn lifecycle
 
 `runTurn(request, provider, sink?)` is the single deterministic execution path
-for one **turn-based** agent turn (text / image / speech). Live profiles use
+for one **turn-based** agent turn (text / image / speech). It runs on the scope it
+is called from (`scope.runTurn`, or the default scope's global `runTurn`); every
+step reads that scope's registries and no other. Live profiles use
 `runSession` instead (long-lived session; the conversational boundary is
 `interactionStatus: IDLE` when the provider sends it, else `turnComplete` — a
 gate boundary, not socket teardown). When `sink` is omitted, the runner resolves
@@ -303,7 +311,7 @@ different transport than the primary turn.
 | `stage` | Turn timeline (`stage`: `pre_turn` \| `pre_tool` \| `post_tool` \| `before_end` \| `post_turn`) — see [`stages.md`](stages.md) |
 | `tokens` | One per model call, after that call's output: `TurnTokens` (see [Token usage](#token-usage)); may gate `meter: 'input'` |
 | `response` | Adapter → runner only, never yielded by `runTurn`: the response identity (`id`, `model`) as soon as the wire names it, and again when it grows or changes. The runner records it on the call's trace span (`gen_ai.response.id` / `gen_ai.response.model`), so a call that fails or is cut by a guardrail still names the model that served it |
-| `done` | Terminal or live boundary: `stop` (`completed` / `interrupted` / `generation_complete` / …), `compaction`; when `stop.kind === 'tool'`, optional `tools` (`TurnToolSnapshot`) for host `invokeTool` resume |
+| `done` | Terminal or live boundary: `stop` (`completed` / `interrupted` / `generation_complete` / …), `compaction`, `tokens` (the turn's usage); when `stop.kind` is `tool` or `gate`, required `tools` (`TurnToolSnapshot`) for host `invokeTool` resume, absent otherwise |
 | `error` | `errorKind` (builder), `errorInternal` (host logs only), and `error`, the user's wording for the kind (profile `lexicon` → `overrideLexicon` → default) — see [Public errors](guardrails.md#public-errors) |
 
 ### Token usage
@@ -395,8 +403,9 @@ There is no per-turn stream override.
 
 ## Registered tools
 
-Tools are registered once at host startup via `registerTool` (Google builtins via
-`registerGooglePreset`). Profiles declare **custom** tools on `tools.allow` and **provider builtins** on
+Tools, profiles, and structured schemas live in a kernel scope (see
+[Kernel scope](#kernel-scope)). A host with one tenant registers at startup into the
+default scope via `registerTool` (Google builtins via `registerGooglePreset`). Profiles declare **custom** tools on `tools.allow` and **provider builtins** on
 `models.*.builtInTools`. On `text` / `image` turns visibility is `loadTier` (T0 at
 turn start, T1 via `tools.t1Policy`, T2 via `tools.t2Loader`). On `live` every
 allowed tool (and every model builtin) is wired at session setup regardless of
@@ -411,8 +420,30 @@ T1/T2 loading see no tools on `speech` and `decision`, and `invokeTool` rejects
 `decision` explicitly.
 
 A builtin names itself per transport in `wire` (`interactions`, `live`,
-`openRouter`). Every transport reads it with `requireBuiltinWire`, which throws
-for a builtin that has no name on that transport.
+`openRouter`). Resolution copies each builtin's `{ id, wire }` onto the provider
+request, so providers never read a registry; every transport reads the wire with
+`builtinWire`, which throws for a builtin that has no name on that transport.
+
+A `complete` tool event carries `readBack`: the text the model read for that
+call, after guardrails. History replays it (`appendToolExchangeToHistory`), so a
+continued turn sends the provider exactly what `runTurn` / `invokeTool` sent.
+`toolReadBack` throws for a completed call without one.
+
+### Kernel scope
+
+A `KernelScope` is one set of registries (`tools`, `profiles`, `schemas`) and the
+runs bound to them: `runTurn`, `runSession`, `invokeTool`, `resolveTurn`,
+`projectProfile`, `runDecision`. `createKernelScope()` returns empty registries,
+isolated from every other scope; a run reads only the scope it was started on.
+Two scopes can register the same tool, profile, and schema names without either
+seeing the other's.
+
+The global functions (`registerTool`, `registerProfile`, `registerStructured`,
+`runTurn`, …) are `defaultKernelScope`'s methods. There is no ambient or
+request-local lookup: a host serving many tenants, such as the playground, builds
+a scope per request and runs on it. `registerHarnessTools()` and
+`registerGooglePreset()` fill the default scope; another scope registers
+`askUserTool` and `GOOGLE_BUILTIN_TOOLS` itself.
 
 ### Host context slot
 
@@ -504,7 +535,7 @@ when a server rejects an unsupported protocol version (JSON-RPC or HTTP error bo
 Both HTTP and MCP tools integrate with:
 - **Network Guardrails** (`guardrails.network`): SSRF protection blocking loopback and private subnets unless `allowPrivateNetworks: true` is configured. Owned by the guardrails contract — see `docs/contracts/guardrails.md#network`.
 - **Stateless OAuth 2.1 & PKCE** (`src/kernel/auth`): RFC 7636 PKCE S256, RFC 9728 discovery, RFC 8414 AS metadata, RFC 9207 `iss` mix-up defense, RFC 8707 resource indicators (a token is only sent to URLs inside its resource — `tokenAudienceCovers`), and stateless state envelopes (`v1.salt.iv.ciphertext`) encrypted with AES-256-GCM under a per-state key derived by HKDF-SHA256 from a ≥32-byte, 256-bit-entropy secret and a fresh salt, with the version authenticated. Every flow's token is bound to its `resourceServerUrl`; `redirectUri` (https, loopback http, or reverse-domain app scheme, no fragment), `clientId` (a URL must be https), scope tokens and `stateTtlMs` are validated. The envelope carries the SHA-256 of a required host `sessionBinding`, and the exchange refuses a callback whose session doesn't match it (login CSRF, RFC 6749 §10.12). The PKCE verifier never leaves the envelope. Discovery and token requests are network-guarded and never follow redirects.
-- **Unauthenticated Handling**: Gates the turn via `ToolGate { kind: 'auth' }` (`tool.phase: 'gate'`, `stop.kind: 'gate'`) or reports synthetic error findings to the model per `onUnauthenticated: 'pause' | 'report_to_model'` (schema policy name remains `pause`).
+- **Unauthenticated Handling**: Gates the turn via `ToolGate { kind: 'auth' }` (`tool.phase: 'gate'`, `stop.kind: 'gate'`) or reports synthetic error findings to the model per `onUnauthenticated: 'gate' | 'report_to_model'` (default `gate`).
 - **Token Rotation**: Proactively refreshes expiring OAuth tokens during turns. The refreshed credential replaces its slot in the host's `credentials` record, and a `progress` event with `{ kind: 'auth_token_refreshed', slot }` tells the host to persist it; no token rides the event stream. Concurrent calls holding the same grant share one refresh. A refused refresh emits `{ kind: 'auth_token_refresh_failed', slot }` with the server's text in `errorInternal` only; the model and the gate read fixed text. An OAuth credential without a `resource` is not sent anywhere; the call is unauthenticated.
 - **Credential echo**: a tool response repeating the credential value it was sent with has it replaced by `[omitted - credential]` in the output, the model finding, and failure text.
 - **Endpoint templates**: the scheme and host are fixed text; a placeholder there is refused at registration and at call time, so tool input never chooses where a credential goes.
@@ -619,7 +650,8 @@ On text turns the runner always yields `{ type: 'stage', stage }`:
 4. `post_turn` — after terminal `done` (sees compaction-after when attached).
 
 Inject applies only when `profileAllowsInject(profile)` (text + live when
-`allowSteering !== false`).
+`allowSteering !== false`). Where a named inject lands, the runner yields
+`{ type: 'stage', stage, injected: [{ id }] }` (see [stages.md](stages.md)).
 
 A text turn's opening input (`input.text`, attachments, voice) has one owner:
 turn history. It becomes the last user message of history when the turn opens,
@@ -786,13 +818,15 @@ Pass `TurnRequest.sessionId` for OpenRouter sticky `session_id` routing.
 
 `TurnStopKind` values are the `TURN_STOP_KINDS` array in `src/kernel/schema.ts`.
 Providers map native finish reasons into `TurnStop` on terminal `done` events.
+Its shape is `turnStopSchema` in `src/kernel/turn-events.ts`; `src/kernel/stop.ts`
+re-exports the type and owns only the resume policy below.
 
 | `kind` | Meaning |
 | --- | --- |
 | `completed` | Normal completion |
 | `length` | Output / budget cut off |
-| `tool` | @deprecated Shipping pause fiction (`tool.phase: 'pause'`). Target: `gate` for confirm/permission/auth; awaiting is a completed tool result ([`stages.md`](stages.md)) |
-| `gate` | Target / foundation: honest `pre_tool` suspension (confirm / permission / auth). Host resumes via `invokeTool` / `executeTool` |
+| `tool` | The model called tools and the turn hands them to the host; `done.tools` is the turn's tool snapshot |
+| `gate` | A `pre_tool` gate (confirm / permission / auth) stopped a call before it ran; `done.tools` is the snapshot. Host resumes via `invokeTool` / `executeTool` |
 | `filtered` | Output blocked: the provider's content filter, or a Theorem guardrail (`native: 'canary'` for a canary leak, `'egress'` for an egress block, withheld or replaced by policy copy) |
 | `provider_error` | Upstream failure: a finish reason that says so, or any `error` the provider sent during the call (it outranks the call's own `done`) |
 | `cancelled` | User / host abort |
@@ -881,11 +915,11 @@ only through local source aliases.
 
 | Concern | Entrypoints |
 | --- | --- |
-| Spec | `interfaceFrom`, `interfaceFromProfile`, `interfaceFromProjected` |
+| Spec | `interfaceFromProfile(profile, tools)` (projects against that tool registry), `interfaceFromProjected` (an already projected profile) |
 | Inputs | `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime` |
 | Draft | `sanitizeUserDraft`, `prepareUserTurn` |
 | Transcript | `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `streamThoughtsEnabled` |
-| History | `appendUserDraftToHistory`, `userDraftToSteerInject`, … |
+| History | `appendUserDraftToHistory`, `appendToolExchangeToHistory` (replays `readBack`), `toolReadBack`, `userDraftToSteerInject`, … |
 | Composer intents | `createComposerPendingMessage`, `orderComposerPendingMessages`, `consumeNextComposerSteer` / `Queue`, `convertSteersToFrontQueued`, `resolveComposerPrimary`, `resolveComposerMenuActions` |
 
 `foldTurnEvents` maps kernel `media` events (base64) and also promotes http(s)
@@ -917,7 +951,7 @@ Headless contract for stash / queue / steer (Seance-aligned). Kernel owns stages
 
 Primary matrix: idle+payload → Send; streaming+empty → Stop; streaming/gated+payload → Queue.
 Enter matches primary. Menu offers Queue / Steer / Send now / Stash as applicable.
-Undelivered steers convert to the front of the queue when the run ends.
+The run names each steer it took in on a `stage` event's `injected` (by the steer's id); the client drops those from pending, and the steers still undelivered convert to the front of the queue when the run ends.
 Tool **gate** does not drain the queue and does not offer Steer (not an inject stage).
 Send now while gated uses `abandonGatedToolSession`
 then starts a new user turn. Awaiting completions (`ask_user`) are not composer
@@ -943,15 +977,17 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
 | Compaction | `CompactionSplit`, `CompactionTokens`, `compactionMeter`, `compactionNeeded`, `resolveCompactionTokens`, `resolveHistoryTokens`, `shouldCompact`, `splitForCompaction` |
 | Token estimate | `loadTokenEstimator`, `mediaTokenFamily`, `TOKEN_TEXT_ENCODING`, `MediaPayload`, `MediaTokenFamily`, `TokenCount`, `TokenEstimator`, `sumTokens` |
 | Runner | `runTurn`, `runSession`, `runDecision`, `RunSessionOptions`, `RunDecisionOptions`, `DecisionError`, `prepareLiveInboundText`, `liveIngressEnabled`, `liveIngressEnabledFromSpec`, `liveIngressChannelDefault`, `hasAnyLiveIngress`, `assertLiveIngress`, `assertLiveIngressConfigured`, `LiveIngressChannel` |
-| Catalog | `clampThinkingLevel`, `clampThinkingLevelForApiId`, `mediaChannelForMime`, `MediaInputChannel`, `mediaKindForMime`, `getTool`, `listBuiltinIds`, `mimeAllowed`, `mimeEssence`, `modelEntryByApiId`, `registerTools`, `requireModelBinding`, `resetTools` |
+| Catalog | `clampThinkingLevel`, `clampThinkingLevelForApiId`, `mediaChannelForMime`, `MediaInputChannel`, `mediaKindForMime`, `getTool`, `mimeAllowed`, `mimeEssence`, `modelEntryByApiId`, `registerTools`, `requireModelBinding`, `resetTools` |
 | Schema | `PROFILE_FIELDS`, `PROFILE_GRAPH`, `PROFILE_TYPES`, `PROFILE_TYPE_PROTOCOLS`, `protocolsForProfileType`, `isValidProfileProtocol`, `EXTRA_FIELDS`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `spineFacetsForProfileType`, `profileGraphFacet`, `ProfileGraphFacet`, `ProfileGraphFacetId`, `ProfileGraphEditor`, `ProfileGraphRole`, `PROTOCOLS`, `PROVIDERS`, `PROTOCOL_PROVIDERS`, `providersFor`, `protocolsFor`, `isValidPair`, `coerceProvider`, `coerceProtocol`, `coerceSpeechFormat`, `isSpeechFormatAllowedForProtocol`, `speechFormatsForProtocol`, `THINKING_LEVELS`, `KEY_SLOTS`, `OVERFLOW_KEY_SLOTS`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `IMAGE_ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `COMPACTION_METERS`, `COMPACTION_TIMINGS`, `CACHE_MODES`, `CACHE_TTLS`, `TURN_STOP_KINDS`, `CONTINUE_STOP_KINDS`, `TURN_STAGES`, `TURN_INJECT_STAGES`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES`, `AUTH_UNAUTHENTICATED_POLICIES`, `HTTP_METHODS`, `PLAYGROUND_AUTH_TYPES`, `TOOL_AUTH_TYPES`, `AuthUnauthenticatedPolicy`, `CustomToolType`, `HttpMethod`, `PlaygroundAuthType`, `ToolAccess`, `ToolAuthType`, `ToolPermission`, `ToolType`, `ToolGateKind`, `TurnStage`, `TurnInjectStage`, `AwaitingUserInputKind`, `EGRESS_ON_BLOCK`, `EgressOnBlock` |
-| Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `LiveProfileDefinition`, `HostProfileDefinition`, `DecisionProfileDefinition`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `projectProfileObject`, `requireModelProfile`, `resolveTurn` |
-| Tools | `registerTool`, `registerTools`, `invokeTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `listBuiltinIds`, `listFunctionIds`, `resetTools`, `formatToolResult`, `projectForModel`, `coerceToolResultParts`, `leanToolResultData`, `wireInteractionPart`, `isMediaRefPart`, `prepareTurnToolSnapshot`, `buildHttpToolTarget`, `executeHttpTool`, `executeMcpTool`, `parseMcpRpcResponse`, `isUnsupportedMcpProtocolError`, `MCP_PROTOCOL_VERSIONS`, `McpProtocolVersion`, `resolveToolAuth` |
+| Scope | `KernelScope`, `createKernelScope`, `defaultKernelScope`, `KernelRegistry`, `createKernelRegistry` |
+| Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `LiveProfileDefinition`, `HostProfileDefinition`, `DecisionProfileDefinition`, `ProfileRegistry`, `createProfileRegistry`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `projectProfileObject`, `requireModelProfile`, `resolveTurn` |
+| Tools | `ToolRegistry`, `createToolRegistry`, `registerTool`, `registerTools`, `invokeTool`, `askUserTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `resetTools`, `formatToolResult`, `projectForModel`, `coerceToolResultParts`, `leanToolResultData`, `wireInteractionPart`, `isMediaRefPart`, `prepareTurnToolSnapshot`, `buildHttpToolTarget`, `executeHttpTool`, `executeMcpTool`, `parseMcpRpcResponse`, `isUnsupportedMcpProtocolError`, `MCP_PROTOCOL_VERSIONS`, `McpProtocolVersion`, `resolveToolAuth` |
 | Auth (stateless OAuth/PKCE) | `createOAuthPkceFlow`, `exchangeOAuthPkce`, `refreshOAuthToken`, `discoverResourceMetadata`, `discoverAuthServerMetadata`, `validateIssuer`, `tokenAudienceCovers`, `generateCodeVerifier`, `computeCodeChallenge`, `sealStatePayload`, `unsealStatePayload` |
-| Structured | `getStructured`, `registerStructured` |
+| Structured | `SchemaRegistry`, `createSchemaRegistry`, `getStructured`, `registerStructured` |
 | Stop / resume | `ProfileTurnBehaviourSpec`, `MediaTurnBehaviourSpec`, `ProfileTurnResumptionSpec`, `TurnContinueFrom`, `TurnStop`, `TurnStopKind`, `ContinueStopKind`, `CONTINUE_STOP_KINDS`, `AUTO_CONTINUE_DELAY_MS`, `DEFAULT_ALLOW_CONTINUE`, `DEFAULT_AUTO_CONTINUE`, `GenerationStopError`, `isContinueStopKind`, `isGenerationStopError`, `isResumeableStop`, `isUserCancelledStop`, `profileAllowsSteering`, `profileAllowsInject`, `profileTurnResumption`, `shouldAutoContinue`, `turnStopFromClientStreamEnd`, `turnStopFromInteractionStatus`, `turnStopFromOpenAiFinishReason` |
-| Stages (target foundation) | `TURN_STAGES`, `TURN_INJECT_STAGES`, `STAGE_AFFORDANCES`, `STAGE_AFFORDANCE_MATRIX`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `applyStageResult`, `parseAwaitingUserInput`, `parseToolGate`, `isTurnStage`, `isTurnInjectStage`, `isToolGateKind`, `isAwaitingUserInput`, `stageAllowsAffordance`, `stageEventFields`, `profileAllowsInject`, `StageAffordance`, `StageContext`, `StageResult`, `StageMutate`, `StageHandler`, `StageApplyInput`, `StageApplyOutput`, `StageApplyWarning`, `StageApplyWarningCode`, `StageEventExtra`, `AwaitingUserInput`, `ToolGate` — see [`stages.md`](stages.md). Slices 1–3 landed on branch; publish when release cut matches docs. |
-| Interface (headless) | `interfaceFrom`, `interfaceFromProfile`, `interfaceFromProjected`, `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime`, `sanitizeUserDraft`, `prepareUserTurn`, `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `resetBlockIds`, `streamThoughtsEnabled`, `collectPromotedMediaFromToolOutput`, `promotedMediaFromUrlString`, `PromotedToolMedia`, `defaultInterfaceEffort`, `effortSelectEnabled`, `generationSelectEnabled`, `interfaceEffortOptions`, `interfaceModelOptions`, `modelSelectEnabled`, `appendAssistantEventsToHistory`, `appendToolDenialToHistory`, `appendToolExchangeToHistory`, `appendUserDraftToHistory`, `historyFromTranscriptBlocks`, `applyTurnEventsToSession`, `branchInterfaceTurnSession`, `emptyInterfaceTurnSession`, `abandonGatedToolSession`, `gatedToolFromEvents`, `awaitingFromEvents`, `promotedToolIdsFromEvents`, `toolSnapshotFromEvents`, `COMPOSER_PENDING_KINDS`, `cloneUserTurnDraft`, `composerPendingPreview`, `consumeNextComposerQueue`, `consumeNextComposerSteer`, `convertSteersToFrontQueued`, `createComposerPendingMessage`, `moveComposerPendingWithinKind`, `orderComposerPendingMessages`, `promoteComposerPendingKind`, `removeComposerPendingMessage`, `resolveComposerMenuActions`, `resolveComposerPrimary`, `updateComposerPendingDraft`, `userDraftHasPayload`, `userDraftToSteerInject`, `AttachmentValidationCode`, `AttachmentValidationIssue`, `AttachmentValidationParams`, `AttachmentValidationResult`, `AwaitingToolContext`, `ComposerActionContext`, `ComposerMenuAction`, `ComposerPendingKind`, `ComposerPendingMessage`, `ComposerPrimaryAction`, `ComposerProfileInterface`, `ComposerRunPhase`, `CreateComposerPendingMessageArgs`, `FoldTurnEventsOptions`, `GatedToolContext`, `ImageProfileInterface`, `InterfaceEffortOption`, `InterfaceModelOption`, `LiveProfileInterface`, `LiveResolvedTools`, `PendingAttachment`, `PrepareUserTurnResult`, `ProfileGuardrailsView`, `ProfileObservabilityView`, `ProfileInputsInterface`, `ProfileInterface`, `ProfileInterfaceSource`, `ResolvedTools`, `SpeechProfileInterface`, `TextProfileInterface`, `TranscriptBlock`, `TranscriptBlockKind`, `UserTurnDraft`, `UserTurnHistoryMedia`, `InterfaceTurnSession` |
+| Stages (target foundation) | `TURN_STAGES`, `TURN_INJECT_STAGES`, `STAGE_AFFORDANCES`, `STAGE_AFFORDANCE_MATRIX`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `applyStageResult`, `awaitingUserInputSchema`, `toolGateSchema`, `isTurnStage`, `isTurnInjectStage`, `isToolGateKind`, `isAwaitingUserInput`, `stageAllowsAffordance`, `stageEventFields`, `profileAllowsInject`, `StageAffordance`, `StageContext`, `StageResult`, `StageMutate`, `StageHandler`, `StageApplyInput`, `StageApplyOutput`, `StageApplyWarning`, `StageApplyWarningCode`, `StageEventExtra`, `AwaitingUserInput`, `ToolGate` — see [`stages.md`](stages.md). Slices 1–3 landed on branch; publish when release cut matches docs. |
+| Turn events | `TurnEvent`, `TurnEventOf`, `TurnEventType`, `ProviderEvent`, `CallDone`, `DoneFields`, `SessionEvent`, `SessionEventOf`, `turnEventSchema`, `turnHistoryMessageSchema`, `turnToolSnapshotSchema`, `turnDoneOf` |
+| Interface (headless) | `interfaceFromProfile`, `interfaceFromProjected`, `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime`, `sanitizeUserDraft`, `prepareUserTurn`, `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `resetBlockIds`, `streamThoughtsEnabled`, `collectPromotedMediaFromToolOutput`, `promotedMediaFromUrlString`, `PromotedToolMedia`, `defaultInterfaceEffort`, `effortSelectEnabled`, `generationSelectEnabled`, `interfaceEffortOptions`, `interfaceModelOptions`, `modelSelectEnabled`, `appendAssistantEventsToHistory`, `appendToolDenialToHistory`, `appendToolExchangeToHistory`, `appendUserDraftToHistory`, `historyFromTranscriptBlocks`, `toolReadBack`, `applyTurnEventsToSession`, `branchInterfaceTurnSession`, `emptyInterfaceTurnSession`, `abandonGatedToolSession`, `gatedToolFromEvents`, `awaitingFromEvents`, `promotedToolIdsFromEvents`, `toolSnapshotFromEvents`, `COMPOSER_PENDING_KINDS`, `cloneUserTurnDraft`, `composerPendingPreview`, `consumeNextComposerQueue`, `consumeNextComposerSteer`, `convertSteersToFrontQueued`, `createComposerPendingMessage`, `moveComposerPendingWithinKind`, `orderComposerPendingMessages`, `promoteComposerPendingKind`, `removeComposerPendingMessage`, `resolveComposerMenuActions`, `resolveComposerPrimary`, `updateComposerPendingDraft`, `userDraftHasPayload`, `userDraftToSteerInject`, `AttachmentValidationCode`, `AttachmentValidationIssue`, `AttachmentValidationParams`, `AttachmentValidationResult`, `AwaitingToolContext`, `ComposerActionContext`, `ComposerMenuAction`, `ComposerPendingKind`, `ComposerPendingMessage`, `ComposerPrimaryAction`, `ComposerProfileInterface`, `ComposerRunPhase`, `CreateComposerPendingMessageArgs`, `FoldTurnEventsOptions`, `GatedToolContext`, `ImageProfileInterface`, `InterfaceEffortOption`, `InterfaceModelOption`, `LiveProfileInterface`, `LiveResolvedTools`, `PendingAttachment`, `PrepareUserTurnResult`, `ProfileGuardrailsView`, `ProfileObservabilityView`, `ProfileInputsInterface`, `ProfileInterface`, `ResolvedTools`, `SpeechProfileInterface`, `TextProfileInterface`, `TranscriptBlock`, `TranscriptBlockKind`, `UserTurnDraft`, `UserTurnHistoryMedia`, `InterfaceTurnSession` |
 | Attachments (kernel) | `attachmentIssues`, `attachmentIssueCopy`, `attachmentIssueText`, `attachmentsRefused`, `assertTurnAttachments`, `maxBytesForMime`, `requireMediaLimits`, `resolveMediaLimits`, `sanitizeCsvText`, `sanitizeTurnBlobs`, `AttachmentFacts`, `AttachmentRules` |
 
 `PromotedToolMedia` and `media` `TranscriptBlock`s carry an optional
@@ -1016,6 +1052,14 @@ offered one.
       "supports": [
         { "kind": "source", "path": "src/kernel/types.ts" },
         { "kind": "contract_test", "path": "tests/kernel/theorem.test.ts" }
+      ]
+    },
+    "Kernel scope": {
+      "supports": [
+        { "kind": "source", "path": "src/kernel/scope.ts" },
+        { "kind": "source", "path": "src/kernel/default-scope.ts" },
+        { "kind": "source", "path": "src/kernel/registry/kernel-registry.ts" },
+        { "kind": "contract_test", "path": "tests/kernel/scope.test.ts" }
       ]
     },
     "Registered tools": {

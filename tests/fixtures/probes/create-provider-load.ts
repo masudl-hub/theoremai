@@ -56,12 +56,15 @@ createProvider(baseProfile({ protocol: 'openAi', provider: 'openrouter' }, false
 createProvider(baseProfile({ protocol: 'openAi', provider: 'openrouter' }, true), {
   openAiGateway: { apiKey: 'key', voice: 'Kore' },
 });
-createProvider(baseProfile({ protocol: 'openAi', provider: 'local' }, false), {});
+createProvider(baseProfile({ protocol: 'openAi', provider: 'local' }, false), {
+  local: { baseUrl: 'http://127.0.0.1:8080' },
+});
 
 console.log('PHASE:before-complete');
 
 const local = createProvider(baseProfile({ protocol: 'openAi', provider: 'local' }, false), {
   local: {
+    baseUrl: 'http://127.0.0.1:8080',
     fetch: () =>
       Promise.resolve(
         sseResponse([

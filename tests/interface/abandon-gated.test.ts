@@ -5,17 +5,19 @@
 import { assertEquals } from '@std/assert';
 import { abandonGatedToolSession, emptyInterfaceTurnSession } from '../../src/interface/session.ts';
 import type { TurnEvent } from '../../src/kernel/types.ts';
+import { toolSnapshot } from '../fixtures/events.ts';
 
 Deno.test('abandonGatedToolSession: clears gate and records cancelled tool', () => {
   const events: TurnEvent[] = [
     { type: 'text', text: 'Let me check that.' },
+    { type: 'tool', tool: { name: 'dangerous', callId: 'c1', arguments: { x: 1 } } },
     {
       type: 'tool',
       tool: {
         name: 'dangerous',
-        phase: 'gate',
         callId: 'c1',
-        arguments: { x: 1 },
+        at: 1,
+        phase: 'gate',
         gate: {
           kind: 'permission',
           tool: 'dangerous',
@@ -23,7 +25,7 @@ Deno.test('abandonGatedToolSession: clears gate and records cancelled tool', () 
         },
       },
     },
-    { type: 'done', stop: { kind: 'gate' } },
+    { type: 'done', stop: { kind: 'gate' }, tools: toolSnapshot('dangerous') },
   ];
 
   const before = {
@@ -31,7 +33,6 @@ Deno.test('abandonGatedToolSession: clears gate and records cancelled tool', () 
     history: [{ role: 'user' as const, content: 'do it' }],
     gatedTool: {
       name: 'dangerous',
-      input: { x: 1 },
       callId: 'c1',
       arguments: { x: 1 },
       gateKind: 'permission' as const,
@@ -45,7 +46,7 @@ Deno.test('abandonGatedToolSession: clears gate and records cancelled tool', () 
   assertEquals(session.assistantEvents, []);
   assertEquals(
     finalizedEvents.some(
-      (e) => e.type === 'tool' && e.tool?.phase === 'error' && e.tool.failure?.code === 'cancelled',
+      (e) => e.type === 'tool' && e.tool.phase === 'error' && e.tool.failure?.code === 'cancelled',
     ),
     true,
   );

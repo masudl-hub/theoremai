@@ -13,7 +13,8 @@
 
 import { TheoremError, toErrorEvent } from '../../guardrails/error.ts';
 import { asRecord, nonEmptyString } from '../../kernel/engine/record.ts';
-import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../kernel/types.ts';
+import { turnStopFromOpenAiFinishReason } from '../../kernel/stop.ts';
+import type { ModelProvider, ProviderCompleteRequest, ProviderEvent } from '../../kernel/types.ts';
 import { networkFetch, tapFetch } from '../shared/upstream-tap.ts';
 import type { OpenAiGatewayConfig } from '../types.ts';
 import { buildChatMessages, httpErrorEvent, openAiGatewayHeaders } from './openai/compat.ts';
@@ -50,7 +51,7 @@ function baseUrl(config: ImageProviderConfig): string {
   return config.baseUrl?.replace(/\/+$/, '') ?? 'https://openrouter.ai/api/v1';
 }
 
-function* yieldUsage(raw: unknown): Generator<TurnEvent> {
+function* yieldUsage(raw: unknown): Generator<ProviderEvent> {
   const tokens = openAiUsageTokens(raw);
   if (!tokens) {
     return;
@@ -168,7 +169,7 @@ export async function* yieldInterleavedChat(
   req: ProviderCompleteRequest,
   config: ImageProviderConfig,
   apiKey: string,
-): AsyncGenerator<TurnEvent> {
+): AsyncGenerator<ProviderEvent> {
   const res = await requestInterleavedChat(req, config, apiKey);
   if (res.status !== HTTP_OK) {
     yield await httpErrorEvent(res, 'Image chat');
@@ -183,7 +184,8 @@ export async function* yieldInterleavedChat(
     );
     return;
   }
-  const message = asRecord(asRecord(choices[0])?.message);
+  const choice = asRecord(choices[0]);
+  const message = asRecord(choice?.message);
   if (!message) {
     yield toErrorEvent(
       new TheoremError('bad_response', 'no assistant message returned for image generation'),
@@ -206,14 +208,20 @@ export async function* yieldInterleavedChat(
   }
 
   yield* yieldUsage(body.usage);
-  yield { type: 'done' };
+  yield {
+    type: 'done',
+    stop: turnStopFromOpenAiFinishReason(
+      typeof choice?.finish_reason === 'string' ? choice.finish_reason : undefined,
+      typeof choice?.native_finish_reason === 'string' ? choice.native_finish_reason : undefined,
+    ),
+  };
 }
 
 export async function* yieldImagesEndpoint(
   req: ProviderCompleteRequest,
   config: ImageProviderConfig,
   apiKey: string,
-): AsyncGenerator<TurnEvent> {
+): AsyncGenerator<ProviderEvent> {
   const res = await requestImages(req, config, apiKey);
   if (res.status !== HTTP_OK) {
     yield await httpErrorEvent(res, 'Image');
@@ -230,13 +238,14 @@ export async function* yieldImagesEndpoint(
     yield { type: 'media', media };
   }
   yield* yieldUsage(body.usage);
-  yield { type: 'done' };
+  // The endpoint answers whole or not at all: a body with images completed.
+  yield { type: 'done', stop: { kind: 'completed' } };
 }
 
 export async function* streamImage(
   req: ProviderCompleteRequest,
   config: ImageProviderConfig = {},
-): AsyncGenerator<TurnEvent> {
+): AsyncGenerator<ProviderEvent> {
   let apiKey: string;
   try {
     apiKey = resolveOpenAiGatewayApiKey(config, req.keySlot);

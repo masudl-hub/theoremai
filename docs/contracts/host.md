@@ -101,7 +101,7 @@ build a custom relay still may call `processLiveOutboundBatch` /
 
 | Export | Role |
 | --- | --- |
-| `forClient(event, options?)` | Copy one event without `errorInternal` (on any event, e.g. an error or an ended Live session, and on guardrail decisions; `errorKind` and the user's `error` stay); strips `evidence.raw` unless `includeEvidenceRaw: true`; always strips `GuardrailHit.match` |
+| `forClient(event, options?)` | Copy one event without `errorInternal` (it rides error events, an ended Live session, a tool call's failure such as a refused OAuth refresh, and guardrail decisions; `errorKind` and the user's `error` stay); strips `evidence.raw` unless `includeEvidenceRaw: true`; always strips `GuardrailHit.match` |
 | `forClientEvents(events, options?)` | Batch helper for Live relays and HTTP stream flush |
 | `ClientTurnOptions` | `{ includeEvidenceRaw?: boolean }` |
 
@@ -118,8 +118,9 @@ HTTP error responses should still use `publicError(err, profile.lexicon)` —
 
 For a side effect the host makes after a turn (for example an image cutout)
 that belongs in that turn's trace. Run the turn into a `memorySink`, make the
-call, then pass the held record, the tape, the host's `app` metadata and the
-real sink to `flushMintTrace`:
+call, then pass the profile the turn ran on, the held record, the tape, the
+host's `app` metadata and the real sink to `flushMintTrace`. It throws when the
+held turn ran on a different profile:
 
 - The turn record is written unchanged.
 - The second record holds one `cutout` span (CLIENT) whose parent is the turn's

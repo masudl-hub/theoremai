@@ -20,7 +20,7 @@ for image and speech-adjacent profile fields.
 
 ## Builtins
 
-`registerGooglePreset()` registers:
+`registerGooglePreset()` registers these into the default kernel scope; another scope registers `GOOGLE_BUILTIN_TOOLS` with `scope.tools.registerMany`:
 
 | Id | Notes |
 | --- | --- |
@@ -32,6 +32,20 @@ for image and speech-adjacent profile fields.
 All are `type: 'builtin'`. Declare ids on `ModelBinding.builtInTools` — they are on whenever that model is selected (visibility still respects `loadTier`).
 `codeExecution` combines with `googleSearch` on Gemini 3+ and with registered function tools when the profile allows them on Interactions. THEOREM also sends structured `responseFormat` on the same request when both are configured; Google may still reject that pairing at the API. `googleSearch` sets `forcePaidKey: true`, so enabling it selects the paid vault slot unless the model pins `key`. Google's sandbox runtime (~30s) is not a THEOREM knob.
 Hosts may declare optional `conflictsWith` on registered builtins; the preset does not.
+
+## Interaction persistence
+
+`googleInteractionsPersistence(chained)` returns `{ store, persistViaInteractionId }`
+set to the same value, to spread into a `geminiInteractions` binding. Google
+chains a turn with `previous_interaction_id` only from a stored interaction, so
+the two move together: `true` keeps turns on Google and chains them (free tier
+keeps them 1 day, paid 55); `false` stores nothing and the host sends the history
+every turn. With `persistViaInteractionId: false` the kernel never chains inside a
+turn either: a step's calls go into the turn's history as one assistant message
+(the first carrying the step's `thoughtSignature`), then each result and any
+stage inject, and every step sends that history (`ResolvedGeneration.chains` is
+`false`). The kernel does not pair them itself; a binding that sets them apart
+reaches Google as written.
 
 ## Vocabularies
 
@@ -53,6 +67,7 @@ Kernel types stay stringly; these packs make Google hosts typed when they opt in
 | Export | Role |
 | --- | --- |
 | `registerGooglePreset` | Register builtins into catalog |
+| `googleInteractionsPersistence` / `GoogleInteractionsPersistence` | `store` and `persistViaInteractionId` set together for a `geminiInteractions` binding |
 | `GOOGLE_BUILTIN_TOOLS` | Static catalog entries |
 | `GOOGLE_IMAGE_ASPECT_RATIOS`, `GOOGLE_IMAGE_INPUT_MIMES`, `GOOGLE_IMAGE_SIZES`, `GOOGLE_VOICE_INPUT_MIMES`, `GOOGLE_SPEECH_VOICES` | Typed profile authoring constants |
 | `GoogleImageAspectRatio`, `GoogleImageInputMime`, `GoogleImageSize`, `GoogleVoiceInputMime`, `GoogleImagePins`, `GoogleLivePins`, `GoogleSpeechPins`, `GoogleSpeechVoice` | Typed pins and vocabularies |

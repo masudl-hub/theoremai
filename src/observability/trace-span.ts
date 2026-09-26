@@ -20,18 +20,15 @@
 
 import { TheoremError } from '../guardrails/error.ts';
 import { isRecord } from '../kernel/util/record.ts';
-
-/** JSON-shaped attribute value (OTLP `AnyValue`). */
-type TraceAttributeValue =
-  | null
-  | string
-  | number
-  | boolean
-  | TraceAttributeValue[]
-  | { [key: string]: TraceAttributeValue };
-
-/** Span or event attributes keyed by semantic-convention name. */
-type TraceAttributes = Record<string, TraceAttributeValue>;
+import type {
+  TraceAttributes,
+  TraceAttributeValue,
+  TraceSpan,
+  TraceSpanEvent,
+  TraceSpanKind,
+  TraceSpanLink,
+  TraceSpanStatus,
+} from './trace-schema.ts';
 
 /** In-memory text awaiting scrub + hash at record build. */
 interface TraceContent {
@@ -49,44 +46,6 @@ interface TraceBytes {
 interface TraceJson {
   [key: string]: TraceAttributeValue;
   $json: TraceAttributeValue;
-}
-
-/** OTLP span kind. THEOREM emits INTERNAL (agent, tool) and CLIENT (model call). */
-type TraceSpanKind = 'INTERNAL' | 'CLIENT';
-
-/** OTLP status. `UNSET` is used for cancelled and paused spans. */
-interface TraceSpanStatus {
-  code: 'OK' | 'ERROR' | 'UNSET';
-  message?: string;
-}
-
-/** Edge to a span in an earlier trace (resume, continue, retry). */
-interface TraceSpanLink {
-  traceId: string;
-  spanId: string;
-  attributes: TraceAttributes;
-}
-
-/** Timestamped annotation on a span. */
-interface TraceSpanEvent {
-  name: string;
-  timeUnixNano: string;
-  attributes: TraceAttributes;
-}
-
-/** One closed span. */
-interface TraceSpan {
-  traceId: string;
-  spanId: string;
-  parentSpanId?: string;
-  name: string;
-  kind: TraceSpanKind;
-  startTimeUnixNano: string;
-  endTimeUnixNano: string;
-  attributes: TraceAttributes;
-  events: TraceSpanEvent[];
-  links: TraceSpanLink[];
-  status: TraceSpanStatus;
 }
 
 /** A link request: the linked span's W3C `traceparent` plus link attributes. */

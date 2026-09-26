@@ -33,6 +33,7 @@ import {
 } from '../mod.ts';
 import { validateLexiconOverrides } from '../src/guardrails/lexicon.ts';
 import { mimeAllowed } from '../src/kernel/registry/catalog.ts';
+import { googleInteractionsPersistence } from '../src/presets/google.ts';
 import {
   HTTP_METHODS,
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
@@ -200,7 +201,15 @@ function compileBinding(
     ...(binding.maxOutputTokens !== null ? { maxOutputTokens: binding.maxOutputTokens } : {}),
     ...(binding.temperature !== null ? { temperature: binding.temperature } : {}),
     ...(binding.builtInTools.length ? { builtInTools: [...binding.builtInTools] } : {}),
+    // Google sometimes breaks a chain mid-turn (python-genai#3003), so every step sends full history.
+    ...(onGoogleInteractions(binding, type) ? googleInteractionsPersistence(false) : {}),
   };
+}
+
+function onGoogleInteractions(binding: ModelBindingDraft, type: PlaygroundProfileType): boolean {
+  return (
+    type === 'text' && binding.protocol === 'geminiInteractions' && binding.provider === 'google'
+  );
 }
 
 function compileModels(
@@ -275,7 +284,7 @@ function compileAuth(tool: ToolSpecDraft): Extract<ToolRegistration, { type: 'ht
     type: tool.authType,
     ...(tool.authHeaderName?.trim() ? { headerName: tool.authHeaderName.trim() } : {}),
     ...(tool.authHeaderPrefix !== undefined ? { headerPrefix: tool.authHeaderPrefix } : {}),
-    onUnauthenticated: tool.authUnauthenticated ?? 'pause',
+    onUnauthenticated: tool.authUnauthenticated ?? 'gate',
     ...(scopes.length ? { scopes } : {}),
     ...(tool.authClientId?.trim() ? { clientId: tool.authClientId.trim() } : {}),
     ...(tool.authRedirectUri?.trim() ? { redirectUri: tool.authRedirectUri.trim() } : {}),

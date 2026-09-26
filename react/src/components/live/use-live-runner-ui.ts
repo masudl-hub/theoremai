@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import { type LexiconOverrides, type SessionEvent, TheoremError } from '../../../../mod.ts';
+import { type LexiconOverrides, type SessionEventOf, TheoremError } from '../../../../mod.ts';
 import { type ClientFailure, clientFailure } from '../../client/failure';
 import { applyLiveTurnToolEvent } from '../../client/live/apply-live-turn-tool-event';
 import {
@@ -9,7 +9,6 @@ import {
 } from '../../client/live/live-captions';
 import type { LiveToolGatePrompt } from '../../client/live/live-tool';
 import type { LiveFacingMode, LiveVideoCapture } from '../../client/live/live-video';
-import { sessionEndedText } from '../../client/live/session-ended';
 import type { LiveConnectPhase, LiveSessionStatus } from '../../client/live-client';
 import type { ToolGateResolution } from '../../client/tool-resume';
 
@@ -60,10 +59,10 @@ export function useLiveRunnerUiState(lexicon: LexiconOverrides) {
 	}, []);
 
 	const reportSessionEnded = useCallback(
-		(session: SessionEvent) => {
-			setSessionEnded(sessionEndedText(session, lexicon));
+		(session: SessionEventOf<'ended'>) => {
+			setSessionEnded(session.message);
 		},
-		[lexicon],
+		[],
 	);
 
 	const clearSessionEnded = useCallback(() => {

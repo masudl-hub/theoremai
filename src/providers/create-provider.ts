@@ -19,7 +19,7 @@ import type {
   ModelProvider,
   Profile,
   ProviderCompleteRequest,
-  TurnEvent,
+  ProviderEvent,
 } from '../kernel/types.ts';
 import type { GeminiTransport } from './google/keys.ts';
 import { markModuleLoad } from './probe.ts';
@@ -35,7 +35,7 @@ export interface CreateProviderOptions {
    * Optional `voice` is a fallback when `speech.voice` is omitted.
    */
   openAiGateway?: OpenAiGatewayConfig & { voice?: string };
-  /** Local OpenAI-compatible server (Ollama, llama.cpp, vLLM, LM Studio). */
+  /** Local OpenAI-compatible server (Ollama, llama.cpp, vLLM, LM Studio). Required for `local` profiles. */
   local?: LocalProviderConfig;
 }
 
@@ -67,7 +67,7 @@ function bindingForProvider(input: Profile, modelId?: ModelId): ModelBinding {
 function lazyAdapter(label: string, load: () => Promise<ModelProvider>): ModelProvider {
   let pending: Promise<ModelProvider> | undefined;
   return {
-    async *complete(req: ProviderCompleteRequest): AsyncGenerator<TurnEvent> {
+    async *complete(req: ProviderCompleteRequest): AsyncGenerator<ProviderEvent> {
       pending ??= (async () => {
         markModuleLoad(label);
         return await load();
@@ -101,7 +101,7 @@ function lazyImage(config: OpenAiGatewayConfig): ModelProvider {
   );
 }
 
-function lazyLocal(config?: LocalProviderConfig): ModelProvider {
+function lazyLocal(config: LocalProviderConfig): ModelProvider {
   return lazyAdapter('local-adapter', () =>
     import('./local/local.ts').then((m) => m.createLocalProvider(config)),
   );
@@ -166,6 +166,13 @@ export function createProvider(
       throw new TheoremError(
         'config',
         'createProvider: type image requires openrouter provider for openAi protocol',
+      );
+    }
+    // A profile can name `local`; only the host can say a local server is there to reach.
+    if (!options.local) {
+      throw new TheoremError(
+        'config',
+        'createProvider requires local config for openAi/local', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
     return lazyLocal(options.local);

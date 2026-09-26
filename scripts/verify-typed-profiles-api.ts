@@ -15,12 +15,16 @@
  */
 
 import { z } from 'zod';
-import { runTurn } from '../src/kernel/engine/runner.ts';
-import { runSession } from '../src/kernel/engine/session/mod.ts';
-import { defineProfile, registerProfile } from '../src/kernel/registry/profiles.ts';
-import { projectProfile, resolveTurn } from '../src/kernel/registry/resolve.ts';
-import { registerStructured } from '../src/kernel/registry/schemas.ts';
-import { registerTool } from '../src/kernel/tools/registry.ts';
+import {
+  projectProfile,
+  registerProfile,
+  registerStructured,
+  registerTool,
+  resolveTurn,
+  runSession,
+  runTurn,
+} from '../src/kernel/default-scope.ts';
+import { defineProfile } from '../src/kernel/registry/profiles.ts';
 import type {
   ImageProfile,
   LiveProfile,
@@ -28,6 +32,7 @@ import type {
   SpeechProfile,
   TextProfile,
   TurnEvent,
+  TurnEventOf,
   TurnRequest,
 } from '../src/kernel/types.ts';
 import { memorySink } from '../src/observability/trace.ts';
@@ -682,9 +687,9 @@ async function collectLiveCycle(
 function transcriptTurns(events: TurnEvent[]): string[] {
   const turns: string[] = [''];
   for (const e of events) {
-    if (e.evidence?.kind === 'output_transcription' && e.text) {
+    if (e.type === 'evidence' && e.evidence.kind === 'output_transcription' && e.text) {
       turns[turns.length - 1] += e.text;
-    } else if (e.type === 'session' && e.session?.kind === 'turn_complete') {
+    } else if (e.type === 'session' && e.session.kind === 'turn_complete') {
       turns.push('');
     }
   }
@@ -692,22 +697,24 @@ function transcriptTurns(events: TurnEvent[]): string[] {
 }
 
 /** Throw on an error event; return the output transcript per turn and audio chunks. */
-function liveOutput(events: TurnEvent[]): { transcript: string[]; audio: TurnEvent[] } {
+function liveOutput(events: TurnEvent[]): { transcript: string[]; audio: TurnEventOf<'media'>[] } {
   const errEvent = events.find((e) => e.type === 'error');
   if (errEvent) throw new Error(`error event: ${errEvent.errorInternal ?? errEvent.error}`);
   const sessionKinds = events.flatMap((e) =>
-    e.type === 'session' && e.session
+    e.type === 'session'
       ? [e.session.kind]
       : e.type === 'done'
-        ? [`done:${e.stop?.kind}`]
-        : e.type === 'tool' && e.tool
+        ? [`done:${e.stop.kind}`]
+        : e.type === 'tool'
           ? [`tool:${e.tool.name}:${e.tool.phase ?? 'call'}`]
           : [],
   );
   console.log(`    Session events: ${sessionKinds.join(' → ')}`);
   return {
     transcript: transcriptTurns(events),
-    audio: events.filter((e) => e.type === 'media' && e.media?.mimeType.startsWith('audio/')),
+    audio: events.filter(
+      (e): e is TurnEventOf<'media'> => e.type === 'media' && e.media.mimeType.startsWith('audio/'),
+    ),
   };
 }
 
@@ -773,7 +780,7 @@ if (selected.has('live')) {
         if (audio.length === 0) throw new Error('No audio returned');
         if (transcript.length === 0) throw new Error('No output transcription returned');
         console.log(
-          `    Audio: ${audio.length} chunk(s) ${audio[0]?.media?.mimeType}, Transcript: ${JSON.stringify(transcript)}`,
+          `    Audio: ${audio.length} chunk(s) ${audio[0]?.media.mimeType}, Transcript: ${JSON.stringify(transcript)}`,
         );
       } finally {
         clearTimeout(timer);
@@ -793,16 +800,20 @@ if (selected.has('live')) {
         const events = await collectLiveCycle(
           session,
           async (event) => {
-            if (event.type === 'tool' && event.tool && !event.tool.phase) {
+            if (event.type === 'tool' && event.tool.phase === undefined) {
               const settled = await session.executeTool({
                 name: event.tool.name,
-                callId: event.tool.id ?? event.tool.name,
+                callId: event.tool.callId,
                 input: event.tool.arguments,
               });
               if (settled.failure) throw new Error(`tool failed: ${settled.failure.message}`);
               results.push(settled.outputRaw);
             }
-            if (results.length > 0 && event.evidence?.kind === 'output_transcription') {
+            if (
+              results.length > 0 &&
+              event.type === 'evidence' &&
+              event.evidence.kind === 'output_transcription'
+            ) {
               answer += event.text ?? '';
             }
           },

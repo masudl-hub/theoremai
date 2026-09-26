@@ -1,8 +1,9 @@
 /**
  * Trace failure honesty — no test-host fixture (profile registry independent).
  */
+
+import { runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import { runTurn } from '../../src/kernel/engine/runner.ts';
 import { resolveObservabilityPolicy } from '../../src/observability/resolve-policy.ts';
 import { writeTrace } from '../../src/observability/trace.ts';
 import { contentOf, type TraceRecord } from '../../src/observability/trace-record.ts';

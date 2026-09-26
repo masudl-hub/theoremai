@@ -100,8 +100,11 @@ function ApprovalBody({ gate, toolName, input, onDecision }: ApprovalCardProps) 
 	);
 }
 
+/** A gate that needs the user to sign in first. */
+export type AuthGate = Extract<ToolGate, { kind: 'auth' }>;
+
 export type AuthChallengeCardProps = {
-	gate: ToolGate;
+	gate: AuthGate;
 	toolName: string;
 	/**
 	 * Signed in: `secret` is the key the user typed, for the server to save; after
@@ -110,13 +113,13 @@ export type AuthChallengeCardProps = {
 	onAuthenticated?: (secret?: string) => void;
 };
 
-type AuthChallenge = Partial<NonNullable<ToolGate['authChallenge']>>;
+type AuthChallenge = AuthGate['authChallenge'];
 
 function AuthChallengeDetails({ challenge }: { challenge: AuthChallenge }) {
 	const t = useLabels();
 	return (
 		<>
-			<Text>{challenge.message || t('@theorem.gate.auth.message')}</Text>
+			<Text>{challenge.message}</Text>
 			{challenge.resource ? (
 				<Text size="sm" color="secondary">
 					{t('@theorem.gate.auth.resource', { resource: challenge.resource })}
@@ -159,9 +162,8 @@ function useOAuthPopup(slot: string, onComplete: () => void): (url: string) => v
 
 function AuthChallengeBody({ gate, toolName, onAuthenticated }: AuthChallengeCardProps) {
 	const t = useLabels();
-	const challenge: AuthChallenge = gate.authChallenge ?? {};
-	const authType = challenge.authType || 'bearer';
-	const slot = challenge.slot || 'default';
+	const challenge = gate.authChallenge;
+	const { authType, slot } = challenge;
 	const [secret, setSecret] = useState('');
 	const [submitted, setSubmitted] = useState(false);
 	const onOAuthComplete = useCallback(() => {

@@ -12,6 +12,7 @@ export type {
   GoogleImageInputMime,
   GoogleImagePins,
   GoogleImageSize,
+  GoogleInteractionsPersistence,
   GoogleSpeechVoice,
   GoogleVoiceInputMime,
 } from './google.ts';
@@ -22,5 +23,6 @@ export {
   GOOGLE_IMAGE_SIZES,
   GOOGLE_SPEECH_VOICES,
   GOOGLE_VOICE_INPUT_MIMES,
+  googleInteractionsPersistence,
   registerGooglePreset,
 } from './google.ts';

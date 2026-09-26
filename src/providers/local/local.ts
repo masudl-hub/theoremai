@@ -3,7 +3,7 @@
  * vLLM, LM Studio, etc.).
  *
  * Streams SSE from `/v1/chat/completions`, accumulates tool calls, and yields
- * normalized `TurnEvent` objects. No external SDK dependency — raw fetch + SSE.
+ * normalized `ProviderEvent` objects. No external SDK dependency — raw fetch + SSE.
  *
  * Wire-format message building delegates to the shared `openai/compat` module.
  * SSE parsing delegates to the shared `parseSseStream` from `sse.ts`.
@@ -24,19 +24,16 @@ import { turnStopFromOpenAiFinishReason } from '../../kernel/stop.ts';
 import type {
   ModelProvider,
   ProviderCompleteRequest,
-  TurnEvent,
+  ProviderEvent,
   TurnResponse,
 } from '../../kernel/types.ts';
 import { buildChatMessages, wireTools } from '../openrouter/openai/compat.ts';
 import { openAiResponse, openAiUsageTokens } from '../openrouter/openai/usage.ts';
 import { foldResponse } from '../shared/response-identity.ts';
 import { parseSseStream } from '../shared/sse.ts';
-import { parseToolArgumentsObject } from '../shared/tool-args.ts';
+import { toolCallEvents } from '../shared/tool-args.ts';
 import { networkFetch, tapFetch } from '../shared/upstream-tap.ts';
 import type { LocalProviderConfig } from '../types.ts';
-
-/** Default OpenAI-compat base when the host omits `baseUrl` (Ollama's default port). */
-export const DEFAULT_LOCAL_BASE_URL = 'http://127.0.0.1:11434';
 
 // ── wire types ──────────────────────────────────────
 
@@ -66,8 +63,12 @@ function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.slice(0, end);
 }
 
-export function resolveBaseUrl(config?: LocalProviderConfig): string {
-  return normalizeBaseUrl(config?.baseUrl?.trim() || DEFAULT_LOCAL_BASE_URL);
+export function resolveBaseUrl(config: LocalProviderConfig): string {
+  const baseUrl = config.baseUrl.trim();
+  if (!baseUrl) {
+    throw new TheoremError('config', 'Local provider requires baseUrl'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  return normalizeBaseUrl(baseUrl);
 }
 
 function buildBody(req: ProviderCompleteRequest): Record<string, unknown> {
@@ -84,35 +85,10 @@ function buildBody(req: ProviderCompleteRequest): Record<string, unknown> {
   return body;
 }
 
-// ── stream → TurnEvent ──────────────────────────────
+// ── stream → ProviderEvent ──────────────────────────
 
-export function flushPending(pending: Map<number, PendingToolCall>): TurnEvent[] {
-  const events: TurnEvent[] = [];
-  for (const [, tc] of pending) {
-    const parsed = parseToolArgumentsObject(tc.args);
-    if (!parsed.ok) {
-      events.push({
-        type: 'tool',
-        tool: {
-          name: tc.name,
-          arguments: {},
-          id: tc.id,
-          phase: 'error',
-          failure: {
-            code: 'malformed_arguments',
-            kind: 'bad_response',
-            message: parsed.error,
-            details: { raw: parsed.raw },
-          },
-        },
-      });
-      continue;
-    }
-    events.push({
-      type: 'tool',
-      tool: { name: tc.name, arguments: parsed.value, id: tc.id },
-    });
-  }
+export function flushPending(pending: Map<number, PendingToolCall>): ProviderEvent[] {
+  const events = [...pending.values()].flatMap((tc) => toolCallEvents(tc, tc.args));
   pending.clear();
   return events;
 }
@@ -121,7 +97,7 @@ async function* streamComplete(
   baseUrl: string,
   req: ProviderCompleteRequest,
   fetchFn: typeof globalThis.fetch,
-): AsyncGenerator<TurnEvent> {
+): AsyncGenerator<ProviderEvent> {
   const res = await tapFetch(req.tapUpstream, networkFetch(fetchFn))(
     `${baseUrl}/v1/chat/completions`,
     {
@@ -148,7 +124,7 @@ async function* streamComplete(
 async function* streamOpenAiBody(
   body: ReadableStream<Uint8Array>,
   tap: ProviderCompleteRequest['tapUpstream'],
-): AsyncGenerator<TurnEvent> {
+): AsyncGenerator<ProviderEvent> {
   const pending = new Map<number, PendingToolCall>();
   let finishReason: string | null | undefined;
   let response: TurnResponse | undefined;
@@ -197,7 +173,7 @@ function firstOpenAiChoice(raw: Record<string, unknown>): OpenAiChoice | undefin
 function* eventsFromChoiceDelta(
   delta: OpenAiDelta | undefined,
   pending: Map<number, PendingToolCall>,
-): Generator<TurnEvent> {
+): Generator<ProviderEvent> {
   if (!delta) return;
   if (delta.content) yield { type: 'text', text: delta.content };
   accumulateToolCalls(delta.tool_calls, pending);
@@ -225,11 +201,11 @@ function accumulateToolCalls(
 // ── public factory ──────────────────────────────────
 
 /** Create a `ModelProvider` for a local OpenAI-compatible server (Ollama, llama.cpp, vLLM, LM Studio). */
-function createLocalProvider(config?: LocalProviderConfig): ModelProvider {
+function createLocalProvider(config: LocalProviderConfig): ModelProvider {
   const baseUrl = resolveBaseUrl(config);
-  const fetchFn = config?.fetch ?? globalThis.fetch;
+  const fetchFn = config.fetch ?? globalThis.fetch;
   return {
-    async *complete(req: ProviderCompleteRequest): AsyncGenerator<TurnEvent> {
+    async *complete(req: ProviderCompleteRequest): AsyncGenerator<ProviderEvent> {
       try {
         yield* streamComplete(baseUrl, req, fetchFn);
       } catch (err) {

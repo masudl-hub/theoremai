@@ -11,7 +11,6 @@ import type {
 } from '../../../guardrails/types.ts';
 import { resolveInputParts } from '../../registry/ingress.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
-import { getStructured } from '../../registry/schemas.ts';
 import { injectWouldExceedMaxSteps } from '../../stages.ts';
 import type {
   ModelProvider,
@@ -19,6 +18,7 @@ import type {
   ProfileOutputsSpec,
   ResolvedGeneration,
   TurnEvent,
+  TurnEventOf,
   TurnRequest,
   TurnStop,
 } from '../../types.ts';
@@ -91,7 +91,7 @@ async function evaluateEgressOutcome(args: {
   request: TurnRequest;
   profile: Profile;
   canRetry: boolean;
-}): Promise<{ outcome: EgressOutcome; guardrail?: TurnEvent }> {
+}): Promise<{ outcome: EgressOutcome; guardrail?: TurnEventOf<'guardrail'> }> {
   const { egress, attemptEvents, generation, request, profile, canRetry } = args;
   const payload = projectOutbound(attemptEvents);
   const context: GuardrailContext = {
@@ -162,15 +162,15 @@ async function evaluateValidationOutcome(args: {
   if (latestStructured === undefined) {
     return { action: 'pass' };
   }
-  const structuredId = generation.structured;
-  if (!structuredId) {
+  const structured = generation.structured;
+  if (!structured) {
     throw new TheoremError(
       'config',
       'outputs.validation requires outputs.structured with a JSON Schema', // lexicon-exempt: developer contract error
     );
   }
   const failures = await collectValidationFailures(
-    getStructured(structuredId).jsonSchema,
+    structured.jsonSchema,
     latestStructured,
     validation.fields,
     request.input?.slots,
@@ -221,7 +221,7 @@ function updateFlowForRetry(
   state.trace.attempt = flow.currentAttempt;
   state.trace.root.event('theorem.attempt.retry', { attempt: flow.currentAttempt, reason });
   flow.currentReq = nextReq;
-  const safe = sanitizeTurnRequest(nextReq);
+  const safe = sanitizeTurnRequest(nextReq, profile);
   if (profile.type === 'text') {
     // The conversation is already in turn history: the repair is its next user message.
     appendUserInput(
@@ -252,9 +252,7 @@ async function* handleEgressGate(
   });
 
   if (guardrail) {
-    if (guardrail.guardrail) {
-      state.trace.root.event('theorem.guardrail', guardrailAttributes(guardrail.guardrail));
-    }
+    state.trace.root.event('theorem.guardrail', guardrailAttributes(guardrail.guardrail));
     state.allEmittedEvents.push(guardrail);
     yield guardrail;
   }

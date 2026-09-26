@@ -1,12 +1,9 @@
 import '../../fixtures/test-host.ts';
 import { TheoremError } from '../../../src/guardrails/error.ts';
+import { getProfile, registerProfile, resolveTurn } from '../../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../../src/kernel/engine/assert.ts';
-import {
-  defineProfile,
-  getProfile,
-  registerProfile,
-} from '../../../src/kernel/registry/profiles.ts';
-import { requireModelProfile, resolveTurn } from '../../../src/kernel/registry/resolve.ts';
+import { defineProfile } from '../../../src/kernel/registry/profiles.ts';
+import { requireModelProfile } from '../../../src/kernel/registry/resolve.ts';
 import type { KeyVault } from '../../../src/kernel/types.ts';
 import {
   backoffMs,

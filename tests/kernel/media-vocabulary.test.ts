@@ -6,8 +6,8 @@
 import '../fixtures/test-host.ts';
 import { assertEquals, assertThrows } from '@std/assert';
 import { TheoremError } from '../../src/guardrails/error.ts';
+import { getProfile } from '../../src/kernel/default-scope.ts';
 import { mediaChannelForMime } from '../../src/kernel/registry/catalog.ts';
-import { getProfile } from '../../src/kernel/registry/profiles.ts';
 import { MEDIA_INPUT_KINDS } from '../../src/kernel/schema.ts';
 import type { InteractionPart, MediaInputKind } from '../../src/kernel/types.ts';
 import { wireMessageContent } from '../../src/providers/openrouter/openai/compat.ts';

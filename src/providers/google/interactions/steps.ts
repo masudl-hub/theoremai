@@ -1,5 +1,5 @@
 /**
- * Interactions steps and deltas → `TurnEvent`s: text, thoughts, media,
+ * Interactions steps and deltas → `ProviderEvent`s: text, thoughts, media,
  * code execution and builtin evidence, usage, and the terminal status.
  *
  * @module
@@ -9,8 +9,8 @@ import { asRecord, nonEmptyString } from '../../../kernel/engine/record.ts';
 import { reportedTokens, usageCount } from '../../../kernel/engine/usage.ts';
 import { turnStopFromInteractionStatus } from '../../../kernel/stop.ts';
 import type {
-  ProviderEvidenceEvent,
-  TurnEvent,
+  ProviderEvent,
+  TurnEventOf,
   TurnResponse,
   TurnTokens,
 } from '../../../kernel/types.ts';
@@ -56,7 +56,7 @@ function interactionsMime(rec: Record<string, unknown>): string | undefined {
   return extra.length > 0 ? `${mime}; ${extra.join('; ')}` : mime;
 }
 
-function interactionsMedia(rec: Record<string, unknown>): TurnEvent[] {
+function interactionsMedia(rec: Record<string, unknown>): ProviderEvent[] {
   const mimeType = interactionsMime(rec);
   const { data } = rec;
   if (!mimeType || typeof data !== 'string' || !data) {
@@ -65,7 +65,7 @@ function interactionsMedia(rec: Record<string, unknown>): TurnEvent[] {
   return [{ type: 'media', media: { mimeType, data } }];
 }
 
-function textEvent(type: 'thought' | 'text', text: string): TurnEvent[] {
+function textEvent(type: 'thought' | 'text', text: string): ProviderEvent[] {
   return text ? [{ type, text }] : [];
 }
 
@@ -77,48 +77,53 @@ function isGoogleBuiltinStepType(type: string): boolean {
   return type.startsWith('google_') || type === 'url_context_call' || type === 'url_context_result';
 }
 
-/** A step as `evidence`: its type as `kind`, the step itself as `raw`. */
-function rawStepEvidence(raw: Record<string, unknown>): TurnEvent {
-  const type = String(raw.type ?? '');
+/** A step this adapter does not map, as `provider_step` evidence: its type as `step`, the step itself as `raw`. */
+function rawStepEvidence(raw: Record<string, unknown>): TurnEventOf<'evidence'> {
+  return {
+    type: 'evidence',
+    evidence: { provider: 'google', kind: 'provider_step', step: String(raw.type ?? ''), raw },
+  };
+}
+
+/**
+ * A whole Google `code_execution_*` step as `evidence`. A call without its
+ * `id` or `code` is not one this adapter can map, so it is a `provider_step`.
+ */
+function codeExecutionEvidence(raw: Record<string, unknown>): TurnEventOf<'evidence'> {
+  if (raw.type === 'code_execution_result') {
+    const callId = nonEmptyString(raw.call_id);
+    return {
+      type: 'evidence',
+      evidence: {
+        provider: 'google',
+        kind: 'code_execution_result',
+        raw,
+        ...(typeof raw.result === 'string' ? { result: raw.result } : {}),
+        ...(typeof raw.is_error === 'boolean' ? { isError: raw.is_error } : {}),
+        ...(callId ? { callId } : {}),
+      },
+    };
+  }
+  const args = asRecord(raw.arguments);
+  const id = nonEmptyString(raw.id);
+  if (raw.type !== 'code_execution_call' || !id || typeof args?.code !== 'string') {
+    return rawStepEvidence(raw);
+  }
   return {
     type: 'evidence',
     evidence: {
       provider: 'google',
+      kind: 'code_execution_call',
       raw,
-      ...(type ? { kind: type } : {}),
+      code: args.code,
+      ...(typeof args.language === 'string' ? { language: args.language } : {}),
+      id,
     },
   };
 }
 
-/** Normalize a whole Google `code_execution_*` step into an `evidence` event. */
-function codeExecutionEvidence(raw: Record<string, unknown>): TurnEvent {
-  const evidence: ProviderEvidenceEvent = { provider: 'google', raw, kind: String(raw.type) };
-  const args = asRecord(raw.arguments);
-  if (typeof args?.code === 'string') {
-    evidence.code = args.code;
-  }
-  if (typeof args?.language === 'string') {
-    evidence.language = args.language;
-  }
-  if (typeof raw.result === 'string') {
-    evidence.result = raw.result;
-  }
-  if (typeof raw.is_error === 'boolean') {
-    evidence.isError = raw.is_error;
-  }
-  const id = nonEmptyString(raw.id);
-  if (id) {
-    evidence.id = id;
-  }
-  const callId = nonEmptyString(raw.call_id);
-  if (callId) {
-    evidence.callId = callId;
-  }
-  return { type: 'evidence', evidence };
-}
-
 /** A streamed `step.delta` payload that is text, a thought summary or media. */
-function eventsFromDelta(deltaValue: unknown): TurnEvent[] {
+function eventsFromDelta(deltaValue: unknown): ProviderEvent[] {
   const delta = asRecord(deltaValue);
   if (!delta) {
     return [];
@@ -137,13 +142,13 @@ function eventsFromDelta(deltaValue: unknown): TurnEvent[] {
 }
 
 /** A buffered `thought` step: its `summary[]` text blocks. */
-function eventsFromThoughtStep(step: Record<string, unknown>): TurnEvent[] {
+function eventsFromThoughtStep(step: Record<string, unknown>): ProviderEvent[] {
   const summary = Array.isArray(step.summary) ? step.summary : [];
   return summary.flatMap((block) => textEvent('thought', thoughtText(block)));
 }
 
 /** A buffered `model_output` step: its `content[]` text, image and audio blocks. */
-function eventsFromModelOutputStep(step: Record<string, unknown>): TurnEvent[] {
+function eventsFromModelOutputStep(step: Record<string, unknown>): ProviderEvent[] {
   const content = Array.isArray(step.content) ? step.content : [];
   return content.flatMap((block) => {
     const rec = asRecord(block);
@@ -192,7 +197,9 @@ function interactionsUsageTokens(raw: unknown): TurnTokens | undefined {
 }
 
 /** The `tokens` event of a finished interaction (`interaction.completed`'s `interaction`, or a buffered body). */
-function extractTokenEvent(interaction: Record<string, unknown>): TurnEvent | undefined {
+function extractTokenEvent(
+  interaction: Record<string, unknown>,
+): TurnEventOf<'tokens'> | undefined {
   const usage = interactionsUsageTokens(interaction.usage);
   if (!usage) {
     return undefined;
@@ -210,13 +217,12 @@ function extractTokenEvent(interaction: Record<string, unknown>): TurnEvent | un
  * buffered body: its tokens, the grounding across its `steps[]` (buffered
  * only; streamed grounding arrives on deltas) and its terminal status.
  */
-function eventsFromInteractionEnd(interaction: Record<string, unknown>): TurnEvent[] {
-  const events: TurnEvent[] = [];
+function eventsFromInteractionEnd(interaction: Record<string, unknown>): ProviderEvent[] {
+  const events: ProviderEvent[] = [];
   const tokenEvent = extractTokenEvent(interaction);
   if (tokenEvent) events.push(tokenEvent);
   const { steps } = interaction;
-  const groundingEvent = Array.isArray(steps) ? groundingFromSteps(steps) : undefined;
-  if (groundingEvent) events.push(groundingEvent);
+  if (Array.isArray(steps)) events.push(...groundingFromSteps(steps));
   const done = doneFromInteractionStatus(interaction);
   if (done) events.push(done);
   return events;
@@ -231,7 +237,9 @@ function interactionResponse(interaction: Record<string, unknown>): TurnResponse
 }
 
 /** Every status maps to a stop; a non-terminal one (`in_progress`, `queued`) is `stream_incomplete`. */
-function doneFromInteractionStatus(interaction: Record<string, unknown>): TurnEvent | undefined {
+function doneFromInteractionStatus(
+  interaction: Record<string, unknown>,
+): ProviderEvent | undefined {
   const { status } = interaction;
   if (typeof status !== 'string') return undefined;
   return {

@@ -9,16 +9,23 @@ import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
 import { INJ_IGNORE } from '../../src/guardrails/corpus/strings.ts';
 import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
 import { guardToolResult } from '../../src/guardrails/tool-result.ts';
+import {
+  getProfile,
+  registerProfile,
+  registerTool,
+  resetTools,
+} from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import { defineProfile, getProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
+import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import {
   executeRegisteredTool,
   formatToolFailureForModel,
   formatToolResult,
 } from '../../src/kernel/tools/execute.ts';
-import { registerTool, resetTools } from '../../src/kernel/tools/registry.ts';
 import type { ModelToolResult } from '../../src/kernel/tools/types.ts';
 import type { Profile, TurnEvent } from '../../src/kernel/types.ts';
+import { eventsOf, toolEventsOf } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
 const OMITTED_INJECTION = '[omitted - injection]';
@@ -91,6 +98,7 @@ async function run(
 ): Promise<{ events: TurnEvent[]; result: ModelToolResult | undefined }> {
   const events: TurnEvent[] = [];
   const exec = executeRegisteredTool({
+    tools: defaultKernelScope.tools,
     profile,
     name,
     input,
@@ -105,8 +113,7 @@ async function run(
   return { events, result: step.value.modelResult };
 }
 
-const guardrails = (events: TurnEvent[]) =>
-  events.filter((e) => e.type === 'guardrail').map((e) => e.guardrail);
+const guardrails = (events: TurnEvent[]) => eventsOf(events, 'guardrail').map((e) => e.guardrail);
 
 // ── fencing and provenance ───────────────────────────────────────────────────
 
@@ -233,8 +240,7 @@ Deno.test('a remote failure message cannot smuggle instructions to the model', a
   const restore = registerRemote({ error: INJ_IGNORE }, 500);
   try {
     const { events } = await run(profile, 'remote_lookup', { q: 'x' });
-    const failure = events.find((e) => e.type === 'tool' && e.tool?.phase === 'error')?.tool
-      ?.failure;
+    const failure = toolEventsOf(events, 'error')[0]?.failure;
     assertEquals(failure !== undefined, true);
     if (!failure) return;
 

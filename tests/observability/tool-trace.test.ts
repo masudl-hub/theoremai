@@ -4,13 +4,17 @@
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
 import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
+import {
+  invokeTool,
+  registerProfile,
+  registerTool,
+  runTurn,
+} from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { sha256 } from '../../src/kernel/engine/hash.ts';
-import { runTurn } from '../../src/kernel/engine/runner.ts';
-import { defineProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
-import { invokeTool } from '../../src/kernel/tools/mod.ts';
-import { registerTool } from '../../src/kernel/tools/registry.ts';
-import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
+import type { ToolCallRequest } from '../../src/kernel/turn-events.ts';
+import type { ModelProvider, ProviderEvent } from '../../src/kernel/types.ts';
 import {
   contentOf,
   inlineContent,
@@ -21,6 +25,8 @@ import {
   type TraceAttributes,
   type TraceSpan,
 } from '../../src/observability/trace-span.ts';
+import { malformedToolCall } from '../../src/providers/shared/tool-args.ts';
+import { lastOf } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
 import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
 
@@ -74,26 +80,24 @@ registerProfile(
   }),
 );
 
-/** A provider that asks for `calls` once. */
-function asking(...calls: NonNullable<TurnEvent['tool']>[]): ModelProvider {
+/** A provider that yields `events` once. */
+function asking(events: readonly ProviderEvent[]): ModelProvider {
   return {
     async *complete() {
-      for (const tool of calls) yield { type: 'tool', tool };
+      yield* events;
       yield { type: 'tokens', tokens: { input: 1, output: 0, total: 1 } };
     },
   };
 }
 
-async function drain(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
-  const out: TurnEvent[] = [];
-  for await (const event of gen) out.push(event);
-  return out;
+function turnRecord(...calls: ToolCallRequest[]): Promise<TraceRecord> {
+  return recordOf(asking(calls.map((tool) => ({ type: 'tool', tool }))));
 }
 
-async function turnRecord(...calls: NonNullable<TurnEvent['tool']>[]): Promise<TraceRecord> {
+async function recordOf(provider: ModelProvider): Promise<TraceRecord> {
   const into: TraceRecord[] = [];
-  await drain(
-    runTurn({ profile: PROFILE, input: { text: 'go' } }, asking(...calls), catalogedSink(into)),
+  await Array.fromAsync(
+    runTurn({ profile: PROFILE, input: { text: 'go' } }, provider, catalogedSink(into)),
   );
   const [record] = into;
   if (!record) throw new Error('no record');
@@ -111,7 +115,11 @@ function toolSpan(record: TraceRecord): TraceSpan {
 }
 
 Deno.test('a tool call is one span under the turn, with what went in and came back', async () => {
-  const record = await turnRecord({ id: 'c1', name: 'lookup_order', arguments: { orderId: 'A1' } });
+  const record = await turnRecord({
+    callId: 'c1',
+    name: 'lookup_order',
+    arguments: { orderId: 'A1' },
+  });
   const [root] = record.spans;
   const span = toolSpan(record);
   assertEquals(span.name, 'execute_tool lookup_order');
@@ -151,7 +159,7 @@ Deno.test('the model reads back the same text the span records', async () => {
       }
       yield {
         type: 'tool',
-        tool: { id: 'c1', name: 'lookup_order', arguments: { orderId: 'A1' } },
+        tool: { callId: 'c1', name: 'lookup_order', arguments: { orderId: 'A1' } },
       };
     },
   };
@@ -167,7 +175,7 @@ Deno.test('the model reads back the same text the span records', async () => {
       guardrails: { quota: { perDay: 10_000 } },
     }),
   );
-  await drain(
+  await Array.fromAsync(
     runTurn({ profile: `${PROFILE}_2`, input: { text: 'go' } }, provider, catalogedSink(into)),
   );
   const [record] = into;
@@ -177,7 +185,7 @@ Deno.test('the model reads back the same text the span records', async () => {
 
 Deno.test('a failing tool is ERROR with its kind and code and no raw output', async () => {
   const span = toolSpan(
-    await turnRecord({ id: 'c1', name: 'crashing_tool', arguments: { id: '1' } }),
+    await turnRecord({ callId: 'c1', name: 'crashing_tool', arguments: { id: '1' } }),
   );
   assertEquals(span.status, { code: 'ERROR', message: 'failed' });
   assertEquals(span.attributes['theorem.tool.outcome'], 'error');
@@ -194,7 +202,9 @@ Deno.test('a provider error types the turn and the call by its kind', async () =
       yield { type: 'error', errorKind: 'rate_limit', errorInternal: 'upstream 429' };
     },
   };
-  await drain(runTurn({ profile: PROFILE, input: { text: 'go' } }, failing, catalogedSink(into)));
+  await Array.fromAsync(
+    runTurn({ profile: PROFILE, input: { text: 'go' } }, failing, catalogedSink(into)),
+  );
   const [record] = into;
   const [root] = record?.spans ?? [];
   const call = record?.spans.find((span) => span.name.startsWith('generate_content'));
@@ -208,14 +218,16 @@ Deno.test('a provider error types the turn and the call by its kind', async () =
 });
 
 Deno.test('a denied call is UNSET, not a failure', async () => {
-  const span = toolSpan(await turnRecord({ id: 'c1', name: 'denied_tool', arguments: {} }));
+  const span = toolSpan(await turnRecord({ callId: 'c1', name: 'denied_tool', arguments: {} }));
   assertEquals(span.status, { code: 'UNSET' });
   assertEquals(span.attributes['theorem.tool.outcome'], 'denied');
   assertEquals('error.type' in span.attributes, false);
 });
 
 Deno.test('a gated call records the gate and nothing read back', async () => {
-  const span = toolSpan(await turnRecord({ id: 'c1', name: 'always_confirm_tool', arguments: {} }));
+  const span = toolSpan(
+    await turnRecord({ callId: 'c1', name: 'always_confirm_tool', arguments: {} }),
+  );
   assertEquals(span.status, { code: 'UNSET' });
   assertEquals(span.attributes['theorem.tool.outcome'], 'gated');
   assertEquals(span.attributes['theorem.tool.permission'], 'always_confirm');
@@ -226,18 +238,9 @@ Deno.test('a gated call records the gate and nothing read back', async () => {
 
 Deno.test('malformed arguments are recorded as the raw text the model sent', async () => {
   const raw = '{"orderId": "A1';
-  const record = await turnRecord({
-    id: 'c1',
-    name: 'lookup_order',
-    arguments: {},
-    phase: 'error',
-    failure: {
-      code: 'malformed_arguments',
-      kind: 'bad_response',
-      message: 'bad json',
-      details: { raw },
-    },
-  });
+  const record = await recordOf(
+    asking(malformedToolCall({ name: 'lookup_order', callId: 'c1' }, 'bad json', raw)),
+  );
   const span = toolSpan(record);
   assertEquals(span.status, { code: 'ERROR', message: 'bad_response' });
   assertEquals(span.attributes['error.type'], 'bad_response');
@@ -248,7 +251,7 @@ Deno.test('malformed arguments are recorded as the raw text the model sent', asy
 
 Deno.test('tool media is hashed in the raw output and the result parts', async () => {
   seenTraceparents.length = 0;
-  const record = await turnRecord({ id: 'c1', name: 'tool_trace_image', arguments: {} });
+  const record = await turnRecord({ callId: 'c1', name: 'tool_trace_image', arguments: {} });
   const span = toolSpan(record);
   const hash = await sha256('tool-image-bytes');
   const data = JSON.parse(contentOf(record, span.attributes['theorem.tool.data']) ?? 'null');
@@ -266,7 +269,7 @@ Deno.test('tool media is hashed in the raw output and the result parts', async (
 
 Deno.test('a host invoke writes its own record, rooted under the host span', async () => {
   const into: TraceRecord[] = [];
-  const events = await drain(
+  const events = await Array.fromAsync(
     invokeTool(
       {
         profile: PROFILE,
@@ -291,7 +294,7 @@ Deno.test('a host invoke writes its own record, rooted under the host span', asy
   assertEquals(root?.attributes['theorem.tool.approved'], true);
   assertEquals(root?.attributes['theorem.tool.outcome'], 'ok');
   assertEquals(
-    events.findLast((e) => e.type === 'done')?.traceparent,
+    lastOf(events, 'done')?.traceparent,
     formatTraceparent(HOST_TRACE, root?.spanId ?? ''),
   );
 });
@@ -300,7 +303,7 @@ Deno.test('a host invoke that fails before the tool still records why', async ()
   const into: TraceRecord[] = [];
   let thrown = false;
   try {
-    await drain(
+    await Array.fromAsync(
       invokeTool(
         { profile: 'no_such_profile', name: 'lookup_order', input: { orderId: 'A1' } },
         catalogedSink(into),

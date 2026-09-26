@@ -1,4 +1,4 @@
-import type { ToolGate, ToolPermission } from '../../../src/kernel/mod.ts';
+import type { InvokeToolResume, ToolGate, ToolPermission } from '../../../src/kernel/mod.ts';
 
 export type ToolDecisionAction = 'allow' | 'deny';
 
@@ -7,10 +7,8 @@ export type ToolGateResolution =
 	/** Signed in: `secret` is a key the user typed; after an OAuth callback there is none. */
 	| { action: 'auth'; secret?: string };
 
-export type InvokeToolResumeInput = {
-	value?: unknown;
-	granted?: boolean;
-};
+/** The part of `InvokeToolResume` the browser sends: the user's answer to a gate. */
+export type InvokeToolResumeInput = Pick<InvokeToolResume, 'granted'>;
 
 /**
  * Session permissions after the user approves a gated call. The registrant's tier decides:

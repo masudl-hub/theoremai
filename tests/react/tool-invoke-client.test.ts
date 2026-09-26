@@ -17,6 +17,7 @@ import {
   interfaceFromProfile,
 } from '../../src/interface/mod.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
+import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import { checkPermission } from '../../src/kernel/tools/permission.ts';
 import type { ToolGate } from '../../src/kernel/tools/types.ts';
 import type { ModelBinding } from '../../src/kernel/types.ts';
@@ -51,6 +52,7 @@ function textInterface(
       tools: { allow: [] },
       inputs: { text: true, ...CHAT_MEDIA_LIMITS },
     }),
+    defaultKernelScope.tools,
   );
   if (iface.type !== 'text') throw new Error('expected a text interface');
   return iface;

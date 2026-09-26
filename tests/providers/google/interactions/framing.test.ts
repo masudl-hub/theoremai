@@ -21,6 +21,7 @@ import {
   userInputStep,
   wirePart,
 } from '../../../../src/providers/google/interactions/framing.ts';
+import { googleBuiltins, resolvedStructured } from '../../../fixtures/provider-request.ts';
 import { testWireTool } from '../../../fixtures/wire-tools.ts';
 
 function baseReq(overrides: Partial<ProviderCompleteRequest> = {}): ProviderCompleteRequest {
@@ -213,7 +214,7 @@ Deno.test('attachResponseFormat throws when speech and image are both requested'
 });
 
 Deno.test('attachResponseFormat throws when speech and structured are both requested', () => {
-  const req = baseReq({ speech: { voice: 'Kore' }, structured: 'chatTurn' });
+  const req = baseReq({ speech: { voice: 'Kore' }, structured: resolvedStructured('chatTurn') });
   assertThrows(() => attachResponseFormat(req, {}), TheoremError);
 });
 
@@ -294,7 +295,7 @@ Deno.test('attachResponseFormat leaves camel untouched when nothing is requested
 });
 
 Deno.test('attachResponseFormat sets json response format for a structured schema', () => {
-  const req = baseReq({ structured: 'chatTurn' });
+  const req = baseReq({ structured: resolvedStructured('chatTurn') });
   const camel: Record<string, unknown> = {};
   attachResponseFormat(req, camel);
   assertEquals(Array.isArray(camel.responseFormat), true);
@@ -377,7 +378,7 @@ Deno.test('applyOptionalRequestFields omits optional fields when absent', () => 
 });
 
 Deno.test('applyOptionalRequestFields maps builtins to their Interactions wire types', () => {
-  const req = baseReq({ builtins: ['googleSearch', 'urlContext'] });
+  const req = baseReq({ builtins: googleBuiltins('googleSearch', 'urlContext') });
   const camel: Record<string, unknown> = {};
   applyOptionalRequestFields(req, camel);
   assertEquals(camel.tools, [{ type: 'google_search' }, { type: 'url_context' }]);
@@ -385,7 +386,7 @@ Deno.test('applyOptionalRequestFields maps builtins to their Interactions wire t
 
 Deno.test('applyOptionalRequestFields merges codeExecution builtin with dynamic function tools', () => {
   const req = baseReq({
-    builtins: ['codeExecution', 'googleSearch'],
+    builtins: googleBuiltins('codeExecution', 'googleSearch'),
     wireTools: [
       testWireTool('lookup_order', {
         description: 'Fetch order state',
@@ -538,6 +539,30 @@ Deno.test('historySteps maps assistant tool_calls to function_call (no empty tex
   ]);
 });
 
+Deno.test('historySteps replays the thought signature as the thought step ahead of the calls', () => {
+  const steps = historySteps({
+    role: 'assistant',
+    tool_calls: [
+      {
+        id: 'c1',
+        type: 'function',
+        function: { name: 'geocode_city', arguments: '{"city":"Porto"}' },
+        thoughtSignature: 'sig',
+      },
+      {
+        id: 'c2',
+        type: 'function',
+        function: { name: 'geocode_city', arguments: '{"city":"Faro"}' },
+      },
+    ],
+  });
+  assertEquals(steps, [
+    { type: 'thought', signature: 'sig' },
+    { type: 'function_call', id: 'c1', name: 'geocode_city', arguments: { city: 'Porto' } },
+    { type: 'function_call', id: 'c2', name: 'geocode_city', arguments: { city: 'Faro' } },
+  ]);
+});
+
 Deno.test('historySteps keeps preceding assistant prose then function_call', () => {
   const steps = historySteps({
     role: 'assistant',
@@ -600,7 +625,7 @@ Deno.test('inputStepsFromRequest expands tool_calls history into function_call +
 });
 
 Deno.test('applyOptionalRequestFields throws for a builtin with no Interactions wire type', () => {
-  const req = baseReq({ builtins: ['notRegisteredTool'] });
+  const req = baseReq({ builtins: [{ id: 'liveOnly', wire: { live: 'liveOnly' } }] });
   assertThrows(() => applyOptionalRequestFields(req, {}), TheoremError);
 });
 
@@ -632,8 +657,8 @@ Deno.test('toInteractionsBody builds a full snake_case wire body', () => {
   const req = baseReq({
     system: 'be nice',
     store: true,
-    builtins: ['googleSearch'],
-    structured: 'chatTurn',
+    builtins: googleBuiltins('googleSearch'),
+    structured: resolvedStructured('chatTurn'),
   });
   const body = toInteractionsBody(req);
   assertEquals(body.model, 'gemini-3.5-flash-lite');
@@ -654,8 +679,8 @@ Deno.test('toInteractionsBody sets stream false when requested', () => {
 Deno.test('toInteractionsBody sends code_execution together with structured response_format', () => {
   const body = toInteractionsBody(
     baseReq({
-      builtins: ['codeExecution'],
-      structured: 'chatTurn',
+      builtins: googleBuiltins('codeExecution'),
+      structured: resolvedStructured('chatTurn'),
     }),
   );
   assertEquals(body.tools, [{ type: 'code_execution' }]);

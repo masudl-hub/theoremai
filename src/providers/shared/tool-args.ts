@@ -7,6 +7,14 @@
  */
 
 import { TheoremError } from '../../guardrails/error.ts';
+import {
+  failureEvent,
+  newCallId,
+  type ToolCallBase,
+  toolCallRequestEvent,
+} from '../../kernel/tools/events.ts';
+import type { ProviderEvent } from '../../kernel/types.ts';
+import { isRecord } from '../../kernel/util/record.ts';
 
 /**
  * Tool identity fields (call id, tool name) from host history, kept only where
@@ -36,8 +44,8 @@ export function parseToolArgumentsObject(raw: unknown): ParsedToolArguments {
     }
     try {
       const parsed: unknown = JSON.parse(trimmed);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        return { ok: true, value: parsed as Record<string, unknown> };
+      if (isRecord(parsed)) {
+        return { ok: true, value: parsed };
       }
       return {
         ok: false,
@@ -52,8 +60,8 @@ export function parseToolArgumentsObject(raw: unknown): ParsedToolArguments {
       };
     }
   }
-  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-    return { ok: true, value: raw as Record<string, unknown> };
+  if (isRecord(raw)) {
+    return { ok: true, value: raw };
   }
   if (raw === undefined || raw === null) {
     return { ok: true, value: {} };
@@ -75,4 +83,51 @@ export function historyToolArguments(raw: unknown): Record<string, unknown> {
     throw new TheoremError('bad_response', parsed.error);
   }
   return parsed.value;
+}
+
+/**
+ * A model's tool call as a provider sent it: the call, then — when the name
+ * or arguments are unusable — its failure carrying what arrived. A call sent
+ * without an id gets one, so its events join.
+ */
+export function toolCallEvents(
+  call: { id?: string; name: string; thoughtSignature?: string },
+  rawArguments: unknown,
+): ProviderEvent[] {
+  const name = call.name.trim();
+  const base = { name, callId: call.id ?? newCallId(name) };
+  if (!name) {
+    return malformedToolCall(
+      base,
+      'function call is missing a name',
+      rawArguments,
+      call.thoughtSignature,
+    );
+  }
+  const parsed = parseToolArgumentsObject(rawArguments);
+  if (!parsed.ok) {
+    return malformedToolCall(base, parsed.error, parsed.raw, call.thoughtSignature);
+  }
+  return [toolCallRequestEvent(base, parsed.value, { thoughtSignature: call.thoughtSignature })];
+}
+
+/**
+ * A call whose name or arguments are unusable: the call with none, then its
+ * failure. It keeps its thought signature: the model still reads its result back.
+ */
+export function malformedToolCall(
+  base: ToolCallBase,
+  message: string,
+  raw: unknown,
+  thoughtSignature?: string,
+): ProviderEvent[] {
+  return [
+    toolCallRequestEvent(base, {}, { thoughtSignature }),
+    failureEvent(base, {
+      code: 'malformed_arguments',
+      kind: 'bad_response',
+      message,
+      details: { raw },
+    }),
+  ];
 }

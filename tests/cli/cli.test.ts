@@ -17,7 +17,8 @@ import {
   synthesizeMatrixCombos,
   synthesizeStressCombo,
 } from '../../src/cli/matrix/synthesizer.ts';
-import { defineProfile, getProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
+import { getProfile, registerProfile } from '../../src/kernel/default-scope.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ModelProvider, Profile, TurnEvent } from '../../src/kernel/types.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 
@@ -208,11 +209,14 @@ Deno.test('runCommand exercises all stream event types and failure handling', as
   const mockEvents: TurnEvent[] = [
     { type: 'thought', text: 'Thinking step...' },
     { type: 'text', text: 'Hello human!' },
-    { type: 'tool', tool: { name: 'calculator', arguments: { expr: '2+2' } } },
+    {
+      type: 'tool',
+      tool: { name: 'calculator', arguments: { expr: '2+2' }, callId: 'call_calculator' },
+    },
     { type: 'structured', structured: { result: 4 } },
     { type: 'media', media: { mimeType: 'image/png', data: 'abc' } },
-    { type: 'error', error: 'Non-fatal error' },
-    { type: 'done' },
+    { type: 'error', errorKind: 'internal', error: 'Non-fatal error' },
+    { type: 'done', stop: { kind: 'completed' } },
   ];
 
   const mockProvider: ModelProvider = {
@@ -232,7 +236,6 @@ Deno.test('runCommand exercises all stream event types and failure handling', as
   assertEquals(res.passed, false); // because error event was yielded
 
   // Test runCommand on OpenAI/OpenRouter profile
-  const { registerProfile, defineProfile } = await import('../../src/kernel/registry/profiles.ts');
   registerProfile(
     defineProfile({
       type: 'text',

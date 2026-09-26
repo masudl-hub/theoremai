@@ -7,6 +7,7 @@ import {
   eventsFromThoughtStep,
   extractTokenEvent,
 } from '../../../../src/providers/google/interactions/steps.ts';
+import { eventsOf } from '../../../fixtures/events.ts';
 
 const BUFFERED_CHIPS = '<div class="container"><a class="chip">chips</a></div>';
 
@@ -102,25 +103,40 @@ Deno.test('interactions steps: eventsFromModelOutputStep reads text and image bl
 });
 
 Deno.test('interactions steps: codeExecutionEvidence normalizes whole call and result steps', () => {
-  const call = codeExecutionEvidence({
+  const callStep = {
     type: 'code_execution_call',
     id: 'call_1',
     signature: 'sig',
     arguments: { language: 'PYTHON', code: 'print(sum(range(1, 11)))' },
+  };
+  assertEquals(codeExecutionEvidence(callStep), {
+    type: 'evidence',
+    evidence: {
+      provider: 'google',
+      kind: 'code_execution_call',
+      raw: callStep,
+      code: 'print(sum(range(1, 11)))',
+      language: 'PYTHON',
+      id: 'call_1',
+    },
   });
-  assertEquals(call.evidence?.kind, 'code_execution_call');
-  assertEquals(call.evidence?.id, 'call_1');
-  assertEquals(call.evidence?.code, 'print(sum(range(1, 11)))');
-  assertEquals(call.evidence?.language, 'PYTHON');
-  const result = codeExecutionEvidence({
+  const resultStep = {
     type: 'code_execution_result',
     call_id: 'call_1',
     is_error: false,
     result: '55\n',
+  };
+  assertEquals(codeExecutionEvidence(resultStep), {
+    type: 'evidence',
+    evidence: {
+      provider: 'google',
+      kind: 'code_execution_result',
+      raw: resultStep,
+      result: '55\n',
+      isError: false,
+      callId: 'call_1',
+    },
   });
-  assertEquals(result.evidence?.callId, 'call_1');
-  assertEquals(result.evidence?.result, '55\n');
-  assertEquals(result.evidence?.isError, false);
 });
 
 Deno.test('interactions steps: eventsFromInteractionEnd emits grounding from a buffered body steps[]', () => {
@@ -156,11 +172,17 @@ Deno.test('interactions steps: eventsFromInteractionEnd emits grounding from a b
       },
     ],
   };
-  const grounding = eventsFromInteractionEnd(body).filter((e) => e.type === 'grounding');
+  const events = eventsFromInteractionEnd(body);
+  const grounding = eventsOf(events, 'grounding');
   assertEquals(grounding.length, 1);
-  assertEquals(grounding[0]?.grounding?.searchHtml, BUFFERED_CHIPS);
-  assertEquals(grounding[0]?.grounding?.sources, [
-    { type: 'web', title: 'wikipedia.org', uri: 'https://grounding.example/redirect/a' },
+  assertEquals(grounding[0]?.grounding.searchHtml, BUFFERED_CHIPS);
+  assertEquals(eventsOf(events, 'citation'), [
+    {
+      type: 'citation',
+      sources: [
+        { type: 'web', title: 'wikipedia.org', uri: 'https://grounding.example/redirect/a' },
+      ],
+    },
   ]);
 });
 

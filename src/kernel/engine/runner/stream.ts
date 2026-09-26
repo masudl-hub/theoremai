@@ -1,4 +1,8 @@
-import { eventHasCanary, isStreamedCanaryEvent } from '../../../guardrails/canary.ts';
+import {
+  eventHasCanary,
+  isStreamedCanaryEvent,
+  type StreamedReplyEvent,
+} from '../../../guardrails/canary.ts';
 import { CANARY_HIT, WITHHELD_REASON } from '../../../guardrails/egress.ts';
 import { TheoremError, throwIfAborted, toErrorEvent } from '../../../guardrails/error.ts';
 import { guardrailFromHits } from '../../../guardrails/events.ts';
@@ -17,10 +21,13 @@ import type {
   ModelProvider,
   Profile,
   ProviderCompleteRequest,
+  ProviderEvent,
   ResolvedGeneration,
-  TurnEvent,
 } from '../../types.ts';
 import type { CallTrace } from '../turn-trace.ts';
+
+/** What the stream yields to the step runner: every provider event but `response`, which only the trace reads. */
+export type StreamEvent = Exclude<ProviderEvent, { type: 'response' }>;
 
 /** Mutable control flags shared with the step runner during one provider stream. */
 interface OutboundStreamControl {
@@ -28,21 +35,21 @@ interface OutboundStreamControl {
   withholdVisible: boolean;
 }
 
-function shouldSkipStreamEvent(event: TurnEvent, profile: Profile): boolean {
+function shouldSkipStreamEvent(event: ProviderEvent, profile: Profile): boolean {
   return (
     event.type === 'thought' && profileTurnOutputs(profile)?.streaming?.streamThoughts === false
   );
 }
 
 /** The offending text never reaches the host: redaction cannot cover a partial or encoded token. */
-function* yieldCanaryLeak(): Generator<TurnEvent> {
+function* yieldCanaryLeak(): Generator<StreamEvent> {
   yield* yieldDeltaBlock([CANARY_HIT]);
   yield toErrorEvent(new TheoremError('safety', WITHHELD_REASON.canary));
   // The turn ends because our guardrail blocked the output, not because the model finished.
   yield { type: 'done', stop: { kind: 'filtered', native: 'canary' } };
 }
 
-function* yieldDeltaBlock(hits: GuardrailHit[]): Generator<TurnEvent> {
+function* yieldDeltaBlock(hits: GuardrailHit[]): Generator<StreamEvent> {
   const guardrail = guardrailFromHits('output_delta', 'untrusted', hits, 'block');
   if (guardrail) {
     yield guardrail;
@@ -50,7 +57,7 @@ function* yieldDeltaBlock(hits: GuardrailHit[]): Generator<TurnEvent> {
 }
 
 /** Host-visible output a mid-stream block withholds. Thoughts are not guarded (`isGuardedOutput`). */
-function isWithheldOnBlock(event: TurnEvent): boolean {
+function isWithheldOnBlock(event: ProviderEvent): boolean {
   return event.type === 'text' || event.type === 'media';
 }
 
@@ -68,7 +75,7 @@ async function* yieldProviderEvents(args: {
   call: Pick<CallTrace, 'tap' | 'observe'>;
   signal?: AbortSignal;
   control?: OutboundStreamControl;
-}): AsyncGenerator<TurnEvent> {
+}): AsyncGenerator<StreamEvent> {
   const { profile, generation, request, provider, call, signal, control } = args;
   const { canary } = generation;
   const policy = resolveGuardrailPolicy(profile.guardrails);
@@ -81,7 +88,7 @@ async function* yieldProviderEvents(args: {
   };
   const gate: ProgressiveYieldGate | null = createOutboundProgressiveGate(policy, context);
   /** The streamed event whose reply sits in the gate's lookback; released tails keep its shape. */
-  let pendingStream: TurnEvent | null = null;
+  let pendingStream: StreamedReplyEvent | null = null;
   let withholdVisible = false;
 
   function armWithhold(): void {
@@ -95,8 +102,8 @@ async function* yieldProviderEvents(args: {
 
   async function* drainBlockedDelta(
     hits: GuardrailHit[],
-    template: TurnEvent,
-  ): AsyncGenerator<TurnEvent, void> {
+    template: StreamedReplyEvent,
+  ): AsyncGenerator<StreamEvent, void> {
     yield* yieldDeltaBlock(hits);
     // Arm withhold before recording the unreleased tail so the step runner
     // does not forward that text to the host.
@@ -105,7 +112,7 @@ async function* yieldProviderEvents(args: {
     if (tail) yield { ...template, text: tail };
   }
 
-  async function* flushGate(): AsyncGenerator<TurnEvent, 'stop' | 'pass'> {
+  async function* flushGate(): AsyncGenerator<StreamEvent, 'stop' | 'pass'> {
     if (!(gate && pendingStream)) {
       return 'pass';
     }
@@ -127,8 +134,8 @@ async function* yieldProviderEvents(args: {
   }
 
   async function* gateStreamEvent(
-    event: TurnEvent,
-  ): AsyncGenerator<TurnEvent, 'continue' | 'stop'> {
+    event: StreamedReplyEvent,
+  ): AsyncGenerator<StreamEvent, 'continue' | 'stop'> {
     if (!gate) {
       yield event;
       return 'continue';

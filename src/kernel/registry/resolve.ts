@@ -10,6 +10,7 @@ import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import { sanitizeTurnRequest } from '../../guardrails/sanitize.ts';
 import { profileTurnResumption } from '../stop.ts';
 import { projectTools } from '../tools/project.ts';
+import type { ToolRegistry } from '../tools/registry.ts';
 import { resolveTurnTools } from '../tools/resolve.ts';
 import type {
   ModelBinding,
@@ -31,7 +32,7 @@ import {
   resolveImageFormat,
   resolveInputParts,
 } from './ingress.ts';
-import { getProfile } from './profiles.ts';
+import type { KernelRegistry } from './kernel-registry.ts';
 import { resolveTurnSystemPrompt } from './system-prompt.ts';
 import { providerUsesKeySlots, resolveKeySlot } from './vault.ts';
 
@@ -210,33 +211,38 @@ function assertTurnResumption(profile: ModelProfile, req: TurnRequest): void {
   }
 }
 
-/** Resolve a host `TurnRequest` into provider-ready generation state. */
-function resolveTurn(req: TurnRequest): {
+/** Resolve a host `TurnRequest` into provider-ready generation state from `registry`. */
+function resolveTurnInRegistry(
+  registry: KernelRegistry,
+  req: TurnRequest,
+): {
   profile: ModelProfile;
   generation: ResolvedGeneration;
 } {
-  const safe = sanitizeTurnRequest(req);
+  const profile = requireModelProfile(registry.profiles.get(req.profile), 'resolveTurn');
+  const safe = sanitizeTurnRequest(req, profile);
   const input = safe.input ?? {};
-  const profile = requireModelProfile(getProfile(safe.profile), 'resolveTurn');
   assertTurnResumption(profile, safe);
   const model = pickModel(profile, safe.model);
   const binding = requireModelBinding(profile, model);
-  const toolSnapshot = resolveTurnTools(profile, safe, model);
+  const toolSnapshot = resolveTurnTools(registry.tools, profile, safe, model);
   const builtins = toolSnapshot.builtins;
-  const structured = resolveStructured(profile, input.slots);
-  assertOutputMode(profile, structured);
+  const structuredId = resolveStructured(profile, input.slots);
+  assertOutputMode(profile, structuredId);
   assertSpeechRole(profile, binding, safe);
   const keySlot = providerUsesKeySlots(binding.provider)
-    ? resolveKeySlot(profile.key, binding, builtins, binding.provider === 'google')
+    ? resolveKeySlot(registry.tools, profile.key, binding, builtins, binding.provider === 'google')
     : undefined;
-  const previousInteractionId =
-    binding.persistViaInteractionId === false ? undefined : safe.previousInteractionId;
+  const transport = resolveTransport(profile, binding);
+  const chains = transport === 'interactions' && binding.persistViaInteractionId !== false;
+  const previousInteractionId = chains ? safe.previousInteractionId : undefined;
   return {
     profile,
     generation: {
       model,
       apiId: binding.apiId,
-      transport: resolveTransport(profile, binding),
+      transport,
+      chains,
       previousInteractionId,
       store: resolveStore(binding, safe.store),
       stream: resolveStreamFlag(profile),
@@ -252,7 +258,9 @@ function resolveTurn(req: TurnRequest): {
       sessionPermissions: safe.sessionPermissions,
       history: input.history,
       maxSteps: profile.maxSteps,
-      structured,
+      structured: structuredId
+        ? { id: structuredId, jsonSchema: registry.schemas.get(structuredId).jsonSchema }
+        : null,
       image: resolveImageFormat(profile),
       speech: profile.type === 'speech' ? profile.speech : undefined,
       live: profile.type === 'live' ? profile.live : undefined,
@@ -270,8 +278,8 @@ function primaryImageSpec(profile: ModelProfile) {
   return profile.type === 'image' ? profile.image : null;
 }
 
-/** Project a profile object into a safe host/UI inspection object. */
-function projectProfileObject(input: Profile): ProjectedProfile {
+/** Project a profile object into a safe host/UI inspection object; its tools come from `tools`. */
+function projectProfileObject(tools: ToolRegistry, input: Profile): ProjectedProfile {
   const profile = requireModelProfile(input, 'projectProfile');
   const { identity } = profile;
   const inputs = profileInputs(profile) ?? null;
@@ -285,7 +293,7 @@ function projectProfileObject(input: Profile): ProjectedProfile {
     allowModelSelect: profile.allowModelSelect,
     maxSteps: profile.maxSteps,
     key: profile.key,
-    tools: projectTools(profile),
+    tools: projectTools(tools, profile),
     inputs,
     outputs,
     image: primaryImageSpec(profile),
@@ -294,16 +302,16 @@ function projectProfileObject(input: Profile): ProjectedProfile {
   };
 }
 
-/** Project a registered profile into a safe host/UI inspection object. */
-function projectProfile(id: Profile['id']): ProjectedProfile {
-  return projectProfileObject(getProfile(id));
+/** Project a profile registered in `registry` into a safe host/UI inspection object. */
+function projectProfileInRegistry(registry: KernelRegistry, id: Profile['id']): ProjectedProfile {
+  return projectProfileObject(registry.tools, registry.profiles.get(id));
 }
 
 export {
   isModelProfile,
   pickModel,
-  projectProfile,
+  projectProfileInRegistry,
   projectProfileObject,
   requireModelProfile,
-  resolveTurn,
+  resolveTurnInRegistry,
 };

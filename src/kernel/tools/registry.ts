@@ -1,9 +1,8 @@
 /**
- * Process-local tool registry.
+ * Tool registries. Each kernel scope owns one; see `createKernelScope`.
  *
- * Registration is not synchronized — hosts must register tools at startup before
- * concurrent turns or invokeTool calls. Reads during execution are safe under Deno's
- * single-threaded event loop; concurrent mutation of a shared TurnToolSnapshot is
+ * Registration is not synchronized — register a scope's tools before its turns
+ * or invokeTool calls run. Concurrent mutation of a shared TurnToolSnapshot is
  * avoided by cloneTurnToolSnapshot on invokeTool entry.
  *
  * @module
@@ -18,15 +17,12 @@ import {
   validateToolOutputSchema,
 } from './schema.ts';
 import type {
-  BuiltinWire,
   FunctionToolDef,
   HttpToolDef,
   McpToolDef,
   RegisteredTool,
   ToolDefinitionInput,
 } from './types.ts';
-
-const tools = new Map<string, RegisteredTool>();
 
 function schemasFromZod<TIn, TOut>(input: z.ZodType<TIn>, output: z.ZodType<TOut>) {
   const inputSchema = jsonSchemaFromZod(input, 'input');
@@ -79,80 +75,48 @@ function normalizeToolDefinition<TIn = unknown, TOut = unknown>(
   return normalizeFunction(def);
 }
 
-/** Register or replace a tool definition. */
-function registerTool<TIn, TOut>(def: ToolDefinitionInput<TIn, TOut>): RegisteredTool<TIn, TOut> {
-  const normalized = normalizeToolDefinition(def);
-  tools.set(normalized.name, normalized as RegisteredTool);
-  return normalized;
+/** One scope's tools, by name. */
+interface ToolRegistry {
+  /** Register or replace a tool definition. */
+  register<TIn, TOut>(def: ToolDefinitionInput<TIn, TOut>): RegisteredTool<TIn, TOut>;
+  /** Register several tools in order. */
+  registerMany(defs: ToolDefinitionInput[]): RegisteredTool[];
+  /** The tool registered under `name`, or `undefined`. */
+  get(name: string): RegisteredTool | undefined;
+  /** The tool registered under `name`; throws when there is none. */
+  require(name: string): RegisteredTool;
+  has(name: string): boolean;
+  /** Registered tools in registration order. */
+  list(): RegisteredTool[];
+  /** Remove every tool. */
+  reset(): void;
 }
 
-/** Register several tools in order. */
-function registerTools(defs: ToolDefinitionInput[]): RegisteredTool[] {
-  return defs.map((def) => registerTool(def));
+/** A tool registry of its own: nothing registered in one is visible from another. */
+function createToolRegistry(): ToolRegistry {
+  const tools = new Map<string, RegisteredTool>();
+  const get = (name: string) => tools.get(name);
+  const register = <TIn, TOut>(def: ToolDefinitionInput<TIn, TOut>) => {
+    const normalized = normalizeToolDefinition(def);
+    tools.set(normalized.name, normalized as RegisteredTool);
+    return normalized;
+  };
+  return {
+    register,
+    registerMany: (defs) => defs.map((def) => register(def)),
+    get,
+    require(name) {
+      const tool = get(name);
+      if (!tool) {
+        throw new TheoremError('config', `Tool '${name}' is not registered`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      }
+      return tool;
+    },
+    has: (name) => tools.has(name),
+    list: () => [...tools.values()],
+    reset: () => tools.clear(),
+  };
 }
 
-/** Gets a process-registered tool by name without throwing for an unknown name. */
-function getTool(name: string): RegisteredTool | undefined {
-  return tools.get(name);
-}
-
-/** Gets a process-registered tool or throws when the name is unknown. */
-function requireTool(name: string): RegisteredTool {
-  const tool = getTool(name);
-  if (!tool) {
-    throw new TheoremError('config', `Tool '${name}' is not registered`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  }
-  return tool;
-}
-
-/** A registered builtin's wire name on one transport; throws when it has none. */
-function requireBuiltinWire(id: string, transport: keyof BuiltinWire): string {
-  const tool = getTool(id);
-  const wire = tool?.type === 'builtin' ? tool.wire[transport] : undefined;
-  if (!wire) {
-    throw new TheoremError('config', `Builtin '${id}' has no wire.${transport}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  }
-  return wire;
-}
-
-/** Returns whether a process-registered tool exists under a name. */
-function hasTool(name: string): boolean {
-  return tools.has(name);
-}
-
-/** Lists current process-registered tools in registration order. */
-function listTools(): RegisteredTool[] {
-  return [...tools.values()];
-}
-
-/** Lists names of registered provider builtins. */
-function listBuiltinIds(): string[] {
-  return listTools()
-    .filter((t) => t.type === 'builtin')
-    .map((t) => t.name);
-}
-
-/** Lists names of registered local function tools. */
-function listFunctionIds(): string[] {
-  return listTools()
-    .filter((t) => t.type === 'function')
-    .map((t) => t.name);
-}
-
-/** Clears the process-local tool registry; primarily useful for test isolation. */
-function resetTools(): void {
-  tools.clear();
-}
-
-export {
-  getTool,
-  hasTool,
-  listBuiltinIds,
-  listFunctionIds,
-  listTools,
-  registerTool,
-  registerTools,
-  requireBuiltinWire,
-  requireTool,
-  resetTools,
-};
+export type { ToolRegistry };
+export { createToolRegistry };

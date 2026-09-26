@@ -25,7 +25,7 @@ import { Timestamp } from '@astryxdesign/core/Timestamp';
 import { Token } from '@astryxdesign/core/Token';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconCheck, IconCopy } from '@tabler/icons-react';
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, type RefObject, useEffect, useMemo, useRef, useState } from 'react';
 import type { TranscriptBlock } from '../../../src/interface/mod.ts';
 import { citationsFromBlock, type SourceCitationBlock } from '../client/source-citations';
 import {
@@ -616,6 +616,43 @@ function UserTurn(props: { blocks: TranscriptBlock[]; at: number }) {
 }
 
 /** Theorem transcript blocks rendered as Astryx chat messages. */
+/**
+ * A disclosure the reader opens (a turn's work, a tool group, a call's detail)
+ * glides to the top of the transcript, so what it reveals reads from its start.
+ * Astryx owns each trigger's open state, so this reads `aria-expanded` after
+ * the reader's click or key, never an open the transcript made itself.
+ */
+function useScrollToOpened(): RefObject<HTMLDivElement | null> {
+	const ref = useRef<HTMLDivElement>(null);
+	useEffect(() => {
+		const list = ref.current;
+		if (!list) return;
+		const onOpen = (event: Event) => {
+			if (event instanceof KeyboardEvent && event.key !== 'Enter' && event.key !== ' ') return;
+			const trigger = event.target instanceof Element ? event.target.closest('[aria-expanded]') : null;
+			if (!trigger || !list.contains(trigger)) return;
+			requestAnimationFrame(async () => {
+				if (trigger.getAttribute('aria-expanded') !== 'true') return;
+				// Scroll once the panel has grown: until then, a trigger near the
+				// end of the transcript has no room below it to reach the top.
+				const panel = document.getElementById(trigger.getAttribute('aria-controls') ?? '');
+				// A closed-again panel cancels its animation, which rejects `finished`.
+				await Promise.allSettled((panel?.getAnimations() ?? []).map((animation) => animation.finished));
+				if (trigger.getAttribute('aria-expanded') !== 'true') return;
+				const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+				trigger.scrollIntoView({ behavior: still ? 'auto' : 'smooth', block: 'start' });
+			});
+		};
+		list.addEventListener('click', onOpen);
+		list.addEventListener('keydown', onOpen);
+		return () => {
+			list.removeEventListener('click', onOpen);
+			list.removeEventListener('keydown', onOpen);
+		};
+	}, []);
+	return ref;
+}
+
 export function ChatTranscript(props: ChatTranscriptProps) {
 	return (
 		<TheoremLabelsProvider>
@@ -639,6 +676,7 @@ function ChatTranscriptBody({
 	);
 	const spans = useTurnSpans(streaming, groups.findLast((group) => group.kind === 'user')?.key);
 	const pendingPrompt = streaming ? pendingPromptOf(groups) : undefined;
+	const listRef = useScrollToOpened();
 	const handlers: BlockHandlers = {
 		indexOf: (block) => blocks.findIndex((entry) => entry.id === block.id),
 		onToolDecision,
@@ -670,7 +708,7 @@ function ChatTranscriptBody({
 	}
 
 	return (
-		<ChatMessageList isStreaming={streaming} emptyState={emptyState}>
+		<ChatMessageList ref={listRef} isStreaming={streaming} emptyState={emptyState}>
 			{turns}
 		</ChatMessageList>
 	);

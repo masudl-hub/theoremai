@@ -2,6 +2,7 @@ import { isStreamedCanaryEvent } from '../../../guardrails/canary.ts';
 import {
   CANARY_HIT,
   eventPromptLeakHits,
+  isPromptLeakHit,
   promptLeakReason,
   WITHHELD_REASON,
 } from '../../../guardrails/egress.ts';
@@ -11,6 +12,7 @@ import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import {
   createOutboundProgressiveGate,
   type ProgressiveYieldGate,
+  type ProgressiveYieldResult,
 } from '../../../guardrails/progressive-yield.ts';
 import type {
   GuardrailContext,
@@ -36,6 +38,8 @@ interface OutboundStreamControl {
    * in front of this call's reply, and replaced by where this call ends.
    */
   canaryCarry?: string;
+  /** System-prompt leak hits this call withheld under a host policy; they pin its verdict. */
+  promptLeaks?: GuardrailHit[];
 }
 
 function shouldSkipStreamEvent(event: TurnEvent, profile: Profile): boolean {
@@ -50,7 +54,12 @@ function* yieldCanaryLeak(hits: GuardrailHit[] = [CANARY_HIT]): Generator<TurnEv
   const reason = promptLeakReason(hits);
   yield toErrorEvent(new TheoremError('safety', reason));
   // The turn ends because our guardrail blocked the output, not because the model finished.
-  const native = reason === WITHHELD_REASON.canary ? 'canary' : 'prompt_echo';
+  const native =
+    reason === WITHHELD_REASON.canary
+      ? 'canary'
+      : reason === WITHHELD_REASON.promptEcho
+        ? 'prompt_echo'
+        : 'provider_tool_leak';
   yield { type: 'done', stop: { kind: 'filtered', native } };
 }
 
@@ -102,6 +111,15 @@ async function* yieldProviderEvents(args: {
   let pendingStream: TurnEvent | null = null;
   let withholdVisible = false;
 
+  /**
+   * Under a host policy a withheld system-prompt leak goes to the
+   * end-of-attempt verdict, which it pins to block: no verdict may release it.
+   */
+  function recordPromptLeak(hits: GuardrailHit[]): void {
+    const leaks = hits.filter(isPromptLeakHit);
+    if (control && leaks.length > 0) control.promptLeaks = leaks;
+  }
+
   function armWithhold(): void {
     withholdVisible = true;
     if (control) control.withholdVisible = true;
@@ -130,18 +148,30 @@ async function* yieldProviderEvents(args: {
     const template = pendingStream;
     const result = await gate.flush();
     pendingStream = null;
+    return (yield* releaseOrBlock(result, template)) === 'stop' ? 'stop' : 'pass';
+  }
+
+  /**
+   * Act on one gate step: release what it cleared, or block — stopping the turn
+   * when no host policy decides later, otherwise withholding for its verdict.
+   */
+  async function* releaseOrBlock(
+    result: ProgressiveYieldResult,
+    template: TurnEvent,
+  ): AsyncGenerator<TurnEvent, 'stop' | 'go'> {
     if (result.blocked) {
       if (canary && canaryOnlyImmediateStop(policy)) {
         yield* yieldCanaryLeak(result.hits);
         return 'stop';
       }
+      recordPromptLeak(result.hits);
       yield* drainBlockedDelta(result.hits, template);
-      return 'pass';
+      return 'go';
     }
     if (result.emit) {
       yield { ...template, text: result.emit };
     }
-    return 'pass';
+    return 'go';
   }
 
   async function* gateStreamEvent(
@@ -158,18 +188,7 @@ async function* yieldProviderEvents(args: {
     }
     pendingStream = event;
     const result = await gate.process(event.text ?? '');
-    if (result.blocked) {
-      if (canary && canaryOnlyImmediateStop(policy)) {
-        yield* yieldCanaryLeak(result.hits);
-        return 'stop';
-      }
-      yield* drainBlockedDelta(result.hits, event);
-      return 'continue';
-    }
-    if (result.emit) {
-      yield { ...event, text: result.emit };
-    }
-    return 'continue';
+    return (yield* releaseOrBlock(result, event)) === 'stop' ? 'stop' : 'continue';
   }
 
   throwIfAborted(signal);

@@ -128,14 +128,13 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
   }
 
   async function scan(window: string): Promise<GuardrailHit[] | null> {
+    // The system-prompt leak checks always run, under a host policy too: it adds
+    // checks, it never replaces these (the guardrail invariant).
+    const leaks = context.canary ? canaryWindowHits(window) : [];
+    if (leaks.length > 0) {
+      return leaks;
+    }
     if (options.enforce) {
-      if (carry) {
-        // The carry is canary-only: the host policy judges this window's own text.
-        const carried = canaryWindowHits(window);
-        if (carried.length > 0) {
-          return carried;
-        }
-      }
       // Mid-stream the gate can only release or stop: emitted prefixes cannot be
       // rewritten, so `redact` stops here and end-of-attempt egress applies the
       // full verdict. `flag` is advisory and keeps the stream flowing.
@@ -148,10 +147,9 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
       // Host enforce is authoritative when present (matches end-of-attempt egress).
       return null;
     }
-    // Without a host policy there is no end-of-attempt verdict to defer to, so
-    // the gate blocks on the canary alone; the bundled rules run via egress.enforce.
-    const hits = canaryWindowHits(window);
-    return hits.length > 0 ? hits : null;
+    // Without a host policy the gate blocks on the leak checks alone; the bundled
+    // rules run via egress.enforce.
+    return null;
   }
 
   async function release(releaseTail: boolean): Promise<ProgressiveYieldResult> {

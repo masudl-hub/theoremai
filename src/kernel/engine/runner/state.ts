@@ -1,4 +1,4 @@
-import type { TurnTaint } from '../../../guardrails/types.ts';
+import type { GuardrailHit, TurnTaint } from '../../../guardrails/types.ts';
 import type { SpanHandle } from '../../../observability/trace-span.ts';
 import type { TurnToolSnapshot } from '../../tools/types.ts';
 import type {
@@ -47,6 +47,11 @@ interface StepExecutionState {
    * next call's reply so a token split across steps is still one match.
    */
   canaryCarry?: string;
+  /**
+   * System-prompt leaks this attempt withheld under a host policy. The
+   * end-of-attempt verdict is pinned to block when any were seen.
+   */
+  promptLeaks?: GuardrailHit[];
   /**
    * Untrusted remote content this turn has already read.
    *

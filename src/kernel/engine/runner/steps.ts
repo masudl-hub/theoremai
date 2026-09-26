@@ -159,6 +159,9 @@ async function* executeAutonomousStep(
   }
 
   state.canaryCarry = control.canaryCarry;
+  if (control.promptLeaks) {
+    state.promptLeaks = [...(state.promptLeaks ?? []), ...control.promptLeaks];
+  }
   const tokens = await callTokensEvent(usage, generation, state.mediaFamily);
   call.end({ tokens: tokens?.tokens, stop });
   if (tokens) {

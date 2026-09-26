@@ -1,6 +1,7 @@
 import { mapStrings } from '../kernel/engine/tree.ts';
 import type { TurnEvent } from '../kernel/types.ts';
 import { type LexiconOverrides, lexiconText } from './lexicon.ts';
+import { promptEchoScanFrom, scanTextForPromptEcho } from './prompt-echo.ts';
 import { scanTextOf } from './serialize.ts';
 
 const USER_OPEN = '<user_data>';
@@ -637,15 +638,29 @@ interface CanaryStreamGate {
   flush: () => CanaryGateResult;
 }
 
-/** Creates an incremental scanner for one canary token; call `flush` at stream end. */
-function createCanaryStreamGate(canary: string): CanaryStreamGate {
+/**
+ * Creates an incremental scanner for one canary token; call `flush` at stream
+ * end. With `system`, a reply echoing the system prompt (`scanTextForPromptEcho`)
+ * is a leak too.
+ */
+function createCanaryStreamGate(canary: string, system?: string): CanaryStreamGate {
   let pending = '';
-  /** Released text a run could still continue from (`canaryScanFrom`), read but never re-released. */
+  /** Released text a leak could still continue from, read but never re-released. */
   let released = '';
+
+  /** Where a scan must start to see every leak that ends past `from`. */
+  function scanFrom(text: string, from: number): number {
+    const start = canaryScanFrom(text, from);
+    return system ? Math.min(start, promptEchoScanFrom(text, from)) : start;
+  }
 
   function leaks(window: string): boolean {
     const text = released + window;
-    return scanTextForCanaryLeak(text.slice(canaryScanFrom(text, released.length)), canary);
+    const read = text.slice(scanFrom(text, released.length));
+    return (
+      scanTextForCanaryLeak(read, canary) ||
+      (system !== undefined && scanTextForPromptEcho(read, system))
+    );
   }
 
   function step(window: string): CanaryGateResult {
@@ -656,7 +671,7 @@ function createCanaryStreamGate(canary: string): CanaryStreamGate {
     const emit = window.slice(0, safeEnd);
     pending = window.slice(safeEnd);
     released += emit;
-    released = released.slice(canaryScanFrom(released, released.length));
+    released = released.slice(scanFrom(released, released.length));
     return { leak: false, emit };
   }
 

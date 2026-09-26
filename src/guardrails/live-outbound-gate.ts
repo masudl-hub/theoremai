@@ -24,7 +24,13 @@
 
 import type { Profile, TurnEvent } from '../kernel/types.ts';
 import { isStreamedCanaryEvent } from './canary.ts';
-import { eventPromptLeakHits, promptLeakReason, runEnforcer, WITHHELD_REASON } from './egress.ts';
+import {
+  eventPromptLeakHits,
+  isPromptLeakHit,
+  promptLeakReason,
+  runEnforcer,
+  WITHHELD_REASON,
+} from './egress.ts';
 import { TheoremError } from './error.ts';
 import { guardrailFromHits, guardrailFromVerdict } from './events.ts';
 import { lexiconText } from './lexicon.ts';
@@ -39,6 +45,7 @@ import type {
   GuardrailHit,
   ProfileEgressSpec,
   ResolvedGuardrailPolicy,
+  Verdict,
 } from './types.ts';
 
 /**
@@ -66,6 +73,11 @@ export interface LiveOutboundGateSession {
   releasedTo: number;
   /** Stop releasing held output after a progressive egress hit. */
   withholdVisible: boolean;
+  /**
+   * System-prompt leaks this cycle withheld under a host policy. They pin the
+   * cycle's final verdict to block: no host verdict may release them.
+   */
+  promptLeaks?: GuardrailHit[];
 }
 
 /** Result of a live outbound operation: events to emit, output to withhold, or no work. */
@@ -121,6 +133,7 @@ function resetCycle(session: LiveOutboundGateSession): void {
   session.held = [];
   session.releasedTo = 0;
   session.withholdVisible = false;
+  session.promptLeaks = undefined;
 }
 
 /** Canary-only profiles stop the turn immediately; egress profiles defer to finalize. */
@@ -196,6 +209,10 @@ function applyScan(
   }
   if (canaryOnlyImmediateWithhold(session)) {
     return withholdResult(promptLeakReason(result.hits), result.hits, into);
+  }
+  const leaks = result.hits.filter(isPromptLeakHit);
+  if (leaks.length > 0) {
+    session.promptLeaks = leaks;
   }
   session.withholdVisible = true;
   const guardrail = guardrailFromHits('live_outbound', 'untrusted', result.hits, 'block');
@@ -305,7 +322,11 @@ async function finalEgressVerdict(
   egress: ProfileEgressSpec,
   prior: TurnEvent[],
 ): Promise<LiveOutboundBatchResult> {
-  const verdict = await runEnforcer(egress.enforce, { text: gate.accumulated() }, session.context);
+  // The host policy adds checks; it never releases a system-prompt leak.
+  const leaks = session.promptLeaks;
+  const verdict: Verdict = leaks
+    ? { action: 'block', hits: leaks, rejection: WITHHELD_REASON.egress }
+    : await runEnforcer(egress.enforce, { text: gate.accumulated() }, session.context);
   const guardrail = guardrailFromVerdict('live_outbound', 'untrusted', verdict);
   const events = [...prior, ...(guardrail ? [guardrail] : [])];
 

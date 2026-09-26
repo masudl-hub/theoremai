@@ -39,9 +39,12 @@ Every guardrail decision is made against this:
 **Known exception:** provider-side built-in tools (`urlContext` and the other
 Google builtins) run at the provider mid-generation, before Theorem sees the
 call. The kernel scans the provider's report of each call with the same checks
-and ends the turn on a hit, but that is detection after the fact, not a hold.
-A builder who needs prevention uses a registered HTTP tool, which the kernel
-checks before it sends.
+and ends the turn on a hit, but that is detection after the fact, not a hold:
+the hit is `egress.provider-tool-leak` (`stop.native: 'provider_tool_leak'`),
+an incident to investigate, since the request already left. Content a builtin
+fetches also reaches the model inside the provider, never passing inbound
+sanitization. A builder who needs prevention uses a registered HTTP tool, which
+the kernel checks before it sends and sanitizes when it returns.
 
 What no output check can read (arbitrary ciphers, a token spread one character
 per sentence, a paraphrase of the prompt) is outside any filter: the system
@@ -80,11 +83,11 @@ Owns every module under `src/guardrails/`.
 | `mintCanary` | Generate per-turn 32-hex token (128 random bits, no prefix) |
 | `bindCanary` | Append canary note to system prompt |
 | `wrapUserData` | Fence untrusted user text in `<user_data>` |
-| `createCanaryStreamGate` | Holds only a tail that could start a leak, for split-token streaming |
+| `createCanaryStreamGate` | Holds only a tail that could start a leak, for split-token streaming; with a system prompt, also stops a reply echoing it |
 | `scanTextForCanaryLeak` | The token — as written, reversed, in ROT13, spelled out (digit words, NATO letters), as character or byte codes, or in base64 at any offset — read through case, lookalike and fullwidth characters, and separators up to 32 characters; any 16 consecutive characters of it count |
 | `eventHasCanary` | Scan any `TurnEvent` wire shape |
 | `scanTextForPromptEcho` | Whether a reply repeats `PROMPT_ECHO_WORDS` (12) consecutive words of the system prompt — case-folded, markup and list numbering ignored; the leak the token alone cannot see (`guardrails.promptEcho`, on with the canary) |
-| `createCanaryGateSession` / `filterCanaryGatedEvents` | Canary-only batch helper (Live production uses `live-outbound-gate`) |
+| `createCanaryGateSession` / `filterCanaryGatedEvents` | Canary batch helper; pass the system prompt as sent to catch prompt echo too, as `runTurn` and Live do (Live production uses `live-outbound-gate`) |
 
 ## Egress
 
@@ -222,9 +225,14 @@ call of a `runTurn`, the next Live cycle — so a token split across tool steps
 or cycles is one match: the turn or session ends when it completes, and only
 the chunks before the completing one were released. `defineProfile` rejects a
 `holdback` or `maxRetries` that is not a non-negative integer. The same constructor backs `runTurn` and
-Live (`processLiveOutboundBatch`). Host `egress.enforce` is authoritative when
-set; otherwise the gate scans for the canary alone and a leak ends
-the turn at once. The bundled rules (`collectEgressHits`: canary, sensitive echo,
+Live (`processLiveOutboundBatch`). The system-prompt leak checks (canary,
+prompt echo) run on every window under any policy. Without `egress.enforce` a
+leak ends the turn at once. With it, the host policy is authoritative for its
+own rules, and a leak follows its flow (`onBlock` refusal, repair, or
+withhold) — but the final verdict is pinned to block: no host verdict, not even
+`allow`, releases a system-prompt leak. Whole events (tool calls, structured
+payloads) carrying one end the turn at once under any policy, so a leaking tool
+call never runs. The bundled rules (`collectEgressHits`: canary, sensitive echo,
 system boundary, injection echo) run only through `egress.enforce` — for example
 `standardEgressEnforce` — where the end-of-attempt verdict can release, repair,
 or refuse.

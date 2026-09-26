@@ -1,4 +1,4 @@
-import { runEnforcer, WITHHELD_REASON } from '../../../guardrails/egress.ts';
+import { hitRules, runEnforcer, WITHHELD_REASON } from '../../../guardrails/egress.ts';
 import { TheoremError, throwIfAborted, toErrorEvent } from '../../../guardrails/error.ts';
 import { guardrailFromVerdict } from '../../../guardrails/events.ts';
 import { lexiconText } from '../../../guardrails/lexicon.ts';
@@ -6,8 +6,10 @@ import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import { sanitizeTurnRequest } from '../../../guardrails/sanitize.ts';
 import type {
   GuardrailContext,
+  GuardrailHit,
   OutboundPayload,
   ProfileEgressSpec,
+  Verdict,
 } from '../../../guardrails/types.ts';
 import { resolveInputParts } from '../../registry/ingress.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
@@ -91,8 +93,10 @@ async function evaluateEgressOutcome(args: {
   request: TurnRequest;
   profile: Profile;
   canRetry: boolean;
+  /** System-prompt leaks the stream withheld: they pin the verdict to block. */
+  promptLeaks?: GuardrailHit[];
 }): Promise<{ outcome: EgressOutcome; guardrail?: TurnEvent }> {
-  const { egress, attemptEvents, generation, request, profile, canRetry } = args;
+  const { egress, attemptEvents, generation, request, profile, canRetry, promptLeaks } = args;
   const payload = projectOutbound(attemptEvents);
   const context: GuardrailContext = {
     stage: 'output_final',
@@ -103,7 +107,18 @@ async function evaluateEgressOutcome(args: {
     ...(request.input?.slots ? { slots: request.input.slots } : {}),
     ...(request.input?.role ? { role: request.input.role } : {}),
   };
-  const verdict = await runEnforcer(egress.enforce, payload, context);
+  // The host policy adds checks; it never releases a system-prompt leak.
+  const verdict: Verdict = promptLeaks?.length
+    ? {
+        action: 'block',
+        hits: promptLeaks,
+        rejection: lexiconText(
+          'egress.rejection',
+          { rules: hitRules(promptLeaks).join(', ') },
+          profile.lexicon,
+        ),
+      }
+    : await runEnforcer(egress.enforce, payload, context);
   const guardrail = guardrailFromVerdict('output_final', 'untrusted', verdict);
 
   // `flag` is advisory: the hit is recorded, the turn still releases.
@@ -249,6 +264,7 @@ async function* handleEgressGate(
     request: flow.currentReq,
     profile,
     canRetry,
+    ...(state.promptLeaks ? { promptLeaks: state.promptLeaks } : {}),
   });
 
   if (guardrail) {
@@ -347,6 +363,7 @@ async function* executeSingleAttemptCycle(args: {
   for (;;) {
     state.attemptEvents = [];
     state.withheldVisible = false;
+    state.promptLeaks = undefined;
     const attempt = yield* executeAttempt({
       safe: flow.currentReq,
       profile,

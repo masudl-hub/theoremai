@@ -10,18 +10,37 @@ import {
   type CanaryStreamGate,
   createCanaryStreamGate,
   eventHasCanary,
+  guardedEventTexts,
   isStreamedCanaryEvent,
 } from './canary.ts';
+import { scanTextForPromptEcho } from './prompt-echo.ts';
 
 /** Stateful canary scanner for an ordered sequence of turn events. */
 export interface CanaryGateSession {
   canary: string;
+  /** The system prompt as sent, when replies echoing it are leaks too. */
+  system?: string;
   gate: CanaryStreamGate;
 }
 
-/** Creates a canary-only gate session for batched filtering of streamed and non-streamed events. */
-function createCanaryGateSession(canary: string): CanaryGateSession {
-  return { canary, gate: createCanaryStreamGate(canary) };
+/**
+ * Creates a gate session for batched filtering of streamed and non-streamed
+ * events. Pass the system prompt as sent to catch replies that echo it
+ * (`scanTextForPromptEcho`), as `runTurn` and Live do.
+ */
+function createCanaryGateSession(canary: string, system?: string): CanaryGateSession {
+  return {
+    canary,
+    ...(system ? { system } : {}),
+    gate: createCanaryStreamGate(canary, system),
+  };
+}
+
+function echoesPrompt(event: TurnEvent, system?: string): boolean {
+  return (
+    system !== undefined &&
+    guardedEventTexts(event).some((text) => scanTextForPromptEcho(text, system))
+  );
 }
 
 /**
@@ -46,7 +65,7 @@ function filterCanaryGatedEvents(
       }
       continue;
     }
-    if (eventHasCanary(event, session.canary)) {
+    if (eventHasCanary(event, session.canary) || echoesPrompt(event, session.system)) {
       return { leaked: true };
     }
     out.push(event);

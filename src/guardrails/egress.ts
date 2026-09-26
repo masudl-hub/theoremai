@@ -32,6 +32,12 @@ export const EGRESS_RULES = {
   canary: 'egress.canary-leak',
   /** The reply repeats the system prompt (`guardrails.promptEcho`). */
   promptEcho: 'egress.prompt-echo', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  /**
+   * A provider-side built-in tool (URL context, search, code execution) carried
+   * the canary or the system prompt. It ran at the provider before Theorem saw
+   * it: the data already left, so this is an incident, not a prevented leak.
+   */
+  providerToolLeak: 'egress.provider-tool-leak', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   sensitive: 'egress.sensitive-echo',
   boundary: 'egress.system-boundary',
   injection: 'egress.injection-echo', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -56,6 +62,7 @@ function hitsFromSpans(
 const WITHHELD_REASON = {
   canary: 'canary leaked',
   promptEcho: 'system prompt echoed', // lexicon-exempt: internal diagnostic — the user reads error.safety
+  providerToolLeak: 'a provider-side tool already sent the canary or system prompt', // lexicon-exempt: internal diagnostic — the user reads error.safety
   egress: 'Turn withheld: egress disclosure violation', // lexicon-exempt: internal diagnostic — the user reads error.safety
 } as const;
 
@@ -77,14 +84,53 @@ function promptLeakHits(text: string, canary?: string, system?: string): Guardra
   return hits;
 }
 
-/** The system-prompt leak hits in any content-bearing field of an event (`guardedEventTexts`). */
+const PROVIDER_TOOL_LEAK_HIT: GuardrailHit = {
+  rule: EGRESS_RULES.providerToolLeak,
+  severity: 'high',
+};
+
+const PROVIDER_TOOL_KINDS = /^(?:google_|url_context|code_execution)/;
+
+/**
+ * The provider's report of a built-in tool it already ran: grounding, and the
+ * URL-context, search, and code-execution steps. What it carries has left.
+ */
+function isProviderToolReport(event: TurnEvent): boolean {
+  return (
+    event.type === 'grounding' ||
+    (event.type === 'evidence' && PROVIDER_TOOL_KINDS.test(event.evidence?.kind ?? ''))
+  );
+}
+
+/**
+ * The system-prompt leak hits in any content-bearing field of an event
+ * (`guardedEventTexts`). In the report of a provider-side tool they are one
+ * `egress.provider-tool-leak`: the call already ran.
+ */
 function eventPromptLeakHits(event: TurnEvent, canary?: string, system?: string): GuardrailHit[] {
   const hits = guardedEventTexts(event).flatMap((text) => promptLeakHits(text, canary, system));
+  if (hits.length > 0 && isProviderToolReport(event)) {
+    return [PROVIDER_TOOL_LEAK_HIT];
+  }
   return [...new Map(hits.map((hit) => [hit.rule, hit])).values()];
+}
+
+const PROMPT_LEAK_RULES = new Set<string>([
+  EGRESS_RULES.canary,
+  EGRESS_RULES.promptEcho,
+  EGRESS_RULES.providerToolLeak,
+]);
+
+/** Whether a hit is a system-prompt leak: a hard stop under any host policy. */
+function isPromptLeakHit(hit: GuardrailHit): boolean {
+  return PROMPT_LEAK_RULES.has(hit.rule);
 }
 
 /** Why a system-prompt leak withheld the reply, for the builder. */
 function promptLeakReason(hits: GuardrailHit[]): string {
+  if (hits.some((hit) => hit.rule === EGRESS_RULES.providerToolLeak)) {
+    return WITHHELD_REASON.providerToolLeak;
+  }
   return hits.some((hit) => hit.rule === EGRESS_RULES.canary)
     ? WITHHELD_REASON.canary
     : WITHHELD_REASON.promptEcho;
@@ -263,6 +309,7 @@ export {
   collectEgressHits,
   eventPromptLeakHits,
   hitRules,
+  isPromptLeakHit,
   promptLeakHits,
   promptLeakReason,
   runEnforcer,

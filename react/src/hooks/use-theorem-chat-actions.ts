@@ -19,8 +19,6 @@ import {
 	userDraftToSteerInject,
 } from '../../../src/interface/mod.ts';
 import {
-	abandonGatedInterfaceTool,
-	applyTurnResultToTranscript,
 	composerFieldsFromDraft,
 	encodeComposerDraft,
 	resumeInterfaceTool,
@@ -58,7 +56,11 @@ function newTurnId(): string {
 }
 
 export type RunTurnStream = (
-	run: (onStream: (blocks: TranscriptBlock[]) => void) => Promise<
+	run: (
+		onStream: (blocks: TranscriptBlock[]) => void,
+		/** The work so far of the reply the session waits on (none when it waits on nothing). */
+		paused: { workedMs: number },
+	) => Promise<
 		| {
 				ok: true;
 				session: InterfaceTurnSession;
@@ -67,7 +69,11 @@ export type RunTurnStream = (
 		  }
 		| TurnFailure
 	>,
-	options?: { userBlocksAlreadyApplied?: boolean },
+	options?: {
+		userBlocksAlreadyApplied?: boolean;
+		/** The run's message walks away from the gates the reply waits on, ending that reply. */
+		walksAway?: boolean;
+	},
 ) => Promise<void>;
 
 function beginAbortableTurn(args: {
@@ -161,12 +167,20 @@ function useTurnStarters(args: TheoremChatActionArgs) {
 	);
 
 	const startTurnFromDraft = useCallback(
-		async (draft: ComposerPendingMessage['draft']) => {
+		async (
+			draft: ComposerPendingMessage['draft'],
+			options: {
+				/** Send while the reply waits on gates: the message walks away from them. */
+				walkAway?: boolean;
+				/** Once the message posts: it leaves wherever it was waiting to be sent. */
+				onPosted?: () => void;
+			} = {},
+		) => {
 			const started = beginAbortableTurn(args);
 			if (!started) return;
 
 			await args.runTurnStream(
-				(onStream) =>
+				(onStream, paused) =>
 					streamInterfaceDraftTurn({
 						iface: started.composer,
 						transport: args.transport,
@@ -175,14 +189,18 @@ function useTurnStarters(args: TheoremChatActionArgs) {
 						signal: started.signal,
 						turnId: started.turnId,
 						onStream,
-						onUserBlocks: (userBlocks) => {
-							args.setBlocks((prev) => [...prev, ...userBlocks]);
+						...(options.walkAway ? { walkAway: paused } : {}),
+						onUserBlocks: (posted) => {
+							args.setBlocks((prev) => [...prev, ...posted]);
+							// A walked-away reply's blocks were streaming; they are posted now.
+							args.setStreamBlocks([]);
 							args.setDelivery({ status: 'sending' });
 							args.setChatStarted(true);
 							args.setStreaming(true);
+							options.onPosted?.();
 						},
 					}),
-				{ userBlocksAlreadyApplied: true },
+				{ userBlocksAlreadyApplied: true, walksAway: options.walkAway === true },
 			);
 		},
 		[args],
@@ -338,41 +356,6 @@ export function useTheoremChatActions(args: TheoremChatActionArgs) {
 		});
 	}, [args, enqueuePending, startTurnFromFields]);
 
-	/**
-	 * Walk away from the gates the session waits on. False when the host could
-	 * not settle them: the failure shows, and the session keeps what it settled.
-	 */
-	const abandonGatedIfNeeded = useCallback(async (): Promise<boolean> => {
-		const composer = args.iface;
-		if (!composer || !args.sessionRef.current.gatedTool) return true;
-		const abandoned = await abandonGatedInterfaceTool({
-			iface: composer,
-			transport: args.transport,
-			session: args.sessionRef.current,
-			onStream: args.setStreamBlocks,
-		});
-		if (!abandoned.ok) {
-			const { error, errorKind, errorInternal } = abandoned;
-			if (abandoned.session) {
-				args.setSession(abandoned.session);
-				args.sessionRef.current = abandoned.session;
-			}
-			args.setFailure({ error, errorKind, ...(errorInternal ? { errorInternal } : {}) });
-			return false;
-		}
-		const merged = applyTurnResultToTranscript({
-			blocks: args.blocksRef.current,
-			streamBlocks: [],
-			session: abandoned.session,
-			assistantBlocks: abandoned.assistantBlocks,
-		});
-		args.setBlocks(merged.blocks);
-		args.setStreamBlocks([]);
-		args.setSession(merged.session);
-		args.sessionRef.current = merged.session;
-		return true;
-	}, [args]);
-
 	/** The queued message's draft, or the composer's when it holds something to send. */
 	const draftToSend = useCallback(
 		async (draftSource?: ComposerPendingMessage): Promise<UserTurnDraft | undefined> => {
@@ -412,14 +395,16 @@ export function useTheoremChatActions(args: TheoremChatActionArgs) {
 				await args.runPromiseRef.current;
 			}
 
-			// The message leaves the composer (or the queue) only once nothing waits on a gate.
-			if (!(await abandonGatedIfNeeded())) return;
-			releaseDraft(draftSource);
 			args.setPendingMessages((prev) => convertSteersToFrontQueued(prev));
 			args.allowQueueDrainRef.current = false;
-			await startTurnFromDraft(draft);
+			// Sent while the reply waits on gates, the message walks away from them in its own request.
+			await startTurnFromDraft(draft, {
+				walkAway: args.sessionRef.current.gatedTool !== null,
+				// The message leaves the composer (or the queue) once it posts.
+				onPosted: () => releaseDraft(draftSource),
+			});
 		},
-		[abandonGatedIfNeeded, args, draftToSend, releaseDraft, startTurnFromDraft],
+		[args, draftToSend, releaseDraft, startTurnFromDraft],
 	);
 
 	const handleMenuAction = useCallback(

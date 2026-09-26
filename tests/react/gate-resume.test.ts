@@ -1,20 +1,27 @@
 import { assertEquals } from '@std/assert';
-import type { TurnEvent, TurnHistoryMessage } from '../../mod.ts';
+import { lexiconDefault, type TurnEvent, type TurnHistoryMessage } from '../../mod.ts';
 import {
-  abandonGatedInterfaceTool,
   resumeInterfaceTool,
+  streamInterfaceDraftTurn,
   streamInterfaceTurn,
 } from '../../react/src/client/run-session.ts';
-import type { TheoremInvokeRequest, TheoremTransport } from '../../react/src/client/transport.ts';
+import type {
+  TheoremInvokeRequest,
+  TheoremTransport,
+  TheoremTurnRequest,
+} from '../../react/src/client/transport.ts';
 import {
   type ComposerProfileInterface,
   emptyInterfaceTurnSession,
   type InterfaceTurnSession,
   interfaceFromProfile,
+  type TranscriptBlock,
 } from '../../src/interface/mod.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import { failureEvent } from '../../src/kernel/tools/events.ts';
+import { formatToolFailureForModel, formatToolResult } from '../../src/kernel/tools/model-text.ts';
+import type { ToolFailure } from '../../src/kernel/turn-events.ts';
 import { registerGooglePreset } from '../../src/presets/google.ts';
 import { toolSnapshot } from '../fixtures/events.ts';
 import { CHAT_MEDIA_LIMITS, HOST_BINDINGS } from '../fixtures/models.ts';
@@ -152,15 +159,23 @@ const gate = (callId: string): TurnEvent => ({
 });
 
 /** What the host settles an answered gate with: the call's result, or its refusal. */
-const settled = (answer: TheoremInvokeRequest): TurnEvent => {
-  if (answer.decision === 'approve') return complete(answer.gateId);
-  return failureEvent(
-    { name: 'lookup', callId: answer.gateId },
-    answer.decision === 'deny'
-      ? { code: 'denied', kind: 'declined', message: 'declined' }
-      : { code: 'cancelled', kind: 'cancelled', message: 'cancelled' },
-  );
-};
+const settled = (answer: TheoremInvokeRequest): TurnEvent =>
+  answer.decision === 'approve'
+    ? complete(answer.gateId)
+    : failureEvent(
+        { name: 'lookup', callId: answer.gateId },
+        { code: 'denied', kind: 'declined', message: 'declined' },
+      );
+
+/** A walked-away call, as the host settles it. */
+const CANCELLED: ToolFailure = { code: 'cancelled', kind: 'cancelled', message: 'cancelled' };
+const cancelled = (callId: string): TurnEvent =>
+  failureEvent({ name: 'lookup', callId }, CANCELLED);
+
+/** What the model reads for a walked-away call. */
+function cancelledReadBack(): string {
+  return formatToolResult(formatToolFailureForModel(CANCELLED));
+}
 
 Deno.test('a step with two gates asks for each in order, then continues once', async () => {
   const sent: TurnHistoryMessage[][] = [];
@@ -234,106 +249,156 @@ Deno.test('a step with two gates asks for each in order, then continues once', a
   ]);
 });
 
-Deno.test('send now while gated abandons every waiting call through the host, without the model', async () => {
-  const decisions: [string, string][] = [];
+const pausedOnTwoGates: TurnEvent[] = [
+  request('a'),
+  gate('a'),
+  request('b'),
+  gate('b'),
+  { type: 'done', stop: { kind: 'gate' }, tools: toolSnapshot('lookup') },
+];
+
+/** A reply paused on gates a and b, sent from a fresh session. */
+async function pausedOnTwo(iface: ComposerProfileInterface, transport: TheoremTransport) {
+  const paused = await streamInterfaceTurn({
+    iface,
+    transport,
+    session: emptyInterfaceTurnSession(),
+    onStream: () => {},
+    text: 'Look up a and b',
+    pendingFiles: [],
+    pendingVoice: [],
+  });
+  if (!paused.ok) throw new Error(paused.error);
+  return paused.session;
+}
+
+const openStep: TurnHistoryMessage[] = [
+  { role: 'user', content: 'Look up a and b' },
+  {
+    role: 'assistant',
+    tool_calls: [
+      { id: 'a', type: 'function', function: { name: 'lookup', arguments: '{"q":"a"}' } },
+      { id: 'b', type: 'function', function: { name: 'lookup', arguments: '{"q":"b"}' } },
+    ],
+  },
+];
+
+Deno.test('a message sent while gated walks away from every waiting call in its own request', async () => {
+  const requests: TheoremTurnRequest[] = [];
+  const transport: TheoremTransport = {
+    turn: (request_, onEvent) => {
+      requests.push(request_);
+      const events: TurnEvent[] =
+        requests.length === 1
+          ? pausedOnTwoGates
+          : [
+              cancelled('a'),
+              cancelled('b'),
+              { type: 'text', text: 'Sure.' },
+              { type: 'done', stop: { kind: 'completed' } },
+            ];
+      for (const event of events) onEvent(event);
+      return Promise.resolve();
+    },
+    invoke: () => Promise.reject(new Error('walking away sends no answer of its own')),
+    steer: () => Promise.reject(new Error('unused')),
+    describe: () => Promise.reject(new Error('unused')),
+  };
+  const iface = textInterface();
+  const paused = await pausedOnTwo(iface, transport);
+
+  const posted: TranscriptBlock[][] = [];
+  const sent = await streamInterfaceDraftTurn({
+    iface,
+    transport,
+    session: paused,
+    draft: { text: 'Never mind' },
+    walkAway: { workedMs: 1200 },
+    onStream: () => {},
+    onUserBlocks: (blocks) => posted.push(blocks),
+  });
+  if (!sent.ok) throw new Error(sent.error);
+
+  const walk = requests[1];
+  assertEquals(walk.abandon, ['a', 'b']);
+  assertEquals(Object.keys(walk.replay?.abandon ?? {}), ['a', 'b']);
+  assertEquals(walk.replay?.abandon?.b?.input, { q: 'b' });
+  // The model reads the paused step with its calls open; the host answers them.
+  assertEquals(walk.input.history, openStep);
+  assertEquals(walk.input.text, 'Never mind');
+
+  // The paused reply posts settled, carrying its work, then the message.
+  assertEquals(posted.length, 1);
+  assertEquals(
+    posted[0].map((block) =>
+      block.kind === 'tool' ? `${block.tool.callId}:${block.tool.state?.phase}` : block.kind,
+    ),
+    ['a:error', 'b:error', 'turn-done', 'user-text'],
+  );
+  const done = posted[0].find((block) => block.kind === 'turn-done');
+  assertEquals(done?.kind === 'turn-done' ? done.workedMs : undefined, 1200);
+  assertEquals(sent.userBlocks, posted[0]);
+
+  assertEquals(sent.session.gatedTool, null);
+  assertEquals(sent.session.history, [
+    ...openStep,
+    { role: 'tool', tool_call_id: 'a', name: 'lookup', content: cancelledReadBack() },
+    { role: 'tool', tool_call_id: 'b', name: 'lookup', content: cancelledReadBack() },
+    { role: 'user', content: 'Never mind' },
+    { role: 'assistant', content: 'Sure.' },
+  ]);
+});
+
+Deno.test('a walk-away that fails before its calls settle leaves the reply waiting and the message unposted', async () => {
   let turns = 0;
   const transport: TheoremTransport = {
     turn: (_request, onEvent) => {
       turns += 1;
-      for (const event of [
-        request('a'),
-        gate('a'),
-        request('b'),
-        gate('b'),
-        { type: 'done', stop: { kind: 'gate' }, tools: toolSnapshot('lookup') },
-      ] satisfies TurnEvent[]) {
-        onEvent(event);
-      }
+      if (turns > 1) return Promise.reject(new Error('host down'));
+      for (const event of pausedOnTwoGates) onEvent(event);
       return Promise.resolve();
     },
-    invoke: (request_, onEvent) => {
-      decisions.push([request_.gateId, request_.decision]);
-      onEvent(settled(request_));
-      return Promise.resolve();
-    },
+    invoke: () => Promise.reject(new Error('unused')),
     steer: () => Promise.reject(new Error('unused')),
     describe: () => Promise.reject(new Error('unused')),
   };
   const iface = textInterface();
-  const paused = await streamInterfaceTurn({
-    iface,
-    transport,
-    session: emptyInterfaceTurnSession(),
-    onStream: () => {},
-    text: 'Look up a and b',
-    pendingFiles: [],
-    pendingVoice: [],
-  });
-  if (!paused.ok) throw new Error(paused.error);
+  const paused = await pausedOnTwo(iface, transport);
 
-  const abandoned = await abandonGatedInterfaceTool({
+  const posted: TranscriptBlock[][] = [];
+  const sent = await streamInterfaceDraftTurn({
     iface,
     transport,
-    session: paused.session,
+    session: paused,
+    draft: { text: 'Never mind' },
+    walkAway: { workedMs: 0 },
     onStream: () => {},
+    onUserBlocks: (blocks) => posted.push(blocks),
   });
-  if (!abandoned.ok) throw new Error(abandoned.error);
-  assertEquals(decisions, [
-    ['a', 'abandon'],
-    ['b', 'abandon'],
-  ]);
-  assertEquals(turns, 1);
-  assertEquals(abandoned.session.gatedTool, null);
-  assertEquals(abandoned.session.assistantEvents, []);
-  assertEquals(
-    abandoned.session.history
-      .filter((message) => message.role === 'tool')
-      .map((message) => message.tool_call_id),
-    ['a', 'b'],
-  );
+  assertEquals(sent.ok, false);
+  if (sent.ok) return;
+  assertEquals(sent.session, undefined);
+  assertEquals(posted, []);
 });
 
-Deno.test('an abandon the host fails keeps what it settled and still waits on the rest', async () => {
+Deno.test('a message sent while gated, without walking away, is refused', async () => {
   const transport: TheoremTransport = {
     turn: (_request, onEvent) => {
-      for (const event of [
-        request('a'),
-        gate('a'),
-        request('b'),
-        gate('b'),
-        { type: 'done', stop: { kind: 'gate' }, tools: toolSnapshot('lookup') },
-      ] satisfies TurnEvent[]) {
-        onEvent(event);
-      }
+      for (const event of pausedOnTwoGates) onEvent(event);
       return Promise.resolve();
     },
-    invoke: (request_, onEvent) => {
-      if (request_.gateId === 'b') return Promise.reject(new Error('host down'));
-      onEvent(settled(request_));
-      return Promise.resolve();
-    },
+    invoke: () => Promise.reject(new Error('unused')),
     steer: () => Promise.reject(new Error('unused')),
     describe: () => Promise.reject(new Error('unused')),
   };
   const iface = textInterface();
-  const paused = await streamInterfaceTurn({
+  const paused = await pausedOnTwo(iface, transport);
+  const sent = await streamInterfaceDraftTurn({
     iface,
     transport,
-    session: emptyInterfaceTurnSession(),
-    onStream: () => {},
-    text: 'Look up a and b',
-    pendingFiles: [],
-    pendingVoice: [],
-  });
-  if (!paused.ok) throw new Error(paused.error);
-
-  const failed = await abandonGatedInterfaceTool({
-    iface,
-    transport,
-    session: paused.session,
+    session: paused,
+    draft: { text: 'Never mind' },
     onStream: () => {},
   });
-  assertEquals(failed.ok, false);
-  if (failed.ok) return;
-  assertEquals(failed.session?.gatedTool?.callId, 'b');
+  assertEquals(sent.ok ? undefined : sent.error, lexiconDefault('session.gate_pending'));
 });

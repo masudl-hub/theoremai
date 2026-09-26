@@ -1,8 +1,9 @@
-import type { GateDecision, TurnEvent } from '../../../mod.ts';
+import type { TurnEvent } from '../../../mod.ts';
 import {
 	type AttachmentValidationIssue,
 	type ComposerProfileInterface,
 	foldTurnEvents,
+	type GatedToolContext,
 	type InterfaceTurnSession,
 	prepareUserTurn,
 	streamThoughtsEnabled,
@@ -13,6 +14,7 @@ import { filesToPending } from './encode-files.ts';
 import { defaultModel } from './generation-selection.ts';
 import type {
 	TheoremInvokeRequest,
+	TheoremReplay,
 	TheoremTurnInput,
 	TheoremTurnRequest,
 } from './transport.ts';
@@ -58,31 +60,79 @@ function generationFields(
 	return { ...(model ? { model } : {}), ...(effort ? { effort } : {}) };
 }
 
+/** A gated call as the client holds it, for a host without a session (the playground). */
+export type HeldCall = {
+	name: string;
+	/** The model's input to the call. */
+	input: unknown;
+	sessionPermissions?: string[];
+};
+
+function gateReplay(
+	iface: ComposerProfileInterface,
+	session: InterfaceTurnSession,
+	call: HeldCall,
+): TheoremReplay {
+	return {
+		name: call.name,
+		input: call.input,
+		sessionPermissions: call.sessionPermissions ?? session.sessionPermissions,
+		turnInput: turnInputFromSession(session),
+		...(session.toolSnapshot ? { snapshot: session.toolSnapshot } : {}),
+		...(session.promotedToolIds.length ? { promoted: [...session.promotedToolIds] } : {}),
+		...generationFields(iface, session),
+	};
+}
+
+/**
+ * The paused calls a message walks away from: their ids, and each call as a
+ * host without a session replays it, from the session as it paused.
+ */
+function abandonFields(
+	iface: ComposerProfileInterface,
+	walkAway: WalkAway,
+): { abandon: string[]; replays: Record<string, TheoremReplay> } | undefined {
+	if (!walkAway.calls.length) return undefined;
+	return {
+		abandon: walkAway.calls.map((call) => call.callId),
+		replays: Object.fromEntries(
+			walkAway.calls.map((call) => [
+				call.callId,
+				gateReplay(iface, walkAway.paused, { name: call.name, input: call.arguments }),
+			]),
+		),
+	};
+}
+
+/** A paused session, and the calls it waits on that a message walks away from. */
+export type WalkAway = { paused: InterfaceTurnSession; calls: readonly GatedToolContext[] };
+
 export function buildTurnRequest(
 	iface: ComposerProfileInterface,
 	session: InterfaceTurnSession,
 	input: TheoremTurnInput,
-	options: { turnId?: string } = {},
+	options: { turnId?: string; walkAway?: WalkAway } = {},
 ): TheoremTurnRequest {
+	const walked = options.walkAway ? abandonFields(iface, options.walkAway) : undefined;
 	return {
 		previousInteractionId: session.previousInteractionId,
 		...(options.turnId ? { turnId: options.turnId } : {}),
 		...generationFields(iface, session),
 		input,
-		replay: { sessionPermissions: session.sessionPermissions },
+		...(walked ? { abandon: walked.abandon } : {}),
+		replay: {
+			sessionPermissions: session.sessionPermissions,
+			...(walked ? { abandon: walked.replays } : {}),
+		},
 	};
 }
 
 export function buildInvokeRequest(
 	iface: ComposerProfileInterface,
 	session: InterfaceTurnSession,
-	args: {
+	args: HeldCall & {
 		gateId: string;
-		decision: GateDecision;
-		name: string;
-		/** The model's input to the call. */
-		input: unknown;
-		sessionPermissions?: string[];
+		decision: TheoremInvokeRequest['decision'];
 		secret?: string;
 	},
 ): TheoremInvokeRequest {
@@ -90,15 +140,7 @@ export function buildInvokeRequest(
 		gateId: args.gateId,
 		decision: args.decision,
 		...(args.secret === undefined ? {} : { secret: args.secret }),
-		replay: {
-			name: args.name,
-			input: args.input,
-			sessionPermissions: args.sessionPermissions ?? session.sessionPermissions,
-			turnInput: turnInputFromSession(session),
-			...(session.toolSnapshot ? { snapshot: session.toolSnapshot } : {}),
-			...(session.promotedToolIds.length ? { promoted: [...session.promotedToolIds] } : {}),
-			...generationFields(iface, session),
-		},
+		replay: gateReplay(iface, session, args),
 	};
 }
 

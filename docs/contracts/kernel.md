@@ -976,9 +976,10 @@ Primary matrix: idle+payload → Send; streaming+empty → Stop; streaming/gated
 Enter matches primary. Menu offers Queue / Steer / Send now / Stash as applicable.
 The run names each steer it took in on a `stage` event's `injected` (by the steer's id); the client drops those from pending, and the steers still undelivered convert to the front of the queue when the run ends.
 Tool **gate** does not drain the queue and does not offer Steer (not an inject stage).
-Send now while gated answers every waiting gate `abandon` through the host
-(`abandonGatedInterfaceTool` in `@theoremai/react`), which settles each call
-cancelled, then starts a new user turn. Awaiting completions (`ask_user`) are not composer
+Send now while gated walks away from every waiting gate in the message's own
+request (`abandon` on the turn request, `walkAway` in `@theoremai/react`): the
+host settles each call cancelled, and the model reads those answers before the
+message. Awaiting completions (`ask_user`) are not composer
 `gated` — the turn may already be idle; use `awaitingFromEvents`.
 
 ```ts

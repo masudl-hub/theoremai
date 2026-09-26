@@ -14,7 +14,6 @@ export type { LiveConnectPhase, LiveSessionStatus } from './live-client';
 export { LiveSessionClient } from './live-client';
 export { isOAuthComplete, notifyOAuthComplete } from './oauth-popup';
 export {
-	abandonGatedInterfaceTool,
 	applyTurnResultToTranscript,
 	resumeInterfaceTool,
 	streamInterfaceDraftTurn,
@@ -29,7 +28,7 @@ export {
 } from './tool-resume';
 export { citationsFromBlock, type SourceCitation, type SourceCitationBlock } from './source-citations';
 export { createTraceFeed, type TraceFeed } from './trace-feed';
-export { buildInvokeRequest, buildTurnRequest, turnInputFromSession } from './turn-client';
+export { buildInvokeRequest, buildTurnRequest, turnInputFromSession, type WalkAway } from './turn-client';
 export {
 	type ClientTurnEvent,
 	createHttpTransport,

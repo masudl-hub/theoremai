@@ -89,6 +89,41 @@ function showTurnFailure(
 }
 
 /**
+ * The run begins: busy, and streaming unless its message goes live when it
+ * posts (onUserBlocks), so the previous reply never renders as streaming in
+ * between. Returns the delivery before it, which a new message replaces.
+ */
+function beginRun(state: ChatState, userBlocksAlreadyApplied: boolean): ChatState['deliveryRef']['current'] {
+	state.setFailure(null);
+	const priorDelivery = state.deliveryRef.current;
+	state.busyRef.current = true;
+	state.setBusy(true);
+	if (!userBlocksAlreadyApplied) state.setStreaming(true);
+	state.allowQueueDrainRef.current = false;
+	return priorDelivery;
+}
+
+/** The run is over: nothing streams, and nothing can stop or steer it. */
+function endRun(state: ChatState): void {
+	state.cancelPendingStreamFrame();
+	state.busyRef.current = false;
+	state.setBusy(false);
+	state.setStreaming(false);
+	state.abortRef.current = null;
+	state.turnIdRef.current = null;
+}
+
+/**
+ * A failed run: its session (when it has one) and its error. A message that
+ * never posted leaves the transcript as it was, a paused reply included.
+ */
+function failRun(state: ChatState, result: TurnFailure, streamed: TranscriptBlock[], unposted: boolean): void {
+	if (result.session) state.setSession(result.session);
+	if (!result.aborted) showTurnFailure(state, result, streamed, unposted);
+	if (!unposted) state.setStreamBlocks([]);
+}
+
+/**
  * Runs one turn's stream into the transcript: live partials while it streams,
  * then the committed result (or the error) and the pending queue's next step.
  */
@@ -107,21 +142,18 @@ function useRunTurnStream(iface: ComposerProfileInterface | null, state: ChatSta
 
 	return useCallback(
 		async (
-			run: (onStream: (partial: TranscriptBlock[]) => void) => Promise<TurnOk | TurnFailure>,
-			options: { userBlocksAlreadyApplied?: boolean } = {},
+			run: (
+				onStream: (partial: TranscriptBlock[]) => void,
+				paused: { workedMs: number },
+			) => Promise<TurnOk | TurnFailure>,
+			options: { userBlocksAlreadyApplied?: boolean; walksAway?: boolean } = {},
 		) => {
 			if (!iface || state.busyRef.current) return;
-			state.setFailure(null);
-			// A new message posts itself (onUserBlocks) with a fresh delivery.
-			const priorDelivery = state.deliveryRef.current;
-			state.busyRef.current = true;
-			state.setBusy(true);
-			// A new turn goes live with its user message (onUserBlocks), so the
-			// previous reply never renders as streaming in between.
-			if (!options.userBlocksAlreadyApplied) state.setStreaming(true);
-			state.allowQueueDrainRef.current = false;
-			// A run that starts on a gate (a decision, sign-in, walking away) continues its reply; any other starts one.
-			if (!state.sessionRef.current.gatedTool) replyWorkedMs.current = 0;
+			const applied = options.userBlocksAlreadyApplied === true;
+			const priorDelivery = beginRun(state, applied);
+			const paused = { workedMs: state.sessionRef.current.gatedTool ? replyWorkedMs.current : 0 };
+			// A run that answers a gate (a decision, sign-in) continues its reply; any other, walking away included, starts one.
+			if (!state.sessionRef.current.gatedTool || options.walksAway) replyWorkedMs.current = 0;
 			const runStartedAt = Date.now();
 
 			const work = (async () => {
@@ -129,23 +161,16 @@ function useRunTurnStream(iface: ComposerProfileInterface | null, state: ChatSta
 				const result = await run((partial) => {
 					latestStream = partial;
 					state.scheduleStreamBlocks(partial);
-				});
+				}, paused);
 
 				const endedAt = Date.now();
 				replyWorkedMs.current += endedAt - runStartedAt;
-				state.cancelPendingStreamFrame();
-				state.busyRef.current = false;
-				state.setBusy(false);
-				state.setStreaming(false);
-				state.abortRef.current = null;
-				state.turnIdRef.current = null;
+				endRun(state);
 
 				if (!result.ok) {
-					if (result.session) state.setSession(result.session);
-					const unposted =
-						options.userBlocksAlreadyApplied === true && state.deliveryRef.current === priorDelivery;
-					if (!result.aborted) showTurnFailure(state, result, latestStream, unposted);
-					state.setStreamBlocks([]);
+					// A new message posts itself (onUserBlocks) with a fresh delivery.
+					const unposted = applied && state.deliveryRef.current === priorDelivery;
+					failRun(state, result, latestStream, unposted);
 					onRunEnded(state.pendingRef.current, false);
 					return;
 				}
@@ -154,7 +179,7 @@ function useRunTurnStream(iface: ComposerProfileInterface | null, state: ChatSta
 					blocks: state.blocksRef.current,
 					streamBlocks: latestStream,
 					session: result.session,
-					userBlocks: options.userBlocksAlreadyApplied ? undefined : result.userBlocks,
+					userBlocks: applied ? undefined : result.userBlocks,
 					assistantBlocks: result.assistantBlocks,
 					worked: { workedMs: replyWorkedMs.current, endedAt },
 				});

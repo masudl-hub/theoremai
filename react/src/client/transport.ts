@@ -14,7 +14,6 @@ import {
 	describeError,
 	type ErrorKind,
 	errorKindSchema,
-	GATE_DECISIONS,
 	type GateDecision,
 	isAbortError,
 	TheoremError,
@@ -91,7 +90,14 @@ export const theoremReplaySchema: z.ZodType<TheoremReplay> = theoremReplay;
 /** An id the client made: trimmed, never blank. */
 const clientId = z.string().trim().min(1);
 
-/** One text turn. The host resolves the profile; the client sends the conversation. */
+/**
+ * One text turn. The host resolves the profile; the client sends the conversation.
+ *
+ * A message sent while the reply waits on gates walks away from them: `abandon`
+ * names the waiting calls, and `input.history` ends on their step with those
+ * calls open. The host settles each one cancelled, streams those events first,
+ * and gives the model each call's answer before the message.
+ */
 export type TheoremTurnRequest = {
 	input: TheoremTurnInput;
 	previousInteractionId?: string;
@@ -99,7 +105,12 @@ export type TheoremTurnRequest = {
 	effort?: string;
 	/** Client-generated id so mid-turn steers can find this turn's inbox. */
 	turnId?: string;
-	replay?: Pick<TheoremReplay, 'sessionPermissions'>;
+	/** Call ids of the paused calls this message walks away from. */
+	abandon?: string[];
+	replay?: Pick<TheoremReplay, 'sessionPermissions'> & {
+		/** Each walked-away call as the client holds it, by call id, for a host without a session. */
+		abandon?: Record<string, TheoremReplay>;
+	};
 };
 const theoremTurnRequest = z.object({
 	input: theoremTurnInput,
@@ -107,23 +118,29 @@ const theoremTurnRequest = z.object({
 	model: z.string().optional(),
 	effort: z.string().optional(),
 	turnId: clientId.optional(),
-	replay: theoremReplay.pick({ sessionPermissions: true }).optional(),
+	abandon: z.array(z.string().min(1)).min(1).optional(),
+	replay: theoremReplay
+		.pick({ sessionPermissions: true })
+		.extend({ abandon: z.record(z.string(), theoremReplay).optional() })
+		.optional(),
 });
 true satisfies Equals<z.infer<typeof theoremTurnRequest>, TheoremTurnRequest>;
 /** A `/turn` body as `createTheoremHandler` reads it. */
 export const theoremTurnRequestSchema: z.ZodType<TheoremTurnRequest> = theoremTurnRequest;
 
+/** What the user answers a gate with; walking away rides on the next message (`TheoremTurnRequest.abandon`). */
+const INVOKE_DECISIONS = ['approve', 'deny'] as const satisfies readonly GateDecision[];
+
 /**
  * The user's answer to a tool call the host paused on a gate. `approve` runs it
- * (with `input` when the user edited it); `deny` refuses it; `abandon` walks
- * away from it (the user sent a new message instead). The host settles each
- * one, so the model and the trace read what the user chose. The tool's
+ * (with `input` when the user edited it); `deny` refuses it. The host settles
+ * each one, so the model and the trace read what the user chose. The tool's
  * registered permission decides how long an approval lasts, not the client.
  */
 export type TheoremInvokeRequest = {
 	/** Call id of the paused tool call (`tool.callId` on its gate event). */
 	gateId: string;
-	decision: GateDecision;
+	decision: (typeof INVOKE_DECISIONS)[number];
 	/** The user's edit of the model's input; only with `approve`. */
 	input?: unknown;
 	/**
@@ -137,7 +154,7 @@ export type TheoremInvokeRequest = {
 };
 const theoremInvokeRequest = z.object({
 	gateId: z.string().min(1),
-	decision: z.enum(GATE_DECISIONS),
+	decision: z.enum(INVOKE_DECISIONS),
 	input: z.unknown().optional(),
 	secret: z.string().optional(),
 	replay: theoremReplay.optional(),

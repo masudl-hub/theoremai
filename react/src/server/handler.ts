@@ -5,7 +5,8 @@
  * Hono, Next route handlers, SvelteKit, Workers) under a catch-all route:
  *
  * - `GET  <base>`         → `{ interface }` client-safe profile interface
- * - `POST <base>/turn`    → NDJSON turn events
+ * - `POST <base>/turn`    → NDJSON turn events; a message sent while the reply
+ *                            waits on gates walks away from them first (`abandon`)
  * - `POST <base>/invoke`  → NDJSON events for the user's answer to a paused tool call
  * - `POST <base>/steer`   → inject messages into a running turn
  *
@@ -50,7 +51,6 @@ import {
 } from '../../../src/interface/mod.ts';
 import type { z } from '../../../mod.ts';
 import {
-	type TheoremInvokeRequest,
 	theoremInvokeRequestSchema,
 	type TheoremTurnInput,
 	type TheoremTurnRequest,
@@ -73,7 +73,13 @@ import {
 	type TheoremSessionStore,
 } from './session-store.ts';
 import { createMemorySteerInbox, type SteerInbox, steerStage, steerUnitOf } from './steer-inbox.ts';
-import { answerGatedCall, resolveGateTtlMs } from '../../../src/kernel/tools/gate-answer.ts';
+import { checkWalkAway, walkAway } from './walk-away.ts';
+import {
+	type AnsweredGate,
+	answerGatedCall,
+	type GateAnswerRequest,
+	resolveGateTtlMs,
+} from '../../../src/kernel/tools/gate-answer.ts';
 import { isRecord } from '../../../src/kernel/util/record.ts';
 
 export type TheoremRequestContext = {
@@ -454,16 +460,95 @@ async function* withCredentials(
 	}
 }
 
+/** The session's paused call, answered and taken out: each answer settles it once, as the model asked it. */
+type AnsweredCall = { callId: string; pending: PendingToolGate; answer: AnsweredGate };
+
+function answerPendingGate(state: TheoremSessionState, request: GateAnswerRequest): AnsweredCall {
+	const pending = state.gates[request.callId];
+	if (!pending) {
+		// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
+		throw new TheoremError('request', `gate ${request.callId} is not pending`, {
+			copy: { key: 'session.gate_expired' },
+		});
+	}
+	// A refused answer (a refused secret, an edit without an approval) throws here and leaves the gate pending.
+	const answer = answerGatedCall(
+		request,
+		{
+			name: pending.name,
+			arguments: pending.arguments,
+			permission: pending.gate.permission,
+			...(pending.gate.kind === 'auth' && pending.gate.auth ? { auth: pending.gate.auth } : {}),
+		},
+		state.permissions,
+	);
+	delete state.gates[request.callId];
+	state.permissions = answer.sessionPermissions;
+	return { callId: request.callId, pending, answer };
+}
+
+/**
+ * Take the calls a message walks away from out of the session, answered
+ * `abandon`: every one of them, or none when one is not pending. The message's
+ * history must leave exactly those calls open.
+ */
+function takeWalkedAway(
+	ctx: HandlerContext,
+	session: Session,
+	input: TurnInput,
+	abandon: readonly string[],
+): Promise<AnsweredCall[]> {
+	checkWalkAway(input, abandon);
+	// A throw leaves the session unsaved, so no call is taken unless all are.
+	return ctx.sessions.mutate(session.id, (state) =>
+		abandon.map((callId) => answerPendingGate(state, { callId, decision: 'abandon' })),
+	);
+}
+
+/** The run that settles an answered call, as the model asked it. */
+function settleAnswered(
+	ctx: HandlerContext,
+	request: Request,
+	{ callId, pending, answer }: AnsweredCall,
+	credentials: TheoremCredentials,
+): AsyncGenerator<TurnEvent> {
+	return invokeTool({
+		profile: ctx.profile.id,
+		name: pending.name,
+		callId,
+		input: answer.input,
+		resume: answer.resume,
+		sessionPermissions: answer.sessionPermissions,
+		credentials,
+		turnInput: pending.turnInput,
+		snapshot: pending.snapshot,
+		promoted: pending.promoted,
+		model: pending.model,
+		signal: request.signal,
+		host: ctx.options.host?.(request),
+	});
+}
+
 async function* turnEvents(
 	ctx: HandlerContext,
 	request: Request,
 	session: Session,
 	body: TheoremTurnRequest,
+	walked: { input: TurnInput; calls: AnsweredCall[] },
 ): AsyncGenerator<TurnEvent> {
 	const state = await ctx.sessions.read(session.id);
 	const credentials = await ctx.credentials.read(session.id);
+	const input = walked.calls.length
+		? yield* walkAway(
+				walked.input,
+				walked.calls.map((call) => ({
+					callId: call.callId,
+					events: settleAnswered(ctx, request, call, credentials),
+				})),
+			)
+		: walked.input;
+	if (!input) return;
 	const provider = await providerFor(ctx, request, body.model);
-	const input = userTurnInput(body.input);
 	// Only continue provider-side conversations this session started.
 	const previousInteractionId =
 		body.previousInteractionId && state.interactions.includes(body.previousInteractionId)
@@ -500,56 +585,17 @@ async function* invokeEvents(
 	ctx: HandlerContext,
 	request: Request,
 	session: Session,
-	body: TheoremInvokeRequest,
+	answered: AnsweredCall,
 ): AsyncGenerator<TurnEvent> {
-	// Take the paused call out of the session: each answer settles it once, as the model asked it.
-	const answered = await ctx.sessions.mutate(session.id, (state) => {
-		const pending = state.gates[body.gateId];
-		if (!pending) return undefined;
-		// A refused answer (a refused secret, an edit without an approval) throws here and leaves the gate pending.
-		const answer = answerGatedCall(
-			{ callId: body.gateId, decision: body.decision, input: body.input, secret: body.secret },
-			{
-				name: pending.name,
-				arguments: pending.arguments,
-				permission: pending.gate.permission,
-				...(pending.gate.kind === 'auth' && pending.gate.auth ? { auth: pending.gate.auth } : {}),
-			},
-			state.permissions,
-		);
-		delete state.gates[body.gateId];
-		state.permissions = answer.sessionPermissions;
-		return { pending, answer };
-	});
-	if (!answered) {
-		// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
-		throw new TheoremError('request', `gate ${body.gateId} is not pending`, {
-			copy: { key: 'session.gate_expired' },
-		});
-	}
 	const { pending, answer } = answered;
 	if (answer.typed) await saveCredential(ctx, session.id, answer.typed.slot, answer.typed.credential);
 	const credentials = await ctx.credentials.read(session.id);
-	const events = invokeTool({
-		profile: ctx.profile.id,
-		name: pending.name,
-		callId: body.gateId,
-		input: answer.input,
-		resume: answer.resume,
-		sessionPermissions: answer.sessionPermissions,
-		credentials,
-		turnInput: pending.turnInput,
-		snapshot: pending.snapshot,
-		promoted: pending.promoted,
-		model: pending.model,
-		signal: request.signal,
-		host: ctx.options.host?.(request),
-	});
-	yield* recorded(ctx.sessions, session.id, withCredentials(ctx, request, session.id, credentials, events), {
-		turnInput: pending.turnInput,
-		model: pending.model,
-		promoted: pending.promoted,
-	});
+	yield* recorded(
+		ctx.sessions,
+		session.id,
+		withCredentials(ctx, request, session.id, credentials, settleAnswered(ctx, request, answered, credentials)),
+		{ turnInput: pending.turnInput, model: pending.model, promoted: pending.promoted },
+	);
 }
 
 async function steer(ctx: HandlerContext, request: Request, session: Session): Promise<Response> {
@@ -574,17 +620,23 @@ async function route(ctx: HandlerContext, request: Request, session: Session): P
 	}
 	if (target === 'turn') {
 		const body = await readBody(request, theoremTurnRequestSchema);
-		return eventStream(ctx, request, () => turnEvents(ctx, request, session, body));
+		const input = userTurnInput(body.input);
+		// Take the walked-away calls before streaming, so a stale one is a reply status, not a stream error.
+		const calls = body.abandon ? await takeWalkedAway(ctx, session, input, body.abandon) : [];
+		return eventStream(ctx, request, () => turnEvents(ctx, request, session, body, { input, calls }));
 	}
 	if (target === 'invoke') {
 		const body = await readBody(request, theoremInvokeRequestSchema);
-		// Resolve the answer before streaming so a stale one is a reply status, not a stream error.
-		const events = invokeEvents(ctx, request, session, body);
-		const first = await events.next();
-		return eventStream(ctx, request, async function* () {
-			if (!first.done) yield first.value;
-			yield* events;
-		});
+		// Take the answered call before streaming, so a stale answer is a reply status, not a stream error.
+		const answered = await ctx.sessions.mutate(session.id, (state) =>
+			answerPendingGate(state, {
+				callId: body.gateId,
+				decision: body.decision,
+				input: body.input,
+				secret: body.secret,
+			}),
+		);
+		return eventStream(ctx, request, () => invokeEvents(ctx, request, session, answered));
 	}
 	return steer(ctx, request, session);
 }

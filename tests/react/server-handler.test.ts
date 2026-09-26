@@ -8,6 +8,7 @@ import {
   registerTool,
   TheoremError,
   type TurnEvent,
+  type TurnHistoryMessage,
 } from '../../mod.ts';
 import {
   createHttpTransport,
@@ -19,6 +20,7 @@ import {
   type TheoremCredentialStore,
   type TheoremCredentials,
 } from '../../react/src/server/mod.ts';
+import { appendPausedTurnToHistory, appendUserDraftToHistory } from '../../src/interface/mod.ts';
 import type { OAuth2Credential } from '../../src/kernel/auth/types.ts';
 import { eventsOf, failureOf, lastTool, toolEventsOf, toolPhases } from '../fixtures/events.ts';
 
@@ -484,33 +486,149 @@ Deno.test('invoke only runs a call the server paused, with the model input', asy
   assertEquals(ran, ['model-chosen']);
 });
 
-Deno.test('the host settles a refused call: declined or cancelled, never run, and the gate is gone', async () => {
-  for (const [decision, kind] of [
-    ['deny', 'declined'],
-    ['abandon', 'cancelled'],
-  ] as const) {
-    ran.length = 0;
-    const handler = createTheoremHandler({
-      profile: profile(`handler-refuse-${decision}`, ['handler_delete']),
-      provider: () => toolCallingProvider('handler_delete', 'model-chosen'),
-    });
-    const transport = transportFor(handler);
-    const turn = await collect((onEvent) => transport.turn({ input: { text: 'delete' } }, onEvent));
-    const gate = pausedGate(turn);
-    const refused = await collect((onEvent) =>
-      transport.invoke({ gateId: gate.callId, decision }, onEvent),
-    );
-    assertEquals(failureOf(lastTool([...turn, ...refused], 'handler_delete'))?.kind, kind);
-    assertEquals(ran, []);
-    await assertRefused(
-      () =>
-        collect((onEvent) =>
-          transport.invoke({ gateId: gate.callId, decision: 'approve' }, onEvent),
+Deno.test('the host settles a denied call: declined, never run, and the gate is gone', async () => {
+  ran.length = 0;
+  const handler = createTheoremHandler({
+    profile: profile('handler-refuse-deny', ['handler_delete']),
+    provider: () => toolCallingProvider('handler_delete', 'model-chosen'),
+  });
+  const transport = transportFor(handler);
+  const turn = await collect((onEvent) => transport.turn({ input: { text: 'delete' } }, onEvent));
+  const gate = pausedGate(turn);
+  const refused = await collect((onEvent) =>
+    transport.invoke({ gateId: gate.callId, decision: 'deny' }, onEvent),
+  );
+  assertEquals(failureOf(lastTool([...turn, ...refused], 'handler_delete'))?.kind, 'declined');
+  assertEquals(ran, []);
+  await assertRefused(
+    () =>
+      collect((onEvent) => transport.invoke({ gateId: gate.callId, decision: 'approve' }, onEvent)),
+    'session.gate_expired',
+  );
+  assertEquals(ran, []);
+});
+
+/** Model that calls `handler_delete` on its first request and answers in text after; `seen` keeps each request's history. */
+function walkAwayProvider(seen: (TurnHistoryMessage[] | undefined)[]): ModelProvider {
+  return {
+    complete: (req) =>
+      (async function* () {
+        seen.push(req.history);
+        if (seen.length === 1) {
+          yield {
+            type: 'tool' as const,
+            tool: { name: 'handler_delete', arguments: { id: 'model-chosen' }, callId: 'call-1' },
+          };
+          yield { type: 'done' as const, stop: { kind: 'tool' } };
+        } else {
+          yield { type: 'text' as const, text: 'Sure.' };
+          yield { type: 'done' as const, stop: { kind: 'completed' } };
+        }
+      })(),
+  };
+}
+
+/** A handler paused on `handler_delete`, and the history a message walking away from it sends. */
+async function pausedForWalkAway(id: string) {
+  const seen: (TurnHistoryMessage[] | undefined)[] = [];
+  const handler = createTheoremHandler({
+    profile: profile(id, ['handler_delete']),
+    provider: () => walkAwayProvider(seen),
+  });
+  const transport = transportFor(handler);
+  const turn = await collect((onEvent) => transport.turn({ input: { text: 'delete' } }, onEvent));
+  const gate = pausedGate(turn);
+  const history = appendPausedTurnToHistory(appendUserDraftToHistory([], { text: 'delete' }), turn);
+  return { seen, transport, turn, gate, history };
+}
+
+Deno.test('a message walks away from the calls its reply waits on, in the same request', async () => {
+  ran.length = 0;
+  const { seen, transport, turn, gate, history } = await pausedForWalkAway('handler-walk-away');
+  const walked = await collect((onEvent) =>
+    transport.turn({ input: { text: 'never mind', history }, abandon: [gate.callId] }, onEvent),
+  );
+
+  // The cancelled call settles first; its own run's `done` stays with it.
+  assertEquals(walked[0].type, 'tool');
+  assertEquals(failureOf(lastTool([...turn, ...walked], 'handler_delete'))?.kind, 'cancelled');
+  assertEquals(walked.filter((event) => event.type === 'done').length, 1);
+  assertEquals(ran, []);
+
+  // The model reads the cancelled answer in its step, before the message.
+  const read = seen.at(-1) ?? [];
+  const answer = read.at(-2);
+  assertEquals(answer?.role === 'tool' ? answer.tool_call_id : undefined, gate.callId);
+  assertEquals(read.at(-1)?.role, 'user');
+
+  await assertRefused(
+    () =>
+      collect((onEvent) => transport.invoke({ gateId: gate.callId, decision: 'approve' }, onEvent)),
+    'session.gate_expired',
+  );
+  assertEquals(ran, []);
+});
+
+Deno.test('a walk-away its history does not match is refused, and the gate still waits', async () => {
+  ran.length = 0;
+  const { transport, gate } = await pausedForWalkAway('handler-walk-away-mismatch');
+  await assertRejects(() =>
+    collect((onEvent) =>
+      transport.turn(
+        {
+          input: { text: 'never mind', history: [{ role: 'user', content: 'delete' }] },
+          abandon: [gate.callId],
+        },
+        onEvent,
+      ),
+    ),
+  );
+  const approved = await collect((onEvent) =>
+    transport.invoke({ gateId: gate.callId, decision: 'approve' }, onEvent),
+  );
+  assertEquals(toolPhases(approved, 'handler_delete').at(-1), 'complete');
+  assertEquals(ran, ['model-chosen']);
+});
+
+Deno.test('a walk-away from a call that is not waiting takes nothing', async () => {
+  ran.length = 0;
+  const { transport, turn, gate } = await pausedForWalkAway('handler-walk-away-unknown');
+  // The step as if the model had also called 'call-other', which the host never paused.
+  const [stepId] = turn.flatMap((event) =>
+    event.type === 'tool' && 'stepId' in event.tool ? [event.tool.stepId] : [],
+  );
+  const open = appendPausedTurnToHistory(appendUserDraftToHistory([], { text: 'delete' }), [
+    ...turn.filter((event) => event.type !== 'done'),
+    {
+      type: 'tool',
+      tool: { name: 'handler_delete', arguments: { id: 'x' }, callId: 'call-other', stepId },
+    },
+    {
+      type: 'tool',
+      tool: {
+        name: 'handler_delete',
+        callId: 'call-other',
+        at: 0,
+        phase: 'gate',
+        gate: { kind: 'permission', tool: 'handler_delete', permission: 'always_confirm' },
+      },
+    },
+    ...turn.filter((event) => event.type === 'done'),
+  ]);
+  await assertRefused(
+    () =>
+      collect((onEvent) =>
+        transport.turn(
+          { input: { text: 'never mind', history: open }, abandon: [gate.callId, 'call-other'] },
+          onEvent,
         ),
-      'session.gate_expired',
-    );
-    assertEquals(ran, []);
-  }
+      ),
+    'session.gate_expired',
+  );
+  const approved = await collect((onEvent) =>
+    transport.invoke({ gateId: gate.callId, decision: 'approve' }, onEvent),
+  );
+  assertEquals(toolPhases(approved, 'handler_delete').at(-1), 'complete');
 });
 
 Deno.test("an approval with the user's edit runs the edited input", async () => {

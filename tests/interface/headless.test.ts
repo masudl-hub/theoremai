@@ -1,10 +1,13 @@
 import { assertEquals, assertFalse, assertThrows } from '@std/assert';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import {
+  answerOpenToolCalls,
   appendAssistantEventsToHistory,
+  appendPausedTurnToHistory,
   appendToolDenialToHistory,
   appendUserDraftToHistory,
   applyTurnEventsToSession,
+  assertOpenToolCalls,
   branchInterfaceTurnSession,
   buildUserTurnBlocks,
   type ComposerProfileInterface,
@@ -34,6 +37,7 @@ import {
 import { projectProfile, registerProfile } from '../../src/kernel/default-scope.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
+import { toolCallRequestEvent, toolEvent } from '../../src/kernel/tools/events.ts';
 import type { ModelBinding, Profile, TextProfile, TurnEvent } from '../../src/kernel/types.ts';
 import { registerGooglePreset } from '../../src/presets/google.ts';
 import { callEvents, foldedCall, outputOf, toolSnapshot } from '../fixtures/events.ts';
@@ -657,6 +661,77 @@ Deno.test('appendAssistantEventsToHistory refuses a settled tool with no readBac
       "Tool call 'lookup' has no readBack",
     );
   }
+});
+
+/** A step of three calls: `done` settled, `a` and `b` paused on their gates. */
+function pausedStep(): TurnEvent[] {
+  const gate = {
+    phase: 'gate',
+    gate: { kind: 'permission', tool: 'lookup', permission: 'always_confirm' },
+  } as const;
+  const call = (callId: string) => ({ name: 'lookup', callId });
+  return [
+    { type: 'text', text: 'Looking' },
+    toolCallRequestEvent(call('done'), { q: 'done' }, { stepId: 's1' }),
+    toolCallRequestEvent(call('a'), { q: 'a' }, { stepId: 's1' }),
+    toolCallRequestEvent(call('b'), { q: 'b' }, { stepId: 's1' }),
+    toolEvent(call('done'), { phase: 'complete', output: {}, readBack: 'read done' }),
+    toolEvent(call('a'), gate),
+    toolEvent(call('b'), gate),
+  ];
+}
+
+Deno.test('appendPausedTurnToHistory keeps the gated calls open in their step', () => {
+  const history = appendPausedTurnToHistory([{ role: 'user', content: 'Look' }], pausedStep());
+  assertEquals(
+    history.map((message) => [
+      message.role,
+      message.tool_calls?.map((call) => call.id) ?? message.tool_call_id,
+    ]),
+    [
+      ['user', undefined],
+      ['assistant', undefined],
+      ['assistant', ['done', 'a', 'b']],
+      ['tool', 'done'],
+    ],
+  );
+  // The same reply read as settled leaves the gated calls out.
+  assertEquals(
+    appendAssistantEventsToHistory([], pausedStep())
+      .at(-2)
+      ?.tool_calls?.map((call) => call.id),
+    ['done'],
+  );
+});
+
+Deno.test('assertOpenToolCalls holds only for exactly the calls the history leaves open', () => {
+  const history = appendPausedTurnToHistory([], pausedStep());
+  assertOpenToolCalls(history, ['b', 'a']);
+  for (const ids of [['a'], ['a', 'b', 'done'], ['a', 'c']]) {
+    assertThrows(() => assertOpenToolCalls(history, ids), TheoremError);
+  }
+  // Anything after the step but its results closes it.
+  assertThrows(
+    () => assertOpenToolCalls([...history, { role: 'user', content: 'Hm' }], ['a', 'b']),
+    TheoremError,
+  );
+});
+
+Deno.test('answerOpenToolCalls answers in the order the model made the calls', () => {
+  const history = appendPausedTurnToHistory([], pausedStep());
+  const answered = answerOpenToolCalls(
+    history,
+    new Map([
+      ['b', 'read b'],
+      ['a', 'read a'],
+    ]),
+  );
+  assertEquals(answered.slice(-3), [
+    { role: 'tool', tool_call_id: 'done', name: 'lookup', content: 'read done' },
+    { role: 'tool', tool_call_id: 'a', name: 'lookup', content: 'read a' },
+    { role: 'tool', tool_call_id: 'b', name: 'lookup', content: 'read b' },
+  ]);
+  assertThrows(() => answerOpenToolCalls(history, new Map([['a', 'read a']])), TheoremError);
 });
 
 Deno.test('appendToolDenialToHistory uses kernel failure formatting', () => {

@@ -18,6 +18,7 @@ export {
 } from '../client/transport.ts';
 export type { LiveClientMessage } from '../client/live-messages.ts';
 export { checkRequest, parseLiveClientMessage } from './request-check.ts';
+export { checkWalkAway, type WalkedAwayCall, walkAway } from './walk-away.ts';
 export {
 	createMemoryCredentialStore,
 	type TheoremCredentialStore,

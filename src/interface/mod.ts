@@ -28,10 +28,13 @@ export { prepareUserTurn, sanitizeUserDraft } from './draft.ts';
 export { interfaceFromProfile, interfaceFromProjected } from './from-profile.ts';
 export type { UserTurnHistoryMedia } from './history.ts';
 export {
+  answerOpenToolCalls,
   appendAssistantEventsToHistory,
+  appendPausedTurnToHistory,
   appendToolDenialToHistory,
   appendToolExchangeToHistory,
   appendUserDraftToHistory,
+  assertOpenToolCalls,
   historyFromTranscriptBlocks,
   toolReadBack,
   userDraftToSteerInject,

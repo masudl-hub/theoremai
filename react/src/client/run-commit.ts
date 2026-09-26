@@ -183,3 +183,13 @@ export function streamFoldedTurn(args: {
 }): Promise<TurnEvent[]> {
 	return streamFoldedEvents(args.stream, args.onStream, args.iface, args.events);
 }
+
+/** `blocks` with its last `turn-done` carrying the reply's work. */
+export function stampWorked(
+	blocks: TranscriptBlock[],
+	worked: { workedMs: number; endedAt: number },
+): TranscriptBlock[] {
+	const last = blocks.findLastIndex((block) => block.kind === 'turn-done');
+	if (last < 0) return blocks;
+	return blocks.map((block, index) => (index === last ? { ...block, ...worked } : block));
+}

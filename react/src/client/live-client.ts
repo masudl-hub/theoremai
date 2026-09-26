@@ -254,7 +254,7 @@ export class LiveSessionClient {
 		this.cleanupAudio();
 	}
 
-	/** End the session on `error`: a failed connect, or a relay message that fails its wire check. */
+	/** End the session on `error`: a failed connect or a lost socket. */
 	private failSession(error: Error): void {
 		if (this.status === 'error' || this.status === 'disconnected') return;
 		this.teardownConnection();
@@ -476,13 +476,8 @@ export class LiveSessionClient {
 			.then(async () => {
 				if (typeof data !== 'string') return;
 
-				let payload: ReturnType<typeof parseLiveServerEnvelope>;
-				try {
-					payload = parseLiveServerEnvelope(parseWireJson(data));
-				} catch (err) {
-					this.failSession(asError(err));
-					return;
-				}
+				// A malformed message is named and skipped; the call goes on.
+				const payload = parseLiveServerEnvelope(parseWireJson(data), (err) => this.options.onError?.(err));
 				if (payload.type === 'unsupported') this.options.onTurnEvent?.(payload);
 				else await this.processServerEnvelope(payload);
 			})

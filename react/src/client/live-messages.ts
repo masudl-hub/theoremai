@@ -12,6 +12,7 @@ import {
 	type GateDecision,
 	type ToolGate,
 	type TraceRecord,
+	TheoremError,
 	toolGateSchema,
 	traceRecordSchema,
 	TURN_EVENT_SCHEMAS,
@@ -94,12 +95,26 @@ const liveServerEnvelopeLines: WireLines<LiveServerWireEnvelope> = liveServerEnv
 
 /**
  * One envelope from the relay, checked: an envelope or event of a kind this
- * client does not know is `unsupported`; a malformed one throws `bad_response`.
+ * client does not know is `unsupported`; a malformed envelope throws
+ * `bad_response`. A malformed event goes to `onMalformed` as `bad_response`
+ * and is left out; the envelope's other events stand.
  */
-export function parseLiveServerEnvelope(raw: unknown): LiveServerEnvelope | UnsupportedEvent {
+export function parseLiveServerEnvelope(
+	raw: unknown,
+	onMalformed: (error: TheoremError) => void,
+): LiveServerEnvelope | UnsupportedEvent {
 	const envelope = parseWireLine(liveServerEnvelopeLines, raw);
 	if (envelope.type !== 'events') return envelope;
-	return { type: 'events', events: envelope.events.map((event) => parseWireLine(TURN_EVENT_SCHEMAS, event)) };
+	const events: (TurnEvent | UnsupportedEvent)[] = [];
+	for (const event of envelope.events) {
+		try {
+			events.push(parseWireLine(TURN_EVENT_SCHEMAS, event));
+		} catch (err) {
+			if (!(err instanceof TheoremError)) throw err;
+			onMalformed(err);
+		}
+	}
+	return { type: 'events', events };
 }
 
 /** What the session did with an `executeTool`: settled the call, or holds it on a gate. */

@@ -12,6 +12,7 @@ import { createTraceFeed } from '../../react/src/client/trace-feed.ts';
 import type { ClientTurnEvent } from '../../react/src/client/transport.ts';
 import type { TurnEvent } from '../../src/kernel/types.ts';
 import type { TraceRecord } from '../../src/observability/trace-record.ts';
+import { neverMalformed } from '../fixtures/live-envelope.ts';
 import { STUB_WRITE, stubRecord, stubSpan } from '../fixtures/trace-record.ts';
 
 function recordFor(metadata: Record<string, unknown> | undefined): TraceRecord {
@@ -77,11 +78,14 @@ Deno.test('a playground run stream sends turn events to the turn and trace lines
 
 Deno.test('a Live trace envelope carries one record', () => {
   const record = recordFor(undefined);
-  assertEquals(parseLiveServerEnvelope({ type: 'trace', record }), { type: 'trace', record });
+  assertEquals(parseLiveServerEnvelope({ type: 'trace', record }, neverMalformed), {
+    type: 'trace',
+    record,
+  });
   // A trace envelope without its record, or with one that fails its schema, is a bad response.
   for (const raw of [{ type: 'trace', record: { spans: 'none' } }, { type: 'trace' }]) {
     assertEquals(
-      assertThrows(() => parseLiveServerEnvelope(raw), TheoremError).kind,
+      assertThrows(() => parseLiveServerEnvelope(raw, neverMalformed), TheoremError).kind,
       'bad_response',
     );
   }

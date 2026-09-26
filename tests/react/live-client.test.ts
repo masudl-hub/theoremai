@@ -20,6 +20,7 @@ import {
 } from '../../react/src/client/pcm-downsample.ts';
 import type { HostErrorBody } from '../../react/src/client/transport.ts';
 import { parseLiveClientMessage } from '../../react/src/server/request-check.ts';
+import { neverMalformed } from '../fixtures/live-envelope.ts';
 
 Deno.test('isPermissionDeniedError detects permission denial variants', () => {
   assertEquals(isPermissionDeniedError(null), false);
@@ -39,7 +40,7 @@ Deno.test('isPermissionDeniedError detects permission denial variants', () => {
 
 /** A relay envelope this client knows the kind of, but that fails its schema. */
 function assertBadEnvelope(raw: unknown): void {
-  const err = assertThrows(() => parseLiveServerEnvelope(raw), TheoremError);
+  const err = assertThrows(() => parseLiveServerEnvelope(raw, neverMalformed), TheoremError);
   assertEquals(err.kind, 'bad_response');
   // The failure names what broke, never the value.
   assertEquals(err.message.includes('secret-value'), false);
@@ -47,11 +48,14 @@ function assertBadEnvelope(raw: unknown): void {
 
 Deno.test('parseLiveServerEnvelope parses ready, events, error, and tool result payloads', () => {
   assertEquals(
-    parseLiveServerEnvelope({
-      type: 'ready',
-      profile: 'chat',
-      sessionId: 'sess_1',
-    }),
+    parseLiveServerEnvelope(
+      {
+        type: 'ready',
+        profile: 'chat',
+        sessionId: 'sess_1',
+      },
+      neverMalformed,
+    ),
     {
       type: 'ready',
       profile: 'chat',
@@ -60,28 +64,40 @@ Deno.test('parseLiveServerEnvelope parses ready, events, error, and tool result 
   );
 
   assertEquals(
-    parseLiveServerEnvelope({
-      type: 'events',
-      events: [{ type: 'thought', text: 'thinking' }],
-    }),
+    parseLiveServerEnvelope(
+      {
+        type: 'events',
+        events: [{ type: 'thought', text: 'thinking' }],
+      },
+      neverMalformed,
+    ),
     {
       type: 'events',
       events: [{ type: 'thought', text: 'thinking' }],
     },
   );
 
-  assertEquals(parseLiveServerEnvelope({ type: 'error', error: 'Relay disconnected' }), {
-    type: 'error',
-    error: 'Relay disconnected',
-  });
+  assertEquals(
+    parseLiveServerEnvelope({ type: 'error', error: 'Relay disconnected' }, neverMalformed),
+    {
+      type: 'error',
+      error: 'Relay disconnected',
+    },
+  );
 
   assertEquals(
-    parseLiveServerEnvelope({ type: 'executeToolResult', callId: 'call_1', status: 'settled' }),
+    parseLiveServerEnvelope(
+      { type: 'executeToolResult', callId: 'call_1', status: 'settled' },
+      neverMalformed,
+    ),
     { type: 'executeToolResult', callId: 'call_1', status: 'settled' },
   );
   const gate: ToolGate = { kind: 'confirmation', tool: 'getWeather' };
   assertEquals(
-    parseLiveServerEnvelope({ type: 'executeToolResult', callId: 'call_1', status: 'gated', gate }),
+    parseLiveServerEnvelope(
+      { type: 'executeToolResult', callId: 'call_1', status: 'gated', gate },
+      neverMalformed,
+    ),
     { type: 'executeToolResult', callId: 'call_1', status: 'gated', gate },
   );
   const body: HostErrorBody = {
@@ -89,40 +105,38 @@ Deno.test('parseLiveServerEnvelope parses ready, events, error, and tool result 
     errorKind: 'request',
   };
   assertEquals(
-    parseLiveServerEnvelope({
-      type: 'executeToolResult',
-      callId: 'call_1',
-      status: 'refused',
-      body,
-    }),
+    parseLiveServerEnvelope(
+      {
+        type: 'executeToolResult',
+        callId: 'call_1',
+        status: 'refused',
+        body,
+      },
+      neverMalformed,
+    ),
     { type: 'executeToolResult', callId: 'call_1', status: 'refused', body },
   );
 });
 
 Deno.test('an envelope or event of a kind this client does not know arrives as unsupported', () => {
   const envelope = { type: 'presence', who: 'relay' };
-  assertEquals(parseLiveServerEnvelope(envelope), {
+  assertEquals(parseLiveServerEnvelope(envelope, neverMalformed), {
     type: 'unsupported',
     received: 'presence',
     raw: envelope,
   });
   const event = { type: 'sparkle', level: 3 };
-  assertEquals(parseLiveServerEnvelope({ type: 'events', events: [event] }), {
+  assertEquals(parseLiveServerEnvelope({ type: 'events', events: [event] }, neverMalformed), {
     type: 'events',
     events: [{ type: 'unsupported', received: 'sparkle', raw: event }],
   });
 });
 
-Deno.test('a malformed envelope, event or gate is a bad response', () => {
+Deno.test('a malformed envelope or gate is a bad response', () => {
   assertBadEnvelope(null);
   assertBadEnvelope('string');
   assertBadEnvelope([]);
   assertBadEnvelope({ type: 'ready', profile: 7 });
-  assertBadEnvelope({
-    type: 'events',
-    events: [{ type: 'text', text: { secret: 'secret-value' } }],
-  });
-  assertBadEnvelope({ type: 'events', events: [{ text: 'no kind' }] });
   // A gated reply without its gate, a gate that fails its schema, or a status the relay does not send.
   assertBadEnvelope({ type: 'executeToolResult', callId: 'call_1', status: 'gated' });
   assertBadEnvelope({
@@ -133,6 +147,38 @@ Deno.test('a malformed envelope, event or gate is a bad response', () => {
   });
   assertBadEnvelope({ type: 'executeToolResult', callId: 'call_1', status: 'complete' });
   assertBadEnvelope({ type: 'error', errorKind: 'secret-value' });
+});
+
+Deno.test("a malformed event is reported and left out; the envelope's other events stand", () => {
+  const reported: TheoremError[] = [];
+  const parsed = parseLiveServerEnvelope(
+    {
+      type: 'events',
+      events: [
+        { type: 'thought', text: 'before' },
+        { type: 'text', text: { secret: 'secret-value' } },
+        { text: 'no kind' },
+        { type: 'thought', text: 'after' },
+      ],
+    },
+    (error) => reported.push(error),
+  );
+  assertEquals(parsed, {
+    type: 'events',
+    events: [
+      { type: 'thought', text: 'before' },
+      { type: 'thought', text: 'after' },
+    ],
+  });
+  assertEquals(
+    reported.map((error) => error.kind),
+    ['bad_response', 'bad_response'],
+  );
+  // The report names what broke, never the value.
+  assertEquals(
+    reported.some((error) => error.message.includes('secret-value')),
+    false,
+  );
 });
 
 Deno.test('audio-level calculates RMS and scales levels within bounds', () => {

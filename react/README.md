@@ -50,8 +50,10 @@ interface `describe` returns are each checked against their schema, both ways:
   no host functions. The transport and the live client read each line or
   envelope against its kind's schema, and `describe` against
   `profileInterfaceSchema`. A kind the client does not know reaches
-  the event handler as `unsupported` and the turn goes on; a known kind that
-  fails its schema ends the turn with `bad_response`.
+  the event handler as `unsupported` and the turn goes on. On a text turn, a
+  known kind that fails its schema ends the turn with `bad_response`; on a
+  live call, the client reports it to `onError` as `bad_response`, skips it,
+  and the call goes on.
 
 ## Local layout
 

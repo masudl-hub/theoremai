@@ -2,7 +2,8 @@
  * Every value that reaches the browser over a wire (NDJSON lines, live
  * envelopes) is checked against its schema here. A kind the client does not
  * know is reported as `unsupported` and the turn goes on; a kind it knows that
- * fails its schema ends the turn with `bad_response`.
+ * fails its schema is `bad_response`: a text turn ends on it, and a live call
+ * reports it and goes on.
  *
  * @module
  */
@@ -73,8 +74,8 @@ export function parseWireLine<Line extends { type: string }>(
 }
 
 /**
- * A JSON text as a value; text that is not JSON ends the turn with
- * `bad_response`. The parser's own error quotes the text, so it is not kept.
+ * A JSON text as a value; text that is not JSON is `bad_response`.
+ * The parser's own error quotes the text, so it is not kept.
  */
 export function parseWireJson(text: string): unknown {
 	try {

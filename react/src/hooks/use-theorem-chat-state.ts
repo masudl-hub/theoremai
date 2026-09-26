@@ -14,6 +14,12 @@ type SetSession = (
 
 export type { SetSession };
 
+/**
+ * How far the latest message has got: posted (`sending`), taken by the server
+ * (`sent`), reached the model (`delivered`), answered (`read`).
+ */
+export type MessageDelivery = 'sending' | 'sent' | 'delivered' | 'read';
+
 /** Composer / transcript / session state behind {@link useTheoremChat}. */
 export function useTheoremChatState() {
 	const [blocks, setBlocks] = useState<TranscriptBlock[]>([]);
@@ -28,6 +34,8 @@ export function useTheoremChatState() {
 	const [chatStarted, setChatStarted] = useState(false);
 	const [streaming, setStreaming] = useState(false);
 	const [session, setSession] = useState<InterfaceTurnSession>(emptyInterfaceTurnSession());
+	// One object per posted message, so a run can tell whether it posted one.
+	const [delivery, setDeliveryState] = useState<{ status: MessageDelivery } | null>(null);
 
 	const streamRafRef = useRef<number | null>(null);
 	const pendingStreamRef = useRef<TranscriptBlock[] | null>(null);
@@ -43,6 +51,12 @@ export function useTheoremChatState() {
 	const drainLockRef = useRef(false);
 	const allowQueueDrainRef = useRef(false);
 	const runPromiseRef = useRef<Promise<void> | null>(null);
+	const deliveryRef = useRef(delivery);
+
+	const setDelivery = useCallback((next: { status: MessageDelivery } | null) => {
+		deliveryRef.current = next;
+		setDeliveryState(next);
+	}, []);
 
 	const cancelPendingStreamFrame = useCallback(() => {
 		if (streamRafRef.current != null) {
@@ -94,6 +108,9 @@ export function useTheoremChatState() {
 		setStreaming,
 		session,
 		setSession,
+		delivery,
+		setDelivery,
+		deliveryRef,
 		blocksRef,
 		busyRef,
 		abortRef,

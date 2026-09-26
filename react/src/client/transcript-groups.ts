@@ -58,10 +58,11 @@ export function groupTranscriptBlocks(blocks: readonly TranscriptBlock[]): Trans
 	return groups;
 }
 
+/** A reply's text to copy; a failure is the message's status, not part of the reply. */
 export function assistantTurnCopyText(blocks: readonly TranscriptBlock[]): string {
 	return blocks
-		.filter((block) => block.kind === 'text' || block.kind === 'error')
-		.map((block) => ('text' in block ? block.text : 'message' in block ? block.message : ''))
+		.filter((block) => block.kind === 'text')
+		.map((block) => block.text)
 		.filter(Boolean)
 		.join('\n\n');
 }

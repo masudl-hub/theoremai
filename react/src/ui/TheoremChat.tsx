@@ -271,6 +271,7 @@ function ChatBody({
 									blocks={blocks}
 									handle={handle}
 									streaming={chat.streaming}
+									delivery={chat.delivery}
 									imageOutput={
 										iface.type === 'image' ? { ratio: parseAspectRatio(iface.image.aspectRatio) } : undefined
 									}

@@ -1,10 +1,10 @@
 import { AspectRatio } from '@astryxdesign/core/AspectRatio';
-import { Banner } from '@astryxdesign/core/Banner';
 import {
 	ChatMessage,
 	ChatMessageBubble,
 	ChatMessageList,
 	ChatMessageMetadata,
+	type ChatMessageStatus,
 	type ChatToolCallItem,
 	ChatToolCalls,
 } from '@astryxdesign/core/Chat';
@@ -23,9 +23,10 @@ import { Text } from '@astryxdesign/core/Text';
 import { Thumbnail } from '@astryxdesign/core/Thumbnail';
 import { Timestamp } from '@astryxdesign/core/Timestamp';
 import { Token } from '@astryxdesign/core/Token';
+import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconCheck, IconCopy } from '@tabler/icons-react';
-import { type ReactNode, type RefObject, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TranscriptBlock } from '../../../src/interface/mod.ts';
 import { citationsFromBlock, type SourceCitationBlock } from '../client/source-citations';
 import {
@@ -37,9 +38,11 @@ import {
 	promptReplyKey,
 	replyKey,
 	type TraceItem,
+	type TranscriptTurnGroup,
 	type TurnSpan,
 	workStatus,
 } from '../client/transcript-groups';
+import { useDisclosureMotion } from './disclosure-motion';
 import { type LabelText, workDuration, workStatusLabel } from './labels';
 import { TheoremLabelsProvider, useLabels } from './labels-provider';
 import { transcriptBlockCopyText } from './transcript-copy-text';
@@ -53,6 +56,8 @@ export type ChatTranscriptProps = {
 	/** Assistant display name (profile handle). */
 	handle: string;
 	streaming?: boolean;
+	/** How far the latest message has got; shown on it unless its turn failed. */
+	delivery?: Exclude<ChatMessageStatus, 'error'> | null;
 	onToolDecision?: (index: number, action: ToolDecision, interactiveValue?: unknown) => void;
 	/** Signed in at a gate: `secret` is a key the user typed; after an OAuth callback there is none. */
 	onAuthenticated?: (index: number, secret?: string) => void;
@@ -167,9 +172,30 @@ function MessageTime({ at }: { at: number }) {
 	return <Timestamp value={at} format="relative_short" isLive />;
 }
 
-function MessageChrome(props: { at: number; copyText: string }) {
+/** A message's time, copy button and status; a failure's reason shows on hover over its mark. */
+function MessageChrome(props: { at: number; copyText: string; status?: ChatMessageStatus; error?: string }) {
+	const mark = useRef<HTMLElement | null>(null);
+	const failed = props.error !== undefined;
+	const metadata = (
+		<ChatMessageMetadata
+			ref={(row) => {
+				// The status mark is the row's last item; its native title ("Failed") would
+				// cover the tooltip that says why.
+				const last = failed ? row?.lastElementChild : null;
+				mark.current = last instanceof HTMLElement ? last : null;
+				mark.current?.removeAttribute('title');
+			}}
+			timestamp={<MessageTime at={props.at} />}
+			footer={<CopyButton text={props.copyText} />}
+			status={failed ? 'error' : props.status}
+		/>
+	);
+	if (!failed) return metadata;
 	return (
-		<ChatMessageMetadata timestamp={<MessageTime at={props.at} />} footer={<CopyButton text={props.copyText} />} />
+		<>
+			{metadata}
+			<Tooltip anchorRef={mark} content={props.error} />
+		</>
 	);
 }
 
@@ -383,8 +409,9 @@ function BodyBlock({ block, streaming }: { block: TranscriptBlock; streaming: bo
 /** Non-streaming answer rows: errors, sources, structured output and media. */
 function ResultBlock({ block }: { block: TranscriptBlock }) {
 	switch (block.kind) {
+		// A failure shows on the message's metadata line (MessageChrome).
 		case 'error':
-			return <Banner status="error" title={block.message} />;
+			return null;
 		case 'citation':
 			return <Sources block={block} />;
 		case 'structured':
@@ -581,6 +608,8 @@ function AssistantTurn(props: {
 	endedAt?: number;
 	handlers: BlockHandlers;
 	imageOutput?: ImageOutput;
+	/** Why the turn failed, if it did. */
+	error?: string;
 }) {
 	const t = useLabels();
 	const elapsedMs = useTurnElapsed(props.streaming, props.startedAt, props.endedAt);
@@ -593,7 +622,7 @@ function AssistantTurn(props: {
 		<ChatMessage
 			sender="assistant"
 			name={props.handle}
-			metadata={props.streaming ? undefined : <MessageChrome at={props.at} copyText={copyText} />}
+			metadata={props.streaming ? undefined : <MessageChrome at={props.at} copyText={copyText} error={props.error} />}
 		>
 			<VStack gap={3} width="100%">
 				<TurnStatus status={status} trace={trace} hasTrace={hasTrace} streaming={props.streaming} />
@@ -616,13 +645,19 @@ function AssistantTurn(props: {
 	);
 }
 
-function UserTurn(props: { blocks: TranscriptBlock[]; at: number }) {
+function UserTurn(props: {
+	blocks: TranscriptBlock[];
+	at: number;
+	status?: ChatMessageStatus;
+	/** Why the turn failed before any reply. */
+	error?: string;
+}) {
 	const t = useLabels();
 	const copyText = props.blocks
 		.map((block) => transcriptBlockCopyText(t, block))
 		.filter(Boolean)
 		.join('\n\n');
-	const chrome = <MessageChrome at={props.at} copyText={copyText} />;
+	const chrome = <MessageChrome at={props.at} copyText={copyText} status={props.status} error={props.error} />;
 	// Astryx: metadata goes on the last bubble, or on the message when the last
 	// content is unbubbled (an attachment or voice note).
 	const last = props.blocks.at(-1);
@@ -636,44 +671,61 @@ function UserTurn(props: { blocks: TranscriptBlock[]; at: number }) {
 	);
 }
 
-/** Theorem transcript blocks rendered as Astryx chat messages. */
+/** The element that scrolls the transcript: the nearest ancestor that scrolls vertically. */
+function scrollerOf(element: Element): Element {
+	for (let node = element.parentElement; node; node = node.parentElement) {
+		if (/auto|scroll/.test(getComputedStyle(node).overflowY)) return node;
+	}
+	// None above it: the page itself scrolls (standards mode scrolls the root element).
+	return element.ownerDocument.documentElement;
+}
+
 /**
  * A disclosure the reader opens (a turn's work, a tool group, a call's detail)
  * glides to the top of the transcript, so what it reveals reads from its start.
- * Astryx owns each trigger's open state, so this reads `aria-expanded` after
- * the reader's click or key, never an open the transcript made itself.
+ *
+ * At the bottom of the chat, ChatLayout follows new content down, and each of
+ * its frames would cut a smooth scroll short. It lets go when the reader moves
+ * up, so the first layout of the growing panel moves the transcript up one
+ * pixel: the follow stops before the panel pulls the view down, and the glide
+ * runs once the panel has its full height (until then, a trigger near the end
+ * has no room below it to reach the top). That pixel lands after the follow's
+ * own frame, where it reads as the reader.
  */
 function useScrollToOpened(): RefObject<HTMLDivElement | null> {
 	const ref = useRef<HTMLDivElement>(null);
-	useEffect(() => {
+	const onOpened = useCallback((trigger: Element, _panel: HTMLElement, motion: Promise<unknown>) => {
 		const list = ref.current;
 		if (!list) return;
-		const onOpen = (event: Event) => {
-			if (event instanceof KeyboardEvent && event.key !== 'Enter' && event.key !== ' ') return;
-			const trigger = event.target instanceof Element ? event.target.closest('[aria-expanded]') : null;
-			if (!trigger || !list.contains(trigger)) return;
-			requestAnimationFrame(async () => {
-				if (trigger.getAttribute('aria-expanded') !== 'true') return;
-				// Scroll once the panel has grown: until then, a trigger near the
-				// end of the transcript has no room below it to reach the top.
-				const panel = document.getElementById(trigger.getAttribute('aria-controls') ?? '');
-				// A closed-again panel cancels its animation, which rejects `finished`.
-				await Promise.allSettled((panel?.getAnimations() ?? []).map((animation) => animation.finished));
-				if (trigger.getAttribute('aria-expanded') !== 'true') return;
-				const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
-				trigger.scrollIntoView({ behavior: still ? 'auto' : 'smooth', block: 'start' });
-			});
-		};
-		list.addEventListener('click', onOpen);
-		list.addEventListener('keydown', onOpen);
-		return () => {
-			list.removeEventListener('click', onOpen);
-			list.removeEventListener('keydown', onOpen);
-		};
+		const scroller = scrollerOf(list);
+		const release = new ResizeObserver(() => {
+			if (scroller.scrollTop <= 0) return;
+			scroller.scrollTop -= 1;
+			release.disconnect();
+		});
+		release.observe(list);
+		void motion.then(() => {
+			release.disconnect();
+			if (trigger.getAttribute('aria-expanded') !== 'true') return;
+			const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+			trigger.scrollIntoView({ behavior: still ? 'auto' : 'smooth', block: 'start' });
+		});
 	}, []);
+	useDisclosureMotion(ref, onOpened);
 	return ref;
 }
 
+/** Why a turn failed: its error block's message. */
+function failureOf(group: TranscriptTurnGroup | undefined): string | undefined {
+	return group?.blocks.findLast((block) => block.kind === 'error')?.message;
+}
+
+/** A reply that is nothing but its failure: the turn failed before the model answered. */
+function isBareFailure(group: TranscriptTurnGroup | undefined): boolean {
+	return group?.kind === 'assistant' && group.blocks.every((block) => block.kind === 'error');
+}
+
+/** Theorem transcript blocks rendered as Astryx chat messages. */
 export function ChatTranscript(props: ChatTranscriptProps) {
 	return (
 		<TheoremLabelsProvider>
@@ -686,6 +738,7 @@ function ChatTranscriptBody({
 	blocks,
 	handle,
 	streaming = false,
+	delivery,
 	onToolDecision,
 	onAuthenticated,
 	emptyState,
@@ -705,12 +758,31 @@ function ChatTranscriptBody({
 	};
 	const turn = { handle, handlers, imageOutput };
 
-	const turns = groups.map((group, index) => {
-		if (group.kind === 'user') return <UserTurn key={group.key} blocks={group.blocks} at={timeOf(group.key)} />;
+	const lastUser = groups.findLastIndex((group) => group.kind === 'user');
+
+	const turns = groups.flatMap((group, index) => {
+		if (group.kind === 'user') {
+			// A turn that failed before any reply shows it on the message itself.
+			const next = groups[index + 1];
+			const error = isBareFailure(next) ? failureOf(next) : undefined;
+			const status = index === lastUser ? (delivery ?? undefined) : undefined;
+			return <UserTurn key={group.key} blocks={group.blocks} at={timeOf(group.key)} status={status} error={error} />;
+		}
+		if (isBareFailure(group) && groups[index - 1]?.kind === 'user') return [];
 		const { key, live, ...timing } = assistantTurnTiming({ groups, index, streaming, timeOf, spans });
 		// A reply is dated when it last stopped: a reply that just finished reads "now".
 		const at = timing.endedAt ?? timeOf(key);
-		return <AssistantTurn key={key} {...turn} {...timing} blocks={group.blocks} streaming={live} at={at} />;
+		return (
+			<AssistantTurn
+				key={key}
+				{...turn}
+				{...timing}
+				blocks={group.blocks}
+				streaming={live}
+				at={at}
+				error={failureOf(group)}
+			/>
+		);
 	});
 	// Nothing streamed back yet: show the reply's "Working…" status right away.
 	// It sits in the same keyed list as the streamed reply, so the reply stays

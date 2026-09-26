@@ -45,6 +45,16 @@ export const theoremTheme: DefinedTheme = defineTheme({
 				':where(*) > [aria-hidden="true"] > img': { width: '100%', height: '100%' },
 			},
 		},
+		// A call row's name is code type and its target or error note is body type;
+		// centered, their different metrics sit their text on different lines.
+		// Share a baseline instead (the status icon and chevron stay centered).
+		'chat-tool-calls': {
+			base: {
+				':where(*) [role="button"][aria-expanded] > span:not(:first-child):not(:has(svg))': {
+					alignSelf: 'baseline',
+				},
+			},
+		},
 		// Side panels (SidePanel's LayoutPanels) slide open and closed by easing
 		// their width, pushing the content over.
 		'layout-panel': {

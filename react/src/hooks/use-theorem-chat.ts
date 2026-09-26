@@ -18,7 +18,7 @@ import { followGenerationDefaults } from '../client/generation-selection';
 import { applyTurnResultToTranscript } from '../client/index';
 import type { TheoremTransport, TurnEventSink } from '../client/transport';
 import { type RunTurnStream, useTheoremChatActions } from './use-theorem-chat-actions';
-import { type SetSession, useTheoremChatState } from './use-theorem-chat-state';
+import { type MessageDelivery, type SetSession, useTheoremChatState } from './use-theorem-chat-state';
 
 export type UseTheoremChatOptions = {
 	transport: TheoremTransport;
@@ -66,16 +66,24 @@ function withTurnError(blocks: TranscriptBlock[], error: string): TranscriptBloc
 }
 
 /**
- * Shows a failed turn's error. A reply that failed partway stays in the
- * transcript, flagged where it stopped; one that never started shows at the composer.
+ * Shows a failed turn's error. Once the message is in the transcript, the
+ * failure is too, closing the turn (the message, or the reply as far as it
+ * got, shows it failed); a message that never went out (refused attachments)
+ * is still in the composer, so the failure shows there.
  */
-function showTurnFailure(state: ChatState, result: TurnFailure, streamed: TranscriptBlock[]): void {
+function showTurnFailure(
+	state: ChatState,
+	result: TurnFailure,
+	streamed: TranscriptBlock[],
+	unposted: boolean,
+): void {
 	const { error, errorKind, errorInternal } = result;
-	if (streamed.length > 0) {
+	if (unposted) {
+		state.setFailure({ error, errorKind, ...(errorInternal ? { errorInternal } : {}) });
+	} else {
 		const failed = withTurnError(streamed, error);
 		state.setBlocks((prev) => [...prev, ...failed]);
-	} else {
-		state.setFailure({ error, errorKind, ...(errorInternal ? { errorInternal } : {}) });
+		state.setDelivery(null);
 	}
 	if (result.issues) state.setIssues(result.issues);
 }
@@ -102,6 +110,8 @@ function useRunTurnStream(iface: ComposerProfileInterface | null, state: ChatSta
 		) => {
 			if (!iface || state.busyRef.current) return;
 			state.setFailure(null);
+			// A new message posts itself (onUserBlocks) with a fresh delivery.
+			const priorDelivery = state.deliveryRef.current;
 			state.busyRef.current = true;
 			state.setBusy(true);
 			// A new turn goes live with its user message (onUserBlocks), so the
@@ -125,7 +135,9 @@ function useRunTurnStream(iface: ComposerProfileInterface | null, state: ChatSta
 
 				if (!result.ok) {
 					if (result.session) state.setSession(result.session);
-					if (!result.aborted) showTurnFailure(state, result, latestStream);
+					const unposted =
+						options.userBlocksAlreadyApplied === true && state.deliveryRef.current === priorDelivery;
+					if (!result.aborted) showTurnFailure(state, result, latestStream, unposted);
 					state.setStreamBlocks([]);
 					onRunEnded(state.pendingRef.current, false);
 					return;
@@ -195,11 +207,29 @@ function useQueueDrain(
 
 }
 
+const DELIVERY_ORDER: readonly MessageDelivery[] = ['sending', 'sent', 'delivered', 'read'];
+
+/** The server's own reports (bookkeeping, a failure, the end), which say nothing of the model having the message. */
+const SERVER_EVENTS = new Set(['stage', 'guardrail', 'session', 'error', 'done']);
+/** The reply itself (its thinking and tool calls come before it). */
+const REPLY_EVENTS = new Set(['text', 'structured', 'media']);
+
+/**
+ * How far an event shows the message got: any event means the server took it,
+ * one from the model (thinking, a tool call) means the model has it, and the
+ * reply means it was read.
+ */
+function deliveryOf(event: Parameters<TurnEventSink>[0]): MessageDelivery {
+	if (REPLY_EVENTS.has(event.type)) return 'read';
+	return SERVER_EVENTS.has(event.type) ? 'sent' : 'delivered';
+}
+
 /**
  * The transport, with each turn's events also clearing the steers they report
- * as landed, so the run's end requeues only the steers the agent never saw.
+ * as landed (so the run's end requeues only the steers the agent never saw),
+ * and moving the posted message's delivery forward.
  */
-function useLandedSteerTransport(transport: TheoremTransport, state: ChatState): TheoremTransport {
+function useTappedTransport(transport: TheoremTransport, state: ChatState): TheoremTransport {
 	return useMemo(() => {
 		const tap =
 			(onEvent: TurnEventSink): TurnEventSink =>
@@ -208,6 +238,11 @@ function useLandedSteerTransport(transport: TheoremTransport, state: ChatState):
 					state.pendingRef.current = removeLandedSteers(state.pendingRef.current, event);
 					state.setPendingMessages((prev) => removeLandedSteers(prev, event));
 				}
+				const delivery = state.deliveryRef.current;
+				const reached = deliveryOf(event);
+				if (delivery && DELIVERY_ORDER.indexOf(reached) > DELIVERY_ORDER.indexOf(delivery.status)) {
+					state.setDelivery({ status: reached });
+				}
 				onEvent(event);
 			};
 		return {
@@ -215,7 +250,7 @@ function useLandedSteerTransport(transport: TheoremTransport, state: ChatState):
 			turn: (request, onEvent, signal) => transport.turn(request, tap(onEvent), signal),
 			invoke: (request, onEvent, signal) => transport.invoke(request, tap(onEvent), signal),
 		};
-	}, [transport, state.pendingRef, state.setPendingMessages]);
+	}, [transport, state.pendingRef, state.setPendingMessages, state.deliveryRef, state.setDelivery]);
 }
 
 /**
@@ -245,7 +280,7 @@ export function useTheoremChat({ transport, iface }: UseTheoremChatOptions) {
 
 	const runTurnStream = useRunTurnStream(iface, state);
 
-	const steerTransport = useLandedSteerTransport(transport, state);
+	const steerTransport = useTappedTransport(transport, state);
 	const actions = useTheoremChatActions({
 		...state,
 		iface,
@@ -266,6 +301,8 @@ export function useTheoremChat({ transport, iface }: UseTheoremChatOptions) {
 			state.busyRef.current = false;
 			state.setBusy(false);
 			state.setChatStarted(kept.length > 0);
+			// The kept transcript's last message isn't the one whose delivery was tracked.
+			state.setDelivery(null);
 			state.setSession((prevSession) => branchInterfaceTurnSession(prevSession, kept));
 		},
 		[iface, state],
@@ -295,6 +332,8 @@ export function useTheoremChat({ transport, iface }: UseTheoremChatOptions) {
 		pendingVoice: state.pendingVoice,
 		phase,
 		session: state.session,
+		/** The latest message's delivery; `null` before the first and once its turn failed. */
+		delivery: state.delivery?.status ?? null,
 		streamBlocks: state.streamBlocks,
 		streaming: state.streaming,
 		setDraftText: state.setDraftText,

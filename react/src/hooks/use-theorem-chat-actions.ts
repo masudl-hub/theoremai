@@ -29,6 +29,7 @@ import {
 } from '../client/index';
 import { type ClientFailure, clientFailure, type TurnFailure } from '../client/failure';
 import type { TheoremTransport } from '../client/transport';
+import type { MessageDelivery } from './use-theorem-chat-state';
 
 function composerFieldsPayload(
 	text: string,
@@ -120,6 +121,7 @@ export type TheoremChatActionArgs = {
 	setPendingVoice: (value: File[]) => void;
 	setIssues: (value: AttachmentValidationIssue[]) => void;
 	setFailure: (value: ClientFailure | null) => void;
+	setDelivery: (value: { status: MessageDelivery } | null) => void;
 	pendingRef: MutableRefObject<ComposerPendingMessage[]>;
 };
 
@@ -144,6 +146,7 @@ function useTurnStarters(args: TheoremChatActionArgs) {
 						onStream,
 						onUserBlocks: (userBlocks) => {
 							args.setBlocks((prev) => [...prev, ...userBlocks]);
+							args.setDelivery({ status: 'sending' });
 							args.setChatStarted(true);
 							args.setStreaming(true);
 							args.clearComposer();
@@ -172,6 +175,7 @@ function useTurnStarters(args: TheoremChatActionArgs) {
 						onStream,
 						onUserBlocks: (userBlocks) => {
 							args.setBlocks((prev) => [...prev, ...userBlocks]);
+							args.setDelivery({ status: 'sending' });
 							args.setChatStarted(true);
 							args.setStreaming(true);
 						},

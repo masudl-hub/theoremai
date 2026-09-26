@@ -4,11 +4,11 @@
  * Matches runTurn semantics:
  *   • the reply stream (text deltas and the spoken-reply transcript) is held in
  *     the progressive-yield lookback; thoughts are unguarded (`isGuardedOutput`)
- *   • audio and other media stream behind the transcript: a chunk is covered by
- *     the next transcript chunk to arrive after it, and goes once the gate has
- *     cleared that chunk. The transcript carries no timing, so the next one is
- *     the margin that its own words — which arrive with or just after it — were
- *     read. `generation_complete` covers the rest (the transcript is whole);
+ *   • audio and other media stream behind the transcript: Google sends a
+ *     chunk's transcript in the same message, so a chunk is covered by the
+ *     transcript its message carries, or — in a message without one — by the
+ *     next transcript chunk to arrive. It goes once the gate has cleared that
+ *     chunk. `generation_complete` covers the rest (the transcript is whole);
  *     audio in a cycle with no transcript is dropped (fail closed)
  *   • any other event releases the reply held before it, then passes after a
  *     whole-event canary scan
@@ -56,7 +56,7 @@ import type {
 /**
  * One piece of output not yet released: a reply-stream chunk covering
  * `[start, end)` of the gate's window, or media arriving at `start`, whose
- * `end` is where the next transcript chunk ends (`Infinity` until one arrives).
+ * `end` is where its covering transcript ends (`Infinity` until one arrives).
  */
 export interface LiveHeldOutput {
   event: StreamedReplyEvent | TurnEventOf<'media'>;
@@ -240,14 +240,18 @@ async function flushHeld(
   return applyScan(session, gate, await gate.flush(), into);
 }
 
-/** Hold one media event behind the reply before it, until a transcript chunk covers it. */
+/**
+ * Hold one media event behind the reply before it. Its message's transcript,
+ * already in the window, covers it; without one it waits for the next.
+ */
 function holdMedia(
   session: LiveOutboundGateSession,
   gate: ProgressiveYieldGate,
   event: TurnEventOf<'media'>,
+  transcribed: boolean,
 ): void {
   const at = gate.accumulated().length;
-  session.held.push({ event, start: at, end: Number.POSITIVE_INFINITY });
+  session.held.push({ event, start: at, end: transcribed ? at : Number.POSITIVE_INFINITY });
 }
 
 /** The media still waiting for a transcript chunk is covered by this one. */
@@ -293,8 +297,11 @@ async function processLiveOutboundBatch(
     return emitOrIdle(events);
   }
 
+  // One batch is one provider message: its transcript is its audio's.
+  let transcribed = false;
   for (const event of events) {
     if (isStreamedCanaryEvent(event)) {
+      transcribed ||= Boolean(event.text);
       const stopped = await holdStreamChunk(session, gate, event, toEmit);
       if (stopped) {
         return stopped;
@@ -303,7 +310,9 @@ async function processLiveOutboundBatch(
     }
 
     if (event.type === 'media') {
-      holdMedia(session, gate, event);
+      holdMedia(session, gate, event, transcribed);
+      // Media not yet held until the next event can release it now.
+      if (!session.withholdVisible) releaseHeld(session, gate, clearedTo(gate), toEmit);
       continue;
     }
 

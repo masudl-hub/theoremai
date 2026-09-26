@@ -65,7 +65,7 @@ Owns every module under `src/guardrails/`.
 | `canary.ts` | Per-turn canary mint/bind, stream gate, leak scan |
 | `prompt-echo.ts` | System-prompt echo scan: 12 consecutive prompt words in a reply are a leak |
 | `canary-gate.ts` | Canary-only batch helper (`createCanaryGateSession`) |
-| `live-outbound-gate.ts` | Live outbound progressive-yield (canary + egress lookback; audio streams once the transcript after it clears) |
+| `live-outbound-gate.ts` | Live outbound progressive-yield (canary + egress lookback; audio streams once its message's transcript clears) |
 | `progressive-yield.ts` | Streaming lookback gate for canary / sensitive / host enforce |
 | `egress.ts` | `standardEgressEnforce` / `collectEgressHits` bundled outbound policy |
 | `corpus/` | Adversarial bank (live attacks, inbound fuzz, canary egress catalog) |
@@ -251,9 +251,9 @@ and the spoken reply's transcript (`output_transcription` evidence); both run
 through progressive yield (`isStreamedCanaryEvent`). A native-audio model's
 transcript trails the audio it describes and carries no timing, so audio and
 other media (`LiveHeldOutput.event` is a streamed reply event or a `media`
-event) are held until the transcript chunk that arrives after them has
-cleared, then stream: a chunk's own words, which arrive with or just before
-the next chunk, have been read before it is heard. `generation_complete` means
+event) are held until the transcript their own message carries has cleared
+(a message with none waits for the next transcript chunk), then stream: a
+chunk's own words have been read before it is heard. `generation_complete` means
 the transcript is whole, so the audio after its last chunk goes then. Audio
 released before a later hit is not recalled — as with text, the gate withholds
 from the hit onward, and an interruption drops only what is still held. Reply

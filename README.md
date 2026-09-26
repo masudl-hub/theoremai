@@ -507,8 +507,8 @@ accepts what they hold.
 
 In Live, the spoken reply's transcript runs through the same window. A native-audio model's
 transcript trails its audio and carries no timing, so a guarded profile (canary or
-`egress.enforce`) holds each audio chunk until the transcript that arrives after it has passed,
-then streams it: a chunk's own words have been read before it is heard, and the rest of the reply
+`egress.enforce`) holds each audio chunk until the transcript of its own message has passed
+(or, for a message with none, the next transcript), then streams it: a chunk's own words have been read before it is heard, and the rest of the reply
 goes when the model finishes generating. As with text, what was heard before a later hit stays
 heard; the gate withholds from the hit onward. Guarded
 Live profiles always ask the provider for the output transcript (`live.transcription.output` is

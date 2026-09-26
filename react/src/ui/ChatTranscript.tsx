@@ -25,7 +25,7 @@ import { Token } from '@astryxdesign/core/Token';
 import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconCheck, IconCopy } from '@tabler/icons-react';
-import { type ReactNode, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import type { TranscriptBlock } from '../../../src/interface/mod.ts';
 import { citationsFromBlock, type SourceCitationBlock } from '../client/source-citations';
 import {
@@ -674,50 +674,6 @@ function UserTurn(props: {
 	);
 }
 
-/** The element that scrolls the transcript: the nearest ancestor that scrolls vertically. */
-function scrollerOf(element: Element): Element {
-	for (let node = element.parentElement; node; node = node.parentElement) {
-		if (/auto|scroll/.test(getComputedStyle(node).overflowY)) return node;
-	}
-	// None above it: the page itself scrolls (standards mode scrolls the root element).
-	return element.ownerDocument.documentElement;
-}
-
-/**
- * A disclosure the reader opens (a turn's work, a tool group, a call's detail)
- * glides to the top of the transcript, so what it reveals reads from its start.
- *
- * At the bottom of the chat, ChatLayout follows new content down, and each of
- * its frames would cut a smooth scroll short. It lets go when the reader moves
- * up, so the first layout of the growing panel moves the transcript up one
- * pixel: the follow stops before the panel pulls the view down, and the glide
- * runs once the panel has its full height (until then, a trigger near the end
- * has no room below it to reach the top). That pixel lands after the follow's
- * own frame, where it reads as the reader.
- */
-function useScrollToOpened(): RefObject<HTMLDivElement | null> {
-	const ref = useRef<HTMLDivElement>(null);
-	const onOpened = useCallback((trigger: Element, _panel: HTMLElement, motion: Promise<unknown>) => {
-		const list = ref.current;
-		if (!list) return;
-		const scroller = scrollerOf(list);
-		const release = new ResizeObserver(() => {
-			if (scroller.scrollTop <= 0) return;
-			scroller.scrollTop -= 1;
-			release.disconnect();
-		});
-		release.observe(list);
-		void motion.then(() => {
-			release.disconnect();
-			if (trigger.getAttribute('aria-expanded') !== 'true') return;
-			const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
-			trigger.scrollIntoView({ behavior: still ? 'auto' : 'smooth', block: 'start' });
-		});
-	}, []);
-	useDisclosureMotion(ref, onOpened);
-	return ref;
-}
-
 /** Why a turn failed: its error block's message. */
 function failureOf(group: TranscriptTurnGroup | undefined): string | undefined {
 	return group?.blocks.findLast((block) => block.kind === 'error')?.message;
@@ -753,7 +709,9 @@ function ChatTranscriptBody({
 	);
 	const spans = useTurnSpans(streaming, groups.findLast((group) => group.kind === 'user')?.key);
 	const pendingPrompt = streaming ? pendingPromptOf(groups) : undefined;
-	const listRef = useScrollToOpened();
+	const listRef = useRef<HTMLDivElement>(null);
+	// Disclosures ease open and shut in place; opening one never moves the transcript.
+	useDisclosureMotion(listRef);
 	const handlers: BlockHandlers = {
 		indexOf: (block) => blocks.findIndex((entry) => entry.id === block.id),
 		onToolDecision,

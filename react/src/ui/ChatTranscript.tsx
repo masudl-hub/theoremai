@@ -8,6 +8,7 @@ import {
 	type ChatToolCallItem,
 	ChatToolCalls,
 } from '@astryxdesign/core/Chat';
+import { Citation } from '@astryxdesign/core/Citation';
 import { ClickableCard } from '@astryxdesign/core/ClickableCard';
 import { CodeBlock } from '@astryxdesign/core/CodeBlock';
 import { Collapsible } from '@astryxdesign/core/Collapsible';
@@ -26,7 +27,7 @@ import { VStack } from '@astryxdesign/core/VStack';
 import { IconCheck, IconCopy } from '@tabler/icons-react';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import type { TranscriptBlock } from '../../../src/interface/mod.ts';
-import { chipsFromBlock, type SourceChipBlock } from '../client/source-chips';
+import { citationsFromBlock, type SourceCitationBlock } from '../client/source-citations';
 import {
 	assistantTurnCopyText,
 	assistantTurnTiming,
@@ -326,14 +327,18 @@ function bodyRows(t: LabelText, body: readonly TranscriptBlock[]): BodyRow[] {
 	return rows;
 }
 
-function Sources({ block }: { block: SourceChipBlock }) {
+function Sources({ block }: { block: SourceCitationBlock }) {
 	const t = useLabels();
-	const chips = chipsFromBlock(block);
-	if (chips.length === 0) return null;
+	const citations = citationsFromBlock(block);
+	if (citations.length === 0) return null;
 	return (
 		<HStack gap={1} wrap="wrap" aria-label={t('@theorem.transcript.sources')}>
-			{chips.map((chip) => (
-				<Token key={chip.key} label={chip.label} description={chip.kind} href={chip.href} size="sm" />
+			{citations.map((citation, i) => (
+				<Citation
+					key={citation.key}
+					source={{ title: citation.title, url: citation.href, src: citation.icon }}
+					number={i + 1}
+				/>
 			))}
 		</HStack>
 	);

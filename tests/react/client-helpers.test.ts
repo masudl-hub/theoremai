@@ -26,7 +26,7 @@ import {
   shouldForwardMicFrame,
 } from '../../react/src/client/live/live-mic-forward.ts';
 import { liveState } from '../../react/src/client/live/live-state.ts';
-import { chipsFromBlock } from '../../react/src/client/source-chips.ts';
+import { citationsFromBlock } from '../../react/src/client/source-citations.ts';
 import {
   assistantTurnTiming,
   composeAssistantTurn,
@@ -655,9 +655,9 @@ Deno.test('composerActionState gates the primary button on payload, phase and re
   assertEquals(steering.menuActions, ['queue', 'steer', 'send_now', 'stash']);
 });
 
-Deno.test('source chips link only http(s) sources', () => {
+Deno.test('source citations link only http(s) sources', () => {
   const web = (title: string, uri: string): Source => ({ type: 'web', title, uri });
-  const chips = chipsFromBlock({
+  const citations = citationsFromBlock({
     kind: 'citation',
     id: 'c1',
     sources: [
@@ -669,7 +669,7 @@ Deno.test('source chips link only http(s) sources', () => {
     ],
   });
   assertEquals(
-    chips.map((chip) => [chip.label, chip.href]),
+    citations.map((citation) => [citation.title, citation.href]),
     [
       ['Docs', 'http://example.org/docs'],
       ['example.com', 'https://www.example.com/a'],
@@ -680,13 +680,36 @@ Deno.test('source chips link only http(s) sources', () => {
   );
 });
 
-Deno.test('a provider step chip names only its kind', () => {
+Deno.test('a source favicon names only its site, never the page', () => {
+  const web = (title: string, uri: string): Source => ({ type: 'web', title, uri });
+  const favicon = (site: string) => `https://www.google.com/s2/favicons?domain=${site}&sz=32`;
+  const citations = citationsFromBlock({
+    kind: 'citation',
+    id: 'c1',
+    sources: [
+      web('Docs', 'https://docs.example.org/a/b?q=secret'),
+      // Gemini grounding links through a redirect and names the site in the title.
+      web('lisboa.pt', 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/abc'),
+      web(
+        'Lisbon travel guide',
+        'https://vertexaisearch.cloud.google.com/grounding-api-redirect/def',
+      ),
+      web('', 'javascript:alert(1)'),
+    ],
+  });
   assertEquals(
-    chipsFromBlock({
+    citations.map((citation) => citation.icon),
+    [favicon('docs.example.org'), favicon('lisboa.pt'), undefined, undefined],
+  );
+});
+
+Deno.test('a provider step citation names only its kind', () => {
+  assertEquals(
+    citationsFromBlock({
       kind: 'evidence',
       id: 'e1',
       evidence: { provider: 'google', kind: 'url_context' },
     }),
-    [{ key: 'e-kind', label: 'url context', kind: 'evidence' }],
+    [{ key: 'e-kind', title: 'url context' }],
   );
 });

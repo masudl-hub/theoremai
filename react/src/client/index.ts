@@ -27,6 +27,7 @@ export type {
 export {
 	continueGatedToolInvocation,
 } from './tool-resume';
+export { citationsFromBlock, type SourceCitation, type SourceCitationBlock } from './source-citations';
 export { createTraceFeed, type TraceFeed } from './trace-feed';
 export { buildInvokeRequest, buildTurnRequest, turnInputFromSession } from './turn-client';
 export {

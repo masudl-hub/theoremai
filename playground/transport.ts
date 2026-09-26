@@ -91,19 +91,20 @@ export function createPlaygroundTransport(
   const inboxes = new Map<string, string>();
   return {
     describe: () => Promise.resolve(playgroundInterface(payload)),
-    turn: async ({ replay, turnId, ...body }, onEvent, signal) => {
+    turn: async (request, onEvent, signal) => {
       try {
         await postNdjson(
           '/api/playground/turn',
-          { ...compiled, ...replay, ...body },
+          // The body as `theoremTurnRequestSchema` reads it, beside the compiled draft.
+          { ...compiled, ...request },
           playgroundLines,
           routeLines(onEvent, traces, (inbox) => {
-            if (turnId) inboxes.set(turnId, inbox);
+            if (request.turnId) inboxes.set(request.turnId, inbox);
           }),
           { ...options, signal },
         );
       } finally {
-        if (turnId) inboxes.delete(turnId);
+        if (request.turnId) inboxes.delete(request.turnId);
       }
     },
     invoke: (request, onEvent, signal) =>

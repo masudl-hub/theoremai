@@ -103,7 +103,6 @@ async function onLiveToolCall(
 				bindings.setSessionPermissions(next);
 			},
 			waitForGateDecision: bindings.waitForGateDecision,
-			reportFailure: bindings.reportFailure,
 		});
 	} catch (err) {
 		bindings.reportFailure(err);

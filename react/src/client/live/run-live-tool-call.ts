@@ -1,4 +1,3 @@
-import { TheoremError } from '../../../../mod.ts';
 import type { ExecuteToolOnRelay } from '../live-messages.ts';
 import type { LiveGateAnswer, LiveToolGatePrompt } from './live-tool.ts';
 import { continueGatedToolInvocation } from '../tool-resume.ts';
@@ -17,7 +16,6 @@ export async function runLiveToolCall(args: {
 	sessionPermissions: string[];
 	setSessionPermissions: (next: string[]) => void;
 	waitForGateDecision: (prompt: LiveToolGatePrompt) => Promise<LiveGateAnswer>;
-	reportFailure: (err: unknown) => void;
 }): Promise<void> {
 	const { client, name, toolArgs, callId } = args;
 	let sessionPermissions = args.sessionPermissions;
@@ -28,15 +26,8 @@ export async function runLiveToolCall(args: {
 		if (resolution === 'withdrawn') return;
 		const reply = continueGatedToolInvocation({ toolName: name, gate, sessionPermissions, resolution });
 		if (reply.decision === 'deny') {
+			// The session settles the refusal; its tool event tells the user.
 			await client.executeToolOnRelay({ callId, decision: 'deny' });
-			args.reportFailure(
-				new TheoremError(
-					'declined',
-					// lexicon-exempt: internal diagnostic; the user reads session.tool_denied
-					`user denied ${name}`,
-					{ copy: { key: 'session.tool_denied', params: { tool: name } } },
-				),
-			);
 			return;
 		}
 		sessionPermissions = reply.sessionPermissions;

@@ -537,7 +537,8 @@ Deno.test('interfaceFromProfile maps structured outputs and streamThoughts=false
   const iface = composerIface(structured);
   assertEquals(iface.outputs?.structured, 'app.schema');
   assertEquals(iface.outputs?.streaming?.mode, 'buffered');
-  assertEquals(iface.outputs?.validation?.maxRetries, 2);
+  // Validators are host functions: validation stays on the host.
+  assertEquals(Object.hasOwn(iface.outputs ?? {}, 'validation'), false);
   assertFalse(streamThoughtsEnabled(iface.outputs));
 });
 

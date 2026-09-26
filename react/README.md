@@ -24,9 +24,8 @@ The playground's run-tab handoff (`savePlaygroundRunPayload`,
 
 ## The wire
 
-Turn lines, live envelopes, request bodies and live messages are each checked
-against their schema, both ways (the profile interface `describe` returns is
-not yet):
+Turn lines, live envelopes, request bodies, live messages and the profile
+interface `describe` returns are each checked against their schema, both ways:
 
 - **Browser → host.** `createTheoremHandler` reads `/turn`, `/invoke` and
   `/steer` bodies with `theoremTurnRequestSchema`, `theoremInvokeRequestSchema`
@@ -35,9 +34,14 @@ not yet):
   `decision`: `approve` (with `input` when the user edited it, `secret` at a
   sign-in gate), `deny`, or `abandon` (the user sent a new message instead).
   The host settles each one. A relay reads the live client's messages with
-  `parseLiveClientMessage`.
-- **Host → browser.** The transport and the live client read each line or
-  envelope against its kind's schema. A kind the client does not know reaches
+  `parseLiveClientMessage`. A host with routes of its own reads a body with
+  `checkRequest(schema, body, what)`, and answers a paused call with
+  `answerGatedCall` (`@theoremai/agents/kernel`), the rule the handler uses.
+- **Host → browser.** `describe` returns the profile interface as
+  `profileInterfaceSchema` names it: tool ids, never a tool's definition, and
+  no host functions. The transport and the live client read each line or
+  envelope against its kind's schema, and `describe` against
+  `profileInterfaceSchema`. A kind the client does not know reaches
   the event handler as `unsupported` and the turn goes on; a known kind that
   fails its schema ends the turn with `bad_response`.
 

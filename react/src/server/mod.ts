@@ -17,7 +17,7 @@ export {
 	theoremTurnRequestSchema,
 } from '../client/transport.ts';
 export type { LiveClientMessage } from '../client/live-messages.ts';
-export { parseLiveClientMessage } from './request-check.ts';
+export { checkRequest, parseLiveClientMessage } from './request-check.ts';
 export {
 	createMemoryCredentialStore,
 	type TheoremCredentialStore,

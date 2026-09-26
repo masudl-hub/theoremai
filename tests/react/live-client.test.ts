@@ -10,7 +10,10 @@ import { clientFailure } from '../../react/src/client/failure.ts';
 import { applyLiveTurnToolEvent } from '../../react/src/client/live/apply-live-turn-tool-event.ts';
 import { runLiveToolCall } from '../../react/src/client/live/run-live-tool-call.ts';
 import { isPermissionDeniedError } from '../../react/src/client/live-errors.ts';
-import { parseLiveServerEnvelope } from '../../react/src/client/live-messages.ts';
+import {
+  type ExecuteToolOnRelay,
+  parseLiveServerEnvelope,
+} from '../../react/src/client/live-messages.ts';
 import {
   downsampleAndConvertToInt16,
   pcm16BytesToFloat32,
@@ -222,29 +225,45 @@ Deno.test('a live gate closes when the model cancels its call, with nothing repo
   assertEquals(seen, ['withdraw', 'clear']);
 });
 
-Deno.test('a live call the model withdrew at its gate sends nothing more and reports nothing', async () => {
-  const sent: unknown[] = [];
-  const reported: unknown[] = [];
-  await runLiveToolCall({
-    client: {
-      executeToolOnRelay: (args) => {
-        sent.push(args);
-        return Promise.resolve({
-          status: 'gated',
-          gate: { kind: 'permission', tool: 'lookup', permission: 'always_confirm' },
-        });
-      },
+/** A relay that holds every call on a permission gate until it is answered. */
+function gatedRelay(sent: unknown[]): { executeToolOnRelay: ExecuteToolOnRelay } {
+  return {
+    executeToolOnRelay: (args) => {
+      sent.push(args);
+      return Promise.resolve({
+        status: 'gated',
+        gate: { kind: 'permission', tool: 'lookup', permission: 'always_confirm' },
+      });
     },
+  };
+}
+
+Deno.test('a live call the model withdrew at its gate sends nothing more', async () => {
+  const sent: unknown[] = [];
+  await runLiveToolCall({
+    client: gatedRelay(sent),
     name: 'lookup',
     toolArgs: {},
     callId: 'call-gated',
     sessionPermissions: [],
     setSessionPermissions: () => {},
     waitForGateDecision: () => Promise.resolve('withdrawn'),
-    reportFailure: (err) => reported.push(err),
   });
   assertEquals(sent, [{ callId: 'call-gated' }]);
-  assertEquals(reported, []);
+});
+
+Deno.test('a live deny goes to the session, which settles the call; nothing else is sent', async () => {
+  const sent: unknown[] = [];
+  await runLiveToolCall({
+    client: gatedRelay(sent),
+    name: 'lookup',
+    toolArgs: {},
+    callId: 'call-gated',
+    sessionPermissions: [],
+    setSessionPermissions: () => {},
+    waitForGateDecision: () => Promise.resolve({ action: 'deny' }),
+  });
+  assertEquals(sent, [{ callId: 'call-gated' }, { callId: 'call-gated', decision: 'deny' }]);
 });
 
 Deno.test('a relay reads each live message by its schema; a malformed one is a request error', () => {

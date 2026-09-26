@@ -94,6 +94,35 @@ Deno.test('describe returns the interface without server-only identity', async (
   assertEquals(JSON.stringify(iface).includes(SYSTEM), false);
 });
 
+Deno.test("describe sends a tool's id, never its definition", async () => {
+  registerTool({
+    name: 'handler_describe_http',
+    description: 'Looks items up',
+    type: 'http',
+    endpoint: 'https://internal.example/items',
+    method: 'GET',
+    headers: { 'x-api-key': 'static-key-value' },
+    category: 'api',
+    access: 'read-only',
+    loadTier: 'T0',
+    permission: 'auto',
+    paths: ['*'],
+    input: z.object({ q: z.string() }),
+    output: z.object({}).passthrough(),
+  });
+  const handler = createTheoremHandler({
+    profile: profile('handler-describe-tools', ['handler_describe_http']),
+    provider: () => textProvider('unused'),
+  });
+  const body = await (await handler(new Request(BASE))).text();
+  assertEquals(body.includes('static-key-value'), false);
+  assertEquals(body.includes('internal.example'), false);
+  const iface = await transportFor(handler).describe();
+  assertEquals(iface.type === 'text' ? iface.tools : undefined, {
+    allow: ['handler_describe_http'],
+  });
+});
+
 Deno.test('turn streams kernel events from the host profile, not the client', async () => {
   const seen: { system?: string }[] = [];
   const handler = createTheoremHandler({

@@ -27,10 +27,10 @@ import {
 	turnToolSnapshotSchema,
 } from '../../../mod.ts';
 import { kindOfHttpStatus } from '../../../src/guardrails/mod.ts';
-import type { ProfileInterface } from '../../../src/interface/mod.ts';
+import { type ProfileInterface, profileInterfaceSchema } from '../../../src/interface/mod.ts';
 import type { Equals } from '../../../src/kernel/util/exact-type.ts';
 import type { TraceFeed } from './trace-feed.ts';
-import { parseWireJson, parseWireLine, type UnsupportedEvent, type WireLines } from './wire-line.ts';
+import { checkWire, parseWireJson, parseWireLine, type UnsupportedEvent, type WireLines } from './wire-line.ts';
 
 export type { UnsupportedEvent, WireLines } from './wire-line.ts';
 
@@ -382,6 +382,9 @@ function withoutTrailingSlashes(url: string): string {
 	return url.slice(0, end);
 }
 
+/** The host's `describe` reply. */
+const describedSchema = z.object({ interface: profileInterfaceSchema });
+
 /** Transport for a host mounted with `createTheoremHandler`. */
 export function createHttpTransport(options: HttpTransportOptions = {}): TheoremTransport {
 	const base = withoutTrailingSlashes(options.endpoint ?? '/api/theorem');
@@ -389,7 +392,8 @@ export function createHttpTransport(options: HttpTransportOptions = {}): Theorem
 		async describe(signal) {
 			const response = await request(base, { method: 'GET', signal }, options);
 			if (!response.ok) throw await failureFromResponse(response);
-			return ((await response.json()) as { interface: ProfileInterface }).interface;
+			// lexicon-exempt: internal diagnostic; the user reads error.bad_response
+			return checkWire(describedSchema, parseWireJson(await response.text()), 'the profile description').interface;
 		},
 		turn: ({ replay: _replay, ...body }, onEvent, signal) =>
 			postNdjson(`${base}/turn`, body, TURN_EVENT_SCHEMAS, onEvent, { ...options, signal }),

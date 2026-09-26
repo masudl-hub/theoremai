@@ -92,3 +92,15 @@ Deno.test('a host error body is read by its schema; one that fails it is bad_res
     'HTTP 500 error body failed its wire check',
   );
 });
+
+Deno.test("the host's profile description is read by its schema", async () => {
+  const describe = (body: string) => transportReplying(body).describe();
+  await assertBadResponse(
+    () => describe(JSON.stringify({ interface: { type: 'text', id: 'p' } })),
+    'the profile description failed its wire check: ' +
+      'interface.models invalid_type; interface.defaultModel invalid_type; interface.lexicon invalid_type; ' +
+      'interface.identity invalid_type; interface.inputs invalid_type; interface.tools invalid_type; ' +
+      'interface.canStop invalid_value; interface.allowSteering invalid_type',
+  );
+  await assertBadResponse(() => describe('{not json'), 'a line is not JSON');
+});

@@ -72,6 +72,7 @@ export {
   updateComposerPendingDraft,
   userDraftHasPayload,
 } from './pending.ts';
+export { profileInterfaceSchema } from './profile-interface.ts';
 export type {
   AwaitingToolContext,
   GatedToolContext,
@@ -99,13 +100,14 @@ export type {
   FoldTurnEventsOptions,
   ImageProfileInterface,
   LiveProfileInterface,
-  LiveResolvedTools,
+  ModelBindingView,
   PendingAttachment,
   ProfileGuardrailsView,
   ProfileInputsInterface,
   ProfileInterface,
   ProfileObservabilityView,
-  ResolvedTools,
+  ProfileOutputsView,
+  ProfileToolsView,
   SpeechProfileInterface,
   TextProfileInterface,
   TranscriptBlock,

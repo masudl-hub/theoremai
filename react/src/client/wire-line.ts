@@ -54,19 +54,22 @@ function badResponse(what: string, error: z.ZodError): TheoremError {
 	return new TheoremError('bad_response', `${what} failed its wire check: ${issueSummary(error)}`);
 }
 
+/** `raw` as `schema` reads it; one that fails is `bad_response`, naming `what`. */
+export function checkWire<T>(schema: z.ZodType<T>, raw: unknown, what: string): T {
+	const parsed = schema.safeParse(raw);
+	if (!parsed.success) throw badResponse(what, parsed.error);
+	return parsed.data;
+}
+
 /** One parsed wire value: a known kind that passed its schema, or `unsupported`. */
 export function parseWireLine<Line extends { type: string }>(
 	lines: WireLines<Line>,
 	raw: unknown,
 ): Line | UnsupportedEvent {
-	const kind = wireKind.safeParse(raw);
 	// lexicon-exempt: internal diagnostic; the user reads error.bad_response
-	if (!kind.success) throw badResponse('a line without a kind', kind.error);
-	const { type } = kind.data;
+	const { type } = checkWire(wireKind, raw, 'a line without a kind');
 	if (!isKnown(lines, type)) return { type: 'unsupported', received: type, raw };
-	const parsed = lines[type].safeParse(raw);
-	if (!parsed.success) throw badResponse(`a '${type}' line`, parsed.error);
-	return parsed.data;
+	return checkWire(lines[type], raw, `a '${type}' line`);
 }
 
 /**

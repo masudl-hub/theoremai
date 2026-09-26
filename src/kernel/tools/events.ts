@@ -15,8 +15,10 @@ import { throwIfAborted } from '../../guardrails/error.ts';
 import { assertSafeUrl } from '../../guardrails/network.ts';
 import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import type { NetworkGuardrailSpec } from '../../guardrails/types.ts';
+import { type Source, sourceSchema } from '../turn-events.ts';
 import type { TurnEvent, TurnEventOf } from '../types.ts';
 import { isRecord } from '../util/record.ts';
+import { formatToolFailureForModel, formatToolResult } from './model-text.ts';
 import type { ToolCallRequest, ToolContext, ToolFailure, ToolPhaseEvent } from './types.ts';
 
 /** Identifying fields repeated on every event for one tool call. */
@@ -35,8 +37,17 @@ export function toolEvent(base: ToolCallBase, patch: ToolPhasePatch): TurnEventO
   };
 }
 
-export function failureEvent(base: ToolCallBase, failure: ToolFailure): TurnEventOf<'tool'> {
-  return toolEvent(base, { phase: 'error', failure });
+/**
+ * A call's failure, with `readBack`: the text the model reads for it. That is
+ * the failure as the kernel words it, unless the call's result guard already
+ * wrote it (`settleToolCall`).
+ */
+export function failureEvent(
+  base: ToolCallBase,
+  failure: ToolFailure,
+  readBack: string = formatToolResult(formatToolFailureForModel(failure)),
+): TurnEventOf<'tool'> {
+  return toolEvent(base, { phase: 'error', failure, readBack });
 }
 
 /** The model's call, as a provider emits it: the first event of every call. */
@@ -71,6 +82,50 @@ export function toolCallArguments(safeInput: unknown): Record<string, unknown> {
 /** Failure text for a thrown value, without leaking a stack. */
 export function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+function sourcesInvalid(base: ToolCallBase, message: string): TurnEventOf<'tool'> {
+  return toolEvent(base, {
+    phase: 'warning',
+    warning: { code: 'sources_invalid', message, severity: 'warning' },
+  });
+}
+
+/**
+ * What a completed call's output cites, from its tool's `sources`: a `citation`
+ * with the call's `callId`, and one `sources_invalid` warning naming every
+ * source that failed `sourceSchema` (those are not cited) or the throw.
+ */
+export function* sourceEvents(
+  base: ToolCallBase,
+  sources: (output: unknown) => Source[],
+  output: unknown,
+): Generator<TurnEvent> {
+  let listed: unknown;
+  try {
+    listed = sources(output);
+  } catch (err) {
+    yield sourcesInvalid(base, `sources threw: ${messageOf(err)}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    return;
+  }
+  if (!Array.isArray(listed)) {
+    yield sourcesInvalid(base, 'sources must return an array'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    return;
+  }
+  const cited: Source[] = [];
+  const invalid: string[] = [];
+  listed.forEach((entry: unknown, index) => {
+    const parsed = sourceSchema.safeParse(entry);
+    if (parsed.success) cited.push(parsed.data);
+    else
+      invalid.push(
+        `[${String(index)}] ${parsed.error.issues.map((i) => `${i.path.join('.') || 'source'}: ${i.message}`).join('; ')}`,
+      );
+  });
+  if (invalid.length > 0) {
+    yield sourcesInvalid(base, `sources not cited: ${invalid.join(' | ')}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  if (cited.length > 0) yield { type: 'citation', sources: cited, callId: base.callId };
 }
 
 /**

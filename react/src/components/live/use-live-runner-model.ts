@@ -119,7 +119,6 @@ export function useLiveRunnerModel(
 		setConnectPhase: ui.setConnectPhase,
 		setStatus: ui.setStatus,
 		setSessionActive: ui.setSessionActive,
-		lexicon: iface.lexicon,
 		reportFailure: ui.reportFailure,
 		clearFailure: ui.clearFailure,
 		reportSessionEnded: ui.reportSessionEnded,

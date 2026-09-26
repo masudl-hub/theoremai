@@ -34,6 +34,7 @@ import type {
   TurnStopKind,
 } from './schema.ts';
 import type { StageHandler } from './stages.ts';
+import type { GateDecision } from './tools/gate-answer.ts';
 import type {
   BuiltinWire,
   HostProfileToolsSpec,
@@ -1134,16 +1135,32 @@ export interface SessionRequest {
 }
 
 /**
- * Long-lived live session returned by `runSession`.
- * `done` events mark conversational turn boundaries; the session stays open until `close()`.
+ * Run a call the model made in this session, by its id: once, with the
+ * model's input. `decision` answers a call waiting on a gate, and only such a
+ * call; `input` is the user's edit, and only with `approve` on a gated call.
  */
 export type LiveExecuteToolArgs = {
-  name: string;
   callId: string;
+  decision?: GateDecision;
   input?: unknown;
-  resume?: InvokeToolResume;
+  /**
+   * The key the user typed at a sign-in gate, only with `approve` on that
+   * gate: the session makes it the credential for the gate's slot
+   * (`credentialFromTypedSecret`) and keeps it for the rest of the session.
+   */
+  secret?: string;
   credentials?: Record<string, ToolCredential>;
   host?: unknown;
+};
+
+/**
+ * Settle a call the model made in this session whose body ran in the process
+ * that owns the tool registry: `events` are that process's `invokeTool`
+ * events for `callId`, which ran with the model's input.
+ */
+export type LiveAnswerToolCallArgs = {
+  callId: string;
+  events: readonly TurnEvent[];
 };
 
 /** Outcome of executing a registry tool through an open live session. */
@@ -1169,11 +1186,18 @@ export interface LiveSession {
   sendVideo(args: { data: string; mimeType: string }): Promise<void>;
   sendText(text: string): Promise<void>;
   /**
-   * Registry tool execute with stages. Pumps `stage`/`tool` into `events()`.
-   * Gate → returns `gated` without upstream tool response; resume with `granted`.
+   * Run a call the model made through the registry, with stages; its events
+   * join `events()`. A gate returns `gated` and answers the model nothing yet;
+   * the call waits `gateTtlMs` for its `decision`. An unknown, settled,
+   * running or expired call is a `request` error and runs nothing.
    */
   executeTool(args: LiveExecuteToolArgs): Promise<LiveExecuteToolResult>;
-  sendToolResponse(id: string, name: string, output: unknown): void;
-  sendToolResponses(responses: Array<{ id: string; name: string; output: unknown }>): void;
+  /**
+   * Settle a call whose body ran in the registry-owning process: its events
+   * join `events()` and the model reads its `readBack`. A run that ends on a
+   * gate leaves the call open. An unknown, settled or running call, or events
+   * that settle nothing for it, is a `request` error.
+   */
+  answerToolCall(args: LiveAnswerToolCallArgs): LiveExecuteToolResult;
   close(reason?: string): Promise<void>;
 }

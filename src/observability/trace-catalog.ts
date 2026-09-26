@@ -1138,8 +1138,6 @@ const TRACE_EVENTS: Readonly<Record<string, TraceEventMeta>> = {
     attributes: {
       provider: attr('response', 'Provider', 'id', 'Who supplied the evidence.'),
       sources: attr('response', 'Sources', 'json', 'The sources.'),
-      citations: attr('response', 'Citations', 'json', 'Where the answer cites them.'),
-      annotations: attr('response', 'Annotations', 'json', 'Citation annotations on the text.'),
       search_html: attr('response', 'Search suggestions', 'content', "Google's search widget."),
       raw: attr('response', 'Raw', 'json', "The provider's raw grounding payload."),
     },
@@ -1169,6 +1167,15 @@ const TRACE_EVENTS: Readonly<Record<string, TraceEventMeta>> = {
           required_scopes: attr('tool', 'Scopes', 'list', 'The scopes it must carry.'),
         },
       ),
+    },
+  },
+  'theorem.tool.warning': {
+    label: 'Tool warning',
+    doc: 'Something the tool flagged while it ran; the call went on.',
+    attributes: {
+      code: attr('tool', 'Code', 'id', 'The warning, by name.'),
+      message: attr('tool', 'Message', 'content', 'What the tool said.'),
+      severity: attr('tool', 'Severity', 'text', 'How serious the tool says it is.'),
     },
   },
   'theorem.tool.cancel': {

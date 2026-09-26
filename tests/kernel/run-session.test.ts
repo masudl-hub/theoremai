@@ -1,8 +1,10 @@
-import { assertEquals, assertRejects } from '@std/assert';
+import { assertEquals, assertRejects, assertStringIncludes, assertThrows } from '@std/assert';
 import { z } from 'zod';
 import { TheoremError } from '../../src/guardrails/error.ts';
+import type { ResolveHost } from '../../src/guardrails/network.ts';
 import {
   clearProfiles,
+  invokeTool,
   registerProfile,
   registerTool,
   resetTools,
@@ -10,7 +12,9 @@ import {
 } from '../../src/kernel/default-scope.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
+import type { StageHandler } from '../../src/kernel/stages.ts';
 import { prepareTurnToolSnapshot } from '../../src/kernel/tools/mod.ts';
+import type { InvokeToolResume } from '../../src/kernel/tools/types.ts';
 import type { TurnEvent } from '../../src/kernel/types.ts';
 import { eventsOf } from '../fixtures/events.ts';
 import { MockLiveWebSocket } from '../fixtures/live-socket.ts';
@@ -642,9 +646,103 @@ Deno.test('runSession StageContext.history seeds from SessionRequest.history', a
   await session.close();
 });
 
-Deno.test('runSession executeTool sends the guarded text a turn sends, never the raw output', async () => {
-  clearProfiles();
-  resetTools();
+/** A live session over a mock socket whose events are collected as they arrive. */
+async function openToolSession(
+  allow: string[],
+  extra: { onStage?: StageHandler; gateTtlMs?: number; resolveHost?: ResolveHost } = {},
+) {
+  const profile = defineProfile({
+    type: 'live',
+    id: `session_live_tools_${allow.join('_')}`,
+    identity: { handle: 'live', system: 'hi' },
+    models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, key: 'slotA' } },
+    live: { voice: 'Aoede', ingress: { text: true } },
+    tools: { allow },
+  });
+  registerProfile(profile);
+  const sockets: MockLiveWebSocket[] = [];
+  const session = await runSession(
+    {
+      profile: profile.id,
+      ...(extra.onStage ? { onStage: extra.onStage } : {}),
+      ...(extra.resolveHost ? { resolveHost: extra.resolveHost } : {}),
+    },
+    {
+      gemini: { vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined } },
+      openWebSocket: () => {
+        const socket = new MockLiveWebSocket();
+        sockets.push(socket);
+        setTimeout(() => socket.open(), 0);
+        return Promise.resolve(socket as unknown as WebSocket);
+      },
+      ...(extra.gateTtlMs !== undefined ? { gateTtlMs: extra.gateTtlMs } : {}),
+    },
+  );
+  const [mock] = sockets;
+  if (!mock) throw new Error('no socket opened');
+  const events: TurnEvent[] = [];
+  const drain = (async () => {
+    for await (const ev of session.events()) events.push(ev);
+  })();
+  const toolResponses = () =>
+    mock.sent.flatMap((frame): { id: string; name: string; response: unknown }[] => {
+      const parsed = JSON.parse(frame);
+      return parsed?.toolResponse?.functionResponses ?? [];
+    });
+  /** The model calls tools; resolves once the session has held them. */
+  const modelCalls = async (...calls: { id: string; name: string; args?: unknown }[]) => {
+    mock.deliver({
+      toolCall: { functionCalls: calls.map((c) => ({ args: {}, ...c })) },
+    });
+    for (let i = 0; i < 20; i += 1) {
+      const seen = calls.every((c) =>
+        events.some((ev) => ev.type === 'tool' && ev.tool.callId === c.id),
+      );
+      if (seen) return;
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    throw new Error('the session never surfaced the calls');
+  };
+  const close = async () => {
+    mock.close();
+    await session.close();
+    await drain.catch(() => undefined);
+  };
+  /** The events the registry process's `invokeTool` yields for one of the model's calls. */
+  const invokeFor = async (name: string, callId: string, resume?: InvokeToolResume) => {
+    const ran: TurnEvent[] = [];
+    for await (const ev of invokeTool({
+      profile: profile.id,
+      name,
+      callId,
+      input: {},
+      ...(resume ? { resume } : {}),
+    })) {
+      ran.push(ev);
+    }
+    return ran;
+  };
+  return { session, mock, events, toolResponses, modelCalls, invokeFor, close };
+}
+
+function registerConfirmTool(): void {
+  registerTool({
+    type: 'function',
+    name: 'live_confirm_tool',
+    description: 'needs confirm',
+    category: 'test',
+    access: 'read-write',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    input: z.object({ n: z.number().optional() }),
+    output: z.object({ n: z.number() }),
+    preTool: () => ({ confirm: { summary: 'confirm live tool' } }),
+    handler: ({ n }) => ({ n: n ?? 0 }),
+  });
+}
+
+function registerLookupTool(): void {
   registerTool({
     type: 'function',
     name: 'live_lookup_ssn',
@@ -658,154 +756,513 @@ Deno.test('runSession executeTool sends the guarded text a turn sends, never the
     output: z.object({ finding: z.string(), ssn: z.string() }),
     handler: () => ({ finding: 'found the record', ssn: '123-45-6789' }),
   });
-  const profile = defineProfile({
-    type: 'live',
-    id: 'session_live_guarded_tool',
-    identity: { handle: 'live', system: 'hi' },
-    models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, key: 'slotA' } },
-    live: { voice: 'Aoede', ingress: { text: true } },
-    tools: { allow: ['live_lookup_ssn'] },
-  });
-  registerProfile(profile);
-  let mock: MockLiveWebSocket | null = null;
-  const session = await runSession(
-    { profile: profile.id },
-    {
-      gemini: { vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined } },
-      openWebSocket: () => {
-        mock = new MockLiveWebSocket();
-        setTimeout(() => mock?.open(), 0);
-        return Promise.resolve(mock as unknown as WebSocket);
-      },
-    },
-  );
-  await new Promise((r) => setTimeout(r, 0));
-  const drain = (async () => {
-    for await (const _ev of session.events()) {
-      /* keep pump alive */
-    }
-  })();
+}
 
-  const settled = await session.executeTool({ name: 'live_lookup_ssn', callId: 'c1', input: {} });
-  const frame = (mock as unknown as MockLiveWebSocket).sent.find((s) => s.includes('toolResponse'));
-  const response = JSON.parse(frame ?? 'null')?.toolResponse?.functionResponses?.[0]?.response;
-  assertEquals(response, { result: settled.outputModel?.modelText });
-  assertEquals(String(response?.result).startsWith('found the record\n'), true);
-  assertEquals(String(response?.result).includes('123-45-6789'), false);
+Deno.test('runSession executeTool sends the guarded text a turn sends, never the raw output', async () => {
+  clearProfiles();
+  resetTools();
+  registerLookupTool();
+  const h = await openToolSession(['live_lookup_ssn']);
+  await h.modelCalls({ id: 'c1', name: 'live_lookup_ssn' });
 
-  (mock as unknown as MockLiveWebSocket).close();
-  await session.close();
-  await drain.catch(() => undefined);
+  const settled = await h.session.executeTool({ callId: 'c1' });
+  const [answer] = h.toolResponses();
+  assertEquals(answer?.response, { result: settled.outputModel?.modelText });
+  assertEquals(String(settled.outputModel?.modelText).startsWith('found the record\n'), true);
+  assertEquals(String(settled.outputModel?.modelText).includes('123-45-6789'), false);
+  await h.close();
 });
 
-Deno.test('runSession executeTool gates, resumes granted, and denies via granted false', async () => {
+Deno.test('runSession executeTool runs only a call the model made, once, with its arguments', async () => {
+  clearProfiles();
+  resetTools();
+  registerLookupTool();
+  const h = await openToolSession(['live_lookup_ssn']);
+  await assertRejects(() => h.session.executeTool({ callId: 'never-made' }), TheoremError);
+
+  await h.modelCalls({ id: 'c1', name: 'live_lookup_ssn' });
+  await assertRejects(
+    () => h.session.executeTool({ callId: 'c1', decision: 'approve' }),
+    TheoremError,
+    'not waiting on a gate',
+  );
+  await assertRejects(
+    () => h.session.executeTool({ callId: 'c1', input: {} }),
+    TheoremError,
+    'not waiting on a gate',
+  );
+  await h.session.executeTool({ callId: 'c1' });
+  await assertRejects(() => h.session.executeTool({ callId: 'c1' }), TheoremError, 'not waiting');
+  assertEquals(h.toolResponses().length, 1);
+  await h.close();
+});
+
+Deno.test('runSession records the text it sent the model as the call result in history', async () => {
+  clearProfiles();
+  resetTools();
+  registerLookupTool();
+  let history: readonly { role: string; content?: unknown }[] = [];
+  const h = await openToolSession(['live_lookup_ssn'], {
+    onStage: (ctx) => {
+      if (ctx.stage === 'pre_turn') history = ctx.history;
+    },
+  });
+  await h.modelCalls({ id: 'c1', name: 'live_lookup_ssn' });
+  await h.session.executeTool({ callId: 'c1' });
+  await h.session.sendText('and then?');
+  const [answer] = h.toolResponses();
+  const recorded = history.find((m) => m.role === 'tool');
+  assertEquals({ result: recorded?.content }, answer?.response);
+  await h.close();
+});
+
+Deno.test('runSession executeTool holds a gate for its decision, then runs the approval', async () => {
+  clearProfiles();
+  resetTools();
+  registerConfirmTool();
+  const stages: string[] = [];
+  const h = await openToolSession(['live_confirm_tool'], {
+    onStage: ({ stage }) => {
+      stages.push(stage);
+    },
+  });
+  await h.modelCalls({ id: 'c-gate', name: 'live_confirm_tool' });
+
+  const gated = await h.session.executeTool({ callId: 'c-gate' });
+  assertEquals(gated.gated?.kind, 'confirmation');
+  assertEquals(stages.includes('pre_tool'), true);
+  assertEquals(h.toolResponses().length, 0);
+  await assertRejects(
+    () => h.session.executeTool({ callId: 'c-gate' }),
+    TheoremError,
+    'answer it with a decision',
+  );
+
+  stages.length = 0;
+  const allowed = await h.session.executeTool({ callId: 'c-gate', decision: 'approve' });
+  assertEquals(allowed.failure, undefined);
+  assertEquals(allowed.outputRaw, { n: 0 });
+  assertEquals(stages.includes('post_tool'), true);
+  assertEquals(
+    h.toolResponses().map((r) => r.id),
+    ['c-gate'],
+  );
+  await h.close();
+});
+
+Deno.test("runSession streams a call's gate and result to the host while the model waits", async () => {
+  clearProfiles();
+  resetTools();
+  registerConfirmTool();
+  const h = await openToolSession(['live_confirm_tool']);
+  await h.modelCalls({ id: 'c-wait', name: 'live_confirm_tool' });
+  /** Resolves once the host has read `phase` for the call, with no frame from the model since. */
+  const reached = async (phase: string) => {
+    for (let i = 0; i < 20; i += 1) {
+      if (
+        h.events.some(
+          (ev) => ev.type === 'tool' && ev.tool.callId === 'c-wait' && ev.tool.phase === phase,
+        )
+      )
+        return;
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    throw new Error(`the host never read the call's ${phase}`);
+  };
+
+  await h.session.executeTool({ callId: 'c-wait' });
+  await reached('gate');
+  await h.session.executeTool({ callId: 'c-wait', decision: 'approve' });
+  await reached('complete');
+  await h.close();
+});
+
+Deno.test('runSession executeTool runs an approval with the edited input, and only an approval takes one', async () => {
   clearProfiles();
   resetTools();
   registerTool({
     type: 'function',
-    name: 'live_confirm_tool',
-    description: 'needs confirm',
+    name: 'live_always_confirm',
+    description: 'asks every time',
     category: 'test',
     access: 'read-write',
     paths: ['*'],
     loadTier: 'T0',
-    permission: 'auto',
-    input: z.object({}),
-    output: z.object({ ok: z.boolean() }),
-    // Host onStage pre_tool runs after catalog permission; use preTool confirm for gate.
-    preTool: () => ({ confirm: { summary: 'confirm live tool' } }),
-    handler: () => ({ ok: true }),
+    permission: 'always_confirm',
+    input: z.object({ n: z.number() }),
+    output: z.object({ n: z.number() }),
+    handler: ({ n }) => ({ n }),
   });
-  const profile = defineProfile({
-    type: 'live',
-    id: 'session_live_execute_tool',
-    identity: { handle: 'live', system: 'hi' },
-    models: {
-      gemini31FlashLive: {
-        ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'slotA',
-      },
-    },
-    live: { voice: 'Aoede', ingress: { text: true } },
-    tools: { allow: ['live_confirm_tool'] },
-  });
-  registerProfile(profile);
-
-  const stages: string[] = [];
-  let mock: MockLiveWebSocket | null = null;
-  const session = await runSession(
-    {
-      profile: profile.id,
-      onStage: ({ stage }) => {
-        stages.push(stage);
-      },
-    },
-    {
-      gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
-      },
-      openWebSocket: () => {
-        mock = new MockLiveWebSocket();
-        setTimeout(() => mock?.open(), 0);
-        return Promise.resolve(mock as unknown as WebSocket);
-      },
-    },
+  const h = await openToolSession(['live_always_confirm']);
+  await h.modelCalls({ id: 'c-edit', name: 'live_always_confirm', args: { n: 1 } });
+  await h.session.executeTool({ callId: 'c-edit' });
+  await assertRejects(
+    () => h.session.executeTool({ callId: 'c-edit', decision: 'deny', input: { n: 2 } }),
+    TheoremError,
+    'only an approval takes edited input',
   );
-
-  await new Promise((r) => setTimeout(r, 0));
-  const drain = (async () => {
-    for await (const _ev of session.events()) {
-      /* keep pump alive */
-    }
-  })();
-
-  const gated = await session.executeTool({
-    name: 'live_confirm_tool',
-    callId: 'c-gate',
-    input: {},
+  const edited = await h.session.executeTool({
+    callId: 'c-edit',
+    decision: 'approve',
+    input: { n: 2 },
   });
-  assertEquals(gated.gated?.kind, 'confirmation');
-  assertEquals(stages.includes('pre_tool'), true);
-  const sentAfterGate = (mock as unknown as MockLiveWebSocket).sent.filter((s) =>
-    s.includes('toolResponse'),
+  assertEquals(edited.outputRaw, { n: 2 });
+  await h.close();
+  const running = h.events.findLast(
+    (ev) => ev.type === 'tool' && ev.tool.callId === 'c-edit' && ev.tool.phase === 'running',
   );
-  assertEquals(sentAfterGate.length, 0);
-
-  stages.length = 0;
-  const allowed = await session.executeTool({
-    name: 'live_confirm_tool',
-    callId: 'c-ok',
-    input: {},
-    resume: { granted: true },
-  });
-  assertEquals(allowed.failure, undefined);
-  assertEquals(allowed.gated, undefined);
-  assertEquals(stages.includes('post_tool'), true);
-  const sentAfterOk = (mock as unknown as MockLiveWebSocket).sent.filter(
-    (s) => s.includes('toolResponse') || s.includes('functionResponse'),
+  assertEquals(
+    running?.type === 'tool' && running.tool.phase === 'running' ? running.tool.edited : undefined,
+    { from: { n: 1 }, to: { n: 2 } },
   );
-  assertEquals(sentAfterOk.length > 0, true);
+});
 
-  stages.length = 0;
-  const gated2 = await session.executeTool({
-    name: 'live_confirm_tool',
-    callId: 'c-deny',
-    input: {},
-  });
-  assertEquals(Boolean(gated2.gated), true);
-  const denied = await session.executeTool({
-    name: 'live_confirm_tool',
-    callId: 'c-deny',
-    input: {},
-    resume: { granted: false },
-  });
+Deno.test('runSession executeTool settles a denial: the model reads it', async () => {
+  clearProfiles();
+  resetTools();
+  registerConfirmTool();
+  const h = await openToolSession(['live_confirm_tool']);
+  await h.modelCalls({ id: 'c-deny', name: 'live_confirm_tool' });
+  await h.session.executeTool({ callId: 'c-deny' });
+  const denied = await h.session.executeTool({ callId: 'c-deny', decision: 'deny' });
   assertEquals(denied.failure?.code, 'denied');
   assertEquals(denied.failure?.kind, 'declined');
-  assertEquals(stages.includes('post_tool'), true);
+  assertEquals(
+    h.toolResponses().map((r) => r.id),
+    ['c-deny'],
+  );
+  await h.close();
+});
 
-  (mock as unknown as MockLiveWebSocket).close();
-  await session.close();
-  await drain.catch(() => undefined);
+Deno.test('runSession settles an expired gate as abandoned, then refuses the decision', async () => {
+  clearProfiles();
+  resetTools();
+  registerConfirmTool();
+  const h = await openToolSession(['live_confirm_tool'], { gateTtlMs: 1 });
+  await h.modelCalls({ id: 'c-late', name: 'live_confirm_tool' });
+  await h.session.executeTool({ callId: 'c-late' });
+  await new Promise((r) => setTimeout(r, 5));
+
+  const refused = await assertRejects(
+    () => h.session.executeTool({ callId: 'c-late', decision: 'approve' }),
+    TheoremError,
+  );
+  assertEquals(refused.copy, { key: 'session.gate_expired' });
+  assertEquals(
+    h.toolResponses().map((r) => r.id),
+    ['c-late'],
+  );
+  await assertRejects(() => h.session.executeTool({ callId: 'c-late' }), TheoremError);
+  await h.close();
+  const abandoned = h.events.find(
+    (ev) => ev.type === 'tool' && ev.tool.callId === 'c-late' && ev.tool.phase === 'error',
+  );
+  assertEquals(
+    abandoned?.type === 'tool' && abandoned.tool.phase === 'error'
+      ? abandoned.tool.failure.kind
+      : undefined,
+    'cancelled',
+  );
+});
+
+Deno.test('runSession refuses a gateTtlMs that is not a positive number', async () => {
+  clearProfiles();
+  resetTools();
+  registerConfirmTool();
+  await assertRejects(
+    () => openToolSession(['live_confirm_tool'], { gateTtlMs: 0 }),
+    TheoremError,
+    'runSession gateTtlMs',
+  );
+});
+
+Deno.test('runSession keeps a session_consent approval for the rest of the session', async () => {
+  clearProfiles();
+  resetTools();
+  registerTool({
+    type: 'function',
+    name: 'live_consent_tool',
+    description: 'asks once per session',
+    category: 'test',
+    access: 'read-write',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'session_consent',
+    input: z.object({}),
+    output: z.object({ ok: z.boolean() }),
+    handler: () => ({ ok: true }),
+  });
+  const h = await openToolSession(['live_consent_tool']);
+  await h.modelCalls({ id: 'c-first', name: 'live_consent_tool' });
+  assertEquals((await h.session.executeTool({ callId: 'c-first' })).gated?.kind, 'permission');
+  await h.session.executeTool({ callId: 'c-first', decision: 'approve' });
+
+  await h.modelCalls({ id: 'c-second', name: 'live_consent_tool' });
+  const second = await h.session.executeTool({ callId: 'c-second' });
+  assertEquals(second.gated, undefined);
+  assertEquals(second.outputRaw, { ok: true });
+  await h.close();
+});
+
+Deno.test('runSession makes a key typed at a sign-in gate the slot credential, for the rest of the session', async () => {
+  clearProfiles();
+  resetTools();
+  registerTool({
+    type: 'http',
+    name: 'live_tracker',
+    description: 'Read tracker items',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    endpoint: 'https://api.tracker.example/items',
+    method: 'GET',
+    auth: { slot: 'tracker', type: 'bearer', onUnauthenticated: 'gate' },
+    input: z.object({}),
+    output: z.object({ ok: z.boolean() }),
+  });
+  const original = globalThis.fetch;
+  const sent: (string | null)[] = [];
+  globalThis.fetch = (_input: Request | URL | string, init?: RequestInit) => {
+    sent.push(new Headers(init?.headers).get('authorization'));
+    return Promise.resolve(Response.json({ ok: true }));
+  };
+  try {
+    const h = await openToolSession(['live_tracker'], {
+      resolveHost: () => Promise.resolve(['93.184.216.34']),
+    });
+    await h.modelCalls({ id: 'c-sign', name: 'live_tracker' });
+    assertEquals((await h.session.executeTool({ callId: 'c-sign' })).gated?.kind, 'auth');
+    await assertRejects(
+      () => h.session.executeTool({ callId: 'c-sign', decision: 'deny', secret: 'k' }),
+      TheoremError,
+      'only an approval',
+    );
+    await assertRejects(
+      () => h.session.executeTool({ callId: 'c-sign', decision: 'approve', secret: '  ' }),
+      TheoremError,
+      'non-empty',
+    );
+    const signed = await h.session.executeTool({
+      callId: 'c-sign',
+      decision: 'approve',
+      secret: 'typed-key-123',
+    });
+    assertEquals(signed.outputRaw, { ok: true });
+
+    await h.modelCalls({ id: 'c-again', name: 'live_tracker' });
+    assertEquals((await h.session.executeTool({ callId: 'c-again' })).outputRaw, { ok: true });
+    assertEquals(sent, ['Bearer typed-key-123', 'Bearer typed-key-123']);
+    await h.close();
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+Deno.test('runSession answers a call a stage stopped, then ends the cycle cancelled', async () => {
+  clearProfiles();
+  resetTools();
+  registerLookupTool();
+  const stages: string[] = [];
+  const h = await openToolSession(['live_lookup_ssn'], {
+    onStage: ({ stage }) => {
+      stages.push(stage);
+      return stage === 'pre_tool' ? { abort: { reason: 'host stopped it' } } : undefined;
+    },
+  });
+  await h.session.sendText('look it up');
+  await h.modelCalls({ id: 'c-stop', name: 'live_lookup_ssn' });
+
+  const stopped = await h.session.executeTool({ callId: 'c-stop' });
+  assertEquals(stopped.failure?.kind, 'cancelled');
+  assertEquals(stopped.outputRaw, undefined);
+  const [answer] = h.toolResponses();
+  assertEquals(answer?.id, 'c-stop');
+  assertStringIncludes(
+    JSON.stringify(answer?.response),
+    "'live_lookup_ssn' was stopped before it ran.",
+  );
+  assertEquals(stages.slice(-2), ['pre_tool', 'post_turn']);
+  await assertRejects(
+    () => h.session.executeTool({ callId: 'c-stop' }),
+    TheoremError,
+    'not waiting to run',
+  );
+  await h.close();
+
+  const error = h.events.find((ev) => ev.type === 'tool' && ev.tool.phase === 'error');
+  assertEquals(
+    error?.type === 'tool' && error.tool.phase === 'error' ? error.tool.failure.kind : undefined,
+    'cancelled',
+  );
+  const done = h.events.find((ev) => ev.type === 'done');
+  assertEquals(done?.type === 'done' ? done.stop : undefined, {
+    kind: 'cancelled',
+    native: 'host stopped it',
+  });
+});
+
+Deno.test('runSession answers a call stopped after it ran with its own result, then ends the cycle cancelled', async () => {
+  clearProfiles();
+  resetTools();
+  registerLookupTool();
+  const stages: string[] = [];
+  const h = await openToolSession(['live_lookup_ssn'], {
+    onStage: ({ stage }) => {
+      stages.push(stage);
+      return stage === 'post_tool' ? { abort: true } : undefined;
+    },
+  });
+  await h.session.sendText('look it up');
+  await h.modelCalls({ id: 'c-ran', name: 'live_lookup_ssn' });
+
+  const ran = await h.session.executeTool({ callId: 'c-ran' });
+  assertEquals(ran.failure, undefined);
+  const [answer] = h.toolResponses();
+  assertEquals(answer?.id, 'c-ran');
+  assertStringIncludes(JSON.stringify(answer?.response), 'found the record');
+  assertEquals(stages.slice(-2), ['post_tool', 'post_turn']);
+  await assertRejects(
+    () => h.session.executeTool({ callId: 'c-ran' }),
+    TheoremError,
+    'not waiting to run',
+  );
+  await h.close();
+
+  const done = h.events.find((ev) => ev.type === 'done');
+  assertEquals(done?.type === 'done' ? done.stop : undefined, { kind: 'cancelled' });
+});
+
+Deno.test('runSession refuses a typed key on a gate that is not a sign-in', async () => {
+  clearProfiles();
+  resetTools();
+  registerConfirmTool();
+  const h = await openToolSession(['live_confirm_tool']);
+  await h.modelCalls({ id: 'c-stray', name: 'live_confirm_tool' });
+  await h.session.executeTool({ callId: 'c-stray' });
+  await assertRejects(
+    () => h.session.executeTool({ callId: 'c-stray', decision: 'approve', secret: 'stray' }),
+    TheoremError,
+    'answers only a sign-in gate',
+  );
+  const approved = await h.session.executeTool({ callId: 'c-stray', decision: 'approve' });
+  assertEquals(approved.outputRaw, { n: 0 });
+  await h.close();
+});
+
+Deno.test('runSession answers a malformed call itself: the model reads the failure', async () => {
+  clearProfiles();
+  resetTools();
+  registerLookupTool();
+  const h = await openToolSession(['live_lookup_ssn']);
+  await h.modelCalls({ id: 'c-bad', name: 'live_lookup_ssn', args: 'not an object' });
+  const failed = h.events.find(
+    (ev) => ev.type === 'tool' && ev.tool.callId === 'c-bad' && ev.tool.phase === 'error',
+  );
+  const readBack =
+    failed?.type === 'tool' && failed.tool.phase === 'error' ? failed.tool.readBack : undefined;
+  assertEquals(h.toolResponses(), [
+    { id: 'c-bad', name: 'live_lookup_ssn', response: { result: readBack } },
+  ]);
+  await assertRejects(() => h.session.executeTool({ callId: 'c-bad' }), TheoremError);
+  await h.close();
+});
+
+Deno.test('runSession lets go of a call the model cancels', async () => {
+  clearProfiles();
+  resetTools();
+  registerLookupTool();
+  const h = await openToolSession(['live_lookup_ssn']);
+  await h.modelCalls({ id: 'c-gone', name: 'live_lookup_ssn' });
+  h.mock.deliver({ toolCallCancellation: { ids: ['c-gone'] } });
+  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setTimeout(r, 0));
+  await assertRejects(() => h.session.executeTool({ callId: 'c-gone' }), TheoremError);
+  assertEquals(h.toolResponses().length, 0);
+  await h.close();
+});
+
+Deno.test('runSession answerToolCall settles a call another process ran, with its readBack', async () => {
+  clearProfiles();
+  resetTools();
+  registerLookupTool();
+  const h = await openToolSession(['live_lookup_ssn']);
+  await h.modelCalls({ id: 'c-split', name: 'live_lookup_ssn' });
+  const ran = await h.invokeFor('live_lookup_ssn', 'c-split');
+  const complete = ran.find((ev) => ev.type === 'tool' && ev.tool.phase === 'complete');
+  const readBack =
+    complete?.type === 'tool' && complete.tool.phase === 'complete'
+      ? complete.tool.readBack
+      : undefined;
+
+  const answered = h.session.answerToolCall({ callId: 'c-split', events: ran });
+  assertEquals(answered.outputRaw, { finding: 'found the record', ssn: '123-45-6789' });
+  assertEquals(h.toolResponses(), [
+    { id: 'c-split', name: 'live_lookup_ssn', response: { result: readBack } },
+  ]);
+  assertThrows(
+    () => h.session.answerToolCall({ callId: 'c-split', events: ran }),
+    TheoremError,
+    'not waiting for an answer',
+  );
+  await h.close();
+  assertEquals(
+    h.events.some(
+      (ev) => ev.type === 'tool' && ev.tool.callId === 'c-split' && ev.tool.phase === 'complete',
+    ),
+    true,
+  );
+});
+
+Deno.test('runSession answerToolCall holds a gate open until a later run answers it', async () => {
+  clearProfiles();
+  resetTools();
+  registerConfirmTool();
+  const h = await openToolSession(['live_confirm_tool']);
+  await h.modelCalls({ id: 'c-split-gate', name: 'live_confirm_tool' });
+
+  const gatedRun = await h.invokeFor('live_confirm_tool', 'c-split-gate');
+  const gated = h.session.answerToolCall({ callId: 'c-split-gate', events: gatedRun });
+  assertEquals(gated.gated?.kind, 'confirmation');
+  assertEquals(h.toolResponses().length, 0);
+
+  const approvedRun = await h.invokeFor('live_confirm_tool', 'c-split-gate', { granted: true });
+  const approved = h.session.answerToolCall({ callId: 'c-split-gate', events: approvedRun });
+  assertEquals(approved.outputRaw, { n: 0 });
+  assertEquals(
+    h.toolResponses().map((r) => r.id),
+    ['c-split-gate'],
+  );
+  await h.close();
+});
+
+Deno.test('runSession answerToolCall refuses a run that is not an answer to that call', async () => {
+  clearProfiles();
+  resetTools();
+  registerLookupTool();
+  const h = await openToolSession(['live_lookup_ssn']);
+  await h.modelCalls({ id: 'c-a', name: 'live_lookup_ssn' });
+  const other = await h.invokeFor('live_lookup_ssn', 'c-other');
+  assertThrows(
+    () => h.session.answerToolCall({ callId: 'c-a', events: other }),
+    TheoremError,
+    'carries a call of its own',
+  );
+  const own = await h.invokeFor('live_lookup_ssn', 'c-a');
+  const unsettled = own.filter((ev) => !(ev.type === 'tool' && ev.tool.phase === 'complete'));
+  assertThrows(
+    () => h.session.answerToolCall({ callId: 'c-a', events: unsettled }),
+    TheoremError,
+    'settled nothing',
+  );
+  assertThrows(
+    () => h.session.answerToolCall({ callId: 'never-made', events: own }),
+    TheoremError,
+    'not waiting for an answer',
+  );
+  assertEquals(h.toolResponses().length, 0);
+  await h.close();
 });
 
 Deno.test('runSession pre_turn inject schedules realtime text and lands in later history', async () => {

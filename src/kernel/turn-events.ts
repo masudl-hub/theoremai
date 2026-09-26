@@ -289,6 +289,7 @@ const source = z.object({
   placeId: z.string().optional(),
 });
 true satisfies Equals<z.infer<typeof source>, Source>;
+export const sourceSchema: z.ZodType<Source> = source;
 
 /** Google grounding search metadata. Sources travel as `citation` events. */
 export interface GroundingEvent {
@@ -681,7 +682,8 @@ export interface ToolCallEdit {
  * - `complete` — `output`; `awaiting` when it asked the user something;
  *   `readBack` is the text the model reads back, after guardrails.
  * - `gate` — confirmation, permission or sign-in held the call; the body did not run.
- * - `error` — the call failed or was refused (`failure.kind` `declined` · `blocked` · `cancelled` · …).
+ * - `error` — the call failed or was refused (`failure.kind` `declined` · `blocked` · `cancelled` · …);
+ *   `readBack` is the text the model reads back for it, after guardrails.
  * - `cancel` — cancelled in flight (e.g. live barge-in).
  */
 export type ToolPhaseEvent = ToolPhaseBase &
@@ -693,7 +695,7 @@ export type ToolPhaseEvent = ToolPhaseBase &
     | { phase: 'warning'; warning: ToolWarning }
     | { phase: 'complete'; output: unknown; awaiting?: boolean; readBack?: string }
     | { phase: 'gate'; gate: ToolGate }
-    | { phase: 'error'; failure: ToolFailure }
+    | { phase: 'error'; failure: ToolFailure; readBack?: string }
     | { phase: 'cancel' }
   );
 export type ToolCallPhase = ToolPhaseEvent['phase'];
@@ -715,7 +717,12 @@ const toolPhaseEvent = z.discriminatedUnion('phase', [
     readBack: z.string().optional(),
   }),
   z.object({ ...toolPhaseBase, phase: z.literal('gate'), gate: toolGate }),
-  z.object({ ...toolPhaseBase, phase: z.literal('error'), failure: toolFailure }),
+  z.object({
+    ...toolPhaseBase,
+    phase: z.literal('error'),
+    failure: toolFailure,
+    readBack: z.string().optional(),
+  }),
   z.object({ ...toolPhaseBase, phase: z.literal('cancel') }),
 ]);
 true satisfies Equals<z.infer<typeof toolPhaseEvent>, ToolPhaseEvent>;

@@ -29,3 +29,18 @@ export function credentialFromTypedSecret(
     `A '${authType}' sign-in takes no typed credential; the host's callback saves it`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   );
 }
+
+/**
+ * A typed `secret` as the credential for the slot a sign-in gate waits on.
+ * `auth` is the gate's sign-in (absent on any other gate, which takes no key).
+ * Shared by `createTheoremHandler` and `runSession`.
+ */
+export function credentialForSignInGate(
+  auth: { slot: string; authType: ToolAuthType } | undefined,
+  secret: unknown,
+): { slot: string; credential: BearerCredential | ApiKeyCredential } {
+  if (!auth) {
+    throw new TheoremError('request', 'a typed credential answers only a sign-in gate'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  return { slot: auth.slot, credential: credentialFromTypedSecret(auth.authType, secret) };
+}

@@ -1,5 +1,9 @@
 import { assertEquals, assertExists, assertThrows } from '@std/assert';
 import { TheoremError } from '../../../../src/guardrails/error.ts';
+import {
+  formatToolFailureForModel,
+  formatToolResult,
+} from '../../../../src/kernel/tools/model-text.ts';
 import type { ProviderCompleteRequest } from '../../../../src/kernel/types.ts';
 import {
   buildGeminiLiveClientContent,
@@ -734,6 +738,12 @@ Deno.test('foldGeminiLiveServerMessage emits malformed_arguments on bad tool JSO
     },
   });
   assertEquals(rawCallsOf(events), [{ name: 'search', callId: 'call_bad', arguments: {} }]);
+  const failure = {
+    code: 'malformed_arguments',
+    kind: 'bad_response',
+    message: 'malformed tool arguments JSON',
+    details: { raw: '{not-json' },
+  } as const;
   assertEquals(
     toolEventsOf(events, 'error').map(({ at: _at, ...failed }) => failed),
     [
@@ -741,12 +751,8 @@ Deno.test('foldGeminiLiveServerMessage emits malformed_arguments on bad tool JSO
         phase: 'error',
         name: 'search',
         callId: 'call_bad',
-        failure: {
-          code: 'malformed_arguments',
-          kind: 'bad_response',
-          message: 'malformed tool arguments JSON',
-          details: { raw: '{not-json' },
-        },
+        failure,
+        readBack: formatToolResult(formatToolFailureForModel(failure)),
       },
     ],
   );

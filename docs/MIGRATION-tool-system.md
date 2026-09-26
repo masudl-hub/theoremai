@@ -135,7 +135,7 @@ Do **not** use `continueFrom` for tool gates — use `invokeTool`.
 | Old `ToolEnvelope` | New stream |
 | --- | --- |
 | `status: 'ok'` | `tool.phase: 'complete'` |
-| `status: 'pause'` (confirm / permission / auth) | `tool.phase: 'gate'` (+ `gate.kind`); resume via `invokeTool` / `executeTool` with `resume.granted: true` (allow) or `false` (deny settle) |
+| `status: 'pause'` (confirm / permission / auth) | `tool.phase: 'gate'` (+ `gate.kind`); resume via `invokeTool` with `resume.granted: true` (allow) or `false` (deny settle); on live, `executeTool({ callId, decision })` |
 | `status: 'pause'` (interactive / ask_user) | `tool.phase: 'complete'` with awaiting / `awaiting_user_input` — not a gate |
 | `status: 'error'` | `tool.phase: 'error'` (+ `failure.code`) |
 

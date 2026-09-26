@@ -274,16 +274,15 @@ Deno.test('validateProfileInputs requires limits when media is enabled', () => {
 });
 
 Deno.test('buildUserTurnBlocks maps text, attachments, and voice', () => {
-  resetBlockIds();
   const blocks = buildUserTurnBlocks({
     text: ' hello ',
     attachments: [{ name: 'a.png', mimeType: 'image/png', sizeBytes: 10, data: 'abc' }],
     voice: [{ name: 'clip.webm', mimeType: 'audio/webm', sizeBytes: 20 }],
   });
   assertEquals(blocks.length, 3);
-  assertEquals(blocks[0], { id: 'user-1', kind: 'user-text', text: 'hello' });
+  assertEquals(blocks[0], { id: blocks[0]?.id, kind: 'user-text', text: 'hello' });
   assertEquals(blocks[1], {
-    id: 'user-2',
+    id: blocks[1]?.id,
     kind: 'user-attachment',
     name: 'a.png',
     mimeType: 'image/png',
@@ -291,7 +290,7 @@ Deno.test('buildUserTurnBlocks maps text, attachments, and voice', () => {
     data: 'abc',
   });
   assertEquals(blocks[2], {
-    id: 'user-3',
+    id: blocks[2]?.id,
     kind: 'user-voice',
     name: 'clip.webm',
     mimeType: 'audio/webm',
@@ -303,8 +302,14 @@ Deno.test('buildUserTurnBlocks keeps unique user ids across turns', () => {
   resetBlockIds();
   const first = buildUserTurnBlocks({ text: 'one' });
   const second = buildUserTurnBlocks({ text: 'two' });
-  assertEquals(first[0]?.id, 'user-1');
-  assertEquals(second[0]?.id, 'user-2');
+  assertFalse(first[0]?.id === second[0]?.id);
+  resetBlockIds();
+  const afterReset = buildUserTurnBlocks({ text: 'three' });
+  assertFalse([first[0]?.id, second[0]?.id].includes(afterReset[0]?.id));
+  assertEquals(
+    new Set([...first, ...second, ...afterReset].map((block) => block.id.startsWith('user-'))),
+    new Set([true]),
+  );
 });
 
 Deno.test('foldTurnEvents merges streaming text and thought deltas', () => {
@@ -635,16 +640,22 @@ Deno.test('appendAssistantEventsToHistory folds text and completed tools', () =>
   assertEquals(history[2]?.content, '{"finding":"ok"}');
 });
 
-Deno.test('appendAssistantEventsToHistory refuses a completed tool with no readBack', () => {
-  assertThrows(
-    () =>
-      appendAssistantEventsToHistory(
-        [],
-        callEvents({ name: 'lookup', callId: 'c1' }, {}, { phase: 'complete', output: {} }),
-      ),
-    TheoremError,
-    "Tool call 'lookup' has no readBack",
-  );
+Deno.test('appendAssistantEventsToHistory refuses a settled tool with no readBack', () => {
+  const failure = { code: 'denied', kind: 'declined', message: 'not allowed' } as const;
+  for (const settled of [
+    { phase: 'complete', output: {} },
+    { phase: 'error', failure },
+  ] as const) {
+    assertThrows(
+      () =>
+        appendAssistantEventsToHistory(
+          [],
+          callEvents({ name: 'lookup', callId: 'c1' }, {}, settled),
+        ),
+      TheoremError,
+      "Tool call 'lookup' has no readBack",
+    );
+  }
 });
 
 Deno.test('appendToolDenialToHistory uses kernel failure formatting', () => {
@@ -856,6 +867,7 @@ Deno.test('appendAssistantEventsToHistory records a failed tool call so no tool_
         {
           phase: 'error',
           failure: { code: 'policy_refused', kind: 'blocked', message: 'withheld by policy' },
+          readBack: 'Tool error (policy_refused): withheld by policy',
         },
       ),
     ],
@@ -873,7 +885,11 @@ Deno.test('history and the gate keep the thought signature a call was made with'
   const [, ...failed] = callEvents(
     { name: 'lookup', callId: 'c1' },
     { q: 'x' },
-    { phase: 'error', failure: { code: 'denied', kind: 'declined', message: 'not allowed' } },
+    {
+      phase: 'error',
+      failure: { code: 'denied', kind: 'declined', message: 'not allowed' },
+      readBack: 'Tool error (denied): not allowed',
+    },
   );
   const signed: TurnEvent = {
     type: 'tool',
@@ -903,7 +919,11 @@ Deno.test('historyFromTranscriptBlocks records a failed tool block as a paired r
       tool: foldedCall(
         { name: 'delete_resource', callId: 'c9' },
         { id: '1' },
-        { phase: 'error', failure: { code: 'denied', kind: 'declined', message: 'not allowed' } },
+        {
+          phase: 'error',
+          failure: { code: 'denied', kind: 'declined', message: 'not allowed' },
+          readBack: 'Tool error (denied): not allowed',
+        },
       ),
     },
   ]);
@@ -1019,5 +1039,40 @@ Deno.test('a step replays as one assistant message: every call, then each result
           : m.content,
     ),
     ['a*,b', 'tool:A', 'tool:B', 'c*', 'tool:C', 'All done.'],
+  );
+});
+
+Deno.test('a reply cites each source once, in one row per citer', () => {
+  const cafe = {
+    type: 'maps',
+    uri: 'https://maps.google.com/?cid=1',
+    title: 'Cafe',
+    placeId: 'p1',
+  } as const;
+  const bakery = {
+    type: 'maps',
+    uri: 'https://maps.google.com/?cid=2',
+    title: 'Bakery',
+    placeId: 'p2',
+  } as const;
+  const page = { type: 'web', uri: 'https://example.org/', title: 'example.org' } as const;
+  const blocks = foldTurnEvents([
+    { type: 'citation', sources: [cafe, bakery] },
+    { type: 'text', text: 'Try these.' },
+    {
+      type: 'citation',
+      sources: [{ ...cafe, title: 'Cafe - Google Maps', uri: 'https://maps.google.com/?cid=1&x' }],
+    },
+    { type: 'citation', sources: [page], callId: 'c1' },
+    { type: 'citation', sources: [page], callId: 'c1' },
+  ]);
+  assertEquals(
+    blocks
+      .filter((block) => block.kind === 'citation')
+      .map((block) => [block.callId, block.sources.map((s) => s.title)]),
+    [
+      [undefined, ['Cafe', 'Bakery']],
+      ['c1', ['example.org']],
+    ],
   );
 });

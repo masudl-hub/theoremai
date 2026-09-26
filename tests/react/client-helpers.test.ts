@@ -26,13 +26,13 @@ import {
   shouldForwardMicFrame,
 } from '../../react/src/client/live/live-mic-forward.ts';
 import { liveState } from '../../react/src/client/live/live-state.ts';
-import { chipsFromBlock } from '../../react/src/client/source-chips.ts';
+import { citationsFromBlock } from '../../react/src/client/source-citations.ts';
 import {
   assistantTurnTiming,
   composeAssistantTurn,
-  groupTimeKey,
   groupTranscriptBlocks,
   pendingPromptOf,
+  replyKey,
   type TranscriptTurnGroup,
   workStatus,
 } from '../../react/src/client/transcript-groups.ts';
@@ -408,10 +408,8 @@ Deno.test('shouldForwardMicFrame, liveTranscriptFromEvidence, applyLiveToolTurnE
   for (const event of malformedToolCall(bad, 'oops', '{')) {
     if (event.type === 'tool') applyLiveToolTurnEvent(event.tool, accum);
   }
-  assertEquals(accum.toolCalls, [
-    { id: 't1', name: 'search', arguments: { q: 'hi' } },
-    { id: 't2', name: 'calc', arguments: {}, error: 'oops' },
-  ]);
+  // The session answered the malformed call; only the usable one runs.
+  assertEquals(accum.toolCalls, [{ id: 't1', name: 'search', arguments: { q: 'hi' } }]);
 });
 
 Deno.test('composer drawer summary names what is waiting, by kind', () => {
@@ -558,30 +556,42 @@ Deno.test('resolveScrollToBottomScrollTop targets the live edge', () => {
 Deno.test('assistantTurnTiming keys replies by their prompt and times only this session', () => {
   const user = (key: string): TranscriptTurnGroup => ({ kind: 'user', key, blocks: [] });
   const reply = (key: string): TranscriptTurnGroup => ({ kind: 'assistant', key, blocks: [] });
-  const groups = [user('u1'), reply('a1'), user('u2'), reply('a2')];
-  const timeOf = (id: string) => (id === 'u1' ? 10 : 20);
-  const turnEnds = new Map([['u1', 15]]);
-  assertEquals(assistantTurnTiming({ groups, index: 1, streaming: true, timeOf, turnEnds }), {
+  // Block ids restart every reply, so both replies' groups carry the same key.
+  const groups = [user('u1'), reply('turn-1'), user('u2'), reply('turn-1')];
+  const timeOf = (key: string) => (key === 'u1' ? 10 : 20);
+  // u1 paused 3 on an approval before it finished.
+  const spans = new Map([
+    ['u1', { pausedMs: 3, endedAt: 15 }],
+    ['u2', { pausedMs: 0 }],
+  ]);
+  assertEquals(replyKey(groups, 1), 'u1:reply');
+  assertEquals(replyKey(groups, 3), 'u2:reply');
+  assertEquals(assistantTurnTiming({ groups, index: 1, streaming: true, timeOf, spans }), {
     key: 'u1:reply',
     live: false,
-    startedAt: 10,
+    startedAt: 13,
     endedAt: 15,
   });
-  assertEquals(assistantTurnTiming({ groups, index: 3, streaming: true, timeOf, turnEnds }), {
+  assertEquals(assistantTurnTiming({ groups, index: 3, streaming: true, timeOf, spans }), {
     key: 'u2:reply',
     live: true,
     startedAt: 20,
     endedAt: undefined,
   });
-  // Loaded history: no end recorded, not live, so untimed.
-  assertEquals(assistantTurnTiming({ groups, index: 3, streaming: false, timeOf, turnEnds }), {
+  // Stopped with no end recorded, or loaded history with no span: untimed.
+  assertEquals(assistantTurnTiming({ groups, index: 3, streaming: false, timeOf, spans }), {
     key: 'u2:reply',
     live: false,
-    startedAt: undefined,
-    endedAt: undefined,
   });
   assertEquals(
-    assistantTurnTiming({ groups: [reply('a0')], index: 0, streaming: false, timeOf, turnEnds }),
+    assistantTurnTiming({ groups, index: 1, streaming: false, timeOf, spans: new Map() }),
+    {
+      key: 'u1:reply',
+      live: false,
+    },
+  );
+  assertEquals(
+    assistantTurnTiming({ groups: [reply('a0')], index: 0, streaming: false, timeOf, spans }),
     {
       key: 'a0',
       live: false,
@@ -589,7 +599,6 @@ Deno.test('assistantTurnTiming keys replies by their prompt and times only this 
   );
   assertEquals(pendingPromptOf(groups), undefined);
   assertEquals(pendingPromptOf(groups.slice(0, 3))?.key, 'u2');
-  assertEquals(groupTimeKey(user('u9')), 'u9');
 });
 
 Deno.test('composerActionState gates the primary button on payload, phase and recording', () => {
@@ -644,9 +653,9 @@ Deno.test('composerActionState gates the primary button on payload, phase and re
   assertEquals(steering.menuActions, ['queue', 'steer', 'send_now', 'stash']);
 });
 
-Deno.test('source chips link only http(s) sources', () => {
+Deno.test('source citations link only http(s) sources', () => {
   const web = (title: string, uri: string): Source => ({ type: 'web', title, uri });
-  const chips = chipsFromBlock({
+  const citations = citationsFromBlock({
     kind: 'citation',
     id: 'c1',
     sources: [
@@ -658,7 +667,7 @@ Deno.test('source chips link only http(s) sources', () => {
     ],
   });
   assertEquals(
-    chips.map((chip) => [chip.label, chip.href]),
+    citations.map((citation) => [citation.title, citation.href]),
     [
       ['Docs', 'http://example.org/docs'],
       ['example.com', 'https://www.example.com/a'],
@@ -669,13 +678,25 @@ Deno.test('source chips link only http(s) sources', () => {
   );
 });
 
-Deno.test('a provider step chip names only its kind', () => {
+Deno.test('a source favicon names only its site, never the page', () => {
+  const web = (title: string, uri: string): Source => ({ type: 'web', title, uri });
+  const favicon = (site: string) => `https://www.google.com/s2/favicons?domain=${site}&sz=32`;
+  const citations = citationsFromBlock({
+    kind: 'citation',
+    id: 'c1',
+    sources: [
+      web('Docs', 'https://docs.example.org/a/b?q=secret'),
+      // Gemini grounding links through a redirect and names the site in the title.
+      web('lisboa.pt', 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/abc'),
+      web(
+        'Lisbon travel guide',
+        'https://vertexaisearch.cloud.google.com/grounding-api-redirect/def',
+      ),
+      web('', 'javascript:alert(1)'),
+    ],
+  });
   assertEquals(
-    chipsFromBlock({
-      kind: 'evidence',
-      id: 'e1',
-      evidence: { provider: 'google', kind: 'url_context' },
-    }),
-    [{ key: 'e-kind', label: 'url context', kind: 'evidence' }],
+    citations.map((citation) => citation.icon),
+    [favicon('docs.example.org'), favicon('lisboa.pt'), undefined, undefined],
   );
 });

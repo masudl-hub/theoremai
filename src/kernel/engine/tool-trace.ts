@@ -133,6 +133,17 @@ function startToolTrace(
       if (event.type === 'tool' && event.tool.phase === 'gate') {
         span.event('theorem.gate', gateAttributes(event.tool.gate));
       }
+      if (event.type === 'tool' && event.tool.phase === 'warning') {
+        const { code, message, severity } = event.tool.warning;
+        span.event('theorem.tool.warning', {
+          code,
+          message: traceContent(message),
+          ...optional('severity', severity),
+        });
+      }
+      if (event.type === 'citation') {
+        span.event('theorem.grounding', { sources: traceJson(event.sources) });
+      }
     },
     end: (end) => {
       if (end.thrown !== undefined) recordException(span, end.thrown);

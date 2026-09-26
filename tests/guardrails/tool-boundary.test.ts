@@ -18,11 +18,8 @@ import {
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
-import {
-  executeRegisteredTool,
-  formatToolFailureForModel,
-  formatToolResult,
-} from '../../src/kernel/tools/execute.ts';
+import { executeRegisteredTool } from '../../src/kernel/tools/execute.ts';
+import { formatToolFailureForModel, formatToolResult } from '../../src/kernel/tools/model-text.ts';
 import type { ModelToolResult } from '../../src/kernel/tools/types.ts';
 import type { Profile, TurnEvent } from '../../src/kernel/types.ts';
 import { eventsOf, toolEventsOf } from '../fixtures/events.ts';

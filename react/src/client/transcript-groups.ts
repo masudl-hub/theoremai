@@ -167,11 +167,6 @@ export function composeAssistantTurn(blocks: readonly TranscriptBlock[]): Compos
 	};
 }
 
-/** The id a group's timestamp is recorded under: its first block, else its key. */
-export function groupTimeKey(group: TranscriptTurnGroup): string {
-	return group.blocks[0]?.id ?? group.key;
-}
-
 /** The trailing user group while its reply has not started streaming back. */
 export function pendingPromptOf(groups: readonly TranscriptTurnGroup[]): TranscriptTurnGroup | undefined {
 	const last = groups.at(-1);
@@ -190,20 +185,40 @@ export type AssistantTurnTiming = {
 };
 
 /**
+ * A turn sent in this session, keyed by its prompt: when it last stopped, and
+ * how long it sat paused on approvals, which doesn't count as work.
+ */
+export type TurnSpan = { endedAt?: number; pausedMs: number };
+
+/**
+ * The key of the assistant group at `index`: its prompt's, so the reply keeps
+ * one identity from "Working…" through commit. Block ids restart every reply.
+ */
+export function replyKey(groups: readonly TranscriptTurnGroup[], index: number): string {
+	const prompt = groups[index - 1];
+	return prompt?.kind === 'user' ? promptReplyKey(prompt) : (groups[index]?.key ?? String(index));
+}
+
+/** The key of the reply to `prompt`, before and after it streams. */
+export function promptReplyKey(prompt: TranscriptTurnGroup): string {
+	return `${prompt.key}:reply`;
+}
+
+/**
  * Key and timing for the assistant group at `index`. Only turns sent in this
- * session are timed; loaded history has no end.
+ * session are timed; loaded history has no span.
  */
 export function assistantTurnTiming(args: {
 	groups: readonly TranscriptTurnGroup[];
 	index: number;
 	streaming: boolean;
-	timeOf: (id: string) => number;
-	turnEnds: ReadonlyMap<string, number>;
+	timeOf: (key: string) => number;
+	spans: ReadonlyMap<string, TurnSpan>;
 }): AssistantTurnTiming {
+	const key = replyKey(args.groups, args.index);
 	const live = args.streaming && args.index === args.groups.length - 1;
 	const prompt = args.groups[args.index - 1];
-	if (prompt?.kind !== 'user') return { key: args.groups[args.index]?.key ?? String(args.index), live };
-	const endedAt = args.turnEnds.get(prompt.key);
-	const startedAt = live || endedAt !== undefined ? args.timeOf(groupTimeKey(prompt)) : undefined;
-	return { key: `${prompt.key}:reply`, live, startedAt, endedAt };
+	const span = prompt?.kind === 'user' ? args.spans.get(prompt.key) : undefined;
+	if (!prompt || !span || (!live && span.endedAt === undefined)) return { key, live };
+	return { key, live, startedAt: args.timeOf(prompt.key) + span.pausedMs, endedAt: span.endedAt };
 }

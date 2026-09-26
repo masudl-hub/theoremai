@@ -8,6 +8,7 @@ import {
 	type ChatToolCallItem,
 	ChatToolCalls,
 } from '@astryxdesign/core/Chat';
+import { Citation } from '@astryxdesign/core/Citation';
 import { ClickableCard } from '@astryxdesign/core/ClickableCard';
 import { CodeBlock } from '@astryxdesign/core/CodeBlock';
 import { Collapsible } from '@astryxdesign/core/Collapsible';
@@ -24,20 +25,22 @@ import { Timestamp } from '@astryxdesign/core/Timestamp';
 import { Token } from '@astryxdesign/core/Token';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconCheck, IconCopy } from '@tabler/icons-react';
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, type RefObject, useEffect, useMemo, useRef, useState } from 'react';
 import type { TranscriptBlock } from '../../../src/interface/mod.ts';
-import { chipsFromBlock, type SourceChipBlock } from '../client/source-chips';
+import { citationsFromBlock, type SourceCitationBlock } from '../client/source-citations';
 import {
 	assistantTurnCopyText,
 	assistantTurnTiming,
 	composeAssistantTurn,
-	groupTimeKey,
 	groupTranscriptBlocks,
 	pendingPromptOf,
+	promptReplyKey,
+	replyKey,
 	type TraceItem,
+	type TurnSpan,
 	workStatus,
 } from '../client/transcript-groups';
-import { type LabelText, workStatusLabel } from './labels';
+import { type LabelText, workDuration, workStatusLabel } from './labels';
 import { TheoremLabelsProvider, useLabels } from './labels-provider';
 import { transcriptBlockCopyText } from './transcript-copy-text';
 import { ApprovalCard, AuthChallengeCard, type ToolDecision } from './ToolGateCard';
@@ -73,14 +76,14 @@ type BlockHandlers = {
 	onAuthenticated?: ChatTranscriptProps['onAuthenticated'];
 };
 
-/** First-seen time per block id, so timestamps don't jump while streaming. */
-function useBlockTimes(blocks: readonly TranscriptBlock[]): (id: string) => number {
+/** First-seen time per group key, so timestamps don't jump while streaming. */
+function useFirstSeen(keys: readonly string[]): (key: string) => number {
 	const times = useRef(new Map<string, number>());
 	const now = Date.now();
-	for (const block of blocks) {
-		if (!times.current.has(block.id)) times.current.set(block.id, now);
+	for (const key of keys) {
+		if (!times.current.has(key)) times.current.set(key, now);
 	}
-	return (id) => times.current.get(id) ?? now;
+	return (key) => times.current.get(key) ?? now;
 }
 
 /** `Date.now()`, refreshed every second while `isActive`. */
@@ -96,18 +99,26 @@ function useSecondTicker(isActive: boolean): number {
 }
 
 /**
- * When each turn finished, keyed by the user group that started it. The
- * assistant group is re-keyed when the stream is committed, so it can't carry
- * the timing itself; the user group is stable.
+ * Each turn's span, keyed by the user group that started it. A turn stops at
+ * a gate and streams again under the same prompt once it's answered; the wait
+ * in between counts as paused, not worked.
  */
-function useTurnEndTimes(streaming: boolean, lastUserKey: string | undefined): ReadonlyMap<string, number> {
-	const ends = useRef(new Map<string, number>());
-	const wasStreaming = useRef(streaming);
-	if (wasStreaming.current && !streaming && lastUserKey && !ends.current.has(lastUserKey)) {
-		ends.current.set(lastUserKey, Date.now());
+function useTurnSpans(streaming: boolean, lastUserKey: string | undefined): ReadonlyMap<string, TurnSpan> {
+	const spans = useRef(new Map<string, TurnSpan>());
+	// The first send mounts the transcript already streaming; that's the start.
+	const wasStreaming = useRef(false);
+	if (lastUserKey && streaming !== wasStreaming.current) {
+		const now = Date.now();
+		const span = spans.current.get(lastUserKey);
+		if (streaming) {
+			const pausedMs = span?.endedAt === undefined ? 0 : span.pausedMs + now - span.endedAt;
+			spans.current.set(lastUserKey, { pausedMs });
+		} else if (span) {
+			spans.current.set(lastUserKey, { ...span, endedAt: now });
+		}
 	}
 	wasStreaming.current = streaming;
-	return ends.current;
+	return spans.current;
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -316,14 +327,18 @@ function bodyRows(t: LabelText, body: readonly TranscriptBlock[]): BodyRow[] {
 	return rows;
 }
 
-function Sources({ block }: { block: SourceChipBlock }) {
+function Sources({ block }: { block: SourceCitationBlock }) {
 	const t = useLabels();
-	const chips = chipsFromBlock(block);
-	if (chips.length === 0) return null;
+	const citations = citationsFromBlock(block);
+	if (citations.length === 0) return null;
 	return (
 		<HStack gap={1} wrap="wrap" aria-label={t('@theorem.transcript.sources')}>
-			{chips.map((chip) => (
-				<Token key={chip.key} label={chip.label} description={chip.kind} href={chip.href} size="sm" />
+			{citations.map((citation, i) => (
+				<Citation
+					key={citation.key}
+					source={{ title: citation.title, url: citation.href, src: citation.icon }}
+					number={i + 1}
+				/>
 			))}
 		</HStack>
 	);
@@ -371,7 +386,6 @@ function ResultBlock({ block }: { block: TranscriptBlock }) {
 		case 'error':
 			return <Banner status="error" title={block.message} />;
 		case 'citation':
-		case 'evidence':
 			return <Sources block={block} />;
 		case 'structured':
 			return <CodeBlock code={JSON.stringify(block.value, null, 2)} language="json" size="sm" />;
@@ -382,36 +396,61 @@ function ResultBlock({ block }: { block: TranscriptBlock }) {
 	}
 }
 
-function toolDetail(detail: unknown): ReactNode {
-	return <CodeBlock code={JSON.stringify(detail, null, 2)} language="json" size="sm" />;
+function toolJson(title: string, value: unknown): ReactNode {
+	return (
+		<CodeBlock title={title} code={JSON.stringify(value, null, 2)} language="json" hasLanguageLabel={false} size="sm" />
+	);
 }
 
-function toolCallItem(id: string, tool: ToolBlock['tool']): ChatToolCallItem {
+/** A call's detail: what it ran with, then what came back. */
+function toolDetail(t: LabelText, tool: ToolBlock['tool'], result?: ReactNode): ReactNode {
+	const input = tool.edited
+		? toolJson(t('@theorem.transcript.tool_input_edited'), tool.edited.to)
+		: toolJson(t('@theorem.transcript.tool_input'), tool.arguments);
+	return (
+		<VStack gap={2}>
+			{input}
+			{result}
+		</VStack>
+	);
+}
+
+function toolCallItem(t: LabelText, id: string, tool: ToolBlock['tool']): ChatToolCallItem {
 	const base = { key: id, name: tool.name };
 	const { state } = tool;
 	switch (state?.phase) {
 		case 'error':
+			// What failed, as the tool reported it; the whole failure is in the detail.
 			return {
 				...base,
 				status: 'error',
-				errorMessage: JSON.stringify(state.failure),
-				resultDetail: toolDetail(state.failure),
+				target: state.failure.message,
+				errorMessage: state.failure.message,
+				resultDetail: toolDetail(t, tool, toolJson(t('@theorem.transcript.tool_error'), state.failure)),
 			};
 		case 'complete':
 			return {
 				...base,
 				status: 'complete',
-				...(state.output !== undefined ? { resultDetail: toolDetail(state.output) } : {}),
+				...(tool.startedAt !== undefined && tool.endedAt !== undefined
+					? { duration: workDuration(t, tool.endedAt - tool.startedAt) }
+					: {}),
+				resultDetail: toolDetail(
+					t,
+					tool,
+					state.output === undefined ? undefined : toolJson(t('@theorem.transcript.tool_output'), state.output),
+				),
 			};
 		case 'running':
-			return { ...base, status: 'running' };
+			return { ...base, status: 'running', resultDetail: toolDetail(t, tool) };
 		default:
-			return { ...base, status: 'pending' };
+			return { ...base, status: 'pending', resultDetail: toolDetail(t, tool) };
 	}
 }
 
 function ToolCall({ tool }: { tool: ToolBlock['tool'] }) {
-	return <ChatToolCalls calls={[toolCallItem(tool.name, tool)]} />;
+	const t = useLabels();
+	return <ChatToolCalls calls={[toolCallItem(t, tool.name, tool)]} />;
 }
 
 /**
@@ -433,6 +472,7 @@ const THOUGHT_MARKDOWN: Partial<MarkdownComponents> = {
 };
 
 function TraceList({ items, streaming }: { items: readonly TraceItem[]; streaming: boolean }) {
+	const t = useLabels();
 	const rows: ReactNode[] = [];
 	let tools: ChatToolCallItem[] = [];
 	const flush = () => {
@@ -442,7 +482,7 @@ function TraceList({ items, streaming }: { items: readonly TraceItem[]; streamin
 	};
 	for (const [i, item] of items.entries()) {
 		if (item.kind === 'tool') {
-			tools.push(toolCallItem(item.id, item.block.tool));
+			tools.push(toolCallItem(t, item.id, item.block.tool));
 			continue;
 		}
 		flush();
@@ -597,6 +637,43 @@ function UserTurn(props: { blocks: TranscriptBlock[]; at: number }) {
 }
 
 /** Theorem transcript blocks rendered as Astryx chat messages. */
+/**
+ * A disclosure the reader opens (a turn's work, a tool group, a call's detail)
+ * glides to the top of the transcript, so what it reveals reads from its start.
+ * Astryx owns each trigger's open state, so this reads `aria-expanded` after
+ * the reader's click or key, never an open the transcript made itself.
+ */
+function useScrollToOpened(): RefObject<HTMLDivElement | null> {
+	const ref = useRef<HTMLDivElement>(null);
+	useEffect(() => {
+		const list = ref.current;
+		if (!list) return;
+		const onOpen = (event: Event) => {
+			if (event instanceof KeyboardEvent && event.key !== 'Enter' && event.key !== ' ') return;
+			const trigger = event.target instanceof Element ? event.target.closest('[aria-expanded]') : null;
+			if (!trigger || !list.contains(trigger)) return;
+			requestAnimationFrame(async () => {
+				if (trigger.getAttribute('aria-expanded') !== 'true') return;
+				// Scroll once the panel has grown: until then, a trigger near the
+				// end of the transcript has no room below it to reach the top.
+				const panel = document.getElementById(trigger.getAttribute('aria-controls') ?? '');
+				// A closed-again panel cancels its animation, which rejects `finished`.
+				await Promise.allSettled((panel?.getAnimations() ?? []).map((animation) => animation.finished));
+				if (trigger.getAttribute('aria-expanded') !== 'true') return;
+				const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+				trigger.scrollIntoView({ behavior: still ? 'auto' : 'smooth', block: 'start' });
+			});
+		};
+		list.addEventListener('click', onOpen);
+		list.addEventListener('keydown', onOpen);
+		return () => {
+			list.removeEventListener('click', onOpen);
+			list.removeEventListener('keydown', onOpen);
+		};
+	}, []);
+	return ref;
+}
+
 export function ChatTranscript(props: ChatTranscriptProps) {
 	return (
 		<TheoremLabelsProvider>
@@ -615,9 +692,12 @@ function ChatTranscriptBody({
 	imageOutput,
 }: ChatTranscriptProps) {
 	const groups = useMemo(() => groupTranscriptBlocks(blocks), [blocks]);
-	const timeOf = useBlockTimes(blocks);
-	const turnEnds = useTurnEndTimes(streaming, groups.findLast((group) => group.kind === 'user')?.key);
+	const timeOf = useFirstSeen(
+		groups.map((group, index) => (group.kind === 'user' ? group.key : replyKey(groups, index))),
+	);
+	const spans = useTurnSpans(streaming, groups.findLast((group) => group.kind === 'user')?.key);
 	const pendingPrompt = streaming ? pendingPromptOf(groups) : undefined;
+	const listRef = useScrollToOpened();
 	const handlers: BlockHandlers = {
 		indexOf: (block) => blocks.findIndex((entry) => entry.id === block.id),
 		onToolDecision,
@@ -625,25 +705,32 @@ function ChatTranscriptBody({
 	};
 	const turn = { handle, handlers, imageOutput };
 
+	const turns = groups.map((group, index) => {
+		if (group.kind === 'user') return <UserTurn key={group.key} blocks={group.blocks} at={timeOf(group.key)} />;
+		const { key, live, ...timing } = assistantTurnTiming({ groups, index, streaming, timeOf, spans });
+		// A reply is dated when it last stopped: a reply that just finished reads "now".
+		const at = timing.endedAt ?? timeOf(key);
+		return <AssistantTurn key={key} {...turn} {...timing} blocks={group.blocks} streaming={live} at={at} />;
+	});
+	// Nothing streamed back yet: show the reply's "Working…" status right away.
+	// It sits in the same keyed list as the streamed reply, so the reply stays
+	// one message; a remount would read to the layout as a new message.
+	if (pendingPrompt) {
+		turns.push(
+			<AssistantTurn
+				key={promptReplyKey(pendingPrompt)}
+				{...turn}
+				blocks={[]}
+				streaming
+				at={timeOf(pendingPrompt.key)}
+				startedAt={timeOf(pendingPrompt.key)}
+			/>,
+		);
+	}
+
 	return (
-		<ChatMessageList isStreaming={streaming} emptyState={emptyState}>
-			{groups.map((group, index) => {
-				const at = timeOf(groupTimeKey(group));
-				if (group.kind === 'user') return <UserTurn key={group.key} blocks={group.blocks} at={at} />;
-				const { key, live, ...timing } = assistantTurnTiming({ groups, index, streaming, timeOf, turnEnds });
-				return <AssistantTurn key={key} {...turn} {...timing} blocks={group.blocks} streaming={live} at={at} />;
-			})}
-			{/* Nothing streamed back yet: show the reply's "Working…" status right away. */}
-			{pendingPrompt ? (
-				<AssistantTurn
-					key={`${pendingPrompt.key}:reply`}
-					{...turn}
-					blocks={[]}
-					streaming
-					at={timeOf(groupTimeKey(pendingPrompt))}
-					startedAt={timeOf(groupTimeKey(pendingPrompt))}
-				/>
-			) : null}
+		<ChatMessageList ref={listRef} isStreaming={streaming} emptyState={emptyState}>
+			{turns}
 		</ChatMessageList>
 	);
 }

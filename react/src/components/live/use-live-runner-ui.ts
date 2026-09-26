@@ -7,7 +7,7 @@ import {
 	emptyLiveCaptionState,
 	type LiveCaptionState,
 } from '../../client/live/live-captions';
-import type { LiveToolGatePrompt } from '../../client/live/live-tool';
+import type { LiveGateAnswer, LiveToolGatePrompt } from '../../client/live/live-tool';
 import type { LiveFacingMode, LiveVideoCapture } from '../../client/live/live-video';
 import type { LiveConnectPhase, LiveSessionStatus } from '../../client/live-client';
 import type { ToolGateResolution } from '../../client/tool-resume';
@@ -136,13 +136,23 @@ export function useLiveRunnerGate(args: {
 	const [gatePrompt, setGatePrompt] = useState<LiveToolGatePrompt | null>(null);
 	const gatePromptRef = useRef(gatePrompt);
 	gatePromptRef.current = gatePrompt;
-	const gateResolverRef = useRef<((resolution: ToolGateResolution) => void) | null>(null);
+	const gateResolverRef = useRef<((answer: LiveGateAnswer) => void) | null>(null);
 	const gateRejectRef = useRef<((reason: Error) => void) | null>(null);
+
+	const answerGate = useCallback((answer: LiveGateAnswer) => {
+		gateResolverRef.current?.(answer);
+		gateResolverRef.current = null;
+		gateRejectRef.current = null;
+		setGatePrompt(null);
+	}, []);
 
 	const handleLiveTurnEvent = useCallback(
 		(event: Parameters<typeof applyLiveTurnToolEvent>[0]) => {
 			applyLiveTurnToolEvent(event, {
-				gateOpen: Boolean(gatePromptRef.current),
+				gateCallId: gatePromptRef.current?.callId,
+				withdrawGate: () => {
+					answerGate('withdrawn');
+				},
 				clearInterim: () => {
 					args.setCaptions((prev) => clearLiveCaptionInterim(prev));
 				},
@@ -153,23 +163,23 @@ export function useLiveRunnerGate(args: {
 				setActiveTool: args.setActiveTool,
 			});
 		},
-		[args],
+		[args, answerGate],
 	);
 
 	const waitForGateDecision = useCallback((prompt: LiveToolGatePrompt) => {
-		return new Promise<ToolGateResolution>((resolve, reject) => {
+		return new Promise<LiveGateAnswer>((resolve, reject) => {
 			setGatePrompt(prompt);
 			gateResolverRef.current = resolve;
 			gateRejectRef.current = reject;
 		});
 	}, []);
 
-	const resolveGateDecision = useCallback((resolution: ToolGateResolution) => {
-		gateResolverRef.current?.(resolution);
-		gateResolverRef.current = null;
-		gateRejectRef.current = null;
-		setGatePrompt(null);
-	}, []);
+	const resolveGateDecision = useCallback(
+		(resolution: ToolGateResolution) => {
+			answerGate(resolution);
+		},
+		[answerGate],
+	);
 
 	const cancelGateDecision = useCallback(() => {
 		// lexicon-exempt: internal diagnostic; the user reads error.cancelled

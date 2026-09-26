@@ -1,4 +1,5 @@
-import type { InvokeToolResume, ToolGate, ToolPermission } from '../../../src/kernel/mod.ts';
+import type { InvokeToolResume, ToolGate } from '../../../src/kernel/mod.ts';
+import { sessionPermissionsAfterApproval } from '../../../src/kernel/tools/gate-answer.ts';
 
 export type ToolDecisionAction = 'allow' | 'deny';
 
@@ -9,21 +10,6 @@ export type ToolGateResolution =
 
 /** The part of `InvokeToolResume` the browser sends: the user's answer to a gate. */
 export type InvokeToolResumeInput = Pick<InvokeToolResume, 'granted'>;
-
-/**
- * Session permissions after the user approves a gated call. The registrant's tier decides:
- * a `session_consent` approval lasts the session; any other gate is approved for this call only.
- */
-export function sessionPermissionsAfterApproval(
-	sessionPermissions: readonly string[],
-	toolName: string,
-	permission?: ToolPermission,
-): string[] {
-	if (permission !== 'session_consent' || sessionPermissions.includes(toolName)) {
-		return [...sessionPermissions];
-	}
-	return [...sessionPermissions, toolName];
-}
 
 /** Gate resume always uses `granted: true` (ask_user answers are a new user turn). */
 export function buildInvokeToolResume(_gateKind?: ToolGate['kind']): InvokeToolResumeInput {

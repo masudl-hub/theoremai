@@ -36,6 +36,15 @@ export const theoremTheme: DefinedTheme = defineTheme({
 				':where([aria-expanded="false"] + *)': { height: '0', paddingTop: '0', contentVisibility: 'hidden' },
 			},
 		},
+		// A source's favicon sits bare beside its title, without the ring
+		// Astryx draws around a citation icon. Nested keys must open with a
+		// pseudo-class, so `:where(*)` (the citation itself) leads the child rules.
+		citation: {
+			base: {
+				':where(*) > [aria-hidden="true"]': { backgroundColor: 'transparent', borderWidth: '0', borderRadius: '0' },
+				':where(*) > [aria-hidden="true"] > img': { width: '100%', height: '100%' },
+			},
+		},
 		// Side panels (SidePanel's LayoutPanels) slide open and closed by easing
 		// their width, pushing the content over.
 		'layout-panel': {

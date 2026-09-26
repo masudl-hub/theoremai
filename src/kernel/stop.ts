@@ -109,6 +109,15 @@ export function isResumeableStop(
 }
 
 /** True when the host aborted (user Stop). */
+/** The stop a stage's `abort` ends a turn or live cycle with: `cancelled`, with the stage's reason. */
+export function stageAbortStop(
+  abort: true | { reason?: string },
+): TurnStop & { kind: 'cancelled' } {
+  return typeof abort === 'object' && abort.reason
+    ? { kind: 'cancelled', native: abort.reason }
+    : { kind: 'cancelled' };
+}
+
 export function isUserCancelledStop(stop: TurnStop | undefined): boolean {
   return stop?.kind === 'cancelled';
 }

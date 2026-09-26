@@ -59,6 +59,41 @@ registerTool({
   },
 });
 
+const CITED = { title: 'Porto', uri: 'https://example.com/porto', type: 'web' } as const;
+
+registerTool({
+  type: 'function',
+  name: 'tool_trace_cites',
+  description: 'Returns a link it cites',
+  category: 'test',
+  access: 'read-only',
+  paths: ['*'],
+  loadTier: 'T0',
+  permission: 'auto',
+  input: z.object({}),
+  output: z.object({ uri: z.string() }),
+  handler: () => ({ uri: CITED.uri }),
+  sources: () => [CITED],
+});
+
+registerTool({
+  type: 'function',
+  name: 'tool_trace_warns',
+  description: 'Streams a warning, then cites a source with no link',
+  category: 'test',
+  access: 'read-only',
+  paths: ['*'],
+  loadTier: 'T0',
+  permission: 'auto',
+  input: z.object({}),
+  output: z.object({ finding: z.string() }),
+  handler: async function* () {
+    yield { kind: 'warning', warning: { code: 'slow', message: 'upstream was slow' } };
+    yield { kind: 'complete', output: { finding: 'done' } };
+  },
+  sources: () => JSON.parse('[{ "title": "No link", "type": "web" }]'),
+});
+
 registerProfile(
   defineProfile({
     type: 'text',
@@ -73,6 +108,8 @@ registerProfile(
         'denied_tool',
         'always_confirm_tool',
         'tool_trace_image',
+        'tool_trace_cites',
+        'tool_trace_warns',
       ],
     },
     inputs: { text: true },
@@ -234,6 +271,39 @@ Deno.test('a gated call records the gate and nothing read back', async () => {
   assertEquals('gen_ai.tool.call.result' in span.attributes, false);
   const gate = span.events.find((e) => e.name === 'theorem.gate');
   assertEquals(gate?.attributes.kind, 'permission');
+});
+
+Deno.test('a tool that cites sources streams the citation and records it on its span', async () => {
+  const into: TraceRecord[] = [];
+  const provider = asking([
+    { type: 'tool', tool: { callId: 'c1', name: 'tool_trace_cites', arguments: {} } },
+  ]);
+  const events = await Array.fromAsync(
+    runTurn({ profile: PROFILE, input: { text: 'go' } }, provider, catalogedSink(into)),
+  );
+  assertEquals(lastOf(events, 'citation'), {
+    type: 'citation',
+    sources: [CITED],
+    callId: 'c1',
+  });
+  const [record] = into;
+  if (!record) throw new Error('no record');
+  const grounding = toolSpan(record).events.find((e) => e.name === 'theorem.grounding');
+  assertEquals(contentOf(record, grounding?.attributes.sources), JSON.stringify([CITED]));
+});
+
+Deno.test('every warning of a call is recorded on its span, from the tool and from the kernel', async () => {
+  const record = await turnRecord({ callId: 'c1', name: 'tool_trace_warns', arguments: {} });
+  const warnings = toolSpan(record).events.filter((e) => e.name === 'theorem.tool.warning');
+  assertEquals(
+    warnings.map((e) => [e.attributes.code, e.attributes.severity]),
+    [
+      ['slow', undefined],
+      ['sources_invalid', 'warning'],
+    ],
+  );
+  assertEquals(contentOf(record, warnings[0]?.attributes.message), 'upstream was slow');
+  assertEquals(toolSpan(record).attributes['theorem.tool.outcome'], 'ok');
 });
 
 Deno.test('malformed arguments are recorded as the raw text the model sent', async () => {

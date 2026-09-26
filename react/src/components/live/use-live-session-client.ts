@@ -1,10 +1,10 @@
 import { useCallback, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
-import { type LexiconOverrides, type SessionEventOf, TheoremError, type TurnEvent } from '../../../../mod.ts';
+import { type SessionEventOf, TheoremError, type TurnEvent } from '../../../../mod.ts';
 import {
 	applyLiveTranscript,
 	type LiveCaptionState,
 } from '../../client/live/live-captions';
-import type { LiveToolGatePrompt } from '../../client/live/live-tool';
+import type { LiveGateAnswer, LiveToolGatePrompt } from '../../client/live/live-tool';
 import { runLiveToolCall } from '../../client/live/run-live-tool-call';
 import type { LiveFacingMode, LiveVideoCapture } from '../../client/live/live-video';
 import {
@@ -13,7 +13,6 @@ import {
 	LiveSessionClient,
 	type LiveSessionStatus,
 } from '../../client/live-client';
-import type { ToolGateResolution } from '../../client/tool-resume';
 import type { TraceFeed } from '../../client/trace-feed';
 
 export type LiveClientBindings = {
@@ -21,7 +20,7 @@ export type LiveClientBindings = {
 	/** Where the session's trace records go, when the relay delivers them. */
 	traces: TraceFeed;
 	handleLiveTurnEvent: (event: TurnEvent) => void;
-	waitForGateDecision: (prompt: LiveToolGatePrompt) => Promise<ToolGateResolution>;
+	waitForGateDecision: (prompt: LiveToolGatePrompt) => Promise<LiveGateAnswer>;
 	captionsRef: MutableRefObject<LiveCaptionState>;
 	gatePromptRef: MutableRefObject<LiveToolGatePrompt | null>;
 	isMutedRef: MutableRefObject<boolean>;
@@ -30,8 +29,6 @@ export type LiveClientBindings = {
 	setConnectPhase: Dispatch<SetStateAction<LiveConnectPhase | null>>;
 	setStatus: Dispatch<SetStateAction<LiveSessionStatus>>;
 	setSessionActive: Dispatch<SetStateAction<boolean>>;
-	/** The interface's `lexicon`: the profile's wording. */
-	lexicon: LexiconOverrides;
 	reportFailure: (err: unknown) => void;
 	clearFailure: () => void;
 	reportSessionEnded: (session: SessionEventOf<'ended'>) => void;
@@ -82,37 +79,34 @@ function onLiveTranscript(
 async function onLiveToolCall(
 	name: string,
 	toolArgs: Record<string, unknown>,
-	meta: { callId?: string },
+	meta: { callId: string },
 	bindings: LiveClientBindings,
 	clientRef: MutableRefObject<LiveSessionClient | null>,
-): Promise<Record<string, unknown>> {
+): Promise<void> {
 	bindings.setActiveTool(name);
 	bindings.clearFailure();
 	const client = clientRef.current;
 	if (!client) {
 		// lexicon-exempt: internal diagnostic; the user reads error.request
 		bindings.reportFailure(new TheoremError('request', 'live tool call with no session client'));
-		return {};
+		return;
 	}
-	const callId = meta.callId || `call_${Date.now()}`;
 	try {
-		return await runLiveToolCall({
+		await runLiveToolCall({
 			client,
 			name,
 			toolArgs,
-			callId,
+			callId: meta.callId,
 			sessionPermissions: bindings.sessionPermissionsRef.current,
 			setSessionPermissions: (next) => {
 				bindings.sessionPermissionsRef.current = next;
 				bindings.setSessionPermissions(next);
 			},
 			waitForGateDecision: bindings.waitForGateDecision,
-			lexicon: bindings.lexicon,
 			reportFailure: bindings.reportFailure,
 		});
 	} catch (err) {
 		bindings.reportFailure(err);
-		return {};
 	} finally {
 		if (!bindings.gatePromptRef.current) bindings.setActiveTool(null);
 	}

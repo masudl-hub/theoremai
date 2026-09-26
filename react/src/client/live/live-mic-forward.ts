@@ -27,13 +27,12 @@ export type LiveToolCallDraft = {
 	id: string;
 	name: string;
 	arguments: Record<string, unknown>;
-	error?: string;
 };
 
 /**
  * Fold a tool turn event into cancelled-id / runnable-call lists. The model's
- * call is runnable; its failure (a name or arguments the provider could not
- * use) makes it answer the model with that failure instead.
+ * call is runnable; a failure in the same batch (a name or arguments the
+ * provider could not use) is not: the session answered the model with it.
  */
 export function applyLiveToolTurnEvent(
 	tool: ToolCallEvent,
@@ -48,6 +47,6 @@ export function applyLiveToolTurnEvent(
 		return;
 	}
 	if (tool.phase !== 'error') return;
-	const call = accum.toolCalls.find((draft) => draft.id === tool.callId);
-	if (call) call.error = tool.failure.message;
+	const failed = accum.toolCalls.findIndex((draft) => draft.id === tool.callId);
+	if (failed !== -1) accum.toolCalls.splice(failed, 1);
 }

@@ -146,7 +146,7 @@ The shipped wording for every span, attribute, event and value is the trace cata
 
 **Events:**
 - `theorem.upstream.row`: each provider data row at its arrival time. Media is replaced by its hash, and any string equal to a known content text is replaced by its text reference; the row is a JSON reference. Kept only under `upstreamLog`.
-- `theorem.grounding`: `{ sources, search_html?, raw? }` from Google grounding, or `{ provider, sources?, citations?, annotations?, raw? }` from other evidence, each payload a JSON reference. Citation annotations live here, not on text parts. `raw` is kept only under `evidenceRaw`.
+- `theorem.grounding`: `{ search_html?, raw? }` from Google grounding, `{ sources }` from a `citation` (a provider's on the model call span, a tool's on its `execute_tool` span), or `{ provider, raw? }` from other evidence, each payload a JSON reference. Citation annotations live here, not on text parts. `raw` is kept only under `evidenceRaw`.
 - `theorem.guardrail`: output-scan decisions.
 - `exception`: one per provider error (`exception.type: "provider_error"`, message by hash), plus a throw.
 
@@ -180,6 +180,8 @@ The shipped wording for every span, attribute, event and value is the trace cata
 - `theorem.stage`: `pre_tool` / `post_tool`, same shape as on the turn.
 - `theorem.gate`: `{ kind, permission?, summary?, auth? }`. `kind` is `permission`, `confirmation` or `auth`; `summary` is a hash; `auth` is `{ slot, type, issuer?, resource?, required_scopes? }` and never the challenge state.
 - `theorem.guardrail`: sensitive arguments and the taint gate (stage `tool_call`), and redaction and directive signals on the result (stage `tool_result`).
+- `theorem.tool.warning`: `{ code, message, severity? }`, one per warning: the ones the tool streams and the kernel's `sources_invalid`. `message` is a hash.
+- `theorem.grounding`: `{ sources }`, the sources the tool cited.
 - `exception`.
 
 **Status:** `ERROR` only when the tool failed. `denied`, `gated`, `paused` and `cancelled` are `UNSET`: the tool did not fail, a policy or the user stopped it.

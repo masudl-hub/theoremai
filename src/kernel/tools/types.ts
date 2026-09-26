@@ -21,6 +21,7 @@ import type {
   ToolResumeCause,
 } from '../schema.ts';
 import type {
+  Source,
   ToolCallEdit,
   ToolCallEvent,
   ToolCallRequest,
@@ -163,9 +164,21 @@ export interface ToolHostHooks<TIn = unknown> {
   exposeToModel?: boolean;
 }
 
+/** Hooks on a tool's completed output, shared by every kernel-executed tool. */
+export interface ToolOutputHooks<TOut = unknown> {
+  /**
+   * The sources this output cites. The kernel calls it once the call completes
+   * and emits them as a `citation` carrying the call's `callId`. A source that
+   * fails `sourceSchema`, or a throw, is a `sources_invalid` tool warning and
+   * is not cited. Omit it for a tool that cites nothing.
+   */
+  sources?: (output: TOut) => Source[];
+}
+
 export interface FunctionToolDef<TIn = unknown, TOut = unknown>
   extends ToolBase,
-    ToolHostHooks<TIn> {
+    ToolHostHooks<TIn>,
+    ToolOutputHooks<TOut> {
   type: 'function';
   input: z.ZodType<TIn>;
   output: z.ZodType<TOut>;
@@ -185,7 +198,10 @@ export interface HttpToolAuthConfig {
   redirectUri?: string;
 }
 
-export interface HttpToolDef<TIn = unknown, TOut = unknown> extends ToolBase, ToolHostHooks<TIn> {
+export interface HttpToolDef<TIn = unknown, TOut = unknown>
+  extends ToolBase,
+    ToolHostHooks<TIn>,
+    ToolOutputHooks<TOut> {
   type: 'http';
   input: z.ZodType<TIn>;
   output: z.ZodType<TOut>;
@@ -200,7 +216,10 @@ export interface HttpToolDef<TIn = unknown, TOut = unknown> extends ToolBase, To
   };
 }
 
-export interface McpToolDef<TIn = unknown, TOut = unknown> extends ToolBase, ToolHostHooks<TIn> {
+export interface McpToolDef<TIn = unknown, TOut = unknown>
+  extends ToolBase,
+    ToolHostHooks<TIn>,
+    ToolOutputHooks<TOut> {
   type: 'mcp';
   input: z.ZodType<TIn>;
   output: z.ZodType<TOut>;

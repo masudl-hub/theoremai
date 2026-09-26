@@ -101,6 +101,13 @@ export const THEOREM_UI_CATALOG = {
 	'@theorem.transcript.open_generated_image': { defaultMessage: 'Open generated image', description: 'Opens the image full size.' },
 	'@theorem.transcript.generating_image': { defaultMessage: 'Generating image', description: 'Placeholder while an image generates.' },
 	'@theorem.transcript.sources': { defaultMessage: 'Sources', description: 'The row of source chips (screen readers).' },
+	'@theorem.transcript.tool_input': { defaultMessage: 'Input', description: "A tool call's arguments, in its detail." },
+	'@theorem.transcript.tool_input_edited': {
+		defaultMessage: 'Input (edited)',
+		description: "A tool call's arguments after the user edited them on approval.",
+	},
+	'@theorem.transcript.tool_output': { defaultMessage: 'Output', description: "A tool call's result, in its detail." },
+	'@theorem.transcript.tool_error': { defaultMessage: 'Error', description: "A failed tool call's failure, in its detail." },
 	'@theorem.transcript.copy_text.tool': {
 		defaultMessage: 'Tool: {name}',
 		description: 'A tool call in copied message text.',

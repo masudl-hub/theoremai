@@ -164,8 +164,12 @@ once, and an opening stretched by separators of any length stays held. Under
 `egress.enforce` the gate also holds `egress.holdback` characters (default
 `DEFAULT_HOLDBACK`, 256), plus any incomplete PEM body until its END line.
 `redactCanary` and the trace and upstream-tape scrubbers replace every form the
-scan detects. Not detected yet: the token spelled out in words, or split
-across turns — `fuzz-canary` reports each as a bypass. `defineProfile` rejects a
+scan detects. A window that ends on a possible leak opening carries it
+(`canaryCarry`) into the next window of the same canary — the next provider
+call of a `runTurn`, the next Live cycle — so a token split across tool steps
+or cycles is one match: the turn or session ends when it completes, and only
+the chunks before the completing one were released. Not detected yet: the
+token spelled out in words — `fuzz-canary` reports it as a bypass. `defineProfile` rejects a
 `holdback` or `maxRetries` that is not a non-negative integer. The same constructor backs `runTurn` and
 Live (`processLiveOutboundBatch`). Host `egress.enforce` is authoritative when
 set; otherwise the gate scans for the canary alone and a leak ends

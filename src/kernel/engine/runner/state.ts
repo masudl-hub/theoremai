@@ -43,6 +43,11 @@ interface StepExecutionState {
    */
   withheldVisible?: boolean;
   /**
+   * The canary opening the last provider call ended on, read in front of the
+   * next call's reply so a token split across steps is still one match.
+   */
+  canaryCarry?: string;
+  /**
    * Untrusted remote content this turn has already read.
    *
    * Accumulates across tool calls so a later call can be judged against what the

@@ -6,7 +6,7 @@
  * @module
  */
 
-import { canaryHoldFrom } from './canary.ts';
+import { canaryCarry, canaryHoldFrom } from './canary.ts';
 import { canaryHits, runEnforcer } from './egress.ts';
 import type {
   EgressEnforcer,
@@ -35,6 +35,12 @@ export interface ProgressiveYieldGateOptions {
    * without). A tail that could start a canary leak is always held on top.
    */
   holdback?: number;
+  /**
+   * Text an earlier window of the same canary ended on that could still open a
+   * leak (`canaryCarry`). It is scanned in front of this window, never released
+   * again, so a token split across steps or cycles is still one match.
+   */
+  carry?: string;
 }
 
 /**
@@ -56,6 +62,8 @@ interface ProgressiveYieldGate {
    * attempt buffer ends up holding the text twice.
    */
   drainUnreleased: () => string;
+  /** The tail the next window of the same canary must scan in front of its own. */
+  carryOut: () => string;
 }
 
 /**
@@ -81,10 +89,18 @@ function holdbackForWindow(window: string, base: number): number {
 function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): ProgressiveYieldGate {
   const { context } = options;
   const baseHoldback = resolveHoldback(options);
+  const carry = context.canary ? (options.carry ?? '') : '';
   let accumulated = '';
   let emitted = 0;
 
   async function scan(window: string): Promise<GuardrailHit[] | null> {
+    if (carry) {
+      // The carry is canary-only: the host policy judges this window's own text.
+      const carried = canaryHits(carry + window, context.canary);
+      if (carried.length > 0) {
+        return carried;
+      }
+    }
     if (options.enforce) {
       // Mid-stream the gate can only release or stop: emitted prefixes cannot be
       // rewritten, so `redact` stops here and end-of-attempt egress applies the
@@ -115,8 +131,11 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
       return { blocked: false, emit };
     }
     const hold = options.enforce ? holdbackForWindow(accumulated, baseHoldback) : baseHoldback;
+    // Until this window releases anything, its opening may continue the carry.
+    const lead = emitted === 0 ? carry : '';
     const canaryFrom = context.canary
-      ? emitted + canaryHoldFrom(accumulated.slice(emitted), context.canary)
+      ? emitted +
+        Math.max(0, canaryHoldFrom(lead + accumulated.slice(emitted), context.canary) - lead.length)
       : accumulated.length;
     const safeEnd = Math.max(emitted, Math.min(accumulated.length - hold, canaryFrom));
     const emit = accumulated.slice(emitted, safeEnd);
@@ -142,6 +161,7 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
       emitted = accumulated.length;
       return tail;
     },
+    carryOut: () => (context.canary ? canaryCarry(carry + accumulated, context.canary) : ''),
   };
 }
 
@@ -152,6 +172,7 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
 function createOutboundProgressiveGate(
   policy: ResolvedGuardrailPolicy,
   context: GuardrailContext,
+  carry?: string,
 ): ProgressiveYieldGate | null {
   const egress = policy.egress;
   if (!egress?.enforce && !context.canary) {
@@ -161,6 +182,7 @@ function createOutboundProgressiveGate(
     context,
     ...(egress?.enforce ? { enforce: egress.enforce } : {}),
     ...(egress?.holdback === undefined ? {} : { holdback: egress.holdback }),
+    ...(carry ? { carry } : {}),
   });
 }
 

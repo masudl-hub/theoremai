@@ -100,7 +100,10 @@ async function* executeAutonomousStep(
   // The stop this call ended with after gates: a canary block or provider
   // error outranks what the provider reported.
   let stop: TurnStop | undefined;
-  const control: OutboundStreamControl = { withholdVisible: false };
+  const control: OutboundStreamControl = {
+    withholdVisible: false,
+    ...(state.canaryCarry ? { canaryCarry: state.canaryCarry } : {}),
+  };
 
   try {
     for await (const event of yieldProviderEvents({
@@ -155,6 +158,7 @@ async function* executeAutonomousStep(
     throw err;
   }
 
+  state.canaryCarry = control.canaryCarry;
   const tokens = await callTokensEvent(usage, generation, state.mediaFamily);
   call.end({ tokens: tokens?.tokens, stop });
   if (tokens) {

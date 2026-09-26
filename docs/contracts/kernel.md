@@ -229,6 +229,9 @@ Live sessions emit the same stage names around utterance cycles and
 6. **Provider stream** — `provider.complete` yields partial events; runner may
    drop thoughts per `outputs.streaming.streamThoughts`. Reply text passes the
    progressive-yield gate; thoughts are never guarded ([guardrails](./guardrails.md)).
+   Each provider call has its own gate; the turn carries a possible canary
+   opening from one call into the next (`canaryCarry` on the step state), so a
+   token split across tool steps is one match.
 7. **Tool loop** — while under `maxSteps`, tool calls execute via `executeRegisteredTool`
    (shared with `invokeTool`), threading host `credentials` for authenticated HTTP/MCP tools and the opaque `host` context slot; `pre_tool` / `post_tool` stages + `preTool` run on that path. After each
    settled tool, `post_tool` may inject. Gate (`stop.kind: 'gate'`) suspends the batch. `generation.transport` selects

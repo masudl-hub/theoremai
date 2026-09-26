@@ -14,7 +14,8 @@
  *   • with egress.enforce, a hit withholds the rest of the cycle; finalize
  *     releases it (allow), rewrites it (redact), or refuses/withholds it (block)
  *
- * Scope is one conversational cycle: finalize and abort start the next one.
+ * Scope is one conversational cycle: finalize and abort start the next one,
+ * which reads the last cycle's possible canary opening in front of its own.
  * Live has no repair loop — a blocked turn is refuse_to_user copy, or withheld
  * (a `safety` error).
  *
@@ -103,9 +104,14 @@ function createLiveOutboundGateSession(profile: Profile, canary?: string): LiveO
   };
 }
 
-/** Start the next cycle: fresh window, nothing held, nothing withheld. */
+/**
+ * Start the next cycle: fresh window, nothing held, nothing withheld. The
+ * session canary is stable, so the next window reads this one's possible
+ * leak opening in front of its own (`canaryCarry`).
+ */
 function resetCycle(session: LiveOutboundGateSession): void {
-  session.gate = createOutboundProgressiveGate(session.policy, session.context);
+  const carry = session.gate?.carryOut();
+  session.gate = createOutboundProgressiveGate(session.policy, session.context, carry);
   session.held = [];
   session.releasedTo = 0;
   session.withholdVisible = false;

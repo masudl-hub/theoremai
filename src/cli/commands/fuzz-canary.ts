@@ -26,7 +26,10 @@ import {
   processLiveOutboundBatch,
 } from '../../guardrails/live-outbound-gate.ts';
 import { scanTextOf } from '../../guardrails/serialize.ts';
-import { yieldProviderEvents } from '../../kernel/engine/runner/stream.ts';
+import {
+  type OutboundStreamControl,
+  yieldProviderEvents,
+} from '../../kernel/engine/runner/stream.ts';
 import { clearProfiles, getProfile, registerProfile } from '../../kernel/registry/profiles.ts';
 import { providerCompleteRequest } from '../../kernel/registry/provider-request.ts';
 import { resolveTurn } from '../../kernel/registry/resolve.ts';
@@ -141,6 +144,8 @@ async function runStreamChannel(
   canary: string,
 ): Promise<ChannelResult> {
   const events: TurnEvent[] = [];
+  // Every provider call of one turn shares its canary: each attack turn is a step.
+  const control: OutboundStreamControl = { withholdVisible: false };
   for (const turn of attack.turns) {
     const turnEvents = await collectEvents(
       yieldProviderEvents({
@@ -150,6 +155,7 @@ async function runStreamChannel(
         provider: { complete: () => replay(turn) },
         // The fuzz reads what reaches the client, not the trace.
         call: { tap: () => {}, observe: () => {} },
+        control,
       }),
     );
     events.push(...turnEvents);

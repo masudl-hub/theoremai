@@ -173,6 +173,15 @@ function canaryHoldFrom(text: string, canary: string): number {
   return from;
 }
 
+/**
+ * The tail of a finished window that could still open a leak: what the next
+ * window of the same canary scans in front of its own text. Carried forward
+ * as it grows, it bounds the carry to one token's length.
+ */
+function canaryCarry(text: string, canary: string): string {
+  return text.slice(canaryHoldFrom(text, canary));
+}
+
 /** `text` with every detected canary leak replaced by `OMIT_CANARY`. */
 function redactCanaryText(text: string, canary: string): string {
   if (!text || !canary) {
@@ -309,6 +318,7 @@ function redactCanary(event: TurnEvent, canary: string): TurnEvent {
 export type { CanaryGateResult, CanaryStreamGate };
 export {
   bindCanary,
+  canaryCarry,
   canaryHoldFrom,
   createCanaryStreamGate,
   eventHasCanary,

@@ -18,10 +18,12 @@ import { FIXED_CANARY } from '../../src/guardrails/corpus/canary-egress-attacks.
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { yieldProviderEvents } from '../../src/kernel/engine/runner/stream.ts';
 import { runTurn } from '../../src/kernel/engine/runner.ts';
+import { defineProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
 import { providerCompleteRequest } from '../../src/kernel/registry/provider-request.ts';
 import { resolveTurn } from '../../src/kernel/registry/resolve.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
 import { camelToSnake, toInteractionsBody } from '../../src/providers/google/interactions/mod.ts';
+import { geminiModels } from '../fixtures/models.ts';
 import { replyText } from '../fixtures/reply.ts';
 
 const CANARY_RE = /^[0-9a-f]{32}$/;
@@ -667,4 +669,48 @@ Deno.test('createCanaryStreamGate: second flush after first gives empty emit', (
   if (!r2.leak) {
     assertEquals(r2.emit, '');
   }
+});
+
+Deno.test('runTurn catches a canary split across a tool step', async () => {
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      id: 'canary_split_steps',
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 3,
+      tools: { allow: ['fetch_sensor'] },
+      inputs: { text: true },
+    }),
+  );
+  let call = 0;
+  const provider: ModelProvider = {
+    async *complete(req) {
+      await Promise.resolve();
+      const canary = /[0-9a-f]{32}/.exec(req.system ?? '')?.[0] ?? '';
+      const half = Math.ceil(canary.length / 2);
+      call += 1;
+      if (call === 1) {
+        yield { type: 'text', text: `One: ${canary.slice(0, half)}` };
+        yield {
+          type: 'tool',
+          tool: { name: 'fetch_sensor', arguments: { sensor: 'soil' }, id: 'call_1' },
+        };
+        return;
+      }
+      yield { type: 'text', text: canary.slice(half) };
+    },
+  };
+  const events = await collect(
+    runTurn({ profile: 'canary_split_steps', input: { text: 'hi' } }, provider),
+  );
+  assertEquals(call, 2);
+  assertEquals(
+    events.some((event) => event.type === 'error' && event.errorKind === 'safety'),
+    true,
+  );
+  assertEquals(events.findLast((event) => event.type === 'done')?.stop, {
+    kind: 'filtered',
+    native: 'canary',
+  });
 });

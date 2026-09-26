@@ -195,3 +195,33 @@ Deno.test('createOutboundProgressiveGate defaults egress to DEFAULT_HOLDBACK', a
   await gate?.process('s'.repeat(DEFAULT_HOLDBACK * 2));
   assertEquals(gate?.unreleased().length, DEFAULT_HOLDBACK);
 });
+
+Deno.test('createProgressiveYieldGate reads the carry in front of its window', async () => {
+  const canary = mintCanary();
+  const half = Math.ceil(canary.length / 2);
+  const first = createProgressiveYieldGate({ context: ctx(canary) });
+  assertEquals(await first.process(`step one ${canary.slice(0, half)}`), {
+    blocked: false,
+    emit: 'step one ',
+  });
+  assertEquals((await first.flush()).blocked, false);
+  // The next window of the same canary completes the token: one match.
+  const second = createProgressiveYieldGate({ context: ctx(canary), carry: first.carryOut() });
+  assertEquals((await second.process(canary.slice(half))).blocked, true);
+});
+
+Deno.test('createProgressiveYieldGate holds a window opening that continues the carry', async () => {
+  const canary = 'abcdef0123456789abcdef0123456789';
+  const gate = createProgressiveYieldGate({ context: ctx(canary), carry: 'abcdef' });
+  // "0123" continues the carried opening, so it is held; "5" breaks it, so "zz, 5" goes.
+  assertEquals(await gate.process('0123'), { blocked: false, emit: '' });
+  const other = createProgressiveYieldGate({ context: ctx(canary), carry: 'abcdef' });
+  assertEquals(await other.process('zz, 5'), { blocked: false, emit: 'zz, 5' });
+});
+
+Deno.test('createProgressiveYieldGate carries nothing that cannot open a leak', async () => {
+  const gate = createProgressiveYieldGate({ context: ctx(FIXED_CANARY) });
+  await gate.process('nothing to carry here');
+  assertEquals(gate.carryOut(), '');
+  assertEquals(createProgressiveYieldGate({ context: ctx() }).carryOut(), '');
+});

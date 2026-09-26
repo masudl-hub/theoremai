@@ -26,6 +26,11 @@ import type { CallTrace } from '../turn-trace.ts';
 interface OutboundStreamControl {
   /** Stop releasing text/media to the host; keep recording for egress. Thoughts are unguarded. */
   withholdVisible: boolean;
+  /**
+   * The canary opening the turn's earlier steps ended on (`canaryCarry`): read
+   * in front of this call's reply, and replaced by where this call ends.
+   */
+  canaryCarry?: string;
 }
 
 function shouldSkipStreamEvent(event: TurnEvent, profile: Profile): boolean {
@@ -79,7 +84,11 @@ async function* yieldProviderEvents(args: {
     ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
     ...(canary ? { canary } : {}),
   };
-  const gate: ProgressiveYieldGate | null = createOutboundProgressiveGate(policy, context);
+  const gate: ProgressiveYieldGate | null = createOutboundProgressiveGate(
+    policy,
+    context,
+    control?.canaryCarry,
+  );
   /** The streamed event whose reply sits in the gate's lookback; released tails keep its shape. */
   let pendingStream: TurnEvent | null = null;
   let withholdVisible = false;
@@ -198,6 +207,9 @@ async function* yieldProviderEvents(args: {
   const flushed = yield* flushGate();
   if (flushed === 'stop') {
     return;
+  }
+  if (control && gate) {
+    control.canaryCarry = gate.carryOut();
   }
   if (providerFailed) {
     // An error from the provider outranks any `done` it sent: the call's output is not whole.

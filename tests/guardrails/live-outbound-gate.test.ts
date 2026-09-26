@@ -742,3 +742,14 @@ Deno.test('processLiveOutboundBatch under egress holds the profile holdback', as
     events: [said('x'.repeat(10))],
   });
 });
+
+Deno.test('processLiveOutboundBatch catches a canary split across cycles', async () => {
+  const canary = mintCanary();
+  const s = session(canary);
+  const half = Math.ceil(canary.length / 2);
+  await processLiveOutboundBatch(s, [said(`Part one: ${canary.slice(0, half)}`)]);
+  assertEquals((await finalizeLiveOutboundTurn(s)).action, 'emit');
+  // The session canary is stable: the next cycle reads the last one's opening first.
+  const next = await processLiveOutboundBatch(s, [said(canary.slice(half))]);
+  assertEquals(next.action, 'withhold');
+});

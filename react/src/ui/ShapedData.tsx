@@ -53,6 +53,8 @@ const MAX_LIST_EXTRAS = 2;
 const MAX_TABLE_COLUMNS = 6;
 /** Rows shown before the rest are left to the JSON view. */
 const MAX_ROWS = 50;
+/** A list of plain values this short sits inline as tokens beside the other fields. */
+const MAX_INLINE_TOKENS = 8;
 /** Levels drawn before a subtree shows as JSON. */
 const MAX_DEPTH = 8;
 
@@ -119,6 +121,10 @@ const SUFFIX_UNITS: Record<string, string> = {
 	percent: '%',
 	c: '°C',
 	f: '°F',
+	usd: 'USD',
+	eur: 'EUR',
+	gbp: 'GBP',
+	jpy: 'JPY',
 };
 
 /** A field's label and unit: from its `<key>_units` entry, else its key's suffix (`distance_m` → "Distance", m). */
@@ -339,23 +345,30 @@ function Rows({ items, depth }: { items: readonly unknown[]; depth: number }) {
 }
 
 /** A nested field, through any chain of one-key wrappers: `{ data: { items: [] } }` → "Data › Items". */
-function section(key: string, value: unknown): { title: string; value: unknown } {
+function section(row: Row, key: string): { title: string; value: unknown; units?: Row } {
 	const path = [key];
-	let inner = unpacked(value);
+	let inner = unpacked(row[key]);
+	let units = unitsOf(row, key);
 	while (isRow(inner)) {
-		const entries = Object.entries(inner);
+		// A units object beside the one field doesn't count: `{ hourly, hourly_units }` is still a wrapper.
+		const entries = shownEntries(inner);
 		const only = entries.length === 1 ? entries[0] : undefined;
 		if (!only || isPlain(unpacked(only[1]))) break;
 		path.push(only[0]);
+		units = unitsOf(inner, only[0]);
 		inner = unpacked(only[1]);
 	}
-	return { title: path.map(humanize).join(' › '), value: inner };
+	return { title: path.map(humanize).join(' › '), value: inner, units };
 }
 
 function Fields({ row, depth, units }: { row: Row; depth: number; units?: Row }) {
 	const entries = shownEntries(row);
-	const plain = entries.filter(([, value]) => isPlain(unpacked(value)));
-	const nested = entries.filter(([, value]) => !isPlain(unpacked(value)));
+	const inline = (value: unknown) => {
+		const inner = unpacked(value);
+		return isPlain(inner) || (Array.isArray(inner) && inner.length > 0 && inner.length <= MAX_INLINE_TOKENS && inner.every(isPlain));
+	};
+	const plain = entries.filter(([, value]) => inline(value));
+	const nested = entries.filter(([, value]) => !inline(value));
 	const fields = plain.length > 0 && (
 		<MetadataList label={{ position: 'start', width: '40%' }}>
 			{plain.map(([key, value]) => {
@@ -364,7 +377,7 @@ function Fields({ row, depth, units }: { row: Row; depth: number; units?: Row })
 				const shownUnit = typeof value === 'number' ? unit : undefined;
 				return (
 					<MetadataListItem key={key} label={shownUnit ? label : humanize(key)}>
-						<Plain value={value} unit={shownUnit} />
+						{Array.isArray(unpacked(value)) ? <Node value={value} depth={depth + 1} /> : <Plain value={value} unit={shownUnit} />}
 					</MetadataListItem>
 				);
 			})}
@@ -382,13 +395,13 @@ function Fields({ row, depth, units }: { row: Row; depth: number; units?: Row })
 					// The top level's sections start open: they're the payload.
 					defaultValue={depth === 0 ? nested.map(([key]) => key) : []}
 				>
-					{nested.map(([key, value]) => {
-						const shown = section(key, value);
+					{nested.map(([key]) => {
+						const shown = section(row, key);
 						return (
 							<Collapsible key={key} value={key} trigger={<Text type="label">{shown.title}</Text>}>
-								{/* Past the top level, a section's content steps in so its depth reads. */}
-								<VStack paddingInlineStart={depth > 0 ? 3 : 0}>
-									<Node value={shown.value} depth={depth + 1} units={unitsOf(row, key)} />
+								{/* A section's content steps in so its depth reads. */}
+								<VStack paddingInlineStart={3}>
+									<Node value={shown.value} depth={depth + 1} units={shown.units} />
 								</VStack>
 							</Collapsible>
 						);

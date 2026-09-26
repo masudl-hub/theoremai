@@ -1,4 +1,5 @@
-import { assertEquals } from '@std/assert';
+import { assertEquals, assertThrows } from '@std/assert';
+import { TheoremError } from '../../mod.ts';
 import {
   compilePlayground,
   createExampleDraft,
@@ -8,6 +9,7 @@ import {
 } from '../../playground/mod.ts';
 import { parseLiveServerEnvelope } from '../../react/src/client/live-messages.ts';
 import { createTraceFeed } from '../../react/src/client/trace-feed.ts';
+import type { ClientTurnEvent } from '../../react/src/client/transport.ts';
 import type { TurnEvent } from '../../src/kernel/types.ts';
 import type { TraceRecord } from '../../src/observability/trace-record.ts';
 import { STUB_WRITE, stubRecord, stubSpan } from '../fixtures/trace-record.ts';
@@ -67,7 +69,7 @@ Deno.test('a playground run stream sends turn events to the turn and trace lines
   const transport = createPlaygroundTransport(compiled, {
     fetch: () => Promise.resolve(new Response(body)),
   });
-  const events: TurnEvent[] = [];
+  const events: ClientTurnEvent[] = [];
   await transport.turn({ input: { text: 'hello' } }, (event) => events.push(event));
   assertEquals(events, [text]);
   assertEquals(transport.traces?.records(), [record]);
@@ -76,6 +78,11 @@ Deno.test('a playground run stream sends turn events to the turn and trace lines
 Deno.test('a Live trace envelope carries one record', () => {
   const record = recordFor(undefined);
   assertEquals(parseLiveServerEnvelope({ type: 'trace', record }), { type: 'trace', record });
-  assertEquals(parseLiveServerEnvelope({ type: 'trace', record: { spans: 'none' } }), null);
-  assertEquals(parseLiveServerEnvelope({ type: 'trace' }), null);
+  // A trace envelope without its record, or with one that fails its schema, is a bad response.
+  for (const raw of [{ type: 'trace', record: { spans: 'none' } }, { type: 'trace' }]) {
+    assertEquals(
+      assertThrows(() => parseLiveServerEnvelope(raw), TheoremError).kind,
+      'bad_response',
+    );
+  }
 });

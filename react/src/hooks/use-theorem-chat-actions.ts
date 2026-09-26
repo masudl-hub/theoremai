@@ -26,6 +26,7 @@ import {
 	streamInterfaceDraftTurn,
 	streamInterfaceTurn,
 	type ToolDecisionAction,
+	type ToolGateResolution,
 } from '../client/index';
 import { type ClientFailure, clientFailure, type TurnFailure } from '../client/failure';
 import type { TheoremTransport } from '../client/transport';
@@ -277,13 +278,10 @@ function usePendingActions(args: TheoremChatActionArgs) {
 	return { enqueuePending, handlePendingRestore };
 }
 
-/** Resume a gated tool with an approval decision or a credential. */
+/** Answer the gate the session waits on: a decision, or a sign-in. */
 function useGateActions(args: TheoremChatActionArgs) {
 	const resumeGatedTool = useCallback(
-		async (
-			action: ToolDecisionAction,
-			extra?: { interactiveValue?: unknown; secret?: string },
-		) => {
+		async (resolution: ToolGateResolution) => {
 			const composer = args.iface;
 			if (!composer) return;
 			await args.runTurnStream((onStream) =>
@@ -291,9 +289,7 @@ function useGateActions(args: TheoremChatActionArgs) {
 					iface: composer,
 					transport: args.transport,
 					session: args.sessionRef.current,
-					action,
-					interactiveValue: extra?.interactiveValue,
-					secret: extra?.secret,
+					resolution,
 					onStream,
 				}),
 			);
@@ -302,15 +298,15 @@ function useGateActions(args: TheoremChatActionArgs) {
 	);
 
 	const handleToolDecision = useCallback(
-		async (_index: number, action: ToolDecisionAction, interactiveValue?: unknown) => {
-			await resumeGatedTool(action, { interactiveValue });
+		async (_index: number, action: ToolDecisionAction) => {
+			await resumeGatedTool({ action });
 		},
 		[resumeGatedTool],
 	);
 
 	const handleAuthenticated = useCallback(
 		async (_index: number, secret?: string) => {
-			await resumeGatedTool('allow', { secret });
+			await resumeGatedTool({ action: 'auth', ...(secret === undefined ? {} : { secret }) });
 		},
 		[resumeGatedTool],
 	);
@@ -341,13 +337,28 @@ export function useTheoremChatActions(args: TheoremChatActionArgs) {
 		});
 	}, [args, enqueuePending, startTurnFromFields]);
 
-	const abandonGatedIfNeeded = useCallback(() => {
+	/**
+	 * Walk away from the gates the session waits on. False when the host could
+	 * not settle them: the failure shows, and the session keeps what it settled.
+	 */
+	const abandonGatedIfNeeded = useCallback(async (): Promise<boolean> => {
 		const composer = args.iface;
-		if (!composer || !args.sessionRef.current.gatedTool) return;
-		const abandoned = abandonGatedInterfaceTool({
+		if (!composer || !args.sessionRef.current.gatedTool) return true;
+		const abandoned = await abandonGatedInterfaceTool({
 			iface: composer,
+			transport: args.transport,
 			session: args.sessionRef.current,
+			onStream: args.setStreamBlocks,
 		});
+		if (!abandoned.ok) {
+			const { error, errorKind, errorInternal } = abandoned;
+			if (abandoned.session) {
+				args.setSession(abandoned.session);
+				args.sessionRef.current = abandoned.session;
+			}
+			args.setFailure({ error, errorKind, ...(errorInternal ? { errorInternal } : {}) });
+			return false;
+		}
 		const merged = applyTurnResultToTranscript({
 			blocks: args.blocksRef.current,
 			streamBlocks: [],
@@ -358,32 +369,35 @@ export function useTheoremChatActions(args: TheoremChatActionArgs) {
 		args.setStreamBlocks([]);
 		args.setSession(merged.session);
 		args.sessionRef.current = merged.session;
+		return true;
 	}, [args]);
 
 	const handleSendNow = useCallback(
 		async (draftSource?: ComposerPendingMessage) => {
 			if (!args.iface) return;
 
-			let draft = draftSource?.draft;
-			if (!draft) {
-				draft = await encodeComposerDraft({
+			const draft =
+				draftSource?.draft ??
+				(await encodeComposerDraft({
 					text: args.draftText,
 					pendingFiles: args.pendingFiles,
 					pendingVoice: args.pendingVoice,
-				});
-				if (!userDraftHasPayload(draft)) return;
-				args.clearComposer();
-			} else if (draftSource) {
-				const pendingId = draftSource.id;
-				args.setPendingMessages((prev) => removeComposerPendingMessage(prev, pendingId));
-			}
+				}));
+			if (!draftSource && !userDraftHasPayload(draft)) return;
 
 			if (args.busyRef.current) {
 				args.abortRef.current?.abort();
 				await args.runPromiseRef.current;
 			}
 
-			await abandonGatedIfNeeded();
+			// The message leaves the composer (or the queue) only once nothing waits on a gate.
+			if (!(await abandonGatedIfNeeded())) return;
+			if (draftSource) {
+				const pendingId = draftSource.id;
+				args.setPendingMessages((prev) => removeComposerPendingMessage(prev, pendingId));
+			} else {
+				args.clearComposer();
+			}
 			args.setPendingMessages((prev) => convertSteersToFrontQueued(prev));
 			args.allowQueueDrainRef.current = false;
 			await startTurnFromDraft(draft);

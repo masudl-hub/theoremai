@@ -6,7 +6,7 @@
  */
 
 import { type StageHandler, TheoremError, type TurnHistoryMessage } from '../../../mod.ts';
-import { isRecord } from '../../../src/kernel/util/record.ts';
+import type { TheoremSteerRequest } from '../client/transport.ts';
 
 /** One steer: the client's id for it, reported back in `stage.injected` once it lands. */
 export type SteerUnit = { id: string; messages: TurnHistoryMessage[] };
@@ -15,24 +15,15 @@ export type SteerUnit = { id: string; messages: TurnHistoryMessage[] };
 const STEER_STAGES: ReadonlySet<string> = new Set(['pre_turn', 'post_tool', 'before_end']);
 
 /**
- * A steer as a client posts it (`{ id, inject }`): a non-empty id and at least
- * one user message. Other roles are dropped — a client never injects system,
- * assistant or tool turns.
+ * A steer as a client posts it (a checked `TheoremSteerRequest`): its user
+ * messages. Other roles are dropped — a client never injects system,
+ * assistant or tool turns — and a steer with no user message is refused.
  */
-export function parseSteerUnit(body: unknown): SteerUnit {
-	const id = isRecord(body) && typeof body.id === 'string' ? body.id.trim() : '';
-	// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
-	if (!id) throw new TheoremError('request', 'id is required');
-	if (!isRecord(body) || !Array.isArray(body.inject) || body.inject.length === 0) {
-		// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
-		throw new TheoremError('request', 'inject must be a non-empty array');
-	}
-	const messages = body.inject.filter(
-		(message): message is TurnHistoryMessage => isRecord(message) && message.role === 'user',
-	);
+export function steerUnitOf(steer: Pick<TheoremSteerRequest, 'id' | 'inject'>): SteerUnit {
+	const messages = steer.inject.filter((message) => message.role === 'user');
 	// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
 	if (!messages.length) throw new TheoremError('request', 'inject must contain user messages');
-	return { id, messages };
+	return { id: steer.id, messages };
 }
 
 /** Lands the inbox's next steer, one per steerable stage, named by its id. */

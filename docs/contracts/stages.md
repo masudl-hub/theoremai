@@ -470,8 +470,8 @@ tool-request events.
 | Confirm / auth gate | Composer phase `gated` only; primary actions: resolve gate / abandon — **not** “queue as if turn ended” |
 | Awaiting completion | Turn may be `idle` / completed; host UI from tool output; **not** composer `gated` |
 | Gate helpers | `gatedToolFromEvents` (stop `gate`) + `awaitingFromEvents` (complete+awaiting) |
-| Abandon | `abandonGatedToolSession` |
-| Playground steer inbox | FIFO **one consume per inject-capable stage fire**; keyed by turn id (text) or session id (live). Do not consume on `pre_tool` / `post_turn`. Each steer carries the client's id (`TheoremSteerRequest.id`) and is returned as `injectId`, so the turn names it in `stage.injected` once it lands. One owner in `@theoremai/react/server`: `parseSteerUnit` (id + user messages only) and `steerStage(inbox, key)`; a host brings only its `SteerInbox` store |
+| Abandon | The host settles it: the client answers `decision: 'abandon'` (`abandonGatedInterfaceTool`), and the call ends cancelled |
+| Playground steer inbox | FIFO **one consume per inject-capable stage fire**; keyed by turn id (text) or session id (live). Do not consume on `pre_tool` / `post_turn`. Each steer carries the client's id (`TheoremSteerRequest.id`) and is returned as `injectId`, so the turn names it in `stage.injected` once it lands. One owner in `@theoremai/react/server`: `steerUnitOf` (id + user messages only) and `steerStage(inbox, key)`; a host brings only its `SteerInbox` store |
 | Snapshot | Still on `done` when `stop.kind === 'gate'` (and available on normal `done` when tools ran — not only gates) |
 
 ---

@@ -108,6 +108,22 @@ export const THEOREM_UI_CATALOG = {
 	},
 	'@theorem.transcript.tool_output': { defaultMessage: 'Output', description: "A tool call's result, in its detail." },
 	'@theorem.transcript.tool_error': { defaultMessage: 'Error', description: "A failed tool call's failure, in its detail." },
+	'@theorem.data.view': { defaultMessage: 'View as', description: 'Switch between tool data drawn by its shape and its JSON.' },
+	'@theorem.data.shaped': { defaultMessage: 'Data', description: 'Tool data drawn as fields, sections and tables.' },
+	'@theorem.data.json': { defaultMessage: 'JSON', description: 'Tool data as its raw JSON.' },
+	'@theorem.data.item': {
+		defaultMessage: 'Item {index}',
+		description: 'A list row with no name of its own.',
+		params: ['index'],
+	},
+	'@theorem.data.none': { defaultMessage: 'None', description: 'An empty list or object in tool data.' },
+	'@theorem.data.yes': { defaultMessage: 'Yes', description: 'A true value in tool data.' },
+	'@theorem.data.no': { defaultMessage: 'No', description: 'A false value in tool data.' },
+	'@theorem.data.more': {
+		defaultMessage: '{count} more in JSON',
+		description: 'Rows past the shown ones, left to the JSON view.',
+		params: ['count'],
+	},
 	'@theorem.transcript.copy_text.tool': {
 		defaultMessage: 'Tool: {name}',
 		description: 'A tool call in copied message text.',

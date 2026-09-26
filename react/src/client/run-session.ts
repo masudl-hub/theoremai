@@ -1,17 +1,18 @@
 import {
-	abandonGatedToolSession,
 	applyTurnEventsToSession,
 	type AttachmentValidationIssue,
 	type ComposerProfileInterface,
 	gatedToolFromEvents,
+	gatedToolsFromEvents,
 	type InterfaceTurnSession,
 	type TranscriptBlock,
 	type UserTurnDraft,
 } from '../../../src/interface/mod.ts';
-import { attachmentsRefused, lexiconText, TheoremError, type TurnEvent } from '../../../mod.ts';
+import { attachmentsRefused, TheoremError, type TurnEvent } from '../../../mod.ts';
 import { attachPreviewData, encodeFiles } from './encode-files.ts';
 import { type TurnFailure, turnFailure } from './failure.ts';
 import {
+	commitCompletedTurn,
 	continueAfterTool,
 	failTurnStream,
 	finalizeTurnStream,
@@ -19,9 +20,7 @@ import {
 	toTurnMedia,
 } from './run-commit.ts';
 import type { EncodedBlob, TheoremTransport } from './transport.ts';
-import { failureEvent } from '../../../src/kernel/tools/events.ts';
-import { sessionPermissionsAfterApproval } from '../../../src/kernel/tools/gate-answer.ts';
-import { buildInvokeToolResume, type ToolDecisionAction } from './tool-resume.ts';
+import { continueGatedToolInvocation, type ToolGateResolution } from './tool-resume.ts';
 import {
 	buildInvokeRequest,
 	buildTurnRequest,
@@ -243,34 +242,6 @@ export async function streamInterfaceDraftTurn(
 	});
 }
 
-async function resumeDeniedGatedTool(args: {
-	iface: ComposerProfileInterface;
-	transport: TheoremTransport;
-	session: InterfaceTurnSession;
-	onStream: (blocks: TranscriptBlock[]) => void;
-	gated: NonNullable<InterfaceTurnSession['gatedTool']>;
-}): Promise<
-	| { ok: true; session: InterfaceTurnSession; assistantBlocks: TranscriptBlock[] }
-	| TurnFailure
-> {
-	// Browser-made refusal: deleted when web refusals settle through `/invoke` (turn-event schema, step 4).
-	const seedEvents = args.session.assistantEvents.map((event): TurnEvent => {
-		if (event.type !== 'tool' || event.tool.phase !== 'gate' || event.tool.callId !== args.gated.callId) {
-			return event;
-		}
-		const { name, callId } = event.tool;
-		return failureEvent(
-			{ name, callId },
-			{
-				code: 'denied',
-				kind: 'declined',
-				message: lexiconText('session.tool_denied', { tool: name }, args.iface.lexicon),
-			},
-		);
-	});
-	return await continueOnceSettled({ ...args, session: args.session, events: seedEvents });
-}
-
 /**
  * After one gate settles: wait on the step's next gate if one is left, else
  * send the whole step back to the model.
@@ -293,77 +264,54 @@ async function continueOnceSettled(args: {
 	return await continueAfterTool({ ...args, session, seedEvents: args.events });
 }
 
-async function resumeAllowedGatedTool(args: {
-	iface: ComposerProfileInterface;
-	transport: TheoremTransport;
-	session: InterfaceTurnSession;
-	onStream: (blocks: TranscriptBlock[]) => void;
-	secret?: string;
-	gated: NonNullable<InterfaceTurnSession['gatedTool']>;
-}): Promise<
-	| { ok: true; session: InterfaceTurnSession; assistantBlocks: TranscriptBlock[] }
-	| TurnFailure
-> {
-	const gateId = args.gated.callId;
-	if (!gateId) return sessionFailure('session.gate_expired', args.iface);
-	let session: InterfaceTurnSession = { ...args.session };
-	const sessionPermissions = sessionPermissionsAfterApproval(
-		session.sessionPermissions,
-		args.gated.name,
-		args.gated.permission,
-	);
-
-	let resume: ReturnType<typeof buildInvokeToolResume>;
-	try {
-		resume = buildInvokeToolResume(args.gated.gateKind);
-	} catch (err) {
-		return turnFailure(err, args.iface.lexicon);
-	}
-
-	try {
-		const invokeEvents = await streamFoldedTurn({
-			iface: args.iface,
-			onStream: args.onStream,
-			events: [...session.assistantEvents],
-			stream: (onEvent) =>
-				args.transport.invoke(
-					buildInvokeRequest(args.iface, session, {
-						gateId,
-						name: args.gated.name,
-						input: args.gated.arguments,
-						resume,
-						sessionPermissions,
-						secret: args.secret,
-					}),
-					onEvent,
-				),
-		});
-
-		session = { ...applyTurnEventsToSession(session, invokeEvents), sessionPermissions };
-		return await continueOnceSettled({ ...args, session, events: invokeEvents });
-	} catch (err) {
-		return turnFailure(err, args.iface.lexicon);
-	}
-}
-
+/**
+ * Send the user's answer to the gate the session waits on. The host settles
+ * the call either way (an approval runs it; a refusal records it declined),
+ * so the model and the trace read what the user chose.
+ */
 export async function resumeInterfaceTool(args: {
 	iface: ComposerProfileInterface;
 	transport: TheoremTransport;
 	session: InterfaceTurnSession;
-	action: ToolDecisionAction;
-	interactiveValue?: unknown;
+	resolution: ToolGateResolution;
 	onStream: (blocks: TranscriptBlock[]) => void;
-	secret?: string;
 }): Promise<
 	| { ok: true; session: InterfaceTurnSession; assistantBlocks: TranscriptBlock[] }
 	| TurnFailure
 > {
 	const gated = args.session.gatedTool;
-	if (!gated) return sessionFailure('session.gate_expired', args.iface);
-	if (args.action === 'deny') {
-		return await resumeDeniedGatedTool({ ...args, gated });
+	if (!gated?.callId) return sessionFailure('session.gate_expired', args.iface);
+	const reply = continueGatedToolInvocation({
+		toolName: gated.name,
+		gate: gated,
+		sessionPermissions: args.session.sessionPermissions,
+		resolution: args.resolution,
+	});
+	const sessionPermissions =
+		reply.decision === 'approve' ? reply.sessionPermissions : args.session.sessionPermissions;
+	try {
+		const events = await streamFoldedTurn({
+			iface: args.iface,
+			onStream: args.onStream,
+			events: [...args.session.assistantEvents],
+			stream: (onEvent) =>
+				args.transport.invoke(
+					buildInvokeRequest(args.iface, args.session, {
+						gateId: gated.callId,
+						decision: reply.decision,
+						name: gated.name,
+						input: gated.arguments,
+						sessionPermissions,
+						...(reply.decision === 'approve' && reply.secret !== undefined ? { secret: reply.secret } : {}),
+					}),
+					onEvent,
+				),
+		});
+		const session = { ...applyTurnEventsToSession(args.session, events), sessionPermissions };
+		return await continueOnceSettled({ ...args, session, events });
+	} catch (err) {
+		return turnFailure(err, args.iface.lexicon);
 	}
-	return await resumeAllowedGatedTool({ ...args, gated });
 }
 
 export function applyTurnResultToTranscript(args: {
@@ -390,19 +338,48 @@ export function applyTurnResultToTranscript(args: {
 }
 
 /**
- * Leave a tool gate without continuing the model — for send-now while gated.
- * Commits cancelled tool state into session history + assistant transcript blocks.
+ * Send-now while gated: the user walks away from every call still waiting.
+ * The host settles each one cancelled, and the turn ends there without the
+ * model. If the host fails partway, the session keeps what it settled and
+ * still waits on the rest.
  */
-export function abandonGatedInterfaceTool(args: {
+export async function abandonGatedInterfaceTool(args: {
 	iface: ComposerProfileInterface;
+	transport: TheoremTransport;
 	session: InterfaceTurnSession;
-}): {
-	session: InterfaceTurnSession;
-	assistantBlocks: TranscriptBlock[];
-} {
-	const { session, finalizedEvents } = abandonGatedToolSession(args.session, args.iface.lexicon);
+	onStream: (blocks: TranscriptBlock[]) => void;
+}): Promise<
+	| { ok: true; session: InterfaceTurnSession; assistantBlocks: TranscriptBlock[] }
+	| TurnFailure
+> {
+	const events = [...args.session.assistantEvents];
+	try {
+		for (const gated of gatedToolsFromEvents(args.session.assistantEvents)) {
+			await streamFoldedTurn({
+				iface: args.iface,
+				onStream: args.onStream,
+				events,
+				stream: (onEvent) =>
+					args.transport.invoke(
+						buildInvokeRequest(args.iface, args.session, {
+							gateId: gated.callId,
+							decision: 'abandon',
+							name: gated.name,
+							input: gated.arguments,
+						}),
+						onEvent,
+					),
+			});
+		}
+	} catch (err) {
+		return {
+			...turnFailure(err, args.iface.lexicon),
+			session: { ...applyTurnEventsToSession(args.session, events), assistantEvents: events },
+		};
+	}
 	return {
-		session,
-		assistantBlocks: foldAssistantTurn(args.iface, finalizedEvents),
+		ok: true,
+		session: commitCompletedTurn(args.session, events),
+		assistantBlocks: foldAssistantTurn(args.iface, events),
 	};
 }

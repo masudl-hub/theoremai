@@ -9,14 +9,18 @@ import {
   TheoremError,
   type TurnEvent,
 } from '../../mod.ts';
-import { createHttpTransport, TheoremStreamError } from '../../react/src/client/transport.ts';
+import {
+  createHttpTransport,
+  TheoremStreamError,
+  type TurnEventSink,
+} from '../../react/src/client/transport.ts';
 import {
   createTheoremHandler,
   type TheoremCredentialStore,
   type TheoremCredentials,
 } from '../../react/src/server/mod.ts';
 import type { OAuth2Credential } from '../../src/kernel/auth/types.ts';
-import { eventsOf, toolEventsOf, toolPhases } from '../fixtures/events.ts';
+import { eventsOf, failureOf, lastTool, toolEventsOf, toolPhases } from '../fixtures/events.ts';
 
 const SYSTEM = 'secret persona instructions';
 
@@ -70,11 +74,12 @@ function transportFor(handler: Handler) {
   });
 }
 
-async function collect(
-  run: (onEvent: (event: TurnEvent) => void) => Promise<void>,
-): Promise<TurnEvent[]> {
+async function collect(run: (onEvent: TurnEventSink) => Promise<void>): Promise<TurnEvent[]> {
   const events: TurnEvent[] = [];
-  await run((event) => events.push(event));
+  await run((event) => {
+    if (event.type === 'unsupported') throw new Error(`unsupported line: ${event.received}`);
+    events.push(event);
+  });
   return events;
 }
 
@@ -250,6 +255,26 @@ Deno.test('bad requests get 4xx JSON errors', async () => {
     }),
   );
   assertEquals(steerWithoutId.status, 400);
+  const malformed: [string, unknown][] = [
+    ['invoke', { gateId: 'g' }],
+    ['invoke', { gateId: 'g', decision: 'maybe' }],
+    ['invoke', { gateId: '', decision: 'approve' }],
+    ['invoke', { gateId: 'g', decision: 'approve', secret: 7 }],
+    ['turn', { input: { text: 'hi' }, turnId: '   ' }],
+    ['turn', { input: { text: 7 } }],
+    ['steer', { turnId: 't', id: 's', inject: [] }],
+    ['steer', { turnId: ' ', id: 's', inject: [{ role: 'user', content: 'x' }] }],
+  ];
+  for (const [path, body] of malformed) {
+    const response = await handler(
+      new Request(`${BASE}/${path}`, { method: 'POST', headers: json, body: JSON.stringify(body) }),
+    );
+    assertEquals(response.status, 400, `${path} ${JSON.stringify(body)}`);
+    assertEquals(await response.json(), {
+      error: lexiconDefault('error.request'),
+      errorKind: 'request',
+    });
+  }
   const formPost = await handler(
     new Request(`${BASE}/turn`, {
       method: 'POST',
@@ -390,10 +415,10 @@ Deno.test('invoke only runs a call the server paused, with the model input', asy
         transport.invoke(
           {
             gateId: 'made-up',
+            decision: 'approve',
             replay: {
               name: 'handler_delete',
               input: { id: 'attacker' },
-              resume: { granted: true },
             },
           },
           onEvent,
@@ -412,6 +437,7 @@ Deno.test('invoke only runs a call the server paused, with the model input', asy
     transport.invoke(
       {
         gateId: gate.callId,
+        decision: 'approve',
         replay: { name: 'handler_delete', input: { id: 'attacker' } },
       },
       onEvent,
@@ -422,10 +448,60 @@ Deno.test('invoke only runs a call the server paused, with the model input', asy
 
   // Each approval runs the call once.
   await assertRefused(
-    () => collect((onEvent) => transport.invoke({ gateId: gate.callId }, onEvent)),
+    () =>
+      collect((onEvent) => transport.invoke({ gateId: gate.callId, decision: 'approve' }, onEvent)),
     'session.gate_expired',
   );
   assertEquals(ran, ['model-chosen']);
+});
+
+Deno.test('the host settles a refused call: declined or cancelled, never run, and the gate is gone', async () => {
+  for (const [decision, kind] of [
+    ['deny', 'declined'],
+    ['abandon', 'cancelled'],
+  ] as const) {
+    ran.length = 0;
+    const handler = createTheoremHandler({
+      profile: profile(`handler-refuse-${decision}`, ['handler_delete']),
+      provider: () => toolCallingProvider('handler_delete', 'model-chosen'),
+    });
+    const transport = transportFor(handler);
+    const turn = await collect((onEvent) => transport.turn({ input: { text: 'delete' } }, onEvent));
+    const gate = pausedGate(turn);
+    const refused = await collect((onEvent) =>
+      transport.invoke({ gateId: gate.callId, decision }, onEvent),
+    );
+    assertEquals(failureOf(lastTool([...turn, ...refused], 'handler_delete'))?.kind, kind);
+    assertEquals(ran, []);
+    await assertRefused(
+      () =>
+        collect((onEvent) =>
+          transport.invoke({ gateId: gate.callId, decision: 'approve' }, onEvent),
+        ),
+      'session.gate_expired',
+    );
+    assertEquals(ran, []);
+  }
+});
+
+Deno.test("an approval with the user's edit runs the edited input", async () => {
+  ran.length = 0;
+  const handler = createTheoremHandler({
+    profile: profile('handler-edit', ['handler_delete']),
+    provider: () => toolCallingProvider('handler_delete', 'model-chosen'),
+  });
+  const transport = transportFor(handler);
+  const gate = pausedGate(
+    await collect((onEvent) => transport.turn({ input: { text: 'delete' } }, onEvent)),
+  );
+  const approved = await collect((onEvent) =>
+    transport.invoke(
+      { gateId: gate.callId, decision: 'approve', input: { id: 'user-edited' } },
+      onEvent,
+    ),
+  );
+  assertEquals(toolPhases(approved, 'handler_delete').at(-1), 'complete');
+  assertEquals(ran, ['user-edited']);
 });
 
 Deno.test("another session can't approve this session's paused call", async () => {
@@ -440,12 +516,13 @@ Deno.test("another session can't approve this session's paused call", async () =
     await collect((onEvent) => victim.turn({ input: { text: 'x' } }, onEvent)),
   );
   await assertRefused(
-    () => collect((onEvent) => attacker.invoke({ gateId: gate.callId }, onEvent)),
+    () =>
+      collect((onEvent) => attacker.invoke({ gateId: gate.callId, decision: 'approve' }, onEvent)),
     'session.gate_expired',
   );
   assertEquals(ran, []);
   // The victim can still approve their own call.
-  await collect((onEvent) => victim.invoke({ gateId: gate.callId }, onEvent));
+  await collect((onEvent) => victim.invoke({ gateId: gate.callId, decision: 'approve' }, onEvent));
   assertEquals(ran, ['victim-record']);
 });
 
@@ -462,7 +539,8 @@ Deno.test("an answer after the host's gateTtlMs is refused and the call never ru
   );
   await new Promise((resolve) => setTimeout(resolve, 10));
   await assertRefused(
-    () => collect((onEvent) => transport.invoke({ gateId: gate.callId }, onEvent)),
+    () =>
+      collect((onEvent) => transport.invoke({ gateId: gate.callId, decision: 'approve' }, onEvent)),
     'session.gate_expired',
   );
   assertEquals(ran, []);
@@ -484,7 +562,9 @@ Deno.test('approving a session_consent tool is remembered by the server, not the
   const transport = transportFor(handler);
   const first = await collect((onEvent) => transport.turn({ input: { text: 'a' } }, onEvent));
   const gate = pausedGate(first);
-  await collect((onEvent) => transport.invoke({ gateId: gate.callId }, onEvent));
+  await collect((onEvent) =>
+    transport.invoke({ gateId: gate.callId, decision: 'approve' }, onEvent),
+  );
   const second = await collect((onEvent) => transport.turn({ input: { text: 'b' } }, onEvent));
   assertEquals(toolPhases(second, 'handler_share').at(-1), 'complete');
 
@@ -501,7 +581,9 @@ Deno.test('approving an always_confirm tool covers that call only', async () => 
   });
   const transport = transportFor(handler);
   const first = await collect((onEvent) => transport.turn({ input: { text: 'a' } }, onEvent));
-  await collect((onEvent) => transport.invoke({ gateId: pausedGate(first).callId }, onEvent));
+  await collect((onEvent) =>
+    transport.invoke({ gateId: pausedGate(first).callId, decision: 'approve' }, onEvent),
+  );
   const second = await collect((onEvent) => transport.turn({ input: { text: 'b' } }, onEvent));
   assertEquals(toolPhases(second, 'handler_delete').at(-1), 'gate');
 });
@@ -646,7 +728,10 @@ Deno.test('a key typed at a sign-in gate is saved on the server and never sent b
     assertEquals(sent, []);
 
     const resumed = await collect((onEvent) =>
-      transport.invoke({ gateId: gate.callId, secret: 'typed-key-123' }, onEvent),
+      transport.invoke(
+        { gateId: gate.callId, decision: 'approve', secret: 'typed-key-123' },
+        onEvent,
+      ),
     );
     assertEquals(toolPhases(resumed, 'handler_tracker').at(-1), 'complete');
     assertEquals(sent, ['Bearer typed-key-123']);
@@ -677,12 +762,17 @@ Deno.test('a typed key answers only a sign-in gate, and a refused one leaves the
     await collect((onEvent) => transport.turn({ input: { text: 'x' } }, onEvent)),
   );
   await assertRefused(
-    () => collect((onEvent) => transport.invoke({ gateId: gate.callId, secret: 'stray' }, onEvent)),
+    () =>
+      collect((onEvent) =>
+        transport.invoke({ gateId: gate.callId, decision: 'approve', secret: 'stray' }, onEvent),
+      ),
     'error.request',
   );
   assertEquals(ran, []);
   assertEquals(store.saved.size, 0);
-  await collect((onEvent) => transport.invoke({ gateId: gate.callId }, onEvent));
+  await collect((onEvent) =>
+    transport.invoke({ gateId: gate.callId, decision: 'approve' }, onEvent),
+  );
   assertEquals(ran, ['kept']);
 });
 
@@ -711,7 +801,9 @@ Deno.test('an OAuth gate carries the host sign-in URL and resumes on the token i
     // An OAuth gate takes no typed secret; the gate stays pending.
     await assertRefused(
       () =>
-        collect((onEvent) => transport.invoke({ gateId: gate.callId, secret: 'pasted' }, onEvent)),
+        collect((onEvent) =>
+          transport.invoke({ gateId: gate.callId, decision: 'approve', secret: 'pasted' }, onEvent),
+        ),
       'error.request',
     );
 
@@ -720,7 +812,9 @@ Deno.test('an OAuth gate carries the host sign-in URL and resumes on the token i
     if (!sessionId) throw new Error('expected the hook to name the session');
     await store.save(sessionId, { oauth_tracker: oauthCredential() });
 
-    const resumed = await collect((onEvent) => transport.invoke({ gateId: gate.callId }, onEvent));
+    const resumed = await collect((onEvent) =>
+      transport.invoke({ gateId: gate.callId, decision: 'approve' }, onEvent),
+    );
     assertEquals(toolPhases(resumed, 'handler_oauth_tracker').at(-1), 'complete');
     assertEquals(sent, ['Bearer oauth-access-token']);
     assertEquals(JSON.stringify(resumed).includes('oauth-access-token'), false);

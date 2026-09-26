@@ -11,13 +11,21 @@ export {
 	theoremSessionId,
 } from './handler.ts';
 export {
+	theoremInvokeRequestSchema,
+	theoremReplaySchema,
+	theoremSteerRequestSchema,
+	theoremTurnRequestSchema,
+} from '../client/transport.ts';
+export type { LiveClientMessage } from '../client/live-messages.ts';
+export { parseLiveClientMessage } from './request-check.ts';
+export {
 	createMemoryCredentialStore,
 	type TheoremCredentialStore,
 	type TheoremCredentials,
 } from './credential-store.ts';
 export {
 	createMemorySteerInbox,
-	parseSteerUnit,
+	steerUnitOf,
 	type SteerInbox,
 	steerStage,
 	type SteerUnit,

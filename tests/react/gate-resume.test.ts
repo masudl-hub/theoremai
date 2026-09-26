@@ -1,7 +1,11 @@
 import { assertEquals } from '@std/assert';
 import type { TurnEvent, TurnHistoryMessage } from '../../mod.ts';
-import { resumeInterfaceTool, streamInterfaceTurn } from '../../react/src/client/run-session.ts';
-import type { TheoremTransport } from '../../react/src/client/transport.ts';
+import {
+  abandonGatedInterfaceTool,
+  resumeInterfaceTool,
+  streamInterfaceTurn,
+} from '../../react/src/client/run-session.ts';
+import type { TheoremInvokeRequest, TheoremTransport } from '../../react/src/client/transport.ts';
 import {
   type ComposerProfileInterface,
   emptyInterfaceTurnSession,
@@ -10,6 +14,7 @@ import {
 } from '../../src/interface/mod.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
+import { failureEvent } from '../../src/kernel/tools/events.ts';
 import { registerGooglePreset } from '../../src/presets/google.ts';
 import { toolSnapshot } from '../fixtures/events.ts';
 import { CHAT_MEDIA_LIMITS, HOST_BINDINGS } from '../fixtures/models.ts';
@@ -106,7 +111,7 @@ Deno.test('a gate on a later call of a step resumes with the whole step in histo
     iface,
     transport,
     session: paused.session,
-    action: 'allow',
+    resolution: { action: 'allow' },
     onStream: () => {},
   });
   if (!resumed.ok) throw new Error(resumed.error);
@@ -146,8 +151,20 @@ const gate = (callId: string): TurnEvent => ({
   },
 });
 
+/** What the host settles an answered gate with: the call's result, or its refusal. */
+const settled = (answer: TheoremInvokeRequest): TurnEvent => {
+  if (answer.decision === 'approve') return complete(answer.gateId);
+  return failureEvent(
+    { name: 'lookup', callId: answer.gateId },
+    answer.decision === 'deny'
+      ? { code: 'denied', kind: 'declined', message: 'declined' }
+      : { code: 'cancelled', kind: 'cancelled', message: 'cancelled' },
+  );
+};
+
 Deno.test('a step with two gates asks for each in order, then continues once', async () => {
   const sent: TurnHistoryMessage[][] = [];
+  const decisions: [string, string][] = [];
   const transport: TheoremTransport = {
     turn: (request_, onEvent) => {
       sent.push(request_.input.history ?? []);
@@ -167,7 +184,8 @@ Deno.test('a step with two gates asks for each in order, then continues once', a
       return Promise.resolve();
     },
     invoke: (request_, onEvent) => {
-      onEvent(complete(request_.gateId));
+      decisions.push([request_.gateId, request_.decision]);
+      onEvent(settled(request_));
       onEvent({ type: 'done', stop: { kind: 'completed' } });
       return Promise.resolve();
     },
@@ -176,7 +194,7 @@ Deno.test('a step with two gates asks for each in order, then continues once', a
   };
   const iface = textInterface();
   const resume = (session: InterfaceTurnSession, action: 'allow' | 'deny') =>
-    resumeInterfaceTool({ iface, transport, session, action, onStream: () => {} });
+    resumeInterfaceTool({ iface, transport, session, resolution: { action }, onStream: () => {} });
 
   const paused = await streamInterfaceTurn({
     iface,
@@ -209,4 +227,113 @@ Deno.test('a step with two gates asks for each in order, then continues once', a
     results.map((message) => (message.role === 'tool' ? message.tool_call_id : '')),
     ['a', 'b', 'c'],
   );
+  // The host settled the refusal: the browser sent the answer, not a failure of its own.
+  assertEquals(decisions, [
+    ['a', 'approve'],
+    ['c', 'deny'],
+  ]);
+});
+
+Deno.test('send now while gated abandons every waiting call through the host, without the model', async () => {
+  const decisions: [string, string][] = [];
+  let turns = 0;
+  const transport: TheoremTransport = {
+    turn: (_request, onEvent) => {
+      turns += 1;
+      for (const event of [
+        request('a'),
+        gate('a'),
+        request('b'),
+        gate('b'),
+        { type: 'done', stop: { kind: 'gate' }, tools: toolSnapshot('lookup') },
+      ] satisfies TurnEvent[]) {
+        onEvent(event);
+      }
+      return Promise.resolve();
+    },
+    invoke: (request_, onEvent) => {
+      decisions.push([request_.gateId, request_.decision]);
+      onEvent(settled(request_));
+      return Promise.resolve();
+    },
+    steer: () => Promise.reject(new Error('unused')),
+    describe: () => Promise.reject(new Error('unused')),
+  };
+  const iface = textInterface();
+  const paused = await streamInterfaceTurn({
+    iface,
+    transport,
+    session: emptyInterfaceTurnSession(),
+    onStream: () => {},
+    text: 'Look up a and b',
+    pendingFiles: [],
+    pendingVoice: [],
+  });
+  if (!paused.ok) throw new Error(paused.error);
+
+  const abandoned = await abandonGatedInterfaceTool({
+    iface,
+    transport,
+    session: paused.session,
+    onStream: () => {},
+  });
+  if (!abandoned.ok) throw new Error(abandoned.error);
+  assertEquals(decisions, [
+    ['a', 'abandon'],
+    ['b', 'abandon'],
+  ]);
+  assertEquals(turns, 1);
+  assertEquals(abandoned.session.gatedTool, null);
+  assertEquals(abandoned.session.assistantEvents, []);
+  assertEquals(
+    abandoned.session.history
+      .filter((message) => message.role === 'tool')
+      .map((message) => message.tool_call_id),
+    ['a', 'b'],
+  );
+});
+
+Deno.test('an abandon the host fails keeps what it settled and still waits on the rest', async () => {
+  const transport: TheoremTransport = {
+    turn: (_request, onEvent) => {
+      for (const event of [
+        request('a'),
+        gate('a'),
+        request('b'),
+        gate('b'),
+        { type: 'done', stop: { kind: 'gate' }, tools: toolSnapshot('lookup') },
+      ] satisfies TurnEvent[]) {
+        onEvent(event);
+      }
+      return Promise.resolve();
+    },
+    invoke: (request_, onEvent) => {
+      if (request_.gateId === 'b') return Promise.reject(new Error('host down'));
+      onEvent(settled(request_));
+      return Promise.resolve();
+    },
+    steer: () => Promise.reject(new Error('unused')),
+    describe: () => Promise.reject(new Error('unused')),
+  };
+  const iface = textInterface();
+  const paused = await streamInterfaceTurn({
+    iface,
+    transport,
+    session: emptyInterfaceTurnSession(),
+    onStream: () => {},
+    text: 'Look up a and b',
+    pendingFiles: [],
+    pendingVoice: [],
+  });
+  if (!paused.ok) throw new Error(paused.error);
+
+  const failed = await abandonGatedInterfaceTool({
+    iface,
+    transport,
+    session: paused.session,
+    onStream: () => {},
+  });
+  assertEquals(failed.ok, false);
+  if (failed.ok) return;
+  assertEquals(failed.session?.gatedTool?.callId, 'b');
 });

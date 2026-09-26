@@ -79,7 +79,6 @@ export type {
   ToolGateAuth,
 } from './session.ts';
 export {
-  abandonGatedToolSession,
   applyTurnEventsToSession,
   awaitingFromEvents,
   branchInterfaceTurnSession,

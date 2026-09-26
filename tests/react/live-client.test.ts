@@ -1,5 +1,5 @@
-import { assertEquals } from '@std/assert';
-import type { ToolGate, TurnEvent } from '../../mod.ts';
+import { assertEquals, assertThrows } from '@std/assert';
+import { TheoremError, type ToolGate, type TurnEvent } from '../../mod.ts';
 import {
   float32Rms,
   float32RmsToLevel,
@@ -15,6 +15,8 @@ import {
   downsampleAndConvertToInt16,
   pcm16BytesToFloat32,
 } from '../../react/src/client/pcm-downsample.ts';
+import type { HostErrorBody } from '../../react/src/client/transport.ts';
+import { parseLiveClientMessage } from '../../react/src/server/request-check.ts';
 
 Deno.test('isPermissionDeniedError detects permission denial variants', () => {
   assertEquals(isPermissionDeniedError(null), false);
@@ -32,11 +34,15 @@ Deno.test('isPermissionDeniedError detects permission denial variants', () => {
   assertEquals(isPermissionDeniedError(new Error('User denied audio permission')), true);
 });
 
+/** A relay envelope this client knows the kind of, but that fails its schema. */
+function assertBadEnvelope(raw: unknown): void {
+  const err = assertThrows(() => parseLiveServerEnvelope(raw), TheoremError);
+  assertEquals(err.kind, 'bad_response');
+  // The failure names what broke, never the value.
+  assertEquals(err.message.includes('secret-value'), false);
+}
+
 Deno.test('parseLiveServerEnvelope parses ready, events, error, and tool result payloads', () => {
-  assertEquals(parseLiveServerEnvelope(null), null);
-  assertEquals(parseLiveServerEnvelope('string'), null);
-  assertEquals(parseLiveServerEnvelope([]), null);
-
   assertEquals(
     parseLiveServerEnvelope({
       type: 'ready',
@@ -61,16 +67,10 @@ Deno.test('parseLiveServerEnvelope parses ready, events, error, and tool result 
     },
   );
 
-  assertEquals(
-    parseLiveServerEnvelope({
-      type: 'error',
-      error: 'Relay disconnected',
-    }),
-    {
-      type: 'error',
-      body: { type: 'error', error: 'Relay disconnected' },
-    },
-  );
+  assertEquals(parseLiveServerEnvelope({ type: 'error', error: 'Relay disconnected' }), {
+    type: 'error',
+    error: 'Relay disconnected',
+  });
 
   assertEquals(
     parseLiveServerEnvelope({ type: 'executeToolResult', callId: 'call_1', status: 'settled' }),
@@ -81,7 +81,7 @@ Deno.test('parseLiveServerEnvelope parses ready, events, error, and tool result 
     parseLiveServerEnvelope({ type: 'executeToolResult', callId: 'call_1', status: 'gated', gate }),
     { type: 'executeToolResult', callId: 'call_1', status: 'gated', gate },
   );
-  const body = {
+  const body: HostErrorBody = {
     error: 'Sorry, that step is no longer waiting for approval.',
     errorKind: 'request',
   };
@@ -94,15 +94,42 @@ Deno.test('parseLiveServerEnvelope parses ready, events, error, and tool result 
     }),
     { type: 'executeToolResult', callId: 'call_1', status: 'refused', body },
   );
-  // A gated reply without its gate, or a status the relay does not send, is not a reply.
-  assertEquals(
-    parseLiveServerEnvelope({ type: 'executeToolResult', callId: 'call_1', status: 'gated' }),
-    null,
-  );
-  assertEquals(
-    parseLiveServerEnvelope({ type: 'executeToolResult', callId: 'call_1', status: 'complete' }),
-    null,
-  );
+});
+
+Deno.test('an envelope or event of a kind this client does not know arrives as unsupported', () => {
+  const envelope = { type: 'presence', who: 'relay' };
+  assertEquals(parseLiveServerEnvelope(envelope), {
+    type: 'unsupported',
+    received: 'presence',
+    raw: envelope,
+  });
+  const event = { type: 'sparkle', level: 3 };
+  assertEquals(parseLiveServerEnvelope({ type: 'events', events: [event] }), {
+    type: 'events',
+    events: [{ type: 'unsupported', received: 'sparkle', raw: event }],
+  });
+});
+
+Deno.test('a malformed envelope, event or gate is a bad response', () => {
+  assertBadEnvelope(null);
+  assertBadEnvelope('string');
+  assertBadEnvelope([]);
+  assertBadEnvelope({ type: 'ready', profile: 7 });
+  assertBadEnvelope({
+    type: 'events',
+    events: [{ type: 'text', text: { secret: 'secret-value' } }],
+  });
+  assertBadEnvelope({ type: 'events', events: [{ text: 'no kind' }] });
+  // A gated reply without its gate, a gate that fails its schema, or a status the relay does not send.
+  assertBadEnvelope({ type: 'executeToolResult', callId: 'call_1', status: 'gated' });
+  assertBadEnvelope({
+    type: 'executeToolResult',
+    callId: 'call_1',
+    status: 'gated',
+    gate: { kind: 'confirmation', tool: 7 },
+  });
+  assertBadEnvelope({ type: 'executeToolResult', callId: 'call_1', status: 'complete' });
+  assertBadEnvelope({ type: 'error', errorKind: 'secret-value' });
 });
 
 Deno.test('audio-level calculates RMS and scales levels within bounds', () => {
@@ -218,4 +245,36 @@ Deno.test('a live call the model withdrew at its gate sends nothing more and rep
   });
   assertEquals(sent, [{ callId: 'call-gated' }]);
   assertEquals(reported, []);
+});
+
+Deno.test('a relay reads each live message by its schema; a malformed one is a request error', () => {
+  assertEquals(parseLiveClientMessage(JSON.stringify({ type: 'text', text: 'hi', extra: 1 })), {
+    type: 'text',
+    text: 'hi',
+  });
+  assertEquals(
+    parseLiveClientMessage(
+      JSON.stringify({ type: 'executeTool', callId: 'c', decision: 'approve', input: { id: 2 } }),
+    ),
+    { type: 'executeTool', callId: 'c', decision: 'approve', input: { id: 2 } },
+  );
+  for (const [text, message] of [
+    ['{nope', 'live message must be JSON'],
+    [
+      JSON.stringify({ type: 'video', data: 'x' }),
+      'live message failed its check: mimeType invalid_type',
+    ],
+    [
+      JSON.stringify({ type: 'executeTool', callId: '' }),
+      'live message failed its check: callId too_small',
+    ],
+    [
+      JSON.stringify({ type: 'executeTool', callId: 'c', decision: 'maybe' }),
+      'live message failed its check: decision invalid_value',
+    ],
+    [JSON.stringify({ type: 'wave' }), 'live message failed its check: type invalid_union'],
+  ] as const) {
+    const err = assertThrows(() => parseLiveClientMessage(text), TheoremError);
+    assertEquals([err.kind, err.message], ['request', message]);
+  }
 });

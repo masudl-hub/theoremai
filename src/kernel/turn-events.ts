@@ -959,21 +959,22 @@ const doneEvent = z.union([
   }),
 ]);
 
-const HOST_EVENTS = [
-  z.object({ type: z.literal('text'), text: z.string() }),
-  z.object({ type: z.literal('thought'), text: z.string() }),
-  z.object({ type: z.literal('structured'), structured: z.unknown() }),
-  z.object({
+/** Each kind's own schema: a wire parser checks a line against its kind's alone, so a failure names the field that broke. */
+const TURN_EVENTS = {
+  text: z.object({ type: z.literal('text'), text: z.string() }),
+  thought: z.object({ type: z.literal('thought'), text: z.string() }),
+  structured: z.object({ type: z.literal('structured'), structured: z.unknown() }),
+  media: z.object({
     type: z.literal('media'),
     media: z.object({ mimeType: z.string(), data: z.string() }),
   }),
-  z.object({ type: z.literal('grounding'), grounding: groundingEvent }),
-  z.object({
+  grounding: z.object({ type: z.literal('grounding'), grounding: groundingEvent }),
+  citation: z.object({
     type: z.literal('citation'),
     sources: z.array(source),
     callId: z.string().optional(),
   }),
-  z.object({
+  compaction: z.object({
     type: z.literal('compaction'),
     timing: z.literal('before'),
     meter: z.enum(COMPACTION_METERS),
@@ -985,20 +986,24 @@ const HOST_EVENTS = [
     history: z.array(turnHistoryMessage),
     tokens: turnTokens.optional(),
   }),
-  z.object({
+  evidence: z.object({
     type: z.literal('evidence'),
     evidence: providerEvidence,
     text: z.string().optional(),
     sessionResumptionHandle: z.string().optional(),
   }),
-  z.object({ type: z.literal('tokens'), tokens: turnTokens, interactionId: z.string().optional() }),
-  z.object({
+  tokens: z.object({
+    type: z.literal('tokens'),
+    tokens: turnTokens,
+    interactionId: z.string().optional(),
+  }),
+  session: z.object({
     type: z.literal('session'),
     session: sessionEvent,
     errorInternal: z.string().optional(),
   }),
-  z.object({ type: z.literal('guardrail'), guardrail: guardrailEventSchema }),
-  z.object({
+  guardrail: z.object({ type: z.literal('guardrail'), guardrail: guardrailEventSchema }),
+  stage: z.object({
     type: z.literal('stage'),
     stage: z.enum(TURN_STAGES),
     callId: z.string().optional(),
@@ -1013,21 +1018,44 @@ const HOST_EVENTS = [
       .min(1)
       .optional(),
   }),
-  z.object({
+  tool: z.object({
     type: z.literal('tool'),
     tool: toolCallEvent,
     errorInternal: z.string().optional(),
   }),
-  z.object({
+  error: z.object({
     type: z.literal('error'),
     errorKind: errorKindSchema,
     error: z.string().optional(),
     errorCopy: errorCopiesSchema.optional(),
     errorInternal: z.string().optional(),
   }),
-] as const;
+  done: doneEvent,
+};
 
-const turnEvent = z.union([z.discriminatedUnion('type', [...HOST_EVENTS]), doneEvent]);
+const turnEvent = z.union([
+  z.discriminatedUnion('type', [
+    TURN_EVENTS.text,
+    TURN_EVENTS.thought,
+    TURN_EVENTS.structured,
+    TURN_EVENTS.media,
+    TURN_EVENTS.grounding,
+    TURN_EVENTS.citation,
+    TURN_EVENTS.compaction,
+    TURN_EVENTS.evidence,
+    TURN_EVENTS.tokens,
+    TURN_EVENTS.session,
+    TURN_EVENTS.guardrail,
+    TURN_EVENTS.stage,
+    TURN_EVENTS.tool,
+    TURN_EVENTS.error,
+  ]),
+  TURN_EVENTS.done,
+]);
 true satisfies Equals<z.infer<typeof turnEvent>, TurnEvent>;
 /** What hosts receive and what the wire parsers check. */
 export const turnEventSchema: z.ZodType<TurnEvent> = turnEvent;
+
+/** Every `TurnEvent` kind and its schema: a wire parser tells a kind it doesn't know from a malformed one it does. */
+export const TURN_EVENT_SCHEMAS: { readonly [K in TurnEventType]: z.ZodType<TurnEventOf<K>> } =
+  TURN_EVENTS;

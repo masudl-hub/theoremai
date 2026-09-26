@@ -234,6 +234,7 @@ export {
 } from './tools/mod.ts';
 export {
   awaitingUserInputSchema,
+  TURN_EVENT_SCHEMAS,
   toolGateSchema,
   turnDoneOf,
   turnEventSchema,

@@ -31,12 +31,15 @@ export { citationsFromBlock, type SourceCitation, type SourceCitationBlock } fro
 export { createTraceFeed, type TraceFeed } from './trace-feed';
 export { buildInvokeRequest, buildTurnRequest, turnInputFromSession } from './turn-client';
 export {
+	type ClientTurnEvent,
 	createHttpTransport,
+	type HostErrorBody,
 	type HttpOptions,
 	type HttpTransportOptions,
 	isTheoremStreamError,
 	postJson,
 	postNdjson,
+	readNdjsonStream,
 	type TheoremInvokeRequest,
 	type TheoremReplay,
 	type TheoremSteerRequest,
@@ -45,4 +48,6 @@ export {
 	type TheoremTurnInput,
 	type TheoremTurnRequest,
 	type TurnEventSink,
+	type UnsupportedEvent,
+	type WireLines,
 } from './transport';

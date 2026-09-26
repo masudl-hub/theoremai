@@ -26,8 +26,8 @@ export async function runLiveToolCall(args: {
 		const { gate } = step;
 		const resolution = await args.waitForGateDecision({ callId, toolName: name, input: toolArgs, gate });
 		if (resolution === 'withdrawn') return;
-		const next = continueGatedToolInvocation({ toolName: name, gate, sessionPermissions, resolution });
-		if (next.kind === 'denied') {
+		const reply = continueGatedToolInvocation({ toolName: name, gate, sessionPermissions, resolution });
+		if (reply.decision === 'deny') {
 			await client.executeToolOnRelay({ callId, decision: 'deny' });
 			args.reportFailure(
 				new TheoremError(
@@ -39,16 +39,13 @@ export async function runLiveToolCall(args: {
 			);
 			return;
 		}
-		if (next.kind === 'continue') {
-			sessionPermissions = next.sessionPermissions;
-			args.setSessionPermissions(next.sessionPermissions);
-		}
+		sessionPermissions = reply.sessionPermissions;
+		args.setSessionPermissions(reply.sessionPermissions);
 		// Signed in: a typed key goes once, with the approval; after an OAuth callback there is none.
-		const secret = next.kind === 'auth' ? next.secret : undefined;
 		step = await client.executeToolOnRelay({
 			callId,
 			decision: 'approve',
-			...(secret !== undefined ? { secret } : {}),
+			...(reply.secret !== undefined ? { secret: reply.secret } : {}),
 		});
 	}
 }

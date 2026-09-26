@@ -134,6 +134,8 @@ export function useLiveSessionClient(bindings: LiveClientBindings) {
 				onLiveTranscript(text, isUser, meta, bindingsRef.current);
 			},
 			onTurnEvent: (event) => {
+				// An `unsupported` event is the host's to read; Theorem's UI shows nothing for it.
+				if (event.type === 'unsupported') return;
 				bindingsRef.current.handleLiveTurnEvent(event);
 			},
 			onTrace: (record) => {

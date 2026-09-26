@@ -10,7 +10,7 @@ import {
 	type UserTurnHistoryMedia,
 } from '../../../src/interface/mod.ts';
 import { type TurnFailure, turnFailure } from './failure.ts';
-import type { TheoremTransport } from './transport.ts';
+import type { TheoremTransport, TurnEventSink } from './transport.ts';
 import { buildTurnRequest, foldAssistantTurn, turnInputFromSession } from './turn-client.ts';
 
 /** The turn's history before its reply: a turn not yet started adds the user's message. */
@@ -24,7 +24,7 @@ function turnBaseHistory(
 }
 
 /** The turn is over: every event it streamed, gate resumes included, enters history once. */
-function commitCompletedTurn(
+export function commitCompletedTurn(
 	session: InterfaceTurnSession,
 	events: TurnEvent[],
 	media: UserTurnHistoryMedia = {},
@@ -82,14 +82,19 @@ function withFailedTurnSession(
 	return { ...failure, session: commit(failure.aborted ? seedEvents : events) };
 }
 
-/** Streams into `events`, which the caller owns, so a stream that fails still leaves what it delivered. */
+/**
+ * Streams into `events`, which the caller owns, so a stream that fails still
+ * leaves what it delivered. An `unsupported` line is the host's to read on its
+ * own transport: it never enters the turn, its history or its transcript.
+ */
 async function streamFoldedEvents(
-	stream: (onEvent: (event: TurnEvent) => void) => Promise<void>,
+	stream: (onEvent: TurnEventSink) => Promise<void>,
 	onStream: (blocks: TranscriptBlock[]) => void,
 	iface: ComposerProfileInterface,
 	events: TurnEvent[],
 ): Promise<TurnEvent[]> {
 	await stream((event) => {
+		if (event.type === 'unsupported') return;
 		events.push(event);
 		onStream(foldAssistantTurn(iface, events));
 	});
@@ -174,7 +179,7 @@ export function streamFoldedTurn(args: {
 	onStream: (blocks: TranscriptBlock[]) => void;
 	/** Seeded by the caller, and filled as the stream delivers. */
 	events: TurnEvent[];
-	stream: (onEvent: (event: TurnEvent) => void) => Promise<void>;
+	stream: (onEvent: TurnEventSink) => Promise<void>;
 }): Promise<TurnEvent[]> {
 	return streamFoldedEvents(args.stream, args.onStream, args.iface, args.events);
 }

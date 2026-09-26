@@ -39,7 +39,6 @@ import {
 } from '../../../providers/google/live/framing.ts';
 import { openGoogleLiveSession } from '../../../providers/google/live/session.ts';
 import type { GoAwayClose, SessionQueueItem } from '../../../providers/google/live/stream.ts';
-import { credentialForSignInGate } from '../../auth/typed-secret.ts';
 import type { ToolCredential } from '../../auth/types.ts';
 import type { KernelRegistry } from '../../registry/kernel-registry.ts';
 import { providerCompleteRequest } from '../../registry/provider-request.ts';
@@ -57,11 +56,10 @@ import { profileAllowsInject, stageAbortStop } from '../../stop.ts';
 import { failureEvent } from '../../tools/events.ts';
 import { executeRegisteredTool, type ToolExecuteSettlement } from '../../tools/execute.ts';
 import {
-  type GateAnswer,
+  answerGatedCall,
   gateExpired,
   resolveGateTtlMs,
   resumeForAnswer,
-  sessionPermissionsAfterApproval,
 } from '../../tools/gate-answer.ts';
 import { formatToolFailureForModel, formatToolResult } from '../../tools/model-text.ts';
 import type { ToolRegistry } from '../../tools/registry.ts';
@@ -965,32 +963,24 @@ function buildLiveSession(args: {
           `call ${callId} is waiting on a gate; answer it with a decision`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         );
       }
-      if ((input !== undefined || secret !== undefined) && decision !== 'approve') {
-        throw new TheoremError(
-          'request',
-          `only an approval takes edited input or a secret (call ${callId})`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-        );
+      const answered = answerGatedCall(
+        { callId, decision, input, secret },
+        {
+          name: held.name,
+          arguments: held.arguments,
+          permission: gate.permission,
+          ...(gate.kind === 'auth' ? { auth: gate.authChallenge } : {}),
+        },
+        sessionPermissions ?? [],
+      );
+      if (answered.typed) {
+        sessionCredentials = {
+          ...sessionCredentials,
+          [answered.typed.slot]: answered.typed.credential,
+        };
       }
-      if (secret !== undefined) {
-        // A refused secret throws here, and the gate keeps waiting for another.
-        const typed = credentialForSignInGate(
-          gate.kind === 'auth' ? gate.authChallenge : undefined,
-          secret,
-        );
-        sessionCredentials = { ...sessionCredentials, [typed.slot]: typed.credential };
-      }
-      const answer: GateAnswer =
-        decision === 'approve'
-          ? { decision, ...(input !== undefined ? { edited: { from: held.arguments } } : {}) }
-          : { decision };
-      if (decision === 'approve') {
-        sessionPermissions = sessionPermissionsAfterApproval(
-          sessionPermissions ?? [],
-          held.name,
-          gate.permission,
-        );
-      }
-      return await runHeld(callId, held, input ?? held.arguments, resumeForAnswer(answer), {
+      sessionPermissions = answered.sessionPermissions;
+      return await runHeld(callId, held, answered.input, answered.resume, {
         credentials,
         host,
       });

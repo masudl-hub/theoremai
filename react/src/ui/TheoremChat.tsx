@@ -275,8 +275,8 @@ function ChatBody({
 									imageOutput={
 										iface.type === 'image' ? { ratio: parseAspectRatio(iface.image.aspectRatio) } : undefined
 									}
-									onToolDecision={(index, action, value) => {
-										void chat.handleToolDecision(index, action, value);
+									onToolDecision={(index, action) => {
+										void chat.handleToolDecision(index, action);
 									}}
 									onAuthenticated={(index, secret) => {
 										void chat.handleAuthenticated(index, secret);

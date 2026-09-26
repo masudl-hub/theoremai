@@ -10,7 +10,6 @@ import {
 } from '@astryxdesign/core/Chat';
 import { Citation } from '@astryxdesign/core/Citation';
 import { ClickableCard } from '@astryxdesign/core/ClickableCard';
-import { CodeBlock } from '@astryxdesign/core/CodeBlock';
 import { Collapsible } from '@astryxdesign/core/Collapsible';
 import { HStack } from '@astryxdesign/core/HStack';
 import { Icon } from '@astryxdesign/core/Icon';
@@ -45,6 +44,7 @@ import {
 import { useDisclosureMotion } from './disclosure-motion';
 import { type LabelText, workDuration, workStatusLabel } from './labels';
 import { TheoremLabelsProvider, useLabels } from './labels-provider';
+import { ShapedData } from './ShapedData';
 import { transcriptBlockCopyText } from './transcript-copy-text';
 import { ApprovalCard, AuthChallengeCard, type ToolDecision } from './ToolGateCard';
 import { VoiceNote } from './VoiceNote';
@@ -58,7 +58,7 @@ export type ChatTranscriptProps = {
 	streaming?: boolean;
 	/** How far the latest message has got; shown on it unless its turn failed. */
 	delivery?: Exclude<ChatMessageStatus, 'error'> | null;
-	onToolDecision?: (index: number, action: ToolDecision, interactiveValue?: unknown) => void;
+	onToolDecision?: (index: number, action: ToolDecision) => void;
 	/** Signed in at a gate: `secret` is a key the user typed; after an OAuth callback there is none. */
 	onAuthenticated?: (index: number, secret?: string) => void;
 	emptyState?: ReactNode;
@@ -194,7 +194,8 @@ function MessageChrome(props: { at: number; copyText: string; status?: ChatMessa
 	return (
 		<>
 			{metadata}
-			<Tooltip anchorRef={mark} content={props.error} />
+			{/* The tooltip sits beside the row, inside a user message's end-aligned text. */}
+			<Tooltip anchorRef={mark} content={<div style={{ textAlign: 'start' }}>{props.error}</div>} />
 		</>
 	);
 }
@@ -415,7 +416,7 @@ function ResultBlock({ block }: { block: TranscriptBlock }) {
 		case 'citation':
 			return <Sources block={block} />;
 		case 'structured':
-			return <CodeBlock code={JSON.stringify(block.value, null, 2)} language="json" size="sm" />;
+			return <ShapedData value={block.value} />;
 		case 'media':
 			return <MediaBlock block={block} />;
 		default:
@@ -423,17 +424,13 @@ function ResultBlock({ block }: { block: TranscriptBlock }) {
 	}
 }
 
-function toolJson(title: string, value: unknown): ReactNode {
-	return (
-		<CodeBlock title={title} code={JSON.stringify(value, null, 2)} language="json" hasLanguageLabel={false} size="sm" />
-	);
-}
-
 /** A call's detail: what it ran with, then what came back. */
 function toolDetail(t: LabelText, tool: ToolBlock['tool'], result?: ReactNode): ReactNode {
-	const input = tool.edited
-		? toolJson(t('@theorem.transcript.tool_input_edited'), tool.edited.to)
-		: toolJson(t('@theorem.transcript.tool_input'), tool.arguments);
+	const input = tool.edited ? (
+		<ShapedData value={tool.edited.to} title={t('@theorem.transcript.tool_input_edited')} />
+	) : (
+		<ShapedData value={tool.arguments} title={t('@theorem.transcript.tool_input')} />
+	);
 	return (
 		<VStack gap={2}>
 			{input}
@@ -453,7 +450,11 @@ function toolCallItem(t: LabelText, id: string, tool: ToolBlock['tool']): ChatTo
 				status: 'error',
 				target: state.failure.message,
 				errorMessage: state.failure.message,
-				resultDetail: toolDetail(t, tool, toolJson(t('@theorem.transcript.tool_error'), state.failure)),
+				resultDetail: toolDetail(
+					t,
+					tool,
+					<ShapedData value={state.failure} title={t('@theorem.transcript.tool_error')} />,
+				),
 			};
 		case 'complete':
 			return {
@@ -465,7 +466,9 @@ function toolCallItem(t: LabelText, id: string, tool: ToolBlock['tool']): ChatTo
 				resultDetail: toolDetail(
 					t,
 					tool,
-					state.output === undefined ? undefined : toolJson(t('@theorem.transcript.tool_output'), state.output),
+					state.output === undefined ? undefined : (
+						<ShapedData value={state.output} title={t('@theorem.transcript.tool_output')} />
+					),
 				),
 			};
 		case 'running':

@@ -22,6 +22,25 @@ The playground's run-tab handoff (`savePlaygroundRunPayload`,
 `readPlaygroundRunIdFromUrl`, …) lives in `@theoremai/playground`; see
 [`playground/README.md`](../playground/README.md).
 
+## The wire
+
+Turn lines, live envelopes, request bodies and live messages are each checked
+against their schema, both ways (the profile interface `describe` returns is
+not yet):
+
+- **Browser → host.** `createTheoremHandler` reads `/turn`, `/invoke` and
+  `/steer` bodies with `theoremTurnRequestSchema`, `theoremInvokeRequestSchema`
+  and `theoremSteerRequestSchema`; a missing or malformed field is a `request`
+  error (400). `/invoke` answers a paused call by its `gateId` with a
+  `decision`: `approve` (with `input` when the user edited it, `secret` at a
+  sign-in gate), `deny`, or `abandon` (the user sent a new message instead).
+  The host settles each one. A relay reads the live client's messages with
+  `parseLiveClientMessage`.
+- **Host → browser.** The transport and the live client read each line or
+  envelope against its kind's schema. A kind the client does not know reaches
+  the event handler as `unsupported` and the turn goes on; a known kind that
+  fails its schema ends the turn with `bad_response`.
+
 ## Local layout
 
 ```text
@@ -113,8 +132,9 @@ This package wires AbortSignal, the pending bar, and playground turn/steer HTTP.
 
 Enter matches the primary action. No keyboard shortcuts for stash/steer.
 
-Send now while gated abandons the tool wait (`abandonGatedInterfaceTool`) without
-continuing the model, then starts a new user turn. Steer POSTs use the Cache API
+Send now while gated answers each waiting gate `abandon` (`abandonGatedInterfaceTool`):
+the host settles the call cancelled, without continuing the model, then a new user
+turn starts. If the host cannot settle it, the message stays in the composer. Steer POSTs use the Cache API
 on Cloudflare (process Map locally) so mid-turn injects work across isolates.
 Live sessions key the same inbox by `sessionId` from relay `ready`.
 

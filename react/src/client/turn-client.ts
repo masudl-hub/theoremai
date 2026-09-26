@@ -1,4 +1,4 @@
-import type { TurnEvent } from '../../../mod.ts';
+import type { GateDecision, TurnEvent } from '../../../mod.ts';
 import {
 	type AttachmentValidationIssue,
 	type ComposerProfileInterface,
@@ -13,7 +13,6 @@ import { filesToPending } from './encode-files.ts';
 import { defaultModel } from './generation-selection.ts';
 import type {
 	TheoremInvokeRequest,
-	TheoremReplay,
 	TheoremTurnInput,
 	TheoremTurnRequest,
 } from './transport.ts';
@@ -79,20 +78,21 @@ export function buildInvokeRequest(
 	session: InterfaceTurnSession,
 	args: {
 		gateId: string;
+		decision: GateDecision;
 		name: string;
+		/** The model's input to the call. */
 		input: unknown;
-		resume?: TheoremReplay['resume'];
 		sessionPermissions?: string[];
 		secret?: string;
 	},
 ): TheoremInvokeRequest {
 	return {
 		gateId: args.gateId,
+		decision: args.decision,
 		...(args.secret === undefined ? {} : { secret: args.secret }),
 		replay: {
 			name: args.name,
 			input: args.input,
-			resume: args.resume,
 			sessionPermissions: args.sessionPermissions ?? session.sessionPermissions,
 			turnInput: turnInputFromSession(session),
 			...(session.toolSnapshot ? { snapshot: session.toolSnapshot } : {}),

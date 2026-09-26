@@ -396,8 +396,23 @@ function ResultBlock({ block }: { block: TranscriptBlock }) {
 	}
 }
 
-function toolDetail(detail: unknown): ReactNode {
-	return <CodeBlock code={JSON.stringify(detail, null, 2)} language="json" size="sm" />;
+function toolJson(title: string, value: unknown): ReactNode {
+	return (
+		<CodeBlock title={title} code={JSON.stringify(value, null, 2)} language="json" hasLanguageLabel={false} size="sm" />
+	);
+}
+
+/** A call's detail: what it ran with, then what came back. */
+function toolDetail(t: LabelText, tool: ToolBlock['tool'], result?: ReactNode): ReactNode {
+	const input = tool.edited
+		? toolJson(t('@theorem.transcript.tool_input_edited'), tool.edited.to)
+		: toolJson(t('@theorem.transcript.tool_input'), tool.arguments);
+	return (
+		<VStack gap={2}>
+			{input}
+			{result}
+		</VStack>
+	);
 }
 
 function toolCallItem(t: LabelText, id: string, tool: ToolBlock['tool']): ChatToolCallItem {
@@ -409,7 +424,7 @@ function toolCallItem(t: LabelText, id: string, tool: ToolBlock['tool']): ChatTo
 				...base,
 				status: 'error',
 				errorMessage: JSON.stringify(state.failure),
-				resultDetail: toolDetail(state.failure),
+				resultDetail: toolDetail(t, tool, toolJson(t('@theorem.transcript.tool_error'), state.failure)),
 			};
 		case 'complete':
 			return {
@@ -418,12 +433,16 @@ function toolCallItem(t: LabelText, id: string, tool: ToolBlock['tool']): ChatTo
 				...(tool.startedAt !== undefined && tool.endedAt !== undefined
 					? { duration: workDuration(t, tool.endedAt - tool.startedAt) }
 					: {}),
-				...(state.output !== undefined ? { resultDetail: toolDetail(state.output) } : {}),
+				resultDetail: toolDetail(
+					t,
+					tool,
+					state.output === undefined ? undefined : toolJson(t('@theorem.transcript.tool_output'), state.output),
+				),
 			};
 		case 'running':
-			return { ...base, status: 'running' };
+			return { ...base, status: 'running', resultDetail: toolDetail(t, tool) };
 		default:
-			return { ...base, status: 'pending' };
+			return { ...base, status: 'pending', resultDetail: toolDetail(t, tool) };
 	}
 }
 

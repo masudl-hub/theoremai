@@ -6,7 +6,8 @@ const DEMO_ATTACHMENT_ACCEPT = ATTACHMENT_ACCEPT_MIMES.filter(
 );
 const DEMO_VOICE_ACCEPT = VOICE_ACCEPT_MIMES.filter((mime) => mime === 'audio/*');
 
-const NOMINATIM_HEADERS = `{
+// Nominatim and Wikipedia refuse requests that don't name their client.
+const DEMO_CLIENT_HEADERS = `{
   "User-Agent": "TheoremPlayground/1.0 (travel demo; +https://github.com/theoremai)"
 }`;
 
@@ -124,7 +125,7 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       paths: ['*'],
       endpoint: 'https://nominatim.openstreetmap.org/search?format=json&addressdetails=1',
       method: 'GET',
-      headersJson: NOMINATIM_HEADERS,
+      headersJson: DEMO_CLIENT_HEADERS,
       queryParams: ['q', 'limit'],
       inputJson: `{
   "type": "object",
@@ -150,7 +151,7 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       paths: ['*'],
       endpoint: 'https://nominatim.openstreetmap.org/reverse?format=json',
       method: 'GET',
-      headersJson: NOMINATIM_HEADERS,
+      headersJson: DEMO_CLIENT_HEADERS,
       queryParams: ['lat', 'lon'],
       inputJson: `{
   "type": "object",
@@ -343,6 +344,7 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       paths: ['*'],
       endpoint: 'https://en.wikipedia.org/api/rest_v1/page/summary/{title}',
       method: 'GET',
+      headersJson: DEMO_CLIENT_HEADERS,
       pathParams: ['title'],
       inputJson: `{
   "type": "object",

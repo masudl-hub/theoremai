@@ -4,10 +4,12 @@
  * Matches runTurn semantics:
  *   • the reply stream (text deltas and the spoken-reply transcript) is held in
  *     the progressive-yield lookback; thoughts are unguarded (`isGuardedOutput`)
- *   • audio and other media wait behind the reply that preceded them, so speech
- *     is heard only after its transcript clears the scan
- *   • any other event releases what is held (in order), then passes after a
- *     whole-event canary scan
+ *   • audio and other media are held to the end of the cycle: the transcript
+ *     lags the audio it describes and carries no timing, so only the whole
+ *     cycle's transcript covers it. Audio in a cycle with no transcript is
+ *     dropped (fail closed)
+ *   • any other event releases the reply held before it, then passes after a
+ *     whole-event canary scan; held audio stays held
  *   • canary-only profiles withhold immediately on leak
  *   • with egress.enforce, a hit withholds the rest of the cycle; finalize
  *     releases it (allow), rewrites it (redact), or refuses/withholds it (block)
@@ -40,8 +42,8 @@ import type {
 
 /**
  * One piece of output not yet released: a reply-stream chunk covering
- * `[start, end)` of the gate's window, or media (`start === end`) that waits
- * until the reply before it has cleared.
+ * `[start, end)` of the gate's window, or media (`start === end`), which waits
+ * for the end of the cycle.
  */
 export interface LiveHeldOutput {
   event: TurnEvent;
@@ -70,6 +72,8 @@ export type LiveOutboundBatchResult =
   | { action: 'emit'; events: TurnEvent[] }
   | { action: 'withhold'; error: TheoremError; events?: TurnEvent[] }
   | { action: 'idle' };
+
+const UNTRANSCRIBED_HIT: GuardrailHit = { rule: 'live.untranscribed-audio', severity: 'high' };
 
 function egressSpec(session: LiveOutboundGateSession): ProfileEgressSpec | undefined {
   return session.policy.egress;
@@ -132,7 +136,7 @@ function clearedTo(gate: ProgressiveYieldGate): number {
 
 /**
  * Release held output up to window offset `to`: reply chunks as far as they
- * reach, media once everything before it is out. Stops at the first item that
+ * reach, media only at the end of the cycle. Stops at the first item that
  * cannot go yet, so the host sees output in arrival order.
  */
 function releaseHeld(
@@ -140,6 +144,7 @@ function releaseHeld(
   gate: ProgressiveYieldGate,
   to: number,
   into: TurnEvent[],
+  cycleEnd = false,
 ): void {
   const window = gate.accumulated();
   for (let item = session.held[0]; item !== undefined; item = session.held[0]) {
@@ -153,6 +158,9 @@ function releaseHeld(
       return;
     }
     if (item.start === item.end) {
+      if (!cycleEnd) {
+        return;
+      }
       into.push(item.event);
     }
     session.held.shift();
@@ -197,18 +205,14 @@ async function flushHeld(
   return applyScan(session, gate, await gate.flush(), into);
 }
 
-/** Hold one media event behind the reply before it; it goes as soon as that has cleared. */
+/** Hold one media event until the end of the cycle, behind the reply before it. */
 function holdMedia(
   session: LiveOutboundGateSession,
   gate: ProgressiveYieldGate,
   event: TurnEvent,
-  into: TurnEvent[],
 ): void {
   const at = gate.accumulated().length;
   session.held.push({ event, start: at, end: at });
-  if (!session.withholdVisible) {
-    releaseHeld(session, gate, clearedTo(gate), into);
-  }
 }
 
 async function holdStreamChunk(
@@ -252,7 +256,7 @@ async function processLiveOutboundBatch(
     }
 
     if (event.type === 'media') {
-      holdMedia(session, gate, event, toEmit);
+      holdMedia(session, gate, event);
       continue;
     }
 
@@ -300,8 +304,20 @@ async function finalEgressVerdict(
     }
     return withholdResult(WITHHELD_REASON.egress, verdict.hits, prior);
   }
-  releaseHeld(session, gate, gate.accumulated().length, events);
+  releaseHeld(session, gate, gate.accumulated().length, events, true);
   return emitOrIdle(events);
+}
+
+/**
+ * A cycle that held audio but produced no transcript: nothing checked the
+ * audio, so it is dropped and reported, never released.
+ */
+function dropUntranscribed(session: LiveOutboundGateSession, events: TurnEvent[]): TurnEvent[] {
+  if (session.held.length === 0) {
+    return events;
+  }
+  const guardrail = guardrailFromHits('live_outbound', 'untrusted', [UNTRANSCRIBED_HIT], 'block');
+  return guardrail ? [...events, guardrail] : events;
 }
 
 async function finalizeCycle(
@@ -313,10 +329,14 @@ async function finalizeCycle(
   if (stopped) {
     return stopped;
   }
+  if (!gate.accumulated()) {
+    return emitOrIdle(dropUntranscribed(session, events));
+  }
   const egress = egressSpec(session);
-  if (egress && gate.accumulated()) {
+  if (egress) {
     return await finalEgressVerdict(session, gate, egress, events);
   }
+  releaseHeld(session, gate, gate.accumulated().length, events, true);
   return emitOrIdle(events);
 }
 

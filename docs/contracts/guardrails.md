@@ -27,7 +27,7 @@ Owns every module under `src/guardrails/`.
 | `sensitive.ts` | Credential / PII span patterns |
 | `canary.ts` | Per-turn canary mint/bind, stream gate, leak scan |
 | `canary-gate.ts` | Canary-only batch helper (`createCanaryGateSession`) |
-| `live-outbound-gate.ts` | Live outbound progressive-yield (canary + egress lookback; audio held behind its transcript) |
+| `live-outbound-gate.ts` | Live outbound progressive-yield (canary + egress lookback; audio held to the end of its cycle) |
 | `progressive-yield.ts` | Streaming lookback gate for canary / sensitive / host enforce |
 | `egress.ts` | `standardEgressEnforce` / `collectEgressHits` bundled outbound policy |
 | `corpus/` | Adversarial bank (live attacks, inbound fuzz, canary egress catalog) |
@@ -184,14 +184,18 @@ prompt (canary included) as it reasons; a host that shows thoughts
 
 **Live speech is guarded like text.** In Live the reply stream is text deltas
 and the spoken reply's transcript (`output_transcription` evidence); both run
-through progressive yield (`isStreamedCanaryEvent`). Audio and other media wait
-behind the reply that preceded them and go only once it has cleared, so speech
-is heard after its transcript passes the scan: canary-only, only a transcript
-tail that could start a leak waits; under egress, up to `egress.holdback`
-characters, so a reply shorter than that is heard when its cycle's transcript
-ends. Any
-other event (tool call, `turn_complete`, …) releases what is held, in order,
-first. The window spans one conversational cycle: `finalizeLiveOutboundTurn`
+through progressive yield (`isStreamedCanaryEvent`). A native-audio model's
+transcript trails the audio it describes and carries no timing, so audio and
+other media are held to the end of the cycle and released once the cycle's
+whole transcript has passed: speech is never heard before it is checked. Reply
+text before the first audio streams as it clears (canary-only, only a tail that
+could start a leak waits; under egress, up to `egress.holdback` characters).
+Audio in a cycle that produced no transcript is dropped with a
+`live.untranscribed-audio` guardrail event. A guarded profile (canary or
+`egress.enforce`) always requests the output transcript:
+`resolveTurn` forces `live.transcription.output` on. Any
+other event (tool call, `turn_complete`, …) goes at once, after the reply held
+before it; held audio stays held. The window spans one conversational cycle: `finalizeLiveOutboundTurn`
 judges the cycle's whole reply and starts the next, `abortLiveOutboundTurn`
 (interruption) drops what is held. After a mid-cycle egress hit the rest of the
 cycle is held: a final `allow` releases it, `redact` or a refusal replaces it

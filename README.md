@@ -506,9 +506,13 @@ Thoughts are not guarded: no canary scan, no egress. A thinking model restates i
 prompt as it reasons, and a host that shows thoughts (`outputs.streaming.streamThoughts`)
 accepts what they hold.
 
-In Live, the spoken reply's transcript runs through the same window and audio waits behind it:
-speech plays only once its transcript has cleared. Canary-only, that is almost at once; under
-`egress.enforce` a guarded voice reply starts up to the lookback later.
+In Live, the spoken reply's transcript runs through the same window. A native-audio model's
+transcript trails its audio and carries no timing, so a guarded profile (canary or
+`egress.enforce`) holds each reply's audio until the reply ends and its whole transcript has
+passed: you hear the reply once it has finished generating, never before it is checked. Guarded
+Live profiles always ask the provider for the output transcript (`live.transcription.output` is
+forced on). Audio from a reply that produced no transcript is dropped, not played. A profile with
+neither a canary nor `egress.enforce` streams audio as it arrives.
 
 ### Stage hooks
 

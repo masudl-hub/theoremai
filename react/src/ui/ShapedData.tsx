@@ -5,7 +5,6 @@ import { useLocale } from '@astryxdesign/core/i18n';
 import { Link } from '@astryxdesign/core/Link';
 import { List, ListItem } from '@astryxdesign/core/List';
 import { MetadataList, MetadataListItem } from '@astryxdesign/core/MetadataList';
-import { ScrollableArea } from '@astryxdesign/core/ScrollableArea';
 import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
 import { Table, type TableColumn } from '@astryxdesign/core/Table';
 import { Text } from '@astryxdesign/core/Text';
@@ -523,16 +522,13 @@ export function ShapedData({ value: raw, title }: { value: unknown; title?: stri
 					</SegmentedControl>
 				)}
 			</HStack>
-			{/* A long result scrolls in place rather than stretching the transcript. */}
-			<ScrollableArea label={title ?? t('@theorem.data.shaped')} style={{ maxHeight: 360 }}>
-				{view === 'json' && structured ? (
-					<Json value={value} />
-				) : (
-					<ShapeBoundary fallback={<Json value={value} />}>
-						<Node value={value} depth={0} />
-					</ShapeBoundary>
-				)}
-			</ScrollableArea>
+			{view === 'json' && structured ? (
+				<Json value={value} />
+			) : (
+				<ShapeBoundary fallback={<Json value={value} />}>
+					<Node value={value} depth={0} />
+				</ShapeBoundary>
+			)}
 		</VStack>
 	);
 }

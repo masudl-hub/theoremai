@@ -872,9 +872,14 @@ Deno.test('canary stream gate catches a spelled-out leak split across chunks', (
 
 Deno.test('canaryHoldFrom holds a spelled opening through a word the chunk cut off', () => {
   const canary = 'b8d3e3616fea1b7bfcb0bfb750bffe3d';
+  // "th" is the start of "three", the fourth character: it must not read as nothing and
+  // leave the opening too short to hold.
+  assertEquals(canaryHoldFrom('Sure: bravo eight delta th', canary), 'Sure: '.length);
+  assertEquals(canaryHoldFrom('Sure: bravo eight delta three', canary), 'Sure: '.length);
   // "e" is the start of "eight": it must not read as the letter e and break the opening.
-  assertEquals(canaryHoldFrom('Sure: bravo e', canary), 'Sure: '.length);
-  assertEquals(canaryHoldFrom('Sure: bravo eight', canary), 'Sure: '.length);
+  assertEquals(canaryHoldFrom('Sure: bravo eight delta three e', canary), 'Sure: '.length);
+  // Three characters are shorter than an opening the hold keeps back.
+  assertEquals(canaryHoldFrom('Sure: bravo eight delta', canary), 'Sure: bravo eight delta'.length);
   // A cut word that cannot become token characters is not held.
   assertEquals(canaryHoldFrom('Sure: hel', canary), 'Sure: hel'.length);
 });

@@ -308,9 +308,32 @@ function couldSpell(written: string, alphabet: Set<string>): string {
     .join('');
 }
 
-/** Where the opening of `form` at the end of `kept` starts, if any. */
-function openingFrom(kept: string, at: number[], form: CanaryLeakForm): number | undefined {
-  for (let size = Math.min(kept.length, form.value.length - 1); size > 0; size--) {
+/**
+ * The shortest opening of a leak the hold keeps back. Shorter openings go out,
+ * so ordinary text is not held on every letter a token could start with; the
+ * cost is that a blocked leak shows the host at most this many characters less
+ * one — 3 of a 16-character run, where any run under 16 already passes.
+ */
+const CANARY_OPENING_MIN = 4;
+
+/** `CANARY_OPENING_MIN`, scaled down for a form whose leak run is short. */
+function openingMin(form: CanaryLeakForm): number {
+  return Math.min(CANARY_OPENING_MIN, Math.ceil(form.min / CANARY_OPENING_MIN));
+}
+
+/** How short an opening a caller keeps: the hold's minimum, or any opening at all. */
+type OpeningMin = (form: CanaryLeakForm) => number;
+
+const ANY_OPENING: OpeningMin = () => 1;
+
+/** Where the opening of `form` at the end of `kept` starts, if one is at least `shortest` long. */
+function openingFrom(
+  kept: string,
+  at: number[],
+  form: CanaryLeakForm,
+  shortest: number,
+): number | undefined {
+  for (let size = Math.min(kept.length, form.value.length - 1); size >= shortest; size--) {
     if (kept.endsWith(form.value.slice(0, size))) {
       return at[kept.length - size];
     }
@@ -508,22 +531,32 @@ function scanTextForCanaryLeak(text: string, canary: string): boolean {
 
 /**
  * Offset from which `text` must stay held: the earliest point where what
- * follows is the start of a leak form, and so could still grow into a leak.
- * Everything before it is safe to release whatever arrives next.
+ * follows is an opening of a leak form at least `CANARY_OPENING_MIN` long,
+ * and so could still grow into a leak. A shorter opening is released; the
+ * scan still reads it with what follows, so the leak it grows into is caught.
  */
 function canaryHoldFrom(text: string, canary: string): number {
+  return leakOpeningFrom(text, canary, openingMin);
+}
+
+/** Where the earliest opening of any leak form at least `minimum(form)` long starts in `text`. */
+function leakOpeningFrom(text: string, canary: string, minimum: OpeningMin): number {
   let from = text.length;
   if (!canary) {
     return from;
   }
   for (const form of canaryLeakForms(canary)) {
     const { kept, at, unfinished } = form.project(text);
-    const openings = [openingFrom(kept, at, form)];
+    const shortest = minimum(form);
+    const openings = [openingFrom(kept, at, form, shortest)];
     if (unfinished) {
       // An opening before the last word stays held until that word ends, whatever it reads as now.
-      openings.push(openingFrom(kept.slice(0, unfinished.settled), at, form));
-      if (unfinished.spells.includes(form.value.charAt(0))) {
-        openings.push(unfinished.at);
+      const settled = kept.slice(0, unfinished.settled);
+      openings.push(openingFrom(settled, at, form, shortest));
+      // The last word may still grow into a spelled character that makes one long enough.
+      const grown = [...at.slice(0, unfinished.settled), unfinished.at];
+      for (const char of unfinished.spells) {
+        openings.push(openingFrom(settled + char, grown, form, shortest));
       }
     }
     for (const opening of openings) {
@@ -562,10 +595,11 @@ function canaryScanFrom(text: string, from: number): number {
 /**
  * The tail of a finished window that could still open a leak: what the next
  * window of the same canary scans in front of its own text. Carried forward
- * as it grows, it bounds the carry to one token's length.
+ * as it grows, it bounds the carry to one token's length. Unlike the hold it
+ * keeps openings of any length: a leak split across windows is still one run.
  */
 function canaryCarry(text: string, canary: string): string {
-  return text.slice(canaryHoldFrom(text, canary));
+  return text.slice(leakOpeningFrom(text, canary, ANY_OPENING));
 }
 
 /** `text` with every detected canary leak replaced by `OMIT_CANARY`. */

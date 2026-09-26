@@ -496,8 +496,8 @@ flowchart TD
 
 Text reaches your client as it clears the progressive-yield window. The window holds back the
 last stretch of output so a secret split across chunks can't slip out. It holds what the scan can
-catch: for the canary, only a tail that could still be the start of a leak (usually nothing, so
-canary-only output streams almost at once); with `egress.enforce`, also `egress.holdback`
+catch: for the canary, only a tail of 4 or more characters that could still be the start of a leak
+(usually nothing, so canary-only output streams almost at once; a blocked leak shows at most 3); with `egress.enforce`, also `egress.holdback`
 characters (256 by default). The end-of-attempt verdict is final: anything held
 back mid-stream that the final check clears gets released, not dropped.
 

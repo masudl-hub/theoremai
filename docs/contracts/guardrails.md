@@ -212,16 +212,21 @@ are a leak, so a truncated token is caught too. Characters more than 32
 apart are not read as one token, which bounds the hold: the gate holds just
 the tail that could still be the start of a leak (`canaryHoldFrom`) — usually
 nothing, never more than a few words — so canary-only output streams almost at
-once. A scan rereads only the text a new leak could reach back into
-(`canaryScanFrom`), so its cost grows with the reply, not its square. What the
+once. An opening shorter than 4 characters of a form is released, so ordinary
+text is not held on every letter a token could start with; the scan still reads
+it with what follows, so a blocked leak has shown the host at most 3 of its
+characters (fewer for a form whose leak run is shorter than 16). A scan rereads
+only the text a new leak could reach back into (`canaryScanFrom`; the prompt
+echo check its own shorter lookback, `promptEchoScanFrom`), so its cost grows
+with the reply, not its square. What the
 scan cannot read: arbitrary ciphers and arithmetic (a Caesar shift, the token
 as one big number, base64 of an already transformed token), and a token spread
 one character per sentence. Under
 `egress.enforce` the gate also holds `egress.holdback` characters (default
 `DEFAULT_HOLDBACK`, 256), plus any incomplete PEM body until its END line.
 `redactCanary` and the trace and upstream-tape scrubbers replace every form the
-scan detects. A window that ends on a possible leak opening carries it
-(`canaryCarry`) into the next window of the same canary — the next provider
+scan detects. A window that ends on a possible leak opening of any length
+carries it (`canaryCarry`) into the next window of the same canary — the next provider
 call of a `runTurn`, the next Live cycle — so a token split across tool steps
 or cycles is one match: the turn or session ends when it completes, and only
 the chunks before the completing one were released. `defineProfile` rejects a

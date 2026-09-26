@@ -226,3 +226,39 @@ Deno.test('createProgressiveYieldGate carries nothing that cannot open a leak', 
   assertEquals(gate.carryOut(), '');
   assertEquals(createProgressiveYieldGate({ context: ctx() }).carryOut(), '');
 });
+
+Deno.test('createProgressiveYieldGate releases a three-character opening and blocks the leak it grows into', async () => {
+  const canary = 'b8d3e3616fea1b7bfcb0bfb750bffe3d';
+  const gate = createProgressiveYieldGate({ context: ctx(canary) });
+  // Shorter than an opening the hold keeps back: it goes out.
+  assertEquals(await gate.process(`Here: ${canary.slice(0, 3)}`), {
+    blocked: false,
+    emit: `Here: ${canary.slice(0, 3)}`,
+  });
+  // The rest of the token still reads as one leak with what was released.
+  const next = await gate.process(canary.slice(3));
+  assertEquals(next.blocked, true);
+});
+
+Deno.test('createProgressiveYieldGate holds a four-character opening', async () => {
+  const canary = 'b8d3e3616fea1b7bfcb0bfb750bffe3d';
+  const gate = createProgressiveYieldGate({ context: ctx(canary) });
+  assertEquals(await gate.process(`Here: ${canary.slice(0, 4)}`), {
+    blocked: false,
+    emit: 'Here: ',
+  });
+  assertEquals((await gate.process(canary.slice(4))).blocked, true);
+});
+
+Deno.test('createProgressiveYieldGate carries a released short opening into the next window', async () => {
+  const canary = 'b8d3e3616fea1b7bfcb0bfb750bffe3d';
+  const first = createProgressiveYieldGate({ context: ctx(canary) });
+  assertEquals(await first.process(`Here: ${canary.slice(0, 3)}`), {
+    blocked: false,
+    emit: `Here: ${canary.slice(0, 3)}`,
+  });
+  assertEquals(await first.flush(), { blocked: false, emit: '' });
+  // Three released characters and fifteen more make one sixteen-character run.
+  const next = createProgressiveYieldGate({ context: ctx(canary), carry: first.carryOut() });
+  assertEquals((await next.process(canary.slice(3, 18))).blocked, true);
+});

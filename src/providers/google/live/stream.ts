@@ -43,10 +43,23 @@ const NORMAL_CLOSE = 1000;
  */
 const QUOTA_CLOSE_RE = /\bquota\b/i;
 
-/** The failure a provider close reports: a quota refusal by its reason, else by its close code. */
+/**
+ * A bad key closes setup with 1007 ("API key not valid. …"), which by code
+ * reads as `unsupported`; like quota, the reason is the only signal.
+ */
+const AUTH_CLOSE_RE = /\bAPI key (?:not valid|expired)\b/i;
+
+/** The kind a close's reason names, if any. */
+function closeReasonKind(reason: string): ErrorKind | undefined {
+  if (QUOTA_CLOSE_RE.test(reason)) return 'rate_limit';
+  if (AUTH_CLOSE_RE.test(reason)) return 'auth';
+  return undefined;
+}
+
+/** The failure a provider close reports: by its reason (quota, bad key), else by its close code. */
 function closeError(code: number, reason: string, during: 'setup' | 'session'): TheoremError {
   return new TheoremError(
-    QUOTA_CLOSE_RE.test(reason) ? 'rate_limit' : (CLOSE_KINDS[code] ?? 'unavailable'),
+    closeReasonKind(reason) ?? CLOSE_KINDS[code] ?? 'unavailable',
     `Gemini Live WebSocket closed during ${during} (${code}: ${reason})`,
   );
 }

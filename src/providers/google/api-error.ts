@@ -12,6 +12,24 @@ import { asRecord } from '../../kernel/engine/record.ts';
 const HTTP_STATUS_MIN = 100;
 const HTTP_STATUS_MAX = 599;
 
+/**
+ * Google refuses a bad key as a 400 `INVALID_ARGUMENT`, so the status reads as
+ * a request THEOREM cannot make; the `ErrorInfo` reason is what says it is the
+ * key. An expired key carries the same reason.
+ */
+const AUTH_REASONS: ReadonlySet<string> = new Set(['API_KEY_INVALID']);
+
+/** Whether an error's `details` name a key Google refused. */
+function refusesKey(details: unknown): boolean {
+  return (
+    Array.isArray(details) &&
+    details.some((detail) => {
+      const reason = asRecord(detail)?.reason;
+      return typeof reason === 'string' && AUTH_REASONS.has(reason);
+    })
+  );
+}
+
 /** Kinds for the named codes Google puts on errors inside an Interactions stream. */
 const STREAM_ERROR_KINDS: Readonly<Record<string, ErrorKind>> = {
   rate_limit_exceeded: 'rate_limit',
@@ -28,9 +46,10 @@ export function readGeminiApiError(record: Record<string, unknown>): TheoremErro
   if (!error) {
     return null;
   }
-  const { code, message, status } = error;
-  const kind =
-    typeof code === 'number' && code >= HTTP_STATUS_MIN && code <= HTTP_STATUS_MAX
+  const { code, message, status, details } = error;
+  const kind: ErrorKind = refusesKey(details)
+    ? 'auth'
+    : typeof code === 'number' && code >= HTTP_STATUS_MIN && code <= HTTP_STATUS_MAX
       ? kindOfHttpStatus(code)
       : ((typeof code === 'string' ? STREAM_ERROR_KINDS[code] : undefined) ?? 'bad_response');
   if (typeof message !== 'string' || message.length === 0) {
@@ -39,7 +58,10 @@ export function readGeminiApiError(record: Record<string, unknown>): TheoremErro
   return new TheoremError(kind, typeof status === 'string' ? `${status}: ${message}` : message);
 }
 
-/** A non-OK response as an error: its body's error, else the raw body, else the status. The kind is the status's. */
+/**
+ * A non-OK response as an error: its body's error, else the raw body, else the
+ * status. The kind is the status's, unless the body names a refused key.
+ */
 export async function readNonOkError(response: Response): Promise<TheoremError> {
   const kind = kindOfHttpStatus(response.status);
   const text = await response.text().catch(() => '');
@@ -48,7 +70,10 @@ export async function readNonOkError(response: Response): Promise<TheoremError> 
   }
   const parsed = parseRecord(text);
   const stated = parsed ? readGeminiApiError(parsed) : null;
-  return new TheoremError(kind, stated?.message ?? `Gemini HTTP ${response.status}: ${text}`);
+  return new TheoremError(
+    stated?.kind === 'auth' ? 'auth' : kind,
+    stated?.message ?? `Gemini HTTP ${response.status}: ${text}`,
+  );
 }
 
 function parseRecord(text: string): Record<string, unknown> | undefined {

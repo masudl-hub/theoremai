@@ -66,3 +66,28 @@ Deno.test('readNonOkError takes the kind from the status and the detail from the
     message: 'Gemini returned an error.',
   });
 });
+
+/** Google's body for a bad key: a 400, named as the key only by its `ErrorInfo` reason. */
+const INVALID_KEY = {
+  error: {
+    code: 400,
+    message: 'API key not valid. Please pass a valid API key.',
+    status: 'INVALID_ARGUMENT',
+    details: [
+      {
+        '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+        reason: 'API_KEY_INVALID',
+        domain: 'googleapis.com',
+      },
+    ],
+  },
+};
+
+Deno.test('a refused key is auth, not the 400 it arrives as', async () => {
+  assertEquals(readGeminiApiError(INVALID_KEY)?.kind, 'auth');
+  const response = new Response(JSON.stringify(INVALID_KEY), { status: 400 });
+  assertEquals(shape(await readNonOkError(response)), {
+    kind: 'auth',
+    message: 'INVALID_ARGUMENT: API key not valid. Please pass a valid API key.',
+  });
+});

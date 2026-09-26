@@ -128,7 +128,8 @@ export function foldAssistantTurn(
 	iface: ComposerProfileInterface,
 	events: readonly TurnEvent[],
 ): TranscriptBlock[] {
+	// Its `turn-done` blocks stay: hidden in the view, they carry the reply's worked time.
 	return foldTurnEvents(events, {
 		showThoughts: streamThoughtsEnabled(iface.outputs),
-	}).filter((block) => block.kind !== 'turn-done');
+	});
 }

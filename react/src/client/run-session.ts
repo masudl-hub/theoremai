@@ -320,21 +320,34 @@ export function applyTurnResultToTranscript(args: {
 	session: InterfaceTurnSession;
 	userBlocks?: TranscriptBlock[];
 	assistantBlocks: TranscriptBlock[];
+	/** The reply's work so far, stamped on its latest `turn-done` so the time stays with the blocks. */
+	worked?: { workedMs: number; endedAt: number };
 }): { blocks: TranscriptBlock[]; streamBlocks: TranscriptBlock[]; session: InterfaceTurnSession } {
 	const session = args.session;
 	const prefix = args.userBlocks?.length ? [...args.blocks, ...args.userBlocks] : args.blocks;
+	const assistantBlocks = args.worked ? stampWorked(args.assistantBlocks, args.worked) : args.assistantBlocks;
 	if (sessionHasGatedTool(session)) {
 		return {
 			blocks: prefix,
-			streamBlocks: args.assistantBlocks,
+			streamBlocks: assistantBlocks,
 			session,
 		};
 	}
 	return {
-		blocks: [...prefix, ...args.assistantBlocks],
+		blocks: [...prefix, ...assistantBlocks],
 		streamBlocks: [],
 		session,
 	};
+}
+
+/** `blocks` with its last `turn-done` carrying the reply's work. */
+function stampWorked(
+	blocks: TranscriptBlock[],
+	worked: { workedMs: number; endedAt: number },
+): TranscriptBlock[] {
+	const last = blocks.findLastIndex((block) => block.kind === 'turn-done');
+	if (last < 0) return blocks;
+	return blocks.map((block, index) => (index === last ? { ...block, ...worked } : block));
 }
 
 /**

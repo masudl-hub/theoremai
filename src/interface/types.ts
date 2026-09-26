@@ -262,6 +262,13 @@ export interface TurnDoneBlock extends TranscriptBlockBase {
   tokens?: TurnTokens;
   interactionId?: string;
   compaction?: boolean;
+  /**
+   * How long the reply has worked so far (ms), approval waits excluded. The host
+   * client stamps it when a run ends, so the time travels with the transcript.
+   */
+  workedMs?: number;
+  /** When the reply last stopped (epoch ms), stamped with `workedMs`. */
+  endedAt?: number;
 }
 
 export type TranscriptBlock =

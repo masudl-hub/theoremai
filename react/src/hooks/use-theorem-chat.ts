@@ -93,6 +93,8 @@ function showTurnFailure(
  * then the committed result (or the error) and the pending queue's next step.
  */
 function useRunTurnStream(iface: ComposerProfileInterface | null, state: ChatState): RunTurnStream {
+	// The current reply's work across its runs: a gate splits a reply into runs, and the wait between doesn't count.
+	const replyWorkedMs = useRef(0);
 	const onRunEnded = useCallback(
 		(nextPending: ComposerPendingMessage[], drain: boolean) => {
 			const converted = convertSteersToFrontQueued(nextPending);
@@ -118,6 +120,9 @@ function useRunTurnStream(iface: ComposerProfileInterface | null, state: ChatSta
 			// previous reply never renders as streaming in between.
 			if (!options.userBlocksAlreadyApplied) state.setStreaming(true);
 			state.allowQueueDrainRef.current = false;
+			// A run that starts on a gate (a decision, sign-in, walking away) continues its reply; any other starts one.
+			if (!state.sessionRef.current.gatedTool) replyWorkedMs.current = 0;
+			const runStartedAt = Date.now();
 
 			const work = (async () => {
 				let latestStream: TranscriptBlock[] = [];
@@ -126,6 +131,8 @@ function useRunTurnStream(iface: ComposerProfileInterface | null, state: ChatSta
 					state.scheduleStreamBlocks(partial);
 				});
 
+				const endedAt = Date.now();
+				replyWorkedMs.current += endedAt - runStartedAt;
 				state.cancelPendingStreamFrame();
 				state.busyRef.current = false;
 				state.setBusy(false);
@@ -149,6 +156,7 @@ function useRunTurnStream(iface: ComposerProfileInterface | null, state: ChatSta
 					session: result.session,
 					userBlocks: options.userBlocksAlreadyApplied ? undefined : result.userBlocks,
 					assistantBlocks: result.assistantBlocks,
+					worked: { workedMs: replyWorkedMs.current, endedAt },
 				});
 				state.setBlocks(merged.blocks);
 				state.setStreamBlocks(merged.streamBlocks);

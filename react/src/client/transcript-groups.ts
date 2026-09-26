@@ -8,7 +8,14 @@ import type { TranscriptBlock } from '../../../src/interface/mod.ts';
 
 export type TranscriptTurnGroup =
 	| { kind: 'user'; key: string; blocks: TranscriptBlock[] }
-	| { kind: 'assistant'; key: string; blocks: TranscriptBlock[] };
+	| {
+			kind: 'assistant';
+			key: string;
+			blocks: TranscriptBlock[];
+			/** The reply's work and when it stopped, from its latest stamped `turn-done`. */
+			workedMs?: number;
+			endedAt?: number;
+	  };
 
 export type TraceItem =
 	| { kind: 'reasoning'; id: string; text: string }
@@ -41,6 +48,13 @@ export function groupTranscriptBlocks(blocks: readonly TranscriptBlock[]): Trans
 	const groups: TranscriptTurnGroup[] = [];
 
 	for (const block of blocks) {
+		if (block.kind === 'turn-done') {
+			const last = groups.at(-1);
+			if (last?.kind === 'assistant' && block.workedMs !== undefined) {
+				last.workedMs = block.workedMs;
+				last.endedAt = block.endedAt;
+			}
+		}
 		if (isHiddenTranscriptBlock(block)) continue;
 		const isUser = isUserTranscriptBlock(block);
 		const last = groups.at(-1);
@@ -181,7 +195,10 @@ export type AssistantTurnTiming = {
 	 */
 	key: string;
 	live: boolean;
+	/** While live: when the reply started, its approval waits skipped. */
 	startedAt?: number;
+	/** Once stopped: how long it worked and when it stopped, as its blocks record. */
+	workedMs?: number;
 	endedAt?: number;
 };
 
@@ -206,8 +223,8 @@ export function promptReplyKey(prompt: TranscriptTurnGroup): string {
 }
 
 /**
- * Key and timing for the assistant group at `index`. Only turns sent in this
- * session are timed; loaded history has no span.
+ * Key and timing for the assistant group at `index`. A stopped reply reads its
+ * time from its blocks; a live one counts from its span in this session.
  */
 export function assistantTurnTiming(args: {
 	groups: readonly TranscriptTurnGroup[];
@@ -218,8 +235,14 @@ export function assistantTurnTiming(args: {
 }): AssistantTurnTiming {
 	const key = replyKey(args.groups, args.index);
 	const live = args.streaming && args.index === args.groups.length - 1;
+	const group = args.groups[args.index];
+	if (!live) {
+		return group?.kind === 'assistant' && group.workedMs !== undefined
+			? { key, live, workedMs: group.workedMs, endedAt: group.endedAt }
+			: { key, live };
+	}
 	const prompt = args.groups[args.index - 1];
 	const span = prompt?.kind === 'user' ? args.spans.get(prompt.key) : undefined;
-	if (!prompt || !span || (!live && span.endedAt === undefined)) return { key, live };
-	return { key, live, startedAt: args.timeOf(prompt.key) + span.pausedMs, endedAt: span.endedAt };
+	if (!prompt || !span) return { key, live };
+	return { key, live, startedAt: args.timeOf(prompt.key) + span.pausedMs };
 }

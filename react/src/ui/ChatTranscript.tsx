@@ -559,10 +559,11 @@ function GateCard({ block, handlers }: { block: ToolBlock; handlers: BlockHandle
 }
 
 /** Live elapsed time while the turn streams; its final duration once it ends. */
-function useTurnElapsed(streaming: boolean, startedAt?: number, endedAt?: number): number | undefined {
+/** Live: counted from the start. Stopped: the work its blocks record. */
+function useTurnElapsed(streaming: boolean, startedAt?: number, workedMs?: number): number | undefined {
 	const now = useSecondTicker(streaming && startedAt !== undefined);
-	const end = streaming ? now : endedAt;
-	return startedAt !== undefined && end !== undefined ? end - startedAt : undefined;
+	if (!streaming) return workedMs;
+	return startedAt !== undefined ? now - startedAt : undefined;
 }
 
 /**
@@ -609,17 +610,17 @@ function AssistantTurn(props: {
 	handle: string;
 	streaming: boolean;
 	at: number;
-	/** When the user's message went out; unknown for loaded history. */
+	/** While live: when the reply started, its approval waits skipped. */
 	startedAt?: number;
-	/** When this reply finished streaming. */
-	endedAt?: number;
+	/** Once stopped: how long it worked. */
+	workedMs?: number;
 	handlers: BlockHandlers;
 	imageOutput?: ImageOutput;
 	/** Why the turn failed, if it did. */
 	error?: string;
 }) {
 	const t = useLabels();
-	const elapsedMs = useTurnElapsed(props.streaming, props.startedAt, props.endedAt);
+	const elapsedMs = useTurnElapsed(props.streaming, props.startedAt, props.workedMs);
 	const { trace, gatedTools, body, hasTrace } = composeAssistantTurn(props.blocks);
 	const rows = bodyRows(t, body);
 	const status = workStatusLabel(t, workStatus({ streaming: props.streaming, hasTrace, elapsedMs }));
@@ -736,9 +737,9 @@ function ChatTranscriptBody({
 	const turns = groups.flatMap((group, index) => {
 		if (group.kind === 'user') return userTurn(group, index);
 		if (isBareFailure(group) && groups[index - 1]?.kind === 'user') return [];
-		const { key, live, ...timing } = assistantTurnTiming({ groups, index, streaming, timeOf, spans });
+		const { key, live, endedAt, ...timing } = assistantTurnTiming({ groups, index, streaming, timeOf, spans });
 		// A reply is dated when it last stopped: a reply that just finished reads "now".
-		const at = timing.endedAt ?? timeOf(key);
+		const at = endedAt ?? timeOf(key);
 		return (
 			<AssistantTurn
 				key={key}

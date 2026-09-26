@@ -235,25 +235,63 @@ Deno.test('processLiveOutboundBatch holds the spoken-reply transcript in the loo
   });
 });
 
-Deno.test('processLiveOutboundBatch holds audio to the end of the cycle', async () => {
+Deno.test('processLiveOutboundBatch streams audio once the next transcript clears it', async () => {
   const s = session(FIXED_CANARY);
-  // The transcript could be the start of a leak: it and the audio after it are held.
-  assertEquals(await processLiveOutboundBatch(s, [said(LEAD), audio(1)]), { action: 'idle' });
-  // The next transcript rules that out: the text before the audio goes, the audio waits.
-  assertEquals(await processLiveOutboundBatch(s, [said(` then ${LEAD}.`), audio(2)]), {
+  // Audio waits for the transcript chunk after it: its own words are read before it goes.
+  assertEquals(await processLiveOutboundBatch(s, [said('Hello there.'), audio(1)]), {
     action: 'emit',
-    events: [said(LEAD)],
+    events: [said('Hello there.')],
   });
-  // A non-reply event goes at once; the reply after the held audio stays behind it.
+  // The next transcript covers audio 1 and is clean: both go; audio 2 waits for its cover.
+  assertEquals(
+    await processLiveOutboundBatch(s, [said(' Nothing to see here, really.'), audio(2)]),
+    { action: 'emit', events: [audio(1), said(' Nothing to see here, really.')] },
+  );
+  // A non-reply event goes at once; uncovered audio stays held.
   assertEquals(await processLiveOutboundBatch(s, [turnComplete]), {
     action: 'emit',
     events: [turnComplete],
   });
-  // The cycle's end checks the whole transcript and releases the rest in arrival order.
-  assertEquals(await finalizeLiveOutboundTurn(s), {
+  // The cycle's end releases the rest.
+  assertEquals(await finalizeLiveOutboundTurn(s), { action: 'emit', events: [audio(2)] });
+});
+
+Deno.test('processLiveOutboundBatch keeps audio held while its cover could open a leak', async () => {
+  const s = session(FIXED_CANARY);
+  assertEquals(await processLiveOutboundBatch(s, [said('Hello there.'), audio(1)]), {
     action: 'emit',
-    events: [audio(1), said(` then ${LEAD}.`), audio(2)],
+    events: [said('Hello there.')],
   });
+  // The covering transcript ends in a possible canary opening: the audio stays with it.
+  assertEquals(await processLiveOutboundBatch(s, [said(` ${LEAD}`), audio(2)]), { action: 'idle' });
+  assertEquals(s.held.length, 3);
+});
+
+Deno.test('processLiveOutboundBatch releases the last audio at generation_complete', async () => {
+  const s = session(FIXED_CANARY);
+  const generated: TurnEvent = { type: 'done', stop: { kind: 'generation_complete' } };
+  assertEquals(await processLiveOutboundBatch(s, [said('All done.'), audio(1)]), {
+    action: 'emit',
+    events: [said('All done.')],
+  });
+  // The model finished: its transcript is whole, so the audio after it needs no later cover.
+  assertEquals(await processLiveOutboundBatch(s, [generated]), {
+    action: 'emit',
+    events: [audio(1), generated],
+  });
+  assertEquals(s.held, []);
+  assertEquals(await finalizeLiveOutboundTurn(s), { action: 'idle' });
+});
+
+Deno.test('processLiveOutboundBatch keeps untranscribed audio past generation_complete', async () => {
+  const s = session(FIXED_CANARY);
+  const generated: TurnEvent = { type: 'done', stop: { kind: 'generation_complete' } };
+  assertEquals(await processLiveOutboundBatch(s, [audio(1), generated]), {
+    action: 'emit',
+    events: [generated],
+  });
+  const end = await finalizeLiveOutboundTurn(s);
+  assertEquals(end.action === 'emit' && end.events.map((e) => e.type), ['guardrail']);
 });
 
 Deno.test('processLiveOutboundBatch streams the transcript before the first audio', async () => {

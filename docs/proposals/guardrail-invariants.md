@@ -70,8 +70,13 @@ There are three honest ways to guard speech:
 | **Immediate** (explicit opt-out) | Audio streams as generated; the transcript is checked as it arrives | After-the-fact: a hit stops the audio and ends the cycle; what was heard was heard | Snappiest; what Live does today, silently |
 
 **Decided and shipped:** guardrails on means *checked, native audio*. A guarded
-Live profile holds each reply's audio to the end of its cycle and releases it
-once the whole transcript has passed; `resolveTurn` forces
+Live profile holds each audio chunk until the transcript chunk that arrives
+after it has cleared, then streams it (revised 26/09/2026: holding to the end
+of the cycle left the host silent for about the reply's length, because Google
+sends `turn_complete` roughly one playback-length after the last audio). The
+guarantee is now "a chunk's own words are read before it is heard", on the
+measured fact that Google sends a chunk's transcript with it or in the next
+message; audio heard before a later hit is not recalled, as with text; `resolveTurn` forces
 `live.transcription.output` on for any guarded profile; audio from a cycle with
 no transcript is dropped (`live.untranscribed-audio`). **Open:** the cascade
 mode, the only one that is both checked and streaming, and whether builders get

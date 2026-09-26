@@ -4,12 +4,16 @@
  * Matches runTurn semantics:
  *   • the reply stream (text deltas and the spoken-reply transcript) is held in
  *     the progressive-yield lookback; thoughts are unguarded (`isGuardedOutput`)
- *   • audio and other media are held to the end of the cycle: the transcript
- *     lags the audio it describes and carries no timing, so only the whole
- *     cycle's transcript covers it. Audio in a cycle with no transcript is
- *     dropped (fail closed)
+ *   • audio and other media stream behind the transcript: a chunk is covered by
+ *     the next transcript chunk to arrive after it, and goes once the gate has
+ *     cleared that chunk. The transcript carries no timing, so the next one is
+ *     the margin that its own words — which arrive with or just after it — were
+ *     read. `generation_complete` covers the rest (the transcript is whole);
+ *     audio in a cycle with no transcript is dropped (fail closed)
  *   • any other event releases the reply held before it, then passes after a
- *     whole-event canary scan; held audio stays held
+ *     whole-event canary scan
+ *   • output released before a later hit is not recalled: audio, like text, is
+ *     withheld from the hit onward
  *   • canary-only profiles withhold immediately on leak
  *   • with egress.enforce, a hit withholds the rest of the cycle; finalize
  *     releases it (allow), rewrites it (redact), or refuses/withholds it (block)
@@ -51,8 +55,8 @@ import type {
 
 /**
  * One piece of output not yet released: a reply-stream chunk covering
- * `[start, end)` of the gate's window, or media (`start === end`), which waits
- * for the end of the cycle.
+ * `[start, end)` of the gate's window, or media arriving at `start`, whose
+ * `end` is where the next transcript chunk ends (`Infinity` until one arrives).
  */
 export interface LiveHeldOutput {
   event: StreamedReplyEvent | TurnEventOf<'media'>;
@@ -162,15 +166,16 @@ function clearedTo(gate: ProgressiveYieldGate): number {
 
 /**
  * Release held output up to window offset `to`: reply chunks as far as they
- * reach, media only at the end of the cycle. Stops at the first item that
- * cannot go yet, so the host sees output in arrival order.
+ * reach, media once the transcript covering it is cleared — or all of it when
+ * the transcript is whole. Stops at the first item that cannot go yet, so the
+ * host sees output in arrival order.
  */
 function releaseHeld(
   session: LiveOutboundGateSession,
   gate: ProgressiveYieldGate,
   to: number,
   into: TurnEvent[],
-  cycleEnd = false,
+  transcriptWhole = false,
 ): void {
   const window = gate.accumulated();
   for (let item = session.held[0]; item !== undefined; item = session.held[0]) {
@@ -183,13 +188,10 @@ function releaseHeld(
         session.releasedTo = upTo;
       }
     }
-    if (item.end > to) {
+    if (item.end > to && !(transcriptWhole && event.type === 'media')) {
       return;
     }
     if (event.type === 'media') {
-      if (!cycleEnd) {
-        return;
-      }
       into.push(event);
     }
     session.held.shift();
@@ -238,14 +240,25 @@ async function flushHeld(
   return applyScan(session, gate, await gate.flush(), into);
 }
 
-/** Hold one media event until the end of the cycle, behind the reply before it. */
+/** Hold one media event behind the reply before it, until a transcript chunk covers it. */
 function holdMedia(
   session: LiveOutboundGateSession,
   gate: ProgressiveYieldGate,
   event: TurnEventOf<'media'>,
 ): void {
   const at = gate.accumulated().length;
-  session.held.push({ event, start: at, end: at });
+  session.held.push({ event, start: at, end: Number.POSITIVE_INFINITY });
+}
+
+/** The media still waiting for a transcript chunk is covered by this one. */
+function coverMedia(session: LiveOutboundGateSession, end: number): void {
+  for (let i = session.held.length - 1; i >= 0; i -= 1) {
+    const item = session.held[i];
+    if (item === undefined || item.end !== Number.POSITIVE_INFINITY) {
+      return;
+    }
+    item.end = end;
+  }
 }
 
 async function holdStreamChunk(
@@ -259,6 +272,7 @@ async function holdStreamChunk(
     return undefined;
   }
   const start = gate.accumulated().length;
+  coverMedia(session, start + text.length);
   session.held.push({ event, start, end: start + text.length });
   const result = await gate.process(text);
   if (session.withholdVisible) {
@@ -297,6 +311,9 @@ async function processLiveOutboundBatch(
     if (stopped) {
       return stopped;
     }
+    if (isGenerationComplete(event)) {
+      releaseSpoken(session, gate, toEmit);
+    }
 
     const leaks = session.context.canary
       ? eventPromptLeakHits(event, session.context.canary, session.context.system)
@@ -309,6 +326,27 @@ async function processLiveOutboundBatch(
   }
 
   return emitOrIdle(toEmit);
+}
+
+function isGenerationComplete(event: TurnEvent): boolean {
+  return event.type === 'done' && event.stop?.kind === 'generation_complete';
+}
+
+/**
+ * The model finished speaking: its transcript is whole and cleared, so the
+ * audio after its last chunk goes too. A cycle with no transcript keeps its
+ * audio for `dropUntranscribed`; a withheld cycle keeps it for the verdict.
+ */
+function releaseSpoken(
+  session: LiveOutboundGateSession,
+  gate: ProgressiveYieldGate,
+  into: TurnEvent[],
+): void {
+  const whole = gate.accumulated().length;
+  if (session.withholdVisible || whole === 0 || clearedTo(gate) < whole) {
+    return;
+  }
+  releaseHeld(session, gate, whole, into, true);
 }
 
 function emitOrIdle(events: TurnEvent[]): LiveOutboundBatchResult {

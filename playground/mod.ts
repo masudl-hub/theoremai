@@ -26,6 +26,7 @@ export {
   type ImageDraft,
   includableFacets,
   includeFacet,
+  INLINE_WORDING,
   type InputsDraft,
   type LiveDraft,
   type ModelBindingDraft,
@@ -43,6 +44,7 @@ export {
   type ToolsDraft,
   type ToolSpecDraft,
   type TurnBehaviourDraft,
+  type WordingDraft,
 } from './draft.ts';
 export { createExampleDraft } from './example.ts';
 export {

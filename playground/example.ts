@@ -32,7 +32,7 @@ export function createExampleDraft(): PlaygroundDraft {
       handle: 'concierge',
       system: DEMO_CONCIERGE_SYSTEM,
     },
-    included: ['outputs', 'turnBehaviour', 'guardrails', 'observability'],
+    included: ['outputs', 'turnBehaviour', 'guardrails', 'observability', 'wording'],
     models: { defaultModel: 'fast', allowModelSelect: true, maxSteps: 12, key: 'slotA' },
     modelBindings: [
       defaultModelBinding({

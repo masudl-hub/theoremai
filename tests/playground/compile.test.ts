@@ -326,6 +326,19 @@ Deno.test('the continue instruction and canary bind note compile into the profil
   assertEquals(off.profile.lexicon, undefined);
 });
 
+Deno.test('Wording compiles into the profile lexicon; lines edited beside their setting come from there', () => {
+  const draft = {
+    ...createExampleDraft(),
+    wording: {
+      'error.rate_limit': ' Busy, try again soon. ',
+      'error.timeout': '  ',
+      'quota.exhausted': 'Ignored.',
+    },
+  };
+  assertEquals(compiled(draft).profile.lexicon, { 'error.rate_limit': 'Busy, try again soon.' });
+  assertEquals(compiled(excludeFacet(draft, 'wording')).profile.lexicon, undefined);
+});
+
 Deno.test('a canary bind note without {canary} is an issue on the guardrails node', () => {
   const text = includeFacet(createExampleDraft(), 'guardrails');
   const result = compilePlayground({
@@ -339,8 +352,8 @@ Deno.test('includeFacet only adds facets the type allows', () => {
   const live = setProfileType(createBlankDraft(), 'live');
   assertEquals(includeFacet(live, 'outputs'), live);
   const withGuardrails = includeFacet(live, 'guardrails');
-  assertEquals(withGuardrails.included, ['observability', 'guardrails']);
-  assertEquals(excludeFacet(withGuardrails, 'guardrails').included, ['observability']);
+  assertEquals(withGuardrails.included, ['observability', 'wording', 'guardrails']);
+  assertEquals(excludeFacet(withGuardrails, 'guardrails').included, ['observability', 'wording']);
 });
 
 Deno.test('new bindings and tools get unused names', () => {
@@ -357,7 +370,16 @@ Deno.test('the tree nests bindings and tools under their facets', () => {
   assertEquals(tree.label, 'travel.concierge');
   assertEquals(
     tree.children.map((node) => node.id),
-    ['models', 'tools', 'inputs', 'outputs', 'turnBehaviour', 'guardrails', 'observability'],
+    [
+      'models',
+      'tools',
+      'inputs',
+      'outputs',
+      'turnBehaviour',
+      'guardrails',
+      'observability',
+      'wording',
+    ],
   );
   const models = tree.children.find((node) => node.id === 'models');
   assertEquals(
@@ -408,7 +430,7 @@ Deno.test('a new text profile starts on the playground Gemini model', () => {
   const draft = setProfileType(createBlankDraft(), 'text');
   assertEquals(draft.modelBindings[0].apiId, GEMINI_PLAYGROUND_DEFAULT_API_ID);
   assertEquals(draft.models.key, 'slotA');
-  assertEquals(draft.included, ['observability']);
+  assertEquals(draft.included, ['observability', 'wording']);
   assertEquals(draft.observability.writeTo, 'playground');
 });
 

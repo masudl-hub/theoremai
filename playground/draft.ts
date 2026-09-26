@@ -12,7 +12,7 @@
  * @module
  */
 
-import { liveIngressChannelDefault, profileAllowsInject, resolveGuardrailPolicy } from '../mod.ts';
+import { type LexiconKey, liveIngressChannelDefault, profileAllowsInject, resolveGuardrailPolicy } from '../mod.ts';
 import { resolveObservabilityPolicy } from '../src/observability/mod.ts';
 import { mimeAllowed } from '../src/kernel/registry/catalog.ts';
 import { profileTypesForField } from '../src/kernel/profile-scope.ts';
@@ -211,6 +211,21 @@ export interface LiveDraft {
   vadSilenceDurationMs: number | null;
 }
 
+/** Wording the author replaced, by lexicon key; a key left out keeps the kernel's line. */
+export type WordingDraft = Partial<Record<LexiconKey, string>>;
+
+/**
+ * Wording edited beside the setting it words, and the facet that holds it. Wording lists these as
+ * links to that facet, so each line has one value.
+ */
+export const INLINE_WORDING: Partial<Record<LexiconKey, ProfileGraphFacetId>> = {
+  'continue.instruction': 'turnBehaviour',
+  'canary.bind_note': 'guardrails',
+  'quota.exhausted': 'guardrails',
+  'repair.default_guidance': 'outputs',
+  'egress.default_repair_guidance': 'guardrails',
+};
+
 export interface PlaygroundDraft {
   identity: IdentityDraft;
   /** Optional spine facets the author added (`PROFILE_GRAPH` rows with `optional`). */
@@ -227,6 +242,7 @@ export interface PlaygroundDraft {
   image: ImageDraft;
   speech: SpeechDraft;
   live: LiveDraft;
+  wording: WordingDraft;
 }
 
 /** A fresh key for a model binding or tool. */
@@ -309,7 +325,7 @@ function defaultObservability(): ObservabilityDraft {
 export function createBlankDraft(): PlaygroundDraft {
   return {
     identity: { agentId: '', profileType: '', handle: '', system: '' },
-    included: ['observability'],
+    included: ['observability', 'wording'],
     models: { defaultModel: '', allowModelSelect: false, maxSteps: null, key: '' },
     modelBindings: [],
     tools: { t2Loader: '' },
@@ -362,6 +378,7 @@ export function createBlankDraft(): PlaygroundDraft {
       vadPrefixPaddingMs: null,
       vadSilenceDurationMs: null,
     },
+    wording: {},
   };
 }
 

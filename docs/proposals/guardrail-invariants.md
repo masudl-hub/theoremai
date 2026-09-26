@@ -21,6 +21,8 @@ the **gate** — which is code, and can be made exact — plus one rule for host
 
 ## Invariants
 
+The agreed form of these now lives in [`docs/contracts/guardrails.md#invariant`](../contracts/guardrails.md#invariant); the list below is the reasoning that led to it.
+
 1. **Nothing guarded reaches the host unchecked.** Every byte of guarded output
    (text, structured, tool calls, and speech) is released only after the
    configured checks have read it, or the profile has explicitly opted that

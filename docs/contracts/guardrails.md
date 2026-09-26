@@ -13,6 +13,40 @@ detectors, sanitizers, public error mapping, and optional per-day quota slots.
 | Testing | `@theoremai/agents/guardrails/testing` → `src/guardrails/testing.ts` (corpus / fuzz only) |
 | Also on | Root `@theoremai/agents` re-exports common error/sanitize/quota/canary helpers |
 
+## Invariant
+
+Every guardrail decision is made against this:
+
+> **Nothing a guarded profile produces reaches the host, or leaves through a
+> tool, until a deterministic kernel check has read it. The check never changes
+> what the model does and is never silently skipped. The only cost accepted is
+> holdback, kept as small as the check allows.**
+
+- **Guardrails imply holdback.** Turning a guardrail on is the builder's choice
+  to accept it; speech is held to the end of its cycle because its transcript
+  is the only thing a check can read.
+- **Deterministic.** The same output gets the same verdict however it is
+  chunked; no model sits in the hard path.
+- **Model behaviour is untouched.** No mode asks the model to answer
+  differently (a speech agent is never made to write text first).
+- **Fail closed.** What cannot be read (audio with no transcript, an
+  unscannable payload) is withheld, not passed.
+- **Break loudly.** A change that tightens a guarantee may break a package
+  contract, flagged in the docs and the commit, never silently.
+- **Functionality is never blocked** to satisfy the invariant; where a channel
+  cannot be held, it is detected and reported.
+
+**Known exception:** provider-side built-in tools (`urlContext` and the other
+Google builtins) run at the provider mid-generation, before Theorem sees the
+call. The kernel scans the provider's report of each call with the same checks
+and ends the turn on a hit, but that is detection after the fact, not a hold.
+A builder who needs prevention uses a registered HTTP tool, which the kernel
+checks before it sends.
+
+What no output check can read (arbitrary ciphers, a token spread one character
+per sentence, a paraphrase of the prompt) is outside any filter: the system
+prompt is treated as public, and secrets never go in it.
+
 ## Ownership
 
 Owns every module under `src/guardrails/`.
@@ -307,7 +341,7 @@ Import corpus helpers from **`@theoremai/agents/guardrails/testing`** (not the p
 | `buildLiveAttacks` | Live red-team cases from same corpus |
 | `buildCanaryEgressAttacks` | Synthetic canary egress leak attempts, including restatements of `FUZZ_SYSTEM` (the system prompt the fuzz binds its canary to) |
 | `deno task fuzz` | CLI inbound fuzz; exit `1` on expected miss |
-| `deno task fuzz-canary` | CLI canary egress fuzz (stream + Live gates) |
+| `deno task fuzz-canary` | CLI canary egress fuzz (stream + Live gates): token encodings, splits across chunks, steps and cycles, and system-prompt echo, with benign controls |
 | `deno task test:guardrails` | Unit tests + inbound + canary fuzz (no live API) |
 | `deno task verify:guardrails-api` | Real-provider red-team (`scripts/verify-guardrails-api.ts`) |
 

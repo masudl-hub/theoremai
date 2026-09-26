@@ -96,6 +96,7 @@ export {
 } from './tool-media.ts';
 export type {
   AttachmentValidationResult,
+  ComposerInterfaceFields,
   ComposerProfileInterface,
   FoldTurnEventsOptions,
   ImageProfileInterface,

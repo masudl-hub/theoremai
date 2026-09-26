@@ -439,6 +439,12 @@ function toolDetail(t: LabelText, tool: ToolBlock['tool'], result?: ReactNode): 
 	);
 }
 
+/** How long a finished call ran, when both ends were seen. */
+function toolDuration(t: LabelText, tool: ToolBlock['tool']): { duration?: string } {
+	if (tool.startedAt === undefined || tool.endedAt === undefined) return {};
+	return { duration: workDuration(t, tool.endedAt - tool.startedAt) };
+}
+
 function toolCallItem(t: LabelText, id: string, tool: ToolBlock['tool']): ChatToolCallItem {
 	const base = { key: id, name: tool.name };
 	const { state } = tool;
@@ -460,9 +466,7 @@ function toolCallItem(t: LabelText, id: string, tool: ToolBlock['tool']): ChatTo
 			return {
 				...base,
 				status: 'complete',
-				...(tool.startedAt !== undefined && tool.endedAt !== undefined
-					? { duration: workDuration(t, tool.endedAt - tool.startedAt) }
-					: {}),
+				...toolDuration(t, tool),
 				resultDetail: toolDetail(
 					t,
 					tool,
@@ -721,14 +725,16 @@ function ChatTranscriptBody({
 
 	const lastUser = groups.findLastIndex((group) => group.kind === 'user');
 
+	const userTurn = (group: Extract<TranscriptTurnGroup, { kind: 'user' }>, index: number) => {
+		// A turn that failed before any reply shows it on the message itself.
+		const next = groups[index + 1];
+		const error = isBareFailure(next) ? failureOf(next) : undefined;
+		const status = index === lastUser ? (delivery ?? undefined) : undefined;
+		return <UserTurn key={group.key} blocks={group.blocks} at={timeOf(group.key)} status={status} error={error} />;
+	};
+
 	const turns = groups.flatMap((group, index) => {
-		if (group.kind === 'user') {
-			// A turn that failed before any reply shows it on the message itself.
-			const next = groups[index + 1];
-			const error = isBareFailure(next) ? failureOf(next) : undefined;
-			const status = index === lastUser ? (delivery ?? undefined) : undefined;
-			return <UserTurn key={group.key} blocks={group.blocks} at={timeOf(group.key)} status={status} error={error} />;
-		}
+		if (group.kind === 'user') return userTurn(group, index);
 		if (isBareFailure(group) && groups[index - 1]?.kind === 'user') return [];
 		const { key, live, ...timing } = assistantTurnTiming({ groups, index, streaming, timeOf, spans });
 		// A reply is dated when it last stopped: a reply that just finished reads "now".

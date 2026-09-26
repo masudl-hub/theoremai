@@ -79,25 +79,25 @@ export type ModelBindingView = Omit<ModelBinding, 'compaction'> & {
 /** `profile.outputs` as the interface carries it: validators are host functions. */
 export type ProfileOutputsView = Omit<ProfileOutputsSpec, 'validation'>;
 
-/** Model fields every interface carries. */
-type ModelFieldsView = {
+/** What the text, image and speech interfaces carry in place of their profile's own fields. */
+export type ComposerInterfaceFields = {
   models: Record<ModelId, ModelBindingView>;
+  outputs?: ProfileOutputsView;
+  /** Client keys' overrides (`CLIENT_LEXICON_KEYS`), resolved on the host; pass to `lexiconText`. */
+  lexicon: LexiconOverrides;
+  inputs: ProfileInputsInterface;
+  guardrails?: ProfileGuardrailsView;
+  observability?: ProfileObservabilityView;
+  /** Always true — composer turns cancel via `TurnRequest.signal`. */
+  canStop: true;
 };
 
 export type TextProfileInterface = Omit<
   TextProfile,
   'inputs' | 'tools' | 'guardrails' | 'observability' | 'lexicon' | 'models' | 'outputs'
 > &
-  ModelFieldsView & {
-    outputs?: ProfileOutputsView;
-    /** Client keys' overrides (`CLIENT_LEXICON_KEYS`), resolved on the host; pass to `lexiconText`. */
-    lexicon: LexiconOverrides;
-    inputs: ProfileInputsInterface;
+  ComposerInterfaceFields & {
     tools: ProfileToolsView;
-    guardrails?: ProfileGuardrailsView;
-    observability?: ProfileObservabilityView;
-    /** Always true — composer turns cancel via `TurnRequest.signal`. */
-    canStop: true;
     /** From `turnBehaviour.allowSteering` (default true on text). */
     allowSteering: boolean;
   };
@@ -106,44 +106,25 @@ export type ImageProfileInterface = Omit<
   ImageProfile,
   'inputs' | 'tools' | 'guardrails' | 'observability' | 'lexicon' | 'models' | 'outputs'
 > &
-  ModelFieldsView & {
-    outputs?: ProfileOutputsView;
-    /** Client keys' overrides (`CLIENT_LEXICON_KEYS`), resolved on the host; pass to `lexiconText`. */
-    lexicon: LexiconOverrides;
-    inputs: ProfileInputsInterface;
-    tools: ProfileToolsView;
-    guardrails?: ProfileGuardrailsView;
-    observability?: ProfileObservabilityView;
-    /** Always true — composer turns cancel via `TurnRequest.signal`. */
-    canStop: true;
-  };
+  ComposerInterfaceFields & { tools: ProfileToolsView };
 
 export type SpeechProfileInterface = Omit<
   SpeechProfile,
   'guardrails' | 'observability' | 'lexicon' | 'models' | 'outputs'
 > &
-  ModelFieldsView & {
-    outputs?: ProfileOutputsView;
-    /** Client keys' overrides (`CLIENT_LEXICON_KEYS`), resolved on the host; pass to `lexiconText`. */
-    lexicon: LexiconOverrides;
-    inputs: ProfileInputsInterface;
-    guardrails?: ProfileGuardrailsView;
-    observability?: ProfileObservabilityView;
-    /** Always true — composer turns cancel via `TurnRequest.signal`. */
-    canStop: true;
-  };
+  ComposerInterfaceFields;
 
 export type LiveProfileInterface = Omit<
   LiveProfile,
   'tools' | 'guardrails' | 'observability' | 'lexicon' | 'models'
-> &
-  ModelFieldsView & {
-    /** Client keys' overrides (`CLIENT_LEXICON_KEYS`), resolved on the host; pass to `lexiconText`. */
-    lexicon: LexiconOverrides;
-    tools: LiveProfileToolsSpec;
-    guardrails?: ProfileGuardrailsView;
-    observability?: ProfileObservabilityView;
-  };
+> & {
+  models: Record<ModelId, ModelBindingView>;
+  /** Client keys' overrides (`CLIENT_LEXICON_KEYS`), resolved on the host; pass to `lexiconText`. */
+  lexicon: LexiconOverrides;
+  tools: LiveProfileToolsSpec;
+  guardrails?: ProfileGuardrailsView;
+  observability?: ProfileObservabilityView;
+};
 
 export type ProfileInterface =
   | TextProfileInterface

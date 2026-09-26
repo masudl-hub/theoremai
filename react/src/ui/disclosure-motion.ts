@@ -23,6 +23,27 @@ function isToggleKey(event: Event): boolean {
 	return !(event instanceof KeyboardEvent) || event.key === 'Enter' || event.key === ' ';
 }
 
+/** The element pressed and the disclosure trigger it sits in, when that trigger is under `root`. */
+function pressedToggle(event: Event, root: Element): { target: Element; trigger: Element } | undefined {
+	if (!(event.target instanceof Element)) return undefined;
+	const trigger = event.target.closest('[aria-expanded]');
+	if (!trigger || !root.contains(trigger)) return undefined;
+	return { target: event.target, trigger };
+}
+
+/** Stops the event: the component does not see it. */
+function hold(event: Event): void {
+	event.stopPropagation();
+	event.preventDefault();
+}
+
+/** A copy of the pressed key or click, to send once the panel has eased shut. */
+function replayOf(event: Event): Event {
+	return event instanceof KeyboardEvent
+		? new KeyboardEvent(event.type, { key: event.key, bubbles: true, cancelable: true })
+		: new MouseEvent(event.type, { bubbles: true, cancelable: true });
+}
+
 /** CSS time (`0.3s`, `300ms`) in milliseconds. */
 function ms(time: string): number {
 	const value = Number.parseFloat(time);
@@ -73,35 +94,40 @@ export function useDisclosureMotion(
 		// The trigger the reader just pressed to open; opens the page makes itself aren't eased or followed.
 		let opening: Element | undefined;
 
+		/** The trigger the reader pressed opens: note it until the toggle commits, within this event. */
+		const noteOpening = (trigger: Element) => {
+			opening = trigger;
+			// A stale note must not claim a later change.
+			setTimeout(() => {
+				if (opening === trigger) opening = undefined;
+			});
+		};
+
+		/** The panel a close should ease shut first; none when motion is off or the panel eases itself. */
+		const panelToEase = (trigger: Element): HTMLElement | undefined => {
+			const panel = panelOf(trigger);
+			return panel && !still.matches && !ownsMotion(panel) ? panel : undefined;
+		};
+
 		// Capture, before the component toggles: note what the trigger was, and hold a close.
 		const before = (event: Event) => {
 			if (!isToggleKey(event) || replaying.has(event)) return;
-			const trigger = event.target instanceof Element ? event.target.closest('[aria-expanded]') : null;
-			if (!trigger || !root.contains(trigger)) return;
+			const pressed = pressedToggle(event, root);
+			if (!pressed) return;
+			const { target, trigger } = pressed;
 			if (closing.has(trigger)) {
-				event.stopPropagation();
-				event.preventDefault();
+				hold(event);
 				return;
 			}
 			if (trigger.getAttribute('aria-expanded') !== 'true') {
-				// The toggle commits within this event; a stale note must not claim a later change.
-				const noted = trigger;
-				opening = noted;
-				setTimeout(() => {
-					if (opening === noted) opening = undefined;
-				});
+				noteOpening(trigger);
 				return;
 			}
-			const panel = panelOf(trigger);
-			if (!panel || still.matches || ownsMotion(panel)) return;
-			event.stopPropagation();
-			event.preventDefault();
+			const panel = panelToEase(trigger);
+			if (!panel) return;
+			hold(event);
 			closing.add(trigger);
-			const target = event.target as Element;
-			const replay =
-				event instanceof KeyboardEvent
-					? new KeyboardEvent(event.type, { key: event.key, bubbles: true, cancelable: true })
-					: new MouseEvent(event.type, { bubbles: true, cancelable: true });
+			const replay = replayOf(event);
 			void ease(panel, 'close').finished.then(() => {
 				closing.delete(trigger);
 				replaying.add(replay);

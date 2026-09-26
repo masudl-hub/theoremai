@@ -226,22 +226,20 @@ Deno.test('a live gate closes when the model cancels its call, with nothing repo
 });
 
 /** A relay that holds every call on a permission gate until it is answered. */
-function gatedRelay(sent: unknown[]): { executeToolOnRelay: ExecuteToolOnRelay } {
-  return {
-    executeToolOnRelay: (args) => {
-      sent.push(args);
-      return Promise.resolve({
-        status: 'gated',
-        gate: { kind: 'permission', tool: 'lookup', permission: 'always_confirm' },
-      });
-    },
+function gatedRelay(sent: unknown[]): ExecuteToolOnRelay {
+  return (args) => {
+    sent.push(args);
+    return Promise.resolve({
+      status: 'gated',
+      gate: { kind: 'permission', tool: 'lookup', permission: 'always_confirm' },
+    });
   };
 }
 
 Deno.test('a live call the model withdrew at its gate sends nothing more', async () => {
   const sent: unknown[] = [];
   await runLiveToolCall({
-    client: gatedRelay(sent),
+    executeToolOnRelay: gatedRelay(sent),
     name: 'lookup',
     toolArgs: {},
     callId: 'call-gated',
@@ -255,7 +253,7 @@ Deno.test('a live call the model withdrew at its gate sends nothing more', async
 Deno.test('a live deny goes to the session, which settles the call; nothing else is sent', async () => {
   const sent: unknown[] = [];
   await runLiveToolCall({
-    client: gatedRelay(sent),
+    executeToolOnRelay: gatedRelay(sent),
     name: 'lookup',
     toolArgs: {},
     callId: 'call-gated',

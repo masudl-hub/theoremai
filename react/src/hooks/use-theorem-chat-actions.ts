@@ -8,6 +8,7 @@ import type {
 	ComposerRunPhase,
 	InterfaceTurnSession,
 	TranscriptBlock,
+	UserTurnDraft,
 } from '../../../src/interface/mod.ts';
 import {
 	convertSteersToFrontQueued,
@@ -372,18 +373,39 @@ export function useTheoremChatActions(args: TheoremChatActionArgs) {
 		return true;
 	}, [args]);
 
+	/** The queued message's draft, or the composer's when it holds something to send. */
+	const draftToSend = useCallback(
+		async (draftSource?: ComposerPendingMessage): Promise<UserTurnDraft | undefined> => {
+			if (draftSource) return draftSource.draft;
+			const draft = await encodeComposerDraft({
+				text: args.draftText,
+				pendingFiles: args.pendingFiles,
+				pendingVoice: args.pendingVoice,
+			});
+			return userDraftHasPayload(draft) ? draft : undefined;
+		},
+		[args],
+	);
+
+	/** The sent message leaves the queue, or the composer it came from. */
+	const releaseDraft = useCallback(
+		(draftSource?: ComposerPendingMessage) => {
+			if (!draftSource) {
+				args.clearComposer();
+				return;
+			}
+			const pendingId = draftSource.id;
+			args.setPendingMessages((prev) => removeComposerPendingMessage(prev, pendingId));
+		},
+		[args],
+	);
+
 	const handleSendNow = useCallback(
 		async (draftSource?: ComposerPendingMessage) => {
 			if (!args.iface) return;
 
-			const draft =
-				draftSource?.draft ??
-				(await encodeComposerDraft({
-					text: args.draftText,
-					pendingFiles: args.pendingFiles,
-					pendingVoice: args.pendingVoice,
-				}));
-			if (!draftSource && !userDraftHasPayload(draft)) return;
+			const draft = await draftToSend(draftSource);
+			if (!draft) return;
 
 			if (args.busyRef.current) {
 				args.abortRef.current?.abort();
@@ -392,17 +414,12 @@ export function useTheoremChatActions(args: TheoremChatActionArgs) {
 
 			// The message leaves the composer (or the queue) only once nothing waits on a gate.
 			if (!(await abandonGatedIfNeeded())) return;
-			if (draftSource) {
-				const pendingId = draftSource.id;
-				args.setPendingMessages((prev) => removeComposerPendingMessage(prev, pendingId));
-			} else {
-				args.clearComposer();
-			}
+			releaseDraft(draftSource);
 			args.setPendingMessages((prev) => convertSteersToFrontQueued(prev));
 			args.allowQueueDrainRef.current = false;
 			await startTurnFromDraft(draft);
 		},
-		[abandonGatedIfNeeded, args, startTurnFromDraft],
+		[abandonGatedIfNeeded, args, draftToSend, releaseDraft, startTurnFromDraft],
 	);
 
 	const handleMenuAction = useCallback(

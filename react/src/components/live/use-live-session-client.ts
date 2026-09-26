@@ -93,7 +93,7 @@ async function onLiveToolCall(
 	}
 	try {
 		await runLiveToolCall({
-			client,
+			executeToolOnRelay: (call) => client.executeToolOnRelay(call),
 			name,
 			toolArgs,
 			callId: meta.callId,

@@ -795,6 +795,50 @@ function buildLiveSession(args: {
     return held;
   };
 
+  /** One model batch, as the host receives it: its calls held, guarded, and its cycle ended at a done. */
+  const deliverBatch = async function* (
+    item: Extract<SessionQueueItem, { type: 'batch' }>,
+  ): AsyncGenerator<TurnEvent> {
+    holdCalls(item.events);
+    // Usage is held per response and emitted once, reported or estimated, by `settle`.
+    const gated = await applyOutbound(
+      gate,
+      hostEventsOf(
+        item.events.filter((ev) => ev.type !== 'tokens'),
+        snapshot,
+      ),
+      item.turnPhase,
+      () => {
+        withholdClose = true;
+      },
+    );
+    for (const ev of gated) {
+      if (ev.type === 'guardrail') trace.outbound(ev);
+    }
+
+    const doneBatch = yield* yieldLiveNonDoneEvents(gated, includeMatch, recordAssistantText);
+    const tokens = await trace.settle();
+    if (tokens) yield tokens;
+
+    const interrupted = doneBatch.some((ev) => ev.type === 'done' && ev.interrupted);
+    const completeBoundary =
+      item.turnPhase === 'complete' || item.turnPhase === 'abort' || doneBatch.length > 0;
+
+    // Boundary batches (`interactionStatus: IDLE`, or bare `turnComplete` when the
+    // provider sends no status) often have no folded `done` — still end the cycle.
+    if (completeBoundary && cycle === 'open') {
+      const boundaryDone = boundaryDoneEvents(doneBatch, item.turnPhase, interrupted);
+      for await (const ev of endCycleAroundDone(boundaryDone)) {
+        yield projectGuardrailTurnEvent(stampDone(ev), includeMatch);
+      }
+      yield* drainPendingHostEvents(pendingHostEvents);
+    } else if (doneBatch.length > 0) {
+      for (const ev of doneBatch) {
+        yield projectGuardrailTurnEvent(stampDone(ev), includeMatch);
+      }
+    }
+  };
+
   /** The session's events, as the host receives them. */
   const streamToHost = async function* (): AsyncGenerator<TurnEvent> {
     // Who closes the socket when the loop ends: the host, unless THEOREM stops it.
@@ -832,44 +876,7 @@ function buildLiveSession(args: {
         if (item.type === 'row') {
           continue;
         }
-        holdCalls(item.events);
-        // Usage is held per response and emitted once, reported or estimated, by `settle`.
-        const gated = await applyOutbound(
-          gate,
-          hostEventsOf(
-            item.events.filter((ev) => ev.type !== 'tokens'),
-            snapshot,
-          ),
-          item.turnPhase,
-          () => {
-            withholdClose = true;
-          },
-        );
-        for (const ev of gated) {
-          if (ev.type === 'guardrail') trace.outbound(ev);
-        }
-
-        const doneBatch = yield* yieldLiveNonDoneEvents(gated, includeMatch, recordAssistantText);
-        const tokens = await trace.settle();
-        if (tokens) yield tokens;
-
-        const interrupted = doneBatch.some((ev) => ev.type === 'done' && ev.interrupted);
-        const completeBoundary =
-          item.turnPhase === 'complete' || item.turnPhase === 'abort' || doneBatch.length > 0;
-
-        // Boundary batches (`interactionStatus: IDLE`, or bare `turnComplete` when the
-        // provider sends no status) often have no folded `done` — still end the cycle.
-        if (completeBoundary && cycle === 'open') {
-          const boundaryDone = boundaryDoneEvents(doneBatch, item.turnPhase, interrupted);
-          for await (const ev of endCycleAroundDone(boundaryDone)) {
-            yield projectGuardrailTurnEvent(stampDone(ev), includeMatch);
-          }
-          yield* drainPendingHostEvents(pendingHostEvents);
-        } else if (doneBatch.length > 0) {
-          for (const ev of doneBatch) {
-            yield projectGuardrailTurnEvent(stampDone(ev), includeMatch);
-          }
-        }
+        yield* deliverBatch(item);
 
         if (withholdClose) {
           closer = 'theorem';

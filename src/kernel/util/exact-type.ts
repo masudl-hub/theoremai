@@ -16,12 +16,12 @@
 export type Probe<X> = <T>() => T extends X ? 1 : 2;
 
 /** The keys of `T` a value may leave out. */
-type OptionalKeys<T> = {
+export type OptionalKeys<T> = {
   [K in keyof T]-?: Record<never, never> extends Pick<T, K> ? K : never;
 }[keyof T];
 
 /** `T` with its own optional fields marked, one level down (see {@link Marked}). */
-type MarkedOnce<T> = T extends object
+export type MarkedOnce<T> = T extends object
   ? { [K in keyof T]-?: K extends OptionalKeys<T> ? { optional: T[K] } : T[K] }
   : T;
 
@@ -30,7 +30,7 @@ type MarkedOnce<T> = T extends object
  * stays one entry). Its own optional fields are marked first, or a type would
  * pass for one it merely nests in.
  */
-type IsSeen<T, Seen> = true extends (
+export type IsSeen<T, Seen> = true extends (
   Seen extends [infer S]
     ? Probe<MarkedOnce<S>> extends Probe<MarkedOnce<T>>
       ? true
@@ -46,9 +46,9 @@ type IsSeen<T, Seen> = true extends (
  * leaves out would pass it unmarked. A type met again inside itself (a
  * recursive type) is compared as it is, where it recurs.
  */
-type Marked<T, Seen = never> = IsSeen<T, Seen> extends true ? T : MarkedEach<T, Seen | [T]>;
+export type Marked<T, Seen = never> = IsSeen<T, Seen> extends true ? T : MarkedEach<T, Seen | [T]>;
 
-type MarkedEach<T, Seen> = T extends (...args: never[]) => unknown
+export type MarkedEach<T, Seen> = T extends (...args: never[]) => unknown
   ? T
   : T extends readonly unknown[]
     ? { [I in keyof T]: Marked<T[I], Seen> }

@@ -47,6 +47,7 @@ import {
 	interfaceFromProfile,
 	type ProfileInterface,
 	promotedToolIdsFromEvents,
+	settlesToolCall,
 	toolSnapshotFromEvents,
 } from '../../../src/interface/mod.ts';
 import type { z } from '../../../mod.ts';
@@ -69,6 +70,7 @@ import {
 	type PendingToolGate,
 	type PerSessionStore,
 	pruneGates,
+	type SettledToolGate,
 	type TheoremSessionState,
 	type TheoremSessionStore,
 } from './session-store.ts';
@@ -284,6 +286,7 @@ function sessionStateStore(store: TheoremSessionStore, gateTtlMs: number): Locke
 	return lockedStore(store, (state = emptySessionState()) => ({
 		...state,
 		gates: pruneGates(state.gates, Date.now(), gateTtlMs),
+		settled: pruneGates(state.settled, Date.now(), gateTtlMs),
 	}));
 }
 
@@ -487,26 +490,75 @@ function answerPendingGate(state: TheoremSessionState, request: GateAnswerReques
 	return { callId: request.callId, pending, answer };
 }
 
+/** A call a message walks away from: taken from its gate now, or settled by an earlier request its client never heard. */
+type WalkedCall = AnsweredCall | { callId: string; settled: SettledToolGate };
+
+function walkedCallOf(state: TheoremSessionState, callId: string): WalkedCall {
+	const settled = state.settled[callId];
+	return settled ? { callId, settled } : answerPendingGate(state, { callId, decision: 'abandon' });
+}
+
 /**
  * Take the calls a message walks away from out of the session, answered
- * `abandon`: every one of them, or none when one is not pending. The message's
- * history must leave exactly those calls open.
+ * `abandon`: every one of them, or none when one is neither waiting nor
+ * settled. The message's history must leave exactly those calls open.
  */
 function takeWalkedAway(
 	ctx: HandlerContext,
 	session: Session,
 	input: TurnInput,
 	abandon: readonly string[],
-): Promise<AnsweredCall[]> {
+): Promise<WalkedCall[]> {
 	checkWalkAway(input, abandon);
 	// A throw leaves the session unsaved, so no call is taken unless all are.
-	return ctx.sessions.mutate(session.id, (state) =>
-		abandon.map((callId) => answerPendingGate(state, { callId, decision: 'abandon' })),
-	);
+	return ctx.sessions.mutate(session.id, (state) => abandon.map((callId) => walkedCallOf(state, callId)));
 }
 
-/** The run that settles an answered call, as the model asked it. */
-function settleAnswered(
+/**
+ * The run that settles an answered call, as the model asked it. The session
+ * keeps the event that settles it, and `ended` names the call once it has
+ * (see `restoreUnended`).
+ */
+async function* settleAnswered(
+	ctx: HandlerContext,
+	request: Request,
+	session: Session,
+	answered: AnsweredCall,
+	credentials: TheoremCredentials,
+	ended: Set<string>,
+): AsyncGenerator<TurnEvent> {
+	const { callId, pending } = answered;
+	for await (const event of invokeAnswered(ctx, request, answered, credentials)) {
+		if (!ended.has(callId) && settlesToolCall(event, callId)) {
+			ended.add(callId);
+			await ctx.sessions.mutate(session.id, (state) => {
+				state.settled[callId] = { event, createdAt: pending.createdAt };
+			});
+		}
+		yield event;
+	}
+}
+
+/**
+ * A request that took calls and ended before they settled (the client went
+ * away, the host failed, an earlier call's run threw) puts each back to wait
+ * as it did, to be answered again, unless it paused on a gate again: the run
+ * recorded that gate with its outcome.
+ */
+async function restoreUnended(
+	ctx: HandlerContext,
+	session: Session,
+	calls: readonly WalkedCall[],
+	ended: ReadonlySet<string>,
+): Promise<void> {
+	const unended = calls.flatMap((call) => ('pending' in call && !ended.has(call.callId) ? [call] : []));
+	if (!unended.length) return;
+	await ctx.sessions.mutate(session.id, (state) => {
+		for (const { callId, pending } of unended) state.gates[callId] ??= pending;
+	});
+}
+
+function invokeAnswered(
 	ctx: HandlerContext,
 	request: Request,
 	{ callId, pending, answer }: AnsweredCall,
@@ -529,25 +581,49 @@ function settleAnswered(
 	});
 }
 
+/** Settles each walked-away call, and returns the input with their answers. */
+async function* walkAwayFrom(
+	ctx: HandlerContext,
+	request: Request,
+	session: Session,
+	walked: { input: TurnInput; calls: readonly WalkedCall[] },
+	ended: Set<string>,
+): AsyncGenerator<TurnEvent, TurnInput | undefined> {
+	const credentials = await ctx.credentials.read(session.id);
+	return yield* walkAway(
+		walked.input,
+		walked.calls.map((call) => ({
+			callId: call.callId,
+			events:
+				'settled' in call
+					? once(call.settled.event)
+					: settleAnswered(ctx, request, session, call, credentials, ended),
+		})),
+	);
+}
+
+/** A settled call's answer, streamed again. */
+async function* once(event: TurnEvent): AsyncGenerator<TurnEvent> {
+	yield event;
+}
+
 async function* turnEvents(
 	ctx: HandlerContext,
 	request: Request,
 	session: Session,
 	body: TheoremTurnRequest,
-	walked: { input: TurnInput; calls: AnsweredCall[] },
+	walked: { input: TurnInput; calls: WalkedCall[] },
 ): AsyncGenerator<TurnEvent> {
+	const ended = new Set<string>();
+	let input: TurnInput | undefined;
+	try {
+		input = walked.calls.length ? yield* walkAwayFrom(ctx, request, session, walked, ended) : walked.input;
+	} finally {
+		await restoreUnended(ctx, session, walked.calls, ended);
+	}
+	if (!input) return;
 	const state = await ctx.sessions.read(session.id);
 	const credentials = await ctx.credentials.read(session.id);
-	const input = walked.calls.length
-		? yield* walkAway(
-				walked.input,
-				walked.calls.map((call) => ({
-					callId: call.callId,
-					events: settleAnswered(ctx, request, call, credentials),
-				})),
-			)
-		: walked.input;
-	if (!input) return;
 	const provider = await providerFor(ctx, request, body.model);
 	// Only continue provider-side conversations this session started.
 	const previousInteractionId =
@@ -588,14 +664,19 @@ async function* invokeEvents(
 	answered: AnsweredCall,
 ): AsyncGenerator<TurnEvent> {
 	const { pending, answer } = answered;
-	if (answer.typed) await saveCredential(ctx, session.id, answer.typed.slot, answer.typed.credential);
-	const credentials = await ctx.credentials.read(session.id);
-	yield* recorded(
-		ctx.sessions,
-		session.id,
-		withCredentials(ctx, request, session.id, credentials, settleAnswered(ctx, request, answered, credentials)),
-		{ turnInput: pending.turnInput, model: pending.model, promoted: pending.promoted },
-	);
+	const ended = new Set<string>();
+	try {
+		if (answer.typed) await saveCredential(ctx, session.id, answer.typed.slot, answer.typed.credential);
+		const credentials = await ctx.credentials.read(session.id);
+		const events = settleAnswered(ctx, request, session, answered, credentials, ended);
+		yield* recorded(ctx.sessions, session.id, withCredentials(ctx, request, session.id, credentials, events), {
+			turnInput: pending.turnInput,
+			model: pending.model,
+			promoted: pending.promoted,
+		});
+	} finally {
+		await restoreUnended(ctx, session, [answered], ended);
+	}
 }
 
 async function steer(ctx: HandlerContext, request: Request, session: Session): Promise<Response> {

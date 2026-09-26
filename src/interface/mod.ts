@@ -90,7 +90,8 @@ export {
   gatedToolFromEvents,
   gatedToolsFromEvents,
 } from './session.ts';
-export { toolCallRanWith, toolCallsOf } from './tool-calls.ts';
+export type { SettledToolCallEvent } from './tool-calls.ts';
+export { settlesToolCall, toolCallRanWith, toolCallsOf } from './tool-calls.ts';
 export { promotedToolIdsFromEvents, toolSnapshotFromEvents } from './tool-invoke.ts';
 export type { PromotedToolMedia } from './tool-media.ts';
 export {

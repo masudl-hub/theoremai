@@ -28,6 +28,7 @@ import { IconCheck, IconCopy } from '@tabler/icons-react';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import type { TranscriptBlock } from '../../../src/interface/mod.ts';
 import { citationsFromBlock, type SourceCitationBlock } from '../client/source-citations';
+import type { AnsweringGate } from '../client/tool-resume';
 import {
 	assistantTurnCopyText,
 	assistantTurnTiming,
@@ -59,6 +60,8 @@ export type ChatTranscriptProps = {
 	/** How far the latest message has got; shown on it unless its turn failed. */
 	delivery?: Exclude<ChatMessageStatus, 'error'> | null;
 	onToolDecision?: (index: number, action: ToolDecision) => void;
+	/** The answer on its way to a gate (`useTheoremChat().answering`). */
+	answering?: AnsweringGate | null;
 	/** Signed in at a gate: `secret` is a key the user typed; after an OAuth callback there is none. */
 	onAuthenticated?: (index: number, secret?: string) => void;
 	emptyState?: ReactNode;
@@ -77,6 +80,7 @@ const GENERATED_IMAGE_MAX_WIDTH = 512;
 
 type BlockHandlers = {
 	indexOf: (block: TranscriptBlock) => number;
+	answering: AnsweringGate | null;
 	onToolDecision?: ChatTranscriptProps['onToolDecision'];
 	onAuthenticated?: ChatTranscriptProps['onAuthenticated'];
 };
@@ -539,11 +543,13 @@ function GateCard({ block, handlers }: { block: ToolBlock; handlers: BlockHandle
 	if (tool.state?.phase !== 'gate') return null;
 	const { gate } = tool.state;
 	const index = handlers.indexOf(block);
+	const answer = handlers.answering?.callId === tool.callId ? handlers.answering.action : null;
 	if (gate.kind === 'auth') {
 		return (
 			<AuthChallengeCard
 				gate={gate}
 				toolName={tool.name}
+				submitted={answer === 'auth'}
 				onAuthenticated={(secret) => handlers.onAuthenticated?.(index, secret)}
 			/>
 		);
@@ -553,6 +559,7 @@ function GateCard({ block, handlers }: { block: ToolBlock; handlers: BlockHandle
 			gate={gate}
 			toolName={tool.name}
 			input={tool.arguments}
+			decided={answer === 'auth' ? null : answer}
 			onDecision={(action) => handlers.onToolDecision?.(index, action)}
 		/>
 	);
@@ -704,6 +711,7 @@ function ChatTranscriptBody({
 	streaming = false,
 	delivery,
 	onToolDecision,
+	answering = null,
 	onAuthenticated,
 	emptyState,
 	imageOutput,
@@ -719,6 +727,7 @@ function ChatTranscriptBody({
 	useDisclosureMotion(listRef);
 	const handlers: BlockHandlers = {
 		indexOf: (block) => blocks.findIndex((entry) => entry.id === block.id),
+		answering,
 		onToolDecision,
 		onAuthenticated,
 	};

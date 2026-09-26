@@ -20,6 +20,7 @@ export {
 	streamInterfaceTurn,
 } from './run-session';
 export type {
+	AnsweringGate,
 	ToolDecisionAction,
 	ToolGateResolution,
 } from './tool-resume';

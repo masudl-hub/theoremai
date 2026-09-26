@@ -14,6 +14,7 @@ import {
 	type ComposerProfileInterface,
 	gatedToolsFromEvents,
 	type InterfaceTurnSession,
+	settlesToolCall,
 	type TranscriptBlock,
 } from '../../../src/interface/mod.ts';
 import { commitCompletedTurn, stampWorked } from './run-commit.ts';
@@ -49,8 +50,7 @@ export function walkAwayFrom(
 	const events: TurnEvent[] = [...paused.assistantEvents];
 	const settle = (event: TurnEvent): WalkedAway | undefined => {
 		events.push(event);
-		const phase = event.type === 'tool' ? event.tool.phase : undefined;
-		if (event.type === 'tool' && (phase === 'complete' || phase === 'error')) waiting.delete(event.tool.callId);
+		if (event.type === 'tool' && settlesToolCall(event, event.tool.callId)) waiting.delete(event.tool.callId);
 		if (waiting.size) return undefined;
 		return {
 			session: commitCompletedTurn(paused, events),

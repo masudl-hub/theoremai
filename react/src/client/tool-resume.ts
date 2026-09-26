@@ -8,6 +8,9 @@ export type ToolGateResolution =
 	/** Signed in: `secret` is a key the user typed; after an OAuth callback there is none. */
 	| { action: 'auth'; secret?: string };
 
+/** An answer on its way to the gate on `callId`; the gate shows it until the answer settles or fails. */
+export type AnsweringGate = { callId: string; action: ToolGateResolution['action'] };
+
 /**
  * What the browser sends for the user's answer to a gate. The host settles a
  * refusal; an approval carries the permissions the session holds after it,

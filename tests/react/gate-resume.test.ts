@@ -402,3 +402,102 @@ Deno.test('a message sent while gated, without walking away, is refused', async 
   });
   assertEquals(sent.ok ? undefined : sent.error, lexiconDefault('session.gate_pending'));
 });
+
+/** A transport whose first turn pauses on `paused`, and whose answer streams `answered`, then the network drops. */
+function cutAnswer(paused: TurnEvent[], answered: TurnEvent[]): TheoremTransport {
+  return {
+    turn: (_request, onEvent) => {
+      for (const event of paused) onEvent(event);
+      return Promise.resolve();
+    },
+    invoke: (_request, onEvent) => {
+      for (const event of answered) onEvent(event);
+      return Promise.reject(new TypeError('network connection lost'));
+    },
+    steer: () => Promise.reject(new Error('unused')),
+    describe: () => Promise.reject(new Error('unused')),
+  };
+}
+
+const running = (callId: string): TurnEvent => ({
+  type: 'tool',
+  tool: { name: 'lookup', callId, at, phase: 'running' },
+});
+
+Deno.test('an answer the network lost before its call settled leaves the reply waiting on the same gate', async () => {
+  const iface = textInterface();
+  const transport = cutAnswer(pausedOnTwoGates, [running('a')]);
+  const paused = await pausedOnTwo(iface, transport);
+  const answered = await resumeInterfaceTool({
+    iface,
+    transport,
+    session: paused,
+    resolution: { action: 'allow' },
+    onStream: () => {},
+  });
+  assertEquals(answered.ok, false);
+  if (answered.ok) return;
+  // No session: the reply waits as it did, and the host puts the call back to be answered again.
+  assertEquals(answered.session, undefined);
+});
+
+Deno.test('an answer the network lost after its call settled keeps the result, and the reply waits on its next gate', async () => {
+  const iface = textInterface();
+  const transport = cutAnswer(pausedOnTwoGates, [running('a'), complete('a')]);
+  const paused = await pausedOnTwo(iface, transport);
+  const answered = await resumeInterfaceTool({
+    iface,
+    transport,
+    session: paused,
+    resolution: { action: 'allow' },
+    onStream: () => {},
+  });
+  if (answered.ok) throw new Error('expected the answer to fail');
+  assertEquals(answered.session?.gatedTool?.callId, 'b');
+  assertEquals(
+    answered.session?.assistantEvents.some(
+      (event) =>
+        event.type === 'tool' && event.tool.callId === 'a' && event.tool.phase === 'complete',
+    ),
+    true,
+  );
+});
+
+Deno.test('an answer the network lost after its only call settled commits the reply as far as it got', async () => {
+  const iface = textInterface();
+  const pausedOnOne: TurnEvent[] = [
+    request('a'),
+    gate('a'),
+    { type: 'done', stop: { kind: 'gate' }, tools: toolSnapshot('lookup') },
+  ];
+  const transport = cutAnswer(pausedOnOne, [complete('a')]);
+  const paused = await streamInterfaceTurn({
+    iface,
+    transport,
+    session: emptyInterfaceTurnSession(),
+    onStream: () => {},
+    text: 'Look up a',
+    pendingFiles: [],
+    pendingVoice: [],
+  });
+  if (!paused.ok) throw new Error(paused.error);
+  const answered = await resumeInterfaceTool({
+    iface,
+    transport,
+    session: paused.session,
+    resolution: { action: 'allow' },
+    onStream: () => {},
+  });
+  if (answered.ok) throw new Error('expected the answer to fail');
+  assertEquals(answered.session?.gatedTool, null);
+  assertEquals(answered.session?.history, [
+    { role: 'user', content: 'Look up a' },
+    {
+      role: 'assistant',
+      tool_calls: [
+        { id: 'a', type: 'function', function: { name: 'lookup', arguments: '{"q":"a"}' } },
+      ],
+    },
+    { role: 'tool', tool_call_id: 'a', name: 'lookup', content: 'read a' },
+  ]);
+});

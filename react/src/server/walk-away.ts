@@ -8,7 +8,7 @@
  */
 
 import { TheoremError, type TurnEvent, type TurnInput } from '../../../mod.ts';
-import { answerOpenToolCalls, assertOpenToolCalls } from '../../../src/interface/mod.ts';
+import { answerOpenToolCalls, assertOpenToolCalls, settlesToolCall } from '../../../src/interface/mod.ts';
 
 /** Refuses a walk-away its history does not match, before any gate is answered. */
 export function checkWalkAway(input: TurnInput, abandon: readonly string[]): void {
@@ -17,13 +17,6 @@ export function checkWalkAway(input: TurnInput, abandon: readonly string[]): voi
 
 /** One walked-away call: its id, and the run that settles it (`invokeTool` with the abandoned resume). */
 export type WalkedAwayCall = { callId: string; events: AsyncIterable<TurnEvent> };
-
-/** What the model reads for `callId`, once `event` settles it. */
-function readBackOf(event: TurnEvent, callId: string): string | undefined {
-  if (event.type !== 'tool' || event.tool.callId !== callId) return undefined;
-  const { tool } = event;
-  return tool.phase === 'complete' || tool.phase === 'error' ? tool.readBack : undefined;
-}
 
 /**
  * Streams each call's tool events as it settles; each run's `done` stays with
@@ -43,7 +36,7 @@ export async function* walkAway(
       }
       if (event.type !== 'tool') continue;
       yield event;
-      const readBack = readBackOf(event, call.callId);
+      const readBack = settlesToolCall(event, call.callId) ? event.tool.readBack : undefined;
       if (readBack !== undefined) answers.set(call.callId, readBack);
     }
     if (!answers.has(call.callId)) {

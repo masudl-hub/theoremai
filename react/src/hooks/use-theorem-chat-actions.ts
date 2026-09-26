@@ -24,6 +24,7 @@ import {
 	resumeInterfaceTool,
 	streamInterfaceDraftTurn,
 	streamInterfaceTurn,
+	type AnsweringGate,
 	type ToolDecisionAction,
 	type ToolGateResolution,
 } from '../client/index';
@@ -129,6 +130,7 @@ export type TheoremChatActionArgs = {
 	setPendingVoice: (value: File[]) => void;
 	setIssues: (value: AttachmentValidationIssue[]) => void;
 	setFailure: (value: ClientFailure | null) => void;
+	setAnswering: (value: AnsweringGate | null) => void;
 	setDelivery: (value: { status: MessageDelivery } | null) => void;
 	pendingRef: MutableRefObject<ComposerPendingMessage[]>;
 };
@@ -303,15 +305,18 @@ function useGateActions(args: TheoremChatActionArgs) {
 		async (resolution: ToolGateResolution) => {
 			const composer = args.iface;
 			if (!composer) return;
-			await args.runTurnStream((onStream) =>
-				resumeInterfaceTool({
-					iface: composer,
-					transport: args.transport,
-					session: args.sessionRef.current,
-					resolution,
-					onStream,
-				}),
-			);
+			// Set once the run starts (not while another runs), and cleared once it has ended.
+			let started = false;
+			try {
+				await args.runTurnStream((onStream) => {
+					started = true;
+					const session = args.sessionRef.current;
+					if (session.gatedTool) args.setAnswering({ callId: session.gatedTool.callId, action: resolution.action });
+					return resumeInterfaceTool({ iface: composer, transport: args.transport, session, resolution, onStream });
+				});
+			} finally {
+				if (started) args.setAnswering(null);
+			}
 		},
 		[args],
 	);

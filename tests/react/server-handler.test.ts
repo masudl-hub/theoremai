@@ -60,18 +60,31 @@ async function assertRefused(run: () => Promise<unknown>, key: LexiconKey): Prom
 const BASE = 'http://host.test/api/theorem';
 type Handler = (request: Request) => Promise<Response>;
 
-/** A browser: keeps the session cookie the handler issues. */
-function transportFor(handler: Handler) {
+/**
+ * Where the network drops the next request: `before` the host settles
+ * anything (the request arrives already aborted), or `after` the host has
+ * streamed the whole reply to no one.
+ */
+type Cut = { next?: 'before' | 'after' };
+
+/** A browser: keeps the session cookie the handler issues, and loses a request when `cut` says so. */
+function transportFor(handler: Handler, cut: Cut = {}) {
   let cookie = '';
   return createHttpTransport({
     endpoint: BASE,
     fetch: async (url, init) => {
       const headers = new Headers(init?.headers);
       if (cookie) headers.set('cookie', cookie);
-      const response = await handler(new Request(url, { ...init, headers }));
+      const lost = cut.next;
+      cut.next = undefined;
+      const signal = lost === 'before' ? AbortSignal.abort() : init?.signal;
+      const response = await handler(new Request(url, { ...init, headers, signal }));
       const issued = response.headers.get('set-cookie');
       if (issued) cookie = issued.split(';')[0];
-      return response;
+      if (!lost) return response;
+      // The host runs the request out; the browser never hears it.
+      await response.text();
+      throw new TypeError('network connection lost');
     },
   });
 }
@@ -629,6 +642,114 @@ Deno.test('a walk-away from a call that is not waiting takes nothing', async () 
     transport.invoke({ gateId: gate.callId, decision: 'approve' }, onEvent),
   );
   assertEquals(toolPhases(approved, 'handler_delete').at(-1), 'complete');
+});
+
+Deno.test('a walk-away the network lost before the host settled leaves the call waiting', async () => {
+  ran.length = 0;
+  const cut: Cut = {};
+  const seen: (TurnHistoryMessage[] | undefined)[] = [];
+  const handler = createTheoremHandler({
+    profile: profile('handler-walk-away-cut-before', ['handler_delete']),
+    provider: () => walkAwayProvider(seen),
+  });
+  const transport = transportFor(handler, cut);
+  const turn = await collect((onEvent) => transport.turn({ input: { text: 'delete' } }, onEvent));
+  const gate = pausedGate(turn);
+  const history = appendPausedTurnToHistory(appendUserDraftToHistory([], { text: 'delete' }), turn);
+
+  cut.next = 'before';
+  await assertRejects(() =>
+    collect((onEvent) =>
+      transport.turn({ input: { text: 'never mind', history }, abandon: [gate.callId] }, onEvent),
+    ),
+  );
+  // Still waiting: the user can answer it after all.
+  const approved = await collect((onEvent) =>
+    transport.invoke({ gateId: gate.callId, decision: 'approve' }, onEvent),
+  );
+  assertEquals(toolPhases(approved, 'handler_delete').at(-1), 'complete');
+  assertEquals(ran, ['model-chosen']);
+});
+
+Deno.test('an approval the network lost before the host settled leaves the call waiting', async () => {
+  ran.length = 0;
+  const cut: Cut = {};
+  const handler = createTheoremHandler({
+    profile: profile('handler-approve-cut-before', ['handler_delete']),
+    provider: () => toolCallingProvider('handler_delete', 'model-chosen'),
+  });
+  const transport = transportFor(handler, cut);
+  const turn = await collect((onEvent) => transport.turn({ input: { text: 'delete' } }, onEvent));
+  const gate = pausedGate(turn);
+
+  cut.next = 'before';
+  await assertRejects(() =>
+    collect((onEvent) => transport.invoke({ gateId: gate.callId, decision: 'approve' }, onEvent)),
+  );
+  assertEquals(ran, []);
+  const approved = await collect((onEvent) =>
+    transport.invoke({ gateId: gate.callId, decision: 'approve' }, onEvent),
+  );
+  assertEquals(toolPhases(approved, 'handler_delete').at(-1), 'complete');
+  assertEquals(ran, ['model-chosen']);
+});
+
+Deno.test('a walk-away the host settled but the client never heard is answered again, not refused', async () => {
+  ran.length = 0;
+  const cut: Cut = {};
+  const seen: (TurnHistoryMessage[] | undefined)[] = [];
+  const handler = createTheoremHandler({
+    profile: profile('handler-walk-away-cut-after', ['handler_delete']),
+    provider: () => walkAwayProvider(seen),
+  });
+  const transport = transportFor(handler, cut);
+  const turn = await collect((onEvent) => transport.turn({ input: { text: 'delete' } }, onEvent));
+  const gate = pausedGate(turn);
+  const history = appendPausedTurnToHistory(appendUserDraftToHistory([], { text: 'delete' }), turn);
+  const walkAway = () =>
+    collect((onEvent) =>
+      transport.turn({ input: { text: 'never mind', history }, abandon: [gate.callId] }, onEvent),
+    );
+
+  cut.next = 'after';
+  await assertRejects(walkAway);
+  const again = await walkAway();
+  assertEquals(failureOf(lastTool([...turn, ...again], 'handler_delete'))?.kind, 'cancelled');
+  assertEquals(ran, []);
+  const answer = seen.at(-1)?.at(-2);
+  assertEquals(answer?.role === 'tool' ? answer.tool_call_id : undefined, gate.callId);
+});
+
+Deno.test('an approval the host ran but the client never heard reaches a walk-away as its result', async () => {
+  ran.length = 0;
+  const cut: Cut = {};
+  const seen: (TurnHistoryMessage[] | undefined)[] = [];
+  const handler = createTheoremHandler({
+    profile: profile('handler-approve-cut-after', ['handler_delete']),
+    provider: () => walkAwayProvider(seen),
+  });
+  const transport = transportFor(handler, cut);
+  const turn = await collect((onEvent) => transport.turn({ input: { text: 'delete' } }, onEvent));
+  const gate = pausedGate(turn);
+  const history = appendPausedTurnToHistory(appendUserDraftToHistory([], { text: 'delete' }), turn);
+
+  cut.next = 'after';
+  await assertRejects(() =>
+    collect((onEvent) => transport.invoke({ gateId: gate.callId, decision: 'approve' }, onEvent)),
+  );
+  assertEquals(ran, ['model-chosen']);
+  // It ran once; a second approval is refused.
+  await assertRefused(
+    () =>
+      collect((onEvent) => transport.invoke({ gateId: gate.callId, decision: 'approve' }, onEvent)),
+    'session.gate_expired',
+  );
+  const walked = await collect((onEvent) =>
+    transport.turn({ input: { text: 'never mind', history }, abandon: [gate.callId] }, onEvent),
+  );
+  assertEquals(toolPhases([...turn, ...walked], 'handler_delete').at(-1), 'complete');
+  assertEquals(walked[0].type === 'tool' ? walked[0].tool.phase : undefined, 'complete');
+  assertEquals(ran, ['model-chosen']);
 });
 
 Deno.test("an approval with the user's edit runs the edited input", async () => {

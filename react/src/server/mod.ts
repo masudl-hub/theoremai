@@ -35,6 +35,7 @@ export {
 	createMemorySessionStore,
 	type MemorySessionStoreOptions,
 	type PendingToolGate,
+	type SettledToolGate,
 	type TheoremSessionState,
 	type TheoremSessionStore,
 } from './session-store.ts';

@@ -12,6 +12,7 @@ import { attachPreviewData, encodeFiles } from './encode-files.ts';
 import { type TurnFailure, turnFailure } from './failure.ts';
 import {
 	continueAfterTool,
+	failGateAnswer,
 	failTurnStream,
 	finalizeTurnStream,
 	stampWorked,
@@ -315,11 +316,13 @@ export async function resumeInterfaceTool(args: {
 	});
 	const sessionPermissions =
 		reply.decision === 'approve' ? reply.sessionPermissions : args.session.sessionPermissions;
+	// Seeded with the paused reply, and filled as the answer streams, so a failed answer keeps what it delivered.
+	const events = [...args.session.assistantEvents];
 	try {
-		const events = await streamFoldedTurn({
+		await streamFoldedTurn({
 			iface: args.iface,
 			onStream: args.onStream,
-			events: [...args.session.assistantEvents],
+			events,
 			stream: (onEvent) =>
 				args.transport.invoke(
 					buildInvokeRequest(args.iface, args.session, {
@@ -336,7 +339,12 @@ export async function resumeInterfaceTool(args: {
 		const session = { ...applyTurnEventsToSession(args.session, events), sessionPermissions };
 		return await continueOnceSettled({ ...args, session, events });
 	} catch (err) {
-		return turnFailure(err, args.iface.lexicon);
+		return failGateAnswer({
+			session: { ...args.session, sessionPermissions },
+			callId: gated.callId,
+			events,
+			failure: turnFailure(err, args.iface.lexicon),
+		});
 	}
 }
 

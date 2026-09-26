@@ -6,6 +6,7 @@ import {
 	type ComposerProfileInterface,
 	type InterfaceTurnSession,
 	gatedToolFromEvents,
+	settlesToolCall,
 	type TranscriptBlock,
 	type UserTurnHistoryMedia,
 } from '../../../src/interface/mod.ts';
@@ -161,6 +162,24 @@ export function failTurnStream(args: {
 		(kept) => commitCompletedTurn(args.session, kept, args.media),
 		args.events,
 	);
+}
+
+/**
+ * An answer to `callId`'s gate that failed. Once the call settled, the reply
+ * commits as far as it got, or waits on its next gate; before, the reply waits
+ * on the gate as it did (the host puts the call back), and the answer can go again.
+ */
+export function failGateAnswer(args: {
+	/** The paused session the answer went out from. */
+	session: InterfaceTurnSession;
+	callId: string;
+	/** The paused reply's events, then the answer's as far as they came. */
+	events: TurnEvent[];
+	failure: TurnFailure;
+}): TurnFailure {
+	const answered = args.events.slice(args.session.assistantEvents.length);
+	if (!answered.some((event) => settlesToolCall(event, args.callId))) return args.failure;
+	return { ...args.failure, session: finalizeTurnStream({ session: args.session, events: args.events, media: {} }) };
 }
 
 export function finalizeTurnStream(args: {

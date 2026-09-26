@@ -32,7 +32,12 @@ interface `describe` returns are each checked against their schema, both ways:
   and `theoremSteerRequestSchema`; a missing or malformed field is a `request`
   error (400). `/invoke` answers a paused call by its `gateId` with a
   `decision`: `approve` (with `input` when the user edited it, `secret` at a
-  sign-in gate) or `deny`; the host settles each one. A message sent while
+  sign-in gate) or `deny`; the host settles each one. An answer whose request
+  ends before its call settles (the network drops, the host fails) puts the
+  call back to wait, to be answered again; once it settled, the session keeps
+  the settle (`TheoremSessionState.settled`, pruned with the gates): a second
+  answer is refused with `session.gate_expired`, and a walk-away naming the
+  call reads its result. A message sent while
   its reply waits walks away in its own `/turn`: `abandon` names the waiting
   calls, its history leaves exactly those open, and the host settles each
   cancelled ahead of the message's reply (`checkWalkAway` and `walkAway` for a
@@ -142,7 +147,12 @@ Enter matches the primary action. No keyboard shortcuts for stash/steer.
 Send now while gated walks away from every waiting gate in the message's own request
 (`walkAway` on `streamInterfaceDraftTurn`): the host settles each call cancelled, the
 paused reply commits, and the message's reply follows in the same stream. The message
-leaves the composer only once it posts; if the request fails first, the reply still waits. Steer POSTs use the Cache API
+leaves the composer only once it posts; if the request fails first, the reply still waits.
+An answer at a gate that fails before its call settles leaves the gate to answer again,
+the failure in the composer; one that fails after keeps the call's result. The gate cards
+show the answer on its way from their owner (`useTheoremChat().answering`, passed as
+`ChatTranscript`'s `answering`, `ApprovalCard`'s `decided`, `AuthChallengeCard`'s
+`submitted`), so a failed answer brings the gate's actions back. Steer POSTs use the Cache API
 on Cloudflare (process Map locally) so mid-turn injects work across isolates.
 Live sessions key the same inbox by `sessionId` from relay `ready`.
 

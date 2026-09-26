@@ -7,6 +7,7 @@ import {
 	type TranscriptBlock,
 } from '../../../src/interface/mod.ts';
 import type { ClientFailure } from '../client/failure';
+import type { AnsweringGate } from '../client/tool-resume';
 
 type SetSession = (
 	value: InterfaceTurnSession | ((prev: InterfaceTurnSession) => InterfaceTurnSession),
@@ -30,6 +31,7 @@ export function useTheoremChatState() {
 	const [pendingMessages, setPendingMessages] = useState<ComposerPendingMessage[]>([]);
 	const [issues, setIssues] = useState<AttachmentValidationIssue[]>([]);
 	const [failure, setFailure] = useState<ClientFailure | null>(null);
+	const [answering, setAnswering] = useState<AnsweringGate | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [chatStarted, setChatStarted] = useState(false);
 	const [streaming, setStreaming] = useState(false);
@@ -41,6 +43,8 @@ export function useTheoremChatState() {
 	const pendingStreamRef = useRef<TranscriptBlock[] | null>(null);
 	const blocksRef = useRef(blocks);
 	blocksRef.current = blocks;
+	const streamBlocksRef = useRef(streamBlocks);
+	streamBlocksRef.current = streamBlocks;
 	const busyRef = useRef(false);
 	const abortRef = useRef<AbortController | null>(null);
 	const turnIdRef = useRef<string | null>(null);
@@ -88,6 +92,7 @@ export function useTheoremChatState() {
 		setBlocks,
 		streamBlocks,
 		setStreamBlocks,
+		streamBlocksRef,
 		draftText,
 		setDraftText,
 		pendingFiles,
@@ -100,6 +105,8 @@ export function useTheoremChatState() {
 		setIssues,
 		failure,
 		setFailure,
+		answering,
+		setAnswering,
 		busy,
 		setBusy,
 		chatStarted,

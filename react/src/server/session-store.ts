@@ -13,6 +13,7 @@ import type { ToolGateAuth } from '../../../src/interface/mod.ts';
 import type {
 	ToolGate,
 	ToolId,
+	TurnEventOf,
 	TurnInput,
 	TurnToolSnapshot,
 } from '../../../src/kernel/mod.ts';
@@ -32,11 +33,24 @@ export type PendingToolGate = {
 	createdAt: number;
 };
 
+/**
+ * A paused call the server answered, and the event that settled it. A client
+ * the stream never reached still shows the call waiting; a message that walks
+ * away from it gets this answer again, not a refusal.
+ */
+export type SettledToolGate = {
+	event: TurnEventOf<'tool'>;
+	/** When the call paused: a settled call is kept as long as its gate would have waited. */
+	createdAt: number;
+};
+
 export type TheoremSessionState = {
 	/** Tool ids the user allowed for the rest of this session. */
 	permissions: string[];
 	/** Paused tool calls by call id — the only calls `/invoke` will run. */
 	gates: Record<string, PendingToolGate>;
+	/** Paused calls the server answered and settled, by call id. */
+	settled: Record<string, SettledToolGate>;
 	/** Provider interaction ids this session produced, newest last. */
 	interactions: string[];
 };
@@ -51,15 +65,15 @@ export interface TheoremSessionStore {
 }
 
 export function emptySessionState(): TheoremSessionState {
-	return { permissions: [], gates: {}, interactions: [] };
+	return { permissions: [], gates: {}, settled: {}, interactions: [] };
 }
 
-/** Drop gates older than `ttlMs`. */
-export function pruneGates(
-	gates: Record<string, PendingToolGate>,
+/** Drop gates (waiting or settled) older than `ttlMs`. */
+export function pruneGates<Gate extends { createdAt: number }>(
+	gates: Record<string, Gate>,
 	now: number,
 	ttlMs: number,
-): Record<string, PendingToolGate> {
+): Record<string, Gate> {
 	return Object.fromEntries(
 		Object.entries(gates).filter(([, gate]) => !gateExpired(gate.createdAt, now, ttlMs)),
 	);

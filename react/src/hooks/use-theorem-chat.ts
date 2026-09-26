@@ -69,16 +69,17 @@ function withTurnError(blocks: TranscriptBlock[], error: string): TranscriptBloc
  * Shows a failed turn's error. Once the message is in the transcript, the
  * failure is too, closing the turn (the message, or the reply as far as it
  * got, shows it failed); a message that never went out (refused attachments)
- * is still in the composer, so the failure shows there.
+ * is still in the composer, and a reply that still waits on a gate stays open,
+ * so the failure shows in the composer.
  */
 function showTurnFailure(
 	state: ChatState,
 	result: TurnFailure,
 	streamed: TranscriptBlock[],
-	unposted: boolean,
+	open: boolean,
 ): void {
 	const { error, errorKind, errorInternal } = result;
-	if (unposted) {
+	if (open) {
 		state.setFailure({ error, errorKind, ...(errorInternal ? { errorInternal } : {}) });
 	} else {
 		const failed = withTurnError(streamed, error);
@@ -115,12 +116,21 @@ function endRun(state: ChatState): void {
 
 /**
  * A failed run: its session (when it has one) and its error. A message that
- * never posted leaves the transcript as it was, a paused reply included.
+ * never posted, or an answer that left its reply paused (as it was, or on its
+ * next gate), keeps the transcript as it was, the paused reply waiting in it.
  */
-function failRun(state: ChatState, result: TurnFailure, streamed: TranscriptBlock[], unposted: boolean): void {
+function failRun(
+	state: ChatState,
+	result: TurnFailure,
+	stream: { streamed: TranscriptBlock[]; before: TranscriptBlock[] },
+	unposted: boolean,
+): void {
+	const waits = (result.session ?? state.sessionRef.current).gatedTool !== null;
+	const open = unposted || waits;
 	if (result.session) state.setSession(result.session);
-	if (!result.aborted) showTurnFailure(state, result, streamed, unposted);
-	if (!unposted) state.setStreamBlocks([]);
+	if (!result.aborted) showTurnFailure(state, result, stream.streamed, open);
+	if (!open) state.setStreamBlocks([]);
+	else state.setStreamBlocks(result.session ? stream.streamed : stream.before);
 }
 
 /**
@@ -151,6 +161,7 @@ function useRunTurnStream(iface: ComposerProfileInterface | null, state: ChatSta
 			if (!iface || state.busyRef.current) return;
 			const applied = options.userBlocksAlreadyApplied === true;
 			const priorDelivery = beginRun(state, applied);
+			const streamBefore = state.streamBlocksRef.current;
 			const paused = { workedMs: state.sessionRef.current.gatedTool ? replyWorkedMs.current : 0 };
 			// A run that answers a gate (a decision, sign-in) continues its reply; any other, walking away included, starts one.
 			if (!state.sessionRef.current.gatedTool || options.walksAway) replyWorkedMs.current = 0;
@@ -170,7 +181,7 @@ function useRunTurnStream(iface: ComposerProfileInterface | null, state: ChatSta
 				if (!result.ok) {
 					// A new message posts itself (onUserBlocks) with a fresh delivery.
 					const unposted = applied && state.deliveryRef.current === priorDelivery;
-					failRun(state, result, latestStream, unposted);
+					failRun(state, result, { streamed: latestStream, before: streamBefore }, unposted);
 					onRunEnded(state.pendingRef.current, false);
 					return;
 				}
@@ -359,6 +370,8 @@ export function useTheoremChat({ transport, iface }: UseTheoremChatOptions) {
 		chatStarted: state.chatStarted,
 		draftText: state.draftText,
 		failure: state.failure,
+		/** The answer on its way to a gate, shown on it until the answer settles or fails. */
+		answering: state.answering,
 		issues: state.issues,
 		pendingFiles: state.pendingFiles,
 		pendingMessages: state.pendingMessages,

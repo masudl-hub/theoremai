@@ -76,6 +76,24 @@ registerTool({
   sources: () => [CITED],
 });
 
+registerTool({
+  type: 'function',
+  name: 'tool_trace_warns',
+  description: 'Streams a warning, then cites a source with no link',
+  category: 'test',
+  access: 'read-only',
+  paths: ['*'],
+  loadTier: 'T0',
+  permission: 'auto',
+  input: z.object({}),
+  output: z.object({ finding: z.string() }),
+  handler: async function* () {
+    yield { kind: 'warning', warning: { code: 'slow', message: 'upstream was slow' } };
+    yield { kind: 'complete', output: { finding: 'done' } };
+  },
+  sources: () => JSON.parse('[{ "title": "No link", "type": "web" }]'),
+});
+
 registerProfile(
   defineProfile({
     type: 'text',
@@ -91,6 +109,7 @@ registerProfile(
         'always_confirm_tool',
         'tool_trace_image',
         'tool_trace_cites',
+        'tool_trace_warns',
       ],
     },
     inputs: { text: true },
@@ -271,6 +290,20 @@ Deno.test('a tool that cites sources streams the citation and records it on its 
   if (!record) throw new Error('no record');
   const grounding = toolSpan(record).events.find((e) => e.name === 'theorem.grounding');
   assertEquals(contentOf(record, grounding?.attributes.sources), JSON.stringify([CITED]));
+});
+
+Deno.test('every warning of a call is recorded on its span, from the tool and from the kernel', async () => {
+  const record = await turnRecord({ callId: 'c1', name: 'tool_trace_warns', arguments: {} });
+  const warnings = toolSpan(record).events.filter((e) => e.name === 'theorem.tool.warning');
+  assertEquals(
+    warnings.map((e) => [e.attributes.code, e.attributes.severity]),
+    [
+      ['slow', undefined],
+      ['sources_invalid', 'warning'],
+    ],
+  );
+  assertEquals(contentOf(record, warnings[0]?.attributes.message), 'upstream was slow');
+  assertEquals(toolSpan(record).attributes['theorem.tool.outcome'], 'ok');
 });
 
 Deno.test('malformed arguments are recorded as the raw text the model sent', async () => {

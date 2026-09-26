@@ -1169,6 +1169,15 @@ const TRACE_EVENTS: Readonly<Record<string, TraceEventMeta>> = {
       ),
     },
   },
+  'theorem.tool.warning': {
+    label: 'Tool warning',
+    doc: 'Something the tool flagged while it ran; the call went on.',
+    attributes: {
+      code: attr('tool', 'Code', 'id', 'The warning, by name.'),
+      message: attr('tool', 'Message', 'content', 'What the tool said.'),
+      severity: attr('tool', 'Severity', 'text', 'How serious the tool says it is.'),
+    },
+  },
   'theorem.tool.cancel': {
     label: 'Tool call cancelled',
     doc: 'The provider cancelled a tool call it had made.',

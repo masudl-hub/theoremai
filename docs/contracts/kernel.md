@@ -457,7 +457,9 @@ call that failed, gated or was refused. Every source is checked against
 `warning` (`code: 'sources_invalid'`) naming each failure; a throw is the same
 warning and cites nothing. The call still completes and the model's result is
 unchanged. The call's `execute_tool` span records the cited sources as a
-`theorem.grounding` event. A tool that cites nothing omits `sources`.
+`theorem.grounding` event, and every tool warning (the tool's own and
+`sources_invalid`) as a `theorem.tool.warning` event. A tool that cites nothing
+omits `sources`.
 
 ### Host context slot
 

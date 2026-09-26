@@ -2,7 +2,7 @@ import '../fixtures/test-host.ts';
 import {
   bindCanary,
   canaryHoldFrom,
-  canaryScanFrom,
+  createCanaryScanner,
   createCanaryStreamGate,
   eventHasCanary,
   isStreamedCanaryEvent,
@@ -841,14 +841,119 @@ Deno.test('scanTextForCanaryLeak ignores numbers, spelled numbers, hashes, and b
   }
 });
 
-Deno.test('canaryScanFrom rereads enough to see a leak that ends in new text', () => {
+Deno.test('createCanaryScanner finds every encoded leak however the stream is split', () => {
   const canary = mintCanary();
-  const spelled = encodedLeaks(canary)['spelled out'];
-  const text = `${'x'.repeat(5000)} ${spelled}`;
-  const cut = text.length - 3;
-  // Scanning only from the lookback finds what a scan of the whole text finds.
-  assertEquals(scanTextForCanaryLeak(text.slice(canaryScanFrom(text, cut)), canary), true);
-  assertEquals(canaryScanFrom('short', 5), 0);
+  for (const [name, leak] of Object.entries(encodedLeaks(canary))) {
+    const text = `${'x'.repeat(2000)} << ${leak} >>`;
+    for (const size of [1, 2, 7, 64]) {
+      const scanner = createCanaryScanner(canary);
+      let leaked = false;
+      for (let at = 0; at < text.length; at += size)
+        leaked = scanner.push(text.slice(at, at + size));
+      assertEquals([name, size, leaked], [name, size, true]);
+    }
+  }
+});
+
+Deno.test('createCanaryScanner reads a digit split between its UTF-16 halves', () => {
+  const canary = '0123456789abcdef0123456789abcdef';
+  // Mathematical digits are astral: each is a surrogate pair, split across pushes here.
+  const leak = [...canary]
+    .map((c) => (/[0-9]/.test(c) ? String.fromCodePoint(0x1d7ce + Number(c)) : c))
+    .join('');
+  const scanner = createCanaryScanner(canary);
+  let leaked = false;
+  for (let at = 0; at < leak.length; at++) leaked = scanner.push(leak.charAt(at));
+  assertEquals(leaked, true);
+});
+
+Deno.test('createCanaryScanner takes back a long word a later character breaks', () => {
+  const canary = 'b8d3e3616fea1b7bfcb0bfb750bffe3d';
+  // Twelve token characters, then a letter outside the token: the word is a separator,
+  // so the spelled characters after it do not continue a run through it.
+  const spelled = 'one bravo seven bravo foxtrot charlie';
+  const text = `note ${canary.slice(0, 12)}g ${spelled} end`;
+  assertEquals(scanTextForCanaryLeak(text, canary), false);
+  const scanner = createCanaryScanner(canary);
+  let leaked = false;
+  for (const char of text) leaked ||= scanner.push(char);
+  assertEquals(leaked, false);
+});
+
+Deno.test('createCanaryScanner reads a leak that follows a broken long word in one push', () => {
+  const canary = 'b8d3e3616fea1b7bfcb0bfb750bffe3d';
+  const spelled = [...canary.slice(0, 16)]
+    .map((c) => ({ a: 'alpha', b: 'bravo', d: 'delta', e: 'echo', f: 'foxtrot' })[c] ?? c)
+    .join(' ');
+  const scanner = createCanaryScanner(canary);
+  // The word is read as a leak candidate, then a letter outside the token breaks it;
+  // the spelled leak after it is shorter than the word was.
+  assertEquals(scanner.push(`note ${canary.slice(0, 12).repeat(3)}`), false);
+  assertEquals(scanner.push(`g ${spelled}`), true);
+});
+
+Deno.test('canaryHoldFrom releases an opening a long word far after it has cut off', () => {
+  const canary = 'b8d3e3616fea1b7bfcb0bfb750bffe3d';
+  // More than 32 characters after the opening, the word that ends the text starts a new run.
+  const text = `b8d3 ${'.'.repeat(40)} ${'a'.repeat(13)}`;
+  assertEquals(canaryHoldFrom(text, canary), text.length);
+});
+
+Deno.test('createCanaryScanner keeps what comes before a long word it may take back', () => {
+  const canary = 'b8d3e3616fea1b7bfcb0bfb750bffe3d';
+  const first = `${'bbbb '.repeat(59)}${canary.slice(0, 13)} ${'b'.repeat(20)}`;
+  const second = `g ${canary.slice(13, 16)} `;
+  assertEquals(scanTextForCanaryLeak(first + second, canary), true);
+  const scanner = createCanaryScanner(canary);
+  // The first push ends inside a 20-letter word of token letters, just as the word
+  // reading drops its settled start; the word then breaks, and the 13 token characters
+  // before it continue into the 3 after it.
+  assertEquals(scanner.push(first), false);
+  assertEquals(scanner.push(second), true);
+});
+
+Deno.test('createCanaryScanner measures a long word by its text, not what it folds to', () => {
+  const canary = 'b8d3e3616fea1b7bfcb0bfb750bffe3d';
+  // Seventeen ﬀ ligatures fold to 34 token letters but span only 17 characters of text:
+  // close enough that the characters before the word still join those after it.
+  const first = `${'bbbb '.repeat(59)}${canary.slice(0, 13)} ${'ﬀ'.repeat(17)}`;
+  const second = `g ${canary.slice(13, 16)} `;
+  assertEquals(scanTextForCanaryLeak(first + second, canary), true);
+  const scanner = createCanaryScanner(canary);
+  assertEquals(scanner.push(first), false);
+  assertEquals(scanner.push(second), true);
+});
+
+Deno.test('scanTextForCanaryLeak reads a long 0x word as the byte after its prefix', () => {
+  const canary = 'b8d3e3616fea1b7bfcb0bfb750bffe3d';
+  // Four spelled characters, then twelve behind one `0x`: one run, read word by word.
+  assertEquals(
+    scanTextForCanaryLeak(`bravo eight delta three 0x${canary.slice(4, 16)}`, canary),
+    true,
+  );
+});
+
+Deno.test('scanTextForCanaryLeak reads a spoken name behind 0x as its character', () => {
+  const canary = 'b8d3e3616fea1b7bfcb0bfb750bffe3d';
+  // "0xfoxtrot" is nine characters: short enough to be a name behind a byte prefix.
+  assertEquals(scanTextForCanaryLeak('b8d3e3616 0xfoxtrot ea1b7b', canary), true);
+});
+
+Deno.test('createCanaryScanner reads characters across pushes as far apart as they are', () => {
+  const canary = mintCanary();
+  const scanner = createCanaryScanner(canary);
+  // More than 32 apart, token characters are unrelated, however the stream is split.
+  for (const char of canary) assertEquals(scanner.push(`${char}${'.'.repeat(33)}`), false);
+});
+
+Deno.test('createCanaryScanner keeps reading past a long clean stream', () => {
+  const canary = mintCanary();
+  const scanner = createCanaryScanner(canary);
+  // Hex-rich prose long enough that every reading drops its settled start.
+  for (let i = 0; i < 400; i++)
+    assertEquals(scanner.push('a decade of faded beef, 42 cafes. '), false);
+  assertEquals(scanner.push(`${canary.slice(0, 8)} `), false);
+  assertEquals(scanner.push(canary.slice(8, 16)), true);
 });
 
 Deno.test('canary stream gate catches a spelled-out leak split across chunks', () => {

@@ -124,6 +124,9 @@ const SPELLED: Record<string, string> = {
   sierra: 's',
 };
 
+/** The longest name in `SPELLED`: the most text one character of a leak can cover. */
+const LONGEST_SPELLED = Math.max(...Object.keys(SPELLED).map((word) => word.length));
+
 const WORD_CHAR = /^[\p{L}\p{N}]$/u;
 const ASCII_END = 0x80;
 
@@ -159,9 +162,10 @@ function foldText(text: string, foldCase: boolean): FoldedChar[] {
   return chars;
 }
 
-function foldChars(text: string, foldCase: boolean): FoldedChar[] {
+/** The characters of `text` as the scan reads them; `offset` is where `text` starts in the stream. */
+function foldChars(text: string, foldCase: boolean, offset = 0): FoldedChar[] {
   const out: FoldedChar[] = [];
-  let at = 0;
+  let at = offset;
   for (const point of text) {
     const to = at + point.length;
     const lower = foldCase ? point.toLowerCase() : point;
@@ -232,7 +236,7 @@ function keep(projection: CanaryProjection, char: string, at: number, to: number
 interface CanaryLeakForm {
   value: string;
   min: number;
-  project: (text: string) => CanaryProjection;
+  reading: CanaryReading;
   /**
    * Characters a match's redaction grows over, up to one base64 group each
    * side: the groups the token shares with the text around it still carry
@@ -264,42 +268,92 @@ function rot13(text: string): string {
   );
 }
 
-/** Reads, case-folded, each character of `alphabet` wherever it stands. */
-/** The last projection of each reading: forms with the same alphabet share it within a scan. */
-const projectionCache = new Map<string, { text: string; projection: CanaryProjection }>();
+/**
+ * One way of reading text for a leak, fed the text as it streams. Every
+ * character it has read settles into `projection`, except the word the text
+ * ends inside, which the next characters may still change ("e" into "eight").
+ */
+interface CanaryReader {
+  projection: CanaryProjection;
+  read: (chars: FoldedChar[]) => void;
+  /** What the open word adds to `projection.kept` as it stands; the projection is left as is. */
+  openKept: () => string;
+  /** The projection of the whole text, `length` long, the open word read as it ends it. Ends the reader. */
+  close: (length: number) => CanaryProjection;
+  /**
+   * The shortest `projection.kept` has been since the last call: a word
+   * read as part of a leak and then broken takes its characters back out.
+   */
+  shrunkTo: () => number;
+  /**
+   * Drops all but the last `length` characters of `projection.kept`, and
+   * keeps any an open word could still be taken back to; returns how many it
+   * dropped.
+   */
+  trim: (length: number) => number;
+}
 
-function sharedReading(
-  kind: string,
-  alphabet: Set<string>,
-  read: (text: string) => CanaryProjection,
-): (text: string) => CanaryProjection {
-  const key = `${kind}:${[...alphabet].sort().join('')}`;
-  return (text) => {
-    const cached = projectionCache.get(key);
-    if (cached?.text === text) {
-      return cached.projection;
-    }
-    const projection = read(text);
-    projectionCache.set(key, { text, projection });
-    return projection;
+function trimProjection(projection: CanaryProjection, length: number): number {
+  const dropped = Math.max(0, projection.kept.length - length);
+  if (dropped > 0) {
+    projection.kept = projection.kept.slice(dropped);
+    projection.at.splice(0, dropped);
+    projection.to.splice(0, dropped);
+  }
+  return dropped;
+}
+
+/** A reading forms share: one projection of a text serves every form with the same `key`. */
+interface CanaryReading {
+  key: string;
+  /** Whether the reading folds case (every reading but base64). */
+  foldCase: boolean;
+  open: () => CanaryReader;
+}
+
+/** A reader whose every character settles as it is read. */
+function settledReader(accept: (char: string) => string | undefined): CanaryReader {
+  const projection = newProjection();
+  return {
+    projection,
+    read(chars) {
+      for (const { char, at, to } of chars) {
+        const kept = accept(char);
+        if (kept !== undefined) keep(projection, kept, at, to);
+      }
+    },
+    openKept: () => '',
+    close: (length) => finish(projection, length),
+    shrunkTo: () => projection.kept.length,
+    trim: (length) => trimProjection(projection, length),
   };
 }
 
-function byCharacter(alphabet: Set<string>): (text: string) => CanaryProjection {
-  return sharedReading('char', alphabet, (text) => {
-    const projection = newProjection();
-    for (const { char, at, to } of foldText(text, true)) {
-      if (alphabet.has(char)) keep(projection, char, at, to);
-    }
-    return finish(projection, text.length);
-  });
+/** Reads, case-folded, each character of `alphabet` wherever it stands. */
+function byCharacter(alphabet: Set<string>): CanaryReading {
+  return {
+    key: `char:${[...alphabet].sort().join('')}`,
+    foldCase: true,
+    open: () => settledReader((char) => (alphabet.has(char) ? char : undefined)),
+  };
 }
 
-/**
- * Reads word by word: a word written only in `alphabet` counts in full, a
- * spoken name (`SPELLED`) counts as the character it spells, and any other
- * word is a separator. "3, then f" reads as "3f"; "zero one" as "01".
- */
+/** The last projection of each reading: forms with the same reading share it within a scan. */
+const projectionCache = new Map<string, { text: string; projection: CanaryProjection }>();
+
+/** `text` as `reading` reads it, whole. */
+function project(reading: CanaryReading, text: string): CanaryProjection {
+  const cached = projectionCache.get(reading.key);
+  if (cached?.text === text) {
+    return cached.projection;
+  }
+  const reader = reading.open();
+  reader.read(foldText(text, reading.foldCase));
+  const projection = reader.close(text.length);
+  projectionCache.set(reading.key, { text, projection });
+  return projection;
+}
+
 /** The token characters a word cut off by the end of the text could still spell. */
 function couldSpell(written: string, alphabet: Set<string>): string {
   return Object.entries(SPELLED)
@@ -341,52 +395,186 @@ function openingFrom(
   return undefined;
 }
 
-function byWord(alphabet: Set<string>): (text: string) => CanaryProjection {
-  return sharedReading('word', alphabet, (text) => {
-    const projection = newProjection();
-    const chars = foldText(text, true);
-    for (let start = 0; start < chars.length; ) {
-      let end = start;
-      while (end < chars.length && chars[end]?.word) end++;
-      if (end === start) {
-        start++;
-        continue;
+/**
+ * A word longer than this can be neither a spoken name nor one behind `0x`:
+ * how it reads is settled but for whether it stays in the alphabet.
+ */
+const LONGEST_WORD_READ = LONGEST_SPELLED + HEX_PAD;
+
+/** Whether `chars`, a whole word, starts with a `0x` byte prefix; the byte is the word. */
+function isHexByte(chars: FoldedChar[]): boolean {
+  return chars.length > HEX_PAD && chars[0]?.char === '0' && chars[1]?.char === 'x';
+}
+
+/**
+ * Reads one word into `projection`; `open` when the text ends inside it, so
+ * it may still grow into another word.
+ */
+function readWord(
+  projection: CanaryProjection,
+  chars: FoldedChar[],
+  alphabet: Set<string>,
+  open: boolean,
+): void {
+  const word = isHexByte(chars) ? chars.slice(HEX_PAD) : chars;
+  const written = word.map((c) => c.char).join('');
+  if (open) {
+    breakGap(projection, word[0]?.at ?? 0);
+    projection.unfinished = {
+      at: chars[0]?.at ?? 0,
+      settled: projection.kept.length,
+      spells: couldSpell(written, alphabet),
+    };
+  }
+  const spelled = SPELLED[written];
+  if (spelled !== undefined && alphabet.has(spelled)) {
+    keep(projection, spelled, word[0]?.at ?? 0, word.at(-1)?.to ?? 0);
+  } else if (word.every((c) => alphabet.has(c.char))) {
+    for (const { char, at, to } of word) keep(projection, char, at, to);
+  }
+}
+
+/**
+ * Reads word by word: a word written only in `alphabet` counts in full, a
+ * spoken name (`SPELLED`) counts as the character it spells, and any other
+ * word is a separator. "3, then f" reads as "3f"; "zero one" as "01".
+ *
+ * A word longer than `LONGEST_WORD_READ` is read as it streams: its
+ * characters are kept as they come while every one is in the alphabet, and
+ * taken back out if one is not. However long the word, each character is
+ * read once.
+ */
+function byWord(alphabet: Set<string>): CanaryReading {
+  return {
+    key: `word:${[...alphabet].sort().join('')}`,
+    foldCase: true,
+    open: () => wordReader(alphabet),
+  };
+}
+
+function wordReader(alphabet: Set<string>): CanaryReader {
+  const projection = newProjection();
+  /** The open word. */
+  let word: FoldedChar[] = [];
+  /** A long open word: how long `kept` was before it, and after the gap in front of it. */
+  let long: { before: number; after: number; broken: boolean } | undefined;
+  let shrunk = 0;
+
+  function truncate(length: number): void {
+    projection.kept = projection.kept.slice(0, length);
+    projection.at.length = length;
+    projection.to.length = length;
+    shrunk = Math.min(shrunk, length);
+  }
+
+  /** The open word just grew past `LONGEST_WORD_READ`: keep it while it is in the alphabet. */
+  function lengthen(): void {
+    const body = isHexByte(word) ? word.slice(HEX_PAD) : word;
+    const before = projection.kept.length;
+    breakGap(projection, body[0]?.at ?? 0);
+    long = { before, after: projection.kept.length, broken: false };
+    if (body.every((c) => alphabet.has(c.char))) {
+      for (const { char, at, to } of body) keep(projection, char, at, to);
+    } else {
+      breakWord();
+    }
+  }
+
+  /** The long open word has a character outside the alphabet: it is a separator. */
+  function breakWord(): void {
+    if (long && !long.broken) {
+      truncate(Math.max(0, long.before));
+      long.broken = true;
+    }
+  }
+
+  function grow(char: FoldedChar): void {
+    word.push(char);
+    if (word.length === LONGEST_WORD_READ + 1) {
+      lengthen();
+    } else if (long && !long.broken) {
+      if (alphabet.has(char.char)) keep(projection, char.char, char.at, char.to);
+      else breakWord();
+    }
+  }
+
+  function settle(): void {
+    // A long word's characters are already kept, or already taken back out.
+    if (!long) readWord(projection, word, alphabet, false);
+    word = [];
+    long = undefined;
+  }
+
+  return {
+    projection,
+    read(chars) {
+      for (const char of chars) {
+        if (char.word) grow(char);
+        else if (word.length > 0) settle();
       }
-      // A `0x` prefix marks a hex byte; the byte is the word.
-      const hexByte =
-        end - start > 2 && chars[start]?.char === '0' && chars[start + 1]?.char === 'x';
-      const word = chars.slice(hexByte ? start + 2 : start, end);
-      const written = word.map((c) => c.char).join('');
-      if (end === chars.length) {
-        breakGap(projection, word[0]?.at ?? 0);
+    },
+    openKept() {
+      if (word.length === 0 || long) {
+        return '';
+      }
+      // Only `kept` is read back: the gap check needs just the last offset.
+      const view = { kept: projection.kept, at: [], to: projection.to.slice(-1) };
+      readWord(view, word, alphabet, true);
+      return view.kept.slice(projection.kept.length);
+    },
+    close(length) {
+      if (word.length > 0 && !long) {
+        readWord(projection, word, alphabet, true);
+      } else if (long) {
+        const body = isHexByte(word) ? word.slice(HEX_PAD) : word;
+        breakGap(projection, body[0]?.at ?? 0);
         projection.unfinished = {
-          at: chars[start]?.at ?? 0,
-          settled: projection.kept.length,
-          spells: couldSpell(written, alphabet),
+          at: word[0]?.at ?? 0,
+          settled: long.broken ? projection.kept.length : long.after,
+          spells: '',
         };
       }
-      const spelled = SPELLED[written];
-      if (spelled !== undefined && alphabet.has(spelled)) {
-        keep(projection, spelled, word[0]?.at ?? 0, word.at(-1)?.to ?? 0);
-      } else if (word.every((c) => alphabet.has(c.char))) {
-        for (const { char, at, to } of word) keep(projection, char, at, to);
+      return finish(projection, length);
+    },
+    shrunkTo() {
+      const least = shrunk;
+      shrunk = projection.kept.length;
+      return least;
+    },
+    trim(length) {
+      // A long word still kept may yet be taken back out, leaving what came
+      // before it to continue a run: keep `length` characters in front of it.
+      // Once its text spans more than `LEAK_GAP`, nothing before it can join a
+      // run after it, so that can go too. Its text, not what it folds to: a
+      // ligature keeps two characters for one.
+      const kept = long && !long.broken ? long : undefined;
+      const span = (word.at(-1)?.to ?? 0) - (word[0]?.at ?? 0);
+      const shallow = kept && span <= LEAK_GAP;
+      const dropped = trimProjection(
+        projection,
+        shallow ? projection.kept.length - kept.before + length : length,
+      );
+      if (kept) {
+        kept.before -= dropped;
+        kept.after -= dropped;
       }
-      start = end;
-    }
-    return finish(projection, text.length);
-  });
+      shrunk -= dropped;
+      return dropped;
+    },
+  };
 }
 
 /** Reads base64 characters wherever they stand; every base64 form shares the reading. */
-const readBase64 = sharedReading('base64', new Set(), (text) => {
-  const projection = newProjection();
-  for (const { char, at, to } of foldText(text, false)) {
-    // URL-safe base64 reads as standard; padding is not part of the token.
-    const standard = char === '-' ? '+' : char === '_' ? '/' : char;
-    if (isBase64Char(standard)) keep(projection, standard, at, to);
-  }
-  return finish(projection, text.length);
-});
+const readBase64: CanaryReading = {
+  key: 'base64',
+  foldCase: false,
+  // URL-safe base64 reads as standard; padding is not part of the token.
+  open: () =>
+    settledReader((char) => {
+      const standard = char === '-' ? '+' : char === '_' ? '/' : char;
+      return isBase64Char(standard) ? standard : undefined;
+    }),
+};
 
 /**
  * The base64 of the token at each of the three byte offsets it can start at
@@ -441,8 +629,8 @@ function canaryLeakForms(canary: string): CanaryLeakForm[] {
     seen.add(value);
     const alphabet = new Set(value);
     const min = leakRun(value, TOKEN_LEAK_RUN);
-    forms.push({ value, min, project: byCharacter(alphabet) });
-    forms.push({ value, min, project: byWord(alphabet) });
+    forms.push({ value, min, reading: byCharacter(alphabet) });
+    forms.push({ value, min, reading: byWord(alphabet) });
   }
   // The token's characters as numbers: hex (xxd, %-encoding) and decimal (char codes,
   // `&#…;`); a hex token also as the bytes it spells, in decimal.
@@ -458,7 +646,7 @@ function canaryLeakForms(canary: string): CanaryLeakForm[] {
     forms.push({
       value,
       min: leakRun(value, BYTE_CODE_LEAK_RUN),
-      project: byCharacter(new Set(value)),
+      reading: byCharacter(new Set(value)),
     });
   }
   try {
@@ -468,7 +656,7 @@ function canaryLeakForms(canary: string): CanaryLeakForm[] {
         forms.push({
           value,
           min: leakRun(value, BASE64_LEAK_RUN),
-          project: readBase64,
+          reading: readBase64,
           edge: BASE64_EDGE,
         });
       }
@@ -507,7 +695,7 @@ function widen(text: string, [start, end]: [number, number], edge?: RegExp): [nu
 function canaryLeakRanges(text: string, canary: string): Array<[number, number]> {
   const ranges: Array<[number, number]> = [];
   for (const form of canaryLeakForms(canary)) {
-    const { kept, at, to } = form.project(text);
+    const { kept, at, to } = project(form.reading, text);
     for (const [start, end] of leakRunsIn(kept, form)) {
       ranges.push(widen(text, [at[start] ?? 0, to[end - 1] ?? 0], form.edge));
     }
@@ -525,7 +713,7 @@ function scanTextForCanaryLeak(text: string, canary: string): boolean {
     return false;
   }
   return canaryLeakForms(canary).some(
-    (form) => leakRunsIn(form.project(text).kept, form).length > 0,
+    (form) => leakRunsIn(project(form.reading, text).kept, form).length > 0,
   );
 }
 
@@ -546,7 +734,7 @@ function leakOpeningFrom(text: string, canary: string, minimum: OpeningMin): num
     return from;
   }
   for (const form of canaryLeakForms(canary)) {
-    const { kept, at, unfinished } = form.project(text);
+    const { kept, at, unfinished } = project(form.reading, text);
     const shortest = minimum(form);
     const openings = [openingFrom(kept, at, form, shortest)];
     if (unfinished) {
@@ -566,30 +754,88 @@ function leakOpeningFrom(text: string, canary: string, minimum: OpeningMin): num
   return from;
 }
 
-/** The longest name in `SPELLED`: the most text one character of a leak can cover. */
-const LONGEST_SPELLED = Math.max(...Object.keys(SPELLED).map((word) => word.length));
-/**
- * The most text one leak run can cover: at most `BYTE_CODE_LEAK_RUN`
- * characters (the longest run), each within `LEAK_GAP` of the next and at
- * most a spelled word long.
- */
-const CANARY_SCAN_LOOKBACK = BYTE_CODE_LEAK_RUN * (LEAK_GAP + LONGEST_SPELLED);
-const WORD_BOUNDARY_SEARCH = 64;
+/** Settled characters of a reading the stream scan keeps: every leak run is shorter. */
+const SCAN_KEPT = BYTE_CODE_LEAK_RUN;
+/** How long a reading's settled characters grow before the stream scan drops all but `SCAN_KEPT`. */
+const SCAN_TRIM_AT = 8 * SCAN_KEPT;
+const HIGH_SURROGATE_FIRST = 0xd800;
+const HIGH_SURROGATE_LAST = 0xdbff;
 
 /**
- * Where a scan of `text` must start when everything before `from` was
- * already scanned clean: a leak that ends past `from` starts no more than
- * `CANARY_SCAN_LOOKBACK` before it. The start moves to the next space, so no
- * word is read cut in half; a scan that reads this far back reads the same
- * leaks as one over the whole text.
+ * Scans a stream for a canary leak as it arrives, reading each character
+ * once: every reading keeps its projection of the stream so far and extends
+ * it with the new text, and only runs that end in what the new text added
+ * are checked. It reads the same leaks as `scanTextForCanaryLeak` over the
+ * whole stream, in time proportional to the stream's length.
  */
-function canaryScanFrom(text: string, from: number): number {
-  const start = from - CANARY_SCAN_LOOKBACK - WORD_BOUNDARY_SEARCH;
-  if (start <= 0) {
-    return 0;
+interface CanaryScanner {
+  /** Reads the next text of the stream; true once the stream holds a leak. */
+  push: (text: string) => boolean;
+}
+
+/** One reading of the stream and the forms read in it; runs ending before `checked` are clean. */
+interface StreamReading {
+  reader: CanaryReader;
+  foldCase: boolean;
+  forms: CanaryLeakForm[];
+  checked: number;
+}
+
+function createCanaryScanner(canary: string): CanaryScanner {
+  const readings = new Map<string, StreamReading>();
+  for (const form of canary ? canaryLeakForms(canary) : []) {
+    const known = readings.get(form.reading.key);
+    if (known) known.forms.push(form);
+    else {
+      readings.set(form.reading.key, {
+        reader: form.reading.open(),
+        foldCase: form.reading.foldCase,
+        forms: [form],
+        checked: 0,
+      });
+    }
   }
-  const space = text.slice(start, start + WORD_BOUNDARY_SEARCH).search(/\s/);
-  return space < 0 ? start : start + space;
+  let offset = 0;
+  /** A high surrogate the last text ended on, read with the low one that follows. */
+  let split = '';
+  let leaked = false;
+
+  function check(reading: StreamReading): boolean {
+    const { reader } = reading;
+    // Runs ending before `checked` were read clean; a broken word may have moved it back.
+    const checked = Math.min(reading.checked, reader.shrunkTo());
+    const kept = reader.projection.kept + reader.openKept();
+    const found = reading.forms.some(
+      (form) => leakRunsIn(kept.slice(Math.max(0, checked - form.min + 1)), form).length > 0,
+    );
+    reading.checked = reader.projection.kept.length;
+    if (reading.checked > SCAN_TRIM_AT) reading.checked -= reader.trim(SCAN_KEPT);
+    return found;
+  }
+
+  return {
+    push(fragment) {
+      if (leaked || !fragment) {
+        return leaked;
+      }
+      let text = split + fragment;
+      const last = text.charCodeAt(text.length - 1);
+      split = last >= HIGH_SURROGATE_FIRST && last <= HIGH_SURROGATE_LAST ? text.slice(-1) : '';
+      text = text.slice(0, text.length - split.length);
+      const folded = new Map<boolean, FoldedChar[]>();
+      for (const reading of readings.values()) {
+        let chars = folded.get(reading.foldCase);
+        if (!chars) {
+          chars = foldChars(text, reading.foldCase, offset);
+          folded.set(reading.foldCase, chars);
+        }
+        reading.reader.read(chars);
+        if (check(reading)) leaked = true;
+      }
+      offset += text.length;
+      return leaked;
+    },
+  };
 }
 
 /**
@@ -710,36 +956,35 @@ interface CanaryStreamGate {
  * is a leak too.
  */
 function createCanaryStreamGate(canary: string, system?: string): CanaryStreamGate {
+  const scanner = createCanaryScanner(canary);
   let pending = '';
-  /** Released text a leak could still continue from, read but never re-released. */
+  /** Released text a prompt echo could still continue from, read but never re-released. */
   let released = '';
 
-  /** Where a scan must start to see every leak that ends past `from`. */
-  function scanFrom(text: string, from: number): number {
-    const start = canaryScanFrom(text, from);
-    return system ? Math.min(start, promptEchoScanFrom(text, from)) : start;
-  }
-
-  /** Each check rereads only what a new leak of its own could reach back into. */
-  function leaks(window: string): boolean {
+  /**
+   * Whether the stream holds a leak once `fragment` arrives, `window` being
+   * the unreleased text it ends. The canary scan reads each character once;
+   * the echo check rereads its own short lookback.
+   */
+  function leaks(fragment: string, window: string): boolean {
     const text = released + window;
-    const from = released.length;
     return (
-      scanTextForCanaryLeak(text.slice(canaryScanFrom(text, from)), canary) ||
+      scanner.push(fragment) ||
       (system !== undefined &&
-        scanTextForPromptEcho(text.slice(promptEchoScanFrom(text, from)), system))
+        scanTextForPromptEcho(text.slice(promptEchoScanFrom(text, released.length)), system))
     );
   }
 
-  function step(window: string): CanaryGateResult {
-    if (leaks(window)) {
+  function step(fragment: string): CanaryGateResult {
+    const window = pending + fragment;
+    if (leaks(fragment, window)) {
       return { leak: true };
     }
     const safeEnd = canaryHoldFrom(window, canary);
     const emit = window.slice(0, safeEnd);
     pending = window.slice(safeEnd);
     released += emit;
-    released = released.slice(scanFrom(released, released.length));
+    released = system ? released.slice(promptEchoScanFrom(released, released.length)) : '';
     return { leak: false, emit };
   }
 
@@ -748,10 +993,10 @@ function createCanaryStreamGate(canary: string, system?: string): CanaryStreamGa
       if (!fragment) {
         return { leak: false, emit: '' };
       }
-      return step(pending + fragment);
+      return step(fragment);
     },
     flush(): CanaryGateResult {
-      if (leaks(pending)) {
+      if (leaks('', pending)) {
         return { leak: true };
       }
       const emit = pending;
@@ -782,12 +1027,12 @@ function redactCanary(event: TurnEvent, canary: string): TurnEvent {
   return turnEventSchema.parse(mapStrings(event, (text) => redactCanaryText(text, canary)));
 }
 
-export type { CanaryGateResult, CanaryStreamGate, StreamedReplyEvent };
+export type { CanaryGateResult, CanaryScanner, CanaryStreamGate, StreamedReplyEvent };
 export {
   bindCanary,
   canaryCarry,
   canaryHoldFrom,
-  canaryScanFrom,
+  createCanaryScanner,
   createCanaryStreamGate,
   eventHasCanary,
   guardedEventTexts,

@@ -325,13 +325,11 @@ async function runEnforcer(
 
 export {
   CANARY_HIT,
-  canaryHits,
   collectEgressHits,
   eventPromptLeakHits,
   hitRules,
   isPromptLeakHit,
   promptEchoHits,
-  promptLeakHits,
   promptLeakReason,
   runEnforcer,
   standardEgressEnforce,

@@ -215,10 +215,14 @@ nothing, never more than a few words — so canary-only output streams almost at
 once. An opening shorter than 4 characters of a form is released, so ordinary
 text is not held on every letter a token could start with; the scan still reads
 it with what follows, so a blocked leak has shown the host at most 3 of its
-characters (fewer for a form whose leak run is shorter than 16). A scan rereads
-only the text a new leak could reach back into (`canaryScanFrom`; the prompt
-echo check its own shorter lookback, `promptEchoScanFrom`), so its cost grows
-with the reply, not its square. What the
+characters (fewer for a form whose leak run is shorter than 16). The stream
+scan (`createCanaryScanner`) reads each character once: every reading extends
+its projection with the new text and checks only the runs that end in it, a
+word still open is read as it stands and reread when it grows, and a long word
+kept as a leak candidate is taken back out if a character outside the alphabet
+breaks it — the same verdict as a scan of the whole reply. The prompt echo
+check rereads its own short lookback (`promptEchoScanFrom`). Either way the
+cost grows with the reply, not its square. What the
 scan cannot read: arbitrary ciphers and arithmetic (a Caesar shift, the token
 as one big number, base64 of an already transformed token), and a token spread
 one character per sentence. Under

@@ -5,6 +5,7 @@ import { useLocale } from '@astryxdesign/core/i18n';
 import { Link } from '@astryxdesign/core/Link';
 import { List, ListItem } from '@astryxdesign/core/List';
 import { MetadataList, MetadataListItem } from '@astryxdesign/core/MetadataList';
+import { ScrollableArea } from '@astryxdesign/core/ScrollableArea';
 import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
 import { Table, type TableColumn } from '@astryxdesign/core/Table';
 import { Text } from '@astryxdesign/core/Text';
@@ -69,11 +70,38 @@ function isPlain(value: unknown): boolean {
 }
 
 /** The value's JSON; one JSON can't write (a cycle, a bigint) reads as its string. */
+/**
+ * What JSON.stringify can't take, made plain: a cycle, a BigInt, a property
+ * that throws when read. Each becomes a marker in place, so the rest still shows.
+ */
+function jsonSafe(value: unknown, ancestors: object[] = []): unknown {
+	if (typeof value === 'bigint') return String(value);
+	if (value === null || typeof value !== 'object') return value;
+	if (ancestors.includes(value)) return '[Circular]';
+	const inside = [...ancestors, value];
+	try {
+		const own = (value as { toJSON?: () => unknown }).toJSON;
+		if (typeof own === 'function') return jsonSafe(own.call(value), inside);
+	} catch {
+		return '[Unreadable]';
+	}
+	if (Array.isArray(value)) return value.map((item) => jsonSafe(item, inside));
+	const copy: Record<string, unknown> = {};
+	for (const key of Object.keys(value)) {
+		try {
+			copy[key] = jsonSafe((value as Record<string, unknown>)[key], inside);
+		} catch {
+			copy[key] = '[Unreadable]';
+		}
+	}
+	return copy;
+}
+
 function json(value: unknown): string {
 	try {
 		return JSON.stringify(value, null, 2) ?? String(value);
 	} catch {
-		return String(value);
+		return JSON.stringify(jsonSafe(value), null, 2) ?? String(value);
 	}
 }
 
@@ -495,13 +523,16 @@ export function ShapedData({ value: raw, title }: { value: unknown; title?: stri
 					</SegmentedControl>
 				)}
 			</HStack>
-			{view === 'json' && structured ? (
-				<Json value={value} />
-			) : (
-				<ShapeBoundary fallback={<Json value={value} />}>
-					<Node value={value} depth={0} />
-				</ShapeBoundary>
-			)}
+			{/* A long result scrolls in place rather than stretching the transcript. */}
+			<ScrollableArea label={title ?? t('@theorem.data.shaped')} style={{ maxHeight: 360 }}>
+				{view === 'json' && structured ? (
+					<Json value={value} />
+				) : (
+					<ShapeBoundary fallback={<Json value={value} />}>
+						<Node value={value} depth={0} />
+					</ShapeBoundary>
+				)}
+			</ScrollableArea>
 		</VStack>
 	);
 }

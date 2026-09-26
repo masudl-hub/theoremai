@@ -223,7 +223,10 @@ scan cannot read: arbitrary ciphers and arithmetic (a Caesar shift, the token
 as one big number, base64 of an already transformed token), and a token spread
 one character per sentence. Under
 `egress.enforce` the gate also holds `egress.holdback` characters (default
-`DEFAULT_HOLDBACK`, 256), plus any incomplete PEM body until its END line.
+`DEFAULT_HOLDBACK`, 256; on Live `LIVE_DEFAULT_HOLDBACK`, 96, since held
+transcript holds its audio too — the shortest that shows the host no
+character of any egress corpus match however the transcript is chunked is 88),
+plus any incomplete PEM body until its END line.
 `redactCanary` and the trace and upstream-tape scrubbers replace every form the
 scan detects. A window that ends on a possible leak opening of any length
 carries it (`canaryCarry`) into the next window of the same canary — the next provider
@@ -263,7 +266,8 @@ the transcript is whole, so the audio after its last chunk goes then. Audio
 released before a later hit is not recalled — as with text, the gate withholds
 from the hit onward, and an interruption drops only what is still held. Reply
 text before the first audio streams as it clears (canary-only, only a tail that
-could start a leak waits; under egress, up to `egress.holdback` characters).
+could start a leak waits; under egress, up to `egress.holdback` characters,
+96 by default on Live).
 Audio in a cycle that produced no transcript is dropped with a
 `live.untranscribed-audio` guardrail event. A guarded profile (canary or
 `egress.enforce`) always requests the output transcript:
@@ -904,7 +908,7 @@ From `src/guardrails/mod.ts`:
 | Sanitize | `sanitizeProjectId`, `sanitizeText`, `detectText`, `sanitizeHistory`, `sanitizeTurnRequest`, `sanitizeTurnRequestWithEvents`, `redactSensitiveOnly`, `detectionForProfile` |
 | Events | `guardrailFromHits`, `guardrailFromVerdict`, `guardrailTurnEvent`, `projectGuardrailTurnEvent`, `hitFromSpan`, `projectGuardrailEvent` |
 | Canary | `mintCanary`, `bindCanary`, `wrapUserData`, `scanTextForCanaryLeak`, `scanTextForPromptEcho`, `PROMPT_ECHO_WORDS`, `createCanaryStreamGate`, `eventHasCanary`, `isStreamedCanaryEvent`, `redactCanary`, `OMIT_CANARY`, `USER_OPEN`, `USER_CLOSE`, `createCanaryGateSession`, `filterCanaryGatedEvents`, `CanaryGateResult`, `CanaryGateSession`, `CanaryStreamGate` |
-| Egress / Live | `standardEgressEnforce`, `collectEgressHits`, `hitRules`, `EGRESS_RULES`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `DEFAULT_HOLDBACK`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveHeldOutput`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
+| Egress / Live | `standardEgressEnforce`, `collectEgressHits`, `hitRules`, `EGRESS_RULES`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `DEFAULT_HOLDBACK`, `LIVE_DEFAULT_HOLDBACK`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveHeldOutput`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
 | Network | `assertSafeUrl`, `fetchGuarded`, `dnsOverHttpsResolver`, `isLocalhostName`, `isPrivateOrLocalAddress`, `GuardedFetchOptions`, `ResolveHost`, `DnsOverHttpsOptions`, `NetworkGuardrailSpec` |
 | Quota | `QuotaSlotStatus`, `QuotaExhausted`, `clientIp`, `quotaExhausted`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |
 | Lexicon | `LEXICON_KEYS`, `LexiconKey`, `CLIENT_LEXICON_KEYS`, `ClientLexiconKey`, `LexiconOverrides`, `LexiconParams`, `lexiconDefault`, `lexiconText`, `overrideLexicon`, `resetLexicon` |

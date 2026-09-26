@@ -705,7 +705,7 @@ Profile `guardrails`:
 | `quota` | Host HTTP helper only (`@theoremai/agents/guardrails`); not enforced inside `runTurn` |
 | `canary` | Per-turn canary token; egress checks leakage |
 | `sanitizeInput` / `redactSensitive` | Pre-provider text/blob scrub |
-| `egress` | Host `enforce` hook; `onBlock`: `reject_to_agent` or `refuse_to_user`; `maxRetries`; `holdback`; repair guidance is the lexicon's `egress.default_repair_guidance` (mid-stream lookback, default 256) |
+| `egress` | Host `enforce` hook; `onBlock`: `reject_to_agent` or `refuse_to_user`; `maxRetries`; `holdback`; repair guidance is the lexicon's `egress.default_repair_guidance` (mid-stream lookback, default 256; 96 on Live) |
 
 ## Compaction
 

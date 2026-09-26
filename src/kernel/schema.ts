@@ -991,7 +991,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   'guardrails.egress.maxRetries': field('number', 'Repair-turn ceiling after an egress block.'),
   'guardrails.egress.holdback': field(
     'number',
-    'Characters held back mid-stream so enforce sees split matches (default 256).',
+    'Characters held back mid-stream so enforce sees split matches (default 256; 96 on Live).',
   ),
   'guardrails.network': field(
     'NetworkGuardrailSpec',

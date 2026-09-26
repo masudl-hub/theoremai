@@ -8,7 +8,7 @@ import {
   finalizeLiveOutboundTurn,
   processLiveOutboundBatch,
 } from '../../src/guardrails/live-outbound-gate.ts';
-import { DEFAULT_HOLDBACK } from '../../src/guardrails/progressive-yield.ts';
+import { DEFAULT_HOLDBACK, LIVE_DEFAULT_HOLDBACK } from '../../src/guardrails/progressive-yield.ts';
 import type { EgressEnforcer, Verdict } from '../../src/guardrails/types.ts';
 import { getProfile, registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
@@ -35,7 +35,12 @@ function session(canary?: string) {
 function egressProfile(
   id: string,
   enforce: EgressEnforcer,
-  extras: { onBlock?: 'refuse_to_user'; canary?: boolean; lexicon?: LexiconOverrides } = {},
+  extras: {
+    onBlock?: 'refuse_to_user';
+    canary?: boolean;
+    lexicon?: LexiconOverrides;
+    holdback?: number;
+  } = {},
 ) {
   registerProfile(
     defineProfile({
@@ -50,6 +55,7 @@ function egressProfile(
         ...(extras.canary === undefined ? {} : { canary: extras.canary }),
         egress: {
           ...(extras.onBlock ? { onBlock: extras.onBlock } : {}),
+          ...(extras.holdback === undefined ? {} : { holdback: extras.holdback }),
           enforce,
         },
       },
@@ -821,4 +827,18 @@ Deno.test('processLiveOutboundBatch catches a canary split across cycles', async
   // The session canary is stable: the next cycle reads the last one's opening first.
   const next = await processLiveOutboundBatch(s, [said(canary.slice(half))]);
   assertEquals(next.action, 'withhold');
+});
+
+Deno.test('createLiveOutboundGateSession holds LIVE_DEFAULT_HOLDBACK under egress', async () => {
+  const s = createLiveOutboundGateSession(egressProfile('live_holdback_default', passEnforce));
+  await processLiveOutboundBatch(s, [said('s'.repeat(LIVE_DEFAULT_HOLDBACK * 3))]);
+  assertEquals(s.gate?.unreleased().length, LIVE_DEFAULT_HOLDBACK);
+});
+
+Deno.test('createLiveOutboundGateSession keeps a holdback the host set', async () => {
+  const s = createLiveOutboundGateSession(
+    egressProfile('live_holdback_host', passEnforce, { holdback: DEFAULT_HOLDBACK }),
+  );
+  await processLiveOutboundBatch(s, [said('s'.repeat(DEFAULT_HOLDBACK * 2))]);
+  assertEquals(s.gate?.unreleased().length, DEFAULT_HOLDBACK);
 });

@@ -217,7 +217,7 @@ export interface ProfileEgressSpec {
   /**
    * Characters the progressive gate holds back so `enforce` sees a match split
    * across stream chunks before any of it is released (default
-   * `DEFAULT_HOLDBACK`, 256). Smaller releases the reply sooner and covers
+   * `DEFAULT_HOLDBACK`, 256; on Live `LIVE_DEFAULT_HOLDBACK`, 96). Smaller releases the reply sooner and covers
    * shorter splits; a tail that could start a canary leak is always held regardless.
    */
   holdback?: number;

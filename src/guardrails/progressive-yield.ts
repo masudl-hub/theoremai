@@ -18,6 +18,12 @@ import type {
 
 /** Default lookback under `egress.enforce`, whose detectors match spans longer than a canary. */
 const DEFAULT_HOLDBACK = 256;
+/**
+ * Default lookback on Live, where the held transcript holds back audio too: the
+ * shortest that shows the host no character of any egress corpus match
+ * however the transcript is chunked (88), with a margin.
+ */
+const LIVE_DEFAULT_HOLDBACK = 96;
 const PEM_BEGIN = '-----BEGIN';
 
 export type ProgressiveYieldOk = { blocked: false; emit: string };
@@ -222,4 +228,9 @@ function createOutboundProgressiveGate(
 }
 
 export type { ProgressiveYieldGate };
-export { createOutboundProgressiveGate, createProgressiveYieldGate, DEFAULT_HOLDBACK };
+export {
+  createOutboundProgressiveGate,
+  createProgressiveYieldGate,
+  DEFAULT_HOLDBACK,
+  LIVE_DEFAULT_HOLDBACK,
+};

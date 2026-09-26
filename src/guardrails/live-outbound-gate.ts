@@ -42,6 +42,7 @@ import { lexiconText } from './lexicon.ts';
 import { resolveGuardrailPolicy } from './policy.ts';
 import {
   createOutboundProgressiveGate,
+  LIVE_DEFAULT_HOLDBACK,
   type ProgressiveYieldGate,
   type ProgressiveYieldResult,
 } from './progressive-yield.ts';
@@ -98,6 +99,17 @@ function egressSpec(session: LiveOutboundGateSession): ProfileEgressSpec | undef
 }
 
 /**
+ * The policy with Live's shorter default lookback (`LIVE_DEFAULT_HOLDBACK`)
+ * when the host set none: every held character of transcript holds its audio.
+ */
+function liveHoldback(policy: ResolvedGuardrailPolicy): ResolvedGuardrailPolicy {
+  if (!policy.egress || policy.egress.holdback !== undefined) {
+    return policy;
+  }
+  return { ...policy, egress: { ...policy.egress, holdback: LIVE_DEFAULT_HOLDBACK } };
+}
+
+/**
  * Creates outbound guardrail state for a live profile. A canary is only attached
  * when the resolved profile policy enables it and the caller supplied a token.
  */
@@ -106,7 +118,7 @@ function createLiveOutboundGateSession(
   canary?: string,
   system?: string,
 ): LiveOutboundGateSession {
-  const policy = resolveGuardrailPolicy(profile.guardrails);
+  const policy = liveHoldback(resolveGuardrailPolicy(profile.guardrails));
   const useCanary = policy.canary && Boolean(canary);
   const context: GuardrailContext = {
     stage: 'live_outbound',

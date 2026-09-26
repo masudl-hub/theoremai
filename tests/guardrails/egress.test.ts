@@ -51,6 +51,12 @@ Deno.test('standardEgressEnforce blocks sensitive echo', () => {
   assertEquals(rules(verdict).includes(EGRESS_RULES.sensitive), true);
 });
 
+Deno.test('standardEgressEnforce releases IP addresses: they are not secrets', () => {
+  const reply =
+    'Your router is usually 192.168.1.1; IPv6 looks like 2001:0db8:85a3:0000:0000:8a2e:0370:7334.';
+  assertEquals(enforce(reply, mintCanary()).action, 'allow');
+});
+
 Deno.test('standardEgressEnforce blocks system boundary markers', () => {
   const verdict = enforce('leak: <user_data>secret</user_data>', mintCanary());
   assertEquals(verdict.action, 'block');

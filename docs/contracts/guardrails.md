@@ -148,8 +148,9 @@ interface GuardrailHit {
 }
 ```
 
-`standardEgressEnforce` blocks canary leaks, sensitive echoes, system-boundary
-markers, and injection-pattern echoes; `EGRESS_RULES` names the rule ids it emits. **`payload.structured` is inspected alongside `payload.text`**, so a profile
+`standardEgressEnforce` blocks canary leaks, sensitive echoes (credentials,
+cards, SSNs — not IP addresses), system-boundary markers, and injection-pattern
+echoes; `EGRESS_RULES` names the rule ids it emits. **`payload.structured` is inspected alongside `payload.text`**, so a profile
 with `outputs.structured` is covered by its own egress policy — structured events
 are held until the gate runs rather than streaming ahead of it.
 
@@ -522,10 +523,13 @@ False-positive tuning: `tests/guardrails/false-positives.test.ts` and
 | API | Role |
 | --- | --- |
 | `sensitiveSpans` | Credential / PII span detection |
+| `SensitiveOptions` | `{ network?: boolean }`: `false` skips IP addresses |
 | `redactSensitiveOnly` | Model output path without injection patterns |
 
 `sensitiveSpans` redacts credential-like and PII patterns from inbound text and,
-when enabled, outbound paths. Use `redactSensitiveOnly` on model output when
+when enabled, outbound paths. IPv4 and IPv6 addresses count inbound, where they
+are the user's personal data; `sensitiveSpans(text, { network: false })` skips
+them, and egress always does, because an address in a reply is not a secret. Use `redactSensitiveOnly` on model output when
 injection patterns should not run.
 
 ## Tool boundary

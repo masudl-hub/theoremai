@@ -36,8 +36,6 @@ const KEY_PATTERNS = [
   ITIN,
   EIN,
   IBAN,
-  IPV4,
-  IPV6,
   AWS_ACCESS,
   GOOGLE_API,
   OPENAI_KEY,
@@ -49,6 +47,9 @@ const KEY_PATTERNS = [
   BEARER,
   PEM_KEY,
 ];
+
+/** Addresses are personal data inbound, but not secrets: replies explaining networks cite them. */
+const NETWORK_PATTERNS = [IPV4, IPV6];
 
 const LUHN_DOUBLE = 2;
 const LUHN_NINE = 9;
@@ -92,9 +93,16 @@ function cardSpans(text: string): RedactSpan[] {
   return spans;
 }
 
-/** Detect sensitive-data spans in a string. */
-function sensitiveSpans(text: string): RedactSpan[] {
-  return [...spansFromPatterns(text, KEY_PATTERNS, 'sensitive'), ...cardSpans(text)];
+/** Which span families to detect; network addresses are on unless turned off. */
+interface SensitiveOptions {
+  network?: boolean;
 }
 
-export { sensitiveSpans };
+/** Detect sensitive-data spans in a string. Egress passes `network: false`. */
+function sensitiveSpans(text: string, options: SensitiveOptions = {}): RedactSpan[] {
+  const patterns =
+    options.network === false ? KEY_PATTERNS : [...KEY_PATTERNS, ...NETWORK_PATTERNS];
+  return [...spansFromPatterns(text, patterns, 'sensitive'), ...cardSpans(text)];
+}
+
+export { type SensitiveOptions, sensitiveSpans };

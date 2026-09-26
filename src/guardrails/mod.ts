@@ -111,7 +111,7 @@ export {
   sanitizeTurnRequest,
   sanitizeTurnRequestWithEvents,
 } from './sanitize.ts';
-export { sensitiveSpans } from './sensitive.ts';
+export { type SensitiveOptions, sensitiveSpans } from './sensitive.ts';
 export type { ScanText } from './serialize.ts';
 export { scanTextOf, textForScan } from './serialize.ts';
 export {

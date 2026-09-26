@@ -149,7 +149,14 @@ function promptLeakReason(hits: GuardrailHit[]): string {
 
 function collectEgressHits(text: string, canary?: string, system?: string): GuardrailHit[] {
   const hits = promptLeakHits(text, canary, system);
-  hits.push(...hitsFromSpans(text, sensitiveSpans(text), EGRESS_RULES.sensitive, 'high')); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  hits.push(
+    ...hitsFromSpans(
+      text,
+      sensitiveSpans(text, { network: false }),
+      EGRESS_RULES.sensitive,
+      'high',
+    ),
+  ); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   const boundary = SYSTEM_BOUNDARY.exec(text);
   if (boundary && boundary.index !== undefined) {
     hits.push(

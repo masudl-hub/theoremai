@@ -373,7 +373,11 @@ Deno.test('canaryHoldFrom holds the opening of a reversed or ROT13 leak', () => 
 
 Deno.test('canary stream gate catches a reversed or ROT13 leak split across chunks', () => {
   const canary = mintCanary();
-  for (const form of [reversed(canary), rot13(canary), [...rot13(canary).toUpperCase()].join(' ')]) {
+  for (const form of [
+    reversed(canary),
+    rot13(canary),
+    [...rot13(canary).toUpperCase()].join(' '),
+  ]) {
     const gate = createCanaryStreamGate(canary);
     const half = Math.floor(form.length / 2);
     const first = gate.process(`hi, ${form.slice(0, half)}`);
@@ -392,7 +396,9 @@ Deno.test('redactCanaryText replaces a reversed or ROT13 leak and keeps the text
 });
 
 Deno.test('prose rich in ROT13 letters streams through without a leak', () => {
-  const prose = 'Snoopy spoons 12 prosperous pears, 3456 onions, and poor roses on promo. '.repeat(20);
+  const prose = 'Snoopy spoons 12 prosperous pears, 3456 onions, and poor roses on promo. '.repeat(
+    20,
+  );
   const canary = mintCanary();
   assertEquals(scanTextForCanaryLeak(prose, canary), false);
   assertEquals(scanTextForCanaryLeak(reversed(prose), canary), false);

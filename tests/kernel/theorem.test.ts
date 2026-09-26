@@ -244,7 +244,7 @@ Deno.test('runTurn accepts an omitted input object', async () => {
   };
   const events = await collect(runTurn({ profile: 'no_input_bot' }, provider));
 
-  assertEquals(events.find((e) => e.type === 'text')?.text, 'empty input ok');
+  assertEquals(replyText(events), 'empty input ok');
   assertDoneThenPostTurn(events);
 });
 

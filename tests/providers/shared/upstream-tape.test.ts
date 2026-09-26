@@ -15,6 +15,7 @@ import {
   scrubUpstream,
   tapeUpstream,
 } from '../../../src/providers/shared/upstream-tape.ts';
+import { eventTypesByReply, replyText } from '../../fixtures/reply.ts';
 import { catalogedSink, catalogGate } from '../../fixtures/trace-catalog.ts';
 
 const INPUT_TOKENS = 11;
@@ -153,10 +154,16 @@ Deno.test('runTurn traces wire, usage, and every Interactions SSE row', async ()
   );
   // Text profiles always emit turn stages (`pre_turn` → … → `post_turn`) even
   // when the turn passes no `onStage` handler.
-  assertEquals(
-    events.map((event) => event.type),
-    ['stage', 'text', 'error', 'tokens', 'stage', 'done', 'stage'],
-  );
+  assertEquals(eventTypesByReply(events), [
+    'stage',
+    'text',
+    'error',
+    'tokens',
+    'stage',
+    'done',
+    'stage',
+  ]);
+  assertEquals(replyText(events), 'yo');
   assertEquals(
     events.filter((e) => e.type === 'stage').map((e) => e.stage),
     ['pre_turn', 'before_end', 'post_turn'],

@@ -107,7 +107,7 @@ export interface LiveClientOptions {
 	 * answers its gates; the session answers the model. A throw reaches `onError`.
 	 */
 	onToolCall: (name: string, args: Record<string, unknown>, meta: { callId: string }) => Promise<void>;
-	/** Fired when the relay assigns a live session id (steer inbox key). */
+	/** The relay opened the call: the id it gave the call, and the profile it runs. */
 	onSessionReady?: (info: { sessionId?: string; profile?: string }) => void;
 	onVolumeLevel?: (level: number, isUser: boolean) => void;
 }
@@ -191,7 +191,6 @@ export class LiveSessionClient {
 	private toolChain: Promise<void> = Promise.resolve();
 	/** Bumped on barge-in / cancel so stale audioChain work is skipped. */
 	private audioEpoch = 0;
-	private sessionId: string | undefined;
 	private pendingExecuteResults = new Map<
 		string,
 		{ resolve: (value: LiveToolStep) => void; reject: (reason: Error) => void }
@@ -483,7 +482,6 @@ export class LiveSessionClient {
 	private async handleReadyEnvelope(
 		payload: Extract<LiveServerEnvelope, { type: 'ready' }>,
 	): Promise<void> {
-		this.sessionId = payload.sessionId;
 		this.options.onSessionReady?.({
 			sessionId: payload.sessionId,
 			profile: payload.profile,

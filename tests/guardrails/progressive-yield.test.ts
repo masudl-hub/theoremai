@@ -201,9 +201,10 @@ Deno.test('createProgressiveYieldGate reads the carry in front of its window', a
   const canary = mintCanary();
   const half = CANARY_OPENING;
   const first = createProgressiveYieldGate({ context: ctx(canary) });
-  assertEquals(await first.process(`Step: ${canary.slice(0, half)}`), {
+  // No letters or digits in the lead-in: they could extend the opening in some reading.
+  assertEquals(await first.process(`>> ${canary.slice(0, half)}`), {
     blocked: false,
-    emit: 'Step: ',
+    emit: '>> ',
   });
   assertEquals((await first.flush()).blocked, false);
   // The next window of the same canary completes the token: one match.

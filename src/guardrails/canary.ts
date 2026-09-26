@@ -686,12 +686,14 @@ function createCanaryStreamGate(canary: string, system?: string): CanaryStreamGa
     return system ? Math.min(start, promptEchoScanFrom(text, from)) : start;
   }
 
+  /** Each check rereads only what a new leak of its own could reach back into. */
   function leaks(window: string): boolean {
     const text = released + window;
-    const read = text.slice(scanFrom(text, released.length));
+    const from = released.length;
     return (
-      scanTextForCanaryLeak(read, canary) ||
-      (system !== undefined && scanTextForPromptEcho(read, system))
+      scanTextForCanaryLeak(text.slice(canaryScanFrom(text, from)), canary) ||
+      (system !== undefined &&
+        scanTextForPromptEcho(text.slice(promptEchoScanFrom(text, from)), system))
     );
   }
 

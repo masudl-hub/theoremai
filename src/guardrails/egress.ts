@@ -75,13 +75,14 @@ function canaryHits(text: string, canary?: string): GuardrailHit[] {
   return canary && scanTextForCanaryLeak(text, canary) ? [CANARY_HIT] : [];
 }
 
+/** The prompt-echo hit, when `text` repeats the guarded system prompt's own words. */
+function promptEchoHits(text: string, system?: string): GuardrailHit[] {
+  return system && scanTextForPromptEcho(text, system) ? [PROMPT_ECHO_HIT] : [];
+}
+
 /** The system-prompt leak hits: the canary, and the prompt's own words when guarded. */
 function promptLeakHits(text: string, canary?: string, system?: string): GuardrailHit[] {
-  const hits = canaryHits(text, canary);
-  if (system && scanTextForPromptEcho(text, system)) {
-    hits.push(PROMPT_ECHO_HIT);
-  }
-  return hits;
+  return [...canaryHits(text, canary), ...promptEchoHits(text, system)];
 }
 
 const PROVIDER_TOOL_LEAK_HIT: GuardrailHit = {
@@ -324,10 +325,12 @@ async function runEnforcer(
 
 export {
   CANARY_HIT,
+  canaryHits,
   collectEgressHits,
   eventPromptLeakHits,
   hitRules,
   isPromptLeakHit,
+  promptEchoHits,
   promptLeakHits,
   promptLeakReason,
   runEnforcer,

@@ -7,7 +7,7 @@
  */
 
 import { canaryCarry, canaryHoldFrom, canaryScanFrom } from './canary.ts';
-import { promptLeakHits, runEnforcer } from './egress.ts';
+import { canaryHits, promptEchoHits, runEnforcer } from './egress.ts';
 import { promptEchoScanFrom } from './prompt-echo.ts';
 import type {
   EgressEnforcer,
@@ -113,18 +113,21 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
 
   /**
    * The system-prompt leak hits (canary, prompt echo) in the carry and this
-   * window. Only the text a new leak could reach back into (`canaryScanFrom`,
-   * `promptEchoScanFrom`) is reread, so a long reply costs time in proportion
-   * to its length, not its square.
+   * window. Each check rereads only the text a new leak of its own could reach
+   * back into (`canaryScanFrom`, `promptEchoScanFrom`), so a long reply costs
+   * time in proportion to its length, not its square, and the short echo
+   * lookback is not stretched to the canary's.
    */
   function canaryWindowHits(window: string): GuardrailHit[] {
     const text = carry + window;
     const scanned = carry.length + scannedTo;
-    const from = context.system
-      ? Math.min(canaryScanFrom(text, scanned), promptEchoScanFrom(text, scanned))
-      : canaryScanFrom(text, scanned);
     scannedTo = window.length;
-    return promptLeakHits(text.slice(from), context.canary, context.system);
+    return [
+      ...canaryHits(text.slice(canaryScanFrom(text, scanned)), context.canary),
+      ...(context.system
+        ? promptEchoHits(text.slice(promptEchoScanFrom(text, scanned)), context.system)
+        : []),
+    ];
   }
 
   async function scan(window: string): Promise<GuardrailHit[] | null> {

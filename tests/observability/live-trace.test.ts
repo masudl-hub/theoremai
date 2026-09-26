@@ -283,7 +283,7 @@ Deno.test('a resumption handle is never recorded', async () => {
 Deno.test('a tool call is its own record under the response that asked; the next response reads its result', async () => {
   const harness = await open();
   await deliver(harness, { toolCall: { functionCalls: [{ id: 'c1', name: TOOL, args: {} }] } });
-  await harness.session.executeTool({ name: TOOL, callId: 'c1', input: {} });
+  await harness.session.executeTool({ callId: 'c1' });
   // As Live orders it: the asking response completes as the result lands, then the answer.
   await deliver(
     harness,

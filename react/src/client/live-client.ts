@@ -20,7 +20,12 @@ import {
 	liveTranscriptFromEvidence,
 	shouldForwardMicFrame,
 } from './live/live-mic-forward';
-import { type LiveServerEnvelope, parseLiveServerEnvelope } from './live-messages';
+import {
+	type ExecuteToolOnRelay,
+	type LiveServerEnvelope,
+	type LiveToolStep,
+	parseLiveServerEnvelope,
+} from './live-messages';
 import { base64ToBytes, bytesToBase64 } from '../../../src/kernel/util/base64.ts';
 import { downsampleAndConvertToInt16, pcm16BytesToFloat32 } from './pcm-downsample';
 import { hostError } from './transport';
@@ -30,8 +35,9 @@ type LiveToolCall = {
 	id: string;
 	name: string;
 	arguments: Record<string, unknown>;
-	error?: string;
 };
+
+type ExecuteToolReply = Extract<LiveServerEnvelope, { type: 'executeToolResult' }>;
 
 type MediaChunk = { data: string; mimeType?: string };
 
@@ -96,11 +102,11 @@ export interface LiveClientOptions {
 	 * `session.message` is the user's line; `session.ended` the close, for the builder.
 	 */
 	onSessionEnded?: (session: SessionEventOf<'ended'>) => void;
-	onToolCall?: (
-		name: string,
-		args: Record<string, unknown>,
-		meta: { callId: string },
-	) => Promise<Record<string, unknown>> | Record<string, unknown>;
+	/**
+	 * The model called a tool. The host runs it with `executeToolOnRelay` and
+	 * answers its gates; the session answers the model. A throw reaches `onError`.
+	 */
+	onToolCall: (name: string, args: Record<string, unknown>, meta: { callId: string }) => Promise<void>;
 	/** Fired when the relay assigns a live session id (steer inbox key). */
 	onSessionReady?: (info: { sessionId?: string; profile?: string }) => void;
 	onVolumeLevel?: (level: number, isUser: boolean) => void;
@@ -178,18 +184,20 @@ export class LiveSessionClient {
 	private inboundChain: Promise<void> = Promise.resolve();
 	/** Ordered model-audio playback queue (separate so tools are not stuck behind decode). */
 	private audioChain: Promise<void> = Promise.resolve();
+	/**
+	 * Tool calls, one at a time in the order the model made them. Apart from
+	 * `inboundChain`: a call waits on the relay's reply, which arrives inbound.
+	 */
+	private toolChain: Promise<void> = Promise.resolve();
 	/** Bumped on barge-in / cancel so stale audioChain work is skipped. */
 	private audioEpoch = 0;
 	private sessionId: string | undefined;
 	private pendingExecuteResults = new Map<
 		string,
-		{
-			resolve: (value: Extract<LiveServerEnvelope, { type: 'executeToolResult' }>) => void;
-			reject: (reason: Error) => void;
-		}
+		{ resolve: (value: LiveToolStep) => void; reject: (reason: Error) => void }
 	>();
 
-	constructor(options: LiveClientOptions = {}) {
+	constructor(options: LiveClientOptions) {
 		this.options = options;
 	}
 
@@ -213,6 +221,11 @@ export class LiveSessionClient {
 	}
 
 	private detachWebSocket(): void {
+		for (const [callId, pending] of this.pendingExecuteResults) {
+			// lexicon-exempt: internal diagnostic; the user reads error.network
+			pending.reject(new TheoremError('network', `live session closed before call ${callId} settled`));
+		}
+		this.pendingExecuteResults.clear();
 		if (!this.ws) return;
 		this.ws.onopen = null;
 		this.ws.onmessage = null;
@@ -440,8 +453,12 @@ export class LiveSessionClient {
 		const runnableTools = accum.toolCalls.filter(
 			(call) => !accum.cancelledToolIds.has(call.id),
 		);
-		if (runnableTools.length > 0) {
-			await this.handleToolExecutions(runnableTools);
+		for (const call of runnableTools) {
+			this.toolChain = this.toolChain
+				.then(() => this.options.onToolCall(call.name, call.arguments, { callId: call.id }))
+				.catch((err: unknown) => {
+					this.options.onError?.(asError(err));
+				});
 		}
 		this.scheduleMediaChunks(accum.mediaChunks);
 	}
@@ -479,14 +496,13 @@ export class LiveSessionClient {
 		}
 	}
 
-	private handleExecuteToolResultEnvelope(
-		payload: Extract<LiveServerEnvelope, { type: 'executeToolResult' }>,
-	): void {
+	private handleExecuteToolResultEnvelope(payload: ExecuteToolReply): void {
 		const pending = this.pendingExecuteResults.get(payload.callId);
-		if (pending) {
-			this.pendingExecuteResults.delete(payload.callId);
-			pending.resolve(payload);
-		}
+		if (!pending) return;
+		this.pendingExecuteResults.delete(payload.callId);
+		if (payload.status === 'refused') pending.reject(hostError(payload.body, 'request'));
+		else if (payload.status === 'gated') pending.resolve({ status: 'gated', gate: payload.gate });
+		else pending.resolve({ status: 'settled' });
 	}
 
 	private async tryHandleControlEnvelope(payload: LiveServerEnvelope): Promise<boolean> {
@@ -602,79 +618,15 @@ export class LiveSessionClient {
 		}
 	}
 
-	private sendToolErrorResponse(id: string, name: string, error: string): void {
-		if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-			this.ws.send(
-				JSON.stringify({
-					type: 'toolResponses',
-					responses: [{ id, name, output: { error } }],
-				}),
-			);
-		}
-	}
-
-	private async handleToolExecutions(calls: LiveToolCall[]): Promise<void> {
-		for (const call of calls) {
-			if (call.error) {
-				// Escape hatch for pre-failed calls — still need an upstream response.
-				this.sendToolErrorResponse(call.id, call.name, call.error);
-				continue;
-			}
-
-			if (this.options.onToolCall) {
-				// Host may run its own gate UI; then we prefer session.executeTool on the relay.
-				try {
-					await this.options.onToolCall(call.name, call.arguments, {
-						callId: call.id,
-					});
-				} catch (err) {
-					this.sendToolErrorResponse(call.id, call.name, describeError(err));
-				}
-				continue;
-			}
-
-			// Default: run through LiveSession.executeTool on the relay (stages + upstream).
-			await this.executeToolOnRelay({
-				name: call.name,
-				callId: call.id,
-				input: call.arguments,
-			});
-		}
-	}
-
-	/**
-	 * Ask the relay to run `LiveSession.executeTool` (stages + upstream tool response).
-	 * Returns the settlement; when gated, the host must call again with resume.
-	 */
-	executeToolOnRelay(args: {
-		name: string;
-		callId: string;
-		input?: unknown;
-		resume?: { granted?: boolean };
-		/**
-		 * The key the user typed at a bearer or API-key sign-in gate, sent once:
-		 * the relay saves it for the session (`credentialFromTypedSecret`).
-		 */
-		secret?: string;
-	}): Promise<Extract<LiveServerEnvelope, { type: 'executeToolResult' }>> {
+	/** The relay runs `LiveSession.executeTool`; see `ExecuteToolOnRelay`. */
+	executeToolOnRelay(args: Parameters<ExecuteToolOnRelay>[0]): Promise<LiveToolStep> {
 		if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
 			throw new TheoremError('request', 'live session is not connected'); // lexicon-exempt: internal diagnostic
 		}
-		const resultPromise = new Promise<Extract<LiveServerEnvelope, { type: 'executeToolResult' }>>(
-			(resolve, reject) => {
-				this.pendingExecuteResults.set(args.callId, { resolve, reject });
-			},
-		);
-		this.ws.send(
-			JSON.stringify({
-				type: 'executeTool',
-				name: args.name,
-				callId: args.callId,
-				input: args.input,
-				resume: args.resume,
-				secret: args.secret,
-			}),
-		);
+		const resultPromise = new Promise<LiveToolStep>((resolve, reject) => {
+			this.pendingExecuteResults.set(args.callId, { resolve, reject });
+		});
+		this.ws.send(JSON.stringify({ type: 'executeTool', ...args }));
 		return resultPromise;
 	}
 

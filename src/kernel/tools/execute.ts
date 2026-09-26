@@ -7,11 +7,8 @@
 import { isAbortError, throwIfAborted } from '../../guardrails/error.ts';
 import { type LexiconOverrides, lexiconText } from '../../guardrails/lexicon.ts';
 import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
-import { sanitizeText } from '../../guardrails/sanitize.ts';
 import {
   checkTaintGate,
-  composeToolText,
-  guardToolFailureText,
   guardToolResult,
   inspectToolArguments,
   toolCallEvent,
@@ -32,6 +29,7 @@ import {
   toolCallArguments,
   toolEvent,
 } from './events.ts';
+import { formatToolFailureForModel, formatToolResult } from './model-text.ts';
 import {
   checkPermission,
   isGateResumeDenied,
@@ -212,45 +210,6 @@ export function projectForModel(
   return { ...result, ...(parts ? { parts } : {}) };
 }
 
-/**
- * Format model-facing tool output for provider history continuation.
- *
- * Text projection only — never embeds `parts[].data`; media travels on
- * `TurnHistoryMessage.parts` and adapters wire it from there.
- *
- * `executeRegisteredTool` guards at the boundary and leaves `modelText` behind, so
- * the common path returns already-fenced text. A result recorded elsewhere — a
- * host replaying a transcript — is guarded here instead, under full detection.
- */
-export function formatToolResult(result: ModelToolResult): string {
-  if (result.modelText !== undefined) {
-    return result.modelText;
-  }
-  return sanitizeText(composeToolText(result.finding, result.data));
-}
-
-/**
- * Format a tool failure for provider history — structured so the model (or host)
- * sees the code.
- *
- * The message is remote-authored on HTTP and MCP tools, so it is redacted before
- * the kernel frames it as a system report.
- */
-export function formatToolFailureForModel(
-  failure: Pick<ToolFailure, 'code' | 'message' | 'details'>,
-  provenance?: Provenance,
-  policy: ReturnType<typeof resolveGuardrailPolicy> = resolveGuardrailPolicy(undefined),
-): ModelToolResult {
-  const safe = provenance
-    ? guardToolFailureText(failure.message, provenance, policy).text
-    : sanitizeText(failure.message);
-  return {
-    finding: `Tool error (${failure.code}): ${safe}`,
-    // The finding already says the code and message; only details are new.
-    ...(failure.details !== undefined ? { data: { details: failure.details } } : {}),
-  };
-}
-
 /** True when this tool is the profile's T2 loader: its output drives the snapshot. */
 function loadsT2(tool: FunctionToolDef, ctx: ToolContext): boolean {
   return profileToolsSpec(ctx.profile)?.t2Loader === tool.name;
@@ -420,7 +379,7 @@ async function* settleToolCall(args: {
 
   if (!failure && sources) yield* sourceEvents(base, sources, outputRaw);
   yield failure
-    ? failureEvent(base, failure)
+    ? failureEvent(base, failure, formatToolResult(modelResult))
     : toolEvent(base, {
         phase: 'complete',
         output: outputRaw,

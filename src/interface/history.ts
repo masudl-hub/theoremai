@@ -1,7 +1,7 @@
 /**
  * Host conversation history — build `TurnHistoryMessage[]` from drafts, events, and transcript blocks.
  *
- * A completed tool call replays its `readBack`, the text the model read, so provider
+ * A settled tool call replays its `readBack`, the text the model read, so provider
  * continuation matches `runTurn` / `invokeTool`.
  *
  * @module
@@ -10,24 +10,25 @@
 import { TheoremError } from '../guardrails/error.ts';
 import { type LexiconOverrides, lexiconText } from '../guardrails/lexicon.ts';
 import { mediaKindForMime } from '../kernel/registry/catalog.ts';
-import { formatToolFailureForModel, formatToolResult } from '../kernel/tools/execute.ts';
+import { formatToolFailureForModel, formatToolResult } from '../kernel/tools/model-text.ts';
 import type { ToolCallRequest } from '../kernel/turn-events.ts';
 import type { InteractionPart, TurnBlob, TurnEvent, TurnHistoryMessage } from '../kernel/types.ts';
 import { applyToolEvent, toolCallRanWith } from './tool-calls.ts';
 import type { ToolCall, TranscriptBlock, UserTurnDraft } from './types.ts';
 
 /**
- * The `readBack` of a completed tool call. The kernel sets it on every `complete` event, so
- * one without it did not come from a run and has no text the model read.
+ * The `readBack` of a settled tool call. The kernel sets it on every `complete` and `error`
+ * event, so one without it did not come from a run and has no text the model read.
  */
 function toolReadBack(call: ToolCall): string {
-  if (call.state?.phase !== 'complete' || call.state.readBack === undefined) {
+  const state = call.state;
+  if ((state?.phase !== 'complete' && state?.phase !== 'error') || state.readBack === undefined) {
     throw new TheoremError(
       'request',
-      `Tool call '${call.name}' has no readBack: only a completed call from a run carries one.`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Tool call '${call.name}' has no readBack: only a settled call from a run carries one.`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
-  return call.state.readBack;
+  return state.readBack;
 }
 
 /** The call as history records it: its name, id, and the arguments it ran with. */
@@ -155,13 +156,10 @@ function appendToolDenialToHistory(
   return appendToolCallPair(history, tool, formatToolResult(formatToolFailureForModel(failure)));
 }
 
-/** What the model reads for a settled call: its `readBack`, or its failure. Undefined while it is open. */
+/** What the model reads for a settled call: its `readBack`. Undefined while it is open. */
 function settledToolContent(call: ToolCall): string | undefined {
-  if (call.state?.phase === 'complete') return toolReadBack(call);
-  if (call.state?.phase === 'error') {
-    return formatToolResult(formatToolFailureForModel(call.state.failure));
-  }
-  return undefined;
+  const phase = call.state?.phase;
+  return phase === 'complete' || phase === 'error' ? toolReadBack(call) : undefined;
 }
 
 /**

@@ -40,7 +40,7 @@ import {
 	type TurnInput,
 } from '../../../mod.ts';
 import { type ClientTurnOptions, caughtStatus, forClient, HTTP_METHOD } from '../../../src/host/mod.ts';
-import { credentialFromTypedSecret, toBase64Url } from '../../../src/kernel/mod.ts';
+import { credentialForSignInGate, toBase64Url } from '../../../src/kernel/mod.ts';
 import {
 	gatedToolsFromEvents,
 	interfaceFromProfile,
@@ -48,7 +48,6 @@ import {
 	promotedToolIdsFromEvents,
 	toolSnapshotFromEvents,
 } from '../../../src/interface/mod.ts';
-import { sessionPermissionsAfterApproval } from '../client/tool-resume.ts';
 import type {
 	TheoremInvokeRequest,
 	TheoremTurnInput,
@@ -69,6 +68,7 @@ import {
 	type TheoremSessionStore,
 } from './session-store.ts';
 import { createMemorySteerInbox, parseSteerUnit, type SteerInbox, steerStage } from './steer-inbox.ts';
+import { resolveGateTtlMs, sessionPermissionsAfterApproval } from '../../../src/kernel/tools/gate-answer.ts';
 import { isRecord } from '../../../src/kernel/util/record.ts';
 
 export type TheoremRequestContext = {
@@ -128,7 +128,6 @@ export type TheoremHandlerOptions = {
 };
 
 const SESSION_COOKIE = 'theorem_session';
-const DEFAULT_GATE_TTL_MS = 30 * 60 * 1000;
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
 
 const NDJSON_HEADERS = {
@@ -519,12 +518,7 @@ function typedCredential(
 	secret: unknown,
 ): { slot: string; credential: TheoremCredentials[string] } | undefined {
 	if (secret === undefined) return undefined;
-	const auth = pending.gate.kind === 'auth' ? pending.gate.auth : undefined;
-	if (!auth) {
-		// lexicon-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
-		throw new TheoremError('request', 'a typed credential answers only a sign-in gate');
-	}
-	return { slot: auth.slot, credential: credentialFromTypedSecret(auth.authType, secret) };
+	return credentialForSignInGate(pending.gate.kind === 'auth' ? pending.gate.auth : undefined, secret);
 }
 
 async function* invokeEvents(
@@ -622,11 +616,7 @@ export function createTheoremHandler(options: TheoremHandlerOptions): (request: 
 		// lexicon-exempt: builder config error at setup; no user sees it
 		throw new Error(`createTheoremHandler serves turn-based profiles; got type '${profile.type}'.`);
 	}
-	const gateTtlMs = options.gateTtlMs ?? DEFAULT_GATE_TTL_MS;
-	if (!Number.isFinite(gateTtlMs) || gateTtlMs <= 0) {
-		// lexicon-exempt: builder config error at setup; no user sees it
-		throw new Error(`createTheoremHandler gateTtlMs must be a positive number of milliseconds; got ${gateTtlMs}.`);
-	}
+	const gateTtlMs = resolveGateTtlMs('createTheoremHandler', options.gateTtlMs);
 	registerProfile(profile);
 	const ctx: HandlerContext = {
 		options,

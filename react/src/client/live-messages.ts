@@ -1,5 +1,5 @@
 import type { TraceRecord, TurnEvent } from '../../../mod.ts';
-import type { ToolGate } from '../../../src/kernel/mod.ts';
+import type { GateDecision, ToolGate } from '../../../src/kernel/mod.ts';
 import { isRecord } from '../../../src/kernel/util/record.ts';
 
 export type LiveServerEnvelope =
@@ -9,16 +9,30 @@ export type LiveServerEnvelope =
 	| { type: 'trace'; record: TraceRecord }
 	/** The relay's error body (`error`, `errorKind`, `errorInternal`), read as a host error. */
 	| { type: 'error'; body: Record<string, unknown> }
-	| {
-			type: 'executeToolResult';
-			callId: string;
-			name: string;
-			status: 'complete' | 'gated';
-			output?: unknown;
-			gate?: ToolGate;
-			awaiting?: boolean;
-			failure?: { code: string; message: string };
-	  };
+	/**
+	 * The relay's answer to the browser's `executeTool`: the session settled the
+	 * call (its tool events carry what happened), holds it on a gate, or refused
+	 * the message (the relay's error body, read as a host error).
+	 */
+	| { type: 'executeToolResult'; callId: string; status: 'settled' }
+	| { type: 'executeToolResult'; callId: string; status: 'gated'; gate: ToolGate }
+	| { type: 'executeToolResult'; callId: string; status: 'refused'; body: Record<string, unknown> };
+
+/** What the session did with an `executeTool`: settled the call, or holds it on a gate. */
+export type LiveToolStep = { status: 'settled' } | { status: 'gated'; gate: ToolGate };
+
+/**
+ * Ask the relay to run `LiveSession.executeTool` for a call the model made.
+ * `decision` answers its gate; `input` is the user's edit to an approval;
+ * `secret` is the key the user typed at a sign-in gate, sent once: the
+ * session makes it the credential for the gate's slot.
+ */
+export type ExecuteToolOnRelay = (args: {
+	callId: string;
+	decision?: GateDecision;
+	input?: unknown;
+	secret?: string;
+}) => Promise<LiveToolStep>;
 
 function isTurnEvent(value: unknown): value is TurnEvent {
 	return Boolean(value && typeof value === 'object' && 'type' in value);
@@ -52,27 +66,17 @@ function parseError(record: Record<string, unknown>): LiveServerEnvelope {
 	return { type: 'error', body: record };
 }
 
-function parseToolFailure(
-	value: unknown,
-): { code: string; message: string } | undefined {
-	if (!isRecord(value)) return undefined;
-	if (typeof value.code !== 'string' || typeof value.message !== 'string') return undefined;
-	return { code: value.code, message: value.message };
-}
-
 function parseExecuteToolResult(record: Record<string, unknown>): LiveServerEnvelope | null {
-	if (typeof record.callId !== 'string' || typeof record.name !== 'string') return null;
-	if (record.status !== 'complete' && record.status !== 'gated') return null;
-	return {
-		type: 'executeToolResult',
-		callId: record.callId,
-		name: record.name,
-		status: record.status,
-		output: record.output,
-		gate: isRecord(record.gate) ? (record.gate as unknown as ToolGate) : undefined,
-		awaiting: typeof record.awaiting === 'boolean' ? record.awaiting : undefined,
-		failure: parseToolFailure(record.failure),
-	};
+	const { callId, status } = record;
+	if (typeof callId !== 'string') return null;
+	if (status === 'settled') return { type: 'executeToolResult', callId, status };
+	if (status === 'gated' && isRecord(record.gate)) {
+		return { type: 'executeToolResult', callId, status, gate: record.gate as unknown as ToolGate };
+	}
+	if (status === 'refused' && isRecord(record.body)) {
+		return { type: 'executeToolResult', callId, status, body: record.body };
+	}
+	return null;
 }
 
 export function parseLiveServerEnvelope(raw: unknown): LiveServerEnvelope | null {

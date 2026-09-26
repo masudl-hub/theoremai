@@ -99,6 +99,17 @@ Outbound canary/egress for live is applied inside `runSession`. Hosts that
 build a custom relay still may call `processLiveOutboundBatch` /
 `finalizeLiveOutboundTurn` directly — prefer `runSession` when possible.
 
+A relay only forwards the live client's tool messages. The session holds the
+model's calls and gates (see [`stages.md`](stages.md), "`LiveSession.executeTool`"),
+so the relay passes the browser's `executeTool` message, less its `type`, to
+`session.executeTool` and answers with one `executeToolResult` per message:
+
+| `status` | When | Carries |
+| --- | --- | --- |
+| `settled` | The call ran and the model has its answer | `callId` |
+| `gated` | The call waits on a gate | `callId`, `gate` |
+| `refused` | `executeTool` threw | `callId`, `body`: `{ error: publicError(err, profile.lexicon), errorKind }` |
+
 | Export | Role |
 | --- | --- |
 | `forClient(event, options?)` | Copy one event without `errorInternal` (it rides error events, an ended Live session, a tool call's failure such as a refused OAuth refresh, and guardrail decisions; `errorKind` and the user's `error` stay); strips `evidence.raw` unless `includeEvidenceRaw: true`; always strips `GuardrailHit.match` |

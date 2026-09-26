@@ -770,7 +770,7 @@ placeholder.
 | Errors | `error.<kind>` | lexicon (resolved where the event reaches the host) |
 | Quota | `quota.exhausted` | lexicon (`quotaExhausted` → `rate_limit`) |
 | Repair / egress | `repair.*` (`repair.default_guidance` is the validation repair guidance), `egress.default_repair_guidance`, `egress.refusal`, `egress.rejection`, `egress.invalid_verdict`, `egress.policy_failed` | lexicon |
-| Session | `session.abandon_gated`, `session.tool_denied`, `session.sign_in`, `session.gate_expired`, `session.turn_ended`, `session.gate_pending` | lexicon |
+| Session | `session.abandon_gated`, `session.tool_denied`, `session.tool_aborted`, `session.sign_in`, `session.gate_expired`, `session.turn_ended`, `session.gate_pending` | lexicon |
 | Live | `live.session_ended` (the provider ended the call after warning it would) | lexicon (the Live session words the ended signal's `message` when it closes) |
 | Voice (browser recording) | `voice.unsupported`, `voice.permission`, `voice.unavailable`, `voice.failed`, `voice.empty` | lexicon |
 | Tools | `tool.*` (model-facing), `tool.completed_hidden` | lexicon |

@@ -408,10 +408,8 @@ Deno.test('shouldForwardMicFrame, liveTranscriptFromEvidence, applyLiveToolTurnE
   for (const event of malformedToolCall(bad, 'oops', '{')) {
     if (event.type === 'tool') applyLiveToolTurnEvent(event.tool, accum);
   }
-  assertEquals(accum.toolCalls, [
-    { id: 't1', name: 'search', arguments: { q: 'hi' } },
-    { id: 't2', name: 'calc', arguments: {}, error: 'oops' },
-  ]);
+  // The session answered the malformed call; only the usable one runs.
+  assertEquals(accum.toolCalls, [{ id: 't1', name: 'search', arguments: { q: 'hi' } }]);
 });
 
 Deno.test('composer drawer summary names what is waiting, by kind', () => {

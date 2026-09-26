@@ -801,11 +801,7 @@ if (selected.has('live')) {
           session,
           async (event) => {
             if (event.type === 'tool' && event.tool.phase === undefined) {
-              const settled = await session.executeTool({
-                name: event.tool.name,
-                callId: event.tool.callId,
-                input: event.tool.arguments,
-              });
+              const settled = await session.executeTool({ callId: event.tool.callId });
               if (settled.failure) throw new Error(`tool failed: ${settled.failure.message}`);
               results.push(settled.outputRaw);
             }

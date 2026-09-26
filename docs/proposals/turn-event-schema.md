@@ -278,7 +278,11 @@ Each claim below was checked against the code on `feat/otel-turn-traces` at `0f6
 - `done.tokens` added.
 - `InvokeToolResume.value` removed; `cause` added.
 - An edited, approved call runs the tool's `preTool`.
-- `LiveSession.executeTool` takes `{ callId, decision?, input?, credentials?, host? }`; `name` and `resume` are removed; `runSession` takes `gateTtlMs`.
+- `LiveSession.executeTool` takes `{ callId, decision?, input?, secret?, credentials?, host? }`; `name` and `resume` are removed; `secret` (only with `approve` on a sign-in gate) becomes the gate slot's credential for the session; `runSession` takes `gateTtlMs`.
+- `LiveSession.sendToolResponse(s)` are removed. `LiveSession.answerToolCall({ callId, events })` settles a held call whose body ran in the registry-owning process.
+- An `error` tool event carries `readBack`, like `complete`; the live session sends Gemini that text.
+- `GATE_DECISIONS` and `GateDecision` are exported.
+- The live client's `executeToolResult` envelope is `{ callId, status: 'settled' | 'gated' | 'refused' }` (`gate` when gated, `body` when refused); the relay forwards and holds nothing.
 
 **Repo-private (interface, React)**
 

@@ -4,11 +4,8 @@
 import '../fixtures/test-host.ts';
 import { assertEquals } from '@std/assert';
 import { historyMessageParts, wireInteractionPart } from '../../src/kernel/interaction-parts.ts';
-import {
-  coerceToolResultParts,
-  formatToolResult,
-  projectForModel,
-} from '../../src/kernel/tools/execute.ts';
+import { coerceToolResultParts, projectForModel } from '../../src/kernel/tools/execute.ts';
+import { formatToolResult } from '../../src/kernel/tools/model-text.ts';
 import type { FunctionToolDef } from '../../src/kernel/tools/types.ts';
 import { historyStep } from '../../src/providers/google/interactions/framing.ts';
 import { wireMessageContent } from '../../src/providers/openrouter/openai/compat.ts';

@@ -16,6 +16,7 @@ import type {
 	TurnInput,
 	TurnToolSnapshot,
 } from '../../../src/kernel/mod.ts';
+import { gateExpired } from '../../../src/kernel/tools/gate-answer.ts';
 
 /** A tool call the kernel paused on a gate, as the server saw it. */
 export type PendingToolGate = {
@@ -60,7 +61,7 @@ export function pruneGates(
 	ttlMs: number,
 ): Record<string, PendingToolGate> {
 	return Object.fromEntries(
-		Object.entries(gates).filter(([, gate]) => now - gate.createdAt < ttlMs),
+		Object.entries(gates).filter(([, gate]) => !gateExpired(gate.createdAt, now, ttlMs)),
 	);
 }
 

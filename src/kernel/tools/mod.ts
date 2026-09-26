@@ -7,11 +7,11 @@
 export {
   coerceToolResultParts,
   executeRegisteredTool,
-  formatToolResult,
   leanToolResultData,
   projectForModel,
 } from './execute.ts';
 export { askUserTool, registerHarnessTools } from './harness.ts';
+export { formatToolResult } from './model-text.ts';
 export type { ToolRegistry } from './registry.ts';
 export { createToolRegistry } from './registry.ts';
 export type { McpProtocolVersion, McpRpcResponse } from './remote.ts';

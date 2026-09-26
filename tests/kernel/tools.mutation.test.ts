@@ -8,8 +8,6 @@ import {
   checkPermission,
   executeBuiltin,
   executeFunction,
-  formatToolFailureForModel,
-  formatToolResult,
   isGateResumeGranted,
   isResumeContinuation,
   notLoadedMessage,
@@ -18,6 +16,7 @@ import {
   startToolExecution,
   yieldHandlerSideEvent,
 } from '../../src/kernel/tools/execute.ts';
+import { formatToolFailureForModel, formatToolResult } from '../../src/kernel/tools/model-text.ts';
 import {
   applyBuiltinMutualExclusions,
   buildWire,

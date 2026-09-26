@@ -1,5 +1,5 @@
 import { assertEquals } from '@std/assert';
-import type { TurnEvent } from '../../mod.ts';
+import type { ToolGate, TurnEvent } from '../../mod.ts';
 import {
   float32Rms,
   float32RmsToLevel,
@@ -8,6 +8,7 @@ import {
 } from '../../react/src/client/audio-level.ts';
 import { clientFailure } from '../../react/src/client/failure.ts';
 import { applyLiveTurnToolEvent } from '../../react/src/client/live/apply-live-turn-tool-event.ts';
+import { runLiveToolCall } from '../../react/src/client/live/run-live-tool-call.ts';
 import { isPermissionDeniedError } from '../../react/src/client/live-errors.ts';
 import { parseLiveServerEnvelope } from '../../react/src/client/live-messages.ts';
 import {
@@ -72,23 +73,35 @@ Deno.test('parseLiveServerEnvelope parses ready, events, error, and tool result 
   );
 
   assertEquals(
+    parseLiveServerEnvelope({ type: 'executeToolResult', callId: 'call_1', status: 'settled' }),
+    { type: 'executeToolResult', callId: 'call_1', status: 'settled' },
+  );
+  const gate: ToolGate = { kind: 'confirmation', tool: 'getWeather' };
+  assertEquals(
+    parseLiveServerEnvelope({ type: 'executeToolResult', callId: 'call_1', status: 'gated', gate }),
+    { type: 'executeToolResult', callId: 'call_1', status: 'gated', gate },
+  );
+  const body = {
+    error: 'Sorry, that step is no longer waiting for approval.',
+    errorKind: 'request',
+  };
+  assertEquals(
     parseLiveServerEnvelope({
       type: 'executeToolResult',
       callId: 'call_1',
-      name: 'getWeather',
-      status: 'complete',
-      output: { temp: 72 },
+      status: 'refused',
+      body,
     }),
-    {
-      type: 'executeToolResult',
-      callId: 'call_1',
-      name: 'getWeather',
-      status: 'complete',
-      output: { temp: 72 },
-      gate: undefined,
-      awaiting: undefined,
-      failure: undefined,
-    },
+    { type: 'executeToolResult', callId: 'call_1', status: 'refused', body },
+  );
+  // A gated reply without its gate, or a status the relay does not send, is not a reply.
+  assertEquals(
+    parseLiveServerEnvelope({ type: 'executeToolResult', callId: 'call_1', status: 'gated' }),
+    null,
+  );
+  assertEquals(
+    parseLiveServerEnvelope({ type: 'executeToolResult', callId: 'call_1', status: 'complete' }),
+    null,
   );
 });
 
@@ -126,7 +139,8 @@ Deno.test('downsampleAndConvertToInt16 converts sample rates and round-trips wit
 function liveToolFailure(event: TurnEvent) {
   const reported: unknown[] = [];
   applyLiveTurnToolEvent(event, {
-    gateOpen: false,
+    gateCallId: undefined,
+    withdrawGate: () => {},
     clearInterim: () => {},
     clearActiveTool: () => {},
     reportFailure: (err) => reported.push(err),
@@ -157,4 +171,51 @@ Deno.test('a live tool error shows the user wording, never the model message', (
     errorKind: 'unavailable',
     errorInternal: 'model: retry later',
   });
+});
+
+Deno.test('a live gate closes when the model cancels its call, with nothing reported', () => {
+  const seen: string[] = [];
+  const args = {
+    gateCallId: 'call-gated',
+    withdrawGate: () => seen.push('withdraw'),
+    clearInterim: () => {},
+    clearActiveTool: () => seen.push('clear'),
+    reportFailure: () => seen.push('report'),
+    setActiveTool: () => {},
+  };
+  applyLiveTurnToolEvent(
+    { type: 'tool', tool: { name: 'search', callId: 'call-other', at: 0, phase: 'cancel' } },
+    args,
+  );
+  assertEquals(seen, []);
+  applyLiveTurnToolEvent(
+    { type: 'tool', tool: { name: 'lookup', callId: 'call-gated', at: 0, phase: 'cancel' } },
+    args,
+  );
+  assertEquals(seen, ['withdraw', 'clear']);
+});
+
+Deno.test('a live call the model withdrew at its gate sends nothing more and reports nothing', async () => {
+  const sent: unknown[] = [];
+  const reported: unknown[] = [];
+  await runLiveToolCall({
+    client: {
+      executeToolOnRelay: (args) => {
+        sent.push(args);
+        return Promise.resolve({
+          status: 'gated',
+          gate: { kind: 'permission', tool: 'lookup', permission: 'always_confirm' },
+        });
+      },
+    },
+    name: 'lookup',
+    toolArgs: {},
+    callId: 'call-gated',
+    sessionPermissions: [],
+    setSessionPermissions: () => {},
+    waitForGateDecision: () => Promise.resolve('withdrawn'),
+    reportFailure: (err) => reported.push(err),
+  });
+  assertEquals(sent, [{ callId: 'call-gated' }]);
+  assertEquals(reported, []);
 });

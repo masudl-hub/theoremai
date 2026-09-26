@@ -5,15 +5,11 @@ import type { TraceAttributes } from '../../../observability/trace-span.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
 import { providerCompleteRequest } from '../../registry/provider-request.ts';
 import { injectWouldExceedMaxSteps } from '../../stages.ts';
-import { profileAllowsInject } from '../../stop.ts';
+import { profileAllowsInject, stageAbortStop } from '../../stop.ts';
 import { failureEvent, type ToolCallBase, toolCallRequestEvent } from '../../tools/events.ts';
 import type { ToolExecuteSettlement } from '../../tools/execute.ts';
-import {
-  executeRegisteredTool,
-  formatToolFailureForModel,
-  formatToolResult,
-  type ToolStageSupport,
-} from '../../tools/execute.ts';
+import { executeRegisteredTool, type ToolStageSupport } from '../../tools/execute.ts';
+import { formatToolFailureForModel, formatToolResult } from '../../tools/model-text.ts';
 import type { ModelToolResult, ToolCallEvent, ToolFailure } from '../../tools/types.ts';
 import type {
   ModelProvider,
@@ -316,12 +312,7 @@ function* applyToolSettlement(
   chainOn: string | undefined,
 ): Generator<TurnEvent, 'continue' | 'stop_cancelled' | 'gated'> {
   if (settlement.aborted) {
-    state.lastStop = {
-      kind: 'cancelled',
-      ...(typeof settlement.aborted === 'object' && settlement.aborted.reason
-        ? { native: settlement.aborted.reason }
-        : {}),
-    };
+    state.lastStop = stageAbortStop(settlement.aborted);
     return 'stop_cancelled';
   }
   if (settlement.gated) {

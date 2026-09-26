@@ -8,6 +8,7 @@ import { withPublicWording } from '../guardrails/error.ts';
 import { type LexiconOverrides, lexiconText } from '../guardrails/lexicon.ts';
 import type { ToolAuthType } from '../kernel/schema.ts';
 import { isAwaitingUserInput } from '../kernel/stages.ts';
+import { failureEvent } from '../kernel/tools/events.ts';
 import type { ToolGate, TurnToolSnapshot } from '../kernel/tools/types.ts';
 import type { ModelId, ToolId, TurnEvent, TurnHistoryMessage } from '../kernel/types.ts';
 import { findLast } from '../kernel/util/find-last.ts';
@@ -208,20 +209,14 @@ function markGatedToolsCancelled(
     if (event.tool.phase !== 'gate' || !waiting.has(event.tool.callId)) return event;
     const { name, callId } = event.tool;
     return withPublicWording(
-      {
-        type: 'tool',
-        tool: {
-          name,
-          callId,
-          at: Date.now(),
-          phase: 'error',
-          failure: {
-            code: 'cancelled',
-            kind: 'cancelled',
-            message: lexiconText('session.abandon_gated', { tool: name }, lexicon),
-          },
+      failureEvent(
+        { name, callId },
+        {
+          code: 'cancelled',
+          kind: 'cancelled',
+          message: lexiconText('session.abandon_gated', { tool: name }, lexicon),
         },
-      },
+      ),
       lexicon,
     );
   });

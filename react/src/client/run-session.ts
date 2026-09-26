@@ -19,11 +19,9 @@ import {
 	toTurnMedia,
 } from './run-commit.ts';
 import type { EncodedBlob, TheoremTransport } from './transport.ts';
-import {
-	buildInvokeToolResume,
-	sessionPermissionsAfterApproval,
-	type ToolDecisionAction,
-} from './tool-resume.ts';
+import { failureEvent } from '../../../src/kernel/tools/events.ts';
+import { sessionPermissionsAfterApproval } from '../../../src/kernel/tools/gate-answer.ts';
+import { buildInvokeToolResume, type ToolDecisionAction } from './tool-resume.ts';
 import {
 	buildInvokeRequest,
 	buildTurnRequest,
@@ -261,20 +259,14 @@ async function resumeDeniedGatedTool(args: {
 			return event;
 		}
 		const { name, callId } = event.tool;
-		return {
-			type: 'tool',
-			tool: {
-				name,
-				callId,
-				at: Date.now(),
-				phase: 'error',
-				failure: {
-					code: 'denied',
-					kind: 'declined',
-					message: lexiconText('session.tool_denied', { tool: name }, args.iface.lexicon),
-				},
+		return failureEvent(
+			{ name, callId },
+			{
+				code: 'denied',
+				kind: 'declined',
+				message: lexiconText('session.tool_denied', { tool: name }, args.iface.lexicon),
 			},
-		};
+		);
 	});
 	return await continueOnceSettled({ ...args, session: args.session, events: seedEvents });
 }

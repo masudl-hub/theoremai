@@ -3,7 +3,6 @@ import { filesToPending } from '../../react/src/client/encode-files.ts';
 import {
   buildInvokeToolResume,
   continueGatedToolInvocation,
-  sessionPermissionsAfterApproval,
 } from '../../react/src/client/tool-resume.ts';
 import {
   buildInvokeRequest,
@@ -18,6 +17,7 @@ import {
 } from '../../src/interface/mod.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
+import { sessionPermissionsAfterApproval } from '../../src/kernel/tools/gate-answer.ts';
 import { checkPermission } from '../../src/kernel/tools/permission.ts';
 import type { ToolGate } from '../../src/kernel/tools/types.ts';
 import type { ModelBinding } from '../../src/kernel/types.ts';

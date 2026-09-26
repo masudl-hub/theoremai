@@ -635,16 +635,22 @@ Deno.test('appendAssistantEventsToHistory folds text and completed tools', () =>
   assertEquals(history[2]?.content, '{"finding":"ok"}');
 });
 
-Deno.test('appendAssistantEventsToHistory refuses a completed tool with no readBack', () => {
-  assertThrows(
-    () =>
-      appendAssistantEventsToHistory(
-        [],
-        callEvents({ name: 'lookup', callId: 'c1' }, {}, { phase: 'complete', output: {} }),
-      ),
-    TheoremError,
-    "Tool call 'lookup' has no readBack",
-  );
+Deno.test('appendAssistantEventsToHistory refuses a settled tool with no readBack', () => {
+  const failure = { code: 'denied', kind: 'declined', message: 'not allowed' } as const;
+  for (const settled of [
+    { phase: 'complete', output: {} },
+    { phase: 'error', failure },
+  ] as const) {
+    assertThrows(
+      () =>
+        appendAssistantEventsToHistory(
+          [],
+          callEvents({ name: 'lookup', callId: 'c1' }, {}, settled),
+        ),
+      TheoremError,
+      "Tool call 'lookup' has no readBack",
+    );
+  }
 });
 
 Deno.test('appendToolDenialToHistory uses kernel failure formatting', () => {
@@ -856,6 +862,7 @@ Deno.test('appendAssistantEventsToHistory records a failed tool call so no tool_
         {
           phase: 'error',
           failure: { code: 'policy_refused', kind: 'blocked', message: 'withheld by policy' },
+          readBack: 'Tool error (policy_refused): withheld by policy',
         },
       ),
     ],
@@ -873,7 +880,11 @@ Deno.test('history and the gate keep the thought signature a call was made with'
   const [, ...failed] = callEvents(
     { name: 'lookup', callId: 'c1' },
     { q: 'x' },
-    { phase: 'error', failure: { code: 'denied', kind: 'declined', message: 'not allowed' } },
+    {
+      phase: 'error',
+      failure: { code: 'denied', kind: 'declined', message: 'not allowed' },
+      readBack: 'Tool error (denied): not allowed',
+    },
   );
   const signed: TurnEvent = {
     type: 'tool',
@@ -903,7 +914,11 @@ Deno.test('historyFromTranscriptBlocks records a failed tool block as a paired r
       tool: foldedCall(
         { name: 'delete_resource', callId: 'c9' },
         { id: '1' },
-        { phase: 'error', failure: { code: 'denied', kind: 'declined', message: 'not allowed' } },
+        {
+          phase: 'error',
+          failure: { code: 'denied', kind: 'declined', message: 'not allowed' },
+          readBack: 'Tool error (denied): not allowed',
+        },
       ),
     },
   ]);

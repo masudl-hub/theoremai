@@ -426,6 +426,7 @@ export {
   turnStopFromInteractionStatus,
   turnStopFromOpenAiFinishReason,
 } from './src/kernel/stop.ts';
+export { GATE_DECISIONS, type GateDecision } from './src/kernel/tools/gate-answer.ts';
 export type { McpProtocolVersion, McpRpcResponse, ToolRegistry } from './src/kernel/tools/mod.ts';
 export {
   askUserTool,

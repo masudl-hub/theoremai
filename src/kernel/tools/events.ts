@@ -18,6 +18,7 @@ import type { NetworkGuardrailSpec } from '../../guardrails/types.ts';
 import { type Source, sourceSchema } from '../turn-events.ts';
 import type { TurnEvent, TurnEventOf } from '../types.ts';
 import { isRecord } from '../util/record.ts';
+import { formatToolFailureForModel, formatToolResult } from './model-text.ts';
 import type { ToolCallRequest, ToolContext, ToolFailure, ToolPhaseEvent } from './types.ts';
 
 /** Identifying fields repeated on every event for one tool call. */
@@ -36,8 +37,17 @@ export function toolEvent(base: ToolCallBase, patch: ToolPhasePatch): TurnEventO
   };
 }
 
-export function failureEvent(base: ToolCallBase, failure: ToolFailure): TurnEventOf<'tool'> {
-  return toolEvent(base, { phase: 'error', failure });
+/**
+ * A call's failure, with `readBack`: the text the model reads for it. That is
+ * the failure as the kernel words it, unless the call's result guard already
+ * wrote it (`settleToolCall`).
+ */
+export function failureEvent(
+  base: ToolCallBase,
+  failure: ToolFailure,
+  readBack: string = formatToolResult(formatToolFailureForModel(failure)),
+): TurnEventOf<'tool'> {
+  return toolEvent(base, { phase: 'error', failure, readBack });
 }
 
 /** The model's call, as a provider emits it: the first event of every call. */

@@ -15,20 +15,20 @@ import type {
   UserTurnDraft,
 } from './types.ts';
 
-let userBlockCounter = 0;
 let turnBlockCounter = 0;
 
+/**
+ * User block ids are random: a counter restarts wherever this module loads
+ * again (a hot reload, a second bundled copy) and would reuse an id already on
+ * screen. Turn block ids count from each fold so streaming refolds keep keys.
+ */
 function nextBlockId(prefix: string): string {
-  if (prefix === 'user') {
-    userBlockCounter += 1;
-    return `user-${String(userBlockCounter)}`;
-  }
+  if (prefix === 'user') return `user-${globalThis.crypto.randomUUID()}`;
   turnBlockCounter += 1;
   return `${prefix}-${String(turnBlockCounter)}`;
 }
 
 function resetBlockIds(): void {
-  userBlockCounter = 0;
   turnBlockCounter = 0;
 }
 
@@ -131,7 +131,6 @@ function appendPromotedToolMedia(
 
 /** Build transcript blocks for a user-authored turn. */
 function buildUserTurnBlocks(draft: UserTurnDraft, idPrefix = 'user'): TranscriptBlock[] {
-  // Do not reset counters — user ids must stay unique across the conversation.
   const blocks: TranscriptBlock[] = [];
   const text = draft.text?.trim();
   if (text) {

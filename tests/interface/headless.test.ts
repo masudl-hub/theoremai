@@ -274,16 +274,15 @@ Deno.test('validateProfileInputs requires limits when media is enabled', () => {
 });
 
 Deno.test('buildUserTurnBlocks maps text, attachments, and voice', () => {
-  resetBlockIds();
   const blocks = buildUserTurnBlocks({
     text: ' hello ',
     attachments: [{ name: 'a.png', mimeType: 'image/png', sizeBytes: 10, data: 'abc' }],
     voice: [{ name: 'clip.webm', mimeType: 'audio/webm', sizeBytes: 20 }],
   });
   assertEquals(blocks.length, 3);
-  assertEquals(blocks[0], { id: 'user-1', kind: 'user-text', text: 'hello' });
+  assertEquals(blocks[0], { id: blocks[0]?.id, kind: 'user-text', text: 'hello' });
   assertEquals(blocks[1], {
-    id: 'user-2',
+    id: blocks[1]?.id,
     kind: 'user-attachment',
     name: 'a.png',
     mimeType: 'image/png',
@@ -291,7 +290,7 @@ Deno.test('buildUserTurnBlocks maps text, attachments, and voice', () => {
     data: 'abc',
   });
   assertEquals(blocks[2], {
-    id: 'user-3',
+    id: blocks[2]?.id,
     kind: 'user-voice',
     name: 'clip.webm',
     mimeType: 'audio/webm',
@@ -303,8 +302,14 @@ Deno.test('buildUserTurnBlocks keeps unique user ids across turns', () => {
   resetBlockIds();
   const first = buildUserTurnBlocks({ text: 'one' });
   const second = buildUserTurnBlocks({ text: 'two' });
-  assertEquals(first[0]?.id, 'user-1');
-  assertEquals(second[0]?.id, 'user-2');
+  assertFalse(first[0]?.id === second[0]?.id);
+  resetBlockIds();
+  const afterReset = buildUserTurnBlocks({ text: 'three' });
+  assertFalse([first[0]?.id, second[0]?.id].includes(afterReset[0]?.id));
+  assertEquals(
+    new Set([...first, ...second, ...afterReset].map((block) => block.id.startsWith('user-'))),
+    new Set([true]),
+  );
 });
 
 Deno.test('foldTurnEvents merges streaming text and thought deltas', () => {

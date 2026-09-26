@@ -215,8 +215,8 @@ export interface LiveDraft {
 export type WordingDraft = Partial<Record<LexiconKey, string>>;
 
 /**
- * Wording edited beside the setting it words, and the facet that holds it. Wording lists these as
- * links to that facet, so each line has one value.
+ * Wording held beside the setting it words, and the facet that holds it. Wording edits the same
+ * field, so each line has one value.
  */
 export const INLINE_WORDING: Partial<Record<LexiconKey, ProfileGraphFacetId>> = {
   'continue.instruction': 'turnBehaviour',

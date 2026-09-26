@@ -819,7 +819,7 @@ async function openTracedSession(
     canary: generation.canary,
   });
 
-  const gate = createLiveOutboundGateSession(profile, generation.canary || undefined);
+  const gate = createLiveOutboundGateSession(profile, generation.canary || undefined, system);
   const connection = await openGoogleLiveSession(
     completeReq,
     options.gemini,

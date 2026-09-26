@@ -4,13 +4,15 @@
  * @module
  */
 
+import type { TurnEvent } from '../kernel/types.ts';
 import { isRecord } from '../kernel/util/record.ts';
 import type { RedactSpan } from '../observability/spans.ts';
-import { scanTextForCanaryLeak } from './canary.ts';
+import { guardedEventTexts, scanTextForCanaryLeak } from './canary.ts';
 import { describeError } from './error.ts';
 import { hitFromSpan } from './hits.ts';
 import { injectionSpans } from './injection.ts';
 import { lexiconText } from './lexicon.ts';
+import { scanTextForPromptEcho } from './prompt-echo.ts';
 import { sensitiveSpans } from './sensitive.ts';
 import { textForScan } from './serialize.ts';
 import type {
@@ -28,6 +30,8 @@ const SYSTEM_BOUNDARY = /This turn\x27s canary is|<\/?user_data>/i; // lexicon-e
 /** Rule ids emitted by the bundled outbound policy. */
 export const EGRESS_RULES = {
   canary: 'egress.canary-leak',
+  /** The reply repeats the system prompt (`guardrails.promptEcho`). */
+  promptEcho: 'egress.prompt-echo', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   sensitive: 'egress.sensitive-echo',
   boundary: 'egress.system-boundary',
   injection: 'egress.injection-echo', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -51,18 +55,43 @@ function hitsFromSpans(
 /** Why a reply was withheld, for the builder (`errorInternal`); the user reads `error.safety`. */
 const WITHHELD_REASON = {
   canary: 'canary leaked',
+  promptEcho: 'system prompt echoed', // lexicon-exempt: internal diagnostic — the user reads error.safety
   egress: 'Turn withheld: egress disclosure violation', // lexicon-exempt: internal diagnostic — the user reads error.safety
 } as const;
 
 const CANARY_HIT: GuardrailHit = { rule: EGRESS_RULES.canary, severity: 'high', match: '[canary]' };
+
+const PROMPT_ECHO_HIT: GuardrailHit = { rule: EGRESS_RULES.promptEcho, severity: 'high' };
 
 /** The canary hit, when `text` leaks it. */
 function canaryHits(text: string, canary?: string): GuardrailHit[] {
   return canary && scanTextForCanaryLeak(text, canary) ? [CANARY_HIT] : [];
 }
 
-function collectEgressHits(text: string, canary?: string): GuardrailHit[] {
+/** The system-prompt leak hits: the canary, and the prompt's own words when guarded. */
+function promptLeakHits(text: string, canary?: string, system?: string): GuardrailHit[] {
   const hits = canaryHits(text, canary);
+  if (system && scanTextForPromptEcho(text, system)) {
+    hits.push(PROMPT_ECHO_HIT);
+  }
+  return hits;
+}
+
+/** The system-prompt leak hits in any content-bearing field of an event (`guardedEventTexts`). */
+function eventPromptLeakHits(event: TurnEvent, canary?: string, system?: string): GuardrailHit[] {
+  const hits = guardedEventTexts(event).flatMap((text) => promptLeakHits(text, canary, system));
+  return [...new Map(hits.map((hit) => [hit.rule, hit])).values()];
+}
+
+/** Why a system-prompt leak withheld the reply, for the builder. */
+function promptLeakReason(hits: GuardrailHit[]): string {
+  return hits.some((hit) => hit.rule === EGRESS_RULES.canary)
+    ? WITHHELD_REASON.canary
+    : WITHHELD_REASON.promptEcho;
+}
+
+function collectEgressHits(text: string, canary?: string, system?: string): GuardrailHit[] {
+  const hits = promptLeakHits(text, canary, system);
   hits.push(...hitsFromSpans(text, sensitiveSpans(text), EGRESS_RULES.sensitive, 'high')); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   const boundary = SYSTEM_BOUNDARY.exec(text);
   if (boundary && boundary.index !== undefined) {
@@ -179,14 +208,14 @@ function normalizeVerdict(value: unknown, context: GuardrailContext): Verdict {
 
 /** Default egress enforce — canary leak, sensitive echo, fence markers, injection echo. */
 function standardEgressEnforce(payload: OutboundPayload, context: GuardrailContext): Verdict {
-  const hits = collectEgressHits(payload.text, context.canary);
+  const hits = collectEgressHits(payload.text, context.canary, context.system);
   if (payload.structured !== undefined) {
     const structured = textForScan(payload.structured);
     if (structured.unscannable) {
       // Cannot inspect it, so cannot vouch for it. Fail closed.
       hits.push({ rule: EGRESS_RULES.unscannable, severity: 'high' }); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     } else {
-      hits.push(...collectEgressHits(structured.text, context.canary));
+      hits.push(...collectEgressHits(structured.text, context.canary, context.system));
     }
   }
   if (hits.length === 0) {
@@ -231,9 +260,11 @@ async function runEnforcer(
 
 export {
   CANARY_HIT,
-  canaryHits,
   collectEgressHits,
+  eventPromptLeakHits,
   hitRules,
+  promptLeakHits,
+  promptLeakReason,
   runEnforcer,
   standardEgressEnforce,
   WITHHELD_REASON,

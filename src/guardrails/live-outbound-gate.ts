@@ -23,8 +23,8 @@
  */
 
 import type { Profile, TurnEvent } from '../kernel/types.ts';
-import { eventHasCanary, isStreamedCanaryEvent } from './canary.ts';
-import { CANARY_HIT, runEnforcer, WITHHELD_REASON } from './egress.ts';
+import { isStreamedCanaryEvent } from './canary.ts';
+import { eventPromptLeakHits, promptLeakReason, runEnforcer, WITHHELD_REASON } from './egress.ts';
 import { TheoremError } from './error.ts';
 import { guardrailFromHits, guardrailFromVerdict } from './events.ts';
 import { lexiconText } from './lexicon.ts';
@@ -84,7 +84,11 @@ function egressSpec(session: LiveOutboundGateSession): ProfileEgressSpec | undef
  * Creates outbound guardrail state for a live profile. A canary is only attached
  * when the resolved profile policy enables it and the caller supplied a token.
  */
-function createLiveOutboundGateSession(profile: Profile, canary?: string): LiveOutboundGateSession {
+function createLiveOutboundGateSession(
+  profile: Profile,
+  canary?: string,
+  system?: string,
+): LiveOutboundGateSession {
   const policy = resolveGuardrailPolicy(profile.guardrails);
   const useCanary = policy.canary && Boolean(canary);
   const context: GuardrailContext = {
@@ -92,6 +96,8 @@ function createLiveOutboundGateSession(profile: Profile, canary?: string): LiveO
     trust: 'untrusted',
     profileId: profile.id,
     ...(useCanary ? { canary } : {}),
+    // The system prompt is guarded against echo alongside the canary that binds it.
+    ...(useCanary && policy.promptEcho && system ? { system } : {}),
     ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
   };
   return {
@@ -189,7 +195,7 @@ function applyScan(
     return undefined;
   }
   if (canaryOnlyImmediateWithhold(session)) {
-    return withholdResult(WITHHELD_REASON.canary, result.hits, into);
+    return withholdResult(promptLeakReason(result.hits), result.hits, into);
   }
   session.withholdVisible = true;
   const guardrail = guardrailFromHits('live_outbound', 'untrusted', result.hits, 'block');
@@ -271,8 +277,11 @@ async function processLiveOutboundBatch(
       return stopped;
     }
 
-    if (session.context.canary && eventHasCanary(event, session.context.canary)) {
-      return withholdResult(WITHHELD_REASON.canary, [CANARY_HIT], toEmit);
+    const leaks = session.context.canary
+      ? eventPromptLeakHits(event, session.context.canary, session.context.system)
+      : [];
+    if (leaks.length > 0) {
+      return withholdResult(promptLeakReason(leaks), leaks, toEmit);
     }
 
     toEmit.push(event);

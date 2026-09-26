@@ -7,7 +7,8 @@
  */
 
 import { canaryCarry, canaryHoldFrom, canaryScanFrom } from './canary.ts';
-import { canaryHits, runEnforcer } from './egress.ts';
+import { promptLeakHits, runEnforcer } from './egress.ts';
+import { promptEchoScanFrom } from './prompt-echo.ts';
 import type {
   EgressEnforcer,
   GuardrailContext,
@@ -85,6 +86,21 @@ function holdbackForWindow(window: string, base: number): number {
   return Math.max(base, window.length - begin);
 }
 
+/**
+ * What the next window of the same turn or session scans in front of its own:
+ * a possible canary opening, and the words a prompt echo could continue from.
+ */
+function carryFrom(text: string, context: GuardrailContext): string {
+  if (!context.canary) {
+    return '';
+  }
+  const canaryTail = text.length - canaryCarry(text, context.canary).length;
+  const from = context.system
+    ? Math.min(canaryTail, promptEchoScanFrom(text, text.length))
+    : canaryTail;
+  return text.slice(from);
+}
+
 /** Creates a progressive gate for outbound stream fragments; flush it when the stream ends. */
 function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): ProgressiveYieldGate {
   const { context } = options;
@@ -96,15 +112,19 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
   let scannedTo = 0;
 
   /**
-   * The canary hits in the carry and this window. Only the text a new leak
-   * could reach back into (`canaryScanFrom`) is reread, so a long reply
-   * costs time in proportion to its length, not its square.
+   * The system-prompt leak hits (canary, prompt echo) in the carry and this
+   * window. Only the text a new leak could reach back into (`canaryScanFrom`,
+   * `promptEchoScanFrom`) is reread, so a long reply costs time in proportion
+   * to its length, not its square.
    */
   function canaryWindowHits(window: string): GuardrailHit[] {
     const text = carry + window;
-    const from = canaryScanFrom(text, carry.length + scannedTo);
+    const scanned = carry.length + scannedTo;
+    const from = context.system
+      ? Math.min(canaryScanFrom(text, scanned), promptEchoScanFrom(text, scanned))
+      : canaryScanFrom(text, scanned);
     scannedTo = window.length;
-    return canaryHits(text.slice(from), context.canary);
+    return promptLeakHits(text.slice(from), context.canary, context.system);
   }
 
   async function scan(window: string): Promise<GuardrailHit[] | null> {
@@ -175,7 +195,7 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
       emitted = accumulated.length;
       return tail;
     },
-    carryOut: () => (context.canary ? canaryCarry(carry + accumulated, context.canary) : ''),
+    carryOut: () => carryFrom(carry + accumulated, context),
   };
 }
 

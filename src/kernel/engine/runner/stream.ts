@@ -1,5 +1,10 @@
-import { eventHasCanary, isStreamedCanaryEvent } from '../../../guardrails/canary.ts';
-import { CANARY_HIT, WITHHELD_REASON } from '../../../guardrails/egress.ts';
+import { isStreamedCanaryEvent } from '../../../guardrails/canary.ts';
+import {
+  CANARY_HIT,
+  eventPromptLeakHits,
+  promptLeakReason,
+  WITHHELD_REASON,
+} from '../../../guardrails/egress.ts';
 import { TheoremError, throwIfAborted, toErrorEvent } from '../../../guardrails/error.ts';
 import { guardrailFromHits } from '../../../guardrails/events.ts';
 import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
@@ -40,11 +45,13 @@ function shouldSkipStreamEvent(event: TurnEvent, profile: Profile): boolean {
 }
 
 /** The offending text never reaches the host: redaction cannot cover a partial or encoded token. */
-function* yieldCanaryLeak(): Generator<TurnEvent> {
-  yield* yieldDeltaBlock([CANARY_HIT]);
-  yield toErrorEvent(new TheoremError('safety', WITHHELD_REASON.canary));
+function* yieldCanaryLeak(hits: GuardrailHit[] = [CANARY_HIT]): Generator<TurnEvent> {
+  yield* yieldDeltaBlock(hits);
+  const reason = promptLeakReason(hits);
+  yield toErrorEvent(new TheoremError('safety', reason));
   // The turn ends because our guardrail blocked the output, not because the model finished.
-  yield { type: 'done', stop: { kind: 'filtered', native: 'canary' } };
+  const native = reason === WITHHELD_REASON.canary ? 'canary' : 'prompt_echo';
+  yield { type: 'done', stop: { kind: 'filtered', native } };
 }
 
 function* yieldDeltaBlock(hits: GuardrailHit[]): Generator<TurnEvent> {
@@ -83,6 +90,8 @@ async function* yieldProviderEvents(args: {
     profileId: profile.id,
     ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
     ...(canary ? { canary } : {}),
+    // The system prompt is guarded against echo alongside the canary that binds it.
+    ...(canary && policy.promptEcho && request.system ? { system: request.system } : {}),
   };
   const gate: ProgressiveYieldGate | null = createOutboundProgressiveGate(
     policy,
@@ -123,7 +132,7 @@ async function* yieldProviderEvents(args: {
     pendingStream = null;
     if (result.blocked) {
       if (canary && canaryOnlyImmediateStop(policy)) {
-        yield* yieldCanaryLeak();
+        yield* yieldCanaryLeak(result.hits);
         return 'stop';
       }
       yield* drainBlockedDelta(result.hits, template);
@@ -151,7 +160,7 @@ async function* yieldProviderEvents(args: {
     const result = await gate.process(event.text ?? '');
     if (result.blocked) {
       if (canary && canaryOnlyImmediateStop(policy)) {
-        yield* yieldCanaryLeak();
+        yield* yieldCanaryLeak(result.hits);
         return 'stop';
       }
       yield* drainBlockedDelta(result.hits, event);
@@ -187,8 +196,9 @@ async function* yieldProviderEvents(args: {
       return;
     }
 
-    if (canary && eventHasCanary(event, canary)) {
-      yield* yieldCanaryLeak();
+    const leaks = canary ? eventPromptLeakHits(event, canary, context.system) : [];
+    if (leaks.length > 0) {
+      yield* yieldCanaryLeak(leaks);
       return;
     }
 

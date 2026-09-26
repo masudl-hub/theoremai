@@ -588,45 +588,40 @@ function isGuardedOutput(event: TurnEvent): boolean {
 }
 
 /**
+ * The text of every content-bearing field a turn event carries: text, errors,
+ * structured payloads, tool data, grounding, evidence, and session metadata.
+ * Unguarded output (`isGuardedOutput`) carries none.
+ */
+function guardedEventTexts(event: TurnEvent): string[] {
+  if (!isGuardedOutput(event)) {
+    return [];
+  }
+  const texts: string[] = [];
+  if (event.text) texts.push(event.text);
+  if (event.error) texts.push(event.error);
+  for (const payload of [
+    event.structured,
+    event.tool,
+    event.grounding,
+    event.evidence,
+    event.session,
+  ]) {
+    if (payload !== undefined) texts.push(scanTextOf(payload));
+  }
+  if (event.sessionResumptionHandle) texts.push(event.sessionResumptionHandle);
+  return texts;
+}
+
+/**
  * Checks the content-bearing fields currently emitted by a turn event, including
  * text, errors, structured payloads, tool data, evidence, and session metadata.
  * Unguarded output (`isGuardedOutput`) never carries a leak.
  */
 function eventHasCanary(event: TurnEvent, canary: string): boolean {
-  if (!canary || !isGuardedOutput(event)) {
+  if (!canary) {
     return false;
   }
-  if (event.text && scanTextForCanaryLeak(event.text, canary)) {
-    return true;
-  }
-  if (event.error && scanTextForCanaryLeak(event.error, canary)) {
-    return true;
-  }
-  if (
-    event.structured !== undefined &&
-    scanTextForCanaryLeak(scanTextOf(event.structured), canary)
-  ) {
-    return true;
-  }
-  if (event.tool !== undefined && scanTextForCanaryLeak(scanTextOf(event.tool), canary)) {
-    return true;
-  }
-  if (event.grounding !== undefined && scanTextForCanaryLeak(scanTextOf(event.grounding), canary)) {
-    return true;
-  }
-  if (event.evidence !== undefined && scanTextForCanaryLeak(scanTextOf(event.evidence), canary)) {
-    return true;
-  }
-  if (event.session !== undefined && scanTextForCanaryLeak(scanTextOf(event.session), canary)) {
-    return true;
-  }
-  if (
-    event.sessionResumptionHandle &&
-    scanTextForCanaryLeak(event.sessionResumptionHandle, canary)
-  ) {
-    return true;
-  }
-  return false;
+  return guardedEventTexts(event).some((text) => scanTextForCanaryLeak(text, canary));
 }
 
 /** Result of scanning one streamed window: either a leak or the prefix safe to emit. */
@@ -712,6 +707,7 @@ export {
   canaryScanFrom,
   createCanaryStreamGate,
   eventHasCanary,
+  guardedEventTexts,
   isStreamedCanaryEvent,
   mintCanary,
   OMIT_CANARY,

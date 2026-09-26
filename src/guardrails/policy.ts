@@ -18,14 +18,16 @@ export interface DetectionOptions {
 /**
  * Apply kernel defaults to a profile's guardrail switches.
  *
- * Sanitization, sensitive redaction, and canary default on. Set `canary: false`
- * to opt out of minting a per-turn token into the system prompt.
+ * Sanitization, sensitive redaction, the canary, and prompt-echo detection
+ * default on. Set `canary: false` to opt out of minting a per-turn token into
+ * the system prompt, `promptEcho: false` to allow replies that quote it.
  */
 function resolveGuardrailPolicy(spec: ProfileGuardrailsSpec | undefined): ResolvedGuardrailPolicy {
   return {
     sanitizeInput: spec?.sanitizeInput ?? true,
     redactSensitive: spec?.redactSensitive ?? true,
     canary: spec?.canary ?? true,
+    promptEcho: spec?.promptEcho ?? true,
     egress: spec?.egress,
     network: spec?.network,
     quota: spec?.quota,

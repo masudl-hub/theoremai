@@ -19,6 +19,7 @@ import {
   buildCanaryEgressAttacks,
   type CanaryEgressAttack,
   FIXED_CANARY,
+  FUZZ_SYSTEM,
 } from '../../guardrails/corpus/canary-egress-attacks.ts';
 import {
   createLiveOutboundGateSession,
@@ -151,7 +152,7 @@ async function runStreamChannel(
       yieldProviderEvents({
         profile: getProfile(FUZZ_PROFILE_ID),
         generation,
-        request: providerCompleteRequest(generation, bindCanary('fuzz system', canary)),
+        request: providerCompleteRequest(generation, bindCanary(FUZZ_SYSTEM, canary)),
         provider: { complete: () => replay(turn) },
         // The fuzz reads what reaches the client, not the trace.
         call: { tap: () => {}, observe: () => {} },
@@ -171,7 +172,11 @@ async function runLiveBatchChannel(
   attack: CanaryEgressAttack,
   canary: string,
 ): Promise<ChannelResult> {
-  const session = createLiveOutboundGateSession(getProfile(FUZZ_PROFILE_ID), canary);
+  const session = createLiveOutboundGateSession(
+    getProfile(FUZZ_PROFILE_ID),
+    canary,
+    bindCanary(FUZZ_SYSTEM, canary),
+  );
   const events: TurnEvent[] = [];
   for (const turn of attack.turns) {
     for (const result of [

@@ -199,7 +199,7 @@ Live profiles use **`runSession`**, not `createProvider` / `ModelProvider.comple
 
 `runSession(req, { gemini, openWebSocket? })` opens a long-lived Gemini Live
 WebSocket (`BidiGenerateContent`), applies inbound text prep and the live outbound
-gate (canary + egress) at each conversational `turnComplete`, and returns a
+gate (canary, system-prompt echo, egress) at each conversational `turnComplete`, and returns a
 `LiveSession` (`sendAudio` / `sendVideo` / `sendText` / `executeTool` /
 `sendToolResponse` / `sendToolResponses` / `events` / `close`).
 

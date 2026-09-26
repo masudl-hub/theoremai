@@ -12,6 +12,7 @@ export {
   buildCanaryEgressAttacks,
   canaryEgressCatalog,
   FIXED_CANARY,
+  FUZZ_SYSTEM,
 } from './canary-egress-attacks.ts';
 export { runInboundGuardrailFuzz } from './fuzz-inbound.ts';
 export { inboundFuzzPayloads, inboundPayloadByName } from './inbound-payloads.ts';

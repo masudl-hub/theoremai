@@ -949,6 +949,10 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'boolean',
     "Per-turn canary token bound to system prompt. Default true; set false to opt out. The bind note is lexicon 'canary.bind_note'.",
   ),
+  'guardrails.promptEcho': field(
+    'boolean',
+    'With the canary on, a reply repeating 12 consecutive words of the system prompt is a leak. Default true; set false when the prompt holds text meant to be quoted.',
+  ),
   'guardrails.sanitizeInput': field('boolean', 'Strip inbound injection spans.'),
   'guardrails.redactSensitive': field('boolean', 'Redact sensitive spans.'),
   'guardrails.egress': field(

@@ -146,6 +146,11 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
       'the canary is minted into a system prompt, which speech, decision and host profiles lack',
     offValue: false,
   },
+  'guardrails.promptEcho': {
+    profileTypes: ['text', 'image', 'live'],
+    reason: 'the echo is of a system prompt, which speech, decision and host profiles lack',
+    offValue: false,
+  },
   'guardrails.sanitizeInput': {
     profileTypes: turnGuardrailTypes('sanitizeInput'),
     reason: 'the decision path runs none of the turn guardrails',

@@ -195,6 +195,11 @@ export interface GuardrailContext {
   trust: TrustLevel;
   profileId: string;
   canary?: string;
+  /**
+   * The system prompt as sent, when the profile guards it against echo
+   * (`guardrails.promptEcho`): a reply repeating it is a leak.
+   */
+  system?: string;
   role?: string;
   slots?: Record<string, string>;
   /** Set on tool-shaped stages; absent for user and system text. */
@@ -284,6 +289,13 @@ export interface ProfileGuardrailsSpec {
    * may replace it).
    */
   canary?: boolean;
+  /**
+   * With the canary on, also treat a reply that repeats `PROMPT_ECHO_WORDS`
+   * (12) consecutive words of the system prompt as a leak: the dump the token
+   * alone cannot see. Default true; set false when the prompt holds text the
+   * agent is meant to quote word for word.
+   */
+  promptEcho?: boolean;
   sanitizeInput?: boolean;
   redactSensitive?: boolean;
   egress?: ProfileEgressSpec;
@@ -346,6 +358,7 @@ export interface ResolvedGuardrailPolicy {
   sanitizeInput: boolean;
   redactSensitive: boolean;
   canary: boolean;
+  promptEcho: boolean;
   egress?: ProfileEgressSpec;
   network?: NetworkGuardrailSpec;
   quota?: QuotaGuardrailSpec;

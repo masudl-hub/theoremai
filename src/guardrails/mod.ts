@@ -90,6 +90,7 @@ export {
   createProgressiveYieldGate,
   DEFAULT_HOLDBACK,
 } from './progressive-yield.ts';
+export { PROMPT_ECHO_WORDS, scanTextForPromptEcho } from './prompt-echo.ts';
 export type { QuotaSlotStatus } from './quota.ts';
 export {
   clientIp,

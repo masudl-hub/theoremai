@@ -36,6 +36,11 @@ const MODEL_PROFILE_TYPES: readonly ProfileType[] = ['text', 'image', 'speech', 
 /** Types that run a model turn: everything but `decision` and `host`. */
 const TURN_TYPES: readonly ProfileType[] = ['text', 'image', 'speech', 'live'];
 
+/** Types whose `inputs` are turn inputs (text, files, slots) rather than decision state. */
+const TURN_INPUT_TYPES: readonly ProfileType[] = ['text', 'image'];
+
+const TURN_INPUT_REASON = 'a decision takes JSON state, not turn text, files or slots';
+
 export interface ProfileFieldScope {
   /** The profile types the field may be set on. */
   profileTypes: readonly ProfileType[];
@@ -126,6 +131,42 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
   'inputs.voice': {
     profileTypes: ['text'],
     reason: 'no image model reads audio, and a decision takes JSON state',
+  },
+  'inputs.text': {
+    profileTypes: TURN_INPUT_TYPES,
+    reason: TURN_INPUT_REASON,
+  },
+  'inputs.attachments': {
+    profileTypes: TURN_INPUT_TYPES,
+    reason: TURN_INPUT_REASON,
+  },
+  'inputs.maxFiles': {
+    profileTypes: TURN_INPUT_TYPES,
+    reason: TURN_INPUT_REASON,
+  },
+  'inputs.maxBytes': {
+    profileTypes: TURN_INPUT_TYPES,
+    reason: TURN_INPUT_REASON,
+  },
+  'inputs.maxTurnBytes': {
+    profileTypes: TURN_INPUT_TYPES,
+    reason: TURN_INPUT_REASON,
+  },
+  'inputs.limitsByMime': {
+    profileTypes: TURN_INPUT_TYPES,
+    reason: TURN_INPUT_REASON,
+  },
+  'inputs.slots': {
+    profileTypes: TURN_INPUT_TYPES,
+    reason: TURN_INPUT_REASON,
+  },
+  'inputs.state': {
+    profileTypes: ['decision'],
+    reason: 'only a decision reads JSON state; a turn takes text, files and slots',
+  },
+  'inputs.maxStateBytes': {
+    profileTypes: ['decision'],
+    reason: 'only a decision reads JSON state; a turn takes text, files and slots',
   },
   outputs: {
     profileTypes: ['text', 'image', 'speech'],

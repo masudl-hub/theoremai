@@ -755,7 +755,19 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'ToolId',
     'Optional function tool id for T2 promotion. Must be in tools.allow; handler returns { loaded: string[] }.',
   ),
-  inputs: field('ProfileInputsSpec', 'Text, attachment, voice, slot, and size rules.'),
+  inputs: field(
+    'ProfileInputsSpec | DecisionInputsSpec',
+    'Text, attachment, voice, slot, and size rules; on a decision, the JSON state it reads.',
+  ),
+  'inputs.state': field(
+    "'json'",
+    'What a decision reads: non-null JSON state, passed on each runDecision call.',
+    ['json'],
+  ),
+  'inputs.maxStateBytes': field(
+    'number',
+    'Max UTF-8 bytes of the serialized state per call. A larger state is rejected before it leaves the process.',
+  ),
   'inputs.text': field(
     'boolean',
     'Whether the profile accepts text on a turn. False rejects text.',

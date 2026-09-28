@@ -58,6 +58,8 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
   'inputs.maxFiles': { required: 'when attachments or voice is set' },
   'inputs.maxBytes': { required: 'when attachments or voice is set' },
   'inputs.maxTurnBytes': { required: 'when attachments or voice is set' },
+  'inputs.state': { required: true },
+  'inputs.maxStateBytes': { unset: 'No cap' },
   'image.aspectRatio': { unset: 'Provider default' },
   'image.size': { unset: 'Provider default' },
   'image.mimeType': { unset: 'Provider default' },

@@ -204,6 +204,28 @@ Deno.test('invalid local decision questions make no network request', async () =
   assertEquals(calls, 0);
 });
 
+Deno.test('a state over maxStateBytes makes no network request', async () => {
+  clearProfiles();
+  registerProfile(profile());
+  let calls = 0;
+  await assertRejects(
+    () =>
+      runDecision(
+        { ...request(), state: { note: 'x'.repeat(1000) } },
+        {
+          apiKey: 'test-key',
+          fetch: () => {
+            calls += 1;
+            return Promise.resolve(new Response('{}'));
+          },
+        },
+      ),
+    DecisionError,
+    'Decision state exceeds 1000 bytes',
+  );
+  assertEquals(calls, 0);
+});
+
 Deno.test('decision profile declares exactly one model', () => {
   const counts: Record<string, DecisionModelBinding>[] = [
     {},
@@ -225,6 +247,35 @@ Deno.test('decision profile rejects model-selection fields', () => {
         Promise.resolve().then(() => defineProfile({ ...profile('selection'), ...field } as never)),
       Error,
       `type 'decision' must not set ${Object.keys(field)[0]}`,
+    );
+  }
+});
+
+Deno.test('decision profile rejects turn inputs', () => {
+  for (const inputs of [{ text: true }, { slots: { tone: ['plain'] } }, { maxFiles: 1 }]) {
+    assertRejects(
+      () =>
+        Promise.resolve().then(() =>
+          defineProfile({
+            ...profile('turn-inputs'),
+            inputs: { state: 'json', ...inputs },
+          } as never),
+        ),
+      Error,
+      `type 'decision' must not set inputs.${Object.keys(inputs)[0]}`,
+    );
+  }
+});
+
+Deno.test('decision maxStateBytes is a positive integer', () => {
+  for (const maxStateBytes of [0, -1, 1.5, Number.NaN]) {
+    assertRejects(
+      () =>
+        Promise.resolve().then(() =>
+          defineProfile({ ...profile('state-cap'), inputs: { state: 'json', maxStateBytes } }),
+        ),
+      Error,
+      'decision inputs.maxStateBytes must be a positive integer',
     );
   }
 });

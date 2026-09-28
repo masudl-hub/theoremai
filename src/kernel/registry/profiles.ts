@@ -196,6 +196,13 @@ function validateDecisionConfig(input: DecisionProfileDefinition): void {
   if (input.inputs.state !== 'json') {
     throw new TheoremError('config', `Profile ${input.id}: decision inputs.state must be 'json'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
+  const cap = input.inputs.maxStateBytes;
+  if (cap !== undefined && !(Number.isInteger(cap) && cap > 0)) {
+    throw new TheoremError(
+      'config',
+      `Profile ${input.id}: decision inputs.maxStateBytes must be a positive integer`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
   if (!input.decision.contract?.trim()) {
     throw new TheoremError('config', `Profile ${input.id}: decision.contract must be non-empty`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }

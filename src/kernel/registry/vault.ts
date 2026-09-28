@@ -1,9 +1,3 @@
-/**
- * Vault key-slot selection for credentialed transports (Google, OpenRouter, …).
- *
- * @module
- */
-
 import { TheoremError } from '../../guardrails/error.ts';
 import type { ToolRegistry } from '../tools/registry.ts';
 import type { BuiltinToolDef } from '../tools/types.ts';
@@ -17,17 +11,11 @@ function builtinForcesPaid(tools: ToolRegistry, id: BuiltinToolId): boolean {
   return (tool as BuiltinToolDef).forcePaidKey === true;
 }
 
-/** Providers that resolve a vault `keySlot` on each turn. */
 export function providerUsesKeySlots(provider: Provider): boolean {
   return provider === 'google' || provider === 'openrouter';
 }
 
-/**
- * Pick the key slot for a turn from profile key, model pin, and enabled builtins.
- *
- * When `required` is false and nothing pins a slot, returns `undefined` so hosts
- * can use a single flat `apiKey` (OpenRouter without a vault).
- */
+/** `undefined` when not `required` and nothing pins a slot, so a host can use one flat `apiKey`. */
 function resolveKeySlot(
   tools: ToolRegistry,
   profileKey: KeySlot | undefined,

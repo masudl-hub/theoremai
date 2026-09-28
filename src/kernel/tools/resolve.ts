@@ -1,9 +1,3 @@
-/**
- * Turn tool visibility and wire snapshot resolution.
- *
- * @module
- */
-
 import { TheoremError } from '../../guardrails/error.ts';
 import type {
   ModelId,
@@ -43,12 +37,10 @@ export function applyBuiltinMutualExclusions(tools: ToolRegistry, requested: str
   });
 }
 
-/** The profile's `tools.allow`; empty for profile types with no `tools` block. */
 export function profileToolAllow(profile: Profile): readonly ToolId[] {
   return 'tools' in profile ? profile.tools.allow : [];
 }
 
-/** The tiered tool spec (`t1Policy`, `t2Loader`); only `text` and `image` declare one. */
 export function profileToolsSpec(profile: Profile): ProfileToolsSpec | undefined {
   return profile.type === 'text' || profile.type === 'image' ? profile.tools : undefined;
 }
@@ -63,12 +55,10 @@ export function resolveAllowedCustomToolIds(
     if (!tool || tool.type === 'builtin') {
       return false;
     }
-    // Host profiles execute every allowed tool — path gating does not apply.
     return profile.type === 'host' || pathMatches(tool.paths, req.path);
   });
 }
 
-/** Provider builtins listed on the selected model — on for the turn (path-filtered). */
 export function resolveModelBuiltinIds(
   tools: ToolRegistry,
   profile: ModelProfile,
@@ -142,11 +132,7 @@ export function promoteBuiltin(tools: ToolRegistry, state: TurnToolSnapshot, id:
   state.builtins.push(id);
 }
 
-/**
- * Custom tools wired at turn start. Text/image: T0 only (T1/T2 pending).
- * Live: every gated tool — declarations are fixed at session setup, so every
- * allowed tool is effectively T0. Host: every gated tool — no tiers at all.
- */
+/** Live declarations are fixed at session setup, so every allowed tool there is effectively T0. */
 export function initialVisible(tools: ToolRegistry, profile: Profile, gated: ToolId[]): ToolId[] {
   if (profile.type === 'live' || profile.type === 'host') {
     return [...gated];
@@ -154,7 +140,6 @@ export function initialVisible(tools: ToolRegistry, profile: Profile, gated: Too
   return gated.filter((id) => tools.get(id)?.loadTier === 'T0');
 }
 
-/** Builtins on at turn start — every gated builtin on live, T0 elsewhere (mutual exclusions applied). */
 export function initialBuiltins(tools: ToolRegistry, profile: Profile, gated: ToolId[]): ToolId[] {
   return applyBuiltinMutualExclusions(
     tools,
@@ -165,11 +150,6 @@ export function initialBuiltins(tools: ToolRegistry, profile: Profile, gated: To
   );
 }
 
-/**
- * Build the initial tool snapshot for a turn.
- * Text/image: T0 wired, T1/T2 pending. Live: the whole allow list and every
- * model builtin. Host: the whole allow list, no builtins, no path gating.
- */
 export function resolveTurnTools(
   tools: ToolRegistry,
   profile: Profile,
@@ -196,7 +176,6 @@ export function resolveTurnTools(
   };
 }
 
-/** Resolve T0 snapshot and expand T1 selections from `profile.tools.t1Policy`. */
 export async function prepareTurnToolSnapshot(
   tools: ToolRegistry,
   profile: Profile,
@@ -208,7 +187,7 @@ export async function prepareTurnToolSnapshot(
   return snapshot;
 }
 
-/** Deep-clone a turn snapshot so host-side concurrent invokes do not share mutable state. */
+/** So concurrent host invokes do not share mutable state. */
 export function cloneTurnToolSnapshot(state: TurnToolSnapshot): TurnToolSnapshot {
   return {
     builtins: [...state.builtins],
@@ -221,7 +200,6 @@ export function cloneTurnToolSnapshot(state: TurnToolSnapshot): TurnToolSnapshot
   };
 }
 
-/** Wire T1 tools selected by `profile.tools.t1Policy`. */
 export async function expandT1Policy(
   tools: ToolRegistry,
   state: TurnToolSnapshot,
@@ -256,7 +234,6 @@ export async function expandT1Policy(
       continue;
     }
     const tool = tools.get(id);
-    // T0 tools are already visible; t1Policy may promote T1/T2 gated tools at turn start.
     if (!tool || tool.loadTier === 'T0') {
       continue;
     }
@@ -271,7 +248,6 @@ export async function expandT1Policy(
 
 const LOADED_ID_BLOCKLIST = new Set(['__proto__', 'constructor', 'prototype']);
 
-/** The ids a `tools.t2Loader` output names (`{ loaded: string[] }`), or `undefined` for any other shape. */
 export function extractLoadedIds(output: unknown): string[] | undefined {
   if (!isRecord(output)) {
     return undefined;
@@ -283,7 +259,6 @@ export function extractLoadedIds(output: unknown): string[] | undefined {
   return loaded;
 }
 
-/** Promote T2 tools into the visible set after tools.t2Loader returns { loaded }. */
 export function promoteLoadedTools(
   tools: ToolRegistry,
   state: TurnToolSnapshot,
@@ -291,7 +266,6 @@ export function promoteLoadedTools(
   profile: Profile,
 ): PromoteLoadedResult {
   if (profile.type === 'live' || profile.type === 'host') {
-    // Every allowed tool is already visible — there is nothing to promote.
     return { promoted: [] };
   }
   const toPromote: ToolId[] = [];

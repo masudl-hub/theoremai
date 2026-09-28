@@ -7,7 +7,6 @@ import type {
   ResolvedGeneration,
 } from '../types.ts';
 
-/** Each builtin with the wire names `tools` registered for it. */
 function providerBuiltins(tools: ToolRegistry, ids: readonly BuiltinToolId[]): ProviderBuiltin[] {
   return ids.map((id) => {
     const tool = tools.get(id);
@@ -18,7 +17,7 @@ function providerBuiltins(tools: ToolRegistry, ids: readonly BuiltinToolId[]): P
   });
 }
 
-/** Build the provider request projection shared by execution and tracing. */
+/** Shared by execution and tracing. */
 function providerCompleteRequest(
   tools: ToolRegistry,
   generation: ResolvedGeneration,

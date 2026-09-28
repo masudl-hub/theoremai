@@ -1,20 +1,3 @@
-/**
- * Execution runners for Declarative HTTP and Remote MCP tools.
- *
- * Implements:
- * - URL parameter substitution and query/body mapping
- * - Network SSRF guardrail enforcement on the target and every redirect hop
- * - Endpoint templates whose scheme and host are fixed, so input never picks the host
- * - Credential resolution (bearer, api_key, oauth2), sent only to the configured origin
- * - Proactive OAuth token refresh, one per grant at a time; the progress event names
- *   the slot, never the secret, and a refused refresh's server text stays internal
- * - A response that repeats its credential is stripped of it
- * - ToolGate { kind: 'auth' } emission or model error reporting
- * - Streamable HTTP MCP JSON-RPC protocol (`tools/call`) per 2026-07-28 spec
- *
- * @module
- */
-
 import { errorKind } from '../../guardrails/error.ts';
 import { lexiconText } from '../../guardrails/lexicon.ts';
 import { fetchGuarded, type ResolveHost } from '../../guardrails/network.ts';
@@ -50,9 +33,9 @@ import type {
 
 export type AuthResolveResult = {
   headers: Record<string, string>;
-  /** The credential value sent; the response is stripped of it before anyone reads it. */
+  /** The response is stripped of this before anyone reads it. */
   secret?: string;
-  /** The resource (RFC 8707) an OAuth token was issued for; it goes nowhere else. */
+  /** RFC 8707 resource an OAuth token was issued for; it goes nowhere else. */
   audience?: string;
   unauthenticated?: boolean;
   modelMessage?: string;
@@ -97,7 +80,7 @@ function unauthenticatedResult(
   extras?: { issuer?: string; resource?: string },
 ): AuthResolveResult & { gate?: ToolGate } {
   if (policy === 'gate') {
-    // Do not emit gate here — caller uses emitGateSettlement (pre_tool + gate).
+    // The caller emits the gate through emitGateSettlement, so `pre_tool` runs first.
     const gate = buildAuthGate(toolName, authConfig, message, extras);
     return { headers: {}, unauthenticated: true, gate };
   }
@@ -221,10 +204,6 @@ async function* resolveOAuth2Credential(
   };
 }
 
-/**
- * Resolves credentials and handles missing/expired tokens.
- * Yields TurnEvents for auth pauses or progress (e.g. refreshed tokens).
- */
 export async function* resolveToolAuth(
   toolName: string,
   authConfig: HttpToolAuthConfig | undefined,
@@ -273,10 +252,6 @@ export type HttpToolTarget = {
   body?: string;
 };
 
-/**
- * Build the request URL (and optional JSON body) for a declarative HTTP tool
- * from endpoint template, mapping, and validated input.
- */
 export function buildHttpToolTarget(
   endpoint: string,
   method: HttpToolDef['method'],
@@ -357,17 +332,12 @@ export function parseToolOutput<T>(
       if (retryChecked.success) {
         checked = retryChecked;
       }
-    } catch {
-      // Not JSON
-    }
+    } catch {}
   }
   return checked;
 }
 
-/**
- * A result with no summary of its own: the output itself is the finding. It is
- * not repeated as `data`, which `composeToolText` would append a second time.
- */
+/** Not repeated as `data`, which `composeToolText` would append a second time. */
 export function modelResultFromOutput(data: unknown): ModelToolResult {
   return { finding: typeof data === 'string' ? data : JSON.stringify(data) };
 }
@@ -379,7 +349,6 @@ function failureOutcome(
   return { kind: 'failed', failure, callNotStarted };
 }
 
-/** Tool `preTool` + host `pre_tool` + mutate re-parse, mapped onto a remote outcome. */
 async function* runRemotePreBodyStages(args: {
   tool: HttpToolDef | McpToolDef;
   input: unknown;
@@ -491,7 +460,6 @@ async function* remoteAuthAndPreBody(args: {
   };
 }
 
-/** A request that threw: a redirect hop the network policy refused, or no response at all. */
 function* thrownOutcome(err: unknown): Generator<TurnEvent, ToolBodyOutcome> {
   if (errorKind(err) === 'blocked') {
     return failureOutcome(yield* networkBlocked(err), false);
@@ -499,14 +467,9 @@ function* thrownOutcome(err: unknown): Generator<TurnEvent, ToolBodyOutcome> {
   return failureOutcome({ code: 'network_error', kind: 'network', message: messageOf(err) }, false);
 }
 
-/** What stands in for a credential a response repeated. */
 const OMIT_CREDENTIAL = '[omitted - credential]';
 
-/**
- * A response that repeats the credential it was sent with (an echo endpoint, a
- * debug error page) is stripped of it, so the value never reaches the model,
- * the trace, or the client.
- */
+/** An echo endpoint or debug page can repeat the credential; it must never reach the model, trace or client. */
 function withoutSecret(outcome: ToolBodyOutcome, secret: string | undefined): ToolBodyOutcome {
   if (!secret) return outcome;
   const strip = (text: string) => text.replaceAll(secret, OMIT_CREDENTIAL);
@@ -528,11 +491,7 @@ function withoutSecret(outcome: ToolBodyOutcome, secret: string | undefined): To
   return outcome;
 }
 
-/**
- * Send with the call's credential. An OAuth token goes only to the resource it
- * was issued for (RFC 8707), so any other target gets no request; the response
- * is stripped of the credential if it repeats it.
- */
+/** An OAuth token goes only to the resource it was issued for (RFC 8707); any other target gets no request. */
 async function* sendWithCredential(
   prepared: { audience?: string; secret?: string },
   url: URL,
@@ -551,10 +510,7 @@ async function* sendWithCredential(
   return withoutSecret(yield* send(), prepared.secret);
 }
 
-/**
- * Executes a Declarative HTTP tool.
- * Order: schema → permission → auth → preTool/host stages → body.
- */
+/** Order: schema → permission → auth → preTool/host stages → body. */
 export async function* executeHttpTool(
   tool: HttpToolDef,
   rawInput: unknown,
@@ -655,7 +611,7 @@ async function* sendHttpRequest(
   }
 }
 
-/** Preferred-first Streamable HTTP protocol revisions the kernel will negotiate. */
+/** Preferred first. */
 export const MCP_PROTOCOL_VERSIONS = [
   '2026-07-28',
   '2025-11-25',
@@ -663,10 +619,8 @@ export const MCP_PROTOCOL_VERSIONS = [
   '2025-03-26',
 ] as const;
 
-/** Streamable HTTP MCP protocol revision supported by the kernel. */
 export type McpProtocolVersion = (typeof MCP_PROTOCOL_VERSIONS)[number];
 
-/** Minimal JSON-RPC response shape consumed from an MCP server. */
 export type McpRpcResponse = {
   jsonrpc?: string;
   id?: unknown;
@@ -679,7 +633,7 @@ export type McpRpcResponse = {
   method?: string;
 };
 
-/** Parse MCP JSON or SSE (`event: message` / `data:`) bodies into a JSON-RPC object. */
+/** Accepts a JSON body or an SSE (`data:`) stream. */
 export function parseMcpRpcResponse(text: string): McpRpcResponse {
   const trimmed = text.trim();
   if (trimmed.startsWith('{')) {
@@ -694,7 +648,7 @@ export function parseMcpRpcResponse(text: string): McpRpcResponse {
     try {
       messages.push(JSON.parse(payload) as McpRpcResponse);
     } catch {
-      // Ignore non-JSON SSE payloads (e.g. pings).
+      // Pings and other non-JSON payloads.
     }
   }
 
@@ -710,7 +664,6 @@ export function parseMcpRpcResponse(text: string): McpRpcResponse {
   return last;
 }
 
-/** True when a JSON-RPC error indicates the server rejected our protocol revision. */
 export function isUnsupportedMcpProtocolError(error: McpRpcResponse['error']): boolean {
   if (!error) return false;
   const message = error.message.toLowerCase();
@@ -727,7 +680,7 @@ function unsupportedProtocolFromHttpBody(text: string): McpRpcResponse['error'] 
       return rpcResponse.error;
     }
   } catch {
-    // Fall through to raw-text heuristic for non-JSON error pages.
+    // A non-JSON error page falls through to the raw-text check.
   }
   // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   if (text.toLowerCase().includes('unsupported protocol version')) {
@@ -742,12 +695,11 @@ type McpFetchOutcome =
   | { kind: 'protocol_retry'; error: McpRpcResponse['error'] }
   | { kind: 'failure'; failure: ToolFailure };
 
-/** Where one MCP call goes and what rides with it. */
 type McpTransport = {
   url: string;
-  /** Protocol headers, sent on every hop. */
+  /** Sent on every hop. */
   headers: Record<string, string>;
-  /** Host-configured headers and credentials: the configured origin only. */
+  /** Host headers and credentials: sent to the configured origin only. */
   originBoundHeaders: Record<string, string>;
   policy?: NetworkGuardrailSpec;
   resolveHost?: ResolveHost;
@@ -859,7 +811,6 @@ async function negotiateMcpRpc(
   return { lastProtocolError };
 }
 
-/** A tool server's non-OK HTTP status: refused credentials are `auth`; anything else, the step failed. */
 function kindOfToolHttpStatus(status: number): ErrorKind {
   return status === 401 || status === 403 ? 'auth' : 'failed';
 }
@@ -933,10 +884,7 @@ function interpretMcpRpc(
   return { ok: true, data: checked.data };
 }
 
-/**
- * Executes a Remote MCP tool over Streamable HTTP (spec revision 2026-07-28).
- * Order: schema → permission → auth → preTool/host stages → body.
- */
+/** Streamable HTTP, spec revision 2026-07-28. Order: schema → permission → auth → preTool/host stages → body. */
 export async function* executeMcpTool(
   tool: McpToolDef,
   rawInput: unknown,

@@ -1,15 +1,3 @@
-/**
- * Tool event shapes and the preamble every executable tool path shares.
- *
- * Function, declarative HTTP, and remote MCP tools all announce themselves,
- * validate their input, and — for the remote kinds — clear their target against
- * the profile's SSRF policy. Keeping that here means the three paths cannot drift,
- * and it holds the event constructors both `execute.ts` and `remote.ts` need
- * without either importing the other.
- *
- * @module
- */
-
 import type { z } from 'zod';
 import { throwIfAborted } from '../../guardrails/error.ts';
 import { assertSafeUrl } from '../../guardrails/network.ts';
@@ -21,15 +9,12 @@ import { isRecord } from '../util/record.ts';
 import { formatToolFailureForModel, formatToolResult } from './model-text.ts';
 import type { ToolCallRequest, ToolContext, ToolFailure, ToolPhaseEvent } from './types.ts';
 
-/** Identifying fields repeated on every event for one tool call. */
 export type ToolCallBase = Pick<ToolPhaseEvent, 'name' | 'callId'>;
 
 export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
-/** One phase and its fields; `toolEvent` adds the call's identity and `at`. */
 export type ToolPhasePatch = DistributiveOmit<ToolPhaseEvent, keyof ToolCallBase | 'at'>;
 
-/** The one constructor of tool phase events: it stamps `at`. */
 export function toolEvent(base: ToolCallBase, patch: ToolPhasePatch): TurnEventOf<'tool'> {
   return {
     type: 'tool',
@@ -37,11 +22,7 @@ export function toolEvent(base: ToolCallBase, patch: ToolPhasePatch): TurnEventO
   };
 }
 
-/**
- * A call's failure, with `readBack`: the text the model reads for it. That is
- * the failure as the kernel words it, unless the call's result guard already
- * wrote it (`settleToolCall`).
- */
+/** `readBack` is passed when the call's result guard already wrote the model's text. */
 export function failureEvent(
   base: ToolCallBase,
   failure: ToolFailure,
@@ -50,7 +31,7 @@ export function failureEvent(
   return toolEvent(base, { phase: 'error', failure, readBack });
 }
 
-/** The model's call, as a provider emits it: the first event of every call. */
+/** The first event of every call. */
 export function toolCallRequestEvent(
   base: ToolCallBase,
   args: Record<string, unknown>,
@@ -68,18 +49,16 @@ export function toolCallRequestEvent(
   };
 }
 
-/** A call id for a call the provider sent without one. Unique: readers join a call's events by it. */
+/** Unique: readers join a call's events by it. */
 export function newCallId(name: string): string {
   return `call_${name}_${crypto.randomUUID()}`;
 }
 
-/** Tool arguments as an object, the shape tool events carry: no input is no arguments; a bare value is `{ value }`. */
 export function toolCallArguments(safeInput: unknown): Record<string, unknown> {
   if (safeInput === undefined) return {};
   return isRecord(safeInput) ? safeInput : { value: safeInput };
 }
 
-/** Failure text for a thrown value, without leaking a stack. */
 export function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -91,11 +70,6 @@ function sourcesInvalid(base: ToolCallBase, message: string): TurnEventOf<'tool'
   });
 }
 
-/**
- * What a completed call's output cites, from its tool's `sources`: a `citation`
- * with the call's `callId`, and one `sources_invalid` warning naming every
- * source that failed `sourceSchema` (those are not cited) or the throw.
- */
 export function* sourceEvents(
   base: ToolCallBase,
   sources: (output: unknown) => Source[],
@@ -128,12 +102,7 @@ export function* sourceEvents(
   if (cited.length > 0) yield { type: 'citation', sources: cited, callId: base.callId };
 }
 
-/**
- * Announce the call and validate its input.
- *
- * Returns `{ ok: false }` after emitting the failure event, so callers bail
- * without re-deciding what an invalid input means.
- */
+/** `{ ok: false }` comes after the failure event is emitted, so callers only bail. */
 export function* startToolExecution<T>(
   tool: { input: z.ZodType<T> },
   rawInput: unknown,
@@ -159,10 +128,6 @@ export function* startToolExecution<T>(
   return { ok: true, data: parsed.data };
 }
 
-/**
- * A remote request refused by the network policy — its target or a redirect
- * hop: the guardrail event, and the failure the call settles with.
- */
 export function* networkBlocked(err: unknown): Generator<TurnEvent, ToolFailure> {
   yield {
     type: 'guardrail',
@@ -176,11 +141,7 @@ export function* networkBlocked(err: unknown): Generator<TurnEvent, ToolFailure>
   return { code: 'network_blocked', kind: 'blocked', message: messageOf(err) };
 }
 
-/**
- * Clear a remote target against the profile's network policy, so HTTP and
- * MCP cannot diverge on what SSRF enforcement means. A refused target comes
- * back as the failure to settle with; the settlement emits the terminal event.
- */
+/** Shared by HTTP and MCP so they cannot diverge on what SSRF enforcement means. */
 export function* guardToolTarget(
   url: string,
   ctx: ToolContext,
@@ -192,7 +153,6 @@ export function* guardToolTarget(
   }
 }
 
-/** The network policy remote tools and their OAuth refreshes clear. */
 export function toolNetworkPolicy(ctx: ToolContext): NetworkGuardrailSpec | undefined {
   return resolveGuardrailPolicy(ctx.profile.guardrails).network;
 }

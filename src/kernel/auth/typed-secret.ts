@@ -1,18 +1,10 @@
-/**
- * A key or token the user typed at a sign-in gate, made into the credential
- * the gate's slot waits for. The server builds it: the browser sends only the
- * text, so it can't pick the credential's kind or the header it rides in.
- *
- * @module
- */
-
 import { TheoremError } from '../../guardrails/error.ts';
 import type { ToolAuthType } from '../schema.ts';
 import type { ApiKeyCredential, BearerCredential } from './types.ts';
 
 /**
- * The credential for a typed `secret` at a gate of `authType`. An OAuth gate
- * takes no typed secret: its token comes from the host's callback route.
+ * The server builds the credential, so the browser cannot pick its kind or header. An OAuth
+ * gate takes no typed secret: its token comes from the host's callback route.
  */
 export function credentialFromTypedSecret(
   authType: ToolAuthType,
@@ -30,11 +22,7 @@ export function credentialFromTypedSecret(
   );
 }
 
-/**
- * A typed `secret` as the credential for the slot a sign-in gate waits on.
- * `auth` is the gate's sign-in (absent on any other gate, which takes no key).
- * Shared by `createTheoremHandler` and `runSession`.
- */
+/** `auth` is absent on any gate other than sign-in, which takes no key. */
 export function credentialForSignInGate(
   auth: { slot: string; authType: ToolAuthType } | undefined,
   secret: unknown,

@@ -1,9 +1,3 @@
-/**
- * Host-initiated tool execution entrypoint.
- *
- * @module
- */
-
 import {
   isAbortError,
   TheoremError,
@@ -50,19 +44,13 @@ async function prepareInvokeSnapshot(
   if (profile.type === 'decision') {
     throw new TheoremError('request', `Profile ${profile.id}: type 'decision' cannot invoke tools`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
-  // Host profiles bind no model — the allow list is the whole snapshot.
   const model = profile.type === 'host' ? undefined : pickModel(profile, request.model);
   return await prepareTurnToolSnapshot(registry.tools, profile, req, model);
 }
 
 /**
- * Execute a tool registered in `registry` without calling a model provider, and
- * write its trace record: one `execute_tool` root under the host's `traceparent`.
- *
- * The record is written however the call ends, including when the host stops
- * reading early or the call fails before the tool is reached. A call on an
- * unknown profile fails in `invokeTraced` and is recorded under the standard
- * observability policy, since there is no profile to read one from.
+ * The trace record is written however the call ends, including an early stop or a failure before
+ * the tool. An unknown profile is recorded under the standard observability policy: there is none to read.
  */
 async function* invokeTool(
   registry: KernelRegistry,
@@ -83,7 +71,6 @@ async function* invokeTool(
     links: traceLinks(request.links),
     ...(request.traceparent ? { traceparent: request.traceparent } : {}),
   });
-  // The root is this call's span: the executor stamps it rather than opening one.
   const openSpan = (_name: string, attributes: TraceAttributes) => {
     tree.root.set(attributes);
     return tree.root;
@@ -130,7 +117,7 @@ async function* invokeTraced(
     ? cloneTurnToolSnapshot(request.snapshot)
     : await prepareInvokeSnapshot(registry, request, profile);
 
-  // A host's own call is announced like a model's; a model's call was announced by its turn.
+  // A model's call was already announced by its turn.
   if (request.callId === undefined) {
     yield toolCallRequestEvent({ name: request.name, callId }, toolCallArguments(request.input));
   }

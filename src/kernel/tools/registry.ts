@@ -1,13 +1,3 @@
-/**
- * Tool registries. Each kernel scope owns one; see `createKernelScope`.
- *
- * Registration is not synchronized — register a scope's tools before its turns
- * or invokeTool calls run. Concurrent mutation of a shared TurnToolSnapshot is
- * avoided by cloneTurnToolSnapshot on invokeTool entry.
- *
- * @module
- */
-
 import type { z } from 'zod';
 import { TheoremError } from '../../guardrails/error.ts';
 import {
@@ -75,24 +65,19 @@ function normalizeToolDefinition<TIn = unknown, TOut = unknown>(
   return normalizeFunction(def);
 }
 
-/** One scope's tools, by name. */
 interface ToolRegistry {
-  /** Register or replace a tool definition. */
+  /** Replaces a tool of the same name. */
   register<TIn, TOut>(def: ToolDefinitionInput<TIn, TOut>): RegisteredTool<TIn, TOut>;
-  /** Register several tools in order. */
   registerMany(defs: ToolDefinitionInput[]): RegisteredTool[];
-  /** The tool registered under `name`, or `undefined`. */
   get(name: string): RegisteredTool | undefined;
-  /** The tool registered under `name`; throws when there is none. */
+  /** Throws when there is none. */
   require(name: string): RegisteredTool;
   has(name: string): boolean;
-  /** Registered tools in registration order. */
   list(): RegisteredTool[];
-  /** Remove every tool. */
   reset(): void;
 }
 
-/** A tool registry of its own: nothing registered in one is visible from another. */
+/** Registration is not synchronized: register a scope's tools before its turns or invokes run. */
 function createToolRegistry(): ToolRegistry {
   const tools = new Map<string, RegisteredTool>();
   const get = (name: string) => tools.get(name);

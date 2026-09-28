@@ -1,12 +1,3 @@
-/**
- * Runtime profile registry for host-owned THEOREM profiles.
- *
- * THEOREM ships profile types — not application profiles and not invented defaults.
- * Hosts must pass required fields explicitly (`type`, `models`, …).
- *
- * @module
- */
-
 import { TheoremError } from '../../guardrails/error.ts';
 import { type LexiconOverrides, validateLexiconOverrides } from '../../guardrails/lexicon.ts';
 import type {
@@ -63,10 +54,7 @@ import type {
 import { mimeAllowed, profileInputs } from './catalog.ts';
 import { soleModelId } from './sole-model.ts';
 
-/**
- * Common host-authored fields for text, image, speech, and live profiles. A host
- * profile is deliberately separate because it invokes tools without a model turn.
- */
+/** Not shared by host profiles, which invoke tools without a model turn. */
 export type ProfileDefinitionBase = {
   id: Profile['id'];
   identity: ProfileIdentity;
@@ -81,7 +69,6 @@ export type ProfileDefinitionBase = {
   lexicon?: LexiconOverrides;
 };
 
-/** Host definition for a turn-based text profile with declared tools and input media policy. */
 export type TextProfileDefinition = ProfileDefinitionBase & {
   type: 'text';
   tools: ProfileToolsSpec;
@@ -89,7 +76,6 @@ export type TextProfileDefinition = ProfileDefinitionBase & {
   turnBehaviour?: ProfileTurnBehaviourSpec;
 };
 
-/** Host definition for a turn-based image profile with declared image output constraints. */
 export type ImageProfileDefinition = ProfileDefinitionBase & {
   type: 'image';
   image: NonNullable<ImageProfile['image']>;
@@ -98,7 +84,6 @@ export type ImageProfileDefinition = ProfileDefinitionBase & {
   turnBehaviour?: MediaTurnBehaviourSpec;
 };
 
-/** Host definition for a turn-based speech profile with declared speech output constraints. */
 export type SpeechProfileDefinition = Omit<ProfileDefinitionBase, 'identity' | 'guardrails'> & {
   type: 'speech';
   identity: SpeechProfile['identity'];
@@ -107,7 +92,6 @@ export type SpeechProfileDefinition = Omit<ProfileDefinitionBase, 'identity' | '
   turnBehaviour?: MediaTurnBehaviourSpec;
 };
 
-/** Host definition for a Gemini Live profile with realtime tool and session settings. */
 export type LiveProfileDefinition = ProfileDefinitionBase & {
   type: 'live';
   live: NonNullable<LiveProfile['live']>;
@@ -116,7 +100,6 @@ export type LiveProfileDefinition = ProfileDefinitionBase & {
   turnBehaviour?: Pick<ProfileTurnBehaviourSpec, 'allowSteering'>;
 };
 
-/** Host definition for native Jev execution. */
 export type DecisionProfileDefinition = {
   type: 'decision';
   id: Profile['id'];
@@ -131,18 +114,16 @@ export type DecisionProfileDefinition = {
   lexicon?: LexiconOverrides;
 };
 
-/** Host-driven tool ceiling — no models, identity, inputs, outputs, turnBehaviour, key, or maxSteps. */
 export type HostProfileDefinition = {
   type: 'host';
   id: Profile['id'];
   tools: HostProfileToolsSpec;
-  /** Only the guards that fire on the `invokeTool` path — see {@link HostGuardrailsSpec}. */
+  /** Only the guards that fire on the `invokeTool` path. */
   guardrails?: HostGuardrailsSpec;
   observability?: ProfileObservabilitySpec;
   lexicon?: LexiconOverrides;
 };
 
-/** Host-authored profile definition — discriminated on `type`. No THEOREM defaults. */
 export type ProfileDefinition =
   | TextProfileDefinition
   | ImageProfileDefinition
@@ -240,7 +221,6 @@ function assertModelsNonEmpty(profileId: string, models: Record<ModelId, ModelBi
   }
 }
 
-/** The one owner of a model profile's default: the declared one, else the only key. */
 function resolveDefaultModel(profileId: string, input: ProfileDefinitionBase): ModelId {
   const ids = Object.keys(input.models);
   const inferred = input.defaultModel ?? soleModelId(input.models);
@@ -387,7 +367,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/** The values at `path`, `*` spanning a map's entries; none once a parent is absent. */
+/** `*` spans a map's entries; a path through an absent parent yields nothing. */
 function valuesAt(root: Record<string, unknown>, path: readonly string[]): unknown[] {
   let level: unknown[] = [root];
   for (const key of path) {
@@ -399,18 +379,13 @@ function valuesAt(root: Record<string, unknown>, path: readonly string[]): unkno
   return level;
 }
 
-/** Fields `PROFILE_FIELDS` marks required for this type, shallowest first. */
 const REQUIRED_PATHS: readonly (readonly [string, readonly ProfileType[] | undefined])[] =
   Object.entries(PROFILE_FIELDS)
     .filter(([, meta]) => meta.required === true)
     .map(([path, meta]) => [path, meta.profileTypes] as const)
     .sort(([a], [b]) => a.split('.').length - b.split('.').length);
 
-/**
- * A definition may come from outside the host (a playground draft over the
- * network), so its shape is checked before anything reads it: an object with
- * an id and a known type.
- */
+/** A definition may come over the network (a playground draft), so its shape is checked before anything reads it. */
 function assertProfileShape(input: unknown): asserts input is ProfileDefinition {
   if (!isRecord(input)) {
     throw new TheoremError('config', 'Profile definition must be an object'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -428,10 +403,7 @@ function assertProfileShape(input: unknown): asserts input is ProfileDefinition 
   }
 }
 
-/**
- * Every field `PROFILE_FIELDS` marks required for the definition's type. A
- * field under an optional parent the definition leaves out is not required.
- */
+/** A field under an optional parent the definition leaves out is not required. */
 function assertRequiredFields(input: ProfileDefinition): void {
   const { id, type } = input;
   const root = input as unknown as Record<string, unknown>;
@@ -454,11 +426,7 @@ function assertRequiredFields(input: ProfileDefinition): void {
   }
 }
 
-/**
- * Reject any field set on a profile type it doesn't belong to. The scope is
- * `PROFILE_FIELD_SCOPE`, the one owner of which type takes which field; it
- * covers untyped hosts the definition types can't stop.
- */
+/** Covers untyped hosts that the definition types can't stop. */
 function assertFieldScope(input: ProfileDefinition): void {
   const [field] = outOfScopeFields(input);
   if (!field) return;
@@ -477,15 +445,13 @@ function assertTurnBehaviour(profileId: string, input: ProfileDefinition): void 
 }
 
 /**
- * Speech has no system channel: Gemini TTS rejects developer instructions and
- * OpenAI-compatible `/audio/speech` has no field for one. The canary lives in
- * the system prompt, so registration stores it off.
+ * The canary lives in the system prompt, and speech has none: Gemini TTS rejects developer
+ * instructions and OpenAI-compatible `/audio/speech` has no field for one.
  */
 function speechGuardrails(input: SpeechProfileDefinition): SpeechProfile['guardrails'] {
   return { ...input.guardrails, canary: false };
 }
 
-/** Egress counts (`maxRetries`, `holdback`) are whole, non-negative numbers. */
 function assertEgress(profileId: string, guardrails: ProfileGuardrailsSpec | undefined): void {
   for (const key of ['maxRetries', 'holdback'] as const) {
     const value = guardrails?.egress?.[key];
@@ -525,7 +491,6 @@ function assertObservability(profileId: string, spec: ProfileObservabilitySpec |
   }
 }
 
-/** Define a typed profile. Required fields must be set explicitly; optional fields stay optional. */
 function defineProfile(input: TextProfileDefinition): TextProfile;
 function defineProfile(input: ImageProfileDefinition): ImageProfile;
 function defineProfile(input: SpeechProfileDefinition): SpeechProfile;
@@ -643,10 +608,7 @@ function defineProfile(input: ProfileDefinition): Profile {
   return profile;
 }
 
-/**
- * A slot-mapped `outputs.structured` reads a declared slot and maps only its
- * declared choices; a turn can pass no other value, so any other key is dead.
- */
+/** A turn can pass no value outside the slot's choices, so any other mapped key is dead. */
 function assertStructuredSlot(profile: ModelProfile): void {
   if (profile.type === 'live') return;
   const structured = profile.outputs?.structured;
@@ -667,7 +629,6 @@ function assertStructuredSlot(profile: ModelProfile): void {
   }
 }
 
-/** An image profile's attachments: each `accept` entry within images, video and PDF. */
 function assertImageAccept(profileId: string, accept: string[] | undefined) {
   const outside = accept?.filter((rule) => !mimeAllowed(IMAGE_ATTACHMENT_ACCEPT_MIMES, rule));
   if (!outside?.length) return;
@@ -679,7 +640,6 @@ function assertImageAccept(profileId: string, accept: string[] | undefined) {
   );
 }
 
-/** A live profile's compression numbers: whole and above 0, the target below the trigger. */
 function assertLiveCompression(profileId: string, spec: LiveContextCompressionSpec | undefined) {
   if (!spec) return;
   const tag = `Profile ${profileId} live.contextCompression`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -830,7 +790,6 @@ function assertProfileToolLoader(tools: ToolRegistry, profile: Profile): void {
   }
 }
 
-/** Every builtin id declared across a profile's model bindings. */
 function* modelBuiltinIds(profile: ModelProfile): Generator<{ modelId: string; id: string }> {
   for (const [modelId, binding] of Object.entries(profile.models)) {
     for (const id of binding.builtInTools ?? []) {
@@ -867,34 +826,24 @@ function assertMediaLimits(profile: ModelProfile): void {
   }
 }
 
-/** One scope's profiles, by id; validated against the same scope's tools. */
 interface ProfileRegistry {
-  /** Define, validate, and register one host-owned profile. */
   register(profileInput: Profile | ProfileDefinition): void;
-  /** Register several host-owned profiles in order. */
   registerMany(profilesList: Array<Profile | ProfileDefinition>): void;
-  /** The profile registered under `id`; throws when there is none. */
+  /** Throws when there is none. */
   get(id: string): Profile;
-  /** The profile registered under `id`, or `undefined`. */
   find(id: string): Profile | undefined;
   has(id: string): boolean;
-  /** Registered profiles in registration order. */
   list(): Profile[];
-  /** Remove every profile. */
   clear(): void;
 }
 
-/**
- * A profile registry of its own. Profiles are checked against `tools`, the
- * same scope's tool registry, so register a scope's tools before its profiles.
- */
+/** Profiles are checked against `tools`, so register a scope's tools before its profiles. */
 function createProfileRegistry(tools: ToolRegistry): ProfileRegistry {
   const profiles = new Map<string, Profile>();
   const register = (profileInput: Profile | ProfileDefinition) => {
     const profile = defineProfile(profileInput as ProfileDefinition);
     assertCustomToolsOnly(tools, profile);
     assertProfileToolLoader(tools, profile);
-    // Host and decision profiles have no models, ingress, media limits, or compaction to validate.
     if (profile.type !== 'host' && profile.type !== 'decision') {
       assertModelBuiltInTools(tools, profile);
       assertMediaLimits(profile);

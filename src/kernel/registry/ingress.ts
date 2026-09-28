@@ -1,11 +1,3 @@
-/**
- * Kernel ingress: input parts, image pins, and speech-role checks.
- *
- * Owned by the kernel so `resolveTurn` does not import provider adapters.
- *
- * @module
- */
-
 import { wrapUserData } from '../../guardrails/canary.ts';
 import { TheoremError } from '../../guardrails/error.ts';
 import { lexiconText } from '../../guardrails/lexicon.ts';
@@ -45,11 +37,7 @@ function activePrimaryOutputModes(
   return modes;
 }
 
-/**
- * Provider wire formats (JSON schema, image, speech) are mutually exclusive.
- * Typed profiles make illegal mixes unrepresentable; this remains a safety net
- * for responseFormat structured on text vs accidental dual modes.
- */
+/** Typed profiles already make mixed wire formats unrepresentable; this is a safety net. */
 function assertOutputMode(profile: Profile, structuredId: string | null): void {
   const active = activePrimaryOutputModes(profile, structuredId);
   if (active.length <= 1) {
@@ -69,7 +57,6 @@ function assertImagePins(profile: Profile): ProfileImageSpec {
   return profile.image;
 }
 
-/** Speech turns: the selected model's transport must take the format, and no system prompt rides along. */
 function assertSpeechRole(profile: Profile, binding: ModelBinding, req: TurnRequest): void {
   if (profile.type !== 'speech') {
     return;
@@ -112,11 +99,7 @@ function assertMediaMime(mime: string): MediaInputKind {
   return kind;
 }
 
-/**
- * Normalize accepted attachments (`assertTurnAttachments` ran first) into
- * provider parts. Inline blobs and references share kind resolution; references carry the
- * uri through untouched (no base64, no byte limits — the host owns the upload).
- */
+/** Runs after `assertTurnAttachments`. A reference's uri passes untouched: the host owns the upload. */
 function mediaParts(blobs: Array<TurnBlob | TurnMediaRef>): InteractionPart[] {
   return blobs.map((blob) => {
     const kind = assertMediaMime(blob.mimeType);
@@ -143,19 +126,14 @@ function extractTextPart(profile: Profile, req: TurnRequest): InteractionPart | 
   if (profileInputs(profile)?.text === false && text) {
     throw new TheoremError('request', `Profile ${profile.id} does not accept text input`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
-  // A repair is the kernel's, not the user's: it replaces the text on a retry
-  // whether or not the profile takes text from the user.
+  // A repair is the kernel's, not the user's, so it applies even when the profile takes no user text.
   const promptText = repair
     ? synthesizeRepairPrompt({ profile, repair, history })
     : (continueText(profile, req) ?? text);
   return promptText ? { type: 'text', text: wrapUserData(promptText) } : null;
 }
 
-/**
- * A text `continueFrom` turn's user message is the continue instruction, so the
- * model reads history → partial reply → "continue". Image and speech get none:
- * their continue re-sends the host's request unchanged.
- */
+/** Image and speech get none: their continue re-sends the host's request unchanged. */
 function continueText(profile: Profile, req: TurnRequest): string | undefined {
   if (!req.continueFrom || !CONTINUE_INSTRUCTION_TYPES.includes(profile.type)) {
     return undefined;
@@ -201,10 +179,6 @@ function resolveInputParts(profile: Profile, req: TurnRequest): InteractionPart[
   return parts;
 }
 
-/**
- * Each slot a turn passes is one its profile declares in `inputs.slots`, set to
- * one of that slot's choices. A profile with no slots takes none.
- */
 function assertTurnSlots(profile: Profile, req: TurnRequest): void {
   const slots = req.input?.slots;
   if (!slots) return;

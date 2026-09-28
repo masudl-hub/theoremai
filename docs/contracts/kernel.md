@@ -412,8 +412,9 @@ host function-calling round trips. The sandbox runtime cap (~30s per execution)
 is Google's, not a THEOREM setting.
 
 Streaming is controlled solely by `outputs.streaming.mode` on the profile
-(`'sse'` or `'buffered'`). When omitted, THEOREM defaults to SSE
-(`ResolvedGeneration.stream === true`).
+(`'sse'` or `'buffered'`). When omitted, THEOREM defaults to SSE. `'buffered'`
+makes one non-streaming provider call on every chat transport (Interactions,
+OpenRouter, local) and yields the same `TurnEvent` types when it answers.
 There is no per-turn stream override.
 
 ## Registered tools

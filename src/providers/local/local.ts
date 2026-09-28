@@ -2,7 +2,8 @@
  * Local provider adapter for OpenAI-compatible endpoints (Ollama, llama.cpp,
  * vLLM, LM Studio, etc.).
  *
- * Streams SSE from `/v1/chat/completions`, accumulates tool calls, and yields
+ * Streams SSE from `/v1/chat/completions` (or reads one JSON reply when the
+ * profile buffers), accumulates tool calls, and yields
  * normalized `ProviderEvent` objects. No external SDK dependency — raw fetch + SSE.
  *
  * Wire-format message building delegates to the shared `openai/compat` module.
@@ -20,6 +21,7 @@ import {
   TheoremError,
   toErrorEvent,
 } from '../../guardrails/error.ts';
+import { asRecord } from '../../kernel/engine/record.ts';
 import { turnStopFromOpenAiFinishReason } from '../../kernel/stop.ts';
 import type {
   ModelProvider,
@@ -75,11 +77,11 @@ function buildBody(req: ProviderCompleteRequest): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model: req.apiId,
     messages: buildChatMessages(req),
-    stream: true,
-    stream_options: { include_usage: true },
+    stream: req.stream !== false,
     temperature: req.temperature,
     max_tokens: req.maxOutputTokens,
   };
+  if (body.stream) body.stream_options = { include_usage: true };
   const tools = wireTools(req.wireTools);
   if (tools) body.tools = tools;
   return body;
@@ -114,11 +116,40 @@ async function* streamComplete(
     );
     return;
   }
+  if (req.stream === false) {
+    yield* bufferedOpenAiBody(await res.json(), req.tapUpstream);
+    return;
+  }
   if (!res.body) {
     yield toErrorEvent(new TheoremError('bad_response', 'empty response body'));
     return;
   }
   yield* streamOpenAiBody(res.body, req.tapUpstream);
+}
+
+function* bufferedOpenAiBody(
+  raw: Record<string, unknown>,
+  tap: ProviderCompleteRequest['tapUpstream'],
+): Generator<ProviderEvent> {
+  tap?.(raw);
+  const identity = foldResponse(undefined, openAiResponse(raw));
+  if (identity.event) yield identity.event;
+  const tokens = openAiUsageTokens(raw.usage);
+  if (tokens) yield { type: 'tokens', tokens };
+  const choice = Array.isArray(raw.choices) ? asRecord(raw.choices[0]) : undefined;
+  const message = asRecord(choice?.message) as OpenAiDelta | undefined;
+  if (message?.content) yield { type: 'text', text: message.content };
+  for (const [index, call] of (message?.tool_calls ?? []).entries()) {
+    yield* toolCallEvents(
+      { id: call.id ?? `call_${index}`, name: call.function?.name ?? '' },
+      call.function?.arguments ?? '',
+    );
+  }
+  const finish = choice?.finish_reason;
+  yield {
+    type: 'done',
+    stop: turnStopFromOpenAiFinishReason(typeof finish === 'string' ? finish : null),
+  };
 }
 
 async function* streamOpenAiBody(

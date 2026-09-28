@@ -12,6 +12,7 @@ import { createOpenRouter, type OpenRouterChatSettings } from '@openrouter/ai-sd
 import {
   AISDKError,
   APICallError,
+  generateText,
   jsonSchema,
   type LanguageModelUsage,
   type ModelMessage,
@@ -535,6 +536,38 @@ async function* yieldAiSdkStream(
   }
 }
 
+/** A buffered reply: one `generateText` call, read into the events a stream would have sent. */
+async function* yieldAiSdkBuffered(
+  req: ProviderCompleteRequest,
+  acc: StreamAccumulator,
+  context: OpenRouterStreamContext,
+): AsyncGenerator<ProviderEvent> {
+  const { include: _, onError: __, ...options } = streamTextOptions(req, context);
+  const result = await generateText({ ...options, include: { responseBody: true } });
+  const body = asRecord(result.response.body);
+  if (body) {
+    req.tapUpstream?.(body);
+    yield* rawEvents(body, acc).filter((event) => shouldEmitProviderEvent(req, event));
+  }
+  for (const part of result.content) {
+    const events =
+      part.type === 'text'
+        ? [{ type: 'text', text: part.text } as const]
+        : part.type === 'reasoning'
+          ? [{ type: 'thought', text: part.text } as const]
+          : part.type === 'tool-call' || part.type === 'source'
+            ? primaryEventsFromPart(part as TextStreamPart<ToolSet>, acc)
+            : [];
+    if (part.type === 'text') acc.text += part.text;
+    yield* events.filter((event) => shouldEmitProviderEvent(req, event));
+  }
+  yield* eventsFromMetadata(result.providerMetadata, acc).filter((event) =>
+    shouldEmitProviderEvent(req, event),
+  );
+  const tokens = finishEvent(result, acc);
+  if (tokens) yield tokens;
+}
+
 async function* streamOpenRouter(
   req: ProviderCompleteRequest,
   config: OpenAiGatewayConfig,
@@ -550,7 +583,9 @@ async function* streamOpenRouter(
   const acc = createAccumulator();
   const context = createStreamContext(req, config, apiKey);
   try {
-    yield* yieldAiSdkStream(req, acc, context);
+    yield* req.stream === false
+      ? yieldAiSdkBuffered(req, acc, context)
+      : yieldAiSdkStream(req, acc, context);
     yield* finalEvents(req, acc);
   } catch (err) {
     if (isAbortError(err)) {

@@ -1956,3 +1956,74 @@ Deno.test('providerMetadataEvents cites from providerMetadata', () => {
     ['citation'],
   );
 });
+
+Deno.test('a buffered OpenRouter turn asks for one reply and emits what a stream would', async () => {
+  const bodies: Record<string, unknown>[] = [];
+  const reply = {
+    id: 'gen-1',
+    model: 'google/gemini-3-flash',
+    choices: [
+      {
+        finish_reason: 'tool_calls',
+        message: {
+          role: 'assistant',
+          content: 'looking',
+          reasoning: 'need the record',
+          annotations: [
+            { type: 'url_citation', url_citation: { url: 'https://example.com/a', title: 'A' } },
+          ],
+          tool_calls: [
+            {
+              id: 'call_1',
+              type: 'function',
+              function: { name: 'lookup', arguments: '{"q":"record"}' },
+            },
+          ],
+        },
+      },
+    ],
+    usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8, cost: 0.001 },
+  };
+  const provider = createOpenRouterProvider({
+    apiKey: 'mock-auth-token',
+    fetch: (_url, init) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return Promise.resolve(Response.json(reply));
+    },
+  });
+  const events = await Array.fromAsync(
+    provider.complete({
+      ...createMockTurnRequest('pinned', 'find it'),
+      stream: false,
+      structured: null,
+      wireTools: [
+        testWireTool('lookup', {
+          description: 'Look up a record',
+          parameters: { type: 'object', properties: { q: { type: 'string' } } },
+        }),
+      ],
+    }),
+  );
+  assertEquals(bodies.length, 1);
+  assertEquals(bodies[0]?.stream, undefined);
+  assertEquals(
+    eventsOf(events, 'text').map((e) => e.text),
+    ['looking'],
+  );
+  assertEquals(
+    eventsOf(events, 'thought').map((e) => e.text),
+    ['need the record'],
+  );
+  assertEquals(citedUris(events), ['https://example.com/a']);
+  assertEquals(firstOf(events, 'tool')?.tool, {
+    name: 'lookup',
+    callId: 'call_1',
+    arguments: { q: 'record' },
+  });
+  assertEquals(firstOf(events, 'tokens')?.tokens.cost, { usd: 0.001 });
+  assertEquals(firstOf(events, 'response')?.response, {
+    id: 'gen-1',
+    model: 'google/gemini-3-flash',
+  });
+  assertEquals(eventsOf(events, 'done').length, 1);
+});

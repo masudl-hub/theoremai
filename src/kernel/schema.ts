@@ -927,11 +927,11 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   'outputs.streaming': field('ProfileStreamingSpec', 'How the turn emits live events.'),
   'outputs.streaming.mode': field(
     unionType(STREAM_MODES),
-    'sse or buffered. Omit → THEOREM SSE default (ResolvedGeneration.stream = true).',
+    'Whether the provider call streams. Either way the host gets the same TurnEvents.',
     STREAM_MODES,
     {
-      sse: 'Server-Sent Events emitting live incremental TurnEvents (THEOREM default when mode omitted).',
-      buffered: 'Buffers response into a single completed turn event.',
+      sse: 'Stream the provider call; TurnEvents arrive as the model produces them.',
+      buffered: 'One non-streaming provider call; its TurnEvents arrive together when it answers.',
     },
   ),
   'outputs.streaming.streamThoughts': field('boolean', 'Emit model thinking on the turn stream.'),

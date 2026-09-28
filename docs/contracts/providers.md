@@ -151,7 +151,9 @@ OpenRouter entrypoint.
 Chat and speech requests use `ProviderCompleteRequest.apiId` on the wire — same
 field as Google Interactions and local OpenAI-compat paths.
 
-`createOpenRouterProvider(config)` (internal) streams normalized `TurnEvent`s;
+`createOpenRouterProvider(config)` (internal) streams normalized `TurnEvent`s
+(`streamText`), or on a buffered profile reads one reply (`generateText`, raw
+body kept for usage, cost and citations) into the same events;
 terminal `done.stop` via `turnStopFromOpenAiFinishReason`. Request options ride
 AI SDK `providerOptions.openrouter`: `reasoning.effort` only when `thinking` is
 present and not `'none'`, `response_format` for structured output, and optional
@@ -272,7 +274,8 @@ local: {
 }
 ```
 
-- Raw `fetch` + `sse.ts` — no SDK.
+- Raw `fetch` + `sse.ts` — no SDK. A buffered profile sends `stream: false` and
+  reads one JSON reply into the same events.
 - Accumulates streaming tool calls; maps `finish_reason` through
   `turnStopFromOpenAiFinishReason`.
 - Supports multimodal user content when the server accepts OpenAI-style parts;

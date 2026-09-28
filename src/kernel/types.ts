@@ -492,11 +492,6 @@ export interface ProfileLiveSpec {
 
 /** Stream delivery controls enforced by the kernel. */
 export interface ProfileStreamingSpec {
-  /**
-   * Profile-only source of truth for upstream stream vs batch.
-   * `sse` → stream; `buffered` → non-SSE where the transport supports it.
-   * Omit → THEOREM defaults to SSE (`ResolvedGeneration.stream === true`).
-   */
   mode?: StreamMode;
   /** When false, filter `thought` events from the turn stream. */
   streamThoughts?: boolean;

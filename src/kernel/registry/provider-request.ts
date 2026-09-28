@@ -30,7 +30,7 @@ function providerCompleteRequest(
     apiId: generation.apiId,
     previousInteractionId: isInteractions ? generation.previousInteractionId : undefined,
     store: isInteractions ? generation.store : undefined,
-    stream: isInteractions ? generation.stream : undefined,
+    stream: generation.stream,
     thinking: generation.thinking,
     summaries: generation.summaries,
     maxOutputTokens: generation.maxOutputTokens,

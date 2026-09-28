@@ -1,8 +1,5 @@
 /**
- * Optional THEOREM presets.
- *
- * Presets register host-convenience catalogs (provider builtins, media
- * vocabularies, later model packs) without baking product opinions into the kernel.
+ * Optional host-convenience catalogs (provider builtins, media vocabularies) kept out of the kernel.
  *
  * @module
  */

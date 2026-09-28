@@ -1,20 +1,3 @@
-/**
- * Local provider adapter for OpenAI-compatible endpoints (Ollama, llama.cpp,
- * vLLM, LM Studio, etc.).
- *
- * Streams SSE from `/v1/chat/completions` (or reads one JSON reply when the
- * profile buffers), accumulates tool calls, and yields
- * normalized `ProviderEvent` objects. No external SDK dependency — raw fetch + SSE.
- *
- * Wire-format message building delegates to the shared `openai/compat` module.
- * SSE parsing delegates to the shared `parseSseStream` from `sse.ts`.
- *
- * Hosts pass `baseUrl` explicitly. THEOREM does not read `OLLAMA_HOST` or other
- * environment variables (see docs/contracts/providers.md).
- *
- * @module
- */
-
 import {
   isAbortError,
   kindOfHttpStatus,
@@ -37,8 +20,6 @@ import { toolCallEvents } from '../shared/tool-args.ts';
 import { networkFetch, tapFetch } from '../shared/upstream-tap.ts';
 import type { LocalProviderConfig } from '../types.ts';
 
-// ── wire types ──────────────────────────────────────
-
 interface OpenAiDelta {
   role?: string;
   content?: string | null;
@@ -56,8 +37,6 @@ interface OpenAiChoice {
 }
 
 export type PendingToolCall = { id: string; name: string; args: string };
-
-// ── request mapping ─────────────────────────────────
 
 function normalizeBaseUrl(baseUrl: string): string {
   let end = baseUrl.length;
@@ -86,8 +65,6 @@ function buildBody(req: ProviderCompleteRequest): Record<string, unknown> {
   if (tools) body.tools = tools;
   return body;
 }
-
-// ── stream → ProviderEvent ──────────────────────────
 
 export function flushPending(pending: Map<number, PendingToolCall>): ProviderEvent[] {
   const events = [...pending.values()].flatMap((tc) => toolCallEvents(tc, tc.args));
@@ -229,9 +206,6 @@ function accumulateToolCalls(
   }
 }
 
-// ── public factory ──────────────────────────────────
-
-/** Create a `ModelProvider` for a local OpenAI-compatible server (Ollama, llama.cpp, vLLM, LM Studio). */
 function createLocalProvider(config: LocalProviderConfig): ModelProvider {
   const baseUrl = resolveBaseUrl(config);
   const fetchFn = config.fetch ?? globalThis.fetch;

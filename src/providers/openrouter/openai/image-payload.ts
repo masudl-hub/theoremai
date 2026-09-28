@@ -1,12 +1,3 @@
-/**
- * OpenAI-compatible image generation payloads.
- *
- * Maps kernel `ImageResponseFormat` pins to the `/images` REST body shared by
- * OpenRouter and other OpenAI-compat gateways.
- *
- * @module
- */
-
 import { TheoremError } from '../../../guardrails/error.ts';
 import { isMediaRefPart } from '../../../kernel/interaction-parts.ts';
 import type {
@@ -42,11 +33,7 @@ export function wireInputReference(part: InteractionMediaPart): Record<string, u
   };
 }
 
-/**
- * The `/images` reference list: every image part. Text is the prompt; any other
- * media is refused, since `/images` takes image references only and a dropped
- * file would leave the user believing the model saw it.
- */
+/** Non-image media is refused, not dropped: a dropped file would leave the user believing the model saw it. */
 export function wireInputReferences(input: InteractionPart[]): Record<string, unknown>[] {
   const references: Record<string, unknown>[] = [];
   for (const part of input) {
@@ -82,7 +69,6 @@ export function attachImagePins(
   }
 }
 
-/** Build a POST `/images` body for native image-generation models. */
 export function buildImagesPayload(req: ProviderCompleteRequest): Record<string, unknown> {
   if (!req.image) {
     throw new Error('buildImagesPayload requires req.image');
@@ -102,7 +88,6 @@ export function buildImagesPayload(req: ProviderCompleteRequest): Record<string,
   return payload;
 }
 
-/** Tool parameters for gateways that generate images inside chat completions. */
 export function imageToolParameters(image: ImageResponseFormat): Record<string, unknown> {
   const params: Record<string, unknown> = {};
   if (image.mimeType) {

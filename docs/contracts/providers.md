@@ -264,8 +264,7 @@ Import `@theoremjs/agents/providers/local` for `createLocalProvider`. Hosts
 resolve `OLLAMA_HOST` (or similar) themselves and pass `baseUrl` — THEOREM does
 not read environment variables for local endpoints and has no default address.
 `createProvider` routes a `local` profile only when the host passes `local`: a
-profile cannot point the host at its own loopback. The `local/local.ts` module header
-points at this contract (`docs/contracts/providers.md`).
+profile cannot point the host at its own loopback.
 
 ```ts
 local: {

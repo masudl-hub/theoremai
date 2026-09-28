@@ -1,11 +1,5 @@
 /**
- * Provider adapters for THEOREM's `ModelProvider` contract.
- *
- * Host apps should use `createProvider(profile, options)` — the single door.
- * Credentials are always supplied by the host application.
- *
- * For direct local adapter access (bypassing the factory), import
- * `@theoremjs/agents/providers/local`.
+ * `createProvider(profile, options)` binds a profile to a transport with host-supplied credentials.
  *
  * @module
  */

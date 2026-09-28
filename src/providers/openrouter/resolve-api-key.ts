@@ -1,14 +1,7 @@
-/**
- * Resolve an API key from an OpenAI-gateway config using an optional vault slot.
- *
- * @module
- */
-
 import { TheoremError } from '../../guardrails/error.ts';
 import type { KeySlot } from '../../kernel/types.ts';
 import type { OpenAiGatewayConfig } from '../types.ts';
 
-/** Pick the credential for this turn from vault[keySlot] or flat apiKey. */
 export function resolveOpenAiGatewayApiKey(
   config: OpenAiGatewayConfig,
   keySlot: KeySlot | undefined,

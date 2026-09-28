@@ -1,16 +1,9 @@
 import type { KeyVault } from '../kernel/types.ts';
 
-/** OpenAI-gateway credentials for `openAi` profiles (OpenRouter or compatible). */
 export interface OpenAiGatewayConfig {
-  /**
-   * Multi-slot credential vault (same `KEY_SLOTS` shape as Google).
-   * When `keySlot` is set on the turn, the adapter reads `vault[keySlot]`.
-   */
+  /** Read as `vault[keySlot]` when the turn has a `keySlot`. */
   vault?: KeyVault;
-  /**
-   * Single-key fallback when the profile does not pin `model.key` / `keySlot`.
-   * Ignored when `keySlot` is set (vault is required then).
-   */
+  /** Used only when the turn has no `keySlot`; ignored otherwise (the vault is required then). */
   apiKey?: string;
   baseUrl?: string;
   siteUrl?: string;
@@ -18,9 +11,8 @@ export interface OpenAiGatewayConfig {
   fetch?: typeof fetch;
 }
 
-/** Host-supplied config for the local OpenAI-compat provider. */
 export interface LocalProviderConfig {
-  /** Base URL of the OpenAI-compat server, e.g. `http://127.0.0.1:11434` for Ollama. */
+  /** e.g. `http://127.0.0.1:11434` for Ollama. */
   baseUrl: string;
   fetch?: typeof globalThis.fetch;
 }

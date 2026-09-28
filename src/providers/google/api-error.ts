@@ -1,11 +1,3 @@
-/**
- * A Gemini API error as a `TheoremError`: the `error` object Interactions
- * (SSE `error` events, non-OK bodies) and Live (error frames) both send,
- * `{ error: { code, message, status } }`.
- *
- * @module
- */
-
 import { type ErrorKind, kindOfHttpStatus, TheoremError } from '../../guardrails/error.ts';
 import { asRecord } from '../../kernel/engine/record.ts';
 
@@ -50,7 +42,7 @@ const NAMED_CODE_STATUS: Readonly<Record<string, number>> = {
   gateway_timeout: 504,
 };
 
-/** Codes for a generation Google blocked: its safety filters held the reply back. */
+/** Codes for a generation Google's safety filters held back. */
 const BLOCKED_CODES: ReadonlySet<string> = new Set([
   'safety',
   'recitation',
@@ -66,9 +58,9 @@ const BLOCKED_CODES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The kind a named code states. `cancelled` (499) is the request stopped on
- * THEOREM's side. The generation error codes (`malformed_function_call`,
- * `no_image`, …) and any code Google adds later are a reply THEOREM cannot use.
+ * `cancelled` (499) is the request stopped on THEOREM's side. Generation error
+ * codes (`malformed_function_call`, `no_image`, …) and any code Google adds later
+ * are `bad_response`.
  */
 function kindOfNamedCode(code: string): ErrorKind {
   if (code === 'cancelled') return 'cancelled';
@@ -78,11 +70,8 @@ function kindOfNamedCode(code: string): ErrorKind {
 }
 
 /**
- * The error a record's `error` object states, or null when it has none. The
- * kind comes from `code`: an HTTP status, or a named code (`service_unavailable`
- * is `unavailable`, `safety` is `safety`). An error with neither, or a named
- * code Google has not documented, is a response THEOREM cannot use
- * (`bad_response`).
+ * Interactions (SSE `error` rows, non-OK bodies) and Live (error frames) both send
+ * `{ error: { code, message, status } }`; `code` is an HTTP status or a named code.
  */
 export function readGeminiApiError(record: Record<string, unknown>): TheoremError | null {
   const error = asRecord(record.error);
@@ -102,7 +91,7 @@ export function readGeminiApiError(record: Record<string, unknown>): TheoremErro
   return new TheoremError(kind, typeof status === 'string' ? `${status}: ${message}` : message);
 }
 
-/** A non-OK response as an error: its body's error, else the raw body, else the status. The kind is the status's. */
+/** The kind is always the HTTP status's, whatever code the body names. */
 export async function readNonOkError(response: Response): Promise<TheoremError> {
   const kind = kindOfHttpStatus(response.status);
   const text = await response.text().catch(() => '');

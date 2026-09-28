@@ -1,7 +1,4 @@
-/**
- * Gemini Live / OpenAPI Schema 3.0 style type uppercasing for function parameters.
- * JSON Schema uses lowercase `object`/`string`; Gemini Live expects `OBJECT`/`STRING`.
- */
+// JSON Schema uses lowercase `object`/`string`; Gemini Live expects OpenAPI 3.0 `OBJECT`/`STRING`.
 
 function convertGeminiSchemaType(value: unknown): Record<string, unknown> {
   if (typeof value === 'string') return { type: value.toUpperCase() };
@@ -33,7 +30,6 @@ function convertGeminiSchemaObject(obj: Record<string, unknown>): Record<string,
   return result;
 }
 
-/** Convert JSON-Schema-ish parameters to Gemini Live OpenAPI Schema shape. */
 export function toGeminiOpenApiSchema(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(toGeminiOpenApiSchema);
   if (value !== null && typeof value === 'object') {

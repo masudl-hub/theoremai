@@ -1,15 +1,3 @@
-/**
- * Host provider factory — the single public door for binding a profile to a transport.
- *
- * Routes from the selected model binding's `protocol` / `provider` (and whether the
- * profile is a speech or image role). Adapters under this folder are internal implementation.
- *
- * Every adapter graph is loaded only when that transport's first `complete` runs —
- * not when this module is imported.
- *
- * @module
- */
-
 import { TheoremError } from '../guardrails/error.ts';
 import { requireModelProfile } from '../kernel/registry/resolve.ts';
 import { isValidPair } from '../kernel/schema.ts';
@@ -25,17 +13,11 @@ import type { GeminiTransport } from './google/keys.ts';
 import { markModuleLoad } from './probe.ts';
 import type { LocalProviderConfig, OpenAiGatewayConfig } from './types.ts';
 
-/** Credentials supplied by the host when creating a provider. */
 export interface CreateProviderOptions {
-  /** Google Interactions (text, image, and speech when protocol is geminiInteractions). */
   gemini?: GeminiTransport;
-  /**
-   * OpenAI-gateway credentials for `openAi` profiles (OpenRouter or compatible).
-   * Used for chat completions, `/images`, or `/audio/speech` depending on output role.
-   * Optional `voice` is a fallback when `speech.voice` is omitted.
-   */
+  /** `voice` is the fallback when a speech profile omits `speech.voice`. */
   openAiGateway?: OpenAiGatewayConfig & { voice?: string };
-  /** Local OpenAI-compatible server (Ollama, llama.cpp, vLLM, LM Studio). Required for `local` profiles. */
+  /** Required for `local` profiles. */
   local?: LocalProviderConfig;
 }
 
@@ -107,13 +89,7 @@ function lazyLocal(config: LocalProviderConfig): ModelProvider {
   );
 }
 
-/**
- * Create a `ModelProvider` for a turn-based profile (text / image / speech).
- * Live profiles use `runSession` — `createProvider` rejects geminiLive.
- *
- * When a profile declares multiple models, pass `modelId` to pick the binding used
- * for adapter selection (defaults to `defaultModel` or the sole model key).
- */
+/** Live profiles use `runSession`. `modelId` picks the binding; default `defaultModel`. */
 export function createProvider(
   profile: Profile,
   options: CreateProviderOptions = {},

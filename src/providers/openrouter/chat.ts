@@ -1,13 +1,3 @@
-/**
- * OpenRouter provider adapter powered by Vercel AI SDK Core.
- *
- * THEOREM keeps the public `ModelProvider` and `ProviderEvent` contract; AI SDK
- * owns the OpenRouter call, stream parsing, provider compatibility, and tool
- * call normalization. Message assembly delegates to `openai/sdk-messages.ts`.
- *
- * @module
- */
-
 import { createOpenRouter, type OpenRouterChatSettings } from '@openrouter/ai-sdk-provider';
 import {
   AISDKError,
@@ -64,7 +54,6 @@ export interface StreamAccumulator {
   errored: boolean;
   finishReason?: string | null;
   nativeFinishReason?: string | null;
-  /** Response identity the raw rows named so far (`id`, `model`). */
   response?: TurnResponse;
 }
 
@@ -107,7 +96,6 @@ function webSource(uri: string, title?: string | null): Source {
   return { title: title || uri, uri, type: 'web' };
 }
 
-/** A `citation` of the sources this call has not cited yet; none when every one was. */
 function citationEvent(
   sources: readonly Source[],
   acc: StreamAccumulator,
@@ -121,7 +109,6 @@ function citationEvent(
   return fresh.length > 0 ? { type: 'citation', sources: fresh } : undefined;
 }
 
-/** An AI SDK `source` part: a URL cites; any other source is a `provider_step`. */
 export function sourceEvent(part: SourcePart, acc: StreamAccumulator): ProviderEvent | undefined {
   if (part.sourceType === 'url') {
     return citationEvent([webSource(part.url, part.title)], acc);
@@ -150,7 +137,7 @@ export function buildTools(wireTools?: WireFunctionTool[]): ToolSet | undefined 
   return tools;
 }
 
-/** Builtins as OpenRouter wires them: `web` is `web_search_options`, every other wire a plugin. */
+/** `web` wires as `web_search_options`; every other builtin is a plugin. */
 function openRouterSettings(req: ProviderCompleteRequest): OpenRouterChatSettings | undefined {
   let webSearch = false;
   const plugins: Array<{ id: string }> = [];
@@ -170,10 +157,7 @@ function openRouterSettings(req: ProviderCompleteRequest): OpenRouterChatSetting
   return settings;
 }
 
-/**
- * AI SDK `totalUsage` → `TurnTokens`. Used only when the raw OpenRouter stream
- * carried no `usage` row (`rawEvents` reads that one first, with cost).
- */
+/** Only when the raw stream carried no `usage` row; `rawEvents` reads that one first, with cost. */
 export function tokensFromUsage(usage: LanguageModelUsage): TurnTokens | undefined {
   return reportedTokens({
     input: usageCount(usage.inputTokens),
@@ -232,7 +216,6 @@ export function metadataAnnotations(raw: Record<string, unknown>): unknown[] | u
   return undefined;
 }
 
-/** A `url_citation` annotation's source. */
 function annotationSource(annotation: unknown): Source | undefined {
   const record = asRecord(annotation);
   const cited = asRecord(record?.url_citation);
@@ -242,11 +225,7 @@ function annotationSource(annotation: unknown): Source | undefined {
   return webSource(cited.url, typeof cited.title === 'string' ? cited.title : undefined);
 }
 
-/**
- * A metadata record's citations and annotations: URLs as one `citation`, any
- * other annotation (a parsed file, say) as `provider_step` evidence. Each
- * reports once per call, however many rows repeat it.
- */
+/** Each citation or annotation reports once per call, however many rows repeat it. */
 export function eventsFromMetadata(metadata: unknown, acc: StreamAccumulator): ProviderEvent[] {
   const raw = asRecord(metadata);
   if (!raw) {
@@ -299,7 +278,6 @@ export function rawThoughtEvent(raw: Record<string, unknown>): ProviderEvent | u
   return undefined;
 }
 
-/** Citations and annotations on a buffered reply's `choices[].message`. */
 export function rawChoiceMessageEvents(
   raw: Record<string, unknown>,
   acc: StreamAccumulator,
@@ -344,11 +322,7 @@ export function rawEvents(raw: unknown, acc: StreamAccumulator): ProviderEvent[]
 
 export type ToolCallPart = Extract<TextStreamPart<ToolSet>, { type: 'tool-call' }>;
 
-/**
- * The model's call, through the shared call rule (`toolCallEvents`). A call
- * the SDK could not parse or match to a tool is the call with no arguments,
- * then its failure carrying what the model sent.
- */
+/** A call the SDK could not parse or match is the call with no arguments, then its failure. */
 export function toolCallPartEvents(part: ToolCallPart): ProviderEvent[] {
   if (part.invalid) {
     const message = part.error instanceof Error ? part.error.message : 'tool call was not valid';
@@ -369,7 +343,6 @@ export function providerMetadataEvents(
   return 'providerMetadata' in part ? eventsFromMetadata(part.providerMetadata, acc) : [];
 }
 
-/** A stream part's own events, then what its provider metadata cites. */
 export function eventFromPart(
   part: TextStreamPart<ToolSet>,
   acc: StreamAccumulator,
@@ -536,7 +509,6 @@ async function* yieldAiSdkStream(
   }
 }
 
-/** A buffered reply: one `generateText` call, read into the events a stream would have sent. */
 async function* yieldAiSdkBuffered(
   req: ProviderCompleteRequest,
   acc: StreamAccumulator,
@@ -596,11 +568,9 @@ async function* streamOpenRouter(
 }
 
 /**
- * An AI SDK failure with its kind. A failure that carries OpenRouter's HTTP
- * status (a call's response, or an error sent mid-stream) reports that
- * status; a call that got no response could not reach OpenRouter; a
- * mid-stream error without a status is OpenRouter's own; any other SDK error
- * is a reply the SDK could not read. Retries report their last failure.
+ * An HTTP status wins; a call with no response could not reach OpenRouter; a
+ * mid-stream error without a status is OpenRouter's own; any other SDK error is
+ * a reply the SDK could not read.
  */
 function sdkError(err: unknown): unknown {
   if (RetryError.isInstance(err)) {
@@ -621,10 +591,7 @@ function sdkError(err: unknown): unknown {
   return new TheoremError(kind, err.message, { cause: err });
 }
 
-/**
- * A stream's error part with its kind. Besides SDK errors, a body that breaks
- * mid-read arrives as a plain error: OpenRouter could not be reached.
- */
+/** A body that breaks mid-read arrives as a plain error, not an SDK one. */
 function streamPartError(error: unknown): unknown {
   return AISDKError.isInstance(error) || RetryError.isInstance(error)
     ? sdkError(error)
@@ -654,7 +621,6 @@ export function providerOptionsFor(req: ProviderCompleteRequest): ProviderOption
   return { openrouter } as ProviderOptions;
 }
 
-/** Create a `ModelProvider` backed by OpenRouter through AI SDK Core. */
 export function createOpenRouterProvider(config: OpenAiGatewayConfig = {}): ModelProvider {
   return {
     complete: (req: ProviderCompleteRequest) => streamOpenRouter(req, config),

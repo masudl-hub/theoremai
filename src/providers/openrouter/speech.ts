@@ -1,12 +1,3 @@
-/**
- * OpenAI-compatible `/audio/speech` transport (internal).
- *
- * Hosts use `createProvider(profile, { openAiGateway })` — this module is selected
- * when the profile is an openAi speech role. Not a separate public door.
- *
- * @module
- */
-
 import { TheoremError, toErrorEvent } from '../../guardrails/error.ts';
 import type {
   InteractionPart,
@@ -25,9 +16,8 @@ import { resolveOpenAiGatewayApiKey } from './resolve-api-key.ts';
 
 const HTTP_OK = 200;
 
-/** Credentials for the openAi speech path — gateway config + optional voice. */
 export type SpeechProviderConfig = OpenAiGatewayConfig & {
-  /** Fallback TTS voice when the profile does not pin `speech.voice`. */
+  /** Fallback when the profile does not pin `speech.voice`. */
   voice?: string;
 };
 
@@ -154,7 +144,6 @@ export async function* streamSpeech(
   }
 }
 
-/** Internal ModelProvider for openAi speech roles. */
 export function createSpeechProvider(config: SpeechProviderConfig = {}): ModelProvider {
   return {
     complete: (req: ProviderCompleteRequest) => streamSpeech(req, config),

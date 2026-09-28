@@ -20,8 +20,7 @@ export function toGoogleValue(value: unknown): unknown {
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {};
     for (const [key, nested] of Object.entries(value)) {
-      // JSON Schema property names must stay as authored (e.g. correctAnswer in
-      // both properties and required). Snake-casing breaks Gemini validation.
+      // Schema property names stay as authored; snake-casing them breaks Gemini validation.
       if (key === 'schema' || key === 'parameters') {
         out[camelToSnake(key)] = nested;
         continue;
@@ -43,7 +42,6 @@ export function userInputStep(parts: InteractionPart[]): Record<string, unknown>
   return { type: USER_INPUT, content: parts.map(wirePart) };
 }
 
-/** Wire content for a history message; an empty message is one empty text part. */
 function historyContent(msg: TurnHistoryMessage): Record<string, string>[] {
   const parts = historyMessageParts(msg);
   return parts.length > 0 ? parts.map(wirePart) : [{ type: 'text', text: '' }];
@@ -85,17 +83,12 @@ function textOrPartsStep(
   role: 'assistant' | 'user',
   msg: TurnHistoryMessage,
 ): Record<string, unknown> {
-  // Google Interactions input steps: assistant history is `model_output` (not `model_turn`).
+  // Assistant history is `model_output`, not `model_turn`.
   const type = role === 'assistant' ? 'model_output' : 'user_input';
   return { type, content: historyContent(msg) };
 }
 
-/**
- * Map one host history message to Interactions input step(s).
- *
- * OpenAI-shaped assistant `tool_calls` (often with no `content`) become
- * `function_call` steps — never empty `model_output` text.
- */
+/** Assistant `tool_calls` (often with no `content`) become `function_call` steps, never empty `model_output`. */
 export function historySteps(msg: TurnHistoryMessage): Record<string, unknown>[] {
   if (msg.role === 'tool') {
     return [functionResultStep(msg)];
@@ -119,7 +112,6 @@ export function historySteps(msg: TurnHistoryMessage): Record<string, unknown>[]
   return [textOrPartsStep('user', msg)];
 }
 
-/** Single-step helper for simple messages (first of {@link historySteps}). */
 export function historyStep(msg: TurnHistoryMessage): Record<string, unknown> {
   const steps = historySteps(msg);
   return steps[0] ?? { type: 'user_input', content: [{ type: 'text', text: '' }] };
@@ -155,7 +147,7 @@ export function attachResponseFormat(
     if (req.image.size) {
       imageEntry.imageSize = req.image.size;
     }
-    // Post–May 2026 Interactions API: object = image-only; array = text + image.
+    // An object asks for image only; an array for text + image.
     camel.responseFormat = req.image.includeText ? [{ type: 'text' }, imageEntry] : imageEntry;
     return;
   }
@@ -273,7 +265,6 @@ export function baseInteractionsBody(req: ProviderCompleteRequest): Record<strin
   };
 }
 
-/** Compatibility wrapper for callers that need the complete wire body. */
 export function toInteractionsBody(req: ProviderCompleteRequest): Record<string, unknown> {
   const body = baseInteractionsBody(req);
   attachResponseFormat(req, body);

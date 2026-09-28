@@ -1,17 +1,7 @@
-/**
- * Google transport credentials, quota overflow, and fetch retries.
- *
- * Hosts supply a provider-neutral `KeyVault` via `GeminiTransport`.
- * THEOREM does not read environment variables for these keys.
- *
- * @module
- */
-
 import { isAbortError, TheoremError } from '../../guardrails/error.ts';
 import type { KeySlot, KeyVault, ProviderCompleteRequest } from '../../kernel/types.ts';
 import { networkError, tapFetch } from '../shared/upstream-tap.ts';
 
-/** Google Interactions / Live transport: shared `KeyVault` + optional fetch/wait. */
 interface GeminiTransport {
   vault: KeyVault;
   wait?: (ms: number) => Promise<void>;
@@ -126,10 +116,7 @@ async function fetchWithBackoff(args: FetchAttempt): Promise<Response> {
   }
 }
 
-/**
- * POST to Google with backoff on transient failures, overflowing a quota
- * refusal to the `paid` key. `tap` sees every try under the slot it used.
- */
+/** Backs off on transient failures and overflows a quota refusal to the `paid` key. */
 export async function fetchGemini(
   url: string,
   init: RequestInit,

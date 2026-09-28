@@ -1,7 +1,5 @@
-/**
- * Raw PCM → WAV, shared by every transport that returns raw audio.
- *
- * Each transport states the format on the wire (probes 23/09/2026):
+/*
+ * Each transport states the PCM format on the wire (probes 23/09/2026):
  * - Gemini Live: `audio/pcm;rate=24000`
  * - Interactions: `audio/l16; rate=24000; channels=1` (buffered), or
  *   `audio/l16` with `sample_rate` / `channels` fields (stream deltas)
@@ -12,8 +10,6 @@
  * format, so its bytes pass through unchanged rather than being wrapped at a
  * guessed rate. `channels=` absent means one channel (the RFC 2586 default;
  * Live documents mono output).
- *
- * @module
  */
 
 import { base64ToBytes, bytesToBase64 } from '../../kernel/util/base64.ts';
@@ -36,7 +32,6 @@ function positiveInt(value: string | undefined): number | undefined {
   return n > 0 ? n : undefined;
 }
 
-/** Split a mime into its lower-cased essence and parameters. */
 function parseMime(mime: string): { essence: string; params: Map<string, string> } {
   const [essence = '', ...rest] = mime.split(';');
   const params = new Map<string, string>();
@@ -47,7 +42,6 @@ function parseMime(mime: string): { essence: string; params: Map<string, string>
   return { essence: essence.trim().toLowerCase(), params };
 }
 
-/** The PCM format a raw PCM mime states; undefined when it is not raw PCM or has no rate. */
 export function pcmFormatFromMime(mime: string): PcmFormat | undefined {
   const { essence, params } = parseMime(mime);
   if (!RAW_PCM_ESSENCES.has(essence)) return undefined;
@@ -58,7 +52,6 @@ export function pcmFormatFromMime(mime: string): PcmFormat | undefined {
   return { sampleRate, channels };
 }
 
-/** Wrap raw little-endian 16-bit PCM bytes in a RIFF/WAVE container. */
 export function wrapPcmAsWav(pcm: Uint8Array, format: PcmFormat): Uint8Array {
   const { sampleRate, channels } = format;
   const blockAlign = (channels * BITS_PER_SAMPLE) / 8;
@@ -83,7 +76,6 @@ export function wrapPcmAsWav(pcm: Uint8Array, format: PcmFormat): Uint8Array {
   return new Uint8Array(buf);
 }
 
-/** Base64 media as WAV when its mime states a PCM format; otherwise unchanged. */
 export function pcmMediaAsWav(media: { mimeType: string; data: string }): {
   mimeType: string;
   data: string;

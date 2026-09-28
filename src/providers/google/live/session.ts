@@ -1,11 +1,3 @@
-/**
- * Google Gemini Live session transport — long-lived BidiGenerateContent WebSocket.
- *
- * `turnComplete` is a conversational turn boundary, not session teardown.
- *
- * @module
- */
-
 import { describeError, isAbortError, TheoremError } from '../../../guardrails/error.ts';
 import type { ProviderCompleteRequest } from '../../../kernel/types.ts';
 import { canOverflow, type GeminiTransport, requireKey } from '../keys.ts';
@@ -21,11 +13,8 @@ import {
 } from './stream.ts';
 
 export interface GoogleLiveConnection {
-  /** The server's `setupComplete` frame. */
   readonly setup: Record<string, unknown>;
-  /** Send one frame upstream (tapped as a `ws_send` row). */
   send(payload: Record<string, unknown>): void;
-  /** Drain session batches until the socket closes or errors. */
   batches(): AsyncGenerator<SessionQueueItem>;
   close(code?: number, reason?: string): void;
 }
@@ -73,7 +62,6 @@ interface OpenedSocket {
   setup: Record<string, unknown>;
 }
 
-/** Open the socket on one key and complete the setup handshake. */
 async function openOnKey(
   req: ProviderCompleteRequest,
   apiKey: string,
@@ -142,12 +130,7 @@ async function openWithOverflow(
   }
 }
 
-/**
- * Open a long-lived Gemini Live WebSocket after setup handshake.
- * Callers own send / batch drain / close — typically via `runSession`.
- *
- * @param openWebSocket Host override for Cloudflare fetch-upgrade (etc.).
- */
+/** @param openWebSocket Host override, e.g. for a Cloudflare fetch-upgrade. */
 export async function openGoogleLiveSession(
   req: ProviderCompleteRequest,
   transport: GeminiTransport,

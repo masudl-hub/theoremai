@@ -1,9 +1,3 @@
-/**
- * Adversarial tool-system regression suite.
- *
- * @module
- */
-
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
 import { TheoremError } from '../../src/guardrails/error.ts';
@@ -90,10 +84,6 @@ Deno.test('adversarial/runTurn: provider malformed_arguments skips handler execu
   assertEquals(failureOf(lastTool(events, 'malformed_args_probe'))?.code, 'malformed_arguments');
   assertEquals(failureOf(lastTool(events, 'malformed_args_probe'))?.kind, 'bad_response');
 });
-
-// ---------------------------------------------------------------------------
-// runTurn batch semantics
-// ---------------------------------------------------------------------------
 
 Deno.test('adversarial/runTurn: load_tools + record_lookup in same provider batch', async () => {
   flashProfile('batch_t2_probe', 4, {
@@ -200,10 +190,6 @@ Deno.test('adversarial/runTurn: maxSteps caps provider rounds not tools per roun
   assertEquals(providerCalls, 1);
   assertEquals(lastTool(events, 'ping_tool')?.phase, 'complete');
 });
-
-// ---------------------------------------------------------------------------
-// Handler / stream faults
-// ---------------------------------------------------------------------------
 
 Deno.test('adversarial/handler: stream throws after progress', async () => {
   registerTool({
@@ -328,10 +314,6 @@ Deno.test('adversarial/preTool: deny object not gate', async () => {
   assertEquals(failureOf(t)?.code, 'not_authorized');
   assertEquals(failureOf(t)?.kind, 'blocked');
 });
-
-// ---------------------------------------------------------------------------
-// T1 / T2 / promotion adversarial
-// ---------------------------------------------------------------------------
 
 Deno.test('adversarial/t2Loader: loaded must be string[] not numbers', async () => {
   registerTool({
@@ -583,10 +565,6 @@ Deno.test('adversarial/runTurn: tool error still feeds provider continuation tex
   assertEquals(text.includes('handler_error'), true);
   assertEquals(text.includes('Tool error'), true);
 });
-
-// ---------------------------------------------------------------------------
-// Builtin runner, t1Policy misconfig, concurrency, fuzz
-// ---------------------------------------------------------------------------
 
 Deno.test('adversarial/runTurn: builtin function_call surfaces provider_native error', async () => {
   registerProfile(

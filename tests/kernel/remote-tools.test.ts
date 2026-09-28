@@ -558,7 +558,6 @@ Deno.test('Proactive OAuth token refresh names the slot on the stream and update
     assertEquals(streamed.includes('new-refresh-token'), false);
     assertEquals(refreshedTokenUsedInToolCall, true);
 
-    // Context credentials mutated in-memory
     assertEquals(ctxCredentials.oauth_slot.accessToken, 'new-shiny-access-token');
     assertEquals(ctxCredentials.oauth_slot.refreshToken, 'new-refresh-token');
   } finally {

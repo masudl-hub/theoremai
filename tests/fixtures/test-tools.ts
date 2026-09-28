@@ -1,9 +1,3 @@
-/**
- * Registered function tools used by kernel tests.
- *
- * @module
- */
-
 import { z } from 'zod';
 import { invokeTool, registerTool } from '../../src/kernel/default-scope.ts';
 import type { InvokeToolRequest, Profile, TurnEvent } from '../../src/kernel/types.ts';
@@ -27,7 +21,6 @@ type RecordLookupInputValue = z.infer<typeof RecordLookupInput>;
 type PingInputValue = z.infer<typeof PingInput>;
 type DeleteInputValue = z.infer<typeof DeleteInput>;
 
-/** Register catalog tools referenced by kernel integration tests. */
 function registerTestTools(): void {
   registerTool({
     type: 'function',
@@ -303,7 +296,6 @@ function registerTestTools(): void {
   });
 }
 
-/** Invoke a registered tool through the host entrypoint. */
 function invokeRegisteredTool(args: InvokeToolRequest): Promise<TurnEvent[]> {
   return Array.fromAsync(invokeTool(args));
 }

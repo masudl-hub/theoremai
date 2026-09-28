@@ -1,8 +1,3 @@
-/**
- * A text turn's opening input has one owner: turn history. Tool steps, stage
- * injects and repair retries land after it on every provider, with or without
- * a stage handler. A retry adds only the repair and keeps the turn it retries.
- */
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
 import { EGRESS_RULES, standardEgressEnforce } from '../../src/guardrails/egress.ts';

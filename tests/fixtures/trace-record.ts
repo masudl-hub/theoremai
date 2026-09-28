@@ -1,6 +1,3 @@
-/**
- * Minimal v3 trace records and spans for sink and writer tests.
- */
 import { DEFAULT_RETAIN_DAYS } from '../../src/observability/resolve-policy.ts';
 import { TRACE_SCHEMA_URL, type TraceRecord } from '../../src/observability/trace-record.ts';
 import type { TraceWriteContext } from '../../src/observability/trace-sink.ts';

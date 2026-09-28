@@ -211,7 +211,6 @@ Deno.test('image projection exposes image pins not tools', () => {
 });
 
 Deno.test('media validations allow omitted aspect/size; reject structured mixing and invalid mime', () => {
-  // Image pins without aspect/size — provider defaults apply
   registerProfile(
     defineProfile({
       id: 'image_defaults_profile',

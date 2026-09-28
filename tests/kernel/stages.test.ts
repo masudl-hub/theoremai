@@ -1,6 +1,3 @@
-/**
- * Pressure tests for frozen turn-stage shapes and defensive affordance apply.
- */
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import {
   AWAITING_USER_INPUT_STATUS,
@@ -30,7 +27,6 @@ import {
   toolGateSchema,
 } from '../../src/kernel/turn-events.ts';
 
-/** A gate when `value` is one, else undefined. */
 function gateOf(value: unknown): ToolGate | undefined {
   const parsed = toolGateSchema.safeParse(value);
   return parsed.success ? parsed.data : undefined;

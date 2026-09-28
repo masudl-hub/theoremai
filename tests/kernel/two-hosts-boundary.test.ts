@@ -1,10 +1,5 @@
-/**
- * P2 — no unownable words.
- *
- * Two hosts with contradictory overrides (quota message, profile lexicon for
- * the continue instruction and error wording) must each see only their own copy; with overrides set, kernel
- * default strings must not appear in either turn's emitted text.
- */
+// P2: two hosts with contradictory overrides each see only their own copy, and no kernel default
+// string appears in either turn's emitted text.
 import '../fixtures/test-host.ts';
 import {
   defineProfile,

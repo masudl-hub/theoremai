@@ -1,6 +1,3 @@
-/**
- * OTLP/JSON export: a pure reshape of v3 records, with stored content inlined.
- */
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { toOtlpJson } from '../../src/observability/otlp.ts';
 import { resolveObservabilityPolicy } from '../../src/observability/resolve-policy.ts';

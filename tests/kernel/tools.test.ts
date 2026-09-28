@@ -1019,7 +1019,6 @@ Deno.test('T2 tools are not visible until loader promotes them', () => {
 });
 
 Deno.test('invalid handler output and throws surface failure codes', async () => {
-  /** Intentional invalid output for validation coverage. */
   function invalidOutput(): { finding: string } {
     const bad: Record<string, unknown> = { wrong: true };
     return bad as { finding: string };
@@ -1091,8 +1090,6 @@ Deno.test('validateToolInputSchema rejects Gemini-unsupported keys', () => {
     TheoremError,
   );
 });
-
-// ── T01 host context slot ──────────────────────────────────────────────
 
 /** Register a T1 probe that records the `host` it observes at every hook. */
 function registerHostProbe(name: string, seen: Array<{ hook: string; host: unknown }>): void {
@@ -1313,8 +1310,6 @@ Deno.test('host never appears in TurnEvents, trace records, gates, gate input, o
   });
   assertEquals(JSON.stringify(invoked).includes(sentinel), false);
 });
-
-// ── T04 host profile ───────────────────────────────────────────────────
 
 Deno.test('invokeTool under a host profile executes a T2 tool without promotion and ignores path', async () => {
   registerProfile({

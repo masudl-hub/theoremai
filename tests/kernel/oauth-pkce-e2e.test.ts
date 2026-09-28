@@ -1,11 +1,5 @@
-/**
- * End-to-end PKCE: a real authorization server on localhost HTTPS that checks
- * RFC 7636 S256 itself, driven only through the package's public OAuth helpers.
- * The unit tests in auth.test.ts stub fetch; here the server is independent, so
- * a flow that passes has been verified by the other side, not by our own code.
- *
- * The TLS certificates are made fresh for each run with `openssl`.
- */
+// auth.test.ts stubs fetch; here an independent localhost server checks RFC 7636 S256 itself,
+// so a passing flow is verified by the other side. Certificates are made fresh per run with openssl.
 import {
   createOAuthPkceFlow,
   exchangeOAuthPkce,

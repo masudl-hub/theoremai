@@ -1,7 +1,3 @@
-/**
- * A canary block ends the turn without handing the host any piece of the
- * leaked token — not the fragment that completed it, not an encoded form.
- */
 import '../fixtures/test-host.ts';
 import { runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';

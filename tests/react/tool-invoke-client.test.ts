@@ -61,8 +61,6 @@ function textInterface(
 const fast = HOST_BINDINGS.gemini35FlashLite;
 const smart = HOST_BINDINGS.gemini31ProPreview;
 
-// --- session permissions: the registrant's tier decides how long an approval lasts ---
-
 Deno.test('approving a session_consent tool grants it for the session, once', () => {
   const once = sessionPermissionsAfterApproval([], 'delete_resource', 'session_consent');
   assertEquals(once, ['delete_resource']);
@@ -102,8 +100,6 @@ Deno.test('session grants never touch other tools, add a wildcard or mutate the 
   assertEquals(existing, ['search']);
   assertEquals(next.includes('*'), false);
 });
-
-// --- gate resume ---
 
 Deno.test('continueGatedToolInvocation denies without new permissions', () => {
   assertEquals(
@@ -162,8 +158,6 @@ Deno.test('continueGatedToolInvocation approves with the permissions the host wi
     );
   }
 });
-
-// --- turn and invoke requests ---
 
 Deno.test('turnInputFromSession carries history and token counters', () => {
   const history = [{ role: 'user', content: 'hi' }] as InterfaceTurnSession['history'];
@@ -281,8 +275,6 @@ Deno.test('buildInvokeRequest prefers explicit permissions and omits empty repla
   assertEquals('promoted' in (body.replay ?? {}), false);
   assertEquals('model' in (body.replay ?? {}), false);
 });
-
-// --- files ---
 
 Deno.test('filesToPending keeps name, size and a fallback mime type', () => {
   assertEquals(

@@ -1,8 +1,3 @@
-/**
- * The tool boundary — untrusted bytes re-entering the model's context carrying the
- * model's own authority. Remote results are fenced and labelled, remote failure
- * messages are redacted, and every decision surfaces as a guardrail event.
- */
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
 import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
@@ -112,8 +107,6 @@ async function run(
 
 const guardrails = (events: TurnEvent[]) => eventsOf(events, 'guardrail').map((e) => e.guardrail);
 
-// ── fencing and provenance ───────────────────────────────────────────────────
-
 Deno.test('a remote tool result is fenced and labelled with its origin', async () => {
   const profile = toolProfile();
   resetTools();
@@ -155,8 +148,6 @@ Deno.test('a remote result cannot forge its own fence to escape the wrapper', as
     restore();
   }
 });
-
-// ── detection across the boundary ────────────────────────────────────────────
 
 Deno.test('injection in a remote tool result is redacted and reported', async () => {
   const profile = toolProfile();
@@ -204,8 +195,6 @@ Deno.test('injection hidden in the structured data half is still caught', async 
   assertEquals(text.includes(INJ_IGNORE), false);
 });
 
-// ── tool arguments ───────────────────────────────────────────────────────────
-
 Deno.test('a credential in tool arguments is flagged, not rewritten', async () => {
   const profile = toolProfile();
   resetTools();
@@ -228,8 +217,6 @@ Deno.test('ordinary tool arguments raise nothing', async () => {
     false,
   );
 });
-
-// ── failure messages ─────────────────────────────────────────────────────────
 
 Deno.test('a remote failure message cannot smuggle instructions to the model', async () => {
   const profile = toolProfile();
@@ -270,8 +257,6 @@ Deno.test('a host that disables detection keeps the raw failure message', () => 
   );
   assertEquals(guarded.finding.includes(INJ_IGNORE), true);
 });
-
-// ── advisory annotation on the fence ─────────────────────────────────────────
 
 Deno.test('clean remote content carries no advisory', async () => {
   const profile = toolProfile();

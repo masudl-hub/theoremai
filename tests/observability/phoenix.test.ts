@@ -1,10 +1,3 @@
-/**
- * Phoenix span annotations: each eval result on a trial span becomes one
- * annotation on the span the trial judged, as `/v1/span_annotations` takes
- * it. A judge's result is an LLM annotation, a code grader's a CODE one; an
- * errored result keeps its error in the metadata; other records add nothing.
- */
-
 import { startTrialRecord } from '../../src/evals/record.ts';
 import { buildTrial } from '../../src/evals/trial.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';

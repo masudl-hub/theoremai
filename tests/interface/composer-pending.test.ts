@@ -1,7 +1,3 @@
-/**
- * Composer pending messages + action matrix.
- */
-
 import { assertEquals, assertThrows } from '@std/assert';
 import {
   resolveComposerMenuActions,

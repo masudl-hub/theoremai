@@ -96,8 +96,6 @@ Deno.test('compactionTranscriptLine falls back to text parts when content missin
   );
 });
 
-// --- compactionNeeded ---
-
 Deno.test('compactionNeeded returns true when tokens exceed threshold', () => {
   assertEquals(compactionNeeded(80_000, DEFAULT_SPEC), true);
 });
@@ -109,8 +107,6 @@ Deno.test('compactionNeeded returns false when tokens are under threshold', () =
 Deno.test('compactionNeeded returns false at exact threshold', () => {
   assertEquals(compactionNeeded(75_000, DEFAULT_SPEC), false);
 });
-
-// --- resolveHistoryTokens ---
 
 Deno.test('resolveHistoryTokens prefers host historyTokens over estimate', async () => {
   assertEquals(
@@ -148,8 +144,6 @@ Deno.test('resolveHistoryTokens ignores inputTokens under history meter', async 
   });
 });
 
-// --- splitForCompaction with exchange count ---
-
 Deno.test('splitForCompaction retains last N exchanges by count', async () => {
   const history = [
     ...exchange('hello', 'hi'),
@@ -180,8 +174,6 @@ Deno.test('splitForCompaction retains all when fewer exchanges than requested', 
   assertEquals(result.toRetain.length, 4);
 });
 
-// --- splitForCompaction with zero (compact all) ---
-
 Deno.test('splitForCompaction compacts everything when previousExchanges is 0', async () => {
   const history = [...exchange('a', 'b'), ...exchange('c', 'd')];
   const result = await splitForCompaction(
@@ -192,8 +184,6 @@ Deno.test('splitForCompaction compacts everything when previousExchanges is 0', 
   assertEquals(result.toCompact.length, 4);
   assertEquals(result.toRetain.length, 0);
 });
-
-// --- splitForCompaction with fraction ---
 
 Deno.test('splitForCompaction retains exchanges within token budget fraction', async () => {
   const shortExchange = exchange('hi', 'hello');
@@ -225,15 +215,11 @@ Deno.test('splitForCompaction fraction counts media parts in the retain budget',
   assertEquals(result.toCompact.length, 2);
 });
 
-// --- splitForCompaction with empty history ---
-
 Deno.test('splitForCompaction handles empty history', async () => {
   const result = await splitForCompaction([], DEFAULT_SPEC, FAMILY);
   assertEquals(result.toCompact.length, 0);
   assertEquals(result.toRetain.length, 0);
 });
-
-// --- splitForCompaction preserves assistant multi-message exchanges ---
 
 Deno.test('splitForCompaction groups tool messages with their exchange', async () => {
   const history: TurnHistoryMessage[] = [
@@ -254,8 +240,6 @@ Deno.test('splitForCompaction groups tool messages with their exchange', async (
   assertEquals(result.toRetain.length, 2);
   assertEquals(result.toRetain[0].content, 'thanks');
 });
-
-// --- Profile registration validation ---
 
 Deno.test('registerProfile rejects compactAt outside (0,1)', () => {
   registerProfile(
@@ -461,8 +445,6 @@ const AFTER_SPEC = {
 };
 const BEFORE_SPEC = { ...AFTER_SPEC, timing: 'before' as const };
 
-// --- Runner integration: timing 'before' ---
-
 Deno.test('timing before compacts history before the turn', async () => {
   const speaker = registerCompactionPair('compaction.runner', BEFORE_SPEC);
 
@@ -577,8 +559,6 @@ Deno.test('timing before ignores inputTokens and large provider tokens', async (
   assertEquals(firstOf(events, 'tokens')?.tokens?.input, 50_000);
 });
 
-// --- Runner integration: timing 'after' ---
-
 Deno.test('timing after emits compaction signal from host historyTokens', async () => {
   const speaker = registerCompactionPair('compaction.after', AFTER_SPEC);
   const events = await collectEvents(
@@ -665,8 +645,6 @@ Deno.test('timing after fires from history estimate without historyTokens', asyn
   assertEquals(doneEvent?.compaction?.promptTokens, 50_000);
   assertEquals(doneEvent?.compaction?.meter, 'history');
 });
-
-// --- Trace: every compaction decision is on the turn root ---
 
 async function tracedTurn(
   profile: string,
@@ -760,8 +738,6 @@ Deno.test('a compaction with no count to meter records the count as absent', asy
     needed: false,
   });
 });
-
-// --- Pressure: Orchid-shaped profile, estimator, fallback tokens, overrides ---
 
 const ORCHID_SPEC = {
   maxTokens: 2000,
@@ -1201,8 +1177,6 @@ Deno.test('nested compacting turn does not recurse even if compacting profile ha
     ['ok'],
   );
 });
-
-// --- meter: 'input' ---
 
 const INPUT_AFTER_SPEC = {
   maxTokens: 1000,

@@ -15,8 +15,6 @@ function ctx(canary?: string): GuardrailContext {
   };
 }
 
-// ── textForScan ──────────────────────────────────────────────────────────────
-
 Deno.test('textForScan renders plain values', () => {
   assertEquals(textForScan({ a: 1 }), { text: '{"a":1}', unscannable: false });
   assertEquals(textForScan('already text'), { text: 'already text', unscannable: false });
@@ -58,8 +56,6 @@ Deno.test('scanTextOf discards the unscannable signal', () => {
     '',
   );
 });
-
-// ── the payloads that used to crash a turn ───────────────────────────────────
 
 Deno.test('egress survives a circular structured payload', () => {
   const circular: Record<string, unknown> = { answer: 'fine' };

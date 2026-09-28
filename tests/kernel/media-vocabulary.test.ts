@@ -1,8 +1,3 @@
-/**
- * One owner for "what media can a turn carry": `MEDIA_INPUT_KINDS` is the whole
- * vocabulary, a profile's `accept` lists are the whole host declaration, and the
- * only per-adapter media refusal is the reference part.
- */
 import '../fixtures/test-host.ts';
 import { assertEquals, assertThrows } from '@std/assert';
 import { TheoremError } from '../../src/guardrails/error.ts';

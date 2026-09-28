@@ -208,8 +208,6 @@ Deno.test('streamSpeech respects outputs.speech voice and format mp3', async () 
   assertEquals(mediaEvent.media.data, btoa(String.fromCharCode(...mockMp3Bytes)));
 });
 
-// -- extractInputText ------------------------------------------
-
 Deno.test('extractInputText joins multiple text parts with a space', () => {
   const input: InteractionPart[] = [
     { type: 'text', text: 'Hello' },
@@ -241,8 +239,6 @@ Deno.test('extractInputText returns empty string for empty input array', () => {
   assertEquals(extractInputText([]), '');
 });
 
-// -- buildSpeechHeaders ------------------------------------------------
-
 Deno.test('buildSpeechHeaders sets Authorization and Content-Type only by default', () => {
   const headers = buildSpeechHeaders('secret-key', {});
   assertEquals(headers.Authorization, 'Bearer secret-key');
@@ -269,8 +265,6 @@ Deno.test('buildSpeechHeaders adds both when siteUrl and siteName are set', () =
   assertEquals(headers['HTTP-Referer'], 'https://theorem.dev');
   assertEquals(headers['X-Title'], 'Theorem');
 });
-
-// -- buildPayload -------------------------------------------------
 
 Deno.test('buildPayload omits response_format when speech.format is unset', () => {
   const req = createMockSpeechRequest('hi');
@@ -303,8 +297,6 @@ Deno.test('buildPayload uses apiId on the wire', () => {
   const payload = buildPayload(req, 'hi there', undefined, undefined);
   assertEquals(payload.model, req.apiId);
 });
-
-// -- yieldSpeechSuccess -------------------------------------------
 
 Deno.test('yieldSpeechSuccess wraps pcm at the rate and channels the content-type states', () => {
   const rawBytes = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);

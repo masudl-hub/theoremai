@@ -1,7 +1,3 @@
-/**
- * Pressure probes for F-04 — not part of the permanent suite naming;
- * lives under tests so Deno resolves package imports.
- */
 import '../../../fixtures/test-host.ts';
 import { assertEquals } from '../../../../src/kernel/engine/assert.ts';
 import {

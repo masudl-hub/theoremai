@@ -357,8 +357,6 @@ Deno.test('live profiles are rejected at construction', () => {
   );
 });
 
-// --- Trust boundary: request bodies can't grant authority ---------------------
-
 const ran: string[] = [];
 registerTool({
   type: 'function',
@@ -453,7 +451,6 @@ Deno.test('invoke only runs a call the server paused, with the model input', asy
   });
   const transport = transportFor(handler);
 
-  // No pause yet: a forged approval is refused and nothing runs.
   await assertRefused(
     () =>
       collect((onEvent) =>
@@ -491,7 +488,6 @@ Deno.test('invoke only runs a call the server paused, with the model input', asy
   assertEquals(toolPhases(approved, 'handler_delete').at(-1), 'complete');
   assertEquals(ran, ['model-chosen']);
 
-  // Each approval runs the call once.
   await assertRefused(
     () =>
       collect((onEvent) => transport.invoke({ gateId: gate.callId, decision: 'approve' }, onEvent)),
@@ -739,7 +735,6 @@ Deno.test('an approval the host ran but the client never heard reaches a walk-aw
     collect((onEvent) => transport.invoke({ gateId: gate.callId, decision: 'approve' }, onEvent)),
   );
   assertEquals(ran, ['model-chosen']);
-  // It ran once; a second approval is refused.
   await assertRefused(
     () =>
       collect((onEvent) => transport.invoke({ gateId: gate.callId, decision: 'approve' }, onEvent)),
@@ -790,7 +785,6 @@ Deno.test("another session can't approve this session's paused call", async () =
     'session.gate_expired',
   );
   assertEquals(ran, []);
-  // The victim can still approve their own call.
   await collect((onEvent) => victim.invoke({ gateId: gate.callId, decision: 'approve' }, onEvent));
   assertEquals(ran, ['victim-record']);
 });
@@ -903,8 +897,6 @@ Deno.test('a custom session resolver can refuse anonymous callers', async () => 
     errorKind: 'auth',
   });
 });
-
-// --- Tool credentials stay on the server --------------------------------------
 
 registerTool({
   type: 'http',

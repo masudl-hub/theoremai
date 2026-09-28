@@ -227,7 +227,6 @@ Deno.test('runCommand exercises all stream event types and failure handling', as
     },
   };
 
-  // Run with mock provider via executeSingleTest
   const res = await executeSingleTest(
     { profile: 'chat', input: { text: 'test' } },
     'Host Profile Event Stream Test',
@@ -235,7 +234,6 @@ Deno.test('runCommand exercises all stream event types and failure handling', as
   );
   assertEquals(res.passed, false); // because error event was yielded
 
-  // Test runCommand on OpenAI/OpenRouter profile
   registerProfile(
     defineProfile({
       type: 'text',
@@ -259,7 +257,6 @@ Deno.test('runCommand exercises all stream event types and failure handling', as
     },
   });
 
-  // Test runCommand when runTurn throws exception (e.g. text input disabled)
   registerProfile(
     defineProfile({
       type: 'text',
@@ -280,7 +277,6 @@ Deno.test('runCommand exercises all stream event types and failure handling', as
 });
 
 Deno.test('testProfileCommand and CLI main router test flag parsing and commands', async () => {
-  // Test profile commands via main()
   await main(['profile', 'list']);
   await main(['profile', 'show', 'chat']);
   await main(['profile', 'show', '--profile', 'selector']);
@@ -288,11 +284,9 @@ Deno.test('testProfileCommand and CLI main router test flag parsing and commands
   await main(['--help']);
   await main(['-h']);
 
-  // Invalid profile
   const failedRes = await testProfileCommand('non_existent');
   assertEquals(failedRes, false);
 
-  // Missing profile
   const noProfileRes = await testProfileCommand(undefined, { all: false });
   assertEquals(noProfileRes, false);
 });

@@ -288,7 +288,6 @@ Deno.test('createOpenRouterProvider preserves evidence from final choice message
 });
 
 Deno.test('createOpenRouterProvider handles missing API key, empty stream, thinking delta, site headers, and invalid tool args', async () => {
-  // 1. Missing API key
   const noKeyProvider = createOpenRouterProvider({ apiKey: '' });
   const noKeyEvents = await Array.fromAsync(
     noKeyProvider.complete(createMockTurnRequest('pinned', 'x')),
@@ -296,7 +295,6 @@ Deno.test('createOpenRouterProvider handles missing API key, empty stream, think
   assertEquals(noKeyEvents.length, 1);
   assertEquals(noKeyEvents[0]?.type, 'error');
 
-  // 2. Empty stream
   const emptyStreamProvider = createOpenRouterProvider({
     apiKey: 'mock-key',
     fetch: () => Promise.resolve(new Response(null, { status: 200 })),
@@ -307,7 +305,6 @@ Deno.test('createOpenRouterProvider handles missing API key, empty stream, think
   assertEquals(emptyStreamEvents.length, 1);
   assertEquals(emptyStreamEvents[0]?.type, 'error');
 
-  // 3. Thinking delta, site headers, structured parsing, unparseable tool args
   let capturedHeaders: Headers | undefined;
   const chunkWithThinking = JSON.stringify({
     choices: [{ delta: { thinking: 'deep thought' } }],
@@ -1305,8 +1302,6 @@ Deno.test('createOpenRouterProvider does not duplicate token events on multiple 
   const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'dup')));
   assertEquals(eventsOf(events, 'tokens').length, 1);
 });
-
-// ─── Direct unit tests for internal functions ───
 
 Deno.test('trimApiKey returns trimmed key', () => {
   assertEquals(trimApiKey('  key  '), 'key');

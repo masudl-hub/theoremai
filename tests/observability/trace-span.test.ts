@@ -1,6 +1,3 @@
-/**
- * Span builder: nesting, trace context, links, clocks, and closing what was left open.
- */
 import { TheoremError } from '../../src/guardrails/error.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import {

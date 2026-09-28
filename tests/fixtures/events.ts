@@ -1,11 +1,3 @@
-/**
- * Reading a turn's events in tests: narrow by type, and read a tool call's
- * settled state through the interface fold (`toolCallsOf`), the one owner of
- * joining a call's events.
- *
- * @module
- */
-
 import { applyToolEvent, toolCallsOf } from '../../src/interface/tool-calls.ts';
 import type { ToolCall, ToolCallState } from '../../src/interface/types.ts';
 import type { TurnStop } from '../../src/kernel/stop.ts';
@@ -39,7 +31,6 @@ function isOf<E extends Typed, K extends E['type']>(event: E, type: K): event is
   return event.type === type;
 }
 
-/** Every event of one type, in order. */
 export function eventsOf<E extends Typed, K extends E['type']>(
   events: readonly E[],
   type: K,
@@ -47,7 +38,6 @@ export function eventsOf<E extends Typed, K extends E['type']>(
   return events.filter((event): event is Of<E, K> => isOf(event, type));
 }
 
-/** The first event of one type. */
 export function firstOf<E extends Typed, K extends E['type']>(
   events: readonly E[],
   type: K,
@@ -55,7 +45,6 @@ export function firstOf<E extends Typed, K extends E['type']>(
   return events.find((event): event is Of<E, K> => isOf(event, type));
 }
 
-/** The last event of one type. */
 export function lastOf<E extends Typed, K extends E['type']>(
   events: readonly E[],
   type: K,
@@ -73,7 +62,6 @@ export function eventAt<E extends Typed, K extends E['type']>(
   return event !== undefined && isOf(event, type) ? event : undefined;
 }
 
-/** Every URL the events cite, in order. */
 export function citedUris(events: readonly Typed[]): string[] {
   return events.flatMap((event) =>
     isCitation(event) ? event.sources.map((source) => source.uri) : [],
@@ -100,7 +88,6 @@ export function sessionEventOf<K extends SessionEventKind>(
   return events.find((event): event is SessionOf<K> => isSessionOf(event, kind));
 }
 
-/** The first guardrail decision made at `stage`. */
 export function guardrailAt(
   events: readonly TurnEvent[],
   stage: GuardrailEvent['stage'],
@@ -129,22 +116,18 @@ export function toolEventsOf<P extends ToolCallPhase>(
   );
 }
 
-/** Where the last call to `name` got to. */
 export function lastTool(events: readonly TurnEvent[], name: string): ToolCallState | undefined {
   return toolCallsOf(events).findLast((call) => call.name === name)?.state;
 }
 
-/** The failure a call settled with. */
 export function failureOf(state: ToolCallState | undefined): ToolFailure | undefined {
   return state?.phase === 'error' ? state.failure : undefined;
 }
 
-/** The gate a call is waiting on. */
 export function gateOf(state: ToolCallState | undefined): ToolGate | undefined {
   return state?.phase === 'gate' ? state.gate : undefined;
 }
 
-/** What a completed call returned. */
 export function outputOf(state: ToolCallState | undefined): unknown {
   return state?.phase === 'complete' ? state.output : undefined;
 }
@@ -156,7 +139,6 @@ export function rawCallsOf(events: readonly (TurnEvent | ProviderEvent)[]): Tool
   );
 }
 
-/** The phases the calls to `name` went through, in order. */
 export function toolPhases(events: readonly TurnEvent[], name: string): string[] {
   return events.flatMap((event) =>
     event.type === 'tool' && event.tool.name === name && event.tool.phase !== undefined

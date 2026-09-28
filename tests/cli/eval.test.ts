@@ -1,10 +1,3 @@
-/**
- * `agents eval`: the command loads a suite, runs it live with the provider the
- * host passes or the suite exports, or grades recorded traces, prints every
- * verdict, and returns whether the threshold held. The CLI never creates a
- * provider.
- */
-
 import { assertEquals, assertStringIncludes } from '@std/assert';
 import { evalCommand } from '../../src/cli/commands/eval.ts';
 import { main } from '../../src/cli/index.ts';

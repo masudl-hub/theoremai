@@ -78,7 +78,6 @@ Deno.test('runner internal helper branches: loaders, tool findings, step ceiling
     }),
   );
 
-  // 1. Deferred tool not loaded yet -> not_loaded error
   const mockDeferredProvider: ModelProvider = {
     complete: () => {
       return (async function* () {
@@ -106,7 +105,6 @@ Deno.test('runner internal helper branches: loaders, tool findings, step ceiling
   assertEquals(deferredTool?.phase, 'error');
   assertStringIncludes(failureOf(deferredTool)?.message ?? '', 'not loaded');
 
-  // 2. Registered tool on multi-step profile executes and continues
   const noHandlerReq: TurnRequest = {
     profile: 'dynamic_runner_bot',
     input: { text: 'run stub' },
@@ -133,7 +131,6 @@ Deno.test('runner internal helper branches: loaders, tool findings, step ceiling
   }
   assertEquals(replyText(stubEvents), 'finished');
 
-  // 3. Catalog registration is the source of truth for tool metadata
   registerProfile(
     defineProfile({
       type: 'text',

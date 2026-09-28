@@ -1,6 +1,3 @@
-/**
- * `execute_tool` spans: turn tool calls, provider-failed calls, and host invokes.
- */
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
 import { lexiconDefault } from '../../src/guardrails/lexicon.ts';

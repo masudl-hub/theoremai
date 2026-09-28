@@ -1,7 +1,3 @@
-/**
- * Live session traces: the session record, one record per response, one per
- * `executeTool` call.
- */
 import { z } from 'zod';
 import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
 import { forClient } from '../../src/host/client-turn.ts';

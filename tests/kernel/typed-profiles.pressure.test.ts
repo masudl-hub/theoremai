@@ -16,7 +16,6 @@ import '../fixtures/test-host.ts';
 registerGooglePreset();
 
 Deno.test('pressure-test: type/protocol matrix rejects every illegal pair', () => {
-  // type 'live' with protocol 'openAi' must throw
   assertThrows(
     () => {
       defineProfile({
@@ -39,7 +38,6 @@ Deno.test('pressure-test: type/protocol matrix rejects every illegal pair', () =
     "type 'live' cannot use protocol 'openAi'",
   );
 
-  // type 'text' with protocol 'geminiLive' must throw
   assertThrows(
     () => {
       defineProfile({
@@ -62,7 +60,6 @@ Deno.test('pressure-test: type/protocol matrix rejects every illegal pair', () =
     "type 'text' cannot use protocol 'geminiLive'",
   );
 
-  // type 'image' with protocol 'geminiLive' must throw
   assertThrows(
     () => {
       defineProfile({
@@ -86,7 +83,6 @@ Deno.test('pressure-test: type/protocol matrix rejects every illegal pair', () =
     "type 'image' cannot use protocol 'geminiLive'",
   );
 
-  // type 'speech' with protocol 'geminiLive' must throw
   assertThrows(
     () => {
       defineProfile({
@@ -110,7 +106,6 @@ Deno.test('pressure-test: type/protocol matrix rejects every illegal pair', () =
 });
 
 Deno.test('pressure-test: compaction is forbidden on non-text profiles', () => {
-  // Register a compaction target profile first
   registerProfile({
     id: 'compactor_agent',
     type: 'text',
@@ -120,7 +115,6 @@ Deno.test('pressure-test: compaction is forbidden on non-text profiles', () => {
     inputs: { text: true },
   });
 
-  // Compaction on image profile must throw
   assertThrows(
     () => {
       registerProfile({
@@ -148,7 +142,6 @@ Deno.test('pressure-test: compaction is forbidden on non-text profiles', () => {
     "type 'image' must not set models.gemini31FlashLiteImage.compaction",
   );
 
-  // Compaction on speech profile must throw
   assertThrows(
     () => {
       registerProfile({
@@ -176,7 +169,6 @@ Deno.test('pressure-test: compaction is forbidden on non-text profiles', () => {
 });
 
 Deno.test('pressure-test: compaction spec validations on text profiles', () => {
-  // Subprofile not registered before must throw
   assertThrows(
     () => {
       registerProfile({
@@ -203,7 +195,6 @@ Deno.test('pressure-test: compaction spec validations on text profiles', () => {
     "compaction profile 'non_existent_compactor' must be registered before",
   );
 
-  // Invalid compactAt (e.g. >= 1) must throw
   assertThrows(
     () => {
       registerProfile({
@@ -230,7 +221,6 @@ Deno.test('pressure-test: compaction spec validations on text profiles', () => {
     'compactAt must be in (0, 1)',
   );
 
-  // Fractional previousExchanges >= compactAt must throw
   assertThrows(
     () => {
       registerProfile({
@@ -274,7 +264,6 @@ Deno.test('pressure-test: turnBehaviour.resumption maxContinues enforcement', ()
     },
   });
 
-  // Valid continuation within bounds (attempt 1, 2, 3)
   for (const continuation of [1, 2, 3]) {
     const { profile, generation } = resolveTurn({
       profile: 'capped_continue_profile',
@@ -285,7 +274,6 @@ Deno.test('pressure-test: turnBehaviour.resumption maxContinues enforcement', ()
     assertEquals(generation.transport, 'interactions');
   }
 
-  // Continuation count exceeding maxContinues (attempt 4 > max 3) must throw
   assertThrows(
     () => {
       resolveTurn({
@@ -298,7 +286,6 @@ Deno.test('pressure-test: turnBehaviour.resumption maxContinues enforcement', ()
     'continuation 4 exceeds turnBehaviour.resumption.maxContinues (3)',
   );
 
-  // Continuation count < 1 must throw
   assertThrows(
     () => {
       resolveTurn({
@@ -311,7 +298,6 @@ Deno.test('pressure-test: turnBehaviour.resumption maxContinues enforcement', ()
     'continuation must be >= 1',
   );
 
-  // Missing continuation parameter when maxContinues is set must throw
   assertThrows(
     () => {
       resolveTurn({
@@ -323,7 +309,6 @@ Deno.test('pressure-test: turnBehaviour.resumption maxContinues enforcement', ()
     'continueFrom requires TurnRequest.continuation when turnBehaviour.resumption.maxContinues is set',
   );
 
-  // continueFrom on live profile must throw
   registerProfile({
     id: 'live_test_profile',
     type: 'live',
@@ -430,7 +415,6 @@ Deno.test('pressure-test: turnBehaviour.resumption rejects non-ContinueStopKind'
 });
 
 Deno.test('pressure-test: outputs.streaming.mode resolution', () => {
-  // mode = 'sse' -> stream = true
   registerProfile({
     id: 'sse_stream_profile',
     type: 'text',
@@ -445,7 +429,6 @@ Deno.test('pressure-test: outputs.streaming.mode resolution', () => {
     true,
   );
 
-  // mode = 'buffered' -> stream = false
   registerProfile({
     id: 'buffered_stream_profile',
     type: 'text',
@@ -477,7 +460,6 @@ Deno.test('pressure-test: outputs.streaming.mode resolution', () => {
 });
 
 Deno.test('pressure-test: speech profile ingress restrictions and format validation', () => {
-  // Speech profile rejects mp3 format when protocol is geminiInteractions
   registerProfile({
     id: 'speech_invalid_mp3',
     type: 'speech',
@@ -494,7 +476,6 @@ Deno.test('pressure-test: speech profile ingress restrictions and format validat
     "speech.format 'mp3' requires protocol 'openAi'",
   );
 
-  // Valid speech profile with pcm
   registerProfile({
     id: 'speech_valid_pcm',
     type: 'speech',
@@ -503,7 +484,6 @@ Deno.test('pressure-test: speech profile ingress restrictions and format validat
     speech: { voice: 'Kore', format: 'pcm' },
   });
 
-  // Speech requires non-empty text input
   assertThrows(
     () => {
       resolveTurn({ profile: 'speech_valid_pcm', input: { text: '' } });
@@ -519,7 +499,6 @@ Deno.test('pressure-test: speech profile ingress restrictions and format validat
     'Profile speech_valid_pcm (speech) requires text input',
   );
 
-  // Speech rejects media input (attachments or voice)
   assertThrows(
     () => {
       resolveTurn({
@@ -547,7 +526,6 @@ Deno.test('pressure-test: speech profile ingress restrictions and format validat
     'Profile speech_valid_pcm (speech) does not accept media input',
   );
 
-  // Valid speech input resolves cleanly
   const { generation } = resolveTurn({
     profile: 'speech_valid_pcm',
     input: { text: 'speak this' },
@@ -559,7 +537,6 @@ Deno.test('pressure-test: speech profile ingress restrictions and format validat
 });
 
 Deno.test('pressure-test: projectProfile output projections for all 4 types', () => {
-  // Text projection
   const chatProj = projectProfile('chat');
   assertEquals(chatProj.type, 'text');
   assertEquals(chatProj.image, null);
@@ -567,7 +544,6 @@ Deno.test('pressure-test: projectProfile output projections for all 4 types', ()
   assertEquals(chatProj.live, null);
   assertEquals(chatProj.inputs?.text, true);
 
-  // Image projection
   const imageProj = projectProfile('image');
   assertEquals(imageProj.type, 'image');
   assertEquals(imageProj.image?.mimeType, 'image/jpeg');
@@ -575,7 +551,6 @@ Deno.test('pressure-test: projectProfile output projections for all 4 types', ()
   assertEquals(imageProj.live, null);
   assertEquals(imageProj.inputs?.text, true);
 
-  // Speech projection
   const speechProj = projectProfile('speech_valid_pcm');
   assertEquals(speechProj.type, 'speech');
   assertEquals(speechProj.inputs, null);
@@ -584,7 +559,6 @@ Deno.test('pressure-test: projectProfile output projections for all 4 types', ()
   assertEquals(speechProj.image, null);
   assertEquals(speechProj.live, null);
 
-  // Live projection
   const liveProj = projectProfile('live_test_profile');
   assertEquals(liveProj.type, 'live');
   assertEquals(liveProj.live?.voice, 'Aoede');
@@ -599,7 +573,6 @@ Deno.test('pressure-test: createProvider type routing and boundary enforcement',
   const chatProfile = getProfile('chat');
   const liveProfile = getProfile('live_test_profile');
 
-  // Google interactions for speech, image, chat
   const googleTransport = {
     vault: { slotA: 'fake-key', slotB: undefined, slotC: undefined, paid: undefined },
   };
@@ -620,7 +593,6 @@ Deno.test('pressure-test: createProvider type routing and boundary enforcement',
     "createProvider does not support type 'live' / geminiLive — use runSession(req, { gemini })",
   );
 
-  // OpenRouter speech/image/chat
   const openAiSpeechProfile = defineProfile({
     id: 'openai_speech_prof',
     type: 'speech',
@@ -661,7 +633,6 @@ Deno.test('pressure-test: createProvider type routing and boundary enforcement',
   });
   assertEquals(typeof openRouterImage.complete, 'function');
 
-  // Local provider with image type must throw
   const localImageProfile = defineProfile({
     id: 'local_image_prof',
     type: 'image',

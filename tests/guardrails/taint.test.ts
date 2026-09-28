@@ -1,10 +1,3 @@
-/**
- * Taint — what a turn may still do after it has read untrusted remote content.
- *
- * The attack this gates is the confused deputy: the agent fetches attacker-
- * influenceable bytes, those bytes ask for an action, and the agent performs it
- * with authority the content never had.
- */
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
 import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
@@ -24,8 +17,6 @@ import { geminiModels } from '../fixtures/models.ts';
 
 const remote: Provenance = { origin: 'http', tool: 'web_fetch', depth: 1 };
 const local: Provenance = { origin: 'local', tool: 'db_read', depth: 1 };
-
-// ── recording ────────────────────────────────────────────────────────────────
 
 Deno.test('only remote origins taint a turn', () => {
   assertEquals(isTainted(recordTaint(undefined, local)), false);
@@ -48,8 +39,6 @@ Deno.test('a delegated agent result taints like any other remote read', () => {
   const delegated: Provenance = { origin: 'delegated', tool: 'sub_agent', depth: 2 };
   assertEquals(isTainted(recordTaint(undefined, delegated)), true);
 });
-
-// ── the gate ─────────────────────────────────────────────────────────────────
 
 function gate(taint: TurnTaint | undefined, access: string, afterRemoteRead?: TaintGate) {
   const policy = resolveGuardrailPolicy(
@@ -93,8 +82,6 @@ Deno.test('a refusal names what the turn read, so the model can explain itself',
   if (verdict.action !== 'block') return;
   assertEquals(verdict.rejection.includes('web_fetch'), true);
 });
-
-// ── end to end ───────────────────────────────────────────────────────────────
 
 function registerReadThenWrite(): () => void {
   registerTool({
@@ -219,8 +206,6 @@ Deno.test('the same turn is reported but allowed when the profile does not gate'
     restore();
   }
 });
-
-// ── content signals never gate ───────────────────────────────────────────────
 
 const steered: TurnTaint = {
   sources: [remote],

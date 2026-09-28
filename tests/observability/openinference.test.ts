@@ -1,8 +1,3 @@
-/**
- * OpenInference names: usage on model calls only (never a partial cost),
- * messages and values the way Phoenix reads them, decisions as LLM spans with
- * their cost, and eval trials and runs as evaluators and chains.
- */
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import {
   clearProfiles,

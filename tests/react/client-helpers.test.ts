@@ -168,40 +168,32 @@ Deno.test('applyLiveTranscript merges interim and final text correctly', () => {
   let state = emptyLiveCaptionState();
   assertEquals(state.turns.length, 0);
 
-  // Empty text does nothing
   assertEquals(applyLiveTranscript(state, '', true), state);
 
-  // Interim user text
   state = applyLiveTranscript(state, 'Hello', true, true);
   assertEquals(state.interimUser, 'Hello');
 
-  // Final user text
   state = applyLiveTranscript(state, 'Hello world', true, false);
   assertEquals(state.turns.length, 1);
   assertEquals(state.turns[0].text, 'Hello world');
   assertEquals(state.interimUser, '');
 
-  // Second user turn with append
   state = applyLiveTranscript(state, 'again', true, false);
   assertEquals(state.turns.length, 1);
   assertEquals(state.turns[0].text, 'Hello world again');
 
-  // Agent turn switches role
   state = applyLiveTranscript(state, 'Hi there', false, false);
   assertEquals(state.turns.length, 2);
   assertEquals(state.turns[1].role, 'agent');
   assertEquals(state.turns[1].text, 'Hi there');
 
-  // Force new turn
   state = applyLiveTranscript(state, 'New prompt', false, false, { forceNew: true });
   assertEquals(state.turns.length, 3);
   assertEquals(state.turns[2].text, 'New prompt');
 
-  // Interim agent text
   state = applyLiveTranscript(state, 'thinking', false, true);
   assertEquals(state.interimAgent, 'thinking');
 
-  // clear interim
   state = clearLiveCaptionInterim(state);
   assertEquals(state.interimUser, '');
   assertEquals(state.interimAgent, '');

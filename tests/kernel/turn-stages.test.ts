@@ -1,6 +1,3 @@
-/**
- * Turn-stage spine: pre_turn / post_tool / before_end / post_turn + onStage inject.
- */
 import '../fixtures/test-host.ts';
 import { registerProfile, runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertStringIncludes } from '../../src/kernel/engine/assert.ts';

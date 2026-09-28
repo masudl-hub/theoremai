@@ -1,11 +1,3 @@
-/**
- * Host-owned model bindings and media defaults used by test fixtures.
- *
- * Media vocabularies come from the Google preset; model wire bindings are local.
- *
- * @module
- */
-
 import type { ModelBinding, ModelId } from '../../src/kernel/types.ts';
 import {
   GOOGLE_IMAGE_ASPECT_RATIOS,
@@ -17,7 +9,6 @@ import {
 const KIB = 1024;
 const MIB = KIB * KIB;
 
-/** Fixture chat media caps (app/host policy). */
 const CHAT_MEDIA_LIMITS = {
   maxFiles: 10,
   maxBytes: 8 * MIB,
@@ -116,7 +107,6 @@ const sonar: ModelBinding = {
   builtInTools: [],
 };
 
-/** Convenience map for tests that need several model ids. */
 const HOST_BINDINGS = {
   gemini35FlashLite,
   gemini31FlashLite,
@@ -129,7 +119,6 @@ const HOST_BINDINGS = {
 
 type HostBindingId = keyof typeof HOST_BINDINGS;
 
-/** Build `models` from host fixture bindings. */
 function modelBindings(...ids: HostBindingId[]): Record<ModelId, ModelBinding> {
   const models: Record<ModelId, ModelBinding> = {};
   for (const id of ids) {

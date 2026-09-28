@@ -16,7 +16,6 @@ function ancestorScope(path: string) {
   return parent ? profileFieldScope(parent) : undefined;
 }
 
-/** `{ a: { b: value } }` for `a.b`; `*` becomes a binding key. */
 /** A scoped path with every `*` segment named `probe`. */
 function concretePath(path: string): string {
   return path

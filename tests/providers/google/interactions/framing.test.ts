@@ -41,8 +41,6 @@ function baseReq(overrides: Partial<ProviderCompleteRequest> = {}): ProviderComp
   };
 }
 
-// camelToSnake
-
 Deno.test('camelToSnake converts a single camelCase boundary', () => {
   assertEquals(camelToSnake('mimeType'), 'mime_type');
 });
@@ -55,8 +53,6 @@ Deno.test('camelToSnake leaves already-snake or lowercase keys unchanged', () =>
   assertEquals(camelToSnake('model'), 'model');
   assertEquals(camelToSnake('already_snake'), 'already_snake');
 });
-
-// toGoogleValue
 
 Deno.test('toGoogleValue snake_cases nested object keys', () => {
   const result = toGoogleValue({ maxOutputTokens: 10, nested: { thinkingLevel: 'low' } });
@@ -97,8 +93,6 @@ Deno.test('toGoogleValue snake_cases the schema key itself but not its contents'
   assertEquals(nested.schema, { camelInside: true });
 });
 
-// wirePart
-
 Deno.test('wirePart converts a text part to wire shape', () => {
   const part: InteractionPart = { type: 'text', text: 'hello' };
   assertEquals(wirePart(part), { type: 'text', text: 'hello' });
@@ -108,8 +102,6 @@ Deno.test('wirePart converts a media part to wire shape', () => {
   const part: InteractionPart = { type: 'image', mimeType: 'image/png', data: 'aGVsbG8=' };
   assertEquals(wirePart(part), { type: 'image', mimeType: 'image/png', data: 'aGVsbG8=' });
 });
-
-// userInputStep
 
 Deno.test('userInputStep wraps parts under a user_input step', () => {
   const parts: InteractionPart[] = [{ type: 'text', text: 'hi' }];
@@ -122,8 +114,6 @@ Deno.test('userInputStep wraps parts under a user_input step', () => {
 Deno.test('userInputStep supports an empty parts list', () => {
   assertEquals(userInputStep([]), { type: 'user_input', content: [] });
 });
-
-// historyStep
 
 Deno.test('historyStep maps assistant role to model_output', () => {
   const msg: TurnHistoryMessage = { role: 'assistant', content: 'It is fine.' };
@@ -188,16 +178,12 @@ Deno.test('historyStep treats an empty parts array as absent and falls back to c
   });
 });
 
-// jsonResponseFormat
-
 Deno.test('jsonResponseFormat wraps a schema in a text/json response format entry', () => {
   const schema = { type: 'object' };
   assertEquals(jsonResponseFormat(schema), [
     { type: 'text', mimeType: 'application/json', schema },
   ]);
 });
-
-// attachResponseFormat
 
 Deno.test('attachResponseFormat throws when speech and image are both requested', () => {
   const req = baseReq({
@@ -301,8 +287,6 @@ Deno.test('attachResponseFormat sets json response format for a structured schem
   assertEquals(Array.isArray(camel.responseFormat), true);
 });
 
-// attachSpeechConfig
-
 Deno.test('attachSpeechConfig does nothing when speech is absent', () => {
   const req = baseReq();
   const generationConfig: Record<string, unknown> = {};
@@ -323,8 +307,6 @@ Deno.test('attachSpeechConfig sets speechConfig from the requested voice', () =>
   attachSpeechConfig(req, generationConfig);
   assertEquals(generationConfig.speechConfig, [{ voice: 'Kore' }]);
 });
-
-// inputStepsFromRequest
 
 Deno.test('inputStepsFromRequest emits history steps followed by user input', () => {
   const req = baseReq({
@@ -355,8 +337,6 @@ Deno.test('inputStepsFromRequest forces a user input step when there is no histo
   assertEquals(steps[0]?.type, 'user_input');
   assertEquals(steps[0]?.content, []);
 });
-
-// applyOptionalRequestFields
 
 Deno.test('applyOptionalRequestFields sets store, previousInteractionId, and system', () => {
   const req = baseReq({ store: false, previousInteractionId: 'v1_x', system: 'sys' });
@@ -629,8 +609,6 @@ Deno.test('applyOptionalRequestFields throws for a builtin with no Interactions 
   assertThrows(() => applyOptionalRequestFields(req, {}), TheoremError);
 });
 
-// baseInteractionsBody
-
 Deno.test('baseInteractionsBody sets thinking knobs outside of speech requests', () => {
   const req = baseReq({ thinking: 'high', summaries: 'auto' });
   const body = baseInteractionsBody(req);
@@ -650,8 +628,6 @@ Deno.test('baseInteractionsBody swaps in speech config and omits thinking knobs 
   assertEquals(Object.hasOwn(config, 'thinkingLevel'), false);
   assertEquals(Object.hasOwn(config, 'thinkingSummaries'), false);
 });
-
-// toInteractionsBody
 
 Deno.test('toInteractionsBody builds a full snake_case wire body', () => {
   const req = baseReq({

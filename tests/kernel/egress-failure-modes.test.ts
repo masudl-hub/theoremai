@@ -1,8 +1,3 @@
-/**
- * Failure modes of the egress gate: nothing is dropped without a signal, a policy
- * that throws fails closed instead of killing the turn, and a refusal shows the
- * lexicon's `egress.refusal`, never text the policy wrote.
- */
 import '../fixtures/test-host.ts';
 import { type LexiconOverrides, lexiconDefault } from '../../src/guardrails/lexicon.ts';
 import type { EgressEnforcer, Verdict } from '../../src/guardrails/types.ts';
@@ -59,8 +54,6 @@ const texts = (events: TurnEvent[]): string[] => eventsOf(events, 'text').map((e
 
 const EGRESS_FILTERED = { kind: 'filtered', native: 'egress' };
 
-// ── nothing is dropped silently ──────────────────────────────────────────────
-
 /**
  * Regression: a policy that blocked on a mid-stream window but passed on the full
  * text left the turn with no output and no error — progressive yield had withheld
@@ -107,8 +100,6 @@ Deno.test('a policy blocking consistently still withholds', async () => {
   assertEquals(finalStop(events), EGRESS_FILTERED);
 });
 
-// ── a policy that throws ─────────────────────────────────────────────────────
-
 Deno.test('a policy that throws fails closed instead of killing the turn', async () => {
   profile('fm_throws', () => {
     throw new Error('classifier unreachable');
@@ -135,8 +126,6 @@ Deno.test('a policy that throws can still be repaired against', async () => {
   const events = await collect('fm_throws_repair', says('answer'));
   assertEquals(texts(events).join(''), 'answer');
 });
-
-// ── refusal copy ─────────────────────────────────────────────────────────────
 
 Deno.test('refuse_to_user shows the lexicon refusal, never policy text', async () => {
   profile(
@@ -202,8 +191,6 @@ Deno.test('final egress inspects reply text, not thoughts', async () => {
     ['secret-thought'],
   );
 });
-
-// ── what streams live is delivered once ──────────────────────────────────────
 
 /** Regression: media streamed live was yielded again when the attempt passed. */
 Deno.test('a passing attempt delivers streamed media once', async () => {

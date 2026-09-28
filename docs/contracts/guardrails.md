@@ -36,9 +36,11 @@ Every guardrail decision is made against this:
 - **Functionality is never blocked** to satisfy the invariant; where a channel
   cannot be held, it is detected and reported.
 
-**Known exception:** provider-side built-in tools (`urlContext` and the other
-Google builtins) run at the provider mid-generation, before Theorem sees the
-call. The kernel scans the provider's report of each call with the same checks
+**Known exception:** provider-side built-in tools run at the provider
+mid-generation, before Theorem sees the call. The kernel scans the provider's
+report of each call (a `grounding` event, or `evidence` of kind
+`code_execution_call`, `code_execution_result`, `url_context` or
+`provider_step`) with the same checks
 and ends the turn on a hit, but that is detection after the fact, not a hold:
 the hit is `egress.provider-tool-leak` (`stop.native: 'provider_tool_leak'`),
 an incident to investigate, since the request already left. Content a builtin

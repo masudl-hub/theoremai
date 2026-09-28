@@ -2,7 +2,12 @@ import '../fixtures/test-host.ts';
 import { mintCanary, USER_CLOSE, USER_OPEN } from '../../src/guardrails/canary.ts';
 import { TEST_OPENAI_KEY, TEST_SSN } from '../../src/guardrails/corpus/secrets.ts';
 import { INJ_IGNORE } from '../../src/guardrails/corpus/strings.ts';
-import { EGRESS_RULES, runEnforcer, standardEgressEnforce } from '../../src/guardrails/egress.ts';
+import {
+  EGRESS_RULES,
+  eventPromptLeakHits,
+  runEnforcer,
+  standardEgressEnforce,
+} from '../../src/guardrails/egress.ts';
 import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
 import type {
   EgressEnforcer,
@@ -11,6 +16,7 @@ import type {
   Verdict,
 } from '../../src/guardrails/types.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
+import type { ProviderEvent } from '../../src/kernel/types.ts';
 
 function egressCtx(canary?: string): GuardrailContext {
   return {
@@ -330,4 +336,51 @@ Deno.test('runEnforcer preserves complete canonical verdict variants', async () 
     const actual = await runEnforcer(() => expected, { text: 'untrusted output' }, egressCtx());
     assertEquals(actual, expected);
   }
+});
+
+Deno.test('eventPromptLeakHits names a leak in any provider-run step by its evidence kind', () => {
+  const canary = mintCanary();
+  const ran: ProviderEvent[] = [
+    { type: 'grounding', grounding: { metadata: { query: canary } } },
+    {
+      type: 'evidence',
+      evidence: { provider: 'google', kind: 'url_context', raw: { url: canary } },
+    },
+    {
+      type: 'evidence',
+      evidence: {
+        provider: 'google',
+        kind: 'code_execution_call',
+        code: `print("${canary}")`,
+        id: 'c1',
+      },
+    },
+    {
+      type: 'evidence',
+      evidence: { provider: 'google', kind: 'code_execution_result', result: canary },
+    },
+    {
+      type: 'evidence',
+      evidence: {
+        provider: 'openrouter',
+        kind: 'provider_step',
+        step: 'source',
+        raw: { id: canary },
+      },
+    },
+  ];
+  for (const event of ran) {
+    assertEquals(
+      eventPromptLeakHits(event, canary).map((hit) => hit.rule),
+      [EGRESS_RULES.providerToolLeak],
+    );
+  }
+  const spoken: ProviderEvent = {
+    type: 'evidence',
+    evidence: { provider: 'google', kind: 'output_transcription', raw: { text: canary } },
+  };
+  assertEquals(
+    eventPromptLeakHits(spoken, canary).some((hit) => hit.rule === EGRESS_RULES.providerToolLeak),
+    false,
+  );
 });

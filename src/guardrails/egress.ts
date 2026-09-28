@@ -4,7 +4,7 @@
  * @module
  */
 
-import type { ProviderEvent } from '../kernel/types.ts';
+import type { ProviderEvent, ProviderEvidence } from '../kernel/types.ts';
 import { isRecord } from '../kernel/util/record.ts';
 import type { RedactSpan } from '../observability/spans.ts';
 import { guardedEventTexts, scanTextForCanaryLeak } from './canary.ts';
@@ -90,23 +90,22 @@ const PROVIDER_TOOL_LEAK_HIT: GuardrailHit = {
   severity: 'high',
 };
 
-const PROVIDER_TOOL_KINDS = /^(?:google_|url_context|code_execution)/;
-
 /**
- * The provider's report of a built-in tool it already ran: grounding, and the
- * URL-context, search, and code-execution steps, mapped or carried as a
- * `provider_step` under their own type. What it carries has left.
+ * Evidence kinds that report a step the provider ran itself: its built-in
+ * tools, and any step an adapter does not map (`provider_step`).
  */
+const PROVIDER_TOOL_EVIDENCE: ReadonlySet<ProviderEvidence['kind']> = new Set([
+  'code_execution_call',
+  'code_execution_result',
+  'url_context',
+  'provider_step',
+]);
+
+/** The provider's report of a built-in tool it already ran. What it carries has left. */
 function isProviderToolReport(event: ProviderEvent): boolean {
-  if (event.type === 'grounding') {
-    return true;
-  }
-  if (event.type !== 'evidence') {
-    return false;
-  }
-  const { evidence } = event;
-  return PROVIDER_TOOL_KINDS.test(
-    evidence.kind === 'provider_step' ? evidence.step : evidence.kind,
+  return (
+    event.type === 'grounding' ||
+    (event.type === 'evidence' && PROVIDER_TOOL_EVIDENCE.has(event.evidence.kind))
   );
 }
 

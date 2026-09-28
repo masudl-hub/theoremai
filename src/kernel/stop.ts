@@ -1,12 +1,3 @@
-/**
- * Normalized turn stop reasons and resume policy.
- *
- * Providers map Interactions `status` / OpenAI `finish_reason` into `TurnStop`.
- * Hosts classify client SSE drops via `turnStopFromClientStreamEnd`.
- *
- * @module
- */
-
 import { CONTINUE_STOP_KINDS, type ContinueStopKind, type ProfileType } from './schema.ts';
 import type { TurnStop } from './turn-events.ts';
 
@@ -18,66 +9,43 @@ export type { TurnStop };
  */
 export const CONTINUE_INSTRUCTION_TYPES: readonly ProfileType[] = ['text'];
 
-/** Default kinds hosts may offer Continue for (= full ContinueStopKind set). */
 export const DEFAULT_ALLOW_CONTINUE: readonly ContinueStopKind[] = CONTINUE_STOP_KINDS;
 
-/**
- * Default kinds for one silent auto-continue (hosts wait briefly, then resume once).
- * Never includes kinds outside ContinueStopKind (e.g. cancelled / tool / gate / completed).
- */
+/** Hosts wait briefly, then continue once on their own. */
 export const DEFAULT_AUTO_CONTINUE: readonly ContinueStopKind[] = ['length', 'stream_incomplete'];
 
 /** Pause before the one-shot auto-continue so a flaky tunnel can settle. */
 export const AUTO_CONTINUE_DELAY_MS = 1_500;
 
-/** Profile turn-continuation policy under `turnBehaviour.resumption`. */
 export interface ProfileTurnResumptionSpec {
   /**
-   * Kinds after which the host offers the user a Continue, and then sends a
-   * `continueFrom` turn; `isResumeableStop` reads it. The host's UI policy: the
-   * kernel does not refuse a `continueFrom` outside it (a continue is one more
-   * turn, which the host could send as plain text anyway).
-   * When omitted, length / stream_incomplete / provider_error are; `[]` means none.
-   * Only `ContinueStopKind` values are valid — not tool / cancelled / completed / …
+   * The host's UI policy for offering Continue: the kernel does not refuse a `continueFrom`
+   * outside it, since a continue is one more turn the host could send as plain text anyway.
+   * Omit → length / stream_incomplete / provider_error; `[]` = none.
    */
   allowContinue?: ContinueStopKind[];
   /**
-   * Kinds the host continues once on its own, without asking.
-   * When omitted, length / stream_incomplete are; `[]` means none.
-   * Kernel does not loop; hosts call continueFrom and pass `continuation`.
+   * Omit → length / stream_incomplete; `[]` = none. The kernel does not loop: the host
+   * sends the `continueFrom` turn with `continuation`.
    */
   autoContinue?: ContinueStopKind[];
-  /**
-   * How many times one reply may be continued for this profile.
-   * Compared against `TurnRequest.continuation` (1-based continue attempt).
-   * When omitted, only kind allowlists apply (no count cap).
-   */
+  /** Compared against `TurnRequest.continuation`. Omit → no count cap. */
   maxContinues?: number;
 }
 
 const CONTINUE_KIND_SET = new Set<string>(CONTINUE_STOP_KINDS);
 
-/** True when `kind` may appear in allowContinue / autoContinue. */
 export function isContinueStopKind(kind: string): kind is ContinueStopKind {
   return CONTINUE_KIND_SET.has(kind);
 }
 
 /**
- * Mid-turn + resume policy for text / image / speech profiles.
- *
- * - `resumption` — continueFrom after a non-user stop (all three types).
- * - `allowSteering` — stage **inject** gate on text and live (default true).
- *   Image / speech must omit. Stage events always emit when the runner uses stages.
- *
- * Stop / AbortSignal is not a profile knob — composer interfaces always
- * project `canStop: true` because `TurnRequest.signal` is already wired.
+ * `allowSteering` is text / live only; image and speech omit it. Stop is not a profile knob:
+ * interfaces always project `canStop: true` because `TurnRequest.signal` is always wired.
  */
 export interface ProfileTurnBehaviourSpec {
   resumption?: ProfileTurnResumptionSpec;
-  /**
-   * When true (default on text/live), host `onStage` inject affordances are applied
-   * (`profileAllowsInject`). Does not hide stage emission.
-   */
+  /** Default true on text / live. Gates injects only; stage events still emit. */
   allowSteering?: boolean;
 }
 
@@ -101,7 +69,6 @@ export interface TurnContinueFrom {
 
 const RESUMEABLE_DEFAULT = new Set<ContinueStopKind>(DEFAULT_ALLOW_CONTINUE);
 
-/** True when this stop may be continued: in the profile's allow list, or the default when it has none (`[]` allows none). */
 export function isResumeableStop(
   stop: TurnStop | undefined,
   allowContinue?: readonly ContinueStopKind[],
@@ -112,8 +79,6 @@ export function isResumeableStop(
   return allow.has(stop.kind);
 }
 
-/** True when the host aborted (user Stop). */
-/** The stop a stage's `abort` ends a turn or live cycle with: `cancelled`, with the stage's reason. */
 export function stageAbortStop(
   abort: true | { reason?: string },
 ): TurnStop & { kind: 'cancelled' } {
@@ -126,11 +91,7 @@ export function isUserCancelledStop(stop: TurnStop | undefined): boolean {
   return stop?.kind === 'cancelled';
 }
 
-/**
- * True when profile policy allows one silent auto-continue for this stop: it is
- * in `autoContinue` (default length / stream_incomplete) and may be continued at
- * all under `allowContinue`. Pass the profile's `profileTurnResumption(profile)`.
- */
+/** `policy` is the profile's `profileTurnResumption(profile)`. */
 export function shouldAutoContinue(
   stop: TurnStop | undefined,
   policy?: Pick<ProfileTurnResumptionSpec, 'allowContinue' | 'autoContinue'>,
@@ -140,7 +101,6 @@ export function shouldAutoContinue(
   return auto.includes(stop.kind) && isResumeableStop(stop, policy?.allowContinue);
 }
 
-/** Read nested `turnBehaviour.resumption` from a non-live profile. */
 export function profileTurnResumption(profile: {
   type: string;
   turnBehaviour?: ProfileTurnBehaviourSpec;
@@ -149,11 +109,7 @@ export function profileTurnResumption(profile: {
   return profile.turnBehaviour?.resumption;
 }
 
-/**
- * Text profiles may inject at stages unless `allowSteering: false`.
- * Image / speech / host: use `profileAllowsInject` for the target matrix;
- * this helper remains text-only for interface `allowSteering` projection.
- */
+/** Text-only, for the interface `allowSteering` projection; `profileAllowsInject` adds live. */
 export function profileAllowsSteering(profile: {
   type: string;
   turnBehaviour?: ProfileTurnBehaviourSpec;
@@ -162,12 +118,7 @@ export function profileAllowsSteering(profile: {
   return profile.turnBehaviour?.allowSteering !== false;
 }
 
-/**
- * Whether stage **inject** affordances may be applied (`docs/contracts/stages.md`).
- * Gates inject only — never stage emission or tool stages.
- *
- * Text + live when `allowSteering !== false`; never image / speech / host.
- */
+/** Gates injects only, never stage emission. */
 export function profileAllowsInject(profile: {
   type: string;
   turnBehaviour?: ProfileTurnBehaviourSpec;
@@ -230,11 +181,7 @@ export function turnStopFromInteractionStatus(status: string | null | undefined)
   }
 }
 
-/**
- * Client SSE ended without a clean terminal event.
- * User Stop → cancelled; otherwise stream_incomplete (tunnel drop, etc.).
- * Returns null when `sawTerminal` so hosts keep the provider stop.
- */
+/** `null` when `sawTerminal`, so the host keeps the provider's stop. */
 export function turnStopFromClientStreamEnd(opts: {
   abortedByUser: boolean;
   sawTerminal: boolean;
@@ -245,7 +192,6 @@ export function turnStopFromClientStreamEnd(opts: {
   return { kind: 'stream_incomplete' };
 }
 
-/** Error hosts throw when classifying an incomplete / non-success stop. */
 export class GenerationStopError extends Error {
   override readonly name = 'GenerationStopError';
   readonly stop: TurnStop;
@@ -256,7 +202,6 @@ export class GenerationStopError extends Error {
   }
 }
 
-/** Narrows an unknown error to a controlled generation-stop signal. */
 export function isGenerationStopError(err: unknown): err is GenerationStopError {
   return err instanceof GenerationStopError;
 }

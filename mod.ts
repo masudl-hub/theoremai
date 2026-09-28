@@ -1,53 +1,11 @@
 /**
- * THEOREM public API.
- *
- * Import this entrypoint when an application wants the complete kernel surface:
- * profile registration, turn execution, provider constructors, guardrails,
- * observability sinks, and public type contracts.
- *
- * @example
- * ```ts
- * import { defineProfile, registerProfile, runTurn } from "jsr:@theoremjs/agents";
- *
- * const profile = defineProfile({
- *   id: "assistant.basic",
- *   type: "text",
- *   identity: {
- *     handle: "assistant",
- *     system: "Answer plainly.",
- *   },
- *   models: {
- *     default: {
- *       protocol: "openAi",
- *       provider: "openrouter",
- *       apiId: "perplexity/sonar",
- *       efforts: { normal: "minimal" },
- *       summaries: false,
- *       maxOutputTokens: 8192,
- *       temperature: 1,
- *     },
- *   },
- *   maxSteps: 1,
- *   tools: { allow: [] },
- *   inputs: { text: true },
- *   outputs: {
- *     streaming: { streamThoughts: false },
- *   },
- *   guardrails: {
- *     quota: { perDay: 100 },
- *   },
- * });
- *
- * registerProfile(profile);
- * ```
+ * THEOREM's complete public API: profiles, turns, providers, guardrails, observability and
+ * types. The narrower subpath exports carry parts of it without the rest.
  *
  * @module
  */
 
-/**
- * The zod Theorem's schemas are built with. Compose them with this `z`: two
- * copies of zod, even at one version, do not mix.
- */
+/** Compose with this `z`: two copies of zod, even at one version, do not mix. */
 export { z } from 'zod';
 export type {
   ErrorCopies,

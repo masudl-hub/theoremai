@@ -1,11 +1,3 @@
-/**
- * The package's global API: each function acts on `defaultKernelScope`. Hosts
- * that register per request create their own scope with `createKernelScope`
- * and call its methods instead.
- *
- * @module
- */
-
 import type { TraceSink } from '../observability/trace-sink.ts';
 import type { RunDecisionOptions } from './engine/decision.ts';
 import type { RunSessionOptions } from './engine/session/mod.ts';
@@ -30,7 +22,6 @@ function registerTool<TIn, TOut>(def: ToolDefinitionInput<TIn, TOut>): Registere
   return scope.tools.register(def);
 }
 
-/** Register several tools in the default scope, in order. */
 function registerTools(defs: ToolDefinitionInput[]): RegisteredTool[] {
   return scope.tools.registerMany(defs);
 }
@@ -81,7 +72,6 @@ function clearProfiles(): void {
   scope.profiles.clear();
 }
 
-/** Register a structured output schema in the default scope. */
 function registerStructured(id: string, spec: StructuredSpec): void {
   scope.schemas.register(id, spec);
 }

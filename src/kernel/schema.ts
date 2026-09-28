@@ -1,9 +1,5 @@
 /**
- * Runtime vocabulary and field catalog for THEOREM profile types.
- *
- * Closed unions live here as `as const` arrays; TypeScript types are derived
- * from those arrays. Host UIs and docs import this module (no Deno APIs) so
- * dropdowns and hover tips stay in lockstep with the kernel.
+ * Closed unions and the profile field catalog. No Deno APIs, so host UIs and docs can import it.
  *
  * @module
  */
@@ -17,12 +13,9 @@ import { profileFieldScope } from './profile-scope.ts';
 
 export { EGRESS_ON_BLOCK, type EgressOnBlock };
 
-/** Primary profile archetype. Discriminated union key for `ProfileDefinition` and `Profile`. */
 export const PROFILE_TYPES = ['text', 'image', 'speech', 'live', 'decision', 'host'] as const;
-/** Discriminated profile archetype accepted by the registry. */
 export type ProfileType = (typeof PROFILE_TYPES)[number];
 
-/** Model reasoning effort level normalized across provider adapters. */
 export const THINKING_LEVELS = [
   'none',
   'minimal',
@@ -32,34 +25,21 @@ export const THINKING_LEVELS = [
   'xhigh',
   'max',
 ] as const;
-/** Provider-neutral reasoning-effort setting. */
 export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 
-/** Wire protocol for a profile. */
 export const PROTOCOLS = ['geminiInteractions', 'geminiLive', 'openAi'] as const;
-/** Model wire protocol selected by a profile binding. */
 export type Protocol = (typeof PROTOCOLS)[number];
 
-/** Transport provider for a profile. */
 export const PROVIDERS = ['google', 'openrouter', 'local'] as const;
-/** Transport provider selected by a profile binding. */
 export type Provider = (typeof PROVIDERS)[number];
 
-/**
- * Legal `createProvider` pairs. Keep this table in lockstep with the factory.
- * Keys are protocols; values are the providers that protocol may bind.
- */
+/** Keep in lockstep with `createProvider`. */
 export const PROTOCOL_PROVIDERS = {
   geminiInteractions: ['google'],
   geminiLive: ['google'],
   openAi: ['openrouter', 'local'],
 } as const satisfies Record<Protocol, readonly Provider[]>;
 
-/**
- * Legal wire protocols for each profile archetype.
- * 'live' profiles require 'geminiLive'; turn-based archetypes require turn protocols;
- * 'host' never runs a model and binds no protocol.
- */
 export const PROFILE_TYPE_PROTOCOLS = {
   text: ['geminiInteractions', 'openAi'],
   image: ['geminiInteractions', 'openAi'],
@@ -69,22 +49,17 @@ export const PROFILE_TYPE_PROTOCOLS = {
   host: [],
 } as const satisfies Record<ProfileType, readonly Protocol[]>;
 
-/** Protocols legal for a particular profile archetype. */
 export type ProfileTypeProtocol<T extends ProfileType> = (typeof PROFILE_TYPE_PROTOCOLS)[T][number];
 
-/** Protocols allowed for a profile archetype (`type`). */
 export function protocolsForProfileType(type: ProfileType): readonly Protocol[] {
   return PROFILE_TYPE_PROTOCOLS[type];
 }
 
-/** True when the protocol is valid for the given profile archetype. */
 export function isValidProfileProtocol(type: ProfileType, protocol: Protocol): boolean {
   return (PROFILE_TYPE_PROTOCOLS[type] as readonly string[]).includes(protocol);
 }
 
-/** Named vault key slots for host-supplied credentials (provider-neutral). */
 export const KEY_SLOTS = ['slotA', 'slotB', 'slotC', 'paid'] as const;
-/** Named, provider-neutral credential slot in a host key vault. */
 export type KeySlot = (typeof KEY_SLOTS)[number];
 
 /** Key slots that may overflow to `paid` after quota backoff. */
@@ -92,39 +67,26 @@ export const OVERFLOW_KEY_SLOTS = ['slotA', 'slotB', 'slotC'] as const satisfies
   KeySlot,
   'paid'
 >[];
-/** Key slot that can fall back to `paid` after quota backoff. */
 export type OverflowKeySlot = (typeof OVERFLOW_KEY_SLOTS)[number];
 
-/** Host vault: one optional credential string per key slot. */
 export type KeyVault = Record<KeySlot, string | undefined>;
 
-/** Profile-level control a caller may toggle at turn time. */
-/** Normalized multimodal part category. */
 export const MEDIA_INPUT_KIND_VALUES = ['image', 'audio', 'video', 'document'] as const;
-/** Normalized category for supported multimodal input. */
 export type MediaInputKind = (typeof MEDIA_INPUT_KIND_VALUES)[number];
 
-/** Provider thinking-summary behavior. */
 export const SUMMARY_MODES = ['auto', 'none'] as const;
-/** Provider thinking-summary behavior. */
 export type SummaryMode = (typeof SUMMARY_MODES)[number];
 
-/** Stream delivery mode. */
 export const STREAM_MODES = ['sse', 'buffered'] as const;
-/** How a provider response is delivered to the kernel. */
 export type StreamMode = (typeof STREAM_MODES)[number];
 
-/** Audio container for speech generation output. */
 export const SPEECH_AUDIO_FORMATS = ['pcm', 'mp3'] as const;
-/** Audio container requested from a speech-capable provider. */
 export type SpeechAudioFormat = (typeof SPEECH_AUDIO_FORMATS)[number];
 
-/** Speech `format` values legal for a wire protocol (`assertSpeechRole` / UI). */
 export function speechFormatsForProtocol(protocol: Protocol): readonly SpeechAudioFormat[] {
   return protocol === 'openAi' ? SPEECH_AUDIO_FORMATS : ['pcm'];
 }
 
-/** Returns whether a speech audio format is supported by a wire protocol. */
 export function isSpeechFormatAllowedForProtocol(
   protocol: Protocol,
   format: SpeechAudioFormat,
@@ -142,51 +104,35 @@ export function coerceSpeechFormat(
   return allowed.includes(format) ? format : allowed[0];
 }
 
-/** Live session activity handling (barge-in behavior). */
 export const LIVE_ACTIVITY_HANDLINGS = ['START_OF_ACTIVITY_INTERRUPTS', 'NO_INTERRUPTION'] as const;
-/** How Gemini Live responds when new user activity begins. */
 export type LiveActivityHandling = (typeof LIVE_ACTIVITY_HANDLINGS)[number];
 
-/** Live session voice activity detection sensitivity. */
 export const LIVE_SPEECH_SENSITIVITIES = [
   'START_SENSITIVITY_LOW',
   'START_SENSITIVITY_HIGH',
   'END_SENSITIVITY_LOW',
   'END_SENSITIVITY_HIGH',
 ] as const;
-/** Start or end voice-activity sensitivity for Gemini Live. */
 export type LiveSpeechSensitivity = (typeof LIVE_SPEECH_SENSITIVITIES)[number];
 
-/** Compaction threshold meter. */
 export const COMPACTION_METERS = ['history', 'input'] as const;
-/** Input measure used to decide when history compaction runs. */
 export type CompactionMeter = (typeof COMPACTION_METERS)[number];
 
-/** When compaction runs relative to the primary turn. */
 export const COMPACTION_TIMINGS = ['before', 'after'] as const;
-/** Whether history compaction runs before or after the primary turn. */
 export type CompactionTiming = (typeof COMPACTION_TIMINGS)[number];
 
-/** OpenRouter prompt-cache mode (models.*.cache.mode). */
 export const CACHE_MODES = ['automatic', 'system'] as const;
-/** OpenRouter prompt-cache placement mode. */
 export type CacheMode = (typeof CACHE_MODES)[number];
 
-/** OpenRouter ephemeral cache TTL (models.*.cache.ttl). */
 export const CACHE_TTLS = ['5m', '1h'] as const;
-/** Lifetime of an OpenRouter ephemeral cache entry. */
 export type CacheTtl = (typeof CACHE_TTLS)[number];
 
-/** Why a turn ended (provider-neutral). */
 export const TURN_STOP_KINDS = [
   'completed',
   'length',
   /** The model called tools and the turn hands them to the host (`done.tools`). */
   'tool',
-  /**
-   * Honest suspension: `pre_tool` confirm / permission / auth blocked the body.
-   * Host resumes via invokeTool/executeTool; not continueFrom.
-   */
+  /** `pre_tool` blocked the body; the host resumes via invokeTool/executeTool, not continueFrom. */
   'gate',
   'filtered',
   'provider_error',
@@ -196,22 +142,12 @@ export const TURN_STOP_KINDS = [
   /** Live: model finished generating audio/text for this utterance; turn may still be open. */
   'generation_complete',
 ] as const;
-/** Provider-neutral reason a turn or live utterance ended. */
 export type TurnStopKind = (typeof TURN_STOP_KINDS)[number];
 
-/**
- * Stop kinds eligible for `continueFrom` / resumption allowlists.
- * Excludes terminal-success, user abort, tool/gate suspension, filter, and live-only
- * boundaries — those use other host paths (or are not resumeable).
- */
+/** Every other stop resumes by another host path, or not at all. */
 export const CONTINUE_STOP_KINDS = ['length', 'stream_incomplete', 'provider_error'] as const;
-/** Stop reasons for which a turn may be resumed with `continueFrom`. */
 export type ContinueStopKind = (typeof CONTINUE_STOP_KINDS)[number];
 
-/**
- * Turn / utterance-cycle timeline stages (`docs/contracts/stages.md`).
- * Replaces the former steer barriers (`pre_llm` / `pre_tool_followup`).
- */
 export const TURN_STAGES = [
   'pre_turn',
   'pre_tool',
@@ -219,28 +155,25 @@ export const TURN_STAGES = [
   'before_end',
   'post_turn',
 ] as const;
-/** Stage in the turn or utterance-cycle timeline. */
 export type TurnStage = (typeof TURN_STAGES)[number];
 
 const TURN_STAGE_SET = new Set<string>(TURN_STAGES);
 
-/** True when `value` is a known `TurnStage`. */
 export function isTurnStage(value: unknown): value is TurnStage {
   return typeof value === 'string' && TURN_STAGE_SET.has(value);
 }
 
-/** Stages where inject is physically meaningful (still requires inject gate). */
+/** Stages where an inject can land; the inject gate still applies. */
 export const TURN_INJECT_STAGES = ['pre_turn', 'post_tool', 'before_end'] as const;
 export type TurnInjectStage = (typeof TURN_INJECT_STAGES)[number];
 
 const TURN_INJECT_STAGE_SET = new Set<string>(TURN_INJECT_STAGES);
 
-/** True when inject is physically meaningful at this stage (gate still required). */
 export function isTurnInjectStage(value: unknown): value is TurnInjectStage {
   return typeof value === 'string' && TURN_INJECT_STAGE_SET.has(value);
 }
 
-/** `pre_tool` gate kinds — confirm-to-run / permission / auth. Not awaiting. */
+/** `pre_tool` gates; not `awaiting_user_input`. */
 export const TOOL_GATE_KINDS = ['confirmation', 'permission', 'auth'] as const;
 export type ToolGateKind = (typeof TOOL_GATE_KINDS)[number];
 
@@ -250,15 +183,12 @@ export type ToolResumeCause = (typeof TOOL_RESUME_CAUSES)[number];
 
 const TOOL_GATE_KIND_SET = new Set<string>(TOOL_GATE_KINDS);
 
-/** True when `value` is a known tool-gate kind. */
 export function isToolGateKind(value: unknown): value is ToolGateKind {
   return typeof value === 'string' && TOOL_GATE_KIND_SET.has(value);
 }
-/** `awaiting_user_input.kind` — harness ask_user / human-as-product completions. */
 export const AWAITING_USER_INPUT_KINDS = ['confirm', 'choice', 'text'] as const;
 export type AwaitingUserInputKind = (typeof AWAITING_USER_INPUT_KINDS)[number];
 
-/** Machine-readable reasons the kernel rejected or ignored a stage result field. */
 export const STAGE_APPLY_WARNING_CODES = [
   'affordance_not_allowed',
   'inject_not_allowed',
@@ -274,79 +204,43 @@ export const STAGE_APPLY_WARNING_CODES = [
 ] as const;
 export type StageApplyWarningCode = (typeof STAGE_APPLY_WARNING_CODES)[number];
 
-/** Discriminator on tool output for awaiting completions. */
 export const AWAITING_USER_INPUT_STATUS = 'awaiting_user_input' as const;
-/** Per-tool visibility tier — enforced by the kernel at resolve time. */
+/** Enforced by the kernel at resolve time. */
 export const TOOL_LOAD_TIERS = ['T0', 'T1', 'T2'] as const;
-/** Visibility tier assigned to a registered tool at resolve time. */
 export type ToolLoadTier = (typeof TOOL_LOAD_TIERS)[number];
 
-/** HTTP verbs supported by declarative HTTP tools. */
 export const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
-/** HTTP verb accepted by a declarative HTTP tool. */
 export type HttpMethod = (typeof HTTP_METHODS)[number];
 
 /** When remote tool auth is missing or expired. */
 export const AUTH_UNAUTHENTICATED_POLICIES = ['gate', 'report_to_model'] as const;
-/** Behavior when a remote tool lacks a usable credential. */
 export type AuthUnauthenticatedPolicy = (typeof AUTH_UNAUTHENTICATED_POLICIES)[number];
 
-/** Registered tool discriminant (`registerTool`). */
 export const TOOL_TYPES = ['builtin', 'function', 'http', 'mcp'] as const;
 
-/** Semantic access level — host policy / UI; not enforced by execute. */
 export const TOOL_ACCESS = ['read-only', 'read-write', 'destructive'] as const;
-/** Host-declared impact level for a tool; execution does not enforce it itself. */
 export type ToolAccess = (typeof TOOL_ACCESS)[number];
 
-/** Execution authorization tier for registered tools. */
 export const TOOL_PERMISSION = ['auto', 'session_consent', 'always_confirm'] as const;
-/** Authorization tier requested before executing a registered tool. */
 export type ToolPermission = (typeof TOOL_PERMISSION)[number];
 
-/** Credential attachment modes for HTTP and MCP tools (`auth.type`). */
 export const TOOL_AUTH_TYPES = ['bearer', 'api_key', 'oauth2'] as const;
-/** Credential attachment mode for an HTTP or MCP tool. */
 export type ToolAuthType = (typeof TOOL_AUTH_TYPES)[number];
 
-/** Playground auth select — includes UI-only `none` (omits auth at compile time). */
+/** Adds UI-only `none`, which omits auth at compile time. */
 export const PLAYGROUND_AUTH_TYPES = ['none', ...TOOL_AUTH_TYPES] as const;
-/** Playground auth selection, including UI-only `none`. */
 export type PlaygroundAuthType = (typeof PLAYGROUND_AUTH_TYPES)[number];
 
-/** Discriminant for every registered tool definition. */
 export type ToolType = (typeof TOOL_TYPES)[number];
-/** Custom registerTool discriminants (excludes provider builtins). */
 export type CustomToolType = Exclude<ToolType, 'builtin'>;
 
 /**
- * MIME essence → normalized media part category.
- *
- * This table is the complete media-input vocabulary of the package: every MIME
- * any supported transport may carry on a turn appears here exactly once, and
- * nothing else is a media input type. `assertMediaMime` (`registry/ingress.ts`)
- * refuses anything absent from it, so hosts declare what they accept in
- * `inputs.attachments.accept` / `inputs.voice.accept` and keep no second table.
- *
- * Contents are the union of the documented provider input lists:
- * - Google Interactions / Live (image, audio, video, document lists verified
- *   2026-09-12) — the widest of the three and therefore the table's shape. The
- *   document row is Google's document-understanding list in full: PDF, plain
- *   text, HTML, CSS, Markdown (`text/md`), CSV, XML, RTF, JavaScript
- *   (`text/javascript`, `application/x-javascript`) and Python
- *   (`text/x-python`, `application/x-python`); `application/json` is an
- *   established row alongside it. TypeScript, `application/xml` and
- *   `application/rtf` are NOT on Google's list and are therefore not rows.
- * - OpenRouter / OpenAI-compat (`providers/openrouter/openai/compat.ts`,
- *   `sdk-messages.ts`): the adapters wire every `MediaInputKind` (image →
- *   `image_url`/`image`, audio → `input_audio`, video and document → `file`)
- *   and forward the part's MIME verbatim, so their accepted set is open-ended
- *   and adds no rows. What they cannot carry — a `uri` reference part — is
- *   refused at request time with `TheoremError`, not by a second MIME list.
- *
- * Alias essences that providers also emit (`image/jpg`, `video/mov`,
- * `audio/x-wav`, `video/x-ms-wmv`, …) are rows here; `resolveInputParts`
- * canonicalizes `image/jpg` to `image/jpeg` on the wire.
+ * The package's complete media-input vocabulary: `assertMediaMime` refuses any MIME not
+ * here, so hosts keep no second table. Rows follow Google Interactions / Live's documented
+ * lists (verified 2026-09-12), the widest provider; TypeScript, `application/xml` and
+ * `application/rtf` are not on Google's list. OpenAI-compat adapters forward the MIME
+ * verbatim and add no rows. Provider alias essences (`image/jpg`, `video/mov`, …) are rows;
+ * `resolveInputParts` canonicalizes `image/jpg` to `image/jpeg` on the wire.
  */
 export const MEDIA_INPUT_KINDS: Record<string, MediaInputKind> = {
   'image/png': 'image',
@@ -406,7 +300,6 @@ function mimesOf(kind: MediaInputKind): string[] {
   return Object.keys(MEDIA_INPUT_KINDS).filter((mime) => MEDIA_INPUT_KINDS[mime] === kind);
 }
 
-/** Attachment `accept` values the kernel can classify (wildcards + known types). */
 export const ATTACHMENT_ACCEPT_MIMES: readonly string[] = [
   'image/*',
   'video/*',
@@ -428,15 +321,12 @@ export const IMAGE_ATTACHMENT_ACCEPT_MIMES: readonly string[] = [
   'application/pdf',
 ];
 
-/** Voice `accept` values the kernel can classify (wildcard + known audio types). */
 export const VOICE_ACCEPT_MIMES: readonly string[] = ['audio/*', ...mimesOf('audio')];
 
-/** Providers allowed for a protocol. */
 export function providersFor(protocol: Protocol): readonly Provider[] {
   return PROTOCOL_PROVIDERS[protocol];
 }
 
-/** Protocols allowed for a provider. */
 export function protocolsFor(provider: Provider): readonly Protocol[] {
   const found: Protocol[] = [];
   for (const protocol of PROTOCOLS) {
@@ -470,25 +360,17 @@ function unionType(values: readonly string[]): string {
   return values.map((value) => `'${value}'`).join(' | ');
 }
 
-/** Metadata for one profile (or adjacent) field, used by docs/UI hover. */
 export type FieldMeta = {
   type: string;
   doc: string;
   options?: readonly string[];
   optionDescriptions?: Record<string, string>;
   optionNote?: string;
-  /**
-   * Profile types the field may be set on, when not every type (from
-   * `PROFILE_FIELD_SCOPE`, inherited from the nearest scoped ancestor).
-   * `defineProfile` rejects the field on any other type.
-   */
+  /** Types the field may be set on, when not every type; `defineProfile` rejects it elsewhere. */
   profileTypes?: readonly ProfileType[];
   /** Why the other types can't take it. */
   profileTypesReason?: string;
-  /**
-   * The profile must set the field: always (`true`), or only in the case named
-   * (from `PROFILE_FIELD_PRESENCE`).
-   */
+  /** The profile must set the field: always (`true`), or only in the case named. */
   required?: true | string;
   /** What leaving the field out does, as a short phrase a blank control can show. */
   unset?: string;
@@ -529,7 +411,6 @@ export const DYNAMIC_FIELD_PARENTS: ReadonlySet<string> = new Set([
   'outputs.validation.fields',
 ]);
 
-/** Resolve a key stack from authored source into a catalog path. */
 export function catalogPathFor(keys: readonly string[]): string {
   const resolved: string[] = [];
   for (const key of keys) {
@@ -543,10 +424,6 @@ export function catalogPathFor(keys: readonly string[]): string {
   return resolved.join('.');
 }
 
-/**
- * Each field's docs with its profile-type scope from `PROFILE_FIELD_SCOPE` and
- * its presence from `PROFILE_FIELD_PRESENCE`.
- */
 function withScopeAndPresence(fields: Record<string, FieldMeta>): Record<string, FieldMeta> {
   return Object.fromEntries(
     Object.entries(fields).map(([path, meta]) => {
@@ -564,11 +441,8 @@ function withScopeAndPresence(fields: Record<string, FieldMeta>): Record<string,
 }
 
 /**
- * Authoring-surface catalog for `Profile` / `defineProfile`.
- * Hover UIs look up dotted paths. Adding a profile field? Add it here; if it
- * belongs to only some profile types, scope it in `PROFILE_FIELD_SCOPE`; if a
- * profile must set it or leaving it out does something to note, record that in
- * `PROFILE_FIELD_PRESENCE`.
+ * Adding a profile field? Add it here; scope it in `PROFILE_FIELD_SCOPE` if only some types
+ * take it, and record it in `PROFILE_FIELD_PRESENCE` if it is required or its absence matters.
  */
 export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   id: field('string', 'Host-owned profile identifier.'),
@@ -1131,7 +1005,6 @@ const TOOL_TYPE_FIELD = field(
   },
 );
 
-/** Adjacent tool catalog fields that appear next to profile examples. */
 export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   /** Playground / UI path — avoids collision with profile `type` in fieldMeta(). */
   'registerTool.type': TOOL_TYPE_FIELD,
@@ -1278,10 +1151,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   ),
 };
 
-/**
- * Look up hover metadata for a dotted path (profile first, then extra). `lexicon.<key>` is
- * `lexicon.*` with that key's own note.
- */
+/** `lexicon.<key>` resolves to `lexicon.*` with that key's own note. */
 export function fieldMeta(path: string): FieldMeta | undefined {
   const meta = PROFILE_FIELDS[path] ?? EXTRA_FIELDS[path];
   if (meta || !path.startsWith('lexicon.')) return meta;

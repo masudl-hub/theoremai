@@ -1,16 +1,3 @@
-/**
- * Kernel scopes. A scope owns its tools, profiles, and structured output
- * schemas, and runs turns, sessions, tool calls, and decisions against them
- * alone. Two scopes never see each other's registrations, so a host that
- * registers per request (the playground) gives each request its own scope.
- *
- * The package's global API (`registerTool`, `registerProfile`, `runTurn`, …)
- * is `defaultKernelScope`: one process-wide scope for hosts that register once
- * at startup.
- *
- * @module
- */
-
 import type { TraceSink } from '../observability/trace-sink.ts';
 import { type RunDecisionOptions, runDecisionInRegistry } from './engine/decision.ts';
 import { runTurnInRegistry } from './engine/runner/mod.ts';
@@ -30,7 +17,6 @@ import type {
   TurnRequest,
 } from './types.ts';
 
-/** A scope's registries, and the kernel's runs bound to them. */
 interface KernelScope extends KernelRegistry {
   runTurn(
     req: TurnRequest,
@@ -48,7 +34,7 @@ interface KernelScope extends KernelRegistry {
   runDecision(request: DecisionRequest, options: RunDecisionOptions): Promise<DecisionResult>;
 }
 
-/** A scope with empty registries, isolated from every other scope. */
+/** Isolated from every other scope: a host that registers per request gives each its own. */
 function createKernelScope(): KernelScope {
   const registry = createKernelRegistry();
   return {

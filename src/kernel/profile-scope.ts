@@ -1,16 +1,4 @@
-/**
- * Which profile types each profile field belongs to — the one owner of that fact.
- *
- * `defineProfile` enforces it, `PROFILE_FIELDS` exposes it on every field's
- * `FieldMeta`, and `PROFILE_GRAPH` takes its facets' types from it, so an
- * authoring UI projects the same rule the kernel enforces. A path with no entry
- * inherits its nearest ancestor's scope; a path with none at all belongs to
- * every type.
- *
- * Leaf module: `schema.ts` and `profile-graph.ts` both read it at load time.
- *
- * @module
- */
+// Leaf module: `schema.ts` and `profile-graph.ts` read it at load time.
 
 /** lexicon-exempt-file: authoring field-meta scope reasons — not runtime user or model copy (P2) */
 
@@ -30,10 +18,8 @@ export const ALL_PROFILE_TYPES: readonly ProfileType[] = [
   'host',
 ];
 
-/** Types that bind models — `host` never runs a model. */
 const MODEL_PROFILE_TYPES: readonly ProfileType[] = ['text', 'image', 'speech', 'live', 'decision'];
 
-/** Types that run a model turn: everything but `decision` and `host`. */
 const TURN_TYPES: readonly ProfileType[] = ['text', 'image', 'speech', 'live'];
 
 /** Types whose `inputs` are turn inputs (text, files, slots) rather than decision state. */
@@ -42,7 +28,6 @@ const TURN_INPUT_TYPES: readonly ProfileType[] = ['text', 'image'];
 const TURN_INPUT_REASON = 'a decision takes JSON state, not turn text, files or slots';
 
 export interface ProfileFieldScope {
-  /** The profile types the field may be set on. */
   profileTypes: readonly ProfileType[];
   /** Why other types can't take it — shown in `defineProfile` errors and authoring UIs. */
   reason: string;
@@ -60,10 +45,7 @@ function turnGuardrailTypes(key: string): readonly ProfileType[] {
     : TURN_TYPES;
 }
 
-/**
- * Profile paths scoped to some profile types, keyed like `PROFILE_FIELDS`
- * (`models.*` matches every model binding).
- */
+/** Keyed like `PROFILE_FIELDS`; `models.*` matches every model binding. */
 export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = {
   identity: {
     profileTypes: MODEL_PROFILE_TYPES,
@@ -234,12 +216,10 @@ export function profileFieldScope(path: string): ProfileFieldScope | undefined {
   return undefined;
 }
 
-/** The profile types `path` may be set on. */
 export function profileTypesForField(path: string): readonly ProfileType[] {
   return profileFieldScope(path)?.profileTypes ?? ALL_PROFILE_TYPES;
 }
 
-/** A field set on a profile type outside its scope, at its concrete path. */
 export interface OutOfScopeField {
   /** e.g. `models.fast.compaction` for the `models.*.compaction` scope. */
   path: string;

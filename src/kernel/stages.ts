@@ -1,14 +1,3 @@
-/**
- * Turn stages: frozen shapes, defensive affordance application, and the one
- * spine every stage runs through (`runStage`).
- *
- * Contract: `docs/contracts/stages.md`. Text `runTurn`, live `runSession`, and
- * tool execute differ only in what they do with a stage's output — history
- * append, live text ingress, or a tool gate — never in how the stage runs.
- *
- * @module
- */
-
 import { throwIfAborted } from '../guardrails/error.ts';
 import { guardrailFromHits } from '../guardrails/events.ts';
 import { detectionForTrust, resolveGuardrailPolicy } from '../guardrails/policy.ts';
@@ -28,19 +17,12 @@ import {
 import type { Profile, TurnEvent, TurnHistoryMessage } from './types.ts';
 import { isRecord } from './util/record.ts';
 
-/** Canonical homes: schema (`TurnStage`, `ToolGateKind`), tools/types (`ToolGate`). */
 export type { AwaitingUserInput, ToolGate };
 
-/** Closed set of kernel-applied stage affordances. */
 export const STAGE_AFFORDANCES = ['inject', 'abort', 'deny', 'confirm', 'mutate'] as const;
-/** Kernel action a host stage handler may request. */
 export type StageAffordance = (typeof STAGE_AFFORDANCES)[number];
 
-/**
- * Physical affordance matrix from `docs/contracts/stages.md`.
- * Inject still requires `injectAllowed` / `profileAllowsInject` at apply time.
- * Empty list = observe only.
- */
+/** Inject still needs the inject gate at apply time. Empty = observe only. */
 export const STAGE_AFFORDANCE_MATRIX: Readonly<Record<TurnStage, readonly StageAffordance[]>> =
   Object.freeze({
     pre_turn: Object.freeze(['inject', 'abort'] as const),
@@ -52,7 +34,6 @@ export const STAGE_AFFORDANCE_MATRIX: Readonly<Record<TurnStage, readonly StageA
 
 const STAGE_RESULT_KEYS = new Set<string>([...STAGE_AFFORDANCES, 'injectId']);
 
-/** Tool/stop fields shared by text + live stage apply argument bags. */
 export type StageCallBag = {
   callId?: string;
   tool?: string;
@@ -66,7 +47,6 @@ export type StageCallBag = {
   gate?: ToolGate;
 };
 
-/** Context passed to `onStage`. */
 export interface StageContext extends StageCallBag {
   stage: TurnStage;
   /** 1-based provider step (text) or utterance cycle index (live). */
@@ -76,13 +56,11 @@ export interface StageContext extends StageCallBag {
   host?: unknown;
 }
 
-/** Host return from `onStage`. */
 export interface StageResult {
   inject?: TurnHistoryMessage[];
   /**
-   * Names this `inject` so the `stage` event that records it landing says which
-   * one it was (`injected`). An inject named with anything but a non-empty
-   * string is refused whole.
+   * Names this `inject` in the `stage` event that records it landing. A blank or
+   * non-string id refuses the inject whole.
    */
   injectId?: string;
   abort?: boolean | { reason?: string };
@@ -94,24 +72,18 @@ export interface StageResult {
   mutate?: StageMutate;
 }
 
-/** What `mutate` replaces: the stage's subject. */
 export type StageMutate = { input: unknown } | { output: unknown };
 
-/** Host callback that observes a stage and may request a valid stage action. */
 export type StageHandler = (
   ctx: StageContext,
 ) => StageResult | undefined | Promise<StageResult | undefined>;
 
 export type { StageApplyWarning, StageApplyWarningCode };
 
-/** Untrusted host stage result and the runtime facts used to apply it safely. */
 export interface StageApplyInput {
   stage: TurnStage;
-  /** Host return — treated as untrusted (`unknown` at the boundary). */
   result: unknown;
-  /** Profile/session inject gate (`profileAllowsInject` / shipping `allowSteering`). */
   injectAllowed: boolean;
-  /** When true, another provider step would exceed `maxSteps`. */
   injectWouldExceedMaxSteps?: boolean;
   /**
    * False when the stage's mutate subject is absent at this fire (a `post_tool`
@@ -121,13 +93,11 @@ export interface StageApplyInput {
   mutable?: boolean;
 }
 
-/** One handler's inject: its messages and, when the host named it, its id. */
 export interface InjectUnit {
   id?: string;
   messages: TurnHistoryMessage[];
 }
 
-/** Validated, kernel-applicable subset of a host stage result and its warnings. */
 export interface StageApplyOutput {
   inject?: InjectUnit;
   abort?: boolean | { reason?: string };
@@ -151,15 +121,11 @@ function warn(
   warnings.push({ code, field, message });
 }
 
-/** True when output is a valid awaiting completion. */
 export function isAwaitingUserInput(output: unknown): output is AwaitingUserInput {
   return awaitingUserInputSchema.safeParse(output).success;
 }
 
-/**
- * Whitelist-copy one inject history message. Drops unknown keys and rejects
- * `role: 'tool'`. Does not run sanitizeHistory — that stays at the inject site.
- */
+/** Drops unknown keys and rejects `role: 'tool'`; sanitizeHistory runs at the inject site. */
 function coerceInjectMessage(
   item: unknown,
   warnings: StageApplyWarning[],
@@ -406,7 +372,6 @@ function applyConfirmField(
   }
 }
 
-/** The subject `mutate` replaces at each stage that allows it. */
 const MUTATE_SUBJECT = { pre_tool: 'input', post_tool: 'output' } as const satisfies Partial<
   Record<TurnStage, 'input' | 'output'>
 >;
@@ -467,10 +432,7 @@ function applyMutateField(
     subject === 'input' ? { input: result.mutate.input } : { output: result.mutate.output };
 }
 
-/**
- * Defensively apply a host stage return against the affordance matrix.
- * Never throws. Invalid fields become warnings and are dropped.
- */
+/** Never throws: invalid fields become warnings and are dropped. */
 export function applyStageResult(input: StageApplyInput): StageApplyOutput {
   const warnings: StageApplyWarning[] = [];
   const out: StageApplyOutput = { warnings };
@@ -503,7 +465,6 @@ export function applyStageResult(input: StageApplyInput): StageApplyOutput {
   return out;
 }
 
-/** Optional fields added to the emitted event that records a stage application. */
 export type StageEventExtra = {
   callId?: string;
   toolName?: string;
@@ -531,7 +492,6 @@ export function stageEventFields(
   return event;
 }
 
-/** Every message of `units`, in order. */
 export function injectMessages(units: readonly InjectUnit[]): TurnHistoryMessage[] {
   return units.flatMap((unit) => unit.messages);
 }
@@ -551,7 +511,6 @@ export function injectedStageEvent(
   return stageEventFields(stage, { ...extra, injected });
 }
 
-/** True when another provider step would exceed profile/generation maxSteps. */
 export function injectWouldExceedMaxSteps(
   stepCount: number,
   maxSteps: number | undefined,
@@ -560,7 +519,6 @@ export function injectWouldExceedMaxSteps(
   return stepCount >= maxSteps;
 }
 
-/** One stage run: the shared call bag plus who handles it and how injects are gated. */
 export interface RunStageArgs extends StageCallBag {
   stage: TurnStage;
   step: number;
@@ -574,11 +532,9 @@ export interface RunStageArgs extends StageCallBag {
   guardrails: Profile['guardrails'];
   injectAllowed: boolean;
   injectWouldExceedMaxSteps?: boolean;
-  /** See `StageApplyInput.mutable`. */
   mutable?: boolean;
   host?: unknown;
   signal?: AbortSignal;
-  /** Span that records this stage as a `theorem.stage` event. */
   span?: SpanHandle;
 }
 
@@ -587,7 +543,6 @@ export interface RunStageOutput extends Omit<StageApplyOutput, 'inject'> {
   inject: InjectUnit[];
 }
 
-/** True when the merged stage output applies `key`. */
 function appliedAffordance(applied: RunStageOutput, key: StageAffordance): boolean {
   return key === 'inject' ? applied.inject.length > 0 : Boolean(applied[key]);
 }
@@ -639,11 +594,7 @@ async function applyHandlers(
   return parts;
 }
 
-/**
- * Run one stage: emit the `stage` event, call the handlers, apply the affordance
- * matrix per handler, emit any warnings, sanitize injects (with a `guardrail`
- * event when redaction fired). Stage events always emit, even with no handlers.
- */
+/** Stage events always emit, even with no handlers. */
 export async function* runStage(args: RunStageArgs): AsyncGenerator<TurnEvent, RunStageOutput> {
   const {
     stage,

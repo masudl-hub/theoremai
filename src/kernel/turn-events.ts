@@ -1,21 +1,6 @@
-/**
- * Turn events — every event `runTurn`, a live session and the provider adapters
- * yield, and every event a host or client reads off a wire.
- *
- * Each shape is a documented type and a zod schema checked against it
- * (`Equals`): the type is what builders read; the schema is what a wire parser
- * runs. A field in one and not the other fails the build.
- *
- * Defensive, not brittle (`docs/proposals/turn-event-schema.md`):
- * - a field a schema does not list is dropped (plain `z.object`; never
- *   `.strict()` or `.passthrough()`);
- * - a provider step the adapter does not map is an `evidence` of kind
- *   `provider_step`, never an open string;
- * - a listed field that is missing or the wrong type fails the parse, and the
- *   caller reports it as `bad_response`.
- *
- * @module
- */
+// Each type is paired with a zod schema checked against it (`Equals`), so a field in one and
+// not the other fails the build. Schemas are plain `z.object`, never `.strict()`: an unlisted
+// field is dropped. An unmapped provider step is `evidence` of kind `provider_step`.
 
 import { z } from 'zod';
 import {
@@ -49,16 +34,10 @@ import type { Equals } from './util/exact-type.ts';
 
 export type { ErrorCopies, ErrorKind, GuardrailEvent };
 
-/** A JSON object whose values the reader checks itself. */
 const jsonObject = z.record(z.string(), z.unknown());
 
-/** Text that must say something: trimmed, never empty. */
 const nonEmptyText = z.string().trim().min(1);
 
-// ---------------------------------------------------------------------------
-// History
-
-/** Text part of a message. */
 export interface InteractionTextPart {
   type: 'text';
   text: string;
@@ -66,7 +45,6 @@ export interface InteractionTextPart {
 const interactionTextPart = z.object({ type: z.literal('text'), text: z.string() });
 true satisfies Equals<z.infer<typeof interactionTextPart>, InteractionTextPart>;
 
-/** Inline media part (base64 `data`). */
 export interface InteractionMediaPart {
   type: MediaInputKind;
   mimeType: string;
@@ -79,10 +57,7 @@ const interactionMediaPart = z.object({
 });
 true satisfies Equals<z.infer<typeof interactionMediaPart>, InteractionMediaPart>;
 
-/**
- * Media part carried by reference (e.g. a Gemini Files `files/<id>` uri).
- * The host owns the upload and cleanup; THEOREM only carries the reference.
- */
+/** The host owns the upload and cleanup; THEOREM only carries the reference. */
 export interface InteractionMediaRefPart {
   type: MediaInputKind;
   mimeType: string;
@@ -95,7 +70,6 @@ const interactionMediaRefPart = z.object({
 });
 true satisfies Equals<z.infer<typeof interactionMediaRefPart>, InteractionMediaRefPart>;
 
-/** Any message part: text, inline media, or media by reference. */
 export type InteractionPart = InteractionTextPart | InteractionMediaPart | InteractionMediaRefPart;
 const interactionPart = z.union([
   interactionTextPart,
@@ -104,7 +78,6 @@ const interactionPart = z.union([
 ]);
 true satisfies Equals<z.infer<typeof interactionPart>, InteractionPart>;
 
-/** Provider-neutral history message preserving text, parts, tools, and metadata. */
 export interface TurnHistoryMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content?: string;
@@ -141,23 +114,17 @@ const turnHistoryMessage = z.object({
 true satisfies Equals<z.infer<typeof turnHistoryMessage>, TurnHistoryMessage>;
 export const turnHistoryMessageSchema: z.ZodType<TurnHistoryMessage> = turnHistoryMessage;
 
-// ---------------------------------------------------------------------------
-// Stop, tokens, response
-
 /** Why a turn or live utterance ended. */
 export interface TurnStop {
   kind: TurnStopKind;
-  /** Raw provider / native reason for diagnostics. */
   native?: string;
 }
 const turnStop = z.object({ kind: z.enum(TURN_STOP_KINDS), native: z.string().optional() });
 true satisfies Equals<z.infer<typeof turnStop>, TurnStop>;
 
-/** A side of `TurnTokens`. */
 const TURN_TOKEN_SIDES = ['input', 'output'] as const;
 export type TurnTokenSide = (typeof TURN_TOKEN_SIDES)[number];
 
-/** Money a provider reported for one model call. */
 export interface TurnCost {
   /** What the provider charged, in US dollars. */
   usd: number;
@@ -178,7 +145,6 @@ true satisfies Equals<z.infer<typeof turnCost>, TurnCost>;
 
 /** One grounding tool's use in a call (Interactions `grounding_tool_count`). */
 export interface TurnGroundingCount {
-  /** Provider's tool name, e.g. `google_search`. */
   type: string;
   count: number;
   /** Search queries the tool ran. Absent = not reported. */
@@ -212,7 +178,6 @@ export interface TurnTokens {
   /** Share of `input` written into provider cache. */
   cacheWrite?: number;
   total: number;
-  /** Provider-reported cost. Absent when the provider reports none. */
   cost?: TurnCost;
   /**
    * Sides the provider did not report. The runner replaces each with the one
@@ -231,7 +196,6 @@ export interface TurnTokens {
    * shares need not add up to the side. Absent = not reported.
    */
   byModality?: { input?: Record<string, number>; output?: Record<string, number> };
-  /** Provider-side grounding tool use, as the provider reported it. Absent = not reported. */
   grounding?: TurnGroundingCount[];
 }
 const turnTokens = z.object({
@@ -261,20 +225,14 @@ true satisfies Equals<z.infer<typeof turnTokens>, TurnTokens>;
 export interface TurnResponse {
   /** Provider response id (OpenAI-compatible `id`, Interactions `id`). */
   id?: string;
-  /** Model that served the call, as the provider names it. */
   model?: string;
 }
 const turnResponse = z.object({ id: z.string().optional(), model: z.string().optional() });
 true satisfies Equals<z.infer<typeof turnResponse>, TurnResponse>;
 
-// ---------------------------------------------------------------------------
-// Sources, grounding, evidence
-
-/** Where a source lives. */
 const SOURCE_TYPES = ['web', 'maps'] as const;
 export type SourceType = (typeof SOURCE_TYPES)[number];
 
-/** A citation or place source, from a provider or a tool. */
 export interface Source {
   title: string;
   uri: string;
@@ -304,7 +262,6 @@ const groundingEvent = z.object({
 });
 true satisfies Equals<z.infer<typeof groundingEvent>, GroundingEvent>;
 
-/** Fields every evidence carries. */
 export interface EvidenceBase {
   provider: Provider;
   /** The provider's own payload, for the builder: `forClient` strips it unless `includeEvidenceRaw`. */
@@ -322,7 +279,6 @@ const evidenceBase = {
   partial: z.boolean().optional(),
 };
 
-/** Provider evidence: server-side tool steps, live transcription and control. */
 export type ProviderEvidence =
   | (EvidenceBase & {
       kind: 'code_execution_call';
@@ -330,14 +286,11 @@ export type ProviderEvidence =
       code: string;
       /** Language of `code` when the API supplies it (typically `python`). */
       language?: string;
-      /** Step id (`code_execution_call.id`). */
       id: string;
     })
   | (EvidenceBase & {
       kind: 'code_execution_result';
-      /** Stdout / sandbox output. */
       result?: string;
-      /** `true` when the sandbox reported an execution error. */
       isError?: boolean;
       /** Links a result to its call (`code_execution_result.call_id`). */
       callId?: string;
@@ -384,14 +337,10 @@ const providerEvidence = z.discriminatedUnion('kind', [
 ]);
 true satisfies Equals<z.infer<typeof providerEvidence>, ProviderEvidence>;
 
-// ---------------------------------------------------------------------------
-// Session
-
 /** A session the provider ended after warning it would. */
 export interface SessionEnded {
   /** The provider warned first (Gemini `goAway`). */
   cause: 'go_away';
-  /** The provider's WebSocket close code. */
   code: number;
   /** Milliseconds from the last warning to the close; compare with `timeLeftMs`. */
   closedAfterMs: number;
@@ -423,7 +372,6 @@ export type SessionEvent =
   | { kind: 'ended'; timeLeftMs?: number; ended: SessionEnded; message: string }
   | { kind: 'waiting_for_input' | 'turn_complete' | 'working' | 'idle' };
 export type SessionEventKind = SessionEvent['kind'];
-/** The session signal of one kind. */
 export type SessionEventOf<K extends SessionEventKind> = Extract<SessionEvent, { kind: K }>;
 const sessionEvent = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('closing_soon'), timeLeftMs: z.number().optional() }),
@@ -437,10 +385,6 @@ const sessionEvent = z.discriminatedUnion('kind', [
 ]);
 true satisfies Equals<z.infer<typeof sessionEvent>, SessionEvent>;
 
-// ---------------------------------------------------------------------------
-// Tools
-
-/** A tool step that did not produce a result. */
 export interface ToolFailure {
   /** What went wrong, for the builder. Stable per failure site. */
   code: string;
@@ -461,7 +405,6 @@ const toolFailure = z.object({
 });
 true satisfies Equals<z.infer<typeof toolFailure>, ToolFailure>;
 
-/** What a tool needs the user to sign in to before it can run. */
 export interface ToolAuthChallenge {
   slot: string;
   authType: ToolAuthType;
@@ -511,7 +454,6 @@ const toolGate = z.discriminatedUnion('kind', [
 true satisfies Equals<z.infer<typeof toolGate>, ToolGate>;
 export const toolGateSchema: z.ZodType<ToolGate> = toolGate;
 
-/** A warning a tool streamed while it ran. */
 export interface ToolWarning {
   code: string;
   message: string;
@@ -524,7 +466,6 @@ const toolWarning = z.object({
 });
 true satisfies Equals<z.infer<typeof toolWarning>, ToolWarning>;
 
-/** One step a tool traced while it ran. */
 export interface ToolTraceStep {
   name: string;
   kind: string;
@@ -573,7 +514,6 @@ const toolActivityLabels = z.object({
 });
 true satisfies Equals<z.infer<typeof toolActivityLabels>, ToolActivityLabels>;
 
-/** A function tool as sent to the provider. */
 export interface WireFunctionTool {
   type: 'function';
   name: string;
@@ -588,7 +528,6 @@ const wireFunctionTool = z.object({
 });
 true satisfies Equals<z.infer<typeof wireFunctionTool>, WireFunctionTool>;
 
-/** Immutable tool visibility and provider-wire snapshot resolved for one turn. */
 export interface TurnToolSnapshot {
   builtins: string[];
   /** Tool ids eligible this turn (custom: allow + path; builtin: model builtInTools + path). */
@@ -600,7 +539,6 @@ export interface TurnToolSnapshot {
   path?: string;
   sessionPermissions?: string[];
   wire: WireFunctionTool[];
-  /** Each executable tool's activity labels, by tool id, when it declares them. */
   labels?: Record<string, ToolActivityLabels>;
 }
 const turnToolSnapshot = z.object({
@@ -616,7 +554,6 @@ const turnToolSnapshot = z.object({
 true satisfies Equals<z.infer<typeof turnToolSnapshot>, TurnToolSnapshot>;
 export const turnToolSnapshotSchema: z.ZodType<TurnToolSnapshot> = turnToolSnapshot;
 
-/** Fields every tool event carries. */
 export interface ToolEventBase {
   name: string;
   /** Call id: the provider's own id when it sent one, else kernel-assigned. */
@@ -659,7 +596,6 @@ const toolCallRequest = z.object({
 });
 true satisfies Equals<z.infer<typeof toolCallRequest>, ToolCallRequest>;
 
-/** Fields every phase event carries. */
 export interface ToolPhaseBase extends ToolEventBase {
   /** When the kernel emitted this phase (epoch ms). */
   at: number;
@@ -668,9 +604,7 @@ const toolPhaseBase = { ...toolEventBase, at: z.number() };
 
 /** The user edited the arguments before approving. */
 export interface ToolCallEdit {
-  /** What the model proposed. */
   from: Record<string, unknown>;
-  /** What runs. */
   to: Record<string, unknown>;
 }
 
@@ -727,15 +661,10 @@ const toolPhaseEvent = z.discriminatedUnion('phase', [
 ]);
 true satisfies Equals<z.infer<typeof toolPhaseEvent>, ToolPhaseEvent>;
 
-/** A tool event: the model's call or one phase of its execution. */
 export type ToolCallEvent = ToolCallRequest | ToolPhaseEvent;
 const toolCallEvent = z.union([toolPhaseEvent, toolCallRequest]);
 true satisfies Equals<z.infer<typeof toolCallEvent>, ToolCallEvent>;
 
-// ---------------------------------------------------------------------------
-// Stages and compaction
-
-/** Diagnostic emitted when a stage result contains an invalid or unavailable affordance. */
 export interface StageApplyWarning {
   code: StageApplyWarningCode;
   message: string;
@@ -751,9 +680,7 @@ true satisfies Equals<z.infer<typeof stageApplyWarning>, StageApplyWarning>;
 /** Compaction signal on `done` for `timing: 'after'` profiles. */
 export interface CompactionSignal {
   needed: boolean;
-  /** Which meter produced `tokens`. */
   meter: CompactionMeter;
-  /** Token count used for the compaction decision. */
   tokens: number;
   /** Media parts not counted in `tokens` — no verified rule for this model. */
   unknownMedia: number;
@@ -774,9 +701,6 @@ const compactionSignal = z.object({
 });
 true satisfies Equals<z.infer<typeof compactionSignal>, CompactionSignal>;
 
-// ---------------------------------------------------------------------------
-// Events
-
 /**
  * Theorem compacted the history; the host keeps `history` from now on. Only
  * `before` compacts inside Theorem — `after` is the host's to run, signalled on
@@ -790,7 +714,6 @@ export interface CompactionEvent {
   messagesBefore: number;
   messagesAfter: number;
   summary: string;
-  /** The compacted history the host keeps from now on. */
   history: TurnHistoryMessage[];
   /** The compaction call's own usage. */
   tokens?: TurnTokens;
@@ -803,13 +726,11 @@ const TOOL_SNAPSHOT_STOP_KINDS = [
   'gate',
 ] as const satisfies readonly ToolSnapshotStopKind[];
 
-/** Fields of `done` other than its stop and tool snapshot. */
 export interface DoneBase {
   /** The turn's summed usage (`sumTokens` over its `tokens` events). */
   tokens?: TurnTokens;
   /** The turn's root span as a W3C `traceparent`, for a later request's `links`. */
   traceparent?: string;
-  /** Compaction signal for `timing: 'after'` profiles. */
   compaction?: CompactionSignal;
   /** A user utterance interrupted an in-flight live response (barge-in). */
   interrupted?: boolean;
@@ -842,7 +763,6 @@ export type TurnEvent =
       evidence: ProviderEvidence;
       /** Transcription text. */
       text?: string;
-      /** Live session resumption handle. */
       sessionResumptionHandle?: string;
     }
   | { type: 'tokens'; tokens: TurnTokens; interactionId?: string }
@@ -865,7 +785,7 @@ export type TurnEvent =
       awaiting?: boolean;
       gate?: ToolGate;
       stop?: TurnStop;
-      /** Stage result fields the kernel dropped (`docs/contracts/stages.md`). */
+      /** Stage result fields the kernel dropped. */
       stageWarnings?: StageApplyWarning[];
       /** The named injects (`StageResult.injectId`) that landed in the conversation at this stage. */
       injected?: { id: string }[];
@@ -890,7 +810,6 @@ export type TurnEvent =
 
 export type TurnEventType = TurnEvent['type'];
 
-/** The event of one kind. */
 export type TurnEventOf<K extends TurnEventType> = Extract<TurnEvent, { type: K }>;
 
 /**
@@ -1053,7 +972,6 @@ const turnEvent = z.union([
   TURN_EVENTS.done,
 ]);
 true satisfies Equals<z.infer<typeof turnEvent>, TurnEvent>;
-/** What hosts receive and what the wire parsers check. */
 export const turnEventSchema: z.ZodType<TurnEvent> = turnEvent;
 
 /** Every `TurnEvent` kind and its schema: a wire parser tells a kind it doesn't know from a malformed one it does. */

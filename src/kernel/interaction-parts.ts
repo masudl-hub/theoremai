@@ -1,16 +1,6 @@
-/**
- * InteractionPart wire helpers shared by kernel history + provider adapters.
- *
- * @module
- */
-
 import type { InteractionMediaRefPart, InteractionPart, TurnHistoryMessage } from './types.ts';
 
-/**
- * Map an InteractionPart to the Google Interactions / function_result wire shape.
- * Reference parts emit `{ type, mimeType, uri }`; `toGoogleValue` snake-cases
- * `mimeType` → `mime_type`, which is the documented Interactions file input.
- */
+/** `toGoogleValue` snake-cases `mimeType` to the documented Interactions `mime_type`. */
 export function wireInteractionPart(part: InteractionPart): Record<string, string> {
   if (part.type === 'text') {
     return { type: 'text', text: part.text };
@@ -21,7 +11,6 @@ export function wireInteractionPart(part: InteractionPart): Record<string, strin
   return { type: part.type, mimeType: part.mimeType, data: part.data };
 }
 
-/** True when the part carries a provider file reference instead of inline bytes. */
 export function isMediaRefPart(part: InteractionPart): part is InteractionMediaRefPart {
   return part.type !== 'text' && 'uri' in part;
 }

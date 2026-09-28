@@ -1,15 +1,5 @@
-/**
- * Whether a profile must set each field, and what leaving it out does — for
- * authoring UIs, which mark the fields a profile can't omit and show what a
- * blank one means. `PROFILE_FIELDS` exposes it on each field's `FieldMeta`.
- *
- * `defineProfile` enforces the requirements; this records them for display. A
- * path with no entry says nothing either way.
- *
- * Leaf module: `schema.ts` reads it at load time.
- *
- * @module
- */
+// Leaf module: `schema.ts` reads it at load time. `defineProfile` enforces the requirements;
+// this records them for display.
 
 /** lexicon-exempt-file: authoring field-meta presence notes — not runtime user or model copy (P2) */
 

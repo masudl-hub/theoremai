@@ -25,6 +25,7 @@ import {
 	streamInterfaceDraftTurn,
 	streamInterfaceTurn,
 	type AnsweringGate,
+	type StreamView,
 	type ToolDecisionAction,
 	type ToolGateResolution,
 } from '../client/index';
@@ -58,7 +59,7 @@ function newTurnId(): string {
 
 export type RunTurnStream = (
 	run: (
-		onStream: (blocks: TranscriptBlock[]) => void,
+		view: StreamView,
 		/** The work so far of the reply the session waits on (none when it waits on nothing). */
 		paused: { workedMs: number },
 	) => Promise<
@@ -143,7 +144,7 @@ function useTurnStarters(args: TheoremChatActionArgs) {
 			if (!started) return;
 
 			await args.runTurnStream(
-				(onStream) =>
+				(view) =>
 					streamInterfaceTurn({
 						iface: started.composer,
 						transport: args.transport,
@@ -153,7 +154,7 @@ function useTurnStarters(args: TheoremChatActionArgs) {
 						pendingVoice: fields.voice,
 						signal: started.signal,
 						turnId: started.turnId,
-						onStream,
+						view,
 						onUserBlocks: (userBlocks) => {
 							args.setBlocks((prev) => [...prev, ...userBlocks]);
 							args.setDelivery({ status: 'sending' });
@@ -182,7 +183,7 @@ function useTurnStarters(args: TheoremChatActionArgs) {
 			if (!started) return;
 
 			await args.runTurnStream(
-				(onStream, paused) =>
+				(view, paused) =>
 					streamInterfaceDraftTurn({
 						iface: started.composer,
 						transport: args.transport,
@@ -190,7 +191,7 @@ function useTurnStarters(args: TheoremChatActionArgs) {
 						draft,
 						signal: started.signal,
 						turnId: started.turnId,
-						onStream,
+						view,
 						...(options.walkAway ? { walkAway: paused } : {}),
 						onUserBlocks: (posted) => {
 							args.setBlocks((prev) => [...prev, ...posted]);
@@ -308,11 +309,11 @@ function useGateActions(args: TheoremChatActionArgs) {
 			// Set once the run starts (not while another runs), and cleared once it has ended.
 			let started = false;
 			try {
-				await args.runTurnStream((onStream) => {
+				await args.runTurnStream((view) => {
 					started = true;
 					const session = args.sessionRef.current;
 					if (session.gatedTool) args.setAnswering({ callId: session.gatedTool.callId, action: resolution.action });
-					return resumeInterfaceTool({ iface: composer, transport: args.transport, session, resolution, onStream });
+					return resumeInterfaceTool({ iface: composer, transport: args.transport, session, resolution, view });
 				});
 			} finally {
 				if (started) args.setAnswering(null);

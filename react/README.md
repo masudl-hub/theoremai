@@ -50,10 +50,14 @@ interface `describe` returns are each checked against their schema, both ways:
   no host functions. The transport and the live client read each line or
   envelope against its kind's schema, and `describe` against
   `profileInterfaceSchema`. A kind the client does not know reaches
-  the event handler as `unsupported` and the turn goes on. On a text turn, a
-  known kind that fails its schema ends the turn with `bad_response`; on a
-  live call, the client reports it to `onError` as `bad_response`, skips it,
-  and the call goes on.
+  the event handler as `unsupported`, and one that fails its check (not JSON,
+  no kind, or a known kind that fails its schema) as `malformed`: a
+  `bad_response` naming what broke, never the value. Either way the reply or
+  call goes on without it. The chat names a skipped part in the composer and
+  the live call in its failure banner, both with the lexicon's
+  `session.part_skipped`; a run built on `streamInterfaceTurn` hears of it
+  through its `view.skipped`. A `describe` reply that fails its schema is
+  `bad_response`.
 
 ## Local layout
 

@@ -12,7 +12,6 @@ import {
 	type GateDecision,
 	type ToolGate,
 	type TraceRecord,
-	TheoremError,
 	toolGateSchema,
 	traceRecordSchema,
 	TURN_EVENT_SCHEMAS,
@@ -20,7 +19,13 @@ import {
 } from '../../../mod.ts';
 import type { Equals } from '../../../src/kernel/util/exact-type.ts';
 import { type HostErrorBody, hostErrorBodySchema } from './transport.ts';
-import { parseWireLine, type UnsupportedEvent, type WireLines } from './wire-line.ts';
+import {
+	type MalformedEvent,
+	readWireLine,
+	readWireValue,
+	type UnsupportedEvent,
+	type WireLines,
+} from './wire-line.ts';
 
 /** What the live client sends its relay, besides the host's own `openMessage`. */
 export type LiveClientMessage =
@@ -48,8 +53,8 @@ export const liveClientMessageSchema: z.ZodType<LiveClientMessage> = liveClientM
 /** The envelopes a relay sends the live client. */
 export type LiveServerEnvelope =
 	| { type: 'ready'; profile?: string; sessionId?: string }
-	/** The session's events; one of a kind this client does not know arrives as `unsupported`. */
-	| { type: 'events'; events: (TurnEvent | UnsupportedEvent)[] }
+	/** The session's events; one of a kind this client does not know arrives as `unsupported`, one that fails its check as `malformed`. */
+	| { type: 'events'; events: (TurnEvent | UnsupportedEvent | MalformedEvent)[] }
 	/** A trace record the session wrote, from a relay that delivers its traces (the playground). */
 	| { type: 'trace'; record: TraceRecord }
 	/** The relay's error body, read as a host error. */
@@ -94,27 +99,14 @@ true satisfies Equals<
 const liveServerEnvelopeLines: WireLines<LiveServerWireEnvelope> = liveServerEnvelopeKinds;
 
 /**
- * One envelope from the relay, checked: an envelope or event of a kind this
- * client does not know is `unsupported`; a malformed envelope throws
- * `bad_response`. A malformed event goes to `onMalformed` as `bad_response`
- * and is left out; the envelope's other events stand.
+ * One envelope's text from the relay, checked: an envelope or event of a kind
+ * this client does not know is `unsupported`, and one that fails its check is
+ * `malformed`. A malformed event leaves the envelope's other events standing.
  */
-export function parseLiveServerEnvelope(
-	raw: unknown,
-	onMalformed: (error: TheoremError) => void,
-): LiveServerEnvelope | UnsupportedEvent {
-	const envelope = parseWireLine(liveServerEnvelopeLines, raw);
+export function parseLiveServerEnvelope(text: string): LiveServerEnvelope | UnsupportedEvent | MalformedEvent {
+	const envelope = readWireLine(liveServerEnvelopeLines, text);
 	if (envelope.type !== 'events') return envelope;
-	const events: (TurnEvent | UnsupportedEvent)[] = [];
-	for (const event of envelope.events) {
-		try {
-			events.push(parseWireLine(TURN_EVENT_SCHEMAS, event));
-		} catch (err) {
-			if (!(err instanceof TheoremError)) throw err;
-			onMalformed(err);
-		}
-	}
-	return { type: 'events', events };
+	return { type: 'events', events: envelope.events.map((event) => readWireValue(TURN_EVENT_SCHEMAS, event)) };
 }
 
 /** What the session did with an `executeTool`: settled the call, or holds it on a gate. */

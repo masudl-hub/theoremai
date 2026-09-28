@@ -13,9 +13,9 @@ import {
 	type InterfaceTurnSession,
 	type TranscriptBlock,
 } from '../../../src/interface/mod.ts';
-import type { TurnFailure } from '../client/failure';
+import { clientFailure, type TurnFailure } from '../client/failure';
 import { followGenerationDefaults } from '../client/generation-selection';
-import { applyTurnResultToTranscript } from '../client/index';
+import { applyTurnResultToTranscript, type StreamView } from '../client/index';
 import type { TheoremTransport, TurnEventSink } from '../client/transport';
 import { type RunTurnStream, useTheoremChatActions } from './use-theorem-chat-actions';
 import { type MessageDelivery, type SetSession, useTheoremChatState } from './use-theorem-chat-state';
@@ -153,7 +153,7 @@ function useRunTurnStream(iface: ComposerProfileInterface | null, state: ChatSta
 	return useCallback(
 		async (
 			run: (
-				onStream: (partial: TranscriptBlock[]) => void,
+				view: StreamView,
 				paused: { workedMs: number },
 			) => Promise<TurnOk | TurnFailure>,
 			options: { userBlocksAlreadyApplied?: boolean; walksAway?: boolean } = {},
@@ -169,10 +169,15 @@ function useRunTurnStream(iface: ComposerProfileInterface | null, state: ChatSta
 
 			const work = (async () => {
 				let latestStream: TranscriptBlock[] = [];
-				const result = await run((partial) => {
-					latestStream = partial;
-					state.scheduleStreamBlocks(partial);
-				}, paused);
+				const view: StreamView = {
+					blocks: (partial) => {
+						latestStream = partial;
+						state.scheduleStreamBlocks(partial);
+					},
+					// The reply goes on; the composer names what it left out.
+					skipped: (error) => state.setFailure(clientFailure(error, iface.lexicon)),
+				};
+				const result = await run(view, paused);
 
 				const endedAt = Date.now();
 				replyWorkedMs.current += endedAt - runStartedAt;

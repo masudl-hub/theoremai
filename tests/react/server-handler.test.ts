@@ -93,6 +93,7 @@ async function collect(run: (onEvent: TurnEventSink) => Promise<void>): Promise<
   const events: TurnEvent[] = [];
   await run((event) => {
     if (event.type === 'unsupported') throw new Error(`unsupported line: ${event.received}`);
+    if (event.type === 'malformed') throw event.error;
     events.push(event);
   });
   return events;

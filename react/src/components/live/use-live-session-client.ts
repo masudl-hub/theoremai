@@ -135,6 +135,11 @@ export function useLiveSessionClient(bindings: LiveClientBindings) {
 			onTurnEvent: (event) => {
 				// An `unsupported` event is the host's to read; Theorem's UI shows nothing for it.
 				if (event.type === 'unsupported') return;
+				// A `malformed` one was left out and the call goes on; the user reads that part was skipped.
+				if (event.type === 'malformed') {
+					bindingsRef.current.reportFailure(event.error);
+					return;
+				}
 				bindingsRef.current.handleLiveTurnEvent(event);
 			},
 			onTrace: (record) => {

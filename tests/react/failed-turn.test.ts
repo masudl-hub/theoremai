@@ -11,6 +11,7 @@ import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import { registerGooglePreset } from '../../src/presets/google.ts';
 import { CHAT_MEDIA_LIMITS, HOST_BINDINGS } from '../fixtures/models.ts';
+import { unskippedView } from '../fixtures/stream-view.ts';
 
 registerGooglePreset();
 
@@ -49,7 +50,7 @@ Deno.test('a turn that fails partway keeps the message and what the reply got th
     iface: textInterface(),
     transport: failingTransport(new TheoremError('rate_limit', 'quota')),
     session: emptyInterfaceTurnSession(),
-    onStream: () => {},
+    view: unskippedView,
     text: 'Tell me a story',
     pendingFiles: [],
     pendingVoice: [],
@@ -68,7 +69,7 @@ Deno.test('a stopped turn keeps the message but not the reply it dropped', async
     iface: textInterface(),
     transport: failingTransport(new TheoremError('cancelled', 'stopped')),
     session: emptyInterfaceTurnSession(),
-    onStream: () => {},
+    view: unskippedView,
     text: 'Tell me a story',
     pendingFiles: [],
     pendingVoice: [],
@@ -76,4 +77,40 @@ Deno.test('a stopped turn keeps the message but not the reply it dropped', async
   if (result.ok) throw new Error('expected a failure');
   assertEquals(result.aborted, true);
   assertEquals(result.session?.history, [{ role: 'user', content: 'Tell me a story' }]);
+});
+
+Deno.test('a line the stream left out is named, and the reply goes on without it', async () => {
+  const skipped: TheoremError[] = [];
+  const left = new TheoremError(
+    'bad_response',
+    "a 'text' line failed its wire check: text invalid_type",
+    {
+      copy: { key: 'session.part_skipped' },
+    },
+  );
+  const result = await streamInterfaceTurn({
+    iface: textInterface(),
+    transport: {
+      turn: (_request, onEvent) => {
+        onEvent({ type: 'text', text: 'The first half' });
+        onEvent({ type: 'malformed', error: left });
+        onEvent({ type: 'text', text: ', and the rest.' });
+        return Promise.resolve();
+      },
+      invoke: () => Promise.reject(new Error('unused')),
+      steer: () => Promise.reject(new Error('unused')),
+      describe: () => Promise.reject(new Error('unused')),
+    },
+    session: emptyInterfaceTurnSession(),
+    view: { blocks: () => {}, skipped: (error) => skipped.push(error) },
+    text: 'Tell me a story',
+    pendingFiles: [],
+    pendingVoice: [],
+  });
+  if (!result.ok) throw new Error('expected the reply to commit');
+  assertEquals(skipped, [left]);
+  assertEquals(result.session.history, [
+    { role: 'user', content: 'Tell me a story' },
+    { role: 'assistant', content: 'The first half, and the rest.' },
+  ]);
 });

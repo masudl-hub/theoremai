@@ -16,6 +16,7 @@ import {
 	failTurnStream,
 	finalizeTurnStream,
 	stampWorked,
+	type StreamView,
 	streamFoldedTurn,
 	toTurnMedia,
 } from './run-commit.ts';
@@ -32,6 +33,7 @@ import {
 } from './turn-client.ts';
 
 export type { TurnFailure } from './failure.ts';
+export type { StreamView } from './run-commit.ts';
 
 /**
  * A session state the user can't act from (no gate waiting, a gate without a
@@ -68,7 +70,7 @@ async function streamPreparedInterfaceTurn(args: {
 	prepared: PreparedUserTurn;
 	encodedAttachments?: Awaited<ReturnType<typeof encodeFiles>>;
 	encodedVoice?: Awaited<ReturnType<typeof encodeFiles>>;
-	onStream: (blocks: TranscriptBlock[]) => void;
+	view: StreamView;
 	onUserBlocks?: (blocks: TranscriptBlock[]) => void;
 	signal?: AbortSignal;
 	turnId?: string;
@@ -107,7 +109,7 @@ async function streamPreparedInterfaceTurn(args: {
 	try {
 		await streamFoldedTurn({
 			iface: args.iface,
-			onStream: args.onStream,
+			view: args.view,
 			events,
 			stream: (onEvent) =>
 				args.transport.turn(
@@ -155,7 +157,7 @@ export type StreamInterfaceTurnBaseArgs = {
 	iface: ComposerProfileInterface;
 	transport: TheoremTransport;
 	session: InterfaceTurnSession;
-	onStream: (blocks: TranscriptBlock[]) => void;
+	view: StreamView;
 	/**
 	 * Fires once the message posts, before its reply streams, with the blocks
 	 * the transcript gains: a walked-away reply's settled blocks, then the
@@ -214,7 +216,7 @@ async function runPreparedTurnStream(
 			prepared: outcome.prepared,
 			encodedAttachments: outcome.encodedAttachments,
 			encodedVoice: outcome.encodedVoice,
-			onStream: args.onStream,
+			view: args.view,
 			onUserBlocks: args.onUserBlocks,
 			signal: args.signal,
 			turnId: args.turnId,
@@ -277,7 +279,7 @@ async function continueOnceSettled(args: {
 	iface: ComposerProfileInterface;
 	transport: TheoremTransport;
 	session: InterfaceTurnSession;
-	onStream: (blocks: TranscriptBlock[]) => void;
+	view: StreamView;
 	events: TurnEvent[];
 }): Promise<
 	| { ok: true; session: InterfaceTurnSession; assistantBlocks: TranscriptBlock[] }
@@ -301,7 +303,7 @@ export async function resumeInterfaceTool(args: {
 	transport: TheoremTransport;
 	session: InterfaceTurnSession;
 	resolution: ToolGateResolution;
-	onStream: (blocks: TranscriptBlock[]) => void;
+	view: StreamView;
 }): Promise<
 	| { ok: true; session: InterfaceTurnSession; assistantBlocks: TranscriptBlock[] }
 	| TurnFailure
@@ -321,7 +323,7 @@ export async function resumeInterfaceTool(args: {
 	try {
 		await streamFoldedTurn({
 			iface: args.iface,
-			onStream: args.onStream,
+			view: args.view,
 			events,
 			stream: (onEvent) =>
 				args.transport.invoke(

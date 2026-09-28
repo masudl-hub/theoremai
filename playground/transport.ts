@@ -24,6 +24,7 @@ import {
   postJson,
   postNdjson,
   type TheoremTransport,
+  type MalformedEvent,
   type TurnEventSink,
   type UnsupportedEvent,
   type WireLines,
@@ -68,7 +69,7 @@ function routeLines(
   traces: TraceFeed,
   onSteerInbox: (inbox: string) => void,
 ) {
-  return (line: PlaygroundLine | UnsupportedEvent) => {
+  return (line: PlaygroundLine | UnsupportedEvent | MalformedEvent) => {
     if (line.type === 'trace') traces.push(line.record);
     else if (line.type === 'steer_inbox') onSteerInbox(line.inbox);
     else onEvent(line);

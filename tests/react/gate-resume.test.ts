@@ -25,6 +25,7 @@ import type { ToolFailure } from '../../src/kernel/turn-events.ts';
 import { registerGooglePreset } from '../../src/presets/google.ts';
 import { toolSnapshot } from '../fixtures/events.ts';
 import { CHAT_MEDIA_LIMITS, HOST_BINDINGS } from '../fixtures/models.ts';
+import { unskippedView } from '../fixtures/stream-view.ts';
 
 registerGooglePreset();
 
@@ -105,7 +106,7 @@ Deno.test('a gate on a later call of a step resumes with the whole step in histo
     iface,
     transport,
     session: emptyInterfaceTurnSession(),
-    onStream: () => {},
+    view: unskippedView,
     text: 'Look up a and b',
     pendingFiles: [],
     pendingVoice: [],
@@ -119,7 +120,7 @@ Deno.test('a gate on a later call of a step resumes with the whole step in histo
     transport,
     session: paused.session,
     resolution: { action: 'allow' },
-    onStream: () => {},
+    view: unskippedView,
   });
   if (!resumed.ok) throw new Error(resumed.error);
 
@@ -209,13 +210,13 @@ Deno.test('a step with two gates asks for each in order, then continues once', a
   };
   const iface = textInterface();
   const resume = (session: InterfaceTurnSession, action: 'allow' | 'deny') =>
-    resumeInterfaceTool({ iface, transport, session, resolution: { action }, onStream: () => {} });
+    resumeInterfaceTool({ iface, transport, session, resolution: { action }, view: unskippedView });
 
   const paused = await streamInterfaceTurn({
     iface,
     transport,
     session: emptyInterfaceTurnSession(),
-    onStream: () => {},
+    view: unskippedView,
     text: 'Look up a, b and c',
     pendingFiles: [],
     pendingVoice: [],
@@ -263,7 +264,7 @@ async function pausedOnTwo(iface: ComposerProfileInterface, transport: TheoremTr
     iface,
     transport,
     session: emptyInterfaceTurnSession(),
-    onStream: () => {},
+    view: unskippedView,
     text: 'Look up a and b',
     pendingFiles: [],
     pendingVoice: [],
@@ -314,7 +315,7 @@ Deno.test('a message sent while gated walks away from every waiting call in its 
     session: paused,
     draft: { text: 'Never mind' },
     walkAway: { workedMs: 1200 },
-    onStream: () => {},
+    view: unskippedView,
     onUserBlocks: (blocks) => posted.push(blocks),
   });
   if (!sent.ok) throw new Error(sent.error);
@@ -372,7 +373,7 @@ Deno.test('a walk-away that fails before its calls settle leaves the reply waiti
     session: paused,
     draft: { text: 'Never mind' },
     walkAway: { workedMs: 0 },
-    onStream: () => {},
+    view: unskippedView,
     onUserBlocks: (blocks) => posted.push(blocks),
   });
   assertEquals(sent.ok, false);
@@ -398,7 +399,7 @@ Deno.test('a message sent while gated, without walking away, is refused', async 
     transport,
     session: paused,
     draft: { text: 'Never mind' },
-    onStream: () => {},
+    view: unskippedView,
   });
   assertEquals(sent.ok ? undefined : sent.error, lexiconDefault('session.gate_pending'));
 });
@@ -433,7 +434,7 @@ Deno.test('an answer the network lost before its call settled leaves the reply w
     transport,
     session: paused,
     resolution: { action: 'allow' },
-    onStream: () => {},
+    view: unskippedView,
   });
   assertEquals(answered.ok, false);
   if (answered.ok) return;
@@ -450,7 +451,7 @@ Deno.test('an answer the network lost after its call settled keeps the result, a
     transport,
     session: paused,
     resolution: { action: 'allow' },
-    onStream: () => {},
+    view: unskippedView,
   });
   if (answered.ok) throw new Error('expected the answer to fail');
   assertEquals(answered.session?.gatedTool?.callId, 'b');
@@ -475,7 +476,7 @@ Deno.test('an answer the network lost after its only call settled commits the re
     iface,
     transport,
     session: emptyInterfaceTurnSession(),
-    onStream: () => {},
+    view: unskippedView,
     text: 'Look up a',
     pendingFiles: [],
     pendingVoice: [],
@@ -486,7 +487,7 @@ Deno.test('an answer the network lost after its only call settled commits the re
     transport,
     session: paused.session,
     resolution: { action: 'allow' },
-    onStream: () => {},
+    view: unskippedView,
   });
   if (answered.ok) throw new Error('expected the answer to fail');
   assertEquals(answered.session?.gatedTool, null);

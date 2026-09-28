@@ -30,7 +30,6 @@ import {
 import { base64ToBytes, bytesToBase64 } from '../../../src/kernel/util/base64.ts';
 import { downsampleAndConvertToInt16, pcm16BytesToFloat32 } from './pcm-downsample';
 import { type ClientTurnEvent, hostError } from './transport';
-import { parseWireJson } from './wire-line';
 import micCaptureWorkletUrl from './mic-capture.worklet?worker&url';
 
 type LiveToolCall = {
@@ -97,7 +96,10 @@ export interface LiveClientOptions {
 	onStatusChange?: (status: LiveSessionStatus) => void;
 	onConnectPhase?: (phase: LiveConnectPhase | null) => void;
 	onTranscript?: (text: string, isUser: boolean, meta?: { interim?: boolean }) => void;
-	/** Every event the session sends, and `unsupported` for a kind this client does not know. */
+	/**
+	 * Every event the session sends, `unsupported` for a kind this client does
+	 * not know, and `malformed` for one that failed its check (left out; the call goes on).
+	 */
 	onTurnEvent?: (event: ClientTurnEvent) => void;
 	/** A trace record the session wrote, when the relay delivers them. */
 	onTrace?: (record: TraceRecord) => void;
@@ -476,9 +478,9 @@ export class LiveSessionClient {
 			.then(async () => {
 				if (typeof data !== 'string') return;
 
-				// A malformed message is named and skipped; the call goes on.
-				const payload = parseLiveServerEnvelope(parseWireJson(data), (err) => this.options.onError?.(err));
-				if (payload.type === 'unsupported') this.options.onTurnEvent?.(payload);
+				const payload = parseLiveServerEnvelope(data);
+				// An envelope the client can't use reaches onTurnEvent like any event; the call goes on.
+				if (payload.type === 'unsupported' || payload.type === 'malformed') this.options.onTurnEvent?.(payload);
 				else await this.processServerEnvelope(payload);
 			})
 			.catch((err: unknown) => {

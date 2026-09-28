@@ -1,4 +1,4 @@
-import type { TurnBlob, TurnEvent } from '../../../mod.ts';
+import type { TheoremError, TurnBlob, TurnEvent } from '../../../mod.ts';
 import {
 	appendAssistantEventsToHistory,
 	appendUserDraftToHistory,
@@ -83,21 +83,33 @@ function withFailedTurnSession(
 	return { ...failure, session: commit(failure.aborted ? seedEvents : events) };
 }
 
+/** Where a run shows itself as it streams: the reply so far, and each line the stream left out. */
+export type StreamView = {
+	blocks(blocks: TranscriptBlock[]): void;
+	/** A `malformed` line: left out, and the reply goes on. */
+	skipped(error: TheoremError): void;
+};
+
 /**
  * Streams into `events`, which the caller owns, so a stream that fails still
  * leaves what it delivered. An `unsupported` line is the host's to read on its
- * own transport: it never enters the turn, its history or its transcript.
+ * own transport, and a `malformed` one goes to `view.skipped`: neither enters
+ * the turn, its history or its transcript.
  */
 async function streamFoldedEvents(
 	stream: (onEvent: TurnEventSink) => Promise<void>,
-	onStream: (blocks: TranscriptBlock[]) => void,
+	view: StreamView,
 	iface: ComposerProfileInterface,
 	events: TurnEvent[],
 ): Promise<TurnEvent[]> {
 	await stream((event) => {
 		if (event.type === 'unsupported') return;
+		if (event.type === 'malformed') {
+			view.skipped(event.error);
+			return;
+		}
 		events.push(event);
-		onStream(foldAssistantTurn(iface, events));
+		view.blocks(foldAssistantTurn(iface, events));
 	});
 	return events;
 }
@@ -106,7 +118,7 @@ export async function continueAfterTool(args: {
 	iface: ComposerProfileInterface;
 	transport: TheoremTransport;
 	session: InterfaceTurnSession;
-	onStream: (blocks: TranscriptBlock[]) => void;
+	view: StreamView;
 	seedEvents: TurnEvent[];
 }): Promise<
 	| { ok: true; session: InterfaceTurnSession; assistantBlocks: TranscriptBlock[] }
@@ -122,7 +134,7 @@ export async function continueAfterTool(args: {
 		await streamFoldedEvents(
 			(onEvent) =>
 				args.transport.turn(buildTurnRequest(args.iface, sent, turnInputFromSession(sent)), onEvent),
-			args.onStream,
+			args.view,
 			args.iface,
 			events,
 		);
@@ -195,12 +207,12 @@ export function finalizeTurnStream(args: {
 
 export function streamFoldedTurn(args: {
 	iface: ComposerProfileInterface;
-	onStream: (blocks: TranscriptBlock[]) => void;
+	view: StreamView;
 	/** Seeded by the caller, and filled as the stream delivers. */
 	events: TurnEvent[];
 	stream: (onEvent: TurnEventSink) => Promise<void>;
 }): Promise<TurnEvent[]> {
-	return streamFoldedEvents(args.stream, args.onStream, args.iface, args.events);
+	return streamFoldedEvents(args.stream, args.view, args.iface, args.events);
 }
 
 /** `blocks` with its last `turn-done` carrying the reply's work. */

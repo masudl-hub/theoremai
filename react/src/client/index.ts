@@ -16,6 +16,7 @@ export { isOAuthComplete, notifyOAuthComplete } from './oauth-popup';
 export {
 	applyTurnResultToTranscript,
 	resumeInterfaceTool,
+	type StreamView,
 	streamInterfaceDraftTurn,
 	streamInterfaceTurn,
 } from './run-session';
@@ -37,6 +38,7 @@ export {
 	type HttpOptions,
 	type HttpTransportOptions,
 	isTheoremStreamError,
+	type MalformedEvent,
 	postJson,
 	postNdjson,
 	readNdjsonStream,

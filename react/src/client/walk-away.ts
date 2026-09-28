@@ -61,7 +61,7 @@ export function walkAwayFrom(
 		request: { paused, calls },
 		history: appendPausedTurnToHistory(paused.history, paused.assistantEvents),
 		sink: (onEvent, onSettled) => (event) => {
-			if (!waiting.size || event.type === 'unsupported') {
+			if (!waiting.size || event.type === 'unsupported' || event.type === 'malformed') {
 				onEvent(event);
 				return;
 			}

@@ -1,5 +1,4 @@
-import { assertEquals, assertThrows } from '@std/assert';
-import { TheoremError } from '../../mod.ts';
+import { assertEquals } from '@std/assert';
 import {
   compilePlayground,
   createExampleDraft,
@@ -12,7 +11,7 @@ import { createTraceFeed } from '../../react/src/client/trace-feed.ts';
 import type { ClientTurnEvent } from '../../react/src/client/transport.ts';
 import type { TurnEvent } from '../../src/kernel/types.ts';
 import type { TraceRecord } from '../../src/observability/trace-record.ts';
-import { neverMalformed } from '../fixtures/live-envelope.ts';
+import { assertMalformed } from '../fixtures/malformed.ts';
 import { STUB_WRITE, stubRecord, stubSpan } from '../fixtures/trace-record.ts';
 
 function recordFor(metadata: Record<string, unknown> | undefined): TraceRecord {
@@ -78,15 +77,12 @@ Deno.test('a playground run stream sends turn events to the turn and trace lines
 
 Deno.test('a Live trace envelope carries one record', () => {
   const record = recordFor(undefined);
-  assertEquals(parseLiveServerEnvelope({ type: 'trace', record }, neverMalformed), {
+  assertEquals(parseLiveServerEnvelope(JSON.stringify({ type: 'trace', record })), {
     type: 'trace',
     record,
   });
-  // A trace envelope without its record, or with one that fails its schema, is a bad response.
+  // A trace envelope without its record, or with one that fails its schema, is malformed.
   for (const raw of [{ type: 'trace', record: { spans: 'none' } }, { type: 'trace' }]) {
-    assertEquals(
-      assertThrows(() => parseLiveServerEnvelope(raw, neverMalformed), TheoremError).kind,
-      'bad_response',
-    );
+    assertMalformed(parseLiveServerEnvelope(JSON.stringify(raw)));
   }
 });

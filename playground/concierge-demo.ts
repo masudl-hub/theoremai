@@ -8,7 +8,7 @@ const DEMO_VOICE_ACCEPT = VOICE_ACCEPT_MIMES.filter((mime) => mime === 'audio/*'
 
 // Nominatim and Wikipedia refuse requests that don't name their client.
 const DEMO_CLIENT_HEADERS = `{
-  "User-Agent": "TheoremPlayground/1.0 (travel demo; +https://github.com/theoremai)"
+  "User-Agent": "TheoremPlayground/1.0 (travel demo; +https://github.com/masudl-hub/theoremai)"
 }`;
 
 const DISCOVER_LOADED = ['get_cat_fact', 'tell_joke', 'get_advice', 'random_dog_image'] as const;

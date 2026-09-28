@@ -7,11 +7,11 @@ deferred.
 
 ## Goal
 
-Add native support for TypeSafe Jev as a first-class Theoremai decision
+Add native support for TypeSafe Jev as a first-class Theorem decision
 capability. A Jev call resolves structured questions over host-supplied JSON
 state; it is not a conversational turn, a tool loop, or a streaming provider.
 
-The design must preserve Theoremai's existing profile, key-vault, guardrail,
+The design must preserve Theorem's existing profile, key-vault, guardrail,
 observability, and interface conventions without representing Jev as an
 OpenAI-compatible chat provider.
 
@@ -128,7 +128,7 @@ interface DecisionProfile {
 }
 ```
 
-`protocol` and `provider` are intentionally absent. In current Theoremai they
+`protocol` and `provider` are intentionally absent. In current Theorem they
 mean a selection for `createProvider` and a chat/live wire transport. Jev has a
 native execution path. If a second decision engine is added later, adapters
 belong behind `runDecision`; adding a transport-shaped field now would make the
@@ -182,7 +182,7 @@ native adapter even though it is valid JSON, because the tested Jev endpoint
 rejects it.
 
 The contract owns application semantics such as whether a decision is merely
-advisory or authorizes an action. Theoremai must not promote a Jev answer into
+advisory or authorizes an action. Theorem must not promote a Jev answer into
 authority automatically.
 
 ## Results and errors

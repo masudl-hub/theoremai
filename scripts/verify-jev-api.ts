@@ -461,7 +461,7 @@ if (hasFlag('--edge')) {
   const invalidModelAssertion = await expectRejectedRequest(
     'invalid model contract',
     {
-      model: '__theoremai_invalid_jev_model__',
+      model: '__theoremjs_invalid_jev_model__',
       state: 'This request must be rejected before evaluation.',
       questions: {
         validQuestion: {

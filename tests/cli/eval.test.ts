@@ -158,6 +158,26 @@ Deno.test('the CLI router runs eval over recorded traces and the help names it',
   assertStringIncludes(help.out, '--recorded <path>');
 });
 
+Deno.test('eval says a cost went unreported rather than printing zero', async () => {
+  const unpriced: ModelProvider = {
+    async *complete(req) {
+      for await (const event of translator.complete(req)) {
+        yield event.type === 'tokens'
+          ? { type: 'tokens', tokens: { input: 20, output: 10, total: 30 } }
+          : event;
+      }
+    },
+  };
+  const { out } = await captured(() =>
+    evalCommand({ suite: SUITE, trials: 2 }, { provider: unpriced }),
+  );
+  assertStringIncludes(out, '4/4 cases passed; cost not reported (8 calls)');
+  const priced = await captured(() =>
+    evalCommand({ suite: SUITE, trials: 2 }, { provider: translator }),
+  );
+  assertStringIncludes(priced.out, '4/4 cases passed; cost $0.0080');
+});
+
 /** Says every record is correct, for a cost of its own. */
 const affirmingJudge: ModelProvider = {
   async *complete() {

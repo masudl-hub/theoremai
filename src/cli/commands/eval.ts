@@ -58,6 +58,14 @@ function blame(report: TrialReport): string[] {
   });
 }
 
+/** The run's cost, never a zero standing in for calls whose provider reported none. */
+function costLine(run: SuiteRun): string {
+  if (run.unpriced === 0) return `cost $${run.costUsd.toFixed(4)}`;
+  const calls = `${run.unpriced} call${run.unpriced === 1 ? '' : 's'}`;
+  if (run.costUsd === 0) return `cost not reported (${calls})`;
+  return `cost $${run.costUsd.toFixed(4)}, plus ${calls} whose cost went unreported`;
+}
+
 function printTable(run: SuiteRun): void {
   const width = Math.max(4, ...run.verdicts.map((verdict) => verdict.case.length));
   console.log(`\n▶ [EVAL] Suite: ${run.suite} (${run.mode}, ${run.repeat} trials per case)\n`);
@@ -91,7 +99,7 @@ function printTable(run: SuiteRun): void {
     );
   }
   const passed = run.verdicts.filter((verdict) => verdict.passed).length;
-  console.log(`\n  ${passed}/${run.verdicts.length} cases passed; cost $${run.costUsd.toFixed(4)}`);
+  console.log(`\n  ${passed}/${run.verdicts.length} cases passed; ${costLine(run)}`);
   if (run.stopped) console.log(`  ${YELLOW}stopped on ${run.stopped}${RESET}`);
   for (const warning of run.warnings) console.log(`  ${YELLOW}warning${RESET}: ${warning}`);
   console.log('');

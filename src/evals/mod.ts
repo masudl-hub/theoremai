@@ -20,8 +20,13 @@ export { turnLatency } from './graders/latency.ts';
 export type { TranscriptionGraders } from './graders/live.ts';
 export { interruptions, transcription } from './graders/live.ts';
 export { TRIAL_VARIABLES, trialVariables } from './graders/transcript.ts';
-export type { GradedResult, RunRecordInput, TrialRecordInput } from './record.ts';
-export { buildRunRecord, buildTrialRecord } from './record.ts';
+export type {
+  GradedResult,
+  OpenTrialRecord,
+  RunRecordInput,
+  TrialRecordInput,
+} from './record.ts';
+export { buildRunRecord, startTrialRecord } from './record.ts';
 export type { EvalRubric, EvalRubricQuestion } from './rubrics/mod.ts';
 export { fillRubric, rubric, rubrics } from './rubrics/mod.ts';
 export type { RunSuiteOptions, SuiteRun, TrialReport } from './run.ts';

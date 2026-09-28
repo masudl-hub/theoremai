@@ -237,7 +237,13 @@ export interface EvalGradeContext {
   judgeProvider?: ModelProvider;
   /** The host's key (a flat key or a vault) for decision judge profiles. */
   judgeDecision?: Omit<RunDecisionOptions, 'sink'>;
-  /** Every trace a grader's own judge call produced. */
+  /**
+   * The trial span as a W3C `traceparent`: a judge call runs under it, so it
+   * lands in the judged trace beneath the trial. Absent, each judge call
+   * starts a trace of its own.
+   */
+  traceparent?: string;
+  /** Every record a grader's own judge call produced. */
   traced: (records: TraceRecord[]) => void | Promise<void>;
   signal?: AbortSignal;
 }

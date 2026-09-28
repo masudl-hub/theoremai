@@ -98,7 +98,7 @@ Deno.test('runDecision validates and normalizes a Jev response', async () => {
                 probabilities: { 0: 0.1, 1: 0.9 },
               },
             },
-            usage: { input_tokens: 12, output_tokens: 5 },
+            usage: { input_tokens: 2_000_000, output_tokens: 5 },
           }),
           { status: 200 },
         ),
@@ -108,7 +108,8 @@ Deno.test('runDecision validates and normalizes a Jev response', async () => {
   assertEquals(calls, 1);
   assertEquals(result.model, 'jev-1.13.0');
   assertEquals(result.answers.next.type, 'choice');
-  assertEquals(result.usage, { inputTokens: 12, outputTokens: 5 });
+  // Jev's fixed price: $0.042 per million input tokens, output free.
+  assertEquals(result.usage, { inputTokens: 2_000_000, outputTokens: 5, costUsd: 0.084 });
 });
 
 Deno.test('disclosure block prevents the Jev request', async () => {
@@ -318,7 +319,7 @@ function jevAnswer(): Response {
           probabilities: { 0: 0.1, 1: 0.9 },
         },
       },
-      usage: { input_tokens: 12, output_tokens: 5 },
+      usage: { input_tokens: 1_000_000, output_tokens: 5 },
     }),
   );
 }
@@ -353,6 +354,7 @@ Deno.test('a decision writes one decide record under the host span it names', as
       contract: attributes['theorem.decision.contract'],
       input: attributes['gen_ai.usage.input_tokens'],
       output: attributes['gen_ai.usage.output_tokens'],
+      cost: attributes['theorem.usage.cost_usd'],
     },
     {
       operation: 'decide',
@@ -362,8 +364,9 @@ Deno.test('a decision writes one decide record under the host span it names', as
       alias: 'jev',
       answered: 'jev-1.13.0',
       contract: 'test.v1',
-      input: 12,
+      input: 1_000_000,
       output: 5,
+      cost: 0.042,
     },
   );
   if (!record) throw new Error('no record');

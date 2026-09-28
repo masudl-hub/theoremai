@@ -290,13 +290,10 @@ const KEY_SLOT_OPTIONS: Readonly<Record<KeySlot, TraceOptionMeta>> = {
   paid: { label: 'Paid key', doc: 'The paid key a refused call overflowed to.' },
 };
 
-const LINK_KINDS: Readonly<
-  Record<'resume' | 'continue' | 'retry' | 'judge' | 'trial', TraceOptionMeta>
-> = {
+const LINK_KINDS: Readonly<Record<'resume' | 'continue' | 'retry' | 'trial', TraceOptionMeta>> = {
   resume: { label: 'Resumes', doc: 'Picks up a call that stopped for approval.' },
   continue: { label: 'Continues', doc: 'Continues an answer that stopped early.' },
   retry: { label: 'Retries', doc: 'Runs a failed turn again.' },
-  judge: { label: 'Judged by', doc: 'The judge turn a model grader ran to score this trial.' },
   trial: { label: 'Trial', doc: 'A graded trial of this eval run.' },
 };
 
@@ -836,7 +833,7 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
     'usage',
     'Cost',
     'usd',
-    'As reported. Absent when no call reported a cost.',
+    "As the provider reported it, or priced from Jev's fixed price for a decision. Absent when no call reported a cost.",
   ),
   'theorem.usage.upstream_cost_usd': attr(
     'usage',
@@ -1081,12 +1078,6 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
     'Grader version',
     'id',
     "The sha256 of the grader's rubric or code identity, so a reader can tell which rubric scored this.",
-  ),
-  'theorem.evaluation.judge.traceparent': attr(
-    'evaluation',
-    'Judge turn',
-    'id',
-    'The judge call that scored this trial, as a W3C traceparent.',
   ),
   'theorem.evaluation.passed': attr(
     'evaluation',

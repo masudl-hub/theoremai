@@ -25,8 +25,10 @@ interface RunSummary {
   repeat: number;
   passed: boolean;
   stopped?: 'budget';
-  /** Agent and judge spend together. */
+  /** Agent and judge spend together, over the calls that reported a cost. */
   costUsd: number;
+  /** Agent turns and judge calls whose cost went unreported, in whole or part. */
+  unpriced: number;
   verdicts: CaseVerdict[];
   /** Every trial, cased then caseless. */
   trials: TrialSummary[];
@@ -52,6 +54,7 @@ function summarizeRun(run: SuiteRun): RunSummary {
     passed: run.passed,
     ...(run.stopped ? { stopped: run.stopped } : {}),
     costUsd: run.costUsd,
+    unpriced: run.unpriced,
     verdicts: run.verdicts,
     trials,
     ...(runTraceId ? { runTraceId } : {}),

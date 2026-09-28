@@ -29,6 +29,7 @@ import { resolveObservabilityPolicy } from '../../src/observability/resolve-poli
 import { OMIT_INJECTION } from '../../src/observability/spans.ts';
 import { memorySink } from '../../src/observability/trace.ts';
 import type { TraceRecord } from '../../src/observability/trace-record.ts';
+import type { TraceSpan } from '../../src/observability/trace-span.ts';
 import { catalogGate } from '../fixtures/trace-catalog.ts';
 import { turnRecord } from './fixture.ts';
 import { JEV_JUDGE, JUDGE } from './judge/profile.ts';
@@ -104,13 +105,24 @@ function scriptedJev(
                 probabilities,
               },
             },
-            usage: { input_tokens: 400, output_tokens: 39 },
+            usage: { input_tokens: 500_000, output_tokens: 39 },
           }),
           { status },
         ),
       );
     },
   };
+}
+
+/** What a scripted Jev call costs: 500,000 input tokens at $0.042 per million. */
+const JEV_COST = 0.021;
+
+/** The root of a judge call's record: the span nothing in the record parents. */
+function judgeRoot(record: TraceRecord | undefined): TraceSpan | undefined {
+  const ids = new Set(record?.spans.map((span) => span.spanId));
+  return record?.spans.find(
+    (span) => span.parentSpanId === undefined || !ids.has(span.parentSpanId),
+  );
 }
 
 /** Jev sure the translation is correct. */
@@ -126,7 +138,7 @@ async function judged(graders: EvalGrader[], judgeProfile: string = JUDGE): Prom
   };
 }
 
-Deno.test('a judge grades a trial through its own turn; the result and the record name that turn', async () => {
+Deno.test('a judge grades a trial through a turn beneath the trial span; the result names that turn', async () => {
   const provider = verdictJudge('correct');
   const written: TraceRecord[] = [];
   const run = await runSuite(
@@ -141,16 +153,13 @@ Deno.test('a judge grades a trial through its own turn; the result and the recor
     assertEquals(result?.score, { value: 1, label: 'correct' });
     assertEquals(result?.passed, true);
     assertEquals(result?.explanation, 'it is correct');
-    // One judge turn, its own trace, named by the result and linked by the trial record.
+    // One judge turn in the judged trace, under the trial span, named by the result.
     assertEquals(report.judgeRecords.length, 1);
-    const judgeRoot = report.judgeRecords[0]?.spans.find((span) => span.parentSpanId === undefined);
-    assertEquals(result?.judgeTraceparents, [`00-${judgeRoot?.traceId}-${judgeRoot?.spanId}-01`]);
+    const root = judgeRoot(report.judgeRecords[0]);
+    assertEquals(result?.judgeTraceparents, [`00-${root?.traceId}-${root?.spanId}-01`]);
     const trialSpan = report.trialRecord?.spans[0];
-    assertEquals(
-      trialSpan?.attributes['theorem.evaluation.judge.traceparent'],
-      result?.judgeTraceparents?.[0],
-    );
-    assertEquals(trialSpan?.links?.[0]?.attributes?.['theorem.link.kind'], 'judge');
+    assertEquals(root?.traceId, report.traceId);
+    assertEquals(root?.parentSpanId, trialSpan?.spanId);
     assertEquals(report.judgeRecords[0]?.metadata?.eval, {
       suite: 'translator.v1',
       case: 'es-01',
@@ -158,17 +167,51 @@ Deno.test('a judge grades a trial through its own turn; the result and the recor
       judge: { grader: 'correctness' },
     });
     assertEquals(report.judgeCostUsd, JUDGE_COST);
+    assertEquals(report.unpriced, 0);
   }
   // The judge saw the case's input and the delivered JSON, inside the rubric.
   assertStringIncludes(provider.prompts[0] ?? '', 'Translate to Spanish');
   assertStringIncludes(provider.prompts[0] ?? '', '"lang":"es"');
   assertStringIncludes(provider.prompts[0] ?? '', 'Is the output correct or incorrect?');
-  // The run's cost is the agent's and the judge's; the sink saw the judge traces too.
+  // The run's cost is the agent's and the judge's; the sink saw the judge turns too.
   assertEquals(run.costUsd, 2 * (0.001 + JUDGE_COST));
+  assertEquals(run.unpriced, 0);
   assertEquals(
     written.filter((record) => record.metadata?.eval && 'judge' in (record.metadata.eval as object))
       .length,
     2,
+  );
+});
+
+Deno.test('grading a judged run again leaves the judge calls inside each trace out of the trial', async () => {
+  const written: TraceRecord[] = [];
+  const graders = [judge({ rubric: rubrics.correctness })];
+  const live = await runSuite(await judged(graders), {
+    provider: translator,
+    judgeProvider: verdictJudge('correct'),
+    repeat: 2,
+    sink: memorySink(written),
+  });
+  const again = await runSuite(await judged(graders), {
+    recorded: written,
+    judgeProvider: verdictJudge('correct'),
+  });
+  assertEquals(again.trials.length, 2);
+  assertEquals(
+    again.trials.map((report) => report.traceId),
+    live.trials.map((report) => report.traceId),
+  );
+  assertEquals(again.trials[0]?.results[0]?.score, { value: 1, label: 'correct' });
+  // The judged trace holds the turn, its trial span and the judge turn beneath it; only the turn is graded.
+  const graded = again.trials[0]?.records ?? [];
+  assertEquals(
+    graded.some((record) => 'judge' in ((record.metadata?.eval as object | undefined) ?? {})),
+    false,
+  );
+  assertEquals(graded.length, 2);
+  assertEquals(
+    again.warnings.at(-1),
+    'skipped 2 judge call record(s) and 1 record(s) with no turn; they are not trials',
   );
 });
 
@@ -192,8 +235,9 @@ Deno.test('an injected instruction in the judged transcript is redacted before t
   assertEquals(result?.score?.label, 'correct');
   assertEquals(result?.passed, true);
   // The judge's own trace shows the guardrail, and the judge never saw the instruction.
-  const judgeRoot = report?.judgeRecords[0]?.spans.find((span) => span.parentSpanId === undefined);
-  const guardrail = judgeRoot?.events.find((event) => event.name === 'theorem.guardrail');
+  const guardrail = judgeRoot(report?.judgeRecords[0])?.events.find(
+    (event) => event.name === 'theorem.guardrail',
+  );
   assertEquals(guardrail?.attributes.action, 'redact');
   assertEquals(guardrail?.attributes.stage, 'input');
   assertEquals((provider.prompts[0] ?? '').includes('Ignore all previous instructions'), false);
@@ -398,7 +442,7 @@ Deno.test('the standard variables read the input, output, tools and the transcri
   assertStringIncludes(variables.conversation, '[assistant]\nhola');
 });
 
-Deno.test('a Jev judge answers the rubric question over the trace as state, and its decision is a trace of its own', async () => {
+Deno.test('a Jev judge answers the rubric question over the trace as state, and its decision nests under the trial', async () => {
   const jev = scriptedJev(SURE);
   const written: TraceRecord[] = [];
   const run = await runSuite(await judged([judge({ rubric: rubrics.correctness })], JEV_JUDGE), {
@@ -431,10 +475,12 @@ Deno.test('a Jev judge answers the rubric question over the trace as state, and 
     'incorrect',
     'unknown',
   ]);
-  // The decision is its own trace, linked from the trial, stamped, and written with the judge's policy.
+  // The decision sits under the trial span, stamped, and written with the judge's policy.
   assertEquals(report?.judgeRecords.length, 1);
-  const decide = report?.judgeRecords[0]?.spans.find((span) => span.parentSpanId === undefined);
+  const decide = judgeRoot(report?.judgeRecords[0]);
   assertEquals(decide?.name, 'decide jev-latest');
+  assertEquals(decide?.traceId, report?.traceId);
+  assertEquals(decide?.parentSpanId, report?.trialRecord?.spans[0]?.spanId);
   assertEquals(decide?.attributes['gen_ai.agent.name'], JEV_JUDGE);
   assertEquals(result?.judgeTraceparents, [`00-${decide?.traceId}-${decide?.spanId}-01`]);
   assertEquals(report?.judgeRecords[0]?.metadata?.eval, {
@@ -444,11 +490,14 @@ Deno.test('a Jev judge answers the rubric question over the trace as state, and 
     judge: { grader: 'correctness' },
   });
   assertEquals(written.includes(report?.judgeRecords[0] as TraceRecord), true);
-  // Decisions report tokens, not dollars: the judge adds nothing to the run's cost.
-  assertEquals(report?.judgeCostUsd, undefined);
+  // Jev reports tokens; its fixed price makes them dollars, which count toward the run's cost.
+  assertEquals(decide?.attributes['theorem.usage.cost_usd'], JEV_COST);
+  assertEquals(report?.judgeCostUsd, JEV_COST);
+  assertEquals(run.costUsd, 0.001 + JEV_COST);
+  assertEquals(run.unpriced, 0);
 });
 
-Deno.test('a failed Jev call is an error on the result, with the decision trace still linked', async () => {
+Deno.test('a failed Jev call is an error on the result that still names the decision', async () => {
   const run = await runSuite(await judged([judge({ rubric: rubrics.correctness })], JEV_JUDGE), {
     provider: translator,
     judgeDecision: scriptedJev(SURE, 429),
@@ -505,7 +554,7 @@ Deno.test('wrongPassCost moves the line: a wrong pass three times worse needs th
   assertEquals(strict.identity === judge({ rubric: rubrics.correctness }).identity, false);
 });
 
-Deno.test('escalate hands what Jev is unsure of to the text judge, and the result links both judge traces', async () => {
+Deno.test('escalate hands what Jev is unsure of to the text judge, and the result names both judge calls', async () => {
   const loaded = await loadSuite('tests/evals/judge/both.ts');
   const both = (probabilities: Record<string, number>, text: ModelProvider) =>
     runSuite(
@@ -528,13 +577,14 @@ Deno.test('escalate hands what Jev is unsure of to the text judge, and the resul
   );
   assertEquals(result?.judgeTraceparents?.length, 2);
   assertEquals(
-    report?.judgeRecords.map(
-      (record) =>
-        record.spans.find((span) => span.parentSpanId === undefined)?.attributes[
-          'gen_ai.agent.name'
-        ],
-    ),
+    report?.judgeRecords.map((record) => judgeRoot(record)?.attributes['gen_ai.agent.name']),
     [JEV_JUDGE, JUDGE],
+  );
+  // Both judge calls sit side by side under the one trial span.
+  const trialSpanId = report?.trialRecord?.spans[0]?.spanId;
+  assertEquals(
+    report?.judgeRecords.map((record) => judgeRoot(record)?.parentSpanId),
+    [trialSpanId, trialSpanId],
   );
   // A sure Jev settles the trial alone: the text judge is never asked.
   const idle = verdictJudge('incorrect');

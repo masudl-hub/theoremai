@@ -1,17 +1,19 @@
 /**
- * Result records: the trial span lives in the judged trace under its root, one
- * event per result, every name in the catalog; the run record links every
- * trial and keeps every verdict.
+ * Result records: the trial span lives in the judged trace under its root,
+ * open for as long as grading runs so judge calls nest beneath it, one event
+ * per result, every name in the catalog; the run record links every trial and
+ * keeps every verdict.
  */
 
 import { delivered, toolTrajectory } from '../../src/evals/graders/code.ts';
-import { buildRunRecord, buildTrialRecord, type GradedResult } from '../../src/evals/record.ts';
+import { buildRunRecord, type GradedResult, startTrialRecord } from '../../src/evals/record.ts';
 import { buildTrial } from '../../src/evals/trial.ts';
 import type { EvalGradeContext, EvalGrader, Trial } from '../../src/evals/types.ts';
 import { caseVerdict } from '../../src/evals/verdict.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { sha256 } from '../../src/kernel/engine/hash.ts';
 import { contentOf } from '../../src/observability/trace-record.ts';
+import { parseTraceparent } from '../../src/observability/trace-span.ts';
 import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
 import { STUB_WRITE } from '../fixtures/trace-record.ts';
 import { CASE, manualClock, POLICY, turnRecord } from './fixture.ts';
@@ -33,7 +35,9 @@ async function trialAndRecord(responseId?: string) {
   const trial = buildTrial({ suite: 'translator.v1', case: CASE, index: 2, records: [turn] });
   const graders = [delivered.includes('hola'), toolTrajectory({ mode: 'subset' })];
   const results = await graded(graders, trial);
-  const built = await buildTrialRecord({ trial, results, policy: POLICY, clock: manualClock() });
+  const built = await startTrialRecord({ trial, policy: POLICY, clock: manualClock() }).finish(
+    results,
+  );
   await catalogedSink([]).write(built.record, STUB_WRITE);
   return { trial, results, ...built };
 }
@@ -79,7 +83,19 @@ Deno.test('no response id when the judged chat span reported none', async () => 
   assertEquals('gen_ai.response.id' in (span.events[0]?.attributes ?? {}), false);
 });
 
-Deno.test('an errored result marks the span and links judges once each', async () => {
+Deno.test('judges run under the trial span, which lasts as long as grading', async () => {
+  const turn = await turnRecord();
+  const trial = buildTrial({ suite: 's', index: 0, records: [turn] });
+  const clock = manualClock();
+  const open = startTrialRecord({ trial, policy: POLICY, clock });
+  clock.tickMs(1200);
+  const { span } = await open.finish([]);
+  assertEquals(parseTraceparent(open.traceparent), { traceId: span.traceId, spanId: span.spanId });
+  assertEquals(Number(BigInt(span.endTimeUnixNano) - BigInt(span.startTimeUnixNano)), 1.2e9);
+  assertEquals(span.links, []);
+});
+
+Deno.test('an errored result marks the span', async () => {
   const turn = await turnRecord();
   const trial = buildTrial({ suite: 's', index: 0, records: [turn] });
   const judge = '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01';
@@ -103,7 +119,7 @@ Deno.test('an errored result marks the span and links judges once each', async (
       graderIdentity: 'judge:faithfulness.strict',
     },
   ];
-  const { record, span } = await buildTrialRecord({ trial, results, policy: POLICY });
+  const { record, span } = await startTrialRecord({ trial, policy: POLICY }).finish(results);
   await catalogedSink([]).write(record, STUB_WRITE);
   assertEquals(span.status, { code: 'ERROR', message: 'grader_error' });
   assertEquals(span.events[0]?.attributes['error.type'], 'grader_error');
@@ -111,14 +127,6 @@ Deno.test('an errored result marks the span and links judges once each', async (
     span.events[1]?.attributes['theorem.evaluation.grader.version'],
     await sha256('judge:faithfulness.strict'),
   );
-  assertEquals(span.links, [
-    {
-      traceId: '0af7651916cd43dd8448eb211c80319c',
-      spanId: 'b7ad6b7169203331',
-      attributes: { 'theorem.link.kind': 'judge' },
-    },
-  ]);
-  assertEquals(span.attributes['theorem.evaluation.judge.traceparent'], judge);
   assertEquals('theorem.evaluation.case' in span.attributes, false);
 });
 

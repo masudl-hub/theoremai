@@ -1,6 +1,7 @@
 /**
  * OpenInference names: usage on model calls only (never a partial cost),
- * messages and values the way Phoenix reads them, and decisions as LLM spans.
+ * messages and values the way Phoenix reads them, decisions as LLM spans with
+ * their cost, and eval trials and runs as evaluators and chains.
  */
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import {
@@ -259,7 +260,7 @@ Deno.test('withOpenInference shows a decision as an LLM span: its state in, its 
             JSON.stringify({
               model: 'jev-1.13.0',
               answers,
-              usage: { input_tokens: 40, output_tokens: 3 },
+              usage: { input_tokens: 500_000, output_tokens: 3 },
             }),
           ),
         ),
@@ -281,13 +282,30 @@ Deno.test('withOpenInference shows a decision as an LLM span: its state in, its 
       'openinference.span.kind': 'LLM',
       'llm.model_name': 'jev-1.13.0',
       'llm.provider': 'typesafe',
-      'llm.token_count.prompt': 40,
+      'llm.token_count.prompt': 500_000,
       'llm.token_count.completion': 3,
-      'llm.token_count.total': 43,
+      'llm.token_count.total': 500_003,
+      // Jev's fixed price, which Phoenix's own price table lacks.
+      'llm.cost.total': 0.021,
       'input.value': JSON.stringify({ output: 'hola' }),
       'input.mime_type': 'application/json',
       'output.value': JSON.stringify(answers),
       'output.mime_type': 'application/json',
     },
+  );
+});
+
+Deno.test('withOpenInference names an eval trial an evaluator and a run a chain', () => {
+  const record = {
+    ...stubRecord(),
+    spans: [
+      { ...stubSpan(), name: 'theorem.eval.trial' },
+      { ...stubSpan(), name: 'theorem.eval.run' },
+      { ...stubSpan(), name: 'POST' },
+    ],
+  };
+  assertEquals(
+    withOpenInference([record])[0]?.spans.map((span) => span.attributes['openinference.span.kind']),
+    ['EVALUATOR', 'CHAIN', undefined],
   );
 });

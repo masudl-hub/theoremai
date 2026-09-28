@@ -23,7 +23,7 @@ import type { TraceRecord } from '../observability/trace-record.ts';
 import type { TraceSink } from '../observability/trace-sink.ts';
 import type { TraceClock, TraceSpan } from '../observability/trace-span.ts';
 import type { ResolvedObservabilityPolicy } from '../observability/types.ts';
-import { buildRunRecord, buildTrialRecord, type GradedResult } from './record.ts';
+import { buildRunRecord, type GradedResult, startTrialRecord } from './record.ts';
 import type { LoadedSuite } from './suite.ts';
 import { buildTrial, groupByTrace, hasTurn } from './trial.ts';
 import type { EvalCase, EvalGradeContext, EvalGrader, EvalResult, Trial } from './types.ts';
@@ -51,6 +51,8 @@ interface TrialReport {
   costUsd?: number;
   /** The judge calls' summed cost, when a model grader ran and any judge recorded one. */
   judgeCostUsd?: number;
+  /** The turn and judge calls whose cost is unknown: none reported, or only part (`theorem.usage.cost_partial`). */
+  unpriced: number;
   /** Every judge call's records, one trace per judge call. */
   judgeRecords: TraceRecord[];
   /** The written `theorem.eval.trial` record, when there was a trace to hold it. */
@@ -68,7 +70,11 @@ interface RunSuiteOptions {
   recorded?: TraceRecord[];
   /** Where trial and run records go. Absent: they are returned only. */
   sink?: TraceSink;
-  /** Stop starting trials once the summed cost (agent and judge) crosses this; the run record says `stopped: budget`. */
+  /**
+   * Stop starting trials once the summed cost (agent and judge) crosses this;
+   * the run record says `stopped: budget`. Calls with no reported cost add
+   * nothing, so the run warns when any ran.
+   */
   maxCostUsd?: number;
   /** `repeat` override from the command line. */
   repeat?: number;
@@ -94,8 +100,10 @@ interface SuiteRun {
   /** Every case verdict passed and nothing stopped the run. */
   passed: boolean;
   stopped?: 'budget';
-  /** The summed cost, agent turns and judge turns, over every trial that recorded one. */
+  /** The summed cost of agent turns and judge calls, over every one that recorded a cost. */
   costUsd: number;
+  /** Agent turns and judge calls whose cost went unreported, in whole or part, so `costUsd` leaves it out. */
+  unpriced: number;
   /** Plain-language warnings for the host to print. */
   warnings: string[];
   run: TraceRecord;
@@ -176,14 +184,20 @@ interface Grading {
   signal?: AbortSignal;
 }
 
+/** The record's root: the span no other span in it parents (a judge call's root has the trial span above it). */
 function recordRoot(record: TraceRecord): TraceSpan | undefined {
-  return record.spans.find((span) => span.parentSpanId === undefined) ?? record.spans[0];
+  const ids = new Set(record.spans.map((span) => span.spanId));
+  return record.spans.find(
+    (span) => span.parentSpanId === undefined || !ids.has(span.parentSpanId),
+  );
 }
 
-/** A record's root cost, when its root recorded one. */
-function recordCost(record: TraceRecord): number | undefined {
-  const cost = recordRoot(record)?.attributes['theorem.usage.cost_usd'];
-  return typeof cost === 'number' ? cost : undefined;
+/** A record's root cost, and whether it is whole: absent or partial, some calls went unpriced. */
+function recordCost(record: TraceRecord): { usd?: number; whole: boolean } {
+  const attributes = recordRoot(record)?.attributes;
+  const cost = attributes?.['theorem.usage.cost_usd'];
+  if (typeof cost !== 'number') return { whole: false };
+  return { usd: cost, whole: attributes?.['theorem.usage.cost_partial'] !== true };
 }
 
 /** The profile a record ran on (`gen_ai.agent.name` on its root). */
@@ -200,18 +214,27 @@ async function gradeRecords(
   records: TraceRecord[],
 ): Promise<TrialReport> {
   const trial = buildTrial({ suite: grading.suite.suite.id, case: evalCase, index, records });
+  const trialRecord = startTrialRecord({
+    trial,
+    policy: grading.policy,
+    ...(grading.clock ? { clock: grading.clock } : {}),
+  });
+  const usage = trial.usage();
   const judgeRecords: TraceRecord[] = [];
   let judgeCostUsd: number | undefined;
+  let unpriced = usage.costUsd === undefined || usage.tokens.cost?.partial ? 1 : 0;
   const { judging } = grading;
   const context: EvalGradeContext = {
     ...(judging.suiteJudge ? { judge: judging.suiteJudge } : {}),
     ...(judging.provider ? { judgeProvider: judging.provider } : {}),
     ...(judging.decision ? { judgeDecision: judging.decision } : {}),
+    traceparent: trialRecord.traceparent,
     traced: async (traced) => {
       for (const record of traced) {
         judgeRecords.push(record);
         const cost = recordCost(record);
-        if (cost !== undefined) judgeCostUsd = (judgeCostUsd ?? 0) + cost;
+        if (cost.usd !== undefined) judgeCostUsd = (judgeCostUsd ?? 0) + cost.usd;
+        if (!cost.whole) unpriced += 1;
         const policy = judging.policies.get(recordAgent(record) ?? '');
         if (grading.sink && policy) await writeTrace(grading.sink, Promise.resolve(record), policy);
       }
@@ -220,15 +243,10 @@ async function gradeRecords(
   };
   const graded = await gradeTrial(grading.suite.suite.graders, trial, context);
   const results = graded.map((entry) => entry.result);
-  const built = await buildTrialRecord({
-    trial,
-    results: graded,
-    policy: grading.policy,
-    ...(grading.clock ? { clock: grading.clock } : {}),
-  });
+  const built = await trialRecord.finish(graded);
   grading.trialSpans.push(built.span);
   if (grading.sink) await writeTrace(grading.sink, Promise.resolve(built.record), grading.policy);
-  const costUsd = trial.usage().costUsd;
+  const { costUsd } = usage;
   return {
     ...(evalCase ? { case: evalCase } : {}),
     index,
@@ -238,6 +256,7 @@ async function gradeRecords(
     records,
     ...(costUsd === undefined ? {} : { costUsd }),
     ...(judgeCostUsd === undefined ? {} : { judgeCostUsd }),
+    unpriced,
     judgeRecords,
     trialRecord: built.record,
   };
@@ -299,6 +318,7 @@ async function runLiveTrial(
     outcome: trialOutcome(results),
     results,
     records,
+    unpriced: 0,
     judgeRecords: [],
     error,
   };
@@ -383,12 +403,17 @@ interface Ran {
   caseless: TrialReport[];
   stopped?: 'budget';
   costUsd: number;
-  /** Recorded mode: traces that were not turns to grade (judge turns, eval run records). */
+  unpriced: number;
+  /** Recorded mode: records that were not turns to grade (judge calls, eval run records). */
   skipped?: { judge: number; other: number };
 }
 
 function summedCost(reports: TrialReport[]): number {
   return reports.reduce((sum, report) => sum + reportCost(report), 0);
+}
+
+function summedUnpriced(reports: TrialReport[]): number {
+  return reports.reduce((sum, report) => sum + report.unpriced, 0);
 }
 
 /** Recorded mode: each trace's records become one trial, matched to a case by its eval stamp. */
@@ -397,12 +422,11 @@ async function gradeRecorded(grading: Grading, records: TraceRecord[]): Promise<
   const caseless: TrialReport[] = [];
   const cases = new Map(grading.suite.cases.map((evalCase) => [evalCase.id, evalCase]));
   const skipped = { judge: 0, other: 0 };
-  for (const [, traceRecords] of groupByTrace(records)) {
-    // A directory of eval traces holds judge turns and run records beside the turns; only turns are trials.
-    if (traceRecords.some(isJudgeStamp)) {
-      skipped.judge += 1;
-      continue;
-    }
+  for (const [, group] of groupByTrace(records)) {
+    // A directory of eval traces holds judge calls (under their trial) and run records beside the turns; only turns are trials.
+    const traceRecords = group.filter((record) => !isJudgeStamp(record));
+    skipped.judge += group.length - traceRecords.length;
+    if (traceRecords.length === 0) continue;
     if (!hasTurn(traceRecords)) {
       skipped.other += 1;
       continue;
@@ -420,7 +444,13 @@ async function gradeRecorded(grading: Grading, records: TraceRecord[]): Promise<
     byCase.set(evalCase.id, [...(byCase.get(evalCase.id) ?? []), report]);
   }
   const reports = [...byCase.values(), caseless].flat();
-  return { byCase, caseless, costUsd: summedCost(reports), skipped };
+  return {
+    byCase,
+    caseless,
+    costUsd: summedCost(reports),
+    unpriced: summedUnpriced(reports),
+    skipped,
+  };
 }
 
 /**
@@ -466,7 +496,14 @@ async function runLive(
       [...list].sort((a, b) => a.index - b.index),
     );
   }
-  return { byCase, caseless: [], ...(stopped ? { stopped } : {}), costUsd };
+  const all = [...byCase.values()].flat();
+  return {
+    byCase,
+    caseless: [],
+    ...(stopped ? { stopped } : {}),
+    costUsd,
+    unpriced: summedUnpriced(all),
+  };
 }
 
 async function ranOf(grading: Grading, repeat: number, options: RunSuiteOptions): Promise<Ran> {
@@ -502,7 +539,12 @@ async function runSuite(loaded: LoadedSuite, options: RunSuiteOptions = {}): Pro
   const ran = await ranOf(grading, repeat, options);
   if (ran.skipped && ran.skipped.judge + ran.skipped.other > 0) {
     warnings.push(
-      `skipped ${ran.skipped.judge} judge trace(s) and ${ran.skipped.other} record(s) with no turn; they are not trials`,
+      `skipped ${ran.skipped.judge} judge call record(s) and ${ran.skipped.other} record(s) with no turn; they are not trials`,
+    );
+  }
+  if (options.maxCostUsd !== undefined && ran.unpriced > 0) {
+    warnings.push(
+      `maxCostUsd counts only the costs providers report; ${ran.unpriced} call(s) reported none or only part, so the ceiling could not hold them`,
     );
   }
   const rule = suite.trials.pass ?? 'all';
@@ -538,6 +580,7 @@ async function runSuite(loaded: LoadedSuite, options: RunSuiteOptions = {}): Pro
     passed: ran.stopped === undefined && verdicts.every((verdict) => verdict.passed),
     ...(ran.stopped ? { stopped: ran.stopped } : {}),
     costUsd: ran.costUsd,
+    unpriced: ran.unpriced,
     warnings,
     run,
   };

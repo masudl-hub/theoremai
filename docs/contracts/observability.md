@@ -346,15 +346,20 @@ also carry:
 | model call | `llm.output_messages.{i}.message.*` | `gen_ai.output.messages`, else Live's `theorem.output.delivered` |
 | model call and `invoke_agent` | `input.value`, `input.mime_type`, `output.value`, `output.mime_type` | The messages above (system instructions left out): one message with text is written as `text/plain`, anything else as JSON `[{role, content}]` |
 | decision (`decide`) | `openinference.span.kind: LLM`, `llm.model_name`, `llm.provider: typesafe`, `llm.token_count.{prompt, completion, total}` | `gen_ai.response.model` (else the requested model) and `gen_ai.usage.*`: Phoenix derives no kind for an operation semconv does not name |
+| decision | `llm.cost.total` | `theorem.usage.cost_usd` (Jev's fixed price over its tokens): Phoenix's own price table has no Jev |
 | decision | `input.value` / `output.value` as `application/json` | `theorem.decision.state` and `theorem.decision.answers`, inlined; a decision has no messages, so Phoenix cannot replay it |
+| `theorem.eval.trial` / `theorem.eval.run` | `openinference.span.kind: EVALUATOR` / `CHAIN` | The span name: a trial grades one turn, a run strings trials together; without a kind Phoenix lists them as `unknown` |
 
 - A message's content is its text parts, a structured part's JSON and each
   media part named by modality (`[image]`), one per line; stored references
   are inlined. A text part that is the structured part's JSON as the model
   typed it is shown once, as the JSON. Tool calls and tool results keep their
   ids, names and arguments.
-- Only model calls carry usage: a viewer sums them across a trace, and an
-  agent span's usage is already the sum of its calls.
+- Only model calls and decisions carry usage: a viewer sums them across a
+  trace, and an agent span's usage is already the sum of its calls.
+- A model call with no reported cost (Google reports none) gets no
+  `llm.cost.total`; Phoenix then prices it from its own model table, for
+  display only.
 - A partial cost keeps only its `theorem.*` name, so it never reads as a total.
 - Absent inputs stay absent; a tool span is left alone.
 
@@ -386,7 +391,9 @@ and name, so grading a record again replaces its annotations. The module is
 pure: the host posts `{ data: phoenixAnnotations(records) }` beside the
 records it exports, after Phoenix has stored the spans (it refuses
 annotations on spans it lacks with 404). `scripts/evals-example.ts --phoenix`
-is a host doing both against `deno task phoenix:up` (`scripts/phoenix/`).
+is a host doing both against `deno task phoenix:up` (`scripts/phoenix/`),
+which also enters Jev's price in Phoenix's model table: Phoenix shows a cost
+from that table, not from a span's `llm.cost.total`.
 
 ## Exported API
 

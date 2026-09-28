@@ -1,8 +1,8 @@
 /**
  * Results as trace records. A trial's results are a `theorem.eval.trial` span
- * inside the judged trace, parented to the judged root, so a viewer shows them
- * under the turn; a suite run is its own `theorem.eval.run` record that links
- * every trial span. Both go through `buildRecord` with the profile's policy,
+ * inside the judged trace, parented to the judged root, with the judge calls
+ * that graded it beneath, so a viewer shows them under the turn; a suite run
+ * is its own `theorem.eval.run` record that links every trial span. Both go through `buildRecord` with the profile's policy,
  * so retention, scrub and sampling apply as they do to turns.
  *
  * @module
@@ -69,31 +69,31 @@ interface GradedResult {
   graderIdentity: string;
 }
 
-/** What a trial record is built from. */
+/** What a trial record starts from. */
 interface TrialRecordInput {
   trial: Trial;
-  results: readonly GradedResult[];
   policy: ResolvedObservabilityPolicy;
   /** Share a clock with the run so both timelines agree. */
   clock?: TraceClock;
 }
 
-/** Every judge trace the results were drawn from, once each. */
-function judgeTraceparents(results: readonly GradedResult[]): string[] {
-  return [...new Set(results.flatMap(({ result }) => result.judgeTraceparents ?? []))];
+/** A trial record open while its graders run. */
+interface OpenTrialRecord {
+  /** The trial span as a W3C `traceparent`: every judge call runs under it. */
+  traceparent: string;
+  /** Close the span on the results and build the record, with its stored span so the run can link it. */
+  finish: (results: readonly GradedResult[]) => Promise<{ record: TraceRecord; span: TraceSpan }>;
 }
 
 /**
- * The trial's results as a record in the judged trace: a `theorem.eval.trial`
- * span under the judged root, one `gen_ai.evaluation.result` event per result,
- * a link to each judge turn. Returns the record and its stored span, so the run
- * can link it.
+ * Open the trial's `theorem.eval.trial` span in the judged trace, under the
+ * judged root, before its graders run: judge calls made under `traceparent`
+ * become its children, and the span lasts as long as the grading.
+ * `finish` adds one `gen_ai.evaluation.result` event per result and builds
+ * the record.
  */
-async function buildTrialRecord(
-  input: TrialRecordInput,
-): Promise<{ record: TraceRecord; span: TraceSpan }> {
-  const { trial, results, policy } = input;
-  const judges = judgeTraceparents(results);
+function startTrialRecord(input: TrialRecordInput): OpenTrialRecord {
+  const { trial, policy } = input;
   const tree = startTrace(TRIAL_SPAN, {
     traceparent: formatTraceparent(trial.root.traceId, trial.root.spanId),
     ...(input.clock ? { clock: input.clock } : {}),
@@ -101,27 +101,25 @@ async function buildTrialRecord(
       'theorem.evaluation.suite': trial.suite,
       ...optional('theorem.evaluation.case', trial.case?.id),
       'theorem.evaluation.trial': trial.index,
-      ...(judges.length === 1 ? { 'theorem.evaluation.judge.traceparent': judges[0] } : {}),
     },
-    links: judges.map((traceparent) => ({
-      traceparent,
-      attributes: { 'theorem.link.kind': 'judge' },
-    })),
   });
-  const responseId = responseIdOf(trial);
-  for (const { result, graderIdentity } of results) {
-    tree.root.event(RESULT_EVENT, await resultAttributes(result, graderIdentity, responseId));
-  }
-  const errored = results.some(({ result }) => result.errorType !== undefined);
-  tree.root.end(errored ? { code: 'ERROR', message: 'grader_error' } : { code: 'OK' });
-  const record = await buildRecord({
-    spans: tree.collect(),
-    policy,
-    ...(trial.records[0]?.metadata ? { metadata: trial.records[0].metadata } : {}),
-  });
-  const [span] = record.spans;
-  if (!span) throw new TheoremError('internal', 'trial record has no span'); // lexicon-exempt: invariant
-  return { record, span };
+  const finish = async (results: readonly GradedResult[]) => {
+    const responseId = responseIdOf(trial);
+    for (const { result, graderIdentity } of results) {
+      tree.root.event(RESULT_EVENT, await resultAttributes(result, graderIdentity, responseId));
+    }
+    const errored = results.some(({ result }) => result.errorType !== undefined);
+    tree.root.end(errored ? { code: 'ERROR', message: 'grader_error' } : { code: 'OK' });
+    const record = await buildRecord({
+      spans: tree.collect(),
+      policy,
+      ...(trial.records[0]?.metadata ? { metadata: trial.records[0].metadata } : {}),
+    });
+    const [span] = record.spans;
+    if (!span) throw new TheoremError('internal', 'trial record has no span'); // lexicon-exempt: invariant
+    return { record, span };
+  };
+  return { traceparent: tree.root.traceparent(), finish };
 }
 
 /** What a run record is built from. */
@@ -183,5 +181,5 @@ function buildRunRecord(input: RunRecordInput): Promise<TraceRecord> {
   return buildRecord({ spans: tree.collect(), policy: input.policy });
 }
 
-export type { GradedResult, RunRecordInput, TrialRecordInput };
-export { buildRunRecord, buildTrialRecord };
+export type { GradedResult, OpenTrialRecord, RunRecordInput, TrialRecordInput };
+export { buildRunRecord, startTrialRecord };

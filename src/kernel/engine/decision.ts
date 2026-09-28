@@ -28,6 +28,14 @@ import { isRecord } from '../util/record.ts';
 
 const TYPESAFE_SYSTEM_ONE_URL = 'https://api.typesafe.ai/v1/systemone';
 
+/**
+ * Jev's price, fixed for every model: $0.042 per million input tokens, and
+ * output free (TypeSafe, confirmed 28/09/2026). Jev reports tokens, not
+ * dollars, so a decision's cost is priced from them.
+ */
+// fallow-ignore-next-line unused-export -- read by scripts/phoenix/up.ts to price Jev in Phoenix
+export const JEV_USD_PER_MILLION_INPUT_TOKENS = 0.042;
+
 /** Each native-decision failure code and the error kind it reports. */
 const DECISION_ERROR_KINDS = {
   invalid_request: 'request',
@@ -321,7 +329,12 @@ function usageFrom(body: Record<string, unknown>): DecisionResult['usage'] {
   ) {
     return undefined;
   }
-  return { inputTokens: usage.input_tokens as number, outputTokens: usage.output_tokens as number };
+  const inputTokens = usage.input_tokens as number;
+  return {
+    inputTokens,
+    outputTokens: usage.output_tokens as number,
+    costUsd: (inputTokens * JEV_USD_PER_MILLION_INPUT_TOKENS) / 1_000_000,
+  };
 }
 
 async function resultFromResponse(
@@ -373,6 +386,7 @@ function recordResult(root: SpanHandle, result: DecisionResult): void {
       ? {
           'gen_ai.usage.input_tokens': result.usage.inputTokens,
           'gen_ai.usage.output_tokens': result.usage.outputTokens,
+          'theorem.usage.cost_usd': result.usage.costUsd,
         }
       : {}),
   });

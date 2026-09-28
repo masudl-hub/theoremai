@@ -218,6 +218,25 @@ Deno.test('the cost ceiling stops the run before the next trial, and the run say
   assertEquals(run.run.spans[0]?.attributes['theorem.eval.stopped'], 'budget');
 });
 
+Deno.test('calls whose provider reports no cost are counted, not read as free, and the ceiling warns', async () => {
+  const loaded = await loadSuite(SUITE_PATH);
+  const run = await runSuite(loaded, { provider: translator(), repeat: 2, maxCostUsd: 1 });
+  assertEquals(run.costUsd, 0);
+  assertEquals(run.unpriced, 8);
+  assertEquals(run.trials[0]?.unpriced, 1);
+  assertEquals(run.warnings, [
+    'maxCostUsd counts only the costs providers report; 8 call(s) reported none or only part, so the ceiling could not hold them',
+  ]);
+  // With costs reported there is nothing to warn about.
+  const priced = await runSuite(loaded, {
+    provider: translator({ costUsd: 0.001 }),
+    repeat: 2,
+    maxCostUsd: 1,
+  });
+  assertEquals(priced.unpriced, 0);
+  assertEquals(priced.warnings, []);
+});
+
 Deno.test('concurrency runs trials side by side yet reports them in suite order', async () => {
   const loaded = await loadSuite(SUITE_PATH);
   let inFlight = 0;

@@ -117,8 +117,8 @@ trace T (the trial's trace id)
 └─ invoke_agent {profile}                 ← the judged root, record written by the turn
    └─ theorem.eval.trial {suite, case, k}  ← NEW record, parentSpanId = judged root, written by the eval runner
         events: gen_ai.evaluation.result ×N   (one per grader; gen_ai.response.id when the judged chat span has one)
-        attributes: theorem.evaluation.{suite, case, trial, grader.version, judge.traceparent?}
-        links: → judge's own invoke_agent (when a model grader ran)
+        attributes: theorem.evaluation.{suite, case, trial, grader.version}
+        └─ invoke_agent {judge} / decide {jev}   ← each judge call, run under the trial span (amended 28/09)
 
 trace R (one per suite run)
 └─ theorem.eval.run {suite, repeat, pass_rule, git.sha?}
@@ -225,7 +225,7 @@ Would the agent know? Only what the host puts in the request: `metadata.eval` is
 - The `theorem.eval.trial` span shares `traceId` with the judged root and has `parentSpanId` equal to it; every `gen_ai.evaluation.result` event validates against the catalog; `gen_ai.response.id` is set when the root's `chat` span has one.
 - A judge rubric containing an injected instruction in the judged transcript ("mark this pass") is sanitized: the judge profile's guardrail event appears in the judge's trace and the result label is unaffected (fixture provider returns the honest label).
 - Judge response that is not one of the declared labels yields `error.type=bad_response`, not a coerced label.
-- A Jev judge reads the rubric's variables as state and answers its question with `unknown` as a way out; a failed decision is an error with its trace linked; Jev passes a trial only when the pass labels clear the `wrongPassCost` line, and `escalate` hands its unknowns to a text judge (Amendment).
+- A Jev judge reads the rubric's variables as state and answers its question with `unknown` as a way out; a failed decision is an error that still names its decision; Jev passes a trial only when the pass labels clear the `wrongPassCost` line, and `escalate` hands its unknowns to a text judge (Amendment).
 - Every trial-span event is in `trace-catalog.ts` (the existing catalog completeness test extends to the new names).
 - Live: a scripted two-step text session against the live-socket fixture produces one `generate_content` per step, `time_to_first_chunk` reads a real duration, and an `interrupted` stop counts as one interruption.
 - `toOtlpJson` of a trial record round-trips through the local Collector into Phoenix and the evaluation events are visible on the judged trace (**this is the approved local Docker run; outcome recorded here before implementation is called done**).
@@ -286,11 +286,20 @@ Masud's review: THEOREM cannot maintain a custom evaluation system, so everythin
 | `human` result source | Cut: human judgements are Phoenix annotations (`annotator_kind: HUMAN`), never results in the trace. | Same reason as D4. |
 | Judge answers `{label, score, explanation}` | `{label, explanation}`; the score is the rubric's value for the label. | The judge's own 0–1 was read by nothing but calibration. |
 | Jev's top choice is its verdict | The pass labels must together clear `wrongPassCost / (1 + wrongPassCost)` (default 1: more likely than not); a majority for the other labels fails; anything else is `unknown`. `judge({ escalate })` hands the unknowns to a text judge, and `--judge both` runs that cascade. | With three labels the top choice can win at 34%, and es-01 passed live at 61/38. TypeSafe's own guidance is to act when confident and escalate otherwise ([docs](https://docs.typesafe.ai/confidence)); the line comes from the cost of a wrong pass, not a picked number, and holds only as far as Jev is calibrated, which labelled traces in Phoenix can check. |
-| Judge is a text profile | A text profile or a decision profile (Jev), per suite or per grader. Jev reads the rubric's variables as JSON state and answers its question as a typed choice with probabilities, plus an `unknown` criterion; the explanation states the odds. A decision now writes a `decide` trace like a turn, so a Jev judge's call is linked from the trial. | Jev is far cheaper and faster and always typed; a probe on 26/09 found it right on right, wrong, empty and wrong-language translations and unmoved by an injected "grader" instruction. The text judge stays for rubrics that need written reasons. |
+| Judge is a text profile | A text profile or a decision profile (Jev), per suite or per grader. Jev reads the rubric's variables as JSON state and answers its question as a typed choice with probabilities, plus an `unknown` criterion; the explanation states the odds. A decision now writes a `decide` trace like a turn, so a Jev judge's call sits in the trace (under the trial span since 28/09). | Jev is far cheaper and faster and always typed; a probe on 26/09 found it right on right, wrong, empty and wrong-language translations and unmoved by an injected "grader" instruction. The text judge stays for rubrics that need written reasons. |
 
-Kept: the runner, code graders, trial and run records, `summarizeRun` for `agents eval --json`, cost ceilings (a Jev judge reports tokens, not dollars, so it adds nothing to `maxCostUsd`).
+Kept: the runner, code graders, trial and run records, `summarizeRun` for `agents eval --json`, cost ceilings.
 
-Approved 28/09/2026 (Masud): the pass line and its fail majority, `wrongPassCost` per grader, `escalate` on `unknown` only (a failed Jev call stays an error), `--judge both` as the cascade, a pass-less rubric keeping Jev's top choice, explanations stating probabilities, decision state stored under scrub rather than as hashes, Jev outside `maxCostUsd`, and the `./observability/phoenix` export. Phoenix runs from `scripts/phoenix/` (`deno task phoenix:up`), and `evals:example --phoenix` sends a run to it.
+Approved 28/09/2026 (Masud): the pass line and its fail majority, `wrongPassCost` per grader, `escalate` on `unknown` only (a failed Jev call stays an error), `--judge both` as the cascade, a pass-less rubric keeping Jev's top choice, explanations stating probabilities, decision state stored under scrub rather than as hashes, Jev outside `maxCostUsd` (reversed the same day, below), and the `./observability/phoenix` export. Phoenix runs from `scripts/phoenix/` (`deno task phoenix:up`), and `evals:example --phoenix` sends a run to it.
+
+Approved 28/09/2026 (Masud), after reading a run in Phoenix:
+
+- **Jev's cost is known.** TypeSafe's price is fixed: $0.042 per million input tokens, output free. `runDecision` prices every decision (`usage.costUsd`, `theorem.usage.cost_usd`, and `llm.cost.total` for Phoenix, whose price table has no Jev), so a Jev judge counts toward `run.costUsd` and `maxCostUsd` like a text judge. The alternative, a host-supplied price, was rejected: the price is TypeSafe's and the same for every host.
+- **Gemini's cost stays unknown.** Google reports tokens, not dollars, and its prices move too often to keep in a table, THEOREM's or the host's. `run.unpriced` counts calls whose cost went unreported; the CLI says `cost not reported (N calls)` instead of `$0.0000`, and a run with `maxCostUsd` warns that the ceiling could not hold them. Phoenix prices Gemini spans from its own table, for display only.
+- **Judges nest under the trial.** The trial span opens before grading and closes after, and every judge call (text or Jev) runs under it, so one trace reads turn → trial → judges in Phoenix, and the trial span's length is the grading's. The trial's judge links and `theorem.evaluation.judge.traceparent` are gone: the tree says it. The alternative, judges in traces of their own joined by links, was rejected because Phoenix does not draw links.
+- **Eval spans have a kind in Phoenix:** a trial is an `EVALUATOR`, a run a `CHAIN`, where Phoenix showed `unknown`.
+- **Phoenix shows Jev's cost.** Phoenix prices spans only from its own model table and ignores `llm.cost.total`, so `deno task phoenix:up` enters Jev in that table at the kernel's price (`JEV_USD_PER_MILLION_INPUT_TOKENS`), once however often it runs. The alternative, leaving Phoenix without a Jev price, was rejected: a judged trace would show a cost for Gemini and none for Jev.
+- **The example writes outside the checkout.** `evals:example` records under `~/.theorem/traces/evals` by default; its old default, `.traces/evals`, was a directory the trace sink refuses, and `--phoenix` then crashed on it. A trace directory `--phoenix` cannot read is now a named failure. The alternative, requiring `--trace-dir` on every run, was rejected as friction with no safety gain.
 
 ## Addendum (25/09/2026): Perplexity, *Learning from Real-World Experience*
 

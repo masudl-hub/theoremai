@@ -15,8 +15,8 @@
  * when the other labels hold most of the probability, and is `unknown`
  * otherwise. `escalate` names a text profile that decides the unknowns.
  *
- * Either way the judge call lands in a trace of its own, which the trial
- * record links.
+ * Either way the judge call runs under the trial span, so it lands in the
+ * judged trace beneath the trial it graded.
  *
  * @module
  */
@@ -145,10 +145,11 @@ function judgeKind(grader: string, rubric: EvalRubric, profileId: string): 'text
   return 'text';
 }
 
-/** The first record's root as a `traceparent`, when the judge call wrote one. */
+/** The judge call's root (the span no other span in its record parents) as a `traceparent`. */
 function traceparentsOf(records: readonly TraceRecord[]): string[] {
-  const root =
-    records[0]?.spans.find((span) => span.parentSpanId === undefined) ?? records[0]?.spans[0];
+  const spans = records[0]?.spans ?? [];
+  const ids = new Set(spans.map((span) => span.spanId));
+  const root = spans.find((span) => span.parentSpanId === undefined || !ids.has(span.parentSpanId));
   return root ? [formatTraceparent(root.traceId, root.spanId)] : [];
 }
 
@@ -189,6 +190,7 @@ async function askText(args: {
     profile: args.profile,
     input: { text: args.prompt },
     metadata: judgeStamp(args.trial, args.grader),
+    ...(context.traceparent ? { traceparent: context.traceparent } : {}),
     ...(context.signal ? { signal: context.signal } : {}),
   };
   try {
@@ -285,6 +287,7 @@ async function askDecision(args: {
         state: args.state,
         questions: { [VERDICT]: question },
         metadata: judgeStamp(args.trial, args.grader),
+        ...(context.traceparent ? { traceparent: context.traceparent } : {}),
         ...(context.signal ? { signal: context.signal } : {}),
       },
       { ...context.judgeDecision, sink: memorySink(records) },
@@ -379,7 +382,7 @@ function resultOf(
  * A model grader over one rubric. Runs its judge profile (the grader's own,
  * else the suite's) once per trial and reads the label back: through
  * structured output from a text judge, as a typed choice from a decision
- * judge. The result names the judge trace it was drawn from.
+ * judge. The result names the judge call it was drawn from.
  */
 function judge(options: JudgeOptions): EvalGrader {
   const { rubric } = options;

@@ -27,6 +27,16 @@ const AGENT_CALLS: ReadonlySet<unknown> = new Set(['invoke_agent']);
 const DECISION = 'decide';
 
 /**
+ * The eval spans (`theorem.eval.*`), which carry no semconv operation: a
+ * trial grades one turn, so it is an evaluator; a run strings the trials
+ * together, so it is a chain.
+ */
+const EVAL_KINDS: Readonly<Record<string, string>> = {
+  'theorem.eval.trial': 'EVALUATOR',
+  'theorem.eval.run': 'CHAIN',
+};
+
+/**
  * OpenInference names for one model call's usage. Only model calls carry them:
  * a viewer sums them across a trace, and an agent span's usage is already the
  * sum of its calls.
@@ -192,7 +202,8 @@ function jsonValue(
 
 /**
  * A decision as an LLM span: Phoenix derives no kind for an operation
- * semconv does not name, so the kind, model and token counts are stated; the
+ * semconv does not name, and has no price for Jev, so the kind, model, token
+ * counts and cost are stated; the
  * state is the input and the answers the output. It has no messages, so
  * Phoenix cannot replay it.
  */
@@ -210,6 +221,7 @@ function openInferenceDecision(record: TraceRecord, span: TraceSpan): TraceAttri
     ...(typeof input === 'number' && typeof output === 'number'
       ? { 'llm.token_count.total': input + output }
       : {}),
+    ...openInferenceUsage(attributes),
     ...jsonValue(record, 'input', attributes['theorem.decision.state']),
     ...jsonValue(record, 'output', attributes['theorem.decision.answers']),
   };
@@ -239,13 +251,18 @@ function withSpanAttributes(record: TraceRecord, span: TraceSpan): TraceSpan {
       attributes: { ...span.attributes, ...openInferenceDecision(record, span) },
     };
   }
+  const evalKind = EVAL_KINDS[span.name];
+  if (evalKind !== undefined) {
+    return { ...span, attributes: { ...span.attributes, 'openinference.span.kind': evalKind } };
+  }
   return span;
 }
 
 /**
  * The records with OpenInference names added: usage and messages on every
- * model-call span, input and output values on every agent span, and a
- * decision's kind, model, tokens, state and answers. Pure: the
+ * model-call span, input and output values on every agent span, a
+ * decision's kind, model, tokens, cost, state and answers, and the kind of
+ * every eval trial and run span. Pure: the
  * input records are not changed. Export with `toOtlpJson(withOpenInference(records))`.
  */
 function withOpenInference(records: readonly TraceRecord[]): TraceRecord[] {

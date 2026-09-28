@@ -2,7 +2,7 @@
  * The judged example suite with both judges: Jev answers the correctness
  * rubric's question, and when it is unsure (the pass label short of more
  * likely than not, and no majority against it) the text judge decides. One
- * result per trial, linking every judge trace it drew on.
+ * result per trial, naming every judge call it drew on.
  */
 
 import '../translator/profile.ts';

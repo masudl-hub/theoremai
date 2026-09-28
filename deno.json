@@ -101,7 +101,7 @@
     "verify:guardrails-api": "deno run --allow-read --allow-net --allow-env --allow-sys scripts/verify-guardrails-api.ts",
     "verify:tools-api": "deno run --allow-read --allow-net --allow-env --allow-sys scripts/verify-tools-api.ts",
     "evals:example": "deno run --allow-read --allow-write --allow-net --allow-env --allow-sys scripts/evals-example.ts",
-    "phoenix:up": "docker compose -f scripts/phoenix/compose.yaml up -d",
+    "phoenix:up": "deno run --allow-run=docker --allow-net=localhost:6006 scripts/phoenix/up.ts",
     "phoenix:down": "docker compose -f scripts/phoenix/compose.yaml down",
     "verify:typed-profiles-api": "deno run --allow-read --allow-net --allow-env --allow-sys scripts/verify-typed-profiles-api.ts",
     "verify:runner-api": "deno run --allow-read --allow-net --allow-env --allow-sys scripts/verify-runner-api.ts",

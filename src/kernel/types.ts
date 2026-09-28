@@ -679,7 +679,8 @@ export type DecisionAnswer =
 export interface DecisionResult {
   model: string;
   answers: Record<string, DecisionAnswer>;
-  usage?: { inputTokens: number; outputTokens: number };
+  /** What Jev reported, and its cost at Jev's fixed price; absent when Jev reported no usage. */
+  usage?: { inputTokens: number; outputTokens: number; costUsd: number };
 }
 
 /** Text / structured turn engine with optional tool execution. */

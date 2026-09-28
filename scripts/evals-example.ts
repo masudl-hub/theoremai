@@ -9,9 +9,12 @@
  * key from `TYPESAFE_API_KEY`), `both` Jev, handing what it is unsure of to
  * the text judge.
  *
- *   deno task evals:example [--trials k] [--trace-dir .traces/evals] [--json]
+ *   deno task evals:example [--trials k] [--trace-dir dir] [--json]
  *   deno task evals:example --judge text|jev|both [--max-cost-usd n]
- *   deno task evals:example --recorded .traces/evals [--judge text|jev|both]
+ *   deno task evals:example --recorded ~/.theorem/traces/evals [--judge text|jev|both]
+ *
+ * Records go under `~/.theorem/traces/evals` unless `--trace-dir` names
+ * another directory; a trace directory sits outside the checkout.
  *
  * `--phoenix` then sends the run to a local Phoenix (`deno task phoenix:up`):
  * the records this run wrote, through the Collector as OTLP with OpenInference
@@ -24,6 +27,7 @@ import { getProfile } from '../src/kernel/default-scope.ts';
 import { withOpenInference } from '../src/observability/openinference.ts';
 import { toOtlpJson } from '../src/observability/otlp.ts';
 import { phoenixAnnotations } from '../src/observability/phoenix.ts';
+import type { TraceRecord } from '../src/observability/trace-record.ts';
 import { createProvider } from '../src/providers/create-provider.ts';
 import { JUDGE } from '../tests/evals/judge/profile.ts';
 import { TRANSLATOR } from '../tests/evals/translator/profile.ts';
@@ -57,6 +61,16 @@ function judgeFlag(): keyof typeof SUITES {
   Deno.exit(2);
 }
 
+/** Where records go without `--trace-dir`: under the home directory, outside any checkout. */
+function defaultTraceDir(): string {
+  const home = Deno.env.get('HOME');
+  if (!home) {
+    console.error('HOME is not set; name a directory outside the checkout with --trace-dir');
+    Deno.exit(2);
+  }
+  return `${home}/.theorem/traces/evals`;
+}
+
 loadHostEnv();
 const recorded = flag('recorded');
 const judge = judgeFlag();
@@ -68,7 +82,7 @@ const options = {
   ...(trials ? { trials: Number(trials) } : {}),
   ...(maxCostUsd ? { maxCostUsd: Number(maxCostUsd) } : {}),
   // The sink wants an absolute directory; the flag may be relative to where the task ran.
-  traceDir: new URL(flag('trace-dir') ?? '.traces/evals', `file://${Deno.cwd()}/`).pathname,
+  traceDir: new URL(flag('trace-dir') ?? defaultTraceDir(), `file://${Deno.cwd()}/`).pathname,
   json: Deno.args.includes('--json'),
 };
 
@@ -102,7 +116,16 @@ async function annotate(data: unknown[]): Promise<Response> {
 
 /** Send the records this run wrote (a span started at or after `since`) and their results to Phoenix. */
 async function sendToPhoenix(traceDir: string, since: bigint): Promise<boolean> {
-  const records = (await readTraceRecords(traceDir)).filter((record) =>
+  let written: TraceRecord[];
+  try {
+    written = await readTraceRecords(traceDir);
+  } catch (error) {
+    console.error(
+      `Phoenix: nothing sent; the run's records could not be read from ${traceDir} (${error instanceof Error ? error.message : String(error)})`,
+    );
+    return false;
+  }
+  const records = written.filter((record) =>
     record.spans.some((span) => BigInt(span.startTimeUnixNano ?? '0') >= since),
   );
   const data = phoenixAnnotations(records);

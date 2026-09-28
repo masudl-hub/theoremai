@@ -81,6 +81,7 @@ function usageOf(root: TraceSpan): TrialUsage {
   const cacheWrite = numberAttribute(root, 'gen_ai.usage.cache_write.input_tokens');
   const toolUse = numberAttribute(root, 'theorem.usage.tool_use.input_tokens');
   const costUsd = numberAttribute(root, 'theorem.usage.cost_usd');
+  const partial = root.attributes['theorem.usage.cost_partial'] === true;
   const estimated = root.attributes['theorem.usage.estimated'];
   const tokens: TurnTokens = {
     input,
@@ -90,7 +91,9 @@ function usageOf(root: TraceSpan): TrialUsage {
     ...(cached === undefined ? {} : { cached }),
     ...(cacheWrite === undefined ? {} : { cacheWrite }),
     ...(toolUse === undefined ? {} : { toolUse }),
-    ...(costUsd === undefined ? {} : { cost: { usd: costUsd } }),
+    ...(costUsd === undefined
+      ? {}
+      : { cost: { usd: costUsd, ...(partial ? { partial: true as const } : {}) } }),
     ...(Array.isArray(estimated)
       ? {
           estimated: estimated.flatMap((side) =>

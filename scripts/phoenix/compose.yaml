@@ -1,7 +1,7 @@
 # Phoenix and the Collector in front of it, for viewing eval runs locally.
 # Phoenix takes OTLP protobuf only; toOtlpJson writes OTLP/JSON, so the
 # Collector takes JSON on 4318 and forwards protobuf to Phoenix on 4317.
-#   deno task phoenix:up    UI on http://localhost:6006
+#   deno task phoenix:up    UI on http://localhost:6006, Jev priced (up.ts)
 #   deno task phoenix:down
 services:
   phoenix:

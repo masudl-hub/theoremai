@@ -5,7 +5,7 @@
  * errored result keeps its error in the metadata; other records add nothing.
  */
 
-import { buildTrialRecord } from '../../src/evals/record.ts';
+import { startTrialRecord } from '../../src/evals/record.ts';
 import { buildTrial } from '../../src/evals/trial.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { sha256 } from '../../src/kernel/engine/hash.ts';
@@ -15,35 +15,31 @@ import { CASE, POLICY, turnRecord } from '../evals/fixture.ts';
 Deno.test('every trial result becomes an annotation on the judged root', async () => {
   const turn = await turnRecord({ text: 'hola' });
   const trial = buildTrial({ suite: 'translator.v1', case: CASE, index: 1, records: [turn] });
-  const { record } = await buildTrialRecord({
-    trial,
-    policy: POLICY,
-    results: [
-      {
-        result: {
-          name: 'correctness',
-          source: 'model',
-          score: { value: 1, label: 'correct' },
-          explanation: 'Jev chose correct with 93% confidence (correct 93%, incorrect 7%).',
-          passed: true,
-        },
-        graderIdentity: 'judge:correctness',
+  const { record } = await startTrialRecord({ trial, policy: POLICY }).finish([
+    {
+      result: {
+        name: 'correctness',
+        source: 'model',
+        score: { value: 1, label: 'correct' },
+        explanation: 'Jev chose correct with 93% confidence (correct 93%, incorrect 7%).',
+        passed: true,
       },
-      {
-        result: {
-          name: 'delivered.includes',
-          source: 'code',
-          score: { value: 0, label: 'fail' },
-          passed: false,
-        },
-        graderIdentity: 'code:delivered.includes',
+      graderIdentity: 'judge:correctness',
+    },
+    {
+      result: {
+        name: 'delivered.includes',
+        source: 'code',
+        score: { value: 0, label: 'fail' },
+        passed: false,
       },
-      {
-        result: { name: 'faithfulness', source: 'model', errorType: 'rate_limit' },
-        graderIdentity: 'judge:faithfulness',
-      },
-    ],
-  });
+      graderIdentity: 'code:delivered.includes',
+    },
+    {
+      result: { name: 'faithfulness', source: 'model', errorType: 'rate_limit' },
+      graderIdentity: 'judge:faithfulness',
+    },
+  ]);
   const annotations = phoenixAnnotations([turn, record]);
   assertEquals(annotations, [
     {

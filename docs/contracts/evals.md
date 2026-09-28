@@ -38,7 +38,7 @@ decisions: `docs/proposals/evals.md`.
 | `src/evals/graders/judge.ts` | `judge`: the model grader over a text or decision judge profile; `EVAL_JUDGMENT` structured output |
 | `src/evals/rubrics/` | `rubric()` and three shipped rubrics (`rubrics.*`), each with a prompt and a question |
 | `src/evals/verdict.ts` | `trialOutcome`, `caseVerdict`, `passRuleName` |
-| `src/evals/record.ts` | `buildTrialRecord` (`theorem.eval.trial`), `buildRunRecord` (`theorem.eval.run`) |
+| `src/evals/record.ts` | `startTrialRecord` (`theorem.eval.trial`), `buildRunRecord` (`theorem.eval.run`) |
 | `src/evals/suite.ts` | `loadSuite` (module + cases + host exports), `readJsonl`, `readTraceRecords` |
 | `src/evals/run.ts` | `runSuite`: live or recorded, every case `repeat` times, records written, verdicts returned |
 | `src/evals/summary.ts` | `summarizeRun`: a run as the JSON document `eval --json` prints |
@@ -182,9 +182,11 @@ decision profile over a rubric without a question), a text judge with no
 provider, or a decision judge with no key.
 
 Every judge call is stamped `metadata.eval = { suite, case, trial, judge:
-{ grader } }`, lands in a trace of its own (an `invoke_agent` turn or a `decide`
-decision), goes to the run's sink under the judge profile's observability
-policy, and is linked from the trial record (`theorem.link.kind: judge`).
+{ grader } }`, runs under the trial span (`EvalGradeContext.traceparent`), so
+it lands in the judged trace beneath the trial it graded (an `invoke_agent`
+turn or a `decide` decision), and goes to the run's sink under the judge
+profile's observability policy. The result names each judge call's root in
+`judgeTraceparents`.
 
 | Variable | Read from the trial |
 | --- | --- |
@@ -230,10 +232,11 @@ Reading the result:
   turn's input guardrail redacts anything left (`theorem.guardrail` on the
   judge root, `action: redact`). A decision judge reads the state as data to
   classify, not instructions, and its answer can only be one of the labels.
-- Text judge turns cost: `TrialReport.judgeCostUsd` carries a trial's judge
+- Judge calls cost: `TrialReport.judgeCostUsd` carries a trial's judge
   spend, and `run.costUsd` and `maxCostUsd` count agent and judge together.
-  A decision reports tokens, not dollars, so a Jev judge adds nothing to
-  either.
+  Jev reports tokens, not dollars; `runDecision` prices them at Jev's fixed
+  price ($0.042 per million input tokens, output free), so a Jev judge counts
+  like any other.
 
 ## Result records
 
@@ -251,14 +254,15 @@ trial never passes.
 | `trialsErrored` | trials where a grader failed to grade |
 | `trialsUngraded` | trials with no deciding result |
 
-`buildTrialRecord({ trial, results, policy, clock? })` writes one span,
-`theorem.eval.trial`, into the judged trace as a child of its root, with
-`theorem.evaluation.{suite, case, trial}`, one `gen_ai.evaluation.result`
-event per result (`gen_ai.evaluation.{name, score.value, score.label,
-explanation}`, `gen_ai.response.id` of the judged model call, `error.type`,
-`theorem.evaluation.{source, grader.version, passed}`), a link per
-judge trace (`theorem.link.kind: judge`) and `theorem.evaluation.judge.traceparent`
-when there is exactly one. Status is `ERROR` / `grader_error` when any result
+`startTrialRecord({ trial, policy, clock? })` opens one span,
+`theorem.eval.trial`, in the judged trace as a child of its root, with
+`theorem.evaluation.{suite, case, trial}`, and returns its `traceparent` for
+the judge calls to run under. `finish(results)` closes it, so it lasts as long
+as the grading, with one `gen_ai.evaluation.result` event per result
+(`gen_ai.evaluation.{name, score.value, score.label, explanation}`,
+`gen_ai.response.id` of the judged model call, `error.type`,
+`theorem.evaluation.{source, grader.version, passed}`), and builds the record.
+Status is `ERROR` / `grader_error` when any result
 errored. The record inherits the judged record's metadata, so the same sink
 routes it the same way. Phoenix shows the events but does not read them as
 evaluations; `phoenixAnnotations` (`@theoremai/agents/observability/phoenix`)
@@ -295,10 +299,10 @@ records grade to byte-identical results either way.
 | `provider` | Live mode: the host's provider for the profile under test |
 | `judgeProvider` | The provider text judges run with; absent, the suite's `judgeProvider` export, else `provider` |
 | `judgeDecision` | The key decision judges (Jev) run with: `{ apiKey }` or `{ keyVault }`, plus `fetch` / `endpoint` for tests; absent, the suite's `judgeDecision` export |
-| `recorded` | Recorded mode: the records to grade; a trace with no stamp for this suite is graded caseless (no verdict); judge turns and eval run records among them are skipped with a warning, so a whole trace directory can be graded again |
+| `recorded` | Recorded mode: the records to grade; a trace with no stamp for this suite is graded caseless (no verdict); judge calls (inside the judged trace, or in traces of their own) and eval run records among them are skipped with a warning, so a whole trace directory can be graded again |
 | `sink` | Where the judged turns' own records (live mode), the judge turns' records, `theorem.eval.trial` and `theorem.eval.run` go; absent, they are returned only |
 | `repeat` | Overrides `suite.trials.repeat`; `1` adds a warning, since one trial cannot tell noise from change |
-| `maxCostUsd` | Live mode starts no further trial once the summed `theorem.usage.cost_usd` of agent and text judge turns passes it; the run is `stopped: 'budget'` and never passes |
+| `maxCostUsd` | Live mode starts no further trial once the summed `theorem.usage.cost_usd` of agent turns and judge calls passes it; the run is `stopped: 'budget'` and never passes. A call whose provider reports no cost (Google) adds nothing, so the run warns when any ran |
 | `revision` | `vcs.ref.head.revision` on the run record |
 | `concurrency` | Live mode: trials in flight at once (default 1). Trials still start in suite order and are reported in it; the cost check runs before each start, so a stop lets in-flight trials finish and count |
 | `onTrial` | Called after each live trial, for progress |
@@ -314,7 +318,7 @@ runs land.
 
 ```ts
 const loaded = await loadSuite('./evals/translator/suite.ts');
-const run = await runSuite(loaded, { provider, sink: jsonlSink('.traces/evals') });
+const run = await runSuite(loaded, { provider, sink: jsonlSink(`${Deno.env.get('HOME')}/.theorem/traces/evals`) });
 run.passed; // every case met its pass rule and nothing stopped the run
 run.verdicts; // one CaseVerdict per case, in suite order
 run.trials[0]?.results; // the graders' words for the first trial
@@ -326,20 +330,31 @@ The example suite is `tests/evals/translator/` (profile, cases, suite) and
 profile, a Jev decision judge profile, and three judged copies of the suite:
 `suite.ts` (text), `jev.ts` (Jev) and `both.ts` (Jev escalating to text);
 `deno task evals:example --judge text|jev|both` runs one, with a second Gemini
-provider for the text judge and `TYPESAFE_API_KEY` for Jev.
+provider for the text judge and `TYPESAFE_API_KEY` for Jev. The example
+writes records under `~/.theorem/traces/evals` unless `--trace-dir` names
+another directory (a trace directory sits outside the checkout).
 
 To read a run in Phoenix, `deno task phoenix:up` starts Phoenix
 (`http://localhost:6006`) and the Collector in front of it
-(`scripts/phoenix/`, images pinned), and `--phoenix` on the example sends the
+(`scripts/phoenix/`, images pinned), and gives Phoenix Jev's price: Phoenix
+prices spans from its own model table, not from the `llm.cost.total` a span
+carries, and its table has no Jev. `--phoenix` on the example sends the
 records that run wrote: through the Collector as OTLP with OpenInference
 attributes, then every result as a span annotation, posted again while Phoenix
 has yet to store the spans (it answers 404 until then). A failed send names
-both endpoints and exits 1. `deno task phoenix:down` stops both; Phoenix keeps
+both endpoints and exits 1; so does a trace directory it cannot read. `deno task phoenix:down` stops both; Phoenix keeps
 nothing between runs.
 
 `summarizeRun(run)` is the run as one JSON document, what `agents eval --json`
 prints for CI: verdicts and results keep their shapes, trials drop their
 records.
+
+`run.costUsd` sums only the costs providers reported; `run.unpriced` counts
+the agent turns and judge calls whose cost went unreported, in whole or part.
+THEOREM keeps no price table for models whose providers report none, so a
+Gemini run's cost is unknown, not zero: the table output says `cost not
+reported (N calls)`, or `cost $X, plus N calls whose cost went unreported`,
+and never prints a zero standing in for them.
 
 ## Exported API
 
@@ -361,8 +376,8 @@ records.
 | `JudgeOptions`, `Judgment`, `EvalGradeContext`, `EvalRubric`, `EvalRubricQuestion` | type |
 | `trialOutcome`, `caseVerdict`, `passRuleName` | function |
 | `TrialOutcome`, `CaseVerdict` | type |
-| `buildTrialRecord`, `buildRunRecord` | function |
-| `GradedResult`, `TrialRecordInput`, `RunRecordInput` | type |
+| `startTrialRecord`, `buildRunRecord` | function |
+| `GradedResult`, `OpenTrialRecord`, `TrialRecordInput`, `RunRecordInput` | type |
 | `loadSuite`, `readJsonl`, `readTraceRecords`, `runSuite` | function |
 | `LoadedSuite`, `RunSuiteOptions`, `SuiteRun`, `TrialReport` | type |
 | `summarizeRun` | function |

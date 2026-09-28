@@ -1,30 +1,6 @@
-/**
- * Directive detection for tool ingress.
- *
- * Tool results carry a different threat than user text. The jailbreak phrasings in
- * `injection.ts` name the thing they attack — "ignore previous instructions",
- * "reveal your system prompt" — and real indirect injection rarely does. It reads
- * like a status update or a helpful next step, and pattern-matching for the word
- * "instructions" misses all of it.
- *
- * What is anomalous in *data* is content that behaves like an instruction: naming
- * a tool the agent can call, issuing an imperative at the agent, or claiming an
- * authority the content does not have.
- *
- * A signal only counts when it co-occurs with a concrete external destination —
- * an address or URL. Directive language alone is far too common in legitimate
- * output to act on. These signals raise the turn's taint rather than rewriting the text. A page
- * documenting an email API legitimately says "call send_email"; redacting that
- * would corrupt content the model needs. Being wrong here should cost a refused
- * write — recoverable and visible — not silently damaged input.
- *
- * @module
- */
-
 import { normalizeForDetection } from './normalize.ts';
 import type { AdvisoryLevel, GuardrailHit } from './types.ts';
 
-/** Rule ids emitted by tool-ingress directive detection. */
 export const DIRECTIVE_RULES = {
   toolName: 'tool_result.names-callable-tool',
   imperative: 'tool_result.imperative',
@@ -97,12 +73,14 @@ function mentionsTool(text: string, tool: string): boolean {
 }
 
 /**
- * Detect instruction-shaped content in a tool result.
+ * Real indirect injection rarely names what it attacks, so this looks for content that behaves
+ * like an instruction. Hits raise the turn's taint rather than rewriting the text: a page
+ * documenting an email API legitimately says "call send_email", and being wrong should cost a
+ * refused write, not silently damaged input.
  *
- * `callableTools` is the set the model can actually invoke this turn. A result
- * naming one is the highest-precision signal available — ordinary data has no
- * reason to name the agent's tools, and no generic content filter can check it
- * because it requires the turn's registry.
+ * `callableTools` is the set the model can invoke this turn. A result naming one is the
+ * highest-precision signal: ordinary data has no reason to, and no generic filter can check it
+ * without the turn's registry.
  */
 function directiveHits(text: string, callableTools: readonly string[] = []): GuardrailHit[] {
   if (!text || !EXFIL_TARGET.test(text)) {
@@ -126,14 +104,11 @@ function directiveHits(text: string, callableTools: readonly string[] = []): Gua
   return hits;
 }
 
-/** True when a result looked like it was trying to steer the agent. */
 function looksDirective(hits: GuardrailHit[]): boolean {
   return hits.length > 0;
 }
 
 /**
- * Strength of the signals, read off the hits rather than invented.
- *
  * Naming a tool the model can call is the sharpest signal available, so it alone
  * reaches `high`; so does agreement between two different signal kinds.
  */

@@ -1,9 +1,3 @@
-/**
- * Bundled egress policy helpers for hosts that want kernel-default disclosure checks.
- *
- * @module
- */
-
 import { isRecord } from '../kernel/util/record.ts';
 import type { RedactSpan } from '../observability/spans.ts';
 import { scanTextForCanaryLeak } from './canary.ts';
@@ -25,7 +19,6 @@ import { SEVERITIES } from './types.ts';
 
 const SYSTEM_BOUNDARY = /This turn\x27s canary is|<\/?user_data>/i; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
 
-/** Rule ids emitted by the bundled outbound policy. */
 export const EGRESS_RULES = {
   canary: 'egress.canary-leak',
   sensitive: 'egress.sensitive-echo',
@@ -33,7 +26,6 @@ export const EGRESS_RULES = {
   injection: 'egress.injection-echo', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   /** Payload could not be rendered for inspection — released output is unverified. */
   unscannable: 'egress.unscannable', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  /** The host policy threw instead of returning a verdict. */
   enforcerError: 'egress.enforcer-error', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
 } as const;
 
@@ -46,17 +38,15 @@ function hitsFromSpans(
   return spans.map((span) => hitFromSpan(text, span, rule, severity));
 }
 
-/** Hits from the bundled outbound policy (canary / sensitive / boundary / injection). */
-/** A canary leak. Never carries the live token — placeholder only. */
 /** Why a reply was withheld, for the builder (`errorInternal`); the user reads `error.safety`. */
 const WITHHELD_REASON = {
   canary: 'canary leaked',
   egress: 'Turn withheld: egress disclosure violation', // lexicon-exempt: internal diagnostic — the user reads error.safety
 } as const;
 
+/** Never carries the live token, only a placeholder. */
 const CANARY_HIT: GuardrailHit = { rule: EGRESS_RULES.canary, severity: 'high', match: '[canary]' };
 
-/** The canary hit, when `text` leaks it. */
 function canaryHits(text: string, canary?: string): GuardrailHit[] {
   return canary && scanTextForCanaryLeak(text, canary) ? [CANARY_HIT] : [];
 }
@@ -79,7 +69,6 @@ function collectEgressHits(text: string, canary?: string): GuardrailHit[] {
   return hits;
 }
 
-/** Distinct rule ids in a hit list, in first-seen order — for rejection copy. */
 function hitRules(hits: GuardrailHit[]): string[] {
   return [...new Set(hits.map((hit) => hit.rule))];
 }
@@ -204,8 +193,6 @@ function standardEgressEnforce(payload: OutboundPayload, context: GuardrailConte
 }
 
 /**
- * Run a host policy without letting it break the turn.
- *
  * A policy that throws has reached no decision, so it cannot vouch for the output:
  * the failure becomes a `block`, not a pass. The turn then follows the profile's
  * ordinary `onBlock` handling instead of surfacing a raw host stack trace. The

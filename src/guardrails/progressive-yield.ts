@@ -1,11 +1,3 @@
-/**
- * Progressive-yield outbound gate — stream cleared prefixes while holding a
- * lookback window so the canary scan, or the host `egress.enforce` policy when
- * set, can inspect split-token matches before release.
- *
- * @module
- */
-
 import { canaryHoldFrom } from './canary.ts';
 import { canaryHits, runEnforcer } from './egress.ts';
 import type {
@@ -21,12 +13,10 @@ const PEM_BEGIN = '-----BEGIN';
 
 export type ProgressiveYieldOk = { blocked: false; emit: string };
 export type ProgressiveYieldBlocked = { blocked: true; hits: GuardrailHit[] };
-/** Result from scanning a stream fragment: a blocked verdict or text safe to release. */
 export type ProgressiveYieldResult = ProgressiveYieldOk | ProgressiveYieldBlocked;
 
-/** Options for an incremental outbound stream gate, including its context and holdback policy. */
 export interface ProgressiveYieldGateOptions {
-  /** Stage facts handed to `enforce`; also carries the turn canary. */
+  /** Also carries the turn canary. */
   context: GuardrailContext;
   /** When set, each step runs this policy on the accumulated window before emit. */
   enforce?: EgressEnforcer;
@@ -67,7 +57,6 @@ function resolveHoldback(options: ProgressiveYieldGateOptions): number {
   return options.holdback ?? (options.enforce ? DEFAULT_HOLDBACK : 0);
 }
 
-/** Under `enforce`, an incomplete PEM body stays held until its END line. */
 function holdbackForWindow(window: string, base: number): number {
   // Incomplete PEM bodies can be large; do not release past BEGIN until END/flush.
   const begin = window.lastIndexOf(PEM_BEGIN);
@@ -77,7 +66,7 @@ function holdbackForWindow(window: string, base: number): number {
   return Math.max(base, window.length - begin);
 }
 
-/** Creates a progressive gate for outbound stream fragments; flush it when the stream ends. */
+/** Call `flush` when the stream ends to release the held tail. */
 function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): ProgressiveYieldGate {
   const { context } = options;
   const baseHoldback = resolveHoldback(options);

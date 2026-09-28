@@ -1,12 +1,3 @@
-/**
- * Turn-event constructors for guardrail decisions.
- *
- * Keeps `{ type: 'guardrail', guardrail }` shaping in one place so sanitize,
- * egress, tools, network, and live paths cannot drift.
- *
- * @module
- */
-
 import type { TurnEvent, TurnEventOf } from '../kernel/turn-events.ts';
 import { projectGuardrailEvent } from './hits.ts';
 import type {
@@ -19,15 +10,11 @@ import type {
   Verdict,
 } from './types.ts';
 
-/** Wrap a GuardrailEvent as a turn stream event. */
 function guardrailTurnEvent(guardrail: GuardrailEvent): TurnEventOf<'guardrail'> {
   return { type: 'guardrail', guardrail };
 }
 
-/**
- * Build a turn event from a Verdict. `allow` yields nothing (clean = silence).
- * `flag` / `redact` / `block` all emit so hosts and traces can count hits.
- */
+/** `allow` yields nothing; `flag`, `redact` and `block` all emit so hosts and traces can count hits. */
 function guardrailFromVerdict(
   stage: GuardrailStage,
   trust: TrustLevel,
@@ -49,7 +36,6 @@ function guardrailFromVerdict(
   });
 }
 
-/** Build a turn event from a hit list. Empty hits → undefined. */
 function guardrailFromHits(
   stage: GuardrailStage,
   trust: TrustLevel,
@@ -69,10 +55,6 @@ function guardrailFromHits(
   });
 }
 
-/**
- * Project a guardrail turn event for host/trace: strip `hit.match` unless opted in.
- * Non-guardrail events pass through unchanged.
- */
 function projectGuardrailTurnEvent(
   event: TurnEventOf<'guardrail'>,
   includeMatch: boolean,

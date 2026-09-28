@@ -1,11 +1,6 @@
 /**
- * Generic inbound and outbound guardrail primitives.
- *
- * Owns sanitization, injection/sensitive detection, canary egress gates,
- * bundled egress policy, and public error mapping.
- * App-specific policy copy remains host-owned.
- *
- * Adversarial corpus and fuzz runners: `@theoremjs/agents/guardrails/testing`.
+ * Inbound and outbound guardrail primitives: sanitization, injection and sensitive detection,
+ * canary egress gates, egress policy and public error mapping. App-specific policy copy stays host-owned.
  *
  * @module
  */

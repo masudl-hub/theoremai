@@ -1,9 +1,3 @@
-/**
- * Inbound sanitize fuzz runner — exercises all sanitize channels against the corpus.
- *
- * @module
- */
-
 /** lexicon-exempt-file: adversarial corpus fixture — not runtime user or model copy (P2) */
 import { clearProfiles, getProfile, registerProfile } from '../../kernel/default-scope.ts';
 import type { TurnRequest } from '../../kernel/types.ts';
@@ -189,9 +183,7 @@ function printInboundFuzzResults(results: InboundFuzzResult[]): InboundFuzzResul
   return failures;
 }
 
-/**
- * Run inbound adversarial fuzz against the corpus. Returns false when expected catches are missed.
- */
+/** Returns false when any payload expected to be caught survives a sanitize channel. */
 export function runInboundGuardrailFuzz(options?: { quiet?: boolean }): boolean {
   if (!options?.quiet) {
     console.log('\n🔓 Theorem Guardrail Inbound Fuzz\n');

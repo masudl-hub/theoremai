@@ -1,9 +1,3 @@
-/**
- * Request sanitization utilities for THEOREM.
- *
- * @module
- */
-
 import { sanitizeTurnBlobs } from '../kernel/registry/attachments.ts';
 import type { NormalizedTurnRequest, Profile, TurnEvent, TurnRequest } from '../kernel/types.ts';
 import { applySpans } from '../observability/spans.ts';
@@ -14,10 +8,6 @@ import { type DetectionOptions, detectionForTrust, resolveGuardrailPolicy } from
 import { sensitiveSpans } from './sensitive.ts';
 import type { GuardrailHit, GuardrailStage, TrustLevel } from './types.ts';
 
-/**
- * Detect and redact injection / sensitive spans. Returns hits for observability
- * (rule + offsets + optional exact `match` for debugging).
- */
 function detectText(
   text: string,
   options?: Partial<DetectionOptions>,
@@ -42,12 +32,10 @@ function detectText(
   return { text: applySpans(text, spans), hits };
 }
 
-/** Sanitize one text value using prompt-injection and sensitive-data detectors. */
 function sanitizeText(text: string, options?: Partial<DetectionOptions>): string {
   return detectText(text, options).text;
 }
 
-/** Redact only sensitive data (credentials, PII) — skip injection patterns. */
 function redactSensitiveOnly(text: string): string {
   return detectText(text, { sanitizeInput: false, redactSensitive: true }).text;
 }
@@ -77,7 +65,6 @@ function sanitizeSlots(
 
 const PROJECT_ID_OK = /^[A-Za-z0-9._-]+$/;
 
-/** Trims and validates a project identifier, returning undefined for invalid input. */
 function sanitizeProjectId(id: string | undefined): string | undefined {
   const trimmed = id?.trim();
   return trimmed && PROJECT_ID_OK.test(trimmed) ? trimmed : undefined;
@@ -109,9 +96,6 @@ function sanitizeRepair(
 }
 
 /**
- * Sanitize the text of each history message; tool calls, ids, and metadata pass
- * through untouched.
- *
  * Exported because every path that injects messages into a turn needs it — turn
  * history, and host steer injects mid-turn. A second copy would drift.
  */
@@ -150,7 +134,6 @@ function sanitizeHistory(
   });
 }
 
-/** Detection switches for one profile at one trust level. */
 function detectionForProfile(profile: Profile, trust: TrustLevel): DetectionOptions {
   return detectionForTrust(resolveGuardrailPolicy(profile.guardrails), trust);
 }
@@ -168,11 +151,6 @@ function pushStageEvent(
 }
 
 /**
- * Sanitize user-controlled text fields; leave attachments/voice untouched.
- *
- * Returns `{ type: 'guardrail' }` events for stages that redacted something.
- * Clean surfaces emit nothing.
- *
  * `req.system` is host-assembled per turn — it interpolates retrieval and user
  * data, so it is treated as `assembled`, not trusted. `identity.system` never
  * reaches this path and stays verbatim.
@@ -231,15 +209,11 @@ function sanitizeTurnRequestText(
   };
 }
 
-/** Sanitize all user-controlled text and blobs in a turn request under `profile`'s guardrails. */
 function sanitizeTurnRequest(req: TurnRequest, profile: Profile): NormalizedTurnRequest {
   return sanitizeTurnRequestWithEvents(req, profile).request;
 }
 
-/**
- * Sanitize a turn request and return guardrail events for any redactionsactions spans.
- * Attachments/voice are validated but do not emit content-span events.
- */
+/** Attachments and voice are validated but emit no guardrail events. */
 function sanitizeTurnRequestWithEvents(
   req: TurnRequest,
   profile: Profile,

@@ -1,7 +1,5 @@
 /**
- * Guardrails testing surface — adversarial corpus, fuzz runners, live attack builders.
- *
- * Import via `@theoremjs/agents/guardrails/testing` (not published on the production guardrails entry).
+ * Adversarial corpus, fuzz runners and live attack builders, kept off the production guardrails entry.
  *
  * @module
  */

@@ -1,24 +1,3 @@
-/**
- * Stateful Live outbound gate — progressive-yield canary + egress lookback.
- *
- * Matches runTurn semantics:
- *   • the reply stream (text deltas and the spoken-reply transcript) is held in
- *     the progressive-yield lookback; thoughts are unguarded (`isGuardedOutput`)
- *   • audio and other media wait behind the reply that preceded them, so speech
- *     is heard only after its transcript clears the scan
- *   • any other event releases what is held (in order), then passes after a
- *     whole-event canary scan
- *   • canary-only profiles withhold immediately on leak
- *   • with egress.enforce, a hit withholds the rest of the cycle; finalize
- *     releases it (allow), rewrites it (redact), or refuses/withholds it (block)
- *
- * Scope is one conversational cycle: finalize and abort start the next one.
- * Live has no repair loop — a blocked turn is refuse_to_user copy, or withheld
- * (a `safety` error).
- *
- * @module
- */
-
 import type { TurnEventOf } from '../kernel/turn-events.ts';
 import type { Profile, TurnEvent } from '../kernel/types.ts';
 import { eventHasCanary, isStreamedCanaryEvent, type StreamedReplyEvent } from './canary.ts';
@@ -50,10 +29,6 @@ export interface LiveHeldOutput {
   end: number;
 }
 
-/**
- * Mutable outbound guardrail state for one live session. It retains the
- * cycle's progressive stream state and the output still held back.
- */
 export interface LiveOutboundGateSession {
   policy: ResolvedGuardrailPolicy;
   context: GuardrailContext;
@@ -66,7 +41,6 @@ export interface LiveOutboundGateSession {
   withholdVisible: boolean;
 }
 
-/** Result of a live outbound operation: events to emit, output to withhold, or no work. */
 export type LiveOutboundBatchResult =
   | { action: 'emit'; events: TurnEvent[] }
   | { action: 'withhold'; error: TheoremError; events?: TurnEvent[] }
@@ -76,10 +50,7 @@ function egressSpec(session: LiveOutboundGateSession): ProfileEgressSpec | undef
   return session.policy.egress;
 }
 
-/**
- * Creates outbound guardrail state for a live profile. A canary is only attached
- * when the resolved profile policy enables it and the caller supplied a token.
- */
+/** A canary is attached only when the profile policy enables it and the caller supplied a token. */
 function createLiveOutboundGateSession(profile: Profile, canary?: string): LiveOutboundGateSession {
   const policy = resolveGuardrailPolicy(profile.guardrails);
   const useCanary = policy.canary && Boolean(canary);
@@ -100,7 +71,6 @@ function createLiveOutboundGateSession(profile: Profile, canary?: string): LiveO
   };
 }
 
-/** Start the next cycle: fresh window, nothing held, nothing withheld. */
 function resetCycle(session: LiveOutboundGateSession): void {
   session.gate = createOutboundProgressiveGate(session.policy, session.context);
   session.held = [];
@@ -201,7 +171,7 @@ async function flushHeld(
   return applyScan(session, gate, await gate.flush(), into);
 }
 
-/** Hold one media event behind the reply before it; it goes as soon as that has cleared. */
+/** Media waits behind the reply before it, so speech is heard only after its transcript clears the scan. */
 function holdMedia(
   session: LiveOutboundGateSession,
   gate: ProgressiveYieldGate,
@@ -235,7 +205,6 @@ async function holdStreamChunk(
   return applyScan(session, gate, result, into);
 }
 
-/** Process one upstream Live batch (may emit immediately or hold lookback). */
 async function processLiveOutboundBatch(
   session: LiveOutboundGateSession,
   events: TurnEvent[],
@@ -280,9 +249,8 @@ function emitOrIdle(events: TurnEvent[]): LiveOutboundBatchResult {
 }
 
 /**
- * End-of-cycle egress verdict on the cycle's whole reply. Allow releases what
- * is still held; redact and refuse replace it with text (held audio is
- * dropped); block withholds it.
+ * Live has no repair loop. Allow releases what is still held; redact and refuse replace it with
+ * text (held audio is dropped); block withholds it as a `safety` error.
  */
 async function finalEgressVerdict(
   session: LiveOutboundGateSession,
@@ -324,11 +292,7 @@ async function finalizeCycle(
   return emitOrIdle(events);
 }
 
-/**
- * Releases held output and applies the final egress decision at the end of a
- * live cycle, then starts the next cycle. Call once after the provider has
- * finished the cycle.
- */
+/** Call once after the provider has finished the cycle; it also starts the next one. */
 async function finalizeLiveOutboundTurn(
   session: LiveOutboundGateSession,
 ): Promise<LiveOutboundBatchResult> {

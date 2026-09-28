@@ -1,12 +1,3 @@
-/**
- * Prompt-injection span detection.
- *
- * These utilities return spans that can be redacted from untrusted user text
- * before provider submission.
- *
- * @module
- */
-
 import { blobAt, type RedactSpan, spansFromPatterns } from '../observability/spans.ts';
 import { normalizeForDetection } from './normalize.ts';
 
@@ -300,8 +291,6 @@ function pipeSeparatedSpans(text: string): RedactSpan[] {
   return spans;
 }
 
-// ── Encoding evasion decoders ────────────────────────────────────────
-
 function tryRot13(text: string): string {
   return text.replace(/[a-zA-Z]/g, (c) => {
     const base = c.charCodeAt(0) < LOWER_A_CODE ? UPPER_A_CODE : LOWER_A_CODE;
@@ -357,8 +346,6 @@ function decodedTextSpans(text: string): RedactSpan[] {
   }
   return [];
 }
-
-// ── Main entry point ─────────────────────────────────────────────────
 
 function injectionSpans(text: string): RedactSpan[] {
   const direct = injectionSpansOn(text);

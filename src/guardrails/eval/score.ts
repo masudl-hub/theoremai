@@ -1,27 +1,9 @@
-/**
- * Scoring for guardrail evaluation.
- *
- * Reports per detector, per source, and per benign category. Never a single
- * pooled number: pooling hides which kind of content a detector misfires on, and
- * "security documentation" and "work email" fail for different reasons.
- *
- * The false-positive rate is the number that decides whether a detector ships. A
- * detector that fires on legitimate content does not make an agent careful; it
- * makes it unreliable in ways a user cannot see the reason for.
- *
- * @module
- */
-
 import type { CorpusSample } from './corpus.ts';
 
-/** One detector under evaluation. */
 export interface EvalDetector {
   id: string;
-  /** What the detector does when it fires — determines how costly a miss is. */
   action: 'redact' | 'block' | 'annotate';
   /**
-   * Sources whose attack label this detector is answerable for.
-   *
    * A credential detector scored against a corpus of prompt injections would
    * report near-zero recall and look broken, when in fact it was asked the wrong
    * question. Recall is reported only where the corpus labels the thing the
@@ -36,7 +18,6 @@ export interface CategoryScore {
   category: string;
   samples: number;
   fired: number;
-  /** Rate at which the detector fired on this category. */
   rate: number;
 }
 
@@ -60,7 +41,6 @@ function rate(n: number, of: number): number | undefined {
   return of === 0 ? undefined : n / of;
 }
 
-/** Score one detector against one source's samples. */
 function scoreDetector(
   detector: EvalDetector,
   source: string,
@@ -105,8 +85,6 @@ function scoreDetector(
 }
 
 /**
- * Score every detector against every source, keeping sources apart.
- *
  * Sources are never merged. A detector tuned on one corpus routinely collapses on
  * another, and a combined figure would report the average of a good result and a
  * bad one as though it were a single fact.
@@ -167,7 +145,6 @@ function formatFiredCategories(score: DetectorScore): string[] {
   return lines;
 }
 
-/** Render scores as a report, marking any figure too small to be a claim. */
 function formatScores(scores: readonly DetectorScore[]): string {
   const lines: string[] = [];
   for (const [detector, group] of groupScoresByDetector(scores)) {

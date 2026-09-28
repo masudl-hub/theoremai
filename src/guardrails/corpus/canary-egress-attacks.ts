@@ -1,9 +1,3 @@
-/**
- * Synthetic canary egress attack catalog — turns built at fuzz time from a canary token.
- *
- * @module
- */
-
 /** lexicon-exempt-file: adversarial corpus fixture — not runtime user or model copy (P2) */
 import type { TurnEvent } from '../../kernel/types.ts';
 import type { CanaryEgressCatalogEntry } from './types.ts';
@@ -41,7 +35,6 @@ function say(text: string): TurnEvent {
   return { type: 'text', text };
 }
 
-/** A leak sent as the given reply chunks in one turn. */
 function leakIn(
   name: string,
   category: string,
@@ -119,7 +112,6 @@ function transformedLeaks(canary: string): CanaryEgressAttack[] {
   ];
 }
 
-/** Build the full canary egress adversarial bank for a given token. */
 export function buildCanaryEgressAttacks(canary: string): CanaryEgressAttack[] {
   const attacks: CanaryEgressAttack[] = [
     leakIn('literal-text', 'literal', canary, [`Here is the token: ${canary}`]),
@@ -241,7 +233,6 @@ export function buildCanaryEgressAttacks(canary: string): CanaryEgressAttack[] {
   return attacks;
 }
 
-/** Catalog metadata without event payloads (for docs / inventory). */
 export function canaryEgressCatalog(canary: string): CanaryEgressCatalogEntry[] {
   return buildCanaryEgressAttacks(canary).map(({ name, category, shouldBlock }) => ({
     name,

@@ -48,6 +48,48 @@ Deno.test('readGeminiApiError reads the named code of a stream error', () => {
   );
 });
 
+Deno.test('every documented named code keeps the kind its HTTP status has', () => {
+  const kinds: Record<string, string> = {
+    invalid_request: 'unsupported',
+    authentication: 'auth',
+    payment_required: 'auth',
+    permission_denied: 'auth',
+    model_not_found: 'unsupported',
+    quota_exceeded: 'rate_limit',
+    too_many_requests: 'rate_limit',
+    cancelled: 'cancelled',
+    api_error: 'unavailable',
+    service_unavailable: 'unavailable',
+    deadline_exceeded: 'timeout',
+    internal_server_error: 'unavailable',
+    gateway_timeout: 'timeout',
+    safety: 'safety',
+    prohibited_content: 'safety',
+    image_safety: 'safety',
+    malformed_function_call: 'bad_response',
+    no_image: 'bad_response',
+  };
+  const read = Object.fromEntries(
+    Object.keys(kinds).map((code) => [
+      code,
+      readGeminiApiError({ error: { code, message: 'x' } })?.kind,
+    ]),
+  );
+  assertEquals(read, kinds);
+});
+
+Deno.test('an overloaded model mid-stream is unavailable, not a bad response', () => {
+  assertEquals(
+    shape(
+      readGeminiApiError({
+        error: { code: 'service_unavailable', message: 'high demand' },
+        event_type: 'error',
+      }),
+    ),
+    { kind: 'unavailable', message: 'high demand' },
+  );
+});
+
 Deno.test('readNonOkError takes the kind from the status and the detail from the body', async () => {
   assertEquals(shape(await readNonOkError(new Response('', { status: 503 }))), {
     kind: 'unavailable',

@@ -22,6 +22,9 @@
  * Usage:
  *   deno task verify:guardrails-api   # vault slots from THEOREM_VAULT_*, see scripts/host-env.ts
  *   deno task verify:guardrails-api -- --provider gemini
+ *   deno task verify:guardrails-api -- --provider gemini --model gemini-3.5-flash
+ *   deno task verify:guardrails-api -- --provider gemini --model gemini-2.5-flash --effort default
+ *     (--effort: the Gemini thinking level; `default` sends none, for models without `minimal`)
  *   deno task verify:guardrails-api -- --inbound-only   # no API calls
  *   deno task verify:guardrails-api -- --category canary,inbound-injection --limit 20
  */
@@ -41,6 +44,7 @@ import {
 } from '../src/guardrails/testing.ts';
 import { getProfile, registerProfile, resolveTurn, runTurn } from '../src/kernel/default-scope.ts';
 import { defineProfile } from '../src/kernel/registry/profiles.ts';
+import { THINKING_LEVELS, type ThinkingLevel } from '../src/kernel/schema.ts';
 import type { ModelProvider, TurnEvent, TurnRequest } from '../src/kernel/types.ts';
 import { OMIT_INJECTION, OMIT_SENSITIVE } from '../src/observability/spans.ts';
 import { createProvider } from '../src/providers/create-provider.ts';
@@ -95,7 +99,11 @@ function hasFlag(flag: string): boolean {
   return Deno.args.includes(flag);
 }
 
-function registerLiveProfile(providerKind: 'openrouter' | 'gemini'): void {
+function registerLiveProfile(
+  providerKind: 'openrouter' | 'gemini',
+  apiId: string,
+  effort: ThinkingLevel | 'default',
+): void {
   const guardrails = {
     canary: true,
     sanitizeInput: true,
@@ -121,7 +129,7 @@ function registerLiveProfile(providerKind: 'openrouter' | 'gemini'): void {
           freeRouter: {
             protocol: 'openAi',
             provider: 'openrouter',
-            apiId: OPENROUTER_VERIFY_API_ID,
+            apiId,
             efforts: { normal: 'none' },
             summaries: false,
             maxOutputTokens: 512,
@@ -152,10 +160,8 @@ function registerLiveProfile(providerKind: 'openrouter' | 'gemini'): void {
         geminiFree: {
           protocol: 'geminiInteractions',
           provider: 'google',
-          apiId: GEMINI_VERIFY_API_ID,
-          efforts: { normal: 'minimal', low: 'low', medium: 'medium', high: 'high' },
-          defaultEffort: 'normal',
-          allowEffortSelect: true,
+          apiId,
+          ...(effort === 'default' ? {} : { efforts: { normal: effort }, defaultEffort: 'normal' }),
           summaries: false,
           maxOutputTokens: 512,
           temperature: 0.2,
@@ -421,14 +427,21 @@ export async function main(): Promise<void> {
     Deno.exit(1);
   }
 
-  registerLiveProfile(providerKind);
+  const apiId =
+    valueAfterFlag('--model') ??
+    (providerKind === 'openrouter' ? OPENROUTER_VERIFY_API_ID : GEMINI_VERIFY_API_ID);
+  const effort = valueAfterFlag('--effort') ?? 'minimal';
+  if (effort !== 'default' && !(THINKING_LEVELS as readonly string[]).includes(effort)) {
+    console.error(`Invalid --effort (default | ${THINKING_LEVELS.join(' | ')})`);
+    Deno.exit(1);
+  }
+  registerLiveProfile(providerKind, apiId, effort as ThinkingLevel | 'default');
   const allAttacks = buildLiveAttacks(LIVE_PROFILE_ID);
   const categories = parseListFlag('--category');
   const names = parseListFlag('--name');
   const limit = parseLimit();
   const attacks = filterLiveAttacks(allAttacks, { categories, names, limit });
   const bank = summarizeAttackBank(allAttacks);
-  const apiId = providerKind === 'openrouter' ? OPENROUTER_VERIFY_API_ID : GEMINI_VERIFY_API_ID;
 
   if (attacks.length === 0) {
     console.error('No attacks matched filters. Bank size:', bank.total);

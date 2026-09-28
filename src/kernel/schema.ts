@@ -9,6 +9,7 @@
  */
 
 /** lexicon-exempt-file: authoring field-meta / closed unions — not runtime user or model copy (P2) */
+import { LEXICON_NOTES, type LexiconKey } from '../guardrails/lexicon.ts';
 import { EGRESS_ON_BLOCK, type EgressOnBlock, TAINT_GATES } from '../guardrails/types.ts';
 import { GOOGLE_SPEECH_VOICES } from '../presets/google/speech-voices.ts';
 import { PROFILE_FIELD_PRESENCE } from './profile-presence.ts';
@@ -1278,9 +1279,17 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   ),
 };
 
-/** Look up hover metadata for a dotted path (profile first, then extra). */
+/**
+ * Look up hover metadata for a dotted path (profile first, then extra). `lexicon.<key>` is
+ * `lexicon.*` with that key's own note.
+ */
 export function fieldMeta(path: string): FieldMeta | undefined {
-  return PROFILE_FIELDS[path] ?? EXTRA_FIELDS[path];
+  const meta = PROFILE_FIELDS[path] ?? EXTRA_FIELDS[path];
+  if (meta || !path.startsWith('lexicon.')) return meta;
+  const key = path.slice('lexicon.'.length);
+  const wildcard = PROFILE_FIELDS['lexicon.*'];
+  if (!wildcard || !Object.hasOwn(LEXICON_NOTES, key)) return undefined;
+  return { ...wildcard, doc: LEXICON_NOTES[key as LexiconKey] };
 }
 
 export type {

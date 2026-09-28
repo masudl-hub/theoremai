@@ -290,6 +290,146 @@ const DEFAULTS: Record<LexiconKey, LexiconDefault> = {
   'tool.unsupported_type': "Tool '{tool}' has unsupported type",
 };
 
+/**
+ * What each key is: when the kernel uses it, who reads it, and the placeholders it takes. For the
+ * builders who replace the wording; the field catalog reads it for `lexicon.<key>`.
+ */
+export const LEXICON_NOTES: Record<LexiconKey, string> = {
+  'continue.instruction':
+    "The user message on a resumed turn: sent to the model in place of the user's text when a text reply that was cut off is continued.",
+  'canary.bind_note':
+    "Added to the system prompt on every turn with a canary, naming that turn's canary token. Must keep {canary}.",
+  'taint.blocked':
+    'Returned to the model in place of a tool call the taint gate refused, after the turn read untrusted remote content. Takes {access}, {sources} and {reason}.',
+  'taint.reason_steered':
+    'The {reason} in taint.blocked when the content read tried to direct the agent toward an external destination.',
+  'taint.reason_tainted':
+    'The {reason} in taint.blocked when the content read was not suspicious, but the call could still have come from it.',
+  'advisory.notice_elevated':
+    'Put in front of the model beside tool output that tries to direct it toward an external destination.',
+  'advisory.notice_high':
+    'Put in front of the model beside tool output that names a tool it can call, or repeatedly tries to direct it elsewhere.',
+  'advisory.guidance':
+    'Your own guidance, added to the model after either advisory notice. Empty by default, which adds nothing.',
+  'attachments.too_many_files':
+    'Shown to the user when a message carries more files than Max files allows. Takes {maxFiles}.',
+  'attachments.file_too_large':
+    'Shown to the user when one file is larger than Max bytes. Takes {maxBytes}, and {fileName} when the file has one.',
+  'attachments.turn_too_large':
+    "Shown to the user when a message's files together are larger than Turn bytes. Takes {maxTurnBytes}.",
+  'attachments.not_accepted':
+    "Shown to the user who sends files or a voice note to an agent that takes none. Takes {channel}: 'voice' or 'attachments'.",
+  'attachments.mime_not_allowed':
+    "Shown to the user when a file's type is not in the agent's accepted types. Takes {fileName} when the file has one.",
+  'attachments.limits_unconfigured':
+    'Shown to the user who sends a file to an agent whose file limits are not set.',
+  'quota.exhausted': 'Shown to the user who has used up the daily message cap. Takes {perDay}.',
+  'error.config':
+    "Shown to the user when the turn fails because the agent's profile, a tool or a schema is set up wrong.",
+  'error.request': 'Shown to the user when the turn fails because the host called Theorem wrongly.',
+  'error.input': 'Shown to the user when they sent something the agent does not accept.',
+  'error.action': 'Shown to the user when they asked for something the agent does not allow.',
+  'error.auth':
+    'Shown to the user when a model key is missing or rejected, or its account cannot be billed.',
+  'error.rate_limit':
+    'Shown to the user when the model provider reports too many requests, or a quota is used up.',
+  'error.unsupported': 'Shown to the user when the model or its route cannot serve the request.',
+  'error.unavailable': 'Shown to the user when the model provider is down or overloaded.',
+  'error.bad_response':
+    'Shown to the user when the model provider answers with something that cannot be used.',
+  'error.network': 'Shown to the user when the request never reached the model provider.',
+  'error.timeout': 'Shown to the user when the model takes longer than the host allows.',
+  'error.safety': 'Shown to the user when Theorem or the model provider holds the reply back.',
+  'error.blocked':
+    "Shown to the user when a guardrail or host policy stops one of the agent's steps.",
+  'error.declined': "Shown to the user after they decline one of the agent's steps.",
+  'error.failed': "Shown to the user when one of the agent's steps runs and fails.",
+  'error.cancelled': 'Shown to the user when they or the host stop the turn.',
+  'error.internal': 'Shown to the user when something inside Theorem breaks.',
+  'repair.default_guidance':
+    "Sent to the model when a validator rejects its output and the host gives no guidance of its own; also the Repair guidance setting's default.",
+  'repair.prompt_header':
+    'The heading that opens the repair request sent to the model after a validator rejects its output.',
+  'repair.prompt_intro':
+    'The first line of the repair request, saying why the model is asked to revise.',
+  'repair.prompt_instructions': 'The numbered steps at the end of the repair request.',
+  'repair.history_heading':
+    'The heading over the recent conversation in the repair request. Takes {count}, the number of turns shown.',
+  'repair.section_previous_output':
+    "The heading over the model's rejected output in the repair request.",
+  'repair.section_validator_rejection':
+    "The heading over the validator's reason in the repair request.",
+  'repair.section_repair_guidance': 'The heading over the repair guidance in the repair request.',
+  'repair.section_instructions': 'The heading over the numbered steps in the repair request.',
+  'egress.default_repair_guidance':
+    'Sent to the model when the egress check blocks a reply and the model is asked to rewrite it.',
+  'egress.refusal':
+    'Shown to the user in place of a reply the egress check blocked, when it is set to refuse rather than retry.',
+  'egress.rejection':
+    'The reason recorded when the egress check blocks a reply, and given to the model on a retry. Takes {rules}, the rules it broke.',
+  'egress.invalid_verdict':
+    "The reason recorded when the host's egress policy returns an answer of the wrong shape.",
+  'egress.policy_failed':
+    "The reason recorded when the host's egress policy throws before reaching a decision.",
+  'session.abandon_gated':
+    'Told to the model when the user sends a new message instead of answering a step waiting for approval. Takes {tool}.',
+  'session.tool_denied':
+    'Told to the model when the user declines a step that needed approval. Takes {tool}.',
+  'session.tool_aborted':
+    'Told to the model when a step waiting to run is stopped before it runs. Takes {tool}.',
+  'session.sign_in': 'Shown to the user when the agent needs them signed in to carry on.',
+  'session.gate_expired':
+    'Shown to the user who answers a step that is no longer waiting for approval.',
+  'session.turn_ended': 'Shown to the user who tries to steer a reply that has already finished.',
+  'session.gate_pending':
+    'Shown to the user who sends a message while a step is still waiting for their approval.',
+  'session.part_skipped':
+    "Shown to the user when part of a reply didn't arrive, so it may be incomplete.",
+  'live.session_ended': 'Shown to the user when a live call has ended.',
+  'voice.unsupported': "Shown to the user when their browser can't record voice notes.",
+  'voice.permission': 'Shown to the user when the browser was refused use of the microphone.',
+  'voice.unavailable': "Shown to the user when the microphone can't be used just now.",
+  'voice.failed': 'Shown to the user when a recording fails.',
+  'voice.empty': 'Shown to the user when a recording captured nothing.',
+  'tool.awaiting_user':
+    'Told to the model when a tool is waiting on the user. Takes {kind} and {prompt}.',
+  'tool.completed_hidden':
+    'Told to the model in place of the result of a tool whose output is hidden from it.',
+  'tool.t2_loader_needs_snapshot':
+    'Told to the model when the T2 loader is called on a turn with no tool snapshot. Takes {tool}.',
+  'tool.t2_loader_shape':
+    'Told to the model when the T2 loader returns something other than { loaded: string[] }. Takes {tool}.',
+  'tool.t2_loader_output_invalid':
+    "Told to the model when the T2 loader's output fails its schema after promotion.",
+  'tool.input_invalid': "Told to the model when a tool call's input fails the tool's input schema.",
+  'tool.input_invalid_after_mutate':
+    "Told to the model when a tool call's input fails its schema after a guardrail changed it.",
+  'tool.output_invalid_after_mutate':
+    "Told to the model when a tool's output fails its schema after a guardrail changed it.",
+  'tool.handler_no_output': "Told to the model when a tool's handler returns nothing.",
+  'tool.output_invalid': "Told to the model when a tool's output fails the tool's output schema.",
+  'tool.not_wired_t1':
+    'Told to the model when it calls a T1 tool the T1 policy did not wire this turn. Takes {tool}.',
+  'tool.not_loaded_t2':
+    'Told to the model when it calls a T2 tool the T2 loader has not loaded yet. Takes {tool}.',
+  'tool.not_visible':
+    'Told to the model when it calls a tool it cannot see this turn. Takes {tool}.',
+  'tool.builtin_not_enabled':
+    'Told to the model when it calls a provider builtin not turned on this turn. Takes {tool}.',
+  'tool.provider_native':
+    'Told to the model when the kernel is asked to run a provider builtin, which the provider runs itself. Takes {tool}.',
+  'tool.not_registered':
+    'Told to the model when it calls a tool that was never registered. Takes {tool}.',
+  'tool.builtin_needs_snapshot':
+    'Told to the model when a provider builtin is called on a turn with no tool snapshot. Takes {tool}.',
+  'tool.not_allowed':
+    "Told to the model when it calls a tool the profile's allow list leaves out. Takes {tool} and {profile}.",
+  'tool.not_eligible':
+    "Told to the model when it calls a tool that is not eligible on this turn's path. Takes {tool}.",
+  'tool.unsupported_type':
+    'Told to the model when a tool has a type the kernel cannot run. Takes {tool}.',
+};
+
 /** Placeholders an override for a key must keep (mechanism-critical tokens). */
 const REQUIRED_PLACEHOLDERS: Partial<Record<LexiconKey, readonly string[]>> = {
   'canary.bind_note': ['{canary}'],

@@ -38,22 +38,6 @@ export const THEOREM_UI_CATALOG = {
 		description: 'Empty composer placeholder.',
 		params: ['handle'],
 	},
-	'@theorem.composer.untyped.files_or_voice': {
-		defaultMessage: 'Attach a file or record a voice note to send',
-		description: 'Composer placeholder when the agent takes files and voice notes but no typed text.',
-	},
-	'@theorem.composer.untyped.files': {
-		defaultMessage: 'Attach a file to send',
-		description: 'Composer placeholder when the agent takes files but no typed text.',
-	},
-	'@theorem.composer.untyped.voice': {
-		defaultMessage: 'Record a voice note to send',
-		description: 'Composer placeholder when the agent takes voice notes but no typed text.',
-	},
-	'@theorem.composer.untyped.none': {
-		defaultMessage: "This agent doesn't take messages",
-		description: 'Composer placeholder when the agent takes no text, files or voice notes.',
-	},
 	'@theorem.composer.listening': { defaultMessage: 'Listening…', description: 'Composer placeholder while a voice note records.' },
 	'@theorem.composer.attach': { defaultMessage: 'Attach files', description: 'Paperclip button.' },
 	'@theorem.composer.record': { defaultMessage: 'Record voice', description: 'Microphone button, idle.' },

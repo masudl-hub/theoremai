@@ -98,6 +98,8 @@ names the decision on its trace (`theorem.decision.contract`); it is not sent to
 Jev and does not limit which questions a call asks. At call time,
 `runDecision` accepts non-null JSON `state` and named `choice`, `noul`, or
 `score` questions, then returns only Jev's validated typed answers and usage.
+Jev reports tokens, not dollars; `usage.costUsd` prices them at Jev's fixed
+price, $0.042 per million input tokens with output free.
 It has no prompt, conversation history, attachments, tools, streaming, or
 turn/provider protocol; an API key is supplied explicitly in `RunDecisionOptions`
 or resolved from its host-provided `keyVault`.
@@ -115,7 +117,7 @@ policy, or through `RunDecisionOptions.sink` when the host passes one: a
 given, stamped with `DecisionRequest.metadata`) carrying
 `gen_ai.operation.name: decide`, `gen_ai.provider.name: typesafe`,
 `gen_ai.agent.name` (the profile), the requested and answering model, token
-usage, `theorem.decision.contract`, and the state, questions and answers as
+usage and its cost (`theorem.usage.cost_usd`), `theorem.decision.contract`, and the state, questions and answers as
 stored JSON content under the profile's scrub policy. A failed decision ends
 the span `ERROR` with `error.type` its error kind. As with turns, a failed
 trace write never fails the decision.
@@ -281,8 +283,8 @@ Live sessions emit the same stage names around utterance cycles and
 turn's user message is the lexicon's `continue.instruction` (a continue turn takes no
 `input.text`); the host passes the partial reply as the last assistant message in
 `input.history`. On image and speech nothing is added: the host re-sends the
-original request and the turn runs it again in full. The kernel does not read
-`continueFrom.partialText` / `partialArtifact`.
+original request and the turn runs it again in full. `continueFrom` carries only
+the `stop` being resumed.
 
 Trace context on the request, all optional:
 

@@ -87,12 +87,13 @@ export interface MediaTurnBehaviourSpec {
   resumption?: ProfileTurnResumptionSpec;
 }
 
-/** Partial state passed when continuing a resumeable stop. */
+/**
+ * The stop a continue turn resumes. The partial reply is not carried here: a
+ * text continue reads it as the last assistant message in `input.history`, and
+ * an image or speech continue re-sends the original request.
+ */
 export interface TurnContinueFrom {
   stop: TurnStop;
-  partialText?: string;
-  /** Serialized artifact / code preview from the interrupted turn. */
-  partialArtifact?: string;
 }
 
 const RESUMEABLE_DEFAULT = new Set<ContinueStopKind>(DEFAULT_ALLOW_CONTINUE);

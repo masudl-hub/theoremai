@@ -67,12 +67,12 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
   'identity.system': {
     profileTypes: ['text', 'image', 'live'],
     reason:
-      'speech has no system channel (the input text is the transcript) and a decision prompts through decision.contract',
+      'speech has no system channel (the input text is the transcript) and a decision is asked only through its questions',
   },
   'identity.systemByRole': {
     profileTypes: ['text', 'image', 'live'],
     reason:
-      'speech has no system channel (the input text is the transcript) and a decision prompts through decision.contract',
+      'speech has no system channel (the input text is the transcript) and a decision is asked only through its questions',
   },
   models: { profileTypes: MODEL_PROFILE_TYPES, reason: 'a host profile runs no model' },
   'models.*.protocol': {

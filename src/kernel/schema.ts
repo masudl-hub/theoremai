@@ -618,9 +618,12 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   'models.*.apiId': field('string', 'Provider wire model id.'),
   decision: field(
     '{ contract: DecisionContractId }',
-    'Native decision contract for a Jev profile.',
+    'Which host decision this Jev profile makes. Jev never sees it; it answers the questions each call asks.',
   ),
-  'decision.contract': field('string', 'Host-owned decision contract identifier.'),
+  'decision.contract': field(
+    'string',
+    'Host-owned id for the decision, recorded on each decide span as theorem.decision.contract. Not sent to Jev and not checked against the questions.',
+  ),
   'models.*.efforts': field(
     'Record<string, ThinkingLevel>',
     'Alias → thinking level. One entry = fixed; two+ may be selectable at turn time.',

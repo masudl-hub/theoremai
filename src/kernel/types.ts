@@ -601,7 +601,11 @@ export interface DecisionInputsSpec {
   maxStateBytes?: number;
 }
 
-/** A host-owned decision contract identifier. */
+/**
+ * A host-owned id for the decision a profile makes. The trace records it as
+ * `theorem.decision.contract`; it is not sent to Jev and does not constrain
+ * the questions a call asks.
+ */
 export type DecisionContractId = string;
 
 /** Native Jev profile. It cannot be passed to chat or live execution doors. */

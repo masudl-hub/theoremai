@@ -93,7 +93,9 @@ facet kinds. Drift is gated by `tests/kernel/profile-graph.test.ts` and
 
 A `decision` profile is a separate, bounded execution path for TypeSafe Jev
 System One. Its `models` map binds exactly one Jev API id and optional key slot, while its
-`decision.contract` is the host's stable contract identifier. At call time,
+`decision.contract` is the host's stable id for the decision it makes. The id
+names the decision on its trace (`theorem.decision.contract`); it is not sent to
+Jev and does not limit which questions a call asks. At call time,
 `runDecision` accepts non-null JSON `state` and named `choice`, `noul`, or
 `score` questions, then returns only Jev's validated typed answers and usage.
 It has no prompt, conversation history, attachments, tools, streaming, or

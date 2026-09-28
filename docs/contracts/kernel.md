@@ -657,7 +657,7 @@ Profile `turnBehaviour` (top-level on chat/image/speech):
 
 | Field | Effect |
 | --- | --- |
-| `resumption.allowContinue` | Stops that may be continued (continueFrom); omitted → all three |
+| `resumption.allowContinue` | Stops that may be continued (continueFrom); omitted → all three; `[]` → none |
 | `resumption.autoContinue` | Stops the host continues once on its own; omitted → length and stream_incomplete, `[]` → none |
 | `resumption.maxContinues` | How many times one reply may be continued (enforced); omitted → no cap |
 | `allowSteering` | **Text and live.** Gates **inject** via `profileAllowsInject` / stages. Stage events always emit. Image/speech must omit |
@@ -891,7 +891,7 @@ turnBehaviour: {
 | `DEFAULT_AUTO_CONTINUE` | length, stream_incomplete |
 | `AUTO_CONTINUE_DELAY_MS` | `1500` — suggested pause before one-shot auto-continue |
 | `isContinueStopKind` | Narrow to continue-eligible kinds |
-| `isResumeableStop` | Profile `allowContinue` or default; always false outside ContinueStopKind |
+| `isResumeableStop` | Profile `allowContinue` (`[]` allows none) or, when omitted, the default; always false outside ContinueStopKind |
 | `shouldAutoContinue` | One silent resume under the profile's resumption policy (`autoContinue` and `allowContinue`); never outside ContinueStopKind |
 | `isUserCancelledStop` | `kind === 'cancelled'` |
 | `profileTurnResumption` | Read `turnBehaviour.resumption` |

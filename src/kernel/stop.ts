@@ -34,7 +34,7 @@ export const AUTO_CONTINUE_DELAY_MS = 1_500;
 export interface ProfileTurnResumptionSpec {
   /**
    * Kinds eligible for a Continue / continueFrom turn.
-   * When omitted, length / stream_incomplete / provider_error are eligible.
+   * When omitted, length / stream_incomplete / provider_error are; `[]` means none.
    * Only `ContinueStopKind` values are valid — not tool / cancelled / completed / …
    */
   allowContinue?: ContinueStopKind[];
@@ -97,14 +97,14 @@ export interface TurnContinueFrom {
 
 const RESUMEABLE_DEFAULT = new Set<ContinueStopKind>(DEFAULT_ALLOW_CONTINUE);
 
-/** True when this stop may be continued (profile allow list or default). */
+/** True when this stop may be continued: in the profile's allow list, or the default when it has none (`[]` allows none). */
 export function isResumeableStop(
   stop: TurnStop | undefined,
   allowContinue?: readonly ContinueStopKind[],
 ): boolean {
   if (!stop) return false;
   if (!isContinueStopKind(stop.kind)) return false;
-  const allow = allowContinue?.length ? new Set(allowContinue) : RESUMEABLE_DEFAULT;
+  const allow = allowContinue ? new Set(allowContinue) : RESUMEABLE_DEFAULT;
   return allow.has(stop.kind);
 }
 

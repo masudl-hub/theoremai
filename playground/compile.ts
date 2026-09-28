@@ -513,11 +513,13 @@ function compileOutputs(
 }
 
 function compileResumption(turn: TurnBehaviourDraft, report: Report) {
-  if (!turn.resumeEnabled) return undefined;
+  // "Never" is written out: left out, the kernel lets every continue kind be continued.
+  if (!turn.resumeEnabled) return { allowContinue: [] };
   checkWhole(report, 'turnBehaviour', 'maxContinues', 'Max continues', turn.maxContinues, 1);
   return {
-    ...(turn.allowContinue.length ? { allowContinue: [...turn.allowContinue] } : {}),
-    // Always written: left out, the kernel auto-continues length and stream_incomplete.
+    // Both always written: left out, the kernel continues all three kinds and
+    // auto-continues length and stream_incomplete.
+    allowContinue: [...turn.allowContinue],
     autoContinue: [...turn.autoContinue],
     ...(turn.maxContinues !== null ? { maxContinues: turn.maxContinues } : {}),
   };

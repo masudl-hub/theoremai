@@ -289,13 +289,34 @@ Deno.test('a draft compiles only the fields its type takes in the schema', () =>
     },
   });
   assertEquals(profile.type, 'image');
-  assertEquals(profile.turnBehaviour, { resumption: { autoContinue: [] } });
+  assertEquals(profile.turnBehaviour, { resumption: { allowContinue: [], autoContinue: [] } });
   assertEquals(profile.lexicon, undefined);
 
   const live = setProfileType(image, 'live');
   const liveProfile = compiled({ ...live, tools: { t2Loader: 'not_checked' } }).profile;
   assert(liveProfile.type === 'live');
   assertEquals(Object.keys(liveProfile.tools), ['allow']);
+});
+
+Deno.test('continuing set to Never compiles to an empty allow list, not the kernel default', () => {
+  const text = includeFacet(createExampleDraft(), 'turnBehaviour');
+  const never = compiled({
+    ...text,
+    turnBehaviour: { ...text.turnBehaviour, resumeEnabled: false },
+  });
+  assertEquals(never.profile.turnBehaviour, { resumption: { allowContinue: [] } });
+  const some = compiled({
+    ...text,
+    turnBehaviour: {
+      ...text.turnBehaviour,
+      resumeEnabled: true,
+      allowContinue: ['length'],
+      autoContinue: ['length'],
+    },
+  });
+  assertEquals(some.profile.turnBehaviour, {
+    resumption: { allowContinue: ['length'], autoContinue: ['length'] },
+  });
 });
 
 Deno.test('the continue instruction and canary bind note compile into the profile lexicon', () => {

@@ -113,6 +113,7 @@ Deno.test('speechFormatsForProtocol matches assertSpeechRole rules', () => {
   assertEquals([...speechFormatsForProtocol('geminiLive')], ['pcm']);
   assertEquals(coerceSpeechFormat('geminiInteractions', 'mp3'), 'pcm');
   assertEquals(coerceSpeechFormat('openAi', 'mp3'), 'mp3');
+  assertEquals(coerceSpeechFormat('openAi', undefined), undefined);
 });
 
 Deno.test('PROFILE_FIELDS protocol / accept / text match live unions', () => {

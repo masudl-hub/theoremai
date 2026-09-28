@@ -132,14 +132,14 @@ export function isSpeechFormatAllowedForProtocol(
   return speechFormatsForProtocol(protocol).includes(format);
 }
 
-/** Snap an illegal or omitted format to the first legal value for the protocol. */
+/** Snap a format the protocol can't send to its first legal one; unset stays unset. */
 export function coerceSpeechFormat(
   protocol: Protocol,
   format: SpeechAudioFormat | undefined,
-): SpeechAudioFormat {
+): SpeechAudioFormat | undefined {
+  if (format === undefined) return undefined;
   const allowed = speechFormatsForProtocol(protocol);
-  if (format && allowed.includes(format)) return format;
-  return allowed[0];
+  return allowed.includes(format) ? format : allowed[0];
 }
 
 /** Live session activity handling (barge-in behavior). */
@@ -833,7 +833,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'speech.format': field(
     unionType(SPEECH_AUDIO_FORMATS),
-    'pcm (default) → WAV on both transports. mp3 requires protocol openAi.',
+    'Audio format asked of the provider; unset sends none, so the provider picks. pcm arrives as WAV. mp3 requires protocol openAi.',
     SPEECH_AUDIO_FORMATS,
     {
       pcm: 'Raw 24kHz 16-bit PCM audio (→ WAV container). Supported by Google and OpenAI.',

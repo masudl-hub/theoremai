@@ -66,7 +66,7 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
   'image.mimeType': { unset: 'Provider default' },
   'image.includeText': { unset: 'Off' },
   'speech.voice': { unset: 'Provider default' },
-  'speech.format': { unset: 'pcm' },
+  'speech.format': { unset: 'Provider default' },
   'live.ingress.audio': { unset: 'On' },
   'live.ingress.video': { unset: 'On' },
   'live.ingress.text': { unset: 'Off' },

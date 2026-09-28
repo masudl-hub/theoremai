@@ -6,6 +6,7 @@ import {
   coerceProtocol,
   coerceProvider,
   coerceSpeechFormat,
+  EXTRA_FIELDS,
   fieldMeta,
   isValidPair,
   isValidProfileProtocol,
@@ -217,4 +218,12 @@ Deno.test('live wires every load tier; host is a model-less profile type', () =>
   assertEquals(fieldMeta('tools.t1Policy')?.profileTypes, ['text', 'image']);
   assertEquals(fieldMeta('tools.t2Loader')?.profileTypes, ['text', 'image']);
   assertEquals(fieldMeta('type')?.doc?.includes('host'), true);
+});
+
+Deno.test('every option description names one of its field options', () => {
+  for (const [path, meta] of Object.entries({ ...PROFILE_FIELDS, ...EXTRA_FIELDS })) {
+    for (const key of Object.keys(meta.optionDescriptions ?? {})) {
+      assertEquals(meta.options?.includes(key), true, `${path}: '${key}' is not an option`);
+    }
+  }
 });

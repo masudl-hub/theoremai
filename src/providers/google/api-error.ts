@@ -30,9 +30,16 @@ function refusesKey(details: unknown): boolean {
   );
 }
 
-/** Kinds for the named codes Google puts on errors inside an Interactions stream. */
+/**
+ * Kinds for the named codes Google puts on errors inside an Interactions
+ * stream (the HTTP status is 200 by then). `service_unavailable` is the
+ * "experiencing high demand" overload and `api_error` the "Internal error
+ * encountered" failure: the kinds a 503 and a 500 would carry.
+ */
 const STREAM_ERROR_KINDS: Readonly<Record<string, ErrorKind>> = {
   rate_limit_exceeded: 'rate_limit',
+  service_unavailable: 'unavailable',
+  api_error: 'unavailable',
 };
 
 /**

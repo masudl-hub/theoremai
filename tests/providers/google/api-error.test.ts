@@ -42,6 +42,25 @@ Deno.test('readGeminiApiError reads the named code of a stream error', () => {
     })?.kind,
     'rate_limit',
   );
+  // As sent mid-stream on 28/09/2026 by gemma-4-31b-it and gemini-3.7-flash.
+  assertEquals(
+    readGeminiApiError({
+      error: {
+        message:
+          'gemini-3.7-flash is currently experiencing high demand, spikes in demand are usually temporary. Please try again later.',
+        code: 'service_unavailable',
+      },
+      event_type: 'error',
+    })?.kind,
+    'unavailable',
+  );
+  assertEquals(
+    readGeminiApiError({
+      error: { message: 'Internal error encountered.', code: 'api_error' },
+      event_type: 'error',
+    })?.kind,
+    'unavailable',
+  );
   assertEquals(
     readGeminiApiError({ error: { code: 'something_new', message: 'x' } })?.kind,
     'bad_response',

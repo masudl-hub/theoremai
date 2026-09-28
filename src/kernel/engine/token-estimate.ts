@@ -1,17 +1,7 @@
 /**
- * THEOREM's one token estimator — used when a count is needed and no provider
- * reported one (compaction metering, the usage fallback, host prompt budgets).
- *
- * **Text** — tiktoken `o200k_base` via `gpt-tokenizer`. The ranks load once,
- * asynchronously, on `loadTokenEstimator()`; text counting is synchronous after
- * that. Hosts that never estimate never pay for the import. o200k is not every
- * model's tokenizer, so text counts are an estimate for all families. Media
- * counting is asynchronous: reading a PDF page tree can mean inflating
- * compressed object streams.
- *
- * **Media** — counted only by a rule the model family's billed usage was
- * measured to follow. A family without one reports media as unknown
- * (`unknownMedia`), never a borrowed rate.
+ * o200k is not every model's tokenizer, so text counts are an estimate for all families. Media is
+ * counted only by a rule the family's billed usage was measured to follow; a family without one
+ * reports media as `unknownMedia`, never a borrowed rate.
  *
  * Gemini 3 (`gemini-3*` flash / pro text models, direct or via OpenRouter).
  * Measured 22/09/2026 against the usage Gemini bills — Interactions `usage`
@@ -48,8 +38,6 @@
  * Not yet checked against billed usage: video in WebM / MOV / 3GP, anamorphic
  * video, and Gemini 3 models other than gemini-3.8-flash. The full probe and
  * open decisions: https://github.com/masudl-hub/theoremai/issues/18
- *
- * @module
  */
 
 import { historyMessageParts } from '../interaction-parts.ts';
@@ -62,16 +50,13 @@ import { imageSize } from './media-probe/image.ts';
 import { pdfPageCount } from './media-probe/pdf.ts';
 import { videoInfo } from './media-probe/video.ts';
 
-/** Tiktoken encoding used for text. */
 export const TOKEN_TEXT_ENCODING = 'o200k_base';
 
 /** Model families with a verified media rule. */
 export type MediaTokenFamily = 'gemini-3';
 
-/** Inline or referenced media payload. */
 export type MediaPayload = { mimeType: string; data: string } | { mimeType: string; uri: string };
 
-/** Estimated count plus the media parts that could not be counted. */
 export interface TokenCount {
   tokens: number;
   /** Media parts left out of `tokens` because their count is unknown. */
@@ -87,7 +72,6 @@ export interface TokenEstimator {
     payload: MediaPayload,
     family: MediaTokenFamily | undefined,
   ) => Promise<number | undefined>;
-  /** Text and media across provider input parts. */
   parts: (parts: InteractionPart[], family: MediaTokenFamily | undefined) => Promise<TokenCount>;
   /** Content, parts, and tool-call arguments across history messages. */
   messages: (
@@ -165,7 +149,7 @@ function pcmSeconds(mimeType: string, bytes: Uint8Array): number | undefined {
   } else {
     rate = mimeParam(mimeType, 'rate');
     channels = mimeParam(mimeType, 'channels');
-    // Mono L16 is converted before it is counted; see the module doc.
+    // Mono L16 is converted before it is counted.
     if (channels === 1) return undefined;
   }
   if (!rate || !channels) return undefined;
@@ -183,7 +167,6 @@ function gemini3Audio(mimeType: string, bytes: Uint8Array): number | undefined {
   return seconds === undefined ? undefined : Math.ceil(seconds * GEMINI_3_AUDIO_PER_SECOND);
 }
 
-/** Patches of a `budget`-token grid that keeps the `w`×`h` aspect ratio. */
 function patchGrid(budget: number, w: number, h: number): number {
   return Math.floor(Math.sqrt((budget * w) / h)) * Math.floor(Math.sqrt((budget * h) / w));
 }
@@ -273,7 +256,7 @@ function buildEstimator(encode: EncodeFn): TokenEstimator {
   return { text, media, parts, messages };
 }
 
-/** Load the o200k ranks once and return the synchronous estimator. */
+// The ranks import lazily, so hosts that never estimate never pay for them.
 export async function loadTokenEstimator(): Promise<TokenEstimator> {
   encodePromise ??= import('gpt-tokenizer/encoding/o200k_base').then((m) => m.encode);
   return buildEstimator(await encodePromise);

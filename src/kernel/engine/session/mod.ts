@@ -1,14 +1,3 @@
-/**
- * `runSession` — long-lived live profile execution.
- *
- * Shares resolve / tools / canary / system / outbound gate with `runTurn`.
- * Does not use `ModelProvider.complete()` — live is a session, not one turn.
- *
- * Stages: `docs/contracts/stages.md` (cycle map + `executeTool`).
- *
- * @module
- */
-
 import { bindCanary } from '../../../guardrails/canary.ts';
 import {
   describeError,
@@ -94,24 +83,17 @@ import { type LiveCloser, type LiveTrace, startLiveTrace } from './session-trace
 
 export type { LiveSession, SessionRequest };
 
-/**
- * Host-provided transport dependencies for `runSession` on a Gemini Live profile.
- * `openWebSocket` exists for non-browser runtimes and deterministic tests.
- */
 export interface RunSessionOptions {
   gemini: GeminiTransport;
   /** Override socket open (Cloudflare fetch-upgrade, tests). Default: `new WebSocket(url)`. */
   openWebSocket?: (url: string) => Promise<WebSocket>;
   /**
-   * How long a gated call waits for its decision, in milliseconds: the same
-   * setting as `createTheoremHandler`'s. A decision after it is refused
-   * (`session.gate_expired`), and the model reads the call as abandoned.
-   * Default: 30 minutes.
+   * Milliseconds a gated call waits for its decision (default 30 minutes). A later decision is
+   * refused (`session.gate_expired`), and the model reads the call as abandoned.
    */
   gateTtlMs?: number;
 }
 
-/** A call the model made that the session has not settled. */
 type HeldCall = {
   name: string;
   arguments: Record<string, unknown>;
@@ -119,7 +101,6 @@ type HeldCall = {
   state: 'open' | 'running' | { gate: ToolGate; createdAt: number };
 };
 
-/** The phase a run ends a call on: settled, or waiting on a gate. */
 type SettledPhase = Extract<ToolPhaseEvent, { phase: 'complete' | 'error' | 'gate' }>;
 
 function isSettledPhase(tool: ToolPhaseEvent): tool is SettledPhase {
@@ -154,7 +135,6 @@ function sessionEndedEvent(
   };
 }
 
-/** Inject on live is realtime text ingress only: no tool role, no media parts. */
 /** Live ingress takes text: an inject's texts, or `undefined` when any message is not plain text. */
 function liveInjectTexts(messages: readonly TurnHistoryMessage[]): string[] | undefined {
   const texts: string[] = [];
@@ -338,7 +318,6 @@ function boundaryDoneEvents(
   return [{ type: 'done', stop: { kind: 'completed' } }];
 }
 
-/** Yield non-done batch events; return the done subset for boundary handling. */
 function* yieldLiveNonDoneEvents(
   gated: TurnEvent[],
   includeMatch: boolean | undefined,
@@ -371,7 +350,6 @@ function buildLiveSession(args: {
   snapshot: TurnToolSnapshot;
   /** Seed for StageContext.history (cloned). */
   historySeed?: TurnHistoryMessage[];
-  /** Open cycle for initial setup input when present. */
   openInitialCycle: boolean;
   trace: LiveTrace;
   gateTtlMs: number;
@@ -394,7 +372,6 @@ function buildLiveSession(args: {
   let sessionPermissions = args.sessionPermissions;
   /** Grows as the user types keys at sign-in gates. */
   let sessionCredentials = args.credentials;
-  /** Every call the model made that is not settled yet, by call id. */
   const calls = new Map<string, HeldCall>();
 
   let closed = false;
@@ -429,7 +406,6 @@ function buildLiveSession(args: {
     history.push({ role: 'assistant', content: trimmed });
   };
 
-  /** Record a settled call in history as the model read it. */
   const recordToolSettle = (
     tool: { name: string; callId: string; arguments: Record<string, unknown> },
     readBack: string,
@@ -464,7 +440,6 @@ function buildLiveSession(args: {
     wake?.();
   };
 
-  /** Resolves once the session has an event of its own queued for the host. */
   const hostEventQueued = (): Promise<'queued'> =>
     pendingHostEvents.length > 0
       ? Promise.resolve('queued')
@@ -483,7 +458,6 @@ function buildLiveSession(args: {
     connection.send(payload);
   };
 
-  /** Answer the model for a held call, record it, and let the call go. */
   const settleHeld = (callId: string, held: HeldCall, readBack: string) => {
     calls.delete(callId);
     recordToolSettle({ name: held.name, callId, arguments: held.arguments }, readBack);
@@ -751,7 +725,6 @@ function buildLiveSession(args: {
       };
     }
 
-    // post_tool inject on live → schedule text ingress
     const { pendingInject } = s;
     if (pendingInject) {
       await withIngress(async () => {
@@ -795,7 +768,6 @@ function buildLiveSession(args: {
     return held;
   };
 
-  /** One model batch, as the host receives it: its calls held, guarded, and its cycle ended at a done. */
   const deliverBatch = async function* (
     item: Extract<SessionQueueItem, { type: 'batch' }>,
   ): AsyncGenerator<TurnEvent> {
@@ -839,7 +811,6 @@ function buildLiveSession(args: {
     }
   };
 
-  /** The session's events, as the host receives them. */
   const streamToHost = async function* (): AsyncGenerator<TurnEvent> {
     // Who closes the socket when the loop ends: the host, unless THEOREM stops it.
     let closer: LiveCloser = 'host';
@@ -1051,14 +1022,8 @@ function buildLiveSession(args: {
 }
 
 /**
- * Open a gated Gemini Live session for a `type: 'live'` profile registered in
- * `registry`, and trace it (`session-trace.ts`): the session record is written
- * however the session ends, including when opening it fails. A session on an
- * unknown profile fails to open and is recorded under the standard
- * observability policy, since there is no profile to read one from.
- *
- * Hosts bridge browser sockets and tool dispatch; THEOREM owns Gemini WS,
- * framing, inbound prep, outbound canary/egress gates, and live stages.
+ * The session record is written however the session ends, including when opening fails. An unknown
+ * profile fails to open and is recorded under the standard observability policy.
  */
 export async function runSessionInRegistry(
   registry: KernelRegistry,

@@ -1,12 +1,3 @@
-/**
- * Schema-driven structured-output validation.
- *
- * Required vs optional comes only from the JSON Schema. Host field validators
- * run for required paths and for optional paths that are present.
- *
- * @module
- */
-
 import { TheoremError } from '../../../guardrails/error.ts';
 import type { ProfileValidator, ValidationResult } from '../../types.ts';
 
@@ -131,8 +122,8 @@ async function walkObject(
 }
 
 /**
- * Collect schema presence failures and host field-validator failures.
- * Throws when the root schema is not an object schema.
+ * Required vs optional comes only from the JSON Schema; host field validators run for required
+ * paths and for optional paths that are present. Throws when the root is not an object schema.
  */
 async function collectValidationFailures(
   jsonSchema: Record<string, unknown>,

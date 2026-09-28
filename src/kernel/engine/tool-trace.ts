@@ -1,13 +1,3 @@
-/**
- * The `execute_tool` span: one tool call Theorem ran or settled, from before
- * `pre_tool` to settlement, so it covers the hooks, the gates and the body.
- *
- * Provider-run tools (search, maps, code execution) are not spans here:
- * Theorem did not run them; they are parts of the model call's output.
- *
- * @module
- */
-
 import { errorKind } from '../../guardrails/error.ts';
 import type { ToolOrigin } from '../../guardrails/types.ts';
 import {
@@ -31,11 +21,9 @@ import {
 /** How a tool call ended. Only `error` is a failure; the rest were stopped or finished. */
 type ToolOutcome = 'ok' | 'error' | 'denied' | 'gated' | 'paused' | 'cancelled';
 
-/** What is known about a call when its span opens. */
 interface ToolCallStart {
   name: string;
   callId: string;
-  /** The call as the model or host sent it; see `toolArgumentsText`. */
   call: SentToolCall;
   /** Absent when the tool is not registered. */
   origin?: ToolOrigin;
@@ -46,7 +34,6 @@ interface ToolCallStart {
   step?: number;
 }
 
-/** How a call settled. */
 interface ToolCallEnd {
   outcome: ToolOutcome;
   /** What the model reads back: its text and any media. Absent when nothing is read back. */
@@ -59,10 +46,8 @@ interface ToolCallEnd {
   thrown?: unknown;
 }
 
-/** Recorder for one tool call's span. */
 interface ToolCallTrace {
   span: SpanHandle;
-  /** Every event the call emitted. */
   observe: (event: TurnEvent) => void;
   end: (end: ToolCallEnd) => void;
 }
@@ -116,8 +101,9 @@ const OUTCOME_STATUS: Record<ToolOutcome, 'OK' | 'ERROR' | 'UNSET'> = {
 };
 
 /**
- * Open the `execute_tool` span for one call. `open` places it: a child of the
- * turn's root, or the root of a host-invoked tool's own record.
+ * Spans from before `pre_tool` to settlement, so it covers the hooks, the gates and the body.
+ * Provider-run tools (search, maps, code execution) get no span: Theorem did not run them.
+ * `open` places it: a child of the turn's root, or the root of a host-invoked tool's own record.
  */
 function startToolTrace(
   open: (name: string, attributes: TraceAttributes) => SpanHandle,

@@ -29,7 +29,6 @@ import type { CallTrace } from '../turn-trace.ts';
 /** What the stream yields to the step runner: every provider event but `response`, which only the trace reads. */
 export type StreamEvent = Exclude<ProviderEvent, { type: 'response' }>;
 
-/** Mutable control flags shared with the step runner during one provider stream. */
 interface OutboundStreamControl {
   /** Stop releasing text/media to the host; keep recording for egress. Thoughts are unguarded. */
   withholdVisible: boolean;
@@ -45,7 +44,6 @@ function shouldSkipStreamEvent(event: ProviderEvent, profile: Profile): boolean 
 function* yieldCanaryLeak(): Generator<StreamEvent> {
   yield* yieldDeltaBlock([CANARY_HIT]);
   yield toErrorEvent(new TheoremError('safety', WITHHELD_REASON.canary));
-  // The turn ends because our guardrail blocked the output, not because the model finished.
   yield { type: 'done', stop: { kind: 'filtered', native: 'canary' } };
 }
 
@@ -68,7 +66,6 @@ function canaryOnlyImmediateStop(policy: ResolvedGuardrailPolicy): boolean {
 async function* yieldProviderEvents(args: {
   profile: Profile;
   generation: ResolvedGeneration;
-  /** What the adapter is asked to send (`providerCompleteRequest`). */
   request: ProviderCompleteRequest;
   provider: ModelProvider;
   /** This call's recorder: sees every tap row and every provider event before any gate. */

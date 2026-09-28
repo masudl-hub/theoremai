@@ -258,7 +258,6 @@ function recordToolModelResult(
   state.currentHistory.push(message);
 }
 
-/** Forward a tool execution's events to the host, recorded; returns its settlement. */
 async function* forwardToolEvents(
   exec: AsyncGenerator<TurnEvent, ToolExecuteSettlement>,
   state: StepExecutionState,
@@ -272,7 +271,6 @@ async function* forwardToolEvents(
   return next.value;
 }
 
-/** Opens a turn tool call's `execute_tool` span under the turn's root. */
 function toolSpanOpener(state: StepExecutionState) {
   return (name: string, attributes: TraceAttributes) =>
     state.trace.root.child(name, { attributes });
@@ -437,7 +435,7 @@ async function* executeAttempt(args: {
 
   // Ceiling is cumulative `state.stepCount` across before_end inject re-entries
   // within this attempt. Validation/egress repair resets stepCount at the start
-  // of each attempt cycle (see gates.ts).
+  // of each attempt cycle.
   while (!isStepLimitReached(state.stepCount, generation.maxSteps ?? 0)) {
     throwIfAborted(args.safe.signal);
     state.stepCount++;

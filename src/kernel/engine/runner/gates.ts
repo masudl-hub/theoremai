@@ -44,12 +44,7 @@ function collectAttemptText(events: TurnEvent[]): string {
   return parts.join('');
 }
 
-/**
- * Project attempt events into the egress payload.
- *
- * Structured output travels alongside text so a profile with `outputs.structured`
- * is covered by its own egress policy rather than passing unexamined.
- */
+// Structured output travels with the text so `outputs.structured` meets egress rather than passing unexamined.
 function projectOutbound(events: TurnEvent[]): OutboundPayload {
   const structured = findLast(events, (e) => e.type === 'structured')?.structured;
   return {

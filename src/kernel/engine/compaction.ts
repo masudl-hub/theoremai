@@ -1,12 +1,3 @@
-/**
- * Compaction helpers: history split + threshold metering.
- *
- * Pure and stateless. History lives on the request; the kernel does not store
- * cross-turn session state.
- *
- * @module
- */
-
 import type {
   CompactionMeter,
   CompactionSpec,
@@ -17,23 +8,18 @@ import type {
 } from '../types.ts';
 import { loadTokenEstimator, type MediaTokenFamily } from './token-estimate.ts';
 
-/** Result of splitting history for compaction. */
 export interface CompactionSplit {
-  /** Messages to send to the compaction profile. */
   toCompact: TurnHistoryMessage[];
-  /** Recent exchanges to preserve verbatim. */
   toRetain: TurnHistoryMessage[];
 }
 
-/** Resolved meter for a compaction decision. */
 export interface CompactionTokens {
   meter: CompactionMeter;
   /** Token count compared to `compactAt * maxTokens`. */
   tokens: number;
   /**
-   * Media parts left out of `tokens` because no verified rule counts them
-   * for this model (see `token-estimate.ts`). Always 0 for host-supplied and
-   * provider-reported counts.
+   * Media parts left out of `tokens` because no verified rule counts them for this model.
+   * Always 0 for host-supplied and provider-reported counts.
    */
   unknownMedia: number;
 }
@@ -43,15 +29,7 @@ export function compactionMeter(spec: CompactionSpec): CompactionMeter {
   return spec.meter ?? 'history';
 }
 
-/**
- * Find exchange boundaries in a history array.
- *
- * An exchange starts at each `user` message and includes all subsequent
- * messages until the next `user` message. System messages before the first
- * user message are not part of any exchange.
- *
- * Returns the indices of each `user` message that starts an exchange.
- */
+// An exchange starts at each `user` message; system messages before the first one belong to none.
 function findExchangeBoundaries(history: TurnHistoryMessage[]): number[] {
   const boundaries: number[] = [];
   for (let i = 0; i < history.length; i++) {
@@ -62,13 +40,7 @@ function findExchangeBoundaries(history: TurnHistoryMessage[]): number[] {
   return boundaries;
 }
 
-/**
- * History token count for `meter: 'history'`.
- *
- * Prefers host-supplied `input.historyTokens`. Otherwise estimates
- * `input.history` with the one token estimator, counting media by the model
- * family's verified rule. Empty/missing → 0.
- */
+/** Prefers host-supplied `input.historyTokens`; otherwise estimates `input.history`. */
 export async function resolveHistoryTokens(
   input: TurnInput | undefined,
   family: MediaTokenFamily | undefined,
@@ -82,24 +54,15 @@ export async function resolveHistoryTokens(
 }
 
 /**
- * Resolve the token count used for the compaction threshold.
- *
- * - `meter: 'history'` (default) — `historyTokens` or estimate of `history`
- *   (media counted by `family`'s rule; unknown media reported, not guessed).
- * - `meter: 'input'` — prefer `prompt.input` (this turn's last model call,
- *   for `timing: 'after'`; the estimator's count when the provider reported
- *   none, with its uncounted prompt media), else host `input.inputTokens`
- *   (previous turn, for `timing: 'before'`). Missing/non-positive → undefined
- *   (do not fire).
- *
- * `meter: 'input'` never loads the history tokenizer.
+ * `meter: 'input'` prefers this turn's last model call (`timing: 'after'`), else the host's
+ * `input.inputTokens` from the previous turn (`timing: 'before'`); `undefined` (do not fire) when
+ * neither is positive. It never loads the history tokenizer.
  */
 export async function resolveCompactionTokens(args: {
   spec: CompactionSpec;
   input?: TurnInput;
   /** Tokens of this turn's last model call, when one completed. */
   prompt?: TurnTokens;
-  /** Media family of the turn's model binding (`mediaTokenFamily`). */
   family: MediaTokenFamily | undefined;
 }): Promise<CompactionTokens | undefined> {
   const meter = compactionMeter(args.spec);
@@ -114,17 +77,11 @@ export async function resolveCompactionTokens(args: {
   return { meter, tokens: fromHost, unknownMedia: 0 };
 }
 
-/** Whether compaction should fire for a resolved token count (token-threshold only). */
 export function compactionNeeded(tokens: number, spec: CompactionSpec): boolean {
   return tokens > spec.compactAt * spec.maxTokens;
 }
 
-/**
- * Whether compaction should fire, respecting a custom trigger when provided.
- *
- * When `spec.trigger` is set, it is called with full context and its result
- * is returned directly. Otherwise falls back to `compactionNeeded`.
- */
+/** `spec.trigger`, when set, decides alone; otherwise the token threshold does. */
 export async function shouldCompact(
   resolved: CompactionTokens,
   spec: CompactionSpec,
@@ -143,8 +100,6 @@ export async function shouldCompact(
 }
 
 /**
- * Split history into compactable and retained segments.
- *
  * `previousExchanges` semantics:
  * - `0` — compact everything, retain nothing.
  * - `≥ 1` (integer) — retain the last N exchanges.

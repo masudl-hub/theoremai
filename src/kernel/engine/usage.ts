@@ -1,15 +1,3 @@
-/**
- * One builder for `TurnTokens`, shared by every provider's usage reader.
- *
- * Each reader maps its provider's fields to the OpenTelemetry GenAI meanings
- * first (input = everything read, output = everything written); this module
- * fixes the shape: `total = input + output`, zero shares omitted, and a side
- * the provider left out marked `estimated` for the runner to fill.
- * `sumTokens` is the one way to total calls (a turn, a session, a range).
- *
- * @module
- */
-
 import type {
   TurnCost,
   TurnEvent,
@@ -33,7 +21,6 @@ export interface ReportedUsage {
   grounding?: TurnGroundingCount[];
 }
 
-/** A non-negative finite number, else `undefined`. */
 export function usageCount(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
@@ -132,20 +119,15 @@ function sumGrounding(calls: TurnTokens[]): TurnGroundingCount[] | undefined {
   });
 }
 
-/**
- * Total of several calls' `TurnTokens`, or `undefined` for none. Counts and
- * shares add up. A side is `estimated` when any call estimated it, so shares
- * of that side cover only what providers reported. `unknownMedia` adds up per
- * side. Cost adds up over the calls that reported one and is `partial` when
- * some did not; `upstreamUsd` adds up where reported (OpenRouter reports it
- * only for BYOK, so its absence is not missing data). Per-modality shares and
- * grounding follow `sumByModality` and `sumGrounding`.
- */
 /** A turn's usage: the sum of its `tokens` events. `done.tokens` and the turn's span both read it. */
 export function sumEventTokens(events: readonly TurnEvent[]): TurnTokens | undefined {
   return sumTokens(events.flatMap((event) => (event.type === 'tokens' ? [event.tokens] : [])));
 }
 
+/**
+ * A side is `estimated` when any call estimated it. Cost is `partial` when some call reported none;
+ * a missing `upstreamUsd` is not missing data (OpenRouter reports it only for BYOK).
+ */
 export function sumTokens(calls: TurnTokens[]): TurnTokens | undefined {
   if (calls.length === 0) return undefined;
   const add = (pick: (call: TurnTokens) => number | undefined): number =>

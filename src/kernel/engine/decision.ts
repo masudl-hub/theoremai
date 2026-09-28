@@ -1,11 +1,3 @@
-/**
- * Native, single-request execution for TypeSafe Jev decision profiles. Every
- * call writes one trace record: a `decide` root holding the state, the
- * questions and the answers, under the profile's observability policy.
- *
- * @module
- */
-
 import { type ErrorKind, errorKind, TheoremError } from '../../guardrails/error.ts';
 import type { DecisionDisclosureVerdict } from '../../guardrails/types.ts';
 import { resolveTraceWriter } from '../../observability/policy.ts';
@@ -36,7 +28,6 @@ const TYPESAFE_SYSTEM_ONE_URL = 'https://api.typesafe.ai/v1/systemone';
 // fallow-ignore-next-line unused-export -- read by scripts/phoenix/up.ts to price Jev in Phoenix
 export const JEV_USD_PER_MILLION_INPUT_TOKENS = 0.042;
 
-/** Each native-decision failure code and the error kind it reports. */
 const DECISION_ERROR_KINDS = {
   invalid_request: 'request',
   authentication: 'auth',
@@ -67,11 +58,7 @@ export interface RunDecisionOptions {
   keyVault?: KeyVault;
   fetch?: typeof globalThis.fetch;
   endpoint?: string;
-  /**
-   * Where this decision's trace record goes, in place of the profile's
-   * `observability.writeTo`. An explicit sink always records: sampling does
-   * not apply.
-   */
+  /** Replaces the profile's `observability.writeTo`; an explicit sink always records, unsampled. */
   sink?: TraceSink;
 }
 
@@ -358,7 +345,6 @@ async function resultFromResponse(
   };
 }
 
-/** The `decide` root's attributes known before the request is sent. */
 function decisionSpanAttributes(
   profile: DecisionProfile,
   modelId: ModelId,
@@ -377,7 +363,6 @@ function decisionSpanAttributes(
   };
 }
 
-/** Stamp what Jev answered on the root. */
 function recordResult(root: SpanHandle, result: DecisionResult): void {
   root.set({
     'gen_ai.response.model': result.model,
@@ -392,7 +377,6 @@ function recordResult(root: SpanHandle, result: DecisionResult): void {
   });
 }
 
-/** Everything after the profile is known: the disclosure gate, the one POST, the checked answers. */
 async function decide(
   profile: DecisionProfile,
   [modelId, binding]: [ModelId, DecisionProfile['models'][string]],
@@ -424,10 +408,8 @@ async function decide(
 }
 
 /**
- * Execute exactly one Jev System One request on a profile registered in
- * `registry`, and write its trace record however it ends. This function never
- * retries an ambiguous POST, and a trace write failure never changes the
- * decision's outcome.
+ * Exactly one Jev System One request, traced however it ends. An ambiguous POST is never retried,
+ * and a trace write failure never changes the decision's outcome.
  */
 export async function runDecisionInRegistry(
   registry: KernelRegistry,

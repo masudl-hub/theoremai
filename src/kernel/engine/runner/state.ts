@@ -14,15 +14,12 @@ import type {
 import type { MediaTokenFamily } from '../token-estimate.ts';
 import type { CallUsage } from './usage.ts';
 
-/** Where this turn's spans go. */
 interface TurnTraceState {
   /** The turn's `invoke_agent` span; model calls and tools open under it. */
   root: SpanHandle;
   /** Validation / egress attempt the next model call belongs to (0-based). */
   attempt: number;
-  /** Model calls made so far. */
   calls: number;
-  /** The turn's model binding, for `gen_ai.provider.name`. */
   binding: ModelBinding | undefined;
 }
 
@@ -37,28 +34,16 @@ interface StepExecutionState {
   allEmittedEvents: TurnEvent[];
   attemptEvents: TurnEvent[];
   /**
-   * True when progressive yield withheld user-visible events during this attempt.
-   *
-   * The attempt gate needs it: if the mid-stream window tripped but the final
-   * verdict on the whole text passes, nothing was streamed, so the buffered
-   * text must be released rather than silently dropped.
+   * If the mid-stream window tripped but the final verdict on the whole text passes, nothing was
+   * streamed, so the attempt gate must release the buffered text rather than drop it.
    */
   withheldVisible?: boolean;
-  /**
-   * Untrusted remote content this turn has already read.
-   *
-   * Accumulates across tool calls so a later call can be judged against what the
-   * turn has ingested, not just its own arguments.
-   */
+  /** Untrusted content read so far, so a later tool call is judged against all the turn ingested. */
   taint?: TurnTaint;
   /** Last provider stop from a discarded provider `done` event. */
   lastStop?: TurnStop;
-  /** Latest Google Interactions id observed on the current provider stream. */
   lastInteractionId?: string;
-  /**
-   * Pending Interactions continuation for the next provider step: tool results
-   * and stage injects, sent as `continuation`.
-   */
+  /** Tool results and stage injects pending for the next step's Interactions `continuation`. */
   interactionsContinuation?: {
     previousInteractionId: string;
     messages: TurnHistoryMessage[];

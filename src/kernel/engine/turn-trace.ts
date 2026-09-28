@@ -1,27 +1,3 @@
-/**
- * The `chat` / `generate_content` span of one model call, and its HTTP tries.
- *
- * The runner opens one per provider stream. It records:
- *
- * - what the model read: system instructions, tool definitions, and every
- *   input message in kernel order (a continuation includes the stored
- *   interaction it extends; `theorem.input.sent_from` marks where the wire
- *   payload starts);
- * - what the model produced, from the provider's own events before any
- *   guardrail touched them;
- * - one `POST` child span per HTTP try, built from the adapter's tap rows,
- *   with the wire body as `theorem.wire.request`, and every provider data row
- *   as `theorem.upstream.row` at its arrival time;
- * - the call's usage, response identity and stop.
- *
- * Request attributes (`gen_ai.request.*`) are what Theorem asked the adapter
- * to send; the wire body on each `POST` is what was sent. `gen_ai.request.stream`
- * alone is read from the wire body, since an adapter may stream or buffer
- * whatever it was asked.
- *
- * @module
- */
-
 import { type ErrorKind, errorKind } from '../../guardrails/error.ts';
 import type { GuardrailEvent } from '../../guardrails/types.ts';
 import {
@@ -76,8 +52,6 @@ const FINISH_REASON: Partial<Record<TurnStop['kind'], string>> = {
   provider_error: 'error',
 };
 
-// ── messages ────────────────────────────────────────
-
 function mediaModality(mimeType: string): string {
   const [kind] = mimeType.split('/');
   return kind === 'application' || kind === 'text' || !kind ? 'document' : kind;
@@ -93,7 +67,6 @@ function tracePart(part: InteractionPart): TracePart {
   return { type: 'blob', modality: part.type, mime_type: part.mimeType, ...traceBytes(part.data) };
 }
 
-/** One kernel history message as a semconv chat message. */
 function traceMessage(msg: TurnHistoryMessage): TraceMessage {
   const media = historyMessageParts(msg).map(tracePart);
   if (msg.role === 'tool') {
@@ -117,7 +90,6 @@ function traceMessage(msg: TurnHistoryMessage): TraceMessage {
   return { role: msg.role, parts: [...media, ...calls] };
 }
 
-/** Messages the model read on a call, and what it wrote back. */
 interface CallMessages {
   input: TraceMessage[];
   output?: TraceMessage;
@@ -143,8 +115,6 @@ function inputMessages(usage: CallUsage): { input: TraceMessage[]; sentFrom?: nu
       : [];
   return { input: [...conversation.history.map(traceMessage), ...opening] };
 }
-
-// ── output ──────────────────────────────────────────
 
 /** Output parts folded from provider events: adjacent deltas of one kind merge. */
 class OutputFold {
@@ -232,7 +202,6 @@ class OutputFold {
   }
 }
 
-/** A tool call as sent: its parsed arguments, and the failure when they did not parse. */
 interface SentToolCall {
   arguments: Record<string, unknown>;
   failure?: ToolFailure;
@@ -274,12 +243,10 @@ function mediaPart(media: { mimeType: string; data: string }): TracePart {
 const CALL_SUFFIX = '_call';
 const RESULT_SUFFIX = '_result';
 
-/** A provider-run tool's call or response, named for the tool. */
 type ServerToolStep =
   | { side: 'call'; name: string; id?: string }
   | { side: 'result'; name: string; id?: string };
 
-/** The server tool step this evidence records, if it is one. */
 function serverToolStep(evidence: ProviderEvidence): ServerToolStep | undefined {
   switch (evidence.kind) {
     case 'code_execution_call':
@@ -333,10 +300,7 @@ function serverToolPart(evidence: ProviderEvidence, nowUnixNano: string): TraceP
   };
 }
 
-/**
- * Search metadata, citations, and other provider evidence as a
- * `theorem.grounding` event; the raw payload needs `evidenceRaw`.
- */
+/** The raw evidence payload is recorded only with `evidenceRaw`. */
 function groundingEvent(event: ProviderEvent): TraceAttributes | undefined {
   switch (event.type) {
     case 'grounding': {
@@ -365,8 +329,6 @@ function groundingEvent(event: ProviderEvent): TraceAttributes | undefined {
   }
 }
 
-// ── guardrails ──────────────────────────────────────
-
 /**
  * A guardrail decision as `theorem.guardrail` event attributes. The matched
  * substring stays exact (not scrubbed: scrubbing it would erase what it shows);
@@ -388,8 +350,6 @@ function guardrailAttributes(guardrail: GuardrailEvent): TraceAttributes {
   };
 }
 
-// ── usage ───────────────────────────────────────────
-
 function modalityAttributes(byModality: TurnTokens['byModality']): Record<string, number> {
   const out: Record<string, number> = {};
   for (const side of ['input', 'output'] as const) {
@@ -401,12 +361,10 @@ function modalityAttributes(byModality: TurnTokens['byModality']): Record<string
   return out;
 }
 
-/** `{ [key]: value }`, or nothing when the value was not given. */
 function optional(key: string, value: TraceAttributeValue | undefined): TraceAttributes {
   return value === undefined ? {} : { [key]: value };
 }
 
-/** A call's or an agent's usage as span attributes. Absent fields stay absent. */
 function usageAttributes(tokens: TurnTokens): TraceAttributes {
   return {
     'gen_ai.usage.input_tokens': tokens.input,
@@ -432,8 +390,6 @@ function usageAttributes(tokens: TurnTokens): TraceAttributes {
     ...(tokens.unknownMedia ? { 'theorem.usage.unknown_media': { ...tokens.unknownMedia } } : {}),
   };
 }
-
-// ── request ─────────────────────────────────────────
 
 function operationName(transport: ProviderTransport): 'chat' | 'generate_content' {
   return transport === 'openAiCompat' ? 'chat' : 'generate_content';
@@ -565,8 +521,6 @@ function liveAttributes(
   };
 }
 
-// ── HTTP tries ──────────────────────────────────────
-
 function headerAttributes(prefix: string, headers: unknown): TraceAttributes {
   if (!headers || typeof headers !== 'object') return {};
   return Object.fromEntries(
@@ -589,7 +543,6 @@ class HttpTries {
   /** Status of the latest response; how a try still open at call end ended. */
   lastStatus?: number;
   private awaitingFirstChunk = false;
-  /** Whether the open try asked for a streamed response. */
   private streamed = false;
 
   constructor(private readonly call: SpanHandle) {}
@@ -704,7 +657,6 @@ function errorName(err: unknown): string {
   return err instanceof Error ? err.name : 'Error';
 }
 
-/** A thrown value as a semconv `exception` event. */
 function recordException(span: SpanHandle, err: unknown): void {
   span.event('exception', {
     'exception.type': errorName(err),
@@ -712,26 +664,20 @@ function recordException(span: SpanHandle, err: unknown): void {
   });
 }
 
-// ── the call span ───────────────────────────────────
-
-/** How a call ended, as the runner saw it. */
 interface CallEnd {
   /** The call's one usage report (estimated sides filled), when there is one. */
   tokens?: TurnTokens;
-  /** The stop the runner took from this call. */
   stop?: TurnStop;
   /** Thrown out of the stream (not an abort). */
   thrown?: unknown;
 }
 
-/** Recorder for one model call. */
 interface CallTrace {
   span: SpanHandle;
   /** Pass as the adapter's `tapUpstream`. */
   tap: (row: Record<string, unknown>) => void;
   /** Every provider event, before guardrails. */
   observe: (event: ProviderEvent) => void;
-  /** A guardrail decision on this call's output. */
   guardrail: (event: GuardrailEvent) => void;
   end: (end: CallEnd) => void;
 }
@@ -739,7 +685,6 @@ interface CallTrace {
 /** Stops where the model did not finish its output: no finish reason, status `UNSET`. */
 const STOPPED_CALLS = new Set<TurnStop['kind']>(['cancelled', 'interrupted']);
 
-/** How a call ended: its span status, finish reason, and the error kind when it failed. */
 function callOutcome(
   stop: TurnStop | undefined,
   failure: ErrorKind | undefined,
@@ -757,7 +702,6 @@ function callOutcome(
   return { stopped, finish, status: { code: stopped ? 'UNSET' : 'OK' }, attributes: {} };
 }
 
-/** What the provider said about the response it produced. */
 function responseAttributes(
   response: TurnResponse | undefined,
   native: string | undefined,
@@ -776,10 +720,8 @@ function responseAttributes(
 }
 
 /**
- * Open the span for one model call; `open` places it (a child of the turn's
- * root, or the root of a Live response's own record). `usage` is the call's
- * usage record; its conversation is what the model reads. It is read again at
- * the end, since a Live response sets its conversation only when it closes.
+ * `open` places the span: a child of the turn's root, or the root of a Live response's own record.
+ * `usage.conversation` is read again at the end, since a Live response sets it only when it closes.
  */
 function startCallTrace(
   open: (name: string, options: SpanOptions) => SpanHandle,
@@ -868,8 +810,6 @@ function startCallTrace(
   };
 }
 
-// ── the turn span ───────────────────────────────────
-
 /** The host's new input as one user message, exactly as it arrived (before ingress). */
 function turnInputMessages(input: TurnInput | undefined): TraceMessage[] {
   const media = [...(input?.attachments ?? []), ...(input?.voice ?? [])].map(
@@ -892,7 +832,6 @@ function turnInputMessages(input: TurnInput | undefined): TraceMessage[] {
   return parts.length > 0 ? [{ role: 'user', parts }] : [];
 }
 
-/** Earlier traces a root follows from, as span links. */
 function traceLinks(links: readonly TurnTraceLink[] | undefined): SpanLinkInput[] {
   return (links ?? []).map((link) => ({
     traceparent: link.traceparent,
@@ -903,7 +842,6 @@ function traceLinks(links: readonly TurnTraceLink[] | undefined): SpanLinkInput[
   }));
 }
 
-/** Options for a turn's `invoke_agent` span, from the host request. */
 function turnSpanOptions(req: TurnRequest): SpanOptions {
   return {
     kind: 'INTERNAL',
@@ -924,15 +862,12 @@ function turnSpanOptions(req: TurnRequest): SpanOptions {
 const FAILED_STOPS = new Set<TurnStop['kind']>(['provider_error', 'stream_incomplete']);
 const FINISHED_STOPS = new Set<TurnStop['kind']>(['completed', 'length', 'generation_complete']);
 
-/** How a turn ended, as its runner saw it. */
 interface TurnEnd {
-  /** Every event the host received. */
   seen: readonly TurnEvent[];
   /** Those events as output parts, folded as they were delivered. */
   delivered: OutputFold;
   /** Validation / egress attempts that made a model call. */
   attempts: number;
-  /** Model calls made. */
   calls: number;
   /** Thrown out of the turn (not an abort). */
   thrown?: unknown;

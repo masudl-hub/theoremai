@@ -1,9 +1,3 @@
-/**
- * Live realtime inbound text — same sanitize + user_data fence as runTurn ingress.
- *
- * @module
- */
-
 import { wrapUserData } from '../../guardrails/canary.ts';
 import { guardrailFromHits, projectGuardrailTurnEvent } from '../../guardrails/events.ts';
 import { detectionForTrust, resolveGuardrailPolicy } from '../../guardrails/policy.ts';
@@ -18,14 +12,7 @@ export interface LiveInboundPrepareResult {
   guardrail?: TurnEventOf<'guardrail'>;
 }
 
-/**
- * Sanitize profile-controlled inbound text and wrap with user_data fencing.
- *
- * Resolves through the shared policy so Live ingress and the turn engine cannot
- * drift apart on what an unset switch means. Returns an optional guardrail event
- * for the session stream when redaction ran. Match previews follow
- * `observability.include.guardrailMatchPreview`.
- */
+// Resolves through the shared policy so Live ingress and the turn engine cannot drift on what an unset switch means.
 function prepareLiveInboundText(profile: Profile, text: string): LiveInboundPrepareResult {
   const policy = resolveGuardrailPolicy(profile.guardrails);
   const detected = detectText(text, detectionForTrust(policy, 'untrusted'));

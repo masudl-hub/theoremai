@@ -1,13 +1,3 @@
-/**
- * Deterministic turn runner for THEOREM.
- *
- * `runTurn` resolves a profile, sanitizes input, binds canary boundaries,
- * streams provider events, executes allowed tools, applies validation and
- * egress repair loops, writes traces, and emits one terminal `done` event.
- *
- * @module
- */
-
 import { bindCanary } from '../../../guardrails/canary.ts';
 import { isAbortError, throwIfAborted, withPublicWording } from '../../../guardrails/error.ts';
 import { projectGuardrailTurnEvent } from '../../../guardrails/events.ts';
@@ -244,7 +234,6 @@ async function attachAfterCompaction(
     history: TurnHistoryMessage[];
     input: TurnRequest['input'];
     seen: TurnEvent[];
-    /** The turn's root, where the decision is recorded. */
     span: SpanHandle;
   },
 ): Promise<TurnEventOf<'done'>> {
@@ -399,11 +388,8 @@ type TraceCtx = {
    * `resolveTurnInRegistry`; until then its wording and observability are the standard ones.
    */
   known: Profile | undefined;
-  /** Every event the host received. */
   seen: TurnEvent[];
-  /** The same events as output parts. */
   delivered: OutputFold;
-  /** This turn's `invoke_agent` span. */
   root: SpanHandle;
   /** Step-state trace handle, once the turn's model binding is known. */
   trace?: TurnTraceState;
@@ -417,7 +403,6 @@ type TraceCtx = {
   mediaFamily?: MediaTokenFamily;
   safe?: TurnRequest;
   observability?: ResolvedObservabilityPolicy;
-  /** The turn's step state once `emitTurn` opened it. */
   state?: StepExecutionState;
 };
 
@@ -440,7 +425,6 @@ function newTraceCtx(
   };
 }
 
-/** Close the turn's span from what the host saw and what the step state counted. */
 function endTurn(ctx: TraceCtx, thrown?: unknown): void {
   const calls = ctx.trace?.calls ?? 0;
   endTurnSpan(ctx.root, {
@@ -469,11 +453,8 @@ async function* runTracedTurn(ctx: TraceCtx, provider: ModelProvider): AsyncGene
 }
 
 /**
- * Execute one host turn in `registry` against a provider adapter and write its
- * trace record.
- *
- * The record is written however the turn ends, including when the host stops
- * reading early; spans still open then close as `ERROR` / `unclosed`.
+ * The trace record is written however the turn ends, including when the host stops reading early;
+ * spans still open then close as `ERROR` / `unclosed`.
  */
 async function* runTurnInRegistry(
   registry: KernelRegistry,
@@ -507,10 +488,7 @@ async function* runTurnInRegistry(
   }
 }
 
-/**
- * Slice 1: host AbortSignal ends with cancelled `done` + `post_turn`, not a bare throw.
- * Skip when a terminal `done` already reached the host stream.
- */
+/** A host abort ends with a cancelled `done` + `post_turn`, not a bare throw. */
 async function* emitCancelledDoneAfterAbort(ctx: TraceCtx): AsyncGenerator<TurnEvent> {
   if (ctx.seen.some((e) => e.type === 'done')) return;
   const stop = { kind: 'cancelled' as const };

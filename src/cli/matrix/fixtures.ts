@@ -1,17 +1,12 @@
-/**
- * Built-in synthetic media fixtures for zero-dependency matrix testing.
- */
-
 // 1x1 pixel PNG (base64)
 export const FIXTURE_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
-// Minimal valid PDF-1.4 document (base64)
 export const FIXTURE_PDF_BASE64 = btoa(
   '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Count 1/Kids[3 0 R]>>endobj\n3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R/Resources<<>>>>endobj\nxref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000056 00000 n \n0000000111 00000 n \ntrailer<</Size 4/Root 1 0 R>>\nstartxref\n188\n%%EOF\n',
 );
 
-// Minimal valid 16kHz 16-bit mono PCM/WAV (0.1s tone) (base64)
+// 16kHz 16-bit mono PCM WAV
 export function createSyntheticWavBase64(durationSec = 0.1, sampleRate = 16000): string {
   const numSamples = Math.floor(sampleRate * durationSec);
   const dataSize = numSamples * 2; // 16-bit = 2 bytes per sample
@@ -49,7 +44,6 @@ export function createSyntheticWavBase64(durationSec = 0.1, sampleRate = 16000):
   view.setUint8(39, 0x61); // a
   view.setUint32(40, dataSize, true);
 
-  // Write a simple sine wave (440Hz)
   const freq = 440;
   for (let i = 0; i < numSamples; i++) {
     const t = i / sampleRate;

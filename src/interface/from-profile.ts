@@ -1,13 +1,4 @@
-/**
- * Profile → `ProfileInterface` projection.
- *
- * Kernel `projectProfileObject` is the single inspection projection; this module
- * enriches `inputs` (acceptAttr, an image profile's image cap), attaches
- * guardrails / observability views and the client's lexicon, and passes the
- * result through `profileInterfaceSchema`, which keeps only JSON the schema names.
- *
- * @module
- */
+// `profileInterfaceSchema` keeps only the JSON it names, so host functions never reach the view.
 
 import { clientLexicon } from '../guardrails/lexicon.ts';
 import { resolveGuardrailPolicy } from '../guardrails/policy.ts';
@@ -30,12 +21,7 @@ import type {
   ProfileToolsView,
 } from './types.ts';
 
-/**
- * Project a profile's guardrails for the headless interface.
- *
- * Values are resolved, not raw: a host rendering this view sees what the kernel
- * will actually enforce rather than re-deriving defaults of its own.
- */
+/** Resolved, not raw: a host sees what the kernel will enforce, not defaults of its own. */
 function guardrailsView(guardrails?: ProfileGuardrailsSpec): ProfileGuardrailsView {
   const policy = resolveGuardrailPolicy(guardrails);
   return {
@@ -59,11 +45,7 @@ function writeToView(
   return 'custom';
 }
 
-/**
- * Project a profile's observability for the headless interface.
- *
- * TraceSink and onWriteError are omitted; writeTo becomes 'custom' when inline.
- */
+/** `writeTo` becomes `'custom'` when it is an inline TraceSink. */
 function observabilityView(
   observability?: ProfileObservabilitySpec,
 ): ProfileObservabilityView | undefined {

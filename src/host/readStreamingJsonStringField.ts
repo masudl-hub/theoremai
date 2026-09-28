@@ -22,11 +22,7 @@ function decodeEscapedChar(
   return { text: mapped ?? ch, next: index };
 }
 
-/**
- * Read one string field from incomplete JSON while structured output streams as text deltas.
- *
- * The buffer may lack a closing quote; any decoded prefix is returned for live preview.
- */
+/** The buffer may lack a closing quote; any decoded prefix is returned for live preview. */
 export function readStreamingJsonStringField(jsonText: string, key: string): string | null {
   const keyLiteral = JSON.stringify(key);
   let keyAt = jsonText.indexOf(keyLiteral);

@@ -1,9 +1,3 @@
-/**
- * Profile `inputs` → UI affordances and validation.
- *
- * @module
- */
-
 import { attachmentIssues, resolveMediaLimits } from '../kernel/registry/attachments.ts';
 import { mimeAllowed } from '../kernel/registry/catalog.ts';
 import type { ProfileInputsSpec } from '../kernel/types.ts';

@@ -1,11 +1,5 @@
-/**
- * Host conversation history — build `TurnHistoryMessage[]` from drafts, events, and transcript blocks.
- *
- * A settled tool call replays its `readBack`, the text the model read, so provider
- * continuation matches `runTurn` / `invokeTool`.
- *
- * @module
- */
+// A settled tool call replays its `readBack`, the text the model read, so provider continuation
+// matches `runTurn` / `invokeTool`.
 
 import { TheoremError } from '../guardrails/error.ts';
 import { type LexiconOverrides, lexiconText } from '../guardrails/lexicon.ts';
@@ -17,8 +11,8 @@ import { applyToolEvent, toolCallRanWith } from './tool-calls.ts';
 import type { ToolCall, TranscriptBlock, UserTurnDraft } from './types.ts';
 
 /**
- * The `readBack` of a settled tool call. The kernel sets it on every `complete` and `error`
- * event, so one without it did not come from a run and has no text the model read.
+ * The kernel sets `readBack` on every `complete` and `error` event, so a call without it did not
+ * come from a run and has no text the model read.
  */
 function toolReadBack(call: ToolCall): string {
   const state = call.state;
@@ -30,8 +24,6 @@ function toolReadBack(call: ToolCall): string {
   }
   return state.readBack;
 }
-
-/** The call as history records it: its name, id, and the arguments it ran with. */
 
 function blobToPart(blob: TurnBlob): InteractionPart {
   const kind = mediaKindForMime(blob.mimeType) ?? 'document';
@@ -54,10 +46,7 @@ function draftBlobsWithData(
   return mapped?.length ? mapped : undefined;
 }
 
-/**
- * Project a pending/composer draft into history messages for `onStage` inject.
- * Uses base64 on `draft.attachments` / `draft.voice` when present.
- */
+/** For `onStage` inject. Uses base64 on `draft.attachments` / `draft.voice` when present. */
 function userDraftToSteerInject(draft: UserTurnDraft): TurnHistoryMessage[] {
   const attachments = draftBlobsWithData(draft.attachments);
   const voice = draftBlobsWithData(draft.voice);
@@ -71,7 +60,6 @@ function userDraftToSteerInject(draft: UserTurnDraft): TurnHistoryMessage[] {
   );
 }
 
-/** Append a user turn (text and optional encoded media) to host history. */
 function appendUserDraftToHistory(
   history: TurnHistoryMessage[],
   draft: UserTurnDraft,
@@ -97,7 +85,6 @@ function appendUserDraftToHistory(
   return [...history, { role: 'user', parts }];
 }
 
-/** The call as an assistant message's `tool_calls` entry. */
 function toolCallEntry(tool: ToolCallRequest) {
   return {
     id: tool.callId,
@@ -123,7 +110,6 @@ function appendToolCallPair(
   ];
 }
 
-/** Record a completed call and its `readBack`: what the model read. */
 function appendToolExchangeToHistory(
   history: TurnHistoryMessage[],
   call: ToolCall,
@@ -140,7 +126,6 @@ function historyToolCall(call: ToolCall): ToolCallRequest {
   };
 }
 
-/** Record a host-side tool denial using kernel failure formatting. */
 function appendToolDenialToHistory(
   history: TurnHistoryMessage[],
   tool: ToolCallRequest & {
@@ -156,7 +141,7 @@ function appendToolDenialToHistory(
   return appendToolCallPair(history, tool, formatToolResult(formatToolFailureForModel(failure)));
 }
 
-/** What the model reads for a settled call: its `readBack`. Undefined while it is open. */
+/** `undefined` while the call is open. */
 function settledToolContent(call: ToolCall): string | undefined {
   const phase = call.state?.phase;
   return phase === 'complete' || phase === 'error' ? toolReadBack(call) : undefined;
@@ -193,7 +178,6 @@ function appendToolStepToHistory(
 /** Whether a call waiting on its gate enters history: left out, or open without a result. */
 type GatedCalls = 'omit' | 'open';
 
-/** Fold completed assistant turn events into provider-neutral history rows. */
 function appendAssistantEventsToHistory(
   history: TurnHistoryMessage[],
   events: readonly TurnEvent[],
@@ -274,13 +258,7 @@ function foldAssistantEvents(
   return next;
 }
 
-/**
- * Rebuild host history from committed transcript blocks (e.g. branch truncation).
- *
- * Text, structured, and completed tool blocks round-trip. Attachment/voice blocks
- * are omitted here — optional preview `data` on those blocks is UI-only and does
- * not rebuild into host history.
- */
+/** Attachment and voice blocks are omitted: their preview `data` is UI-only. */
 function historyFromTranscriptBlocks(blocks: readonly TranscriptBlock[]): TurnHistoryMessage[] {
   let history: TurnHistoryMessage[] = [];
   // Consecutive tool blocks from one model step replay together.
@@ -315,7 +293,6 @@ function historyFromTranscriptBlocks(blocks: readonly TranscriptBlock[]): TurnHi
   return history;
 }
 
-/** The history's last message holding tool calls, and where it sits. */
 function lastToolStep(
   history: readonly TurnHistoryMessage[],
 ): { at: number; calls: NonNullable<TurnHistoryMessage['tool_calls']> } | undefined {
@@ -347,7 +324,6 @@ function openCallsMismatch(
   );
 }
 
-/** Throws unless the calls the history leaves open are exactly `ids`. */
 function assertOpenToolCalls(history: readonly TurnHistoryMessage[], ids: readonly string[]): void {
   const open = openToolCallIds(history);
   if (open.length !== ids.length || open.some((id) => !ids.includes(id))) {
@@ -356,10 +332,8 @@ function assertOpenToolCalls(history: readonly TurnHistoryMessage[], ids: readon
 }
 
 /**
- * The history with its open calls answered: `answers` holds, by call id, the
- * text the model reads for each one (a settled call's `readBack`). Results
- * follow their step in the order the model made the calls. Throws unless
- * `answers` names exactly the calls the history leaves open.
+ * `answers` holds, by call id, the text the model reads for each open call. Results follow their
+ * step in the order the model made the calls. Throws unless `answers` names exactly the open calls.
  */
 function answerOpenToolCalls(
   history: readonly TurnHistoryMessage[],

@@ -1,9 +1,3 @@
-/**
- * Turn event folding — map kernel `TurnEvent` streams to transcript blocks.
- *
- * @module
- */
-
 import type { Source, ToolCallEvent, TurnEvent, TurnEventOf } from '../kernel/types.ts';
 import { applyToolEvent } from './tool-calls.ts';
 import { collectPromotedMediaFromToolOutput } from './tool-media.ts';
@@ -108,7 +102,6 @@ function foldCitation(
   });
 }
 
-/** Append inline media blocks for http(s) image/video/audio URLs in completed tool output. */
 function appendPromotedToolMedia(
   blocks: TranscriptBlock[],
   tool: ToolCallEvent,
@@ -129,7 +122,6 @@ function appendPromotedToolMedia(
   }
 }
 
-/** Build transcript blocks for a user-authored turn. */
 function buildUserTurnBlocks(draft: UserTurnDraft, idPrefix = 'user'): TranscriptBlock[] {
   const blocks: TranscriptBlock[] = [];
   const text = draft.text?.trim();
@@ -163,16 +155,7 @@ function buildUserTurnBlocks(draft: UserTurnDraft, idPrefix = 'user'): Transcrip
   return blocks;
 }
 
-/**
- * Fold a single assistant turn's `TurnEvent` stream into ordered transcript blocks.
- *
- * Merges consecutive `text` and `thought` deltas, upserts tool calls by id,
- * promotes http(s) media URLs from completed tool output into `media` blocks, and
- * skips kernel bookkeeping events (`tokens`, `session`) unless folded into `turn-done`.
- *
- * Resets only the turn id sequence so streaming refolds keep stable `turn-*` keys;
- * user ids are left alone.
- */
+/** Resets only the turn id sequence, so streaming refolds keep stable `turn-*` keys. */
 function foldTurnEvents(
   events: readonly TurnEvent[],
   options: FoldTurnEventsOptions = {},
@@ -265,7 +248,6 @@ function foldTurnEvents(
   return blocks;
 }
 
-/** User draft blocks followed by folded assistant turn events. */
 function foldConversationTurn(
   draft: UserTurnDraft,
   assistantEvents: readonly TurnEvent[],

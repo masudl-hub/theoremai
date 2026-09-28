@@ -1,12 +1,3 @@
-/**
- * The one schema for `ProfileInterface`: what a host sends the browser to
- * describe its profile. `interfaceFromProfile` passes its projection through
- * it, so a field the schema does not name never leaves the host; the browser's
- * transport checks what arrives against it.
- *
- * @module
- */
-
 import { z } from 'zod';
 import { LEXICON_KEYS } from '../guardrails/lexicon.ts';
 import {
@@ -118,7 +109,6 @@ const mediaTurnBehaviour = z.object({ resumption: resumption.optional() });
 
 const tools = z.object({ allow: z.array(z.string()), t2Loader: z.string().optional() });
 
-/** Fields every interface carries. */
 const common = {
   id: z.string(),
   models: z.record(z.string(), modelBinding),

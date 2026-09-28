@@ -450,6 +450,9 @@ function compileInputs(
       'attachmentsAccept',
     );
   }
+  if (!inputs.text && !inputs.attachmentsAccept.length && !inputs.voiceAccept.length) {
+    report('inputs', 'Take text, files or voice notes: with none, the agent can be sent nothing.', 'text');
+  }
   if (inputLimitsRequired(inputs)) {
     const limits = [
       ['maxFiles', 'Max files', inputs.maxFiles],

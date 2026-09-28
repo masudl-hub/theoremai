@@ -405,6 +405,17 @@ function useStagedFiles(pendingFiles: readonly File[], pendingVoice: readonly Fi
 	};
 }
 
+/** Astryx dims a disabled input; a profile that takes no text isn't broken, so its prompt reads at full strength. */
+const UNTYPED_INPUT = { opacity: 1 };
+
+/** What the composer asks for when the profile takes no text: its files, its voice notes, or neither. */
+function untypedPrompt(inputs: { attachments: unknown; voice: unknown }) {
+	if (inputs.attachments && inputs.voice) return '@theorem.composer.untyped.files_or_voice' as const;
+	if (inputs.attachments) return '@theorem.composer.untyped.files' as const;
+	if (inputs.voice) return '@theorem.composer.untyped.voice' as const;
+	return '@theorem.composer.untyped.none' as const;
+}
+
 /** Astryx composer wired to Theorem's send / stop / queue / steer / stash matrix. */
 export function ChatComposerBar(props: ChatComposerBarProps) {
 	return (
@@ -494,7 +505,9 @@ function ChatComposerBarBody(props: ChatComposerBarProps) {
 			{inputs.voice ? <RecordButton recording={voice.recording} onToggle={() => void voice.toggleRecording()} /> : null}
 		</>
 	);
-	const placeholder = props.placeholder ?? t('@theorem.composer.placeholder', { handle: iface.identity.handle });
+	const placeholder = inputs.text
+		? (props.placeholder ?? t('@theorem.composer.placeholder', { handle: iface.identity.handle }))
+		: t(untypedPrompt(inputs));
 
 	return (
 		<ChatComposer
@@ -509,6 +522,9 @@ function ChatComposerBarBody(props: ChatComposerBarProps) {
 			placeholder={voice.recording ? t('@theorem.composer.listening') : placeholder}
 			input={
 				<ChatComposerInput
+					// No text on this profile: the field stays, full strength, as the prompt for what it does take.
+					isDisabled={!inputs.text}
+					style={inputs.text ? undefined : UNTYPED_INPUT}
 					ref={editorRef}
 					handleRef={props.inputRef}
 					onKeyDown={(event) => {

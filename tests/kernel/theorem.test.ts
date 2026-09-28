@@ -433,6 +433,30 @@ Deno.test('language slot picks structured schema', () => {
   assertEquals(tsx.generation.structured?.id, 'tsxTurn');
 });
 
+Deno.test('a turn passes only declared slots, set to a declared choice', () => {
+  assertThrows(
+    () => resolveTurn({ profile: 'formatter', input: { text: 'x', slots: { language: 'py' } } }),
+    TheoremError,
+    "Profile formatter: slot 'language' takes html, tsx, not 'py'",
+  );
+  assertThrows(
+    () => resolveTurn({ profile: 'formatter', input: { text: 'x', slots: { tone: 'dry' } } }),
+    TheoremError,
+    "Profile formatter has no slot 'tone'",
+  );
+  assertThrows(
+    () => resolveTurn({ profile: 'formatter', input: { text: 'x', slots: { toString: 'x' } } }),
+    TheoremError,
+    "Profile formatter has no slot 'toString'",
+  );
+  // A profile that declares no slots takes none.
+  assertThrows(
+    () => resolveTurn({ profile: 'chat', input: { text: 'x', slots: { language: 'html' } } }),
+    TheoremError,
+    "Profile chat has no slot 'language'",
+  );
+});
+
 Deno.test('disallowed tool cannot run', async () => {
   const events = await invokeRegisteredTool({
     profile: 'pinned',

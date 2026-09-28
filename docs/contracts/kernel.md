@@ -921,6 +921,9 @@ Beyond compaction rules (above), `registerProfile` / `defineProfile` assert:
 - Each `models.*.builtInTools` id is a registered **builtin**.
 - Each key in `models` is a host-named model id with a full `ModelBinding`.
 - Profiles with attachments or voice set `maxFiles`, `maxBytes`, `maxTurnBytes`.
+- A slot-mapped `outputs.structured` names a slot in `inputs.slots`, and its
+  `map` keys are that slot's choices. At turn time `resolveTurn` rejects a slot
+  the profile does not declare, or a value outside its choices (`request`).
 - `models.*.cache` only when `protocol: 'openAi'` and `provider: 'openrouter'`.
 - `models.*.server` only when `provider: 'local'`, as a non-empty string.
 - `models.*.store` / `persistViaInteractionId` only when

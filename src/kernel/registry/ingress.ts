@@ -201,4 +201,35 @@ function resolveInputParts(profile: Profile, req: TurnRequest): InteractionPart[
   return parts;
 }
 
-export { assertOutputMode, assertSpeechRole, resolveImageFormat, resolveInputParts };
+/**
+ * Each slot a turn passes is one its profile declares in `inputs.slots`, set to
+ * one of that slot's choices. A profile with no slots takes none.
+ */
+function assertTurnSlots(profile: Profile, req: TurnRequest): void {
+  const slots = req.input?.slots;
+  if (!slots) return;
+  const declared = profileInputs(profile)?.slots ?? {};
+  for (const [key, value] of Object.entries(slots)) {
+    const choices = Object.hasOwn(declared, key) ? declared[key] : undefined;
+    if (!choices) {
+      throw new TheoremError(
+        'request',
+        `Profile ${profile.id} has no slot '${key}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
+    if (!choices.includes(value)) {
+      throw new TheoremError(
+        'request',
+        `Profile ${profile.id}: slot '${key}' takes ${choices.join(', ')}, not '${value}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
+  }
+}
+
+export {
+  assertOutputMode,
+  assertSpeechRole,
+  assertTurnSlots,
+  resolveImageFormat,
+  resolveInputParts,
+};

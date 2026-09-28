@@ -29,6 +29,7 @@ import { profileInputs, requireModelBinding } from './catalog.ts';
 import {
   assertOutputMode,
   assertSpeechRole,
+  assertTurnSlots,
   resolveImageFormat,
   resolveInputParts,
 } from './ingress.ts';
@@ -220,6 +221,7 @@ function resolveTurnInRegistry(
   generation: ResolvedGeneration;
 } {
   const profile = requireModelProfile(registry.profiles.get(req.profile), 'resolveTurn');
+  assertTurnSlots(profile, req);
   const safe = sanitizeTurnRequest(req, profile);
   const input = safe.input ?? {};
   assertTurnResumption(profile, safe);

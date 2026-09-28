@@ -573,6 +573,38 @@ Deno.test("isModelProfile and requireModelProfile refuse 'host' and 'decision' p
   );
 });
 
+Deno.test('a slot-mapped structured output reads a declared slot and maps its choices', () => {
+  const base = {
+    type: 'text' as const,
+    id: 'slot_mapped',
+    identity: { handle: 'Slot mapped' },
+    ...geminiModels('gemini35FlashLite'),
+    tools: { allow: [] as string[] },
+  };
+  const structured = { by: 'language', map: { html: 'htmlTurn' }, fallback: 'htmlTurn' };
+  assertThrows(
+    () => defineProfile({ ...base, inputs: { text: true }, outputs: { structured } }),
+    TheoremError,
+    "outputs.structured.by 'language' is not a slot in inputs.slots",
+  );
+  assertThrows(
+    () =>
+      defineProfile({
+        ...base,
+        inputs: { text: true, slots: { language: ['tsx'] } },
+        outputs: { structured },
+      }),
+    TheoremError,
+    "outputs.structured.map maps html, not a choice of slot 'language'",
+  );
+  const ok = defineProfile({
+    ...base,
+    inputs: { text: true, slots: { language: ['html', 'tsx'] } },
+    outputs: { structured },
+  });
+  assertEquals(ok.type === 'text' && ok.outputs?.structured, structured);
+});
+
 Deno.test('getProfile throws for unknown profile', () => {
   assertThrows(
     () => {

@@ -806,9 +806,12 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   'inputs.limitsByMime.*': field('number', 'Maximum byte limit for files of this MIME type.'),
   'inputs.slots': field(
     'Record<string, string[]>',
-    'Optional turn-time selectors (e.g. language: ["html", "tsx"]).',
+    'Optional turn-time selectors (e.g. language: ["html", "tsx"]). A turn may pass only these slots.',
   ),
-  'inputs.slots.*': field('string[]', 'Allowed choices for this turn selector.'),
+  'inputs.slots.*': field(
+    'string[]',
+    'Allowed choices for this turn selector. A turn passing any other value is rejected.',
+  ),
   outputs: field('ProfileOutputsSpec', 'Structured, validation, and streaming output policy.'),
   'outputs.structured': field(
     'StructuredSchemaId | StructuredBySlot | null',

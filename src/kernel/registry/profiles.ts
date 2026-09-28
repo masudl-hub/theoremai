@@ -638,8 +638,33 @@ function defineProfile(input: ProfileDefinition): Profile {
       throw new TheoremError('config', `Unknown profile type '${String(_exhaustive)}'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
   }
+  assertStructuredSlot(profile);
   assertTypeProtocols(profile);
   return profile;
+}
+
+/**
+ * A slot-mapped `outputs.structured` reads a declared slot and maps only its
+ * declared choices; a turn can pass no other value, so any other key is dead.
+ */
+function assertStructuredSlot(profile: ModelProfile): void {
+  if (profile.type === 'live') return;
+  const structured = profile.outputs?.structured;
+  if (!structured || typeof structured === 'string') return;
+  const choices = profileInputs(profile)?.slots?.[structured.by];
+  if (!choices) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profile.id}: outputs.structured.by '${structured.by}' is not a slot in inputs.slots`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  const unknown = Object.keys(structured.map).filter((value) => !choices.includes(value));
+  if (unknown.length) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profile.id}: outputs.structured.map maps ${unknown.join(', ')}, not a choice of slot '${structured.by}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
 }
 
 /** An image profile's attachments: each `accept` entry within images, video and PDF. */

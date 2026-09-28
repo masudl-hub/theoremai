@@ -332,7 +332,9 @@ export function parseToolOutput<T>(
       if (retryChecked.success) {
         checked = retryChecked;
       }
-    } catch {}
+    } catch {
+      // Not JSON: the schema's first result stands.
+    }
   }
   return checked;
 }

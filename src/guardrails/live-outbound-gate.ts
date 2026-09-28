@@ -4,11 +4,11 @@
  * Matches runTurn semantics:
  *   • the reply stream (text deltas and the spoken-reply transcript) is held in
  *     the progressive-yield lookback; thoughts are unguarded (`isGuardedOutput`)
- *   • audio and other media stream behind the transcript: Google sends a
- *     chunk's transcript in the same message, so a chunk is covered by the
- *     transcript its message carries, or — in a message without one — by the
- *     next transcript chunk to arrive. It goes once the gate has cleared that
- *     chunk. `generation_complete` covers the rest (the transcript is whole);
+ *   • audio and other media stream behind the transcript: a chunk is covered
+ *     by the transcript its message carries, or — in a message without one —
+ *     by the next transcript chunk to arrive. It goes once the gate has cleared
+ *     that chunk. This asks the provider adapter to send a chunk's transcript
+ *     in the same message or the next, not later. `generation_complete` covers the rest (the transcript is whole);
  *     audio in a cycle with no transcript is dropped (fail closed)
  *   • any other event releases the reply held before it, then passes after a
  *     whole-event canary scan

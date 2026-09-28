@@ -23,8 +23,8 @@ Every guardrail decision is made against this:
 > holdback, kept as small as the check allows.**
 
 - **Guardrails imply holdback.** Turning a guardrail on is the builder's choice
-  to accept it; speech is held to the end of its cycle because its transcript
-  is the only thing a check can read.
+  to accept it; speech is held until its transcript has cleared, because the
+  transcript is the only thing a check can read.
 - **Deterministic.** The same output gets the same verdict however it is
   chunked; no model sits in the hard path.
 - **Model behaviour is untouched.** No mode asks the model to answer
@@ -267,7 +267,9 @@ transcript trails the audio it describes and carries no timing, so audio and
 other media (`LiveHeldOutput.event` is a streamed reply event or a `media`
 event) are held until the transcript their own message carries has cleared
 (a message with none waits for the next transcript chunk), then stream: a
-chunk's own words have been read before it is heard. `generation_complete` means
+chunk's own words have been read before it is heard. The Live provider adapter
+must send a chunk's transcript in the same message or the next; one that sends
+it later breaks this guarantee. `generation_complete` means
 the transcript is whole, so the audio after its last chunk goes then. Audio
 released before a later hit is not recalled — as with text, the gate withholds
 from the hit onward, and an interruption drops only what is still held. Reply

@@ -73,11 +73,11 @@ There are three honest ways to guard speech:
 Live profile holds each audio chunk until the transcript its own message
 carries has cleared (a message with none waits for the next one), then streams
 it (revised 26/09/2026: holding to the end of the cycle left the host silent
-for about the reply's length, because Google sends `turn_complete` roughly one
-playback-length after the last audio). The
-guarantee is now "a chunk's own words are read before it is heard", on the
-measured fact that Google sends a chunk's transcript with it or in the next
-message; audio heard before a later hit is not recalled, as with text; `resolveTurn` forces
+for about the reply's length, because the cycle's `turn_complete` came roughly
+one playback-length after the last audio). The
+guarantee is now "a chunk's own words are read before it is heard". It rests on
+one requirement of the Live provider adapter: a chunk's transcript arrives in the
+same message or the next (measured on Gemini Live, 26/09/2026); audio heard before a later hit is not recalled, as with text; `resolveTurn` forces
 `live.transcription.output` on for any guarded profile; audio from a cycle with
 no transcript is dropped (`live.untranscribed-audio`). **Open:** the cascade
 mode, the only one that is both checked and streaming, and whether builders get

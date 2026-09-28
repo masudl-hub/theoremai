@@ -445,7 +445,6 @@ Deno.test('host profile accepts only the guardrails that fire on the invokeTool 
       sanitizeInput: false,
       redactSensitive: true,
       network: { allowPrivateNetworks: true, allowedHosts: ['example.test'] },
-      taint: { afterRemoteRead: 'write' },
     },
   });
   const profile = getProfile('host_guardrails_live');
@@ -453,7 +452,6 @@ Deno.test('host profile accepts only the guardrails that fire on the invokeTool 
   assertEquals(profile.guardrails?.sanitizeInput, false);
   assertEquals(profile.guardrails?.redactSensitive, true);
   assertEquals(profile.guardrails?.network?.allowedHosts, ['example.test']);
-  assertEquals(profile.guardrails?.taint?.afterRemoteRead, 'write');
 });
 
 Deno.test('host profile rejects guardrails that only a model turn can run', () => {
@@ -462,6 +460,7 @@ Deno.test('host profile rejects guardrails that only a model turn can run', () =
     ['quota', { quota: { perDay: 10 } }],
     ['canary', { canary: true }],
     ['egress', { egress: { enforce: () => ({ blocked: false }) } }],
+    ['taint', { taint: { afterRemoteRead: 'write' } }],
   ];
   for (const [field, guardrails] of cases) {
     assertThrows(

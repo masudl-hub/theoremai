@@ -280,22 +280,9 @@ export const HOST_GUARDRAIL_FIELDS = [
   'sanitizeInput',
   'redactSensitive',
   'network',
-  'taint',
 ] as const satisfies readonly (keyof ProfileGuardrailsSpec)[];
 
-/**
- * The guardrail switches a `host` profile may set.
- *
- * A host profile runs no model, so only the guards that fire on the `invokeTool`
- * path exist for it: the detectors applied to model-supplied arguments and to
- * tool result and failure text (`sanitizeInput`, `redactSensitive`), SSRF
- * clearance for declarative HTTP and MCP targets (`network`), and the
- * confused-deputy gate on a tainted turn (`taint`). Everything else in
- * {@link ProfileGuardrailsSpec} — quota, canary, egress — guards a model turn
- * and is refused by `defineProfile` on `type: 'host'`.
- *
- * This is a view of the one guardrail vocabulary, not a second hierarchy.
- */
+/** The guardrails that fire on the `invokeTool` path; the rest guard a model turn. */
 export type HostGuardrailsSpec = Pick<
   ProfileGuardrailsSpec,
   (typeof HOST_GUARDRAIL_FIELDS)[number]

@@ -31,7 +31,6 @@ export const DEMO_HTTP_SAMPLE_INPUT: Record<string, Record<string, unknown>> = {
   random_dog_image: {},
 };
 
-/** Lookup a smoke-test / connection-test payload for a travel demo HTTP tool. */
 export function demoHttpSampleInput(toolName: string): Record<string, unknown> | undefined {
   return DEMO_HTTP_SAMPLE_INPUT[toolName];
 }
@@ -40,7 +39,6 @@ export function demoHttpSampleInput(toolName: string): Record<string, unknown> |
 export const DEMO_ALLOWED_HOSTS =
   'nominatim.openstreetmap.org, geocoding-api.open-meteo.com, api.open-meteo.com, api.frankfurter.dev, api.sunrise-sunset.org, api.zippopotam.us, en.wikipedia.org, archive.org, pokeapi.co, dog.ceo, api.adviceslip.com, catfact.ninja, official-joke-api.appspot.com, mcp.deepwiki.com';
 
-/** System prompt for the playground demo agent. */
 export const DEMO_CONCIERGE_SYSTEM = `Role: Elite, charismatic travel concierge.
 
 Communication Standards:
@@ -55,7 +53,6 @@ Tool & Fact Grounding:
 Multimodal Understanding:
 - Immediately extract actionable constraints (dates, flight times, locations, budgets) from provided images, documents, tickets, or audio, and weave them directly into your response.`;
 
-/** Inputs facet seed — text, attachments, voice, and size limits enabled. */
 export function demoInputsSpec(): PlaygroundInputsSpec {
   return {
     text: true,
@@ -67,7 +64,6 @@ export function demoInputsSpec(): PlaygroundInputsSpec {
   };
 }
 
-/** Tool facet seeds for the travel concierge demo (positions assigned by graph layout). */
 const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
   // --- Geocoding & weather (free, no Google attribution) ---
   {
@@ -233,7 +229,6 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
 }`,
     },
   },
-  // --- Money & units ---
   {
     id: 'tool-convert-currency',
     data: {
@@ -330,7 +325,6 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
 }`,
     },
   },
-  // --- Research ---
   {
     id: 'tool-wikipedia',
     data: {
@@ -440,7 +434,6 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       outputJson: `{ "type": "string", "description": "Answer text from DeepWiki" }`,
     },
   },
-  // --- T2 loader ---
   {
     id: 'tool-discover-tools',
     data: {
@@ -464,7 +457,6 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       stubOutputJson: JSON.stringify({ loaded: [...DISCOVER_LOADED] }),
     },
   },
-  // --- Function stubs / local logic ---
   {
     id: 'tool-weather-label',
     data: {
@@ -726,7 +718,6 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
   },
 ];
 
-/** Tool facet seeds for the travel concierge demo (positions assigned by graph layout). */
 export function demoToolSpecs(): PlaygroundToolSeed[] {
   return DEMO_TOOL_SPECS;
 }

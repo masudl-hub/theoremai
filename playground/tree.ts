@@ -1,26 +1,16 @@
-/**
- * The draft as a tree: the profile at the root, its spine facets beneath it,
- * and each model binding and custom tool under `models` and `tools`. Node ids
- * are what compile issues point at, so a tree, a graph, or a form can show an
- * issue on the part of the draft it belongs to.
- *
- * @module
- */
+/** Node ids are what compile issues point at, so a tree, a graph, or a form can place an issue. */
 
 import { PROFILE_GRAPH, type ProfileGraphFacetId } from '../src/kernel/schema.ts';
 import { draftFacets, type PlaygroundDraft } from './draft.ts';
 
-/** Id of the node for one model binding. */
 export function modelBindingNodeId(key: string): string {
   return `modelBinding:${key}`;
 }
 
-/** Id of the node for one custom tool. */
 export function toolSpecNodeId(key: string): string {
   return `toolSpec:${key}`;
 }
 
-/** Which part of the draft a node id names. */
 export type PlaygroundNodeRef =
   | { facet: 'modelBinding'; key: string }
   | { facet: 'toolSpec'; key: string }
@@ -39,7 +29,7 @@ function facetLabel(id: ProfileGraphFacetId): string {
   return FACET_LABEL.get(id) ?? id;
 }
 
-/** Resolve a node id back to the draft part it names; `undefined` when it names nothing. */
+/** `undefined` when the id names nothing. */
 export function playgroundNodeRef(
   draft: PlaygroundDraft,
   id: string,
@@ -76,10 +66,7 @@ function branchNodes(draft: PlaygroundDraft, facet: ProfileGraphFacetId): Playgr
   return [];
 }
 
-/**
- * The draft's tree: one root (the profile, labelled with its id) whose children
- * are the facets the draft compiles, in `PROFILE_GRAPH` order.
- */
+/** The root is labelled with the profile id; its children are the compiled facets in `PROFILE_GRAPH` order. */
 export function playgroundTree(draft: PlaygroundDraft): PlaygroundTreeNode {
   const children = draftFacets(draft)
     .filter((facet) => facet !== 'identity')

@@ -13,7 +13,6 @@ export type StructuredRegistration = {
 	spec: StructuredSpec;
 };
 
-/** Compiled custom tool ready for host registerTool + export source. */
 export type FunctionToolRegistration = {
 	type: 'function';
 	name: string;
@@ -25,7 +24,7 @@ export type FunctionToolRegistration = {
 	paths: string[];
 	inputSchema: Record<string, unknown>;
 	outputSchema: Record<string, unknown>;
-	/** Playground function stub payload when set (overrides generic stub). */
+	/** Overrides the generic stub. */
 	stubResponse?: Record<string, unknown>;
 };
 

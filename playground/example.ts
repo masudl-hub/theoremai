@@ -1,11 +1,3 @@
-/**
- * The playground's example draft: the travel concierge, a text profile with
- * three models, live HTTP tools, T2 tool discovery, and egress limited to the
- * demo's hosts.
- *
- * @module
- */
-
 import {
   DEMO_ALLOWED_HOSTS,
   DEMO_CONCIERGE_SYSTEM,

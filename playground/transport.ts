@@ -1,13 +1,8 @@
 /**
- * Transport for the playground run tab: the profile is authored in the browser,
- * so every request carries the compiled payload to `/api/playground/*`, along
- * with the client-held `replay` state (permissions, paused call). That is safe
- * only because the playground user owns the whole profile and its tools.
- *
- * Product hosts keep the profile on the server — use `createHttpTransport`
- * with `createTheoremHandler` instead.
- *
- * @module
+ * Every request carries the compiled payload and the client-held `replay` state (permissions,
+ * paused call). That is safe only because the playground user owns the whole profile and its
+ * tools; product hosts keep the profile on the server (`createHttpTransport` with
+ * `createTheoremHandler`).
  */
 
 import { z } from 'zod';
@@ -36,17 +31,13 @@ import { registerPlaygroundTools } from './tools.ts';
 import type { Equals } from '../src/kernel/util/exact-type.ts';
 import type { PlaygroundTraceLine } from './traces.ts';
 
-/** Client-side interface for the draft profile carried by a run payload. */
 export function playgroundInterface(payload: PlaygroundRunPayload): ProfileInterface {
   const tools = createToolRegistry();
   registerPlaygroundTools(tools, payload.customTools);
   return interfaceFromProfile(defineProfile(payload.profile), tools);
 }
 
-/**
- * The first line of a playground turn: the steer inbox the server opened for it.
- * The server picks the id, so a steer reaches only a run this browser started.
- */
+/** The server picks the id, so a steer reaches only a run this browser started. */
 export type PlaygroundSteerLine = { type: 'steer_inbox'; inbox: string };
 
 type PlaygroundLine = TurnEvent | PlaygroundTraceLine | PlaygroundSteerLine;
@@ -56,14 +47,12 @@ true satisfies Equals<z.infer<typeof playgroundTraceLine>, PlaygroundTraceLine>;
 const playgroundSteerLine = z.object({ type: z.literal('steer_inbox'), inbox: z.string().min(1) });
 true satisfies Equals<z.infer<typeof playgroundSteerLine>, PlaygroundSteerLine>;
 
-/** A run stream's lines: turn events, and the playground's trace and steer inbox lines beside them. */
 const playgroundLines: WireLines<PlaygroundLine> = {
   ...TURN_EVENT_SCHEMAS,
   trace: playgroundTraceLine,
   steer_inbox: playgroundSteerLine,
 };
 
-/** A run stream's lines: its steer inbox, turn events, and the trace records the run wrote. */
 function routeLines(
   onEvent: TurnEventSink,
   traces: TraceFeed,
@@ -96,7 +85,6 @@ export function createPlaygroundTransport(
       try {
         await postNdjson(
           '/api/playground/turn',
-          // The body as `theoremTurnRequestSchema` reads it, beside the compiled draft.
           { ...compiled, ...request },
           playgroundLines,
           routeLines(onEvent, traces, (inbox) => {
@@ -111,7 +99,7 @@ export function createPlaygroundTransport(
     invoke: (request, onEvent, signal) =>
       postNdjson(
         '/api/playground/invoke',
-        // The answer as `theoremInvokeRequestSchema` reads it; `replay` carries the paused call.
+        // `replay` carries the paused call.
         { ...compiled, ...request },
         playgroundLines,
         routeLines(onEvent, traces, ignoreSteerInbox),

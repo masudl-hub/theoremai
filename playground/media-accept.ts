@@ -1,25 +1,17 @@
 /**
- * MIME allowlist picking — groups the kernel's accepted MIME types by media
- * kind and treats a kind's wildcard (`image/*`, …) as "every type of that
- * kind", since the kernel rejects types it doesn't know at ingress anyway.
- *
- * A draft stores the canonical list: a wildcard stands alone for its kind. A
- * picker shows the expanded list, so every type the wildcard covers reads as
- * selected.
- *
- * @module
+ * A kind's wildcard (`image/*`, …) means every type of that kind, since the kernel rejects
+ * unknown types at ingress anyway. A draft stores the canonical list (a wildcard stands alone for
+ * its kind); a picker shows the expanded list, so every covered type reads as selected.
  */
 
 import { MEDIA_INPUT_KINDS, type MediaInputKind } from '../src/kernel/schema.ts';
 
-/** One media kind's MIME types, and the wildcard that covers them when there is one. */
 export interface AcceptSection {
   kind: MediaInputKind;
   wildcard?: string;
   mimes: string[];
 }
 
-/** Group an allowlist's options (e.g. `ATTACHMENT_ACCEPT_MIMES`) by media kind, in list order. */
 export function acceptSections(options: readonly string[]): AcceptSection[] {
   const sections = new Map<MediaInputKind, AcceptSection>();
   const section = (kind: MediaInputKind) => {
@@ -38,7 +30,7 @@ export function acceptSections(options: readonly string[]): AcceptSection[] {
   return [...sections.values()];
 }
 
-/** The picker's selection for a stored list: each wildcard brings every type it covers. */
+/** Each wildcard brings every type it covers. */
 export function expandAccept(
   accept: readonly string[],
   sections: readonly AcceptSection[],
@@ -50,10 +42,8 @@ export function expandAccept(
 }
 
 /**
- * The list to store after the picker changes from `expandAccept(previous)` to
- * `selected`. Picking a wildcard takes every type of its kind; unpicking it
- * clears the kind; unpicking one type under a wildcard keeps the rest; picking
- * every type of a kind collapses to its wildcard.
+ * Picking a wildcard takes every type of its kind; unpicking it clears the kind; unpicking one
+ * type under a wildcard keeps the rest; picking every type of a kind collapses to its wildcard.
  */
 export function nextAccept(
   previous: readonly string[],

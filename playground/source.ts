@@ -1,13 +1,6 @@
 /**
- * The compiled draft as a TypeScript module a host can paste into its own code:
- * `registerTool` for each custom tool, `registerStructured` for the output
- * schema, then `defineProfile` and `registerProfile`.
- *
- * Values are written as object literals by one serializer, which writes the
- * kernel's `standardEgressEnforce` as that identifier and each tool's schemas
- * as the Zod expressions `zodFromJsonSchema` would build.
- *
- * @module
+ * One serializer writes the values: `standardEgressEnforce` as that identifier, and each tool's
+ * schemas as the Zod expressions `zodFromJsonSchema` would build.
  */
 
 import { standardEgressEnforce } from '../mod.ts';
@@ -67,7 +60,6 @@ function toolSource(tool: ToolRegistration): string {
   return `registerTool(${literal({ ...functionFields, ...zod, handler }, 0)});\n`;
 }
 
-/** The TypeScript module for a compiled draft. */
 export function playgroundSource(compiled: CompiledPlayground): string {
   const { profile, customTools, structured } = compiled;
   const egress = profile.guardrails?.egress !== undefined;

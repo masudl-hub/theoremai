@@ -1,10 +1,3 @@
-/**
- * Playground fixtures and helpers — the editable draft, its tree, the compiler
- * that turns it into a profile, source export, demo seeds, and run handoff.
- *
- * @module
- */
-
 export {
   type CompiledPlayground,
   compilePlayground,

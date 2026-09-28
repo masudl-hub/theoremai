@@ -1,24 +1,12 @@
 /**
- * Evals example: the translator suite, live, against a real Gemini provider.
- *
- * The host does what a host does: loads its keys, builds the providers, and
- * hands them to the eval command. Theorem runs each case `trials.repeat`
- * times, grades every trial from its trace, writes the trial and run records
- * under `--trace-dir`, and prints the verdicts. `--judge` adds a correctness
- * judge reading each trace: `text` a second Gemini profile, `jev` Jev (the
- * key from `TYPESAFE_API_KEY`), `both` Jev, handing what it is unsure of to
- * the text judge.
+ * The translator suite, live, against a real Gemini provider.
  *
  *   deno task evals:example [--trials k] [--trace-dir dir] [--json]
  *   deno task evals:example --judge text|jev|both [--max-cost-usd n]
  *   deno task evals:example --recorded ~/.theorem/traces/evals [--judge text|jev|both]
  *
- * Records go under `~/.theorem/traces/evals` unless `--trace-dir` names
- * another directory; a trace directory sits outside the checkout.
- *
- * `--phoenix` then sends the run to a local Phoenix (`deno task phoenix:up`):
- * the records this run wrote, through the Collector as OTLP with OpenInference
- * attributes, and every result as a span annotation on the trace it judged.
+ * `--judge jev` reads `TYPESAFE_API_KEY`; `both` is Jev handing what it is unsure of to the text
+ * judge. `--phoenix` also sends the run to a local Phoenix (`deno task phoenix:up`).
  */
 
 import { evalCommand } from '../src/cli/commands/eval.ts';

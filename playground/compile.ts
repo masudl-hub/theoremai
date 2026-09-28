@@ -1,16 +1,6 @@
 /**
- * Compile a playground draft into what the playground server registers: a
- * profile definition, its custom tools, and its structured-output schema.
- *
- * Validation runs first and reports every problem it finds, each keyed to the
- * tree node it belongs to (`tree.ts`). Only a draft with no issues is handed to
- * `defineProfile`, whose own checks are the last word.
- *
- * The compiled profile holds the kernel's real `standardEgressEnforce` when
- * egress is on. A function does not survive JSON, so the playground server
- * puts it back after the run-tab handoff.
- *
- * @module
+ * Egress compiles to the kernel's real `standardEgressEnforce`. A function does not survive
+ * JSON, so the playground server puts it back after the run-tab handoff.
  */
 
 import {
@@ -83,7 +73,6 @@ import {
 import { parseJsonSchema } from './tool-schema.ts';
 import { modelBindingNodeId, toolSpecNodeId } from './tree.ts';
 
-/** A profile definition the playground authors. */
 export type PlaygroundProfileDefinition =
   | TextProfileDefinition
   | ImageProfileDefinition
@@ -91,10 +80,8 @@ export type PlaygroundProfileDefinition =
   | LiveProfileDefinition;
 
 /**
- * One problem with the draft, on the tree node it belongs to. `field` names the
- * draft field at fault (a key of that node's draft, e.g. `handle` on identity or
- * `defaultEffort` on a model binding) when one field is; `index` is the entry
- * when that field is a list. Issues about the node as a whole have neither.
+ * `field` is the draft key at fault on that node (e.g. `handle`, `defaultEffort`) and `index`
+ * the list entry; issues about the node as a whole have neither.
  */
 export interface PlaygroundIssue {
   nodeId: string;
@@ -103,7 +90,6 @@ export interface PlaygroundIssue {
   index?: number;
 }
 
-/** What the playground server registers for a run. */
 export interface CompiledPlayground {
   agentId: string;
   profile: PlaygroundProfileDefinition;
@@ -117,7 +103,6 @@ export type PlaygroundCompileResult =
 
 type Report = (nodeId: string, message: string, field?: string, index?: number) => void;
 
-/** The list's entries, trimmed, without blanks. */
 function cleanList(list: readonly string[] | undefined): string[] {
   return (list ?? []).map((item) => item.trim()).filter(Boolean);
 }
@@ -135,14 +120,10 @@ function checkWhole(
   report(nodeId, `${label} must be a ${min ? 'positive' : 'non-negative'} whole number.`, field);
 }
 
-// ── identity ────────────────────────────────────────────────────────────────
-
 function checkIdentity(draft: PlaygroundDraft, report: Report): void {
   if (!draft.identity.agentId.trim()) report('identity', 'Profile id is required.', 'agentId');
   if (!draft.identity.handle.trim()) report('identity', 'Handle is required.', 'handle');
 }
-
-// ── models ──────────────────────────────────────────────────────────────────
 
 function compileBinding(
   binding: ModelBindingDraft,
@@ -258,8 +239,6 @@ function compileModels(
   };
 }
 
-// ── tools ───────────────────────────────────────────────────────────────────
-
 function parseHeaders(raw: string | undefined): Record<string, string> | undefined | null {
   if (!raw?.trim()) return undefined;
   try {
@@ -300,7 +279,6 @@ function isUrl(raw: string): boolean {
   }
 }
 
-/** Reports a problem with one of the tool draft's fields. */
 type Fail = (message: string, field: keyof ToolSpecDraft) => void;
 
 function checkToolName(name: string, fail: Fail): void {
@@ -318,7 +296,6 @@ function checkToolName(name: string, fail: Fail): void {
   }
 }
 
-/** The fields every tool type shares. */
 function toolCommon(tool: ToolSpecDraft, fail: Fail) {
   const name = tool.toolName.trim();
   checkToolName(name, fail);
@@ -344,7 +321,6 @@ function toolCommon(tool: ToolSpecDraft, fail: Fail) {
 
 type ToolCommon = ReturnType<typeof toolCommon>;
 
-/** Headers and auth, which HTTP and MCP tools share. */
 function remoteToolFields(tool: ToolSpecDraft, fail: Fail) {
   const headers = parseHeaders(tool.headersJson);
   if (headers === null) fail('Headers must be a JSON object of strings.', 'headersJson');
@@ -352,7 +328,6 @@ function remoteToolFields(tool: ToolSpecDraft, fail: Fail) {
   return { ...(headers ? { headers } : {}), ...(auth ? { auth } : {}) };
 }
 
-/** A URL field: required, and a full URL. */
 function checkUrl(
   tool: ToolSpecDraft,
   field: 'endpoint' | 'serverUrl',
@@ -432,8 +407,6 @@ function compileTools(draft: PlaygroundDraft, withLoader: boolean, report: Repor
   }
   return { customTools, tools: { allow, ...(t2Loader ? { t2Loader } : {}) } };
 }
-
-// ── sections ────────────────────────────────────────────────────────────────
 
 function compileInputs(
   inputs: InputsDraft,
@@ -544,11 +517,7 @@ function compileCanary(guardrails: GuardrailsDraft): ProfileGuardrailsSpec['cana
     : undefined;
 }
 
-/**
- * The profile's wording: the drafts' continue instruction, canary bind note,
- * quota message, and repair guidance, then the rest from Wording, each checked by the kernel's own
- * lexicon rules and reported on the node that owns it.
- */
+/** Each line is checked by the kernel's lexicon rules and reported on the node that owns it. */
 function compileLexicon(
   draft: PlaygroundDraft,
   facets: ReadonlySet<string>,
@@ -815,10 +784,7 @@ function compileLive(live: LiveDraft, report: Report): ProfileLiveSpec {
   };
 }
 
-/**
- * The sliding window's numbers: whole, within the free key's input, and the target below the
- * trigger.
- */
+/** Whole numbers, within the free key's input, and the target below the trigger. */
 function checkCompression(live: LiveDraft, report: Report): void {
   checkWhole(
     report,
@@ -857,7 +823,7 @@ function checkCompression(live: LiveDraft, report: Report): void {
   }
 }
 
-/** The draft's sliding window; a blank number is left to the provider. */
+/** A blank number is left to the provider. */
 function contextCompression(live: LiveDraft): LiveContextCompressionSpec {
   const trigger = live.compressionTriggerTokens;
   const target = live.compressionTargetTokens;
@@ -866,8 +832,6 @@ function contextCompression(live: LiveDraft): LiveContextCompressionSpec {
     slidingWindow: target !== null ? { targetTokens: target } : {},
   };
 }
-
-// ── assemble ────────────────────────────────────────────────────────────────
 
 /** `root` without the value at `segments`; its parents stay, even if left empty. */
 function withoutPath(
@@ -880,10 +844,7 @@ function withoutPath(
   return { ...others, [head]: withoutPath(child as Record<string, unknown>, rest) };
 }
 
-/**
- * Drop what the profile type may not set (`PROFILE_FIELD_SCOPE`). A draft keeps
- * every section's values across type changes; the schema decides which compile.
- */
+/** Drop what the type may not set (`PROFILE_FIELD_SCOPE`); the draft keeps it across type changes. */
 function omitOutOfScope(profile: Record<string, unknown> & { type: PlaygroundProfileType }) {
   let out: Record<string, unknown> = profile;
   for (const { path } of outOfScopeFields(profile)) out = withoutPath(out, path.split('.'));
@@ -935,7 +896,7 @@ function assemble(
   return { profile, customTools, ...(structured ? { structured } : {}) };
 }
 
-/** Validate the draft and compile it; every issue is reported, not just the first. */
+/** Every issue is reported, not just the first. */
 export function compilePlayground(draft: PlaygroundDraft): PlaygroundCompileResult {
   const issues: PlaygroundIssue[] = [];
   const report: Report = (nodeId, message, field, index) => {

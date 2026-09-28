@@ -1,22 +1,9 @@
 #!/usr/bin/env -S deno run --allow-env --allow-net
 
 /**
- * Live, opt-in contract probe for TypeSafe Jev's System One API.
- *
- * This script deliberately uses raw fetch rather than the TypeSafe SDK. It lets
- * us validate the wire contract and Deno compatibility before adding a runtime
- * dependency or designing THEOREM's native decision API.
- *
- * Credential handling:
- * - reads TYPESAFE_API_KEY only from the process environment;
- * - never reads .env files, writes credentials, or prints the key;
- * - does not print request state or raw response bodies.
- *
- * Usage:
- *   deno task verify:jev-api
- *   deno task verify:jev-api -- --model jev-1.13.0 --full --edge
- *   deno task verify:jev-api -- --use-cases
- *   deno task verify:jev-api -- --failure-states
+ * Raw fetch rather than the TypeSafe SDK, to validate the wire contract and Deno compatibility
+ * before taking a runtime dependency. Reads TYPESAFE_API_KEY only from the process environment;
+ * never reads .env files or prints the key, request state, or raw response bodies.
  */
 
 type JsonValue =

@@ -1,14 +1,7 @@
 /**
- * Start Phoenix and the Collector (`compose.yaml`), then give Phoenix Jev's
- * price. Phoenix prices a span from its own model table, not from the
- * `llm.cost.total` the span carries, and the table has no Jev; without this a
- * Jev decision shows its tokens but no cost. The price is the one the kernel
- * records, so Phoenix and `agents eval` agree. Run it again at any time: it
- * sets the price, it does not add a second one.
- *
- *   deno task phoenix:up    UI on http://localhost:6006
- *
- * @module
+ * Phoenix prices a span from its own model table, not the span's `llm.cost.total`, and the table
+ * has no Jev: without this a Jev decision shows tokens but no cost. It sets the price the kernel
+ * records, so Phoenix and `agents eval` agree; rerunning sets it again rather than adding one.
  */
 
 import { JEV_USD_PER_MILLION_INPUT_TOKENS } from '../../src/kernel/engine/decision.ts';
@@ -65,7 +58,6 @@ async function waitForPhoenix(): Promise<void> {
   }
 }
 
-/** Create Phoenix's Jev entry, or set it to the kernel's price when it exists. */
 async function priceJev(): Promise<void> {
   const data = (await graphql(
     '{ generativeModels(first: 1000) { edges { node { id name kind } } } }',

@@ -1,9 +1,3 @@
-/**
- * Playground → run-tab handoff via keyed localStorage + `?run=` URL id.
- *
- * @module
- */
-
 import type { ProfileDefinition } from '../mod.ts';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
 import {
@@ -38,7 +32,6 @@ export {
 export type PlaygroundRunPayload = {
 	/** Payload schema version — bump when handoff shape changes. */
 	version?: 1;
-	/** Optional echo of the storage/URL run id. */
 	runId?: string;
 	agentId: string;
 	profile: ProfileDefinition;
@@ -46,10 +39,7 @@ export type PlaygroundRunPayload = {
 	structured?: StructuredRegistration;
 };
 
-/**
- * Persist compiled agent for the run tab. Uses `localStorage` (not `sessionStorage`)
- * so `window.open` handoffs work — session storage is per-tab only.
- */
+/** `localStorage`, not `sessionStorage`: session storage is per-tab, so a `window.open` handoff would lose it. */
 export function savePlaygroundRunPayload(
 	payload: PlaygroundRunPayload,
 	runId: string,

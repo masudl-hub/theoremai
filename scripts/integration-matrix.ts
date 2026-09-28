@@ -1,11 +1,4 @@
-/**
- * Live integration matrix — exercises every registered fixture profile against
- * the real Gemini API. The dev fills the vault slots (THEOREM_VAULT_*, see
- * scripts/host-env.ts) with whichever keys they choose.
- *
- * Usage (profile ids narrow the run; default: every profile):
- *   deno run --allow-read --allow-write --allow-net --allow-sys --allow-env scripts/integration-matrix.ts [profile...]
- */
+/** Profile ids on the command line narrow the run; default: every Gemini fixture profile. */
 
 import '../tests/fixtures/test-host.ts';
 import { testProfileCommand } from '../src/cli/commands/test.ts';

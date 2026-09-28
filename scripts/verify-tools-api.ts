@@ -1,18 +1,5 @@
 #!/usr/bin/env -S deno run --allow-read --allow-net --allow-env --allow-sys
 
-/**
- * Adversarial tool-system pressure test — kernel invoke matrix + real Gemini
- * Interactions turns (text runner). Not Gemini Live (`type: 'live'`).
- *
- * Keys: vault slots from THEOREM_VAULT_* (see scripts/host-env.ts).
- *
- * Usage:
- *   deno task verify:tools-api
- *   ... --invoke-only     # skip provider API (deterministic kernel path)
- *   ... --api-only        # skip invoke matrix
- *   ... --limit 5         # cap API cases (debug)
- */
-
 import { z } from 'zod';
 import {
   getProfile,
@@ -38,10 +25,6 @@ import { extractLoadedIds } from '../src/kernel/tools/resolve.ts';
 import { isRecord } from '../src/kernel/util/record.ts';
 import { hostVault, loadHostEnv } from './host-env.ts';
 
-// ---------------------------------------------------------------------------
-// Env
-// ---------------------------------------------------------------------------
-
 function valueAfterFlag(flag: string): string | undefined {
   const idx = Deno.args.indexOf(flag);
   if (idx < 0) return undefined;
@@ -53,10 +36,6 @@ function hasFlag(flag: string): boolean {
 }
 
 loadHostEnv();
-
-// ---------------------------------------------------------------------------
-// Fixtures
-// ---------------------------------------------------------------------------
 
 const INVOKE_PROFILE = '__tools_pressure_invoke__';
 const LIVE_PROFILE = '__tools_pressure_live__';
@@ -236,10 +215,6 @@ function registerPressureProfiles(): void {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 interface CaseResult {
   events: TurnEvent[];
   error?: string;
@@ -334,7 +309,6 @@ function dumpToolFailures(events: TurnEvent[]): void {
   }
 }
 
-/** The state of the last call to `name`: its latest run or settle. */
 function stopKind(events: TurnEvent[]): string | undefined {
   return events.findLast((e) => e.type === 'done')?.stop?.kind;
 }
@@ -342,10 +316,6 @@ function stopKind(events: TurnEvent[]): string | undefined {
 function createGeminiProvider(): ModelProvider {
   return createProvider(getProfile(LIVE_PROFILE), { gemini: { vault: hostVault() } });
 }
-
-// ---------------------------------------------------------------------------
-// Invoke matrix (deterministic, adversarial)
-// ---------------------------------------------------------------------------
 
 function buildInvokeCases(): Case[] {
   const p = INVOKE_PROFILE;
@@ -615,10 +585,6 @@ function singleToolProvider(name: string, args: Record<string, unknown>): ModelP
   return sequentialToolProvider([{ name, arguments: args }]);
 }
 
-// ---------------------------------------------------------------------------
-// runTurn stub matrix (deterministic adversarial — full pipeline)
-// ---------------------------------------------------------------------------
-
 function buildStubRunCases(): Case[] {
   const p = STUB_RUN_PROFILE;
   const stub = (name: string, args: Record<string, unknown>) =>
@@ -744,9 +710,7 @@ function buildStubRunCases(): Case[] {
   ];
 }
 
-// ---------------------------------------------------------------------------
-// Live matrix (real Gemini — integration smoke; model obedience varies)
-// ---------------------------------------------------------------------------
+// Real Gemini integration smoke: model obedience varies.
 
 function buildLiveCases(provider: ModelProvider): Case[] {
   const lp = LIVE_PROFILE;
@@ -814,10 +778,6 @@ function buildLiveCases(provider: ModelProvider): Case[] {
     },
   ];
 }
-
-// ---------------------------------------------------------------------------
-// Runner
-// ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
   registerPressureProfiles();

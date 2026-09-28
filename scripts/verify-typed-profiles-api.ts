@@ -1,19 +1,5 @@
 #!/usr/bin/env -S deno run --allow-read --allow-net --allow-env --allow-sys
 
-/**
- * Real-provider pressure suite for typed profiles in THEOREM:
- *   - text profiles (OpenRouter & Gemini Interactions)
- *   - image profiles (OpenRouter /images & Gemini Interactions)
- *   - speech profiles (OpenRouter /audio/speech & Gemini TTS)
- *   - live profiles (`type: 'live'` / runSession over Gemini Live)
- *
- * Every test calls the real API and fails on any error event. Pass section
- * names to run a subset: `text`, `image`, `speech`, `live` (default: all).
- *
- * Exercises the entire THEOREM kernel:
- *   defineProfile -> registerProfile -> resolveTurn -> runTurn / runSession -> createProvider -> upstream API
- */
-
 import { z } from 'zod';
 import {
   projectProfile,
@@ -47,10 +33,6 @@ import {
   VAULT_ENV,
 } from './host-env.ts';
 
-// ---------------------------------------------------------------------------
-// Load Env
-// ---------------------------------------------------------------------------
-
 loadHostEnv();
 
 const openRouterKey = hostOpenRouterKey();
@@ -65,10 +47,6 @@ console.log(
 console.log('════════════════════════════════════════════════════════════════════════\n');
 
 registerGooglePreset();
-
-// ---------------------------------------------------------------------------
-// Register Test Tools and Schemas
-// ---------------------------------------------------------------------------
 
 registerTool({
   type: 'function',
@@ -116,7 +94,6 @@ if (unknownSections.length > 0) {
   console.error(`Unknown sections: ${unknownSections.join(', ')} (known: ${SECTIONS.join(', ')})`);
   Deno.exit(2);
 }
-/** Sections named on the command line, or every section. */
 const selected = new Set<Section>(Deno.args.length > 0 ? Deno.args.filter(isSection) : SECTIONS);
 
 const GEMINI_TEXT_MODELS = [
@@ -131,7 +108,6 @@ const GEMINI_SPEECH_MODELS = [
   'gemini-3.8-flash-lite-tts',
   'gemini-3.8-flash-tts',
 ] as const;
-/** The default-guardrails speech case; 3.8 lite replaces 3.1-flash-tts-preview. */
 const GEMINI_SPEECH_DEFAULT = 'gemini-3.8-flash-lite-tts';
 /** Live models and the thinking level each accepts: extended-thinking rejects `none` and `minimal` (1007). */
 const GEMINI_LIVE_MODELS = {
@@ -142,7 +118,6 @@ const GEMINI_LIVE_MODELS = {
 type GeminiLiveModel = keyof typeof GEMINI_LIVE_MODELS;
 const GEMINI_LIVE_IDS = Object.keys(GEMINI_LIVE_MODELS) as GeminiLiveModel[];
 
-/** One Interactions text binding; the same knobs for every model under test. */
 function geminiTextBinding(apiId: string) {
   return {
     protocol: 'geminiInteractions',
@@ -199,11 +174,10 @@ async function collect(iter: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
   return events;
 }
 
-/** Every turn's trace record, in order; the routed model lives only in the trace. */
+/** The routed model lives only in the trace. */
 const traces: TraceRecord[] = [];
 const traceSink = memorySink(traces);
 
-/** The models the last turn's calls reported (`gen_ai.response.model`) and the text Theorem delivered. */
 function turnDiagnostics(events: TurnEvent[]): string {
   const models = (traces.at(-1)?.spans ?? []).flatMap((span) => {
     const model = span.attributes['gen_ai.response.model'];
@@ -213,7 +187,6 @@ function turnDiagnostics(events: TurnEvent[]): string {
   return `routed model: ${routed}; delivered text: ${JSON.stringify(textOf(events).slice(0, 300))}`;
 }
 
-/** Fail on any error event, and on a turn that never reached `done`. */
 function assertClean(events: TurnEvent[]): void {
   const errEvent = events.find((e) => e.type === 'error');
   if (errEvent) {
@@ -228,7 +201,6 @@ function textOf(events: TurnEvent[]): string {
   return events.flatMap((e) => (e.type === 'text' && e.text ? [e.text] : [])).join('');
 }
 
-/** The turn's media, which must carry the expected MIME family and non-empty bytes. */
 function assertMedia(events: TurnEvent[], family: 'image' | 'audio'): void {
   const media = events.flatMap((e) => (e.type === 'media' && e.media ? [e.media] : []));
   if (media.length === 0) throw new Error(`No media event (${family})`);
@@ -242,10 +214,6 @@ function assertMedia(events: TurnEvent[], family: 'image' | 'audio'): void {
     `    Media: ${media.map((m) => `${m.mimeType} (${Math.round((m.data.length * 3) / 4 / 1024)} KiB)`).join(', ')}`,
   );
 }
-
-// ===========================================================================
-// 1. TEXT PROFILES
-// ===========================================================================
 
 if (selected.has('text')) {
   console.log('─── 1. Text Profiles (type: "text") ───');
@@ -428,10 +396,6 @@ if (selected.has('text')) {
   }
 }
 
-// ===========================================================================
-// 2. IMAGE PROFILES
-// ===========================================================================
-
 if (selected.has('image')) {
   console.log('\n─── 2. Image Profiles (type: "image") ───');
 
@@ -511,10 +475,6 @@ if (selected.has('image')) {
   }
 }
 
-// ===========================================================================
-// 3. SPEECH PROFILES
-// ===========================================================================
-
 if (selected.has('speech')) {
   console.log('\n─── 3. Speech Profiles (type: "speech") ───');
 
@@ -553,9 +513,6 @@ if (selected.has('speech')) {
     skipTest('OpenRouter Speech', `${OPENROUTER_ENV} missing`);
   }
 
-  // Canary off: Gemini TTS rejects any system instruction, and the default
-  // canary binds one. Open contract decision — the default-profile case below
-  // keeps the break visible until it is settled.
   for (const apiId of GEMINI_SPEECH_MODELS) {
     for (const mode of ['sse', 'buffered'] as const) {
       if (!vault.slotA) {
@@ -629,15 +586,10 @@ if (selected.has('speech')) {
   }
 }
 
-// ===========================================================================
-// 4. LIVE PROFILES
-// ===========================================================================
-
 const LIVE_TURN_TIMEOUT_MS = 60_000;
 /** Quiet time after `turn_complete` before a model that reports no status is taken as done. */
 const LIVE_SETTLE_MS = 3000;
 
-/** The next event, or undefined once `ms` pass without one. */
 async function nextWithin(
   iter: AsyncIterator<TurnEvent>,
   ms: number,
@@ -654,9 +606,8 @@ async function nextWithin(
 }
 
 /**
- * One Live cycle's events. `onEvent` may act on each (run a tool). The cycle
- * ends at `idle`, or — for a model that reports no status — on quiet after
- * `turn_complete` (docs/contracts/providers.md); either only once `settled()`.
+ * Ends at `idle`, or, for a model that reports no status, on quiet after `turn_complete`;
+ * either only once `settled()`.
  */
 async function collectLiveCycle(
   session: LiveSession,
@@ -680,10 +631,7 @@ async function collectLiveCycle(
   return events;
 }
 
-/**
- * Output transcript per model turn. Gemini's transcription deltas carry their
- * own spacing within a turn, and each turn starts fresh, so turns stay apart.
- */
+/** Gemini's transcription deltas carry their own spacing within a turn, so turns stay apart. */
 function transcriptTurns(events: TurnEvent[]): string[] {
   const turns: string[] = [''];
   for (const e of events) {
@@ -696,7 +644,6 @@ function transcriptTurns(events: TurnEvent[]): string[] {
   return turns.map((turn) => turn.trim()).filter(Boolean);
 }
 
-/** Throw on an error event; return the output transcript per turn and audio chunks. */
 function liveOutput(events: TurnEvent[]): { transcript: string[]; audio: TurnEventOf<'media'>[] } {
   const errEvent = events.find((e) => e.type === 'error');
   if (errEvent) throw new Error(`error event: ${errEvent.errorInternal ?? errEvent.error}`);
@@ -831,10 +778,6 @@ if (selected.has('live')) {
     });
   }
 }
-
-// ===========================================================================
-// SUMMARY
-// ===========================================================================
 
 console.log('\n════════════════════════════════════════════════════════════════════════');
 console.log(

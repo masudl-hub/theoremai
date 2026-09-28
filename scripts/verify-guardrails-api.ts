@@ -1,26 +1,9 @@
 #!/usr/bin/env -S deno run --allow-read --allow-net --allow-env --allow-sys
 
 /**
- * Guardrails red-team against a real provider API (text turns — not Gemini Live).
- *
- * Stresses the full runTurn stack:
- *   inbound sanitize (injection + sensitive) → canary bind → stream gate → egress
- *
- * Scoring philosophy — only Theorem-owned layers affect PASS/FAIL:
- *   • Inbound sanitize (pre-provider)
- *   • Canary stream gate + egress enforce (post-provider, pre-client)
- * Model refusals or benign replies without a Theorem block are MODEL TURN (neutral).
- * A Theorem egress block (refuse_to_user) is THEOREM BLOCKED (guardrail enforced).
- *
- * Free-tier wire ids (mirror playground-policy):
- *   OpenRouter: openrouter/free
- *   Gemini:     gemini-3.1-flash-lite
- *
- * Usage:
- *   deno task verify:guardrails-api   # vault slots from THEOREM_VAULT_*, see scripts/host-env.ts
- *   deno task verify:guardrails-api -- --provider gemini
- *   deno task verify:guardrails-api -- --inbound-only   # no API calls
- *   deno task verify:guardrails-api -- --category canary,inbound-injection --limit 20
+ * Only Theorem-owned layers (inbound sanitize, canary stream gate, egress) decide PASS/FAIL. A
+ * model refusal without a Theorem block is MODEL TURN, neutral; an egress withhold is THEOREM
+ * BLOCKED.
  */
 
 import {

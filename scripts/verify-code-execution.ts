@@ -1,11 +1,8 @@
 #!/usr/bin/env -S deno run --allow-net --allow-read --allow-sys --allow-env
 
 /**
- * Host live harness for Interactions `codeExecution`.
- *
- * Uses the CLI matrix / test APIs (profiles + explicit ModelProvider) plus
- * asserted cases the matrix prompt does not guarantee (error, multi-exec,
- * media, batch, structured pairing).
+ * The CLI matrix plus asserted cases its prompt does not guarantee (error, multi-exec, media,
+ * batch, structured pairing).
  */
 
 import { executeSingleTest, testProfileCommand } from '../src/cli/commands/test.ts';
@@ -198,7 +195,6 @@ async function runCase(
 
 const asserted: CaseResult[] = [];
 
-// --- CLI matrix (host registers profile + passes provider) ---
 console.log(`\n${'='.repeat(70)}\n CLI MATRIX via testProfileCommand\n${'='.repeat(70)}`);
 console.log(
   'matrix combos:',

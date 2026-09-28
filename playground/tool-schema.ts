@@ -1,10 +1,4 @@
-/**
- * Tool schemas as the playground authors them: JSON Schema text, turned into Zod
- * for registration and into `z.looseObject(...)` source for export. Covers the
- * subset the editor writes — objects, arrays, and primitives.
- *
- * @module
- */
+/** Covers the JSON Schema subset the editor writes: objects, arrays, and primitives. */
 
 import { z, type ZodType } from 'zod';
 
@@ -24,7 +18,6 @@ export const DEFAULT_TOOL_OUTPUT_SCHEMA = `{
   "required": ["result"]
 }`;
 
-/** A JSON Schema object as authored. */
 export type JsonSchema = Record<string, unknown>;
 
 function schemaFields(schema: JsonSchema): {
@@ -78,7 +71,6 @@ function propToZod(prop: JsonSchema): ZodType {
   }
 }
 
-/** A Zod schema for a JSON Schema object (or array) the playground authored. */
 export function zodFromJsonSchema(schema: JsonSchema): ZodType {
   if (schema.type === 'array') return propToZod(schema);
   const { props, required } = schemaFields(schema);
@@ -117,10 +109,7 @@ function sampleValue(prop: JsonSchema): unknown {
   }
 }
 
-/**
- * A value for each required field of a JSON Schema object: the schema's own example, default,
- * const or first enum value when it has one, else a plain one of the field's type.
- */
+/** Required fields only; a plain value of the field's type when the schema declares no sample. */
 export function sampleFromJsonSchema(schema: JsonSchema): Record<string, unknown> {
   const { props, required } = schemaFields(schema);
   const sample: Record<string, unknown> = {};
@@ -139,7 +128,6 @@ const UNSAFE_SOURCE_CHARS: Record<string, string> = {
   '\u2029': '\\u2029',
 };
 
-/** A single-quoted TypeScript string literal. */
 export function quoteSource(text: string): string {
   const body = JSON.stringify(text)
     .slice(1, -1)
@@ -149,7 +137,7 @@ export function quoteSource(text: string): string {
   return `'${body}'`;
 }
 
-/** An object key as TypeScript source: bare when it is an identifier. */
+/** Bare when the key is an identifier. */
 export function keySource(key: string): string {
   return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) ? key : quoteSource(key);
 }
@@ -173,10 +161,7 @@ function zodExprFromProp(prop: JsonSchema, depth: number): string {
   }
 }
 
-/**
- * Source for the Zod schema `zodFromJsonSchema` builds, for the exported module.
- * `depth` is the indent level the expression starts at.
- */
+/** `depth` is the indent level the expression starts at. */
 export function zodExprFromJsonSchema(schema: JsonSchema, depth = 0): string {
   if (schema.type === 'array') return zodExprFromProp(schema, depth);
   const { props, required } = schemaFields(schema);
@@ -190,7 +175,7 @@ export function zodExprFromJsonSchema(schema: JsonSchema, depth = 0): string {
   return `z.looseObject({\n${lines.join('\n')}\n${'  '.repeat(depth)}})`;
 }
 
-/** Parse authored JSON Schema text; `label` names it in the error. */
+/** `label` names the schema in the error. */
 export function parseJsonSchema(
   raw: string,
   label: string,

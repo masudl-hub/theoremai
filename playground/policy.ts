@@ -1,13 +1,7 @@
 /**
- * Playground policy — what the hosted playground lets a draft run, on top of
- * what the kernel accepts. Not kernel truth: it reflects the free-tier keys the
- * playground runs on (Google AI Studio quotas, OpenRouter's free router).
- *
- * Grounding quotas in AI Studio (Sep 2026):
- * - Search grounding: Gemini 2 / 2.5 → 1.5K; Gemini 3 → 0.
- * - Map grounding: per model, 0 or 500 (see `mapGrounding` below).
- *
- * @module
+ * What the hosted playground allows on top of the kernel: it runs on free-tier keys (Google AI
+ * Studio quotas, OpenRouter's free router). AI Studio grounding quotas (Sep 2026): search is 1.5K
+ * on Gemini 2 / 2.5 and 0 on Gemini 3; maps is 0 or 500 per model.
  */
 
 import type { Protocol, Provider } from '../src/kernel/schema.ts';
@@ -20,13 +14,10 @@ export const OPENROUTER_PLAYGROUND_API_ID = 'openrouter/free';
 /** Default Gemini chat model — the highest free requests-per-day in the quota table. */
 export const GEMINI_PLAYGROUND_DEFAULT_API_ID = 'gemini-3.1-flash-lite';
 
-/** Default Gemini speech model on the free tier. */
 export const GEMINI_PLAYGROUND_TTS_DEFAULT_API_ID = 'gemini-3.1-flash-tts-preview';
 
-/** Default Gemini image model on the free tier. */
 export const GEMINI_PLAYGROUND_IMAGE_DEFAULT_API_ID = 'gemini-3.1-flash-lite-image';
 
-/** Default Gemini Live model on the free tier. */
 export const GEMINI_PLAYGROUND_LIVE_DEFAULT_API_ID = 'gemini-3.1-flash-live-preview';
 
 /**
@@ -36,21 +27,16 @@ export const GEMINI_PLAYGROUND_LIVE_DEFAULT_API_ID = 'gemini-3.1-flash-live-prev
  */
 export const GEMINI_PLAYGROUND_LIVE_INPUT_TOKENS = 65_536;
 
-/**
- * Trace destination the playground server registers for `observability.writeTo`,
- * with a trace router's sink (`createPlaygroundTraceRouter`): each record goes
- * back to the run tab's inspector. The server keeps nothing.
- */
+/** Each record goes back to the run tab's inspector; the server keeps nothing. */
 export const PLAYGROUND_TRACE_DESTINATION = 'playground';
 
 export interface GeminiPlaygroundModel {
   id: string;
   label: string;
-  /** The profile type the model is made for. */
   profileType: PlaygroundProfileType;
-  /** Map grounding (`googleMaps`) — the model's map-grounding quota is non-zero. */
+  /** The model's map-grounding quota is non-zero. */
   mapGrounding: boolean;
-  /** Search grounding (`googleSearch`) — the model's search-grounding quota is non-zero. */
+  /** The model's search-grounding quota is non-zero. */
   searchGrounding: boolean;
 }
 
@@ -204,10 +190,7 @@ export function isOpenRouterTransport(protocol: Protocol, provider: Provider): b
   return protocol === 'openAi' && provider === 'openrouter';
 }
 
-/**
- * Whether the playground has a model on this transport for a profile type: Gemini
- * for every type, OpenRouter's free router for text only (it routes to chat models).
- */
+/** Gemini serves every type; OpenRouter's free router routes to chat models, so text only. */
 export function playgroundRunsTransport(
   type: PlaygroundProfileType,
   protocol: Protocol,
@@ -217,11 +200,7 @@ export function playgroundRunsTransport(
   return isOpenRouterTransport(protocol, provider) && type === 'text';
 }
 
-/**
- * Whether a binding is on a playground model made for another profile type. A
- * model the playground doesn't list isn't judged here; `modelBindingViolation`
- * reports it.
- */
+/** A model the playground doesn't list isn't judged here; `modelBindingViolation` reports it. */
 export function servesOtherProfileType(
   type: PlaygroundProfileType,
   binding: Pick<ModelBindingDraft, 'protocol' | 'provider' | 'apiId'>,
@@ -232,12 +211,10 @@ export function servesOtherProfileType(
   return model !== undefined && model.profileType !== type;
 }
 
-/** Whether `name` is a provider builtin id, which a custom tool may not take. */
 export function isProviderBuiltinId(name: string): boolean {
   return GOOGLE_BUILTIN_IDS.has(name);
 }
 
-/** Builtins a playground Gemini model has free-tier quota for. */
 export function allowedBuiltinsForGemini(apiId: string): string[] {
   const model = geminiPlaygroundModel(apiId);
   if (!model) return [];
@@ -248,7 +225,6 @@ export function allowedBuiltinsForGemini(apiId: string): string[] {
   return out;
 }
 
-/** The model a new binding starts on for a profile type. */
 export function defaultBindingForProfileType(
   type: PlaygroundProfileType,
 ): Pick<ModelBindingDraft, 'modelId' | 'protocol' | 'provider' | 'apiId'> {
@@ -284,16 +260,14 @@ export function defaultBindingForProfileType(
   }
 }
 
-/** Why the playground can't run a binding, and the binding field that has to change. */
 export interface ModelBindingViolation {
   field: 'provider' | 'apiId' | 'builtInTools';
   message: string;
 }
 
 /**
- * Why the playground can't run this binding, or `null` when it can. Checks only
- * the free-tier keys: which models they may call and which grounding quotas they
- * have. Whether a model suits the profile type is the kernel's and provider's.
+ * `null` when it can run. Checks only the free-tier keys (models, grounding quotas); whether a
+ * model suits the profile type is the kernel's call.
  */
 export function modelBindingViolation(
   binding: Pick<ModelBindingDraft, 'protocol' | 'provider' | 'apiId' | 'builtInTools'>,

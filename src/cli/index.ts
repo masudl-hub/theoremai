@@ -7,6 +7,7 @@
  */
 
 import { benchCommand } from './commands/bench.ts';
+import { evalCommand } from './commands/eval.ts';
 import { fuzzCanaryCommand } from './commands/fuzz-canary.ts';
 import { fuzzGuardrailsCommand } from './commands/fuzz-guardrails.ts';
 import { listProfilesCommand, showProfileCommand } from './commands/profile.ts';
@@ -25,6 +26,15 @@ COMMANDS:
     --chunks <n>       Text chunks per mock turn (default: 200)
     --iterations <n>   Measurement iterations (default: 50)
     --warmup <n>       Warmup iterations (default: 5)
+
+  eval <suite>         Run an eval suite live or over recorded traces
+    --recorded <path>  Grade a JSONL file or directory of trace records instead of running
+    --trials <k>       Trials per case, overriding the suite
+    --concurrency <n>  Trials in flight at once (default: 1)
+    --max-cost-usd <n> Stop starting trials once the run's cost passes this
+    --threshold <f>    Fraction of cases that must pass for exit 0 (default 1)
+    --trace-dir <path> Append trial and run records as JSONL under this directory
+    --json             Print the run as one JSON document
 
   fuzz                 Adversarial inbound sanitization fuzzer
   fuzz-canary          Adversarial canary egress fuzzer (stream + Live gates)
@@ -177,6 +187,31 @@ async function handleRun(flags: ParsedFlags): Promise<void> {
   });
 }
 
+function numberFlag(flags: ParsedFlags, key: string): number | undefined {
+  return typeof flags[key] === 'string' ? Number(flags[key]) : undefined;
+}
+
+async function handleEval(flags: ParsedFlags): Promise<void> {
+  const suite = flags._[1];
+  if (!suite) {
+    console.error('Error: Suite module required (e.g. `agents eval ./evals/suite.ts`)');
+    Deno.exit(1);
+  }
+  const ok = await evalCommand({
+    suite,
+    recorded: typeof flags.recorded === 'string' ? flags.recorded : undefined,
+    trials: numberFlag(flags, 'trials'),
+    concurrency: numberFlag(flags, 'concurrency'),
+    maxCostUsd: numberFlag(flags, 'max-cost-usd'),
+    threshold: numberFlag(flags, 'threshold'),
+    traceDir: cliDiagnostics(flags).traceDir,
+    json: Boolean(flags.json),
+  });
+  if (!ok) {
+    Deno.exit(1);
+  }
+}
+
 function handleProfile(flags: ParsedFlags): void {
   const sub = flags._[1] || 'list';
   if (sub === 'list') {
@@ -221,6 +256,8 @@ export async function main(cliArgs = Deno.args): Promise<void> {
     await handleTest(flags);
   } else if (command === 'run') {
     await handleRun(flags);
+  } else if (command === 'eval') {
+    await handleEval(flags);
   } else if (command === 'profile') {
     handleProfile(flags);
   } else {

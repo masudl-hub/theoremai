@@ -957,6 +957,7 @@ const session = await runSession({ profile: "support.voice" }, { gemini: { vault
 | `jsr:@theoremai/agents/guardrails/testing` / `@theoremai/agents/guardrails/testing` | Adversarial corpus + fuzz helpers (test/harness only). |
 | `jsr:@theoremai/agents/observability` / `@theoremai/agents/observability` | Trace sinks, trace record helpers and OTLP/JSON export. |
 | `jsr:@theoremai/agents/observability/openinference` / `@theoremai/agents/observability/openinference` | Optional OpenInference usage names (reasoning tokens, cost) for Phoenix. |
+| `jsr:@theoremai/agents/observability/phoenix` / `@theoremai/agents/observability/phoenix` | Optional: eval results as Phoenix span annotations. |
 | `jsr:@theoremai/agents/host` / `@theoremai/agents/host` | Optional Deno HTTP helpers (`json`, status mapping, cutout mint flush). |
 | `jsr:@theoremai/agents/cli` / `@theoremai/agents/cli` | Profile inspection and stress-test CLI (`agents` binary on npm). |
 | `jsr:@theoremai/agents/presets` / `@theoremai/agents/presets` | Optional convenience packs (`registerGooglePreset`, …). |
@@ -1032,7 +1033,7 @@ On GitHub, module contracts:
 | [`docs/contracts/stages.md`](docs/contracts/stages.md) | Turn stages — slices 1–3 landed on branch; release cut when docs match product |
 | [`docs/contracts/providers.md`](docs/contracts/providers.md) | `@theoremai/agents/providers` |
 | [`docs/contracts/guardrails.md`](docs/contracts/guardrails.md) | `@theoremai/agents/guardrails` |
-| [`docs/contracts/observability.md`](docs/contracts/observability.md) | `@theoremai/agents/observability`, `@theoremai/agents/observability/openinference` |
+| [`docs/contracts/observability.md`](docs/contracts/observability.md) | `@theoremai/agents/observability`, `@theoremai/agents/observability/openinference`, `@theoremai/agents/observability/phoenix` |
 | [`docs/contracts/host.md`](docs/contracts/host.md) | `@theoremai/agents/host` |
 | [`docs/contracts/kernel.md`](docs/contracts/kernel.md) (repo-private headless interface) | `src/interface/` |
 | [`docs/contracts/cli.md`](docs/contracts/cli.md) | `@theoremai/agents/cli` |

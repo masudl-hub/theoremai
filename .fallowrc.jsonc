@@ -11,6 +11,7 @@
     "tests/guardrails/**/*.ts",
     "tests/providers/**/*.ts",
     "tests/observability/**/*.ts",
+    "tests/evals/**/*.ts",
     "tests/host/**/*.ts",
     "tests/interface/**/*.ts",
     "tests/react/**/*.ts",

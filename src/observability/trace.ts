@@ -11,8 +11,9 @@
 
 import { TheoremError } from '../guardrails/error.ts';
 import { DEFAULT_ROTATE_MIB } from './resolve-policy.ts';
-import type { TraceRecord } from './trace-record.ts';
+import { buildRecord, type TraceRecord } from './trace-record.ts';
 import type { TraceSink } from './trace-sink.ts';
+import type { TraceSpan } from './trace-span.ts';
 import type { ResolvedObservabilityPolicy } from './types.ts';
 
 const HOURS_PER_DAY = 24;
@@ -53,6 +54,24 @@ async function writeTrace(
       // Host onError must not fail the turn.
     }
   }
+}
+
+/**
+ * Build one record from a finished trace's spans under the policy and write
+ * it, stamped with the caller's metadata. Like `writeTrace`, it never fails
+ * the caller.
+ */
+function writeSpans(
+  sink: TraceSink,
+  spans: TraceSpan[],
+  policy: ResolvedObservabilityPolicy,
+  metadata?: Record<string, unknown>,
+): Promise<void> {
+  return writeTrace(
+    sink,
+    buildRecord({ spans, policy, ...(metadata ? { metadata } : {}) }),
+    policy,
+  );
 }
 
 /** Trace sink that drops records. */
@@ -178,4 +197,4 @@ function validateTraceDir(dir: string): string {
 }
 
 export type { JsonlSinkOptions };
-export { jsonlSink, memorySink, noopSink, validateTraceDir, writeTrace };
+export { jsonlSink, memorySink, noopSink, validateTraceDir, writeSpans, writeTrace };

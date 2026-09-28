@@ -1,7 +1,9 @@
 # Jev decision profile — specification
 
-**Status:** native kernel core implemented on `codex/jev-decision-profile`;
-trace, state-detection, and frontend integration intentionally deferred.
+**Status:** native kernel core implemented on `codex/jev-decision-profile`.
+Decision traces implemented on `feat/otel-turn-traces` (26/09/2026; see
+"Observability — as built"); state detection and frontend integration still
+deferred.
 
 ## Goal
 
@@ -46,8 +48,9 @@ fixture tests and a live smoke test of the runner against Jev `1.13.0`.
 The following work is deliberately **not** included while the surrounding
 trace, state, and frontend systems are actively changing:
 
-- `DecisionTraceRecord` and integration with profile trace destinations,
-  sampling, and scrub policy;
+- ~~`DecisionTraceRecord` and integration with profile trace destinations,
+  sampling, and scrub policy~~ (built 26/09 as a standard trace record; see
+  "Observability — as built");
 - recursive state detection/reporting and decision-specific guardrail events;
 - the headless `DecisionProfileInterface` and any frontend decision surface;
 - registered decision-contract storage and richer contract versioning.
@@ -279,6 +282,24 @@ A record includes:
 
 Raw API keys, complete raw state, and raw provider payloads are excluded by
 default. A trace write failure never changes the decision outcome.
+
+### Observability — as built (26/09/2026)
+
+The eval work needed a Jev judge's call in the trace, so decisions now trace.
+Two things differ from the plan above:
+
+- No separate `DecisionTraceRecord`: a decision is a standard v3 `TraceRecord`
+  with one `decide <apiId>` CLIENT root span (`gen_ai.operation.name:
+  decide`, `gen_ai.provider.name: typesafe`), so every sink, viewer and the
+  OTLP export read it without a second schema. It is not a turn: no
+  `invoke_agent`, no messages.
+- State, questions and answers are stored as trace content under the
+  profile's scrub policy, the way a turn stores its messages, not as hashes.
+  Keys and raw provider payloads are still never recorded. The alternative,
+  hashes only, leaves a viewer unable to show what the decision read.
+
+Details: `docs/contracts/kernel.md` (Decision profile) and
+`docs/contracts/observability.md` (OpenInference attributes).
 
 ## Interface and wrong-door behavior
 

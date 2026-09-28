@@ -8,6 +8,8 @@ import {
   registerProfile,
   runDecision,
 } from '../../src/kernel/mod.ts';
+import { memorySink } from '../../src/observability/trace.ts';
+import { inlineContent, type TraceRecord } from '../../src/observability/trace-record.ts';
 
 function profile(id = 'decision-test') {
   return defineProfile({
@@ -244,4 +246,114 @@ Deno.test('a decision request that names a model makes no network request', asyn
     'Decision requests do not select a model',
   );
   assertEquals(calls, 0);
+});
+
+function jevAnswer(): Response {
+  return new Response(
+    JSON.stringify({
+      model: 'jev-1.13.0',
+      answers: {
+        next: {
+          type: 'choice',
+          choice: 'ask_user',
+          confidence: 0.9,
+          probabilities: { ask_user: 0.9, execute: 0.1 },
+        },
+        risk: {
+          type: 'score',
+          score: 1,
+          confidence: 0.8,
+          legend: { 0: 0, 1: 1 },
+          probabilities: { 0: 0.1, 1: 0.9 },
+        },
+      },
+      usage: { input_tokens: 12, output_tokens: 5 },
+    }),
+  );
+}
+
+Deno.test('a decision writes one decide record under the host span it names', async () => {
+  clearProfiles();
+  registerProfile(profile());
+  const records: TraceRecord[] = [];
+  const parent = `00-${'a'.repeat(32)}-${'b'.repeat(16)}-01`;
+  await runDecision(
+    { ...request(), traceparent: parent, metadata: { app: { run: 7 } } },
+    { apiKey: 'test-key', fetch: () => Promise.resolve(jevAnswer()), sink: memorySink(records) },
+  );
+  assertEquals(records.length, 1);
+  const [record] = records;
+  const [root] = record?.spans ?? [];
+  assertEquals(record?.spans.length, 1);
+  assertEquals(record?.metadata, { app: { run: 7 } });
+  assertEquals(root?.name, 'decide jev-latest');
+  assertEquals(root?.traceId, 'a'.repeat(32));
+  assertEquals(root?.parentSpanId, 'b'.repeat(16));
+  assertEquals(root?.status, { code: 'OK' });
+  const attributes = root?.attributes ?? {};
+  assertEquals(
+    {
+      operation: attributes['gen_ai.operation.name'],
+      provider: attributes['gen_ai.provider.name'],
+      agent: attributes['gen_ai.agent.name'],
+      sent: attributes['gen_ai.request.model'],
+      alias: attributes['theorem.model.id'],
+      answered: attributes['gen_ai.response.model'],
+      contract: attributes['theorem.decision.contract'],
+      input: attributes['gen_ai.usage.input_tokens'],
+      output: attributes['gen_ai.usage.output_tokens'],
+    },
+    {
+      operation: 'decide',
+      provider: 'typesafe',
+      agent: 'decision-test',
+      sent: 'jev-latest',
+      alias: 'jev',
+      answered: 'jev-1.13.0',
+      contract: 'test.v1',
+      input: 12,
+      output: 5,
+    },
+  );
+  if (!record) throw new Error('no record');
+  assertEquals(inlineContent(record, attributes['theorem.decision.state']), request().state);
+  assertEquals(
+    inlineContent(record, attributes['theorem.decision.questions']),
+    request().questions,
+  );
+  const answers = inlineContent(record, attributes['theorem.decision.answers']);
+  assertEquals((answers as { next: { choice: string } }).next.choice, 'ask_user');
+});
+
+Deno.test('a failed decision is recorded with its error kind', async () => {
+  clearProfiles();
+  registerProfile(profile());
+  const records: TraceRecord[] = [];
+  await assertRejects(() =>
+    runDecision(request(), {
+      apiKey: 'test-key',
+      fetch: () => Promise.resolve(new Response('{}', { status: 429 })),
+      sink: memorySink(records),
+    }),
+  );
+  const root = records[0]?.spans[0];
+  assertEquals(root?.status, { code: 'ERROR', message: 'rate_limit' });
+  assertEquals(root?.attributes['error.type'], 'rate_limit');
+  assertEquals('theorem.decision.answers' in (root?.attributes ?? {}), false);
+});
+
+Deno.test('a trace write that fails leaves the decision standing', async () => {
+  clearProfiles();
+  registerProfile(profile());
+  const errors: unknown[] = [];
+  const result = await runDecision(request(), {
+    apiKey: 'test-key',
+    fetch: () => Promise.resolve(jevAnswer()),
+    sink: {
+      write: () => Promise.reject(new Error('disk full')),
+      onError: (error) => errors.push(error),
+    },
+  });
+  assertEquals(result.model, 'jev-1.13.0');
+  assertEquals(errors.length, 1);
 });

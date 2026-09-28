@@ -11,8 +11,7 @@ import {
   withPublicWording,
 } from '../../guardrails/error.ts';
 import { resolveTraceWriter } from '../../observability/policy.ts';
-import { writeTrace } from '../../observability/trace.ts';
-import { buildRecord } from '../../observability/trace-record.ts';
+import { writeSpans } from '../../observability/trace.ts';
 import type { TraceSink } from '../../observability/trace-sink.ts';
 import {
   type SpanHandle,
@@ -114,15 +113,7 @@ async function* invokeTool(
     );
     throw err;
   } finally {
-    await writeTrace(
-      sink,
-      buildRecord({
-        spans: tree.collect(),
-        policy,
-        ...(request.metadata ? { metadata: request.metadata } : {}),
-      }),
-      policy,
-    );
+    await writeSpans(sink, tree.collect(), policy, request.metadata);
   }
 }
 

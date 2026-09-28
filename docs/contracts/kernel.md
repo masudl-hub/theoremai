@@ -104,9 +104,19 @@ or resolved from its host-provided `keyVault`.
 leaves the process. It may return `allow` or `block`; a block prevents dispatch.
 The shared guardrail fields are structurally accepted for compatibility but the
 registry rejects quota, sanitization, redaction, canary, egress, network, and
-taint configuration as inert on a decision profile. Decision traces, recursive
-state scanning, and decision-specific frontend/interface support are deliberately
-deferred while the trace, state, and frontend work settles.
+taint configuration as inert on a decision profile. Recursive state scanning
+and decision-specific frontend/interface support are deliberately deferred.
+
+Every decision writes one trace record through the profile's observability
+policy, or through `RunDecisionOptions.sink` when the host passes one: a
+`decide <apiId>` CLIENT root span (under `DecisionRequest.traceparent` when
+given, stamped with `DecisionRequest.metadata`) carrying
+`gen_ai.operation.name: decide`, `gen_ai.provider.name: typesafe`,
+`gen_ai.agent.name` (the profile), the requested and answering model, token
+usage, `theorem.decision.contract`, and the state, questions and answers as
+stored JSON content under the profile's scrub policy. A failed decision ends
+the span `ERROR` with `error.type` its error kind. As with turns, a failed
+trace write never fails the decision.
 
 Multimodal ingress uses provider-neutral `InteractionPart` values;
 `InteractionMediaPart.type` is `MediaInputKind` (`image` | `audio` | `video` |

@@ -12,6 +12,7 @@ sinks die set `TraceSink.onError` or `observability.onWriteError`.
 | Import | `@theoremai/agents/observability` / `jsr:@theoremai/agents/observability` |
 | Module | `src/observability/mod.ts` |
 | Viewer attributes | `@theoremai/agents/observability/openinference` → `src/observability/openinference.ts` (optional) |
+| Viewer annotations | `@theoremai/agents/observability/phoenix` → `src/observability/phoenix.ts` (optional) |
 
 ## Ownership
 
@@ -27,6 +28,7 @@ sinks die set `TraceSink.onError` or `observability.onWriteError`.
 | `src/observability/trace-record.ts` | `TraceRecord` shape, `buildRecord` (scrub + include), `contentOf`, `inlineContent` |
 | `src/observability/otlp.ts` | `toOtlpJson` (records → OTLP/JSON request) |
 | `src/observability/openinference.ts` | `withOpenInference` (opt-in viewer attributes; its own export) |
+| `src/observability/phoenix.ts` | `phoenixAnnotations` (eval results as Phoenix span annotations; its own export) |
 | `src/observability/spans.ts` | Redaction spans shared with guardrails (`applySpans`, `spansFromPatterns`) |
 
 ## Profile observability
@@ -123,8 +125,8 @@ for await (const event of runTurn(request, provider)) {
 ## Trace sinks
 
 Pass a `TraceSink` as the optional last argument to `runTurn`, `invokeTool` or
-`runSession`,
-or resolve one from profile policy:
+`runSession` (or as `RunDecisionOptions.sink` to `runDecision`), or resolve one
+from profile policy:
 
 ```ts
 for await (const event of runTurn(request, provider, jsonlSink(hostTraceDir))) {
@@ -153,7 +155,9 @@ each write removes day files older than the record's `retainForDays`
 `writeTrace(sink, recordPromise, policy)` awaits the record and writes it with
 the policy's write context. Errors from
 record construction or the sink are forwarded to optional `sink.onError` and
-never abort the turn. Production hosts should set `onError` / `onWriteError`
+never abort the turn. `writeSpans(sink, spans, policy, metadata?)` (internal)
+builds a finished trace's record under the policy and writes it the same way;
+tool calls and decisions write through it. Production hosts should set `onError` / `onWriteError`
 (log, metric, alert) so dying disks/permissions are visible.
 
 ## Sensitive storage
@@ -251,7 +255,7 @@ it. The playground's trace panel reads it; a host's own tooling can too.
 
 | Lookup | Returns |
 | --- | --- |
-| `traceSpanMeta(span)` | `{ type, label, doc, subject? }`: what the span is (`Turn`, `Live session`, `Model call`, `Live response`, `Tool call`, `HTTP try`, `Cutout`, else `Host span`), decided from what it recorded, plus its subject: the agent, model, tool or path |
+| `traceSpanMeta(span)` | `{ type, label, doc, subject? }`: what the span is (`Turn`, `Live session`, `Model call`, `Live response`, `Tool call`, `HTTP try`, `Cutout`, `Decision`, else `Host span`), decided from what it recorded, plus its subject: the agent, model, tool or path |
 | `traceAttributeMeta(key)` | `{ label, doc, format, group, options?, open?, fields? }` for a span attribute, including the modality-usage and recorded-header families; `undefined` for a key Theorem does not write |
 | `traceEventMeta(name)` | `{ label, doc, attributes }` for a span event |
 | `traceEventAttributeMeta(event, key)` | The event's own entry for the key, else the span attribute of that key |
@@ -327,25 +331,62 @@ service:
 
 ## OpenInference attributes
 
-Phoenix maps the GenAI semconv spans itself but reads reasoning tokens and
-cost only under [OpenInference names](https://github.com/Arize-ai/openinference/blob/main/spec/semantic_conventions.md).
+Phoenix maps the GenAI semconv span kinds, models and token counts itself, but
+its message views (the chat bubbles, Replay, the Input and Output columns of
+the trace list), reasoning tokens and cost read only [OpenInference names](https://github.com/Arize-ai/openinference/blob/main/spec/semantic_conventions.md).
 `withOpenInference(records)`, imported from
-`@theoremai/agents/observability/openinference`, returns copies whose
-model-call spans (`chat`, `generate_content`) also carry:
+`@theoremai/agents/observability/openinference`, returns copies whose spans
+also carry:
 
-| OpenInference | From |
-| --- | --- |
-| `llm.token_count.completion_details.reasoning` | `gen_ai.usage.reasoning.output_tokens` |
-| `llm.cost.total` | `theorem.usage.cost_usd`, unless `theorem.usage.cost_partial` |
+| Span | OpenInference | From |
+| --- | --- | --- |
+| model call (`chat`, `generate_content`) | `llm.token_count.completion_details.reasoning` | `gen_ai.usage.reasoning.output_tokens` |
+| model call | `llm.cost.total` | `theorem.usage.cost_usd`, unless `theorem.usage.cost_partial` |
+| model call | `llm.input_messages.{i}.message.role` / `.content` / `.tool_calls.{k}.tool_call.*` / `.tool_call_id` | `gen_ai.system_instructions` as a `system` message first, then `gen_ai.input.messages` |
+| model call | `llm.output_messages.{i}.message.*` | `gen_ai.output.messages`, else Live's `theorem.output.delivered` |
+| model call and `invoke_agent` | `input.value`, `input.mime_type`, `output.value`, `output.mime_type` | The messages above (system instructions left out): one message with text is written as `text/plain`, anything else as JSON `[{role, content}]` |
+| decision (`decide`) | `openinference.span.kind: LLM`, `llm.model_name`, `llm.provider: typesafe`, `llm.token_count.{prompt, completion, total}` | `gen_ai.response.model` (else the requested model) and `gen_ai.usage.*`: Phoenix derives no kind for an operation semconv does not name |
+| decision | `input.value` / `output.value` as `application/json` | `theorem.decision.state` and `theorem.decision.answers`, inlined; a decision has no messages, so Phoenix cannot replay it |
 
-- Only model calls: a viewer sums them across a trace, and an agent span's
-  usage is already the sum of its calls.
+- A message's content is its text parts, a structured part's JSON and each
+  media part named by modality (`[image]`), one per line; stored references
+  are inlined. A text part that is the structured part's JSON as the model
+  typed it is shown once, as the JSON. Tool calls and tool results keep their
+  ids, names and arguments.
+- Only model calls carry usage: a viewer sums them across a trace, and an
+  agent span's usage is already the sum of its calls.
 - A partial cost keeps only its `theorem.*` name, so it never reads as a total.
-- Absent inputs stay absent.
+- Absent inputs stay absent; a tool span is left alone.
 
 Export with `toOtlpJson(withOpenInference(records))`. The kernel and
 `toOtlpJson` stay viewer-neutral; hosts that don't use such a viewer never load
 the module.
+
+## Phoenix annotations
+
+Eval results travel as `gen_ai.evaluation.result` events on a
+`theorem.eval.trial` span (see the evals contract). Phoenix shows them as span
+events, but its Annotations column, filters and experiment views read span
+annotations, which it takes over REST (`POST /v1/span_annotations`), not
+OTLP. `phoenixAnnotations(records)`, imported from
+`@theoremai/agents/observability/phoenix`, builds that request's `data`: one
+annotation per result, on the judged root (the trial span's parent).
+
+| Annotation field | From |
+| --- | --- |
+| `span_id` | the trial span's `parentSpanId` |
+| `name` | `gen_ai.evaluation.name` |
+| `annotator_kind` | `LLM` when `theorem.evaluation.source` is `model`, else `CODE` |
+| `result.label`, `result.score` | `gen_ai.evaluation.score.label`, `.score.value` |
+| `result.explanation` | `gen_ai.evaluation.explanation`, inlined; absent when the policy did not keep it |
+| `metadata` | `suite`, `case`, `trial` from the trial span; `passed`, `error_type`, `grader_version` from the event |
+
+Records without trial spans add nothing. Phoenix keeps one annotation per span
+and name, so grading a record again replaces its annotations. The module is
+pure: the host posts `{ data: phoenixAnnotations(records) }` beside the
+records it exports, after Phoenix has stored the spans (it refuses
+annotations on spans it lacks with 404). `scripts/evals-example.ts --phoenix`
+is a host doing both against `deno task phoenix:up` (`scripts/phoenix/`).
 
 ## Exported API
 
@@ -364,6 +405,8 @@ the module.
 | `buildRecord`, `contentOf`, `inlineContent` | function |
 | `toOtlpJson` | function |
 | `withOpenInference` (from `@theoremai/agents/observability/openinference`) | function |
+| `phoenixAnnotations` (from `@theoremai/agents/observability/phoenix`) | function |
+| `PhoenixSpanAnnotation` (from `@theoremai/agents/observability/phoenix`) | type |
 | `OtlpTraceRequest`, `OtlpSpan`, `OtlpKeyValue`, `OtlpAnyValue` | type |
 | `startTrace`, `traceContent`, `traceBytes`, `traceJson` | function |
 | `registerTraceDestination`, `jsonlDestination`, `requireTraceDestination`, `getTraceDestination` | function |
@@ -441,6 +484,12 @@ the module.
       "supports": [
         { "kind": "source", "path": "src/observability/openinference.ts" },
         { "kind": "contract_test", "path": "tests/observability/openinference.test.ts" }
+      ]
+    },
+    "Phoenix annotations": {
+      "supports": [
+        { "kind": "source", "path": "src/observability/phoenix.ts" },
+        { "kind": "contract_test", "path": "tests/observability/phoenix.test.ts" }
       ]
     },
     "Exported API": {

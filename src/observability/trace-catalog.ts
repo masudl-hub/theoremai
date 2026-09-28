@@ -78,7 +78,9 @@ type TraceAttributeGroup =
   | 'http'
   | 'error'
   | 'record'
-  | 'part';
+  | 'part'
+  | 'decision'
+  | 'evaluation';
 
 /** One value of a closed set. */
 interface TraceOptionMeta {
@@ -109,7 +111,17 @@ interface TraceEventMeta {
 }
 
 /** The kinds of span THEOREM writes, plus `host` for a span the host recorded itself. */
-type TraceSpanType = 'turn' | 'session' | 'call' | 'response' | 'tool' | 'http' | 'cutout' | 'host';
+type TraceSpanType =
+  | 'turn'
+  | 'session'
+  | 'call'
+  | 'response'
+  | 'tool'
+  | 'http'
+  | 'cutout'
+  | 'decision'
+  | 'evaluation'
+  | 'host';
 
 /** What a span is, and the thing it acted on (the model, tool or agent), when it names one. */
 interface TraceSpanMeta {
@@ -130,6 +142,11 @@ const TRACE_ATTRIBUTE_GROUPS: Readonly<Record<TraceAttributeGroup, TraceOptionMe
   error: { label: 'Error', doc: 'Why it failed.' },
   record: { label: 'Record', doc: 'What this record kept and how it was taken.' },
   part: { label: 'Part', doc: 'Facts about one message part.' },
+  decision: {
+    label: 'Decision',
+    doc: 'The state a decision read, the questions it answered, and its answers.',
+  },
+  evaluation: { label: 'Evaluation', doc: 'How an eval graded this trace, and by which suite.' },
 };
 
 /** Span status meanings (OpenTelemetry's three codes). */
@@ -235,6 +252,7 @@ const ERROR_TYPE_OPTIONS: Readonly<Record<string, TraceOptionMeta>> = {
   ...ERROR_KIND_OPTIONS,
   provider_error: STOP_KINDS.provider_error,
   stream_incomplete: STOP_KINDS.stream_incomplete,
+  grader_error: { label: 'Grader failed', doc: 'The grader threw instead of returning a result.' },
 };
 
 const TOOL_OUTCOMES: Readonly<
@@ -272,19 +290,47 @@ const KEY_SLOT_OPTIONS: Readonly<Record<KeySlot, TraceOptionMeta>> = {
   paid: { label: 'Paid key', doc: 'The paid key a refused call overflowed to.' },
 };
 
-const LINK_KINDS: Readonly<Record<'resume' | 'continue' | 'retry', TraceOptionMeta>> = {
+const LINK_KINDS: Readonly<
+  Record<'resume' | 'continue' | 'retry' | 'judge' | 'trial', TraceOptionMeta>
+> = {
   resume: { label: 'Resumes', doc: 'Picks up a call that stopped for approval.' },
   continue: { label: 'Continues', doc: 'Continues an answer that stopped early.' },
   retry: { label: 'Retries', doc: 'Runs a failed turn again.' },
+  judge: { label: 'Judged by', doc: 'The judge turn a model grader ran to score this trial.' },
+  trial: { label: 'Trial', doc: 'A graded trial of this eval run.' },
+};
+
+const EVALUATION_SOURCES: Readonly<Record<'code' | 'model', TraceOptionMeta>> = {
+  code: { label: 'Code', doc: 'A deterministic check over the trace.' },
+  model: { label: 'Model', doc: 'A judge profile read the transcript.' },
+};
+
+const PASS_RULES: Readonly<Record<'all' | 'any' | 'at_least', TraceOptionMeta>> = {
+  all: { label: 'Every trial', doc: 'Passes only when every trial passed (pass^k).' },
+  any: { label: 'Any trial', doc: 'Passes when at least one trial passed (pass@k).' },
+  at_least: {
+    label: 'At least n',
+    doc: 'Passes when at least the stated number of trials passed.',
+  },
+};
+
+const EVAL_STOPS: Readonly<Record<'budget', TraceOptionMeta>> = {
+  budget: { label: 'Cost ceiling', doc: 'The summed cost crossed the ceiling the host set.' },
+};
+
+const CASE_KINDS: Readonly<Record<'capability' | 'regression', TraceOptionMeta>> = {
+  capability: { label: 'Capability', doc: 'Can the agent do this at all?' },
+  regression: { label: 'Regression', doc: 'Does the agent still do this?' },
 };
 
 const OPERATIONS: Readonly<
-  Record<'invoke_agent' | 'chat' | 'generate_content' | 'execute_tool', TraceOptionMeta>
+  Record<'invoke_agent' | 'chat' | 'generate_content' | 'execute_tool' | 'decide', TraceOptionMeta>
 > = {
   invoke_agent: { label: 'Run agent', doc: 'One turn of an agent, or one Live session.' },
   chat: { label: 'Chat', doc: 'A model call over a chat-completions API.' },
   generate_content: { label: 'Generate content', doc: 'A model call over a Gemini API.' },
   execute_tool: { label: 'Run tool', doc: 'A tool call THEOREM ran.' },
+  decide: { label: 'Decide', doc: 'One Jev decision: typed answers to questions over JSON state.' },
 };
 
 const OUTPUT_TYPES: Readonly<Record<'text' | 'json' | 'image' | 'speech', TraceOptionMeta>> = {
@@ -294,9 +340,10 @@ const OUTPUT_TYPES: Readonly<Record<'text' | 'json' | 'image' | 'speech', TraceO
   speech: { label: 'Speech', doc: 'The model answers in audio.' },
 };
 
-const PROVIDERS: Readonly<Record<'gcp.gemini' | 'openrouter', TraceOptionMeta>> = {
+const PROVIDERS: Readonly<Record<'gcp.gemini' | 'openrouter' | 'typesafe', TraceOptionMeta>> = {
   'gcp.gemini': { label: 'Google Gemini', doc: "Google's Gemini API." },
   openrouter: { label: 'OpenRouter', doc: 'The OpenRouter gateway.' },
+  typesafe: { label: 'TypeSafe', doc: "TypeSafe's Jev decision API." },
 };
 
 const USAGE_SIDES: Readonly<Record<'input' | 'output', TraceOptionMeta>> = {
@@ -962,6 +1009,124 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
     'boolean',
     'The provider sent this step incomplete.',
   ),
+
+  // decision
+  'theorem.decision.contract': attr(
+    'decision',
+    'Contract',
+    'id',
+    "The host's decision contract the profile names.",
+  ),
+  'theorem.decision.state': attr('decision', 'State', 'json', 'The JSON state the decision read.'),
+  'theorem.decision.questions': attr(
+    'decision',
+    'Questions',
+    'json',
+    'Each question by id: its kind, instructions and criteria.',
+  ),
+  'theorem.decision.answers': attr(
+    'decision',
+    'Answers',
+    'json',
+    'Each answer by question id: the choice or score, its confidence and probabilities.',
+  ),
+
+  // evaluation
+  'gen_ai.evaluation.name': attr(
+    'evaluation',
+    'Grader',
+    'id',
+    'The grader that produced this result.',
+  ),
+  'gen_ai.evaluation.score.value': attr(
+    'evaluation',
+    'Score',
+    'number',
+    'The score, 0–1 unless the grader says otherwise.',
+  ),
+  'gen_ai.evaluation.score.label': attr(
+    'evaluation',
+    'Label',
+    'text',
+    "The grader's label for this trial, one of the labels it declares.",
+  ),
+  'gen_ai.evaluation.explanation': attr(
+    'evaluation',
+    'Explanation',
+    'content',
+    "Why, in the grader's words.",
+  ),
+  'theorem.evaluation.source': attr(
+    'evaluation',
+    'Graded by',
+    'text',
+    'Who produced this result.',
+    EVALUATION_SOURCES,
+  ),
+  'theorem.evaluation.suite': attr('evaluation', 'Suite', 'id', 'The eval suite that ran.'),
+  'theorem.evaluation.case': attr(
+    'evaluation',
+    'Case',
+    'id',
+    'The case this trial ran. Absent when a production trace was graded without one.',
+  ),
+  'theorem.evaluation.trial': attr(
+    'evaluation',
+    'Trial',
+    'number',
+    'Which trial of the case this is, from 0.',
+  ),
+  'theorem.evaluation.grader.version': attr(
+    'evaluation',
+    'Grader version',
+    'id',
+    "The sha256 of the grader's rubric or code identity, so a reader can tell which rubric scored this.",
+  ),
+  'theorem.evaluation.judge.traceparent': attr(
+    'evaluation',
+    'Judge turn',
+    'id',
+    'The judge call that scored this trial, as a W3C traceparent.',
+  ),
+  'theorem.evaluation.passed': attr(
+    'evaluation',
+    'Passed',
+    'boolean',
+    "The grader's yes or no. Absent when the result informs but does not decide.",
+  ),
+  'theorem.eval.repeat': attr(
+    'evaluation',
+    'Trials per case',
+    'number',
+    'How many times each case ran.',
+  ),
+  'theorem.eval.pass_rule': attr(
+    'evaluation',
+    'Pass rule',
+    'text',
+    'How the trials of a case become its verdict.',
+    PASS_RULES,
+  ),
+  'theorem.eval.pass_at_least': attr(
+    'evaluation',
+    'Trials needed',
+    'number',
+    'Trials that must pass under the at-least rule.',
+  ),
+  'theorem.eval.caseless': attr(
+    'evaluation',
+    'Caseless',
+    'boolean',
+    'Production traces were graded with no cases: only graders that need no expectation ran.',
+  ),
+  'theorem.eval.stopped': attr(
+    'evaluation',
+    'Stopped early',
+    'text',
+    'Why the run stopped before its end.',
+    EVAL_STOPS,
+  ),
+  'vcs.ref.head.revision': attr('evaluation', 'Commit', 'id', 'The commit under test.'),
 };
 
 /** Modality token counts: `{gen_ai|theorem}.usage.<modality>.<input|output>_tokens`. */
@@ -1224,6 +1389,40 @@ const TRACE_EVENTS: Readonly<Record<string, TraceEventMeta>> = {
       error: attr('error', 'Detail', 'text', "The provider's refusal."),
     },
   },
+  'gen_ai.evaluation.result': {
+    label: 'Eval result',
+    doc: "One grader's reading of this trace. Its keys are span attributes of the evaluation group.",
+    attributes: {},
+  },
+  'theorem.eval.verdict': {
+    label: 'Verdict',
+    doc: "One case's pass or fail after its trials, by the suite's pass rule. Every case is here, zeros included.",
+    attributes: {
+      case: attr('evaluation', 'Case', 'id', 'The case judged.'),
+      kind: attr('evaluation', 'Kind', 'text', "Anthropic's split of cases.", CASE_KINDS),
+      difficulty: attr(
+        'evaluation',
+        'Difficulty',
+        'number',
+        'The case’s 1–5 difficulty, when the suite set one.',
+      ),
+      passed: attr('evaluation', 'Passed', 'boolean', 'The pass rule was met.'),
+      trials: attr('evaluation', 'Trials', 'number', 'Trials run.'),
+      trials_passed: attr(
+        'evaluation',
+        'Passed trials',
+        'number',
+        'Trials every deciding grader passed.',
+      ),
+      trials_errored: attr(
+        'evaluation',
+        'Errored trials',
+        'number',
+        'Trials a grader could not score; they count as failed.',
+      ),
+      trials_ungraded: attr('evaluation', 'Ungraded trials', 'number', 'Trials no grader decided.'),
+    },
+  },
 };
 
 /** What an event records; `undefined` for an event THEOREM does not write. */
@@ -1246,6 +1445,8 @@ const TRACE_SPAN_TYPES: Readonly<Record<TraceSpanType, TraceOptionMeta>> = {
   tool: { label: 'Tool call', doc: 'One tool call THEOREM ran, from its hooks to settlement.' },
   http: { label: 'HTTP try', doc: 'One HTTP attempt of a model call.' },
   cutout: { label: 'Cutout', doc: 'A side effect the host recorded after the turn.' },
+  decision: { label: 'Decision', doc: 'One Jev decision over JSON state.' },
+  evaluation: { label: 'Evaluation', doc: 'An eval graded this trace, or a suite ran.' },
   host: { label: 'Host span', doc: 'A step the host recorded itself.' },
 };
 
@@ -1275,6 +1476,8 @@ function traceSpanMeta(span: TraceSpan): TraceSpanMeta {
       );
     case 'execute_tool':
       return withSubject('tool', stringAttribute(span, 'gen_ai.tool.name'));
+    case 'decide':
+      return withSubject('decision', stringAttribute(span, 'gen_ai.agent.name'));
     default:
       break;
   }
@@ -1282,6 +1485,9 @@ function traceSpanMeta(span: TraceSpan): TraceSpanMeta {
     return withSubject('http', stringAttribute(span, 'url.path'));
   }
   if (span.name === 'cutout') return withSubject('cutout', stringAttribute(span, 'url.path'));
+  if (span.name === 'theorem.eval.trial' || span.name === 'theorem.eval.run') {
+    return withSubject('evaluation', stringAttribute(span, 'theorem.evaluation.suite'));
+  }
   return withSubject('host', span.name);
 }
 

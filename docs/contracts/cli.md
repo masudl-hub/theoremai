@@ -18,7 +18,7 @@ before commands that execute turns — the CLI does not embed app profiles.
 | --- | --- |
 | `src/cli/index.ts` | Argument parser + command dispatch |
 | `src/cli/event-log.ts` | Shared `run`/`test` event printing + `--trace` capture |
-| `src/cli/commands/*` | `bench`, `fuzz`, `test`, `run`, `profile` |
+| `src/cli/commands/*` | `bench`, `fuzz`, `test`, `run`, `eval`, `profile` |
 | `src/cli/matrix/*` | Permutation synthesizer + fixtures |
 
 ## Commands
@@ -37,10 +37,23 @@ agents <command> [options]
 | `bench` | Synthetic kernel performance benchmark (`--chunks`, `--iterations`, `--warmup`) |
 | `test` | Stress matrix or custom profile tests (`--profile`, `--all`, `--lite`, `--matrix`, `--mode`, `--search`, `--map`, `--verbose`, `--trace`, `--trace-dir`) |
 | `run` | Execute a turn with streaming output (`--profile`, `--prompt`, `--mode`, `--verbose`, `--trace`, `--trace-dir`, …) |
+| `eval <suite>` | Run an eval suite module live, or grade recorded traces (`--recorded <file\|dir>`, `--trials <k>`, `--concurrency <n>`, `--max-cost-usd <n>`, `--threshold <fraction>`, `--trace-dir`, `--json`); exit `1` below the threshold or on a budget stop |
 | `profile list` / `profile show <id>` | Inspect registered profile blueprints (text, image, speech, live, decision). `run` and `test` remain turn paths; decision profiles run through host code with `runDecision`. |
 | `help` | Usage |
 
 Exit code `1` on failed `test` runs. `run` requires `--profile` (or `-p`).
+`eval` takes the suite module's path (`export default` an `EvalSuite`, see
+`docs/contracts/evals.md`); it prints one row per case (trials passed, errored,
+ungraded) and, for a failed case, every result that failed a trial in the
+grader's words. Live mode needs a provider the host passes to `evalCommand` or
+the suite module exports as `provider`. A text judge needs a provider too
+(`judgeProvider` in `evalCommand`'s host argument, the suite's `judgeProvider`
+export, else the agent's) and a Jev judge a key (`judgeDecision` in the host
+argument, else the suite's `judgeDecision` export); the CLI creates no
+provider and reads no key. `--threshold` is the fraction of cases that must
+pass for exit `0` (default `1`). Trials start in suite order, `--concurrency`
+at a time (default `1`), and are reported in suite order whatever finished
+first.
 Every command runs on the default kernel scope (`defaultKernelScope`): the
 profiles and tools it sees are the ones registered through the global API.
 `profile show` and `test` list custom tools from the kernel's `profileToolAllow`,
@@ -104,7 +117,9 @@ application code.
       "supports": [
         { "kind": "source", "path": "src/cli/index.ts" },
         { "kind": "source", "path": "src/cli/commands/run.ts" },
-        { "kind": "contract_test", "path": "tests/cli/cli.test.ts" }
+        { "kind": "source", "path": "src/cli/commands/eval.ts" },
+        { "kind": "contract_test", "path": "tests/cli/cli.test.ts" },
+        { "kind": "contract_test", "path": "tests/cli/eval.test.ts" }
       ]
     },
     "Matrix and fixtures": {

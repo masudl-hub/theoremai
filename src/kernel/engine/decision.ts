@@ -1,7 +1,17 @@
-/** Native, single-request execution for TypeSafe Jev decision profiles. */
+/**
+ * Native, single-request execution for TypeSafe Jev decision profiles. Every
+ * call writes one trace record: a `decide` root holding the state, the
+ * questions and the answers, under the profile's observability policy.
+ *
+ * @module
+ */
 
-import { type ErrorKind, TheoremError } from '../../guardrails/error.ts';
+import { type ErrorKind, errorKind, TheoremError } from '../../guardrails/error.ts';
 import type { DecisionDisclosureVerdict } from '../../guardrails/types.ts';
+import { resolveTraceWriter } from '../../observability/policy.ts';
+import { writeSpans } from '../../observability/trace.ts';
+import type { TraceSink } from '../../observability/trace-sink.ts';
+import { type SpanHandle, startTrace, traceJson } from '../../observability/trace-span.ts';
 import type { KernelRegistry } from '../registry/kernel-registry.ts';
 import { soleModelId } from '../registry/sole-model.ts';
 import type {
@@ -49,6 +59,12 @@ export interface RunDecisionOptions {
   keyVault?: KeyVault;
   fetch?: typeof globalThis.fetch;
   endpoint?: string;
+  /**
+   * Where this decision's trace record goes, in place of the profile's
+   * `observability.writeTo`. An explicit sink always records: sampling does
+   * not apply.
+   */
+  sink?: TraceSink;
 }
 
 function requireDecisionProfile(registry: KernelRegistry, id: string): DecisionProfile {
@@ -329,18 +345,47 @@ async function resultFromResponse(
   };
 }
 
-/**
- * Execute exactly one Jev System One request on a profile registered in
- * `registry`. This function never retries an ambiguous POST.
- */
-export async function runDecisionInRegistry(
-  registry: KernelRegistry,
+/** The `decide` root's attributes known before the request is sent. */
+function decisionSpanAttributes(
+  profile: DecisionProfile,
+  modelId: ModelId,
+  apiId: string,
+  request: DecisionRequest,
+) {
+  return {
+    'gen_ai.operation.name': 'decide',
+    'gen_ai.provider.name': 'typesafe',
+    'gen_ai.agent.name': profile.id,
+    'gen_ai.request.model': apiId,
+    'theorem.model.id': modelId,
+    'theorem.decision.contract': profile.decision.contract,
+    'theorem.decision.state': traceJson(request.state),
+    'theorem.decision.questions': traceJson(request.questions),
+  };
+}
+
+/** Stamp what Jev answered on the root. */
+function recordResult(root: SpanHandle, result: DecisionResult): void {
+  root.set({
+    'gen_ai.response.model': result.model,
+    'theorem.decision.answers': traceJson(result.answers),
+    ...(result.usage
+      ? {
+          'gen_ai.usage.input_tokens': result.usage.inputTokens,
+          'gen_ai.usage.output_tokens': result.usage.outputTokens,
+        }
+      : {}),
+  });
+}
+
+/** Everything after the profile is known: the disclosure gate, the one POST, the checked answers. */
+async function decide(
+  profile: DecisionProfile,
+  [modelId, binding]: [ModelId, DecisionProfile['models'][string]],
   request: DecisionRequest,
   options: RunDecisionOptions,
 ): Promise<DecisionResult> {
-  const profile = requireDecisionProfile(registry, request.profile);
   validateRequest(request, profile);
-  const [modelId, binding] = decisionModel(profile);
   await enforceDisclosure(profile, modelId, request);
   const apiKey = requireApiKey(profile, binding, options);
   const controller = new AbortController();
@@ -361,5 +406,43 @@ export async function runDecisionInRegistry(
   } finally {
     if (timeout !== undefined) clearTimeout(timeout);
     request.signal?.removeEventListener('abort', abort);
+  }
+}
+
+/**
+ * Execute exactly one Jev System One request on a profile registered in
+ * `registry`, and write its trace record however it ends. This function never
+ * retries an ambiguous POST, and a trace write failure never changes the
+ * decision's outcome.
+ */
+export async function runDecisionInRegistry(
+  registry: KernelRegistry,
+  request: DecisionRequest,
+  options: RunDecisionOptions,
+): Promise<DecisionResult> {
+  const profile = requireDecisionProfile(registry, request.profile);
+  const model = decisionModel(profile);
+  const [modelId, binding] = model;
+  const tree = startTrace(`decide ${binding.apiId}`, {
+    kind: 'CLIENT',
+    attributes: decisionSpanAttributes(profile, modelId, binding.apiId, request),
+    ...(request.traceparent ? { traceparent: request.traceparent } : {}),
+  });
+  const { sink, policy } = resolveTraceWriter({
+    override: options.sink,
+    observability: profile.observability,
+  });
+  try {
+    const result = await decide(profile, model, request, options);
+    recordResult(tree.root, result);
+    tree.root.end({ code: 'OK' });
+    return result;
+  } catch (error) {
+    const kind = errorKind(error);
+    tree.root.set({ 'error.type': kind });
+    tree.root.end({ code: 'ERROR', message: kind });
+    throw error;
+  } finally {
+    await writeSpans(sink, tree.collect(), policy, request.metadata);
   }
 }

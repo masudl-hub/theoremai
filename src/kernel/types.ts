@@ -651,7 +651,14 @@ export interface DecisionRequest {
   state: Exclude<DecisionJson, null>;
   questions: Record<string, DecisionQuestion>;
   signal?: AbortSignal;
+  /** Host-owned metadata preserved on the decision's trace record; the kernel does not interpret it. */
   metadata?: Record<string, unknown>;
+  /**
+   * W3C `traceparent` of the host span this decision runs under. The `decide`
+   * root joins that trace as its child; without it the decision starts a new
+   * trace. A malformed value throws.
+   */
+  traceparent?: string;
 }
 
 export type DecisionAnswer =

@@ -1,7 +1,7 @@
 /**
  * Adversarial corpus — live attacks, inbound payloads, fuzz runners.
  *
- * Not exported from production `@theoremai/agents/guardrails`; use `@theoremai/agents/guardrails/testing`.
+ * Not exported from production `@theoremjs/agents/guardrails`; use `@theoremjs/agents/guardrails/testing`.
  *
  * @module
  */

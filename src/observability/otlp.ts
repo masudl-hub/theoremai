@@ -59,7 +59,7 @@ interface OtlpTraceRequest {
 }
 
 /** The instrumentation scope every exported span carries. */
-const SCOPE_NAME = '@theoremai/agents';
+const SCOPE_NAME = '@theoremjs/agents';
 
 /** OTLP `Span.SpanKind` numbers. */
 const SPAN_KIND: Record<TraceSpanKind, number> = { INTERNAL: 1, CLIENT: 3 };

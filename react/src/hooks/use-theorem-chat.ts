@@ -304,7 +304,7 @@ function useTappedTransport(transport: TheoremTransport, state: ChatState): Theo
 
 /**
  * Headless chat model: transcript, streaming, composer drafts, pending
- * queue / steer / stash, tool gates. Render it with `@theoremai/react/ui` or
+ * queue / steer / stash, tool gates. Render it with `@theoremjs/react/ui` or
  * your own components.
  */
 export function useTheoremChat({ transport, iface }: UseTheoremChatOptions) {

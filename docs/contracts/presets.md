@@ -1,4 +1,4 @@
-# Presets (`@theoremai/agents/presets`)
+# Presets (`@theoremjs/agents/presets`)
 
 Optional convenience packs. Presets register host-convenience catalogs
 (provider builtins, media vocabularies) without baking product opinions into the
@@ -8,7 +8,7 @@ kernel.
 
 | Field | Value |
 | --- | --- |
-| Import | `@theoremai/agents/presets` / `jsr:@theoremai/agents/presets` |
+| Import | `@theoremjs/agents/presets` / `jsr:@theoremjs/agents/presets` |
 | Module | `src/presets/mod.ts` |
 
 ## Ownership
@@ -27,7 +27,7 @@ kernel.
 | Registration | `registerTools` API (default scope) or `scope.tools.registerMany` | `registerGooglePreset()` at host startup fills the default scope; `GOOGLE_BUILTIN_TOOLS` fills any other |
 
 Call preset registration **before** registering profiles that allowlist preset
-builtins. Import `@theoremai/agents/presets/google` when you only need the Google pack.
+builtins. Import `@theoremjs/agents/presets/google` when you only need the Google pack.
 
 Presets are optional — the kernel runs without them when hosts register their
 own tools and vocabularies directly via `registerTools`.

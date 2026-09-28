@@ -7,7 +7,7 @@
  *
  * @example
  * ```ts
- * import { defineProfile, registerProfile, runTurn } from "jsr:@theoremai/agents";
+ * import { defineProfile, registerProfile, runTurn } from "jsr:@theoremjs/agents";
  *
  * const profile = defineProfile({
  *   id: "assistant.basic",

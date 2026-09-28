@@ -1,7 +1,7 @@
 /**
  * Optional Deno HTTP reply helpers for host applications.
  *
- * Not part of the turn kernel. Prefer importing from `@theoremai/agents/host`.
+ * Not part of the turn kernel. Prefer importing from `@theoremjs/agents/host`.
  *
  * @module
  */

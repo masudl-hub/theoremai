@@ -421,7 +421,7 @@ Deno.test('playgroundNodeRef resolves only nodes the draft has', () => {
 Deno.test('playgroundSource writes a module that registers the profile', () => {
   const source = playgroundSource(compiled(createExampleDraft()));
   assertStringIncludes(source, "import { z } from 'zod';");
-  assertStringIncludes(source, "  standardEgressEnforce,\n} from '@theoremai/agents';");
+  assertStringIncludes(source, "  standardEgressEnforce,\n} from '@theoremjs/agents';");
   assertStringIncludes(source, 'enforce: standardEgressEnforce,');
   assertStringIncludes(source, "name: 'geocode_city',");
   assertStringIncludes(source, 'registerProfile(profile);');

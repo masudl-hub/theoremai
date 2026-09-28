@@ -5,7 +5,7 @@
  * Credentials are always supplied by the host application.
  *
  * For direct local adapter access (bypassing the factory), import
- * `@theoremai/agents/providers/local`.
+ * `@theoremjs/agents/providers/local`.
  *
  * @module
  */

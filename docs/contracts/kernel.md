@@ -1,4 +1,4 @@
-# Kernel (`@theoremai/agents/kernel`)
+# Kernel (`@theoremjs/agents/kernel`)
 
 Type-first contracts for profiles, turns, tools, compaction, stop/resume, and
 `runTurn`. Import here when a host needs the kernel surface without pulling
@@ -8,10 +8,10 @@ provider adapters.
 
 | Field | Value |
 | --- | --- |
-| Import | `@theoremai/agents/kernel` / `jsr:@theoremai/agents/kernel` |
+| Import | `@theoremjs/agents/kernel` / `jsr:@theoremjs/agents/kernel` |
 | Module | `src/kernel/mod.ts` |
-| Schema subpath | `@theoremai/agents/schema` → `src/kernel/schema.ts` |
-| Also on | Root `@theoremai/agents` / `mod.ts` re-exports the same interface helpers and many kernel exports |
+| Schema subpath | `@theoremjs/agents/schema` → `src/kernel/schema.ts` |
+| Also on | Root `@theoremjs/agents` / `mod.ts` re-exports the same interface helpers and many kernel exports |
 
 ## Ownership
 
@@ -30,7 +30,7 @@ protocol metadata — presets/google). Product policy may not (prompts, personas
 end-user copy, demo apps, channel behavior). The kernel may ship overridable
 defaults for mechanism text via the guardrails lexicon; it may not ship
 unreplaceable copy or bundled product. Demo fixtures live in the repo-private
-`playground/` package (`@theoremai/playground`), never in the published artifact.
+`playground/` package (`@theoremjs/playground`), never in the published artifact.
 
 | Id | Property |
 | --- | --- |
@@ -44,7 +44,7 @@ per profile (`lexicon`) or process-wide (`overrideLexicon`). Only text profiles
 send it (`CONTINUE_INSTRUCTION_TYPES` in `src/kernel/stop.ts`, which the
 playground also reads); image and speech continue by re-sending the host's
 request unchanged. Composer labels in `src/interface/` are semantic
-keys only; English lives in `@theoremai/react`.
+keys only; English lives in `@theoremjs/react`.
 
 Wire shapes are facts, declared once: every turn event is a zod schema in
 `src/kernel/turn-events.ts`, and its TypeScript type is that schema's inferred
@@ -389,7 +389,7 @@ verbatim to browsers or end-user SSE** unless you intend to expose diagnostics.
 | `text`, `media`, `structured`, `grounding` | yes | yes (after egress/canary gates) |
 | `thought` | yes (also in trace when filtered from stream) | only when profile allows |
 
-Use `forClient` / `forClientEvents` from `@theoremai/agents/host` before WebSocket or SSE
+Use `forClient` / `forClientEvents` from `@theoremjs/agents/host` before WebSocket or SSE
 flush. Pass a trace sink (`memorySink`, `jsonlSink`) as the third argument to
 `runTurn` for wire-level audit (`theorem.upstream.row` and
 `theorem.wire.request` events; see [observability.md](./observability.md)).
@@ -713,7 +713,7 @@ Profile `guardrails`:
 
 | Flag | Effect |
 | --- | --- |
-| `quota` | Host HTTP helper only (`@theoremai/agents/guardrails`); not enforced inside `runTurn` |
+| `quota` | Host HTTP helper only (`@theoremjs/agents/guardrails`); not enforced inside `runTurn` |
 | `canary` | Per-turn canary token; egress checks leakage |
 | `sanitizeInput` / `redactSensitive` | Pre-provider text/blob scrub |
 | `egress` | Host `enforce` hook; `onBlock`: `reject_to_agent` or `refuse_to_user`; `maxRetries`; `holdback`; repair guidance is the lexicon's `egress.default_repair_guidance` (mid-stream lookback, default 256) |
@@ -980,7 +980,7 @@ The `observability` view is the resolved policy without functions: `record`,
 
 Headless contract for stash / queue / steer (Seance-aligned). Kernel owns stages +
 `onStage` inject + `AbortSignal`; the interface owns pending list ops and the action matrix;
-`@theoremai/react` owns UI.
+`@theoremjs/react` owns UI.
 
 | Intent | Lifetime |
 | --- | --- |
@@ -994,7 +994,7 @@ Enter matches primary. Menu offers Queue / Steer / Send now / Stash as applicabl
 The run names each steer it took in on a `stage` event's `injected` (by the steer's id); the client drops those from pending, and the steers still undelivered convert to the front of the queue when the run ends.
 Tool **gate** does not drain the queue and does not offer Steer (not an inject stage).
 Send now while gated walks away from every waiting gate in the message's own
-request (`abandon` on the turn request, `walkAway` in `@theoremai/react`): the
+request (`abandon` on the turn request, `walkAway` in `@theoremjs/react`): the
 host settles each call cancelled, and the model reads those answers before the
 message. Awaiting completions (`ask_user`) are not composer
 `gated` — the turn may already be idle; use `awaitingFromEvents`.

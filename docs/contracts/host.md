@@ -1,4 +1,4 @@
-# Host (`@theoremai/agents/host`)
+# Host (`@theoremjs/agents/host`)
 
 Optional helpers for host applications. **Not** part of the turn kernel —
 import when you want shared reply/status glue, cutout-trace flushing, or live
@@ -10,7 +10,7 @@ ceiling, optional `observability`, optional `guardrails` narrowed to
 `HostGuardrailsSpec` — `sanitizeInput`, `redactSensitive`, `network`, `taint`;
 quota / canary / egress are refused because they guard a model turn — no models)
 and call
-`invokeTool({ profile, name, input, host })` from `@theoremai/agents/kernel`. The `host`
+`invokeTool({ profile, name, input, host })` from `@theoremjs/agents/kernel`. The `host`
 slot carries opaque application context to `handler` / `preTool`
 (and turn stages — see `docs/contracts/stages.md`) and is never traced or sent
 to a provider. Application context that belongs in the trace goes in
@@ -21,7 +21,7 @@ slot”).
 
 | Field | Value |
 | --- | --- |
-| Import | `@theoremai/agents/host` / `jsr:@theoremai/agents/host` |
+| Import | `@theoremjs/agents/host` / `jsr:@theoremjs/agents/host` |
 | Module | `src/host/mod.ts` |
 
 ## Ownership
@@ -66,7 +66,7 @@ provider key rather than one the caller supplied, the host may prefer to reply
 Example:
 
 ```ts
-import { caughtStatus, HTTP_BUSY, json } from "@theoremai/agents/host";
+import { caughtStatus, HTTP_BUSY, json } from "@theoremjs/agents/host";
 
 try {
   return json(200, { ok: true }, cors);
@@ -86,8 +86,8 @@ Before forwarding `TurnEvent`s to browsers, SSE, or mobile clients, strip
 host-only diagnostics:
 
 ```ts
-import { forClientEvents } from "@theoremai/agents/host";
-import { runSession } from "@theoremai/agents";
+import { forClientEvents } from "@theoremjs/agents/host";
+import { runSession } from "@theoremjs/agents";
 
 const live = await runSession({ profile: "site.live" }, { gemini: { vault } });
 for await (const event of live.events()) {
@@ -100,7 +100,7 @@ build a custom relay still may call `processLiveOutboundBatch` /
 `finalizeLiveOutboundTurn` directly — prefer `runSession` when possible.
 
 A relay reads each text frame from the live client with `parseLiveClientMessage`
-(`@theoremai/react/server`): JSON that passes the live client's schema, else a
+(`@theoremjs/react/server`): JSON that passes the live client's schema, else a
 `request` error the relay sends back as an `error` envelope,
 `{ type: 'error', error, errorKind }`. The live client reads every envelope
 against its own schema: a kind it does not know reaches `onTurnEvent` as
@@ -159,7 +159,7 @@ it for live UI previews; it is not a JSON validator and never throws on truncate
 input.
 
 ```ts
-import { readStreamingJsonStringField } from "@theoremai/agents/host";
+import { readStreamingJsonStringField } from "@theoremjs/agents/host";
 
 const preview = readStreamingJsonStringField(buffer, "mermaid");
 // returns decoded prefix even before closing quote

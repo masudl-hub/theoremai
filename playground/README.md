@@ -1,4 +1,4 @@
-# @theoremai/playground (repo-private)
+# @theoremjs/playground (repo-private)
 
 The playground's authoring logic and demo fixtures: the editable profile draft,
 its tree, the compiler that turns it into a kernel profile, TypeScript source
@@ -10,11 +10,11 @@ against the kernel it compiles for.
 
 This package is **never published**. The kernel's boundary rule — "Host
 decides, Theorem runs" — forbids bundled assistants and demo product in the
-`@theoremai/agents` package; `scripts/verify-publish-bundle.ts` asserts `playground/`
+`@theoremjs/agents` package; `scripts/verify-publish-bundle.ts` asserts `playground/`
 stays out of every npm/JSR artifact. Consumers link it directly, e.g.
 
 ```json
-{ "@theoremai/playground": "file:../theoremai/playground" }
+{ "@theoremjs/playground": "file:../theoremai/playground" }
 ```
 
 ## Surface (`mod.ts`)
@@ -39,6 +39,6 @@ stays out of every npm/JSR artifact. Consumers link it directly, e.g.
 | `PlaygroundInputsSpec`, `PlaygroundToolSeed`, `PlaygroundToolSpecSeed` | Serializable seed shapes |
 
 Generic authoring vocabulary the kernel schema owns (`PLAYGROUND_AUTH_TYPES`,
-`PlaygroundAuthType`, `playground.*` field metadata) stays in `@theoremai/agents/schema`.
+`PlaygroundAuthType`, `playground.*` field metadata) stays in `@theoremjs/agents/schema`.
 
 Tests live in the main repo: `tests/playground/`.

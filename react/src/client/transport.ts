@@ -3,7 +3,7 @@
  *
  * The browser never holds the profile: it asks the transport to `describe` the
  * profile's client-safe interface, then streams turns / tool invokes through it.
- * `createHttpTransport` speaks to `createTheoremHandler` (`@theoremai/react/server`);
+ * `createHttpTransport` speaks to `createTheoremHandler` (`@theoremjs/react/server`);
  * hosts with their own wire format implement {@link TheoremTransport} directly.
  *
  * @module

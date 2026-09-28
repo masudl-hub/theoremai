@@ -1,5 +1,5 @@
 {
-  "name": "@theoremai/playground",
+  "name": "@theoremjs/playground",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -8,7 +8,7 @@
     ".": "./mod.ts"
   },
   "peerDependencies": {
-    "@theoremai/agents": "*",
+    "@theoremjs/agents": "*",
     "zod": "^4.1.8"
   }
 }

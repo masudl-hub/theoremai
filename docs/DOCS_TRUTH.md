@@ -61,7 +61,7 @@ owned by those contracts for freshness — change code, update the matching cont
 
 | Root | Files |
 | --- | --- |
-| `mod.ts` | Package barrel (`@theoremai/agents`) |
+| `mod.ts` | Package barrel (`@theoremjs/agents`) |
 | `package.json` | Published exports |
 | `src/**/*.ts` | Kernel + adapters (live tree only; deleted paths skip freshness) |
 | `scripts/docs-truth/**/*.mjs` | Docs-truth linter |

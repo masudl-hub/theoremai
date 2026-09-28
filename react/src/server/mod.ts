@@ -1,5 +1,5 @@
 /**
- * Server half of `@theoremai/react`: serve one profile to the chat UI.
+ * Server half of `@theoremjs/react`: serve one profile to the chat UI.
  *
  * @module
  */

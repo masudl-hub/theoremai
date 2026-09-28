@@ -4,16 +4,16 @@ Breaking cut. No deprecation aliases.
 
 ## Removed: playground entrypoint
 
-Demo fixtures moved to the **repo-private** package `@theoremai/playground`
+Demo fixtures moved to the **repo-private** package `@theoremjs/playground`
 (`playground/` in the repo). It is never published.
 
 ```diff
-- import { demoToolSpecs } from '@theoremai/playground';
-+ import { demoToolSpecs } from '@theoremai/playground';
+- import { demoToolSpecs } from '@theoremjs/playground';
++ import { demoToolSpecs } from '@theoremjs/playground';
 ```
 
-Hosts link it with `"@theoremai/playground": "file:../theoremai/playground"`.
-`PLAYGROUND_AUTH_TYPES` / `PlaygroundAuthType` remain on `@theoremai/agents/schema`
+Hosts link it with `"@theoremjs/playground": "file:../theoremai/playground"`.
+`PLAYGROUND_AUTH_TYPES` / `PlaygroundAuthType` remain on `@theoremjs/agents/schema`
 (authoring vocabulary, not demo product).
 
 ## Removed: `quotaMessage`
@@ -53,7 +53,7 @@ process-wide with `overrideLexicon({ … })`; the profile wins.
 
 The repo-private `src/interface/` layer emits `ComposerPrimaryAction` /
 `ComposerMenuAction` keys only (`send` / `stop` / `queue` / …). English labels
-live in the React package's default UI (`@theoremai/react/ui`), as
+live in the React package's default UI (`@theoremjs/react/ui`), as
 `@theorem.composer.menu.*` lines in `THEOREM_UI_CATALOG`. Neither surface is
 published for now.
 
@@ -61,14 +61,14 @@ published for now.
 
 The headless React layer (`client/`, `hooks/`, `components/`, `server/`) holds
 no English. It reports kinds, codes, and states; the profile's lexicon words
-failures; the default UI (`@theoremai/react/ui`) words its own chrome, and a
+failures; the default UI (`@theoremjs/react/ui`) words its own chrome, and a
 builder with their own UI owns every line.
 
 | Was | Now |
 | --- | --- |
 | `useTheoremChat` → `error`, `errorInternal`; `useTheoremInterface` → `error` | `failure: ClientFailure \| null` (`{ error, errorKind, errorInternal? }`); `error` is the profile lexicon's wording |
-| Composer drop notices (`attachmentsDroppedMessage`, `imagesDroppedMessage`) | `issues: AttachmentValidationIssue[]` (`too_many_files`); word each with `attachmentIssueText(issue, iface.lexicon)` from `@theoremai/agents` |
-| `attachmentIssueText` from `@theoremai/react` | `attachmentIssueText` from `@theoremai/agents` (kernel) |
+| Composer drop notices (`attachmentsDroppedMessage`, `imagesDroppedMessage`) | `issues: AttachmentValidationIssue[]` (`too_many_files`); word each with `attachmentIssueText(issue, iface.lexicon)` from `@theoremjs/agents` |
+| `attachmentIssueText` from `@theoremjs/react` | `attachmentIssueText` from `@theoremjs/agents` (kernel) |
 | `liveStateLabel` (client) | `liveState(args)` → `LiveState` key; the default wording is `@theorem.live.state.*` in `ui/labels` |
 | Live runner `error`, `stateLabel` | `failure`, `liveState`, `activeTool` |
 | Composer voice `voiceError` | `failure: VoiceFailure` (`code`: `unsupported` / `permission` / `unavailable` / `failed` / `empty` / `too_many_files`) |

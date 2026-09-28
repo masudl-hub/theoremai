@@ -1,4 +1,4 @@
-# Google preset (`@theoremai/agents/presets/google`)
+# Google preset (`@theoremjs/agents/presets/google`)
 
 Google / Gemini convenience pack: grounding builtins plus typed vocabularies
 for image and speech-adjacent profile fields.
@@ -7,9 +7,9 @@ for image and speech-adjacent profile fields.
 
 | Field | Value |
 | --- | --- |
-| Import | `@theoremai/agents/presets/google` / `jsr:@theoremai/agents/presets/google` |
+| Import | `@theoremjs/agents/presets/google` / `jsr:@theoremjs/agents/presets/google` |
 | Module | `src/presets/google.ts` |
-| Voices subpath | `@theoremai/agents/presets/google/speech-voices` → `src/presets/google/speech-voices.ts` |
+| Voices subpath | `@theoremjs/agents/presets/google/speech-voices` → `src/presets/google/speech-voices.ts` |
 
 ## Ownership
 

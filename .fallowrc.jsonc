@@ -25,7 +25,7 @@
     "react/src/ui/theorem-theme.ts",
     "react/src/ui/icons.ts"
   ],
-  "ignoreDependencies": ["@ast-grep/cli", "@theoremai/agents"],
+  "ignoreDependencies": ["@ast-grep/cli", "@theoremjs/agents"],
   // docs-truth loads the ownership graph via dynamic import (graph.mjs → _map.mjs).
   "dynamicallyLoaded": ["docs/_map.mjs"],
   "ignorePatterns": ["node_modules/**", "coverage/**", "scripts/**", "src/cli/**", "npm/**"],

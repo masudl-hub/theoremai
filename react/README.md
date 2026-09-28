@@ -1,25 +1,25 @@
-# `@theoremai/react`
+# `@theoremjs/react`
 
 React projection of the repo-private headless interface (`src/interface/`) — runners, transcript, composer, live stage.
 
 Lives next to the kernel at `theoremai/react/` so React apps depend on:
 
-- `@theoremai/agents` (kernel)
-- `@theoremai/react` (this package)
+- `@theoremjs/agents` (kernel)
+- `@theoremjs/react` (this package)
 
 No Svelte. The playground site (`theoremai-frontend`) hosts a thin Vite SPA at `apps/run` that imports this package; the info-site graph stays Svelte and only writes a `PlaygroundRunPayload` handoff.
 
 ## Imports
 
 ```ts
-import { useTheoremChat, useTheoremInterface } from '@theoremai/react'; // headless hooks + transport
-import { TheoremChat } from '@theoremai/react/ui'; // Astryx chat UI
-import { LiveRunner } from '@theoremai/react/live'; // Astryx voice / video UI
-import { createTheoremHandler } from '@theoremai/react/server'; // host side
+import { useTheoremChat, useTheoremInterface } from '@theoremjs/react'; // headless hooks + transport
+import { TheoremChat } from '@theoremjs/react/ui'; // Astryx chat UI
+import { LiveRunner } from '@theoremjs/react/live'; // Astryx voice / video UI
+import { createTheoremHandler } from '@theoremjs/react/server'; // host side
 ```
 
 The playground's run-tab handoff (`savePlaygroundRunPayload`,
-`readPlaygroundRunIdFromUrl`, …) lives in `@theoremai/playground`; see
+`readPlaygroundRunIdFromUrl`, …) lives in `@theoremjs/playground`; see
 [`playground/README.md`](../playground/README.md).
 
 ## The wire
@@ -44,7 +44,7 @@ interface `describe` returns are each checked against their schema, both ways:
   host with routes of its own). A relay reads the live client's messages with
   `parseLiveClientMessage`. A host with routes of its own reads a body with
   `checkRequest(schema, body, what)`, and answers a paused call with
-  `answerGatedCall` (`@theoremai/agents/kernel`), the rule the handler uses.
+  `answerGatedCall` (`@theoremjs/agents/kernel`), the rule the handler uses.
 - **Host → browser.** `describe` returns the profile interface as
   `profileInterfaceSchema` names it: tool ids, never a tool's definition, and
   no host functions. The transport and the live client read each line or
@@ -126,7 +126,7 @@ export async function oauthCallback(request: Request): Promise<Response> {
 	});
 	const saved = (await credentialStore.load(sessionId)) ?? {};
 	await credentialStore.save(sessionId, { ...saved, tracker: credential });
-	// That page runs `notifyOAuthComplete('tracker')` from `@theoremai/react`.
+	// That page runs `notifyOAuthComplete('tracker')` from `@theoremjs/react`.
 	return Response.redirect(new URL('/oauth/done?slot=tracker', request.url), 303);
 }
 ```
@@ -134,7 +134,7 @@ export async function oauthCallback(request: Request): Promise<Response> {
 A host with its own `session` resolver passes its own session id instead of
 `theoremSessionId`. For voice, the relay you host receives a typed key as `secret`
 on the `executeTool` message: save it with `credentialFromTypedSecret` (from
-`@theoremai/agents/kernel`) under the gate's slot, and read the session's
+`@theoremjs/agents/kernel`) under the gate's slot, and read the session's
 credentials from your store for every `executeTool`.
 
 ## Composer pending intents
@@ -175,14 +175,14 @@ English. It hands the builder kinds, codes, and states:
   is the profile's wording (`iface.lexicon`, resolved on the host); show it to
   the user. `errorKind` and `errorInternal` are for the builder.
 - Attachment problems are `AttachmentValidationIssue`s; word one with
-  `attachmentIssueText(issue, iface.lexicon)` from `@theoremai/agents`.
+  `attachmentIssueText(issue, iface.lexicon)` from `@theoremjs/agents`.
 - A Live call the provider ended after warning it would is not a failure:
   `LiveSessionClient`'s `onSessionEnded(session)` gives `session.message`, the
   profile's `live.session_ended` wording, and `session.ended` (close code,
   timing, the code's kind) for the builder.
 - Chrome is semantic: `liveState`, `workStatus`, drawer `parts`, hint `id`.
 
-`@theoremai/react/ui` is the default UI. Every line it shows is an Astryx i18n
+`@theoremjs/react/ui` is the default UI. Every line it shows is an Astryx i18n
 message: Theorem's under `@theorem.*` keys (`THEOREM_UI_CATALOG`, each with a
 description and the ICU values it takes), Astryx's own under `@astryx.*`. The
 builder owns all of them; `labels` replaces any line, per locale:

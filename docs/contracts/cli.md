@@ -1,4 +1,4 @@
-# CLI (`@theoremai/agents/cli`)
+# CLI (`@theoremjs/agents/cli`)
 
 Profile inspection and stress-test CLI. On npm this entry is also the
 `agents` binary. Hosts must register profiles (and providers) in-process
@@ -8,7 +8,7 @@ before commands that execute turns — the CLI does not embed app profiles.
 
 | Field | Value |
 | --- | --- |
-| Import | `@theoremai/agents/cli` / `jsr:@theoremai/agents/cli` |
+| Import | `@theoremjs/agents/cli` / `jsr:@theoremjs/agents/cli` |
 | Module | `src/cli/index.ts` |
 | Binary | `agents` (npm `bin`) |
 
@@ -95,7 +95,7 @@ gives turn inputs (`text`, `image`).
 ## Exported API
 
 The entry module is the CLI program itself (side-effect main when run as a
-bin). Prefer `deno task agents` / `npx @theoremai/agents` over importing commands in
+bin). Prefer `deno task agents` / `npx @theoremjs/agents` over importing commands in
 application code.
 
 ```theorem-evidence

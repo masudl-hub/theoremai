@@ -472,7 +472,7 @@ tool-request events.
 | Gate helpers | `gatedToolFromEvents` (stop `gate`) + `awaitingFromEvents` (complete+awaiting) |
 | Abandon | The message walks away in its own turn request (`abandon`): the host settles each waiting call cancelled before the reply, and the model reads it. A call an earlier answer already settled (its client never heard) replays that settle instead |
 | Failed answer | A request that ends before the call it answers or walks away from settles puts the call back to wait (`createTheoremHandler`); the client leaves the gate to answer again. After the settle, the client keeps the result |
-| Playground steer inbox | FIFO **one consume per inject-capable stage fire**; keyed by turn id (text) or session id (live). Do not consume on `pre_tool` / `post_turn`. Each steer carries the client's id (`TheoremSteerRequest.id`) and is returned as `injectId`, so the turn names it in `stage.injected` once it lands. One owner in `@theoremai/react/server`: `steerUnitOf` (id + user messages only) and `steerStage(inbox, key)`; a host brings only its `SteerInbox` store |
+| Playground steer inbox | FIFO **one consume per inject-capable stage fire**; keyed by turn id (text) or session id (live). Do not consume on `pre_tool` / `post_turn`. Each steer carries the client's id (`TheoremSteerRequest.id`) and is returned as `injectId`, so the turn names it in `stage.injected` once it lands. One owner in `@theoremjs/react/server`: `steerUnitOf` (id + user messages only) and `steerStage(inbox, key)`; a host brings only its `SteerInbox` store |
 | Snapshot | Still on `done` when `stop.kind === 'gate'` (and available on normal `done` when tools ran — not only gates) |
 
 ---

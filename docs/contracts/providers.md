@@ -1,4 +1,4 @@
-# Providers (`@theoremai/agents/providers`)
+# Providers (`@theoremjs/agents/providers`)
 
 Single door for constructing a `ModelProvider` bound to a profile. Credentials
 and runtime endpoints are always host-supplied arguments — THEOREM does not read
@@ -8,11 +8,11 @@ environment variables and does not ship `.env` files.
 
 | Field | Value |
 | --- | --- |
-| Import | `@theoremai/agents/providers` / `jsr:@theoremai/agents/providers` |
+| Import | `@theoremjs/agents/providers` / `jsr:@theoremjs/agents/providers` |
 | Module | `src/providers/mod.ts` |
-| Local subpath | `@theoremai/agents/providers/local` → `src/providers/local/mod.ts` |
-| Live subpath | `@theoremai/agents/providers/google/live` → `src/providers/google/live/mod.ts` |
-| Also on | Root `@theoremai/agents` re-exports `createProvider` |
+| Local subpath | `@theoremjs/agents/providers/local` → `src/providers/local/mod.ts` |
+| Live subpath | `@theoremjs/agents/providers/google/live` → `src/providers/google/live/mod.ts` |
+| Also on | Root `@theoremjs/agents` re-exports `createProvider` |
 
 ## Ownership
 
@@ -258,7 +258,7 @@ Framing helpers remain in `google/live/framing.ts` for hosts that only need setu
 
 ## Local provider
 
-Import `@theoremai/agents/providers/local` for `createLocalProvider`. Hosts
+Import `@theoremjs/agents/providers/local` for `createLocalProvider`. Hosts
 resolve `OLLAMA_HOST` (or similar) themselves and pass `baseUrl` — THEOREM does
 not read environment variables for local endpoints and has no default address.
 `createProvider` routes a `local` profile only when the host passes `local`: a
@@ -390,13 +390,13 @@ From `src/providers/mod.ts`:
 | `GeminiTransport`, `KeyVault` | types |
 | `LocalProviderConfig`, `OpenAiGatewayConfig` | types |
 
-From `src/providers/local/mod.ts` (`@theoremai/agents/providers/local`):
+From `src/providers/local/mod.ts` (`@theoremjs/agents/providers/local`):
 
 | Export | Kind |
 | --- | --- |
 | `createLocalProvider` | function |
 
-From `src/providers/google/live/mod.ts` (`@theoremai/agents/providers/google/live`):
+From `src/providers/google/live/mod.ts` (`@theoremjs/agents/providers/google/live`):
 
 | Export | Kind |
 | --- | --- |

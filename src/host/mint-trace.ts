@@ -2,7 +2,7 @@
  * Host cutout-trace helpers for apps that record an upstream side effect (for
  * example an image cutout) made after a turn, in that turn's trace.
  *
- * Prefer importing from `@theoremai/agents/host`.
+ * Prefer importing from `@theoremjs/agents/host`.
  *
  * @module
  */

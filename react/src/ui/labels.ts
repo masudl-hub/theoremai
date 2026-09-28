@@ -29,7 +29,7 @@ export const THEOREM_UI_CATALOG = {
 		description: 'Shown when TheoremChat is pointed at a live profile.',
 	},
 	'@theorem.chat.live_unsupported.description': {
-		defaultMessage: 'Use LiveRunner from @theoremai/react/live.',
+		defaultMessage: 'Use LiveRunner from @theoremjs/react/live.',
 		description: 'Where to go instead, under the live-profile warning.',
 	},
 

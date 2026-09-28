@@ -1,4 +1,4 @@
-# Guardrails (`@theoremai/agents/guardrails`)
+# Guardrails (`@theoremjs/agents/guardrails`)
 
 Generic inbound and outbound guardrail primitives. App-specific policy,
 product copy, and channel UX remain host-owned — this entry ships reusable
@@ -8,10 +8,10 @@ detectors, sanitizers, public error mapping, and optional per-day quota slots.
 
 | Field | Value |
 | --- | --- |
-| Import | `@theoremai/agents/guardrails` / `jsr:@theoremai/agents/guardrails` |
+| Import | `@theoremjs/agents/guardrails` / `jsr:@theoremjs/agents/guardrails` |
 | Module | `src/guardrails/mod.ts` |
-| Testing | `@theoremai/agents/guardrails/testing` → `src/guardrails/testing.ts` (corpus / fuzz only) |
-| Also on | Root `@theoremai/agents` re-exports common error/sanitize/quota/canary helpers |
+| Testing | `@theoremjs/agents/guardrails/testing` → `src/guardrails/testing.ts` (corpus / fuzz only) |
+| Also on | Root `@theoremjs/agents` re-exports common error/sanitize/quota/canary helpers |
 
 ## Ownership
 
@@ -31,7 +31,7 @@ Owns every module under `src/guardrails/`.
 | `progressive-yield.ts` | Streaming lookback gate for canary / sensitive / host enforce |
 | `egress.ts` | `standardEgressEnforce` / `collectEgressHits` bundled outbound policy |
 | `corpus/` | Adversarial bank (live attacks, inbound fuzz, canary egress catalog) |
-| `testing.ts` | Test-only re-exports (`@theoremai/agents/guardrails/testing`) |
+| `testing.ts` | Test-only re-exports (`@theoremjs/agents/guardrails/testing`) |
 | `normalize.ts` | Detection normalization |
 | `serialize.ts` | `textForScan` — flatten non-text payloads for detectors without ever throwing |
 | `tool-result.ts` | Tool boundary — fence, provenance, result / failure / argument guards |
@@ -55,7 +55,7 @@ Owns every module under `src/guardrails/`.
 Hosts may supply `guardrails.egress.enforce` or use the bundled helper:
 
 ```ts
-import { standardEgressEnforce } from '@theoremai/agents/guardrails';
+import { standardEgressEnforce } from '@theoremjs/agents/guardrails';
 
 guardrails: {
   egress: { enforce: standardEgressEnforce, onBlock: 'refuse_to_user' },
@@ -218,7 +218,7 @@ deno task guardrails:eval
 Corpora are fetched on demand and cached under `.guardrail-corpus/` (gitignored,
 never published). Nothing third-party is vendored. The harness itself
 (`src/guardrails/eval/`, `scripts/guardrails-eval.ts`) is repo-only: it is excluded
-from the published package and is not part of `@theoremai/agents/guardrails/testing`.
+from the published package and is not part of `@theoremjs/agents/guardrails/testing`.
 
 | Source | Licence | Role |
 | --- | --- | --- |
@@ -274,7 +274,7 @@ observations, not rates.
 
 ## Adversarial testing
 
-Import corpus helpers from **`@theoremai/agents/guardrails/testing`** (not the production guardrails entry).
+Import corpus helpers from **`@theoremjs/agents/guardrails/testing`** (not the production guardrails entry).
 
 | API / task | Role |
 | --- | --- |

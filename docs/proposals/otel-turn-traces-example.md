@@ -12,7 +12,7 @@ One record is written per `runTurn` (one exchange). The other writers:
 - A Live session writes one record per model response, one per tool call, and one for the session root (§4.12).
 - A tool the host invokes (`invokeTool`) writes its own record, rooted at its `execute_tool` span (§4.4).
 - A specialist run by a tool writes its own record in the same trace (§4.7).
-- A host that records a side effect made after a turn (for example an image cutout) writes one more record with a single `cutout` span (CLIENT) under the turn's root, using `flushMintTrace` from `@theoremai/agents/host`. The span carries `server.address`, `url.path`, the host's input and output hashes (`theorem.cutout.input.sha256`, `theorem.cutout.output.sha256`), the upstream exchange as a `theorem.upstream.row`, and any error text as an `exception` stored by hash.
+- A host that records a side effect made after a turn (for example an image cutout) writes one more record with a single `cutout` span (CLIENT) under the turn's root, using `flushMintTrace` from `@theoremjs/agents/host`. The span carries `server.address`, `url.path`, the host's input and output hashes (`theorem.cutout.input.sha256`, `theorem.cutout.output.sha256`), the upstream exchange as a `theorem.upstream.row`, and any error text as an `exception` stored by hash.
 
 ```ts
 interface TraceRecord {

@@ -1,5 +1,5 @@
 {
-	"name": "@theoremai/react",
+	"name": "@theoremjs/react",
 	"version": "0.0.1",
 	"private": true,
 	"type": "module",
@@ -23,7 +23,7 @@
 		"@astryxdesign/core": "0.6.3",
 		"@astryxdesign/theme-neutral": "0.6.3",
 		"@stylexjs/stylex": "0.19.0",
-		"@theoremai/agents": "*",
+		"@theoremjs/agents": "*",
 		"react": "^19.0.0",
 		"react-dom": "^19.0.0"
 	},
@@ -36,7 +36,7 @@
 		"@astryxdesign/cli": "0.6.3",
 		"@astryxdesign/core": "0.6.3",
 		"@astryxdesign/theme-neutral": "0.6.3",
-		"@theoremai/agents": "file:..",
+		"@theoremjs/agents": "file:..",
 		"@types/react": "^19.0.0",
 		"@types/react-dom": "^19.0.0",
 		"react": "^19.0.0",

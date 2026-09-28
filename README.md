@@ -17,9 +17,9 @@
 
 <p align="center">
   <a href="https://github.com/masudl-hub/theoremai/actions/workflows/ci.yml"><img src="https://github.com/masudl-hub/theoremai/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://jsr.io/@theoremai/agents"><img src="https://jsr.io/badges/@theoremai/agents" alt="JSR"></a>
-  <a href="https://jsr.io/@theoremai/agents/score"><img src="https://jsr.io/badges/@theoremai/agents/score" alt="JSR score"></a>
-  <a href="https://www.npmjs.com/package/@theoremai/agents"><img src="https://img.shields.io/npm/v/@theoremai/agents?logo=npm&label=npm&color=cb3837" alt="npm"></a>
+  <a href="https://jsr.io/@theoremjs/agents"><img src="https://jsr.io/badges/@theoremjs/agents" alt="JSR"></a>
+  <a href="https://jsr.io/@theoremjs/agents/score"><img src="https://jsr.io/badges/@theoremjs/agents/score" alt="JSR score"></a>
+  <a href="https://www.npmjs.com/package/@theoremjs/agents"><img src="https://img.shields.io/npm/v/@theoremjs/agents?logo=npm&label=npm&color=cb3837" alt="npm"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License"></a>
 </p>
 
@@ -45,7 +45,7 @@ point it.
 It stays out of your product. There are no bundled prompts, personas, databases, `.env` reads,
 or UI copy. Keys, credentials, trace storage, and policy all come from the host.
 
-**Current release: `2.0.2`** — `jsr:@theoremai/agents` · npm `@theoremai/agents`.
+**Current release: `0.4.0`** — `jsr:@theoremjs/agents` · npm `@theoremjs/agents`.
 
 ## Highlights
 
@@ -83,9 +83,9 @@ or UI copy. Keys, credentials, trace storage, and policy all come from the host.
 ### Install
 
 ```bash
-deno add jsr:@theoremai/agents
+deno add jsr:@theoremjs/agents
 # or
-npm install @theoremai/agents zod
+npm install @theoremjs/agents zod
 ```
 
 ### Register tools and schemas
@@ -94,8 +94,8 @@ Tools and structured schemas are registered once at startup. Profiles refer to t
 
 ```ts
 import { z } from "zod";
-import { registerStructured, registerTool } from "@theoremai/agents";
-import { registerGooglePreset } from "@theoremai/agents/presets/google";
+import { registerStructured, registerTool } from "@theoremjs/agents";
+import { registerGooglePreset } from "@theoremjs/agents/presets/google";
 
 registerGooglePreset(); // googleSearch, googleMaps, urlContext, codeExecution
 
@@ -149,7 +149,7 @@ One profile, two models from two providers. It takes text, files, and voice note
 different JSON schema depending on who's asking, and turns on every guardrail.
 
 ```ts
-import { defineProfile, registerProfile, standardEgressEnforce } from "@theoremai/agents";
+import { defineProfile, registerProfile, standardEgressEnforce } from "@theoremjs/agents";
 
 const support = defineProfile({
   type: "text",
@@ -264,7 +264,7 @@ registerProfile(support);
 ### Run a turn
 
 ```ts
-import { createProvider, runTurn } from "@theoremai/agents";
+import { createProvider, runTurn } from "@theoremjs/agents";
 
 const provider = createProvider(
   support,
@@ -326,7 +326,7 @@ egress policy run at each conversational turn inside it, and tools go through th
 pipeline as text turns.
 
 ```ts
-import { defineProfile, registerProfile, runSession, standardEgressEnforce } from "@theoremai/agents";
+import { defineProfile, registerProfile, runSession, standardEgressEnforce } from "@theoremjs/agents";
 
 registerProfile(defineProfile({
   type: "live",
@@ -578,7 +578,7 @@ mid-session. `host` profiles have no model and no tiers; `invokeTool` can run an
 
 ```ts
 import { z } from "zod";
-import { registerHarnessTools, registerTool } from "@theoremai/agents";
+import { registerHarnessTools, registerTool } from "@theoremjs/agents";
 
 // HTTP: a declarative REST call behind OAuth. Only visible on /eng routes (T1),
 // and the user confirms every call.
@@ -718,7 +718,7 @@ A tool call can wait on a human in three ways, and each has its own path:
 
 HTTP and MCP tools with `type: "oauth2"` auth don't need an OAuth library. When a tool needs a
 token the user hasn't granted, the call becomes an auth gate. The helpers in
-`@theoremai/agents/kernel` run the rest:
+`@theoremjs/agents/kernel` run the rest:
 
 - **Discovery** — protected-resource metadata (RFC 9728), then authorization-server metadata (RFC 8414). The metadata must name exactly the resource and issuer that were asked for, every endpoint must be HTTPS, and the server must advertise S256. Discovery and token requests go through the network guard and never follow redirects.
 - **PKCE** — S256 challenge (RFC 7636); the verifier never leaves your server.
@@ -732,8 +732,8 @@ token the user hasn't granted, the call becomes an auth gate. The helpers in
 - **Echoed credentials** — a response that repeats the token or key it was sent with (an echo endpoint, a debug error page) has that value replaced with `[omitted - credential]` before the model, the trace, or the client sees it.
 
 ```ts
-import { invokeTool, runTurn } from "@theoremai/agents";
-import { createOAuthPkceFlow, exchangeOAuthPkce } from "@theoremai/agents/kernel";
+import { invokeTool, runTurn } from "@theoremjs/agents";
+import { createOAuthPkceFlow, exchangeOAuthPkce } from "@theoremjs/agents/kernel";
 
 // 1. During the turn: a tool needs sign-in.
 for await (const event of runTurn(request, provider)) {
@@ -842,7 +842,7 @@ flowchart LR
 Most hosts start from the standard policy and add their own rules:
 
 ```ts
-import { type EgressEnforcer, standardEgressEnforce } from "@theoremai/agents";
+import { type EgressEnforcer, standardEgressEnforce } from "@theoremjs/agents";
 
 // Standard checks first, then hide internal incident ids from customers.
 const egress: EgressEnforcer = (payload, ctx) => {
@@ -898,7 +898,7 @@ several ways:
 
 | Check | What it covers | Where |
 | :--- | :--- | :--- |
-| Adversarial corpus | Inbound injection payloads and secret shapes, shipped for hosts to reuse | `src/guardrails/corpus/`, `@theoremai/agents/guardrails/testing` |
+| Adversarial corpus | Inbound injection payloads and secret shapes, shipped for hosts to reuse | `src/guardrails/corpus/`, `@theoremjs/agents/guardrails/testing` |
 | Fuzzing | Randomized guardrail and canary inputs through the CLI harness | `tests/cli/fuzz-guardrails.test.ts`, `tests/cli/fuzz-canary.test.ts` |
 | Mutation testing | Stryker mutates guardrail and tool code and requires the suite to kill the mutants (break threshold 75% for guardrails). merges to `main` mutate the files they change; a weekly sweep covers everything | `.github/workflows/mutation.yml`, `stryker.guardrails.config.json`, `stryker.tools.config.json` |
 | Static analysis | Semgrep TypeScript + secrets rulesets over `src/`, `mod.ts`, and `scripts/` | `.github/workflows/security.yml` |
@@ -912,7 +912,7 @@ several ways:
 Theorem ships the adapters but never the keys. You pass credentials when you bind a profile:
 
 ```ts
-import { createProvider, runSession } from "@theoremai/agents";
+import { createProvider, runSession } from "@theoremjs/agents";
 
 // Turns: text, image, and speech profiles.
 const provider = createProvider(
@@ -949,25 +949,25 @@ const session = await runSession({ profile: "support.voice" }, { gemini: { vault
 
 | Entrypoint | Purpose |
 | :--- | :--- |
-| `jsr:@theoremai/agents` / `@theoremai/agents` | Main kernel API: profiles, schemas, runner, core types, provider constructors, declarative HTTP/MCP tool execution. |
-| `jsr:@theoremai/agents/kernel` / `@theoremai/agents/kernel` | Profile/turn types, tool catalog, `requireModelBinding`, thinking clamps over host model maps, OAuth 2.1 PKCE helpers (`createOAuthPkceFlow`, `exchangeOAuthPkce`, `refreshOAuthToken`). |
-| `jsr:@theoremai/agents/providers` / `@theoremai/agents/providers` | `createProvider` + Gemini vault types + host option bags. |
-| `jsr:@theoremai/agents/providers/local` / `@theoremai/agents/providers/local` | Direct local OpenAI-compat adapter (`createLocalProvider`). |
-| `jsr:@theoremai/agents/guardrails` / `@theoremai/agents/guardrails` | Sanitization, canary/egress gates, public error mapping, inbound injection/sensitive-data primitives. |
-| `jsr:@theoremai/agents/guardrails/testing` / `@theoremai/agents/guardrails/testing` | Adversarial corpus + fuzz helpers (test/harness only). |
-| `jsr:@theoremai/agents/observability` / `@theoremai/agents/observability` | Trace sinks, trace record helpers and OTLP/JSON export. |
-| `jsr:@theoremai/agents/observability/openinference` / `@theoremai/agents/observability/openinference` | Optional OpenInference usage names (reasoning tokens, cost) for Phoenix. |
-| `jsr:@theoremai/agents/observability/phoenix` / `@theoremai/agents/observability/phoenix` | Optional: eval results as Phoenix span annotations. |
-| `jsr:@theoremai/agents/host` / `@theoremai/agents/host` | Optional Deno HTTP helpers (`json`, status mapping, cutout mint flush). |
-| `jsr:@theoremai/agents/cli` / `@theoremai/agents/cli` | Profile inspection and stress-test CLI (`agents` binary on npm). |
-| `jsr:@theoremai/agents/presets` / `@theoremai/agents/presets` | Optional convenience packs (`registerGooglePreset`, …). |
-| `jsr:@theoremai/agents/presets/google` / `@theoremai/agents/presets/google` | Google builtins (search/maps/urlContext/codeExecution) + Interactions/OpenRouter wire metadata. |
-| `jsr:@theoremai/agents/presets/google/speech-voices` / `@theoremai/agents/presets/google/speech-voices` | Gemini TTS voice names for `speech.voice` (`GOOGLE_SPEECH_VOICES`); no registry imports. |
-| `jsr:@theoremai/agents/schema` / `@theoremai/agents/schema` | Profile vocabulary and field catalog (closed unions, field metadata) for host UIs and docs; no Deno APIs. |
-| `jsr:@theoremai/agents/providers/google/live` / `@theoremai/agents/providers/google/live` | Gemini Live framing and session helpers (`openGoogleLiveSession`); live runs through `runSession`. |
+| `jsr:@theoremjs/agents` / `@theoremjs/agents` | Main kernel API: profiles, schemas, runner, core types, provider constructors, declarative HTTP/MCP tool execution. |
+| `jsr:@theoremjs/agents/kernel` / `@theoremjs/agents/kernel` | Profile/turn types, tool catalog, `requireModelBinding`, thinking clamps over host model maps, OAuth 2.1 PKCE helpers (`createOAuthPkceFlow`, `exchangeOAuthPkce`, `refreshOAuthToken`). |
+| `jsr:@theoremjs/agents/providers` / `@theoremjs/agents/providers` | `createProvider` + Gemini vault types + host option bags. |
+| `jsr:@theoremjs/agents/providers/local` / `@theoremjs/agents/providers/local` | Direct local OpenAI-compat adapter (`createLocalProvider`). |
+| `jsr:@theoremjs/agents/guardrails` / `@theoremjs/agents/guardrails` | Sanitization, canary/egress gates, public error mapping, inbound injection/sensitive-data primitives. |
+| `jsr:@theoremjs/agents/guardrails/testing` / `@theoremjs/agents/guardrails/testing` | Adversarial corpus + fuzz helpers (test/harness only). |
+| `jsr:@theoremjs/agents/observability` / `@theoremjs/agents/observability` | Trace sinks, trace record helpers and OTLP/JSON export. |
+| `jsr:@theoremjs/agents/observability/openinference` / `@theoremjs/agents/observability/openinference` | Optional OpenInference usage names (reasoning tokens, cost) for Phoenix. |
+| `jsr:@theoremjs/agents/observability/phoenix` / `@theoremjs/agents/observability/phoenix` | Optional: eval results as Phoenix span annotations. |
+| `jsr:@theoremjs/agents/host` / `@theoremjs/agents/host` | Optional Deno HTTP helpers (`json`, status mapping, cutout mint flush). |
+| `jsr:@theoremjs/agents/cli` / `@theoremjs/agents/cli` | Profile inspection and stress-test CLI (`agents` binary on npm). |
+| `jsr:@theoremjs/agents/presets` / `@theoremjs/agents/presets` | Optional convenience packs (`registerGooglePreset`, …). |
+| `jsr:@theoremjs/agents/presets/google` / `@theoremjs/agents/presets/google` | Google builtins (search/maps/urlContext/codeExecution) + Interactions/OpenRouter wire metadata. |
+| `jsr:@theoremjs/agents/presets/google/speech-voices` / `@theoremjs/agents/presets/google/speech-voices` | Gemini TTS voice names for `speech.voice` (`GOOGLE_SPEECH_VOICES`); no registry imports. |
+| `jsr:@theoremjs/agents/schema` / `@theoremjs/agents/schema` | Profile vocabulary and field catalog (closed unions, field metadata) for host UIs and docs; no Deno APIs. |
+| `jsr:@theoremjs/agents/providers/google/live` / `@theoremjs/agents/providers/google/live` | Gemini Live framing and session helpers (`openGoogleLiveSession`); live runs through `runSession`. |
 
 Demo fixtures (travel concierge seeds, local handlers) live in the **repo-private**
-`@theoremai/playground` package under `playground/` — never published with the kernel.
+`@theoremjs/playground` package under `playground/` — never published with the kernel.
 Hosts that need them link `file:../theoremai/playground`.
 
 Internal files remain present in source for maintainability, but package consumers should use the public entrypoints above.
@@ -977,8 +977,8 @@ Internal files remain present in source for maintainability, but package consume
 <details>
 <summary>Every named export from the root barrel (<code>mod.ts</code>)</summary>
 
-Named exports from the root barrel (same symbols hosts get from `@theoremai/agents` /
-`jsr:@theoremai/agents`):
+Named exports from the root barrel (same symbols hosts get from `@theoremjs/agents` /
+`jsr:@theoremjs/agents`):
 
 | Group | Symbols |
 | --- | --- |
@@ -1005,7 +1005,7 @@ Named exports from the root barrel (same symbols hosts get from `@theoremai/agen
 | Stages (target foundation) | `TURN_STAGES`, `TURN_INJECT_STAGES`, `STAGE_AFFORDANCES`, `STAGE_AFFORDANCE_MATRIX`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `applyStageResult`, `awaitingUserInputSchema`, `toolGateSchema`, `isTurnStage`, `isTurnInjectStage`, `isToolGateKind`, `isAwaitingUserInput`, `stageAllowsAffordance`, `stageEventFields`, `profileAllowsInject`, `StageAffordance`, `StageContext`, `StageResult`, `StageMutate`, `StageHandler`, `StageApplyInput`, `StageApplyOutput`, `StageApplyWarning`, `StageApplyWarningCode`, `StageEventExtra`, `AwaitingUserInput`, `ToolGate` — contract [`docs/contracts/stages.md`](docs/contracts/stages.md) |
 | Turn events | `TURN_EVENT_SCHEMAS` (each kind's schema, for a wire parser), `turnEventSchema`, `turnHistoryMessageSchema`, `turnToolSnapshotSchema`, `turnDoneOf`, `z` (the zod these schemas are built with; compose them with it, since two copies of zod do not mix) — the event types themselves come through `export type *` from `src/kernel/types.ts` |
 | Observability | `jsonlSink`, `memorySink`, `noopSink`, `writeTrace`, `buildRecord`, `traceRecordSchema`, `contentOf`, `inlineContent`, `toOtlpJson`, `startTrace`, `traceContent`, `traceBytes`, `traceJson`, `registerTraceDestination`, `jsonlDestination`, `requireTraceDestination`, `getTraceDestination`, `listTraceDestinationIds`, `clearTraceDestinations`, `isJsonlTraceDestination`, `isTraceSink`, `resolveTraceWriter`, `resolveObservabilityPolicy`, `traceSpanMeta`, `traceAttributeMeta`, `traceEventMeta`, `traceEventAttributeMeta`, `TRACE_ATTRIBUTE_GROUPS`, `TRACE_STATUS`, `TRACE_FIELDS`, `TRACE_SPAN_TYPES`, `TraceSpanMeta`, `TraceSpanType`, `TraceAttributeMeta`, `TraceEventMeta`, `TraceOptionMeta`, `TraceAttributeGroup`, `TraceValueFormat`, `TraceRecord`, `TraceSink`, `TraceWriteContext`, `JsonlSinkOptions`, `TraceSpan`, `TraceSpanEvent`, `TraceSpanKind`, `TraceSpanLink`, `TraceSpanStatus`, `TraceAttributes`, `TraceAttributeValue`, `TraceContent`, `TraceBytes`, `TraceJson`, `TraceTree`, `SpanHandle`, `SpanOptions`, `SpanLinkInput`, `TraceClock`, `JsonlTraceDestination`, `TraceDestination`, `ProfileObservabilitySpec`, `ResolvedObservabilityPolicy`, `ResolvedTraceInclude`, `ResolvedTraceScrub`, `TraceIncludeSpec`, `TraceScrubSpec`, `OtlpTraceRequest`, `OtlpSpan`, `OtlpKeyValue`, `OtlpAnyValue` |
-| Providers | `CreateProviderOptions`, `GeminiTransport`, `KeyVault`, `LocalProviderConfig`, `OpenAiGatewayConfig`, `createProvider` (local: `@theoremai/agents/providers/local` → `createLocalProvider`) |
+| Providers | `CreateProviderOptions`, `GeminiTransport`, `KeyVault`, `LocalProviderConfig`, `OpenAiGatewayConfig`, `createProvider` (local: `@theoremjs/agents/providers/local` → `createLocalProvider`) |
 
 </details>
 
@@ -1029,16 +1029,16 @@ On GitHub, module contracts:
 
 | Doc (repo only) | Export |
 | :--- | :--- |
-| [`docs/contracts/kernel.md`](docs/contracts/kernel.md) | `@theoremai/agents/kernel` |
+| [`docs/contracts/kernel.md`](docs/contracts/kernel.md) | `@theoremjs/agents/kernel` |
 | [`docs/contracts/stages.md`](docs/contracts/stages.md) | Turn stages — slices 1–3 landed on branch; release cut when docs match product |
-| [`docs/contracts/providers.md`](docs/contracts/providers.md) | `@theoremai/agents/providers` |
-| [`docs/contracts/guardrails.md`](docs/contracts/guardrails.md) | `@theoremai/agents/guardrails` |
-| [`docs/contracts/observability.md`](docs/contracts/observability.md) | `@theoremai/agents/observability`, `@theoremai/agents/observability/openinference`, `@theoremai/agents/observability/phoenix` |
-| [`docs/contracts/host.md`](docs/contracts/host.md) | `@theoremai/agents/host` |
+| [`docs/contracts/providers.md`](docs/contracts/providers.md) | `@theoremjs/agents/providers` |
+| [`docs/contracts/guardrails.md`](docs/contracts/guardrails.md) | `@theoremjs/agents/guardrails` |
+| [`docs/contracts/observability.md`](docs/contracts/observability.md) | `@theoremjs/agents/observability`, `@theoremjs/agents/observability/openinference`, `@theoremjs/agents/observability/phoenix` |
+| [`docs/contracts/host.md`](docs/contracts/host.md) | `@theoremjs/agents/host` |
 | [`docs/contracts/kernel.md`](docs/contracts/kernel.md) (repo-private headless interface) | `src/interface/` |
-| [`docs/contracts/cli.md`](docs/contracts/cli.md) | `@theoremai/agents/cli` |
-| [`docs/contracts/presets.md`](docs/contracts/presets.md) | `@theoremai/agents/presets` |
-| [`docs/contracts/presets-google.md`](docs/contracts/presets-google.md) | `@theoremai/agents/presets/google` |
+| [`docs/contracts/cli.md`](docs/contracts/cli.md) | `@theoremjs/agents/cli` |
+| [`docs/contracts/presets.md`](docs/contracts/presets.md) | `@theoremjs/agents/presets` |
+| [`docs/contracts/presets-google.md`](docs/contracts/presets-google.md) | `@theoremjs/agents/presets/google` |
 
 Migrating from per-turn `dynamicTools`? See
 [`docs/MIGRATION-tool-system.md`](docs/MIGRATION-tool-system.md).
@@ -1151,7 +1151,7 @@ session_memory_in_kernel = false
 ```
 
 **Facts vs policy.** Provider facts may ship (model capabilities, wire shapes,
-protocol metadata — e.g. `@theoremai/agents/presets/google`). Product policy may not
+protocol metadata — e.g. `@theoremjs/agents/presets/google`). Product policy may not
 (prompts, personas, end-user copy, demo apps, channel behavior). Every
 user- or model-visible string is either host-supplied or an overridable
 registered default in the kernel lexicon (`overrideLexicon`). Behavioral
@@ -1168,7 +1168,7 @@ Invariant properties (machine-checked where noted):
 | P4 | Inert extras — optional entrypoints removable without behavior change | publish-bundle gate excludes `playground/` |
 
 Provider adapters load **lazily** on the first `complete` for that transport —
-`createProvider` and `@theoremai/agents/providers` stay a thin barrel (`src/providers/mod.ts`);
+`createProvider` and `@theoremjs/agents/providers` stay a thin barrel (`src/providers/mod.ts`);
 implementation modules (e.g. `google/interactions/`, `openrouter/`, `local/`) are
 not pulled in at import time.
 

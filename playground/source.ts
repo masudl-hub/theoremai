@@ -81,7 +81,7 @@ export function playgroundSource(compiled: CompiledPlayground): string {
   const blocks = [
     [
       ...(customTools.length ? [`import { z } from 'zod';`] : []),
-      `import {\n${imports.map((name) => `  ${name},`).join('\n')}\n} from '@theoremai/agents';\n`,
+      `import {\n${imports.map((name) => `  ${name},`).join('\n')}\n} from '@theoremjs/agents';\n`,
     ].join('\n'),
     ...customTools.map(toolSource),
     ...(structured

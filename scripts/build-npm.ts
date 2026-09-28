@@ -31,7 +31,7 @@ await build({
     target: 'ES2022',
   },
   package: {
-    name: '@theoremai/agents',
+    name: '@theoremjs/agents',
     version,
     description:
       'A flat TypeScript agent kernel for typed profiles, deterministic turn execution, registered tools, provider adapters, guardrails, and host-injected traces.',

@@ -5,7 +5,7 @@
  * bundled egress policy, and public error mapping.
  * App-specific policy copy remains host-owned.
  *
- * Adversarial corpus and fuzz runners: `@theoremai/agents/guardrails/testing`.
+ * Adversarial corpus and fuzz runners: `@theoremjs/agents/guardrails/testing`.
  *
  * @module
  */

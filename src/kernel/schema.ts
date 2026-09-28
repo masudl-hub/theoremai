@@ -920,8 +920,8 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'Validators keyed by dotted paths into structured output (e.g. diagram.mermaid).',
   ),
   'outputs.validation.fields.*': field(
-    '(source: unknown) => { isValid: boolean; error?: string }',
-    'Host-owned validator function for this structured output field.',
+    '(candidate: unknown, slots?: Record<string, string>) => ValidationResult | Promise<ValidationResult>',
+    'Host-owned validator for this structured output field; returns { isValid, error?, finding?, data? }.',
   ),
   'outputs.validation.maxRetries': field('number', 'Repair-turn ceiling after a validator reject.'),
   'outputs.streaming': field('ProfileStreamingSpec', 'How the turn emits live events.'),

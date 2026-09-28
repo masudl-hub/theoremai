@@ -659,7 +659,7 @@ Profile `turnBehaviour` (top-level on chat/image/speech):
 
 | Field | Effect |
 | --- | --- |
-| `resumption.allowContinue` | Stops that may be continued (continueFrom); omitted → all three; `[]` → none |
+| `resumption.allowContinue` | Stops after which the host offers the user a Continue (`isResumeableStop`); host UI policy, not enforced on `continueFrom`; omitted → all three; `[]` → none |
 | `resumption.autoContinue` | Stops the host continues once on its own; omitted → length and stream_incomplete, `[]` → none |
 | `resumption.maxContinues` | How many times one reply may be continued (enforced); omitted → no cap |
 | `allowSteering` | **Text and live.** Gates **inject** via `profileAllowsInject` / stages. Stage events always emit. Image/speech must omit |

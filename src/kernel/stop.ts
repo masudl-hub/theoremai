@@ -33,7 +33,10 @@ export const AUTO_CONTINUE_DELAY_MS = 1_500;
 /** Profile turn-continuation policy under `turnBehaviour.resumption`. */
 export interface ProfileTurnResumptionSpec {
   /**
-   * Kinds eligible for a Continue / continueFrom turn.
+   * Kinds after which the host offers the user a Continue, and then sends a
+   * `continueFrom` turn; `isResumeableStop` reads it. The host's UI policy: the
+   * kernel does not refuse a `continueFrom` outside it (a continue is one more
+   * turn, which the host could send as plain text anyway).
    * When omitted, length / stream_incomplete / provider_error are; `[]` means none.
    * Only `ContinueStopKind` values are valid — not tool / cancelled / completed / …
    */

@@ -945,7 +945,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'turnBehaviour.resumption.allowContinue': field(
     'ContinueStopKind[]',
-    'Stops that may be continued (continueFrom). Omitted → all three; [] → none. Tool, cancelled, completed and filtered stops never are.',
+    'Stops after which the host offers the user a Continue (then sends continueFrom); isResumeableStop reads it. Host UI policy — the kernel does not refuse a continueFrom outside it. Omitted → all three; [] → none. Tool, cancelled, completed and filtered stops never are.',
     CONTINUE_STOP_KINDS,
     {
       length: 'Model hit maximum output token ceiling.',

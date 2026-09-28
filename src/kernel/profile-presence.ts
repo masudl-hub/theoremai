@@ -33,6 +33,7 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
   speech: { required: true },
   live: { required: true },
   decision: { required: true },
+  'decision.contract': { required: true },
   models: { required: true },
   defaultModel: { required: 'when more than one model is declared', unset: 'The only model' },
   allowModelSelect: { unset: 'Off' },

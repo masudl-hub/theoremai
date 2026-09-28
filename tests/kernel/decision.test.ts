@@ -411,3 +411,19 @@ Deno.test('a trace write that fails leaves the decision standing', async () => {
   assertEquals(result.model, 'jev-1.13.0');
   assertEquals(errors.length, 1);
 });
+
+Deno.test('a decision profile names its contract', async () => {
+  for (const [decision, message] of [
+    [{}, "type 'decision' must set decision.contract"],
+    [{ contract: ' ' }, 'decision.contract must be non-empty'],
+  ] as const) {
+    await assertRejects(
+      () =>
+        Promise.resolve().then(() =>
+          defineProfile({ ...profile('no-contract'), decision } as never),
+        ),
+      Error,
+      message,
+    );
+  }
+});

@@ -1503,7 +1503,7 @@ Deno.test('the compactor gets the compacted messages and a request to summarize 
       ...OLD.map((m) => [m.role, m.content]),
       [
         'user',
-        '<user_data>\nSummarize the conversation above, including any earlier summary in it. Reply with the summary only.\n</user_data>',
+        '<user_data>\nSummarize the conversation above, including any earlier summary in it. Call the participants the user and the assistant, and keep every name, number, fact and decision either may need later. Reply with the summary only.\n</user_data>',
       ],
     ],
   );

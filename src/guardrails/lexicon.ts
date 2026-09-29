@@ -230,7 +230,7 @@ const DEFAULTS: Record<LexiconKey, LexiconDefault> = {
   'repair.section_repair_guidance': '### REPAIR GUIDANCE',
   'repair.section_instructions': '### INSTRUCTIONS',
   'compaction.request':
-    'Summarize the conversation above, including any earlier summary in it. Reply with the summary only.',
+    'Summarize the conversation above, including any earlier summary in it. Call the participants the user and the assistant, and keep every name, number, fact and decision either may need later. Reply with the summary only.',
   'compaction.tool_call': 'Called {tool} with {arguments}',
   'compaction.tool_result': '{tool} returned: {result}',
   'egress.default_repair_guidance':

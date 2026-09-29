@@ -818,8 +818,8 @@ registerProfile(defineProfile({
 }));
 ```
 
-Compaction applies to `text` and `image` profiles (`runTurn`); `live`
-compacts with `live.contextCompression`, and `speech` sends no history.
+Compaction applies to `runTurn` profiles (`text`, `image`, `speech`);
+`live` compacts with `live.contextCompression`.
 
 ### What the compactor reads
 

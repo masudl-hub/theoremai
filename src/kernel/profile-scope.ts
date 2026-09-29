@@ -71,8 +71,8 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
     reason: 'a decision binds its model by apiId alone',
   },
   'models.*.compaction': {
-    profileTypes: ['text', 'image'],
-    reason: 'live compacts with live.contextCompression, and speech sends no history',
+    profileTypes: ['text', 'image', 'speech'],
+    reason: 'live compacts with live.contextCompression',
   },
   key: { profileTypes: MODEL_PROFILE_TYPES, reason: 'a host profile runs no model' },
   defaultModel: {

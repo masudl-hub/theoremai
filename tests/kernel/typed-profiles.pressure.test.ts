@@ -109,7 +109,7 @@ Deno.test('pressure-test: type/protocol matrix rejects every illegal pair', () =
   );
 });
 
-Deno.test('pressure-test: image profiles may compact; speech profiles may not', () => {
+Deno.test('pressure-test: image and speech profiles may compact', () => {
   registerProfile({
     id: 'compactor_agent',
     type: 'text',
@@ -140,30 +140,25 @@ Deno.test('pressure-test: image profiles may compact; speech profiles may not', 
     inputs: { text: true },
   });
 
-  assertThrows(
-    () => {
-      registerProfile({
-        id: 'invalid_speech_compaction',
-        type: 'speech',
-        identity: { handle: 'invalid_speech' },
-        models: {
-          gemini31FlashTts: {
-            ...HOST_BINDINGS.gemini31FlashTts,
-            compaction: {
-              maxTokens: 10000,
-              compactAt: 0.8,
-              previousExchanges: 2,
-              profile: 'compactor_agent',
-              timing: 'before',
-            },
-          },
+  registerProfile({
+    id: 'speech_compaction',
+    type: 'speech',
+    identity: { handle: 'speech' },
+    key: 'slotA',
+    models: {
+      gemini31FlashTts: {
+        ...HOST_BINDINGS.gemini31FlashTts,
+        compaction: {
+          maxTokens: 10000,
+          compactAt: 0.8,
+          previousExchanges: 2,
+          profile: 'compactor_agent',
+          timing: 'before',
         },
-        speech: { voice: 'Kore', format: 'pcm' },
-      });
+      },
     },
-    TheoremError,
-    "type 'speech' must not set models.gemini31FlashTts.compaction",
-  );
+    speech: { voice: 'Kore', format: 'pcm' },
+  });
 });
 
 Deno.test('pressure-test: compaction spec validations on text profiles', () => {

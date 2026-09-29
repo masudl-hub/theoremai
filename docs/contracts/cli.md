@@ -82,15 +82,26 @@ agents test --profile my.agent --lite --trace --trace-dir /var/log/theorem
 
 | Module | Role |
 | --- | --- |
-| `matrix/synthesizer.ts` | Builds valid permutation cases (modes, optional tools, reasoning) |
-| `matrix/fixtures.ts` | Shared harness fixtures (not product personas) |
+| `matrix/synthesizer.ts` | Builds the requests `test` sends |
+| `matrix/fixtures.ts` | Synthetic media: PNG, PDF, WAV (generated), CSV, plain text; `getFixtureForMime` picks by MIME |
 
-Tool stress / matrix allowlists are `profile.tools.allow` plus each selected
-model's `builtInTools` (via `pickModel` / union across `models`). Builtin
-conflict resolution uses registered tool `type === 'builtin'` metadata.
-The matrix respects those allowlists — e.g. `--search` only applies when
-`googleSearch` is allowlisted, while file/voice synthesizers run only for profiles the kernel's `profileInputs`
-gives turn inputs (`text`, `image`).
+`test --matrix` sends two requests per profile (`synthesizeMatrixCombos`);
+plain `test` sends one (`buildCustomTurnRequest`): Stress, or Lite with
+`--lite`, with `--mode` setting its model. Host and decision profiles run no
+model turn and are skipped. **Lite** is a one-line text ping,
+on model `fast` when `allowModelSelect` is set and `fast` exists. **Stress** sends
+a text prompt plus one attachment and one voice clip where the profile accepts
+them, on `smart` (or the last model) when `allowModelSelect` is set. The
+attachment is the first of PNG, PDF, plain text that `inputs.attachments.accept`
+lists, else its first MIME; the voice clip is the WAV fixture when
+`inputs.voice.accept` is non-empty. Only `text` and `image` profiles have
+`inputs` (`profileInputs`), so other types get the text prompt alone. Both
+requests always carry text, so a profile with `inputs.text: false` fails them
+at ingress.
+
+The matrix sets no tools; the profile's allowlist applies as on any turn.
+`--search` and `--map` add nothing to the request: they throw unless the
+selected model's `builtInTools` include `googleSearch` / `googleMaps`.
 
 ## Exported API
 

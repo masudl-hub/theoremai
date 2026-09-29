@@ -28,12 +28,12 @@ Deterministic document-health lint for THEOREM. No waivers. No LLM.
 | --- | --- |
 | Full ownership | Every production-root file has exactly one `owns` entry in `docs/_map.mjs` |
 | Schema validation | Manifest specifies `theorem.docs-truth/v1` schema |
-| Doc freshness | Changed *existing* code → owning doc appears in git diff (deletions skipped) |
+| Doc freshness | Changed *existing* code → owning doc appears in the diff (deletions skipped). "Changed" is `THEOREM_DOCS_BASE...HEAD` (default `origin/main`) plus staged and unstaged edits; a comment-only edit counts |
 | Section freshness | Watches/`section_triggers` → specific `##` headings must change |
 | Owned fallback | Owned files → at least one behavioral section hunk |
-| Evidence | ≥2 supports; behavioral sections require `contract_test` |
-| Export drift | Entry `mod.ts` export names appear in owner contract (checked by `export-drift.mjs`) |
-| Copy lint | Full-tree prose (≥3 words) in `src/kernel` / `src/guardrails` / `src/interface` and headless `react/src` (`client`, `components`, `hooks`, `server`) outside `lexicon.ts` fails (`copy-lint.mjs`); `// lexicon-exempt:` / `lexicon-exempt-file:` require a reason |
+| Evidence | ≥ `min_evidence_supports` supports (default 2); behavioral sections require `contract_test` or `validation` evidence |
+| Export drift | Every `export { name }` / `export type { Name }` in a published entry point (each `deno.json` export, not only `mod.ts` files) appears in the contract of the graph entry that owns that export (`export-drift.mjs`) |
+| Copy lint | A string literal of ≥3 alphabetic words in `src/kernel` / `src/guardrails` / `src/interface` or headless `react/src` (`client`, `components`, `hooks`, `server`) fails outside `src/guardrails/lexicon.ts` (`copy-lint.mjs`). `react/src/ui` owns its wording and is not scanned. `// lexicon-exempt: <reason>` goes on the same or previous line; `lexicon-exempt-file: <reason>` goes in the first 40 lines of a non-runtime fixture module |
 
 ## Package vs repo documentation
 

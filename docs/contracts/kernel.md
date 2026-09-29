@@ -744,31 +744,43 @@ compaction: {
 | Value | Counts |
 | --- | --- |
 | `history` (default) | `input.historyTokens` or local estimate of `history` only |
-| `input` | Full prompt: `input.inputTokens` (before) or the turn's last model-call `tokens.input` (after) |
+| `input` | Full prompt: the turn's last model-call `tokens.input` (after), else `input.inputTokens` (before, or after with no call count) |
 
-`tokens` events always stream; they gate compaction only when `meter: 'input'`.
-When that call's input side is `estimated`, the signal's `promptTokens` is the
-estimate, `promptTokensEstimated` is `true`, and `unknownMedia` carries the
-prompt media the estimate left out.
+With neither count positive, compaction does not fire and `trigger` is not
+called. `tokens` events always stream; they gate compaction only when
+`meter: 'input'`. The `input` meter's estimate, when the provider reports no
+count, covers the whole prompt: current-turn media, system, tools and schema.
+`done.compaction.promptTokens` carries the last call's input tokens under either
+meter; when that side is `estimated`, it is the estimate and
+`promptTokensEstimated` is `true`. Under `meter: 'input'`, `unknownMedia`
+carries the prompt media the estimate left out.
 
 ### History estimate (`meter: 'history'`)
 
 1. Host `historyTokens` wins when set.
 2. Else estimate from `input.history`:
-   - **Text** — tiktoken `o200k_base` (`TOKEN_TEXT_ENCODING`) over content,
-     text parts, tool-call names and arguments. Loads **lazily** on first
-     estimate (`loadTokenEstimator`).
+   - **Text** — the `o200k_base` encoding (`TOKEN_TEXT_ENCODING`, via
+     `gpt-tokenizer`) over content, text parts, tool-call names and arguments;
+     an estimate for every family, since o200k is not every model's tokenizer.
+     Loads **lazily** on first estimate (`loadTokenEstimator`).
    - **Media** — counted only by the model family's verified rule
      (`mediaTokenFamily` of the turn's binding), measured against billed
-     usage. Gemini 3 text models: images by the 1120-budget patch grid; audio
-     25 per decoded second; video a 70-budget grid per second (rounded half
-     up) plus the audio under those frames, MP4 / MOV / 3GP and WebM only; PDF
-     520 per page; text documents as their text. Every other media part
-     (`uri` references, unreadable headers, other containers, inputs Gemini
-     converts first, families without a rule) is **unknown**: left out of
-     `tokens` and counted in `unknownMedia` on `CompactionTokens`,
-     `CompactionSignal`, and `CompactionTriggerContext`. Rules and live verification:
-     `src/kernel/engine/token-estimate.ts`.
+     usage. Gemini 3 flash / pro text models (`google` directly or `google/…`
+     via OpenRouter; live and other variants have no rule): images by the
+     1120-budget patch grid; audio `⌈25 × decoded seconds⌉` (raw PCM from its
+     MIME parameters; ADTS AAC runs 2–3 over); video a 70-budget grid per
+     second (rounded half up) plus the audio under those frames, for ISO-BMFF
+     (MP4 / MOV / 3GP) and Matroska / WebM identified by their bytes; PDF 520
+     per page; UTF-8 text documents as their text. Every other media part is
+     **unknown**: `uri` references, unreadable headers, other containers, video
+     whose audio length cannot be read exactly (Matroska audio other than
+     unlaced Opus) or shorter than half a second, PDFs whose page tree cannot be
+     read, non-UTF-8 text, inputs Gemini converts first (`text/md`, mono L16) or
+     refuses (`audio/alaw`, `audio/mulaw`, `audio/pcm` with parameters, L16
+     without `rate` / `channels`), and families without a rule. Unknown media is
+     left out of `tokens` and counted in `unknownMedia` on `CompactionTokens`,
+     `CompactionSignal`, `CompactionTriggerContext`, and the `compaction`
+     event. Rules and live verification: `src/kernel/engine/token-estimate.ts`.
    - Current-turn attachments/voice are **not** history.
 
 ### `previousExchanges`
@@ -776,7 +788,7 @@ prompt media the estimate left out.
 | Value | Retain |
 | --- | --- |
 | `≥ 1` integer | That many recent user-started exchanges |
-| `(0, 1)` fraction | Tail fitting in `fraction * maxTokens` (must be `< compactAt`) |
+| `(0, 1)` fraction | Tail fitting in `fraction * maxTokens` (must be `< compactAt`), by the estimator; unknown media counts as 0 |
 | `0` | Compact everything |
 
 ### Compaction profile
@@ -812,6 +824,9 @@ for await (const event of runTurn(req, provider)) {
 }
 ```
 
+No signal is attached when the turn has no history. `timing: 'before'` emits no
+`compaction` event when the split leaves nothing to compact.
+
 ### Compaction exports
 
 | Export | Role |
@@ -819,14 +834,14 @@ for await (const event of runTurn(req, provider)) {
 | `CompactionSpec` / `CompactionMeter` / `CompactionTriggerContext` | Config types |
 | `CompactionSignal` | `done.compaction` payload |
 | `CompactionSplit` / `CompactionTokens` | Split + resolved counts |
-| `resolveHistoryTokens` / `resolveCompactionTokens` | Meter resolution |
-| `loadTokenEstimator` / `mediaTokenFamily` / `TOKEN_TEXT_ENCODING` | Shared token estimator (o200k text, verified media rules) |
+| `compactionMeter` / `resolveHistoryTokens` / `resolveCompactionTokens` | Meter resolution |
+| `loadTokenEstimator` / `mediaTokenFamily` / `TOKEN_TEXT_ENCODING` / `MediaTokenFamily` / `TokenEstimator` / `TokenCount` / `MediaPayload` | Shared token estimator (o200k text, verified media rules) |
 | `sumTokens` | Total of several calls' `TurnTokens` (see Token usage) |
 | `compactionNeeded` / `shouldCompact` | Threshold / custom trigger |
 | `splitForCompaction` | `{ toCompact, toRetain }` |
 
-Register-time validation: `maxTokens > 0`, `compactAt ∈ (0,1)`, integer
-`previousExchanges ≥ 1`, fractional `< compactAt`, meter ∈ `{history,input}`,
+Register-time validation: `maxTokens > 0`, `compactAt ∈ (0,1)`,
+`previousExchanges ≥ 0`, an integer when `≥ 1` and `< compactAt` when fractional, meter ∈ `{history,input}`,
 compaction profile registered first.
 
 ## Prompt cache (OpenRouter)

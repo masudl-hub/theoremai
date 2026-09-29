@@ -432,9 +432,15 @@ Patterns target untrusted user text before provider submission:
 - Instruction override (`ignore previous instructions`, `disregard rules`, …)
 - Mode hijack (`developer mode`, `jailbreak`, `DAN`, `do anything now`)
 - Safety bypass (`disable safety filters`, …)
-- Role / delimiter forgery (`<system>`, `[System Message]`, ChatML tokens)
+- Role / delimiter forgery (`<system>`, `[System Message]`, ChatML, Llama `[INST]` and DeepSeek control tokens)
 - Prompt exfiltration (`reveal your system prompt`, …)
 - Multilingual override fragments
+
+`injectionSpans` also matches obfuscated forms: typoglycemia (scrambled inner
+letters), Unicode-normalized text, base64 and hex blobs, spaced-out letters,
+pipe-separated words, and rot13, URL-encoded, leetspeak or reversed text. A
+blob match redacts the blob; a normalized or decoded-text match redacts the
+whole string.
 
 False-positive tuning: `tests/guardrails/false-positives.test.ts` and
 `tests/guardrails/injection.test.ts`.
@@ -444,32 +450,37 @@ False-positive tuning: `tests/guardrails/false-positives.test.ts` and
 | API | Role |
 | --- | --- |
 | `sensitiveSpans` | Credential / PII span detection |
-| `redactSensitiveOnly` | Model output path without injection patterns |
+| `redactSensitiveOnly` | Redact sensitive spans only, without injection patterns |
 
-`sensitiveSpans` redacts credential-like and PII patterns from inbound text and,
-when enabled, outbound paths. Use `redactSensitiveOnly` on model output when
-injection patterns should not run.
+`sensitiveSpans` finds, and never itself replaces: SSNs (bare and labelled),
+ITINs, EINs, IBANs, IPv4 and IPv6 addresses, AWS / Google / OpenAI / Anthropic /
+OpenRouter / GitHub / Slack keys and tokens, `Bearer` tokens, PEM private keys,
+and Luhn-valid card numbers. Inbound, `guardrails.redactSensitive` (default on)
+redacts them from untrusted and assembled text; trusted text is left verbatim
+(see [Trust levels](#trust-levels)). Outbound, a profile whose egress enforcer is
+`standardEgressEnforce` blocks a reply carrying any of them as a high-severity
+hit (see [Egress](#egress)); egress is opt-in.
+The trace writer uses `redactSensitiveOnly` when its scrub keeps sensitive
+redaction but drops injection redaction.
 
 ## Tool boundary
 
 The surface where untrusted bytes re-enter the model's context carrying the
 model's own authority. A tool result is not user text: the model asked for it, so
 it arrives looking like something the turn already trusts. Remote HTTP and MCP
-servers author their own response bodies *and their own error strings*, and a
-delegated agent answers in prose that reads as authoritative.
+servers author their own response bodies *and their own error strings*.
 
 Every registered tool returns through `executeRegisteredTool`, so the guard cannot
-be skipped by adding a tool type. Each result is labelled with `Provenance`:
+be skipped by adding a tool type. Each result and failure that crosses the guard
+is labelled with `Provenance`; failures the kernel raises before a tool runs
+(unknown, ineligible or taint-refused calls) carry kernel text and are not
+labelled.
 
 | Field | Meaning |
 | --- | --- |
-| `origin` | `local`, `builtin`, `http`, `mcp`, `delegated` |
+| `origin` | `local`, `builtin`, `http`, `mcp` (`delegated` is in the schema, but no tool type produces it) |
 | `tool` | Registered tool name |
-| `depth` | Hops from the user's turn; a direct call is `1` |
-
-`depth` is tracked separately from `origin` because a delegated agent's answer is
-model-generated prose: a two-hop delegation can otherwise launder remote content
-into trusted-looking output.
+| `depth` | Hops from the user's turn; always `1` today |
 
 **Fencing.** Remote-origin results are wrapped so the model reads them as data:
 
@@ -481,8 +492,10 @@ into trusted-looking output.
 
 The origin travels on the tag rather than in prose, and forged `tool_data` markers
 in the body are stripped before wrapping, so a result cannot claim a friendlier
-provenance than it has. Local host tools are detected but not fenced — fencing a
-local tool's output would change prompts hosts have already tuned.
+provenance than it has. Local and builtin results get injection and
+sensitive-data redaction but are not fenced, keep any forged `tool_data` markers,
+and get no directive detection — fencing a local tool's output would change
+prompts hosts have already tuned.
 
 **What the model reads.** Each result once: a tool's own `finding` leads and the
 rest of its output follows as `data`; a result with no `finding` is its output
@@ -493,18 +506,25 @@ carries it as `result`, never the tool's raw output.
 both reach the model; hiding an injection payload one level down in the JSON does
 not evade it. Failure messages are guarded too — an unguarded remote error string
 is the cleanest injection path across this boundary, because the kernel frames it
-for the model as a system report.
+for the model as a system report. The kernel redacts every failure message under
+full detection, whatever the profile's `sanitizeInput` / `redactSensitive`, then
+frames it as `Tool error (code): …` and passes it through the result guard, so a
+remote failure is fenced like a remote result. That redaction emits no event:
+`tool_failure.redacted` comes only from a direct `guardToolFailureText` call.
 
 **Arguments.** `inspectToolArguments` reports rather than rewrites. Arguments are
 model-authored, so the risk is exfiltration — a credential lifted from context and
 posted outward as a parameter — and silently altering an argument would make the
-call succeed against something the model never asked for. The result is a `flag`
-verdict, surfaced as an event; the call proceeds.
+call succeed against something the model never asked for. With `redactSensitive`
+on, it scans the arguments for credential-shaped values (not injection) and
+returns a `flag` verdict, surfaced as an event; the call proceeds. With
+`redactSensitive` off, or arguments that cannot be serialized, it reports
+nothing.
 
 | Rule | Stage | Meaning |
 | --- | --- | --- |
 | `tool_result.redacted` | `tool_result` | Detection changed the result text |
-| `tool_failure.redacted` | `tool_result` | Detection changed a failure message |
+| `tool_failure.redacted` | `tool_result` | `guardToolFailureText` changed a failure message (not emitted by the kernel) |
 | `tool_call.sensitive-argument` | `tool_call` | Credential-shaped value in tool arguments |
 | `tool_call.tainted-turn` | `tool_call` | State-changing call on a turn that has read remote content |
 | `tool_call.steered-turn` | `tool_call` | Same, where that content carried a directive and a destination |
@@ -527,7 +547,7 @@ What is anomalous inside *data* is content behaving like an instruction:
 | Imperative aimed at the agent | `tool_result.imperative` |
 | Claims an authority the content cannot hold | `tool_result.authority-claim` |
 
-The callable-tool signal reads `TurnToolSnapshot.executable`, so it is scoped to
+Directive detection runs on remote-origin results only. The callable-tool signal reads `TurnToolSnapshot.executable`, so it is scoped to
 what the model can actually invoke on this turn.
 
 **A signal only counts when it co-occurs with a concrete external destination** —
@@ -566,24 +586,27 @@ what the content said.
 
 **Nothing is redacted on these signals.** A page documenting an email API
 legitimately says "call `send_email`"; rewriting it would corrupt content the model
-needs. Directive hits raise the turn's taint instead, so a precision failure costs
-a refused write — recoverable and visible — rather than silently damaged input.
+needs. Directive hits are recorded on the turn's taint, so a later state-changing
+call reports `tool_call.steered-turn` instead of `tool_call.tainted-turn`; they
+never cause a refusal on their own.
 
 Attacks carrying no destination are not detected here and are not meant to be. An
 action-shaped attack has to reach a tool to accomplish anything, which the taint
 gate handles structurally without reading the content at all.
 
 The corpus lives in `src/guardrails/corpus/tool-ingress.ts` — attacks,
-destination-free action attacks, and instruction-shaped benign output — so the
-rates are measured by `tests/guardrails/tool-directives.test.ts` rather than
-asserted. It is currently a smoke-sized sample, not a benchmark.
+destination-free action attacks, and instruction-shaped benign output.
+`tests/guardrails/tool-directives.test.ts` asserts every attack is flagged, no
+benign output is flagged, and no destination-free attack is flagged. It is a
+smoke-sized sample, not a benchmark.
 
 ### Taint — acting after reading
 
 The confused-deputy case: the agent fetches attacker-influenceable bytes, those
 bytes ask for an action, and the agent performs it with authority the content
 never had. A turn accumulates `TurnTaint` as it reads, and each later tool call is
-judged against it.
+judged against it. Only request/response turns track taint: a Live session
+accumulates none, so `afterRemoteRead` has no effect there.
 
 Only remote origins taint. A local host tool returns bytes the host's own code
 produced, and treating those as attacker-influenceable would make the gate useless
@@ -628,11 +651,14 @@ hits without a second copy of the secret:
 
 ```ts
 { type: 'guardrail', guardrail: {
-  stage, trust, action, hits, provenance?
+  stage, trust, action, hits, provenance?, errorInternal?
 } }
 ```
 
-`hits` carry rule identity, severity, and offsets. Detectors may also attach
+`errorInternal` is a block's builder-only reason; `forClient` strips it. `hits`
+carry rule identity and severity, plus offsets (`span`) when the detector located
+the match; whole-payload rules (tool boundary, taint, arguments, network, canary)
+carry none. Detectors may also attach
 `match` (the exact matched text, whole). The host stream and the
 trace's `theorem.guardrail` events strip `match` unless
 `observability.include.guardrailMatchPreview` is true (default **false** — treat like server logs when enabled). Canary leaks
@@ -651,6 +677,8 @@ Emission sites (non-`allow` only):
 | `network` | `guardToolTarget` before HTTP/MCP |
 | `live_inbound` | `prepareLiveInboundText` → session pending events |
 | `live_outbound` | Live progressive-yield / finalize |
+
+`attachment` and `trace` are stages in the schema that nothing emits.
 
 The trace records each decision as a `theorem.guardrail` event on the span
 where it happened when `observability.include.guardrailDecisions` is true
@@ -723,8 +751,8 @@ rather than its content policy — leaving it at defaults is the safe choice.
 **Not** enforced inside `runTurn`. HTTP hosts call:
 
 ```ts
+if (skipQuota(peer, req)) return runTurn(...);
 const ip = clientIp(peer, req);
-if (skipQuota(peer, req)) { /* local dev */ }
 const status = takeSlot(profile, ip, Date.now());
 // 'ok' | 'busy' | 'quota' | 'not_configured'
 try {
@@ -734,9 +762,15 @@ try {
 }
 ```
 
+`clientIp` uses `cf-connecting-ip` only when the peer is loopback (`127.0.0.1`,
+`::1`, `localhost`), else the peer, else `'unknown'`. `skipQuota` is true for a
+loopback peer without that header, i.e. local dev. Counts are per profile and
+client per UTC day, held in process memory: each server instance counts
+separately and a restart resets them.
+
 | Status | Meaning |
 | --- | --- |
-| `ok` | Slot taken; increment daily count |
+| `ok` | Slot taken; daily count incremented (`releaseSlot` frees the slot but never refunds the count) |
 | `busy` | Same ip/profile already in flight |
 | `quota` | `perDay` exhausted |
 | `not_configured` | Profile has no `guardrails.quota` (including when `guardrails` itself is omitted) |

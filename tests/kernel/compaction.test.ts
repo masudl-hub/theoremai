@@ -1744,3 +1744,84 @@ async function collectEventsFor(req: Parameters<typeof runTurn>[0]): Promise<Tur
   for await (const ev of runTurn(req, tokenProvider(0))) events.push(ev);
   return events;
 }
+
+function registerSpeaker(id: string, type: 'image' | 'speech', compactor: string): string {
+  const compaction = { ...BEFORE_SPEC, profile: compactor };
+  registerProfile(
+    type === 'speech'
+      ? defineProfile({
+          id,
+          type,
+          identity: { handle: 'speaker' },
+          key: 'slotA',
+          models: { tts: { ...HOST_BINDINGS.gemini31FlashTts, compaction } },
+          speech: { voice: 'Kore', format: 'pcm' },
+        })
+      : defineProfile({
+          id,
+          type,
+          identity: { handle: 'painter' },
+          key: 'slotA',
+          models: { img: { ...HOST_BINDINGS.gemini31FlashLiteImage, compaction } },
+          image: { mimeType: 'image/jpeg' },
+          tools: { allow: [] },
+          inputs: { text: true },
+        }),
+  );
+  return id;
+}
+
+for (const type of ['speech', 'image'] as const) {
+  Deno.test(`a ${type} profile compacts before its turn on compactionProvider`, async () => {
+    registerCompactionPair(`compaction.${type}`, BEFORE_SPEC);
+    const speaker = registerSpeaker(
+      `compaction.${type}.speaker`,
+      type,
+      `compaction.${type}.compactor`,
+    );
+    const compactorSeen: ProviderCompleteRequest[] = [];
+    const speakerSeen: ProviderCompleteRequest[] = [];
+    const events: TurnEvent[] = [];
+    for await (const ev of runTurn(
+      {
+        profile: speaker,
+        input: { text: 'say it', historyTokens: 600, history: [...OLD, ...RECENT] },
+        compactionProvider: compactorScript(
+          compactorSays(
+            { type: 'text', text: 'Summary' },
+            { type: 'done', stop: { kind: 'completed' } },
+          ),
+          compactorSeen,
+        ),
+      },
+      {
+        complete: (req) => {
+          speakerSeen.push(req);
+          return compactorSays({ type: 'done', stop: { kind: 'completed' } })();
+        },
+      },
+    )) {
+      events.push(ev);
+    }
+    assertEquals(compactorSeen.length, 1);
+    assertEquals(firstOf(events, 'compaction')?.outcome, 'compacted');
+    assertEquals(
+      speakerSeen[0]?.history?.slice(0, 5).map((m) => m.content),
+      ['Summary', ...RECENT.map((m) => m.content)],
+    );
+  });
+
+  Deno.test(`a ${type} profile needs compactionProvider to compact`, async () => {
+    registerCompactionPair(`compaction.${type}.bare`, BEFORE_SPEC);
+    const speaker = registerSpeaker(
+      `compaction.${type}.bare.speaker`,
+      type,
+      `compaction.${type}.bare.compactor`,
+    );
+    await assertRejects(
+      () => collectEvents(speaker, { text: 'say it', history: SMALL_HISTORY }, tokenProvider(0)),
+      TheoremError,
+      'pass compactionProvider',
+    );
+  });
+}

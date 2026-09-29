@@ -109,7 +109,7 @@ Deno.test('pressure-test: type/protocol matrix rejects every illegal pair', () =
   );
 });
 
-Deno.test('pressure-test: compaction is forbidden on non-text profiles', () => {
+Deno.test('pressure-test: image profiles may compact; speech profiles may not', () => {
   registerProfile({
     id: 'compactor_agent',
     type: 'text',
@@ -119,32 +119,26 @@ Deno.test('pressure-test: compaction is forbidden on non-text profiles', () => {
     inputs: { text: true },
   });
 
-  assertThrows(
-    () => {
-      registerProfile({
-        id: 'invalid_image_compaction',
-        type: 'image',
-        identity: { handle: 'invalid_image' },
-        models: {
-          gemini31FlashLiteImage: {
-            ...HOST_BINDINGS.gemini31FlashLiteImage,
-            compaction: {
-              maxTokens: 10000,
-              compactAt: 0.8,
-              previousExchanges: 2,
-              profile: 'compactor_agent',
-              timing: 'before',
-            },
-          },
+  registerProfile({
+    id: 'image_compaction',
+    type: 'image',
+    identity: { handle: 'image' },
+    models: {
+      gemini31FlashLiteImage: {
+        ...HOST_BINDINGS.gemini31FlashLiteImage,
+        compaction: {
+          maxTokens: 10000,
+          compactAt: 0.8,
+          previousExchanges: 2,
+          profile: 'compactor_agent',
+          timing: 'before',
         },
-        image: { mimeType: 'image/jpeg' },
-        tools: { allow: [] },
-        inputs: { text: true },
-      });
+      },
     },
-    TheoremError,
-    "type 'image' must not set models.gemini31FlashLiteImage.compaction",
-  );
+    image: { mimeType: 'image/jpeg' },
+    tools: { allow: [] },
+    inputs: { text: true },
+  });
 
   assertThrows(
     () => {

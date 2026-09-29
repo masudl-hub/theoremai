@@ -24,6 +24,7 @@ import type {
 } from '../guardrails/types.ts';
 import type {
   CompactionMeter,
+  CompactionOutcome,
   CompactionTiming,
   KeySlot,
   ToolGateKind,
@@ -439,6 +440,18 @@ const COMPACTION_METER_OPTIONS: Readonly<Record<CompactionMeter, TraceOptionMeta
   input: {
     label: 'Whole input',
     doc: "Counts the turn's whole input: instructions, history and attachments.",
+  },
+};
+
+const COMPACTION_OUTCOME_OPTIONS: Readonly<Record<CompactionOutcome, TraceOptionMeta>> = {
+  compacted: { label: 'Compacted', doc: 'A summary replaced the earlier messages.' },
+  deferred: {
+    label: 'Kept whole',
+    doc: 'The compactor failed and the history still fits, so it was kept and compaction runs again next turn.',
+  },
+  dropped: {
+    label: 'Dropped',
+    doc: 'The compactor failed and the history no longer fits, so the earlier messages were dropped.',
   },
 };
 
@@ -1257,9 +1270,41 @@ const TRACE_EVENTS: Readonly<Record<string, TraceEventMeta>> = {
         'Media items the count could not cover.',
       ),
       needed: attr('agent', 'Needed', 'boolean', 'The count crossed the threshold.'),
-      compacted: attr('agent', 'Compacted', 'boolean', 'Earlier messages were summarized.'),
+      outcome: attr(
+        'agent',
+        'Outcome',
+        'text',
+        'What happened to the earlier messages.',
+        COMPACTION_OUTCOME_OPTIONS,
+      ),
       messages_before: attr('messages', 'Messages before', 'number', 'History length before.'),
       messages_after: attr('messages', 'Messages after', 'number', 'History length after.'),
+      dropped_media: attr(
+        'messages',
+        'Media left out',
+        'number',
+        'Media the compactor does not take, left out of what it read.',
+      ),
+      failure_stop: attr(
+        'agent',
+        'Compactor stop',
+        'text',
+        'How the failed compactor stopped.',
+        STOP_KINDS,
+      ),
+      failure_error: attr(
+        'agent',
+        'Compactor error',
+        'text',
+        'The error the compactor failed with.',
+        ERROR_KIND_OPTIONS,
+      ),
+      failure_empty: attr(
+        'agent',
+        'Empty summary',
+        'boolean',
+        'The compactor replied with nothing.',
+      ),
       summary: attr('messages', 'Summary', 'content', 'The summary that replaced them.'),
     },
   },

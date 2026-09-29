@@ -48,6 +48,9 @@ export const LEXICON_KEYS = [
   'repair.section_validator_rejection',
   'repair.section_repair_guidance',
   'repair.section_instructions',
+  'compaction.request',
+  'compaction.tool_call',
+  'compaction.tool_result',
   'egress.default_repair_guidance',
   'egress.refusal',
   'egress.rejection',
@@ -226,6 +229,10 @@ const DEFAULTS: Record<LexiconKey, LexiconDefault> = {
   'repair.section_validator_rejection': '### VALIDATOR REJECTION',
   'repair.section_repair_guidance': '### REPAIR GUIDANCE',
   'repair.section_instructions': '### INSTRUCTIONS',
+  'compaction.request':
+    'Summarize the conversation above, including any earlier summary in it. Reply with the summary only.',
+  'compaction.tool_call': 'Called {tool} with {arguments}',
+  'compaction.tool_result': '{tool} returned: {result}',
   'egress.default_repair_guidance':
     'Rewrite the message as corrected user-visible prose only. Keep the same helpful substance; scrub all internal tool names, leak phrases, and disclosure markers.',
   'egress.refusal': "Sorry, that reply couldn't be shared.",
@@ -355,6 +362,12 @@ export const LEXICON_NOTES: Record<LexiconKey, string> = {
     "The heading over the validator's reason in the repair request.",
   'repair.section_repair_guidance': 'The heading over the repair guidance in the repair request.',
   'repair.section_instructions': 'The heading over the numbered steps in the repair request.',
+  'compaction.request':
+    'Sent to the compactor after the messages it compacts, asking for the summary.',
+  'compaction.tool_call':
+    'How a tool call reads to the compactor. Takes {tool} and {arguments}, the call as JSON.',
+  'compaction.tool_result':
+    'How a tool result reads to the compactor. Takes {tool} and {result}, the output as sent to the model.',
   'egress.default_repair_guidance':
     'Sent to the model when the egress check blocks a reply and the model is asked to rewrite it.',
   'egress.refusal':
@@ -437,6 +450,8 @@ const LEXICON_PLACEHOLDERS: Partial<Record<LexiconKey, readonly string[]>> = {
   'attachments.mime_not_allowed': ['mimeType', 'channel', 'fileName'],
   'quota.exhausted': ['perDay'],
   'repair.history_heading': ['count'],
+  'compaction.tool_call': ['tool', 'arguments'],
+  'compaction.tool_result': ['tool', 'result'],
   'egress.rejection': ['rules'],
   'session.abandon_gated': TOOL,
   'session.tool_denied': TOOL,

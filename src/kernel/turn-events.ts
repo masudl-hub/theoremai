@@ -14,7 +14,9 @@ import type { ErrorKind } from '../guardrails/theorem-error.ts';
 import {
   AWAITING_USER_INPUT_STATUS,
   COMPACTION_METERS,
+  COMPACTION_OUTCOMES,
   type CompactionMeter,
+  type CompactionOutcome,
   MEDIA_INPUT_KIND_VALUES,
   type MediaInputKind,
   PROVIDERS,
@@ -701,22 +703,49 @@ const compactionSignal = z.object({
 });
 true satisfies Equals<z.infer<typeof compactionSignal>, CompactionSignal>;
 
+/** Why the compactor produced no summary. */
+export interface CompactionFailure {
+  /** How the compactor's turn ended; absent when it threw before it could end. */
+  stop?: TurnStopKind;
+  /** The error it reported, when it reported one. */
+  error?: ErrorKind;
+  /** It completed without a summary. */
+  empty?: true;
+}
+const compactionFailure = z.object({
+  stop: z.enum(TURN_STOP_KINDS).optional(),
+  error: errorKindSchema.optional(),
+  empty: z.literal(true).optional(),
+});
+true satisfies Equals<z.infer<typeof compactionFailure>, CompactionFailure>;
+
+/** What one compaction did. The host keeps `history` from now on, whatever the outcome. */
+export interface CompactionResult {
+  outcome: CompactionOutcome;
+  /** The messages the split handed to the compactor. */
+  toCompact: TurnHistoryMessage[];
+  history: TurnHistoryMessage[];
+  /** On `compacted`: the summary that replaced `toCompact`. */
+  summary?: string;
+  /** On `deferred` and `dropped`. */
+  failure?: CompactionFailure;
+  /** Media parts in `toCompact` the compactor's profile does not accept, left out of what it read. */
+  droppedMedia: number;
+  /** The compaction call's own usage. */
+  tokens?: TurnTokens;
+}
+
 /**
- * Theorem compacted the history; the host keeps `history` from now on. Only
- * `before` compacts inside Theorem — `after` is the host's to run, signalled on
- * `done.compaction`.
+ * Theorem ran the compactor before the turn. `after` is the host's to run with
+ * `compactHistory`, signalled on `done.compaction`.
  */
-export interface CompactionEvent {
+export interface CompactionEvent extends Omit<CompactionResult, 'toCompact'> {
   timing: 'before';
   meter: CompactionMeter;
   tokensBefore: number;
   unknownMedia: number;
   messagesBefore: number;
   messagesAfter: number;
-  summary: string;
-  history: TurnHistoryMessage[];
-  /** The compaction call's own usage. */
-  tokens?: TurnTokens;
 }
 
 /** Stops that end a turn with tools pending; `done.tools` is present exactly on them. */
@@ -901,8 +930,11 @@ const TURN_EVENTS = {
     unknownMedia: z.number(),
     messagesBefore: z.number(),
     messagesAfter: z.number(),
-    summary: z.string(),
+    outcome: z.enum(COMPACTION_OUTCOMES),
     history: z.array(turnHistoryMessage),
+    summary: z.string().optional(),
+    failure: compactionFailure.optional(),
+    droppedMedia: z.number(),
     tokens: turnTokens.optional(),
   }),
   evidence: z.object({

@@ -1,18 +1,24 @@
 import '../fixtures/test-host.ts';
-import { assertThrows } from '@std/assert';
+import { assertRejects, assertThrows } from '@std/assert';
 import { encode } from 'gpt-tokenizer/encoding/o200k_base';
+import { TheoremError } from '../../src/guardrails/error.ts';
 import { sanitizeTurnRequest } from '../../src/guardrails/sanitize.ts';
-import { getProfile, registerProfile, runTurn } from '../../src/kernel/default-scope.ts';
+import {
+  compactHistory,
+  getProfile,
+  registerProfile,
+  runTurn,
+} from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import {
   compactionMeter,
   compactionNeeded,
+  compactorHistory,
   resolveCompactionTokens,
   resolveHistoryTokens,
   shouldCompact,
   splitForCompaction,
 } from '../../src/kernel/engine/compaction.ts';
-import { compactionTranscriptLine } from '../../src/kernel/engine/runner/mod.ts';
 import {
   compactionMeter as publicCompactionMeter,
   compactionNeeded as publicCompactionNeeded,
@@ -25,6 +31,8 @@ import type {
   CompactionSpec,
   ModelBinding,
   ModelProvider,
+  ProviderCompleteRequest,
+  ProviderEvent,
   TurnEvent,
   TurnHistoryMessage,
   TurnInput,
@@ -66,35 +74,6 @@ const DEFAULT_SPEC: CompactionSpec = {
   profile: 'test.compactor',
   timing: 'before',
 };
-
-Deno.test('compactionTranscriptLine keeps content and marks media parts', () => {
-  assertEquals(
-    compactionTranscriptLine({
-      role: 'tool',
-      content: 'shortlist',
-      parts: [
-        { type: 'text', text: 'ignored when content set' },
-        { type: 'image', mimeType: 'image/png', data: 'abc' },
-        { type: 'video', mimeType: 'video/mp4', data: 'def' },
-      ],
-    }),
-    '[tool]: shortlist[image][video]',
-  );
-});
-
-Deno.test('compactionTranscriptLine falls back to text parts when content missing', () => {
-  assertEquals(
-    compactionTranscriptLine({
-      role: 'user',
-      parts: [
-        { type: 'text', text: 'hello' },
-        { type: 'audio', mimeType: 'audio/wav', data: 'UklG' },
-        { type: 'document', mimeType: 'application/pdf', data: 'JVBERi0' },
-      ],
-    }),
-    '[user]: hello[audio][document]',
-  );
-});
 
 Deno.test('compactionNeeded returns true when tokens exceed threshold', () => {
   assertEquals(compactionNeeded(80_000, DEFAULT_SPEC), true);
@@ -376,6 +355,7 @@ Deno.test('registerProfile rejects unregistered compaction profile', () => {
 function registerCompactionPair(
   prefix: string,
   compaction: Omit<CompactionSpec, 'profile'> & { profile?: string },
+  compactor: Record<string, unknown> = {},
 ): string {
   const compactorId = `${prefix}.compactor`;
   const speakerId = `${prefix}.speaker`;
@@ -390,7 +370,8 @@ function registerCompactionPair(
       maxSteps: 1,
       inputs: { text: true },
       guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
-    }),
+      ...compactor,
+    } as Parameters<typeof defineProfile>[0]),
   );
   const binding: ModelBinding = {
     ...HOST_BINDINGS.gemini35FlashLite,
@@ -698,9 +679,10 @@ Deno.test('a compaction that ran records its decision, what it replaced, and the
     tokens_before: 600,
     unknown_media: 0,
     needed: true,
-    compacted: true,
+    outcome: 'compacted',
     messages_before: 8,
     messages_after: 5,
+    dropped_media: 0,
   });
   assertEquals(contentOf(record, summary), 'Summary of old conversation');
   assertEquals(record.spans[0]?.attributes['gen_ai.conversation.compacted'], true);
@@ -1408,3 +1390,357 @@ Deno.test('meter input before does not compact without inputTokens even if histo
 });
 
 catalogGate();
+
+const png = { type: 'image' as const, mimeType: 'image/png', data: bytesToBase64(pngBytes(8, 8)) };
+const TOOL_HISTORY: TurnHistoryMessage[] = [
+  { role: 'user', content: 'what is this?', parts: [png] },
+  {
+    role: 'assistant',
+    tool_calls: [
+      { id: 'c1', type: 'function', function: { name: 'lookup', arguments: '{"q":"cat"}' } },
+    ],
+  },
+  { role: 'tool', tool_call_id: 'c1', content: '{"found":"a cat"}' },
+  msg('assistant', 'It is a cat.'),
+];
+
+Deno.test('the compactor reads tool calls and results as text naming the tool', () => {
+  registerCompactionPair('compaction.reader.text', BEFORE_SPEC);
+  assertEquals(compactorHistory(TOOL_HISTORY, getProfile('compaction.reader.text.compactor')), {
+    history: [
+      { role: 'user', content: 'what is this?' },
+      { role: 'assistant', parts: [{ type: 'text', text: 'Called lookup with {"q":"cat"}' }] },
+      { role: 'assistant', parts: [{ type: 'text', text: 'lookup returned: {"found":"a cat"}' }] },
+      msg('assistant', 'It is a cat.'),
+    ],
+    droppedMedia: 1,
+  });
+});
+
+Deno.test('the compactor keeps media it accepts', () => {
+  registerCompactionPair('compaction.reader.media', BEFORE_SPEC, {
+    inputs: {
+      text: true,
+      attachments: { accept: ['image/png'] },
+      maxFiles: 5,
+      maxBytes: 1_000_000,
+      maxTurnBytes: 5_000_000,
+    },
+  });
+  const { history, droppedMedia } = compactorHistory(
+    TOOL_HISTORY,
+    getProfile('compaction.reader.media.compactor'),
+  );
+  assertEquals(history[0], { role: 'user', content: 'what is this?', parts: [png] });
+  assertEquals(droppedMedia, 0);
+});
+
+Deno.test('a message with nothing the compactor can read is left out', () => {
+  registerCompactionPair('compaction.reader.empty', BEFORE_SPEC);
+  assertEquals(
+    compactorHistory(
+      [{ role: 'user', parts: [png] }, msg('assistant', 'ok')],
+      getProfile('compaction.reader.empty.compactor'),
+    ),
+    { history: [msg('assistant', 'ok')], droppedMedia: 1 },
+  );
+});
+
+function compactorScript(
+  compactor: () => AsyncGenerator<ProviderEvent>,
+  seen: ProviderCompleteRequest[] = [],
+): ModelProvider {
+  return {
+    complete: (req) => {
+      seen.push(req);
+      if (seen.length === 1) return compactor();
+      return (async function* () {
+        yield { type: 'text' as const, text: 'response' };
+        yield { type: 'done' as const, stop: { kind: 'completed' } };
+      })();
+    },
+  };
+}
+
+function compactorSays(...events: ProviderEvent[]): () => AsyncGenerator<ProviderEvent> {
+  return async function* () {
+    for (const event of events) yield event;
+  };
+}
+
+const OLD = [...exchange('old 1', 'answer 1'), ...exchange('old 2', 'answer 2')];
+const RECENT = [
+  ...exchange('recent 1', 'recent answer 1'),
+  ...exchange('recent 2', 'recent answer 2'),
+];
+
+async function compactBefore(
+  prefix: string,
+  compactor: () => AsyncGenerator<ProviderEvent>,
+  input: TurnInput,
+): Promise<{
+  events: TurnEvent[];
+  compaction: TurnEvent & { type: 'compaction' };
+  seen: ProviderCompleteRequest[];
+}> {
+  const speaker = registerCompactionPair(prefix, BEFORE_SPEC);
+  const seen: ProviderCompleteRequest[] = [];
+  const events = await collectEvents(speaker, input, compactorScript(compactor, seen));
+  const compaction = firstOf(events, 'compaction');
+  if (!compaction) throw new Error('no compaction event');
+  return { events, compaction, seen };
+}
+
+Deno.test('the compactor gets the compacted messages and a request to summarize them', async () => {
+  const { compaction, seen } = await compactBefore(
+    'compaction.real.messages',
+    compactorSays({ type: 'text', text: 'Summary' }, { type: 'done', stop: { kind: 'completed' } }),
+    { text: 'new question', historyTokens: 600, history: [...OLD, ...RECENT] },
+  );
+  assertEquals(
+    seen[0]?.history?.map((m) => [m.role, m.content]),
+    [
+      ...OLD.map((m) => [m.role, m.content]),
+      [
+        'user',
+        '<user_data>\nSummarize the conversation above, including any earlier summary in it. Reply with the summary only.\n</user_data>',
+      ],
+    ],
+  );
+  const summary = {
+    role: 'assistant' as const,
+    content: 'Summary',
+    metadata: { compactionSummary: true },
+  };
+  assertEquals(compaction.outcome, 'compacted');
+  assertEquals(compaction.summary, 'Summary');
+  assertEquals(compaction.history, [summary, ...RECENT]);
+  assertEquals(
+    seen[1]?.history?.slice(0, -1).map((m) => [m.role, m.content]),
+    [summary, ...RECENT].map((m) => [m.role, m.content]),
+  );
+});
+
+Deno.test('a compactor cut off keeps the history whole when it still fits', async () => {
+  const history = [...OLD, ...RECENT];
+  const { compaction, seen } = await compactBefore(
+    'compaction.fail.cutoff',
+    compactorSays({ type: 'text', text: 'partial su' }, { type: 'done', stop: { kind: 'length' } }),
+    { text: 'q', historyTokens: 600, history },
+  );
+  assertEquals(compaction.outcome, 'deferred');
+  assertEquals(compaction.failure, { stop: 'length' });
+  assertEquals(compaction.summary, undefined);
+  assertEquals(compaction.history, history);
+  assertEquals(
+    seen[1]?.history?.slice(0, -1).map((m) => m.content),
+    history.map((m) => m.content),
+  );
+});
+
+Deno.test('a compactor that says nothing is a failure, not an empty summary', async () => {
+  const history = [...OLD, ...RECENT];
+  const { compaction } = await compactBefore(
+    'compaction.fail.empty',
+    compactorSays({ type: 'done', stop: { kind: 'completed' } }),
+    { text: 'q', historyTokens: 600, history },
+  );
+  assertEquals(compaction.outcome, 'deferred');
+  assertEquals(compaction.failure, { stop: 'completed', empty: true });
+  assertEquals(compaction.history, history);
+});
+
+Deno.test('a compactor that throws is a failure with its error kind', async () => {
+  const history = [...OLD, ...RECENT];
+  const { compaction, events } = await compactBefore(
+    'compaction.fail.throw',
+    async function* () {
+      yield { type: 'text', text: 'partial' };
+      throw new TheoremError('unavailable', 'down');
+    },
+    { text: 'q', historyTokens: 600, history },
+  );
+  assertEquals(compaction.outcome, 'deferred');
+  assertEquals(compaction.failure?.error, 'unavailable');
+  assertEquals(compaction.history, history);
+  assertEquals(
+    eventsOf(events, 'text').map((e) => e.text),
+    ['response'],
+  );
+});
+
+Deno.test('a failed compaction over maxTokens drops the compacted messages but keeps an earlier summary', async () => {
+  const earlier: TurnHistoryMessage = {
+    role: 'assistant',
+    content: 'Earlier summary',
+    metadata: { compactionSummary: true },
+  };
+  const { compaction, seen } = await compactBefore(
+    'compaction.fail.dropped',
+    compactorSays({ type: 'done', stop: { kind: 'provider_error' } }),
+    { text: 'q', historyTokens: 1200, history: [earlier, ...OLD, ...RECENT] },
+  );
+  assertEquals(compaction.outcome, 'dropped');
+  assertEquals(compaction.failure, { stop: 'provider_error' });
+  assertEquals(compaction.history, [earlier, ...RECENT]);
+  assertEquals(
+    seen[1]?.history?.slice(0, -1).map((m) => m.content),
+    ['Earlier summary', ...RECENT.map((m) => m.content)],
+  );
+});
+
+Deno.test('a failed compaction is recorded with how it failed', async () => {
+  const speaker = registerCompactionPair('compaction.trace.failed', BEFORE_SPEC);
+  const { record, decision } = await tracedTurn(
+    speaker,
+    { text: 'q', historyTokens: 600, history: [...OLD, ...RECENT] },
+    compactorScript(compactorSays({ type: 'done', stop: { kind: 'length' } })),
+  );
+  assertEquals(decision, {
+    timing: 'before',
+    meter: 'history',
+    budget: 1000,
+    threshold: 0.5,
+    tokens_before: 600,
+    unknown_media: 0,
+    needed: true,
+    outcome: 'deferred',
+    messages_before: 8,
+    messages_after: 8,
+    dropped_media: 0,
+    failure_stop: 'length',
+  });
+  assertEquals(record.spans[0]?.attributes['gen_ai.conversation.compacted'], undefined);
+});
+
+Deno.test('the host aborting during compaction cancels the turn', async () => {
+  const speaker = registerCompactionPair('compaction.abort', BEFORE_SPEC);
+  const controller = new AbortController();
+  const seen: ProviderCompleteRequest[] = [];
+  const provider = compactorScript(async function* () {
+    controller.abort();
+    yield { type: 'text', text: 'x' };
+    controller.signal.throwIfAborted();
+  }, seen);
+  const events: TurnEvent[] = [];
+  for await (const ev of runTurn(
+    {
+      profile: speaker,
+      input: { text: 'q', historyTokens: 600, history: [...OLD, ...RECENT] },
+      signal: controller.signal,
+    },
+    provider,
+  )) {
+    events.push(ev);
+  }
+  assertEquals(seen.length, 1);
+  assertEquals(firstOf(events, 'compaction'), undefined);
+  assertEquals(firstOf(events, 'done')?.stop.kind, 'cancelled');
+});
+
+Deno.test('compactHistory runs the compactor on what done.compaction carried', async () => {
+  const speaker = registerCompactionPair('compaction.export', AFTER_SPEC);
+  const records: TraceRecord[] = [];
+  const result = await compactHistory(
+    { profile: speaker, history: [...OLD, ...RECENT], tokens: 800 },
+    {
+      complete: () =>
+        compactorSays(
+          { type: 'text', text: 'Summary' },
+          { type: 'done', stop: { kind: 'completed' } },
+        )(),
+    },
+    catalogedSink(records),
+  );
+  assertEquals(result?.outcome, 'compacted');
+  assertEquals(result?.toCompact, OLD);
+  assertEquals(
+    result?.history.map((m) => m.content),
+    ['Summary', ...RECENT.map((m) => m.content)],
+  );
+  const event = records[0]?.spans[0]?.events.find((e) => e.name === 'theorem.compaction');
+  const { summary, ...rest } = event?.attributes ?? {};
+  assertEquals(rest, {
+    timing: 'after',
+    meter: 'history',
+    budget: 1000,
+    threshold: 0.5,
+    tokens_before: 800,
+    outcome: 'compacted',
+    messages_before: 8,
+    messages_after: 5,
+    dropped_media: 0,
+  });
+  assertEquals(contentOf(records[0] as TraceRecord, summary), 'Summary');
+});
+
+Deno.test('compactHistory has nothing to do when every message is retained', async () => {
+  const speaker = registerCompactionPair('compaction.export.retained', AFTER_SPEC);
+  assertEquals(
+    await compactHistory({ profile: speaker, history: RECENT, tokens: 800 }, tokenProvider(0)),
+    undefined,
+  );
+});
+
+Deno.test('compactHistory needs a model with compaction', async () => {
+  registerCompactionPair('compaction.export.none', AFTER_SPEC);
+  await assertRejects(
+    () =>
+      compactHistory(
+        { profile: 'compaction.export.none.compactor', history: OLD, tokens: 800 },
+        tokenProvider(0),
+      ),
+    TheoremError,
+    "model 'gemini35FlashLite' has no compaction",
+  );
+});
+
+Deno.test('registerProfile rejects a compactor that is not a text profile', () => {
+  registerProfile(
+    defineProfile({
+      id: 'compaction.validator.image_compactor',
+      type: 'image',
+      identity: { handle: 'image' },
+      ...geminiModels('gemini31FlashLiteImage'),
+      image: { aspectRatio: '1:1', size: '1K', mimeType: 'image/jpeg' },
+      tools: { allow: [] },
+      inputs: { text: true },
+    }),
+  );
+  assertThrows(
+    () =>
+      registerCompactionPair('compaction.validator.image', {
+        ...BEFORE_SPEC,
+        profile: 'compaction.validator.image_compactor',
+      }),
+    TheoremError,
+    "compaction profile 'compaction.validator.image_compactor' must be a text profile that takes text",
+  );
+});
+
+Deno.test('a compactor on another provider needs compactionProvider', async () => {
+  const speaker = registerCompactionPair('compaction.provider', BEFORE_SPEC, {
+    models: { sonar: HOST_BINDINGS.sonar },
+  });
+  const turn = (compactionProvider?: ModelProvider) =>
+    collectEventsFor({
+      profile: speaker,
+      input: { text: 'q', history: SMALL_HISTORY },
+      ...(compactionProvider ? { compactionProvider } : {}),
+    });
+  await assertRejects(
+    () => turn(),
+    TheoremError,
+    "Profile compaction.provider.speaker compacts with 'compaction.provider.compactor', which this turn's provider cannot run; pass compactionProvider",
+  );
+  assertEquals(
+    eventsOf(await turn(tokenProvider(0)), 'text').map((e) => e.text),
+    ['response'],
+  );
+});
+
+async function collectEventsFor(req: Parameters<typeof runTurn>[0]): Promise<TurnEvent[]> {
+  const events: TurnEvent[] = [];
+  for await (const ev of runTurn(req, tokenProvider(0))) events.push(ev);
+  return events;
+}

@@ -5,6 +5,8 @@ import type { ProfileDefinition } from './registry/profiles.ts';
 import { defaultKernelScope as scope } from './scope.ts';
 import type { InvokeToolRequest, RegisteredTool, ToolDefinitionInput } from './tools/types.ts';
 import type {
+  CompactHistoryRequest,
+  CompactionResult,
   DecisionRequest,
   DecisionResult,
   LiveSession,
@@ -97,6 +99,14 @@ function runSession(
   return scope.runSession(req, options, sinkOverride);
 }
 
+function compactHistory(
+  req: CompactHistoryRequest,
+  provider: ModelProvider,
+  sinkOverride?: TraceSink,
+): Promise<CompactionResult | undefined> {
+  return scope.compactHistory(req, provider, sinkOverride);
+}
+
 function invokeTool(
   request: InvokeToolRequest,
   sinkOverride?: TraceSink,
@@ -121,6 +131,7 @@ function runDecision(
 
 export {
   clearProfiles,
+  compactHistory,
   getProfile,
   getStructured,
   getTool,

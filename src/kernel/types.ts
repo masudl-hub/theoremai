@@ -2,6 +2,7 @@ import type {
   CacheMode,
   CacheTtl,
   CompactionMeter,
+  CompactionOutcome,
   CompactionTiming,
   ContinueStopKind,
   FieldMeta,
@@ -45,6 +46,8 @@ import type {
 } from './tools/types.ts';
 import type {
   CallDone,
+  CompactionFailure,
+  CompactionResult,
   CompactionSignal,
   DoneFields,
   GroundingEvent,
@@ -74,7 +77,10 @@ export type {
   CacheMode,
   CacheTtl,
   CallDone,
+  CompactionFailure,
   CompactionMeter,
+  CompactionOutcome,
+  CompactionResult,
   CompactionSignal,
   CompactionTiming,
   ContinueStopKind,
@@ -254,6 +260,21 @@ export interface CompactionSpec {
   meter?: CompactionMeter;
   /** Replaces the default `tokens > compactAt * maxTokens` check. */
   trigger?: (ctx: CompactionTriggerContext) => boolean | Promise<boolean>;
+}
+
+/** `compactHistory` input, for `timing: 'after'`: the host passes back what `done.compaction` carried. */
+export interface CompactHistoryRequest {
+  /** The profile whose model binding carries the `compaction` spec. */
+  profile: ProfileId;
+  /** That binding; defaults to the profile's `defaultModel`. */
+  model?: ModelId;
+  history: TurnHistoryMessage[];
+  /** `done.compaction.tokens`: a failed compactor drops `toCompact` only when this is over `maxTokens`. */
+  tokens: number;
+  signal?: AbortSignal;
+  traceparent?: string;
+  conversationId?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface StructuredSpec {
@@ -783,7 +804,7 @@ export interface TurnRequest {
    */
   continuation?: number;
   input?: TurnInput;
-  /** Provider for the compaction profile when `timing: 'before'`. Falls back to the turn provider. */
+  /** Runs a `timing: 'before'` compactor the turn's provider cannot. */
   compactionProvider?: ModelProvider;
   sessionResumptionHandle?: string;
   /**

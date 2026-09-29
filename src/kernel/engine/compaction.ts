@@ -1,7 +1,13 @@
+import { type LexiconOverrides, lexiconText } from '../../guardrails/lexicon.ts';
+import { mediaChannelForMime } from '../registry/catalog.ts';
 import type {
+  CompactionFailure,
   CompactionMeter,
+  CompactionResult,
   CompactionSpec,
   CompactionTriggerContext,
+  InteractionPart,
+  Profile,
   TurnHistoryMessage,
   TurnInput,
   TurnTokens,
@@ -156,5 +162,121 @@ export async function splitForCompaction(
   return {
     toCompact: history.slice(0, cutIndex),
     toRetain: history.slice(cutIndex),
+  };
+}
+
+function isCompactionSummary(message: TurnHistoryMessage): boolean {
+  return message.metadata?.compactionSummary === true;
+}
+
+function textPart(text: string): InteractionPart {
+  return { type: 'text', text };
+}
+
+/**
+ * `toCompact` as the compactor reads it: media its profile does not accept is
+ * left out, and tool calls and results become the assistant's text, so no
+ * provider needs the tools declared to read them.
+ */
+export function compactorHistory(
+  toCompact: readonly TurnHistoryMessage[],
+  compactor: Profile,
+): { history: TurnHistoryMessage[]; droppedMedia: number } {
+  const lexicon: LexiconOverrides | undefined = compactor.lexicon;
+  const toolNames = new Map<string, string>();
+  let droppedMedia = 0;
+  const readable = (parts: readonly InteractionPart[] | undefined): InteractionPart[] =>
+    (parts ?? []).filter((part) => {
+      if (part.type === 'text' || mediaChannelForMime(compactor, part.mimeType)) return true;
+      droppedMedia += 1;
+      return false;
+    });
+
+  const history: TurnHistoryMessage[] = [];
+  for (const message of toCompact) {
+    for (const call of message.tool_calls ?? []) toolNames.set(call.id, call.function.name);
+    const parts = readable(message.parts);
+    if (message.role === 'tool') {
+      const tool =
+        message.name ?? (message.tool_call_id ? toolNames.get(message.tool_call_id) : undefined);
+      const result = message.content ?? '';
+      history.push({
+        role: 'assistant',
+        parts: [
+          textPart(lexiconText('compaction.tool_result', { tool: tool ?? '', result }, lexicon)),
+          ...parts,
+        ],
+      });
+      continue;
+    }
+    const calls = (message.tool_calls ?? []).map((call) =>
+      textPart(
+        lexiconText(
+          'compaction.tool_call',
+          { tool: call.function.name, arguments: call.function.arguments },
+          lexicon,
+        ),
+      ),
+    );
+    const all = [...parts, ...calls];
+    if (!message.content && all.length === 0) continue;
+    history.push({
+      role: message.role,
+      ...(message.content ? { content: message.content } : {}),
+      ...(all.length > 0 ? { parts: all } : {}),
+      ...(message.name ? { name: message.name } : {}),
+    });
+  }
+  return { history, droppedMedia };
+}
+
+/** What the compactor returned: a summary, or why there is none. */
+export type CompactorRun =
+  | { summary: string; droppedMedia: number; tokens?: TurnTokens }
+  | { failure: CompactionFailure; droppedMedia: number; tokens?: TurnTokens };
+
+/**
+ * The history after one compaction. A failed compactor never leaves a hollow
+ * summary: under `maxTokens` the history stays whole for the next turn to try
+ * again; over it, `toCompact` is dropped (keeping any earlier summary) so the
+ * turn still fits.
+ */
+export function compactionResult(
+  split: CompactionSplit,
+  run: CompactorRun,
+  tokens: number,
+  spec: CompactionSpec,
+): CompactionResult {
+  const shared = {
+    toCompact: split.toCompact,
+    droppedMedia: run.droppedMedia,
+    ...(run.tokens ? { tokens: run.tokens } : {}),
+  };
+  if ('summary' in run) {
+    const summary: TurnHistoryMessage = {
+      role: 'assistant',
+      content: run.summary,
+      metadata: { compactionSummary: true },
+    };
+    return {
+      ...shared,
+      outcome: 'compacted',
+      summary: run.summary,
+      history: [summary, ...split.toRetain],
+    };
+  }
+  if (tokens > spec.maxTokens) {
+    return {
+      ...shared,
+      outcome: 'dropped',
+      failure: run.failure,
+      history: [...split.toCompact.filter(isCompactionSummary), ...split.toRetain],
+    };
+  }
+  return {
+    ...shared,
+    outcome: 'deferred',
+    failure: run.failure,
+    history: [...split.toCompact, ...split.toRetain],
   };
 }

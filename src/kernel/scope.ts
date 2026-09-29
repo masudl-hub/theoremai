@@ -1,12 +1,14 @@
 import type { TraceSink } from '../observability/trace-sink.ts';
 import { type RunDecisionOptions, runDecisionInRegistry } from './engine/decision.ts';
-import { runTurnInRegistry } from './engine/runner/mod.ts';
+import { compactHistoryInRegistry, runTurnInRegistry } from './engine/runner/mod.ts';
 import { type RunSessionOptions, runSessionInRegistry } from './engine/session/mod.ts';
 import { createKernelRegistry, type KernelRegistry } from './registry/kernel-registry.ts';
 import { projectProfileInRegistry, resolveTurnInRegistry } from './registry/resolve.ts';
 import { invokeTool } from './tools/invoke.ts';
 import type { InvokeToolRequest } from './tools/types.ts';
 import type {
+  CompactHistoryRequest,
+  CompactionResult,
   DecisionRequest,
   DecisionResult,
   LiveSession,
@@ -28,6 +30,11 @@ interface KernelScope extends KernelRegistry {
     options: RunSessionOptions,
     sinkOverride?: TraceSink,
   ): Promise<LiveSession>;
+  compactHistory(
+    req: CompactHistoryRequest,
+    provider: ModelProvider,
+    sinkOverride?: TraceSink,
+  ): Promise<CompactionResult | undefined>;
   invokeTool(request: InvokeToolRequest, sinkOverride?: TraceSink): AsyncGenerator<TurnEvent>;
   resolveTurn(req: TurnRequest): ReturnType<typeof resolveTurnInRegistry>;
   projectProfile(id: string): ProjectedProfile;
@@ -45,6 +52,8 @@ function createKernelScope(): KernelScope {
       runTurnInRegistry(registry, req, provider, sinkOverride),
     runSession: (req, options, sinkOverride) =>
       runSessionInRegistry(registry, req, options, sinkOverride),
+    compactHistory: (req, provider, sinkOverride) =>
+      compactHistoryInRegistry(registry, req, provider, sinkOverride),
     invokeTool: (request, sinkOverride) => invokeTool(registry, request, sinkOverride),
     resolveTurn: (req) => resolveTurnInRegistry(registry, req),
     projectProfile: (id) => projectProfileInRegistry(registry, id),

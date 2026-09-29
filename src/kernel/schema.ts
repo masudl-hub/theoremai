@@ -126,6 +126,14 @@ export type CompactionMeter = (typeof COMPACTION_METERS)[number];
 export const COMPACTION_TIMINGS = ['before', 'after'] as const;
 export type CompactionTiming = (typeof COMPACTION_TIMINGS)[number];
 
+/**
+ * - `compacted`: a summary replaced the compacted messages.
+ * - `deferred`: the compactor failed and the history still fits `maxTokens`, so it is kept whole.
+ * - `dropped`: the compactor failed over `maxTokens`, so the compacted messages were dropped.
+ */
+export const COMPACTION_OUTCOMES = ['compacted', 'deferred', 'dropped'] as const;
+export type CompactionOutcome = (typeof COMPACTION_OUTCOMES)[number];
+
 export const CACHE_MODES = ['automatic', 'system'] as const;
 export type CacheMode = (typeof CACHE_MODES)[number];
 

@@ -240,8 +240,8 @@ Live sessions emit the same stage names around utterance cycles and
 2. **Sanitize** — `sanitizeTurnRequest` strips injection/sensitive spans per
    profile guardrails (unless disabled).
 3. **Compaction (before)** — when `timing: 'before'` and threshold fires, kernel
-   runs the compaction profile turn synchronously, then continues with trimmed
-   history. The history meter counts media by the turn model's family
+   runs the compaction profile turn synchronously, then continues with the
+   history it leaves (see [Compaction](#compaction)). The history meter counts media by the turn model's family
    (`mediaTokenFamily` of the resolved binding); media it cannot count is
    reported as `unknownMedia`.
 4. **Canary bind** — `bindCanary` embeds the per-turn canary in system text when
@@ -305,8 +305,10 @@ take `traceparent`, `conversationId`, `links` and `metadata` the same way.
 profile with `TheoremError` (`requireModelProfile`); host profiles only execute
 tools through `invokeTool`.
 
-Optional `compactionProvider` on `TurnRequest` when the compactor profile uses a
-different transport than the primary turn.
+`compactionProvider` on `TurnRequest` runs a `timing: 'before'` compactor.
+Without it the turn's provider does, which needs a text speaker on the same
+protocol and provider as the compactor's default model; otherwise `runTurn`
+throws `config`.
 
 ## Stream events
 
@@ -326,6 +328,7 @@ different transport than the primary turn.
 | `stage` | Turn timeline (`stage`: `pre_turn` \| `pre_tool` \| `post_tool` \| `before_end` \| `post_turn`) — see [`stages.md`](stages.md) |
 | `tokens` | One per model call, after that call's output: `TurnTokens` (see [Token usage](#token-usage)); may gate `meter: 'input'` |
 | `response` | Adapter → runner only, never yielded by `runTurn`: the response identity (`id`, `model`) as soon as the wire names it, and again when it grows or changes. The runner records it on the call's trace span (`gen_ai.response.id` / `gen_ai.response.model`), so a call that fails or is cut by a guardrail still names the model that served it |
+| `compaction` | `timing: 'before'` ran the compactor: `outcome`, the `history` the turn used, `summary` when compacted, `failure` when not, `droppedMedia`, the meter's count and message counts (see [Compaction](#compaction)) |
 | `done` | Terminal or live boundary: `stop` (`completed` / `interrupted` / `generation_complete` / …), `compaction`, `tokens` (the turn's usage); when `stop.kind` is `tool` or `gate`, required `tools` (`TurnToolSnapshot`) for host `invokeTool` resume, absent otherwise |
 | `error` | `errorKind` (builder), `errorInternal` (host logs only), and `error`, the user's wording for the kind (profile `lexicon` → `overrideLexicon` → default) — see [Public errors](guardrails.md#public-errors) |
 
@@ -793,7 +796,8 @@ carries the prompt media the estimate left out.
 
 ### Compaction profile
 
-A compaction profile is a normal registered profile. Minimal summarizer:
+A compaction profile is a registered text profile that takes text. Minimal
+summarizer:
 
 ```ts
 registerProfile(defineProfile({
@@ -804,13 +808,53 @@ registerProfile(defineProfile({
     system: "Summarize this conversation concisely. Preserve unresolved issues, "
       + "decisions, and key facts.",
   },
-  model: { /* allow + config */, maxSteps: 1, thinking: "none" },
+  models: { summarizer: summarizerBinding },
+  key: "slotA",
+  maxSteps: 1,
   tools: { allow: [] },
   inputs: { text: true },
   outputs: { structured: "my.summary.schema" },
   guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
 }));
 ```
+
+Compaction applies to `text` and `image` profiles (`runTurn`); `live`
+compacts with `live.contextCompression`, and `speech` sends no history.
+
+### What the compactor reads
+
+The compactor gets `toCompact` as its history, with the lexicon's
+`compaction.request` as its input:
+
+- Media its `inputs` do not accept is left out and counted in `droppedMedia`;
+  a message left with nothing is skipped. Its byte limits are not applied to
+  history, so `maxTokens` must fit the compactor's context.
+- Tool calls and results become assistant text (`compaction.tool_call`,
+  `compaction.tool_result`) naming the tool, so no provider needs the tools
+  declared.
+- An earlier summary in `toCompact` is summarized with the rest.
+
+A completed, non-empty reply is the summary: the structured output as JSON,
+else the text. It replaces `toCompact` as an assistant message with
+`metadata.compactionSummary: true`.
+
+### Outcomes
+
+Anything else is a failure: a stop other than `completed`, an `error` event, a
+thrown error, or an empty reply. A failure never leaves a partial summary.
+
+| `outcome` | History after |
+| --- | --- |
+| `compacted` | The summary, then `toRetain` |
+| `deferred` | Unchanged: the compactor failed and the metered count is within `maxTokens`, so the next turn tries again |
+| `dropped` | Earlier summaries in `toCompact`, then `toRetain`: the compactor failed over `maxTokens` |
+
+`failure` carries the compactor's `stop`, `error` kind, or `empty: true`. The
+host's abort is not a failure: the turn ends `cancelled`, with no `compaction`
+event. The `theorem.compaction` trace event records `outcome`, the message
+counts, `dropped_media`, `failure_stop` / `failure_error` / `failure_empty`
+and the `summary`; `gen_ai.conversation.compacted` is set only on
+`compacted`.
 
 ### After-turn signal
 
@@ -819,10 +863,23 @@ for await (const event of runTurn(req, provider)) {
   if (event.type === "done" && event.compaction?.needed) {
     const { history, tokens, unknownMedia, meter, promptTokens, promptTokensEstimated } =
       event.compaction;
-    // host runs compactor async, rewrites persisted history
+    const result = await compactHistory(
+      { profile: req.profile, model, history, tokens },
+      provider,
+    );
+    if (result) persistHistory(result.history);
   }
 }
 ```
+
+`compactHistory` runs the compactor on the history `done.compaction` carried,
+with the same split, reading, outcomes and trace event as `before`, in a trace
+of its own (`traceparent`, `conversationId` and `metadata` join it to the
+turn's). `model` defaults to the profile's default model, which must have
+`compaction`. It returns `CompactionResult` (`outcome`, `toCompact`,
+`history`, `summary` / `failure`, `droppedMedia`, the compactor's `tokens`),
+or `undefined` when the split leaves nothing to compact. `provider` runs the
+compactor.
 
 No signal is attached when the turn has no history. `timing: 'before'` emits no
 `compaction` event when the split leaves nothing to compact.
@@ -833,6 +890,7 @@ No signal is attached when the turn has no history. `timing: 'before'` emits no
 | --- | --- |
 | `CompactionSpec` / `CompactionMeter` / `CompactionTriggerContext` | Config types |
 | `CompactionSignal` | `done.compaction` payload |
+| `compactHistory` / `CompactHistoryRequest` / `CompactionResult` / `CompactionOutcome` / `CompactionFailure` | Run the compactor after the turn |
 | `CompactionSplit` / `CompactionTokens` | Split + resolved counts |
 | `compactionMeter` / `resolveHistoryTokens` / `resolveCompactionTokens` | Meter resolution |
 | `loadTokenEstimator` / `mediaTokenFamily` / `TOKEN_TEXT_ENCODING` / `MediaTokenFamily` / `TokenEstimator` / `TokenCount` / `MediaPayload` | Shared token estimator (o200k text, verified media rules) |
@@ -843,7 +901,7 @@ No signal is attached when the turn has no history. `timing: 'before'` emits no
 Register-time validation: `maxTokens`, `compactAt`, `previousExchanges`, `profile` and `timing`
 are set, `maxTokens > 0`, `compactAt ∈ (0,1)`,
 `previousExchanges ≥ 0`, an integer when `≥ 1` and `< compactAt` when fractional, meter ∈ `{history,input}`,
-compaction profile registered first.
+compaction profile registered first and a text profile that takes text.
 
 ## Prompt cache (OpenRouter)
 
@@ -1038,11 +1096,11 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
 
 | Group | Symbols |
 | --- | --- |
-| Compaction | `CompactionSplit`, `CompactionTokens`, `compactionMeter`, `compactionNeeded`, `resolveCompactionTokens`, `resolveHistoryTokens`, `shouldCompact`, `splitForCompaction` |
+| Compaction | `compactHistory`, `CompactionSplit`, `CompactionTokens`, `compactionMeter`, `compactionNeeded`, `resolveCompactionTokens`, `resolveHistoryTokens`, `shouldCompact`, `splitForCompaction` |
 | Token estimate | `loadTokenEstimator`, `mediaTokenFamily`, `TOKEN_TEXT_ENCODING`, `MediaPayload`, `MediaTokenFamily`, `TokenCount`, `TokenEstimator`, `sumTokens` |
 | Runner | `runTurn`, `runSession`, `runDecision`, `RunSessionOptions`, `RunDecisionOptions`, `DecisionError`, `prepareLiveInboundText`, `liveIngressEnabled`, `liveIngressEnabledFromSpec`, `liveIngressChannelDefault`, `hasAnyLiveIngress`, `assertLiveIngress`, `assertLiveIngressConfigured`, `LiveIngressChannel` |
 | Catalog | `clampThinkingLevel`, `clampThinkingLevelForApiId`, `mediaChannelForMime`, `MediaInputChannel`, `mediaKindForMime`, `getTool`, `mimeAllowed`, `mimeEssence`, `modelEntryByApiId`, `registerTools`, `requireModelBinding`, `resetTools` |
-| Schema | `PROFILE_FIELDS`, `PROFILE_GRAPH`, `PROFILE_TYPES`, `PROFILE_TYPE_PROTOCOLS`, `protocolsForProfileType`, `isValidProfileProtocol`, `EXTRA_FIELDS`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `spineFacetsForProfileType`, `profileGraphFacet`, `ProfileGraphFacet`, `ProfileGraphFacetId`, `ProfileGraphEditor`, `ProfileGraphRole`, `PROTOCOLS`, `PROVIDERS`, `PROTOCOL_PROVIDERS`, `providersFor`, `protocolsFor`, `isValidPair`, `coerceProvider`, `coerceProtocol`, `coerceSpeechFormat`, `isSpeechFormatAllowedForProtocol`, `speechFormatsForProtocol`, `THINKING_LEVELS`, `thinkingLevelsForProtocol`, `KEY_SLOTS`, `OVERFLOW_KEY_SLOTS`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `IMAGE_ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `COMPACTION_METERS`, `COMPACTION_TIMINGS`, `CACHE_MODES`, `CACHE_TTLS`, `TURN_STOP_KINDS`, `CONTINUE_STOP_KINDS`, `TURN_STAGES`, `TURN_INJECT_STAGES`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES`, `AUTH_UNAUTHENTICATED_POLICIES`, `HTTP_METHODS`, `PLAYGROUND_AUTH_TYPES`, `TOOL_AUTH_TYPES`, `AuthUnauthenticatedPolicy`, `CustomToolType`, `HttpMethod`, `PlaygroundAuthType`, `ToolAccess`, `ToolAuthType`, `ToolPermission`, `ToolType`, `ToolGateKind`, `TurnStage`, `TurnInjectStage`, `AwaitingUserInputKind`, `EGRESS_ON_BLOCK`, `EgressOnBlock` |
+| Schema | `PROFILE_FIELDS`, `PROFILE_GRAPH`, `PROFILE_TYPES`, `PROFILE_TYPE_PROTOCOLS`, `protocolsForProfileType`, `isValidProfileProtocol`, `EXTRA_FIELDS`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `spineFacetsForProfileType`, `profileGraphFacet`, `ProfileGraphFacet`, `ProfileGraphFacetId`, `ProfileGraphEditor`, `ProfileGraphRole`, `PROTOCOLS`, `PROVIDERS`, `PROTOCOL_PROVIDERS`, `providersFor`, `protocolsFor`, `isValidPair`, `coerceProvider`, `coerceProtocol`, `coerceSpeechFormat`, `isSpeechFormatAllowedForProtocol`, `speechFormatsForProtocol`, `THINKING_LEVELS`, `thinkingLevelsForProtocol`, `KEY_SLOTS`, `OVERFLOW_KEY_SLOTS`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `IMAGE_ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `COMPACTION_METERS`, `COMPACTION_OUTCOMES`, `COMPACTION_TIMINGS`, `CACHE_MODES`, `CACHE_TTLS`, `TURN_STOP_KINDS`, `CONTINUE_STOP_KINDS`, `TURN_STAGES`, `TURN_INJECT_STAGES`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES`, `AUTH_UNAUTHENTICATED_POLICIES`, `HTTP_METHODS`, `PLAYGROUND_AUTH_TYPES`, `TOOL_AUTH_TYPES`, `AuthUnauthenticatedPolicy`, `CustomToolType`, `HttpMethod`, `PlaygroundAuthType`, `ToolAccess`, `ToolAuthType`, `ToolPermission`, `ToolType`, `ToolGateKind`, `TurnStage`, `TurnInjectStage`, `AwaitingUserInputKind`, `EGRESS_ON_BLOCK`, `EgressOnBlock` |
 | Scope | `KernelScope`, `createKernelScope`, `defaultKernelScope`, `KernelRegistry`, `createKernelRegistry` |
 | Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `LiveProfileDefinition`, `HostProfileDefinition`, `DecisionProfileDefinition`, `ProfileRegistry`, `createProfileRegistry`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `projectProfileObject`, `requireModelProfile`, `resolveTurn` |
 | Tools | `ToolRegistry`, `createToolRegistry`, `registerTool`, `registerTools`, `invokeTool`, `GATE_DECISIONS`, `GateDecision`, `answerGatedCall`, `GateAnswerRequest`, `HeldGatedCall`, `AnsweredGate`, `askUserTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `resetTools`, `formatToolResult`, `projectForModel`, `coerceToolResultParts`, `leanToolResultData`, `wireInteractionPart`, `isMediaRefPart`, `prepareTurnToolSnapshot`, `buildHttpToolTarget`, `executeHttpTool`, `executeMcpTool`, `parseMcpRpcResponse`, `isUnsupportedMcpProtocolError`, `MCP_PROTOCOL_VERSIONS`, `McpProtocolVersion`, `resolveToolAuth` |

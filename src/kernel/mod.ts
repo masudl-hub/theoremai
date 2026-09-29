@@ -7,6 +7,7 @@
 export * from './auth/mod.ts';
 export {
   clearProfiles,
+  compactHistory,
   getProfile,
   getStructured,
   getTool,
@@ -119,6 +120,7 @@ export {
   CACHE_MODES,
   CACHE_TTLS,
   COMPACTION_METERS,
+  COMPACTION_OUTCOMES,
   COMPACTION_TIMINGS,
   CONTINUE_STOP_KINDS,
   catalogPathFor,

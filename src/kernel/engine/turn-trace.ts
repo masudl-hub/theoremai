@@ -900,7 +900,7 @@ function endTurnSpan(root: SpanHandle, end: TurnEnd): void {
     ...(stop ? { 'theorem.stop.kind': stop } : {}),
     'theorem.attempts': end.attempts,
     'theorem.steps': end.calls,
-    ...(end.seen.some((ev) => ev.type === 'compaction')
+    ...(end.seen.some((ev) => ev.type === 'compaction' && ev.outcome === 'compacted')
       ? { 'gen_ai.conversation.compacted': true }
       : {}),
     ...(failed && publicError ? { 'theorem.error.public': traceContent(publicError) } : {}),

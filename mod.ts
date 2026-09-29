@@ -171,6 +171,7 @@ export {
 } from './src/guardrails/sanitize.ts';
 export {
   clearProfiles,
+  compactHistory,
   getProfile,
   getStructured,
   getTool,
@@ -292,6 +293,7 @@ export {
   AWAITING_USER_INPUT_KINDS,
   AWAITING_USER_INPUT_STATUS,
   COMPACTION_METERS,
+  COMPACTION_OUTCOMES,
   COMPACTION_TIMINGS,
   CONTINUE_STOP_KINDS,
   catalogPathFor,

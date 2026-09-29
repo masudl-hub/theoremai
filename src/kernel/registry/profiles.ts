@@ -699,10 +699,17 @@ function assertCompactionSpec(
   if (spec.meter != null && spec.meter !== 'history' && spec.meter !== 'input') {
     throw new TheoremError('config', `${tag}: meter must be 'history' or 'input'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
-  if (!registered.has(spec.profile)) {
+  const compactor = registered.get(spec.profile);
+  if (!compactor) {
     throw new TheoremError(
       'config',
       `${tag}: compaction profile '${spec.profile}' must be registered before '${profileId}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  if (compactor.type !== 'text' || compactor.inputs?.text === false) {
+    throw new TheoremError(
+      'config',
+      `${tag}: compaction profile '${spec.profile}' must be a text profile that takes text`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 }

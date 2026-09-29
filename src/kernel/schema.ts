@@ -866,15 +866,17 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'guardrails.egress.enforce': field(
     'EgressEnforcer',
-    'Host function: (context) => { blocked, text, … }.',
+    'Your check on the reply before the user sees it: (payload, context) => Verdict, where payload is { text, structured? }. Runs while the reply streams and once when it ends. Return allow, flag (recorded only), redact (the finished reply is replaced with your text) or block (onBlock decides). A block or redact mid-stream stops further text reaching the user until the final check. A check that throws counts as a block. standardEgressEnforce is the bundled check: canary leaks, sensitive data, system-prompt markers and injection echoes.',
   ),
   'guardrails.egress.onBlock': field(
     unionType(EGRESS_ON_BLOCK),
-    'reject_to_agent retries; refuse_to_user stops the turn.',
+    'What happens when enforce blocks the reply. Unset → reject_to_agent.',
     EGRESS_ON_BLOCK,
     {
-      reject_to_agent: 'Feeds rejection error back to model for automatic repair turn.',
-      refuse_to_user: 'Halts turn immediately and shows the lexicon egress.refusal line.',
+      reject_to_agent:
+        "The model reads the block's rejection and writes the reply again, up to maxRetries times (or outputs.validation.maxRetries, if larger). With no retries left (the default is 0), the reply is withheld and the turn ends with a safety error.",
+      refuse_to_user:
+        "The user reads the lexicon's egress.refusal line in place of the reply, and the turn ends.",
     },
   ),
   'guardrails.egress.maxRetries': field('number', 'Repair-turn ceiling after an egress block.'),

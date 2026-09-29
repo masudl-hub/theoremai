@@ -92,14 +92,18 @@ function getCompactionSpec(profile: ModelProfile, modelId: string): CompactionSp
   return profile.models[modelId]?.compaction;
 }
 
-function turnError(events: readonly TurnEvent[]): ErrorKind | undefined {
-  return events.find((e): e is TurnEventOf<'error'> => e.type === 'error')?.errorKind;
+/** Errors only the host can fix: the compactor throws them rather than failing quietly every turn. */
+const COMPACTOR_THROWS: ReadonlySet<ErrorKind> = new Set(['config', 'request', 'auth', 'internal']);
+
+function turnError(events: readonly TurnEvent[]): TurnEventOf<'error'> | undefined {
+  return events.find((e): e is TurnEventOf<'error'> => e.type === 'error');
 }
 
 /**
  * Run the compaction profile as a turn under `span`: its spans join that
  * record and it writes none of its own. Anything short of a completed,
- * non-empty summary is a failure; only the host's abort is thrown.
+ * non-empty summary is a failure; the host's abort and `COMPACTOR_THROWS`
+ * errors are thrown.
  */
 async function runCompactor(args: {
   registry: KernelRegistry;
@@ -134,17 +138,23 @@ async function runCompactor(args: {
     }
   } catch (err) {
     throwIfAborted(args.signal);
-    return {
-      droppedMedia,
-      failure: { error: err instanceof TheoremError ? err.kind : 'internal' },
-    };
+    const error = err instanceof TheoremError ? err.kind : 'internal';
+    if (COMPACTOR_THROWS.has(error)) throw err;
+    return { droppedMedia, failure: { error } };
   }
   throwIfAborted(args.signal);
 
   const tokens = sumEventTokens(events);
   const usage = tokens ? { tokens } : {};
   const stop = findLast(events, (e): e is TurnEventOf<'done'> => e.type === 'done')?.stop.kind;
-  const error = turnError(events);
+  const reported = turnError(events);
+  if (reported && COMPACTOR_THROWS.has(reported.errorKind)) {
+    throw new TheoremError(
+      reported.errorKind,
+      `Compactor '${args.spec.profile}' failed: ${reported.errorInternal ?? reported.error}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  const error = reported?.errorKind;
   if (stop !== 'completed' || error) {
     return {
       droppedMedia,
@@ -664,8 +674,7 @@ async function maybeAttachAfter(
 /**
  * `timing: 'after'`: run the compactor on the history `done.compaction` carried,
  * with the same split, failure rules and trace as `before`. `provider` runs the
- * compactor. `undefined` when the split leaves nothing to compact; only the
- * host's abort is thrown.
+ * compactor. `undefined` when the split leaves nothing to compact.
  */
 async function compactHistoryInRegistry(
   registry: KernelRegistry,

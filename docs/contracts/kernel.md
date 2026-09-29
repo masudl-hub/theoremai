@@ -852,8 +852,12 @@ never leaves a partial summary.
 | `dropped` | Earlier summaries in `toCompact`, then `toRetain`: the compactor failed over `maxTokens` |
 
 `failure` carries the compactor's `stop`, `error` kind, `empty: true`, or
-`unreadable: true`. The
-host's abort is not a failure: the turn ends `cancelled`, with no `compaction`
+`unreadable: true`.
+
+Errors only the host can fix are thrown, not failures: a compactor that throws
+or reports a `config`, `request`, `auth` or `internal` error throws it from
+`runTurn` before the turn's model call, or from `compactHistory`. The host's
+abort is not a failure either: the turn ends `cancelled`, with no `compaction`
 event. The `theorem.compaction` trace event records `outcome`, the message
 counts, `dropped_media`, `failure_stop` / `failure_error` / `failure_empty` / `failure_unreadable`
 and the `summary`; `gen_ai.conversation.compacted` is set only on

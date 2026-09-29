@@ -1586,6 +1586,71 @@ Deno.test('a compactor that throws is a failure with its error kind', async () =
   );
 });
 
+for (const kind of ['config', 'request', 'auth', 'internal'] as const) {
+  Deno.test(`a compactor that throws ${kind} throws before the turn's model call`, async () => {
+    const speaker = registerCompactionPair(`compaction.throws.${kind}`, BEFORE_SPEC);
+    const seen: ProviderCompleteRequest[] = [];
+    const provider = compactorScript(async function* () {
+      yield { type: 'text', text: 'partial' };
+      throw new TheoremError(kind, 'set up wrong');
+    }, seen);
+    await assertRejects(
+      () =>
+        collectEvents(
+          speaker,
+          { text: 'q', historyTokens: 600, history: [...OLD, ...RECENT] },
+          provider,
+        ),
+      TheoremError,
+      'set up wrong',
+    );
+    assertEquals(seen.length, 1);
+  });
+
+  Deno.test(`a compactor that reports ${kind} throws it`, async () => {
+    const speaker = registerCompactionPair(`compaction.reports.${kind}`, BEFORE_SPEC);
+    const seen: ProviderCompleteRequest[] = [];
+    const provider = compactorScript(
+      compactorSays(
+        { type: 'error', errorKind: kind, error: 'Sorry.', errorInternal: 'no key in slot' },
+        { type: 'done', stop: { kind: 'provider_error' } },
+      ),
+      seen,
+    );
+    const error = await assertRejects(
+      () =>
+        collectEvents(
+          speaker,
+          { text: 'q', historyTokens: 600, history: [...OLD, ...RECENT] },
+          provider,
+        ),
+      TheoremError,
+      `Compactor 'compaction.reports.${kind}.compactor' failed: no key in slot`,
+    );
+    assertEquals(error.kind, kind);
+    assertEquals(seen.length, 1);
+  });
+}
+
+Deno.test('compactHistory throws what the host must fix', async () => {
+  const speaker = registerCompactionPair('compaction.export.throws', AFTER_SPEC);
+  await assertRejects(
+    () =>
+      compactHistory(
+        { profile: speaker, history: [...OLD, ...RECENT], tokens: 800 },
+        {
+          complete: () =>
+            compactorSays(
+              { type: 'error', errorKind: 'auth', error: 'Sorry.', errorInternal: 'rejected key' },
+              { type: 'done', stop: { kind: 'provider_error' } },
+            )(),
+        },
+      ),
+    TheoremError,
+    'rejected key',
+  );
+});
+
 Deno.test('a failed compaction over maxTokens drops the compacted messages but keeps an earlier summary', async () => {
   const earlier: TurnHistoryMessage = {
     role: 'assistant',

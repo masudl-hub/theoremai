@@ -23,6 +23,17 @@ const GOOGLE_IMAGE_INPUT_MIMES = [
 
 const GOOGLE_VOICE_INPUT_MIMES = ['audio/webm', 'audio/wav', 'audio/mpeg', 'audio/mp4'] as const;
 
+/**
+ * TTS models that reject any history with a model turn, so compaction's summary fails them
+ * (live, 29/09/2026).
+ */
+const GOOGLE_SINGLE_TURN_API_IDS = [
+  'gemini-2.5-flash-preview-tts',
+  'gemini-3.1-flash-tts-preview',
+  'gemini-3.8-flash-tts',
+  'gemini-3.8-flash-lite-tts',
+] as const;
+
 type GoogleSpeechPins = Omit<ProfileSpeechSpec, 'voice'> & {
   voice?: GoogleSpeechVoice;
 };
@@ -138,6 +149,7 @@ export {
   GOOGLE_IMAGE_ASPECT_RATIOS,
   GOOGLE_IMAGE_INPUT_MIMES,
   GOOGLE_IMAGE_SIZES,
+  GOOGLE_SINGLE_TURN_API_IDS,
   GOOGLE_SPEECH_VOICES,
   GOOGLE_VOICE_INPUT_MIMES,
   googleInteractionsPersistence,

@@ -6,8 +6,8 @@
 
 import type { ProviderEvent, ProviderEvidence } from '../kernel/types.ts';
 import { isRecord } from '../kernel/util/record.ts';
-import type { RedactSpan } from '../observability/spans.ts';
 import { guardedEventTexts, scanTextForCanaryLeak } from './canary.ts';
+import { type ImageScope, imageLeakSpans } from './egress-images.ts';
 import { SYSTEM_BOUNDARY } from './egress-patterns.ts';
 import { describeError } from './error.ts';
 import { hitFromSpan } from './hits.ts';
@@ -40,6 +40,8 @@ export const EGRESS_RULES = {
   sensitive: 'egress.sensitive-echo',
   boundary: 'egress.system-boundary',
   injection: 'egress.injection-echo', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  /** An image in the reply loads a URL the model was not given, from a host not allowed: it can carry data there. */
+  image: 'egress.image-exfil', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   /** Payload could not be rendered for inspection — released output is unverified. */
   unscannable: 'egress.unscannable', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   /** The host policy threw instead of returning a verdict. */
@@ -48,7 +50,7 @@ export const EGRESS_RULES = {
 
 function hitsFromSpans(
   text: string,
-  spans: RedactSpan[],
+  spans: readonly { start: number; end: number }[],
   rule: string,
   severity: Severity,
 ): GuardrailHit[] {
@@ -146,8 +148,14 @@ function promptLeakReason(hits: GuardrailHit[]): string {
     : WITHHELD_REASON.promptEcho;
 }
 
-function collectEgressHits(text: string, canary?: string, system?: string): GuardrailHit[] {
-  const hits = promptLeakHits(text, canary, system);
+/** What the bundled policy reads besides the reply. */
+interface EgressScope extends ImageScope {
+  canary?: string;
+  system?: string;
+}
+
+function collectEgressHits(text: string, scope: EgressScope = {}): GuardrailHit[] {
+  const hits = promptLeakHits(text, scope.canary, scope.system);
   hits.push(
     ...hitsFromSpans(
       text,
@@ -168,6 +176,7 @@ function collectEgressHits(text: string, canary?: string, system?: string): Guar
     );
   }
   hits.push(...hitsFromSpans(text, injectionSpans(text), EGRESS_RULES.injection, 'medium')); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  hits.push(...hitsFromSpans(text, imageLeakSpans(text, scope), EGRESS_RULES.image, 'high'));
   return hits;
 }
 
@@ -299,9 +308,15 @@ function hitsEnforcer(
   };
 }
 
-/** Default egress enforce — canary leak, sensitive echo, fence markers, injection echo. */
+/** Default egress enforce — canary leak, sensitive echo, fence markers, injection echo, image exfiltration. */
 const standardEgressEnforce: (payload: OutboundPayload, context: GuardrailContext) => Verdict =
-  hitsEnforcer((text, context) => collectEgressHits(text, context.canary, context.system));
+  hitsEnforcer((text, context) =>
+    collectEgressHits(text, {
+      canary: context.canary,
+      system: context.system,
+      seenUrls: context.seenUrls,
+    }),
+  );
 
 /**
  * Run a host policy without letting it break the turn.
@@ -329,6 +344,7 @@ async function runEnforcer(
   }
 }
 
+export type { EgressScope };
 export {
   CANARY_HIT,
   collectEgressHits,

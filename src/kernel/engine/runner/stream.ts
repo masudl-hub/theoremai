@@ -92,8 +92,10 @@ async function* yieldProviderEvents(args: {
   call: Pick<CallTrace, 'tap' | 'observe'>;
   signal?: AbortSignal;
   control?: OutboundStreamControl;
+  /** Every URL the model has been given this turn. */
+  seenUrls: ReadonlySet<string>;
 }): AsyncGenerator<StreamEvent> {
-  const { profile, generation, request, provider, call, signal, control } = args;
+  const { profile, generation, request, provider, call, signal, control, seenUrls } = args;
   const { canary } = generation;
   const policy = resolveGuardrailPolicy(profile.guardrails);
   const context: GuardrailContext = {
@@ -104,6 +106,7 @@ async function* yieldProviderEvents(args: {
     ...(canary ? { canary } : {}),
     // The system prompt is guarded against echo alongside the canary that binds it.
     ...(canary && policy.promptEcho && request.system ? { system: request.system } : {}),
+    seenUrls,
   };
   const gate: ProgressiveYieldGate | null = createOutboundProgressiveGate(
     policy,

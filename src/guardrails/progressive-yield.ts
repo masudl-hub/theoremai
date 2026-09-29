@@ -148,7 +148,7 @@ async function streamHitVerdict(
 function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): ProgressiveYieldGate {
   const { context } = options;
   const stream: EgressStream | undefined = options.enforce
-    ? streamPlanOf(options.enforce)?.()
+    ? streamPlanOf(options.enforce)?.(context)
     : undefined;
   const baseHoldback = resolveHoldback(options, stream !== undefined);
   const carry = context.canary ? (options.carry ?? '') : '';

@@ -123,6 +123,7 @@ function createLiveOutboundGateSession(
   profile: Profile,
   canary?: string,
   system?: string,
+  seenUrls?: ReadonlySet<string>,
 ): LiveOutboundGateSession {
   const policy = liveHoldback(resolveGuardrailPolicy(profile.guardrails));
   const useCanary = policy.canary && Boolean(canary);
@@ -134,6 +135,7 @@ function createLiveOutboundGateSession(
     // The system prompt is guarded against echo alongside the canary that binds it.
     ...(useCanary && policy.promptEcho && system ? { system } : {}),
     ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
+    ...(seenUrls ? { seenUrls } : {}),
   };
   return {
     policy,

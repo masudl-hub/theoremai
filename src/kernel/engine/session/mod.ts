@@ -10,6 +10,7 @@
  */
 
 import { bindCanary } from '../../../guardrails/canary.ts';
+import { addHistoryUrls, addRequestUrls, addSeenUrls } from '../../../guardrails/egress-images.ts';
 import {
   describeError,
   errorKind,
@@ -361,6 +362,8 @@ function buildLiveSession(args: {
   canary: string;
   connection: Awaited<ReturnType<typeof openGoogleLiveSession>>;
   gate: LiveOutboundGateSession;
+  /** Every URL the model has been given this session (`GuardrailContext.seenUrls`). */
+  seenUrls: Set<string>;
   signal?: AbortSignal;
   onStage?: StageHandler;
   host?: unknown;
@@ -381,6 +384,7 @@ function buildLiveSession(args: {
     canary,
     connection,
     gate,
+    seenUrls,
     signal,
     onStage,
     host: sessionHost,
@@ -415,7 +419,9 @@ function buildLiveSession(args: {
 
   const recordUserText = (text: string) => {
     const trimmed = text.trim();
-    if (trimmed) history.push({ role: 'user', content: trimmed });
+    if (!trimmed) return;
+    history.push({ role: 'user', content: trimmed });
+    addSeenUrls(seenUrls, trimmed);
   };
 
   const recordAssistantText = (text: string) => {
@@ -455,6 +461,7 @@ function buildLiveSession(args: {
         content: readBack,
       },
     );
+    addSeenUrls(seenUrls, readBack);
   };
 
   const enqueuePending = (ev: TurnEvent) => {
@@ -1118,7 +1125,15 @@ async function openTracedSession(
     canary: generation.canary,
   });
 
-  const gate = createLiveOutboundGateSession(profile, generation.canary || undefined, system);
+  const seenUrls = new Set<string>();
+  addRequestUrls(seenUrls, completeReq);
+  addHistoryUrls(seenUrls, req.history ?? []);
+  const gate = createLiveOutboundGateSession(
+    profile,
+    generation.canary || undefined,
+    system,
+    seenUrls,
+  );
   const connection = await openGoogleLiveSession(
     completeReq,
     options.gemini,
@@ -1132,6 +1147,7 @@ async function openTracedSession(
     canary: generation.canary,
     connection,
     gate,
+    seenUrls,
     signal: safe.signal,
     onStage: req.onStage,
     host: req.host,

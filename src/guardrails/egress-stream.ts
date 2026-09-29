@@ -23,6 +23,7 @@ import {
   REVERSED_AUTOMATON,
   REVERSED_INJECTION_PATTERNS,
 } from './egress-automata.ts';
+import { IMAGE_PATTERNS, type ImageScope, imageMatchTester } from './egress-images.ts';
 import { EGRESS_PATTERNS, type EgressPatternKind } from './egress-patterns.ts';
 import { type EgressAutomatonData, globalPattern } from './egress-rules.ts';
 import {
@@ -35,7 +36,7 @@ import {
 } from './injection.ts';
 import { isEmoji, normalizeCodePoint } from './normalize.ts';
 import { cardHit } from './sensitive.ts';
-import type { EgressEnforcer, Severity } from './types.ts';
+import type { EgressEnforcer, GuardrailContext, Severity } from './types.ts';
 
 /** A settled match the policy blocks on. */
 interface EgressStreamHit {
@@ -361,7 +362,8 @@ interface ScanPattern {
   /** The automaton's id for the pattern. */
   id: number;
   regex: RegExp;
-  hit?: (match: string) => boolean;
+  /** Whether a settled match counts, read with the reply as the view holds it so far. */
+  hit?: (match: string, reply: string) => boolean;
 }
 
 const BLOB_HITS = new Map(INJECTION_BLOBS.map(({ pattern, hit }) => [pattern, hit]));
@@ -376,13 +378,28 @@ const KIND_RULES: Record<EgressPatternKind, { rule: string; severity: Severity }
   sensitive: { rule: EGRESS_RULES.sensitive, severity: 'high' },
   card: { rule: EGRESS_RULES.sensitive, severity: 'high' },
   boundary: { rule: EGRESS_RULES.boundary, severity: 'medium' },
+  image: { rule: EGRESS_RULES.image, severity: 'high' },
 };
 
-function forwardPatterns(kinds: 'all' | 'injection'): ScanPattern[] {
+function patternHit(
+  kind: EgressPatternKind,
+  pattern: RegExp,
+  imageLeaks: ReturnType<typeof imageMatchTester>,
+): ScanPattern['hit'] | undefined {
+  if (kind === 'card') return cardHit;
+  if (kind === 'image') {
+    const index = IMAGE_PATTERNS.indexOf(pattern);
+    return (match, reply) => imageLeaks(index, match, reply);
+  }
+  return BLOB_HITS.get(pattern);
+}
+
+function forwardPatterns(kinds: 'all' | 'injection', images: ImageScope = {}): ScanPattern[] {
   const out: ScanPattern[] = [];
+  const imageLeaks = imageMatchTester(images);
   EGRESS_PATTERNS.forEach(({ kind, pattern }, id) => {
     if (kinds === 'injection' && kind !== 'injection') return;
-    const hit = kind === 'card' ? cardHit : BLOB_HITS.get(pattern);
+    const hit = patternHit(kind, pattern, imageLeaks);
     out.push({
       ...KIND_RULES[kind],
       id,
@@ -504,7 +521,7 @@ function createScan(view: View, automaton: Automaton, patterns: ScanPattern[]) {
           break;
         }
         const [blob] = match;
-        if (blob && (!hit || hit(blob))) {
+        if (blob && (!hit || hit(blob, text))) {
           return { rule, severity, start: view.rawAt(match.index) };
         }
         if (!blob) regex.lastIndex++;
@@ -534,6 +551,8 @@ interface EgressStreamOptions {
     automaton: EgressAutomatonData;
     rules: readonly { rule: string; severity: Severity; pattern: RegExp }[];
   };
+  /** What decides whether a bundled image match leaks. */
+  images?: ImageScope;
 }
 
 /** Compiled host automata, kept per table so each is built once. */
@@ -564,7 +583,7 @@ function createEgressStream(options: EgressStreamOptions = {}): EgressStream {
     const normalized = normalizedView(reply);
     const injection = forwardPatterns('injection');
     scans.push(
-      scan(raw, forward, forwardPatterns('all')),
+      scan(raw, forward, forwardPatterns('all', options.images)),
       scan(raw, backward, reversedPatterns()),
       scan(typoView(raw), forward, injection),
       scan(normalized, forward, injection),
@@ -604,20 +623,33 @@ function createEgressStream(options: EgressStreamOptions = {}): EgressStream {
   };
 }
 
+/** A stream running a policy's checks, for the turn or session `context` describes. */
+type EgressStreamPlan = (context: GuardrailContext) => EgressStream;
+
 /** Streaming plans for the policies whose checks the stream runs itself. */
-const STREAM_PLANS = new WeakMap<EgressEnforcer, () => EgressStream>([
-  [standardEgressEnforce, () => createEgressStream()],
+const STREAM_PLANS = new WeakMap<EgressEnforcer, EgressStreamPlan>([
+  [
+    standardEgressEnforce,
+    (context) => createEgressStream({ images: { seenUrls: context.seenUrls } }),
+  ],
 ]);
 
 /** The streaming plan for `enforce`, when the stream knows its checks. */
-function streamPlanOf(enforce: EgressEnforcer): (() => EgressStream) | undefined {
+function streamPlanOf(enforce: EgressEnforcer): EgressStreamPlan | undefined {
   return STREAM_PLANS.get(enforce);
 }
 
 /** Tell the gate `enforce` runs exactly the checks `plan` streams. */
-function registerStreamPlan(enforce: EgressEnforcer, plan: () => EgressStream): void {
+function registerStreamPlan(enforce: EgressEnforcer, plan: EgressStreamPlan): void {
   STREAM_PLANS.set(enforce, plan);
 }
 
-export type { EgressStream, EgressStreamHit, EgressStreamOptions, MappedView, View };
+export type {
+  EgressStream,
+  EgressStreamHit,
+  EgressStreamOptions,
+  EgressStreamPlan,
+  MappedView,
+  View,
+};
 export { createEgressStream, normalizedView, registerStreamPlan, streamPlanOf, typoView, urlView };

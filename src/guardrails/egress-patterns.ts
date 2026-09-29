@@ -6,6 +6,7 @@
  * @module
  */
 
+import { IMAGE_PATTERNS } from './egress-images.ts';
 import {
   BASE64_BLOB,
   HEX_BLOB,
@@ -26,7 +27,8 @@ type EgressPatternKind =
   | 'base64'
   | 'hex'
   | 'spaced'
-  | 'pipe';
+  | 'pipe'
+  | 'image';
 
 interface EgressPattern {
   kind: EgressPatternKind;
@@ -46,6 +48,7 @@ const EGRESS_PATTERNS: readonly EgressPattern[] = [
   { kind: 'hex', pattern: HEX_BLOB },
   { kind: 'spaced', pattern: SPACED_LETTERS },
   { kind: 'pipe', pattern: PIPE_SEPARATED },
+  ...IMAGE_PATTERNS.map((pattern) => ({ kind: 'image' as const, pattern })),
 ];
 
 export type { EgressPattern, EgressPatternKind };

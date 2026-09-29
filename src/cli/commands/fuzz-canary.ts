@@ -166,6 +166,7 @@ async function runStreamChannel(
         // The fuzz reads what reaches the client, not the trace.
         call: { tap: () => {}, observe: () => {} },
         control,
+        seenUrls: new Set(),
       }),
     );
     // The runner reads the call's `done`; the client never receives it.

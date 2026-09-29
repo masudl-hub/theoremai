@@ -186,6 +186,13 @@ export interface GuardrailContext {
   slots?: Record<string, string>;
   /** Set on tool-shaped stages; absent for user and system text. */
   provenance?: Provenance;
+  /**
+   * Canonical absolute URLs in what the model was given this turn or session:
+   * the system prompt, the user's input and history, tool results. An image in
+   * the reply loading any other URL can carry data to its server. The kernel
+   * adds to it as the model is given more. Unset: none.
+   */
+  seenUrls?: ReadonlySet<string>;
   /** The profile's lexicon, so a policy's rejection reads in the host's wording. */
   lexicon?: LexiconOverrides;
 }

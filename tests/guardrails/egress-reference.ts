@@ -8,6 +8,7 @@
  */
 
 import { REVERSED_INJECTION_PATTERNS } from '../../src/guardrails/egress-automata.ts';
+import { type ImageScope, imageLeakSpans } from '../../src/guardrails/egress-images.ts';
 import { EGRESS_PATTERNS } from '../../src/guardrails/egress-patterns.ts';
 import {
   decodeUrlRuns,
@@ -82,10 +83,9 @@ function urlView(text: string): MappedView {
 }
 
 const blobHits = new Map(INJECTION_BLOBS.map((blob) => [blob.pattern, blob.hit]));
-const ALL: Detector[] = EGRESS_PATTERNS.map(({ kind, pattern }) => ({
-  re: pattern,
-  hit: kind === 'card' ? cardHit : blobHits.get(pattern),
-}));
+const ALL: Detector[] = EGRESS_PATTERNS.filter(({ kind }) => kind !== 'image').map(
+  ({ kind, pattern }) => ({ re: pattern, hit: kind === 'card' ? cardHit : blobHits.get(pattern) }),
+);
 const INJECTION: Detector[] = EGRESS_PATTERNS.filter(({ kind }) => kind === 'injection').map(
   ({ pattern }) => ({ re: pattern }),
 );
@@ -104,14 +104,32 @@ function earliest(view: string, at: (i: number) => number, detectors: Detector[]
   return best;
 }
 
+/**
+ * Where the earliest leaking image starts. A reference definition leaks from
+ * its own start when an image opener comes before it ends, and otherwise from
+ * the first opener after it: the definition alone renders nothing.
+ */
+function earliestImage(text: string, images: ImageScope): number {
+  const openers = [...text.matchAll(/!\[/g)].map((m) => m.index);
+  let best = Number.POSITIVE_INFINITY;
+  for (const { start, end } of imageLeakSpans(text, images)) {
+    const definition = text[start] !== '!' && text[start] !== '<';
+    const opener = openers.find((at) => at + 2 > end) ?? Number.POSITIVE_INFINITY;
+    const early = openers.some((at) => at + 2 <= end);
+    best = Math.min(best, definition && !early ? opener : start);
+  }
+  return best;
+}
+
 /** The raw index the earliest match starts at, or `Infinity` when nothing matches. */
-function referenceMatchStart(text: string): number {
+function referenceMatchStart(text: string, images: ImageScope = {}): number {
   const same = (i: number) => i;
   const normalized = normalizedView(text);
   const fromNormalized = (i: number) => normalized.at[i] as number;
   const url = urlView(text);
   return Math.min(
     earliest(text, same, ALL),
+    earliestImage(text, images),
     earliest(text, same, REVERSED),
     earliest(typoNormalize(text), same, INJECTION),
     earliest(normalized.view, fromNormalized, INJECTION),

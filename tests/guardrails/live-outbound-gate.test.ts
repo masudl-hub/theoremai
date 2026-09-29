@@ -1,6 +1,7 @@
 import '../fixtures/test-host.ts';
 import { mintCanary } from '../../src/guardrails/canary.ts';
 import { FIXED_CANARY } from '../../src/guardrails/corpus/canary-egress-attacks.ts';
+import { standardEgressEnforce } from '../../src/guardrails/egress.ts';
 import { type LexiconOverrides, lexiconDefault } from '../../src/guardrails/lexicon.ts';
 import {
   abortLiveOutboundTurn,
@@ -841,4 +842,23 @@ Deno.test('createLiveOutboundGateSession keeps a holdback the host set', async (
   );
   await processLiveOutboundBatch(s, [said('s'.repeat(DEFAULT_HOLDBACK * 2))]);
   assertEquals(s.gate?.unreleased().length, DEFAULT_HOLDBACK);
+});
+
+Deno.test('a Live reply image renders once its URL is among those the session gave the model', async () => {
+  const profile = egressProfile('live_egress_images', standardEgressEnforce);
+  const seenUrls = new Set<string>();
+  const image = '![p](https://news.site/photo.jpg)\n\nok';
+  const withheld = createLiveOutboundGateSession(profile, undefined, undefined, seenUrls);
+  await processLiveOutboundBatch(withheld, [{ type: 'text', text: image }]);
+  assertEquals((await finalizeLiveOutboundTurn(withheld)).action, 'withhold');
+
+  // The session adds URLs as tools and the user give them, after the gate opened.
+  seenUrls.add('https://news.site/photo.jpg');
+  const shown = createLiveOutboundGateSession(profile, undefined, undefined, seenUrls);
+  const streamed = await processLiveOutboundBatch(shown, [{ type: 'text', text: image }]);
+  const final = await finalizeLiveOutboundTurn(shown);
+  const events = [streamed, final].flatMap((result) =>
+    result.action === 'emit' ? result.events : [],
+  );
+  assertEquals([final.action, replyText(events)], ['emit', image]);
 });

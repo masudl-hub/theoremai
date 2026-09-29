@@ -95,8 +95,11 @@ async function evaluateEgressOutcome(args: {
   canRetry: boolean;
   /** System-prompt leaks the stream withheld: they pin the verdict to block. */
   promptLeaks?: GuardrailHit[];
+  /** Every URL the model has been given this turn. */
+  seenUrls: ReadonlySet<string>;
 }): Promise<{ outcome: EgressOutcome; guardrail?: TurnEventOf<'guardrail'> }> {
-  const { egress, attemptEvents, generation, request, profile, canRetry, promptLeaks } = args;
+  const { egress, attemptEvents, generation, request, profile, canRetry, promptLeaks, seenUrls } =
+    args;
   const payload = projectOutbound(attemptEvents);
   const context: GuardrailContext = {
     stage: 'output_final',
@@ -106,6 +109,7 @@ async function evaluateEgressOutcome(args: {
     ...(generation.canary ? { canary: generation.canary } : {}),
     ...(request.input?.slots ? { slots: request.input.slots } : {}),
     ...(request.input?.role ? { role: request.input.role } : {}),
+    seenUrls,
   };
   // The host policy adds checks; it never releases a system-prompt leak.
   const verdict: Verdict = promptLeaks?.length
@@ -265,6 +269,7 @@ async function* handleEgressGate(
     profile,
     canRetry,
     ...(state.promptLeaks ? { promptLeaks: state.promptLeaks } : {}),
+    seenUrls: state.seenUrls,
   });
 
   if (guardrail) {

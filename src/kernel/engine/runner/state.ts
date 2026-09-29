@@ -61,6 +61,8 @@ interface StepExecutionState {
    * turn has ingested, not just its own arguments.
    */
   taint?: TurnTaint;
+  /** Every URL the model has been given this turn (`GuardrailContext.seenUrls`). */
+  seenUrls: Set<string>;
   /** Last provider stop from a discarded provider `done` event. */
   lastStop?: TurnStop;
   /** Latest Google Interactions id observed on the current provider stream. */
@@ -123,6 +125,7 @@ function openTurnState(args: {
     mediaFamily: args.mediaFamily,
     allEmittedEvents: args.allEmittedEvents ?? [],
     attemptEvents: [],
+    seenUrls: new Set(),
   };
   if (profile.type === 'text') {
     appendUserInput(state, generation.input);

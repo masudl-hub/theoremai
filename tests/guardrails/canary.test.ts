@@ -177,6 +177,7 @@ Deno.test('canary stream gate detects token split across chunks', async () => {
       ),
       provider: { complete: splitLeak },
       call: { tap: () => {}, observe: () => {} },
+      seenUrls: new Set(),
     }),
   );
 
@@ -217,6 +218,7 @@ Deno.test('canary stream gate passes a thought that restates the canary', async 
       ),
       provider: { complete: thoughtLeak },
       call: { tap: () => {}, observe: () => {} },
+      seenUrls: new Set(),
     }),
   );
 

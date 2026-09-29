@@ -73,6 +73,7 @@ Owns every module under `src/guardrails/`.
 | `progressive-yield.ts` | Streaming gate for canary / prompt echo / egress: exact hold for the bundled policy, fixed lookback for a host enforce |
 | `egress.ts` | `standardEgressEnforce` / `collectEgressHits` bundled outbound policy |
 | `egress-patterns.ts` | Every regex the bundled policy blocks on, tagged by kind |
+| `egress-images.ts` | Reply images read as a renderer reads them, and whether each URL leaks (`seenUrls`, reserved hosts, `imageHosts`) |
 | `egress-automata.ts` | Generated (`scripts/gen-egress-automata.ts`): reversed injection patterns and each pattern's superset automaton |
 | `egress-stream.ts` | The bundled policy and host rules read incrementally: where a match could still start, and its settled hits |
 | `egress-rules.ts` | Host egress rule shape, the compiled table's shape, rule checks |
@@ -118,7 +119,7 @@ returns a `Verdict`:
 ```ts
 type EgressEnforcer = (
   payload: OutboundPayload,      // { text, structured? }
-  context: GuardrailContext,     // { stage, trust, profileId, canary?, role?, slots? }
+  context: GuardrailContext,     // { stage, trust, profileId, canary?, role?, slots?, seenUrls? }
 ) => Verdict | Promise<Verdict>;
 
 type Verdict =
@@ -160,8 +161,9 @@ interface GuardrailHit {
 ```
 
 `standardEgressEnforce` blocks canary leaks, sensitive echoes (credentials,
-cards, SSNs — not IP addresses), system-boundary markers, and injection-pattern
-echoes; `EGRESS_RULES` names the rule ids it emits. **`payload.structured` is inspected alongside `payload.text`**, so a profile
+cards, SSNs — not IP addresses), system-boundary markers, injection-pattern
+echoes, and reply images that could carry data off the device (see
+[Reply images](#reply-images)); `EGRESS_RULES` names the rule ids it emits. **`payload.structured` is inspected alongside `payload.text`**, so a profile
 with `outputs.structured` is covered by its own egress policy — structured events
 are held until the gate runs rather than streaming ahead of it.
 
@@ -177,6 +179,49 @@ profile carries over: a structured field holding an IP address or a Luhn-valid
 16-digit id is a `sensitive` hit, exactly as it would be in text. That is the
 bundled policy's stance, not a property of the transport — a host that ships
 structured operational data should supply its own `enforce`.
+
+### Reply images
+
+A reply image loads on the reader's device the moment it renders, so a model
+steered by injected text can post what it knows to any server by writing it
+into an image URL — no tool call, no click. `standardEgressEnforce` blocks such
+an image as `egress.image-exfil` (severity `high`).
+
+An image URL is a leak unless:
+
+- it is one the model was given this turn — or this Live session — in the
+  system prompt, the user's input, a tool result or host history
+  (`GuardrailContext.seenUrls`; the model's own earlier replies do not count),
+  compared after URL canonicalization (host case, default port, escapes);
+- its host is reserved and can receive nothing (`example.com`, `.net`, `.org`,
+  and the `.example`, `.test` and `.invalid` names); or
+- its host is one the host named in `egressPolicy({ imageHosts })`.
+
+A relative URL, `data:` and `javascript:` load nothing off the page's own
+origin and are not leaks. An image is found the way a renderer finds one:
+
+- markdown inline images (nested ones too), and reference definitions whenever
+  the reply has an image opener that could use them;
+- HTML start tags as the browser tokenizer reads them, with entities decoded:
+  `src`, `srcset`, `poster`, `background`, `data`, `xlink:href` and the other
+  loading attributes; `href` on every tag but `a` and `area`; CSS `url()` and
+  strings in `style` (CSS escapes decoded); a `srcdoc` document; a `meta`
+  refresh. A named entity the table does not know makes its URL a leak.
+
+Code blocks are not exempt: a renderer that styles them may still render HTML
+beside them, and the check cannot know which renderer reads the reply. The
+stream holds an image from its first character until it settles — a markdown
+image at the blank line that ends its paragraph, a tag at its `>` — so none of
+it reaches the host before the check reads it.
+
+Not covered:
+
+- Links (`[text](url)`, `<a href>`) and link unfurls: a link loads only on a
+  click, and an unfurl is the host's to govern.
+- A `<style>` block's contents, and CSS a host injects from reply text.
+- A URL the model was given that itself encodes data it chose — a search result
+  link with a query the model picked, say — used as a covert channel.
+- Thoughts, which are not guarded output (below).
 
 ### Host egress rules
 
@@ -219,6 +264,10 @@ guardrails: { egress: { enforce: egressPolicy({ rules, compiled: compiledEgressR
 - `egressPolicy` throws a config error when the table was compiled from other
   rules or by another compiler version: compile again after changing a rule.
 - `egress.holdback` does not apply, as with the bundled policy.
+- `imageHosts` lists hostnames reply images may load from whatever their URL,
+  such as the host's own image CDN; a subdomain is not included. It widens the
+  bundled image check, so it needs `bundled` on: with `bundled: false` it is a
+  config error, as is an entry that is not a bare hostname.
 
 ### When a policy fails
 
@@ -324,7 +373,7 @@ withhold) — but the final verdict is pinned to block: no host verdict, not eve
 `allow`, releases a system-prompt leak. Whole events (tool calls, structured
 payloads) carrying one end the turn at once under any policy, so a leaking tool
 call never runs. The bundled rules (`collectEgressHits`: canary, sensitive echo,
-system boundary, injection echo) run only through `egress.enforce` — for example
+system boundary, injection echo, reply images) run only through `egress.enforce` — for example
 `standardEgressEnforce` — where the end-of-attempt verdict can release, repair,
 or refuse.
 `outputs.streaming.mode: 'sse'` and `egress.enforce` can both stay on.

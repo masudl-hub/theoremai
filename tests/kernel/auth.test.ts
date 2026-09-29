@@ -2,6 +2,8 @@ import {
   computeCodeChallenge,
   fromBase64Url,
   generateCodeVerifier,
+  openSecret,
+  sealSecret,
   sealStatePayload,
   unsealStatePayload,
 } from '../../src/kernel/auth/crypto.ts';
@@ -129,6 +131,115 @@ Deno.test('the sealed state refuses tampering, another secret, a short secret, a
 
   const expired = await sealStatePayload(statePayload({ expiresAt: Date.now() - 1000 }), SECRET);
   await assertRejects(() => unsealStatePayload(expired, SECRET), Error, 'OAuth state has expired');
+});
+
+const KEY_1 = 'sealing-key-one-0123456789abcdef0123';
+const KEY_2 = 'sealing-key-two-0123456789abcdef0123';
+const BINDING = ['owner-1', 'slot:github', 'row-9'];
+
+Deno.test('a sealed secret opens only with its key version and exact binding', async () => {
+  const sealed = await sealSecret({
+    plaintext: 'ghp_live',
+    key: KEY_1,
+    binding: BINDING,
+    keyVersion: 1,
+  });
+  assertEquals(sealed.includes('ghp_live'), false);
+  assertEquals(
+    await openSecret({
+      sealed,
+      keys: { 1: KEY_1, 2: KEY_2 },
+      binding: BINDING,
+    }),
+    'ghp_live',
+  );
+
+  for (const binding of [
+    ['owner-2', 'slot:github', 'row-9'],
+    ['owner-1', 'slot:github'],
+    ['owner-1', 'slot:github', 'row-9', ''],
+    ['owner-1,slot:github', 'row-9'],
+  ]) {
+    await assertRejects(
+      () => openSecret({ sealed, keys: { 1: KEY_1 }, binding }),
+      Error,
+      'could not be opened',
+    );
+  }
+  await assertRejects(
+    () => openSecret({ sealed, keys: { 1: KEY_2 }, binding: BINDING }),
+    Error,
+    'could not be opened',
+  );
+  await assertRejects(
+    () => openSecret({ sealed, keys: { 2: KEY_2 }, binding: BINDING }),
+    Error,
+    'No key',
+  );
+});
+
+Deno.test('a sealed secret refuses a rewritten key version, tampering and a malformed envelope', async () => {
+  const sealed = await sealSecret({
+    plaintext: 'token',
+    key: KEY_1,
+    binding: BINDING,
+    keyVersion: 1,
+  });
+  const parts = sealed.split('.');
+  const relabeled = ['v1', '2', ...parts.slice(2)].join('.');
+  await assertRejects(
+    () => openSecret({ sealed: relabeled, keys: { 2: KEY_1 }, binding: BINDING }),
+    Error,
+    'could not be opened',
+  );
+  const last = parts[4] ?? '';
+  const flipped = [...parts.slice(0, 4), (last[0] === 'A' ? 'B' : 'A') + last.slice(1)].join('.');
+  await assertRejects(
+    () => openSecret({ sealed: flipped, keys: { 1: KEY_1 }, binding: BINDING }),
+    Error,
+    'could not be opened',
+  );
+  for (const bad of ['v1.1.a.b', 'v0.1.a.b.c', 'v1.x.a.b.c', 'v1.-1.a.b.c']) {
+    await assertRejects(
+      () => openSecret({ sealed: bad, keys: { 1: KEY_1 }, binding: BINDING }),
+      Error,
+      'format',
+    );
+  }
+  await assertRejects(
+    () =>
+      sealSecret({
+        plaintext: 't',
+        key: 'short',
+        binding: BINDING,
+        keyVersion: 1,
+      }),
+    RangeError,
+    '32 bytes',
+  );
+  await assertRejects(
+    () =>
+      sealSecret({
+        plaintext: 't',
+        key: KEY_1,
+        binding: BINDING,
+        keyVersion: 1.5,
+      }),
+    RangeError,
+    'Key version',
+  );
+});
+
+Deno.test('two seals of the same secret differ', async () => {
+  const input = {
+    plaintext: 'same',
+    key: KEY_1,
+    binding: BINDING,
+    keyVersion: 1,
+  };
+  const first = await sealSecret(input);
+  const second = await sealSecret(input);
+  assertEquals(first === second, false);
 });
 
 Deno.test('validateIssuer is byte-exact and requires iss when the server sends it', () => {

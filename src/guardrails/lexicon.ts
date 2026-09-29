@@ -284,9 +284,9 @@ export const LEXICON_NOTES: Record<LexiconKey, string> = {
   'taint.blocked':
     'Returned to the model in place of a tool call the taint gate refused, after the turn read untrusted remote content. Takes {access}, {sources} and {reason}.',
   'taint.reason_steered':
-    'The {reason} in taint.blocked when the content read tried to direct the agent toward an external destination.',
+    "taint.blocked's reason when the content read tried to direct the agent toward an external destination.",
   'taint.reason_tainted':
-    'The {reason} in taint.blocked when the content read was not suspicious, but the call could still have come from it.',
+    "taint.blocked's reason when the content read was not suspicious, but the call could still have come from it.",
   'advisory.notice_elevated':
     'Put in front of the model beside tool output that tries to direct it toward an external destination.',
   'advisory.notice_high':
@@ -300,34 +300,46 @@ export const LEXICON_NOTES: Record<LexiconKey, string> = {
   'attachments.turn_too_large':
     "Shown to the user when a message's files together are larger than Turn bytes. Takes {maxTurnBytes}.",
   'attachments.not_accepted':
-    "Shown to the user who sends files or a voice note to an agent that takes none. Takes {channel}: 'voice' or 'attachments'.",
+    "Shown to the user who sends files or a voice note to an agent that takes none. Takes {channel}: 'voice' or 'attachment'.",
   'attachments.mime_not_allowed':
-    "Shown to the user when a file's type is not in the agent's accepted types. Takes {fileName} when the file has one.",
+    "Shown to the user when a file's type is not in the agent's accepted types. Takes {mimeType}, {channel} ('voice' or 'attachment'), and {fileName} when the file has one.",
   'attachments.limits_unconfigured':
     'Shown to the user who sends a file to an agent whose file limits are not set.',
   'quota.exhausted': 'Shown to the user who has used up the daily message cap. Takes {perDay}.',
   'error.config':
-    "Shown to the user when the turn fails because the agent's profile, a tool or a schema is set up wrong.",
-  'error.request': 'Shown to the user when the turn fails because the host called Theorem wrongly.',
-  'error.input': 'Shown to the user when they sent something the agent does not accept.',
-  'error.action': 'Shown to the user when they asked for something the agent does not allow.',
+    "Shown to the user when the turn fails because the agent's profile, a tool or a schema is set up wrong. Takes {tool} when one step failed.",
+  'error.request':
+    'Shown to the user when the turn fails because the host called Theorem wrongly. Takes {tool} when one step failed.',
+  'error.input':
+    'Shown to the user when they sent something the agent does not accept. Takes {tool} when one step failed.',
+  'error.action':
+    'Shown to the user when they asked for something the agent does not allow. Takes {tool} when one step failed.',
   'error.auth':
-    'Shown to the user when a model key is missing or rejected, or its account cannot be billed.',
+    'Shown to the user when a model key is missing or rejected, or its account cannot be billed. Takes {tool} when one step failed.',
   'error.rate_limit':
-    'Shown to the user when the model provider reports too many requests, or a quota is used up.',
-  'error.unsupported': 'Shown to the user when the model or its route cannot serve the request.',
-  'error.unavailable': 'Shown to the user when the model provider is down or overloaded.',
+    'Shown to the user when the model provider reports too many requests, or a quota is used up. Takes {tool} when one step failed.',
+  'error.unsupported':
+    'Shown to the user when the model or its route cannot serve the request. Takes {tool} when one step failed.',
+  'error.unavailable':
+    'Shown to the user when the model provider is down or overloaded. Takes {tool} when one step failed.',
   'error.bad_response':
-    'Shown to the user when the model provider answers with something that cannot be used.',
-  'error.network': 'Shown to the user when the request never reached the model provider.',
-  'error.timeout': 'Shown to the user when the model takes longer than the host allows.',
-  'error.safety': 'Shown to the user when Theorem or the model provider holds the reply back.',
+    'Shown to the user when the model provider answers with something that cannot be used. Takes {tool} when one step failed.',
+  'error.network':
+    'Shown to the user when the request never reached the model provider. Takes {tool} when one step failed.',
+  'error.timeout':
+    'Shown to the user when the model takes longer than the host allows. Takes {tool} when one step failed.',
+  'error.safety':
+    'Shown to the user when Theorem or the model provider holds the reply back. Takes {tool} when one step failed.',
   'error.blocked':
-    "Shown to the user when a guardrail or host policy stops one of the agent's steps.",
-  'error.declined': "Shown to the user after they decline one of the agent's steps.",
-  'error.failed': "Shown to the user when one of the agent's steps runs and fails.",
-  'error.cancelled': 'Shown to the user when they or the host stop the turn.',
-  'error.internal': 'Shown to the user when something inside Theorem breaks.',
+    "Shown to the user when a guardrail or host policy stops one of the agent's steps. Takes {tool} when one step failed.",
+  'error.declined':
+    "Shown to the user after they decline one of the agent's steps. Takes {tool} when one step failed.",
+  'error.failed':
+    "Shown to the user when one of the agent's steps runs and fails. Takes {tool} when one step failed.",
+  'error.cancelled':
+    'Shown to the user when they or the host stop the turn. Takes {tool} when one step failed.',
+  'error.internal':
+    'Shown to the user when something inside Theorem breaks. Takes {tool} when one step failed.',
   'repair.default_guidance':
     "Sent to the model when a validator rejects its output and the host gives no guidance of its own; also the Repair guidance setting's default.",
   'repair.prompt_header':
@@ -412,10 +424,49 @@ export const LEXICON_NOTES: Record<LexiconKey, string> = {
     'Told to the model when a tool has a type the kernel cannot run. Takes {tool}.',
 };
 
+const TOOL: readonly string[] = ['tool'];
+
+/** The placeholders the kernel fills in for each key; any other `{name}` would reach the reader as typed. */
+const LEXICON_PLACEHOLDERS: Partial<Record<LexiconKey, readonly string[]>> = {
+  'canary.bind_note': ['canary'],
+  'taint.blocked': ['access', 'sources', 'reason'],
+  'attachments.too_many_files': ['maxFiles'],
+  'attachments.file_too_large': ['maxBytes', 'fileName'],
+  'attachments.turn_too_large': ['maxTurnBytes'],
+  'attachments.not_accepted': ['channel'],
+  'attachments.mime_not_allowed': ['mimeType', 'channel', 'fileName'],
+  'quota.exhausted': ['perDay'],
+  'repair.history_heading': ['count'],
+  'egress.rejection': ['rules'],
+  'session.abandon_gated': TOOL,
+  'session.tool_denied': TOOL,
+  'session.tool_aborted': TOOL,
+  'tool.awaiting_user': ['kind', 'prompt'],
+  'tool.t2_loader_needs_snapshot': TOOL,
+  'tool.t2_loader_shape': TOOL,
+  'tool.not_wired_t1': TOOL,
+  'tool.not_loaded_t2': TOOL,
+  'tool.not_visible': TOOL,
+  'tool.builtin_not_enabled': TOOL,
+  'tool.provider_native': TOOL,
+  'tool.not_registered': TOOL,
+  'tool.builtin_needs_snapshot': TOOL,
+  'tool.not_allowed': ['tool', 'profile'],
+  'tool.not_eligible': TOOL,
+  'tool.unsupported_type': TOOL,
+  ...Object.fromEntries(
+    LEXICON_KEYS.filter((key) => key.startsWith('error.')).map((key) => [key, TOOL]),
+  ),
+};
+
 /** Placeholders an override for a key must keep (mechanism-critical tokens). */
 const REQUIRED_PLACEHOLDERS: Partial<Record<LexiconKey, readonly string[]>> = {
-  'canary.bind_note': ['{canary}'],
+  'canary.bind_note': ['canary'],
 };
+
+export function lexiconPlaceholders(key: LexiconKey): readonly string[] {
+  return LEXICON_PLACEHOLDERS[key] ?? [];
+}
 
 const overrides = new Map<LexiconKey, string>();
 
@@ -430,11 +481,24 @@ export function validateLexiconOverrides(entries: LexiconOverrides, owner: strin
       throw new TheoremError('config', `${owner}: unknown lexicon key '${key}'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
     if (template === undefined) continue;
-    for (const placeholder of REQUIRED_PLACEHOLDERS[key] ?? []) {
-      if (!template.includes(placeholder)) {
+    for (const name of REQUIRED_PLACEHOLDERS[key] ?? []) {
+      if (!template.includes(`{${name}}`)) {
         throw new TheoremError(
           'config',
-          `${owner}: lexicon '${key}' must contain the ${placeholder} placeholder`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+          `${owner}: lexicon '${key}' must contain the {${name}} placeholder`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        );
+      }
+    }
+    const allowed = lexiconPlaceholders(key);
+    for (const [, name] of template.matchAll(/\{(\w+)\}/g)) {
+      if (!allowed.includes(name)) {
+        const takes =
+          allowed.length > 0
+            ? `may only use ${allowed.map((p) => `{${p}}`).join(', ')}`
+            : 'takes no placeholders';
+        throw new TheoremError(
+          'config',
+          `${owner}: lexicon '${key}' has {${name}}, which is never filled in; it ${takes}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         );
       }
     }

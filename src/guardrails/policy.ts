@@ -7,13 +7,16 @@
  * @module
  */
 
+import { resolveSensitive, type SensitiveGroups, type SensitiveSelection } from './sensitive.ts';
 import type { ProfileGuardrailsSpec, ResolvedGuardrailPolicy, TrustLevel } from './types.ts';
 
 /** Detection switches for one piece of text, after trust is taken into account. */
 export interface DetectionOptions {
   sanitizeInput: boolean;
-  redactSensitive: boolean;
+  redactSensitive: SensitiveSelection;
 }
+
+const NO_GROUPS: SensitiveGroups = resolveSensitive(false);
 
 /**
  * Apply kernel defaults to a profile's guardrail switches.
@@ -25,7 +28,7 @@ export interface DetectionOptions {
 function resolveGuardrailPolicy(spec: ProfileGuardrailsSpec | undefined): ResolvedGuardrailPolicy {
   return {
     sanitizeInput: spec?.sanitizeInput ?? true,
-    redactSensitive: spec?.redactSensitive ?? true,
+    redactSensitive: resolveSensitive(spec?.redactSensitive),
     canary: spec?.canary ?? true,
     promptEcho: spec?.promptEcho ?? true,
     egress: spec?.egress,
@@ -49,7 +52,7 @@ function resolveGuardrailPolicy(spec: ProfileGuardrailsSpec | undefined): Resolv
  */
 function detectionForTrust(policy: ResolvedGuardrailPolicy, trust: TrustLevel): DetectionOptions {
   if (trust === 'trusted') {
-    return { sanitizeInput: false, redactSensitive: false };
+    return { sanitizeInput: false, redactSensitive: NO_GROUPS };
   }
   return {
     sanitizeInput: policy.sanitizeInput,

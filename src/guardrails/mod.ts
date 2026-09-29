@@ -26,6 +26,7 @@ export {
 } from './canary.ts';
 export type { CanaryGateSession } from './canary-gate.ts';
 export { createCanaryGateSession, filterCanaryGatedEvents } from './canary-gate.ts';
+export type { EgressChecks, UrlCheck } from './egress.ts';
 export {
   collectEgressHits,
   EGRESS_RULES,
@@ -36,6 +37,7 @@ export {
 export type { EgressPolicyOptions } from './egress-policy.ts';
 export { egressPolicy } from './egress-policy.ts';
 export type { CompiledEgressRules, EgressRule } from './egress-rules.ts';
+export type { GivenUrls } from './egress-urls.ts';
 export type { ErrorCopies, ErrorCopy, ErrorKind, TheoremErrorOptions } from './error.ts';
 export {
   describeError,
@@ -115,7 +117,13 @@ export {
   sanitizeTurnRequest,
   sanitizeTurnRequestWithEvents,
 } from './sanitize.ts';
-export { type SensitiveOptions, sensitiveSpans } from './sensitive.ts';
+export type {
+  SensitiveGroup,
+  SensitiveGroups,
+  SensitiveSelection,
+  SensitiveSwitches,
+} from './sensitive.ts';
+export { SENSITIVE_GROUPS, sensitiveSpans } from './sensitive.ts';
 export type { ScanText } from './serialize.ts';
 export { scanTextOf, textForScan } from './serialize.ts';
 export {

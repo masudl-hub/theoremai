@@ -1,3 +1,4 @@
+import { type GivenUrlSets, givenUrlSets } from '../../../guardrails/egress-urls.ts';
 import type { GuardrailHit, TurnTaint } from '../../../guardrails/types.ts';
 import type { SpanHandle } from '../../../observability/trace-span.ts';
 import type { ToolRegistry } from '../../tools/registry.ts';
@@ -61,8 +62,8 @@ interface StepExecutionState {
    * turn has ingested, not just its own arguments.
    */
   taint?: TurnTaint;
-  /** Every URL the model has been given this turn (`GuardrailContext.seenUrls`). */
-  seenUrls: Set<string>;
+  /** Every URL the model has been given this turn (`GuardrailContext.givenUrls`). */
+  givenUrls: GivenUrlSets;
   /** Last provider stop from a discarded provider `done` event. */
   lastStop?: TurnStop;
   /** Latest Google Interactions id observed on the current provider stream. */
@@ -125,7 +126,7 @@ function openTurnState(args: {
     mediaFamily: args.mediaFamily,
     allEmittedEvents: args.allEmittedEvents ?? [],
     attemptEvents: [],
-    seenUrls: new Set(),
+    givenUrls: givenUrlSets(),
   };
   if (profile.type === 'text') {
     appendUserInput(state, generation.input);

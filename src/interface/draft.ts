@@ -6,6 +6,7 @@
 
 import { resolveGuardrailPolicy } from '../guardrails/policy.ts';
 import { sanitizeText } from '../guardrails/sanitize.ts';
+import { anySensitive } from '../guardrails/sensitive.ts';
 import type { AttachmentValidationIssue } from '../kernel/types.ts';
 import { buildUserTurnBlocks } from './blocks.ts';
 import { validateProfileInputs } from './inputs.ts';
@@ -22,7 +23,7 @@ function sanitizeUserDraft(
   guardrails?: ProfileGuardrailsView,
 ): UserTurnDraft {
   const options = guardrails ?? resolveGuardrailPolicy(undefined);
-  if (!options.sanitizeInput && !options.redactSensitive) {
+  if (!options.sanitizeInput && !anySensitive(options.redactSensitive)) {
     return draft;
   }
   if (draft.text === undefined) {

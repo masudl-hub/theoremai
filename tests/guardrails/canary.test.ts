@@ -16,6 +16,7 @@ import {
   wrapUserData,
 } from '../../src/guardrails/canary.ts';
 import { FIXED_CANARY } from '../../src/guardrails/corpus/canary-egress-attacks.ts';
+import { givenUrlSets } from '../../src/guardrails/egress-urls.ts';
 import { registerProfile, resolveTurn, runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { yieldProviderEvents } from '../../src/kernel/engine/runner/stream.ts';
@@ -177,7 +178,7 @@ Deno.test('canary stream gate detects token split across chunks', async () => {
       ),
       provider: { complete: splitLeak },
       call: { tap: () => {}, observe: () => {} },
-      seenUrls: new Set(),
+      givenUrls: givenUrlSets(),
     }),
   );
 
@@ -218,7 +219,7 @@ Deno.test('canary stream gate passes a thought that restates the canary', async 
       ),
       provider: { complete: thoughtLeak },
       call: { tap: () => {}, observe: () => {} },
-      seenUrls: new Set(),
+      givenUrls: givenUrlSets(),
     }),
   );
 

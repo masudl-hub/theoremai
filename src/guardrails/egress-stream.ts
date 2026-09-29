@@ -1,7 +1,8 @@
 /**
  * The bundled egress policy, run on a reply as it streams.
  *
- * `standardEgressEnforce` matches its patterns on the reply as written and on
+ * The bundled checks match their patterns on the reply as written and, for
+ * injection phrasing, on
  * rewrites of it (typo-folded, Unicode-folded, rot13, leet, URL-decoded, read
  * backwards). The stream keeps each rewrite growing with the reply and, for
  * every pattern, an automaton accepting every match of it and more
@@ -17,15 +18,27 @@
  * @module
  */
 
-import { EGRESS_RULES, standardEgressEnforce } from './egress.ts';
+import {
+  DEFAULT_CHECKS,
+  EGRESS_RULES,
+  type ResolvedEgressChecks,
+  standardEgressEnforce,
+} from './egress.ts';
 import {
   FORWARD_AUTOMATON,
   REVERSED_AUTOMATON,
   REVERSED_INJECTION_PATTERNS,
 } from './egress-automata.ts';
-import { IMAGE_PATTERNS, type ImageScope, imageMatchTester } from './egress-images.ts';
-import { EGRESS_PATTERNS, type EgressPatternKind } from './egress-patterns.ts';
+import { EGRESS_PATTERNS, type EgressPattern, type EgressPatternKind } from './egress-patterns.ts';
 import { type EgressAutomatonData, globalPattern } from './egress-rules.ts';
+import {
+  type GivenUrls,
+  IMAGE_PATTERNS,
+  imageReadings,
+  LINK_PATTERNS,
+  linkReadings,
+  type UrlPatternReading,
+} from './egress-urls.ts';
 import {
   decodeUrlRuns,
   INJECTION_BLOBS,
@@ -362,8 +375,10 @@ interface ScanPattern {
   /** The automaton's id for the pattern. */
   id: number;
   regex: RegExp;
-  /** Whether a settled match counts, read with the reply as the view holds it so far. */
-  hit?: (match: string, reply: string) => boolean;
+  /** Whether a settled match at `at` counts, read with the reply as the view holds it so far. */
+  hit?: (match: string, reply: string, at: number) => boolean;
+  /** In place of the regex: where the first hit starting in a settled stretch [from, to) starts. */
+  find?: (reply: string, from: number, to: number) => number | undefined;
 }
 
 const BLOB_HITS = new Map(INJECTION_BLOBS.map(({ pattern, hit }) => [pattern, hit]));
@@ -379,29 +394,82 @@ const KIND_RULES: Record<EgressPatternKind, { rule: string; severity: Severity }
   card: { rule: EGRESS_RULES.sensitive, severity: 'high' },
   boundary: { rule: EGRESS_RULES.boundary, severity: 'medium' },
   image: { rule: EGRESS_RULES.image, severity: 'high' },
+  link: { rule: EGRESS_RULES.link, severity: 'high' },
 };
 
-function patternHit(
-  kind: EgressPatternKind,
-  pattern: RegExp,
-  imageLeaks: ReturnType<typeof imageMatchTester>,
-): ScanPattern['hit'] | undefined {
-  if (kind === 'card') return cardHit;
-  if (kind === 'image') {
-    const index = IMAGE_PATTERNS.indexOf(pattern);
-    return (match, reply) => imageLeaks(index, match, reply);
-  }
-  return BLOB_HITS.get(pattern);
+interface UrlReadings {
+  image: UrlPatternReading[];
+  link: UrlPatternReading[];
 }
 
-function forwardPatterns(kinds: 'all' | 'injection', images: ImageScope = {}): ScanPattern[] {
+/** How a settled match of `pattern` is read: a test of the match, or a finder in place of the regex. */
+function patternReading(
+  kind: EgressPatternKind,
+  pattern: RegExp,
+  urls: UrlReadings,
+): Pick<ScanPattern, 'hit' | 'find'> {
+  if (kind === 'card') return { hit: cardHit };
+  if (kind === 'image' || kind === 'link') {
+    const index = (kind === 'image' ? IMAGE_PATTERNS : LINK_PATTERNS).indexOf(pattern);
+    const reading = urls[kind][index] as UrlPatternReading;
+    return 'find' in reading ? { find: reading.find } : { hit: reading.test };
+  }
+  const hit = BLOB_HITS.get(pattern);
+  return hit ? { hit } : {};
+}
+
+const INJECTION_KINDS: ReadonlySet<EgressPatternKind> = new Set([
+  'injection',
+  'base64',
+  'hex',
+  'spaced',
+  'pipe',
+]);
+
+/** Whether `checks` runs the check a pattern belongs to. */
+function runs({ kind, group }: EgressPattern, checks: ResolvedEgressChecks): boolean {
+  if (INJECTION_KINDS.has(kind)) return checks.injection;
+  switch (kind) {
+    case 'sensitive':
+    case 'card':
+      return group !== undefined && checks.sensitive[group];
+    case 'boundary':
+      return checks.boundary;
+    case 'image':
+      return checks.images !== undefined;
+    default:
+      return checks.links !== undefined;
+  }
+}
+
+/** The patterns `checks` runs on the reply as written. */
+function forwardPatterns(checks: ResolvedEgressChecks, given?: GivenUrls): ScanPattern[] {
+  const scope = (check: object | undefined) => ({ ...check, ...(given ? { given } : {}) });
+  const urls: UrlReadings = {
+    image: imageReadings(scope(checks.images)),
+    link: linkReadings(scope(checks.links), checks.images !== undefined),
+  };
   const out: ScanPattern[] = [];
-  const imageLeaks = imageMatchTester(images);
-  EGRESS_PATTERNS.forEach(({ kind, pattern }, id) => {
-    if (kinds === 'injection' && kind !== 'injection') return;
-    const hit = patternHit(kind, pattern, imageLeaks);
+  EGRESS_PATTERNS.forEach((entry, id) => {
+    if (!runs(entry, checks)) return;
     out.push({
-      ...KIND_RULES[kind],
+      ...KIND_RULES[entry.kind],
+      id,
+      regex: new RegExp(entry.pattern.source, entry.pattern.flags),
+      ...patternReading(entry.kind, entry.pattern, urls),
+    });
+  });
+  return out;
+}
+
+/** The injection patterns, for the rewritten views. */
+function injectionPatterns(): ScanPattern[] {
+  const out: ScanPattern[] = [];
+  EGRESS_PATTERNS.forEach(({ kind, pattern }, id) => {
+    if (kind !== 'injection') return;
+    const hit = BLOB_HITS.get(pattern);
+    out.push({
+      ...KIND_RULES.injection,
       id,
       regex: new RegExp(pattern.source, pattern.flags),
       ...(hit ? { hit } : {}),
@@ -422,7 +490,8 @@ function reversedPatterns(): ScanPattern[] {
  * One view scanned for some patterns: the automata, run one character at a
  * time, give where each pattern could still be matching; the pattern's own
  * regex, run only where the automaton reached a match, finds the match and
- * whether it has settled.
+ * whether it has settled. A pattern whose matches nest (tags inside tags) is
+ * read instead by its finder, once over each stretch that settles.
  */
 function createScan(view: View, automaton: Automaton, patterns: ScanPattern[]) {
   const starts = startEdges(
@@ -506,6 +575,16 @@ function createScan(view: View, automaton: Automaton, patterns: ScanPattern[]) {
     for (let p = 0; p < patterns.length; p++) {
       const settledTo = liveFrom[p] as number;
       if (settledTo <= (resume[p] as number)) continue;
+      const { find } = patterns[p] as ScanPattern;
+      if (find) {
+        const at = find(text, resume[p] as number, settledTo);
+        resume[p] = settledTo;
+        if (at !== undefined) {
+          const { rule, severity } = patterns[p] as ScanPattern;
+          return { rule, severity, start: view.rawAt(at) };
+        }
+        continue;
+      }
       if (!reached[p] && !recheck[p]) {
         resume[p] = settledTo;
         continue;
@@ -521,7 +600,7 @@ function createScan(view: View, automaton: Automaton, patterns: ScanPattern[]) {
           break;
         }
         const [blob] = match;
-        if (blob && (!hit || hit(blob, text))) {
+        if (blob && (!hit || hit(blob, text, match.index))) {
           return { rule, severity, start: view.rawAt(match.index) };
         }
         if (!blob) regex.lastIndex++;
@@ -544,15 +623,15 @@ function createScan(view: View, automaton: Automaton, patterns: ScanPattern[]) {
 // ── Stream ───────────────────────────────────────────────────────────
 
 interface EgressStreamOptions {
-  /** Read the bundled policy's patterns. Default true. */
-  bundled?: boolean;
+  /** The bundled checks to run. Default each at its default (`EgressChecks`). */
+  checks?: ResolvedEgressChecks;
   /** Host rules, read on the reply as written, with their compiled automaton. */
   host?: {
     automaton: EgressAutomatonData;
     rules: readonly { rule: string; severity: Severity; pattern: RegExp }[];
   };
-  /** What decides whether a bundled image match leaks. */
-  images?: ImageScope;
+  /** The URLs the model was given, for the image and link checks. */
+  given?: GivenUrls;
 }
 
 /** Compiled host automata, kept per table so each is built once. */
@@ -577,13 +656,18 @@ function createEgressStream(options: EgressStreamOptions = {}): EgressStream {
     return createScan(view, automaton, patterns);
   };
   const scans: ReturnType<typeof createScan>[] = [];
-  if (options.bundled ?? true) {
+  const checks = options.checks ?? DEFAULT_CHECKS;
+  const forwardScan = forwardPatterns(checks, options.given);
+  if (forwardScan.length > 0) {
+    forward ??= compile(FORWARD_AUTOMATON);
+    scans.push(scan(raw, forward, forwardScan));
+  }
+  if (checks.injection) {
     forward ??= compile(FORWARD_AUTOMATON);
     backward ??= compile(REVERSED_AUTOMATON);
     const normalized = normalizedView(reply);
-    const injection = forwardPatterns('injection');
+    const injection = injectionPatterns();
     scans.push(
-      scan(raw, forward, forwardPatterns('all', options.images)),
       scan(raw, backward, reversedPatterns()),
       scan(typoView(raw), forward, injection),
       scan(normalized, forward, injection),
@@ -630,7 +714,7 @@ type EgressStreamPlan = (context: GuardrailContext) => EgressStream;
 const STREAM_PLANS = new WeakMap<EgressEnforcer, EgressStreamPlan>([
   [
     standardEgressEnforce,
-    (context) => createEgressStream({ images: { seenUrls: context.seenUrls } }),
+    (context) => createEgressStream(context.givenUrls ? { given: context.givenUrls } : {}),
   ],
 ]);
 

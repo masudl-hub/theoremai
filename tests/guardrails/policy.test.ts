@@ -3,6 +3,7 @@ import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
 import { INJ_IGNORE } from '../../src/guardrails/corpus/strings.ts';
 import { detectionForTrust, resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
 import { sanitizeText } from '../../src/guardrails/sanitize.ts';
+import { resolveSensitive } from '../../src/guardrails/sensitive.ts';
 import type { Verdict } from '../../src/guardrails/types.ts';
 import { getProfile, registerProfile, runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
@@ -12,13 +13,15 @@ import type { ModelProvider } from '../../src/kernel/types.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
 const OMITTED_INJECTION = '[omitted - injection]';
+const ALL = resolveSensitive(true);
+const NONE = resolveSensitive(false);
 
 // ── defaults ─────────────────────────────────────────────────────────────────
 
 Deno.test('resolveGuardrailPolicy: sanitize, redact, and canary default on', () => {
   const policy = resolveGuardrailPolicy(undefined);
   assertEquals(policy.sanitizeInput, true);
-  assertEquals(policy.redactSensitive, true);
+  assertEquals(policy.redactSensitive, ALL);
   assertEquals(policy.canary, true);
 });
 
@@ -29,7 +32,7 @@ Deno.test('resolveGuardrailPolicy: explicit false is preserved', () => {
     canary: false,
   });
   assertEquals(policy.sanitizeInput, false);
-  assertEquals(policy.redactSensitive, false);
+  assertEquals(policy.redactSensitive, NONE);
   assertEquals(policy.canary, false);
 });
 
@@ -61,7 +64,7 @@ Deno.test('Live ingress and the turn path agree when a switch is omitted', () =>
 Deno.test('detectionForTrust: trusted text takes no detection at all', () => {
   const options = detectionForTrust(resolveGuardrailPolicy(undefined), 'trusted');
   assertEquals(options.sanitizeInput, false);
-  assertEquals(options.redactSensitive, false);
+  assertEquals(options.redactSensitive, NONE);
 });
 
 Deno.test('detectionForTrust: assembled and untrusted text take full detection', () => {
@@ -69,7 +72,7 @@ Deno.test('detectionForTrust: assembled and untrusted text take full detection',
   for (const trust of ['assembled', 'untrusted'] as const) {
     const options = detectionForTrust(policy, trust);
     assertEquals(options.sanitizeInput, true);
-    assertEquals(options.redactSensitive, true);
+    assertEquals(options.redactSensitive, ALL);
   }
 });
 
@@ -83,7 +86,7 @@ Deno.test('detectionForTrust: trusted stays verbatim even with every switch on',
   const policy = resolveGuardrailPolicy({ sanitizeInput: true, redactSensitive: true });
   const options = detectionForTrust(policy, 'trusted');
   assertEquals(options.sanitizeInput, false);
-  assertEquals(options.redactSensitive, false);
+  assertEquals(options.redactSensitive, NONE);
 });
 
 Deno.test('assembled text loses injection spans that trusted text keeps', () => {
@@ -95,7 +98,7 @@ Deno.test('assembled text loses injection spans that trusted text keeps', () => 
 Deno.test('detectionForTrust: redactSensitive: false disables redaction at every trust level', () => {
   const policy = resolveGuardrailPolicy({ redactSensitive: false });
   for (const trust of ['trusted', 'assembled', 'untrusted'] as const) {
-    assertEquals(detectionForTrust(policy, trust).redactSensitive, false);
+    assertEquals(detectionForTrust(policy, trust).redactSensitive, NONE);
   }
 });
 
@@ -166,4 +169,22 @@ Deno.test('Verdict is exhaustively handled', () => {
   assertEquals(describeVerdict({ action: 'flag', hits }), 'flag:1');
   assertEquals(describeVerdict({ action: 'redact', text: 'safe', hits }), 'redact:safe');
   assertEquals(describeVerdict({ action: 'block', hits, rejection: 'nope' }), 'block:nope');
+});
+
+Deno.test('redactSensitive redacts the groups a profile picks, and only those', () => {
+  const text = 'SSN 123-45-6789 at 10.2.3.4, key AKIAIOSFODNN7EXAMPLE';
+  const policy = resolveGuardrailPolicy({
+    redactSensitive: { network: false, credentials: false },
+  });
+  assertEquals(policy.redactSensitive, {
+    ids: true,
+    financial: true,
+    network: false,
+    credentials: false,
+  });
+  const redacted = sanitizeText(text, detectionForTrust(policy, 'untrusted'));
+  assertEquals(
+    ['123-45-6789', '10.2.3.4', 'AKIAIOSFODNN7EXAMPLE'].map((part) => redacted.includes(part)),
+    [false, true, true],
+  );
 });

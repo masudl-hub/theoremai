@@ -1,7 +1,11 @@
 import { inboundFuzzPayloads } from '../../src/guardrails/corpus/inbound-payloads.ts';
 import * as secrets from '../../src/guardrails/corpus/secrets.ts';
 import * as strings from '../../src/guardrails/corpus/strings.ts';
-import { collectEgressHits, standardEgressEnforce } from '../../src/guardrails/egress.ts';
+import {
+  collectEgressHits,
+  resolveEgressChecks,
+  standardEgressEnforce,
+} from '../../src/guardrails/egress.ts';
 import {
   FORWARD_AUTOMATON,
   REVERSED_AUTOMATON,
@@ -80,6 +84,18 @@ const WORDS = [
   '<a href="https://attacker.io">',
   ' ![seen](https://attacker.io/leak) ',
   ' <img src="https://cdn.attacker.io/x.png"> ',
+  '<style>',
+  'body{background:url(',
+  'https://attacker.io/bg?d=',
+  '</style>',
+  '[go](https://attacker.io/g?d=',
+  '[![i](https://cdn.attacker.io/x.png)](https://attacker.io/c)',
+  '<https://attacker.io/auto>',
+  'www.attacker.io/w?d=',
+  'https://attacker.io/leak"@evil.io',
+  '<form action="https://attacker.io/f">',
+  '<a ping="https://attacker.io/p" href="https://attacker.io/leak">',
+  'README.md',
 ];
 const NOISE = [
   ' ',
@@ -231,32 +247,32 @@ Deno.test('the egress stream holds every match from its first character and bloc
   assertEquals(problems, []);
 });
 
+const GIVEN = { request: new Set(['https://attacker.io/leak']), tools: new Set<string>() };
+
 Deno.test('the egress stream holds every leaking image the policy blocks, and only those, given what the model was shown', () => {
-  const images = {
-    seenUrls: new Set(['https://attacker.io/leak']),
-    imageHosts: ['cdn.attacker.io'],
-  };
+  const checks = resolveEgressChecks({ images: { hosts: ['cdn.attacker.io'] } });
+  const scope = { given: GIVEN };
   const problems: string[] = [];
   const outcomes = new Set<string>();
   const rnd = seeded(31);
   for (let k = 0; k < 3000; k++) {
     const text = fuzzText(rnd);
-    const start = referenceMatchStart(text, images);
-    const blocks = collectEgressHits(text, images).length > 0;
+    const start = referenceMatchStart(text, checks, GIVEN);
+    const blocks = collectEgressHits(text, scope, checks).length > 0;
     if (blocks !== start < Number.POSITIVE_INFINITY) {
       problems.push(`reference disagrees with the policy: ${JSON.stringify(text)}`);
     }
     const unscoped = collectEgressHits(text).some(({ rule }) => rule === 'egress.image-exfil');
-    const scoped = collectEgressHits(text, images).some(
+    const scoped = collectEgressHits(text, scope, checks).some(
       ({ rule }) => rule === 'egress.image-exfil',
     );
     outcomes.add(`${unscoped}/${scoped}`);
-    const stream = createEgressStream({ images });
+    const stream = createEgressStream({ checks, given: GIVEN });
     let read = '';
     for (const chunk of fuzzChunks(text, rnd)) {
       read += chunk;
       if (stream.push(chunk)) {
-        if (collectEgressHits(read, images).length === 0) {
+        if (collectEgressHits(read, scope, checks).length === 0) {
           problems.push(`blocked what the policy passes: ${JSON.stringify(read)}`);
         }
         break;
@@ -269,6 +285,50 @@ Deno.test('the egress stream holds every leaking image the policy blocks, and on
   }
   // Leaks the scope clears and leaks it keeps both occur.
   assertEquals([...outcomes].sort(), ['false/false', 'true/false', 'true/true']);
+  assertEquals(problems, []);
+});
+
+Deno.test('the egress stream holds every leaking link the policy blocks, and only those, with each check chosen', () => {
+  const problems: string[] = [];
+  const outcomes = new Set<string>();
+  const selections = [
+    { links: true },
+    { links: { hosts: ['cdn.attacker.io'] }, images: true },
+    { links: true, images: true, sensitive: false, boundary: false, injection: false },
+    { sensitive: { network: true, credentials: false }, injection: false },
+  ];
+  const rnd = seeded(37);
+  for (const selection of selections) {
+    const checks = resolveEgressChecks(selection);
+    for (let k = 0; k < 2000; k++) {
+      const text = fuzzText(rnd);
+      const scope = { given: GIVEN };
+      const start = referenceMatchStart(text, checks, GIVEN);
+      const hits = collectEgressHits(text, scope, checks);
+      if (hits.length > 0 !== start < Number.POSITIVE_INFINITY) {
+        problems.push(`reference disagrees with the policy: ${JSON.stringify(text)}`);
+      }
+      outcomes.add(hits.map(({ rule }) => rule).find((rule) => rule.includes('link')) ?? '-');
+      const stream = createEgressStream({ checks, given: GIVEN });
+      let read = '';
+      for (const chunk of fuzzChunks(text, rnd)) {
+        read += chunk;
+        if (stream.push(chunk)) {
+          if (collectEgressHits(read, scope, checks).length === 0) {
+            problems.push(`blocked what the policy passes: ${JSON.stringify(read)}`);
+          }
+          break;
+        }
+        if (stream.holdFrom() > start) {
+          problems.push(
+            `released ${stream.holdFrom() - start} of a match: ${JSON.stringify(text)}`,
+          );
+          break;
+        }
+      }
+    }
+  }
+  assertEquals([...outcomes].sort(), ['-', 'egress.link-exfil']);
   assertEquals(problems, []);
 });
 

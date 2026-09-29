@@ -10,6 +10,7 @@
 import { streamPlanOf } from '../../guardrails/egress-stream.ts';
 import { TheoremError } from '../../guardrails/error.ts';
 import { type LexiconOverrides, validateLexiconOverrides } from '../../guardrails/lexicon.ts';
+import { SENSITIVE_GROUPS } from '../../guardrails/sensitive.ts';
 import type {
   DecisionGuardrailsSpec,
   HostGuardrailsSpec,
@@ -502,6 +503,22 @@ function assertEgress(profileId: string, guardrails: ProfileGuardrailsSpec | und
   }
 }
 
+/** A misspelt group would leave the group it meant on, silently. */
+function assertRedactSensitive(profileId: string, guardrails: unknown): void {
+  const selection = (guardrails as ProfileGuardrailsSpec | undefined)?.redactSensitive;
+  if (selection === undefined || typeof selection === 'boolean') return;
+  const groups = new Set<string>(SENSITIVE_GROUPS);
+  const bad = Object.entries(selection).find(
+    ([group, on]) => !groups.has(group) || typeof on !== 'boolean',
+  );
+  if (bad !== undefined) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profileId}: guardrails.redactSensitive.${bad[0]} is not a group (${SENSITIVE_GROUPS.join(', ')}) set to a boolean`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+}
+
 function assertObservability(profileId: string, spec: ProfileObservabilitySpec | undefined): void {
   if (!spec) {
     return;
@@ -545,6 +562,7 @@ function defineProfile(input: ProfileDefinition): Profile {
   assertFieldScope(input);
   assertRequiredFields(input);
   if (input.lexicon) validateLexiconOverrides(input.lexicon, `Profile ${input.id}`);
+  assertRedactSensitive(input.id, input.guardrails);
   if (input.type === 'host') {
     return defineHostProfile(input);
   }

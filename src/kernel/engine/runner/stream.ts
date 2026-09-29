@@ -6,6 +6,7 @@ import {
   promptLeakReason,
   WITHHELD_REASON,
 } from '../../../guardrails/egress.ts';
+import type { GivenUrls } from '../../../guardrails/egress-urls.ts';
 import { TheoremError, throwIfAborted, toErrorEvent } from '../../../guardrails/error.ts';
 import { guardrailFromHits } from '../../../guardrails/events.ts';
 import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
@@ -14,6 +15,7 @@ import {
   type ProgressiveYieldGate,
   type ProgressiveYieldResult,
 } from '../../../guardrails/progressive-yield.ts';
+import { thoughtGuardFor } from '../../../guardrails/thought-guard.ts';
 import type {
   GuardrailContext,
   GuardrailHit,
@@ -93,9 +95,9 @@ async function* yieldProviderEvents(args: {
   signal?: AbortSignal;
   control?: OutboundStreamControl;
   /** Every URL the model has been given this turn. */
-  seenUrls: ReadonlySet<string>;
+  givenUrls: GivenUrls;
 }): AsyncGenerator<StreamEvent> {
-  const { profile, generation, request, provider, call, signal, control, seenUrls } = args;
+  const { profile, generation, request, provider, call, signal, control, givenUrls } = args;
   const { canary } = generation;
   const policy = resolveGuardrailPolicy(profile.guardrails);
   const context: GuardrailContext = {
@@ -106,13 +108,15 @@ async function* yieldProviderEvents(args: {
     ...(canary ? { canary } : {}),
     // The system prompt is guarded against echo alongside the canary that binds it.
     ...(canary && policy.promptEcho && request.system ? { system: request.system } : {}),
-    seenUrls,
+    givenUrls,
   };
   const gate: ProgressiveYieldGate | null = createOutboundProgressiveGate(
     policy,
     context,
     control?.canaryCarry,
   );
+  /** Thoughts keep their images and links to given URLs only; the rest is omitted, never stopped. */
+  const thoughts = thoughtGuardFor(policy.egress?.enforce, givenUrls);
   /** The streamed event whose reply sits in the gate's lookback; released tails keep its shape. */
   let pendingStream: StreamedReplyEvent | null = null;
   let withholdVisible = false;
@@ -197,6 +201,19 @@ async function* yieldProviderEvents(args: {
     return (yield* releaseOrBlock(result, event)) === 'stop' ? 'stop' : 'continue';
   }
 
+  function* flushThoughts(): Generator<StreamEvent> {
+    const text = thoughts?.flush();
+    if (text) yield { type: 'thought', text };
+  }
+
+  /** A thought, through the guard when there is one; false for any other event. */
+  function* guardThought(event: StreamEvent): Generator<StreamEvent, boolean> {
+    if (event.type !== 'thought' || !thoughts) return false;
+    const text = thoughts.push(event.text);
+    if (text) yield { ...event, text };
+    return true;
+  }
+
   throwIfAborted(signal);
   let providerFailed = false;
   for await (const event of provider.complete({ ...request, signal, tapUpstream: call.tap })) {
@@ -206,6 +223,8 @@ async function* yieldProviderEvents(args: {
       // Identity is the trace's alone; the call span already recorded it.
       continue;
     }
+
+    if (yield* guardThought(event)) continue;
 
     if (isStreamedCanaryEvent(event)) {
       const status = yield* gateStreamEvent(event);
@@ -236,8 +255,11 @@ async function* yieldProviderEvents(args: {
     if (event.type === 'error') {
       providerFailed = true;
     }
+    if (event.type === 'done') yield* flushThoughts();
     yield event;
   }
+
+  yield* flushThoughts();
 
   const flushed = yield* flushGate();
   if (flushed === 'stop') {

@@ -9,8 +9,10 @@
  * @module
  */
 
+import type { GivenUrls } from './egress-urls.ts';
 import type { GuardrailEvent, GuardrailHit, Provenance } from './event-schemas.ts';
 import type { LexiconOverrides } from './lexicon.ts';
+import type { SensitiveGroups, SensitiveSelection } from './sensitive.ts';
 
 export type { GuardrailEvent, GuardrailHit, Provenance };
 
@@ -188,11 +190,11 @@ export interface GuardrailContext {
   provenance?: Provenance;
   /**
    * Canonical absolute URLs in what the model was given this turn or session:
-   * the system prompt, the user's input and history, tool results. An image in
-   * the reply loading any other URL can carry data to its server. The kernel
-   * adds to it as the model is given more. Unset: none.
+   * the system prompt, the user's input and history, and apart, tool results.
+   * An image or link in the reply to any other URL can carry data to its
+   * server. The kernel adds to them as the model is given more. Unset: none.
    */
-  seenUrls?: ReadonlySet<string>;
+  givenUrls?: GivenUrls;
   /** The profile's lexicon, so a policy's rejection reads in the host's wording. */
   lexicon?: LexiconOverrides;
 }
@@ -270,7 +272,12 @@ export interface ProfileGuardrailsSpec {
    */
   promptEcho?: boolean;
   sanitizeInput?: boolean;
-  redactSensitive?: boolean;
+  /**
+   * Redact sensitive data from untrusted text before the model reads it:
+   * `true` (the default) every group, `false` none, an object the groups it
+   * switches, the rest on (`ids`, `financial`, `network`, `credentials`).
+   */
+  redactSensitive?: SensitiveSelection;
   egress?: ProfileEgressSpec;
   /** SSRF and network access policies for HTTP and MCP tools. */
   network?: NetworkGuardrailSpec;
@@ -329,7 +336,7 @@ export type HostGuardrailsSpec = Pick<
  */
 export interface ResolvedGuardrailPolicy {
   sanitizeInput: boolean;
-  redactSensitive: boolean;
+  redactSensitive: SensitiveGroups;
   canary: boolean;
   promptEcho: boolean;
   egress?: ProfileEgressSpec;

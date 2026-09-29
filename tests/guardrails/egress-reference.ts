@@ -7,9 +7,15 @@
  * @module
  */
 
+import { DEFAULT_CHECKS, type ResolvedEgressChecks } from '../../src/guardrails/egress.ts';
 import { REVERSED_INJECTION_PATTERNS } from '../../src/guardrails/egress-automata.ts';
-import { type ImageScope, imageLeakSpans } from '../../src/guardrails/egress-images.ts';
-import { EGRESS_PATTERNS } from '../../src/guardrails/egress-patterns.ts';
+import { EGRESS_PATTERNS, type EgressPattern } from '../../src/guardrails/egress-patterns.ts';
+import {
+  type GivenUrls,
+  imageLeakSpans,
+  linkLeakSpans,
+  type UrlScope,
+} from '../../src/guardrails/egress-urls.ts';
 import {
   decodeUrlRuns,
   INJECTION_BLOBS,
@@ -83,9 +89,21 @@ function urlView(text: string): MappedView {
 }
 
 const blobHits = new Map(INJECTION_BLOBS.map((blob) => [blob.pattern, blob.hit]));
-const ALL: Detector[] = EGRESS_PATTERNS.filter(({ kind }) => kind !== 'image').map(
-  ({ kind, pattern }) => ({ re: pattern, hit: kind === 'card' ? cardHit : blobHits.get(pattern) }),
-);
+
+/** Whether `checks` reads a plain pattern; image and link patterns are read by their spans. */
+function plainRuns({ kind, group }: EgressPattern, checks: ResolvedEgressChecks): boolean {
+  if (kind === 'image' || kind === 'link') return false;
+  if (kind === 'sensitive' || kind === 'card') return checks.sensitive[group as 'ids'];
+  if (kind === 'boundary') return checks.boundary;
+  return checks.injection;
+}
+
+function plainDetectors(checks: ResolvedEgressChecks): Detector[] {
+  return EGRESS_PATTERNS.filter((entry) => plainRuns(entry, checks)).map(({ kind, pattern }) => ({
+    re: pattern,
+    hit: kind === 'card' ? cardHit : blobHits.get(pattern),
+  }));
+}
 const INJECTION: Detector[] = EGRESS_PATTERNS.filter(({ kind }) => kind === 'injection').map(
   ({ pattern }) => ({ re: pattern }),
 );
@@ -109,7 +127,7 @@ function earliest(view: string, at: (i: number) => number, detectors: Detector[]
  * its own start when an image opener comes before it ends, and otherwise from
  * the first opener after it: the definition alone renders nothing.
  */
-function earliestImage(text: string, images: ImageScope): number {
+function earliestImage(text: string, images: UrlScope): number {
   const openers = [...text.matchAll(/!\[/g)].map((m) => m.index);
   let best = Number.POSITIVE_INFINITY;
   for (const { start, end } of imageLeakSpans(text, images)) {
@@ -121,15 +139,31 @@ function earliestImage(text: string, images: ImageScope): number {
   return best;
 }
 
+function earliestLink(text: string, links: UrlScope, skipImages: boolean): number {
+  return Math.min(...linkLeakSpans(text, links, skipImages).map(({ start }) => start));
+}
+
 /** The raw index the earliest match starts at, or `Infinity` when nothing matches. */
-function referenceMatchStart(text: string, images: ImageScope = {}): number {
+function referenceMatchStart(
+  text: string,
+  checks: ResolvedEgressChecks = DEFAULT_CHECKS,
+  given?: GivenUrls,
+): number {
   const same = (i: number) => i;
+  const scope = (check: object) => ({ ...check, ...(given ? { given } : {}) });
+  const urls = Math.min(
+    checks.images ? earliestImage(text, scope(checks.images)) : Number.POSITIVE_INFINITY,
+    checks.links
+      ? earliestLink(text, scope(checks.links), checks.images !== undefined)
+      : Number.POSITIVE_INFINITY,
+  );
+  const plain = Math.min(earliest(text, same, plainDetectors(checks)), urls);
+  if (!checks.injection) return plain;
   const normalized = normalizedView(text);
   const fromNormalized = (i: number) => normalized.at[i] as number;
   const url = urlView(text);
   return Math.min(
-    earliest(text, same, ALL),
-    earliestImage(text, images),
+    plain,
     earliest(text, same, REVERSED),
     earliest(typoNormalize(text), same, INJECTION),
     earliest(normalized.view, fromNormalized, INJECTION),

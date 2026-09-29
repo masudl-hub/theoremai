@@ -21,6 +21,7 @@ import {
   FIXED_CANARY,
   FUZZ_SYSTEM,
 } from '../../guardrails/corpus/canary-egress-attacks.ts';
+import { givenUrlSets } from '../../guardrails/egress-urls.ts';
 import {
   createLiveOutboundGateSession,
   finalizeLiveOutboundTurn,
@@ -166,7 +167,7 @@ async function runStreamChannel(
         // The fuzz reads what reaches the client, not the trace.
         call: { tap: () => {}, observe: () => {} },
         control,
-        seenUrls: new Set(),
+        givenUrls: givenUrlSets(),
       }),
     );
     // The runner reads the call's `done`; the client never receives it.

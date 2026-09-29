@@ -7,14 +7,20 @@
 import type { ProviderEvent, ProviderEvidence } from '../kernel/types.ts';
 import { isRecord } from '../kernel/util/record.ts';
 import { guardedEventTexts, scanTextForCanaryLeak } from './canary.ts';
-import { type ImageScope, imageLeakSpans } from './egress-images.ts';
 import { SYSTEM_BOUNDARY } from './egress-patterns.ts';
+import { type GivenUrls, imageLeakSpans, linkLeakSpans, type UrlScope } from './egress-urls.ts';
 import { describeError } from './error.ts';
 import { hitFromSpan } from './hits.ts';
 import { injectionSpans } from './injection.ts';
 import { lexiconText } from './lexicon.ts';
 import { scanTextForPromptEcho } from './prompt-echo.ts';
-import { sensitiveSpans } from './sensitive.ts';
+import {
+  anySensitive,
+  resolveSensitive,
+  type SensitiveGroups,
+  type SensitiveSelection,
+  sensitiveSpans,
+} from './sensitive.ts';
 import { textForScan } from './serialize.ts';
 import type {
   EgressEnforcer,
@@ -42,6 +48,8 @@ export const EGRESS_RULES = {
   injection: 'egress.injection-echo', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   /** An image in the reply loads a URL the model was not given, from a host not allowed: it can carry data there. */
   image: 'egress.image-exfil', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  /** A link in the reply goes to a URL the model was not given, on a host not allowed. */
+  link: 'egress.link-exfil', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   /** Payload could not be rendered for inspection — released output is unverified. */
   unscannable: 'egress.unscannable', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   /** The host policy threw instead of returning a verdict. */
@@ -57,8 +65,6 @@ function hitsFromSpans(
   return spans.map((span) => hitFromSpan(text, span, rule, severity));
 }
 
-/** Hits from the bundled outbound policy (canary / sensitive / boundary / injection). */
-/** A canary leak. Never carries the live token — placeholder only. */
 /** Why a reply was withheld, for the builder (`errorInternal`); the user reads `error.safety`. */
 const WITHHELD_REASON = {
   canary: 'canary leaked',
@@ -148,23 +154,125 @@ function promptLeakReason(hits: GuardrailHit[]): string {
     : WITHHELD_REASON.promptEcho;
 }
 
-/** What the bundled policy reads besides the reply. */
-interface EgressScope extends ImageScope {
-  canary?: string;
-  system?: string;
+/** Where a URL check lets a URL through beyond the ones the model was given. */
+interface UrlCheck {
+  /** Hostnames the check lets through whatever their URL, such as the host's own CDN. */
+  hosts?: readonly string[];
+  /**
+   * Whether a URL a tool returned counts as given. Default true. A tool result
+   * can offer the model URLs to pick from, and the pick tells their server
+   * something; false closes that channel, and keeps only what the system
+   * prompt, the user and host history gave.
+   */
+  fromTools?: boolean;
 }
 
-function collectEgressHits(text: string, scope: EgressScope = {}): GuardrailHit[] {
+/**
+ * Which bundled egress checks run; a check left out keeps its default. The
+ * system-prompt leak checks are not among them: `guardrails.canary` and
+ * `guardrails.promptEcho` switch those, and they run under any policy.
+ */
+interface EgressChecks {
+  /**
+   * Sensitive data in the reply, by group. Default every group but `network`:
+   * an address in a reply is not a secret, and replies explaining networks
+   * cite them.
+   */
+  sensitive?: SensitiveSelection;
+  /** The fence the kernel puts around user data, and the canary's note. Default on. */
+  boundary?: boolean;
+  /** Injection phrasing in the reply, as written or disguised. Default on. */
+  injection?: boolean;
+  /** Images that load a URL the model was not given. Default on. */
+  images?: boolean | UrlCheck;
+  /**
+   * Links to a URL the model was not given. Default off: a link loads on a
+   * click, or where the host unfurls links into previews, and replies cite
+   * pages from what the model knows. A host that unfurls turns it on.
+   */
+  links?: boolean | UrlCheck;
+}
+
+/** `EgressChecks` with defaults applied; a URL check is undefined when off. */
+interface ResolvedEgressChecks {
+  sensitive: SensitiveGroups;
+  boundary: boolean;
+  injection: boolean;
+  images?: UrlCheck;
+  links?: UrlCheck;
+}
+
+const EGRESS_SENSITIVE_DEFAULT: SensitiveGroups = {
+  ids: true,
+  financial: true,
+  network: false,
+  credentials: true,
+};
+
+function resolveUrlCheck(check: boolean | UrlCheck | undefined, byDefault: boolean) {
+  if (check === undefined) return byDefault ? {} : undefined;
+  if (typeof check === 'boolean') return check ? {} : undefined;
+  return check;
+}
+
+function resolveEgressChecks(checks: EgressChecks = {}): ResolvedEgressChecks {
+  const images = resolveUrlCheck(checks.images, true);
+  const resolved = resolveUrlCheck(checks.links, false);
+  // A host images load from already takes data with no click, so a link there opens nothing new.
+  const links =
+    resolved && images?.hosts
+      ? { ...resolved, hosts: [...new Set([...(resolved.hosts ?? []), ...images.hosts])] }
+      : resolved;
+  return {
+    sensitive: resolveSensitive(checks.sensitive, EGRESS_SENSITIVE_DEFAULT),
+    boundary: checks.boundary ?? true,
+    injection: checks.injection ?? true,
+    ...(images ? { images } : {}),
+    ...(links ? { links } : {}),
+  };
+}
+
+/** Every check off: the system-prompt leak checks alone. */
+const NO_CHECKS: ResolvedEgressChecks = resolveEgressChecks({
+  sensitive: false,
+  boundary: false,
+  injection: false,
+  images: false,
+});
+
+const DEFAULT_CHECKS: ResolvedEgressChecks = resolveEgressChecks();
+
+/** What the bundled policy reads besides the reply. */
+interface EgressScope {
+  canary?: string;
+  system?: string;
+  /** The URLs the model was given this turn. */
+  given?: GivenUrls;
+}
+
+function urlScope(check: UrlCheck, given: GivenUrls | undefined): UrlScope {
+  return { ...check, ...(given ? { given } : {}) };
+}
+
+/** The bundled policy's hits in `text`, from the checks `checks` runs. */
+function collectEgressHits(
+  text: string,
+  scope: EgressScope = {},
+  checks: ResolvedEgressChecks = DEFAULT_CHECKS,
+): GuardrailHit[] {
   const hits = promptLeakHits(text, scope.canary, scope.system);
-  hits.push(
-    ...hitsFromSpans(
-      text,
-      sensitiveSpans(text, { network: false }),
-      EGRESS_RULES.sensitive,
-      'high',
-    ),
-  ); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  const boundary = SYSTEM_BOUNDARY.exec(text);
+  if (anySensitive(checks.sensitive)) {
+    // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    hits.push(
+      ...hitsFromSpans(
+        text,
+        sensitiveSpans(text, checks.sensitive),
+        EGRESS_RULES.sensitive,
+        'high',
+      ),
+    );
+  }
+  const boundary = checks.boundary ? SYSTEM_BOUNDARY.exec(text) : null;
   if (boundary && boundary.index !== undefined) {
     hits.push(
       hitFromSpan(
@@ -175,8 +283,17 @@ function collectEgressHits(text: string, scope: EgressScope = {}): GuardrailHit[
       ),
     );
   }
-  hits.push(...hitsFromSpans(text, injectionSpans(text), EGRESS_RULES.injection, 'medium')); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  hits.push(...hitsFromSpans(text, imageLeakSpans(text, scope), EGRESS_RULES.image, 'high'));
+  if (checks.injection) {
+    hits.push(...hitsFromSpans(text, injectionSpans(text), EGRESS_RULES.injection, 'medium')); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  if (checks.images) {
+    const spans = imageLeakSpans(text, urlScope(checks.images, scope.given));
+    hits.push(...hitsFromSpans(text, spans, EGRESS_RULES.image, 'high'));
+  }
+  if (checks.links) {
+    const spans = linkLeakSpans(text, urlScope(checks.links, scope.given), Boolean(checks.images));
+    hits.push(...hitsFromSpans(text, spans, EGRESS_RULES.link, 'high'));
+  }
   return hits;
 }
 
@@ -308,15 +425,18 @@ function hitsEnforcer(
   };
 }
 
-/** Default egress enforce — canary leak, sensitive echo, fence markers, injection echo, image exfiltration. */
+/** What the bundled policy reads from a gate's context. */
+function egressScope(context: GuardrailContext): EgressScope {
+  return {
+    ...(context.canary ? { canary: context.canary } : {}),
+    ...(context.system ? { system: context.system } : {}),
+    ...(context.givenUrls ? { given: context.givenUrls } : {}),
+  };
+}
+
+/** Default egress enforce: every bundled check at its default (`EgressChecks`). */
 const standardEgressEnforce: (payload: OutboundPayload, context: GuardrailContext) => Verdict =
-  hitsEnforcer((text, context) =>
-    collectEgressHits(text, {
-      canary: context.canary,
-      system: context.system,
-      seenUrls: context.seenUrls,
-    }),
-  );
+  hitsEnforcer((text, context) => collectEgressHits(text, egressScope(context)));
 
 /**
  * Run a host policy without letting it break the turn.
@@ -344,17 +464,20 @@ async function runEnforcer(
   }
 }
 
-export type { EgressScope };
+export type { EgressChecks, EgressScope, ResolvedEgressChecks, UrlCheck };
 export {
   CANARY_HIT,
   collectEgressHits,
+  DEFAULT_CHECKS,
+  egressScope,
   eventPromptLeakHits,
   hitRules,
   hitsEnforcer,
   isPromptLeakHit,
+  NO_CHECKS,
   promptEchoHits,
-  promptLeakHits,
   promptLeakReason,
+  resolveEgressChecks,
   runEnforcer,
   standardEgressEnforce,
   WITHHELD_REASON,

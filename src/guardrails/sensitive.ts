@@ -30,26 +30,69 @@ const PEM_KEY =
   /-----BEGIN (?:RSA )?PRIVATE KEY-----[\s\S]{0,16384}?-----END (?:RSA )?PRIVATE KEY-----/g;
 const CARD_CANDIDATE = /\b(?:\d[\s.-]*?){13,19}\b/g;
 
-const KEY_PATTERNS = [
-  SSN,
-  SSN_CONTEXTUAL,
-  ITIN,
-  EIN,
-  IBAN,
-  AWS_ACCESS,
-  GOOGLE_API,
-  OPENAI_KEY,
-  ANTHROPIC_KEY,
-  OPENROUTER_KEY,
-  GITHUB_PAT,
-  GITHUB_TOKEN,
-  SLACK_TOKEN,
-  BEARER,
-  PEM_KEY,
-];
+/**
+ * The families of sensitive data, each switched on its own: a profile can
+ * redact credentials and card numbers but leave network addresses alone.
+ */
+const SENSITIVE_GROUPS = ['ids', 'financial', 'network', 'credentials'] as const;
 
-/** Addresses are personal data inbound, but not secrets: replies explaining networks cite them. */
-const NETWORK_PATTERNS = [IPV4, IPV6];
+type SensitiveGroup = (typeof SENSITIVE_GROUPS)[number];
+
+/** Per group, whether it runs. A group left out keeps its default. */
+type SensitiveSwitches = Partial<Record<SensitiveGroup, boolean>>;
+
+/** `true` runs every group, `false` none; an object switches the groups it names. */
+type SensitiveSelection = boolean | SensitiveSwitches;
+
+/** Every group's switch, defaults applied. */
+type SensitiveGroups = Readonly<Record<SensitiveGroup, boolean>>;
+
+/** The patterns each group matches. Card numbers are financial too, found by `cardSpans`. */
+const GROUP_PATTERNS: Readonly<Record<SensitiveGroup, readonly RegExp[]>> = {
+  ids: [SSN, SSN_CONTEXTUAL, ITIN, EIN],
+  financial: [IBAN],
+  network: [IPV4, IPV6],
+  credentials: [
+    AWS_ACCESS,
+    GOOGLE_API,
+    OPENAI_KEY,
+    ANTHROPIC_KEY,
+    OPENROUTER_KEY,
+    GITHUB_PAT,
+    GITHUB_TOKEN,
+    SLACK_TOKEN,
+    BEARER,
+    PEM_KEY,
+  ],
+};
+
+/** Every pattern, with its group. */
+const SENSITIVE_PATTERNS: readonly { group: SensitiveGroup; pattern: RegExp }[] =
+  SENSITIVE_GROUPS.flatMap((group) => GROUP_PATTERNS[group].map((pattern) => ({ group, pattern })));
+
+const ALL_GROUPS: SensitiveGroups = {
+  ids: true,
+  financial: true,
+  network: true,
+  credentials: true,
+};
+
+/** `selection` with the groups it leaves out taken from `defaults`. */
+function resolveSensitive(
+  selection: SensitiveSelection | undefined,
+  defaults: SensitiveGroups = ALL_GROUPS,
+): SensitiveGroups {
+  if (selection === undefined) return defaults;
+  if (typeof selection === 'boolean') {
+    return { ids: selection, financial: selection, network: selection, credentials: selection };
+  }
+  return { ...defaults, ...selection };
+}
+
+/** Whether any group runs. */
+function anySensitive(groups: SensitiveGroups): boolean {
+  return SENSITIVE_GROUPS.some((group) => groups[group]);
+}
 
 const LUHN_DOUBLE = 2;
 const LUHN_NINE = 9;
@@ -96,16 +139,23 @@ function cardSpans(text: string): RedactSpan[] {
   return spans;
 }
 
-/** Which span families to detect; network addresses are on unless turned off. */
-interface SensitiveOptions {
-  network?: boolean;
+/** Sensitive-data spans in `text`, from the groups `selection` runs (every group by default). */
+function sensitiveSpans(text: string, selection: SensitiveSelection = true): RedactSpan[] {
+  const groups = resolveSensitive(selection);
+  const patterns = SENSITIVE_GROUPS.flatMap((group) =>
+    groups[group] ? GROUP_PATTERNS[group] : [],
+  );
+  const spans = spansFromPatterns(text, patterns, 'sensitive');
+  return groups.financial ? [...spans, ...cardSpans(text)] : spans;
 }
 
-/** Detect sensitive-data spans in a string. Egress passes `network: false`. */
-function sensitiveSpans(text: string, options: SensitiveOptions = {}): RedactSpan[] {
-  const patterns =
-    options.network === false ? KEY_PATTERNS : [...KEY_PATTERNS, ...NETWORK_PATTERNS];
-  return [...spansFromPatterns(text, patterns, 'sensitive'), ...cardSpans(text)];
-}
-
-export { CARD_CANDIDATE, cardHit, KEY_PATTERNS, type SensitiveOptions, sensitiveSpans };
+export type { SensitiveGroup, SensitiveGroups, SensitiveSelection, SensitiveSwitches };
+export {
+  anySensitive,
+  CARD_CANDIDATE,
+  cardHit,
+  resolveSensitive,
+  SENSITIVE_GROUPS,
+  SENSITIVE_PATTERNS,
+  sensitiveSpans,
+};

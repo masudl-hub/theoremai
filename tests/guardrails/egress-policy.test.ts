@@ -1,7 +1,12 @@
 import { assertEquals, assertThrows } from '@std/assert';
 import { main } from '../../src/cli/index.ts';
 import { compileEgressRules } from '../../src/guardrails/compile-egress.ts';
-import { collectEgressHits, EGRESS_RULES } from '../../src/guardrails/egress.ts';
+import {
+  collectEgressHits,
+  DEFAULT_CHECKS,
+  EGRESS_RULES,
+  NO_CHECKS,
+} from '../../src/guardrails/egress.ts';
 import { egressPolicy } from '../../src/guardrails/egress-policy.ts';
 import type { EgressRule } from '../../src/guardrails/egress-rules.ts';
 import { createEgressStream } from '../../src/guardrails/egress-stream.ts';
@@ -187,7 +192,10 @@ function streamProblem(
   start: number,
   rnd: (n: number) => number,
 ): string | undefined {
-  const stream = createEgressStream({ bundled, host: HOST_SCAN });
+  const stream = createEgressStream({
+    checks: bundled ? DEFAULT_CHECKS : NO_CHECKS,
+    host: HOST_SCAN,
+  });
   let read = '';
   for (const chunk of fuzzChunks(text, rnd)) {
     read += chunk;

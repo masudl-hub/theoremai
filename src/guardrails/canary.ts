@@ -866,8 +866,9 @@ function redactCanaryText(text: string, canary: string): string {
 
 /**
  * Thinking is not guarded output: a host that shows `thought` events accepts
- * what they contain, and a thinking model restates its system prompt as it
- * reasons. Every outbound gate reads this before scanning.
+ * what they say, and a thinking model restates its system prompt as it
+ * reasons. Every outbound gate reads this before scanning. What a thought
+ * would load is another matter (`thought-guard.ts`).
  */
 function isGuardedOutput(event: ProviderEvent): boolean {
   return event.type !== 'thought';

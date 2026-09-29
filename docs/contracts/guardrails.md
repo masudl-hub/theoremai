@@ -73,7 +73,8 @@ Owns every module under `src/guardrails/`.
 | `progressive-yield.ts` | Streaming gate for canary / prompt echo / egress: exact hold for the bundled policy, fixed lookback for a host enforce |
 | `egress.ts` | `standardEgressEnforce` / `collectEgressHits` bundled outbound policy |
 | `egress-patterns.ts` | Every regex the bundled policy blocks on, tagged by kind |
-| `egress-images.ts` | Reply images read as a renderer reads them, and whether each URL leaks (`seenUrls`, reserved hosts, `imageHosts`) |
+| `egress-urls.ts` | Reply images and links read as a renderer reads them, and whether each URL leaks (`givenUrls`, reserved hosts, a check's `hosts`) |
+| `thought-guard.ts` | Thought text released as it clears, each leaking image or link omitted |
 | `egress-automata.ts` | Generated (`scripts/gen-egress-automata.ts`): reversed injection patterns and each pattern's superset automaton |
 | `egress-stream.ts` | The bundled policy and host rules read incrementally: where a match could still start, and its settled hits |
 | `egress-rules.ts` | Host egress rule shape, the compiled table's shape, rule checks |
@@ -119,7 +120,7 @@ returns a `Verdict`:
 ```ts
 type EgressEnforcer = (
   payload: OutboundPayload,      // { text, structured? }
-  context: GuardrailContext,     // { stage, trust, profileId, canary?, role?, slots?, seenUrls? }
+  context: GuardrailContext,     // { stage, trust, profileId, canary?, role?, slots?, givenUrls? }
 ) => Verdict | Promise<Verdict>;
 
 type Verdict =
@@ -163,7 +164,9 @@ interface GuardrailHit {
 `standardEgressEnforce` blocks canary leaks, sensitive echoes (credentials,
 cards, SSNs — not IP addresses), system-boundary markers, injection-pattern
 echoes, and reply images that could carry data off the device (see
-[Reply images](#reply-images)); `EGRESS_RULES` names the rule ids it emits. **`payload.structured` is inspected alongside `payload.text`**, so a profile
+[Reply images and links](#reply-images-and-links)); `EGRESS_RULES` names the
+rule ids it emits. `egressPolicy({ bundled })` picks which of these checks run
+(see [Bundled checks](#bundled-checks)). **`payload.structured` is inspected alongside `payload.text`**, so a profile
 with `outputs.structured` is covered by its own egress policy — structured events
 are held until the gate runs rather than streaming ahead of it.
 
@@ -180,48 +183,100 @@ profile carries over: a structured field holding an IP address or a Luhn-valid
 bundled policy's stance, not a property of the transport — a host that ships
 structured operational data should supply its own `enforce`.
 
-### Reply images
+### Bundled checks
+
+`egressPolicy({ bundled })` takes `true` (the default: each check at its
+default), `false` (none), or an `EgressChecks` object switching the checks it
+names; a check left out keeps its default. The canary and prompt echo are not
+among them: `guardrails.canary` and `guardrails.promptEcho` switch those, and
+they run under any policy. `standardEgressEnforce` is every check at its default.
+
+| Check | Default | Blocks |
+| --- | --- | --- |
+| `sensitive` | every group but `network` | Sensitive data by group (see [Sensitive data](#sensitive-data)): `true`, `false`, or `{ ids?, financial?, network?, credentials? }` |
+| `boundary` | on | The fence the kernel puts around user data, and the canary's note |
+| `injection` | on | Injection phrasing, as written or disguised |
+| `images` | on | `egress.image-exfil`: an image that loads a URL the model was not given |
+| `links` | off | `egress.link-exfil`: a link to a URL the model was not given |
+
+`images` and `links` take `true`, `false`, or `{ hosts?, fromTools? }`:
+
+- `hosts` lists hostnames the check lets through whatever their URL, such as
+  the host's own CDN; a subdomain is not included. An image host passes links
+  too: it already takes data with no click, so a link there opens nothing new.
+- `fromTools` (default `true`) counts a URL a tool returned as given. A tool
+  result can offer the model URLs to pick from, and the pick tells their server
+  something; `false` keeps only what the system prompt, the user and host
+  history gave.
+
+A group, check or option that does not exist, or a host that is not a bare
+hostname, is a config error.
+
+### Reply images and links
 
 A reply image loads on the reader's device the moment it renders, so a model
 steered by injected text can post what it knows to any server by writing it
-into an image URL — no tool call, no click. `standardEgressEnforce` blocks such
-an image as `egress.image-exfil` (severity `high`).
+into an image URL — no tool call, no click. A link does the same on a click, or
+with none where the host unfurls links into previews. The `images` check
+blocks such an image as `egress.image-exfil`, and the `links` check such a
+link as `egress.link-exfil` (severity `high`). Links are off by default: replies
+cite pages from what the model knows, and a link loads nothing until it is
+followed; a host that unfurls turns them on.
 
-An image URL is a leak unless:
+A URL is a leak unless:
 
 - it is one the model was given this turn — or this Live session — in the
-  system prompt, the user's input, a tool result or host history
-  (`GuardrailContext.seenUrls`; the model's own earlier replies do not count),
-  compared after URL canonicalization (host case, default port, escapes);
+  system prompt, the user's input, host history or (unless `fromTools: false`)
+  a tool result (`GuardrailContext.givenUrls`; the model's own earlier replies
+  do not count), compared after URL canonicalization (host case, default port,
+  escapes); a URL the reply wrote with trailing punctuation matches with it
+  trimmed;
 - its host is reserved and can receive nothing (`example.com`, `.net`, `.org`,
   and the `.example`, `.test` and `.invalid` names); or
-- its host is one the host named in `egressPolicy({ imageHosts })`.
+- its host is in the check's `hosts` (for links, the image check's too).
 
 A relative URL, `data:` and `javascript:` load nothing off the page's own
-origin and are not leaks. An image is found the way a renderer finds one:
+origin and are not leaks. Images are found the way a renderer finds them:
 
 - markdown inline images (nested ones too), and reference definitions whenever
   the reply has an image opener that could use them;
 - HTML start tags as the browser tokenizer reads them, with entities decoded:
   `src`, `srcset`, `poster`, `background`, `data`, `xlink:href` and the other
   loading attributes; `href` on every tag but `a` and `area`; CSS `url()` and
-  strings in `style` (CSS escapes decoded); a `srcdoc` document; a `meta`
-  refresh. A named entity the table does not know makes its URL a leak.
+  strings in `style`; a `srcdoc` document; a `meta` refresh. A named entity the
+  table does not know makes its URL a leak;
+- `<style>` blocks, each `url()` and string in them (`@import "…"`, `image-set("…")`).
 
-Code blocks are not exempt: a renderer that styles them may still render HTML
-beside them, and the check cannot know which renderer reads the reply. The
-stream holds an image from its first character until it settles — a markdown
-image at the blank line that ends its paragraph, a tag at its `>` — so none of
-it reaches the host before the check reads it.
+CSS is read as a CSS tokenizer reads it: comments, strings (an escaped newline
+dropped), and escapes decoded per token, so `url(https://ok.com\)@attacker.io/)`
+is a URL to `attacker.io`. Links are found the same way: markdown inline links,
+reference links, autolinks (`<https://…>`), bare URLs (`https://…`, `www.…`),
+and `href` on `a` and `area`.
+
+Code is not exempt: a renderer that styles code may still render HTML beside
+it, and the check cannot know which renderer reads the reply, so a code span
+that could be read as closed or open is read both ways. The stream holds an
+image or link from its first character until it settles — a markdown image at
+the blank line that ends its paragraph, a tag at its `>` — so none of it reaches
+the host before the check reads it.
+
+Reading a reply takes time in proportion to its length whatever it holds. A
+read decodes at most 32 characters per character of the text (plus 64 KiB):
+entities, `srcdoc` documents within documents, trimmings of a URL. A reply
+needing more is read as leaking throughout. An attacker who can make the reply
+cost that much can already make it leak, so failing closed takes nothing from
+an honest reply.
 
 Not covered:
 
-- Links (`[text](url)`, `<a href>`) and link unfurls: a link loads only on a
-  click, and an unfurl is the host's to govern.
-- A `<style>` block's contents, and CSS a host injects from reply text.
+- A bare domain with no scheme or `www.` (`attacker.io/p?d=…`): a renderer
+  that links it is the host's, and replies name domains all the time.
 - A URL the model was given that itself encodes data it chose — a search result
-  link with a query the model picked, say — used as a covert channel.
-- Thoughts, which are not guarded output (below).
+  link with a query the model picked, say — used as a covert channel;
+  `fromTools: false` narrows it to what the prompt, user and history gave.
+- CSS a host builds from reply text outside markup.
+
+Thoughts get the URL checks alone (see below).
 
 ### Host egress rules
 
@@ -264,10 +319,8 @@ guardrails: { egress: { enforce: egressPolicy({ rules, compiled: compiledEgressR
 - `egressPolicy` throws a config error when the table was compiled from other
   rules or by another compiler version: compile again after changing a rule.
 - `egress.holdback` does not apply, as with the bundled policy.
-- `imageHosts` lists hostnames reply images may load from whatever their URL,
-  such as the host's own image CDN; a subdomain is not included. It widens the
-  bundled image check, so it needs `bundled` on: with `bundled: false` it is a
-  config error, as is an entry that is not a bare hostname.
+- `bundled` also takes an `EgressChecks` object (see
+  [Bundled checks](#bundled-checks)).
 
 ### When a policy fails
 
@@ -383,7 +436,15 @@ through progressive yield, the end-of-attempt egress payload carries reply text
 and structured output, and no canary scan reads a `thought` event — in `runTurn`,
 Live, and `filterCanaryGatedEvents` alike. A thinking model restates its system
 prompt (canary included) as it reasons; a host that shows thoughts
-(`outputs.streaming.streamThoughts`) accepts what they hold.
+(`outputs.streaming.streamThoughts`) accepts what they hold. What a thought
+would load is the exception: a host that renders thoughts loads their images,
+and links them, as it does a reply's. Under an egress policy whose `images` or
+`links` check is on, each thought's images and links run through that check,
+and one that leaks is omitted — `(omitted - image)` or `(omitted - link)` in
+its place — while the rest of the thought streams as it clears; the turn never
+stops for a thought. A thought still writing leaks past the sixteenth loses the
+rest. A host `enforce` the kernel cannot read the checks of gets no thought
+guard.
 
 **Live speech is guarded like text.** In Live the reply stream is text deltas
 and the spoken reply's transcript (`output_transcription` evidence); both run
@@ -629,7 +690,10 @@ re-exports their inferred types.
 ## Sanitization
 
 Driven by profile `guardrails.sanitizeInput`, `guardrails.redactSensitive`, and
-`guardrails.canary`, all defaulting on (`canary: false` opts out; with the
+`guardrails.canary`, all defaulting on. `redactSensitive` also takes
+`{ ids?, financial?, network?, credentials? }`, switching the groups it names
+and leaving the rest on (see [Sensitive data](#sensitive-data)); `sanitizeInput`
+is one switch over every injection category (`canary: false` opts out; with the
 canary on, `guardrails.promptEcho` also defaults on). Speech
 profiles are the exception for the canary: they have no system prompt to bind a
 token into, so registration stores `canary: false` and rejects any other value. Every path
@@ -676,14 +740,23 @@ False-positive tuning: `tests/guardrails/false-positives.test.ts` and
 
 | API | Role |
 | --- | --- |
-| `sensitiveSpans` | Credential / PII span detection |
-| `SensitiveOptions` | `{ network?: boolean }`: `false` skips IP addresses |
+| `sensitiveSpans(text, selection?)` | Credential / PII span detection for the groups `selection` runs (default every group) |
+| `SENSITIVE_GROUPS` | The groups, each switched on its own |
 | `redactSensitiveOnly` | Model output path without injection patterns |
 
+| Group | Matches |
+| --- | --- |
+| `ids` | SSNs (bare and in context), ITINs, EINs |
+| `financial` | IBANs, and card numbers passing the Luhn check |
+| `network` | IPv4 and IPv6 addresses |
+| `credentials` | Cloud and model API keys, GitHub and Slack tokens, bearer tokens, PEM private keys |
+
 `sensitiveSpans` redacts credential-like and PII patterns from inbound text and,
-when enabled, outbound paths. IPv4 and IPv6 addresses count inbound, where they
-are the user's personal data; `sensitiveSpans(text, { network: false })` skips
-them, and egress always does, because an address in a reply is not a secret. Use `redactSensitiveOnly` on model output when
+when enabled, outbound paths. A selection is `true` (every group), `false`
+(none), or an object switching the groups it names, the rest at their default.
+IPv4 and IPv6 addresses count inbound, where they are the user's personal data;
+egress leaves `network` off by default, because an address in a reply is not a
+secret. Use `redactSensitiveOnly` on model output when
 injection patterns should not run. A card-number candidate counts only when it
 is 13–19 digits passing the Luhn check (`cardHit`), in batch and in the egress
 stream alike.
@@ -883,7 +956,7 @@ Emission sites (non-`allow` only):
 | Stage | Path |
 | --- | --- |
 | `input` / `history` / `system` | `sanitizeTurnRequestWithEvents` at turn start |
-| `tool_call` / tool result | `executeRegisteredTool` (args, taint, result) and `src/guardrails/tool-result.ts` event shaping |
+| `tool_call` / tool result | `executeRegisteredTool` (args — for the `redactSensitive` groups the profile runs —, taint, result) and `src/guardrails/tool-result.ts` event shaping |
 | `output_delta` | Progressive-yield / canary mid-stream |
 | `output_final` | End-of-attempt egress in `gates.ts` |
 | `network` | `guardToolTarget` before HTTP/MCP |
@@ -1043,7 +1116,7 @@ From `src/guardrails/mod.ts`:
 | Group | Symbols |
 | --- | --- |
 | Errors | `ERROR_KINDS`, `ErrorKind`, `ErrorCopy`, `ErrorCopies`, `errorKindSchema`, `errorCopiesSchema`, `TheoremError`, `TheoremErrorOptions`, `errorKind`, `kindOfHttpStatus`, `publicError`, `toErrorEvent`, `withPublicWording`, `describeError`, `isAbortError`, `isTimeoutError`, `throwIfAborted` |
-| Injection / sensitive | `injectionSpans`, `sensitiveSpans` |
+| Injection / sensitive | `injectionSpans`, `sensitiveSpans`, `SENSITIVE_GROUPS`, `SensitiveGroup`, `SensitiveGroups`, `SensitiveSelection`, `SensitiveSwitches` |
 | Vocabulary | `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailEvent`, `guardrailEventSchema`, `Provenance`, `ToolOrigin`, `GuardrailAction`, `GuardrailContext`, `OutboundPayload`, `EgressEnforcer`, `EgressOnBlock`, `ProfileEgressSpec`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `DecisionDisclosureVerdict`, `DecisionDisclosureEnforcer`, `DecisionGuardrailsSpec`, `NetworkGuardrailSpec`, `CanaryGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES`, `EGRESS_ON_BLOCK` |
 | Policy | `resolveGuardrailPolicy`, `detectionForTrust`, `DetectionOptions` |
 | Tool boundary | `guardToolResult`, `guardToolFailureText`, `inspectToolArguments`, `toolCallEvent`, `wrapToolData`, `isRemoteOrigin`, `composeToolText`, `checkTaintGate`, `recordTaint`, `isTainted`, `isSuspicious`, `directiveHits`, `looksDirective`, `advisoryLevel`, `DIRECTIVE_RULES`, `ADVISORY_LEVELS`, `AdvisoryLevel`, `TOOL_CLOSE`, `TOOL_ORIGINS`, `TAINT_GATES`, `GuardedToolText`, `Provenance`, `ToolOrigin`, `TurnTaint`, `TaintGate`, `TaintGuardrailSpec`, `GuardrailEvent` |
@@ -1051,7 +1124,7 @@ From `src/guardrails/mod.ts`:
 | Sanitize | `sanitizeProjectId`, `sanitizeText`, `detectText`, `sanitizeHistory`, `sanitizeTurnRequest`, `sanitizeTurnRequestWithEvents`, `redactSensitiveOnly`, `detectionForProfile` |
 | Events | `guardrailFromHits`, `guardrailFromVerdict`, `guardrailTurnEvent`, `projectGuardrailTurnEvent`, `hitFromSpan`, `projectGuardrailEvent` |
 | Canary | `mintCanary`, `bindCanary`, `wrapUserData`, `scanTextForCanaryLeak`, `scanTextForPromptEcho`, `PROMPT_ECHO_WORDS`, `createCanaryStreamGate`, `eventHasCanary`, `isStreamedCanaryEvent`, `redactCanary`, `OMIT_CANARY`, `USER_OPEN`, `USER_CLOSE`, `createCanaryGateSession`, `filterCanaryGatedEvents`, `CanaryGateResult`, `CanaryGateSession`, `CanaryStreamGate` |
-| Egress / Live | `standardEgressEnforce`, `collectEgressHits`, `hitRules`, `EGRESS_RULES`, `egressPolicy`, `EgressPolicyOptions`, `EgressRule`, `CompiledEgressRules`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `DEFAULT_HOLDBACK`, `LIVE_DEFAULT_HOLDBACK`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveHeldOutput`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
+| Egress / Live | `standardEgressEnforce`, `collectEgressHits`, `hitRules`, `EGRESS_RULES`, `egressPolicy`, `EgressPolicyOptions`, `EgressChecks`, `UrlCheck`, `GivenUrls`, `EgressRule`, `CompiledEgressRules`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `DEFAULT_HOLDBACK`, `LIVE_DEFAULT_HOLDBACK`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveHeldOutput`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
 | Network | `assertSafeUrl`, `fetchGuarded`, `dnsOverHttpsResolver`, `isLocalhostName`, `isPrivateOrLocalAddress`, `GuardedFetchOptions`, `ResolveHost`, `DnsOverHttpsOptions`, `NetworkGuardrailSpec` |
 | Quota | `QuotaSlotStatus`, `QuotaExhausted`, `clientIp`, `quotaExhausted`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |
 | Lexicon | `LEXICON_KEYS`, `LexiconKey`, `CLIENT_LEXICON_KEYS`, `ClientLexiconKey`, `LexiconOverrides`, `LexiconParams`, `lexiconDefault`, `lexiconText`, `overrideLexicon`, `resetLexicon` |

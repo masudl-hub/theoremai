@@ -466,3 +466,14 @@ Deno.test('quoteSource writes a string that evaluates back to itself, script-saf
   assertEquals(new Function(`return ${quoted};`)(), text);
   assertEquals(/[<>\u2028\u2029]/.test(quoted), false);
 });
+
+Deno.test('redactSensitive compiles to the groups the draft changes, false when none are on', () => {
+  const draft = includeFacet(createExampleDraft(), 'guardrails');
+  const groups = { ids: true, financial: true, network: true, credentials: true };
+  const redact = (redactSensitive: typeof groups) =>
+    compiled({ ...draft, guardrails: { ...draft.guardrails, redactSensitive } }).profile.guardrails
+      ?.redactSensitive;
+  assertEquals(redact(groups), undefined);
+  assertEquals(redact({ ...groups, network: false }), { network: false });
+  assertEquals(redact({ ids: false, financial: false, network: false, credentials: false }), false);
+});

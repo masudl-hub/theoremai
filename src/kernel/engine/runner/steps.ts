@@ -1,4 +1,4 @@
-import { addRequestUrls } from '../../../guardrails/egress-images.ts';
+import { addRequestUrls } from '../../../guardrails/egress-urls.ts';
 import { isAbortError, throwIfAborted } from '../../../guardrails/error.ts';
 import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import { recordTaint } from '../../../guardrails/tool-result.ts';
@@ -116,7 +116,7 @@ async function* executeAutonomousStep(
   state.lastCall = usage;
   const genForStep = generationForProviderStep(generation, state);
   const request = providerCompleteRequest(state.tools, genForStep, system);
-  addRequestUrls(state.seenUrls, request);
+  addRequestUrls(state.givenUrls, request);
   state.trace.calls += 1;
   const call = startCallTrace((name, options) => state.trace.root.child(name, options), {
     req: request,
@@ -145,7 +145,7 @@ async function* executeAutonomousStep(
       call,
       signal,
       control,
-      seenUrls: state.seenUrls,
+      givenUrls: state.givenUrls,
     })) {
       captureInteractionId(event, state);
       if (observeCallEvent(usage, event)) {

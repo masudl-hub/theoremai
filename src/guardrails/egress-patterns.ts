@@ -6,7 +6,7 @@
  * @module
  */
 
-import { IMAGE_PATTERNS } from './egress-images.ts';
+import { IMAGE_PATTERNS, LINK_PATTERNS } from './egress-urls.ts';
 import {
   BASE64_BLOB,
   HEX_BLOB,
@@ -14,7 +14,7 @@ import {
   PIPE_SEPARATED,
   SPACED_LETTERS,
 } from './injection-patterns.ts';
-import { CARD_CANDIDATE, KEY_PATTERNS } from './sensitive.ts';
+import { CARD_CANDIDATE, SENSITIVE_PATTERNS, type SensitiveGroup } from './sensitive.ts';
 
 const SYSTEM_BOUNDARY = /This turn\x27s canary is|<\/?user_data>/i; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
 
@@ -28,11 +28,14 @@ type EgressPatternKind =
   | 'hex'
   | 'spaced'
   | 'pipe'
-  | 'image';
+  | 'image'
+  | 'link';
 
 interface EgressPattern {
   kind: EgressPatternKind;
   pattern: RegExp;
+  /** The sensitive-data group a `sensitive` or `card` pattern belongs to. */
+  group?: SensitiveGroup;
 }
 
 /**
@@ -41,14 +44,19 @@ interface EgressPattern {
  */
 const EGRESS_PATTERNS: readonly EgressPattern[] = [
   ...INJECTION_PATTERNS.map((pattern) => ({ kind: 'injection' as const, pattern })),
-  ...KEY_PATTERNS.map((pattern) => ({ kind: 'sensitive' as const, pattern })),
-  { kind: 'card', pattern: CARD_CANDIDATE },
+  ...SENSITIVE_PATTERNS.map(({ group, pattern }) => ({
+    kind: 'sensitive' as const,
+    pattern,
+    group,
+  })),
+  { kind: 'card', pattern: CARD_CANDIDATE, group: 'financial' },
   { kind: 'boundary', pattern: new RegExp(SYSTEM_BOUNDARY.source, 'gi') },
   { kind: 'base64', pattern: BASE64_BLOB },
   { kind: 'hex', pattern: HEX_BLOB },
   { kind: 'spaced', pattern: SPACED_LETTERS },
   { kind: 'pipe', pattern: PIPE_SEPARATED },
   ...IMAGE_PATTERNS.map((pattern) => ({ kind: 'image' as const, pattern })),
+  ...LINK_PATTERNS.map((pattern) => ({ kind: 'link' as const, pattern })),
 ];
 
 export type { EgressPattern, EgressPatternKind };

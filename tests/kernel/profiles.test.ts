@@ -481,6 +481,29 @@ Deno.test('host profile accepts only the guardrails that fire on the invokeTool 
   assertEquals(profile.guardrails?.taint?.afterRemoteRead, 'write');
 });
 
+Deno.test('redactSensitive takes a boolean per group, and only the groups there are', () => {
+  registerProfile({
+    type: 'host',
+    id: 'host_redact_groups',
+    tools: { allow: [] },
+    guardrails: { redactSensitive: { network: false } },
+  });
+  assertEquals(getProfile('host_redact_groups').guardrails?.redactSensitive, { network: false });
+  for (const redactSensitive of [{ keys: false }, { ids: 'yes' }]) {
+    assertThrows(
+      () =>
+        registerProfile({
+          type: 'host',
+          id: 'host_redact_bad',
+          tools: { allow: [] },
+          guardrails: { redactSensitive },
+        } as Parameters<typeof registerProfile>[0]),
+      TheoremError,
+      'guardrails.redactSensitive.',
+    );
+  }
+});
+
 Deno.test('host profile rejects guardrails that only a model turn can run', () => {
   const base = { type: 'host' as const, id: 'host_guardrails_bad', tools: { allow: [] } };
   const cases: Array<[string, Record<string, unknown>]> = [

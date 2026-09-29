@@ -1,4 +1,5 @@
 import { hitRules, runEnforcer, WITHHELD_REASON } from '../../../guardrails/egress.ts';
+import type { GivenUrls } from '../../../guardrails/egress-urls.ts';
 import { TheoremError, throwIfAborted, toErrorEvent } from '../../../guardrails/error.ts';
 import { guardrailFromVerdict } from '../../../guardrails/events.ts';
 import { lexiconText } from '../../../guardrails/lexicon.ts';
@@ -96,9 +97,9 @@ async function evaluateEgressOutcome(args: {
   /** System-prompt leaks the stream withheld: they pin the verdict to block. */
   promptLeaks?: GuardrailHit[];
   /** Every URL the model has been given this turn. */
-  seenUrls: ReadonlySet<string>;
+  givenUrls: GivenUrls;
 }): Promise<{ outcome: EgressOutcome; guardrail?: TurnEventOf<'guardrail'> }> {
-  const { egress, attemptEvents, generation, request, profile, canRetry, promptLeaks, seenUrls } =
+  const { egress, attemptEvents, generation, request, profile, canRetry, promptLeaks, givenUrls } =
     args;
   const payload = projectOutbound(attemptEvents);
   const context: GuardrailContext = {
@@ -109,7 +110,7 @@ async function evaluateEgressOutcome(args: {
     ...(generation.canary ? { canary: generation.canary } : {}),
     ...(request.input?.slots ? { slots: request.input.slots } : {}),
     ...(request.input?.role ? { role: request.input.role } : {}),
-    seenUrls,
+    givenUrls,
   };
   // The host policy adds checks; it never releases a system-prompt leak.
   const verdict: Verdict = promptLeaks?.length
@@ -269,7 +270,7 @@ async function* handleEgressGate(
     profile,
     canRetry,
     ...(state.promptLeaks ? { promptLeaks: state.promptLeaks } : {}),
-    seenUrls: state.seenUrls,
+    givenUrls: state.givenUrls,
   });
 
   if (guardrail) {

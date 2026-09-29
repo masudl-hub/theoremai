@@ -13,6 +13,7 @@
  */
 
 import { type LexiconKey, liveIngressChannelDefault, profileAllowsInject, resolveGuardrailPolicy } from '../mod.ts';
+import type { SensitiveGroups } from '../src/guardrails/sensitive.ts';
 import { resolveObservabilityPolicy } from '../src/observability/mod.ts';
 import { mimeAllowed } from '../src/kernel/registry/catalog.ts';
 import { profileTypesForField } from '../src/kernel/profile-scope.ts';
@@ -144,7 +145,8 @@ export interface GuardrailsDraft {
   canary: boolean;
   canaryBindNote: string;
   sanitizeInput: boolean;
-  redactSensitive: boolean;
+  /** One switch per sensitive-data group. */
+  redactSensitive: SensitiveGroups;
   quotaEnabled: boolean;
   quotaPerDay: number | null;
   quotaMessage: string;

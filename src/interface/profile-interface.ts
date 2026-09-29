@@ -74,7 +74,12 @@ const guardrails = z.object({
   quota: z.object({ perDay: z.number() }).optional(),
   canary: z.boolean(),
   sanitizeInput: z.boolean(),
-  redactSensitive: z.boolean(),
+  redactSensitive: z.object({
+    ids: z.boolean(),
+    financial: z.boolean(),
+    network: z.boolean(),
+    credentials: z.boolean(),
+  }),
   hasEgress: z.boolean(),
 });
 

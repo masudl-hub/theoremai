@@ -10,7 +10,13 @@
  */
 
 import { bindCanary } from '../../../guardrails/canary.ts';
-import { addHistoryUrls, addRequestUrls, addSeenUrls } from '../../../guardrails/egress-images.ts';
+import {
+  addHistoryUrls,
+  addRequestUrls,
+  addSeenUrls,
+  type GivenUrlSets,
+  givenUrlSets,
+} from '../../../guardrails/egress-urls.ts';
 import {
   describeError,
   errorKind,
@@ -362,8 +368,8 @@ function buildLiveSession(args: {
   canary: string;
   connection: Awaited<ReturnType<typeof openGoogleLiveSession>>;
   gate: LiveOutboundGateSession;
-  /** Every URL the model has been given this session (`GuardrailContext.seenUrls`). */
-  seenUrls: Set<string>;
+  /** Every URL the model has been given this session (`GuardrailContext.givenUrls`). */
+  givenUrls: GivenUrlSets;
   signal?: AbortSignal;
   onStage?: StageHandler;
   host?: unknown;
@@ -384,7 +390,7 @@ function buildLiveSession(args: {
     canary,
     connection,
     gate,
-    seenUrls,
+    givenUrls,
     signal,
     onStage,
     host: sessionHost,
@@ -421,7 +427,7 @@ function buildLiveSession(args: {
     const trimmed = text.trim();
     if (!trimmed) return;
     history.push({ role: 'user', content: trimmed });
-    addSeenUrls(seenUrls, trimmed);
+    addSeenUrls(givenUrls.request, trimmed);
   };
 
   const recordAssistantText = (text: string) => {
@@ -461,7 +467,7 @@ function buildLiveSession(args: {
         content: readBack,
       },
     );
-    addSeenUrls(seenUrls, readBack);
+    addSeenUrls(givenUrls.tools, readBack);
   };
 
   const enqueuePending = (ev: TurnEvent) => {
@@ -1125,14 +1131,14 @@ async function openTracedSession(
     canary: generation.canary,
   });
 
-  const seenUrls = new Set<string>();
-  addRequestUrls(seenUrls, completeReq);
-  addHistoryUrls(seenUrls, req.history ?? []);
+  const givenUrls = givenUrlSets();
+  addRequestUrls(givenUrls, completeReq);
+  addHistoryUrls(givenUrls, req.history ?? []);
   const gate = createLiveOutboundGateSession(
     profile,
     generation.canary || undefined,
     system,
-    seenUrls,
+    givenUrls,
   );
   const connection = await openGoogleLiveSession(
     completeReq,
@@ -1147,7 +1153,7 @@ async function openTracedSession(
     canary: generation.canary,
     connection,
     gate,
-    seenUrls,
+    givenUrls,
     signal: safe.signal,
     onStage: req.onStage,
     host: req.host,

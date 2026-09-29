@@ -32,6 +32,7 @@ import {
   TheoremError,
 } from '../mod.ts';
 import { validateLexiconOverrides } from '../src/guardrails/lexicon.ts';
+import { SENSITIVE_GROUPS, type SensitiveGroups } from '../src/guardrails/sensitive.ts';
 import { mimeAllowed } from '../src/kernel/registry/catalog.ts';
 import { googleInteractionsPersistence } from '../src/presets/google.ts';
 import {
@@ -651,6 +652,18 @@ function compileNetwork(
   };
 }
 
+/** The groups that differ from the defaults; `false` when every group is off. */
+function compileRedactSensitive(
+  groups: SensitiveGroups,
+  defaults: SensitiveGroups,
+): ProfileGuardrailsSpec['redactSensitive'] {
+  if (SENSITIVE_GROUPS.every((group) => !groups[group])) return false;
+  const changed = SENSITIVE_GROUPS.filter((group) => groups[group] !== defaults[group]);
+  return changed.length === 0
+    ? undefined
+    : Object.fromEntries(changed.map((group) => [group, groups[group]]));
+}
+
 function compileGuardrails(
   guardrails: GuardrailsDraft,
   report: Report,
@@ -661,9 +674,7 @@ function compileGuardrails(
     sanitizeInput: guardrails.sanitizeInput !== defaults.sanitizeInput
       ? guardrails.sanitizeInput
       : undefined,
-    redactSensitive: guardrails.redactSensitive !== defaults.redactSensitive
-      ? guardrails.redactSensitive
-      : undefined,
+    redactSensitive: compileRedactSensitive(guardrails.redactSensitive, defaults.redactSensitive),
     quota: compileQuota(guardrails, report),
     egress: compileEgress(guardrails, report),
     network: compileNetwork(guardrails, report),

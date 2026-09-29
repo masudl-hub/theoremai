@@ -4,6 +4,7 @@
  * Matches runTurn semantics:
  *   • the reply stream (text deltas and the spoken-reply transcript) is held in
  *     the progressive-yield lookback; thoughts are unguarded (`isGuardedOutput`)
+ *     but for the images and links `thought-guard.ts` omits
  *   • audio and other media stream behind the transcript: a chunk is covered
  *     by the transcript its message carries, or — in a message without one —
  *     by the next transcript chunk to arrive. It goes once the gate has cleared
@@ -37,6 +38,7 @@ import {
   WITHHELD_REASON,
 } from './egress.ts';
 import { streamPlanOf } from './egress-stream.ts';
+import type { GivenUrls } from './egress-urls.ts';
 import { TheoremError } from './error.ts';
 import { guardrailFromHits, guardrailFromVerdict } from './events.ts';
 import { lexiconText } from './lexicon.ts';
@@ -47,6 +49,7 @@ import {
   type ProgressiveYieldGate,
   type ProgressiveYieldResult,
 } from './progressive-yield.ts';
+import { type ThoughtGuard, thoughtGuardFor } from './thought-guard.ts';
 import type {
   GuardrailContext,
   GuardrailHit,
@@ -85,6 +88,8 @@ export interface LiveOutboundGateSession {
    * cycle's final verdict to block: no host verdict may release them.
    */
   promptLeaks?: GuardrailHit[];
+  /** Omits the images and links a thought would load from URLs the model was not given. */
+  thoughts?: ThoughtGuard;
 }
 
 /** Result of a live outbound operation: events to emit, output to withhold, or no work. */
@@ -123,7 +128,7 @@ function createLiveOutboundGateSession(
   profile: Profile,
   canary?: string,
   system?: string,
-  seenUrls?: ReadonlySet<string>,
+  givenUrls?: GivenUrls,
 ): LiveOutboundGateSession {
   const policy = liveHoldback(resolveGuardrailPolicy(profile.guardrails));
   const useCanary = policy.canary && Boolean(canary);
@@ -135,8 +140,9 @@ function createLiveOutboundGateSession(
     // The system prompt is guarded against echo alongside the canary that binds it.
     ...(useCanary && policy.promptEcho && system ? { system } : {}),
     ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
-    ...(seenUrls ? { seenUrls } : {}),
+    ...(givenUrls ? { givenUrls } : {}),
   };
+  const thoughts = thoughtGuardFor(policy.egress?.enforce, givenUrls);
   return {
     policy,
     context,
@@ -144,6 +150,7 @@ function createLiveOutboundGateSession(
     held: [],
     releasedTo: 0,
     withholdVisible: false,
+    ...(thoughts ? { thoughts } : {}),
   };
 }
 
@@ -351,6 +358,11 @@ async function processLiveOutboundBatch(
       return withholdResult(promptLeakReason(leaks), leaks, toEmit);
     }
 
+    if (event.type === 'thought' && session.thoughts) {
+      const text = session.thoughts.push(event.text);
+      if (text) toEmit.push({ ...event, text });
+      continue;
+    }
     toEmit.push(event);
   }
 
@@ -458,13 +470,18 @@ async function finalizeLiveOutboundTurn(
   if (!session.gate) {
     return { action: 'idle' };
   }
+  const thought = session.thoughts?.flush();
   const result = await finalizeCycle(session, session.gate);
   resetCycle(session);
-  return result;
+  if (!thought) return result;
+  const shown: TurnEvent = { type: 'thought', text: thought };
+  if (result.action === 'idle') return { action: 'emit', events: [shown] };
+  return { ...result, events: [shown, ...(result.events ?? [])] };
 }
 
 /** Drop the cycle's held output when the user interrupts mid-turn. */
 function abortLiveOutboundTurn(session: LiveOutboundGateSession): void {
+  session.thoughts?.flush();
   resetCycle(session);
 }
 

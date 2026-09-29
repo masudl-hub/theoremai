@@ -321,6 +321,25 @@ Deno.test('inputStepsFromRequest emits history steps followed by user input', ()
   assertEquals(secondContent?.[0]?.text, 'now');
 });
 
+Deno.test('a tool result without a name takes its call name', () => {
+  const call: TurnHistoryMessage = {
+    role: 'assistant',
+    tool_calls: [{ id: 't1', type: 'function', function: { name: 'lookup', arguments: '{}' } }],
+  };
+  const result: TurnHistoryMessage = { role: 'tool', tool_call_id: 't1', content: 'ok' };
+  const orphan: TurnHistoryMessage = { role: 'tool', tool_call_id: 't9', content: 'ok' };
+  const results = (req: ProviderCompleteRequest) =>
+    inputStepsFromRequest(req).filter((step) => step.type === 'function_result');
+  assertEquals(
+    results(baseReq({ history: [call, result, orphan], input: [] })).map((step) => step.name),
+    ['lookup', undefined],
+  );
+  assertEquals(
+    results(baseReq({ continuation: [call, result], input: [] })).map((step) => step.name),
+    ['lookup'],
+  );
+});
+
 Deno.test('inputStepsFromRequest omits user input when history exists and input is empty', () => {
   const req = baseReq({
     history: [{ role: 'user', content: 'earlier' }],

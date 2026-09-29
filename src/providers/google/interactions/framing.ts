@@ -208,12 +208,26 @@ function wireInteractionsTools(req: ProviderCompleteRequest): Record<string, unk
   return tools;
 }
 
+/**
+ * A `tool` message without `name` takes its call's name: Google rejects a
+ * `function_result` without one as "Invalid input received" (live, 29/09/2026).
+ */
+function withToolNames(messages: readonly TurnHistoryMessage[]): TurnHistoryMessage[] {
+  const names = new Map<string, string>();
+  return messages.map((msg) => {
+    for (const call of msg.tool_calls ?? []) names.set(call.id, call.function.name);
+    if (msg.role !== 'tool' || msg.name || !msg.tool_call_id) return msg;
+    const name = names.get(msg.tool_call_id);
+    return name ? { ...msg, name } : msg;
+  });
+}
+
 export function inputStepsFromRequest(req: ProviderCompleteRequest): Record<string, unknown>[] {
   if (req.continuation && req.continuation.length > 0) {
-    return req.continuation.flatMap(historySteps);
+    return withToolNames(req.continuation).flatMap((msg) => historySteps(msg));
   }
   const inputSteps: Record<string, unknown>[] = [];
-  for (const h of req.history ?? []) {
+  for (const h of withToolNames(req.history ?? [])) {
     inputSteps.push(...historySteps(h));
   }
   if (req.input.length > 0 || inputSteps.length === 0) {

@@ -1,14 +1,21 @@
 /**
- * Progressive-yield outbound gate — stream cleared prefixes while holding a
- * lookback window so the canary scan, or the host `egress.enforce` policy when
- * set, can inspect split-token matches before release.
+ * Progressive-yield outbound gate — stream cleared prefixes while holding back
+ * whatever a check could still match, so no part of a match reaches the host
+ * before the check sees it whole.
+ *
+ * The canary, the prompt echo and the bundled `standardEgressEnforce` hold
+ * exactly: each holds from the earliest place one of its matches could still
+ * be under way (`egress-stream.ts`). A host policy the gate cannot read holds a
+ * fixed lookback (`holdback`) and is rerun on the window at every step.
  *
  * @module
  */
 
 import { canaryCarry, canaryHoldFrom, createCanaryScanner } from './canary.ts';
 import { CANARY_HIT, promptEchoHits, runEnforcer } from './egress.ts';
-import { promptEchoScanFrom } from './prompt-echo.ts';
+import { type EgressStream, type EgressStreamHit, streamPlanOf } from './egress-stream.ts';
+import { TheoremError } from './error.ts';
+import { promptEchoHoldFrom, promptEchoScanFrom } from './prompt-echo.ts';
 import type {
   EgressEnforcer,
   GuardrailContext,
@@ -16,12 +23,13 @@ import type {
   ResolvedGuardrailPolicy,
 } from './types.ts';
 
-/** Default lookback under `egress.enforce`, whose detectors match spans longer than a canary. */
+/** Default lookback under a host `egress.enforce` the gate cannot read. */
 const DEFAULT_HOLDBACK = 256;
 /**
- * Default lookback on Live, where the held transcript holds back audio too: the
- * shortest that shows the host no character of any egress corpus match
- * however the transcript is chunked (88), with a margin.
+ * Default lookback on Live under a host policy the gate cannot read, where the
+ * held transcript holds back audio too: the shortest that shows the host no
+ * character of any egress corpus match however the transcript is chunked
+ * (88), with a margin.
  */
 const LIVE_DEFAULT_HOLDBACK = 96;
 const PEM_BEGIN = '-----BEGIN';
@@ -38,8 +46,10 @@ export interface ProgressiveYieldGateOptions {
   /** When set, each step runs this policy on the accumulated window before emit. */
   enforce?: EgressEnforcer;
   /**
-   * Lookback in characters (default: `DEFAULT_HOLDBACK` with `enforce`, none
-   * without). A tail that could start a canary leak is always held on top.
+   * Lookback in characters under an `enforce` the gate cannot read (default
+   * `DEFAULT_HOLDBACK`). The bundled policy holds exactly and takes none: it
+   * is an error to set one with it. A tail that could start a canary leak is
+   * always held on top.
    */
   holdback?: number;
   /**
@@ -74,11 +84,20 @@ interface ProgressiveYieldGate {
 }
 
 /**
- * Fixed lookback for the policy's detectors: `holdback`, or `DEFAULT_HOLDBACK`
- * under `enforce`. The canary needs none — `canaryHoldFrom` holds exactly the
- * tail that could start a leak.
+ * Fixed lookback for a host policy the gate cannot read: `holdback`, or
+ * `DEFAULT_HOLDBACK`. The canary, the prompt echo and the bundled policy need
+ * none — each holds exactly the tail that could still start a match.
  */
-function resolveHoldback(options: ProgressiveYieldGateOptions): number {
+function resolveHoldback(options: ProgressiveYieldGateOptions, exact: boolean): number {
+  if (exact) {
+    if (options.holdback !== undefined) {
+      throw new TheoremError(
+        'config',
+        'holdback applies only to a host egress.enforce; the bundled policy holds exactly', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
+    return 0;
+  }
   return options.holdback ?? (options.enforce ? DEFAULT_HOLDBACK : 0);
 }
 
@@ -107,10 +126,31 @@ function carryFrom(text: string, context: GuardrailContext): string {
   return text.slice(from);
 }
 
+/**
+ * The verdict for a match the stream settled: the policy's own, run on the
+ * window. The stream only ever settles a match the policy finds, so a policy
+ * that does not block here is out of step with it: blocked anyway.
+ */
+async function streamHitVerdict(
+  enforce: EgressEnforcer,
+  hit: EgressStreamHit,
+  window: string,
+  context: GuardrailContext,
+): Promise<GuardrailHit[]> {
+  const verdict = await runEnforcer(enforce, { text: window }, context);
+  if ((verdict.action === 'block' || verdict.action === 'redact') && verdict.hits.length > 0) {
+    return verdict.hits;
+  }
+  return [{ rule: hit.rule, severity: hit.severity }];
+}
+
 /** Creates a progressive gate for outbound stream fragments; flush it when the stream ends. */
 function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): ProgressiveYieldGate {
   const { context } = options;
-  const baseHoldback = resolveHoldback(options);
+  const stream: EgressStream | undefined = options.enforce
+    ? streamPlanOf(options.enforce)?.()
+    : undefined;
+  const baseHoldback = resolveHoldback(options, stream !== undefined);
   const carry = context.canary ? (options.carry ?? '') : '';
   let accumulated = '';
   let emitted = 0;
@@ -140,49 +180,72 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
     ];
   }
 
-  async function scan(window: string): Promise<GuardrailHit[] | null> {
+  /**
+   * The host policy's hits on the window. The bundled policy reads only the
+   * new fragment (`egress-stream.ts`) and runs whole only when a match
+   * settles; a policy the gate cannot read runs whole at every step. At the
+   * end (`fragment` unset) every policy runs whole.
+   */
+  async function policyHits(window: string, fragment?: string): Promise<GuardrailHit[] | null> {
+    if (!options.enforce) {
+      return null;
+    }
+    if (stream && fragment !== undefined) {
+      const hit = stream.push(fragment);
+      return hit ? await streamHitVerdict(options.enforce, hit, window, context) : null;
+    }
+    // Mid-stream the gate can only release or stop: emitted prefixes cannot be
+    // rewritten, so `redact` stops here and end-of-attempt egress applies the
+    // full verdict. `flag` is advisory and keeps the stream flowing.
+    const verdict = await runEnforcer(options.enforce, { text: window }, context);
+    if (verdict.action === 'block' || verdict.action === 'redact') {
+      return verdict.hits.length > 0
+        ? verdict.hits
+        : [{ rule: 'egress.blocked', severity: 'high' }];
+    }
+    return null;
+  }
+
+  async function scan(window: string, fragment?: string): Promise<GuardrailHit[] | null> {
     // The system-prompt leak checks always run, under a host policy too: it adds
     // checks, it never replaces these (the guardrail invariant).
     const leaks = context.canary ? canaryWindowHits(window) : [];
     if (leaks.length > 0) {
       return leaks;
     }
-    if (options.enforce) {
-      // Mid-stream the gate can only release or stop: emitted prefixes cannot be
-      // rewritten, so `redact` stops here and end-of-attempt egress applies the
-      // full verdict. `flag` is advisory and keeps the stream flowing.
-      const verdict = await runEnforcer(options.enforce, { text: window }, context);
-      if (verdict.action === 'block' || verdict.action === 'redact') {
-        return verdict.hits.length > 0
-          ? verdict.hits
-          : [{ rule: 'egress.blocked', severity: 'high' }];
-      }
-      // Host enforce is authoritative when present (matches end-of-attempt egress).
-      return null;
-    }
-    // Without a host policy the gate blocks on the leak checks alone; the bundled
-    // rules run via egress.enforce.
-    return null;
+    return await policyHits(window, fragment);
   }
 
-  async function release(releaseTail: boolean): Promise<ProgressiveYieldResult> {
-    const hits = await scan(accumulated);
+  /** Where the leak checks hold from: a canary opening, or words a prompt echo could grow from. */
+  function leakHoldFrom(): number {
+    if (!context.canary) {
+      return accumulated.length;
+    }
+    // Until this window releases anything, its opening may continue the carry.
+    const lead = emitted === 0 ? carry : '';
+    const tail = lead + accumulated.slice(emitted);
+    const canaryFrom = canaryHoldFrom(tail, context.canary);
+    const echoFrom = context.system ? promptEchoHoldFrom(tail, context.system) : tail.length;
+    return emitted + Math.max(0, Math.min(canaryFrom, echoFrom) - lead.length);
+  }
+
+  /** Where the host policy holds from: exactly for the bundled one, a fixed lookback otherwise. */
+  function policyHoldFrom(): number {
+    if (stream) {
+      return stream.holdFrom();
+    }
+    const hold = options.enforce ? holdbackForWindow(accumulated, baseHoldback) : baseHoldback;
+    return accumulated.length - hold;
+  }
+
+  async function release(fragment?: string): Promise<ProgressiveYieldResult> {
+    const hits = await scan(accumulated, fragment);
     if (hits) {
       return { blocked: true, hits };
     }
-    if (releaseTail) {
-      const emit = accumulated.slice(emitted);
-      emitted = accumulated.length;
-      return { blocked: false, emit };
-    }
-    const hold = options.enforce ? holdbackForWindow(accumulated, baseHoldback) : baseHoldback;
-    // Until this window releases anything, its opening may continue the carry.
-    const lead = emitted === 0 ? carry : '';
-    const canaryFrom = context.canary
-      ? emitted +
-        Math.max(0, canaryHoldFrom(lead + accumulated.slice(emitted), context.canary) - lead.length)
-      : accumulated.length;
-    const safeEnd = Math.max(emitted, Math.min(accumulated.length - hold, canaryFrom));
+    const end =
+      fragment === undefined ? accumulated.length : Math.min(leakHoldFrom(), policyHoldFrom());
+    const safeEnd = Math.max(emitted, end);
     const emit = accumulated.slice(emitted, safeEnd);
     emitted = safeEnd;
     return { blocked: false, emit };
@@ -194,10 +257,10 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
         return { blocked: false, emit: '' };
       }
       accumulated += fragment;
-      return await release(false);
+      return await release(fragment);
     },
     async flush() {
-      return await release(true);
+      return await release();
     },
     accumulated: () => accumulated,
     unreleased: () => accumulated.slice(emitted),

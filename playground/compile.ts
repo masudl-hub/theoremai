@@ -630,19 +630,10 @@ function compileEgress(
     guardrails.egressMaxRetries,
     0,
   );
-  checkWhole(
-    report,
-    'guardrails',
-    'egressHoldback',
-    'Egress holdback',
-    guardrails.egressHoldback,
-    0,
-  );
   return {
     enforce: standardEgressEnforce,
     ...(guardrails.egressOnBlock ? { onBlock: guardrails.egressOnBlock } : {}),
     ...(guardrails.egressMaxRetries !== null ? { maxRetries: guardrails.egressMaxRetries } : {}),
-    ...(guardrails.egressHoldback !== null ? { holdback: guardrails.egressHoldback } : {}),
   };
 }
 

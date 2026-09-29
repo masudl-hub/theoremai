@@ -153,7 +153,6 @@ export interface GuardrailsDraft {
   egressOnBlock: EgressOnBlock | '';
   egressMaxRetries: number | null;
   egressRepairGuidance: string;
-  egressHoldback: number | null;
   allowPrivateNetworks: boolean;
   allowedHosts: string[];
 }
@@ -299,7 +298,6 @@ function defaultGuardrails(): GuardrailsDraft {
     egressOnBlock: '',
     egressMaxRetries: null,
     egressRepairGuidance: '',
-    egressHoldback: null,
     allowPrivateNetworks: false,
     allowedHosts: [],
   };

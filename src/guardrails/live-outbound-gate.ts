@@ -36,6 +36,7 @@ import {
   runEnforcer,
   WITHHELD_REASON,
 } from './egress.ts';
+import { streamPlanOf } from './egress-stream.ts';
 import { TheoremError } from './error.ts';
 import { guardrailFromHits, guardrailFromVerdict } from './events.ts';
 import { lexiconText } from './lexicon.ts';
@@ -100,10 +101,15 @@ function egressSpec(session: LiveOutboundGateSession): ProfileEgressSpec | undef
 
 /**
  * The policy with Live's shorter default lookback (`LIVE_DEFAULT_HOLDBACK`)
- * when the host set none: every held character of transcript holds its audio.
+ * when a host enforcer set none: every held character of transcript holds its
+ * audio. The bundled policy holds exactly and takes no lookback.
  */
 function liveHoldback(policy: ResolvedGuardrailPolicy): ResolvedGuardrailPolicy {
-  if (!policy.egress || policy.egress.holdback !== undefined) {
+  if (
+    !policy.egress ||
+    policy.egress.holdback !== undefined ||
+    streamPlanOf(policy.egress.enforce)
+  ) {
     return policy;
   }
   return { ...policy, egress: { ...policy.egress, holdback: LIVE_DEFAULT_HOLDBACK } };

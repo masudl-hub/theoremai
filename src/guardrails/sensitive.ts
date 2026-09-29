@@ -78,16 +78,19 @@ function luhnOk(digits: string): boolean {
   return sum % LUHN_TEN === 0;
 }
 
+/** A card-number candidate that is a card: 13–19 digits passing the Luhn check. */
+function cardHit(blob: string): boolean {
+  const digits = blob.replaceAll(/[^\d]/g, '');
+  const inRange = digits.length >= CARD_MIN_DIGITS && digits.length <= CARD_MAX_DIGITS;
+  return inRange && luhnOk(digits);
+}
+
 function cardSpans(text: string): RedactSpan[] {
   const spans: RedactSpan[] = [];
   for (const match of text.matchAll(CARD_CANDIDATE)) {
     const found = blobAt(match);
-    if (found) {
-      const digits = found.blob.replaceAll(/[^\d]/g, '');
-      const inRange = digits.length >= CARD_MIN_DIGITS && digits.length <= CARD_MAX_DIGITS;
-      if (inRange && luhnOk(digits)) {
-        spans.push({ start: found.index, end: found.index + found.blob.length, kind: 'sensitive' });
-      }
+    if (found && cardHit(found.blob)) {
+      spans.push({ start: found.index, end: found.index + found.blob.length, kind: 'sensitive' });
     }
   }
   return spans;
@@ -105,4 +108,4 @@ function sensitiveSpans(text: string, options: SensitiveOptions = {}): RedactSpa
   return [...spansFromPatterns(text, patterns, 'sensitive'), ...cardSpans(text)];
 }
 
-export { type SensitiveOptions, sensitiveSpans };
+export { CARD_CANDIDATE, cardHit, KEY_PATTERNS, type SensitiveOptions, sensitiveSpans };

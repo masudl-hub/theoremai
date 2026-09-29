@@ -11,6 +11,7 @@ detectors, sanitizers, public error mapping, and optional per-day quota slots.
 | Import | `@theoremai/agents/guardrails` / `jsr:@theoremai/agents/guardrails` |
 | Module | `src/guardrails/mod.ts` |
 | Testing | `@theoremai/agents/guardrails/testing` → `src/guardrails/testing.ts` (corpus / fuzz only) |
+| Compile | `@theoremai/agents/guardrails/compile` → `src/guardrails/compile-egress.ts` (build time only; imports `refa`) |
 | Also on | Root `@theoremai/agents` re-exports common error/sanitize/quota/canary helpers |
 
 ## Invariant
@@ -62,14 +63,22 @@ Owns every module under `src/guardrails/`.
 | `policy.ts` | `resolveGuardrailPolicy` / `detectionForTrust` — the one place defaults are applied |
 | `error.ts` | Error kinds, `TheoremError`, user wording (`publicError`, `withPublicWording`), abort helpers |
 | `sanitize.ts` | Turn + text sanitization |
-| `injection.ts` | Prompt-injection span patterns |
+| `injection-patterns.ts` | Prompt-injection regexes (a leaf the generator reads) |
+| `injection.ts` | Prompt-injection spans: the patterns on each view (raw, reversed, typo, normalized, ROT13, leet, URL runs) |
 | `sensitive.ts` | Credential / PII span patterns |
 | `canary.ts` | Per-turn canary mint/bind, stream gate, leak scan |
 | `prompt-echo.ts` | System-prompt echo scan: 12 consecutive prompt words in a reply are a leak |
 | `canary-gate.ts` | Canary-only batch helper (`createCanaryGateSession`) |
-| `live-outbound-gate.ts` | Live outbound progressive-yield (canary + egress lookback; audio streams once its message's transcript clears) |
-| `progressive-yield.ts` | Streaming lookback gate for canary / sensitive / host enforce |
+| `live-outbound-gate.ts` | Live outbound progressive-yield (canary + egress hold; audio streams once its message's transcript clears) |
+| `progressive-yield.ts` | Streaming gate for canary / prompt echo / egress: exact hold for the bundled policy, fixed lookback for a host enforce |
 | `egress.ts` | `standardEgressEnforce` / `collectEgressHits` bundled outbound policy |
+| `egress-patterns.ts` | Every regex the bundled policy blocks on, tagged by kind |
+| `egress-automata.ts` | Generated (`scripts/gen-egress-automata.ts`): reversed injection patterns and each pattern's superset automaton |
+| `egress-stream.ts` | The bundled policy and host rules read incrementally: where a match could still start, and its settled hits |
+| `egress-rules.ts` | Host egress rule shape, the compiled table's shape, rule checks |
+| `egress-policy.ts` | `egressPolicy` — the bundled policy plus host rules, or host rules alone, held exactly |
+| `compile-egress.ts` | `@theoremai/agents/guardrails/compile` entry: `compileEgressRules`, `compiledEgressModule` |
+| `egress-compiler.ts` | Build-time compiler from regexes to hold automata (`agents egress-compile`, `scripts/gen-egress-automata.ts`) |
 | `corpus/` | Adversarial bank (live attacks, inbound fuzz, canary egress catalog) |
 | `testing.ts` | Test-only re-exports (`@theoremai/agents/guardrails/testing`) |
 | `normalize.ts` | Detection normalization |
@@ -169,6 +178,48 @@ profile carries over: a structured field holding an IP address or a Luhn-valid
 bundled policy's stance, not a property of the transport — a host that ships
 structured operational data should supply its own `enforce`.
 
+### Host egress rules
+
+`egressPolicy` blocks on host regexes with the same exact hold the bundled
+policy gets, so a host rule does not fall back to the fixed lookback:
+
+```ts
+// acme-egress.ts
+export const rules: EgressRule[] = [
+  { rule: 'acme.account-number', pattern: /ACCT-\d{6,10}\b/ },
+  { rule: 'acme.codename', pattern: /\bproject nightjar\b/i, severity: 'medium' },
+];
+```
+
+```sh
+agents egress-compile ./acme-egress.ts --out ./acme-egress.compiled.ts
+```
+
+```ts
+import { egressPolicy } from '@theoremai/agents/guardrails';
+import { rules } from './acme-egress.ts';
+import { compiledEgressRules } from './acme-egress.compiled.ts';
+
+guardrails: { egress: { enforce: egressPolicy({ rules, compiled: compiledEgressRules }) } }
+```
+
+- Each match of a rule is a hit under its `rule` id, `severity` default `high`;
+  an empty match is not. Host rules read the reply as written (and structured
+  output flattened by `textForScan`), not the rewrites the bundled patterns read.
+- `bundled` (default `true`) also runs `standardEgressEnforce`'s checks. With
+  `bundled: false` only the canary and prompt echo run beside the host rules.
+- The compiler turns each regex into an automaton the way the bundled patterns
+  are (lookbehinds and anchors dropped, lookaheads optional, repeats over 256
+  unbounded). Building automata needs `refa` and takes time a cold start cannot
+  spare, so it is a build step: `@theoremai/agents/guardrails/compile` is the
+  only entry that imports `refa`, and `egressPolicy` only loads the table.
+- Rule ids must be non-empty and distinct, and may not start with `egress.`
+  (the bundled policy's). A sticky (`y`) pattern is rejected. A backreference to
+  text that varies has no automaton, so compiling it fails.
+- `egressPolicy` throws a config error when the table was compiled from other
+  rules or by another compiler version: compile again after changing a rule.
+- `egress.holdback` does not apply, as with the bundled policy.
+
 ### When a policy fails
 
 A host `enforce` that throws or rejects has reached no decision, so it cannot vouch
@@ -223,23 +274,48 @@ its projection with the new text and checks only the runs that end in it, a
 word still open is read as it stands and reread when it grows, and a long word
 kept as a leak candidate is taken back out if a character outside the alphabet
 breaks it — the same verdict as a scan of the whole reply. The prompt echo
-check rereads its own short lookback (`promptEchoScanFrom`). Either way the
+check rereads its own short lookback (`promptEchoScanFrom`) and holds from the
+first word of the longest run of prompt words ending the text, or from a word
+still being written that could become a prompt word (`promptEchoHoldFrom`), so
+no word of an echo reaches the host. Either way the
 cost grows with the reply, not its square. What the
 scan cannot read: arbitrary ciphers and arithmetic (a Caesar shift, the token
 as one big number, base64 of an already transformed token), and a token spread
-one character per sentence. Under
-`egress.enforce` the gate also holds `egress.holdback` characters (default
-`DEFAULT_HOLDBACK`, 256; on Live `LIVE_DEFAULT_HOLDBACK`, 96, since held
-transcript holds its audio too — the shortest that shows the host no
-character of any egress corpus match however the transcript is chunked is 88),
-plus any incomplete PEM body until its END line.
+one character per sentence.
+
+Under the bundled `standardEgressEnforce` the gate holds exactly what could
+still become a match (`egress-stream.ts`). Each detector regex is compiled
+ahead of time (`scripts/gen-egress-automata.ts`, checked in as
+`egress-automata.ts`) into an automaton that accepts every match of it and
+more: lookbehinds, `\b`, `^` and `$` are dropped, a lookahead may be read or
+skipped, and a bounded repeat over 256 is unbounded. The stream runs each
+automaton over each view the policy reads (the reply as written, reversed
+patterns on it, typo-folded, normalized, typo-folded normalized, ROT13, leet,
+and each `%`-escape run decoded on its own), one character at a time, and holds
+from the earliest reply character a live match could have started at. Since
+each automaton accepts a superset of its pattern, the hold can only be longer
+than it must. When an automaton reaches a final state the exact regex is run
+from there; a match that can no longer grow is settled, and settled matches
+that pass the filters (card Luhn check, blob decode) block, with the verdict
+taken from `standardEgressEnforce` on the window. Ordinary prose streams at
+once; a blocked match has shown the host none of its characters, however long
+and however chunked, including a match padded past any fixed window. Each
+character is read once per view, so the cost grows with the reply, not its
+square. `egress.holdback` does not apply: setting it with the bundled policy is
+a profile error.
+
+A host `enforce` the gate cannot read keeps a fixed lookback: `egress.holdback`
+characters (default `DEFAULT_HOLDBACK`, 256; on Live `LIVE_DEFAULT_HOLDBACK`,
+96, since held transcript holds its audio too), plus any incomplete PEM body
+until its END line, and the enforcer reruns on the whole window at every step.
 `redactCanary` and the trace and upstream-tape scrubbers replace every form the
 scan detects. A window that ends on a possible leak opening of any length
 carries it (`canaryCarry`) into the next window of the same canary — the next provider
 call of a `runTurn`, the next Live cycle — so a token split across tool steps
 or cycles is one match: the turn or session ends when it completes, and only
 the chunks before the completing one were released. `defineProfile` rejects a
-`holdback` or `maxRetries` that is not a non-negative integer. The same constructor backs `runTurn` and
+`holdback` or `maxRetries` that is not a non-negative integer, and a `holdback`
+with `standardEgressEnforce` or an `egressPolicy`. The same constructor backs `runTurn` and
 Live (`processLiveOutboundBatch`). The system-prompt leak checks (canary,
 prompt echo) run on every window under any policy. Without `egress.enforce` a
 leak ends the turn at once. With it, the host policy is authoritative for its
@@ -274,8 +350,9 @@ the transcript is whole, so the audio after its last chunk goes then. Audio
 released before a later hit is not recalled — as with text, the gate withholds
 from the hit onward, and an interruption drops only what is still held. Reply
 text before the first audio streams as it clears (canary-only, only a tail that
-could start a leak waits; under egress, up to `egress.holdback` characters,
-96 by default on Live).
+could start a leak waits; under the bundled policy, only what could still
+become a match; under a host enforce, up to `egress.holdback` characters, 96
+by default on Live).
 Audio in a cycle that produced no transcript is dropped with a
 `live.untranscribed-audio` guardrail event. A guarded profile (canary or
 `egress.enforce`) always requests the output transcript:
@@ -536,6 +613,13 @@ Patterns target untrusted user text before provider submission:
 - Prompt exfiltration (`reveal your system prompt`, …)
 - Multilingual override fragments
 
+The patterns (`injection-patterns.ts`) read the text as written and each
+rewrite of it: reversed (each pattern is compiled reversed and run on the text
+as written), typo-folded, normalized (compatibility folding, lookalike letters,
+emoji and backslashes between letters dropped), ROT13, leet, and URL escapes,
+each run of `%XX` escapes decoded on its own so a stray `%` elsewhere in the
+text ("50% off") does not stop the rest decoding.
+
 False-positive tuning: `tests/guardrails/false-positives.test.ts` and
 `tests/guardrails/injection.test.ts`.
 
@@ -551,7 +635,9 @@ False-positive tuning: `tests/guardrails/false-positives.test.ts` and
 when enabled, outbound paths. IPv4 and IPv6 addresses count inbound, where they
 are the user's personal data; `sensitiveSpans(text, { network: false })` skips
 them, and egress always does, because an address in a reply is not a secret. Use `redactSensitiveOnly` on model output when
-injection patterns should not run.
+injection patterns should not run. A card-number candidate counts only when it
+is 13–19 digits passing the Luhn check (`cardHit`), in batch and in the egress
+stream alike.
 
 ## Tool boundary
 
@@ -916,10 +1002,16 @@ From `src/guardrails/mod.ts`:
 | Sanitize | `sanitizeProjectId`, `sanitizeText`, `detectText`, `sanitizeHistory`, `sanitizeTurnRequest`, `sanitizeTurnRequestWithEvents`, `redactSensitiveOnly`, `detectionForProfile` |
 | Events | `guardrailFromHits`, `guardrailFromVerdict`, `guardrailTurnEvent`, `projectGuardrailTurnEvent`, `hitFromSpan`, `projectGuardrailEvent` |
 | Canary | `mintCanary`, `bindCanary`, `wrapUserData`, `scanTextForCanaryLeak`, `scanTextForPromptEcho`, `PROMPT_ECHO_WORDS`, `createCanaryStreamGate`, `eventHasCanary`, `isStreamedCanaryEvent`, `redactCanary`, `OMIT_CANARY`, `USER_OPEN`, `USER_CLOSE`, `createCanaryGateSession`, `filterCanaryGatedEvents`, `CanaryGateResult`, `CanaryGateSession`, `CanaryStreamGate` |
-| Egress / Live | `standardEgressEnforce`, `collectEgressHits`, `hitRules`, `EGRESS_RULES`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `DEFAULT_HOLDBACK`, `LIVE_DEFAULT_HOLDBACK`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveHeldOutput`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
+| Egress / Live | `standardEgressEnforce`, `collectEgressHits`, `hitRules`, `EGRESS_RULES`, `egressPolicy`, `EgressPolicyOptions`, `EgressRule`, `CompiledEgressRules`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `DEFAULT_HOLDBACK`, `LIVE_DEFAULT_HOLDBACK`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveHeldOutput`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
 | Network | `assertSafeUrl`, `fetchGuarded`, `dnsOverHttpsResolver`, `isLocalhostName`, `isPrivateOrLocalAddress`, `GuardedFetchOptions`, `ResolveHost`, `DnsOverHttpsOptions`, `NetworkGuardrailSpec` |
 | Quota | `QuotaSlotStatus`, `QuotaExhausted`, `clientIp`, `quotaExhausted`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |
 | Lexicon | `LEXICON_KEYS`, `LexiconKey`, `CLIENT_LEXICON_KEYS`, `ClientLexiconKey`, `LexiconOverrides`, `LexiconParams`, `lexiconDefault`, `lexiconText`, `overrideLexicon`, `resetLexicon` |
+
+From `src/guardrails/compile-egress.ts` (build time only):
+
+| Group | Symbols |
+| --- | --- |
+| Host rules | `compileEgressRules`, `compiledEgressModule` |
 
 From `src/guardrails/testing.ts` (test / harness only):
 
@@ -1008,6 +1100,15 @@ From `src/guardrails/testing.ts` (test / harness only):
         { "kind": "source", "path": "src/guardrails/lexicon.ts" },
         { "kind": "contract_test", "path": "tests/kernel/two-hosts-boundary.test.ts" },
         { "kind": "contract_test", "path": "tests/guardrails/quota.test.ts" }
+      ]
+    },
+    "Host egress rules": {
+      "supports": [
+        { "kind": "source", "path": "src/guardrails/egress-policy.ts" },
+        { "kind": "source", "path": "src/guardrails/egress-rules.ts" },
+        { "kind": "source", "path": "src/guardrails/compile-egress.ts" },
+        { "kind": "source", "path": "src/guardrails/egress-compiler.ts" },
+        { "kind": "contract_test", "path": "tests/guardrails/egress-policy.test.ts" }
       ]
     },
     "Egress": {

@@ -1,5 +1,8 @@
 import { assertEquals, assertRejects, assertThrows } from '@std/assert';
 import { z } from 'zod';
+import { compileEgressRules } from '../../src/guardrails/compile-egress.ts';
+import { standardEgressEnforce } from '../../src/guardrails/egress.ts';
+import { egressPolicy } from '../../src/guardrails/egress-policy.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import {
   clearProfiles,
@@ -79,6 +82,28 @@ Deno.test('defineProfile rejects observability.sampleRate outside 0–1', () => 
     Error,
     'sampleRate',
   );
+});
+
+Deno.test('defineProfile rejects a holdback with a policy the stream reads exactly', () => {
+  const rules = [{ rule: 'acme.account', pattern: /ACCT-\d{6}/ }];
+  const hostRules = egressPolicy({ rules, compiled: compileEgressRules(rules) });
+  for (const enforce of [standardEgressEnforce, hostRules]) {
+    assertThrows(
+      () =>
+        defineProfile({
+          id: 'bundled_holdback',
+          type: 'text',
+          identity: { handle: 'bundled_holdback' },
+          models: modelBindings('gemini35FlashLite'),
+          key: 'slotA',
+          tools: { allow: [] },
+          inputs: { text: true },
+          guardrails: { egress: { enforce, holdback: 96 } },
+        }),
+      TheoremError,
+      'applies only to a host egress.enforce',
+    );
+  }
 });
 
 Deno.test('defineProfile rejects a non-integer or negative egress count', () => {

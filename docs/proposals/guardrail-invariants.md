@@ -28,8 +28,10 @@ The agreed form of these now lives in [`docs/contracts/guardrails.md#invariant`]
    configured checks have read it, or the profile has explicitly opted that
    channel out (see 5). *Holds: speech is held to the end of its cycle.*
 2. **The verdict does not depend on chunking.** The same reply yields the same
-   verdict however the provider splits it. *Holds today:* each step scans the
-   whole window, and `fuzz-canary` splits the token at every offset.
+   verdict however the provider splits it. *Holds today:* the canary and
+   bundled egress scans read each character once and settle only matches that
+   can no longer grow; `fuzz-canary` splits the token at every offset and
+   `egress-stream.test.ts` checks the stream against the whole-reply policy.
 3. **Fail closed.** A check that cannot run (no transcript, provider error, a
    channel it cannot read) blocks; it never passes by default.
 4. **Deterministic.** The verdict is a pure function of the output bytes and the

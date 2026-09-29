@@ -31,6 +31,7 @@ agents <command> [options]
 | --- | --- |
 | `verify:guardrails-api` | Real-provider red-team of Theorem-owned guardrails (~95 adversarial cases); `--category`, `--limit`, `--inbound-only` |
 | `verify:canary-api` | Alias for `verify:guardrails-api` |
+| `egress-compile <module>` | Compile a module's exported egress rules for `egressPolicy` (`--out <path>`, `--export <name>`, default `rules`); exit `1` on a rule it cannot compile |
 | `fuzz` | Adversarial inbound sanitization fuzzer; exit `1` on expected miss |
 | `fuzz-canary` | Adversarial canary egress fuzzer (`runTurn` stream gate + Live batch gate; an attack's turns are one turn's provider calls, or one session's cycles); exit `1` on bypass |
 | `guardrails:eval` | Repo-only task, not in the published CLI: score guardrail detectors against external corpora (`--cache-dir`, `--limit`) |

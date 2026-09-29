@@ -8,6 +8,7 @@ import type { ProviderEvent, ProviderEvidence } from '../kernel/types.ts';
 import { isRecord } from '../kernel/util/record.ts';
 import type { RedactSpan } from '../observability/spans.ts';
 import { guardedEventTexts, scanTextForCanaryLeak } from './canary.ts';
+import { SYSTEM_BOUNDARY } from './egress-patterns.ts';
 import { describeError } from './error.ts';
 import { hitFromSpan } from './hits.ts';
 import { injectionSpans } from './injection.ts';
@@ -24,8 +25,6 @@ import type {
   Verdict,
 } from './types.ts';
 import { SEVERITIES } from './types.ts';
-
-const SYSTEM_BOUNDARY = /This turn\x27s canary is|<\/?user_data>/i; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
 
 /** Rule ids emitted by the bundled outbound policy. */
 export const EGRESS_RULES = {
@@ -270,31 +269,39 @@ function normalizeVerdict(value: unknown, context: GuardrailContext): Verdict {
   };
 }
 
-/** Default egress enforce — canary leak, sensitive echo, fence markers, injection echo. */
-function standardEgressEnforce(payload: OutboundPayload, context: GuardrailContext): Verdict {
-  const hits = collectEgressHits(payload.text, context.canary, context.system);
-  if (payload.structured !== undefined) {
-    const structured = textForScan(payload.structured);
-    if (structured.unscannable) {
-      // Cannot inspect it, so cannot vouch for it. Fail closed.
-      hits.push({ rule: EGRESS_RULES.unscannable, severity: 'high' }); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    } else {
-      hits.push(...collectEgressHits(structured.text, context.canary, context.system));
+/** An enforce that blocks on `collect`'s hits in the reply and in any structured output. */
+function hitsEnforcer(
+  collect: (text: string, context: GuardrailContext) => GuardrailHit[],
+): (payload: OutboundPayload, context: GuardrailContext) => Verdict {
+  return (payload, context) => {
+    const hits = collect(payload.text, context);
+    if (payload.structured !== undefined) {
+      const structured = textForScan(payload.structured);
+      if (structured.unscannable) {
+        // Cannot inspect it, so cannot vouch for it. Fail closed.
+        hits.push({ rule: EGRESS_RULES.unscannable, severity: 'high' }); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      } else {
+        hits.push(...collect(structured.text, context));
+      }
     }
-  }
-  if (hits.length === 0) {
-    return { action: 'allow' };
-  }
-  return {
-    action: 'block',
-    hits,
-    rejection: lexiconText(
-      'egress.rejection',
-      { rules: hitRules(hits).join(', ') },
-      context.lexicon,
-    ),
+    if (hits.length === 0) {
+      return { action: 'allow' };
+    }
+    return {
+      action: 'block',
+      hits,
+      rejection: lexiconText(
+        'egress.rejection',
+        { rules: hitRules(hits).join(', ') },
+        context.lexicon,
+      ),
+    };
   };
 }
+
+/** Default egress enforce — canary leak, sensitive echo, fence markers, injection echo. */
+const standardEgressEnforce: (payload: OutboundPayload, context: GuardrailContext) => Verdict =
+  hitsEnforcer((text, context) => collectEgressHits(text, context.canary, context.system));
 
 /**
  * Run a host policy without letting it break the turn.
@@ -327,8 +334,10 @@ export {
   collectEgressHits,
   eventPromptLeakHits,
   hitRules,
+  hitsEnforcer,
   isPromptLeakHit,
   promptEchoHits,
+  promptLeakHits,
   promptLeakReason,
   runEnforcer,
   standardEgressEnforce,

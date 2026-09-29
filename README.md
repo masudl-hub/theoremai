@@ -497,8 +497,9 @@ flowchart TD
 Text reaches your client as it clears the progressive-yield window. The window holds back the
 last stretch of output so a secret split across chunks can't slip out. It holds what the scan can
 catch: for the canary, only a tail of 4 or more characters that could still be the start of a leak
-(usually nothing, so canary-only output streams almost at once; a blocked leak shows at most 3); with `egress.enforce`, also `egress.holdback`
-characters (256 by default; 96 on Live, where held transcript holds its audio too). The end-of-attempt verdict is final: anything held
+(usually nothing, so canary-only output streams almost at once; a blocked leak shows at most 3); with the bundled
+`standardEgressEnforce` or an `egressPolicy`, only what could still become a match, so a blocked match shows none of its characters; with your own
+`egress.enforce`, `egress.holdback` characters (256 by default; 96 on Live, where held transcript holds its audio too). The end-of-attempt verdict is final: anything held
 back mid-stream that the final check clears gets released, not dropped.
 
 Thoughts are not guarded: no canary scan, no egress. A thinking model restates its system
@@ -862,8 +863,14 @@ const egress: EgressEnforcer = (payload, ctx) => {
 // guardrails: { egress: { enforce: egress, onBlock: "reject_to_agent", maxRetries: 2 } }
 ```
 
-Streaming doesn't mean giving up these checks. Text is released as it clears a lookback window
-(under `egress.enforce`, 256 characters by default; for the canary, only what could start a leak),
+Rules that only block can go through `egressPolicy` instead, which holds them as exactly as the
+standard checks: `agents egress-compile ./rules.ts --out ./rules.compiled.ts` compiles your regexes
+at build time, and `egressPolicy({ rules, compiled: compiledEgressRules })` runs them beside the
+standard checks (see [Guardrails → Host egress rules](docs/contracts/guardrails.md#host-egress-rules)).
+
+Streaming doesn't mean giving up these checks. Text is released as it clears the checks
+(under `standardEgressEnforce` and the canary, only what could still become a match waits; under your own
+`egress.enforce`, a 256-character window by default),
 so a secret split across chunks is caught before the first half reaches the client. Live sessions apply the same gate at each turn
 boundary.
 
@@ -995,7 +1002,7 @@ Named exports from the root barrel (same symbols hosts get from `@theoremai/agen
 | Quota | `QuotaSlotStatus`, `QuotaExhausted`, `clientIp`, `quotaExhausted`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |
 | Lexicon | `LEXICON_KEYS`, `LexiconKey`, `CLIENT_LEXICON_KEYS`, `ClientLexiconKey`, `LexiconOverrides`, `LexiconParams`, `lexiconDefault`, `lexiconText`, `overrideLexicon`, `resetLexicon` |
 | Sanitize | `sanitizeProjectId`, `sanitizeText`, `detectText`, `sanitizeTurnRequest`, `sanitizeTurnRequestWithEvents`, `redactSensitiveOnly`, `guardrailFromHits`, `guardrailFromVerdict`, `guardrailTurnEvent`, `projectGuardrailTurnEvent`, `hitFromSpan`, `projectGuardrailEvent` |
-| Canary / egress | `mintCanary`, `bindCanary`, `wrapUserData`, `scanTextForCanaryLeak`, `scanTextForPromptEcho`, `PROMPT_ECHO_WORDS`, `redactCanary`, `OMIT_CANARY`, `createCanaryStreamGate`, `eventHasCanary`, `createCanaryGateSession`, `filterCanaryGatedEvents`, `CanaryGateResult`, `CanaryGateSession`, `CanaryStreamGate`, `standardEgressEnforce`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `DEFAULT_HOLDBACK`, `LIVE_DEFAULT_HOLDBACK`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveHeldOutput`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
+| Canary / egress | `mintCanary`, `bindCanary`, `wrapUserData`, `scanTextForCanaryLeak`, `scanTextForPromptEcho`, `PROMPT_ECHO_WORDS`, `redactCanary`, `OMIT_CANARY`, `createCanaryStreamGate`, `eventHasCanary`, `createCanaryGateSession`, `filterCanaryGatedEvents`, `CanaryGateResult`, `CanaryGateSession`, `CanaryStreamGate`, `standardEgressEnforce`, `egressPolicy`, `EgressPolicyOptions`, `EgressRule`, `CompiledEgressRules`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `DEFAULT_HOLDBACK`, `LIVE_DEFAULT_HOLDBACK`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveHeldOutput`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
 | Compaction | `CompactionSplit`, `CompactionTokens`, `compactionMeter`, `compactionNeeded`, `resolveCompactionTokens`, `resolveHistoryTokens`, `shouldCompact`, `splitForCompaction` |
 | Token estimate | `loadTokenEstimator`, `mediaTokenFamily`, `TOKEN_TEXT_ENCODING`, `MediaPayload`, `MediaTokenFamily`, `TokenCount`, `TokenEstimator`, `sumTokens` |
 | Runner | `runTurn`, `runSession`, `runDecision`, `RunSessionOptions`, `RunDecisionOptions`, `DecisionError`, `prepareLiveInboundText`, `liveIngressEnabled`, `liveIngressEnabledFromSpec`, `liveIngressChannelDefault`, `hasAnyLiveIngress`, `assertLiveIngress`, `assertLiveIngressConfigured`, `LiveIngressChannel` |
@@ -1058,7 +1065,7 @@ Document health is enforced by `npm run lint:docs` — the **first** step of
 - Doc + **section** freshness on every code change (no Export-only gaming)
 - Behavioral sections require `contract_test` evidence (≥2 supports each)
 - Publish gates keep `docs/` and `src/**/*.md` out of npm/JSR (`verify-publish-bundle`)
-- Freshness diffs use a 32 MiB `git` buffer so large `origin/main...HEAD` patches
+- Freshness diffs use a 32 MiB `git` buffer so large patches against `origin/main`
   are not silently dropped (`ENOBUFS`)
 - Pre-commit runs `lint:docs` automatically (`prepare` installs the hook on `npm install`)
 

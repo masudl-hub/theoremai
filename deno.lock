@@ -1440,6 +1440,7 @@
       "npm:ai@7",
       "npm:gpt-tokenizer@4",
       "npm:intl-messageformat@^11.2.9",
+      "npm:refa@0.12.1",
       "npm:zod@^4.1.8"
     ],
     "packageJson": {
@@ -1451,7 +1452,8 @@
         "npm:ai@^7.0.108",
         "npm:fallow@3.17.0",
         "npm:gpt-tokenizer@4",
-        "npm:intl-messageformat@^11.2.9"
+        "npm:intl-messageformat@^11.2.9",
+        "npm:refa@0.12.1"
       ]
     }
   }

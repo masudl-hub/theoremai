@@ -274,7 +274,11 @@ const graph = {
       export: './guardrails',
       doc: 'docs/contracts/guardrails.md',
       owns: ['src/guardrails/'],
-      owns_except: ['src/guardrails/testing.ts'],
+      owns_except: [
+        'src/guardrails/testing.ts',
+        'src/guardrails/compile-egress.ts',
+        'src/guardrails/egress-compiler.ts',
+      ],
       validates: ['tests/guardrails/'],
       required_sections: [
         'Export',
@@ -318,6 +322,24 @@ const graph = {
             'src/guardrails/live-outbound-gate.ts',
           ],
           sections: ['Egress'],
+        },
+        {
+          paths: ['src/guardrails/egress-policy.ts', 'src/guardrails/egress-rules.ts'],
+          sections: ['Host egress rules'],
+        },
+      ],
+    },
+
+    'guardrails-compile': {
+      export: './guardrails/compile',
+      doc: 'docs/contracts/guardrails.md',
+      owns: ['src/guardrails/compile-egress.ts', 'src/guardrails/egress-compiler.ts'],
+      validates: ['tests/guardrails/egress-policy.test.ts', 'tests/guardrails/egress-stream.test.ts'],
+      required_sections: ['Export', 'Host egress rules', 'Exported API'],
+      section_triggers: [
+        {
+          paths: ['src/guardrails/compile-egress.ts', 'src/guardrails/egress-compiler.ts'],
+          sections: ['Host egress rules'],
         },
       ],
     },

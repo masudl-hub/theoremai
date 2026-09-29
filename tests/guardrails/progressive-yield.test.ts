@@ -63,7 +63,10 @@ Deno.test('createProgressiveYieldGate scans only the canary without a host polic
 
 Deno.test('createProgressiveYieldGate blocks sensitive spans via the bundled policy', async () => {
   const gate = createProgressiveYieldGate({ context: ctx(), enforce: standardEgressEnforce });
-  const result = await gate.process(`key=${TEST_OPENAI_KEY}`);
+  // The key could still run on, so it is held, not yet a match.
+  const held = await gate.process(`key=${TEST_OPENAI_KEY}`);
+  assertEquals(held, { blocked: false, emit: 'key=' });
+  const result = await gate.process(' and more');
   assertEquals(result.blocked, true);
   if (result.blocked) {
     assertEquals(

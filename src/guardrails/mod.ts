@@ -33,6 +33,9 @@ export {
   runEnforcer,
   standardEgressEnforce,
 } from './egress.ts';
+export type { EgressPolicyOptions } from './egress-policy.ts';
+export { egressPolicy } from './egress-policy.ts';
+export type { CompiledEgressRules, EgressRule } from './egress-rules.ts';
 export type { ErrorCopies, ErrorCopy, ErrorKind, TheoremErrorOptions } from './error.ts';
 export {
   describeError,

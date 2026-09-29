@@ -7,6 +7,7 @@
  * @module
  */
 
+import { streamPlanOf } from '../../guardrails/egress-stream.ts';
 import { TheoremError } from '../../guardrails/error.ts';
 import { type LexiconOverrides, validateLexiconOverrides } from '../../guardrails/lexicon.ts';
 import type {
@@ -478,16 +479,26 @@ function speechGuardrails(input: SpeechProfileDefinition): SpeechProfile['guardr
   return { ...input.guardrails, canary: false };
 }
 
-/** Egress counts (`maxRetries`, `holdback`) are whole, non-negative numbers. */
+/**
+ * Egress counts (`maxRetries`, `holdback`) are whole, non-negative numbers,
+ * and `holdback` is only for a host enforcer: the bundled policy holds exactly.
+ */
 function assertEgress(profileId: string, guardrails: ProfileGuardrailsSpec | undefined): void {
+  const egress = guardrails?.egress;
   for (const key of ['maxRetries', 'holdback'] as const) {
-    const value = guardrails?.egress?.[key];
+    const value = egress?.[key];
     if (value !== undefined && (!Number.isInteger(value) || value < 0)) {
       throw new TheoremError(
         'config',
         `Profile ${profileId}: guardrails.egress.${key} must be a non-negative integer`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
+  }
+  if (egress?.holdback !== undefined && streamPlanOf(egress.enforce)) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profileId}: guardrails.egress.holdback applies only to a host egress.enforce; the bundled policy holds exactly what could still become a match`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
   }
 }
 

@@ -253,10 +253,10 @@ Live sessions emit the same stage names around utterance cycles and
    user message in turn history (image and speech: it replaces the prompt
    input). A retry is not resolved again: it keeps the turn's canary, tool set
    and system prompt.
-10. **Egress** — progressive-yield lookback on the provider stream (canary,
-   sensitive/PII, host `guardrails.egress.enforce`) releases cleared prefixes
-   while holding a rolling window; end-of-attempt may still refuse, repair, or
-   withhold. SSE streaming and egress can both stay enabled.
+10. **Egress** — progressive yield on the provider stream (canary, prompt
+   echo, `guardrails.egress.enforce`) releases cleared prefixes: the bundled
+   policy holds exactly what could still become a match, a host enforce a
+   fixed window; end-of-attempt may still refuse, repair, or withhold. SSE streaming and egress can both stay enabled.
 11. **Trace** — the turn records one `invoke_agent` span tree (model calls,
    HTTP tries, tools, stage events) and writes it as one `TraceRecord` to the
    request's sink, else `profile.observability`; failures are swallowed.
@@ -705,7 +705,7 @@ Profile `guardrails`:
 | `quota` | Host HTTP helper only (`@theoremai/agents/guardrails`); not enforced inside `runTurn` |
 | `canary` | Per-turn canary token; egress checks leakage |
 | `sanitizeInput` / `redactSensitive` | Pre-provider text/blob scrub |
-| `egress` | Host `enforce` hook; `onBlock`: `reject_to_agent` or `refuse_to_user`; `maxRetries`; `holdback`; repair guidance is the lexicon's `egress.default_repair_guidance` (mid-stream lookback, default 256; 96 on Live) |
+| `egress` | Host `enforce` hook; `onBlock`: `reject_to_agent` or `refuse_to_user`; `maxRetries`; `holdback` (host enforce only: mid-stream lookback, default 256; 96 on Live; the bundled policy holds exactly and rejects it); repair guidance is the lexicon's `egress.default_repair_guidance` |
 
 ## Compaction
 

@@ -72,7 +72,7 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
   },
   'models.*.compaction': {
     profileTypes: ['text'],
-    reason: 'only text turns keep a history to compact',
+    reason: 'only the text turn runner compacts history',
   },
   key: { profileTypes: MODEL_PROFILE_TYPES, reason: 'a host profile runs no model' },
   defaultModel: {

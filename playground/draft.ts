@@ -15,7 +15,8 @@ import {
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
   isValidProfileProtocol,
   type LiveActivityHandling,
-  type LiveSpeechSensitivity,
+  type LiveEndSensitivity,
+  type LiveStartSensitivity,
   OVERFLOW_KEY_SLOTS,
   type OverflowKeySlot,
   PROFILE_GRAPH,
@@ -189,8 +190,8 @@ export interface LiveDraft {
   transcriptionInput: boolean;
   transcriptionOutput: boolean;
   vadActivityHandling: '' | LiveActivityHandling;
-  vadStartSensitivity: '' | LiveSpeechSensitivity;
-  vadEndSensitivity: '' | LiveSpeechSensitivity;
+  vadStartSensitivity: '' | LiveStartSensitivity;
+  vadEndSensitivity: '' | LiveEndSensitivity;
   vadPrefixPaddingMs: number | null;
   vadSilenceDurationMs: number | null;
 }

@@ -8,7 +8,8 @@ import type {
   KeySlot,
   KeyVault,
   LiveActivityHandling,
-  LiveSpeechSensitivity,
+  LiveEndSensitivity,
+  LiveStartSensitivity,
   MediaInputKind,
   OverflowKeySlot,
   ProfileType,
@@ -90,8 +91,9 @@ export type {
   KeySlot,
   KeyVault,
   LiveActivityHandling,
+  LiveEndSensitivity,
   LiveProfileToolsSpec,
-  LiveSpeechSensitivity,
+  LiveStartSensitivity,
   MediaInputKind,
   OverflowKeySlot,
   ProfileToolsSpec,
@@ -178,7 +180,6 @@ export interface ModelBinding {
   maxOutputTokens?: number;
   /** Sampling temperature. Omit → provider default. */
   temperature?: number;
-  /** Provider-native builtins; a turn opts in with `tools[id]: true`. */
   builtInTools?: BuiltinToolId[];
   /** Overrides `profile.key` for this model (e.g. pin image models to `paid`). */
   key?: KeySlot;
@@ -337,8 +338,8 @@ export interface ProfileSpeechSpec {
 
 export interface LiveVadSpec {
   activityHandling?: LiveActivityHandling;
-  startSensitivity?: LiveSpeechSensitivity;
-  endSensitivity?: LiveSpeechSensitivity;
+  startSensitivity?: LiveStartSensitivity;
+  endSensitivity?: LiveEndSensitivity;
   prefixPaddingMs?: number;
   silenceDurationMs?: number;
 }

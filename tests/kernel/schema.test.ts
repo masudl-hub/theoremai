@@ -207,7 +207,6 @@ Deno.test('EXTRA_FIELDS covers registerTool keys shown in profile docs', () => {
   assertEquals(playgroundAuth != null, true, 'missing playground.authType');
   assertEquals(playgroundAuth?.options?.includes('none'), true);
   assertEquals(playgroundAuth?.options?.includes('bearer'), true);
-  assertEquals(fieldMeta('type')?.doc?.includes('archetype'), true);
 });
 
 Deno.test('live wires every load tier; host is a model-less profile type', () => {
@@ -215,7 +214,6 @@ Deno.test('live wires every load tier; host is a model-less profile type', () =>
   assertEquals(PROFILE_TYPE_PROTOCOLS.host, []);
   assertEquals(protocolsForProfileType('host'), []);
   assertEquals(isValidProfileProtocol('host', 'geminiInteractions'), false);
-  assertEquals(fieldMeta('loadTier')?.doc?.includes('wire every allowed tool'), true);
   assertEquals(fieldMeta('tools.t1Policy')?.profileTypes, ['text', 'image']);
   assertEquals(fieldMeta('tools.t2Loader')?.profileTypes, ['text', 'image']);
   assertEquals(fieldMeta('type')?.doc?.includes('host'), true);

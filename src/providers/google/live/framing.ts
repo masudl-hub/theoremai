@@ -92,14 +92,6 @@ function buildLiveGenerationConfig(req: ProviderCompleteRequest): Record<string,
   return generationConfig;
 }
 
-function normalizeStartSensitivity(val?: string): string {
-  return val?.includes('HIGH') ? 'START_SENSITIVITY_HIGH' : 'START_SENSITIVITY_LOW';
-}
-
-function normalizeEndSensitivity(val?: string): string {
-  return val?.includes('HIGH') ? 'END_SENSITIVITY_HIGH' : 'END_SENSITIVITY_LOW';
-}
-
 // Unset numbers are left to Gemini's defaults.
 function buildContextWindowCompression(
   compression: LiveContextCompressionSpec,
@@ -115,12 +107,10 @@ function buildContextWindowCompression(
 function buildLiveRealtimeInputConfig(vad: LiveVadSpec): Record<string, unknown> | undefined {
   const automaticActivityDetection: Record<string, unknown> = {};
   if (vad.startSensitivity !== undefined) {
-    automaticActivityDetection.startOfSpeechSensitivity = normalizeStartSensitivity(
-      vad.startSensitivity,
-    );
+    automaticActivityDetection.startOfSpeechSensitivity = vad.startSensitivity;
   }
   if (vad.endSensitivity !== undefined) {
-    automaticActivityDetection.endOfSpeechSensitivity = normalizeEndSensitivity(vad.endSensitivity);
+    automaticActivityDetection.endOfSpeechSensitivity = vad.endSensitivity;
   }
   if (vad.prefixPaddingMs !== undefined) {
     automaticActivityDetection.prefixPaddingMs = vad.prefixPaddingMs;

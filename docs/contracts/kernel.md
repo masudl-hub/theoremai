@@ -840,7 +840,8 @@ No signal is attached when the turn has no history. `timing: 'before'` emits no
 | `compactionNeeded` / `shouldCompact` | Threshold / custom trigger |
 | `splitForCompaction` | `{ toCompact, toRetain }` |
 
-Register-time validation: `maxTokens > 0`, `compactAt ∈ (0,1)`,
+Register-time validation: `maxTokens`, `compactAt`, `previousExchanges`, `profile` and `timing`
+are set, `maxTokens > 0`, `compactAt ∈ (0,1)`,
 `previousExchanges ≥ 0`, an integer when `≥ 1` and `< compactAt` when fractional, meter ∈ `{history,input}`,
 compaction profile registered first.
 

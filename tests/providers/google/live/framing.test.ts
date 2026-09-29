@@ -50,7 +50,7 @@ Deno.test('buildGeminiLiveSetupMessage constructs standard setup frame', () => {
       vad: {
         activityHandling: 'START_OF_ACTIVITY_INTERRUPTS',
         startSensitivity: 'START_SENSITIVITY_HIGH',
-        endSensitivity: 'START_SENSITIVITY_LOW',
+        endSensitivity: 'END_SENSITIVITY_LOW',
         prefixPaddingMs: 300,
         silenceDurationMs: 1200,
       },

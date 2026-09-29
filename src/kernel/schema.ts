@@ -107,13 +107,14 @@ export function coerceSpeechFormat(
 export const LIVE_ACTIVITY_HANDLINGS = ['START_OF_ACTIVITY_INTERRUPTS', 'NO_INTERRUPTION'] as const;
 export type LiveActivityHandling = (typeof LIVE_ACTIVITY_HANDLINGS)[number];
 
-export const LIVE_SPEECH_SENSITIVITIES = [
+export const LIVE_START_SENSITIVITIES = [
   'START_SENSITIVITY_LOW',
   'START_SENSITIVITY_HIGH',
-  'END_SENSITIVITY_LOW',
-  'END_SENSITIVITY_HIGH',
 ] as const;
-export type LiveSpeechSensitivity = (typeof LIVE_SPEECH_SENSITIVITIES)[number];
+export type LiveStartSensitivity = (typeof LIVE_START_SENSITIVITIES)[number];
+
+export const LIVE_END_SENSITIVITIES = ['END_SENSITIVITY_LOW', 'END_SENSITIVITY_HIGH'] as const;
+export type LiveEndSensitivity = (typeof LIVE_END_SENSITIVITIES)[number];
 
 export const COMPACTION_METERS = ['history', 'input'] as const;
 export type CompactionMeter = (typeof COMPACTION_METERS)[number];
@@ -445,424 +446,450 @@ function withScopeAndPresence(fields: Record<string, FieldMeta>): Record<string,
  * take it, and record it in `PROFILE_FIELD_PRESENCE` if it is required or its absence matters.
  */
 export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
-  id: field('string', 'Host-owned profile identifier.'),
+  id: field(
+    'string',
+    'The name this profile is registered and looked up by; registering the same id again replaces it.',
+  ),
   type: field(
     "'text' | 'image' | 'speech' | 'live' | 'decision' | 'host'",
-    'Required profile archetype. host = tool-execution ceiling for invokeTool; never runs a model.',
+    'What kind of agent this is: text, image, speech, live, decision, or host (runs your tools through invokeTool and never calls a model).',
     PROFILE_TYPES,
   ),
   identity: field(
     '{ handle, system?, systemByRole? }',
-    'Display handle and system instruction the model receives each turn.',
+    "The agent's display name and the system instruction it is given.",
   ),
-  'identity.handle': field('string', 'Public handle for this agent.'),
-  'identity.system': field('string', 'System instruction merged into every turn.'),
+  'identity.handle': field(
+    'string',
+    "The agent's display name for hosts and users (the model never sees it), and the systemByRole entry a turn gets when it names no known role.",
+  ),
+  'identity.system': field(
+    'string',
+    'The instruction the model gets on every turn unless a systemByRole entry replaces it; OpenRouter image profiles send it only with includeText on.',
+  ),
   'identity.systemByRole': field(
     'Record<string, string>',
-    'Optional system instruction keyed by turn role.',
+    'Other system instructions, picked by the role a turn names.',
   ),
   'identity.systemByRole.*': field(
     'string',
-    'System instruction merged when this turn role is active.',
+    'The instruction that replaces identity.system when a turn names this role.',
   ),
   models: field(
     'Record<ModelId, ModelBinding>',
-    'Host-named model bindings. Keys are model ids; each entry carries protocol, provider, and wire config.',
+    'The models this profile can use, each under a name you choose.',
   ),
-  'models.*': field('ModelBinding', 'Wire binding for one host-named model id.'),
+  'models.*': field('ModelBinding', 'One model: how to reach it and the settings sent with it.'),
   'models.*.protocol': field(
     unionType(PROTOCOLS),
-    'Wire protocol for this model. Must be valid for profile type.',
+    'The API this model is called through: geminiLive for live profiles, geminiInteractions or openAi for the rest.',
     PROTOCOLS,
     {
-      geminiInteractions: 'Google Gemini Interactions wire protocol (Gemini 2.5 / 3+).',
-      geminiLive: 'Gemini Live bidirectional WebSocket protocol.',
-      openAi: 'OpenAI-compatible chat completions and streaming protocol.',
+      geminiInteractions: "Google's Gemini Interactions API.",
+      geminiLive: "Google's Gemini Live streaming API.",
+      openAi: 'The OpenAI-style API, served by OpenRouter or a local server.',
     },
   ),
   'models.*.provider': field(
     unionType(PROVIDERS),
-    'Transport for this model. Must form a legal pair with protocol.',
+    'Who serves the model: google for the Gemini protocols, openrouter or local for openAi.',
     PROVIDERS,
     {
-      google: 'Direct Google Gemini API transport.',
-      openrouter: 'OpenRouter multi-provider API proxy.',
-      local: 'Local OpenAI-compatible server (Ollama, llama.cpp, vLLM).',
+      google: "Google's Gemini API.",
+      openrouter: 'OpenRouter, which routes to many model vendors.',
+      local: "A server you run (Ollama, llama.cpp, vLLM); it can't serve image profiles.",
     },
   ),
-  'models.*.apiId': field('string', 'Provider wire model id.'),
+  'models.*.apiId': field('string', "The model's name at the provider."),
   decision: field(
     '{ contract: DecisionContractId }',
-    'Which host decision this Jev profile makes. Jev never sees it; it answers the questions each call asks.',
+    'Names the host decision this profile makes.',
   ),
   'decision.contract': field(
     'string',
-    'Host-owned id for the decision, recorded on each decide span as theorem.decision.contract. Not sent to Jev and not checked against the questions.',
+    "Your name for this decision, recorded on its traces; it isn't sent to the model or checked against the questions.",
   ),
   'models.*.efforts': field(
     'Record<string, ThinkingLevel>',
-    'Alias → thinking level. One entry = fixed; two+ may be selectable at turn time.',
+    'Named thinking levels for this model, which a turn can pick between when allowEffortSelect is on; local models ignore them.',
   ),
   'models.*.efforts.*': field(
     unionType(THINKING_LEVELS),
-    'Wire thinking level for this effort alias.',
+    'The thinking level sent to the provider for this name.',
     THINKING_LEVELS,
     {
-      none: 'Disable reasoning tokens completely.',
-      minimal: 'Minimal reasoning tokens for fastest response.',
-      low: 'Low reasoning budget for basic structured tasks.',
-      medium: 'Balanced reasoning for multi-step agent actions.',
-      high: 'Deep reasoning for complex planning and code.',
-      xhigh: 'Extended reasoning budget for hard problems.',
-      max: 'Maximum reasoning tokens supported by model.',
+      none: "No thinking on Gemini Interactions; Gemini Live and OpenRouter leave the setting out, so the model's default applies.",
+      minimal: 'The least thinking.',
+      low: 'Light thinking.',
+      medium: 'Moderate thinking.',
+      high: 'Heavy thinking.',
+      xhigh: 'Heavier thinking, where the model supports it.',
+      max: 'The most thinking the model supports.',
     },
   ),
-  'models.*.defaultEffort': field('string', 'Effort alias when the turn omits effort.'),
+  'models.*.defaultEffort': field('string', "The effort a turn gets when it doesn't pick one."),
   'models.*.allowEffortSelect': field(
     'boolean',
-    'Turn may pass effort. Requires two or more efforts keys.',
+    'Lets a turn pick an effort; needs two or more efforts.',
   ),
-  'models.*.summaries': field('boolean', 'Emit thinking summaries on the stream.'),
-  'models.*.maxOutputTokens': field('number', 'Maximum tokens the model may emit.'),
-  'models.*.temperature': field('number', 'Sampling temperature.'),
+  'models.*.summaries': field(
+    'boolean',
+    'Asks Gemini Interactions for summaries of its thinking; on OpenRouter, off only hides thoughts, and other providers ignore it.',
+  ),
+  'models.*.maxOutputTokens': field('number', 'The most tokens the model may write in one reply.'),
+  'models.*.temperature': field(
+    'number',
+    "How varied the model's wording is; higher is more random.",
+  ),
   'models.*.builtInTools': field(
     'BuiltinToolId[]',
-    'Provider-native builtins enabled whenever this model is selected.',
+    "The provider's own tools, such as Google Search, this model may use; each must be registered as a builtin tool.",
   ),
   'models.*.key': field(
     unionType(KEY_SLOTS),
-    'Optional vault slot for this model. Overrides profile.key.',
+    "The key slot this model's calls use, ahead of the profile's key.",
     KEY_SLOTS,
   ),
-  'models.*.compaction': field('CompactionSpec', 'Optional compaction policy for this model.'),
-  'models.*.compaction.maxTokens': field(
-    'number',
-    'Token budget compared by the trigger (compactAt * maxTokens).',
+  'models.*.compaction': field(
+    'CompactionSpec',
+    'Summarises older history with another profile once it grows past a threshold.',
   ),
+  'models.*.compaction.maxTokens': field('number', 'The token budget compactAt is a fraction of.'),
   'models.*.compaction.compactAt': field(
     'number',
-    'Fraction of maxTokens at which compaction fires. Must be in (0, 1).',
+    'The fraction of maxTokens, between 0 and 1, at which compaction starts.',
   ),
   'models.*.compaction.previousExchanges': field(
     'number',
-    '≥ 1 = exchange count, (0, 1) = fraction of maxTokens, 0 = compact all.',
+    'How much recent history compaction keeps: a number of exchanges (1 or more), a fraction of maxTokens (between 0 and 1), or 0 to compact it all.',
   ),
   'models.*.compaction.profile': field(
     'ProfileId',
-    'Compaction agent profile id. Must be registered before the owning profile.',
+    'The profile that writes the summary; register it before this one.',
   ),
   'models.*.compaction.timing': field(
     unionType(COMPACTION_TIMINGS),
-    'When compaction runs relative to the primary turn.',
+    'Whether the kernel compacts before the turn or tells the host to compact after it.',
     COMPACTION_TIMINGS,
     {
-      before: 'Compact synchronously before running the turn request.',
-      after: 'Signal on done for host async background compaction.',
+      before: 'The kernel compacts before the turn runs.',
+      after: "The turn's done event says compaction is due, and the host runs it.",
     },
   ),
   'models.*.compaction.meter': field(
     unionType(COMPACTION_METERS),
-    'What the threshold meters. Defaults to history.',
+    'What the threshold counts.',
     COMPACTION_METERS,
     {
-      history: 'Meters token count across prior conversation turns.',
-      input: 'Meters full turn input token count (system + history + attachments).',
+      history: 'Tokens in the earlier conversation.',
+      input:
+        'The prompt tokens the provider reported for the last call, or the count the host passes in.',
     },
   ),
-  'models.*.cache': field(
-    'CacheSpec',
-    'OpenRouter prompt-cache policy. Only valid when provider is openrouter.',
-  ),
+  'models.*.cache': field('CacheSpec', 'Prompt caching on OpenRouter.'),
   'models.*.cache.mode': field(
     unionType(CACHE_MODES),
-    'How to place cache_control on OpenRouter requests.',
+    'Which part of the prompt is cached.',
     CACHE_MODES,
     {
-      automatic: 'Top-level cache_control; breakpoint advances with the conversation.',
-      system: 'Explicit cache_control breakpoint on the system instruction only.',
+      automatic: 'The whole request, so the cached part grows with the conversation.',
+      system: 'The system instruction only; nothing is cached without one.',
     },
   ),
   'models.*.cache.ttl': field(
     unionType(CACHE_TTLS),
-    'Ephemeral cache TTL. Omit → provider default (typically 5m on Anthropic).',
+    'How long a cached prompt lasts.',
     CACHE_TTLS,
     {
-      '5m': 'Five-minute ephemeral cache (default when ttl is omitted).',
-      '1h': 'One-hour ephemeral cache (higher write cost; better for long sessions).',
+      '5m': 'Five minutes.',
+      '1h': 'One hour; writing the cache costs more, which pays off in long sessions.',
     },
   ),
   'models.*.store': field(
     'boolean',
-    'Gemini Interactions: whether the provider stores the interaction. Omit → provider default.',
+    'Whether Google stores the interaction (Gemini Interactions only); a turn can override it.',
   ),
   'models.*.persistViaInteractionId': field(
     'boolean',
-    'Gemini Interactions: prefer previous_interaction_id over client-owned history. Omit → host/turn decides.',
+    "Whether turns continue from Google's stored interaction instead of resending the history (Gemini Interactions only).",
   ),
   'models.*.server': field(
     'string',
-    'Local server hosting the model (ollama, vllm, …). Traces report it as gen_ai.provider.name. Only valid when provider is local.',
+    "Which local server runs the model (ollama, vllm, …), recorded on traces; it doesn't change where requests go.",
   ),
-  defaultModel: field('ModelId', 'Default model id when the turn omits model.'),
-  allowModelSelect: field('boolean', 'Turn may pass model. Requires two or more models keys.'),
+  defaultModel: field('ModelId', "The model a turn gets when it doesn't pick one."),
+  allowModelSelect: field('boolean', 'Lets a turn pick a model; needs two or more models.'),
   maxSteps: field(
     'number',
-    'Tool-loop ceiling. <=0 unbounded, 1 one-shot, >1 ceiling. Omit → unbounded.',
+    'The most model calls one turn may make while using tools, where 1 runs the tools asked for but never sends their results back; live sessions ignore it.',
   ),
   key: field(
     unionType(OVERFLOW_KEY_SLOTS),
-    'Vault key slot (slotA/B/C). Paid is overflow-only via models.*.key or forcePaidKey builtins.',
+    'The key slot used when a model has no key of its own and no active builtin tool needs the paid key.',
     OVERFLOW_KEY_SLOTS,
   ),
   tools: field(
     '{ allow: ToolId[]; t1Policy?; t2Loader? }',
-    'Custom tools (allow), optional T1 policy, optional T2 loader function id. Builtins belong on models.*.builtInTools.',
+    'Which of your registered tools this profile may use, and how they load.',
   ),
   'tools.allow': field(
     'ToolId[]',
-    'Custom tools the agent may call. Builtins are declared per model, not here. On type live every listed id is wired at session setup regardless of loadTier; on type host every listed id is executable.',
+    "Your registered tools this agent may use; the provider's own tools go on the model's builtInTools instead.",
   ),
   'tools.t1Policy': field(
     '(ctx) => ToolId[] | Promise<ToolId[]>',
-    'Optional T1 policy — which eligible loadTier:T1 tools to wire at turn start.',
+    'Your function that picks, at the start of each turn, which T1 tools to load.',
   ),
   'tools.t2Loader': field(
     'ToolId',
-    'Optional function tool id for T2 promotion. Must be in tools.allow; handler returns { loaded: string[] }.',
+    'The function tool the model calls to load T2 tools; it must be in allow and return the ids to load.',
   ),
   inputs: field(
     'ProfileInputsSpec | DecisionInputsSpec',
-    'Text, attachment, voice, slot, and size rules; on a decision, the JSON state it reads.',
+    'What a turn may send (text, files, voice, choices), or on a decision, the state it reads.',
   ),
-  'inputs.state': field(
-    "'json'",
-    'What a decision reads: non-null JSON state, passed on each runDecision call.',
-    ['json'],
-  ),
+  'inputs.state': field("'json'", 'A decision reads JSON state, passed on each call.', ['json']),
   'inputs.maxStateBytes': field(
     'number',
-    'Max UTF-8 bytes of the serialized state per call. A larger state is rejected before it leaves the process.',
+    'The largest state, in bytes, a decision call may send; larger state is refused before it leaves your process.',
   ),
-  'inputs.text': field(
-    'boolean',
-    'Whether the profile accepts text on a turn. False rejects text.',
-  ),
-  'inputs.attachments': field('{ accept: string[] }', 'File upload allowlist.'),
+  'inputs.text': field('boolean', 'Whether a turn may send text.'),
+  'inputs.attachments': field('{ accept: string[] }', 'Lets turns send files.'),
   'inputs.attachments.accept': field(
     'string[]',
-    'MIME allowlist for uploaded files. Type-prefix wildcards (image/*, …) are allowed. ' +
-      'An image profile takes images, video and PDF only (IMAGE_ATTACHMENT_ACCEPT_MIMES).',
+    'The file types a turn may send, where type/* matches a whole family; image profiles take only images, video and PDF.',
     ATTACHMENT_ACCEPT_MIMES,
-    'Kernel-known types (plus wildcards). Hosts may list any MIME; unknown types are rejected at ingress.',
+    "Types the kernel knows; a listed type it doesn't know is refused when a turn sends it.",
   ),
-  'inputs.voice': field(
-    '{ accept: string[] }',
-    'Voice ingress block — not a bare string. Use accept for audio MIME allowlist.',
-  ),
+  'inputs.voice': field('{ accept: string[] }', 'Lets turns send voice clips.'),
   'inputs.voice.accept': field(
     'string[]',
-    'MIME allowlist for voice blobs. audio/* wildcards are allowed.',
+    'The audio types a voice clip may be; audio/* matches them all.',
     VOICE_ACCEPT_MIMES,
-    'Kernel-known audio types (plus audio/*).',
+    'Audio types the kernel knows.',
   ),
   'inputs.maxFiles': field(
     'number',
-    'Max files per turn. Required when attachments or voice is set.',
+    'The most files and voice clips one turn may send, counted together.',
   ),
-  'inputs.maxBytes': field(
-    'number',
-    'Max bytes per file. Required when attachments or voice is set.',
-  ),
+  'inputs.maxBytes': field('number', 'The largest file or clip, in bytes, a turn may send inline.'),
   'inputs.maxTurnBytes': field(
     'number',
-    'Max total bytes per turn. Required when attachments or voice is set.',
+    'The most bytes one turn may send inline across all its files and clips.',
   ),
-  'inputs.limitsByMime': field('Record<string, number>', 'Optional per-MIME byte caps.'),
-  'inputs.limitsByMime.*': field('number', 'Maximum byte limit for files of this MIME type.'),
+  'inputs.limitsByMime': field(
+    'Record<string, number>',
+    'Size limits by file type that replace maxBytes for those types.',
+  ),
+  'inputs.limitsByMime.*': field(
+    'number',
+    'The largest file of this type (or type/* family), in bytes, a turn may send inline.',
+  ),
   'inputs.slots': field(
     'Record<string, string[]>',
-    'Optional turn-time selectors (e.g. language: ["html", "tsx"]). A turn may pass only these slots.',
+    'Named choices a turn can make, such as language, each with its allowed values.',
   ),
   'inputs.slots.*': field(
     'string[]',
-    'Allowed choices for this turn selector. A turn passing any other value is rejected.',
+    'The values a turn may choose for this slot; any other is refused.',
   ),
-  outputs: field('ProfileOutputsSpec', 'Structured, validation, and streaming output policy.'),
+  outputs: field(
+    'ProfileOutputsSpec',
+    'The shape of the reply, how it is checked, and how it streams.',
+  ),
   'outputs.structured': field(
     'StructuredSchemaId | StructuredBySlot | null',
-    'Registered schema id, slot-mapped ids, or null for free text.',
+    'The registered JSON schema the reply must follow, which can vary by slot (text profiles only).',
   ),
-  image: field('ProfileImageSpec', 'Pins for an image-role profile. Model id is on model.'),
-  'image.aspectRatio': field('string', 'Optional output aspect ratio. Omitted → provider default.'),
-  'image.size': field('string', 'Optional output size / resolution. Omitted → provider default.'),
-  'image.mimeType': field('string', 'Output MIME for generated images.'),
+  image: field('ProfileImageSpec', 'Settings for the images this profile makes.'),
+  'image.aspectRatio': field('string', 'The shape of generated images, such as 16:9.'),
+  'image.size': field('string', 'The resolution of generated images.'),
+  'image.mimeType': field(
+    'string',
+    'The file type of generated images; OpenRouter takes png, jpeg or webp and uses png for anything else.',
+  ),
   'image.includeText': field(
     'boolean',
-    'When true, request interleaved assistant text alongside generated images.',
+    'Whether the model may write text alongside its images; on OpenRouter this also sends the system instruction and history.',
   ),
-  speech: field('ProfileSpeechSpec', 'TTS pins. Model id is on model.'),
-  'speech.voice': field(
-    'string',
-    'TTS voice id. Kernel accepts any string; Google preset narrows to named voices.',
-  ),
+  speech: field('ProfileSpeechSpec', 'Settings for the audio this profile speaks.'),
+  'speech.voice': field('string', 'The voice the speech is read in.'),
   'speech.format': field(
     unionType(SPEECH_AUDIO_FORMATS),
-    'Audio format asked of the provider; unset sends none, so the provider picks. pcm arrives as WAV. mp3 requires protocol openAi.',
+    'The audio format asked of the provider.',
     SPEECH_AUDIO_FORMATS,
     {
-      pcm: 'Raw 24kHz 16-bit PCM audio (→ WAV container). Supported by Google and OpenAI.',
-      mp3: 'MP3 encoded stream. Requires openAi protocol.',
+      pcm: 'Uncompressed audio, delivered as WAV.',
+      mp3: 'Compressed audio; OpenRouter only.',
     },
   ),
-  live: field('ProfileLiveSpec', 'Bidirectional live audio/video streaming session pins.'),
-  'live.ingress': field(
-    'LiveIngressSpec',
-    'Realtime ingress toggles for sendAudio / sendVideo / sendText — not turn file attachments.',
-  ),
-  'live.ingress.audio': field(
-    'boolean',
-    'Microphone PCM via LiveSession.sendAudio. Omit → enabled.',
-  ),
-  'live.ingress.video': field(
-    'boolean',
-    'Webcam JPEG frames via LiveSession.sendVideo. Omit → enabled.',
-  ),
-  'live.ingress.text': field('boolean', 'Typed text via LiveSession.sendText. Omit → disabled.'),
+  live: field('ProfileLiveSpec', 'Settings for the realtime voice and video session.'),
+  'live.ingress': field('LiveIngressSpec', 'Which channels the session accepts from the user.'),
+  'live.ingress.audio': field('boolean', 'Whether the session accepts microphone audio.'),
+  'live.ingress.video': field('boolean', 'Whether the session accepts camera frames.'),
+  'live.ingress.text': field('boolean', 'Whether the session accepts typed text.'),
   'live.voice': field(
     'string',
-    'TTS voice name for live audio output (e.g. Puck, Aoede, Charon).',
+    'The voice the model speaks in.',
     GOOGLE_SPEECH_VOICES,
-    'Google preset vocabulary; kernel accepts any string.',
+    "Google's voice names; any other name is sent as written.",
   ),
   'live.vad': field(
     'LiveVadSpec',
-    'Voice activity detection, barge-in, and endpointing sensitivity.',
+    'How the session detects when the user starts and stops speaking.',
   ),
   'live.vad.activityHandling': field(
     unionType(LIVE_ACTIVITY_HANDLINGS),
-    'Barge-in handling when user speaks.',
+    "Whether the user speaking interrupts the model's reply.",
     LIVE_ACTIVITY_HANDLINGS,
+    {
+      START_OF_ACTIVITY_INTERRUPTS: 'The user speaking cuts the reply off.',
+      NO_INTERRUPTION: 'The model finishes its reply.',
+    },
   ),
   'live.vad.startSensitivity': field(
-    unionType(LIVE_SPEECH_SENSITIVITIES),
-    'Sensitivity for detecting start of speech.',
-    LIVE_SPEECH_SENSITIVITIES,
+    unionType(LIVE_START_SENSITIVITIES),
+    'How readily the session decides the user has started speaking.',
+    LIVE_START_SENSITIVITIES,
+    {
+      START_SENSITIVITY_LOW: 'Detects the start of speech less often.',
+      START_SENSITIVITY_HIGH: 'Detects the start of speech more often.',
+    },
   ),
   'live.vad.endSensitivity': field(
-    unionType(LIVE_SPEECH_SENSITIVITIES),
-    'Sensitivity for detecting end of speech.',
-    LIVE_SPEECH_SENSITIVITIES,
+    unionType(LIVE_END_SENSITIVITIES),
+    'How readily the session decides the user has stopped speaking.',
+    LIVE_END_SENSITIVITIES,
+    {
+      END_SENSITIVITY_LOW: 'Ends speech less often, waiting through pauses.',
+      END_SENSITIVITY_HIGH: 'Ends speech more often, at shorter pauses.',
+    },
   ),
-  'live.vad.prefixPaddingMs': field('number', 'Speech prefix buffer duration in ms.'),
+  'live.vad.prefixPaddingMs': field(
+    'number',
+    'How long speech must last, in milliseconds, before it counts as the user starting to speak.',
+  ),
   'live.vad.silenceDurationMs': field(
     'number',
-    'Required silence before committing end-of-speech in ms.',
+    "How long a silence, in milliseconds, ends the user's speech.",
   ),
   'live.sessionResumption': field(
     'boolean',
-    'Enable session resumption handles across WebSocket reconnects.',
+    'Whether Google sends resume handles, which the host can pass to a new session to carry this one on.',
   ),
   'live.contextCompression': field(
     'LiveContextCompressionSpec',
-    'Context window compression: shrinks the context once it reaches the trigger.',
+    "Trims the session's context once it grows past the trigger.",
   ),
   'live.contextCompression.triggerTokens': field(
     'number',
-    'Context tokens, counted before a turn, that start compression.',
+    'The context size, in tokens, that starts trimming.',
   ),
   'live.contextCompression.slidingWindow': field(
     'LiveSlidingWindowSpec',
-    'Drops the oldest turns down to the target; the system instruction stays.',
+    'Trims by dropping the oldest turns; the system instruction stays.',
   ),
   'live.contextCompression.slidingWindow.targetTokens': field(
     'number',
-    'Tokens kept after compressing; below the trigger.',
+    'The context size, in tokens, to trim down to; below the trigger.',
   ),
   'live.proactiveAudio': field(
     'boolean',
-    'Allow model to reject responding or stay silent if unprompted.',
+    "Lets the model choose not to answer speech it judges isn't meant for it.",
   ),
-  'live.transcription': field(
-    'LiveTranscriptionSpec',
-    'Enable real-time input/output audio transcriptions.',
+  'live.transcription': field('LiveTranscriptionSpec', "Text transcripts of the session's speech."),
+  'live.transcription.input': field('boolean', "Whether the user's speech is transcribed."),
+  'live.transcription.output': field('boolean', "Whether the model's speech is transcribed."),
+  'outputs.validation': field(
+    'ProfileValidationSpec',
+    'Your checks on a structured reply, and how many rewrites a failure gets.',
   ),
-  'live.transcription.input': field('boolean', 'Transcribe user input speech.'),
-  'live.transcription.output': field('boolean', 'Transcribe model output speech.'),
-  'outputs.validation': field('ProfileValidationSpec', 'Host domain validators and repair policy.'),
   'outputs.validation.fields': field(
     'Record<string, ProfileValidator>',
-    'Validators keyed by dotted paths into structured output (e.g. diagram.mermaid).',
+    'Your checks, each keyed by a dotted path into the structured reply, such as diagram.mermaid.',
   ),
   'outputs.validation.fields.*': field(
     '(candidate: unknown, slots?: Record<string, string>) => ValidationResult | Promise<ValidationResult>',
-    'Host-owned validator for this structured output field; returns { isValid, error?, finding?, data? }.',
+    'Your check on this part of the reply; a failure sends its error back to the model to rewrite.',
   ),
-  'outputs.validation.maxRetries': field('number', 'Repair-turn ceiling after a validator reject.'),
-  'outputs.streaming': field('ProfileStreamingSpec', 'How the turn emits live events.'),
+  'outputs.validation.maxRetries': field(
+    'number',
+    'How many times the model may rewrite a reply that fails your checks before it goes out as it is; the larger of this and egress.maxRetries applies to both.',
+  ),
+  'outputs.streaming': field('ProfileStreamingSpec', 'How the reply reaches the host.'),
   'outputs.streaming.mode': field(
     unionType(STREAM_MODES),
-    'Whether the provider call streams. Either way the host gets the same TurnEvents.',
+    'Whether the provider call streams.',
     STREAM_MODES,
     {
-      sse: 'Stream the provider call; TurnEvents arrive as the model produces them.',
-      buffered: 'One non-streaming provider call; its TurnEvents arrive together when it answers.',
+      sse: 'Events arrive as the model writes.',
+      buffered: 'One non-streaming call; its events arrive together when it answers.',
     },
   ),
-  'outputs.streaming.streamThoughts': field('boolean', 'Emit model thinking on the turn stream.'),
+  'outputs.streaming.streamThoughts': field(
+    'boolean',
+    "Whether the model's thinking reaches the host.",
+  ),
   turnBehaviour: field(
     'ProfileTurnBehaviourSpec',
-    'Resume after a non-user stop (text/image/speech); text and live may also allow mid-turn inject via allowSteering.',
+    'Whether a reply that stopped early can be continued, and whether a running turn can be steered.',
   ),
   'turnBehaviour.resumption': field(
     'ProfileTurnResumptionSpec',
-    'Continue after a non-user stop (continueFrom). Not valid on live — use live.sessionResumption.',
+    'Continuing a reply that stopped early; live uses sessionResumption instead.',
   ),
   'turnBehaviour.resumption.allowContinue': field(
     'ContinueStopKind[]',
-    'Stops after which the host offers the user a Continue (then sends continueFrom); isResumeableStop reads it. Host UI policy — the kernel does not refuse a continueFrom outside it. Omitted → all three; [] → none. Tool, cancelled, completed and filtered stops never are.',
+    "Which early stops the host offers the user a Continue for; the kernel doesn't refuse a continue after other stops.",
     CONTINUE_STOP_KINDS,
     {
-      length: 'Model hit maximum output token ceiling.',
-      stream_incomplete: 'Network connection or stream dropped prematurely.',
-      provider_error: 'Upstream provider returned an error code or timeout.',
+      length: 'The reply hit the output token limit.',
+      stream_incomplete: 'The connection dropped mid-reply.',
+      provider_error: 'The provider returned an error or timed out.',
     },
   ),
   'turnBehaviour.resumption.autoContinue': field(
     'ContinueStopKind[]',
-    'Stops the host continues once on its own, without asking. Omitted → length and stream_incomplete; [] → none.',
+    'Which early stops the host continues once without asking; each must also be in allowContinue.',
     CONTINUE_STOP_KINDS,
     {
-      length: 'Model hit maximum output token ceiling.',
-      stream_incomplete: 'Network connection or stream dropped prematurely.',
-      provider_error: 'Upstream provider returned an error code or timeout.',
+      length: 'The reply hit the output token limit.',
+      stream_incomplete: 'The connection dropped mid-reply.',
+      provider_error: 'The provider returned an error or timed out.',
     },
   ),
   'turnBehaviour.resumption.maxContinues': field(
     'number',
-    'How many times one reply may be continued. Omitted → no cap. Once set, each continue must carry its count (TurnRequest.continuation).',
+    'How many times one reply may be continued; once set, each continue must say which one it is.',
   ),
   'turnBehaviour.allowSteering': field(
     'boolean',
-    'Text and live. When true (default), host onStage inject affordances are applied. Image/speech must omit.',
+    'Whether your onStage hook may add messages to a running turn; text profiles also offer the user a way to steer.',
   ),
-  guardrails: field(
-    'ProfileGuardrailsSpec',
-    'Quota, canary, sanitize, redact, egress, network, taint, and (decision) disclosure switches.',
-  ),
+  guardrails: field('ProfileGuardrailsSpec', "Protections for this profile's turns."),
   'guardrails.quota': field(
     'QuotaGuardrailSpec',
-    'Host HTTP helper — not enforced inside runTurn.',
+    "A daily turn limit your server middleware enforces; runTurn itself doesn't count turns.",
   ),
-  'guardrails.quota.perDay': field('number', 'Daily turn cap used by host quota middleware.'),
+  'guardrails.quota.perDay': field(
+    'number',
+    'Turns each client IP may run on this profile per UTC day.',
+  ),
   'guardrails.canary': field(
     'boolean',
-    "Per-turn canary token bound to system prompt. Default true; set false to opt out. The bind note is lexicon 'canary.bind_note'.",
+    'Plants a secret token in the system instruction and stops the reply if the model repeats it.',
   ),
-  'guardrails.sanitizeInput': field('boolean', 'Strip inbound injection spans.'),
-  'guardrails.redactSensitive': field('boolean', 'Redact sensitive spans.'),
+  'guardrails.sanitizeInput': field(
+    'boolean',
+    'Replaces prompt-injection text in user input, history and tool results before the model sees it.',
+  ),
+  'guardrails.redactSensitive': field(
+    'boolean',
+    'Replaces credentials and personal data in user input, history and tool results before the model sees them.',
+  ),
   'guardrails.egress': field(
     'ProfileEgressSpec',
-    'Host check before user-visible text is released.',
+    'Your check on the reply before the user sees it.',
   ),
   'guardrails.egress.enforce': field(
     'EgressEnforcer',
@@ -870,119 +897,117 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'guardrails.egress.onBlock': field(
     unionType(EGRESS_ON_BLOCK),
-    'What happens when enforce blocks the reply. Unset → reject_to_agent.',
+    'What happens when enforce blocks the reply.',
     EGRESS_ON_BLOCK,
     {
       reject_to_agent:
-        "The model reads the block's rejection and writes the reply again, up to maxRetries times (or outputs.validation.maxRetries, if larger). With no retries left (the default is 0), the reply is withheld and the turn ends with a safety error.",
+        'The model reads why and rewrites the reply, up to maxRetries times; once retries run out, the reply is withheld and the turn ends with a safety error.',
       refuse_to_user:
-        "The user reads the lexicon's egress.refusal line in place of the reply, and the turn ends.",
+        'The user sees the egress.refusal wording in place of the reply, and the turn ends.',
     },
   ),
-  'guardrails.egress.maxRetries': field('number', 'Repair-turn ceiling after an egress block.'),
+  'guardrails.egress.maxRetries': field(
+    'number',
+    'How many times the model may rewrite a blocked reply; the larger of this and outputs.validation.maxRetries applies to both.',
+  ),
   'guardrails.egress.holdback': field(
     'number',
-    'Characters held back mid-stream so enforce sees split matches (default 256).',
+    'How many characters the stream holds back so enforce can catch text split across chunks.',
   ),
   'guardrails.network': field(
     'NetworkGuardrailSpec',
-    'SSRF guardrails for declarative HTTP and MCP tools.',
+    'Which addresses your HTTP and MCP tools may reach.',
   ),
   'guardrails.network.allowPrivateNetworks': field(
     'boolean',
-    'Allow loopback and private-network targets when resolving tool URLs.',
+    'Lets tools reach localhost and private network addresses, for local development.',
   ),
   'guardrails.network.allowedHosts': field(
     'string[]',
-    'Explicit hostname allowlist for declarative HTTP and MCP egress.',
+    "Hostnames tools may reach even when they resolve to a private address; public hosts don't need listing.",
   ),
+  'guardrails.network.allowedSchemes': field('string[]', 'The URL schemes tools may use.'),
   'guardrails.taint': field(
     'TaintGuardrailSpec',
-    'What the turn may still do after reading untrusted remote content.',
+    "What tools may still do after the turn reads a remote tool's result.",
   ),
   'guardrails.taint.afterRemoteRead': field(
     unionType(TAINT_GATES),
-    'Least-severe tool capability refused once the turn has read remote content. Default off.',
+    "Which tool calls are refused, by each tool's access, once the turn has read a remote tool's result.",
     TAINT_GATES,
     {
-      off: 'Report only.',
-      destructive: 'Refuse hard-to-undo calls.',
-      write: 'Refuse hard-to-undo calls and any state-changing call.',
+      off: 'None; risky calls are only logged.',
+      destructive: 'Destructive calls.',
+      write: 'Read-write and destructive calls.',
     },
   ),
   'guardrails.disclosure': field(
     '{ enforce: DecisionDisclosureEnforcer }',
-    'Pre-dispatch policy for structured state leaving a decision profile.',
+    'Your check on the state before a decision sends it to the model.',
   ),
   'guardrails.disclosure.enforce': field(
     '(state, context) => DecisionDisclosureVerdict | Promise<DecisionDisclosureVerdict>',
-    'Allows or blocks the state before it is sent to the decision model.',
+    'Your function that allows or blocks the state before it is sent.',
   ),
   lexicon: field(
     'LexiconOverrides',
-    "This profile's wording, by lexicon key: user-facing error lines (error.<kind>), notices, and model-facing notes. Wins over overrideLexicon and the defaults.",
+    "This profile's own wording for error lines, notices and notes to the model, by lexicon key.",
   ),
   'lexicon.*': field(
     'string',
-    'The wording for one lexicon key. Keys with placeholders must keep them (canary.bind_note keeps {canary}).',
+    'The wording for this lexicon key; canary.bind_note must keep its {canary} placeholder.',
   ),
   observability: field(
     'ProfileObservabilitySpec',
-    'Trace destination, scrub, include, and sampling policy for this profile.',
+    "Where this profile's traces go and what they keep.",
   ),
   'observability.writeTo': field(
     'false | string | TraceSink',
-    'false = off; string = registerTraceDestination id; TraceSink = inline writer. runTurn third arg overrides.',
+    'Where traces are written: a destination id you registered, your own writer, or false for none; a sink passed straight to runTurn replaces it.',
   ),
   'observability.sampleRate': field(
     'number',
-    'Fraction of traces to record (0–1), decided by trace id so a trace is kept or dropped whole. Default 1. Ignored when runTurn passes an explicit sink.',
+    'The share of traces kept, from 0 to 1, each kept or dropped whole.',
   ),
-  'observability.include': field(
-    'TraceIncludeSpec',
-    'Which TraceRecord payloads to keep (upstreamLog, outboundWire, evidenceRaw, usage, guardrailDecisions, guardrailMatchPreview).',
-  ),
+  'observability.include': field('TraceIncludeSpec', 'Which optional parts of a trace are kept.'),
   'observability.include.upstreamLog': field(
     'boolean',
-    'theorem.upstream.row events: each scrubbed provider row at its arrival time. Default true.',
+    'Keeps each row the provider sent back, scrubbed, as it arrived.',
   ),
   'observability.include.outboundWire': field(
     'boolean',
-    'theorem.wire.request events: the scrubbed request body of each HTTP try. Default false.',
+    'Keeps each request body sent to the provider, scrubbed.',
   ),
   'observability.include.evidenceRaw': field(
     'boolean',
-    'The provider raw payload on theorem.grounding events. Default false.',
+    "Keeps the provider's raw payload on grounding results such as search citations.",
   ),
-  'observability.include.usage': field('boolean', 'Token / usage fields. Default true.'),
-  'observability.include.guardrailDecisions': field(
-    'boolean',
-    'Persist { type: "guardrail" } decisions in the TraceRecord. Default true.',
-  ),
+  'observability.include.usage': field('boolean', 'Keeps token counts and other usage figures.'),
+  'observability.include.guardrailDecisions': field('boolean', 'Keeps each guardrail decision.'),
   'observability.include.guardrailMatchPreview': field(
     'boolean',
-    'Keep GuardrailHit.match (the exact matched text) on stream + TraceRecord. Default false — debugging only.',
+    "Keeps the exact text each guardrail matched, on the trace and the host's event stream; for debugging only.",
   ),
   'observability.resource': field(
     'Record<string, TraceAttributeValue>',
-    'Process attributes stamped on every TraceRecord (e.g. service.name). Default {}.',
+    'Attributes stamped on every trace, such as service.name.',
   ),
   'observability.scrub': field(
     'TraceScrubSpec',
-    'Scrubbing of stored records — independent of profile.guardrails. Defaults on.',
+    "What is removed from stored traces, separately from the turn's guardrails.",
   ),
   'observability.scrub.sensitive': field(
     'boolean',
-    'Strip credentials / PII spans in stored text. Default true.',
+    'Removes credentials and personal data from stored traces.',
   ),
   'observability.scrub.injection': field(
     'boolean',
-    'Strip injection spans in the stored request copy. Default true.',
+    'Removes prompt-injection text from stored traces.',
   ),
-  'observability.scrub.canary': field('boolean', 'Never persist the canary token. Default true.'),
+  'observability.scrub.canary': field('boolean', 'Removes the canary token from stored traces.'),
   'observability.retainForDays': field(
     'number',
-    'Days to keep each record, handed to every destination with the record; <=0 keeps records forever. Default 14.',
+    'How many days each trace is kept; 0 or less keeps them forever.',
   ),
   'observability.rotateAfterMiB': field(
     'number',
@@ -990,167 +1015,179 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'observability.onWriteError': field(
     '(err: unknown) => void',
-    'Host hook when record build or destination write fails. Must not throw.',
+    "Your function called when a trace can't be built or written; the turn carries on, and a destination's own error handler takes priority.",
   ),
 });
 
-const TOOL_TYPE_FIELD = field(
-  unionType(TOOL_TYPES),
-  'Discriminator: builtin (provider-native), function (host handler), http (declarative HTTP), or mcp (remote MCP).',
-  TOOL_TYPES,
-  {
-    builtin: 'Provider-native capability; wire maps to the provider adapter.',
-    function:
-      'Host-owned tool with Zod input/output and a handler. Profile tools.t2Loader may promote T2 tools when output includes { loaded }.',
-    http: 'Declarative HTTP tool calling remote REST/JSON endpoint with optional auth/PKCE.',
-    mcp: 'Remote Model Context Protocol tool calling remote MCP server with JSON-RPC.',
-  },
-);
+const TOOL_TYPE_FIELD = field(unionType(TOOL_TYPES), 'How the tool runs.', TOOL_TYPES, {
+  builtin: "The provider's own tool, such as Google Search, run by the provider.",
+  function: 'Your handler runs it.',
+  http: 'The kernel calls your HTTP endpoint.',
+  mcp: 'The kernel calls a tool on a remote MCP server.',
+});
+
+const CREDENTIAL_KINDS = {
+  bearer: 'A token; a secret typed in at the prompt becomes a bearer token.',
+  ['api_' + 'key']: 'An API key; a secret typed in at the prompt becomes an API key.',
+  oauth2: 'An OAuth sign-in; the host supplies the token.',
+};
 
 export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   /** Playground / UI path — avoids collision with profile `type` in fieldMeta(). */
   'registerTool.type': TOOL_TYPE_FIELD,
   name: field(
     'string',
-    'Wire tool id — custom: tools.allow; provider builtin: models.*.builtInTools. Visibility via loadTier (T0/T1/T2).',
+    "The tool's id, which profiles list in tools.allow (or a model's builtInTools) and the model calls a custom tool by.",
   ),
-  description: field('string', 'Model-facing description included in function declarations.'),
+  description: field('string', 'Tells the model what the tool does (custom tools only).'),
   input: field(
     'ZodSchema',
-    'Zod input schema for function tools; converted to JSON Schema at registration.',
+    "The Zod schema for the tool's arguments, sent to the model and checked on every call.",
   ),
-  output: field('ZodSchema', 'Zod output schema for function tools; validates handler results.'),
+  output: field('ZodSchema', 'The Zod schema every result must match.'),
   handler: field(
     'ToolHandler',
-    'Host function or async generator run on model tool calls and invokeTool resumes.',
+    'Your function that runs the tool; it can also yield progress as it goes.',
   ),
   endpoint: field(
     'string',
-    'HTTP URL template for declarative tools. Use {param} placeholders for path segments; the scheme and host are fixed text.',
+    'The URL the tool calls, with {name} placeholders for mapping.pathParams; the scheme and host must be written out.',
   ),
-  method: field(unionType(HTTP_METHODS), 'HTTP verb for declarative tools.', HTTP_METHODS),
+  method: field(
+    unionType(HTTP_METHODS),
+    'The HTTP method; every method but GET sends a JSON body.',
+    HTTP_METHODS,
+  ),
   headers: field(
     'Record<string, string>',
-    'Optional static headers merged on every HTTP or MCP request.',
+    "Headers sent with every request to the tool's own host, never to a host it redirects to.",
   ),
   mapping: field(
     '{ pathParams?, queryParams?, bodyParam? }',
-    'Maps tool input fields to URL path segments, query string, or JSON body.',
+    'Where each argument goes in the request.',
   ),
   'mapping.pathParams': field(
     'string[]',
-    'Input keys substituted into {name} path segments on the endpoint template.',
+    'Arguments that fill the {name} placeholders in the endpoint.',
   ),
-  'mapping.queryParams': field('string[]', 'Input keys appended as query-string parameters.'),
+  'mapping.queryParams': field('string[]', 'Arguments added to the query string.'),
   'mapping.bodyParam': field(
     'string',
-    'Single input key sent as the JSON request body (POST/PUT/PATCH).',
+    'The one argument sent as the whole JSON body; without it, a method other than GET sends every argument the path and query leave unused.',
   ),
-  serverUrl: field('string', 'Streamable HTTP MCP server endpoint (JSON-RPC tools/call).'),
-  mcpToolName: field('string', 'Remote tool name on the MCP server (tools/list → tools/call).'),
-  auth: field(
-    'HttpToolAuthConfig',
-    'Optional credential slot and header wiring for HTTP and MCP tools.',
-  ),
+  serverUrl: field('string', "The MCP server's URL."),
+  mcpToolName: field('string', "The tool's name on the MCP server."),
+  auth: {
+    ...field('HttpToolAuthConfig', 'How the tool gets its credential.'),
+    unset: 'No credential',
+  },
   'auth.type': field(
     unionType(TOOL_AUTH_TYPES),
-    'How credentials from the slot are attached to outbound requests.',
+    'The kind of credential the tool expects, shown when a turn stops to ask for one.',
     TOOL_AUTH_TYPES,
-    {
-      bearer: 'Authorization header with optional prefix (default Bearer).',
-      ['api_' + 'key']: 'Named header carries the resolved credential value.',
-      oauth2: 'OAuth2 access token with optional refresh via the credential slot.',
-    },
+    CREDENTIAL_KINDS,
   ),
-  'auth.slot': field(
+  'auth.slot': field('string', 'Which of the credentials the turn passes in this tool uses.'),
+  'auth.headerName': {
+    ...field('string', 'The header the credential goes in.'),
+    unset: 'Authorization',
+  },
+  'auth.headerPrefix': {
+    ...field('string', 'Text put before the credential in the header.'),
+    unset: '"Bearer " for tokens, nothing for API keys',
+  },
+  'auth.onUnauthenticated': {
+    ...field(
+      unionType(AUTH_UNAUTHENTICATED_POLICIES),
+      "What happens when the credential is missing, expired or can't be refreshed.",
+      AUTH_UNAUTHENTICATED_POLICIES,
+      {
+        gate: 'The turn stops and asks the host for a credential.',
+        report_to_model: "The model is told the tool isn't signed in, and the turn goes on.",
+      },
+    ),
+    unset: 'gate',
+  },
+  'auth.scopes': field(
+    'string[]',
+    'The OAuth scopes the tool needs, shown when a turn stops to ask for a credential.',
+  ),
+  'auth.clientId': field(
     'string',
-    'Credential slot id resolved from ToolContext.credentials at execution time.',
+    "Your OAuth client id, kept for the host's sign-in flow; the kernel doesn't read it.",
   ),
-  'auth.headerName': field(
+  'auth.redirectUri': field(
     'string',
-    "Request header for bearer/api_key auth (default 'Authorization').",
+    "Your OAuth redirect URI, kept for the host's sign-in flow; the kernel doesn't read it.",
   ),
-  'auth.headerPrefix': field(
-    'string',
-    "Prefix before the secret (default 'Bearer ' for bearer auth).",
-  ),
-  'auth.onUnauthenticated': field(
-    unionType(AUTH_UNAUTHENTICATED_POLICIES),
-    'Whether a missing/expired credential gates the turn or reports to the model.',
-    AUTH_UNAUTHENTICATED_POLICIES,
-    {
-      gate: 'Stop the turn at an auth gate and wait for the host to supply a credential.',
-      report_to_model: 'Return a model-visible finding without gating the turn.',
-    },
-  ),
-  'auth.scopes': field('string[]', 'OAuth2 scopes requested during authorization.'),
-  'auth.clientId': field('string', 'OAuth2 client id for the authorization code flow.'),
-  'auth.redirectUri': field('string', 'OAuth2 redirect URI registered for this client.'),
   'playground.authType': field(
     unionType(PLAYGROUND_AUTH_TYPES),
-    'Playground auth select — `none` omits auth when compiling registerTool.',
+    'The kind of credential the tool expects, or none.',
     PLAYGROUND_AUTH_TYPES,
-    {
-      none: 'No credential slot — tool runs without Authorization headers.',
-      bearer: 'Authorization header with optional prefix (default Bearer).',
-      ['api_' + 'key']: 'Named header carries the resolved credential value.',
-      oauth2: 'OAuth2 access token with optional refresh via the credential slot.',
-    },
+    { none: 'The tool sends no credential.', ...CREDENTIAL_KINDS },
   ),
   'playground.testCredential': field(
     'string',
-    'Playground-only: one-shot credential for the pre-run connectivity check (not compiled into registerTool).',
+    'A credential for one connection test, never saved.',
   ),
-  'playground.stubOutput': field(
-    'Record<string, unknown>',
-    'Playground-only: fixed JSON object returned by function tool stubs when no demo handler exists.',
-  ),
+  'playground.stubOutput': {
+    ...field('Record<string, unknown>', 'The result a function tool returns in the playground.'),
+    unset: 'A stand-in built from the output schema',
+  },
   'playground.sampleInput': field(
     'Record<string, unknown>',
-    "Playground-only: tool input for the connection test, filling the endpoint's path, query and body. Not saved.",
+    'Arguments for the connection test, never saved.',
   ),
   'playground.inputSchema': field(
     'Record<string, unknown>',
-    'Playground-only: the tool input as a JSON Schema object, sent to the model as its parameters.',
+    "The tool's arguments as a JSON Schema, sent to the model.",
   ),
   'playground.outputSchema': field(
     'Record<string, unknown>',
-    'Playground-only: the tool result as a JSON Schema object. A function tool with no stub output returns a stand-in built from it.',
+    "The tool's result as a JSON Schema, which a function tool's stand-in result is built from.",
   ),
   'registerStructured.jsonSchema': field(
     'Record<string, unknown>',
-    'JSON Schema body registered under outputs.structured id; sent to the model as its response format.',
+    'The JSON Schema a structured reply must follow, sent to the model as its response format.',
   ),
-  access: field(unionType(TOOL_ACCESS), 'Semantic access level for policy and UI.', TOOL_ACCESS, {
-    'read-only': 'Reads host or remote state; no lasting mutation.',
-    'read-write': 'May create or update host state.',
-    destructive: 'May delete, charge, or otherwise hard-to-undo actions.',
-  }),
+  access: field(
+    unionType(TOOL_ACCESS),
+    "What the tool can change, which taint.afterRemoteRead refuses calls by after a turn reads a remote tool's result.",
+    TOOL_ACCESS,
+    {
+      'read-only': 'Only reads.',
+      'read-write': 'Creates or updates things.',
+      destructive: 'Deletes, charges, or does something else hard to undo.',
+    },
+  ),
   loadTier: field(
     unionType(TOOL_LOAD_TIERS),
-    'When this tool is wired to the model (profile allow / builtInTools is still required). Live sessions wire every allowed tool at setup; host profiles execute every allowed tool.',
+    'When the tool becomes available to the model; live and host profiles load every allowed tool at the start.',
     TOOL_LOAD_TIERS,
     {
-      T0: 'Wired at turn/session start when allowed (custom on allow / builtin on the model).',
-      T1: 'Wired when profile.tools.t1Policy selects it (text/image turns; live wires it at setup).',
-      T2: 'Deferred until profile.tools.t2Loader returns { loaded } and the kernel promotes those ids (text/image turns; live wires it at setup).',
+      T0: 'At the start of every turn.',
+      T1: 'When tools.t1Policy picks it at the start of a turn.',
+      T2: 'When the tools.t2Loader tool loads it mid-turn (custom tools only).',
     },
   ),
   permission: field(
     unionType(TOOL_PERMISSION),
-    'Default permission tier for this tool before the handler runs.',
+    "Whether the host must approve a call before it runs; the provider's own tools never ask.",
     TOOL_PERMISSION,
     {
-      auto: 'Run without an extra host consent step.',
-      session_consent: 'Ask once per session, then remember grant.',
-      always_confirm: 'Confirm on every invocation.',
+      auto: 'Runs without asking.',
+      session_consent: 'Asks once; the approval lasts as long as the host keeps passing it back.',
+      always_confirm: 'Asks every time.',
     },
   ),
-  category: field('string', 'Grouping label for settings and discovery.'),
-  paths: field(
-    'string[]',
-    "Channel/path availability. Use ['*'] for all paths; omit turn path only matches '*'.",
-  ),
+  category: field('string', 'A label for grouping tools; nothing reads it yet.'),
+  paths: {
+    ...field(
+      'string[]',
+      'The turn paths this tool is offered on, where * means every path; a turn with no path gets only * tools.',
+    ),
+    unset: 'Every path',
+  },
 };
 
 /** `lexicon.<key>` resolves to `lexicon.*` with that key's own note. */

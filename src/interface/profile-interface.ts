@@ -8,7 +8,8 @@ import {
   CONTINUE_STOP_KINDS,
   KEY_SLOTS,
   LIVE_ACTIVITY_HANDLINGS,
-  LIVE_SPEECH_SENSITIVITIES,
+  LIVE_END_SENSITIVITIES,
+  LIVE_START_SENSITIVITIES,
   OVERFLOW_KEY_SLOTS,
   PROTOCOLS,
   PROVIDERS,
@@ -186,8 +187,8 @@ const profileInterface = z.discriminatedUnion('type', [
       vad: z
         .object({
           activityHandling: z.enum(LIVE_ACTIVITY_HANDLINGS).optional(),
-          startSensitivity: z.enum(LIVE_SPEECH_SENSITIVITIES).optional(),
-          endSensitivity: z.enum(LIVE_SPEECH_SENSITIVITIES).optional(),
+          startSensitivity: z.enum(LIVE_START_SENSITIVITIES).optional(),
+          endSensitivity: z.enum(LIVE_END_SENSITIVITIES).optional(),
           prefixPaddingMs: z.number().optional(),
           silenceDurationMs: z.number().optional(),
         })

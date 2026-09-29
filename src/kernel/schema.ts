@@ -866,7 +866,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'guardrails.egress.enforce': field(
     'EgressEnforcer',
-    'Your check on the reply before the user sees it: (payload, context) => Verdict, where payload is { text, structured? }. Runs while the reply streams and once when it ends. Return allow, flag (recorded only), redact (the finished reply is replaced with your text) or block (onBlock decides). A block or redact mid-stream stops further text reaching the user until the final check. A check that throws counts as a block. standardEgressEnforce is the bundled check: canary leaks, sensitive data, system-prompt markers and injection echoes.',
+    'Your check on the reply, run as it streams and when it ends. Return allow, flag (log only), redact (swap in your text) or block (see onBlock); a block or redact holds the rest of the stream, and a throw counts as a block. Bundled: standardEgressEnforce.',
   ),
   'guardrails.egress.onBlock': field(
     unionType(EGRESS_ON_BLOCK),

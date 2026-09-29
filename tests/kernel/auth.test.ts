@@ -72,6 +72,7 @@ function statePayload(overrides: Partial<Parameters<typeof sealStatePayload>[0]>
     expiresAt: Date.now() + 60000,
     clientId: 'test-client-123',
     sessionBinding: 'digest-of-the-session-binding',
+    scopes: ['read'],
     ...overrides,
   };
 }

@@ -64,6 +64,8 @@ export interface SealedStatePayload {
   clientId: string;
   /** SHA-256 of the host's session binding. */
   sessionBinding: string;
+  /** The scopes the flow asked for; a grant may hold none beyond them. Empty asks for the server's default. */
+  scopes: string[];
 }
 
 /** A secret shorter than 256 bits would be the weak link. */
@@ -186,6 +188,9 @@ export async function unsealStatePayload(
   }
 
   const payload = JSON.parse(plaintext) as SealedStatePayload;
+  if (!Array.isArray(payload.scopes)) {
+    throw new Error('Invalid sealed state format'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
   if (Date.now() > payload.expiresAt) {
     throw new Error('OAuth state has expired'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }

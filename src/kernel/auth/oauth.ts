@@ -284,6 +284,7 @@ export async function createOAuthPkceFlow(options: CreatePkceFlowOptions): Promi
       expiresAt: Date.now() + ttl,
       clientId: options.clientId,
       sessionBinding,
+      scopes: options.scopes ? [...options.scopes] : [],
     },
     options.signingSecret,
   );
@@ -397,11 +398,39 @@ function parseTokenResponse(data: unknown, tokenEndpoint: string): OAuthTokens {
 /** Who a token is for and where it came from; fixed by the flow, never by the token response. */
 type TokenGrant = Pick<OAuth2Credential, 'issuer' | 'resource' | 'tokenEndpoint' | 'clientId'>;
 
-/** A refresh passes `previous`, whose refresh token and scope stay when the server sends no new ones. */
+/** RFC 6749 §3.3: a scope is a list of space-delimited tokens. */
+function scopeTokens(scope: string | undefined): string[] {
+  return scope === undefined ? [] : scope.split(' ').filter((token) => token.length > 0);
+}
+
+/**
+ * The scopes asked for are the most a grant may hold: a token carrying any other is refused
+ * before it is stored. An empty request asked for the server's default, so it sets no ceiling;
+ * a response without `scope` granted exactly what was asked (RFC 6749 §5.1).
+ */
+function assertGrantWithin(
+  granted: string | undefined,
+  requested: readonly string[],
+  tokenEndpoint: string,
+): void {
+  if (requested.length === 0) return;
+  const beyond = scopeTokens(granted).filter((scope) => !requested.includes(scope));
+  if (beyond.length > 0) {
+    throw new Error(
+      `Token response from ${tokenEndpoint} grants scopes that were not asked for: ${beyond.join(', ')}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+}
+
+/**
+ * `requested` is the ceiling the grant is held to. A refresh passes `previous`, whose refresh
+ * token and scope stay when the server sends no new ones.
+ */
 async function requestToken(
   transport: OAuthTransportOptions,
   grant: TokenGrant,
   params: Record<string, string>,
+  requested: readonly string[],
   previous?: { refreshToken: string; scope?: string },
 ): Promise<ExchangePkceCodeResult> {
   const body = new URLSearchParams({
@@ -425,13 +454,15 @@ async function requestToken(
     );
   }
   const tokens = parseTokenResponse(await response.json(), grant.tokenEndpoint);
+  assertGrantWithin(tokens.scope, requested, grant.tokenEndpoint);
   const credential: OAuth2Credential = {
     type: 'oauth2',
     ...grant,
     accessToken: tokens.access_token,
     refreshToken: tokens.refresh_token ?? previous?.refreshToken,
     expiresAt: tokens.expires_in === undefined ? undefined : Date.now() + tokens.expires_in * 1000,
-    scope: tokens.scope ?? previous?.scope,
+    scope:
+      tokens.scope ?? previous?.scope ?? (requested.length > 0 ? requested.join(' ') : undefined),
   };
   return { tokens, credential };
 }
@@ -471,6 +502,7 @@ export async function exchangeOAuthPkce(
       redirect_uri: state.redirectUri,
       code_verifier: state.codeVerifier,
     },
+    state.scopes,
   );
 }
 
@@ -492,6 +524,7 @@ export function refreshOAuthToken(
       refresh_token: options.refreshToken,
       ...(options.scope ? { scope: options.scope } : {}),
     },
+    scopeTokens(options.scope),
     { refreshToken: options.refreshToken, scope: options.scope },
   );
 }

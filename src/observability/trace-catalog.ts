@@ -1305,6 +1305,12 @@ const TRACE_EVENTS: Readonly<Record<string, TraceEventMeta>> = {
         'boolean',
         'The compactor replied with nothing.',
       ),
+      failure_unreadable: attr(
+        'agent',
+        'Nothing to read',
+        'boolean',
+        'Everything to compact was media the compactor does not take, so it did not run.',
+      ),
       summary: attr('messages', 'Summary', 'content', 'The summary that replaced them.'),
     },
   },

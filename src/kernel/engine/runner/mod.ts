@@ -112,6 +112,7 @@ async function runCompactor(args: {
 }): Promise<CompactorRun> {
   const compactor = args.registry.profiles.get(args.spec.profile);
   const { history, droppedMedia } = compactorHistory(args.toCompact, compactor);
+  if (history.length === 0) return { droppedMedia, failure: { unreadable: true } };
   const req: TurnRequest = {
     profile: args.spec.profile,
     input: { text: lexiconText('compaction.request', {}, compactor.lexicon), history },
@@ -202,6 +203,7 @@ function compactionOutcome(
     ...(result.failure?.stop ? { failure_stop: result.failure.stop } : {}),
     ...(result.failure?.error ? { failure_error: result.failure.error } : {}),
     ...(result.failure?.empty ? { failure_empty: true } : {}),
+    ...(result.failure?.unreadable ? { failure_unreadable: true } : {}),
     ...(result.summary === undefined ? {} : { summary: traceContent(result.summary) }),
   };
 }

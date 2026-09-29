@@ -1550,6 +1550,23 @@ Deno.test('a compactor that says nothing is a failure, not an empty summary', as
   assertEquals(compaction.history, history);
 });
 
+Deno.test('a compactor left nothing it can read does not run', async () => {
+  const history: TurnHistoryMessage[] = [{ role: 'user', parts: [hdImage()] }, ...RECENT];
+  const { compaction, seen } = await compactBefore(
+    'compaction.fail.unreadable',
+    compactorSays(
+      { type: 'text', text: 'Nothing here' },
+      { type: 'done', stop: { kind: 'completed' } },
+    ),
+    { text: 'q', historyTokens: 600, history },
+  );
+  assertEquals(compaction.outcome, 'deferred');
+  assertEquals(compaction.failure, { unreadable: true });
+  assertEquals(compaction.droppedMedia, 1);
+  assertEquals(compaction.history, history);
+  assertEquals(seen.length, 1);
+});
+
 Deno.test('a compactor that throws is a failure with its error kind', async () => {
   const history = [...OLD, ...RECENT];
   const { compaction, events } = await compactBefore(

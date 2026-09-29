@@ -711,11 +711,14 @@ export interface CompactionFailure {
   error?: ErrorKind;
   /** It completed without a summary. */
   empty?: true;
+  /** Nothing in `toCompact` was left for it to read, so it did not run. */
+  unreadable?: true;
 }
 const compactionFailure = z.object({
   stop: z.enum(TURN_STOP_KINDS).optional(),
   error: errorKindSchema.optional(),
   empty: z.literal(true).optional(),
+  unreadable: z.literal(true).optional(),
 });
 true satisfies Equals<z.infer<typeof compactionFailure>, CompactionFailure>;
 

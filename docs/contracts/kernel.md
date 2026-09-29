@@ -841,7 +841,9 @@ else the text. It replaces `toCompact` as an assistant message with
 ### Outcomes
 
 Anything else is a failure: a stop other than `completed`, an `error` event, a
-thrown error, or an empty reply. A failure never leaves a partial summary.
+thrown error, or an empty reply. When everything in `toCompact` is media the
+compactor does not take, it does not run and that is a failure too. A failure
+never leaves a partial summary.
 
 | `outcome` | History after |
 | --- | --- |
@@ -849,10 +851,11 @@ thrown error, or an empty reply. A failure never leaves a partial summary.
 | `deferred` | Unchanged: the compactor failed and the metered count is within `maxTokens`, so the next turn tries again |
 | `dropped` | Earlier summaries in `toCompact`, then `toRetain`: the compactor failed over `maxTokens` |
 
-`failure` carries the compactor's `stop`, `error` kind, or `empty: true`. The
+`failure` carries the compactor's `stop`, `error` kind, `empty: true`, or
+`unreadable: true`. The
 host's abort is not a failure: the turn ends `cancelled`, with no `compaction`
 event. The `theorem.compaction` trace event records `outcome`, the message
-counts, `dropped_media`, `failure_stop` / `failure_error` / `failure_empty`
+counts, `dropped_media`, `failure_stop` / `failure_error` / `failure_empty` / `failure_unreadable`
 and the `summary`; `gen_ai.conversation.compacted` is set only on
 `compacted`.
 

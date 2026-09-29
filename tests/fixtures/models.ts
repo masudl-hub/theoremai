@@ -87,7 +87,6 @@ const gemini31FlashLive: ModelBinding = {
   protocol: 'geminiLive',
   provider: 'google',
   apiId: 'gemini-3.1-flash-live-preview',
-  efforts: { normal: 'none' },
   summaries: false,
   maxOutputTokens: 256,
   temperature: 0,

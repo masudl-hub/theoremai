@@ -18,7 +18,6 @@ const liveBase = {
       protocol: 'geminiLive' as const,
       provider: 'google' as const,
       apiId: 'gemini-3.1-flash-live-preview',
-      efforts: { normal: 'none' as const },
       summaries: false,
       builtInTools: [],
     },

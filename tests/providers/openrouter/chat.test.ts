@@ -998,11 +998,7 @@ Deno.test('createOpenRouterProvider wires reasoning effort to provider options',
   req.thinking = 'high';
   await Array.fromAsync(provider.complete(req));
 
-  const providerOptions = capturedBody?.providerOptions as Record<string, unknown> | undefined;
-  if (providerOptions) {
-    const or = providerOptions.openrouter as Record<string, unknown>;
-    assertEquals((or?.reasoning as Record<string, unknown>)?.effort, 'high');
-  }
+  assertEquals(capturedBody?.reasoning, { effort: 'high' });
 });
 
 Deno.test('createOpenRouterProvider does not emit done after error', async () => {
@@ -1124,7 +1120,7 @@ Deno.test('createOpenRouterProvider wires only siteName header without siteUrl',
   assertEquals(capturedHeaders?.get('X-Title'), 'OnlyName');
 });
 
-Deno.test('createOpenRouterProvider does not include providerOptions when thinking is none and no structured', async () => {
+Deno.test('createOpenRouterProvider sends effort none, which turns reasoning off', async () => {
   let capturedBody: Record<string, unknown> | undefined;
   const provider = createOpenRouterProvider({
     apiKey: 'test-key',
@@ -1143,7 +1139,7 @@ Deno.test('createOpenRouterProvider does not include providerOptions when thinki
   req.thinking = 'none';
   req.structured = null;
   await Array.fromAsync(provider.complete(req));
-  assertEquals(capturedBody?.providerOptions, undefined);
+  assertEquals(capturedBody?.reasoning, { effort: 'none' });
 });
 
 Deno.test('createOpenRouterProvider emits text from content delta and accumulates for structured', async () => {
@@ -1842,9 +1838,16 @@ Deno.test('rawEvents emits the response identity once, when a row first names it
 
 Deno.test('providerOptionsFor returns undefined for no thinking no structured', () => {
   const req = createMockTurnRequest('pinned', 'test');
-  req.thinking = 'none';
+  req.thinking = undefined;
   req.structured = null;
   assertEquals(providerOptionsFor(req), undefined);
+});
+
+Deno.test('providerOptionsFor sends effort none', () => {
+  const req = createMockTurnRequest('pinned', 'test');
+  req.thinking = 'none';
+  req.structured = null;
+  assertEquals(field(providerOptionsFor(req), 'openrouter', 'reasoning'), { effort: 'none' });
 });
 
 Deno.test('providerOptionsFor includes reasoning effort', () => {

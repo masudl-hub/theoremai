@@ -127,7 +127,7 @@ export function buildInterleavedChatPayload(req: ProviderCompleteRequest): Recor
     messages: buildChatMessages(req),
     temperature: req.temperature,
     max_tokens: req.maxOutputTokens,
-    ...(req.thinking && req.thinking !== 'none' ? { reasoning: { effort: req.thinking } } : {}),
+    ...(req.thinking ? { reasoning: { effort: req.thinking } } : {}),
     tools: [
       {
         type: OPENROUTER_IMAGE_TOOL,

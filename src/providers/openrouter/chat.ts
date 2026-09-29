@@ -600,7 +600,7 @@ function streamPartError(error: unknown): unknown {
 
 export function providerOptionsFor(req: ProviderCompleteRequest): ProviderOptions | undefined {
   const openrouter: Record<string, JsonValue> = {};
-  if (req.thinking && req.thinking !== 'none') {
+  if (req.thinking) {
     openrouter.reasoning = { effort: req.thinking };
   }
   const responseFormat = resolveResponseFormat(req.structured) as

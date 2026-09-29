@@ -87,6 +87,10 @@ export function speechFormatsForProtocol(protocol: Protocol): readonly SpeechAud
   return protocol === 'openAi' ? SPEECH_AUDIO_FORMATS : ['pcm'];
 }
 
+export function thinkingLevelsForProtocol(protocol: Protocol): readonly ThinkingLevel[] {
+  return protocol === 'openAi' ? THINKING_LEVELS : ['minimal', 'low', 'medium', 'high'];
+}
+
 export function isSpeechFormatAllowedForProtocol(
   protocol: Protocol,
   format: SpeechAudioFormat,
@@ -518,13 +522,13 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'The thinking level sent to the provider for this name.',
     THINKING_LEVELS,
     {
-      none: "No thinking on Gemini Interactions; Gemini Live and OpenRouter leave the setting out, so the model's default applies.",
+      none: 'No thinking; OpenRouter only.',
       minimal: 'The least thinking.',
       low: 'Light thinking.',
       medium: 'Moderate thinking.',
       high: 'Heavy thinking.',
-      xhigh: 'Heavier thinking, where the model supports it.',
-      max: 'The most thinking the model supports.',
+      xhigh: 'Heavier thinking; OpenRouter only.',
+      max: 'The most thinking the model supports; OpenRouter only.',
     },
   ),
   'models.*.defaultEffort': field('string', "The effort a turn gets when it doesn't pick one."),

@@ -87,6 +87,23 @@ Deno.test('a model with several efforts and no default is an issue on its defaul
   );
 });
 
+Deno.test('a thinking level the protocol does not take is an issue on that effort', () => {
+  const draft = createExampleDraft();
+  const [fast, ...rest] = draft.modelBindings;
+  const result = compilePlayground({
+    ...draft,
+    modelBindings: [
+      { ...fast, efforts: [fast.efforts[0], { ...fast.efforts[1], level: 'none' }] },
+      ...rest,
+    ],
+  });
+  assert(!result.ok);
+  assertEquals(
+    result.issues.map(({ nodeId, field, index }) => ({ nodeId, field, index })),
+    [{ nodeId: modelBindingNodeId(fast.key), field: 'efforts', index: 1 }],
+  );
+});
+
 Deno.test('an issue names the draft field at fault, and the list entry when there is one', () => {
   const draft = createExampleDraft();
   const [fast, ...rest] = draft.modelBindings;

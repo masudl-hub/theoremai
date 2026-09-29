@@ -13,7 +13,6 @@ const profile: Profile = {
       protocol: 'geminiLive',
       provider: 'google',
       apiId: 'gemini-2.0-flash-exp',
-      efforts: { normal: 'none' },
       summaries: false,
       maxOutputTokens: 256,
       temperature: 0,

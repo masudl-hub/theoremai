@@ -50,7 +50,6 @@ Deno.test('runSession rejects non-live profiles', async () => {
         protocol: 'geminiInteractions',
         provider: 'google',
         apiId: 'gemini-test',
-        efforts: { normal: 'none' },
         summaries: false,
         builtInTools: [],
         key: 'slotA',

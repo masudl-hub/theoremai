@@ -31,6 +31,7 @@ import {
   isValidProfileProtocol,
   protocolsForProfileType,
   speechFormatsForProtocol,
+  thinkingLevelsForProtocol,
 } from '../src/kernel/schema.ts';
 import type {
   LiveContextCompressionSpec,
@@ -152,6 +153,9 @@ function compileBinding(
     else if (name in efforts) {
       report(nodeId, `Effort alias '${name}' is used twice.`, 'efforts', index);
     } else efforts[name] = level;
+    if (!thinkingLevelsForProtocol(binding.protocol).includes(level)) {
+      report(nodeId, `${binding.protocol} doesn't take the ${level} thinking level.`, 'efforts', index);
+    }
   });
   const effortCount = Object.keys(efforts).length;
   if (binding.allowEffortSelect && effortCount < 2) {

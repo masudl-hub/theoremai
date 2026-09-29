@@ -63,6 +63,48 @@ Deno.test('defineProfile preserves explicit typed fields without defaults', () =
   assertEquals(profile.observability?.sampleRate, 0.5);
 });
 
+Deno.test('defineProfile rejects a thinking level Gemini does not take', () => {
+  for (const level of ['none', 'xhigh', 'max'] as const) {
+    assertThrows(
+      () =>
+        defineProfile({
+          id: 'gemini_effort',
+          type: 'text',
+          identity: { handle: 'gemini_effort' },
+          models: {
+            gemini35FlashLite: {
+              ...HOST_BINDINGS.gemini35FlashLite,
+              efforts: { normal: 'low', odd: level },
+            },
+          },
+          key: 'slotA',
+          tools: { allow: [] },
+          inputs: { text: true },
+        }),
+      TheoremError,
+      `effort 'odd': '${level}' is not a thinking level geminiInteractions accepts`,
+    );
+  }
+});
+
+Deno.test('defineProfile takes every thinking level on OpenRouter', () => {
+  const profile = defineProfile({
+    id: 'openrouter_effort',
+    type: 'text',
+    identity: { handle: 'openrouter_effort' },
+    models: {
+      sonar: {
+        ...HOST_BINDINGS.sonar,
+        efforts: { off: 'none', most: 'max' },
+        defaultEffort: 'off',
+      },
+    },
+    tools: { allow: [] },
+    inputs: { text: true },
+  });
+  assertEquals(profile.models.sonar.efforts, { off: 'none', most: 'max' });
+});
+
 Deno.test('defineProfile rejects observability.sampleRate outside 0–1', () => {
   assertThrows(
     () =>

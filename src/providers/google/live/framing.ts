@@ -84,7 +84,7 @@ function buildLiveGenerationConfig(req: ProviderCompleteRequest): Record<string,
       },
     };
   }
-  if (req.thinking && req.thinking !== 'none') {
+  if (req.thinking) {
     generationConfig.thinkingConfig = {
       thinkingLevel: req.thinking,
     };

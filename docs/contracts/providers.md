@@ -155,8 +155,8 @@ field as Google Interactions and local OpenAI-compat paths.
 (`streamText`), or on a buffered profile reads one reply (`generateText`, raw
 body kept for usage, cost and citations) into the same events;
 terminal `done.stop` via `turnStopFromOpenAiFinishReason`. Request options ride
-AI SDK `providerOptions.openrouter`: `reasoning.effort` only when `thinking` is
-present and not `'none'`, `response_format` for structured output, and optional
+AI SDK `providerOptions.openrouter`: `reasoning.effort` whenever `thinking` is
+set (`'none'` turns reasoning off), `response_format` for structured output, and optional
 `sessionId` as `session_id`. Structured output also sends
 `provider.require_parameters: true`: OpenRouter routes only to an endpoint that
 supports every parameter sent, and answers 404 when none does. A profile must

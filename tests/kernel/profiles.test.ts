@@ -269,6 +269,33 @@ Deno.test('registerProfile validates media limits if attachments are enabled', (
   );
 });
 
+Deno.test('registerProfile takes only positive whole media limits', () => {
+  const cases = [
+    [{ maxFiles: 0, maxBytes: 1024, maxTurnBytes: 4096 }, 'inputs.maxFiles'],
+    [{ maxFiles: 2, maxBytes: 1.5, maxTurnBytes: 4096 }, 'inputs.maxBytes'],
+    [{ maxFiles: 2, maxBytes: 1024, maxTurnBytes: -1 }, 'inputs.maxTurnBytes'],
+    [
+      { maxFiles: 2, maxBytes: 1024, maxTurnBytes: 4096, limitsByMime: { 'image/*': 0 } },
+      "inputs.limitsByMime['image/*']",
+    ],
+  ] as const;
+  for (const [limits, name] of cases) {
+    const profile = defineProfile({
+      id: 'media_limit_bot',
+      type: 'text',
+      identity: { handle: 'media_limit_bot' },
+      ...geminiModels('gemini35FlashLite'),
+      tools: { allow: [] },
+      inputs: { text: true, attachments: { accept: ['image/png'] }, ...limits },
+    });
+    assertThrows(
+      () => registerProfile(profile),
+      TheoremError,
+      `${name} must be a positive integer`,
+    );
+  }
+});
+
 Deno.test('defineProfile rejects inputs, outputs, and t2Loader on live profiles', () => {
   const liveBase = {
     id: 'live_shape_bot',
@@ -370,6 +397,7 @@ Deno.test("registerProfile accepts T1/T2 tools on type 'live' and wires all of t
       id: 'live_tier_bot',
       type: 'live',
       identity: { handle: 'live_tier_bot' },
+      key: 'slotA',
       models: modelBindings('gemini31FlashLive'),
       live: { voice: 'Aoede' },
       tools: { allow: ['live_t0_probe', 'live_t1_probe', 'live_t2_probe'] },
@@ -410,6 +438,7 @@ Deno.test('live snapshot turns on every gated builtin regardless of loadTier', (
       id: 'live_builtin_bot',
       type: 'live',
       identity: { handle: 'live_builtin_bot' },
+      key: 'slotA',
       models: {
         gemini31FlashLive: {
           ...HOST_BINDINGS.gemini31FlashLive,

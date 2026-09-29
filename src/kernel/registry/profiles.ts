@@ -32,6 +32,7 @@ import type {
   HostProfileToolsSpec,
   ImageInputsSpec,
   ImageProfile,
+  KeySlot,
   LiveContextCompressionSpec,
   LiveProfile,
   LiveProfileToolsSpec,
@@ -268,6 +269,20 @@ function assertModelBinding(profileId: string, modelId: ModelId, binding: ModelB
   }
   assertInteractionsPersistence(profileId, modelId, binding);
   assertLocalServer(profileId, modelId, binding);
+}
+
+function assertKeySlot(
+  profileId: string,
+  modelId: ModelId,
+  binding: ModelBinding,
+  profileKey: KeySlot | undefined,
+): void {
+  if (binding.provider === 'google' && !binding.key && !profileKey) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profileId} model '${modelId}': a google model needs models.*.key or the profile key`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
 }
 
 function assertLocalServer(profileId: string, modelId: ModelId, binding: ModelBinding): void {
@@ -528,6 +543,7 @@ function defineProfile(input: ProfileDefinition): Profile {
   assertObservability(input.id, input.observability);
   for (const [modelId, binding] of Object.entries(input.models)) {
     assertModelBinding(input.id, modelId, binding);
+    assertKeySlot(input.id, modelId, binding, input.key);
   }
 
   const identity: ProfileIdentity =
@@ -825,12 +841,22 @@ function assertMediaLimits(profile: ModelProfile): void {
   if (!inputs) {
     return;
   }
-  const { attachments, voice, maxFiles, maxBytes, maxTurnBytes } = inputs;
-  if (attachments || voice) {
-    if (!(maxFiles && maxBytes && maxTurnBytes)) {
+  const { attachments, voice, maxFiles, maxBytes, maxTurnBytes, limitsByMime } = inputs;
+  const limits: Record<string, number | undefined> = { maxFiles, maxBytes, maxTurnBytes };
+  if ((attachments || voice) && Object.values(limits).some((value) => value === undefined)) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profile.id} must set maxFiles, maxBytes, and maxTurnBytes`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  for (const [mime, value] of Object.entries(limitsByMime ?? {})) {
+    limits[`limitsByMime['${mime}']`] = value;
+  }
+  for (const [name, value] of Object.entries(limits)) {
+    if (value !== undefined && !(Number.isInteger(value) && value > 0)) {
       throw new TheoremError(
         'config',
-        `Profile ${profile.id} must set maxFiles, maxBytes, and maxTurnBytes`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `Profile ${profile.id}: inputs.${name} must be a positive integer`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
   }

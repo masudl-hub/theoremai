@@ -193,9 +193,6 @@ Each `ModelBinding` in `profile.models` carries wire ids (`apiId`), optional
 `cache` (`mode` / `ttl`; openrouter-only), and Gemini Interactions optional
 `store` / `persistViaInteractionId` (Interactions-only), and an optional local
 `server` name (local-only; traces report it as `gen_ai.provider.name`).
-Each `efforts` level must be one `thinkingLevelsForProtocol(protocol)` returns:
-`geminiInteractions` and `geminiLive` take `minimal` / `low` / `medium` / `high`;
-`openAi` takes every `THINKING_LEVELS` value. Registration rejects the rest.
 
 `TurnRequest.sessionId` is an optional sticky routing key forwarded to OpenRouter
 as `session_id` (distinct from `projectId` and Gemini `previousInteractionId`).
@@ -942,7 +939,12 @@ Beyond compaction rules (above), `registerProfile` / `defineProfile` assert:
 - Each `tools.allow` id is a registered **custom** tool (builtins rejected here).
 - Each `models.*.builtInTools` id is a registered **builtin**.
 - Each key in `models` is a host-named model id with a full `ModelBinding`.
-- Profiles with attachments or voice set `maxFiles`, `maxBytes`, `maxTurnBytes`.
+- Profiles with attachments or voice set `maxFiles`, `maxBytes`, `maxTurnBytes`;
+  those and every `limitsByMime` value are positive integers.
+- Each Google model has `models.*.key` or the profile has `key`.
+- Each `efforts` level is one `thinkingLevelsForProtocol(protocol)` returns:
+  `minimal` / `low` / `medium` / `high` on `geminiInteractions` and
+  `geminiLive`, every `THINKING_LEVELS` value on `openAi`.
 - A slot-mapped `outputs.structured` names a slot in `inputs.slots`, and its
   `map` keys are that slot's choices. At turn time `resolveTurn` rejects a slot
   the profile does not declare, or a value outside its choices (`request`).

@@ -263,6 +263,7 @@ Deno.test('registerProfile rejects compactAt outside (0,1)', () => {
           tools: { allow: [] },
           inputs: { text: true },
           id: 'compaction.validator.bad_compact_at',
+          key: 'slotA',
           models: {
             testModel: {
               ...HOST_BINDINGS.gemini35FlashLite,
@@ -292,6 +293,7 @@ Deno.test('registerProfile rejects previousExchanges fraction >= compactAt', () 
           tools: { allow: [] },
           inputs: { text: true },
           id: 'compaction.validator.bad_prev_exchanges',
+          key: 'slotA',
           models: {
             testModel: {
               ...HOST_BINDINGS.gemini35FlashLite,
@@ -321,6 +323,7 @@ Deno.test('registerProfile rejects non-integer previousExchanges >= 1', () => {
           tools: { allow: [] },
           inputs: { text: true },
           id: 'compaction.validator.bad_prev_exchanges_int',
+          key: 'slotA',
           models: {
             testModel: {
               ...HOST_BINDINGS.gemini35FlashLite,
@@ -350,6 +353,7 @@ Deno.test('registerProfile rejects unregistered compaction profile', () => {
           tools: { allow: [] },
           inputs: { text: true },
           id: 'compaction.validator.missing_profile',
+          key: 'slotA',
           models: {
             testModel: {
               ...HOST_BINDINGS.gemini35FlashLite,

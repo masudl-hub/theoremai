@@ -217,7 +217,7 @@ function resolveTurnInRegistry(
   assertOutputMode(profile, structuredId);
   assertSpeechRole(profile, binding, safe);
   const keySlot = providerUsesKeySlots(binding.provider)
-    ? resolveKeySlot(registry.tools, profile.key, binding, builtins, binding.provider === 'google')
+    ? resolveKeySlot(registry.tools, profile.key, binding, builtins)
     : undefined;
   const transport = resolveTransport(profile, binding);
   const chains = transport === 'interactions' && binding.persistViaInteractionId !== false;

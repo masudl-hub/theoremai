@@ -22,6 +22,7 @@ Deno.test('pressure-test: type/protocol matrix rejects every illegal pair', () =
         id: 'invalid_live_openai',
         type: 'live',
         identity: { handle: 'invalid_live' },
+        key: 'slotA',
         models: {
           'openai/gpt-4o': {
             protocol: 'openAi' as unknown as 'geminiLive',
@@ -44,6 +45,7 @@ Deno.test('pressure-test: type/protocol matrix rejects every illegal pair', () =
         id: 'invalid_text_gemini_live',
         type: 'text',
         identity: { handle: 'invalid_text' },
+        key: 'slotA',
         models: {
           'gemini-2.0-flash-exp': {
             protocol: 'geminiLive' as unknown as 'geminiInteractions',
@@ -66,6 +68,7 @@ Deno.test('pressure-test: type/protocol matrix rejects every illegal pair', () =
         id: 'invalid_image_gemini_live',
         type: 'image',
         identity: { handle: 'invalid_image' },
+        key: 'slotA',
         models: {
           'gemini-2.0-flash-exp': {
             protocol: 'geminiLive' as unknown as 'geminiInteractions',
@@ -89,6 +92,7 @@ Deno.test('pressure-test: type/protocol matrix rejects every illegal pair', () =
         id: 'invalid_speech_gemini_live',
         type: 'speech',
         identity: { handle: 'invalid_speech' },
+        key: 'slotA',
         models: {
           'gemini-2.0-flash-exp': {
             protocol: 'geminiLive' as unknown as 'geminiInteractions',
@@ -175,6 +179,7 @@ Deno.test('pressure-test: compaction spec validations on text profiles', () => {
         id: 'chat_with_unregistered_compactor',
         type: 'text',
         identity: { handle: 'chat_compactor' },
+        key: 'slotA',
         models: {
           gemini35FlashLite: {
             ...HOST_BINDINGS.gemini35FlashLite,
@@ -201,6 +206,7 @@ Deno.test('pressure-test: compaction spec validations on text profiles', () => {
         id: 'chat_invalid_compact_at',
         type: 'text',
         identity: { handle: 'chat_compactor' },
+        key: 'slotA',
         models: {
           gemini35FlashLite: {
             ...HOST_BINDINGS.gemini35FlashLite,
@@ -227,6 +233,7 @@ Deno.test('pressure-test: compaction spec validations on text profiles', () => {
         id: 'chat_fractional_exchanges_overflow',
         type: 'text',
         identity: { handle: 'chat_compactor' },
+        key: 'slotA',
         models: {
           gemini35FlashLite: {
             ...HOST_BINDINGS.gemini35FlashLite,
@@ -313,6 +320,7 @@ Deno.test('pressure-test: turnBehaviour.resumption maxContinues enforcement', ()
     id: 'live_test_profile',
     type: 'live',
     identity: { handle: 'live_bot' },
+    key: 'slotA',
     models: {
       'gemini-2.0-flash-exp': {
         protocol: 'geminiLive',

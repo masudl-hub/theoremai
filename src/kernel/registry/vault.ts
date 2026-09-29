@@ -1,4 +1,3 @@
-import { TheoremError } from '../../guardrails/error.ts';
 import type { ToolRegistry } from '../tools/registry.ts';
 import type { BuiltinToolDef } from '../tools/types.ts';
 import type { BuiltinToolId, KeySlot, ModelBinding, Provider } from '../types.ts';
@@ -15,13 +14,12 @@ export function providerUsesKeySlots(provider: Provider): boolean {
   return provider === 'google' || provider === 'openrouter';
 }
 
-/** `undefined` when not `required` and nothing pins a slot, so a host can use one flat `apiKey`. */
+/** `undefined` when nothing pins a slot, so a host can use one flat `apiKey`. */
 function resolveKeySlot(
   tools: ToolRegistry,
   profileKey: KeySlot | undefined,
   binding: ModelBinding,
   builtins: BuiltinToolId[],
-  required: boolean,
 ): KeySlot | undefined {
   if (binding.key) {
     return binding.key;
@@ -29,13 +27,7 @@ function resolveKeySlot(
   if (builtins.some((id) => builtinForcesPaid(tools, id))) {
     return 'paid';
   }
-  if (profileKey) {
-    return profileKey;
-  }
-  if (required) {
-    throw new TheoremError('config', 'Profile must set key or models.*.key'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  }
-  return undefined;
+  return profileKey;
 }
 
 export { resolveKeySlot };

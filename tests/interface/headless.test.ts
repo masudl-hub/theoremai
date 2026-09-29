@@ -136,6 +136,7 @@ Deno.test('interfaceFromProfile maps live type without turn inputs', () => {
     id: 'interface.live.base',
     type: 'live',
     identity: { handle: 'live_agent' },
+    key: 'slotA',
     models: {
       'gemini-2.0-flash-exp': {
         protocol: 'geminiLive',
@@ -161,6 +162,7 @@ Deno.test('interfaceFromProfile preserves live.ingress on projection', () => {
     id: 'interface.live.ingress',
     type: 'live',
     identity: { handle: 'live_agent' },
+    key: 'slotA',
     models: {
       'gemini-2.0-flash-exp': {
         protocol: 'geminiLive',

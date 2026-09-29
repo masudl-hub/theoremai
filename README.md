@@ -183,6 +183,7 @@ const support = defineProfile({
   defaultModel: "fast",
   allowModelSelect: true,
   maxSteps: 8,
+  key: "slotA",
 
   tools: {
     allow: ["search_tickets", "docs_search", "create_issue", "refund_order", "load_tools", "ask_user"],
@@ -340,6 +341,7 @@ registerProfile(defineProfile({
       builtInTools: ["googleSearch"],
     },
   },
+  key: "slotA",
   tools: { allow: ["search_tickets", "docs_search"] },
   live: {
     voice: "Aoede",

@@ -19,22 +19,35 @@ Deno.test('providerUsesKeySlots covers google and openrouter only', () => {
   assertEquals(providerUsesKeySlots('local'), false);
 });
 
-Deno.test('resolveKeySlot is optional for openrouter when nothing pins a slot', () => {
-  assertEquals(
-    resolveKeySlot(defaultKernelScope.tools, undefined, stubBinding, [], false),
-    undefined,
-  );
+Deno.test('resolveKeySlot is undefined when nothing pins a slot', () => {
+  assertEquals(resolveKeySlot(defaultKernelScope.tools, undefined, stubBinding, []), undefined);
 });
 
-Deno.test('resolveKeySlot is required for google when nothing pins a slot', () => {
+Deno.test('defineProfile rejects a google model with no key of its own and no profile key', () => {
   let thrown: unknown;
   try {
-    resolveKeySlot(defaultKernelScope.tools, undefined, stubBinding, [], true);
+    defineProfile({
+      type: 'text',
+      id: 'google_no_key',
+      identity: { handle: 'google_no_key' },
+      models: {
+        flash: {
+          protocol: 'geminiInteractions',
+          provider: 'google',
+          apiId: 'gemini-3.5-flash-lite',
+        },
+      },
+      tools: { allow: [] },
+      inputs: { text: true },
+    });
   } catch (err) {
     thrown = err;
   }
   assertEquals(thrown instanceof TheoremError, true);
-  assertEquals((thrown as Error).message, 'Profile must set key or models.*.key');
+  assertEquals(
+    (thrown as Error).message,
+    "Profile google_no_key model 'flash': a google model needs models.*.key or the profile key",
+  );
 });
 
 Deno.test('openrouter resolveTurn omits keySlot unless profile pins model.key', () => {

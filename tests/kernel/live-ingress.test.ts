@@ -23,6 +23,7 @@ const liveBase = {
     },
   },
   tools: { allow: [] as string[] },
+  key: 'slotA' as const,
 };
 
 const liveProfile = defineProfile({

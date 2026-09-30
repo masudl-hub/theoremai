@@ -7,7 +7,11 @@ import {
 } from '../../src/kernel/auth/credential-source.ts';
 import type { ToolCredential } from '../../src/kernel/auth/types.ts';
 import { registerTool, resetTools } from '../../src/kernel/default-scope.ts';
-import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
+import {
+  assertEquals,
+  assertStringIncludes,
+  assertThrows,
+} from '../../src/kernel/engine/assert.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import type { ToolExecuteSettlement } from '../../src/kernel/tools/execute.ts';
 import { executeRegisteredTool, parseMcpRpcResponse } from '../../src/kernel/tools/mod.ts';
@@ -1504,17 +1508,18 @@ const LINEAR_INPUT = { title: 'Bug', description: 'Investigate' };
 Deno.test('an MCP result is its structured content when that fits the declared output', async () => {
   registerLinearMcpFixture();
   const issue = { issueId: 'LIN-7', url: 'https://linear.app/issue/LIN-7' };
-  const { settlement } = await withMcpResult(
+  const { events, settlement } = await withMcpResult(
     { content: [{ type: 'text', text: 'Created LIN-7' }], structuredContent: issue },
     () => collectToolRun('linear_issue', LINEAR_INPUT, 'call_mcp_structured'),
   );
   assertEquals(settlement?.outputRaw, issue);
+  assertEquals(toolEventsOf(events, 'warning'), []);
 });
 
-Deno.test('structured content that misses the declared output falls back to the text', async () => {
+Deno.test('structured content that misses the declared output falls back to the text, and says why', async () => {
   registerLinearMcpFixture();
   const issue = { issueId: 'LIN-8', url: 'https://linear.app/issue/LIN-8' };
-  const { settlement } = await withMcpResult(
+  const { events, settlement } = await withMcpResult(
     {
       content: [{ type: 'text', text: JSON.stringify(issue) }],
       structuredContent: { somethingElse: true },
@@ -1522,6 +1527,9 @@ Deno.test('structured content that misses the declared output falls back to the 
     () => collectToolRun('linear_issue', LINEAR_INPUT, 'call_mcp_structured_miss'),
   );
   assertEquals(settlement?.outputRaw, issue);
+  const [warning] = toolEventsOf(events, 'warning');
+  assertEquals(warning?.warning.code, 'mcp_structured_mismatch');
+  assertStringIncludes(warning?.warning.message ?? '', 'so the text content was used. issueId:');
 });
 
 Deno.test('an MCP image reaches the model and the client as media, beside the value', async () => {

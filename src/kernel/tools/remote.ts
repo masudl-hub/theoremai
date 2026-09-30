@@ -10,7 +10,7 @@ import type { AuthScopeRefused } from '../auth/scope-refusal.ts';
 import type { OAuth2Credential, OAuthTransportOptions, ToolCredential } from '../auth/types.ts';
 import { mapStrings } from '../engine/tree.ts';
 import type { AuthUnauthenticatedPolicy } from '../schema.ts';
-import type { InteractionPart } from '../turn-events.ts';
+import type { InteractionPart, ToolWarning } from '../turn-events.ts';
 import type { TurnEvent } from '../types.ts';
 import {
   guardToolTarget,
@@ -1042,18 +1042,43 @@ function mcpMedia(block: McpContent): InteractionPart | undefined {
 function extractMcpOutput(
   tool: McpToolDef,
   result: McpRpcResponse['result'],
-): { checked: ReturnType<typeof parseToolOutput>; parts?: InteractionPart[] } {
+): {
+  checked: ReturnType<typeof parseToolOutput>;
+  parts?: InteractionPart[];
+  warning?: ToolWarning;
+} {
   const content = Array.isArray(result?.content) ? result.content : undefined;
   const media = content?.flatMap((block) => mcpMedia(block) ?? []);
   const withParts = media?.length ? { parts: media } : {};
+  let warning: ToolWarning | undefined;
   if (result?.structuredContent !== undefined) {
     const structured = tool.output.safeParse(result.structuredContent);
     if (structured.success) return { checked: structured, ...withParts };
+    warning = structuredMismatch(structured.error.issues);
   }
   const text = content
     ? content.flatMap((block) => mcpContentText(block) ?? []).join('\n')
     : result;
-  return { checked: parseToolOutput(tool.output, text), ...withParts };
+  return {
+    checked: parseToolOutput(tool.output, text),
+    ...withParts,
+    ...(warning ? { warning } : {}),
+  };
+}
+
+/** Otherwise the text fallback hides why the tool's declared fields never arrive. */
+function structuredMismatch(
+  issues: readonly { path: readonly PropertyKey[]; message: string }[],
+): ToolWarning {
+  const shown = issues
+    .slice(0, 3)
+    .map((issue) => `${issue.path.map(String).join('.') || '(root)'}: ${issue.message}`);
+  const more = issues.length > 3 ? ` (+${String(issues.length - 3)} more)` : '';
+  return {
+    code: 'mcp_structured_mismatch',
+    severity: 'warning',
+    message: `structuredContent does not match the output schema, so the text content was used. ${shown.join('; ')}${more}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  };
 }
 
 function mcpResultFailure(rpcResponse: McpRpcResponse): ToolFailure | undefined {
@@ -1083,7 +1108,9 @@ function interpretMcpRpc(
     failure?: ToolFailure;
     lastProtocolError?: McpRpcResponse['error'];
   },
-): { ok: true; data: unknown; parts?: InteractionPart[] } | { ok: false; failure: ToolFailure } {
+):
+  | { ok: true; data: unknown; parts?: InteractionPart[]; warning?: ToolWarning }
+  | { ok: false; failure: ToolFailure; warning?: ToolWarning } {
   if (negotiated.failure) {
     return { ok: false, failure: negotiated.failure };
   }
@@ -1103,7 +1130,8 @@ function interpretMcpRpc(
   if (resultFailure) {
     return { ok: false, failure: resultFailure };
   }
-  const { checked, parts } = extractMcpOutput(tool, rpcResponse.result);
+  const { checked, parts, warning } = extractMcpOutput(tool, rpcResponse.result);
+  const withWarning = warning ? { warning } : {};
   if (!checked.success) {
     return {
       ok: false,
@@ -1113,9 +1141,10 @@ function interpretMcpRpc(
         message: 'MCP output schema validation failed', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         details: checked.error.flatten(),
       },
+      ...withWarning,
     };
   }
-  return { ok: true, data: checked.data, ...(parts ? { parts } : {}) };
+  return { ok: true, data: checked.data, ...(parts ? { parts } : {}), ...withWarning };
 }
 
 /** Streamable HTTP, spec revision 2026-07-28. Order: schema → permission → auth → preTool/host stages → body. */
@@ -1184,6 +1213,9 @@ async function* sendMcpRequest(
     );
     if (refused) return refused;
     const interpreted = interpretMcpRpc(tool, negotiated);
+    if (interpreted.warning) {
+      yield toolEvent(base, { phase: 'warning', warning: interpreted.warning });
+    }
     if (!interpreted.ok) {
       return failureOutcome(interpreted.failure, false);
     }

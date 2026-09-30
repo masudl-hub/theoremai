@@ -28,7 +28,7 @@ import {
 } from '../../../providers/google/live/framing.ts';
 import { openGoogleLiveSession } from '../../../providers/google/live/session.ts';
 import type { GoAwayClose, SessionQueueItem } from '../../../providers/google/live/stream.ts';
-import type { ToolCredential } from '../../auth/types.ts';
+import { memoryCredentialSource, type ToolCredentialSource } from '../../auth/credential-source.ts';
 import type { KernelRegistry } from '../../registry/kernel-registry.ts';
 import { providerCompleteRequest } from '../../registry/provider-request.ts';
 import { resolveTurnInRegistry } from '../../registry/resolve.ts';
@@ -351,7 +351,7 @@ function buildLiveSession(args: {
   signal?: AbortSignal;
   onStage?: StageHandler;
   host?: unknown;
-  credentials?: Record<string, ToolCredential>;
+  credentials?: ToolCredentialSource;
   resolveHost?: ResolveHost;
   sessionPermissions?: string[];
   path?: string;
@@ -380,8 +380,8 @@ function buildLiveSession(args: {
   } = args;
   /** Grows as the user approves `session_consent` tools. */
   let sessionPermissions = args.sessionPermissions;
-  /** Grows as the user types keys at sign-in gates. */
-  let sessionCredentials = args.credentials;
+  /** Where keys typed at sign-in gates go when a call brings no source of its own. */
+  const sessionCredentials = args.credentials ?? memoryCredentialSource();
   const calls = new Map<string, HeldCall>();
 
   let closed = false;
@@ -966,10 +966,10 @@ function buildLiveSession(args: {
         sessionPermissions ?? [],
       );
       if (answered.typed) {
-        sessionCredentials = {
-          ...sessionCredentials,
-          [answered.typed.slot]: answered.typed.credential,
-        };
+        await (credentials ?? sessionCredentials).set(
+          answered.typed.slot,
+          answered.typed.credential,
+        );
       }
       sessionPermissions = answered.sessionPermissions;
       return await runHeld(callId, held, answered.input, answered.resume, {

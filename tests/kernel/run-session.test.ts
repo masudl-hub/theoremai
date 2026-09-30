@@ -4,6 +4,10 @@ import { TheoremError } from '../../src/guardrails/error.ts';
 import { lexiconText } from '../../src/guardrails/lexicon.ts';
 import type { ResolveHost } from '../../src/guardrails/network.ts';
 import {
+  memoryCredentialSource,
+  type ToolCredentialSource,
+} from '../../src/kernel/auth/credential-source.ts';
+import {
   clearProfiles,
   invokeTool,
   registerProfile,
@@ -1066,6 +1070,66 @@ Deno.test('runSession makes a key typed at a sign-in gate the slot credential, f
     await h.modelCalls({ id: 'c-again', name: 'live_tracker' });
     assertEquals((await h.session.executeTool({ callId: 'c-again' })).outputRaw, { ok: true });
     assertEquals(sent, ['Bearer typed-key-123', 'Bearer typed-key-123']);
+    await h.close();
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+/** A source that records every slot read and write. */
+function watchedSource(): { source: ToolCredentialSource; reads: string[]; writes: string[] } {
+  const inner = memoryCredentialSource();
+  const reads: string[] = [];
+  const writes: string[] = [];
+  return {
+    reads,
+    writes,
+    source: {
+      get: (slot) => {
+        reads.push(slot);
+        return inner.get(slot);
+      },
+      set: (slot, credential) => {
+        writes.push(slot);
+        return inner.set(slot, credential);
+      },
+    },
+  };
+}
+
+Deno.test('runSession puts a key typed at a sign-in gate in the source the call runs with', async () => {
+  clearProfiles();
+  resetTools();
+  registerTrackerTool();
+  const original = globalThis.fetch;
+  const sent: (string | null)[] = [];
+  globalThis.fetch = (_input: Request | URL | string, init?: RequestInit) => {
+    sent.push(new Headers(init?.headers).get('authorization'));
+    return Promise.resolve(Response.json({ ok: true }));
+  };
+  try {
+    const h = await openToolSession(['live_tracker'], {
+      resolveHost: () => Promise.resolve(['93.184.216.34']),
+    });
+    const perCall = watchedSource();
+    await h.modelCalls({ id: 'c-own', name: 'live_tracker' });
+    const gated = await h.session.executeTool({ callId: 'c-own', credentials: perCall.source });
+    assertEquals(gated.gated?.kind, 'auth');
+    const signed = await h.session.executeTool({
+      callId: 'c-own',
+      decision: 'approve',
+      secret: 'typed-key-456',
+      credentials: perCall.source,
+    });
+    assertEquals(signed.outputRaw, { ok: true });
+    // Only the slot the tool signs in with is read, and only when it runs.
+    assertEquals(perCall.reads, ['tracker', 'tracker']);
+    assertEquals(perCall.writes, ['tracker']);
+    assertEquals(sent, ['Bearer typed-key-456']);
+
+    // The session's own source never saw the key.
+    await h.modelCalls({ id: 'c-bare', name: 'live_tracker' });
+    assertEquals((await h.session.executeTool({ callId: 'c-bare' })).gated?.kind, 'auth');
     await h.close();
   } finally {
     globalThis.fetch = original;

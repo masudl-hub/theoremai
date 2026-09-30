@@ -56,7 +56,7 @@ import {
 	type AnsweredGate,
 	answerGatedCall,
 	type GateAnswerRequest,
-	isRecord,
+	type ToolCredentialSource,
 	resolveGateTtlMs,
 	toBase64Url,
 } from '@theoremjs/agents/kernel';
@@ -436,12 +436,16 @@ function saveCredential(
 	});
 }
 
-/** The slot a refreshed OAuth token replaced, from its `auth_token_refreshed` event. */
-function refreshedSlot(event: TurnEvent): string | undefined {
-	const data = event.type === 'tool' && event.tool.phase === 'progress' ? event.tool.data : undefined;
-	return isRecord(data) && data.kind === 'auth_token_refreshed' && typeof data.slot === 'string'
-		? data.slot
-		: undefined;
+/**
+ * The session's credentials as a call reads them: one slot when a tool needs it,
+ * saved the moment the kernel sets one, so a rotated refresh token is never lost
+ * to a closed stream.
+ */
+function sessionCredentials(ctx: HandlerContext, sessionId: string): ToolCredentialSource {
+	return {
+		get: async (slot) => (await ctx.credentials.read(sessionId))[slot],
+		set: (slot, credential) => saveCredential(ctx, sessionId, slot, credential),
+	};
 }
 
 /** An OAuth gate given the host's sign-in URL. */
@@ -463,25 +467,14 @@ async function withAuthorizationUrl(
 	};
 }
 
-/**
- * The server's side of a turn's credentials. The kernel writes a refreshed
- * token into the `credentials` record it was given: that slot is saved before
- * the event goes on, so a rotated refresh token is never lost to a closed
- * stream. An OAuth gate gets the host's sign-in URL.
- */
-async function* withCredentials(
+/** Every OAuth gate in the stream, given the host's sign-in URL. */
+async function* withAuthorizationUrls(
 	ctx: HandlerContext,
 	request: Request,
 	sessionId: string,
-	credentials: TheoremCredentials,
 	events: AsyncIterable<TurnEvent>,
 ): AsyncGenerator<TurnEvent> {
-	for await (const event of events) {
-		const slot = refreshedSlot(event);
-		const credential = slot ? credentials[slot] : undefined;
-		if (slot && credential) await saveCredential(ctx, sessionId, slot, credential);
-		yield await withAuthorizationUrl(ctx, request, sessionId, event);
-	}
+	for await (const event of events) yield await withAuthorizationUrl(ctx, request, sessionId, event);
 }
 
 /** The session's paused call, answered and taken out: each answer settles it once, as the model asked it. */
@@ -545,11 +538,10 @@ async function* settleAnswered(
 	request: Request,
 	session: Session,
 	answered: AnsweredCall,
-	credentials: TheoremCredentials,
 	ended: Set<string>,
 ): AsyncGenerator<TurnEvent> {
 	const { callId, pending } = answered;
-	for await (const event of invokeAnswered(ctx, request, answered, credentials)) {
+	for await (const event of invokeAnswered(ctx, request, session.id, answered)) {
 		if (!ended.has(callId) && settlesToolCall(event, callId)) {
 			ended.add(callId);
 			await ctx.sessions.mutate(session.id, (state) => {
@@ -582,8 +574,8 @@ async function restoreUnended(
 function invokeAnswered(
 	ctx: HandlerContext,
 	request: Request,
+	sessionId: string,
 	{ callId, pending, answer }: AnsweredCall,
-	credentials: TheoremCredentials,
 ): AsyncGenerator<TurnEvent> {
 	return invokeTool({
 		profile: ctx.profile.id,
@@ -592,7 +584,7 @@ function invokeAnswered(
 		input: answer.input,
 		resume: answer.resume,
 		sessionPermissions: answer.sessionPermissions,
-		credentials,
+		credentials: sessionCredentials(ctx, sessionId),
 		turnInput: pending.turnInput,
 		snapshot: pending.snapshot,
 		promoted: pending.promoted,
@@ -610,7 +602,6 @@ async function* walkAwayFrom(
 	walked: { input: TurnInput; calls: readonly WalkedCall[] },
 	ended: Set<string>,
 ): AsyncGenerator<TurnEvent, TurnInput | undefined> {
-	const credentials = await ctx.credentials.read(session.id);
 	return yield* walkAway(
 		walked.input,
 		walked.calls.map((call) => ({
@@ -618,7 +609,7 @@ async function* walkAwayFrom(
 			events:
 				'settled' in call
 					? once(call.settled.event)
-					: settleAnswered(ctx, request, session, call, credentials, ended),
+					: settleAnswered(ctx, request, session, call, ended),
 		})),
 	);
 }
@@ -644,7 +635,6 @@ async function* turnEvents(
 	}
 	if (!input) return;
 	const state = await ctx.sessions.read(session.id);
-	const credentials = await ctx.credentials.read(session.id);
 	const provider = await providerFor(ctx, request, body.model);
 	// Only continue provider-side conversations this session started.
 	const previousInteractionId =
@@ -660,7 +650,7 @@ async function* turnEvents(
 				input,
 				previousInteractionId,
 				sessionPermissions: state.permissions,
-				credentials,
+				credentials: sessionCredentials(ctx, session.id),
 				signal: request.signal,
 				host: ctx.options.host?.(request),
 				...(body.model ? { model: body.model } : {}),
@@ -669,7 +659,7 @@ async function* turnEvents(
 			},
 			provider,
 		);
-		yield* recorded(ctx.sessions, session.id, withCredentials(ctx, request, session.id, credentials, events), {
+		yield* recorded(ctx.sessions, session.id, withAuthorizationUrls(ctx, request, session.id, events), {
 			turnInput: input,
 			model: body.model,
 		});
@@ -688,9 +678,8 @@ async function* invokeEvents(
 	const ended = new Set<string>();
 	try {
 		if (answer.typed) await saveCredential(ctx, session.id, answer.typed.slot, answer.typed.credential);
-		const credentials = await ctx.credentials.read(session.id);
-		const events = settleAnswered(ctx, request, session, answered, credentials, ended);
-		yield* recorded(ctx.sessions, session.id, withCredentials(ctx, request, session.id, credentials, events), {
+		const events = settleAnswered(ctx, request, session, answered, ended);
+		yield* recorded(ctx.sessions, session.id, withAuthorizationUrls(ctx, request, session.id, events), {
 			turnInput: pending.turnInput,
 			model: pending.model,
 			promoted: pending.promoted,
@@ -719,17 +708,16 @@ async function* callEvents(
 	body: TheoremHostCallRequest,
 ): AsyncGenerator<TurnEvent> {
 	const state = await ctx.sessions.read(session.id);
-	const credentials = await ctx.credentials.read(session.id);
 	const events = invokeTool({
 		profile: ctx.profile.id,
 		name: body.name,
 		input: body.input,
 		sessionPermissions: state.permissions,
-		credentials,
+		credentials: sessionCredentials(ctx, session.id),
 		signal: request.signal,
 		host: ctx.options.host?.(request),
 	});
-	yield* recorded(ctx.sessions, session.id, withCredentials(ctx, request, session.id, credentials, events), {
+	yield* recorded(ctx.sessions, session.id, withAuthorizationUrls(ctx, request, session.id, events), {
 		turnInput: {},
 	});
 }

@@ -1,7 +1,8 @@
 import type { z } from 'zod';
 import type { ResolveHost } from '../../guardrails/network.ts';
 import type { GuardrailHit, Provenance, TurnTaint } from '../../guardrails/types.ts';
-import type { OAuthEndpoints, ToolCredential } from '../auth/types.ts';
+import type { ToolCredentialSource } from '../auth/credential-source.ts';
+import type { OAuthEndpoints } from '../auth/types.ts';
 import type {
   AuthUnauthenticatedPolicy,
   HttpMethod,
@@ -103,7 +104,7 @@ export interface ToolContext {
   signal?: AbortSignal;
   turn?: { step: number; taint?: TurnTaint };
   resume?: InvokeToolResume;
-  credentials?: Record<string, ToolCredential>;
+  credentials?: ToolCredentialSource;
   resolveHost?: ResolveHost;
   /** Opaque application context from `TurnRequest.host` / `InvokeToolRequest.host`; the kernel never reads it. */
   host?: unknown;
@@ -264,8 +265,7 @@ export interface InvokeToolRequest {
   snapshot?: TurnToolSnapshot;
   resume?: InvokeToolResume;
   sessionPermissions?: string[];
-  /** Keyed by auth slot. */
-  credentials?: Record<string, ToolCredential>;
+  credentials?: ToolCredentialSource;
   resolveHost?: ResolveHost;
   path?: string;
   signal?: AbortSignal;

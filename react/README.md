@@ -115,8 +115,8 @@ and every resumed call.
   credential under that session, then its page calls `notifyOAuthComplete(slot)`.
   The card takes that message only from its own popup and origin, and resumes the
   gate with its id alone.
-- **Refresh** — a refreshed OAuth token is saved to the store as the turn
-  reports it, before the event reaches the browser.
+- **Refresh** — a refreshed OAuth token is saved to the store before the call
+  goes on, so a rotated refresh token is never lost.
 
 ```ts
 const credentialStore = createMemoryCredentialStore();
@@ -163,8 +163,8 @@ export async function oauthCallback(request: Request): Promise<Response> {
 A host with its own `session` resolver passes its own session id instead of
 `theoremSessionId`. For voice, the relay you host receives a typed key as `secret`
 on the `executeTool` message: save it with `credentialFromTypedSecret` (from
-`@theoremjs/agents/kernel`) under the gate's slot, and read the session's
-credentials from your store for every `executeTool`.
+`@theoremjs/agents/kernel`) under the gate's slot, and pass a
+`ToolCredentialSource` over your store as `credentials` on every `executeTool`.
 
 ## Composer pending intents
 

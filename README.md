@@ -286,7 +286,7 @@ for await (const event of runTurn(
       slots: { audience: "engineer" },
       attachments: [{ mimeType: "text/csv", data: csvBase64 }],
     },
-    credentials: await db.credentials.get(user.id),
+    credentials: vaultCredentials(user.id), // a ToolCredentialSource: get(slot) / set(slot, credential)
     onStage: ({ stage }) =>
       stage === "pre_turn" && user.plan === "free" ? { abort: { reason: "upgrade" } } : undefined,
   },
@@ -735,7 +735,7 @@ token the user hasn't granted, the call becomes an auth gate. The helpers in
 - **Resource indicators** — every token is bound to the resource the flow was for (RFC 8707), and a tool never sends a token to a URL outside that resource. A credential that names no resource is not used; the call gates for sign-in instead.
 - **Strict inputs** — `redirectUri` must be HTTPS, HTTP on a loopback host, or a reverse-domain app scheme, without a fragment (RFC 8252). Each scope must be a single RFC 6749 scope token, and `stateTtlMs` must be a positive number.
 - **Client ID Metadata Documents** — `clientId` can be an HTTPS URL, so you don't have to register a client with every server.
-- **Refresh** — tokens within 30 seconds of expiry are refreshed before the call. The new credential replaces its slot in the `credentials` record you passed in, and the turn emits `auth_token_refreshed` naming the slot, so you know to save it. The token itself never rides the event stream. Calls that find the same expired token share one refresh, so a rotating refresh token is never presented twice. A refused refresh emits `auth_token_refresh_failed`: the server's own text rides only in `errorInternal`, which `forClient` strips, and never reaches the model.
+- **Refresh** — tokens within 30 seconds of expiry are refreshed before the call. The new credential goes to your source with `set(slot, credential)`, and the call waits for it, so a rotated refresh token is saved before it is used; the turn emits `auth_token_refreshed` naming the slot. The token itself never rides the event stream. Calls that find the same expired token share one refresh, so a rotating refresh token is never presented twice. A refused refresh emits `auth_token_refresh_failed`: the server's own text rides only in `errorInternal`, which `forClient` strips, and never reaches the model.
 - **Echoed credentials** — a response that repeats the token or key it was sent with (an echo endpoint, a debug error page) has that value replaced with `[omitted - credential]` before the model, the trace, or the client sees it.
 
 ```ts
@@ -767,7 +767,7 @@ const { credential } = await exchangeOAuthPkce({
   signingSecret: secrets.oauthStateSecret,
   sessionBinding: session.id,
 });
-await db.credentials.put(user.id, "tracker", credential);
+await vaultCredentials(user.id).set("tracker", credential);
 
 // 3. Resume the gated call. It runs once, with the new token.
 // `gated` is what you saved when the gate fired: the tool name, its input, and done.tools.
@@ -777,11 +777,13 @@ for await (const event of invokeTool({
   input: gated.input,
   snapshot: gated.snapshot,
   resume: { granted: true },
-  credentials: { tracker: credential },
+  credentials: vaultCredentials(user.id),
 })) send(event);
 ```
 
-Credentials travel per turn in `TurnRequest.credentials`, keyed by slot. The kernel never
+Credentials travel per turn in `TurnRequest.credentials`, a `ToolCredentialSource` the kernel
+reads one slot at a time, only when a tool that signs in runs, so a turn opens no credential
+it does not use. `memoryCredentialSource(record)` wraps a plain record. The kernel never
 stores them, and they never belong in the browser: `createTheoremHandler` keeps them in a
 server-side credential store (see [`react/README.md`](react/README.md#tool-credentials)). A tool whose auth is `onUnauthenticated: "report_to_model"` tells the model it
 isn't signed in instead of gating, for tools the agent can manage without.

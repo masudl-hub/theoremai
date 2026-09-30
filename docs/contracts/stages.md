@@ -387,7 +387,7 @@ executeTool(args: {
   decision?: GateDecision; // 'approve' | 'deny' | 'abandon'
   input?: unknown; // the user's edit; only with 'approve' on a gated call
   secret?: string; // the key typed at a sign-in gate; only with 'approve' on that gate
-  credentials?: Record<string, ToolCredential>;
+  credentials?: ToolCredentialSource; // a typed `secret` is set here, or in the session's source
   host?: unknown; // overrides/fills session host for this call if provided
 }): Promise<{
   outputRaw?: unknown;

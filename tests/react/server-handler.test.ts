@@ -1082,7 +1082,7 @@ Deno.test('an OAuth gate carries the host sign-in URL and resumes on the token i
   });
 });
 
-Deno.test('a refreshed OAuth token is saved to the store as the turn reports it', async () => {
+Deno.test('a refreshed OAuth token is saved to the store before the call goes on', async () => {
   const store = inspectableStore();
   const handler = createTheoremHandler({
     profile: profile('handler-oauth-refresh', ['handler_oauth_tracker']),

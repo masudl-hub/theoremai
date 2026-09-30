@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { lexiconText } from '../../src/guardrails/lexicon.ts';
 import { forClientEvents } from '../../src/host/client-turn.ts';
+import { memoryCredentialSource } from '../../src/kernel/auth/credential-source.ts';
+import type { ToolCredential } from '../../src/kernel/auth/types.ts';
 import { registerTool, resetTools } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
@@ -295,12 +297,12 @@ Deno.test('Declarative HTTP Tool executes successfully with auth header and para
       input: { id: 'usr_123', includeHistory: true },
       callId: 'call_success_1',
       ctx: {
-        credentials: {
+        credentials: memoryCredentialSource({
           user_auth: {
             type: 'bearer',
             token: 'valid-secret-token',
           },
-        },
+        }),
       },
     });
 
@@ -430,12 +432,12 @@ Deno.test('Remote MCP Tool executes successfully per 2026-07-28 spec', async () 
       input: { title: 'Bug in runner', description: 'Investigate SSRF' },
       callId: 'call_mcp_1',
       ctx: {
-        credentials: {
+        credentials: memoryCredentialSource({
           linear_auth: {
             type: 'api_key',
             key: 'lin_api_key_xyz',
           },
-        },
+        }),
       },
     });
 
@@ -529,7 +531,7 @@ Deno.test('Proactive OAuth token refresh names the slot on the stream and update
 
   try {
     const events = [];
-    const ctxCredentials = {
+    const ctxCredentials = memoryCredentialSource({
       oauth_slot: {
         type: 'oauth2' as const,
         issuer: 'https://auth.example.com',
@@ -540,7 +542,7 @@ Deno.test('Proactive OAuth token refresh names the slot on the stream and update
         clientId: 'client-abc',
         resource: 'https://api.example.com',
       },
-    };
+    });
 
     const exec = executeRegisteredTool({
       tools: defaultKernelScope.tools,
@@ -567,8 +569,16 @@ Deno.test('Proactive OAuth token refresh names the slot on the stream and update
     assertEquals(streamed.includes('new-refresh-token'), false);
     assertEquals(refreshedTokenUsedInToolCall, true);
 
-    assertEquals(ctxCredentials.oauth_slot.accessToken, 'new-shiny-access-token');
-    assertEquals(ctxCredentials.oauth_slot.refreshToken, 'new-refresh-token');
+    // The refreshed grant went back to the source before the call went on.
+    const persisted = await ctxCredentials.get('oauth_slot');
+    assertEquals(
+      persisted?.type === 'oauth2' ? persisted.accessToken : undefined,
+      'new-shiny-access-token',
+    );
+    assertEquals(
+      persisted?.type === 'oauth2' ? persisted.refreshToken : undefined,
+      'new-refresh-token',
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -639,9 +649,9 @@ async function collectToolRun(name: string, input: unknown, callId: string) {
     input,
     callId,
     ctx: {
-      credentials: {
+      credentials: memoryCredentialSource({
         linear_auth: { type: 'api_key', key: 'lin_api_key_xyz' },
-      },
+      }),
     },
   });
   let settlement: ToolExecuteSettlement | undefined;
@@ -990,14 +1000,7 @@ function registerProfileTool(auth: Pick<HttpToolAuthConfig, 'slot' | 'type' | 's
   });
 }
 
-async function runProfileTool(
-  id: string,
-  credentials: Parameters<typeof executeRegisteredTool>[0]['ctx'] extends infer C
-    ? C extends { credentials?: infer R }
-      ? R
-      : never
-    : never,
-) {
+async function runProfileTool(id: string, credentials: Readonly<Record<string, ToolCredential>>) {
   const events = [];
   for await (const ev of executeRegisteredTool({
     tools: defaultKernelScope.tools,
@@ -1005,7 +1008,7 @@ async function runProfileTool(
     name: 'fetch_user_profile',
     input: { id },
     callId: 'call_redirect',
-    ctx: { credentials },
+    ctx: { credentials: memoryCredentialSource(credentials) },
   })) {
     events.push(ev);
   }
@@ -1286,7 +1289,7 @@ Deno.test('a response that repeats the credential never passes it on', async () 
       name: 'echo_headers',
       input: {},
       callId: 'call_echo',
-      ctx: { credentials: BEARER_SLOT },
+      ctx: { credentials: memoryCredentialSource(BEARER_SLOT) },
     })) {
       events.push(ev);
     }
@@ -1665,7 +1668,7 @@ Deno.test('an MCP server refusing the credential gates or fails as an HTTP tool 
       name: 'local_mcp',
       input: {},
       callId: 'call_mcp_refused',
-      ctx: { credentials: BEARER_SLOT },
+      ctx: { credentials: memoryCredentialSource(BEARER_SLOT) },
     })) {
       events.push(ev);
     }

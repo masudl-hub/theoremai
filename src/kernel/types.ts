@@ -442,7 +442,7 @@ import type {
   ProfileGuardrailsSpec,
 } from '../guardrails/types.ts';
 import type { ProfileObservabilitySpec } from '../observability/types.ts';
-import type { ToolCredential } from './auth/types.ts';
+import type { ToolCredentialSource } from './auth/credential-source.ts';
 import type { MediaTurnBehaviourSpec, ProfileTurnBehaviourSpec, TurnContinueFrom } from './stop.ts';
 
 export interface ProfileModelFields {
@@ -806,12 +806,8 @@ export interface TurnRequest {
   /** Runs a `timing: 'before'` compactor the turn's provider cannot. */
   compactionProvider?: ModelProvider;
   sessionResumptionHandle?: string;
-  /**
-   * Host credentials for authenticated HTTP / MCP tools keyed by auth slot. A refreshed
-   * OAuth credential replaces its slot in this record; persist it when the turn emits
-   * `auth_token_refreshed` for that slot.
-   */
-  credentials?: Record<string, ToolCredential>;
+  /** Credentials for authenticated HTTP / MCP tools, read by auth slot when a tool needs one. */
+  credentials?: ToolCredentialSource;
   /**
    * Resolves remote tool and OAuth host names before each request; a name that
    * resolves to a private address is refused (see `fetchGuarded`).
@@ -966,10 +962,10 @@ export interface SessionRequest {
   /** Immutable for the session; there is no `setOnStage`. */
   onStage?: StageHandler;
   /**
-   * Default credentials for `executeTool` (per-call args override). A refreshed OAuth
-   * credential replaces its slot in the record the call used.
+   * Default credentials for `executeTool` (per-call args override). Without one, the
+   * session keeps keys typed at its sign-in gates in memory.
    */
-  credentials?: Record<string, ToolCredential>;
+  credentials?: ToolCredentialSource;
   /**
    * Resolves remote tool and OAuth host names before each request; a name that
    * resolves to a private address is refused (see `fetchGuarded`).
@@ -990,11 +986,11 @@ export type LiveExecuteToolArgs = {
   input?: unknown;
   /**
    * The key the user typed at a sign-in gate, only with `approve` on that
-   * gate: the session makes it the credential for the gate's slot
-   * (`credentialFromTypedSecret`) and keeps it for the rest of the session.
+   * gate: the session sets it as the credential for the gate's slot
+   * (`credentialFromTypedSecret`) in the source the call runs with.
    */
   secret?: string;
-  credentials?: Record<string, ToolCredential>;
+  credentials?: ToolCredentialSource;
   host?: unknown;
 };
 

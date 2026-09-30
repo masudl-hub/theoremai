@@ -4,6 +4,7 @@ import { fetchGuarded, type ResolveHost } from '../../guardrails/network.ts';
 import type { ErrorKind } from '../../guardrails/theorem-error.ts';
 import type { NetworkGuardrailSpec } from '../../guardrails/types.ts';
 import type { SpanHandle } from '../../observability/trace-span.ts';
+import type { ToolCredentialSource } from '../auth/credential-source.ts';
 import { refreshOAuthToken, tokenAudienceCovers } from '../auth/oauth.ts';
 import type { AuthScopeRefused } from '../auth/scope-refusal.ts';
 import type { OAuth2Credential, OAuthTransportOptions, ToolCredential } from '../auth/types.ts';
@@ -152,6 +153,7 @@ async function* resolveOAuth2Credential(
   toolName: string,
   authConfig: HttpToolAuthConfig,
   credential: OAuth2Credential,
+  source: ToolCredentialSource,
   ctx: ToolContext,
   base: ToolCallBase,
   policy: AuthUnauthenticatedPolicy,
@@ -187,11 +189,9 @@ async function* resolveOAuth2Credential(
       const message = `Failed to refresh OAuth token for '${toolName}' (slot: '${slot}').`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       return unauthenticatedResult(toolName, authConfig, message, policy, bound);
     }
-    // The refreshed credential replaces the slot in the host's `credentials`
-    // record; the event only names the slot, so no token rides the stream.
-    if (ctx.credentials) {
-      ctx.credentials[slot] = active;
-    }
+    // The host persists the refreshed credential before the call goes on; the
+    // event only names the slot, so no token rides the stream.
+    await source.set(slot, active);
     yield toolEvent(base, {
       phase: 'progress',
       data: { kind: 'auth_token_refreshed', slot },
@@ -221,10 +221,11 @@ export async function* resolveToolAuth(
     return { headers: {} };
   }
 
-  const credential = ctx.credentials?.[authConfig.slot];
+  const source = ctx.credentials;
+  const credential = source ? await source.get(authConfig.slot) : undefined;
   const policy = authConfig.onUnauthenticated ?? 'gate';
 
-  if (!credential) {
+  if (!source || !credential) {
     const message = `Authentication required for '${toolName}' (auth slot: '${authConfig.slot}').`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     return unauthenticatedResult(toolName, authConfig, message, policy);
   }
@@ -235,7 +236,15 @@ export async function* resolveToolAuth(
   }
 
   if (credential.type === 'oauth2') {
-    return yield* resolveOAuth2Credential(toolName, authConfig, credential, ctx, base, policy);
+    return yield* resolveOAuth2Credential(
+      toolName,
+      authConfig,
+      credential,
+      source,
+      ctx,
+      base,
+      policy,
+    );
   }
 
   return { headers: {} };

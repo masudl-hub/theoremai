@@ -2,6 +2,7 @@ import '../fixtures/test-host.ts';
 import { z } from 'zod';
 import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
 import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
+import { memoryCredentialSource } from '../../src/kernel/auth/credential-source.ts';
 import {
   invokeTool,
   registerProfile,
@@ -605,7 +606,9 @@ Deno.test('a request outside the declared scopes records what was asked on the t
           profile: PROFILE,
           name: 'tool_trace_scoped',
           input: {},
-          credentials: { tracker: { type: 'bearer', token: 'tracker-token' } },
+          credentials: memoryCredentialSource({
+            tracker: { type: 'bearer', token: 'tracker-token' },
+          }),
           resolveHost: () => Promise.resolve(['93.184.216.34']),
         },
         catalogedSink(into),

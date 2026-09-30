@@ -1,5 +1,6 @@
 import { canaryHoldFrom } from './canary.ts';
 import { canaryHits, runEnforcer } from './egress.ts';
+import { EGRESS_RULES } from './rules.ts';
 import type {
   EgressEnforcer,
   GuardrailContext,
@@ -82,7 +83,7 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
       if (verdict.action === 'block' || verdict.action === 'redact') {
         return verdict.hits.length > 0
           ? verdict.hits
-          : [{ rule: 'egress.blocked', severity: 'high' }];
+          : [{ rule: EGRESS_RULES.blocked, severity: 'high' }];
       }
       // Host enforce is authoritative when present (matches end-of-attempt egress).
       return null;

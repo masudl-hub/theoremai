@@ -23,7 +23,6 @@ export type { CanaryGateSession } from './canary-gate.ts';
 export { createCanaryGateSession, filterCanaryGatedEvents } from './canary-gate.ts';
 export {
   collectEgressHits,
-  EGRESS_RULES,
   hitRules,
   runEnforcer,
   standardEgressEnforce,
@@ -95,6 +94,14 @@ export {
   skipQuota,
   takeSlot,
 } from './quota.ts';
+export type { GuardrailRule } from './rules.ts';
+export {
+  DIRECTIVE_RULES,
+  EGRESS_RULES,
+  NETWORK_RULES,
+  SANITIZE_RULES,
+  TOOL_RULES,
+} from './rules.ts';
 export {
   detectionForProfile,
   detectText,
@@ -110,7 +117,6 @@ export type { ScanText } from './serialize.ts';
 export { scanTextOf, textForScan } from './serialize.ts';
 export {
   advisoryLevel,
-  DIRECTIVE_RULES,
   directiveHits,
   looksDirective,
 } from './tool-directives.ts';

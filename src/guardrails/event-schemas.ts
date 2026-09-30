@@ -57,19 +57,28 @@ const provenance = z.object({
 true satisfies Equals<z.infer<typeof provenance>, Provenance>;
 
 export interface GuardrailHit {
-  /** Stable rule id, e.g. `injection.instruction-override`. */
+  /** Stable rule id, e.g. `egress.canary-leak`. */
   rule: string;
   severity: Severity;
   /** Offsets into the inspected text; absent for whole-payload checks. */
   span?: { start: number; end: number };
   /** Stripped from host and trace unless `observability.include.guardrailMatchPreview`. */
   match?: string;
+  /**
+   * What the rule catches, in a few words, for a host's own rule: Theorem's
+   * rules are named in the trace catalog. Shown in place of the id.
+   */
+  label?: string;
+  /** Why a match matters, in a sentence, for a host's own rule. */
+  doc?: string;
 }
 const guardrailHit = z.object({
   rule: z.string(),
   severity: z.enum(SEVERITIES),
   span: z.object({ start: z.number(), end: z.number() }).optional(),
   match: z.string().optional(),
+  label: z.string().optional(),
+  doc: z.string().optional(),
 });
 true satisfies Equals<z.infer<typeof guardrailHit>, GuardrailHit>;
 

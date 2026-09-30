@@ -2,13 +2,14 @@ import '../fixtures/test-host.ts';
 import { mintCanary } from '../../src/guardrails/canary.ts';
 import { FIXED_CANARY } from '../../src/guardrails/corpus/canary-egress-attacks.ts';
 import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
-import { EGRESS_RULES, standardEgressEnforce } from '../../src/guardrails/egress.ts';
+import { standardEgressEnforce } from '../../src/guardrails/egress.ts';
 import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
 import {
   createOutboundProgressiveGate,
   createProgressiveYieldGate,
   DEFAULT_HOLDBACK,
 } from '../../src/guardrails/progressive-yield.ts';
+import { EGRESS_RULES } from '../../src/guardrails/rules.ts';
 import type { EgressEnforcer, GuardrailContext } from '../../src/guardrails/types.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 

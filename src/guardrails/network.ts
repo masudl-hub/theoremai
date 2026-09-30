@@ -280,6 +280,8 @@ export interface GuardedFetchOptions {
    */
   resolveHost?: ResolveHost;
   fetchFn?: typeof fetch;
+  /** Told how long each hop's checks took: its address, and its lookup when `resolveHost` is set. */
+  onCheck?: (ms: number) => void;
 }
 
 /** A host name's IPv4 and IPv6 addresses; empty when the name does not exist. */
@@ -335,8 +337,17 @@ export async function fetchGuarded(
   options: GuardedFetchOptions,
 ): Promise<Response> {
   const fetchFn = options.fetchFn ?? fetch;
-  let target = assertSafeUrl(url, options.policy);
-  await assertResolvesPublic(target, options, init.signal);
+  const clearHop = async (href: string): Promise<URL> => {
+    const start = performance.now();
+    try {
+      const safe = assertSafeUrl(href, options.policy);
+      await assertResolvesPublic(safe, options, init.signal);
+      return safe;
+    } finally {
+      options.onCheck?.(performance.now() - start);
+    }
+  };
+  let target = await clearHop(url);
   const origin = target.origin;
   const headers = new Headers(init.headers);
   let method = init.method ?? 'GET';
@@ -364,8 +375,7 @@ export async function fetchGuarded(
     if (hop === FETCH_REDIRECT_LIMIT) {
       throw new TheoremError('network', `Too many redirects from "${url}"`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
-    target = assertSafeUrl(new URL(location, target).href, options.policy);
-    await assertResolvesPublic(target, options, init.signal);
+    target = await clearHop(new URL(location, target).href);
     onOrigin &&= target.origin === origin;
     if (redirectsToGet(response.status, method)) {
       method = 'GET';

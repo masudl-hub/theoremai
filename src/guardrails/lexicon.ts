@@ -61,6 +61,12 @@ export const LEXICON_KEYS = [
   'session.tool_denied',
   'session.tool_aborted',
   'session.sign_in',
+  'sign_in.link',
+  'sign_in.pending',
+  'sign_in.done',
+  'sign_in.declined',
+  'sign_in.expired',
+  'sign_in.out_of_scope',
   'session.gate_expired',
   'session.turn_ended',
   'session.gate_pending',
@@ -246,6 +252,14 @@ const DEFAULTS: Record<LexiconKey, LexiconDefault> = {
   'session.tool_denied': "User denied execution of '{tool}'.",
   'session.tool_aborted': "'{tool}' was stopped before it ran.",
   'session.sign_in': 'Please sign in to continue.',
+  'sign_in.link': 'To do that I need your {service} account. Sign in here: {link}',
+  'sign_in.pending':
+    "Waiting for the person to sign in to {service}. Don't ask them for a password or key.",
+  'sign_in.done': 'The person signed in to {service}. The call continues.',
+  'sign_in.declined': 'The person chose not to sign in to {service}.',
+  'sign_in.expired': 'The sign-in link for {service} expired before it was used.',
+  'sign_in.out_of_scope':
+    "{service} needs access that this tool isn't set up for, so it can't do that.",
   'session.gate_expired': 'Sorry, that step is no longer waiting for approval.',
   'session.turn_ended': 'Sorry, that reply has already finished.',
   'session.gate_pending':
@@ -390,6 +404,18 @@ export const LEXICON_NOTES: Record<LexiconKey, string> = {
   'session.tool_aborted':
     'Told to the model when a step waiting to run is stopped before it runs. Takes {tool}.',
   'session.sign_in': 'Shown to the user when the agent needs them signed in to carry on.',
+  'sign_in.link':
+    'Sent to the user on a channel with no sign-in card, such as text messages or a call. Takes {service} and {link}, the secure page they sign in on.',
+  'sign_in.pending':
+    'Told to the model while a step waits for the user to sign in to a service. Takes {service}.',
+  'sign_in.done':
+    'Told to the model when the user has signed in and the waiting step runs. Takes {service}.',
+  'sign_in.declined':
+    'Told to the model when the user chooses not to sign in to a service. Takes {service}.',
+  'sign_in.expired':
+    'Told to the model when the sign-in link expires before the user uses it. Takes {service}.',
+  'sign_in.out_of_scope':
+    'Told to the model when a service asks for more access than the tool declares, so no sign-in is offered. Takes {service}.',
   'session.gate_expired':
     'Shown to the user who answers a step that is no longer waiting for approval.',
   'session.turn_ended': 'Shown to the user who tries to steer a reply that has already finished.',
@@ -443,6 +469,7 @@ export const LEXICON_NOTES: Record<LexiconKey, string> = {
 };
 
 const TOOL: readonly string[] = ['tool'];
+const SERVICE: readonly string[] = ['service'];
 
 /** The placeholders the kernel fills in for each key; any other `{name}` would reach the reader as typed. */
 const LEXICON_PLACEHOLDERS: Partial<Record<LexiconKey, readonly string[]>> = {
@@ -461,6 +488,12 @@ const LEXICON_PLACEHOLDERS: Partial<Record<LexiconKey, readonly string[]>> = {
   'session.abandon_gated': TOOL,
   'session.tool_denied': TOOL,
   'session.tool_aborted': TOOL,
+  'sign_in.link': ['service', 'link'],
+  'sign_in.pending': SERVICE,
+  'sign_in.done': SERVICE,
+  'sign_in.declined': SERVICE,
+  'sign_in.expired': SERVICE,
+  'sign_in.out_of_scope': SERVICE,
   'tool.awaiting_user': ['kind', 'prompt'],
   'tool.t2_loader_needs_snapshot': TOOL,
   'tool.t2_loader_shape': TOOL,

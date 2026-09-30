@@ -2,8 +2,9 @@ import '../fixtures/test-host.ts';
 import { mintCanary, USER_CLOSE, USER_OPEN } from '../../src/guardrails/canary.ts';
 import { TEST_OPENAI_KEY, TEST_SSN } from '../../src/guardrails/corpus/secrets.ts';
 import { INJ_IGNORE } from '../../src/guardrails/corpus/strings.ts';
-import { EGRESS_RULES, runEnforcer, standardEgressEnforce } from '../../src/guardrails/egress.ts';
+import { runEnforcer, standardEgressEnforce } from '../../src/guardrails/egress.ts';
 import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
+import { EGRESS_RULES } from '../../src/guardrails/rules.ts';
 import type {
   EgressEnforcer,
   GuardrailContext,

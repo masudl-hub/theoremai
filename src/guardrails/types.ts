@@ -211,7 +211,12 @@ export type DecisionDisclosureVerdict = Extract<Verdict, { action: 'allow' | 'bl
 
 export type DecisionDisclosureEnforcer = (
   state: unknown,
-  context: { destination: 'typesafe'; profileId: string; model: string; questionIds: string[] },
+  context: {
+    destination: 'typesafe' | 'openrouter';
+    profileId: string;
+    model: string;
+    questionIds: string[];
+  },
 ) => DecisionDisclosureVerdict | Promise<DecisionDisclosureVerdict>;
 
 /**

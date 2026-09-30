@@ -21,11 +21,7 @@ function projectGuardrailEvent(event: GuardrailEvent, includeMatch: boolean): Gu
   }
   return {
     ...event,
-    hits: event.hits.map(({ rule, severity, span }) => ({
-      rule,
-      severity,
-      ...(span ? { span } : {}),
-    })),
+    hits: event.hits.map(({ match: _match, ...hit }) => hit),
   };
 }
 

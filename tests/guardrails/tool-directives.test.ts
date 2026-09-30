@@ -6,7 +6,8 @@ import {
   TOOL_INGRESS_TOOLS,
 } from '../../src/guardrails/corpus/tool-ingress.ts';
 import { injectionSpans } from '../../src/guardrails/injection.ts';
-import { DIRECTIVE_RULES, directiveHits } from '../../src/guardrails/tool-directives.ts';
+import { DIRECTIVE_RULES } from '../../src/guardrails/rules.ts';
+import { directiveHits } from '../../src/guardrails/tool-directives.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 
 const tools = [...TOOL_INGRESS_TOOLS];

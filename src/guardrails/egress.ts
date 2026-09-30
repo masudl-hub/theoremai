@@ -5,6 +5,7 @@ import { describeError } from './error.ts';
 import { hitFromSpan } from './hits.ts';
 import { injectionSpans } from './injection.ts';
 import { lexiconText } from './lexicon.ts';
+import { EGRESS_RULES } from './rules.ts';
 import { sensitiveSpans } from './sensitive.ts';
 import { textForScan } from './serialize.ts';
 import type {
@@ -18,16 +19,6 @@ import type {
 import { SEVERITIES } from './types.ts';
 
 const SYSTEM_BOUNDARY = /This turn\x27s canary is|<\/?user_data>/i; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-
-export const EGRESS_RULES = {
-  canary: 'egress.canary-leak',
-  sensitive: 'egress.sensitive-echo',
-  boundary: 'egress.system-boundary',
-  injection: 'egress.injection-echo', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  /** Payload could not be rendered for inspection — released output is unverified. */
-  unscannable: 'egress.unscannable', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  enforcerError: 'egress.enforcer-error', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-} as const;
 
 function hitsFromSpans(
   text: string,
@@ -82,8 +73,8 @@ function isGuardrailHit(value: unknown): value is GuardrailHit {
   ) {
     return false;
   }
-  if (value.match !== undefined && typeof value.match !== 'string') {
-    return false;
+  for (const key of ['match', 'label', 'doc'] as const) {
+    if (value[key] !== undefined && typeof value[key] !== 'string') return false;
   }
   if (value.span !== undefined) {
     if (
@@ -136,7 +127,12 @@ function legacyHits(value: unknown): GuardrailHit[] {
         const severity = SEVERITIES.includes(hit.severity as Severity)
           ? (hit.severity as Severity)
           : 'high';
-        return { rule: hit.rule, severity };
+        return {
+          rule: hit.rule,
+          severity,
+          ...(typeof hit.label === 'string' ? { label: hit.label } : {}),
+          ...(typeof hit.doc === 'string' ? { doc: hit.doc } : {}),
+        };
       }
       return undefined;
     })

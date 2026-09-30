@@ -1,11 +1,6 @@
 import { normalizeForDetection } from './normalize.ts';
+import { DIRECTIVE_RULES } from './rules.ts';
 import type { AdvisoryLevel, GuardrailHit } from './types.ts';
-
-export const DIRECTIVE_RULES = {
-  toolName: 'tool_result.names-callable-tool',
-  imperative: 'tool_result.imperative',
-  authority: 'tool_result.authority-claim',
-} as const;
 
 /**
  * Imperatives aimed at an agent rather than a reader.

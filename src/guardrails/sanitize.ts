@@ -5,6 +5,7 @@ import { guardrailFromHits } from './events.ts';
 import { hitFromSpan } from './hits.ts';
 import { injectionSpans } from './injection.ts';
 import { type DetectionOptions, detectionForTrust, resolveGuardrailPolicy } from './policy.ts';
+import { SANITIZE_RULES } from './rules.ts';
 import { sensitiveSpans } from './sensitive.ts';
 import type { GuardrailHit, GuardrailStage, TrustLevel } from './types.ts';
 
@@ -25,7 +26,7 @@ function detectText(
     hitFromSpan(
       text,
       span,
-      span.kind === 'injection' ? 'sanitize.injection' : 'sanitize.sensitive',
+      span.kind === 'injection' ? SANITIZE_RULES.injection : SANITIZE_RULES.sensitive,
       'high',
     ),
   );

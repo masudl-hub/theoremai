@@ -1,6 +1,7 @@
 import '../fixtures/test-host.ts';
 import { eventHasCanary, mintCanary } from '../../src/guardrails/canary.ts';
-import { EGRESS_RULES, standardEgressEnforce } from '../../src/guardrails/egress.ts';
+import { standardEgressEnforce } from '../../src/guardrails/egress.ts';
+import { EGRESS_RULES } from '../../src/guardrails/rules.ts';
 import { CIRCULAR, scanTextOf, textForScan } from '../../src/guardrails/serialize.ts';
 import type { GuardrailContext } from '../../src/guardrails/types.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';

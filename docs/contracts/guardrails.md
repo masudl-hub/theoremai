@@ -510,8 +510,11 @@ is the cleanest injection path across this boundary, because the kernel frames i
 for the model as a system report. The kernel redacts every failure message under
 full detection, whatever the profile's `sanitizeInput` / `redactSensitive`, then
 frames it as `Tool error (code): …` and passes it through the result guard, so a
-remote failure is fenced like a remote result. That redaction emits no event:
-`tool_failure.redacted` comes only from a direct `guardToolFailureText` call.
+remote failure is fenced like a remote result. A redaction there is reported
+like any other: a `tool_result`-stage `redact` event with `tool_failure.redacted`,
+timed on the tool's span as the `tool_failure` check. Rebuilding a failure the
+model already read (history, a live replay) redacts again without reporting it
+twice.
 
 **Arguments.** `inspectToolArguments` reports rather than rewrites. Arguments are
 model-authored, so the risk is exfiltration — a credential lifted from context and
@@ -521,6 +524,8 @@ on, it scans the arguments for credential-shaped values (not injection) and
 returns a `flag` verdict, surfaced as an event; the call proceeds. With
 `redactSensitive` off, or arguments that cannot be serialized, it reports
 nothing.
+
+The tool boundary's rules (all ids: [Rule ids](#rule-ids)):
 
 | Rule | Stage | Meaning |
 | --- | --- | --- |
@@ -658,16 +663,18 @@ hits without a second copy of the secret:
 
 `errorInternal` is a block's builder-only reason; `forClient` strips it. `hits`
 carry rule identity and severity, plus offsets (`span`) when the detector located
-the match; whole-payload rules (tool boundary, taint, arguments, network, canary)
+the match; a host's egress `enforce` hook may add `label` and `doc` to its own
+hits, and both reach the host stream and the trace; whole-payload rules (tool boundary, taint, arguments, network, canary)
 carry none. Detectors may also attach
 `match` (the exact matched text, whole). The host stream and the
 trace's `theorem.guardrail` events strip `match` unless
 `observability.include.guardrailMatchPreview` is true (default **false** — treat like server logs when enabled). Canary leaks
 use the placeholder `[canary]`, never the live token. `forClient` /
 `forClientEvents` always strip `match` before browser/SSE. A clean surface
-emits nothing, so the absence of an event is itself information.
+emits no turn event, so on the host stream the absence of an event is itself
+information.
 
-Emission sites (non-`allow` only):
+Emission sites of host events (non-`allow` only):
 
 | Stage | Path |
 | --- | --- |
@@ -683,11 +690,45 @@ Emission sites (non-`allow` only):
 
 The trace records each decision as a `theorem.guardrail` event on the span
 where it happened when `observability.include.guardrailDecisions` is true
-(default). Match previews
+(default). The input and final egress checks record there even when they
+pass, as `action: "allow"` with no hits, and each carries `check` (`input`,
+`egress`) and `duration_ms`, the time the check took; the host stream still
+hears only hits. Checks that run many times over a stream record once per
+model call, with `runs` and their total `duration_ms`: `output_stream` (the
+progressive gate), `stream_canary`, and on a live response `live_output`. One
+that acts records its time so far on the decision instead, and
+`theorem.guardrail.stream_ms` on the call is their sum. A live session's
+inbound text check records on the session span as `live_input`. The tool
+boundary's checks record the same way on the tool's span, pass or not:
+`tool_arguments` (`inspectToolArguments`), `taint` (`checkTaintGate`),
+`tool_result` (`guardToolResult`), `tool_failure` (`guardToolFailureText`),
+`network` (`assertSafeUrl` before a declarative HTTP or MCP request) and
+`network_request` (the host lookup and every redirect hop inside
+`fetchGuarded`, summed). A decision one of them made is recorded once, with
+its time. Match previews
 follow `guardrailMatchPreview`. Helpers: `guardrailFromVerdict`,
 `guardrailFromHits`, `guardrailTurnEvent`, `projectGuardrailTurnEvent`,
 `hitFromSpan`, `projectGuardrailEvent`, plus the tool-boundary event shaping in
 `src/guardrails/tool-result.ts`.
+
+### Rule ids
+
+Every rule id Theorem's own guardrails report lives in
+`src/guardrails/rules.ts`, grouped as `SANITIZE_RULES`, `EGRESS_RULES`,
+`DIRECTIVE_RULES`, `TOOL_RULES` and `NETWORK_RULES`; `GuardrailRule` is their
+union. The trace catalog gives each one a label and a sentence on why it
+matters (`theorem.guardrail` → `hits` → `rule`), keyed by `GuardrailRule`, so a
+new id does not typecheck until it is described. Ids a host's egress
+`enforce` hook reports are its own; the hit's `label` and `doc` name and
+explain them, and without those they show as the raw id.
+
+| Group | Rules |
+| --- | --- |
+| `SANITIZE_RULES` | `sanitize.injection`, `sanitize.sensitive` |
+| `EGRESS_RULES` | `egress.canary-leak`, `egress.sensitive-echo`, `egress.system-boundary`, `egress.injection-echo`, `egress.unscannable`, `egress.enforcer-error`, `egress.blocked` (the progressive gate stopped on a verdict that named no rule) |
+| `DIRECTIVE_RULES` | `tool_result.names-callable-tool`, `tool_result.imperative`, `tool_result.authority-claim` |
+| `TOOL_RULES` | `tool_result.redacted`, `tool_failure.redacted`, `tool_call.sensitive-argument`, `tool_call.tainted-turn`, `tool_call.steered-turn` |
+| `NETWORK_RULES` | `network.blocked` |
 
 ## Network
 
@@ -711,7 +752,7 @@ covers remote HTTP and MCP tools, token refresh, discovery, and token exchange.
 DNS lookup, such as Workers. The lookup is separate from the
 connection's own, so it stops names that point inward but not a DNS server that
 changes its answer between the two (rebinding); that stays the host egress
-layer's job.
+layer's job. `onCheck`, when given, hears how long each hop's check took.
 
 ```ts
 guardrails: {
@@ -793,8 +834,8 @@ in `src/guardrails/lexicon.ts` under a stable `LexiconKey`. Hosts replace
 defaults process-wide with `overrideLexicon({ … })` (same registration pattern
 as `registerTraceDestination`) and per profile with the profile's `lexicon`,
 which wins over the process override. Every profile type takes a `lexicon`.
-Both throw `TheoremError('config', …)` on unknown keys or a missing required
-placeholder.
+Both throw `TheoremError('config', …)` on unknown keys, a missing required
+placeholder, or a placeholder the key never fills in.
 
 | Key family | Examples | Override |
 | --- | --- | --- |
@@ -844,12 +885,13 @@ From `src/guardrails/mod.ts`:
 | Injection / sensitive | `injectionSpans`, `sensitiveSpans` |
 | Vocabulary | `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailEvent`, `guardrailEventSchema`, `Provenance`, `ToolOrigin`, `GuardrailAction`, `GuardrailContext`, `OutboundPayload`, `EgressEnforcer`, `EgressOnBlock`, `ProfileEgressSpec`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `DecisionDisclosureVerdict`, `DecisionDisclosureEnforcer`, `DecisionGuardrailsSpec`, `NetworkGuardrailSpec`, `CanaryGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES`, `EGRESS_ON_BLOCK` |
 | Policy | `resolveGuardrailPolicy`, `detectionForTrust`, `DetectionOptions` |
-| Tool boundary | `guardToolResult`, `guardToolFailureText`, `inspectToolArguments`, `toolCallEvent`, `wrapToolData`, `isRemoteOrigin`, `composeToolText`, `checkTaintGate`, `recordTaint`, `isTainted`, `isSuspicious`, `directiveHits`, `looksDirective`, `advisoryLevel`, `DIRECTIVE_RULES`, `ADVISORY_LEVELS`, `AdvisoryLevel`, `TOOL_CLOSE`, `TOOL_ORIGINS`, `TAINT_GATES`, `GuardedToolText`, `Provenance`, `ToolOrigin`, `TurnTaint`, `TaintGate`, `TaintGuardrailSpec`, `GuardrailEvent` |
+| Rule ids | `SANITIZE_RULES`, `EGRESS_RULES`, `DIRECTIVE_RULES`, `TOOL_RULES`, `NETWORK_RULES`, `GuardrailRule` |
+| Tool boundary | `guardToolResult`, `guardToolFailureText`, `inspectToolArguments`, `toolCallEvent`, `wrapToolData`, `isRemoteOrigin`, `composeToolText`, `checkTaintGate`, `recordTaint`, `isTainted`, `isSuspicious`, `directiveHits`, `looksDirective`, `advisoryLevel`, `ADVISORY_LEVELS`, `AdvisoryLevel`, `TOOL_CLOSE`, `TOOL_ORIGINS`, `TAINT_GATES`, `GuardedToolText`, `Provenance`, `ToolOrigin`, `TurnTaint`, `TaintGate`, `TaintGuardrailSpec`, `GuardrailEvent` |
 | Serialization | `textForScan`, `scanTextOf`, `ScanText` |
 | Sanitize | `sanitizeProjectId`, `sanitizeText`, `detectText`, `sanitizeHistory`, `sanitizeTurnRequest`, `sanitizeTurnRequestWithEvents`, `redactSensitiveOnly`, `detectionForProfile` |
 | Events | `guardrailFromHits`, `guardrailFromVerdict`, `guardrailTurnEvent`, `projectGuardrailTurnEvent`, `hitFromSpan`, `projectGuardrailEvent` |
 | Canary | `mintCanary`, `bindCanary`, `wrapUserData`, `scanTextForCanaryLeak`, `createCanaryStreamGate`, `eventHasCanary`, `isStreamedCanaryEvent`, `redactCanary`, `OMIT_CANARY`, `USER_OPEN`, `USER_CLOSE`, `createCanaryGateSession`, `filterCanaryGatedEvents`, `CanaryGateResult`, `CanaryGateSession`, `CanaryStreamGate` |
-| Egress / Live | `standardEgressEnforce`, `collectEgressHits`, `hitRules`, `EGRESS_RULES`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `DEFAULT_HOLDBACK`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveHeldOutput`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
+| Egress / Live | `standardEgressEnforce`, `collectEgressHits`, `hitRules`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `DEFAULT_HOLDBACK`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveHeldOutput`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
 | Network | `assertSafeUrl`, `fetchGuarded`, `dnsOverHttpsResolver`, `isLocalhostName`, `isPrivateOrLocalAddress`, `GuardedFetchOptions`, `ResolveHost`, `DnsOverHttpsOptions`, `NetworkGuardrailSpec` |
 | Quota | `QuotaSlotStatus`, `QuotaExhausted`, `clientIp`, `quotaExhausted`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |
 | Lexicon | `LEXICON_KEYS`, `LexiconKey`, `CLIENT_LEXICON_KEYS`, `ClientLexiconKey`, `LexiconOverrides`, `LexiconParams`, `lexiconDefault`, `lexiconText`, `overrideLexicon`, `resetLexicon` |

@@ -1,5 +1,6 @@
 import { type LexiconOverrides, lexiconText } from './lexicon.ts';
 import { detectionForTrust } from './policy.ts';
+import { TOOL_RULES } from './rules.ts';
 import { sanitizeText } from './sanitize.ts';
 import { textForScan } from './serialize.ts';
 import { advisoryLevel, directiveHits } from './tool-directives.ts';
@@ -148,7 +149,7 @@ function guardToolResult(
   const fenced = remote ? wrapToolData(redacted, provenance, advisory, lexicon) : redacted;
 
   const hits: GuardrailHit[] = [
-    ...(changed ? [{ rule: 'tool_result.redacted', severity: 'medium' as const }] : []),
+    ...(changed ? [{ rule: TOOL_RULES.resultRedacted, severity: 'medium' as const }] : []),
     ...suspicious,
   ];
   if (hits.length === 0) {
@@ -189,7 +190,7 @@ function guardToolFailureText(
       stage: 'tool_result',
       trust: 'untrusted',
       action: 'redact',
-      hits: [{ rule: 'tool_failure.redacted', severity: 'medium' }],
+      hits: [{ rule: TOOL_RULES.failureRedacted, severity: 'medium' }],
       provenance,
     },
   };
@@ -216,7 +217,7 @@ function inspectToolArguments(args: unknown, policy: ResolvedGuardrailPolicy): V
   }
   return {
     action: 'flag',
-    hits: [{ rule: 'tool_call.sensitive-argument', severity: 'high' }],
+    hits: [{ rule: TOOL_RULES.sensitiveArgument, severity: 'high' }],
   };
 }
 
@@ -293,7 +294,7 @@ function checkTaintGate(
   const suspicious = isSuspicious(taint);
   const hits = [
     {
-      rule: suspicious ? 'tool_call.steered-turn' : 'tool_call.tainted-turn',
+      rule: suspicious ? TOOL_RULES.steeredTurn : TOOL_RULES.taintedTurn,
       severity: 'high' as const,
     },
   ];

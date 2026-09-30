@@ -3,13 +3,19 @@ import { type LexiconOverrides, lexiconText } from '../../guardrails/lexicon.ts'
 import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import {
   checkTaintGate,
+  guardToolFailureText,
   guardToolResult,
   inspectToolArguments,
   toolCallEvent,
 } from '../../guardrails/tool-result.ts';
 import type { Provenance, ToolOrigin } from '../../guardrails/types.ts';
 import type { SpanHandle, TraceAttributes } from '../../observability/trace-span.ts';
-import { startToolTrace, type ToolCallEnd, type ToolOutcome } from '../engine/tool-trace.ts';
+import {
+  recordToolCheck,
+  startToolTrace,
+  type ToolCallEnd,
+  type ToolOutcome,
+} from '../engine/tool-trace.ts';
 import { type InjectUnit, isAwaitingUserInput } from '../stages.ts';
 import type { Source } from '../turn-events.ts';
 import type { InteractionPart, Profile, TurnEvent } from '../types.ts';
@@ -36,6 +42,7 @@ import {
   executeMcpTool,
   modelResultFromOutput,
   parseToolOutput,
+  withMedia,
 } from './remote.ts';
 import {
   extractLoadedIds,
@@ -285,16 +292,59 @@ type Reproject = (
   | { ok: true; outputRaw: unknown; modelResult: ModelToolResult }
   | { ok: false; failure: ToolFailure };
 
-type ResultGuard = (result: ModelToolResult) => Generator<TurnEvent, ModelToolResult>;
+/** Guards what the model reads back from a call: a result, or a failure's message and then its framing. */
+interface ResultGuard {
+  result: (result: ModelToolResult) => Generator<TurnEvent, ModelToolResult>;
+  failure: (failure: ToolFailure) => Generator<TurnEvent, ModelToolResult>;
+}
 
 type Provisional =
   | { outputRaw: unknown; modelResult: ModelToolResult }
   | {
       failure: ToolFailure;
-      modelResult: ModelToolResult;
       callNotStarted?: boolean;
       denied?: true;
     };
+
+/** What a post-tool stage's deny or `mutate` settles the call with instead; `undefined` when it keeps the result. */
+function* reviseAfterStages(
+  post: PostToolStageOutcome,
+  guard: ResultGuard,
+  reproject: Reproject | undefined,
+): Generator<
+  TurnEvent,
+  | { failure?: ToolFailure; outputRaw: unknown; modelResult: ModelToolResult; awaiting: boolean }
+  | undefined
+> {
+  if (post.deny) {
+    const failure: ToolFailure = {
+      code: post.deny.code,
+      kind: 'blocked',
+      message: post.deny.message,
+    };
+    return {
+      failure,
+      outputRaw: undefined,
+      modelResult: yield* guard.failure(failure),
+      awaiting: false,
+    };
+  }
+  if (!post.mutate || !reproject) return undefined;
+  const next = reproject(plainToolInput(post.mutate.output));
+  if (!next.ok) {
+    return {
+      failure: next.failure,
+      outputRaw: undefined,
+      modelResult: yield* guard.failure(next.failure),
+      awaiting: false,
+    };
+  }
+  return {
+    outputRaw: next.outputRaw,
+    modelResult: yield* guard.result(next.modelResult),
+    awaiting: isAwaitingUserInput(next.outputRaw),
+  };
+}
 
 /**
  * The one settlement for every transport. `reproject` is absent when the kernel owns the
@@ -313,7 +363,9 @@ async function* settleToolCall(args: {
   sources?: (output: unknown) => Source[];
 }): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
   const { base, toolName, callId, input, stages, provisional, guard, reproject, sources } = args;
-  let modelResult = yield* guard(provisional.modelResult);
+  let modelResult = yield* 'failure' in provisional
+    ? guard.failure(provisional.failure)
+    : guard.result(provisional.modelResult);
   let failure = 'failure' in provisional ? provisional.failure : undefined;
   let outputRaw = 'outputRaw' in provisional ? provisional.outputRaw : undefined;
   const callNotStarted = 'callNotStarted' in provisional ? provisional.callNotStarted : undefined;
@@ -334,25 +386,10 @@ async function* settleToolCall(args: {
       awaiting: awaiting || undefined,
       mutable: !failure && reproject !== undefined,
     });
-    if (post.deny) {
-      denied = true;
-      failure = { code: post.deny.code, kind: 'blocked', message: post.deny.message };
-      modelResult = yield* guard(formatToolFailureForModel(failure));
-      outputRaw = undefined;
-      awaiting = false;
-    } else if (post.mutate && reproject) {
-      const next = reproject(plainToolInput(post.mutate.output));
-      if (next.ok) {
-        failure = undefined;
-        outputRaw = next.outputRaw;
-        modelResult = yield* guard(next.modelResult);
-        awaiting = isAwaitingUserInput(outputRaw);
-      } else {
-        failure = next.failure;
-        modelResult = yield* guard(formatToolFailureForModel(next.failure));
-        outputRaw = undefined;
-        awaiting = false;
-      }
+    const revised = yield* reviseAfterStages(post, guard, reproject);
+    if (revised) {
+      ({ failure, outputRaw, modelResult, awaiting } = revised);
+      if (post.deny) denied = true;
     }
   }
 
@@ -363,6 +400,7 @@ async function* settleToolCall(args: {
         phase: 'complete',
         output: outputRaw,
         readBack: formatToolResult(modelResult),
+        ...(modelResult.parts?.length ? { parts: modelResult.parts } : {}),
       });
   return {
     modelResult,
@@ -397,7 +435,6 @@ function settleToolFailure(
     guard,
     provisional: {
       failure,
-      modelResult: formatToolFailureForModel(failure),
       ...(args.callNotStarted ? { callNotStarted: true } : {}),
       ...(args.denied ? { denied: true } : {}),
     },
@@ -408,11 +445,16 @@ function resultGuard(
   tool: RegisteredTool,
   ctx: ToolContext,
   snapshot: TurnToolSnapshot | undefined,
+  span: SpanHandle | undefined,
 ): ResultGuard {
   const provenance = provenanceFor(tool);
   const policy = resolveGuardrailPolicy(ctx.profile.guardrails);
   const callableTools = snapshot?.executable ?? [];
-  return (result) => guardResult(result, provenance, policy, callableTools, ctx.profile.lexicon);
+  const inputs = { provenance, policy, callableTools, lexicon: ctx.profile.lexicon, span };
+  return {
+    result: (result) => guardResult(result, inputs),
+    failure: (failure) => guardFailure(failure, inputs),
+  };
 }
 
 async function* runFunctionPreBodyStages(args: {
@@ -476,7 +518,7 @@ export async function* executeFunction(
   snapshot?: TurnToolSnapshot,
   stages?: ToolStageSupport,
 ): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
-  const guard = resultGuard(tool, ctx, snapshot);
+  const guard = resultGuard(tool, ctx, snapshot, stages?.span);
   const callId = base.callId;
   const parsed = yield* startToolExecution(tool, rawInput, ctx, base);
   if (!parsed.ok) {
@@ -697,7 +739,8 @@ async function* settleRemoteOutcome(args: {
     sources: tool.sources,
     reproject: makeReproject(
       (v) => parseToolOutput(tool.output, v),
-      modelResultFromOutput,
+      // A hook's edit replaces the value; the media the tool returned stays.
+      (data) => withMedia(modelResultFromOutput(data), outcome.modelResult.parts),
       lexicon,
     ),
   });
@@ -864,7 +907,7 @@ async function* runRegisteredTool(
 
   if (isGateResumeDenied(ctx.resume)) {
     return yield* settleToolFailure(
-      resultGuard(tool, { ...ctx, callId, profile }, snapshot),
+      resultGuard(tool, { ...ctx, callId, profile }, snapshot, stages?.span),
       base,
       refusalFailure(name, ctx.resume, profile.lexicon),
       stages,
@@ -876,13 +919,17 @@ async function* runRegisteredTool(
   const policy = resolveGuardrailPolicy(profile.guardrails);
   const provenance = provenanceFor(tool);
 
+  const argsStart = performance.now();
   const argEvent = toolCallEvent(inspectToolArguments(safeInput, policy), provenance);
+  recordToolCheck(stages?.span, 'tool_arguments', performance.now() - argsStart, argEvent);
   if (argEvent) {
     yield { type: 'guardrail', guardrail: argEvent };
   }
 
+  const taintStart = performance.now();
   const taintVerdict = checkTaintGate(ctx.turn?.taint, tool.access, policy, profile.lexicon);
   const taintEvent = toolCallEvent(taintVerdict, provenance);
+  recordToolCheck(stages?.span, 'taint', performance.now() - taintStart, taintEvent);
   if (taintEvent) {
     yield { type: 'guardrail', guardrail: taintEvent };
   }
@@ -931,27 +978,61 @@ async function* settleByType(
     callId: base.callId,
     safeInput,
     stages,
-    guard: resultGuard(tool, fullCtx, snapshot),
+    guard: resultGuard(tool, fullCtx, snapshot, stages?.span),
     lexicon: fullCtx.profile.lexicon,
   });
 }
 
 /** Every tool returns through here, so a new tool type cannot skip the fence, redaction or provenance label. */
+interface GuardInputs {
+  provenance: Provenance;
+  policy: ReturnType<typeof resolveGuardrailPolicy>;
+  callableTools: readonly string[];
+  lexicon: LexiconOverrides | undefined;
+  span: SpanHandle | undefined;
+}
+
+/**
+ * A failure's message is redacted under full detection, whatever the profile
+ * enables: the kernel frames it for the model as a system report, and a remote
+ * server writes its own error strings. What it changed is a decision like any
+ * other, reported and timed; the framed message is then guarded as a result.
+ */
+function* guardFailure(
+  failure: ToolFailure,
+  guard: GuardInputs,
+): Generator<TurnEvent, ModelToolResult> {
+  const start = performance.now();
+  const checked = guardToolFailureText(failure.message, guard.provenance, {
+    ...guard.policy,
+    sanitizeInput: true,
+    redactSensitive: true,
+  });
+  recordToolCheck(guard.span, 'tool_failure', performance.now() - start, checked.event);
+  if (checked.event) {
+    yield { type: 'guardrail', guardrail: checked.event };
+  }
+  return yield* guardResult(
+    formatToolFailureForModel({ ...failure, message: checked.text }),
+    guard,
+  );
+}
+
 function* guardResult(
   result: ModelToolResult,
-  provenance: Provenance,
-  policy: ReturnType<typeof resolveGuardrailPolicy>,
-  callableTools: readonly string[],
-  lexicon: LexiconOverrides | undefined,
+  guard: GuardInputs,
 ): Generator<TurnEvent, ModelToolResult> {
+  const { provenance, span } = guard;
+  const start = performance.now();
   const guarded = guardToolResult(
     result.finding,
     result.data,
     provenance,
-    policy,
-    callableTools,
-    lexicon,
+    guard.policy,
+    guard.callableTools,
+    guard.lexicon,
   );
+  recordToolCheck(span, 'tool_result', performance.now() - start, guarded.event);
   if (guarded.event) {
     yield { type: 'guardrail', guardrail: guarded.event };
   }

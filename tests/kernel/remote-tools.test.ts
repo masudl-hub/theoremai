@@ -5,7 +5,7 @@ import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import type { ToolExecuteSettlement } from '../../src/kernel/tools/execute.ts';
 import { executeRegisteredTool, parseMcpRpcResponse } from '../../src/kernel/tools/mod.ts';
-import { buildHttpToolTarget } from '../../src/kernel/tools/remote.ts';
+import { buildHttpToolTarget, MAX_TOOL_RESPONSE_BYTES } from '../../src/kernel/tools/remote.ts';
 import type { Profile } from '../../src/kernel/types.ts';
 import { isRecord } from '../../src/kernel/util/record.ts';
 import { eventsOf, guardrailAt, toolEventsOf } from '../fixtures/events.ts';
@@ -27,6 +27,7 @@ const testProfile: Profile = {
   defaultModel: 'test-model',
   tools: {
     allow: [
+      'fetch_everything',
       'fetch_user_profile',
       'linear_issue',
       'private_internal_api',
@@ -1396,4 +1397,117 @@ Deno.test('HTTP and MCP tools refuse a host whose name resolves inward', async (
   }
   assertEquals(asked, ['metadata.example.com', 'mcp.example.com']);
   assertEquals(fetched, 0);
+});
+
+Deno.test('Declarative HTTP Tool fails, without reading on, when the response is too large', async () => {
+  resetTools();
+  registerTool({
+    name: 'fetch_everything',
+    description: 'Fetch a very large payload',
+    type: 'http',
+    endpoint: 'https://api.example.com/everything',
+    method: 'GET',
+    category: 'api',
+    access: 'read-only',
+    loadTier: 'T0',
+    permission: 'auto',
+    paths: ['*'],
+    input: z.object({}),
+    output: z.unknown(),
+    mapping: {},
+  });
+  const chunk = new Uint8Array(1024 * 1024).fill(32);
+  let pulled = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() =>
+    Promise.resolve(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          pull(controller) {
+            pulled++;
+            controller.enqueue(chunk);
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    )) as typeof fetch;
+  try {
+    const events = [];
+    const exec = executeRegisteredTool({
+      tools: defaultKernelScope.tools,
+      profile: testProfile,
+      name: 'fetch_everything',
+      input: {},
+      callId: 'call_too_large',
+      ctx: {},
+    });
+    for (let next = await exec.next(); !next.done; next = await exec.next()) {
+      events.push(next.value);
+    }
+    assertEquals(toolEventsOf(events, 'error')[0]?.failure?.code, 'response_too_large');
+    assertEquals(pulled <= MAX_TOOL_RESPONSE_BYTES / chunk.byteLength + 2, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+/** Answers every MCP call with `result`. */
+async function withMcpResult<T>(result: unknown, run: () => Promise<T>): Promise<T> {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit) => {
+    const { id } = JSON.parse(String(init?.body)) as { id: unknown };
+    return Promise.resolve(
+      new Response(JSON.stringify({ jsonrpc: '2.0', id, result }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+  }) as typeof fetch;
+  try {
+    return await run();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+const LINEAR_INPUT = { title: 'Bug', description: 'Investigate' };
+
+Deno.test('an MCP result is its structured content when that fits the declared output', async () => {
+  registerLinearMcpFixture();
+  const issue = { issueId: 'LIN-7', url: 'https://linear.app/issue/LIN-7' };
+  const { settlement } = await withMcpResult(
+    { content: [{ type: 'text', text: 'Created LIN-7' }], structuredContent: issue },
+    () => collectToolRun('linear_issue', LINEAR_INPUT, 'call_mcp_structured'),
+  );
+  assertEquals(settlement?.outputRaw, issue);
+});
+
+Deno.test('structured content that misses the declared output falls back to the text', async () => {
+  registerLinearMcpFixture();
+  const issue = { issueId: 'LIN-8', url: 'https://linear.app/issue/LIN-8' };
+  const { settlement } = await withMcpResult(
+    {
+      content: [{ type: 'text', text: JSON.stringify(issue) }],
+      structuredContent: { somethingElse: true },
+    },
+    () => collectToolRun('linear_issue', LINEAR_INPUT, 'call_mcp_structured_miss'),
+  );
+  assertEquals(settlement?.outputRaw, issue);
+});
+
+Deno.test('an MCP image reaches the model and the client as media, beside the value', async () => {
+  registerLinearMcpFixture();
+  const issue = { issueId: 'LIN-9', url: 'https://linear.app/issue/LIN-9' };
+  const image = { type: 'image', mimeType: 'image/png', data: 'iVBORw0KGgo=' };
+  const { events, settlement } = await withMcpResult(
+    {
+      content: [{ type: 'text', text: 'Created LIN-9' }, image, { type: 'image', data: '' }],
+      structuredContent: issue,
+    },
+    () => collectToolRun('linear_issue', LINEAR_INPUT, 'call_mcp_image'),
+  );
+  assertEquals(settlement?.outputRaw, issue);
+  assertEquals(settlement?.modelResult?.parts, [image]);
+  const [complete] = toolEventsOf(events, 'complete');
+  assertEquals(complete?.parts, [image]);
 });

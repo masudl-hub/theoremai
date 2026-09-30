@@ -54,7 +54,13 @@ import {
   splitForCompaction,
 } from '../compaction.ts';
 import { type MediaTokenFamily, mediaTokenFamily } from '../token-estimate.ts';
-import { endTurnSpan, guardrailAttributes, OutputFold, turnSpanOptions } from '../turn-trace.ts';
+import {
+  endTurnSpan,
+  guardrailAttributes,
+  guardrailCheckAttributes,
+  OutputFold,
+  turnSpanOptions,
+} from '../turn-trace.ts';
 import { sumEventTokens } from '../usage.ts';
 import { runAttemptsWithValidation } from './gates.ts';
 import { applyTurnStage } from './stages.ts';
@@ -68,12 +74,18 @@ function projectForObs(
   return projectGuardrailTurnEvent(event, policy?.include.guardrailMatchPreview ?? false);
 }
 
+const MS_PER_S = 1000;
+
 /**
  * Record an event as delivered to the host; every yield to the host passes
  * through here, so it is where an error gets the user's wording.
  */
 function deliver(ctx: TraceCtx, event: TurnEvent): TurnEvent {
   const out = withPublicWording(event, ctx.known?.lexicon);
+  if (out.type === 'text' && !ctx.shownText) {
+    ctx.shownText = true;
+    ctx.root.set({ 'theorem.turn.time_to_first_text': ctx.root.msSinceStart() / MS_PER_S });
+  }
   ctx.seen.push(out);
   ctx.delivered.add(out, ctx.root.nowUnixNano());
   return out;
@@ -432,6 +444,8 @@ type TraceCtx = {
    */
   known: Profile | undefined;
   seen: TurnEvent[];
+  /** Set once the host has been given reply text. */
+  shownText?: boolean;
   delivered: OutputFold;
   root: SpanHandle;
   /** Step-state trace handle, once the turn's model binding is known. */
@@ -569,14 +583,29 @@ async function* emitCancelledDoneAfterAbort(ctx: TraceCtx): AsyncGenerator<TurnE
 }
 
 async function* runTurnBody(ctx: TraceCtx, provider: ModelProvider): AsyncGenerator<TurnEvent> {
+  const checkStart = performance.now();
   const sanitized = sanitizeTurnRequestWithEvents(
     ctx.req,
     ctx.registry.profiles.get(ctx.req.profile),
   );
+  const checkMs = performance.now() - checkStart;
   ctx.safe = sanitized.request;
+  const hits = sanitized.events.filter((event) => event.type === 'guardrail');
+  // The check's time rides on its last decision, or on a pass when it found nothing.
+  if (hits.length === 0) {
+    ctx.root.event(
+      'theorem.guardrail',
+      guardrailCheckAttributes('input', checkMs, undefined, { stage: 'input', trust: 'untrusted' }),
+    );
+  }
   for (const event of sanitized.events) {
     if (event.type === 'guardrail') {
-      ctx.root.event('theorem.guardrail', guardrailAttributes(event.guardrail));
+      ctx.root.event(
+        'theorem.guardrail',
+        event === hits.at(-1)
+          ? guardrailCheckAttributes('input', checkMs, event.guardrail, event.guardrail)
+          : guardrailAttributes(event.guardrail),
+      );
     }
     yield deliver(ctx, projectForObs(event, ctx.observability));
   }

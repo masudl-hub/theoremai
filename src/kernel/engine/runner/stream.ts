@@ -24,7 +24,7 @@ import type {
   ProviderEvent,
   ResolvedGeneration,
 } from '../../types.ts';
-import type { CallTrace } from '../turn-trace.ts';
+import type { CallTrace, StreamCheck } from '../turn-trace.ts';
 
 /** What the stream yields to the step runner: every provider event but `response`, which only the trace reads. */
 export type StreamEvent = Exclude<ProviderEvent, { type: 'response' }>;
@@ -69,11 +69,20 @@ async function* yieldProviderEvents(args: {
   request: ProviderCompleteRequest;
   provider: ModelProvider;
   /** This call's recorder: sees every tap row and every provider event before any gate. */
-  call: Pick<CallTrace, 'tap' | 'observe'>;
+  call: Pick<CallTrace, 'tap' | 'observe'> & Partial<Pick<CallTrace, 'guardTime'>>;
   signal?: AbortSignal;
   control?: OutboundStreamControl;
 }): AsyncGenerator<StreamEvent> {
   const { profile, generation, request, provider, call, signal, control } = args;
+  /** Runs one stream check and adds the run to the call's record of that check. */
+  async function timed<T>(check: StreamCheck, run: () => T | Promise<T>): Promise<T> {
+    const start = performance.now();
+    try {
+      return await run();
+    } finally {
+      call.guardTime?.(check, performance.now() - start);
+    }
+  }
   const { canary } = generation;
   const policy = resolveGuardrailPolicy(profile.guardrails);
   const context: GuardrailContext = {
@@ -114,7 +123,7 @@ async function* yieldProviderEvents(args: {
       return 'pass';
     }
     const template = pendingStream;
-    const result = await gate.flush();
+    const result = await timed('output_stream', () => gate.flush());
     pendingStream = null;
     if (result.blocked) {
       if (canary && canaryOnlyImmediateStop(policy)) {
@@ -143,7 +152,7 @@ async function* yieldProviderEvents(args: {
       return 'continue';
     }
     pendingStream = event;
-    const result = await gate.process(event.text ?? '');
+    const result = await timed('output_stream', () => gate.process(event.text ?? ''));
     if (result.blocked) {
       if (canary && canaryOnlyImmediateStop(policy)) {
         yield* yieldCanaryLeak();
@@ -182,7 +191,7 @@ async function* yieldProviderEvents(args: {
       return;
     }
 
-    if (canary && eventHasCanary(event, canary)) {
+    if (canary && (await timed('stream_canary', () => eventHasCanary(event, canary)))) {
       yield* yieldCanaryLeak();
       return;
     }

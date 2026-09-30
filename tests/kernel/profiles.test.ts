@@ -612,7 +612,9 @@ Deno.test("isModelProfile and requireModelProfile refuse 'host' and 'decision' p
       type: 'decision',
       id: 'model_gate_decision',
       identity: { handle: 'Decision' },
-      models: { jev: { apiId: 'jev-latest', timeoutMs: 1000 } },
+      models: {
+        jev: { protocol: 'decision', provider: 'typesafe', apiId: 'jev-latest', timeoutMs: 1000 },
+      },
       inputs: { state: 'json', maxStateBytes: 1000 },
       decision: { contract: 'test.v1' },
     }),

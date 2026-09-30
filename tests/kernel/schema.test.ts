@@ -44,8 +44,8 @@ Deno.test('PROFILE_TYPE_PROTOCOLS covers every archetype and only known protocol
   assertEquals([...PROFILE_TYPES].sort().join(), Object.keys(PROFILE_TYPE_PROTOCOLS).sort().join());
   for (const type of PROFILE_TYPES) {
     const allowed = PROFILE_TYPE_PROTOCOLS[type];
-    // host and native decision profiles do not select a chat/live wire protocol.
-    assertEquals(allowed.length > 0, type !== 'host' && type !== 'decision');
+    // Host profiles alone have no model protocol.
+    assertEquals(allowed.length > 0, type !== 'host');
     for (const protocol of allowed) {
       assertEquals(PROTOCOLS.includes(protocol), true);
       assertEquals(isValidProfileProtocol(type, protocol), true);
@@ -69,6 +69,8 @@ Deno.test('PROFILE_TYPE_PROTOCOLS rejects every illegal type/protocol pair', () 
   assertEquals(isValidProfileProtocol('live', 'geminiLive'), true);
   assertEquals(isValidProfileProtocol('text', 'openAi'), true);
   assertEquals(isValidProfileProtocol('text', 'geminiInteractions'), true);
+  assertEquals(isValidProfileProtocol('decision', 'decision'), true);
+  assertEquals(isValidProfileProtocol('text', 'decision'), false);
 });
 
 Deno.test('every PROFILE_TYPE_PROTOCOLS entry has PROTOCOL_PROVIDERS partners', () => {
@@ -83,6 +85,7 @@ Deno.test('providersFor / protocolsFor / coerce stay on PROTOCOL_PROVIDERS', () 
   assertEquals([...providersFor('geminiInteractions')], ['google']);
   assertEquals([...providersFor('geminiLive')], ['google']);
   assertEquals([...providersFor('openAi')].sort().join(), 'local,openrouter');
+  assertEquals([...providersFor('decision')].sort().join(), 'openrouter,typesafe');
   assertEquals([...protocolsFor('google')], ['geminiInteractions', 'geminiLive']);
   assertEquals(coerceProvider('geminiInteractions', 'openrouter'), 'google');
   assertEquals(coerceProtocol('openAi', 'google'), 'geminiInteractions');
@@ -145,7 +148,7 @@ Deno.test('catalogPathFor substitutes host map keys with *', () => {
   assertEquals(PROFILE_FIELDS[catalogPathFor(['models', 'pro', 'apiId'])] != null, true);
 });
 
-Deno.test('isValidPair matches createProvider routing table', () => {
+Deno.test('isValidPair matches turn and decision routing tables', () => {
   const legal: Array<[Protocol, Provider]> = [
     ['geminiInteractions', 'google'],
     ['openAi', 'openrouter'],

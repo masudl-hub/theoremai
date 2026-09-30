@@ -615,7 +615,8 @@ export interface ToolCallEdit {
  *
  * - `running` — the body started; `edited` when the user changed the arguments.
  * - `progress` / `trace` / `artifact` / `warning` — streamed while it ran.
- * - `complete` — `output`; `awaiting` when it asked the user something;
+ * - `complete` — `output`; `awaiting` when it asked the user something; `parts` for the
+ *   media it returned beside its output (images, audio);
  *   `readBack` is the text the model reads back, after guardrails.
  * - `gate` — confirmation, permission or sign-in held the call; the body did not run.
  * - `error` — the call failed or was refused (`failure.kind` `declined` · `blocked` · `cancelled` · …);
@@ -629,7 +630,13 @@ export type ToolPhaseEvent = ToolPhaseBase &
     | { phase: 'trace'; step: ToolTraceStep }
     | { phase: 'artifact'; artifact: unknown }
     | { phase: 'warning'; warning: ToolWarning }
-    | { phase: 'complete'; output: unknown; awaiting?: boolean; readBack?: string }
+    | {
+        phase: 'complete';
+        output: unknown;
+        awaiting?: boolean;
+        readBack?: string;
+        parts?: InteractionPart[];
+      }
     | { phase: 'gate'; gate: ToolGate }
     | { phase: 'error'; failure: ToolFailure; readBack?: string }
     | { phase: 'cancel' }
@@ -651,6 +658,7 @@ const toolPhaseEvent = z.discriminatedUnion('phase', [
     output: z.unknown(),
     awaiting: z.boolean().optional(),
     readBack: z.string().optional(),
+    parts: z.array(interactionPart).optional(),
   }),
   z.object({ ...toolPhaseBase, phase: z.literal('gate'), gate: toolGate }),
   z.object({

@@ -47,6 +47,31 @@ function turnGuardrailTypes(key: string): readonly ProfileType[] {
 
 /** Keyed like `PROFILE_FIELDS`; `models.*` matches every model binding. */
 export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = {
+  ...Object.fromEntries(
+    [
+      'efforts',
+      'defaultEffort',
+      'allowEffortSelect',
+      'summaries',
+      'maxOutputTokens',
+      'temperature',
+      'builtInTools',
+      'cache',
+      'store',
+      'persistViaInteractionId',
+      'server',
+    ].map((field) => [
+      `models.*.${field}`,
+      {
+        profileTypes: TURN_TYPES,
+        reason: 'only model turns use this setting; decisions send state and questions',
+      },
+    ]),
+  ),
+  'models.*.timeoutMs': {
+    profileTypes: ['decision'],
+    reason: 'only decision bindings configure a request timeout here',
+  },
   identity: {
     profileTypes: MODEL_PROFILE_TYPES,
     reason: 'a host profile has no agent identity — it runs no model',
@@ -63,12 +88,12 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
   },
   models: { profileTypes: MODEL_PROFILE_TYPES, reason: 'a host profile runs no model' },
   'models.*.protocol': {
-    profileTypes: TURN_TYPES,
-    reason: 'a decision binds its model by apiId alone',
+    profileTypes: MODEL_PROFILE_TYPES,
+    reason: 'a host profile runs no model',
   },
   'models.*.provider': {
-    profileTypes: TURN_TYPES,
-    reason: 'a decision binds its model by apiId alone',
+    profileTypes: MODEL_PROFILE_TYPES,
+    reason: 'a host profile runs no model',
   },
   'models.*.compaction': {
     profileTypes: ['text', 'image', 'speech'],

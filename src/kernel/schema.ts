@@ -27,17 +27,18 @@ export const THINKING_LEVELS = [
 ] as const;
 export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 
-export const PROTOCOLS = ['geminiInteractions', 'geminiLive', 'openAi'] as const;
+export const PROTOCOLS = ['geminiInteractions', 'geminiLive', 'openAi', 'decision'] as const;
 export type Protocol = (typeof PROTOCOLS)[number];
 
-export const PROVIDERS = ['google', 'openrouter', 'local'] as const;
+export const PROVIDERS = ['google', 'openrouter', 'local', 'typesafe'] as const;
 export type Provider = (typeof PROVIDERS)[number];
 
-/** Keep in lockstep with `createProvider`. */
+/** Turn pairs are handled by `createProvider`; decision pairs by `runDecision`. */
 export const PROTOCOL_PROVIDERS = {
   geminiInteractions: ['google'],
   geminiLive: ['google'],
   openAi: ['openrouter', 'local'],
+  decision: ['typesafe', 'openrouter'],
 } as const satisfies Record<Protocol, readonly Provider[]>;
 
 export const PROFILE_TYPE_PROTOCOLS = {
@@ -45,7 +46,7 @@ export const PROFILE_TYPE_PROTOCOLS = {
   image: ['geminiInteractions', 'openAi'],
   speech: ['geminiInteractions', 'openAi'],
   live: ['geminiLive'],
-  decision: [],
+  decision: ['decision'],
   host: [],
 } as const satisfies Record<ProfileType, readonly Protocol[]>;
 
@@ -488,31 +489,40 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'The instruction that replaces identity.system when a turn names this role.',
   ),
   models: field(
-    'Record<ModelId, ModelBinding>',
+    'Record<ModelId, ModelBinding | DecisionModelBinding>',
     'The models this profile can use, each under a name you choose.',
   ),
-  'models.*': field('ModelBinding', 'One model: how to reach it and the settings sent with it.'),
+  'models.*': field(
+    'ModelBinding | DecisionModelBinding',
+    'One model: how to reach it and the settings sent with it.',
+  ),
   'models.*.protocol': field(
     unionType(PROTOCOLS),
-    'The API this model is called through: geminiLive for live profiles, geminiInteractions or openAi for the rest.',
+    'The API this model is called through: Gemini, OpenAI-style, or the Decisions API.',
     PROTOCOLS,
     {
       geminiInteractions: "Google's Gemini Interactions API.",
       geminiLive: "Google's Gemini Live streaming API.",
       openAi: 'The OpenAI-style API, served by OpenRouter or a local server.',
+      decision: 'The typed Decisions API, served by TypeSafe or OpenRouter.',
     },
   ),
   'models.*.provider': field(
     unionType(PROVIDERS),
-    'Who serves the model: google for the Gemini protocols, openrouter or local for openAi.',
+    'Who serves the model: Google, OpenRouter, a local server, or TypeSafe.',
     PROVIDERS,
     {
       google: "Google's Gemini API.",
       openrouter: 'OpenRouter, which routes to many model vendors.',
       local: "A server you run (Ollama, llama.cpp, vLLM); it can't serve image profiles.",
+      typesafe: 'TypeSafe, serving its native decision models.',
     },
   ),
   'models.*.apiId': field('string', "The model's name at the provider."),
+  'models.*.timeoutMs': field(
+    'number',
+    'How long a decision waits for its provider, in milliseconds. Omit for no timeout.',
+  ),
   decision: field(
     '{ contract: DecisionContractId }',
     'Names the host decision this profile makes.',
@@ -1023,7 +1033,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'observability.rotateAfterMiB': field(
     'number',
-    'JSONL rotate threshold in MiB when writeTo resolves to a jsonl destination. Default 32.',
+    'File size in MiB at which a file-based destination starts a new file, handed to every destination with the record. Default 32.',
   ),
   'observability.onWriteError': field(
     '(err: unknown) => void',

@@ -2,7 +2,10 @@ import type { z } from 'zod';
 import { throwIfAborted } from '../../guardrails/error.ts';
 import { assertSafeUrl } from '../../guardrails/network.ts';
 import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
-import type { NetworkGuardrailSpec } from '../../guardrails/types.ts';
+import { NETWORK_RULES } from '../../guardrails/rules.ts';
+import type { GuardrailEvent, NetworkGuardrailSpec } from '../../guardrails/types.ts';
+import type { SpanHandle } from '../../observability/trace-span.ts';
+import { recordToolCheck } from '../engine/tool-trace.ts';
 import { type Source, sourceSchema } from '../turn-events.ts';
 import type { TurnEvent, TurnEventOf } from '../types.ts';
 import { isRecord } from '../util/record.ts';
@@ -128,29 +131,67 @@ export function* startToolExecution<T>(
   return { ok: true, data: parsed.data };
 }
 
-export function* networkBlocked(err: unknown): Generator<TurnEvent, ToolFailure> {
-  yield {
-    type: 'guardrail',
-    guardrail: {
-      stage: 'network',
-      trust: 'untrusted',
-      action: 'block',
-      hits: [{ rule: 'network.blocked', severity: 'high' }],
-    },
+export function networkBlockedEvent(): GuardrailEvent {
+  return {
+    stage: 'network',
+    trust: 'untrusted',
+    action: 'block',
+    hits: [{ rule: NETWORK_RULES.blocked, severity: 'high' }],
   };
+}
+
+export function* networkBlocked(
+  err: unknown,
+  guardrail: GuardrailEvent = networkBlockedEvent(),
+): Generator<TurnEvent, ToolFailure> {
+  yield { type: 'guardrail', guardrail };
   return { code: 'network_blocked', kind: 'blocked', message: messageOf(err) };
 }
 
-/** Shared by HTTP and MCP so they cannot diverge on what SSRF enforcement means. */
+/**
+ * Shared by HTTP and MCP so they cannot diverge on what SSRF enforcement means.
+ * The check's time goes on the tool's span, when the call is traced.
+ */
 export function* guardToolTarget(
   url: string,
   ctx: ToolContext,
+  span?: SpanHandle,
 ): Generator<TurnEvent, { ok: true; url: URL } | { ok: false; failure: ToolFailure }> {
+  const start = performance.now();
   try {
-    return { ok: true, url: assertSafeUrl(url, toolNetworkPolicy(ctx)) };
+    const safe = assertSafeUrl(url, toolNetworkPolicy(ctx));
+    recordToolCheck(span, 'network', performance.now() - start, undefined);
+    return { ok: true, url: safe };
   } catch (err) {
-    return { ok: false, failure: yield* networkBlocked(err) };
+    const blocked = networkBlockedEvent();
+    recordToolCheck(span, 'network', performance.now() - start, blocked);
+    return { ok: false, failure: yield* networkBlocked(err, blocked) };
   }
+}
+
+/** The checks a guarded request runs on its way, timed together: each hop's address, and its lookup. */
+export interface RequestChecks {
+  /** Pass as `fetchGuarded`'s `onCheck`. */
+  onCheck: (ms: number) => void;
+  /** Records the checks once, when any ran, with the block they raised. */
+  record: (blocked?: GuardrailEvent) => void;
+}
+
+export function requestChecks(span: SpanHandle | undefined): RequestChecks {
+  let ms = 0;
+  let ran = false;
+  let recorded = false;
+  return {
+    onCheck: (took) => {
+      ms += took;
+      ran = true;
+    },
+    record: (blocked) => {
+      if (recorded || !ran) return;
+      recorded = true;
+      recordToolCheck(span, 'network_request', ms, blocked);
+    },
+  };
 }
 
 export function toolNetworkPolicy(ctx: ToolContext): NetworkGuardrailSpec | undefined {

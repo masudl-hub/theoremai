@@ -1,6 +1,7 @@
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
-import { EGRESS_RULES, standardEgressEnforce } from '../../src/guardrails/egress.ts';
+import { standardEgressEnforce } from '../../src/guardrails/egress.ts';
+import { EGRESS_RULES } from '../../src/guardrails/rules.ts';
 import type { GuardrailContext, OutboundPayload, Verdict } from '../../src/guardrails/types.ts';
 import { registerProfile, registerTool, runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertStringIncludes } from '../../src/kernel/engine/assert.ts';

@@ -503,12 +503,11 @@ export type DecisionJson =
   | DecisionJson[]
   | { [key: string]: DecisionJson };
 
-/** Native TypeSafe Jev binding; deliberately has no chat protocol/provider pair. */
-export interface DecisionModelBinding {
-  apiId: string;
-  key?: KeySlot;
+/** A decision model binding follows the same protocol/provider/apiId spine as turn models. */
+export interface DecisionModelBinding extends Pick<ModelBinding, 'apiId' | 'key'> {
+  protocol: 'decision';
+  provider: 'typesafe' | 'openrouter';
   timeoutMs?: number;
-  retry?: { maxRetries?: number };
 }
 
 export interface DecisionInputsSpec {
@@ -518,12 +517,12 @@ export interface DecisionInputsSpec {
 
 /**
  * A host-owned id for the decision a profile makes. The trace records it as
- * `theorem.decision.contract`; it is not sent to Jev and does not constrain
+ * `theorem.decision.contract`; it is not sent to the provider and does not constrain
  * the questions a call asks.
  */
 export type DecisionContractId = string;
 
-/** Native Jev profile. It cannot be passed to chat or live execution doors. */
+/** Decision profile. It cannot be passed to chat or live execution doors. */
 export interface DecisionProfile {
   type: 'decision';
   id: ProfileId;
@@ -539,7 +538,7 @@ export interface DecisionProfile {
   lexicon?: LexiconOverrides;
 }
 
-/** Jev's text-or-structured instruction entries. Null is rejected locally. */
+/** Text or nested text instruction entries. Non-text leaves are rejected locally. */
 export type DecisionEntry = string | DecisionEntry[] | { [key: string]: DecisionEntry };
 
 export interface DecisionChoiceQuestion {
@@ -587,15 +586,15 @@ export type DecisionAnswer =
       type: 'score';
       score: number;
       confidence: number;
-      legend: Record<string, number>;
+      legend: Record<string, string>;
       probabilities: Record<string, number>;
     };
 
 export interface DecisionResult {
   model: string;
   answers: Record<string, DecisionAnswer>;
-  /** What Jev reported, and its cost at Jev's fixed price; absent when Jev reported no usage. */
-  usage?: { inputTokens: number; outputTokens: number; costUsd: number };
+  /** Provider-reported tokens and cost, or a provider adapter's known model tariff. */
+  usage?: { inputTokens: number; outputTokens: number; costUsd?: number };
 }
 
 export interface TextProfile extends ProfileCommon {

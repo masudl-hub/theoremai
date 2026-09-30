@@ -43,6 +43,7 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
   },
   'models.*.allowEffortSelect': { unset: 'Off' },
   'models.*.key': { unset: "The profile's key" },
+  'models.*.timeoutMs': { unset: 'No timeout' },
   'models.*.compaction': { unset: 'Off' },
   'models.*.compaction.maxTokens': { required: true },
   'models.*.compaction.compactAt': { required: true },

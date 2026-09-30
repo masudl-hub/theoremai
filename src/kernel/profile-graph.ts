@@ -31,15 +31,6 @@ const PROFILE_GRAPH_DEF = [
     ownsFields: ['id', 'type'],
   },
   {
-    id: 'decision',
-    profilePath: 'decision',
-    role: 'spine',
-    optional: false,
-    editor: 'structural',
-    label: 'Decision',
-    ownsFields: ['inputs'],
-  },
-  {
     id: 'models',
     profilePath: 'models',
     role: 'spine',
@@ -56,6 +47,15 @@ const PROFILE_GRAPH_DEF = [
     optional: false,
     editor: 'structural',
     label: 'Model binding',
+  },
+  {
+    id: 'decision',
+    profilePath: 'decision',
+    role: 'spine',
+    optional: false,
+    editor: 'structural',
+    label: 'Decision',
+    ownsFields: ['inputs'],
   },
   {
     id: 'image',

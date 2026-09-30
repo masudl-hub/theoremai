@@ -23,7 +23,7 @@ import type {
   TurnStop,
 } from '../../types.ts';
 import { findLast } from '../../util/find-last.ts';
-import { guardrailAttributes } from '../turn-trace.ts';
+import { guardrailCheckAttributes } from '../turn-trace.ts';
 import { collectValidationFailures, formatValidationFailures } from './schema-validation.ts';
 import { applyTurnStage } from './stages.ts';
 import { type AttemptFlowState, appendUserInput, type StepExecutionState } from './state.ts';
@@ -237,6 +237,7 @@ async function* handleEgressGate(
   maxRetries: number,
 ): AsyncGenerator<TurnEvent, 'continue' | 'terminal' | 'pass'> {
   const canRetry = flow.currentAttempt < maxRetries;
+  const checkStart = performance.now();
   const { outcome, guardrail } = await evaluateEgressOutcome({
     egress,
     attemptEvents: state.attemptEvents,
@@ -246,8 +247,14 @@ async function* handleEgressGate(
     canRetry,
   });
 
+  state.trace.root.event(
+    'theorem.guardrail',
+    guardrailCheckAttributes('egress', performance.now() - checkStart, guardrail?.guardrail, {
+      stage: 'output_final',
+      trust: 'untrusted',
+    }),
+  );
   if (guardrail) {
-    state.trace.root.event('theorem.guardrail', guardrailAttributes(guardrail.guardrail));
     state.allEmittedEvents.push(guardrail);
     yield guardrail;
   }

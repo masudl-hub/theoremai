@@ -527,11 +527,10 @@ function buildLiveSession(args: {
   };
 
   const ingestPreparedLiveText = (text: string) => {
+    const start = performance.now();
     const prepared = prepareLiveInboundText(profile, text);
-    if (prepared.guardrail) {
-      trace.inbound(prepared.guardrail);
-      enqueuePending(prepared.guardrail);
-    }
+    trace.inboundCheck(performance.now() - start, prepared.guardrail);
+    if (prepared.guardrail) enqueuePending(prepared.guardrail);
     recordUserText(prepared.text);
     sendJson(buildGeminiLiveRealtimeInput({ type: 'text', text: prepared.text }));
   };
@@ -773,17 +772,16 @@ function buildLiveSession(args: {
   ): AsyncGenerator<TurnEvent> {
     holdCalls(item.events);
     // Usage is held per response and emitted once, reported or estimated, by `settle`.
-    const gated = await applyOutbound(
-      gate,
-      hostEventsOf(
-        item.events.filter((ev) => ev.type !== 'tokens'),
-        snapshot,
-      ),
-      item.turnPhase,
-      () => {
-        withholdClose = true;
-      },
+    const hostEvents = hostEventsOf(
+      item.events.filter((ev) => ev.type !== 'tokens'),
+      snapshot,
     );
+    const gateStart = performance.now();
+    const gated = await applyOutbound(gate, hostEvents, item.turnPhase, () => {
+      withholdClose = true;
+    });
+    // An abort only drops what the gate held; there is no check to time.
+    if (item.turnPhase !== 'abort') trace.outboundTime(performance.now() - gateStart);
     for (const ev of gated) {
       if (ev.type === 'guardrail') trace.outbound(ev);
     }

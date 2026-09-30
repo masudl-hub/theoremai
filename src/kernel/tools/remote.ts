@@ -3,15 +3,20 @@ import { lexiconText } from '../../guardrails/lexicon.ts';
 import { fetchGuarded, type ResolveHost } from '../../guardrails/network.ts';
 import type { ErrorKind } from '../../guardrails/theorem-error.ts';
 import type { NetworkGuardrailSpec } from '../../guardrails/types.ts';
+import type { SpanHandle } from '../../observability/trace-span.ts';
 import { refreshOAuthToken, tokenAudienceCovers } from '../auth/oauth.ts';
 import type { OAuth2Credential, OAuthTransportOptions, ToolCredential } from '../auth/types.ts';
 import { mapStrings } from '../engine/tree.ts';
 import type { AuthUnauthenticatedPolicy } from '../schema.ts';
+import type { InteractionPart } from '../turn-events.ts';
 import type { TurnEvent } from '../types.ts';
 import {
   guardToolTarget,
   messageOf,
   networkBlocked,
+  networkBlockedEvent,
+  type RequestChecks,
+  requestChecks,
   startToolExecution,
   type ToolCallBase,
   toolEvent,
@@ -344,6 +349,14 @@ export function modelResultFromOutput(data: unknown): ModelToolResult {
   return { finding: typeof data === 'string' ? data : JSON.stringify(data) };
 }
 
+/** The result with the media a tool returned beside its value, when it returned any. */
+export function withMedia(
+  result: ModelToolResult,
+  parts: InteractionPart[] | undefined,
+): ModelToolResult {
+  return parts?.length ? { ...result, parts } : result;
+}
+
 function failureOutcome(
   failure: ToolFailure,
   callNotStarted: boolean,
@@ -462,14 +475,66 @@ async function* remoteAuthAndPreBody(args: {
   };
 }
 
-function* thrownOutcome(err: unknown): Generator<TurnEvent, ToolBodyOutcome> {
+function* thrownOutcome(
+  err: unknown,
+  checks: RequestChecks,
+): Generator<TurnEvent, ToolBodyOutcome> {
   if (errorKind(err) === 'blocked') {
-    return failureOutcome(yield* networkBlocked(err), false);
+    const blocked = networkBlockedEvent();
+    checks.record(blocked);
+    return failureOutcome(yield* networkBlocked(err, blocked), false);
   }
   return failureOutcome({ code: 'network_error', kind: 'network', message: messageOf(err) }, false);
 }
 
 const OMIT_CREDENTIAL = '[omitted - credential]';
+
+/** The most of a tool's response body the kernel reads; past it the call fails instead of exhausting the host's memory. */
+export const MAX_TOOL_RESPONSE_BYTES = 4 * 1024 * 1024;
+/** The most of an error or unparseable body quoted back in a failure message. */
+const MAX_QUOTED_BODY_CHARS = 2000;
+
+/** A body, read up to `maxBytes`; `undefined` when it runs past, with the rest left unread. */
+async function readCappedText(
+  response: Response,
+  maxBytes = MAX_TOOL_RESPONSE_BYTES,
+): Promise<string | undefined> {
+  const declared = Number(response.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await response.body?.cancel().catch(() => {});
+    return undefined;
+  }
+  if (!response.body) return await response.text();
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let bytes = 0;
+  let text = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    bytes += value.byteLength;
+    if (bytes > maxBytes) {
+      await reader.cancel().catch(() => {});
+      return undefined;
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+  return text + decoder.decode();
+}
+
+/** A body quoted in a failure message, cut short when long. */
+function quotedBody(text: string): string {
+  return text.length > MAX_QUOTED_BODY_CHARS ? `${text.slice(0, MAX_QUOTED_BODY_CHARS)}…` : text;
+}
+
+/** The failure for a body past MAX_TOOL_RESPONSE_BYTES. */
+function tooLargeFailure(host: string): ToolFailure {
+  return {
+    code: 'response_too_large',
+    kind: 'bad_response',
+    message: `Response from ${host} is larger than ${MAX_TOOL_RESPONSE_BYTES} bytes`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  };
+}
 
 /** An echo endpoint or debug page can repeat the credential; it must never reach the model, trace or client. */
 function withoutSecret(outcome: ToolBodyOutcome, secret: string | undefined): ToolBodyOutcome {
@@ -477,7 +542,11 @@ function withoutSecret(outcome: ToolBodyOutcome, secret: string | undefined): To
   const strip = (text: string) => text.replaceAll(secret, OMIT_CREDENTIAL);
   if (outcome.kind === 'ok') {
     const outputRaw = mapStrings(outcome.outputRaw, strip);
-    return { kind: 'ok', outputRaw, modelResult: modelResultFromOutput(outputRaw) };
+    return {
+      kind: 'ok',
+      outputRaw,
+      modelResult: withMedia(modelResultFromOutput(outputRaw), outcome.modelResult.parts),
+    };
   }
   if (outcome.kind === 'failed') {
     const { failure } = outcome;
@@ -545,10 +614,10 @@ export async function* executeHttpTool(
     return failureOutcome(failure, true);
   }
 
-  const guarded = yield* guardToolTarget(target.url, ctx);
+  const guarded = yield* guardToolTarget(target.url, ctx, stages?.span);
   if (!guarded.ok) return failureOutcome(guarded.failure, true);
   return yield* sendWithCredential(prepared, guarded.url, () =>
-    sendHttpRequest(tool, guarded.url, target.body, prepared.authHeaders, ctx),
+    sendHttpRequest(tool, guarded.url, target.body, prepared.authHeaders, ctx, stages?.span),
   );
 }
 
@@ -558,7 +627,9 @@ async function* sendHttpRequest(
   body: string | undefined,
   authHeaders: Record<string, string>,
   ctx: ToolContext,
+  span: SpanHandle | undefined,
 ): AsyncGenerator<TurnEvent, ToolBodyOutcome> {
+  const checks = requestChecks(span);
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (tool.method !== 'GET') {
     headers['Content-Type'] = 'application/json';
@@ -573,20 +644,22 @@ async function* sendHttpRequest(
         followRedirects: true,
         originBoundHeaders: { ...tool.headers, ...authHeaders },
         resolveHost: ctx.resolveHost,
+        onCheck: checks.onCheck,
       },
     );
 
+    const text = await readCappedText(response);
+    if (text === undefined) return failureOutcome(tooLargeFailure(targetUrl.hostname), false);
+
     if (!response.ok) {
-      const errText = await response.text();
       const failure: ToolFailure = {
         code: `http_${response.status}`,
         kind: kindOfToolHttpStatus(response.status),
-        message: `HTTP ${response.status} from ${targetUrl.hostname}: ${errText}`,
+        message: `HTTP ${response.status} from ${targetUrl.hostname}: ${quotedBody(text)}`,
       };
       return failureOutcome(failure, false);
     }
 
-    const text = await response.text();
     const responseData = parseHttpResponseData(
       response.headers.get('content-type') ?? '',
       text,
@@ -609,7 +682,9 @@ async function* sendHttpRequest(
       outputRaw: checked.data,
     };
   } catch (err) {
-    return yield* thrownOutcome(err);
+    return yield* thrownOutcome(err, checks);
+  } finally {
+    checks.record();
   }
 }
 
@@ -628,6 +703,7 @@ export type McpRpcResponse = {
   id?: unknown;
   result?: {
     content?: Array<{ type: string; text?: string; [key: string]: unknown }>;
+    structuredContent?: unknown;
     isError?: boolean;
     [key: string]: unknown;
   };
@@ -706,6 +782,7 @@ type McpTransport = {
   policy?: NetworkGuardrailSpec;
   resolveHost?: ResolveHost;
   signal?: AbortSignal;
+  onCheck?: (ms: number) => void;
 };
 
 async function fetchMcpProtocolAttempt(
@@ -741,10 +818,14 @@ async function fetchMcpProtocolAttempt(
       followRedirects: true,
       originBoundHeaders: transport.originBoundHeaders,
       resolveHost: transport.resolveHost,
+      onCheck: transport.onCheck,
     },
   );
 
-  const text = await response.text();
+  const text = await readCappedText(response);
+  if (text === undefined) {
+    return { kind: 'failure', failure: tooLargeFailure(new URL(transport.url).hostname) };
+  }
 
   if (!response.ok) {
     const acceptRejected =
@@ -759,7 +840,7 @@ async function fetchMcpProtocolAttempt(
       failure: {
         code: `mcp_http_${response.status}`,
         kind: kindOfToolHttpStatus(response.status),
-        message: `MCP server error HTTP ${response.status}: ${text}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        message: `MCP server error HTTP ${response.status}: ${quotedBody(text)}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       },
     };
   }
@@ -776,7 +857,7 @@ async function fetchMcpProtocolAttempt(
       failure: {
         code: 'invalid_response',
         kind: 'bad_response',
-        message: `MCP server returned non-JSON response: ${text}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        message: `MCP server returned non-JSON response: ${quotedBody(text)}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       },
     };
   }
@@ -817,11 +898,48 @@ function kindOfToolHttpStatus(status: number): ErrorKind {
   return status === 401 || status === 403 ? 'auth' : 'failed';
 }
 
-function extractMcpOutput(result: McpRpcResponse['result']): unknown {
-  if (result?.content && Array.isArray(result.content)) {
-    return result.content.map((c) => c.text ?? '').join('\n');
+type McpContent = NonNullable<NonNullable<McpRpcResponse['result']>['content']>[number];
+
+/** A content block as text: its text, an embedded resource's text, or a linked resource's URI. */
+function mcpContentText(block: McpContent): string | undefined {
+  if (block.type === 'text') return block.text;
+  const resource = block.resource as { text?: unknown } | null | undefined;
+  if (block.type === 'resource' && typeof resource?.text === 'string') return resource.text;
+  if (block.type === 'resource_link' && typeof block.uri === 'string') return block.uri;
+  return undefined;
+}
+
+/** An image or audio block as media; the spec gives both as base64 `data` and a `mimeType`. */
+function mcpMedia(block: McpContent): InteractionPart | undefined {
+  if (block.type !== 'image' && block.type !== 'audio') return undefined;
+  const { data, mimeType } = block;
+  if (typeof data !== 'string' || !data || typeof mimeType !== 'string' || !mimeType.trim()) {
+    return undefined;
   }
-  return result;
+  return { type: block.type, mimeType, data };
+}
+
+/**
+ * A tool result's value, read the way the spec layers it: the structured
+ * content when the server sends one and it fits the tool's declared output,
+ * else the text blocks. Images and audio come back as media, not flattened
+ * away.
+ */
+function extractMcpOutput(
+  tool: McpToolDef,
+  result: McpRpcResponse['result'],
+): { checked: ReturnType<typeof parseToolOutput>; parts?: InteractionPart[] } {
+  const content = Array.isArray(result?.content) ? result.content : undefined;
+  const media = content?.flatMap((block) => mcpMedia(block) ?? []);
+  const withParts = media?.length ? { parts: media } : {};
+  if (result?.structuredContent !== undefined) {
+    const structured = tool.output.safeParse(result.structuredContent);
+    if (structured.success) return { checked: structured, ...withParts };
+  }
+  const text = content
+    ? content.flatMap((block) => mcpContentText(block) ?? []).join('\n')
+    : result;
+  return { checked: parseToolOutput(tool.output, text), ...withParts };
 }
 
 function mcpResultFailure(rpcResponse: McpRpcResponse): ToolFailure | undefined {
@@ -851,7 +969,7 @@ function interpretMcpRpc(
     failure?: ToolFailure;
     lastProtocolError?: McpRpcResponse['error'];
   },
-): { ok: true; data: unknown } | { ok: false; failure: ToolFailure } {
+): { ok: true; data: unknown; parts?: InteractionPart[] } | { ok: false; failure: ToolFailure } {
   if (negotiated.failure) {
     return { ok: false, failure: negotiated.failure };
   }
@@ -871,7 +989,7 @@ function interpretMcpRpc(
   if (resultFailure) {
     return { ok: false, failure: resultFailure };
   }
-  const checked = parseToolOutput(tool.output, extractMcpOutput(rpcResponse.result));
+  const { checked, parts } = extractMcpOutput(tool, rpcResponse.result);
   if (!checked.success) {
     return {
       ok: false,
@@ -883,7 +1001,7 @@ function interpretMcpRpc(
       },
     };
   }
-  return { ok: true, data: checked.data };
+  return { ok: true, data: checked.data, ...(parts ? { parts } : {}) };
 }
 
 /** Streamable HTTP, spec revision 2026-07-28. Order: schema → permission → auth → preTool/host stages → body. */
@@ -897,13 +1015,21 @@ export async function* executeMcpTool(
   const permitted = yield* remoteParseAndPermit(tool, rawInput, ctx, base);
   if (!permitted.ok) return permitted.outcome;
 
-  const guarded = yield* guardToolTarget(tool.serverUrl, ctx);
+  const guarded = yield* guardToolTarget(tool.serverUrl, ctx, stages?.span);
   if (!guarded.ok) return failureOutcome(guarded.failure, true);
 
   const prepared = yield* remoteAuthAndPreBody({ tool, input: permitted.input, ctx, base, stages });
   if (!('ok' in prepared)) return prepared;
   return yield* sendWithCredential(prepared, guarded.url, () =>
-    sendMcpRequest(tool, guarded.url, prepared.input, prepared.authHeaders, ctx, base),
+    sendMcpRequest(
+      tool,
+      guarded.url,
+      prepared.input,
+      prepared.authHeaders,
+      ctx,
+      base,
+      stages?.span,
+    ),
   );
 }
 
@@ -914,7 +1040,9 @@ async function* sendMcpRequest(
   authHeaders: Record<string, string>,
   ctx: ToolContext,
   base: ToolCallBase,
+  span: SpanHandle | undefined,
 ): AsyncGenerator<TurnEvent, ToolBodyOutcome> {
+  const checks = requestChecks(span);
   try {
     const interpreted = interpretMcpRpc(
       tool,
@@ -929,6 +1057,7 @@ async function* sendMcpRequest(
           policy: toolNetworkPolicy(ctx),
           resolveHost: ctx.resolveHost,
           signal: ctx.signal,
+          onCheck: checks.onCheck,
         },
         base.callId,
         tool.mcpToolName,
@@ -940,10 +1069,12 @@ async function* sendMcpRequest(
     }
     return {
       kind: 'ok',
-      modelResult: modelResultFromOutput(interpreted.data),
+      modelResult: withMedia(modelResultFromOutput(interpreted.data), interpreted.parts),
       outputRaw: interpreted.data,
     };
   } catch (err) {
-    return yield* thrownOutcome(err);
+    return yield* thrownOutcome(err, checks);
+  } finally {
+    checks.record();
   }
 }

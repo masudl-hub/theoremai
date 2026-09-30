@@ -47,8 +47,6 @@ import type {
   ProfileOutputsSpec,
   ProfileToolsSpec,
   ProfileTurnBehaviourSpec,
-  Protocol,
-  Provider,
   SpeechGuardrailsSpec,
   SpeechProfile,
   TextProfile,
@@ -134,13 +132,49 @@ export type ProfileDefinition =
   | DecisionProfileDefinition
   | HostProfileDefinition;
 
+function assertModelRoute(
+  profileId: string,
+  modelId: string,
+  binding: Pick<ModelBinding, 'protocol' | 'provider' | 'apiId'>,
+  type?: ProfileType,
+): void {
+  if (!binding.protocol) {
+    throw new TheoremError('config', `Profile ${profileId} model '${modelId}' must set protocol`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  if (!binding.provider) {
+    throw new TheoremError('config', `Profile ${profileId} model '${modelId}' must set provider`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  if (!binding.apiId || (type === 'decision' && !binding.apiId.trim())) {
+    throw new TheoremError('config', `Profile ${profileId} model '${modelId}' must set apiId`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  if (type === 'decision' && !isValidProfileProtocol(type, binding.protocol)) {
+    throw new TheoremError(
+      'config',
+      // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Profile ${profileId} model '${modelId}': type 'decision' cannot use protocol '${binding.protocol}'. Supported: decision`,
+    );
+  }
+  if (!isValidPair(binding.protocol, binding.provider)) {
+    throw new TheoremError(
+      'config',
+      // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Profile ${profileId} model '${modelId}': protocol '${binding.protocol}' is not valid for provider '${binding.provider}'`,
+    );
+  }
+}
+
 function validateDecisionBinding(
   profileId: string,
   modelId: string,
   binding: DecisionModelBinding,
 ): void {
-  if (!binding.apiId?.trim()) {
-    throw new TheoremError('config', `Profile ${profileId} model '${modelId}' must set apiId`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  assertModelRoute(profileId, modelId, binding, 'decision');
+  if ('retry' in binding) {
+    throw new TheoremError(
+      'config',
+      // lexicon-exempt: developer contract / internal diagnostic
+      `Profile ${profileId} model '${modelId}': decision retry configuration is unsupported; POSTs are never retried`,
+    );
   }
   if (
     binding.timeoutMs !== undefined &&
@@ -149,16 +183,6 @@ function validateDecisionBinding(
     throw new TheoremError(
       'config',
       `Profile ${profileId} model '${modelId}' timeoutMs must be > 0`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    );
-  }
-  if (
-    binding.retry?.maxRetries !== undefined &&
-    (!Number.isInteger(binding.retry.maxRetries) || binding.retry.maxRetries < 0)
-  ) {
-    throw new TheoremError(
-      'config',
-      // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      `Profile ${profileId} model '${modelId}' retry.maxRetries must be a non-negative integer`,
     );
   }
 }
@@ -248,21 +272,7 @@ function resolveDefaultModel(profileId: string, input: ProfileDefinitionBase): M
 }
 
 function assertModelBinding(profileId: string, modelId: ModelId, binding: ModelBinding): void {
-  if (!binding.protocol) {
-    throw new TheoremError('config', `Profile ${profileId} model '${modelId}' must set protocol`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  }
-  if (!binding.provider) {
-    throw new TheoremError('config', `Profile ${profileId} model '${modelId}' must set provider`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  }
-  if (!binding.apiId) {
-    throw new TheoremError('config', `Profile ${profileId} model '${modelId}' must set apiId`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  }
-  if (!isValidPair(binding.protocol as Protocol, binding.provider as Provider)) {
-    throw new TheoremError(
-      'config',
-      `Profile ${profileId} model '${modelId}': protocol '${binding.protocol}' is not valid for provider '${binding.provider}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    );
-  }
+  assertModelRoute(profileId, modelId, binding);
   assertModelEfforts(profileId, modelId, binding);
   if (binding.cache) {
     assertCacheSpec(profileId, modelId, binding);

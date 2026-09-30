@@ -12,25 +12,33 @@
  * @module
  */
 
-import { describeError, type SessionEvent, type SessionEventOf, TheoremError, type TraceRecord, type TurnEventOf } from '../../../mod.ts';
-import { float32Rms, float32RmsToLevel, timeDomainBytesToLevel } from './audio-level';
-import { isPermissionDeniedError } from './live-errors';
+import {
+	describeError,
+	type SessionEvent,
+	type SessionEventOf,
+	TheoremError,
+	type TraceRecord,
+	type TurnEventOf,
+} from '@theoremjs/agents';
+import { base64ToBytes, bytesToBase64 } from '@theoremjs/agents/kernel';
+import { float32Rms, float32RmsToLevel, timeDomainBytesToLevel } from './audio-level.ts';
+import { isPermissionDeniedError } from './live-errors.ts';
+import type { LiveConnectPhase, LiveSessionStatus } from './live/live-state.ts';
 import {
 	applyLiveToolTurnEvent,
 	liveTranscriptFromEvidence,
 	shouldForwardMicFrame,
-} from './live/live-mic-forward';
+} from './live/live-mic-forward.ts';
 import {
 	type ExecuteToolOnRelay,
 	type LiveClientMessage,
 	type LiveServerEnvelope,
 	type LiveToolStep,
 	parseLiveServerEnvelope,
-} from './live-messages';
-import { base64ToBytes, bytesToBase64 } from '../../../src/kernel/util/base64.ts';
-import { downsampleAndConvertToInt16, pcm16BytesToFloat32 } from './pcm-downsample';
-import { type ClientTurnEvent, hostError } from './transport';
-import micCaptureWorkletUrl from './mic-capture.worklet?worker&url';
+} from './live-messages.ts';
+import { MIC_CAPTURE_PROCESSOR, micCaptureWorkletUrl } from './mic-capture.ts';
+import { downsampleAndConvertToInt16, pcm16BytesToFloat32 } from './pcm-downsample.ts';
+import { type ClientTurnEvent, hostError } from './transport.ts';
 
 type LiveToolCall = {
 	id: string;
@@ -68,17 +76,6 @@ function emptyInboundTurnAccum(): InboundTurnAccum {
  * fine-grained "less choppy barge-in" knob.
  */
 const BARGE_IN_RMS_WHILE_SPEAKING = 0.05;
-
-export type LiveSessionStatus =
-	| 'disconnected'
-	| 'connecting'
-	| 'ready'
-	| 'listening'
-	| 'speaking'
-	| 'working'
-	| 'error';
-
-export type LiveConnectPhase = 'socket' | 'microphone';
 
 /**
  * What a live call opens: a profile the host registered, or an `openMessage` the
@@ -403,11 +400,11 @@ export class LiveSessionClient {
 		silent.gain.value = 0;
 
 		if (!this.micWorkletModuleLoaded) {
-			await this.audioContext.audioWorklet.addModule(micCaptureWorkletUrl);
+			await this.audioContext.audioWorklet.addModule(micCaptureWorkletUrl());
 			this.micWorkletModuleLoaded = true;
 		}
 
-		this.micWorklet = new AudioWorkletNode(this.audioContext, 'mic-capture-processor');
+		this.micWorklet = new AudioWorkletNode(this.audioContext, MIC_CAPTURE_PROCESSOR);
 		this.micWorklet.port.onmessage = (event: MessageEvent<ArrayBuffer>) => {
 			const inputFloat32 = new Float32Array(event.data);
 			this.forwardMicBuffer(inputFloat32);

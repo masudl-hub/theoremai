@@ -31,15 +31,17 @@ function isToggleKey(event: Event): boolean {
 function pressedToggle(event: Event, root: Element): { target: Element; trigger: Element } | undefined {
 	if (!(event.target instanceof Element)) return undefined;
 	const row = event.target.closest('[role="treeitem"]');
-	if (row) {
-		if (!row.hasAttribute('aria-expanded') || !root.contains(row)) return undefined;
-		const atChevron = event.target.closest('[data-tree-toggle]') !== null;
-		const acts = row.querySelector(':scope > div :is(button:not([data-tree-toggle]), a[href])') !== null;
-		return atChevron || !acts ? { target: event.target, trigger: row } : undefined;
-	}
-	const trigger = event.target.closest('[aria-expanded]');
+	const trigger = row ? treeToggle(event.target, row) : event.target.closest('[aria-expanded]');
 	if (!trigger || !root.contains(trigger)) return undefined;
 	return { target: event.target, trigger };
+}
+
+/** The tree row a press toggles: none for a leaf, and for a row with an action of its own, only a press at its chevron. */
+function treeToggle(target: Element, row: Element): Element | undefined {
+	if (!row.hasAttribute('aria-expanded')) return undefined;
+	if (target.closest('[data-tree-toggle]') !== null) return row;
+	const acts = row.querySelector(':scope > div :is(button:not([data-tree-toggle]), a[href])') !== null;
+	return acts ? undefined : row;
 }
 
 /** Stops the event: the component does not see it. */

@@ -6,7 +6,7 @@
  * Core: @astryxdesign/core@0.6.3
  */
 
-import { tablerIcons } from "../icons";
+import { tablerIcons } from "../icons.js";
 /**
  * theorem theme — built by `npx astryx theme build`
  * Import the CSS file alongside this module:

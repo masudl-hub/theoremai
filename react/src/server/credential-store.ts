@@ -9,7 +9,7 @@
  * @module
  */
 
-import type { ToolCredential } from '../../../src/kernel/mod.ts';
+import type { ToolCredential } from '@theoremjs/agents/kernel';
 import { createMemorySessionMap, type MemorySessionStoreOptions } from './session-store.ts';
 
 /** A session's credentials, keyed by the tools' auth slot. */

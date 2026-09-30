@@ -1,12 +1,17 @@
 import { useCallback, useRef, useState } from 'react';
-import { attachmentIssueText, describeError, type LexiconOverrides, lexiconText } from '../../../mod.ts';
-import type { ProfileInputsInterface } from '../../../src/interface/mod.ts';
-import { canStageVoice } from '../client/composer-attachments';
+import {
+	attachmentIssueText,
+	describeError,
+	type LexiconOverrides,
+	lexiconText,
+} from '@theoremjs/agents';
+import type { ProfileInputsInterface } from '@theoremjs/agents/interface';
+import { canStageVoice } from '../client/composer-attachments.ts';
 import {
 	ComposerVoiceRecorder,
 	isVoiceRecorderFailure,
 	type VoiceRecorderFailureCode,
-} from '../client/voice-recorder';
+} from '../client/voice-recorder.ts';
 
 /** A voice note that could not be recorded or staged. */
 export type VoiceFailure = {

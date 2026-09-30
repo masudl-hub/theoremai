@@ -4,7 +4,7 @@
  * (`attachmentIssueText`).
  */
 
-import type { AttachmentValidationIssue } from '../../../src/interface/mod.ts';
+import type { AttachmentValidationIssue } from '@theoremjs/agents/interface';
 
 export type StageComposerFilesArgs = {
 	existing: readonly File[];

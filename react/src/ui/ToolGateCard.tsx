@@ -10,11 +10,11 @@ import { TextInput } from '@astryxdesign/core/TextInput';
 import { Token } from '@astryxdesign/core/Token';
 import { VStack } from '@astryxdesign/core/VStack';
 import { useCallback, useEffect, useState } from 'react';
-import type { ToolGate } from '../../../src/kernel/mod.ts';
-import { isOAuthComplete } from '../client/oauth-popup';
-import type { ToolDecisionAction } from '../client/tool-resume';
-import type { LabelText } from './labels';
-import { TheoremLabelsProvider, useLabels } from './labels-provider';
+import type { ToolGate } from '@theoremjs/agents/kernel';
+import { isOAuthComplete } from '../client/oauth-popup.ts';
+import type { ToolDecisionAction } from '../client/tool-resume.ts';
+import type { LabelText } from './labels.ts';
+import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 
 export type ToolDecision = ToolDecisionAction;
 

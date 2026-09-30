@@ -7,18 +7,18 @@ import {
 	consumeNextComposerQueue,
 	convertSteersToFrontQueued,
 	defaultInterfaceEffort,
+	type InterfaceTurnSession,
 	orderComposerPendingMessages,
 	promoteComposerPendingKind,
 	removeLandedSteers,
-	type InterfaceTurnSession,
 	type TranscriptBlock,
-} from '../../../src/interface/mod.ts';
-import { clientFailure, type TurnFailure } from '../client/failure';
-import { followGenerationDefaults } from '../client/generation-selection';
-import { applyTurnResultToTranscript, type StreamView } from '../client/index';
-import type { TheoremTransport, TurnEventSink } from '../client/transport';
-import { type RunTurnStream, useTheoremChatActions } from './use-theorem-chat-actions';
-import { type MessageDelivery, type SetSession, useTheoremChatState } from './use-theorem-chat-state';
+} from '@theoremjs/agents/interface';
+import { clientFailure, type TurnFailure } from '../client/failure.ts';
+import { followGenerationDefaults } from '../client/generation-selection.ts';
+import { applyTurnResultToTranscript, type StreamView } from '../client/index.ts';
+import type { TheoremTransport, TurnEventSink } from '../client/transport.ts';
+import { type RunTurnStream, useTheoremChatActions } from './use-theorem-chat-actions.ts';
+import { type MessageDelivery, type SetSession, useTheoremChatState } from './use-theorem-chat-state.ts';
 
 export type UseTheoremChatOptions = {
 	transport: TheoremTransport;

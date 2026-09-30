@@ -1,6 +1,6 @@
 import { type DefinedTheme, Theme, ThemeContext } from '@astryxdesign/core/theme';
 import { type ReactNode, use } from 'react';
-import { theoremTheme } from './built/theorem';
+import { theoremTheme } from './built/theorem.js';
 
 export type TheoremThemeProviderProps = {
 	/** Force a theme. Omit to inherit the host's `<Theme>`, or fall back to {@link theoremTheme}. */

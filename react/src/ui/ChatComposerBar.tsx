@@ -23,7 +23,7 @@ import {
 	IconArrowUp,
 	IconBrain,
 	IconCornerDownLeft,
-	IconCpu,
+	IconInputAi,
 	IconMicrophone,
 	IconPaperclip,
 	IconPencil,
@@ -33,7 +33,7 @@ import {
 	IconX,
 } from '@tabler/icons-react';
 import { type ChangeEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import { attachmentIssueText, type LexiconOverrides } from '../../../mod.ts';
+import { attachmentIssueText, type LexiconOverrides } from '@theoremjs/agents';
 import {
 	type AttachmentValidationIssue,
 	type ComposerMenuAction,
@@ -45,22 +45,22 @@ import {
 	interfaceEffortOptions,
 	interfaceModelOptions,
 	modelSelectEnabled,
-} from '../../../src/interface/mod.ts';
-import { stageComposerFiles } from '../client/composer-attachments';
-import { composerActionState } from '../client/composer-primary';
-import { type ComposerDrawerSummary, composerDrawerSummary } from '../client/composer-drawer';
+} from '@theoremjs/agents/interface';
+import { stageComposerFiles } from '../client/composer-attachments.ts';
+import { composerActionState } from '../client/composer-primary.ts';
+import { type ComposerDrawerSummary, composerDrawerSummary } from '../client/composer-drawer.ts';
 import {
 	type ComposerHint as ComposerHintData,
 	isStashShortcut,
 	resolveComposerHint,
 	STASH_SHORTCUT,
-} from '../client/composer-hints';
-import type { ClientFailure } from '../client/failure';
-import { useComposerVoice, type VoiceFailure } from '../components/use-composer-voice';
-import { composerDrawerLabel } from './labels';
-import { TheoremLabelsProvider, useLabels } from './labels-provider';
-import { VoiceNote } from './VoiceNote';
-import { useEditorSelection } from '../components/use-editor-selection';
+} from '../client/composer-hints.ts';
+import type { ClientFailure } from '../client/failure.ts';
+import { useComposerVoice, type VoiceFailure } from '../components/use-composer-voice.ts';
+import { composerDrawerLabel } from './labels.ts';
+import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
+import { VoiceNote } from './VoiceNote.tsx';
+import { useEditorSelection } from '../components/use-editor-selection.ts';
 
 export const NO_FOCUS_RING = { '--focus-outline-width': '0px' } as React.CSSProperties;
 
@@ -177,7 +177,7 @@ function ModelSelector(props: {
 			isLabelHidden
 			size="sm"
 			variant="ghost"
-			startIcon={<IconCpu size={14} />}
+			startIcon={<IconInputAi size={14} />}
 			placement="above"
 			isDisabled={props.isDisabled}
 			value={props.value ?? ''}
@@ -405,6 +405,81 @@ function useStagedFiles(pendingFiles: readonly File[], pendingVoice: readonly Fi
 	};
 }
 
+/** Stages picked files beside the ones already waiting, and keeps what could not be staged. */
+function useFileStaging(
+	pendingFiles: readonly File[],
+	maxFiles: number | undefined,
+	props: Pick<ChatComposerBarProps, 'pendingVoice' | 'onFilesSelected'>,
+) {
+	const [stagingIssues, setStagingIssues] = useState<AttachmentValidationIssue[]>([]);
+	function stageFiles(incoming: File[]) {
+		const staged = stageComposerFiles({ existing: pendingFiles, incoming, maxFiles, voiceCount: props.pendingVoice.length });
+		const added = staged.files.slice(pendingFiles.length);
+		if (added.length > 0) props.onFilesSelected(added);
+		setStagingIssues(staged.issues);
+	}
+	return { stageFiles, stagingIssues };
+}
+
+/** The record button, when the profile takes voice. */
+function ComposerRecordButton({ hasVoice, voice }: { hasVoice: boolean; voice: ReturnType<typeof useComposerVoice> }) {
+	if (!hasVoice) return null;
+	return <RecordButton recording={voice.recording} onToggle={() => void voice.toggleRecording()} />;
+}
+
+/** The drawer of messages and files waiting to send; absent while nothing waits. */
+function composerDrawer(
+	props: ChatComposerBarProps,
+	stagedFiles: ReturnType<typeof useStagedFiles>,
+	onVoiceRemove: () => void,
+): ReactNode {
+	const summary = composerDrawerSummary({
+		pendingMessages: props.pendingMessages,
+		attachmentCount: props.pendingFiles.length + props.pendingVoice.length,
+	});
+	if (!summary) return undefined;
+	return (
+		<PendingDrawer
+			summary={summary}
+			messages={props.pendingMessages}
+			{...stagedFiles}
+			voiceFiles={props.pendingVoice}
+			pendingActions={{
+				onMove: props.onPendingMove,
+				onRemove: props.onPendingRemove,
+				onQueue: props.onPendingQueue,
+				onRestore: props.onPendingRestore,
+				onSendNow: props.onPendingSendNow,
+			}}
+			onAttachmentRemove={props.onAttachmentRemove}
+			onVoiceRemove={onVoiceRemove}
+		/>
+	);
+}
+
+/** The text field, with Seance's stash shortcut while it has focus; `onStash` is absent when there is nothing to stash. */
+function ComposerTextInput({
+	editorRef,
+	handleRef,
+	onStash,
+}: {
+	editorRef: React.Ref<HTMLDivElement>;
+	handleRef: ChatComposerBarProps['inputRef'];
+	onStash: (() => void) | undefined;
+}) {
+	return (
+		<ChatComposerInput
+			ref={editorRef}
+			handleRef={handleRef}
+			onKeyDown={(event) => {
+				if (!isStashShortcut(event)) return;
+				event.preventDefault();
+				onStash?.();
+			}}
+		/>
+	);
+}
+
 /** Astryx composer wired to Theorem's send / stop / queue / steer / stash matrix. */
 export function ChatComposerBar(props: ChatComposerBarProps) {
 	return (
@@ -418,7 +493,6 @@ function ChatComposerBarBody(props: ChatComposerBarProps) {
 	const { iface, phase } = props;
 	const t = useLabels();
 	const inputs = iface.inputs;
-	const [stagingIssues, setStagingIssues] = useState<AttachmentValidationIssue[]>([]);
 	const pendingFiles = useMemo(() => [...props.pendingFiles], [props.pendingFiles]);
 	const voice = useComposerVoice({
 		inputs,
@@ -453,48 +527,8 @@ function ChatComposerBarBody(props: ChatComposerBarProps) {
 		else props.onSubmit();
 	}
 
-	function stageFiles(incoming: File[]) {
-		const staged = stageComposerFiles({
-			existing: pendingFiles,
-			incoming,
-			maxFiles: inputs.maxFiles,
-			voiceCount: props.pendingVoice.length,
-		});
-		const added = staged.files.slice(pendingFiles.length);
-		if (added.length > 0) props.onFilesSelected(added);
-		setStagingIssues(staged.issues);
-	}
+	const { stageFiles, stagingIssues } = useFileStaging(pendingFiles, inputs.maxFiles, props);
 
-	const drawerSummary = composerDrawerSummary({
-		pendingMessages: props.pendingMessages,
-		attachmentCount: props.pendingFiles.length + props.pendingVoice.length,
-	});
-	const drawer = drawerSummary ? (
-		<PendingDrawer
-			summary={drawerSummary}
-			messages={props.pendingMessages}
-			{...stagedFiles}
-			voiceFiles={props.pendingVoice}
-			pendingActions={{
-				onMove: props.onPendingMove,
-				onRemove: props.onPendingRemove,
-				onQueue: props.onPendingQueue,
-				onRestore: props.onPendingRestore,
-				onSendNow: props.onPendingSendNow,
-			}}
-			onAttachmentRemove={props.onAttachmentRemove}
-			onVoiceRemove={() => voice.discardRecordingOrVoice()}
-		/>
-	) : undefined;
-
-	// Astryx: sendActions render to the left of the send button, at size="md".
-	const sendActions: ReactNode = (
-		<>
-			<SendMenu actions={menuActions} onAction={props.onMenuAction} />
-			{inputs.voice ? <RecordButton recording={voice.recording} onToggle={() => void voice.toggleRecording()} /> : null}
-		</>
-	);
-	const placeholder = props.placeholder ?? t('@theorem.composer.placeholder', { handle: iface.identity.handle });
 
 	return (
 		<ChatComposer
@@ -506,23 +540,22 @@ function ChatComposerBarBody(props: ChatComposerBarProps) {
 			onSubmit={runPrimary}
 			onStop={props.onStop}
 			isStopShown={primary === 'stop'}
-			placeholder={voice.recording ? t('@theorem.composer.listening') : placeholder}
+			placeholder={
+				voice.recording
+					? t('@theorem.composer.listening')
+					: (props.placeholder ?? t('@theorem.composer.placeholder', { handle: iface.identity.handle }))
+			}
 			// A profile that takes no text has no text field (false, not null: null gets Astryx's default one).
 			input={
 				inputs.text && (
-					<ChatComposerInput
-						ref={editorRef}
+					<ComposerTextInput
+						editorRef={editorRef}
 						handleRef={props.inputRef}
-						onKeyDown={(event) => {
-							// Seance's stash shortcut: only while the composer is focused.
-							if (!isStashShortcut(event)) return;
-							event.preventDefault();
-							if (canStash) props.onMenuAction('stash');
-						}}
+						onStash={canStash ? () => props.onMenuAction('stash') : undefined}
 					/>
 				)
 			}
-			drawer={drawer}
+			drawer={composerDrawer(props, stagedFiles, () => voice.discardRecordingOrVoice())}
 			headerActions={
 				inputs.attachments ? <AttachFilesButton accept={inputs.attachments.acceptAttr} onFiles={stageFiles} /> : undefined
 			}
@@ -536,7 +569,13 @@ function ChatComposerBarBody(props: ChatComposerBarProps) {
 					onChange={props.onGenerationChange}
 				/>
 			}
-			sendActions={sendActions}
+			// Astryx: sendActions render to the left of the send button, at size="md".
+			sendActions={
+				<>
+					<SendMenu actions={menuActions} onAction={props.onMenuAction} />
+					<ComposerRecordButton hasVoice={Boolean(inputs.voice)} voice={voice} />
+				</>
+			}
 			sendButton={
 				<ChatSendButton
 					isStopShown={primary === 'stop'}

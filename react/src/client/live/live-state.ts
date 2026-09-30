@@ -1,13 +1,13 @@
-export type LiveConnectPhase = 'socket' | 'microphone';
 export type LiveSessionStatus =
 	| 'disconnected'
 	| 'connecting'
-	| 'connected'
 	| 'ready'
 	| 'listening'
 	| 'speaking'
 	| 'working'
 	| 'error';
+
+export type LiveConnectPhase = 'socket' | 'microphone';
 
 /** What a live call is doing, for its status line; the UI words it. */
 export type LiveState =

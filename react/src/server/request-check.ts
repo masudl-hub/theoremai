@@ -6,7 +6,7 @@
  * @module
  */
 
-import { TheoremError, type z } from '../../../mod.ts';
+import { TheoremError, type z } from '@theoremjs/agents';
 import { type LiveClientMessage, liveClientMessageSchema } from '../client/live-messages.ts';
 import { issueSummary } from '../client/wire-line.ts';
 

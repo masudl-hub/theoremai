@@ -1,15 +1,15 @@
-import type { TheoremError, TurnBlob, TurnEvent } from '../../../mod.ts';
+import type { TheoremError, TurnBlob, TurnEvent } from '@theoremjs/agents';
 import {
 	appendAssistantEventsToHistory,
 	appendUserDraftToHistory,
 	applyTurnEventsToSession,
 	type ComposerProfileInterface,
-	type InterfaceTurnSession,
 	gatedToolFromEvents,
+	type InterfaceTurnSession,
 	settlesToolCall,
 	type TranscriptBlock,
 	type UserTurnHistoryMedia,
-} from '../../../src/interface/mod.ts';
+} from '@theoremjs/agents/interface';
 import { type TurnFailure, turnFailure } from './failure.ts';
 import type { TheoremTransport, TurnEventSink } from './transport.ts';
 import { buildTurnRequest, foldAssistantTurn, turnInputFromSession } from './turn-client.ts';

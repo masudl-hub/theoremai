@@ -6,18 +6,18 @@
  * @module
  */
 
-import { z } from '../../../mod.ts';
 import {
 	GATE_DECISIONS,
 	type GateDecision,
 	type ToolGate,
 	type TraceRecord,
-	toolGateSchema,
-	traceRecordSchema,
 	TURN_EVENT_SCHEMAS,
 	type TurnEvent,
-} from '../../../mod.ts';
-import type { Equals } from '../../../src/kernel/util/exact-type.ts';
+	toolGateSchema,
+	traceRecordSchema,
+	z,
+} from '@theoremjs/agents';
+import type { Equals } from '@theoremjs/agents/kernel';
 import { type HostErrorBody, hostErrorBodySchema } from './transport.ts';
 import {
 	type MalformedEvent,

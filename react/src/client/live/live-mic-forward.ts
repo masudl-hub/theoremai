@@ -1,4 +1,4 @@
-import type { ToolCallEvent, TurnEventOf } from '../../../../mod.ts';
+import type { ToolCallEvent, TurnEventOf } from '@theoremjs/agents';
 
 /** Whether a mic frame should be sent upstream given mute / socket / barge-in gates. */
 export function shouldForwardMicFrame(args: {

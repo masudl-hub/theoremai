@@ -1,11 +1,30 @@
 # `@theoremjs/react`
 
-React projection of the repo-private headless interface (`src/interface/`) — runners, transcript, composer, live stage.
+React projection of the headless interface (`@theoremjs/agents/interface`) — runners, transcript, composer, live stage.
 
-Lives next to the kernel at `theoremai/react/` so React apps depend on:
+## Install
 
-- `@theoremjs/agents` (kernel)
-- `@theoremjs/react` (this package)
+```bash
+npm install @theoremjs/react @theoremjs/agents zod react react-dom
+# for the chat and live UI (`/ui`, `/live`):
+npm install @astryxdesign/core@0.6.3 @stylexjs/stylex@0.19.0
+# only to build your own theme from the Theorem one (`/ui/theme`):
+npm install @astryxdesign/theme-neutral@0.6.3
+```
+
+Published to npm only: the package ships built JavaScript, declarations and
+stylesheets. `@theoremjs/agents` is a peer, so the host and the UI share one
+kernel. The Astryx peers are optional: the hooks, client and server entry
+points run without them. The declarations need TypeScript 5.7 or later.
+
+`@theoremjs/react/ui` and `@theoremjs/react/live` import their stylesheets
+themselves, so a bundler that handles CSS imports (Vite does) needs no extra
+step. The theme's type is Figtree with a system-font fallback;
+the package does not ship the font, so load it yourself if you want it.
+
+The live UI loads its microphone worklet as an asset
+(`new URL('./worklets/mic-capture.js', import.meta.url)`); Vite ships it
+without configuration, and any bundler that resolves that pattern does too.
 
 No Svelte. The playground site (`theoremai-frontend`) hosts a thin Vite SPA at `apps/run` that imports this package; the info-site graph stays Svelte and only writes a `PlaygroundRunPayload` handoff.
 
@@ -17,6 +36,16 @@ import { TheoremChat } from '@theoremjs/react/ui'; // Astryx chat UI
 import { LiveRunner } from '@theoremjs/react/live'; // Astryx voice / video UI
 import { createTheoremHandler } from '@theoremjs/react/server'; // host side
 ```
+
+A `host` profile runs no model: the page calls its tools directly. Serve it
+with `createTheoremHostHandler({ profile })` and render `<TheoremHost
+endpoint="/api/host" />` (`createHostTransport` and `useTheoremHost` for a UI
+of your own). `GET` describes each allowed tool with its input and output JSON
+Schema, never its endpoint or credentials; `POST /call` `{ name, input }`
+streams the call's events, and `POST /invoke` answers a gate it paused on, as
+in chat. The console draws the form from the input schema and lays the result
+out from its value: figures, charts, tables, images, audio and Markdown, with
+the raw JSON beside them.
 
 The playground's run-tab handoff (`savePlaygroundRunPayload`,
 `readPlaygroundRunIdFromUrl`, …) lives in `@theoremjs/playground`; see

@@ -7,8 +7,12 @@
  * @module
  */
 
-import { TheoremError, type TurnEvent, type TurnInput } from '../../../mod.ts';
-import { answerOpenToolCalls, assertOpenToolCalls, settlesToolCall } from '../../../src/interface/mod.ts';
+import { TheoremError, type TurnEvent, type TurnInput } from '@theoremjs/agents';
+import {
+	answerOpenToolCalls,
+	assertOpenToolCalls,
+	settlesToolCall,
+} from '@theoremjs/agents/interface';
 
 /** Refuses a walk-away its history does not match, before any gate is answered. */
 export function checkWalkAway(input: TurnInput, abandon: readonly string[]): void {

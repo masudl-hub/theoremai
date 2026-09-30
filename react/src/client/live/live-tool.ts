@@ -1,4 +1,4 @@
-import type { ToolGate } from '../../../../src/kernel/mod.ts';
+import type { ToolGate } from '@theoremjs/agents/kernel';
 import type { ToolGateResolution } from '../tool-resume.ts';
 
 /** A gate the user is asked to answer, for the model's call `callId`. */

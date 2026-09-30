@@ -1,13 +1,13 @@
 import {
-	applyTurnEventsToSession,
 	type AttachmentValidationIssue,
+	applyTurnEventsToSession,
 	type ComposerProfileInterface,
 	gatedToolFromEvents,
 	type InterfaceTurnSession,
 	type TranscriptBlock,
 	type UserTurnDraft,
-} from '../../../src/interface/mod.ts';
-import { attachmentsRefused, TheoremError, type TurnEvent } from '../../../mod.ts';
+} from '@theoremjs/agents/interface';
+import { attachmentsRefused, TheoremError, type TurnEvent } from '@theoremjs/agents';
 import { attachPreviewData, encodeFiles } from './encode-files.ts';
 import { type TurnFailure, turnFailure } from './failure.ts';
 import {

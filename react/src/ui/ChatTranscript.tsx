@@ -26,9 +26,9 @@ import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconCheck, IconCopy } from '@tabler/icons-react';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import type { TranscriptBlock } from '../../../src/interface/mod.ts';
-import { citationsFromBlock, type SourceCitationBlock } from '../client/source-citations';
-import type { AnsweringGate } from '../client/tool-resume';
+import type { TranscriptBlock } from '@theoremjs/agents/interface';
+import { citationsFromBlock, type SourceCitationBlock } from '../client/source-citations.ts';
+import type { AnsweringGate } from '../client/tool-resume.ts';
 import {
 	assistantTurnCopyText,
 	assistantTurnTiming,
@@ -41,14 +41,14 @@ import {
 	type TranscriptTurnGroup,
 	type TurnSpan,
 	workStatus,
-} from '../client/transcript-groups';
-import { useDisclosureMotion } from './disclosure-motion';
-import { type LabelText, workDuration, workStatusLabel } from './labels';
-import { TheoremLabelsProvider, useLabels } from './labels-provider';
-import { ShapedData } from './ShapedData';
-import { transcriptBlockCopyText } from './transcript-copy-text';
-import { ApprovalCard, AuthChallengeCard, type ToolDecision } from './ToolGateCard';
-import { VoiceNote } from './VoiceNote';
+} from '../client/transcript-groups.ts';
+import { useDisclosureMotion } from './disclosure-motion.ts';
+import { type LabelText, workDuration, workStatusLabel } from './labels.ts';
+import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
+import { ShapedData } from './ShapedData.tsx';
+import { transcriptBlockCopyText } from './transcript-copy-text.ts';
+import { ApprovalCard, AuthChallengeCard, type ToolDecision } from './ToolGateCard.tsx';
+import { VoiceNote } from './VoiceNote.tsx';
 
 type ToolBlock = Extract<TranscriptBlock, { kind: 'tool' }>;
 

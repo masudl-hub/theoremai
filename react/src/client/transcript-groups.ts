@@ -4,7 +4,7 @@
  * (Seance-style), not as separate messages.
  */
 
-import type { TranscriptBlock } from '../../../src/interface/mod.ts';
+import type { TranscriptBlock } from '@theoremjs/agents/interface';
 
 export type TranscriptTurnGroup =
 	| { kind: 'user'; key: string; blocks: TranscriptBlock[] }

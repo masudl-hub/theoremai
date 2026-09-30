@@ -1,5 +1,5 @@
 import { useCallback, type MutableRefObject } from 'react';
-import { TheoremError } from '../../../mod.ts';
+import { TheoremError } from '@theoremjs/agents';
 import type {
 	AttachmentValidationIssue,
 	ComposerMenuAction,
@@ -9,7 +9,7 @@ import type {
 	InterfaceTurnSession,
 	TranscriptBlock,
 	UserTurnDraft,
-} from '../../../src/interface/mod.ts';
+} from '@theoremjs/agents/interface';
 import {
 	convertSteersToFrontQueued,
 	createComposerPendingMessage,
@@ -17,7 +17,7 @@ import {
 	removeComposerPendingMessage,
 	userDraftHasPayload,
 	userDraftToSteerInject,
-} from '../../../src/interface/mod.ts';
+} from '@theoremjs/agents/interface';
 import {
 	composerFieldsFromDraft,
 	encodeComposerDraft,
@@ -28,10 +28,10 @@ import {
 	type StreamView,
 	type ToolDecisionAction,
 	type ToolGateResolution,
-} from '../client/index';
-import { type ClientFailure, clientFailure, type TurnFailure } from '../client/failure';
-import type { TheoremTransport } from '../client/transport';
-import type { MessageDelivery } from './use-theorem-chat-state';
+} from '../client/index.ts';
+import { type ClientFailure, clientFailure, type TurnFailure } from '../client/failure.ts';
+import type { TheoremTransport } from '../client/transport.ts';
+import type { MessageDelivery } from './use-theorem-chat-state.ts';
 
 function composerFieldsPayload(
 	text: string,

@@ -9,7 +9,6 @@
  * @module
  */
 
-import { z } from '../../../mod.ts';
 import {
 	describeError,
 	type ErrorKind,
@@ -17,17 +16,18 @@ import {
 	type GateDecision,
 	isAbortError,
 	TheoremError,
-	throwIfAborted,
 	TURN_EVENT_SCHEMAS,
 	type TurnEvent,
 	type TurnHistoryMessage,
-	turnHistoryMessageSchema,
 	type TurnToolSnapshot,
+	throwIfAborted,
+	turnHistoryMessageSchema,
 	turnToolSnapshotSchema,
-} from '../../../mod.ts';
-import { kindOfHttpStatus } from '../../../src/guardrails/mod.ts';
-import { type ProfileInterface, profileInterfaceSchema } from '../../../src/interface/mod.ts';
-import type { Equals } from '../../../src/kernel/util/exact-type.ts';
+	z,
+} from '@theoremjs/agents';
+import { kindOfHttpStatus } from '@theoremjs/agents/guardrails';
+import { type ProfileInterface, profileInterfaceSchema } from '@theoremjs/agents/interface';
+import type { Equals } from '@theoremjs/agents/kernel';
 import type { TraceFeed } from './trace-feed.ts';
 import {
 	checkWire,
@@ -392,6 +392,18 @@ export async function postNdjson<Line extends { type: string }>(
 export async function postJson(url: string, body: unknown, options: HttpOptions = {}): Promise<void> {
 	const response = await request(url, { method: 'POST', body: JSON.stringify(body) }, options);
 	if (!response.ok) throw await failureFromResponse(response);
+}
+
+/** GET, or POST `body` as JSON, and read the JSON reply; a non-OK reply throws its failure. */
+export async function fetchJson(
+	url: string,
+	init: { body?: unknown; signal?: AbortSignal },
+	options: HttpOptions = {},
+): Promise<unknown> {
+	const method = init.body === undefined ? { method: 'GET' } : { method: 'POST', body: JSON.stringify(init.body) };
+	const response = await request(url, { ...method, signal: init.signal }, options);
+	if (!response.ok) throw await failureFromResponse(response);
+	return parseWireJson(await response.text());
 }
 
 export type HttpTransportOptions = HttpOptions & {

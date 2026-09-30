@@ -11,18 +11,18 @@ import {
 	type ComposerProfileInterface,
 	moveComposerPendingWithinKind,
 	removeComposerPendingMessage,
-} from '../../../src/interface/mod.ts';
-import { createHttpTransport, type HttpTransportOptions, type TheoremTransport } from '../client/transport';
-import { useTheoremChat } from '../hooks/use-theorem-chat';
-import { useTheoremInterface } from '../hooks/use-theorem-interface';
-import { ChatComposerBar } from './ChatComposerBar';
-import { parseAspectRatio } from '../client/image-output';
-import { ChatTranscript } from './ChatTranscript';
-import type { TheoremLabels } from './labels';
-import { TheoremLabelsProvider, useLabels } from './labels-provider';
-import { TheoremThemeProvider } from './theme';
-import { SidePanelHeader } from './SidePanel';
-import { useTraceInspector } from './TraceInspector';
+} from '@theoremjs/agents/interface';
+import { createHttpTransport, type HttpTransportOptions, type TheoremTransport } from '../client/transport.ts';
+import { useTheoremChat } from '../hooks/use-theorem-chat.ts';
+import { useTheoremInterface } from '../hooks/use-theorem-interface.ts';
+import { ChatComposerBar } from './ChatComposerBar.tsx';
+import { parseAspectRatio } from '../client/image-output.ts';
+import { ChatTranscript } from './ChatTranscript.tsx';
+import type { TheoremLabels } from './labels.ts';
+import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
+import { TheoremThemeProvider } from './theme.tsx';
+import { SidePanelHeader } from './SidePanel.tsx';
+import { useTraceInspector, WithTrace } from './TraceInspectorPanel.tsx';
 
 export type TheoremChatProps = {
 	/** Where `createTheoremHandler` is mounted. Default `/api/theorem`. Ignored when `transport` is set. */
@@ -51,6 +51,12 @@ export type TheoremChatProps = {
 	maxWidth?: string;
 	/** Page scroller when the chat is not its own scroll container (e.g. `document.documentElement`). */
 	scrollRef?: React.RefObject<HTMLElement | null>;
+	/**
+	 * Show the trace in place of the chat, from the host's own control; the
+	 * built-in trace toggle then hides. Omit to keep the toggle. Needs a profile
+	 * that records traces.
+	 */
+	trace?: boolean;
 	className?: string;
 	style?: React.CSSProperties;
 };
@@ -185,6 +191,7 @@ function ChatBody({
 	density,
 	maxWidth = DEFAULT_CHAT_MAX_WIDTH,
 	scrollRef,
+	trace,
 	className,
 	style,
 }: ChatBodyProps) {
@@ -195,8 +202,7 @@ function ChatBody({
 	const landing = blocks.length === 0;
 	const inputRef = useRef<ChatComposerInputHandle | null>(null);
 	const composerRef = useComposerGlide(landing, inputRef);
-	const layoutRef = useRef<HTMLDivElement | null>(null);
-	const inspector = useTraceInspector(iface, layoutRef, transport.traces);
+	const inspector = useTraceInspector(iface, transport.traces, trace);
 	const header = <SidePanelHeader>{inspector.toggle}</SidePanelHeader>;
 
 	const composer = (
@@ -208,36 +214,36 @@ function ChatBody({
 	// composer keeps its width when it moves.
 	if (landing) {
 		return (
-			<Layout
-				ref={layoutRef}
-				height="fill"
-				className={className}
-				style={style}
-				header={header}
-				end={inspector.panel}
-				content={
-					<LayoutContent padding={0}>
-						<VStack minHeight="100%" vAlign="center" gap={8} paddingInline={3}>
-							<ChatColumn maxWidth={maxWidth}>
-								{emptyState ?? (
-									// Greeting type from Astryx's AI chat template.
-									<VStack gap={1}>
-										<Text type="large" as="h2">
-											{handle}
-										</Text>
-										<Text type="display-2" as="h1">
-											{t('@theorem.chat.greeting')}
-										</Text>
-									</VStack>
-								)}
-							</ChatColumn>
-							<ChatColumn ref={composerRef} maxWidth={maxWidth}>
-								{composer}
-							</ChatColumn>
-						</VStack>
-					</LayoutContent>
-				}
-			/>
+			<WithTrace inspector={inspector}>
+				<Layout
+					height="fill"
+					className={className}
+					style={style}
+					header={header}
+					content={
+						<LayoutContent padding={0}>
+							<VStack minHeight="100%" vAlign="center" gap={8} paddingInline={3}>
+								<ChatColumn maxWidth={maxWidth}>
+									{emptyState ?? (
+										// Greeting type from Astryx's AI chat template.
+										<VStack gap={1}>
+											<Text type="large" as="h2">
+												{handle}
+											</Text>
+											<Text type="display-2" as="h1">
+												{t('@theorem.chat.greeting')}
+											</Text>
+										</VStack>
+									)}
+								</ChatColumn>
+								<ChatColumn ref={composerRef} maxWidth={maxWidth}>
+									{composer}
+								</ChatColumn>
+							</VStack>
+						</LayoutContent>
+					}
+				/>
+			</WithTrace>
 		);
 	}
 
@@ -245,50 +251,50 @@ function ChatBody({
 	// with the composer in ChatLayout's own dock. The dock leaves 12px under the
 	// composer; paddingBlockEnd={3} adds 12px more for a 24px bottom margin.
 	return (
-		<Layout
-			ref={layoutRef}
-			height="fill"
-			className={className}
-			style={style}
-			header={header}
-			end={inspector.panel}
-			content={
-				<LayoutContent padding={0}>
-					<VStack height="100%">
-						<ChatLayout
-							density={density}
-							scrollRef={scrollRef}
-							composer={
-								<VStack paddingBlockEnd={3}>
-									<ChatColumn ref={composerRef} maxWidth={maxWidth}>
-										{composer}
-									</ChatColumn>
-								</VStack>
-							}
-						>
-							<ChatColumn maxWidth={maxWidth}>
-								<ChatTranscript
-									blocks={blocks}
-									handle={handle}
-									streaming={chat.streaming}
-									delivery={chat.delivery}
-									answering={chat.answering}
-									imageOutput={
-										iface.type === 'image' ? { ratio: parseAspectRatio(iface.image.aspectRatio) } : undefined
-									}
-									onToolDecision={(index, action) => {
-										void chat.handleToolDecision(index, action);
-									}}
-									onAuthenticated={(index, secret) => {
-										void chat.handleAuthenticated(index, secret);
-									}}
-								/>
-							</ChatColumn>
-						</ChatLayout>
-					</VStack>
-				</LayoutContent>
-			}
-		/>
+		<WithTrace inspector={inspector}>
+			<Layout
+				height="fill"
+				className={className}
+				style={style}
+				header={header}
+				content={
+					<LayoutContent padding={0}>
+						<VStack height="100%">
+							<ChatLayout
+								density={density}
+								scrollRef={scrollRef}
+								composer={
+									<VStack paddingBlockEnd={3}>
+										<ChatColumn ref={composerRef} maxWidth={maxWidth}>
+											{composer}
+										</ChatColumn>
+									</VStack>
+								}
+							>
+								<ChatColumn maxWidth={maxWidth}>
+									<ChatTranscript
+										blocks={blocks}
+										handle={handle}
+										streaming={chat.streaming}
+										delivery={chat.delivery}
+										answering={chat.answering}
+										imageOutput={
+											iface.type === 'image' ? { ratio: parseAspectRatio(iface.image.aspectRatio) } : undefined
+										}
+										onToolDecision={(index, action) => {
+											void chat.handleToolDecision(index, action);
+										}}
+										onAuthenticated={(index, secret) => {
+											void chat.handleAuthenticated(index, secret);
+										}}
+									/>
+								</ChatColumn>
+							</ChatLayout>
+						</VStack>
+					</LayoutContent>
+				}
+			/>
+		</WithTrace>
 	);
 }
 

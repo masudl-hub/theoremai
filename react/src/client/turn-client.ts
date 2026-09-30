@@ -1,4 +1,4 @@
-import type { TurnEvent } from '../../../mod.ts';
+import type { TurnEvent } from '@theoremjs/agents';
 import {
 	type AttachmentValidationIssue,
 	type ComposerProfileInterface,
@@ -9,7 +9,7 @@ import {
 	streamThoughtsEnabled,
 	type TranscriptBlock,
 	type UserTurnDraft,
-} from '../../../src/interface/mod.ts';
+} from '@theoremjs/agents/interface';
 import { filesToPending } from './encode-files.ts';
 import { defaultModel } from './generation-selection.ts';
 import type {

@@ -2,7 +2,7 @@
  * Encode composer fields into a serializable `UserTurnDraft` for pending intents.
  */
 
-import type { UserTurnDraft } from '../../../src/interface/mod.ts';
+import type { UserTurnDraft } from '@theoremjs/agents/interface';
 import { encodeFiles } from './encode-files.ts';
 
 export async function encodeComposerDraft(args: {

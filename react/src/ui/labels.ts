@@ -124,6 +124,11 @@ export const THEOREM_UI_CATALOG = {
 		description: 'Rows past the shown ones, left to the JSON view.',
 		params: ['count'],
 	},
+	'@theorem.data.large': {
+		defaultMessage: 'Too large to lay out — showing the first {size} of its JSON',
+		description: 'A payload too big to draw by its shape, shown as the start of its JSON.',
+		params: ['size'],
+	},
 	'@theorem.transcript.copy_text.tool': {
 		defaultMessage: 'Tool: {name}',
 		description: 'A tool call in copied message text.',
@@ -148,6 +153,7 @@ export const THEOREM_UI_CATALOG = {
 	},
 
 	'@theorem.duration.milliseconds': { defaultMessage: '{ms}ms', description: 'Under a second.', params: ['ms'] },
+	'@theorem.duration.belowTenth': { defaultMessage: '<0.1ms', description: 'Above zero but under a tenth of a millisecond, such as a quick guardrail check.' },
 	'@theorem.duration.seconds': { defaultMessage: '{seconds}s', description: 'Under a minute.', params: ['seconds'] },
 	'@theorem.duration.minutes': { defaultMessage: '{minutes}m', description: 'Whole minutes.', params: ['minutes'] },
 	'@theorem.duration.minutes_seconds': {
@@ -208,13 +214,85 @@ export const THEOREM_UI_CATALOG = {
 	'@theorem.voice_note.pause': { defaultMessage: 'Pause {name}', description: 'Voice note, playing.', params: ['name'] },
 	'@theorem.voice_note.remove': { defaultMessage: 'Remove {name}', description: 'Unstages a voice note.', params: ['name'] },
 
+	'@theorem.decision.state': { defaultMessage: 'State', description: 'The JSON a decision is asked about (field label).' },
+	'@theorem.decision.state_size': {
+		defaultMessage: '{size} of {limit}',
+		description: "The state's size against the profile's limit, under the field.",
+		params: ['size', 'limit'],
+	},
+	'@theorem.decision.view': { defaultMessage: 'Edit as', description: 'Switch between the state as fields and as JSON.' },
+	'@theorem.decision.fields': { defaultMessage: 'Fields', description: 'The state edited field by field.' },
+	'@theorem.decision.add_item': { defaultMessage: 'Add to {field}', description: 'Adds a row to a list in the state.', params: ['field'] },
+	'@theorem.decision.remove_item': { defaultMessage: 'Remove {item}', description: 'Removes a row from a list in the state.', params: ['item'] },
+	'@theorem.decision.add_value': { defaultMessage: 'Add a value', description: 'A list of words in the state, while it is empty.' },
+	'@theorem.decision.invalid_json': { defaultMessage: 'Not valid JSON yet', description: "The state doesn't parse." },
+	'@theorem.decision.null_state': { defaultMessage: 'State can’t be null', description: 'The state is the JSON null.' },
+	'@theorem.decision.too_large': {
+		defaultMessage: 'Over the {limit} limit',
+		description: "The state is larger than the profile's limit.",
+		params: ['limit'],
+	},
+	'@theorem.decision.decide': { defaultMessage: 'Decide', description: 'Asks the questions about the state.' },
+	'@theorem.decision.deciding': { defaultMessage: 'Deciding…', description: 'The decide button while it runs.' },
+	'@theorem.decision.stop': { defaultMessage: 'Stop', description: 'Cancels the running decision.' },
+	'@theorem.decision.confidence': {
+		defaultMessage: '{percent} sure',
+		description: "How sure the model is of a choice or score; percent is formatted, e.g. '92%'.",
+		params: ['percent'],
+	},
+	'@theorem.decision.option': {
+		defaultMessage: '{label}, {percent}',
+		description: "One option and its probability (screen readers); percent is formatted.",
+		params: ['label', 'percent'],
+	},
+	'@theorem.decision.score_of': {
+		defaultMessage: '{score} of {max}',
+		description: 'A score on its scale from 0, e.g. 1.4 of 3.',
+		params: ['score', 'max'],
+	},
+	'@theorem.decision.type.choice': { defaultMessage: 'Choice', description: 'A question that picks one label.' },
+	'@theorem.decision.type.score': { defaultMessage: 'Score', description: 'A question that places the state on a scale.' },
+	'@theorem.decision.type.noul': { defaultMessage: 'Noul', description: 'A question answered with one number.' },
+	'@theorem.decision.tokens': {
+		defaultMessage: '{count, plural, one {# token} other {# tokens}}',
+		description: 'Input tokens the decision used, in the line under the answers.',
+		params: ['count'],
+	},
+
+	'@theorem.host.tool': { defaultMessage: 'Tool', description: 'Picks which of the host’s tools to call (field label).' },
+	'@theorem.host.request': { defaultMessage: 'Request', description: 'The input a tool call sends (card heading).' },
+	'@theorem.host.response': { defaultMessage: 'Response', description: 'What a tool call returned (section heading).' },
+	'@theorem.host.run': { defaultMessage: 'Run', description: 'Calls the tool with the request.' },
+	'@theorem.host.image': { defaultMessage: 'Image the tool returned', description: 'Alt text for an image a tool returned beside its output.' },
+	'@theorem.host.running': { defaultMessage: 'Running…', description: 'The run button while the call runs.' },
+	'@theorem.host.stop': { defaultMessage: 'Stop', description: 'Cancels the running call.' },
+	'@theorem.host.missing': {
+		defaultMessage: 'Needs {fields}',
+		description: 'Required fields the request is still missing, under the form.',
+		params: ['fields'],
+	},
+	'@theorem.host.shortcut': { defaultMessage: '⌘↵ to run', description: 'The keyboard shortcut that runs the call, under the form.' },
+	'@theorem.host.no_tools': { defaultMessage: 'This host has no tools yet', description: 'A host profile that allows no tools.' },
+	'@theorem.host.earlier': { defaultMessage: 'Earlier calls', description: 'Heading over this page’s previous tool calls.' },
+	'@theorem.host.kind.function': { defaultMessage: 'Function', description: 'A tool that runs a function on the host.' },
+	'@theorem.host.kind.http': { defaultMessage: 'HTTP', description: 'A tool that calls an HTTP endpoint.' },
+	'@theorem.host.kind.mcp': { defaultMessage: 'MCP', description: 'A tool served by an MCP server.' },
+	'@theorem.host.access.read-only': { defaultMessage: 'Read-only', description: 'A tool that only reads.' },
+	'@theorem.host.access.read-write': { defaultMessage: 'Read-write', description: 'A tool that can change things.' },
+	'@theorem.host.access.destructive': { defaultMessage: 'Destructive', description: 'A tool that can delete or overwrite.' },
+	'@theorem.host.status.running': { defaultMessage: 'Running', description: 'A tool call in progress.' },
+	'@theorem.host.status.gate': { defaultMessage: 'Waiting', description: 'A tool call paused on approval or sign-in.' },
+	'@theorem.host.status.complete': { defaultMessage: 'Done', description: 'A tool call that returned.' },
+	'@theorem.host.status.error': { defaultMessage: 'Failed', description: 'A tool call that failed.' },
+	'@theorem.host.status.cancel': { defaultMessage: 'Stopped', description: 'A tool call that was cancelled.' },
+
 	'@theorem.panel.trace.name': { defaultMessage: 'Trace', description: 'Trace side panel (screen readers).' },
 	'@theorem.panel.trace.show': { defaultMessage: 'Show trace', description: 'Trace panel toggle, closed.' },
 	'@theorem.panel.trace.hide': { defaultMessage: 'Hide trace', description: 'Trace panel toggle, open.' },
 	'@theorem.panel.trace.resize': { defaultMessage: 'Resize trace', description: 'Trace panel drag handle.' },
 	'@theorem.panel.trace.empty.title': { defaultMessage: 'No trace yet', description: 'Empty trace panel.' },
 	'@theorem.panel.trace.empty.description': {
-		defaultMessage: 'Spans for each turn will show here.',
+		defaultMessage: 'Spans for each run will show here.',
 		description: 'Empty trace panel.',
 	},
 	'@theorem.panel.trace.summary': {
@@ -234,7 +312,7 @@ export const THEOREM_UI_CATALOG = {
 		description: 'What the any-text search field matches.',
 	},
 	'@theorem.panel.trace.no_match': { defaultMessage: 'No spans match', description: 'Trace panel, when the search matches nothing.' },
-	'@theorem.panel.trace.back': { defaultMessage: 'All spans', description: 'Leaves a span for the span list.' },
+	'@theorem.panel.trace.back': { defaultMessage: 'Back', description: 'Leaves an open span for its turn.' },
 	'@theorem.panel.trace.show_text': { defaultMessage: 'Show text', description: 'Reveals stored text, JSON or messages.' },
 	'@theorem.panel.trace.hide_text': { defaultMessage: 'Hide text', description: 'Hides revealed stored text.' },
 	'@theorem.panel.trace.other': { defaultMessage: 'Other', description: 'Group for attributes the trace catalog does not name.' },
@@ -260,6 +338,125 @@ export const THEOREM_UI_CATALOG = {
 	'@theorem.panel.trace.unit.milliseconds': { defaultMessage: 'ms', description: 'Unit of a search field in milliseconds.' },
 	'@theorem.panel.trace.unit.seconds': { defaultMessage: 's', description: 'Unit of a search field in seconds.' },
 	'@theorem.panel.trace.unit.usd': { defaultMessage: 'USD', description: 'Unit of a search field in US dollars.' },
+	'@theorem.panel.trace.turn': {
+		defaultMessage: '{label} {index} of {count}',
+		description: 'Which root of the trace is shown: "Turn 2 of 3".',
+		params: ['label', 'index', 'count'],
+	},
+	'@theorem.panel.trace.turns': { defaultMessage: 'Turns', description: 'List of every turn of the conversation; a row opens its turn.' },
+	'@theorem.panel.trace.conversation': {
+		defaultMessage: '{count, plural, one {# turn} other {# turns}}',
+		description: 'Heading of the whole-conversation view: how many turns it holds.',
+		params: ['count'],
+	},
+	'@theorem.panel.trace.conversation.back': { defaultMessage: 'All turns', description: 'Leaves a turn for the whole-conversation view.' },
+	'@theorem.panel.trace.previous': { defaultMessage: 'Previous turn', description: 'Opens the turn before this one.' },
+	'@theorem.panel.trace.next': { defaultMessage: 'Next turn', description: 'Opens the turn after this one.' },
+	'@theorem.panel.trace.calls': { defaultMessage: 'Tool calls', description: "List of every call of a host's trace; a row opens its call." },
+	'@theorem.panel.trace.calls.count': {
+		defaultMessage: '{count, plural, one {# tool call} other {# tool calls}}',
+		description: "Heading of a host's whole-trace view: how many tool calls it holds.",
+		params: ['count'],
+	},
+	'@theorem.panel.trace.calls.back': { defaultMessage: 'All tool calls', description: "Leaves a call for the host's whole-trace view." },
+	'@theorem.panel.trace.calls.previous': { defaultMessage: 'Previous call', description: 'Opens the tool call before this one.' },
+	'@theorem.panel.trace.calls.next': { defaultMessage: 'Next call', description: 'Opens the tool call after this one.' },
+	'@theorem.panel.trace.steps': { defaultMessage: 'Steps', description: 'Card counting the model and tool calls of a turn.' },
+	'@theorem.panel.trace.steps.detail': {
+		defaultMessage: '{calls, plural, one {# model call} other {# model calls}} · {tools, plural, one {# tool} other {# tools}}',
+		description: 'Under the steps count: how many were model calls and tool calls.',
+		params: ['calls', 'tools'],
+	},
+	'@theorem.panel.trace.failed': {
+		defaultMessage: '{count} failed',
+		description: 'Under the steps count, when some failed.',
+		params: ['count'],
+	},
+	'@theorem.panel.trace.firstText': { defaultMessage: 'First text', description: 'Card: how long the person waited before any of the answer appeared.' },
+	'@theorem.panel.trace.rate': {
+		defaultMessage: '{rate} tokens/s',
+		description: 'Under the first-text time: how fast the model wrote once it started.',
+		params: ['rate'],
+	},
+	'@theorem.panel.trace.held': {
+		defaultMessage: '{duration} held back',
+		description: 'Under the first-text time: how long guardrails held written text back before showing it.',
+		params: ['duration'],
+	},
+	'@theorem.panel.trace.guardrails': { defaultMessage: 'Guardrails', description: 'Card: the time guardrail checks took in a turn.' },
+	'@theorem.panel.trace.guardrails.passed': {
+		defaultMessage: 'Passed: {checks}',
+		description: 'Under the guardrail checks that acted: the checks that let the text through, each with what it checked and its time.',
+		params: ['checks'],
+	},
+	'@theorem.panel.trace.guardrails.from': {
+		defaultMessage: 'from {tool}',
+		description: 'A guardrail check: the tool the checked text came from.',
+		params: ['tool'],
+	},
+	'@theorem.panel.trace.guardrails.detail': {
+		defaultMessage: '{checks, plural, one {# check} other {# checks}} · {flagged, plural, =0 {all passed} other {# acted}}',
+		description: 'Under the guardrail time: how many checks ran, and how many redacted, flagged or blocked.',
+		params: ['checks', 'flagged'],
+	},
+	'@theorem.panel.trace.tokens.detail': {
+		defaultMessage: '{input} in · {output} out',
+		description: 'Under the token total: tokens read and written.',
+		params: ['input', 'output'],
+	},
+	'@theorem.panel.trace.time': { defaultMessage: 'Where the time went', description: 'Bar splitting a turn into model, tool and other time.' },
+	'@theorem.panel.trace.time.model': { defaultMessage: 'Model', description: 'Time spent waiting on the model.' },
+	'@theorem.panel.trace.time.tools': { defaultMessage: 'Tools', description: 'Time spent running tools.' },
+	'@theorem.panel.trace.time.guardrails': { defaultMessage: 'Guardrails', description: 'Time guardrail checks took: on the input, the stream and the answer.' },
+	'@theorem.panel.trace.time.hooks': { defaultMessage: 'Hooks', description: "Time the host's turn hooks took." },
+	'@theorem.panel.trace.time.other': {
+		defaultMessage: 'Other',
+		description: 'Time spent on none of these: waiting between steps, the host, the network.',
+	},
+	'@theorem.panel.trace.charts.calls': {
+		defaultMessage: 'Tokens per model call',
+		description: 'Chart of each model call: its tokens stacked as a bar.',
+	},
+	'@theorem.panel.trace.charts.cached': { defaultMessage: 'Cached', description: 'Legend: input tokens read from cache.' },
+	'@theorem.panel.trace.charts.input': { defaultMessage: 'Input', description: 'Legend: input tokens read fresh.' },
+	'@theorem.panel.trace.charts.output': { defaultMessage: 'Output', description: 'Legend: tokens the model wrote.' },
+	'@theorem.panel.trace.charts.slowest': { defaultMessage: 'Slowest steps', description: 'Chart ranking the steps that took longest.' },
+	'@theorem.panel.trace.charts.modelShare': { defaultMessage: '{share} on the model', description: "Beside a chart's total time: the model's share.", params: ['share'] },
+	'@theorem.panel.trace.charts.cachedShare': { defaultMessage: '{share} of input cached', description: "Beside a chart's total tokens: the input read from cache.", params: ['share'] },
+	'@theorem.panel.trace.charts.turnTime': { defaultMessage: 'Time per turn', description: 'Chart of each turn: its model, tool and other time stacked.' },
+	'@theorem.panel.trace.charts.callTime': { defaultMessage: 'Time per call', description: "Chart of each tool call of a host's trace: its tool, check and hook time stacked." },
+	'@theorem.panel.trace.charts.turnTokens': { defaultMessage: 'Tokens per turn', description: 'Chart of each turn: its tokens stacked as a bar.' },
+	'@theorem.panel.trace.charts.turn': { defaultMessage: 'Turn {index}', description: 'A turn, by its order in the conversation.', params: ['index'] },
+	'@theorem.panel.trace.charts.hostCall': { defaultMessage: 'Call {index}', description: "A tool call, by its order in a host's trace.", params: ['index'] },
+	'@theorem.panel.trace.charts.call': { defaultMessage: 'Model call {index}', description: 'A model call, by its order in the turn.', params: ['index'] },
+	'@theorem.panel.trace.charts.tokens': {
+		defaultMessage: '{cached} cached · {fresh} new in · {output} out',
+		description: "A model call's tokens: read from cache, read fresh, and written.",
+		params: ['cached', 'fresh', 'output'],
+	},
+	'@theorem.panel.trace.story': { defaultMessage: 'What happened', description: 'The turn told step by step.' },
+	'@theorem.panel.trace.story.asked': { defaultMessage: 'User asked', description: 'The first step: what the user sent.' },
+	'@theorem.panel.trace.story.requested': {
+		defaultMessage: 'Asked for {count, plural, one {# tool} other {# tools}}',
+		description: 'A model call that answered with tool calls.',
+		params: ['count'],
+	},
+	'@theorem.panel.trace.story.wrote': { defaultMessage: 'Wrote a reply', description: 'A model call that answered with text.' },
+	'@theorem.panel.trace.story.answered': { defaultMessage: 'Answered', description: 'The last step: the turn ended with this answer.' },
+	'@theorem.panel.trace.story.failed': { defaultMessage: 'Ended with an error', description: 'The last step, when the turn failed.' },
+	'@theorem.panel.trace.timeline': { defaultMessage: 'Timeline', description: 'Every span of the turn on one time axis.' },
+	'@theorem.panel.trace.timeline.zoom': {
+		defaultMessage: 'Drag across the strip to zoom',
+		description: 'Hint beside the activity strip that zooms the timeline.',
+	},
+	'@theorem.panel.trace.timeline.reset': {
+		defaultMessage: 'Show the whole turn',
+		description: 'Zooms the timeline back out to the full turn.',
+	},
+	'@theorem.panel.trace.input': { defaultMessage: 'Input', description: 'What a span was given.' },
+	'@theorem.panel.trace.output': { defaultMessage: 'Output', description: 'What a span gave back.' },
+	'@theorem.panel.trace.details': { defaultMessage: 'All details', description: "A span's every attribute, event and link." },
+	'@theorem.panel.trace.close': { defaultMessage: 'Close', description: 'Closes the open span.' },
 	'@theorem.panel.captions.name': { defaultMessage: 'Captions', description: 'Captions side panel (screen readers).' },
 	'@theorem.panel.captions.show': { defaultMessage: 'Show captions', description: 'Captions panel toggle, closed.' },
 	'@theorem.panel.captions.hide': { defaultMessage: 'Hide captions', description: 'Captions panel toggle, open.' },
@@ -330,9 +527,12 @@ export function composerDrawerLabel(t: LabelText, summary: ComposerDrawerSummary
 		.join(t('@theorem.composer.drawer.separator'));
 }
 
-/** Wall-clock duration, matching Seance's builder-trace formatter: "850ms", "3.2s", "12s", "1m 5s". */
+/** Wall-clock duration, matching Seance's builder-trace formatter: "<0.1ms", "0.4ms", "850ms", "3.2s", "12s", "1m 5s". */
 export function workDuration(t: LabelText, durationMs: number): string {
 	const ms = Math.max(0, durationMs);
+	// A guardrail check can take a fraction of a millisecond; one decimal keeps it from reading as nothing.
+	if (ms > 0 && ms < 0.05) return t('@theorem.duration.belowTenth');
+	if (ms < 10) return t('@theorem.duration.milliseconds', { ms: Math.round(ms * 10) / 10 });
 	if (ms < 1_000) return t('@theorem.duration.milliseconds', { ms: Math.round(ms) });
 	if (ms < 10_000) return t('@theorem.duration.seconds', { seconds: Math.round(ms / 100) / 10 });
 	if (ms < 60_000) return t('@theorem.duration.seconds', { seconds: Math.round(ms / 1_000) });

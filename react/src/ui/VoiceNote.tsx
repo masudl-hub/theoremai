@@ -4,11 +4,11 @@ import { Icon } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconX } from '@tabler/icons-react';
-import { voiceFormatFromMime } from '../client/voice-label';
-import { voiceNoteName } from './labels';
-import { useLabels } from './labels-provider';
-import { InkWaveform } from '../components/InkWaveform';
-import { useVoicePlayback } from '../components/use-voice-playback';
+import { voiceFormatFromMime } from '../client/voice-label.ts';
+import { voiceNoteName } from './labels.ts';
+import { useLabels } from './labels-provider.tsx';
+import { InkWaveform } from '../components/InkWaveform.tsx';
+import { useVoicePlayback } from '../components/use-voice-playback.ts';
 
 /** Astryx Thumbnail's height, so voice notes sit level with image attachments. */
 const VOICE_NOTE_HEIGHT = 64;

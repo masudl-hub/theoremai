@@ -6,7 +6,7 @@ import {
 	useTranslator,
 } from '@astryxdesign/core/i18n';
 import { type ReactNode, use, useMemo } from 'react';
-import { assertLabelOverrides, type LabelText, THEOREM_UI_CATALOG, type TheoremLabels } from './labels';
+import { assertLabelOverrides, type LabelText, THEOREM_UI_CATALOG, type TheoremLabels } from './labels.ts';
 
 /** Message tables this module built, by the base language their catalog sits under. */
 const WITH_CATALOG = new WeakMap<MessagesByLocale, string>();

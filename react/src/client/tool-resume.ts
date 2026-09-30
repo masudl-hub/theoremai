@@ -1,5 +1,5 @@
-import type { ToolGate } from '../../../src/kernel/mod.ts';
-import { sessionPermissionsAfterApproval } from '../../../src/kernel/tools/gate-answer.ts';
+import type { ToolGate } from '@theoremjs/agents/kernel';
+import { sessionPermissionsAfterApproval } from '@theoremjs/agents/kernel';
 
 export type ToolDecisionAction = 'allow' | 'deny';
 

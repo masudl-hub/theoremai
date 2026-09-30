@@ -1,13 +1,14 @@
 /**
- * Live (voice / video) runner, on the Astryx UI.
+ * Live (voice / video) runner, on the Astryx UI in the Theorem theme.
  *
  * @module
  */
 
+// Astryx's documented order: reset → components → theme.
 import '@astryxdesign/core/reset.css';
 import '@astryxdesign/core/astryx.css';
-import '@astryxdesign/theme-neutral/theme.css';
+import './ui/built/theme.css';
 
-export type { LiveConnection } from './client/live-client';
-export type { LiveRunnerProps } from './ui/LiveRunner';
-export { LiveRunner } from './ui/LiveRunner';
+export type { LiveConnection } from './client/live-client.ts';
+export type { LiveRunnerProps } from './ui/LiveRunner.tsx';
+export { LiveRunner } from './ui/LiveRunner.tsx';

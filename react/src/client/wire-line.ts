@@ -9,8 +9,7 @@
  * @module
  */
 
-import { z } from '../../../mod.ts';
-import { TheoremError } from '../../../mod.ts';
+import { TheoremError, z } from '@theoremjs/agents';
 
 /**
  * A line or envelope of a kind the client does not know. The server never

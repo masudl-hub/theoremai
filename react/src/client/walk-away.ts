@@ -8,7 +8,7 @@
  * @module
  */
 
-import { TheoremError, type TurnEvent, type TurnHistoryMessage } from '../../../mod.ts';
+import { TheoremError, type TurnEvent, type TurnHistoryMessage } from '@theoremjs/agents';
 import {
 	appendPausedTurnToHistory,
 	type ComposerProfileInterface,
@@ -16,7 +16,7 @@ import {
 	type InterfaceTurnSession,
 	settlesToolCall,
 	type TranscriptBlock,
-} from '../../../src/interface/mod.ts';
+} from '@theoremjs/agents/interface';
 import { commitCompletedTurn, stampWorked } from './run-commit.ts';
 import type { TurnEventSink } from './transport.ts';
 import { foldAssistantTurn, type WalkAway } from './turn-client.ts';

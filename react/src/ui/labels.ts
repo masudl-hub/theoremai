@@ -202,6 +202,11 @@ export const THEOREM_UI_CATALOG = {
 		description: 'Secret field placeholder.',
 		params: ['slot'],
 	},
+	'@theorem.gate.auth.secret_note': {
+		defaultMessage: ' ',
+		description:
+			'Under the secret field: how the host handles the credential. Blank by default, since only the host knows; the playground says it is used for one call.',
+	},
 	'@theorem.gate.auth.submit': { defaultMessage: 'Submit & continue', description: 'Sends the credential.' },
 
 	'@theorem.voice_note.name': {

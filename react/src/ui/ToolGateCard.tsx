@@ -229,11 +229,13 @@ function AuthAction(props: {
 		);
 	}
 	const label = t(props.authType === 'api_key' ? '@theorem.gate.auth.api_key' : '@theorem.gate.auth.bearer');
+	const note = t('@theorem.gate.auth.secret_note').trim();
 	return (
 		<HStack gap={2} align="end">
 			<TextInput
 				type="password"
 				label={label}
+				{...(note ? { description: note } : {})}
 				value={props.secret}
 				placeholder={t('@theorem.gate.auth.secret_placeholder', { slot: props.slot })}
 				autoComplete="off"

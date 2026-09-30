@@ -499,6 +499,85 @@ Deno.test('exchangeOAuthPkce posts to the sealed endpoint and checks redirect_ur
   );
 });
 
+Deno.test('a confidential client sends its secret to the token endpoint and never keeps it', async () => {
+  const CLIENT_SECRET = 'client-secret-sentinel-4b1e';
+  const flow = await createOAuthPkceFlow({
+    resourceServerUrl: RESOURCE,
+    clientId: 'my-client-id',
+    redirectUri: REDIRECT,
+    signingSecret: SECRET,
+    sessionBinding: SESSION,
+    preResolved: PRE_RESOLVED,
+  });
+  assertEquals(flow.authorizationUrl.includes(CLIENT_SECRET), false);
+  const { fetchFn, seen } = routes({
+    [TOKEN_ENDPOINT]: () => json({ ...BEARER, refresh_token: 'mock-refresh-token' }),
+  });
+  const exchanged = await exchangeOAuthPkce({
+    code: 'mock-auth-code-123',
+    state: flow.state,
+    iss: ISSUER,
+    redirectUri: REDIRECT,
+    signingSecret: SECRET,
+    sessionBinding: SESSION,
+    clientSecret: CLIENT_SECRET,
+    fetchFn,
+  });
+  const refreshed = await refreshOAuthToken({
+    refreshToken: 'mock-refresh-token',
+    tokenEndpoint: TOKEN_ENDPOINT,
+    clientId: 'my-client-id',
+    issuer: ISSUER,
+    resource: RESOURCE,
+    clientSecret: CLIENT_SECRET,
+    fetchFn,
+  });
+  const bodies = seen.map((request) => new URLSearchParams(String(request.init?.body)));
+  assertEquals(
+    bodies.map((body) => [body.get('grant_type'), body.get('client_secret')]),
+    [
+      ['authorization_code', CLIENT_SECRET],
+      ['refresh_token', CLIENT_SECRET],
+    ],
+  );
+  assertEquals(
+    JSON.stringify([exchanged.credential, refreshed.credential]).includes(CLIENT_SECRET),
+    false,
+  );
+
+  const publicClient = routes({ [TOKEN_ENDPOINT]: () => json(BEARER) });
+  await refreshOAuthToken({
+    refreshToken: 'mock-refresh-token',
+    tokenEndpoint: TOKEN_ENDPOINT,
+    clientId: 'my-client-id',
+    issuer: ISSUER,
+    resource: RESOURCE,
+    fetchFn: publicClient.fetchFn,
+  });
+  const publicBody = new URLSearchParams(String(publicClient.seen[0]?.init?.body));
+  assertEquals(publicBody.has('client_secret'), false);
+});
+
+Deno.test("a provider's own authorization parameters reach the URL, and the flow's are its own", async () => {
+  const start = (authorizationParams: Record<string, string>) =>
+    createOAuthPkceFlow({
+      resourceServerUrl: RESOURCE,
+      clientId: 'my-client-id',
+      redirectUri: REDIRECT,
+      signingSecret: SECRET,
+      sessionBinding: SESSION,
+      preResolved: PRE_RESOLVED,
+      authorizationParams,
+    });
+  const flow = await start({ access_type: 'offline', prompt: 'consent' });
+  const url = new URL(flow.authorizationUrl);
+  assertEquals(url.searchParams.get('access_type'), 'offline');
+  assertEquals(url.searchParams.get('prompt'), 'consent');
+  for (const name of ['redirect_uri', 'state', 'scope', 'resource', 'code_challenge']) {
+    await assertRejects(() => start({ [name]: 'x' }), Error, `"${name}" is set by the flow`);
+  }
+});
+
 Deno.test('only the session that began the flow can finish it (login CSRF)', async () => {
   const flow = await createOAuthPkceFlow({
     resourceServerUrl: RESOURCE,

@@ -106,6 +106,12 @@ export interface CreatePkceFlowOptions extends OAuthTransportOptions {
   stateTtlMs?: number;
   /** Skips discovery. */
   preResolved?: OAuthEndpoints;
+  /**
+   * Parameters a provider reads beyond the standard ones (e.g. Google's
+   * `access_type: 'offline'`, without which it issues no refresh token). A name the
+   * flow sets itself is refused.
+   */
+  authorizationParams?: Readonly<Record<string, string>>;
 }
 
 export interface PkceFlowResult {
@@ -126,6 +132,8 @@ export interface ExchangePkceCodeOptions extends OAuthTransportOptions {
   signingSecret: string;
   /** Read from the session handling the callback. */
   sessionBinding: string;
+  /** A confidential client's secret, sent in the token request body (RFC 6749 §2.3.1); never stored. */
+  clientSecret?: string;
 }
 
 export interface ExchangePkceCodeResult {
@@ -140,4 +148,6 @@ export interface RefreshOAuthTokenOptions extends OAuthTransportOptions {
   resource: string;
   scope?: string;
   issuer: string;
+  /** A confidential client's secret, sent in the token request body (RFC 6749 §2.3.1); never stored. */
+  clientSecret?: string;
 }

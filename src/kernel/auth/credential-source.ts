@@ -13,6 +13,12 @@ export interface ToolCredentialSource {
    * rotated refresh token lost to a closed stream cannot be recovered.
    */
   set(slot: string, credential: ToolCredential): Promise<void>;
+  /**
+   * The secret of a confidential OAuth client, read when the kernel refreshes a token
+   * issued to `clientId`. Omit it for public clients. The secret is the host's, not
+   * the person's, so it never lives on a stored credential.
+   */
+  clientSecret?(clientId: string): Promise<string | undefined>;
 }
 
 /** A source held in memory, seeded from `initial` (copied, never written back). */

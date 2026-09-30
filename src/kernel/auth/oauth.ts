@@ -91,6 +91,28 @@ function assertScopeTokens(scopes: readonly string[]): void {
   }
 }
 
+/** Names the flow sets itself; a provider's own parameters may not replace them. */
+const FLOW_PARAMS = new Set([
+  'response_type',
+  'client_id',
+  'redirect_uri',
+  'code_challenge',
+  'code_challenge_method',
+  'state',
+  'resource',
+  'scope',
+]);
+
+function assertAuthorizationParams(params: Readonly<Record<string, string>>): void {
+  for (const name of Object.keys(params)) {
+    if (FLOW_PARAMS.has(name)) {
+      throw new Error(
+        `OAuth authorization parameter "${name}" is set by the flow and cannot be passed`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
+  }
+}
+
 /** A client id that is a URL is a Client ID Metadata Document, which is served over https. */
 function assertClientId(clientId: string): void {
   if (clientId.length === 0) {
@@ -264,6 +286,7 @@ export async function createOAuthPkceFlow(options: CreatePkceFlowOptions): Promi
   assertClientId(options.clientId);
   assertRedirectUri(options.redirectUri);
   if (options.scopes) assertScopeTokens(options.scopes);
+  if (options.authorizationParams) assertAuthorizationParams(options.authorizationParams);
   const ttl = options.stateTtlMs ?? 10 * 60 * 1000;
   if (!Number.isFinite(ttl) || ttl <= 0) {
     throw new RangeError(`OAuth stateTtlMs must be a positive number of milliseconds; got ${ttl}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -289,6 +312,9 @@ export async function createOAuthPkceFlow(options: CreatePkceFlowOptions): Promi
     options.signingSecret,
   );
 
+  for (const [name, value] of Object.entries(options.authorizationParams ?? {})) {
+    authUrl.searchParams.set(name, value);
+  }
   authUrl.searchParams.set('response_type', 'code');
   authUrl.searchParams.set('client_id', options.clientId);
   authUrl.searchParams.set('redirect_uri', options.redirectUri);
@@ -395,8 +421,13 @@ function parseTokenResponse(data: unknown, tokenEndpoint: string): OAuthTokens {
   return tokens as OAuthTokens;
 }
 
-/** Who a token is for and where it came from; fixed by the flow, never by the token response. */
-type TokenGrant = Pick<OAuth2Credential, 'issuer' | 'resource' | 'tokenEndpoint' | 'clientId'>;
+/**
+ * Who a token is for and where it came from; fixed by the flow, never by the token response.
+ * `clientSecret` authenticates a confidential client and is never put on the credential.
+ */
+type TokenGrant = Pick<OAuth2Credential, 'issuer' | 'resource' | 'tokenEndpoint' | 'clientId'> & {
+  clientSecret?: string;
+};
 
 /** RFC 6749 §3.3: a scope is a list of space-delimited tokens. */
 function scopeTokens(scope: string | undefined): string[] {
@@ -433,9 +464,11 @@ async function requestToken(
   requested: readonly string[],
   previous?: { refreshToken: string; scope?: string },
 ): Promise<ExchangePkceCodeResult> {
+  const { clientSecret, ...issued } = grant;
   const body = new URLSearchParams({
     ...params,
     client_id: grant.clientId,
+    ...(clientSecret === undefined ? {} : { client_secret: clientSecret }),
     resource: grant.resource,
   });
   const response = await oauthFetch(
@@ -457,7 +490,7 @@ async function requestToken(
   assertGrantWithin(tokens.scope, requested, grant.tokenEndpoint);
   const credential: OAuth2Credential = {
     type: 'oauth2',
-    ...grant,
+    ...issued,
     accessToken: tokens.access_token,
     refreshToken: tokens.refresh_token ?? previous?.refreshToken,
     expiresAt: tokens.expires_in === undefined ? undefined : Date.now() + tokens.expires_in * 1000,
@@ -495,6 +528,7 @@ export async function exchangeOAuthPkce(
       resource: state.resource,
       tokenEndpoint: state.tokenEndpoint,
       clientId: state.clientId,
+      ...(options.clientSecret === undefined ? {} : { clientSecret: options.clientSecret }),
     },
     {
       grant_type: 'authorization_code',
@@ -518,6 +552,7 @@ export function refreshOAuthToken(
       resource: options.resource,
       tokenEndpoint: options.tokenEndpoint,
       clientId: options.clientId,
+      ...(options.clientSecret === undefined ? {} : { clientSecret: options.clientSecret }),
     },
     {
       grant_type: 'refresh_token',

@@ -130,6 +130,7 @@ function refreshOnce(
   credential: OAuth2Credential,
   refreshToken: string,
   transport: OAuthTransportOptions,
+  clientSecret: string | undefined,
 ): Promise<OAuth2Credential> {
   const grant = `${credential.tokenEndpoint}\n${refreshToken}`;
   const inFlight = refreshesInFlight.get(grant);
@@ -141,6 +142,7 @@ function refreshOnce(
     resource: credential.resource,
     scope: credential.scope,
     issuer: credential.issuer,
+    ...(clientSecret === undefined ? {} : { clientSecret }),
     ...transport,
   }).then((result) => result.credential);
   refreshesInFlight.set(grant, refresh);
@@ -172,10 +174,12 @@ async function* resolveOAuth2Credential(
 
   if (isExpired && credential.refreshToken) {
     try {
-      active = await refreshOnce(credential, credential.refreshToken, {
-        network: toolNetworkPolicy(ctx),
-        resolveHost: ctx.resolveHost,
-      });
+      active = await refreshOnce(
+        credential,
+        credential.refreshToken,
+        { network: toolNetworkPolicy(ctx), resolveHost: ctx.resolveHost },
+        await source.clientSecret?.(credential.clientId),
+      );
     } catch (err) {
       // The server's own words are untrusted text: they go to the host as
       // `errorInternal`, never to the model or the client.

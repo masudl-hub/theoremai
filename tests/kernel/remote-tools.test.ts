@@ -1,7 +1,10 @@
 import { z } from 'zod';
 import { lexiconText } from '../../src/guardrails/lexicon.ts';
 import { forClientEvents } from '../../src/host/client-turn.ts';
-import { memoryCredentialSource } from '../../src/kernel/auth/credential-source.ts';
+import {
+  memoryCredentialSource,
+  type ToolCredentialSource,
+} from '../../src/kernel/auth/credential-source.ts';
 import type { ToolCredential } from '../../src/kernel/auth/types.ts';
 import { registerTool, resetTools } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
@@ -495,12 +498,14 @@ Deno.test('Proactive OAuth token refresh names the slot on the stream and update
 
   const originalFetch = globalThis.fetch;
   let refreshedTokenUsedInToolCall = false;
+  const clientSecretsSent: (string | null)[] = [];
 
   globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
     const urlStr = input.toString();
     const headers = new Headers(init?.headers);
 
     if (urlStr === 'https://auth.example.com/oauth/token') {
+      clientSecretsSent.push(new URLSearchParams(String(init?.body)).get('client_secret'));
       return Promise.resolve(
         new Response(
           JSON.stringify({
@@ -531,7 +536,7 @@ Deno.test('Proactive OAuth token refresh names the slot on the stream and update
 
   try {
     const events = [];
-    const ctxCredentials = memoryCredentialSource({
+    const slots = memoryCredentialSource({
       oauth_slot: {
         type: 'oauth2' as const,
         issuer: 'https://auth.example.com',
@@ -543,6 +548,13 @@ Deno.test('Proactive OAuth token refresh names the slot on the stream and update
         resource: 'https://api.example.com',
       },
     });
+    // A confidential client: the host holds its secret and the refresh sends it.
+    const ctxCredentials: ToolCredentialSource = {
+      get: (slot) => slots.get(slot),
+      set: (slot, credential) => slots.set(slot, credential),
+      clientSecret: (clientId) =>
+        Promise.resolve(clientId === 'client-abc' ? 'client-secret-sentinel' : undefined),
+    };
 
     const exec = executeRegisteredTool({
       tools: defaultKernelScope.tools,
@@ -567,6 +579,8 @@ Deno.test('Proactive OAuth token refresh names the slot on the stream and update
     const streamed = JSON.stringify(events);
     assertEquals(streamed.includes('new-shiny-access-token'), false);
     assertEquals(streamed.includes('new-refresh-token'), false);
+    assertEquals(streamed.includes('client-secret-sentinel'), false);
+    assertEquals(clientSecretsSent, ['client-secret-sentinel']);
     assertEquals(refreshedTokenUsedInToolCall, true);
 
     // The refreshed grant went back to the source before the call went on.

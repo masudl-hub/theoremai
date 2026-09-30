@@ -62,7 +62,7 @@ function toolSource(tool: ToolRegistration): string {
 
 export function playgroundSource(compiled: CompiledPlayground): string {
   const { profile, customTools, structured } = compiled;
-  const egress = profile.guardrails?.egress !== undefined;
+  const egress = profile.guardrails !== undefined && 'egress' in profile.guardrails;
   const imports = [
     'defineProfile',
     'registerProfile',
@@ -73,13 +73,23 @@ export function playgroundSource(compiled: CompiledPlayground): string {
   const blocks = [
     [
       ...(customTools.length ? [`import { z } from 'zod';`] : []),
-      `import {\n${imports.map((name) => `  ${name},`).join('\n')}\n} from '@theoremjs/agents';\n`,
+      `import {\n${
+        [...(compiled.questions ? ['type DecisionQuestion'] : []), ...imports]
+          .map((name) => `  ${name},`).join('\n')
+      }\n} from '@theoremjs/agents';\n`,
     ].join('\n'),
     ...customTools.map(toolSource),
     ...(structured
       ? [`registerStructured(${quoteSource(structured.id)}, ${literal(structured.spec, 0)});\n`]
       : []),
     `const profile = defineProfile(${literal(profile, 0)});\n\nregisterProfile(profile);\n`,
+    ...(compiled.questions
+      ? [
+        `/** What every decision asks about the state, by id. */\nconst questions = ${
+          literal(compiled.questions, 0)
+        } satisfies Record<string, DecisionQuestion>;\n`,
+      ]
+      : []),
   ];
   return blocks.join('\n');
 }

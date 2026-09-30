@@ -4,8 +4,13 @@
  */
 
 import {
+  type DecisionEntry,
+  type DecisionQuestion,
   defineProfile,
+  describeError,
   type ImageProfileDefinition,
+  type LexiconKey,
+  type LexiconOverrides,
   liveIngressChannelDefault,
   type LiveProfileDefinition,
   type ProfileDefinitionBase,
@@ -16,12 +21,10 @@ import {
   type SpeechProfileDefinition,
   standardEgressEnforce,
   type TextProfileDefinition,
-  describeError,
-  type LexiconKey,
-  type LexiconOverrides,
   TheoremError,
 } from '../mod.ts';
 import { validateLexiconOverrides } from '../src/guardrails/lexicon.ts';
+import type { DecisionProfileDefinition, HostProfileDefinition } from '../src/kernel/mod.ts';
 import { mimeAllowed } from '../src/kernel/registry/catalog.ts';
 import { googleInteractionsPersistence } from '../src/presets/google.ts';
 import {
@@ -45,6 +48,7 @@ import type {
 import { outOfScopeFields } from '../src/kernel/profile-scope.ts';
 import { resolveObservabilityPolicy } from '../src/observability/mod.ts';
 import type {
+  DecisionDraft,
   GuardrailsDraft,
   ImageDraft,
   InputsDraft,
@@ -54,15 +58,25 @@ import type {
   OutputsDraft,
   PlaygroundDraft,
   PlaygroundProfileType,
+  PlaygroundTurnProfileType,
   SpeechDraft,
   ToolSpecDraft,
   TurnBehaviourDraft,
 } from './draft.ts';
 import { draftAllows, draftFacets, INLINE_WORDING, takesContinueInstruction } from './draft.ts';
 import {
+  decisionQuestionViolation,
   GEMINI_PLAYGROUND_LIVE_INPUT_TOKENS,
   isProviderBuiltinId,
   modelBindingViolation,
+  PLAYGROUND_DECISION_MAX_CRITERIA,
+  PLAYGROUND_DECISION_MAX_CRITERION_CHARS,
+  PLAYGROUND_DECISION_MAX_ID_CHARS,
+  PLAYGROUND_DECISION_MAX_INSTRUCTIONS_CHARS,
+  PLAYGROUND_DECISION_MAX_NAME_CHARS,
+  PLAYGROUND_DECISION_MAX_QUESTIONS,
+  PLAYGROUND_DECISION_MAX_STATE_BYTES,
+  PLAYGROUND_DECISION_TIMEOUT_MS,
 } from './policy.ts';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
 import {
@@ -78,7 +92,15 @@ export type PlaygroundProfileDefinition =
   | TextProfileDefinition
   | ImageProfileDefinition
   | SpeechProfileDefinition
-  | LiveProfileDefinition;
+  | LiveProfileDefinition
+  | DecisionProfileDefinition
+  | HostProfileDefinition;
+
+/** A profile that runs a model turn: every playground type but decision and host. */
+export type PlaygroundTurnProfileDefinition = Exclude<
+  PlaygroundProfileDefinition,
+  DecisionProfileDefinition | HostProfileDefinition
+>;
 
 /**
  * `field` is the draft key at fault on that node (e.g. `handle`, `defaultEffort`) and `index`
@@ -96,6 +118,8 @@ export interface CompiledPlayground {
   profile: PlaygroundProfileDefinition;
   customTools: ToolRegistration[];
   structured?: StructuredRegistration;
+  /** A decision's questions, by id. */
+  questions?: Record<string, DecisionQuestion>;
 }
 
 export type PlaygroundCompileResult =
@@ -123,14 +147,17 @@ function checkWhole(
 
 function checkIdentity(draft: PlaygroundDraft, report: Report): void {
   if (!draft.identity.agentId.trim()) report('identity', 'Profile id is required.', 'agentId');
-  if (!draft.identity.handle.trim()) report('identity', 'Handle is required.', 'handle');
+  // A host has no agent identity: it runs no model.
+  if (draft.identity.profileType !== 'host' && !draft.identity.handle.trim()) {
+    report('identity', 'Handle is required.', 'handle');
+  }
 }
 
-function compileBinding(
+function checkBindingRoute(
   binding: ModelBindingDraft,
   type: PlaygroundProfileType,
   report: Report,
-): ModelBinding {
+): string {
   const nodeId = modelBindingNodeId(binding.key);
   if (!isValidProfileProtocol(type, binding.protocol)) {
     const legal = protocolsForProfileType(type).join(' or ');
@@ -145,6 +172,16 @@ function compileBinding(
     const violation = modelBindingViolation(binding);
     if (violation) report(nodeId, violation.message, violation.field);
   }
+  return apiId;
+}
+
+function compileBinding(
+  binding: ModelBindingDraft,
+  type: PlaygroundProfileType,
+  report: Report,
+): ModelBinding {
+  const nodeId = modelBindingNodeId(binding.key);
+  const apiId = checkBindingRoute(binding, type, report);
 
   const efforts: Record<string, ModelBindingDraft['efforts'][number]['level']> = {};
   binding.efforts.forEach(({ alias, level }, index) => {
@@ -154,7 +191,12 @@ function compileBinding(
       report(nodeId, `Effort alias '${name}' is used twice.`, 'efforts', index);
     } else efforts[name] = level;
     if (!thinkingLevelsForProtocol(binding.protocol).includes(level)) {
-      report(nodeId, `${binding.protocol} doesn't take the ${level} thinking level.`, 'efforts', index);
+      report(
+        nodeId,
+        `${binding.protocol} doesn't take the ${level} thinking level.`,
+        'efforts',
+        index,
+      );
     }
   });
   const effortCount = Object.keys(efforts).length;
@@ -428,7 +470,11 @@ function compileInputs(
     );
   }
   if (!inputs.text && !inputs.attachmentsAccept.length && !inputs.voiceAccept.length) {
-    report('inputs', 'Take text, files or voice notes: with none, the agent can be sent nothing.', 'text');
+    report(
+      'inputs',
+      'Take text, files or voice notes: with none, the agent can be sent nothing.',
+      'text',
+    );
   }
   if (inputLimitsRequired(inputs)) {
     const limits = [
@@ -855,9 +901,212 @@ function omitOutOfScope(profile: Record<string, unknown> & { type: PlaygroundPro
   return out as PlaygroundProfileDefinition;
 }
 
+/** The draft's decision questions, each problem reported on the Decision facet. */
+function compileQuestions(
+  decision: DecisionDraft,
+  report: Report,
+): Record<string, DecisionQuestion> {
+  const questions: Record<string, DecisionQuestion> = Object.create(null);
+  if (!decision.questions.length) report('decision', 'Add at least one question.', 'questions');
+  if (decision.questions.length > PLAYGROUND_DECISION_MAX_QUESTIONS) {
+    report(
+      'decision',
+      `The playground asks at most ${PLAYGROUND_DECISION_MAX_QUESTIONS} questions.`,
+      'questions',
+    );
+  }
+  decision.questions.forEach((question, index) => {
+    const fail = (message: string) => report('decision', message, 'questions', index);
+    const id = question.id.trim();
+    const instructions = question.instructions.trim();
+    if (!id) fail('Each question needs an id.');
+    else if (id.length > PLAYGROUND_DECISION_MAX_NAME_CHARS) {
+      fail(`Question ids are limited to ${PLAYGROUND_DECISION_MAX_NAME_CHARS} characters.`);
+    } else if (Object.hasOwn(questions, id)) fail(`Question id '${id}' is used twice.`);
+    if (!instructions) fail(`Question '${id || index + 1}' needs instructions.`);
+    else if (instructions.length > PLAYGROUND_DECISION_MAX_INSTRUCTIONS_CHARS) {
+      fail(`Instructions are limited to ${PLAYGROUND_DECISION_MAX_INSTRUCTIONS_CHARS} characters.`);
+    }
+    const rows = question.criteria.map((row) => ({
+      label: row.label.trim(),
+      text: row.text.trim(),
+    }));
+    if (rows.length > PLAYGROUND_DECISION_MAX_CRITERIA) {
+      fail(`A question has at most ${PLAYGROUND_DECISION_MAX_CRITERIA} options or levels.`);
+    }
+    if (rows.some((row) => row.text.length > PLAYGROUND_DECISION_MAX_CRITERION_CHARS)) {
+      fail(
+        `Each option or level is limited to ${PLAYGROUND_DECISION_MAX_CRITERION_CHARS} characters.`,
+      );
+    }
+    if (!id || !instructions) return;
+    if (question.type === 'score') {
+      if (rows.length < 2 || rows.some((row) => !row.text)) {
+        fail(`Score '${id}' needs at least two levels, each described.`);
+      }
+      questions[id] = { type: 'score', instructions, criteria: rows.map((row) => row.text) };
+      return;
+    }
+    const labelled: Record<string, DecisionEntry> = Object.create(null);
+    for (const row of rows) {
+      if (row.label.length > PLAYGROUND_DECISION_MAX_NAME_CHARS) {
+        fail(`Option labels are limited to ${PLAYGROUND_DECISION_MAX_NAME_CHARS} characters.`);
+      }
+      if (!row.label) fail(`Every option of '${id}' needs a label.`);
+      else if (Object.hasOwn(labelled, row.label)) {
+        fail(`Option '${row.label}' of '${id}' is used twice.`);
+      } // A label says enough on its own; its description, when given, says when to pick it.
+      else labelled[row.label] = row.text || row.label;
+    }
+    if (question.type === 'choice') {
+      if (rows.length < 2) fail(`Choice '${id}' needs at least two options.`);
+      questions[id] = { type: 'choice', instructions, criteria: labelled };
+    } else {
+      questions[id] = {
+        type: 'noul',
+        instructions,
+        ...(rows.length ? { criteria: labelled } : {}),
+      };
+    }
+  });
+  return questions;
+}
+
+function compileProfileOptions(
+  draft: PlaygroundDraft,
+  facets: Set<string>,
+  report: Report,
+): Pick<ProfileDefinitionBase, 'observability' | 'lexicon'> {
+  const observability = facets.has('observability')
+    ? compileObservability(draft.observability, report)
+    : undefined;
+  const lexicon = compileLexicon(draft, facets, (path) => draftAllows(draft, path), report);
+  return {
+    ...(observability ? { observability } : {}),
+    ...(lexicon ? { lexicon } : {}),
+  };
+}
+
+function compileDecision(
+  draft: PlaygroundDraft,
+  report: Report,
+): Omit<CompiledPlayground, 'agentId'> {
+  const { decision } = draft;
+  const facets = new Set<string>(draftFacets(draft));
+  const contract = decision.contract.trim();
+  if (!contract) report('decision', 'Contract is required.', 'contract');
+  else if (contract.length > PLAYGROUND_DECISION_MAX_ID_CHARS) {
+    report(
+      'decision',
+      `Contract is limited to ${PLAYGROUND_DECISION_MAX_ID_CHARS} characters.`,
+      'contract',
+    );
+  }
+  if (draft.identity.agentId.trim().length > PLAYGROUND_DECISION_MAX_ID_CHARS) {
+    report(
+      'identity',
+      `Profile id is limited to ${PLAYGROUND_DECISION_MAX_ID_CHARS} characters.`,
+      'agentId',
+    );
+  }
+  if (draft.identity.handle.trim().length > PLAYGROUND_DECISION_MAX_NAME_CHARS) {
+    report(
+      'identity',
+      `Handle is limited to ${PLAYGROUND_DECISION_MAX_NAME_CHARS} characters.`,
+      'handle',
+    );
+  }
+  if (draft.modelBindings.length !== 1) {
+    report('models', 'A decision needs exactly one model binding.');
+  }
+  const binding = draft.modelBindings[0];
+  const nodeId = binding ? modelBindingNodeId(binding.key) : 'models';
+  if (binding) {
+    checkBindingRoute(binding, 'decision', report);
+    if (!binding.modelId.trim()) report(nodeId, 'Model id is required.', 'modelId');
+    checkWhole(report, nodeId, 'timeoutMs', 'Timeout', binding.timeoutMs, 1);
+    if ((binding.timeoutMs ?? 0) > PLAYGROUND_DECISION_TIMEOUT_MS) {
+      report(nodeId, `Timeout is limited to ${PLAYGROUND_DECISION_TIMEOUT_MS} ms.`, 'timeoutMs');
+    }
+    if (binding.modelId.trim().length > PLAYGROUND_DECISION_MAX_NAME_CHARS) {
+      report(
+        nodeId,
+        `Model id is limited to ${PLAYGROUND_DECISION_MAX_NAME_CHARS} characters.`,
+        'modelId',
+      );
+    }
+    if (binding.apiId.trim().length > PLAYGROUND_DECISION_MAX_ID_CHARS) {
+      report(
+        nodeId,
+        `API model is limited to ${PLAYGROUND_DECISION_MAX_ID_CHARS} characters.`,
+        'apiId',
+      );
+    }
+  }
+  checkWhole(report, 'decision', 'maxStateBytes', 'Max state', decision.maxStateBytes, 1);
+  if ((decision.maxStateBytes ?? 0) > PLAYGROUND_DECISION_MAX_STATE_BYTES) {
+    report(
+      'decision',
+      `The playground sends at most ${PLAYGROUND_DECISION_MAX_STATE_BYTES} bytes of state.`,
+      'maxStateBytes',
+    );
+  }
+  const questions = compileQuestions(decision, report);
+  if (binding) {
+    decision.questions.forEach((question, index) => {
+      const compiled = questions[question.id.trim()];
+      const violation = compiled && decisionQuestionViolation(binding, compiled);
+      if (violation) report('decision', violation, 'questions', index);
+    });
+  }
+  const profile: DecisionProfileDefinition = {
+    type: 'decision',
+    id: draft.identity.agentId.trim(),
+    identity: { handle: draft.identity.handle.trim() },
+    models: binding
+      ? {
+        [binding.modelId.trim()]: {
+          protocol: 'decision',
+          provider: binding.provider === 'openrouter' ? 'openrouter' : 'typesafe',
+          apiId: binding.apiId.trim(),
+          timeoutMs: binding.timeoutMs ?? PLAYGROUND_DECISION_TIMEOUT_MS,
+        },
+      }
+      : {},
+    inputs: {
+      state: 'json',
+      maxStateBytes: decision.maxStateBytes ?? PLAYGROUND_DECISION_MAX_STATE_BYTES,
+    },
+    decision: { contract },
+    ...compileProfileOptions(draft, facets, report),
+  };
+  return { profile, customTools: [], questions };
+}
+
+/** A host: its custom tools, called directly, and the guardrails, trace and wording a host keeps. */
+function compileHost(
+  draft: PlaygroundDraft,
+  report: Report,
+): Omit<CompiledPlayground, 'agentId'> {
+  const facets = new Set<string>(draftFacets(draft));
+  const { customTools, tools } = compileTools(draft, false, report);
+  if (!customTools.length) report('tools', 'Add at least one tool: a host runs only its tools.');
+  const guardrails = facets.has('guardrails')
+    ? compileGuardrails(draft.guardrails, report)
+    : undefined;
+  const profile = omitOutOfScope({
+    type: 'host',
+    id: draft.identity.agentId.trim(),
+    tools,
+    ...(guardrails ? { guardrails } : {}),
+    ...compileProfileOptions(draft, facets, report),
+  });
+  return { profile, customTools };
+}
+
 function assemble(
   draft: PlaygroundDraft,
-  type: PlaygroundProfileType,
+  type: PlaygroundTurnProfileType,
   report: Report,
 ): Omit<CompiledPlayground, 'agentId'> {
   const facets = new Set<string>(draftFacets(draft));
@@ -876,10 +1125,6 @@ function assemble(
   const guardrails = facets.has('guardrails')
     ? compileGuardrails(draft.guardrails, report)
     : undefined;
-  const lexicon = compileLexicon(draft, facets, allows, report);
-  const observability = facets.has('observability')
-    ? compileObservability(draft.observability, report)
-    : undefined;
 
   const profile = omitOutOfScope({
     type,
@@ -894,8 +1139,7 @@ function assemble(
     ...(outputs ? { outputs } : {}),
     ...(turnBehaviour ? { turnBehaviour } : {}),
     ...(guardrails ? { guardrails } : {}),
-    ...(observability ? { observability } : {}),
-    ...(lexicon ? { lexicon } : {}),
+    ...compileProfileOptions(draft, facets, report),
   });
   return { profile, customTools, ...(structured ? { structured } : {}) };
 }
@@ -918,7 +1162,11 @@ export function compilePlayground(draft: PlaygroundDraft): PlaygroundCompileResu
     report('identity', 'Pick a profile type.', 'profileType');
     return { ok: false, issues };
   }
-  const compiled = assemble(draft, type, report);
+  const compiled = type === 'decision'
+    ? compileDecision(draft, report)
+    : type === 'host'
+    ? compileHost(draft, report)
+    : assemble(draft, type, report);
   if (issues.length) return { ok: false, issues };
 
   try {

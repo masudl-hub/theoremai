@@ -84,7 +84,7 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       inputJson: `{
   "type": "object",
   "properties": {
-    "name": { "type": "string", "description": "City or place name" }
+    "name": { "type": "string", "examples": ["Paris"], "description": "City or place name" }
   },
   "required": ["name"]
 }`,
@@ -126,8 +126,8 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       inputJson: `{
   "type": "object",
   "properties": {
-    "q": { "type": "string", "description": "Place search query" },
-    "limit": { "type": "number", "description": "Max results (1-5)" }
+    "q": { "type": "string", "examples": ["Paris"], "description": "Place search query" },
+    "limit": { "type": "number", "examples": [5], "description": "Max results (1-5)" }
   },
   "required": ["q"]
 }`,
@@ -152,8 +152,8 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       inputJson: `{
   "type": "object",
   "properties": {
-    "lat": { "type": "number" },
-    "lon": { "type": "number" }
+    "lat": { "type": "number", "examples": [48.85] },
+    "lon": { "type": "number", "examples": [2.35] }
   },
   "required": ["lat", "lon"]
 }`,
@@ -165,20 +165,21 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
     data: {
       toolName: 'get_weather',
       toolType: 'http',
-      description: 'Fetch current weather for coordinates via Open-Meteo.',
+      description: 'Fetch current weather and a 7-day forecast (highs, lows, chance of rain) for coordinates via Open-Meteo.',
       category: 'demo',
       access: 'read-only',
       permission: 'auto',
       loadTier: 'T0',
       paths: ['*'],
-      endpoint: 'https://api.open-meteo.com/v1/forecast?current_weather=true',
+      endpoint:
+        'https://api.open-meteo.com/v1/forecast?current_weather=true&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&forecast_days=7&timezone=auto',
       method: 'GET',
       queryParams: ['latitude', 'longitude'],
       inputJson: `{
   "type": "object",
   "properties": {
-    "latitude": { "type": "number" },
-    "longitude": { "type": "number" }
+    "latitude": { "type": "number", "examples": [48.85] },
+    "longitude": { "type": "number", "examples": [2.35] }
   },
   "required": ["latitude", "longitude"]
 }`,
@@ -215,8 +216,8 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       inputJson: `{
   "type": "object",
   "properties": {
-    "lat": { "type": "number" },
-    "lng": { "type": "number" }
+    "lat": { "type": "number", "examples": [48.85] },
+    "lng": { "type": "number", "examples": [2.35] }
   },
   "required": ["lat", "lng"]
 }`,
@@ -246,9 +247,9 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       inputJson: `{
   "type": "object",
   "properties": {
-    "from": { "type": "string" },
-    "to": { "type": "string" },
-    "amount": { "type": "number" }
+    "from": { "type": "string", "examples": ["USD"] },
+    "to": { "type": "string", "examples": ["EUR"] },
+    "amount": { "type": "number", "examples": [100] }
   },
   "required": ["from", "to", "amount"]
 }`,
@@ -276,9 +277,9 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       inputJson: `{
   "type": "object",
   "properties": {
-    "value": { "type": "number" },
-    "from": { "type": "string", "description": "c, f, k, km, or mi" },
-    "to": { "type": "string" }
+    "value": { "type": "number", "description": "Amount to convert", "examples": [20] },
+    "from": { "type": "string", "enum": ["c", "f", "k", "km", "mi"], "description": "Unit to convert from" },
+    "to": { "type": "string", "enum": ["c", "f", "k", "km", "mi"], "description": "Unit to convert to", "examples": ["f"] }
   },
   "required": ["value", "from", "to"]
 }`,
@@ -308,10 +309,10 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       inputJson: `{
   "type": "object",
   "properties": {
-    "lat1": { "type": "number" },
-    "lon1": { "type": "number" },
-    "lat2": { "type": "number" },
-    "lon2": { "type": "number" }
+    "lat1": { "type": "number", "minimum": -90, "maximum": 90, "description": "Start latitude", "examples": [48.85] },
+    "lon1": { "type": "number", "minimum": -180, "maximum": 180, "description": "Start longitude", "examples": [2.35] },
+    "lat2": { "type": "number", "minimum": -90, "maximum": 90, "description": "End latitude", "examples": [51.51] },
+    "lon2": { "type": "number", "minimum": -180, "maximum": 180, "description": "End longitude", "examples": [-0.13] }
   },
   "required": ["lat1", "lon1", "lat2", "lon2"]
 }`,
@@ -343,7 +344,7 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       inputJson: `{
   "type": "object",
   "properties": {
-    "title": { "type": "string", "description": "Wikipedia page title, e.g. Paris" }
+    "title": { "type": "string", "examples": ["Paris"], "description": "Wikipedia page title, e.g. Paris" }
   },
   "required": ["title"]
 }`,
@@ -376,8 +377,8 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       inputJson: `{
   "type": "object",
   "properties": {
-    "q": { "type": "string" },
-    "rows": { "type": "number" }
+    "q": { "type": "string", "examples": ["mediatype:texts AND travel"] },
+    "rows": { "type": "number", "examples": [1] }
   },
   "required": ["q"]
 }`,
@@ -401,8 +402,8 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       inputJson: `{
   "type": "object",
   "properties": {
-    "country": { "type": "string", "description": "ISO country code, e.g. us or fr" },
-    "postal": { "type": "string" }
+    "country": { "type": "string", "examples": ["us"], "description": "ISO country code, e.g. us or fr" },
+    "postal": { "type": "string", "examples": ["90210"] }
   },
   "required": ["country", "postal"]
 }`,
@@ -426,8 +427,8 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       inputJson: `{
   "type": "object",
   "properties": {
-    "repoName": { "type": "string", "description": "owner/repo, e.g. sveltejs/kit" },
-    "question": { "type": "string" }
+    "repoName": { "type": "string", "description": "The GitHub repo, as owner/repo", "examples": ["sveltejs/kit"] },
+    "question": { "type": "string", "description": "What to ask about the repo", "maxLength": 2000, "examples": ["How does routing work?"] }
   },
   "required": ["repoName", "question"]
 }`,
@@ -471,7 +472,7 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       inputJson: `{
   "type": "object",
   "properties": {
-    "weathercode": { "type": "number" }
+    "weathercode": { "type": "integer", "description": "Open-Meteo WMO weather code", "examples": [2] }
   },
   "required": ["weathercode"]
 }`,
@@ -499,8 +500,8 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       inputJson: `{
   "type": "object",
   "properties": {
-    "destination": { "type": "string" },
-    "focus": { "type": "string" }
+    "destination": { "type": "string", "description": "City or region", "examples": ["Paris"] },
+    "focus": { "type": "string", "description": "What the day centres on, e.g. food or museums", "examples": ["museums"] }
   },
   "required": ["destination"]
 }`,
@@ -537,9 +538,9 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       inputJson: `{
   "type": "object",
   "properties": {
-    "days": { "type": "number" },
-    "perDiem": { "type": "number" },
-    "currency": { "type": "string" }
+    "days": { "type": "integer", "minimum": 1, "maximum": 30, "description": "Trip length in days", "examples": [5] },
+    "perDiem": { "type": "number", "minimum": 0, "description": "Daily budget", "examples": [150] },
+    "currency": { "type": "string", "description": "ISO currency code", "examples": ["EUR"] }
   },
   "required": ["days", "perDiem"]
 }`,
@@ -569,8 +570,8 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       inputJson: `{
   "type": "object",
   "properties": {
-    "tempC": { "type": "number" },
-    "activity": { "type": "string" }
+    "tempC": { "type": "number", "description": "Expected temperature in °C", "examples": [18] },
+    "activity": { "type": "string", "description": "What the trip is for, e.g. hiking or business", "examples": ["hiking"] }
   },
   "required": ["tempC"]
 }`,
@@ -602,7 +603,7 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       inputJson: `{
   "type": "object",
   "properties": {
-    "name": { "type": "string" }
+    "name": { "type": "string", "examples": ["pikachu"] }
   },
   "required": ["name"]
 }`,

@@ -1,4 +1,4 @@
-import type { ProfileDefinition } from '../mod.ts';
+import type { DecisionQuestion, ProfileDefinition } from '../mod.ts';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
 import {
 	clearPlaygroundRunPayloadRecord,
@@ -37,6 +37,8 @@ export type PlaygroundRunPayload = {
 	profile: ProfileDefinition;
 	customTools: ToolRegistration[];
 	structured?: StructuredRegistration;
+	/** A decision profile's questions, by id. */
+	questions?: Record<string, DecisionQuestion>;
 };
 
 /** `localStorage`, not `sessionStorage`: session storage is per-tab, so a `window.open` handoff would lose it. */

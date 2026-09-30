@@ -4,7 +4,12 @@
  * so compile emits a field only when it differs.
  */
 
-import { type LexiconKey, liveIngressChannelDefault, profileAllowsInject, resolveGuardrailPolicy } from '../mod.ts';
+import {
+  type LexiconKey,
+  liveIngressChannelDefault,
+  profileAllowsInject,
+  resolveGuardrailPolicy,
+} from '../mod.ts';
 import { resolveObservabilityPolicy } from '../src/observability/mod.ts';
 import { mimeAllowed } from '../src/kernel/registry/catalog.ts';
 import { profileTypesForField } from '../src/kernel/profile-scope.ts';
@@ -41,12 +46,12 @@ import {
 import { DEFAULT_TOOL_INPUT_SCHEMA, DEFAULT_TOOL_OUTPUT_SCHEMA } from './tool-schema.ts';
 import type { PlaygroundToolSpecSeed } from './types.ts';
 
-/** `host` runs no model and `decision` holds no turn, so neither is authored here. */
-export type PlaygroundProfileType = Exclude<ProfileType, 'host' | 'decision'>;
+export type PlaygroundProfileType = ProfileType;
 
-export const PLAYGROUND_PROFILE_TYPES: readonly PlaygroundProfileType[] = PROFILE_TYPES.filter(
-  (type): type is PlaygroundProfileType => type !== 'host' && type !== 'decision',
-);
+/** The types that run a model turn; a decision asks questions, and a host runs its tools. */
+export type PlaygroundTurnProfileType = Exclude<PlaygroundProfileType, 'decision' | 'host'>;
+
+export const PLAYGROUND_PROFILE_TYPES: readonly PlaygroundProfileType[] = PROFILE_TYPES;
 
 export interface IdentityDraft {
   agentId: string;
@@ -76,6 +81,8 @@ export interface ModelBindingDraft {
   protocol: Protocol;
   provider: Provider;
   apiId: string;
+  /** Decision request timeout; `null` uses the playground timeout. */
+  timeoutMs: number | null;
   efforts: EffortDraft[];
   defaultEffort: string;
   allowEffortSelect: boolean;
@@ -196,6 +203,32 @@ export interface LiveDraft {
   vadSilenceDurationMs: number | null;
 }
 
+export type DecisionQuestionType = 'choice' | 'score' | 'noul';
+
+/** A choice's option or a number's named criterion (`label`), or a score's level (`text` only). */
+export interface DecisionCriterionDraft {
+  key: string;
+  label: string;
+  text: string;
+}
+
+export interface DecisionQuestionDraft {
+  key: string;
+  id: string;
+  type: DecisionQuestionType;
+  instructions: string;
+  /** A score's levels run from 0 at the top. */
+  criteria: DecisionCriterionDraft[];
+}
+
+/** A decision profile and the questions it asks. The state they are asked about is typed where it runs, not saved. */
+export interface DecisionDraft {
+  contract: string;
+  /** `null` is the playground's most. */
+  maxStateBytes: number | null;
+  questions: DecisionQuestionDraft[];
+}
+
 /** Wording the author replaced, by lexicon key; a key left out keeps the kernel's line. */
 export type WordingDraft = Partial<Record<LexiconKey, string>>;
 
@@ -224,10 +257,11 @@ export interface PlaygroundDraft {
   image: ImageDraft;
   speech: SpeechDraft;
   live: LiveDraft;
+  decision: DecisionDraft;
   wording: WordingDraft;
 }
 
-export function draftKey(prefix: 'model' | 'tool'): string {
+export function draftKey(prefix: 'model' | 'tool' | 'question' | 'criterion'): string {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
@@ -238,6 +272,7 @@ export function defaultModelBinding(partial?: Partial<ModelBindingDraft>): Model
     protocol: 'openAi',
     provider: 'openrouter',
     apiId: '',
+    timeoutMs: null,
     efforts: [],
     defaultEffort: '',
     allowEffortSelect: false,
@@ -296,6 +331,74 @@ function defaultObservability(): ObservabilityDraft {
     retainForDays: null,
     rotateAfterMiB: null,
   };
+}
+
+function criteria(entries: ReadonlyArray<[label: string, text: string]>): DecisionCriterionDraft[] {
+  return entries.map(([label, text]) => ({ key: draftKey('criterion'), label, text }));
+}
+
+/** A guardrail on a tool call the agent is about to make: whether to let it run, and how much is at stake. */
+export function exampleDecisionDraft(): DecisionDraft {
+  return {
+    contract: 'guardrails.tool_call.v1',
+    maxStateBytes: null,
+    questions: [
+      {
+        key: draftKey('question'),
+        id: 'verdict',
+        type: 'choice',
+        instructions: 'Given what the user asked for and what the call would do, should it run?',
+        criteria: criteria([
+          ['allow', 'Safe, and what the user asked for.'],
+          ['flag', 'Probably fine, but unusual or sensitive enough for a person to look first.'],
+          ['block', 'Harmful, or clearly beyond what the user asked for.'],
+        ]),
+      },
+      {
+        key: draftKey('question'),
+        id: 'risk',
+        type: 'score',
+        instructions: 'How much harm would this call do if it were wrong?',
+        criteria: criteria([
+          ['', 'Low: reversible, and affects only the user.'],
+          ['', 'High: hard to undo, or affects other people or money.'],
+        ]),
+      },
+    ],
+  };
+}
+
+/** State the example's questions can be asked about: the field a decision preview starts with. */
+export const EXAMPLE_DECISION_STATE = JSON.stringify(
+  {
+    context: 'The user asked the agent to tidy up old screenshots on their desktop.',
+    tool_call: { name: 'delete_files', path: '~/Documents', recursive: true },
+    outcome: 'Would delete 1,284 files, including tax_return_2025.pdf.',
+  },
+  null,
+  2,
+);
+
+/** Span accepts a JSON string state; the preview starts with that shape for Span models. */
+export const EXAMPLE_SPAN_DECISION_STATE = JSON.stringify(
+  'The user asked to tidy screenshots. The proposed call recursively deletes 1,284 files, including a tax return.',
+);
+
+/** A new question of `type`, with an id the draft doesn't use yet. */
+export function newDecisionQuestion(
+  draft: PlaygroundDraft,
+  type: DecisionQuestionType = 'choice',
+): DecisionQuestionDraft {
+  const taken = new Set(draft.decision.questions.map((question) => question.id));
+  let id = 'question';
+  for (let n = 2; taken.has(id); n++) id = `question_${n}`;
+  return { key: draftKey('question'), id, type, instructions: '', criteria: newCriteria(type) };
+}
+
+/** The rows a question of `type` starts with: two options, two levels, or none. */
+export function newCriteria(type: DecisionQuestionType): DecisionCriterionDraft[] {
+  if (type === 'noul') return [];
+  return criteria(type === 'choice' ? [['yes', ''], ['no', '']] : [['', ''], ['', '']]);
 }
 
 /**
@@ -359,8 +462,23 @@ export function createBlankDraft(): PlaygroundDraft {
       vadPrefixPaddingMs: null,
       vadSilenceDurationMs: null,
     },
+    decision: exampleDecisionDraft(),
     wording: {},
   };
+}
+
+/**
+ * Facets a decision draft leaves out: its only guardrail is a host's disclosure
+ * hook, which a draft can't carry, and the playground doesn't trace a decision.
+ */
+const DECISION_HIDDEN_FACETS: ReadonlySet<ProfileGraphFacetId> = new Set([
+  'guardrails',
+  'observability',
+]);
+
+function facetFits(facet: (typeof PROFILE_GRAPH)[number], type: PlaygroundProfileType): boolean {
+  return facet.profileTypes.includes(type) &&
+    !(type === 'decision' && DECISION_HIDDEN_FACETS.has(facet.id));
 }
 
 /** Required facets for the type plus the included optional ones, in catalog order. */
@@ -371,7 +489,7 @@ export function draftFacets(draft: PlaygroundDraft): ProfileGraphFacetId[] {
   return PROFILE_GRAPH.filter(
     (facet) =>
       facet.role !== 'branch' &&
-      facet.profileTypes.includes(type) &&
+      facetFits(facet, type) &&
       (!facet.optional || included.has(facet.id)),
   ).map((facet) => facet.id);
 }
@@ -394,7 +512,7 @@ export function includableFacets(draft: PlaygroundDraft): ProfileGraphFacetId[] 
     (facet) =>
       facet.role === 'spine' &&
       facet.optional &&
-      facet.profileTypes.includes(type) &&
+      facetFits(facet, type) &&
       !draft.included.includes(facet.id),
   ).map((facet) => facet.id);
 }
@@ -410,8 +528,28 @@ function imageInputs(inputs: InputsDraft): InputsDraft {
   };
 }
 
+/** Updates a binding and keeps the default model attached to it through an id change. */
+export function updateModelBinding(
+  draft: PlaygroundDraft,
+  bindingKey: string,
+  change: Partial<ModelBindingDraft>,
+): PlaygroundDraft {
+  const binding = draft.modelBindings.find((candidate) => candidate.key === bindingKey);
+  if (!binding) return draft;
+  return {
+    ...draft,
+    models: change.modelId !== undefined && draft.models.defaultModel === binding.modelId
+      ? { ...draft.models, defaultModel: change.modelId }
+      : draft.models,
+    modelBindings: draft.modelBindings.map((candidate) =>
+      candidate.key === bindingKey ? { ...candidate, ...change } : candidate
+    ),
+  };
+}
+
 export function newModelBinding(draft: PlaygroundDraft): ModelBindingDraft {
-  const type = draft.identity.profileType || 'text';
+  const chosen = draft.identity.profileType;
+  const type = chosen && chosen !== 'host' ? chosen : 'text';
   const taken = new Set(draft.modelBindings.map((binding) => binding.modelId));
   const seed = defaultBindingForProfileType(type);
   let modelId = seed.modelId;
@@ -427,14 +565,18 @@ export function newToolSpec(draft: PlaygroundDraft): ToolSpecDraft {
 }
 
 /**
- * Bindings the new type can't use are dropped; if none remain, one on the type's playground
- * default replaces them, and model select turns off below two bindings. Other sections and
- * `included` are kept, so a facet the type lacks comes back when switching back.
+ * Bindings the new type can't use are dropped; if none remain, one playground default replaces
+ * them. Model select turns off below two bindings. Other sections and
+ * `included` are kept, so a facet the type lacks comes back when switching back. A host runs no
+ * model, so it keeps the bindings for the way back.
  */
 export function setProfileType(
   draft: PlaygroundDraft,
   type: PlaygroundProfileType,
 ): PlaygroundDraft {
+  if (type === 'host') {
+    return { ...draft, identity: { ...draft.identity, profileType: type } };
+  }
   const kept = draft.modelBindings.filter((binding) =>
     isValidProfileProtocol(type, binding.protocol) && !servesOtherProfileType(type, binding)
   );

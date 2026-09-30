@@ -1,10 +1,12 @@
 /**
- * What the hosted playground allows on top of the kernel: it runs on free-tier keys (Google AI
- * Studio quotas, OpenRouter's free router). AI Studio grounding quotas (Sep 2026): search is 1.5K
+ * What the hosted playground allows on top of the kernel: Gemini runs on free-tier keys;
+ * OpenRouter decisions use only the free Span model. TypeSafe has no free-model restriction.
+ * AI Studio grounding quotas (Sep 2026): search is 1.5K
  * on Gemini 2 / 2.5 and 0 on Gemini 3; maps is 0 or 500 per model.
  */
 
 import type { Protocol, Provider } from '../src/kernel/schema.ts';
+import type { DecisionQuestion } from '../src/kernel/types.ts';
 import { GOOGLE_BUILTIN_TOOLS } from '../src/presets/google.ts';
 import type { ModelBindingDraft, PlaygroundProfileType } from './draft.ts';
 
@@ -29,6 +31,81 @@ export const GEMINI_PLAYGROUND_LIVE_INPUT_TOKENS = 65_536;
 
 /** Each record goes back to the run tab's inspector; the server keeps nothing. */
 export const PLAYGROUND_TRACE_DESTINATION = 'playground';
+
+/** The only free Decisions API model offered by the public playground. */
+export const OPENROUTER_DECISION_MODELS = [
+  { id: 'respan/span-01-lite:free', label: 'Span 01 Lite Free' },
+] as const;
+
+/** The Jev model loaded by the decision example. */
+export const JEV_PLAYGROUND_API_ID = 'jev-latest';
+
+/** The most state a playground decision sends, in bytes. */
+export const PLAYGROUND_DECISION_MAX_STATE_BYTES = 16_384;
+
+/** At most this many questions, and this many options or levels in each. */
+export const PLAYGROUND_DECISION_MAX_QUESTIONS = 8;
+export const PLAYGROUND_DECISION_MAX_CRITERIA = 12;
+/** The longest question instructions and option or level text the playground sends. */
+export const PLAYGROUND_DECISION_MAX_INSTRUCTIONS_CHARS = 2_000;
+export const PLAYGROUND_DECISION_MAX_CRITERION_CHARS = 500;
+export const PLAYGROUND_DECISION_MAX_NAME_CHARS = 64;
+export const PLAYGROUND_DECISION_MAX_ID_CHARS = 128;
+/** Default and maximum request timeout on the site's decision keys. */
+export const PLAYGROUND_DECISION_TIMEOUT_MS = 30_000;
+
+type DecisionRoute = Pick<ModelBindingDraft, 'protocol' | 'provider' | 'apiId'>;
+
+function isSpanDecision(binding: DecisionRoute): boolean {
+  return binding.protocol === 'decision' && binding.provider === 'openrouter' &&
+    binding.apiId.startsWith('respan/');
+}
+
+/** Provider-specific request shape for the playground's Span binding. */
+export function decisionQuestionViolation(
+  binding: Pick<ModelBindingDraft, 'protocol' | 'provider' | 'apiId'>,
+  question: DecisionQuestion,
+): string | null {
+  if (!isSpanDecision(binding)) return null;
+  if (question.type !== 'noul') return 'Span accepts Number questions.';
+  const criteria = question.criteria;
+  if (
+    !criteria || Object.keys(criteria).length !== 2 ||
+    typeof criteria.true !== 'string' || !criteria.true.trim() ||
+    typeof criteria.false !== 'string' || !criteria.false.trim()
+  ) return 'Span needs true and false criteria with descriptions.';
+  return null;
+}
+
+export function decisionStateViolation(
+  binding: Pick<ModelBindingDraft, 'protocol' | 'provider' | 'apiId'>,
+  state: unknown,
+): string | null {
+  if (!isSpanDecision(binding)) return null;
+  if (typeof state === 'string') return null;
+  if (
+    typeof state === 'object' && state !== null && !Array.isArray(state) &&
+    Object.keys(state).length > 0 &&
+    Object.entries(state).every(([key, value]) =>
+      (key === 'input' || key === 'output') && spanMessages(value)
+    )
+  ) return null;
+  return 'Span state must be a string or input/output messages.';
+}
+
+/** Text, one role/content message, or a nonempty list of such messages. */
+function spanMessages(value: unknown): boolean {
+  if (typeof value === 'string') return true;
+  if (Array.isArray(value)) return value.length > 0 && value.every(spanMessage);
+  return spanMessage(value);
+}
+
+function spanMessage(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const message = value as Record<string, unknown>;
+  return typeof message.role === 'string' && !!message.role.trim() &&
+    typeof message.content === 'string';
+}
 
 export interface GeminiPlaygroundModel {
   id: string;
@@ -196,6 +273,9 @@ export function playgroundRunsTransport(
   protocol: Protocol,
   provider: Provider,
 ): boolean {
+  if (type === 'decision') {
+    return protocol === 'decision' && (provider === 'typesafe' || provider === 'openrouter');
+  }
   if (isGoogleTransport(protocol, provider)) return true;
   return isOpenRouterTransport(protocol, provider) && type === 'text';
 }
@@ -205,6 +285,7 @@ export function servesOtherProfileType(
   type: PlaygroundProfileType,
   binding: Pick<ModelBindingDraft, 'protocol' | 'provider' | 'apiId'>,
 ): boolean {
+  if (binding.protocol === 'decision') return type !== 'decision';
   if (isOpenRouterTransport(binding.protocol, binding.provider)) return type !== 'text';
   if (!isGoogleTransport(binding.protocol, binding.provider)) return false;
   const model = geminiPlaygroundModel(binding.apiId);
@@ -226,9 +307,16 @@ export function allowedBuiltinsForGemini(apiId: string): string[] {
 }
 
 export function defaultBindingForProfileType(
-  type: PlaygroundProfileType,
+  type: Exclude<PlaygroundProfileType, 'host'>,
 ): Pick<ModelBindingDraft, 'modelId' | 'protocol' | 'provider' | 'apiId'> {
   switch (type) {
+    case 'decision':
+      return {
+        modelId: 'decision',
+        protocol: 'decision',
+        provider: 'typesafe',
+        apiId: JEV_PLAYGROUND_API_ID,
+      };
     case 'live':
       return {
         modelId: 'live',
@@ -266,13 +354,21 @@ export interface ModelBindingViolation {
 }
 
 /**
- * `null` when it can run. Checks only the free-tier keys (models, grounding quotas); whether a
+ * `null` when it can run. Checks the playground model catalog and Gemini free-tier quotas; whether a
  * model suits the profile type is the kernel's call.
  */
 export function modelBindingViolation(
   binding: Pick<ModelBindingDraft, 'protocol' | 'provider' | 'apiId' | 'builtInTools'>,
 ): ModelBindingViolation | null {
   const apiId = binding.apiId.trim();
+  if (binding.protocol === 'decision') {
+    if (binding.provider === 'typesafe') return null;
+    if (binding.provider === 'openrouter') {
+      return OPENROUTER_DECISION_MODELS.some((model) => model.id === apiId)
+        ? null
+        : { field: 'apiId', message: `${apiId} is not a playground OpenRouter decision model.` };
+    }
+  }
   if (isOpenRouterTransport(binding.protocol, binding.provider)) {
     return apiId === OPENROUTER_PLAYGROUND_API_ID ? null : {
       field: 'apiId',

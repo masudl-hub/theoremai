@@ -27,14 +27,31 @@ import {
   playgroundTree,
   setProfileType,
   toolSpecNodeId,
+  updateModelBinding,
   zodFromJsonSchema,
 } from '../../playground/mod.ts';
 import { quoteSource } from '../../playground/tool-schema.ts';
 
+Deno.test('renaming a binding preserves the selected default and leaves other bindings alone', () => {
+  const draft = createExampleDraft();
+  const renamed = updateModelBinding(draft, draft.modelBindings[0].key, { modelId: 'primary' });
+  assertEquals(renamed.models.defaultModel, 'primary');
+  assertEquals(renamed.modelBindings[0].key, draft.modelBindings[0].key);
+  assertEquals(renamed.modelBindings.slice(1), draft.modelBindings.slice(1));
+  assert(compilePlayground(renamed).ok);
+  const other = updateModelBinding(renamed, draft.modelBindings[1].key, { modelId: 'secondary' });
+  assertEquals(other.models.defaultModel, 'primary');
+  assert(compilePlayground(other).ok);
+});
+
+/** A turn draft's compile; decision and host drafts have their own tests. */
 function compiled(draft: PlaygroundDraft) {
   const result = compilePlayground(draft);
   if (!result.ok) throw new Error(`unexpected issues: ${JSON.stringify(result.issues)}`);
-  return result;
+  const { profile } = result;
+  if (profile.type === 'decision' || profile.type === 'host')
+    throw new Error('expected a turn profile');
+  return { ...result, profile };
 }
 
 function issueNodes(result: PlaygroundCompileResult): string[] {
@@ -503,4 +520,23 @@ Deno.test('quoteSource writes a string that evaluates back to itself, script-saf
   const quoted = quoteSource(text);
   assertEquals(new Function(`return ${quoted};`)(), text);
   assertEquals(/[<>\u2028\u2029]/.test(quoted), false);
+});
+
+Deno.test('a host draft compiles to its tools, with no model or identity', () => {
+  const host = setProfileType(createExampleDraft(), 'host');
+  const result = compilePlayground(host);
+  if (!result.ok) throw new Error(`unexpected issues: ${JSON.stringify(result.issues)}`);
+  const { profile } = result;
+  assertEquals(profile.type, 'host');
+  assert(!('models' in profile));
+  assert(!('identity' in profile));
+  assertEquals(result.customTools.length, demoToolSpecs().length);
+  assert(profile.type === 'host' && profile.tools?.allow?.includes('get_weather'));
+});
+
+Deno.test('a host draft switches back to text with its tools', () => {
+  const text = setProfileType(setProfileType(createExampleDraft(), 'host'), 'text');
+  const { profile } = compiled(text);
+  assertEquals(profile.type, 'text');
+  assert(profile.type === 'text' && profile.tools?.allow?.includes('get_weather'));
 });

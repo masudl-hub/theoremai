@@ -1,6 +1,7 @@
 /** Covers the JSON Schema subset the editor writes: objects, arrays, and primitives. */
 
 import { z, type ZodType } from 'zod';
+import { type JsonSchema, sampleFromSchema } from '../react/src/client/schema-fields.ts';
 
 export const DEFAULT_TOOL_INPUT_SCHEMA = `{
   "type": "object",
@@ -18,7 +19,7 @@ export const DEFAULT_TOOL_OUTPUT_SCHEMA = `{
   "required": ["result"]
 }`;
 
-export type JsonSchema = Record<string, unknown>;
+export type { JsonSchema };
 
 function schemaFields(schema: JsonSchema): {
   props: Record<string, JsonSchema>;
@@ -82,42 +83,9 @@ export function zodFromJsonSchema(schema: JsonSchema): ZodType {
   return z.looseObject(shape);
 }
 
-/** The schema's own example for a value: `examples[0]`, then `default`, `const`, `enum[0]`. */
-function declaredSample(prop: JsonSchema): { value: unknown } | undefined {
-  if (Array.isArray(prop.examples) && prop.examples.length) return { value: prop.examples[0] };
-  if ('default' in prop) return { value: prop.default };
-  if ('const' in prop) return { value: prop.const };
-  if (Array.isArray(prop.enum) && prop.enum.length) return { value: prop.enum[0] };
-  return undefined;
-}
-
-function sampleValue(prop: JsonSchema): unknown {
-  const declared = declaredSample(prop);
-  if (declared) return declared.value;
-  switch (schemaKind(prop)) {
-    case 'number':
-      return typeof prop.minimum === 'number' ? prop.minimum : 1;
-    case 'boolean':
-      return true;
-    case 'array':
-      return [];
-    case 'object':
-      return sampleFromJsonSchema(prop);
-    case 'string':
-    case 'unknown':
-      return 'example';
-  }
-}
-
-/** Required fields only; a plain value of the field's type when the schema declares no sample. */
+/** Required fields, and optional ones with an example; the package's form fills a tool's request the same way. */
 export function sampleFromJsonSchema(schema: JsonSchema): Record<string, unknown> {
-  const { props, required } = schemaFields(schema);
-  const sample: Record<string, unknown> = {};
-  for (const key of required) {
-    const prop = props[key];
-    if (prop) sample[key] = sampleValue(prop);
-  }
-  return sample;
+  return sampleFromSchema(schema);
 }
 
 /** Characters escaped even inside a string literal, so pasted source can't close a `<script>` or break a line. */

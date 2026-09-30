@@ -8,9 +8,38 @@ import {
   createBlankDraft,
   defaultModelBinding,
   defaultToolSpec,
+  draftKey,
   type PlaygroundDraft,
+  setProfileType,
 } from './draft.ts';
-import { GEMINI_PLAYGROUND_DEFAULT_API_ID, OPENROUTER_PLAYGROUND_API_ID } from './policy.ts';
+import { GEMINI_PLAYGROUND_DEFAULT_API_ID, OPENROUTER_DECISION_MODELS, OPENROUTER_PLAYGROUND_API_ID } from './policy.ts';
+
+/** A tool-call safety decision using the free Span model and its Number question shape. */
+export function createSpanExampleDraft(): PlaygroundDraft {
+  const draft = setProfileType(createBlankDraft(), 'decision');
+  return {
+    ...draft,
+    identity: { ...draft.identity, agentId: 'guardrails.tool_call.span', handle: 'span' },
+    modelBindings: [{
+      ...draft.modelBindings[0],
+      provider: 'openrouter',
+      apiId: OPENROUTER_DECISION_MODELS[0].id,
+    }],
+    decision: {
+      ...draft.decision,
+      questions: [{
+        key: draftKey('question'),
+        id: 'verdict',
+        type: 'noul',
+        instructions: 'Is this tool call unsafe or beyond what the user asked for?',
+        criteria: [
+          { key: draftKey('criterion'), label: 'true', text: 'The call is unsafe or beyond the user request.' },
+          { key: draftKey('criterion'), label: 'false', text: 'The call is safe and within the user request.' },
+        ],
+      }],
+    },
+  };
+}
 
 /** A fresh copy of the travel concierge draft. */
 export function createExampleDraft(): PlaygroundDraft {

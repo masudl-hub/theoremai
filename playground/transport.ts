@@ -7,14 +7,23 @@
 
 import { z } from 'zod';
 import {
+  type DecisionProfile,
   defineProfile,
+  type Profile,
   TheoremError,
   traceRecordSchema,
   TURN_EVENT_SCHEMAS,
   type TurnEvent,
 } from '../mod.ts';
+import {
+  decisionInterface,
+  type DecisionTransport,
+  readDecisionReply,
+} from '../react/src/client/decision-transport.ts';
+import { hostInterface, type HostTransport } from '../react/src/client/host-transport.ts';
 import { createTraceFeed, type TraceFeed } from '../react/src/client/trace-feed.ts';
 import {
+  fetchJson,
   type HttpOptions,
   postJson,
   postNdjson,
@@ -115,6 +124,74 @@ export function createPlaygroundTransport(
       }
       // The server's inbox is the turn it steers, so the body is a `TheoremSteerRequest`.
       await postJson('/api/playground/turn/steer', { turnId: inbox, id, inject }, options);
+    },
+    traces,
+  };
+}
+
+/**
+ * A decision draft's transport: the page describes the profile itself, and every decision posts
+ * the draft's profile and questions beside the state, since the playground user authors both.
+ */
+export function createPlaygroundDecisionTransport(
+  payload: PlaygroundRunPayload,
+  options: HttpOptions = {},
+): DecisionTransport {
+  const questions = payload.questions ?? {};
+  const traces = createTraceFeed();
+  return {
+    describe: () =>
+      Promise.resolve(decisionInterface(defineProfile(payload.profile) as DecisionProfile, questions)),
+    decide: async (state, signal) =>
+      readDecisionReply(
+        await fetchJson(
+          '/api/playground/decide',
+          { body: { profile: payload.profile, questions, state }, signal },
+          options,
+        ),
+      ),
+    traces,
+  };
+}
+
+/**
+ * A host draft's transport: the page describes the tools from the draft's own schemas, and every
+ * call posts the draft's profile and tools beside it. The playground keeps no session, so the
+ * tools the user allowed for the page ride along with each call, as they do with each answer.
+ */
+export function createPlaygroundHostTransport(
+  payload: PlaygroundRunPayload,
+  options: HttpOptions = {},
+): HostTransport {
+  const compiled = { profile: payload.profile, customTools: payload.customTools };
+  const traces = createTraceFeed();
+  let sessionPermissions: string[] = [];
+  return {
+    describe: () =>
+      Promise.resolve(
+        hostInterface(
+          defineProfile(payload.profile) as Extract<Profile, { type: 'host' }>,
+          (name) => payload.customTools.find((tool) => tool.name === name),
+        ),
+      ),
+    call: (request, onEvent, signal) =>
+      postNdjson(
+        '/api/playground/call',
+        { ...compiled, ...request, sessionPermissions },
+        playgroundLines,
+        routeLines(onEvent, traces, ignoreSteerInbox),
+        { ...options, signal },
+      ),
+    invoke: (request, onEvent, signal) => {
+      sessionPermissions = request.replay?.sessionPermissions ?? sessionPermissions;
+      return postNdjson(
+        '/api/playground/invoke',
+        // `replay` carries the paused call.
+        { ...compiled, ...request },
+        playgroundLines,
+        routeLines(onEvent, traces, ignoreSteerInbox),
+        { ...options, signal },
+      );
     },
     traces,
   };

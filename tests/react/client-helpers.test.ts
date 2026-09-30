@@ -35,6 +35,7 @@ import {
   pendingPromptOf,
   replyKey,
   type TranscriptTurnGroup,
+  toolCallLabel,
   workStatus,
 } from '../../react/src/client/transcript-groups.ts';
 import { resolveScrollToBottomScrollTop } from '../../react/src/client/transcript-scroll.ts';
@@ -729,4 +730,22 @@ Deno.test('a source favicon names only its site, never the page', () => {
     citations.map((citation) => citation.icon),
     [favicon('docs.example.org'), favicon('lisboa.pt'), undefined, undefined],
   );
+});
+
+Deno.test('a tool row reads as its filled activity label, else the tool name in words', () => {
+  const call = { name: 'save_to_collection', callId: 'c1', arguments: {}, artifacts: [] };
+  assertEquals(toolCallLabel(call), 'Save to collection');
+  const running = {
+    ...call,
+    activity: 'Saving Monty to your collection',
+    activityPast: 'Saved Monty',
+  };
+  assertEquals(toolCallLabel(running), 'Saving Monty to your collection');
+  const complete = {
+    ...running,
+    state: { phase: 'complete' as const, name: call.name, callId: 'c1', at: 1, output: {} },
+  };
+  assertEquals(toolCallLabel(complete), 'Saved Monty');
+  // A completed call whose past label did not fill falls back to the name, not the running label.
+  assertEquals(toolCallLabel({ ...complete, activityPast: undefined }), 'Save to collection');
 });

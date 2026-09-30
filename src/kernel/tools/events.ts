@@ -9,8 +9,15 @@ import { recordToolCheck } from '../engine/tool-trace.ts';
 import { type Source, sourceSchema } from '../turn-events.ts';
 import type { TurnEvent, TurnEventOf } from '../types.ts';
 import { isRecord } from '../util/record.ts';
+import { fillActivityLabel } from './activity-label.ts';
 import { formatToolFailureForModel, formatToolResult } from './model-text.ts';
-import type { ToolCallRequest, ToolContext, ToolFailure, ToolPhaseEvent } from './types.ts';
+import type {
+  ToolCallRequest,
+  ToolContext,
+  ToolFailure,
+  ToolLabels,
+  ToolPhaseEvent,
+} from './types.ts';
 
 export type ToolCallBase = Pick<ToolPhaseEvent, 'name' | 'callId'>;
 
@@ -107,15 +114,17 @@ export function* sourceEvents(
 
 /** `{ ok: false }` comes after the failure event is emitted, so callers only bail. */
 export function* startToolExecution<T>(
-  tool: { input: z.ZodType<T> },
+  tool: { input: z.ZodType<T>; labels?: ToolLabels },
   rawInput: unknown,
   ctx: ToolContext,
   base: ToolCallBase,
 ): Generator<TurnEvent, { ok: true; data: T } | { ok: false }> {
   const edited = ctx.resume?.edited;
+  const activity = fillActivityLabel(tool.labels?.activity, { input: rawInput });
   yield toolEvent(base, {
     phase: 'running',
     ...(edited ? { edited: { from: edited.from, to: toolCallArguments(rawInput) } } : {}),
+    ...(activity ? { activity } : {}),
   });
   throwIfAborted(ctx.signal);
   const parsed = tool.input.safeParse(rawInput);

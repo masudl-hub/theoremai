@@ -183,6 +183,10 @@ export interface ToolCall {
   stepId?: string;
   /** The user's edit on approval; `to` is what ran. */
   edited?: ToolCallEdit;
+  /** What the call is doing, in the tool's words, from its last `running` phase. */
+  activity?: string;
+  /** What the call did, from its `complete` phase. */
+  activityPast?: string;
   /** Absent while the call has only been made. */
   state?: ToolCallState;
   /** When it last started running (epoch ms). */

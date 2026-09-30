@@ -508,17 +508,6 @@ const awaitingUserInput = z.discriminatedUnion('kind', [
 true satisfies Equals<z.infer<typeof awaitingUserInput>, AwaitingUserInput>;
 export const awaitingUserInputSchema: z.ZodType<AwaitingUserInput> = awaitingUserInput;
 
-/** What the transcript calls a tool while it runs and after. */
-export interface ToolActivityLabels {
-  activity?: string;
-  activityPast?: string;
-}
-const toolActivityLabels = z.object({
-  activity: z.string().optional(),
-  activityPast: z.string().optional(),
-});
-true satisfies Equals<z.infer<typeof toolActivityLabels>, ToolActivityLabels>;
-
 export interface WireFunctionTool {
   type: 'function';
   name: string;
@@ -544,7 +533,6 @@ export interface TurnToolSnapshot {
   path?: string;
   sessionPermissions?: string[];
   wire: WireFunctionTool[];
-  labels?: Record<string, ToolActivityLabels>;
 }
 const turnToolSnapshot = z.object({
   builtins: z.array(z.string()),
@@ -554,7 +542,6 @@ const turnToolSnapshot = z.object({
   path: z.string().optional(),
   sessionPermissions: z.array(z.string()).optional(),
   wire: z.array(wireFunctionTool),
-  labels: z.record(z.string(), toolActivityLabels).optional(),
 });
 true satisfies Equals<z.infer<typeof turnToolSnapshot>, TurnToolSnapshot>;
 export const turnToolSnapshotSchema: z.ZodType<TurnToolSnapshot> = turnToolSnapshot;
@@ -616,11 +603,13 @@ export interface ToolCallEdit {
 /**
  * One phase of the kernel's execution of a call:
  *
- * - `running` — the body started; `edited` when the user changed the arguments.
+ * - `running` — the body started; `edited` when the user changed the arguments;
+ *   `activity` is the tool's activity label filled from the call's input.
  * - `progress` / `trace` / `artifact` / `warning` — streamed while it ran.
  * - `complete` — `output`; `awaiting` when it asked the user something; `parts` for the
  *   media it returned beside its output (images, audio);
- *   `readBack` is the text the model reads back, after guardrails.
+ *   `readBack` is the text the model reads back, after guardrails;
+ *   `activityPast` is the tool's past activity label filled from its input and output.
  * - `gate` — confirmation, permission or sign-in held the call; the body did not run.
  *   A sign-in gate's `readBack` is what the model reads while the person signs in.
  * - `error` — the call failed or was refused (`failure.kind` `declined` · `blocked` · `cancelled` · …);
@@ -629,7 +618,7 @@ export interface ToolCallEdit {
  */
 export type ToolPhaseEvent = ToolPhaseBase &
   (
-    | { phase: 'running'; edited?: ToolCallEdit }
+    | { phase: 'running'; edited?: ToolCallEdit; activity?: string }
     | { phase: 'progress'; data: unknown }
     | { phase: 'trace'; step: ToolTraceStep }
     | { phase: 'artifact'; artifact: unknown }
@@ -640,6 +629,7 @@ export type ToolPhaseEvent = ToolPhaseBase &
         awaiting?: boolean;
         readBack?: string;
         parts?: InteractionPart[];
+        activityPast?: string;
       }
     | { phase: 'gate'; gate: ToolGate; readBack?: string }
     | { phase: 'error'; failure: ToolFailure; readBack?: string }
@@ -651,6 +641,7 @@ const toolPhaseEvent = z.discriminatedUnion('phase', [
     ...toolPhaseBase,
     phase: z.literal('running'),
     edited: z.object({ from: jsonObject, to: jsonObject }).optional(),
+    activity: z.string().optional(),
   }),
   z.object({ ...toolPhaseBase, phase: z.literal('progress'), data: z.unknown() }),
   z.object({ ...toolPhaseBase, phase: z.literal('trace'), step: toolTraceStep }),
@@ -663,6 +654,7 @@ const toolPhaseEvent = z.discriminatedUnion('phase', [
     awaiting: z.boolean().optional(),
     readBack: z.string().optional(),
     parts: z.array(interactionPart).optional(),
+    activityPast: z.string().optional(),
   }),
   z.object({
     ...toolPhaseBase,

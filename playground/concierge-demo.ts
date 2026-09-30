@@ -70,6 +70,8 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
     id: 'tool-geocode-city',
     data: {
       toolName: 'geocode_city',
+      activity: 'Finding {name}',
+      activityPast: 'Found {results.0.name}',
       toolType: 'http',
       description:
         'Resolve a city or place name to coordinates using the Open-Meteo geocoding API.',
@@ -111,6 +113,8 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
     id: 'tool-search-places',
     data: {
       toolName: 'search_places',
+      activity: 'Searching for {q}',
+      activityPast: 'Searched for {q}',
       toolType: 'http',
       description:
         'Search OpenStreetMap Nominatim for places (free alternative to paid maps APIs).',
@@ -138,6 +142,8 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
     id: 'tool-reverse-geocode',
     data: {
       toolName: 'reverse_geocode',
+      activity: 'Finding this spot',
+      activityPast: 'Found this spot',
       toolType: 'http',
       description: 'Reverse geocode coordinates to a place label via OpenStreetMap Nominatim.',
       category: 'demo',
@@ -164,6 +170,8 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
     id: 'tool-get-weather',
     data: {
       toolName: 'get_weather',
+      activity: 'Checking the weather',
+      activityPast: 'Currently {current_weather.temperature}°C',
       toolType: 'http',
       description: 'Fetch current weather and a 7-day forecast (highs, lows, chance of rain) for coordinates via Open-Meteo.',
       category: 'demo',
@@ -203,6 +211,8 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
     id: 'tool-sun-times',
     data: {
       toolName: 'get_sun_times',
+      activity: 'Checking sunrise and sunset',
+      activityPast: 'Checked sunrise and sunset',
       toolType: 'http',
       description: 'Sunrise, sunset, and day length for coordinates (sunrise-sunset.org).',
       category: 'demo',
@@ -234,6 +244,8 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
     id: 'tool-convert-currency',
     data: {
       toolName: 'convert_currency',
+      activity: 'Converting {amount} {from} to {to}',
+      activityPast: 'Converted {amount} {from} to {to}',
       toolType: 'http',
       description: 'Convert an amount between ISO currencies using ECB reference rates.',
       category: 'demo',
@@ -267,6 +279,8 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
     id: 'tool-convert-units',
     data: {
       toolName: 'convert_units',
+      activity: 'Converting {value} {from} to {to}',
+      activityPast: '{value} {from} is {result} {to}',
       toolType: 'function',
       description: 'Convert temperature (c/f/k) or distance (km/mi) locally — no network call.',
       category: 'demo',
@@ -299,6 +313,8 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
     id: 'tool-haversine',
     data: {
       toolName: 'haversine_distance',
+      activity: 'Measuring the distance',
+      activityPast: '{km} km apart',
       toolType: 'function',
       description: 'Great-circle distance between two lat/lon pairs in km and miles.',
       category: 'demo',
@@ -330,6 +346,8 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
     id: 'tool-wikipedia',
     data: {
       toolName: 'wikipedia_summary',
+      activity: 'Reading about {title}',
+      activityPast: 'Read about {title}',
       toolType: 'http',
       description: 'Fetch the Wikipedia REST summary for a page title.',
       category: 'demo',
@@ -362,6 +380,8 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
     id: 'tool-archive-search',
     data: {
       toolName: 'archive_text_search',
+      activity: 'Searching the archive',
+      activityPast: 'Searched the archive',
       toolType: 'http',
       description: 'Search Internet Archive texts (books) by title or keywords.',
       category: 'demo',
@@ -389,6 +409,8 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
     id: 'tool-postal',
     data: {
       toolName: 'lookup_postal_code',
+      activity: 'Looking up {postal}',
+      activityPast: 'Looked up {postal}',
       toolType: 'http',
       description: 'Look up place names for a postal code via Zippopotam (no API key).',
       category: 'demo',
@@ -415,6 +437,8 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
     id: 'tool-ask-deepwiki',
     data: {
       toolName: 'ask_repo_docs',
+      activity: 'Checking the docs',
+      activityPast: 'Checked the docs',
       toolType: 'mcp',
       description: 'Ask questions about a public GitHub repo via DeepWiki MCP (Streamable HTTP).',
       category: 'demo',
@@ -462,6 +486,8 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
     id: 'tool-weather-label',
     data: {
       toolName: 'weather_code_label',
+      activity: 'Reading the forecast',
+      activityPast: 'Forecast: {label}',
       toolType: 'function',
       description: 'Translate an Open-Meteo WMO weathercode into a short label.',
       category: 'demo',
@@ -490,6 +516,8 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
     id: 'tool-plan-day',
     data: {
       toolName: 'plan_day',
+      activity: 'Planning a {focus} day in {destination}',
+      activityPast: 'Planned your day in {destination}',
       toolType: 'function',
       description: 'Draft a simple day plan from destination context (playground stub).',
       category: 'demo',
@@ -528,6 +556,8 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
     id: 'tool-trip-budget',
     data: {
       toolName: 'trip_budget_estimate',
+      activity: 'Estimating a {days}-day budget',
+      activityPast: 'About {total} {currency} for {days} days',
       toolType: 'function',
       description: 'Estimate trip cost from days × per-diem (local math, no FX).',
       category: 'demo',
@@ -560,6 +590,8 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
     id: 'tool-packing',
     data: {
       toolName: 'packing_suggestions',
+      activity: 'Packing for {activity}',
+      activityPast: 'Packed for {activity}',
       toolType: 'function',
       description: 'Suggest a packing list from temperature and activity type.',
       category: 'demo',
@@ -590,6 +622,8 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
     id: 'tool-get-pokemon',
     data: {
       toolName: 'get_pokemon',
+      activity: 'Looking up {name}',
+      activityPast: 'Found {name}',
       toolType: 'http',
       description: 'Look up a Pokémon by name from the public PokéAPI.',
       category: 'demo',
@@ -622,6 +656,8 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
     id: 'tool-cat-fact',
     data: {
       toolName: 'get_cat_fact',
+      activity: 'Finding a cat fact',
+      activityPast: 'Found a cat fact',
       toolType: 'http',
       description: 'Return a random cat fact (T2 — call discover_tools first).',
       category: 'demo',
@@ -646,6 +682,8 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
     id: 'tool-tell-joke',
     data: {
       toolName: 'tell_joke',
+      activity: 'Thinking of a joke',
+      activityPast: 'Found a joke',
       toolType: 'http',
       description: 'Tell a random joke (T2 — call discover_tools first).',
       category: 'demo',
@@ -670,6 +708,8 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
     id: 'tool-advice',
     data: {
       toolName: 'get_advice',
+      activity: 'Finding some advice',
+      activityPast: 'Found some advice',
       toolType: 'http',
       description: 'Random travel-style advice slip (T2 — call discover_tools first).',
       category: 'demo',
@@ -697,6 +737,8 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
     id: 'tool-dog-image',
     data: {
       toolName: 'random_dog_image',
+      activity: 'Fetching a dog',
+      activityPast: 'Fetched a dog',
       toolType: 'http',
       description: 'Random dog photo URL from dog.ceo (T2 — call discover_tools first).',
       category: 'demo',

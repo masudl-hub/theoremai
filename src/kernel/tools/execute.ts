@@ -20,6 +20,7 @@ import { type InjectUnit, isAwaitingUserInput } from '../stages.ts';
 import type { Source } from '../turn-events.ts';
 import type { InteractionPart, Profile, TurnEvent } from '../types.ts';
 import { isRecord } from '../util/record.ts';
+import { fillActivityLabel } from './activity-label.ts';
 import {
   failureEvent,
   messageOf,
@@ -77,6 +78,7 @@ import type {
   ToolContext,
   ToolFailure,
   ToolGate,
+  ToolLabels,
   ToolStreamEvent,
   TurnToolSnapshot,
 } from './types.ts';
@@ -357,6 +359,30 @@ function* reviseAfterStages(
   };
 }
 
+/** A call's `complete` phase, its past activity label filled from its input and output. */
+function completeEvent(
+  base: ToolCallBase,
+  settled: {
+    input: unknown;
+    outputRaw: unknown;
+    modelResult: ModelToolResult;
+    labels?: ToolLabels;
+  },
+): TurnEvent {
+  const { input, outputRaw, modelResult } = settled;
+  const activityPast = fillActivityLabel(settled.labels?.activityPast, {
+    input,
+    output: outputRaw,
+  });
+  return toolEvent(base, {
+    phase: 'complete',
+    output: outputRaw,
+    readBack: formatToolResult(modelResult),
+    ...(modelResult.parts?.length ? { parts: modelResult.parts } : {}),
+    ...(activityPast ? { activityPast } : {}),
+  });
+}
+
 /**
  * The one settlement for every transport. `reproject` is absent when the kernel owns the
  * output (the T2 loader), which makes a host `mutate` a warning instead of a replacement.
@@ -372,6 +398,8 @@ async function* settleToolCall(args: {
   reproject?: Reproject;
   /** Run on the output the call settles with, after any `mutate`. */
   sources?: (output: unknown) => Source[];
+  /** The tool's activity labels; the past one is filled when the call completes. */
+  labels?: ToolLabels;
 }): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
   const { base, toolName, callId, input, stages, provisional, guard, reproject, sources } = args;
   let modelResult = yield* 'failure' in provisional
@@ -407,12 +435,7 @@ async function* settleToolCall(args: {
   if (!failure && sources) yield* sourceEvents(base, sources, outputRaw);
   yield failure
     ? failureEvent(base, failure, formatToolResult(modelResult))
-    : toolEvent(base, {
-        phase: 'complete',
-        output: outputRaw,
-        readBack: formatToolResult(modelResult),
-        ...(modelResult.parts?.length ? { parts: modelResult.parts } : {}),
-      });
+    : completeEvent(base, { input, outputRaw, modelResult, labels: args.labels });
   return {
     modelResult,
     ...(failure ? { failure } : { outputRaw }),
@@ -687,6 +710,7 @@ export async function* executeFunction(
       modelResult: projectForModel(tool, promoted.output, ctx.profile.lexicon),
     },
     sources: tool.sources,
+    labels: tool.labels,
     ...(ownsOutput
       ? {}
       : {
@@ -831,6 +855,7 @@ async function* settleBodyOutcome(args: {
     guard,
     provisional: { outputRaw: outcome.outputRaw, modelResult: outcome.modelResult },
     sources: tool.sources,
+    labels: tool.labels,
     reproject: makeReproject(
       (v) => parseToolOutput(tool.output, v),
       // A hook's edit replaces the value; the media the tool returned stays.

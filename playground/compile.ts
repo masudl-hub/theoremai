@@ -24,6 +24,8 @@ import {
   TheoremError,
 } from '../mod.ts';
 import { validateLexiconOverrides } from '../src/guardrails/lexicon.ts';
+import { activityLabelPlaceholders } from '../src/kernel/tools/activity-label.ts';
+import { isRecord } from '../src/kernel/util/record.ts';
 import type { DecisionProfileDefinition, HostProfileDefinition } from '../src/kernel/mod.ts';
 import { mimeAllowed } from '../src/kernel/registry/catalog.ts';
 import { googleInteractionsPersistence } from '../src/presets/google.ts';
@@ -78,7 +80,11 @@ import {
   PLAYGROUND_DECISION_MAX_STATE_BYTES,
   PLAYGROUND_DECISION_TIMEOUT_MS,
 } from './policy.ts';
-import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
+import type {
+  PlaygroundToolLabels,
+  StructuredRegistration,
+  ToolRegistration,
+} from './registrations.ts';
 import {
   defaultEffortRequired,
   defaultModelRequired,
@@ -373,6 +379,76 @@ function toolCommon(tool: ToolSpecDraft, fail: Fail) {
 
 type ToolCommon = ReturnType<typeof toolCommon>;
 
+/** An activity label runs this long at most, before its placeholders are filled. */
+const MAX_ACTIVITY_LABEL_CHARS = 120;
+
+/**
+ * What `schema` holds at `path`: a value a label can show, a list or group it cannot,
+ * or nothing. A number steps into a list's items. An object that lists no properties may hold any key, so a path through
+ * it is taken on trust.
+ */
+function schemaPathHolds(
+  schema: Record<string, unknown>,
+  path: string,
+): 'value' | 'group' | 'missing' {
+  let node: unknown = schema;
+  for (const key of path.split('.')) {
+    if (!isRecord(node)) return 'missing';
+    if (node.type === 'array') {
+      if (!/^\d+$/.test(key)) return 'missing';
+      // A list that says nothing of its items may hold anything.
+      if (!isRecord(node.items)) return 'value';
+      node = node.items;
+      continue;
+    }
+    const properties = node.properties;
+    if (!isRecord(properties)) return node.type === 'object' ? 'value' : 'missing';
+    node = properties[key];
+    if (node === undefined) return 'missing';
+  }
+  return isRecord(node) && (node.type === 'array' || node.type === 'object') ? 'group' : 'value';
+}
+
+function toolLabels(
+  tool: ToolSpecDraft,
+  common: ToolCommon,
+  fail: Fail,
+): PlaygroundToolLabels | undefined {
+  const labels: PlaygroundToolLabels = {};
+  const sources = {
+    activity: { schemas: [common.inputSchema], from: 'input' },
+    activityPast: { schemas: [common.inputSchema, common.outputSchema], from: 'input or output' },
+  } as const;
+  for (const field of ['activity', 'activityPast'] as const) {
+    const label = tool[field]?.trim();
+    if (!label) continue;
+    if (label.length > MAX_ACTIVITY_LABEL_CHARS) {
+      fail(`Activity labels are limited to ${MAX_ACTIVITY_LABEL_CHARS} characters.`, field);
+      continue;
+    }
+    const { schemas, from } = sources[field];
+    const holds = activityLabelPlaceholders(label).map((path) => {
+      const found = schemas.map((schema) => (path ? schemaPathHolds(schema, path) : 'missing'));
+      return {
+        path,
+        holds: found.includes('value') ? 'value' : found.includes('group') ? 'group' : 'missing',
+      };
+    });
+    const missing = holds.find((entry) => entry.holds === 'missing');
+    if (missing) {
+      fail(`{${missing.path}} is not a field of this tool's ${from}.`, field);
+      continue;
+    }
+    const group = holds.find((entry) => entry.holds === 'group');
+    if (group) {
+      fail(`{${group.path}} is a list or group; a label shows text or a number.`, field);
+      continue;
+    }
+    labels[field] = label;
+  }
+  return Object.keys(labels).length ? labels : undefined;
+}
+
 function remoteToolFields(tool: ToolSpecDraft, fail: Fail) {
   const headers = parseHeaders(tool.headersJson);
   if (headers === null) fail('Headers must be a JSON object of strings.', 'headersJson');
@@ -435,8 +511,10 @@ function compileTool(tool: ToolSpecDraft, report: Report): ToolRegistration | un
     failed = true;
     report(nodeId, message, field);
   };
-  const compiled = TOOL_COMPILERS[tool.toolType](tool, toolCommon(tool, fail), fail);
-  return failed ? undefined : compiled;
+  const common = toolCommon(tool, fail);
+  const labels = toolLabels(tool, common, fail);
+  const compiled = TOOL_COMPILERS[tool.toolType](tool, common, fail);
+  return failed ? undefined : { ...compiled, ...(labels ? { labels } : {}) };
 }
 
 function compileTools(draft: PlaygroundDraft, withLoader: boolean, report: Report) {

@@ -5,6 +5,7 @@
  */
 
 import type { TranscriptBlock } from '@theoremjs/agents/interface';
+import { humanize } from './shaped-data.ts';
 
 export type TranscriptTurnGroup =
 	| { kind: 'user'; key: string; blocks: TranscriptBlock[] }
@@ -245,4 +246,13 @@ export function assistantTurnTiming(args: {
 	const span = prompt?.kind === 'user' ? args.spans.get(prompt.key) : undefined;
 	if (!prompt || !span) return { key, live };
 	return { key, live, startedAt: args.timeOf(prompt.key) + span.pausedMs };
+}
+
+/**
+ * What a call's row says: the tool's activity label, filled by the kernel from the call (its
+ * past label once it completes), else the tool's name in words.
+ */
+export function toolCallLabel(tool: Extract<TranscriptBlock, { kind: 'tool' }>['tool']): string {
+	const filled = tool.state?.phase === 'complete' ? tool.activityPast : tool.activity;
+	return filled ?? humanize(tool.name);
 }

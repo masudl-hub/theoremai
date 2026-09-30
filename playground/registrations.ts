@@ -4,11 +4,14 @@ import type {
 	ToolLoadTier,
 	ToolPermission,
 } from '../src/kernel/schema.ts';
-import type { ToolAuthConfig } from '../src/kernel/tools/types.ts';
+import type { ToolAuthConfig, ToolLabels } from '../src/kernel/tools/types.ts';
 import type { StructuredSpec } from '../src/kernel/types.ts';
 
 /** The kernel's auth config; the host's OAuth endpoints are never set from the playground. */
 export type PlaygroundToolAuth = Omit<ToolAuthConfig, 'preResolved'>;
+
+/** A tool's activity labels, each with `{field}` placeholders the kernel fills per call. */
+export type PlaygroundToolLabels = Pick<ToolLabels, 'activity' | 'activityPast'>;
 
 export type StructuredRegistration = {
 	id: string;
@@ -26,6 +29,7 @@ export type FunctionToolRegistration = {
 	paths: string[];
 	inputSchema: Record<string, unknown>;
 	outputSchema: Record<string, unknown>;
+	labels?: PlaygroundToolLabels;
 	/** Overrides the generic stub. */
 	stubResponse?: Record<string, unknown>;
 };
@@ -50,6 +54,7 @@ export type HttpToolRegistration = {
 	auth?: PlaygroundToolAuth;
 	inputSchema: Record<string, unknown>;
 	outputSchema: Record<string, unknown>;
+	labels?: PlaygroundToolLabels;
 };
 
 export type McpToolRegistration = {
@@ -67,6 +72,7 @@ export type McpToolRegistration = {
 	auth?: PlaygroundToolAuth;
 	inputSchema: Record<string, unknown>;
 	outputSchema: Record<string, unknown>;
+	labels?: PlaygroundToolLabels;
 };
 
 export type ToolRegistration =

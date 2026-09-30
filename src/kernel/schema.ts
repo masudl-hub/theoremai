@@ -1207,6 +1207,20 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     },
   ),
   category: field('string', 'A label for grouping tools; nothing reads it yet.'),
+  'labels.activity': {
+    ...field(
+      'string',
+      "What the transcript says while a call runs, e.g. 'Saving {title} to your collection'. Each {path} is filled from the call's input.",
+    ),
+    unset: 'The tool name, in words',
+  },
+  'labels.activityPast': {
+    ...field(
+      'string',
+      "What the transcript says once a call completes, e.g. 'Found {results.0.name}'. Each {path} is filled from the call's input, then its output.",
+    ),
+    unset: 'The tool name, in words',
+  },
   paths: {
     ...field(
       'string[]',

@@ -18,6 +18,7 @@ function registerCustomTool(tools: ToolRegistry, tool: ToolRegistration): void {
     permission: tool.permission,
     input: zodFromJsonSchema(tool.inputSchema),
     output: zodFromJsonSchema(tool.outputSchema),
+    ...(tool.labels ? { labels: tool.labels } : {}),
   };
   if (tool.type === 'http') {
     tools.register({

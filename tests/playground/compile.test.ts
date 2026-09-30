@@ -540,3 +540,41 @@ Deno.test('a host draft switches back to text with its tools', () => {
   assertEquals(profile.type, 'text');
   assert(profile.type === 'text' && profile.tools?.allow?.includes('get_weather'));
 });
+
+Deno.test('a tool compiles its activity labels, each placeholder checked against its schemas', () => {
+  const draft = createExampleDraft();
+  const geocode = draft.toolSpecs.find((tool) => tool.toolName === 'geocode_city');
+  assert(geocode);
+  const withLabels = (activity: string, activityPast: string) =>
+    compilePlayground({
+      ...draft,
+      toolSpecs: draft.toolSpecs.map((tool) =>
+        tool.key === geocode.key ? { ...tool, activity, activityPast } : tool,
+      ),
+    });
+  const ok = withLabels('Finding {name}', 'Found {results.0.name}, {results.0.country_code}');
+  assert(ok.ok);
+  assertEquals(ok.customTools.find((tool) => tool.name === 'geocode_city')?.labels, {
+    activity: 'Finding {name}',
+    activityPast: 'Found {results.0.name}, {results.0.country_code}',
+  });
+  const issue = (activity: string, activityPast: string) => {
+    const result = withLabels(activity, activityPast);
+    assert(!result.ok);
+    return { field: result.issues[0].field, message: result.issues[0].message };
+  };
+  // The running label has only the input; the output comes once the call completes.
+  assertEquals(issue('Finding {results.0.name}', 'Found it'), {
+    field: 'activity',
+    message: "{results.0.name} is not a field of this tool's input.",
+  });
+  assertEquals(issue('Finding {name}', 'Found {results.first.name}'), {
+    field: 'activityPast',
+    message: "{results.first.name} is not a field of this tool's input or output.",
+  });
+  assertEquals(issue('Finding {name}', 'Found {results}'), {
+    field: 'activityPast',
+    message: '{results} is a list or group; a label shows text or a number.',
+  });
+  assertEquals(issue(`Finding ${'x'.repeat(121)}`, 'Found it').field, 'activity');
+});

@@ -37,6 +37,7 @@ import {
 	pendingPromptOf,
 	promptReplyKey,
 	replyKey,
+	toolCallLabel,
 	type TraceItem,
 	type TranscriptTurnGroup,
 	type TurnSpan,
@@ -437,6 +438,9 @@ function toolDetail(t: LabelText, tool: ToolBlock['tool'], result?: ReactNode): 
 	);
 	return (
 		<VStack gap={2}>
+			<Text size="sm" color="secondary">
+				<code>{tool.name}</code>
+			</Text>
 			{input}
 			{result}
 		</VStack>
@@ -450,7 +454,7 @@ function toolDuration(t: LabelText, tool: ToolBlock['tool']): { duration?: strin
 }
 
 function toolCallItem(t: LabelText, id: string, tool: ToolBlock['tool']): ChatToolCallItem {
-	const base = { key: id, name: tool.name };
+	const base = { key: id, name: toolCallLabel(tool) };
 	const { state } = tool;
 	switch (state?.phase) {
 		case 'error':

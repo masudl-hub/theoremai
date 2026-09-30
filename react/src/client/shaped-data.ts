@@ -27,9 +27,9 @@ const MAX_INLINE_TOKENS = 8;
 /** Levels drawn before a subtree shows as JSON. */
 const MAX_DEPTH = 8;
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+export const ISO_DATE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
 
-function isRow(value: unknown): value is Row {
+export function isRow(value: unknown): value is Row {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
@@ -95,6 +95,7 @@ export function unpacked(value: unknown): unknown {
 export function humanize(key: string): string {
 	const words = key
 		.replace(/([a-z\d])([A-Z])/g, '$1 $2')
+		.replace(/([a-zA-Z])(\d)/g, '$1 $2')
 		.replace(/[_-]+/g, ' ')
 		.trim()
 		.toLowerCase();
@@ -102,7 +103,7 @@ export function humanize(key: string): string {
 }
 
 /** A unit worth printing: a symbol or abbreviation, not a format name like `iso8601` or `wmo code`. */
-function printableUnit(unit: unknown): string | undefined {
+export function printableUnit(unit: unknown): string | undefined {
 	if (typeof unit !== 'string' || unit === '' || /\s/.test(unit) || unit === 'iso8601') return undefined;
 	return unit;
 }
@@ -150,7 +151,7 @@ export function fieldReading(key: string, value: unknown, units?: Row): { label:
 }
 
 /** The `<key>_units` object beside `key`, if there is one. */
-function unitsOf(row: Row, key: string): Row | undefined {
+export function unitsOf(row: Row, key: string): Row | undefined {
 	const units = row[`${key}_units`];
 	return isRow(units) ? units : undefined;
 }
@@ -196,7 +197,7 @@ export function withUnit(number: string, unit?: string): string {
 }
 
 /** The field that names a row, if it has one. */
-function titleKey(row: Row): string | undefined {
+export function titleKey(row: Row): string | undefined {
 	return TITLE_KEYS.find((key) => typeof row[key] === 'string' || typeof row[key] === 'number');
 }
 
@@ -255,7 +256,7 @@ function tableColumns(items: readonly unknown[]): string[] | undefined {
 }
 
 /** An object of equal-length lists of plain values (a column store): a table's columns. */
-function columnStore(row: Row): string[] | undefined {
+export function columnStore(row: Row): string[] | undefined {
 	const entries = shownEntries(row);
 	if (entries.length < 2) return undefined;
 	const lengths = new Set(entries.map(([, value]) => (Array.isArray(value) && value.every(isPlain) ? value.length : -1)));
@@ -264,7 +265,7 @@ function columnStore(row: Row): string[] | undefined {
 }
 
 /** A column store's lists, turned into rows. */
-function storeRows(row: Row, columns: readonly string[]): Row[] {
+export function storeRows(row: Row, columns: readonly string[]): Row[] {
 	const lists = columns.map((key) => row[key] as unknown[]);
 	return (lists[0] ?? []).map((_, index) => Object.fromEntries(columns.map((key, k) => [key, lists[k]?.[index]])));
 }
@@ -302,9 +303,17 @@ export function shapeOf(value: unknown, depth: number): Shape {
 	return isRow(value) ? rowShape(value) : { kind: 'plain' };
 }
 
-/** A field that sits in the field list: a plain value, or a short list of them. */
+/** Text this long, or on several lines, reads as prose: full width, as Markdown. */
+const PROSE_CHARS = 160;
+
+export function isProse(value: unknown): value is string {
+	return typeof value === 'string' && (value.length > PROSE_CHARS || value.includes('\n'));
+}
+
+/** A field that sits in the field list: a plain value (prose aside), or a short list of them. */
 function isInline(value: unknown): boolean {
 	const inner = unpacked(value);
+	if (isProse(inner)) return false;
 	if (isPlain(inner)) return true;
 	return Array.isArray(inner) && inner.length > 0 && inner.length <= MAX_INLINE_TOKENS && inner.every(isPlain);
 }

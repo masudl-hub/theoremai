@@ -4,6 +4,7 @@ import { HStack } from '@astryxdesign/core/HStack';
 import { useLocale } from '@astryxdesign/core/i18n';
 import { Link } from '@astryxdesign/core/Link';
 import { List, ListItem } from '@astryxdesign/core/List';
+import { Markdown } from '@astryxdesign/core/Markdown';
 import { MetadataList, MetadataListItem } from '@astryxdesign/core/MetadataList';
 import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
 import { Table, type TableColumn } from '@astryxdesign/core/Table';
@@ -15,6 +16,8 @@ import {
 	fieldLabel,
 	fieldReading,
 	isPlain,
+	isProse,
+	isRow,
 	json,
 	type ListRow,
 	MAX_ROWS,
@@ -27,8 +30,8 @@ import {
 	splitFields,
 	unpacked,
 	withUnit,
-} from '../client/shaped-data';
-import { useLabels } from './labels-provider';
+} from '../client/shaped-data.ts';
+import { useLabels } from './labels-provider.tsx';
 
 /**
  * Tool call data and structured replies drawn by their shape instead of as
@@ -72,7 +75,15 @@ const READINGS: { [K in PlainReading['kind']]: (reading: Extract<PlainReading, {
 	),
 	date: ({ date }, formats) => formats.date.format(date),
 	'date-time': ({ date }, formats) => formats.dateTime.format(date),
-	text: ({ text }) => <span style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{text}</span>,
+	// Prose (an answer, a summary) is usually Markdown; headings start small, under the section's own.
+	text: ({ text }) =>
+		isProse(text) ? (
+			<Markdown density="compact" headingLevelStart={4}>
+				{text}
+			</Markdown>
+		) : (
+			<span style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{text}</span>
+		),
 };
 
 function Plain({ value, unit }: { value: unknown; unit?: string }): ReactNode {
@@ -93,8 +104,12 @@ function Plain({ value, unit }: { value: unknown; unit?: string }): ReactNode {
 	return (READINGS[reading.kind] as (reading: PlainReading, formats: Formats, t: Labels) => ReactNode)(reading, formats, t);
 }
 
-function Json({ value }: { value: unknown }) {
-	return <CodeBlock code={json(value)} language="json" hasLanguageLabel={false} size="sm" width="100%" />;
+/** JSON past this many characters isn't laid out or highlighted in full: the page stays responsive however big the payload. */
+const LARGE_JSON_CHARS = 200_000;
+
+function Json({ text }: { text: string }) {
+	const code = text.length > LARGE_JSON_CHARS ? `${text.slice(0, LARGE_JSON_CHARS)}\n…` : text;
+	return <CodeBlock code={code} language="json" hasLanguageLabel={false} size="sm" width="100%" />;
 }
 
 /** Past MAX_ROWS, a note that the rest are in the JSON view. */
@@ -224,8 +239,8 @@ function Fields({ row, depth, units }: { row: Row; depth: number; units?: Row })
 					type="multiple"
 					hasDividers
 					density="compact"
-					// The top level's sections start open: they're the payload.
-					defaultValue={depth === 0 ? sections.map((shown) => shown.key) : []}
+					// The top level's first section starts open: it's usually the payload. The rest wait to be asked for.
+					defaultValue={depth === 0 ? sections.slice(0, 1).map((shown) => shown.key) : []}
 				>
 					{sections.map((shown) => (
 						<Collapsible key={shown.key} value={shown.key} trigger={<Text type="label">{shown.title}</Text>}>
@@ -246,7 +261,7 @@ type NodeProps = { value: unknown; depth: number; units?: Row; t: Labels };
 
 /** Each shape a value takes, drawn. */
 const SHAPES: { [K in Shape['kind']]: (shape: Extract<Shape, { kind: K }>, props: NodeProps) => ReactNode } = {
-	json: (_, { value }) => <Json value={value} />,
+	json: (_, { value }) => <Json text={json(value)} />,
 	none: (_, { t }) => <Text color="secondary">{t('@theorem.data.none')}</Text>,
 	plain: (_, { value }) => (
 		<Text type="body">
@@ -290,13 +305,44 @@ class ShapeBoundary extends Component<{ fallback: ReactNode; children: ReactNode
 	}
 }
 
+export type ShapedDataProps = {
+	value: unknown;
+	title?: string;
+	/** Drawn above the data in its data view (a tool result's figures and charts); a render that throws falls back to the JSON with it. */
+	lead?: ReactNode;
+	/** Top-level fields the lead already shows: the data view leaves them out, the JSON keeps them. */
+	ledKeys?: readonly string[];
+};
+
 /** A tool call's input, output or failure, or a structured reply, with a switch to its JSON. */
-export function ShapedData({ value: raw, title }: { value: unknown; title?: string }) {
+export function ShapedData({ value: raw, title, lead, ledKeys = [] }: ShapedDataProps) {
 	const t = useLabels();
+	const locale = useLocale();
 	const [view, setView] = useState<'data' | 'json'>('data');
 	const value = unpacked(raw);
 	// A plain value reads the same either way; only structure gets the switch.
 	const structured = !isPlain(value);
+	const text = useMemo(() => (structured ? json(value) : ''), [structured, value]);
+	// What the lead hasn't shown; nothing when it showed every field.
+	const rest = useMemo(() => {
+		if (!ledKeys.length || !isRow(value)) return value;
+		const left = Object.entries(value).filter(([key]) => !ledKeys.includes(key));
+		return left.length ? Object.fromEntries(left) : undefined;
+	}, [value, ledKeys]);
+	if (text.length > LARGE_JSON_CHARS) {
+		const size = new Intl.NumberFormat(locale, { style: 'unit', unit: 'kilobyte', maximumFractionDigits: 0 }).format(LARGE_JSON_CHARS / 1000);
+		return (
+			<VStack gap={2}>
+				<Text type="supporting" color="secondary">
+					{title}
+				</Text>
+				<Text type="supporting" color="secondary">
+					{t('@theorem.data.large', { size })}
+				</Text>
+				<Json text={text} />
+			</VStack>
+		);
+	}
 	return (
 		<VStack gap={2}>
 			<HStack gap={2} vAlign="center" hAlign="between">
@@ -318,10 +364,13 @@ export function ShapedData({ value: raw, title }: { value: unknown; title?: stri
 				)}
 			</HStack>
 			{view === 'json' && structured ? (
-				<Json value={value} />
+				<Json text={text} />
 			) : (
-				<ShapeBoundary fallback={<Json value={value} />}>
-					<Node value={value} depth={0} />
+				<ShapeBoundary fallback={<Json text={text} />}>
+					<VStack gap={3}>
+						{lead}
+						{rest === undefined ? null : <Node value={rest} depth={0} />}
+					</VStack>
 				</ShapeBoundary>
 			)}
 		</VStack>

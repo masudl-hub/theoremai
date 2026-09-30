@@ -407,9 +407,22 @@ function toolLabels(
   return Object.keys(labels).length ? labels : undefined;
 }
 
+// Headers are saved in the draft, sent on every run and written into the export; a secret there outlives the call.
+const CREDENTIAL_HEADER = /auth|key|token|secret|passw|cookie|session|signature|credential/i;
+
+/** Why these headers can't be saved, when one of them looks like a credential. */
+export function credentialHeaderProblem(headers: Record<string, string> | undefined): string | undefined {
+  const name = Object.keys(headers ?? {}).find((header) => CREDENTIAL_HEADER.test(header));
+  return name
+    ? `${name} looks like a credential. Put it under Auth instead: Auth asks for it when a call runs and nothing saves it.` // lexicon-exempt: builder diagnostic
+    : undefined;
+}
+
 function remoteToolFields(tool: ToolSpecDraft, fail: Fail) {
   const headers = parseHeaders(tool.headersJson);
   if (headers === null) fail('Headers must be a JSON object of strings.', 'headersJson');
+  const credential = credentialHeaderProblem(headers ?? undefined);
+  if (credential) fail(credential, 'headersJson');
   const auth = compileAuth(tool, fail);
   return { ...(headers ? { headers } : {}), ...(auth ? { auth } : {}) };
 }

@@ -552,6 +552,26 @@ Deno.test('a host draft switches back to text with its tools', () => {
   assert(profile.type === 'text' && profile.tools?.allow?.includes('get_weather'));
 });
 
+Deno.test('a header that looks like a credential is refused; Auth holds secrets', () => {
+  const draft = createExampleDraft();
+  const geocode = draft.toolSpecs.find((tool) => tool.toolName === 'geocode_city');
+  assert(geocode);
+  const withHeaders = (headers: Record<string, string>) =>
+    compilePlayground({
+      ...draft,
+      toolSpecs: draft.toolSpecs.map((tool) =>
+        tool.key === geocode.key ? { ...tool, headersJson: JSON.stringify(headers) } : tool,
+      ),
+    });
+  for (const name of ['Authorization', 'X-API-Key', 'Cookie', 'X-Access-Token', 'Mcp-Session-Id']) {
+    const result = withHeaders({ [name]: 'value' });
+    assert(!result.ok, name);
+    assertEquals(result.issues[0].field, 'headersJson');
+    assertStringIncludes(result.issues[0].message, `${name} looks like a credential`);
+  }
+  assert(withHeaders({ 'User-Agent': 'demo', Accept: 'application/json' }).ok);
+});
+
 Deno.test('a tool compiles its activity labels, each placeholder checked against its schemas', () => {
   const draft = createExampleDraft();
   const geocode = draft.toolSpecs.find((tool) => tool.toolName === 'geocode_city');

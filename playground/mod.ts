@@ -1,6 +1,7 @@
 export {
   type CompiledPlayground,
   compilePlayground,
+  credentialHeaderProblem,
   type PlaygroundCompileResult,
   type PlaygroundIssue,
   type PlaygroundProfileDefinition,

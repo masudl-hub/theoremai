@@ -1105,7 +1105,7 @@ async function* settleByType(
   const remoteOutcome: ToolBodyOutcome =
     tool.type === 'http'
       ? yield* executeHttpTool(tool, safeInput, fullCtx, base, stages)
-      : yield* executeMcpTool(tool, safeInput, fullCtx, base, stages);
+      : yield* executeMcpTool(tool, safeInput, fullCtx, base, stages, tools.mcpSessions);
   return yield* settleBodyOutcome({
     outcome: remoteOutcome,
     tool,

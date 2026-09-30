@@ -587,6 +587,15 @@ Remote MCP tools (`type: 'mcp'`) call external Model Context Protocol servers ov
 The preferred revision is `2026-07-28`; the kernel negotiates downward through
 `MCP_PROTOCOL_VERSIONS` (`2026-07-28` → `2025-11-25` → `2025-06-18` → `2025-03-26`)
 when a server rejects an unsupported protocol version (JSON-RPC or HTTP error body).
+Calls are stateless. A server that answers `400` naming `Mcp-Session-Id` gets a
+session: `initialize` at `2025-11-25` (no redirects followed, no client
+capabilities, only the session ID and version read back), then
+`notifications/initialized`, then the call. Sessions live in memory on the
+scope's tool registry (`tools.mcpSessions`), keyed by server URL and a SHA-256 of
+the credential headers, capped at 256 and dropped after 30 idle minutes; they
+are never persisted. The ID travels as an origin-bound header, must be 1–256
+visible ASCII characters, and stays out of events. A `404` in a session reopens
+it once; a second fails the call with `mcp_session_expired`.
 An MCP result is read as its `structuredContent` when that passes the tool's
 `output` schema, else as its text blocks joined (a `resource` block's `text`, a
 `resource_link`'s `uri`) and parsed against `output`. `image` and `audio` blocks

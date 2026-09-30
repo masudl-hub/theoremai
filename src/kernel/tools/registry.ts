@@ -1,6 +1,7 @@
 import type { z } from 'zod';
 import { TheoremError } from '../../guardrails/error.ts';
 import { activityLabelProblem } from './activity-label.ts';
+import { createMcpSessionCache, type McpSessionCache } from './mcp-sessions.ts';
 import {
   assertFixedEndpointOrigin,
   jsonSchemaFromZod,
@@ -109,12 +110,16 @@ interface ToolRegistry {
   require(name: string): RegisteredTool;
   has(name: string): boolean;
   list(): RegisteredTool[];
+  /** Also forgets the MCP sessions. */
   reset(): void;
+  /** Sessions for this scope's MCP servers that require one; never shared across scopes. */
+  readonly mcpSessions: McpSessionCache;
 }
 
 /** Registration is not synchronized: register a scope's tools before its turns or invokes run. */
 function createToolRegistry(): ToolRegistry {
   const tools = new Map<string, RegisteredTool>();
+  const mcpSessions = createMcpSessionCache();
   const get = (name: string) => tools.get(name);
   const register = <TIn, TOut>(def: ToolDefinitionInput<TIn, TOut>) => {
     const normalized = normalizeToolDefinition(def);
@@ -134,7 +139,11 @@ function createToolRegistry(): ToolRegistry {
     },
     has: (name) => tools.has(name),
     list: () => [...tools.values()],
-    reset: () => tools.clear(),
+    reset: () => {
+      tools.clear();
+      mcpSessions.clear();
+    },
+    mcpSessions,
   };
 }
 

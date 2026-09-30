@@ -24,6 +24,13 @@ import {
   toolEvent,
   toolNetworkPolicy,
 } from './events.ts';
+import {
+  createMcpSessionCache,
+  isMcpSessionId,
+  type McpSession,
+  type McpSessionCache,
+  mcpSessionKey,
+} from './mcp-sessions.ts';
 import { checkPermission } from './permission.ts';
 import { assertFixedEndpointOrigin } from './schema.ts';
 import { runPreToolPipeline, type ToolStageSupport } from './stage-run.ts';
@@ -882,6 +889,8 @@ type McpFetchOutcome =
   | { kind: 'rpc'; response: McpRpcResponse }
   | { kind: 'retry' }
   | { kind: 'protocol_retry'; error: McpRpcResponse['error'] }
+  | { kind: 'session_required' }
+  | { kind: 'session_expired' }
   | { kind: 'failure'; failure: ToolFailure; refusal?: CredentialRefusal };
 
 type McpTransport = {
@@ -946,6 +955,11 @@ async function fetchMcpProtocolAttempt(
   }
 
   if (!response.ok) {
+    const sessionSent = SESSION_HEADER in transport.originBoundHeaders;
+    if (sessionSent && response.status === 404) return { kind: 'session_expired' };
+    if (!sessionSent && response.status === 400 && /mcp-session-id/i.test(text)) {
+      return { kind: 'session_required' };
+    }
     const acceptRejected =
       response.status === 406 &&
       text.toLowerCase().includes('accept') &&
@@ -983,17 +997,21 @@ async function fetchMcpProtocolAttempt(
   }
 }
 
+type McpNegotiated = {
+  rpc?: McpRpcResponse;
+  failure?: ToolFailure;
+  refusal?: CredentialRefusal;
+  lastProtocolError?: McpRpcResponse['error'];
+  /** The server refused a call without a session. */
+  sessionRequired?: boolean;
+};
+
 async function negotiateMcpRpc(
   transport: McpTransport,
   rpcId: string | number,
   mcpToolName: string,
   input: unknown,
-): Promise<{
-  rpc?: McpRpcResponse;
-  failure?: ToolFailure;
-  refusal?: CredentialRefusal;
-  lastProtocolError?: McpRpcResponse['error'];
-}> {
+): Promise<McpNegotiated> {
   let lastProtocolError: McpRpcResponse['error'];
   for (const protocolVersion of MCP_PROTOCOL_VERSIONS) {
     const outcome = await fetchMcpProtocolAttempt(
@@ -1010,9 +1028,154 @@ async function negotiateMcpRpc(
     if (outcome.kind === 'failure') {
       return { failure: outcome.failure, ...(outcome.refusal ? { refusal: outcome.refusal } : {}) };
     }
+    if (outcome.kind !== 'rpc') return { sessionRequired: true };
     return { rpc: outcome.response };
   }
   return { lastProtocolError };
+}
+
+const SESSION_HEADER = 'Mcp-Session-Id';
+/** The newest revision that has sessions; 2026-07-28 is stateless. */
+const SESSION_PROTOCOL_VERSION = '2025-11-25';
+
+class McpSessionFailure extends Error {
+  constructor(readonly failure: ToolFailure) {
+    super(failure.message);
+  }
+}
+
+function sessionFailure(code: string, message: string): McpSessionFailure {
+  return new McpSessionFailure({ code, kind: 'failed', message });
+}
+
+/**
+ * Opens a session: initialize, then the initialized notification. Only the session ID and version
+ * are read back; the server's `instructions` would be a prompt-injection channel. Redirects are not
+ * followed, so a session can only come from the configured server.
+ */
+async function openMcpSession(transport: McpTransport): Promise<McpSession> {
+  const post = (body: unknown, headers: Record<string, string>, originBound = {}) =>
+    fetchGuarded(
+      transport.url,
+      {
+        method: 'POST',
+        headers: { ...transport.headers, ...headers },
+        body: JSON.stringify(body),
+        signal: transport.signal,
+      },
+      {
+        policy: transport.policy,
+        followRedirects: false,
+        originBoundHeaders: { ...transport.originBoundHeaders, ...originBound },
+        resolveHost: transport.resolveHost,
+        onCheck: transport.onCheck,
+      },
+    );
+  const response = await post(
+    {
+      jsonrpc: '2.0',
+      id: 'initialize',
+      method: 'initialize',
+      params: {
+        protocolVersion: SESSION_PROTOCOL_VERSION,
+        capabilities: {},
+        clientInfo: { name: 'theorem', version: '1' },
+      },
+    },
+    { 'Mcp-Method': 'initialize' },
+  );
+  const text = await readCappedText(response);
+  if (text === undefined) {
+    throw new McpSessionFailure(tooLargeFailure(new URL(transport.url).hostname));
+  }
+  if (!response.ok) {
+    throw sessionFailure(
+      `mcp_session_http_${response.status}`,
+      `MCP server refused to open a session: HTTP ${response.status}: ${quotedBody(text)}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  const id = response.headers.get(SESSION_HEADER);
+  if (!isMcpSessionId(id)) {
+    throw sessionFailure(
+      'mcp_session_invalid',
+      'MCP server required a session but sent no usable session ID', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  let version: unknown;
+  try {
+    version = parseMcpRpcResponse(text).result?.protocolVersion;
+  } catch {
+    version = undefined;
+  }
+  if (!MCP_PROTOCOL_VERSIONS.some((known) => known === version)) {
+    throw sessionFailure(
+      'mcp_protocol_error',
+      'MCP server opened a session on a protocol version Theorem does not speak', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  const protocolVersion = String(version);
+  const initialized = await post(
+    { jsonrpc: '2.0', method: 'notifications/initialized' },
+    { 'MCP-Protocol-Version': protocolVersion, 'Mcp-Method': 'notifications/initialized' },
+    { [SESSION_HEADER]: id },
+  );
+  await initialized.body?.cancel().catch(() => {});
+  return { id, protocolVersion };
+}
+
+/** The call in a session: an expired one is reopened once, so a server can't loop us. */
+async function negotiateInSession(
+  transport: McpTransport,
+  rpcId: string | number,
+  mcpToolName: string,
+  input: unknown,
+  sessions: { cache: McpSessionCache; key: string; cached?: McpSession },
+): Promise<McpNegotiated> {
+  let session = sessions.cached;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (!session) {
+      try {
+        session = await sessions.cache.open(sessions.key, () => openMcpSession(transport));
+      } catch (err) {
+        if (err instanceof McpSessionFailure) return { failure: err.failure };
+        throw err;
+      }
+    }
+    const outcome = await fetchMcpProtocolAttempt(
+      {
+        ...transport,
+        originBoundHeaders: { ...transport.originBoundHeaders, [SESSION_HEADER]: session.id },
+      },
+      rpcId,
+      mcpToolName,
+      input,
+      session.protocolVersion,
+    );
+    if (outcome.kind === 'session_expired') {
+      sessions.cache.drop(sessions.key, session.id);
+      session = undefined;
+      continue;
+    }
+    if (outcome.kind === 'rpc') return { rpc: outcome.response };
+    if (outcome.kind === 'failure') {
+      // A server can echo the session ID in its error; it goes no further than the server.
+      const failure = {
+        ...outcome.failure,
+        message: outcome.failure.message.replaceAll(session.id, '[session]'),
+      };
+      return { failure, ...(outcome.refusal ? { refusal: outcome.refusal } : {}) };
+    }
+    return {
+      lastProtocolError: outcome.kind === 'protocol_retry' ? outcome.error : undefined,
+    };
+  }
+  return {
+    failure: {
+      code: 'mcp_session_expired',
+      kind: 'failed',
+      message: 'MCP server ended the session again right after it was reopened', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    },
+  };
 }
 
 function kindOfToolHttpStatus(status: number): ErrorKind {
@@ -1161,6 +1324,8 @@ export async function* executeMcpTool(
   ctx: ToolContext,
   base: ToolCallBase,
   stages?: ToolStageSupport,
+  /** The scope's sessions; without them a session lasts one call. */
+  sessions: McpSessionCache = createMcpSessionCache(),
 ): AsyncGenerator<TurnEvent, ToolBodyOutcome> {
   const permitted = yield* remoteParseAndPermit(tool, rawInput, ctx, base);
   if (!permitted.ok) return permitted.outcome;
@@ -1179,6 +1344,7 @@ export async function* executeMcpTool(
       ctx,
       base,
       stages?.span,
+      sessions,
     ),
   );
 }
@@ -1191,26 +1357,37 @@ async function* sendMcpRequest(
   ctx: ToolContext,
   base: ToolCallBase,
   span: SpanHandle | undefined,
+  sessions: McpSessionCache,
 ): AsyncGenerator<TurnEvent, ToolBodyOutcome> {
   const checks = requestChecks(span);
   try {
-    const negotiated = await negotiateMcpRpc(
-      {
-        url: url.href,
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json, text/event-stream',
-        },
-        originBoundHeaders: { ...tool.headers, ...authHeaders },
-        policy: toolNetworkPolicy(ctx),
-        resolveHost: ctx.resolveHost,
-        signal: ctx.signal,
-        onCheck: checks.onCheck,
+    const transport: McpTransport = {
+      url: url.href,
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/event-stream',
       },
-      base.callId,
-      tool.mcpToolName,
-      input,
-    );
+      originBoundHeaders: { ...tool.headers, ...authHeaders },
+      policy: toolNetworkPolicy(ctx),
+      resolveHost: ctx.resolveHost,
+      signal: ctx.signal,
+      onCheck: checks.onCheck,
+    };
+    const key = await mcpSessionKey(url.href, transport.originBoundHeaders);
+    const cached = sessions.get(key);
+    const first = cached
+      ? await negotiateInSession(transport, base.callId, tool.mcpToolName, input, {
+          cache: sessions,
+          key,
+          cached,
+        })
+      : await negotiateMcpRpc(transport, base.callId, tool.mcpToolName, input);
+    const negotiated = first.sessionRequired
+      ? await negotiateInSession(transport, base.callId, tool.mcpToolName, input, {
+          cache: sessions,
+          key,
+        })
+      : first;
     const refused = yield* refusedCredentialOutcome(
       tool,
       negotiated.refusal,

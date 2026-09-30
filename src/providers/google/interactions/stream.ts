@@ -274,18 +274,23 @@ export function isVoiceProfile(req: ProviderCompleteRequest): boolean {
   return Boolean(req.speech?.voice);
 }
 
-export function shouldReportMissingSpeechAudio(
+/** What the profile asked for and the model did not return; even an empty turn fails. */
+export function missingMediaError(
   req: ProviderCompleteRequest,
   fold: StreamFold,
-): boolean {
-  // Even an empty turn fails: never invent PCM from text.
-  return isVoiceProfile(req) && !fold.sawMedia;
-}
-
-export function* missingSpeechAudioError(): Generator<ProviderEvent> {
-  yield toErrorEvent(
-    new TheoremError('bad_response', 'speech audio was not returned by the model'),
-  );
+): ProviderEvent | undefined {
+  if (fold.sawMedia) return undefined;
+  if (isVoiceProfile(req)) {
+    return toErrorEvent(
+      new TheoremError('bad_response', 'speech audio was not returned by the model'),
+    );
+  }
+  if (req.image) {
+    return toErrorEvent(
+      new TheoremError('bad_response', 'no image returned from image generation'),
+    );
+  }
+  return undefined;
 }
 
 async function* parseInteractionsSse(
@@ -311,9 +316,8 @@ async function* parseInteractionsSse(
   }
   yield* openStepEvents(fold);
   yield* finalizeStructured(req, fold);
-  if (shouldReportMissingSpeechAudio(req, fold)) {
-    yield* missingSpeechAudioError();
-  }
+  const missing = missingMediaError(req, fold);
+  if (missing) yield missing;
   if (!fold.sawDone) {
     // The stream ended before the interaction reported a status: it did not complete.
     yield { type: 'done', stop: { kind: 'stream_incomplete' } };
@@ -356,9 +360,8 @@ async function* fetchInteractionsOnce(
   const fold = newStreamFold();
   yield* foldBody(parsed, fold);
   yield* finalizeStructured(req, fold);
-  if (shouldReportMissingSpeechAudio(req, fold)) {
-    yield* missingSpeechAudioError();
-  }
+  const missing = missingMediaError(req, fold);
+  if (missing) yield missing;
 }
 
 async function* streamInteractions(

@@ -294,7 +294,7 @@ the same `createInteractionsProvider` handles image via polymorphic
 | --- | --- | --- | --- |
 | OpenAI | `openrouter/image.ts` | `POST /images` | Native image models; reference images via `input_references`. Every `data[]` entry with `b64_json` + `media_type` is one `media` (probe 23/09/2026). |
 | OpenAI | `openrouter/image.ts` | `POST /chat/completions` + server tool | When `image.includeText`. `message.content` (a string) is `text`; every `message.images[].image_url.url` data URL is one `media` (probe 23/09/2026). No image is an `error`. |
-| Interactions | `google/interactions/framing.ts` | `responseFormat` object or array | Image-only object; text + image array when `includeText` |
+| Interactions | `google/interactions/framing.ts` | `responseFormat` object or array | Image-only object; text + image array when `includeText`. No image is an `error`, as no audio is for speech. |
 
 `openAi`/`local` image roles are rejected at `createProvider`.
 

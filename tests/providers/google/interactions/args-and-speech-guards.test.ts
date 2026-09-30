@@ -3,14 +3,15 @@ import { assertEquals } from '../../../../src/kernel/engine/assert.ts';
 import {
   finalizeStructured,
   isVoiceProfile,
-  missingSpeechAudioError,
+  missingMediaError,
   newStreamFold,
-  shouldReportMissingSpeechAudio,
 } from '../../../../src/providers/google/interactions/stream.ts';
 import { resolvedStructured, stubCompleteRequest } from '../../../fixtures/provider-request.ts';
 
-Deno.test('F-04 pressure: missing-audio gate matrix', () => {
+Deno.test('F-04 pressure: missing-media gate matrix', () => {
   const voice = stubCompleteRequest({ speech: { voice: 'Kore', format: 'pcm' } });
+  const image = stubCompleteRequest({ image: { type: 'image', includeText: false } });
+  const imageWithText = stubCompleteRequest({ image: { type: 'image', includeText: true } });
   const plain = stubCompleteRequest({ speech: undefined });
   const empty = newStreamFold();
   const text = newStreamFold();
@@ -18,18 +19,20 @@ Deno.test('F-04 pressure: missing-audio gate matrix', () => {
   const media = newStreamFold();
   media.text = 'hi';
   media.sawMedia = true;
+  const reason = (req: typeof plain, fold: typeof empty) => {
+    const ev = missingMediaError(req, fold);
+    return ev?.type === 'error' ? ev.errorInternal : ev;
+  };
 
   assertEquals(isVoiceProfile(voice), true);
-  assertEquals(shouldReportMissingSpeechAudio(voice, text), true);
-  assertEquals(shouldReportMissingSpeechAudio(voice, empty), true);
-  assertEquals(shouldReportMissingSpeechAudio(voice, media), false);
-  assertEquals(shouldReportMissingSpeechAudio(plain, text), false);
-
-  const [err] = [...missingSpeechAudioError()];
-  assertEquals(
-    err?.type === 'error' ? err.errorInternal : undefined,
-    'speech audio was not returned by the model',
-  );
+  assertEquals(reason(voice, text), 'speech audio was not returned by the model');
+  assertEquals(reason(voice, empty), 'speech audio was not returned by the model');
+  assertEquals(reason(voice, media), undefined);
+  assertEquals(reason(image, text), 'no image returned from image generation');
+  assertEquals(reason(image, empty), 'no image returned from image generation');
+  assertEquals(reason(imageWithText, text), 'no image returned from image generation');
+  assertEquals(reason(image, media), undefined);
+  assertEquals(reason(plain, text), undefined);
 });
 
 Deno.test('structured-required + bad JSON emits error (never silent skip)', () => {

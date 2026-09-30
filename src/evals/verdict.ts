@@ -1,7 +1,10 @@
 /**
  * From results to a verdict. A trial passes when every grader that decided
- * said yes; a case passes when its trials meet the suite's pass rule. Nothing
- * is summarized away: every count is kept, zeros included.
+ * said yes; a case passes when its trials meet the suite's pass rule. An
+ * errored trial is one that could not be graded (a provider error, a judge
+ * that failed), so the rule reads it as a trial that never ran: a rate limit
+ * never counts against the agent. Nothing is summarized away: every count is
+ * kept, zeros included.
  *
  * @module
  */
@@ -26,8 +29,15 @@ interface CaseVerdict {
   case: string;
   kind: EvalCase['kind'];
   difficulty?: EvalCase['difficulty'];
-  /** The pass rule, met or not. False when every trial was ungraded. */
+  /** The pass rule, met over the trials that did not error. False when every trial was ungraded, or when undecided. */
   passed: boolean;
+  /**
+   * False when errors left too few trials to apply the rule (none for `all`
+   * and `any`, fewer than `atLeast` for `{ atLeast }`) and those left do not
+   * already meet it. An undecided case counts toward no pass rate. A case
+   * that ran no trials at all, errors aside, is decided: it failed.
+   */
+  decided: boolean;
   trials: number;
   trialsPassed: number;
   trialsErrored: number;
@@ -40,6 +50,11 @@ function ruleMet(rule: EvalPassRule, passed: number, trials: number): boolean {
   if (rule === 'all') return passed === trials;
   if (rule === 'any') return passed >= 1;
   return passed >= rule.atLeast;
+}
+
+/** The fewest trials the rule can be read over. */
+function trialsNeeded(rule: EvalPassRule): number {
+  return typeof rule === 'object' ? rule.atLeast : 1;
 }
 
 /** The rule as the run record names it. */
@@ -56,15 +71,19 @@ function caseVerdict(
   const outcomes = trials.map(trialOutcome);
   const count = (outcome: TrialOutcome) => outcomes.filter((o) => o === outcome).length;
   const trialsPassed = count('passed');
+  const trialsErrored = count('errored');
   const trialsUngraded = count('ungraded');
+  const ran = outcomes.length - trialsErrored;
+  const passed = trialsUngraded < ran && ruleMet(rule, trialsPassed, ran);
   return {
     case: evalCase.id,
     kind: evalCase.kind,
     ...(evalCase.difficulty === undefined ? {} : { difficulty: evalCase.difficulty }),
-    passed: trialsUngraded < outcomes.length && ruleMet(rule, trialsPassed, outcomes.length),
+    passed,
+    decided: passed || trialsErrored === 0 || ran >= trialsNeeded(rule),
     trials: outcomes.length,
     trialsPassed,
-    trialsErrored: count('errored'),
+    trialsErrored,
     trialsUngraded,
   };
 }

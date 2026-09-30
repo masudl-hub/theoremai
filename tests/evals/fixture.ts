@@ -12,6 +12,8 @@ import {
   startTrace,
   type TraceAttributes,
   type TraceClock,
+  type TraceContent,
+  traceBytes,
   traceContent,
   traceJson,
 } from '../../src/observability/trace-span.ts';
@@ -38,8 +40,14 @@ interface TurnFixtureOptions {
   text?: string;
   /** The delivered structured output, when the profile has one. */
   structured?: unknown;
-  /** Tools called, in order. */
+  /** Tools called, in order; the chat call asks for each. */
   tools?: string[];
+  /** Each tool call's arguments as JSON text, by position; default `{"q":"x"}`. */
+  toolArguments?: string[];
+  /** The tools the chat call was offered. */
+  toolDefinitions?: unknown[];
+  /** The turn's input: earlier messages, then the user's new one, each with any media it attached. */
+  input?: { role: string; text: string; media?: { mimeType: string; data: string } }[];
   stop?: string;
   costUsd?: number;
   responseId?: string;
@@ -58,6 +66,83 @@ interface TurnFixtureOptions {
   policy?: ResolvedObservabilityPolicy;
 }
 
+/** An input message's parts as the turn trace stores them: its text, then any media by kind, hash and size. */
+function inputParts(message: NonNullable<TurnFixtureOptions['input']>[number]): TraceAttributes[] {
+  const parts: TraceAttributes[] = [{ type: 'text', ...traceContent(message.text) }];
+  if (message.media) {
+    parts.push({
+      type: 'blob',
+      modality: 'image',
+      mime_type: message.media.mimeType,
+      ...traceBytes(message.media.data),
+    });
+  }
+  return parts;
+}
+
+/** What the model delivered: its text, then any structured JSON under the part's `content`, as the turn trace stores it. */
+function deliveredParts(options: TurnFixtureOptions): TraceAttributes[] {
+  const parts: TraceAttributes[] = [];
+  if (options.text !== undefined) parts.push({ type: 'text', ...traceContent(options.text) });
+  if (options.structured !== undefined) {
+    parts.push({ type: 'structured', content: traceJson(options.structured) });
+  }
+  return parts;
+}
+
+function toolArguments(options: TurnFixtureOptions, index: number): TraceContent {
+  return traceContent(options.toolArguments?.[index] ?? '{"q":"x"}');
+}
+
+/** The chat call's answer when it called tools or was offered some: the tool calls, then what it delivered. */
+function chatOutput(options: TurnFixtureOptions, delivered: TraceAttributes[]): TraceAttributes {
+  if (!options.tools && !options.toolDefinitions) return {};
+  return {
+    ...(options.toolDefinitions
+      ? { 'gen_ai.tool.definitions': traceContent(JSON.stringify(options.toolDefinitions)) }
+      : {}),
+    'gen_ai.output.messages': [
+      {
+        role: 'assistant',
+        parts: [
+          ...(options.tools ?? []).map((name, i) => ({
+            type: 'tool_call',
+            id: `call-${i}`,
+            name,
+            arguments: toolArguments(options, i),
+          })),
+          ...delivered,
+        ],
+      },
+    ],
+  };
+}
+
+/** The root's input, usage and stop, as a finished turn records them. */
+function rootAttributes(
+  options: TurnFixtureOptions,
+  delivered: TraceAttributes[],
+): TraceAttributes {
+  return {
+    ...(options.input
+      ? {
+          'gen_ai.input.messages': options.input.map((message) => ({
+            role: message.role,
+            parts: inputParts(message),
+          })),
+        }
+      : {}),
+    'gen_ai.output.messages': [{ role: 'assistant', parts: delivered }],
+    'gen_ai.usage.input_tokens': 40,
+    'gen_ai.usage.output_tokens': 12,
+    'gen_ai.usage.reasoning.output_tokens': 4,
+    ...(options.costUsd === undefined ? {} : { 'theorem.usage.cost_usd': options.costUsd }),
+    'theorem.stop.kind': options.stop ?? 'completed',
+    'theorem.attempts': 1,
+    'theorem.steps': 1 + (options.tools?.length ?? 0),
+  };
+}
+
 /** One turn as its record. */
 function turnRecord(options: TurnFixtureOptions = {}): Promise<TraceRecord> {
   const clock = options.clock ?? manualClock();
@@ -65,6 +150,7 @@ function turnRecord(options: TurnFixtureOptions = {}): Promise<TraceRecord> {
     clock,
     attributes: { 'gen_ai.operation.name': 'invoke_agent', 'gen_ai.agent.name': 'translator' },
   });
+  const delivered = deliveredParts(options);
   clock.tickMs(options.beforeChatMs ?? 0);
   const chat = tree.root.child('chat gemini', {
     kind: 'CLIENT',
@@ -85,6 +171,7 @@ function turnRecord(options: TurnFixtureOptions = {}): Promise<TraceRecord> {
     clock.tickMs(options.retryAfterMs);
     failed.end({ code: 'ERROR', message: '503' });
   }
+  chat.set(chatOutput(options, delivered));
   const served = chat.child('POST', {
     kind: 'CLIENT',
     attributes: { 'http.request.method': 'POST', 'http.response.status_code': 200 },
@@ -98,7 +185,9 @@ function turnRecord(options: TurnFixtureOptions = {}): Promise<TraceRecord> {
         'gen_ai.operation.name': 'execute_tool',
         'gen_ai.tool.name': name,
         'gen_ai.tool.call.id': `call-${i}`,
+        'gen_ai.tool.call.arguments': toolArguments(options, i),
         'theorem.tool.outcome': 'ok',
+        'gen_ai.tool.call.result': traceContent(`${name} found it`),
       },
     });
     clock.tickMs(5);
@@ -112,22 +201,7 @@ function turnRecord(options: TurnFixtureOptions = {}): Promise<TraceRecord> {
       hits: [],
     });
   }
-  const parts: TraceAttributes[] = [];
-  if (options.text !== undefined) parts.push({ type: 'text', ...traceContent(options.text) });
-  if (options.structured !== undefined) {
-    // As the turn trace stores it: the JSON under the part's `content`.
-    parts.push({ type: 'structured', content: traceJson(options.structured) });
-  }
-  tree.root.set({
-    'gen_ai.output.messages': [{ role: 'assistant', parts }],
-    'gen_ai.usage.input_tokens': 40,
-    'gen_ai.usage.output_tokens': 12,
-    'gen_ai.usage.reasoning.output_tokens': 4,
-    ...(options.costUsd === undefined ? {} : { 'theorem.usage.cost_usd': options.costUsd }),
-    'theorem.stop.kind': options.stop ?? 'completed',
-    'theorem.attempts': 1,
-    'theorem.steps': 1 + (options.tools?.length ?? 0),
-  });
+  tree.root.set(rootAttributes(options, delivered));
   clock.tickMs(options.durationMs ?? 100);
   tree.root.end();
   return buildRecord({

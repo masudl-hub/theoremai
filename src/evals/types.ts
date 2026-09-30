@@ -26,18 +26,42 @@ export type EvalCaseKind = 'capability' | 'regression';
 const evalCaseKind = z.enum(['capability', 'regression']);
 true satisfies Equals<z.infer<typeof evalCaseKind>, EvalCaseKind>;
 
-/** A file the case attaches to its turn, as `TurnBlob` takes it. */
-export interface EvalAttachment {
+/** A file the case attaches to its turn, inline, as `TurnBlob` takes it. */
+export interface EvalInlineAttachment {
   mimeType: string;
   /** Base64 bytes. */
   data: string;
   name?: string;
 }
-const evalAttachment = z.object({
+const evalInlineAttachment = z.object({
   mimeType: z.string(),
   data: z.string(),
   name: z.string().optional(),
 });
+true satisfies Equals<z.infer<typeof evalInlineAttachment>, EvalInlineAttachment>;
+
+/**
+ * A file the case attaches to its turn, kept beside the cases file and pinned
+ * by the hex SHA-256 of its bytes; a file whose bytes hash otherwise is refused.
+ */
+export interface EvalFileAttachment {
+  mimeType: string;
+  /** Relative to the cases file, or absolute; the loaded case holds it absolute. */
+  path: string;
+  sha256: string;
+  name?: string;
+}
+const evalFileAttachment = z.object({
+  mimeType: z.string(),
+  path: z.string().min(1),
+  sha256: z.string().regex(/^[0-9a-f]{64}$/, 'must be a lowercase hex SHA-256'),
+  name: z.string().optional(),
+});
+true satisfies Equals<z.infer<typeof evalFileAttachment>, EvalFileAttachment>;
+
+/** A file the case attaches to its turn: its bytes inline, or a file beside the cases. */
+export type EvalAttachment = EvalInlineAttachment | EvalFileAttachment;
+const evalAttachment = z.union([evalInlineAttachment, evalFileAttachment]);
 true satisfies Equals<z.infer<typeof evalAttachment>, EvalAttachment>;
 
 /** One turn's input (`mode: 'turn'`). */
@@ -71,6 +95,24 @@ export type EvalCaseInput = EvalTurnInput | EvalSessionInput;
 const evalCaseInput = z.union([evalSessionInput, evalTurnInput]);
 true satisfies Equals<z.infer<typeof evalCaseInput>, EvalCaseInput>;
 
+/**
+ * A dataset case's right answer. Only an `accepted` name passes; a `partial`
+ * one is close but not enough (the genus, the broader condition).
+ */
+export interface EvalAnswer {
+  /** Every name that counts: scientific name, synonyms, common names. */
+  accepted: string[];
+  partial?: string[];
+  /** Grounding notes for the person reading a miss; no grader reads them. */
+  reference?: string;
+}
+const evalAnswer = z.object({
+  accepted: z.array(z.string().min(1)).min(1),
+  partial: z.array(z.string().min(1)).optional(),
+  reference: z.string().optional(),
+});
+true satisfies Equals<z.infer<typeof evalAnswer>, EvalAnswer>;
+
 /** What the transcript should contain; graders that need it are skipped when it is absent. */
 export interface EvalExpect {
   /** Tools the agent should call, in order (`toolTrajectory` reads it). Empty = no tool. */
@@ -79,6 +121,8 @@ export interface EvalExpect {
   json?: Record<string, unknown>;
   /** What the Live reply's transcript should say (`transcription.*` read it). */
   transcription?: { includes?: string; regex?: string };
+  /** The right answer to a dataset question (`answer` reads it). */
+  answer?: EvalAnswer;
   /** For the human reading the case; no grader reads it. */
   notes?: string;
 }
@@ -88,6 +132,7 @@ const evalExpect = z.object({
   transcription: z
     .object({ includes: z.string().optional(), regex: z.string().optional() })
     .optional(),
+  answer: evalAnswer.optional(),
   notes: z.string().optional(),
 });
 true satisfies Equals<z.infer<typeof evalExpect>, EvalExpect>;
@@ -243,10 +288,27 @@ export interface EvalGradeContext {
    * starts a trace of its own.
    */
   traceparent?: string;
+  /**
+   * The host's store for media a trace names only by hash. A judge that must
+   * see media the case did not attach asks here; absent, only the case's own
+   * attachments can be shown.
+   */
+  media?: EvalMediaResolver;
   /** Every record a grader's own judge call produced. */
   traced: (records: TraceRecord[]) => void | Promise<void>;
   signal?: AbortSignal;
 }
+
+/** Media a trace names by the sha256 (hex) of its raw bytes. */
+export interface EvalMediaRef {
+  sha256: string;
+  mimeType: string;
+}
+
+/** The media's bytes as base64, or `undefined` when the host does not have them. */
+export type EvalMediaResolver = (
+  ref: EvalMediaRef,
+) => string | undefined | Promise<string | undefined>;
 
 /** Code or model logic that reads a trial and returns a result. */
 export interface EvalGrader {
@@ -262,11 +324,12 @@ export interface EvalGrader {
   /** Reads the case's `expect`; skipped when a trial has no case (caseless recorded mode). */
   needsExpect: boolean;
   /**
-   * Model graders: the judge profile this grader runs, given the suite's
-   * `judge.profile`. Throws when there is none, or the profile cannot run this
-   * grader, so a suite fails before its first trial.
+   * Model graders: every judge profile this grader may run, given the suite's
+   * `judge.profile`: its judge first, then any it escalates to. Throws when
+   * there is none, or a profile cannot run this grader, so a suite fails
+   * before its first trial.
    */
-  judgeProfile?: (suiteJudge: string | undefined) => string;
+  judgeProfiles?: (suiteJudge: string | undefined) => string[];
   grade: (trial: Trial, context: EvalGradeContext) => EvalResult | Promise<EvalResult>;
 }
 function isGrader(value: unknown): value is EvalGrader {
@@ -276,7 +339,7 @@ function isGrader(value: unknown): value is EvalGrader {
     typeof value.identity === 'string' &&
     (value.source === 'code' || value.source === 'model') &&
     typeof value.needsExpect === 'boolean' &&
-    (value.judgeProfile === undefined || typeof value.judgeProfile === 'function') &&
+    (value.judgeProfiles === undefined || typeof value.judgeProfiles === 'function') &&
     typeof value.grade === 'function'
   );
 }

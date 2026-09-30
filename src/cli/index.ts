@@ -6,6 +6,7 @@
  * @module
  */
 
+import { argv, exit } from 'node:process';
 import { benchCommand } from './commands/bench.ts';
 import { evalCommand } from './commands/eval.ts';
 import { fuzzCanaryCommand } from './commands/fuzz-canary.ts';
@@ -163,7 +164,7 @@ async function handleTest(flags: ParsedFlags): Promise<void> {
     traceDir: diagnostics.traceDir,
   });
   if (!success) {
-    Deno.exit(1);
+    exit(1);
   }
 }
 
@@ -171,7 +172,7 @@ async function handleRun(flags: ParsedFlags): Promise<void> {
   const profile = extractProfileId(flags);
   if (!profile) {
     console.error('Error: Profile ID required (e.g. `agents run --profile your-profile`)');
-    Deno.exit(1);
+    exit(1);
   }
   const prompt = typeof flags.prompt === 'string' ? flags.prompt : flags._.slice(1).join(' ');
   const diagnostics = cliDiagnostics(flags);
@@ -195,7 +196,7 @@ async function handleEval(flags: ParsedFlags): Promise<void> {
   const suite = flags._[1];
   if (!suite) {
     console.error('Error: Suite module required (e.g. `agents eval ./evals/suite.ts`)');
-    Deno.exit(1);
+    exit(1);
   }
   const ok = await evalCommand({
     suite,
@@ -208,7 +209,7 @@ async function handleEval(flags: ParsedFlags): Promise<void> {
     json: Boolean(flags.json),
   });
   if (!ok) {
-    Deno.exit(1);
+    exit(1);
   }
 }
 
@@ -221,30 +222,25 @@ function handleProfile(flags: ParsedFlags): void {
   const id = sub === 'show' ? flags._[2] || flags.profile : sub;
   if (typeof id !== 'string' || !id) {
     console.error('Error: Profile ID required (e.g. `agents profile show your-profile`)');
-    Deno.exit(1);
+    exit(1);
   }
   showProfileCommand(id);
 }
 
-/**
- * Runs a CLI command with supplied arguments, defaulting to `Deno.args`.
- *
- * Unknown or omitted commands print help. Commands that cannot continue report
- * their error to stderr and exit with status 1.
- */
-export async function main(cliArgs = Deno.args): Promise<void> {
+/** Unknown or omitted commands print help; a command that cannot continue exits 1. */
+export async function main(cliArgs: string[] = argv.slice(2)): Promise<void> {
   const flags = parseFlags(cliArgs);
   const command = flags._[0] || (flags.help ? 'help' : 'help');
 
   if (command === 'fuzz') {
     const ok = fuzzGuardrailsCommand();
     if (!ok) {
-      Deno.exit(1);
+      exit(1);
     }
   } else if (command === 'fuzz-canary') {
     const ok = await fuzzCanaryCommand();
     if (!ok) {
-      Deno.exit(1);
+      exit(1);
     }
   } else if (command === 'bench') {
     await benchCommand({
@@ -263,8 +259,4 @@ export async function main(cliArgs = Deno.args): Promise<void> {
   } else {
     printHelp();
   }
-}
-
-if (import.meta.main) {
-  await main();
 }

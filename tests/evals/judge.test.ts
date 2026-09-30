@@ -10,7 +10,7 @@
 
 import { delivered } from '../../src/evals/graders/code.ts';
 import { judge } from '../../src/evals/graders/judge.ts';
-import { TRIAL_VARIABLES, trialVariables } from '../../src/evals/graders/transcript.ts';
+import { rubricView, TRIAL_VARIABLES, trialVariables } from '../../src/evals/graders/transcript.ts';
 import { fillRubric, rubric, rubrics } from '../../src/evals/rubrics/mod.ts';
 import { runSuite } from '../../src/evals/run.ts';
 import { type LoadedSuite, loadSuite } from '../../src/evals/suite.ts';
@@ -24,15 +24,16 @@ import {
   assertThrows,
 } from '../../src/kernel/engine/assert.ts';
 import type { RunDecisionOptions } from '../../src/kernel/engine/decision.ts';
-import type { ModelProvider } from '../../src/kernel/types.ts';
+import { historyMessageParts } from '../../src/kernel/interaction-parts.ts';
+import type { InteractionPart, ModelProvider } from '../../src/kernel/types.ts';
 import { resolveObservabilityPolicy } from '../../src/observability/resolve-policy.ts';
 import { OMIT_INJECTION } from '../../src/observability/spans.ts';
 import { memorySink } from '../../src/observability/trace.ts';
 import type { TraceRecord } from '../../src/observability/trace-record.ts';
 import type { TraceSpan } from '../../src/observability/trace-span.ts';
 import { catalogGate } from '../fixtures/trace-catalog.ts';
-import { turnRecord } from './fixture.ts';
-import { JEV_JUDGE, JUDGE } from './judge/profile.ts';
+import { CASE, turnRecord } from './fixture.ts';
+import { JEV_JUDGE, JUDGE, SEEING_JUDGE } from './judge/profile.ts';
 import { TRANSLATOR } from './translator/profile.ts';
 
 const SUITE_PATH = 'tests/evals/translator/suite.ts';
@@ -54,16 +55,24 @@ const translator: ModelProvider = {
   },
 };
 
-/** A judge that answers from the prompt it was given; every prompt is kept for the test to read. */
+/**
+ * A judge that answers from the prompt it was given; every prompt, and the
+ * media shown beside it, is kept for the test to read.
+ */
 function scriptedJudge(
   answer: (prompt: string, call: number) => unknown,
-): ModelProvider & { prompts: string[] } {
+): ModelProvider & { prompts: string[]; seen: InteractionPart[][] } {
   const prompts: string[] = [];
+  const seen: InteractionPart[][] = [];
   return {
     prompts,
+    seen,
     async *complete(req) {
-      const prompt = req.history?.findLast((message) => message.role === 'user')?.content ?? '';
+      const user = req.history?.findLast((message) => message.role === 'user');
+      const prompt = user?.content ?? '';
       const call = prompts.push(prompt) - 1;
+      const parts = [...(user ? historyMessageParts(user) : []), ...req.input];
+      seen.push(parts.filter((part) => part.type !== 'text'));
       await Promise.resolve();
       yield {
         type: 'tokens',
@@ -127,6 +136,22 @@ function judgeRoot(record: TraceRecord | undefined): TraceSpan | undefined {
 
 /** Jev sure the translation is correct. */
 const SURE = { correct: 0.93, incorrect: 0.05, unknown: 0.02 };
+
+/** A photo's bytes as a case attaches them (base64). */
+const PHOTO = btoa('a photo of a monstera');
+const PHOTO_ATTACHMENT = { mimeType: 'image/jpeg', data: PHOTO };
+/** A user message that sent the photo, as the turn trace stores it. */
+const PHOTO_MESSAGE = { role: 'user', text: 'what is this?', media: PHOTO_ATTACHMENT };
+
+/** A turn that answered about the photo, its case attaching these files. */
+async function photoTrial(attachments: { mimeType: string; data: string }[]) {
+  return buildTrial({
+    suite: 's',
+    case: { ...CASE, input: { text: 'what is this?', attachments } },
+    index: 0,
+    records: [await turnRecord({ text: 'a monstera', input: [PHOTO_MESSAGE] })],
+  });
+}
 
 /** The translator suite with these graders and the judge profile. */
 async function judged(graders: EvalGrader[], judgeProfile: string = JUDGE): Promise<LoadedSuite> {
@@ -360,35 +385,57 @@ Deno.test('judge() refuses options that cannot work', () => {
   assertEquals(identities.size, 3);
 });
 
-Deno.test('every shipped rubric carries a prompt and a question, fillable from the trace alone', () => {
-  assertEquals(Object.keys(rubrics), ['correctness', 'faithfulness', 'toolSelection']);
+Deno.test("the rubrics are Phoenix's fourteen, each with a prompt and a question, fillable from the trace", () => {
+  assertEquals(Object.keys(rubrics), [
+    'completeness',
+    'conciseness',
+    'correctness',
+    'documentRelevance',
+    'faithfulness',
+    'hallucination',
+    'piiDetection',
+    'refusal',
+    'retrievalRelevance',
+    'toolInvocation',
+    'toolResponseHandling',
+    'toolSelection',
+    'toxicity',
+    'userFriction',
+  ]);
   for (const entry of Object.values(rubrics)) {
     // Each check carries the rubric's name, so a failure says which one.
     const unfillable = entry.variables.filter(
       (variable) => !(TRIAL_VARIABLES as readonly string[]).includes(variable),
     );
-    const undeclared = (entry.pass ?? []).filter((label) => !(label in entry.labels));
     assertEquals(
       {
         rubric: entry.name,
         unfillable,
-        undeclared,
         criteria: Object.keys(entry.question?.criteria ?? {}).sort(),
+        data: entry.question?.instructions.includes('The state holds the data to judge'),
       },
       {
         rubric: entry.name,
-        unfillable: [],
-        undeclared: [],
+        // A document is the host's to name; the trace does not say which one was retrieved.
+        unfillable: entry.name === 'document_relevance' ? ['document_text'] : [],
         criteria: Object.keys(entry.labels).sort(),
+        data: true,
       },
     );
-    for (const variable of entry.variables) {
-      assertStringIncludes(entry.template ?? '', `{{${variable}}}`);
-    }
-    // The grader builds from it without complaint.
-    judge({ rubric: entry });
+    if (unfillable.length === 0) judge({ rubric: entry });
   }
+  judge({ rubric: rubrics.documentRelevance, variables: () => ({ document_text: 'a page' }) });
+  assertThrows(
+    () => judge({ rubric: rubrics.documentRelevance }),
+    TheoremError,
+    'the rubric needs document_text',
+  );
+  // Phoenix's direction picks the labels that pass: the best score either way, none when it names none.
   assertEquals(rubrics.faithfulness.pass, ['faithful']);
+  assertEquals(rubrics.toxicity.pass, ['non-toxic']);
+  assertEquals(rubrics.hallucination.pass, ['grounded']);
+  assertEquals(rubrics.refusal.pass, undefined);
+  assertEquals(rubrics.conciseness.variables, ['input', 'output']);
 });
 
 Deno.test('rubric() takes a prompt, a question or both, and refuses a question that does not fit its labels', () => {
@@ -429,17 +476,264 @@ Deno.test('rubric() takes a prompt, a question or both, and refuses a question t
   );
 });
 
-Deno.test('the standard variables read the input, output, tools and the transcript from the trace', async () => {
-  const record = await turnRecord({ text: 'hola', tools: ['lookup'] });
+Deno.test("the standard variables read Phoenix's names from the trace", async () => {
+  const record = await turnRecord({
+    text: 'hola',
+    tools: ['lookup'],
+    input: [{ role: 'user', text: 'say hi' }],
+  });
   const trial = buildTrial({ suite: 's', index: 0, records: [record] });
   const variables = trialVariables(trial);
   assertEquals(Object.keys(variables).sort(), [...TRIAL_VARIABLES].sort());
+  assertEquals(variables.input, 'say hi');
+  assertEquals(variables.user_message, 'say hi');
   assertEquals(variables.output, 'hola');
-  assertEquals(variables.input, '');
-  assertStringIncludes(variables.toolSelection, 'lookup(');
-  assertEquals(variables.availableTools, 'none');
+  assertEquals(variables.text, 'hola');
+  // The model's own tool calls are part of what it had to go on, not only their results.
+  assertEquals(
+    variables.context,
+    '[tool call lookup]\n{"q":"x"}\n\n[tool result lookup] (ok)\nlookup found it',
+  );
+  assertEquals(variables.tool_call, 'lookup({"q":"x"}) → ok');
+  assertEquals(variables.tool_result, 'lookup: lookup found it');
+  assertStringIncludes(variables.conversation, '[user]\nsay hi');
   assertStringIncludes(variables.conversation, '[tool call lookup]');
   assertStringIncludes(variables.conversation, '[assistant]\nhola');
+});
+
+Deno.test("a prompt that reads output.messages gets the turn's messages and tools as lists", async () => {
+  const record = await turnRecord({
+    text: 'hola',
+    tools: ['lookup'],
+    toolDefinitions: [{ name: 'lookup' }, { name: 'send' }],
+    input: [{ role: 'user', text: 'find it' }],
+  });
+  const trial = buildTrial({ suite: 's', index: 0, records: [record] });
+  const view = rubricView(rubrics.toolSelection, trial, {});
+  assertEquals(view, {
+    input: 'find it',
+    output: {
+      messages: [
+        {
+          role: 'assistant',
+          content: 'hola',
+          tool_calls: ['{"name":"lookup","arguments":{"q":"x"}}'],
+        },
+        { role: 'tool', content: 'lookup: lookup found it', tool_calls: [] },
+      ],
+      available_tools: ['{"name":"lookup"}', '{"name":"send"}'],
+    },
+  });
+  const prompt = fillRubric(rubrics.toolSelection, view);
+  assertStringIncludes(prompt, '{"name":"send"}\n---');
+  assertStringIncludes(
+    prompt,
+    'assistant: hola\nTool Calls:\n{"name":"lookup","arguments":{"q":"x"}}',
+  );
+  assertStringIncludes(prompt, 'tool: lookup: lookup found it\nTool Calls:\nNo tools called.');
+  // A prompt that reads plain {{output}} still gets the delivered text.
+  assertEquals(rubricView(rubrics.correctness, trial, {}).output, 'hola');
+  // With no tools offered, the prompt says so.
+  const bare = buildTrial({ suite: 's', index: 0, records: [await turnRecord({ text: 'hola' })] });
+  assertStringIncludes(
+    fillRubric(rubrics.toolSelection, rubricView(rubrics.toolSelection, bare, {})),
+    'No tools available.',
+  );
+});
+
+Deno.test('a judge reads media by its label, and a structured answer once', async () => {
+  const answer = { lang: 'es', text: 'hola' };
+  const record = await turnRecord({
+    text: JSON.stringify(answer),
+    structured: answer,
+    tools: ['lookup'],
+    input: [PHOTO_MESSAGE],
+  });
+  const trial = buildTrial({ suite: 's', index: 0, records: [record] });
+  assertEquals(trialVariables(trial).input, 'what is this?\n[image 1: image/jpeg]');
+  // The photo the input carried is context too, so a faithfulness judge sees it.
+  assertStringIncludes(trialVariables(trial).context, '[attached]\n[image 1: image/jpeg]');
+  const view = rubricView(rubrics.toolSelection, trial, {});
+  const [said] = (view.output as { messages: { content: string }[] }).messages;
+  assertEquals(said?.content, JSON.stringify(answer));
+  // A structured part the text does not already carry is kept.
+  const quiet = await turnRecord({ structured: answer, tools: ['lookup'] });
+  const [kept] = (
+    rubricView(rubrics.toolSelection, buildTrial({ suite: 's', index: 0, records: [quiet] }), {})
+      .output as { messages: { content: string }[] }
+  ).messages;
+  assertEquals(kept?.content, JSON.stringify(answer));
+});
+
+Deno.test('a turn that broke or delivered nothing is not judged, and no judge is called', async () => {
+  const provider = verdictJudge('correct');
+  const jev = scriptedJev(SURE);
+  const context = {
+    judge: JUDGE,
+    judgeProvider: provider,
+    judgeDecision: jev,
+    traced: () => {},
+  };
+  const grader = judge({ rubric: rubrics.correctness });
+  const decider = judge({ rubric: rubrics.correctness, profile: JEV_JUDGE });
+  const trialOf = async (options: Parameters<typeof turnRecord>[0]) =>
+    buildTrial({ suite: 's', index: 0, records: [await turnRecord(options)] });
+
+  const broke = await trialOf({ text: 'partial', stop: 'provider_error' });
+  assertEquals(await grader.grade(broke, context), {
+    name: 'correctness',
+    source: 'model',
+    explanation: 'the turn stopped with provider_error; not judged',
+  });
+  const empty = await trialOf({ tools: ['lookup'], stop: 'tool' });
+  assertEquals(
+    (await decider.grade(empty, context)).explanation,
+    'the turn delivered nothing (stopped tool); not judged',
+  );
+  assertEquals(provider.prompts.length, 0);
+  assertEquals(jev.bodies.length, 0);
+
+  // A turn that delivered is judged, whatever else it did.
+  const answered = await trialOf({ text: 'hola', tools: ['lookup'] });
+  assertEquals((await grader.grade(answered, context)).passed, true);
+  assertEquals(provider.prompts.length, 1);
+});
+
+Deno.test("a trial's judges run at once, and their records come back in grader order", async () => {
+  let inFlight = 0;
+  let most = 0;
+  let calls = 0;
+  const provider: ModelProvider = {
+    async *complete() {
+      const call = calls++;
+      inFlight += 1;
+      most = Math.max(most, inFlight);
+      // The first grader's judge answers last.
+      await new Promise((resolve) => setTimeout(resolve, call === 0 ? 30 : 1));
+      inFlight -= 1;
+      yield { type: 'structured', structured: { label: 'correct', explanation: 'it is correct' } };
+    },
+  };
+  const run = await runSuite(
+    await judged([
+      judge({ rubric: rubrics.correctness, name: 'first' }),
+      judge({ rubric: rubrics.correctness, name: 'second' }),
+    ]),
+    { provider: translator, judgeProvider: provider, repeat: 1 },
+  );
+  assertEquals(most, 2);
+  const [report] = run.trials;
+  assertEquals(
+    report?.results.map((result) => result.name),
+    ['first', 'second'],
+  );
+  assertEquals(
+    report?.judgeRecords.map(
+      (record) =>
+        (record.metadata?.eval as { judge: { grader: string } } | undefined)?.judge.grader,
+    ),
+    ['first', 'second'],
+  );
+});
+
+Deno.test('a judge sees the media the turn carried, from the case or the host, or does not judge', async () => {
+  const grader = judge({ rubric: rubrics.correctness, profile: SEEING_JUDGE });
+
+  // The case attached it: the judge gets its bytes, under the label the prompt names.
+  const provider = verdictJudge('correct');
+  const context = { judgeProvider: provider, traced: () => {} };
+  const fromCase = await photoTrial([PHOTO_ATTACHMENT]);
+  assertEquals((await grader.grade(fromCase, context)).passed, true);
+  assertEquals(provider.seen, [[{ type: 'image', ...PHOTO_ATTACHMENT }]]);
+
+  // Not in the case: the host's store answers by hash, and only bytes that match the hash count.
+  const bare = await photoTrial([]);
+  const asked: string[] = [];
+  const store = (bytes: string) => (ref: { sha256: string; mimeType: string }) => {
+    asked.push(ref.mimeType);
+    return bytes;
+  };
+  assertEquals((await grader.grade(bare, { ...context, media: store(PHOTO) })).passed, true);
+  assertEquals(provider.seen.length, 2);
+  const blind = {
+    name: 'correctness',
+    source: 'model',
+    explanation: 'the judge could not be shown [image 1: image/jpeg]; not judged',
+  };
+  assertEquals(
+    await grader.grade(bare, { ...context, media: store(btoa('another photo')) }),
+    blind,
+  );
+  assertEquals(await grader.grade(bare, context), blind);
+  assertEquals(provider.seen.length, 2);
+  assertEquals(asked, ['image/jpeg', 'image/jpeg']);
+
+  // A judge profile that cannot take the media is a config error, not a blind verdict.
+  await assertRejects(
+    async () =>
+      await judge({ rubric: rubrics.correctness }).grade(fromCase, { ...context, judge: JUDGE }),
+    TheoremError,
+    `judge profile ${JUDGE} must accept image/jpeg`,
+  );
+
+  // A rubric whose readings never name the media is judged without it, by any judge.
+  const plain = judge({
+    rubric: rubrics.correctness,
+    variables: () => ({ input: 'what is this?' }),
+  });
+  const textOnly = verdictJudge('correct');
+  const plainResult = await plain.grade(bare, {
+    judge: JUDGE,
+    judgeProvider: textOnly,
+    traced: () => {},
+  });
+  assertEquals(plainResult.passed, true);
+});
+
+Deno.test('a decision judge hands media to its escalate judge, or leaves the trial unjudged', async () => {
+  const trial = await photoTrial([PHOTO_ATTACHMENT]);
+  const jev = scriptedJev(SURE);
+  const provider = verdictJudge('incorrect');
+  const context = { judgeProvider: provider, judgeDecision: jev, traced: () => {} };
+
+  const alone = judge({ rubric: rubrics.correctness, profile: JEV_JUDGE });
+  assertEquals(await alone.grade(trial, context), {
+    name: 'correctness',
+    source: 'model',
+    explanation: `decision judge ${JEV_JUDGE} cannot see [image 1: image/jpeg] and no escalate judge can; not judged`,
+  });
+  const escalating = judge({
+    rubric: rubrics.correctness,
+    profile: JEV_JUDGE,
+    escalate: SEEING_JUDGE,
+  });
+  const result = await escalating.grade(trial, context);
+  assertEquals(result.passed, false);
+  assertEquals(result.score?.label, 'incorrect');
+  assertEquals(jev.bodies.length, 0);
+  assertEquals(provider.seen, [[{ type: 'image', ...PHOTO_ATTACHMENT }]]);
+});
+
+Deno.test('a prompt that reads user_message gets the conversation before it', async () => {
+  const record = await turnRecord({
+    text: 'sorry',
+    input: [
+      { role: 'user', text: 'book it' },
+      { role: 'assistant', text: 'done' },
+      { role: 'user', text: 'you did not' },
+    ],
+  });
+  const trial = buildTrial({ suite: 's', index: 0, records: [record] });
+  assertEquals(rubricView(rubrics.userFriction, trial, {}), {
+    conversation: '[user]\nbook it\n\n[assistant]\ndone',
+    user_message: 'you did not',
+  });
+  // Elsewhere the conversation is the whole record; the host's reading wins over the trace's.
+  assertStringIncludes(
+    String(rubricView(rubrics.completeness, trial, {}).conversation),
+    '[assistant]\nsorry',
+  );
+  assertEquals(rubricView(rubrics.toxicity, trial, { text: 'mine' }), { text: 'mine' });
 });
 
 Deno.test('a Jev judge answers the rubric question over the trace as state, and its decision nests under the trial', async () => {
@@ -556,6 +850,7 @@ Deno.test('wrongPassCost moves the line: a wrong pass three times worse needs th
 
 Deno.test('escalate hands what Jev is unsure of to the text judge, and the result names both judge calls', async () => {
   const loaded = await loadSuite('tests/evals/judge/both.ts');
+  const written: TraceRecord[] = [];
   const both = (probabilities: Record<string, number>, text: ModelProvider) =>
     runSuite(
       { ...loaded, cases: loaded.cases.slice(0, 1) },
@@ -564,6 +859,7 @@ Deno.test('escalate hands what Jev is unsure of to the text judge, and the resul
         judgeProvider: text,
         judgeDecision: scriptedJev(probabilities),
         repeat: 1,
+        sink: memorySink(written),
       },
     );
   const textJudge = verdictJudge('incorrect');
@@ -578,6 +874,13 @@ Deno.test('escalate hands what Jev is unsure of to the text judge, and the resul
   assertEquals(result?.judgeTraceparents?.length, 2);
   assertEquals(
     report?.judgeRecords.map((record) => judgeRoot(record)?.attributes['gen_ai.agent.name']),
+    [JEV_JUDGE, JUDGE],
+  );
+  // The sink gets the escalation's record as well as Jev's.
+  assertEquals(
+    written
+      .filter((record) => (record.metadata?.eval as { judge?: unknown } | undefined)?.judge)
+      .map((record) => judgeRoot(record)?.attributes['gen_ai.agent.name']),
     [JEV_JUDGE, JUDGE],
   );
   // Both judge calls sit side by side under the one trial span.

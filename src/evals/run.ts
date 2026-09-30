@@ -23,10 +23,20 @@ import type { TraceRecord } from '../observability/trace-record.ts';
 import type { TraceSink } from '../observability/trace-sink.ts';
 import type { TraceClock, TraceSpan } from '../observability/trace-span.ts';
 import type { ResolvedObservabilityPolicy } from '../observability/types.ts';
+import { attachmentData } from './attachments.ts';
+import { modelCalls, spanDurationMs } from './graders/shared.ts';
 import { buildRunRecord, type GradedResult, startTrialRecord } from './record.ts';
 import type { LoadedSuite } from './suite.ts';
 import { buildTrial, groupByTrace, hasTurn } from './trial.ts';
-import type { EvalCase, EvalGradeContext, EvalGrader, EvalResult, Trial } from './types.ts';
+import type {
+  EvalCase,
+  EvalGradeContext,
+  EvalGrader,
+  EvalMediaResolver,
+  EvalPassRule,
+  EvalResult,
+  Trial,
+} from './types.ts';
 import { type CaseVerdict, caseVerdict, type TrialOutcome, trialOutcome } from './verdict.ts';
 
 /** How the eval stamps a live turn so recorded mode can match its record to the case. */
@@ -34,6 +44,15 @@ interface EvalStamp {
   suite: string;
   case: string;
   trial: number;
+}
+
+/** A turn's whole length, root span start to end, its loop (model calls and tool calls), and why it stopped. */
+interface TurnShape {
+  durationMs: number;
+  modelCalls: number;
+  toolCalls: number;
+  /** `theorem.stop.kind` on the root; absent when the turn recorded none. */
+  stop?: string;
 }
 
 /** One trial as the run reports it, before and after it is written. */
@@ -45,6 +64,8 @@ interface TrialReport {
   /** The judged trace, when the turn produced one. */
   traceId?: string;
   records: TraceRecord[];
+  /** How long the turn took and how many times it looped, when it produced a trace. */
+  turn?: TurnShape;
   /** The kind of the error that stopped the turn before it had a trace, if any. */
   error?: string;
   /** The turn's cost from its root, when it recorded one. */
@@ -53,6 +74,8 @@ interface TrialReport {
   judgeCostUsd?: number;
   /** The turn and judge calls whose cost is unknown: none reported, or only part (`theorem.usage.cost_partial`). */
   unpriced: number;
+  /** The turn and judge calls that reported a cost, whole or part; a reported zero counts. */
+  priced: number;
   /** Every judge call's records, one trace per judge call. */
   judgeRecords: TraceRecord[];
   /** The written `theorem.eval.trial` record, when there was a trace to hold it. */
@@ -66,6 +89,8 @@ interface RunSuiteOptions {
   judgeProvider?: ModelProvider;
   /** The key for decision judge profiles (Jev); default the suite's `judgeDecision` export. */
   judgeDecision?: Omit<RunDecisionOptions, 'sink'>;
+  /** Where a judge finds media the trace names only by hash; default the suite's `media` export. */
+  media?: EvalMediaResolver;
   /** Recorded mode: the records to grade; live mode when absent. */
   recorded?: TraceRecord[];
   /** Where trial and run records go. Absent: they are returned only. */
@@ -93,17 +118,21 @@ interface SuiteRun {
   suite: string;
   mode: 'live' | 'recorded';
   repeat: number;
+  /** What a case's trials must do for it to pass. */
+  passRule: EvalPassRule;
   verdicts: CaseVerdict[];
   trials: TrialReport[];
   /** Recorded mode: trials whose records carried no matching case. */
   caseless: TrialReport[];
-  /** Every case verdict passed and nothing stopped the run. */
+  /** Some case was decided, every decided case passed, and nothing stopped the run. */
   passed: boolean;
   stopped?: 'budget';
   /** The summed cost of agent turns and judge calls, over every one that recorded a cost. */
   costUsd: number;
   /** Agent turns and judge calls whose cost went unreported, in whole or part, so `costUsd` leaves it out. */
   unpriced: number;
+  /** Agent turns and judge calls that reported a cost, so `costUsd` is theirs even when it is zero. */
+  priced: number;
   /** Plain-language warnings for the host to print. */
   warnings: string[];
   run: TraceRecord;
@@ -125,30 +154,45 @@ function stampOf(record: TraceRecord | undefined): EvalStamp | undefined {
   return { suite, case: caseId, trial };
 }
 
-/** Grade one trial with every grader that applies; a grader that throws yields `grader_error`. */
+/**
+ * Grade one trial with every grader that applies, all at once; a grader that
+ * throws yields `grader_error`. Judge records reach `context.traced` in grader
+ * order once every grader is done, so a run writes the same records in the
+ * same order whichever judge answered first.
+ */
 async function gradeTrial(
   graders: EvalGrader[],
   trial: Trial,
   context: EvalGradeContext,
 ): Promise<GradedResult[]> {
   const applicable = trial.case ? graders : graders.filter((grader) => !grader.needsExpect);
-  const out: GradedResult[] = [];
-  for (const grader of applicable) {
-    try {
-      out.push({ result: await grader.grade(trial, context), graderIdentity: grader.identity });
-    } catch (thrown) {
-      out.push({
-        result: {
-          name: grader.name,
-          source: grader.source,
-          errorType: 'grader_error',
-          explanation: thrown instanceof Error ? thrown.message : String(thrown),
+  const graded = await Promise.all(
+    applicable.map(async (grader) => {
+      const records: TraceRecord[] = [];
+      const own: EvalGradeContext = {
+        ...context,
+        traced: (traced) => {
+          records.push(...traced);
         },
-        graderIdentity: grader.identity,
-      });
-    }
-  }
-  return out;
+      };
+      try {
+        return { records, result: await grader.grade(trial, own), graderIdentity: grader.identity };
+      } catch (thrown) {
+        return {
+          records,
+          result: {
+            name: grader.name,
+            source: grader.source,
+            errorType: 'grader_error',
+            explanation: thrown instanceof Error ? thrown.message : String(thrown),
+          },
+          graderIdentity: grader.identity,
+        };
+      }
+    }),
+  );
+  for (const { records } of graded) await context.traced(records);
+  return graded.map(({ result, graderIdentity }) => ({ result, graderIdentity }));
 }
 
 /** Every applicable grader's result as the error that kept the turn from producing a trace. */
@@ -170,6 +214,7 @@ interface Judging {
   suiteJudge?: string;
   provider?: ModelProvider;
   decision?: Omit<RunDecisionOptions, 'sink'>;
+  media?: EvalMediaResolver;
   /** Each judge profile a grader runs, by id, with the observability policy its records are written under. */
   policies: Map<string, ResolvedObservabilityPolicy>;
 }
@@ -223,17 +268,22 @@ async function gradeRecords(
   const judgeRecords: TraceRecord[] = [];
   let judgeCostUsd: number | undefined;
   let unpriced = usage.costUsd === undefined || usage.tokens.cost?.partial ? 1 : 0;
+  let priced = usage.costUsd === undefined ? 0 : 1;
   const { judging } = grading;
   const context: EvalGradeContext = {
     ...(judging.suiteJudge ? { judge: judging.suiteJudge } : {}),
     ...(judging.provider ? { judgeProvider: judging.provider } : {}),
     ...(judging.decision ? { judgeDecision: judging.decision } : {}),
+    ...(judging.media ? { media: judging.media } : {}),
     traceparent: trialRecord.traceparent,
     traced: async (traced) => {
       for (const record of traced) {
         judgeRecords.push(record);
         const cost = recordCost(record);
-        if (cost.usd !== undefined) judgeCostUsd = (judgeCostUsd ?? 0) + cost.usd;
+        if (cost.usd !== undefined) {
+          judgeCostUsd = (judgeCostUsd ?? 0) + cost.usd;
+          priced += 1;
+        }
         if (!cost.whole) unpriced += 1;
         const policy = judging.policies.get(recordAgent(record) ?? '');
         if (grading.sink && policy) await writeTrace(grading.sink, Promise.resolve(record), policy);
@@ -253,16 +303,29 @@ async function gradeRecords(
     outcome: trialOutcome(results),
     results,
     traceId: trial.root.traceId,
+    turn: {
+      durationMs: spanDurationMs(trial.root),
+      modelCalls: modelCalls(trial).length,
+      toolCalls: trial.spans('execute_tool').length,
+      ...(typeof trial.root.attributes['theorem.stop.kind'] === 'string'
+        ? { stop: trial.root.attributes['theorem.stop.kind'] }
+        : {}),
+    },
     records,
     ...(costUsd === undefined ? {} : { costUsd }),
     ...(judgeCostUsd === undefined ? {} : { judgeCostUsd }),
     unpriced,
+    priced,
     judgeRecords,
     trialRecord: built.record,
   };
 }
 
-function turnRequest(suite: LoadedSuite, evalCase: EvalCase, index: number): TurnRequest {
+async function turnRequest(
+  suite: LoadedSuite,
+  evalCase: EvalCase,
+  index: number,
+): Promise<TurnRequest> {
   if ('session' in evalCase.input) {
     throw new TheoremError(
       'config',
@@ -274,7 +337,17 @@ function turnRequest(suite: LoadedSuite, evalCase: EvalCase, index: number): Tur
     profile: suite.suite.profile,
     input: {
       ...(evalCase.input.text === undefined ? {} : { text: evalCase.input.text }),
-      ...(evalCase.input.attachments ? { attachments: evalCase.input.attachments } : {}),
+      ...(evalCase.input.attachments
+        ? {
+            attachments: await Promise.all(
+              evalCase.input.attachments.map(async (attachment) => ({
+                mimeType: attachment.mimeType,
+                data: await attachmentData(attachment),
+                ...(attachment.name === undefined ? {} : { name: attachment.name }),
+              })),
+            ),
+          }
+        : {}),
     },
     metadata: { eval: stamp },
   };
@@ -292,7 +365,7 @@ async function runLiveTrial(
   let thrown: unknown;
   try {
     const request = {
-      ...turnRequest(grading.suite, evalCase, index),
+      ...(await turnRequest(grading.suite, evalCase, index)),
       ...(signal ? { signal } : {}),
     };
     for await (const _event of runTurn(request, provider, memorySink(records))) {
@@ -319,6 +392,7 @@ async function runLiveTrial(
     results,
     records,
     unpriced: 0,
+    priced: 0,
     judgeRecords: [],
     error,
   };
@@ -334,29 +408,31 @@ function judgingOf(loaded: LoadedSuite, options: RunSuiteOptions): Judging {
   const { suite } = loaded;
   const provider = options.judgeProvider ?? loaded.judgeProvider ?? options.provider;
   const decision = options.judgeDecision ?? loaded.judgeDecision;
+  const media = options.media ?? loaded.media;
   const policies = new Map<string, ResolvedObservabilityPolicy>();
   for (const grader of suite.graders) {
-    if (!grader.judgeProfile) continue;
-    const id = grader.judgeProfile(suite.judge?.profile);
-    const profile = getProfile(id);
-    if (profile.type === 'decision' && !decision) {
-      throw new TheoremError(
-        'config',
-        `suite ${suite.id}: grader ${grader.name} needs a key for decision judge profile ${id}; export judgeDecision`, // lexicon-exempt: developer contract error
-      );
+    for (const id of grader.judgeProfiles?.(suite.judge?.profile) ?? []) {
+      const profile = getProfile(id);
+      if (profile.type === 'decision' && !decision) {
+        throw new TheoremError(
+          'config',
+          `suite ${suite.id}: grader ${grader.name} needs a key for decision judge profile ${id}; export judgeDecision`, // lexicon-exempt: developer contract error
+        );
+      }
+      if (profile.type !== 'decision' && !provider) {
+        throw new TheoremError(
+          'config',
+          `suite ${suite.id}: grader ${grader.name} needs a provider for judge profile ${id}`, // lexicon-exempt: developer contract error
+        );
+      }
+      policies.set(id, resolveObservabilityPolicy(profile.observability));
     }
-    if (profile.type !== 'decision' && !provider) {
-      throw new TheoremError(
-        'config',
-        `suite ${suite.id}: grader ${grader.name} needs a provider for judge profile ${id}`, // lexicon-exempt: developer contract error
-      );
-    }
-    policies.set(id, resolveObservabilityPolicy(profile.observability));
   }
   return {
     ...(suite.judge ? { suiteJudge: suite.judge.profile } : {}),
     ...(provider ? { provider } : {}),
     ...(decision ? { decision } : {}),
+    ...(media ? { media } : {}),
     policies,
   };
 }
@@ -404,6 +480,7 @@ interface Ran {
   stopped?: 'budget';
   costUsd: number;
   unpriced: number;
+  priced: number;
   /** Recorded mode: records that were not turns to grade (judge calls, eval run records). */
   skipped?: { judge: number; other: number };
 }
@@ -412,8 +489,8 @@ function summedCost(reports: TrialReport[]): number {
   return reports.reduce((sum, report) => sum + reportCost(report), 0);
 }
 
-function summedUnpriced(reports: TrialReport[]): number {
-  return reports.reduce((sum, report) => sum + report.unpriced, 0);
+function summedCalls(reports: TrialReport[], key: 'unpriced' | 'priced'): number {
+  return reports.reduce((sum, report) => sum + report[key], 0);
 }
 
 /** Recorded mode: each trace's records become one trial, matched to a case by its eval stamp. */
@@ -448,7 +525,8 @@ async function gradeRecorded(grading: Grading, records: TraceRecord[]): Promise<
     byCase,
     caseless,
     costUsd: summedCost(reports),
-    unpriced: summedUnpriced(reports),
+    unpriced: summedCalls(reports, 'unpriced'),
+    priced: summedCalls(reports, 'priced'),
     skipped,
   };
 }
@@ -502,7 +580,8 @@ async function runLive(
     caseless: [],
     ...(stopped ? { stopped } : {}),
     costUsd,
-    unpriced: summedUnpriced(all),
+    unpriced: summedCalls(all, 'unpriced'),
+    priced: summedCalls(all, 'priced'),
   };
 }
 
@@ -555,6 +634,13 @@ async function runSuite(loaded: LoadedSuite, options: RunSuiteOptions = {}): Pro
       rule,
     ),
   );
+  const decided = verdicts.filter((verdict) => verdict.decided);
+  const undecided = verdicts.length - decided.length;
+  if (undecided > 0) {
+    warnings.push(
+      `${undecided} case(s) undecided: too few of their trials escaped error to apply the pass rule, so no pass rate counts them`,
+    );
+  }
   const run = await buildRunRecord({
     suite: {
       id: suite.id,
@@ -574,17 +660,20 @@ async function runSuite(loaded: LoadedSuite, options: RunSuiteOptions = {}): Pro
     suite: suite.id,
     mode: options.recorded !== undefined ? 'recorded' : 'live',
     repeat,
+    passRule: rule,
     verdicts,
     trials,
     caseless: ran.caseless,
-    passed: ran.stopped === undefined && verdicts.every((verdict) => verdict.passed),
+    passed:
+      ran.stopped === undefined && decided.length > 0 && decided.every((verdict) => verdict.passed),
     ...(ran.stopped ? { stopped: ran.stopped } : {}),
     costUsd: ran.costUsd,
     unpriced: ran.unpriced,
+    priced: ran.priced,
     warnings,
     run,
   };
 }
 
-export type { RunSuiteOptions, SuiteRun, TrialReport };
+export type { RunSuiteOptions, SuiteRun, TrialReport, TurnShape };
 export { runSuite };

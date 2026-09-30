@@ -28,10 +28,14 @@ import {
   runDecision,
   runTurn,
 } from '../../kernel/default-scope.ts';
+import { mimeAllowed, profileAccept } from '../../kernel/registry/catalog.ts';
 import type {
   DecisionAnswer,
   DecisionChoiceQuestion,
+  DecisionJson,
   StructuredSpec,
+  TurnBlob,
+  TurnMediaRef,
   TurnRequest,
 } from '../../kernel/types.ts';
 import { isRecord } from '../../kernel/util/record.ts';
@@ -41,8 +45,9 @@ import { formatTraceparent } from '../../observability/trace-span.ts';
 import { type EvalRubric, fillRubric } from '../rubrics/types.ts';
 import { buildTrial } from '../trial.ts';
 import type { EvalGradeContext, EvalGrader, EvalResult, Trial } from '../types.ts';
-import { deliveredJson } from './shared.ts';
-import { TRIAL_VARIABLES, trialVariables } from './transcript.ts';
+import { resolveMedia, trialMedia } from './media.ts';
+import { deliveredJson, deliveredText } from './shared.ts';
+import { rubricView, TRIAL_VARIABLES } from './transcript.ts';
 
 /** The structured schema id a text judge profile's `outputs.structured` must name. */
 const EVAL_JUDGMENT = 'evalJudgment';
@@ -55,6 +60,24 @@ const UNKNOWN_CRITERION = 'The record does not show enough to decide.';
 
 /** The question id a decision judge answers under. */
 const VERDICT = 'verdict';
+
+/** Stops where the turn broke rather than ended. */
+const FAILED_STOPS: ReadonlySet<string> = new Set([
+  'provider_error',
+  'cancelled',
+  'stream_incomplete',
+  'interrupted',
+]);
+
+/** Why a turn cannot be judged: it broke, or it delivered nothing to judge. */
+function turnFailure(trial: Trial): string | undefined {
+  const stop = trial.root.attributes['theorem.stop.kind'];
+  if (typeof stop === 'string' && FAILED_STOPS.has(stop)) return `the turn stopped with ${stop}`;
+  if (deliveredText(trial, undefined) === '' && deliveredJson(trial) === undefined) {
+    return `the turn delivered nothing${typeof stop === 'string' ? ` (stopped ${stop})` : ''}`;
+  }
+  return undefined;
+}
 
 /** What a judge answered. */
 interface Judgment {
@@ -165,6 +188,19 @@ function judgeStamp(trial: Trial, grader: string): Record<string, unknown> {
   };
 }
 
+/** What every judge call carries: its stamp, the trial span it runs under, the run's signal. */
+function judgeCall(
+  trial: Trial,
+  grader: string,
+  context: EvalGradeContext,
+): { metadata: Record<string, unknown>; traceparent?: string; signal?: AbortSignal } {
+  return {
+    metadata: judgeStamp(trial, grader),
+    ...(context.traceparent ? { traceparent: context.traceparent } : {}),
+    ...(context.signal ? { signal: context.signal } : {}),
+  };
+}
+
 function parseJudgment(value: unknown): Judgment | undefined {
   if (!isRecord(value)) return undefined;
   const { label, explanation } = value;
@@ -179,6 +215,8 @@ async function askText(args: {
   profile: string;
   grader: string;
   context: EvalGradeContext;
+  /** The media the prompt names, for the judge to see beside it. */
+  attachments: Array<TurnBlob | TurnMediaRef>;
 }): Promise<JudgeRun> {
   const { context } = args;
   if (!context.judgeProvider) {
@@ -188,10 +226,11 @@ async function askText(args: {
   let error: string | undefined;
   const request: TurnRequest = {
     profile: args.profile,
-    input: { text: args.prompt },
-    metadata: judgeStamp(args.trial, args.grader),
-    ...(context.traceparent ? { traceparent: context.traceparent } : {}),
-    ...(context.signal ? { signal: context.signal } : {}),
+    input: {
+      text: args.prompt,
+      ...(args.attachments.length > 0 ? { attachments: args.attachments } : {}),
+    },
+    ...judgeCall(args.trial, args.grader, context),
   };
   try {
     for await (const _event of runTurn(request, context.judgeProvider, memorySink(records))) {
@@ -262,7 +301,7 @@ async function askDecision(args: {
   trial: Trial;
   rubric: EvalRubric;
   rule: ChoiceRule;
-  state: Record<string, string>;
+  state: Record<string, DecisionJson>;
   profile: string;
   grader: string;
   context: EvalGradeContext;
@@ -286,9 +325,7 @@ async function askDecision(args: {
         profile: args.profile,
         state: args.state,
         questions: { [VERDICT]: question },
-        metadata: judgeStamp(args.trial, args.grader),
-        ...(context.traceparent ? { traceparent: context.traceparent } : {}),
-        ...(context.signal ? { signal: context.signal } : {}),
+        ...judgeCall(args.trial, args.grader, context),
       },
       { ...context.judgeDecision, sink: memorySink(records) },
     );
@@ -315,14 +352,14 @@ function escalated(decision: JudgeRun, text: JudgeRun): JudgeRun {
   };
 }
 
-/** The rubric's variables as the state a decision judge reads; a variable the values lack is a config error. */
+/** The rubric's variables as the state a decision judge reads; a variable the view lacks is a config error. */
 function stateOf(
   rubric: EvalRubric,
-  values: Readonly<Record<string, string>>,
-): Record<string, string> {
-  const state: Record<string, string> = {};
+  view: Readonly<Record<string, DecisionJson>>,
+): Record<string, DecisionJson> {
+  const state: Record<string, DecisionJson> = {};
   for (const variable of rubric.variables) {
-    const value = values[variable];
+    const value = view[variable];
     if (value === undefined) {
       throw new TheoremError('config', `rubric ${rubric.name}: no value for ${variable}`); // lexicon-exempt: developer contract error
     }
@@ -449,23 +486,58 @@ function judge(options: JudgeOptions): EvalGrader {
   ].join('\n');
 
   const grade = async (trial: Trial, context: EvalGradeContext): Promise<EvalResult> => {
+    const notJudged = (why: string): EvalResult => ({
+      name,
+      source: 'model',
+      explanation: `${why}; not judged`,
+    });
+    const failure = turnFailure(trial);
+    if (failure) return notJudged(failure);
     const profile = judgeProfile(context.judge);
-    const values = { ...trialVariables(trial), ...(options.variables?.(trial) ?? {}) };
-    const text = (textProfile: string) =>
-      askText({
+    const view = rubricView(rubric, trial, options.variables?.(trial) ?? {});
+    const read = JSON.stringify(view);
+    const media = trialMedia(trial).filter((item) => read.includes(item.label));
+    const resolved = await resolveMedia(trial, media, context);
+    if ('missing' in resolved) {
+      return notJudged(`the judge could not be shown ${resolved.missing.join(', ')}`);
+    }
+    const { attachments } = resolved;
+    const text = (textProfile: string) => {
+      const refused = attachments.filter(
+        (item) =>
+          !mimeAllowed(profileAccept(getProfile(textProfile), 'attachments') ?? [], item.mimeType),
+      );
+      if (refused.length > 0) {
+        throw configError(
+          name,
+          `judge profile ${textProfile} must accept ${[...new Set(refused.map((item) => item.mimeType))].join(', ')} to see the media it judges`,
+        );
+      }
+      return askText({
         trial,
-        prompt: fillRubric(rubric, values),
+        prompt: fillRubric(rubric, view),
         profile: textProfile,
         grader: name,
         context,
+        attachments,
       });
+    };
     if (judgeKind(name, rubric, profile) === 'text')
       return resultOf(await text(profile), rubric, name, pass);
+    if (attachments.length > 0) {
+      // A decision judge reads JSON state only; media goes to the text judge or goes unjudged.
+      if (!options.escalate) {
+        return notJudged(
+          `decision judge ${profile} cannot see ${media.map((item) => item.label).join(', ')} and no escalate judge can`,
+        );
+      }
+      return resultOf(await text(options.escalate), rubric, name, pass);
+    }
     const run = await askDecision({
       trial,
       rubric,
       rule,
-      state: stateOf(rubric, values),
+      state: stateOf(rubric, view),
       profile,
       grader: name,
       context,
@@ -475,7 +547,11 @@ function judge(options: JudgeOptions): EvalGrader {
     return resultOf(escalated(run, await text(options.escalate)), rubric, name, pass);
   };
 
-  return { name, identity, source: 'model', needsExpect: false, judgeProfile, grade };
+  const judgeProfiles = (suiteJudge: string | undefined): string[] => [
+    judgeProfile(suiteJudge),
+    ...(options.escalate === undefined ? [] : [options.escalate]),
+  ];
+  return { name, identity, source: 'model', needsExpect: false, judgeProfiles, grade };
 }
 
 export type { JudgeOptions, Judgment };

@@ -6,8 +6,9 @@
  * @module
  */
 
-import type { SuiteRun } from './run.ts';
-import type { EvalResult } from './types.ts';
+import { type GroupSummary, groupSummaries } from './breakdown.ts';
+import type { SuiteRun, TurnShape } from './run.ts';
+import type { EvalPassRule, EvalResult } from './types.ts';
 import type { CaseVerdict, TrialOutcome } from './verdict.ts';
 
 interface TrialSummary {
@@ -15,6 +16,7 @@ interface TrialSummary {
   index: number;
   outcome: TrialOutcome;
   traceId?: string;
+  turn?: TurnShape;
   error?: string;
   results: EvalResult[];
 }
@@ -23,13 +25,18 @@ interface RunSummary {
   suite: string;
   mode: 'live' | 'recorded';
   repeat: number;
+  passRule: EvalPassRule;
   passed: boolean;
   stopped?: 'budget';
   /** Agent and judge spend together, over the calls that reported a cost. */
   costUsd: number;
   /** Agent turns and judge calls whose cost went unreported, in whole or part. */
   unpriced: number;
+  /** Agent turns and judge calls that reported a cost, a zero included. */
+  priced: number;
   verdicts: CaseVerdict[];
+  /** Every cased trial, then each tag's. */
+  groups: GroupSummary[];
   /** Every trial, cased then caseless. */
   trials: TrialSummary[];
   runTraceId?: string;
@@ -43,6 +50,7 @@ function summarizeRun(run: SuiteRun): RunSummary {
     index: report.index,
     outcome: report.outcome,
     ...(report.traceId ? { traceId: report.traceId } : {}),
+    ...(report.turn ? { turn: report.turn } : {}),
     ...(report.error ? { error: report.error } : {}),
     results: report.results,
   }));
@@ -51,11 +59,14 @@ function summarizeRun(run: SuiteRun): RunSummary {
     suite: run.suite,
     mode: run.mode,
     repeat: run.repeat,
+    passRule: run.passRule,
     passed: run.passed,
     ...(run.stopped ? { stopped: run.stopped } : {}),
     costUsd: run.costUsd,
     unpriced: run.unpriced,
+    priced: run.priced,
     verdicts: run.verdicts,
+    groups: groupSummaries(run),
     trials,
     ...(runTraceId ? { runTraceId } : {}),
     warnings: run.warnings,

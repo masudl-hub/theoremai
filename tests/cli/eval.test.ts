@@ -1,4 +1,4 @@
-import { assertEquals, assertStringIncludes } from '@std/assert';
+import { assertEquals, assertMatch, assertStringIncludes } from '@std/assert';
 import { evalCommand } from '../../src/cli/commands/eval.ts';
 import { main } from '../../src/cli/index.ts';
 import type { ModelProvider } from '../../src/kernel/types.ts';
@@ -50,6 +50,13 @@ Deno.test('eval runs a suite live with the host provider and prints one row per 
   assertEquals(ok, true);
   assertStringIncludes(out, 'Suite: translator.v1 (live, 2 trials per case)');
   for (const id of ['es-01', 'fr-01', 'de-01', 'ja-01']) assertStringIncludes(out, id);
+  // Every cased trial as one group: the translator's cases carry no tags and grade no answers.
+  assertStringIncludes(out, 'cases pass^k');
+  assertStringIncludes(out, 'turn median / p90');
+  assertMatch(
+    out,
+    /\n {2}all +4\/4 100% +8\/8 100% +- +\d+ms \/ \d+ms +1 \/ 1 +0 \/ 0 +completed 8/,
+  );
   assertStringIncludes(out, '4/4 cases passed');
 });
 
@@ -169,6 +176,31 @@ Deno.test('eval says a cost went unreported rather than printing zero', async ()
     evalCommand({ suite: SUITE, trials: 2 }, { provider: translator }),
   );
   assertStringIncludes(priced.out, '4/4 cases passed; cost $0.0080');
+  // A reported $0 is a cost: free calls beside unreported ones are not "not reported".
+  let calls = 0;
+  const mixed: ModelProvider = {
+    async *complete(req) {
+      const reports = calls++ % 2 === 0;
+      for await (const event of translator.complete(req)) {
+        yield event.type === 'tokens'
+          ? {
+              type: 'tokens',
+              tokens: {
+                input: 20,
+                output: 10,
+                total: 30,
+                ...(reports ? { cost: { usd: 0 } } : {}),
+              },
+            }
+          : event;
+      }
+    },
+  };
+  const free = await captured(() => evalCommand({ suite: SUITE, trials: 2 }, { provider: mixed }));
+  assertStringIncludes(
+    free.out,
+    '4/4 cases passed; cost $0.0000, plus 4 calls whose cost went unreported',
+  );
 });
 
 /** Says every record is correct, for a cost of its own. */
@@ -213,5 +245,6 @@ Deno.test('eval hands a judged suite the judge provider the host passes, and its
   );
   assertEquals(down.ok, false);
   assertStringIncludes(down.out, 'correctness:');
-  assertStringIncludes(down.out, '0/4 cases passed');
+  // A judge that failed every trial decided nothing: no case failed, none passed.
+  assertStringIncludes(down.out, '0/0 cases passed (+4 undecided)');
 });

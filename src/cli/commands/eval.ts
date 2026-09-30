@@ -1,17 +1,11 @@
-/**
- * `agents eval <suite>`: load a suite module, run it live (with the provider
- * the host passes or the suite exports) or over recorded traces, and print
- * every case's verdict. Exit status follows the pass threshold.
- *
- * @module
- */
-
+import { groupSummaries, type Spread } from '../../evals/breakdown.ts';
 import { runSuite, type SuiteRun, type TrialReport } from '../../evals/run.ts';
 import { loadSuite, readTraceRecords } from '../../evals/suite.ts';
 import { summarizeRun } from '../../evals/summary.ts';
+import type { EvalMediaResolver, EvalPassRule } from '../../evals/types.ts';
 import type { RunDecisionOptions } from '../../kernel/engine/decision.ts';
 import type { ModelProvider } from '../../kernel/types.ts';
-import { jsonlSink } from '../../observability/trace.ts';
+import { jsonlSink } from '../../observability/jsonl.ts';
 
 export interface EvalOptions {
   /** Path of the suite module (`export default` an `EvalSuite`). */
@@ -43,12 +37,18 @@ function failed(message: string): false {
   return false;
 }
 
+/** Passed over decided cases: a case every trial of which errored is not a failure. */
 function fraction(run: SuiteRun): number {
-  if (run.verdicts.length === 0) return 0;
-  return run.verdicts.filter((verdict) => verdict.passed).length / run.verdicts.length;
+  const decided = run.verdicts.filter((verdict) => verdict.decided);
+  if (decided.length === 0) return 0;
+  return decided.filter((verdict) => verdict.passed).length / decided.length;
 }
 
-/** The results that kept a trial from passing, worded by their graders. */
+/** `part/whole pct`, with what the pass rate leaves out after it. */
+function rate(part: number, whole: number, left: number, what: string): string {
+  return `${part}/${whole} ${percent(part, whole)}${left > 0 ? ` (+${left} ${what})` : ''}`;
+}
+
 function blame(report: TrialReport): string[] {
   return report.results.flatMap((result) => {
     if (result.passed === true) return [];
@@ -62,8 +62,61 @@ function blame(report: TrialReport): string[] {
 function costLine(run: SuiteRun): string {
   if (run.unpriced === 0) return `cost $${run.costUsd.toFixed(4)}`;
   const calls = `${run.unpriced} call${run.unpriced === 1 ? '' : 's'}`;
-  if (run.costUsd === 0) return `cost not reported (${calls})`;
+  if (run.priced === 0) return `cost not reported (${calls})`;
   return `cost $${run.costUsd.toFixed(4)}, plus ${calls} whose cost went unreported`;
+}
+
+/** What a case passing means under the rule, over `k` trials. */
+function ruleName(rule: EvalPassRule): string {
+  if (rule === 'all') return 'pass^k';
+  if (rule === 'any') return 'pass@k';
+  return `>=${rule.atLeast}/k`;
+}
+
+function percent(part: number, whole: number): string {
+  return whole === 0 ? '-' : `${Math.round((part / whole) * 100)}%`;
+}
+
+function spreadText(spread: Spread | undefined, unit = ''): string {
+  return spread ? `${spread.median}${unit} / ${spread.p90}${unit}` : '-';
+}
+
+/** Every cased trial, then each tag's: how often right, how consistently, how long, how many loops. */
+function printGroups(run: SuiteRun): void {
+  const groups = groupSummaries(run);
+  const rows = groups.map((group) => [
+    group.group,
+    rate(group.casesPassed, group.cases - group.casesUndecided, group.casesUndecided, 'undecided'),
+    rate(group.trialsPassed, group.trials - group.trialsErrored, group.trialsErrored, 'errored'),
+    group.answers
+      ? `${group.answers.accepted}/${group.answers.partial}/${group.answers.wrong}${group.answers.none > 0 ? ` (+${group.answers.none} none)` : ''}`
+      : '-',
+    spreadText(group.durationMs, 'ms'),
+    spreadText(group.modelCalls),
+    spreadText(group.toolCalls),
+    Object.entries(group.stops)
+      .toSorted(([a], [b]) => a.localeCompare(b))
+      .map(([stop, count]) => `${stop} ${count}`)
+      .join(', ') || '-',
+  ]);
+  const header = [
+    'group',
+    `cases ${ruleName(run.passRule)}`,
+    'trials passed',
+    'accepted/partial/wrong',
+    'turn median / p90',
+    'model calls',
+    'tool calls',
+    'stops',
+  ];
+  const widths = header.map((title, column) =>
+    Math.max(title.length, ...rows.map((row) => row[column]?.length ?? 0)),
+  );
+  const line = (cells: string[]) =>
+    `  ${cells.map((cell, column) => cell.padEnd(widths[column] ?? 0)).join('  ')}`;
+  console.log('');
+  console.log(line(header));
+  for (const row of rows) console.log(line(row));
 }
 
 function printTable(run: SuiteRun): void {
@@ -71,8 +124,12 @@ function printTable(run: SuiteRun): void {
   console.log(`\n▶ [EVAL] Suite: ${run.suite} (${run.mode}, ${run.repeat} trials per case)\n`);
   console.log(`  ${'case'.padEnd(width)}  kind        passed  result`);
   for (const verdict of run.verdicts) {
-    const mark = verdict.passed ? `${GREEN}pass${RESET}` : `${RED}fail${RESET}`;
-    const counts = `${verdict.trialsPassed}/${verdict.trials}`;
+    const mark = verdict.passed
+      ? `${GREEN}pass${RESET}`
+      : verdict.decided
+        ? `${RED}fail${RESET}`
+        : `${YELLOW}undecided${RESET}`;
+    const counts = `${verdict.trialsPassed}/${verdict.trials - verdict.trialsErrored}`;
     const extra = [
       verdict.trialsErrored > 0 ? `${verdict.trialsErrored} errored` : '',
       verdict.trialsUngraded > 0 ? `${verdict.trialsUngraded} ungraded` : '',
@@ -98,8 +155,13 @@ function printTable(run: SuiteRun): void {
       `\n  ${DIM}${run.caseless.length} trace(s) carried no case stamp for this suite; graded without a case, no verdict.${RESET}`,
     );
   }
+  printGroups(run);
   const passed = run.verdicts.filter((verdict) => verdict.passed).length;
-  console.log(`\n  ${passed}/${run.verdicts.length} cases passed; ${costLine(run)}`);
+  const decided = run.verdicts.filter((verdict) => verdict.decided).length;
+  const undecided = run.verdicts.length - decided;
+  console.log(
+    `\n  ${passed}/${decided} cases passed${undecided > 0 ? ` (+${undecided} undecided)` : ''}; ${costLine(run)}`,
+  );
   if (run.stopped) console.log(`  ${YELLOW}stopped on ${run.stopped}${RESET}`);
   for (const warning of run.warnings) console.log(`  ${YELLOW}warning${RESET}: ${warning}`);
   console.log('');
@@ -117,18 +179,16 @@ export interface EvalHost {
   judgeProvider?: ModelProvider;
   /** The key for decision judge profiles (Jev). */
   judgeDecision?: Omit<RunDecisionOptions, 'sink'>;
+  /** Where a judge finds media a trace names only by hash. */
+  media?: EvalMediaResolver;
 }
 
 /**
- * Run or grade a suite and report it. Returns whether the run met the
- * threshold; a run stopped on budget never does. The CLI never creates a
- * provider or reads a key: live mode takes the provider the host passes or
- * the suite exports; a text judge takes `judgeProvider`, the suite's
- * `judgeProvider` export, or the agent's provider; a decision judge takes
- * `judgeDecision` or the suite's `judgeDecision` export.
+ * Returns whether the run met the threshold; a run stopped on budget never does. The CLI never
+ * creates a provider or reads a key: the host passes them or the suite module exports them.
  */
 export async function evalCommand(options: EvalOptions, host: EvalHost = {}): Promise<boolean> {
-  const { provider, judgeProvider, judgeDecision } = host;
+  const { provider, judgeProvider, judgeDecision, media } = host;
   const threshold = options.threshold ?? 1;
   if (!(threshold >= 0 && threshold <= 1)) return failed('--threshold is a fraction from 0 to 1.');
   if (options.trials !== undefined && !(Number.isInteger(options.trials) && options.trials > 0)) {
@@ -155,6 +215,7 @@ export async function evalCommand(options: EvalOptions, host: EvalHost = {}): Pr
       ...(live ? { provider: live } : {}),
       ...(judgeProvider ? { judgeProvider } : {}),
       ...(judgeDecision ? { judgeDecision } : {}),
+      ...(media ? { media } : {}),
       ...(options.trials !== undefined ? { repeat: options.trials } : {}),
       ...(options.concurrency !== undefined ? { concurrency: options.concurrency } : {}),
       ...(options.maxCostUsd !== undefined ? { maxCostUsd: options.maxCostUsd } : {}),

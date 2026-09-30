@@ -6,13 +6,22 @@
  * @module
  */
 
+import { readdir, readFile, stat } from 'node:fs/promises';
+import { cwd } from 'node:process';
 import type { z } from 'zod';
 import { TheoremError } from '../guardrails/error.ts';
 import type { RunDecisionOptions } from '../kernel/engine/decision.ts';
 import type { ModelProvider } from '../kernel/types.ts';
 import { isRecord } from '../kernel/util/record.ts';
 import { type TraceRecord, traceRecordSchema } from '../observability/trace-schema.ts';
-import { type EvalCase, type EvalSuite, evalCaseSchema, evalSuiteSchema } from './types.ts';
+import { pinCaseFiles } from './attachments.ts';
+import {
+  type EvalCase,
+  type EvalMediaResolver,
+  type EvalSuite,
+  evalCaseSchema,
+  evalSuiteSchema,
+} from './types.ts';
 
 /** A suite with its cases read in. */
 interface LoadedSuite {
@@ -24,6 +33,8 @@ interface LoadedSuite {
   judgeProvider?: ModelProvider;
   /** The key for decision judge profiles, when the module exported one (`export const judgeDecision`). */
   judgeDecision?: Omit<RunDecisionOptions, 'sink'>;
+  /** Where a judge finds media by hash, when the module exported it (`export const media`). */
+  media?: EvalMediaResolver;
   /** Absolute path of the suite module. */
   path: string;
 }
@@ -38,7 +49,7 @@ function isDecisionKey(value: unknown): value is Omit<RunDecisionOptions, 'sink'
 }
 
 function absolute(path: string): string {
-  return path.startsWith('/') ? path : `${Deno.cwd()}/${path}`;
+  return path.startsWith('/') ? path : `${cwd()}/${path}`;
 }
 
 function siblingOf(modulePath: string, relative: string): string {
@@ -48,7 +59,7 @@ function siblingOf(modulePath: string, relative: string): string {
 
 /** Every non-blank line of a JSONL file, parsed and validated; the line number names a bad one. */
 async function readJsonl<T>(path: string, schema: z.ZodType<T>, what: string): Promise<T[]> {
-  const text = await Deno.readTextFile(path);
+  const text = await readFile(path, 'utf8');
   const out: T[] = [];
   const lines = text.split('\n');
   for (const [index, line] of lines.entries()) {
@@ -76,11 +87,11 @@ async function readJsonl<T>(path: string, schema: z.ZodType<T>, what: string): P
 /** The trace records in one JSONL file, or in every `.jsonl` file of a directory. */
 async function readTraceRecords(path: string): Promise<TraceRecord[]> {
   const target = absolute(path);
-  const info = await Deno.stat(target);
-  if (!info.isDirectory) return readJsonl(target, traceRecordSchema, 'trace record');
+  const info = await stat(target);
+  if (!info.isDirectory()) return readJsonl(target, traceRecordSchema, 'trace record');
   const files: string[] = [];
-  for await (const entry of Deno.readDir(target)) {
-    if (entry.isFile && entry.name.endsWith('.jsonl')) files.push(`${target}/${entry.name}`);
+  for (const entry of await readdir(target, { withFileTypes: true })) {
+    if (entry.isFile() && entry.name.endsWith('.jsonl')) files.push(`${target}/${entry.name}`);
   }
   files.sort();
   const records: TraceRecord[] = [];
@@ -91,7 +102,7 @@ async function readTraceRecords(path: string): Promise<TraceRecord[]> {
 
 /**
  * Import a suite module (`export default` an `EvalSuite`, optionally
- * `export const provider`, `judgeProvider` and `judgeDecision`), then read
+ * `export const provider`, `judgeProvider`, `judgeDecision` and `media`), then read
  * its cases from the file it names, relative to the module.
  */
 async function loadSuite(modulePath: string): Promise<LoadedSuite> {
@@ -109,7 +120,8 @@ async function loadSuite(modulePath: string): Promise<LoadedSuite> {
     );
   }
   const suite = parsed.data;
-  const cases = await readJsonl(siblingOf(path, suite.cases), evalCaseSchema, 'case');
+  const casesPath = siblingOf(path, suite.cases);
+  const cases = await readJsonl(casesPath, evalCaseSchema, 'case');
   const ids = new Set<string>();
   for (const evalCase of cases) {
     if (ids.has(evalCase.id)) {
@@ -119,11 +131,12 @@ async function loadSuite(modulePath: string): Promise<LoadedSuite> {
   }
   return {
     suite,
-    cases,
+    cases: await pinCaseFiles(cases, casesPath),
     path,
     ...(isProvider(module.provider) ? { provider: module.provider } : {}),
     ...(isProvider(module.judgeProvider) ? { judgeProvider: module.judgeProvider } : {}),
     ...(isDecisionKey(module.judgeDecision) ? { judgeDecision: module.judgeDecision } : {}),
+    ...(typeof module.media === 'function' ? { media: module.media as EvalMediaResolver } : {}),
   };
 }
 

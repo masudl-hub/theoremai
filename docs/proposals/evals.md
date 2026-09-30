@@ -172,7 +172,7 @@ Stays a smoke test; the name is honest and the matrix synthesizer is useful. Two
 
 | Where | Change |
 |---|---|
-| `src/evals/` (new) | `types.ts` (zod: `evalSuiteSchema`, `evalCaseSchema`, `evalResultSchema`), `trial.ts` (records → `Trial`, root-by-parent), `graders/{code,live,judge}.ts`, `rubrics/` (correctness, faithfulness and tool selection: the phoenix-evals prompts with Apache-2.0 attribution, plus a question for Jev each; `rubric()` for a host's own), `run.ts` (`runSuite`), `record.ts` (trial/run span builders on `startTrace`), `summary.ts` (`--json`), `mod.ts` |
+| `src/evals/` (new) | `types.ts` (zod: `evalSuiteSchema`, `evalCaseSchema`, `evalResultSchema`), `trial.ts` (records → `Trial`, root-by-parent), `graders/{code,live,judge}.ts`, `rubrics/` (Phoenix's fourteen classification prompts, copied by `rubrics:sync` into `catalog.ts` with Apache-2.0 attribution, Jev's question derived from each; `rubric()` for a host's own), `run.ts` (`runSuite`), `record.ts` (trial/run span builders on `startTrace`), `summary.ts` (`--json`), `mod.ts` |
 | `deno.json` | export `./evals`; tasks `evals:example`, `evals:phoenix` |
 | `src/cli/commands/eval.ts` (new) | `agents eval <suite> [--trials k] [--recorded <path>] [--trace-dir] [--json] [--max-cost-usd] [--threshold] [--concurrency]` |
 | `src/cli/commands/test.ts` | the two P9 edits above |
@@ -279,7 +279,7 @@ Masud's review: THEOREM cannot maintain a custom evaluation system, so everythin
 
 | Was | Now | Why |
 |---|---|---|
-| D1: every phoenix-evals rubric ported; code evaluators written against label sets | Three rubrics ship (`correctness`, `faithfulness`, `toolSelection`), each with a prompt and a Jev question; `rubric()` builds the rest. `labelMetrics` cut. | Fourteen prompts are fourteen things to keep in step with upstream; a host copies the one it needs. |
+| D1: every phoenix-evals rubric ported; code evaluators written against label sets | Three rubrics shipped (`correctness`, `faithfulness`, `toolSelection`), each with a prompt and a Jev question; `rubric()` built the rest. `labelMetrics` cut. Reversed 28/09: all fourteen, copied from Phoenix (below). | Fourteen prompts are fourteen things to keep in step with upstream; a host copies the one it needs. |
 | D4, D5: `agents eval calibrate` prints the agreement checklist; `agents eval compare` pairs runs | Both cut, with `EvalLabel`, `labels.jsonl` and `suite.calibration`. Results go to Phoenix as span annotations (`phoenixAnnotations`); humans label, compare and read agreement there. `unknown` stays a label every judge may answer (D5's core). | The viewer already has labelling, annotation views and experiment comparison; ours would be a second one to maintain. |
 | D11: `judge({ judges: n, agree: m })` | Cut. A host that wants two opinions adds two graders over one rubric, each naming its judge profile; both decide unless the host sets `pass`. | Two graders is the same experience with no consensus code. |
 | D12: `theorem.evaluation.span_id` blame | Cut, with the span-tagged transcript. | Nothing reads it without the labelling surface that was cut. |
@@ -299,6 +299,7 @@ Approved 28/09/2026 (Masud), after reading a run in Phoenix:
 - **Judges nest under the trial.** The trial span opens before grading and closes after, and every judge call (text or Jev) runs under it, so one trace reads turn → trial → judges in Phoenix, and the trial span's length is the grading's. The trial's judge links and `theorem.evaluation.judge.traceparent` are gone: the tree says it. The alternative, judges in traces of their own joined by links, was rejected because Phoenix does not draw links.
 - **Eval spans have a kind in Phoenix:** a trial is an `EVALUATOR`, a run a `CHAIN`, where Phoenix showed `unknown`.
 - **Phoenix shows Jev's cost.** Phoenix prices spans only from its own model table and ignores `llm.cost.total`, so `deno task phoenix:up` enters Jev in that table at the kernel's price (`JEV_USD_PER_MILLION_INPUT_TOKENS`), once however often it runs. The alternative, leaving Phoenix without a Jev price, was rejected: a judged trace would show a cost for Gemini and none for Jev.
+- **All fourteen Phoenix rubrics, read from Phoenix.** `rubrics.*` is every classification evaluator Phoenix serves, copied verbatim into `src/evals/rubrics/catalog.ts` by `deno task rubrics:sync` from the pinned Phoenix image, and rendered as the Mustache it is written in. Variables take Phoenix's names; a decision judge's question is the prompt itself with its `<data>` block pointing at the state, so the three hand-written Jev questions are gone; what passes follows Phoenix's direction. This reverses the 26/09 cut to three: the cut was about upkeep, and a copied catalog has none. The alternatives were hand-ported prompts (the upkeep that was cut) and keeping three with `rubric()` for the rest (most of Phoenix's list missing).
 - **The example writes outside the checkout.** `evals:example` records under `~/.theorem/traces/evals` by default; its old default, `.traces/evals`, was a directory the trace sink refuses, and `--phoenix` then crashed on it. A trace directory `--phoenix` cannot read is now a named failure. The alternative, requiring `--trace-dir` on every run, was rejected as friction with no safety gain.
 
 ## Addendum (25/09/2026): Perplexity, *Learning from Real-World Experience*
@@ -320,6 +321,29 @@ Blockers found in the survey, unchanged by this spec: step 6 of the traces propo
 
 When Bonsai adopts: `conversations.rating` (±1) and `user_feedback` rows become human annotations in the viewer (Amendment), written by a Bonsai-side adapter; the caseless recorded mode grades sampled production traces; the 18 facets in the stale doc become suites once each has an `expect` a human agreed to.
 
+### Identification datasets (approved 28/09/2026, Masud)
+
+The question a dataset answers: **can Bonsai identify a plant quickly and accurately at all?** Masud prepares a few thousand cases, each a photo (later a video, or a set of symptoms for a diagnosis), the right answer, and grounding notes. Bonsai gets the media, loops until it answers, and the run reports how often it was right and how long it took. A poor result is a product problem, not a tuning one.
+
+What already fits: a case carries attachments; every trial is its own turn, so no case sees another's context (the fresh Bonsai per case Masud asked for); recorded mode grades traces any agent wrote, matched to their case by the eval stamp; `concurrency`, `maxCostUsd` and `trials` hold the run's size and cost.
+
+Decisions, each the recommended experience:
+
+- **Bonsai runs the cases, THEOREM grades them.** A Bonsai-side runner reads the cases file, runs each case through Bonsai's real turn (its prompt, tools and specialists), stamps the trace with the case, and writes it to a sink; `agents eval` grades the records in recorded mode. A pass then means what a user gets. The alternative, THEOREM's runner calling Bonsai's profile directly, was rejected: it skips Bonsai's host tools and context, so a pass would be about a different agent. Blocked on step 6 of the traces proposal landing in Bonsai (above).
+- **Media is a file next to the cases, pinned by hash.** An attachment is either `data` (base64, as now) or `path` (relative to the cases file) with `sha256`; the runner refuses a file whose hash differs. Thousands of photos inline would make the cases file gigabytes, and video worse. Rejected: URLs (a run then depends on the network and on the file not changing behind it) and inline only (does not scale).
+- **Right is a list of accepted answers, graded by code alone.** `expect.answer` is `{ accepted: string[], partial?: string[], reference?: string }`: `accepted` the names that count (scientific name, synonyms, common names), `partial` the answers that are close but not enough (the genus; for a diagnosis, the broader condition), `reference` the grounding notes for the person reading a miss. A code grader, `answer`, labels each trial `accepted`, `partial` or `wrong` without a model; only `accepted` passes. No judge: a dataset comparison is deterministic, and a miss is for a person to investigate in the run (amended 28/09/2026, Masud, replacing a judge on the misses). An unlisted synonym counts as `wrong` until it is added to the case. Rejected: a judge on the misses or on every trial (model noise on a question the list settles).
+- **Time to identification is the whole turn.** From the media handed over to the final answer: the host root span's length, reported as median and 90th percentile, with the loop's model calls and tool calls counted beside it. `turnLatency` (time to the first chunk) is the wrong clock here: Bonsai can start talking long before it has an answer. Rejected for now: time to the moment the answer is committed, which needs an answer marker in the trace that does not exist.
+- **One turn, no follow-up.** If Bonsai asks for another photo, the trial ends there, labelled by what it answered (usually `wrong`). Rejected for the first slice: a simulated user answering from the reference, which is closer to life but adds a second model's noise; worth adding once the single-turn numbers exist.
+- **One trial per case over the full set, three on a sample.** Thousands of cases give the accuracy its precision; three trials on a sample stratified by tag measure how much a rerun moves it. Rejected: three trials on every case (three times the cost for precision the case count already gives).
+- **Reported by tag.** The summary gives accuracy (`accepted` / `partial` / `wrong`) and time per tag as well as overall, so "fast on houseplants, lost on succulents" and "photos fine, video not" are visible. A case's media type is a tag.
+
+- **The suite says where `answer` reads the answer** (Masud, 28/09/2026). The suite names a field: a key of JSON in the reply, or an argument of a tool call Bonsai makes when it commits; absent, the reply text is searched for the accepted names. So Bonsai's answer can take whatever shape its product needs. Rejected: reply text only ("not Monstera" would match Monstera) and a required JSON field (a format the eval would impose on Bonsai).
+- **Judges see what the agent saw.** Wherever a judge does run (not on these datasets), it is shown the turn's media, or it is not judging (Masud, 28/09/2026). Traces keep a file's hash and size, never its bytes, so the judge's copy comes from the case's attachments (matched by hash) or a host `media` resolver whose bytes must hash to the trace's; with neither, the trial is not judged. A decision judge cannot see media, so a rubric that reads it goes to the `escalate` text judge. Chosen as the cheapest route to real judging: no bytes in traces, one extra image per judge call, and only on rubrics that read the media.
+
+Open, for Masud before building:
+
+- **The sample's size** for the three-trial pass, set once the dataset and its tags exist.
+
 ## Implementation order (decisions locked; waiting on "go" and a branch name)
 
 1. `src/evals/types.ts`, `trial.ts`, code graders, `record.ts`, catalog entries, contract tests — no model in the loop.
@@ -328,7 +352,7 @@ When Bonsai adopts: `conversations.rating` (±1) and `user_feedback` rows become
 4. ~~`calibrate` and `compare`~~ (built, then cut in the Amendment).
 5. Live scripted text mode + live-greeter suite (audio steps are V2a, with Q4/Q5).
 6. Collector + Phoenix Docker run (Q1, Q2), `docs/contracts/evals.md`, `cli.md`, `observability.md`, README section.
-7. Bonsai (separate spec, after step 6 of the traces proposal lands there).
+7. Bonsai (separate spec, after step 6 of the traces proposal lands there): first the identification datasets above (`path` attachments, `expect.answer`, the `answer` grader, per-tag summary; built in THEOREM 28/09/2026, see `docs/contracts/evals.md`), then the Bonsai-side runner.
 
 ## Sources
 

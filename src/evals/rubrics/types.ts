@@ -9,6 +9,7 @@
  */
 
 import { TheoremError } from '../../guardrails/error.ts';
+import { renderTemplate, templateVariables } from './mustache.ts';
 
 /** What a decision judge answers: instructions, and one criterion per label. */
 export interface EvalRubricQuestion {
@@ -24,16 +25,17 @@ export interface EvalRubric {
   /** One line on what the rubric measures. */
   description: string;
   /**
-   * What the judge reads from the trace: the prompt's `{{variables}}`, and
-   * the keys of the state a decision judge reads. Each is a standard trace
-   * variable or one the grader's `variables` option supplies.
+   * What the judge reads from the trace: the names the prompt reads outside
+   * any section (`output` for `{{#output.messages}}`), and the keys of the
+   * state a decision judge reads. Each is a standard trace variable or one
+   * the grader's `variables` option supplies.
    */
   variables: readonly string[];
   /** The labels the judge may answer with, each mapped to the result's `score.value`. */
   labels: Readonly<Record<string, number>>;
   /** Labels that pass. Absent: the result informs but never decides a trial. */
   pass?: readonly string[];
-  /** The prompt a text judge fills, with `{{variable}}` placeholders. Absent: no text judge can run it. */
+  /** The Mustache prompt a text judge fills (`mustache.ts`). Absent: no text judge can run it. */
   template?: string;
   /** The question a decision judge answers over the variables as state. Absent: no decision judge can run it. */
   question?: EvalRubricQuestion;
@@ -43,17 +45,13 @@ function configError(rubric: string, message: string): TheoremError {
   return new TheoremError('config', `rubric ${rubric}: ${message}`); // lexicon-exempt: developer contract error
 }
 
-/** Fill every `{{variable}}` of the template; a rubric without one, or a variable the values lack, is a config error. */
-function fillRubric(rubric: EvalRubric, values: Readonly<Record<string, string>>): string {
+/** Render the prompt over the view; a rubric without one, or a variable the view lacks, is a config error. */
+function fillRubric(rubric: EvalRubric, view: Readonly<Record<string, unknown>>): string {
   if (rubric.template === undefined)
     throw configError(rubric.name, 'has no prompt for a text judge');
-  const missing = rubric.variables.filter((name) => values[name] === undefined);
+  const missing = rubric.variables.filter((name) => view[name] === undefined);
   if (missing.length > 0) throw configError(rubric.name, `no value for ${missing.join(', ')}`);
-  return rubric.template.replace(/\{\{(\w+)\}\}/g, (whole, name: string) => values[name] ?? whole);
-}
-
-function templateVariables(template: string): string[] {
-  return [...new Set([...template.matchAll(/\{\{(\w+)\}\}/g)].map((m) => m[1] ?? ''))];
+  return renderTemplate(rubric.template, view);
 }
 
 /** The rubric's variables: the prompt's when it has one (and `variables`, when given, must match them). */

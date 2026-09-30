@@ -1,11 +1,7 @@
-/**
- * Shared CLI turn-event printing and trace capture for `run` and `test`.
- *
- * @module
- */
-
+import { stdout } from 'node:process';
 import type { TurnEvent, TurnEventOf } from '../kernel/turn-events.ts';
-import { jsonlSink, memorySink } from '../observability/trace.ts';
+import { jsonlSink } from '../observability/jsonl.ts';
+import { memorySink } from '../observability/trace.ts';
 import { inlineContent, type TraceRecord } from '../observability/trace-record.ts';
 import type { TraceSink } from '../observability/trace-sink.ts';
 
@@ -18,7 +14,6 @@ export interface CliTraceCapture {
   records: TraceRecord[];
 }
 
-/** Attach an in-memory trace sink; optionally mirror to a JSONL directory. */
 function createCliTraceCapture(traceDir?: string): CliTraceCapture {
   const records: TraceRecord[] = [];
   const sinks: TraceSink[] = [memorySink(records)];
@@ -68,18 +63,15 @@ function printRunEvidence(event: TurnEventOf<'evidence'>, verbose: boolean): voi
   }
 }
 
-/** Print one turn event for `agents run`. */
 function printRunEvent(event: TurnEvent, options: CliEventLogOptions = {}): void {
   const verbose = options.verbose === true;
 
   if (event.type === 'thought' && event.text) {
-    Deno.stdout.write(new TextEncoder().encode(`\x1b[2m${event.text}\x1b[0m`));
+    stdout.write(`\x1b[2m${event.text}\x1b[0m`);
   } else if (event.type === 'text' && event.text) {
-    Deno.stdout.write(new TextEncoder().encode(event.text));
+    stdout.write(event.text);
   } else if (event.type === 'tool' && event.tool.phase === undefined) {
-    Deno.stdout.write(
-      new TextEncoder().encode(`\n\x1b[33m⚡ [Tool Call] ${event.tool.name}\x1b[0m: `),
-    );
+    stdout.write(`\n\x1b[33m⚡ [Tool Call] ${event.tool.name}\x1b[0m: `);
     console.log(event.tool.arguments);
   } else if (event.type === 'evidence') {
     printRunEvidence(event, verbose);
@@ -112,12 +104,11 @@ function printTestEvidence(event: TurnEventOf<'evidence'>, verbose: boolean): vo
   }
 }
 
-/** Print one turn event for `agents test`. */
 function printTestEvent(event: TurnEvent, options: CliEventLogOptions = {}): void {
   const verbose = options.verbose === true;
 
   if (event.type === 'thought' && event.text) {
-    Deno.stdout.write(new TextEncoder().encode('.'));
+    stdout.write('.');
   } else if (event.type === 'tool' && event.tool.phase === undefined) {
     console.log(
       `\n  ⚡ [Tool Dispatched] ${event.tool.name}(${JSON.stringify(event.tool.arguments)})`,
@@ -136,8 +127,6 @@ function printTestEvent(event: TurnEvent, options: CliEventLogOptions = {}): voi
   }
 }
 
-/** Every provider row the record holds, in span order, read back from content. */
-/** Every provider row in the record, rebuilt with its interned text. */
 function upstreamRows(record: TraceRecord): unknown[] {
   return record.spans.flatMap((span) =>
     span.events.flatMap((event) =>
@@ -146,7 +135,6 @@ function upstreamRows(record: TraceRecord): unknown[] {
   );
 }
 
-/** Dump the last captured trace record after a CLI turn. */
 function printTraceRecord(record: TraceRecord | undefined, verbose: boolean): void {
   if (!record) {
     console.error('\n\x1b[33m[trace]\x1b[0m No trace record captured for this turn.');

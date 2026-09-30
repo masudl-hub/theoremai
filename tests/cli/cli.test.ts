@@ -298,7 +298,9 @@ Deno.test('testProfileCommand --all skips profiles that run no model turn', asyn
       type: 'decision',
       id: 'cli_all_decision',
       identity: { handle: 'Decision' },
-      models: { jev: { apiId: 'jev-latest', timeoutMs: 1000 } },
+      models: {
+        jev: { protocol: 'decision', provider: 'typesafe', apiId: 'jev-latest', timeoutMs: 1000 },
+      },
       inputs: { state: 'json', maxStateBytes: 1000 },
       decision: { contract: 'test.v1' },
     }),

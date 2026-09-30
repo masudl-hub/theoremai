@@ -10,16 +10,17 @@ import { collectValidationFailures } from '../../kernel/engine/runner/schema-val
 import { isRecord } from '../../kernel/util/record.ts';
 import type { TraceSpan } from '../../observability/trace-span.ts';
 import type { EvalGrader, EvalResult, Trial } from '../types.ts';
-import { codeGrader, deliveredJson, deliveredText, listOf, passFail } from './shared.ts';
+import {
+  codeGrader,
+  deliveredJson,
+  deliveredText,
+  listOf,
+  modelCalls,
+  passFail,
+  spanDurationMs,
+} from './shared.ts';
 
 const MS_PER_S = 1000;
-const NANOS_PER_MS = 1_000_000;
-
-function spanDurationMs(span: TraceSpan): number {
-  return Number(
-    (BigInt(span.endTimeUnixNano) - BigInt(span.startTimeUnixNano)) / BigInt(NANOS_PER_MS),
-  );
-}
 
 function stringAttribute(span: TraceSpan, key: string): string | undefined {
   const value = span.attributes[key];
@@ -264,7 +265,7 @@ const BUDGET_KEYS: readonly (keyof BudgetOptions)[] = [
 
 function budgetReadings(trial: Trial): Record<keyof BudgetOptions, number | undefined> {
   const usage = trial.usage();
-  const firstChunks = [...trial.spans('chat'), ...trial.spans('generate_content')].flatMap(
+  const firstChunks = modelCalls(trial).flatMap(
     (span) => numberAttribute(span, 'gen_ai.response.time_to_first_chunk') ?? [],
   );
   return {

@@ -5,7 +5,7 @@
  * @module
  */
 
-import type { TraceAttributeValue } from '../../observability/trace-span.ts';
+import type { TraceAttributeValue, TraceSpan } from '../../observability/trace-span.ts';
 import type { EvalGrader, EvalResult, Trial } from '../types.ts';
 
 /** A code grader's result: 1 or 0, labelled `pass` or `fail`, with the reason. */
@@ -80,9 +80,37 @@ function deliveredJson(trial: Trial): unknown {
   }
 }
 
+function startOf(span: TraceSpan): bigint {
+  return BigInt(span.startTimeUnixNano ?? '0');
+}
+
+/** Every model call of the turn, in the order they started. */
+function modelCalls(trial: Trial): TraceSpan[] {
+  return [...trial.spans('chat'), ...trial.spans('generate_content')].toSorted((a, b) =>
+    Number(startOf(a) - startOf(b)),
+  );
+}
+
+const NANOS_PER_MS = 1_000_000;
+
+function spanDurationMs(span: TraceSpan): number {
+  return Number(
+    (BigInt(span.endTimeUnixNano) - BigInt(span.startTimeUnixNano)) / BigInt(NANOS_PER_MS),
+  );
+}
+
 /** Plain-language list of a set of names, or `none`. */
 function listOf(items: readonly string[]): string {
   return items.length === 0 ? 'none' : items.join(', ');
 }
 
-export { codeGrader, deliveredJson, deliveredText, listOf, passFail };
+export {
+  codeGrader,
+  deliveredJson,
+  deliveredText,
+  listOf,
+  modelCalls,
+  passFail,
+  spanDurationMs,
+  startOf,
+};

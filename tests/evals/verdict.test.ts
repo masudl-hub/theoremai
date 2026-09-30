@@ -1,6 +1,7 @@
 /**
  * Pass rules: the same three trials read as fail under `all`, pass under
- * `any`, pass under `{ atLeast: 2 }`; errors count as failed; nothing is lost.
+ * `any`, pass under `{ atLeast: 2 }`; an errored trial is one that never ran;
+ * nothing is lost.
  */
 
 import type { EvalResult } from '../../src/evals/types.ts';
@@ -37,6 +38,7 @@ Deno.test('the verdict keeps every count, zeros included', () => {
     case: 'es-01',
     kind: 'regression',
     passed: true,
+    decided: true,
     trials: 3,
     trialsPassed: 1,
     trialsErrored: 1,
@@ -50,4 +52,28 @@ Deno.test('a case whose trials were all ungraded does not pass', () => {
   assertEquals(verdict.passed, false);
   assertEquals(verdict.trialsUngraded, 2);
   assertEquals(caseVerdict(CASE, []).passed, false);
+});
+
+Deno.test('an errored trial never counts against the case: the rule reads the trials that ran', () => {
+  const verdict = (trials: EvalResult[][], rule?: Parameters<typeof caseVerdict>[2]) => {
+    const { passed, decided } = caseVerdict(CASE, trials, rule);
+    return { passed, decided };
+  };
+  // pass^k over the one trial a rate limit spared.
+  assertEquals(verdict([[pass], [errored], [errored]]), { passed: true, decided: true });
+  assertEquals(verdict([[fail], [errored], [errored]]), { passed: false, decided: true });
+  // Every trial errored: nothing to read, so neither pass nor fail.
+  assertEquals(verdict([[errored], [errored]]), { passed: false, decided: false });
+  assertEquals(verdict([[errored], [errored]], 'any'), { passed: false, decided: false });
+  // At least 2 needs two trials that ran; one met is not yet a fail.
+  assertEquals(verdict([[pass], [errored], [errored]], { atLeast: 2 }), {
+    passed: false,
+    decided: false,
+  });
+  assertEquals(verdict([[pass], [pass], [errored]], { atLeast: 2 }), {
+    passed: true,
+    decided: true,
+  });
+  // No trials at all is a failure, not an error: nothing was lost to one.
+  assertEquals(verdict([]), { passed: false, decided: true });
 });

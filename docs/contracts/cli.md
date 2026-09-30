@@ -10,13 +10,14 @@ before commands that execute turns — the CLI does not embed app profiles.
 | --- | --- |
 | Import | `@theoremjs/agents/cli` / `jsr:@theoremjs/agents/cli` |
 | Module | `src/cli/index.ts` |
-| Binary | `agents` (npm `bin`) |
+| Binary | `agents` (npm `bin` → `src/cli/bin.ts`) |
 
 ## Ownership
 
 | Path | Role |
 | --- | --- |
-| `src/cli/index.ts` | Argument parser + command dispatch |
+| `src/cli/index.ts` | Argument parser + command dispatch (`main`) |
+| `src/cli/bin.ts` | The `agents` executable: runs `main` on the process arguments |
 | `src/cli/event-log.ts` | Shared `run`/`test` event printing + `--trace` capture |
 | `src/cli/commands/*` | `bench`, `fuzz`, `test`, `run`, `eval`, `profile` |
 | `src/cli/matrix/*` | Permutation synthesizer + fixtures |
@@ -50,8 +51,9 @@ the suite module exports as `provider`. A text judge needs a provider too
 (`judgeProvider` in `evalCommand`'s host argument, the suite's `judgeProvider`
 export, else the agent's) and a Jev judge a key (`judgeDecision` in the host
 argument, else the suite's `judgeDecision` export); the CLI creates no
-provider and reads no key. `--threshold` is the fraction of cases that must
-pass for exit `0` (default `1`). Trials start in suite order, `--concurrency`
+provider and reads no key. `--threshold` is the fraction of decided cases
+that must pass for exit `0` (default `1`); a case whose trials errored too
+often to decide counts neither way, and a run that decided none exits `1`. Trials start in suite order, `--concurrency`
 at a time (default `1`), and are reported in suite order whatever finished
 first.
 Every command runs on the default kernel scope (`defaultKernelScope`): the
@@ -105,8 +107,11 @@ selected model's `builtInTools` include `googleSearch` / `googleMaps`.
 
 ## Exported API
 
-The entry module is the CLI program itself (side-effect main when run as a
-bin). Prefer `deno task agents` / `npx @theoremjs/agents` over importing commands in
+The entry module exports `main(args?)`, which reads the process arguments by
+default; `src/cli/bin.ts` runs it as the `agents` binary. It runs on Node
+(20 and up), Deno and Bun.
+
+Prefer `deno task agents` / `npx @theoremjs/agents` over importing commands in
 application code.
 
 ```theorem-evidence
@@ -115,6 +120,7 @@ application code.
     "Export": {
       "supports": [
         { "kind": "source", "path": "src/cli/index.ts" },
+        { "kind": "source", "path": "src/cli/bin.ts" },
         { "kind": "config", "path": "package.json" }
       ]
     },

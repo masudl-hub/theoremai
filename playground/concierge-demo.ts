@@ -37,7 +37,7 @@ export function demoHttpSampleInput(toolName: string): Record<string, unknown> |
 
 /** Comma-separated hosts for guardrails.egress allowlist in the demo graph. */
 export const DEMO_ALLOWED_HOSTS =
-  'nominatim.openstreetmap.org, geocoding-api.open-meteo.com, api.open-meteo.com, api.frankfurter.dev, api.sunrise-sunset.org, api.zippopotam.us, en.wikipedia.org, archive.org, pokeapi.co, dog.ceo, api.adviceslip.com, catfact.ninja, official-joke-api.appspot.com, mcp.deepwiki.com';
+  'nominatim.openstreetmap.org, geocoding-api.open-meteo.com, api.open-meteo.com, api.frankfurter.dev, api.sunrise-sunset.org, api.zippopotam.us, en.wikipedia.org, archive.org, pokeapi.co, dog.ceo, api.adviceslip.com, catfact.ninja, official-joke-api.appspot.com, mcp.deepwiki.com, mcp.context7.com, learn.microsoft.com, docs.mcp.cloudflare.com, knowledge-mcp.global.api.aws';
 
 export const DEMO_CONCIERGE_SYSTEM = `Role: Elite, charismatic travel concierge.
 
@@ -460,6 +460,230 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
   "type": "object",
   "properties": { "result": { "type": "string", "description": "Answer text from DeepWiki" } },
   "required": ["result"]
+}`,
+    },
+  },
+  // --- MCP docs servers (Context7, Microsoft Learn, Cloudflare, AWS: public, keyless, read-only) ---
+  {
+    id: 'tool-context7-resolve',
+    data: {
+      toolName: 'find_library',
+      activity: 'Finding {libraryName}',
+      activityPast: 'Found {libraryName}',
+      toolType: 'mcp',
+      description:
+        "Find a library's Context7 ID by name. Call before read_library_docs unless the user gave an ID like /vercel/next.js.",
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: ['*'],
+      serverUrl: 'https://mcp.context7.com/mcp',
+      mcpToolName: 'resolve-library-id',
+      inputJson: `{
+  "type": "object",
+  "properties": {
+    "libraryName": { "type": "string", "description": "The library's official name", "maxLength": 100, "examples": ["Next.js"] },
+    "query": { "type": "string", "description": "What the user wants to do with it", "maxLength": 500, "examples": ["Set up middleware"] }
+  },
+  "required": ["libraryName", "query"]
+}`,
+      outputJson: `{ "type": "string", "description": "Matching libraries and their Context7 IDs" }`,
+    },
+  },
+  {
+    id: 'tool-context7-docs',
+    data: {
+      toolName: 'read_library_docs',
+      activity: 'Reading the {libraryId} docs',
+      activityPast: 'Read the {libraryId} docs',
+      toolType: 'mcp',
+      description:
+        'Up-to-date docs and code examples for one library from Context7, for one topic per call.',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: ['*'],
+      serverUrl: 'https://mcp.context7.com/mcp',
+      mcpToolName: 'query-docs',
+      inputJson: `{
+  "type": "object",
+  "properties": {
+    "libraryId": { "type": "string", "description": "A Context7 ID from find_library, like /vercel/next.js", "maxLength": 200, "examples": ["/reactjs/react.dev"] },
+    "query": { "type": "string", "description": "One topic to look up", "maxLength": 500, "examples": ["useEffect cleanup"] }
+  },
+  "required": ["libraryId", "query"]
+}`,
+      outputJson: `{ "type": "string", "description": "Documentation excerpts and code examples" }`,
+    },
+  },
+  {
+    id: 'tool-microsoft-learn',
+    data: {
+      toolName: 'search_microsoft_docs',
+      activity: 'Searching Microsoft Learn for {query}',
+      activityPast: 'Found {results.0.title|nothing on Microsoft Learn}',
+      toolType: 'mcp',
+      description:
+        'Search official Microsoft and Azure documentation on Microsoft Learn.',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: ['*'],
+      serverUrl: 'https://learn.microsoft.com/api/mcp',
+      mcpToolName: 'microsoft_docs_search',
+      inputJson: `{
+  "type": "object",
+  "properties": {
+    "query": { "type": "string", "description": "A topic about a Microsoft or Azure product, service or API", "maxLength": 500, "examples": ["Azure Functions timeout"] }
+  },
+  "required": ["query"]
+}`,
+      outputJson: `{
+  "type": "object",
+  "properties": {
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string" },
+          "content": { "type": ["string", "null"] },
+          "contentUrl": { "type": "string" }
+        }
+      }
+    }
+  }
+}`,
+    },
+  },
+  {
+    id: 'tool-cloudflare-docs',
+    data: {
+      toolName: 'search_cloudflare_docs',
+      activity: 'Searching Cloudflare docs for {query}',
+      activityPast: 'Found {results.0.title|nothing in the Cloudflare docs}',
+      toolType: 'mcp',
+      description:
+        'Search the Cloudflare developer documentation: Workers, R2, D1, Durable Objects, Zero Trust and more.',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: ['*'],
+      serverUrl: 'https://docs.mcp.cloudflare.com/mcp',
+      mcpToolName: 'search_cloudflare_documentation',
+      inputJson: `{
+  "type": "object",
+  "properties": {
+    "query": { "type": "string", "description": "What to look up in the Cloudflare docs", "maxLength": 500, "examples": ["Durable Objects alarms"] }
+  },
+  "required": ["query"]
+}`,
+      outputJson: `{
+  "type": "object",
+  "properties": {
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string" },
+          "url": { "type": "string" },
+          "text": { "type": "string" }
+        }
+      }
+    }
+  },
+  "required": ["results"]
+}`,
+    },
+  },
+  {
+    id: 'tool-aws-regions',
+    data: {
+      toolName: 'list_aws_regions',
+      activity: 'Listing AWS regions',
+      activityPast: 'Listed {content.result.length} AWS regions',
+      toolType: 'mcp',
+      description:
+        'List every AWS region, with its code and name.',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: ['*'],
+      serverUrl: 'https://knowledge-mcp.global.api.aws',
+      mcpToolName: 'aws___list_regions',
+      inputJson: `{ "type": "object", "properties": {} }`,
+      outputJson: `{
+  "type": "object",
+  "properties": {
+    "content": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "region_id": { "type": "string" },
+              "region_long_name": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}`,
+    },
+  },
+  {
+    id: 'tool-aws-docs',
+    data: {
+      toolName: 'search_aws_docs',
+      activity: 'Searching AWS docs for {search_phrase}',
+      activityPast: 'Found {content.result.0.title|nothing in the AWS docs}',
+      toolType: 'mcp',
+      description:
+        'Search AWS documentation, blogs and guides. Each result carries the matching page text.',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: ['*'],
+      serverUrl: 'https://knowledge-mcp.global.api.aws',
+      mcpToolName: 'aws___search_documentation',
+      inputJson: `{
+  "type": "object",
+  "properties": {
+    "search_phrase": { "type": "string", "description": "Keywords, with any error text verbatim", "maxLength": 500, "examples": ["Lambda cold start"] },
+    "limit": { "type": "integer", "description": "How many results", "minimum": 1, "maximum": 10 }
+  },
+  "required": ["search_phrase"]
+}`,
+      outputJson: `{
+  "type": "object",
+  "properties": {
+    "content": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "title": { "type": "string" },
+              "url": { "type": "string" },
+              "context": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
 }`,
     },
   },

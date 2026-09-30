@@ -36,9 +36,14 @@ function schemaFields(schema: JsonSchema): {
 
 type SchemaKind = 'string' | 'number' | 'boolean' | 'array' | 'object' | 'unknown';
 
+function nonNullTypes(prop: JsonSchema): unknown[] {
+  return (Array.isArray(prop.type) ? prop.type : [prop.type]).filter((type) => type !== 'null');
+}
+
 function schemaKind(prop: JsonSchema): SchemaKind {
-  const t = prop.type;
-  if (t === 'string' || (Array.isArray(t) && t.includes('string'))) return 'string';
+  const types = nonNullTypes(prop);
+  const t = types.length === 1 ? types[0] : undefined;
+  if (t === 'string') return 'string';
   if (t === 'number' || t === 'integer') return 'number';
   if (t === 'boolean') return 'boolean';
   if (t === 'array') return 'array';
@@ -54,6 +59,11 @@ function arrayItems(prop: JsonSchema): JsonSchema | undefined {
 }
 
 function propToZod(prop: JsonSchema): ZodType {
+  const zod = kindToZod(prop);
+  return Array.isArray(prop.type) && prop.type.includes('null') ? zod.nullable() : zod;
+}
+
+function kindToZod(prop: JsonSchema): ZodType {
   switch (schemaKind(prop)) {
     case 'string':
       return z.string();
@@ -73,7 +83,8 @@ function propToZod(prop: JsonSchema): ZodType {
 }
 
 export function zodFromJsonSchema(schema: JsonSchema): ZodType {
-  if (schema.type === 'array') return propToZod(schema);
+  // A tool can answer with a bare list, text or number, not only a record.
+  if (schema.type !== undefined && schema.type !== 'object') return propToZod(schema);
   const { props, required } = schemaFields(schema);
   const shape: Record<string, ZodType> = {};
   for (const [key, prop] of Object.entries(props)) {

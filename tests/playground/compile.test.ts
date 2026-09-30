@@ -515,6 +515,17 @@ Deno.test('zodFromJsonSchema keeps required fields and passes extras', () => {
   assertEquals(schema.parse({ name: 'a', extra: 1 }), { name: 'a', extra: 1 });
 });
 
+Deno.test('zodFromJsonSchema keeps a text answer as text and a nullable field nullable', () => {
+  assertEquals(zodFromJsonSchema({ type: 'string' }).parse('docs'), 'docs');
+  const schema = zodFromJsonSchema({
+    type: 'object',
+    properties: { content: { type: ['string', 'null'] } },
+    required: ['content'],
+  });
+  assertEquals(schema.parse({ content: null }), { content: null });
+  assert(!schema.safeParse({ content: 1 }).success);
+});
+
 Deno.test('quoteSource writes a string that evaluates back to itself, script-safe', () => {
   const text = `it's "quoted" \\ </script> \u2028\u2029 done`;
   const quoted = quoteSource(text);

@@ -792,7 +792,9 @@ isn't signed in instead of gating, for tools the agent can manage without.
 
 A `function` tool can sign in too: give it the same `auth`, and its handler gets
 `ctx.signedInFetch(url, init)`, which carries the credential to that URL's origin only.
-The handler never sees the token; a refusal from the service becomes a new sign-in.
+The handler never sees the token; a refusal from the service throws `CredentialRefusedError`
+(from `@theoremjs/agents/kernel`), which the kernel turns into a new sign-in, so a handler that
+catches its own errors rethrows it.
 
 **Migration:** [`docs/MIGRATION-tool-system.md`](docs/MIGRATION-tool-system.md) covers the
 breaking changes from `dynamicTools` / `ToolEnvelope`.

@@ -246,6 +246,7 @@ export {
   registerHarnessTools,
   resolveToolAuth,
 } from './tools/mod.ts';
+export { CredentialRefusedError } from './tools/signed-in-fetch.ts';
 export {
   awaitingUserInputSchema,
   TURN_EVENT_SCHEMAS,

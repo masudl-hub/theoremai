@@ -55,11 +55,26 @@ jobs:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Build npm package
-        run: npm run build:npm
+      # @theoremjs/react ships in lockstep: same version, peer on this agents release.
+      # Both build before either publishes.
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm --prefix react ci
+
+      - name: Build npm packages
+        run: |
+          npm run build:npm
+          npm run build:npm:react
 
       - name: Publish to npm
         working-directory: npm
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish React package to npm
+        working-directory: react/npm
         run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

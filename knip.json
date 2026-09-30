@@ -3,7 +3,7 @@
   "entry": [
     "mod.ts",
     "src/host/mod.ts",
-    "src/cli/index.ts",
+    "src/cli/bin.ts",
     "src/presets/mod.ts",
     "src/presets/google.ts",
     "scripts/*.{ts,mjs}",

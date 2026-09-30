@@ -25,10 +25,19 @@
     "react/src/ui/theorem-theme.ts",
     "react/src/ui/icons.ts"
   ],
-  "ignoreDependencies": ["@ast-grep/cli", "@theoremjs/agents"],
+  // @astryxdesign/cli is used only as the `astryx` binary in react's theme scripts; whether fallow
+  // sees it depends on react/node_modules/.bin existing, so it is declared here to keep runs stable.
+  "ignoreDependencies": ["@ast-grep/cli", "@theoremjs/agents", "@astryxdesign/cli"],
   // docs-truth loads the ownership graph via dynamic import (graph.mjs → _map.mjs).
   "dynamicallyLoaded": ["docs/_map.mjs"],
-  "ignorePatterns": ["node_modules/**", "coverage/**", "scripts/**", "src/cli/**", "npm/**"],
+  "ignorePatterns": [
+    "node_modules/**",
+    "coverage/**",
+    "scripts/**",
+    "src/cli/**",
+    "npm/**",
+    "react/npm/**"
+  ],
   "health": {
     // Kernel turn/sanitize paths are intentionally branchy; keep these just
     // above current hotspots so health still fails on real complexity spikes.

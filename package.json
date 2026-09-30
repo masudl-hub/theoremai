@@ -8,8 +8,11 @@
     "url": "https://github.com/masudl-hub/theoremai"
   },
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "bin": {
-    "agents": "./src/cli/index.ts"
+    "agents": "./src/cli/bin.ts"
   },
   "keywords": [
     "agent",
@@ -30,9 +33,11 @@
     "./guardrails": "./src/guardrails/mod.ts",
     "./guardrails/testing": "./src/guardrails/testing.ts",
     "./observability": "./src/observability/mod.ts",
+    "./observability/jsonl": "./src/observability/jsonl.ts",
     "./observability/openinference": "./src/observability/openinference.ts",
     "./observability/phoenix": "./src/observability/phoenix.ts",
     "./host": "./src/host/mod.ts",
+    "./interface": "./src/interface/mod.ts",
     "./cli": "./src/cli/index.ts",
     "./presets": "./src/presets/mod.ts",
     "./presets/google": "./src/presets/google.ts",
@@ -58,6 +63,7 @@
   },
   "scripts": {
     "build:npm": "deno run --allow-read --allow-write --allow-env --allow-net --allow-run=npm scripts/build-npm.ts",
+    "build:npm:react": "deno run --allow-read --allow-write --allow-run=npx scripts/build-npm-react.ts",
     "test": "deno test --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run --ignore=npm/ tests/",
     "coverage": "sh scripts/coverage.sh",
     "check:react": "npm --prefix react ci && npm --prefix react run typecheck && npm --prefix react run theme:check",
@@ -77,6 +83,7 @@
     "@ast-grep/cli": "^0.41.0",
     "@biomejs/biome": "^2.5.8",
     "@stryker-mutator/core": "^10.0.0",
+    "@types/node": "^20.19.43",
     "fallow": "3.17.0",
     "intl-messageformat": "^11.2.9"
   }

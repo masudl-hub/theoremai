@@ -4,11 +4,11 @@ import type {
 	ToolLoadTier,
 	ToolPermission,
 } from '../src/kernel/schema.ts';
-import type { HttpToolAuthConfig } from '../src/kernel/tools/types.ts';
+import type { ToolAuthConfig } from '../src/kernel/tools/types.ts';
 import type { StructuredSpec } from '../src/kernel/types.ts';
 
 /** The kernel's auth config; the host's OAuth endpoints are never set from the playground. */
-export type PlaygroundToolAuth = Omit<HttpToolAuthConfig, 'preResolved'>;
+export type PlaygroundToolAuth = Omit<ToolAuthConfig, 'preResolved'>;
 
 export type StructuredRegistration = {
 	id: string;

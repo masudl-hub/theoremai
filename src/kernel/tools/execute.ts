@@ -1,4 +1,4 @@
-import { isAbortError, throwIfAborted } from '../../guardrails/error.ts';
+import { errorKind, isAbortError, throwIfAborted } from '../../guardrails/error.ts';
 import { type LexiconOverrides, lexiconText } from '../../guardrails/lexicon.ts';
 import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import {
@@ -23,6 +23,9 @@ import { isRecord } from '../util/record.ts';
 import {
   failureEvent,
   messageOf,
+  networkBlocked,
+  networkBlockedEvent,
+  requestChecks,
   sourceEvents,
   startToolExecution,
   type ToolCallBase,
@@ -40,8 +43,13 @@ import type { ToolRegistry } from './registry.ts';
 import {
   executeHttpTool,
   executeMcpTool,
+  failureWithoutSecret,
   modelResultFromOutput,
+  omitSecret,
+  outcomeFromUnauth,
   parseToolOutput,
+  refusedCredentialOutcome,
+  resolveToolAuth,
   withMedia,
 } from './remote.ts';
 import {
@@ -51,6 +59,7 @@ import {
   promoteLoadedTools,
 } from './resolve.ts';
 import { plainToolInput } from './schema.ts';
+import { CredentialRefusedError, signedInFetch } from './signed-in-fetch.ts';
 import {
   emitGateSettlement,
   type PostToolStageOutcome,
@@ -511,6 +520,33 @@ function makeReproject(
   };
 }
 
+type FunctionSignIn = {
+  /** Set when the tool signs in and its credential resolved. */
+  prepared?: { authHeaders: Record<string, string>; audience?: string };
+  secret?: string;
+  /** Set when the call settles here: a gate, the model told it is not signed in, or a failure. */
+  outcome?: ToolBodyOutcome;
+};
+
+/** Order as for remote tools: schema → permission → auth → preTool/host stages → body. */
+async function* resolveFunctionSignIn(
+  tool: FunctionToolDef,
+  ctx: ToolContext,
+  base: ToolCallBase,
+): AsyncGenerator<TurnEvent, FunctionSignIn> {
+  if (!tool.auth) return {};
+  const resolved = yield* resolveToolAuth(tool.name, tool.auth, ctx, base);
+  const outcome = outcomeFromUnauth(resolved);
+  if (outcome) return { outcome };
+  return {
+    prepared: {
+      authHeaders: resolved.headers,
+      ...(resolved.audience ? { audience: resolved.audience } : {}),
+    },
+    ...(resolved.secret ? { secret: resolved.secret } : {}),
+  };
+}
+
 export async function* executeFunction(
   tools: ToolRegistry,
   tool: FunctionToolDef,
@@ -557,6 +593,20 @@ export async function* executeFunction(
 
   throwIfAborted(ctx.signal);
 
+  const settleOutcome = (outcome: ToolBodyOutcome) =>
+    settleBodyOutcome({
+      outcome,
+      tool,
+      base,
+      callId,
+      safeInput: input,
+      stages,
+      guard,
+      lexicon: ctx.profile.lexicon,
+    });
+  const signedIn = yield* resolveFunctionSignIn(tool, ctx, base);
+  if (signedIn.outcome) return yield* settleOutcome(signedIn.outcome);
+
   const preBody = yield* runFunctionPreBodyStages({ tool, input, ctx, base, stages, guard });
   if (!('ok' in preBody)) {
     return preBody;
@@ -564,15 +614,44 @@ export async function* executeFunction(
   input = preBody.input;
 
   throwIfAborted(ctx.signal);
+  const { secret } = signedIn;
   const fail = (failure: ToolFailure) =>
-    settleToolFailure(guard, base, failure, stages, { toolName: tool.name, callId, input });
+    settleToolFailure(
+      guard,
+      base,
+      secret ? failureWithoutSecret(failure, secret) : failure,
+      stages,
+      { toolName: tool.name, callId, input },
+    );
 
+  const checks = requestChecks(stages?.span);
+  const handlerCtx: ToolContext = signedIn.prepared
+    ? { ...ctx, signedInFetch: signedInFetch(signedIn.prepared, ctx, checks) }
+    : ctx;
   let output: unknown;
   try {
-    output = yield* runHandler(tool.handler, input as never, ctx, base);
+    output = yield* runHandler(tool.handler, input as never, handlerCtx, base);
+    checks.record();
   } catch (err) {
+    if (signedIn.prepared && err instanceof CredentialRefusedError) {
+      checks.record();
+      const refused = yield* refusedCredentialOutcome(
+        tool,
+        err.refusal,
+        signedIn.prepared.authHeaders,
+        ctx,
+        base,
+      );
+      if (refused) return yield* settleOutcome(refused);
+    }
+    if (signedIn.prepared && errorKind(err) === 'blocked') {
+      const blocked = networkBlockedEvent();
+      checks.record(blocked);
+      return yield* fail(yield* networkBlocked(err, blocked));
+    }
     return yield* fail({ code: 'handler_error', kind: 'failed', message: messageOf(err) });
   }
+  if (secret) output = omitSecret(output, secret);
   if (output === undefined) {
     return yield* fail({
       code: 'invalid_output',
@@ -704,9 +783,10 @@ function registeredEligibilityFailure(args: {
   return undefined;
 }
 
-async function* settleRemoteOutcome(args: {
+/** Settles an outcome the kernel reached without a handler's own result: a remote body, or a sign-in. */
+async function* settleBodyOutcome(args: {
   outcome: ToolBodyOutcome;
-  tool: HttpToolDef | McpToolDef;
+  tool: HttpToolDef | McpToolDef | FunctionToolDef;
   base: ToolCallBase;
   callId: string;
   safeInput: unknown;
@@ -783,7 +863,7 @@ function turnReadBack({ modelResult }: ToolExecuteSettlement): ToolCallEnd['resu
 
 /** The service a refused sign-in names, from the tool's own auth config. */
 function refusedSignInService(tool: RegisteredTool, resume: ToolContext['resume']) {
-  if (!resume?.signIn || (tool.type !== 'http' && tool.type !== 'mcp')) return undefined;
+  if (!resume?.signIn || tool.type === 'builtin') return undefined;
   return tool.auth?.service;
 }
 
@@ -1003,7 +1083,7 @@ async function* settleByType(
     tool.type === 'http'
       ? yield* executeHttpTool(tool, safeInput, fullCtx, base, stages)
       : yield* executeMcpTool(tool, safeInput, fullCtx, base, stages);
-  return yield* settleRemoteOutcome({
+  return yield* settleBodyOutcome({
     outcome: remoteOutcome,
     tool,
     base,

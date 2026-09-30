@@ -9,7 +9,7 @@ import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import type { ToolExecuteSettlement } from '../../src/kernel/tools/execute.ts';
 import { executeRegisteredTool, parseMcpRpcResponse } from '../../src/kernel/tools/mod.ts';
 import { buildHttpToolTarget, MAX_TOOL_RESPONSE_BYTES } from '../../src/kernel/tools/remote.ts';
-import type { HttpToolAuthConfig } from '../../src/kernel/tools/types.ts';
+import type { ToolAuthConfig } from '../../src/kernel/tools/types.ts';
 import type { Profile } from '../../src/kernel/types.ts';
 import { isRecord } from '../../src/kernel/util/record.ts';
 import { eventsOf, guardrailAt, toolEventsOf } from '../fixtures/events.ts';
@@ -978,7 +978,7 @@ Deno.test('Declarative HTTP Tool post_tool mutate re-validates and replaces what
 });
 
 /** Register `fetch_user_profile` against a path-parameter endpoint with a bearer slot and a host header. */
-function registerProfileTool(auth: Pick<HttpToolAuthConfig, 'slot' | 'type' | 'scopes'>) {
+function registerProfileTool(auth: Pick<ToolAuthConfig, 'slot' | 'type' | 'scopes'>) {
   const service = 'Example';
   resetTools();
   registerTool({
@@ -1528,7 +1528,7 @@ Deno.test('an MCP image reaches the model and the client as media, beside the va
 });
 
 Deno.test('a tool that signs in must name its service', () => {
-  const auth: HttpToolAuthConfig = { slot: 'tracker', type: 'bearer', service: '  ' };
+  const auth: ToolAuthConfig = { slot: 'tracker', type: 'bearer', service: '  ' };
   assertThrows(
     () =>
       registerTool({

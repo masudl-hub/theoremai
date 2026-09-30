@@ -8,10 +8,10 @@ import {
 } from './schema.ts';
 import type {
   FunctionToolDef,
-  HttpToolAuthConfig,
   HttpToolDef,
   McpToolDef,
   RegisteredTool,
+  ToolAuthConfig,
   ToolDefinitionInput,
 } from './types.ts';
 
@@ -24,7 +24,7 @@ function schemasFromZod<TIn, TOut>(input: z.ZodType<TIn>, output: z.ZodType<TOut
 }
 
 /** The person is told which service they sign in to; the tool's builder names it, never the model or the server. */
-function assertAuthService(name: string, auth: HttpToolAuthConfig | undefined): void {
+function assertAuthService(name: string, auth: ToolAuthConfig | undefined): void {
   if (auth && (typeof auth.service !== 'string' || !auth.service.trim())) {
     throw new TheoremError(
       'config',
@@ -60,6 +60,7 @@ function normalizeFunction<TIn = unknown, TOut = unknown>(
     output: z.ZodType<TOut>;
   },
 ): FunctionToolDef<TIn, TOut> {
+  assertAuthService(def.name, def.auth);
   return { ...def, type: 'function', ...schemasFromZod(def.input, def.output) };
 }
 

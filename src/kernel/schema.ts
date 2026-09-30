@@ -1100,7 +1100,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   serverUrl: field('string', "The MCP server's URL."),
   mcpToolName: field('string', "The tool's name on the MCP server."),
   auth: {
-    ...field('HttpToolAuthConfig', 'How the tool gets its credential.'),
+    ...field('ToolAuthConfig', 'How the tool gets its credential.'),
     unset: 'No credential',
   },
   'auth.type': field(

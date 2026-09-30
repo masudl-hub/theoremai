@@ -110,7 +110,20 @@ export interface ToolContext {
   host?: unknown;
   /** W3C `traceparent` of this call's `execute_tool` span; parent a tool's own outbound spans on it. */
   traceparent?: string;
+  /** Set for a function tool with `auth` once its credential resolved: requests carrying it. */
+  signedInFetch?: SignedInFetch;
 }
+
+/** A request body is text; the method defaults to GET. */
+export type SignedInRequest = { method?: string; headers?: Record<string, string>; body?: string };
+
+/**
+ * A guarded fetch that carries the call's credential to the URL's own origin and
+ * nowhere else (not across a redirect, not to a host the OAuth token was not issued
+ * for). A response that refuses the credential (401, or 403 `insufficient_scope`)
+ * throws; the kernel turns it into a new sign-in or `sign_in.out_of_scope`.
+ */
+export type SignedInFetch = (url: string | URL, request?: SignedInRequest) => Promise<Response>;
 
 export type ToolStreamEvent<TOut = unknown> =
   | { kind: 'progress'; data: unknown }
@@ -158,9 +171,16 @@ export interface FunctionToolDef<TIn = unknown, TOut = unknown>
   input: z.ZodType<TIn>;
   output: z.ZodType<TOut>;
   handler: ToolHandler<TIn, TOut>;
+  /**
+   * The service the handler acts on for the person. The kernel resolves the slot
+   * before the handler runs (gating, refreshing, or telling the model as the policy
+   * says) and hands the handler `ctx.signedInFetch`; the handler never sees the credential.
+   */
+  auth?: ToolAuthConfig;
 }
 
-export interface HttpToolAuthConfig {
+/** How a tool that acts for the person signs in to the service; http, mcp and function tools share it. */
+export interface ToolAuthConfig {
   slot: string;
   type: ToolAuthType;
   /** The service the person signs in to, as they know it (e.g. "GitHub"); never blank. */
@@ -185,7 +205,7 @@ export interface HttpToolDef<TIn = unknown, TOut = unknown>
   endpoint: string; // URL template, e.g. "https://api.example.com/items/{id}"
   method: HttpMethod;
   headers?: Record<string, string>;
-  auth?: HttpToolAuthConfig;
+  auth?: ToolAuthConfig;
   mapping?: {
     pathParams?: string[];
     queryParams?: string[];
@@ -203,7 +223,7 @@ export interface McpToolDef<TIn = unknown, TOut = unknown>
   serverUrl: string;
   mcpToolName: string;
   headers?: Record<string, string>;
-  auth?: HttpToolAuthConfig;
+  auth?: ToolAuthConfig;
 }
 
 export type RegisteredTool<TIn = unknown, TOut = unknown> =

@@ -788,6 +788,10 @@ stores them, and they never belong in the browser: `createTheoremHandler` keeps 
 server-side credential store (see [`react/README.md`](react/README.md#tool-credentials)). A tool whose auth is `onUnauthenticated: "report_to_model"` tells the model it
 isn't signed in instead of gating, for tools the agent can manage without.
 
+A `function` tool can sign in too: give it the same `auth`, and its handler gets
+`ctx.signedInFetch(url, init)`, which carries the credential to that URL's origin only.
+The handler never sees the token; a refusal from the service becomes a new sign-in.
+
 **Migration:** [`docs/MIGRATION-tool-system.md`](docs/MIGRATION-tool-system.md) covers the
 breaking changes from `dynamicTools` / `ToolEnvelope`.
 

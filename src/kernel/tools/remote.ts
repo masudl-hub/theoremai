@@ -28,10 +28,10 @@ import { checkPermission } from './permission.ts';
 import { assertFixedEndpointOrigin } from './schema.ts';
 import { runPreToolPipeline, type ToolStageSupport } from './stage-run.ts';
 import type {
-  HttpToolAuthConfig,
   HttpToolDef,
   McpToolDef,
   ModelToolResult,
+  ToolAuthConfig,
   ToolBodyOutcome,
   ToolContext,
   ToolFailure,
@@ -50,7 +50,7 @@ export type AuthResolveResult = {
 };
 
 function authHeaderPair(
-  authConfig: HttpToolAuthConfig,
+  authConfig: ToolAuthConfig,
   value: string,
   defaults: { headerName: string; headerPrefix: string },
 ): Record<string, string> {
@@ -61,7 +61,7 @@ function authHeaderPair(
 
 function buildAuthGate(
   toolName: string,
-  authConfig: HttpToolAuthConfig,
+  authConfig: ToolAuthConfig,
   message: string,
   extras?: { issuer?: string; resource?: string },
 ): ToolGate {
@@ -82,7 +82,7 @@ function buildAuthGate(
 
 function unauthenticatedResult(
   toolName: string,
-  authConfig: HttpToolAuthConfig,
+  authConfig: ToolAuthConfig,
   message: string,
   policy: AuthUnauthenticatedPolicy,
   extras?: { issuer?: string; resource?: string },
@@ -97,7 +97,7 @@ function unauthenticatedResult(
 
 function resolveStaticCredential(
   credential: ToolCredential,
-  authConfig: HttpToolAuthConfig,
+  authConfig: ToolAuthConfig,
 ): AuthResolveResult | undefined {
   if (credential.type === 'bearer') {
     return {
@@ -151,7 +151,7 @@ function refreshOnce(
 
 async function* resolveOAuth2Credential(
   toolName: string,
-  authConfig: HttpToolAuthConfig,
+  authConfig: ToolAuthConfig,
   credential: OAuth2Credential,
   source: ToolCredentialSource,
   ctx: ToolContext,
@@ -213,7 +213,7 @@ async function* resolveOAuth2Credential(
 
 export async function* resolveToolAuth(
   toolName: string,
-  authConfig: HttpToolAuthConfig | undefined,
+  authConfig: ToolAuthConfig | undefined,
   ctx: ToolContext,
   base: ToolCallBase,
 ): AsyncGenerator<TurnEvent, AuthResolveResult> {
@@ -428,7 +428,7 @@ async function* remoteParseAndPermit(
   return { ok: true, input: started.data };
 }
 
-function outcomeFromUnauth(authRes: {
+export function outcomeFromUnauth(authRes: {
   unauthenticated?: boolean;
   gate?: import('./types.ts').ToolGate;
   modelMessage?: string;
@@ -449,9 +449,9 @@ function outcomeFromUnauth(authRes: {
 }
 
 /** A 401 or 403 answer to a request that carried a credential. */
-type CredentialRefusal = { status: number; challenge: string | null };
+export type CredentialRefusal = { status: number; challenge: string | null };
 
-function credentialRefusal(response: Response): CredentialRefusal | undefined {
+export function credentialRefusal(response: Response): CredentialRefusal | undefined {
   return response.status === 401 || response.status === 403
     ? { status: response.status, challenge: response.headers.get('www-authenticate') }
     : undefined;
@@ -469,6 +469,13 @@ function bearerChallenge(header: string | null): { error?: string; scopes: strin
   return error === undefined ? { scopes } : { error, scopes };
 }
 
+/** A refusal that asks for a sign-in: 401, or 403 `insufficient_scope`. Any other 403 is the call's own failure. */
+export function refusalAsksForSignIn(refusal: CredentialRefusal): boolean {
+  return (
+    refusal.status === 401 || bearerChallenge(refusal.challenge).error === 'insufficient_scope'
+  );
+}
+
 /**
  * The service refused the credential it was sent. A 401 says it no longer works:
  * the person signs in again. A 403 `insufficient_scope` asks for more access: a
@@ -476,8 +483,8 @@ function bearerChallenge(header: string | null): { error?: string; scopes: strin
  * outside them fails with `sign_in.out_of_scope` and the trace records what was
  * asked against what is declared. Any other refusal is the call's failure.
  */
-function* refusedCredentialOutcome(
-  tool: HttpToolDef | McpToolDef,
+export function* refusedCredentialOutcome(
+  tool: { name: string; auth?: ToolAuthConfig },
   refusal: CredentialRefusal | undefined,
   authHeaders: Record<string, string>,
   ctx: ToolContext,
@@ -614,12 +621,30 @@ function tooLargeFailure(host: string): ToolFailure {
   };
 }
 
+/** The text with the credential replaced. */
+function omitSecretText(text: string, secret: string): string {
+  return text.replaceAll(secret, OMIT_CREDENTIAL);
+}
+
+/** Every string in `value` with the credential replaced. */
+export function omitSecret(value: unknown, secret: string): unknown {
+  return mapStrings(value, (text) => omitSecretText(text, secret));
+}
+
+/** A failure's message and details with the credential replaced. */
+export function failureWithoutSecret(failure: ToolFailure, secret: string): ToolFailure {
+  return {
+    ...failure,
+    message: omitSecretText(failure.message, secret),
+    ...(failure.details === undefined ? {} : { details: omitSecret(failure.details, secret) }),
+  };
+}
+
 /** An echo endpoint or debug page can repeat the credential; it must never reach the model, trace or client. */
 function withoutSecret(outcome: ToolBodyOutcome, secret: string | undefined): ToolBodyOutcome {
   if (!secret) return outcome;
-  const strip = (text: string) => text.replaceAll(secret, OMIT_CREDENTIAL);
   if (outcome.kind === 'ok') {
-    const outputRaw = mapStrings(outcome.outputRaw, strip);
+    const outputRaw = omitSecret(outcome.outputRaw, secret);
     return {
       kind: 'ok',
       outputRaw,
@@ -627,17 +652,15 @@ function withoutSecret(outcome: ToolBodyOutcome, secret: string | undefined): To
     };
   }
   if (outcome.kind === 'failed') {
-    const { failure } = outcome;
-    return {
-      ...outcome,
-      failure: {
-        ...failure,
-        message: strip(failure.message),
-        ...(failure.details === undefined ? {} : { details: mapStrings(failure.details, strip) }),
-      },
-    };
+    return { ...outcome, failure: failureWithoutSecret(outcome.failure, secret) };
   }
   return outcome;
+}
+
+/** Why an OAuth token issued for `audience` may not go to `url` (RFC 8707), or `undefined` when it may. */
+export function audienceMismatch(audience: string | undefined, url: URL): string | undefined {
+  if (!audience || tokenAudienceCovers(audience, url)) return undefined;
+  return `The OAuth token for "${audience}" cannot be sent to "${url.origin}${url.pathname}"`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
 }
 
 /** An OAuth token goes only to the resource it was issued for (RFC 8707); any other target gets no request. */
@@ -646,13 +669,10 @@ async function* sendWithCredential(
   url: URL,
   send: () => AsyncGenerator<TurnEvent, ToolBodyOutcome>,
 ): AsyncGenerator<TurnEvent, ToolBodyOutcome> {
-  if (prepared.audience && !tokenAudienceCovers(prepared.audience, url)) {
+  const mismatch = audienceMismatch(prepared.audience, url);
+  if (mismatch) {
     return failureOutcome(
-      {
-        code: 'credential_audience_mismatch',
-        kind: 'config',
-        message: `The OAuth token for "${prepared.audience}" cannot be sent to "${url.origin}${url.pathname}"`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      },
+      { code: 'credential_audience_mismatch', kind: 'config', message: mismatch },
       true,
     );
   }

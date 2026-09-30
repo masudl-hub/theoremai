@@ -1,4 +1,4 @@
-import type { TraceRecord } from '../../../mod.ts';
+import type { TraceRecord } from '@theoremjs/agents';
 
 /**
  * Trace records a host sends back to the client, in arrival order. Only a host

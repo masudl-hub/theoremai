@@ -1,10 +1,7 @@
 import { Button } from '@astryxdesign/core/Button';
 import { CodeBlock } from '@astryxdesign/core/CodeBlock';
 import { useLocale } from '@astryxdesign/core/i18n';
-import { HStack } from '@astryxdesign/core/HStack';
 import { MetadataList, MetadataListItem } from '@astryxdesign/core/MetadataList';
-import { ProgressBar } from '@astryxdesign/core/ProgressBar';
-import { StatusDot, type StatusDotVariant } from '@astryxdesign/core/StatusDot';
 import { Text } from '@astryxdesign/core/Text';
 import { Timestamp } from '@astryxdesign/core/Timestamp';
 import { Tooltip } from '@astryxdesign/core/Tooltip';
@@ -13,17 +10,18 @@ import { useMemo, useState } from 'react';
 import {
 	inlineContent,
 	TRACE_ATTRIBUTE_GROUPS,
-	TRACE_STATUS,
 	type TraceAttributeGroup,
 	type TraceAttributeMeta,
 	type TraceOptionMeta,
 	type TraceRecord,
-	type TraceSpanStatus,
 	traceAttributeMeta,
-} from '../../../mod.ts';
-import { nanosToMs, type TraceNode, type TraceSum, type TraceTokenSum, traceValueShape } from '../client/trace-view.ts';
-import { type LabelText, workDuration } from './labels';
-import { useLabels } from './labels-provider';
+} from '@theoremjs/agents';
+import { nanosToMs, type TraceSum, type TraceTokenSum, traceValueShape } from '../client/trace-view.ts';
+import { type LabelText, workDuration } from './labels.ts';
+import { useLabels } from './labels-provider.tsx';
+
+/** Width of every label column in the panel's lists, so they line up. */
+export const TRACE_LABEL_PX = 120;
 
 export type AttributeSection = { key: TraceAttributeGroup | 'other'; attributes: Record<string, unknown> };
 
@@ -125,8 +123,8 @@ function formatNumber(format: TraceFormat, meta: TraceAttributeMeta | undefined,
 function StringValue({ meta, value }: { meta: TraceAttributeMeta | undefined; value: string }) {
 	const option = meta?.options?.[value];
 	if (option) return <OptionValue option={option} />;
-	if (meta?.format === 'time') return <Timestamp value={nanosToMs(value)} format="system_date_time" />;
-	return <Text type={meta?.format === 'id' ? 'code' : 'body'}>{value}</Text>;
+	if (meta?.format === 'time') return <Timestamp value={nanosToMs(value)} format="system_date_time" size="base" color="primary" />;
+	return <Text wordBreak="break-word">{value}</Text>;
 }
 
 function ScalarValue({ meta, value }: { meta: TraceAttributeMeta | undefined; value: number | boolean }) {
@@ -188,56 +186,12 @@ export function TraceAttributeList({
 	const entries = Object.entries(attributes);
 	if (entries.length === 0) return null;
 	return (
-		<MetadataList columns="single" label={{ position: 'start' }} maxNumOfItems={maxNumOfItems} title={title}>
+		<MetadataList columns="single" label={{ position: 'start', width: TRACE_LABEL_PX }} maxNumOfItems={maxNumOfItems} title={title}>
 			{entries.map(([key, value]) => (
 				<MetadataListItem key={key} label={metaOf(key)?.label ?? key}>
 					<TraceValue record={record} meta={metaOf(key)} value={value} />
 				</MetadataListItem>
 			))}
 		</MetadataList>
-	);
-}
-
-const STATUS_DOTS: Readonly<Record<TraceSpanStatus['code'], StatusDotVariant>> = {
-	OK: 'success',
-	ERROR: 'error',
-	UNSET: 'neutral',
-};
-
-/** How a span ended, as a dot; its meaning and message on hover. */
-export function SpanStatusDot({ status }: { status: TraceSpanStatus }) {
-	const meta = TRACE_STATUS[status.code];
-	return <StatusDot variant={STATUS_DOTS[status.code]} label={meta.label} tooltip={status.message ?? meta.doc} />;
-}
-
-/** What a span is and what it acted on: "Model call gemini-3-flash". */
-export function SpanTitle({ node }: { node: TraceNode }) {
-	return (
-		<HStack gap={1} align="center">
-			<Tooltip content={node.meta.doc}>
-				<Text weight="medium">{node.meta.label}</Text>
-			</Tooltip>
-			{node.meta.subject ? (
-				<Text type="code" color="secondary" maxLines={1}>
-					{node.meta.subject}
-				</Text>
-			) : null}
-		</HStack>
-	);
-}
-
-/** A span's duration as its share of `ofMs` (its trace's), labeled with the duration. */
-export function SpanShareBar({ node, ofMs }: { node: TraceNode; ofMs: number }) {
-	const format = useTraceFormat();
-	return (
-		<ProgressBar
-			label={node.meta.label}
-			isLabelHidden
-			hasValueLabel
-			value={node.durationMs}
-			max={Math.max(ofMs, node.durationMs)}
-			formatValueLabel={(value) => format.duration(value)}
-			variant={node.span.status.code === 'ERROR' ? 'error' : 'accent'}
-		/>
 	);
 }

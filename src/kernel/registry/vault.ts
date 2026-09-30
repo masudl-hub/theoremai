@@ -13,7 +13,9 @@ function resolveKeySlot(
   binding: ModelBinding,
 ): { keySlot?: KeySlot; fallbackKeySlot?: KeySlot } {
   const keySlot = binding.key ?? profile.key;
-  const fallbackKeySlot = binding.fallbackKey ?? profile.fallbackKey;
+  // Only Gemini retries on a second key.
+  const fallbackKeySlot =
+    binding.provider === 'google' ? (binding.fallbackKey ?? profile.fallbackKey) : undefined;
   return {
     ...(keySlot ? { keySlot } : {}),
     ...(fallbackKeySlot ? { fallbackKeySlot } : {}),

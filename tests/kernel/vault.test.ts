@@ -24,8 +24,8 @@ Deno.test('resolveKeySlot names no slot when nothing pins one', () => {
 
 Deno.test("a model's own key and fallback win over the profile's", () => {
   const profile = { key: 'team', fallbackKey: 'spare' };
-  assertEquals(resolveKeySlot(profile, stubBinding), { keySlot: 'team', fallbackKeySlot: 'spare' });
-  assertEquals(resolveKeySlot(profile, { ...stubBinding, key: 'own', fallbackKey: 'own-spare' }), {
+  assertEquals(resolveKeySlot(profile, google), { keySlot: 'team', fallbackKeySlot: 'spare' });
+  assertEquals(resolveKeySlot(profile, { ...google, key: 'own', fallbackKey: 'own-spare' }), {
     keySlot: 'own',
     fallbackKeySlot: 'own-spare',
   });
@@ -84,10 +84,15 @@ Deno.test('a fallback is only for google models and must differ from the key', (
     "Profile slots model 'm': fallbackKey 'a' is the same slot as its key",
   );
   assertEquals(
-    defineError({ key: 'a', fallbackKey: 'b' }, stubBinding),
-    "Profile slots model 'm': fallbackKey only retries google models; set models.*.fallbackKey on those instead",
+    defineError({ key: 'a' }, { ...stubBinding, fallbackKey: 'b' }),
+    "Profile slots model 'm': fallbackKey only retries google models",
   );
   assertEquals(defineError({ key: 'a', fallbackKey: 'b' }), '');
+});
+
+Deno.test("a profile's fallback covers its google models and skips the rest", () => {
+  assertEquals(defineError({ key: 'a', fallbackKey: 'b' }, stubBinding), '');
+  assertEquals(resolveKeySlot({ key: 'a', fallbackKey: 'b' }, stubBinding), { keySlot: 'a' });
 });
 
 Deno.test('defineProfile rejects a google model with no key of its own and no profile key', () => {

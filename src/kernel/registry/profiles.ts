@@ -313,13 +313,15 @@ function assertKeySlot(
       `Profile ${profileId} model '${modelId}': a google model needs models.*.key or the profile key`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
-  if (fallback === undefined) return;
   if (binding.provider !== 'google') {
+    // A profile's fallback covers its google models; naming one on another model is a mistake.
+    if (binding.fallbackKey === undefined) return;
     throw new TheoremError(
       'config',
-      `Profile ${profileId} model '${modelId}': fallbackKey only retries google models; set models.*.fallbackKey on those instead`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Profile ${profileId} model '${modelId}': fallbackKey only retries google models`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
+  if (fallback === undefined) return;
   if (fallback === key) {
     throw new TheoremError(
       'config',

@@ -358,8 +358,9 @@ means anything to the kernel.
 A model's calls use `models.*.key`, else the profile's `key`. A Google model
 may also name `models.*.fallbackKey`, else the profile's `fallbackKey`: the slot
 a call retries on once when its key is refused for quota. There is no fallback
-unless the profile names one, and `defineProfile` refuses a fallback on a
-non-Google model or one equal to its key. Resolve puts the slots on
+unless the profile names one. A profile's `fallbackKey` covers only its Google
+models; `defineProfile` refuses `models.*.fallbackKey` on any other model, and a
+fallback equal to its key. Resolve puts the slots on
 `ResolvedGeneration.keySlot` / `fallbackKeySlot` and the same fields of
 `ProviderCompleteRequest`.
 

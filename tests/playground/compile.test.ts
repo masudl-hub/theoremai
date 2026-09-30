@@ -579,6 +579,20 @@ Deno.test('a tool compiles its activity labels, each placeholder checked against
       '{results} is a list or group; a label shows text or a number. ' +
       'Try {results.0.name}, {results.0.latitude}, {results.0.longitude} or {results.0.country_code}.',
   });
+  assertEquals(
+    issue('Finding { }', 'Found it').message,
+    'Put a field name between the braces, like {name}.',
+  );
+  assertEquals(
+    issue('Finding {output.results.0.name}', 'Found it').message,
+    '{output.results.0.name} is only there once the call is done; use it in the Done label.',
+  );
+  assertEquals(
+    issue('Finding {name}', 'Found {output.name}').message,
+    "{output.name} is not a field of this tool's output. Try {output.results.0.name}, " +
+      '{output.results.0.latitude}, {output.results.0.longitude} or {output.results.0.country_code}.',
+  );
+  assert(withLabels('Finding {{name}}', 'Found {results.length}, first {results.-1.name|none}').ok);
   assertEquals(issue(`Finding ${'x'.repeat(121)}`, 'Found it').field, 'activity');
 });
 

@@ -24,8 +24,7 @@ import {
   TheoremError,
 } from '../mod.ts';
 import { validateLexiconOverrides } from '../src/guardrails/lexicon.ts';
-import { activityLabelPlaceholders } from '../src/kernel/tools/activity-label.ts';
-import { isRecord } from '../src/kernel/util/record.ts';
+import { activityLabelProblem } from '../src/kernel/tools/activity-label.ts';
 import type { DecisionProfileDefinition, HostProfileDefinition } from '../src/kernel/mod.ts';
 import { mimeAllowed } from '../src/kernel/registry/catalog.ts';
 import { googleInteractionsPersistence } from '../src/presets/google.ts';
@@ -381,86 +380,16 @@ type ToolCommon = ReturnType<typeof toolCommon>;
 
 const MAX_ACTIVITY_LABEL_CHARS = 120;
 
-type LabelHolds = { holds: 'value' | 'group' | 'flag' | 'missing'; instead?: string[] };
-
-const HOLDS_RANK = ['value', 'group', 'flag', 'missing'] as const;
-
-function schemaTypes(node: Record<string, unknown>): string[] {
-  const types = Array.isArray(node.type) ? node.type : [node.type];
-  return types.filter((type): type is string => typeof type === 'string' && type !== 'null');
-}
-
-function schemaBranches(node: Record<string, unknown>): Record<string, unknown>[] {
-  return [node.anyOf, node.oneOf, node.allOf].flatMap((list) =>
-    Array.isArray(list) ? list.filter(isRecord) : [],
-  );
-}
-
-function mergeHolds(found: readonly LabelHolds[]): LabelHolds {
-  const holds = HOLDS_RANK.find((rank) => found.some((entry) => entry.holds === rank)) ?? 'missing';
-  const same = found.filter((entry) => entry.holds === holds);
-  return { holds, instead: same.flatMap((entry) => entry.instead ?? []) };
-}
-
-function placeholdersAt(node: unknown, prefix: string): string[] {
-  const at = (key: string) => (prefix ? `${prefix}.${key}` : key);
-  if (!isRecord(node)) return [];
-  const branches = schemaBranches(node);
-  if (branches.length) return branches.flatMap((branch) => placeholdersAt(branch, prefix));
-  if (schemaTypes(node).includes('array')) {
-    const first = placeholdersAt(node.items, at('0'));
-    return first.length ? first : [at('0')];
-  }
-  return isRecord(node.properties) ? Object.keys(node.properties).map(at) : [];
-}
-
-// A schema that doesn't say what's there ($ref, no properties, no items) is taken on trust.
-function schemaPathHolds(node: unknown, keys: readonly string[], walked = ''): LabelHolds {
-  if (!isRecord(node) || '$ref' in node) return { holds: 'value' };
-  const branches = schemaBranches(node);
-  if (branches.length) {
-    return mergeHolds(branches.map((branch) => schemaPathHolds(branch, keys, walked)));
-  }
-  const types = schemaTypes(node);
-  const [key, ...rest] = keys;
-  if (key === undefined) {
-    if (types.length && types.every((type) => type === 'boolean')) return { holds: 'flag' };
-    if (types.includes('array') || types.includes('object')) {
-      return { holds: 'group', instead: placeholdersAt(node, walked) };
-    }
-    return { holds: 'value' };
-  }
-  const next = walked ? `${walked}.${key}` : key;
-  const missing: LabelHolds = { holds: 'missing', instead: placeholdersAt(node, walked) };
-  if (types.includes('array') && /^\d+$/.test(key)) {
-    return isRecord(node.items) ? schemaPathHolds(node.items, rest, next) : { holds: 'value' };
-  }
-  if (isRecord(node.properties)) {
-    return Object.hasOwn(node.properties, key)
-      ? schemaPathHolds(node.properties[key], rest, next)
-      : missing;
-  }
-  return types.length === 0 || types.includes('object') ? { holds: 'value' } : missing;
-}
-
-function tryInstead(placeholders: readonly string[]): string {
-  const shown = [...new Set(placeholders)].slice(0, 4).map((path) => `{${path}}`);
-  if (shown.length === 0) return '';
-  const list =
-    shown.length === 1 ? shown[0] : `${shown.slice(0, -1).join(', ')} or ${shown.at(-1)}`;
-  return ` Try ${list}.`;
-}
-
 function toolLabels(
   tool: ToolSpecDraft,
   common: ToolCommon,
   fail: Fail,
 ): PlaygroundToolLabels | undefined {
   const labels: PlaygroundToolLabels = {};
-  const sources = {
-    activity: { schemas: [common.inputSchema], from: 'input' },
-    activityPast: { schemas: [common.inputSchema, common.outputSchema], from: 'input or output' },
-  } as const;
+  const schemas = {
+    activity: { input: common.inputSchema },
+    activityPast: { input: common.inputSchema, output: common.outputSchema },
+  };
   for (const field of ['activity', 'activityPast'] as const) {
     const label = tool[field]?.trim();
     if (!label) continue;
@@ -468,24 +397,9 @@ function toolLabels(
       fail(`Activity labels are limited to ${MAX_ACTIVITY_LABEL_CHARS} characters.`, field);
       continue;
     }
-    const { schemas, from } = sources[field];
-    const holds = activityLabelPlaceholders(label).map((path) => {
-      const found = path
-        ? mergeHolds(schemas.map((schema) => schemaPathHolds(schema, path.split('.'))))
-        : { holds: 'missing' as const, instead: [] };
-      const all = found.instead ?? [];
-      const head = path.split('.')[0];
-      const near = all.filter((candidate) => candidate.split('.')[0] === head);
-      return { path, holds: found.holds, instead: near.length ? near : all };
-    });
-    const bad = holds.find((entry) => entry.holds !== 'value');
-    if (bad) {
-      const reason = {
-        missing: `is not a field of this tool's ${from}.`,
-        group: 'is a list or group; a label shows text or a number.',
-        flag: 'is true or false; a label shows text or a number.',
-      }[bad.holds as 'missing' | 'group' | 'flag'];
-      fail(`{${bad.path}} ${reason}${tryInstead(bad.instead)}`, field);
+    const problem = activityLabelProblem(label, schemas[field]);
+    if (problem) {
+      fail(problem, field);
       continue;
     }
     labels[field] = label;

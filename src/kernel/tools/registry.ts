@@ -1,5 +1,6 @@
 import type { z } from 'zod';
 import { TheoremError } from '../../guardrails/error.ts';
+import { activityLabelProblem } from './activity-label.ts';
 import {
   assertFixedEndpointOrigin,
   jsonSchemaFromZod,
@@ -13,13 +14,33 @@ import type {
   RegisteredTool,
   ToolAuthConfig,
   ToolDefinitionInput,
+  ToolLabels,
 } from './types.ts';
 
-function schemasFromZod<TIn, TOut>(input: z.ZodType<TIn>, output: z.ZodType<TOut>) {
-  const inputSchema = jsonSchemaFromZod(input, 'input');
+function schemasFromZod<TIn, TOut>(def: {
+  name: string;
+  input: z.ZodType<TIn>;
+  output: z.ZodType<TOut>;
+  labels?: ToolLabels;
+}) {
+  const inputSchema = jsonSchemaFromZod(def.input, 'input');
   validateToolInputSchema(inputSchema);
-  const outputSchema = jsonSchemaFromZod(output, 'output');
+  const outputSchema = jsonSchemaFromZod(def.output, 'output');
   validateToolOutputSchema(outputSchema);
+  const labels = {
+    activity: { input: inputSchema },
+    activityPast: { input: inputSchema, output: outputSchema },
+  };
+  for (const field of ['activity', 'activityPast'] as const) {
+    const template = def.labels?.[field];
+    const problem = template ? activityLabelProblem(template, labels[field]) : undefined;
+    if (problem) {
+      throw new TheoremError(
+        'config',
+        `Tool "${def.name}" ${field} label: ${problem}`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
+  }
   return { inputSchema, outputSchema };
 }
 
@@ -41,7 +62,7 @@ function normalizeHttp<TIn = unknown, TOut = unknown>(
 ): HttpToolDef<TIn, TOut> {
   assertFixedEndpointOrigin(def.endpoint);
   assertAuthService(def.name, def.auth);
-  return { ...def, type: 'http', ...schemasFromZod(def.input, def.output) };
+  return { ...def, type: 'http', ...schemasFromZod(def) };
 }
 
 function normalizeMcp<TIn = unknown, TOut = unknown>(
@@ -51,7 +72,7 @@ function normalizeMcp<TIn = unknown, TOut = unknown>(
   },
 ): McpToolDef<TIn, TOut> {
   assertAuthService(def.name, def.auth);
-  return { ...def, type: 'mcp', ...schemasFromZod(def.input, def.output) };
+  return { ...def, type: 'mcp', ...schemasFromZod(def) };
 }
 
 function normalizeFunction<TIn = unknown, TOut = unknown>(
@@ -61,7 +82,7 @@ function normalizeFunction<TIn = unknown, TOut = unknown>(
   },
 ): FunctionToolDef<TIn, TOut> {
   assertAuthService(def.name, def.auth);
-  return { ...def, type: 'function', ...schemasFromZod(def.input, def.output) };
+  return { ...def, type: 'function', ...schemasFromZod(def) };
 }
 
 function normalizeToolDefinition<TIn = unknown, TOut = unknown>(

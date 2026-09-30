@@ -1,22 +1,63 @@
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
+import { TheoremError } from '../../src/guardrails/error.ts';
 import { toolCallsOf } from '../../src/interface/tool-calls.ts';
 import { registerProfile, registerTool } from '../../src/kernel/default-scope.ts';
-import { assertEquals } from '../../src/kernel/engine/assert.ts';
+import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
-import {
-  activityLabelPlaceholders,
-  fillActivityLabel,
-} from '../../src/kernel/tools/activity-label.ts';
+import { fillActivityLabel } from '../../src/kernel/tools/activity-label.ts';
 import { toolEventsOf } from '../fixtures/events.ts';
 import { invokeRegisteredTool } from '../fixtures/test-tools.ts';
 
-Deno.test('an activity label names its placeholders as dot paths', () => {
-  assertEquals(activityLabelPlaceholders('Found { results.0.name } near {city}'), [
-    'results.0.name',
-    'city',
-  ]);
-  assertEquals(activityLabelPlaceholders('Checking the docs'), []);
+Deno.test('a label takes {{x}}, a fallback, a chosen side, a list length and its last item', () => {
+  const output = { amount: 18.4, results: [{ name: 'Lyon' }, { name: 'Paris' }] };
+  const values = { input: { amount: 20, ok: true }, output };
+  assertEquals(fillActivityLabel('Found {{ results.0.name }}', values), 'Found Lyon');
+  assertEquals(fillActivityLabel('{amount} became {output.amount}', values), '20 became 18.4');
+  assertEquals(
+    fillActivityLabel('{results.length}, last {results.-1.name}', values),
+    '2, last Paris',
+  );
+  assertEquals(fillActivityLabel('Found {results.5.name|nothing}', values), 'Found nothing');
+  assertEquals(fillActivityLabel('Saved {ok|}', values), 'Saved');
+  assertEquals(fillActivityLabel('{output.amount|soon}', { input: {} }), 'soon');
+});
+
+Deno.test('a date reads as a date, at the time the tool wrote', () => {
+  const day = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone: 'UTC' });
+  const dayTime = new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: 'UTC',
+  });
+  const fill = (d: string) => fillActivityLabel('{d}', { input: { d } });
+  assertEquals(fill('2026-09-30'), day.format(Date.UTC(2026, 8, 30)));
+  assertEquals(fill('2026-09-30T14:05+02:00'), dayTime.format(Date.UTC(2026, 8, 30, 14, 5)));
+  assertEquals(fill('2026-02-31'), '2026-02-31');
+});
+
+Deno.test('a tool whose label reads a field it does not have is refused at registration', () => {
+  const tool = (activityPast: string) => ({
+    type: 'function' as const,
+    name: 'label_checked',
+    description: 'Checks its labels',
+    category: 'test',
+    access: 'read-only' as const,
+    paths: ['*'],
+    loadTier: 'T0' as const,
+    permission: 'auto' as const,
+    labels: { activity: 'Saving {title}', activityPast },
+    input: z.object({ title: z.string() }),
+    output: z.object({ position: z.number(), saved: z.boolean() }),
+    handler: () => Promise.resolve({ position: 1, saved: true }),
+  });
+  registerTool(tool('Saved {title} as #{position}'));
+  assertThrows(
+    () => registerTool(tool('Saved {postion}')),
+    TheoremError,
+    "activityPast label: {postion} is not a field of this tool's input or output. Try {title} or {position}.",
+  );
+  assertThrows(() => registerTool(tool('Saved: {saved}')), TheoremError, 'is true or false');
 });
 
 Deno.test('an activity label fills from the input, then the output', () => {

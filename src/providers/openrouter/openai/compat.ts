@@ -166,6 +166,11 @@ function wireTools(wireTools?: WireFunctionTool[]): Record<string, unknown>[] | 
   }));
 }
 
+/** OpenAI takes a schema name of at most 64 of `[A-Za-z0-9_-]` and refuses the call otherwise. */
+function schemaName(id: string): string {
+  return id.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64);
+}
+
 function resolveResponseFormat(
   structured: ResolvedStructured | null,
 ): Record<string, unknown> | undefined {
@@ -175,7 +180,7 @@ function resolveResponseFormat(
   return {
     type: 'json_schema',
     json_schema: {
-      name: structured.id,
+      name: schemaName(structured.id),
       strict: true,
       schema: structured.jsonSchema,
     },

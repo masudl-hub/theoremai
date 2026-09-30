@@ -21,12 +21,6 @@ export function sdkPart(input: InteractionPart): Record<string, unknown> {
     return { type: 'text', text: input.text };
   }
   const part = inlineMediaPart(input);
-  if (part.type === 'image') {
-    return {
-      type: 'image',
-      image: `data:${part.mimeType};base64,${part.data}`,
-    };
-  }
   return { type: 'file', mediaType: part.mimeType, data: part.data };
 }
 

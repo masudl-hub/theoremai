@@ -258,17 +258,18 @@ class LiveTrace {
     this.pendingFrames.push({ timeUnixNano: this.root.nowUnixNano(), body });
   };
 
-  /** The pinned key was refused for quota at setup; the session reopens on `paid`, which its responses name. */
+  /** The pinned key was refused for quota at setup; the session reopens on the fallback slot, which its responses name. */
   private keyOverflow(row: Record<string, unknown>): void {
+    const to = String(row.keySlot);
     this.root.event('theorem.session', {
       kind: 'key_overflow',
       key_slot: String(row.from),
-      to_key_slot: 'paid',
+      to_key_slot: to,
       'error.type': String(row.errorKind),
       error: String(row.error),
     });
     const bound = this.bound;
-    if (bound) this.bound = { ...bound, request: { ...bound.request, keySlot: 'paid' } };
+    if (bound) this.bound = { ...bound, request: { ...bound.request, keySlot: to } };
   }
 
   setup(frame: Record<string, unknown>): void {

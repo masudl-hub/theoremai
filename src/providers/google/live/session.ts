@@ -1,6 +1,6 @@
 import { describeError, isAbortError, TheoremError } from '../../../guardrails/error.ts';
 import type { ProviderCompleteRequest } from '../../../kernel/types.ts';
-import { canOverflow, type GeminiTransport, requireKey } from '../keys.ts';
+import { fallbackKey, type GeminiTransport, requireKey } from '../keys.ts';
 import { buildGeminiLiveWebSocketUrl } from './framing.ts';
 import {
   attachLiveSessionHandlers,
@@ -52,7 +52,7 @@ function attachAbort(ws: WebSocket, liveQueue: LiveQueue, signal?: AbortSignal):
   return () => signal.removeEventListener('abort', onAbort);
 }
 
-/** Tape row: setup on the pinned key was refused for quota, so the session opens on `paid`. */
+/** Tape row: setup on the pinned key was refused for quota, so the session opens on the fallback slot. */
 export const LIVE_OVERFLOW_ROW = 'ws_overflow';
 
 interface OpenedSocket {
@@ -101,8 +101,8 @@ async function openOnKey(
 }
 
 /**
- * Open on the pinned key; a quota refusal at setup reopens on the vault's
- * `paid` key when it holds a distinct one, as `fetchGemini` does for HTTP.
+ * Open on the pinned key; a quota refusal at setup reopens on the profile's
+ * fallback slot when it names one, as `fetchGemini` does for HTTP.
  * The tape records the refusal (`ws_overflow`) before the retry.
  */
 async function openWithOverflow(
@@ -117,16 +117,16 @@ async function openWithOverflow(
   try {
     return await openOnKey(req, primary, openWebSocket);
   } catch (err) {
-    const paid = canOverflow(req.keySlot, transport.vault, primary);
-    if (!paid || !(err instanceof TheoremError) || err.kind !== 'rate_limit') throw err;
+    const fallback = fallbackKey(req.fallbackKeySlot, transport.vault, primary);
+    if (!fallback || !(err instanceof TheoremError) || err.kind !== 'rate_limit') throw err;
     req.tapUpstream?.({
       eventType: LIVE_OVERFLOW_ROW,
       from: req.keySlot,
-      keySlot: 'paid',
+      keySlot: fallback.slot,
       errorKind: err.kind,
       error: describeError(err),
     });
-    return await openOnKey(req, paid, openWebSocket);
+    return await openOnKey(req, fallback.key, openWebSocket);
   }
 }
 

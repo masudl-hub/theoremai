@@ -72,8 +72,6 @@ export interface BuiltinToolDef extends ToolBase {
   type: 'builtin';
   wire: BuiltinWire;
   conflictsWith?: string[];
-  /** When enabled, select the paid Vault key slot unless model.spec.key overrides. */
-  forcePaidKey?: boolean;
 }
 
 export interface InvokeToolResume {

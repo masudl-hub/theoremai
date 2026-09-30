@@ -338,7 +338,14 @@ async function postInteractions(
     body: JSON.stringify(toInteractionsBody(req)),
     signal: req.signal,
   };
-  const response = await fetchGemini(url, init, req.keySlot, transport, req.tapUpstream);
+  const response = await fetchGemini(
+    url,
+    init,
+    req.keySlot,
+    transport,
+    req.tapUpstream,
+    req.fallbackKeySlot,
+  );
   if (response.status !== HTTP_OK) {
     throw await readNonOkError(response);
   }

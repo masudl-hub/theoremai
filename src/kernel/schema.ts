@@ -60,17 +60,17 @@ export function isValidProfileProtocol(type: ProfileType, protocol: Protocol): b
   return (PROFILE_TYPE_PROTOCOLS[type] as readonly string[]).includes(protocol);
 }
 
-export const KEY_SLOTS = ['slotA', 'slotB', 'slotC', 'paid'] as const;
-export type KeySlot = (typeof KEY_SLOTS)[number];
+/** A vault slot's name, chosen by the host. The profile names slots; the host fills them with keys. */
+export type KeySlot = string;
 
-/** Key slots that may overflow to `paid` after quota backoff. */
-export const OVERFLOW_KEY_SLOTS = ['slotA', 'slotB', 'slotC'] as const satisfies readonly Exclude<
-  KeySlot,
-  'paid'
->[];
-export type OverflowKeySlot = (typeof OVERFLOW_KEY_SLOTS)[number];
+/** Letters, digits, `-` and `_`, up to 32 characters, starting with a letter or digit. */
+export const KEY_SLOT_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/;
 
-export type KeyVault = Record<KeySlot, string | undefined>;
+export function isKeySlotName(value: unknown): value is KeySlot {
+  return typeof value === 'string' && KEY_SLOT_NAME.test(value);
+}
+
+export type KeyVault = Readonly<Record<KeySlot, string | undefined>>;
 
 export const MEDIA_INPUT_KIND_VALUES = ['image', 'audio', 'video', 'document'] as const;
 export type MediaInputKind = (typeof MEDIA_INPUT_KIND_VALUES)[number];
@@ -568,9 +568,12 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     "The provider's own tools, such as Google Search, this model may use; each must be registered as a builtin tool.",
   ),
   'models.*.key': field(
-    unionType(KEY_SLOTS),
+    'KeySlot',
     "The key slot this model's calls use, ahead of the profile's key.",
-    KEY_SLOTS,
+  ),
+  'models.*.fallbackKey': field(
+    'KeySlot',
+    "The key slot this model's calls retry on when its key is refused for quota, ahead of the profile's fallbackKey.",
   ),
   'models.*.compaction': field(
     'CompactionSpec',
@@ -645,10 +648,10 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'number',
     'The most model calls one turn may make while using tools, where 1 runs the tools asked for but never sends their results back; live sessions ignore it.',
   ),
-  key: field(
-    unionType(OVERFLOW_KEY_SLOTS),
-    'The key slot used when a model has no key of its own and no active builtin tool needs the paid key.',
-    OVERFLOW_KEY_SLOTS,
+  key: field('KeySlot', 'The key slot used when a model has no key of its own.'),
+  fallbackKey: field(
+    'KeySlot',
+    'The key slot a call retries on once when its key is refused for quota. Off unless set.',
   ),
   tools: field(
     '{ allow: ToolId[]; t1Policy?; t2Loader? }',

@@ -571,7 +571,7 @@ Deno.test('pressure-test: createProvider type routing and boundary enforcement',
   const liveProfile = getProfile('live_test_profile');
 
   const googleTransport = {
-    vault: { slotA: 'fake-key', slotB: undefined, slotC: undefined, paid: undefined },
+    vault: { slotA: 'fake-key', slotB: undefined, slotC: undefined },
   };
   const googleSpeech = createProvider(speechProfile, { gemini: googleTransport });
   assertEquals(typeof googleSpeech.complete, 'function');

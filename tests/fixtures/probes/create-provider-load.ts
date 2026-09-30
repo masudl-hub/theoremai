@@ -48,7 +48,7 @@ function sseResponse(chunks: string[]): Response {
 console.log('PHASE:providers-created');
 
 createProvider(baseProfile({ protocol: 'geminiInteractions', provider: 'google' }, false), {
-  gemini: { vault: { slotA: 'a', slotB: 'b', slotC: 'c', paid: 'p' } },
+  gemini: { vault: { slotA: 'a', slotB: 'b', slotC: 'c', spare: 'p' } },
 });
 createProvider(baseProfile({ protocol: 'openAi', provider: 'openrouter' }, false), {
   openAiGateway: { apiKey: 'key' },

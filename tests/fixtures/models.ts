@@ -71,7 +71,7 @@ const gemini31FlashLiteImage = geminiBinding({
   maxOutputTokens: 4096,
   temperature: 1,
   builtInTools: [],
-  key: 'paid',
+  key: 'images',
 });
 
 const gemini31FlashTts = geminiBinding({

@@ -43,7 +43,9 @@ registerProfile(
     type: 'live',
     id: PROFILE,
     identity: { handle: 'live', system: 'hi' },
-    models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, key: 'slotA' } },
+    models: {
+      gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, key: 'slotA', fallbackKey: 'spare' },
+    },
     live: {
       voice: 'Aoede',
       ingress: { text: true },
@@ -84,7 +86,7 @@ async function open(extra: Partial<SessionRequest> = {}): Promise<Harness> {
   const session = await runSession(
     { profile: PROFILE, ...extra },
     {
-      gemini: { vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined } },
+      gemini: { vault: { slotA: 'test-key', slotB: undefined, slotC: undefined } },
       openWebSocket: () => {
         socket = new MockLiveWebSocket();
         setTimeout(() => socket?.open(), 0);
@@ -376,7 +378,7 @@ Deno.test('a session that fails to open still writes its record, typed by its ki
       { profile: PROFILE },
       {
         gemini: {
-          vault: { slotA: undefined, slotB: undefined, slotC: undefined, paid: undefined },
+          vault: { slotA: undefined, slotB: undefined, slotC: undefined },
         },
       },
       catalogedSink(records),
@@ -489,7 +491,7 @@ class QuotaRefusedSocket extends MockLiveWebSocket {
   }
 }
 
-Deno.test('a quota refusal at setup reopens on paid, and the trace names the refusal and the key that served', async () => {
+Deno.test('a quota refusal at setup reopens on the fallback slot, and the trace names the refusal and the key that served', async () => {
   const records: TraceRecord[] = [];
   const urls: string[] = [];
   const sockets: MockLiveWebSocket[] = [];
@@ -497,7 +499,7 @@ Deno.test('a quota refusal at setup reopens on paid, and the trace names the ref
     { profile: PROFILE },
     {
       gemini: {
-        vault: { slotA: 'free-key', slotB: undefined, slotC: undefined, paid: 'paid-key' },
+        vault: { slotA: 'free-key', spare: 'spare-key' },
       },
       openWebSocket: (url) => {
         urls.push(url);
@@ -524,13 +526,13 @@ Deno.test('a quota refusal at setup reopens on paid, and the trace names the ref
 
   assertEquals(
     urls.map((url) => new URL(url).searchParams.get('key')),
-    ['free-key', 'paid-key'],
+    ['free-key', 'spare-key'],
   );
   const root = rootOf(sessionRecord(records));
   const [overflow] = sessionEvents(root);
   assertEquals(overflow?.kind, 'key_overflow');
   assertEquals(overflow?.key_slot, 'slotA');
-  assertEquals(overflow?.to_key_slot, 'paid');
+  assertEquals(overflow?.to_key_slot, 'spare');
   assertEquals(overflow?.['error.type'], 'rate_limit');
   assertEquals(String(overflow?.error).includes('exceeded your current quota'), true);
   assertEquals(
@@ -538,10 +540,10 @@ Deno.test('a quota refusal at setup reopens on paid, and the trace names the ref
     ['key_overflow', 'setup_complete', 'closed'],
   );
   const [response] = recordNamed(records, 'generate_content');
-  assertEquals(rootOf(response).attributes['theorem.key_slot'], 'paid');
+  assertEquals(rootOf(response).attributes['theorem.key_slot'], 'spare');
 });
 
-Deno.test('a quota refusal with no distinct paid key fails the open as rate_limit', async () => {
+Deno.test('a quota refusal with no filled fallback slot fails the open as rate_limit', async () => {
   const records: TraceRecord[] = [];
   let opens = 0;
   let failure: unknown;
@@ -550,7 +552,7 @@ Deno.test('a quota refusal with no distinct paid key fails the open as rate_limi
       { profile: PROFILE },
       {
         gemini: {
-          vault: { slotA: 'free-key', slotB: undefined, slotC: undefined, paid: undefined },
+          vault: { slotA: 'free-key', slotB: undefined, slotC: undefined },
         },
         openWebSocket: () => {
           opens += 1;

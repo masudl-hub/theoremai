@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertStringIncludes } from '@std/assert';
-import { standardEgressEnforce } from '../../mod.ts';
+import { isKeySlotName, standardEgressEnforce } from '../../mod.ts';
 import {
   compilePlayground,
   createBlankDraft,
@@ -201,7 +201,7 @@ Deno.test('setProfileType to live swaps bindings and hides facets live lacks', (
   assertEquals(live.modelBindings[0].protocol, 'geminiLive');
   assertEquals(live.modelBindings[0].apiId, GEMINI_PLAYGROUND_LIVE_DEFAULT_API_ID);
   assertEquals(live.models.defaultModel, '');
-  assertEquals(live.models.key, 'slotA');
+  assertEquals(live.models.key, createExampleDraft().models.key);
   assertEquals(draftFacets(live).includes('outputs'), false);
   const { profile } = compiled(live);
   assertEquals(profile.type, 'live');
@@ -484,7 +484,7 @@ Deno.test('playgroundSource writes structured output and function stubs', () => 
 Deno.test('a new text profile starts on the playground Gemini model', () => {
   const draft = setProfileType(createBlankDraft(), 'text');
   assertEquals(draft.modelBindings[0].apiId, GEMINI_PLAYGROUND_DEFAULT_API_ID);
-  assertEquals(draft.models.key, 'slotA');
+  assert(isKeySlotName(draft.models.key));
   assertEquals(draft.included, ['observability', 'wording']);
   assertEquals(draft.observability.writeTo, 'playground');
 });
@@ -493,7 +493,7 @@ Deno.test('a new image profile starts on the playground Gemini image model', () 
   const draft = setProfileType(createBlankDraft(), 'image');
   assertEquals(draft.modelBindings[0].provider, 'google');
   assertEquals(draft.modelBindings[0].apiId, GEMINI_PLAYGROUND_IMAGE_DEFAULT_API_ID);
-  assertEquals(draft.models.key, 'slotA');
+  assert(isKeySlotName(draft.models.key));
 });
 
 Deno.test('modelBindingViolation holds the playground to its free-tier keys', () => {

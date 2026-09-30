@@ -16,6 +16,25 @@ Hosts link it with `"@theoremjs/playground": "file:../theoremai/playground"`.
 `PLAYGROUND_AUTH_TYPES` / `PlaygroundAuthType` remain on `@theoremjs/agents/schema`
 (authoring vocabulary, not demo product).
 
+## Changed: key slots are yours to name
+
+`KEY_SLOTS`, `OVERFLOW_KEY_SLOTS` and `OverflowKeySlot` are removed, and `paid`
+means nothing. A slot is any name you pick (`KEY_SLOT_NAME`); a vault holds as
+many as you fill.
+
+| Before | After |
+| --- | --- |
+| A quota refusal retried on the vault's `paid` key by itself | Retries only on the slot the profile names in `fallbackKey` (or `models.*.fallbackKey`); Google models only |
+| `googleSearch` switched a model to `paid` (`forcePaidKey`) | No tool picks a key; pin the slot on the model with `key` |
+| `theorem.key_slot` options labelled Key A/B/C and Paid key | The slot's own name |
+
+```diff
+  defineProfile({
+    key: 'slotA',
++   fallbackKey: 'paid',
+  })
+```
+
 ## Removed: `quotaMessage`
 
 ```diff

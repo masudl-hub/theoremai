@@ -49,6 +49,7 @@ function providerCompleteRequest(
     live: generation.live,
     sessionResumptionHandle: generation.sessionResumptionHandle,
     keySlot: generation.keySlot,
+    fallbackKeySlot: generation.fallbackKeySlot,
   };
 }
 

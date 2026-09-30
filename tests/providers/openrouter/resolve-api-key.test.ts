@@ -24,7 +24,7 @@ Deno.test('resolveOpenAiGatewayApiKey reads vault[keySlot] when set', () => {
   assertEquals(
     resolveOpenAiGatewayApiKey(
       {
-        vault: { slotA: 'a', slotB: ' b ', slotC: undefined, paid: 'p' },
+        vault: { slotA: 'a', slotB: ' b ', slotC: undefined, spare: 'p' },
         apiKey: 'ignored',
       },
       'slotB',
@@ -48,7 +48,7 @@ Deno.test('resolveOpenAiGatewayApiKey fails closed on empty vault slot', () => {
   let thrown: unknown;
   try {
     resolveOpenAiGatewayApiKey(
-      { vault: { slotA: ' ', slotB: undefined, slotC: undefined, paid: undefined } },
+      { vault: { slotA: ' ', slotB: undefined, slotC: undefined } },
       'slotA',
     );
   } catch (err) {

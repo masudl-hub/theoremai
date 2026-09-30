@@ -25,7 +25,7 @@ const vault: KeyVault = {
   slotA: 'free-a-key',
   slotB: 'free-b-key',
   slotC: 'free-c-key',
-  paid: 'paid-key',
+  spare: 'spare-key',
 };
 
 function spanNamed(record: TraceRecord, name: string): TraceSpan {

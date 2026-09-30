@@ -598,7 +598,7 @@ Deno.test("resolveTurn, runTurn, runSession and projectProfile refuse a 'host' p
     () =>
       runSession(
         { profile: 'host_refusals' },
-        { gemini: { vault: { slotA: 'k', slotB: undefined, slotC: undefined, paid: undefined } } },
+        { gemini: { vault: { slotA: 'k', slotB: undefined, slotC: undefined } } },
       ),
     TheoremError,
     "type 'host'",

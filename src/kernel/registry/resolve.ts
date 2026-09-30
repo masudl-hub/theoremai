@@ -216,9 +216,7 @@ function resolveTurnInRegistry(
   const structuredId = resolveStructured(profile, input.slots);
   assertOutputMode(profile, structuredId);
   assertSpeechRole(profile, binding, safe);
-  const keySlot = providerUsesKeySlots(binding.provider)
-    ? resolveKeySlot(registry.tools, profile.key, binding, builtins)
-    : undefined;
+  const keys = providerUsesKeySlots(binding.provider) ? resolveKeySlot(profile, binding) : {};
   const transport = resolveTransport(profile, binding);
   const chains = transport === 'interactions' && binding.persistViaInteractionId !== false;
   const previousInteractionId = chains ? safe.previousInteractionId : undefined;
@@ -251,7 +249,7 @@ function resolveTurnInRegistry(
       speech: profile.type === 'speech' ? profile.speech : undefined,
       live: profile.type === 'live' ? profile.live : undefined,
       input: resolveInputParts(profile, safe),
-      keySlot,
+      ...keys,
       canary: resolveGuardrailPolicy(profile.guardrails).canary ? mintCanary() : '',
       sessionResumptionHandle: safe.sessionResumptionHandle ?? input.sessionResumptionHandle,
       resolvedSystem: resolveTurnSystemPrompt(profile, safe),

@@ -89,7 +89,6 @@ const GOOGLE_BUILTIN_TOOLS = [
     paths: ['*'],
     loadTier: 'T0' as const,
     permission: 'auto' as const,
-    forcePaidKey: true,
     wire: { interactions: 'google_search', openRouter: 'web', live: 'googleSearch' },
   },
   {

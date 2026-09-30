@@ -12,7 +12,6 @@ import type {
   LiveEndSensitivity,
   LiveStartSensitivity,
   MediaInputKind,
-  OverflowKeySlot,
   ProfileType,
   ProfileTypeProtocol,
   Protocol,
@@ -101,7 +100,6 @@ export type {
   LiveProfileToolsSpec,
   LiveStartSensitivity,
   MediaInputKind,
-  OverflowKeySlot,
   ProfileToolsSpec,
   ProfileType,
   ProfileTypeProtocol,
@@ -187,8 +185,10 @@ export interface ModelBinding {
   /** Sampling temperature. Omit → provider default. */
   temperature?: number;
   builtInTools?: BuiltinToolId[];
-  /** Overrides `profile.key` for this model (e.g. pin image models to `paid`). */
+  /** Overrides `profile.key` for this model. */
   key?: KeySlot;
+  /** Overrides `profile.fallbackKey` for this model. */
+  fallbackKey?: KeySlot;
   compaction?: CompactionSpec;
   /**
    * OpenRouter prompt-cache policy. Omit → no opt-in `cache_control`.
@@ -454,7 +454,9 @@ export interface ProfileModelFields {
   allowModelSelect?: boolean;
   /** Tool-loop ceiling. Omit or `<= 0` = unbounded; `1` = one-shot; `> 1` = hard cap. */
   maxSteps?: number;
-  key?: OverflowKeySlot;
+  key?: KeySlot;
+  /** Retried once when `key` is refused for quota. Off unless set. */
+  fallbackKey?: KeySlot;
 }
 
 export interface ProfileInputsSpec {
@@ -487,7 +489,9 @@ export interface ProfileCommon {
   defaultModel: ModelId;
   allowModelSelect?: boolean;
   maxSteps?: number;
-  key?: OverflowKeySlot;
+  key?: KeySlot;
+  /** Retried once when `key` is refused for quota. Off unless set. */
+  fallbackKey?: KeySlot;
   outputs?: ProfileOutputsSpec;
   guardrails?: ProfileGuardrailsSpec;
   observability?: ProfileObservabilitySpec;
@@ -880,9 +884,11 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
   input: InteractionPart[];
   /**
    * Vault key slot for credentialed transports (Google required; OpenRouter when
-   * the profile pins `key` or a builtin forces `paid`). Never sent on the wire.
+   * the profile pins `key`). Never sent on the wire.
    */
   keySlot?: KeySlot;
+  /** The slot a quota refusal on `keySlot` retries on, when the profile names one. Google only. */
+  fallbackKeySlot?: KeySlot;
   canary: string;
   sessionResumptionHandle?: string;
   /** Snapshotted synchronously before any async work; the runner binds the canary on top. */
@@ -913,6 +919,8 @@ export interface ProviderCompleteRequest
   live?: ProfileLiveSpec;
   sessionResumptionHandle?: string;
   keySlot?: KeySlot;
+  /** The slot a quota refusal on `keySlot` retries on once. Google only; never sent on the wire. */
+  fallbackKeySlot?: KeySlot;
   /** Scrubbed SSE / HTTP rows for traces. */
   tapUpstream?: (row: Record<string, unknown>) => void;
   /** Host abort signal — adapters should pass this into fetch / SDK calls. */

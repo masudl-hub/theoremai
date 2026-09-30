@@ -64,10 +64,10 @@ Owns every module under `src/providers/`.
 
 ```ts
 const provider = createProvider(profile, {
-  gemini: { vault: { slotA, slotB, slotC, paid }, fetch? },
+  gemini: { vault: { main, spare }, fetch? }, // slot names are yours
   openAiGateway: {
-    // Prefer the same KEY_SLOTS vault as Google when profiles pin models.*.key:
-    vault: { slotA, slotB, slotC, paid },
+    // The same kind of vault as Google, when profiles pin models.*.key:
+    vault: { main },
     // Or a single flat key when the profile omits per-model keys:
     apiKey?,
     baseUrl?, siteUrl?, siteName?, fetch?, voice?,
@@ -350,22 +350,30 @@ newline-joined string on OpenAI-compat and AI SDK messages.
 
 ## Key vault (provider-neutral)
 
-`KEY_SLOTS` = `slotA` | `slotB` | `slotC` | `paid`. Profiles pin `models.*.key`
-(or profile-level `key`) to an overflow slot (`OVERFLOW_KEY_SLOTS` = A/B/C).
-Resolve puts the chosen id on `ResolvedGeneration.keySlot` /
-`ProviderCompleteRequest.keySlot`.
+A slot is a name the host picks: letters, digits, `-` and `_`, up to 32
+characters (`KEY_SLOT_NAME`, `isKeySlotName`), as many as it wants. A profile
+names slots and never holds a key; the host's vault fills them. No slot name
+means anything to the kernel.
+
+A model's calls use `models.*.key`, else the profile's `key`. A Google model
+may also name `models.*.fallbackKey`, else the profile's `fallbackKey`: the slot
+a call retries on once when its key is refused for quota. There is no fallback
+unless the profile names one, and `defineProfile` refuses a fallback on a
+non-Google model or one equal to its key. Resolve puts the slots on
+`ResolvedGeneration.keySlot` / `fallbackKeySlot` and the same fields of
+`ProviderCompleteRequest`.
 
 | Host option | How credentials are chosen |
 | --- | --- |
 | `gemini.vault` | Required for Google. Adapter reads `vault[keySlot]`. |
-| `openAiGateway.vault` | Optional. Used when `keySlot` is set (profile pinned a key or a builtin forced `paid`). |
+| `openAiGateway.vault` | Optional. Used when `keySlot` is set (the profile pinned a key). |
 | `openAiGateway.apiKey` | Flat fallback when `keySlot` is omitted. |
 
 ## Gemini transport
 
 ```ts
 createProvider(profile, {
-  gemini: { vault: { slotA, slotB, slotC, paid } },
+  gemini: { vault: { main, spare } },
 })
 ```
 
@@ -373,15 +381,15 @@ createProvider(profile, {
 | --- | --- |
 | `GeminiTransport` | Google vault + optional `fetch` |
 | `KeyVault` | `Record<KeySlot, string | undefined>` shared with OpenRouter |
-| Slots | `slotA`, `slotB`, `slotC`, `paid` |
-| Selection | `models.*.key` / `ModelBinding.key` / `builtInTools` (`forcePaidKey`, read from the run's scope's tool registry) |
+| Slots | Any names the host picks |
+| Selection | `models.*.key`, else `key`; no tool picks a key |
 
-A quota refusal on a free slot retries once on `paid` when the vault holds a
-distinct key there: an HTTP 429 (`fetchGemini`), and a Live setup refused for
-quota (`openGoogleLiveSession`, tapped as a `ws_overflow` row; the session
-trace records `theorem.session { kind: "key_overflow" }` and its responses name
-`theorem.key_slot: paid`). A host that must never spend on `paid` leaves it
-empty.
+A quota refusal retries once on the fallback slot when the profile names one
+and the vault holds a different key there: an HTTP 429 (`fetchGemini`, and each
+try's span names its `theorem.key_slot`), and a Live setup refused for quota
+(`openGoogleLiveSession`, tapped as a `ws_overflow` row; the session trace
+records `theorem.session { kind: "key_overflow" }` and its responses name the
+fallback slot). With no fallback named, or an empty one, the refusal stands.
 
 A profile that names no key where one is required is `TheoremError('config', …)`;
 a slot the host's vault leaves empty is `auth`.

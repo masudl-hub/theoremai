@@ -50,7 +50,7 @@ Deno.test('createProvider throws when gemini transport is missing for geminiInte
 Deno.test('createProvider returns a provider when gemini transport is supplied', () => {
   const profile = baseProfile({ protocol: 'geminiInteractions', provider: 'google' }, 'text');
   const provider = createProvider(profile, {
-    gemini: { vault: { slotA: 'a', slotB: 'b', slotC: 'c', paid: 'p' } },
+    gemini: { vault: { slotA: 'a', slotB: 'b', slotC: 'c', spare: 'p' } },
   });
   assertEquals(typeof provider.complete, 'function');
 });
@@ -174,7 +174,7 @@ Deno.test('createProvider rejects geminiLive — use runSession', () => {
   let thrown: unknown;
   try {
     createProvider(liveProfile, {
-      gemini: { vault: { slotA: 'a', slotB: 'b', slotC: 'c', paid: 'p' } },
+      gemini: { vault: { slotA: 'a', slotB: 'b', slotC: 'c', spare: 'p' } },
     });
   } catch (err) {
     thrown = err;
@@ -197,7 +197,7 @@ Deno.test('create-provider loads OpenRouter adapter only via dynamic import', ()
 Deno.test('create-provider loads Google adapter only via dynamic import', () => {
   const profile = baseProfile({ protocol: 'geminiInteractions', provider: 'google' }, 'text');
   const provider = createProvider(profile, {
-    gemini: { vault: { slotA: 'a', slotB: 'b', slotC: 'c', paid: 'p' } },
+    gemini: { vault: { slotA: 'a', slotB: 'b', slotC: 'c', spare: 'p' } },
   });
   assertEquals(typeof provider.complete, 'function');
 });

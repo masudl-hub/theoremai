@@ -13,6 +13,7 @@ import {
   CACHE_MODES,
   CACHE_TTLS,
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
+  isKeySlotName,
   isValidPair,
   isValidProfileProtocol,
   PROFILE_FIELDS,
@@ -63,6 +64,7 @@ export type ProfileDefinitionBase = {
   allowModelSelect?: boolean;
   maxSteps?: number;
   key?: ProfileModelFields['key'];
+  fallbackKey?: ProfileModelFields['fallbackKey'];
   outputs?: ProfileOutputsSpec;
   guardrails?: ProfileGuardrailsSpec;
   observability?: ProfileObservabilitySpec;
@@ -218,6 +220,10 @@ function validateDecisionConfig(input: DecisionProfileDefinition): void {
 function defineDecisionProfile(input: DecisionProfileDefinition): DecisionProfile {
   validateDecisionModel(input);
   validateDecisionConfig(input);
+  assertSlotName(input.id, 'key', input.key);
+  for (const [modelId, binding] of Object.entries(input.models)) {
+    assertSlotName(input.id, `models.${modelId}.key`, binding.key);
+  }
   assertObservability(input.id, input.observability);
   return { ...input, identity: { handle: input.identity.handle } };
 }
@@ -281,16 +287,43 @@ function assertModelBinding(profileId: string, modelId: ModelId, binding: ModelB
   assertLocalServer(profileId, modelId, binding);
 }
 
+function assertSlotName(profileId: string, path: string, slot: KeySlot | undefined): void {
+  if (slot !== undefined && !isKeySlotName(slot)) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profileId}: ${path} '${slot}' is not a key slot name; use letters, digits, '-' and '_', up to 32 characters`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+}
+
+/** A model's key and fallback, each its own or the profile's. A fallback is never implied. */
 function assertKeySlot(
   profileId: string,
   modelId: ModelId,
   binding: ModelBinding,
-  profileKey: KeySlot | undefined,
+  profile: { key?: KeySlot; fallbackKey?: KeySlot },
 ): void {
-  if (binding.provider === 'google' && !binding.key && !profileKey) {
+  assertSlotName(profileId, `models.${modelId}.key`, binding.key);
+  assertSlotName(profileId, `models.${modelId}.fallbackKey`, binding.fallbackKey);
+  const key = binding.key ?? profile.key;
+  const fallback = binding.fallbackKey ?? profile.fallbackKey;
+  if (binding.provider === 'google' && !key) {
     throw new TheoremError(
       'config',
       `Profile ${profileId} model '${modelId}': a google model needs models.*.key or the profile key`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  if (fallback === undefined) return;
+  if (binding.provider !== 'google') {
+    throw new TheoremError(
+      'config',
+      `Profile ${profileId} model '${modelId}': fallbackKey only retries google models; set models.*.fallbackKey on those instead`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  if (fallback === key) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profileId} model '${modelId}': fallbackKey '${fallback}' is the same slot as its key`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 }
@@ -369,6 +402,7 @@ function profileModelFields(input: ProfileDefinitionBase): ProfileModelFields {
     allowModelSelect: input.allowModelSelect,
     maxSteps: input.maxSteps,
     key: input.key,
+    fallbackKey: input.fallbackKey,
   };
 }
 
@@ -551,9 +585,11 @@ function defineProfile(input: ProfileDefinition): Profile {
   assertTurnBehaviour(input.id, input);
   assertEgress(input.id, input.guardrails as ProfileGuardrailsSpec | undefined);
   assertObservability(input.id, input.observability);
+  assertSlotName(input.id, 'key', input.key);
+  assertSlotName(input.id, 'fallbackKey', input.fallbackKey);
   for (const [modelId, binding] of Object.entries(input.models)) {
     assertModelBinding(input.id, modelId, binding);
-    assertKeySlot(input.id, modelId, binding, input.key);
+    assertKeySlot(input.id, modelId, binding, input);
   }
 
   const identity: ProfileIdentity =

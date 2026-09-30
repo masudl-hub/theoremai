@@ -215,7 +215,7 @@ Deno.test('turn trace: each HTTP try is a POST span with its slot, body and back
   call.tap({ eventType: 'http_request', method: 'POST', url, keySlot: 'slotA', body });
   call.tap({ eventType: 'http_response', status: HTTP_QUOTA, headers: {} });
   call.tap({ eventType: 'http_error_body', body: 'quota' });
-  call.tap({ eventType: 'http_request', method: 'POST', url, keySlot: 'paid', body });
+  call.tap({ eventType: 'http_request', method: 'POST', url, keySlot: 'spare', body });
   call.tap({ eventType: 'http_response', status: HTTP_OK, headers: {} });
   call.tap({ event_type: 'interaction.created' });
   call.end({ stop: { kind: 'completed' } });
@@ -234,7 +234,7 @@ Deno.test('turn trace: each HTTP try is a POST span with its slot, body and back
     ['theorem.wire.request', 'theorem.upstream.row'],
   );
   assertEquals(attrs(ok)['http.request.resend_count'], 1);
-  assertEquals(attrs(ok)['theorem.key_slot'], 'paid');
+  assertEquals(attrs(ok)['theorem.key_slot'], 'spare');
   assertEquals(typeof attrs(ok)['theorem.retry.backoff_ms'], 'number');
   assertEquals(ok.status.code, 'OK');
   const chat = spanNamed(spans, 'generate_content gemini-test-flash');
@@ -244,7 +244,7 @@ Deno.test('turn trace: each HTTP try is a POST span with its slot, body and back
   );
   assertEquals(attrs(chat)['gen_ai.request.stream'], true);
   assertEquals(typeof attrs(chat)['gen_ai.response.time_to_first_chunk'], 'number');
-  assertEquals(attrs(chat)['theorem.key_slot'], 'paid');
+  assertEquals(attrs(chat)['theorem.key_slot'], 'spare');
 });
 
 Deno.test('turn trace: a buffered body is not streaming, whatever the request asked', () => {

@@ -80,7 +80,7 @@ Deno.test('a live session binds the note into its setup', async () => {
     { profile: profile.id },
     {
       gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
+        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined },
       },
       openWebSocket: () => Promise.resolve(mock as unknown as WebSocket),
     },

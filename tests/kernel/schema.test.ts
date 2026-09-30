@@ -1,5 +1,5 @@
 import { assertEquals } from '@std/assert';
-import type { KeySlot, Protocol, Provider } from '../../src/kernel/schema.ts';
+import type { Protocol, Provider } from '../../src/kernel/schema.ts';
 import {
   ATTACHMENT_ACCEPT_MIMES,
   catalogPathFor,
@@ -8,12 +8,11 @@ import {
   coerceSpeechFormat,
   EXTRA_FIELDS,
   fieldMeta,
+  isKeySlotName,
   isValidPair,
   isValidProfileProtocol,
-  KEY_SLOTS,
   MEDIA_INPUT_KIND_VALUES,
   MEDIA_INPUT_KINDS,
-  OVERFLOW_KEY_SLOTS,
   PROFILE_FIELDS,
   PROFILE_TYPE_PROTOCOLS,
   PROFILE_TYPES,
@@ -92,11 +91,12 @@ Deno.test('providersFor / protocolsFor / coerce stay on PROTOCOL_PROVIDERS', () 
   assertEquals(coerceProvider('openAi', 'local'), 'local');
 });
 
-Deno.test('Key slots are KEY_SLOTS without paid', () => {
-  assertEquals([...OVERFLOW_KEY_SLOTS].join(), 'slotA,slotB,slotC');
-  assertEquals(KEY_SLOTS.includes('paid'), true);
-  for (const slot of OVERFLOW_KEY_SLOTS) {
-    assertEquals(KEY_SLOTS.includes(slot), true);
+Deno.test('a key slot is any short name the host picks', () => {
+  for (const name of ['slotA', 'openai-prod', 'team_2', 'a', 'x'.repeat(32)]) {
+    assertEquals(isKeySlotName(name), true, name);
+  }
+  for (const name of ['', 'Key A', 'slot.a', '-lead', 'x'.repeat(33), 7]) {
+    assertEquals(isKeySlotName(name), false, String(name));
   }
 });
 
@@ -165,11 +165,6 @@ Deno.test('isValidPair matches turn and decision routing tables', () => {
   for (const [protocol, provider] of illegal) {
     assertEquals(isValidPair(protocol, provider as Provider), false);
   }
-});
-
-Deno.test('KeySlot union matches KEY_SLOTS', () => {
-  const sample: KeySlot = 'paid';
-  assertEquals(KEY_SLOTS.includes(sample), true);
 });
 
 Deno.test('EXTRA_FIELDS covers registerTool keys shown in profile docs', () => {

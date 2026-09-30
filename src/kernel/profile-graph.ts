@@ -37,7 +37,7 @@ const PROFILE_GRAPH_DEF = [
     optional: false,
     editor: 'structural',
     label: 'Models',
-    ownsFields: ['defaultModel', 'allowModelSelect', 'maxSteps', 'key'],
+    ownsFields: ['defaultModel', 'allowModelSelect', 'maxSteps', 'key', 'fallbackKey'],
   },
   {
     id: 'modelBinding',

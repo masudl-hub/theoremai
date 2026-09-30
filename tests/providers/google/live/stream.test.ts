@@ -14,7 +14,7 @@ import { stubCompleteRequest } from '../../../fixtures/provider-request.ts';
 
 Deno.test('openGoogleLiveSession rejects when API key is missing', async () => {
   const transport: GeminiTransport = {
-    vault: { slotA: undefined, slotB: undefined, slotC: undefined, paid: undefined },
+    vault: { slotA: undefined, slotB: undefined, slotC: undefined },
   };
   const req = stubCompleteRequest({
     model: 'gemini-3.1-flash-live-preview',
@@ -27,7 +27,7 @@ Deno.test('openGoogleLiveSession rejects when API key is missing', async () => {
 
 Deno.test('openGoogleLiveSession rejects when pre-aborted', async () => {
   const transport: GeminiTransport = {
-    vault: { slotA: 'valid-mock-key', slotB: undefined, slotC: undefined, paid: undefined },
+    vault: { slotA: 'valid-mock-key', slotB: undefined, slotC: undefined },
   };
   const controller = new AbortController();
   controller.abort();

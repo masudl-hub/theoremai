@@ -71,7 +71,7 @@ Deno.test('runSession rejects non-live profiles', async () => {
     () =>
       runSession(
         { profile: profile.id },
-        { gemini: { vault: { slotA: 'k', slotB: undefined, slotC: undefined, paid: undefined } } },
+        { gemini: { vault: { slotA: 'k', slotB: undefined, slotC: undefined } } },
       ),
     TheoremError,
     "runSession requires profile.type 'live'",
@@ -89,7 +89,7 @@ Deno.test('runSession requires registered live profile with gemini vault', async
         { profile: profile.id },
         {
           gemini: {
-            vault: { slotA: undefined, slotB: undefined, slotC: undefined, paid: undefined },
+            vault: { slotA: undefined, slotB: undefined, slotC: undefined },
           },
         },
       ),
@@ -121,7 +121,7 @@ Deno.test('runSession sendVideo rejects when live.ingress.video is disabled', as
     { profile: profile.id },
     {
       gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
+        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined },
       },
       openWebSocket: () => {
         mock = new MockLiveWebSocket();
@@ -153,7 +153,7 @@ Deno.test('runSession sends setup on an already-open socket (fetch upgrade)', as
     { profile: profile.id },
     {
       gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
+        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined },
       },
       openWebSocket: () => Promise.resolve(mock as unknown as WebSocket),
     },
@@ -187,7 +187,7 @@ Deno.test('runSession sendText rejects when live.ingress.text is disabled', asyn
     { profile: profile.id },
     {
       gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
+        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined },
       },
       openWebSocket: () => {
         mock = new MockLiveWebSocket();
@@ -232,7 +232,7 @@ Deno.test('runSession sendText frames sanitized realtime input when text ingress
     { profile: profile.id },
     {
       gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
+        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined },
       },
       openWebSocket: () => {
         mock = new MockLiveWebSocket();
@@ -268,7 +268,7 @@ Deno.test('runSession abort phase still forwards tool events', async () => {
     { profile: profile.id },
     {
       gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
+        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined },
       },
       openWebSocket: () => {
         mock = new MockLiveWebSocket();
@@ -361,7 +361,7 @@ Deno.test('runSession setup declarations equal the full allow list regardless of
     { profile: profile.id },
     {
       gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
+        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined },
       },
       openWebSocket: () => {
         mock = new MockLiveWebSocket();
@@ -427,7 +427,7 @@ async function openWithMock(req: Parameters<typeof runSession>[0]) {
   let mock: MockLiveWebSocket | null = null;
   const session = await runSession(req, {
     gemini: {
-      vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
+      vault: { slotA: 'test-key', slotB: undefined, slotC: undefined },
     },
     openWebSocket: () => {
       mock = new MockLiveWebSocket();
@@ -552,7 +552,7 @@ Deno.test('runSession emits pre_turn before first sendText and post_turn after c
     },
     {
       gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
+        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined },
       },
       openWebSocket: () => {
         mock = new MockLiveWebSocket();
@@ -628,7 +628,7 @@ Deno.test('runSession StageContext.history seeds from SessionRequest.history', a
     },
     {
       gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
+        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined },
       },
       openWebSocket: () => {
         mock = new MockLiveWebSocket();
@@ -678,7 +678,7 @@ async function openToolSession(
       ...(extra.resolveHost ? { resolveHost: extra.resolveHost } : {}),
     },
     {
-      gemini: { vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined } },
+      gemini: { vault: { slotA: 'test-key', slotB: undefined, slotC: undefined } },
       openWebSocket: () => {
         const socket = new MockLiveWebSocket();
         sockets.push(socket);
@@ -1474,7 +1474,7 @@ Deno.test('runSession pre_turn inject schedules realtime text and lands in later
     },
     {
       gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
+        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined },
       },
       openWebSocket: () => {
         mock = new MockLiveWebSocket();
@@ -1543,7 +1543,7 @@ Deno.test('runSession refuses an inject live cannot write as text, whole, and ne
     },
     {
       gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
+        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined },
       },
       openWebSocket: () => {
         mock = new MockLiveWebSocket();
@@ -1615,7 +1615,7 @@ Deno.test('runSession before_end inject schedules realtime text and still emits 
     },
     {
       gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
+        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined },
       },
       openWebSocket: () => {
         mock = new MockLiveWebSocket();

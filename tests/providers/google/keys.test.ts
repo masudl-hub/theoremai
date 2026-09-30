@@ -7,7 +7,7 @@ import { requireModelProfile } from '../../../src/kernel/registry/resolve.ts';
 import type { KeyVault } from '../../../src/kernel/types.ts';
 import {
   backoffMs,
-  canOverflow,
+  fallbackKey,
   fetchGemini,
   isTransientHttp,
   isTransientThrown,
@@ -20,7 +20,7 @@ const vault: KeyVault = {
   slotA: 'free-a-key',
   slotB: 'free-b-key',
   slotC: 'free-c-key',
-  paid: 'paid-key',
+  spare: 'spare-key',
 };
 
 const HTTP_OK = 200;
@@ -35,7 +35,7 @@ function headerApiKey(init?: RequestInit): string {
 }
 
 function responseForKey(key: string): Response {
-  if (key === 'paid-key') {
+  if (key === 'spare-key') {
     return new Response('body', { status: HTTP_OK });
   }
   return new Response('body', { status: HTTP_QUOTA });
@@ -87,10 +87,10 @@ Deno.test('host profiles default to their configured key slots', () => {
   );
 });
 
-Deno.test('image model uses the paid Gemini key', () => {
+Deno.test('the image model uses the slot it pins', () => {
   assertEquals(
     resolveTurn({ profile: 'image', input: { text: 'fox' } }).generation.keySlot,
-    'paid',
+    'images',
   );
 });
 
@@ -104,14 +104,14 @@ Deno.test('pro preview without search or maps stays on the configured key slot',
   assertEquals(generation.keySlot, 'slotB');
 });
 
-Deno.test('search forces the paid key when listed on the model', () => {
+Deno.test('search stays on the profile key; no tool picks a key on its own', () => {
   assertEquals(
     resolveTurn({ profile: 'chat_search', input: { text: 'x' } }).generation.keySlot,
-    'paid',
+    'slotA',
   );
   assertEquals(
     resolveTurn({ profile: 'formatter_search', input: { text: 'x' } }).generation.keySlot,
-    'paid',
+    'slotC',
   );
   assertEquals(
     resolveTurn({
@@ -119,11 +119,11 @@ Deno.test('search forces the paid key when listed on the model', () => {
       model: 'gemini35FlashLite',
       input: { text: 'x' },
     }).generation.keySlot,
-    'paid',
+    'slotB',
   );
 });
 
-Deno.test('maps uses profile key slot unless model pins paid or builtin forces paid', () => {
+Deno.test('maps uses the profile key slot', () => {
   assertEquals(
     resolveTurn({ profile: 'chat_maps', input: { text: 'x' } }).generation.keySlot,
     'slotA',
@@ -146,28 +146,35 @@ Deno.test('maps uses profile key slot unless model pins paid or builtin forces p
   );
 });
 
-Deno.test('url context does not force paid', () => {
+Deno.test('url context uses the profile key slot', () => {
   assertEquals(
     resolveTurn({ profile: 'chat_url', input: { text: 'x' } }).generation.keySlot,
     'slotA',
   );
 });
 
-Deno.test('fetchGemini never starts on paid for a key slot that is not 429', async () => {
+Deno.test('fetchGemini never uses the fallback when the key answers', async () => {
   const used: string[] = [];
-  const res = await fetchGemini('https://example.com/v1', { method: 'POST', body: '{}' }, 'slotB', {
-    vault,
-    wait: noWait,
-    fetch: (_url, init) => {
-      used.push(headerApiKey(init));
-      return Promise.resolve(new Response('ok', { status: HTTP_OK }));
+  const res = await fetchGemini(
+    'https://example.com/v1',
+    { method: 'POST', body: '{}' },
+    'slotB',
+    {
+      vault,
+      wait: noWait,
+      fetch: (_url, init) => {
+        used.push(headerApiKey(init));
+        return Promise.resolve(new Response('ok', { status: HTTP_OK }));
+      },
     },
-  });
+    undefined,
+    'spare',
+  );
   assertEquals(res.status, HTTP_OK);
   assertEquals(used, ['free-b-key']);
 });
 
-Deno.test('fetchGemini overflows to paid after 429 backoff, not before', async () => {
+Deno.test('fetchGemini retries on the fallback slot after 429 backoff, not before', async () => {
   const used: string[] = [];
   const res = await fetchGemini(
     'https://example.com/v1?key=strip-me',
@@ -182,9 +189,26 @@ Deno.test('fetchGemini overflows to paid after 429 backoff, not before', async (
         return Promise.resolve(responseForKey(key));
       },
     },
+    undefined,
+    'spare',
   );
   assertEquals(res.status, HTTP_OK);
-  assertEquals(used, ['free-a-key', 'free-a-key', 'free-a-key', 'paid-key']);
+  assertEquals(used, ['free-a-key', 'free-a-key', 'free-a-key', 'spare-key']);
+});
+
+Deno.test('fetchGemini without a fallback slot returns the quota refusal', async () => {
+  const used: string[] = [];
+  const res = await fetchGemini('https://example.com/v1', { method: 'POST', body: '{}' }, 'slotA', {
+    vault,
+    wait: noWait,
+    fetch: (_url, init) => {
+      const key = headerApiKey(init);
+      used.push(key);
+      return Promise.resolve(responseForKey(key));
+    },
+  });
+  assertEquals(res.status, HTTP_QUOTA);
+  assertEquals(used, ['free-a-key', 'free-a-key', 'free-a-key']);
 });
 
 Deno.test('missing free key throws before any fetch', async () => {
@@ -232,11 +256,12 @@ Deno.test('fetchGemini tapes every try under the slot it was sent with', async (
       fetch: (_url, init) => Promise.resolve(responseForKey(headerApiKey(init))),
     },
     (row) => rows.push(row),
+    'spare',
   );
   const requests = rows.filter((row) => row.eventType === 'http_request');
   assertEquals(
     requests.map((row) => row.keySlot),
-    ['slotA', 'slotA', 'slotA', 'paid'],
+    ['slotA', 'slotA', 'slotA', 'spare'],
   );
   assertEquals(requests[0]?.url, 'https://example.com/v1');
   assertEquals(requests[0]?.body, { model: 'm' });
@@ -286,11 +311,11 @@ Deno.test('backoffMs follows the configured schedule and falls back after it', (
   assertEquals(backoffMs(10), 2000);
 });
 
-Deno.test('canOverflow only offers the paid key for a distinct key slot', () => {
-  assertEquals(canOverflow('paid', vault, vault.paid ?? ''), undefined);
-  assertEquals(canOverflow('slotA', { ...vault, paid: undefined }, 'free-a-key'), undefined);
-  assertEquals(canOverflow('slotA', vault, 'paid-key'), undefined);
-  assertEquals(canOverflow('slotA', vault, 'free-a-key'), 'paid-key');
+Deno.test('fallbackKey offers only a named, filled, different key', () => {
+  assertEquals(fallbackKey(undefined, vault, 'free-a-key'), undefined);
+  assertEquals(fallbackKey('spare', { ...vault, spare: undefined }, 'free-a-key'), undefined);
+  assertEquals(fallbackKey('spare', vault, 'spare-key'), undefined);
+  assertEquals(fallbackKey('spare', vault, 'free-a-key'), { slot: 'spare', key: 'spare-key' });
 });
 
 Deno.test('withApiKey sets the api key header and Content-Type for non-GET requests', () => {

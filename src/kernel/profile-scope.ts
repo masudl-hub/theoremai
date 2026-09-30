@@ -60,6 +60,7 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
       'store',
       'persistViaInteractionId',
       'server',
+      'fallbackKey',
     ].map((field) => [
       `models.*.${field}`,
       {
@@ -100,6 +101,10 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
     reason: 'live compacts with live.contextCompression',
   },
   key: { profileTypes: MODEL_PROFILE_TYPES, reason: 'a host profile runs no model' },
+  fallbackKey: {
+    profileTypes: TURN_TYPES,
+    reason: 'a host profile runs no model and a decision makes one call on its key',
+  },
   defaultModel: {
     profileTypes: TURN_TYPES,
     reason: 'a host profile runs no model and a decision declares exactly one',

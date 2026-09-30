@@ -14,7 +14,6 @@ import type {
   CompactionMeter,
   CompactionOutcome,
   CompactionTiming,
-  KeySlot,
   ToolGateKind,
   ToolPermission,
   TurnStage,
@@ -255,13 +254,6 @@ const TOOL_PERMISSION_OPTIONS: Readonly<Record<ToolPermission, TraceOptionMeta>>
   auto: { label: 'Automatic', doc: 'Runs without asking.' },
   session_consent: { label: 'Ask once', doc: 'Asks once per session, then remembers the answer.' },
   always_confirm: { label: 'Always ask', doc: 'Asks before every call.' },
-};
-
-const KEY_SLOT_OPTIONS: Readonly<Record<KeySlot, TraceOptionMeta>> = {
-  slotA: { label: 'Key A', doc: "The host vault's first key slot." },
-  slotB: { label: 'Key B', doc: "The host vault's second key slot." },
-  slotC: { label: 'Key C', doc: "The host vault's third key slot." },
-  paid: { label: 'Paid key', doc: 'The paid key a refused call overflowed to.' },
 };
 
 const LINK_KINDS: Readonly<Record<'resume' | 'continue' | 'retry' | 'trial', TraceOptionMeta>> = {
@@ -571,8 +563,8 @@ const SESSION_KINDS: Readonly<
   },
   setup_complete: { label: 'Setup complete', doc: 'The provider accepted the session setup.' },
   key_overflow: {
-    label: 'Switched to paid key',
-    doc: 'The first key was refused for quota at setup; the session reopened on the paid key.',
+    label: 'Switched to fallback key',
+    doc: "The key was refused for quota at setup; the session reopened on the profile's fallback key.",
   },
   closed: { label: 'Socket closed', doc: 'The session socket closed.' },
 };
@@ -716,8 +708,7 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
     'request',
     'API key',
     'text',
-    'The vault key slot that finally answered.',
-    KEY_SLOT_OPTIONS,
+    'The vault key slot that finally answered, by the name the profile gave it.',
   ),
   'theorem.request.builtins': attr(
     'request',
@@ -1547,13 +1538,12 @@ const TRACE_EVENTS: Readonly<Record<string, TraceEventMeta>> = {
         'boolean',
         'The provider sent a resumption handle. The handle is a credential and is never recorded.',
       ),
-      key_slot: attr('request', 'From key', 'text', 'The key slot refused.', KEY_SLOT_OPTIONS),
+      key_slot: attr('request', 'From key', 'text', 'The key slot refused.'),
       to_key_slot: attr(
         'request',
         'To key',
         'text',
-        'The key slot it reopened on.',
-        KEY_SLOT_OPTIONS,
+        "The profile's fallback key slot it reopened on.",
       ),
       error: attr('error', 'Detail', 'text', "The provider's refusal."),
     },

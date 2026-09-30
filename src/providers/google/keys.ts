@@ -61,15 +61,17 @@ export function backoffMs(attempt: number): number {
   return BACKOFF_MS[attempt] ?? BACKOFF_SECOND_MS;
 }
 
-export function canOverflow(slot: KeySlot, vault: KeyVault, primary: string): string | undefined {
-  if (slot === 'paid') {
+/** The profile's fallback slot and its key, when the vault holds a different key there. */
+export function fallbackKey(
+  slot: KeySlot | undefined,
+  vault: KeyVault,
+  primary: string,
+): { slot: KeySlot; key: string } | undefined {
+  const key = slot ? vault[slot] : undefined;
+  if (!slot || !key || key === primary) {
     return undefined;
   }
-  const { paid } = vault;
-  if (!paid || paid === primary) {
-    return undefined;
-  }
-  return paid;
+  return { slot, key };
 }
 
 export function withApiKey(init: RequestInit, apiKey: string): RequestInit {
@@ -116,13 +118,17 @@ async function fetchWithBackoff(args: FetchAttempt): Promise<Response> {
   }
 }
 
-/** Backs off on transient failures and overflows a quota refusal to the `paid` key. */
+/**
+ * Backs off on transient failures. A quota refusal retries once on the profile's fallback slot,
+ * when it names one; each try's slot is on the tape, so the trace shows the switch.
+ */
 export async function fetchGemini(
   url: string,
   init: RequestInit,
   slot: KeySlot,
   transport: GeminiTransport,
   tap?: ProviderCompleteRequest['tapUpstream'],
+  fallbackSlot?: KeySlot,
 ): Promise<Response> {
   const parsed = new URL(url);
   parsed.searchParams.delete('key');
@@ -130,9 +136,9 @@ export async function fetchGemini(
   const primary = requireKey(transport.vault, slot);
   const first = { href, init, transport, tap, attempt: 0 };
   let last = await fetchWithBackoff({ ...first, apiKey: primary, slot });
-  const paid = canOverflow(slot, transport.vault, primary);
-  if (last.status === HTTP_QUOTA && paid) {
-    last = await fetchWithBackoff({ ...first, apiKey: paid, slot: 'paid' });
+  const fallback = fallbackKey(fallbackSlot, transport.vault, primary);
+  if (last.status === HTTP_QUOTA && fallback) {
+    last = await fetchWithBackoff({ ...first, apiKey: fallback.key, slot: fallback.slot });
   }
   return last;
 }

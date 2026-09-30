@@ -38,7 +38,7 @@ Deno.test('image oneshot uses image model and image response format', () => {
     },
   });
   assertEquals(generation.model, 'gemini31FlashLiteImage');
-  assertEquals(generation.keySlot, 'paid');
+  assertEquals(generation.keySlot, 'images');
   assertEquals(generation.thinking, 'minimal');
   assertEquals(generation.structured, null);
   assertEquals(generation.image, {

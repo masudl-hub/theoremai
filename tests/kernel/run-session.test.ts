@@ -1,6 +1,7 @@
 import { assertEquals, assertRejects, assertStringIncludes, assertThrows } from '@std/assert';
 import { z } from 'zod';
 import { TheoremError } from '../../src/guardrails/error.ts';
+import { lexiconText } from '../../src/guardrails/lexicon.ts';
 import type { ResolveHost } from '../../src/guardrails/network.ts';
 import {
   clearProfiles,
@@ -10,6 +11,7 @@ import {
   resetTools,
   runSession,
 } from '../../src/kernel/default-scope.ts';
+import type { SignInGatePolicy } from '../../src/kernel/engine/session/mod.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import type { StageHandler } from '../../src/kernel/stages.ts';
@@ -648,7 +650,12 @@ Deno.test('runSession StageContext.history seeds from SessionRequest.history', a
 /** A live session over a mock socket whose events are collected as they arrive. */
 async function openToolSession(
   allow: string[],
-  extra: { onStage?: StageHandler; gateTtlMs?: number; resolveHost?: ResolveHost } = {},
+  extra: {
+    onStage?: StageHandler;
+    gateTtlMs?: number;
+    signInGate?: SignInGatePolicy;
+    resolveHost?: ResolveHost;
+  } = {},
 ) {
   const profile = defineProfile({
     type: 'live',
@@ -675,6 +682,7 @@ async function openToolSession(
         return Promise.resolve(socket as unknown as WebSocket);
       },
       ...(extra.gateTtlMs !== undefined ? { gateTtlMs: extra.gateTtlMs } : {}),
+      ...(extra.signInGate ? { signInGate: extra.signInGate } : {}),
     },
   );
   const [mock] = sockets;
@@ -722,6 +730,25 @@ async function openToolSession(
     return ran;
   };
   return { session, mock, events, toolResponses, modelCalls, invokeFor, close };
+}
+
+/** An HTTP tool that signs in to Tracker with a bearer token, gating when it has none. */
+function registerTrackerTool(): void {
+  registerTool({
+    type: 'http',
+    name: 'live_tracker',
+    description: 'Read tracker items',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    endpoint: 'https://api.tracker.example/items',
+    method: 'GET',
+    auth: { slot: 'tracker', type: 'bearer', service: 'Tracker', onUnauthenticated: 'gate' },
+    input: z.object({}),
+    output: z.object({ ok: z.boolean() }),
+  });
 }
 
 function registerConfirmTool(): void {
@@ -1006,21 +1033,7 @@ Deno.test('runSession keeps a session_consent approval for the rest of the sessi
 Deno.test('runSession makes a key typed at a sign-in gate the slot credential, for the rest of the session', async () => {
   clearProfiles();
   resetTools();
-  registerTool({
-    type: 'http',
-    name: 'live_tracker',
-    description: 'Read tracker items',
-    category: 'test',
-    access: 'read-only',
-    paths: ['*'],
-    loadTier: 'T0',
-    permission: 'auto',
-    endpoint: 'https://api.tracker.example/items',
-    method: 'GET',
-    auth: { slot: 'tracker', type: 'bearer', onUnauthenticated: 'gate' },
-    input: z.object({}),
-    output: z.object({ ok: z.boolean() }),
-  });
+  registerTrackerTool();
   const original = globalThis.fetch;
   const sent: (string | null)[] = [];
   globalThis.fetch = (_input: Request | URL | string, init?: RequestInit) => {
@@ -1057,6 +1070,100 @@ Deno.test('runSession makes a key typed at a sign-in gate the slot credential, f
   } finally {
     globalThis.fetch = original;
   }
+});
+
+Deno.test('runSession with signInGate answer tells the model the sign-in is pending and releases the call', async () => {
+  clearProfiles();
+  resetTools();
+  registerTrackerTool();
+  const pending = lexiconText('sign_in.pending', { service: 'Tracker' });
+  const h = await openToolSession(['live_tracker'], { signInGate: 'answer' });
+  await h.modelCalls({ id: 'c-wait', name: 'live_tracker' });
+
+  const gated = await h.session.executeTool({ callId: 'c-wait' });
+  assertEquals(gated.gated?.kind, 'auth');
+  assertEquals(h.toolResponses(), [
+    { id: 'c-wait', name: 'live_tracker', response: { result: pending } },
+  ]);
+  await assertRejects(
+    () => h.session.executeTool({ callId: 'c-wait', decision: 'approve', secret: 'k' }),
+    TheoremError,
+  );
+  const gate = h.events.find(
+    (ev) => ev.type === 'tool' && ev.tool.callId === 'c-wait' && ev.tool.phase === 'gate',
+  );
+  assertEquals(
+    gate?.type === 'tool' && gate.tool.phase === 'gate' ? gate.tool.readBack : '',
+    pending,
+  );
+  await h.close();
+});
+
+Deno.test('runSession with signInGate answer settles a sign-in gate another process raised', async () => {
+  clearProfiles();
+  resetTools();
+  registerTrackerTool();
+  const h = await openToolSession(['live_tracker'], { signInGate: 'answer' });
+  await h.modelCalls({ id: 'c-split-sign', name: 'live_tracker' });
+  const gatedRun = await h.invokeFor('live_tracker', 'c-split-sign');
+  const gated = h.session.answerToolCall({ callId: 'c-split-sign', events: gatedRun });
+  assertEquals(gated.gated?.kind, 'auth');
+  assertEquals(h.toolResponses(), [
+    {
+      id: 'c-split-sign',
+      name: 'live_tracker',
+      response: { result: lexiconText('sign_in.pending', { service: 'Tracker' }) },
+    },
+  ]);
+  await h.close();
+});
+
+Deno.test('runSession holds a confirmation gate even with signInGate answer', async () => {
+  clearProfiles();
+  resetTools();
+  registerConfirmTool();
+  const h = await openToolSession(['live_confirm_tool'], { signInGate: 'answer' });
+  await h.modelCalls({ id: 'c-confirm', name: 'live_confirm_tool' });
+  assertEquals((await h.session.executeTool({ callId: 'c-confirm' })).gated?.kind, 'confirmation');
+  assertEquals(h.toolResponses().length, 0);
+  await h.close();
+});
+
+Deno.test('a refused sign-in tells the model it was declined or expired, naming the service', async () => {
+  clearProfiles();
+  resetTools();
+  registerTrackerTool();
+  const h = await openToolSession(['live_tracker']);
+  const failureOf = (ran: TurnEvent[]) => {
+    const failed = ran.find((ev) => ev.type === 'tool' && ev.tool.phase === 'error');
+    return failed?.type === 'tool' && failed.tool.phase === 'error'
+      ? failed.tool.failure
+      : undefined;
+  };
+
+  const declined = failureOf(
+    await h.invokeFor('live_tracker', 'c-no', { granted: false, signIn: true }),
+  );
+  assertEquals(declined?.code, 'denied');
+  assertEquals(declined?.kind, 'declined');
+  assertEquals(declined?.message, lexiconText('sign_in.declined', { service: 'Tracker' }));
+
+  const expired = failureOf(
+    await h.invokeFor('live_tracker', 'c-late', { granted: false, signIn: true, cause: 'expired' }),
+  );
+  assertEquals(expired?.code, 'expired');
+  assertEquals(expired?.kind, 'cancelled');
+  assertEquals(expired?.message, lexiconText('sign_in.expired', { service: 'Tracker' }));
+
+  const walkedAway = failureOf(
+    await h.invokeFor('live_tracker', 'c-gone', {
+      granted: false,
+      signIn: true,
+      cause: 'abandoned',
+    }),
+  );
+  assertEquals(walkedAway?.code, 'cancelled');
+  await h.close();
 });
 
 Deno.test('runSession answers a call a stage stopped, then ends the cycle cancelled', async () => {

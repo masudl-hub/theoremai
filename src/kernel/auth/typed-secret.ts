@@ -1,5 +1,6 @@
 import { TheoremError } from '../../guardrails/error.ts';
 import type { ToolAuthType } from '../schema.ts';
+import type { ToolGateAuth } from '../tools/gate-answer.ts';
 import type { ApiKeyCredential, BearerCredential } from './types.ts';
 
 /**
@@ -24,7 +25,7 @@ export function credentialFromTypedSecret(
 
 /** `auth` is absent on any gate other than sign-in, which takes no key. */
 export function credentialForSignInGate(
-  auth: { slot: string; authType: ToolAuthType } | undefined,
+  auth: Pick<ToolGateAuth, 'slot' | 'authType'> | undefined,
   secret: unknown,
 ): { slot: string; credential: BearerCredential | ApiKeyCredential } {
   if (!auth) {

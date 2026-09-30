@@ -410,6 +410,8 @@ true satisfies Equals<z.infer<typeof toolFailure>, ToolFailure>;
 export interface ToolAuthChallenge {
   slot: string;
   authType: ToolAuthType;
+  /** The service the person signs in to, from the tool's auth config. */
+  service: string;
   /** Why the tool needs it; never blank. */
   message: string;
   authorizationUrl?: string;
@@ -421,6 +423,7 @@ export interface ToolAuthChallenge {
 const toolAuthChallenge = z.object({
   slot: nonEmptyText,
   authType: z.enum(TOOL_AUTH_TYPES),
+  service: nonEmptyText,
   message: nonEmptyText,
   authorizationUrl: z.string().optional(),
   state: z.string().optional(),
@@ -619,6 +622,7 @@ export interface ToolCallEdit {
  *   media it returned beside its output (images, audio);
  *   `readBack` is the text the model reads back, after guardrails.
  * - `gate` — confirmation, permission or sign-in held the call; the body did not run.
+ *   A sign-in gate's `readBack` is what the model reads while the person signs in.
  * - `error` — the call failed or was refused (`failure.kind` `declined` · `blocked` · `cancelled` · …);
  *   `readBack` is the text the model reads back for it, after guardrails.
  * - `cancel` — cancelled in flight (e.g. live barge-in).
@@ -637,7 +641,7 @@ export type ToolPhaseEvent = ToolPhaseBase &
         readBack?: string;
         parts?: InteractionPart[];
       }
-    | { phase: 'gate'; gate: ToolGate }
+    | { phase: 'gate'; gate: ToolGate; readBack?: string }
     | { phase: 'error'; failure: ToolFailure; readBack?: string }
     | { phase: 'cancel' }
   );
@@ -660,7 +664,12 @@ const toolPhaseEvent = z.discriminatedUnion('phase', [
     readBack: z.string().optional(),
     parts: z.array(interactionPart).optional(),
   }),
-  z.object({ ...toolPhaseBase, phase: z.literal('gate'), gate: toolGate }),
+  z.object({
+    ...toolPhaseBase,
+    phase: z.literal('gate'),
+    gate: toolGate,
+    readBack: z.string().optional(),
+  }),
   z.object({
     ...toolPhaseBase,
     phase: z.literal('error'),

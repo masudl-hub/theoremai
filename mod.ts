@@ -213,7 +213,7 @@ export {
   liveIngressEnabled,
   liveIngressEnabledFromSpec,
 } from './src/kernel/engine/live-ingress.ts';
-export type { RunSessionOptions } from './src/kernel/engine/session/mod.ts';
+export type { RunSessionOptions, SignInGatePolicy } from './src/kernel/engine/session/mod.ts';
 export type {
   MediaPayload,
   MediaTokenFamily,

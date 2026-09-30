@@ -81,8 +81,16 @@ export interface InvokeToolResume {
    * `false` settles as a refusal with no body; omitted is a first attempt or an auth retry.
    */
   granted?: boolean;
-  /** For `granted: false`: `declined` (default) fails as `declined`, `abandoned` as `cancelled`. */
+  /**
+   * For `granted: false`: `declined` (default) fails as `declined`; `abandoned` and `expired`
+   * as `cancelled`.
+   */
   cause?: ToolResumeCause;
+  /**
+   * For `granted: false`: the refused gate was a sign-in, so the model reads the `sign_in.*`
+   * note for its cause, naming the tool's `auth.service`.
+   */
+  signIn?: boolean;
   /** The user edited the arguments before approving; `from` is the model's proposed input. */
   edited?: { from: Record<string, unknown> };
 }
@@ -154,6 +162,8 @@ export interface FunctionToolDef<TIn = unknown, TOut = unknown>
 export interface HttpToolAuthConfig {
   slot: string;
   type: ToolAuthType;
+  /** The service the person signs in to, as they know it (e.g. "GitHub"); never blank. */
+  service: string;
   headerName?: string; // defaults to 'Authorization'
   headerPrefix?: string; // defaults to 'Bearer '
   onUnauthenticated?: AuthUnauthenticatedPolicy; // defaults to 'gate'

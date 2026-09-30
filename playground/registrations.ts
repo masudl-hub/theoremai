@@ -1,12 +1,14 @@
 import type {
-	AuthUnauthenticatedPolicy,
 	HttpMethod,
 	ToolAccess,
-	ToolAuthType,
 	ToolLoadTier,
 	ToolPermission,
 } from '../src/kernel/schema.ts';
+import type { HttpToolAuthConfig } from '../src/kernel/tools/types.ts';
 import type { StructuredSpec } from '../src/kernel/types.ts';
+
+/** The kernel's auth config; the host's OAuth endpoints are never set from the playground. */
+export type PlaygroundToolAuth = Omit<HttpToolAuthConfig, 'preResolved'>;
 
 export type StructuredRegistration = {
 	id: string;
@@ -45,16 +47,7 @@ export type HttpToolRegistration = {
 		queryParams?: string[];
 		bodyParam?: string;
 	};
-	auth?: {
-		slot: string;
-		type: ToolAuthType;
-		headerName?: string;
-		headerPrefix?: string;
-		onUnauthenticated?: AuthUnauthenticatedPolicy;
-		scopes?: string[];
-		clientId?: string;
-		redirectUri?: string;
-	};
+	auth?: PlaygroundToolAuth;
 	inputSchema: Record<string, unknown>;
 	outputSchema: Record<string, unknown>;
 };
@@ -71,16 +64,7 @@ export type McpToolRegistration = {
 	serverUrl: string;
 	mcpToolName: string;
 	headers?: Record<string, string>;
-	auth?: {
-		slot: string;
-		type: ToolAuthType;
-		headerName?: string;
-		headerPrefix?: string;
-		onUnauthenticated?: AuthUnauthenticatedPolicy;
-		scopes?: string[];
-		clientId?: string;
-		redirectUri?: string;
-	};
+	auth?: PlaygroundToolAuth;
 	inputSchema: Record<string, unknown>;
 	outputSchema: Record<string, unknown>;
 };

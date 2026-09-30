@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { lexiconText } from '../../src/guardrails/lexicon.ts';
 import { forClientEvents } from '../../src/host/client-turn.ts';
 import { registerTool, resetTools } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
@@ -6,6 +7,7 @@ import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import type { ToolExecuteSettlement } from '../../src/kernel/tools/execute.ts';
 import { executeRegisteredTool, parseMcpRpcResponse } from '../../src/kernel/tools/mod.ts';
 import { buildHttpToolTarget, MAX_TOOL_RESPONSE_BYTES } from '../../src/kernel/tools/remote.ts';
+import type { HttpToolAuthConfig } from '../../src/kernel/tools/types.ts';
 import type { Profile } from '../../src/kernel/types.ts';
 import { isRecord } from '../../src/kernel/util/record.ts';
 import { eventsOf, guardrailAt, toolEventsOf } from '../fixtures/events.ts';
@@ -56,6 +58,7 @@ Deno.test('Declarative HTTP Tool gates when credentials are missing and policy i
     paths: ['*'],
     auth: {
       slot: 'user_auth',
+      service: 'Example',
       type: 'bearer',
       onUnauthenticated: 'gate',
     },
@@ -89,6 +92,7 @@ Deno.test('Declarative HTTP Tool gates when credentials are missing and policy i
   const gate = toolEventsOf(events, 'gate')[0]?.gate;
   assertEquals(gate?.kind, 'auth');
   assertEquals(gate?.kind === 'auth' ? gate.authChallenge.slot : undefined, 'user_auth');
+  assertEquals(gate?.kind === 'auth' ? gate.authChallenge.service : undefined, 'Example');
   const preToolStage = events.find(
     (e) => e.type === 'stage' && e.stage === 'pre_tool' && e.callNotStarted === true,
   );
@@ -167,6 +171,7 @@ Deno.test('Declarative HTTP Tool reports error finding when policy is report_to_
     paths: ['*'],
     auth: {
       slot: 'user_auth',
+      service: 'Example',
       type: 'bearer',
       onUnauthenticated: 'report_to_model',
     },
@@ -254,6 +259,7 @@ Deno.test('Declarative HTTP Tool executes successfully with auth header and para
     paths: ['*'],
     auth: {
       slot: 'user_auth',
+      service: 'Example',
       type: 'bearer',
     },
     input: z.object({ id: z.string(), includeHistory: z.boolean().optional() }),
@@ -375,6 +381,7 @@ Deno.test('Remote MCP Tool executes successfully per 2026-07-28 spec', async () 
     paths: ['*'],
     auth: {
       slot: 'linear_auth',
+      service: 'Linear',
       type: 'api_key',
       headerName: 'X-API-Key',
     },
@@ -477,6 +484,7 @@ Deno.test('Proactive OAuth token refresh names the slot on the stream and update
     paths: ['*'],
     auth: {
       slot: 'oauth_slot',
+      service: 'Linear',
       type: 'oauth2',
     },
     input: z.object({}),
@@ -613,6 +621,7 @@ function registerLinearMcpFixture() {
     paths: ['*'],
     auth: {
       slot: 'linear_auth',
+      service: 'Linear',
       type: 'api_key',
       headerName: 'X-API-Key',
     },
@@ -725,7 +734,9 @@ Deno.test('Remote MCP Tool surfaces RPC, tool, HTTP, and schema failures', async
     globalThis.fetch = (() =>
       Promise.resolve(new Response('no token', { status: 401 }))) as typeof fetch;
     const authErr = await collectToolRun('linear_issue', input, 'call_mcp_auth_err');
-    assertEquals(toolEventsOf(authErr.events, 'error')[0]?.failure?.kind, 'auth');
+    // A refused credential is a sign-in, not a failure.
+    assertEquals(toolEventsOf(authErr.events, 'gate')[0]?.gate.kind, 'auth');
+    assertEquals(toolEventsOf(authErr.events, 'error').length, 0);
 
     const errorPage = `${'stack frame\n'.repeat(100)}key lin_api_key_xyz rejected`;
     globalThis.fetch = (() =>
@@ -957,7 +968,8 @@ Deno.test('Declarative HTTP Tool post_tool mutate re-validates and replaces what
 });
 
 /** Register `fetch_user_profile` against a path-parameter endpoint with a bearer slot and a host header. */
-function registerProfileTool(auth: { slot: string; type: 'bearer' | 'oauth2' }) {
+function registerProfileTool(auth: Pick<HttpToolAuthConfig, 'slot' | 'type' | 'scopes'>) {
+  const service = 'Example';
   resetTools();
   registerTool({
     name: 'fetch_user_profile',
@@ -971,7 +983,7 @@ function registerProfileTool(auth: { slot: string; type: 'bearer' | 'oauth2' }) 
     loadTier: 'T0',
     permission: 'auto',
     paths: ['*'],
-    auth,
+    auth: { ...auth, service },
     input: z.object({ id: z.string() }),
     output: z.object({ ok: z.boolean() }),
     mapping: { pathParams: ['id'] },
@@ -1254,7 +1266,7 @@ Deno.test('a response that repeats the credential never passes it on', async () 
     loadTier: 'T0',
     permission: 'auto',
     paths: ['*'],
-    auth: { slot: 'user_auth', type: 'bearer' },
+    auth: { slot: 'user_auth', type: 'bearer', service: 'Example' },
     input: z.object({}),
     output: z.object({ headers: z.record(z.string(), z.string()) }),
   });
@@ -1510,4 +1522,160 @@ Deno.test('an MCP image reaches the model and the client as media, beside the va
   assertEquals(settlement?.modelResult?.parts, [image]);
   const [complete] = toolEventsOf(events, 'complete');
   assertEquals(complete?.parts, [image]);
+});
+
+Deno.test('a tool that signs in must name its service', () => {
+  const auth: HttpToolAuthConfig = { slot: 'tracker', type: 'bearer', service: '  ' };
+  assertThrows(
+    () =>
+      registerTool({
+        name: 'http_no_service',
+        description: 'x',
+        type: 'http',
+        endpoint: 'https://api.example.com/items',
+        method: 'GET',
+        category: 'api',
+        access: 'read-only',
+        loadTier: 'T0',
+        permission: 'auto',
+        paths: ['*'],
+        auth,
+        input: z.object({}),
+        output: z.object({}),
+      }),
+    Error,
+    'names no service',
+  );
+  assertThrows(
+    () =>
+      registerTool({
+        name: 'mcp_no_service',
+        description: 'x',
+        type: 'mcp',
+        serverUrl: 'https://mcp.example.com',
+        mcpToolName: 'items',
+        category: 'api',
+        access: 'read-only',
+        loadTier: 'T0',
+        permission: 'auto',
+        paths: ['*'],
+        auth,
+        input: z.object({}),
+        output: z.object({}),
+      }),
+    Error,
+    'names no service',
+  );
+});
+
+/** Answer every request with `status` and a `WWW-Authenticate` challenge. */
+function refusingFetch(status: number, challenge?: string): typeof fetch {
+  return () =>
+    Promise.resolve(
+      new Response('refused', {
+        status,
+        headers: challenge ? { 'WWW-Authenticate': challenge } : {},
+      }),
+    );
+}
+
+async function withFetch<T>(fetchFn: typeof fetch, run: () => Promise<T>): Promise<T> {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = fetchFn;
+  try {
+    return await run();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+Deno.test('a refused credential asks the person to sign in again', async () => {
+  registerProfileTool({ slot: 'user_auth', type: 'bearer', scopes: ['read', 'write'] });
+  for (const [status, challenge] of [
+    [401, 'Bearer error="invalid_token"'],
+    [403, 'Bearer error="insufficient_scope", scope="write"'],
+  ] as const) {
+    const events = await withFetch(refusingFetch(status, challenge), () =>
+      runProfileTool('1', BEARER_SLOT),
+    );
+    const [gate] = toolEventsOf(events, 'gate');
+    assertEquals(gate?.gate.kind, 'auth');
+    assertEquals(gate?.gate.kind === 'auth' ? gate.gate.authChallenge.service : '', 'Example');
+    assertEquals(toolEventsOf(events, 'error').length, 0);
+  }
+});
+
+Deno.test('access outside the declared scopes fails without a sign-in, recording what was asked', async () => {
+  registerProfileTool({ slot: 'user_auth', type: 'bearer', scopes: ['read'] });
+  for (const challenge of [
+    'Bearer error="insufficient_scope", scope="read admin"',
+    'Bearer error="insufficient_scope"',
+  ]) {
+    const events = await withFetch(refusingFetch(403, challenge), () =>
+      runProfileTool('1', BEARER_SLOT),
+    );
+    assertEquals(toolEventsOf(events, 'gate').length, 0);
+    const [failed] = toolEventsOf(events, 'error');
+    assertEquals(failed?.failure?.code, 'out_of_scope');
+    assertEquals(
+      failed?.failure?.message,
+      lexiconText('sign_in.out_of_scope', { service: 'Example' }),
+    );
+    const refused = toolEventsOf(events, 'progress').map((ev) => ev.data);
+    assertEquals(refused, [
+      {
+        kind: 'auth_scope_refused',
+        slot: 'user_auth',
+        requested: challenge.includes('admin') ? ['read', 'admin'] : [],
+        declared: ['read'],
+      },
+    ]);
+  }
+});
+
+Deno.test('a 403 that asks for no scope is the call failing, not a sign-in', async () => {
+  registerProfileTool({ slot: 'user_auth', type: 'bearer', scopes: ['read'] });
+  const events = await withFetch(refusingFetch(403), () => runProfileTool('1', BEARER_SLOT));
+  assertEquals(toolEventsOf(events, 'gate').length, 0);
+  assertEquals(toolEventsOf(events, 'error')[0]?.failure?.code, 'http_403');
+});
+
+Deno.test('an MCP server refusing the credential gates or fails as an HTTP tool does', async () => {
+  resetTools();
+  registerTool({
+    name: 'local_mcp',
+    description: 'Items on the tracker',
+    type: 'mcp',
+    serverUrl: 'https://mcp.example.com/mcp',
+    mcpToolName: 'items',
+    category: 'api',
+    access: 'read-only',
+    loadTier: 'T0',
+    permission: 'auto',
+    paths: ['*'],
+    auth: { slot: 'user_auth', type: 'bearer', service: 'Tracker', scopes: ['read'] },
+    input: z.object({}),
+    output: z.unknown(),
+  });
+  const run = async () => {
+    const events = [];
+    for await (const ev of executeRegisteredTool({
+      tools: defaultKernelScope.tools,
+      profile: testProfile,
+      name: 'local_mcp',
+      input: {},
+      callId: 'call_mcp_refused',
+      ctx: { credentials: BEARER_SLOT },
+    })) {
+      events.push(ev);
+    }
+    return events;
+  };
+  const gated = await withFetch(refusingFetch(401), run);
+  assertEquals(toolEventsOf(gated, 'gate')[0]?.gate.kind, 'auth');
+  const outside = await withFetch(
+    refusingFetch(403, 'Bearer error="insufficient_scope", scope="admin"'),
+    run,
+  );
+  assertEquals(toolEventsOf(outside, 'error')[0]?.failure?.code, 'out_of_scope');
 });

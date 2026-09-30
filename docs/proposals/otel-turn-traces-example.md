@@ -182,7 +182,8 @@ The shipped wording for every span, attribute, event and value is the trace cata
 
 **Events:**
 - `theorem.stage`: `pre_tool` / `post_tool`, same shape as on the turn.
-- `theorem.gate`: `{ kind, permission?, summary?, auth? }`. `kind` is `permission`, `confirmation` or `auth`; `summary` is a hash; `auth` is `{ slot, type, issuer?, resource?, required_scopes? }` and never the challenge state.
+- `theorem.gate`: `{ kind, permission?, summary?, auth? }`. `kind` is `permission`, `confirmation` or `auth`; `summary` is a hash; `auth` is `{ slot, type, service, issuer?, resource?, required_scopes? }` and never the challenge state.
+- `theorem.auth.scope_refused`: `{ slot, requested, declared }` — the service asked for scopes outside the tool's declared `auth.scopes`, so the call failed `out_of_scope` with no sign-in offered.
 - `theorem.guardrail`: sensitive arguments and the taint gate (stage `tool_call`), and redaction and directive signals on the result (stage `tool_result`).
 - `theorem.tool.warning`: `{ code, message, severity? }`, one per warning: the ones the tool streams and the kernel's `sources_invalid`. `message` is a hash.
 - `theorem.grounding`: `{ sources }`, the sources the tool cited.

@@ -6,6 +6,7 @@ import {
   traceContent,
   traceJson,
 } from '../../observability/trace-span.ts';
+import { authScopeRefusedSchema } from '../auth/scope-refusal.ts';
 import type { ToolPermission } from '../schema.ts';
 import type { ToolFailure, ToolGate } from '../tools/types.ts';
 import type { InteractionPart, TurnEvent } from '../types.ts';
@@ -124,6 +125,7 @@ function gateAttributes(gate: ToolGate): TraceAttributes {
           auth: {
             slot: auth.slot,
             type: auth.authType,
+            service: auth.service,
             ...optional('issuer', auth.issuer),
             ...optional('resource', auth.resource),
             ...optional('required_scopes', auth.requiredScopes),
@@ -160,6 +162,13 @@ function startToolTrace(
       }
       if (event.type === 'tool' && event.tool.phase === 'gate') {
         span.event('theorem.gate', gateAttributes(event.tool.gate));
+      }
+      if (event.type === 'tool' && event.tool.phase === 'progress') {
+        const refused = authScopeRefusedSchema.safeParse(event.tool.data);
+        if (refused.success) {
+          const { slot, requested, declared } = refused.data;
+          span.event('theorem.auth.scope_refused', { slot, requested, declared });
+        }
       }
       if (event.type === 'tool' && event.tool.phase === 'warning') {
         const { code, message, severity } = event.tool.warning;

@@ -191,8 +191,8 @@ export function isTurnInjectStage(value: unknown): value is TurnInjectStage {
 export const TOOL_GATE_KINDS = ['confirmation', 'permission', 'auth'] as const;
 export type ToolGateKind = (typeof TOOL_GATE_KINDS)[number];
 
-/** Why a refused gate settles: the user said no, or walked away. */
-export const TOOL_RESUME_CAUSES = ['declined', 'abandoned'] as const;
+/** Why a refused gate settles: the user said no, walked away, or let it run out. */
+export const TOOL_RESUME_CAUSES = ['declined', 'abandoned', 'expired'] as const;
 export type ToolResumeCause = (typeof TOOL_RESUME_CAUSES)[number];
 
 const TOOL_GATE_KIND_SET = new Set<string>(TOOL_GATE_KINDS);
@@ -1110,6 +1110,10 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     CREDENTIAL_KINDS,
   ),
   'auth.slot': field('string', 'Which of the credentials the turn passes in this tool uses.'),
+  'auth.service': field(
+    'string',
+    'The service the person signs in to, as they know it, named when a turn stops to ask for a credential.',
+  ),
   'auth.headerName': {
     ...field('string', 'The header the credential goes in.'),
     unset: 'Authorization',

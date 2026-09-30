@@ -909,7 +909,7 @@ registerTool({
   permission: 'auto',
   endpoint: 'https://api.tracker.example/items',
   method: 'GET',
-  auth: { slot: 'tracker', type: 'bearer', onUnauthenticated: 'gate' },
+  auth: { slot: 'tracker', type: 'bearer', service: 'Tracker', onUnauthenticated: 'gate' },
   input: z.object({ id: z.string() }),
   output: z.object({ ok: z.boolean() }),
 });
@@ -924,7 +924,7 @@ registerTool({
   permission: 'auto',
   endpoint: 'https://api.tracker.example/items',
   method: 'GET',
-  auth: { slot: 'oauth_tracker', type: 'oauth2', onUnauthenticated: 'gate' },
+  auth: { slot: 'oauth_tracker', type: 'oauth2', service: 'Tracker', onUnauthenticated: 'gate' },
   input: z.object({ id: z.string() }),
   output: z.object({ ok: z.boolean() }),
 });

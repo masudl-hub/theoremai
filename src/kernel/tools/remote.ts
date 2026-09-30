@@ -5,6 +5,7 @@ import type { ErrorKind } from '../../guardrails/theorem-error.ts';
 import type { NetworkGuardrailSpec } from '../../guardrails/types.ts';
 import type { SpanHandle } from '../../observability/trace-span.ts';
 import { refreshOAuthToken, tokenAudienceCovers } from '../auth/oauth.ts';
+import type { AuthScopeRefused } from '../auth/scope-refusal.ts';
 import type { OAuth2Credential, OAuthTransportOptions, ToolCredential } from '../auth/types.ts';
 import { mapStrings } from '../engine/tree.ts';
 import type { AuthUnauthenticatedPolicy } from '../schema.ts';
@@ -69,6 +70,7 @@ function buildAuthGate(
     authChallenge: {
       slot: authConfig.slot,
       authType: authConfig.type,
+      service: authConfig.service,
       message,
       issuer: extras?.issuer ?? authConfig.preResolved?.issuer,
       resource: extras?.resource ?? authConfig.preResolved?.resource,
@@ -437,6 +439,73 @@ function outcomeFromUnauth(authRes: {
   );
 }
 
+/** A 401 or 403 answer to a request that carried a credential. */
+type CredentialRefusal = { status: number; challenge: string | null };
+
+function credentialRefusal(response: Response): CredentialRefusal | undefined {
+  return response.status === 401 || response.status === 403
+    ? { status: response.status, challenge: response.headers.get('www-authenticate') }
+    : undefined;
+}
+
+/** RFC 6750 §3: the characters a scope token may hold. */
+const SCOPE_TOKEN = /^[\x21\x23-\x5B\x5D-\x7E]+$/;
+
+/** A `Bearer` challenge's `error` and well-formed `scope` tokens (RFC 6750 §3). */
+function bearerChallenge(header: string | null): { error?: string; scopes: string[] } {
+  const param = (name: string) =>
+    header?.match(new RegExp(`(?:^|[\\s,])${name}="([^"]*)"`, 'i'))?.[1];
+  const scopes = (param('scope') ?? '').split(' ').filter((scope) => SCOPE_TOKEN.test(scope));
+  const error = param('error');
+  return error === undefined ? { scopes } : { error, scopes };
+}
+
+/**
+ * The service refused the credential it was sent. A 401 says it no longer works:
+ * the person signs in again. A 403 `insufficient_scope` asks for more access: a
+ * sign-in can grant scopes the tool declares, and nothing else, so a request
+ * outside them fails with `sign_in.out_of_scope` and the trace records what was
+ * asked against what is declared. Any other refusal is the call's failure.
+ */
+function* refusedCredentialOutcome(
+  tool: HttpToolDef | McpToolDef,
+  refusal: CredentialRefusal | undefined,
+  authHeaders: Record<string, string>,
+  ctx: ToolContext,
+  base: ToolCallBase,
+): Generator<TurnEvent, ToolBodyOutcome | undefined> {
+  const auth = tool.auth;
+  if (!auth || !refusal || Object.keys(authHeaders).length === 0) return undefined;
+  const policy = auth.onUnauthenticated ?? 'gate';
+  if (refusal.status === 401) {
+    const message = `The credential for '${tool.name}' (slot: '${auth.slot}') was refused.`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    return outcomeFromUnauth(unauthenticatedResult(tool.name, auth, message, policy));
+  }
+  const challenge = bearerChallenge(refusal.challenge);
+  if (challenge.error !== 'insufficient_scope') return undefined;
+  const declared = auth.scopes ?? [];
+  const requested = challenge.scopes;
+  if (requested.length > 0 && requested.every((scope) => declared.includes(scope))) {
+    const message = `'${tool.name}' needs scopes its credential (slot: '${auth.slot}') does not carry.`; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    return outcomeFromUnauth(unauthenticatedResult(tool.name, auth, message, policy));
+  }
+  const refused: AuthScopeRefused = {
+    kind: 'auth_scope_refused',
+    slot: auth.slot,
+    requested,
+    declared,
+  };
+  yield toolEvent(base, { phase: 'progress', data: refused });
+  return failureOutcome(
+    {
+      code: 'out_of_scope',
+      kind: 'auth',
+      message: lexiconText('sign_in.out_of_scope', { service: auth.service }, ctx.profile.lexicon),
+    },
+    false,
+  );
+}
+
 async function* remoteAuthAndPreBody(args: {
   tool: HttpToolDef | McpToolDef;
   input: unknown;
@@ -617,7 +686,7 @@ export async function* executeHttpTool(
   const guarded = yield* guardToolTarget(target.url, ctx, stages?.span);
   if (!guarded.ok) return failureOutcome(guarded.failure, true);
   return yield* sendWithCredential(prepared, guarded.url, () =>
-    sendHttpRequest(tool, guarded.url, target.body, prepared.authHeaders, ctx, stages?.span),
+    sendHttpRequest(tool, guarded.url, target.body, prepared.authHeaders, ctx, base, stages?.span),
   );
 }
 
@@ -627,6 +696,7 @@ async function* sendHttpRequest(
   body: string | undefined,
   authHeaders: Record<string, string>,
   ctx: ToolContext,
+  base: ToolCallBase,
   span: SpanHandle | undefined,
 ): AsyncGenerator<TurnEvent, ToolBodyOutcome> {
   const checks = requestChecks(span);
@@ -652,6 +722,14 @@ async function* sendHttpRequest(
     if (text === undefined) return failureOutcome(tooLargeFailure(targetUrl.hostname), false);
 
     if (!response.ok) {
+      const refused = yield* refusedCredentialOutcome(
+        tool,
+        credentialRefusal(response),
+        authHeaders,
+        ctx,
+        base,
+      );
+      if (refused) return refused;
       const failure: ToolFailure = {
         code: `http_${response.status}`,
         kind: kindOfToolHttpStatus(response.status),
@@ -771,7 +849,7 @@ type McpFetchOutcome =
   | { kind: 'rpc'; response: McpRpcResponse }
   | { kind: 'retry' }
   | { kind: 'protocol_retry'; error: McpRpcResponse['error'] }
-  | { kind: 'failure'; failure: ToolFailure };
+  | { kind: 'failure'; failure: ToolFailure; refusal?: CredentialRefusal };
 
 type McpTransport = {
   url: string;
@@ -835,8 +913,10 @@ async function fetchMcpProtocolAttempt(
     if (acceptRejected) return { kind: 'retry' };
     const protocolError = unsupportedProtocolFromHttpBody(text);
     if (protocolError) return { kind: 'protocol_retry', error: protocolError };
+    const refusal = credentialRefusal(response);
     return {
       kind: 'failure',
+      ...(refusal ? { refusal } : {}),
       failure: {
         code: `mcp_http_${response.status}`,
         kind: kindOfToolHttpStatus(response.status),
@@ -871,6 +951,7 @@ async function negotiateMcpRpc(
 ): Promise<{
   rpc?: McpRpcResponse;
   failure?: ToolFailure;
+  refusal?: CredentialRefusal;
   lastProtocolError?: McpRpcResponse['error'];
 }> {
   let lastProtocolError: McpRpcResponse['error'];
@@ -887,7 +968,7 @@ async function negotiateMcpRpc(
       continue;
     }
     if (outcome.kind === 'failure') {
-      return { failure: outcome.failure };
+      return { failure: outcome.failure, ...(outcome.refusal ? { refusal: outcome.refusal } : {}) };
     }
     return { rpc: outcome.response };
   }
@@ -1044,26 +1125,32 @@ async function* sendMcpRequest(
 ): AsyncGenerator<TurnEvent, ToolBodyOutcome> {
   const checks = requestChecks(span);
   try {
-    const interpreted = interpretMcpRpc(
-      tool,
-      await negotiateMcpRpc(
-        {
-          url: url.href,
-          headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/json, text/event-stream',
-          },
-          originBoundHeaders: { ...tool.headers, ...authHeaders },
-          policy: toolNetworkPolicy(ctx),
-          resolveHost: ctx.resolveHost,
-          signal: ctx.signal,
-          onCheck: checks.onCheck,
+    const negotiated = await negotiateMcpRpc(
+      {
+        url: url.href,
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
         },
-        base.callId,
-        tool.mcpToolName,
-        input,
-      ),
+        originBoundHeaders: { ...tool.headers, ...authHeaders },
+        policy: toolNetworkPolicy(ctx),
+        resolveHost: ctx.resolveHost,
+        signal: ctx.signal,
+        onCheck: checks.onCheck,
+      },
+      base.callId,
+      tool.mcpToolName,
+      input,
     );
+    const refused = yield* refusedCredentialOutcome(
+      tool,
+      negotiated.refusal,
+      authHeaders,
+      ctx,
+      base,
+    );
+    if (refused) return refused;
+    const interpreted = interpretMcpRpc(tool, negotiated);
     if (!interpreted.ok) {
       return failureOutcome(interpreted.failure, false);
     }

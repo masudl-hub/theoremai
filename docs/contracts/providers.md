@@ -216,6 +216,11 @@ permission/auth gates, gate answers (`decision`), and upstream tool responses
 stay on the session path; there is no raw tool-response escape hatch. See
 [`stages.md`](stages.md) ("`LiveSession.executeTool`").
 
+A sign-in gate waits for its decision like any gate (`signInGate: 'hold'`, the
+default). With `signInGate: 'answer'` the session answers the model at once
+with the gate's `sign_in.pending` note and lets the call go, for a host whose
+sign-in finishes outside the call and returns as a new turn.
+
 `createProvider` **rejects** `geminiLive` — there is no turn-scoped live `complete()` adapter.
 
 | Concern | Behavior |

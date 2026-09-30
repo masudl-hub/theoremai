@@ -49,7 +49,7 @@ export {
   liveIngressEnabled,
   liveIngressEnabledFromSpec,
 } from './engine/live-ingress.ts';
-export type { RunSessionOptions } from './engine/session/mod.ts';
+export type { RunSessionOptions, SignInGatePolicy } from './engine/session/mod.ts';
 export type {
   MediaPayload,
   MediaTokenFamily,
@@ -226,6 +226,7 @@ export {
   type HeldGatedCall,
   resolveGateTtlMs,
   sessionPermissionsAfterApproval,
+  type ToolGateAuth,
 } from './tools/gate-answer.ts';
 export type { McpProtocolVersion, McpRpcResponse, ToolRegistry } from './tools/mod.ts';
 export {

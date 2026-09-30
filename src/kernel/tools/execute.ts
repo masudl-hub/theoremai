@@ -274,6 +274,8 @@ function applyT2LoaderPromotion(
 export type ToolExecuteSettlement = {
   modelResult?: ModelToolResult;
   gated?: ToolGate;
+  /** A sign-in gate's note to the model; the gate event carries it as `readBack`. */
+  gateReadBack?: string;
   aborted?: boolean | { reason?: string };
   callNotStarted?: boolean;
   awaiting?: boolean;
@@ -543,7 +545,13 @@ export async function* executeFunction(
     ctx.resume,
   );
   if (permissionGate) {
-    yield* emitGateSettlement({ base, gate: permissionGate, callId, toolName: tool.name });
+    yield* emitGateSettlement({
+      base,
+      gate: permissionGate,
+      callId,
+      toolName: tool.name,
+      lexicon: ctx.profile.lexicon,
+    });
     return { gated: permissionGate, callNotStarted: true };
   }
 
@@ -713,8 +721,14 @@ async function* settleRemoteOutcome(args: {
     if (outcome.gate.kind === 'confirmation') {
       return { gated: outcome.gate, callNotStarted: true };
     }
-    yield* emitGateSettlement({ base, gate: outcome.gate, callId, toolName: name });
-    return { gated: outcome.gate, callNotStarted: true };
+    const gateReadBack = yield* emitGateSettlement({
+      base,
+      gate: outcome.gate,
+      callId,
+      toolName: name,
+      lexicon,
+    });
+    return { gated: outcome.gate, callNotStarted: true, ...(gateReadBack ? { gateReadBack } : {}) };
   }
   if (outcome.kind === 'aborted') {
     return { aborted: outcome.aborted, callNotStarted: true };
@@ -767,23 +781,41 @@ function turnReadBack({ modelResult }: ToolExecuteSettlement): ToolCallEnd['resu
     : undefined;
 }
 
-/** `abandoned` settles as `cancelled`. */
+/** The service a refused sign-in names, from the tool's own auth config. */
+function refusedSignInService(tool: RegisteredTool, resume: ToolContext['resume']) {
+  if (!resume?.signIn || (tool.type !== 'http' && tool.type !== 'mcp')) return undefined;
+  return tool.auth?.service;
+}
+
+/** `abandoned` and `expired` settle as `cancelled`. */
 function refusalFailure(
-  name: string,
+  tool: RegisteredTool,
   resume: ToolContext['resume'],
   lexicon: LexiconOverrides | undefined,
 ): ToolFailure {
-  return resume?.cause === 'abandoned'
-    ? {
-        code: 'cancelled',
-        kind: 'cancelled',
-        message: lexiconText('session.abandon_gated', { tool: name }, lexicon),
-      }
-    : {
-        code: 'denied',
-        kind: 'declined',
-        message: lexiconText('session.tool_denied', { tool: name }, lexicon),
-      };
+  const service = refusedSignInService(tool, resume);
+  const cause = resume?.cause ?? 'declined';
+  if (cause === 'declined') {
+    return {
+      code: 'denied',
+      kind: 'declined',
+      message: service
+        ? lexiconText('sign_in.declined', { service }, lexicon)
+        : lexiconText('session.tool_denied', { tool: tool.name }, lexicon),
+    };
+  }
+  if (cause === 'expired' && service) {
+    return {
+      code: 'expired',
+      kind: 'cancelled',
+      message: lexiconText('sign_in.expired', { service }, lexicon),
+    };
+  }
+  return {
+    code: 'cancelled',
+    kind: 'cancelled',
+    message: lexiconText('session.abandon_gated', { tool: tool.name }, lexicon),
+  };
 }
 
 function resumeApproval(resume: ToolContext['resume']): boolean | undefined {
@@ -909,7 +941,7 @@ async function* runRegisteredTool(
     return yield* settleToolFailure(
       resultGuard(tool, { ...ctx, callId, profile }, snapshot, stages?.span),
       base,
-      refusalFailure(name, ctx.resume, profile.lexicon),
+      refusalFailure(tool, ctx.resume, profile.lexicon),
       stages,
       { toolName: name, callId, input: safeInput, callNotStarted: true, denied: true },
     );

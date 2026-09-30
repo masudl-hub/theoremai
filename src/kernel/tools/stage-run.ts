@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import { lexiconText } from '../../guardrails/lexicon.ts';
+import { type LexiconOverrides, lexiconText } from '../../guardrails/lexicon.ts';
 import type { SpanHandle } from '../../observability/trace-span.ts';
 import {
   type InjectUnit,
@@ -205,17 +205,27 @@ export async function* runPostToolStages(args: {
   };
 }
 
+/**
+ * Returns the sign-in gate's `readBack`: what a transport that answers the call now (Live) tells
+ * the model while the person signs in. Other gates hold the call, and the model reads nothing yet.
+ */
 export async function* emitGateSettlement(args: {
   base: ToolCallBase;
   gate: ToolGate;
   callId: string;
   toolName: string;
-}): AsyncGenerator<TurnEvent, void> {
+  lexicon: LexiconOverrides | undefined;
+}): AsyncGenerator<TurnEvent, string | undefined> {
   yield stageEventFields('pre_tool', {
     callId: args.callId,
     toolName: args.toolName,
     callNotStarted: true,
     gate: args.gate,
   });
-  yield toolEvent(args.base, { phase: 'gate', gate: args.gate });
+  const readBack =
+    args.gate.kind === 'auth'
+      ? lexiconText('sign_in.pending', { service: args.gate.authChallenge.service }, args.lexicon)
+      : undefined;
+  yield toolEvent(args.base, { phase: 'gate', gate: args.gate, ...(readBack ? { readBack } : {}) });
+  return readBack;
 }

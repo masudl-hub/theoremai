@@ -1,8 +1,12 @@
 import { TheoremError } from '../../guardrails/error.ts';
 import { credentialForSignInGate } from '../auth/typed-secret.ts';
 import type { ApiKeyCredential, BearerCredential } from '../auth/types.ts';
-import type { ToolAuthType, ToolPermission } from '../schema.ts';
+import type { ToolPermission } from '../schema.ts';
+import type { ToolAuthChallenge } from '../turn-events.ts';
 import type { InvokeToolResume } from './types.ts';
+
+/** What a sign-in gate asks for, minus the challenge's OAuth details. */
+export type ToolGateAuth = Pick<ToolAuthChallenge, 'slot' | 'authType' | 'service'>;
 
 const DEFAULT_GATE_TTL_MS = 30 * 60 * 1000;
 
@@ -30,11 +34,16 @@ export type GateAnswer =
   | { decision: 'approve'; edited?: { from: Record<string, unknown> } }
   | { decision: 'deny' | 'abandon' };
 
-export function resumeForAnswer(answer: GateAnswer): InvokeToolResume {
+/** `signIn` when the gate answered is a sign-in, so a refusal tells the model so. */
+export function resumeForAnswer(answer: GateAnswer, signIn = false): InvokeToolResume {
   if (answer.decision === 'approve') {
     return answer.edited ? { granted: true, edited: answer.edited } : { granted: true };
   }
-  return { granted: false, cause: answer.decision === 'deny' ? 'declined' : 'abandoned' };
+  return {
+    granted: false,
+    cause: answer.decision === 'deny' ? 'declined' : 'abandoned',
+    ...(signIn ? { signIn } : {}),
+  };
 }
 
 /** Only a `session_consent` approval lasts the session; any other gate is approved for this call only. */
@@ -63,7 +72,7 @@ export type HeldGatedCall = {
   arguments: Record<string, unknown>;
   permission?: ToolPermission;
   /** Absent on any gate other than sign-in. */
-  auth?: { slot: string; authType: ToolAuthType };
+  auth?: ToolGateAuth;
 };
 
 export type AnsweredGate = {
@@ -88,7 +97,7 @@ export function answerGatedCall(
   }
   if (decision !== 'approve') {
     return {
-      resume: resumeForAnswer({ decision }),
+      resume: resumeForAnswer({ decision }, call.auth !== undefined),
       input: call.arguments,
       sessionPermissions: [...sessionPermissions],
     };

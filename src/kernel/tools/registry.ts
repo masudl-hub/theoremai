@@ -8,6 +8,7 @@ import {
 } from './schema.ts';
 import type {
   FunctionToolDef,
+  HttpToolAuthConfig,
   HttpToolDef,
   McpToolDef,
   RegisteredTool,
@@ -22,6 +23,16 @@ function schemasFromZod<TIn, TOut>(input: z.ZodType<TIn>, output: z.ZodType<TOut
   return { inputSchema, outputSchema };
 }
 
+/** The person is told which service they sign in to; the tool's builder names it, never the model or the server. */
+function assertAuthService(name: string, auth: HttpToolAuthConfig | undefined): void {
+  if (auth && (typeof auth.service !== 'string' || !auth.service.trim())) {
+    throw new TheoremError(
+      'config',
+      `Tool "${name}" signs in with slot "${auth.slot}" but names no service`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+}
+
 function normalizeHttp<TIn = unknown, TOut = unknown>(
   def: Omit<HttpToolDef<TIn, TOut>, 'inputSchema' | 'outputSchema'> & {
     input: z.ZodType<TIn>;
@@ -29,6 +40,7 @@ function normalizeHttp<TIn = unknown, TOut = unknown>(
   },
 ): HttpToolDef<TIn, TOut> {
   assertFixedEndpointOrigin(def.endpoint);
+  assertAuthService(def.name, def.auth);
   return { ...def, type: 'http', ...schemasFromZod(def.input, def.output) };
 }
 
@@ -38,6 +50,7 @@ function normalizeMcp<TIn = unknown, TOut = unknown>(
     output: z.ZodType<TOut>;
   },
 ): McpToolDef<TIn, TOut> {
+  assertAuthService(def.name, def.auth);
   return { ...def, type: 'mcp', ...schemasFromZod(def.input, def.output) };
 }
 

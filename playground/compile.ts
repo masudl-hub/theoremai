@@ -301,12 +301,18 @@ function parseHeaders(raw: string | undefined): Record<string, string> | undefin
   }
 }
 
-function compileAuth(tool: ToolSpecDraft): Extract<ToolRegistration, { type: 'http' }>['auth'] {
+function compileAuth(
+  tool: ToolSpecDraft,
+  fail: Fail,
+): Extract<ToolRegistration, { type: 'http' }>['auth'] {
   if (!tool.authType || tool.authType === 'none') return undefined;
+  const service = tool.authService?.trim() ?? '';
+  if (!service) fail('Service is required.', 'authService');
   const scopes = cleanList(tool.authScopes);
   return {
     slot: tool.authSlot?.trim() || 'default',
     type: tool.authType,
+    service,
     ...(tool.authHeaderName?.trim() ? { headerName: tool.authHeaderName.trim() } : {}),
     ...(tool.authHeaderPrefix !== undefined ? { headerPrefix: tool.authHeaderPrefix } : {}),
     onUnauthenticated: tool.authUnauthenticated ?? 'gate',
@@ -370,7 +376,7 @@ type ToolCommon = ReturnType<typeof toolCommon>;
 function remoteToolFields(tool: ToolSpecDraft, fail: Fail) {
   const headers = parseHeaders(tool.headersJson);
   if (headers === null) fail('Headers must be a JSON object of strings.', 'headersJson');
-  const auth = compileAuth(tool);
+  const auth = compileAuth(tool, fail);
   return { ...(headers ? { headers } : {}), ...(auth ? { auth } : {}) };
 }
 

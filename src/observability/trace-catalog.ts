@@ -1486,11 +1486,21 @@ const TRACE_EVENTS: Readonly<Record<string, TraceEventMeta>> = {
         {
           slot: attr('tool', 'Credential', 'id', 'The credential slot the tool reads.'),
           type: attr('tool', 'Type', 'text', 'The kind of credential.'),
+          service: attr('tool', 'Service', 'text', 'The service the person signs in to.'),
           issuer: attr('tool', 'Issuer', 'id', 'Who issues it.'),
           resource: attr('tool', 'Resource', 'id', 'What it grants access to.'),
           required_scopes: attr('tool', 'Scopes', 'list', 'The scopes it must carry.'),
         },
       ),
+    },
+  },
+  'theorem.auth.scope_refused': {
+    label: 'Access refused',
+    doc: 'The service asked for access outside the scopes the tool declares, so no sign-in was offered.',
+    attributes: {
+      slot: attr('tool', 'Credential', 'id', 'The credential slot the tool reads.'),
+      requested: attr('tool', 'Asked for', 'list', 'The scopes the service asked for.'),
+      declared: attr('tool', 'Declared', 'list', 'The scopes the tool declares.'),
     },
   },
   'theorem.tool.warning': {

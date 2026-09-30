@@ -851,6 +851,7 @@ placeholder, or a placeholder the key never fills in.
 | Live | `live.session_ended` (the provider ended the call after warning it would) | lexicon (the Live session words the ended signal's `message` when it closes) |
 | Voice (browser recording) | `voice.unsupported`, `voice.permission`, `voice.unavailable`, `voice.failed`, `voice.empty` | lexicon |
 | Tools | `tool.*` (model-facing), `tool.completed_hidden` | lexicon |
+| Sign-in | `sign_in.link` (the channel line with `{link}`), `sign_in.pending`, `sign_in.done`, `sign_in.declined`, `sign_in.expired`, `sign_in.out_of_scope` — each names `{service}` | lexicon |
 
 The copy-manifest lint (`scripts/docs-truth/copy-lint.mjs`) scans the **full**
 `src/kernel`, `src/guardrails`, and `src/interface` trees, and the headless

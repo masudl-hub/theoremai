@@ -143,12 +143,29 @@ registerProfile(
         'tool_trace_warns',
         'tool_trace_injects',
         'tool_trace_http',
+        'tool_trace_scoped',
       ],
     },
     inputs: { text: true },
     guardrails: { quota: { perDay: 10_000 } },
   }),
 );
+
+registerTool({
+  type: 'http',
+  name: 'tool_trace_scoped',
+  description: 'Reads tracker items',
+  category: 'test',
+  access: 'read-only',
+  paths: ['*'],
+  loadTier: 'T0',
+  permission: 'auto',
+  endpoint: 'https://api.tracker.example/items',
+  method: 'GET',
+  auth: { slot: 'tracker', type: 'bearer', service: 'Tracker', scopes: ['read'] },
+  input: z.object({}),
+  output: z.object({}),
+});
 
 /** A provider that yields `events` once. */
 function asking(events: readonly ProviderEvent[]): ModelProvider {
@@ -569,6 +586,40 @@ Deno.test('a host invoke that fails before the tool still records why', async ()
     into[0] && contentOf(into[0], root?.attributes['gen_ai.tool.call.arguments']),
     '{"orderId":"A1"}',
   );
+});
+
+Deno.test('a request outside the declared scopes records what was asked on the tool span', async () => {
+  const into: TraceRecord[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = () =>
+    Promise.resolve(
+      new Response('no', {
+        status: 403,
+        headers: { 'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="read admin"' },
+      }),
+    );
+  try {
+    await Array.fromAsync(
+      invokeTool(
+        {
+          profile: PROFILE,
+          name: 'tool_trace_scoped',
+          input: {},
+          credentials: { tracker: { type: 'bearer', token: 'tracker-token' } },
+          resolveHost: () => Promise.resolve(['93.184.216.34']),
+        },
+        catalogedSink(into),
+      ),
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  const refused = into[0]?.spans[0]?.events.find((e) => e.name === 'theorem.auth.scope_refused');
+  assertEquals(refused?.attributes, {
+    slot: 'tracker',
+    requested: ['read', 'admin'],
+    declared: ['read'],
+  });
 });
 
 catalogGate();

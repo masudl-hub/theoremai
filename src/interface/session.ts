@@ -1,5 +1,5 @@
-import type { ToolAuthType } from '../kernel/schema.ts';
 import { isAwaitingUserInput } from '../kernel/stages.ts';
+import type { ToolGateAuth } from '../kernel/tools/gate-answer.ts';
 import type { ToolGate, TurnToolSnapshot } from '../kernel/tools/types.ts';
 import type { ModelId, ToolId, TurnEvent, TurnHistoryMessage } from '../kernel/types.ts';
 import { findLast } from '../kernel/util/find-last.ts';
@@ -8,7 +8,7 @@ import { toolCallsOf } from './tool-calls.ts';
 import { promotedToolIdsFromEvents, toolSnapshotFromEvents } from './tool-invoke.ts';
 import type { TranscriptBlock, UserTurnDraft } from './types.ts';
 
-export type ToolGateAuth = { slot: string; authType: ToolAuthType };
+export type { ToolGateAuth };
 
 export type GatedToolContext = {
   name: string;
@@ -93,7 +93,13 @@ function gatedToolsFromEvents(events: readonly TurnEvent[]): GatedToolContext[] 
         permission: gate.permission,
         summary: gate.summary,
         ...(gate.kind === 'auth'
-          ? { auth: { slot: gate.authChallenge.slot, authType: gate.authChallenge.authType } }
+          ? {
+              auth: {
+                slot: gate.authChallenge.slot,
+                authType: gate.authChallenge.authType,
+                service: gate.authChallenge.service,
+              },
+            }
           : {}),
       },
     ];

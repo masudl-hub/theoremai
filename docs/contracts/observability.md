@@ -246,6 +246,10 @@ by `traceId` / `parentSpanId`; resume and continuation edges are span links. A
 record is self-contained (`content` holds every hash its spans reference);
 sinks may deduplicate across records by hash.
 
+A tool call a service refused for access outside its declared scopes carries a
+`theorem.auth.scope_refused` event on its `execute_tool` span: the credential
+slot, the scopes the service asked for and the scopes the tool declares.
+
 `buildRecord({ spans, policy, canaries?, metadata? })` seals the spans a
 `TraceTree` collected. Hosts record their own spans with `startTrace` (content
 through `traceContent`, `traceBytes`, `traceJson`).
@@ -288,7 +292,8 @@ kernel's own enum types, so a new stop kind, error kind, tool outcome, key
 slot, guardrail stage or session kind fails the type check until it is
 described; `open: true` marks a set whose other values are real and show as
 is (provider names, HTTP error types). `fields` describes the keys inside an
-object value (Live settings, guardrail hits, sign-in details). A key with no
+object value (Live settings, guardrail hits, sign-in details, including the
+`service` a gate names). A key with no
 entry is still a real attribute: viewers show it under its raw name.
 
 Two gates keep the catalog whole: a test scans every kernel and host source

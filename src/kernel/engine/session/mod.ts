@@ -92,7 +92,15 @@ export interface RunSessionOptions {
    * refused (`session.gate_expired`), and the model reads the call as abandoned.
    */
   gateTtlMs?: number;
+  /**
+   * `hold` (default): a sign-in gate waits for its decision, as any gate does. `answer`: the
+   * model reads the gate's pending note at once and the call is released, for a host whose
+   * sign-in finishes outside the session and comes back as a new turn.
+   */
+  signInGate?: SignInGatePolicy;
 }
+
+export type SignInGatePolicy = 'hold' | 'answer';
 
 type HeldCall = {
   name: string;
@@ -269,7 +277,7 @@ async function applyOutbound(
 
 /**
  * The output a settled Live call sends upstream, or `undefined` when nothing
- * is sent (a gate, or no result). The model reads it as the `functionResponse`:
+ * is sent (a held gate, or no result). The model reads it as the `functionResponse`:
  * the same guarded text a turn sends, never the tool's raw output.
  */
 function liveToolOutput(s: ToolExecuteSettlement): string | undefined {
@@ -353,6 +361,7 @@ function buildLiveSession(args: {
   openInitialCycle: boolean;
   trace: LiveTrace;
   gateTtlMs: number;
+  signInGate: SignInGatePolicy;
 }): LiveSession {
   const {
     profile,
@@ -367,6 +376,7 @@ function buildLiveSession(args: {
     snapshot,
     trace,
     gateTtlMs,
+    signInGate,
   } = args;
   /** Grows as the user approves `session_consent` tools. */
   let sessionPermissions = args.sessionPermissions;
@@ -457,6 +467,10 @@ function buildLiveSession(args: {
     assertOpen();
     connection.send(payload);
   };
+
+  /** A sign-in gate's pending note, when this session answers sign-in gates at once. */
+  const answeredGateReadBack = (readBack: string | undefined) =>
+    signInGate === 'answer' ? readBack : undefined;
 
   const settleHeld = (callId: string, held: HeldCall, readBack: string) => {
     calls.delete(callId);
@@ -689,7 +703,9 @@ function buildLiveSession(args: {
     }
 
     if (s.gated) {
-      held.state = { gate: s.gated, createdAt: Date.now() };
+      const readBack = answeredGateReadBack(s.gateReadBack);
+      if (readBack !== undefined) settleHeld(callId, held, readBack);
+      else held.state = { gate: s.gated, createdAt: Date.now() };
       return { gated: s.gated };
     }
 
@@ -988,6 +1004,8 @@ function buildLiveSession(args: {
       };
       if (settled.phase === 'gate') {
         forward();
+        const readBack = answeredGateReadBack(settled.readBack);
+        if (readBack !== undefined) settleHeld(callId, held, readBack);
         return { gated: settled.gate };
       }
       const { readBack } = settled;
@@ -1110,5 +1128,6 @@ async function openTracedSession(
     openInitialCycle: hasInitialInput,
     trace,
     gateTtlMs,
+    signInGate: options.signInGate ?? 'hold',
   });
 }

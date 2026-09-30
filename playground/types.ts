@@ -31,6 +31,7 @@ export type PlaygroundToolSpecSeed = {
   mcpToolName?: string;
   authType?: PlaygroundAuthType;
   authSlot?: string;
+  authService?: string;
   authHeaderName?: string;
   authHeaderPrefix?: string;
   authUnauthenticated?: AuthUnauthenticatedPolicy;

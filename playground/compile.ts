@@ -382,31 +382,57 @@ type ToolCommon = ReturnType<typeof toolCommon>;
 /** An activity label runs this long at most, before its placeholders are filled. */
 const MAX_ACTIVITY_LABEL_CHARS = 120;
 
+/** The placeholders one level into `node`, under `prefix`: its fields, or its first item's. */
+function placeholdersAt(node: unknown, prefix: string): string[] {
+  const at = (key: string) => (prefix ? `${prefix}.${key}` : key);
+  if (!isRecord(node)) return [];
+  if (node.type === 'array') {
+    const first = placeholdersAt(node.items, at('0'));
+    return first.length ? first : [at('0')];
+  }
+  return isRecord(node.properties) ? Object.keys(node.properties).map(at) : [];
+}
+
 /**
  * What `schema` holds at `path`: a value a label can show, a list or group it cannot,
- * or nothing. A number steps into a list's items. An object that lists no properties may hold any key, so a path through
- * it is taken on trust.
+ * or nothing. A number steps into a list's items. An object that lists no properties may hold
+ * any key, so a path through it is taken on trust. A miss or a group carries the placeholders
+ * that are there instead.
  */
 function schemaPathHolds(
   schema: Record<string, unknown>,
   path: string,
-): 'value' | 'group' | 'missing' {
+): { holds: 'value' | 'group' | 'missing'; instead?: string[] } {
   let node: unknown = schema;
+  let walked = '';
   for (const key of path.split('.')) {
-    if (!isRecord(node)) return 'missing';
+    const missing = { holds: 'missing' as const, instead: placeholdersAt(node, walked) };
+    if (!isRecord(node)) return missing;
     if (node.type === 'array') {
-      if (!/^\d+$/.test(key)) return 'missing';
+      if (!/^\d+$/.test(key)) return missing;
       // A list that says nothing of its items may hold anything.
-      if (!isRecord(node.items)) return 'value';
+      if (!isRecord(node.items)) return { holds: 'value' };
       node = node.items;
-      continue;
+    } else {
+      const properties = node.properties;
+      if (!isRecord(properties)) return node.type === 'object' ? { holds: 'value' } : missing;
+      node = properties[key];
+      if (node === undefined) return missing;
     }
-    const properties = node.properties;
-    if (!isRecord(properties)) return node.type === 'object' ? 'value' : 'missing';
-    node = properties[key];
-    if (node === undefined) return 'missing';
+    walked = walked ? `${walked}.${key}` : key;
   }
-  return isRecord(node) && (node.type === 'array' || node.type === 'object') ? 'group' : 'value';
+  return isRecord(node) && (node.type === 'array' || node.type === 'object')
+    ? { holds: 'group', instead: placeholdersAt(node, path) }
+    : { holds: 'value' };
+}
+
+/** "Try {a}, {b} or {c}." for up to four placeholders; nothing when there are none. */
+function tryInstead(placeholders: readonly string[]): string {
+  const shown = [...new Set(placeholders)].slice(0, 4).map((path) => `{${path}}`);
+  if (shown.length === 0) return '';
+  const list =
+    shown.length === 1 ? shown[0] : `${shown.slice(0, -1).join(', ')} or ${shown.at(-1)}`;
+  return ` Try ${list}.`;
 }
 
 function toolLabels(
@@ -428,20 +454,30 @@ function toolLabels(
     }
     const { schemas, from } = sources[field];
     const holds = activityLabelPlaceholders(label).map((path) => {
-      const found = schemas.map((schema) => (path ? schemaPathHolds(schema, path) : 'missing'));
-      return {
-        path,
-        holds: found.includes('value') ? 'value' : found.includes('group') ? 'group' : 'missing',
-      };
+      const found = path
+        ? schemas.map((schema) => schemaPathHolds(schema, path))
+        : [{ holds: 'missing' as const, instead: [] }];
+      const kinds = found.map((entry) => entry.holds);
+      const holds =
+        kinds.includes('value') ? 'value' : kinds.includes('group') ? 'group' : 'missing';
+      // Suggest from where the path was heading, when a schema has that field.
+      const all = found.flatMap((entry) => entry.instead ?? []);
+      const head = path.split('.')[0];
+      const near = all.filter((candidate) => candidate.split('.')[0] === head);
+      return { path, holds, instead: near.length ? near : all };
     });
     const missing = holds.find((entry) => entry.holds === 'missing');
     if (missing) {
-      fail(`{${missing.path}} is not a field of this tool's ${from}.`, field);
+      fail(
+        `{${missing.path}} is not a field of this tool's ${from}.${tryInstead(missing.instead)}`,
+        field,
+      );
       continue;
     }
     const group = holds.find((entry) => entry.holds === 'group');
     if (group) {
-      fail(`{${group.path}} is a list or group; a label shows text or a number.`, field);
+      const hint = tryInstead(group.instead);
+      fail(`{${group.path}} is a list or group; a label shows text or a number.${hint}`, field);
       continue;
     }
     labels[field] = label;

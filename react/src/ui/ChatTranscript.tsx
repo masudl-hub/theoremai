@@ -25,7 +25,7 @@ import { Token } from '@astryxdesign/core/Token';
 import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconCheck, IconCopy } from '@tabler/icons-react';
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import type { TranscriptBlock } from '@theoremjs/agents/interface';
 import { citationsFromBlock, type SourceCitationBlock } from '../client/source-citations.ts';
 import type { AnsweringGate } from '../client/tool-resume.ts';
@@ -429,6 +429,26 @@ function ResultBlock({ block }: { block: TranscriptBlock }) {
 	}
 }
 
+/**
+ * A call's row reads as a sentence ("Found Lisbon"), but Astryx sets its name in the code font.
+ * The row takes the body font through that token, and the detail, where the raw name and JSON
+ * live, takes the code font back from the wrapper that kept it.
+ */
+const CODE_FONT_KEPT = {
+	display: 'contents',
+	'--theorem-font-code': 'var(--font-family-code)',
+} as CSSProperties;
+const CODE_FONT_AS_BODY = { '--font-family-code': 'var(--font-family-body)' } as CSSProperties;
+const CODE_FONT_RESTORED = { '--font-family-code': 'var(--theorem-font-code)' } as CSSProperties;
+
+function ToolCalls({ calls }: { calls: ChatToolCallItem[] }) {
+	return (
+		<div style={CODE_FONT_KEPT}>
+			<ChatToolCalls calls={calls} style={CODE_FONT_AS_BODY} />
+		</div>
+	);
+}
+
 /** A call's detail: what it ran with, then what came back. */
 function toolDetail(t: LabelText, tool: ToolBlock['tool'], result?: ReactNode): ReactNode {
 	const input = tool.edited ? (
@@ -437,9 +457,9 @@ function toolDetail(t: LabelText, tool: ToolBlock['tool'], result?: ReactNode): 
 		<ShapedData value={tool.arguments} title={t('@theorem.transcript.tool_input')} />
 	);
 	return (
-		<VStack gap={2}>
-			<Text size="sm" color="secondary">
-				<code>{tool.name}</code>
+		<VStack gap={2} style={CODE_FONT_RESTORED}>
+			<Text type="code" size="sm" color="secondary">
+				{tool.name}
 			</Text>
 			{input}
 			{result}
@@ -492,7 +512,7 @@ function toolCallItem(t: LabelText, id: string, tool: ToolBlock['tool']): ChatTo
 
 function ToolCall({ tool }: { tool: ToolBlock['tool'] }) {
 	const t = useLabels();
-	return <ChatToolCalls calls={[toolCallItem(t, tool.name, tool)]} />;
+	return <ToolCalls calls={[toolCallItem(t, tool.name, tool)]} />;
 }
 
 /**
@@ -519,7 +539,7 @@ function TraceList({ items, streaming }: { items: readonly TraceItem[]; streamin
 	let tools: ChatToolCallItem[] = [];
 	const flush = () => {
 		if (tools.length === 0) return;
-		rows.push(<ChatToolCalls key={tools[0]?.key} calls={tools} />);
+		rows.push(<ToolCalls key={tools[0]?.key} calls={tools} />);
 		tools = [];
 	};
 	for (const [i, item] of items.entries()) {

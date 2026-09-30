@@ -566,15 +566,19 @@ Deno.test('a tool compiles its activity labels, each placeholder checked against
   // The running label has only the input; the output comes once the call completes.
   assertEquals(issue('Finding {results.0.name}', 'Found it'), {
     field: 'activity',
-    message: "{results.0.name} is not a field of this tool's input.",
+    message: "{results.0.name} is not a field of this tool's input. Try {name}.",
   });
   assertEquals(issue('Finding {name}', 'Found {results.first.name}'), {
     field: 'activityPast',
-    message: "{results.first.name} is not a field of this tool's input or output.",
+    message:
+      "{results.first.name} is not a field of this tool's input or output. " +
+      'Try {results.0.name}, {results.0.latitude}, {results.0.longitude} or {results.0.country_code}.',
   });
   assertEquals(issue('Finding {name}', 'Found {results}'), {
     field: 'activityPast',
-    message: '{results} is a list or group; a label shows text or a number.',
+    message:
+      '{results} is a list or group; a label shows text or a number. ' +
+      'Try {results.0.name}, {results.0.latitude}, {results.0.longitude} or {results.0.country_code}.',
   });
   assertEquals(issue(`Finding ${'x'.repeat(121)}`, 'Found it').field, 'activity');
 });

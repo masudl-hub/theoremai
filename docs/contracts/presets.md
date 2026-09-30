@@ -15,8 +15,9 @@ kernel.
 
 | Path | Role |
 | --- | --- |
-| `src/presets/mod.ts` | Barrel re-exporting the Google pack |
+| `src/presets/mod.ts` | Barrel re-exporting the Google pack and TypeSafe's price |
 | `src/presets/google.ts` | Documented in [`presets-google.md`](./presets-google.md) |
+| `src/presets/typesafe.ts` | TypeSafe Jev's input price, which decision usage costs from |
 
 ## Role in the package
 
@@ -41,7 +42,7 @@ own tools and vocabularies directly via `registerTools`.
 
 ## Exported API
 
-This barrel re-exports the Google pack:
+This barrel re-exports the Google pack and TypeSafe's price:
 
 | Export | Role |
 | --- | --- |
@@ -52,6 +53,7 @@ This barrel re-exports the Google pack:
 | `GOOGLE_IMAGE_ASPECT_RATIOS`, `GOOGLE_IMAGE_INPUT_MIMES`, `GOOGLE_IMAGE_SIZES`, `GOOGLE_VOICE_INPUT_MIMES`, `GOOGLE_SPEECH_VOICES` | Profile authoring constants |
 | `GoogleImageAspectRatio`, `GoogleImageInputMime`, `GoogleImagePins`, `GoogleImageSize`, `GoogleVoiceInputMime`, `GoogleSpeechVoice` | Typed pins and vocabularies |
 | `googleInteractionsPersistence`, `GoogleInteractionsPersistence` | A model binding's `store` and `persistViaInteractionId`, set together |
+| `JEV_USD_PER_MILLION_INPUT_TOKENS` | TypeSafe Jev's input price per million tokens; output tokens are free |
 
 ```theorem-evidence
 {

@@ -16,7 +16,9 @@ function profile(id = 'decision-test') {
     type: 'decision',
     id,
     identity: { handle: 'Decision test' },
-    models: { jev: { apiId: 'jev-latest', timeoutMs: 1000 } },
+    models: {
+      jev: { protocol: 'decision', provider: 'typesafe', apiId: 'jev-latest', timeoutMs: 1000 },
+    },
     inputs: { state: 'json', maxStateBytes: 1000 },
     decision: { contract: 'test.v1' },
   });
@@ -94,7 +96,7 @@ Deno.test('runDecision validates and normalizes a Jev response', async () => {
                 type: 'score',
                 score: 1,
                 confidence: 0.8,
-                legend: { 0: 0, 1: 1 },
+                legend: { 0: 'low', 1: 'high' },
                 probabilities: { 0: 0.1, 1: 0.9 },
               },
             },
@@ -110,6 +112,86 @@ Deno.test('runDecision validates and normalizes a Jev response', async () => {
   assertEquals(result.answers.next.type, 'choice');
   // Jev's fixed price: $0.042 per million input tokens, output free.
   assertEquals(result.usage, { inputTokens: 2_000_000, outputTokens: 5, costUsd: 0.084 });
+});
+
+Deno.test('OpenRouter decisions use their binding, provider cost, and trace identity', async () => {
+  clearProfiles();
+  registerProfile(
+    defineProfile({
+      ...profile('openrouter-decision'),
+      models: {
+        span: {
+          protocol: 'decision',
+          provider: 'openrouter',
+          apiId: 'respan/span-01-lite:free',
+        },
+      },
+      guardrails: {
+        disclosure: {
+          enforce: (_state, context) => {
+            assertEquals(context.destination, 'openrouter');
+            return { action: 'allow' as const, hits: [] };
+          },
+        },
+      },
+    }),
+  );
+  const records: TraceRecord[] = [];
+  const result = await runDecision(
+    {
+      profile: 'openrouter-decision',
+      state: 'The checkout button does nothing.',
+      questions: { broken: { type: 'noul', instructions: 'Is a product function broken?' } },
+    },
+    {
+      apiKey: 'test-key',
+      sink: memorySink(records),
+      fetch: (url, init) => {
+        assertEquals(url, 'https://openrouter.ai/api/alpha/decisions');
+        assertEquals(
+          init?.headers && new Headers(init.headers).get('Authorization'),
+          'Bearer test-key',
+        );
+        assertEquals(JSON.parse(String(init?.body)).model, 'respan/span-01-lite:free');
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              model: 'respan/span-01-lite-20260925',
+              answers: { broken: { type: 'noul', noul: 0.95 } },
+              usage: { input_tokens: 64, output_tokens: 0, cost: 0 },
+            }),
+          ),
+        );
+      },
+    },
+  );
+  assertEquals(result.usage, { inputTokens: 64, outputTokens: 0, costUsd: 0 });
+  assertEquals(records[0]?.spans[0]?.attributes['gen_ai.provider.name'], 'openrouter');
+  assertEquals(records[0]?.spans[0]?.attributes['theorem.usage.cost_usd'], 0);
+});
+
+Deno.test('decision bindings require the decision protocol and a supported provider', async () => {
+  for (const [binding, message] of [
+    [{ provider: 'typesafe', apiId: 'jev-latest' }, 'must set models.*.protocol'],
+    [{ protocol: 'decision', apiId: 'jev-latest' }, 'must set models.*.provider'],
+    [
+      { protocol: 'openAi', provider: 'openrouter', apiId: 'jev-latest' },
+      "cannot use protocol 'openAi'",
+    ],
+    [
+      { protocol: 'decision', provider: 'google', apiId: 'jev-latest' },
+      "not valid for provider 'google'",
+    ],
+  ] as const) {
+    await assertRejects(
+      () =>
+        Promise.resolve().then(() =>
+          defineProfile({ ...profile('invalid-binding'), models: { one: binding } } as never),
+        ),
+      Error,
+      message,
+    );
+  }
 });
 
 Deno.test('disclosure block prevents the Jev request', async () => {
@@ -146,6 +228,9 @@ Deno.test('runDecision normalizes Jev HTTP failures', async () => {
     [401, 'authentication', 'auth'],
     [403, 'permission', 'auth'],
     [429, 'rate_limited', 'rate_limit'],
+    [408, 'timeout', 'timeout'],
+    [504, 'timeout', 'timeout'],
+    [524, 'timeout', 'timeout'],
     [500, 'unavailable', 'unavailable'],
   ] as const) {
     const error = await assertRejects(
@@ -159,6 +244,205 @@ Deno.test('runDecision normalizes Jev HTTP failures', async () => {
     assertEquals(error.code, code);
     assertEquals(error.kind, kind);
     assertEquals(error.status, status);
+  }
+});
+
+Deno.test('cancelled decisions never dispatch, including cancellation during disclosure', async () => {
+  for (const duringDisclosure of [false, true]) {
+    clearProfiles();
+    const controller = new AbortController();
+    if (!duringDisclosure) controller.abort();
+    registerProfile(
+      defineProfile({
+        ...profile(),
+        guardrails: {
+          disclosure: {
+            enforce: () => {
+              controller.abort();
+              return { action: 'allow' as const };
+            },
+          },
+        },
+      }),
+    );
+    let calls = 0;
+    const error = await assertRejects(() =>
+      runDecision(
+        { ...request(), signal: controller.signal },
+        {
+          apiKey: 'stub',
+          fetch: () => {
+            calls++;
+            return Promise.resolve(jevAnswer());
+          },
+        },
+      ),
+    );
+    assertEquals((error as { name: string }).name, 'AbortError');
+    assertEquals(calls, 0);
+  }
+});
+
+Deno.test('decision body reads preserve timeout, cancellation, and network failures', async () => {
+  for (const mode of ['timeout', 'cancelled', 'network'] as const) {
+    clearProfiles();
+    registerProfile(
+      defineProfile({
+        ...profile(),
+        models: {
+          jev: { ...profile().models.jev, timeoutMs: 10 },
+        },
+      }),
+    );
+    const controller = new AbortController();
+    const error = await assertRejects(
+      () =>
+        runDecision(
+          { ...request(), signal: controller.signal },
+          {
+            apiKey: 'stub',
+            fetch: (_url, init) =>
+              Promise.resolve(
+                new Response(
+                  new ReadableStream({
+                    start(body) {
+                      if (mode === 'network') body.error(new TypeError('connection reset'));
+                      else {
+                        init?.signal?.addEventListener(
+                          'abort',
+                          () => body.error(new DOMException('aborted', 'AbortError')),
+                          { once: true },
+                        );
+                        if (mode === 'cancelled') controller.abort();
+                      }
+                    },
+                  }),
+                ),
+              ),
+          },
+        ),
+      DecisionError,
+    );
+    assertEquals(error.kind, mode);
+  }
+});
+
+Deno.test('decision JSON and question validation reject invalid values before dispatch', async () => {
+  clearProfiles();
+  registerProfile(profile());
+  const cyclic: Record<string, unknown> = {};
+  cyclic.self = cyclic;
+  let calls = 0;
+  const options = {
+    apiKey: 'stub',
+    fetch: () => {
+      calls++;
+      return Promise.resolve(jevAnswer());
+    },
+  };
+  for (const state of [
+    NaN,
+    Infinity,
+    { nested: undefined },
+    { nested: 1n },
+    cyclic,
+    new Date(),
+    Array.from({ length: 2 }).fill(1, 1),
+  ]) {
+    const error = await assertRejects(
+      () => runDecision({ ...request(), state } as never, options),
+      DecisionError,
+    );
+    assertEquals(error.kind, 'request');
+  }
+  for (const question of [
+    null,
+    { type: 'unknown', instructions: 'q' },
+    { type: 'noul', instructions: 'q', criteria: { yes: 1 } },
+  ]) {
+    const error = await assertRejects(
+      () => runDecision({ ...request(), questions: { q: question } } as never, options),
+      DecisionError,
+    );
+    assertEquals(error.kind, 'request');
+  }
+  assertEquals(calls, 0);
+});
+
+Deno.test('decision bindings reject retry and inert turn settings', async () => {
+  for (const setting of [
+    { retry: { maxRetries: 3 } },
+    { temperature: 1 },
+    { maxOutputTokens: 10 },
+    { efforts: { high: 'high' } },
+    { allowEffortSelect: true },
+    { builtInTools: ['search'] },
+  ]) {
+    await assertRejects(
+      () =>
+        Promise.resolve().then(() =>
+          defineProfile({
+            ...profile(),
+            models: { jev: { ...profile().models.jev, ...setting } },
+          } as never),
+        ),
+      Error,
+    );
+  }
+});
+
+Deno.test('decision response rejects incomplete legends and ignores invalid usage', async () => {
+  clearProfiles();
+  registerProfile(profile());
+  const body = await jevAnswer().json();
+  for (const legend of [{}, { 0: 'low' }, { 0: 'low', 1: '' }, { 0: 'low', 2: 'other' }]) {
+    await assertRejects(
+      () =>
+        runDecision(request(), {
+          apiKey: 'stub',
+          fetch: () =>
+            Promise.resolve(
+              Response.json({
+                ...body,
+                answers: { ...body.answers, risk: { ...body.answers.risk, legend } },
+              }),
+            ),
+        }),
+      DecisionError,
+    );
+  }
+  const invalid = await runDecision(request(), {
+    apiKey: 'stub',
+    fetch: () =>
+      Promise.resolve(
+        Response.json({
+          ...body,
+          usage: { input_tokens: -1, output_tokens: 2 },
+        }),
+      ),
+  });
+  assertEquals(invalid.usage, undefined);
+});
+
+Deno.test('decision pricing respects reported cost and estimates only known direct Jev models', async () => {
+  for (const [apiId, model, usage, costUsd] of [
+    ['jev-latest', 'jev-1.13.0', { input_tokens: 1_000_000, output_tokens: 1, cost: 0.2 }, 0.2],
+    ['other-model', 'other-model', { input_tokens: 1_000_000, output_tokens: 1 }, undefined],
+    ['jev-latest', 'other-model', { input_tokens: 1_000_000, output_tokens: 1 }, undefined],
+  ] as const) {
+    clearProfiles();
+    registerProfile(
+      defineProfile({
+        ...profile(),
+        models: { d: { protocol: 'decision', provider: 'typesafe', apiId } },
+      }),
+    );
+    const body = await jevAnswer().json();
+    const result = await runDecision(request(), {
+      apiKey: 'stub',
+      fetch: () => Promise.resolve(Response.json({ ...body, model, usage })),
+    });
+    assertEquals(result.usage?.costUsd, costUsd);
   }
 });
 
@@ -230,7 +514,10 @@ Deno.test('a state over maxStateBytes makes no network request', async () => {
 Deno.test('decision profile declares exactly one model', () => {
   const counts: Record<string, DecisionModelBinding>[] = [
     {},
-    { a: { apiId: 'jev-a' }, b: { apiId: 'jev-b' } },
+    {
+      a: { protocol: 'decision', provider: 'typesafe', apiId: 'jev-a' },
+      b: { protocol: 'decision', provider: 'typesafe', apiId: 'jev-b' },
+    },
   ];
   for (const models of counts) {
     assertRejects(
@@ -315,7 +602,7 @@ function jevAnswer(): Response {
           type: 'score',
           score: 1,
           confidence: 0.8,
-          legend: { 0: 0, 1: 1 },
+          legend: { 0: 'low', 1: 'high' },
           probabilities: { 0: 0.1, 1: 0.9 },
         },
       },

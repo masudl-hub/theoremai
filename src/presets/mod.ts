@@ -25,3 +25,4 @@ export {
   googleInteractionsPersistence,
   registerGooglePreset,
 } from './google.ts';
+export { JEV_USD_PER_MILLION_INPUT_TOKENS } from './typesafe.ts';

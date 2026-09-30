@@ -101,12 +101,12 @@ it is not sent to the provider and does not limit which questions a call asks. A
 `runDecision` accepts non-null JSON `state` and named `choice`, `noul`, or
 `score` questions, then returns validated typed answers and usage.
 `validateDecisionRequest` exposes the same generic request checks for hosts to
-call before spending quota. TypeSafe
-uses `/v1/systemone`; OpenRouter uses `/api/alpha/decisions`. Bindings may set
+call before spending quota. TypeSafe uses `/v1/systemone`; OpenRouter uses
+`/api/alpha/decisions`. Bindings may set
 `timeoutMs`; omission leaves the kernel request unbounded. Retry configuration
-is rejected: a decision POST is never retried. The builder
-chooses questions compatible with its model. Provider-reported cost is
-used when available; the decision provider usage adapter prices direct TypeSafe Jev tokens at
+is rejected: a decision POST is never retried. The builder chooses questions
+compatible with its model. Provider-reported cost is used when available; the
+decision provider usage adapter prices direct TypeSafe Jev tokens at
 $0.042 per million input tokens with output free.
 It has no prompt, conversation history, attachments, tools, streaming, or
 turn loop; an API key is supplied explicitly in `RunDecisionOptions` or

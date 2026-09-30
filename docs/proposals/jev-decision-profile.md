@@ -1,9 +1,8 @@
 # Jev decision profile — specification
 
-**Status:** native kernel core implemented on `codex/jev-decision-profile`.
-Decision traces implemented on `feat/otel-turn-traces` (26/09/2026; see
-"Observability — as built"); state detection and frontend integration still
-deferred.
+**Status:** historical Jev-first proposal. The current decision binding follows
+the same `protocol` / `provider` / `apiId` pattern as other model bindings;
+see `docs/contracts/kernel.md` for the implemented contract.
 
 ## Goal
 
@@ -52,7 +51,9 @@ trace, state, and frontend systems are actively changing:
   sampling, and scrub policy~~ (built 26/09 as a standard trace record; see
   "Observability — as built");
 - recursive state detection/reporting and decision-specific guardrail events;
-- the headless `DecisionProfileInterface` and any frontend decision surface;
+- ~~any frontend decision surface~~ (built as `DecisionTransport`,
+  `useTheoremDecision`, `TheoremDecision`, and `createTheoremDecisionHandler`;
+  the agents headless projection remains separate);
 - registered decision-contract storage and richer contract versioning.
 
 `sanitizeInput` and `redactSensitive` are therefore not accepted as active
@@ -96,14 +97,15 @@ type DecisionJson =
   | { [key: string]: DecisionJson };
 
 interface DecisionModelBinding {
-  /** TypeSafe API model id, e.g. `jev-latest` or a pinned release. */
+  protocol: 'decision';
+  provider: 'typesafe' | 'openrouter';
+  /** Model id at the serving provider. */
   apiId: string;
   /** Optional named vault credential; falls back to the profile key. */
   key?: KeySlot;
   /** Per-attempt network deadline. */
   timeoutMs?: number;
-  /** Defaults to zero: POST timeout outcomes may have reached the service. */
-  retry?: { maxRetries?: number };
+  // Retry configuration is rejected; decision POSTs are never retried.
 }
 
 interface DecisionInputsSpec {
@@ -128,17 +130,14 @@ interface DecisionProfile {
 }
 ```
 
-`protocol` and `provider` are intentionally absent. In current Theorem they
-mean a selection for `createProvider` and a chat/live wire transport. Jev has a
-native execution path. If a second decision engine is added later, adapters
-belong behind `runDecision`; adding a transport-shaped field now would make the
-profile claim behavior it does not have.
+`protocol` and `provider` follow the existing model-binding pattern. The
+`decision` protocol dispatches through `runDecision`, with TypeSafe and
+OpenRouter as providers; it never enters the chat or live provider path.
 
 The registry retains the familiar `models` map and vault-key ergonomics, but
 the map holds exactly one model. `defaultModel` and `allowModelSelect` are
-rejected, and a request cannot name a model. `DecisionModelBinding` is its own
-type rather than a widened chat `ModelBinding`, so `protocol` and `provider`
-stay required there.
+rejected, and a request cannot name a model. `DecisionModelBinding` has the
+same required routing fields as a chat `ModelBinding`, but only decision settings.
 
 ## Decision contracts and requests
 

@@ -34,9 +34,8 @@ export type TheoremDecisionHandlerOptions = {
 	profile: DecisionProfile | DecisionProfileDefinition;
 	/** The questions every decision asks, by id. */
 	questions: Record<string, DecisionQuestion>;
-	/** The selected decision provider's key, or a vault the profile's key slot reads from. */
-	apiKey?: string;
-	keyVault?: KeyVault;
+	/** The host's keys by slot; the profile's key slot reads from it. */
+	vault?: KeyVault;
 	fetch?: typeof globalThis.fetch;
 	/** Replaces the profile's `observability.writeTo` for every decision. */
 	sink?: TraceSink;
@@ -85,7 +84,7 @@ export function createTheoremDecisionHandler(
 					signal: request.signal,
 					metadata: options.metadata?.(request),
 				},
-				{ apiKey: options.apiKey, keyVault: options.keyVault, fetch: options.fetch, sink: options.sink },
+				{ vault: options.vault, fetch: options.fetch, sink: options.sink },
 			);
 			return jsonResponse(200, { result });
 		} catch (err) {

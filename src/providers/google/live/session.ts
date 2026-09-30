@@ -1,6 +1,7 @@
 import { describeError, isAbortError, TheoremError } from '../../../guardrails/error.ts';
 import type { ProviderCompleteRequest } from '../../../kernel/types.ts';
-import { fallbackKey, type GeminiTransport, requireKey } from '../keys.ts';
+import { fallbackKey, requireKey } from '../../shared/vault.ts';
+import type { GeminiTransport } from '../keys.ts';
 import { buildGeminiLiveWebSocketUrl } from './framing.ts';
 import {
   attachLiveSessionHandlers,
@@ -53,7 +54,7 @@ function attachAbort(ws: WebSocket, liveQueue: LiveQueue, signal?: AbortSignal):
 }
 
 /** Tape row: setup on the pinned key was refused for quota, so the session opens on the fallback slot. */
-export const LIVE_OVERFLOW_ROW = 'ws_overflow';
+export const LIVE_FALLBACK_ROW = 'ws_fallback';
 
 interface OpenedSocket {
   ws: WebSocket;
@@ -103,7 +104,7 @@ async function openOnKey(
 /**
  * Open on the pinned key; a quota refusal at setup reopens on the profile's
  * fallback slot when it names one, as `fetchGemini` does for HTTP.
- * The tape records the refusal (`ws_overflow`) before the retry.
+ * The tape records the refusal (`ws_fallback`) before the retry.
  */
 async function openWithOverflow(
   req: ProviderCompleteRequest,
@@ -120,7 +121,7 @@ async function openWithOverflow(
     const fallback = fallbackKey(req.fallbackKeySlot, transport.vault, primary);
     if (!fallback || !(err instanceof TheoremError) || err.kind !== 'rate_limit') throw err;
     req.tapUpstream?.({
-      eventType: LIVE_OVERFLOW_ROW,
+      eventType: LIVE_FALLBACK_ROW,
       from: req.keySlot,
       keySlot: fallback.slot,
       errorKind: err.kind,

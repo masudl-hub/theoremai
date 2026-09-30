@@ -35,9 +35,9 @@ import {
 } from '../../../fixtures/events.ts';
 
 const vault: KeyVault = {
-  slotA: 'free-a-key',
-  slotB: 'free-b-key',
-  slotC: 'free-c-key',
+  slot_a: 'free-a-key',
+  slot_b: 'free-b-key',
+  slot_c: 'free-c-key',
   spare: 'spare-key',
   images: 'images-key',
 };

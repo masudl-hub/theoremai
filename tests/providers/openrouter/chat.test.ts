@@ -88,6 +88,7 @@ function createMockTurnRequest(profile: string, text: string): ProviderCompleteR
     input: generation.input,
     structured: generation.structured,
     image: generation.image,
+    keySlot: 'slot_a',
   };
 }
 
@@ -141,7 +142,7 @@ Deno.test('createOpenRouterProvider streams reasoning, text, tools, tokens, and 
   let capturedBody: Record<string, unknown> | undefined;
 
   const provider = createOpenRouterProvider({
-    apiKey: 'mock-auth-token',
+    vault: { slot_a: 'mock-auth-token' },
     fetch: (url, init) => {
       fetchCalledWith = String(url);
       capturedBody = JSON.parse(String(init?.body));
@@ -222,7 +223,7 @@ Deno.test('createOpenRouterProvider streams reasoning, text, tools, tokens, and 
 
 Deno.test('createOpenRouterProvider suppresses thought events when summaries are disabled', async () => {
   const provider = createOpenRouterProvider({
-    apiKey: 'mock-auth-token',
+    vault: { slot_a: 'mock-auth-token' },
     fetch: () => Promise.resolve(sseResponse(mockStreamChunks())),
   });
 
@@ -252,7 +253,7 @@ Deno.test('createOpenRouterProvider preserves citation evidence from provider pa
     choices: [{ delta: { content: 'cited answer' } }],
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'mock-auth-token',
+    vault: { slot_a: 'mock-auth-token' },
     fetch: () => Promise.resolve(sseResponse([`data: ${evidencePayload}\n\n`, 'data: [DONE]\n\n'])),
   });
 
@@ -276,7 +277,7 @@ Deno.test('createOpenRouterProvider preserves evidence from final choice message
     ],
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'mock-auth-token',
+    vault: { slot_a: 'mock-auth-token' },
     fetch: () =>
       Promise.resolve(sseResponse([`data: ${finalMessagePayload}\n\n`, 'data: [DONE]\n\n'])),
   });
@@ -288,7 +289,7 @@ Deno.test('createOpenRouterProvider preserves evidence from final choice message
 });
 
 Deno.test('createOpenRouterProvider handles missing API key, empty stream, thinking delta, site headers, and invalid tool args', async () => {
-  const noKeyProvider = createOpenRouterProvider({ apiKey: '' });
+  const noKeyProvider = createOpenRouterProvider({ vault: { slot_a: '' } });
   const noKeyEvents = await Array.fromAsync(
     noKeyProvider.complete(createMockTurnRequest('pinned', 'x')),
   );
@@ -296,7 +297,7 @@ Deno.test('createOpenRouterProvider handles missing API key, empty stream, think
   assertEquals(noKeyEvents[0]?.type, 'error');
 
   const emptyStreamProvider = createOpenRouterProvider({
-    apiKey: 'mock-key',
+    vault: { slot_a: 'mock-key' },
     fetch: () => Promise.resolve(new Response(null, { status: 200 })),
   });
   const emptyStreamEvents = await Array.fromAsync(
@@ -333,7 +334,7 @@ Deno.test('createOpenRouterProvider handles missing API key, empty stream, think
   });
 
   const fullStreamProvider = createOpenRouterProvider({
-    apiKey: 'mock-key',
+    vault: { slot_a: 'mock-key' },
     siteUrl: 'https://theorem.dev',
     siteName: 'Theorem',
     fetch: (_url, init) => {
@@ -378,7 +379,7 @@ Deno.test('createOpenRouterProvider handles missing API key, empty stream, think
 Deno.test('createOpenRouterProvider sends response_format for structured requests via SDK', async () => {
   let capturedBody: Record<string, unknown> | undefined;
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: (_url, init) => {
       capturedBody = JSON.parse(String(init?.body));
       return Promise.resolve(
@@ -409,7 +410,7 @@ Deno.test('createOpenRouterProvider sends response_format for structured request
 Deno.test('createOpenRouterProvider passes web_search_options for googleSearch builtin', async () => {
   let capturedBody: Record<string, unknown> | undefined;
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: (_url, init) => {
       capturedBody = JSON.parse(String(init?.body));
       return Promise.resolve(
@@ -435,7 +436,7 @@ Deno.test('createOpenRouterProvider passes web_search_options for googleSearch b
 Deno.test('createOpenRouterProvider errors on a builtin with no OpenRouter wire, without calling upstream', async () => {
   let called = false;
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => {
       called = true;
       return Promise.resolve(sseResponse(['data: [DONE]\n\n']));
@@ -468,7 +469,7 @@ Deno.test('createOpenRouterProvider emits tool call events with id, name, and pa
     ],
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => Promise.resolve(sseResponse([`data: ${toolChunk}\n\n`, 'data: [DONE]\n\n'])),
   });
 
@@ -495,7 +496,7 @@ Deno.test('createOpenRouterProvider extracts evidence from openrouter.provider_m
     },
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => Promise.resolve(sseResponse([`data: ${chunk}\n\n`, 'data: [DONE]\n\n'])),
   });
 
@@ -516,7 +517,7 @@ Deno.test('createOpenRouterProvider extracts evidence annotations from SSE chunk
     ],
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => Promise.resolve(sseResponse([`data: ${chunk}\n\n`, 'data: [DONE]\n\n'])),
   });
 
@@ -536,7 +537,7 @@ Deno.test('createOpenRouterProvider extracts citations from nested openrouter.ci
     },
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => Promise.resolve(sseResponse([`data: ${chunk}\n\n`, 'data: [DONE]\n\n'])),
   });
 
@@ -547,7 +548,7 @@ Deno.test('createOpenRouterProvider extracts citations from nested openrouter.ci
 Deno.test('createOpenRouterProvider maps openRouterSettings for non-web plugins', async () => {
   let capturedBody: Record<string, unknown> | undefined;
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: (_url, init) => {
       capturedBody = JSON.parse(String(init?.body));
       return Promise.resolve(
@@ -566,15 +567,32 @@ Deno.test('createOpenRouterProvider maps openRouterSettings for non-web plugins'
 });
 
 Deno.test('createOpenRouterProvider missing key is an auth error', async () => {
-  const provider = createOpenRouterProvider({ apiKey: '   ' });
+  const provider = createOpenRouterProvider({ vault: { slot_a: '   ' } });
   const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'x')));
   assertEquals(events.length, 1);
   assertEquals(firstOf(events, 'error')?.errorKind, 'auth');
 });
 
+Deno.test('createOpenRouterProvider without a key slot is an auth error and never calls out', async () => {
+  let called = false;
+  const provider = createOpenRouterProvider({
+    vault: { slot_a: 'test-key' },
+    fetch: () => {
+      called = true;
+      return Promise.resolve(new Response('unreachable', { status: 500 }));
+    },
+  });
+  const req = createMockTurnRequest('pinned', 'x');
+  delete req.keySlot;
+  const events = await Array.fromAsync(provider.complete(req));
+  assertEquals(events.length, 1);
+  assertEquals(firstOf(events, 'error')?.errorKind, 'auth');
+  assertEquals(called, false);
+});
+
 Deno.test('createOpenRouterProvider yields error on HTTP non-200', async () => {
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => Promise.resolve(new Response('Forbidden', { status: 403 })),
   });
 
@@ -586,7 +604,7 @@ Deno.test('createOpenRouterProvider yields error on HTTP non-200', async () => {
 
 Deno.test('createOpenRouterProvider reports an unreachable OpenRouter as a network error', async () => {
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => Promise.reject(new TypeError('connection reset')),
   });
   const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'x')));
@@ -603,7 +621,7 @@ Deno.test('createOpenRouterProvider takes a mid-stream error kind from its code'
     ['provider_down', 'unavailable'],
   ] as const) {
     const provider = createOpenRouterProvider({
-      apiKey: 'test-key',
+      vault: { slot_a: 'test-key' },
       fetch: () =>
         Promise.resolve(
           sseResponse([
@@ -631,7 +649,7 @@ Deno.test('createOpenRouterProvider reports a body that breaks mid-read as a net
     },
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () =>
       Promise.resolve(new Response(body, { headers: { 'Content-Type': 'text/event-stream' } })),
   });
@@ -641,7 +659,7 @@ Deno.test('createOpenRouterProvider reports a body that breaks mid-read as a net
 
 Deno.test('createOpenRouterProvider reports an unreadable stream chunk as a bad response', async () => {
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () =>
       Promise.resolve(
         sseResponse([`data: ${JSON.stringify({ nonsense: true })}\n\n`, 'data: [DONE]\n\n']),
@@ -654,7 +672,7 @@ Deno.test('createOpenRouterProvider reports an unreadable stream chunk as a bad 
 Deno.test('createOpenRouterProvider wires tool result history', async () => {
   let capturedBody: Record<string, unknown> | undefined;
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: (_url, init) => {
       capturedBody = JSON.parse(String(init?.body));
       return Promise.resolve(
@@ -692,7 +710,7 @@ Deno.test('createOpenRouterProvider wires tool result history', async () => {
 Deno.test('createOpenRouterProvider sends nothing for a tool result without its call id', async () => {
   let sent = false;
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => {
       sent = true;
       return Promise.resolve(sseResponse(['data: [DONE]\n\n']));
@@ -709,7 +727,7 @@ Deno.test('createOpenRouterProvider sends nothing for a tool result without its 
 
 Deno.test('createOpenRouterProvider emits structured event for valid JSON output', async () => {
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () =>
       Promise.resolve(
         sseResponse([
@@ -733,7 +751,7 @@ Deno.test('createOpenRouterProvider emits structured event for valid JSON output
 
 Deno.test('createOpenRouterProvider errors when structured output is invalid JSON', async () => {
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () =>
       Promise.resolve(
         sseResponse([
@@ -771,7 +789,7 @@ Deno.test('createOpenRouterProvider cites each URL once across the stream', asyn
     annotations: [cite('https://a.com'), cite('https://b.com')],
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () =>
       Promise.resolve(
         sseResponse([`data: ${chunk1}\n\n`, `data: ${chunk2}\n\n`, 'data: [DONE]\n\n']),
@@ -791,7 +809,7 @@ Deno.test('createOpenRouterProvider emits token counts from finish event', async
     usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () =>
       Promise.resolve(
         sseResponse([
@@ -815,7 +833,7 @@ Deno.test('createOpenRouterProvider omits token event when usage is all zeros', 
     usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () =>
       Promise.resolve(
         sseResponse([
@@ -836,7 +854,7 @@ Deno.test('createOpenRouterProvider emits tokens when only input tokens are nonz
     usage: { prompt_tokens: 5, completion_tokens: 0, total_tokens: 5 },
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () =>
       Promise.resolve(
         sseResponse([
@@ -860,7 +878,7 @@ Deno.test('createOpenRouterProvider emits tokens when only output tokens are non
     usage: { prompt_tokens: 0, completion_tokens: 7, total_tokens: 7 },
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () =>
       Promise.resolve(
         sseResponse([
@@ -881,7 +899,7 @@ Deno.test('createOpenRouterProvider emits tokens when only output tokens are non
 Deno.test('createOpenRouterProvider handles empty history and empty input gracefully', async () => {
   let capturedBody: Record<string, unknown> | undefined;
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: (_url, init) => {
       capturedBody = JSON.parse(String(init?.body));
       return Promise.resolve(
@@ -904,7 +922,7 @@ Deno.test('createOpenRouterProvider handles empty history and empty input gracef
 Deno.test('createOpenRouterProvider maps history assistant with empty tool_calls as content', async () => {
   let capturedBody: Record<string, unknown> | undefined;
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: (_url, init) => {
       capturedBody = JSON.parse(String(init?.body));
       return Promise.resolve(
@@ -934,7 +952,7 @@ Deno.test('createOpenRouterProvider extracts citations from providerMetadata.cit
     providerMetadata: { citations: ['https://example.com/pm'] },
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => Promise.resolve(sseResponse([`data: ${chunk}\n\n`, 'data: [DONE]\n\n'])),
   });
 
@@ -954,7 +972,7 @@ Deno.test('createOpenRouterProvider extracts choice message providerMetadata evi
     ],
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => Promise.resolve(sseResponse([`data: ${chunk}\n\n`, 'data: [DONE]\n\n'])),
   });
 
@@ -968,7 +986,7 @@ Deno.test('createOpenRouterProvider emits no citation or evidence when no citati
     openrouter: { some_field: 'value' },
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => Promise.resolve(sseResponse([`data: ${chunk}\n\n`, 'data: [DONE]\n\n'])),
   });
 
@@ -982,7 +1000,7 @@ Deno.test('createOpenRouterProvider emits no citation or evidence when no citati
 Deno.test('createOpenRouterProvider wires reasoning effort to provider options', async () => {
   let capturedBody: Record<string, unknown> | undefined;
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: (_url, init) => {
       capturedBody = JSON.parse(String(init?.body));
       return Promise.resolve(
@@ -1003,7 +1021,7 @@ Deno.test('createOpenRouterProvider wires reasoning effort to provider options',
 
 Deno.test('createOpenRouterProvider does not emit done after error', async () => {
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => {
       throw new Error('network failure');
     },
@@ -1025,7 +1043,7 @@ Deno.test('createOpenRouterProvider handles openrouter.providerMetadata.citation
     },
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => Promise.resolve(sseResponse([`data: ${chunk}\n\n`, 'data: [DONE]\n\n'])),
   });
 
@@ -1046,7 +1064,7 @@ Deno.test('createOpenRouterProvider extracts openrouter.annotations evidence', a
     },
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => Promise.resolve(sseResponse([`data: ${chunk}\n\n`, 'data: [DONE]\n\n'])),
   });
 
@@ -1062,7 +1080,7 @@ Deno.test('createOpenRouterProvider passes reasoning delta as thought events', a
     choices: [{ delta: { content: 'result' } }],
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () =>
       Promise.resolve(
         sseResponse([`data: ${thinkChunk}\n\n`, `data: ${textChunk}\n\n`, 'data: [DONE]\n\n']),
@@ -1081,7 +1099,7 @@ Deno.test('createOpenRouterProvider passes reasoning delta as thought events', a
 Deno.test('createOpenRouterProvider wires only siteUrl header without siteName', async () => {
   let capturedHeaders: Headers | undefined;
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     siteUrl: 'https://only-url.dev',
     fetch: (_url, init) => {
       capturedHeaders = new Headers(init?.headers as Record<string, string>);
@@ -1102,7 +1120,7 @@ Deno.test('createOpenRouterProvider wires only siteUrl header without siteName',
 Deno.test('createOpenRouterProvider wires only siteName header without siteUrl', async () => {
   let capturedHeaders: Headers | undefined;
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     siteName: 'OnlyName',
     fetch: (_url, init) => {
       capturedHeaders = new Headers(init?.headers as Record<string, string>);
@@ -1123,7 +1141,7 @@ Deno.test('createOpenRouterProvider wires only siteName header without siteUrl',
 Deno.test('createOpenRouterProvider sends effort none, which turns reasoning off', async () => {
   let capturedBody: Record<string, unknown> | undefined;
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: (_url, init) => {
       capturedBody = JSON.parse(String(init?.body));
       return Promise.resolve(
@@ -1144,7 +1162,7 @@ Deno.test('createOpenRouterProvider sends effort none, which turns reasoning off
 
 Deno.test('createOpenRouterProvider emits text from content delta and accumulates for structured', async () => {
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () =>
       Promise.resolve(
         sseResponse([
@@ -1163,8 +1181,8 @@ Deno.test('createOpenRouterProvider emits text from content delta and accumulate
   assertEquals(text, 'part1part2');
 });
 
-Deno.test('createOpenRouterProvider treats empty/whitespace-only apiKey as missing', async () => {
-  const provider = createOpenRouterProvider({ apiKey: '' });
+Deno.test('createOpenRouterProvider treats an empty or whitespace-only vault key as missing', async () => {
+  const provider = createOpenRouterProvider({ vault: { slot_a: '' } });
   const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'x')));
   assertEquals(events.length, 1);
   assertEquals(events[0]?.type, 'error');
@@ -1173,7 +1191,7 @@ Deno.test('createOpenRouterProvider treats empty/whitespace-only apiKey as missi
 Deno.test('createOpenRouterProvider wires tools with additionalProperties schema', async () => {
   let capturedBody: Record<string, unknown> | undefined;
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: (_url, init) => {
       capturedBody = JSON.parse(String(init?.body));
       return Promise.resolve(
@@ -1197,7 +1215,7 @@ Deno.test('createOpenRouterProvider extracts top-level citations from SSE chunk'
     citations: ['https://example.com/top-level'],
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => Promise.resolve(sseResponse([`data: ${chunk}\n\n`, 'data: [DONE]\n\n'])),
   });
 
@@ -1211,7 +1229,7 @@ Deno.test('createOpenRouterProvider ignores non-string items in citation arrays'
     citations: [42, 'https://example.com/valid', null, true],
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => Promise.resolve(sseResponse([`data: ${chunk}\n\n`, 'data: [DONE]\n\n'])),
   });
 
@@ -1225,7 +1243,7 @@ Deno.test('createOpenRouterProvider cites nothing for non-array citation values'
     citations: 'not-an-array',
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => Promise.resolve(sseResponse([`data: ${chunk}\n\n`, 'data: [DONE]\n\n'])),
   });
 
@@ -1242,7 +1260,7 @@ Deno.test('createOpenRouterProvider cites nothing when citation array has only n
     citations: [1, 2, 3],
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => Promise.resolve(sseResponse([`data: ${chunk}\n\n`, 'data: [DONE]\n\n'])),
   });
 
@@ -1255,7 +1273,7 @@ Deno.test('createOpenRouterProvider cites nothing when citation array has only n
 
 Deno.test('createOpenRouterProvider handles SSE with non-object raw values gracefully', async () => {
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () =>
       Promise.resolve(
         sseResponse([
@@ -1283,7 +1301,7 @@ Deno.test('createOpenRouterProvider does not duplicate token events on multiple 
     usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
   });
   const provider = createOpenRouterProvider({
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () =>
       Promise.resolve(
         sseResponse([
@@ -1983,7 +2001,7 @@ Deno.test('a buffered OpenRouter turn asks for one reply and emits what a stream
     usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8, cost: 0.001 },
   };
   const provider = createOpenRouterProvider({
-    apiKey: 'mock-auth-token',
+    vault: { slot_a: 'mock-auth-token' },
     fetch: (_url, init) => {
       bodies.push(JSON.parse(String(init?.body)));
       return Promise.resolve(Response.json(reply));

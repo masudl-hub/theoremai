@@ -546,7 +546,7 @@ const SESSION_KINDS: Readonly<
     | 'voice_activity'
     | 'session_resumption'
     | 'setup_complete'
-    | 'key_overflow'
+    | 'key_fallback'
     | 'closed',
     TraceOptionMeta
   >
@@ -562,7 +562,7 @@ const SESSION_KINDS: Readonly<
     doc: 'The provider said whether the session can be resumed.',
   },
   setup_complete: { label: 'Setup complete', doc: 'The provider accepted the session setup.' },
-  key_overflow: {
+  key_fallback: {
     label: 'Switched to fallback key',
     doc: "The key was refused for quota at setup; the session reopened on the profile's fallback key.",
   },

@@ -467,6 +467,7 @@ export {
   listTraceDestinationIds,
   memorySink,
   noopSink,
+  readTraceparent,
   registerTraceDestination,
   requireTraceDestination,
   resolveObservabilityPolicy,
@@ -490,7 +491,7 @@ export {
 export * from './src/presets/mod.ts';
 export type {
   CreateProviderOptions,
-  GeminiTransport,
+  GeminiOptions,
   KeyVault,
   LocalProviderConfig,
   OpenAiGatewayConfig,

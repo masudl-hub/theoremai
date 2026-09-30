@@ -24,7 +24,7 @@ import type {
 } from '../src/kernel/types.ts';
 import { registerGooglePreset } from '../src/presets/google.ts';
 import { createProvider } from '../src/providers/create-provider.ts';
-import { hostVault, loadHostEnv, VAULT_ENV } from './host-env.ts';
+import { hostVault, loadHostEnv, vaultEnv } from './host-env.ts';
 
 function valueAfterFlag(flag: string): string | undefined {
   const idx = Deno.args.indexOf(flag);
@@ -37,8 +37,10 @@ const vault = hostVault();
 const modelId = valueAfterFlag('--model') ?? 'gemini-3.5-flash-lite';
 const thinkingLevel = valueAfterFlag('--thinking') ?? 'high';
 
-if (!vault.slotA) {
-  console.error(`${VAULT_ENV.slotA} unset (this script reads it; Theorem itself never reads env)`);
+if (!vault.slot_a) {
+  console.error(
+    `${vaultEnv('slot_a')} unset (this script reads it; Theorem itself never reads env)`,
+  );
   Deno.exit(1);
 }
 
@@ -94,7 +96,7 @@ const streamed = defineProfile({
   models: { flash: flashBinding(['codeExecution', 'googleSearch']) },
   defaultModel: 'flash',
   maxSteps: 3,
-  key: 'slotA',
+  key: 'slot_a',
   tools: { allow: [] },
   inputs: { text: true },
   outputs: {},
@@ -121,7 +123,7 @@ registerProfile(
     models: { flash: flashBinding(['codeExecution']) },
     defaultModel: 'flash',
     maxSteps: 1,
-    key: 'slotA',
+    key: 'slot_a',
     tools: { allow: [] },
     inputs: { text: true },
     outputs: { structured: 'liveCodeAnswer' },
@@ -130,8 +132,8 @@ registerProfile(
 );
 
 const provider: ModelProvider = createProvider(getProfile(PROFILE), {
+  vault: vault,
   gemini: {
-    vault,
     wait: () => Promise.resolve(),
   },
 });

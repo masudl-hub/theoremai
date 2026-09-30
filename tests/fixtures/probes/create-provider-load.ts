@@ -48,13 +48,14 @@ function sseResponse(chunks: string[]): Response {
 console.log('PHASE:providers-created');
 
 createProvider(baseProfile({ protocol: 'geminiInteractions', provider: 'google' }, false), {
-  gemini: { vault: { slotA: 'a', slotB: 'b', slotC: 'c', spare: 'p' } },
+  vault: { main: 'a', backup: 'b', extra: 'c', spare: 'p' },
 });
 createProvider(baseProfile({ protocol: 'openAi', provider: 'openrouter' }, false), {
-  openAiGateway: { apiKey: 'key' },
+  vault: { slot_a: 'key' },
 });
 createProvider(baseProfile({ protocol: 'openAi', provider: 'openrouter' }, true), {
-  openAiGateway: { apiKey: 'key', voice: 'Kore' },
+  vault: { slot_a: 'key' },
+  openAiGateway: { voice: 'Kore' },
 });
 createProvider(baseProfile({ protocol: 'openAi', provider: 'local' }, false), {
   local: { baseUrl: 'http://127.0.0.1:8080' },

@@ -54,6 +54,7 @@ registerProfile({
   type: 'decision',
   id: JEV_JUDGE,
   identity: { handle: 'jev judge' },
+  key: 'jev',
   models: {
     jev: { protocol: 'decision', provider: 'typesafe', apiId: 'jev-latest', timeoutMs: 10_000 },
   },

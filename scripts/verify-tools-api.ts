@@ -314,7 +314,7 @@ function stopKind(events: TurnEvent[]): string | undefined {
 }
 
 function createGeminiProvider(): ModelProvider {
-  return createProvider(getProfile(LIVE_PROFILE), { gemini: { vault: hostVault() } });
+  return createProvider(getProfile(LIVE_PROFILE), { vault: hostVault() });
 }
 
 function buildInvokeCases(): Case[] {

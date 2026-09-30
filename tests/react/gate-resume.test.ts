@@ -36,7 +36,7 @@ function textInterface(): ComposerProfileInterface {
       type: 'text',
       identity: { handle: 'gate_resume_bot', system: 'You reply.' },
       models: { fast: HOST_BINDINGS.gemini35FlashLite },
-      key: 'slotA',
+      key: 'main',
       tools: { allow: [] },
       inputs: { text: true, ...CHAT_MEDIA_LIMITS },
     }),

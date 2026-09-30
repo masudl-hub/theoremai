@@ -181,12 +181,13 @@ const support = defineProfile({
       efforts: { deep: "high" },
       maxOutputTokens: 16_000,
       cache: { mode: "automatic", ttl: "1h" },
+      key: "openrouter", // its own slot; `fast` uses the profile's
     },
   },
   defaultModel: "fast",
   allowModelSelect: true,
   maxSteps: 8,
-  key: "slotA",
+  key: "main",
 
   tools: {
     allow: ["search_tickets", "docs_search", "create_issue", "refund_order", "load_tools", "ask_user"],
@@ -272,7 +273,7 @@ import { createProvider, runTurn } from "@theoremjs/agents";
 
 const provider = createProvider(
   support,
-  { gemini: { vault }, openAiGateway: { apiKey: secrets.openRouterApiKey } },
+  { vault }, // { main, openrouter }: every key, by the slot a model names
   "deep",
 );
 
@@ -322,8 +323,8 @@ A `decision` profile makes one bounded request. Its single model binding uses
 `apiId`, like other model bindings. The profile's `decision` object holds its
 contract configuration. The host supplies JSON state and questions; `runDecision`
 returns validated typed answers. It has no prompt, history, tools, attachments,
-or streaming. API keys come from the caller's `apiKey` or `keyVault`, never from
-ambient environment state.
+or streaming. The model names a key slot (its own `key`, else the profile's), and the key
+comes only from the caller's `vault`, never from ambient environment state.
 
 ### Live voice and video
 
@@ -346,7 +347,7 @@ registerProfile(defineProfile({
       builtInTools: ["googleSearch"],
     },
   },
-  key: "slotA",
+  key: "main",
   tools: { allow: ["search_tickets", "docs_search"] },
   live: {
     voice: "Aoede",
@@ -360,7 +361,7 @@ registerProfile(defineProfile({
   guardrails: { canary: true, sanitizeInput: true, egress: { enforce: standardEgressEnforce } },
 }));
 
-const session = await runSession({ profile: "support.voice" }, { gemini: { vault } });
+const session = await runSession({ profile: "support.voice" }, { vault });
 
 (async () => {
   for await (const chunk of mic) await session.sendAudio({ data: chunk, mimeType: "audio/pcm;rate=16000" });
@@ -383,7 +384,7 @@ defineProfile({
   id: "marketing.cover",
   identity: { handle: "cover", system: "Generate clean, on-brand product imagery." },
   models: {
-    image: { protocol: "geminiInteractions", provider: "google", apiId: "gemini-3-pro-image", key: "paid" },
+    image: { protocol: "geminiInteractions", provider: "google", apiId: "gemini-3-pro-image", key: "images" },
   },
   image: { aspectRatio: "16:9", mimeType: "image/png", includeText: true },
   tools: { allow: [] },
@@ -401,7 +402,9 @@ defineProfile({
   type: "speech",
   id: "support.narrator",
   identity: { handle: "narrator" },
-  models: { tts: { protocol: "openAi", provider: "openrouter", apiId: "openai/gpt-4o-mini-tts" } },
+  models: {
+    tts: { protocol: "openAi", provider: "openrouter", apiId: "openai/gpt-4o-mini-tts", key: "openrouter" },
+  },
   speech: { voice: "alloy", format: "mp3" },
 });
 
@@ -935,15 +938,15 @@ import { createProvider, runSession } from "@theoremjs/agents";
 const provider = createProvider(
   profile,
   {
-    gemini: { vault: hostGeminiKeyVault },
-    openAiGateway: { apiKey: hostSecrets.openRouterApiKey },
+    vault: hostKeyVault, // one vault for every provider, OpenRouter included
+    openAiGateway: { siteName: "Support" }, // optional OpenRouter headers; never a key
     local: { baseUrl: hostResolvedLocalBaseUrl }, // only for local profiles; no default address
   },
   "deep", // optional model id from profile.models
 );
 
 // Sessions: live profiles.
-const session = await runSession({ profile: "support.voice" }, { gemini: { vault: hostGeminiKeyVault } });
+const session = await runSession({ profile: "support.voice" }, { vault: hostKeyVault });
 ```
 
 | Protocol + provider | Transport | Profile types |
@@ -955,7 +958,7 @@ const session = await runSession({ profile: "support.voice" }, { gemini: { vault
 
 - **Per-model routing** — each entry in `profile.models` names its own protocol and provider, so one profile can mix Google and OpenRouter. `createProvider` binds the one you pick.
 - **Lazy loading** — adapters load on first use. Importing `createProvider` doesn't pull in Interactions, the AI SDK, or the local adapter.
-- **Key slots** — a profile names key slots (`key`, and `fallbackKey` for a retry on quota), and your vault fills them with keys, so the profile never holds one.
+- **Key slots** — a profile names key slots (`key`, and `fallbackKey` for a retry on quota), and your vault fills them with keys, so the profile never holds one. Every model except a local one must name a slot; there is no flat key.
 - **Normalized events** — every transport emits the same `TurnEvent` types and a provider-neutral `stop`. Raw provider evidence is kept for citations where the normalized stream drops detail.
 - **No env reads** — Theorem doesn't read `OLLAMA_HOST` or any other variable. Resolve it yourself and pass `local.baseUrl`.
 - **Live** — `createProvider` rejects `geminiLive` bindings. Live profiles go through `runSession`, which handles setup, session resumption, context compression, and the outbound gate.
@@ -968,7 +971,7 @@ const session = await runSession({ profile: "support.voice" }, { gemini: { vault
 | :--- | :--- |
 | `jsr:@theoremjs/agents` / `@theoremjs/agents` | Main kernel API: profiles, schemas, runner, core types, provider constructors, declarative HTTP/MCP tool execution. |
 | `jsr:@theoremjs/agents/kernel` / `@theoremjs/agents/kernel` | Profile/turn types, tool catalog, `requireModelBinding`, thinking clamps over host model maps, OAuth 2.1 PKCE helpers (`createOAuthPkceFlow`, `exchangeOAuthPkce`, `refreshOAuthToken`). |
-| `jsr:@theoremjs/agents/providers` / `@theoremjs/agents/providers` | `createProvider` + Gemini vault types + host option bags. |
+| `jsr:@theoremjs/agents/providers` / `@theoremjs/agents/providers` | `createProvider` + the vault type + host option bags. |
 | `jsr:@theoremjs/agents/providers/local` / `@theoremjs/agents/providers/local` | Direct local OpenAI-compat adapter (`createLocalProvider`). |
 | `jsr:@theoremjs/agents/guardrails` / `@theoremjs/agents/guardrails` | Sanitization, canary/egress gates, public error mapping, inbound injection/sensitive-data primitives. |
 | `jsr:@theoremjs/agents/guardrails/testing` / `@theoremjs/agents/guardrails/testing` | Adversarial corpus + fuzz helpers (test/harness only). |
@@ -1023,8 +1026,8 @@ Named exports from the root barrel (same symbols hosts get from `@theoremjs/agen
 | Stop / resume | `ProfileTurnBehaviourSpec`, `MediaTurnBehaviourSpec`, `ProfileTurnResumptionSpec`, `TurnContinueFrom`, `TurnStop`, `TurnStopKind`, `ContinueStopKind`, `CONTINUE_STOP_KINDS`, `AUTO_CONTINUE_DELAY_MS`, `DEFAULT_ALLOW_CONTINUE`, `DEFAULT_AUTO_CONTINUE`, `GenerationStopError`, `isContinueStopKind`, `isGenerationStopError`, `isResumeableStop`, `isUserCancelledStop`, `profileAllowsSteering`, `profileAllowsInject`, `profileTurnResumption`, `shouldAutoContinue`, `turnStopFromClientStreamEnd`, `turnStopFromInteractionStatus`, `turnStopFromOpenAiFinishReason` |
 | Stages (target foundation) | `TURN_STAGES`, `TURN_INJECT_STAGES`, `STAGE_AFFORDANCES`, `STAGE_AFFORDANCE_MATRIX`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `applyStageResult`, `awaitingUserInputSchema`, `toolGateSchema`, `isTurnStage`, `isTurnInjectStage`, `isToolGateKind`, `isAwaitingUserInput`, `stageAllowsAffordance`, `stageEventFields`, `profileAllowsInject`, `StageAffordance`, `StageContext`, `StageResult`, `StageMutate`, `StageHandler`, `StageApplyInput`, `StageApplyOutput`, `StageApplyWarning`, `StageApplyWarningCode`, `StageEventExtra`, `AwaitingUserInput`, `ToolGate` — contract [`docs/contracts/stages.md`](docs/contracts/stages.md) |
 | Turn events | `TURN_EVENT_SCHEMAS` (each kind's schema, for a wire parser), `turnEventSchema`, `turnHistoryMessageSchema`, `turnToolSnapshotSchema`, `turnDoneOf`, `z` (the zod these schemas are built with; compose them with it, since two copies of zod do not mix) — the event types themselves come through `export type *` from `src/kernel/types.ts` |
-| Observability | `memorySink`, `noopSink`, `writeTrace`, `buildRecord`, `traceRecordSchema`, `contentOf`, `inlineContent`, `toOtlpJson`, `startTrace`, `traceContent`, `traceBytes`, `traceJson`, `registerTraceDestination`, `requireTraceDestination`, `getTraceDestination`, `listTraceDestinationIds`, `clearTraceDestinations`, `isTraceSink`, `resolveTraceWriter`, `resolveObservabilityPolicy`, `traceSpanMeta`, `traceAttributeMeta`, `traceEventMeta`, `traceEventAttributeMeta`, `TRACE_ATTRIBUTE_GROUPS`, `TRACE_STATUS`, `TRACE_FIELDS`, `TRACE_SPAN_TYPES`, `TraceSpanMeta`, `TraceSpanType`, `TraceAttributeMeta`, `TraceEventMeta`, `TraceOptionMeta`, `TraceAttributeGroup`, `TraceValueFormat`, `TraceRecord`, `TraceSink`, `TraceWriteContext`, `TraceSpan`, `TraceSpanEvent`, `TraceSpanKind`, `TraceSpanLink`, `TraceSpanStatus`, `TraceAttributes`, `TraceAttributeValue`, `TraceContent`, `TraceBytes`, `TraceJson`, `TraceTree`, `SpanHandle`, `SpanOptions`, `SpanLinkInput`, `TraceClock`, `ProfileObservabilitySpec`, `ResolvedObservabilityPolicy`, `ResolvedTraceInclude`, `ResolvedTraceScrub`, `TraceIncludeSpec`, `TraceScrubSpec`, `OtlpTraceRequest`, `OtlpSpan`, `OtlpKeyValue`, `OtlpAnyValue` (file sink: `@theoremjs/agents/observability/jsonl` → `jsonlSink`, `JsonlSinkOptions`) |
-| Providers | `CreateProviderOptions`, `GeminiTransport`, `KeyVault`, `LocalProviderConfig`, `OpenAiGatewayConfig`, `createProvider` (local: `@theoremjs/agents/providers/local` → `createLocalProvider`) |
+| Observability | `memorySink`, `noopSink`, `readTraceparent`, `writeTrace`, `buildRecord`, `traceRecordSchema`, `contentOf`, `inlineContent`, `toOtlpJson`, `startTrace`, `traceContent`, `traceBytes`, `traceJson`, `registerTraceDestination`, `requireTraceDestination`, `getTraceDestination`, `listTraceDestinationIds`, `clearTraceDestinations`, `isTraceSink`, `resolveTraceWriter`, `resolveObservabilityPolicy`, `traceSpanMeta`, `traceAttributeMeta`, `traceEventMeta`, `traceEventAttributeMeta`, `TRACE_ATTRIBUTE_GROUPS`, `TRACE_STATUS`, `TRACE_FIELDS`, `TRACE_SPAN_TYPES`, `TraceSpanMeta`, `TraceSpanType`, `TraceAttributeMeta`, `TraceEventMeta`, `TraceOptionMeta`, `TraceAttributeGroup`, `TraceValueFormat`, `TraceRecord`, `TraceSink`, `TraceWriteContext`, `TraceSpan`, `TraceSpanEvent`, `TraceSpanKind`, `TraceSpanLink`, `TraceSpanStatus`, `TraceAttributes`, `TraceAttributeValue`, `TraceContent`, `TraceBytes`, `TraceJson`, `TraceTree`, `SpanHandle`, `SpanOptions`, `SpanLinkInput`, `TraceClock`, `ProfileObservabilitySpec`, `ResolvedObservabilityPolicy`, `ResolvedTraceInclude`, `ResolvedTraceScrub`, `TraceIncludeSpec`, `TraceScrubSpec`, `OtlpTraceRequest`, `OtlpSpan`, `OtlpKeyValue`, `OtlpAnyValue` (file sink: `@theoremjs/agents/observability/jsonl` → `jsonlSink`, `JsonlSinkOptions`) |
+| Providers | `CreateProviderOptions`, `GeminiOptions`, `KeyVault`, `LocalProviderConfig`, `OpenAiGatewayConfig`, `createProvider` (local: `@theoremjs/agents/providers/local` → `createLocalProvider`) |
 
 </details>
 
@@ -1135,7 +1138,7 @@ cd npm
 npm pack
 ```
 
-Run an OpenRouter provider smoke test. The script reads `OPENROUTER_API_KEY` from the shell (or the `THEOREM_ENV_FILE` it names); Theorem itself never reads env, and the key stays off the command line, where `deno task` would echo it.
+Run an OpenRouter provider smoke test. The script reads `OPENROUTER_API_KEY` from the shell (or the `THEOREM_ENV_FILE` it names) into vault slot `openrouter`; Theorem itself never reads env, and the key stays off the command line, where `deno task` would echo it.
 
 ```bash
 deno task verify:provider-smoke

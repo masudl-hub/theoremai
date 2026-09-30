@@ -79,7 +79,7 @@ Deno.test('runTurn records what the host received on the turn root, beside what 
     identity: { handle: 'quiet', system: 'Reply briefly.' },
     models: { gemini35FlashLite: HOST_BINDINGS.gemini35FlashLite },
     maxSteps: 1,
-    key: 'slotA',
+    key: 'main',
     tools: { allow: [] },
     inputs: { text: true },
     outputs: { structured: null, streaming: { streamThoughts: false } },

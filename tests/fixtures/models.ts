@@ -71,7 +71,7 @@ const gemini31FlashLiteImage = geminiBinding({
   maxOutputTokens: 4096,
   temperature: 1,
   builtInTools: [],
-  key: 'images',
+  key: 'slot_b',
 });
 
 const gemini31FlashTts = geminiBinding({
@@ -129,11 +129,11 @@ function modelBindings(...ids: HostBindingId[]): Record<ModelId, ModelBinding> {
 /** Gemini Interactions model fields for fixtures (protocol + provider live on each binding). */
 function geminiModels(...ids: HostBindingId[]): {
   models: Record<ModelId, ModelBinding>;
-  key: 'slotA';
+  key: 'slot_a';
 } {
   return {
     models: modelBindings(...ids),
-    key: 'slotA',
+    key: 'slot_a',
   };
 }
 

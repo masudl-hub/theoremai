@@ -5,10 +5,17 @@
  * on Gemini 2 / 2.5 and 0 on Gemini 3; maps is 0 or 500 per model.
  */
 
-import type { Protocol, Provider } from '../src/kernel/schema.ts';
+import {
+  isValidPair,
+  isValidProfileProtocol,
+  type Protocol,
+  type Provider,
+} from '../src/kernel/schema.ts';
 import type { DecisionQuestion } from '../src/kernel/types.ts';
 import { GOOGLE_BUILTIN_TOOLS } from '../src/presets/google.ts';
 import type { ModelBindingDraft, PlaygroundProfileType } from './draft.ts';
+
+export type PlaygroundConnectionMode = 'demo' | 'byok' | 'local';
 
 /** The only OpenRouter model the playground key may call. */
 export const OPENROUTER_PLAYGROUND_API_ID = 'openrouter/free';
@@ -57,8 +64,10 @@ export const PLAYGROUND_DECISION_TIMEOUT_MS = 30_000;
 type DecisionRoute = Pick<ModelBindingDraft, 'protocol' | 'provider' | 'apiId'>;
 
 function isSpanDecision(binding: DecisionRoute): boolean {
-  return binding.protocol === 'decision' && binding.provider === 'openrouter' &&
-    binding.apiId.startsWith('respan/');
+  return (
+    binding.protocol === 'decision' && binding.provider === 'openrouter' &&
+    binding.apiId.startsWith('respan/')
+  );
 }
 
 /** Provider-specific request shape for the playground's Span binding. */
@@ -87,7 +96,7 @@ export function decisionStateViolation(
     typeof state === 'object' && state !== null && !Array.isArray(state) &&
     Object.keys(state).length > 0 &&
     Object.entries(state).every(([key, value]) =>
-      (key === 'input' || key === 'output') && spanMessages(value)
+      (key === 'input' || key === 'output') && spanMessages(value),
     )
   ) return null;
   return 'Span state must be a string or input/output messages.';
@@ -101,10 +110,14 @@ function spanMessages(value: unknown): boolean {
 }
 
 function spanMessage(value: unknown): boolean {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
   const message = value as Record<string, unknown>;
-  return typeof message.role === 'string' && !!message.role.trim() &&
-    typeof message.content === 'string';
+  return (
+    typeof message.role === 'string' && !!message.role.trim() &&
+    typeof message.content === 'string'
+  );
 }
 
 export interface GeminiPlaygroundModel {
@@ -272,12 +285,20 @@ export function playgroundRunsTransport(
   type: PlaygroundProfileType,
   protocol: Protocol,
   provider: Provider,
+  mode: PlaygroundConnectionMode = 'demo',
 ): boolean {
+  if (mode !== 'demo') {
+    return browserRunsTransport(type, protocol, provider);
+  }
   if (type === 'decision') {
     return protocol === 'decision' && (provider === 'typesafe' || provider === 'openrouter');
   }
   if (isGoogleTransport(protocol, provider)) return true;
   return isOpenRouterTransport(protocol, provider) && type === 'text';
+}
+
+function browserRunsTransport(type: PlaygroundProfileType, protocol: Protocol, provider: Provider): boolean {
+  return isValidPair(protocol, provider) && isValidProfileProtocol(type, protocol) && (provider !== 'local' || type !== 'image');
 }
 
 /** A model the playground doesn't list isn't judged here; `modelBindingViolation` reports it. */
@@ -286,7 +307,9 @@ export function servesOtherProfileType(
   binding: Pick<ModelBindingDraft, 'protocol' | 'provider' | 'apiId'>,
 ): boolean {
   if (binding.protocol === 'decision') return type !== 'decision';
-  if (isOpenRouterTransport(binding.protocol, binding.provider)) return type !== 'text';
+  if (isOpenRouterTransport(binding.protocol, binding.provider)) {
+    return type !== 'text';
+  }
   if (!isGoogleTransport(binding.protocol, binding.provider)) return false;
   const model = geminiPlaygroundModel(binding.apiId);
   return model !== undefined && model.profileType !== type;
@@ -359,21 +382,34 @@ export interface ModelBindingViolation {
  */
 export function modelBindingViolation(
   binding: Pick<ModelBindingDraft, 'protocol' | 'provider' | 'apiId' | 'builtInTools'>,
+  mode: PlaygroundConnectionMode = 'demo',
 ): ModelBindingViolation | null {
+  if (mode !== 'demo') {
+    if (mode === 'local' && binding.provider !== 'local') {
+      return {
+        field: 'provider',
+        message: 'Local runs require local models. Switch the model provider to Local.',
+      };
+    }
+    return null;
+  }
   const apiId = binding.apiId.trim();
   if (binding.protocol === 'decision') {
     if (binding.provider === 'typesafe') return null;
     if (binding.provider === 'openrouter') {
       return OPENROUTER_DECISION_MODELS.some((model) => model.id === apiId)
         ? null
-        : { field: 'apiId', message: `${apiId} is not a playground OpenRouter decision model.` };
+        : { field: 'apiId', message: `${apiId} is not a playground OpenRouter decision model.`,
+          };
     }
   }
   if (isOpenRouterTransport(binding.protocol, binding.provider)) {
-    return apiId === OPENROUTER_PLAYGROUND_API_ID ? null : {
-      field: 'apiId',
-      message: `OpenRouter models in the playground must use ${OPENROUTER_PLAYGROUND_API_ID}.`,
-    };
+    return apiId === OPENROUTER_PLAYGROUND_API_ID
+      ? null
+      : {
+          field: 'apiId',
+          message: `OpenRouter models in the playground must use ${OPENROUTER_PLAYGROUND_API_ID}.`,
+        };
   }
   if (!isGoogleTransport(binding.protocol, binding.provider)) {
     return {

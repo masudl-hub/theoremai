@@ -11,8 +11,8 @@ import {
   type ImageProfileDefinition,
   type LexiconKey,
   type LexiconOverrides,
-  liveIngressChannelDefault,
   type LiveProfileDefinition,
+  liveIngressChannelDefault,
   type ProfileDefinitionBase,
   type ProfileGuardrailsSpec,
   type ProfileObservabilitySpec,
@@ -24,10 +24,9 @@ import {
   TheoremError,
 } from '../mod.ts';
 import { validateLexiconOverrides } from '../src/guardrails/lexicon.ts';
-import { activityLabelProblem } from '../src/kernel/tools/activity-label.ts';
 import type { DecisionProfileDefinition, HostProfileDefinition } from '../src/kernel/mod.ts';
+import { outOfScopeFields } from '../src/kernel/profile-scope.ts';
 import { mimeAllowed } from '../src/kernel/registry/catalog.ts';
-import { googleInteractionsPersistence } from '../src/presets/google.ts';
 import {
   HTTP_METHODS,
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
@@ -37,6 +36,7 @@ import {
   speechFormatsForProtocol,
   thinkingLevelsForProtocol,
 } from '../src/kernel/schema.ts';
+import { activityLabelProblem } from '../src/kernel/tools/activity-label.ts';
 import type {
   LiveContextCompressionSpec,
   ModelBinding,
@@ -46,8 +46,9 @@ import type {
   ProfileOutputsSpec,
   ProfileSpeechSpec,
 } from '../src/kernel/types.ts';
-import { outOfScopeFields } from '../src/kernel/profile-scope.ts';
 import { resolveObservabilityPolicy } from '../src/observability/mod.ts';
+import { googleInteractionsPersistence } from '../src/presets/google.ts';
+import { PLAYGROUND_KEY_SLOT_CAP } from './browser-connection.ts';
 import type {
   DecisionDraft,
   GuardrailsDraft,
@@ -78,6 +79,7 @@ import {
   PLAYGROUND_DECISION_MAX_QUESTIONS,
   PLAYGROUND_DECISION_MAX_STATE_BYTES,
   PLAYGROUND_DECISION_TIMEOUT_MS,
+  type PlaygroundConnectionMode,
 } from './policy.ts';
 import type {
   PlaygroundToolLabels,
@@ -151,7 +153,9 @@ function checkWhole(
 }
 
 function checkIdentity(draft: PlaygroundDraft, report: Report): void {
-  if (!draft.identity.agentId.trim()) report('identity', 'Profile id is required.', 'agentId');
+  if (!draft.identity.agentId.trim()) {
+    report('identity', 'Profile id is required.', 'agentId');
+  }
   // A host has no agent identity: it runs no model.
   if (draft.identity.profileType !== 'host' && !draft.identity.handle.trim()) {
     report('identity', 'Handle is required.', 'handle');
@@ -173,9 +177,6 @@ function checkBindingRoute(
   const apiId = binding.apiId.trim();
   if (!apiId) {
     report(nodeId, 'Wire model id is required.', 'apiId');
-  } else {
-    const violation = modelBindingViolation(binding);
-    if (violation) report(nodeId, violation.message, violation.field);
   }
   return apiId;
 }
@@ -226,6 +227,8 @@ function compileBinding(
     protocol: binding.protocol,
     provider: binding.provider,
     apiId,
+    ...(binding.keySlot ? { key: binding.keySlot } : {}),
+    ...(binding.fallbackKeySlot ? { fallbackKey: binding.fallbackKeySlot } : {}),
     ...(effortCount ? { efforts } : {}),
     ...(defaultEffort ? { defaultEffort } : {}),
     ...(binding.allowEffortSelect ? { allowEffortSelect: true } : {}),
@@ -250,7 +253,7 @@ function compileModels(
   report: Report,
 ): Pick<
   ProfileDefinitionBase,
-  'models' | 'defaultModel' | 'allowModelSelect' | 'maxSteps' | 'key'
+  'models' | 'defaultModel' | 'allowModelSelect' | 'maxSteps' | 'key' | 'fallbackKey'
 > {
   const { models: policy, modelBindings } = draft;
   const models: Record<string, ModelBinding> = {};
@@ -278,7 +281,7 @@ function compileModels(
     report('models', 'Max steps must be a whole number.', 'maxSteps');
   }
   if (keySlotRequired(draft) && !policy.key) {
-    report('models', 'Google models need a key slot.', 'key');
+    report('models', 'Choose a key slot.', 'key');
   }
 
   return {
@@ -287,6 +290,7 @@ function compileModels(
     ...(policy.allowModelSelect ? { allowModelSelect: true } : {}),
     ...(policy.maxSteps !== null ? { maxSteps: policy.maxSteps } : {}),
     ...(policy.key ? { key: policy.key } : {}),
+    ...(policy.fallbackKey ? { fallbackKey: policy.fallbackKey } : {}),
   };
 }
 
@@ -294,7 +298,9 @@ function parseHeaders(raw: string | undefined): Record<string, string> | undefin
   if (!raw?.trim()) return undefined;
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null;
+    }
     const headers: Record<string, string> = {};
     for (const [name, value] of Object.entries(parsed)) {
       if (typeof value !== 'string') return null;
@@ -411,7 +417,9 @@ function toolLabels(
 const CREDENTIAL_HEADER = /auth|key|token|secret|passw|cookie|session|signature|credential/i;
 
 /** Why these headers can't be saved, when one of them looks like a credential. */
-export function credentialHeaderProblem(headers: Record<string, string> | undefined): string | undefined {
+export function credentialHeaderProblem(
+  headers: Record<string, string> | undefined,
+): string | undefined {
   const name = Object.keys(headers ?? {}).find((header) => CREDENTIAL_HEADER.test(header));
   return name
     ? `${name} looks like a credential. Put it under Auth instead: Auth asks for it when a call runs and nothing saves it.` // lexicon-exempt: builder diagnostic
@@ -420,7 +428,9 @@ export function credentialHeaderProblem(headers: Record<string, string> | undefi
 
 function remoteToolFields(tool: ToolSpecDraft, fail: Fail) {
   const headers = parseHeaders(tool.headersJson);
-  if (headers === null) fail('Headers must be a JSON object of strings.', 'headersJson');
+  if (headers === null) {
+    fail('Headers must be a JSON object of strings.', 'headersJson');
+  }
   const credential = credentialHeaderProblem(headers ?? undefined);
   if (credential) fail(credential, 'headersJson');
   const auth = compileAuth(tool, fail);
@@ -463,14 +473,24 @@ function mcpTool(tool: ToolSpecDraft, common: ToolCommon, fail: Fail): ToolRegis
   const serverUrl = checkUrl(tool, 'serverUrl', 'MCP server URL', fail);
   const mcpToolName = tool.mcpToolName?.trim() ?? '';
   if (!mcpToolName) fail('MCP tool name is required.', 'mcpToolName');
-  return { type: 'mcp', ...common, serverUrl, mcpToolName, ...remoteToolFields(tool, fail) };
+  return {
+    type: 'mcp',
+    ...common,
+    serverUrl,
+    mcpToolName,
+    ...remoteToolFields(tool, fail),
+  };
 }
 
 function functionTool(tool: ToolSpecDraft, common: ToolCommon, fail: Fail): ToolRegistration {
   if (!tool.stubOutputJson?.trim()) return { type: 'function', ...common };
   const stub = parseJsonSchema(tool.stubOutputJson, 'Stub output');
   if (!stub.ok) fail(stub.error.replace(' JSON Schema', ''), 'stubOutputJson');
-  return { type: 'function', ...common, ...(stub.ok ? { stubResponse: stub.schema } : {}) };
+  return {
+    type: 'function',
+    ...common,
+    ...(stub.ok ? { stubResponse: stub.schema } : {}),
+  };
 }
 
 const TOOL_COMPILERS = { http: httpTool, mcp: mcpTool, function: functionTool };
@@ -514,9 +534,10 @@ function compileInputs(
   type: PlaygroundProfileType,
   report: Report,
 ): ProfileInputsSpec {
-  const outside = type === 'image'
-    ? inputs.attachmentsAccept.filter((rule) => !mimeAllowed(IMAGE_ATTACHMENT_ACCEPT_MIMES, rule))
-    : [];
+  const outside =
+    type === 'image'
+      ? inputs.attachmentsAccept.filter((rule) => !mimeAllowed(IMAGE_ATTACHMENT_ACCEPT_MIMES, rule))
+      : [];
   if (outside.length) {
     report(
       'inputs',
@@ -564,17 +585,22 @@ function compileOutputs(
   let structured: StructuredRegistration | undefined;
   if (outputs.mode === 'structured') {
     const id = outputs.schemaId.trim();
-    if (!id) report('outputs', 'Structured output needs a schema id.', 'schemaId');
+    if (!id) {
+      report('outputs', 'Structured output needs a schema id.', 'schemaId');
+    }
     const schema = parseJsonSchema(outputs.schemaJson, 'Structured output');
     if (!schema.ok) report('outputs', schema.error, 'schemaJson');
-    if (id && schema.ok) structured = { id, spec: { jsonSchema: schema.schema } };
+    if (id && schema.ok) {
+      structured = { id, spec: { jsonSchema: schema.schema } };
+    }
   }
   if (outputs.validationEnabled) {
     checkWhole(report, 'outputs', 'maxRetries', 'Validation max retries', outputs.maxRetries, 0);
   }
-  const validation = outputs.validationEnabled && outputs.maxRetries !== null
-    ? { maxRetries: outputs.maxRetries }
-    : {};
+  const validation =
+    outputs.validationEnabled && outputs.maxRetries !== null
+      ? { maxRetries: outputs.maxRetries }
+      : {};
   const streaming = {
     ...(outputs.streamMode ? { mode: outputs.streamMode } : {}),
     ...(outputs.streamThoughts ? {} : { streamThoughts: false }),
@@ -670,7 +696,9 @@ function compileLexicon(
   }
   if (facets.has('wording')) {
     for (const [key, template] of Object.entries(draft.wording) as [LexiconKey, string][]) {
-      if (!INLINE_WORDING[key]) entries.push(['wording', key, key, template.trim()]);
+      if (!INLINE_WORDING[key]) {
+        entries.push(['wording', key, key, template.trim()]);
+      }
     }
   }
   const lexicon: LexiconOverrides = {};
@@ -731,7 +759,9 @@ function compileNetwork(
 ): ProfileGuardrailsSpec['network'] {
   const hosts = guardrails.allowedHosts.map((host) => host.trim());
   const blank = hosts.indexOf('');
-  if (blank !== -1) report('guardrails', 'Allowed hosts cannot be blank.', 'allowedHosts', blank);
+  if (blank !== -1) {
+    report('guardrails', 'Allowed hosts cannot be blank.', 'allowedHosts', blank);
+  }
   if (!guardrails.allowPrivateNetworks && !hosts.length) return undefined;
   return {
     ...(guardrails.allowPrivateNetworks ? { allowPrivateNetworks: true } : {}),
@@ -746,12 +776,12 @@ function compileGuardrails(
   const defaults = resolveGuardrailPolicy(undefined);
   const parts: ProfileGuardrailsSpec = {
     canary: compileCanary(guardrails),
-    sanitizeInput: guardrails.sanitizeInput !== defaults.sanitizeInput
-      ? guardrails.sanitizeInput
-      : undefined,
-    redactSensitive: guardrails.redactSensitive !== defaults.redactSensitive
-      ? guardrails.redactSensitive
-      : undefined,
+    sanitizeInput:
+      guardrails.sanitizeInput !== defaults.sanitizeInput ? guardrails.sanitizeInput : undefined,
+    redactSensitive:
+      guardrails.redactSensitive !== defaults.redactSensitive
+        ? guardrails.redactSensitive
+        : undefined,
     quota: compileQuota(guardrails, report),
     egress: compileEgress(guardrails, report),
     network: compileNetwork(guardrails, report),
@@ -838,7 +868,11 @@ function compileSpeech(
   };
 }
 
-function compileLive(live: LiveDraft, report: Report): ProfileLiveSpec {
+function compileLive(
+  live: LiveDraft,
+  report: Report,
+  mode: PlaygroundConnectionMode,
+): ProfileLiveSpec {
   if (!live.ingressAudio && !live.ingressVideo && !live.ingressText) {
     report('live', 'Turn on at least one ingress channel.');
   }
@@ -859,9 +893,13 @@ function compileLive(live: LiveDraft, report: Report): ProfileLiveSpec {
     0,
   );
 
-  if (live.contextCompression) checkCompression(live, report);
+  if (live.contextCompression) checkCompression(live, report, mode);
 
-  const channels = { audio: live.ingressAudio, video: live.ingressVideo, text: live.ingressText };
+  const channels = {
+    audio: live.ingressAudio,
+    video: live.ingressVideo,
+    text: live.ingressText,
+  };
   const ingress = Object.fromEntries(
     Object.entries(channels).filter(
       ([channel, on]) => on !== liveIngressChannelDefault(channel as keyof typeof channels),
@@ -890,7 +928,7 @@ function compileLive(live: LiveDraft, report: Report): ProfileLiveSpec {
 }
 
 /** Whole numbers, within the free key's input, and the target below the trigger. */
-function checkCompression(live: LiveDraft, report: Report): void {
+function checkCompression(live: LiveDraft, report: Report, mode: PlaygroundConnectionMode): void {
   checkWhole(
     report,
     'live',
@@ -910,14 +948,18 @@ function checkCompression(live: LiveDraft, report: Report): void {
   const trigger = live.compressionTriggerTokens;
   const target = live.compressionTargetTokens;
   const cap = GEMINI_PLAYGROUND_LIVE_INPUT_TOKENS.toLocaleString('en-US');
-  if (trigger !== null && trigger > GEMINI_PLAYGROUND_LIVE_INPUT_TOKENS) {
+  if (mode === 'demo' && trigger !== null && trigger > GEMINI_PLAYGROUND_LIVE_INPUT_TOKENS) {
     report(
       'live',
       `Compression trigger can't exceed the free key's ${cap} input tokens.`,
       'compressionTriggerTokens',
     );
   }
-  if (target !== null && target >= (trigger ?? GEMINI_PLAYGROUND_LIVE_INPUT_TOKENS)) {
+  if (
+    target !== null &&
+    ((trigger !== null && target >= trigger) ||
+      (mode === 'demo' && trigger === null && target >= GEMINI_PLAYGROUND_LIVE_INPUT_TOKENS))
+  ) {
     report(
       'live',
       trigger !== null
@@ -945,14 +987,19 @@ function withoutPath(
 ): Record<string, unknown> {
   const [head, ...rest] = segments;
   const { [head]: child, ...others } = root;
-  if (!rest.length || child === null || typeof child !== 'object') return others;
-  return { ...others, [head]: withoutPath(child as Record<string, unknown>, rest) };
+  if (!rest.length || child === null || typeof child !== 'object') {
+    return others;
+  }
+  return { ...others, [head]: withoutPath(child as Record<string, unknown>, rest),
+  };
 }
 
 /** Drop what the type may not set (`PROFILE_FIELD_SCOPE`); the draft keeps it across type changes. */
 function omitOutOfScope(profile: Record<string, unknown> & { type: PlaygroundProfileType }) {
   let out: Record<string, unknown> = profile;
-  for (const { path } of outOfScopeFields(profile)) out = withoutPath(out, path.split('.'));
+  for (const { path } of outOfScopeFields(profile)) {
+    out = withoutPath(out, path.split('.'));
+  }
   return out as PlaygroundProfileDefinition;
 }
 
@@ -962,7 +1009,9 @@ function compileQuestions(
   report: Report,
 ): Record<string, DecisionQuestion> {
   const questions: Record<string, DecisionQuestion> = Object.create(null);
-  if (!decision.questions.length) report('decision', 'Add at least one question.', 'questions');
+  if (!decision.questions.length) {
+    report('decision', 'Add at least one question.', 'questions');
+  }
   if (decision.questions.length > PLAYGROUND_DECISION_MAX_QUESTIONS) {
     report(
       'decision',
@@ -977,9 +1026,12 @@ function compileQuestions(
     if (!id) fail('Each question needs an id.');
     else if (id.length > PLAYGROUND_DECISION_MAX_NAME_CHARS) {
       fail(`Question ids are limited to ${PLAYGROUND_DECISION_MAX_NAME_CHARS} characters.`);
-    } else if (Object.hasOwn(questions, id)) fail(`Question id '${id}' is used twice.`);
-    if (!instructions) fail(`Question '${id || index + 1}' needs instructions.`);
-    else if (instructions.length > PLAYGROUND_DECISION_MAX_INSTRUCTIONS_CHARS) {
+    } else if (Object.hasOwn(questions, id)) {
+      fail(`Question id '${id}' is used twice.`);
+    }
+    if (!instructions) {
+      fail(`Question '${id || index + 1}' needs instructions.`);
+    } else if (instructions.length > PLAYGROUND_DECISION_MAX_INSTRUCTIONS_CHARS) {
       fail(`Instructions are limited to ${PLAYGROUND_DECISION_MAX_INSTRUCTIONS_CHARS} characters.`);
     }
     const rows = question.criteria.map((row) => ({
@@ -999,7 +1051,11 @@ function compileQuestions(
       if (rows.length < 2 || rows.some((row) => !row.text)) {
         fail(`Score '${id}' needs at least two levels, each described.`);
       }
-      questions[id] = { type: 'score', instructions, criteria: rows.map((row) => row.text) };
+      questions[id] = {
+        type: 'score',
+        instructions,
+        criteria: rows.map((row) => row.text),
+      };
       return;
     }
     const labelled: Record<string, DecisionEntry> = Object.create(null);
@@ -1078,7 +1134,9 @@ function compileDecision(
   const nodeId = binding ? modelBindingNodeId(binding.key) : 'models';
   if (binding) {
     checkBindingRoute(binding, 'decision', report);
-    if (!binding.modelId.trim()) report(nodeId, 'Model id is required.', 'modelId');
+    if (!binding.modelId.trim()) {
+      report(nodeId, 'Model id is required.', 'modelId');
+    }
     checkWhole(report, nodeId, 'timeoutMs', 'Timeout', binding.timeoutMs, 1);
     if ((binding.timeoutMs ?? 0) > PLAYGROUND_DECISION_TIMEOUT_MS) {
       report(nodeId, `Timeout is limited to ${PLAYGROUND_DECISION_TIMEOUT_MS} ms.`, 'timeoutMs');
@@ -1114,38 +1172,42 @@ function compileDecision(
       if (violation) report('decision', violation, 'questions', index);
     });
   }
+  if (keySlotRequired(draft) && !draft.models.key) {
+    report('models', 'Choose a key slot.', 'key');
+  }
   const profile: DecisionProfileDefinition = {
     type: 'decision',
     id: draft.identity.agentId.trim(),
     identity: { handle: draft.identity.handle.trim() },
     models: binding
       ? {
-        [binding.modelId.trim()]: {
-          protocol: 'decision',
-          provider: binding.provider === 'openrouter' ? 'openrouter' : 'typesafe',
-          apiId: binding.apiId.trim(),
-          timeoutMs: binding.timeoutMs ?? PLAYGROUND_DECISION_TIMEOUT_MS,
-        },
-      }
+          [binding.modelId.trim()]: {
+            protocol: 'decision',
+            provider: binding.provider === 'openrouter' ? 'openrouter' : 'typesafe',
+            apiId: binding.apiId.trim(),
+            ...(binding.keySlot ? { key: binding.keySlot } : {}),
+            timeoutMs: binding.timeoutMs ?? PLAYGROUND_DECISION_TIMEOUT_MS,
+          },
+        }
       : {},
     inputs: {
       state: 'json',
       maxStateBytes: decision.maxStateBytes ?? PLAYGROUND_DECISION_MAX_STATE_BYTES,
     },
     decision: { contract },
+    ...(draft.models.key ? { key: draft.models.key } : {}),
     ...compileProfileOptions(draft, facets, report),
   };
   return { profile, customTools: [], questions };
 }
 
 /** A host: its custom tools, called directly, and the guardrails, trace and wording a host keeps. */
-function compileHost(
-  draft: PlaygroundDraft,
-  report: Report,
-): Omit<CompiledPlayground, 'agentId'> {
+function compileHost(draft: PlaygroundDraft, report: Report): Omit<CompiledPlayground, 'agentId'> {
   const facets = new Set<string>(draftFacets(draft));
   const { customTools, tools } = compileTools(draft, false, report);
-  if (!customTools.length) report('tools', 'Add at least one tool: a host runs only its tools.');
+  if (!customTools.length) {
+    report('tools', 'Add at least one tool: a host runs only its tools.');
+  }
   const guardrails = facets.has('guardrails')
     ? compileGuardrails(draft.guardrails, report)
     : undefined;
@@ -1163,6 +1225,7 @@ function assemble(
   draft: PlaygroundDraft,
   type: PlaygroundTurnProfileType,
   report: Report,
+  mode: PlaygroundConnectionMode,
 ): Omit<CompiledPlayground, 'agentId'> {
   const facets = new Set<string>(draftFacets(draft));
   const allows = (path: string) => draftAllows(draft, path);
@@ -1184,11 +1247,14 @@ function assemble(
   const profile = omitOutOfScope({
     type,
     id: draft.identity.agentId.trim(),
-    identity: { handle: draft.identity.handle.trim(), ...(system ? { system } : {}) },
+    identity: {
+      handle: draft.identity.handle.trim(),
+      ...(system ? { system } : {}),
+    },
     ...modelFields,
     ...(facets.has('image') ? { image: compileImage(draft.image) } : {}),
     ...(facets.has('speech') ? { speech: compileSpeech(draft.speech, draft, report) } : {}),
-    ...(facets.has('live') ? { live: compileLive(draft.live, report) } : {}),
+    ...(facets.has('live') ? { live: compileLive(draft.live, report, mode) } : {}),
     ...(tools ? { tools } : {}),
     ...(facets.has('inputs') ? { inputs: compileInputs(draft.inputs, type, report) } : {}),
     ...(outputs ? { outputs } : {}),
@@ -1200,7 +1266,10 @@ function assemble(
 }
 
 /** Every issue is reported, not just the first. */
-export function compilePlayground(draft: PlaygroundDraft): PlaygroundCompileResult {
+export function compilePlayground(
+  draft: PlaygroundDraft,
+  mode: PlaygroundConnectionMode = 'demo',
+): PlaygroundCompileResult {
   const issues: PlaygroundIssue[] = [];
   const report: Report = (nodeId, message, field, index) => {
     issues.push({
@@ -1212,23 +1281,46 @@ export function compilePlayground(draft: PlaygroundDraft): PlaygroundCompileResu
   };
 
   checkIdentity(draft, report);
+  const keySlots = new Set(
+    [
+      draft.models.key,
+      draft.models.fallbackKey,
+      ...draft.modelBindings.flatMap((binding) => [binding.keySlot, binding.fallbackKeySlot]),
+    ].filter(Boolean),
+  );
+  if (keySlots.size > PLAYGROUND_KEY_SLOT_CAP) {
+    report('models', 'The playground supports up to 32 key slots.', 'key');
+  }
+  if (draft.identity.profileType !== 'host') {
+    for (const binding of draft.modelBindings) {
+      if (!binding.apiId.trim()) continue;
+      const violation = modelBindingViolation(binding, mode);
+      if (violation) {
+        report(modelBindingNodeId(binding.key), violation.message, violation.field);
+      }
+    }
+  }
   const type = draft.identity.profileType;
   if (!type) {
     report('identity', 'Pick a profile type.', 'profileType');
     return { ok: false, issues };
   }
-  const compiled = type === 'decision'
-    ? compileDecision(draft, report)
-    : type === 'host'
-    ? compileHost(draft, report)
-    : assemble(draft, type, report);
+  const compiled =
+    type === 'decision'
+      ? compileDecision(draft, report)
+      : type === 'host'
+        ? compileHost(draft, report)
+        : assemble(draft, type, report, mode);
   if (issues.length) return { ok: false, issues };
 
   try {
     defineProfile(compiled.profile);
   } catch (err) {
     if (!(err instanceof TheoremError)) throw err;
-    return { ok: false, issues: [{ nodeId: 'identity', message: err.message }] };
+    return {
+      ok: false,
+      issues: [{ nodeId: 'identity', message: err.message }],
+    };
   }
   return { ok: true, agentId: compiled.profile.id, ...compiled };
 }

@@ -19,11 +19,10 @@ import {
   type EgressOnBlock,
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
   isValidProfileProtocol,
+  type KeySlot,
   type LiveActivityHandling,
   type LiveEndSensitivity,
   type LiveStartSensitivity,
-  OVERFLOW_KEY_SLOTS,
-  type OverflowKeySlot,
   PROFILE_GRAPH,
   PROFILE_TYPES,
   type ProfileGraphFacetId,
@@ -39,7 +38,6 @@ import {
 } from '../src/kernel/schema.ts';
 import {
   defaultBindingForProfileType,
-  isGoogleTransport,
   PLAYGROUND_TRACE_DESTINATION,
   servesOtherProfileType,
 } from './policy.ts';
@@ -66,7 +64,10 @@ export interface ModelsDraft {
   allowModelSelect: boolean;
   /** `null` omits it (unbounded). */
   maxSteps: number | null;
-  key: OverflowKeySlot | '';
+  /** The vault slot every model uses unless it names its own. */
+  key: KeySlot | '';
+  /** The slot a quota refusal retries on once; `''` or absent names none. */
+  fallbackKey?: KeySlot | '';
 }
 
 export interface EffortDraft {
@@ -91,6 +92,10 @@ export interface ModelBindingDraft {
   maxOutputTokens: number | null;
   temperature: number | null;
   builtInTools: string[];
+  /** This model's own vault slot; `''` or absent uses the profile's. */
+  keySlot?: KeySlot | '';
+  /** This model's own fallback slot; `''` or absent uses the profile's. */
+  fallbackKeySlot?: KeySlot | '';
 }
 
 export interface ToolsDraft {
@@ -588,7 +593,7 @@ export function setProfileType(
   const modelBindings = kept.length ? kept : [newModelBinding(retyped)];
   const modelIds = new Set(modelBindings.map((binding) => binding.modelId));
   const needsKey = !draft.models.key &&
-    modelBindings.some((binding) => isGoogleTransport(binding.protocol, binding.provider));
+    modelBindings.some((binding) => !binding.keySlot && binding.provider !== 'local');
   return {
     ...retyped,
     inputs: type === 'image' ? imageInputs(draft.inputs) : draft.inputs,
@@ -596,11 +601,14 @@ export function setProfileType(
       ...draft.models,
       defaultModel: modelIds.has(draft.models.defaultModel) ? draft.models.defaultModel : '',
       allowModelSelect: draft.models.allowModelSelect && modelBindings.length > 1,
-      key: needsKey ? OVERFLOW_KEY_SLOTS[0] : draft.models.key,
+      key: needsKey ? DEFAULT_KEY_SLOT : draft.models.key,
     },
     modelBindings,
   };
 }
+
+// The slot the playground's server fills; named slots in the editor replace this.
+const DEFAULT_KEY_SLOT: KeySlot = 'slot_a';
 
 export function includeFacet(draft: PlaygroundDraft, id: ProfileGraphFacetId): PlaygroundDraft {
   if (!includableFacets(draft).includes(id)) return draft;

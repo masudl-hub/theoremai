@@ -43,9 +43,9 @@ function isProvider(value: unknown): value is ModelProvider {
   return isRecord(value) && typeof value.complete === 'function';
 }
 
-/** A flat key or a vault, as `runDecision` takes them. */
+/** A vault, as `runDecision` takes it. */
 function isDecisionKey(value: unknown): value is Omit<RunDecisionOptions, 'sink'> {
-  return isRecord(value) && (typeof value.apiKey === 'string' || isRecord(value.keyVault));
+  return isRecord(value) && isRecord(value.vault);
 }
 
 function absolute(path: string): string {

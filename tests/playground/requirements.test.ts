@@ -14,11 +14,13 @@ Deno.test('the default model is required only with more than one model', () => {
   assertEquals(defaultModelRequired(one), false);
 });
 
-Deno.test('a key slot is required only when a model runs on Google', () => {
+Deno.test('a key slot is required for every model but a local one, unless it names its own', () => {
   const draft = createExampleDraft();
-  const open = draft.modelBindings.filter(({ provider }) => provider !== 'google');
   assertEquals(keySlotRequired(draft), true);
-  assertEquals(keySlotRequired({ ...draft, modelBindings: open }), false);
+  const own = draft.modelBindings.map((binding) => ({ ...binding, keySlot: 'slot_b' }));
+  assertEquals(keySlotRequired({ ...draft, modelBindings: own }), false);
+  const local = draft.modelBindings.map((binding) => ({ ...binding, provider: 'local' as const }));
+  assertEquals(keySlotRequired({ ...draft, modelBindings: local }), false);
 });
 
 Deno.test('a default effort is required only with more than one distinct alias', () => {

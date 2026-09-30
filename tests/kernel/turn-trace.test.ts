@@ -212,7 +212,7 @@ Deno.test('turn trace: each HTTP try is a POST span with its slot, body and back
   });
   const url = 'https://api.example/v1/interactions?key=secret';
   const body = { stream: true };
-  call.tap({ eventType: 'http_request', method: 'POST', url, keySlot: 'slotA', body });
+  call.tap({ eventType: 'http_request', method: 'POST', url, keySlot: 'main', body });
   call.tap({ eventType: 'http_response', status: HTTP_QUOTA, headers: {} });
   call.tap({ eventType: 'http_error_body', body: 'quota' });
   call.tap({ eventType: 'http_request', method: 'POST', url, keySlot: 'spare', body });
@@ -225,7 +225,7 @@ Deno.test('turn trace: each HTTP try is a POST span with its slot, body and back
   const [quota, ok] = posts as [TraceSpan, TraceSpan];
   assertEquals(attrs(quota)['url.path'], '/v1/interactions');
   assertEquals(attrs(quota)['server.address'], 'api.example');
-  assertEquals(attrs(quota)['theorem.key_slot'], 'slotA');
+  assertEquals(attrs(quota)['theorem.key_slot'], 'main');
   assertEquals(attrs(quota)['http.response.status_code'], HTTP_QUOTA);
   assertEquals(attrs(quota)['error.type'], String(HTTP_QUOTA));
   assertEquals(quota.status.code, 'ERROR');

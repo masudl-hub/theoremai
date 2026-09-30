@@ -31,6 +31,7 @@ function profile(id: string, allow: string[] = []): ProfileDefinition {
     type: 'text',
     id,
     identity: { handle: 'helper', system: SYSTEM },
+    key: 'slot_a',
     models: {
       stub: { protocol: 'openAi', provider: 'openrouter', apiId: 'stub-model' },
     },

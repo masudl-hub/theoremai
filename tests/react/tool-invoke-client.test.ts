@@ -47,7 +47,7 @@ function textInterface(
       type: 'text',
       identity: { handle: 'invoke_bot', system: 'You reply.' },
       models,
-      key: 'slotA',
+      key: 'main',
       ...extra,
       tools: { allow: [] },
       inputs: { text: true, ...CHAT_MEDIA_LIMITS },

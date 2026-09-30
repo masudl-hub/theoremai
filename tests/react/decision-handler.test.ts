@@ -10,6 +10,7 @@ function profile(id = 'decision-handler-test'): DecisionProfileDefinition {
     type: 'decision',
     id,
     identity: { handle: 'triage' },
+    key: 'slot_a',
     models: {
       jev: { protocol: 'decision', provider: 'typesafe', apiId: 'jev-latest', timeoutMs: 1000 },
     },
@@ -68,7 +69,7 @@ Deno.test('GET describes the decision without its instructions', async () => {
   const handler = createTheoremDecisionHandler({
     profile: profile(),
     questions,
-    apiKey: 'k',
+    vault: { slot_a: 'k' },
     fetch: jev().fetch,
   });
   const response = await handler(new Request(BASE));
@@ -92,7 +93,7 @@ Deno.test('POST decide asks the host questions about the posted state', async ()
   const handler = createTheoremDecisionHandler({
     profile: profile(),
     questions,
-    apiKey: 'k',
+    vault: { slot_a: 'k' },
     fetch: mock.fetch,
   });
   const response = await handler(decide({ action: 'delete' }));
@@ -109,7 +110,7 @@ Deno.test('a null or oversized state is a request error, and Jev is never called
   const handler = createTheoremDecisionHandler({
     profile: profile(),
     questions,
-    apiKey: 'k',
+    vault: { slot_a: 'k' },
     fetch: mock.fetch,
   });
   for (const state of [null, { blob: 'x'.repeat(500) }]) {
@@ -135,7 +136,7 @@ Deno.test('decision handlers reject malformed JSON and non-JSON content types', 
   const handler = createTheoremDecisionHandler({
     profile: profile(),
     questions,
-    apiKey: 'stub',
+    vault: { slot_a: 'stub' },
     fetch: mock.fetch,
   });
   for (const [type, body] of [
@@ -161,7 +162,7 @@ Deno.test("Jev's failures reach the page as their kind, in the lexicon's words",
     const handler = createTheoremDecisionHandler({
       profile: profile(),
       questions,
-      apiKey: 'k',
+      vault: { slot_a: 'k' },
       fetch: jev(upstream, {}).fetch,
       onError: (err) => errors.push(err),
     });
@@ -174,11 +175,30 @@ Deno.test("Jev's failures reach the page as their kind, in the lexicon's words",
   }
 });
 
+Deno.test('a vault without the profile slot is an auth error, and Jev is never called', async () => {
+  const mock = jev();
+  const errors: unknown[] = [];
+  const handler = createTheoremDecisionHandler({
+    profile: profile(),
+    questions,
+    vault: { slot_b: 'k' },
+    fetch: mock.fetch,
+    onError: (err) => errors.push(err),
+  });
+  const response = await handler(decide({ action: 'delete' }));
+  assertEquals(response.status, 401);
+  const body = await response.json();
+  assertEquals(body.errorKind, 'auth');
+  assertEquals(body.error, lexiconDefault('error.auth'));
+  assertEquals(String(errors[0]).includes("the vault has no key in slot 'slot_a'"), true);
+  assertEquals(mock.calls.length, 0);
+});
+
 Deno.test('other methods and paths are refused', async () => {
   const handler = createTheoremDecisionHandler({
     profile: profile(),
     questions,
-    apiKey: 'k',
+    vault: { slot_a: 'k' },
     fetch: jev().fetch,
   });
   assertEquals((await handler(new Request(`${BASE}/decide`))).status, 405);

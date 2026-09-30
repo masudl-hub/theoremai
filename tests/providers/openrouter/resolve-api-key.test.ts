@@ -2,58 +2,49 @@ import { TheoremError } from '../../../src/guardrails/error.ts';
 import { assertEquals } from '../../../src/kernel/engine/assert.ts';
 import { resolveOpenAiGatewayApiKey } from '../../../src/providers/openrouter/resolve-api-key.ts';
 
-Deno.test('resolveOpenAiGatewayApiKey uses flat apiKey when keySlot is omitted', () => {
-  assertEquals(resolveOpenAiGatewayApiKey({ apiKey: ' flat-key ' }, undefined), 'flat-key');
+function thrownBy(fn: () => unknown): unknown {
+  try {
+    fn();
+  } catch (err) {
+    return err;
+  }
+  return undefined;
+}
+
+Deno.test('resolveOpenAiGatewayApiKey refuses a model that names no vault slot', () => {
+  const thrown = thrownBy(() => resolveOpenAiGatewayApiKey({ vault: { slot_a: 'a' } }, undefined));
+  assertEquals(thrown instanceof TheoremError, true);
+  assertEquals((thrown as TheoremError).kind, 'auth');
+  assertEquals((thrown as Error).message, 'an OpenRouter model must name a vault slot');
 });
 
-Deno.test('resolveOpenAiGatewayApiKey requires apiKey when keySlot is omitted', () => {
-  let thrown: unknown;
-  try {
-    resolveOpenAiGatewayApiKey({}, undefined);
-  } catch (err) {
-    thrown = err;
-  }
+Deno.test('resolveOpenAiGatewayApiKey refuses a missing slot even with no vault at all', () => {
+  const thrown = thrownBy(() => resolveOpenAiGatewayApiKey({}, undefined));
   assertEquals(thrown instanceof TheoremError, true);
-  assertEquals(
-    (thrown as Error).message,
-    'openAiGateway.apiKey is required when keySlot is omitted',
-  );
+  assertEquals((thrown as Error).message, 'an OpenRouter model must name a vault slot');
 });
 
 Deno.test('resolveOpenAiGatewayApiKey reads vault[keySlot] when set', () => {
   assertEquals(
-    resolveOpenAiGatewayApiKey(
-      {
-        vault: { slotA: 'a', slotB: ' b ', slotC: undefined, spare: 'p' },
-        apiKey: 'ignored',
-      },
-      'slotB',
-    ),
+    resolveOpenAiGatewayApiKey({ vault: { slot_a: 'a', slot_b: ' b ', slot_c: 'c' } }, 'slot_b'),
     'b',
   );
 });
 
-Deno.test('resolveOpenAiGatewayApiKey requires vault when keySlot is set', () => {
-  let thrown: unknown;
-  try {
-    resolveOpenAiGatewayApiKey({ apiKey: 'flat' }, 'slotA');
-  } catch (err) {
-    thrown = err;
-  }
+Deno.test('resolveOpenAiGatewayApiKey needs the slot in the vault when keySlot is set', () => {
+  const thrown = thrownBy(() => resolveOpenAiGatewayApiKey({ vault: { slot_b: 'b' } }, 'slot_a'));
   assertEquals(thrown instanceof TheoremError, true);
-  assertEquals((thrown as Error).message, 'openAiGateway.vault is required when keySlot is set');
+  assertEquals((thrown as Error).message, "the vault has no key in slot 'slot_a'");
+});
+
+Deno.test('resolveOpenAiGatewayApiKey needs a vault when keySlot is set', () => {
+  const thrown = thrownBy(() => resolveOpenAiGatewayApiKey({}, 'slot_a'));
+  assertEquals(thrown instanceof TheoremError, true);
+  assertEquals((thrown as Error).message, "the vault has no key in slot 'slot_a'");
 });
 
 Deno.test('resolveOpenAiGatewayApiKey fails closed on empty vault slot', () => {
-  let thrown: unknown;
-  try {
-    resolveOpenAiGatewayApiKey(
-      { vault: { slotA: ' ', slotB: undefined, slotC: undefined } },
-      'slotA',
-    );
-  } catch (err) {
-    thrown = err;
-  }
+  const thrown = thrownBy(() => resolveOpenAiGatewayApiKey({ vault: { slot_a: ' ' } }, 'slot_a'));
   assertEquals(thrown instanceof TheoremError, true);
   assertEquals((thrown as TheoremError).kind, 'auth');
 });

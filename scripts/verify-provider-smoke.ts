@@ -2,7 +2,7 @@
 
 import type { ProviderCompleteRequest } from '../src/kernel/types.ts';
 import { createOpenRouterProvider } from '../src/providers/openrouter/chat.ts';
-import { hostOpenRouterKey, loadHostEnv, OPENROUTER_ENV } from './host-env.ts';
+import { hostOpenRouterKey, hostVault, loadHostEnv, OPENROUTER_ENV } from './host-env.ts';
 
 function valueAfterFlag(flag: string): string | undefined {
   const idx = Deno.args.indexOf(flag);
@@ -31,7 +31,7 @@ Deno.stdout.writeSync(
 );
 
 const provider = createOpenRouterProvider({
-  apiKey,
+  vault: { ...hostVault(), openrouter: apiKey },
   siteUrl: 'https://theorem.agent',
   siteName: 'Theorem Provider Smoke',
 });
@@ -53,6 +53,7 @@ const req: ProviderCompleteRequest = {
   builtins: [],
   structured: null,
   image: null,
+  keySlot: 'openrouter',
 };
 
 try {

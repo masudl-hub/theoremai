@@ -16,22 +16,33 @@ Hosts link it with `"@theoremjs/playground": "file:../theoremai/playground"`.
 `PLAYGROUND_AUTH_TYPES` / `PlaygroundAuthType` remain on `@theoremjs/agents/schema`
 (authoring vocabulary, not demo product).
 
-## Changed: key slots are yours to name
+## Changed: one vault, slots are yours to name
 
 `KEY_SLOTS`, `OVERFLOW_KEY_SLOTS` and `OverflowKeySlot` are removed, and `paid`
 means nothing. A slot is any name you pick (`KEY_SLOT_NAME`); a vault holds as
-many as you fill.
+many as you fill. The host passes one `vault` for every provider, and a slot
+holds whatever secret you put there.
 
 | Before | After |
 | --- | --- |
-| A quota refusal retried on the vault's `paid` key by itself | Retries only on the slot the profile names in `fallbackKey` (or `models.*.fallbackKey`); Google models only |
+| `createProvider(p, { gemini: { vault }, openAiGateway: { vault } })` | `createProvider(p, { vault })`; `gemini` takes only `fetch` / `wait` (`GeminiOptions`, was `GeminiTransport`) |
+| `runSession(req, { gemini: { vault } })` | `runSession(req, { vault })` |
+| `runDecision` / decision handler `keyVault` | `vault` |
+| `openAiGateway.apiKey` | A vault slot named on the model (`models.*.key`) or the profile (`key`); `openAiGateway` keeps only `baseUrl`, `siteUrl`, `siteName`, `fetch`, `voice` |
+| Decision `apiKey` (`runDecision`, `createTheoremDecisionHandler`, eval `judgeDecision`) | `vault`; the slot the decision profile names reads it |
+| A model with no slot used the flat key | Every non-local model must name a slot: `defineProfile` refuses a `google`, `openrouter` or decision model with neither `models.*.key` nor the profile's `key` |
+| Local models took no key | A local model that names a slot sends that key as a bearer token |
+| A quota refusal retried on the vault's `paid` key by itself | Retries once only on the slot the profile names in `fallbackKey` (or `models.*.fallbackKey`), for every provider |
 | `googleSearch` switched a model to `paid` (`forcePaidKey`) | No tool picks a key; pin the slot on the model with `key` |
 | `theorem.key_slot` options labelled Key A/B/C and Paid key | The slot's own name |
 
 ```diff
+- createProvider(profile, { gemini: { vault: { slotA, slotB, slotC, paid } } })
++ createProvider(profile, { vault: { main, spare } })
   defineProfile({
-    key: 'slotA',
-+   fallbackKey: 'paid',
+-   key: 'slotA',
++   key: 'main',
++   fallbackKey: 'spare',
   })
 ```
 

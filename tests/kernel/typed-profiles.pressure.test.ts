@@ -22,7 +22,7 @@ Deno.test('pressure-test: type/protocol matrix rejects every illegal pair', () =
         id: 'invalid_live_openai',
         type: 'live',
         identity: { handle: 'invalid_live' },
-        key: 'slotA',
+        key: 'main',
         models: {
           'openai/gpt-4o': {
             protocol: 'openAi' as unknown as 'geminiLive',
@@ -45,7 +45,7 @@ Deno.test('pressure-test: type/protocol matrix rejects every illegal pair', () =
         id: 'invalid_text_gemini_live',
         type: 'text',
         identity: { handle: 'invalid_text' },
-        key: 'slotA',
+        key: 'main',
         models: {
           'gemini-2.0-flash-exp': {
             protocol: 'geminiLive' as unknown as 'geminiInteractions',
@@ -68,7 +68,7 @@ Deno.test('pressure-test: type/protocol matrix rejects every illegal pair', () =
         id: 'invalid_image_gemini_live',
         type: 'image',
         identity: { handle: 'invalid_image' },
-        key: 'slotA',
+        key: 'main',
         models: {
           'gemini-2.0-flash-exp': {
             protocol: 'geminiLive' as unknown as 'geminiInteractions',
@@ -92,7 +92,7 @@ Deno.test('pressure-test: type/protocol matrix rejects every illegal pair', () =
         id: 'invalid_speech_gemini_live',
         type: 'speech',
         identity: { handle: 'invalid_speech' },
-        key: 'slotA',
+        key: 'main',
         models: {
           'gemini-2.0-flash-exp': {
             protocol: 'geminiLive' as unknown as 'geminiInteractions',
@@ -144,7 +144,7 @@ Deno.test('pressure-test: image and speech profiles may compact', () => {
     id: 'speech_compaction',
     type: 'speech',
     identity: { handle: 'speech' },
-    key: 'slotA',
+    key: 'main',
     models: {
       gemini31FlashTts: {
         ...HOST_BINDINGS.gemini31FlashTts,
@@ -168,7 +168,7 @@ Deno.test('pressure-test: compaction spec validations on text profiles', () => {
         id: 'chat_with_unregistered_compactor',
         type: 'text',
         identity: { handle: 'chat_compactor' },
-        key: 'slotA',
+        key: 'main',
         models: {
           gemini35FlashLite: {
             ...HOST_BINDINGS.gemini35FlashLite,
@@ -195,7 +195,7 @@ Deno.test('pressure-test: compaction spec validations on text profiles', () => {
         id: 'chat_invalid_compact_at',
         type: 'text',
         identity: { handle: 'chat_compactor' },
-        key: 'slotA',
+        key: 'main',
         models: {
           gemini35FlashLite: {
             ...HOST_BINDINGS.gemini35FlashLite,
@@ -222,7 +222,7 @@ Deno.test('pressure-test: compaction spec validations on text profiles', () => {
         id: 'chat_fractional_exchanges_overflow',
         type: 'text',
         identity: { handle: 'chat_compactor' },
-        key: 'slotA',
+        key: 'main',
         models: {
           gemini35FlashLite: {
             ...HOST_BINDINGS.gemini35FlashLite,
@@ -309,7 +309,7 @@ Deno.test('pressure-test: turnBehaviour.resumption maxContinues enforcement', ()
     id: 'live_test_profile',
     type: 'live',
     identity: { handle: 'live_bot' },
-    key: 'slotA',
+    key: 'main',
     models: {
       'gemini-2.0-flash-exp': {
         protocol: 'geminiLive',
@@ -370,7 +370,7 @@ Deno.test('pressure-test: turnBehaviour.allowSteering accepted on live', () => {
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'slotA',
+        key: 'main',
       },
     },
     live: { voice: 'Aoede' },
@@ -570,30 +570,29 @@ Deno.test('pressure-test: createProvider type routing and boundary enforcement',
   const chatProfile = getProfile('chat');
   const liveProfile = getProfile('live_test_profile');
 
-  const googleTransport = {
-    vault: { slotA: 'fake-key', slotB: undefined, slotC: undefined },
-  };
-  const googleSpeech = createProvider(speechProfile, { gemini: googleTransport });
+  const keys = { vault: { main: 'fake-key' } };
+  const googleSpeech = createProvider(speechProfile, keys);
   assertEquals(typeof googleSpeech.complete, 'function');
 
-  const googleImage = createProvider(imageProfile, { gemini: googleTransport });
+  const googleImage = createProvider(imageProfile, keys);
   assertEquals(typeof googleImage.complete, 'function');
 
-  const googleChat = createProvider(chatProfile, { gemini: googleTransport });
+  const googleChat = createProvider(chatProfile, keys);
   assertEquals(typeof googleChat.complete, 'function');
 
   assertThrows(
     () => {
-      createProvider(liveProfile, { gemini: googleTransport });
+      createProvider(liveProfile, keys);
     },
     TheoremError,
-    "createProvider does not support type 'live' / geminiLive — use runSession(req, { gemini })",
+    "createProvider does not support type 'live' / geminiLive — use runSession(req, { vault })",
   );
 
   const openAiSpeechProfile = defineProfile({
     id: 'openai_speech_prof',
     type: 'speech',
     identity: { handle: 'openai_speech' },
+    key: 'slot_a',
     models: {
       'openai/tts-1': {
         protocol: 'openAi',
@@ -605,7 +604,7 @@ Deno.test('pressure-test: createProvider type routing and boundary enforcement',
     speech: { voice: 'alloy', format: 'mp3' },
   });
   const openRouterSpeech = createProvider(openAiSpeechProfile, {
-    openAiGateway: { apiKey: 'fake-key' },
+    vault: { slot_a: 'fake-key' },
   });
   assertEquals(typeof openRouterSpeech.complete, 'function');
 
@@ -613,6 +612,7 @@ Deno.test('pressure-test: createProvider type routing and boundary enforcement',
     id: 'openai_image_prof',
     type: 'image',
     identity: { handle: 'openai_image' },
+    key: 'slot_a',
     models: {
       'openai/dall-e-3': {
         protocol: 'openAi',
@@ -626,7 +626,7 @@ Deno.test('pressure-test: createProvider type routing and boundary enforcement',
     inputs: { text: true },
   });
   const openRouterImage = createProvider(openAiImageProfile, {
-    openAiGateway: { apiKey: 'fake-key' },
+    vault: { slot_a: 'fake-key' },
   });
   assertEquals(typeof openRouterImage.complete, 'function');
 

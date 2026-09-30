@@ -2,8 +2,9 @@ import { TheoremError, toErrorEvent } from '../../guardrails/error.ts';
 import { asRecord, nonEmptyString } from '../../kernel/engine/record.ts';
 import { turnStopFromOpenAiFinishReason } from '../../kernel/stop.ts';
 import type { ModelProvider, ProviderCompleteRequest, ProviderEvent } from '../../kernel/types.ts';
-import { networkFetch, tapFetch } from '../shared/upstream-tap.ts';
-import type { OpenAiGatewayConfig } from '../types.ts';
+import { networkFetch } from '../shared/upstream-tap.ts';
+import { bearerFetch } from '../shared/vault.ts';
+import type { OpenAiGatewayTransport } from '../types.ts';
 import { buildChatMessages, httpErrorEvent, openAiGatewayHeaders } from './openai/compat.ts';
 import {
   buildImagesPayload,
@@ -16,7 +17,7 @@ import { resolveOpenAiGatewayApiKey } from './resolve-api-key.ts';
 const HTTP_OK = 200;
 export const OPENROUTER_IMAGE_TOOL = 'openrouter:image_generation';
 
-export type ImageProviderConfig = OpenAiGatewayConfig;
+export type ImageProviderConfig = OpenAiGatewayTransport;
 
 export function buildImageHeaders(
   apiKey: string,
@@ -91,7 +92,7 @@ async function postJson(
   path: string,
   body: Record<string, unknown>,
 ): Promise<Response> {
-  const fetchFn = tapFetch(req.tapUpstream, networkFetch(config.fetch ?? fetch), req.keySlot);
+  const fetchFn = bearerFetch(req, networkFetch(config.fetch ?? fetch), config.vault, apiKey);
   return await fetchFn(`${baseUrl(config)}${path}`, {
     method: 'POST',
     headers: buildImageHeaders(apiKey, config),

@@ -19,6 +19,7 @@ function registerFuzzProfile(): void {
         protocol: 'openAi',
         provider: 'openrouter',
         apiId: 'fuzz-model',
+        key: 'fuzz',
         efforts: { normal: 'none' },
         summaries: false,
         maxOutputTokens: 4096,

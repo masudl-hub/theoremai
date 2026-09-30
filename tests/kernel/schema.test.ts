@@ -92,10 +92,10 @@ Deno.test('providersFor / protocolsFor / coerce stay on PROTOCOL_PROVIDERS', () 
 });
 
 Deno.test('a key slot is any short name the host picks', () => {
-  for (const name of ['slotA', 'openai-prod', 'team_2', 'a', 'x'.repeat(32)]) {
+  for (const name of ['main', 'openai-prod', 'team_2', 'a', 'x'.repeat(32)]) {
     assertEquals(isKeySlotName(name), true, name);
   }
-  for (const name of ['', 'Key A', 'slot.a', '-lead', 'x'.repeat(33), 7]) {
+  for (const name of ['', 'my key', 'slot.a', '-lead', 'x'.repeat(33), 7]) {
     assertEquals(isKeySlotName(name), false, String(name));
   }
 });

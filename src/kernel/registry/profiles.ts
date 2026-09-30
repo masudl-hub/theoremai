@@ -223,6 +223,12 @@ function defineDecisionProfile(input: DecisionProfileDefinition): DecisionProfil
   assertSlotName(input.id, 'key', input.key);
   for (const [modelId, binding] of Object.entries(input.models)) {
     assertSlotName(input.id, `models.${modelId}.key`, binding.key);
+    if (!binding.key && !input.key) {
+      throw new TheoremError(
+        'config',
+        `Profile ${input.id} model '${modelId}': a decision model needs models.*.key or the profile key`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
   }
   assertObservability(input.id, input.observability);
   return { ...input, identity: { handle: input.identity.handle } };
@@ -307,18 +313,10 @@ function assertKeySlot(
   assertSlotName(profileId, `models.${modelId}.fallbackKey`, binding.fallbackKey);
   const key = binding.key ?? profile.key;
   const fallback = binding.fallbackKey ?? profile.fallbackKey;
-  if (binding.provider === 'google' && !key) {
+  if (binding.provider !== 'local' && !key) {
     throw new TheoremError(
       'config',
-      `Profile ${profileId} model '${modelId}': a google model needs models.*.key or the profile key`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    );
-  }
-  if (binding.provider !== 'google') {
-    // A profile's fallback covers its google models; naming one on another model is a mistake.
-    if (binding.fallbackKey === undefined) return;
-    throw new TheoremError(
-      'config',
-      `Profile ${profileId} model '${modelId}': fallbackKey only retries google models`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Profile ${profileId} model '${modelId}': a ${binding.provider} model needs models.*.key or the profile key`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   if (fallback === undefined) return;

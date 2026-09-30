@@ -252,7 +252,9 @@ slot, the scopes the service asked for and the scopes the tool declares.
 
 `buildRecord({ spans, policy, canaries?, metadata? })` seals the spans a
 `TraceTree` collected. Hosts record their own spans with `startTrace` (content
-through `traceContent`, `traceBytes`, `traceJson`).
+through `traceContent`, `traceBytes`, `traceJson`). `readTraceparent(value)`
+returns the trace and span ids of a `traceparent` a turn accepts, or
+`undefined`, so a host checks a value from a request before handing it on.
 
 A reference says how to read it:
 
@@ -442,7 +444,7 @@ from that table, not from a span's `llm.cost.total`.
 | `phoenixAnnotations` (from `@theoremjs/agents/observability/phoenix`) | function |
 | `PhoenixSpanAnnotation` (from `@theoremjs/agents/observability/phoenix`) | type |
 | `OtlpTraceRequest`, `OtlpSpan`, `OtlpKeyValue`, `OtlpAnyValue` | type |
-| `startTrace`, `traceContent`, `traceBytes`, `traceJson` | function |
+| `startTrace`, `traceContent`, `traceBytes`, `traceJson`, `readTraceparent` | function |
 | `registerTraceDestination`, `requireTraceDestination`, `getTraceDestination` | function |
 | `listTraceDestinationIds`, `clearTraceDestinations` | function |
 | `isTraceSink` | function |

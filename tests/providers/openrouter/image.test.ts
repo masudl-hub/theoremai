@@ -45,6 +45,7 @@ function createMockImageRequest(
     input: [{ type: 'text', text: 'a red panda astronaut' }],
     structured: null,
     image: IMAGE,
+    keySlot: 'slot_a',
     ...overrides,
   };
 }
@@ -130,9 +131,9 @@ Deno.test('imagesFromChatMessage reads base64 data urls from message.images', ()
   );
 });
 
-Deno.test('streamImage yields error when apiKey is missing', async () => {
+Deno.test('streamImage yields an auth error when the vault slot is empty', async () => {
   const events = [];
-  for await (const event of streamImage(createMockImageRequest(), { apiKey: '' })) {
+  for await (const event of streamImage(createMockImageRequest(), { vault: { slot_a: '' } })) {
     events.push(event);
   }
   assertEquals(events.length, 1);
@@ -142,7 +143,9 @@ Deno.test('streamImage yields error when apiKey is missing', async () => {
 
 Deno.test('streamImage yields error on empty prompt text', async () => {
   const events = [];
-  for await (const event of streamImage(createMockImageRequest({ input: [] }), { apiKey: 'key' })) {
+  for await (const event of streamImage(createMockImageRequest({ input: [] }), {
+    vault: { slot_a: 'key' },
+  })) {
     events.push(event);
   }
   assertEquals(events.length, 1);
@@ -166,7 +169,7 @@ Deno.test('yieldImagesEndpoint maps /images JSON to media and tokens', async () 
   const events = [];
   for await (const event of yieldImagesEndpoint(
     createMockImageRequest({ tapUpstream: (row) => taped.push(row) }),
-    { apiKey: 'key', fetch: mockFetch },
+    { vault: { slot_a: 'key' }, fetch: mockFetch },
     'key',
   )) {
     events.push(event);
@@ -187,7 +190,7 @@ Deno.test('yieldImagesEndpoint yields error on HTTP failure', async () => {
   const events = [];
   for await (const event of yieldImagesEndpoint(
     createMockImageRequest(),
-    { apiKey: 'key', fetch: mockFetch },
+    { vault: { slot_a: 'key' }, fetch: mockFetch },
     'key',
   )) {
     events.push(event);
@@ -224,7 +227,7 @@ Deno.test('yieldInterleavedChat yields text, media, tokens and done, taping each
       image: { ...IMAGE, includeText: true },
       tapUpstream: (row) => taped.push(row),
     }),
-    { apiKey: 'key', fetch: mockFetch },
+    { vault: { slot_a: 'key' }, fetch: mockFetch },
     'key',
   )) {
     events.push(event);
@@ -252,7 +255,7 @@ Deno.test('yieldInterleavedChat without message.images is an error', async () =>
   const events = [];
   for await (const event of yieldInterleavedChat(
     createMockImageRequest({ image: { ...IMAGE, includeText: true } }),
-    { apiKey: 'key', fetch: mockFetch },
+    { vault: { slot_a: 'key' }, fetch: mockFetch },
     'key',
   )) {
     events.push(event);
@@ -264,10 +267,10 @@ Deno.test('yieldInterleavedChat without message.images is an error', async () =>
 });
 
 Deno.test('createImageProvider exposes complete()', () => {
-  const provider = createImageProvider({ apiKey: 'key' });
+  const provider = createImageProvider({ vault: { slot_a: 'key' } });
   assertEquals(typeof provider.complete, 'function');
   assertEquals(OPENROUTER_IMAGE_TOOL, 'openrouter:image_generation');
-  const headers = buildImageHeaders('test-key', { apiKey: 'test-key' });
+  const headers = buildImageHeaders('test-key', { vault: { slot_a: 'test-key' } });
   assertEquals(headers.Authorization, 'Bearer test-key');
 });
 

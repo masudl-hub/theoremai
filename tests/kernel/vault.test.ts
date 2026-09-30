@@ -3,7 +3,7 @@ import { TheoremError } from '../../src/guardrails/error.ts';
 import { registerProfile, resolveTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
-import { providerUsesKeySlots, resolveKeySlot } from '../../src/kernel/registry/vault.ts';
+import { resolveKeySlot } from '../../src/kernel/registry/vault.ts';
 import type { ModelBinding } from '../../src/kernel/types.ts';
 
 const stubBinding: ModelBinding = {
@@ -12,20 +12,14 @@ const stubBinding: ModelBinding = {
   apiId: 'x',
 };
 
-Deno.test('providerUsesKeySlots covers google and openrouter only', () => {
-  assertEquals(providerUsesKeySlots('google'), true);
-  assertEquals(providerUsesKeySlots('openrouter'), true);
-  assertEquals(providerUsesKeySlots('local'), false);
-});
-
 Deno.test('resolveKeySlot names no slot when nothing pins one', () => {
   assertEquals(resolveKeySlot({}, stubBinding), {});
 });
 
 Deno.test("a model's own key and fallback win over the profile's", () => {
   const profile = { key: 'team', fallbackKey: 'spare' };
-  assertEquals(resolveKeySlot(profile, google), { keySlot: 'team', fallbackKeySlot: 'spare' });
-  assertEquals(resolveKeySlot(profile, { ...google, key: 'own', fallbackKey: 'own-spare' }), {
+  assertEquals(resolveKeySlot(profile, stubBinding), { keySlot: 'team', fallbackKeySlot: 'spare' });
+  assertEquals(resolveKeySlot(profile, { ...stubBinding, key: 'own', fallbackKey: 'own-spare' }), {
     keySlot: 'own',
     fallbackKeySlot: 'own-spare',
   });
@@ -62,37 +56,39 @@ Deno.test('slots take any name the host picks, and a fallback reaches the provid
       identity: { handle: 'named_slots' },
       models: { m: google },
       key: 'team-7',
-      fallbackKey: 'overflow_2',
+      fallbackKey: 'backup_2',
       tools: { allow: [] },
       inputs: { text: true },
     }),
   );
   const { generation } = resolveTurn({ profile: 'named_slots', input: { text: 'hi' } });
-  assertEquals([generation.keySlot, generation.fallbackKeySlot], ['team-7', 'overflow_2']);
+  assertEquals([generation.keySlot, generation.fallbackKeySlot], ['team-7', 'backup_2']);
 });
 
 Deno.test('defineProfile refuses a slot name it cannot use', () => {
   assertEquals(
-    defineError({ key: 'Key A' }),
-    "Profile slots: key 'Key A' is not a key slot name; use letters, digits, '-' and '_', up to 32 characters",
+    defineError({ key: 'my key' }),
+    "Profile slots: key 'my key' is not a key slot name; use letters, digits, '-' and '_', up to 32 characters",
   );
 });
 
-Deno.test('a fallback is only for google models and must differ from the key', () => {
+Deno.test('a fallback must differ from the key', () => {
   assertEquals(
     defineError({ key: 'a', fallbackKey: 'a' }),
     "Profile slots model 'm': fallbackKey 'a' is the same slot as its key",
   );
-  assertEquals(
-    defineError({ key: 'a' }, { ...stubBinding, fallbackKey: 'b' }),
-    "Profile slots model 'm': fallbackKey only retries google models",
-  );
   assertEquals(defineError({ key: 'a', fallbackKey: 'b' }), '');
 });
 
-Deno.test("a profile's fallback covers its google models and skips the rest", () => {
-  assertEquals(defineError({ key: 'a', fallbackKey: 'b' }, stubBinding), '');
-  assertEquals(resolveKeySlot({ key: 'a', fallbackKey: 'b' }, stubBinding), { keySlot: 'a' });
+Deno.test('every provider reads the same slots and fallback', () => {
+  const local: ModelBinding = { protocol: 'openAi', provider: 'local', apiId: 'llama' };
+  for (const binding of [google, stubBinding, local]) {
+    assertEquals(defineError({ key: 'a', fallbackKey: 'b' }, binding), '');
+    assertEquals(resolveKeySlot({ key: 'a', fallbackKey: 'b' }, binding), {
+      keySlot: 'a',
+      fallbackKeySlot: 'b',
+    });
+  }
 });
 
 Deno.test('defineProfile rejects a google model with no key of its own and no profile key', () => {
@@ -122,49 +118,58 @@ Deno.test('defineProfile rejects a google model with no key of its own and no pr
   );
 });
 
-Deno.test('openrouter resolveTurn omits keySlot unless profile pins model.key', () => {
+Deno.test('defineProfile rejects an openrouter model with no key of its own and no profile key', () => {
+  const openrouter: ModelBinding = { ...stubBinding, efforts: { normal: 'low' } };
+  assertEquals(
+    defineError({}, openrouter),
+    "Profile slots model 'm': a openrouter model needs models.*.key or the profile key",
+  );
+  assertEquals(defineError({ key: 'slot_a' }, openrouter), '');
+  assertEquals(defineError({}, { ...openrouter, key: 'slot_a' }), '');
+});
+
+Deno.test('a local model may name no slot; it sends no key', () => {
+  const local: ModelBinding = { protocol: 'openAi', provider: 'local', apiId: 'llama' };
+  assertEquals(defineError({}, local), '');
+  assertEquals(resolveKeySlot({}, local), {});
+});
+
+Deno.test('openrouter resolveTurn carries the slot the profile or its model names', () => {
+  const or: ModelBinding = {
+    protocol: 'openAi',
+    provider: 'openrouter',
+    apiId: 'openrouter/free',
+    efforts: { normal: 'low' },
+  };
   registerProfile(
     defineProfile({
       type: 'text',
-      id: 'or_flat_key',
-      identity: { handle: 'or_flat_key' },
-      models: {
-        or: {
-          protocol: 'openAi',
-          provider: 'openrouter',
-          apiId: 'openrouter/free',
-          efforts: { normal: 'low' },
-        },
-      },
+      id: 'or_profile_key',
+      identity: { handle: 'or_profile_key' },
+      models: { or },
+      key: 'slot_b',
       tools: { allow: [] },
       inputs: { text: true },
     }),
   );
   assertEquals(
-    resolveTurn({ profile: 'or_flat_key', input: { text: 'hi' } }).generation.keySlot,
-    undefined,
+    resolveTurn({ profile: 'or_profile_key', input: { text: 'hi' } }).generation.keySlot,
+    'slot_b',
   );
 
   registerProfile(
     defineProfile({
       type: 'text',
-      id: 'or_slot_key',
-      identity: { handle: 'or_slot_key' },
-      models: {
-        or: {
-          protocol: 'openAi',
-          provider: 'openrouter',
-          apiId: 'openrouter/free',
-          efforts: { normal: 'low' },
-        },
-      },
-      key: 'slotB',
+      id: 'or_model_key',
+      identity: { handle: 'or_model_key' },
+      models: { or: { ...or, key: 'slot_c' } },
+      key: 'slot_b',
       tools: { allow: [] },
       inputs: { text: true },
     }),
   );
   assertEquals(
-    resolveTurn({ profile: 'or_slot_key', input: { text: 'hi' } }).generation.keySlot,
-    'slotB',
+    resolveTurn({ profile: 'or_model_key', input: { text: 'hi' } }).generation.keySlot,
+    'slot_c',
   );
 });

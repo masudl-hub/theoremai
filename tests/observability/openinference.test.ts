@@ -223,6 +223,7 @@ Deno.test('withOpenInference shows a decision as an LLM span: its state in, its 
       type: 'decision',
       id: 'oi-decision',
       identity: { handle: 'Decision' },
+      key: 'slot_a',
       models: { jev: { protocol: 'decision', provider: 'typesafe', apiId: 'jev-latest' } },
       inputs: { state: 'json' },
       decision: { contract: 'oi.v1' },
@@ -247,7 +248,7 @@ Deno.test('withOpenInference shows a decision as an LLM span: its state in, its 
   await runDecision(
     { profile: 'oi-decision', state: { output: 'hola' }, questions },
     {
-      apiKey: 'test-key',
+      vault: { slot_a: 'test-key' },
       sink: memorySink(records),
       fetch: () =>
         Promise.resolve(

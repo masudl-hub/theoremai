@@ -248,7 +248,7 @@ that wants two independent votes instead adds two `judge` graders over one
 rubric, each naming its profile. A text judge runs with
 `judgeProvider` (option, then the suite's `export const judgeProvider`), else
 the agent's own provider; a decision judge runs with `judgeDecision`
-(`{ apiKey }` or `{ keyVault }`; option, then the suite's
+(`{ vault }`, read through the slot the judge profile names; option, then the suite's
 `export const judgeDecision`). `runSuite` refuses, before any trial, a model
 grader with no judge profile, a profile that cannot run its rubric (a text
 profile of another output, a text profile over a rubric without a prompt, a
@@ -404,7 +404,7 @@ records grade to byte-identical results either way.
 | --- | --- |
 | `provider` | Live mode: the host's provider for the profile under test |
 | `judgeProvider` | The provider text judges run with; absent, the suite's `judgeProvider` export, else `provider` |
-| `judgeDecision` | The key decision judges (Jev) run with: `{ apiKey }` or `{ keyVault }`, plus `fetch` / `endpoint` for tests; absent, the suite's `judgeDecision` export |
+| `judgeDecision` | The key decision judges (Jev) run with: `{ vault }`, read through the slot the judge profile names, plus `fetch` / `endpoint` for tests; absent, the suite's `judgeDecision` export |
 | `media` | Where judges find media a trace names only by hash (see Judges); absent, the suite's `media` export, else only the case's attachments |
 | `recorded` | Recorded mode: the records to grade; a trace with no stamp for this suite is graded caseless (no verdict); judge calls (inside the judged trace, or in traces of their own) and eval run records among them are skipped with a warning, so a whole trace directory can be graded again |
 | `sink` | Where the judged turns' own records (live mode), the judge turns' records, `theorem.eval.trial` and `theorem.eval.run` go; absent, they are returned only |
@@ -439,7 +439,8 @@ The example suite is `tests/evals/translator/` (profile, cases, suite) and
 profile, a Jev decision judge profile, and three judged copies of the suite:
 `suite.ts` (text), `jev.ts` (Jev) and `both.ts` (Jev escalating to text);
 `deno task evals:example --judge text|jev|both` runs one, with a second Gemini
-provider for the text judge and `TYPESAFE_API_KEY` for Jev. The example
+provider for the text judge and `TYPESAFE_API_KEY` for Jev, which the script
+puts in vault slot `jev`, the slot the Jev judge profile names. The example
 writes records under `~/.theorem/traces/evals` unless `--trace-dir` names
 another directory (a trace directory sits outside the checkout).
 

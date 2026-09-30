@@ -242,7 +242,7 @@ Deno.test('registerProfile rejects compactAt outside (0,1)', () => {
           tools: { allow: [] },
           inputs: { text: true },
           id: 'compaction.validator.bad_compact_at',
-          key: 'slotA',
+          key: 'main',
           models: {
             testModel: {
               ...HOST_BINDINGS.gemini35FlashLite,
@@ -272,7 +272,7 @@ Deno.test('registerProfile rejects previousExchanges fraction >= compactAt', () 
           tools: { allow: [] },
           inputs: { text: true },
           id: 'compaction.validator.bad_prev_exchanges',
-          key: 'slotA',
+          key: 'main',
           models: {
             testModel: {
               ...HOST_BINDINGS.gemini35FlashLite,
@@ -302,7 +302,7 @@ Deno.test('registerProfile rejects non-integer previousExchanges >= 1', () => {
           tools: { allow: [] },
           inputs: { text: true },
           id: 'compaction.validator.bad_prev_exchanges_int',
-          key: 'slotA',
+          key: 'main',
           models: {
             testModel: {
               ...HOST_BINDINGS.gemini35FlashLite,
@@ -332,7 +332,7 @@ Deno.test('registerProfile rejects unregistered compaction profile', () => {
           tools: { allow: [] },
           inputs: { text: true },
           id: 'compaction.validator.missing_profile',
-          key: 'slotA',
+          key: 'main',
           models: {
             testModel: {
               ...HOST_BINDINGS.gemini35FlashLite,
@@ -387,7 +387,7 @@ function registerCompactionPair(
       tools: { allow: [] },
       id: speakerId,
       models: { [modelKey]: binding },
-      key: 'slotA',
+      key: 'main',
       inputs: { text: true },
       guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
     }),
@@ -965,7 +965,7 @@ Deno.test('orchid after: fallback prompt tokens from a long system prompt do not
           compaction: { ...ORCHID_SPEC, profile: compactorId },
         },
       },
-      key: 'slotA',
+      key: 'main',
       inputs: { text: true },
       guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
     }),
@@ -1096,7 +1096,7 @@ Deno.test('nested compacting turn does not recurse even if compacting profile ha
         },
       },
       maxSteps: 1,
-      key: 'slotA',
+      key: 'main',
       inputs: { text: true },
       guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
     }),
@@ -1119,7 +1119,7 @@ Deno.test('nested compacting turn does not recurse even if compacting profile ha
           },
         },
       },
-      key: 'slotA',
+      key: 'main',
       inputs: { text: true },
       guardrails: { canary: false, sanitizeInput: false, redactSensitive: false },
     }),
@@ -1835,7 +1835,7 @@ function registerSpeaker(id: string, type: 'image' | 'speech', compactor: string
           id,
           type,
           identity: { handle: 'speaker' },
-          key: 'slotA',
+          key: 'main',
           models: { tts: { ...HOST_BINDINGS.gemini31FlashTts, compaction } },
           speech: { voice: 'Kore', format: 'pcm' },
         })
@@ -1843,7 +1843,7 @@ function registerSpeaker(id: string, type: 'image' | 'speech', compactor: string
           id,
           type,
           identity: { handle: 'painter' },
-          key: 'slotA',
+          key: 'main',
           models: { img: { ...HOST_BINDINGS.gemini31FlashLiteImage, compaction } },
           image: { mimeType: 'image/jpeg' },
           tools: { allow: [] },

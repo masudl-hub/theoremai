@@ -69,7 +69,7 @@ Deno.test('a live session binds the note into its setup', async () => {
     type: 'live',
     id: 'user_data_note_live',
     identity: { handle: 'live', system: 'hi' },
-    models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, key: 'slotA' } },
+    models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, key: 'main' } },
     live: { voice: 'Aoede' },
     tools: { allow: [] },
   });
@@ -79,9 +79,7 @@ Deno.test('a live session binds the note into its setup', async () => {
   const session = await runSession(
     { profile: profile.id },
     {
-      gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined },
-      },
+      vault: { main: 'test-key' },
       openWebSocket: () => Promise.resolve(mock as unknown as WebSocket),
     },
   );

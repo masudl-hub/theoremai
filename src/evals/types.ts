@@ -280,7 +280,7 @@ export interface EvalGradeContext {
   judge?: string;
   /** The host's provider for text judge profiles. */
   judgeProvider?: ModelProvider;
-  /** The host's key (a flat key or a vault) for decision judge profiles. */
+  /** The host's vault for decision judge profiles. */
   judgeDecision?: Omit<RunDecisionOptions, 'sink'>;
   /**
    * The trial span as a W3C `traceparent`: a judge call runs under it, so it

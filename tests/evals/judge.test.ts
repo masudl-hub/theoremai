@@ -99,7 +99,7 @@ function scriptedJev(
   const [choice = '', top = 0] = Object.entries(probabilities).sort((a, b) => b[1] - a[1])[0] ?? [];
   return {
     bodies,
-    apiKey: 'test-key',
+    vault: { jev: 'test-key' },
     fetch: (_url, init) => {
       bodies.push(JSON.parse(String(init?.body)));
       return Promise.resolve(

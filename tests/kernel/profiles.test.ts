@@ -37,7 +37,7 @@ Deno.test('defineProfile preserves explicit typed fields without defaults', () =
       },
     },
     maxSteps: 1,
-    key: 'slotA',
+    key: 'main',
     tools: { allow: [] },
     inputs: { text: true },
     outputs: { structured: null },
@@ -52,7 +52,7 @@ Deno.test('defineProfile preserves explicit typed fields without defaults', () =
   assertEquals(profile.observability?.sampleRate, 0.5);
   assertEquals(profile.models.gemini35FlashLite.provider, 'google');
   assertEquals(profile.maxSteps, 1);
-  assertEquals(profile.key, 'slotA');
+  assertEquals(profile.key, 'main');
   assertEquals(profile.identity.handle, 'host_profile');
   if (profile.type !== 'text') throw new Error('Expected text profile');
   assertEquals(profile.tools.allow, []);
@@ -77,7 +77,7 @@ Deno.test('defineProfile rejects a thinking level Gemini does not take', () => {
               efforts: { normal: 'low', odd: level },
             },
           },
-          key: 'slotA',
+          key: 'main',
           tools: { allow: [] },
           inputs: { text: true },
         }),
@@ -92,6 +92,7 @@ Deno.test('defineProfile takes every thinking level on OpenRouter', () => {
     id: 'openrouter_effort',
     type: 'text',
     identity: { handle: 'openrouter_effort' },
+    key: 'slot_a',
     models: {
       sonar: {
         ...HOST_BINDINGS.sonar,
@@ -113,7 +114,7 @@ Deno.test('defineProfile rejects observability.sampleRate outside 0–1', () => 
         type: 'text',
         identity: { handle: 'bad_obs' },
         models: modelBindings('gemini35FlashLite'),
-        key: 'slotA',
+        key: 'main',
         tools: { allow: [] },
         inputs: { text: true },
         observability: { writeTo: false, sampleRate: 2 },
@@ -132,7 +133,7 @@ Deno.test('defineProfile rejects a non-integer or negative egress count', () => 
           type: 'text',
           identity: { handle: 'bad_egress' },
           models: modelBindings('gemini35FlashLite'),
-          key: 'slotA',
+          key: 'main',
           tools: { allow: [] },
           inputs: { text: true },
           guardrails: { egress: { enforce: () => ({ action: 'allow' }), ...egress } },
@@ -157,7 +158,7 @@ Deno.test('defineProfile rejects illegal protocol/provider pairs', () => {
             provider: 'google',
           },
         },
-        key: 'slotA',
+        key: 'main',
         tools: { allow: [] },
         inputs: { text: true },
       }),
@@ -397,7 +398,7 @@ Deno.test("registerProfile accepts T1/T2 tools on type 'live' and wires all of t
       id: 'live_tier_bot',
       type: 'live',
       identity: { handle: 'live_tier_bot' },
-      key: 'slotA',
+      key: 'main',
       models: modelBindings('gemini31FlashLive'),
       live: { voice: 'Aoede' },
       tools: { allow: ['live_t0_probe', 'live_t1_probe', 'live_t2_probe'] },
@@ -438,7 +439,7 @@ Deno.test('live snapshot turns on every gated builtin regardless of loadTier', (
       id: 'live_builtin_bot',
       type: 'live',
       identity: { handle: 'live_builtin_bot' },
-      key: 'slotA',
+      key: 'main',
       models: {
         gemini31FlashLive: {
           ...HOST_BINDINGS.gemini31FlashLive,
@@ -550,7 +551,7 @@ Deno.test('host profile rejects models, identity, inputs, outputs, turnBehaviour
     ['inputs', { inputs: { text: true } }],
     ['outputs', { outputs: {} }],
     ['turnBehaviour', { turnBehaviour: {} }],
-    ['key', { key: 'slotA' }],
+    ['key', { key: 'main' }],
     ['maxSteps', { maxSteps: 1 }],
   ];
   for (const [field, extra] of cases) {
@@ -595,11 +596,7 @@ Deno.test("resolveTurn, runTurn, runSession and projectProfile refuse a 'host' p
     "type 'host'",
   );
   await assertRejects(
-    () =>
-      runSession(
-        { profile: 'host_refusals' },
-        { gemini: { vault: { slotA: 'k', slotB: undefined, slotC: undefined } } },
-      ),
+    () => runSession({ profile: 'host_refusals' }, { vault: { main: 'k' } }),
     TheoremError,
     "type 'host'",
   );
@@ -612,6 +609,7 @@ Deno.test("isModelProfile and requireModelProfile refuse 'host' and 'decision' p
       type: 'decision',
       id: 'model_gate_decision',
       identity: { handle: 'Decision' },
+      key: 'slot_a',
       models: {
         jev: { protocol: 'decision', provider: 'typesafe', apiId: 'jev-latest', timeoutMs: 1000 },
       },
@@ -711,6 +709,7 @@ Deno.test('defineProfile accepts openrouter cache and rejects cache on google', 
     id: 'cache_or_bot',
     type: 'text',
     identity: { handle: 'cache_or_bot' },
+    key: 'slot_a',
     models: {
       sonar: {
         ...HOST_BINDINGS.sonar,
@@ -734,7 +733,7 @@ Deno.test('defineProfile accepts openrouter cache and rejects cache on google', 
             cache: { mode: 'automatic' },
           },
         },
-        key: 'slotA',
+        key: 'main',
         tools: { allow: [] },
         inputs: { text: true },
       }),
@@ -754,7 +753,7 @@ Deno.test('defineProfile accepts Interactions store/persist and rejects them on 
         ...googleInteractionsPersistence(true),
       },
     },
-    key: 'slotA',
+    key: 'main',
     tools: { allow: [] },
     inputs: { text: true },
   });
@@ -870,6 +869,7 @@ Deno.test('resolveTurn projects cache and sessionId onto generation', () => {
     id: 'cache_resolve_bot',
     type: 'text',
     identity: { handle: 'cache_resolve_bot' },
+    key: 'slot_a',
     models: {
       sonar: {
         ...HOST_BINDINGS.sonar,

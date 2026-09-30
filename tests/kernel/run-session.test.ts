@@ -34,7 +34,7 @@ function registerLiveProfile(id: string) {
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'slotA',
+        key: 'main',
       },
     },
     live: { voice: 'Aoede' },
@@ -58,7 +58,7 @@ Deno.test('runSession rejects non-live profiles', async () => {
         apiId: 'gemini-test',
         summaries: false,
         builtInTools: [],
-        key: 'slotA',
+        key: 'main',
       },
     },
     tools: { allow: [] },
@@ -68,11 +68,7 @@ Deno.test('runSession rejects non-live profiles', async () => {
   registerProfile(profile);
 
   await assertRejects(
-    () =>
-      runSession(
-        { profile: profile.id },
-        { gemini: { vault: { slotA: 'k', slotB: undefined, slotC: undefined } } },
-      ),
+    () => runSession({ profile: profile.id }, { vault: { main: 'k' } }),
     TheoremError,
     "runSession requires profile.type 'live'",
   );
@@ -88,9 +84,7 @@ Deno.test('runSession requires registered live profile with gemini vault', async
       runSession(
         { profile: profile.id },
         {
-          gemini: {
-            vault: { slotA: undefined, slotB: undefined, slotC: undefined },
-          },
+          vault: { main: undefined },
         },
       ),
     TheoremError,
@@ -108,7 +102,7 @@ Deno.test('runSession sendVideo rejects when live.ingress.video is disabled', as
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'slotA',
+        key: 'main',
       },
     },
     live: { voice: 'Aoede', ingress: { video: false } },
@@ -120,9 +114,7 @@ Deno.test('runSession sendVideo rejects when live.ingress.video is disabled', as
   const session = await runSession(
     { profile: profile.id },
     {
-      gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined },
-      },
+      vault: { main: 'test-key' },
       openWebSocket: () => {
         mock = new MockLiveWebSocket();
         setTimeout(() => mock?.open(), 0);
@@ -152,9 +144,7 @@ Deno.test('runSession sends setup on an already-open socket (fetch upgrade)', as
   const session = await runSession(
     { profile: profile.id },
     {
-      gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined },
-      },
+      vault: { main: 'test-key' },
       openWebSocket: () => Promise.resolve(mock as unknown as WebSocket),
     },
   );
@@ -174,7 +164,7 @@ Deno.test('runSession sendText rejects when live.ingress.text is disabled', asyn
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'slotA',
+        key: 'main',
       },
     },
     live: { voice: 'Aoede', ingress: { text: false } },
@@ -186,9 +176,7 @@ Deno.test('runSession sendText rejects when live.ingress.text is disabled', asyn
   const session = await runSession(
     { profile: profile.id },
     {
-      gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined },
-      },
+      vault: { main: 'test-key' },
       openWebSocket: () => {
         mock = new MockLiveWebSocket();
         setTimeout(() => mock?.open(), 0);
@@ -218,7 +206,7 @@ Deno.test('runSession sendText frames sanitized realtime input when text ingress
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'slotA',
+        key: 'main',
       },
     },
     live: { voice: 'Aoede', ingress: { text: true } },
@@ -231,9 +219,7 @@ Deno.test('runSession sendText frames sanitized realtime input when text ingress
   const session = await runSession(
     { profile: profile.id },
     {
-      gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined },
-      },
+      vault: { main: 'test-key' },
       openWebSocket: () => {
         mock = new MockLiveWebSocket();
         setTimeout(() => mock?.open(), 0);
@@ -267,9 +253,7 @@ Deno.test('runSession abort phase still forwards tool events', async () => {
   const session = await runSession(
     { profile: profile.id },
     {
-      gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined },
-      },
+      vault: { main: 'test-key' },
       openWebSocket: () => {
         mock = new MockLiveWebSocket();
         // Macrotask so performLiveSetup can attach onopen/message before open fires.
@@ -348,7 +332,7 @@ Deno.test('runSession setup declarations equal the full allow list regardless of
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'slotA',
+        key: 'main',
       },
     },
     live: { voice: 'Aoede' },
@@ -360,9 +344,7 @@ Deno.test('runSession setup declarations equal the full allow list regardless of
   const session = await runSession(
     { profile: profile.id },
     {
-      gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined },
-      },
+      vault: { main: 'test-key' },
       openWebSocket: () => {
         mock = new MockLiveWebSocket();
         setTimeout(() => mock?.open(), 0);
@@ -415,7 +397,7 @@ function defineSnapshotLiveProfile(id: string, allow: string[]) {
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'slotA',
+        key: 'main',
       },
     },
     live: { voice: 'Aoede' },
@@ -426,9 +408,7 @@ function defineSnapshotLiveProfile(id: string, allow: string[]) {
 async function openWithMock(req: Parameters<typeof runSession>[0]) {
   let mock: MockLiveWebSocket | null = null;
   const session = await runSession(req, {
-    gemini: {
-      vault: { slotA: 'test-key', slotB: undefined, slotC: undefined },
-    },
+    vault: { main: 'test-key' },
     openWebSocket: () => {
       mock = new MockLiveWebSocket();
       setTimeout(() => mock?.open(), 0);
@@ -533,7 +513,7 @@ Deno.test('runSession emits pre_turn before first sendText and post_turn after c
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'slotA',
+        key: 'main',
       },
     },
     live: { voice: 'Aoede', ingress: { text: true } },
@@ -551,9 +531,7 @@ Deno.test('runSession emits pre_turn before first sendText and post_turn after c
       },
     },
     {
-      gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined },
-      },
+      vault: { main: 'test-key' },
       openWebSocket: () => {
         mock = new MockLiveWebSocket();
         setTimeout(() => mock?.open(), 0);
@@ -606,7 +584,7 @@ Deno.test('runSession StageContext.history seeds from SessionRequest.history', a
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'slotA',
+        key: 'main',
       },
     },
     live: { voice: 'Aoede', ingress: { text: true } },
@@ -627,9 +605,7 @@ Deno.test('runSession StageContext.history seeds from SessionRequest.history', a
       },
     },
     {
-      gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined },
-      },
+      vault: { main: 'test-key' },
       openWebSocket: () => {
         mock = new MockLiveWebSocket();
         setTimeout(() => mock?.open(), 0);
@@ -665,7 +641,7 @@ async function openToolSession(
     type: 'live',
     id: `session_live_tools_${allow.join('_')}`,
     identity: { handle: 'live', system: 'hi' },
-    models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, key: 'slotA' } },
+    models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, key: 'main' } },
     live: { voice: 'Aoede', ingress: { text: true } },
     tools: { allow },
   });
@@ -678,7 +654,7 @@ async function openToolSession(
       ...(extra.resolveHost ? { resolveHost: extra.resolveHost } : {}),
     },
     {
-      gemini: { vault: { slotA: 'test-key', slotB: undefined, slotC: undefined } },
+      vault: { main: 'test-key' },
       openWebSocket: () => {
         const socket = new MockLiveWebSocket();
         sockets.push(socket);
@@ -1445,7 +1421,7 @@ Deno.test('runSession pre_turn inject schedules realtime text and lands in later
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'slotA',
+        key: 'main',
       },
     },
     live: { voice: 'Aoede', ingress: { text: true } },
@@ -1473,9 +1449,7 @@ Deno.test('runSession pre_turn inject schedules realtime text and lands in later
       },
     },
     {
-      gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined },
-      },
+      vault: { main: 'test-key' },
       openWebSocket: () => {
         mock = new MockLiveWebSocket();
         setTimeout(() => mock?.open(), 0);
@@ -1518,7 +1492,7 @@ Deno.test('runSession refuses an inject live cannot write as text, whole, and ne
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'slotA',
+        key: 'main',
       },
     },
     live: { voice: 'Aoede', ingress: { text: true } },
@@ -1542,9 +1516,7 @@ Deno.test('runSession refuses an inject live cannot write as text, whole, and ne
       },
     },
     {
-      gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined },
-      },
+      vault: { main: 'test-key' },
       openWebSocket: () => {
         mock = new MockLiveWebSocket();
         setTimeout(() => mock?.open(), 0);
@@ -1593,7 +1565,7 @@ Deno.test('runSession before_end inject schedules realtime text and still emits 
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'slotA',
+        key: 'main',
       },
     },
     live: { voice: 'Aoede', ingress: { text: true } },
@@ -1614,9 +1586,7 @@ Deno.test('runSession before_end inject schedules realtime text and still emits 
       },
     },
     {
-      gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined },
-      },
+      vault: { main: 'test-key' },
       openWebSocket: () => {
         mock = new MockLiveWebSocket();
         setTimeout(() => mock?.open(), 0);

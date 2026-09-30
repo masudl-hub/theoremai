@@ -18,7 +18,8 @@ import { foldResponse } from '../shared/response-identity.ts';
 import { parseSseStream } from '../shared/sse.ts';
 import { toolCallEvents } from '../shared/tool-args.ts';
 import { networkFetch, tapFetch } from '../shared/upstream-tap.ts';
-import type { LocalProviderConfig } from '../types.ts';
+import { bearerFetch, requireKey } from '../shared/vault.ts';
+import type { LocalTransport } from '../types.ts';
 
 interface OpenAiDelta {
   role?: string;
@@ -44,7 +45,7 @@ function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.slice(0, end);
 }
 
-export function resolveBaseUrl(config: LocalProviderConfig): string {
+export function resolveBaseUrl(config: LocalTransport): string {
   const baseUrl = config.baseUrl.trim();
   if (!baseUrl) {
     throw new TheoremError('config', 'Local provider requires baseUrl'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -72,20 +73,35 @@ export function flushPending(pending: Map<number, PendingToolCall>): ProviderEve
   return events;
 }
 
+/** A local server takes no key unless the model names a slot; then the key goes as a bearer token. */
+function localFetch(
+  req: ProviderCompleteRequest,
+  config: LocalTransport,
+): {
+  send: typeof fetch;
+  headers: Record<string, string>;
+} {
+  const fetchFn = networkFetch(config.fetch ?? globalThis.fetch);
+  if (!req.keySlot) return { send: tapFetch(req.tapUpstream, fetchFn), headers: {} };
+  const key = requireKey(config.vault, req.keySlot);
+  return {
+    send: bearerFetch(req, fetchFn, config.vault, key),
+    headers: { Authorization: `Bearer ${key}` },
+  };
+}
+
 async function* streamComplete(
   baseUrl: string,
   req: ProviderCompleteRequest,
-  fetchFn: typeof globalThis.fetch,
+  config: LocalTransport,
 ): AsyncGenerator<ProviderEvent> {
-  const res = await tapFetch(req.tapUpstream, networkFetch(fetchFn))(
-    `${baseUrl}/v1/chat/completions`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(buildBody(req)),
-      signal: req.signal,
-    },
-  );
+  const { send, headers } = localFetch(req, config);
+  const res = await send(`${baseUrl}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify(buildBody(req)),
+    signal: req.signal,
+  });
   if (!res.ok) {
     const text = await res.text();
     yield toErrorEvent(
@@ -206,13 +222,12 @@ function accumulateToolCalls(
   }
 }
 
-function createLocalProvider(config: LocalProviderConfig): ModelProvider {
+function createLocalProvider(config: LocalTransport): ModelProvider {
   const baseUrl = resolveBaseUrl(config);
-  const fetchFn = config.fetch ?? globalThis.fetch;
   return {
     async *complete(req: ProviderCompleteRequest): AsyncGenerator<ProviderEvent> {
       try {
-        yield* streamComplete(baseUrl, req, fetchFn);
+        yield* streamComplete(baseUrl, req, config);
       } catch (err) {
         if (isAbortError(err)) throw err;
         yield toErrorEvent(err);

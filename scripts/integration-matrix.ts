@@ -26,7 +26,7 @@ console.log(
   `\nRunning matrix for ${geminiProfiles.length} Gemini profiles: ${geminiProfiles.map((p) => p.id).join(', ')}\n`,
 );
 
-const provider = createProvider(geminiProfiles[0], { gemini: { vault } });
+const provider = createProvider(geminiProfiles[0], { vault });
 
 let success = true;
 if (Deno.args.length === 0) {

@@ -36,8 +36,9 @@ import { builtinWire } from '../shared/builtin-wire.ts';
 import { foldResponse } from '../shared/response-identity.ts';
 import { structuredEvent } from '../shared/structured-output.ts';
 import { malformedToolCall, toolCallEvents } from '../shared/tool-args.ts';
-import { networkError, tapFetch } from '../shared/upstream-tap.ts';
-import type { OpenAiGatewayConfig } from '../types.ts';
+import { networkError } from '../shared/upstream-tap.ts';
+import { bearerFetch } from '../shared/vault.ts';
+import type { OpenAiGatewayTransport } from '../types.ts';
 import { cacheControlJson } from './cache-control.ts';
 import { openAiGatewayHeaders, resolveResponseFormat } from './openai/compat.ts';
 import { buildAiSdkMessages } from './openai/sdk-messages.ts';
@@ -418,7 +419,7 @@ export function* finalEvents(
 
 function createStreamContext(
   req: ProviderCompleteRequest,
-  config: OpenAiGatewayConfig,
+  config: OpenAiGatewayTransport,
   apiKey: string,
 ): OpenRouterStreamContext {
   const openrouter = createOpenRouter({
@@ -426,7 +427,7 @@ function createStreamContext(
     baseURL: config.baseUrl,
     headers: openAiGatewayHeaders(config),
     // The AI SDK retries internally; tapping its fetch tapes every try.
-    fetch: tapFetch(req.tapUpstream, config.fetch ?? fetch, req.keySlot),
+    fetch: bearerFetch(req, config.fetch ?? fetch, config.vault, apiKey),
     compatibility: 'strict',
   });
   return {
@@ -542,7 +543,7 @@ async function* yieldAiSdkBuffered(
 
 async function* streamOpenRouter(
   req: ProviderCompleteRequest,
-  config: OpenAiGatewayConfig,
+  config: OpenAiGatewayTransport,
 ): AsyncGenerator<ProviderEvent> {
   let apiKey: string;
   try {
@@ -621,10 +622,8 @@ export function providerOptionsFor(req: ProviderCompleteRequest): ProviderOption
   return { openrouter } as ProviderOptions;
 }
 
-export function createOpenRouterProvider(config: OpenAiGatewayConfig = {}): ModelProvider {
+export function createOpenRouterProvider(config: OpenAiGatewayTransport = {}): ModelProvider {
   return {
     complete: (req: ProviderCompleteRequest) => streamOpenRouter(req, config),
   };
 }
-
-export type { OpenAiGatewayConfig };

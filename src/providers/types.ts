@@ -1,10 +1,6 @@
 import type { KeyVault } from '../kernel/types.ts';
 
 export interface OpenAiGatewayConfig {
-  /** Read as `vault[keySlot]` when the turn has a `keySlot`. */
-  vault?: KeyVault;
-  /** Used only when the turn has no `keySlot`; ignored otherwise (the vault is required then). */
-  apiKey?: string;
   baseUrl?: string;
   siteUrl?: string;
   siteName?: string;
@@ -16,3 +12,7 @@ export interface LocalProviderConfig {
   baseUrl: string;
   fetch?: typeof globalThis.fetch;
 }
+
+/** What `createProvider` hands an adapter: the host's settings for it plus the one vault. */
+export type OpenAiGatewayTransport = OpenAiGatewayConfig & { vault?: KeyVault };
+export type LocalTransport = LocalProviderConfig & { vault?: KeyVault };

@@ -53,9 +53,8 @@ export class DecisionError extends TheoremError {
 }
 
 export interface RunDecisionOptions {
-  /** A flat API key, or use `keyVault` with profile/model key slots. */
-  apiKey?: string;
-  keyVault?: KeyVault;
+  /** The host's keys by slot; the profile's `key` (or its model's) names the slot. */
+  vault?: KeyVault;
   fetch?: typeof globalThis.fetch;
   endpoint?: string;
   /** Replaces the profile's `observability.writeTo`; an explicit sink always records, unsampled. */
@@ -335,8 +334,9 @@ function requireApiKey(
   options: RunDecisionOptions,
 ): string {
   const keySlot = binding.key ?? profile.key;
-  const apiKey = options.apiKey ?? (keySlot ? options.keyVault?.[keySlot] : undefined);
-  if (!apiKey) throw new DecisionError('authentication', 'Decision provider requires an API key'); // lexicon-exempt: developer contract error
+  const apiKey = keySlot ? options.vault?.[keySlot]?.trim() : undefined;
+  if (!apiKey)
+    throw new DecisionError('authentication', `the vault has no key in slot '${keySlot}'`); // lexicon-exempt: developer contract error
   return apiKey;
 }
 

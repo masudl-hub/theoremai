@@ -37,7 +37,8 @@ Owns every module under `src/providers/`.
 | `google/live/framing.ts` | Gemini Live WebSocket protocol framing |
 | `google/live/mod.ts` | Live subpath barrel |
 | `google/grounding.ts` | Google grounding → `grounding` events for Interactions and Live: one source shape, one dedupe |
-| `google/keys.ts` | Gemini vault transport types |
+| `google/keys.ts` | Gemini fetch with backoff and the fallback retry |
+| `shared/vault.ts` | Reads a slot from the vault; bearer fetch with the fallback retry |
 | `google/urls.ts` | Interactions API endpoint constants |
 | `local/local.ts` | OpenAI-compat SSE for Ollama / llama.cpp / vLLM / LM Studio |
 | `local/mod.ts` | Subpath export for direct local adapter access |
@@ -64,14 +65,9 @@ Owns every module under `src/providers/`.
 
 ```ts
 const provider = createProvider(profile, {
-  gemini: { vault: { main, spare }, fetch? }, // slot names are yours
-  openAiGateway: {
-    // The same kind of vault as Google, when profiles pin models.*.key:
-    vault: { main },
-    // Or a single flat key when the profile omits per-model keys:
-    apiKey?,
-    baseUrl?, siteUrl?, siteName?, fetch?, voice?,
-  },
+  vault: { main, spare }, // one vault for every provider; slot names are yours
+  gemini: { fetch?, wait? },
+  openAiGateway: { baseUrl?, siteUrl?, siteName?, fetch?, voice? },
   local: { baseUrl?, fetch? },
 }, modelId?)
 ```
@@ -86,13 +82,16 @@ Routing table:
 
 | protocol | provider | Requires | Transport |
 | --- | --- | --- | --- |
-| `geminiInteractions` | `google` | `options.gemini` | Interactions API (chat / image / speech) |
-| `openAi` | `openrouter` | `options.openAiGateway` | Lazy chat, `speech.ts`, or `image.ts` by output role |
+| `geminiInteractions` | `google` | `options.vault` | Interactions API (chat / image / speech) |
+| `openAi` | `openrouter` | `options.vault` | Lazy chat, `speech.ts`, or `image.ts` by output role |
 | `openAi` | `local` | `options.local` | `POST /v1/chat/completions` SSE (image roles rejected) |
 
 Errors:
 
-- Missing credential block → `TheoremError('auth', …)` naming the required option.
+- No `vault` for a `google` or `openrouter` profile → `TheoremError('config', …)`
+  naming the provider (`createProvider requires a vault for openrouter models`).
+- A model with no slot, or a slot the vault leaves empty → `TheoremError('auth', …)`
+  at call time (`the vault has no key in slot '<slot>'`).
 - A `local` profile without `options.local` → `TheoremError('config', …)`: a profile
   can name `local`, but only the host can say a local server is there to reach.
 - Unsupported pair → `TheoremError('config', …)` with protocol/provider in the message.
@@ -135,14 +134,14 @@ open-ended. The only per-adapter refusal is the reference part, raised as a
 ## OpenRouter
 
 Internal adapter behind `createProvider` for `openAi` + `openrouter` chat. Hosts
-use `createProvider(profile, { openAiGateway })` — there is no separate public
-OpenRouter entrypoint.
+use `createProvider(profile, { vault, openAiGateway })` — there is no separate
+public OpenRouter entrypoint. The key comes only from `vault`, through the slot
+the model or profile names in `key`.
 
 `OpenAiGatewayConfig` (via `CreateProviderOptions.openAiGateway`):
 
 | Field | Role |
 | --- | --- |
-| `apiKey` | Bearer credential |
 | `baseUrl` | Optional API base override |
 | `siteUrl` / `siteName` | Optional HTTP-Referer / X-Title style metadata |
 | `fetch` | Optional custom fetch |
@@ -355,42 +354,42 @@ characters (`KEY_SLOT_NAME`, `isKeySlotName`), as many as it wants. A profile
 names slots and never holds a key; the host's vault fills them. No slot name
 means anything to the kernel.
 
-A model's calls use `models.*.key`, else the profile's `key`. A Google model
-may also name `models.*.fallbackKey`, else the profile's `fallbackKey`: the slot
-a call retries on once when its key is refused for quota. There is no fallback
-unless the profile names one. A profile's `fallbackKey` covers only its Google
-models; `defineProfile` refuses `models.*.fallbackKey` on any other model, and a
-fallback equal to its key. Resolve puts the slots on
-`ResolvedGeneration.keySlot` / `fallbackKeySlot` and the same fields of
-`ProviderCompleteRequest`.
+A model's calls use `models.*.key`, else the profile's `key`, and its fallback
+is `models.*.fallbackKey`, else the profile's `fallbackKey`: the slot a call
+retries on once when its key is refused for quota. There is no fallback unless
+the profile names one, and `defineProfile` refuses a fallback equal to its key.
+Every model but a local one must name a slot: `defineProfile` refuses a
+`google`, `openrouter` or decision model with neither `models.*.key` nor the
+profile's `key`. There is no flat key.
+Resolve puts the slots on `ResolvedGeneration.keySlot` / `fallbackKeySlot` and
+the same fields of `ProviderCompleteRequest`.
 
-| Host option | How credentials are chosen |
+The host passes one `vault` to `createProvider` and `runSession`, and every
+adapter reads it: a slot holds whatever secret the host put there, whichever
+provider the model calls. `runDecision` and the decision handler take the same
+`vault`, and nothing else: a decision whose slot the vault leaves empty throws
+`DecisionError('authentication', "the vault has no key in slot '<slot>'")`.
+
+| Provider | Key |
 | --- | --- |
-| `gemini.vault` | Required for Google. Adapter reads `vault[keySlot]`. |
-| `openAiGateway.vault` | Optional. Used when `keySlot` is set (the profile pinned a key). |
-| `openAiGateway.apiKey` | Flat fallback when `keySlot` is omitted. |
-
-## Gemini transport
-
-```ts
-createProvider(profile, {
-  gemini: { vault: { main, spare } },
-})
-```
+| Google | `vault[keySlot]`; a Google model must name a slot |
+| OpenRouter | `vault[keySlot]`; an OpenRouter model must name a slot |
+| Local | `vault[keySlot]` as a bearer token when the model names a slot, else none |
 
 | Piece | Role |
 | --- | --- |
-| `GeminiTransport` | Google vault + optional `fetch` |
-| `KeyVault` | `Record<KeySlot, string | undefined>` shared with OpenRouter |
+| `KeyVault` | `Record<KeySlot, string \| undefined>`, one for every provider |
+| `GeminiOptions` | Optional `fetch` and backoff `wait` for Google |
 | Slots | Any names the host picks |
 | Selection | `models.*.key`, else `key`; no tool picks a key |
 
 A quota refusal retries once on the fallback slot when the profile names one
-and the vault holds a different key there: an HTTP 429 (`fetchGemini`, and each
-try's span names its `theorem.key_slot`), and a Live setup refused for quota
-(`openGoogleLiveSession`, tapped as a `ws_overflow` row; the session trace
-records `theorem.session { kind: "key_overflow" }` and its responses name the
-fallback slot). With no fallback named, or an empty one, the refusal stands.
+and the vault holds a different key there. Over HTTP (a 429: `fetchGemini` for
+Google, `bearerFetch` for OpenRouter and local), each try's span names its
+`theorem.key_slot`. A Live setup refused for quota (`openGoogleLiveSession`) is
+tapped as a `ws_fallback` row; the session trace records
+`theorem.session { kind: "key_fallback" }` and its responses name the fallback
+slot. With no fallback named, or an empty one, the refusal stands.
 
 A profile that names no key where one is required is `TheoremError('config', …)`;
 a slot the host's vault leaves empty is `auth`.
@@ -403,7 +402,7 @@ From `src/providers/mod.ts`:
 | --- | --- |
 | `createProvider` | function |
 | `CreateProviderOptions` | type |
-| `GeminiTransport`, `KeyVault` | types |
+| `GeminiOptions`, `KeyVault` | types |
 | `LocalProviderConfig`, `OpenAiGatewayConfig` | types |
 
 From `src/providers/local/mod.ts` (`@theoremjs/agents/providers/local`):
@@ -492,10 +491,14 @@ From `src/providers/google/live/mod.ts` (`@theoremjs/agents/providers/google/liv
         { "kind": "contract_test", "path": "tests/providers/google/interactions/speech.test.ts" }
       ]
     },
-    "Gemini transport": {
+    "Key vault (provider-neutral)": {
       "supports": [
+        { "kind": "source", "path": "src/providers/shared/vault.ts" },
         { "kind": "source", "path": "src/providers/google/keys.ts" },
-        { "kind": "contract_test", "path": "tests/providers/google/keys.test.ts" }
+        { "kind": "source", "path": "src/kernel/registry/vault.ts" },
+        { "kind": "contract_test", "path": "tests/providers/shared/vault.test.ts" },
+        { "kind": "contract_test", "path": "tests/providers/google/keys.test.ts" },
+        { "kind": "contract_test", "path": "tests/kernel/vault.test.ts" }
       ]
     },
     "Exported API": {

@@ -54,7 +54,7 @@ export function createExampleDraft(): PlaygroundDraft {
       system: DEMO_CONCIERGE_SYSTEM,
     },
     included: ['outputs', 'turnBehaviour', 'guardrails', 'observability', 'wording'],
-    models: { defaultModel: 'fast', allowModelSelect: true, maxSteps: 12, key: 'slotA' },
+    models: { defaultModel: 'fast', allowModelSelect: true, maxSteps: 12, key: 'primary' },
     modelBindings: [
       defaultModelBinding({
         modelId: 'fast',

@@ -1,11 +1,16 @@
-import { isAbortError, TheoremError } from '../../guardrails/error.ts';
+import { isAbortError } from '../../guardrails/error.ts';
 import type { KeySlot, KeyVault, ProviderCompleteRequest } from '../../kernel/types.ts';
 import { networkError, tapFetch } from '../shared/upstream-tap.ts';
+import { fallbackKey, requireKey } from '../shared/vault.ts';
 
-interface GeminiTransport {
-  vault: KeyVault;
+/** A host's Gemini settings; keys come from the one vault. */
+interface GeminiOptions {
   wait?: (ms: number) => Promise<void>;
   fetch?: typeof fetch;
+}
+
+interface GeminiTransport extends GeminiOptions {
+  vault: KeyVault;
 }
 
 const ATTEMPTS = 3;
@@ -49,29 +54,8 @@ export function isTransientThrown(err: unknown): boolean {
   return TRANSIENT_THROWN_RE.test(String(err));
 }
 
-export function requireKey(vault: KeyVault, slot: KeySlot): string {
-  const key = vault[slot];
-  if (!key) {
-    throw new TheoremError('auth', `gemini.vault has no key in slot '${slot}'`);
-  }
-  return key;
-}
-
 export function backoffMs(attempt: number): number {
   return BACKOFF_MS[attempt] ?? BACKOFF_SECOND_MS;
-}
-
-/** The profile's fallback slot and its key, when the vault holds a different key there. */
-export function fallbackKey(
-  slot: KeySlot | undefined,
-  vault: KeyVault,
-  primary: string,
-): { slot: KeySlot; key: string } | undefined {
-  const key = slot ? vault[slot] : undefined;
-  if (!slot || !key || key === primary) {
-    return undefined;
-  }
-  return { slot, key };
 }
 
 export function withApiKey(init: RequestInit, apiKey: string): RequestInit {
@@ -143,4 +127,4 @@ export async function fetchGemini(
   return last;
 }
 
-export type { GeminiTransport };
+export type { GeminiOptions, GeminiTransport };

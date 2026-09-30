@@ -1,4 +1,5 @@
 import type { DecisionQuestion, ProfileDefinition } from '../mod.ts';
+import type { PlaygroundConnectionMode } from './policy.ts';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
 import {
 	clearPlaygroundRunPayloadRecord,
@@ -32,6 +33,10 @@ export {
 export type PlaygroundRunPayload = {
 	/** Payload schema version — bump when handoff shape changes. */
 	version?: 1;
+  /** Execution choice only. Credentials never belong in this persisted payload. */
+  connectionMode?: PlaygroundConnectionMode;
+  /** Non-secret localhost connection setting; no bearer key travels with it. */
+  localBaseUrl?: string;
 	runId?: string;
 	agentId: string;
 	profile: ProfileDefinition;
@@ -61,7 +66,6 @@ export function loadPlaygroundRunPayload(
 
 export function clearPlaygroundRunPayload(
 	runId: string,
-	storeOverride?: Storage | null,
-): void {
+	storeOverride?: Storage | null): void {
 	clearPlaygroundRunPayloadRecord(runId, storeOverride);
 }

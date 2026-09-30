@@ -116,15 +116,26 @@ function clockAdvancesOnlyAtIo(): boolean {
   return globalThis.navigator?.userAgent === 'Cloudflare-Workers';
 }
 
-/** Throws on a malformed value: a host bug, not a runtime state. */
-function parseTraceparent(value: string): { traceId: string; spanId: string } {
+/**
+ * The trace and span ids of a W3C `traceparent` THEOREM accepts (version 00,
+ * lowercase hex, non-zero ids), or `undefined`. For a host checking a value from
+ * a request before handing it to a turn, which throws on anything else.
+ */
+function readTraceparent(value: string): { traceId: string; spanId: string } | undefined {
   const match = TRACEPARENT.exec(value.trim());
   const traceId = match?.[1];
   const spanId = match?.[2];
-  if (!traceId || !spanId || ALL_ZERO.test(traceId) || ALL_ZERO.test(spanId)) {
+  if (!traceId || !spanId || ALL_ZERO.test(traceId) || ALL_ZERO.test(spanId)) return undefined;
+  return { traceId, spanId };
+}
+
+/** Throws on a malformed value: a host bug, not a runtime state. */
+function parseTraceparent(value: string): { traceId: string; spanId: string } {
+  const parsed = readTraceparent(value);
+  if (!parsed) {
     throw new TheoremError('request', `traceparent is not a valid W3C trace context: '${value}'`);
   }
-  return { traceId, spanId };
+  return parsed;
 }
 
 function formatTraceparent(traceId: string, spanId: string): string {
@@ -327,6 +338,7 @@ export {
   isTraceContent,
   isTraceJson,
   parseTraceparent,
+  readTraceparent,
   startTrace,
   traceBytes,
   traceContent,

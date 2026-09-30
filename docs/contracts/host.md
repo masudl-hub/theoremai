@@ -59,9 +59,11 @@ slot”).
 | `unavailable` | 503 | `cancelled` | 499 (client closed request) |
 | | | `internal` | 500 |
 
-`auth` is 401 whichever key was refused. When the refused key is the host's own
-provider key rather than one the caller supplied, the host may prefer to reply
-500 itself.
+`auth` is 401 whichever key was refused. A key the host's vault lacks (a model's
+slot left empty: `the vault has no key in slot '<slot>'`) is `auth` too; keys
+come only from the `vault` the host passes, through the slot the profile names.
+When the refused key is the host's own provider key rather than one the caller
+supplied, the host may prefer to reply 500 itself.
 
 Example:
 
@@ -89,7 +91,7 @@ host-only diagnostics:
 import { forClientEvents } from "@theoremjs/agents/host";
 import { runSession } from "@theoremjs/agents";
 
-const live = await runSession({ profile: "site.live" }, { gemini: { vault } });
+const live = await runSession({ profile: "site.live" }, { vault });
 for await (const event of live.events()) {
   ws.send(JSON.stringify({ type: "events", events: forClientEvents([event]) }));
 }

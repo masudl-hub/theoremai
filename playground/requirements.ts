@@ -1,17 +1,14 @@
 /** Shared by the compiler and the editor so both agree; mirrors the kernel's `PROFILE_FIELD_PRESENCE`. */
 
 import type { InputsDraft, ModelBindingDraft, PlaygroundDraft } from './draft.ts';
-import { isGoogleTransport } from './policy.ts';
 
 export function defaultModelRequired(draft: PlaygroundDraft): boolean {
   return draft.modelBindings.length > 1;
 }
 
-/** A key slot is required once any model runs on Google, which has no key of its own here. */
+/** Every model but a local one reads a vault slot: its own, or the profile's. */
 export function keySlotRequired(draft: PlaygroundDraft): boolean {
-  return draft.modelBindings.some((binding) =>
-    isGoogleTransport(binding.protocol, binding.provider)
-  );
+  return draft.modelBindings.some((binding) => !binding.keySlot && binding.provider !== 'local');
 }
 
 export function defaultEffortRequired(binding: ModelBindingDraft): boolean {

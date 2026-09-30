@@ -96,7 +96,8 @@ facet kinds. Drift is gated by `tests/kernel/profile-graph.test.ts` and
 
 A `decision` profile is a separate, bounded execution path for typed decisions.
 Its `models` map binds exactly one model with `protocol: 'decision'`,
-`provider: 'typesafe' | 'openrouter'`, an `apiId`, and an optional key slot.
+`provider: 'typesafe' | 'openrouter'`, an `apiId`, and a key slot (its own
+`key`, else the profile's; `defineProfile` refuses a decision model with neither).
 The profile's `decision.contract` is the host's stable id for the decision it
 makes. The id names the decision on its trace (`theorem.decision.contract`);
 it is not sent to the provider and does not limit which questions a call asks. At call time,
@@ -111,8 +112,9 @@ compatible with its model. Provider-reported cost is used when available; the
 decision provider usage adapter prices direct TypeSafe Jev tokens at
 $0.042 per million input tokens with output free.
 It has no prompt, conversation history, attachments, tools, streaming, or
-turn loop; an API key is supplied explicitly in `RunDecisionOptions` or
-resolved from its host-provided `keyVault`.
+turn loop; its key comes only from the host's `vault` (`RunDecisionOptions.vault`)
+through that slot, and an empty slot throws
+`DecisionError('authentication', "the vault has no key in slot '<slot>'")`.
 
 `decision.guardrails.disclosure` is a host hook immediately before the request
 leaves the process. It may return `allow` or `block`; a block prevents dispatch.
@@ -200,7 +202,8 @@ outside `isValidPair`. `providersFor` / `protocolsFor` / `coerceProvider` /
 `coerceProtocol` are the same table.
 Each `ModelBinding` in `profile.models` carries wire ids (`apiId`), optional
 `efforts` / `defaultEffort`, `summaries`, `maxOutputTokens`, `temperature`,
-`builtInTools`, optional vault `key`, optional `compaction`, optional OpenRouter
+`builtInTools`, vault `key` (required on every non-local model, unless the
+profile sets `key`), optional `compaction`, optional OpenRouter
 `cache` (`mode` / `ttl`; openrouter-only), and Gemini Interactions optional
 `store` / `persistViaInteractionId` (Interactions-only), and an optional local
 `server` name (local-only; traces report it as `gen_ai.provider.name`).
@@ -855,7 +858,7 @@ registerProfile(defineProfile({
       + "decisions, and key facts.",
   },
   models: { summarizer: summarizerBinding },
-  key: "slotA",
+  key: "main",
   maxSteps: 1,
   tools: { allow: [] },
   inputs: { text: true },
@@ -1052,7 +1055,8 @@ Beyond compaction rules (above), `registerProfile` / `defineProfile` assert:
 - Each key in `models` is a host-named model id with a full `ModelBinding`.
 - Profiles with attachments or voice set `maxFiles`, `maxBytes`, `maxTurnBytes`;
   those and every `limitsByMime` value are positive integers.
-- Each Google model has `models.*.key` or the profile has `key`.
+- Each non-local model (`google`, `openrouter`, and a decision model) has
+  `models.*.key` or the profile has `key`; there is no flat key.
 - Each `efforts` level is one `thinkingLevelsForProtocol(protocol)` returns:
   `minimal` / `low` / `medium` / `high` on `geminiInteractions` and
   `geminiLive`, every `THINKING_LEVELS` value on `openAi`.

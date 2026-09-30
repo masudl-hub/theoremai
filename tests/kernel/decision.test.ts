@@ -16,6 +16,7 @@ function profile(id = 'decision-test') {
     type: 'decision',
     id,
     identity: { handle: 'Decision test' },
+    key: 'slot_a',
     models: {
       jev: { protocol: 'decision', provider: 'typesafe', apiId: 'jev-latest', timeoutMs: 1000 },
     },
@@ -76,7 +77,7 @@ Deno.test('runDecision validates and normalizes a Jev response', async () => {
   registerProfile(profile());
   let calls = 0;
   const result = await runDecision(request(), {
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: (url, init) => {
       calls += 1;
       assertEquals(url, 'https://api.typesafe.ai/v1/systemone');
@@ -144,7 +145,7 @@ Deno.test('OpenRouter decisions use their binding, provider cost, and trace iden
       questions: { broken: { type: 'noul', instructions: 'Is a product function broken?' } },
     },
     {
-      apiKey: 'test-key',
+      vault: { slot_a: 'test-key' },
       sink: memorySink(records),
       fetch: (url, init) => {
         assertEquals(url, 'https://openrouter.ai/api/alpha/decisions');
@@ -208,7 +209,7 @@ Deno.test('disclosure block prevents the Jev request', async () => {
   await assertRejects(
     () =>
       runDecision(request(), {
-        apiKey: 'test-key',
+        vault: { slot_a: 'test-key' },
         fetch: () => {
           calls += 1;
           return Promise.resolve(new Response('{}'));
@@ -236,7 +237,7 @@ Deno.test('runDecision normalizes Jev HTTP failures', async () => {
     const error = await assertRejects(
       () =>
         runDecision(request(), {
-          apiKey: 'test-key',
+          vault: { slot_a: 'test-key' },
           fetch: () => Promise.resolve(new Response('{}', { status })),
         }),
       DecisionError,
@@ -270,7 +271,7 @@ Deno.test('cancelled decisions never dispatch, including cancellation during dis
       runDecision(
         { ...request(), signal: controller.signal },
         {
-          apiKey: 'stub',
+          vault: { slot_a: 'stub' },
           fetch: () => {
             calls++;
             return Promise.resolve(jevAnswer());
@@ -300,7 +301,7 @@ Deno.test('decision body reads preserve timeout, cancellation, and network failu
         runDecision(
           { ...request(), signal: controller.signal },
           {
-            apiKey: 'stub',
+            vault: { slot_a: 'stub' },
             fetch: (_url, init) =>
               Promise.resolve(
                 new Response(
@@ -334,7 +335,7 @@ Deno.test('decision JSON and question validation reject invalid values before di
   cyclic.self = cyclic;
   let calls = 0;
   const options = {
-    apiKey: 'stub',
+    vault: { slot_a: 'stub' },
     fetch: () => {
       calls++;
       return Promise.resolve(jevAnswer());
@@ -399,7 +400,7 @@ Deno.test('decision response rejects incomplete legends and ignores invalid usag
     await assertRejects(
       () =>
         runDecision(request(), {
-          apiKey: 'stub',
+          vault: { slot_a: 'stub' },
           fetch: () =>
             Promise.resolve(
               Response.json({
@@ -412,7 +413,7 @@ Deno.test('decision response rejects incomplete legends and ignores invalid usag
     );
   }
   const invalid = await runDecision(request(), {
-    apiKey: 'stub',
+    vault: { slot_a: 'stub' },
     fetch: () =>
       Promise.resolve(
         Response.json({
@@ -439,7 +440,7 @@ Deno.test('decision pricing respects reported cost and estimates only known dire
     );
     const body = await jevAnswer().json();
     const result = await runDecision(request(), {
-      apiKey: 'stub',
+      vault: { slot_a: 'stub' },
       fetch: () => Promise.resolve(Response.json({ ...body, model, usage })),
     });
     assertEquals(result.usage?.costUsd, costUsd);
@@ -452,7 +453,7 @@ Deno.test('runDecision reports a transport failure as a network error', async ()
   const error = await assertRejects(
     () =>
       runDecision(request(), {
-        apiKey: 'test-key',
+        vault: { slot_a: 'test-key' },
         fetch: () => Promise.reject(new TypeError('connection reset')),
       }),
     DecisionError,
@@ -476,7 +477,7 @@ Deno.test('invalid local decision questions make no network request', async () =
           },
         },
         {
-          apiKey: 'test-key',
+          vault: { slot_a: 'test-key' },
           fetch: () => {
             calls += 1;
             return Promise.resolve(new Response('{}'));
@@ -498,7 +499,7 @@ Deno.test('a state over maxStateBytes makes no network request', async () => {
       runDecision(
         { ...request(), state: { note: 'x'.repeat(1000) } },
         {
-          apiKey: 'test-key',
+          vault: { slot_a: 'test-key' },
           fetch: () => {
             calls += 1;
             return Promise.resolve(new Response('{}'));
@@ -575,7 +576,7 @@ Deno.test('a decision request that names a model makes no network request', asyn
   await assertRejects(
     () =>
       runDecision({ ...request(), model: 'jev' } as DecisionRequest, {
-        apiKey: 'test-key',
+        vault: { slot_a: 'test-key' },
         fetch: () => {
           calls += 1;
           return Promise.resolve(new Response('{}'));
@@ -618,7 +619,11 @@ Deno.test('a decision writes one decide record under the host span it names', as
   const parent = `00-${'a'.repeat(32)}-${'b'.repeat(16)}-01`;
   await runDecision(
     { ...request(), traceparent: parent, metadata: { app: { run: 7 } } },
-    { apiKey: 'test-key', fetch: () => Promise.resolve(jevAnswer()), sink: memorySink(records) },
+    {
+      vault: { slot_a: 'test-key' },
+      fetch: () => Promise.resolve(jevAnswer()),
+      sink: memorySink(records),
+    },
   );
   assertEquals(records.length, 1);
   const [record] = records;
@@ -672,7 +677,7 @@ Deno.test('a failed decision is recorded with its error kind', async () => {
   const records: TraceRecord[] = [];
   await assertRejects(() =>
     runDecision(request(), {
-      apiKey: 'test-key',
+      vault: { slot_a: 'test-key' },
       fetch: () => Promise.resolve(new Response('{}', { status: 429 })),
       sink: memorySink(records),
     }),
@@ -688,7 +693,7 @@ Deno.test('a trace write that fails leaves the decision standing', async () => {
   registerProfile(profile());
   const errors: unknown[] = [];
   const result = await runDecision(request(), {
-    apiKey: 'test-key',
+    vault: { slot_a: 'test-key' },
     fetch: () => Promise.resolve(jevAnswer()),
     sink: {
       write: () => Promise.reject(new Error('disk full')),
@@ -713,4 +718,38 @@ Deno.test('a decision profile names its contract', async () => {
       message,
     );
   }
+});
+
+Deno.test('a decision profile names a vault slot on the profile or the model', async () => {
+  const { key: _key, ...keyless } = profile('keyless');
+  await assertRejects(
+    () => Promise.resolve().then(() => defineProfile(keyless)),
+    Error,
+    "model 'jev': a decision model needs models.*.key or the profile key",
+  );
+  const modelKeyed = defineProfile({
+    ...keyless,
+    id: 'model-keyed',
+    models: { jev: { ...keyless.models.jev, key: 'slot_b' } },
+  });
+  assertEquals(modelKeyed.models.jev?.key, 'slot_b');
+});
+
+Deno.test('runDecision reads its key only from the vault slot the profile names', async () => {
+  clearProfiles();
+  registerProfile(profile());
+  let calls = 0;
+  const fetch = () => {
+    calls += 1;
+    return Promise.resolve(new Response('{}', { status: 500 }));
+  };
+  for (const vault of [undefined, {}, { slot_b: 'other-key' }, { slot_a: '  ' }]) {
+    const err = await assertRejects(
+      () => runDecision(request(), { vault, fetch }),
+      DecisionError,
+      "the vault has no key in slot 'slot_a'",
+    );
+    assertEquals(err.code, 'authentication');
+  }
+  assertEquals(calls, 0);
 });

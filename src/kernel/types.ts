@@ -883,11 +883,10 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
   live?: ProfileLiveSpec;
   input: InteractionPart[];
   /**
-   * Vault key slot for credentialed transports (Google required; OpenRouter when
-   * the profile pins `key`). Never sent on the wire.
+   * Vault key slot; every model but a local one without a key names one. Never sent on the wire.
    */
   keySlot?: KeySlot;
-  /** The slot a quota refusal on `keySlot` retries on, when the profile names one. Google only. */
+  /** The slot a quota refusal on `keySlot` retries on once, when the profile names one. */
   fallbackKeySlot?: KeySlot;
   canary: string;
   sessionResumptionHandle?: string;
@@ -899,8 +898,8 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
 
 /**
  * `previousInteractionId`, `store`, `stream`, `summaries` and `continuation` are
- * Google Interactions-only and absent otherwise. `keySlot` is required for Google and
- * optional for OpenRouter; it is never sent on the wire.
+ * Google Interactions-only and absent otherwise. `keySlot` is required for every
+ * provider but local; it is never sent on the wire.
  */
 export interface ProviderCompleteRequest
   extends Omit<ProviderGenerationConfig, 'summaries' | 'builtins'> {
@@ -919,7 +918,7 @@ export interface ProviderCompleteRequest
   live?: ProfileLiveSpec;
   sessionResumptionHandle?: string;
   keySlot?: KeySlot;
-  /** The slot a quota refusal on `keySlot` retries on once. Google only; never sent on the wire. */
+  /** The slot a quota refusal on `keySlot` retries on once. Never sent on the wire. */
   fallbackKeySlot?: KeySlot;
   /** Scrubbed SSE / HTTP rows for traces. */
   tapUpstream?: (row: Record<string, unknown>) => void;

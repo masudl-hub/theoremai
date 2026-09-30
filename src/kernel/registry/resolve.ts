@@ -29,7 +29,7 @@ import {
 } from './ingress.ts';
 import type { KernelRegistry } from './kernel-registry.ts';
 import { resolveTurnSystemPrompt } from './system-prompt.ts';
-import { providerUsesKeySlots, resolveKeySlot } from './vault.ts';
+import { resolveKeySlot } from './vault.ts';
 
 function isModelProfile(profile: Profile): profile is ModelProfile {
   return profile.type !== 'host' && profile.type !== 'decision';
@@ -216,7 +216,7 @@ function resolveTurnInRegistry(
   const structuredId = resolveStructured(profile, input.slots);
   assertOutputMode(profile, structuredId);
   assertSpeechRole(profile, binding, safe);
-  const keys = providerUsesKeySlots(binding.provider) ? resolveKeySlot(profile, binding) : {};
+  const keys = resolveKeySlot(profile, binding);
   const transport = resolveTransport(profile, binding);
   const chains = transport === 'interactions' && binding.persistViaInteractionId !== false;
   const previousInteractionId = chains ? safe.previousInteractionId : undefined;

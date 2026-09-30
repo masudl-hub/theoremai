@@ -107,6 +107,7 @@ function registerLiveProfile(providerKind: 'openrouter' | 'gemini'): void {
           },
         },
         maxSteps: 1,
+        key: 'openrouter',
         tools: { allow: [] },
         inputs: { text: true },
         outputs: { structured: null },
@@ -140,7 +141,7 @@ function registerLiveProfile(providerKind: 'openrouter' | 'gemini'): void {
         },
       },
       maxSteps: 1,
-      key: 'slotA',
+      key: 'slot_a',
       tools: { allow: [] },
       inputs: { text: true },
       guardrails,
@@ -154,14 +155,14 @@ function createLiveProvider(providerKind: 'openrouter' | 'gemini'): ModelProvide
     const apiKey = hostOpenRouterKey();
     if (!apiKey) throw new Error(`${OPENROUTER_ENV} missing`);
     return createProvider(profile, {
+      vault: { ...hostVault(), openrouter: apiKey },
       openAiGateway: {
-        apiKey,
         siteUrl: 'https://theorem.masudlewis.com',
         siteName: 'Theorem Guardrails Live Red-Team',
       },
     });
   }
-  return createProvider(profile, { gemini: { vault: hostVault() } });
+  return createProvider(profile, { vault: hostVault() });
 }
 
 function serializedInbound(req: TurnRequest): string {

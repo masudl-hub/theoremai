@@ -62,7 +62,13 @@ export type {
   TraceSpanStatus,
   TraceTree,
 } from './trace-span.ts';
-export { startTrace, traceBytes, traceContent, traceJson } from './trace-span.ts';
+export {
+  readTraceparent,
+  startTrace,
+  traceBytes,
+  traceContent,
+  traceJson,
+} from './trace-span.ts';
 export type {
   ProfileObservabilitySpec,
   ResolvedObservabilityPolicy,

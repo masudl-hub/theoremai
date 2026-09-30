@@ -578,7 +578,7 @@ Deno.test('adversarial/runTurn: builtin function_call surfaces provider_native e
           builtInTools: ['googleSearch'],
         },
       },
-      key: 'slotA',
+      key: 'main',
       maxSteps: 2,
       tools: { allow: [] },
       inputs: { text: true },

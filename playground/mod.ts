@@ -55,6 +55,7 @@ export {
 export { createExampleDraft, createSpanExampleDraft } from './example.ts';
 export { type AcceptSection, acceptSections, expandAccept, nextAccept } from './media-accept.ts';
 export {
+  type PlaygroundConnectionMode,
   allowedBuiltinsForGemini,
   decisionQuestionViolation,
   decisionStateViolation,

@@ -1,8 +1,8 @@
 /**
  * The judged example suite with Jev as its judge: the correctness rubric's
- * question, answered by a decision profile. The host supplies the key through
- * `judgeDecision`; `scripts/evals-example.ts --judge jev` reads it from
- * `TYPESAFE_API_KEY`.
+ * question, answered by a decision profile. The host supplies the key in vault slot
+ * `jev` through `judgeDecision`; `scripts/evals-example.ts --judge jev` reads it
+ * from `TYPESAFE_API_KEY`.
  */
 
 import '../translator/profile.ts';

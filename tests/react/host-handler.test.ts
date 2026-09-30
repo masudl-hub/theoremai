@@ -202,6 +202,7 @@ Deno.test('each handler refuses the other kind of profile, naming the right one'
           type: 'text',
           id: 'host-handler-wrong-b',
           identity: { handle: 'helper', system: 'x' },
+          key: 'slot_a',
           models: { stub: { protocol: 'openAi', provider: 'openrouter', apiId: 'stub-model' } },
           tools: { allow: [] },
           inputs: { text: true },

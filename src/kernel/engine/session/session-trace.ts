@@ -16,7 +16,7 @@ import type {
   ResolvedObservabilityPolicy,
 } from '../../../observability/types.ts';
 import { liveFrameInput } from '../../../providers/google/live/framing.ts';
-import { LIVE_OVERFLOW_ROW } from '../../../providers/google/live/session.ts';
+import { LIVE_FALLBACK_ROW } from '../../../providers/google/live/session.ts';
 import type { SessionQueueItem } from '../../../providers/google/live/stream.ts';
 import type { ProviderEvent, TurnEventOf } from '../../turn-events.ts';
 import type {
@@ -243,8 +243,8 @@ class LiveTrace {
 
   /** The adapter's `tapUpstream`: every frame sent, as it is sent. */
   readonly sent = (row: Record<string, unknown>): void => {
-    if (row.eventType === LIVE_OVERFLOW_ROW) {
-      this.keyOverflow(row);
+    if (row.eventType === LIVE_FALLBACK_ROW) {
+      this.keyFallback(row);
       return;
     }
     const frame = asRecord(row.body);
@@ -259,10 +259,10 @@ class LiveTrace {
   };
 
   /** The pinned key was refused for quota at setup; the session reopens on the fallback slot, which its responses name. */
-  private keyOverflow(row: Record<string, unknown>): void {
+  private keyFallback(row: Record<string, unknown>): void {
     const to = String(row.keySlot);
     this.root.event('theorem.session', {
-      kind: 'key_overflow',
+      kind: 'key_fallback',
       key_slot: String(row.from),
       to_key_slot: to,
       'error.type': String(row.errorKind),

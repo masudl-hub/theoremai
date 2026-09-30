@@ -182,8 +182,8 @@ const graph = {
       watches: [
         {
           path: 'src/kernel/registry/vault.ts',
-          reason: 'Gemini vault types feed createProvider',
-          sections: ['Gemini transport', 'createProvider'],
+          reason: 'Key slot resolution feeds every adapter',
+          sections: ['Key vault (provider-neutral)', 'createProvider'],
         },
       ],
       validates: [
@@ -216,7 +216,7 @@ const graph = {
         'Google Live',
         'Local provider',
         'Speech roles',
-        'Gemini transport',
+        'Key vault (provider-neutral)',
         'Exported API',
       ],
       section_triggers: [

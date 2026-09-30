@@ -25,13 +25,7 @@ import { memorySink } from '../src/observability/trace.ts';
 import type { TraceRecord } from '../src/observability/trace-record.ts';
 import { registerGooglePreset } from '../src/presets/google.ts';
 import { createProvider } from '../src/providers/create-provider.ts';
-import {
-  hostOpenRouterKey,
-  hostVault,
-  loadHostEnv,
-  OPENROUTER_ENV,
-  VAULT_ENV,
-} from './host-env.ts';
+import { hostOpenRouterKey, hostVault, loadHostEnv, OPENROUTER_ENV, vaultEnv } from './host-env.ts';
 
 loadHostEnv();
 
@@ -154,12 +148,12 @@ function skipTest(name: string, reason: string) {
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const geminiTransport = { gemini: { vault, wait: () => Promise.resolve() } };
+const geminiTransport = { vault: vault, gemini: { wait: () => Promise.resolve() } };
 
 function gateway(key: string) {
   return {
+    vault: { ...vault, openrouter: key },
     openAiGateway: {
-      apiKey: key,
       siteUrl: 'https://theorem.agent',
       siteName: 'Theorem Live Pressure Test',
     },
@@ -224,6 +218,7 @@ if (selected.has('text')) {
         type: 'text',
         id: 'live_test_chat_or_sse',
         identity: { handle: 'assistant', system: 'You are a concise AI assistant.' },
+        key: 'openrouter',
         models: {
           'openrouter/free': {
             protocol: 'openAi',
@@ -260,6 +255,7 @@ if (selected.has('text')) {
         type: 'text',
         id: 'live_test_chat_structured',
         identity: { handle: 'analyzer', system: 'Analyze sentiment in structured JSON.' },
+        key: 'openrouter',
         models: {
           'openrouter/free': {
             protocol: 'openAi',
@@ -298,8 +294,8 @@ if (selected.has('text')) {
   }
 
   for (const apiId of GEMINI_TEXT_MODELS) {
-    if (!vault.slotA) {
-      skipTest(`Gemini Text ${apiId}`, `${VAULT_ENV.slotA} unset`);
+    if (!vault.slot_a) {
+      skipTest(`Gemini Text ${apiId}`, `${vaultEnv('slot_a')} unset`);
       continue;
     }
     const models = { [apiId]: geminiTextBinding(apiId) };
@@ -315,7 +311,7 @@ if (selected.has('text')) {
         },
         models,
         maxSteps: 3,
-        key: 'slotA',
+        key: 'slot_a',
         tools: { allow: ['calculate_sum'] },
         inputs: { text: true },
       }) as TextProfile;
@@ -343,7 +339,7 @@ if (selected.has('text')) {
         id: `live_test_structured_${apiId}`,
         identity: { handle: 'analyzer', system: 'Analyze sentiment in structured JSON.' },
         models,
-        key: 'slotA',
+        key: 'slot_a',
         tools: { allow: [] },
         inputs: { text: true },
         outputs: { structured: 'sentimentAnalysis' },
@@ -373,7 +369,7 @@ if (selected.has('text')) {
         id: `live_test_buffered_${apiId}`,
         identity: { handle: 'assistant', system: 'Be concise.' },
         models,
-        key: 'slotA',
+        key: 'slot_a',
         tools: { allow: [] },
         inputs: { text: true },
         outputs: { streaming: { mode: 'buffered' } },
@@ -405,6 +401,7 @@ if (selected.has('image')) {
         type: 'image',
         id: 'live_test_image_openrouter',
         identity: { handle: 'artist', system: 'Generate one image.' },
+        key: 'openrouter',
         models: {
           seedream: {
             protocol: 'openAi',
@@ -437,8 +434,8 @@ if (selected.has('image')) {
   }
 
   for (const apiId of GEMINI_IMAGE_MODELS) {
-    if (!vault.paid) {
-      skipTest(`Gemini Image ${apiId}`, `${VAULT_ENV.paid} unset`);
+    if (!vault.slot_a) {
+      skipTest(`Gemini Image ${apiId}`, `${vaultEnv('slot_a')} unset`);
       continue;
     }
     await runTest(`Gemini Image ${apiId}: Interactions generation`, async () => {
@@ -453,7 +450,7 @@ if (selected.has('image')) {
             apiId,
             efforts: { normal: 'minimal' },
             maxOutputTokens: 4096,
-            key: 'paid',
+            key: 'slot_a',
           },
         },
         image: { aspectRatio: '1:1', size: '1K', mimeType: 'image/jpeg' },
@@ -484,6 +481,7 @@ if (selected.has('speech')) {
         type: 'speech',
         id: 'live_test_speech_openrouter',
         identity: { handle: 'speaker' },
+        key: 'openrouter',
         models: {
           fishTts: {
             protocol: 'openAi',
@@ -515,8 +513,8 @@ if (selected.has('speech')) {
 
   for (const apiId of GEMINI_SPEECH_MODELS) {
     for (const mode of ['sse', 'buffered'] as const) {
-      if (!vault.slotA) {
-        skipTest(`Gemini Speech ${apiId} ${mode}`, `${VAULT_ENV.slotA} unset`);
+      if (!vault.slot_a) {
+        skipTest(`Gemini Speech ${apiId} ${mode}`, `${vaultEnv('slot_a')} unset`);
         continue;
       }
       await runTest(`Gemini Speech ${apiId} (${mode}): TTS synthesis`, async () => {
@@ -533,7 +531,7 @@ if (selected.has('speech')) {
               maxOutputTokens: 2048,
             },
           },
-          key: 'slotA',
+          key: 'slot_a',
           speech: { voice: 'Kore', format: 'pcm' },
           outputs: { streaming: { mode } },
         }) as SpeechProfile;
@@ -553,7 +551,7 @@ if (selected.has('speech')) {
     }
   }
 
-  if (vault.slotA) {
+  if (vault.slot_a) {
     await runTest('Gemini Speech: default profile (guardrails default)', async () => {
       const profile = defineProfile({
         type: 'speech',
@@ -568,7 +566,7 @@ if (selected.has('speech')) {
             maxOutputTokens: 2048,
           },
         },
-        key: 'slotA',
+        key: 'slot_a',
         speech: { voice: 'Kore', format: 'pcm' },
       }) as SpeechProfile;
       registerProfile(profile);
@@ -686,7 +684,7 @@ if (selected.has('live')) {
           efforts: { normal: GEMINI_LIVE_MODELS[apiId] },
           summaries: false,
           builtInTools: [],
-          key: 'slotA',
+          key: 'slot_a',
         },
       },
       live: {
@@ -703,7 +701,7 @@ if (selected.has('live')) {
     let rejected = false;
     try {
       createProvider(profile, {
-        gemini: { vault: { slotA: 'k', slotB: undefined, slotC: undefined, paid: undefined } },
+        vault: { slot_a: 'k' },
       });
     } catch {
       rejected = true;
@@ -712,8 +710,8 @@ if (selected.has('live')) {
   });
 
   for (const apiId of GEMINI_LIVE_IDS) {
-    if (!vault.slotA) {
-      skipTest(`Live ${apiId}`, `${VAULT_ENV.slotA} unset`);
+    if (!vault.slot_a) {
+      skipTest(`Live ${apiId}`, `${vaultEnv('slot_a')} unset`);
       continue;
     }
     await runTest(`Live ${apiId}: runSession text turn`, async () => {

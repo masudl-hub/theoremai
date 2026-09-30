@@ -132,12 +132,13 @@ function modelFields(apiId: string): Pick<TextProfileDefinition, 'models' | 'max
     return {
       models: { [apiId]: binding },
       maxSteps: 1,
-      key: 'slotA',
+      key: 'slot_a',
     };
   }
   return {
     models: { [apiId]: binding },
     maxSteps: 1,
+    key: 'openrouter',
   };
 }
 
@@ -256,13 +257,13 @@ function registerAllProfiles(): void {
 function makeProvider(profileId: string): ModelProvider {
   const profile = getProfile(profileId);
   if (PROVIDER_KIND === 'gemini') {
-    return createProvider(profile, { gemini: { vault: hostVault() } });
+    return createProvider(profile, { vault: hostVault() });
   }
   const key = hostOpenRouterKey();
   if (!key) throw new Error(`${OPENROUTER_ENV} missing`);
   return createProvider(profile, {
+    vault: { ...hostVault(), openrouter: key },
     openAiGateway: {
-      apiKey: key,
       siteUrl: 'https://theorem.dev',
       siteName: 'Theorem Runner Verify',
     },

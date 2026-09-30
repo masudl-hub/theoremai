@@ -32,7 +32,7 @@ const testProfile: Profile = {
   },
   defaultModel: 'fast',
   allowModelSelect: true,
-  key: 'slotA',
+  key: 'main',
   tools: { allow: [] },
   inputs: {
     text: true,
@@ -298,6 +298,7 @@ Deno.test('testProfileCommand --all skips profiles that run no model turn', asyn
       type: 'decision',
       id: 'cli_all_decision',
       identity: { handle: 'Decision' },
+      key: 'slot_a',
       models: {
         jev: { protocol: 'decision', provider: 'typesafe', apiId: 'jev-latest', timeoutMs: 1000 },
       },

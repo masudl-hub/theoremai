@@ -851,7 +851,7 @@ Deno.test('T1 builtins stay off wire until profile.tools.t1Policy selects them',
           builtInTools: ['deferred_builtin_probe'],
         },
       },
-      key: 'slotA',
+      key: 'main',
       maxSteps: 1,
       tools: {
         allow: [],

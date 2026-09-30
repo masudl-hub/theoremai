@@ -62,7 +62,7 @@ const playgroundLines: WireLines<PlaygroundLine> = {
   steer_inbox: playgroundSteerLine,
 };
 
-function routeLines(
+export function routePlaygroundLines(
   onEvent: TurnEventSink,
   traces: TraceFeed,
   onSteerInbox: (inbox: string) => void,
@@ -96,7 +96,7 @@ export function createPlaygroundTransport(
           '/api/playground/turn',
           { ...compiled, ...request },
           playgroundLines,
-          routeLines(onEvent, traces, (inbox) => {
+          routePlaygroundLines(onEvent, traces, (inbox) => {
             if (request.turnId) inboxes.set(request.turnId, inbox);
           }),
           { ...options, signal },
@@ -111,7 +111,7 @@ export function createPlaygroundTransport(
         // `replay` carries the paused call.
         { ...compiled, ...request },
         playgroundLines,
-        routeLines(onEvent, traces, ignoreSteerInbox),
+        routePlaygroundLines(onEvent, traces, ignoreSteerInbox),
         { ...options, signal },
       ),
     async steer({ turnId, id, inject }) {
@@ -179,7 +179,7 @@ export function createPlaygroundHostTransport(
         '/api/playground/call',
         { ...compiled, ...request, sessionPermissions },
         playgroundLines,
-        routeLines(onEvent, traces, ignoreSteerInbox),
+        routePlaygroundLines(onEvent, traces, ignoreSteerInbox),
         { ...options, signal },
       ),
     invoke: (request, onEvent, signal) => {
@@ -189,7 +189,7 @@ export function createPlaygroundHostTransport(
         // `replay` carries the paused call.
         { ...compiled, ...request },
         playgroundLines,
-        routeLines(onEvent, traces, ignoreSteerInbox),
+        routePlaygroundLines(onEvent, traces, ignoreSteerInbox),
         { ...options, signal },
       );
     },

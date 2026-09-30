@@ -5,7 +5,7 @@
  *   deno task evals:example --judge text|jev|both [--max-cost-usd n]
  *   deno task evals:example --recorded ~/.theorem/traces/evals [--judge text|jev|both]
  *
- * `--judge jev` reads `TYPESAFE_API_KEY`; `both` is Jev handing what it is unsure of to the text
+ * `--judge jev` reads `TYPESAFE_API_KEY` into vault slot `jev`; `both` is Jev handing what it is unsure of to the text
  * judge. `--phoenix` also sends the run to a local Phoenix (`deno task phoenix:up`).
  */
 
@@ -78,8 +78,8 @@ const options = {
 const vault = hostVault();
 const textJudge = judge === 'text' || judge === 'both';
 const jevJudge = judge === 'jev' || judge === 'both';
-const apiKey = jevJudge ? Deno.env.get('TYPESAFE_API_KEY') : undefined;
-if (jevJudge && !apiKey) {
+const jevKey = jevJudge ? Deno.env.get('TYPESAFE_API_KEY')?.trim() : undefined;
+if (jevJudge && !jevKey) {
   console.error('--judge jev and --judge both read the Jev key from TYPESAFE_API_KEY');
   Deno.exit(2);
 }
@@ -140,9 +140,9 @@ async function sendToPhoenix(traceDir: string, since: bigint): Promise<boolean> 
 
 const since = BigInt(Date.now()) * 1_000_000n;
 const ok = await evalCommand(options, {
-  ...(recorded ? {} : { provider: createProvider(getProfile(TRANSLATOR), { gemini: { vault } }) }),
-  ...(textJudge ? { judgeProvider: createProvider(getProfile(JUDGE), { gemini: { vault } }) } : {}),
-  ...(apiKey ? { judgeDecision: { apiKey } } : {}),
+  ...(recorded ? {} : { provider: createProvider(getProfile(TRANSLATOR), { vault }) }),
+  ...(textJudge ? { judgeProvider: createProvider(getProfile(JUDGE), { vault }) } : {}),
+  ...(jevKey ? { judgeDecision: { vault: { ...vault, jev: jevKey } } } : {}),
 });
 const sent = Deno.args.includes('--phoenix') ? await sendToPhoenix(options.traceDir, since) : true;
 Deno.exit(ok && sent ? 0 : 1);

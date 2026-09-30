@@ -20,7 +20,7 @@ import type { ResolveHost } from '../../../guardrails/network.ts';
 import { sanitizeTurnRequest } from '../../../guardrails/sanitize.ts';
 import { resolveObservabilityPolicy } from '../../../observability/resolve-policy.ts';
 import type { TraceSink } from '../../../observability/trace-sink.ts';
-import type { GeminiTransport } from '../../../providers/google/keys.ts';
+import type { GeminiOptions } from '../../../providers/google/keys.ts';
 import {
   buildGeminiLiveRealtimeInput,
   buildGeminiLiveToolResponse,
@@ -63,6 +63,7 @@ import type {
 import { type ProviderEvent, turnDoneOf } from '../../turn-events.ts';
 import type {
   InteractionPart,
+  KeyVault,
   LiveAnswerToolCallArgs,
   LiveExecuteToolArgs,
   LiveExecuteToolResult,
@@ -84,7 +85,9 @@ import { type LiveCloser, type LiveTrace, startLiveTrace } from './session-trace
 export type { LiveSession, SessionRequest };
 
 export interface RunSessionOptions {
-  gemini: GeminiTransport;
+  /** The host's keys by slot; the session uses the slots its profile names. */
+  vault: KeyVault;
+  gemini?: GeminiOptions;
   /** Override socket open (Cloudflare fetch-upgrade, tests). Default: `new WebSocket(url)`. */
   openWebSocket?: (url: string) => Promise<WebSocket>;
   /**
@@ -1105,7 +1108,7 @@ async function openTracedSession(
   const gate = createLiveOutboundGateSession(profile, generation.canary || undefined);
   const connection = await openGoogleLiveSession(
     completeReq,
-    options.gemini,
+    { ...options.gemini, vault: options.vault },
     options.openWebSocket,
   );
   trace.setup(connection.setup);

@@ -55,6 +55,13 @@ function bindCanary(system: string, canary: string, lexicon?: LexiconOverrides):
   return `${system}\n\n${note}`;
 }
 
+/** Appends the lexicon's `user_data.note`, which tells the model what `wrapUserData`'s tags mean. */
+function bindUserDataNote(system: string, lexicon?: LexiconOverrides): string {
+  const note = lexiconText('user_data.note', {}, lexicon);
+  if (!note) return system;
+  return system ? `${system}\n\n${note}` : note;
+}
+
 /**
  * One shape a leaked canary is detected in. The scan reads only the characters
  * the form is written with, so whatever separates them — spaces, dashes, line
@@ -295,6 +302,7 @@ function redactCanary(event: TurnEvent, canary: string): TurnEvent {
 export type { CanaryGateResult, CanaryStreamGate, StreamedReplyEvent };
 export {
   bindCanary,
+  bindUserDataNote,
   canaryHoldFrom,
   createCanaryStreamGate,
   eventHasCanary,

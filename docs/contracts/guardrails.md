@@ -45,6 +45,7 @@ Owns every module under `src/guardrails/`.
 | `mintCanary` | Generate per-turn 32-hex token (128 random bits, no prefix) |
 | `bindCanary` | Append canary note to system prompt |
 | `wrapUserData` | Fence untrusted user text in `<user_data>` |
+| `bindUserDataNote` | Append the `user_data.note` lexicon line, which tells the model what the fence means, to the system prompt of every text, image and live turn (speech has no system prompt). An empty override leaves it out. |
 | `createCanaryStreamGate` | Holds only a tail that could start a leak, for split-token streaming |
 | `scanTextForCanaryLeak` | The token or its base64, read through case and any separator between its characters |
 | `eventHasCanary` | Scan any `TurnEvent` wire shape |
@@ -799,6 +800,7 @@ placeholder.
 | --- | --- | --- |
 | Continue (text profiles; the turn's user message) | `continue.instruction` | lexicon |
 | Canary | `canary.bind_note` | lexicon (must keep `{canary}`) |
+| User-data fence | `user_data.note` | lexicon (empty leaves it out) |
 | Taint / advisory | `taint.*`, `advisory.*` | lexicon |
 | Attachments | `attachments.*` | lexicon (structured codes also exposed) |
 | Errors | `error.<kind>` | lexicon (resolved where the event reaches the host) |

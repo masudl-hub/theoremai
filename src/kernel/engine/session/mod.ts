@@ -1,4 +1,4 @@
-import { bindCanary } from '../../../guardrails/canary.ts';
+import { bindCanary, bindUserDataNote } from '../../../guardrails/canary.ts';
 import {
   describeError,
   errorKind,
@@ -1067,7 +1067,10 @@ async function openTracedSession(
   const hasInitialInput = Boolean(req.input && req.input.length > 0);
   generation = applyInitialInput(generation, req.input);
 
-  const system = bindCanary(generation.resolvedSystem, generation.canary, profile.lexicon);
+  const system = bindUserDataNote(
+    bindCanary(generation.resolvedSystem, generation.canary, profile.lexicon),
+    profile.lexicon,
+  );
   const completeReq: ProviderCompleteRequest = {
     ...providerCompleteRequest(registry.tools, generation, system),
     signal: safe.signal,

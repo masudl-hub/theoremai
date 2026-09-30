@@ -150,6 +150,15 @@ Deno.test('a turn the provider failed before it answered errors instead of count
     (await labelOf(answer(), { stop: 'provider_error', text: 'golden pothos, I think' }))[0],
     'accepted',
   );
+  // The provider's error kind, from the root's status, says which failure it was.
+  const limited = await turnRecord({ stop: 'provider_error' });
+  const root = limited.spans.find((span) => span.name.startsWith('invoke_agent'));
+  if (root) root.status = { code: 'ERROR', message: 'rate_limit' };
+  const trial = buildTrial({ suite: 's', case: POTHOS, index: 0, records: [limited] });
+  assertEquals(
+    (await fromTool.grade(trial, NO_JUDGE)).explanation,
+    'commit_id was not called; the turn stopped provider_error (rate_limit) before it answered',
+  );
   // Only a provider failure: a turn cut off at its length limit had its say.
   assertEquals((await labelOf(fromTool, { stop: 'length' }))[0], 'wrong');
 });

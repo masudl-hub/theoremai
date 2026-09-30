@@ -244,7 +244,8 @@ Deno.test('eval hands a judged suite the judge provider the host passes, and its
     evalCommand({ suite: judged, trials: 1 }, { provider: translator, judgeProvider: dead }),
   );
   assertEquals(down.ok, false);
-  assertStringIncludes(down.out, 'correctness:');
+  // An errored result says why, not only what kind of error.
+  assertStringIncludes(down.out, 'correctness: internal (');
   // A judge that failed every trial decided nothing: no case failed, none passed.
   assertStringIncludes(down.out, '0/0 cases passed (+4 undecided)');
 });

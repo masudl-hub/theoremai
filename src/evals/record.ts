@@ -108,8 +108,9 @@ function startTrialRecord(input: TrialRecordInput): OpenTrialRecord {
     for (const { result, graderIdentity } of results) {
       tree.root.event(RESULT_EVENT, await resultAttributes(result, graderIdentity, responseId));
     }
-    const errored = results.some(({ result }) => result.errorType !== undefined);
-    tree.root.end(errored ? { code: 'ERROR', message: 'grader_error' } : { code: 'OK' });
+    const errorType = results.find(({ result }) => result.errorType !== undefined)?.result
+      .errorType;
+    tree.root.end(errorType ? { code: 'ERROR', message: errorType } : { code: 'OK' });
     const record = await buildRecord({
       spans: tree.collect(),
       policy,

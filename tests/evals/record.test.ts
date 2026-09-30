@@ -123,6 +123,14 @@ Deno.test('an errored result marks the span', async () => {
   await catalogedSink([]).write(record, STUB_WRITE);
   assertEquals(span.status, { code: 'ERROR', message: 'grader_error' });
   assertEquals(span.events[0]?.attributes['error.type'], 'grader_error');
+  // The status names the error the trial hit, not always a grader's.
+  const failed = await startTrialRecord({ trial, policy: POLICY }).finish([
+    {
+      result: { name: 'answer', source: 'code', errorType: 'provider_error' },
+      graderIdentity: 'answer:reply',
+    },
+  ]);
+  assertEquals(failed.span.status, { code: 'ERROR', message: 'provider_error' });
   assertEquals(
     span.events[1]?.attributes['theorem.evaluation.grader.version'],
     await sha256('judge:faithfulness.strict'),

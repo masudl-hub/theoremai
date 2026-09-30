@@ -14,8 +14,7 @@ Hosts own the cases, the judge profiles and the pass rule. THEOREM owns the
 trial view of a trace, the code graders, the judge grader and its rubrics, the
 result records and the verdict math. Viewing, labelling and comparing runs
 belong to the trace viewer the host already uses (Phoenix reads the records
-through `withOpenInference` and `phoenixAnnotations`). Design and locked
-decisions: `docs/proposals/evals.md`.
+through `withOpenInference` and `phoenixAnnotations`).
 
 ## Export
 
@@ -369,8 +368,8 @@ as the grading, with one `gen_ai.evaluation.result` event per result
 (`gen_ai.evaluation.{name, score.value, score.label, explanation}`,
 `gen_ai.response.id` of the judged model call, `error.type`,
 `theorem.evaluation.{source, grader.version, passed}`), and builds the record.
-Status is `ERROR` / `grader_error` when any result
-errored. The record inherits the judged record's metadata, so the same sink
+Status is `ERROR` when any result errored, its message the first errored
+result's `errorType` (`grader_error`, `provider_error`, …). The record inherits the judged record's metadata, so the same sink
 routes it the same way. Phoenix shows the events but does not read them as
 evaluations; `phoenixAnnotations` (`@theoremai/agents/observability/phoenix`)
 turns them into span annotations on the judged root (see the observability

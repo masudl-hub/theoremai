@@ -86,11 +86,12 @@ function result(label: AnswerLabel, explanation: string): EvalResult {
  */
 function unanswered(trial: Trial, why: string): EvalResult | undefined {
   if (trial.root.attributes['theorem.stop.kind'] !== 'provider_error') return undefined;
+  const kind = trial.root.status.message ? ` (${trial.root.status.message})` : '';
   return {
     name: 'answer',
     source: 'code',
     errorType: 'provider_error',
-    explanation: `${why}; the turn stopped provider_error before it answered`,
+    explanation: `${why}; the turn stopped provider_error${kind} before it answered`,
   };
 }
 

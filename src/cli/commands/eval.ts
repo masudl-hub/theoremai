@@ -52,7 +52,10 @@ function rate(part: number, whole: number, left: number, what: string): string {
 function blame(report: TrialReport): string[] {
   return report.results.flatMap((result) => {
     if (result.passed === true) return [];
-    if (result.errorType) return [`${result.name}: ${result.errorType}`];
+    if (result.errorType) {
+      const why = result.explanation ? ` (${result.explanation})` : '';
+      return [`${result.name}: ${result.errorType}${why}`];
+    }
     if (result.passed === false) return [`${result.name}: ${result.explanation ?? 'failed'}`];
     return [];
   });

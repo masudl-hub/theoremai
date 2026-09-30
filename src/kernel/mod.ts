@@ -39,7 +39,7 @@ export {
   splitForCompaction,
 } from './engine/compaction.ts';
 export type { RunDecisionOptions } from './engine/decision.ts';
-export { DecisionError } from './engine/decision.ts';
+export { DecisionError, validateDecisionRequest } from './engine/decision.ts';
 export type { LiveIngressChannel } from './engine/live-ingress.ts';
 export {
   assertLiveIngress,
@@ -222,7 +222,10 @@ export {
   GATE_DECISIONS,
   type GateAnswerRequest,
   type GateDecision,
+  gateExpired,
   type HeldGatedCall,
+  resolveGateTtlMs,
+  sessionPermissionsAfterApproval,
 } from './tools/gate-answer.ts';
 export type { McpProtocolVersion, McpRpcResponse, ToolRegistry } from './tools/mod.ts';
 export {
@@ -252,3 +255,6 @@ export {
   turnToolSnapshotSchema,
 } from './turn-events.ts';
 export type * from './types.ts';
+export { base64ToBytes, bytesToBase64 } from './util/base64.ts';
+export type { Equals } from './util/exact-type.ts';
+export { isRecord } from './util/record.ts';

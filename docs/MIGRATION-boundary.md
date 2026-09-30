@@ -51,11 +51,10 @@ process-wide with `overrideLexicon({ … })`; the profile wins.
 
 ## Composer labels are semantic keys
 
-The repo-private `src/interface/` layer emits `ComposerPrimaryAction` /
+The headless interface (`@theoremjs/agents/interface`) emits `ComposerPrimaryAction` /
 `ComposerMenuAction` keys only (`send` / `stop` / `queue` / …). English labels
 live in the React package's default UI (`@theoremjs/react/ui`), as
-`@theorem.composer.menu.*` lines in `THEOREM_UI_CATALOG`. Neither surface is
-published for now.
+`@theorem.composer.menu.*` lines in `THEOREM_UI_CATALOG`.
 
 ## React: headless hooks, failures, and default wording
 

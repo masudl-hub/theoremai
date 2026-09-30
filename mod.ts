@@ -202,6 +202,7 @@ export {
   shouldCompact,
   splitForCompaction,
 } from './src/kernel/engine/compaction.ts';
+export { validateDecisionRequest } from './src/kernel/engine/decision.ts';
 export { prepareLiveInboundText } from './src/kernel/engine/live-inbound.ts';
 export type { LiveIngressChannel } from './src/kernel/engine/live-ingress.ts';
 export {
@@ -420,8 +421,6 @@ export {
 } from './src/kernel/turn-events.ts';
 export type * from './src/kernel/types.ts';
 export type {
-  JsonlSinkOptions,
-  JsonlTraceDestination,
   OtlpAnyValue,
   OtlpKeyValue,
   OtlpSpan,
@@ -440,7 +439,6 @@ export type {
   TraceBytes,
   TraceClock,
   TraceContent,
-  TraceDestination,
   TraceEventMeta,
   TraceIncludeSpec,
   TraceJson,
@@ -465,10 +463,7 @@ export {
   contentOf,
   getTraceDestination,
   inlineContent,
-  isJsonlTraceDestination,
   isTraceSink,
-  jsonlDestination,
-  jsonlSink,
   listTraceDestinationIds,
   memorySink,
   noopSink,

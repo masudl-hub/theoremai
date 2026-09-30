@@ -345,7 +345,11 @@ const graph = {
       export: './observability',
       doc: 'docs/contracts/observability.md',
       owns: ['src/observability/'],
-      owns_except: ['src/observability/openinference.ts', 'src/observability/phoenix.ts'],
+      owns_except: [
+        'src/observability/jsonl.ts',
+        'src/observability/openinference.ts',
+        'src/observability/phoenix.ts',
+      ],
       validates: ['tests/observability/'],
       required_sections: [
         'Export',
@@ -366,6 +370,15 @@ const graph = {
         { paths: ['src/observability/trace-span.ts'], sections: ['Trace records'] },
         { paths: ['src/observability/otlp.ts'], sections: ['OTLP export'] },
       ],
+    },
+
+    'observability-jsonl': {
+      export: './observability/jsonl',
+      doc: 'docs/contracts/observability.md',
+      owns: ['src/observability/jsonl.ts'],
+      validates: ['tests/observability/jsonl.test.ts'],
+      required_sections: ['Export', 'JSONL sink', 'Exported API'],
+      section_triggers: [{ paths: ['src/observability/jsonl.ts'], sections: ['JSONL sink'] }],
     },
 
     'observability-openinference': {
@@ -437,7 +450,7 @@ const graph = {
     presets: {
       export: './presets',
       doc: 'docs/contracts/presets.md',
-      owns: ['src/presets/mod.ts'],
+      owns: ['src/presets/mod.ts', 'src/presets/typesafe.ts'],
       watches: [
         {
           path: 'src/presets/google.ts',
@@ -485,7 +498,7 @@ const graph = {
     },
 
     interface: {
-      export: '_internal/interface',
+      export: './interface',
       doc: 'docs/contracts/kernel.md',
       owns: ['src/interface/'],
       validates: ['tests/interface/'],
@@ -520,12 +533,13 @@ const graph = {
         'Exported API',
       ],
       section_triggers: [
-        { paths: ['src/evals/types.ts'], sections: ['Suites and cases'] },
+        { paths: ['src/evals/types.ts', 'src/evals/attachments.ts'], sections: ['Suites and cases'] },
         { paths: ['src/evals/trial.ts'], sections: ['Trials'] },
         { paths: ['src/evals/graders/'], sections: ['Graders'] },
         {
           paths: [
             'src/evals/graders/judge.ts',
+            'src/evals/graders/media.ts',
             'src/evals/graders/transcript.ts',
             'src/evals/rubrics/',
           ],
@@ -533,7 +547,12 @@ const graph = {
         },
         { paths: ['src/evals/record.ts', 'src/evals/verdict.ts'], sections: ['Result records'] },
         {
-          paths: ['src/evals/run.ts', 'src/evals/suite.ts', 'src/evals/summary.ts'],
+          paths: [
+            'src/evals/run.ts',
+            'src/evals/suite.ts',
+            'src/evals/summary.ts',
+            'src/evals/breakdown.ts',
+          ],
           sections: ['Running a suite'],
         },
       ],

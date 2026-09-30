@@ -465,7 +465,15 @@ Deno.test('Remote MCP Tool executes successfully per 2026-07-28 spec', async () 
         .params._meta['io.modelcontextprotocol/protocolVersion'],
       '2026-07-28',
     );
+    assertEquals(
+      (receivedRpc as { params: { _meta: Record<string, unknown> } }).params._meta[
+        'io.modelcontextprotocol/clientCapabilities'
+      ],
+      {},
+    );
     assertEquals(receivedHeaders['mcp-protocol-version'], '2026-07-28');
+    assertEquals(receivedHeaders['mcp-method'], 'tools/call');
+    assertEquals(receivedHeaders['mcp-name'], 'create_issue');
     assertEquals(receivedHeaders.accept, 'application/json, text/event-stream');
     assertEquals(receivedHeaders['x-api-key'], 'lin_api_key_xyz');
 

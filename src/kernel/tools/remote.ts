@@ -910,8 +910,10 @@ async function fetchMcpProtocolAttempt(
     params: {
       name: mcpToolName,
       arguments: input,
+      // Stateless servers read the client's capabilities from each call, not from an initialize.
       _meta: {
         'io.modelcontextprotocol/protocolVersion': protocolVersion,
+        'io.modelcontextprotocol/clientCapabilities': {},
       },
     },
   };
@@ -920,7 +922,12 @@ async function fetchMcpProtocolAttempt(
     transport.url,
     {
       method: 'POST',
-      headers: { ...transport.headers, 'MCP-Protocol-Version': protocolVersion },
+      headers: {
+        ...transport.headers,
+        'MCP-Protocol-Version': protocolVersion,
+        'Mcp-Method': jsonRpcPayload.method,
+        'Mcp-Name': mcpToolName,
+      },
       body: JSON.stringify(jsonRpcPayload),
       signal: transport.signal,
     },

@@ -456,7 +456,11 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
   },
   "required": ["repoName", "question"]
 }`,
-      outputJson: `{ "type": "string", "description": "Answer text from DeepWiki" }`,
+      outputJson: `{
+  "type": "object",
+  "properties": { "result": { "type": "string", "description": "Answer text from DeepWiki" } },
+  "required": ["result"]
+}`,
     },
   },
   {

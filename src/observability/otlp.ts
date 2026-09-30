@@ -1,24 +1,9 @@
-/**
- * OTLP/JSON export — trace records reshaped for any OpenTelemetry backend.
- *
- * A pure reshape with no encoder dependency: attributes become `KeyValue[]`,
- * span kinds and status codes their OTLP enum numbers, and every stored
- * reference is inlined (`inlineContent`), so a viewer sees standard semconv
- * messages. Ids stay hex, as OTLP/JSON specifies. To reach a backend that
- * takes protobuf only, send this through an OpenTelemetry Collector.
- *
- * `TraceRecord.metadata` has no record-level slot in OTLP (the resource is the
- * service's identity), so each key lands on the record's top spans as
- * `theorem.metadata.<key>`, where a viewer can filter on it. Blob bytes are
- * not exported (never stored; blob parts keep their hash).
- *
- * @module
- */
+// OTLP has no record-level slot for `TraceRecord.metadata` (the resource is the service's
+// identity), so each key lands on the record's top spans as `theorem.metadata.<key>`.
 
 import { inlineContent, type TraceRecord } from './trace-record.ts';
 import type { TraceSpan, TraceSpanKind, TraceSpanStatus } from './trace-span.ts';
 
-/** OTLP `AnyValue`, as OTLP/JSON writes it. */
 type OtlpAnyValue =
   | { stringValue: string }
   | { boolValue: boolean }
@@ -58,13 +43,10 @@ interface OtlpTraceRequest {
   }[];
 }
 
-/** The instrumentation scope every exported span carries. */
 const SCOPE_NAME = '@theoremjs/agents';
 
-/** OTLP `Span.SpanKind` numbers. */
 const SPAN_KIND: Record<TraceSpanKind, number> = { INTERNAL: 1, CLIENT: 3 };
 
-/** OTLP `Status.StatusCode` numbers. */
 const STATUS_CODE: Record<TraceSpanStatus['code'], number> = { UNSET: 0, OK: 1, ERROR: 2 };
 
 function anyValue(value: unknown): OtlpAnyValue | undefined {
@@ -95,15 +77,12 @@ function keyValues(fields: object): OtlpKeyValue[] {
   });
 }
 
-/** Attributes with every stored reference inlined. */
 function inlined(record: TraceRecord, attributes: object): OtlpKeyValue[] {
   return keyValues(inlineContent(record, attributes) as object);
 }
 
-/** Prefix for the record's host metadata on its top spans. */
 const METADATA_PREFIX = 'theorem.metadata.';
 
-/** The record's metadata as top-span attributes. */
 function metadataAttributes(record: TraceRecord): OtlpKeyValue[] {
   return keyValues(record.metadata ?? {}).map(({ key, value }) => ({
     key: `${METADATA_PREFIX}${key}`,
@@ -111,10 +90,7 @@ function metadataAttributes(record: TraceRecord): OtlpKeyValue[] {
   }));
 }
 
-/**
- * Spans whose parent is not in the record: its root, which may hang under a
- * host `traceparent` span that lives elsewhere.
- */
+/** Includes the root, which may hang under a host `traceparent` span that lives elsewhere. */
 function topSpanIds(record: TraceRecord): Set<string> {
   const ids = new Set(record.spans.map((span) => span.spanId));
   return new Set(
@@ -152,9 +128,8 @@ function otlpSpan(record: TraceRecord, span: TraceSpan, metadata: OtlpKeyValue[]
 }
 
 /**
- * Reshape trace records into one OTLP/JSON `ExportTraceServiceRequest`: one
- * resource per record (its `resource` attributes), one scope, its spans, and
- * the record's metadata on its top spans.
+ * One resource per record, one scope, with every stored reference inlined. For a backend that
+ * takes protobuf only, send this through an OpenTelemetry Collector.
  */
 function toOtlpJson(records: readonly TraceRecord[]): OtlpTraceRequest {
   return {

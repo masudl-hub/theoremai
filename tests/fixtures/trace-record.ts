@@ -1,10 +1,13 @@
-import { DEFAULT_RETAIN_DAYS } from '../../src/observability/resolve-policy.ts';
+import { DEFAULT_RETAIN_DAYS, DEFAULT_ROTATE_MIB } from '../../src/observability/resolve-policy.ts';
 import { TRACE_SCHEMA_URL, type TraceRecord } from '../../src/observability/trace-record.ts';
 import type { TraceWriteContext } from '../../src/observability/trace-sink.ts';
 import type { TraceSpan } from '../../src/observability/trace-span.ts';
 
 /** The write context a default policy hands every sink. */
-const STUB_WRITE: TraceWriteContext = { retainForDays: DEFAULT_RETAIN_DAYS };
+const STUB_WRITE: TraceWriteContext = {
+  retainForDays: DEFAULT_RETAIN_DAYS,
+  rotateAfterMiB: DEFAULT_ROTATE_MIB,
+};
 
 function stubRecord(): TraceRecord {
   return { v: 3, schemaUrl: TRACE_SCHEMA_URL, resource: {}, spans: [], content: {} };

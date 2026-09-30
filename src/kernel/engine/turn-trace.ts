@@ -1,5 +1,5 @@
 import { type ErrorKind, errorKind } from '../../guardrails/error.ts';
-import type { GuardrailEvent } from '../../guardrails/types.ts';
+import type { GuardrailEvent, GuardrailStage, TrustLevel } from '../../guardrails/types.ts';
 import {
   type SpanHandle,
   type SpanLinkInput,
@@ -344,9 +344,69 @@ function guardrailAttributes(guardrail: GuardrailEvent): TraceAttributes {
       severity: hit.severity,
       ...(hit.span ? { start: hit.span.start, end: hit.span.end } : {}),
       ...optional('match', hit.match),
+      ...optional('label', hit.label),
+      ...optional('doc', hit.doc),
     })),
     ...(guardrail.provenance ? { provenance: { ...guardrail.provenance } } : {}),
     ...(guardrail.errorInternal ? { error: traceContent(guardrail.errorInternal) } : {}),
+  };
+}
+
+/**
+ * A guardrail check whose time the trace records: the turn's input and output,
+ * each tool boundary, the checks that run on streamed output, and a live
+ * session's own gates.
+ */
+type GuardrailCheck =
+  | 'input'
+  | 'egress'
+  | 'tool_arguments'
+  | 'taint'
+  | 'tool_result'
+  | 'tool_failure'
+  | 'network'
+  | 'network_request'
+  | StreamCheck
+  | 'live_input';
+
+/**
+ * A check that runs many times on one model call's streamed output: the
+ * progressive gate on each piece of reply text, the canary scan of every other
+ * streamed event, and a live session's gate on each batch it sends.
+ */
+type StreamCheck = 'output_stream' | 'stream_canary' | 'live_output';
+
+/** What a stream check looked at, for its pass record. */
+const STREAM_CHECK_STAGE: Readonly<Record<StreamCheck, GuardrailStage>> = {
+  output_stream: 'output_delta',
+  stream_canary: 'output_delta',
+  live_output: 'live_outbound',
+};
+
+/** One stream check's time and runs so far on a call, and whether it has acted. */
+interface StreamCheckTime {
+  ms: number;
+  runs: number;
+  decided: boolean;
+}
+
+/**
+ * One timed guardrail check as `theorem.guardrail` attributes: its decision,
+ * or a pass (`allow`, no hits) when it let the text through. Trace only; the
+ * host still hears about hits alone.
+ */
+function guardrailCheckAttributes(
+  check: GuardrailCheck,
+  durationMs: number,
+  guardrail: GuardrailEvent | undefined,
+  passed: { stage: GuardrailStage; trust: TrustLevel },
+): TraceAttributes {
+  return {
+    ...(guardrail
+      ? guardrailAttributes(guardrail)
+      : { stage: passed.stage, trust: passed.trust, action: 'allow', hits: [] }),
+    check,
+    duration_ms: durationMs,
   };
 }
 
@@ -678,8 +738,35 @@ interface CallTrace {
   tap: (row: Record<string, unknown>) => void;
   /** Every provider event, before guardrails. */
   observe: (event: ProviderEvent) => void;
+  /** A stream check's decision; it carries the time that check has spent on the call so far. */
   guardrail: (event: GuardrailEvent) => void;
+  /** Add one run of a stream check to this call. */
+  guardTime: (check: StreamCheck, ms: number) => void;
   end: (end: CallEnd) => void;
+}
+
+/** Each stream check that ran on a call and never acted, as one pass with its total time and runs. */
+function recordStreamPasses(
+  span: SpanHandle,
+  checks: ReadonlyMap<StreamCheck, StreamCheckTime>,
+): void {
+  for (const [check, timed] of checks) {
+    if (timed.decided) continue;
+    span.event('theorem.guardrail', {
+      ...guardrailCheckAttributes(check, timed.ms, undefined, {
+        stage: STREAM_CHECK_STAGE[check],
+        trust: 'untrusted',
+      }),
+      runs: timed.runs,
+    });
+  }
+}
+
+/** Every stream check's time on a call, summed: `theorem.guardrail.stream_ms`, when any ran. */
+function streamGuardMs(checks: ReadonlyMap<StreamCheck, StreamCheckTime>): TraceAttributes {
+  let ms = 0;
+  for (const timed of checks.values()) ms += timed.ms;
+  return ms > 0 ? { 'theorem.guardrail.stream_ms': ms } : {};
 }
 
 /** Stops where the model did not finish its output: no finish reason, status `UNSET`. */
@@ -753,6 +840,10 @@ function startCallTrace(
   const errors: TurnEventOf<'error'>[] = [];
   let response: TurnResponse | undefined;
   let native: string | undefined;
+  let firstText = false;
+  const streamChecks = new Map<StreamCheck, StreamCheckTime>();
+  /** The stream check that ran last: a decision right after it is that check's. */
+  let lastCheck: StreamCheck | undefined;
 
   return {
     span,
@@ -766,6 +857,10 @@ function startCallTrace(
         return;
       }
       output.add(event, span.nowUnixNano());
+      if (event.type === 'text' && !firstText) {
+        firstText = true;
+        span.set({ 'theorem.response.time_to_first_text': span.msSinceStart() / MS_PER_S });
+      }
       const grounding = groundingEvent(event);
       if (grounding) span.event('theorem.grounding', grounding);
       if (event.type === 'error') errors.push(event);
@@ -773,7 +868,26 @@ function startCallTrace(
       if (event.type === 'done') native = event.stop.native ?? native;
     },
     guardrail: (guardrail) => {
-      span.event('theorem.guardrail', guardrailAttributes(guardrail));
+      const timed = lastCheck ? streamChecks.get(lastCheck) : undefined;
+      if (!(lastCheck && timed) || timed.decided) {
+        span.event('theorem.guardrail', guardrailAttributes(guardrail));
+        return;
+      }
+      timed.decided = true;
+      span.event('theorem.guardrail', {
+        ...guardrailCheckAttributes(lastCheck, timed.ms, guardrail, {
+          stage: STREAM_CHECK_STAGE[lastCheck],
+          trust: 'untrusted',
+        }),
+        runs: timed.runs,
+      });
+    },
+    guardTime: (check, ms) => {
+      const timed = streamChecks.get(check) ?? { ms: 0, runs: 0, decided: false };
+      timed.ms += ms;
+      timed.runs += 1;
+      streamChecks.set(check, timed);
+      lastCheck = check;
     },
     end: (end) => {
       for (const error of errors) {
@@ -783,6 +897,7 @@ function startCallTrace(
         });
       }
       if (end.thrown !== undefined) recordException(span, end.thrown);
+      recordStreamPasses(span, streamChecks);
       const lastError = errors.at(-1);
       const failure = end.thrown !== undefined ? errorKind(end.thrown) : lastError?.errorKind;
       const outcome = callOutcome(end.stop, failure);
@@ -803,6 +918,7 @@ function startCallTrace(
         ...(end.tokens ? usageAttributes(end.tokens) : {}),
         ...responseAttributes(response, outcome.stopped ? undefined : native, transport),
         ...optional('theorem.stop.kind', end.stop?.kind),
+        ...streamGuardMs(streamChecks),
         ...outcome.attributes,
       });
       span.end(outcome.status);
@@ -913,10 +1029,11 @@ function endTurnSpan(root: SpanHandle, end: TurnEnd): void {
   }
 }
 
-export type { CallEnd, CallTrace, SentToolCall, TracePart, TurnEnd };
+export type { CallEnd, CallTrace, GuardrailCheck, SentToolCall, StreamCheck, TracePart, TurnEnd };
 export {
   endTurnSpan,
   guardrailAttributes,
+  guardrailCheckAttributes,
   OutputFold,
   optional,
   recordException,

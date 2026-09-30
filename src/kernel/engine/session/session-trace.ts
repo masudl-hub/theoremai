@@ -43,6 +43,7 @@ import type { MediaTokenFamily, TokenCount } from '../token-estimate.ts';
 import {
   type CallTrace,
   guardrailAttributes,
+  guardrailCheckAttributes,
   OutputFold,
   optional,
   recordException,
@@ -317,6 +318,22 @@ class LiveTrace {
   /** A guardrail decision on the session (inbound text): on the session span. */
   inbound(event: TurnEventOf<'guardrail'>): void {
     this.root.event('theorem.guardrail', guardrailAttributes(event.guardrail));
+  }
+
+  /** One run of the gate on the model's output, on the open response: a decision after it is its. */
+  outboundTime(ms: number): void {
+    this.response?.call.guardTime('live_output', ms);
+  }
+
+  /** The check on text the host sent into the session, pass or decision, with its time. */
+  inboundCheck(ms: number, event: TurnEventOf<'guardrail'> | undefined): void {
+    this.root.event(
+      'theorem.guardrail',
+      guardrailCheckAttributes('live_input', ms, event?.guardrail, {
+        stage: 'live_inbound',
+        trust: 'untrusted',
+      }),
+    );
   }
 
   /**

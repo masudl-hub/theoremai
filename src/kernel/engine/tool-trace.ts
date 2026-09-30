@@ -1,5 +1,5 @@
 import { errorKind } from '../../guardrails/error.ts';
-import type { ToolOrigin } from '../../guardrails/types.ts';
+import type { GuardrailEvent, GuardrailStage, ToolOrigin } from '../../guardrails/types.ts';
 import {
   type SpanHandle,
   type TraceAttributes,
@@ -10,13 +10,55 @@ import type { ToolPermission } from '../schema.ts';
 import type { ToolFailure, ToolGate } from '../tools/types.ts';
 import type { InteractionPart, TurnEvent } from '../types.ts';
 import {
+  type GuardrailCheck,
   guardrailAttributes,
+  guardrailCheckAttributes,
   optional,
   recordException,
   type SentToolCall,
   toolArgumentsText,
   tracePart,
 } from './turn-trace.ts';
+
+/** A check at the tool boundary: the call's arguments, the remote-content gate, the result, or the network target. */
+type ToolCheck = Extract<
+  GuardrailCheck,
+  'tool_arguments' | 'taint' | 'tool_result' | 'tool_failure' | 'network' | 'network_request'
+>;
+
+const TOOL_CHECK_STAGE: Readonly<Record<ToolCheck, GuardrailStage>> = {
+  tool_arguments: 'tool_call',
+  taint: 'tool_call',
+  tool_result: 'tool_result',
+  tool_failure: 'tool_result',
+  network: 'network',
+  network_request: 'network',
+};
+
+/** Decisions already recorded with their check's time, so `observe` does not record them twice. */
+const timedDecisions = new WeakSet<GuardrailEvent>();
+
+/**
+ * Records one tool-boundary check on the tool's span with the time it took:
+ * its decision, or a pass (`allow`) when it let the call or result through.
+ * Trace only; the host still hears about decisions alone. An untraced call has no span.
+ */
+function recordToolCheck(
+  span: SpanHandle | undefined,
+  check: ToolCheck,
+  durationMs: number,
+  guardrail: GuardrailEvent | undefined,
+): void {
+  if (!span) return;
+  if (guardrail) timedDecisions.add(guardrail);
+  span.event(
+    'theorem.guardrail',
+    guardrailCheckAttributes(check, durationMs, guardrail, {
+      stage: TOOL_CHECK_STAGE[check],
+      trust: 'untrusted',
+    }),
+  );
+}
 
 /** How a tool call ended. Only `error` is a failure; the rest were stopped or finished. */
 type ToolOutcome = 'ok' | 'error' | 'denied' | 'gated' | 'paused' | 'cancelled';
@@ -113,7 +155,7 @@ function startToolTrace(
   return {
     span,
     observe: (event) => {
-      if (event.type === 'guardrail') {
+      if (event.type === 'guardrail' && !timedDecisions.has(event.guardrail)) {
         span.event('theorem.guardrail', guardrailAttributes(event.guardrail));
       }
       if (event.type === 'tool' && event.tool.phase === 'gate') {
@@ -153,5 +195,5 @@ function startToolTrace(
   };
 }
 
-export type { ToolCallEnd, ToolCallStart, ToolCallTrace, ToolOutcome };
-export { startToolTrace, toolSpanName };
+export type { ToolCallEnd, ToolCallStart, ToolCallTrace, ToolCheck, ToolOutcome };
+export { recordToolCheck, startToolTrace, toolSpanName };

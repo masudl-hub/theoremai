@@ -1,14 +1,6 @@
 /**
- * OpenInference attributes for viewers that read them (Phoenix).
- *
- * Phoenix maps the GenAI semconv span kinds, models and token counts on its
- * own, but its message views (the chat bubbles, Replay, the Input and Output
- * columns) read only OpenInference names, as do reasoning tokens and cost.
- * This module copies them onto each span, beside the semconv names, so the
- * kernel and `toOtlpJson` stay viewer-neutral. Hosts that don't use such a
- * viewer never load it.
- *
- * Names: https://github.com/Arize-ai/openinference/blob/main/spec/semantic_conventions.md
+ * OpenInference attributes for Phoenix, whose message views, reasoning tokens and cost read only
+ * OpenInference names; they are copied beside the semconv names so `toOtlpJson` stays neutral.
  *
  * @module
  */
@@ -17,30 +9,20 @@ import { isRecord } from '../kernel/util/record.ts';
 import { inlineContent, type TraceRecord } from './trace-record.ts';
 import type { TraceAttributes, TraceAttributeValue, TraceSpan } from './trace-span.ts';
 
-/** The operations that are one model call (semconv `gen_ai.operation.name`). */
 const MODEL_CALLS: ReadonlySet<unknown> = new Set(['chat', 'generate_content']);
 
-/** The operations that are one turn or session (semconv `gen_ai.operation.name`). */
 const AGENT_CALLS: ReadonlySet<unknown> = new Set(['invoke_agent']);
 
-/** A Jev decision (`theorem.decision.*`): one model call over JSON state, with no messages. */
+/** A decision (`theorem.decision.*`): one model call over JSON state, with no messages. */
 const DECISION = 'decide';
 
-/**
- * The eval spans (`theorem.eval.*`), which carry no semconv operation: a
- * trial grades one turn, so it is an evaluator; a run strings the trials
- * together, so it is a chain.
- */
+/** Eval spans carry no semconv operation: a trial grades one turn, a run chains the trials. */
 const EVAL_KINDS: Readonly<Record<string, string>> = {
   'theorem.eval.trial': 'EVALUATOR',
   'theorem.eval.run': 'CHAIN',
 };
 
-/**
- * OpenInference names for one model call's usage. Only model calls carry them:
- * a viewer sums them across a trace, and an agent span's usage is already the
- * sum of its calls.
- */
+/** Model calls only: a viewer sums usage across a trace, and an agent span's is already a sum. */
 function openInferenceUsage(attributes: TraceAttributes): TraceAttributes {
   const reasoning = attributes['gen_ai.usage.reasoning.output_tokens'];
   const cost = attributes['theorem.usage.cost_usd'];
@@ -55,7 +37,6 @@ function openInferenceUsage(attributes: TraceAttributes): TraceAttributes {
   };
 }
 
-/** One semconv message part, once its stored content is inlined. */
 interface Part {
   type?: unknown;
   content?: unknown;
@@ -71,7 +52,6 @@ interface Message {
   parts: Part[];
 }
 
-/** The semconv messages under a key, inlined; anything else is no message. */
 function messagesOf(record: TraceRecord, value: TraceAttributeValue | undefined): Message[] {
   const inlined = inlineContent(record, value);
   if (!Array.isArray(inlined)) return [];
@@ -82,7 +62,6 @@ function messagesOf(record: TraceRecord, value: TraceAttributeValue | undefined)
   });
 }
 
-/** A part's text as a reader would want it: its content, its JSON, or its modality named. */
 function partText(part: Part): string | undefined {
   if (part.type === 'text' && typeof part.content === 'string') return part.content;
   if (part.type === 'structured' && part.content !== undefined) return JSON.stringify(part.content);
@@ -91,7 +70,7 @@ function partText(part: Part): string | undefined {
   return undefined;
 }
 
-/** Whether a text part is the structured part's JSON as the model typed it: shown once, as the JSON. */
+/** A text part that repeats the structured part's JSON is shown once, as the JSON. */
 function repeatsStructured(part: Part, structured: Part | undefined): boolean {
   if (structured === undefined || part.type !== 'text' || typeof part.content !== 'string') {
     return false;
@@ -103,7 +82,6 @@ function repeatsStructured(part: Part, structured: Part | undefined): boolean {
   }
 }
 
-/** The text of a message: its readable parts, one per line. */
 function messageText(message: Message): string {
   const structured = message.parts.find((part) => part.type === 'structured');
   return message.parts
@@ -112,7 +90,6 @@ function messageText(message: Message): string {
     .join('\n');
 }
 
-/** One message as OpenInference's flattened `message.*` attributes under a prefix. */
 function messageAttributes(prefix: string, message: Message): TraceAttributes {
   const out: TraceAttributes = { [`${prefix}.message.role`]: message.role };
   const text = messageText(message);
@@ -155,7 +132,6 @@ function valueAttributes(side: 'input' | 'output', messages: readonly Message[])
   };
 }
 
-/** A model call's messages: system instructions first, then what it read; then what it wrote. */
 function openInferenceModelMessages(record: TraceRecord, span: TraceSpan): TraceAttributes {
   const system = messagesOf(
     record,
@@ -179,7 +155,6 @@ function openInferenceModelMessages(record: TraceRecord, span: TraceSpan): Trace
   };
 }
 
-/** A turn's input and output as the values a trace list shows. */
 function openInferenceAgentValues(record: TraceRecord, span: TraceSpan): TraceAttributes {
   return {
     ...valueAttributes('input', messagesOf(record, span.attributes['gen_ai.input.messages'])),
@@ -187,7 +162,6 @@ function openInferenceAgentValues(record: TraceRecord, span: TraceSpan): TraceAt
   };
 }
 
-/** A stored JSON attribute as an OpenInference JSON value; nothing when it was not recorded. */
 function jsonValue(
   record: TraceRecord,
   side: 'input' | 'output',
@@ -201,11 +175,8 @@ function jsonValue(
 }
 
 /**
- * A decision as an LLM span: Phoenix derives no kind for an operation
- * semconv does not name, and has no price for Jev, so the kind, model, token
- * counts and cost are stated; the
- * state is the input and the answers the output. It has no messages, so
- * Phoenix cannot replay it.
+ * Phoenix derives no kind for an operation semconv does not name, and has no price for Jev, so
+ * the kind, model, tokens and cost are stated. It has no messages, so Phoenix cannot replay it.
  */
 function openInferenceDecision(record: TraceRecord, span: TraceSpan): TraceAttributes {
   const { attributes } = span;
@@ -215,7 +186,9 @@ function openInferenceDecision(record: TraceRecord, span: TraceSpan): TraceAttri
   return {
     'openinference.span.kind': 'LLM',
     ...(typeof model === 'string' ? { 'llm.model_name': model } : {}),
-    'llm.provider': 'typesafe',
+    ...(typeof attributes['gen_ai.provider.name'] === 'string'
+      ? { 'llm.provider': attributes['gen_ai.provider.name'] }
+      : {}),
     ...(typeof input === 'number' ? { 'llm.token_count.prompt': input } : {}),
     ...(typeof output === 'number' ? { 'llm.token_count.completion': output } : {}),
     ...(typeof input === 'number' && typeof output === 'number'
@@ -258,13 +231,7 @@ function withSpanAttributes(record: TraceRecord, span: TraceSpan): TraceSpan {
   return span;
 }
 
-/**
- * The records with OpenInference names added: usage and messages on every
- * model-call span, input and output values on every agent span, a
- * decision's kind, model, tokens, cost, state and answers, and the kind of
- * every eval trial and run span. Pure: the
- * input records are not changed. Export with `toOtlpJson(withOpenInference(records))`.
- */
+/** Pure: input records are not changed. Export with `toOtlpJson(withOpenInference(records))`. */
 function withOpenInference(records: readonly TraceRecord[]): TraceRecord[] {
   return records.map((record) => ({
     ...record,

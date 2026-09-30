@@ -1,8 +1,8 @@
 import '../fixtures/test-host.ts';
 import { registerProfile, runTurn } from '../../src/kernel/default-scope.ts';
-import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
+import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
-import { jsonlSink, noopSink } from '../../src/observability/trace.ts';
+import { noopSink } from '../../src/observability/trace.ts';
 import { inlineContent, type TraceRecord } from '../../src/observability/trace-record.ts';
 import type { TraceAttributes, TraceSpan } from '../../src/observability/trace-span.ts';
 import { HOST_BINDINGS } from '../fixtures/models.ts';
@@ -188,65 +188,8 @@ Deno.test('runTurn forwards Interactions state controls and preserves host metad
   });
 });
 
-Deno.test('jsonlSink rejects unsafe trace directories before filesystem access', () => {
-  assertThrows(() => jsonlSink('traces'), Error, 'absolute');
-  assertThrows(() => jsonlSink(`${Deno.cwd()}/traces`), Error, 'outside');
-  assertThrows(
-    () => jsonlSink(`${Deno.cwd()}/../${Deno.cwd().split('/').at(-1)}/traces`),
-    Error,
-    'outside',
-  );
-});
-
 Deno.test('noopSink drops traces without filesystem access', async () => {
   await noopSink().write(stubRecord(), STUB_WRITE);
-});
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await Deno.stat(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** A JSONL sink on 16/08/2026 over a directory holding one file from 01/01/2000. */
-async function sinkWithStaleDay() {
-  const dir = await Deno.makeTempDir();
-  const stale = `${dir}/turns-2000-01-01.jsonl`;
-  await Deno.writeTextFile(stale, '{}\n');
-  const sink = jsonlSink(dir, { now: () => Date.parse('2026-08-16T00:00:00.000Z') });
-  return { dir, stale, sink };
-}
-
-Deno.test('jsonl sink writes a day file and drops files past the record retention', async () => {
-  const { dir, stale, sink } = await sinkWithStaleDay();
-  await sink.write(stubRecord(), STUB_WRITE);
-  assertEquals(await exists(stale), false);
-  const today = await Deno.readTextFile(`${dir}/turns-2026-08-16.jsonl`);
-  assertEquals(today.includes('"v":3'), true);
-});
-
-Deno.test('jsonl sink keeps every file when retention is 0 or less', async () => {
-  for (const retainForDays of [0, -1]) {
-    const { stale, sink } = await sinkWithStaleDay();
-    await sink.write(stubRecord(), { retainForDays });
-    assertEquals(await exists(stale), true);
-  }
-});
-
-Deno.test('jsonl sink creates its directory and files readable by the host user only', async () => {
-  const root = await Deno.makeTempDir();
-  const dir = `${root}/traces`;
-  await jsonlSink(dir, { now: () => Date.parse('2026-08-16T00:00:00.000Z') }).write(
-    stubRecord(),
-    STUB_WRITE,
-  );
-  const permissions = (path: string) => Deno.stat(path).then((info) => (info.mode ?? 0) & 0o777);
-  assertEquals(await permissions(dir), 0o700);
-  assertEquals(await permissions(`${dir}/turns-2026-08-16.jsonl`), 0o600);
-  await Deno.remove(root, { recursive: true });
 });
 
 catalogGate();

@@ -1,18 +1,9 @@
-/**
- * Trace record shapes. Each is a documented type and a zod schema checked
- * against it (`Equals`): the type is what builders read; the schema is what a
- * reader runs. A field in one and not the other fails the build.
- *
- * A trace record crosses a wire (the live relay's `trace` envelope), so a
- * reader parses it with `traceRecordSchema` before touching it.
- *
- * @module
- */
+// Each type is checked against its zod schema (`Equals`), so a field in one and not the other fails
+// the build. A record crosses a wire, so a reader parses it with `traceRecordSchema` first.
 
 import { z } from 'zod';
 import type { Equals } from '../kernel/util/exact-type.ts';
 
-/** Version of the trace record format. */
 export const TRACE_VERSION = 3;
 
 /** JSON-shaped attribute value (OTLP `AnyValue`). */
@@ -34,11 +25,9 @@ const traceAttributeValue: z.ZodType<TraceAttributeValue> = z.lazy(() =>
   ]),
 );
 
-/** Span or event attributes keyed by semantic-convention name. */
 export type TraceAttributes = Record<string, TraceAttributeValue>;
 const traceAttributes = z.record(z.string(), traceAttributeValue);
 true satisfies Equals<z.infer<typeof traceAttributes>, TraceAttributes>;
-/** `TraceAttributes`, checked. */
 export const traceAttributesSchema: z.ZodType<TraceAttributes> = traceAttributes;
 
 /** OTLP span kind. THEOREM emits INTERNAL (agent, tool) and CLIENT (model call). */
@@ -70,7 +59,6 @@ const traceSpanLink = z.object({
 });
 true satisfies Equals<z.infer<typeof traceSpanLink>, TraceSpanLink>;
 
-/** Timestamped annotation on a span. */
 export interface TraceSpanEvent {
   name: string;
   timeUnixNano: string;
@@ -83,7 +71,6 @@ const traceSpanEvent = z.object({
 });
 true satisfies Equals<z.infer<typeof traceSpanEvent>, TraceSpanEvent>;
 
-/** One closed span. */
 export interface TraceSpan {
   traceId: string;
   spanId: string;

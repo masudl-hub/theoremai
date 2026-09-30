@@ -80,6 +80,7 @@ The shipped wording for every span, attribute, event and value is the trace cata
 | `theorem.error.public` | hash of the error the caller received, on a failed turn |
 | `error.type` | the failure's kind (`rate_limit`, `unavailable`, … — see [Public errors](../contracts/guardrails.md#public-errors)), or the failing stop (`provider_error`, `stream_incomplete`) when nothing named a kind |
 | `theorem.clock` | `io` inside a Cloudflare Worker (P6) |
+| `theorem.turn.time_to_first_text` | seconds from the turn's start to the first text the host received, after guardrail holdback |
 
 **Status:** `ERROR` for `provider_error`, `stream_incomplete` or a throw. `OK` for `completed`, `length` and `generation_complete`. `UNSET` for the stops a person or policy chose (`tool`, `gate`, `filtered`, `cancelled`, `interrupted`).
 
@@ -102,7 +103,8 @@ The shipped wording for every span, attribute, event and value is the trace cata
   "provenance": { "origin": "http", "tool": "track_shipment", "depth": 1 } }
 ```
 
-- `action` is `redact`, `flag` or `block`.
+- `action` is `redact`, `flag` or `block`; the input and egress checks also record a pass as `allow`.
+- `check` and `duration_ms` name the check and how long it took: `input` and `egress` on the turn (`live_input` on a live session); `output_stream`, `stream_canary` and `live_output` on a model call, once per call with `runs`; and `tool_arguments`, `taint`, `tool_result`, `tool_failure`, `network` and `network_request` on a tool's span.
 - `start` / `end` are present when the check had offsets.
 - `match` is kept only under `guardrailMatchPreview`.
 - The whole event is kept only under `guardrailDecisions`.
@@ -124,6 +126,8 @@ The shipped wording for every span, attribute, event and value is the trace cata
 | `gen_ai.response.id` | as the provider reported it; absent when not reported |
 | `gen_ai.response.finish_reasons` (chat) / `gen_ai.response.status` (Gemini) | the provider's own stop value. Absent when the call was stopped (cancelled, interrupted), because the provider never said. |
 | `gen_ai.response.time_to_first_chunk` | seconds from the start of the successful streamed HTTP try to its first chunk |
+| `theorem.response.time_to_first_text` | seconds from the call's start to its first text |
+| `theorem.guardrail.stream_ms` | milliseconds the stream checks spent on this call, the sum of their `theorem.guardrail` events; absent when they took none |
 | `gen_ai.system_instructions`, `gen_ai.tool.definitions` | hash parts (identical across calls, so one hash each) |
 | `gen_ai.input.messages` | everything the model read on this call, in kernel order. On a continuation this includes the stored interaction. |
 | `theorem.input.sent_from` | index in `input.messages` where the wire payload starts (continuations send only the tail) |

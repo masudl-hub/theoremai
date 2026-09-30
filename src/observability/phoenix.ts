@@ -1,16 +1,6 @@
 /**
- * Eval results as Phoenix span annotations.
- *
- * A trial's results travel as `gen_ai.evaluation.result` events on its
- * `theorem.eval.trial` span, which Phoenix shows as span events but does not
- * read as evaluations. Its Annotations column, filters and experiment views
- * read span annotations, which it takes over REST
- * (`POST /v1/span_annotations`), not OTLP. This module turns the events into
- * that request body, each annotation on the judged root (the trial span's
- * parent), so a host that views traces in Phoenix sends the body beside the
- * records. Pure: it builds the body, the host posts it.
- *
- * API: https://arize.com/docs/phoenix/sdk-api-reference/rest-api/api-reference/spans
+ * Eval results as Phoenix span annotations, which Phoenix reads over REST
+ * (`POST /v1/span_annotations`), not OTLP. Pure: it builds the body, the host posts it.
  *
  * @module
  */
@@ -21,11 +11,9 @@ import type { TraceAttributes, TraceAttributeValue, TraceSpan } from './trace-sp
 const TRIAL_SPAN = 'theorem.eval.trial';
 const RESULT_EVENT = 'gen_ai.evaluation.result';
 
-/** One annotation as Phoenix's `/v1/span_annotations` takes it. */
 interface PhoenixSpanAnnotation {
   /** The judged root span, as OTLP hex. */
   span_id: string;
-  /** The grader's name (`gen_ai.evaluation.name`). */
   name: string;
   /** `LLM` for a judge's result, `CODE` for a code grader's. */
   annotator_kind: 'LLM' | 'CODE';
@@ -39,7 +27,6 @@ function scalar(value: TraceAttributeValue | undefined): string | number | boole
     : undefined;
 }
 
-/** Keep the entries whose value is present. */
 function present(
   entries: Record<string, string | number | boolean | undefined>,
 ): Record<string, string | number | boolean> {
@@ -48,7 +35,7 @@ function present(
   return kept;
 }
 
-/** The explanation as stored text; nothing when the policy did not keep it. */
+/** `undefined` when the policy did not keep the explanation. */
 function explanationOf(
   record: TraceRecord,
   value: TraceAttributeValue | undefined,
@@ -89,11 +76,9 @@ function annotation(
 }
 
 /**
- * Every eval result in the records as a Phoenix span annotation, on the span
- * the trial judged. Records without trial spans add nothing. Send as
- * `{ data: phoenixAnnotations(records) }` to `POST /v1/span_annotations`;
- * Phoenix keeps one annotation per span and name, so grading the same
- * record again replaces its annotations.
+ * Each annotation lands on the root the trial judged. Send as
+ * `{ data: phoenixAnnotations(records) }`; Phoenix keeps one annotation per span and name, so
+ * grading a record again replaces them.
  */
 function phoenixAnnotations(records: readonly TraceRecord[]): PhoenixSpanAnnotation[] {
   return records.flatMap((record) =>

@@ -1,4 +1,4 @@
-# Observability (`@theoremai/agents/observability`)
+# Observability (`@theoremjs/agents/observability`)
 
 Trace sinks, destination registry, and profile observability policy. THEOREM
 does not own a database, does not read trace-related environment variables for
@@ -9,10 +9,11 @@ sinks die set `TraceSink.onError` or `observability.onWriteError`.
 
 | Field | Value |
 | --- | --- |
-| Import | `@theoremai/agents/observability` / `jsr:@theoremai/agents/observability` |
+| Import | `@theoremjs/agents/observability` / `jsr:@theoremjs/agents/observability` |
 | Module | `src/observability/mod.ts` |
-| Viewer attributes | `@theoremai/agents/observability/openinference` → `src/observability/openinference.ts` (optional) |
-| Viewer annotations | `@theoremai/agents/observability/phoenix` → `src/observability/phoenix.ts` (optional) |
+| File sink | `@theoremjs/agents/observability/jsonl` → `src/observability/jsonl.ts` (Node, Deno and Bun; keeps the filesystem out of browser and Worker bundles) |
+| Viewer attributes | `@theoremjs/agents/observability/openinference` → `src/observability/openinference.ts` (optional) |
+| Viewer annotations | `@theoremjs/agents/observability/phoenix` → `src/observability/phoenix.ts` (optional) |
 
 ## Ownership
 
@@ -22,8 +23,9 @@ sinks die set `TraceSink.onError` or `observability.onWriteError`.
 | `src/observability/resolve-policy.ts` | `resolveObservabilityPolicy` (pure defaults; no sinks) |
 | `src/observability/policy.ts` | `resolveTraceWriter` (writer precedence, per-trace sampling) |
 | `src/observability/destinations.ts` | Named destination registry |
-| `src/observability/trace-sink.ts` | `TraceSink` contract (type-only; safe for non-Deno host type graphs) |
-| `src/observability/trace.ts` | Sink implementations + `writeTrace` |
+| `src/observability/trace-sink.ts` | `TraceSink` contract (type-only) |
+| `src/observability/trace.ts` | `memorySink`, `noopSink`, `writeTrace` |
+| `src/observability/jsonl.ts` | `jsonlSink` (daily rotating JSONL files; its own export) |
 | `src/observability/trace-span.ts` | Span builder (`startTrace`), content markers, `traceparent` helpers |
 | `src/observability/trace-record.ts` | `TraceRecord` shape, `buildRecord` (scrub + include), `contentOf`, `inlineContent` |
 | `src/observability/otlp.ts` | `toOtlpJson` (records → OTLP/JSON request) |
@@ -37,7 +39,7 @@ Declare policy on the profile. Prefer a host-registered destination id; pass a
 `TraceSink` only for tests or custom exporters.
 
 ```ts
-registerTraceDestination('prod', jsonlDestination('/var/log/theorem'));
+registerTraceDestination('prod', jsonlSink('/var/log/theorem'));
 
 defineProfile({
   // …
@@ -73,7 +75,7 @@ defineProfile({
 | `include.*` | Which attribute and event families land in a record (table below) |
 | `scrub.*` | Scrubbing of **stored** text — independent of `profile.guardrails` |
 | `retainForDays` | Days to keep each record. Handed to every destination with the record (`TraceWriteContext`), including an explicit sink. `<= 0` keeps records forever. Default 14 |
-| `rotateAfterMiB` | JSONL file size before rotating, when `writeTo` resolves to a jsonl destination. Default 32 |
+| `rotateAfterMiB` | File size before a file-based destination starts a new file. Handed to every destination with the record (`TraceWriteContext`). Default 32 |
 | `onWriteError` | Host hook on build/write failure (never fails the turn) |
 
 | Include flag | Default | Governs |
@@ -117,8 +119,7 @@ for await (const event of runTurn(request, provider)) {
 
 | API | Role |
 | --- | --- |
-| `registerTraceDestination(id, dest)` | Register a `TraceSink` or `{ kind: 'jsonl', dir }` |
-| `jsonlDestination(dir)` | Build a JSONL destination descriptor |
+| `registerTraceDestination(id, sink)` | Register a `TraceSink` under a non-empty id; anything without a `write` function throws `config` |
 | `getTraceDestination` / `requireTraceDestination` | Lookup (throws `TheoremError` if unregistered) |
 | `listTraceDestinationIds` / `clearTraceDestinations` | Introspection / tests |
 
@@ -138,19 +139,15 @@ for await (const event of runTurn(request, provider, jsonlSink(hostTraceDir))) {
 | --- | --- |
 | `noopSink()` | Drop records (default when omitted and no profile writeTo) |
 | `memorySink(into)` | Append `TraceRecord`s to a caller-owned array |
-| `jsonlSink(dir, options?)` | Daily rotating JSONL under a host-chosen directory |
+| `jsonlSink(dir, options?)` | Daily rotating JSONL under a host-chosen directory ([JSONL sink](#jsonl-sink)) |
 | `TraceSink.onError` | Optional hook for build/write failures (never fails the turn) |
 
 `TraceSink.write(record, context)` receives the record and its
-`TraceWriteContext` — `{ retainForDays }` from the observability policy of the
-profile that wrote it. Retention has one owner: a host store computes its own
-expiry from `context.retainForDays` (for example `retain_until`, null when
-`<= 0`), and the JSONL writer prunes by the same value.
-
-`jsonlSink(dir, { rotateAfterMiB?, now? })` writes one record per line to
-`turns-YYYY-MM-DD.jsonl`, rotates around `rotateAfterMiB` (default 32), and on
-each write removes day files older than the record's `retainForDays`
-(`<= 0` removes nothing). Directory creation is recursive.
+`TraceWriteContext` — `{ retainForDays, rotateAfterMiB }` from the
+observability policy of the profile that wrote it. Storage policy has one
+owner: a host store computes its own expiry from `context.retainForDays` (for
+example `retain_until`, null when `<= 0`), and the JSONL writer prunes and
+rotates by the same values.
 
 `writeTrace(sink, recordPromise, policy)` awaits the record and writes it with
 the policy's write context. Errors from
@@ -159,6 +156,30 @@ never abort the turn. `writeSpans(sink, spans, policy, metadata?)` (internal)
 builds a finished trace's record under the policy and writes it the same way;
 tool calls and decisions write through it. Production hosts should set `onError` / `onWriteError`
 (log, metric, alert) so dying disks/permissions are visible.
+
+## JSONL sink
+
+`jsonlSink` is its own entry point, `@theoremjs/agents/observability/jsonl`,
+because it writes files through Node's `node:fs` (Node, Deno and Bun all
+provide it). Browser and Worker bundles import `@theoremjs/agents` and
+`@theoremjs/agents/observability` without pulling in the filesystem.
+
+```ts
+import { jsonlSink } from '@theoremjs/agents/observability/jsonl';
+
+registerTraceDestination('prod', jsonlSink('/var/log/theorem'));
+```
+
+`jsonlSink(dir, { now? })` writes one record per line to
+`turns-YYYY-MM-DD.jsonl`. On each write it:
+
+- creates `dir` if needed, readable by the host's user only (`0700`, files `0600`);
+- removes day files older than the record's `retainForDays` (`<= 0` removes nothing);
+- starts `turns-YYYY-MM-DD-<ms>.jsonl` once the day file reaches the record's
+  `rotateAfterMiB`.
+
+`dir` must be absolute and outside the working directory; anything else throws
+`config` when the sink is built, before any filesystem access.
 
 ## Sensitive storage
 
@@ -282,7 +303,7 @@ nested key the catalog cannot describe.
 dependency:
 
 - One `resourceSpans` entry per record (its `resource`), one scope named
-  `@theoremai/agents`, carrying the record's `schemaUrl`.
+  `@theoremjs/agents`, carrying the record's `schemaUrl`.
 - Span kinds and status codes become their OTLP enum numbers; ids stay hex;
   integers become decimal-string `intValue`; objects and arrays become
   `kvlistValue` / `arrayValue`; `null` attributes are left out.
@@ -335,7 +356,7 @@ Phoenix maps the GenAI semconv span kinds, models and token counts itself, but
 its message views (the chat bubbles, Replay, the Input and Output columns of
 the trace list), reasoning tokens and cost read only [OpenInference names](https://github.com/Arize-ai/openinference/blob/main/spec/semantic_conventions.md).
 `withOpenInference(records)`, imported from
-`@theoremai/agents/observability/openinference`, returns copies whose spans
+`@theoremjs/agents/observability/openinference`, returns copies whose spans
 also carry:
 
 | Span | OpenInference | From |
@@ -345,8 +366,8 @@ also carry:
 | model call | `llm.input_messages.{i}.message.role` / `.content` / `.tool_calls.{k}.tool_call.*` / `.tool_call_id` | `gen_ai.system_instructions` as a `system` message first, then `gen_ai.input.messages` |
 | model call | `llm.output_messages.{i}.message.*` | `gen_ai.output.messages`, else Live's `theorem.output.delivered` |
 | model call and `invoke_agent` | `input.value`, `input.mime_type`, `output.value`, `output.mime_type` | The messages above (system instructions left out): one message with text is written as `text/plain`, anything else as JSON `[{role, content}]` |
-| decision (`decide`) | `openinference.span.kind: LLM`, `llm.model_name`, `llm.provider: typesafe`, `llm.token_count.{prompt, completion, total}` | `gen_ai.response.model` (else the requested model) and `gen_ai.usage.*`: Phoenix derives no kind for an operation semconv does not name |
-| decision | `llm.cost.total` | `theorem.usage.cost_usd` (Jev's fixed price over its tokens): Phoenix's own price table has no Jev |
+| decision (`decide`) | `openinference.span.kind: LLM`, `llm.model_name`, `llm.provider`, `llm.token_count.{prompt, completion, total}` | `gen_ai.response.model` (else the requested model), `gen_ai.provider.name`, and `gen_ai.usage.*`: Phoenix derives no kind for an operation semconv does not name |
+| decision | `llm.cost.total` | `theorem.usage.cost_usd` when reported by OpenRouter or priced for direct TypeSafe Jev |
 | decision | `input.value` / `output.value` as `application/json` | `theorem.decision.state` and `theorem.decision.answers`, inlined; a decision has no messages, so Phoenix cannot replay it |
 | `theorem.eval.trial` / `theorem.eval.run` | `openinference.span.kind: EVALUATOR` / `CHAIN` | The span name: a trial grades one turn, a run strings trials together; without a kind Phoenix lists them as `unknown` |
 
@@ -374,7 +395,7 @@ Eval results travel as `gen_ai.evaluation.result` events on a
 events, but its Annotations column, filters and experiment views read span
 annotations, which it takes over REST (`POST /v1/span_annotations`), not
 OTLP. `phoenixAnnotations(records)`, imported from
-`@theoremai/agents/observability/phoenix`, builds that request's `data`: one
+`@theoremjs/agents/observability/phoenix`, builds that request's `data`: one
 annotation per result, on the judged root (the trial span's parent).
 
 | Annotation field | From |
@@ -399,26 +420,27 @@ from that table, not from a span's `llm.cost.total`.
 
 | Export | Kind |
 | --- | --- |
-| `TraceSink`, `TraceWriteContext`, `JsonlSinkOptions` | type |
+| `TraceSink`, `TraceWriteContext` | type |
 | `TraceRecord` | type |
 | `TraceSpan`, `TraceSpanEvent`, `TraceSpanKind`, `TraceSpanLink`, `TraceSpanStatus` | type |
 | `TraceAttributes`, `TraceAttributeValue`, `TraceContent`, `TraceBytes`, `TraceJson` | type |
 | `TraceTree`, `SpanHandle`, `SpanOptions`, `SpanLinkInput`, `TraceClock` | type |
-| `TraceDestination`, `JsonlTraceDestination` | type |
 | `ProfileObservabilitySpec`, `TraceIncludeSpec`, `TraceScrubSpec` | type |
 | `ResolvedObservabilityPolicy`, `ResolvedTraceInclude`, `ResolvedTraceScrub` | type |
-| `jsonlSink`, `memorySink`, `noopSink` | function |
+| `memorySink`, `noopSink` | function |
+| `jsonlSink` (from `@theoremjs/agents/observability/jsonl`) | function |
+| `JsonlSinkOptions` (from `@theoremjs/agents/observability/jsonl`) | type |
 | `writeTrace` | function |
 | `buildRecord`, `contentOf`, `inlineContent` | function |
 | `toOtlpJson` | function |
-| `withOpenInference` (from `@theoremai/agents/observability/openinference`) | function |
-| `phoenixAnnotations` (from `@theoremai/agents/observability/phoenix`) | function |
-| `PhoenixSpanAnnotation` (from `@theoremai/agents/observability/phoenix`) | type |
+| `withOpenInference` (from `@theoremjs/agents/observability/openinference`) | function |
+| `phoenixAnnotations` (from `@theoremjs/agents/observability/phoenix`) | function |
+| `PhoenixSpanAnnotation` (from `@theoremjs/agents/observability/phoenix`) | type |
 | `OtlpTraceRequest`, `OtlpSpan`, `OtlpKeyValue`, `OtlpAnyValue` | type |
 | `startTrace`, `traceContent`, `traceBytes`, `traceJson` | function |
-| `registerTraceDestination`, `jsonlDestination`, `requireTraceDestination`, `getTraceDestination` | function |
+| `registerTraceDestination`, `requireTraceDestination`, `getTraceDestination` | function |
 | `listTraceDestinationIds`, `clearTraceDestinations` | function |
-| `isJsonlTraceDestination`, `isTraceSink` | function |
+| `isTraceSink` | function |
 | `resolveObservabilityPolicy`, `resolveTraceWriter` | function |
 | `traceSpanMeta`, `traceAttributeMeta`, `traceEventMeta`, `traceEventAttributeMeta` | function |
 | `TRACE_ATTRIBUTE_GROUPS`, `TRACE_STATUS`, `TRACE_FIELDS`, `TRACE_SPAN_TYPES` | const |
@@ -457,6 +479,12 @@ from that table, not from a span's `llm.cost.total`.
       "supports": [
         { "kind": "source", "path": "src/observability/trace.ts" },
         { "kind": "contract_test", "path": "tests/observability/policy.test.ts" }
+      ]
+    },
+    "JSONL sink": {
+      "supports": [
+        { "kind": "source", "path": "src/observability/jsonl.ts" },
+        { "kind": "contract_test", "path": "tests/observability/jsonl.test.ts" }
       ]
     },
     "Sensitive storage": {

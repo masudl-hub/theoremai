@@ -198,6 +198,33 @@ Deno.test('a response is its own record under the session, with what was sent fo
   assertEquals(done?.traceparent, `00-${call.traceId}-${call.spanId}-01`);
 });
 
+/** A span's guardrail check named `check`. */
+function checkOn(span: TraceSpan, check: string): TraceAttributes | undefined {
+  return span.events.find((e) => e.name === 'theorem.guardrail' && e.attributes.check === check)
+    ?.attributes;
+}
+
+Deno.test("a live session times the host's input check and each response's output check", async () => {
+  const harness = await open();
+  await harness.session.sendText('where is my order');
+  await deliver(
+    harness,
+    { serverContent: { modelTurn: { parts: [{ text: 'On its way.' }] } } },
+    complete,
+  );
+  await finish(harness);
+  const input = checkOn(rootOf(sessionRecord(harness.records)), 'live_input');
+  assertEquals(input?.action, 'allow');
+  assertEquals(typeof input?.duration_ms, 'number');
+  const call = rootOf(recordNamed(harness.records, 'generate_content')[0]);
+  const output = checkOn(call, 'live_output');
+  assertEquals(output?.action, 'allow');
+  assertEquals(output?.stage, 'live_outbound');
+  assertEquals(typeof output?.duration_ms, 'number');
+  assertEquals((output?.runs as number) >= 1, true);
+  assertEquals(call.attributes['theorem.guardrail.stream_ms'], output?.duration_ms);
+});
+
 Deno.test('a response records what the host received beside what the model produced', async () => {
   const harness = await open();
   await harness.session.sendText('read me the note');

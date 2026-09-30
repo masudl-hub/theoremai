@@ -223,7 +223,7 @@ Deno.test('withOpenInference shows a decision as an LLM span: its state in, its 
       type: 'decision',
       id: 'oi-decision',
       identity: { handle: 'Decision' },
-      models: { jev: { apiId: 'jev-latest' } },
+      models: { jev: { protocol: 'decision', provider: 'typesafe', apiId: 'jev-latest' } },
       inputs: { state: 'json' },
       decision: { contract: 'oi.v1' },
     }),

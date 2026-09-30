@@ -1061,6 +1061,7 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
   },
   'exception.type': attr('error', 'Exception', 'id', 'The class or kind of what was thrown.'),
   'exception.message': attr('error', 'Message', 'content', 'The exception message, scrubbed.'),
+  'exception.stacktrace': attr('error', 'Stack', 'content', 'Where it was thrown, scrubbed.'),
 
   'theorem.record.include': attr(
     'record',

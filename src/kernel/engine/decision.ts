@@ -1,6 +1,5 @@
 import {
   type ErrorKind,
-  errorKind,
   kindOfHttpStatus,
   TheoremError,
   throwIfAborted,
@@ -24,6 +23,7 @@ import type {
   ModelId,
 } from '../types.ts';
 import { isRecord } from '../util/record.ts';
+import { endThrownSpan } from './turn-trace.ts';
 
 const TYPESAFE_SYSTEM_ONE_URL = 'https://api.typesafe.ai/v1/systemone';
 const OPENROUTER_DECISIONS_URL = 'https://openrouter.ai/api/alpha/decisions';
@@ -512,9 +512,7 @@ export async function runDecisionInRegistry(
     tree.root.end({ code: 'OK' });
     return result;
   } catch (error) {
-    const kind = errorKind(error);
-    tree.root.set({ 'error.type': kind });
-    tree.root.end({ code: 'ERROR', message: kind });
+    endThrownSpan(tree.root, error);
     throw error;
   } finally {
     await writeSpans(sink, tree.collect(), policy, request.metadata);

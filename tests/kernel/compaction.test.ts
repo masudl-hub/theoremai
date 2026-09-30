@@ -1632,8 +1632,9 @@ for (const kind of ['config', 'request', 'auth', 'internal'] as const) {
   });
 }
 
-Deno.test('compactHistory throws what the host must fix', async () => {
+Deno.test('compactHistory throws what the host must fix, and records it by kind', async () => {
   const speaker = registerCompactionPair('compaction.export.throws', AFTER_SPEC);
+  const records: TraceRecord[] = [];
   await assertRejects(
     () =>
       compactHistory(
@@ -1645,9 +1646,22 @@ Deno.test('compactHistory throws what the host must fix', async () => {
               { type: 'done', stop: { kind: 'provider_error' } },
             )(),
         },
+        catalogedSink(records),
       ),
     TheoremError,
     'rejected key',
+  );
+  const [record] = records;
+  const root = record?.spans[0];
+  assertEquals(root?.status, { code: 'ERROR', message: 'auth' });
+  assertEquals(root?.attributes['error.type'], 'auth');
+  const thrown = root?.events.find((e) => e.name === 'exception');
+  assertEquals(thrown?.attributes['exception.type'], 'TheoremError');
+  const stack =
+    record && thrown ? contentOf(record, thrown.attributes['exception.stacktrace']) : undefined;
+  assertEquals(
+    stack?.split('\n')[0],
+    "TheoremError: Compactor 'compaction.export.throws.compactor' failed: rejected key",
   );
 });
 

@@ -42,11 +42,11 @@ import {
 import type { MediaTokenFamily, TokenCount } from '../token-estimate.ts';
 import {
   type CallTrace,
+  endThrownSpan,
   guardrailAttributes,
   guardrailCheckAttributes,
   OutputFold,
   optional,
-  recordException,
   startCallTrace,
   traceLinks,
   usageAttributes,
@@ -429,9 +429,7 @@ class LiveTrace {
       ...(!aborted && this.endedByGoAway ? { 'theorem.stop.kind': 'go_away' } : {}),
     });
     if (thrown !== undefined) {
-      recordException(this.root, thrown);
-      this.root.set({ 'error.type': errorKind(thrown) });
-      this.root.end({ code: 'ERROR', message: errorKind(thrown) });
+      endThrownSpan(this.root, thrown);
     } else {
       // A warned close is no verdict: neither failed nor known to be fine.
       this.root.end(aborted || this.endedByGoAway ? { code: 'UNSET' } : { code: 'OK' });

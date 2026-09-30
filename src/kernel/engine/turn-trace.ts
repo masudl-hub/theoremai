@@ -721,7 +721,18 @@ function recordException(span: SpanHandle, err: unknown): void {
   span.event('exception', {
     'exception.type': errorName(err),
     'exception.message': traceContent(err instanceof Error ? err.message : String(err)),
+    ...(err instanceof Error && err.stack
+      ? { 'exception.stacktrace': traceContent(err.stack) }
+      : {}),
   });
+}
+
+/** Close a root that a throw ended: the exception, its kind as `error.type`, and ERROR. */
+function endThrownSpan(span: SpanHandle, err: unknown): void {
+  recordException(span, err);
+  const kind = errorKind(err);
+  span.set({ 'error.type': kind });
+  span.end({ code: 'ERROR', message: kind });
 }
 
 interface CallEnd {
@@ -1031,6 +1042,7 @@ function endTurnSpan(root: SpanHandle, end: TurnEnd): void {
 
 export type { CallEnd, CallTrace, GuardrailCheck, SentToolCall, StreamCheck, TracePart, TurnEnd };
 export {
+  endThrownSpan,
   endTurnSpan,
   guardrailAttributes,
   guardrailCheckAttributes,

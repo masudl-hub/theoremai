@@ -55,6 +55,7 @@ import {
 } from '../compaction.ts';
 import { type MediaTokenFamily, mediaTokenFamily } from '../token-estimate.ts';
 import {
+  endThrownSpan,
   endTurnSpan,
   guardrailAttributes,
   guardrailCheckAttributes,
@@ -764,7 +765,7 @@ async function compactHistoryInRegistry(
     tree.root.end();
     return result;
   } catch (err) {
-    tree.root.end({ code: 'ERROR', message: String(err) });
+    endThrownSpan(tree.root, err);
     throw err;
   } finally {
     await writeTrace(

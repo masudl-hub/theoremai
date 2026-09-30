@@ -746,6 +746,5 @@ Deno.test('a tool row reads as its filled activity label, else the tool name in 
     state: { phase: 'complete' as const, name: call.name, callId: 'c1', at: 1, output: {} },
   };
   assertEquals(toolCallLabel(complete), 'Saved Monty');
-  // A completed call whose past label did not fill falls back to the name, not the running label.
   assertEquals(toolCallLabel({ ...complete, activityPast: undefined }), 'Save to collection');
 });

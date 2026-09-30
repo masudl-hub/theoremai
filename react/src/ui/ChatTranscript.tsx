@@ -429,11 +429,8 @@ function ResultBlock({ block }: { block: TranscriptBlock }) {
 	}
 }
 
-/**
- * A call's row reads as a sentence ("Found Lisbon"), but Astryx sets its name in the code font.
- * The row takes the body font through that token, and the detail, where the raw name and JSON
- * live, takes the code font back from the wrapper that kept it.
- */
+// Astryx sets a call's name in the code font; labels are sentences, so the row takes the body
+// font and the detail restores the code font kept on the wrapper.
 const CODE_FONT_KEPT = {
 	display: 'contents',
 	'--theorem-font-code': 'var(--font-family-code)',

@@ -359,7 +359,6 @@ function* reviseAfterStages(
   };
 }
 
-/** A call's `complete` phase, its past activity label filled from its input and output. */
 function completeEvent(
   base: ToolCallBase,
   settled: {
@@ -398,7 +397,6 @@ async function* settleToolCall(args: {
   reproject?: Reproject;
   /** Run on the output the call settles with, after any `mutate`. */
   sources?: (output: unknown) => Source[];
-  /** The tool's activity labels; the past one is filled when the call completes. */
   labels?: ToolLabels;
 }): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
   const { base, toolName, callId, input, stages, provisional, guard, reproject, sources } = args;

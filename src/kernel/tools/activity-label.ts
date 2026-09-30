@@ -1,20 +1,15 @@
 import { isRecord } from '../util/record.ts';
 
-/** A filled value longer than this is cut and ends in an ellipsis. */
 const MAX_VALUE_CHARS = 40;
-
 const PLACEHOLDER = /\{([^{}]+)\}/g;
+// Control and bidi-override characters would let a tool's output restyle or reorder the label.
+const UNPRINTABLE = /[\p{Cc}\p{Cf}]/gu;
 const NUMBER = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
 
-/**
- * The dot paths a label names, in order: `"Found {results.0.name}"` → `results.0.name`. A
- * number steps into a list by position from 0; a name steps into a group.
- */
 export function activityLabelPlaceholders(template: string): string[] {
   return [...template.matchAll(PLACEHOLDER)].map((match) => (match[1] ?? '').trim());
 }
 
-/** A list's item by its number from 0, or a group's field by name. */
 function valueAt(source: unknown, path: string): unknown {
   let value = source;
   for (const key of path.split('.')) {
@@ -28,15 +23,16 @@ function valueAt(source: unknown, path: string): unknown {
 function labelValue(value: unknown): string | undefined {
   if (typeof value === 'number') return Number.isFinite(value) ? NUMBER.format(value) : undefined;
   if (typeof value !== 'string') return undefined;
-  const text = value.replace(/\s+/g, ' ').trim();
-  if (!text) return undefined;
-  return text.length > MAX_VALUE_CHARS ? `${text.slice(0, MAX_VALUE_CHARS - 1).trimEnd()}…` : text;
+  const chars = [...value.replace(UNPRINTABLE, ' ').replace(/\s+/g, ' ').trim()];
+  if (chars.length === 0) return undefined;
+  if (chars.length <= MAX_VALUE_CHARS) return chars.join('');
+  const head = chars.slice(0, MAX_VALUE_CHARS - 1).join('');
+  return `${head.trimEnd()}…`;
 }
 
 /**
- * A tool's activity label with each `{path}` filled from the call: its input first, then
- * its output. Only text and numbers fill a placeholder; when one has no such value the label
- * is `undefined`, and the transcript names the tool instead.
+ * Fills each `{path}` from the input, then the output. Only text and numbers fill; if any
+ * placeholder can't, the whole label is `undefined` and the transcript names the tool instead.
  */
 export function fillActivityLabel(
   template: string | undefined,

@@ -35,6 +35,14 @@ Deno.test('an activity label fills from the input, then the output', () => {
   assertEquals(fillActivityLabel('Checking the docs', { input: {} }), 'Checking the docs');
 });
 
+Deno.test('a filled value is one printable line, cut whole characters at a time', () => {
+  const fill = (s: string) => fillActivityLabel('{s}', { input: { s } });
+  assertEquals(fill('Paris\u202Eecnarf\u0007'), 'Paris ecnarf');
+  assertEquals(fill('Paris\n\n  France'), 'Paris France');
+  assertEquals(fill(`${'a'.repeat(38)}😀😀😀`), `${'a'.repeat(38)}😀…`);
+  assertEquals(fillActivityLabel('{n}', { input: { n: Number.NaN } }), undefined);
+});
+
 Deno.test('an activity label with a value it cannot show is not filled', () => {
   const label = 'Saving {title} to your collection';
   assertEquals(fillActivityLabel(label, { input: {} }), undefined);

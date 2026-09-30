@@ -248,10 +248,6 @@ export function assistantTurnTiming(args: {
 	return { key, live, startedAt: args.timeOf(prompt.key) + span.pausedMs };
 }
 
-/**
- * What a call's row says: the tool's activity label, filled by the kernel from the call (its
- * past label once it completes), else the tool's name in words.
- */
 export function toolCallLabel(tool: Extract<TranscriptBlock, { kind: 'tool' }>['tool']): string {
 	const filled = tool.state?.phase === 'complete' ? tool.activityPast : tool.activity;
 	return filled ?? humanize(tool.name);

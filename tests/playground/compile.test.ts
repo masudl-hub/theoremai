@@ -563,7 +563,6 @@ Deno.test('a tool compiles its activity labels, each placeholder checked against
     assert(!result.ok);
     return { field: result.issues[0].field, message: result.issues[0].message };
   };
-  // The running label has only the input; the output comes once the call completes.
   assertEquals(issue('Finding {results.0.name}', 'Found it'), {
     field: 'activity',
     message: "{results.0.name} is not a field of this tool's input. Try {name}.",
@@ -581,4 +580,29 @@ Deno.test('a tool compiles its activity labels, each placeholder checked against
       'Try {results.0.name}, {results.0.latitude}, {results.0.longitude} or {results.0.country_code}.',
   });
   assertEquals(issue(`Finding ${'x'.repeat(121)}`, 'Found it').field, 'activity');
+});
+
+Deno.test('an activity label follows nullable, union and referenced schemas', () => {
+  const draft = createExampleDraft();
+  const geocode = draft.toolSpecs.find((tool) => tool.toolName === 'geocode_city');
+  assert(geocode);
+  const compile = (output: unknown, activityPast: string) =>
+    compilePlayground({
+      ...draft,
+      toolSpecs: draft.toolSpecs.map((tool) =>
+        tool.key === geocode.key
+          ? { ...tool, outputJson: JSON.stringify(output), activityPast }
+          : tool,
+      ),
+    });
+  const place = { type: 'object', properties: { name: { type: 'string' } } };
+  const nullable = { type: ['array', 'null'], items: place };
+  assert(compile({ type: 'object', properties: { r: nullable } }, 'Found {r.0.name}').ok);
+  const union = { anyOf: [place, { type: 'null' }] };
+  assert(compile({ type: 'object', properties: { p: union } }, 'Found {p.name}').ok);
+  const referenced = { $ref: '#/$defs/place' };
+  assert(compile({ type: 'object', properties: { p: referenced } }, 'Found {p.name}').ok);
+  const flag = compile({ type: 'object', properties: { ok: { type: 'boolean' } } }, 'Done: {ok}');
+  assert(!flag.ok);
+  assertEquals(flag.issues[0].message, '{ok} is true or false; a label shows text or a number.');
 });

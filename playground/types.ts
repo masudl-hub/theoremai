@@ -20,9 +20,7 @@ export type PlaygroundToolSpecSeed = {
   paths: string[];
   inputJson: string;
   outputJson: string;
-  /** What the transcript says while a call runs, with `{field}` filled from its input. */
   activity?: string;
-  /** What it says once the call completes, filled from its input or output. */
   activityPast?: string;
   stubOutputJson?: string;
   endpoint?: string;

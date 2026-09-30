@@ -34,6 +34,17 @@ const GOOGLE_SINGLE_TURN_API_IDS = [
   'gemini-3.8-flash-lite-tts',
 ] as const;
 
+/**
+ * Models that reject any thinking setting, `summaries: false` included: leave
+ * `efforts` and `summaries` unset (live, 30/09/2026).
+ */
+const GOOGLE_NO_THINKING_API_IDS = [
+  'gemini-2.5-flash-image',
+  'antigravity-preview-05-2026',
+  'antigravity-preview-09-2026',
+  'antigravity-preview-latest',
+] as const;
+
 type GoogleSpeechPins = Omit<ProfileSpeechSpec, 'voice'> & {
   voice?: GoogleSpeechVoice;
 };
@@ -149,6 +160,7 @@ export {
   GOOGLE_IMAGE_ASPECT_RATIOS,
   GOOGLE_IMAGE_INPUT_MIMES,
   GOOGLE_IMAGE_SIZES,
+  GOOGLE_NO_THINKING_API_IDS,
   GOOGLE_SINGLE_TURN_API_IDS,
   GOOGLE_SPEECH_VOICES,
   GOOGLE_VOICE_INPUT_MIMES,

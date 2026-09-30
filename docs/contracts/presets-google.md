@@ -58,6 +58,7 @@ Constants (and matching types) for host profile authoring:
 | `GOOGLE_IMAGE_ASPECT_RATIOS` / `GOOGLE_IMAGE_SIZES` | Image output pins |
 | `GOOGLE_SPEECH_VOICES` | TTS voice names for `outputs.speech.voice` |
 | `GOOGLE_SINGLE_TURN_API_IDS` | TTS models that reject history with a model turn, so they can't take compaction |
+| `GOOGLE_NO_THINKING_API_IDS` | Models that reject any thinking setting, `summaries: false` included; leave `efforts` and `summaries` unset |
 | `GoogleImageAspectRatio`, `GoogleImageInputMime`, `GoogleImageSize`, `GoogleVoiceInputMime` | Typed vocabulary unions |
 | `GoogleImagePins`, `GoogleSpeechPins`, `GoogleSpeechVoice` | Typed pins assignable to kernel specs |
 
@@ -71,6 +72,7 @@ Kernel types stay stringly; these packs make Google hosts typed when they opt in
 | `googleInteractionsPersistence` / `GoogleInteractionsPersistence` | `store` and `persistViaInteractionId` set together for a `geminiInteractions` binding |
 | `GOOGLE_BUILTIN_TOOLS` | Static catalog entries |
 | `GOOGLE_SINGLE_TURN_API_IDS` | TTS models that can't take compaction |
+| `GOOGLE_NO_THINKING_API_IDS` | Models that take no `efforts` or `summaries` |
 | `GOOGLE_IMAGE_ASPECT_RATIOS`, `GOOGLE_IMAGE_INPUT_MIMES`, `GOOGLE_IMAGE_SIZES`, `GOOGLE_VOICE_INPUT_MIMES`, `GOOGLE_SPEECH_VOICES` | Typed profile authoring constants |
 | `GoogleImageAspectRatio`, `GoogleImageInputMime`, `GoogleImageSize`, `GoogleVoiceInputMime`, `GoogleImagePins`, `GoogleLivePins`, `GoogleSpeechPins`, `GoogleSpeechVoice` | Typed pins and vocabularies |
 | `GOOGLE_SPEECH_VOICES` / `GoogleSpeechVoice` | Published speech-voice vocabulary provided by `src/presets/google/speech-voices.ts` and consumed by profile authoring |

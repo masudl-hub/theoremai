@@ -123,6 +123,24 @@ so the relay passes the browser's `executeTool` message, less its `type`, to
 | `gated` | The call waits on a gate | `callId`, `gate` |
 | `refused` | `executeTool` threw | `callId`, `body`: `{ error: publicError(err, profile.lexicon), errorKind }` |
 
+A tool the browser answers (a `function` tool whose result lives in the page) is
+settled by the same message: `executeToolOnRelay({ callId, output })` sends the
+browser's `output`, and the relay passes it to `session.executeTool` as
+`host: { clientOutput: output }`. The tool's handler is
+`browserToolHandler(name)` (`@theoremjs/playground/browser`): it returns
+`host.clientOutput`, so the tool's `output` schema checks what the browser sent
+and a mismatch reaches the model as an ordinary tool failure. With no
+`clientOutput` the call fails to the model, naming the tool.
+
+The kernel never times out an ungated held call, so the relay does:
+`attachPlaygroundLiveSession` starts a timer when the model makes a call
+(`clientCallTimeoutMs` in its options, default 20 s) and clears it when the
+browser's `executeTool` for that call arrives or the call settles or is
+cancelled. When it fires the relay calls `session.executeTool` with
+`host: { clientTimedOut: true }`, and `browserToolHandler` fails the call with
+"The page didn't answer. Read the state before trying again." The browser's
+late answer is then refused like any `executeTool` for a settled call.
+
 | Export | Role |
 | --- | --- |
 | `forClient(event, options?)` | Copy one event without `errorInternal` (it rides error events, an ended Live session, a tool call's failure such as a refused OAuth refresh, and guardrail decisions; `errorKind` and the user's `error` stay); strips `evidence.raw` unless `includeEvidenceRaw: true`; always strips `GuardrailHit.match` |
@@ -171,10 +189,10 @@ const preview = readStreamingJsonStringField(buffer, "mermaid");
 
 | Behavior | Detail |
 | --- | --- |
-| Locator | `"key": "` pattern |
+| Locator | `"key"`, then `:` and an opening quote (whitespace allowed); an earlier `"key"` not followed by a string value is skipped |
 | Escapes | `\n`, `\t`, `\uXXXX`, … |
 | Incomplete buffer | Returns prefix for live UI preview |
-| Missing key | `null` |
+| Missing key, or a value that is not a string | `null` |
 
 Does not validate full JSON documents.
 

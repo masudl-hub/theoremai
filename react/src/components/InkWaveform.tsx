@@ -15,7 +15,7 @@ export type InkWaveformProps = {
 	outputLevel?: number;
 	toolActive?: boolean;
 	frozen?: boolean;
-	variant?: 'default' | 'hero' | 'pill';
+	variant?: 'default' | 'hero' | 'pill' | 'strip';
 };
 
 type Snap = {
@@ -41,6 +41,14 @@ const WAVE_CONFIG = {
 		strokeWidth: 3,
 		barCount: INK_WAVE_BAR_COUNT,
 	},
+	// A long, low band (a call bar along the foot of a page): many fine bars.
+	strip: {
+		viewWidth: 1600,
+		viewHeight: 48,
+		preserveAspect: 'none',
+		strokeWidth: 2,
+		barCount: 120,
+	},
 	default: {
 		viewWidth: 480,
 		viewHeight: 320,
@@ -50,7 +58,7 @@ const WAVE_CONFIG = {
 	},
 } as const;
 
-function resolveWaveDimensions(variant: 'default' | 'hero' | 'pill') {
+function resolveWaveDimensions(variant: NonNullable<InkWaveformProps['variant']>) {
 	const cfg = WAVE_CONFIG[variant] ?? WAVE_CONFIG.default;
 	const gap = (cfg.viewWidth - cfg.strokeWidth * cfg.barCount) / (cfg.barCount + 1);
 	return { ...cfg, gap };
@@ -148,6 +156,7 @@ export function InkWaveform({
 		'ink-wave',
 		variant === 'hero' ? 'ink-wave--hero' : '',
 		variant === 'pill' ? 'ink-wave--pill' : '',
+		variant === 'strip' ? 'ink-wave--strip' : '',
 	]
 		.filter(Boolean)
 		.join(' ');

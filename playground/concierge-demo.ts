@@ -37,7 +37,7 @@ export function demoHttpSampleInput(toolName: string): Record<string, unknown> |
 
 /** Comma-separated hosts for guardrails.egress allowlist in the demo graph. */
 export const DEMO_ALLOWED_HOSTS =
-  'nominatim.openstreetmap.org, geocoding-api.open-meteo.com, api.open-meteo.com, api.frankfurter.dev, api.sunrise-sunset.org, api.zippopotam.us, en.wikipedia.org, archive.org, pokeapi.co, dog.ceo, api.adviceslip.com, catfact.ninja, official-joke-api.appspot.com, mcp.deepwiki.com, mcp.context7.com, learn.microsoft.com, docs.mcp.cloudflare.com, knowledge-mcp.global.api.aws';
+  'nominatim.openstreetmap.org, geocoding-api.open-meteo.com, api.open-meteo.com, api.frankfurter.dev, api.sunrise-sunset.org, api.zippopotam.us, en.wikipedia.org, archive.org, pokeapi.co, dog.ceo, api.adviceslip.com, catfact.ninja, official-joke-api.appspot.com, mcp.deepwiki.com, mcp.context7.com, learn.microsoft.com, docs.mcp.cloudflare.com, knowledge-mcp.global.api.aws, huggingface.co, mcp.docs.astro.build';
 
 export const DEMO_CONCIERGE_SYSTEM = `Role: Elite, charismatic travel concierge.
 
@@ -684,6 +684,74 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
       }
     }
   }
+}`,
+    },
+  },
+  {
+    id: 'tool-hugging-face',
+    data: {
+      toolName: 'search_hugging_face',
+      activity: 'Searching Hugging Face for {query}',
+      activityPast: 'Searched Hugging Face for {query}',
+      toolType: 'mcp',
+      description:
+        'Search Hugging Face for models and datasets, with downloads, likes, task and a link for each.',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: ['*'],
+      serverUrl: 'https://huggingface.co/mcp',
+      mcpToolName: 'hub_repo_search',
+      inputJson: `{
+  "type": "object",
+  "properties": {
+    "query": { "type": "string", "description": "A model, dataset or task to look for", "maxLength": 200, "examples": ["speech recognition"] },
+    "limit": { "type": "integer", "description": "How many results", "minimum": 1, "maximum": 10 }
+  },
+  "required": ["query"]
+}`,
+      outputJson: `{ "type": "string", "description": "Matching repositories, with their stats and links" }`,
+    },
+  },
+  {
+    id: 'tool-astro-docs',
+    data: {
+      toolName: 'search_astro_docs',
+      activity: 'Searching the Astro docs for {query}',
+      activityPast: 'Searched the Astro docs for {query}',
+      toolType: 'mcp',
+      description: 'Search the official Astro web framework documentation.',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: ['*'],
+      serverUrl: 'https://mcp.docs.astro.build/mcp',
+      mcpToolName: 'search_astro_docs',
+      inputJson: `{
+  "type": "object",
+  "properties": {
+    "query": { "type": "string", "description": "What to look up in the Astro docs", "maxLength": 500, "examples": ["content collections"] }
+  },
+  "required": ["query"]
+}`,
+      outputJson: `{
+  "type": "object",
+  "properties": {
+    "search_results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string" },
+          "source_url": { "type": "string" },
+          "content": { "type": "string" }
+        }
+      }
+    }
+  },
+  "required": ["search_results"]
 }`,
     },
   },

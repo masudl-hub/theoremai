@@ -1,0 +1,42 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker/master/packages/core/schema/stryker-core.schema.json",
+  "testRunner": "command",
+  "commandRunner": {
+    "command": "deno test --no-check --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run tests/kernel tests/observability"
+  },
+  "mutate": [
+    "src/kernel/engine/**/*.ts",
+    "!src/kernel/engine/media-probe/**"
+  ],
+  "ignorePatterns": [
+    "coverage",
+    "npm",
+    "docs",
+    ".stryker-cache",
+    ".stryker-tmp",
+    "node_modules",
+    "traces",
+    "cov_profile",
+    ".fallow"
+  ],
+  "reporters": [
+    "clear-text",
+    "progress"
+  ],
+  "coverageAnalysis": "off",
+  "incremental": true,
+  "incrementalFile": ".stryker-cache/engine-incremental.json",
+  "thresholds": {
+    "high": 85,
+    "low": 75,
+    "break": null
+  },
+  "timeoutMS": 120000,
+  "concurrency": 4,
+  "ignoreStatic": false,
+  "mutator": {
+    "excludedMutations": [
+      "StringLiteral"
+    ]
+  }
+}

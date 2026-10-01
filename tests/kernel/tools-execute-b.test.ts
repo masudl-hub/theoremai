@@ -1013,3 +1013,35 @@ Deno.test('a remote tool that signs in gates with the sign-in note', async () =>
   const heard = gateEvents(events);
   check([heard.stage.length, heard.tool.length], [1, 1], 'announced once');
 });
+
+Deno.test('a signed-in request is timed on the call span even when the call then fails on it', async () => {
+  const networkChecks = (tree: ReturnType<typeof startTrace>) =>
+    (tree.collect()[1]?.events ?? [])
+      .filter((e) => e.name === 'theorem.guardrail' && e.attributes.check === 'network_request')
+      .map((e) => e.attributes.action);
+
+  registerSheet('xb_sheet_span_refused');
+  const refusedTree = startTrace('root');
+  const refused = answering(401, 'refused', { 'WWW-Authenticate': 'Bearer error="invalid_token"' });
+  await withFetch(refused.fetchFn, () =>
+    drain('xb_sheet_span_refused', {
+      ctx: { credentials: credentials(BEARER), resolveHost: RESOLVE },
+      stages: stagesWith(),
+      openSpan: (name, attributes) => refusedTree.root.child(name, { attributes }),
+    }),
+  );
+  check(networkChecks(refusedTree), ['allow'], 'refused credential');
+
+  registerSheet('xb_sheet_span_blocked');
+  const blockedTree = startTrace('root');
+  const blocked = answering(200, 'never sent');
+  await withFetch(blocked.fetchFn, () =>
+    drain('xb_sheet_span_blocked', {
+      ctx: { credentials: credentials(BEARER), resolveHost: () => Promise.resolve(['10.0.0.1']) },
+      stages: stagesWith(),
+      openSpan: (name, attributes) => blockedTree.root.child(name, { attributes }),
+    }),
+  );
+  check(blocked.sent.length, 0, 'blocked request not sent');
+  check(networkChecks(blockedTree), ['block'], 'blocked request');
+});

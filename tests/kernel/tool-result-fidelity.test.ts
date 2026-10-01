@@ -84,3 +84,10 @@ Deno.test('coerceToolResultParts drops empty media and unknown shapes', () => {
   assertEquals(coerceToolResultParts([]), undefined);
   assertEquals(coerceToolResultParts('nope'), undefined);
 });
+
+Deno.test('coerceToolResultParts skips entries that are not parts instead of failing on them', () => {
+  assertEquals(
+    coerceToolResultParts([null, 5, 'x', { type: 3 }, { type: 'text', text: 'kept' }]),
+    [{ type: 'text', text: 'kept' }],
+  );
+});

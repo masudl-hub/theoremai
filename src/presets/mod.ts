@@ -21,6 +21,7 @@ export {
   GOOGLE_NO_THINKING_API_IDS,
   GOOGLE_SINGLE_TURN_API_IDS,
   GOOGLE_SPEECH_VOICES,
+  GOOGLE_THINKING_LEVELS,
   GOOGLE_VOICE_INPUT_MIMES,
   googleInteractionsPersistence,
   registerGooglePreset,

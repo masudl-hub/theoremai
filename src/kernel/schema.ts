@@ -88,10 +88,6 @@ export function speechFormatsForProtocol(protocol: Protocol): readonly SpeechAud
   return protocol === 'openAi' ? SPEECH_AUDIO_FORMATS : ['pcm'];
 }
 
-export function thinkingLevelsForProtocol(protocol: Protocol): readonly ThinkingLevel[] {
-  return protocol === 'openAi' ? THINKING_LEVELS : ['minimal', 'low', 'medium', 'high'];
-}
-
 export function isSpeechFormatAllowedForProtocol(
   protocol: Protocol,
   format: SpeechAudioFormat,

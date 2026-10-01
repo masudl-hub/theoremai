@@ -20,7 +20,7 @@ import {
   PROFILE_TYPES,
   type ProfileType,
   protocolsForProfileType,
-  thinkingLevelsForProtocol,
+  THINKING_LEVELS,
 } from '../schema.ts';
 import { isContinueStopKind, type ProfileTurnResumptionSpec } from '../stop.ts';
 import type { ToolRegistry } from '../tools/registry.ts';
@@ -354,12 +354,11 @@ function assertModelEfforts(profileId: string, modelId: ModelId, binding: ModelB
     }
     return;
   }
-  const allowed = thinkingLevelsForProtocol(binding.protocol);
   for (const [alias, level] of Object.entries(efforts)) {
-    if (!allowed.includes(level)) {
+    if (!THINKING_LEVELS.includes(level)) {
       throw new TheoremError(
         'config',
-        `Profile ${profileId} model '${modelId}' effort '${alias}': '${level}' is not a thinking level ${binding.protocol} accepts (${allowed.join(', ')})`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `Profile ${profileId} model '${modelId}' effort '${alias}': '${level}' is not a thinking level (${THINKING_LEVELS.join(', ')})`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
   }

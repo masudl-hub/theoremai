@@ -8,6 +8,7 @@ import type {
 } from '../../../kernel/types.ts';
 import { builtinWire } from '../../shared/builtin-wire.ts';
 import { historyToolArguments, historyToolIdentity } from '../../shared/tool-args.ts';
+import { assertGoogleThinkingLevel } from '../thinking.ts';
 
 export function camelToSnake(key: string): string {
   return key.replaceAll(/[A-Z]/g, (ch) => `_${ch.toLowerCase()}`);
@@ -277,6 +278,7 @@ export function baseInteractionsBody(req: ProviderCompleteRequest): Record<strin
     // TTS models reject chat thinking knobs; voice lives under speech_config.
     attachSpeechConfig(req, generationConfig);
   } else {
+    assertGoogleThinkingLevel(req.thinking);
     if (req.thinking) {
       generationConfig.thinkingLevel = req.thinking;
     }

@@ -63,28 +63,28 @@ Deno.test('defineProfile preserves explicit typed fields without defaults', () =
   assertEquals(profile.observability?.sampleRate, 0.5);
 });
 
-Deno.test('defineProfile rejects a thinking level Gemini does not take', () => {
-  for (const level of ['none', 'xhigh', 'max'] as const) {
-    assertThrows(
-      () =>
-        defineProfile({
-          id: 'gemini_effort',
-          type: 'text',
-          identity: { handle: 'gemini_effort' },
-          models: {
-            gemini35FlashLite: {
-              ...HOST_BINDINGS.gemini35FlashLite,
-              efforts: { normal: 'low', odd: level },
-            },
-          },
-          key: 'main',
-          tools: { allow: [] },
-          inputs: { text: true },
-        }),
-      TheoremError,
-      `effort 'odd': '${level}' is not a thinking level geminiInteractions accepts`,
-    );
-  }
+Deno.test('defineProfile takes any thinking level of the vocabulary on Gemini, and refuses an unknown one', () => {
+  const define = (level: string) =>
+    defineProfile({
+      id: 'gemini_effort',
+      type: 'text',
+      identity: { handle: 'gemini_effort' },
+      models: {
+        gemini35FlashLite: {
+          ...HOST_BINDINGS.gemini35FlashLite,
+          efforts: { normal: 'low', odd: level as 'max' },
+        },
+      },
+      key: 'main',
+      tools: { allow: [] },
+      inputs: { text: true },
+    });
+  define('max');
+  assertThrows(
+    () => define('extreme'),
+    TheoremError,
+    "effort 'odd': 'extreme' is not a thinking level",
+  );
 });
 
 Deno.test('defineProfile takes every thinking level on OpenRouter', () => {

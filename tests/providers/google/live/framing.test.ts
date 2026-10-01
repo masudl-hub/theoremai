@@ -918,3 +918,20 @@ Deno.test('foldGeminiLiveServerMessage folds a codeExecutionResult part as evide
     },
   ]);
 });
+
+Deno.test('buildGeminiLiveSetupMessage refuses a thinking level Gemini does not take', () => {
+  const req: ProviderCompleteRequest = {
+    model: 'gemini-3.1-flash-live-preview',
+    apiId: 'gemini-3.1-flash-live-preview',
+    temperature: 0.7,
+    maxOutputTokens: 2048,
+    system: '',
+    builtins: [],
+    thinking: 'xhigh',
+    input: [],
+    structured: null,
+    image: null,
+    live: {},
+  };
+  assertThrows(() => buildGeminiLiveSetupMessage(req), TheoremError, 'xhigh');
+});

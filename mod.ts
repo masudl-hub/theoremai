@@ -344,7 +344,6 @@ export {
   TURN_INJECT_STAGES,
   TURN_STAGES,
   TURN_STOP_KINDS,
-  thinkingLevelsForProtocol,
   VOICE_ACCEPT_MIMES,
 } from './src/kernel/schema.ts';
 export type { KernelScope } from './src/kernel/scope.ts';

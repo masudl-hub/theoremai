@@ -716,3 +716,10 @@ Deno.test('attachResponseFormat refuses image pins Google cannot send', () => {
     assertThrows(() => attachResponseFormat(req, {}), TheoremError);
   }
 });
+
+Deno.test('baseInteractionsBody refuses a thinking level Gemini does not take', () => {
+  for (const level of ['none', 'xhigh', 'max'] as const) {
+    assertThrows(() => baseInteractionsBody(baseReq({ thinking: level })), TheoremError, level);
+  }
+  baseInteractionsBody(baseReq({ thinking: 'high' }));
+});

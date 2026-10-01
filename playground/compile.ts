@@ -34,7 +34,6 @@ import {
   isValidProfileProtocol,
   protocolsForProfileType,
   speechFormatsForProtocol,
-  thinkingLevelsForProtocol,
 } from '../src/kernel/schema.ts';
 import { activityLabelProblem } from '../src/kernel/tools/activity-label.ts';
 import type {
@@ -47,7 +46,10 @@ import type {
   ProfileSpeechSpec,
 } from '../src/kernel/types.ts';
 import { resolveObservabilityPolicy } from '../src/observability/mod.ts';
-import { googleInteractionsPersistence } from '../src/presets/google.ts';
+import {
+  GOOGLE_THINKING_LEVELS,
+  googleInteractionsPersistence,
+} from '../src/presets/google.ts';
 import { PLAYGROUND_KEY_SLOT_CAP } from './browser-connection.ts';
 import type {
   DecisionDraft,
@@ -196,7 +198,7 @@ function compileBinding(
     else if (name in efforts) {
       report(nodeId, `Effort alias '${name}' is used twice.`, 'efforts', index);
     } else efforts[name] = level;
-    if (!thinkingLevelsForProtocol(binding.protocol).includes(level)) {
+    if (binding.protocol !== 'openAi' && !(GOOGLE_THINKING_LEVELS as readonly string[]).includes(level)) {
       report(
         nodeId,
         `${binding.protocol} doesn't take the ${level} thinking level.`,

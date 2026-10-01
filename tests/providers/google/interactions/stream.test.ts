@@ -1192,7 +1192,8 @@ function callRows(index: number, id: string): Record<string, unknown>[] {
 
 function signatureOfOnlyCall(rows: Record<string, unknown>[]): unknown {
   const event = foldRows(rows).find((e) => e.type === 'tool');
-  return event?.type === 'tool' ? event.tool.thoughtSignature : 'no tool event';
+  if (event?.type !== 'tool') return 'no tool event';
+  return 'phase' in event.tool ? 'a phase, not a call request' : event.tool.thoughtSignature;
 }
 
 Deno.test('a thought signature is held only from a thought, only when non-empty, and survives a bare thought', () => {

@@ -1044,6 +1044,12 @@ export interface LiveSession {
   sendVideo(args: { data: string; mimeType: string }): Promise<void>;
   sendText(text: string): Promise<void>;
   /**
+   * Text the model reads as background, not as the caller speaking: it opens no
+   * turn and draws no reply. Same `ingress.text` gate and inbound guardrails as
+   * `sendText`; the model sees it from its next turn on.
+   */
+  sendContext(text: string): Promise<void>;
+  /**
    * Run a call the model made through the registry, with stages; its events
    * join `events()`. A gate returns `gated` and answers the model nothing yet;
    * the call waits `gateTtlMs` for its `decision`. An unknown, settled,

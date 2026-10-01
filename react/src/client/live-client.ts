@@ -724,6 +724,13 @@ export class LiveSessionClient {
 		}
 	}
 
+	// fallow-ignore-next-line unused-class-member -- called by hosts that tell the model where the visitor is
+	public sendContext(text: string): void {
+		if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+			this.ws.send(clientMessage({ type: 'context', text }));
+		}
+	}
+
 	// fallow-ignore-next-line unused-class-member -- called from useLiveRunnerControls via client refs
 	public sendVideo(data: string, mimeType = 'image/jpeg'): void {
 		if (this.ws && this.ws.readyState === WebSocket.OPEN) {

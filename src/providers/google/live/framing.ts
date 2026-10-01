@@ -263,6 +263,12 @@ export function buildGeminiLiveClientContent(
   };
 }
 
+export function buildGeminiLiveContext(text: string): Record<string, unknown> {
+  return {
+    clientContent: { turns: [{ role: 'user', parts: [{ text }] }], turnComplete: false },
+  };
+}
+
 export function buildGeminiLiveRealtimeInput(input: InteractionPart): Record<string, unknown> {
   if (input.type === 'text') {
     return {

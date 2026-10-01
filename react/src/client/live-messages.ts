@@ -27,11 +27,16 @@ import {
 	type WireLines,
 } from './wire-line.ts';
 
+/** The longest context message a relay accepts. */
+export const LIVE_CONTEXT_MAX_CHARS = 2000;
+
 /** What the live client sends its relay, besides the host's own `openMessage`. */
 export type LiveClientMessage =
 	| { type: 'audio'; data: string }
 	| { type: 'video'; data: string; mimeType: string }
 	| { type: 'text'; text: string }
+	/** Background the model reads without replying: the page the visitor is on, say. */
+	| { type: 'context'; text: string }
 	/** Run a call the model made, by its id; the live session holds its name, input and gate. */
 	| { type: 'executeTool'; callId: string; decision?: GateDecision; input?: unknown; secret?: string;
 	  };
@@ -40,6 +45,7 @@ const liveClientMessage = z.discriminatedUnion('type', [
 	z.object({ type: z.literal('video'), data: z.string(), mimeType: z.string(),
 	}),
 	z.object({ type: z.literal('text'), text: z.string() }),
+	z.object({ type: z.literal('context'), text: z.string().max(LIVE_CONTEXT_MAX_CHARS) }),
 	z.object({
 		type: z.literal('executeTool'),
 		callId: z.string().min(1),

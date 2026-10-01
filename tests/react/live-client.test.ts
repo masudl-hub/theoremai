@@ -295,6 +295,14 @@ Deno.test('a relay reads each live message by its schema; a malformed one is a r
     type: 'text',
     text: 'hi',
   });
+  assertEquals(parseLiveClientMessage(JSON.stringify({ type: 'context', text: '(page) /' })), {
+    type: 'context',
+    text: '(page) /',
+  });
+  assertThrows(
+    () => parseLiveClientMessage(JSON.stringify({ type: 'context', text: 'x'.repeat(2001) })),
+    TheoremError,
+  );
   assertEquals(
     parseLiveClientMessage(
       JSON.stringify({ type: 'executeTool', callId: 'c', decision: 'approve', input: { id: 2 } }),

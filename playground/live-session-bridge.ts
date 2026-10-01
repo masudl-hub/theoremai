@@ -45,6 +45,9 @@ function pipeBrowserToSession(
           case 'text':
             forward(session.sendText(msg.text));
             return;
+          case 'context':
+            forward(session.sendContext(msg.text));
+            return;
           case 'executeTool': {
             const { type: _type, ...call } = msg;
             void answerExecuteTool(serverWs, session, call, lexicon);

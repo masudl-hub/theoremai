@@ -369,6 +369,8 @@ Same names. Cycle state `idle` | `open` on the session.
 | `before_end` | Cycle boundary (`interactionStatus: IDLE`, else `turnComplete`) or interrupt that will emit cycle-ending `done`; after batch known; before finalize / before yield `done` | `events()` outbound path |
 | `post_turn` | After that `done`; cycle → `idle` | Same |
 
+`sendContext` is not an ingress for this table: it opens no cycle, runs no `pre_turn`, and adds nothing to `StageContext.history`.
+
 **Barge-in / empty audio:** interrupt ends the cycle with `before_end` /
 `interrupted` / `post_turn`. Empty or zero-length audio chunks do **not** open
 a cycle. After `post_turn`, the next non-empty ingress opens a new cycle.

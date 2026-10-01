@@ -244,6 +244,92 @@ Deno.test('runSession sendText frames sanitized realtime input when text ingress
   await session.close();
 });
 
+Deno.test('runSession sendContext frames silent clientContent, guarded, without opening a turn', async () => {
+  clearProfiles();
+  resetTools();
+  const profile = defineProfile({
+    type: 'live',
+    id: 'session_live_context',
+    identity: { handle: 'live', system: 'hi' },
+    models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, key: 'main' } },
+    live: { voice: 'Aoede', ingress: { text: true } },
+    tools: { allow: [] },
+    guardrails: { sanitizeInput: true, redactSensitive: true },
+  });
+  registerProfile(profile);
+
+  let mock: MockLiveWebSocket | null = null;
+  const session = await runSession(
+    { profile: profile.id },
+    {
+      vault: { main: 'test-key' },
+      openWebSocket: () => {
+        mock = new MockLiveWebSocket();
+        setTimeout(() => mock?.open(), 0);
+        return Promise.resolve(mock as unknown as WebSocket);
+      },
+    },
+  );
+  await new Promise((r) => setTimeout(r, 0));
+
+  await session.sendContext('(page) /docs — Docs');
+  const liveMock = mock as unknown as MockLiveWebSocket;
+  const frame = liveMock.sent.find((sent) => sent.includes('"clientContent"'));
+  const parsed = JSON.parse(frame ?? '{}') as {
+    clientContent?: {
+      turns?: Array<{ role: string; parts: Array<{ text: string }> }>;
+      turnComplete?: boolean;
+    };
+  };
+  assertEquals(parsed.clientContent?.turnComplete, false);
+  assertEquals(parsed.clientContent?.turns?.[0]?.role, 'user');
+  assertEquals(parsed.clientContent?.turns?.[0]?.parts[0]?.text.includes('<user_data>'), true);
+  assertEquals(parsed.clientContent?.turns?.[0]?.parts[0]?.text.includes('(page) /docs'), true);
+  assertEquals(
+    liveMock.sent.some((sent) => sent.includes('"realtimeInput"')),
+    false,
+  );
+
+  liveMock.close();
+  await session.close();
+});
+
+Deno.test('runSession sendContext rejects when live.ingress.text is disabled', async () => {
+  clearProfiles();
+  resetTools();
+  const profile = defineProfile({
+    type: 'live',
+    id: 'session_live_context_no_text',
+    identity: { handle: 'live', system: 'hi' },
+    models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, key: 'main' } },
+    live: { voice: 'Aoede', ingress: { text: false } },
+    tools: { allow: [] },
+  });
+  registerProfile(profile);
+
+  let mock: MockLiveWebSocket | null = null;
+  const session = await runSession(
+    { profile: profile.id },
+    {
+      vault: { main: 'test-key' },
+      openWebSocket: () => {
+        mock = new MockLiveWebSocket();
+        setTimeout(() => mock?.open(), 0);
+        return Promise.resolve(mock as unknown as WebSocket);
+      },
+    },
+  );
+  await new Promise((r) => setTimeout(r, 0));
+
+  await assertRejects(
+    () => session.sendContext('x'),
+    TheoremError,
+    'live.ingress.text is disabled',
+  );
+  (mock as unknown as MockLiveWebSocket)?.close();
+  await session.close();
+});
+
 Deno.test('runSession abort phase still forwards tool events', async () => {
   clearProfiles();
   resetTools();

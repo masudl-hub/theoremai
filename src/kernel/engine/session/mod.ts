@@ -22,6 +22,7 @@ import { resolveObservabilityPolicy } from '../../../observability/resolve-polic
 import type { TraceSink } from '../../../observability/trace-sink.ts';
 import type { GeminiOptions } from '../../../providers/google/keys.ts';
 import {
+  buildGeminiLiveContext,
   buildGeminiLiveRealtimeInput,
   buildGeminiLiveToolResponse,
   liveFunctionResponsePayload,
@@ -994,6 +995,16 @@ function buildLiveSession(args: {
         const opened = await openCycleIfNeeded();
         if (opened.aborted) return;
         ingestPreparedLiveText(text);
+      });
+    },
+    sendContext(text: string): Promise<void> {
+      return withIngress(async () => {
+        assertLiveIngress(profile, 'text');
+        const start = performance.now();
+        const prepared = prepareLiveInboundText(profile, text);
+        trace.inboundCheck(performance.now() - start, prepared.guardrail);
+        if (prepared.guardrail) enqueuePending(prepared.guardrail);
+        sendJson(buildGeminiLiveContext(prepared.text));
       });
     },
     async executeTool({

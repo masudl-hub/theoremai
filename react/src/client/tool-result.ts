@@ -58,7 +58,17 @@ const MAX_SEARCH_DEPTH = 3;
 
 /** Numbers that locate or name a thing rather than measure it. */
 const NOT_A_MEASURE = /(^|_)(id|ids|lat|lon|lng|latitude|longitude|offset|interval|index|rank|order)$|Id$|^(generationtime_ms|utc_offset_seconds)$/i;
-const IMAGE_URL = /^https?:\/\/\S+\.(png|jpe?g|gif|webp|avif|svg)(\?\S*)?$/i;
+const IMAGE_PATH = /\.(png|jpe?g|gif|webp|avif|svg)$/i;
+
+function isImageUrl(text: string): boolean {
+	if (/\s/.test(text)) return false;
+	try {
+		const url = new URL(text);
+		return (url.protocol === 'http:' || url.protocol === 'https:') && IMAGE_PATH.test(url.pathname);
+	} catch {
+		return false;
+	}
+}
 
 function isMeasure(key: string): boolean {
 	return !NOT_A_MEASURE.test(key);
@@ -240,7 +250,7 @@ function imagesIn(value: unknown, key: string, depth: number, found: Map<string,
 	if (found.size >= MAX_IMAGES || depth > MAX_SEARCH_DEPTH + 1) return;
 	const inner = unpacked(value);
 	if (typeof inner === 'string') {
-		if (IMAGE_URL.test(inner) && !found.has(inner)) found.set(inner, { src: inner, alt: humanize(key || 'image') });
+		if (isImageUrl(inner) && !found.has(inner)) found.set(inner, { src: inner, alt: humanize(key || 'image') });
 		return;
 	}
 	if (Array.isArray(inner)) {

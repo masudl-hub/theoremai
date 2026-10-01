@@ -84,7 +84,7 @@ const SCALE_HEIGHT = 56;
 
 /** A level's short name: the words before its colon or dash ("Low: reversible…" → "Low"), when there are few. */
 function levelName(label: string): string {
-	const head = label.split(/\s*[:—–]\s/)[0]?.trim() ?? '';
+	const head = label.split(/[:—–]\s/)[0]?.trim() ?? '';
 	return head && head.length <= 32 && head !== label ? head : label;
 }
 

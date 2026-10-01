@@ -18,7 +18,7 @@ type Token =
   | { kind: 'name'; name: string }
   | { kind: 'section'; name: string; inverted: boolean; children: Token[] };
 
-const TAG = /\{\{(\{?)\s*([#^/!&]?)\s*([^}]*?)\s*\}?\}\}/g;
+const TAG = /\{\{(\{?)([^}]*)\}?\}\}/g;
 
 function templateError(message: string): TheoremError {
   return new TheoremError('config', `rubric template: ${message}`); // lexicon-exempt: developer contract error
@@ -43,7 +43,10 @@ function parse(template: string): Token[] {
   const stack: { name: string; children: Token[] }[] = [{ name: '', children: root }];
   let cursor = 0;
   for (const match of template.matchAll(TAG)) {
-    const [whole, triple = '', sigil = '', rawName = ''] = match;
+    const [whole, triple = '', body = ''] = match;
+    const inner = body.trim();
+    const sigil = /^[#^/!&]/.test(inner) ? inner.charAt(0) : '';
+    const rawName = inner.slice(sigil.length).trim();
     const start = match.index;
     const end = start + whole.length;
     if (/^[>=]/.test(rawName)) throw templateError(`${whole} is not supported`);

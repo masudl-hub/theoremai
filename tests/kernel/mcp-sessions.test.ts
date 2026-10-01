@@ -227,7 +227,7 @@ Deno.test('initialize does not follow a redirect, so a session only comes from t
   });
   const { settlement } = await withFetch(server.fetch, () => call(scopeWithTool()));
   assertEquals(settlement.failure?.code, 'mcp_session_http_307');
-  assert(server.seen.every((s) => !s.url.startsWith('https://elsewhere.example')));
+  assert(server.seen.every((s) => new URL(s.url).origin !== 'https://elsewhere.example'));
 });
 
 Deno.test('the session ID is not sent past a redirect to another origin', async () => {
@@ -238,7 +238,7 @@ Deno.test('the session ID is not sent past a redirect to another origin', async 
   const original = server.fetch;
   const elsewhere: Seen[] = [];
   const routed = ((input: string | URL | Request, init?: RequestInit) => {
-    if (String(input).startsWith('https://elsewhere.example')) {
+    if (new URL(String(input)).origin === 'https://elsewhere.example') {
       elsewhere.push({
         url: String(input),
         method: 'tools/call',

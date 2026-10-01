@@ -370,7 +370,8 @@ start at inside larger encoded text, padded or not, standard or URL-safe. Any
 16 consecutive characters of a form (64 bits; 20 of base64, 32 of byte codes)
 are a leak, so a truncated token is caught too. Characters more than 32
 apart are not read as one token, which bounds the hold: the gate holds just
-the tail that could still be the start of a leak (`canaryHoldFrom`) — usually
+the tail that could still begin a leak, read as any piece of a form since a run
+can start anywhere in the token (`canaryHoldFrom`) — usually
 nothing, never more than a few words — so canary-only output streams almost at
 once. An opening shorter than 4 characters of a form is released, so ordinary
 text is not held on every letter a token could start with; the scan still reads
@@ -576,8 +577,41 @@ Import corpus helpers from **`@theoremjs/agents/guardrails/testing`** (not the p
 | `deno task fuzz-canary` | CLI canary egress fuzz (stream + Live gates): token encodings, splits across chunks, steps and cycles, and system-prompt echo, with benign controls |
 | `deno task test:guardrails` | Unit tests + inbound + canary fuzz (no live API) |
 | `deno task verify:guardrails-api` | Real-provider red-team (`scripts/verify-guardrails-api.ts`) |
+| `deno task cassettes:record` | Record real-provider turns for replay (`--model`, `--only`, `--missing`, `--stale`) |
+| `deno task cassettes:update` | Replay every cassette offline and keep the outcomes it now produces |
 
 Extend attack cases under **`src/guardrails/corpus/`** only (`strings.ts` / `secrets.ts` for shared literals).
+
+### Recorded turns
+
+A guardrail change is tested against real model output without calling a
+model. `tests/cassettes/` holds, per model, the red-team attack bank, benign
+prompts shaped like what the guardrails look for, the tool guardrails against
+a mocked remote, and the attack bank over Live, each recorded once from the
+real provider. `deno task test` replays them through the real adapters and
+kernel, offline.
+
+- **Where it records.** On the transports a host supplies: the providers'
+  `fetch` and Live's `openWebSocket`. Request headers are not kept, and a
+  `key` query parameter is dropped, so no key reaches a cassette. Live audio
+  is kept as a stub; no guardrail reads it.
+- **The canary.** Every 16-byte random draw is recorded and drawn again on
+  replay, so the model's reply leaks the same canary in whatever encoding it
+  used. The canary is the draw the model was sent; trace ids are drawn alike
+  and are not.
+- **What fails.** A canary, sensitive or forbidden leak in what reached the
+  host, an inbound secret or injection sent to the model, a tool guardrail
+  that let the effect through, or an outcome (guardrail events, error kind,
+  shown text, tools run) other than the recorded one. `cassettes:update`
+  keeps a new outcome when a change means to alter it.
+- **What is listed, not failed.** A request that differs from its recording,
+  such as a reworded prompt. The reply is still a real model's, so the case
+  still tests the guardrails. `cassettes:record --stale` records those cases
+  again when they matter.
+- **When to record.** For a new model or a new case (`--missing`), and when
+  stale requests matter. A recording is kept only if it replays to the same
+  outcome straight away; a turn the provider did not serve (quota, outage) is
+  not kept.
 
 Fuzz runners register minimal stub profiles via `registerProfile` (for example
 `corpus/fuzz-inbound.ts` uses flat `models: Record<ModelId, ModelBinding>` with

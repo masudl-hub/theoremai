@@ -102,6 +102,8 @@
     "verify:jev-api": "deno run --allow-env --allow-net scripts/verify-jev-api.ts",
     "verify:canary-api": "deno run --allow-read --allow-net --allow-env --allow-sys scripts/verify-guardrails-api.ts",
     "verify:guardrails-api": "deno run --allow-read --allow-net --allow-env --allow-sys scripts/verify-guardrails-api.ts",
+    "cassettes:record": "deno run --allow-read --allow-write --allow-net --allow-env --allow-sys scripts/record-cassettes.ts",
+    "cassettes:update": "deno run --allow-read --allow-write --allow-env --allow-sys scripts/record-cassettes.ts --update",
     "verify:tools-api": "deno run --allow-read --allow-net --allow-env --allow-sys scripts/verify-tools-api.ts",
     "evals:example": "deno run --allow-read --allow-write --allow-net --allow-env --allow-sys scripts/evals-example.ts",
     "phoenix:up": "deno run --allow-run=docker --allow-net=localhost:6006 scripts/phoenix/up.ts",

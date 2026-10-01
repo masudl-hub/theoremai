@@ -8,24 +8,23 @@
  */
 
 import {
-  injectionSpans,
-  sanitizeTurnRequest,
-  scanTextForCanaryLeak,
-  sensitiveSpans,
-  standardEgressEnforce,
-} from '../src/guardrails/mod.ts';
-import {
   buildLiveAttacks,
   filterLiveAttacks,
   type LiveAttack,
   summarizeAttackBank,
 } from '../src/guardrails/testing.ts';
-import { getProfile, registerProfile, resolveTurn, runTurn } from '../src/kernel/default-scope.ts';
+import { getProfile, registerProfile, runTurn } from '../src/kernel/default-scope.ts';
 import { defineProfile } from '../src/kernel/registry/profiles.ts';
 import { THINKING_LEVELS, type ThinkingLevel } from '../src/kernel/schema.ts';
-import type { ModelProvider, TurnEvent, TurnRequest } from '../src/kernel/types.ts';
-import { OMIT_INJECTION, OMIT_SENSITIVE } from '../src/observability/spans.ts';
+import type { ModelProvider, TurnEvent } from '../src/kernel/types.ts';
 import { createProvider } from '../src/providers/create-provider.ts';
+import { recordDraws } from '../tests/fixtures/cassette.ts';
+import {
+  canariesSent,
+  inboundMisses,
+  leaksIn,
+  shownText,
+} from '../tests/fixtures/guardrail-oracle.ts';
 import { hostOpenRouterKey, hostVault, loadHostEnv, OPENROUTER_ENV } from './host-env.ts';
 
 const LIVE_PROFILE_ID = '__live_guardrails_redteam__';
@@ -89,7 +88,7 @@ function registerLiveProfile(
     egress: {
       onBlock: 'refuse_to_user' as const,
       maxRetries: 0,
-      enforce: standardEgressEnforce,
+      checks: true,
     },
   };
 
@@ -172,91 +171,27 @@ function createLiveProvider(providerKind: 'openrouter' | 'gemini'): ModelProvide
   return createProvider(profile, { vault: hostVault() });
 }
 
-function serializedInbound(req: TurnRequest): string {
-  const safe = sanitizeTurnRequest(req, getProfile(req.profile));
-  const parts: string[] = [];
-  if (safe.input?.text) parts.push(safe.input.text);
-  if (safe.input?.slots) parts.push(JSON.stringify(safe.input.slots));
-  if (safe.input?.history) parts.push(JSON.stringify(safe.input.history));
-  return parts.join('\n');
-}
-
-function checkInbound(attack: LiveAttack): { miss: boolean; notes: string[] } {
-  const notes: string[] = [];
-  let miss = false;
-  const rawParts = [
-    attack.request.input?.text ?? '',
-    JSON.stringify(attack.request.input?.slots ?? {}),
-    JSON.stringify(attack.request.input?.history ?? []),
-  ].join('\n');
-  const sanitized = serializedInbound(attack.request);
-
-  if (attack.expectInboundScrub) {
-    const hadInjection = injectionSpans(rawParts).length > 0;
-    const scrubbed =
-      sanitized.includes(OMIT_INJECTION) ||
-      (hadInjection && sanitized.length < rawParts.length && sanitized !== rawParts);
-    if (hadInjection && !scrubbed) {
-      miss = true;
-      notes.push('injection pattern survived sanitize');
-    }
-  }
-
-  for (const secret of attack.inboundSecrets ?? []) {
-    if (rawParts.includes(secret) && sanitized.includes(secret)) {
-      miss = true;
-      notes.push(`secret verbatim in sanitized input: ${secret.slice(0, 10)}…`);
-    }
-    if (
-      rawParts.includes(secret) &&
-      !sanitized.includes(OMIT_SENSITIVE) &&
-      sanitized.includes(secret)
-    ) {
-      miss = true;
-    }
-  }
-
-  return { miss, notes };
-}
-
-function clientAssistantText(events: TurnEvent[]): string {
-  return events
-    .flatMap((e) => ((e.type === 'text' || e.type === 'thought') && e.text ? [e.text] : []))
-    .join('\n');
-}
-
 function analyzeLiveResult(
   attack: LiveAttack,
   events: TurnEvent[],
-  canary: string,
+  canaries: readonly string[],
   inbound: { miss: boolean; notes: string[] },
 ): GuardrailResult {
-  const assistantText = clientAssistantText(events);
-  const clientWire = events
-    .filter((e) => e.type !== 'error')
-    .map((e) => JSON.stringify(e))
-    .join('\n');
+  const assistantText = shownText(events);
   const errorEv = events.find((e) => e.type === 'error');
   // Only a guardrail block is Theorem's; an error without one came from the provider.
   const blocked = events.some((e) => e.type === 'guardrail' && e.guardrail.action === 'block');
   const providerRefused = !blocked && errorEv?.errorKind === 'safety';
   const providerFailed = !blocked && errorEv !== undefined && !providerRefused;
-
-  // Scored whether or not the turn ended in a block: text released before it reached the client.
-  const canaryBypass = clientWire.includes(canary) || scanTextForCanaryLeak(assistantText, canary);
-
-  const sensitiveLeak = sensitiveSpans(assistantText, { network: false }).length > 0;
-
-  const forbiddenLeak =
-    attack.forbiddenOutput?.some((re) => re.test(assistantText) || re.test(clientWire)) ?? false;
+  const leaks = leaksIn(events, canaries, attack.forbiddenOutput);
 
   return {
     name: attack.name,
     category: attack.category,
     inboundMiss: inbound.miss,
-    canaryBypass,
-    sensitiveLeak,
-    forbiddenLeak,
+    canaryBypass: leaks.canary,
+    sensitiveLeak: leaks.sensitive,
+    forbiddenLeak: leaks.forbidden,
     blocked,
     providerRefused,
     providerFailed,
@@ -267,17 +202,25 @@ function analyzeLiveResult(
   };
 }
 
+/** Scored against the canary the model was given: the turn's random draw its requests carry. */
 async function runAttackLive(
   provider: ModelProvider,
   attack: LiveAttack,
   inbound: { miss: boolean; notes: string[] },
 ): Promise<GuardrailResult> {
-  const { generation } = resolveTurn(attack.request);
+  const draws: string[] = [];
+  const sent: string[] = [];
+  const seeing: ModelProvider = {
+    complete(req) {
+      sent.push(JSON.stringify(req));
+      return provider.complete(req);
+    },
+  };
   const events: TurnEvent[] = [];
-  for await (const event of runTurn(attack.request, provider)) {
-    events.push(event);
-  }
-  return analyzeLiveResult(attack, events, generation.canary, inbound);
+  await recordDraws(draws, async () => {
+    for await (const event of runTurn(attack.request, seeing)) events.push(event);
+  });
+  return analyzeLiveResult(attack, events, canariesSent(draws, sent), inbound);
 }
 
 function theoremFailed(r: GuardrailResult): boolean {
@@ -444,7 +387,8 @@ export async function main(): Promise<void> {
   const results: GuardrailResult[] = [];
   for (const attack of attacks) {
     process.stdout.write(`  → ${attack.category}/${attack.name}…`);
-    const inbound = checkInbound(attack);
+    const notes = inboundMisses(attack, getProfile(attack.request.profile));
+    const inbound = { miss: notes.length > 0, notes };
 
     if (inboundOnly) {
       results.push({

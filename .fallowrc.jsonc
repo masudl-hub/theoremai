@@ -16,6 +16,7 @@
     "tests/interface/**/*.ts",
     "tests/react/**/*.ts",
     "tests/fixtures/**/*.ts",
+    "tests/cassettes/**/*.ts",
     "tests/fixtures/**/*.js",
     "react/src/index.ts",
     "react/src/ui/index.ts",

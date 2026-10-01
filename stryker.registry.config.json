@@ -16,7 +16,8 @@
     "node_modules",
     "traces",
     "cov_profile",
-    ".fallow"
+    ".fallow",
+    ".stryker-tmp-registry"
   ],
   "reporters": [
     "clear-text",
@@ -37,5 +38,9 @@
     "excludedMutations": [
       "StringLiteral"
     ]
+  },
+  "tempDirName": ".stryker-tmp-registry",
+  "jsonReporter": {
+    "fileName": "reports/mutation/registry.json"
   }
 }

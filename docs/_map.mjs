@@ -508,6 +508,19 @@ const graph = {
       ],
     },
 
+    surface: {
+      export: './surface',
+      doc: 'docs/contracts/surface.md',
+      owns: ['src/surface/'],
+      validates: ['tests/surface/'],
+      required_sections: ['Export', 'Ownership', 'Protocol', 'Secrets', 'Exported API'],
+      section_triggers: [
+        { paths: ['src/surface/runtime.ts'], sections: ['Protocol'] },
+        { paths: ['src/surface/formats.ts'], sections: ['Secrets'] },
+        { paths: ['src/surface/mod.ts', 'src/surface/tools.ts'], sections: ['Exported API'] },
+      ],
+    },
+
     schema: {
       export: './schema',
       doc: 'docs/contracts/kernel.md',

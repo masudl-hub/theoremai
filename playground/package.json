@@ -7,7 +7,8 @@
   "exports": {
     ".": "./mod.ts",
     "./runtime": "./runtime.ts",
-    "./browser": "./browser.ts"
+    "./browser": "./browser.ts",
+    "./surface": "./surface.ts"
   },
   "peerDependencies": {
     "@theoremjs/agents": "*",

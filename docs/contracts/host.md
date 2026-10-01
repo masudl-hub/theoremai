@@ -138,7 +138,7 @@ The kernel never times out an ungated held call, so the relay does:
 browser's `executeTool` for that call arrives or the call settles or is
 cancelled. When it fires the relay calls `session.executeTool` with
 `host: { clientTimedOut: true }`, and `browserToolHandler` fails the call with
-"The page didn't answer. Read the state before trying again." The browser's
+"The page didn't answer. Look before trying again." The browser's
 late answer is then refused like any `executeTool` for a settled call.
 
 | Export | Role |

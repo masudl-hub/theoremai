@@ -62,17 +62,33 @@ const outputs = z.object({
     .optional(),
 });
 
+const sensitiveGroups = z.object({
+  ids: z.boolean(),
+  financial: z.boolean(),
+  network: z.boolean(),
+  credentials: z.boolean(),
+});
+
+const urlCheck = z.union([
+  z.literal(false),
+  z.object({ hosts: z.array(z.string()), fromTools: z.boolean() }),
+]);
+
 const guardrails = z.object({
   quota: z.object({ perDay: z.number() }).optional(),
   canary: z.boolean(),
   sanitizeInput: z.boolean(),
-  redactSensitive: z.object({
-    ids: z.boolean(),
-    financial: z.boolean(),
-    network: z.boolean(),
-    credentials: z.boolean(),
-  }),
+  redactSensitive: sensitiveGroups,
   hasEgress: z.boolean(),
+  egressChecks: z
+    .object({
+      sensitive: sensitiveGroups,
+      boundary: z.boolean(),
+      injection: z.boolean(),
+      images: urlCheck,
+      links: urlCheck,
+    })
+    .nullable(),
 });
 
 const observability = z.object({

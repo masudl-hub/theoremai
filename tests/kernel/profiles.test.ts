@@ -149,6 +149,38 @@ Deno.test('defineProfile rejects a holdback with a policy the stream reads exact
   }
 });
 
+Deno.test('defineProfile takes enforce or checks for egress, one of the two, and only checks there are', () => {
+  const profile = (egress: Record<string, unknown>) => () =>
+    defineProfile({
+      id: 'egress_checks',
+      type: 'text',
+      identity: { handle: 'egress_checks' },
+      models: modelBindings('gemini35FlashLite'),
+      key: 'slotA',
+      tools: { allow: [] },
+      inputs: { text: true },
+      guardrails: { egress },
+    });
+  const oneOf = 'one of the two';
+  assertThrows(profile({}), TheoremError, oneOf);
+  assertThrows(profile({ onBlock: 'refuse_to_user' }), TheoremError, oneOf);
+  assertThrows(profile({ enforce: standardEgressEnforce, checks: true }), TheoremError, oneOf);
+  assertThrows(profile({ enforce: 'standard' }), TheoremError, 'must be a function');
+  assertThrows(profile({ checks: { imageHosts: [] } }), TheoremError, 'no check "imageHosts"');
+  assertThrows(
+    profile({ checks: { links: { hosts: ['https://docs.acme.io'] } } }),
+    TheoremError,
+    'guardrails.egress.checks.links.hosts lists',
+  );
+  assertThrows(
+    profile({ checks: true, holdback: 96 }),
+    TheoremError,
+    'applies only to a host egress.enforce',
+  );
+  profile({ checks: false })();
+  profile({ checks: { sensitive: { network: true }, links: { hosts: ['docs.acme.io'] } } })();
+});
+
 Deno.test('defineProfile rejects a non-integer or negative egress count', () => {
   for (const egress of [{ holdback: -1 }, { holdback: 1.5 }, { maxRetries: -2 }]) {
     assertThrows(

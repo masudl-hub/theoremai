@@ -1,4 +1,5 @@
 import type { LexiconOverrides } from '../guardrails/lexicon.ts';
+import type { SensitiveGroups } from '../guardrails/sensitive.ts';
 import type { ResolvedGuardrailPolicy } from '../guardrails/types.ts';
 import type {
   LiveProfileToolsSpec,
@@ -24,12 +25,26 @@ import type {
 } from '../kernel/types.ts';
 import type { ResolvedObservabilityPolicy } from '../observability/types.ts';
 
+/** A URL check as it runs; `false` when off. */
+export type UrlCheckView = false | { hosts: string[]; fromTools: boolean };
+
+/** The bundled egress checks a profile's reply runs through. */
+export interface EgressChecksView {
+  sensitive: SensitiveGroups;
+  boundary: boolean;
+  injection: boolean;
+  images: UrlCheckView;
+  links: UrlCheckView;
+}
+
 /** Guardrails visible to UI — egress enforcer functions are omitted. */
 export type ProfileGuardrailsView = Pick<
   ResolvedGuardrailPolicy,
   'quota' | 'canary' | 'sanitizeInput' | 'redactSensitive'
 > & {
   hasEgress: boolean;
+  /** `null` with no egress check, or a host `enforce` whose checks are its own. */
+  egressChecks: EgressChecksView | null;
 };
 
 /** Observability visible to UI — TraceSink / onWriteError functions are omitted. */

@@ -10,11 +10,12 @@
 import {
   collectEgressHits,
   type EgressChecks,
+  egressChecksProblem,
   egressScope,
   hitsEnforcer,
   NO_CHECKS,
+  registerEgressChecks,
   resolveEgressChecks,
-  type UrlCheck,
 } from './egress.ts';
 import {
   assertEgressRules,
@@ -31,8 +32,6 @@ import {
 } from './egress-stream.ts';
 import { TheoremError } from './error.ts';
 import { hitFromSpan } from './hits.ts';
-import { SENSITIVE_GROUPS } from './sensitive.ts';
-import { registerThoughtChecks } from './thought-guard.ts';
 import type { EgressEnforcer, GuardrailHit, Severity } from './types.ts';
 
 interface EgressPolicyOptions {
@@ -87,43 +86,9 @@ function configError(message: string): TheoremError {
   return new TheoremError('config', `egressPolicy: ${message}`);
 }
 
-const CHECK_NAMES = new Set(['sensitive', 'boundary', 'injection', 'images', 'links']);
-const URL_CHECK_NAMES = new Set(['hosts', 'fromTools']);
-const GROUP_NAMES = new Set<string>(SENSITIVE_GROUPS);
-
-/** A hostname is all a URL check's host is: a scheme, port or path would never match one. */
-function assertUrlCheck(name: string, check: boolean | UrlCheck | undefined): void {
-  if (check === undefined || typeof check === 'boolean') return;
-  const unknown = Object.keys(check).find((key) => !URL_CHECK_NAMES.has(key));
-  if (unknown !== undefined) {
-    throw configError(`bundled.${name} has no option ${JSON.stringify(unknown)}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  }
-  const bad = (check.hosts ?? []).find(
-    (host) => !/^[a-z0-9.-]+$/i.test(host) || host.startsWith('.'),
-  );
-  if (bad !== undefined) {
-    throw configError(
-      // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      `bundled.${name}.hosts lists ${JSON.stringify(bad)}, which is not a hostname`,
-    );
-  }
-}
-
-/** A misspelt check or group would leave the check it meant at its default, silently. */
 function assertEgressChecks(checks: boolean | EgressChecks): void {
-  if (typeof checks === 'boolean') return;
-  const unknown = Object.keys(checks).find((key) => !CHECK_NAMES.has(key));
-  if (unknown !== undefined) {
-    throw configError(`bundled has no check ${JSON.stringify(unknown)}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  }
-  if (typeof checks.sensitive === 'object') {
-    const group = Object.keys(checks.sensitive).find((key) => !GROUP_NAMES.has(key));
-    if (group !== undefined) {
-      throw configError(`bundled.sensitive has no group ${JSON.stringify(group)}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    }
-  }
-  assertUrlCheck('images', checks.images);
-  assertUrlCheck('links', checks.links);
+  const problem = egressChecksProblem('bundled', checks);
+  if (problem !== undefined) throw configError(problem);
 }
 
 /** An egress enforce that blocks on each host rule and on the bundled checks `bundled` selects. */
@@ -161,7 +126,7 @@ function egressPolicy({
       ...(context.givenUrls ? { given: context.givenUrls } : {}),
     }),
   );
-  registerThoughtChecks(enforce, checks);
+  registerEgressChecks(enforce, checks);
   return enforce;
 }
 

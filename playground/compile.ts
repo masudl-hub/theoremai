@@ -1,8 +1,3 @@
-/**
- * Egress compiles to the kernel's real `standardEgressEnforce`. A function does not survive
- * JSON, so the playground server puts it back after the run-tab handoff.
- */
-
 import {
   type DecisionEntry,
   type DecisionQuestion,
@@ -19,11 +14,17 @@ import {
   type ProfileTurnBehaviourSpec,
   resolveGuardrailPolicy,
   type SpeechProfileDefinition,
-  standardEgressEnforce,
   type TextProfileDefinition,
   TheoremError,
 } from '../mod.ts';
 import { validateLexiconOverrides } from '../src/guardrails/lexicon.ts';
+import {
+  type EgressChecks,
+  egressChecksProblem,
+  type ResolvedEgressChecks,
+  resolveEgressChecks,
+  type UrlCheck,
+} from '../src/guardrails/egress.ts';
 import { SENSITIVE_GROUPS, type SensitiveGroups } from '../src/guardrails/sensitive.ts';
 import type { DecisionProfileDefinition, HostProfileDefinition } from '../src/kernel/mod.ts';
 import { outOfScopeFields } from '../src/kernel/profile-scope.ts';
@@ -52,6 +53,7 @@ import { googleInteractionsPersistence } from '../src/presets/google.ts';
 import { PLAYGROUND_KEY_SLOT_CAP } from './browser-connection.ts';
 import type {
   DecisionDraft,
+  EgressChecksDraft,
   GuardrailsDraft,
   ImageDraft,
   InputsDraft,
@@ -65,6 +67,7 @@ import type {
   SpeechDraft,
   ToolSpecDraft,
   TurnBehaviourDraft,
+  UrlCheckDraft,
 } from './draft.ts';
 import { draftAllows, draftFacets, INLINE_WORDING, takesContinueInstruction } from './draft.ts';
 import {
@@ -739,7 +742,7 @@ function compileEgress(
     0,
   );
   return {
-    enforce: standardEgressEnforce,
+    checks: compileEgressChecks(guardrails.egressChecks, report),
     ...(guardrails.egressOnBlock ? { onBlock: guardrails.egressOnBlock } : {}),
     ...(guardrails.egressMaxRetries !== null ? { maxRetries: guardrails.egressMaxRetries } : {}),
   };
@@ -759,6 +762,49 @@ function compileNetwork(
     ...(guardrails.allowPrivateNetworks ? { allowPrivateNetworks: true } : {}),
     ...(hosts.length ? { allowedHosts: hosts } : {}),
   };
+}
+
+/** The URL check as it differs from `fallback`: omitted when it does not, `false` when off. */
+function compileUrlCheck(
+  name: 'images' | 'links',
+  check: UrlCheckDraft,
+  fallback: UrlCheck | undefined,
+  report: Report,
+): boolean | UrlCheck | undefined {
+  const hosts = check.hosts.map((host) => host.trim());
+  const blank = hosts.indexOf('');
+  if (blank !== -1) {
+    report('guardrails', 'Egress hosts cannot be blank.', `egressChecks.${name}.hosts`, blank);
+  }
+  if (!check.on) return fallback ? false : undefined;
+  const named = hosts.filter(Boolean);
+  const options: UrlCheck = {
+    ...(named.length ? { hosts: named } : {}),
+    ...(check.fromTools ? {} : { fromTools: false }),
+  };
+  if (Object.keys(options).length) return options;
+  return fallback ? undefined : true;
+}
+
+/** The checks that differ from the bundled defaults: `true` when none does, `false` when all are off. */
+function compileEgressChecks(draft: EgressChecksDraft, report: Report): boolean | EgressChecks {
+  const defaults: ResolvedEgressChecks = resolveEgressChecks();
+  const sensitive = compileRedactSensitive(draft.sensitive, defaults.sensitive);
+  const checks: EgressChecks = {
+    ...(sensitive === undefined ? {} : { sensitive }),
+    ...(draft.boundary === defaults.boundary ? {} : { boundary: draft.boundary }),
+    ...(draft.injection === defaults.injection ? {} : { injection: draft.injection }),
+  };
+  const images = compileUrlCheck('images', draft.images, defaults.images, report);
+  const links = compileUrlCheck('links', draft.links, defaults.links, report);
+  if (images !== undefined) checks.images = images;
+  if (links !== undefined) checks.links = links;
+  const problem = egressChecksProblem('Egress checks', checks);
+  if (problem !== undefined) report('guardrails', problem, 'egressChecks');
+  const allOff =
+    sensitive === false && !draft.boundary && !draft.injection && !draft.images.on && !draft.links.on;
+  if (allOff) return false;
+  return Object.keys(checks).length ? checks : true;
 }
 
 /** The groups that differ from the defaults; `false` when every group is off. */

@@ -105,13 +105,12 @@ Owns every module under `src/guardrails/`.
 
 ## Egress
 
-Hosts may supply `guardrails.egress.enforce` or use the bundled helper:
+A profile sets exactly one of `guardrails.egress.checks`, the bundled checks
+(see [Bundled checks](#bundled-checks)), or `guardrails.egress.enforce`, its own:
 
 ```ts
-import { standardEgressEnforce } from '@theoremjs/agents/guardrails';
-
 guardrails: {
-  egress: { enforce: standardEgressEnforce, onBlock: 'refuse_to_user' },
+  egress: { checks: { links: true }, onBlock: 'refuse_to_user' },
 }
 ```
 
@@ -186,11 +185,16 @@ structured operational data should supply its own `enforce`.
 
 ### Bundled checks
 
-`egressPolicy({ bundled })` takes `true` (the default: each check at its
+`guardrails.egress.checks` and `egressPolicy({ bundled })` take `true` (the default: each check at its
 default), `false` (none), or an `EgressChecks` object switching the checks it
 names; a check left out keeps its default. The canary and prompt echo are not
 among them: `guardrails.canary` and `guardrails.promptEcho` switch those, and
 they run under any policy. `standardEgressEnforce` is every check at its default.
+The kernel resolves `checks` to `egressPolicy({ bundled: checks })`, so a
+profile stays data; `egressPolicy` itself is for an `enforce` that adds host
+rules. `interfaceFromProfile` reports the checks a profile runs as
+`guardrails.egressChecks` (each URL check `false` or `{ hosts, fromTools }`),
+`null` when the policy is a host enforce whose checks are its own.
 
 | Check | Default | Blocks |
 | --- | --- | --- |
@@ -418,7 +422,7 @@ call of a `runTurn`, the next Live cycle — so a token split across tool steps
 or cycles is one match: the turn or session ends when it completes, and only
 the chunks before the completing one were released. `defineProfile` rejects a
 `holdback` or `maxRetries` that is not a non-negative integer, and a `holdback`
-with `standardEgressEnforce` or an `egressPolicy`. The same constructor backs `runTurn` and
+with `checks`, `standardEgressEnforce` or an `egressPolicy`. The same constructor backs `runTurn` and
 Live (`processLiveOutboundBatch`). The system-prompt leak checks (canary,
 prompt echo) run on every window under any policy. Without `egress.enforce` a
 leak ends the turn at once. With it, the host policy is authoritative for its
@@ -427,10 +431,10 @@ withhold) — but the final verdict is pinned to block: no host verdict, not eve
 `allow`, releases a system-prompt leak. Whole events (tool calls, structured
 payloads) carrying one end the turn at once under any policy, so a leaking tool
 call never runs. The bundled rules (`collectEgressHits`: canary, sensitive echo,
-system boundary, injection echo, reply images) run only through `egress.enforce` — for example
-`standardEgressEnforce` — where the end-of-attempt verdict can release, repair,
+system boundary, injection echo, reply images) run only through `egress.checks` or an
+`egress.enforce` built from them, where the end-of-attempt verdict can release, repair,
 or refuse.
-`outputs.streaming.mode: 'sse'` and `egress.enforce` can both stay on.
+`outputs.streaming.mode: 'sse'` and egress can both stay on.
 
 **Thoughts are omitted from, never stopped.** Only the reply stream flows
 through progressive yield, and the end-of-attempt egress payload carries reply
@@ -1195,7 +1199,7 @@ From `src/guardrails/mod.ts`:
 | --- | --- |
 | Errors | `ERROR_KINDS`, `ErrorKind`, `ErrorCopy`, `ErrorCopies`, `errorKindSchema`, `errorCopiesSchema`, `TheoremError`, `TheoremErrorOptions`, `errorKind`, `kindOfHttpStatus`, `publicError`, `toErrorEvent`, `withPublicWording`, `describeError`, `isAbortError`, `isTimeoutError`, `throwIfAborted` |
 | Injection / sensitive | `injectionSpans`, `sensitiveSpans`, `SENSITIVE_GROUPS`, `SensitiveGroup`, `SensitiveGroups`, `SensitiveSelection`, `SensitiveSwitches` |
-| Vocabulary | `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailEvent`, `guardrailEventSchema`, `Provenance`, `ToolOrigin`, `GuardrailAction`, `GuardrailContext`, `OutboundPayload`, `EgressEnforcer`, `EgressOnBlock`, `ProfileEgressSpec`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `DecisionDisclosureVerdict`, `DecisionDisclosureEnforcer`, `DecisionGuardrailsSpec`, `NetworkGuardrailSpec`, `CanaryGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES`, `EGRESS_ON_BLOCK` |
+| Vocabulary | `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailEvent`, `guardrailEventSchema`, `Provenance`, `ToolOrigin`, `GuardrailAction`, `GuardrailContext`, `OutboundPayload`, `EgressEnforcer`, `EgressOnBlock`, `ProfileEgressSpec`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `DecisionDisclosureVerdict`, `DecisionDisclosureEnforcer`, `DecisionGuardrailsSpec`, `NetworkGuardrailSpec`, `CanaryGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `ResolvedEgressSpec`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES`, `EGRESS_ON_BLOCK` |
 | Policy | `resolveGuardrailPolicy`, `detectionForTrust`, `DetectionOptions` |
 | Rule ids | `SANITIZE_RULES`, `EGRESS_RULES`, `DIRECTIVE_RULES`, `TOOL_RULES`, `NETWORK_RULES`, `GuardrailRule` |
 | Tool boundary | `guardToolResult`, `guardToolFailureText`, `inspectToolArguments`, `toolCallEvent`, `wrapToolData`, `isRemoteOrigin`, `composeToolText`, `checkTaintGate`, `recordTaint`, `isTainted`, `isSuspicious`, `directiveHits`, `looksDirective`, `advisoryLevel`, `ADVISORY_LEVELS`, `AdvisoryLevel`, `TOOL_CLOSE`, `TOOL_ORIGINS`, `TAINT_GATES`, `GuardedToolText`, `Provenance`, `ToolOrigin`, `TurnTaint`, `TaintGate`, `TaintGuardrailSpec`, `GuardrailEvent` |

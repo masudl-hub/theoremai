@@ -164,6 +164,7 @@ export type {
   ProfileGuardrailsSpec,
   Provenance,
   QuotaGuardrailSpec,
+  ResolvedEgressSpec,
   ResolvedGuardrailPolicy,
   Severity,
   TaintGate,

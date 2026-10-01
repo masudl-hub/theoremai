@@ -24,7 +24,7 @@ import { type ThoughtGuard, type ThoughtRelease, thoughtGuardFor } from './thoug
 import type {
   GuardrailContext,
   GuardrailHit,
-  ProfileEgressSpec,
+  ResolvedEgressSpec,
   ResolvedGuardrailPolicy,
   Verdict,
 } from './types.ts';
@@ -66,7 +66,7 @@ export type LiveOutboundBatchResult =
 
 const UNTRANSCRIBED_HIT: GuardrailHit = { rule: 'live.untranscribed-audio', severity: 'high' };
 
-function egressSpec(session: LiveOutboundGateSession): ProfileEgressSpec | undefined {
+function egressSpec(session: LiveOutboundGateSession): ResolvedEgressSpec | undefined {
   return session.policy.egress;
 }
 
@@ -360,7 +360,7 @@ function emitOrIdle(events: TurnEvent[]): LiveOutboundBatchResult {
 async function finalEgressVerdict(
   session: LiveOutboundGateSession,
   gate: ProgressiveYieldGate,
-  egress: ProfileEgressSpec,
+  egress: ResolvedEgressSpec,
   prior: TurnEvent[],
 ): Promise<LiveOutboundBatchResult> {
   // The host policy adds checks; it never releases a system-prompt leak.

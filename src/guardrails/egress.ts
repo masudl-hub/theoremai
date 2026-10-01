@@ -12,6 +12,7 @@ import { EGRESS_RULES } from './rules.ts';
 import {
   anySensitive,
   resolveSensitive,
+  SENSITIVE_GROUPS,
   type SensitiveGroups,
   type SensitiveSelection,
   sensitiveSpans,
@@ -412,6 +413,84 @@ function egressScope(context: GuardrailContext): EgressScope {
 const standardEgressEnforce: (payload: OutboundPayload, context: GuardrailContext) => Verdict =
   hitsEnforcer((text, context) => collectEgressHits(text, egressScope(context)));
 
+/** The bundled checks each enforce runs, for the enforces built from them. */
+const KNOWN_CHECKS = new WeakMap<EgressEnforcer, ResolvedEgressChecks>([
+  [standardEgressEnforce, DEFAULT_CHECKS],
+]);
+
+function registerEgressChecks(enforce: EgressEnforcer, checks: ResolvedEgressChecks): void {
+  KNOWN_CHECKS.set(enforce, checks);
+}
+
+/** The bundled checks `enforce` runs; undefined for a host enforce, whose checks are its own. */
+function egressChecksOf(enforce: EgressEnforcer | undefined): ResolvedEgressChecks | undefined {
+  return enforce && KNOWN_CHECKS.get(enforce);
+}
+
+const CHECK_NAMES = new Set(['sensitive', 'boundary', 'injection', 'images', 'links']);
+const URL_CHECK_NAMES = new Set(['hosts', 'fromTools']);
+const GROUP_NAMES = new Set<string>(SENSITIVE_GROUPS);
+
+/** A hostname is all a URL check's host is: a scheme, port or path would never match one. */
+function urlCheckProblem(path: string, check: unknown): string | undefined {
+  if (check === undefined || typeof check === 'boolean') return undefined;
+  // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  if (typeof check !== 'object' || check === null) return `${path} must be a boolean or an object`;
+  const unknown = Object.keys(check).find((key) => !URL_CHECK_NAMES.has(key));
+  // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  if (unknown !== undefined) return `${path} has no option ${JSON.stringify(unknown)}`;
+  const { hosts, fromTools } = check as UrlCheck;
+  if (fromTools !== undefined && typeof fromTools !== 'boolean') {
+    // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    return `${path}.fromTools must be a boolean`;
+  }
+  // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  if (hosts !== undefined && !Array.isArray(hosts)) return `${path}.hosts must be a list`;
+  const bad = (hosts ?? []).find(
+    (host) => typeof host !== 'string' || !/^[a-z0-9.-]+$/i.test(host) || host.startsWith('.'),
+  );
+  return bad === undefined
+    ? undefined
+    : // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `${path}.hosts lists ${JSON.stringify(bad)}, which is not a hostname`;
+}
+
+/** A misspelt check or group would leave the check it meant at its default, silently. */
+function egressChecksProblem(path: string, checks: unknown): string | undefined {
+  if (typeof checks === 'boolean') return undefined;
+  if (typeof checks !== 'object' || checks === null)
+    // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    return `${path} must be a boolean or an object`;
+  const unknown = Object.keys(checks).find((key) => !CHECK_NAMES.has(key));
+  // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  if (unknown !== undefined) return `${path} has no check ${JSON.stringify(unknown)}`;
+  const { sensitive, boundary, injection, images, links } = checks as EgressChecks;
+  for (const [name, value] of [
+    ['boundary', boundary],
+    ['injection', injection],
+  ] as const) {
+    if (value !== undefined && typeof value !== 'boolean')
+      // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      return `${path}.${name} must be a boolean`;
+  }
+  if (sensitive !== undefined && typeof sensitive !== 'boolean') {
+    if (typeof sensitive !== 'object' || sensitive === null) {
+      // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      return `${path}.sensitive must be a boolean or an object`;
+    }
+    const unknownGroup = Object.keys(sensitive).find((group) => !GROUP_NAMES.has(group));
+    if (unknownGroup !== undefined) {
+      // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      return `${path}.sensitive has no group ${JSON.stringify(unknownGroup)} (${SENSITIVE_GROUPS.join(', ')})`;
+    }
+    const bad = Object.entries(sensitive).find(([, on]) => typeof on !== 'boolean');
+    // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    if (bad !== undefined) return `${path}.sensitive.${bad[0]} must be a boolean`;
+  }
+  // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  return urlCheckProblem(`${path}.images`, images) ?? urlCheckProblem(`${path}.links`, links);
+}
+
 /**
  * A policy that throws has reached no decision, so it cannot vouch for the output:
  * the failure becomes a `block`, not a pass. The turn then follows the profile's
@@ -441,6 +520,8 @@ export {
   CANARY_HIT,
   collectEgressHits,
   DEFAULT_CHECKS,
+  egressChecksOf,
+  egressChecksProblem,
   egressScope,
   eventPromptLeakHits,
   hitRules,
@@ -450,6 +531,7 @@ export {
   PROMPT_ECHO_HIT,
   promptEchoHits,
   promptLeakReason,
+  registerEgressChecks,
   resolveEgressChecks,
   runEnforcer,
   standardEgressEnforce,

@@ -1,3 +1,4 @@
+import { egressChecksProblem } from '../../guardrails/egress.ts';
 import { streamPlanOf } from '../../guardrails/egress-stream.ts';
 import { TheoremError } from '../../guardrails/error.ts';
 import { type LexiconOverrides, validateLexiconOverrides } from '../../guardrails/lexicon.ts';
@@ -525,6 +526,21 @@ function speechGuardrails(input: SpeechProfileDefinition): SpeechProfile['guardr
 
 function assertEgress(profileId: string, guardrails: ProfileGuardrailsSpec | undefined): void {
   const egress = guardrails?.egress;
+  const fail = (message: string) => new TheoremError('config', `Profile ${profileId}: ${message}`);
+  if (egress && (egress.enforce === undefined) === (egress.checks === undefined)) {
+    throw fail(
+      // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      'guardrails.egress takes enforce (your own check) or checks (the bundled ones), one of the two',
+    );
+  }
+  if (egress?.enforce !== undefined && typeof egress.enforce !== 'function') {
+    throw fail('guardrails.egress.enforce must be a function'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  const problem =
+    egress?.checks === undefined
+      ? undefined
+      : egressChecksProblem('guardrails.egress.checks', egress.checks);
+  if (problem !== undefined) throw fail(problem);
   for (const key of ['maxRetries', 'holdback'] as const) {
     const value = egress?.[key];
     if (value !== undefined && (!Number.isInteger(value) || value < 0)) {
@@ -534,7 +550,10 @@ function assertEgress(profileId: string, guardrails: ProfileGuardrailsSpec | und
       );
     }
   }
-  if (egress?.holdback !== undefined && streamPlanOf(egress.enforce)) {
+  if (
+    egress?.holdback !== undefined &&
+    (egress.enforce === undefined || streamPlanOf(egress.enforce))
+  ) {
     throw new TheoremError(
       'config',
       `Profile ${profileId}: guardrails.egress.holdback applies only to a host egress.enforce; the bundled policy holds exactly what could still become a match`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)

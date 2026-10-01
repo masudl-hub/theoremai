@@ -9,7 +9,7 @@ import type {
   GuardrailContext,
   GuardrailHit,
   OutboundPayload,
-  ProfileEgressSpec,
+  ResolvedEgressSpec,
   Verdict,
 } from '../../../guardrails/types.ts';
 import { resolveInputParts } from '../../registry/ingress.ts';
@@ -83,7 +83,7 @@ type EgressOutcome =
   | { action: 'withhold'; event: TurnEvent };
 
 async function evaluateEgressOutcome(args: {
-  egress: ProfileEgressSpec;
+  egress: ResolvedEgressSpec;
   attemptEvents: TurnEvent[];
   generation: ResolvedGeneration;
   request: TurnRequest;
@@ -250,7 +250,7 @@ function updateFlowForRetry(
 }
 
 async function* handleEgressGate(
-  egress: ProfileEgressSpec,
+  egress: ResolvedEgressSpec,
   flow: AttemptFlowState,
   state: StepExecutionState,
   profile: Profile,

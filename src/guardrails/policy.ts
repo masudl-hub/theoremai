@@ -1,5 +1,13 @@
+import { egressPolicy } from './egress-policy.ts';
 import { resolveSensitive, type SensitiveGroups, type SensitiveSelection } from './sensitive.ts';
-import type { ProfileGuardrailsSpec, ResolvedGuardrailPolicy, TrustLevel } from './types.ts';
+import type {
+  EgressEnforcer,
+  ProfileEgressSpec,
+  ProfileGuardrailsSpec,
+  ResolvedEgressSpec,
+  ResolvedGuardrailPolicy,
+  TrustLevel,
+} from './types.ts';
 
 export interface DetectionOptions {
   sanitizeInput: boolean;
@@ -8,6 +16,21 @@ export interface DetectionOptions {
 
 const NO_GROUPS: SensitiveGroups = resolveSensitive(false);
 
+/** One enforce per spec, so the gates' per-enforce plans are built once. */
+const BUNDLED = new WeakMap<ProfileEgressSpec, EgressEnforcer>();
+
+function resolveEgress(spec: ProfileEgressSpec | undefined): ResolvedEgressSpec | undefined {
+  if (!spec) return undefined;
+  const { enforce, checks, ...rest } = spec;
+  if (enforce) return { ...rest, enforce };
+  let bundled = BUNDLED.get(spec);
+  if (!bundled) {
+    bundled = egressPolicy({ bundled: checks ?? true });
+    BUNDLED.set(spec, bundled);
+  }
+  return { ...rest, enforce: bundled };
+}
+
 /** Every ingress and egress path resolves through here so none can drift on what "unset" means. */
 function resolveGuardrailPolicy(spec: ProfileGuardrailsSpec | undefined): ResolvedGuardrailPolicy {
   return {
@@ -15,7 +38,7 @@ function resolveGuardrailPolicy(spec: ProfileGuardrailsSpec | undefined): Resolv
     redactSensitive: resolveSensitive(spec?.redactSensitive),
     canary: spec?.canary ?? true,
     promptEcho: spec?.promptEcho ?? true,
-    egress: spec?.egress,
+    egress: resolveEgress(spec?.egress),
     network: spec?.network,
     quota: spec?.quota,
     taint: spec?.taint,

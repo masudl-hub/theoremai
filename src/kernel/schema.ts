@@ -929,7 +929,54 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'guardrails.egress.enforce': field(
     'EgressEnforcer',
-    'Your check on the reply, run as it streams and when it ends. Return allow, flag (log only), redact (swap in your text) or block (see onBlock); a block or redact holds the rest of the stream, and a throw counts as a block. Bundled: standardEgressEnforce.',
+    'Your own check on the reply, run as it streams and when it ends. Return allow, flag (log only), redact (swap in your text) or block (see onBlock); a block or redact holds the rest of the stream, and a throw counts as a block. Set this or checks, not both.',
+  ),
+  'guardrails.egress.checks': field(
+    'boolean | EgressChecks',
+    'The bundled checks on the reply, blocking on what they find. true runs each at its default, false none but the system-prompt leak checks, and an object switches the ones it names. Set this or enforce, not both.',
+  ),
+  'guardrails.egress.checks.sensitive': field(
+    'boolean | SensitiveSwitches',
+    'Credentials and personal data in the reply, by group. Every group but network by default: an address in a reply is not a secret.',
+  ),
+  'guardrails.egress.checks.sensitive.ids': field('boolean', 'US SSN, ITIN and EIN numbers.'),
+  'guardrails.egress.checks.sensitive.financial': field('boolean', 'IBANs and card numbers.'),
+  'guardrails.egress.checks.sensitive.network': field('boolean', 'IPv4 and IPv6 addresses.'),
+  'guardrails.egress.checks.sensitive.credentials': field(
+    'boolean',
+    'API keys, access tokens, bearer tokens and private keys.',
+  ),
+  'guardrails.egress.checks.boundary': field(
+    'boolean',
+    'The markers the kernel puts around user data, and the canary note, repeated in the reply.',
+  ),
+  'guardrails.egress.checks.injection': field(
+    'boolean',
+    'Prompt-injection phrasing in the reply, as written or disguised.',
+  ),
+  'guardrails.egress.checks.images': field(
+    'boolean | UrlCheck',
+    'Images in the reply that load a URL the model was not given, which would send data off the device with no click.',
+  ),
+  'guardrails.egress.checks.images.hosts': field(
+    'string[]',
+    'Hostnames whose images load whatever their URL, such as your own CDN.',
+  ),
+  'guardrails.egress.checks.images.fromTools': field(
+    'boolean',
+    'Whether a URL a tool returned counts as given. Off keeps only what the system prompt, the user and history gave.',
+  ),
+  'guardrails.egress.checks.links': field(
+    'boolean | UrlCheck',
+    'Links in the reply to a URL the model was not given. Turn it on when your app unfurls links into previews.',
+  ),
+  'guardrails.egress.checks.links.hosts': field(
+    'string[]',
+    'Hostnames whose links pass whatever their URL; the images hosts pass too.',
+  ),
+  'guardrails.egress.checks.links.fromTools': field(
+    'boolean',
+    'Whether a URL a tool returned counts as given. Off keeps only what the system prompt, the user and history gave.',
   ),
   'guardrails.egress.onBlock': field(
     unionType(EGRESS_ON_BLOCK),

@@ -223,6 +223,7 @@ Deno.test('a URL check takes hostnames and its own options, and bundled only the
   throws({ images: { host: ['cdn.acme.io'] } }, 'no option "host"');
   throws({ imageHosts: ['cdn.acme.io'] }, 'no check "imageHosts"');
   throws({ sensitive: { keys: false } }, 'no group "keys"');
+  throws({ sensitive: { ids: 'yes' } }, 'bundled.sensitive.ids must be a boolean');
 });
 
 Deno.test('each bundled check is off when a host switches it off, and only that one', () => {

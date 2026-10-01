@@ -1,6 +1,7 @@
 // Must not import from `src/kernel/`: the kernel type-imports `ProfileGuardrailsSpec`, and that edge
 // stays one-directional. Other modules under `src/guardrails/` may import kernel types.
 
+import type { EgressChecks } from './egress.ts';
 import type { GivenUrls } from './egress-urls.ts';
 import type { GuardrailEvent, GuardrailHit, Provenance } from './event-schemas.ts';
 import type { LexiconOverrides } from './lexicon.ts';
@@ -175,8 +176,15 @@ export type EgressEnforcer = (
   context: GuardrailContext,
 ) => Verdict | Promise<Verdict>;
 
+/** `enforce` or `checks`, never both. */
 export interface ProfileEgressSpec {
-  enforce: EgressEnforcer;
+  /** The host's own check. */
+  enforce?: EgressEnforcer;
+  /**
+   * The bundled policy's checks: `true` runs each at its default, `false` none
+   * but the system-prompt leak checks, and an object switches the ones it names.
+   */
+  checks?: boolean | EgressChecks;
   onBlock?: EgressOnBlock;
   maxRetries?: number;
   /**
@@ -273,8 +281,13 @@ export interface ResolvedGuardrailPolicy {
   redactSensitive: SensitiveGroups;
   canary: boolean;
   promptEcho: boolean;
-  egress?: ProfileEgressSpec;
+  /** `checks` resolved to the bundled policy's `enforce`. */
+  egress?: ResolvedEgressSpec;
   network?: NetworkGuardrailSpec;
   quota?: QuotaGuardrailSpec;
   taint?: TaintGuardrailSpec;
 }
+
+export type ResolvedEgressSpec = Omit<ProfileEgressSpec, 'enforce' | 'checks'> & {
+  enforce: EgressEnforcer;
+};

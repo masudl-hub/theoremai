@@ -152,7 +152,7 @@ One profile, two models from two providers. It takes text, files, and voice note
 different JSON schema depending on who's asking, and turns on every guardrail.
 
 ```ts
-import { defineProfile, registerProfile, standardEgressEnforce } from "@theoremjs/agents";
+import { defineProfile, registerProfile } from "@theoremjs/agents";
 
 const support = defineProfile({
   type: "text",
@@ -239,7 +239,7 @@ const support = defineProfile({
     redactSensitive: true,
     canary: true,
     egress: {
-      enforce: standardEgressEnforce,
+      checks: { links: true },
       onBlock: "reject_to_agent",
       maxRetries: 2,
     },
@@ -333,7 +333,7 @@ egress policy run at each conversational turn inside it, and tools go through th
 pipeline as text turns.
 
 ```ts
-import { defineProfile, registerProfile, runSession, standardEgressEnforce } from "@theoremjs/agents";
+import { defineProfile, registerProfile, runSession } from "@theoremjs/agents";
 
 registerProfile(defineProfile({
   type: "live",
@@ -358,7 +358,7 @@ registerProfile(defineProfile({
     contextCompression: { slidingWindow: {} },
   },
   turnBehaviour: { allowSteering: true },
-  guardrails: { canary: true, sanitizeInput: true, egress: { enforce: standardEgressEnforce } },
+  guardrails: { canary: true, sanitizeInput: true, egress: { checks: true } },
 }));
 
 const session = await runSession({ profile: "support.voice" }, { vault });
@@ -493,7 +493,7 @@ flowchart TD
 
   REQ --> SAN --> MEDIA --> QUOTA --> PICK --> SNAP --> SYS --> PRE --> PROV
   PROV -->|text| GATE -->|cleared prefix| HOST
-  PROV -->|thoughts, unguarded| HOST
+  PROV -->|thoughts, leaks omitted| HOST
   PROV -->|tool calls| TOOLS -->|guarded results| PROV
   PROV -->|stream ends| EGR
   EGR -->|block + reject_to_agent| PROV
@@ -508,13 +508,14 @@ Text reaches your client as it clears the progressive-yield window. The window h
 last stretch of output so a secret split across chunks can't slip out. It holds what the scan can
 catch: for the canary, only a tail of 4 or more characters that could still be the start of a leak
 (usually nothing, so canary-only output streams almost at once; a blocked leak shows at most 3); with the bundled
-`standardEgressEnforce` or an `egressPolicy`, only what could still become a match, so a blocked match shows none of its characters; with your own
+`egress.checks` or an `egressPolicy`, only what could still become a match, so a blocked match shows none of its characters; with your own
 `egress.enforce`, `egress.holdback` characters (256 by default; 96 on Live, where held transcript holds its audio too). The end-of-attempt verdict is final: anything held
 back mid-stream that the final check clears gets released, not dropped.
 
-Thoughts are not guarded: no canary scan, no egress. A thinking model restates its system
-prompt as it reasons, and a host that shows thoughts (`outputs.streaming.streamThoughts`)
-accepts what they hold.
+Thoughts are omitted from, never stopped. A host that shows thoughts
+(`outputs.streaming.streamThoughts`) gets each one with the canary, system-prompt echo,
+user-data markers and any image or link the bundled checks would block swapped for a
+placeholder, and a `guardrail` event at stage `thought`; the rest of the thought streams on.
 
 In Live, the spoken reply's transcript runs through the same window. A native-audio model's
 transcript trails its audio and carries no timing, so a guarded profile (canary or
@@ -866,7 +867,9 @@ flowchart LR
 - **Validation** — `outputs.validation.fields` runs your checks on dotted paths in the structured result, and failures get their own repair rounds.
 - **Fails closed** — a payload that can't be scanned, or an enforcer that throws, is treated as a block (`egress.enforcer-error`), never as an allow.
 
-Most hosts start from the standard policy and add their own rules:
+Most hosts turn on the bundled checks with `egress.checks`: `true` runs each at its default, and
+an object switches the ones it names (`{ sensitive: { network: true }, links: { hosts: ["docs.example.com"] } }`).
+A host with checks of its own starts from the standard policy instead:
 
 ```ts
 import { type EgressEnforcer, standardEgressEnforce } from "@theoremjs/agents";
@@ -889,7 +892,7 @@ at build time, and `egressPolicy({ rules, compiled: compiledEgressRules })` runs
 standard checks (see [Guardrails → Host egress rules](docs/contracts/guardrails.md#host-egress-rules)).
 
 Streaming doesn't mean giving up these checks. Text is released as it clears the checks
-(under `standardEgressEnforce` and the canary, only what could still become a match waits; under your own
+(under the bundled checks and the canary, only what could still become a match waits; under your own
 `egress.enforce`, a 256-character window by default),
 so a secret split across chunks is caught before the first half reaches the client. Live sessions apply the same gate at each turn
 boundary.
@@ -1019,7 +1022,7 @@ Named exports from the root barrel (same symbols hosts get from `@theoremjs/agen
 | --- | --- |
 | Guardrails errors | `ERROR_KINDS`, `ErrorKind`, `ErrorCopy`, `ErrorCopies`, `errorKindSchema`, `errorCopiesSchema`, `TheoremError`, `TheoremErrorOptions`, `errorKind`, `publicError`, `toErrorEvent`, `describeError`, `isAbortError`, `throwIfAborted` |
 | Network guardrails | `assertSafeUrl`, `fetchGuarded`, `dnsOverHttpsResolver`, `isLocalhostName`, `isPrivateOrLocalAddress`, `GuardedFetchOptions`, `ResolveHost`, `DnsOverHttpsOptions` |
-| Guardrail vocabulary | `AdvisoryLevel`, `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailAction`, `GuardrailContext`, `GuardrailEvent`, `guardrailEventSchema`, `OutboundPayload`, `Provenance`, `ToolOrigin`, `ScanText`, `EgressEnforcer`, `EgressOnBlock`, `ProfileEgressSpec`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `NetworkGuardrailSpec`, `CanaryGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `DetectionOptions`, `SensitiveGroup`, `SensitiveSelection`, `SensitiveSwitches`, `GuardedToolText`, `TurnTaint`, `TaintGate`, `TaintGuardrailSpec`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES`, `TOOL_ORIGINS`, `EGRESS_ON_BLOCK` |
+| Guardrail vocabulary | `AdvisoryLevel`, `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailAction`, `GuardrailContext`, `GuardrailEvent`, `guardrailEventSchema`, `OutboundPayload`, `Provenance`, `ToolOrigin`, `ScanText`, `EgressEnforcer`, `EgressOnBlock`, `ProfileEgressSpec`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `NetworkGuardrailSpec`, `CanaryGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `ResolvedEgressSpec`, `DetectionOptions`, `SensitiveGroup`, `SensitiveSelection`, `SensitiveSwitches`, `GuardedToolText`, `TurnTaint`, `TaintGate`, `TaintGuardrailSpec`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES`, `TOOL_ORIGINS`, `EGRESS_ON_BLOCK` |
 | Guardrail policy | `resolveGuardrailPolicy`, `detectionForTrust`, `detectionForProfile`, `collectEgressHits`, `hitRules`, `EGRESS_RULES`, `runEnforcer` |
 | Tool boundary | `guardToolResult`, `guardToolFailureText`, `inspectToolArguments`, `toolCallEvent`, `wrapToolData`, `isRemoteOrigin`, `composeToolText`, `checkTaintGate`, `recordTaint`, `isTainted`, `isSuspicious`, `directiveHits`, `looksDirective`, `advisoryLevel`, `DIRECTIVE_RULES`, `ADVISORY_LEVELS`, `TOOL_CLOSE`, `TOOL_ORIGINS`, `TAINT_GATES`, `textForScan`, `scanTextOf` |
 | Quota | `QuotaSlotStatus`, `QuotaExhausted`, `clientIp`, `quotaExhausted`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |

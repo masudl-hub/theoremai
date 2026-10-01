@@ -1,6 +1,11 @@
 import '../fixtures/test-host.ts';
 import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
 import { INJ_IGNORE } from '../../src/guardrails/corpus/strings.ts';
+import {
+  egressChecksOf,
+  resolveEgressChecks,
+  standardEgressEnforce,
+} from '../../src/guardrails/egress.ts';
 import { detectionForTrust, resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
 import { sanitizeText } from '../../src/guardrails/sanitize.ts';
 import { resolveSensitive } from '../../src/guardrails/sensitive.ts';
@@ -180,5 +185,25 @@ Deno.test('redactSensitive redacts the groups a profile picks, and only those', 
   assertEquals(
     ['123-45-6789', '10.2.3.4', 'AKIAIOSFODNN7EXAMPLE'].map((part) => redacted.includes(part)),
     [false, true, true],
+  );
+});
+
+Deno.test('egress checks resolve to the bundled policy they select, once per spec', () => {
+  const egress = { checks: { links: true }, onBlock: 'refuse_to_user' as const };
+  const resolved = resolveGuardrailPolicy({ egress }).egress;
+  assertEquals(resolved?.onBlock, 'refuse_to_user');
+  assertEquals(Object.hasOwn(resolved ?? {}, 'checks'), false);
+  assertEquals(egressChecksOf(resolved?.enforce), resolveEgressChecks({ links: true }));
+  assertEquals(resolveGuardrailPolicy({ egress }).egress?.enforce, resolved?.enforce);
+  const off = resolveGuardrailPolicy({ egress: { checks: false } }).egress?.enforce;
+  assertEquals(egressChecksOf(off)?.injection, false);
+  const host = () => ({ action: 'allow' as const });
+  assertEquals(resolveGuardrailPolicy({ egress: { enforce: host } }).egress?.enforce, host);
+  assertEquals(egressChecksOf(host), undefined);
+  assertEquals(
+    egressChecksOf(
+      resolveGuardrailPolicy({ egress: { enforce: standardEgressEnforce } }).egress?.enforce,
+    ),
+    resolveEgressChecks(),
   );
 });

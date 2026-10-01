@@ -17,11 +17,10 @@ import {
 } from './canary.ts';
 import {
   CANARY_HIT,
-  DEFAULT_CHECKS,
+  egressChecksOf,
   NO_CHECKS,
   PROMPT_ECHO_HIT,
   type ResolvedEgressChecks,
-  standardEgressEnforce,
 } from './egress.ts';
 import { SYSTEM_BOUNDARY } from './egress-patterns.ts';
 import { createEgressStream, type EgressStream } from './egress-stream.ts';
@@ -311,16 +310,6 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
   };
 }
 
-/** The checks each egress enforce runs, for the policies whose checks the kernel knows. */
-const THOUGHT_CHECKS = new WeakMap<EgressEnforcer, ResolvedEgressChecks>([
-  [standardEgressEnforce, DEFAULT_CHECKS],
-]);
-
-/** Tell the kernel `enforce` runs `checks`, so thoughts are guarded for the checks they take. */
-function registerThoughtChecks(enforce: EgressEnforcer, checks: ResolvedEgressChecks): void {
-  THOUGHT_CHECKS.set(enforce, checks);
-}
-
 /**
  * A guard for a turn's thoughts: the canary and prompt echo whenever the turn
  * binds a canary, and the URL and boundary checks `enforce` runs.
@@ -330,7 +319,7 @@ function thoughtGuardFor(
   context: GuardrailContext,
   carry?: string,
 ): ThoughtGuard | undefined {
-  const known = enforce && THOUGHT_CHECKS.get(enforce);
+  const known = egressChecksOf(enforce);
   const checks = known ? thoughtChecks(known) : undefined;
   const { canary, system, givenUrls, lexicon } = context;
   if (!(checks || canary)) return undefined;
@@ -345,4 +334,4 @@ function thoughtGuardFor(
 }
 
 export type { ThoughtGuard, ThoughtGuardOptions, ThoughtRelease };
-export { createThoughtGuard, registerThoughtChecks, thoughtGuardFor };
+export { createThoughtGuard, thoughtGuardFor };

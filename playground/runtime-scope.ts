@@ -8,7 +8,6 @@ import {
   type KernelScope,
   type Profile,
   type ProfileDefinition,
-  standardEgressEnforce,
   TheoremError,
 } from '../mod.ts';
 import type { ResolveHost } from '../src/guardrails/network.ts';
@@ -26,15 +25,6 @@ export interface PlaygroundRuntime {
   provider?: (profile: Profile, model?: string) => ModelProvider;
   resolveHost?: ResolveHost;
   remoteTools?: boolean;
-}
-
-/** Swaps the draft's egress enforcer for the standard one, keeping the guardrails' own type. */
-function withStandardEgress<G extends { egress?: { enforce: unknown } }>(guardrails: G): G {
-  if (!guardrails.egress) return guardrails;
-  return {
-    ...guardrails,
-    egress: { ...guardrails.egress, enforce: standardEgressEnforce },
-  };
 }
 
 /**
@@ -59,17 +49,15 @@ function withRemoteReadGate<G extends { taint?: { afterRemoteRead?: TaintGate } 
   };
 }
 
-function runtimeGuardrails<G extends { network?: unknown; egress?: { enforce: unknown } }>(
+function runtimeGuardrails<G extends { network?: unknown }>(
   guardrails: G,
   runtime: PlaygroundRuntime,
 ): G {
-  const guarded =
-    runtime.mode === 'demo'
-      ? withoutNetworkExemptions(guardrails)
-      : (runtime.mode === 'local' || runtime.providers?.local) && !runtime.remoteTools
-        ? { ...guardrails, network: { allowedSchemes: [] } }
-        : guardrails;
-  return withStandardEgress(guarded);
+  return runtime.mode === 'demo'
+    ? withoutNetworkExemptions(guardrails)
+    : (runtime.mode === 'local' || runtime.providers?.local) && !runtime.remoteTools
+      ? { ...guardrails, network: { allowedSchemes: [] } }
+      : guardrails;
 }
 
 function runtimeProfileDefinition(

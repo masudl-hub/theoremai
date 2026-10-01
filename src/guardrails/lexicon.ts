@@ -214,7 +214,7 @@ const DEFAULTS: Record<LexiconKey, LexiconDefault> = {
   'error.input': "Sorry, that file can't be used here.",
   'error.action': "Sorry, that isn't available here.",
   'error.auth': "Sorry, the assistant can't connect at the moment.",
-  'error.rate_limit': 'Sorry, things are a little busy just now. Please try again in a moment.',
+  'error.rate_limit': 'Sorry, the usage limit has been reached. Please try again later.',
   'error.unsupported': "Sorry, that isn't something the assistant can do.",
   'error.unavailable': "Sorry, the model isn't available at the moment. Please try again shortly.",
   'error.bad_response': "Sorry, that reply didn't come through properly. Please try again.",

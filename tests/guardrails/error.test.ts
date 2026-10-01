@@ -34,7 +34,7 @@ const LOCKED: Record<ErrorKind, string> = {
   input: "Sorry, that file can't be used here.",
   action: "Sorry, that isn't available here.",
   auth: "Sorry, the assistant can't connect at the moment.",
-  rate_limit: 'Sorry, things are a little busy just now. Please try again in a moment.',
+  rate_limit: 'Sorry, the usage limit has been reached. Please try again later.',
   unsupported: "Sorry, that isn't something the assistant can do.",
   unavailable: "Sorry, the model isn't available at the moment. Please try again shortly.",
   bad_response: "Sorry, that reply didn't come through properly. Please try again.",

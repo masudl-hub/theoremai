@@ -292,6 +292,19 @@ Deno.test('wireInputReferences wires image parts and skips the text prompt', () 
   );
 });
 
+Deno.test('wireInputReferences passes an http(s) reference through and refuses other schemes', () => {
+  const url = 'https://example.com/style.png';
+  assertEquals(wireInputReferences([{ type: 'image', mimeType: 'image/png', uri: url }]), [
+    { type: 'image_url', image_url: { url } },
+  ]);
+  const error = assertThrows(
+    () => wireInputReferences([{ type: 'image', mimeType: 'image/png', uri: 'gs://bucket/a.png' }]),
+    TheoremError,
+  );
+  assertEquals(error.kind, 'unsupported');
+  assertStringIncludes(error.message, 'http(s)');
+});
+
 Deno.test('wireInputReferences refuses media /images cannot take', () => {
   for (const part of [
     { type: 'audio', mimeType: 'audio/wav', data: 'x' },

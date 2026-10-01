@@ -299,3 +299,83 @@ Deno.test('model discovery uses the inference endpoint and returns the server mo
     globalThis.fetch = originalFetch;
   }
 });
+
+Deno.test('provider model lists keep the profile type and never put the key in the URL', async () => {
+  const { listProviderModels } = await import('../../playground/browser.ts');
+  const originalFetch = globalThis.fetch;
+  const seen: { url: string; headers: Headers }[] = [];
+  globalThis.fetch = (input, init) => {
+    const url = String(input);
+    seen.push({ url, headers: new Headers(init?.headers) });
+    if (url.startsWith('https://openrouter.ai/')) {
+      return Promise.resolve(
+        Response.json({
+          data: [
+            {
+              id: 'vendor/painter',
+              name: 'Vendor: Painter',
+              architecture: { output_modalities: ['image', 'text'] },
+            },
+            {
+              id: 'vendor/chatter',
+              name: 'Vendor: Chatter',
+              architecture: { output_modalities: ['text'] },
+            },
+          ],
+        }),
+      );
+    }
+    const page = new URL(url).searchParams.get('pageToken');
+    return Promise.resolve(
+      Response.json(
+        page
+          ? {
+              models: [
+                {
+                  name: 'models/gemini-live',
+                  displayName: 'Gemini Live',
+                  supportedGenerationMethods: ['bidiGenerateContent'],
+                },
+              ],
+            }
+          : {
+              models: [
+                {
+                  name: 'models/gemini-flash',
+                  displayName: 'Gemini Flash',
+                  supportedGenerationMethods: ['generateContent'],
+                },
+                { name: 'models/text-embedding', supportedGenerationMethods: ['embedContent'] },
+              ],
+              nextPageToken: 'next',
+            },
+      ),
+    );
+  };
+  try {
+    assertEquals(await listProviderModels('openrouter', 'image', undefined), [
+      { id: 'vendor/painter', label: 'Vendor: Painter' },
+    ]);
+    assertEquals(seen[0].url, 'https://openrouter.ai/api/v1/models?output_modalities=image');
+    assertEquals(await listProviderModels('openrouter', 'live', TEST_OPENROUTER_KEY), []);
+    assertEquals(await listProviderModels('google', 'text', TEST_GOOGLE_KEY), [
+      { id: 'gemini-flash', label: 'Gemini Flash' },
+    ]);
+    assertEquals(await listProviderModels('google', 'live', TEST_GOOGLE_KEY), [
+      { id: 'gemini-live', label: 'Gemini Live' },
+    ]);
+    for (const request of seen.slice(1)) {
+      assertEquals(request.url.includes(TEST_GOOGLE_KEY), false);
+      assertEquals(request.headers.get('x-goog-api-key'), TEST_GOOGLE_KEY);
+    }
+    await assertRejects(() => listProviderModels('google', 'text', undefined), TheoremError);
+    globalThis.fetch = () => Promise.resolve(new Response('', { status: 400 }));
+    await assertRejects(
+      () => listProviderModels('google', 'text', TEST_GOOGLE_KEY),
+      TheoremError,
+      'refused the key',
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

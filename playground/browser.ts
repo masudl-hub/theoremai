@@ -1,11 +1,15 @@
 export {
   keyKind,
-  localPlaygroundConfig,
+  type ListedProfileType,
+  type ListedProvider,
   listLocalPlaygroundModels,
+  listProviderModels,
+  localPlaygroundConfig,
   PLAYGROUND_KEY_SLOT_CAP,
   type PlaygroundBrowserConnection,
   playgroundKeySlots,
   playgroundVault,
+  type ProviderModel,
 } from './browser-connection.ts';
 export { browserPlaygroundLiveConnection } from './browser-live.ts';
 export {

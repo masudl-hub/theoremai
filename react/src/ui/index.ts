@@ -15,6 +15,8 @@ import '@astryxdesign/core/reset.css';
 import '@astryxdesign/core/astryx.css';
 import './built/theme.css';
 
+export type { InkWaveStatus } from '../client/ink-waveform.ts';
+export { InkWaveform, type InkWaveformProps } from '../components/InkWaveform.tsx';
 export { ChatComposerBar, type ChatComposerBarProps } from './ChatComposerBar.tsx';
 export { ChatTranscript, type ChatTranscriptProps } from './ChatTranscript.tsx';
 export { TheoremDecisionAnswers, type TheoremDecisionAnswersProps } from './DecisionAnswers.tsx';

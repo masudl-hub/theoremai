@@ -44,6 +44,7 @@ export {
   type PlaygroundDraft,
   type PlaygroundProfileType,
   type PlaygroundTurnProfileType,
+  removeModelBinding,
   setProfileType,
   type SpeechDraft,
   takesContinueInstruction,

@@ -576,6 +576,25 @@ export function updateModelBinding(
   };
 }
 
+/**
+ * Drops a binding, and the default model with it when it was that one. Model select turns off
+ * below two bindings, as on a type switch.
+ */
+export function removeModelBinding(draft: PlaygroundDraft, bindingKey: string): PlaygroundDraft {
+  const binding = draft.modelBindings.find((candidate) => candidate.key === bindingKey);
+  if (!binding) return draft;
+  const modelBindings = draft.modelBindings.filter((candidate) => candidate.key !== bindingKey);
+  return {
+    ...draft,
+    models: {
+      ...draft.models,
+      defaultModel: draft.models.defaultModel === binding.modelId ? '' : draft.models.defaultModel,
+      allowModelSelect: draft.models.allowModelSelect && modelBindings.length > 1,
+    },
+    modelBindings,
+  };
+}
+
 export function newModelBinding(draft: PlaygroundDraft): ModelBindingDraft {
   const chosen = draft.identity.profileType;
   const type = chosen && chosen !== 'host' ? chosen : 'text';

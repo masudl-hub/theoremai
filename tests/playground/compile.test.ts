@@ -25,6 +25,7 @@ import {
   playgroundNodeRef,
   playgroundSource,
   playgroundTree,
+  removeModelBinding,
   setProfileType,
   toolSpecNodeId,
   updateModelBinding,
@@ -42,6 +43,19 @@ Deno.test('renaming a binding preserves the selected default and leaves other bi
   const other = updateModelBinding(renamed, draft.modelBindings[1].key, { modelId: 'secondary' });
   assertEquals(other.models.defaultModel, 'primary');
   assert(compilePlayground(other).ok);
+});
+
+Deno.test('removing the default binding clears the default and turns model select off', () => {
+  const draft = createExampleDraft();
+  const first = draft.modelBindings[0];
+  const removed = removeModelBinding(
+    { ...draft, models: { ...draft.models, defaultModel: first.modelId, allowModelSelect: true } },
+    first.key,
+  );
+  assertEquals(removed.modelBindings, draft.modelBindings.slice(1));
+  assertEquals(removed.models.defaultModel, '');
+  assertEquals(removed.models.allowModelSelect, draft.modelBindings.length > 2);
+  assertEquals(removeModelBinding(draft, 'missing'), draft);
 });
 
 /** A turn draft's compile; decision and host drafts have their own tests. */

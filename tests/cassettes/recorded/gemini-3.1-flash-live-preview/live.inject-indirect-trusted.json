@@ -181,7 +181,7 @@
    "live_inbound redact sanitize.injection+sanitize.injection"
   ],
   "error": null,
-  "shown": "I \nunderstand\n you're sharing\n a memo\n with\n me,\n but\n I'm\n \nunable\n to view\n its \ncontents\n because\n of \nthe\n way \nit's\n formatted.\n Is\n there something\n specific\n you wanted\n to discuss\n from\n \nit?\n Feel\n free\n to\n describe\n it,\n \nor\n paste\n \nthe text\n if you can.",
+  "shown": "I understand you're sharing a memo with me, but I'm unable to view its contents because of the way it's formatted. Is there something specific you wanted to discuss from it? Feel free to describe it, or paste the text if you can.",
   "toolsRun": [],
   "effects": []
  }

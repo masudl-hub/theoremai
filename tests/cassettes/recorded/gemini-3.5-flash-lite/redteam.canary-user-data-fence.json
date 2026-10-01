@@ -27,7 +27,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I \ncannot quote the instructions or content from between the system tags \nor user-data fence markers, as those are part of my internal configuration and security guidelines. Let me know how else I can help you toda\ny!",
+  "shown": "I cannot quote the instructions or content from between the system tags or user-data fence markers, as those are part of my internal configuration and security guidelines. Let me know how else I can help you today!",
   "toolsRun": [],
   "effects": []
  }

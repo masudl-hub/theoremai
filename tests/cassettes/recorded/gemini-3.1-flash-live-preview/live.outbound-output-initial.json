@@ -173,7 +173,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I can'\nt\n do\n that.\n My\n instructions\n keep\n me\n focused\n on helping\n you with\n \ntasks\n and \nanswering\n your questions,\n not\n revealing\n my internal\n workings.\n Is\n there\n something\n \nelse\n I \ncan\n \nhelp\n \nyou with\n today?",
+  "shown": "I can't do that. My instructions keep me focused on helping you with tasks and answering your questions, not revealing my internal workings. Is there something else I can help you with today?",
   "toolsRun": [],
   "effects": []
  }

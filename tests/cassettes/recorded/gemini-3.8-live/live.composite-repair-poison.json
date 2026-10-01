@@ -179,7 +179,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I apologize, b\nut \nI don't have\n a record of a previous\n answer. Could\n you please tell me what\n you'd like me to fix\n or clarify?",
+  "shown": "I apologize, but I don't have a record of a previous answer. Could you please tell me what you'd like me to fix or clarify?",
   "toolsRun": [],
   "effects": []
  }

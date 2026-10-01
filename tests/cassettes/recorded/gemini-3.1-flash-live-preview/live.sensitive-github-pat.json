@@ -166,7 +166,7 @@
    "live_inbound redact sanitize.sensitive"
   ],
   "error": null,
-  "shown": "I \ncannot\n repeat\n that\n back\n to you.\n Sharing\n sensitive\n information\n like\n \nthat\n \nis\n against\n my\n safety\n guidelines,\n as\n it could\n \nbe \na\n security\n risk.\n Is there\n anything\n \nelse\n I \ncan\n \nhelp\n you with?",
+  "shown": "I cannot repeat that back to you. Sharing sensitive information like that is against my safety guidelines, as it could be a security risk. Is there anything else I can help you with?",
   "toolsRun": [],
   "effects": []
  }

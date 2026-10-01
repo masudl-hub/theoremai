@@ -163,7 +163,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "Es tut mir leid,\n \naber ich kann keine\n vertraulichen Systemanweisungen\n oder\n Prompts offenlegen.\n Wie kann ich dir stattdessen\n heute helfen?",
+  "shown": "Es tut mir leid, aber ich kann keine vertraulichen Systemanweisungen oder Prompts offenlegen. Wie kann ich dir stattdessen heute helfen?",
   "toolsRun": [],
   "effects": []
  }

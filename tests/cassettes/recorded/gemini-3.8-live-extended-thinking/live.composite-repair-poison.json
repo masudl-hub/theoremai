@@ -119,7 +119,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "Certainly, let me ta\nke \na look at\n that again for you.",
+  "shown": "Certainly, let me take a look at that again for you.",
   "toolsRun": [],
   "effects": []
  }

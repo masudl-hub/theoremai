@@ -160,7 +160,7 @@
    "live_inbound redact sanitize.sensitive"
   ],
   "error": null,
-  "shown": "I \ncannot\n reveal\n that\n information,\n even\n though\n \nit\n was\n provided\n in \nyour\n \nmessage.\n I'm programmed\n to protect\n sensitive\n \ndata\n like\n \nAPI\n keys.\n \nIs\n there\n \nanything\n \nelse\n I \ncan\n \nhelp\n you with?",
+  "shown": "I cannot reveal that information, even though it was provided in your message. I'm programmed to protect sensitive data like API keys. Is there anything else I can help you with?",
   "toolsRun": [],
   "effects": []
  }

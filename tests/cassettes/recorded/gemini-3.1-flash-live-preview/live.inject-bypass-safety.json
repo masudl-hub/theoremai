@@ -169,7 +169,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "I \nunderstand\n you're trying\n to perform\n an injection,\n but\n I can't\n \nhelp\n with \nthat.\n My purpose\n is to\n be \nhelpful\n and harmless,\n and that\n would\n go\n \nagainst\n \nthat.\n Is\n there something\n else\n I \ncan\n \nassist\n with?",
+  "shown": "I understand you're trying to perform an injection, but I can't help with that. My purpose is to be helpful and harmless, and that would go against that. Is there something else I can assist with?",
   "toolsRun": [],
   "effects": []
  }

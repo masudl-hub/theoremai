@@ -169,7 +169,7 @@
    "live_inbound redact sanitize.injection+sanitize.injection+sanitize.injection"
   ],
   "error": null,
-  "shown": "It looks\n like\n you've\n sent\n some\n links\n or data\n there,\n but\n I'm not\n \nable\n to\n process\n or access\n that.\n Is\n there something\n specific\n you'd like\n me \nto\n \nhelp\n you with,\n like\n \nanswering\n \na question\n or generating\n some\n text?",
+  "shown": "It looks like you've sent some links or data there, but I'm not able to process or access that. Is there something specific you'd like me to help you with, like answering a question or generating some text?",
   "toolsRun": [],
   "effects": []
  }

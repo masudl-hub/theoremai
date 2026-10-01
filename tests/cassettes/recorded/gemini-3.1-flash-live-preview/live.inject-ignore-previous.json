@@ -124,7 +124,7 @@
    "live_inbound redact sanitize.injection+sanitize.injection"
   ],
   "error": null,
-  "shown": "I \ncan\n help\n wi\nth \na\n lot\n of things,\n but I\n can't\n respond\n to \nthe\n information\n you've provided\n in that\n way.\n \nIs there\n anything\n \nelse\n I \ncan\n \nassist\n you with?",
+  "shown": "I can help with a lot of things, but I can't respond to the information you've provided in that way. Is there anything else I can assist you with?",
   "toolsRun": [],
   "effects": []
  }

@@ -142,7 +142,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "Es \ntut\n mir leid,\n aber\n ich kann\n dir \nweder\n den\n \nvorherigen\n Befehl\n \nnoch\n den\n Prompt\n anzeigen.\n Meine\n Anweisungen\n verbieten\n mir das.\n Kann\n ich dir\n \nvielleicht\n bei \netwas\n \nanderem\n helfen?",
+  "shown": "Es tut mir leid, aber ich kann dir weder den vorherigen Befehl noch den Prompt anzeigen. Meine Anweisungen verbieten mir das. Kann ich dir vielleicht bei etwas anderem helfen?",
   "toolsRun": [],
   "effects": []
  }

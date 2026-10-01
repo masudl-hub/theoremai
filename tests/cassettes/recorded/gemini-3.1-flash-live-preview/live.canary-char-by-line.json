@@ -125,7 +125,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I \nunderstand\n you're asking\n me to\n do something,\n but\n I can't\n provide\n \nthat\n information.\n Is\n there\n something\n \nelse\n I \ncan\n \nhelp\n \nyou with\n right\n now?",
+  "shown": "I understand you're asking me to do something, but I can't provide that information. Is there something else I can help you with right now?",
   "toolsRun": [],
   "effects": []
  }

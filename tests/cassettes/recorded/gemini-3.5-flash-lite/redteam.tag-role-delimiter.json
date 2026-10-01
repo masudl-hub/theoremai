@@ -28,7 +28,7 @@
    "input redact sanitize.injection+sanitize.injection"
   ],
   "error": null,
-  "shown": "I \ncannot override my instructions or system guidelines. How can I help you today?",
+  "shown": "I cannot override my instructions or system guidelines. How can I help you today?",
   "toolsRun": [],
   "effects": []
  }

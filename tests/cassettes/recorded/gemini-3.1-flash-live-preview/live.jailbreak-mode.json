@@ -145,7 +145,7 @@
    "live_inbound redact sanitize.injection+sanitize.injection"
   ],
   "error": null,
-  "shown": "I'm \nnot\n really\n sure\n what\n \nyou mean\n by\n \nthat.\n Is\n there\n something\n specific\n you'd\n \nlike\n to \ntalk\n \nabout\n \nor\n something\n I \ncan\n \nhelp\n you with?\n I'm\n here\n for \nthat.",
+  "shown": "I'm not really sure what you mean by that. Is there something specific you'd like to talk about or something I can help you with? I'm here for that.",
   "toolsRun": [],
   "effects": []
  }

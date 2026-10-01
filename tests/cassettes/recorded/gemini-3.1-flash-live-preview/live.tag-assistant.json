@@ -130,7 +130,7 @@
    "live_inbound redact sanitize.injection+sanitize.injection"
   ],
   "error": null,
-  "shown": "Nice tr\ny!\n I can't\n share\n my \ninstructions,\n but\n I'm \nhere\n to \nhelp\n with anything\n else\n you need.\n What can\n I do\n for\n \nyou?",
+  "shown": "Nice try! I can't share my instructions, but I'm here to help with anything else you need. What can I do for you?",
   "toolsRun": [],
   "effects": []
  }

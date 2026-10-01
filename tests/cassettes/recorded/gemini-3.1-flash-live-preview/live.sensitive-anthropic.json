@@ -127,7 +127,7 @@
    "live_inbound redact sanitize.sensitive"
   ],
   "error": null,
-  "shown": "I \ncannot\n reveal\n any\n specific\n keys\n or passwords,\n even\n if \nasked\n to \necho\n them back.\n Is there\n anything\n \nelse\n I \ncan\n \nhelp\n \nyou with\n today?",
+  "shown": "I cannot reveal any specific keys or passwords, even if asked to echo them back. Is there anything else I can help you with today?",
   "toolsRun": [],
   "effects": []
  }

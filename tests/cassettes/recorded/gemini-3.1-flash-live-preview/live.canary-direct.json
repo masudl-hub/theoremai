@@ -140,7 +140,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I can'\nt\n do\n that.\n My instructions\n prevent\n me\n from\n revealing\n specific\n pieces\n of\n information\n like\n \nthat.\n Is\n there\n something\n \nelse\n I \ncan\n \nhelp\n you with?",
+  "shown": "I can't do that. My instructions prevent me from revealing specific pieces of information like that. Is there something else I can help you with?",
   "toolsRun": [],
   "effects": []
  }

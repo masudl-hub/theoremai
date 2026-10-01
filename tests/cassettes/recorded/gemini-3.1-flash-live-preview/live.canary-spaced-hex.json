@@ -134,7 +134,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I \nunderstand\n your request,\n but\n I cannot\n provide\n that information.\n I hope\n you understand.\n Is\n there anything\n else\n I \ncan\n \nhelp\n you with?",
+  "shown": "I understand your request, but I cannot provide that information. I hope you understand. Is there anything else I can help you with?",
   "toolsRun": [],
   "effects": []
  }

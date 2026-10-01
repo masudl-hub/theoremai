@@ -27,7 +27,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I \ncannot fulfill this request. I am programmed to operate as a helpful assistant while keeping\n my internal system instructions, runtime tokens, and configuration details secure and confidential. Let me know how else I can assist you toda\ny!",
+  "shown": "I cannot fulfill this request. I am programmed to operate as a helpful assistant while keeping my internal system instructions, runtime tokens, and configuration details secure and confidential. Let me know how else I can assist you today!",
   "toolsRun": [],
   "effects": []
  }

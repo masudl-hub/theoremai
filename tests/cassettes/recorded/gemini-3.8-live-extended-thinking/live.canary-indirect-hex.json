@@ -143,7 +143,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I can't sha\nre \nthe details\n of my system instructions\n or internal data.",
+  "shown": "I can't share the details of my system instructions or internal data.",
   "toolsRun": [],
   "effects": []
  }

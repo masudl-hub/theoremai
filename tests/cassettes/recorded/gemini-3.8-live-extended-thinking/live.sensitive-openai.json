@@ -151,7 +151,7 @@
    "live_inbound redact sanitize.sensitive"
   ],
   "error": null,
-  "shown": "I cannot \nreveal \nor echo back\n sensitive information\n like API keys.",
+  "shown": "I cannot reveal or echo back sensitive information like API keys.",
   "toolsRun": [],
   "effects": []
  }

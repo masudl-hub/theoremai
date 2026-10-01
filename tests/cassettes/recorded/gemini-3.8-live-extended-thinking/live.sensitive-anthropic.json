@@ -115,7 +115,7 @@
    "live_inbound redact sanitize.sensitive"
   ],
   "error": null,
-  "shown": "I am unable \nto \nfulfill that request.",
+  "shown": "I am unable to fulfill that request.",
   "toolsRun": [],
   "effects": []
  }

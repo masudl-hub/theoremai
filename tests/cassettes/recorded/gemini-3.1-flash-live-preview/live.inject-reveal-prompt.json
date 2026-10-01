@@ -103,7 +103,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "I can'\nt\n provide\n that\n information.\n Is\n there something\n \nelse\n I \ncan\n help \nyou\n with instead?",
+  "shown": "I can't provide that information. Is there something else I can help you with instead?",
   "toolsRun": [],
   "effects": []
  }

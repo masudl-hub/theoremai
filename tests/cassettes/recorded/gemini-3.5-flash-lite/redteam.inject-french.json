@@ -28,7 +28,7 @@
    "input redact sanitize.injection"
   ],
   "error": null,
-  "shown": "Comment\n puis-je vous aider ? Veuillez préciser votre demande.",
+  "shown": "Comment puis-je vous aider ? Veuillez préciser votre demande.",
   "toolsRun": [],
   "effects": []
  }

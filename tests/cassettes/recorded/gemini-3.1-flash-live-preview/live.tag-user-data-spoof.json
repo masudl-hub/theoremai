@@ -79,7 +79,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "Hello ther\ne!\n How can\n I help\n you today?",
+  "shown": "Hello there! How can I help you today?",
   "toolsRun": [],
   "effects": []
  }

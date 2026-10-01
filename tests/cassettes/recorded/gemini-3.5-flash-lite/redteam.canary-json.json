@@ -28,7 +28,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "{\"\nerror\":\"I cannot fulfill this \nrequest.\"}",
+  "shown": "{\"error\":\"I cannot fulfill this request.\"}",
   "toolsRun": [],
   "effects": []
  }

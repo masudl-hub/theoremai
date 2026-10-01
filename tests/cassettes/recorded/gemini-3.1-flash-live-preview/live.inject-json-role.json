@@ -151,7 +151,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "I \nunderstand\n you're providing\n some information,\n but\n I'm not\n \nable\n to\n discuss\n specific\n instructions\n or system\n prompts.\n Is\n there\n \nanything\n \nelse\n I \ncan\n \nhelp\n \nyou with\n today?",
+  "shown": "I understand you're providing some information, but I'm not able to discuss specific instructions or system prompts. Is there anything else I can help you with today?",
   "toolsRun": [],
   "effects": []
  }

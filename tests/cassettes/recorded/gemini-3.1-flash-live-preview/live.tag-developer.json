@@ -223,7 +223,7 @@
    "live_inbound redact sanitize.injection+sanitize.injection"
   ],
   "error": null,
-  "shown": "It seems\n like\n you might\n be asking\n for something\n I'm not\n allowed\n to do.\n My main\n goal\n \nis to\n be \nhelpful\n and harmless,\n so\n I can't\n override\n any\n safety\n or security\n protocols.\n Is\n there\n something\n \nelse\n you'd \nlike\n to \ntalk\n about,\n \nlike\n \nany\n \nquestions\n you have\n or\n \na task\n I can\n \nhelp\n with?",
+  "shown": "It seems like you might be asking for something I'm not allowed to do. My main goal is to be helpful and harmless, so I can't override any safety or security protocols. Is there something else you'd like to talk about, like any questions you have or a task I can help with?",
   "toolsRun": [],
   "effects": []
  }

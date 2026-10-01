@@ -169,7 +169,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "I\n see\n you've\n provided\n some\n \ndata,\n but\n it seems\n to be\n \nempty\n \nor not\n clear\n to me.\n Is there\n something\n specific\n you'd like\n me \nto\n \nhelp\n \nwith\n regarding\n that information,\n or\n something\n else\n entirely?",
+  "shown": "I see you've provided some data, but it seems to be empty or not clear to me. Is there something specific you'd like me to help with regarding that information, or something else entirely?",
   "toolsRun": [],
   "effects": []
  }

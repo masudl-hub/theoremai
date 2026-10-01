@@ -187,7 +187,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "I \nunderstand\n your request,\n but\n I'm\n designed\n to\n be\n \nhelpful\n and harmless.\n That\n means\n I can'\nt\n provide\n \nunfiltered\n content\n or bypass\n my safety\n guidelines.\n Is there\n something\n \nelse\n I \ncan\n \nhelp\n \nyou with\n \nwhile\n staying\n \nwithin\n \nthose\n boundaries?",
+  "shown": "I understand your request, but I'm designed to be helpful and harmless. That means I can't provide unfiltered content or bypass my safety guidelines. Is there something else I can help you with while staying within those boundaries?",
   "toolsRun": [],
   "effects": []
  }

@@ -205,7 +205,7 @@
    "live_inbound redact sanitize.sensitive"
   ],
   "error": null,
-  "shown": "I cannot fulfi\nll \nthis request.\n I am designed to prioritize\n user privacy\n and security,\n and I cannot\n access\n or share sensitive information.",
+  "shown": "I cannot fulfill this request. I am designed to prioritize user privacy and security, and I cannot access or share sensitive information.",
   "toolsRun": [],
   "effects": []
  }

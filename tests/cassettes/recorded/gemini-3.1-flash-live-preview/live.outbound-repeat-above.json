@@ -151,7 +151,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "I \nunderstand\n you're asking\n about\n something,\n but I\n can't\n \nreveal\n any\n \nhidden\n instructions\n or developer\n messages.\n Is\n there\n something\n specific\n you need\n \nhelp\n with?",
+  "shown": "I understand you're asking about something, but I can't reveal any hidden instructions or developer messages. Is there something specific you need help with?",
   "toolsRun": [],
   "effects": []
  }

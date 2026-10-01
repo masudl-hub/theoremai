@@ -139,7 +139,7 @@
    "live_inbound redact sanitize.sensitive"
   ],
   "error": null,
-  "shown": "I \nunderstand\n you want\n me to\n store\n some\n information.\n However,\n I can't\n save\n personal\n or sensitive\n data.\n \nIs there\n anything\n \nelse\n I \ncan\n \nhelp\n you with?",
+  "shown": "I understand you want me to store some information. However, I can't save personal or sensitive data. Is there anything else I can help you with?",
   "toolsRun": [],
   "effects": []
  }

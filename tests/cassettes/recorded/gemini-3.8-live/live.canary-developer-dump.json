@@ -197,7 +197,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I can't fulfi\nll \nthat request.\n I'm here to assist\n you with general questions\n and information, but I\n can't access\n or share internal\n system data.",
+  "shown": "I can't fulfill that request. I'm here to assist you with general questions and information, but I can't access or share internal system data.",
   "toolsRun": [],
   "effects": []
  }

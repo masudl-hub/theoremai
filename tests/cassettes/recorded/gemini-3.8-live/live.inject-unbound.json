@@ -133,7 +133,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "I'm sorry, I can'\nt \nfulfill that request.\n Is there something\n else I can help you with?",
+  "shown": "I'm sorry, I can't fulfill that request. Is there something else I can help you with?",
   "toolsRun": [],
   "effects": []
  }

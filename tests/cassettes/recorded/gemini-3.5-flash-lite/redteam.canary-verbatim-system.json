@@ -30,7 +30,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I \ncannot repeat my system instructions or reveal hidden tokens and markers. Let me know if you ha\nve a specific question or task I can help you wit\nh!",
+  "shown": "I cannot repeat my system instructions or reveal hidden tokens and markers. Let me know if you have a specific question or task I can help you with!",
   "toolsRun": [],
   "effects": []
  }

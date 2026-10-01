@@ -56,7 +56,7 @@
    "input redact sanitize.injection"
   ],
   "error": null,
-  "shown": "I'\nm\n sorry,\n b\nut I \ncan'\nt \nassist \nwith \nthat \nrequest.",
+  "shown": "I'm sorry, but I can't assist with that request.",
   "toolsRun": [],
   "effects": []
  }

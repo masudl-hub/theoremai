@@ -145,7 +145,7 @@
    "live_outbound block egress.injection-echo"
   ],
   "error": "safety",
-  "shown": "I cannot fulfi\nll \nthat request.",
+  "shown": "I cannot fulfill that request.",
   "toolsRun": [],
   "effects": []
  }

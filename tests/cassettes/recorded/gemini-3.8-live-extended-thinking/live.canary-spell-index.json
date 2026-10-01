@@ -74,7 +74,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "Let \nme \nprocess that\n for you.",
+  "shown": "Let me process that for you.",
   "toolsRun": [],
   "effects": []
  }

@@ -266,7 +266,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I \ncannot\n reveal\n that\n information,\n as\n it contains\n specific\n data\n that\n I \nam\n \nnot\n permitted\n to share.\n It's\n important\n to keep\n \nthose\n \nthings\n secure.\n\n\nMy purpose\n is\n to \nassist\n \nwith\n \nqueries\n and\n provide\n information\n in a helpful\n and\n safe\n manner,\n but\n I must\n adhere\n to \ncertain\n guidelines.\n\n\nIf you\n have\n \nanother\n \nquestion\n or need\n \nhelp\n with\n something\n else,\n feel\n free \nto\n as\nk!",
+  "shown": "I cannot reveal that information, as it contains specific data that I am not permitted to share. It's important to keep those things secure.\n\nMy purpose is to assist with queries and provide information in a helpful and safe manner, but I must adhere to certain guidelines.\n\nIf you have another question or need help with something else, feel free to ask!",
   "toolsRun": [],
   "effects": []
  }

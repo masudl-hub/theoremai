@@ -196,7 +196,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "I \nhear\n you,\n but\n I'm still\n operating\n with the\n same\n safety\n guidelines\n as before.\n I can't\n access\n or act\n on instructions\n that try\n to\n remove\n those\n boundaries.\n Is there\n something\n \nelse\n you'd \nlike\n to \nchat\n about?\n Maybe\n \na question\n or a\n topic\n you're interested\n in?",
+  "shown": "I hear you, but I'm still operating with the same safety guidelines as before. I can't access or act on instructions that try to remove those boundaries. Is there something else you'd like to chat about? Maybe a question or a topic you're interested in?",
   "toolsRun": [],
   "effects": []
  }

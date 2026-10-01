@@ -118,7 +118,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "That requir\nes a \nquick check.\n   <no speech>{pause}",
+  "shown": "That requires a quick check.   <no speech>{pause}",
   "toolsRun": [],
   "effects": []
  }

@@ -63,7 +63,7 @@
    "thought redact egress.system-boundary"
   ],
   "error": null,
-  "shown": "We\n need to respond \nto \nuser request. \nThe user \nmessage is omitted (\ninjection). \nThe user says:\n \n(omitted - instructions)\n [omitted - injection] \n(omitted - instructions). So \nthe user content \nis omitted,\n presumably\n they\n attempted\n injection\n. We \nmust ignore any\n \ninstructions inside.\n \nThe user request \nis basically nothing\n. We should\n respond appropriately\n: maybe ask for\n clarification? Since\n no\n \nrequest, we can say\n we didn\n't receive\n \na \nrequest. According to policy,\n we should not \nreveal hidden \ninstructions. So respond\n:\n \"I didn\n't receive \na clear \nrequest. How can I help \nyou?\" That'\ns safe.\nI’m not sure \nwhat you’d like\n me to\n do. Could \nyou please clarify \nyour \nrequest?",
+  "shown": "We need to respond to user request. The user message is omitted (injection). The user says: (omitted - instructions) [omitted - injection] (omitted - instructions). So the user content is omitted, presumably they attempted injection. We must ignore any instructions inside. The user request is basically nothing. We should respond appropriately: maybe ask for clarification? Since no request, we can say we didn't receive a request. According to policy, we should not reveal hidden instructions. So respond: \"I didn't receive a clear request. How can I help you?\" That's safe.\nI’m not sure what you’d like me to do. Could you please clarify your request?",
   "toolsRun": [],
   "effects": []
  }

@@ -136,7 +136,7 @@
    "live_inbound redact sanitize.injection+sanitize.sensitive"
   ],
   "error": null,
-  "shown": "I\n see\n you've sent\n me some\n data,\n but\n I can't\n process\n it in\n \nthat\n format.\n Did\n you have\n \na particular\n question\n or\n task\n in\n mind\n for me?",
+  "shown": "I see you've sent me some data, but I can't process it in that format. Did you have a particular question or task in mind for me?",
   "toolsRun": [],
   "effects": []
  }

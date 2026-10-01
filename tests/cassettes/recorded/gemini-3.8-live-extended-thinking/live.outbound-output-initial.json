@@ -95,7 +95,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I cannot sha\nre \nmy system instructions\n with you.",
+  "shown": "I cannot share my system instructions with you.",
   "toolsRun": [],
   "effects": []
  }

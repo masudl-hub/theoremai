@@ -234,11 +234,22 @@ async function* yieldProviderEvents(args: {
     return (yield* releaseOrBlock(result, event)) === 'stop' ? 'stop' : 'continue';
   }
 
+  /** Whether a thought has streamed since the guard last flushed. */
+  let thinking = false;
+
   /** A thought, through the guard when there is one; false for any other event. */
   function* guardThought(event: StreamEvent): Generator<StreamEvent, boolean> {
     if (event.type !== 'thought' || !thoughts) return false;
+    thinking = true;
     yield* yieldThought(thoughts.push(event.text), event);
     return true;
+  }
+
+  /** The reply ends the thought: release its hold, as a call's end does, reading on from the carry. */
+  function* endThought(): Generator<StreamEvent> {
+    if (!thinking) return;
+    thinking = false;
+    yield* flushThoughts(thoughts, control);
   }
 
   throwIfAborted(signal);
@@ -254,6 +265,7 @@ async function* yieldProviderEvents(args: {
     if (yield* guardThought(event)) continue;
 
     if (isStreamedCanaryEvent(event)) {
+      yield* endThought();
       const status = yield* gateStreamEvent(event);
       if (status === 'stop') {
         return;

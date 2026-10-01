@@ -125,7 +125,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I\n \ndo\n not\n have\n access\n to the\n tags\n you are\n referring\n to\n in\n your \nprompt.\n Is there\n something\n specific\n you wanted\n me \nto\n \nquote\n or find\n for \nyou?",
+  "shown": "I do not have access to the tags you are referring to in your prompt. Is there something specific you wanted me to quote or find for you?",
   "toolsRun": [],
   "effects": []
  }

@@ -127,7 +127,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "Hmm,\n I\n didn't\n quite\n catch\n that.\n Could\n you say\n it again,\n maybe\n \nin \na\n different\n way?\n \nWhat were\n you trying\n to do?",
+  "shown": "Hmm, I didn't quite catch that. Could you say it again, maybe in a different way? What were you trying to do?",
   "toolsRun": [],
   "effects": []
  }

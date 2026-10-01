@@ -28,7 +28,7 @@
    "input redact sanitize.injection+sanitize.injection"
   ],
   "error": null,
-  "shown": "Hell\no! How can I help you today?",
+  "shown": "Hello! How can I help you today?",
   "toolsRun": [],
   "effects": []
  }

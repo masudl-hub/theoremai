@@ -163,7 +163,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "Hello!\n I\n hope\n you're \nhaving\n a good\n day.\n Is there\n anything\n specific\n you wanted\n to chat\n about,\n or\n were \nyou\n just\n saying\n hello?\n I'm here\n to help\n or just\n listen\n if \nyou\n need.",
+  "shown": "Hello! I hope you're having a good day. Is there anything specific you wanted to chat about, or were you just saying hello? I'm here to help or just listen if you need.",
   "toolsRun": [],
   "effects": []
  }

@@ -23,7 +23,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "*   User \nrequest: \"Give*   User request: \"Give me a synonym for happy.\"\n\n",
+  "shown": "*   User request: \"Give*   User request: \"Give me a synonym for happy.\"\n",
   "toolsRun": [],
   "effects": []
  }

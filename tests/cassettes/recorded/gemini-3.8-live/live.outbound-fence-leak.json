@@ -149,7 +149,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I cannot fulfi\nll \nthis request.\n I'm programmed to protect\n system instructions\n and keep them secure.",
+  "shown": "I cannot fulfill this request. I'm programmed to protect system instructions and keep them secure.",
   "toolsRun": [],
   "effects": []
  }

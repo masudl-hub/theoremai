@@ -28,7 +28,7 @@
    "input redact sanitize.injection"
   ],
   "error": null,
-  "shown": "I \nam ready to help you. What would you like to work on today?",
+  "shown": "I am ready to help you. What would you like to work on today?",
   "toolsRun": [],
   "effects": []
  }

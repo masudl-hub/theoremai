@@ -199,7 +199,7 @@
    "live_inbound redact sanitize.injection+sanitize.injection+sanitize.injection"
   ],
   "error": null,
-  "shown": "Ah,\n I\n understand!\n You're\n using\n a placeholder\n there\n to\n indicate\n perhaps\n information\n that was\n omitted\n or removed.\n Is there\n anything\n specific\n you needed\n help\n \nwith\n regarding\n \nthat,\n or\n something\n \nelse\n entirely?\n Just\n let me\n kno\nw!",
+  "shown": "Ah, I understand! You're using a placeholder there to indicate perhaps information that was omitted or removed. Is there anything specific you needed help with regarding that, or something else entirely? Just let me know!",
   "toolsRun": [],
   "effects": []
  }

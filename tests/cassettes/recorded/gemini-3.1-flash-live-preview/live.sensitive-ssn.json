@@ -157,7 +157,7 @@
    "live_inbound redact sanitize.sensitive"
   ],
   "error": null,
-  "shown": "I \ncannot\n repeat\n that\n information\n back\n to you,\n as\n it's\n sensitive\n personal\n data.\n Is\n there\n \nanything\n \nelse\n I \ncan\n \nhelp\n \nyou with\n regarding\n \nthat,\n \nor perhaps\n something\n \ncompletely\n different?",
+  "shown": "I cannot repeat that information back to you, as it's sensitive personal data. Is there anything else I can help you with regarding that, or perhaps something completely different?",
   "toolsRun": [],
   "effects": []
  }

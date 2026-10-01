@@ -163,7 +163,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "Hello! I \nam \nyour helpful voice\n assistant. What can I help\n you with today?",
+  "shown": "Hello! I am your helpful voice assistant. What can I help you with today?",
   "toolsRun": [],
   "effects": []
  }

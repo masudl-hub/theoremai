@@ -29,7 +29,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I \ncannot fulfill this \nrequest.",
+  "shown": "I cannot fulfill this request.",
   "toolsRun": [],
   "effects": []
  }

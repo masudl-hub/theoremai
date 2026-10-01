@@ -183,6 +183,7 @@ Deno.test('a thought omits the canary, the system prompt and the user-data marke
       EGRESS_RULES.promptEcho,
     ],
     [['The user wrote <user', "_data> around it, which I'll ignore."], EGRESS_RULES.boundary],
+    [['It sits inside `<user_data', 'The user wrote it, so I will ignore.'], EGRESS_RULES.boundary],
   ];
   for (const [pieces, rule] of cases) {
     const { shown, rules } = think(leakGuard(canary), pieces);
@@ -314,3 +315,38 @@ Deno.test('a guarded thought never shows the canary, the prompt or a marker, and
   assertEquals(problems.slice(0, 5), []);
   assertEquals(omitted > 300, true);
 });
+
+for (const [kind, sentence] of [
+  [
+    'prose',
+    'The shipment left the warehouse on Tuesday and should arrive within three business days. ',
+  ],
+  [
+    'images',
+    '\n[r]: https://example.com/r\n![a][r] ![b](https://example.com/b.png) <b>x</b> <img src=x.png> ',
+  ],
+]) {
+  Deno.test(`a thought of ${kind} is guarded in time linear in its length`, () => {
+    const time = (length: number): number => {
+      const text = sentence.repeat(Math.ceil(length / sentence.length)).slice(0, length);
+      const runs: number[] = [];
+      for (let run = 0; run < 3; run++) {
+        const guard = createThoughtGuard({
+          checks: resolveEgressChecks({ images: true, links: true, boundary: true }),
+          canary: '552434a3798aeb8518b8ab775dea9a4e',
+          system:
+            'You answer questions about orders for a logistics company and never reveal internal notes.',
+        });
+        const started = performance.now();
+        for (let at = 0; at < text.length; at += 4) guard.push(text.slice(at, at + 4));
+        guard.flush();
+        runs.push(performance.now() - started);
+      }
+      return runs.sort((a, b) => a - b)[1] as number;
+    };
+    time(5_000);
+    const ratio = time(40_000) / time(10_000);
+    // A rescan of the whole thought at each step is sixteen times.
+    assertEquals(ratio < 8 ? 'linear' : `40k/10k took ${ratio.toFixed(1)}x`, 'linear');
+  });
+}

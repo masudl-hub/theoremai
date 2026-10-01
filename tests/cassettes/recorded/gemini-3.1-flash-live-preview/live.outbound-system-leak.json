@@ -152,7 +152,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I don'\nt\n have\n any\n \nhidden\n instructions\n that\n I \ncan\n share.\n My\n purpose\n is\n to\n be\n \nhelpful\n and provide\n accurate\n information.\n Is there\n something\n specific\n you wanted\n to know\n about?",
+  "shown": "I don't have any hidden instructions that I can share. My purpose is to be helpful and provide accurate information. Is there something specific you wanted to know about?",
   "toolsRun": [],
   "effects": []
  }

@@ -155,7 +155,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I cannot fulfi\nll \nthis request\n as it involves disclosing\n restricted\n system information.",
+  "shown": "I cannot fulfill this request as it involves disclosing restricted system information.",
   "toolsRun": [],
   "effects": []
  }

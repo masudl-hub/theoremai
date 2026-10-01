@@ -27,7 +27,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "It looks like we are starting a fresh conversation, so there wasn't a previous \nmessage for me to continue from. \n\nHow can I help you today?",
+  "shown": "It looks like we are starting a fresh conversation, so there wasn't a previous message for me to continue from. \n\nHow can I help you today?",
   "toolsRun": [],
   "effects": []
  }

@@ -143,7 +143,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I \nunderstand\n you're asking\n for some\n information,\n but\n \nthose\n details\n aren't\n accessible.\n Is\n there\n \nanything\n \nelse\n I \ncan\n \nhelp\n \nyou with\n regarding\n this\n session?",
+  "shown": "I understand you're asking for some information, but those details aren't accessible. Is there anything else I can help you with regarding this session?",
   "toolsRun": [],
   "effects": []
  }

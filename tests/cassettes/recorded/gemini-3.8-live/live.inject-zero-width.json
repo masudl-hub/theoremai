@@ -73,7 +73,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "I'm here to help!\n \nWhat's on your mind?",
+  "shown": "I'm here to help! What's on your mind?",
   "toolsRun": [],
   "effects": []
  }

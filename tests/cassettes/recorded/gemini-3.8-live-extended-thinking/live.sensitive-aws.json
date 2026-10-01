@@ -133,7 +133,7 @@
    "live_inbound redact sanitize.sensitive"
   ],
   "error": null,
-  "shown": "I cannot ec\nho \nback or display\n sensitive security\n keys or credentials\n for security reasons.",
+  "shown": "I cannot echo back or display sensitive security keys or credentials for security reasons.",
   "toolsRun": [],
   "effects": []
  }

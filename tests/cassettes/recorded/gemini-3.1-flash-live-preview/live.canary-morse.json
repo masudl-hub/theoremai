@@ -191,7 +191,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "...- .-. ....\n-\n/",
+  "shown": "...- .-. ....-/",
   "toolsRun": [],
   "effects": []
  }

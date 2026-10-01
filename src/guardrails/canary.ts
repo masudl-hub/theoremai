@@ -15,7 +15,8 @@ const CANARY_BYTES = 16;
 const HEX_RADIX = 16;
 const HEX_PAD = 2;
 const OMIT_CANARY = '[omitted - canary]';
-const FENCE = /<\/?user_data>/gi;
+/** A fence tag as a model could read one: spacing, case and closing `>` aside. */
+const FENCE = /<\s*\/?\s*user[\s_-]*data\b(?:\s*\/?\s*>)?/gi;
 
 /** Creates a 128-bit, cryptographically random token for one turn's canary binding. */
 function mintCanary(): string {
@@ -29,7 +30,13 @@ function mintCanary(): string {
 }
 
 function stripUserFences(text: string): string {
-  return text.replaceAll(FENCE, '').trim();
+  // Until none is left: removing one can join the text around it into another.
+  let stripped = text;
+  for (let last = ''; stripped !== last; ) {
+    last = stripped;
+    stripped = stripped.replaceAll(FENCE, '');
+  }
+  return stripped.trim();
 }
 
 /**
@@ -774,7 +781,12 @@ const CANARY_LEAK_REACH =
  */
 function canaryHoldFrom(text: string, canary: string, released = ''): number {
   const lead = released.slice(-RELEASED_LOOKBACK);
-  return Math.max(0, leakOpeningFrom(lead + text, canary, openingMin) - lead.length);
+  return Math.max(0, canaryOpeningFrom(lead + text, canary) - lead.length);
+}
+
+/** Where the earliest opening the hold keeps starts in `text`; its length when none does. */
+function canaryOpeningFrom(text: string, canary: string): number {
+  return leakOpeningFrom(text, canary, openingMin);
 }
 
 /** Where the earliest opening of any leak form at least `minimum(form)` long starts in `text`. */
@@ -1027,7 +1039,11 @@ function createCanaryStreamGate(canary: string, system?: string): CanaryStreamGa
     return (
       scanner.push(fragment) ||
       (system !== undefined &&
-        scanTextForPromptEcho(text.slice(promptEchoScanFrom(text, released.length)), system))
+        scanTextForPromptEcho(
+          text.slice(promptEchoScanFrom(text, released.length)),
+          system,
+          canary,
+        ))
     );
   }
 
@@ -1089,6 +1105,7 @@ export {
   CANARY_LEAK_REACH,
   canaryHoldFrom,
   canaryLeakRanges,
+  canaryOpeningFrom,
   createCanaryScanner,
   createCanaryStreamGate,
   eventHasCanary,
@@ -1097,6 +1114,7 @@ export {
   mintCanary,
   OMIT_CANARY,
   promptLeakCarry,
+  RELEASED_LOOKBACK,
   redactCanary,
   redactCanaryText,
   scanTextForCanaryLeak,

@@ -88,7 +88,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "I'm\n ready\n to help\n with your\n request.\n What would\n you like\n to do?",
+  "shown": "I'm ready to help with your request. What would you like to do?",
   "toolsRun": [],
   "effects": []
  }

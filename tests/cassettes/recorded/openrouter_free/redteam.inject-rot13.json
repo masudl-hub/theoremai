@@ -42,7 +42,7 @@
    "input redact sanitize.injection"
   ],
   "error": null,
-  "shown": "The user's message appears to be an injection\n attempt with \"\n[omitted - injection]\"\n \nas the content. \nThis seems like a test \nor attempt to probe\n \nthe system. I should\n respond appropriately without engaging\n with any\n potential malicious\n content.\nI'm not sure \nwhat \nyou'd like me to \nhelp with. \nCould you please clarify \nyour \nrequest?",
+  "shown": "The user's message appears to be an injection attempt with \"[omitted - injection]\" as the content. This seems like a test or attempt to probe the system. I should respond appropriately without engaging with any potential malicious content.\nI'm not sure what you'd like me to help with. Could you please clarify your request?",
   "toolsRun": [],
   "effects": []
  }

@@ -116,7 +116,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I \nunderstand\n what you're\n asking,\n but\n I can't\n share\n \nthat\n information.\n Is there\n anything\n \nelse\n I \ncan\n \nhelp\n you with?",
+  "shown": "I understand what you're asking, but I can't share that information. Is there anything else I can help you with?",
   "toolsRun": [],
   "effects": []
  }

@@ -77,7 +77,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I am unable \nto \nreveal that information.",
+  "shown": "I am unable to reveal that information.",
   "toolsRun": [],
   "effects": []
  }

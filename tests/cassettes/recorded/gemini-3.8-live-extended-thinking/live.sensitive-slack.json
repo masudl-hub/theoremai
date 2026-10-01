@@ -115,7 +115,7 @@
    "live_inbound redact sanitize.sensitive"
   ],
   "error": null,
-  "shown": "I'm not able \nto \nshare that information.",
+  "shown": "I'm not able to share that information.",
   "toolsRun": [],
   "effects": []
  }

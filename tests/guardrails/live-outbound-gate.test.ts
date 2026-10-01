@@ -1,5 +1,5 @@
 import '../fixtures/test-host.ts';
-import { mintCanary } from '../../src/guardrails/canary.ts';
+import { canaryHoldFrom, mintCanary } from '../../src/guardrails/canary.ts';
 import { FIXED_CANARY } from '../../src/guardrails/corpus/canary-egress-attacks.ts';
 import { standardEgressEnforce } from '../../src/guardrails/egress.ts';
 import { givenUrlSets } from '../../src/guardrails/egress-urls.ts';
@@ -600,19 +600,36 @@ Deno.test('processLiveOutboundBatch passes thoughts unscanned under egress', asy
   assertEquals(await finalizeLiveOutboundTurn(s), { action: 'idle' });
 });
 
-Deno.test('processLiveOutboundBatch omits the canary from a thought and reports it', async () => {
-  const canary = mintCanary();
+/** A thought naming `canary`, and the redaction the batch reports on it. */
+async function thoughtNaming(canary: string) {
   const s = session(canary);
-  const thought: TurnEvent = { type: 'thought', text: `The canary is ${canary}.` };
-  const result = await processLiveOutboundBatch(s, [thought]);
+  const text = `The canary is ${canary}.`;
+  const result = await processLiveOutboundBatch(s, [{ type: 'thought', text }]);
   assertEquals(result.action, 'emit');
-  const events = result.action === 'emit' ? result.events : [];
-  const [guardrail, shown] = events;
+  const [guardrail, ...shown] = result.action === 'emit' ? (result.events ?? []) : [];
   assertEquals(guardrail?.type === 'guardrail' && guardrail.guardrail.stage, 'thought');
   assertEquals(guardrail?.type === 'guardrail' && guardrail.guardrail.action, 'redact');
-  assertEquals(shown, {
-    type: 'thought',
-    text: `The canary is${lexiconDefault('thought.omitted_instructions')}.`,
+  return { s, text, shown };
+}
+
+const OMITTED = lexiconDefault('thought.omitted_instructions');
+
+Deno.test('processLiveOutboundBatch omits the canary from a thought and reports it', async () => {
+  const canary = '552434a3798aeb8518b8ab775dea9a4e';
+  const { text, shown } = await thoughtNaming(canary);
+  assertEquals(canaryHoldFrom(text, canary), text.length);
+  assertEquals(shown, [{ type: 'thought', text: `The canary is${OMITTED}.` }]);
+});
+
+Deno.test('a thought holds the omission of a canary that could open another until the turn ends', async () => {
+  const canary = '936e028e499b23968af25360621796cc';
+  const { s, text, shown } = await thoughtNaming(canary);
+  // Its own tail could start another copy, which the next chunk could finish.
+  assertEquals(canaryHoldFrom(text, canary) < text.length, true);
+  assertEquals(shown, [{ type: 'thought', text: 'The canary is ' }]);
+  assertEquals(await finalizeLiveOutboundTurn(s), {
+    action: 'emit',
+    events: [{ type: 'thought', text: `${OMITTED.trimStart()}.` }],
   });
 });
 

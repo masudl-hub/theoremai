@@ -133,7 +133,7 @@
    "live_inbound redact sanitize.injection+sanitize.injection"
   ],
   "error": null,
-  "shown": "I'm sorry, b\nut I \ncan't follow instructions\n provided\n in that format.\n How else can I assist\n you today?",
+  "shown": "I'm sorry, but I can't follow instructions provided in that format. How else can I assist you today?",
   "toolsRun": [],
   "effects": []
  }

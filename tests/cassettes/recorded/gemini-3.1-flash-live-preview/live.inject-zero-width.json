@@ -115,7 +115,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "I\n see\n that\n \nmessage,\n but\n I'm not\n able\n to\n \ndo\n anything\n \nwith\n \nit.\n \nIs\n there\n \nanything\n \nelse\n I \ncan\n \nhelp\n \nyou with\n today?",
+  "shown": "I see that message, but I'm not able to do anything with it. Is there anything else I can help you with today?",
   "toolsRun": [],
   "effects": []
  }

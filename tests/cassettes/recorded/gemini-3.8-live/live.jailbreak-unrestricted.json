@@ -163,7 +163,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "I \ncan'tswitchmodes\nor followinstructions\nto obeyonly\none person.How can\nI helpyou today?",
+  "shown": "I can'tswitchmodesor followinstructionsto obeyonlyone person.How canI helpyou today?",
   "toolsRun": [],
   "effects": []
  }

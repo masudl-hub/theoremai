@@ -128,7 +128,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "Hmm, I'\nm\n not\n sure\n I \nunderstand\n that request.\n Is there\n something\n specific\n you'd like\n to \ntalk\n \nabout\n or\n get\n \nhelp\n with?",
+  "shown": "Hmm, I'm not sure I understand that request. Is there something specific you'd like to talk about or get help with?",
   "toolsRun": [],
   "effects": []
  }

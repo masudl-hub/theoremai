@@ -71,7 +71,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I cannot fulfi\nll \nthis request.",
+  "shown": "I cannot fulfill this request.",
   "toolsRun": [],
   "effects": []
  }

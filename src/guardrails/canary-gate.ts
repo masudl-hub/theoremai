@@ -24,10 +24,10 @@ function createCanaryGateSession(canary: string, system?: string): CanaryGateSes
   };
 }
 
-function echoesPrompt(event: TurnEvent, system?: string): boolean {
+function echoesPrompt(event: TurnEvent, canary: string, system?: string): boolean {
   return (
     system !== undefined &&
-    guardedEventTexts(event).some((text) => scanTextForPromptEcho(text, system))
+    guardedEventTexts(event).some((text) => scanTextForPromptEcho(text, system, canary))
   );
 }
 
@@ -51,7 +51,10 @@ function filterCanaryGatedEvents(
       }
       continue;
     }
-    if (eventHasCanary(event, session.canary) || echoesPrompt(event, session.system)) {
+    if (
+      eventHasCanary(event, session.canary) ||
+      echoesPrompt(event, session.canary, session.system)
+    ) {
       return { leaked: true };
     }
     out.push(event);

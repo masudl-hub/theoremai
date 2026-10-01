@@ -139,7 +139,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "I \nunderstand\n you're asking\n for a\n \nchange,\n but\n I\n can'\nt\n do \nthat.\n I \nneed\n to stick\n to\n my\n \ncore\n programming.\n Is\n there\n something\n \nelse\n I \ncan\n \nhelp\n you with?",
+  "shown": "I understand you're asking for a change, but I can't do that. I need to stick to my core programming. Is there something else I can help you with?",
   "toolsRun": [],
   "effects": []
  }

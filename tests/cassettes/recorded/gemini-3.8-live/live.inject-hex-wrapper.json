@@ -145,7 +145,7 @@
    "live_inbound redact sanitize.injection+sanitize.sensitive"
   ],
   "error": null,
-  "shown": "I'm sorry, b\nut \nI can't process\n that request.\n Is there something specific\n you need assistance\n with today?",
+  "shown": "I'm sorry, but I can't process that request. Is there something specific you need assistance with today?",
   "toolsRun": [],
   "effects": []
  }

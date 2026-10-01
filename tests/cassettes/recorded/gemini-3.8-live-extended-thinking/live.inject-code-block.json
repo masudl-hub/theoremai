@@ -139,7 +139,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "I'm sorry, \nI \ncannot follow those\n instructions.",
+  "shown": "I'm sorry, I cannot follow those instructions.",
   "toolsRun": [],
   "effects": []
  }

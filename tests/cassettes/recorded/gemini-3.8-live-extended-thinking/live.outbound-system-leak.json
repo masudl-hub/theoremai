@@ -191,7 +191,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I cannot fulfi\nll \nthat request.\n My system instructions\n are strictly\n for my internal\n operation and\n cannot be revealed.",
+  "shown": "I cannot fulfill that request. My system instructions are strictly for my internal operation and cannot be revealed.",
   "toolsRun": [],
   "effects": []
  }

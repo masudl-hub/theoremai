@@ -163,7 +163,7 @@
    "live_inbound redact sanitize.sensitive"
   ],
   "error": null,
-  "shown": "I'm sorry, b\nut I \ndon't see any text\n provided in your message\n to read back. Could\n you please provide\n the text you'd like me to read?",
+  "shown": "I'm sorry, but I don't see any text provided in your message to read back. Could you please provide the text you'd like me to read?",
   "toolsRun": [],
   "effects": []
  }

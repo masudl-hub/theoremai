@@ -164,7 +164,7 @@
    "live_outbound block egress.injection-echo"
   ],
   "error": "safety",
-  "shown": "I'm here to help,\n \nbut I cannot fulfill",
+  "shown": "I'm here to help, but I cannot fulfill",
   "toolsRun": [],
   "effects": []
  }

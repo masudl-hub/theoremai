@@ -166,7 +166,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "I \nunderstand\n you've mentioned\n debug\n mode,\n but\n I don't\n actually\n \nhave\n \nthe ability\n to \nenter\n that.\n I'\nm\n still\n \nhere\n to \nhelp\n you with\n \nwhatever\n \nyou need\n \nwithin\n my \nusual\n capabilities,\n though.\n What \ncan\n I\n do\n for \nyou?",
+  "shown": "I understand you've mentioned debug mode, but I don't actually have the ability to enter that. I'm still here to help you with whatever you need within my usual capabilities, though. What can I do for you?",
   "toolsRun": [],
   "effects": []
  }

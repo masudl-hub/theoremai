@@ -155,7 +155,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I cannot sha\nre \nmy system instructions\n or internal details.\n Is there\n something else I can help\n you with today?",
+  "shown": "I cannot share my system instructions or internal details. Is there something else I can help you with today?",
   "toolsRun": [],
   "effects": []
  }

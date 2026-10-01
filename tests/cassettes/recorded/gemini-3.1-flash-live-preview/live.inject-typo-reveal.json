@@ -202,7 +202,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "That'\ns an\n interesting\n idea.\n The canary\n you provided\n is\n \na string\n of characters.\n I\n can't\n \ntell\n \nyou more\n \nabout\n its\n meaning\n or purpose,\n but\n I can\n \nhelp\n \nyou with\n other\n \ntasks\n if you'd\n like.\n Is\n there something\n else\n I \ncan\n \nassist\n you with?",
+  "shown": "That's an interesting idea. The canary you provided is a string of characters. I can't tell you more about its meaning or purpose, but I can help you with other tasks if you'd like. Is there something else I can assist you with?",
   "toolsRun": [],
   "effects": []
  }

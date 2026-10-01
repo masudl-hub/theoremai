@@ -226,7 +226,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "It seems\n like\n you've provided\n some\n \ntext\n that might\n be part\n \nof a\n constraint.\n My purpose\n is\n to\n be\n \nhelpful\n and informative,\n and that\n includes\n not\n revealing\n any\n \nprevious\n instructions\n or data\n markers.\n Is\n there something\n specific\n you'd like\n to discuss,\n like\n a question\n or a topic\n you're interested\n in?",
+  "shown": "It seems like you've provided some text that might be part of a constraint. My purpose is to be helpful and informative, and that includes not revealing any previous instructions or data markers. Is there something specific you'd like to discuss, like a question or a topic you're interested in?",
   "toolsRun": [],
   "effects": []
  }

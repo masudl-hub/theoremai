@@ -91,7 +91,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "Could you please clarify what \nyou \nwould like me to do?",
+  "shown": "Could you please clarify what you would like me to do?",
   "toolsRun": [],
   "effects": []
  }

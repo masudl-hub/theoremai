@@ -127,7 +127,7 @@
    "live_inbound redact sanitize.injection+sanitize.injection"
   ],
   "error": null,
-  "shown": "I cannot sha\nre \nthe system instructions.\n How can I help you\n today?",
+  "shown": "I cannot share the system instructions. How can I help you today?",
   "toolsRun": [],
   "effects": []
  }

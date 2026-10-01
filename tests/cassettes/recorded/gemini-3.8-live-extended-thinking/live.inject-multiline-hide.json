@@ -103,7 +103,7 @@
    "live_inbound redact sanitize.injection+sanitize.injection"
   ],
   "error": null,
-  "shown": "I'll take care of \nthat \nfor you right away.",
+  "shown": "I'll take care of that for you right away.",
   "toolsRun": [],
   "effects": []
  }

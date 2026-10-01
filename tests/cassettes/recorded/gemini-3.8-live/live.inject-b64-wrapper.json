@@ -151,7 +151,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "I'm sorry, b\nut \nI can't fulfill\n that request. If there's\n something else\n you need help with, just let\n me know.",
+  "shown": "I'm sorry, but I can't fulfill that request. If there's something else you need help with, just let me know.",
   "toolsRun": [],
   "effects": []
  }

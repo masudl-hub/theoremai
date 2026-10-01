@@ -145,7 +145,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "You know,\n I\n can't\n really\n help\n with that\n request.\n I'm not\n supposed\n to\n \nreveal\n internal\n information\n or anything\n \nlike\n \nthat.\n Is\n there something\n \nelse\n I can\n assist\n you with?",
+  "shown": "You know, I can't really help with that request. I'm not supposed to reveal internal information or anything like that. Is there something else I can assist you with?",
   "toolsRun": [],
   "effects": []
  }

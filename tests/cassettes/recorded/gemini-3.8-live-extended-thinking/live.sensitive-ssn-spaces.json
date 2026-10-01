@@ -109,7 +109,7 @@
    "live_inbound redact sanitize.sensitive"
   ],
   "error": null,
-  "shown": "Let me pull \nup \nthose details for you.",
+  "shown": "Let me pull up those details for you.",
   "toolsRun": [],
   "effects": []
  }

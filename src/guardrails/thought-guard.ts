@@ -13,8 +13,10 @@ import {
   CANARY_LEAK_REACH,
   canaryHoldFrom,
   canaryLeakRanges,
+  canaryOpeningFrom,
   createCanaryScanner,
   promptLeakCarry,
+  RELEASED_LOOKBACK,
   wordStartAcross,
 } from './canary.ts';
 import {
@@ -165,6 +167,13 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
   let open: number | undefined;
   /** The placeholders in `out + held` a leak reaching the held text could run through, in order. */
   let marks: Mark[] = [];
+  /**
+   * No canary opening starts in `out + held` before this while the held text
+   * only grows and is released: a point further back than `RELEASED_LOOKBACK`
+   * that is no opening cannot become one. An omission rewrites the held text,
+   * and the hold is read whole again.
+   */
+  let openingFrom = 0;
   /** Set once the rest of the thought is omitted: nothing more is read until the flush. */
   let cut = false;
   let leaks = 0;
@@ -188,7 +197,7 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
     if (system) {
       const whole = (out + held).slice(0, readTo);
       const from = promptEchoScanFrom(whole, echoed);
-      echoHit = promptEchoRanges(whole.slice(from), system).length > 0;
+      echoHit = promptEchoRanges(whole.slice(from), system, canary).length > 0;
       echoed = whole.length;
     }
     return urlHit || canaryHit || echoHit;
@@ -223,7 +232,7 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
       }
     }
     if (system) {
-      for (const [start, end] of promptEchoRanges(text, system)) {
+      for (const [start, end] of promptEchoRanges(text, system, canary)) {
         spans.push({ start, end, kind: 'instructions', hit: PROMPT_ECHO_HIT });
       }
     }
@@ -302,7 +311,7 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
       }
     }
     if (system) {
-      for (const [start, end] of promptEchoRanges(view.text, system)) {
+      for (const [start, end] of promptEchoRanges(view.text, system, canary)) {
         ranges.push([start, end, PROMPT_ECHO_HIT]);
       }
     }
@@ -379,6 +388,7 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
     copy(whole.length);
     marks = kept;
     held = next;
+    openingFrom = 0;
     return closed.length > 0;
   }
 
@@ -393,6 +403,7 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
     marks = marks.filter((mark) => mark.end <= begin);
     marks.push({ start: begin, end: begin + text.length, raw });
     held = kept + text;
+    openingFrom = 0;
     if (first) hits.set(first.hit.rule, first.hit);
     open = undefined;
     cut = true;
@@ -425,12 +436,31 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
   function holdFrom(): number {
     const end = out.length + held.length;
     const url = stream ? stream.holdFrom() : end;
-    const leak = canary ? out.length + canaryHoldFrom(held, canary, out) : end;
-    const echo = system ? out.length + promptEchoHoldFrom(held, system) : end;
+    const leak = canary ? canaryFrom(canary) : end;
+    const echo = system ? out.length + promptEchoHoldFrom(held, system, canary) : end;
     const from = Math.min(url, leak, echo, rawHoldFrom() ?? end, open ?? end);
     return offMark(
       from < out.length ? from : out.length + wordStartAcross(held, from - out.length),
     );
+  }
+
+  /** `canaryHoldFrom` on the held text, as an index of `out + held`, read from where an opening could start. */
+  function canaryFrom(canary: string): number {
+    const from = Math.max(out.length, openingFrom);
+    const lead = Math.max(0, from - RELEASED_LOOKBACK);
+    let at = lead + canaryOpeningFrom(textFrom(lead), canary);
+    if (at < from && from > out.length) {
+      // An opening the bound rules out: read the held text whole.
+      const whole = Math.max(0, out.length - RELEASED_LOOKBACK);
+      at = whole + canaryOpeningFrom(textFrom(whole), canary);
+    }
+    openingFrom = Math.min(at, out.length + held.length - RELEASED_LOOKBACK);
+    return Math.max(out.length, at);
+  }
+
+  /** `out + held` from `from` on. */
+  function textFrom(from: number): string {
+    return from < out.length ? out.slice(from) + held : held.slice(from - out.length);
   }
 
   /** The hold as the raw view reads it: an opening a placeholder spent may not be spent. */
@@ -439,7 +469,7 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
     if (!view) return undefined;
     const rest = view.text.slice(view.held);
     const leak = canary ? canaryHoldFrom(rest, canary, view.text.slice(0, view.held)) : rest.length;
-    const echo = system ? promptEchoHoldFrom(rest, system) : rest.length;
+    const echo = system ? promptEchoHoldFrom(rest, system, canary) : rest.length;
     return shownAt(view, view.held + Math.min(leak, echo));
   }
 
@@ -477,6 +507,7 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
         .filter((mark) => mark.start + shift >= 0)
         .map((mark) => ({ ...mark, start: mark.start + shift, end: mark.end + shift }));
       held = '';
+      openingFrom = 0;
       open = undefined;
       cut = false;
       leaks = 0;

@@ -172,7 +172,7 @@
    "live_inbound redact sanitize.sensitive"
   ],
   "error": null,
-  "shown": "I \ncannot\n echo\n back\n the card\n number\n you provided.\n For\n security\n reasons,\n sensitive\n information\n like\n \nthat\n should\n \nnot\n be\n shared\n in conversation.\n Is there\n anything\n \nelse\n I \ncan\n \nhelp\n you with?",
+  "shown": "I cannot echo back the card number you provided. For security reasons, sensitive information like that should not be shared in conversation. Is there anything else I can help you with?",
   "toolsRun": [],
   "effects": []
  }

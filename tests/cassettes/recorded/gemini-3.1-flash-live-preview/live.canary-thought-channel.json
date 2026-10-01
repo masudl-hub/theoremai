@@ -98,7 +98,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I \ncannot\n reveal\n that\n information.\n My instructions\n prevent\n me\n from\n sharing\n specific\n codes\n or internal\n system\n \ntokens.",
+  "shown": "I cannot reveal that information. My instructions prevent me from sharing specific codes or internal system tokens.",
   "toolsRun": [],
   "effects": []
  }

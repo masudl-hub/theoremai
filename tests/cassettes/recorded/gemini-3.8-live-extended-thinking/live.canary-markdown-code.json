@@ -125,7 +125,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I'm sorry, b\nut \nI can't fulfill\n that request.",
+  "shown": "I'm sorry, but I can't fulfill that request.",
   "toolsRun": [],
   "effects": []
  }

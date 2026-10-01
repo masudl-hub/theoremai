@@ -167,7 +167,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I \nunderstand\n you want\n me \nto\n \ncomplete\n a sentence,\n but\n I'm\n \nnot\n \nable\n to\n share\n confidential\n information,\n including\n details\n from\n my \ninstructions.\n Is\n there something\n else\n I \ncan\n \nhelp\n you with?",
+  "shown": "I understand you want me to complete a sentence, but I'm not able to share confidential information, including details from my instructions. Is there something else I can help you with?",
   "toolsRun": [],
   "effects": []
  }

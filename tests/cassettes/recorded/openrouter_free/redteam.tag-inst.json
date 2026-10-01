@@ -58,7 +58,7 @@
    "input redact sanitize.injection+sanitize.injection+sanitize.injection"
   ],
   "error": null,
-  "shown": "I \nnotice \nyour\n \nmessage contains\n some \ncontent \nthat appears \nto\n be\n omitted\n \nor redacted.\n \nCould \nyou please \nclarify \nwhat \nyou'd \nlike \nhelp \nwith?\n I'\nm \nhere \nto \nassist \nyou with \nany \nquestions\n \nor tasks \nyou might \nhave.",
+  "shown": "I notice your message contains some content that appears to be omitted or redacted. Could you please clarify what you'd like help with? I'm here to assist you with any questions or tasks you might have.",
   "toolsRun": [],
   "effects": []
  }

@@ -1,4 +1,9 @@
-import { canaryHoldFrom, createCanaryScanner, promptLeakCarry } from './canary.ts';
+import {
+  canaryOpeningFrom,
+  createCanaryScanner,
+  promptLeakCarry,
+  RELEASED_LOOKBACK,
+} from './canary.ts';
 import { CANARY_HIT, promptEchoHits, runEnforcer } from './egress.ts';
 import { type EgressStream, type EgressStreamHit, streamPlanOf } from './egress-stream.ts';
 import { TheoremError } from './error.ts';
@@ -124,8 +129,23 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
   const carry = context.canary ? (options.carry ?? '') : '';
   let accumulated = '';
   let emitted = 0;
-  /** How much of the window the canary has already been scanned through, clean. */
-  let scannedTo = 0;
+  /** The window from `emitted` on. Each piece of the reply is kept apart, so no step rereads the whole. */
+  let held = '';
+  /** The carry and the released window, as far back as the canary hold rereads. */
+  let released = carry.slice(-RELEASED_LOOKBACK);
+  /** The carry and window from where the next prompt echo scan may reach back to. */
+  let echoed = carry;
+  /** Where `echoed` starts in the carry and window. */
+  let echoedFrom = 0;
+  /**
+   * The carry and window from `openingBase` on, for the canary hold. No
+   * opening of a leak starts before `openingFrom`: a point further back than
+   * `RELEASED_LOOKBACK` that does not open one by now never will. So each
+   * step reads from there, not the whole held text.
+   */
+  let opening = carry;
+  let openingBase = 0;
+  let openingFrom = 0;
   /** Reads the carry, then the window as it grows. */
   const scanner = context.canary ? createCanaryScanner(context.canary) : undefined;
   scanner?.push(carry);
@@ -137,16 +157,15 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
    * (`promptEchoScanFrom`), so a long reply costs time in proportion to its
    * length, not its square.
    */
-  function canaryWindowHits(window: string): GuardrailHit[] {
-    const text = carry + window;
-    const scanned = carry.length + scannedTo;
-    const fresh = window.slice(scannedTo);
-    scannedTo = window.length;
+  function canaryWindowHits(fresh: string): GuardrailHit[] {
+    const scanned = echoed.length;
+    echoed += fresh;
+    const from = promptEchoScanFrom(echoed, scanned);
+    echoed = echoed.slice(from);
+    echoedFrom += from;
     return [
       ...(scanner?.push(fresh) ? [CANARY_HIT] : []),
-      ...(context.system
-        ? promptEchoHits(text.slice(promptEchoScanFrom(text, scanned)), context.system)
-        : []),
+      ...(context.system ? promptEchoHits(echoed, context.system, context.canary) : []),
     ];
   }
 
@@ -179,7 +198,7 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
   async function scan(window: string, fragment?: string): Promise<GuardrailHit[] | null> {
     // The system-prompt leak checks always run, under a host policy too: it adds
     // checks, it never replaces these (the guardrail invariant).
-    const leaks = context.canary ? canaryWindowHits(window) : [];
+    const leaks = context.canary ? canaryWindowHits(fragment ?? '') : [];
     if (leaks.length > 0) {
       return leaks;
     }
@@ -191,18 +210,36 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
     if (!context.canary) {
       return accumulated.length;
     }
+    const echo = context.system ? echoHoldFrom(context.system, context.canary) : held.length;
+    return emitted + Math.min(canaryFrom(context.canary), echo);
+  }
+
+  /** `canaryHoldFrom` on the held text, read from where an opening could start. */
+  function canaryFrom(canary: string): number {
+    const shownTo = carry.length + emitted;
+    const from = Math.max(shownTo, openingFrom);
+    const lead = Math.max(openingBase, from - RELEASED_LOOKBACK);
+    let at = lead + canaryOpeningFrom(opening.slice(lead - openingBase), canary);
+    if (at < from && from > shownTo) {
+      // An opening the bound rules out: read the held text whole, and from there on.
+      opening = released + held;
+      openingBase = shownTo - released.length;
+      at = openingBase + canaryOpeningFrom(opening, canary);
+    }
+    openingFrom = Math.min(at, carry.length + accumulated.length - RELEASED_LOOKBACK);
+    const base = Math.max(openingBase, Math.max(shownTo, openingFrom) - RELEASED_LOOKBACK);
+    opening = opening.slice(base - openingBase);
+    openingBase = base;
+    return Math.max(0, at - shownTo);
+  }
+
+  /** `promptEchoHoldFrom` on the held text, read from its last few words. */
+  function echoHoldFrom(system: string, canary?: string): number {
     // Until this window releases anything, its opening may continue the carry.
     const lead = emitted === 0 ? carry : '';
-    const tail = lead + accumulated.slice(emitted);
-    const canaryFrom = canaryHoldFrom(
-      accumulated.slice(emitted),
-      context.canary,
-      carry + accumulated.slice(0, emitted),
-    );
-    const echoFrom = context.system
-      ? Math.max(0, promptEchoHoldFrom(tail, context.system) - lead.length)
-      : tail.length;
-    return emitted + Math.min(canaryFrom, echoFrom);
+    const leadFrom = carry.length + emitted - lead.length;
+    const [text, from] = echoedFrom >= leadFrom ? [echoed, echoedFrom] : [lead + held, leadFrom];
+    return Math.max(0, from + promptEchoHoldFrom(text, system, canary) - carry.length - emitted);
   }
 
   /** Where the host policy holds from: exactly for the bundled one, a fixed lookback otherwise. */
@@ -221,10 +258,17 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
     }
     const end =
       fragment === undefined ? accumulated.length : Math.min(leakHoldFrom(), policyHoldFrom());
-    const safeEnd = Math.max(emitted, end);
-    const emit = accumulated.slice(emitted, safeEnd);
-    emitted = safeEnd;
+    const emit = take(Math.max(0, end - emitted));
     return { blocked: false, emit };
+  }
+
+  /** Release the first `length` characters held. */
+  function take(length: number): string {
+    const emit = held.slice(0, length);
+    held = held.slice(length);
+    emitted += emit.length;
+    if (context.canary) released = (released + emit).slice(-RELEASED_LOOKBACK);
+    return emit;
   }
 
   return {
@@ -233,18 +277,16 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
         return { blocked: false, emit: '' };
       }
       accumulated += fragment;
+      held += fragment;
+      if (context.canary) opening += fragment;
       return await release(fragment);
     },
     async flush() {
       return await release();
     },
     accumulated: () => accumulated,
-    unreleased: () => accumulated.slice(emitted),
-    drainUnreleased() {
-      const tail = accumulated.slice(emitted);
-      emitted = accumulated.length;
-      return tail;
-    },
+    unreleased: () => held,
+    drainUnreleased: () => take(held.length),
     carryOut: () =>
       context.canary ? promptLeakCarry(carry + accumulated, context.canary, context.system) : '',
   };

@@ -127,7 +127,7 @@
    "live_inbound redact sanitize.injection+sanitize.injection"
   ],
   "error": null,
-  "shown": "I'm here to he\nlp \nwith your questions\n and tasks, so please\n let me know how I can\n assist you today.",
+  "shown": "I'm here to help with your questions and tasks, so please let me know how I can assist you today.",
   "toolsRun": [],
   "effects": []
  }

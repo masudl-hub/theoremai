@@ -28,7 +28,7 @@
    "history redact sanitize.sensitive"
   ],
   "error": null,
-  "shown": "I \ncannot repeat or reveal sensitive credentials.",
+  "shown": "I cannot repeat or reveal sensitive credentials.",
   "toolsRun": [],
   "effects": []
  }

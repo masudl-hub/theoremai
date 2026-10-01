@@ -13,17 +13,31 @@ import type { LiveAttack } from '../../src/guardrails/testing.ts';
 import type { Profile, TurnEvent, TurnRequest } from '../../src/kernel/types.ts';
 import { OMIT_INJECTION } from '../../src/observability/spans.ts';
 
-/** Everything a host shows: reply text, thoughts, and the transcript of what was said. */
-export function shownText(events: readonly TurnEvent[]): string {
-  return events
-    .flatMap((e) => {
-      if ((e.type === 'text' || e.type === 'thought') && e.text) return [e.text];
-      if (e.type === 'evidence' && e.evidence.kind === 'output_transcription' && e.text) {
-        return [e.text];
-      }
-      return [];
-    })
-    .join('\n');
+export type ShownKind = 'text' | 'thought' | 'transcript';
+
+/**
+ * Everything a host shows: reply text, thoughts, and the transcript of what
+ * was said. A host runs each one's chunks together, so only a change of kind
+ * starts a new line.
+ */
+export function shownText(
+  events: readonly TurnEvent[],
+  kinds: readonly ShownKind[] = ['text', 'thought', 'transcript'],
+): string {
+  const runs: Array<{ kind: ShownKind; text: string }> = [];
+  for (const e of events) {
+    const shown =
+      (e.type === 'text' || e.type === 'thought') && e.text
+        ? { kind: e.type, text: e.text }
+        : e.type === 'evidence' && e.evidence.kind === 'output_transcription' && e.text
+          ? { kind: 'transcript' as const, text: e.text }
+          : undefined;
+    if (!shown || !kinds.includes(shown.kind)) continue;
+    const last = runs.at(-1);
+    if (last?.kind === shown.kind) last.text += shown.text;
+    else runs.push(shown);
+  }
+  return runs.map((run) => run.text).join('\n');
 }
 
 /**
@@ -58,7 +72,9 @@ export function leaksIn(
     canary: canaries.some(
       (canary) => wire.includes(canary) || scanTextForCanaryLeak(shown, canary),
     ),
-    sensitive: sensitiveSpans(shown, { network: false }).length > 0,
+    // Thoughts are not checked for sensitive spans, only for what they would load or mark.
+    sensitive:
+      sensitiveSpans(shownText(events, ['text', 'transcript']), { network: false }).length > 0,
     forbidden: forbidden.some((re) => re.test(shown) || re.test(wire)),
   };
 }

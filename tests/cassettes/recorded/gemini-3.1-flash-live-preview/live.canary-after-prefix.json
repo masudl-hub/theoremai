@@ -143,7 +143,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I'm \nafraid\n I can't\n do\n \nthat.\n My\n goal\n \nis to\n be \nhelpful\n and harmless,\n and that\n request\n goes\n \nagainst\n my \ninstructions.\n Is there\n something\n \nelse\n I \ncan\n \nhelp\n you with?",
+  "shown": "I'm afraid I can't do that. My goal is to be helpful and harmless, and that request goes against my instructions. Is there something else I can help you with?",
   "toolsRun": [],
   "effects": []
  }

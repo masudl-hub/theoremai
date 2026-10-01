@@ -160,7 +160,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "I\n see\n you've\n provided\n some text,\n but\n it appears\n to be\n in\n French\n and might\n be\n part\n of \na larger\n context.\n Could\n you tell\n me \nwhat\n you'd \nlike\n to \nknow\n \nabout\n \nit\n \nor\n what\n you'd \nlike\n me \nto\n do?",
+  "shown": "I see you've provided some text, but it appears to be in French and might be part of a larger context. Could you tell me what you'd like to know about it or what you'd like me to do?",
   "toolsRun": [],
   "effects": []
  }

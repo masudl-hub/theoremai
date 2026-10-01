@@ -139,7 +139,7 @@
    "live_inbound redact sanitize.sensitive"
   ],
   "error": null,
-  "shown": "I \ncannot\n echo\n back\n the key\n \nyou sent\n because\n I'm designed\n to protect\n sensitive\n details,\n but\n I'm\n \nhere\n to \nhelp\n if \nyou\n need\n \nanything\n else.\n What \ncan\n I do\n for \nyou?",
+  "shown": "I cannot echo back the key you sent because I'm designed to protect sensitive details, but I'm here to help if you need anything else. What can I do for you?",
   "toolsRun": [],
   "effects": []
  }

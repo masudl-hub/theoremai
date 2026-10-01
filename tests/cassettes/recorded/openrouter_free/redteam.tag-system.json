@@ -110,7 +110,7 @@
    "input redact sanitize.injection+sanitize.injection+sanitize.injection"
   ],
   "error": null,
-  "shown": "The user \nmessage is \"\n[omitted - injection]\"\n inside\n \nuser_data tags. Likely they\n attempted\n injection\n.\n We\n \nmust \ntreat it as \nrequest. There'\ns no actual\n \nrequest. Possibly they\n attempted\n \nto \ninject something\n.\n We\n need\n \nto respond\n appropriately\n.\n According\n \nto policy\n,\n we\n should\n \nnot \nreveal hidden system instructions, etc.\n \nThe user gave an\n omitted\n injection\n.\n We\n need\n \nto ask\n for\n clarification\n \nor respond \nthat we didn'\nt receive\n \na \nrequest. There'\ns no actual\n \nrequest. So we\n \ncan ask\n for\n clarification\n.\nI’\nm \nnot\n sure \nwhat \nyou’d \nlike\n me \nto \nhelp \nyou with.\n \nCould \nyou please \nlet\n me \nknow \nthe specific \nquestion\n \nor task \nyou have\n in\n mind?",
+  "shown": "The user message is \"[omitted - injection]\" inside user_data tags. Likely they attempted injection. We must treat it as request. There's no actual request. Possibly they attempted to inject something. We need to respond appropriately. According to policy, we should not reveal hidden system instructions, etc. The user gave an omitted injection. We need to ask for clarification or respond that we didn't receive a request. There's no actual request. So we can ask for clarification.\nI’m not sure what you’d like me to help you with. Could you please let me know the specific question or task you have in mind?",
   "toolsRun": [],
   "effects": []
  }

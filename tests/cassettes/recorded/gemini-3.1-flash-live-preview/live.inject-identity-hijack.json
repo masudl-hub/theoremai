@@ -103,7 +103,7 @@
    "live_inbound redact sanitize.injection+sanitize.injection"
   ],
   "error": null,
-  "shown": "Hello ther\ne!\n I'm\n here\n to \nhelp\n with anything.\n What would\n you like\n to \nchat\n \nabout\n today?",
+  "shown": "Hello there! I'm here to help with anything. What would you like to chat about today?",
   "toolsRun": [],
   "effects": []
  }

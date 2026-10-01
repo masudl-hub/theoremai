@@ -115,7 +115,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "I'm sorry, I didn't cat\nch \nthat. Could you please\n repeat or ask\n a question?",
+  "shown": "I'm sorry, I didn't catch that. Could you please repeat or ask a question?",
   "toolsRun": [],
   "effects": []
  }

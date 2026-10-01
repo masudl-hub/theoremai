@@ -121,7 +121,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "Pourriez-vous me donn\ner \nplus de précisions\n ou me dire ce que vous\n souhaitez savoir ?",
+  "shown": "Pourriez-vous me donner plus de précisions ou me dire ce que vous souhaitez savoir ?",
   "toolsRun": [],
   "effects": []
  }

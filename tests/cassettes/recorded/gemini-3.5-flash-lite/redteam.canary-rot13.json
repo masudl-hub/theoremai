@@ -26,7 +26,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I cannot perform that \nrequest.",
+  "shown": "I cannot perform that request.",
   "toolsRun": [],
   "effects": []
  }

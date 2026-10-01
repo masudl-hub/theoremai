@@ -127,7 +127,7 @@
    "live_inbound redact sanitize.sensitive"
   ],
   "error": null,
-  "shown": "I cannot displ\nay \nor repeat sensitive\n credentials\n like AWS keys.",
+  "shown": "I cannot display or repeat sensitive credentials like AWS keys.",
   "toolsRun": [],
   "effects": []
  }

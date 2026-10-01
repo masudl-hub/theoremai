@@ -127,7 +127,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "It looks like your message didn't come throu\ngh \nproperly. Could you please provide your request again?",
+  "shown": "It looks like your message didn't come through properly. Could you please provide your request again?",
   "toolsRun": [],
   "effects": []
  }

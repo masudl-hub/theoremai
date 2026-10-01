@@ -16,7 +16,7 @@ import {
 } from './injection-patterns.ts';
 import { CARD_CANDIDATE, SENSITIVE_PATTERNS, type SensitiveGroup } from './sensitive.ts';
 
-const SYSTEM_BOUNDARY = /This turn\x27s canary is|<\/?user_data>/i; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+const SYSTEM_BOUNDARY = /This turn\x27s canary is|<\s*\/?\s*user_data(?:\s*\/?\s*>)?/i; // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
 
 /** What a match of the pattern means: the rule it trips, or the blob its filter decodes. */
 type EgressPatternKind =

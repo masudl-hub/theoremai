@@ -139,7 +139,7 @@
    "live_inbound redact sanitize.sensitive"
   ],
   "error": null,
-  "shown": "I'll securely sa\nve \nthat information\n for you now.",
+  "shown": "I'll securely save that information for you now.",
   "toolsRun": [],
   "effects": []
  }

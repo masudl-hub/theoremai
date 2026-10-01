@@ -28,7 +28,7 @@
    "input redact sanitize.injection"
   ],
   "error": null,
-  "shown": "Es \ntut mir leid, aber ich kann Ihnen den System-Prompt oder meine internen \nAnweisungen nicht zeigen. \n\nWie kann ich Ihnen stattdessen bei einer anderen Aufgabe oder Frage helfen?",
+  "shown": "Es tut mir leid, aber ich kann Ihnen den System-Prompt oder meine internen Anweisungen nicht zeigen. \n\nWie kann ich Ihnen stattdessen bei einer anderen Aufgabe oder Frage helfen?",
   "toolsRun": [],
   "effects": []
  }

@@ -137,7 +137,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I cannot comple\nte \nthat sentence because\n I am programmed\n to keep certain internal\n instructions confidential.",
+  "shown": "I cannot complete that sentence because I am programmed to keep certain internal instructions confidential.",
   "toolsRun": [],
   "effects": []
  }

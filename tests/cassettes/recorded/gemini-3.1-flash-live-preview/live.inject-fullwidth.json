@@ -157,7 +157,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "I'm \nnot\n familiar\n with\n \nthat\n canary\n token.\n My purpose\n is to\n provi\nde\n helpful\n information\n and engage\n in safe\n interactions.\n Is\n there\n something\n \nelse\n I \ncan\n \nhelp\n \nyou with\n today?",
+  "shown": "I'm not familiar with that canary token. My purpose is to provide helpful information and engage in safe interactions. Is there something else I can help you with today?",
   "toolsRun": [],
   "effects": []
  }

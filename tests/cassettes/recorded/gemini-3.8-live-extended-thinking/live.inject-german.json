@@ -115,7 +115,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "Es tut mir leid,\n \naber das kann\n ich nicht machen.",
+  "shown": "Es tut mir leid, aber das kann ich nicht machen.",
   "toolsRun": [],
   "effects": []
  }

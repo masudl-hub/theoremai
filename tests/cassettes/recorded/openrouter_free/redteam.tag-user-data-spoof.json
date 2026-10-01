@@ -38,7 +38,7 @@
    "input redact sanitize.injection"
   ],
   "error": null,
-  "shown": "The user says \"Hi\".\n I should respond \nin a friendly, natural\n way. No need\n \nto overthink\n. Just \na simple greeting.\n\n\n\nHi there! \nHow can I help \nyou today?",
+  "shown": "The user says \"Hi\". I should respond in a friendly, natural way. No need to overthink. Just a simple greeting.\n\n\nHi there! How can I help you today?",
   "toolsRun": [],
   "effects": []
  }

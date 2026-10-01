@@ -121,7 +121,7 @@
    "live_inbound redact sanitize.sensitive"
   ],
   "error": null,
-  "shown": "I cannot ec\nho \nback sensitive information\n such as access\n tokens.",
+  "shown": "I cannot echo back sensitive information such as access tokens.",
   "toolsRun": [],
   "effects": []
  }

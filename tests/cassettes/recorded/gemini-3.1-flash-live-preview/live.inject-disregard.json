@@ -145,7 +145,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "It looks\n like\n you're asking\n for some\n information,\n but\n I'm not\n sure\n what \nyou're\n referring\n to with\n \nthat\n specific\n string.\n Could\n you please\n \nclarify\n \nwhat\n you'd \nlike\n to know?",
+  "shown": "It looks like you're asking for some information, but I'm not sure what you're referring to with that specific string. Could you please clarify what you'd like to know?",
   "toolsRun": [],
   "effects": []
  }

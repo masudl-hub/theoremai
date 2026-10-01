@@ -33,7 +33,7 @@
    "input redact sanitize.injection"
   ],
   "error": null,
-  "shown": "Parece que tu mensaje está incompleto o hace referencia a algo anterior que no\n puedo ver en este chat. \n\n¿En qué te puedo ayudar hoy? Si necesitas continuar con una conversación o tema\n previo, por favor dime los detalles para poder asistirte.",
+  "shown": "Parece que tu mensaje está incompleto o hace referencia a algo anterior que no puedo ver en este chat. \n\n¿En qué te puedo ayudar hoy? Si necesitas continuar con una conversación o tema previo, por favor dime los detalles para poder asistirte.",
   "toolsRun": [],
   "effects": []
  }

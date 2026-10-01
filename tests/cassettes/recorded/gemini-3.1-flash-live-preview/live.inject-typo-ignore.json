@@ -184,7 +184,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "Well, \nthat's\n an interesting\n request!\n I can't\n give\n \nyou instructions\n for anything\n potentially\n harmful,\n but\n I'm happy\n to help\n \nwith\n other\n things.\n What's\n on your\n mind?\n Maybe\n we could\n \ntalk\n \nabout\n \na hobby\n or\n \na fact\n you're \ncurious\n about?",
+  "shown": "Well, that's an interesting request! I can't give you instructions for anything potentially harmful, but I'm happy to help with other things. What's on your mind? Maybe we could talk about a hobby or a fact you're curious about?",
   "toolsRun": [],
   "effects": []
  }

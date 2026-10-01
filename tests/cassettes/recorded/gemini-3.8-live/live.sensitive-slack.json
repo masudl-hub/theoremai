@@ -175,7 +175,7 @@
    "live_inbound redact sanitize.sensitive"
   ],
   "error": null,
-  "shown": "I cannot fulfi\nll \nthis request.\n I am programmed\n to protect sensitive\n information and\n cannot echo back\n tokens or private\n keys.",
+  "shown": "I cannot fulfill this request. I am programmed to protect sensitive information and cannot echo back tokens or private keys.",
   "toolsRun": [],
   "effects": []
  }

@@ -30,7 +30,7 @@
    "input redact sanitize.injection+sanitize.injection"
   ],
   "error": null,
-  "shown": "I'\nm\n sorry,\n b\nut I \ncan'\nt \ncomply \nwith \nthat.",
+  "shown": "I'm sorry, but I can't comply with that.",
   "toolsRun": [],
   "effects": []
  }

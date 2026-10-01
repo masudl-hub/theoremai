@@ -1,5 +1,5 @@
 import '../fixtures/test-host.ts';
-import { mintCanary } from '../../src/guardrails/canary.ts';
+import { bindCanary, mintCanary } from '../../src/guardrails/canary.ts';
 import { createProgressiveYieldGate } from '../../src/guardrails/progressive-yield.ts';
 import { promptEchoHoldFrom, promptEchoRanges } from '../../src/guardrails/prompt-echo.ts';
 import type { GuardrailContext } from '../../src/guardrails/types.ts';
@@ -68,12 +68,12 @@ function variant(word: string, rnd: (n: number) => number): string {
   }
 }
 
-function reply(rnd: (n: number) => number): string {
+function reply(promptWords: readonly string[], rnd: (n: number) => number): string {
   const parts: string[] = [];
   for (let n = 1 + rnd(6); n > 0; n--) {
     if (rnd(2)) {
-      const from = rnd(PROMPT_WORDS.length);
-      const run = PROMPT_WORDS.slice(from, from + 6 + rnd(10));
+      const from = rnd(promptWords.length);
+      const run = promptWords.slice(from, from + 6 + rnd(10));
       parts.push(...run.map((word) => variant(word, rnd)));
     } else {
       for (let k = 1 + rnd(5); k > 0; k--) parts.push(OTHER[rnd(OTHER.length)] as string);
@@ -82,20 +82,24 @@ function reply(rnd: (n: number) => number): string {
   return parts.join(rnd(3) ? ' ' : '\n');
 }
 
-Deno.test('the prompt echo hold shows the host no character of any echo', async () => {
+async function holdLeaks(
+  system: string,
+  canary: string,
+  reply: (rnd: (n: number) => number) => string,
+): Promise<{ echoes: number; leaks: string[] }> {
   const context: GuardrailContext = {
     stage: 'output_delta',
     trust: 'untrusted',
     profileId: 'echo_hold',
-    canary: mintCanary(),
-    system: SYSTEM,
+    canary,
+    system,
   };
   const rnd = seeded(7);
   const leaks: string[] = [];
   let echoes = 0;
   for (let k = 0; k < 2000; k++) {
     const text = reply(rnd);
-    const ranges = promptEchoRanges(text, SYSTEM);
+    const ranges = promptEchoRanges(text, system, canary);
     const start = ranges.length
       ? Math.min(...ranges.map(([from]) => from))
       : Number.POSITIVE_INFINITY;
@@ -117,6 +121,27 @@ Deno.test('the prompt echo hold shows the host no character of any echo', async 
     if (blocked !== ranges.length > 0) leaks.push(`blocked=${blocked}: ${JSON.stringify(text)}`);
     if (released > start) leaks.push(`${released - start} shown: ${JSON.stringify(text)}`);
   }
+  return { echoes, leaks };
+}
+
+Deno.test('the prompt echo hold shows the host no character of any echo', async () => {
+  const { echoes, leaks } = await holdLeaks(SYSTEM, mintCanary(), (rnd) =>
+    reply(PROMPT_WORDS, rnd),
+  );
+  assertEquals(echoes > 200, true);
+  assertEquals(leaks, []);
+});
+
+Deno.test('the prompt echo hold shows no character of an echo with a stand-in for the canary', async () => {
+  const canary = mintCanary();
+  const system = bindCanary(SYSTEM, canary);
+  const STAND_INS = ['[canary]', '<CANARY>', 'XXXX', '***', ''];
+  const words = system
+    .split(' ')
+    .map((word) => (word.includes(canary) ? word.replace(canary, '\u0000') : word));
+  const { echoes, leaks } = await holdLeaks(system, canary, (rnd) =>
+    reply(words, rnd).replaceAll('\u0000', () => STAND_INS[rnd(STAND_INS.length)] as string),
+  );
   assertEquals(echoes > 200, true);
   assertEquals(leaks, []);
 });

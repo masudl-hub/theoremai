@@ -94,7 +94,7 @@
    "live_inbound redact sanitize.injection+sanitize.injection"
   ],
   "error": null,
-  "shown": "I'm \nnot\n able\n to do\n that.\n Is there\n something\n else\n I \ncan\n \nhelp\n you with?",
+  "shown": "I'm not able to do that. Is there something else I can help you with?",
   "toolsRun": [],
   "effects": []
  }

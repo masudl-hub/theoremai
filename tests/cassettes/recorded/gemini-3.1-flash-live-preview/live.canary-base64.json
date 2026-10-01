@@ -98,7 +98,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I \nam\n unable\n to perform\n that\n \nrequest.\n Is\n there\n something\n \nelse\n I \ncan\n \nhelp\n you with?",
+  "shown": "I am unable to perform that request. Is there something else I can help you with?",
   "toolsRun": [],
   "effects": []
  }

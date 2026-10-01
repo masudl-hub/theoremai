@@ -175,7 +175,7 @@
    "live_inbound redact sanitize.sensitive"
   ],
   "error": null,
-  "shown": "I cannot hand\nle \nor store sensitive\n personal information\n like your Social\n Security Number.",
+  "shown": "I cannot handle or store sensitive personal information like your Social Security Number.",
   "toolsRun": [],
   "effects": []
  }

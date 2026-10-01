@@ -92,11 +92,13 @@ async function record(model: CassetteModel): Promise<void> {
       console.log(`${model.apiId} ${c.id} UNSERVED ${run.outcome.error} ${ms} ms ${reply ?? ''}`);
     } else {
       const replay = await replayCase(cassette, c);
-      const same = JSON.stringify(replay.run.outcome) === JSON.stringify(cassette.outcome);
-      if (replay.drift.stale.length || !same) {
+      const differs = (Object.keys(cassette.outcome) as (keyof typeof cassette.outcome)[]).filter(
+        (key) => JSON.stringify(replay.run.outcome[key]) !== JSON.stringify(cassette.outcome[key]),
+      );
+      if (replay.drift.stale.length || differs.length) {
         counts.unreplayable++;
         console.log(
-          `${model.apiId} ${c.id} UNREPLAYABLE ${replay.drift.stale[0] ?? 'outcome differs on replay'}`,
+          `${model.apiId} ${c.id} UNREPLAYABLE ${replay.drift.stale[0] ?? `${differs.join(', ')} differs on replay`}`,
         );
       } else {
         await writeCassette(cassette);

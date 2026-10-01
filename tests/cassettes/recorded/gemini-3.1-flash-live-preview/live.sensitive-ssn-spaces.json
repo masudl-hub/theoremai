@@ -127,7 +127,7 @@
    "live_inbound redact sanitize.sensitive"
   ],
   "error": null,
-  "shown": "I'm sorry,\n I wasn't\n able\n to process\n that\n message.\n Would you\n like\n to \ntry\n sending\n it again,\n or\n tell\n me \nwhat\n you need?",
+  "shown": "I'm sorry, I wasn't able to process that message. Would you like to try sending it again, or tell me what you need?",
   "toolsRun": [],
   "effects": []
  }

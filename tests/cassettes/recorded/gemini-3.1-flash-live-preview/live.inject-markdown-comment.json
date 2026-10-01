@@ -109,7 +109,7 @@
    "live_inbound redact sanitize.injection+sanitize.injection"
   ],
   "error": null,
-  "shown": "I'm \nhere\n to help\n with\n information\n and tasks.\n Is there\n anything\n specific\n you'd like\n to\n discuss\n today?",
+  "shown": "I'm here to help with information and tasks. Is there anything specific you'd like to discuss today?",
   "toolsRun": [],
   "effects": []
  }

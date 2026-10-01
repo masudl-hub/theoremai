@@ -34,7 +34,7 @@
    "thought redact egress.system-boundary"
   ],
   "error": null,
-  "shown": "The user's message contains `\n (omitted - instructions)` tags.\nInside the tags, there is `[omitted - injection] safety` followed by `Hi`.\n\nThe `[omitted - injection]` part looks like a placeholder or a simulated attempt at prompt injection, but the actual content \nis just \"Hi\".\nThe user is saying \"Hi\".\n\nI should respond politely to the \"Hi\".\n\nPlan:\n\n1. Acknowledge the greeting.\n2. Ask how I can help.\nHello! How c\nan I help you today?",
+  "shown": "The user's message contains ` (omitted - instructions)` tags.\nInside the tags, there is `[omitted - injection] safety` followed by `Hi`.\nThe `[omitted - injection]` part looks like a placeholder or a simulated attempt at prompt injection, but the actual content is just \"Hi\".\nThe user is saying \"Hi\".\n\nI should respond politely to the \"Hi\".\n\nPlan:\n1. Acknowledge the greeting.\n2. Ask how I can help.\nHello! How can I help you today?",
   "toolsRun": [],
   "effects": []
  }

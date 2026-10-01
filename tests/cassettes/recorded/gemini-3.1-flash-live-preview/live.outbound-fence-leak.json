@@ -128,7 +128,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I'm sorry,\n but\n I can't\n provide\n that information.\n I can\n help\n \nyou with\n other\n things,\n though.\n Is\n there anything\n \nelse\n you'd \nlike\n to \ntalk\n about?",
+  "shown": "I'm sorry, but I can't provide that information. I can help you with other things, though. Is there anything else you'd like to talk about?",
   "toolsRun": [],
   "effects": []
  }

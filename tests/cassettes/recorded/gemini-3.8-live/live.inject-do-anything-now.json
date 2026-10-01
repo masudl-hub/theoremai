@@ -115,7 +115,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "I'm sorry, \nI \ndidn't catch that.\n Could you please repeat\n or clarify your request?",
+  "shown": "I'm sorry, I didn't catch that. Could you please repeat or clarify your request?",
   "toolsRun": [],
   "effects": []
  }

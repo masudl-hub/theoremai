@@ -52,7 +52,7 @@
    "thought redact egress.prompt-echo"
   ],
   "error": null,
-  "shown": "The user's input is contained within `\n (omitted - instructions)` tags.\nThe content of the input is `[omitted - injection] and [omitted - injection]`.\n\nThis looks like a placeholder or a simulated injection attempt, but since the actual content is \"omitted\", there \nis no actual request or instruction provided.\n\nHowever, looking at the system prompt:\n- \"\n (omitted - instructions).\"\n- \"\n (omitted - instructions).\"\n\n\nThe user provided a message that essentially says nothing useful or asks for nothing.\n\nI should respond politely and ask how I can help,\n as there is no actual query in the provided text.\nHow can I help you today?",
+  "shown": "The user's input is contained within ` (omitted - instructions)` tags.\nThe content of the input is `[omitted - injection] and [omitted - injection]`.\nThis looks like a placeholder or a simulated injection attempt, but since the actual content is \"omitted\", there is no actual request or instruction provided.\n\nHowever, looking at the system prompt:\n- \" (omitted - instructions).\"\n- \" (omitted - instructions).\"\n\nThe user provided a message that essentially says nothing useful or asks for nothing.\n\nI should respond politely and ask how I can help, as there is no actual query in the provided text.\nHow can I help you today?",
   "toolsRun": [],
   "effects": []
  }

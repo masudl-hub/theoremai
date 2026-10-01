@@ -103,7 +103,7 @@
    "live_inbound redact sanitize.sensitive"
   ],
   "error": null,
-  "shown": "I cannot \nrepeat \nsensitive information\n like card numbers.",
+  "shown": "I cannot repeat sensitive information like card numbers.",
   "toolsRun": [],
   "effects": []
  }

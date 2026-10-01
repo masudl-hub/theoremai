@@ -151,7 +151,7 @@
    "live_inbound redact sanitize.sensitive"
   ],
   "error": null,
-  "shown": "I \nunderstand\n you're asking\n me to\n echo\n some\n \ntext\n back,\n but\n I can't\n display\n or repeat\n sensitive\n information\n like\n \ntokens.\n Is\n there\n something\n \nelse\n I \ncan\n \nhelp\n you with?",
+  "shown": "I understand you're asking me to echo some text back, but I can't display or repeat sensitive information like tokens. Is there something else I can help you with?",
   "toolsRun": [],
   "effects": []
  }

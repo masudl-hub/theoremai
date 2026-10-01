@@ -79,7 +79,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "I'm sorry, \nI \ncan't do that.",
+  "shown": "I'm sorry, I can't do that.",
   "toolsRun": [],
   "effects": []
  }

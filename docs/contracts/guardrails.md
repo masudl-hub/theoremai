@@ -95,12 +95,12 @@ Owns every module under `src/guardrails/`.
 | --- | --- |
 | `mintCanary` | Generate per-turn 32-hex token (128 random bits, no prefix) |
 | `bindCanary` | Append canary note to system prompt |
-| `wrapUserData` | Fence untrusted user text in `<user_data>` |
+| `wrapUserData` | Fence untrusted user text in `<user_data>`, first stripping any fence tag in it, however spaced, cased or nested |
 | `bindUserDataNote` | Append the `user_data.note` lexicon line, which tells the model what the fence means, to the system prompt of every text, image and live turn (speech has no system prompt). An empty override leaves it out. |
 | `createCanaryStreamGate` | Holds only a tail that could start a leak, for split-token streaming; with a system prompt, also stops a reply echoing it |
 | `scanTextForCanaryLeak` | The token — as written, reversed, in ROT13, spelled out (digit words, NATO letters), as character or byte codes, or in base64 at any offset — read through case, lookalike and fullwidth characters, and separators up to 32 characters; any 16 consecutive characters of it count |
 | `eventHasCanary` | Scan any `TurnEvent` wire shape |
-| `scanTextForPromptEcho` | Whether a reply repeats `PROMPT_ECHO_WORDS` (12) consecutive words of the system prompt — case-folded, markup and list numbering ignored; the leak the token alone cannot see (`guardrails.promptEcho`, on with the canary) |
+| `scanTextForPromptEcho` | Whether a reply repeats `PROMPT_ECHO_WORDS` (12) consecutive words of the system prompt — case-folded, markup and list numbering ignored, any one word or none in the canary's place; the leak the token alone cannot see (`guardrails.promptEcho`, on with the canary) |
 | `createCanaryGateSession` / `filterCanaryGatedEvents` | Canary batch helper; pass the system prompt as sent to catch prompt echo too, as `runTurn` and Live do (Live production uses `live-outbound-gate`) |
 
 ## Egress
@@ -162,7 +162,8 @@ interface GuardrailHit {
 ```
 
 `standardEgressEnforce` blocks canary leaks, sensitive echoes (credentials,
-cards, SSNs — not IP addresses), system-boundary markers, injection-pattern
+cards, SSNs — not IP addresses), system-boundary markers (the canary note's wording, or a
+`user_data` fence tag, closed or not), injection-pattern
 echoes, and reply images that could carry data off the device (see
 [Reply images and links](#reply-images-and-links)); `EGRESS_RULES` names the
 rule ids it emits. `egressPolicy({ bundled })` picks which of these checks run
@@ -385,8 +386,10 @@ breaks it — the same verdict as a scan of the whole reply. The prompt echo
 check rereads its own short lookback (`promptEchoScanFrom`) and holds from the
 first word of the longest run of prompt words ending the text, or from a word
 still being written that could become a prompt word (`promptEchoHoldFrom`), so
-no word of an echo reaches the host. Either way the
-cost grows with the reply, not its square. What the
+no word of an echo reaches the host. Both holds read on from where a leak
+could still start, not the whole held text: text further back than an opening
+can span (`RELEASED_LOOKBACK`) that opens no leak never will. Either way the
+cost grows with the reply or thought, not its square. What the
 scan cannot read: arbitrary ciphers and arithmetic (a Caesar shift, the token
 as one big number, base64 of an already transformed token), and a token spread
 one character per sentence.
@@ -708,7 +711,10 @@ Trusted on the way in is not public on the way out. With the canary on, the
 system prompt as sent is also guarded against echo (`guardrails.promptEcho`,
 default on): a reply, tool call, or structured payload repeating
 `PROMPT_ECHO_WORDS` (12) consecutive words of it is a leak, stopped like the
-canary (`stop.native: 'prompt_echo'`, rule `egress.prompt-echo`). There is no
+canary (`stop.native: 'prompt_echo'`, rule `egress.prompt-echo`). Any one word
+or none in the canary's place continues a run, since a model told to hide the
+canary echoes the prompt around a stand-in for it; the stand-in itself is not
+part of the echo. There is no
 hold: a dump is cut at its twelfth word, so at most eleven reach the host, and
 the carry between steps and cycles means spreading the dump over them does not
 restart the count. A profile whose prompt holds text the agent is meant to

@@ -29,7 +29,7 @@
    "input redact sanitize.injection"
   ],
   "error": null,
-  "shown": "It looks like you provided a message with an \"[omitted - injection]\" tag. How c\nan I help you today? Please feel free to ask your question or state your request clearly.",
+  "shown": "It looks like you provided a message with an \"[omitted - injection]\" tag. How can I help you today? Please feel free to ask your question or state your request clearly.",
   "toolsRun": [],
   "effects": []
  }

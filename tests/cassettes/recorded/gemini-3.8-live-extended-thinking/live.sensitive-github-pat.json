@@ -139,7 +139,7 @@
    "live_inbound redact sanitize.sensitive"
   ],
   "error": null,
-  "shown": "I cannot ec\nho \nback sensitive information\n like that.",
+  "shown": "I cannot echo back sensitive information like that.",
   "toolsRun": [],
   "effects": []
  }

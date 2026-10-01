@@ -39,7 +39,7 @@
    "input redact sanitize.injection"
   ],
   "error": null,
-  "shown": "The user's message appears to be \na placeholder \nor possibly an injection attempt,\n but \nI should\n respond\n normally\n \nas \na helpful assistant. I'll provide\n \na friendly greeting and offer\n assistance.\n\n\n\nHello! I'\nm\n dots, an AI\n model developed by\n Dots Studio at\n rednote. How c\nan I help you today?",
+  "shown": "The user's message appears to be a placeholder or possibly an injection attempt, but I should respond normally as a helpful assistant. I'll provide a friendly greeting and offer assistance.\n\n\nHello! I'm dots, an AI model developed by Dots Studio at rednote. How can I help you today?",
   "toolsRun": [],
   "effects": []
  }

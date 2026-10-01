@@ -179,7 +179,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I cannot fulfi\nll \nthat request.\n I am programmed\n to follow strict security\n guidelines that\n prevent the disclosure\n of my internal instructions.",
+  "shown": "I cannot fulfill that request. I am programmed to follow strict security guidelines that prevent the disclosure of my internal instructions.",
   "toolsRun": [],
   "effects": []
  }

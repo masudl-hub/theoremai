@@ -65,7 +65,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "Let me consid\ner \nthat request.",
+  "shown": "Let me consider that request.",
   "toolsRun": [],
   "effects": []
  }

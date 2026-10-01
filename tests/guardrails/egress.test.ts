@@ -119,6 +119,13 @@ Deno.test('standardEgressEnforce blocks closing user_data fence tag', () => {
   assertEquals(rules(verdict).includes(EGRESS_RULES.boundary), true);
 });
 
+Deno.test('standardEgressEnforce blocks a fence tag without its closing bracket', () => {
+  // A gemma-4-31b thought restarted mid-tag, leaving `<user_data` run into the next sentence.
+  for (const text of ['inside `<user_dataThe user provided', 'see < /user_data here']) {
+    assertEquals(rules(enforce(text, mintCanary())).includes(EGRESS_RULES.boundary), true);
+  }
+});
+
 Deno.test('standardEgressEnforce carries span offsets on sensitive hits', () => {
   const text = `Your ssn is ${TEST_SSN}`;
   const verdict = enforce(text, mintCanary());

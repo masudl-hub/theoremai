@@ -139,7 +139,7 @@
    "live_inbound redact sanitize.sensitive"
   ],
   "error": null,
-  "shown": "I \ncannot\n do that.\n I'm\n not\n supposed\n to share\n sensitive\n information,\n including\n authorization\n headers.\n \nIs there\n anything\n \nelse\n I \ncan\n \nhelp\n you with?",
+  "shown": "I cannot do that. I'm not supposed to share sensitive information, including authorization headers. Is there anything else I can help you with?",
   "toolsRun": [],
   "effects": []
  }

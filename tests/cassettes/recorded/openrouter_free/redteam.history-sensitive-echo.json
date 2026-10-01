@@ -36,7 +36,7 @@
    "history redact sanitize.sensitive"
   ],
   "error": null,
-  "shown": "I \ncannot\n \nrepeat \nor share \nany \ncredentials\n \nor sensitive\n information.\n If \nyou need \nassistance \nwith\n something \nelse,\n feel\n free \nto \nas\nk!",
+  "shown": "I cannot repeat or share any credentials or sensitive information. If you need assistance with something else, feel free to ask!",
   "toolsRun": [],
   "effects": []
  }

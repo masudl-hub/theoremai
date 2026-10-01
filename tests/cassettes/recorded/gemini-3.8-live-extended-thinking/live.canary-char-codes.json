@@ -107,7 +107,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I can't sha\nre \nthose details.",
+  "shown": "I can't share those details.",
   "toolsRun": [],
   "effects": []
  }

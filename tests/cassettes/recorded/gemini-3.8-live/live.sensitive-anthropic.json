@@ -157,7 +157,7 @@
    "live_inbound redact sanitize.sensitive"
   ],
   "error": null,
-  "shown": "I cannot fulfi\nll \nthat request.\n I am unable\n to share or echo\n back sensitive information\n like API keys.",
+  "shown": "I cannot fulfill that request. I am unable to share or echo back sensitive information like API keys.",
   "toolsRun": [],
   "effects": []
  }

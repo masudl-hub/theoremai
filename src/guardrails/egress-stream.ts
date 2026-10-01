@@ -121,12 +121,41 @@ function startEdges(automaton: Automaton, patterns: readonly number[]): Int32Arr
 // ── Rewrites ─────────────────────────────────────────────────────────
 
 /**
+ * Text grown at its end, with what its latest update added. Reading a grown
+ * string copies the whole of it, so what reads each new character reads it
+ * from `fresh`.
+ */
+interface Grown {
+  text: string;
+  fresh: string;
+}
+
+function grow(target: Grown, piece: string): void {
+  target.text += piece;
+  target.fresh += piece;
+}
+
+/** Where `fresh` starts in `text`. */
+function freshFrom(source: Grown): number {
+  return source.text.length - source.fresh.length;
+}
+
+function unitAt(source: Grown, at: number): number {
+  const base = freshFrom(source);
+  return at >= base ? source.fresh.charCodeAt(at - base) : source.text.charCodeAt(at);
+}
+
+function sliceOf(source: Grown, from: number, to: number = source.text.length): string {
+  const base = freshFrom(source);
+  return from >= base ? source.fresh.slice(from - base, to - base) : source.text.slice(from, to);
+}
+
+/**
  * A rewrite of the reply, grown as the reply is: its settled text (no later
  * reply text changes it) and, per settled character, the reply index a match
  * starting there must be held from.
  */
-interface View {
-  text: string;
+interface View extends Grown {
   /** Reply index to hold from for a match starting at view index `j`. */
   rawAt: (j: number) => number;
   /** Take whatever the source has settled since the last call. */
@@ -134,12 +163,14 @@ interface View {
 }
 
 /** The reply itself. */
-function rawView(reply: { text: string }): View {
+function rawView(reply: Grown): View {
   const view: View = {
     text: '',
+    fresh: '',
     rawAt: (j) => j,
     update() {
       view.text = reply.text;
+      view.fresh = reply.fresh;
     },
   };
   return view;
@@ -149,9 +180,11 @@ function rawView(reply: { text: string }): View {
 function unitView(source: View, rewrite: (text: string) => string): View {
   const view: View = {
     text: '',
+    fresh: '',
     rawAt: source.rawAt,
     update() {
-      view.text += rewrite(source.text.slice(view.text.length));
+      view.fresh = '';
+      grow(view, rewrite(sliceOf(source, view.text.length)));
     },
   };
   return view;
@@ -177,30 +210,30 @@ function mayFold(run: string): boolean {
  */
 function typoView(source: View): View {
   let read = 0;
-  /** Start of the word being read, while it may still fold; -1 otherwise. */
-  let wordStart = -1;
+  /** The word being read, while it may still fold. */
+  let word: string | undefined;
   let inWord = false;
   const view: View = {
     text: '',
+    fresh: '',
     rawAt: (j) => source.rawAt(Math.min(j, view.text.length)),
     update() {
-      const text = source.text;
-      for (; read < text.length; read++) {
-        const unit = text[read] as string;
+      view.fresh = '';
+      for (const end = source.text.length; read < end; read++) {
+        const unit = String.fromCharCode(unitAt(source, read));
         const wordUnit = WORD_UNIT.test(unit);
-        if (wordUnit && !inWord) wordStart = read;
+        if (wordUnit && !inWord) word = '';
         inWord = wordUnit;
-        if (wordUnit && wordStart < 0) {
-          view.text += unit;
-        } else if (!wordUnit) {
-          if (wordStart >= 0) view.text += typoNormalize(text.slice(wordStart, read));
-          wordStart = -1;
-          view.text += unit;
-        }
+        if (!wordUnit) {
+          if (word !== undefined) grow(view, typoNormalize(word));
+          word = undefined;
+          grow(view, unit);
+        } else if (word === undefined) grow(view, unit);
+        else word += unit;
       }
-      if (wordStart >= 0 && !mayFold(text.slice(wordStart))) {
-        view.text += text.slice(wordStart);
-        wordStart = -1;
+      if (word !== undefined && !mayFold(word)) {
+        grow(view, word);
+        word = undefined;
       }
     },
   };
@@ -215,6 +248,7 @@ interface MappedView extends View {
 function mappedView(pendingAt: () => number): MappedView {
   const view: MappedView = {
     text: '',
+    fresh: '',
     from: [],
     rawAt: (j) => (j < view.from.length ? (view.from[j] as number) : pendingAt()),
     update() {},
@@ -223,7 +257,7 @@ function mappedView(pendingAt: () => number): MappedView {
 }
 
 function append(view: MappedView, text: string, from: number): void {
-  view.text += text;
+  grow(view, text);
   for (let i = 0; i < text.length; i++) view.from.push(from);
 }
 
@@ -241,7 +275,7 @@ const LOW_HI = 0xdfff;
  * or in the mapped text), an emoji run after a letter until the character
  * after it, a backslash until the character after it.
  */
-function normalizedView(reply: { text: string }): MappedView {
+function normalizedView(reply: Grown): MappedView {
   let read = 0;
   /** Mapped text the emoji pass has not read: at most a trailing high surrogate. */
   let mapped = '';
@@ -299,14 +333,15 @@ function normalizedView(reply: { text: string }): MappedView {
   }
 
   view.update = () => {
-    const text = reply.text;
-    while (read < text.length) {
-      const code = text.charCodeAt(read);
+    view.fresh = '';
+    const end = reply.text.length;
+    while (read < end) {
+      const code = unitAt(reply, read);
       const high = code >= HIGH_LO && code <= HIGH_HI;
-      if (high && read + 1 >= text.length) break;
-      const low = text.charCodeAt(read + 1);
+      if (high && read + 1 >= end) break;
+      const low = unitAt(reply, read + 1);
       const width = high && low >= LOW_LO && low <= LOW_HI ? 2 : 1;
-      const out = normalizeCodePoint(text.slice(read, read + width));
+      const out = normalizeCodePoint(sliceOf(reply, read, read + width));
       mapped += out;
       for (let i = 0; i < out.length; i++) mappedFrom.push(read);
       read += width;
@@ -324,39 +359,41 @@ const URL_HEX = /[0-9A-Fa-f]/;
  * character after it shows the run is over. Its decoded text holds from the
  * run's first `%`.
  */
-function urlView(reply: { text: string }): MappedView {
+function urlView(reply: Grown): MappedView {
   let read = 0;
   /** Where the escape run being read starts, or -1. */
   let runStart = -1;
   const view = mappedView(() => (runStart < 0 ? read : runStart));
   view.update = () => {
-    const text = reply.text;
-    while (read < text.length) {
+    view.fresh = '';
+    const end = reply.text.length;
+    while (read < end) {
+      const unit = String.fromCharCode(unitAt(reply, read));
       if (runStart < 0) {
-        if (text[read] === '%') {
+        if (unit === '%') {
           runStart = read;
         } else {
-          append(view, text[read] as string, read);
+          append(view, unit, read);
           read++;
         }
         continue;
       }
       // Inside a run: complete escapes end at runStart + 3k.
       const offset = (read - runStart) % 3;
-      const unit = text[read] as string;
       const fits = offset === 0 ? unit === '%' : URL_HEX.test(unit);
       if (fits) {
         read++;
         continue;
       }
-      endRun(text, read - offset);
+      endRun(read - offset);
       // The broken escape's text is literal; `read` rereads from its end.
-      for (let i = read - offset; i < read; i++) append(view, text[i] as string, i);
+      for (let i = read - offset; i < read; i++)
+        append(view, String.fromCharCode(unitAt(reply, i)), i);
     }
   };
 
-  function endRun(text: string, end: number): void {
-    if (end > runStart) append(view, decodeUrlRuns(text.slice(runStart, end)), runStart);
+  function endRun(end: number): void {
+    if (end > runStart) append(view, decodeUrlRuns(sliceOf(reply, runStart, end)), runStart);
     runStart = -1;
   }
 
@@ -513,12 +550,23 @@ function createScan(view: View, automaton: Automaton, patterns: ScanPattern[]) {
   const resume = new Int32Array(patterns.length);
   const liveFrom = new Int32Array(patterns.length);
   const atFinal = new Uint8Array(patterns.length);
+  const finds = Uint8Array.from(patterns, (p) => (p.find ? 1 : 0));
+  /**
+   * Per finder: where its automaton first started a thread since the finder
+   * last read, or -1. A construct starts where a thread does, so a stretch
+   * with none needs no read; skipping it keeps a reply with no constructs from
+   * being reread whole at every step.
+   */
+  const openedFrom = new Int32Array(patterns.length).fill(-1);
+  const lastOpened = new Int32Array(patterns.length).fill(-1);
 
   function feed(): void {
-    const text = view.text;
+    const { text, fresh } = view;
+    const base = freshFrom(view);
     const { classOf, has, edges, final, pattern } = automaton;
     for (; fed < text.length; fed++) {
-      const cls = classOf[text.charCodeAt(fed)] as number;
+      const code = fed >= base ? fresh.charCodeAt(fed - base) : text.charCodeAt(fed);
+      const cls = classOf[code] as number;
       step++;
       let size = 0;
       const add = (target: number, start: number): void => {
@@ -542,7 +590,15 @@ function createScan(view: View, automaton: Automaton, patterns: ScanPattern[]) {
         }
       }
       const first = starts[cls] as Int32Array;
-      for (let k = 0; k < first.length; k++) add(first[k] as number, fed);
+      for (let k = 0; k < first.length; k++) {
+        const target = first[k] as number;
+        add(target, fed);
+        const p = local[pattern[target] as number] as number;
+        if (finds[p]) {
+          lastOpened[p] = fed;
+          if ((openedFrom[p] as number) < 0) openedFrom[p] = fed;
+        }
+      }
       [nodes, next] = [next, nodes];
       [from, nextFrom] = [nextFrom, from];
       count = size;
@@ -566,42 +622,50 @@ function createScan(view: View, automaton: Automaton, patterns: ScanPattern[]) {
     return earliest;
   }
 
-  function detect(): EgressStreamHit | undefined {
+  /** A finder's hit up to `settledTo`, run only on a stretch its automaton opened a thread in. */
+  function found(p: number, settledTo: number): EgressStreamHit | undefined {
+    const opened = openedFrom[p] as number;
+    const from = resume[p] as number;
+    resume[p] = settledTo;
+    if (opened < 0 || opened >= settledTo) return undefined;
+    openedFrom[p] = (lastOpened[p] as number) >= settledTo ? settledTo : -1;
+    const { find, rule, severity } = patterns[p] as ScanPattern;
+    const at = find?.(view.text, from, settledTo);
+    return at === undefined ? undefined : { rule, severity, start: view.rawAt(at) };
+  }
+
+  /** A regex pattern's hit up to `settledTo`. */
+  function matched(p: number, settledTo: number): EgressStreamHit | undefined {
+    if (!reached[p] && !recheck[p]) {
+      resume[p] = settledTo;
+      return undefined;
+    }
+    reached[p] = 0;
     const text = view.text;
+    const { regex, hit, rule, severity } = patterns[p] as ScanPattern;
+    regex.lastIndex = resume[p] as number;
+    for (;;) {
+      const match = regex.exec(text);
+      if (!match || match.index >= settledTo) {
+        resume[p] = settledTo;
+        recheck[p] = match || atFinal[p] ? 1 : 0;
+        return undefined;
+      }
+      const [blob] = match;
+      if (blob && (!hit || hit(blob, text, match.index))) {
+        return { rule, severity, start: view.rawAt(match.index) };
+      }
+      if (!blob) regex.lastIndex++;
+      resume[p] = regex.lastIndex;
+    }
+  }
+
+  function detect(): EgressStreamHit | undefined {
     for (let p = 0; p < patterns.length; p++) {
       const settledTo = liveFrom[p] as number;
       if (settledTo <= (resume[p] as number)) continue;
-      const { find } = patterns[p] as ScanPattern;
-      if (find) {
-        const at = find(text, resume[p] as number, settledTo);
-        resume[p] = settledTo;
-        if (at !== undefined) {
-          const { rule, severity } = patterns[p] as ScanPattern;
-          return { rule, severity, start: view.rawAt(at) };
-        }
-        continue;
-      }
-      if (!reached[p] && !recheck[p]) {
-        resume[p] = settledTo;
-        continue;
-      }
-      reached[p] = 0;
-      const { regex, hit, rule, severity } = patterns[p] as ScanPattern;
-      regex.lastIndex = resume[p] as number;
-      for (;;) {
-        const match = regex.exec(text);
-        if (!match || match.index >= settledTo) {
-          resume[p] = settledTo;
-          recheck[p] = match || atFinal[p] ? 1 : 0;
-          break;
-        }
-        const [blob] = match;
-        if (blob && (!hit || hit(blob, text, match.index))) {
-          return { rule, severity, start: view.rawAt(match.index) };
-        }
-        if (!blob) regex.lastIndex++;
-        resume[p] = regex.lastIndex;
-      }
+      const hit = (patterns[p] as ScanPattern).find ? found(p, settledTo) : matched(p, settledTo);
+      if (hit) return hit;
     }
     return undefined;
   }
@@ -644,7 +708,7 @@ function hostPatterns({ rules }: NonNullable<EgressStreamOptions['host']>): Scan
 
 /** Scans the bundled egress policy's patterns, and any host rules, as a reply streams. */
 function createEgressStream(options: EgressStreamOptions = {}): EgressStream {
-  const reply = { text: '' };
+  const reply: Grown = { text: '', fresh: '' };
   const raw = rawView(reply);
   const views: View[] = [raw];
   const scan = (view: View, automaton: Automaton, patterns: ScanPattern[]) => {
@@ -689,6 +753,7 @@ function createEgressStream(options: EgressStreamOptions = {}): EgressStream {
   return {
     push(chunk) {
       reply.text += chunk;
+      reply.fresh = chunk;
       for (const view of views) view.update();
       let from = reply.text.length;
       for (const s of scans) {
@@ -729,6 +794,7 @@ export type {
   EgressStreamHit,
   EgressStreamOptions,
   EgressStreamPlan,
+  Grown,
   MappedView,
   View,
 };

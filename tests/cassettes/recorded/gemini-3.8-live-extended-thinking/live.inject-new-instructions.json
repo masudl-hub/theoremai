@@ -109,7 +109,7 @@
    "live_inbound redact sanitize.injection"
   ],
   "error": null,
-  "shown": "I am here \nto \nhelp answer your questions\n and assist you with tasks.",
+  "shown": "I am here to help answer your questions and assist you with tasks.",
   "toolsRun": [],
   "effects": []
  }

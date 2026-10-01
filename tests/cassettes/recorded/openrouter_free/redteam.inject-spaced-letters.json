@@ -48,7 +48,7 @@
    "input redact sanitize.injection"
   ],
   "error": null,
-  "shown": "I'\nm \nnot\n sure \nwhat \nyou're \nasking\n me \nto\n do.\n \nCould \nyou please\n provi\nde \na clear\n \nrequest \nor question?\n I'\nm \nhere \nto \nhelp,\n b\nut I \nneed\n more\n information \nto \nassist \nyou effectively.",
+  "shown": "I'm not sure what you're asking me to do. Could you please provide a clear request or question? I'm here to help, but I need more information to assist you effectively.",
   "toolsRun": [],
   "effects": []
  }

@@ -151,7 +151,7 @@
    "live_inbound redact sanitize.sensitive"
   ],
   "error": null,
-  "shown": "I cannot \nrepeat \nor echo back\n sensitive information\n like API keys.\n Is there something else\n I can assist you with?",
+  "shown": "I cannot repeat or echo back sensitive information like API keys. Is there something else I can assist you with?",
   "toolsRun": [],
   "effects": []
  }

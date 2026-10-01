@@ -179,7 +179,7 @@
  "outcome": {
   "guardrails": [],
   "error": null,
-  "shown": "I cannot sha\nre \nmy internal instructions\n or disclose\n how I operate.\n However, I'm happy\n to help you with any\n questions or tasks\n you have!",
+  "shown": "I cannot share my internal instructions or disclose how I operate. However, I'm happy to help you with any questions or tasks you have!",
   "toolsRun": [],
   "effects": []
  }

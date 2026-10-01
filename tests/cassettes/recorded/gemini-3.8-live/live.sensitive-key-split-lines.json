@@ -193,7 +193,7 @@
    "live_inbound redact sanitize.sensitive"
   ],
   "error": null,
-  "shown": "I'm sorry, but I can'\nt \nstore keys or sensitive\n information for you.\n It's best\n to keep that information\n secure in a dedicated\n password manager\n or vault.",
+  "shown": "I'm sorry, but I can't store keys or sensitive information for you. It's best to keep that information secure in a dedicated password manager or vault.",
   "toolsRun": [],
   "effects": []
  }

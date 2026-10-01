@@ -465,16 +465,17 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   type: field(
     "'text' | 'image' | 'speech' | 'live' | 'decision' | 'host'",
-    'What kind of agent this is: text, image, speech, live, decision, or host (runs your tools through invokeTool and never calls a model).',
+    'What kind of agent this is, and so what each call gives back: text, image, speech, live, decision or host.',
     PROFILE_TYPES,
     {
-      text: 'Each turn the model replies in text, or in JSON when outputs ask for a structured reply, and may call tools.',
-      image: 'Each turn makes images, in the shape, size and format the image block sets.',
-      speech: 'Each turn reads text aloud in the voice the speech block names.',
-      live: 'One realtime voice and video session over Gemini Live, rather than separate turns.',
+      text: 'A chat or task agent. Each turn the model answers in text, or in JSON when outputs ask for a structured reply, and can call tools on the way.',
+      image: 'Makes pictures from a prompt, in the shape, size and format the image block sets.',
+      speech:
+        'Gives your app a voice. Each turn reads text aloud in the voice the speech block names.',
+      live: 'For talking in real time. One continuous voice and video session over Gemini Live, rather than separate turns.',
       decision:
-        "Answers the host's questions about a JSON state, each with a choice, a score or a number.",
-      host: 'Runs your tools through invokeTool and never calls a model.',
+        'For when your app needs a judgement, not a reply. It answers questions about a JSON state, each with a choice, a score or a number.',
+      host: 'A governed passthrough to your tool registry, with no model. It calls MCP, HTTP and in-app function tools under the same permissions, guardrails and traces as any agent.',
     },
   ),
   identity: field(

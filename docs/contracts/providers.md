@@ -300,7 +300,7 @@ the same `createInteractionsProvider` handles image via polymorphic
 
 | Transport | Module | Path / mechanism | Notes |
 | --- | --- | --- | --- |
-| OpenAI | `openrouter/image.ts` | `POST /images` | Native image models; reference images via `input_references`, bytes as data URLs and `http(s)` references passed through as URLs (other schemes are refused); OpenRouter documents `prompt` as required, so an image-only turn is refused. Every `data[]` entry with `b64_json` + `media_type` is one `media` (probe 23/09/2026). |
+| OpenAI | `openrouter/image.ts` | `POST /images` | Native image models; the model gets the prompt text and the reference images only, never the system prompt or history; reference images via `input_references`, bytes as data URLs and `http(s)` references passed through as URLs (other schemes are refused); OpenRouter documents `prompt` as required, so an image-only turn is refused. Every `data[]` entry with `b64_json` + `media_type` is one `media` (probe 23/09/2026). |
 | OpenAI | `openrouter/image.ts` | `POST /chat/completions` + server tool | When `image.includeText`. `message.content` (a string) is `text`; every `message.images[].image_url.url` data URL is one `media` (probe 23/09/2026). No image is an `error`. |
 | Interactions | `google/interactions/framing.ts` | `responseFormat` object or array | Image-only object; text + image array when `includeText`. No image is an `error`, as no audio is for speech. |
 

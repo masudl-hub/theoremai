@@ -72,6 +72,18 @@ Deno.test('buildImagesPayload maps kernel image pins to OpenAI-compat body', () 
   });
 });
 
+Deno.test('buildImagesPayload sends no system prompt or history', () => {
+  const body = JSON.stringify(
+    buildImagesPayload(
+      createMockImageRequest({
+        system: 'SYSTEM-MARKER',
+        history: [{ role: 'user', content: 'HISTORY-MARKER' }],
+      }),
+    ),
+  );
+  assertEquals(body.includes('SYSTEM-MARKER') || body.includes('HISTORY-MARKER'), false);
+});
+
 Deno.test('outputFormatFromMime normalizes jpeg aliases', () => {
   assertEquals(outputFormatFromMime('image/jpeg'), 'jpeg');
   assertEquals(outputFormatFromMime('image/jpg'), 'jpeg');

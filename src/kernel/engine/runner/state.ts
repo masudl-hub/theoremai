@@ -41,6 +41,8 @@ interface StepExecutionState {
   withheldVisible?: boolean;
   /** The canary opening the last provider call ended on, read in front of the next call's reply. */
   canaryCarry?: string;
+  /** What the last provider call's thoughts ended on, read in front of the next call's thoughts. */
+  thoughtCarry?: string;
   /** System-prompt leaks withheld under a host policy; they pin the end-of-attempt verdict to block. */
   promptLeaks?: GuardrailHit[];
   /** Untrusted content read so far, so a later tool call is judged against all the turn ingested. */

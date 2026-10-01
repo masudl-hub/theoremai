@@ -17,6 +17,8 @@ import {
 } from '../../src/guardrails/canary.ts';
 import { FIXED_CANARY } from '../../src/guardrails/corpus/canary-egress-attacks.ts';
 import { givenUrlSets } from '../../src/guardrails/egress-urls.ts';
+import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
+import { EGRESS_RULES } from '../../src/guardrails/rules.ts';
 import { registerProfile, resolveTurn, runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { yieldProviderEvents } from '../../src/kernel/engine/runner/stream.ts';
@@ -196,7 +198,7 @@ Deno.test('canary stream gate detects token split across chunks', async () => {
   assertEquals(leakedSuffix, undefined);
 });
 
-Deno.test('canary stream gate passes a thought that restates the canary', async () => {
+Deno.test('canary stream gate omits the canary from a thought and reports it', async () => {
   const { profile, generation } = resolveTurn({
     profile: 'chat',
     input: { text: 'hi' },
@@ -223,7 +225,19 @@ Deno.test('canary stream gate passes a thought that restates the canary', async 
     }),
   );
 
-  assertEquals(events, [{ type: 'thought', text: `thinking ${canary}` }]);
+  assertEquals(events, [
+    { type: 'thought', text: 'thinking ' },
+    {
+      type: 'guardrail',
+      guardrail: {
+        stage: 'thought',
+        trust: 'untrusted',
+        action: 'redact',
+        hits: [{ rule: EGRESS_RULES.canary, severity: 'high', match: '[canary]' }],
+      },
+    },
+    { type: 'thought', text: lexiconDefault('thought.omitted_instructions').trimStart() },
+  ]);
 });
 
 Deno.test('scanTextForCanaryLeak detects base64-encoded canary', () => {

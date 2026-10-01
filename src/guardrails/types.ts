@@ -27,6 +27,7 @@ export const GUARDRAIL_STAGES = [
   'tool_result',
   'output_delta',
   'output_final',
+  'thought',
   'network',
   'live_inbound',
   'live_outbound',

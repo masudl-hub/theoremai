@@ -447,6 +447,7 @@ export {
   hitsEnforcer,
   isPromptLeakHit,
   NO_CHECKS,
+  PROMPT_ECHO_HIT,
   promptEchoHits,
   promptLeakReason,
   resolveEgressChecks,

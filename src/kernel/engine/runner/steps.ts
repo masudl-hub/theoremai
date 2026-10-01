@@ -134,6 +134,7 @@ async function* executeAutonomousStep(
   const control: OutboundStreamControl = {
     withholdVisible: false,
     ...(state.canaryCarry ? { canaryCarry: state.canaryCarry } : {}),
+    ...(state.thoughtCarry ? { thoughtCarry: state.thoughtCarry } : {}),
   };
 
   try {
@@ -188,6 +189,7 @@ async function* executeAutonomousStep(
   }
 
   state.canaryCarry = control.canaryCarry;
+  state.thoughtCarry = control.thoughtCarry;
   if (control.promptLeaks) {
     state.promptLeaks = [...(state.promptLeaks ?? []), ...control.promptLeaks];
   }

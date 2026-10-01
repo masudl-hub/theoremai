@@ -15,7 +15,11 @@ import {
   type ProgressiveYieldGate,
   type ProgressiveYieldResult,
 } from '../../../guardrails/progressive-yield.ts';
-import { thoughtGuardFor } from '../../../guardrails/thought-guard.ts';
+import {
+  type ThoughtGuard,
+  type ThoughtRelease,
+  thoughtGuardFor,
+} from '../../../guardrails/thought-guard.ts';
 import type {
   GuardrailContext,
   GuardrailHit,
@@ -35,7 +39,7 @@ import type { CallTrace, StreamCheck } from '../turn-trace.ts';
 export type StreamEvent = Exclude<ProviderEvent, { type: 'response' }>;
 
 interface OutboundStreamControl {
-  /** Stop releasing text/media to the host; keep recording for egress. Thoughts are unguarded. */
+  /** Stop releasing text/media to the host; keep recording for egress. */
   withholdVisible: boolean;
   /**
    * The canary opening the turn's earlier steps ended on (`canaryCarry`): read
@@ -44,6 +48,8 @@ interface OutboundStreamControl {
   canaryCarry?: string;
   /** System-prompt leak hits this call withheld under a host policy; they pin its verdict. */
   promptLeaks?: GuardrailHit[];
+  /** What the turn's thoughts so far ended on (`ThoughtGuard.carryOut`): read in front of this call's, and replaced. */
+  thoughtCarry?: string;
 }
 
 function shouldSkipStreamEvent(event: ProviderEvent, profile: Profile): boolean {
@@ -74,7 +80,27 @@ function* yieldDeltaBlock(hits: GuardrailHit[]): Generator<StreamEvent> {
   }
 }
 
-/** Host-visible output a mid-stream block withholds. Thoughts are not guarded (`isGuardedOutput`). */
+/** What the guard released, after the event saying what it omitted from it. */
+function* yieldThought(
+  { text, hits }: ThoughtRelease,
+  event: StreamEvent & { type: 'thought' },
+): Generator<StreamEvent> {
+  const guardrail = guardrailFromHits('thought', 'untrusted', hits, 'redact');
+  if (guardrail) yield guardrail;
+  if (text) yield { ...event, text };
+}
+
+/** The thought held at the end of a call, and what the next call's thoughts read on from. */
+function* flushThoughts(
+  thoughts: ThoughtGuard | undefined,
+  control: OutboundStreamControl | undefined,
+): Generator<StreamEvent> {
+  if (!thoughts) return;
+  yield* yieldThought(thoughts.flush(), { type: 'thought', text: '' });
+  if (control) control.thoughtCarry = thoughts.carryOut();
+}
+
+/** Host-visible output a mid-stream block withholds. A thought is never withheld, only omitted from. */
 function isWithheldOnBlock(event: ProviderEvent): boolean {
   return event.type === 'text' || event.type === 'media';
 }
@@ -117,13 +143,13 @@ async function* yieldProviderEvents(args: {
     ...(canary && policy.promptEcho && request.system ? { system: request.system } : {}),
     givenUrls,
   };
+  const { canaryCarry, thoughtCarry } = control ?? {};
   const gate: ProgressiveYieldGate | null = createOutboundProgressiveGate(
     policy,
     context,
-    control?.canaryCarry,
+    canaryCarry,
   );
-  /** Thoughts keep their images and links to given URLs only; the rest is omitted, never stopped. */
-  const thoughts = thoughtGuardFor(policy.egress?.enforce, givenUrls);
+  const thoughts = thoughtGuardFor(policy.egress?.enforce, context, thoughtCarry);
   /** The streamed event whose reply sits in the gate's lookback; released tails keep its shape. */
   let pendingStream: StreamedReplyEvent | null = null;
   let withholdVisible = false;
@@ -208,16 +234,10 @@ async function* yieldProviderEvents(args: {
     return (yield* releaseOrBlock(result, event)) === 'stop' ? 'stop' : 'continue';
   }
 
-  function* flushThoughts(): Generator<StreamEvent> {
-    const text = thoughts?.flush();
-    if (text) yield { type: 'thought', text };
-  }
-
   /** A thought, through the guard when there is one; false for any other event. */
   function* guardThought(event: StreamEvent): Generator<StreamEvent, boolean> {
     if (event.type !== 'thought' || !thoughts) return false;
-    const text = thoughts.push(event.text);
-    if (text) yield { ...event, text };
+    yield* yieldThought(thoughts.push(event.text), event);
     return true;
   }
 
@@ -264,11 +284,11 @@ async function* yieldProviderEvents(args: {
     if (event.type === 'error') {
       providerFailed = true;
     }
-    if (event.type === 'done') yield* flushThoughts();
+    if (event.type === 'done') yield* flushThoughts(thoughts, control);
     yield event;
   }
 
-  yield* flushThoughts();
+  yield* flushThoughts(thoughts, control);
 
   const flushed = yield* flushGate();
   if (flushed === 'stop') {

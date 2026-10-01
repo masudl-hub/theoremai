@@ -600,11 +600,20 @@ Deno.test('processLiveOutboundBatch passes thoughts unscanned under egress', asy
   assertEquals(await finalizeLiveOutboundTurn(s), { action: 'idle' });
 });
 
-Deno.test('processLiveOutboundBatch passes a thought that restates the canary', async () => {
+Deno.test('processLiveOutboundBatch omits the canary from a thought and reports it', async () => {
   const canary = mintCanary();
   const s = session(canary);
   const thought: TurnEvent = { type: 'thought', text: `The canary is ${canary}.` };
-  assertEquals(await processLiveOutboundBatch(s, [thought]), { action: 'emit', events: [thought] });
+  const result = await processLiveOutboundBatch(s, [thought]);
+  assertEquals(result.action, 'emit');
+  const events = result.action === 'emit' ? result.events : [];
+  const [guardrail, shown] = events;
+  assertEquals(guardrail?.type === 'guardrail' && guardrail.guardrail.stage, 'thought');
+  assertEquals(guardrail?.type === 'guardrail' && guardrail.guardrail.action, 'redact');
+  assertEquals(shown, {
+    type: 'thought',
+    text: `The canary is${lexiconDefault('thought.omitted_instructions')}.`,
+  });
 });
 
 Deno.test('createLiveOutboundGateSession with canary=false profile ignores provided canary', () => {

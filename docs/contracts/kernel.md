@@ -264,11 +264,11 @@ Live sessions emit the same stage names around utterance cycles and
    turn the opening input is already the last message of turn history.
 6. **Provider stream** — `provider.complete` yields partial events; runner may
    drop thoughts per `outputs.streaming.streamThoughts`. Reply text passes the
-   progressive-yield gate; thoughts are never guarded, but an egress policy's
-   image and link checks omit what a thought would load ([guardrails](./guardrails.md)).
-   Each provider call has its own gate; the turn carries a possible canary
-   opening from one call into the next (`canaryCarry` on the step state), so a
-   token split across tool steps is one match.
+   progressive-yield gate; thoughts never stop the turn, but their leaks are
+   omitted ([guardrails](./guardrails.md)). Each provider call has its own gate;
+   the turn carries a possible canary opening from one call into the next
+   (`canaryCarry` and `thoughtCarry` on the step state), so a token split across
+   tool steps is one match.
 7. **Tool loop** — while under `maxSteps`, tool calls execute via `executeRegisteredTool`
    (shared with `invokeTool`), threading the host's `credentials` source (`ToolCredentialSource`, read one slot at a time as a signed-in tool runs) for authenticated HTTP/MCP tools and the opaque `host` context slot; `pre_tool` / `post_tool` stages + `preTool` run on that path. After each
    settled tool, `post_tool` may inject. Gate (`stop.kind: 'gate'`) suspends the batch. `generation.transport` selects
@@ -334,7 +334,7 @@ throws `config`.
 
 | `type` | Payload highlights |
 | --- | --- |
-| `thought` | Model reasoning stream (unguarded but for leaking images and links, omitted; dropped when `streamThoughts: false`) |
+| `thought` | Model reasoning stream (leaks omitted, never stopped: images, links, canary, prompt echo, boundary markers; dropped when `streamThoughts: false`) |
 | `text` | User-visible assistant text |
 | `tool` | Tool call (`phase`: `running` / `progress` / `complete` / `gate` / `error` / `cancel`, …; `pause` deprecated) |
 | `structured` | Parsed JSON object when the profile names a structured schema |

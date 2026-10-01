@@ -20,7 +20,7 @@ import {
   type ProgressiveYieldGate,
   type ProgressiveYieldResult,
 } from './progressive-yield.ts';
-import { type ThoughtGuard, thoughtGuardFor } from './thought-guard.ts';
+import { type ThoughtGuard, type ThoughtRelease, thoughtGuardFor } from './thought-guard.ts';
 import type {
   GuardrailContext,
   GuardrailHit,
@@ -55,7 +55,7 @@ export interface LiveOutboundGateSession {
    * cycle's final verdict to block: no host verdict may release them.
    */
   promptLeaks?: GuardrailHit[];
-  /** Omits the images and links a thought would load from URLs the model was not given. */
+  /** Omits what in the session's thoughts leaks; carries from one cycle to the next. */
   thoughts?: ThoughtGuard;
 }
 
@@ -105,7 +105,7 @@ function createLiveOutboundGateSession(
     ...(profile.lexicon ? { lexicon: profile.lexicon } : {}),
     ...(givenUrls ? { givenUrls } : {}),
   };
-  const thoughts = thoughtGuardFor(policy.egress?.enforce, givenUrls);
+  const thoughts = thoughtGuardFor(policy.egress?.enforce, context);
   return {
     policy,
     context,
@@ -313,14 +313,19 @@ async function processLiveOutboundBatch(
     }
 
     if (event.type === 'thought' && session.thoughts) {
-      const text = session.thoughts.push(event.text);
-      if (text) toEmit.push({ ...event, text });
+      toEmit.push(...thoughtEvents(session.thoughts.push(event.text), event));
       continue;
     }
     toEmit.push(event);
   }
 
   return emitOrIdle(toEmit);
+}
+
+/** What a thought guard released, after the event saying what it omitted from it. */
+function thoughtEvents({ text, hits }: ThoughtRelease, event: TurnEventOf<'thought'>): TurnEvent[] {
+  const guardrail = guardrailFromHits('thought', 'untrusted', hits, 'redact');
+  return [...(guardrail ? [guardrail] : []), ...(text ? [{ ...event, text }] : [])];
 }
 
 function isGenerationComplete(event: TurnEvent): boolean {
@@ -419,13 +424,14 @@ async function finalizeLiveOutboundTurn(
   if (!session.gate) {
     return { action: 'idle' };
   }
-  const thought = session.thoughts?.flush();
+  const thought = session.thoughts
+    ? thoughtEvents(session.thoughts.flush(), { type: 'thought', text: '' })
+    : [];
   const result = await finalizeCycle(session, session.gate);
   resetCycle(session);
-  if (!thought) return result;
-  const shown: TurnEvent = { type: 'thought', text: thought };
-  if (result.action === 'idle') return { action: 'emit', events: [shown] };
-  return { ...result, events: [shown, ...(result.events ?? [])] };
+  if (thought.length === 0) return result;
+  if (result.action === 'idle') return { action: 'emit', events: thought };
+  return { ...result, events: [...thought, ...(result.events ?? [])] };
 }
 
 /** Drop the cycle's held output when the user interrupts mid-turn. */

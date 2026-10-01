@@ -1,4 +1,4 @@
-import { canaryCarry, canaryHoldFrom, createCanaryScanner } from './canary.ts';
+import { canaryHoldFrom, createCanaryScanner, promptLeakCarry } from './canary.ts';
 import { CANARY_HIT, promptEchoHits, runEnforcer } from './egress.ts';
 import { type EgressStream, type EgressStreamHit, streamPlanOf } from './egress-stream.ts';
 import { TheoremError } from './error.ts';
@@ -40,7 +40,7 @@ export interface ProgressiveYieldGateOptions {
   holdback?: number;
   /**
    * Text an earlier window of the same canary ended on that could still open a
-   * leak (`canaryCarry`). It is scanned in front of this window, never released
+   * leak (`promptLeakCarry`). It is scanned in front of this window, never released
    * again, so a token split across steps or cycles is still one match.
    */
   carry?: string;
@@ -94,21 +94,6 @@ function holdbackForWindow(window: string, base: number): number {
   const fromBegin = window.slice(begin);
   if (/-----END (?:RSA )?PRIVATE KEY-----/.test(fromBegin)) return base;
   return Math.max(base, window.length - begin);
-}
-
-/**
- * What the next window of the same turn or session scans in front of its own:
- * a possible canary opening, and the words a prompt echo could continue from.
- */
-function carryFrom(text: string, context: GuardrailContext): string {
-  if (!context.canary) {
-    return '';
-  }
-  const canaryTail = text.length - canaryCarry(text, context.canary).length;
-  const from = context.system
-    ? Math.min(canaryTail, promptEchoScanFrom(text, text.length))
-    : canaryTail;
-  return text.slice(from);
 }
 
 /**
@@ -254,7 +239,8 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
       emitted = accumulated.length;
       return tail;
     },
-    carryOut: () => carryFrom(carry + accumulated, context),
+    carryOut: () =>
+      context.canary ? promptLeakCarry(carry + accumulated, context.canary, context.system) : '',
   };
 }
 

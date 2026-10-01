@@ -355,6 +355,7 @@ const GUARDRAIL_STAGE_OPTIONS: Readonly<Record<GuardrailStage, TraceOptionMeta>>
   tool_result: { label: 'Tool result', doc: 'What a tool returned.' },
   output_delta: { label: 'Streaming output', doc: 'The answer as it streamed.' },
   output_final: { label: 'Final output', doc: 'The whole answer.' },
+  thought: { label: 'Thinking', doc: "The model's thoughts as they streamed." },
   network: { label: 'Network', doc: 'A URL the agent was about to reach.' },
   live_inbound: { label: 'Live inbound', doc: 'What arrived from a Live session.' },
   live_outbound: { label: 'Live outbound', doc: 'What was sent into a Live session.' },

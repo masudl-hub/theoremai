@@ -848,6 +848,16 @@ function canaryCarry(text: string, canary: string): string {
   return text.slice(leakOpeningFrom(text, canary, ANY_OPENING));
 }
 
+/**
+ * What the next window of the same turn or session scans in front of its own:
+ * a possible canary opening, and the words a prompt echo could continue from.
+ */
+function promptLeakCarry(text: string, canary: string, system?: string): string {
+  const canaryTail = text.length - canaryCarry(text, canary).length;
+  const from = system ? Math.min(canaryTail, promptEchoScanFrom(text, text.length)) : canaryTail;
+  return text.slice(from);
+}
+
 function redactCanaryText(text: string, canary: string): string {
   if (!text || !canary) {
     return text;
@@ -864,10 +874,8 @@ function redactCanaryText(text: string, canary: string): string {
 }
 
 /**
- * Thinking is not guarded output: a host that shows `thought` events accepts
- * what they say, and a thinking model restates its system prompt as it
- * reasons. Every outbound gate reads this before scanning. What a thought
- * would load is another matter (`thought-guard.ts`).
+ * Nothing in a thought stops the turn: `thought-guard.ts` omits what in it
+ * leaks. Every outbound gate reads this before scanning.
  */
 function isGuardedOutput(event: ProviderEvent): boolean {
   return event.type !== 'thought';
@@ -1027,8 +1035,8 @@ export type { CanaryGateResult, CanaryScanner, CanaryStreamGate, StreamedReplyEv
 export {
   bindCanary,
   bindUserDataNote,
-  canaryCarry,
   canaryHoldFrom,
+  canaryLeakRanges,
   createCanaryScanner,
   createCanaryStreamGate,
   eventHasCanary,
@@ -1036,6 +1044,7 @@ export {
   isStreamedCanaryEvent,
   mintCanary,
   OMIT_CANARY,
+  promptLeakCarry,
   redactCanary,
   redactCanaryText,
   scanTextForCanaryLeak,

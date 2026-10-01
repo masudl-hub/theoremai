@@ -74,7 +74,7 @@ Owns every module under `src/guardrails/`.
 | `egress.ts` | `standardEgressEnforce` / `collectEgressHits` bundled outbound policy |
 | `egress-patterns.ts` | Every regex the bundled policy blocks on, tagged by kind |
 | `egress-urls.ts` | Reply images and links read as a renderer reads them, and whether each URL leaks (`givenUrls`, reserved hosts, a check's `hosts`) |
-| `thought-guard.ts` | Thought text released as it clears, each leaking image or link omitted |
+| `thought-guard.ts` | Thought text released as it clears, each leak (image, link, canary, prompt echo, boundary marker) omitted |
 | `egress-automata.ts` | Generated (`scripts/gen-egress-automata.ts`): reversed injection patterns and each pattern's superset automaton |
 | `egress-stream.ts` | The bundled policy and host rules read incrementally: where a match could still start, and its settled hits |
 | `egress-rules.ts` | Host egress rule shape, the compiled table's shape, rule checks |
@@ -277,7 +277,7 @@ Not covered:
   `fromTools: false` narrows it to what the prompt, user and history gave.
 - CSS a host builds from reply text outside markup.
 
-Thoughts get the URL checks alone (see below).
+Thoughts get the URL and boundary checks, and the canary and prompt echo (see below).
 
 ### Host egress rules
 
@@ -432,20 +432,29 @@ system boundary, injection echo, reply images) run only through `egress.enforce`
 or refuse.
 `outputs.streaming.mode: 'sse'` and `egress.enforce` can both stay on.
 
-**Thoughts are not guarded output.** Only the reply stream flows
-through progressive yield, the end-of-attempt egress payload carries reply text
-and structured output, and no canary scan reads a `thought` event — in `runTurn`,
-Live, and `filterCanaryGatedEvents` alike. A thinking model restates its system
-prompt (canary included) as it reasons; a host that shows thoughts
-(`outputs.streaming.streamThoughts`) accepts what they hold. What a thought
-would load is the exception: a host that renders thoughts loads their images,
-and links them, as it does a reply's. Under an egress policy whose `images` or
-`links` check is on, each thought's images and links run through that check,
-and one that leaks is omitted — `(omitted - image)` or `(omitted - link)` in
-its place — while the rest of the thought streams as it clears; the turn never
-stops for a thought. A thought still writing leaks past the sixteenth loses the
-rest. A host `enforce` the kernel cannot read the checks of gets no thought
-guard.
+**Thoughts are omitted from, never stopped.** Only the reply stream flows
+through progressive yield, and the end-of-attempt egress payload carries reply
+text and structured output; nothing in a thought stops the turn
+(`isGuardedOutput`). A host that shows thoughts
+(`outputs.streaming.streamThoughts`) shows what they say and loads what they
+link, so each thought runs through a guard that omits what leaks and streams
+the rest as it clears — in `runTurn` and Live alike:
+
+| Leak | Guarded when | Placeholder (lexicon key) |
+| --- | --- | --- |
+| Image | the egress policy's `images` check is on | `thought.omitted_image` |
+| Link | the egress policy's `links` check is on | `thought.omitted_link` |
+| Boundary marker | the egress policy's `boundary` check is on | `thought.omitted_instructions` |
+| Canary, prompt echo | the turn binds a canary | `thought.omitted_instructions` |
+
+Each omission reports a `guardrail` event at stage `thought`, action `redact`,
+before the thought text it changed. A leak still growing at the end of a chunk
+is held until it ends, so a canary split across chunks loses all of it. The
+canary and echo carry across provider calls and Live cycles, so a leak a
+thought starts in one call and ends in the next is still omitted. A thought
+still writing leaks past the sixteenth loses the rest. A host `enforce` the
+kernel cannot read the checks of gets the canary and echo guard alone; one
+built with `egressPolicy` gets its own checks.
 
 **Live speech is guarded like text.** In Live the reply stream is text deltas
 and the spoken reply's transcript (`output_transcription` evidence); both run
@@ -981,6 +990,7 @@ Emission sites of host events (non-`allow` only):
 | `input` / `history` / `system` | `sanitizeTurnRequestWithEvents` at turn start |
 | `tool_call` / tool result | `executeRegisteredTool` (args — for the `redactSensitive` groups the profile runs —, taint, result) and `src/guardrails/tool-result.ts` event shaping |
 | `output_delta` | Progressive-yield / canary mid-stream |
+| `thought` | The thought guard (`thought-guard.ts`), in `runTurn` and Live |
 | `output_final` | End-of-attempt egress in `gates.ts` |
 | `network` | `guardToolTarget` before HTTP/MCP |
 | `live_inbound` | `prepareLiveInboundText` → session pending events |
@@ -1147,6 +1157,7 @@ placeholder, or a placeholder the key never fills in.
 | Errors | `error.<kind>` | lexicon (resolved where the event reaches the host) |
 | Quota | `quota.exhausted` | lexicon (`quotaExhausted` → `rate_limit`) |
 | Repair / egress | `repair.*` (`repair.default_guidance` is the validation repair guidance), `egress.default_repair_guidance`, `egress.refusal`, `egress.rejection`, `egress.invalid_verdict`, `egress.policy_failed` | lexicon |
+| Thoughts | `thought.omitted_image`, `thought.omitted_link`, `thought.omitted_instructions` (a leading space is dropped after whitespace) | lexicon |
 | Session | `session.abandon_gated`, `session.tool_denied`, `session.tool_aborted`, `session.sign_in`, `session.gate_expired`, `session.turn_ended`, `session.gate_pending`, `session.part_skipped` | lexicon |
 | Live | `live.session_ended` (the provider ended the call after warning it would) | lexicon (the Live session words the ended signal's `message` when it closes) |
 | Voice (browser recording) | `voice.unsupported`, `voice.permission`, `voice.unavailable`, `voice.failed`, `voice.empty` | lexicon |

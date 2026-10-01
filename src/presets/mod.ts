@@ -25,4 +25,5 @@ export {
   googleInteractionsPersistence,
   registerGooglePreset,
 } from './google.ts';
+export { OPENROUTER_IMAGES_INPUT_MIMES } from './openrouter.ts';
 export { JEV_USD_PER_MILLION_INPUT_TOKENS } from './typesafe.ts';

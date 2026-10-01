@@ -37,7 +37,7 @@ export function demoHttpSampleInput(toolName: string): Record<string, unknown> |
 
 /** Comma-separated hosts for guardrails.egress allowlist in the demo graph. */
 export const DEMO_ALLOWED_HOSTS =
-  'nominatim.openstreetmap.org, geocoding-api.open-meteo.com, api.open-meteo.com, api.frankfurter.dev, api.sunrise-sunset.org, api.zippopotam.us, en.wikipedia.org, archive.org, pokeapi.co, dog.ceo, api.adviceslip.com, catfact.ninja, official-joke-api.appspot.com, mcp.deepwiki.com, mcp.context7.com, learn.microsoft.com, docs.mcp.cloudflare.com, knowledge-mcp.global.api.aws, huggingface.co, mcp.docs.astro.build';
+  'nominatim.openstreetmap.org, geocoding-api.open-meteo.com, api.open-meteo.com, api.frankfurter.dev, api.sunrise-sunset.org, api.zippopotam.us, en.wikipedia.org, archive.org, pokeapi.co, dog.ceo, api.adviceslip.com, catfact.ninja, official-joke-api.appspot.com, mcp.deepwiki.com, mcp.context7.com, learn.microsoft.com, docs.mcp.cloudflare.com, knowledge-mcp.global.api.aws, huggingface.co, mcp.docs.astro.build, mcp.exa.ai';
 
 export const DEMO_CONCIERGE_SYSTEM = `Role: Elite, charismatic travel concierge.
 
@@ -753,6 +753,33 @@ const DEMO_TOOL_SPECS: PlaygroundToolSeed[] = [
   },
   "required": ["search_results"]
 }`,
+    },
+  },
+  {
+    id: 'tool-exa-search',
+    data: {
+      toolName: 'search_web',
+      activity: 'Searching the web for {query}',
+      activityPast: 'Searched the web for {query}',
+      toolType: 'mcp',
+      description:
+        'Search the web with Exa for current information, news, people or companies. Describe the page you want, not just keywords.',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: ['*'],
+      serverUrl: 'https://mcp.exa.ai/mcp',
+      mcpToolName: 'web_search_exa',
+      inputJson: `{
+  "type": "object",
+  "properties": {
+    "query": { "type": "string", "description": "A description of the ideal page", "minLength": 1, "maxLength": 500, "examples": ["blog post comparing Cloudflare Workers and AWS Lambda cold starts"] },
+    "numResults": { "type": "integer", "description": "How many results", "minimum": 1, "maximum": 10 }
+  },
+  "required": ["query"]
+}`,
+      outputJson: `{ "type": "string", "description": "Titles, links and highlights from the top results" }`,
     },
   },
   {

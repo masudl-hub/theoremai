@@ -35,6 +35,7 @@ import {
   pendingPromptOf,
   replyKey,
   type TranscriptTurnGroup,
+  toolCallLabel,
   workStatus,
 } from '../../react/src/client/transcript-groups.ts';
 import { resolveScrollToBottomScrollTop } from '../../react/src/client/transcript-scroll.ts';
@@ -168,40 +169,32 @@ Deno.test('applyLiveTranscript merges interim and final text correctly', () => {
   let state = emptyLiveCaptionState();
   assertEquals(state.turns.length, 0);
 
-  // Empty text does nothing
   assertEquals(applyLiveTranscript(state, '', true), state);
 
-  // Interim user text
   state = applyLiveTranscript(state, 'Hello', true, true);
   assertEquals(state.interimUser, 'Hello');
 
-  // Final user text
   state = applyLiveTranscript(state, 'Hello world', true, false);
   assertEquals(state.turns.length, 1);
   assertEquals(state.turns[0].text, 'Hello world');
   assertEquals(state.interimUser, '');
 
-  // Second user turn with append
   state = applyLiveTranscript(state, 'again', true, false);
   assertEquals(state.turns.length, 1);
   assertEquals(state.turns[0].text, 'Hello world again');
 
-  // Agent turn switches role
   state = applyLiveTranscript(state, 'Hi there', false, false);
   assertEquals(state.turns.length, 2);
   assertEquals(state.turns[1].role, 'agent');
   assertEquals(state.turns[1].text, 'Hi there');
 
-  // Force new turn
   state = applyLiveTranscript(state, 'New prompt', false, false, { forceNew: true });
   assertEquals(state.turns.length, 3);
   assertEquals(state.turns[2].text, 'New prompt');
 
-  // Interim agent text
   state = applyLiveTranscript(state, 'thinking', false, true);
   assertEquals(state.interimAgent, 'thinking');
 
-  // clear interim
   state = clearLiveCaptionInterim(state);
   assertEquals(state.interimUser, '');
   assertEquals(state.interimAgent, '');
@@ -737,4 +730,32 @@ Deno.test('a source favicon names only its site, never the page', () => {
     citations.map((citation) => citation.icon),
     [favicon('docs.example.org'), favicon('lisboa.pt'), undefined, undefined],
   );
+});
+
+Deno.test('a tool row reads as its filled activity label, else the tool name in words', () => {
+  const call = { name: 'save_to_collection', callId: 'c1', arguments: {}, artifacts: [] };
+  assertEquals(toolCallLabel(call), 'Save to collection');
+  const running = {
+    ...call,
+    activity: 'Saving Monty to your collection',
+    activityPast: 'Saved Monty',
+  };
+  assertEquals(toolCallLabel(running), 'Saving Monty to your collection');
+  const complete = {
+    ...running,
+    state: { phase: 'complete' as const, name: call.name, callId: 'c1', at: 1, output: {} },
+  };
+  assertEquals(toolCallLabel(complete), 'Saved Monty');
+  assertEquals(toolCallLabel({ ...complete, activityPast: undefined }), 'Save to collection');
+  const failed = {
+    ...running,
+    state: {
+      phase: 'error' as const,
+      name: call.name,
+      callId: 'c1',
+      at: 1,
+      failure: { code: 'upstream', kind: 'failed' as const, message: 'x' },
+    },
+  };
+  assertEquals(toolCallLabel(failed), 'Save to collection');
 });

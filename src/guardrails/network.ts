@@ -1,27 +1,8 @@
-/**
- * Network SSRF guardrails for HTTP tools, remote MCP tools, and OAuth.
- *
- * Enforces URL scheme safety and blocks loopback, private RFC 1918,
- * link-local (cloud metadata 169.254.x.x), and multicast targets unless
- * explicitly permitted by profile guardrail configuration. Every redirect
- * hop is checked the same way, and origin-bound headers never follow a
- * redirect off the origin they were configured for.
- *
- * The URL check judges literal addresses and local host names. A public name
- * whose DNS answers a private address passes it, so `fetchGuarded` also takes
- * a host-supplied resolver and refuses a hop when any address the name
- * resolves to is private. That lookup is separate from the connection's own,
- * so it stops names that point inward but not a DNS server that changes its
- * answer between the two (rebinding); only the host's egress layer can.
- *
- * @module
- */
-
 import { TheoremError } from './error.ts';
 import type { NetworkGuardrailSpec } from './types.ts';
 
 /**
- * Checks if an IPv4 address is in a private, loopback, or link-local range:
+ * IPv4 ranges refused outright:
  * - Loopback: 127.0.0.0/8
  * - RFC 1918: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
  * - Link-local / Cloud metadata: 169.254.0.0/16
@@ -180,7 +161,6 @@ const EMBEDDED_IPV4_RANGES: readonly { match: IPv6WordsMatch; at: number }[] = [
   { match: (w) => w[0] === 0x2002, at: 1 },
 ];
 
-/** Checks if an IPv6 address is private or local, itself or through the IPv4 address it carries. */
 function isPrivateOrLocalIPv6(ip: string): boolean {
   const words = parseIPv6Words(ip);
   if (words?.length !== 8) {
@@ -195,7 +175,6 @@ function isPrivateOrLocalIPv6(ip: string): boolean {
   });
 }
 
-/** Check if hostname represents localhost or private domain names */
 export function isLocalhostName(hostname: string): boolean {
   let lower = hostname.toLowerCase();
   while (lower.endsWith('.')) {
@@ -220,17 +199,13 @@ export function isLocalhostName(hostname: string): boolean {
   );
 }
 
-/** Check if an IP address string is loopback or private IPv4/IPv6 */
 export function isPrivateOrLocalAddress(ipOrHost: string): boolean {
   const stripped =
     ipOrHost.startsWith('[') && ipOrHost.endsWith(']') ? ipOrHost.slice(1, -1) : ipOrHost;
   return isPrivateOrLocalIPv4(stripped) || isPrivateOrLocalIPv6(stripped);
 }
 
-/**
- * Validates a target URL against network guardrail policy.
- * Throws a `TheoremError` if the URL is blocked.
- */
+/** Throws a `TheoremError` when the URL is blocked. */
 export function assertSafeUrl(urlStr: string, policy?: NetworkGuardrailSpec): URL {
   let parsed: URL;
   try {
@@ -256,7 +231,6 @@ export function assertSafeUrl(urlStr: string, policy?: NetworkGuardrailSpec): UR
     );
   }
 
-  // Unless private networks or this host are allowed, block localhost and private subnets
   if (!allowPrivate && !allowedHosts.includes(hostname)) {
     if (isLocalhostName(hostname)) {
       throw new TheoremError(
@@ -290,9 +264,7 @@ const FETCH_REDIRECT_LIMIT = 20;
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
-/** Options for {@link fetchGuarded}. */
 export interface GuardedFetchOptions {
-  /** Network policy every hop must clear. */
   policy?: NetworkGuardrailSpec;
   /** Follow redirects, clearing each hop; when false a redirect comes back as the response. */
   followRedirects: boolean;
@@ -308,6 +280,8 @@ export interface GuardedFetchOptions {
    */
   resolveHost?: ResolveHost;
   fetchFn?: typeof fetch;
+  /** Told how long each hop's checks took: its address, and its lookup when `resolveHost` is set. */
+  onCheck?: (ms: number) => void;
 }
 
 /** A host name's IPv4 and IPv6 addresses; empty when the name does not exist. */
@@ -315,7 +289,12 @@ export type ResolveHost = (hostname: string, signal?: AbortSignal) => Promise<re
 
 const IPV4_LITERAL = /^\d{1,3}(\.\d{1,3}){3}$/;
 
-/** Refuse `target` when its name resolves to a private address, or to nothing. */
+/**
+ * `assertSafeUrl` judges literal addresses and local names, so a public name whose DNS answers a
+ * private address passes it. This lookup is separate from the connection's own: it stops names that
+ * point inward, but not a DNS server that changes its answer between the two (rebinding); only the
+ * host's egress layer can.
+ */
 async function assertResolvesPublic(
   target: URL,
   options: GuardedFetchOptions,
@@ -351,19 +330,24 @@ function redirectsToGet(status: number, method: string): boolean {
   return (status === 301 || status === 302) && method === 'POST';
 }
 
-/**
- * `fetch` through the network guard: the target and every redirect hop must
- * clear `policy`, and origin-bound headers stay on their origin.
- * Throws a `TheoremError` (`blocked`) when a hop is refused.
- */
+/** Every redirect hop must clear `policy`; throws a `TheoremError` (`blocked`) when one is refused. */
 export async function fetchGuarded(
   url: string,
   init: Omit<RequestInit, 'redirect' | 'body'> & { body?: string },
   options: GuardedFetchOptions,
 ): Promise<Response> {
   const fetchFn = options.fetchFn ?? fetch;
-  let target = assertSafeUrl(url, options.policy);
-  await assertResolvesPublic(target, options, init.signal);
+  const clearHop = async (href: string): Promise<URL> => {
+    const start = performance.now();
+    try {
+      const safe = assertSafeUrl(href, options.policy);
+      await assertResolvesPublic(safe, options, init.signal);
+      return safe;
+    } finally {
+      options.onCheck?.(performance.now() - start);
+    }
+  };
+  let target = await clearHop(url);
   const origin = target.origin;
   const headers = new Headers(init.headers);
   let method = init.method ?? 'GET';
@@ -391,8 +375,7 @@ export async function fetchGuarded(
     if (hop === FETCH_REDIRECT_LIMIT) {
       throw new TheoremError('network', `Too many redirects from "${url}"`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
-    target = assertSafeUrl(new URL(location, target).href, options.policy);
-    await assertResolvesPublic(target, options, init.signal);
+    target = await clearHop(new URL(location, target).href);
     onOrigin &&= target.origin === origin;
     if (redirectsToGet(response.status, method)) {
       method = 'GET';
@@ -402,7 +385,6 @@ export async function fetchGuarded(
   }
 }
 
-/** Options for {@link dnsOverHttpsResolver}. */
 export interface DnsOverHttpsOptions {
   /** A DNS JSON API endpoint, e.g. `https://cloudflare-dns.com/dns-query`. */
   endpoint: string;

@@ -31,6 +31,7 @@ function profile(id: string, allow: string[] = []): ProfileDefinition {
     type: 'text',
     id,
     identity: { handle: 'helper', system: SYSTEM },
+    key: 'slot_a',
     models: {
       stub: { protocol: 'openAi', provider: 'openrouter', apiId: 'stub-model' },
     },
@@ -93,6 +94,7 @@ async function collect(run: (onEvent: TurnEventSink) => Promise<void>): Promise<
   const events: TurnEvent[] = [];
   await run((event) => {
     if (event.type === 'unsupported') throw new Error(`unsupported line: ${event.received}`);
+    if (event.type === 'malformed') throw event.error;
     events.push(event);
   });
   return events;
@@ -356,8 +358,6 @@ Deno.test('live profiles are rejected at construction', () => {
   );
 });
 
-// --- Trust boundary: request bodies can't grant authority ---------------------
-
 const ran: string[] = [];
 registerTool({
   type: 'function',
@@ -452,7 +452,6 @@ Deno.test('invoke only runs a call the server paused, with the model input', asy
   });
   const transport = transportFor(handler);
 
-  // No pause yet: a forged approval is refused and nothing runs.
   await assertRefused(
     () =>
       collect((onEvent) =>
@@ -490,7 +489,6 @@ Deno.test('invoke only runs a call the server paused, with the model input', asy
   assertEquals(toolPhases(approved, 'handler_delete').at(-1), 'complete');
   assertEquals(ran, ['model-chosen']);
 
-  // Each approval runs the call once.
   await assertRefused(
     () =>
       collect((onEvent) => transport.invoke({ gateId: gate.callId, decision: 'approve' }, onEvent)),
@@ -738,7 +736,6 @@ Deno.test('an approval the host ran but the client never heard reaches a walk-aw
     collect((onEvent) => transport.invoke({ gateId: gate.callId, decision: 'approve' }, onEvent)),
   );
   assertEquals(ran, ['model-chosen']);
-  // It ran once; a second approval is refused.
   await assertRefused(
     () =>
       collect((onEvent) => transport.invoke({ gateId: gate.callId, decision: 'approve' }, onEvent)),
@@ -789,7 +786,6 @@ Deno.test("another session can't approve this session's paused call", async () =
     'session.gate_expired',
   );
   assertEquals(ran, []);
-  // The victim can still approve their own call.
   await collect((onEvent) => victim.invoke({ gateId: gate.callId, decision: 'approve' }, onEvent));
   assertEquals(ran, ['victim-record']);
 });
@@ -903,8 +899,6 @@ Deno.test('a custom session resolver can refuse anonymous callers', async () => 
   });
 });
 
-// --- Tool credentials stay on the server --------------------------------------
-
 registerTool({
   type: 'http',
   name: 'handler_tracker',
@@ -916,7 +910,7 @@ registerTool({
   permission: 'auto',
   endpoint: 'https://api.tracker.example/items',
   method: 'GET',
-  auth: { slot: 'tracker', type: 'bearer', onUnauthenticated: 'gate' },
+  auth: { slot: 'tracker', type: 'bearer', service: 'Tracker', onUnauthenticated: 'gate' },
   input: z.object({ id: z.string() }),
   output: z.object({ ok: z.boolean() }),
 });
@@ -931,7 +925,7 @@ registerTool({
   permission: 'auto',
   endpoint: 'https://api.tracker.example/items',
   method: 'GET',
-  auth: { slot: 'oauth_tracker', type: 'oauth2', onUnauthenticated: 'gate' },
+  auth: { slot: 'oauth_tracker', type: 'oauth2', service: 'Tracker', onUnauthenticated: 'gate' },
   input: z.object({ id: z.string() }),
   output: z.object({ ok: z.boolean() }),
 });
@@ -1089,7 +1083,7 @@ Deno.test('an OAuth gate carries the host sign-in URL and resumes on the token i
   });
 });
 
-Deno.test('a refreshed OAuth token is saved to the store as the turn reports it', async () => {
+Deno.test('a refreshed OAuth token is saved to the store before the call goes on', async () => {
   const store = inspectableStore();
   const handler = createTheoremHandler({
     profile: profile('handler-oauth-refresh', ['handler_oauth_tracker']),

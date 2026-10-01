@@ -1,13 +1,3 @@
-/**
- * Headless interface contracts — profile-driven UI spec and transcript blocks.
- *
- * `ProfileInterface` is `Profile` as JSON: resolved `inputs`, tool ids, and
- * views of `models`, `outputs`, `guardrails` and `observability` without host
- * functions. `profileInterfaceSchema` is its one schema.
- *
- * @module
- */
-
 import type { LexiconOverrides } from '../guardrails/lexicon.ts';
 import type { ResolvedGuardrailPolicy } from '../guardrails/types.ts';
 import type {
@@ -64,11 +54,7 @@ export interface ProfileInputsInterface {
   slots?: Record<string, string[]>;
 }
 
-/**
- * `profile.tools` as the interface carries it: tool ids. A tool's definition
- * (its handler, schemas, endpoint, headers) stays on the host; `t1Policy` is a
- * host function.
- */
+/** A tool's definition (handler, schemas, endpoint, headers) stays on the host; `t1Policy` too. */
 export type ProfileToolsView = Pick<ProfileToolsSpec, 'allow' | 't2Loader'>;
 
 /** A model binding as the interface carries it: a compaction `trigger` is a host function. */
@@ -197,13 +183,16 @@ export interface ToolCall {
   stepId?: string;
   /** The user's edit on approval; `to` is what ran. */
   edited?: ToolCallEdit;
+  /** What the call is doing, in the tool's words, from its last `running` phase. */
+  activity?: string;
+  /** What the call did, from its `complete` phase. */
+  activityPast?: string;
   /** Absent while the call has only been made. */
   state?: ToolCallState;
   /** When it last started running (epoch ms). */
   startedAt?: number;
   /** When it last settled: complete, failed, cancelled or gated (epoch ms). */
   endedAt?: number;
-  /** Every `artifact` it produced, in order. */
   artifacts: unknown[];
 }
 
@@ -220,15 +209,9 @@ export interface StructuredBlock extends TranscriptBlockBase {
 export interface MediaBlock extends TranscriptBlockBase {
   kind: 'media';
   mimeType: string;
-  /**
-   * Base64 payload for model-generated or attached media.
-   * Absent when `url` is set (tool-result URL promotion).
-   */
+  /** Base64 for model-generated or attached media. Absent when `url` is set. */
   data?: string;
-  /**
-   * Remote http(s) URL promoted from completed tool output.
-   * Absent when `data` is set (kernel `media` events).
-   */
+  /** Remote http(s) URL promoted from completed tool output. Absent when `data` is set. */
   url?: string;
   /** A smaller copy of `url` for previews, when the tool output offered one. */
   previewUrl?: string;
@@ -309,7 +292,6 @@ export interface FoldTurnEventsOptions {
   idPrefix?: string;
 }
 
-/** Whether `foldTurnEvents` should emit thought blocks for this profile. */
 function streamThoughtsEnabled(outputs?: ProfileOutputsSpec): boolean {
   return outputs?.streaming?.streamThoughts !== false;
 }

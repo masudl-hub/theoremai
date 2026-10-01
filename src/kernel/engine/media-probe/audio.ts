@@ -1,17 +1,3 @@
-/**
- * Decoded audio duration from container and frame headers — WAV, AIFF, FLAC,
- * Ogg (Opus, Vorbis, FLAC), Matroska / WebM, MP4 / M4A, MP3, and AAC ADTS.
- * Samples are never decoded; where a container does not state its duration,
- * frame headers are walked and their sample counts summed. Decoded means what
- * a decoder outputs: encoder delay and padding the stream declares are dropped
- * (Opus pre-skip, `CodecDelay` and `DiscardPadding`; LAME delay and padding; the
- * MP4 edit list's leading skip). An MP4 edit that ends inside the last sample
- * keeps that whole sample, as decoders do; ADTS declares no delay, so its
- * priming samples count.
- *
- * @module
- */
-
 import { ascii, id3v2End, uint64, view } from './bytes.ts';
 import { MKV_AUDIO_TRACK, matroska, opusSamplesFromNs } from './matroska.ts';
 import { MP4_SOUND, mp4Tracks } from './mp4.ts';
@@ -24,8 +10,6 @@ const WAV_BYTE_RATE_OFFSET = 8;
 function positiveSeconds(seconds: number): number | undefined {
   return Number.isFinite(seconds) && seconds > 0 ? seconds : undefined;
 }
-
-// ── WAV ───────────────────────────────────────────────────────────────────
 
 function wavSeconds(bytes: Uint8Array): number | undefined {
   if (
@@ -51,8 +35,6 @@ function wavSeconds(bytes: Uint8Array): number | undefined {
   }
   return undefined;
 }
-
-// ── AIFF / AIFF-C ─────────────────────────────────────────────────────────
 
 const AIFF_COMM_FRAMES = 2;
 const AIFF_COMM_RATE = 8;
@@ -88,8 +70,6 @@ function aiffSeconds(bytes: Uint8Array): number | undefined {
   return undefined;
 }
 
-// ── FLAC ──────────────────────────────────────────────────────────────────
-
 const FLAC_BLOCK_HEADER = 4;
 const FLAC_STREAMINFO = 0;
 const FLAC_STREAMINFO_LENGTH = 34;
@@ -118,8 +98,6 @@ function flacSeconds(bytes: Uint8Array): number | undefined {
   if ((bytes[header] & FLAC_BLOCK_TYPE_MASK) !== FLAC_STREAMINFO) return undefined;
   return streamInfoSeconds(bytes, header + FLAC_BLOCK_HEADER);
 }
-
-// ── Ogg (Opus, Vorbis, FLAC) ──────────────────────────────────────────────
 
 const OGG_PAGE_HEADER = 27;
 const OGG_GRANULE = 6;
@@ -188,8 +166,6 @@ function oggSeconds(bytes: Uint8Array): number | undefined {
   return positiveSeconds((granule - preSkip) / rate);
 }
 
-// ── Matroska / WebM ───────────────────────────────────────────────────────
-
 /**
  * Decoded length of a Matroska / WebM file's audio. Unlaced Opus blocks are
  * summed as a decoder outputs them — packet samples less the track's
@@ -210,14 +186,9 @@ function matroskaSeconds(bytes: Uint8Array): number | undefined {
   return file.durationSeconds === undefined ? undefined : positiveSeconds(file.durationSeconds);
 }
 
-// ── MP4 / M4A ─────────────────────────────────────────────────────────────
-
-/** Decoded length of the first sound track. */
 function mp4Seconds(bytes: Uint8Array): number | undefined {
   return mp4Tracks(bytes)?.find((t) => t.handler === MP4_SOUND)?.decodedSeconds;
 }
-
-// ── MP3 and AAC ADTS ──────────────────────────────────────────────────────
 
 const MPEG_VERSION_1 = 3;
 const MPEG_VERSION_2 = 2;
@@ -351,7 +322,6 @@ function adtsFrame(
   return { length, samples: blocks * AAC_FRAME_SAMPLES, rate };
 }
 
-/** True when `at` is the end of the data or the start of a trailing tag. */
 function atStreamEnd(bytes: Uint8Array, at: number): boolean {
   if (at === bytes.length) return true;
   return TRAILING_TAGS.some((tag) => ascii(bytes, at, tag.length) === tag);
@@ -389,12 +359,10 @@ function mpegAudioSeconds(bytes: Uint8Array): number | undefined {
 }
 
 /**
- * Decoded duration in seconds of WAV, AIFF, FLAC, Ogg (Opus / Vorbis / FLAC),
- * Matroska / WebM, MP4 / M4A, MP3, or AAC ADTS audio — identified by its
- * bytes, not its declared MIME type. `undefined` for anything else, or when
- * the duration cannot be read exactly (a WebM without a duration whose blocks
- * are not unlaced Opus; an MP3 or ADTS stream with bytes that are not frames;
- * a LAME tag that trims more samples than the stream holds).
+ * Identified by the bytes, not the declared MIME type. Decoded means what a decoder outputs: declared
+ * encoder delay and padding are dropped (Opus pre-skip, `CodecDelay`, `DiscardPadding`, LAME, the MP4
+ * edit list's leading skip); ADTS declares no delay, so its priming samples count. `undefined` when
+ * the duration cannot be read exactly.
  */
 export function audioSeconds(bytes: Uint8Array): number | undefined {
   return (

@@ -1,7 +1,4 @@
-/**
- * Deterministic docs-truth graph for THEOREM.
- * No waivers. No LLM. Ownership + evidence + freshness only.
- */
+/** Deterministic: no waivers, no LLM. Ownership, evidence and freshness only. */
 
 import { execFileSync } from 'node:child_process';
 import { access, readdir, readFile } from 'node:fs/promises';

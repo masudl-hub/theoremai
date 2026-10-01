@@ -25,13 +25,14 @@ function createMockSpeechRequest(text: string): ProviderCompleteRequest {
     input: [{ type: 'text', text }],
     structured: null,
     image: null,
+    keySlot: 'slot_a',
   };
 }
 
-Deno.test('streamSpeech yields error when apiKey is missing', async () => {
+Deno.test('streamSpeech yields an auth error when the vault slot is empty', async () => {
   const req = createMockSpeechRequest('Hello world');
   const events = [];
-  for await (const event of streamSpeech(req, { apiKey: '' })) {
+  for await (const event of streamSpeech(req, { vault: { slot_a: '' } })) {
     events.push(event);
   }
   assertEquals(events.length, 1);
@@ -42,7 +43,7 @@ Deno.test('streamSpeech yields error when apiKey is missing', async () => {
 Deno.test('streamSpeech yields error on empty input text', async () => {
   const req = createMockSpeechRequest('');
   const events = [];
-  for await (const event of streamSpeech(req, { apiKey: 'test-key' })) {
+  for await (const event of streamSpeech(req, { vault: { slot_a: 'test-key' } })) {
     events.push(event);
   }
   assertEquals(events.length, 1);
@@ -55,7 +56,10 @@ Deno.test('streamSpeech handles HTTP error from speech endpoint', async () => {
   const mockFetch: typeof fetch = () => Promise.resolve(new Response('Forbidden', { status: 403 }));
 
   const events = [];
-  for await (const event of streamSpeech(req, { apiKey: 'test-key', fetch: mockFetch })) {
+  for await (const event of streamSpeech(req, {
+    vault: { slot_a: 'test-key' },
+    fetch: mockFetch,
+  })) {
     events.push(event);
   }
   assertEquals(events.length, 1);
@@ -74,7 +78,10 @@ Deno.test('streamSpeech yields error when response is empty', async () => {
     );
 
   const events = [];
-  for await (const event of streamSpeech(req, { apiKey: 'test-key', fetch: mockFetch })) {
+  for await (const event of streamSpeech(req, {
+    vault: { slot_a: 'test-key' },
+    fetch: mockFetch,
+  })) {
     events.push(event);
   }
   assertEquals(events.length, 1);
@@ -110,7 +117,7 @@ Deno.test('streamSpeech yields media and done on successful synthesis (no usage 
   };
 
   const provider = createSpeechProvider({
-    apiKey: 'mock-openrouter-key',
+    vault: { slot_a: 'mock-openrouter-key' },
     voice: 'Orus',
     fetch: mockFetch,
   });
@@ -151,7 +158,7 @@ Deno.test('streamSpeech tapes the request, the response and the audio body', asy
     speech: { format: 'pcm' as const },
     tapUpstream: (row: Record<string, unknown>) => taped.push(row),
   };
-  for await (const _event of streamSpeech(req, { apiKey: 'key', fetch: mockFetch })) {
+  for await (const _event of streamSpeech(req, { vault: { slot_a: 'key' }, fetch: mockFetch })) {
     // drain
   }
   assertEquals(
@@ -189,7 +196,7 @@ Deno.test('streamSpeech respects outputs.speech voice and format mp3', async () 
   };
 
   const provider = createSpeechProvider({
-    apiKey: 'mock-key',
+    vault: { slot_a: 'mock-key' },
     siteUrl: 'https://theorem.dev',
     siteName: 'Theorem Test',
     fetch: mockFetch,
@@ -207,8 +214,6 @@ Deno.test('streamSpeech respects outputs.speech voice and format mp3', async () 
   assertEquals(mediaEvent.media.mimeType, 'audio/mpeg');
   assertEquals(mediaEvent.media.data, btoa(String.fromCharCode(...mockMp3Bytes)));
 });
-
-// -- extractInputText ------------------------------------------
 
 Deno.test('extractInputText joins multiple text parts with a space', () => {
   const input: InteractionPart[] = [
@@ -241,8 +246,6 @@ Deno.test('extractInputText returns empty string for empty input array', () => {
   assertEquals(extractInputText([]), '');
 });
 
-// -- buildSpeechHeaders ------------------------------------------------
-
 Deno.test('buildSpeechHeaders sets Authorization and Content-Type only by default', () => {
   const headers = buildSpeechHeaders('secret-key', {});
   assertEquals(headers.Authorization, 'Bearer secret-key');
@@ -269,8 +272,6 @@ Deno.test('buildSpeechHeaders adds both when siteUrl and siteName are set', () =
   assertEquals(headers['HTTP-Referer'], 'https://theorem.dev');
   assertEquals(headers['X-Title'], 'Theorem');
 });
-
-// -- buildPayload -------------------------------------------------
 
 Deno.test('buildPayload omits response_format when speech.format is unset', () => {
   const req = createMockSpeechRequest('hi');
@@ -303,8 +304,6 @@ Deno.test('buildPayload uses apiId on the wire', () => {
   const payload = buildPayload(req, 'hi there', undefined, undefined);
   assertEquals(payload.model, req.apiId);
 });
-
-// -- yieldSpeechSuccess -------------------------------------------
 
 Deno.test('yieldSpeechSuccess wraps pcm at the rate and channels the content-type states', () => {
   const rawBytes = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
@@ -346,7 +345,7 @@ Deno.test('yieldSpeechSuccess ends with a done event', () => {
 });
 
 Deno.test('createSpeechProvider exposes complete() and requestSpeech sends POST', async () => {
-  const provider = createSpeechProvider({ apiKey: 'key' });
+  const provider = createSpeechProvider({ vault: { slot_a: 'key' } });
   assertEquals(typeof provider.complete, 'function');
 
   let capturedUrl = '';
@@ -356,7 +355,7 @@ Deno.test('createSpeechProvider exposes complete() and requestSpeech sends POST'
   };
   const req = createMockSpeechRequest('say hello');
   const res = await requestSpeech('secret-key', 'say hello', req, {
-    apiKey: 'secret-key',
+    vault: { slot_a: 'secret-key' },
     fetch: mockFetch,
   });
   assertEquals(res.status, 200);

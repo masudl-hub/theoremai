@@ -3,13 +3,12 @@
  *
  * The browser never holds the profile: it asks the transport to `describe` the
  * profile's client-safe interface, then streams turns / tool invokes through it.
- * `createHttpTransport` speaks to `createTheoremHandler` (`@theoremai/react/server`);
+ * `createHttpTransport` speaks to `createTheoremHandler` (`@theoremjs/react/server`);
  * hosts with their own wire format implement {@link TheoremTransport} directly.
  *
  * @module
  */
 
-import { z } from '../../../mod.ts';
 import {
 	describeError,
 	type ErrorKind,
@@ -17,21 +16,29 @@ import {
 	type GateDecision,
 	isAbortError,
 	TheoremError,
-	throwIfAborted,
 	TURN_EVENT_SCHEMAS,
 	type TurnEvent,
 	type TurnHistoryMessage,
-	turnHistoryMessageSchema,
 	type TurnToolSnapshot,
+	throwIfAborted,
+	turnHistoryMessageSchema,
 	turnToolSnapshotSchema,
-} from '../../../mod.ts';
-import { kindOfHttpStatus } from '../../../src/guardrails/mod.ts';
-import { type ProfileInterface, profileInterfaceSchema } from '../../../src/interface/mod.ts';
-import type { Equals } from '../../../src/kernel/util/exact-type.ts';
+	z,
+} from '@theoremjs/agents';
+import { kindOfHttpStatus } from '@theoremjs/agents/guardrails';
+import { type ProfileInterface, profileInterfaceSchema } from '@theoremjs/agents/interface';
+import type { Equals } from '@theoremjs/agents/kernel';
 import type { TraceFeed } from './trace-feed.ts';
-import { checkWire, parseWireJson, parseWireLine, type UnsupportedEvent, type WireLines } from './wire-line.ts';
+import {
+	checkWire,
+	type MalformedEvent,
+	parseWireJson,
+	readWireLine,
+	type UnsupportedEvent,
+	type WireLines,
+} from './wire-line.ts';
 
-export type { UnsupportedEvent, WireLines } from './wire-line.ts';
+export type { MalformedEvent, UnsupportedEvent, WireLines } from './wire-line.ts';
 
 export type EncodedBlob = { name: string; mimeType: string; data: string };
 const encodedBlob = z.object({ name: z.string(), mimeType: z.string(), data: z.string() });
@@ -179,8 +186,8 @@ true satisfies Equals<z.infer<typeof theoremSteerRequest>, TheoremSteerRequest>;
 /** A `/steer` body as `createTheoremHandler` reads it. */
 export const theoremSteerRequestSchema: z.ZodType<TheoremSteerRequest> = theoremSteerRequest;
 
-/** A turn event, or one of a kind this client does not know (`unsupported`). */
-export type ClientTurnEvent = TurnEvent | UnsupportedEvent;
+/** A turn event, one of a kind this client does not know (`unsupported`), or one that failed its check (`malformed`). */
+export type ClientTurnEvent = TurnEvent | UnsupportedEvent | MalformedEvent;
 
 export type TurnEventSink = (event: ClientTurnEvent) => void;
 
@@ -248,8 +255,8 @@ export function hostError(body: HostErrorBody, fallbackKind: ErrorKind): Theorem
 function parseStreamLine<Line extends { type: string }>(
 	lines: WireLines<Line>,
 	text: string,
-): Line | UnsupportedEvent {
-	const line = parseWireLine(lines, parseWireJson(text));
+): Line | UnsupportedEvent | MalformedEvent {
+	const line = readWireLine(lines, text);
 	// An `error` line passed the error event's schema, whose fields include the body's.
 	if (line.type === 'error') throw hostError(hostErrorBody.parse(line), 'internal');
 	return line;
@@ -258,7 +265,7 @@ function parseStreamLine<Line extends { type: string }>(
 function flushNdjsonChunk<Line extends { type: string }>(
 	buffer: string,
 	lines: WireLines<Line>,
-	onLine: (line: Line | UnsupportedEvent) => void,
+	onLine: (line: Line | UnsupportedEvent | MalformedEvent) => void,
 ): string {
 	const chunks = buffer.split('\n');
 	const rest = chunks.pop() ?? '';
@@ -271,13 +278,13 @@ function flushNdjsonChunk<Line extends { type: string }>(
 
 /**
  * Read an NDJSON reply, checking each line against `lines`: a kind it doesn't
- * list reaches `onLine` as `unsupported`; a listed kind that fails its schema
- * ends the stream with `bad_response`.
+ * list reaches `onLine` as `unsupported`, and a line that fails its check as
+ * `malformed`; the stream goes on. An `error` line ends it.
  */
 export async function readNdjsonStream<Line extends { type: string }>(
 	response: Response,
 	lines: WireLines<Line>,
-	onLine: (line: Line | UnsupportedEvent) => void,
+	onLine: (line: Line | UnsupportedEvent | MalformedEvent) => void,
 	signal?: AbortSignal,
 ): Promise<void> {
 	if (!response.body) throw new TheoremError('bad_response', 'stream reply has no body'); // lexicon-exempt: internal diagnostic
@@ -369,7 +376,7 @@ export async function postNdjson<Line extends { type: string }>(
 	url: string,
 	body: unknown,
 	lines: WireLines<Line>,
-	onLine: (line: Line | UnsupportedEvent) => void,
+	onLine: (line: Line | UnsupportedEvent | MalformedEvent) => void,
 	options: HttpOptions & { signal?: AbortSignal } = {},
 ): Promise<void> {
 	const response = await request(
@@ -385,6 +392,18 @@ export async function postNdjson<Line extends { type: string }>(
 export async function postJson(url: string, body: unknown, options: HttpOptions = {}): Promise<void> {
 	const response = await request(url, { method: 'POST', body: JSON.stringify(body) }, options);
 	if (!response.ok) throw await failureFromResponse(response);
+}
+
+/** GET, or POST `body` as JSON, and read the JSON reply; a non-OK reply throws its failure. */
+export async function fetchJson(
+	url: string,
+	init: { body?: unknown; signal?: AbortSignal },
+	options: HttpOptions = {},
+): Promise<unknown> {
+	const method = init.body === undefined ? { method: 'GET' } : { method: 'POST', body: JSON.stringify(init.body) };
+	const response = await request(url, { ...method, signal: init.signal }, options);
+	if (!response.ok) throw await failureFromResponse(response);
+	return parseWireJson(await response.text());
 }
 
 export type HttpTransportOptions = HttpOptions & {

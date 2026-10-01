@@ -7,7 +7,7 @@ import {
 	inkWaveDriver,
 	inkWavePhases,
 	stepInkBarHeights,
-} from '../client/ink-waveform';
+} from '../client/ink-waveform.ts';
 
 export type InkWaveformProps = {
 	status?: InkWaveStatus;

@@ -7,7 +7,6 @@ import type {
   ResolvedGeneration,
 } from '../types.ts';
 
-/** Each builtin with the wire names `tools` registered for it. */
 function providerBuiltins(tools: ToolRegistry, ids: readonly BuiltinToolId[]): ProviderBuiltin[] {
   return ids.map((id) => {
     const tool = tools.get(id);
@@ -18,7 +17,7 @@ function providerBuiltins(tools: ToolRegistry, ids: readonly BuiltinToolId[]): P
   });
 }
 
-/** Build the provider request projection shared by execution and tracing. */
+/** Shared by execution and tracing. */
 function providerCompleteRequest(
   tools: ToolRegistry,
   generation: ResolvedGeneration,
@@ -30,7 +29,7 @@ function providerCompleteRequest(
     apiId: generation.apiId,
     previousInteractionId: isInteractions ? generation.previousInteractionId : undefined,
     store: isInteractions ? generation.store : undefined,
-    stream: isInteractions ? generation.stream : undefined,
+    stream: generation.stream,
     thinking: generation.thinking,
     summaries: generation.summaries,
     maxOutputTokens: generation.maxOutputTokens,
@@ -50,6 +49,7 @@ function providerCompleteRequest(
     live: generation.live,
     sessionResumptionHandle: generation.sessionResumptionHandle,
     keySlot: generation.keySlot,
+    fallbackKeySlot: generation.fallbackKeySlot,
   };
 }
 

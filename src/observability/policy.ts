@@ -1,16 +1,6 @@
-/**
- * Trace writer resolution — a resolved observability policy becomes a sink.
- *
- * Policy defaults live in `resolve-policy.ts` (pure); this module owns the
- * writer precedence and needs the sink implementations.
- *
- * @module
- */
-
-import { TheoremError } from '../guardrails/error.ts';
-import { isJsonlTraceDestination, isTraceSink, requireTraceDestination } from './destinations.ts';
+import { requireTraceDestination } from './destinations.ts';
 import { resolveObservabilityPolicy } from './resolve-policy.ts';
-import { jsonlSink, noopSink } from './trace.ts';
+import { noopSink } from './trace.ts';
 import type { TraceRecord } from './trace-record.ts';
 import type { TraceSink } from './trace-sink.ts';
 import type { ProfileObservabilitySpec, ResolvedObservabilityPolicy } from './types.ts';
@@ -30,10 +20,8 @@ const SAMPLE_HEX_DIGITS = 8;
 const SAMPLE_SPACE = 2 ** 32;
 
 /**
- * Keep a record when its trace is sampled. The decision is a function of the
- * trace id (OpenTelemetry `TraceIdRatioBased`), so every record of one trace
- * (a turn, its specialists, a Live session's responses and tools, a host's
- * cutout) is kept or dropped together, in any process.
+ * Decided by trace id (OpenTelemetry `TraceIdRatioBased`), so every record of one trace (a turn,
+ * its specialists, a Live session's responses, a host's cutout) is kept or dropped together.
  */
 function traceSampled(record: TraceRecord, sampleRate: number): boolean {
   const traceId = record.spans[0]?.traceId ?? '';
@@ -67,25 +55,12 @@ function sinkFromWriteTo(
   if (typeof writeTo !== 'string') {
     return bindOnWriteError(writeTo, policy.onWriteError);
   }
-  const destination = requireTraceDestination(writeTo);
-  if (isJsonlTraceDestination(destination)) {
-    return bindOnWriteError(
-      jsonlSink(destination.dir, { rotateAfterMiB: policy.rotateAfterMiB }),
-      policy.onWriteError,
-    );
-  }
-  if (!isTraceSink(destination)) {
-    throw new TheoremError('config', `Trace destination '${writeTo}' is not a usable writer`);
-  }
-  return bindOnWriteError(destination, policy.onWriteError);
+  return bindOnWriteError(requireTraceDestination(writeTo), policy.onWriteError);
 }
 
 /**
- * Resolve the TraceSink for one turn.
- *
- * Precedence: explicit `override` (runTurn third arg) → profile `writeTo` → noop.
- * An explicit override always records (sampleRate does not apply) so tests and
- * one-off capture are deterministic.
+ * Precedence: explicit `override` (runTurn's third arg), then profile `writeTo`, then noop. An
+ * override always records, ignoring `sampleRate`, so tests and one-off capture are deterministic.
  */
 function resolveTraceWriter(args: {
   override?: TraceSink;

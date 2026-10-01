@@ -1,53 +1,11 @@
 /**
- * THEOREM public API.
- *
- * Import this entrypoint when an application wants the complete kernel surface:
- * profile registration, turn execution, provider constructors, guardrails,
- * observability sinks, and public type contracts.
- *
- * @example
- * ```ts
- * import { defineProfile, registerProfile, runTurn } from "jsr:@theoremai/agents";
- *
- * const profile = defineProfile({
- *   id: "assistant.basic",
- *   type: "text",
- *   identity: {
- *     handle: "assistant",
- *     system: "Answer plainly.",
- *   },
- *   models: {
- *     default: {
- *       protocol: "openAi",
- *       provider: "openrouter",
- *       apiId: "perplexity/sonar",
- *       efforts: { normal: "minimal" },
- *       summaries: false,
- *       maxOutputTokens: 8192,
- *       temperature: 1,
- *     },
- *   },
- *   maxSteps: 1,
- *   tools: { allow: [] },
- *   inputs: { text: true },
- *   outputs: {
- *     streaming: { streamThoughts: false },
- *   },
- *   guardrails: {
- *     quota: { perDay: 100 },
- *   },
- * });
- *
- * registerProfile(profile);
- * ```
+ * THEOREM's complete public API: profiles, turns, providers, guardrails, observability and
+ * types. The narrower subpath exports carry parts of it without the rest.
  *
  * @module
  */
 
-/**
- * The zod Theorem's schemas are built with. Compose them with this `z`: two
- * copies of zod, even at one version, do not mix.
- */
+/** Compose with this `z`: two copies of zod, even at one version, do not mix. */
 export { z } from 'zod';
 export type {
   ErrorCopies,
@@ -223,6 +181,7 @@ export {
 } from './src/guardrails/sanitize.ts';
 export {
   clearProfiles,
+  compactHistory,
   getProfile,
   getStructured,
   getTool,
@@ -253,6 +212,7 @@ export {
   shouldCompact,
   splitForCompaction,
 } from './src/kernel/engine/compaction.ts';
+export { validateDecisionRequest } from './src/kernel/engine/decision.ts';
 export { prepareLiveInboundText } from './src/kernel/engine/live-inbound.ts';
 export type { LiveIngressChannel } from './src/kernel/engine/live-ingress.ts';
 export {
@@ -263,7 +223,7 @@ export {
   liveIngressEnabled,
   liveIngressEnabledFromSpec,
 } from './src/kernel/engine/live-ingress.ts';
-export type { RunSessionOptions } from './src/kernel/engine/session/mod.ts';
+export type { RunSessionOptions, SignInGatePolicy } from './src/kernel/engine/session/mod.ts';
 export type {
   MediaPayload,
   MediaTokenFamily,
@@ -344,6 +304,7 @@ export {
   AWAITING_USER_INPUT_KINDS,
   AWAITING_USER_INPUT_STATUS,
   COMPACTION_METERS,
+  COMPACTION_OUTCOMES,
   COMPACTION_TIMINGS,
   CONTINUE_STOP_KINDS,
   catalogPathFor,
@@ -355,19 +316,20 @@ export {
   fieldMeta,
   HTTP_METHODS,
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
+  isKeySlotName,
   isSpeechFormatAllowedForProtocol,
   isToolGateKind,
   isTurnInjectStage,
   isTurnStage,
   isValidPair,
   isValidProfileProtocol,
-  KEY_SLOTS,
+  KEY_SLOT_NAME,
   LIVE_ACTIVITY_HANDLINGS,
-  LIVE_SPEECH_SENSITIVITIES,
+  LIVE_END_SENSITIVITIES,
+  LIVE_START_SENSITIVITIES,
   MEDIA_INPUT_KIND_VALUES,
   MEDIA_INPUT_KINDS,
   MEDIA_WILDCARDS,
-  OVERFLOW_KEY_SLOTS,
   PLAYGROUND_AUTH_TYPES,
   PROFILE_FIELDS,
   PROFILE_TYPE_PROTOCOLS,
@@ -392,6 +354,7 @@ export {
   TURN_INJECT_STAGES,
   TURN_STAGES,
   TURN_STOP_KINDS,
+  thinkingLevelsForProtocol,
   VOICE_ACCEPT_MIMES,
 } from './src/kernel/schema.ts';
 export type { KernelScope } from './src/kernel/scope.ts';
@@ -468,8 +431,6 @@ export {
 } from './src/kernel/turn-events.ts';
 export type * from './src/kernel/types.ts';
 export type {
-  JsonlSinkOptions,
-  JsonlTraceDestination,
   OtlpAnyValue,
   OtlpKeyValue,
   OtlpSpan,
@@ -488,7 +449,6 @@ export type {
   TraceBytes,
   TraceClock,
   TraceContent,
-  TraceDestination,
   TraceEventMeta,
   TraceIncludeSpec,
   TraceJson,
@@ -513,13 +473,11 @@ export {
   contentOf,
   getTraceDestination,
   inlineContent,
-  isJsonlTraceDestination,
   isTraceSink,
-  jsonlDestination,
-  jsonlSink,
   listTraceDestinationIds,
   memorySink,
   noopSink,
+  readTraceparent,
   registerTraceDestination,
   requireTraceDestination,
   resolveObservabilityPolicy,
@@ -543,7 +501,7 @@ export {
 export * from './src/presets/mod.ts';
 export type {
   CreateProviderOptions,
-  GeminiTransport,
+  GeminiOptions,
   KeyVault,
   LocalProviderConfig,
   OpenAiGatewayConfig,

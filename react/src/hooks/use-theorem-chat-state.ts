@@ -5,9 +5,9 @@ import {
 	emptyInterfaceTurnSession,
 	type InterfaceTurnSession,
 	type TranscriptBlock,
-} from '../../../src/interface/mod.ts';
-import type { ClientFailure } from '../client/failure';
-import type { AnsweringGate } from '../client/tool-resume';
+} from '@theoremjs/agents/interface';
+import type { ClientFailure } from '../client/failure.ts';
+import type { AnsweringGate } from '../client/tool-resume.ts';
 
 type SetSession = (
 	value: InterfaceTurnSession | ((prev: InterfaceTurnSession) => InterfaceTurnSession),

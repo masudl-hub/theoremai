@@ -1,21 +1,16 @@
-/**
- * Google transport credentials, quota overflow, and fetch retries.
- *
- * Hosts supply a provider-neutral `KeyVault` via `GeminiTransport`.
- * THEOREM does not read environment variables for these keys.
- *
- * @module
- */
-
-import { isAbortError, TheoremError } from '../../guardrails/error.ts';
+import { isAbortError } from '../../guardrails/error.ts';
 import type { KeySlot, KeyVault, ProviderCompleteRequest } from '../../kernel/types.ts';
 import { networkError, tapFetch } from '../shared/upstream-tap.ts';
+import { fallbackKey, requireKey } from '../shared/vault.ts';
 
-/** Google Interactions / Live transport: shared `KeyVault` + optional fetch/wait. */
-interface GeminiTransport {
-  vault: KeyVault;
+/** A host's Gemini settings; keys come from the one vault. */
+interface GeminiOptions {
   wait?: (ms: number) => Promise<void>;
   fetch?: typeof fetch;
+}
+
+interface GeminiTransport extends GeminiOptions {
+  vault: KeyVault;
 }
 
 const ATTEMPTS = 3;
@@ -59,27 +54,8 @@ export function isTransientThrown(err: unknown): boolean {
   return TRANSIENT_THROWN_RE.test(String(err));
 }
 
-export function requireKey(vault: KeyVault, slot: KeySlot): string {
-  const key = vault[slot];
-  if (!key) {
-    throw new TheoremError('auth', `gemini.vault has no key in slot '${slot}'`);
-  }
-  return key;
-}
-
 export function backoffMs(attempt: number): number {
   return BACKOFF_MS[attempt] ?? BACKOFF_SECOND_MS;
-}
-
-export function canOverflow(slot: KeySlot, vault: KeyVault, primary: string): string | undefined {
-  if (slot === 'paid') {
-    return undefined;
-  }
-  const { paid } = vault;
-  if (!paid || paid === primary) {
-    return undefined;
-  }
-  return paid;
 }
 
 export function withApiKey(init: RequestInit, apiKey: string): RequestInit {
@@ -127,8 +103,8 @@ async function fetchWithBackoff(args: FetchAttempt): Promise<Response> {
 }
 
 /**
- * POST to Google with backoff on transient failures, overflowing a quota
- * refusal to the `paid` key. `tap` sees every try under the slot it used.
+ * Backs off on transient failures. A quota refusal retries once on the profile's fallback slot,
+ * when it names one; each try's slot is on the tape, so the trace shows the switch.
  */
 export async function fetchGemini(
   url: string,
@@ -136,6 +112,7 @@ export async function fetchGemini(
   slot: KeySlot,
   transport: GeminiTransport,
   tap?: ProviderCompleteRequest['tapUpstream'],
+  fallbackSlot?: KeySlot,
 ): Promise<Response> {
   const parsed = new URL(url);
   parsed.searchParams.delete('key');
@@ -143,11 +120,11 @@ export async function fetchGemini(
   const primary = requireKey(transport.vault, slot);
   const first = { href, init, transport, tap, attempt: 0 };
   let last = await fetchWithBackoff({ ...first, apiKey: primary, slot });
-  const paid = canOverflow(slot, transport.vault, primary);
-  if (last.status === HTTP_QUOTA && paid) {
-    last = await fetchWithBackoff({ ...first, apiKey: paid, slot: 'paid' });
+  const fallback = fallbackKey(fallbackSlot, transport.vault, primary);
+  if (last.status === HTTP_QUOTA && fallback) {
+    last = await fetchWithBackoff({ ...first, apiKey: fallback.key, slot: fallback.slot });
   }
   return last;
 }
 
-export type { GeminiTransport };
+export type { GeminiOptions, GeminiTransport };

@@ -1,12 +1,3 @@
-/**
- * Sensitive-data span detection.
- *
- * Detects common credentials, tokens, card numbers, SSNs, and network secrets
- * so host profiles can redact them before provider submission.
- *
- * @module
- */
-
 import { blobAt, type RedactSpan, spansFromPatterns } from '../observability/spans.ts';
 
 const SSN = /\b\d{3}-\d{2}-\d{4}\b/g;

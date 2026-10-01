@@ -68,6 +68,11 @@ Deno.test('resume policy helpers', () => {
     false,
   );
   assertEquals(shouldAutoContinue({ kind: 'length' }, { allowContinue: ['length'] }), true);
+  // An empty allow list continues nothing, as an empty autoContinue auto-continues nothing.
+  for (const kind of ['length', 'stream_incomplete', 'provider_error'] as const) {
+    assertEquals(isResumeableStop({ kind }, []), false);
+    assertEquals(shouldAutoContinue({ kind }, { allowContinue: [] }), false);
+  }
   assertEquals(AUTO_CONTINUE_DELAY_MS, 1_500);
 });
 

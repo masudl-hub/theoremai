@@ -1,4 +1,4 @@
-import type { TranscriptBlock } from '../../../src/interface/mod.ts';
+import type { TranscriptBlock } from '@theoremjs/agents/interface';
 import type { LabelText } from './labels.ts';
 
 /** Plain text copied from a transcript block. */

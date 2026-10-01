@@ -1,25 +1,27 @@
-/**
- * Playground fixtures and helpers — the editable draft, its tree, the compiler
- * that turns it into a profile, source export, demo seeds, and run handoff.
- *
- * @module
- */
-
 export {
   type CompiledPlayground,
   compilePlayground,
+  credentialHeaderProblem,
   type PlaygroundCompileResult,
   type PlaygroundIssue,
   type PlaygroundProfileDefinition,
+  type PlaygroundTurnProfileDefinition,
 } from './compile.ts';
 export {
   createBlankDraft,
+  type DecisionCriterionDraft,
+  type DecisionDraft,
+  type DecisionQuestionDraft,
+  type DecisionQuestionType,
   defaultModelBinding,
   defaultToolSpec,
   draftAllows,
   draftFacets,
   draftKey,
   type EffortDraft,
+  EXAMPLE_DECISION_STATE,
+  EXAMPLE_SPAN_DECISION_STATE,
+  exampleDecisionDraft,
   excludeFacet,
   type GuardrailsDraft,
   type IdentityDraft,
@@ -31,6 +33,8 @@ export {
   type LiveDraft,
   type ModelBindingDraft,
   type ModelsDraft,
+  newCriteria,
+  newDecisionQuestion,
   newModelBinding,
   newToolSpec,
   type ObservabilityDraft,
@@ -38,23 +42,23 @@ export {
   PLAYGROUND_PROFILE_TYPES,
   type PlaygroundDraft,
   type PlaygroundProfileType,
+  type PlaygroundTurnProfileType,
   setProfileType,
   type SpeechDraft,
   takesContinueInstruction,
   type ToolsDraft,
   type ToolSpecDraft,
   type TurnBehaviourDraft,
+  updateModelBinding,
   type WordingDraft,
 } from './draft.ts';
-export { createExampleDraft } from './example.ts';
+export { createExampleDraft, createSpanExampleDraft } from './example.ts';
+export { type AcceptSection, acceptSections, expandAccept, nextAccept } from './media-accept.ts';
 export {
-  type AcceptSection,
-  acceptSections,
-  expandAccept,
-  nextAccept,
-} from './media-accept.ts';
-export {
+  type PlaygroundConnectionMode,
   allowedBuiltinsForGemini,
+  decisionQuestionViolation,
+  decisionStateViolation,
   defaultBindingForProfileType,
   GEMINI_PLAYGROUND_DEFAULT_API_ID,
   GEMINI_PLAYGROUND_IMAGE_DEFAULT_API_ID,
@@ -67,9 +71,19 @@ export {
   isGoogleTransport,
   isOpenRouterTransport,
   isProviderBuiltinId,
+  JEV_PLAYGROUND_API_ID,
   type ModelBindingViolation,
   modelBindingViolation,
+  OPENROUTER_DECISION_MODELS,
   OPENROUTER_PLAYGROUND_API_ID,
+  PLAYGROUND_DECISION_MAX_CRITERIA,
+  PLAYGROUND_DECISION_MAX_CRITERION_CHARS,
+  PLAYGROUND_DECISION_MAX_ID_CHARS,
+  PLAYGROUND_DECISION_MAX_INSTRUCTIONS_CHARS,
+  PLAYGROUND_DECISION_MAX_NAME_CHARS,
+  PLAYGROUND_DECISION_MAX_QUESTIONS,
+  PLAYGROUND_DECISION_MAX_STATE_BYTES,
+  PLAYGROUND_DECISION_TIMEOUT_MS,
   PLAYGROUND_TRACE_DESTINATION,
   playgroundRunsTransport,
   servesOtherProfileType,
@@ -144,4 +158,11 @@ export {
 } from './run-payload.ts';
 export { registerPlaygroundTools } from './tools.ts';
 export type { PlaygroundSteerLine } from './transport.ts';
-export { createPlaygroundTransport, playgroundInterface } from './transport.ts';
+export {
+  createPlaygroundDecisionTransport,
+  createPlaygroundHostTransport,
+  createPlaygroundTransport,
+  playgroundInterface,
+} from './transport.ts';
+
+export { playgroundDecisionRequestSchema } from './decision-request.ts';

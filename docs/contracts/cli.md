@@ -1,4 +1,4 @@
-# CLI (`@theoremai/agents/cli`)
+# CLI (`@theoremjs/agents/cli`)
 
 Profile inspection and stress-test CLI. On npm this entry is also the
 `agents` binary. Hosts must register profiles (and providers) in-process
@@ -8,17 +8,18 @@ before commands that execute turns — the CLI does not embed app profiles.
 
 | Field | Value |
 | --- | --- |
-| Import | `@theoremai/agents/cli` / `jsr:@theoremai/agents/cli` |
+| Import | `@theoremjs/agents/cli` / `jsr:@theoremjs/agents/cli` |
 | Module | `src/cli/index.ts` |
-| Binary | `agents` (npm `bin`) |
+| Binary | `agents` (npm `bin` → `src/cli/bin.ts`) |
 
 ## Ownership
 
 | Path | Role |
 | --- | --- |
-| `src/cli/index.ts` | Argument parser + command dispatch |
+| `src/cli/index.ts` | Argument parser + command dispatch (`main`) |
+| `src/cli/bin.ts` | The `agents` executable: runs `main` on the process arguments |
 | `src/cli/event-log.ts` | Shared `run`/`test` event printing + `--trace` capture |
-| `src/cli/commands/*` | `bench`, `fuzz`, `test`, `run`, `profile` |
+| `src/cli/commands/*` | `bench`, `fuzz`, `test`, `run`, `eval`, `profile` |
 | `src/cli/matrix/*` | Permutation synthesizer + fixtures |
 
 ## Commands
@@ -38,10 +39,24 @@ agents <command> [options]
 | `bench` | Synthetic kernel performance benchmark (`--chunks`, `--iterations`, `--warmup`) |
 | `test` | Stress matrix or custom profile tests (`--profile`, `--all`, `--lite`, `--matrix`, `--mode`, `--search`, `--map`, `--verbose`, `--trace`, `--trace-dir`) |
 | `run` | Execute a turn with streaming output (`--profile`, `--prompt`, `--mode`, `--verbose`, `--trace`, `--trace-dir`, …) |
+| `eval <suite>` | Run an eval suite module live, or grade recorded traces (`--recorded <file\|dir>`, `--trials <k>`, `--concurrency <n>`, `--max-cost-usd <n>`, `--threshold <fraction>`, `--trace-dir`, `--json`); exit `1` below the threshold or on a budget stop |
 | `profile list` / `profile show <id>` | Inspect registered profile blueprints (text, image, speech, live, decision). `run` and `test` remain turn paths; decision profiles run through host code with `runDecision`. |
 | `help` | Usage |
 
 Exit code `1` on failed `test` runs. `run` requires `--profile` (or `-p`).
+`eval` takes the suite module's path (`export default` an `EvalSuite`, see
+`docs/contracts/evals.md`); it prints one row per case (trials passed, errored,
+ungraded) and, for a failed case, every result that failed a trial in the
+grader's words. Live mode needs a provider the host passes to `evalCommand` or
+the suite module exports as `provider`. A text judge needs a provider too
+(`judgeProvider` in `evalCommand`'s host argument, the suite's `judgeProvider`
+export, else the agent's) and a Jev judge a key (`judgeDecision` in the host
+argument, else the suite's `judgeDecision` export); the CLI creates no
+provider and reads no key. `--threshold` is the fraction of decided cases
+that must pass for exit `0` (default `1`); a case whose trials errored too
+often to decide counts neither way, and a run that decided none exits `1`. Trials start in suite order, `--concurrency`
+at a time (default `1`), and are reported in suite order whatever finished
+first.
 Every command runs on the default kernel scope (`defaultKernelScope`): the
 profiles and tools it sees are the ones registered through the global API.
 `profile show` and `test` list custom tools from the kernel's `profileToolAllow`,
@@ -70,20 +85,34 @@ agents test --profile my.agent --lite --trace --trace-dir /var/log/theorem
 
 | Module | Role |
 | --- | --- |
-| `matrix/synthesizer.ts` | Builds valid permutation cases (modes, optional tools, reasoning) |
-| `matrix/fixtures.ts` | Shared harness fixtures (not product personas) |
+| `matrix/synthesizer.ts` | Builds the requests `test` sends |
+| `matrix/fixtures.ts` | Synthetic media: PNG, PDF, WAV (generated), CSV, plain text; `getFixtureForMime` picks by MIME |
 
-Tool stress / matrix allowlists are `profile.tools.allow` plus each selected
-model's `builtInTools` (via `pickModel` / union across `models`). Builtin
-conflict resolution uses registered tool `type === 'builtin'` metadata.
-The matrix respects those allowlists — e.g. `--search` only applies when
-`googleSearch` is allowlisted, while file/voice synthesizers run only for profiles the kernel's `profileInputs`
-gives turn inputs (`text`, `image`).
+`test --matrix` sends two requests per profile (`synthesizeMatrixCombos`);
+plain `test` sends one (`buildCustomTurnRequest`): Stress, or Lite with
+`--lite`, with `--mode` setting its model. Host and decision profiles run no
+model turn and are skipped. **Lite** is a one-line text ping,
+on model `fast` when `allowModelSelect` is set and `fast` exists. **Stress** sends
+a text prompt plus one attachment and one voice clip where the profile accepts
+them, on `smart` (or the last model) when `allowModelSelect` is set. The
+attachment is the first of PNG, PDF, plain text that `inputs.attachments.accept`
+lists, else its first MIME; the voice clip is the WAV fixture when
+`inputs.voice.accept` is non-empty. Only `text` and `image` profiles have
+`inputs` (`profileInputs`), so other types get the text prompt alone. Both
+requests always carry text, so a profile with `inputs.text: false` fails them
+at ingress.
+
+The matrix sets no tools; the profile's allowlist applies as on any turn.
+`--search` and `--map` add nothing to the request: they throw unless the
+selected model's `builtInTools` include `googleSearch` / `googleMaps`.
 
 ## Exported API
 
-The entry module is the CLI program itself (side-effect main when run as a
-bin). Prefer `deno task agents` / `npx @theoremai/agents` over importing commands in
+The entry module exports `main(args?)`, which reads the process arguments by
+default; `src/cli/bin.ts` runs it as the `agents` binary. It runs on Node
+(20 and up), Deno and Bun.
+
+Prefer `deno task agents` / `npx @theoremjs/agents` over importing commands in
 application code.
 
 ```theorem-evidence
@@ -92,6 +121,7 @@ application code.
     "Export": {
       "supports": [
         { "kind": "source", "path": "src/cli/index.ts" },
+        { "kind": "source", "path": "src/cli/bin.ts" },
         { "kind": "config", "path": "package.json" }
       ]
     },
@@ -105,7 +135,9 @@ application code.
       "supports": [
         { "kind": "source", "path": "src/cli/index.ts" },
         { "kind": "source", "path": "src/cli/commands/run.ts" },
-        { "kind": "contract_test", "path": "tests/cli/cli.test.ts" }
+        { "kind": "source", "path": "src/cli/commands/eval.ts" },
+        { "kind": "contract_test", "path": "tests/cli/cli.test.ts" },
+        { "kind": "contract_test", "path": "tests/cli/eval.test.ts" }
       ]
     },
     "Matrix and fixtures": {

@@ -1,9 +1,3 @@
-/**
- * Harness tools shipped with THEOREM.
- *
- * @module
- */
-
 import { z } from 'zod';
 import { registerTool } from '../default-scope.ts';
 import { AWAITING_USER_INPUT_STATUS } from '../schema.ts';
@@ -28,7 +22,7 @@ const AskOutputSchema: z.ZodType<AskOutput> = z.object({
   options: z.array(z.string()).optional(),
 });
 
-/** `ask_user`: completes with `awaiting_user_input`. A scope of its own registers it with `tools.register`. */
+/** A scope of its own registers it with `tools.register`. */
 const askUserTool: ToolDefinitionInput<AskInput, AskOutput> = {
   type: 'function',
   name: 'ask_user',
@@ -53,7 +47,6 @@ const askUserTool: ToolDefinitionInput<AskInput, AskOutput> = {
   },
 };
 
-/** Register the harness tools in the default scope. */
 function registerHarnessTools(): void {
   registerTool(askUserTool);
 }

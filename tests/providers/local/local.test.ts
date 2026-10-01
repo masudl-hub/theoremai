@@ -271,3 +271,47 @@ Deno.test('createLocalProvider reads finish_reason when delta is absent', async 
   const events = await Array.fromAsync(provider.complete(baseReq()));
   assertEquals(firstOf(events, 'done')?.stop?.kind, 'completed');
 });
+
+Deno.test('a buffered local turn asks for one JSON reply and emits what a stream would', async () => {
+  const bodies: Record<string, unknown>[] = [];
+  const provider = createLocalProvider({
+    baseUrl: 'http://local.test',
+    fetch: (_url, init) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return Promise.resolve(
+        Response.json({
+          id: 'chatcmpl-1',
+          model: 'llama3.2',
+          choices: [
+            {
+              finish_reason: 'tool_calls',
+              message: {
+                content: 'checking',
+                tool_calls: [{ id: 'call_1', function: { name: 'ping', arguments: '{"n":1}' } }],
+              },
+            },
+          ],
+          usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 },
+        }),
+      );
+    },
+  });
+  const events = await Array.fromAsync(provider.complete(baseReq({ stream: false })));
+  assertEquals(bodies[0]?.stream, false);
+  assertEquals('stream_options' in (bodies[0] ?? {}), false);
+  assertEquals(
+    eventsOf(events, 'response').map((e) => e.response),
+    [{ id: 'chatcmpl-1', model: 'llama3.2' }],
+  );
+  assertEquals(firstOf(events, 'tokens')?.tokens, { input: 3, output: 2, total: 5 });
+  assertEquals(
+    eventsOf(events, 'text').map((e) => e.text),
+    ['checking'],
+  );
+  assertEquals(firstOf(events, 'tool')?.tool, {
+    name: 'ping',
+    callId: 'call_1',
+    arguments: { n: 1 },
+  });
+  assertEquals(firstOf(events, 'done')?.stop?.native, 'tool_calls');
+});

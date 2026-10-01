@@ -1,18 +1,13 @@
-/**
- * A turn's tool calls, joined by `callId`: the model's raw call (the one owner
- * of its arguments) and the phase events of its execution. The transcript,
- * the interface session and history read calls through this fold only.
- *
- * @module
- */
+// The model's raw call is the one owner of a call's arguments. The transcript, the interface
+// session and history read calls through this fold only.
 
 import { TheoremError } from '../guardrails/error.ts';
 import type { ToolCallEvent, TurnEvent, TurnEventOf } from '../kernel/types.ts';
 import type { ToolCall } from './types.ts';
 
 /**
- * Fold one tool event into its call. The raw call comes first for every call
- * (`turnEventSchema`); a phase for a call never made is a broken stream.
+ * The raw call comes first for every call (`turnEventSchema`); a phase for a call never made is a
+ * broken stream.
  */
 function applyToolEvent(call: ToolCall | undefined, tool: ToolCallEvent): ToolCall {
   if (tool.phase === undefined) {
@@ -40,9 +35,16 @@ function applyToolEvent(call: ToolCall | undefined, tool: ToolCallEvent): ToolCa
         state: tool,
         startedAt: tool.at,
         ...(tool.edited ? { edited: tool.edited } : {}),
+        ...(tool.activity ? { activity: tool.activity } : {}),
       };
     }
     case 'complete':
+      return {
+        ...call,
+        state: tool,
+        endedAt: tool.at,
+        ...(tool.activityPast ? { activityPast: tool.activityPast } : {}),
+      };
     case 'error':
     case 'cancel':
     case 'gate':
@@ -77,7 +79,6 @@ type SettledToolCallEvent = TurnEventOf<'tool'> & {
   tool: Extract<ToolCallEvent, { phase: 'complete' | 'error' }>;
 };
 
-/** Whether `event` settles `callId`. */
 function settlesToolCall(event: TurnEvent, callId: string): event is SettledToolCallEvent {
   if (event.type !== 'tool' || event.tool.callId !== callId) return false;
   return event.tool.phase === 'complete' || event.tool.phase === 'error';

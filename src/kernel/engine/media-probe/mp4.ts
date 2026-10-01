@@ -1,11 +1,3 @@
-/**
- * Tracks of an ISO base media file (MP4, M4A, MOV, 3GP): each track's
- * handler, presented and decoded lengths, and — for video — coded pixel size.
- * Shared by the audio and video readers.
- *
- * @module
- */
-
 import { ascii, uint64, view } from './bytes.ts';
 import { type Box, boxes, FULL_BOX_HEADER } from './iso-bmff.ts';
 
@@ -37,12 +29,10 @@ const ELST_ENTRIES = FULL_BOX_HEADER + 4;
 const ELST_V0_ENTRY = 12;
 const ELST_V1_ENTRY = 20;
 
-/** `hdlr` handler types. */
 export const MP4_SOUND = 'soun';
 export const MP4_VIDEO = 'vide';
 const MPEG4_AUDIO = 'mp4a';
 
-/** One track of the movie. */
 export interface Mp4Track {
   /** `hdlr` handler type — `soun`, `vide`, … */
   handler: string;
@@ -52,12 +42,9 @@ export interface Mp4Track {
    */
   seconds?: number;
   /**
-   * Decoded length: every sample from the edit list's leading skip (encoder
-   * priming, reorder delay) to the end of the sample the edit ends in — a
-   * decoder drops the skip but keeps the rest of that last sample (a whole
-   * frame, for MPEG-4 audio). `undefined`
-   * when the samples cannot be summed, or the edit list holds more than one
-   * non-empty edit or ends before the last sample.
+   * From the edit list's leading skip (encoder priming, reorder delay) to the end of the sample the
+   * edit ends in, which a decoder keeps whole. `undefined` when the samples cannot be summed, or the
+   * edit list holds more than one non-empty edit or ends before the last sample.
    */
   decodedSeconds?: number;
   /** Coded frame size from the first visual sample entry (video tracks). */
@@ -87,7 +74,6 @@ function childList(bytes: Uint8Array, box: Box): Box[] {
   return boxes(bytes, box.start, box.end).list;
 }
 
-/** First child at `path` below `box`. */
 function descend(bytes: Uint8Array, box: Box, path: string[]): Box | undefined {
   let at: Box | undefined = box;
   for (const type of path) {
@@ -150,7 +136,6 @@ function sampleEntry(bytes: Uint8Array, stsd: Box): string | undefined {
   return at + 8 <= stsd.end ? ascii(bytes, at + 4, 4) : undefined;
 }
 
-/** Coded width and height from the first visual sample entry in `stsd`. */
 function visualSize(bytes: Uint8Array, stsd: Box): { width: number; height: number } | undefined {
   const entry = stsd.start + STSD_ENTRIES;
   const at = entry + VISUAL_ENTRY_WIDTH;
@@ -189,7 +174,6 @@ function addSamples(sum: Samples | undefined, count: number, delta: number): Sam
   };
 }
 
-/** Sample durations from the track's `stts`. */
 function sttsSamples(bytes: Uint8Array, stts: Box | undefined): Samples | undefined {
   if (!stts || stts.start + STTS_ENTRIES > stts.end) return undefined;
   const v = view(bytes);
@@ -202,7 +186,6 @@ function sttsSamples(bytes: Uint8Array, stts: Box | undefined): Samples | undefi
   return sum;
 }
 
-/** Sample durations for `trackId` across every movie fragment. */
 function fragmentSamples(
   bytes: Uint8Array,
   top: Box[],
@@ -285,14 +268,12 @@ function positive(seconds: number): number | undefined {
   return Number.isFinite(seconds) && seconds > 0 ? seconds : undefined;
 }
 
-/** What every track is read against: the top-level boxes, `moov`, and the movie timescale. */
 interface Movie {
   top: Box[];
   moov: Box;
   scale?: number;
 }
 
-/** A track's `stts` samples, then its movie-fragment samples. */
 function trackSamples(
   bytes: Uint8Array,
   movie: Movie,
@@ -313,7 +294,6 @@ function trackSamples(
   };
 }
 
-/** Presented seconds: the `tkhd` duration, else the samples' length. */
 function presentedSeconds(
   duration: number | undefined,
   movie: Movie,
@@ -349,11 +329,7 @@ function readTrack(bytes: Uint8Array, movie: Movie, trak: Box): Mp4Track | undef
   };
 }
 
-/**
- * Every track of an ISO base media file, or `undefined` when the bytes do not
- * open with `ftyp` and hold a `moov`. Sample durations come from `stts`, then
- * any movie fragments.
- */
+/** `undefined` when the bytes do not open with `ftyp` and hold a `moov`. */
 export function mp4Tracks(bytes: Uint8Array): Mp4Track[] | undefined {
   const top = boxes(bytes).list;
   const moov = top.find((b) => b.type === 'moov');

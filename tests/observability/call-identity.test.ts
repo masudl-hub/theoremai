@@ -1,7 +1,3 @@
-/**
- * A call's response identity reaches its trace span even when the call fails
- * or a guardrail cuts it, and never reaches the host's event stream.
- */
 import '../fixtures/test-host.ts';
 import { runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';

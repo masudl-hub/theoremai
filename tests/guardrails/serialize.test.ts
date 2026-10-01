@@ -1,6 +1,7 @@
 import '../fixtures/test-host.ts';
 import { eventHasCanary, mintCanary } from '../../src/guardrails/canary.ts';
-import { EGRESS_RULES, standardEgressEnforce } from '../../src/guardrails/egress.ts';
+import { standardEgressEnforce } from '../../src/guardrails/egress.ts';
+import { EGRESS_RULES } from '../../src/guardrails/rules.ts';
 import { CIRCULAR, scanTextOf, textForScan } from '../../src/guardrails/serialize.ts';
 import type { GuardrailContext } from '../../src/guardrails/types.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
@@ -14,8 +15,6 @@ function ctx(canary?: string): GuardrailContext {
     ...(canary ? { canary } : {}),
   };
 }
-
-// ── textForScan ──────────────────────────────────────────────────────────────
 
 Deno.test('textForScan renders plain values', () => {
   assertEquals(textForScan({ a: 1 }), { text: '{"a":1}', unscannable: false });
@@ -58,8 +57,6 @@ Deno.test('scanTextOf discards the unscannable signal', () => {
     '',
   );
 });
-
-// ── the payloads that used to crash a turn ───────────────────────────────────
 
 Deno.test('egress survives a circular structured payload', () => {
   const circular: Record<string, unknown> = { answer: 'fine' };

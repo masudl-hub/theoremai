@@ -1,4 +1,4 @@
-/** ES2022-safe replacement for `Array.prototype.findLast`; a type guard narrows the result. */
+/** `Array.prototype.findLast` is ES2023; this stays ES2022-safe. */
 export function findLast<T, S extends T>(
   items: readonly T[],
   predicate: (item: T) => item is S,

@@ -7,18 +7,18 @@ import {
 	consumeNextComposerQueue,
 	convertSteersToFrontQueued,
 	defaultInterfaceEffort,
+	type InterfaceTurnSession,
 	orderComposerPendingMessages,
 	promoteComposerPendingKind,
 	removeLandedSteers,
-	type InterfaceTurnSession,
 	type TranscriptBlock,
-} from '../../../src/interface/mod.ts';
-import type { TurnFailure } from '../client/failure';
-import { followGenerationDefaults } from '../client/generation-selection';
-import { applyTurnResultToTranscript } from '../client/index';
-import type { TheoremTransport, TurnEventSink } from '../client/transport';
-import { type RunTurnStream, useTheoremChatActions } from './use-theorem-chat-actions';
-import { type MessageDelivery, type SetSession, useTheoremChatState } from './use-theorem-chat-state';
+} from '@theoremjs/agents/interface';
+import { clientFailure, type TurnFailure } from '../client/failure.ts';
+import { followGenerationDefaults } from '../client/generation-selection.ts';
+import { applyTurnResultToTranscript, type StreamView } from '../client/index.ts';
+import type { TheoremTransport, TurnEventSink } from '../client/transport.ts';
+import { type RunTurnStream, useTheoremChatActions } from './use-theorem-chat-actions.ts';
+import { type MessageDelivery, type SetSession, useTheoremChatState } from './use-theorem-chat-state.ts';
 
 export type UseTheoremChatOptions = {
 	transport: TheoremTransport;
@@ -153,7 +153,7 @@ function useRunTurnStream(iface: ComposerProfileInterface | null, state: ChatSta
 	return useCallback(
 		async (
 			run: (
-				onStream: (partial: TranscriptBlock[]) => void,
+				view: StreamView,
 				paused: { workedMs: number },
 			) => Promise<TurnOk | TurnFailure>,
 			options: { userBlocksAlreadyApplied?: boolean; walksAway?: boolean } = {},
@@ -169,10 +169,15 @@ function useRunTurnStream(iface: ComposerProfileInterface | null, state: ChatSta
 
 			const work = (async () => {
 				let latestStream: TranscriptBlock[] = [];
-				const result = await run((partial) => {
-					latestStream = partial;
-					state.scheduleStreamBlocks(partial);
-				}, paused);
+				const view: StreamView = {
+					blocks: (partial) => {
+						latestStream = partial;
+						state.scheduleStreamBlocks(partial);
+					},
+					// The reply goes on; the composer names what it left out.
+					skipped: (error) => state.setFailure(clientFailure(error, iface.lexicon)),
+				};
+				const result = await run(view, paused);
 
 				const endedAt = Date.now();
 				replyWorkedMs.current += endedAt - runStartedAt;
@@ -299,7 +304,7 @@ function useTappedTransport(transport: TheoremTransport, state: ChatState): Theo
 
 /**
  * Headless chat model: transcript, streaming, composer drafts, pending
- * queue / steer / stash, tool gates. Render it with `@theoremai/react/ui` or
+ * queue / steer / stash, tool gates. Render it with `@theoremjs/react/ui` or
  * your own components.
  */
 export function useTheoremChat({ transport, iface }: UseTheoremChatOptions) {

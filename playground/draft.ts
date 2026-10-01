@@ -1,18 +1,15 @@
 /**
- * Playground draft — the editable form of one profile, before it compiles.
- *
- * Every section is always present so switching profile type keeps what the
- * author typed; which sections reach the profile is decided by the kernel's
- * `PROFILE_GRAPH` (see `draftFacets`). Values are editor-shaped: lists are
- * arrays, "provider default" numbers are `null`, and booleans hold the value
- * the kernel would resolve, so compile emits a field only when it differs.
- *
- * The draft carries no layout: a tree, a graph, or a form can all render it.
- *
- * @module
+ * Every section is always present so switching profile type keeps what the author typed.
+ * "Provider default" numbers are `null` and booleans hold the value the kernel would resolve,
+ * so compile emits a field only when it differs.
  */
 
-import { type LexiconKey, liveIngressChannelDefault, profileAllowsInject, resolveGuardrailPolicy } from '../mod.ts';
+import {
+  type LexiconKey,
+  liveIngressChannelDefault,
+  profileAllowsInject,
+  resolveGuardrailPolicy,
+} from '../mod.ts';
 import type { SensitiveGroups } from '../src/guardrails/sensitive.ts';
 import { resolveObservabilityPolicy } from '../src/observability/mod.ts';
 import { mimeAllowed } from '../src/kernel/registry/catalog.ts';
@@ -23,10 +20,10 @@ import {
   type EgressOnBlock,
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
   isValidProfileProtocol,
+  type KeySlot,
   type LiveActivityHandling,
-  type LiveSpeechSensitivity,
-  OVERFLOW_KEY_SLOTS,
-  type OverflowKeySlot,
+  type LiveEndSensitivity,
+  type LiveStartSensitivity,
   PROFILE_GRAPH,
   PROFILE_TYPES,
   type ProfileGraphFacetId,
@@ -42,22 +39,18 @@ import {
 } from '../src/kernel/schema.ts';
 import {
   defaultBindingForProfileType,
-  isGoogleTransport,
   PLAYGROUND_TRACE_DESTINATION,
   servesOtherProfileType,
 } from './policy.ts';
 import { DEFAULT_TOOL_INPUT_SCHEMA, DEFAULT_TOOL_OUTPUT_SCHEMA } from './tool-schema.ts';
 import type { PlaygroundToolSpecSeed } from './types.ts';
 
-/**
- * Profile types the playground authors: `host` runs no model, and `decision`
- * answers structured questions over host state rather than holding a turn.
- */
-export type PlaygroundProfileType = Exclude<ProfileType, 'host' | 'decision'>;
+export type PlaygroundProfileType = ProfileType;
 
-export const PLAYGROUND_PROFILE_TYPES: readonly PlaygroundProfileType[] = PROFILE_TYPES.filter(
-  (type): type is PlaygroundProfileType => type !== 'host' && type !== 'decision',
-);
+/** The types that run a model turn; a decision asks questions, and a host runs its tools. */
+export type PlaygroundTurnProfileType = Exclude<PlaygroundProfileType, 'decision' | 'host'>;
+
+export const PLAYGROUND_PROFILE_TYPES: readonly PlaygroundProfileType[] = PROFILE_TYPES;
 
 export interface IdentityDraft {
   agentId: string;
@@ -67,13 +60,15 @@ export interface IdentityDraft {
   system: string;
 }
 
-/** Profile-level model policy: `defaultModel`, `allowModelSelect`, `maxSteps`, `key`. */
 export interface ModelsDraft {
   defaultModel: string;
   allowModelSelect: boolean;
   /** `null` omits it (unbounded). */
   maxSteps: number | null;
-  key: OverflowKeySlot | '';
+  /** The vault slot every model uses unless it names its own. */
+  key: KeySlot | '';
+  /** The slot a quota refusal retries on once; `''` or absent names none. */
+  fallbackKey?: KeySlot | '';
 }
 
 export interface EffortDraft {
@@ -81,7 +76,6 @@ export interface EffortDraft {
   level: ThinkingLevel;
 }
 
-/** One `profile.models[modelId]` entry. */
 export interface ModelBindingDraft {
   /** Stable draft key; the model id is editable, so it cannot be the key. */
   key: string;
@@ -89,6 +83,8 @@ export interface ModelBindingDraft {
   protocol: Protocol;
   provider: Provider;
   apiId: string;
+  /** Decision request timeout; `null` uses the playground timeout. */
+  timeoutMs: number | null;
   efforts: EffortDraft[];
   defaultEffort: string;
   allowEffortSelect: boolean;
@@ -97,6 +93,10 @@ export interface ModelBindingDraft {
   maxOutputTokens: number | null;
   temperature: number | null;
   builtInTools: string[];
+  /** This model's own vault slot; `''` or absent uses the profile's. */
+  keySlot?: KeySlot | '';
+  /** This model's own fallback slot; `''` or absent uses the profile's. */
+  fallbackKeySlot?: KeySlot | '';
 }
 
 export interface ToolsDraft {
@@ -120,9 +120,7 @@ export interface InputsDraft {
 
 export interface OutputsDraft {
   mode: 'text' | 'structured';
-  /** Registered structured schema id. */
   schemaId: string;
-  /** JSON Schema the model is held to; registered under `schemaId`. */
   schemaJson: string;
   /** `''` omits it (kernel default: SSE). */
   streamMode: '' | StreamMode;
@@ -160,7 +158,6 @@ export interface GuardrailsDraft {
 }
 
 export interface ObservabilityDraft {
-  /** Playground policy: traces go to the playground destination, or tracing is off. */
   writeTo: false | typeof PLAYGROUND_TRACE_DESTINATION;
   sampleRate: number;
   include: {
@@ -206,19 +203,42 @@ export interface LiveDraft {
   transcriptionInput: boolean;
   transcriptionOutput: boolean;
   vadActivityHandling: '' | LiveActivityHandling;
-  vadStartSensitivity: '' | LiveSpeechSensitivity;
-  vadEndSensitivity: '' | LiveSpeechSensitivity;
+  vadStartSensitivity: '' | LiveStartSensitivity;
+  vadEndSensitivity: '' | LiveEndSensitivity;
   vadPrefixPaddingMs: number | null;
   vadSilenceDurationMs: number | null;
+}
+
+export type DecisionQuestionType = 'choice' | 'score' | 'noul';
+
+/** A choice's option or a number's named criterion (`label`), or a score's level (`text` only). */
+export interface DecisionCriterionDraft {
+  key: string;
+  label: string;
+  text: string;
+}
+
+export interface DecisionQuestionDraft {
+  key: string;
+  id: string;
+  type: DecisionQuestionType;
+  instructions: string;
+  /** A score's levels run from 0 at the top. */
+  criteria: DecisionCriterionDraft[];
+}
+
+/** A decision profile and the questions it asks. The state they are asked about is typed where it runs, not saved. */
+export interface DecisionDraft {
+  contract: string;
+  /** `null` is the playground's most. */
+  maxStateBytes: number | null;
+  questions: DecisionQuestionDraft[];
 }
 
 /** Wording the author replaced, by lexicon key; a key left out keeps the kernel's line. */
 export type WordingDraft = Partial<Record<LexiconKey, string>>;
 
-/**
- * Wording held beside the setting it words, and the facet that holds it. Wording edits the same
- * field, so each line has one value.
- */
+/** Wording held beside the setting it words; each line has one value, so it edits that field. */
 export const INLINE_WORDING: Partial<Record<LexiconKey, ProfileGraphFacetId>> = {
   'continue.instruction': 'turnBehaviour',
   'canary.bind_note': 'guardrails',
@@ -243,11 +263,11 @@ export interface PlaygroundDraft {
   image: ImageDraft;
   speech: SpeechDraft;
   live: LiveDraft;
+  decision: DecisionDraft;
   wording: WordingDraft;
 }
 
-/** A fresh key for a model binding or tool. */
-export function draftKey(prefix: 'model' | 'tool'): string {
+export function draftKey(prefix: 'model' | 'tool' | 'question' | 'criterion'): string {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
@@ -258,6 +278,7 @@ export function defaultModelBinding(partial?: Partial<ModelBindingDraft>): Model
     protocol: 'openAi',
     provider: 'openrouter',
     apiId: '',
+    timeoutMs: null,
     efforts: [],
     defaultEffort: '',
     allowEffortSelect: false,
@@ -315,6 +336,74 @@ function defaultObservability(): ObservabilityDraft {
     retainForDays: null,
     rotateAfterMiB: null,
   };
+}
+
+function criteria(entries: ReadonlyArray<[label: string, text: string]>): DecisionCriterionDraft[] {
+  return entries.map(([label, text]) => ({ key: draftKey('criterion'), label, text }));
+}
+
+/** A guardrail on a tool call the agent is about to make: whether to let it run, and how much is at stake. */
+export function exampleDecisionDraft(): DecisionDraft {
+  return {
+    contract: 'guardrails.tool_call.v1',
+    maxStateBytes: null,
+    questions: [
+      {
+        key: draftKey('question'),
+        id: 'verdict',
+        type: 'choice',
+        instructions: 'Given what the user asked for and what the call would do, should it run?',
+        criteria: criteria([
+          ['allow', 'Safe, and what the user asked for.'],
+          ['flag', 'Probably fine, but unusual or sensitive enough for a person to look first.'],
+          ['block', 'Harmful, or clearly beyond what the user asked for.'],
+        ]),
+      },
+      {
+        key: draftKey('question'),
+        id: 'risk',
+        type: 'score',
+        instructions: 'How much harm would this call do if it were wrong?',
+        criteria: criteria([
+          ['', 'Low: reversible, and affects only the user.'],
+          ['', 'High: hard to undo, or affects other people or money.'],
+        ]),
+      },
+    ],
+  };
+}
+
+/** State the example's questions can be asked about: the field a decision preview starts with. */
+export const EXAMPLE_DECISION_STATE = JSON.stringify(
+  {
+    context: 'The user asked the agent to tidy up old screenshots on their desktop.',
+    tool_call: { name: 'delete_files', path: '~/Documents', recursive: true },
+    outcome: 'Would delete 1,284 files, including tax_return_2025.pdf.',
+  },
+  null,
+  2,
+);
+
+/** Span accepts a JSON string state; the preview starts with that shape for Span models. */
+export const EXAMPLE_SPAN_DECISION_STATE = JSON.stringify(
+  'The user asked to tidy screenshots. The proposed call recursively deletes 1,284 files, including a tax return.',
+);
+
+/** A new question of `type`, with an id the draft doesn't use yet. */
+export function newDecisionQuestion(
+  draft: PlaygroundDraft,
+  type: DecisionQuestionType = 'choice',
+): DecisionQuestionDraft {
+  const taken = new Set(draft.decision.questions.map((question) => question.id));
+  let id = 'question';
+  for (let n = 2; taken.has(id); n++) id = `question_${n}`;
+  return { key: draftKey('question'), id, type, instructions: '', criteria: newCriteria(type) };
+}
+
+/** The rows a question of `type` starts with: two options, two levels, or none. */
+export function newCriteria(type: DecisionQuestionType): DecisionCriterionDraft[] {
+  if (type === 'noul') return [];
+  return criteria(type === 'choice' ? [['yes', ''], ['no', '']] : [['', ''], ['', '']]);
 }
 
 /**
@@ -378,14 +467,26 @@ export function createBlankDraft(): PlaygroundDraft {
       vadPrefixPaddingMs: null,
       vadSilenceDurationMs: null,
     },
+    decision: exampleDecisionDraft(),
     wording: {},
   };
 }
 
 /**
- * Root and spine facets the draft compiles, in catalog order: every required
- * facet for its type, plus the optional ones the author included.
+ * Facets a decision draft leaves out: its only guardrail is a host's disclosure
+ * hook, which a draft can't carry, and the playground doesn't trace a decision.
  */
+const DECISION_HIDDEN_FACETS: ReadonlySet<ProfileGraphFacetId> = new Set([
+  'guardrails',
+  'observability',
+]);
+
+function facetFits(facet: (typeof PROFILE_GRAPH)[number], type: PlaygroundProfileType): boolean {
+  return facet.profileTypes.includes(type) &&
+    !(type === 'decision' && DECISION_HIDDEN_FACETS.has(facet.id));
+}
+
+/** Required facets for the type plus the included optional ones, in catalog order. */
 export function draftFacets(draft: PlaygroundDraft): ProfileGraphFacetId[] {
   const type = draft.identity.profileType;
   if (!type) return ['identity'];
@@ -393,27 +494,22 @@ export function draftFacets(draft: PlaygroundDraft): ProfileGraphFacetId[] {
   return PROFILE_GRAPH.filter(
     (facet) =>
       facet.role !== 'branch' &&
-      facet.profileTypes.includes(type) &&
+      facetFits(facet, type) &&
       (!facet.optional || included.has(facet.id)),
   ).map((facet) => facet.id);
 }
 
-/**
- * Whether the draft's profile type may set the field at `path`, by the kernel's
- * `PROFILE_FIELD_SCOPE`. False until a type is chosen.
- */
+/** By the kernel's `PROFILE_FIELD_SCOPE`; false until a type is chosen. */
 export function draftAllows(draft: PlaygroundDraft, path: string): boolean {
   const type = draft.identity.profileType;
   return type !== '' && profileTypesForField(path).includes(type);
 }
 
-/** Whether the draft's type takes a continue instruction (lexicon `continue.instruction`). */
 export function takesContinueInstruction(draft: PlaygroundDraft): boolean {
   const type = draft.identity.profileType;
   return type !== '' && CONTINUE_INSTRUCTION_TYPES.includes(type);
 }
 
-/** Optional spine facets the draft's type allows but has not included. */
 export function includableFacets(draft: PlaygroundDraft): ProfileGraphFacetId[] {
   const type = draft.identity.profileType;
   if (!type) return [];
@@ -421,7 +517,7 @@ export function includableFacets(draft: PlaygroundDraft): ProfileGraphFacetId[] 
     (facet) =>
       facet.role === 'spine' &&
       facet.optional &&
-      facet.profileTypes.includes(type) &&
+      facetFits(facet, type) &&
       !draft.included.includes(facet.id),
   ).map((facet) => facet.id);
 }
@@ -437,9 +533,28 @@ function imageInputs(inputs: InputsDraft): InputsDraft {
   };
 }
 
-/** A new binding on the playground's default model for the draft's type. */
+/** Updates a binding and keeps the default model attached to it through an id change. */
+export function updateModelBinding(
+  draft: PlaygroundDraft,
+  bindingKey: string,
+  change: Partial<ModelBindingDraft>,
+): PlaygroundDraft {
+  const binding = draft.modelBindings.find((candidate) => candidate.key === bindingKey);
+  if (!binding) return draft;
+  return {
+    ...draft,
+    models: change.modelId !== undefined && draft.models.defaultModel === binding.modelId
+      ? { ...draft.models, defaultModel: change.modelId }
+      : draft.models,
+    modelBindings: draft.modelBindings.map((candidate) =>
+      candidate.key === bindingKey ? { ...candidate, ...change } : candidate
+    ),
+  };
+}
+
 export function newModelBinding(draft: PlaygroundDraft): ModelBindingDraft {
-  const type = draft.identity.profileType || 'text';
+  const chosen = draft.identity.profileType;
+  const type = chosen && chosen !== 'host' ? chosen : 'text';
   const taken = new Set(draft.modelBindings.map((binding) => binding.modelId));
   const seed = defaultBindingForProfileType(type);
   let modelId = seed.modelId;
@@ -447,7 +562,6 @@ export function newModelBinding(draft: PlaygroundDraft): ModelBindingDraft {
   return defaultModelBinding({ ...seed, modelId });
 }
 
-/** A new custom tool with a name no other tool on the draft uses. */
 export function newToolSpec(draft: PlaygroundDraft): ToolSpecDraft {
   const taken = new Set(draft.toolSpecs.map((tool) => tool.toolName));
   let toolName = 'my_tool';
@@ -456,18 +570,18 @@ export function newToolSpec(draft: PlaygroundDraft): ToolSpecDraft {
 }
 
 /**
- * Switch the profile type. Model bindings the type can't use (a turn protocol
- * on live, `geminiLive` on anything else, a playground model made for another
- * type) are dropped; when none remain, one binding on the type's playground
- * default takes their place. Model select turns off when fewer than two bindings
- * remain.
- * Every other section, and `included`, keeps what the author set: a facet the
- * type lacks drops out of `draftFacets` and comes back when switching back.
+ * Bindings the new type can't use are dropped; if none remain, one playground default replaces
+ * them. Model select turns off below two bindings. Other sections and
+ * `included` are kept, so a facet the type lacks comes back when switching back. A host runs no
+ * model, so it keeps the bindings for the way back.
  */
 export function setProfileType(
   draft: PlaygroundDraft,
   type: PlaygroundProfileType,
 ): PlaygroundDraft {
+  if (type === 'host') {
+    return { ...draft, identity: { ...draft.identity, profileType: type } };
+  }
   const kept = draft.modelBindings.filter((binding) =>
     isValidProfileProtocol(type, binding.protocol) && !servesOtherProfileType(type, binding)
   );
@@ -479,7 +593,7 @@ export function setProfileType(
   const modelBindings = kept.length ? kept : [newModelBinding(retyped)];
   const modelIds = new Set(modelBindings.map((binding) => binding.modelId));
   const needsKey = !draft.models.key &&
-    modelBindings.some((binding) => isGoogleTransport(binding.protocol, binding.provider));
+    modelBindings.some((binding) => !binding.keySlot && binding.provider !== 'local');
   return {
     ...retyped,
     inputs: type === 'image' ? imageInputs(draft.inputs) : draft.inputs,
@@ -487,19 +601,21 @@ export function setProfileType(
       ...draft.models,
       defaultModel: modelIds.has(draft.models.defaultModel) ? draft.models.defaultModel : '',
       allowModelSelect: draft.models.allowModelSelect && modelBindings.length > 1,
-      key: needsKey ? OVERFLOW_KEY_SLOTS[0] : draft.models.key,
+      key: needsKey ? DEFAULT_KEY_SLOT : draft.models.key,
     },
     modelBindings,
   };
 }
 
-/** Add an optional spine facet (outputs, turn behaviour, guardrails, observability). */
+// The slot the playground's server fills; named slots in the editor replace this.
+const DEFAULT_KEY_SLOT: KeySlot = 'slot_a';
+
 export function includeFacet(draft: PlaygroundDraft, id: ProfileGraphFacetId): PlaygroundDraft {
   if (!includableFacets(draft).includes(id)) return draft;
   return { ...draft, included: [...draft.included, id] };
 }
 
-/** Remove an optional facet. Its values stay on the draft for when it comes back. */
+/** Its values stay on the draft for when it comes back. */
 export function excludeFacet(draft: PlaygroundDraft, id: ProfileGraphFacetId): PlaygroundDraft {
   return { ...draft, included: draft.included.filter((facet) => facet !== id) };
 }

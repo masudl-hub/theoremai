@@ -1,10 +1,3 @@
-/**
- * Interactions steps and deltas → `ProviderEvent`s: text, thoughts, media,
- * code execution and builtin evidence, usage, and the terminal status.
- *
- * @module
- */
-
 import { asRecord, nonEmptyString } from '../../../kernel/engine/record.ts';
 import { reportedTokens, usageCount } from '../../../kernel/engine/usage.ts';
 import { turnStopFromInteractionStatus } from '../../../kernel/stop.ts';
@@ -39,7 +32,6 @@ function thoughtText(content: unknown): string {
   return block?.type === 'text' && typeof block.text === 'string' ? block.text : '';
 }
 
-/** `mime_type` with the reported `sample_rate` / `channels` stated when it lacks them. */
 function interactionsMime(rec: Record<string, unknown>): string | undefined {
   const mime = rec.mime_type;
   if (typeof mime !== 'string' || !mime) {
@@ -77,7 +69,6 @@ function isGoogleBuiltinStepType(type: string): boolean {
   return type.startsWith('google_') || type === 'url_context_call' || type === 'url_context_result';
 }
 
-/** A step this adapter does not map, as `provider_step` evidence: its type as `step`, the step itself as `raw`. */
 function rawStepEvidence(raw: Record<string, unknown>): TurnEventOf<'evidence'> {
   return {
     type: 'evidence',
@@ -85,10 +76,6 @@ function rawStepEvidence(raw: Record<string, unknown>): TurnEventOf<'evidence'> 
   };
 }
 
-/**
- * A whole Google `code_execution_*` step as `evidence`. A call without its
- * `id` or `code` is not one this adapter can map, so it is a `provider_step`.
- */
 function codeExecutionEvidence(raw: Record<string, unknown>): TurnEventOf<'evidence'> {
   if (raw.type === 'code_execution_result') {
     const callId = nonEmptyString(raw.call_id);
@@ -122,7 +109,6 @@ function codeExecutionEvidence(raw: Record<string, unknown>): TurnEventOf<'evide
   };
 }
 
-/** A streamed `step.delta` payload that is text, a thought summary or media. */
 function eventsFromDelta(deltaValue: unknown): ProviderEvent[] {
   const delta = asRecord(deltaValue);
   if (!delta) {
@@ -141,13 +127,11 @@ function eventsFromDelta(deltaValue: unknown): ProviderEvent[] {
   }
 }
 
-/** A buffered `thought` step: its `summary[]` text blocks. */
 function eventsFromThoughtStep(step: Record<string, unknown>): ProviderEvent[] {
   const summary = Array.isArray(step.summary) ? step.summary : [];
   return summary.flatMap((block) => textEvent('thought', thoughtText(block)));
 }
 
-/** A buffered `model_output` step: its `content[]` text, image and audio blocks. */
 function eventsFromModelOutputStep(step: Record<string, unknown>): ProviderEvent[] {
   const content = Array.isArray(step.content) ? step.content : [];
   return content.flatMap((block) => {
@@ -161,17 +145,13 @@ function eventsFromModelOutputStep(step: Record<string, unknown>): ProviderEvent
     return [];
   });
 }
+
 /**
- * Interactions `usage` → `TurnTokens`, from documented fields only
- * (ai.google.dev/api/interactions-api). Google reports thought and tool-use
- * tokens beside input and output; the OpenTelemetry meanings fold them in.
- *
- * Live probes (gemini-3.8-flash, 22/09/2026): `total_tokens` = input + output
- * + thought + tool use on every call, and cached tokens sit inside input. For
- * inputs Google converts first (Markdown, Python, mono `audio/L16`, …) input
- * comes back 0 while `total_tokens` still holds the full sum, so input is
- * derived from it. Per-modality lists and `grounding_tool_count` are read as
- * `google/usage.ts` describes.
+ * Google reports thought and tool-use tokens beside input and output; the
+ * OpenTelemetry meanings fold them in. Probes (gemini-3.8-flash, 22/09/2026):
+ * `total_tokens` = input + output + thought + tool use, and cached sits inside input.
+ * For inputs Google converts first (Markdown, Python, mono `audio/L16`, …) input
+ * comes back 0 while `total_tokens` holds the full sum, so input is derived from it.
  */
 function interactionsUsageTokens(raw: unknown): TurnTokens | undefined {
   const usage = asRecord(raw);
@@ -196,7 +176,6 @@ function interactionsUsageTokens(raw: unknown): TurnTokens | undefined {
   });
 }
 
-/** The `tokens` event of a finished interaction (`interaction.completed`'s `interaction`, or a buffered body). */
 function extractTokenEvent(
   interaction: Record<string, unknown>,
 ): TurnEventOf<'tokens'> | undefined {
@@ -212,15 +191,11 @@ function extractTokenEvent(
   };
 }
 
-/**
- * The end of an interaction — `interaction.completed`'s `interaction`, or a
- * buffered body: its tokens, the grounding across its `steps[]` (buffered
- * only; streamed grounding arrives on deltas) and its terminal status.
- */
 function eventsFromInteractionEnd(interaction: Record<string, unknown>): ProviderEvent[] {
   const events: ProviderEvent[] = [];
   const tokenEvent = extractTokenEvent(interaction);
   if (tokenEvent) events.push(tokenEvent);
+  // Only a buffered body carries `steps[]`; streamed grounding arrives on deltas.
   const { steps } = interaction;
   if (Array.isArray(steps)) events.push(...groundingFromSteps(steps));
   const done = doneFromInteractionStatus(interaction);
@@ -228,7 +203,6 @@ function eventsFromInteractionEnd(interaction: Record<string, unknown>): Provide
   return events;
 }
 
-/** An interaction's identity (`id`, `model`), sent on `interaction.created` and at its end. */
 function interactionResponse(interaction: Record<string, unknown>): TurnResponse | undefined {
   const id = nonEmptyString(interaction.id);
   const model = nonEmptyString(interaction.model);
@@ -236,7 +210,6 @@ function interactionResponse(interaction: Record<string, unknown>): TurnResponse
   return { ...(id ? { id } : {}), ...(model ? { model } : {}) };
 }
 
-/** Every status maps to a stop; a non-terminal one (`in_progress`, `queued`) is `stream_incomplete`. */
 function doneFromInteractionStatus(
   interaction: Record<string, unknown>,
 ): ProviderEvent | undefined {

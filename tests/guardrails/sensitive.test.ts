@@ -169,11 +169,8 @@ Deno.test('cardSpans does not flag a 12-digit Luhn-valid number (below CARD_MIN_
 });
 
 Deno.test('cardSpans if (found) vs if (true) mutation: null match should not be processed', () => {
-  // Benign short number sequences should yield 0 spans (blobAt returns null)
   assertEquals(sensitiveSpans('1234').length, 0);
 });
-
-// ── IPV4 range boundary tests ────────────────────────────────────────────────
 
 Deno.test('sensitiveSpans detects IPV4 address with 250-255 octets', () => {
   assertEquals(sensitiveSpans('addr: 255.0.0.255').length > 0, true);
@@ -205,7 +202,6 @@ Deno.test('sensitiveSpans detects 13-digit Luhn-valid card at CARD_MIN_DIGITS bo
 });
 
 Deno.test('cardSpans span kind is sensitive not empty string', () => {
-  // The SSN test at line 163 covers line 95; this test specifically exercises line 86
   const spans = sensitiveSpans('4111111111111111');
   assertEquals(spans.length > 0, true);
   assertEquals(spans[0]?.kind, 'sensitive');

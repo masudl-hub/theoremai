@@ -9,7 +9,7 @@
  * @module
  */
 
-import { isRecord } from '../../../src/kernel/util/record.ts';
+import { isRecord } from '@theoremjs/agents/kernel';
 
 const OAUTH_COMPLETE = 'theorem.oauth_complete';
 

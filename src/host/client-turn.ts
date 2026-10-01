@@ -1,22 +1,12 @@
-/**
- * Strip host-only diagnostics from turn events before client-facing transports.
- *
- * @module
- */
-
 import { projectGuardrailTurnEvent } from '../guardrails/events.ts';
 import type { TurnEvent } from '../kernel/types.ts';
 
-/** Options for {@link forClient} / {@link forClientEvents}. */
 export interface ClientTurnOptions {
-  /**
-   * Keep provider-native step payloads on `evidence` events.
-   * Default `false` — parsed fields (`kind`, `code`, `result`, citations) remain.
-   */
+  /** Keep provider-native payloads on `evidence` events. Default: false; parsed fields remain. */
   includeEvidenceRaw?: boolean;
 }
 
-/** Raw diagnostic detail rides on error events, an ended session's close, and a tool call's failure. */
+/** Raw diagnostics ride on error events, an ended session's close, and a tool call's failure. */
 function stripErrorInternal(event: TurnEvent): TurnEvent {
   if (
     (event.type !== 'error' && event.type !== 'session' && event.type !== 'tool') ||
@@ -44,19 +34,17 @@ function stripEvidenceRaw(event: TurnEvent): TurnEvent {
   return { ...event, evidence };
 }
 
-/** Return a copy of one turn event safe to forward to browsers or end-user SSE. */
+/** Strips host-only diagnostics, so the copy is safe to forward to browsers or end-user SSE. */
 function forClient(event: TurnEvent, options?: ClientTurnOptions): TurnEvent {
   let out = stripGuardrailInternal(stripErrorInternal(event));
   if (!options?.includeEvidenceRaw) {
     out = stripEvidenceRaw(out);
   }
-  // Clients never receive matched substrings — even if the host opted into
-  // guardrailMatchPreview for server logs / JSONL.
+  // Clients never receive matched substrings, even if the host opted into guardrailMatchPreview.
   out = projectGuardrailTurnEvent(out, false);
   return out;
 }
 
-/** Map {@link forClient} over a batch (e.g. Live relay or HTTP stream flush). */
 function forClientEvents(events: TurnEvent[], options?: ClientTurnOptions): TurnEvent[] {
   return events.map((event) => forClient(event, options));
 }

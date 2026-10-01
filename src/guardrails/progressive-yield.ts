@@ -1,21 +1,9 @@
-/**
- * Progressive-yield outbound gate — stream cleared prefixes while holding back
- * whatever a check could still match, so no part of a match reaches the host
- * before the check sees it whole.
- *
- * The canary, the prompt echo and the bundled `standardEgressEnforce` hold
- * exactly: each holds from the earliest place one of its matches could still
- * be under way (`egress-stream.ts`). A host policy the gate cannot read holds a
- * fixed lookback (`holdback`) and is rerun on the window at every step.
- *
- * @module
- */
-
 import { canaryCarry, canaryHoldFrom, createCanaryScanner } from './canary.ts';
 import { CANARY_HIT, promptEchoHits, runEnforcer } from './egress.ts';
 import { type EgressStream, type EgressStreamHit, streamPlanOf } from './egress-stream.ts';
 import { TheoremError } from './error.ts';
 import { promptEchoHoldFrom, promptEchoScanFrom } from './prompt-echo.ts';
+import { EGRESS_RULES } from './rules.ts';
 import type {
   EgressEnforcer,
   GuardrailContext,
@@ -36,12 +24,10 @@ const PEM_BEGIN = '-----BEGIN';
 
 export type ProgressiveYieldOk = { blocked: false; emit: string };
 export type ProgressiveYieldBlocked = { blocked: true; hits: GuardrailHit[] };
-/** Result from scanning a stream fragment: a blocked verdict or text safe to release. */
 export type ProgressiveYieldResult = ProgressiveYieldOk | ProgressiveYieldBlocked;
 
-/** Options for an incremental outbound stream gate, including its context and holdback policy. */
 export interface ProgressiveYieldGateOptions {
-  /** Stage facts handed to `enforce`; also carries the turn canary. */
+  /** Also carries the turn canary. */
   context: GuardrailContext;
   /** When set, each step runs this policy on the accumulated window before emit. */
   enforce?: EgressEnforcer;
@@ -101,7 +87,6 @@ function resolveHoldback(options: ProgressiveYieldGateOptions, exact: boolean): 
   return options.holdback ?? (options.enforce ? DEFAULT_HOLDBACK : 0);
 }
 
-/** Under `enforce`, an incomplete PEM body stays held until its END line. */
 function holdbackForWindow(window: string, base: number): number {
   // Incomplete PEM bodies can be large; do not release past BEGIN until END/flush.
   const begin = window.lastIndexOf(PEM_BEGIN);
@@ -144,7 +129,7 @@ async function streamHitVerdict(
   return [{ rule: hit.rule, severity: hit.severity }];
 }
 
-/** Creates a progressive gate for outbound stream fragments; flush it when the stream ends. */
+/** Call `flush` when the stream ends to release the held tail. */
 function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): ProgressiveYieldGate {
   const { context } = options;
   const stream: EgressStream | undefined = options.enforce
@@ -201,7 +186,7 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
     if (verdict.action === 'block' || verdict.action === 'redact') {
       return verdict.hits.length > 0
         ? verdict.hits
-        : [{ rule: 'egress.blocked', severity: 'high' }];
+        : [{ rule: EGRESS_RULES.blocked, severity: 'high' }];
     }
     return null;
   }

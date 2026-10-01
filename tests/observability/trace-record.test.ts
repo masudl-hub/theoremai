@@ -1,6 +1,3 @@
-/**
- * Record builder: scrub, canaries, include flags, interning, bytes, and the policy stamp.
- */
 import { OMIT_CANARY } from '../../src/guardrails/canary.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { sha256 } from '../../src/kernel/engine/hash.ts';

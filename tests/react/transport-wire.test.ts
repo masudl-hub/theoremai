@@ -6,7 +6,12 @@ import {
   postNdjson,
   TheoremStreamError,
 } from '../../react/src/client/transport.ts';
-import type { UnsupportedEvent, WireLines } from '../../react/src/client/wire-line.ts';
+import type {
+  MalformedEvent,
+  UnsupportedEvent,
+  WireLines,
+} from '../../react/src/client/wire-line.ts';
+import { assertMalformed } from '../fixtures/malformed.ts';
 
 /** A host that answers every request with `body` at `status`. */
 function transportReplying(body: string, status = 200) {
@@ -41,22 +46,31 @@ Deno.test('a line of a kind the client does not know arrives as unsupported, and
   ]);
 });
 
-Deno.test('a known line that fails its schema ends the turn with bad_response, naming only paths and codes, branch by branch', async () => {
-  await assertBadResponse(
-    () => turnLines(ndjson({ type: 'text', text: 7 })),
-    "a 'text' line failed its wire check: text invalid_type",
-  );
-  await assertBadResponse(
-    () => turnLines(ndjson({ type: 'tool', tool: { phase: 'running', callId: 7 } })),
+Deno.test('a line that fails its check arrives as malformed in its place, naming only paths and codes, branch by branch, and the turn goes on', async () => {
+  const before: ClientTurnEvent = { type: 'text', text: 'before' };
+  const after: ClientTurnEvent = { type: 'text', text: 'after' };
+  const body = [
+    JSON.stringify(before),
+    JSON.stringify({ type: 'text', text: { secret: 'secret-value' } }),
+    JSON.stringify({ type: 'tool', tool: { phase: 'running', callId: 7 } }),
+    JSON.stringify({ text: 'no kind' }),
+    '{not json',
+    JSON.stringify(after),
+  ].join('\n');
+  const [first, badText, badTool, noKind, notJson, last, ...rest] = await turnLines(body);
+  assertEquals([first, last, rest], [before, after, []]);
+  assertEquals(assertMalformed(badText), "a 'text' line failed its wire check: text invalid_type");
+  assertEquals(
+    assertMalformed(badTool),
     "a 'tool' line failed its wire check: tool invalid_union [" +
       'tool.name invalid_type; tool.callId invalid_type; tool.at invalid_type | ' +
       'tool.name invalid_type; tool.callId invalid_type; tool.phase invalid_type; tool.arguments invalid_type]',
   );
-  await assertBadResponse(
-    () => turnLines(ndjson({ text: 'no kind' })),
+  assertEquals(
+    assertMalformed(noKind),
     'a line without a kind failed its wire check: type invalid_type',
   );
-  await assertBadResponse(() => turnLines('{not json'), 'a line is not JSON');
+  assertEquals(assertMalformed(notJson), 'a line is not JSON');
 });
 
 Deno.test("a host's own line kinds parse only when the host supplies them", async () => {
@@ -64,7 +78,7 @@ Deno.test("a host's own line kinds parse only when the host supplies them", asyn
   const markLines: WireLines<Mark> = {
     mark: z.object({ type: z.literal('mark'), at: z.number() }),
   };
-  const lines: (Mark | UnsupportedEvent)[] = [];
+  const lines: (Mark | UnsupportedEvent | MalformedEvent)[] = [];
   await postNdjson('http://host.test/x', {}, markLines, (line) => lines.push(line), {
     fetch: () => Promise.resolve(new Response(ndjson({ type: 'mark', at: 3 }))),
   });
@@ -72,13 +86,12 @@ Deno.test("a host's own line kinds parse only when the host supplies them", asyn
   assertEquals(await turnLines(ndjson({ type: 'mark', at: 3 })), [
     { type: 'unsupported', received: 'mark', raw: { type: 'mark', at: 3 } },
   ]);
-  await assertRejects(
-    () =>
-      postNdjson('http://host.test/x', {}, TURN_EVENT_SCHEMAS, () => {}, {
-        fetch: () => Promise.resolve(new Response(ndjson({ type: 'text', text: 7 }))),
-      }),
-    TheoremError,
-  );
+  const turnOnly: { type: string }[] = [];
+  await postNdjson('http://host.test/x', {}, TURN_EVENT_SCHEMAS, (line) => turnOnly.push(line), {
+    fetch: () => Promise.resolve(new Response(ndjson({ type: 'text', text: 7 }))),
+  });
+  assertEquals(turnOnly.length, 1);
+  assertMalformed(turnOnly[0]);
 });
 
 Deno.test('a host error body is read by its schema; one that fails it is bad_response', async () => {

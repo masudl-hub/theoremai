@@ -94,10 +94,13 @@ export type SidePanelProps = {
 	children?: ReactNode;
 };
 
+/** Page corners like the host's raised panels, no border or shadow; the card fill, so surface-filled cards read on it. */
+export const RAISED = { background: 'var(--color-background-card)', borderRadius: 'var(--radius-page)' };
+
 /**
  * A Layout `end` panel as Astryx's IDE template builds one (a reversed
  * `ResizeHandle` before a `LayoutPanel` sized by `useResizable`), holding a
- * raised card inset from the layout edge and bottom instead of a flat pane.
+ * raised section inset from the layout edge and bottom instead of a flat pane.
  * For more than one panel, nest Layouts, one panel each, as the template does.
  */
 export function SidePanel({ id, labels, resizable, open = true, padding, children }: SidePanelProps) {
@@ -124,7 +127,7 @@ export function SidePanel({ id, labels, resizable, open = true, padding, childre
 				inert={!open}
 			>
 				<VStack height="100%" paddingInlineEnd={3} paddingBlockEnd={3}>
-					<Card elevation="med" height="100%" padding={padding}>
+					<Card variant="transparent" height="100%" padding={padding} style={RAISED}>
 						{open ? children : null}
 					</Card>
 				</VStack>

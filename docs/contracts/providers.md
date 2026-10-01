@@ -1,4 +1,4 @@
-# Providers (`@theoremai/agents/providers`)
+# Providers (`@theoremjs/agents/providers`)
 
 Single door for constructing a `ModelProvider` bound to a profile. Credentials
 and runtime endpoints are always host-supplied arguments — THEOREM does not read
@@ -8,11 +8,11 @@ environment variables and does not ship `.env` files.
 
 | Field | Value |
 | --- | --- |
-| Import | `@theoremai/agents/providers` / `jsr:@theoremai/agents/providers` |
+| Import | `@theoremjs/agents/providers` / `jsr:@theoremjs/agents/providers` |
 | Module | `src/providers/mod.ts` |
-| Local subpath | `@theoremai/agents/providers/local` → `src/providers/local/mod.ts` |
-| Live subpath | `@theoremai/agents/providers/google/live` → `src/providers/google/live/mod.ts` |
-| Also on | Root `@theoremai/agents` re-exports `createProvider` |
+| Local subpath | `@theoremjs/agents/providers/local` → `src/providers/local/mod.ts` |
+| Live subpath | `@theoremjs/agents/providers/google/live` → `src/providers/google/live/mod.ts` |
+| Also on | Root `@theoremjs/agents` re-exports `createProvider` |
 
 ## Ownership
 
@@ -37,7 +37,8 @@ Owns every module under `src/providers/`.
 | `google/live/framing.ts` | Gemini Live WebSocket protocol framing |
 | `google/live/mod.ts` | Live subpath barrel |
 | `google/grounding.ts` | Google grounding → `grounding` events for Interactions and Live: one source shape, one dedupe |
-| `google/keys.ts` | Gemini vault transport types |
+| `google/keys.ts` | Gemini fetch with backoff and the fallback retry |
+| `shared/vault.ts` | Reads a slot from the vault; bearer fetch with the fallback retry |
 | `google/urls.ts` | Interactions API endpoint constants |
 | `local/local.ts` | OpenAI-compat SSE for Ollama / llama.cpp / vLLM / LM Studio |
 | `local/mod.ts` | Subpath export for direct local adapter access |
@@ -64,14 +65,9 @@ Owns every module under `src/providers/`.
 
 ```ts
 const provider = createProvider(profile, {
-  gemini: { vault: { slotA, slotB, slotC, paid }, fetch? },
-  openAiGateway: {
-    // Prefer the same KEY_SLOTS vault as Google when profiles pin models.*.key:
-    vault: { slotA, slotB, slotC, paid },
-    // Or a single flat key when the profile omits per-model keys:
-    apiKey?,
-    baseUrl?, siteUrl?, siteName?, fetch?, voice?,
-  },
+  vault: { main, spare }, // one vault for every provider; slot names are yours
+  gemini: { fetch?, wait? },
+  openAiGateway: { baseUrl?, siteUrl?, siteName?, fetch?, voice? },
   local: { baseUrl?, fetch? },
 }, modelId?)
 ```
@@ -86,13 +82,16 @@ Routing table:
 
 | protocol | provider | Requires | Transport |
 | --- | --- | --- | --- |
-| `geminiInteractions` | `google` | `options.gemini` | Interactions API (chat / image / speech) |
-| `openAi` | `openrouter` | `options.openAiGateway` | Lazy chat, `speech.ts`, or `image.ts` by output role |
+| `geminiInteractions` | `google` | `options.vault` | Interactions API (chat / image / speech) |
+| `openAi` | `openrouter` | `options.vault` | Lazy chat, `speech.ts`, or `image.ts` by output role |
 | `openAi` | `local` | `options.local` | `POST /v1/chat/completions` SSE (image roles rejected) |
 
 Errors:
 
-- Missing credential block → `TheoremError('auth', …)` naming the required option.
+- No `vault` for a `google` or `openrouter` profile → `TheoremError('config', …)`
+  naming the provider (`createProvider requires a vault for openrouter models`).
+- A model with no slot, or a slot the vault leaves empty → `TheoremError('auth', …)`
+  at call time (`the vault has no key in slot '<slot>'`).
 - A `local` profile without `options.local` → `TheoremError('config', …)`: a profile
   can name `local`, but only the host can say a local server is there to reach.
 - Unsupported pair → `TheoremError('config', …)` with protocol/provider in the message.
@@ -135,14 +134,14 @@ open-ended. The only per-adapter refusal is the reference part, raised as a
 ## OpenRouter
 
 Internal adapter behind `createProvider` for `openAi` + `openrouter` chat. Hosts
-use `createProvider(profile, { openAiGateway })` — there is no separate public
-OpenRouter entrypoint.
+use `createProvider(profile, { vault, openAiGateway })` — there is no separate
+public OpenRouter entrypoint. The key comes only from `vault`, through the slot
+the model or profile names in `key`.
 
 `OpenAiGatewayConfig` (via `CreateProviderOptions.openAiGateway`):
 
 | Field | Role |
 | --- | --- |
-| `apiKey` | Bearer credential |
 | `baseUrl` | Optional API base override |
 | `siteUrl` / `siteName` | Optional HTTP-Referer / X-Title style metadata |
 | `fetch` | Optional custom fetch |
@@ -151,10 +150,12 @@ OpenRouter entrypoint.
 Chat and speech requests use `ProviderCompleteRequest.apiId` on the wire — same
 field as Google Interactions and local OpenAI-compat paths.
 
-`createOpenRouterProvider(config)` (internal) streams normalized `TurnEvent`s;
+`createOpenRouterProvider(config)` (internal) streams normalized `TurnEvent`s
+(`streamText`), or on a buffered profile reads one reply (`generateText`, raw
+body kept for usage, cost and citations) into the same events;
 terminal `done.stop` via `turnStopFromOpenAiFinishReason`. Request options ride
-AI SDK `providerOptions.openrouter`: `reasoning.effort` only when `thinking` is
-present and not `'none'`, `response_format` for structured output, and optional
+AI SDK `providerOptions.openrouter`: `reasoning.effort` whenever `thinking` is
+set (`'none'` turns reasoning off), `response_format` for structured output, and optional
 `sessionId` as `session_id`. Structured output also sends
 `provider.require_parameters: true`: OpenRouter routes only to an endpoint that
 supports every parameter sent, and answers 404 when none does. A profile must
@@ -183,7 +184,7 @@ Token usage in the kernel contract).
 
 | Concern | Behavior |
 | --- | --- |
-| History | `user_input` / `model_output` steps; OpenAI-shaped `assistant.tool_calls` → `function_call` (not empty text; arguments via `historyToolArguments`); `tool` → `function_result`. A call carrying `thoughtSignature` is preceded by a `{ type: "thought", signature }` step; Google rejects a current-turn call replayed without it, and rejects a `thought_signature` field on the call (probe 25/09/2026). A continuation request (`previousInteractionId` + `continuation`) maps its messages the same way instead of history + input. Every step carries `historyMessageParts` (`content` as a text part, then `parts`); a message with neither is one empty text part. |
+| History | `user_input` / `model_output` steps; OpenAI-shaped `assistant.tool_calls` → `function_call` (not empty text; arguments via `historyToolArguments`); `tool` → `function_result`, taking the name of its call when it has none (Google rejects a nameless result, live 29/09/2026). A call carrying `thoughtSignature` is preceded by a `{ type: "thought", signature }` step; Google rejects a current-turn call replayed without it, and rejects a `thought_signature` field on the call (probe 25/09/2026). A continuation request (`previousInteractionId` + `continuation`) maps its messages the same way instead of history + input. Every step carries `historyMessageParts` (`content` as a text part, then `parts`); a message with neither is one empty text part. |
 | Multimodal | `image` / `audio` / `video` / `document` parts, inline (`data`) or by Files API reference (`uri` → `{ type, uri, mime_type }`) |
 | Structured | `responseFormat` from `req.structured.jsonSchema` whenever the profile names a structured schema. When structured is requested and model text is not valid JSON, providers emit an `error` event (never silently skip). |
 | Output modes | A structured JSON schema, image, and speech are mutually exclusive. Image profiles may opt into interleaved text via `image.includeText`. |
@@ -213,6 +214,11 @@ The session holds each call the model makes. The host runs one by id with
 permission/auth gates, gate answers (`decision`), and upstream tool responses
 stay on the session path; there is no raw tool-response escape hatch. See
 [`stages.md`](stages.md) ("`LiveSession.executeTool`").
+
+A sign-in gate waits for its decision like any gate (`signInGate: 'hold'`, the
+default). With `signInGate: 'answer'` the session answers the model at once
+with the gate's `sign_in.pending` note and lets the call go, for a host whose
+sign-in finishes outside the call and returns as a new turn.
 
 `createProvider` **rejects** `geminiLive` — there is no turn-scoped live `complete()` adapter.
 
@@ -258,12 +264,11 @@ Framing helpers remain in `google/live/framing.ts` for hosts that only need setu
 
 ## Local provider
 
-Import `@theoremai/agents/providers/local` for `createLocalProvider`. Hosts
+Import `@theoremjs/agents/providers/local` for `createLocalProvider`. Hosts
 resolve `OLLAMA_HOST` (or similar) themselves and pass `baseUrl` — THEOREM does
 not read environment variables for local endpoints and has no default address.
 `createProvider` routes a `local` profile only when the host passes `local`: a
-profile cannot point the host at its own loopback. The `local/local.ts` module header
-points at this contract (`docs/contracts/providers.md`).
+profile cannot point the host at its own loopback.
 
 ```ts
 local: {
@@ -272,7 +277,8 @@ local: {
 }
 ```
 
-- Raw `fetch` + `sse.ts` — no SDK.
+- Raw `fetch` + `sse.ts` — no SDK. A buffered profile sends `stream: false` and
+  reads one JSON reply into the same events.
 - Accumulates streaming tool calls; maps `finish_reason` through
   `turnStopFromOpenAiFinishReason`.
 - Supports multimodal user content when the server accepts OpenAI-style parts;
@@ -292,7 +298,7 @@ the same `createInteractionsProvider` handles image via polymorphic
 | --- | --- | --- | --- |
 | OpenAI | `openrouter/image.ts` | `POST /images` | Native image models; reference images via `input_references`. Every `data[]` entry with `b64_json` + `media_type` is one `media` (probe 23/09/2026). |
 | OpenAI | `openrouter/image.ts` | `POST /chat/completions` + server tool | When `image.includeText`. `message.content` (a string) is `text`; every `message.images[].image_url.url` data URL is one `media` (probe 23/09/2026). No image is an `error`. |
-| Interactions | `google/interactions/framing.ts` | `responseFormat` object or array | Image-only object; text + image array when `includeText` |
+| Interactions | `google/interactions/framing.ts` | `responseFormat` object or array | Image-only object; text + image array when `includeText`. No image is an `error`, as no audio is for speech. |
 
 `openAi`/`local` image roles are rejected at `createProvider`.
 
@@ -307,7 +313,7 @@ When `profile.type === 'speech'` and protocol/provider is
 
 | Transport | Module | Path / mechanism | Notes |
 | --- | --- | --- | --- |
-| OpenAI | `openrouter/speech.ts` | `/audio/speech` | `mp3` allowed via `response_format`. The response carries no usage; the runner estimates the call. The response's `content-type` states the audio; raw PCM with a rate is wrapped as WAV. The endpoint answers whole or not at all, so a body with audio ends `done` with stop `completed`. |
+| OpenAI | `openrouter/speech.ts` | `/audio/speech` | `speech.format` rides `response_format` when set; unset sends none, and the upstream picks. `mp3` allowed. The response carries no usage; the runner estimates the call. The response's `content-type` states the audio; raw PCM with a rate is wrapped as WAV. The endpoint answers whole or not at all, so a body with audio ends `done` with stop `completed`. |
 | Interactions | `google/interactions/mod.ts` | `responseFormat: { type: 'audio' }` | Real PCM → WAV only. Missing audio on a speech-role turn (text-only or empty) yields an `error` event — never invents PCM from text bytes. `mp3` rejected at resolve. |
 
 Speech turns carry no system prompt. The input text is the transcript: Gemini
@@ -343,38 +349,47 @@ newline-joined string on OpenAI-compat and AI SDK messages.
 
 ## Key vault (provider-neutral)
 
-`KEY_SLOTS` = `slotA` | `slotB` | `slotC` | `paid`. Profiles pin `models.*.key`
-(or profile-level `key`) to an overflow slot (`OVERFLOW_KEY_SLOTS` = A/B/C).
-Resolve puts the chosen id on `ResolvedGeneration.keySlot` /
-`ProviderCompleteRequest.keySlot`.
+A slot is a name the host picks: letters, digits, `-` and `_`, up to 32
+characters (`KEY_SLOT_NAME`, `isKeySlotName`), as many as it wants. A profile
+names slots and never holds a key; the host's vault fills them. No slot name
+means anything to the kernel.
 
-| Host option | How credentials are chosen |
+A model's calls use `models.*.key`, else the profile's `key`, and its fallback
+is `models.*.fallbackKey`, else the profile's `fallbackKey`: the slot a call
+retries on once when its key is refused for quota. There is no fallback unless
+the profile names one, and `defineProfile` refuses a fallback equal to its key.
+Every model but a local one must name a slot: `defineProfile` refuses a
+`google`, `openrouter` or decision model with neither `models.*.key` nor the
+profile's `key`. There is no flat key.
+Resolve puts the slots on `ResolvedGeneration.keySlot` / `fallbackKeySlot` and
+the same fields of `ProviderCompleteRequest`.
+
+The host passes one `vault` to `createProvider` and `runSession`, and every
+adapter reads it: a slot holds whatever secret the host put there, whichever
+provider the model calls. `runDecision` and the decision handler take the same
+`vault`, and nothing else: a decision whose slot the vault leaves empty throws
+`DecisionError('authentication', "the vault has no key in slot '<slot>'")`.
+
+| Provider | Key |
 | --- | --- |
-| `gemini.vault` | Required for Google. Adapter reads `vault[keySlot]`. |
-| `openAiGateway.vault` | Optional. Used when `keySlot` is set (profile pinned a key or a builtin forced `paid`). |
-| `openAiGateway.apiKey` | Flat fallback when `keySlot` is omitted. |
-
-## Gemini transport
-
-```ts
-createProvider(profile, {
-  gemini: { vault: { slotA, slotB, slotC, paid } },
-})
-```
+| Google | `vault[keySlot]`; a Google model must name a slot |
+| OpenRouter | `vault[keySlot]`; an OpenRouter model must name a slot |
+| Local | `vault[keySlot]` as a bearer token when the model names a slot, else none |
 
 | Piece | Role |
 | --- | --- |
-| `GeminiTransport` | Google vault + optional `fetch` |
-| `KeyVault` | `Record<KeySlot, string | undefined>` shared with OpenRouter |
-| Slots | `slotA`, `slotB`, `slotC`, `paid` |
-| Selection | `models.*.key` / `ModelBinding.key` / `builtInTools` (`forcePaidKey`, read from the run's scope's tool registry) |
+| `KeyVault` | `Record<KeySlot, string \| undefined>`, one for every provider |
+| `GeminiOptions` | Optional `fetch` and backoff `wait` for Google |
+| Slots | Any names the host picks |
+| Selection | `models.*.key`, else `key`; no tool picks a key |
 
-A quota refusal on a free slot retries once on `paid` when the vault holds a
-distinct key there: an HTTP 429 (`fetchGemini`), and a Live setup refused for
-quota (`openGoogleLiveSession`, tapped as a `ws_overflow` row; the session
-trace records `theorem.session { kind: "key_overflow" }` and its responses name
-`theorem.key_slot: paid`). A host that must never spend on `paid` leaves it
-empty.
+A quota refusal retries once on the fallback slot when the profile names one
+and the vault holds a different key there. Over HTTP (a 429: `fetchGemini` for
+Google, `bearerFetch` for OpenRouter and local), each try's span names its
+`theorem.key_slot`. A Live setup refused for quota (`openGoogleLiveSession`) is
+tapped as a `ws_fallback` row; the session trace records
+`theorem.session { kind: "key_fallback" }` and its responses name the fallback
+slot. With no fallback named, or an empty one, the refusal stands.
 
 A profile that names no key where one is required is `TheoremError('config', …)`;
 a slot the host's vault leaves empty is `auth`.
@@ -387,16 +402,16 @@ From `src/providers/mod.ts`:
 | --- | --- |
 | `createProvider` | function |
 | `CreateProviderOptions` | type |
-| `GeminiTransport`, `KeyVault` | types |
+| `GeminiOptions`, `KeyVault` | types |
 | `LocalProviderConfig`, `OpenAiGatewayConfig` | types |
 
-From `src/providers/local/mod.ts` (`@theoremai/agents/providers/local`):
+From `src/providers/local/mod.ts` (`@theoremjs/agents/providers/local`):
 
 | Export | Kind |
 | --- | --- |
 | `createLocalProvider` | function |
 
-From `src/providers/google/live/mod.ts` (`@theoremai/agents/providers/google/live`):
+From `src/providers/google/live/mod.ts` (`@theoremjs/agents/providers/google/live`):
 
 | Export | Kind |
 | --- | --- |
@@ -476,10 +491,14 @@ From `src/providers/google/live/mod.ts` (`@theoremai/agents/providers/google/liv
         { "kind": "contract_test", "path": "tests/providers/google/interactions/speech.test.ts" }
       ]
     },
-    "Gemini transport": {
+    "Key vault (provider-neutral)": {
       "supports": [
+        { "kind": "source", "path": "src/providers/shared/vault.ts" },
         { "kind": "source", "path": "src/providers/google/keys.ts" },
-        { "kind": "contract_test", "path": "tests/providers/google/keys.test.ts" }
+        { "kind": "source", "path": "src/kernel/registry/vault.ts" },
+        { "kind": "contract_test", "path": "tests/providers/shared/vault.test.ts" },
+        { "kind": "contract_test", "path": "tests/providers/google/keys.test.ts" },
+        { "kind": "contract_test", "path": "tests/kernel/vault.test.ts" }
       ]
     },
     "Exported API": {

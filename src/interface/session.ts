@@ -1,11 +1,5 @@
-/**
- * Host turn session state for multi-turn runs and tool gate / awaiting.
- *
- * @module
- */
-
-import type { ToolAuthType } from '../kernel/schema.ts';
 import { isAwaitingUserInput } from '../kernel/stages.ts';
+import type { ToolGateAuth } from '../kernel/tools/gate-answer.ts';
 import type { ToolGate, TurnToolSnapshot } from '../kernel/tools/types.ts';
 import type { ModelId, ToolId, TurnEvent, TurnHistoryMessage } from '../kernel/types.ts';
 import { findLast } from '../kernel/util/find-last.ts';
@@ -14,13 +8,11 @@ import { toolCallsOf } from './tool-calls.ts';
 import { promotedToolIdsFromEvents, toolSnapshotFromEvents } from './tool-invoke.ts';
 import type { TranscriptBlock, UserTurnDraft } from './types.ts';
 
-/** The credential a sign-in gate waits for: its slot and kind. */
-export type ToolGateAuth = { slot: string; authType: ToolAuthType };
+export type { ToolGateAuth };
 
 export type GatedToolContext = {
   name: string;
   callId: string;
-  /** What the model proposed. */
   arguments: Record<string, unknown>;
   /** The call's `ToolCallRequest.thoughtSignature`, for recording the call in history. */
   thoughtSignature?: string;
@@ -40,7 +32,6 @@ export type AwaitingToolContext = {
   options?: string[];
 };
 
-/** Client-side conversation state for composer turn runs. */
 export type InterfaceTurnSession = {
   history: TurnHistoryMessage[];
   /** Google Interactions id for server-side continuity; cleared on branch. */
@@ -102,7 +93,13 @@ function gatedToolsFromEvents(events: readonly TurnEvent[]): GatedToolContext[] 
         permission: gate.permission,
         summary: gate.summary,
         ...(gate.kind === 'auth'
-          ? { auth: { slot: gate.authChallenge.slot, authType: gate.authChallenge.authType } }
+          ? {
+              auth: {
+                slot: gate.authChallenge.slot,
+                authType: gate.authChallenge.authType,
+                service: gate.authChallenge.service,
+              },
+            }
           : {}),
       },
     ];
@@ -174,12 +171,7 @@ function applyTurnEventsToSession(
   };
 }
 
-/**
- * Truncate session after transcript branch.
- *
- * Rebuilds `history` from visible blocks and drops `previousInteractionId` so the
- * next turn uses manual history rather than a stale Interactions handle.
- */
+/** Drops `previousInteractionId` so the next turn sends the rebuilt history, not a stale handle. */
 function branchInterfaceTurnSession(
   session: InterfaceTurnSession,
   blocks: readonly TranscriptBlock[],

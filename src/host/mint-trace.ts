@@ -1,12 +1,3 @@
-/**
- * Host cutout-trace helpers for apps that record an upstream side effect (for
- * example an image cutout) made after a turn, in that turn's trace.
- *
- * Prefer importing from `@theoremai/agents/host`.
- *
- * @module
- */
-
 import { TheoremError } from '../guardrails/error.ts';
 import { urlAttributes } from '../kernel/engine/turn-trace.ts';
 import type { Profile } from '../kernel/types.ts';
@@ -46,13 +37,8 @@ function cutoutAttributes(cutout: CutoutTape): TraceAttributes {
 }
 
 /**
- * Write a turn record the host held back (`memorySink`), then a record holding
- * one `cutout` span whose parent is that turn's root, so both read as one trace.
- * Without a `sink` nothing is written.
- *
- * Both writes go through the observability policy of the profile the turn ran
- * on: the cutout's content is scrubbed and gated like the turn's own, and the
- * sink receives that profile's retention and `onWriteError`.
+ * Writes the held turn record, then one `cutout` span parented on its root, so both read as one
+ * trace. Without a `sink` nothing is written.
  */
 async function flushMintTrace(args: {
   /** The profile the held turn ran on; its observability governs both writes. */

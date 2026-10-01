@@ -182,8 +182,8 @@ const graph = {
       watches: [
         {
           path: 'src/kernel/registry/vault.ts',
-          reason: 'Gemini vault types feed createProvider',
-          sections: ['Gemini transport', 'createProvider'],
+          reason: 'Key slot resolution feeds every adapter',
+          sections: ['Key vault (provider-neutral)', 'createProvider'],
         },
       ],
       validates: [
@@ -216,7 +216,7 @@ const graph = {
         'Google Live',
         'Local provider',
         'Speech roles',
-        'Gemini transport',
+        'Key vault (provider-neutral)',
         'Exported API',
       ],
       section_triggers: [
@@ -367,7 +367,11 @@ const graph = {
       export: './observability',
       doc: 'docs/contracts/observability.md',
       owns: ['src/observability/'],
-      owns_except: ['src/observability/openinference.ts'],
+      owns_except: [
+        'src/observability/jsonl.ts',
+        'src/observability/openinference.ts',
+        'src/observability/phoenix.ts',
+      ],
       validates: ['tests/observability/'],
       required_sections: [
         'Export',
@@ -390,6 +394,15 @@ const graph = {
       ],
     },
 
+    'observability-jsonl': {
+      export: './observability/jsonl',
+      doc: 'docs/contracts/observability.md',
+      owns: ['src/observability/jsonl.ts'],
+      validates: ['tests/observability/jsonl.test.ts'],
+      required_sections: ['Export', 'JSONL sink', 'Exported API'],
+      section_triggers: [{ paths: ['src/observability/jsonl.ts'], sections: ['JSONL sink'] }],
+    },
+
     'observability-openinference': {
       export: './observability/openinference',
       doc: 'docs/contracts/observability.md',
@@ -398,6 +411,17 @@ const graph = {
       required_sections: ['Export', 'OpenInference attributes', 'Exported API'],
       section_triggers: [
         { paths: ['src/observability/openinference.ts'], sections: ['OpenInference attributes'] },
+      ],
+    },
+
+    'observability-phoenix': {
+      export: './observability/phoenix',
+      doc: 'docs/contracts/observability.md',
+      owns: ['src/observability/phoenix.ts'],
+      validates: ['tests/observability/phoenix.test.ts'],
+      required_sections: ['Export', 'Phoenix annotations', 'Exported API'],
+      section_triggers: [
+        { paths: ['src/observability/phoenix.ts'], sections: ['Phoenix annotations'] },
       ],
     },
 
@@ -448,7 +472,7 @@ const graph = {
     presets: {
       export: './presets',
       doc: 'docs/contracts/presets.md',
-      owns: ['src/presets/mod.ts'],
+      owns: ['src/presets/mod.ts', 'src/presets/typesafe.ts'],
       watches: [
         {
           path: 'src/presets/google.ts',
@@ -496,7 +520,7 @@ const graph = {
     },
 
     interface: {
-      export: '_internal/interface',
+      export: './interface',
       doc: 'docs/contracts/kernel.md',
       owns: ['src/interface/'],
       validates: ['tests/interface/'],
@@ -512,6 +536,48 @@ const graph = {
       owns: ['src/kernel/schema.ts'],
       validates: ['tests/kernel/schema.test.ts'],
       required_sections: ['Export', 'Ownership', 'Profiles', 'Exported API'],
+    },
+
+    evals: {
+      export: './evals',
+      doc: 'docs/contracts/evals.md',
+      owns: ['src/evals/'],
+      validates: ['tests/evals/'],
+      required_sections: [
+        'Export',
+        'Ownership',
+        'Suites and cases',
+        'Trials',
+        'Graders',
+        'Judges',
+        'Result records',
+        'Running a suite',
+        'Exported API',
+      ],
+      section_triggers: [
+        { paths: ['src/evals/types.ts', 'src/evals/attachments.ts'], sections: ['Suites and cases'] },
+        { paths: ['src/evals/trial.ts'], sections: ['Trials'] },
+        { paths: ['src/evals/graders/'], sections: ['Graders'] },
+        {
+          paths: [
+            'src/evals/graders/judge.ts',
+            'src/evals/graders/media.ts',
+            'src/evals/graders/transcript.ts',
+            'src/evals/rubrics/',
+          ],
+          sections: ['Judges'],
+        },
+        { paths: ['src/evals/record.ts', 'src/evals/verdict.ts'], sections: ['Result records'] },
+        {
+          paths: [
+            'src/evals/run.ts',
+            'src/evals/suite.ts',
+            'src/evals/summary.ts',
+            'src/evals/breakdown.ts',
+          ],
+          sections: ['Running a suite'],
+        },
+      ],
     },
 
     'providers-google-live': {

@@ -1,17 +1,5 @@
-/**
- * P1 — no ambient authority.
- *
- * Importing the kernel and constructing `defineProfile` / `createProvider`
- * must succeed with every Deno permission denied. Deno loads the initial
- * static module graph without consulting the permission system; P1 requires
- * that construction itself performs no env, net, filesystem, run, ffi, or
- * sys I/O beyond that graph load. Adapters stay lazy on `complete`.
- *
- * Checks:
- * 1. In-process: after the test file's static imports, construct with all
- *    permissions revoked.
- * 2. Fresh isolate: `deno run` the probe under `--deny-read` … `--deny-sys`.
- */
+// P1: import and construction perform no env, net, fs, run, ffi or sys I/O. Deno loads the static
+// module graph without consulting permissions, so only construction itself is under test.
 import { createProvider, defineProfile, overrideLexicon, runTurn } from '../../mod.ts';
 import { assertEquals, assertStringIncludes } from '../../src/kernel/engine/assert.ts';
 

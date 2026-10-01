@@ -1,14 +1,3 @@
-/**
- * Google Interactions provider adapter.
- *
- * This adapter converts THEOREM's provider-neutral request into the Google
- * Interactions wire format and streams normalized `ProviderEvent` objects.
- * Speech-role turns use `response_format: audio` + `speech_config` (same
- * transport as chat/image).
- *
- * @module
- */
-
 import { isAbortError, TheoremError, toErrorEvent } from '../../../guardrails/error.ts';
 import { asRecord } from '../../../kernel/engine/record.ts';
 import type {
@@ -62,7 +51,6 @@ const HTTP_OK = 200;
  */
 
 export interface StreamFold {
-  /** Model text so far, for structured output. */
   text: string;
   /** Open `function_call`, `code_execution_*` and builtin steps by `index`. */
   steps: Map<number, Record<string, unknown>>;
@@ -109,7 +97,6 @@ function takeThoughtSignature(step: Record<string, unknown>, fold: StreamFold): 
   return signature;
 }
 
-/** One whole step — a buffered `steps[]` entry, or a streamed step merged up to `step.stop`. */
 export function eventsFromStep(step: Record<string, unknown>, fold: StreamFold): ProviderEvent[] {
   const type = String(step.type ?? '');
   if (type === 'function_call') {
@@ -182,7 +169,6 @@ function foldStepStop(payload: Record<string, unknown>, fold: StreamFold): Provi
   return eventsFromStep(step, fold);
 }
 
-/** A step the stream opened and never stopped, as `partial` evidence. */
 function partialStepEvidence(step: Record<string, unknown>): TurnEventOf<'evidence'> {
   const event = isCodeExecutionType(String(step.type ?? ''))
     ? codeExecutionEvidence(step)
@@ -190,17 +176,12 @@ function partialStepEvidence(step: Record<string, unknown>): TurnEventOf<'eviden
   return { ...event, evidence: { ...event.evidence, partial: true } };
 }
 
-/** Every step still open, as `partial` evidence; the fold holds none afterwards. */
 export function openStepEvents(fold: StreamFold): ProviderEvent[] {
   const events = [...fold.steps.values()].map(partialStepEvidence);
   fold.steps.clear();
   return events;
 }
 
-/**
- * Record what the caller receives: text for structured output, and media —
- * raw PCM wrapped as WAV at the format its mime states.
- */
 function delivered(events: ProviderEvent[], fold: StreamFold): ProviderEvent[] {
   return events.map((ev) => {
     if (ev.type === 'done') {
@@ -257,19 +238,16 @@ function eventsFromStreamRow(payload: Record<string, unknown>, fold: StreamFold)
   return events;
 }
 
-/** The `response` event when this interaction names more of its identity than the fold knew. */
 function identityEvents(interaction: Record<string, unknown>, fold: StreamFold): ProviderEvent[] {
   const identity = foldResponse(fold.response, interactionResponse(interaction));
   fold.response = identity.known;
   return identity.event ? [identity.event] : [];
 }
 
-/** Fold one SSE row into the events it completes. */
 export function foldPayload(payload: Record<string, unknown>, fold: StreamFold): ProviderEvent[] {
   return delivered(eventsFromStreamRow(payload, fold), fold);
 }
 
-/** Every event of a buffered (`stream: false`) interaction body. */
 export function foldBody(body: Record<string, unknown>, fold: StreamFold): ProviderEvent[] {
   const steps = Array.isArray(body.steps) ? body.steps : [];
   const fromSteps = steps.flatMap((value) => {
@@ -296,20 +274,23 @@ export function isVoiceProfile(req: ProviderCompleteRequest): boolean {
   return Boolean(req.speech?.voice);
 }
 
-export function shouldReportMissingSpeechAudio(
+/** What the profile asked for and the model did not return; even an empty turn fails. */
+export function missingMediaError(
   req: ProviderCompleteRequest,
   fold: StreamFold,
-): boolean {
-  // Any speech-role completion without real audio is a failure — including
-  // empty turns (no text and no media). Never invent PCM from text.
-  return isVoiceProfile(req) && !fold.sawMedia;
-}
-
-/** Speech-role turns must receive real audio; never invent PCM from text bytes. */
-export function* missingSpeechAudioError(): Generator<ProviderEvent> {
-  yield toErrorEvent(
-    new TheoremError('bad_response', 'speech audio was not returned by the model'),
-  );
+): ProviderEvent | undefined {
+  if (fold.sawMedia) return undefined;
+  if (isVoiceProfile(req)) {
+    return toErrorEvent(
+      new TheoremError('bad_response', 'speech audio was not returned by the model'),
+    );
+  }
+  if (req.image) {
+    return toErrorEvent(
+      new TheoremError('bad_response', 'no image returned from image generation'),
+    );
+  }
+  return undefined;
 }
 
 async function* parseInteractionsSse(
@@ -335,16 +316,14 @@ async function* parseInteractionsSse(
   }
   yield* openStepEvents(fold);
   yield* finalizeStructured(req, fold);
-  if (shouldReportMissingSpeechAudio(req, fold)) {
-    yield* missingSpeechAudioError();
-  }
+  const missing = missingMediaError(req, fold);
+  if (missing) yield missing;
   if (!fold.sawDone) {
     // The stream ended before the interaction reported a status: it did not complete.
     yield { type: 'done', stop: { kind: 'stream_incomplete' } };
   }
 }
 
-/** POST the request to `url`; a non-2xx status throws with the provider's message. */
 async function postInteractions(
   url: string,
   req: ProviderCompleteRequest,
@@ -359,7 +338,14 @@ async function postInteractions(
     body: JSON.stringify(toInteractionsBody(req)),
     signal: req.signal,
   };
-  const response = await fetchGemini(url, init, req.keySlot, transport, req.tapUpstream);
+  const response = await fetchGemini(
+    url,
+    init,
+    req.keySlot,
+    transport,
+    req.tapUpstream,
+    req.fallbackKeySlot,
+  );
   if (response.status !== HTTP_OK) {
     throw await readNonOkError(response);
   }
@@ -381,9 +367,8 @@ async function* fetchInteractionsOnce(
   const fold = newStreamFold();
   yield* foldBody(parsed, fold);
   yield* finalizeStructured(req, fold);
-  if (shouldReportMissingSpeechAudio(req, fold)) {
-    yield* missingSpeechAudioError();
-  }
+  const missing = missingMediaError(req, fold);
+  if (missing) yield missing;
 }
 
 async function* streamInteractions(
@@ -394,7 +379,6 @@ async function* streamInteractions(
   yield* parseInteractionsSse(response, req);
 }
 
-/** Create a `ModelProvider` backed by Google Interactions HTTP / SSE. */
 export function createInteractionsProvider(transport: GeminiTransport): ModelProvider {
   return {
     async *complete(req: ProviderCompleteRequest): AsyncGenerator<ProviderEvent> {

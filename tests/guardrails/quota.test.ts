@@ -52,7 +52,6 @@ Deno.test('clientIp uses cf-connecting-ip only when the peer is loopback', () =>
   assertEquals(clientIp('127.0.0.1', req), '203.0.113.9');
   assertEquals(clientIp('198.51.100.2', req), '198.51.100.2');
 
-  // Release non-existent slot does not throw
   releaseSlot(getProfile('image'), 'non-existent-ip');
 });
 

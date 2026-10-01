@@ -1,17 +1,13 @@
 import { assertEquals, assertThrows } from '@std/assert';
 import { main } from '../../src/cli/index.ts';
 import { compileEgressRules } from '../../src/guardrails/compile-egress.ts';
-import {
-  collectEgressHits,
-  DEFAULT_CHECKS,
-  EGRESS_RULES,
-  NO_CHECKS,
-} from '../../src/guardrails/egress.ts';
+import { collectEgressHits, DEFAULT_CHECKS, NO_CHECKS } from '../../src/guardrails/egress.ts';
 import { egressPolicy } from '../../src/guardrails/egress-policy.ts';
 import type { EgressRule } from '../../src/guardrails/egress-rules.ts';
 import { createEgressStream } from '../../src/guardrails/egress-stream.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import { createProgressiveYieldGate } from '../../src/guardrails/progressive-yield.ts';
+import { EGRESS_RULES } from '../../src/guardrails/rules.ts';
 import type { GuardrailContext, Verdict } from '../../src/guardrails/types.ts';
 import { referenceMatchStart } from './egress-reference.ts';
 

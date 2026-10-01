@@ -1,5 +1,5 @@
 /**
- * Build-time compiler for egress rules, behind `@theoremai/agents/guardrails/compile`.
+ * Build-time compiler for egress rules, behind `@theoremjs/agents/guardrails/compile`.
  *
  * The streaming egress hold reads each pattern as an automaton that accepts
  * every match of it and more, so it can hold exactly the text a match could

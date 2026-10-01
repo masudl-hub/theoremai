@@ -78,7 +78,6 @@ Deno.test('runner internal helper branches: loaders, tool findings, step ceiling
     }),
   );
 
-  // 1. Deferred tool not loaded yet -> not_loaded error
   const mockDeferredProvider: ModelProvider = {
     complete: () => {
       return (async function* () {
@@ -106,7 +105,6 @@ Deno.test('runner internal helper branches: loaders, tool findings, step ceiling
   assertEquals(deferredTool?.phase, 'error');
   assertStringIncludes(failureOf(deferredTool)?.message ?? '', 'not loaded');
 
-  // 2. Registered tool on multi-step profile executes and continues
   const noHandlerReq: TurnRequest = {
     profile: 'dynamic_runner_bot',
     input: { text: 'run stub' },
@@ -133,7 +131,6 @@ Deno.test('runner internal helper branches: loaders, tool findings, step ceiling
   }
   assertEquals(replyText(stubEvents), 'finished');
 
-  // 3. Catalog registration is the source of truth for tool metadata
   registerProfile(
     defineProfile({
       type: 'text',
@@ -350,7 +347,7 @@ Deno.test('model builtInTools lists search and maps when both are allowlisted', 
           builtInTools: ['googleSearch', 'googleMaps'],
         },
       },
-      key: 'slotA',
+      key: 'main',
       maxSteps: 1,
       tools: { allow: [] },
       inputs: { text: true },
@@ -376,7 +373,7 @@ Deno.test('model builtInTools ceiling blocks unlisted builtins', () => {
           builtInTools: ['googleSearch', 'googleMaps'],
         },
       },
-      key: 'slotA',
+      key: 'main',
       maxSteps: 1,
       tools: { allow: [] },
       inputs: { text: true },
@@ -405,7 +402,7 @@ Deno.test('allow puts T0 custom tools on the wire; builtins follow the model', (
           builtInTools: ['googleSearch'],
         },
       },
-      key: 'slotA',
+      key: 'main',
       maxSteps: 1,
       tools: { allow: ['ask_user'] },
       inputs: { text: true },
@@ -431,6 +428,30 @@ Deno.test('language slot picks structured schema', () => {
     input: { text: 'x', slots: { language: 'tsx' } },
   });
   assertEquals(tsx.generation.structured?.id, 'tsxTurn');
+});
+
+Deno.test('a turn passes only declared slots, set to a declared choice', () => {
+  assertThrows(
+    () => resolveTurn({ profile: 'formatter', input: { text: 'x', slots: { language: 'py' } } }),
+    TheoremError,
+    "Profile formatter: slot 'language' takes html, tsx, not 'py'",
+  );
+  assertThrows(
+    () => resolveTurn({ profile: 'formatter', input: { text: 'x', slots: { tone: 'dry' } } }),
+    TheoremError,
+    "Profile formatter has no slot 'tone'",
+  );
+  assertThrows(
+    () => resolveTurn({ profile: 'formatter', input: { text: 'x', slots: { toString: 'x' } } }),
+    TheoremError,
+    "Profile formatter has no slot 'toString'",
+  );
+  // A profile that declares no slots takes none.
+  assertThrows(
+    () => resolveTurn({ profile: 'chat', input: { text: 'x', slots: { language: 'html' } } }),
+    TheoremError,
+    "Profile chat has no slot 'language'",
+  );
 });
 
 Deno.test('disallowed tool cannot run', async () => {
@@ -1229,7 +1250,7 @@ Deno.test('an Interactions binding that does not persist sends full history ever
           ...googleInteractionsPersistence(false),
         },
       },
-      key: 'slotA',
+      key: 'main',
       maxSteps: 3,
       tools: { allow: ['fetch_sensor'] },
       inputs: { text: true },
@@ -1300,7 +1321,7 @@ Deno.test('a step that makes parallel calls records them in one assistant messag
           ...googleInteractionsPersistence(false),
         },
       },
-      key: 'slotA',
+      key: 'main',
       maxSteps: 3,
       tools: { allow: ['fetch_sensor'] },
       inputs: { text: true },
@@ -1685,6 +1706,7 @@ Deno.test('loader promotes deferred tools and continues the same turn loop', asy
     type: 'text',
     id: 'loader_bot',
     identity: { handle: 'loader_bot' },
+    key: 'slot_a',
     models: {
       gemini35FlashLite: {
         protocol: 'openAi',
@@ -1758,6 +1780,7 @@ Deno.test('loader does not promote deferred tools before required permission is 
     type: 'text',
     id: 'loader_permission_bot',
     identity: { handle: 'loader_permission_bot' },
+    key: 'slot_a',
     models: {
       gemini35FlashLite: {
         protocol: 'openAi',

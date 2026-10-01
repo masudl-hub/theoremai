@@ -1,9 +1,3 @@
-/**
- * User turn draft — validate, sanitize, and project to transcript blocks.
- *
- * @module
- */
-
 import { resolveGuardrailPolicy } from '../guardrails/policy.ts';
 import { sanitizeText } from '../guardrails/sanitize.ts';
 import { anySensitive } from '../guardrails/sensitive.ts';
@@ -17,7 +11,6 @@ import type {
   UserTurnDraft,
 } from './types.ts';
 
-/** Sanitize user-authored text in a draft using profile guardrail flags. */
 function sanitizeUserDraft(
   draft: UserTurnDraft,
   guardrails?: ProfileGuardrailsView,
@@ -39,10 +32,7 @@ export type PrepareUserTurnResult =
   | { ok: true; draft: UserTurnDraft; blocks: TranscriptBlock[] }
   | { ok: false; issues: AttachmentValidationIssue[] };
 
-/**
- * Validate attachments, sanitize text, and build user transcript blocks.
- * Call before appending to the thread and before `runTurn` ingress.
- */
+/** Call before appending to the thread and before `runTurn` ingress. */
 function prepareUserTurn(
   inputs: ProfileInputsInterface,
   draft: UserTurnDraft,

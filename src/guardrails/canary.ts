@@ -14,7 +14,6 @@ const USER_CLOSE = '</user_data>';
 const CANARY_BYTES = 16;
 const HEX_RADIX = 16;
 const HEX_PAD = 2;
-/** Literal placeholder substituted for a canary when an event is redacted. */
 const OMIT_CANARY = '[omitted - canary]';
 const FENCE = /<\/?user_data>/gi;
 
@@ -42,8 +41,6 @@ function wrapUserData(text: string): string {
 }
 
 /**
- * Append the canary bind note to the host's system prompt.
- *
  * The note is the lexicon's `canary.bind_note`: the profile's `lexicon`, then
  * `overrideLexicon`, then the default. Every override is checked for the
  * `{canary}` placeholder when it is set — a note without the token binds nothing.
@@ -57,6 +54,13 @@ function bindCanary(system: string, canary: string, lexicon?: LexiconOverrides):
     return note;
   }
   return `${system}\n\n${note}`;
+}
+
+/** Appends the lexicon's `user_data.note`, which tells the model what `wrapUserData`'s tags mean. */
+function bindUserDataNote(system: string, lexicon?: LexiconOverrides): string {
+  const note = lexiconText('user_data.note', {}, lexicon);
+  if (!note) return system;
+  return system ? `${system}\n\n${note}` : note;
 }
 
 /**
@@ -703,11 +707,7 @@ function canaryLeakRanges(text: string, canary: string): Array<[number, number]>
   return ranges.sort((a, b) => a[0] - b[0]);
 }
 
-/**
- * Returns whether text contains a canary in any detected leak form
- * (`canaryLeakForms`). This is leak detection, not general-purpose
- * encoded-data detection.
- */
+/** Leak detection over `canaryLeakForms` only, not general-purpose encoded-data detection. */
 function scanTextForCanaryLeak(text: string, canary: string): boolean {
   if (!text || !canary) {
     return false;
@@ -848,7 +848,6 @@ function canaryCarry(text: string, canary: string): string {
   return text.slice(leakOpeningFrom(text, canary, ANY_OPENING));
 }
 
-/** `text` with every detected canary leak replaced by `OMIT_CANARY`. */
 function redactCanaryText(text: string, canary: string): string {
   if (!text || !canary) {
     return text;
@@ -938,7 +937,6 @@ function eventHasCanary(event: ProviderEvent, canary: string): boolean {
   return guardedEventTexts(event).some((text) => scanTextForCanaryLeak(text, canary));
 }
 
-/** Result of scanning one streamed window: either a leak or the prefix safe to emit. */
 type CanaryGateResult = { leak: true } | { leak: false; emit: string };
 
 /**
@@ -952,9 +950,8 @@ interface CanaryStreamGate {
 }
 
 /**
- * Creates an incremental scanner for one canary token; call `flush` at stream
- * end. With `system`, a reply echoing the system prompt (`scanTextForPromptEcho`)
- * is a leak too.
+ * Call `flush` at stream end to release the held tail. With `system`, a reply
+ * echoing the system prompt (`scanTextForPromptEcho`) is a leak too.
  */
 function createCanaryStreamGate(canary: string, system?: string): CanaryStreamGate {
   const scanner = createCanaryScanner(canary);
@@ -1007,7 +1004,6 @@ function createCanaryStreamGate(canary: string, system?: string): CanaryStreamGa
   };
 }
 
-/** An event `isStreamedCanaryEvent` accepts: its `text` is the streamed reply. */
 type StreamedReplyEvent = TurnEventOf<'text' | 'evidence'>;
 
 /**
@@ -1022,7 +1018,6 @@ function isStreamedCanaryEvent(event: ProviderEvent): event is StreamedReplyEven
   );
 }
 
-/** Replaces every detected canary leak in every string field of an event. */
 function redactCanary(event: TurnEvent, canary: string): TurnEvent {
   // Replacing strings keeps the event's shape; the parse re-types it.
   return turnEventSchema.parse(mapStrings(event, (text) => redactCanaryText(text, canary)));
@@ -1031,6 +1026,7 @@ function redactCanary(event: TurnEvent, canary: string): TurnEvent {
 export type { CanaryGateResult, CanaryScanner, CanaryStreamGate, StreamedReplyEvent };
 export {
   bindCanary,
+  bindUserDataNote,
   canaryCarry,
   canaryHoldFrom,
   createCanaryScanner,

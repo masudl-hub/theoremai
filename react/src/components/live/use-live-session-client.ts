@@ -1,19 +1,15 @@
 import { useCallback, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
-import { type SessionEventOf, TheoremError, type TurnEvent } from '../../../../mod.ts';
+import { type SessionEventOf, TheoremError, type TurnEvent } from '@theoremjs/agents';
 import {
 	applyLiveTranscript,
 	type LiveCaptionState,
-} from '../../client/live/live-captions';
-import type { LiveGateAnswer, LiveToolGatePrompt } from '../../client/live/live-tool';
-import { runLiveToolCall } from '../../client/live/run-live-tool-call';
-import type { LiveFacingMode, LiveVideoCapture } from '../../client/live/live-video';
-import {
-	type LiveConnection,
-	type LiveConnectPhase,
-	LiveSessionClient,
-	type LiveSessionStatus,
-} from '../../client/live-client';
-import type { TraceFeed } from '../../client/trace-feed';
+} from '../../client/live/live-captions.ts';
+import type { LiveGateAnswer, LiveToolGatePrompt } from '../../client/live/live-tool.ts';
+import { runLiveToolCall } from '../../client/live/run-live-tool-call.ts';
+import type { LiveFacingMode, LiveVideoCapture } from '../../client/live/live-video.ts';
+import type { LiveConnectPhase, LiveSessionStatus } from '../../client/live/live-state.ts';
+import { type LiveConnection, LiveSessionClient } from '../../client/live-client.ts';
+import type { TraceFeed } from '../../client/trace-feed.ts';
 
 export type LiveClientBindings = {
 	voiceAvailable: boolean;
@@ -135,6 +131,11 @@ export function useLiveSessionClient(bindings: LiveClientBindings) {
 			onTurnEvent: (event) => {
 				// An `unsupported` event is the host's to read; Theorem's UI shows nothing for it.
 				if (event.type === 'unsupported') return;
+				// A `malformed` one was left out and the call goes on; the user reads that part was skipped.
+				if (event.type === 'malformed') {
+					bindingsRef.current.reportFailure(event.error);
+					return;
+				}
 				bindingsRef.current.handleLiveTurnEvent(event);
 			},
 			onTrace: (record) => {

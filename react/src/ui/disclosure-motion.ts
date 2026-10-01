@@ -23,12 +23,25 @@ function isToggleKey(event: Event): boolean {
 	return !(event instanceof KeyboardEvent) || event.key === 'Enter' || event.key === ' ';
 }
 
-/** The element pressed and the disclosure trigger it sits in, when that trigger is under `root`. */
+/**
+ * The element pressed and the disclosure trigger it sits in, when that trigger is under `root`. In a
+ * tree, the press is the row's own: a leaf's row toggles nothing, and a row with an action of its own
+ * (a label that selects it, a button at its end) toggles only at its chevron.
+ */
 function pressedToggle(event: Event, root: Element): { target: Element; trigger: Element } | undefined {
 	if (!(event.target instanceof Element)) return undefined;
-	const trigger = event.target.closest('[aria-expanded]');
+	const row = event.target.closest('[role="treeitem"]');
+	const trigger = row ? treeToggle(event.target, row) : event.target.closest('[aria-expanded]');
 	if (!trigger || !root.contains(trigger)) return undefined;
 	return { target: event.target, trigger };
+}
+
+/** The tree row a press toggles: none for a leaf, and for a row with an action of its own, only a press at its chevron. */
+function treeToggle(target: Element, row: Element): Element | undefined {
+	if (!row.hasAttribute('aria-expanded')) return undefined;
+	if (target.closest('[data-tree-toggle]') !== null) return row;
+	const acts = row.querySelector(':scope > div :is(button:not([data-tree-toggle]), a[href])') !== null;
+	return acts ? undefined : row;
 }
 
 /** Stops the event: the component does not see it. */

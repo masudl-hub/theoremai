@@ -1,27 +1,14 @@
 /**
- * Trace sinks, destination registry, profile observability policy, and the
- * span builder the kernel itself uses.
- *
- * THEOREM does not own a database or environment variable. Host applications
- * register named destinations, declare `profile.observability`, and/or pass a
- * sink into `runTurn`. Hosts record their own spans with `startTrace`, seal
- * them with `buildRecord`, and read stored content back with `contentOf`.
- * Viewers name and describe what a record holds with the trace catalog
- * (`traceSpanMeta`, `traceAttributeMeta`, `traceEventMeta`).
+ * Trace sinks, the destination registry, observability policy, the span builder and the trace
+ * catalog. THEOREM owns no database: hosts register destinations or pass a sink into `runTurn`.
  *
  * @module
  */
 
-export type {
-  JsonlTraceDestination,
-  TraceDestination,
-} from './destinations.ts';
 export {
   clearTraceDestinations,
   getTraceDestination,
-  isJsonlTraceDestination,
   isTraceSink,
-  jsonlDestination,
   listTraceDestinationIds,
   registerTraceDestination,
   requireTraceDestination,
@@ -30,9 +17,7 @@ export type { OtlpAnyValue, OtlpKeyValue, OtlpSpan, OtlpTraceRequest } from './o
 export { toOtlpJson } from './otlp.ts';
 export { resolveTraceWriter } from './policy.ts';
 export { resolveObservabilityPolicy } from './resolve-policy.ts';
-export type { JsonlSinkOptions } from './trace.ts';
 export {
-  jsonlSink,
   memorySink,
   noopSink,
   writeTrace,
@@ -77,7 +62,13 @@ export type {
   TraceSpanStatus,
   TraceTree,
 } from './trace-span.ts';
-export { startTrace, traceBytes, traceContent, traceJson } from './trace-span.ts';
+export {
+  readTraceparent,
+  startTrace,
+  traceBytes,
+  traceContent,
+  traceJson,
+} from './trace-span.ts';
 export type {
   ProfileObservabilitySpec,
   ResolvedObservabilityPolicy,

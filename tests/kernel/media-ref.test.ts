@@ -1,8 +1,3 @@
-/**
- * URI media references (`TurnMediaRef` / `InteractionMediaRefPart`): MIME
- * acceptance still applies; base64 and byte limits do not; the uri passes
- * through untouched for the Google adapter to wire.
- */
 import '../fixtures/test-host.ts';
 import { assertEquals, assertThrows } from '@std/assert';
 import { publicError, TheoremError } from '../../src/guardrails/error.ts';

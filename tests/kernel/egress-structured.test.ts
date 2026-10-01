@@ -1,8 +1,5 @@
-/**
- * Regression: the egress gate projected only `text` events, so a profile with
- * `outputs.structured` handed its policy an empty string and always passed.
- * Structured output now travels in the outbound payload.
- */
+// Regression: the egress gate projected only `text` events, so a profile with
+// `outputs.structured` handed its policy an empty string and always passed.
 import '../fixtures/test-host.ts';
 import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
 import type { Verdict } from '../../src/guardrails/types.ts';

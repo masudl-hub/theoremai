@@ -1,4 +1,4 @@
-# Google preset (`@theoremai/agents/presets/google`)
+# Google preset (`@theoremjs/agents/presets/google`)
 
 Google / Gemini convenience pack: grounding builtins plus typed vocabularies
 for image and speech-adjacent profile fields.
@@ -7,9 +7,9 @@ for image and speech-adjacent profile fields.
 
 | Field | Value |
 | --- | --- |
-| Import | `@theoremai/agents/presets/google` / `jsr:@theoremai/agents/presets/google` |
+| Import | `@theoremjs/agents/presets/google` / `jsr:@theoremjs/agents/presets/google` |
 | Module | `src/presets/google.ts` |
-| Voices subpath | `@theoremai/agents/presets/google/speech-voices` → `src/presets/google/speech-voices.ts` |
+| Voices subpath | `@theoremjs/agents/presets/google/speech-voices` → `src/presets/google/speech-voices.ts` |
 
 ## Ownership
 
@@ -30,7 +30,7 @@ for image and speech-adjacent profile fields.
 | `codeExecution` | Interactions `code_execution` (server-side Python sandbox); Live `codeExecution` |
 
 All are `type: 'builtin'`. Declare ids on `ModelBinding.builtInTools` — they are on whenever that model is selected (visibility still respects `loadTier`).
-`codeExecution` combines with `googleSearch` on Gemini 3+ and with registered function tools when the profile allows them on Interactions. THEOREM also sends structured `responseFormat` on the same request when both are configured; Google may still reject that pairing at the API. `googleSearch` sets `forcePaidKey: true`, so enabling it selects the paid vault slot unless the model pins `key`. Google's sandbox runtime (~30s) is not a THEOREM knob.
+`codeExecution` combines with `googleSearch` on Gemini 3+ and with registered function tools when the profile allows them on Interactions. THEOREM also sends structured `responseFormat` on the same request when both are configured; Google may still reject that pairing at the API. `googleSearch` uses the model's key slot like any call; a model that needs a billed key for it pins that slot with `key`. Google's sandbox runtime (~30s) is not a THEOREM knob.
 Hosts may declare optional `conflictsWith` on registered builtins; the preset does not.
 
 ## Interaction persistence
@@ -57,6 +57,8 @@ Constants (and matching types) for host profile authoring:
 | `GOOGLE_VOICE_INPUT_MIMES` | webm / wav / mpeg / mp4 |
 | `GOOGLE_IMAGE_ASPECT_RATIOS` / `GOOGLE_IMAGE_SIZES` | Image output pins |
 | `GOOGLE_SPEECH_VOICES` | TTS voice names for `outputs.speech.voice` |
+| `GOOGLE_SINGLE_TURN_API_IDS` | TTS models that reject history with a model turn, so they can't take compaction |
+| `GOOGLE_NO_THINKING_API_IDS` | Models that reject any thinking setting, `summaries: false` included; leave `efforts` and `summaries` unset |
 | `GoogleImageAspectRatio`, `GoogleImageInputMime`, `GoogleImageSize`, `GoogleVoiceInputMime` | Typed vocabulary unions |
 | `GoogleImagePins`, `GoogleSpeechPins`, `GoogleSpeechVoice` | Typed pins assignable to kernel specs |
 
@@ -69,6 +71,8 @@ Kernel types stay stringly; these packs make Google hosts typed when they opt in
 | `registerGooglePreset` | Register builtins into catalog |
 | `googleInteractionsPersistence` / `GoogleInteractionsPersistence` | `store` and `persistViaInteractionId` set together for a `geminiInteractions` binding |
 | `GOOGLE_BUILTIN_TOOLS` | Static catalog entries |
+| `GOOGLE_SINGLE_TURN_API_IDS` | TTS models that can't take compaction |
+| `GOOGLE_NO_THINKING_API_IDS` | Models that take no `efforts` or `summaries` |
 | `GOOGLE_IMAGE_ASPECT_RATIOS`, `GOOGLE_IMAGE_INPUT_MIMES`, `GOOGLE_IMAGE_SIZES`, `GOOGLE_VOICE_INPUT_MIMES`, `GOOGLE_SPEECH_VOICES` | Typed profile authoring constants |
 | `GoogleImageAspectRatio`, `GoogleImageInputMime`, `GoogleImageSize`, `GoogleVoiceInputMime`, `GoogleImagePins`, `GoogleLivePins`, `GoogleSpeechPins`, `GoogleSpeechVoice` | Typed pins and vocabularies |
 | `GOOGLE_SPEECH_VOICES` / `GoogleSpeechVoice` | Published speech-voice vocabulary provided by `src/presets/google/speech-voices.ts` and consumed by profile authoring |

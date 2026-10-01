@@ -1,16 +1,4 @@
-/**
- * Guardrail and failure shapes that ride on turn events.
- *
- * Each shape is a documented type and a zod schema checked against it
- * (`Equals`): the type is what builders read; the schema is what a wire parser
- * runs. A field in one and not the other fails the build.
- *
- * Like `types.ts`, this module imports nothing from `src/kernel/` but the
- * dependency-free `Equals` check; the kernel's turn-event schemas
- * (`src/kernel/turn-events.ts`) import these.
- *
- * @module
- */
+// Imports nothing from `src/kernel/` but the dependency-free `Equals`: `src/kernel/turn-events.ts` imports these.
 
 import { z } from 'zod';
 import type { Equals } from '../kernel/util/exact-type.ts';
@@ -31,7 +19,6 @@ import {
 
 const errorKind = z.enum(ERROR_KINDS);
 true satisfies Equals<z.infer<typeof errorKind>, ErrorKind>;
-/** What kind of failure happened (`ERROR_KINDS`). */
 export const errorKindSchema: z.ZodType<ErrorKind> = errorKind;
 
 /** Wording for the user more specific than its kind's: a lexicon key and its parameters. */
@@ -52,8 +39,6 @@ true satisfies Equals<z.infer<typeof errorCopies>, ErrorCopies>;
 export const errorCopiesSchema: z.ZodType<ErrorCopies> = errorCopies;
 
 /**
- * Where a piece of content entered the turn from.
- *
  * `depth` is hops from the user's turn: a direct tool call is 1; a tool result
  * produced by a delegated agent that itself called tools is deeper. Depth
  * matters because a two-hop delegation can otherwise launder remote content
@@ -61,7 +46,6 @@ export const errorCopiesSchema: z.ZodType<ErrorCopies> = errorCopies;
  */
 export interface Provenance {
   origin: ToolOrigin;
-  /** Registered tool name. */
   tool: string;
   depth: number;
 }
@@ -72,33 +56,35 @@ const provenance = z.object({
 });
 true satisfies Equals<z.infer<typeof provenance>, Provenance>;
 
-/** One detector match. */
 export interface GuardrailHit {
-  /** Stable rule id, e.g. `injection.instruction-override`. */
+  /** Stable rule id, e.g. `egress.canary-leak`. */
   rule: string;
   severity: Severity;
   /** Offsets into the inspected text; absent for whole-payload checks. */
   span?: { start: number; end: number };
-  /**
-   * Exact matched text, whole. Present when detectors had the source text.
-   * Stripped from host/trace unless `observability.include.guardrailMatchPreview`.
-   */
+  /** Stripped from host and trace unless `observability.include.guardrailMatchPreview`. */
   match?: string;
+  /**
+   * What the rule catches, in a few words, for a host's own rule: Theorem's
+   * rules are named in the trace catalog. Shown in place of the id.
+   */
+  label?: string;
+  /** Why a match matters, in a sentence, for a host's own rule. */
+  doc?: string;
 }
 const guardrailHit = z.object({
   rule: z.string(),
   severity: z.enum(SEVERITIES),
   span: z.object({ start: z.number(), end: z.number() }).optional(),
   match: z.string().optional(),
+  label: z.string().optional(),
+  doc: z.string().optional(),
 });
 true satisfies Equals<z.infer<typeof guardrailHit>, GuardrailHit>;
 
 /**
- * One guardrail decision, as it reaches the host and the trace.
- *
- * Carries rule identity and offsets. Matched text rides only under
- * `observability.include.guardrailMatchPreview`, so by default a trace sink can
- * count and locate hits without becoming a second copy of the secret.
+ * Matched text rides only under `observability.include.guardrailMatchPreview`, so by default a
+ * trace sink can count and locate hits without becoming a second copy of the secret.
  */
 export interface GuardrailEvent {
   stage: GuardrailStage;

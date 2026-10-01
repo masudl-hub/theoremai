@@ -1,22 +1,15 @@
 #!/usr/bin/env node
 /**
- * Copy-manifest lint — P2 enforcement for "Host decides, Theorem runs."
+ * Copy lint (P2, "Host decides, Theorem runs"): prose-like string literals (≥3 alphabetic words)
+ * outside the lexicon fail. `react/src/ui`, the default UI, owns its own wording and is not scanned.
  *
- * Scans **all** of `src/kernel`, `src/guardrails`, `src/interface`, and the
- * headless React package (`react/src` except `ui/`, the default UI that owns its
- * own wording) for prose-like string literals (≥3 alphabetic words) outside the
- * lexicon.
- *
- * Escape hatches (must state a reason):
+ * Escape hatches, each stating a reason:
  *   - `// lexicon-exempt: <reason>` on the same or previous line
- *   - `lexicon-exempt-file: <reason>` in a comment in the first 40 lines
- *     (for fixture modules that never emit to users/models at runtime)
+ *   - `lexicon-exempt-file: <reason>` in a comment in the first 40 lines, for fixture modules
+ *     that never emit to users or models at runtime
  *
- * Auto-skipped (only):
- *   - `src/guardrails/lexicon.ts` — the registered defaults themselves
- *
- * Important: do NOT strip block comments before scanning strings — template
- * literals can contain `/*` (e.g. `${category}/*`) and a naive strip eats the file.
+ * Do NOT strip block comments before scanning strings: template literals can contain `/*`
+ * (e.g. `${category}/*`) and a naive strip eats the file.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -57,7 +50,6 @@ function fileIsExempt(src) {
   return EXEMPT_FILE_RE.test(head);
 }
 
-/** Scan source for string literals without disturbing comment/string nesting. */
 function proseHits(src) {
   const lines = src.split('\n');
   const hits = [];

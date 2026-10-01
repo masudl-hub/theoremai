@@ -6,8 +6,10 @@
  * @module
  */
 
+import { argv, exit } from 'node:process';
 import { benchCommand } from './commands/bench.ts';
 import { egressCompileCommand } from './commands/egress-compile.ts';
+import { evalCommand } from './commands/eval.ts';
 import { fuzzCanaryCommand } from './commands/fuzz-canary.ts';
 import { fuzzGuardrailsCommand } from './commands/fuzz-guardrails.ts';
 import { listProfilesCommand, showProfileCommand } from './commands/profile.ts';
@@ -30,6 +32,15 @@ COMMANDS:
   egress-compile <module>  Compile a module's egress rules for egressPolicy
     --export <name>    The export holding the rules (default: rules)
     --out <path>       Where to write the compiled module
+
+  eval <suite>         Run an eval suite live or over recorded traces
+    --recorded <path>  Grade a JSONL file or directory of trace records instead of running
+    --trials <k>       Trials per case, overriding the suite
+    --concurrency <n>  Trials in flight at once (default: 1)
+    --max-cost-usd <n> Stop starting trials once the run's cost passes this
+    --threshold <f>    Fraction of cases that must pass for exit 0 (default 1)
+    --trace-dir <path> Append trial and run records as JSONL under this directory
+    --json             Print the run as one JSON document
 
   fuzz                 Adversarial inbound sanitization fuzzer
   fuzz-canary          Adversarial canary egress fuzzer (stream + Live gates)
@@ -158,7 +169,7 @@ async function handleTest(flags: ParsedFlags): Promise<void> {
     traceDir: diagnostics.traceDir,
   });
   if (!success) {
-    Deno.exit(1);
+    exit(1);
   }
 }
 
@@ -166,7 +177,7 @@ async function handleRun(flags: ParsedFlags): Promise<void> {
   const profile = extractProfileId(flags);
   if (!profile) {
     console.error('Error: Profile ID required (e.g. `agents run --profile your-profile`)');
-    Deno.exit(1);
+    exit(1);
   }
   const prompt = typeof flags.prompt === 'string' ? flags.prompt : flags._.slice(1).join(' ');
   const diagnostics = cliDiagnostics(flags);
@@ -182,6 +193,31 @@ async function handleRun(flags: ParsedFlags): Promise<void> {
   });
 }
 
+function numberFlag(flags: ParsedFlags, key: string): number | undefined {
+  return typeof flags[key] === 'string' ? Number(flags[key]) : undefined;
+}
+
+async function handleEval(flags: ParsedFlags): Promise<void> {
+  const suite = flags._[1];
+  if (!suite) {
+    console.error('Error: Suite module required (e.g. `agents eval ./evals/suite.ts`)');
+    exit(1);
+  }
+  const ok = await evalCommand({
+    suite,
+    recorded: typeof flags.recorded === 'string' ? flags.recorded : undefined,
+    trials: numberFlag(flags, 'trials'),
+    concurrency: numberFlag(flags, 'concurrency'),
+    maxCostUsd: numberFlag(flags, 'max-cost-usd'),
+    threshold: numberFlag(flags, 'threshold'),
+    traceDir: cliDiagnostics(flags).traceDir,
+    json: Boolean(flags.json),
+  });
+  if (!ok) {
+    exit(1);
+  }
+}
+
 function handleProfile(flags: ParsedFlags): void {
   const sub = flags._[1] || 'list';
   if (sub === 'list') {
@@ -191,7 +227,7 @@ function handleProfile(flags: ParsedFlags): void {
   const id = sub === 'show' ? flags._[2] || flags.profile : sub;
   if (typeof id !== 'string' || !id) {
     console.error('Error: Profile ID required (e.g. `agents profile show your-profile`)');
-    Deno.exit(1);
+    exit(1);
   }
   showProfileCommand(id);
 }
@@ -200,7 +236,7 @@ async function handleEgressCompile(flags: ParsedFlags): Promise<void> {
   const module = flags._[1];
   if (!module || typeof flags.out !== 'string') {
     console.error('Error: usage `agents egress-compile <module> --out <path> [--export <name>]`');
-    Deno.exit(1);
+    exit(1);
   }
   try {
     const count = await egressCompileCommand({
@@ -211,29 +247,24 @@ async function handleEgressCompile(flags: ParsedFlags): Promise<void> {
     console.log(`Compiled ${count} egress rule${count === 1 ? '' : 's'} to ${flags.out}`);
   } catch (err) {
     console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
-    Deno.exit(1);
+    exit(1);
   }
 }
 
-/**
- * Runs a CLI command with supplied arguments, defaulting to `Deno.args`.
- *
- * Unknown or omitted commands print help. Commands that cannot continue report
- * their error to stderr and exit with status 1.
- */
-export async function main(cliArgs = Deno.args): Promise<void> {
+/** Unknown or omitted commands print help; a command that cannot continue exits 1. */
+export async function main(cliArgs: string[] = argv.slice(2)): Promise<void> {
   const flags = parseFlags(cliArgs);
   const command = flags._[0] || (flags.help ? 'help' : 'help');
 
   if (command === 'fuzz') {
     const ok = fuzzGuardrailsCommand();
     if (!ok) {
-      Deno.exit(1);
+      exit(1);
     }
   } else if (command === 'fuzz-canary') {
     const ok = await fuzzCanaryCommand();
     if (!ok) {
-      Deno.exit(1);
+      exit(1);
     }
   } else if (command === 'egress-compile') {
     await handleEgressCompile(flags);
@@ -247,13 +278,11 @@ export async function main(cliArgs = Deno.args): Promise<void> {
     await handleTest(flags);
   } else if (command === 'run') {
     await handleRun(flags);
+  } else if (command === 'eval') {
+    await handleEval(flags);
   } else if (command === 'profile') {
     handleProfile(flags);
   } else {
     printHelp();
   }
-}
-
-if (import.meta.main) {
-  await main();
 }

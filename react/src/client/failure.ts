@@ -12,11 +12,8 @@ import {
 	type LexiconOverrides,
 	lexiconText,
 	publicError,
-} from '../../../mod.ts';
-import type {
-	AttachmentValidationIssue,
-	InterfaceTurnSession,
-} from '../../../src/interface/mod.ts';
+} from '@theoremjs/agents';
+import type { AttachmentValidationIssue, InterfaceTurnSession } from '@theoremjs/agents/interface';
 import { isTheoremStreamError } from './transport.ts';
 
 export type ClientFailure = {

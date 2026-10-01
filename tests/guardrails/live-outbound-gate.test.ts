@@ -21,8 +21,6 @@ import { firstOf } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
 import { replyText } from '../fixtures/reply.ts';
 
-// ── helpers ──────────────────────────────────────────────────────────────────
-
 /** Opening of the fixed canary: text ending in it could still become a leak, so it is held. */
 const LEAD = FIXED_CANARY.slice(0, 6);
 
@@ -71,12 +69,9 @@ function passEnforce(): Verdict {
   return { action: 'allow' };
 }
 
-/** Blocking verdict for one rule. */
 function blockVerdict(rule: string): Verdict {
   return { action: 'block', hits: [{ rule, severity: 'high' }], rejection: 'blocked' };
 }
-
-// ── createLiveOutboundGateSession ─────────────────────────────────────────────
 
 Deno.test('createLiveOutboundGateSession: canary gate is null when no canary supplied', () => {
   const s = session();
@@ -96,8 +91,6 @@ Deno.test('createLiveOutboundGateSession: withholdVisible starts false', () => {
   const profile = egressProfile('live_egress_init', passEnforce);
   assertEquals(createLiveOutboundGateSession(profile).withholdVisible, false);
 });
-
-// ── processLiveOutboundBatch — basic streaming ────────────────────────────────
 
 Deno.test('processLiveOutboundBatch emits safe text chunks without a canary gate', async () => {
   const s = session();
@@ -171,8 +164,6 @@ Deno.test('processLiveOutboundBatch withholds when non-stream event follows a pe
   assertEquals(result.action, 'withhold');
 });
 
-// ── progressive yield under egress.enforce ────────────────────────────────────
-
 Deno.test('processLiveOutboundBatch holds short text in lookback under egress.enforce', async () => {
   let enforced = false;
   const profile = egressProfile('live_egress_hold', () => {
@@ -215,8 +206,6 @@ Deno.test('processLiveOutboundBatch streams cleared prefixes under egress.enforc
     assertEquals(flushed.includes('tail'), true);
   }
 });
-
-// ── speech: spoken-reply transcript and audio ────────────────────────────────
 
 function said(text: string): TurnEvent {
   return {
@@ -552,8 +541,6 @@ Deno.test('finalizeLiveOutboundTurn emits refuse_to_user for non-canary egress h
   }
 });
 
-// ── finalizeLiveOutboundTurn — canary-only ────────────────────────────────────
-
 Deno.test('finalizeLiveOutboundTurn flushes progressive gate tail on finalize', async () => {
   const s = session(FIXED_CANARY);
   await processLiveOutboundBatch(s, [{ type: 'text', text: `prefix ${LEAD}` }]);
@@ -577,8 +564,6 @@ Deno.test('processLiveOutboundBatch withholds when progressive canary leak compl
   const result2 = await processLiveOutboundBatch(s, [{ type: 'text', text: canary.slice(half) }]);
   assertEquals(result2.action, 'withhold');
 });
-
-// ── abortLiveOutboundTurn ────────────────────────────────────────────────────
 
 Deno.test('abortLiveOutboundTurn clears progressive state and resets the gate', async () => {
   const canary = mintCanary();

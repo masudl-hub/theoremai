@@ -1,4 +1,4 @@
-import { type ComposerProfileInterface, defaultInterfaceEffort } from '../../../src/interface/mod.ts';
+import { type ComposerProfileInterface, defaultInterfaceEffort } from '@theoremjs/agents/interface';
 
 /** A model and effort for the next turn. */
 export type GenerationSelection = { model?: string; effort?: string };

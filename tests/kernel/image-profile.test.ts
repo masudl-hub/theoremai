@@ -38,7 +38,7 @@ Deno.test('image oneshot uses image model and image response format', () => {
     },
   });
   assertEquals(generation.model, 'gemini31FlashLiteImage');
-  assertEquals(generation.keySlot, 'paid');
+  assertEquals(generation.keySlot, 'slot_b');
   assertEquals(generation.thinking, 'minimal');
   assertEquals(generation.structured, null);
   assertEquals(generation.image, {
@@ -211,7 +211,6 @@ Deno.test('image projection exposes image pins not tools', () => {
 });
 
 Deno.test('media validations allow omitted aspect/size; reject structured mixing and invalid mime', () => {
-  // Image pins without aspect/size — provider defaults apply
   registerProfile(
     defineProfile({
       id: 'image_defaults_profile',
@@ -270,7 +269,7 @@ Deno.test('media validations allow omitted aspect/size; reject structured mixing
           builtInTools: ['codeExecution'],
         },
       },
-      key: 'slotA',
+      key: 'slot_a',
       image: {
         aspectRatio: '1:1',
         size: '1K',
@@ -301,7 +300,7 @@ Deno.test('media validations allow omitted aspect/size; reject structured mixing
           builtInTools: ['googleSearch'],
         },
       },
-      key: 'slotA',
+      key: 'slot_a',
       image: {
         aspectRatio: '1:1',
         size: '1K',

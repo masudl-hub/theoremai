@@ -1,9 +1,3 @@
-/**
- * Live red-team attack builders (provider prompts).
- *
- * @module
- */
-
 /** lexicon-exempt-file: adversarial corpus fixture — not runtime user or model copy (P2) */
 import type { TurnHistoryMessage, TurnRequest } from '../../kernel/types.ts';
 import { injectionSpans } from '../injection.ts';
@@ -588,7 +582,6 @@ function outboundAttacks(profileId: string): LiveAttack[] {
   ];
 }
 
-/** Full adversarial bank for live guardrails red-team. */
 export function buildLiveAttacks(profileId: string): LiveAttack[] {
   return [
     ...canaryAttacks(profileId),
@@ -625,7 +618,6 @@ export function filterLiveAttacks(
   return out;
 }
 
-/** Count attacks that have detectable injection/sensitive in raw user-controlled text. */
 export function summarizeAttackBank(attacks: LiveAttack[]): {
   total: number;
   inboundInjection: number;

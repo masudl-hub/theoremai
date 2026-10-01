@@ -1,9 +1,3 @@
-/**
- * Tool projection for host/UI inspection.
- *
- * @module
- */
-
 import type { Profile, ToolId } from '../types.ts';
 import type { ToolRegistry } from './registry.ts';
 import { profileToolAllow } from './resolve.ts';

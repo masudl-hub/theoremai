@@ -3,12 +3,12 @@ import { mintCanary, USER_CLOSE, USER_OPEN } from '../../src/guardrails/canary.t
 import { TEST_OPENAI_KEY, TEST_SSN } from '../../src/guardrails/corpus/secrets.ts';
 import { INJ_IGNORE } from '../../src/guardrails/corpus/strings.ts';
 import {
-  EGRESS_RULES,
   eventPromptLeakHits,
   runEnforcer,
   standardEgressEnforce,
 } from '../../src/guardrails/egress.ts';
 import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
+import { EGRESS_RULES } from '../../src/guardrails/rules.ts';
 import type {
   EgressEnforcer,
   GuardrailContext,
@@ -35,7 +35,6 @@ function enforce(text: string, canary?: string, structured?: unknown): Verdict {
   return standardEgressEnforce(payload, egressCtx(canary));
 }
 
-/** Rule ids on a verdict, or an empty list when nothing was hit. */
 function rules(verdict: Verdict): string[] {
   return verdict.action === 'allow' ? [] : verdict.hits.map((hit) => hit.rule);
 }
@@ -131,8 +130,6 @@ Deno.test('standardEgressEnforce carries span offsets on sensitive hits', () => 
   assertEquals((hit?.span?.end ?? 0) > (hit?.span?.start ?? 0), true);
 });
 
-// ── structured output is no longer invisible to egress ───────────────────────
-
 Deno.test('standardEgressEnforce inspects structured output for canary leaks', () => {
   const canary = mintCanary();
   const verdict = enforce('All done.', canary, { answer: `the token is ${canary}` });
@@ -149,8 +146,6 @@ Deno.test('standardEgressEnforce inspects structured output for sensitive echo',
 Deno.test('standardEgressEnforce allows clean structured output', () => {
   assertEquals(enforce('All done.', mintCanary(), { answer: 42 }).action, 'allow');
 });
-
-// ── a policy that cannot reach a decision ────────────────────────────────────
 
 Deno.test('runEnforcer converts a thrown policy error into a block', async () => {
   const verdict = await runEnforcer(

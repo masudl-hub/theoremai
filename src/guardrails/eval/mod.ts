@@ -1,17 +1,3 @@
-/**
- * Guardrail evaluation — measured detector quality, not asserted.
- *
- * Every detector in this facet is a pattern matcher, and pattern matchers fail on
- * content nobody thought to write down. The point of this module is to make that
- * failure visible against corpora the authors did not choose, rather than against
- * hand-picked examples that flatter whatever was just built.
- *
- * Repo-only: excluded from the published package, run through `scripts/guardrails-eval.ts`.
- *
- * @command `deno task guardrails:eval`
- * @module
- */
-
 /** lexicon-exempt-file: evaluation runner — not runtime user or model copy (P2) */
 import { injectionSpans } from '../injection.ts';
 import { sensitiveSpans } from '../sensitive.ts';
@@ -23,8 +9,6 @@ import { type DetectorScore, type EvalDetector, formatScores, scoreAll } from '.
 const EVAL_TOOLS = ['send_email', 'send_money', 'read_inbox', 'get_channel_messages'];
 
 /**
- * The detectors under evaluation, with what they do when they fire.
- *
  * `action` is not decoration: it sets how much a false positive costs. A `redact`
  * silently rewrites a user's message, a `block` withholds a whole turn, and an
  * `annotate` only adds a caution the model may disregard. The first two have to
@@ -79,7 +63,6 @@ export interface EvalOptions {
 
 export interface EvalReport {
   scores: DetectorScore[];
-  /** Attribution for every corpus actually loaded. */
   sources: {
     id: string;
     licence: string;
@@ -88,7 +71,6 @@ export interface EvalReport {
     /** Rows available upstream, so partial sampling is visible. */
     upstreamRows?: number;
   }[];
-  /** Corpora that could not be loaded, and why. */
   skipped: { id: string; reason: string }[];
 }
 
@@ -136,7 +118,6 @@ async function loadEvalSource(
   };
 }
 
-/** Fetch the corpora and score every detector against each source separately. */
 async function runGuardrailEval(options: EvalOptions = {}): Promise<EvalReport> {
   const cache = createCorpusCache(options.cacheDir ?? '.guardrail-corpus');
   const bySource = new Map<string, CorpusSample[]>();
@@ -156,7 +137,7 @@ async function runGuardrailEval(options: EvalOptions = {}): Promise<EvalReport> 
   return { scores: scoreAll(DETECTORS, bySource), sources, skipped };
 }
 
-/** Human-readable report, including the attribution the licences require. */
+/** Includes the attribution the corpus licences require. */
 function formatReport(report: EvalReport): string {
   const header = report.sources
     .map((s) => {

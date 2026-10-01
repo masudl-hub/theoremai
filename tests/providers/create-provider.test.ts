@@ -41,21 +41,18 @@ Deno.test('createProvider throws when gemini transport is missing for geminiInte
     thrown = err;
   }
   assertEquals(thrown instanceof TheoremError, true);
-  assertEquals(
-    (thrown as Error).message,
-    'createProvider requires gemini transport for google Interactions',
-  );
+  assertEquals((thrown as Error).message, 'createProvider requires a vault for google models');
 });
 
 Deno.test('createProvider returns a provider when gemini transport is supplied', () => {
   const profile = baseProfile({ protocol: 'geminiInteractions', provider: 'google' }, 'text');
   const provider = createProvider(profile, {
-    gemini: { vault: { slotA: 'a', slotB: 'b', slotC: 'c', paid: 'p' } },
+    vault: { main: 'a', backup: 'b', extra: 'c', spare: 'p' },
   });
   assertEquals(typeof provider.complete, 'function');
 });
 
-Deno.test('createProvider throws when openAiGateway config is missing for openAi/openrouter', () => {
+Deno.test('createProvider throws when the vault is missing for openAi/openrouter', () => {
   const profile = baseProfile({ protocol: 'openAi', provider: 'openrouter' }, 'text');
   let thrown: unknown;
   try {
@@ -64,21 +61,28 @@ Deno.test('createProvider throws when openAiGateway config is missing for openAi
     thrown = err;
   }
   assertEquals(thrown instanceof TheoremError, true);
+  assertEquals((thrown as Error).message, 'createProvider requires a vault for openrouter models');
+  let gatewayOnly: unknown;
+  try {
+    createProvider(profile, { openAiGateway: { baseUrl: 'https://gateway.test/v1' } });
+  } catch (err) {
+    gatewayOnly = err;
+  }
   assertEquals(
-    (thrown as Error).message,
-    'createProvider requires openAiGateway config for openAi/openrouter',
+    (gatewayOnly as Error).message,
+    'createProvider requires a vault for openrouter models',
   );
 });
 
 Deno.test('createProvider returns a text provider for openAi/openrouter non-speech profile', () => {
   const profile = baseProfile({ protocol: 'openAi', provider: 'openrouter' }, 'text');
-  const provider = createProvider(profile, { openAiGateway: { apiKey: 'key' } });
+  const provider = createProvider(profile, { vault: { slot_a: 'key' } });
   assertEquals(typeof provider.complete, 'function');
 });
 
 Deno.test('createProvider returns an image provider for openAi/openrouter image profile', () => {
   const profile = baseProfile({ protocol: 'openAi', provider: 'openrouter' }, 'image');
-  const provider = createProvider(profile, { openAiGateway: { apiKey: 'key' } });
+  const provider = createProvider(profile, { vault: { slot_a: 'key' } });
   assertEquals(typeof provider.complete, 'function');
 });
 
@@ -99,7 +103,10 @@ Deno.test('createProvider throws for openAi/local image profile', () => {
 
 Deno.test('createProvider returns a speech provider for openAi/openrouter speech profile', () => {
   const profile = baseProfile({ protocol: 'openAi', provider: 'openrouter' }, 'speech');
-  const provider = createProvider(profile, { openAiGateway: { apiKey: 'key', voice: 'Kore' } });
+  const provider = createProvider(profile, {
+    vault: { slot_a: 'key' },
+    openAiGateway: { voice: 'Kore' },
+  });
   assertEquals(typeof provider.complete, 'function');
 });
 
@@ -163,7 +170,7 @@ Deno.test('createProvider rejects geminiLive — use runSession', () => {
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'slotA' as const,
+        key: 'main' as const,
       },
     },
     defaultModel: 'gemini31FlashLive',
@@ -174,7 +181,7 @@ Deno.test('createProvider rejects geminiLive — use runSession', () => {
   let thrown: unknown;
   try {
     createProvider(liveProfile, {
-      gemini: { vault: { slotA: 'a', slotB: 'b', slotC: 'c', paid: 'p' } },
+      vault: { main: 'a', backup: 'b', extra: 'c', spare: 'p' },
     });
   } catch (err) {
     thrown = err;
@@ -182,7 +189,7 @@ Deno.test('createProvider rejects geminiLive — use runSession', () => {
   assertEquals(thrown instanceof TheoremError, true);
   assertEquals(
     (thrown as Error).message,
-    "createProvider does not support type 'live' / geminiLive — use runSession(req, { gemini })",
+    "createProvider does not support type 'live' / geminiLive — use runSession(req, { vault })",
   );
 });
 
@@ -190,14 +197,14 @@ Deno.test('create-provider loads OpenRouter adapter only via dynamic import', ()
   // Sync createProvider for openrouter chat must not touch the Vercel graph.
   // This file's suite runs without --allow-sys; an eager openrouter import would throw.
   const profile = baseProfile({ protocol: 'openAi', provider: 'openrouter' }, 'text');
-  const provider = createProvider(profile, { openAiGateway: { apiKey: 'key' } });
+  const provider = createProvider(profile, { vault: { slot_a: 'key' } });
   assertEquals(typeof provider.complete, 'function');
 });
 
 Deno.test('create-provider loads Google adapter only via dynamic import', () => {
   const profile = baseProfile({ protocol: 'geminiInteractions', provider: 'google' }, 'text');
   const provider = createProvider(profile, {
-    gemini: { vault: { slotA: 'a', slotB: 'b', slotC: 'c', paid: 'p' } },
+    vault: { main: 'a', backup: 'b', extra: 'c', spare: 'p' },
   });
   assertEquals(typeof provider.complete, 'function');
 });

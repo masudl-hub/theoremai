@@ -17,7 +17,6 @@ function iface(edit: (draft: PlaygroundDraft) => PlaygroundDraft = (draft) => dr
   return described satisfies ComposerProfileInterface;
 }
 
-/** Edits the binding for `modelId`. */
 function binding(
   modelId: string,
   change: Partial<PlaygroundDraft['modelBindings'][number]>,

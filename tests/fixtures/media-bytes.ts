@@ -1,10 +1,3 @@
-/**
- * Minimal media files for header readers and the token estimator — just the
- * bytes a header reader looks at, built to each format's spec.
- *
- * @module
- */
-
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 const IHDR_LENGTH = 13;
 const PNG_BIT_DEPTH = 8;
@@ -46,7 +39,6 @@ function u32le(n: number): number[] {
   return [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff];
 }
 
-/** PNG signature plus IHDR. */
 export function pngBytes(width: number, height: number): Uint8Array {
   return new Uint8Array([
     ...PNG_SIGNATURE,
@@ -98,7 +90,6 @@ export function jpegBytes(width: number, height: number): Uint8Array {
   ]);
 }
 
-/** GIF89a logical screen descriptor. */
 export function gifBytes(width: number, height: number): Uint8Array {
   return new Uint8Array([...ascii('GIF89a'), ...u16le(width), ...u16le(height), 0, 0, 0]);
 }

@@ -1,15 +1,19 @@
+import { Badge } from '@astryxdesign/core/Badge';
 import { Button } from '@astryxdesign/core/Button';
 import { Card } from '@astryxdesign/core/Card';
 import { Collapsible } from '@astryxdesign/core/Collapsible';
 import { HStack } from '@astryxdesign/core/HStack';
 import { Icon } from '@astryxdesign/core/Icon';
+import { Item } from '@astryxdesign/core/Item';
 import { MetadataList, MetadataListItem } from '@astryxdesign/core/MetadataList';
 import { Text } from '@astryxdesign/core/Text';
+import { Token } from '@astryxdesign/core/Token';
+import { Tooltip as HoverTip } from '@astryxdesign/core/Tooltip';
 import { VStack } from '@astryxdesign/core/VStack';
-import { IconArrowLeft } from '@tabler/icons-react';
+import { IconArrowLeft, IconX } from '@tabler/icons-react';
 import type { ReactNode } from 'react';
-import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import {
+	inlineContent,
 	TRACE_ATTRIBUTE_GROUPS,
 	TRACE_FIELDS,
 	TRACE_SPAN_TYPES,
@@ -19,10 +23,12 @@ import {
 	traceAttributeMeta,
 	traceEventAttributeMeta,
 	traceEventMeta,
-} from '../../../mod.ts';
+} from '@theoremjs/agents';
+import { messageText, storedValue, traceActor, traceOutcome } from '../client/trace-story.ts';
 import { nanosToMs, type TraceNode } from '../client/trace-view.ts';
-import { SpanRows } from './TraceSpanList';
-import { attributeSections, SpanStatusDot, SpanTitle, TraceAttributeList, TraceValue, useTraceFormat } from './TraceValues';
+import { ShapedData } from './ShapedData.tsx';
+import { ActorMark } from './TraceStory.tsx';
+import { attributeSections, TRACE_LABEL_PX, TraceAttributeList, TraceValue, useTraceFormat } from './TraceValues.tsx';
 
 /** A span's own field, read as an attribute of that format. */
 function fieldMeta(field: TraceOptionMeta, format: TraceAttributeMeta['format']): TraceAttributeMeta {
@@ -46,69 +52,6 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 		<Collapsible defaultIsOpen={false} trigger={<Text weight="medium">{title}</Text>}>
 			{children}
 		</Collapsible>
-	);
-}
-
-function numberAttribute(node: TraceNode, key: string): number | undefined {
-	const value = node.span.attributes[key];
-	return typeof value === 'number' ? value : undefined;
-}
-
-const TOKEN_KEYS = [
-	'gen_ai.usage.input_tokens',
-	'gen_ai.usage.cache_read.input_tokens',
-	'gen_ai.usage.output_tokens',
-	'gen_ai.usage.reasoning.output_tokens',
-] as const;
-
-/** Height of one bar's row in the tokens chart, in pixels. */
-const TOKEN_ROW_PX = 36;
-/** Width of the chart's label column, in pixels. */
-const TOKEN_LABEL_PX = 120;
-/** Room right of the longest bar for its count, in pixels. */
-const TOKEN_VALUE_PX = 64;
-
-/** Input, cached, output and thinking tokens as one bar chart; a count the span didn't report is left out. */
-function TokensCard({ node }: { node: TraceNode }) {
-	const format = useTraceFormat();
-	const rows = TOKEN_KEYS.flatMap((key) => {
-		const value = numberAttribute(node, key);
-		return value === undefined ? [] : [{ label: traceAttributeMeta(key)?.label ?? key, value }];
-	});
-	if (rows.length === 0) return null;
-	return (
-		<Card padding={3} variant="muted">
-			<VStack gap={2}>
-				<Text weight="medium">{format.t('@theorem.panel.trace.tokens')}</Text>
-				<ResponsiveContainer width="100%" height={rows.length * TOKEN_ROW_PX}>
-					<BarChart data={rows} layout="vertical" margin={{ top: 0, right: TOKEN_VALUE_PX, bottom: 0, left: 0 }}>
-						<XAxis type="number" hide />
-						<YAxis
-							type="category"
-							dataKey="label"
-							width={TOKEN_LABEL_PX}
-							tickLine={false}
-							axisLine={false}
-							tick={{ fill: 'var(--color-text-secondary)' }}
-						/>
-						<Tooltip
-							cursor={false}
-							formatter={(value) => (typeof value === 'number' ? format.number(value) : String(value))}
-						/>
-						<Bar
-							dataKey="value"
-							fill="var(--color-accent)"
-							isAnimationActive={false}
-							label={{
-								position: 'right',
-								fill: 'var(--color-text-primary)',
-								formatter: (value: unknown) => (typeof value === 'number' ? format.number(value) : ''),
-							}}
-						/>
-					</BarChart>
-				</ResponsiveContainer>
-			</VStack>
-		</Card>
 	);
 }
 
@@ -163,40 +106,221 @@ const SPAN_FIELD_VALUES = {
 	spanId: (node) => node.span.spanId,
 } satisfies Partial<Record<keyof typeof SPAN_FIELD_META, (node: TraceNode) => string>>;
 
-/** Back to every span, then what this one is, how it ended and how long it took. */
-function SpanHeader({ node, onBack }: { node: TraceNode; onBack: () => void }) {
-	const format = useTraceFormat();
-	const { status } = node.span;
+/** What the span was, how long it took, what it cost and when it started. */
+function spanFacts(node: TraceNode, turnStartMs: number, format: ReturnType<typeof useTraceFormat>): string {
+	const cost = node.span.attributes['theorem.usage.cost_usd'];
+	return [
+		node.meta.label,
+		format.duration(node.durationMs),
+		...(typeof cost === 'number' ? [format.usd(cost)] : []),
+		format.t('@theorem.panel.trace.offset', { duration: format.duration(node.startMs - turnStartMs) }),
+	].join(format.t('@theorem.panel.trace.separator'));
+}
+
+function OutcomeBadge({ outcome }: { outcome: ReturnType<typeof traceOutcome> }) {
+	if (!outcome) return null;
 	return (
-		<>
+		<HoverTip content={outcome.doc ?? outcome.label}>
+			<Badge variant={outcome.tone} label={outcome.label} />
+		</HoverTip>
+	);
+}
+
+/** The span's status message, unless the outcome badge already says it. */
+function StatusMessage({ node, outcome }: { node: TraceNode; outcome: ReturnType<typeof traceOutcome> }) {
+	const message = node.span.status.message;
+	if (!message || message.toLowerCase() === outcome?.label.toLowerCase()) return null;
+	return <Text color="secondary">{message}</Text>;
+}
+
+/** Back (or close), then who acted, what it was, how it ended, how long it took and what it cost. */
+function SpanHeader({ node, turnStartMs, onBack, isClose }: { node: TraceNode; turnStartMs: number; onBack: () => void; isClose: boolean }) {
+	const format = useTraceFormat();
+	const outcome = traceOutcome(node);
+	return (
+		<VStack gap={2}>
 			<HStack>
 				<Button
-					label={format.t('@theorem.panel.trace.back')}
+					label={format.t(isClose ? '@theorem.panel.trace.close' : '@theorem.panel.trace.back')}
 					variant="ghost"
 					size="sm"
-					icon={<Icon icon={IconArrowLeft} />}
+					icon={<Icon icon={isClose ? IconX : IconArrowLeft} />}
 					onClick={onBack}
 				/>
 			</HStack>
-			<VStack gap={1}>
-				<SpanTitle node={node} />
-				<HStack gap={2} align="center">
-					<SpanStatusDot status={status} />
-					<Text type="supporting">{TRACE_STATUS[status.code].label}</Text>
-					<Text type="supporting" hasTabularNumbers>
-						{format.duration(node.durationMs)}
+			<Item
+				startContent={<ActorMark actor={traceActor(node)} />}
+				label={<Text weight="semibold">{node.meta.subject ?? node.meta.label}</Text>}
+				description={spanFacts(node, turnStartMs, format)}
+				endContent={<OutcomeBadge outcome={outcome} />}
+				align="start"
+			/>
+			<StatusMessage node={node} outcome={outcome} />
+		</VStack>
+	);
+}
+
+function Panel({ title, doc, children }: { title: string; doc?: string; children: ReactNode }) {
+	return (
+		<Card padding={3} variant="muted" style={{ background: 'var(--color-background-surface)' }}>
+			<VStack gap={2}>
+				<HoverTip content={doc ?? title}>
+					<Text type="supporting" color="secondary">
+						{title}
 					</Text>
-				</HStack>
-				{status.message ? <Text color="secondary">{status.message}</Text> : null}
+				</HoverTip>
+				{children}
 			</VStack>
+		</Card>
+	);
+}
+
+function Prose({ text }: { text: string }) {
+	return <span style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{text}</span>;
+}
+
+type Message = { role?: unknown; parts?: unknown };
+type Part = { type?: unknown; content?: unknown; name?: unknown; arguments?: unknown; response?: unknown; result?: unknown };
+
+function parsed(value: unknown): unknown {
+	if (typeof value !== 'string') return value;
+	try {
+		return JSON.parse(value);
+	} catch {
+		return value;
+	}
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function ToolCallPart({ part }: { part: Part }) {
+	return (
+		<VStack gap={1}>
+			<Text weight="medium">{String(part.name ?? '')}</Text>
+			<ShapedData value={parsed(part.arguments)} />
+		</VStack>
+	);
+}
+
+/** One message part: its text, or a tool call's name and arguments, or what a tool returned. */
+function PartView({ part }: { part: Part }) {
+	if (part.type === 'text' && typeof part.content === 'string') return <Prose text={part.content} />;
+	if (part.type === 'tool_call') return <ToolCallPart part={part} />;
+	const body = part.response ?? part.result ?? part.content;
+	return body === undefined ? null : <ShapedData value={parsed(body)} />;
+}
+
+/** Messages as the model saw them: each one's role, then its parts. */
+function MessageList({ messages }: { messages: readonly Message[] }) {
+	return (
+		<VStack gap={3}>
+			{messages.map((message, index) => (
+				<VStack key={index} gap={1}>
+					<HStack>
+						<Token label={String(message.role ?? '')} size="sm" color="gray" />
+					</HStack>
+					{Array.isArray(message.parts)
+						? message.parts.filter(isObject).map((part, at) => <PartView key={at} part={part} />)
+						: null}
+				</VStack>
+			))}
+		</VStack>
+	);
+}
+
+function messagesOf(node: TraceNode, key: string): Message[] {
+	const value = inlineContent(node.record, node.span.attributes[key]);
+	return Array.isArray(value) ? value.filter(isObject) : [];
+}
+
+function label(key: string): { title: string; doc?: string } {
+	const meta = traceAttributeMeta(key);
+	return meta ? { title: meta.label, doc: meta.doc } : { title: key };
+}
+
+/** A stored value under its attribute's name; nothing when the span has none. */
+function DataPanel({ attribute, value }: { attribute: string; value: unknown }) {
+	if (value === undefined) return null;
+	return (
+		<Panel {...label(attribute)}>
+			<ShapedData value={value} />
+		</Panel>
+	);
+}
+
+/** Text under its attribute's name; nothing when there is none. */
+function ProsePanel({ attribute, text }: { attribute: string; text: unknown }) {
+	if (typeof text !== 'string' || !text) return null;
+	return (
+		<Panel {...label(attribute)}>
+			<Prose text={text} />
+		</Panel>
+	);
+}
+
+function TurnIO({ node }: { node: TraceNode }) {
+	return (
+		<>
+			<ProsePanel attribute="gen_ai.input.messages" text={messageText(node, 'gen_ai.input.messages', 'user')} />
+			<ProsePanel attribute="gen_ai.output.messages" text={messageText(node, 'gen_ai.output.messages', 'assistant')} />
 		</>
 	);
+}
+
+function CallIO({ node }: { node: TraceNode }) {
+	const input = messagesOf(node, 'gen_ai.input.messages');
+	const output = messagesOf(node, 'gen_ai.output.messages');
+	return (
+		<>
+			{output.length > 0 ? (
+				<Panel {...label('gen_ai.output.messages')}>
+					<MessageList messages={output} />
+				</Panel>
+			) : null}
+			{input.length > 0 ? (
+				<Collapsible defaultIsOpen={false} trigger={<Text weight="medium">{`${label('gen_ai.input.messages').title} · ${input.length}`}</Text>}>
+					<Card padding={3} variant="muted" style={{ background: 'var(--color-background-surface)' }}>
+						<MessageList messages={input} />
+					</Card>
+				</Collapsible>
+			) : null}
+		</>
+	);
+}
+
+function ToolIO({ node }: { node: TraceNode }) {
+	const { attributes } = node.span;
+	const result = 'theorem.tool.data' in attributes ? 'theorem.tool.data' : 'gen_ai.tool.call.result';
+	return (
+		<>
+			<DataPanel attribute="gen_ai.tool.call.arguments" value={storedValue(node, 'gen_ai.tool.call.arguments')} />
+			<DataPanel attribute={result} value={storedValue(node, result)} />
+			<ProsePanel attribute="exception.message" text={'exception.message' in attributes ? storedValue(node, 'exception.message') : undefined} />
+		</>
+	);
+}
+
+/** What went in and what came out, read the way a person would: text, messages, or a tool's data. */
+function SpanIO({ node }: { node: TraceNode }) {
+	switch (node.meta.type) {
+		case 'turn':
+			return <TurnIO node={node} />;
+		case 'call':
+		case 'response':
+			return <CallIO node={node} />;
+		case 'tool':
+			return <ToolIO node={node} />;
+		default:
+			return null;
+	}
 }
 
 /** The span's own fields: its type, start and IDs. */
 function SpanFields({ node }: { node: TraceNode }) {
 	return (
-		<MetadataList columns="single" label={{ position: 'start' }}>
+		<MetadataList columns="single" label={{ position: 'start', width: TRACE_LABEL_PX }}>
 			{(Object.keys(SPAN_FIELD_VALUES) as (keyof typeof SPAN_FIELD_VALUES)[]).map((key) => (
 				<MetadataListItem key={key} label={SPAN_FIELD_META[key].label}>
 					<TraceValue record={node.record} meta={SPAN_FIELD_META[key]} value={SPAN_FIELD_VALUES[key](node)} />
@@ -226,47 +350,76 @@ function RecordSections({ node }: { node: TraceNode }) {
 	);
 }
 
-/** One span in full: what it is, how it ended, its tokens, and every attribute, span, event and link it recorded. */
+/** One span in full: who acted and how it ended, what went in and came out, its tokens, then every detail it recorded. */
 export function TraceSpanDetail({
 	node,
+	turnStartMs,
+	isClose = false,
 	onBack,
 	onOpen,
 }: {
 	node: TraceNode;
+	turnStartMs: number;
+	/** In the wide panel the span sits beside the turn: close, not back. */
+	isClose?: boolean;
 	onBack: () => void;
 	onOpen: (node: TraceNode) => void;
 }) {
-	const { t } = useTraceFormat();
+	const format = useTraceFormat();
+	const { t } = format;
 	const { span, record } = node;
+	const sections = attributeSections(span.attributes);
+	const usage = sections.find((section) => section.key === 'usage');
 	return (
-		<VStack gap={3}>
-			<SpanHeader node={node} onBack={onBack} />
-			<TokensCard node={node} />
-			<SpanFields node={node} />
-			{attributeSections(span.attributes).map((section) => (
-				<Section
-					key={section.key}
-					title={section.key === 'other' ? t('@theorem.panel.trace.other') : TRACE_ATTRIBUTE_GROUPS[section.key].label}
-				>
-					<TraceAttributeList record={record} attributes={section.attributes} metaOf={traceAttributeMeta} />
-				</Section>
-			))}
+		<VStack gap={4}>
+			<SpanHeader node={node} turnStartMs={turnStartMs} onBack={onBack} isClose={isClose} />
+			<SpanIO node={node} />
+			{usage ? (
+				<Panel title={TRACE_ATTRIBUTE_GROUPS.usage.label} doc={TRACE_ATTRIBUTE_GROUPS.usage.doc}>
+					<TraceAttributeList record={record} attributes={usage.attributes} metaOf={traceAttributeMeta} />
+				</Panel>
+			) : null}
 			{node.children.length > 0 ? (
-				<Section title={TRACE_FIELDS.children.label}>
-					<SpanRows nodes={node.children} ofMs={node.durationMs} onOpen={onOpen} />
-				</Section>
+				<Panel title={TRACE_FIELDS.children.label} doc={TRACE_FIELDS.children.doc}>
+					<VStack gap={0}>
+						{node.children.map((child) => (
+							<Item
+								key={child.id}
+								startContent={<ActorMark actor={traceActor(child)} />}
+								label={child.meta.subject ?? child.meta.label}
+								description={child.meta.label}
+								endContent={<Text type="supporting" hasTabularNumbers>{format.duration(child.durationMs)}</Text>}
+								density="compact"
+								onClick={() => onOpen(child)}
+							/>
+						))}
+					</VStack>
+				</Panel>
 			) : null}
-			{span.events.length > 0 ? (
-				<Section title={TRACE_FIELDS.events.label}>
-					<EventList node={node} />
-				</Section>
-			) : null}
-			{span.links.length > 0 ? (
-				<Section title={TRACE_FIELDS.links.label}>
-					<LinkList node={node} />
-				</Section>
-			) : null}
-			<RecordSections node={node} />
+			<Collapsible defaultIsOpen={false} trigger={<Text weight="medium">{t('@theorem.panel.trace.details')}</Text>}>
+				<VStack gap={3}>
+					<SpanFields node={node} />
+					{sections.filter((section) => section !== usage).map((section) => (
+						<Section
+							key={section.key}
+							title={section.key === 'other' ? t('@theorem.panel.trace.other') : TRACE_ATTRIBUTE_GROUPS[section.key].label}
+						>
+							<TraceAttributeList record={record} attributes={section.attributes} metaOf={traceAttributeMeta} />
+						</Section>
+					))}
+					{span.events.length > 0 ? (
+						<Section title={TRACE_FIELDS.events.label}>
+							<EventList node={node} />
+						</Section>
+					) : null}
+					{span.links.length > 0 ? (
+						<Section title={TRACE_FIELDS.links.label}>
+							<LinkList node={node} />
+						</Section>
+					) : null}
+					<RecordSections node={node} />
+				</VStack>
+			</Collapsible>
 		</VStack>
 	);
 }

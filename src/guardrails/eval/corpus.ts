@@ -1,37 +1,10 @@
-/**
- * Corpus acquisition for guardrail evaluation.
- *
- * Nothing is vendored. Corpora are fetched on demand and cached locally, so the
- * published package carries no third-party data and no licence obligations beyond
- * attribution here.
- *
- * Two sources, deliberately different in shape:
- *
- * - **S-Labs/prompt-injection-dataset** (MIT) — ~11k labelled prompts whose benign
- *   half deliberately includes security-adjacent questions ("explain output
- *   validation best practices", "how do I implement stress testing"). This is
- *   where user-text detectors are most likely to misfire.
- *
- *   Chosen over `prodnull/prompt-injection-repo-dataset`, which has richer hard
- *   negatives but is gated: licence and access are separate axes, and a gated
- *   corpus cannot be fetched by an unattended run.
- * - **AgentDojo** (MIT, ETH Zurich) — simulated environments for a tool-using
- *   agent. Its fixtures are read directly; the benchmark is never run, so no model
- *   or API key is involved. This supplies benign output in the shape a *tool*
- *   returns, which the repo dataset does not cover.
- *
- * The two are kept separate on purpose. Pooling sources and reporting one number
- * hides the domain shift between them, and that shift is the thing most likely to
- * make a detector look better than it is.
- *
- * @module
- */
+// Nothing is vendored: corpora are fetched on demand and cached locally, so the published package
+// carries no third-party data and no licence obligations beyond attribution here. Sources are scored
+// separately on purpose: pooling hides the domain shift between them, which is what most flatters a detector.
 
 /** lexicon-exempt-file: evaluation corpora — not runtime user or model copy (P2) */
-/** A single labelled example. */
 export interface CorpusSample {
   text: string;
-  /** True when the sample is an attack. */
   attack: boolean;
   /** Source dataset id, kept so results are never pooled silently. */
   source: string;
@@ -44,8 +17,6 @@ export interface CorpusSource {
   licence: string;
   attribution: string;
   /**
-   * Rows fetched by default.
-   *
    * Several of these corpora are far larger than a fast run wants. The cap is
    * declared rather than buried in the loader so a report can say what fraction
    * was actually sampled — a rate over 1% of a corpus is not a rate over the
@@ -69,20 +40,15 @@ const PROMPT_DATASET_URL =
   'https://huggingface.co/datasets/S-Labs/prompt-injection-dataset/resolve/main/data/train.csv';
 
 /**
- * HuggingFace rows API.
- *
  * Serves any public dataset as JSON regardless of its storage format, which makes
  * the many parquet-only corpora usable without a parquet reader.
  */
 const HF_ROWS = 'https://datasets-server.huggingface.co/rows';
 
-/** Page through a dataset via the rows API. */
-/** Rows per request; the API caps this at 100. */
+/** The API caps this at 100. */
 const HF_PAGE = 100;
 
 /**
- * Concurrent requests.
- *
  * Kept low deliberately. Higher concurrency trips the upstream rate limiter almost
  * immediately, and a rate-limited walk yields an empty corpus that still looks like
  * a successful run.
@@ -90,8 +56,6 @@ const HF_PAGE = 100;
 const HF_CONCURRENCY = 4;
 
 /**
- * One page, retried on failure.
- *
  * A failed request and a past-the-end request are different facts and must not be
  * conflated: treating a rate-limited page as the end of the split silently
  * truncates the corpus, and the run still reports a confident rate over whatever
@@ -125,14 +89,6 @@ async function fetchPage(
   return { failed: true };
 }
 
-/**
- * Page through a dataset via the rows API.
- *
- * Pages are fetched in batches rather than one at a time: a full corpus here runs
- * to thousands of pages, and a serial walk is slow enough that it pressures whoever
- * runs it into sampling a slice and quoting the result as if it covered the whole.
- */
-/** Paging options. An object rather than more positionals, which had reached five. */
 export interface FetchRowsOptions {
   split?: string;
   config?: string;
@@ -140,6 +96,11 @@ export interface FetchRowsOptions {
   retryBaseMs?: number;
 }
 
+/**
+ * Pages are fetched in batches rather than one at a time: a full corpus here runs
+ * to thousands of pages, and a serial walk is slow enough that it pressures whoever
+ * runs it into sampling a slice and quoting the result as if it covered the whole.
+ */
 async function fetchRows(
   cache: CorpusCache,
   dataset: string,
@@ -202,8 +163,6 @@ const AGENTDOJO_FIXTURES: readonly { path: string; category: string }[] = [
 ];
 
 /**
- * Resolve a HuggingFace token for gated corpora.
- *
  * Checks `HF_TOKEN` first, then the location `hf auth login` writes to, so a
  * machine that is already logged in needs no extra setup. Deliberately does not
  * look inside the repository: a credential sitting next to the source is a
@@ -235,7 +194,6 @@ function isHuggingFace(url: string): boolean {
   return host === 'huggingface.co' || host.endsWith('.huggingface.co');
 }
 
-/** Create a cache that reads from disk when present and fetches when not. */
 function createCorpusCache(dir: string): CorpusCache {
   return {
     dir,
@@ -264,8 +222,6 @@ function createCorpusCache(dir: string): CorpusCache {
 }
 
 /**
- * Parse a two-column `text,label` CSV.
- *
  * Hand-rolled because the corpus text is adversarial by construction: it contains
  * quotes, commas, and embedded newlines, and a naive split would shred exactly the
  * samples that matter most.
@@ -350,31 +306,19 @@ const promptDataset: CorpusSource = {
   },
 };
 
-/**
- * Serialise a YAML record the way a tool would return it.
- *
- * This matters more than it looks. Extracting only prose bodies drops the
- * addresses, ids, and amounts that a real tool result carries, and a detector
- * measured against that thinner text scores better than it deserves.
- */
-
-/** True when `ch` is ASCII a-z or underscore (YAML field key char). */
 function isYamlKeyChar(ch: string): boolean {
   if (ch.length !== 1) return false;
   const code = ch.charCodeAt(0);
   return (code >= 97 && code <= 122) || ch === '_';
 }
 
-/**
- * Split a YAML list-of-maps dump into record blocks without polynomial regex.
- * Each block starts at the field after `- key:` (matching the prior split semantics).
- */
 function skipIndent(line: string): number {
   let i = 0;
   while (i < line.length && (line[i] === ' ' || line[i] === '\t')) i += 1;
   return i;
 }
 
+/** A linear scan rather than a regex split, which was polynomial on this input. */
 function yamlRecordBlocks(yaml: string): string[] {
   const blocks: string[] = [];
   let start = -1;
@@ -387,7 +331,6 @@ function yamlRecordBlocks(yaml: string): string[] {
       while (j < line.length && isYamlKeyChar(line[j] ?? '')) j += 1;
       if (j > i + 2 && line[j] === ':') {
         if (start >= 0) blocks.push(yaml.slice(start, offset));
-        // Skip the `- ` so the block opens on `key:` like the old regex split.
         start = offset + i + 2;
       }
     }
@@ -425,6 +368,10 @@ function parseYamlRecordLine(
   return { kind: 'scalar', key, value };
 }
 
+/**
+ * Serialises each record the way a tool would return it. Extracting only prose bodies drops the
+ * addresses, ids and amounts a real tool result carries, and a detector scores better than it deserves.
+ */
 function recordsFromYaml(yaml: string): string[] {
   const blocks = yamlRecordBlocks(yaml);
   const out: string[] = [];
@@ -752,10 +699,6 @@ const repoHardNegatives: CorpusSource = {
  *
  * Kept in the repo so the search does not have to be repeated, and so a later
  * decision to include one starts from the objection rather than from scratch.
- */
-/**
- * Corpora evaluated and deliberately left out of SOURCES, with the objection.
- * See docs/contracts/guardrails.md.
  */
 export const REVIEWED_SOURCES: readonly {
   dataset: string;

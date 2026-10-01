@@ -3,7 +3,6 @@ import { compileEgressRules } from '../../src/guardrails/compile-egress.ts';
 import {
   collectEgressHits,
   DEFAULT_CHECKS,
-  EGRESS_RULES,
   type EgressChecks,
   type ResolvedEgressChecks,
   resolveEgressChecks,
@@ -17,6 +16,7 @@ import {
   givenUrlSets,
 } from '../../src/guardrails/egress-urls.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
+import { EGRESS_RULES } from '../../src/guardrails/rules.ts';
 import type { GuardrailContext, Verdict } from '../../src/guardrails/types.ts';
 import { referenceMatchStart } from './egress-reference.ts';
 

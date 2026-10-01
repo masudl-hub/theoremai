@@ -1,7 +1,3 @@
-/**
- * Interface helpers for gated vs awaiting tool contexts.
- */
-
 import { assertEquals } from '@std/assert';
 import { awaitingFromEvents, gatedToolFromEvents } from '../../src/interface/session.ts';
 import type { TurnEvent } from '../../src/kernel/types.ts';

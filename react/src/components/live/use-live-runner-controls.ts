@@ -2,18 +2,14 @@ import { useCallback, type MutableRefObject, type Dispatch, type SetStateAction 
 import {
 	applyLiveTranscript,
 	type LiveCaptionState,
-} from '../../client/live/live-captions';
+} from '../../client/live/live-captions.ts';
 import {
 	type LiveFacingMode,
 	type LiveVideoCapture,
 	startLiveVideoCapture,
-} from '../../client/live/live-video';
-import type {
-	LiveConnection,
-	LiveConnectPhase,
-	LiveSessionClient,
-	LiveSessionStatus,
-} from '../../client/live-client';
+} from '../../client/live/live-video.ts';
+import type { LiveConnectPhase, LiveSessionStatus } from '../../client/live/live-state.ts';
+import type { LiveConnection, LiveSessionClient } from '../../client/live-client.ts';
 
 /** Media + session lifecycle handlers for LiveRunner. */
 export function useLiveRunnerControls(args: {

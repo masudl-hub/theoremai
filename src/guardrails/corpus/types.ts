@@ -1,9 +1,3 @@
-/**
- * Shared adversarial corpus types.
- *
- * @module
- */
-
 /** lexicon-exempt-file: adversarial corpus fixture — not runtime user or model copy (P2) */
 import type { TurnRequest } from '../../kernel/types.ts';
 
@@ -35,7 +29,6 @@ export interface InboundFuzzResult {
   output: string;
 }
 
-/** Catalog entry for synthetic canary egress attacks (events built at fuzz time). */
 export interface CanaryEgressCatalogEntry {
   name: string;
   category: string;

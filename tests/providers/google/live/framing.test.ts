@@ -50,7 +50,7 @@ Deno.test('buildGeminiLiveSetupMessage constructs standard setup frame', () => {
       vad: {
         activityHandling: 'START_OF_ACTIVITY_INTERRUPTS',
         startSensitivity: 'START_SENSITIVITY_HIGH',
-        endSensitivity: 'START_SENSITIVITY_LOW',
+        endSensitivity: 'END_SENSITIVITY_LOW',
         prefixPaddingMs: 300,
         silenceDurationMs: 1200,
       },
@@ -203,7 +203,6 @@ Deno.test('buildGeminiLiveSetupMessage declares builtins as their own tools and 
     model: 'gemini-3.1-flash-live-preview',
     apiId: 'gemini-3.1-flash-live-preview',
     system: '',
-    thinking: 'none',
     maxOutputTokens: 100,
     temperature: 0,
     builtins: [{ id: 'liveSearch', wire: { live: 'googleSearch' } }],
@@ -240,7 +239,6 @@ Deno.test('buildGeminiLiveSetupMessage rejects a builtin with no Live wire type'
         model: 'gemini-3.1-flash-live-preview',
         apiId: 'gemini-3.1-flash-live-preview',
         system: '',
-        thinking: 'none',
         maxOutputTokens: 100,
         temperature: 0,
         builtins: [{ id: 'interactionsOnly', wire: { interactions: 'google_search' } }],
@@ -462,7 +460,6 @@ Deno.test('buildGeminiLiveToolResponses batches multiple function responses', ()
 });
 
 Deno.test('foldGeminiLiveServerMessage handles model audio, text, transcriptions, and interruption', () => {
-  // 1. Text and thinking
   const textEvts = foldMessage({
     serverContent: {
       modelTurn: {
@@ -478,7 +475,6 @@ Deno.test('foldGeminiLiveServerMessage handles model audio, text, transcriptions
     { type: 'text', text: 'Here is the answer' },
   ]);
 
-  // 2. Interruption
   const interruptedEvts = foldMessage({
     serverContent: {
       interrupted: true,
@@ -488,7 +484,6 @@ Deno.test('foldGeminiLiveServerMessage handles model audio, text, transcriptions
     { type: 'done', interrupted: true, stop: { kind: 'interrupted' } },
   ]);
 
-  // 3. Audio chunk wrapped into WAV
   // 4 bytes of PCM (2 samples: 0, 0)
   const pcmBase64 = btoa(String.fromCharCode(0, 0, 0, 0));
   const audioEvts = foldMessage({
@@ -512,7 +507,6 @@ Deno.test('foldGeminiLiveServerMessage handles model audio, text, transcriptions
   });
   assertEquals(unstated, [{ type: 'media', media: { mimeType: 'audio/pcm', data: pcmBase64 } }]);
 
-  // 4. Session resumption update
   const resumeEvts = foldMessage({
     sessionResumptionUpdate: {
       newHandle: 'handle_xyz_987',
@@ -800,7 +794,6 @@ Deno.test('wireLiveTools declares every live function NON_BLOCKING', () => {
     model: 'gemini-3.1-flash-live-preview',
     apiId: 'gemini-3.1-flash-live-preview',
     system: '',
-    thinking: 'none',
     maxOutputTokens: 100,
     temperature: 0,
     builtins: [],

@@ -16,8 +16,6 @@ const OMITTED_INJECTION = '[omitted - injection]';
 const ALL = resolveSensitive(true);
 const NONE = resolveSensitive(false);
 
-// ── defaults ─────────────────────────────────────────────────────────────────
-
 Deno.test('resolveGuardrailPolicy: sanitize, redact, and canary default on', () => {
   const policy = resolveGuardrailPolicy(undefined);
   assertEquals(policy.sanitizeInput, true);
@@ -58,8 +56,6 @@ Deno.test('Live ingress and the turn path agree when a switch is omitted', () =>
   assertEquals(turn.includes(OMITTED_INJECTION), true);
   assertEquals(live.text.includes(INJ_IGNORE), false);
 });
-
-// ── trust levels ─────────────────────────────────────────────────────────────
 
 Deno.test('detectionForTrust: trusted text takes no detection at all', () => {
   const options = detectionForTrust(resolveGuardrailPolicy(undefined), 'trusted');
@@ -142,8 +138,6 @@ Deno.test('identity.system reaches the provider verbatim; req.system does not', 
   // ...while the host-assembled per-turn fragment was redacted.
   assertEquals(system.includes(OMITTED_INJECTION), true);
 });
-
-// ── verdict exhaustiveness ───────────────────────────────────────────────────
 
 /** Fails to compile if a `Verdict` variant is added without handling it here. */
 function describeVerdict(verdict: Verdict): string {

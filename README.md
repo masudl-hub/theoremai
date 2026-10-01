@@ -17,9 +17,9 @@
 
 <p align="center">
   <a href="https://github.com/masudl-hub/theoremai/actions/workflows/ci.yml"><img src="https://github.com/masudl-hub/theoremai/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://jsr.io/@theoremai/agents"><img src="https://jsr.io/badges/@theoremai/agents" alt="JSR"></a>
-  <a href="https://jsr.io/@theoremai/agents/score"><img src="https://jsr.io/badges/@theoremai/agents/score" alt="JSR score"></a>
-  <a href="https://www.npmjs.com/package/@theoremai/agents"><img src="https://img.shields.io/npm/v/@theoremai/agents?logo=npm&label=npm&color=cb3837" alt="npm"></a>
+  <a href="https://jsr.io/@theoremjs/agents"><img src="https://jsr.io/badges/@theoremjs/agents" alt="JSR"></a>
+  <a href="https://jsr.io/@theoremjs/agents/score"><img src="https://jsr.io/badges/@theoremjs/agents/score" alt="JSR score"></a>
+  <a href="https://www.npmjs.com/package/@theoremjs/agents"><img src="https://img.shields.io/npm/v/@theoremjs/agents?logo=npm&label=npm&color=cb3837" alt="npm"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License"></a>
 </p>
 
@@ -45,13 +45,13 @@ point it.
 It stays out of your product. There are no bundled prompts, personas, databases, `.env` reads,
 or UI copy. Keys, credentials, trace storage, and policy all come from the host.
 
-**Current release: `2.0.2`** — `jsr:@theoremai/agents` · npm `@theoremai/agents`.
+**Current release: `0.4.0`** — `jsr:@theoremjs/agents` · npm `@theoremjs/agents`.
 
 ## Highlights
 
 ### Profiles that describe the whole agent
 
-- 🧩 **Six profile types** — `text`, `image`, `speech`, `live` (realtime voice and video), `host` (tool execution with no model, for MCP gateways and schedulers), and `decision` (bounded Jev decisions over host-supplied JSON state).
+- 🧩 **Six profile types** — `text`, `image`, `speech`, `live` (realtime voice and video), `host` (tool execution with no model, for MCP gateways and schedulers), and `decision` (bounded typed decisions over host-supplied JSON state).
 - 🔀 **Several models per profile** — bind a fast model and a deep model from different providers, let the turn pick one, and expose named effort levels (`quick`, `careful`) instead of raw thinking knobs.
 - 📎 **Typed multimodal inputs** — accept images, PDFs, CSVs, audio, video, or voice notes by MIME, with per-file, per-turn, and per-type byte limits. Gemini Files references pass through without re-uploading.
 - 🧾 **Validated outputs** — pick a JSON schema per turn from an input slot, run your own field validators, and let the kernel ask the model to repair a failing answer.
@@ -83,10 +83,13 @@ or UI copy. Keys, credentials, trace storage, and policy all come from the host.
 ### Install
 
 ```bash
-deno add jsr:@theoremai/agents
+deno add jsr:@theoremjs/agents
 # or
-npm install @theoremai/agents zod
+npm install @theoremjs/agents zod
 ```
+
+The npm package runs on Node 20 and up and in browsers; its declarations need
+TypeScript 5.7 or later.
 
 ### Register tools and schemas
 
@@ -94,8 +97,8 @@ Tools and structured schemas are registered once at startup. Profiles refer to t
 
 ```ts
 import { z } from "zod";
-import { registerStructured, registerTool } from "@theoremai/agents";
-import { registerGooglePreset } from "@theoremai/agents/presets/google";
+import { registerStructured, registerTool } from "@theoremjs/agents";
+import { registerGooglePreset } from "@theoremjs/agents/presets/google";
 
 registerGooglePreset(); // googleSearch, googleMaps, urlContext, codeExecution
 
@@ -149,7 +152,7 @@ One profile, two models from two providers. It takes text, files, and voice note
 different JSON schema depending on who's asking, and turns on every guardrail.
 
 ```ts
-import { defineProfile, registerProfile, standardEgressEnforce } from "@theoremai/agents";
+import { defineProfile, registerProfile, standardEgressEnforce } from "@theoremjs/agents";
 
 const support = defineProfile({
   type: "text",
@@ -178,11 +181,13 @@ const support = defineProfile({
       efforts: { deep: "high" },
       maxOutputTokens: 16_000,
       cache: { mode: "automatic", ttl: "1h" },
+      key: "openrouter", // its own slot; `fast` uses the profile's
     },
   },
   defaultModel: "fast",
   allowModelSelect: true,
   maxSteps: 8,
+  key: "main",
 
   tools: {
     allow: ["search_tickets", "docs_search", "create_issue", "refund_order", "load_tools", "ask_user"],
@@ -264,11 +269,11 @@ registerProfile(support);
 ### Run a turn
 
 ```ts
-import { createProvider, runTurn } from "@theoremai/agents";
+import { createProvider, runTurn } from "@theoremjs/agents";
 
 const provider = createProvider(
   support,
-  { gemini: { vault }, openAiGateway: { apiKey: secrets.openRouterApiKey } },
+  { vault }, // { main, openrouter }: every key, by the slot a model names
   "deep",
 );
 
@@ -282,7 +287,7 @@ for await (const event of runTurn(
       slots: { audience: "engineer" },
       attachments: [{ mimeType: "text/csv", data: csvBase64 }],
     },
-    credentials: await db.credentials.get(user.id),
+    credentials: vaultCredentials(user.id), // a ToolCredentialSource: get(slot) / set(slot, credential)
     onStage: ({ stage }) =>
       stage === "pre_turn" && user.plan === "free" ? { abort: { reason: "upgrade" } } : undefined,
   },
@@ -309,15 +314,17 @@ The `type` field decides the shape of the profile and which runner handles it.
 | `speech` | `runTurn` | text | audio (WAV, or MP3 on OpenRouter) | Google Interactions, OpenRouter |
 | `live` | `runSession` | realtime mic audio, camera frames, typed text | streamed audio, transcripts, tool calls | Gemini Live (WebSocket) |
 | `host` | `invokeTool` | tool calls from your own code | guarded tool results | none; it never calls a model |
-| `decision` | `runDecision` | non-null JSON state plus declared questions | typed choices, probabilities, scores, or `noul` | TypeSafe Jev System One |
+| `decision` | `runDecision` | non-null JSON state plus declared questions | typed choices, probabilities, scores, or `noul` | TypeSafe or OpenRouter Decisions API |
 
 ### Decision profiles
 
-A `decision` profile is a bounded, single-request Jev decision. It is separate from
-model turns: it has no prompt, history, tools, attachments, streaming, or provider
-protocol. The host supplies JSON state and the questions for a declared decision
-contract; `runDecision` returns only Jev's typed answers. API keys come from the
-caller's `apiKey` or `keyVault`, never from ambient environment state.
+A `decision` profile makes one bounded request. Its single model binding uses
+`protocol: "decision"`, `provider: "typesafe" | "openrouter"`, and the provider's
+`apiId`, like other model bindings. The profile's `decision` object holds its
+contract configuration. The host supplies JSON state and questions; `runDecision`
+returns validated typed answers. It has no prompt, history, tools, attachments,
+or streaming. The model names a key slot (its own `key`, else the profile's), and the key
+comes only from the caller's `vault`, never from ambient environment state.
 
 ### Live voice and video
 
@@ -326,7 +333,7 @@ egress policy run at each conversational turn inside it, and tools go through th
 pipeline as text turns.
 
 ```ts
-import { defineProfile, registerProfile, runSession, standardEgressEnforce } from "@theoremai/agents";
+import { defineProfile, registerProfile, runSession, standardEgressEnforce } from "@theoremjs/agents";
 
 registerProfile(defineProfile({
   type: "live",
@@ -340,6 +347,7 @@ registerProfile(defineProfile({
       builtInTools: ["googleSearch"],
     },
   },
+  key: "main",
   tools: { allow: ["search_tickets", "docs_search"] },
   live: {
     voice: "Aoede",
@@ -353,7 +361,7 @@ registerProfile(defineProfile({
   guardrails: { canary: true, sanitizeInput: true, egress: { enforce: standardEgressEnforce } },
 }));
 
-const session = await runSession({ profile: "support.voice" }, { gemini: { vault } });
+const session = await runSession({ profile: "support.voice" }, { vault });
 
 (async () => {
   for await (const chunk of mic) await session.sendAudio({ data: chunk, mimeType: "audio/pcm;rate=16000" });
@@ -376,7 +384,7 @@ defineProfile({
   id: "marketing.cover",
   identity: { handle: "cover", system: "Generate clean, on-brand product imagery." },
   models: {
-    image: { protocol: "geminiInteractions", provider: "google", apiId: "gemini-3-pro-image", key: "paid" },
+    image: { protocol: "geminiInteractions", provider: "google", apiId: "gemini-3-pro-image", key: "images" },
   },
   image: { aspectRatio: "16:9", mimeType: "image/png", includeText: true },
   tools: { allow: [] },
@@ -394,7 +402,9 @@ defineProfile({
   type: "speech",
   id: "support.narrator",
   identity: { handle: "narrator" },
-  models: { tts: { protocol: "openAi", provider: "openrouter", apiId: "openai/gpt-4o-mini-tts" } },
+  models: {
+    tts: { protocol: "openAi", provider: "openrouter", apiId: "openai/gpt-4o-mini-tts", key: "openrouter" },
+  },
   speech: { voice: "alloy", format: "mp3" },
 });
 
@@ -436,9 +446,9 @@ OpenRouter chat runs on Vercel AI SDK Core inside the adapter. Theorem keeps the
 contract, guardrails, tool permissions, egress, media buffering, and trace event shape; the
 AI SDK handles OpenRouter request, stream, and tool-call normalization.
 
-React UI and the headless interface projection remain repo-private under [`react/`](./react/)
-and `src/interface/` while their public contracts are being designed. They are excluded from
-the JSR and npm packages.
+The React UI ships as its own npm package, [`@theoremjs/react`](./react/README.md): hooks,
+a chat and live UI, and a server handler. It builds on the headless interface projection,
+`@theoremjs/agents/interface`. The agents package does not include React.
 
 ---
 
@@ -545,7 +555,7 @@ Compaction, guardrails, and streaming attach at fixed layers of this pipeline:
 
 | Vertical | Where it runs | Tool interaction |
 | --- | --- | --- |
-| **Compaction** | Before the turn (`timing: 'before'`) or as a signal on `done` (`timing: 'after'`) | Summarizes `TurnHistoryMessage` history, including `tool_calls` and `role: 'tool'` rows |
+| **Compaction** | Before the turn (`timing: 'before'`), or a signal on `done` the host passes to `compactHistory` (`timing: 'after'`) | Summarizes `TurnHistoryMessage` history, tool calls and results included; a failed summary keeps the history, or drops the compacted part once it is over `maxTokens` |
 | **Guardrails** | Ingress sanitize; tool arguments and results; progressive yield mid-stream; egress and validation after the step loop | Tool results are fenced and guarded before the model reads them |
 | **Streaming** | Provider stream + tool handler generators | Tool `progress` / `trace` / `artifact` / `warning` phases stream during execution; `streamThoughts: false` filters thoughts only |
 
@@ -585,7 +595,7 @@ mid-session. `host` profiles have no model and no tiers; `invokeTool` can run an
 
 ```ts
 import { z } from "zod";
-import { registerHarnessTools, registerTool } from "@theoremai/agents";
+import { registerHarnessTools, registerTool } from "@theoremjs/agents";
 
 // HTTP: a declarative REST call behind OAuth. Only visible on /eng routes (T1),
 // and the user confirms every call.
@@ -725,7 +735,7 @@ A tool call can wait on a human in three ways, and each has its own path:
 
 HTTP and MCP tools with `type: "oauth2"` auth don't need an OAuth library. When a tool needs a
 token the user hasn't granted, the call becomes an auth gate. The helpers in
-`@theoremai/agents/kernel` run the rest:
+`@theoremjs/agents/kernel` run the rest:
 
 - **Discovery** — protected-resource metadata (RFC 9728), then authorization-server metadata (RFC 8414). The metadata must name exactly the resource and issuer that were asked for, every endpoint must be HTTPS, and the server must advertise S256. Discovery and token requests go through the network guard and never follow redirects.
 - **PKCE** — S256 challenge (RFC 7636); the verifier never leaves your server.
@@ -735,12 +745,14 @@ token the user hasn't granted, the call becomes an auth gate. The helpers in
 - **Resource indicators** — every token is bound to the resource the flow was for (RFC 8707), and a tool never sends a token to a URL outside that resource. A credential that names no resource is not used; the call gates for sign-in instead.
 - **Strict inputs** — `redirectUri` must be HTTPS, HTTP on a loopback host, or a reverse-domain app scheme, without a fragment (RFC 8252). Each scope must be a single RFC 6749 scope token, and `stateTtlMs` must be a positive number.
 - **Client ID Metadata Documents** — `clientId` can be an HTTPS URL, so you don't have to register a client with every server.
-- **Refresh** — tokens within 30 seconds of expiry are refreshed before the call. The new credential replaces its slot in the `credentials` record you passed in, and the turn emits `auth_token_refreshed` naming the slot, so you know to save it. The token itself never rides the event stream. Calls that find the same expired token share one refresh, so a rotating refresh token is never presented twice. A refused refresh emits `auth_token_refresh_failed`: the server's own text rides only in `errorInternal`, which `forClient` strips, and never reaches the model.
+- **Confidential clients** — a provider that requires a client secret (Google does, for web clients) gets it as `clientSecret` on `exchangeOAuthPkce` and `refreshOAuthToken`, sent in the token request body. It never goes on the credential: when the kernel refreshes a token it asks your source for it with `clientSecret(clientId)`, so rotating the secret needs no stored credential rewritten.
+- **Provider parameters** — `authorizationParams` adds a provider's own parameters to the authorization URL (Google issues a refresh token only with `access_type: "offline"`). A parameter the flow sets itself, such as `state` or `redirect_uri`, is refused.
+- **Refresh** — tokens within 30 seconds of expiry are refreshed before the call. The new credential goes to your source with `set(slot, credential)`, and the call waits for it, so a rotated refresh token is saved before it is used; the turn emits `auth_token_refreshed` naming the slot. The token itself never rides the event stream. Calls that find the same expired token share one refresh, so a rotating refresh token is never presented twice. A refused refresh emits `auth_token_refresh_failed`: the server's own text rides only in `errorInternal`, which `forClient` strips, and never reaches the model.
 - **Echoed credentials** — a response that repeats the token or key it was sent with (an echo endpoint, a debug error page) has that value replaced with `[omitted - credential]` before the model, the trace, or the client sees it.
 
 ```ts
-import { invokeTool, runTurn } from "@theoremai/agents";
-import { createOAuthPkceFlow, exchangeOAuthPkce } from "@theoremai/agents/kernel";
+import { invokeTool, runTurn } from "@theoremjs/agents";
+import { createOAuthPkceFlow, exchangeOAuthPkce } from "@theoremjs/agents/kernel";
 
 // 1. During the turn: a tool needs sign-in.
 for await (const event of runTurn(request, provider)) {
@@ -767,7 +779,7 @@ const { credential } = await exchangeOAuthPkce({
   signingSecret: secrets.oauthStateSecret,
   sessionBinding: session.id,
 });
-await db.credentials.put(user.id, "tracker", credential);
+await vaultCredentials(user.id).set("tracker", credential);
 
 // 3. Resume the gated call. It runs once, with the new token.
 // `gated` is what you saved when the gate fired: the tool name, its input, and done.tools.
@@ -777,14 +789,22 @@ for await (const event of invokeTool({
   input: gated.input,
   snapshot: gated.snapshot,
   resume: { granted: true },
-  credentials: { tracker: credential },
+  credentials: vaultCredentials(user.id),
 })) send(event);
 ```
 
-Credentials travel per turn in `TurnRequest.credentials`, keyed by slot. The kernel never
+Credentials travel per turn in `TurnRequest.credentials`, a `ToolCredentialSource` the kernel
+reads one slot at a time, only when a tool that signs in runs, so a turn opens no credential
+it does not use. `memoryCredentialSource(record)` wraps a plain record. The kernel never
 stores them, and they never belong in the browser: `createTheoremHandler` keeps them in a
 server-side credential store (see [`react/README.md`](react/README.md#tool-credentials)). A tool whose auth is `onUnauthenticated: "report_to_model"` tells the model it
 isn't signed in instead of gating, for tools the agent can manage without.
+
+A `function` tool can sign in too: give it the same `auth`, and its handler gets
+`ctx.signedInFetch(url, init)`, which carries the credential to that URL's origin only.
+The handler never sees the token; a refusal from the service throws `CredentialRefusedError`
+(from `@theoremjs/agents/kernel`), which the kernel turns into a new sign-in, so a handler that
+catches its own errors rethrows it.
 
 **Migration:** [`docs/MIGRATION-tool-system.md`](docs/MIGRATION-tool-system.md) covers the
 breaking changes from `dynamicTools` / `ToolEnvelope`.
@@ -849,7 +869,7 @@ flowchart LR
 Most hosts start from the standard policy and add their own rules:
 
 ```ts
-import { type EgressEnforcer, standardEgressEnforce } from "@theoremai/agents";
+import { type EgressEnforcer, standardEgressEnforce } from "@theoremjs/agents";
 
 // Standard checks first, then hide internal incident ids from customers.
 const egress: EgressEnforcer = (payload, ctx) => {
@@ -911,7 +931,7 @@ several ways:
 
 | Check | What it covers | Where |
 | :--- | :--- | :--- |
-| Adversarial corpus | Inbound injection payloads and secret shapes, shipped for hosts to reuse | `src/guardrails/corpus/`, `@theoremai/agents/guardrails/testing` |
+| Adversarial corpus | Inbound injection payloads and secret shapes, shipped for hosts to reuse | `src/guardrails/corpus/`, `@theoremjs/agents/guardrails/testing` |
 | Fuzzing | Randomized guardrail and canary inputs through the CLI harness | `tests/cli/fuzz-guardrails.test.ts`, `tests/cli/fuzz-canary.test.ts` |
 | Mutation testing | Stryker mutates guardrail and tool code and requires the suite to kill the mutants (break threshold 75% for guardrails). merges to `main` mutate the files they change; a weekly sweep covers everything | `.github/workflows/mutation.yml`, `stryker.guardrails.config.json`, `stryker.tools.config.json` |
 | Static analysis | Semgrep TypeScript + secrets rulesets over `src/`, `mod.ts`, and `scripts/` | `.github/workflows/security.yml` |
@@ -925,21 +945,21 @@ several ways:
 Theorem ships the adapters but never the keys. You pass credentials when you bind a profile:
 
 ```ts
-import { createProvider, runSession } from "@theoremai/agents";
+import { createProvider, runSession } from "@theoremjs/agents";
 
 // Turns: text, image, and speech profiles.
 const provider = createProvider(
   profile,
   {
-    gemini: { vault: hostGeminiKeyVault },
-    openAiGateway: { apiKey: hostSecrets.openRouterApiKey },
+    vault: hostKeyVault, // one vault for every provider, OpenRouter included
+    openAiGateway: { siteName: "Support" }, // optional OpenRouter headers; never a key
     local: { baseUrl: hostResolvedLocalBaseUrl }, // only for local profiles; no default address
   },
   "deep", // optional model id from profile.models
 );
 
 // Sessions: live profiles.
-const session = await runSession({ profile: "support.voice" }, { gemini: { vault: hostGeminiKeyVault } });
+const session = await runSession({ profile: "support.voice" }, { vault: hostKeyVault });
 ```
 
 | Protocol + provider | Transport | Profile types |
@@ -951,7 +971,7 @@ const session = await runSession({ profile: "support.voice" }, { gemini: { vault
 
 - **Per-model routing** — each entry in `profile.models` names its own protocol and provider, so one profile can mix Google and OpenRouter. `createProvider` binds the one you pick.
 - **Lazy loading** — adapters load on first use. Importing `createProvider` doesn't pull in Interactions, the AI SDK, or the local adapter.
-- **Key slots** — the Gemini vault is keyed by slot (`key: "paid"` on a binding), so free and paid keys can be separated per model.
+- **Key slots** — a profile names key slots (`key`, and `fallbackKey` for a retry on quota), and your vault fills them with keys, so the profile never holds one. Every model except a local one must name a slot; there is no flat key.
 - **Normalized events** — every transport emits the same `TurnEvent` types and a provider-neutral `stop`. Raw provider evidence is kept for citations where the normalized stream drops detail.
 - **No env reads** — Theorem doesn't read `OLLAMA_HOST` or any other variable. Resolve it yourself and pass `local.baseUrl`.
 - **Live** — `createProvider` rejects `geminiLive` bindings. Live profiles go through `runSession`, which handles setup, session resumption, context compression, and the outbound gate.
@@ -962,24 +982,27 @@ const session = await runSession({ profile: "support.voice" }, { gemini: { vault
 
 | Entrypoint | Purpose |
 | :--- | :--- |
-| `jsr:@theoremai/agents` / `@theoremai/agents` | Main kernel API: profiles, schemas, runner, core types, provider constructors, declarative HTTP/MCP tool execution. |
-| `jsr:@theoremai/agents/kernel` / `@theoremai/agents/kernel` | Profile/turn types, tool catalog, `requireModelBinding`, thinking clamps over host model maps, OAuth 2.1 PKCE helpers (`createOAuthPkceFlow`, `exchangeOAuthPkce`, `refreshOAuthToken`). |
-| `jsr:@theoremai/agents/providers` / `@theoremai/agents/providers` | `createProvider` + Gemini vault types + host option bags. |
-| `jsr:@theoremai/agents/providers/local` / `@theoremai/agents/providers/local` | Direct local OpenAI-compat adapter (`createLocalProvider`). |
-| `jsr:@theoremai/agents/guardrails` / `@theoremai/agents/guardrails` | Sanitization, canary/egress gates, public error mapping, inbound injection/sensitive-data primitives. |
-| `jsr:@theoremai/agents/guardrails/testing` / `@theoremai/agents/guardrails/testing` | Adversarial corpus + fuzz helpers (test/harness only). |
-| `jsr:@theoremai/agents/observability` / `@theoremai/agents/observability` | Trace sinks, trace record helpers and OTLP/JSON export. |
-| `jsr:@theoremai/agents/observability/openinference` / `@theoremai/agents/observability/openinference` | Optional OpenInference usage names (reasoning tokens, cost) for Phoenix. |
-| `jsr:@theoremai/agents/host` / `@theoremai/agents/host` | Optional Deno HTTP helpers (`json`, status mapping, cutout mint flush). |
-| `jsr:@theoremai/agents/cli` / `@theoremai/agents/cli` | Profile inspection and stress-test CLI (`agents` binary on npm). |
-| `jsr:@theoremai/agents/presets` / `@theoremai/agents/presets` | Optional convenience packs (`registerGooglePreset`, …). |
-| `jsr:@theoremai/agents/presets/google` / `@theoremai/agents/presets/google` | Google builtins (search/maps/urlContext/codeExecution) + Interactions/OpenRouter wire metadata. |
-| `jsr:@theoremai/agents/presets/google/speech-voices` / `@theoremai/agents/presets/google/speech-voices` | Gemini TTS voice names for `speech.voice` (`GOOGLE_SPEECH_VOICES`); no registry imports. |
-| `jsr:@theoremai/agents/schema` / `@theoremai/agents/schema` | Profile vocabulary and field catalog (closed unions, field metadata) for host UIs and docs; no Deno APIs. |
-| `jsr:@theoremai/agents/providers/google/live` / `@theoremai/agents/providers/google/live` | Gemini Live framing and session helpers (`openGoogleLiveSession`); live runs through `runSession`. |
+| `jsr:@theoremjs/agents` / `@theoremjs/agents` | Main kernel API: profiles, schemas, runner, core types, provider constructors, declarative HTTP/MCP tool execution. |
+| `jsr:@theoremjs/agents/kernel` / `@theoremjs/agents/kernel` | Profile/turn types, tool catalog, `requireModelBinding`, thinking clamps over host model maps, OAuth 2.1 PKCE helpers (`createOAuthPkceFlow`, `exchangeOAuthPkce`, `refreshOAuthToken`). |
+| `jsr:@theoremjs/agents/providers` / `@theoremjs/agents/providers` | `createProvider` + the vault type + host option bags. |
+| `jsr:@theoremjs/agents/providers/local` / `@theoremjs/agents/providers/local` | Direct local OpenAI-compat adapter (`createLocalProvider`). |
+| `jsr:@theoremjs/agents/guardrails` / `@theoremjs/agents/guardrails` | Sanitization, canary/egress gates, public error mapping, inbound injection/sensitive-data primitives. |
+| `jsr:@theoremjs/agents/guardrails/testing` / `@theoremjs/agents/guardrails/testing` | Adversarial corpus + fuzz helpers (test/harness only). |
+| `jsr:@theoremjs/agents/observability` / `@theoremjs/agents/observability` | Trace sinks, trace record helpers and OTLP/JSON export. |
+| `jsr:@theoremjs/agents/observability/jsonl` / `@theoremjs/agents/observability/jsonl` | Optional file sink (`jsonlSink`): daily rotating JSONL through `node:fs`, kept out of browser and Worker bundles. |
+| `jsr:@theoremjs/agents/observability/openinference` / `@theoremjs/agents/observability/openinference` | Optional OpenInference usage names (reasoning tokens, cost) for Phoenix. |
+| `jsr:@theoremjs/agents/observability/phoenix` / `@theoremjs/agents/observability/phoenix` | Optional: eval results as Phoenix span annotations. |
+| `jsr:@theoremjs/agents/host` / `@theoremjs/agents/host` | Optional Deno HTTP helpers (`json`, status mapping, cutout mint flush). |
+| `jsr:@theoremjs/agents/interface` / `@theoremjs/agents/interface` | Headless interface projection of a profile (transcript, composer, gates) that UI packages such as `@theoremjs/react` render. |
+| `jsr:@theoremjs/agents/cli` / `@theoremjs/agents/cli` | Profile inspection and stress-test CLI (`agents` binary on npm). |
+| `jsr:@theoremjs/agents/presets` / `@theoremjs/agents/presets` | Optional convenience packs (`registerGooglePreset`, …). |
+| `jsr:@theoremjs/agents/presets/google` / `@theoremjs/agents/presets/google` | Google builtins (search/maps/urlContext/codeExecution) + Interactions/OpenRouter wire metadata. |
+| `jsr:@theoremjs/agents/presets/google/speech-voices` / `@theoremjs/agents/presets/google/speech-voices` | Gemini TTS voice names for `speech.voice` (`GOOGLE_SPEECH_VOICES`); no registry imports. |
+| `jsr:@theoremjs/agents/schema` / `@theoremjs/agents/schema` | Profile vocabulary and field catalog (closed unions, field metadata) for host UIs and docs; no Deno APIs. |
+| `jsr:@theoremjs/agents/providers/google/live` / `@theoremjs/agents/providers/google/live` | Gemini Live framing and session helpers (`openGoogleLiveSession`); live runs through `runSession`. |
 
 Demo fixtures (travel concierge seeds, local handlers) live in the **repo-private**
-`@theoremai/playground` package under `playground/` — never published with the kernel.
+`@theoremjs/playground` package under `playground/` — never published with the kernel.
 Hosts that need them link `file:../theoremai/playground`.
 
 Internal files remain present in source for maintainability, but package consumers should use the public entrypoints above.
@@ -989,8 +1012,8 @@ Internal files remain present in source for maintainability, but package consume
 <details>
 <summary>Every named export from the root barrel (<code>mod.ts</code>)</summary>
 
-Named exports from the root barrel (same symbols hosts get from `@theoremai/agents` /
-`jsr:@theoremai/agents`):
+Named exports from the root barrel (same symbols hosts get from `@theoremjs/agents` /
+`jsr:@theoremjs/agents`):
 
 | Group | Symbols |
 | --- | --- |
@@ -1003,12 +1026,12 @@ Named exports from the root barrel (same symbols hosts get from `@theoremai/agen
 | Lexicon | `LEXICON_KEYS`, `LexiconKey`, `CLIENT_LEXICON_KEYS`, `ClientLexiconKey`, `LexiconOverrides`, `LexiconParams`, `lexiconDefault`, `lexiconText`, `overrideLexicon`, `resetLexicon` |
 | Sanitize | `sanitizeProjectId`, `sanitizeText`, `detectText`, `sanitizeTurnRequest`, `sanitizeTurnRequestWithEvents`, `redactSensitiveOnly`, `guardrailFromHits`, `guardrailFromVerdict`, `guardrailTurnEvent`, `projectGuardrailTurnEvent`, `hitFromSpan`, `projectGuardrailEvent` |
 | Canary / egress | `mintCanary`, `bindCanary`, `wrapUserData`, `scanTextForCanaryLeak`, `scanTextForPromptEcho`, `PROMPT_ECHO_WORDS`, `redactCanary`, `OMIT_CANARY`, `createCanaryStreamGate`, `eventHasCanary`, `createCanaryGateSession`, `filterCanaryGatedEvents`, `CanaryGateResult`, `CanaryGateSession`, `CanaryStreamGate`, `standardEgressEnforce`, `egressPolicy`, `EgressPolicyOptions`, `EgressChecks`, `UrlCheck`, `GivenUrls`, `EgressRule`, `CompiledEgressRules`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `DEFAULT_HOLDBACK`, `LIVE_DEFAULT_HOLDBACK`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveHeldOutput`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
-| Compaction | `CompactionSplit`, `CompactionTokens`, `compactionMeter`, `compactionNeeded`, `resolveCompactionTokens`, `resolveHistoryTokens`, `shouldCompact`, `splitForCompaction` |
+| Compaction | `compactHistory`, `CompactionSplit`, `CompactionTokens`, `compactionMeter`, `compactionNeeded`, `resolveCompactionTokens`, `resolveHistoryTokens`, `shouldCompact`, `splitForCompaction` |
 | Token estimate | `loadTokenEstimator`, `mediaTokenFamily`, `TOKEN_TEXT_ENCODING`, `MediaPayload`, `MediaTokenFamily`, `TokenCount`, `TokenEstimator`, `sumTokens` |
-| Runner | `runTurn`, `runSession`, `runDecision`, `RunSessionOptions`, `RunDecisionOptions`, `DecisionError`, `prepareLiveInboundText`, `liveIngressEnabled`, `liveIngressEnabledFromSpec`, `liveIngressChannelDefault`, `hasAnyLiveIngress`, `assertLiveIngress`, `assertLiveIngressConfigured`, `LiveIngressChannel` |
+| Runner | `runTurn`, `runSession`, `runDecision`, `validateDecisionRequest`, `RunSessionOptions`, `SignInGatePolicy`, `RunDecisionOptions`, `DecisionError`, `prepareLiveInboundText`, `liveIngressEnabled`, `liveIngressEnabledFromSpec`, `liveIngressChannelDefault`, `hasAnyLiveIngress`, `assertLiveIngress`, `assertLiveIngressConfigured`, `LiveIngressChannel` |
 | Attachments | `attachmentIssues`, `attachmentIssueCopy`, `attachmentIssueText`, `attachmentsRefused`, `assertTurnAttachments`, `maxBytesForMime`, `requireMediaLimits`, `resolveMediaLimits`, `sanitizeCsvText`, `sanitizeTurnBlobs`, `AttachmentFacts`, `AttachmentRules` |
 | Catalog | `clampThinkingLevel`, `clampThinkingLevelForApiId`, `mediaChannelForMime`, `MediaInputChannel`, `mediaKindForMime`, `mimeAllowed`, `mimeEssence`, `modelEntryByApiId`, `requireModelBinding` |
-| Schema | `PROFILE_FIELDS`, `PROFILE_GRAPH`, `PROFILE_TYPES`, `PROFILE_TYPE_PROTOCOLS`, `protocolsForProfileType`, `isValidProfileProtocol`, `EXTRA_FIELDS`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `spineFacetsForProfileType`, `profileGraphFacet`, `ProfileGraphFacet`, `ProfileGraphFacetId`, `ProfileGraphEditor`, `ProfileGraphRole`, `PROTOCOLS`, `PROVIDERS`, `PROTOCOL_PROVIDERS`, `providersFor`, `protocolsFor`, `isValidPair`, `coerceProvider`, `coerceProtocol`, `coerceSpeechFormat`, `isSpeechFormatAllowedForProtocol`, `speechFormatsForProtocol`, `THINKING_LEVELS`, `KEY_SLOTS`, `OVERFLOW_KEY_SLOTS`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `IMAGE_ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `COMPACTION_METERS`, `COMPACTION_TIMINGS`, `CACHE_MODES`, `CACHE_TTLS`, `TURN_STAGES`, `TURN_INJECT_STAGES`, `TURN_STOP_KINDS`, `CONTINUE_STOP_KINDS`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES`, `AUTH_UNAUTHENTICATED_POLICIES`, `HTTP_METHODS`, `PLAYGROUND_AUTH_TYPES`, `TOOL_AUTH_TYPES`, `AuthUnauthenticatedPolicy`, `CustomToolType`, `HttpMethod`, `PlaygroundAuthType`, `ToolAccess`, `ToolAuthType`, `ToolPermission`, `ToolType`, `LIVE_ACTIVITY_HANDLINGS`, `LIVE_SPEECH_SENSITIVITIES`, `EGRESS_ON_BLOCK`, `EgressOnBlock` |
+| Schema | `PROFILE_FIELDS`, `PROFILE_GRAPH`, `PROFILE_TYPES`, `PROFILE_TYPE_PROTOCOLS`, `protocolsForProfileType`, `isValidProfileProtocol`, `EXTRA_FIELDS`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `spineFacetsForProfileType`, `profileGraphFacet`, `ProfileGraphFacet`, `ProfileGraphFacetId`, `ProfileGraphEditor`, `ProfileGraphRole`, `PROTOCOLS`, `PROVIDERS`, `PROTOCOL_PROVIDERS`, `providersFor`, `protocolsFor`, `isValidPair`, `coerceProvider`, `coerceProtocol`, `coerceSpeechFormat`, `isSpeechFormatAllowedForProtocol`, `speechFormatsForProtocol`, `THINKING_LEVELS`, `thinkingLevelsForProtocol`, `KEY_SLOT_NAME`, `isKeySlotName`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `IMAGE_ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `COMPACTION_METERS`, `COMPACTION_OUTCOMES`, `COMPACTION_TIMINGS`, `CACHE_MODES`, `CACHE_TTLS`, `TURN_STAGES`, `TURN_INJECT_STAGES`, `TURN_STOP_KINDS`, `CONTINUE_STOP_KINDS`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES`, `AUTH_UNAUTHENTICATED_POLICIES`, `HTTP_METHODS`, `PLAYGROUND_AUTH_TYPES`, `TOOL_AUTH_TYPES`, `AuthUnauthenticatedPolicy`, `CustomToolType`, `HttpMethod`, `PlaygroundAuthType`, `ToolAccess`, `ToolAuthType`, `ToolPermission`, `ToolType`, `LIVE_ACTIVITY_HANDLINGS`, `LIVE_START_SENSITIVITIES`, `LIVE_END_SENSITIVITIES`, `EGRESS_ON_BLOCK`, `EgressOnBlock` |
 | Scope | `KernelScope`, `createKernelScope`, `defaultKernelScope`, `KernelRegistry`, `createKernelRegistry` |
 | Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `LiveProfileDefinition`, `HostProfileDefinition`, `DecisionProfileDefinition`, `ProfileRegistry`, `createProfileRegistry`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `resolveTurn`, `pickModel` |
 | Tools | `ToolRegistry`, `createToolRegistry`, `registerTool`, `registerTools`, `invokeTool`, `GATE_DECISIONS`, `GateDecision`, `askUserTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `resetTools`, `formatToolResult`, `prepareTurnToolSnapshot`, `buildHttpToolTarget`, `executeHttpTool`, `executeMcpTool`, `parseMcpRpcResponse`, `isUnsupportedMcpProtocolError`, `MCP_PROTOCOL_VERSIONS`, `McpProtocolVersion`, `resolveToolAuth` |
@@ -1016,8 +1039,8 @@ Named exports from the root barrel (same symbols hosts get from `@theoremai/agen
 | Stop / resume | `ProfileTurnBehaviourSpec`, `MediaTurnBehaviourSpec`, `ProfileTurnResumptionSpec`, `TurnContinueFrom`, `TurnStop`, `TurnStopKind`, `ContinueStopKind`, `CONTINUE_STOP_KINDS`, `AUTO_CONTINUE_DELAY_MS`, `DEFAULT_ALLOW_CONTINUE`, `DEFAULT_AUTO_CONTINUE`, `GenerationStopError`, `isContinueStopKind`, `isGenerationStopError`, `isResumeableStop`, `isUserCancelledStop`, `profileAllowsSteering`, `profileAllowsInject`, `profileTurnResumption`, `shouldAutoContinue`, `turnStopFromClientStreamEnd`, `turnStopFromInteractionStatus`, `turnStopFromOpenAiFinishReason` |
 | Stages (target foundation) | `TURN_STAGES`, `TURN_INJECT_STAGES`, `STAGE_AFFORDANCES`, `STAGE_AFFORDANCE_MATRIX`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `applyStageResult`, `awaitingUserInputSchema`, `toolGateSchema`, `isTurnStage`, `isTurnInjectStage`, `isToolGateKind`, `isAwaitingUserInput`, `stageAllowsAffordance`, `stageEventFields`, `profileAllowsInject`, `StageAffordance`, `StageContext`, `StageResult`, `StageMutate`, `StageHandler`, `StageApplyInput`, `StageApplyOutput`, `StageApplyWarning`, `StageApplyWarningCode`, `StageEventExtra`, `AwaitingUserInput`, `ToolGate` — contract [`docs/contracts/stages.md`](docs/contracts/stages.md) |
 | Turn events | `TURN_EVENT_SCHEMAS` (each kind's schema, for a wire parser), `turnEventSchema`, `turnHistoryMessageSchema`, `turnToolSnapshotSchema`, `turnDoneOf`, `z` (the zod these schemas are built with; compose them with it, since two copies of zod do not mix) — the event types themselves come through `export type *` from `src/kernel/types.ts` |
-| Observability | `jsonlSink`, `memorySink`, `noopSink`, `writeTrace`, `buildRecord`, `traceRecordSchema`, `contentOf`, `inlineContent`, `toOtlpJson`, `startTrace`, `traceContent`, `traceBytes`, `traceJson`, `registerTraceDestination`, `jsonlDestination`, `requireTraceDestination`, `getTraceDestination`, `listTraceDestinationIds`, `clearTraceDestinations`, `isJsonlTraceDestination`, `isTraceSink`, `resolveTraceWriter`, `resolveObservabilityPolicy`, `traceSpanMeta`, `traceAttributeMeta`, `traceEventMeta`, `traceEventAttributeMeta`, `TRACE_ATTRIBUTE_GROUPS`, `TRACE_STATUS`, `TRACE_FIELDS`, `TRACE_SPAN_TYPES`, `TraceSpanMeta`, `TraceSpanType`, `TraceAttributeMeta`, `TraceEventMeta`, `TraceOptionMeta`, `TraceAttributeGroup`, `TraceValueFormat`, `TraceRecord`, `TraceSink`, `TraceWriteContext`, `JsonlSinkOptions`, `TraceSpan`, `TraceSpanEvent`, `TraceSpanKind`, `TraceSpanLink`, `TraceSpanStatus`, `TraceAttributes`, `TraceAttributeValue`, `TraceContent`, `TraceBytes`, `TraceJson`, `TraceTree`, `SpanHandle`, `SpanOptions`, `SpanLinkInput`, `TraceClock`, `JsonlTraceDestination`, `TraceDestination`, `ProfileObservabilitySpec`, `ResolvedObservabilityPolicy`, `ResolvedTraceInclude`, `ResolvedTraceScrub`, `TraceIncludeSpec`, `TraceScrubSpec`, `OtlpTraceRequest`, `OtlpSpan`, `OtlpKeyValue`, `OtlpAnyValue` |
-| Providers | `CreateProviderOptions`, `GeminiTransport`, `KeyVault`, `LocalProviderConfig`, `OpenAiGatewayConfig`, `createProvider` (local: `@theoremai/agents/providers/local` → `createLocalProvider`) |
+| Observability | `memorySink`, `noopSink`, `readTraceparent`, `writeTrace`, `buildRecord`, `traceRecordSchema`, `contentOf`, `inlineContent`, `toOtlpJson`, `startTrace`, `traceContent`, `traceBytes`, `traceJson`, `registerTraceDestination`, `requireTraceDestination`, `getTraceDestination`, `listTraceDestinationIds`, `clearTraceDestinations`, `isTraceSink`, `resolveTraceWriter`, `resolveObservabilityPolicy`, `traceSpanMeta`, `traceAttributeMeta`, `traceEventMeta`, `traceEventAttributeMeta`, `TRACE_ATTRIBUTE_GROUPS`, `TRACE_STATUS`, `TRACE_FIELDS`, `TRACE_SPAN_TYPES`, `TraceSpanMeta`, `TraceSpanType`, `TraceAttributeMeta`, `TraceEventMeta`, `TraceOptionMeta`, `TraceAttributeGroup`, `TraceValueFormat`, `TraceRecord`, `TraceSink`, `TraceWriteContext`, `TraceSpan`, `TraceSpanEvent`, `TraceSpanKind`, `TraceSpanLink`, `TraceSpanStatus`, `TraceAttributes`, `TraceAttributeValue`, `TraceContent`, `TraceBytes`, `TraceJson`, `TraceTree`, `SpanHandle`, `SpanOptions`, `SpanLinkInput`, `TraceClock`, `ProfileObservabilitySpec`, `ResolvedObservabilityPolicy`, `ResolvedTraceInclude`, `ResolvedTraceScrub`, `TraceIncludeSpec`, `TraceScrubSpec`, `OtlpTraceRequest`, `OtlpSpan`, `OtlpKeyValue`, `OtlpAnyValue` (file sink: `@theoremjs/agents/observability/jsonl` → `jsonlSink`, `JsonlSinkOptions`) |
+| Providers | `CreateProviderOptions`, `GeminiOptions`, `KeyVault`, `LocalProviderConfig`, `OpenAiGatewayConfig`, `createProvider` (local: `@theoremjs/agents/providers/local` → `createLocalProvider`) |
 
 </details>
 
@@ -1041,16 +1064,16 @@ On GitHub, module contracts:
 
 | Doc (repo only) | Export |
 | :--- | :--- |
-| [`docs/contracts/kernel.md`](docs/contracts/kernel.md) | `@theoremai/agents/kernel` |
+| [`docs/contracts/kernel.md`](docs/contracts/kernel.md) | `@theoremjs/agents/kernel` |
 | [`docs/contracts/stages.md`](docs/contracts/stages.md) | Turn stages — slices 1–3 landed on branch; release cut when docs match product |
-| [`docs/contracts/providers.md`](docs/contracts/providers.md) | `@theoremai/agents/providers` |
-| [`docs/contracts/guardrails.md`](docs/contracts/guardrails.md) | `@theoremai/agents/guardrails` |
-| [`docs/contracts/observability.md`](docs/contracts/observability.md) | `@theoremai/agents/observability`, `@theoremai/agents/observability/openinference` |
-| [`docs/contracts/host.md`](docs/contracts/host.md) | `@theoremai/agents/host` |
-| [`docs/contracts/kernel.md`](docs/contracts/kernel.md) (repo-private headless interface) | `src/interface/` |
-| [`docs/contracts/cli.md`](docs/contracts/cli.md) | `@theoremai/agents/cli` |
-| [`docs/contracts/presets.md`](docs/contracts/presets.md) | `@theoremai/agents/presets` |
-| [`docs/contracts/presets-google.md`](docs/contracts/presets-google.md) | `@theoremai/agents/presets/google` |
+| [`docs/contracts/providers.md`](docs/contracts/providers.md) | `@theoremjs/agents/providers` |
+| [`docs/contracts/guardrails.md`](docs/contracts/guardrails.md) | `@theoremjs/agents/guardrails` |
+| [`docs/contracts/observability.md`](docs/contracts/observability.md) | `@theoremjs/agents/observability`, `@theoremjs/agents/observability/jsonl`, `@theoremjs/agents/observability/openinference`, `@theoremjs/agents/observability/phoenix` |
+| [`docs/contracts/host.md`](docs/contracts/host.md) | `@theoremjs/agents/host` |
+| [`docs/contracts/kernel.md`](docs/contracts/kernel.md) (headless interface) | `@theoremjs/agents/interface` |
+| [`docs/contracts/cli.md`](docs/contracts/cli.md) | `@theoremjs/agents/cli` |
+| [`docs/contracts/presets.md`](docs/contracts/presets.md) | `@theoremjs/agents/presets` |
+| [`docs/contracts/presets-google.md`](docs/contracts/presets-google.md) | `@theoremjs/agents/presets/google` |
 
 Migrating from per-turn `dynamicTools`? See
 [`docs/MIGRATION-tool-system.md`](docs/MIGRATION-tool-system.md).
@@ -1128,7 +1151,7 @@ cd npm
 npm pack
 ```
 
-Run an OpenRouter provider smoke test. The script reads `OPENROUTER_API_KEY` from the shell (or the `THEOREM_ENV_FILE` it names); Theorem itself never reads env, and the key stays off the command line, where `deno task` would echo it.
+Run an OpenRouter provider smoke test. The script reads `OPENROUTER_API_KEY` from the shell (or the `THEOREM_ENV_FILE` it names) into vault slot `openrouter`; Theorem itself never reads env, and the key stays off the command line, where `deno task` would echo it.
 
 ```bash
 deno task verify:provider-smoke
@@ -1163,7 +1186,7 @@ session_memory_in_kernel = false
 ```
 
 **Facts vs policy.** Provider facts may ship (model capabilities, wire shapes,
-protocol metadata — e.g. `@theoremai/agents/presets/google`). Product policy may not
+protocol metadata — e.g. `@theoremjs/agents/presets/google`). Product policy may not
 (prompts, personas, end-user copy, demo apps, channel behavior). Every
 user- or model-visible string is either host-supplied or an overridable
 registered default in the kernel lexicon (`overrideLexicon`). Behavioral
@@ -1180,7 +1203,7 @@ Invariant properties (machine-checked where noted):
 | P4 | Inert extras — optional entrypoints removable without behavior change | publish-bundle gate excludes `playground/` |
 
 Provider adapters load **lazily** on the first `complete` for that transport —
-`createProvider` and `@theoremai/agents/providers` stay a thin barrel (`src/providers/mod.ts`);
+`createProvider` and `@theoremjs/agents/providers` stay a thin barrel (`src/providers/mod.ts`);
 implementation modules (e.g. `google/interactions/`, `openrouter/`, `local/`) are
 not pulled in at import time.
 

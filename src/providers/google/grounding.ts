@@ -1,11 +1,3 @@
-/**
- * Google grounding → `grounding` events (search metadata) and `citation`
- * events (sources), for both Google wires. Interactions and Live share one
- * source shape and one dedupe so hosts parse one shape.
- *
- * @module
- */
-
 import { asRecord, nonEmptyString } from '../../kernel/engine/record.ts';
 import type { GroundingEvent, ProviderEvent, Source } from '../../kernel/types.ts';
 
@@ -26,13 +18,11 @@ import type { GroundingEvent, ProviderEvent, Source } from '../../kernel/types.t
  * (segment offsets, `groundingSupports`, `webSearchQueries`) stay in the trace.
  */
 
-/** What one step or payload grounds: its search metadata and the sources it cites. */
 interface Grounded {
   grounding: GroundingEvent;
   sources: Source[];
 }
 
-/** A `grounding` event, and a `citation` event when there are sources. */
 function groundedEvents(grounded: Grounded | undefined): ProviderEvent[] {
   if (!grounded) return [];
   const { grounding, sources } = grounded;
@@ -42,7 +32,6 @@ function groundedEvents(grounded: Grounded | undefined): ProviderEvent[] {
   ];
 }
 
-/** Interactions place (`result[].places[]` entry) → maps source. */
 function sourceFromPlace(place: Record<string, unknown>): Source | undefined {
   const uri = nonEmptyString(place.url);
   if (!uri) {
@@ -57,7 +46,6 @@ function sourceFromPlace(place: Record<string, unknown>): Source | undefined {
   };
 }
 
-/** Normalized maps chunk (`chunks[].maps`) for a maps source. */
 function chunkFromMapsSource(source: Source): unknown {
   return {
     maps: {
@@ -68,7 +56,6 @@ function chunkFromMapsSource(source: Source): unknown {
   };
 }
 
-/** Live `groundingChunks[].web` → web source. */
 function sourceFromWeb(web: Record<string, unknown>): Source | undefined {
   const uri = nonEmptyString(web.uri);
   if (!uri) {
@@ -97,7 +84,6 @@ function pushUniqueSource(sources: Source[], source: Source | undefined): void {
   sources.push(source);
 }
 
-/** Dedupe normalized maps chunks by place id, then uri; other chunks append. */
 function pushUniqueChunk(chunks: unknown[], chunk: unknown): void {
   const maps = asRecord(asRecord(chunk)?.maps);
   if (!maps) {
@@ -124,7 +110,6 @@ function pushUniqueChunk(chunks: unknown[], chunk: unknown): void {
   chunks.push(chunk);
 }
 
-/** Interactions `result[].search_suggestions` — the search chips HTML. */
 function searchSuggestionsHtml(result: unknown): string | undefined {
   if (!Array.isArray(result)) {
     return undefined;
@@ -164,7 +149,6 @@ function appendAnnotationSources(into: Source[], annotations: unknown): void {
   }
 }
 
-/** Interactions `result[].places[]` → maps sources (primary places only). */
 function appendPlaceSources(into: Source[], result: unknown): void {
   if (!Array.isArray(result)) {
     return;
@@ -184,11 +168,7 @@ function appendPlaceSources(into: Source[], result: unknown): void {
   }
 }
 
-/**
- * Grounding on one Interactions step or `step.delta`: citations, places and
- * search chips. Maps sources also emit normalized `chunks[].maps`
- * (`title` / `uri` / `placeId`) so hosts share one parse shape with Live.
- */
+/** Maps sources also emit normalized `chunks[].maps` so hosts share one parse shape with Live. */
 function groundingFromInteractionsStep(step: Record<string, unknown>): Grounded | undefined {
   const sources: Source[] = [];
   appendAnnotationSources(sources, step.annotations);
@@ -245,13 +225,11 @@ function mergeGrounding(a: Grounded | undefined, b: Grounded | undefined): Groun
   };
 }
 
-/** Grounding on one streamed Interactions `step.delta` payload. */
 function groundingFromDelta(event: Record<string, unknown>): ProviderEvent[] {
   const delta = asRecord(event.delta);
   return groundedEvents(delta ? groundingFromInteractionsStep(delta) : undefined);
 }
 
-/** Grounding across a completed interaction's `steps[]` (buffered body). */
 function groundingFromSteps(steps: unknown[]): ProviderEvent[] {
   let grounded: Grounded | undefined;
   for (const stepValue of steps) {
@@ -263,7 +241,6 @@ function groundingFromSteps(steps: unknown[]): ProviderEvent[] {
   return groundedEvents(grounded);
 }
 
-/** Live `serverContent.groundingMetadata` → grounding and citation events (raw kept on `metadata`). */
 function groundingFromLiveMetadata(value: unknown): ProviderEvent[] {
   const metadata = asRecord(value);
   if (!metadata) {

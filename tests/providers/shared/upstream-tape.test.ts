@@ -23,10 +23,10 @@ const OUTPUT_TOKENS = 2;
 const HTTP_OK = 200;
 
 const vault: KeyVault = {
-  slotA: 'free-a-key',
-  slotB: 'free-b-key',
-  slotC: 'free-c-key',
-  paid: 'paid-key',
+  slot_a: 'free-a-key',
+  slot_b: 'free-b-key',
+  slot_c: 'free-c-key',
+  spare: 'spare-key',
 };
 
 function spanNamed(record: TraceRecord, name: string): TraceSpan {

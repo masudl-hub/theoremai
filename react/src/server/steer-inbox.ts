@@ -5,7 +5,7 @@
  * @module
  */
 
-import { type StageHandler, TheoremError, type TurnHistoryMessage } from '../../../mod.ts';
+import { type StageHandler, TheoremError, type TurnHistoryMessage } from '@theoremjs/agents';
 import type { TheoremSteerRequest } from '../client/transport.ts';
 
 /** One steer: the client's id for it, reported back in `stage.injected` once it lands. */

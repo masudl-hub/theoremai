@@ -1,4 +1,4 @@
-import type { ToolCallEvent, ToolFailure, TurnEvent } from '../../../../mod.ts';
+import type { ToolCallEvent, ToolFailure, TurnEvent } from '@theoremjs/agents';
 import { TheoremStreamError } from '../transport.ts';
 
 type LiveToolEventArgs = {

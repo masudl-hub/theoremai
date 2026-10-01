@@ -1,4 +1,4 @@
-# Presets (`@theoremai/agents/presets`)
+# Presets (`@theoremjs/agents/presets`)
 
 Optional convenience packs. Presets register host-convenience catalogs
 (provider builtins, media vocabularies) without baking product opinions into the
@@ -8,15 +8,16 @@ kernel.
 
 | Field | Value |
 | --- | --- |
-| Import | `@theoremai/agents/presets` / `jsr:@theoremai/agents/presets` |
+| Import | `@theoremjs/agents/presets` / `jsr:@theoremjs/agents/presets` |
 | Module | `src/presets/mod.ts` |
 
 ## Ownership
 
 | Path | Role |
 | --- | --- |
-| `src/presets/mod.ts` | Barrel re-exporting the Google pack |
+| `src/presets/mod.ts` | Barrel re-exporting the Google pack and TypeSafe's price |
 | `src/presets/google.ts` | Documented in [`presets-google.md`](./presets-google.md) |
+| `src/presets/typesafe.ts` | TypeSafe Jev's input price, which decision usage costs from |
 
 ## Role in the package
 
@@ -27,7 +28,7 @@ kernel.
 | Registration | `registerTools` API (default scope) or `scope.tools.registerMany` | `registerGooglePreset()` at host startup fills the default scope; `GOOGLE_BUILTIN_TOOLS` fills any other |
 
 Call preset registration **before** registering profiles that allowlist preset
-builtins. Import `@theoremai/agents/presets/google` when you only need the Google pack.
+builtins. Import `@theoremjs/agents/presets/google` when you only need the Google pack.
 
 Presets are optional — the kernel runs without them when hosts register their
 own tools and vocabularies directly via `registerTools`.
@@ -41,15 +42,18 @@ own tools and vocabularies directly via `registerTools`.
 
 ## Exported API
 
-This barrel re-exports the Google pack:
+This barrel re-exports the Google pack and TypeSafe's price:
 
 | Export | Role |
 | --- | --- |
 | `registerGooglePreset` | Register Google builtins into the default scope's tool registry |
 | `GOOGLE_BUILTIN_TOOLS` | Catalog entries; register them into any scope's `tools` |
+| `GOOGLE_SINGLE_TURN_API_IDS` | TTS models that reject history with a model turn, so they can't take compaction |
+| `GOOGLE_NO_THINKING_API_IDS` | Models that reject any thinking setting, `summaries: false` included |
 | `GOOGLE_IMAGE_ASPECT_RATIOS`, `GOOGLE_IMAGE_INPUT_MIMES`, `GOOGLE_IMAGE_SIZES`, `GOOGLE_VOICE_INPUT_MIMES`, `GOOGLE_SPEECH_VOICES` | Profile authoring constants |
 | `GoogleImageAspectRatio`, `GoogleImageInputMime`, `GoogleImagePins`, `GoogleImageSize`, `GoogleVoiceInputMime`, `GoogleSpeechVoice` | Typed pins and vocabularies |
 | `googleInteractionsPersistence`, `GoogleInteractionsPersistence` | A model binding's `store` and `persistViaInteractionId`, set together |
+| `JEV_USD_PER_MILLION_INPUT_TOKENS` | TypeSafe Jev's input price per million tokens; output tokens are free |
 
 ```theorem-evidence
 {

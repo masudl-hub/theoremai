@@ -1,13 +1,4 @@
-/**
- * Adversarial canary egress fuzzer.
- *
- * Pipes synthetic model leak attempts through the real runTurn stream gate
- * and Live batch gate, then reports bypasses — output where the attack's
- * encoded canary still reached the client. The check reads the attack's own
- * payload, not the detector under test.
- *
- * @module
- */
+// A bypass is judged from the attack's own encoded canary, not from the detector under test.
 
 import {
   bindCanary,
@@ -63,6 +54,7 @@ function registerFuzzCanaryProfile(): void {
         protocol: 'openAi',
         provider: 'openrouter',
         apiId: 'fuzz-model',
+        key: 'fuzz',
         efforts: { normal: 'none' },
         summaries: false,
         maxOutputTokens: 4096,
@@ -139,7 +131,6 @@ function channelResult(
   };
 }
 
-/** A provider stream that yields one attack turn's model output. */
 async function* replay(turn: ProviderEvent[]): AsyncGenerator<ProviderEvent> {
   await Promise.resolve();
   yield* turn;
@@ -272,14 +263,12 @@ export async function fuzzCanaryCommand(options?: { canary?: string }): Promise<
     return false;
   }
 
-  // Sanity: mint path uses same shape
   const minted = mintCanary();
   if (!/^[0-9a-f]{32}$/.test(minted)) {
     console.error(`mintCanary produced unexpected shape: ${minted}`);
     return false;
   }
 
-  // Spot-check scan helper matches expectations
   if (!scanTextForCanaryLeak(canary, canary)) {
     console.error('scanTextForCanaryLeak failed to detect literal canary');
     return false;

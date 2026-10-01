@@ -1,9 +1,3 @@
-/**
- * Bundled egress policy helpers for hosts that want kernel-default disclosure checks.
- *
- * @module
- */
-
 import type { ProviderEvent, ProviderEvidence } from '../kernel/types.ts';
 import { isRecord } from '../kernel/util/record.ts';
 import { guardedEventTexts, scanTextForCanaryLeak } from './canary.ts';
@@ -14,6 +8,7 @@ import { hitFromSpan } from './hits.ts';
 import { injectionSpans } from './injection.ts';
 import { lexiconText } from './lexicon.ts';
 import { scanTextForPromptEcho } from './prompt-echo.ts';
+import { EGRESS_RULES } from './rules.ts';
 import {
   anySensitive,
   resolveSensitive,
@@ -32,30 +27,6 @@ import type {
 } from './types.ts';
 import { SEVERITIES } from './types.ts';
 
-/** Rule ids emitted by the bundled outbound policy. */
-export const EGRESS_RULES = {
-  canary: 'egress.canary-leak',
-  /** The reply repeats the system prompt (`guardrails.promptEcho`). */
-  promptEcho: 'egress.prompt-echo', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  /**
-   * A provider-side built-in tool (URL context, search, code execution) carried
-   * the canary or the system prompt. It ran at the provider before Theorem saw
-   * it: the data already left, so this is an incident, not a prevented leak.
-   */
-  providerToolLeak: 'egress.provider-tool-leak', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  sensitive: 'egress.sensitive-echo',
-  boundary: 'egress.system-boundary',
-  injection: 'egress.injection-echo', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  /** An image in the reply loads a URL the model was not given, from a host not allowed: it can carry data there. */
-  image: 'egress.image-exfil', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  /** A link in the reply goes to a URL the model was not given, on a host not allowed. */
-  link: 'egress.link-exfil', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  /** Payload could not be rendered for inspection — released output is unverified. */
-  unscannable: 'egress.unscannable', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  /** The host policy threw instead of returning a verdict. */
-  enforcerError: 'egress.enforcer-error', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-} as const;
-
 function hitsFromSpans(
   text: string,
   spans: readonly { start: number; end: number }[],
@@ -73,11 +44,10 @@ const WITHHELD_REASON = {
   egress: 'Turn withheld: egress disclosure violation', // lexicon-exempt: internal diagnostic — the user reads error.safety
 } as const;
 
+/** Never carries the live token, only a placeholder. */
 const CANARY_HIT: GuardrailHit = { rule: EGRESS_RULES.canary, severity: 'high', match: '[canary]' };
 
 const PROMPT_ECHO_HIT: GuardrailHit = { rule: EGRESS_RULES.promptEcho, severity: 'high' };
-
-/** The canary hit, when `text` leaks it. */
 function canaryHits(text: string, canary?: string): GuardrailHit[] {
   return canary && scanTextForCanaryLeak(text, canary) ? [CANARY_HIT] : [];
 }
@@ -297,7 +267,6 @@ function collectEgressHits(
   return hits;
 }
 
-/** Distinct rule ids in a hit list, in first-seen order — for rejection copy. */
 function hitRules(hits: GuardrailHit[]): string[] {
   return [...new Set(hits.map((hit) => hit.rule))];
 }
@@ -311,8 +280,8 @@ function isGuardrailHit(value: unknown): value is GuardrailHit {
   ) {
     return false;
   }
-  if (value.match !== undefined && typeof value.match !== 'string') {
-    return false;
+  for (const key of ['match', 'label', 'doc'] as const) {
+    if (value[key] !== undefined && typeof value[key] !== 'string') return false;
   }
   if (value.span !== undefined) {
     if (
@@ -365,7 +334,12 @@ function legacyHits(value: unknown): GuardrailHit[] {
         const severity = SEVERITIES.includes(hit.severity as Severity)
           ? (hit.severity as Severity)
           : 'high';
-        return { rule: hit.rule, severity };
+        return {
+          rule: hit.rule,
+          severity,
+          ...(typeof hit.label === 'string' ? { label: hit.label } : {}),
+          ...(typeof hit.doc === 'string' ? { doc: hit.doc } : {}),
+        };
       }
       return undefined;
     })
@@ -439,8 +413,6 @@ const standardEgressEnforce: (payload: OutboundPayload, context: GuardrailContex
   hitsEnforcer((text, context) => collectEgressHits(text, egressScope(context)));
 
 /**
- * Run a host policy without letting it break the turn.
- *
  * A policy that throws has reached no decision, so it cannot vouch for the output:
  * the failure becomes a `block`, not a pass. The turn then follows the profile's
  * ordinary `onBlock` handling instead of surfacing a raw host stack trace. The

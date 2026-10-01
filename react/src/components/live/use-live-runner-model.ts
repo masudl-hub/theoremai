@@ -1,13 +1,13 @@
 import { type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { liveIngressEnabledFromSpec } from '../../../../mod.ts';
-import type { LiveProfileInterface } from '../../../../src/interface/mod.ts';
-import type { LiveCaptionState, LiveCaptionTurn } from '../../client/live/live-captions';
-import type { LiveConnection } from '../../client/live-client';
-import { liveState } from '../../client/live/live-state';
-import { createTraceFeed } from '../../client/trace-feed';
-import { useLiveRunnerControls } from './use-live-runner-controls';
-import { useLiveRunnerGate, useLiveRunnerUiState } from './use-live-runner-ui';
-import { useLiveSessionClient } from './use-live-session-client';
+import { liveIngressEnabledFromSpec } from '@theoremjs/agents';
+import type { LiveProfileInterface } from '@theoremjs/agents/interface';
+import type { LiveCaptionState, LiveCaptionTurn } from '../../client/live/live-captions.ts';
+import type { LiveConnection } from '../../client/live-client.ts';
+import { liveState } from '../../client/live/live-state.ts';
+import { createTraceFeed } from '../../client/trace-feed.ts';
+import { useLiveRunnerControls } from './use-live-runner-controls.ts';
+import { useLiveRunnerGate, useLiveRunnerUiState } from './use-live-runner-ui.ts';
+import { useLiveSessionClient } from './use-live-session-client.ts';
 
 type LiveControls = ReturnType<typeof useLiveRunnerControls>;
 

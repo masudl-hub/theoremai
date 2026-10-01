@@ -1,29 +1,34 @@
 /**
- * Transport for the playground run tab: the profile is authored in the browser,
- * so every request carries the compiled payload to `/api/playground/*`, along
- * with the client-held `replay` state (permissions, paused call). That is safe
- * only because the playground user owns the whole profile and its tools.
- *
- * Product hosts keep the profile on the server — use `createHttpTransport`
- * with `createTheoremHandler` instead.
- *
- * @module
+ * Every request carries the compiled payload and the client-held `replay` state (permissions,
+ * paused call). That is safe only because the playground user owns the whole profile and its
+ * tools; product hosts keep the profile on the server (`createHttpTransport` with
+ * `createTheoremHandler`).
  */
 
 import { z } from 'zod';
 import {
+  type DecisionProfile,
   defineProfile,
+  type Profile,
   TheoremError,
   traceRecordSchema,
   TURN_EVENT_SCHEMAS,
   type TurnEvent,
 } from '../mod.ts';
+import {
+  decisionInterface,
+  type DecisionTransport,
+  readDecisionReply,
+} from '../react/src/client/decision-transport.ts';
+import { hostInterface, type HostTransport } from '../react/src/client/host-transport.ts';
 import { createTraceFeed, type TraceFeed } from '../react/src/client/trace-feed.ts';
 import {
+  fetchJson,
   type HttpOptions,
   postJson,
   postNdjson,
   type TheoremTransport,
+  type MalformedEvent,
   type TurnEventSink,
   type UnsupportedEvent,
   type WireLines,
@@ -35,17 +40,13 @@ import { registerPlaygroundTools } from './tools.ts';
 import type { Equals } from '../src/kernel/util/exact-type.ts';
 import type { PlaygroundTraceLine } from './traces.ts';
 
-/** Client-side interface for the draft profile carried by a run payload. */
 export function playgroundInterface(payload: PlaygroundRunPayload): ProfileInterface {
   const tools = createToolRegistry();
   registerPlaygroundTools(tools, payload.customTools);
   return interfaceFromProfile(defineProfile(payload.profile), tools);
 }
 
-/**
- * The first line of a playground turn: the steer inbox the server opened for it.
- * The server picks the id, so a steer reaches only a run this browser started.
- */
+/** The server picks the id, so a steer reaches only a run this browser started. */
 export type PlaygroundSteerLine = { type: 'steer_inbox'; inbox: string };
 
 type PlaygroundLine = TurnEvent | PlaygroundTraceLine | PlaygroundSteerLine;
@@ -55,20 +56,18 @@ true satisfies Equals<z.infer<typeof playgroundTraceLine>, PlaygroundTraceLine>;
 const playgroundSteerLine = z.object({ type: z.literal('steer_inbox'), inbox: z.string().min(1) });
 true satisfies Equals<z.infer<typeof playgroundSteerLine>, PlaygroundSteerLine>;
 
-/** A run stream's lines: turn events, and the playground's trace and steer inbox lines beside them. */
 const playgroundLines: WireLines<PlaygroundLine> = {
   ...TURN_EVENT_SCHEMAS,
   trace: playgroundTraceLine,
   steer_inbox: playgroundSteerLine,
 };
 
-/** A run stream's lines: its steer inbox, turn events, and the trace records the run wrote. */
-function routeLines(
+export function routePlaygroundLines(
   onEvent: TurnEventSink,
   traces: TraceFeed,
   onSteerInbox: (inbox: string) => void,
 ) {
-  return (line: PlaygroundLine | UnsupportedEvent) => {
+  return (line: PlaygroundLine | UnsupportedEvent | MalformedEvent) => {
     if (line.type === 'trace') traces.push(line.record);
     else if (line.type === 'steer_inbox') onSteerInbox(line.inbox);
     else onEvent(line);
@@ -95,10 +94,9 @@ export function createPlaygroundTransport(
       try {
         await postNdjson(
           '/api/playground/turn',
-          // The body as `theoremTurnRequestSchema` reads it, beside the compiled draft.
           { ...compiled, ...request },
           playgroundLines,
-          routeLines(onEvent, traces, (inbox) => {
+          routePlaygroundLines(onEvent, traces, (inbox) => {
             if (request.turnId) inboxes.set(request.turnId, inbox);
           }),
           { ...options, signal },
@@ -110,10 +108,10 @@ export function createPlaygroundTransport(
     invoke: (request, onEvent, signal) =>
       postNdjson(
         '/api/playground/invoke',
-        // The answer as `theoremInvokeRequestSchema` reads it; `replay` carries the paused call.
+        // `replay` carries the paused call.
         { ...compiled, ...request },
         playgroundLines,
-        routeLines(onEvent, traces, ignoreSteerInbox),
+        routePlaygroundLines(onEvent, traces, ignoreSteerInbox),
         { ...options, signal },
       ),
     async steer({ turnId, id, inject }) {
@@ -126,6 +124,74 @@ export function createPlaygroundTransport(
       }
       // The server's inbox is the turn it steers, so the body is a `TheoremSteerRequest`.
       await postJson('/api/playground/turn/steer', { turnId: inbox, id, inject }, options);
+    },
+    traces,
+  };
+}
+
+/**
+ * A decision draft's transport: the page describes the profile itself, and every decision posts
+ * the draft's profile and questions beside the state, since the playground user authors both.
+ */
+export function createPlaygroundDecisionTransport(
+  payload: PlaygroundRunPayload,
+  options: HttpOptions = {},
+): DecisionTransport {
+  const questions = payload.questions ?? {};
+  const traces = createTraceFeed();
+  return {
+    describe: () =>
+      Promise.resolve(decisionInterface(defineProfile(payload.profile) as DecisionProfile, questions)),
+    decide: async (state, signal) =>
+      readDecisionReply(
+        await fetchJson(
+          '/api/playground/decide',
+          { body: { profile: payload.profile, questions, state }, signal },
+          options,
+        ),
+      ),
+    traces,
+  };
+}
+
+/**
+ * A host draft's transport: the page describes the tools from the draft's own schemas, and every
+ * call posts the draft's profile and tools beside it. The playground keeps no session, so the
+ * tools the user allowed for the page ride along with each call, as they do with each answer.
+ */
+export function createPlaygroundHostTransport(
+  payload: PlaygroundRunPayload,
+  options: HttpOptions = {},
+): HostTransport {
+  const compiled = { profile: payload.profile, customTools: payload.customTools };
+  const traces = createTraceFeed();
+  let sessionPermissions: string[] = [];
+  return {
+    describe: () =>
+      Promise.resolve(
+        hostInterface(
+          defineProfile(payload.profile) as Extract<Profile, { type: 'host' }>,
+          (name) => payload.customTools.find((tool) => tool.name === name),
+        ),
+      ),
+    call: (request, onEvent, signal) =>
+      postNdjson(
+        '/api/playground/call',
+        { ...compiled, ...request, sessionPermissions },
+        playgroundLines,
+        routePlaygroundLines(onEvent, traces, ignoreSteerInbox),
+        { ...options, signal },
+      ),
+    invoke: (request, onEvent, signal) => {
+      sessionPermissions = request.replay?.sessionPermissions ?? sessionPermissions;
+      return postNdjson(
+        '/api/playground/invoke',
+        // `replay` carries the paused call.
+        { ...compiled, ...request },
+        playgroundLines,
+        routePlaygroundLines(onEvent, traces, ignoreSteerInbox),
+        { ...options, signal },
+      );
     },
     traces,
   };

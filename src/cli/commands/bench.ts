@@ -1,17 +1,5 @@
-/**
- * Synthetic performance benchmark for the THEOREM kernel pipeline.
- *
- * Measures overhead added by profile resolution, sanitization, canary
- * binding, stream processing, and event dispatch vs. a bare provider call.
- *
- * Metrics:
- *   TTFE  — time to first event (profile resolve + provider setup)
- *   TTFT  — time to first text delta
- *   T/s   — text tokens per second throughput
- *   Overhead — total wall-clock delta vs. raw provider consumption
- *
- * @module
- */
+// TTFE: time to first event (profile resolve + provider setup). TTFT: time to first text delta.
+// Overhead: total wall-clock delta vs. raw provider consumption.
 
 import { bindCanary, eventHasCanary, mintCanary } from '../../guardrails/canary.ts';
 import { sanitizeTurnRequest } from '../../guardrails/sanitize.ts';
@@ -142,7 +130,6 @@ async function measureRawProvider(provider: ModelProvider): Promise<TimingResult
   let gotFirst = false;
   let gotFirstText = false;
 
-  // Simulate what a bare consumer does — no kernel overhead
   const fakeReq = benchProviderRequest(req.input?.text ?? '');
 
   for await (const event of provider.complete(fakeReq)) {
@@ -554,19 +541,16 @@ export async function benchCommand(options: BenchOptions = {}): Promise<void> {
 
   registerBenchProfile();
 
-  // Warmup
   for (let i = 0; i < warmup; i++) {
     await measureRawProvider(provider);
     await measureKernelPipeline(provider);
   }
 
-  // Collect raw baseline
   const rawResults: TimingResult[] = [];
   for (let i = 0; i < iterations; i++) {
     rawResults.push(await measureRawProvider(provider));
   }
 
-  // Collect kernel pipeline
   const kernelResults: TimingResult[] = [];
   for (let i = 0; i < iterations; i++) {
     kernelResults.push(await measureKernelPipeline(provider));
@@ -581,7 +565,6 @@ export async function benchCommand(options: BenchOptions = {}): Promise<void> {
   printPhaseBreakdown(iterations);
   await printMicroBenchmarks(chunks, iterations);
 
-  // Cleanup
   clearProfiles();
 
   console.log('\n');

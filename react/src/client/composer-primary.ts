@@ -6,7 +6,7 @@ import {
 	resolveComposerMenuActions,
 	resolveComposerPrimary,
 	userDraftHasPayload,
-} from '../../../src/interface/mod.ts';
+} from '@theoremjs/agents/interface';
 
 function fileSpecs(files: readonly File[]) {
 	return files.map((file) => ({

@@ -1,4 +1,4 @@
-import type { ComposerPendingMessage } from '../../../src/interface/mod.ts';
+import type { ComposerPendingMessage } from '@theoremjs/agents/interface';
 
 /** What waits in the composer, by kind; the UI words each kind. */
 export type ComposerDrawerKind = 'steer' | 'queue' | 'stash' | 'attached';

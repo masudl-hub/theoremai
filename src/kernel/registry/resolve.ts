@@ -1,9 +1,3 @@
-/**
- * Profile resolution for THEOREM turns.
- *
- * @module
- */
-
 import { mintCanary } from '../../guardrails/canary.ts';
 import { TheoremError } from '../../guardrails/error.ts';
 import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
@@ -30,19 +24,18 @@ import { profileInputs, requireModelBinding } from './catalog.ts';
 import {
   assertOutputMode,
   assertSpeechRole,
+  assertTurnSlots,
   resolveImageFormat,
   resolveInputParts,
 } from './ingress.ts';
 import type { KernelRegistry } from './kernel-registry.ts';
 import { resolveTurnSystemPrompt } from './system-prompt.ts';
-import { providerUsesKeySlots, resolveKeySlot } from './vault.ts';
+import { resolveKeySlot } from './vault.ts';
 
-/** True for a profile that runs a model turn; `host` and `decision` never do. */
 function isModelProfile(profile: Profile): profile is ModelProfile {
   return profile.type !== 'host' && profile.type !== 'decision';
 }
 
-/** Narrow to a profile that runs a model turn, or throw naming the door it cannot use. */
 function requireModelProfile(profile: Profile, door: string): ModelProfile {
   if (isModelProfile(profile)) return profile;
   if (profile.type === 'host') {
@@ -57,10 +50,7 @@ function requireModelProfile(profile: Profile, door: string): ModelProfile {
   );
 }
 
-/**
- * Chooses a profile model, honoring an explicit request only when selection is
- * allowed; otherwise the profile's default, which registration guarantees.
- */
+/** A request is honored only when selection is allowed; registration guarantees the default. */
 function pickModel(profile: ModelProfile, requested?: string): ModelId {
   if (requested) {
     if (!profile.allowModelSelect) {
@@ -151,10 +141,6 @@ function resolveStructured(
   return structured.fallback;
 }
 
-/**
- * THEOREM prefers SSE when the host omits `outputs.streaming.mode`.
- * Explicit `'buffered'` opts out; `'sse'` (or omit) yields `stream: true`.
- */
 function resolveStreamFlag(profile: ModelProfile): boolean {
   if (profile.type === 'live') {
     return true;
@@ -227,7 +213,6 @@ function resolveLiveSpec(
   return { ...live, transcription: { ...live?.transcription, output: true } };
 }
 
-/** Resolve a host `TurnRequest` into provider-ready generation state from `registry`. */
 function resolveTurnInRegistry(
   registry: KernelRegistry,
   req: TurnRequest,
@@ -236,6 +221,7 @@ function resolveTurnInRegistry(
   generation: ResolvedGeneration;
 } {
   const profile = requireModelProfile(registry.profiles.get(req.profile), 'resolveTurn');
+  assertTurnSlots(profile, req);
   const safe = sanitizeTurnRequest(req, profile);
   const input = safe.input ?? {};
   assertTurnResumption(profile, safe);
@@ -246,9 +232,7 @@ function resolveTurnInRegistry(
   const structuredId = resolveStructured(profile, input.slots);
   assertOutputMode(profile, structuredId);
   assertSpeechRole(profile, binding, safe);
-  const keySlot = providerUsesKeySlots(binding.provider)
-    ? resolveKeySlot(registry.tools, profile.key, binding, builtins, binding.provider === 'google')
-    : undefined;
+  const keys = resolveKeySlot(profile, binding);
   const transport = resolveTransport(profile, binding);
   const chains = transport === 'interactions' && binding.persistViaInteractionId !== false;
   const previousInteractionId = chains ? safe.previousInteractionId : undefined;
@@ -281,7 +265,7 @@ function resolveTurnInRegistry(
       speech: profile.type === 'speech' ? profile.speech : undefined,
       live: profile.type === 'live' ? resolveLiveSpec(profile.live, profile.guardrails) : undefined,
       input: resolveInputParts(profile, safe),
-      keySlot,
+      ...keys,
       canary: resolveGuardrailPolicy(profile.guardrails).canary ? mintCanary() : '',
       sessionResumptionHandle: safe.sessionResumptionHandle ?? input.sessionResumptionHandle,
       resolvedSystem: resolveTurnSystemPrompt(profile, safe),
@@ -294,7 +278,6 @@ function primaryImageSpec(profile: ModelProfile) {
   return profile.type === 'image' ? profile.image : null;
 }
 
-/** Project a profile object into a safe host/UI inspection object; its tools come from `tools`. */
 function projectProfileObject(tools: ToolRegistry, input: Profile): ProjectedProfile {
   const profile = requireModelProfile(input, 'projectProfile');
   const { identity } = profile;
@@ -318,7 +301,6 @@ function projectProfileObject(tools: ToolRegistry, input: Profile): ProjectedPro
   };
 }
 
-/** Project a profile registered in `registry` into a safe host/UI inspection object. */
 function projectProfileInRegistry(registry: KernelRegistry, id: Profile['id']): ProjectedProfile {
   return projectProfileObject(registry.tools, registry.profiles.get(id));
 }

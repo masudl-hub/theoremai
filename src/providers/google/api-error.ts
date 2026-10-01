@@ -1,11 +1,3 @@
-/**
- * A Gemini API error as a `TheoremError`: the `error` object Interactions
- * (SSE `error` events, non-OK bodies) and Live (error frames) both send,
- * `{ error: { code, message, status } }`.
- *
- * @module
- */
-
 import { type ErrorKind, kindOfHttpStatus, TheoremError } from '../../guardrails/error.ts';
 import { asRecord } from '../../kernel/engine/record.ts';
 
@@ -31,22 +23,73 @@ function refusesKey(details: unknown): boolean {
 }
 
 /**
- * Kinds for the named codes Google puts on errors inside an Interactions
- * stream (the HTTP status is 200 by then). `service_unavailable` is the
- * "experiencing high demand" overload and `api_error` the "Internal error
- * encountered" failure: the kinds a 503 and a 500 would carry.
+ * The HTTP status behind each named code Google puts on an Interactions error
+ * (https://ai.google.dev/gemini-api/docs/api-errors). A code it does not list
+ * is the snake_case name of the HTTP status, so those names are here too.
  */
-const STREAM_ERROR_KINDS: Readonly<Record<string, ErrorKind>> = {
-  rate_limit_exceeded: 'rate_limit',
-  service_unavailable: 'unavailable',
-  api_error: 'unavailable',
+const NAMED_CODE_STATUS: Readonly<Record<string, number>> = {
+  invalid_request: 400,
+  failed_precondition: 400,
+  parameter_unknown: 400,
+  authentication: 401,
+  payment_required: 402,
+  permission_denied: 403,
+  not_found: 404,
+  model_not_found: 404,
+  already_exists: 409,
+  aborted: 409,
+  out_of_range: 416,
+  rate_limit_exceeded: 429,
+  quota_exceeded: 429,
+  too_many_requests: 429,
+  api_error: 500,
+  unimplemented: 501,
+  service_unavailable: 503,
+  deadline_exceeded: 504,
+  bad_request: 400,
+  unauthorized: 401,
+  forbidden: 403,
+  method_not_allowed: 405,
+  request_timeout: 408,
+  conflict: 409,
+  payload_too_large: 413,
+  unprocessable_entity: 422,
+  internal_server_error: 500,
+  not_implemented: 501,
+  bad_gateway: 502,
+  gateway_timeout: 504,
 };
 
+/** Codes for a generation Google's safety filters held back. */
+const BLOCKED_CODES: ReadonlySet<string> = new Set([
+  'safety',
+  'recitation',
+  'language',
+  'prohibited_content',
+  'spii',
+  'blocklist',
+  'image_safety',
+  'image_prohibited_content',
+  'image_recitation',
+  'image_other',
+  'content_blocked',
+]);
+
 /**
- * The error a record's `error` object states, or null when it has none. The
- * kind comes from `code`: an HTTP status, or a stream error's named code. An
- * error with neither names no kind of its own, so it is a response THEOREM
- * cannot use (`bad_response`).
+ * `cancelled` (499) is the request stopped on THEOREM's side. Generation error
+ * codes (`malformed_function_call`, `no_image`, …) and any code Google adds later
+ * are `bad_response`.
+ */
+function kindOfNamedCode(code: string): ErrorKind {
+  if (code === 'cancelled') return 'cancelled';
+  if (BLOCKED_CODES.has(code)) return 'safety';
+  const status = NAMED_CODE_STATUS[code];
+  return status === undefined ? 'bad_response' : kindOfHttpStatus(status);
+}
+
+/**
+ * Interactions (SSE `error` rows, non-OK bodies) and Live (error frames) both send
+ * `{ error: { code, message, status } }`; `code` is an HTTP status or a named code.
  */
 export function readGeminiApiError(record: Record<string, unknown>): TheoremError | null {
   const error = asRecord(record.error);
@@ -58,17 +101,16 @@ export function readGeminiApiError(record: Record<string, unknown>): TheoremErro
     ? 'auth'
     : typeof code === 'number' && code >= HTTP_STATUS_MIN && code <= HTTP_STATUS_MAX
       ? kindOfHttpStatus(code)
-      : ((typeof code === 'string' ? STREAM_ERROR_KINDS[code] : undefined) ?? 'bad_response');
+      : typeof code === 'string'
+        ? kindOfNamedCode(code)
+        : 'bad_response';
   if (typeof message !== 'string' || message.length === 0) {
     return new TheoremError(kind, 'Gemini returned an error.');
   }
   return new TheoremError(kind, typeof status === 'string' ? `${status}: ${message}` : message);
 }
 
-/**
- * A non-OK response as an error: its body's error, else the raw body, else the
- * status. The kind is the status's, unless the body names a refused key.
- */
+/** The kind is the HTTP status's, unless the body names a refused key. */
 export async function readNonOkError(response: Response): Promise<TheoremError> {
   const kind = kindOfHttpStatus(response.status);
   const text = await response.text().catch(() => '');

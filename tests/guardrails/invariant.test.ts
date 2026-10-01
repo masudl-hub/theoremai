@@ -8,12 +8,12 @@ import {
   createCanaryGateSession,
   filterCanaryGatedEvents,
 } from '../../src/guardrails/canary-gate.ts';
-import { EGRESS_RULES } from '../../src/guardrails/egress.ts';
 import {
   createLiveOutboundGateSession,
   finalizeLiveOutboundTurn,
   processLiveOutboundBatch,
 } from '../../src/guardrails/live-outbound-gate.ts';
+import { EGRESS_RULES } from '../../src/guardrails/rules.ts';
 import type { EgressEnforcer } from '../../src/guardrails/types.ts';
 import { getProfile, registerProfile, runTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';

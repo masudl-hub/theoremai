@@ -1,12 +1,3 @@
-/**
- * OpenAI-compatible `/audio/speech` transport (internal).
- *
- * Hosts use `createProvider(profile, { openAiGateway })` — this module is selected
- * when the profile is an openAi speech role. Not a separate public door.
- *
- * @module
- */
-
 import { TheoremError, toErrorEvent } from '../../guardrails/error.ts';
 import type {
   InteractionPart,
@@ -18,16 +9,16 @@ import type {
 import { bytesToBase64 } from '../../kernel/util/base64.ts';
 import { mimeEssence } from '../../kernel/util/mime.ts';
 import { pcmFormatFromMime, wrapPcmAsWav } from '../shared/pcm.ts';
-import { networkFetch, tapFetch } from '../shared/upstream-tap.ts';
-import type { OpenAiGatewayConfig } from '../types.ts';
+import { networkFetch } from '../shared/upstream-tap.ts';
+import { bearerFetch } from '../shared/vault.ts';
+import type { OpenAiGatewayTransport } from '../types.ts';
 import { httpErrorEvent, openAiGatewayHeaders } from './openai/compat.ts';
 import { resolveOpenAiGatewayApiKey } from './resolve-api-key.ts';
 
 const HTTP_OK = 200;
 
-/** Credentials for the openAi speech path — gateway config + optional voice. */
-export type SpeechProviderConfig = OpenAiGatewayConfig & {
-  /** Fallback TTS voice when the profile does not pin `speech.voice`. */
+export type SpeechProviderConfig = OpenAiGatewayTransport & {
+  /** Fallback when the profile does not pin `speech.voice`. */
   voice?: string;
 };
 
@@ -78,7 +69,7 @@ export async function requestSpeech(
   req: ProviderCompleteRequest,
   config: SpeechProviderConfig,
 ): Promise<Response> {
-  const fetchFn = tapFetch(req.tapUpstream, networkFetch(config.fetch ?? fetch), req.keySlot);
+  const fetchFn = bearerFetch(req, networkFetch(config.fetch ?? fetch), config.vault, apiKey);
   const baseUrl = config.baseUrl?.replace(/\/+$/, '') ?? 'https://openrouter.ai/api/v1';
   const url = `${baseUrl}/audio/speech`;
   return await fetchFn(url, {
@@ -154,7 +145,6 @@ export async function* streamSpeech(
   }
 }
 
-/** Internal ModelProvider for openAi speech roles. */
 export function createSpeechProvider(config: SpeechProviderConfig = {}): ModelProvider {
   return {
     complete: (req: ProviderCompleteRequest) => streamSpeech(req, config),

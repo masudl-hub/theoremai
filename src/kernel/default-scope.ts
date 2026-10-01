@@ -1,11 +1,3 @@
-/**
- * The package's global API: each function acts on `defaultKernelScope`. Hosts
- * that register per request create their own scope with `createKernelScope`
- * and call its methods instead.
- *
- * @module
- */
-
 import type { TraceSink } from '../observability/trace-sink.ts';
 import type { RunDecisionOptions } from './engine/decision.ts';
 import type { RunSessionOptions } from './engine/session/mod.ts';
@@ -13,6 +5,8 @@ import type { ProfileDefinition } from './registry/profiles.ts';
 import { defaultKernelScope as scope } from './scope.ts';
 import type { InvokeToolRequest, RegisteredTool, ToolDefinitionInput } from './tools/types.ts';
 import type {
+  CompactHistoryRequest,
+  CompactionResult,
   DecisionRequest,
   DecisionResult,
   LiveSession,
@@ -30,7 +24,6 @@ function registerTool<TIn, TOut>(def: ToolDefinitionInput<TIn, TOut>): Registere
   return scope.tools.register(def);
 }
 
-/** Register several tools in the default scope, in order. */
 function registerTools(defs: ToolDefinitionInput[]): RegisteredTool[] {
   return scope.tools.registerMany(defs);
 }
@@ -81,7 +74,6 @@ function clearProfiles(): void {
   scope.profiles.clear();
 }
 
-/** Register a structured output schema in the default scope. */
 function registerStructured(id: string, spec: StructuredSpec): void {
   scope.schemas.register(id, spec);
 }
@@ -105,6 +97,14 @@ function runSession(
   sinkOverride?: TraceSink,
 ): Promise<LiveSession> {
   return scope.runSession(req, options, sinkOverride);
+}
+
+function compactHistory(
+  req: CompactHistoryRequest,
+  provider: ModelProvider,
+  sinkOverride?: TraceSink,
+): Promise<CompactionResult | undefined> {
+  return scope.compactHistory(req, provider, sinkOverride);
 }
 
 function invokeTool(
@@ -131,6 +131,7 @@ function runDecision(
 
 export {
   clearProfiles,
+  compactHistory,
   getProfile,
   getStructured,
   getTool,

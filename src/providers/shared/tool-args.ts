@@ -1,11 +1,3 @@
-/**
- * Shared tool-argument JSON parsing for all provider adapters.
- *
- * Malformed or non-object JSON is a hard failure — never invent `{}` or `{ _raw }`.
- *
- * @module
- */
-
 import { TheoremError } from '../../guardrails/error.ts';
 import {
   failureEvent,
@@ -17,9 +9,8 @@ import type { ProviderEvent } from '../../kernel/types.ts';
 import { isRecord } from '../../kernel/util/record.ts';
 
 /**
- * Tool identity fields (call id, tool name) from host history, kept only where
- * the message carries them. Adapters never invent an id or name: a provider
- * that needs a missing one rejects the request, and that error is the answer.
+ * Adapters never invent a history call id or name: a provider that needs a
+ * missing one rejects the request, and that error is the answer.
  */
 export function historyToolIdentity(
   fields: Record<string, string | undefined>,
@@ -35,7 +26,6 @@ export type ParsedToolArguments =
   | { ok: true; value: Record<string, unknown> }
   | { ok: false; error: string; raw: string };
 
-/** Parse provider / history tool-call arguments. */
 export function parseToolArgumentsObject(raw: unknown): ParsedToolArguments {
   if (typeof raw === 'string') {
     const trimmed = raw.trim();
@@ -73,10 +63,6 @@ export function parseToolArgumentsObject(raw: unknown): ParsedToolArguments {
   };
 }
 
-/**
- * Tool-call arguments from host history, rebuilt for a provider request.
- * Malformed or non-object JSON throws `TheoremError`.
- */
 export function historyToolArguments(raw: unknown): Record<string, unknown> {
   const parsed = parseToolArgumentsObject(raw);
   if (!parsed.ok) {
@@ -85,11 +71,7 @@ export function historyToolArguments(raw: unknown): Record<string, unknown> {
   return parsed.value;
 }
 
-/**
- * A model's tool call as a provider sent it: the call, then — when the name
- * or arguments are unusable — its failure carrying what arrived. A call sent
- * without an id gets one, so its events join.
- */
+/** A call sent without an id gets one, so its request and failure events join. */
 export function toolCallEvents(
   call: { id?: string; name: string; thoughtSignature?: string },
   rawArguments: unknown,
@@ -111,10 +93,7 @@ export function toolCallEvents(
   return [toolCallRequestEvent(base, parsed.value, { thoughtSignature: call.thoughtSignature })];
 }
 
-/**
- * A call whose name or arguments are unusable: the call with none, then its
- * failure. It keeps its thought signature: the model still reads its result back.
- */
+/** Keeps the thought signature: the model still reads the failed call's result back. */
 export function malformedToolCall(
   base: ToolCallBase,
   message: string,

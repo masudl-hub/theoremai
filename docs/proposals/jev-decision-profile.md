@@ -1,15 +1,16 @@
 # Jev decision profile — specification
 
-**Status:** native kernel core implemented on `codex/jev-decision-profile`;
-trace, state-detection, and frontend integration intentionally deferred.
+**Status:** historical Jev-first proposal. The current decision binding follows
+the same `protocol` / `provider` / `apiId` pattern as other model bindings;
+see `docs/contracts/kernel.md` for the implemented contract.
 
 ## Goal
 
-Add native support for TypeSafe Jev as a first-class Theoremai decision
+Add native support for TypeSafe Jev as a first-class Theorem decision
 capability. A Jev call resolves structured questions over host-supplied JSON
 state; it is not a conversational turn, a tool loop, or a streaming provider.
 
-The design must preserve Theoremai's existing profile, key-vault, guardrail,
+The design must preserve Theorem's existing profile, key-vault, guardrail,
 observability, and interface conventions without representing Jev as an
 OpenAI-compatible chat provider.
 
@@ -46,10 +47,13 @@ fixture tests and a live smoke test of the runner against Jev `1.13.0`.
 The following work is deliberately **not** included while the surrounding
 trace, state, and frontend systems are actively changing:
 
-- `DecisionTraceRecord` and integration with profile trace destinations,
-  sampling, and scrub policy;
+- ~~`DecisionTraceRecord` and integration with profile trace destinations,
+  sampling, and scrub policy~~ (built 26/09 as a standard trace record; see
+  "Observability — as built");
 - recursive state detection/reporting and decision-specific guardrail events;
-- the headless `DecisionProfileInterface` and any frontend decision surface;
+- ~~any frontend decision surface~~ (built as `DecisionTransport`,
+  `useTheoremDecision`, `TheoremDecision`, and `createTheoremDecisionHandler`;
+  the agents headless projection remains separate);
 - registered decision-contract storage and richer contract versioning.
 
 `sanitizeInput` and `redactSensitive` are therefore not accepted as active
@@ -93,14 +97,15 @@ type DecisionJson =
   | { [key: string]: DecisionJson };
 
 interface DecisionModelBinding {
-  /** TypeSafe API model id, e.g. `jev-latest` or a pinned release. */
+  protocol: 'decision';
+  provider: 'typesafe' | 'openrouter';
+  /** Model id at the serving provider. */
   apiId: string;
   /** Optional named vault credential; falls back to the profile key. */
   key?: KeySlot;
   /** Per-attempt network deadline. */
   timeoutMs?: number;
-  /** Defaults to zero: POST timeout outcomes may have reached the service. */
-  retry?: { maxRetries?: number };
+  // Retry configuration is rejected; decision POSTs are never retried.
 }
 
 interface DecisionInputsSpec {
@@ -125,17 +130,14 @@ interface DecisionProfile {
 }
 ```
 
-`protocol` and `provider` are intentionally absent. In current Theoremai they
-mean a selection for `createProvider` and a chat/live wire transport. Jev has a
-native execution path. If a second decision engine is added later, adapters
-belong behind `runDecision`; adding a transport-shaped field now would make the
-profile claim behavior it does not have.
+`protocol` and `provider` follow the existing model-binding pattern. The
+`decision` protocol dispatches through `runDecision`, with TypeSafe and
+OpenRouter as providers; it never enters the chat or live provider path.
 
 The registry retains the familiar `models` map and vault-key ergonomics, but
 the map holds exactly one model. `defaultModel` and `allowModelSelect` are
-rejected, and a request cannot name a model. `DecisionModelBinding` is its own
-type rather than a widened chat `ModelBinding`, so `protocol` and `provider`
-stay required there.
+rejected, and a request cannot name a model. `DecisionModelBinding` has the
+same required routing fields as a chat `ModelBinding`, but only decision settings.
 
 ## Decision contracts and requests
 
@@ -179,7 +181,7 @@ native adapter even though it is valid JSON, because the tested Jev endpoint
 rejects it.
 
 The contract owns application semantics such as whether a decision is merely
-advisory or authorizes an action. Theoremai must not promote a Jev answer into
+advisory or authorizes an action. Theorem must not promote a Jev answer into
 authority automatically.
 
 ## Results and errors
@@ -279,6 +281,24 @@ A record includes:
 
 Raw API keys, complete raw state, and raw provider payloads are excluded by
 default. A trace write failure never changes the decision outcome.
+
+### Observability — as built (26/09/2026)
+
+The eval work needed a Jev judge's call in the trace, so decisions now trace.
+Two things differ from the plan above:
+
+- No separate `DecisionTraceRecord`: a decision is a standard v3 `TraceRecord`
+  with one `decide <apiId>` CLIENT root span (`gen_ai.operation.name:
+  decide`, `gen_ai.provider.name: typesafe`), so every sink, viewer and the
+  OTLP export read it without a second schema. It is not a turn: no
+  `invoke_agent`, no messages.
+- State, questions and answers are stored as trace content under the
+  profile's scrub policy, the way a turn stores its messages, not as hashes.
+  Keys and raw provider payloads are still never recorded. The alternative,
+  hashes only, leaves a viewer unable to show what the decision read.
+
+Details: `docs/contracts/kernel.md` (Decision profile) and
+`docs/contracts/observability.md` (OpenInference attributes).
 
 ## Interface and wrong-door behavior
 

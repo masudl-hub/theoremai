@@ -1,7 +1,12 @@
 import { assertEquals, assertRejects, assertStringIncludes, assertThrows } from '@std/assert';
 import { z } from 'zod';
 import { TheoremError } from '../../src/guardrails/error.ts';
+import { lexiconText } from '../../src/guardrails/lexicon.ts';
 import type { ResolveHost } from '../../src/guardrails/network.ts';
+import {
+  memoryCredentialSource,
+  type ToolCredentialSource,
+} from '../../src/kernel/auth/credential-source.ts';
 import {
   clearProfiles,
   invokeTool,
@@ -10,6 +15,7 @@ import {
   resetTools,
   runSession,
 } from '../../src/kernel/default-scope.ts';
+import type { SignInGatePolicy } from '../../src/kernel/engine/session/mod.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import type { StageHandler } from '../../src/kernel/stages.ts';
@@ -28,7 +34,7 @@ function registerLiveProfile(id: string) {
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'slotA',
+        key: 'main',
       },
     },
     live: { voice: 'Aoede' },
@@ -50,10 +56,9 @@ Deno.test('runSession rejects non-live profiles', async () => {
         protocol: 'geminiInteractions',
         provider: 'google',
         apiId: 'gemini-test',
-        efforts: { normal: 'none' },
         summaries: false,
         builtInTools: [],
-        key: 'slotA',
+        key: 'main',
       },
     },
     tools: { allow: [] },
@@ -63,11 +68,7 @@ Deno.test('runSession rejects non-live profiles', async () => {
   registerProfile(profile);
 
   await assertRejects(
-    () =>
-      runSession(
-        { profile: profile.id },
-        { gemini: { vault: { slotA: 'k', slotB: undefined, slotC: undefined, paid: undefined } } },
-      ),
+    () => runSession({ profile: profile.id }, { vault: { main: 'k' } }),
     TheoremError,
     "runSession requires profile.type 'live'",
   );
@@ -83,9 +84,7 @@ Deno.test('runSession requires registered live profile with gemini vault', async
       runSession(
         { profile: profile.id },
         {
-          gemini: {
-            vault: { slotA: undefined, slotB: undefined, slotC: undefined, paid: undefined },
-          },
+          vault: { main: undefined },
         },
       ),
     TheoremError,
@@ -103,7 +102,7 @@ Deno.test('runSession sendVideo rejects when live.ingress.video is disabled', as
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'slotA',
+        key: 'main',
       },
     },
     live: { voice: 'Aoede', ingress: { video: false } },
@@ -115,9 +114,7 @@ Deno.test('runSession sendVideo rejects when live.ingress.video is disabled', as
   const session = await runSession(
     { profile: profile.id },
     {
-      gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
-      },
+      vault: { main: 'test-key' },
       openWebSocket: () => {
         mock = new MockLiveWebSocket();
         setTimeout(() => mock?.open(), 0);
@@ -147,9 +144,7 @@ Deno.test('runSession sends setup on an already-open socket (fetch upgrade)', as
   const session = await runSession(
     { profile: profile.id },
     {
-      gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
-      },
+      vault: { main: 'test-key' },
       openWebSocket: () => Promise.resolve(mock as unknown as WebSocket),
     },
   );
@@ -169,7 +164,7 @@ Deno.test('runSession sendText rejects when live.ingress.text is disabled', asyn
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'slotA',
+        key: 'main',
       },
     },
     live: { voice: 'Aoede', ingress: { text: false } },
@@ -181,9 +176,7 @@ Deno.test('runSession sendText rejects when live.ingress.text is disabled', asyn
   const session = await runSession(
     { profile: profile.id },
     {
-      gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
-      },
+      vault: { main: 'test-key' },
       openWebSocket: () => {
         mock = new MockLiveWebSocket();
         setTimeout(() => mock?.open(), 0);
@@ -213,7 +206,7 @@ Deno.test('runSession sendText frames sanitized realtime input when text ingress
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'slotA',
+        key: 'main',
       },
     },
     live: { voice: 'Aoede', ingress: { text: true } },
@@ -226,9 +219,7 @@ Deno.test('runSession sendText frames sanitized realtime input when text ingress
   const session = await runSession(
     { profile: profile.id },
     {
-      gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
-      },
+      vault: { main: 'test-key' },
       openWebSocket: () => {
         mock = new MockLiveWebSocket();
         setTimeout(() => mock?.open(), 0);
@@ -262,9 +253,7 @@ Deno.test('runSession abort phase still forwards tool events', async () => {
   const session = await runSession(
     { profile: profile.id },
     {
-      gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
-      },
+      vault: { main: 'test-key' },
       openWebSocket: () => {
         mock = new MockLiveWebSocket();
         // Macrotask so performLiveSetup can attach onopen/message before open fires.
@@ -343,7 +332,7 @@ Deno.test('runSession setup declarations equal the full allow list regardless of
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'slotA',
+        key: 'main',
       },
     },
     live: { voice: 'Aoede' },
@@ -355,9 +344,7 @@ Deno.test('runSession setup declarations equal the full allow list regardless of
   const session = await runSession(
     { profile: profile.id },
     {
-      gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
-      },
+      vault: { main: 'test-key' },
       openWebSocket: () => {
         mock = new MockLiveWebSocket();
         setTimeout(() => mock?.open(), 0);
@@ -410,7 +397,7 @@ function defineSnapshotLiveProfile(id: string, allow: string[]) {
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'slotA',
+        key: 'main',
       },
     },
     live: { voice: 'Aoede' },
@@ -421,9 +408,7 @@ function defineSnapshotLiveProfile(id: string, allow: string[]) {
 async function openWithMock(req: Parameters<typeof runSession>[0]) {
   let mock: MockLiveWebSocket | null = null;
   const session = await runSession(req, {
-    gemini: {
-      vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
-    },
+    vault: { main: 'test-key' },
     openWebSocket: () => {
       mock = new MockLiveWebSocket();
       setTimeout(() => mock?.open(), 0);
@@ -528,7 +513,7 @@ Deno.test('runSession emits pre_turn before first sendText and post_turn after c
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'slotA',
+        key: 'main',
       },
     },
     live: { voice: 'Aoede', ingress: { text: true } },
@@ -546,9 +531,7 @@ Deno.test('runSession emits pre_turn before first sendText and post_turn after c
       },
     },
     {
-      gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
-      },
+      vault: { main: 'test-key' },
       openWebSocket: () => {
         mock = new MockLiveWebSocket();
         setTimeout(() => mock?.open(), 0);
@@ -601,7 +584,7 @@ Deno.test('runSession StageContext.history seeds from SessionRequest.history', a
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'slotA',
+        key: 'main',
       },
     },
     live: { voice: 'Aoede', ingress: { text: true } },
@@ -622,9 +605,7 @@ Deno.test('runSession StageContext.history seeds from SessionRequest.history', a
       },
     },
     {
-      gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
-      },
+      vault: { main: 'test-key' },
       openWebSocket: () => {
         mock = new MockLiveWebSocket();
         setTimeout(() => mock?.open(), 0);
@@ -649,13 +630,18 @@ Deno.test('runSession StageContext.history seeds from SessionRequest.history', a
 /** A live session over a mock socket whose events are collected as they arrive. */
 async function openToolSession(
   allow: string[],
-  extra: { onStage?: StageHandler; gateTtlMs?: number; resolveHost?: ResolveHost } = {},
+  extra: {
+    onStage?: StageHandler;
+    gateTtlMs?: number;
+    signInGate?: SignInGatePolicy;
+    resolveHost?: ResolveHost;
+  } = {},
 ) {
   const profile = defineProfile({
     type: 'live',
     id: `session_live_tools_${allow.join('_')}`,
     identity: { handle: 'live', system: 'hi' },
-    models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, key: 'slotA' } },
+    models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, key: 'main' } },
     live: { voice: 'Aoede', ingress: { text: true } },
     tools: { allow },
   });
@@ -668,7 +654,7 @@ async function openToolSession(
       ...(extra.resolveHost ? { resolveHost: extra.resolveHost } : {}),
     },
     {
-      gemini: { vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined } },
+      vault: { main: 'test-key' },
       openWebSocket: () => {
         const socket = new MockLiveWebSocket();
         sockets.push(socket);
@@ -676,6 +662,7 @@ async function openToolSession(
         return Promise.resolve(socket as unknown as WebSocket);
       },
       ...(extra.gateTtlMs !== undefined ? { gateTtlMs: extra.gateTtlMs } : {}),
+      ...(extra.signInGate ? { signInGate: extra.signInGate } : {}),
     },
   );
   const [mock] = sockets;
@@ -723,6 +710,25 @@ async function openToolSession(
     return ran;
   };
   return { session, mock, events, toolResponses, modelCalls, invokeFor, close };
+}
+
+/** An HTTP tool that signs in to Tracker with a bearer token, gating when it has none. */
+function registerTrackerTool(): void {
+  registerTool({
+    type: 'http',
+    name: 'live_tracker',
+    description: 'Read tracker items',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    endpoint: 'https://api.tracker.example/items',
+    method: 'GET',
+    auth: { slot: 'tracker', type: 'bearer', service: 'Tracker', onUnauthenticated: 'gate' },
+    input: z.object({}),
+    output: z.object({ ok: z.boolean() }),
+  });
 }
 
 function registerConfirmTool(): void {
@@ -1007,21 +1013,7 @@ Deno.test('runSession keeps a session_consent approval for the rest of the sessi
 Deno.test('runSession makes a key typed at a sign-in gate the slot credential, for the rest of the session', async () => {
   clearProfiles();
   resetTools();
-  registerTool({
-    type: 'http',
-    name: 'live_tracker',
-    description: 'Read tracker items',
-    category: 'test',
-    access: 'read-only',
-    paths: ['*'],
-    loadTier: 'T0',
-    permission: 'auto',
-    endpoint: 'https://api.tracker.example/items',
-    method: 'GET',
-    auth: { slot: 'tracker', type: 'bearer', onUnauthenticated: 'gate' },
-    input: z.object({}),
-    output: z.object({ ok: z.boolean() }),
-  });
+  registerTrackerTool();
   const original = globalThis.fetch;
   const sent: (string | null)[] = [];
   globalThis.fetch = (_input: Request | URL | string, init?: RequestInit) => {
@@ -1058,6 +1050,160 @@ Deno.test('runSession makes a key typed at a sign-in gate the slot credential, f
   } finally {
     globalThis.fetch = original;
   }
+});
+
+/** A source that records every slot read and write. */
+function watchedSource(): { source: ToolCredentialSource; reads: string[]; writes: string[] } {
+  const inner = memoryCredentialSource();
+  const reads: string[] = [];
+  const writes: string[] = [];
+  return {
+    reads,
+    writes,
+    source: {
+      get: (slot) => {
+        reads.push(slot);
+        return inner.get(slot);
+      },
+      set: (slot, credential) => {
+        writes.push(slot);
+        return inner.set(slot, credential);
+      },
+    },
+  };
+}
+
+Deno.test('runSession puts a key typed at a sign-in gate in the source the call runs with', async () => {
+  clearProfiles();
+  resetTools();
+  registerTrackerTool();
+  const original = globalThis.fetch;
+  const sent: (string | null)[] = [];
+  globalThis.fetch = (_input: Request | URL | string, init?: RequestInit) => {
+    sent.push(new Headers(init?.headers).get('authorization'));
+    return Promise.resolve(Response.json({ ok: true }));
+  };
+  try {
+    const h = await openToolSession(['live_tracker'], {
+      resolveHost: () => Promise.resolve(['93.184.216.34']),
+    });
+    const perCall = watchedSource();
+    await h.modelCalls({ id: 'c-own', name: 'live_tracker' });
+    const gated = await h.session.executeTool({ callId: 'c-own', credentials: perCall.source });
+    assertEquals(gated.gated?.kind, 'auth');
+    const signed = await h.session.executeTool({
+      callId: 'c-own',
+      decision: 'approve',
+      secret: 'typed-key-456',
+      credentials: perCall.source,
+    });
+    assertEquals(signed.outputRaw, { ok: true });
+    // Only the slot the tool signs in with is read, and only when it runs.
+    assertEquals(perCall.reads, ['tracker', 'tracker']);
+    assertEquals(perCall.writes, ['tracker']);
+    assertEquals(sent, ['Bearer typed-key-456']);
+
+    // The session's own source never saw the key.
+    await h.modelCalls({ id: 'c-bare', name: 'live_tracker' });
+    assertEquals((await h.session.executeTool({ callId: 'c-bare' })).gated?.kind, 'auth');
+    await h.close();
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+Deno.test('runSession with signInGate answer tells the model the sign-in is pending and releases the call', async () => {
+  clearProfiles();
+  resetTools();
+  registerTrackerTool();
+  const pending = lexiconText('sign_in.pending', { service: 'Tracker' });
+  const h = await openToolSession(['live_tracker'], { signInGate: 'answer' });
+  await h.modelCalls({ id: 'c-wait', name: 'live_tracker' });
+
+  const gated = await h.session.executeTool({ callId: 'c-wait' });
+  assertEquals(gated.gated?.kind, 'auth');
+  assertEquals(h.toolResponses(), [
+    { id: 'c-wait', name: 'live_tracker', response: { result: pending } },
+  ]);
+  await assertRejects(
+    () => h.session.executeTool({ callId: 'c-wait', decision: 'approve', secret: 'k' }),
+    TheoremError,
+  );
+  const gate = h.events.find(
+    (ev) => ev.type === 'tool' && ev.tool.callId === 'c-wait' && ev.tool.phase === 'gate',
+  );
+  assertEquals(
+    gate?.type === 'tool' && gate.tool.phase === 'gate' ? gate.tool.readBack : '',
+    pending,
+  );
+  await h.close();
+});
+
+Deno.test('runSession with signInGate answer settles a sign-in gate another process raised', async () => {
+  clearProfiles();
+  resetTools();
+  registerTrackerTool();
+  const h = await openToolSession(['live_tracker'], { signInGate: 'answer' });
+  await h.modelCalls({ id: 'c-split-sign', name: 'live_tracker' });
+  const gatedRun = await h.invokeFor('live_tracker', 'c-split-sign');
+  const gated = h.session.answerToolCall({ callId: 'c-split-sign', events: gatedRun });
+  assertEquals(gated.gated?.kind, 'auth');
+  assertEquals(h.toolResponses(), [
+    {
+      id: 'c-split-sign',
+      name: 'live_tracker',
+      response: { result: lexiconText('sign_in.pending', { service: 'Tracker' }) },
+    },
+  ]);
+  await h.close();
+});
+
+Deno.test('runSession holds a confirmation gate even with signInGate answer', async () => {
+  clearProfiles();
+  resetTools();
+  registerConfirmTool();
+  const h = await openToolSession(['live_confirm_tool'], { signInGate: 'answer' });
+  await h.modelCalls({ id: 'c-confirm', name: 'live_confirm_tool' });
+  assertEquals((await h.session.executeTool({ callId: 'c-confirm' })).gated?.kind, 'confirmation');
+  assertEquals(h.toolResponses().length, 0);
+  await h.close();
+});
+
+Deno.test('a refused sign-in tells the model it was declined or expired, naming the service', async () => {
+  clearProfiles();
+  resetTools();
+  registerTrackerTool();
+  const h = await openToolSession(['live_tracker']);
+  const failureOf = (ran: TurnEvent[]) => {
+    const failed = ran.find((ev) => ev.type === 'tool' && ev.tool.phase === 'error');
+    return failed?.type === 'tool' && failed.tool.phase === 'error'
+      ? failed.tool.failure
+      : undefined;
+  };
+
+  const declined = failureOf(
+    await h.invokeFor('live_tracker', 'c-no', { granted: false, signIn: true }),
+  );
+  assertEquals(declined?.code, 'denied');
+  assertEquals(declined?.kind, 'declined');
+  assertEquals(declined?.message, lexiconText('sign_in.declined', { service: 'Tracker' }));
+
+  const expired = failureOf(
+    await h.invokeFor('live_tracker', 'c-late', { granted: false, signIn: true, cause: 'expired' }),
+  );
+  assertEquals(expired?.code, 'expired');
+  assertEquals(expired?.kind, 'cancelled');
+  assertEquals(expired?.message, lexiconText('sign_in.expired', { service: 'Tracker' }));
+
+  const walkedAway = failureOf(
+    await h.invokeFor('live_tracker', 'c-gone', {
+      granted: false,
+      signIn: true,
+      cause: 'abandoned',
+    }),
+  );
+  assertEquals(walkedAway?.code, 'cancelled');
+  await h.close();
 });
 
 Deno.test('runSession answers a call a stage stopped, then ends the cycle cancelled', async () => {
@@ -1275,7 +1421,7 @@ Deno.test('runSession pre_turn inject schedules realtime text and lands in later
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'slotA',
+        key: 'main',
       },
     },
     live: { voice: 'Aoede', ingress: { text: true } },
@@ -1303,9 +1449,7 @@ Deno.test('runSession pre_turn inject schedules realtime text and lands in later
       },
     },
     {
-      gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
-      },
+      vault: { main: 'test-key' },
       openWebSocket: () => {
         mock = new MockLiveWebSocket();
         setTimeout(() => mock?.open(), 0);
@@ -1348,7 +1492,7 @@ Deno.test('runSession refuses an inject live cannot write as text, whole, and ne
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'slotA',
+        key: 'main',
       },
     },
     live: { voice: 'Aoede', ingress: { text: true } },
@@ -1372,9 +1516,7 @@ Deno.test('runSession refuses an inject live cannot write as text, whole, and ne
       },
     },
     {
-      gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
-      },
+      vault: { main: 'test-key' },
       openWebSocket: () => {
         mock = new MockLiveWebSocket();
         setTimeout(() => mock?.open(), 0);
@@ -1423,7 +1565,7 @@ Deno.test('runSession before_end inject schedules realtime text and still emits 
     models: {
       gemini31FlashLive: {
         ...HOST_BINDINGS.gemini31FlashLive,
-        key: 'slotA',
+        key: 'main',
       },
     },
     live: { voice: 'Aoede', ingress: { text: true } },
@@ -1444,9 +1586,7 @@ Deno.test('runSession before_end inject schedules realtime text and still emits 
       },
     },
     {
-      gemini: {
-        vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined },
-      },
+      vault: { main: 'test-key' },
       openWebSocket: () => {
         mock = new MockLiveWebSocket();
         setTimeout(() => mock?.open(), 0);

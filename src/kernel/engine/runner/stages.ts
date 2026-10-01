@@ -1,12 +1,3 @@
-/**
- * Text `runTurn` wiring around the stage spine: record stage events in step
- * state and append sanitized injects to turn history.
- *
- * Contract: `docs/contracts/stages.md`. The stage itself runs in `runStage`.
- *
- * @module
- */
-
 import { throwIfAborted } from '../../../guardrails/error.ts';
 import {
   type InjectUnit,
@@ -41,11 +32,7 @@ export interface ApplyTurnStageResult {
   warnings: StageApplyWarning[];
 }
 
-/**
- * Append already-sanitized injects to turn history, mirror them into the
- * Interactions continuation when one is active, then record the `stage` event
- * naming the ones that landed. Returns how many messages landed.
- */
+/** Injects must arrive sanitized; they are mirrored into an active Interactions continuation too. */
 export function* applyStageInjects(
   state: StepExecutionState,
   stage: TurnStage,
@@ -69,7 +56,6 @@ export function* applyStageInjects(
   return inject.length;
 }
 
-/** Run a turn stage, recording every stage event on step state. */
 export async function* applyTurnStage(
   args: ApplyTurnStageArgs,
 ): AsyncGenerator<TurnEvent, ApplyTurnStageResult> {

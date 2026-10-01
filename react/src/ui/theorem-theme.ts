@@ -1,6 +1,6 @@
 import { type DefinedTheme, defineTheme } from '@astryxdesign/core/theme';
 import { neutralTheme } from '@astryxdesign/theme-neutral/built';
-import { tablerIcons } from './icons';
+import { tablerIcons } from './icons.ts';
 
 /**
  * Default Theorem look: Astryx neutral (its radius scale, palettes, type)

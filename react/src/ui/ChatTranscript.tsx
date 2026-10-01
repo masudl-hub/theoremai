@@ -25,10 +25,10 @@ import { Token } from '@astryxdesign/core/Token';
 import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconCheck, IconCopy } from '@tabler/icons-react';
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import type { TranscriptBlock } from '../../../src/interface/mod.ts';
-import { citationsFromBlock, type SourceCitationBlock } from '../client/source-citations';
-import type { AnsweringGate } from '../client/tool-resume';
+import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import type { TranscriptBlock } from '@theoremjs/agents/interface';
+import { citationsFromBlock, type SourceCitationBlock } from '../client/source-citations.ts';
+import type { AnsweringGate } from '../client/tool-resume.ts';
 import {
 	assistantTurnCopyText,
 	assistantTurnTiming,
@@ -37,18 +37,19 @@ import {
 	pendingPromptOf,
 	promptReplyKey,
 	replyKey,
+	toolCallLabel,
 	type TraceItem,
 	type TranscriptTurnGroup,
 	type TurnSpan,
 	workStatus,
-} from '../client/transcript-groups';
-import { useDisclosureMotion } from './disclosure-motion';
-import { type LabelText, workDuration, workStatusLabel } from './labels';
-import { TheoremLabelsProvider, useLabels } from './labels-provider';
-import { ShapedData } from './ShapedData';
-import { transcriptBlockCopyText } from './transcript-copy-text';
-import { ApprovalCard, AuthChallengeCard, type ToolDecision } from './ToolGateCard';
-import { VoiceNote } from './VoiceNote';
+} from '../client/transcript-groups.ts';
+import { useDisclosureMotion } from './disclosure-motion.ts';
+import { type LabelText, workDuration, workStatusLabel } from './labels.ts';
+import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
+import { ShapedData } from './ShapedData.tsx';
+import { transcriptBlockCopyText } from './transcript-copy-text.ts';
+import { ApprovalCard, AuthChallengeCard, type ToolDecision } from './ToolGateCard.tsx';
+import { VoiceNote } from './VoiceNote.tsx';
 
 type ToolBlock = Extract<TranscriptBlock, { kind: 'tool' }>;
 
@@ -428,6 +429,23 @@ function ResultBlock({ block }: { block: TranscriptBlock }) {
 	}
 }
 
+// Astryx sets a call's name in the code font; labels are sentences, so the row takes the body
+// font and the detail restores the code font kept on the wrapper.
+const CODE_FONT_KEPT = {
+	display: 'contents',
+	'--theorem-font-code': 'var(--font-family-code)',
+} as CSSProperties;
+const CODE_FONT_AS_BODY = { '--font-family-code': 'var(--font-family-body)' } as CSSProperties;
+const CODE_FONT_RESTORED = { '--font-family-code': 'var(--theorem-font-code)' } as CSSProperties;
+
+function ToolCalls({ calls }: { calls: ChatToolCallItem[] }) {
+	return (
+		<div style={CODE_FONT_KEPT}>
+			<ChatToolCalls calls={calls} style={CODE_FONT_AS_BODY} />
+		</div>
+	);
+}
+
 /** A call's detail: what it ran with, then what came back. */
 function toolDetail(t: LabelText, tool: ToolBlock['tool'], result?: ReactNode): ReactNode {
 	const input = tool.edited ? (
@@ -436,7 +454,10 @@ function toolDetail(t: LabelText, tool: ToolBlock['tool'], result?: ReactNode): 
 		<ShapedData value={tool.arguments} title={t('@theorem.transcript.tool_input')} />
 	);
 	return (
-		<VStack gap={2}>
+		<VStack gap={2} style={CODE_FONT_RESTORED}>
+			<Text type="code" size="sm" color="secondary">
+				{tool.name}
+			</Text>
 			{input}
 			{result}
 		</VStack>
@@ -450,7 +471,7 @@ function toolDuration(t: LabelText, tool: ToolBlock['tool']): { duration?: strin
 }
 
 function toolCallItem(t: LabelText, id: string, tool: ToolBlock['tool']): ChatToolCallItem {
-	const base = { key: id, name: tool.name };
+	const base = { key: id, name: toolCallLabel(tool) };
 	const { state } = tool;
 	switch (state?.phase) {
 		case 'error':
@@ -488,7 +509,7 @@ function toolCallItem(t: LabelText, id: string, tool: ToolBlock['tool']): ChatTo
 
 function ToolCall({ tool }: { tool: ToolBlock['tool'] }) {
 	const t = useLabels();
-	return <ChatToolCalls calls={[toolCallItem(t, tool.name, tool)]} />;
+	return <ToolCalls calls={[toolCallItem(t, tool.name, tool)]} />;
 }
 
 /**
@@ -515,7 +536,7 @@ function TraceList({ items, streaming }: { items: readonly TraceItem[]; streamin
 	let tools: ChatToolCallItem[] = [];
 	const flush = () => {
 		if (tools.length === 0) return;
-		rows.push(<ChatToolCalls key={tools[0]?.key} calls={tools} />);
+		rows.push(<ToolCalls key={tools[0]?.key} calls={tools} />);
 		tools = [];
 	};
 	for (const [i, item] of items.entries()) {

@@ -12,26 +12,33 @@
  * @module
  */
 
-import { describeError, type SessionEvent, type SessionEventOf, TheoremError, type TraceRecord, type TurnEventOf } from '../../../mod.ts';
-import { float32Rms, float32RmsToLevel, timeDomainBytesToLevel } from './audio-level';
-import { isPermissionDeniedError } from './live-errors';
+import {
+	describeError,
+	type SessionEvent,
+	type SessionEventOf,
+	TheoremError,
+	type TraceRecord,
+	type TurnEventOf,
+} from '@theoremjs/agents';
+import { base64ToBytes, bytesToBase64 } from '@theoremjs/agents/kernel';
+import { float32Rms, float32RmsToLevel, timeDomainBytesToLevel } from './audio-level.ts';
+import { isPermissionDeniedError } from './live-errors.ts';
+import type { LiveConnectPhase, LiveSessionStatus } from './live/live-state.ts';
 import {
 	applyLiveToolTurnEvent,
 	liveTranscriptFromEvidence,
 	shouldForwardMicFrame,
-} from './live/live-mic-forward';
+} from './live/live-mic-forward.ts';
 import {
 	type ExecuteToolOnRelay,
 	type LiveClientMessage,
 	type LiveServerEnvelope,
 	type LiveToolStep,
 	parseLiveServerEnvelope,
-} from './live-messages';
-import { base64ToBytes, bytesToBase64 } from '../../../src/kernel/util/base64.ts';
-import { downsampleAndConvertToInt16, pcm16BytesToFloat32 } from './pcm-downsample';
-import { type ClientTurnEvent, hostError } from './transport';
-import { parseWireJson } from './wire-line';
-import micCaptureWorkletUrl from './mic-capture.worklet?worker&url';
+} from './live-messages.ts';
+import { MIC_CAPTURE_PROCESSOR, micCaptureWorkletUrl } from './mic-capture.ts';
+import { downsampleAndConvertToInt16, pcm16BytesToFloat32 } from './pcm-downsample.ts';
+import { type ClientTurnEvent, hostError } from './transport.ts';
 
 type LiveToolCall = {
 	id: string;
@@ -70,34 +77,25 @@ function emptyInboundTurnAccum(): InboundTurnAccum {
  */
 const BARGE_IN_RMS_WHILE_SPEAKING = 0.05;
 
-export type LiveSessionStatus =
-	| 'disconnected'
-	| 'connecting'
-	| 'ready'
-	| 'listening'
-	| 'speaking'
-	| 'working'
-	| 'error';
-
-export type LiveConnectPhase = 'socket' | 'microphone';
-
-/**
- * What a live call opens: a profile the host registered, or an `openMessage` the
- * relay reads first to build the call's profile itself (the playground sends its draft).
- */
-export type LiveConnection = { profile: string } | { openMessage: Record<string, unknown> };
+export type { LiveConnection, LiveSocket } from './live-messages.ts';
+import type { LiveSocket } from './live-messages.ts';
 
 export interface LiveClientOptions {
 	profile?: string;
 	/** JSON sent before anything else, as the socket opens. */
 	openMessage?: Record<string, unknown>;
 	relayUrl?: string;
+	/** In-process connections reuse the same microphone, playback and tool client. */
+	createSocket?: () => LiveSocket;
 	/** When false, skip microphone capture; session still receives model audio. */
 	voiceIngress?: boolean;
 	onStatusChange?: (status: LiveSessionStatus) => void;
 	onConnectPhase?: (phase: LiveConnectPhase | null) => void;
 	onTranscript?: (text: string, isUser: boolean, meta?: { interim?: boolean }) => void;
-	/** Every event the session sends, and `unsupported` for a kind this client does not know. */
+	/**
+	 * Every event the session sends, `unsupported` for a kind this client does
+	 * not know, and `malformed` for one that failed its check (left out; the call goes on).
+	 */
 	onTurnEvent?: (event: ClientTurnEvent) => void;
 	/** A trace record the session wrote, when the relay delivers them. */
 	onTrace?: (record: TraceRecord) => void;
@@ -114,7 +112,8 @@ export interface LiveClientOptions {
 	 * The model called a tool. The host runs it with `executeToolOnRelay` and
 	 * answers its gates; the session answers the model. A throw reaches `onError`.
 	 */
-	onToolCall: (name: string, args: Record<string, unknown>, meta: { callId: string }) => Promise<void>;
+	onToolCall: (name: string, args: Record<string, unknown>, meta: { callId: string },
+	) => Promise<void>;
 	/** The relay opened the call: the id it gave the call, and the profile it runs. */
 	onSessionReady?: (info: { sessionId?: string; profile?: string }) => void;
 	onVolumeLevel?: (level: number, isUser: boolean) => void;
@@ -169,7 +168,7 @@ function resolveWorkingStatusTransition(
 }
 
 export class LiveSessionClient {
-	private ws: WebSocket | null = null;
+	private ws: LiveSocket | null = null;
 	private audioContext: AudioContext | null = null;
 	private micStream: MediaStream | null = null;
 	private micSource: MediaStreamAudioSourceNode | null = null;
@@ -230,7 +229,8 @@ export class LiveSessionClient {
 	private detachWebSocket(): void {
 		for (const [callId, pending] of this.pendingExecuteResults) {
 			// lexicon-exempt: internal diagnostic; the user reads error.network
-			pending.reject(new TheoremError('network', `live session closed before call ${callId} settled`));
+			pending.reject(new TheoremError('network', `live session closed before call ${callId} settled`),
+			);
 		}
 		this.pendingExecuteResults.clear();
 		if (!this.ws) return;
@@ -262,6 +262,10 @@ export class LiveSessionClient {
 		this.setStatus('error');
 	}
 
+	private createSocket(url: string): LiveSocket {
+		return this.options.createSocket?.() ?? new WebSocket(url);
+	}
+
 	// fallow-ignore-next-line unused-class-member -- called from useLiveRunnerControls via client refs
 	public async connect(): Promise<void> {
 		this.teardownConnection();
@@ -282,7 +286,7 @@ export class LiveSessionClient {
 			const defaultUrl = `${protocol}//${globalThis.location.host}/api/live/relay${profileParam}`;
 			const url = this.options.relayUrl || defaultUrl;
 
-			this.ws = new WebSocket(url);
+			this.ws = this.createSocket(url);
 			this.ws.binaryType = 'arraybuffer';
 
 			const { openMessage } = this.options;
@@ -401,11 +405,11 @@ export class LiveSessionClient {
 		silent.gain.value = 0;
 
 		if (!this.micWorkletModuleLoaded) {
-			await this.audioContext.audioWorklet.addModule(micCaptureWorkletUrl);
+			await this.audioContext.audioWorklet.addModule(micCaptureWorkletUrl());
 			this.micWorkletModuleLoaded = true;
 		}
 
-		this.micWorklet = new AudioWorkletNode(this.audioContext, 'mic-capture-processor');
+		this.micWorklet = new AudioWorkletNode(this.audioContext, MIC_CAPTURE_PROCESSOR);
 		this.micWorklet.port.onmessage = (event: MessageEvent<ArrayBuffer>) => {
 			const inputFloat32 = new Float32Array(event.data);
 			this.forwardMicBuffer(inputFloat32);
@@ -459,11 +463,12 @@ export class LiveSessionClient {
 
 		const accum = this.collectInboundTurn(payload.events);
 		const runnableTools = accum.toolCalls.filter(
-			(call) => !accum.cancelledToolIds.has(call.id),
-		);
+			(call) => !accum.cancelledToolIds.has(call.id));
 		for (const call of runnableTools) {
 			this.toolChain = this.toolChain
-				.then(() => this.options.onToolCall(call.name, call.arguments, { callId: call.id }))
+				.then(() => this.options.onToolCall(call.name, call.arguments, { callId: call.id,
+					}),
+				)
 				.catch((err: unknown) => {
 					this.options.onError?.(asError(err));
 				});
@@ -476,10 +481,11 @@ export class LiveSessionClient {
 			.then(async () => {
 				if (typeof data !== 'string') return;
 
-				// A malformed message is named and skipped; the call goes on.
-				const payload = parseLiveServerEnvelope(parseWireJson(data), (err) => this.options.onError?.(err));
-				if (payload.type === 'unsupported') this.options.onTurnEvent?.(payload);
-				else await this.processServerEnvelope(payload);
+				const payload = parseLiveServerEnvelope(data);
+				// An envelope the client can't use reaches onTurnEvent like any event; the call goes on.
+				if (payload.type === 'unsupported' || payload.type === 'malformed') {
+					this.options.onTurnEvent?.(payload);
+				} else await this.processServerEnvelope(payload);
 			})
 			.catch((err: unknown) => {
 				this.options.onError?.(asError(err));
@@ -505,9 +511,11 @@ export class LiveSessionClient {
 		const pending = this.pendingExecuteResults.get(payload.callId);
 		if (!pending) return;
 		this.pendingExecuteResults.delete(payload.callId);
-		if (payload.status === 'refused') pending.reject(hostError(payload.body, 'request'));
-		else if (payload.status === 'gated') pending.resolve({ status: 'gated', gate: payload.gate });
-		else pending.resolve({ status: 'settled' });
+		if (payload.status === 'refused') {
+			pending.reject(hostError(payload.body, 'request'));
+		} else if (payload.status === 'gated') {
+			pending.resolve({ status: 'gated', gate: payload.gate });
+		} else pending.resolve({ status: 'settled' });
 	}
 
 	private async tryHandleControlEnvelope(payload: LiveServerEnvelope): Promise<boolean> {
@@ -563,7 +571,10 @@ export class LiveSessionClient {
 
 	private handleEvidenceTurnEvent(event: TurnEventOf<'evidence'>): void {
 		const transcript = liveTranscriptFromEvidence(event);
-		if (transcript) this.options.onTranscript?.(transcript.text, transcript.isUser, { interim: transcript.interim });
+		if (transcript) {
+			this.options.onTranscript?.(transcript.text, transcript.isUser, { interim: transcript.interim,
+			});
+		}
 	}
 
 	private handleSessionTurnEvent(event: TurnEventOf<'session'>): void {

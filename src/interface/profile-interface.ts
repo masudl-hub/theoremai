@@ -1,12 +1,3 @@
-/**
- * The one schema for `ProfileInterface`: what a host sends the browser to
- * describe its profile. `interfaceFromProfile` passes its projection through
- * it, so a field the schema does not name never leaves the host; the browser's
- * transport checks what arrives against it.
- *
- * @module
- */
-
 import { z } from 'zod';
 import { LEXICON_KEYS } from '../guardrails/lexicon.ts';
 import {
@@ -15,10 +6,10 @@ import {
   COMPACTION_METERS,
   COMPACTION_TIMINGS,
   CONTINUE_STOP_KINDS,
-  KEY_SLOTS,
+  KEY_SLOT_NAME,
   LIVE_ACTIVITY_HANDLINGS,
-  LIVE_SPEECH_SENSITIVITIES,
-  OVERFLOW_KEY_SLOTS,
+  LIVE_END_SENSITIVITIES,
+  LIVE_START_SENSITIVITIES,
   PROTOCOLS,
   PROVIDERS,
   SPEECH_AUDIO_FORMATS,
@@ -40,7 +31,8 @@ const modelBinding = z.object({
   maxOutputTokens: z.number().optional(),
   temperature: z.number().optional(),
   builtInTools: z.array(z.string()).optional(),
-  key: z.enum(KEY_SLOTS).optional(),
+  key: z.string().regex(KEY_SLOT_NAME).optional(),
+  fallbackKey: z.string().regex(KEY_SLOT_NAME).optional(),
   compaction: z
     .object({
       maxTokens: z.number(),
@@ -123,14 +115,14 @@ const mediaTurnBehaviour = z.object({ resumption: resumption.optional() });
 
 const tools = z.object({ allow: z.array(z.string()), t2Loader: z.string().optional() });
 
-/** Fields every interface carries. */
 const common = {
   id: z.string(),
   models: z.record(z.string(), modelBinding),
   defaultModel: z.string(),
   allowModelSelect: z.boolean().optional(),
   maxSteps: z.number().optional(),
-  key: z.enum(OVERFLOW_KEY_SLOTS).optional(),
+  key: z.string().regex(KEY_SLOT_NAME).optional(),
+  fallbackKey: z.string().regex(KEY_SLOT_NAME).optional(),
   lexicon: z.partialRecord(z.enum(LEXICON_KEYS), z.string()),
   guardrails: guardrails.optional(),
   observability: observability.optional(),
@@ -201,8 +193,8 @@ const profileInterface = z.discriminatedUnion('type', [
       vad: z
         .object({
           activityHandling: z.enum(LIVE_ACTIVITY_HANDLINGS).optional(),
-          startSensitivity: z.enum(LIVE_SPEECH_SENSITIVITIES).optional(),
-          endSensitivity: z.enum(LIVE_SPEECH_SENSITIVITIES).optional(),
+          startSensitivity: z.enum(LIVE_START_SENSITIVITIES).optional(),
+          endSensitivity: z.enum(LIVE_END_SENSITIVITIES).optional(),
           prefixPaddingMs: z.number().optional(),
           silenceDurationMs: z.number().optional(),
         })

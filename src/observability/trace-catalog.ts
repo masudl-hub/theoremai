@@ -1,19 +1,6 @@
-/**
- * Trace catalog — what every span, attribute, event and value THEOREM records
- * means, in words a person reads.
- *
- * The kernel writes trace records; this module is the one place their
- * vocabulary is named and described, so a viewer (the playground's trace
- * panel, a host's own tooling) never invents wording for them. Option sets are
- * keyed by the kernel's own enum types, so a new stop kind, error kind or tool
- * outcome fails the type check until it is described here.
- *
- * A key with no entry is still a real attribute: viewers show it under its raw
- * name rather than hiding it.
- *
- * @module
- */
+// A key with no entry is still a real attribute: viewers show it under its raw name.
 
+import type { GuardrailRule } from '../guardrails/rules.ts';
 import type { ErrorKind } from '../guardrails/theorem-error.ts';
 import type {
   GuardrailAction,
@@ -22,10 +9,11 @@ import type {
   ToolOrigin,
   TrustLevel,
 } from '../guardrails/types.ts';
+import type { GuardrailCheck } from '../kernel/engine/turn-trace.ts';
 import type {
   CompactionMeter,
+  CompactionOutcome,
   CompactionTiming,
-  KeySlot,
   ToolGateKind,
   ToolPermission,
   TurnStage,
@@ -37,24 +25,17 @@ import type { TraceSpan } from './trace-span.ts';
 
 /** How a value reads: the unit or shape a viewer formats it by. */
 type TraceValueFormat =
-  /** Free text, shown as is. */
   | 'text'
   /** An identifier: shown as is, in monospace. */
   | 'id'
-  /** A plain count. */
   | 'number'
-  /** A token count. */
   | 'tokens'
-  /** Seconds. */
   | 'seconds'
-  /** Milliseconds. */
   | 'milliseconds'
-  /** US dollars. */
   | 'usd'
   | 'boolean'
   /** A list of strings. */
   | 'list'
-  /** A structured value, shown as JSON. */
   | 'object'
   /** A `{ content_sha256 }` reference to text in the record's `content`. */
   | 'content'
@@ -67,7 +48,6 @@ type TraceValueFormat =
   /** A unix-nanosecond timestamp string. */
   | 'time';
 
-/** The section of a span's attributes an attribute is listed under. */
 type TraceAttributeGroup =
   | 'agent'
   | 'request'
@@ -78,21 +58,20 @@ type TraceAttributeGroup =
   | 'http'
   | 'error'
   | 'record'
-  | 'part';
+  | 'part'
+  | 'decision'
+  | 'evaluation';
 
-/** One value of a closed set. */
 interface TraceOptionMeta {
   label: string;
   doc: string;
 }
 
-/** One attribute: its label, what it means, and how its value reads. */
 interface TraceAttributeMeta {
   label: string;
   doc: string;
   format: TraceValueFormat;
   group: TraceAttributeGroup;
-  /** Its values' meanings, when it holds one of a known set. */
   options?: Readonly<Record<string, TraceOptionMeta>>;
   /** The options name the common values only: another value is real and shows as is. */
   open?: true;
@@ -100,7 +79,6 @@ interface TraceAttributeMeta {
   fields?: Readonly<Record<string, TraceAttributeMeta>>;
 }
 
-/** One span event: its label, what it records, and its own attributes. */
 interface TraceEventMeta {
   label: string;
   doc: string;
@@ -109,9 +87,19 @@ interface TraceEventMeta {
 }
 
 /** The kinds of span THEOREM writes, plus `host` for a span the host recorded itself. */
-type TraceSpanType = 'turn' | 'session' | 'call' | 'response' | 'tool' | 'http' | 'cutout' | 'host';
+type TraceSpanType =
+  | 'turn'
+  | 'session'
+  | 'call'
+  | 'response'
+  | 'tool'
+  | 'http'
+  | 'cutout'
+  | 'decision'
+  | 'evaluation'
+  | 'host';
 
-/** What a span is, and the thing it acted on (the model, tool or agent), when it names one. */
+/** `subject` is the thing the span acted on (the model, tool or agent), when it names one. */
 interface TraceSpanMeta {
   type: TraceSpanType;
   label: string;
@@ -130,9 +118,13 @@ const TRACE_ATTRIBUTE_GROUPS: Readonly<Record<TraceAttributeGroup, TraceOptionMe
   error: { label: 'Error', doc: 'Why it failed.' },
   record: { label: 'Record', doc: 'What this record kept and how it was taken.' },
   part: { label: 'Part', doc: 'Facts about one message part.' },
+  decision: {
+    label: 'Decision',
+    doc: 'The state a decision read, the questions it answered, and its answers.',
+  },
+  evaluation: { label: 'Evaluation', doc: 'How an eval graded this trace, and by which suite.' },
 };
 
-/** Span status meanings (OpenTelemetry's three codes). */
 const TRACE_STATUS: Readonly<Record<TraceSpan['status']['code'], TraceOptionMeta>> = {
   OK: { label: 'OK', doc: 'Finished as intended.' },
   ERROR: { label: 'Error', doc: 'Failed; the error kind says why.' },
@@ -166,8 +158,6 @@ const TRACE_FIELDS = {
   events: { label: 'Events', doc: 'What happened during the span, in order.' },
   links: { label: 'Links', doc: 'Earlier traces this span follows.' },
 } satisfies Record<string, TraceOptionMeta>;
-
-// ── value sets ──────────────────────────────────────
 
 const STOP_KINDS: Readonly<Record<TurnStopKind | 'go_away', TraceOptionMeta>> = {
   completed: { label: 'Completed', doc: 'The model finished its answer.' },
@@ -230,11 +220,12 @@ const ERROR_KIND_OPTIONS: Readonly<Record<ErrorKind, TraceOptionMeta>> = {
   internal: { label: 'Internal', doc: 'A THEOREM invariant broke.' },
 };
 
-/** `error.type`: an error kind, or the failing stop when nothing named a kind. An HTTP status or exception name shows as is. */
+/** `error.type`: an error kind, or the failing stop. An HTTP status or exception shows as is. */
 const ERROR_TYPE_OPTIONS: Readonly<Record<string, TraceOptionMeta>> = {
   ...ERROR_KIND_OPTIONS,
   provider_error: STOP_KINDS.provider_error,
   stream_incomplete: STOP_KINDS.stream_incomplete,
+  grader_error: { label: 'Grader failed', doc: 'The grader threw instead of returning a result.' },
 };
 
 const TOOL_OUTCOMES: Readonly<
@@ -265,26 +256,47 @@ const TOOL_PERMISSION_OPTIONS: Readonly<Record<ToolPermission, TraceOptionMeta>>
   always_confirm: { label: 'Always ask', doc: 'Asks before every call.' },
 };
 
-const KEY_SLOT_OPTIONS: Readonly<Record<KeySlot, TraceOptionMeta>> = {
-  slotA: { label: 'Key A', doc: "The host vault's first key slot." },
-  slotB: { label: 'Key B', doc: "The host vault's second key slot." },
-  slotC: { label: 'Key C', doc: "The host vault's third key slot." },
-  paid: { label: 'Paid key', doc: 'The paid key a refused call overflowed to.' },
-};
-
-const LINK_KINDS: Readonly<Record<'resume' | 'continue' | 'retry', TraceOptionMeta>> = {
+const LINK_KINDS: Readonly<Record<'resume' | 'continue' | 'retry' | 'trial', TraceOptionMeta>> = {
   resume: { label: 'Resumes', doc: 'Picks up a call that stopped for approval.' },
   continue: { label: 'Continues', doc: 'Continues an answer that stopped early.' },
   retry: { label: 'Retries', doc: 'Runs a failed turn again.' },
+  trial: { label: 'Trial', doc: 'A graded trial of this eval run.' },
+};
+
+const EVALUATION_SOURCES: Readonly<Record<'code' | 'model', TraceOptionMeta>> = {
+  code: { label: 'Code', doc: 'A deterministic check over the trace.' },
+  model: { label: 'Model', doc: 'A judge profile read the transcript.' },
+};
+
+const PASS_RULES: Readonly<Record<'all' | 'any' | 'at_least', TraceOptionMeta>> = {
+  all: { label: 'Every trial', doc: 'Passes only when every trial passed (pass^k).' },
+  any: { label: 'Any trial', doc: 'Passes when at least one trial passed (pass@k).' },
+  at_least: {
+    label: 'At least n',
+    doc: 'Passes when at least the stated number of trials passed.',
+  },
+};
+
+const EVAL_STOPS: Readonly<Record<'budget', TraceOptionMeta>> = {
+  budget: { label: 'Cost ceiling', doc: 'The summed cost crossed the ceiling the host set.' },
+};
+
+const CASE_KINDS: Readonly<Record<'capability' | 'regression', TraceOptionMeta>> = {
+  capability: { label: 'Capability', doc: 'Can the agent do this at all?' },
+  regression: { label: 'Regression', doc: 'Does the agent still do this?' },
 };
 
 const OPERATIONS: Readonly<
-  Record<'invoke_agent' | 'chat' | 'generate_content' | 'execute_tool', TraceOptionMeta>
+  Record<'invoke_agent' | 'chat' | 'generate_content' | 'execute_tool' | 'decide', TraceOptionMeta>
 > = {
   invoke_agent: { label: 'Run agent', doc: 'One turn of an agent, or one Live session.' },
   chat: { label: 'Chat', doc: 'A model call over a chat-completions API.' },
   generate_content: { label: 'Generate content', doc: 'A model call over a Gemini API.' },
   execute_tool: { label: 'Run tool', doc: 'A tool call THEOREM ran.' },
+  decide: {
+    label: 'Decide',
+    doc: 'One model decision: typed answers to questions over JSON state.',
+  },
 };
 
 const OUTPUT_TYPES: Readonly<Record<'text' | 'json' | 'image' | 'speech', TraceOptionMeta>> = {
@@ -294,9 +306,10 @@ const OUTPUT_TYPES: Readonly<Record<'text' | 'json' | 'image' | 'speech', TraceO
   speech: { label: 'Speech', doc: 'The model answers in audio.' },
 };
 
-const PROVIDERS: Readonly<Record<'gcp.gemini' | 'openrouter', TraceOptionMeta>> = {
+const PROVIDERS: Readonly<Record<'gcp.gemini' | 'openrouter' | 'typesafe', TraceOptionMeta>> = {
   'gcp.gemini': { label: 'Google Gemini', doc: "Google's Gemini API." },
   openrouter: { label: 'OpenRouter', doc: 'The OpenRouter gateway.' },
+  typesafe: { label: 'TypeSafe', doc: "TypeSafe's native decision API." },
 };
 
 const USAGE_SIDES: Readonly<Record<'input' | 'output', TraceOptionMeta>> = {
@@ -346,6 +359,138 @@ const GUARDRAIL_STAGE_OPTIONS: Readonly<Record<GuardrailStage, TraceOptionMeta>>
   live_inbound: { label: 'Live inbound', doc: 'What arrived from a Live session.' },
   live_outbound: { label: 'Live outbound', doc: 'What was sent into a Live session.' },
   trace: { label: 'Trace', doc: 'Text being written to the trace.' },
+};
+
+/**
+ * What each of Theorem's own guardrail rules caught. Keyed by every
+ * {@link GuardrailRule}, so a new rule is described here before it compiles.
+ * A host's own egress rules have no entry and show as their id.
+ */
+const GUARDRAIL_RULE_OPTIONS: Readonly<Record<GuardrailRule, TraceOptionMeta>> = {
+  'sanitize.injection': {
+    label: 'Injection phrasing',
+    doc: 'Text that tries to override the agent\'s instructions, such as "ignore previous instructions". Removed before the model read it.',
+  },
+  'sanitize.sensitive': {
+    label: 'Sensitive data',
+    doc: 'A credential or personal identifier, such as an API key, card or ID number. Redacted before the model read it.',
+  },
+  'egress.canary-leak': {
+    label: 'Instructions leaked',
+    doc: "The reply contained the turn's canary, a secret marker planted in the instructions, so the model was repeating them.",
+  },
+  'egress.prompt-echo': {
+    label: 'Instructions repeated',
+    doc: 'The reply repeated 12 or more words in a row of the instructions.',
+  },
+  'egress.provider-tool-leak': {
+    label: 'Instructions sent to a provider tool',
+    doc: "A provider's built-in tool, such as search, was sent the canary or the instructions. It ran before Theorem saw it, so the data had already left.",
+  },
+  'egress.image-exfil': {
+    label: 'Image from an unknown address',
+    doc: 'The reply showed an image from an address the model was not given, on a host the profile does not allow. Loading it could send data out.',
+  },
+  'egress.link-exfil': {
+    label: 'Link to an unknown address',
+    doc: 'The reply linked an address the model was not given, on a host the profile does not allow.',
+  },
+  'egress.sensitive-echo': {
+    label: 'Sensitive data in reply',
+    doc: 'The reply contained a credential or personal identifier.',
+  },
+  'egress.system-boundary': {
+    label: 'Internal markers in reply',
+    doc: 'The reply contained the markers Theorem uses to fence user data or name the canary.',
+  },
+  'egress.injection-echo': {
+    label: 'Injection phrasing in reply',
+    doc: "The reply repeated text that tries to override the agent's instructions.",
+  },
+  'egress.unscannable': {
+    label: 'Reply could not be checked',
+    doc: 'Structured output could not be turned into text to check, so it was treated as unsafe.',
+  },
+  'egress.enforcer-error': {
+    label: 'Output check failed',
+    doc: "The host's output check threw or returned no clear verdict, so the reply was treated as blocked.",
+  },
+  'egress.blocked': {
+    label: 'Stopped while streaming',
+    doc: "The host's output check stopped the reply mid-stream without naming a rule.",
+  },
+  'tool_result.names-callable-tool': {
+    label: 'Named a callable tool',
+    doc: 'Remote tool content named a tool the model can call, a common way to steer its next step.',
+  },
+  'tool_result.imperative': {
+    label: 'Gave the agent an order',
+    doc: 'Remote tool content addressed the agent with an instruction, such as "you must now…" or "next steps:".',
+  },
+  'tool_result.authority-claim': {
+    label: 'Claimed authority',
+    doc: 'Remote tool content claimed to speak for the user, the system or an admin, such as "the user has already approved".',
+  },
+  'tool_result.redacted': {
+    label: 'Tool result redacted',
+    doc: "Injection phrasing or sensitive data was removed from a tool's result before the model read it.",
+  },
+  'tool_failure.redacted': {
+    label: 'Tool error redacted',
+    doc: "Injection phrasing or sensitive data was removed from a tool's error message.",
+  },
+  'tool_call.sensitive-argument': {
+    label: 'Sensitive data in arguments',
+    doc: 'The model passed a credential or personal identifier to a tool. The call still ran.',
+  },
+  'tool_call.tainted-turn': {
+    label: 'Change after remote content',
+    doc: 'A tool that writes or deletes was called after the turn read remote content, which could have steered it.',
+  },
+  'tool_call.steered-turn': {
+    label: 'Change after a remote instruction',
+    doc: 'A tool that writes or deletes was called after the turn read remote content that also looked like instructions to the agent.',
+  },
+  'network.blocked': {
+    label: 'Address blocked',
+    doc: 'A tool tried to reach a private, local or disallowed address. The request was never made.',
+  },
+};
+
+const GUARDRAIL_CHECK_OPTIONS: Readonly<Record<GuardrailCheck, TraceOptionMeta>> = {
+  input: { label: 'Input check', doc: 'Checked what the user sent before the model read it.' },
+  egress: { label: 'Output check', doc: 'Checked the whole answer before it was released.' },
+  tool_arguments: { label: 'Argument check', doc: 'Checked what the model sent to a tool.' },
+  taint: {
+    label: 'Remote-content gate',
+    doc: 'Checked whether a tool that writes or deletes was called after the turn read remote content.',
+  },
+  tool_result: {
+    label: 'Result check',
+    doc: 'Checked what a tool returned before the model read it.',
+  },
+  tool_failure: {
+    label: 'Error check',
+    doc: "Checked a tool's error message before the model read it.",
+  },
+  network: { label: 'Address check', doc: 'Checked the address a tool was about to reach.' },
+  network_request: {
+    label: 'Lookup and redirect check',
+    doc: "Checked, during a tool's request, where its address resolved and every redirect it followed; includes the lookup when the host resolves names.",
+  },
+  output_stream: {
+    label: 'Streaming check',
+    doc: 'Checked the answer piece by piece as it streamed, before the host saw each piece.',
+  },
+  stream_canary: {
+    label: 'Streamed leak check',
+    doc: "Checked each streamed tool call and other non-text output for the system prompt's canary.",
+  },
+  live_input: { label: 'Live input check', doc: 'Checked text the host sent into a live session.' },
+  live_output: {
+    label: 'Live output check',
+    doc: 'Checked what the model said in a live session, batch by batch, before the host heard it.',
+  },
 };
 
 const TRUST_OPTIONS: Readonly<Record<TrustLevel, TraceOptionMeta>> = {
@@ -398,14 +543,26 @@ const COMPACTION_METER_OPTIONS: Readonly<Record<CompactionMeter, TraceOptionMeta
   },
 };
 
-/** `theorem.session` kinds: the provider's session signals (a finished response is its own record), and THEOREM's socket facts. */
+const COMPACTION_OUTCOME_OPTIONS: Readonly<Record<CompactionOutcome, TraceOptionMeta>> = {
+  compacted: { label: 'Compacted', doc: 'A summary replaced the earlier messages.' },
+  deferred: {
+    label: 'Kept whole',
+    doc: 'The compactor failed and the history still fits, so it was kept and compaction runs again next turn.',
+  },
+  dropped: {
+    label: 'Dropped',
+    doc: 'The compactor failed and the history no longer fits, so the earlier messages were dropped.',
+  },
+};
+
+/** `theorem.session` kinds: provider session signals (a finished response is its own record). */
 const SESSION_KINDS: Readonly<
   Record<
     | Exclude<SessionEventKind, 'turn_complete'>
     | 'voice_activity'
     | 'session_resumption'
     | 'setup_complete'
-    | 'key_overflow'
+    | 'key_fallback'
     | 'closed',
     TraceOptionMeta
   >
@@ -421,9 +578,9 @@ const SESSION_KINDS: Readonly<
     doc: 'The provider said whether the session can be resumed.',
   },
   setup_complete: { label: 'Setup complete', doc: 'The provider accepted the session setup.' },
-  key_overflow: {
-    label: 'Switched to paid key',
-    doc: 'The first key was refused for quota at setup; the session reopened on the paid key.',
+  key_fallback: {
+    label: 'Switched to fallback key',
+    doc: "The key was refused for quota at setup; the session reopened on the profile's fallback key.",
   },
   closed: { label: 'Socket closed', doc: 'The session socket closed.' },
 };
@@ -441,8 +598,6 @@ const CLOCK_OPTIONS: Readonly<Record<'io', TraceOptionMeta>> = {
   },
 };
 
-// ── span attributes ─────────────────────────────────
-
 function attr(
   group: TraceAttributeGroup,
   label: string,
@@ -453,7 +608,6 @@ function attr(
   return options ? { label, doc, format, group, options } : { label, doc, format, group };
 }
 
-/** An `object` attribute whose keys are described. */
 function fields(
   group: TraceAttributeGroup,
   label: string,
@@ -469,7 +623,6 @@ const BOOLEAN_SIDES = {
 };
 
 const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
-  // agent
   'gen_ai.operation.name': attr('agent', 'Operation', 'text', 'What this span did.', OPERATIONS),
   'gen_ai.agent.name': attr('agent', 'Agent', 'id', 'The profile that ran.'),
   'gen_ai.conversation.id': attr(
@@ -498,6 +651,18 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
     'Times the turn ran its model calls, counting a retry after a guardrail or invalid JSON.',
   ),
   'theorem.steps': attr('agent', 'Model calls', 'number', 'Model calls made (Live: responses).'),
+  'theorem.turn.time_to_first_text': attr(
+    'agent',
+    'Time to first visible text',
+    'seconds',
+    'From the start of the turn to the first reply text the host received, after every guardrail and holdback.',
+  ),
+  'theorem.guardrail.stream_ms': attr(
+    'agent',
+    'Stream guardrail time',
+    'milliseconds',
+    "Time every check on this call's streamed output took, together; each check's own time is on its `theorem.guardrail` event.",
+  ),
   'theorem.step': attr('agent', 'Step', 'number', 'Which model call of the turn this is, from 1.'),
   'theorem.attempt': attr(
     'agent',
@@ -521,7 +686,6 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
     LINK_KINDS,
   ),
 
-  // request
   'gen_ai.provider.name': {
     ...attr(
       'request',
@@ -560,8 +724,7 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
     'request',
     'API key',
     'text',
-    'The vault key slot that finally answered.',
-    KEY_SLOT_OPTIONS,
+    'The vault key slot that finally answered, by the name the profile gave it.',
   ),
   'theorem.request.builtins': attr(
     'request',
@@ -688,7 +851,6 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
     'Where in the input messages the request body starts; earlier ones the provider already held.',
   ),
 
-  // response
   'gen_ai.response.id': attr('response', 'Response ID', 'id', "The provider's id for its answer."),
   'gen_ai.response.model': attr(
     'response',
@@ -714,8 +876,13 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
     'seconds',
     'From the start of the successful HTTP try, or of a Live response, to its first chunk; a buffered body is its one chunk.',
   ),
+  'theorem.response.time_to_first_text': attr(
+    'response',
+    'Time to first text',
+    'seconds',
+    'From the start of the call to its first reply text, before guardrails; reasoning and tool calls do not count.',
+  ),
 
-  // messages
   'gen_ai.system_instructions': attr(
     'messages',
     'System instructions',
@@ -753,7 +920,6 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
     'The worded error the caller received.',
   ),
 
-  // usage
   'gen_ai.usage.input_tokens': attr('usage', 'Input tokens', 'tokens', 'Tokens the model read.'),
   'gen_ai.usage.output_tokens': attr('usage', 'Output tokens', 'tokens', 'Tokens the model wrote.'),
   'gen_ai.usage.reasoning.output_tokens': attr(
@@ -789,7 +955,7 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
     'usage',
     'Cost',
     'usd',
-    'As reported. Absent when no call reported a cost.',
+    "As the provider reported it, or priced from Jev's fixed price for a decision. Absent when no call reported a cost.",
   ),
   'theorem.usage.upstream_cost_usd': attr(
     'usage',
@@ -820,7 +986,6 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
     },
   ),
 
-  // tool
   'gen_ai.tool.name': attr('tool', 'Tool', 'id', 'The tool called.'),
   'gen_ai.tool.call.id': attr('tool', 'Call ID', 'id', "The call's id."),
   'gen_ai.tool.type': attr('tool', 'Tool type', 'text', 'function for a registered tool.'),
@@ -883,7 +1048,6 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
     "The host's hash of what came back.",
   ),
 
-  // http
   'http.request.method': attr('http', 'Method', 'text', 'The HTTP method.'),
   'server.address': attr('http', 'Host', 'id', 'The server the try went to.'),
   'url.path': attr('http', 'Path', 'id', 'The URL path. The query is never recorded.'),
@@ -901,7 +1065,6 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
     'How long THEOREM waited after the previous try.',
   ),
 
-  // error
   'error.type': {
     ...attr(
       'error',
@@ -914,8 +1077,8 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
   },
   'exception.type': attr('error', 'Exception', 'id', 'The class or kind of what was thrown.'),
   'exception.message': attr('error', 'Message', 'content', 'The exception message, scrubbed.'),
+  'exception.stacktrace': attr('error', 'Stack', 'content', 'Where it was thrown, scrubbed.'),
 
-  // record
   'theorem.record.include': attr(
     'record',
     'Included',
@@ -936,7 +1099,6 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
     CLOCK_OPTIONS,
   ),
 
-  // part
   'theorem.source': attr(
     'part',
     'Source',
@@ -962,6 +1124,116 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
     'boolean',
     'The provider sent this step incomplete.',
   ),
+
+  'theorem.decision.contract': attr(
+    'decision',
+    'Contract',
+    'id',
+    "The host's decision contract the profile names.",
+  ),
+  'theorem.decision.state': attr('decision', 'State', 'json', 'The JSON state the decision read.'),
+  'theorem.decision.questions': attr(
+    'decision',
+    'Questions',
+    'json',
+    'Each question by id: its kind, instructions and criteria.',
+  ),
+  'theorem.decision.answers': attr(
+    'decision',
+    'Answers',
+    'json',
+    'Each answer by question id: the choice or score, its confidence and probabilities.',
+  ),
+
+  'gen_ai.evaluation.name': attr(
+    'evaluation',
+    'Grader',
+    'id',
+    'The grader that produced this result.',
+  ),
+  'gen_ai.evaluation.score.value': attr(
+    'evaluation',
+    'Score',
+    'number',
+    'The score, 0–1 unless the grader says otherwise.',
+  ),
+  'gen_ai.evaluation.score.label': attr(
+    'evaluation',
+    'Label',
+    'text',
+    "The grader's label for this trial, one of the labels it declares.",
+  ),
+  'gen_ai.evaluation.explanation': attr(
+    'evaluation',
+    'Explanation',
+    'content',
+    "Why, in the grader's words.",
+  ),
+  'theorem.evaluation.source': attr(
+    'evaluation',
+    'Graded by',
+    'text',
+    'Who produced this result.',
+    EVALUATION_SOURCES,
+  ),
+  'theorem.evaluation.suite': attr('evaluation', 'Suite', 'id', 'The eval suite that ran.'),
+  'theorem.evaluation.case': attr(
+    'evaluation',
+    'Case',
+    'id',
+    'The case this trial ran. Absent when a production trace was graded without one.',
+  ),
+  'theorem.evaluation.trial': attr(
+    'evaluation',
+    'Trial',
+    'number',
+    'Which trial of the case this is, from 0.',
+  ),
+  'theorem.evaluation.grader.version': attr(
+    'evaluation',
+    'Grader version',
+    'id',
+    "The sha256 of the grader's rubric or code identity, so a reader can tell which rubric scored this.",
+  ),
+  'theorem.evaluation.passed': attr(
+    'evaluation',
+    'Passed',
+    'boolean',
+    "The grader's yes or no. Absent when the result informs but does not decide.",
+  ),
+  'theorem.eval.repeat': attr(
+    'evaluation',
+    'Trials per case',
+    'number',
+    'How many times each case ran.',
+  ),
+  'theorem.eval.pass_rule': attr(
+    'evaluation',
+    'Pass rule',
+    'text',
+    'How the trials of a case become its verdict.',
+    PASS_RULES,
+  ),
+  'theorem.eval.pass_at_least': attr(
+    'evaluation',
+    'Trials needed',
+    'number',
+    'Trials that must pass under the at-least rule.',
+  ),
+  'theorem.eval.caseless': attr(
+    'evaluation',
+    'Caseless',
+    'boolean',
+    'Production traces were graded with no cases: only graders that need no expectation ran.',
+  ),
+  'theorem.eval.stopped': attr(
+    'evaluation',
+    'Stopped early',
+    'text',
+    'Why the run stopped before its end.',
+    EVAL_STOPS,
+  ),
+  'vcs.ref.head.revision': attr('evaluation', 'Commit', 'id', 'The commit under test.'),
 };
 
 /** Modality token counts: `{gen_ai|theorem}.usage.<modality>.<input|output>_tokens`. */
@@ -1000,10 +1272,17 @@ function traceAttributeMeta(key: string): TraceAttributeMeta | undefined {
   return undefined;
 }
 
-// ── events ──────────────────────────────────────────
-
 const HITS = fields('error', 'Hits', 'Each rule that matched.', {
-  rule: attr('error', 'Rule', 'id', 'The rule that matched.'),
+  rule: {
+    ...attr(
+      'error',
+      'Rule',
+      'id',
+      "The rule that matched: one of Theorem's own, or a host policy's, which names itself.",
+      GUARDRAIL_RULE_OPTIONS,
+    ),
+    open: true,
+  },
   severity: attr(
     'error',
     'Severity',
@@ -1019,6 +1298,8 @@ const HITS = fields('error', 'Hits', 'Each rule that matched.', {
     'text',
     'The matched text, exact. Kept only when the profile records match previews.',
   ),
+  label: attr('error', 'Rule name', 'text', "A host rule's own name for what it catches."),
+  doc: attr('error', 'Why it matters', 'text', "A host rule's own account of why a match matters."),
 });
 
 const TRACE_EVENTS: Readonly<Record<string, TraceEventMeta>> = {
@@ -1045,8 +1326,21 @@ const TRACE_EVENTS: Readonly<Record<string, TraceEventMeta>> = {
   },
   'theorem.guardrail': {
     label: 'Guardrail',
-    doc: 'A guardrail checked some text and acted on it.',
+    doc: 'A guardrail checked some text: what it did, or `allow` for a timed check that let the text through.',
     attributes: {
+      check: attr('agent', 'Check', 'id', 'Which timed check ran.', GUARDRAIL_CHECK_OPTIONS),
+      duration_ms: attr(
+        'agent',
+        'Check time',
+        'milliseconds',
+        'Time the check took; a check on streamed output, its total over the call.',
+      ),
+      runs: attr(
+        'agent',
+        'Runs',
+        'number',
+        'How many times a check on streamed output ran on the call.',
+      ),
       stage: attr('agent', 'Checked', 'text', 'Which text was checked.', GUARDRAIL_STAGE_OPTIONS),
       trust: attr('agent', 'Trust', 'text', 'How far that text is trusted.', TRUST_OPTIONS),
       action: attr('agent', 'Action', 'text', 'What the guardrail did.', GUARDRAIL_ACTIONS),
@@ -1101,9 +1395,47 @@ const TRACE_EVENTS: Readonly<Record<string, TraceEventMeta>> = {
         'Media items the count could not cover.',
       ),
       needed: attr('agent', 'Needed', 'boolean', 'The count crossed the threshold.'),
-      compacted: attr('agent', 'Compacted', 'boolean', 'Earlier messages were summarized.'),
+      outcome: attr(
+        'agent',
+        'Outcome',
+        'text',
+        'What happened to the earlier messages.',
+        COMPACTION_OUTCOME_OPTIONS,
+      ),
       messages_before: attr('messages', 'Messages before', 'number', 'History length before.'),
       messages_after: attr('messages', 'Messages after', 'number', 'History length after.'),
+      dropped_media: attr(
+        'messages',
+        'Media left out',
+        'number',
+        'Media the compactor does not take, left out of what it read.',
+      ),
+      failure_stop: attr(
+        'agent',
+        'Compactor stop',
+        'text',
+        'How the failed compactor stopped.',
+        STOP_KINDS,
+      ),
+      failure_error: attr(
+        'agent',
+        'Compactor error',
+        'text',
+        'The error the compactor failed with.',
+        ERROR_KIND_OPTIONS,
+      ),
+      failure_empty: attr(
+        'agent',
+        'Empty summary',
+        'boolean',
+        'The compactor replied with nothing.',
+      ),
+      failure_unreadable: attr(
+        'agent',
+        'Nothing to read',
+        'boolean',
+        'Everything to compact was media the compactor does not take, so it did not run.',
+      ),
       summary: attr('messages', 'Summary', 'content', 'The summary that replaced them.'),
     },
   },
@@ -1162,11 +1494,21 @@ const TRACE_EVENTS: Readonly<Record<string, TraceEventMeta>> = {
         {
           slot: attr('tool', 'Credential', 'id', 'The credential slot the tool reads.'),
           type: attr('tool', 'Type', 'text', 'The kind of credential.'),
+          service: attr('tool', 'Service', 'text', 'The service the person signs in to.'),
           issuer: attr('tool', 'Issuer', 'id', 'Who issues it.'),
           resource: attr('tool', 'Resource', 'id', 'What it grants access to.'),
           required_scopes: attr('tool', 'Scopes', 'list', 'The scopes it must carry.'),
         },
       ),
+    },
+  },
+  'theorem.auth.scope_refused': {
+    label: 'Access refused',
+    doc: 'The service asked for access outside the scopes the tool declares, so no sign-in was offered.',
+    attributes: {
+      slot: attr('tool', 'Credential', 'id', 'The credential slot the tool reads.'),
+      requested: attr('tool', 'Asked for', 'list', 'The scopes the service asked for.'),
+      declared: attr('tool', 'Declared', 'list', 'The scopes the tool declares.'),
     },
   },
   'theorem.tool.warning': {
@@ -1213,15 +1555,48 @@ const TRACE_EVENTS: Readonly<Record<string, TraceEventMeta>> = {
         'boolean',
         'The provider sent a resumption handle. The handle is a credential and is never recorded.',
       ),
-      key_slot: attr('request', 'From key', 'text', 'The key slot refused.', KEY_SLOT_OPTIONS),
+      key_slot: attr('request', 'From key', 'text', 'The key slot refused.'),
       to_key_slot: attr(
         'request',
         'To key',
         'text',
-        'The key slot it reopened on.',
-        KEY_SLOT_OPTIONS,
+        "The profile's fallback key slot it reopened on.",
       ),
       error: attr('error', 'Detail', 'text', "The provider's refusal."),
+    },
+  },
+  'gen_ai.evaluation.result': {
+    label: 'Eval result',
+    doc: "One grader's reading of this trace. Its keys are span attributes of the evaluation group.",
+    attributes: {},
+  },
+  'theorem.eval.verdict': {
+    label: 'Verdict',
+    doc: "One case's pass or fail after its trials, by the suite's pass rule. Every case is here, zeros included.",
+    attributes: {
+      case: attr('evaluation', 'Case', 'id', 'The case judged.'),
+      kind: attr('evaluation', 'Kind', 'text', "Anthropic's split of cases.", CASE_KINDS),
+      difficulty: attr(
+        'evaluation',
+        'Difficulty',
+        'number',
+        'The case’s 1–5 difficulty, when the suite set one.',
+      ),
+      passed: attr('evaluation', 'Passed', 'boolean', 'The pass rule was met.'),
+      trials: attr('evaluation', 'Trials', 'number', 'Trials run.'),
+      trials_passed: attr(
+        'evaluation',
+        'Passed trials',
+        'number',
+        'Trials every deciding grader passed.',
+      ),
+      trials_errored: attr(
+        'evaluation',
+        'Errored trials',
+        'number',
+        'Trials a grader could not score; they count as failed.',
+      ),
+      trials_ungraded: attr('evaluation', 'Ungraded trials', 'number', 'Trials no grader decided.'),
     },
   },
 };
@@ -1231,12 +1606,10 @@ function traceEventMeta(name: string): TraceEventMeta | undefined {
   return TRACE_EVENTS[name];
 }
 
-/** What one of an event's attributes means: the event's own entry, else the span attribute of that key. */
+/** The event's own entry, else the span attribute of that key. */
 function traceEventAttributeMeta(event: string, key: string): TraceAttributeMeta | undefined {
   return TRACE_EVENTS[event]?.attributes[key] ?? traceAttributeMeta(key);
 }
-
-// ── spans ───────────────────────────────────────────
 
 const TRACE_SPAN_TYPES: Readonly<Record<TraceSpanType, TraceOptionMeta>> = {
   turn: { label: 'Turn', doc: 'One exchange: the model calls and tool calls it took to answer.' },
@@ -1246,6 +1619,8 @@ const TRACE_SPAN_TYPES: Readonly<Record<TraceSpanType, TraceOptionMeta>> = {
   tool: { label: 'Tool call', doc: 'One tool call THEOREM ran, from its hooks to settlement.' },
   http: { label: 'HTTP try', doc: 'One HTTP attempt of a model call.' },
   cutout: { label: 'Cutout', doc: 'A side effect the host recorded after the turn.' },
+  decision: { label: 'Decision', doc: 'One typed decision over JSON state.' },
+  evaluation: { label: 'Evaluation', doc: 'An eval graded this trace, or a suite ran.' },
   host: { label: 'Host span', doc: 'A step the host recorded itself.' },
 };
 
@@ -1259,7 +1634,6 @@ function withSubject(type: TraceSpanType, subject: string | undefined): TraceSpa
   return subject ? { ...meta, subject } : meta;
 }
 
-/** What a span is, from what it recorded, and what it acted on. */
 function traceSpanMeta(span: TraceSpan): TraceSpanMeta {
   switch (stringAttribute(span, 'gen_ai.operation.name')) {
     case 'invoke_agent':
@@ -1275,6 +1649,8 @@ function traceSpanMeta(span: TraceSpan): TraceSpanMeta {
       );
     case 'execute_tool':
       return withSubject('tool', stringAttribute(span, 'gen_ai.tool.name'));
+    case 'decide':
+      return withSubject('decision', stringAttribute(span, 'gen_ai.agent.name'));
     default:
       break;
   }
@@ -1282,6 +1658,9 @@ function traceSpanMeta(span: TraceSpan): TraceSpanMeta {
     return withSubject('http', stringAttribute(span, 'url.path'));
   }
   if (span.name === 'cutout') return withSubject('cutout', stringAttribute(span, 'url.path'));
+  if (span.name === 'theorem.eval.trial' || span.name === 'theorem.eval.run') {
+    return withSubject('evaluation', stringAttribute(span, 'theorem.evaluation.suite'));
+  }
   return withSubject('host', span.name);
 }
 

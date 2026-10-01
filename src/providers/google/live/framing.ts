@@ -1,11 +1,3 @@
-/**
- * Pure protocol framing & serialization for Google Gemini Live WebSocket API (`BidiGenerateContent`).
- *
- * All functions are pure data transformations with no network I/O.
- *
- * @module
- */
-
 import { TheoremError, toErrorEvent } from '../../../guardrails/error.ts';
 import { asRecord } from '../../../kernel/engine/record.ts';
 import { reportedTokens, usageCount } from '../../../kernel/engine/usage.ts';
@@ -37,15 +29,13 @@ import { GEMINI_LIVE_WS_URL } from '../urls.ts';
 import { byModality, modalityCounts } from '../usage.ts';
 import { toGeminiOpenApiSchema } from './openapi-schema.ts';
 
-/** Construct authenticated WebSocket URL for Gemini Live API. */
 export function buildGeminiLiveWebSocketUrl(apiKey: string): string {
   return `${GEMINI_LIVE_WS_URL}?key=${encodeURIComponent(apiKey)}`;
 }
 
 /**
- * Live tools are always declared non-blocking: the host runs each call through
- * `LiveSession.executeTool` while the model keeps speaking, and a cancel reaches
- * the host as a `tool` event with `phase: 'cancel'`.
+ * Non-blocking: the host runs each call via `LiveSession.executeTool` while the
+ * model keeps speaking, and a cancel reaches it as a `tool` event with `phase: 'cancel'`.
  */
 const LIVE_FUNCTION_BEHAVIOR = 'NON_BLOCKING';
 
@@ -94,7 +84,7 @@ function buildLiveGenerationConfig(req: ProviderCompleteRequest): Record<string,
       },
     };
   }
-  if (req.thinking && req.thinking !== 'none') {
+  if (req.thinking) {
     generationConfig.thinkingConfig = {
       thinkingLevel: req.thinking,
     };
@@ -102,15 +92,7 @@ function buildLiveGenerationConfig(req: ProviderCompleteRequest): Record<string,
   return generationConfig;
 }
 
-function normalizeStartSensitivity(val?: string): string {
-  return val?.includes('HIGH') ? 'START_SENSITIVITY_HIGH' : 'START_SENSITIVITY_LOW';
-}
-
-function normalizeEndSensitivity(val?: string): string {
-  return val?.includes('HIGH') ? 'END_SENSITIVITY_HIGH' : 'END_SENSITIVITY_LOW';
-}
-
-/** Gemini's `contextWindowCompression` for the profile's; unset numbers stay Gemini's. */
+// Unset numbers are left to Gemini's defaults.
 function buildContextWindowCompression(
   compression: LiveContextCompressionSpec,
 ): Record<string, unknown> {
@@ -125,12 +107,10 @@ function buildContextWindowCompression(
 function buildLiveRealtimeInputConfig(vad: LiveVadSpec): Record<string, unknown> | undefined {
   const automaticActivityDetection: Record<string, unknown> = {};
   if (vad.startSensitivity !== undefined) {
-    automaticActivityDetection.startOfSpeechSensitivity = normalizeStartSensitivity(
-      vad.startSensitivity,
-    );
+    automaticActivityDetection.startOfSpeechSensitivity = vad.startSensitivity;
   }
   if (vad.endSensitivity !== undefined) {
-    automaticActivityDetection.endOfSpeechSensitivity = normalizeEndSensitivity(vad.endSensitivity);
+    automaticActivityDetection.endOfSpeechSensitivity = vad.endSensitivity;
   }
   if (vad.prefixPaddingMs !== undefined) {
     automaticActivityDetection.prefixPaddingMs = vad.prefixPaddingMs;
@@ -180,17 +160,14 @@ function applyLiveOptionalFeatures(
   }
 }
 
-/** Build the initial `setup` message sent once immediately after WebSocket open. */
 export function buildGeminiLiveSetupMessage(req: ProviderCompleteRequest): Record<string, unknown> {
   const live = req.live;
   const realtimeInputConfig = live?.vad ? buildLiveRealtimeInputConfig(live.vad) : undefined;
   const tools = wireLiveTools(req);
   const sessionResumption = buildLiveSessionResumption(req);
 
-  // Only opt into initial-history gating when we actually have history to seed.
-  // With `initialHistoryInClientContent: true`, Gemini waits for clientContent
-  // after setupComplete and will not start realtime generation until that lands —
-  // empty sessions (e.g. Th30) would hang forever if this were always set.
+  // `initialHistoryInClientContent` makes Gemini wait for clientContent before
+  // realtime generation, so an empty session (e.g. Th30) would hang forever.
   const seedInitialHistory = Boolean(req.history && req.history.length > 0);
 
   const setup: Record<string, unknown> = {
@@ -254,7 +231,6 @@ function functionResponseTurn(msg: TurnHistoryMessage): Record<string, unknown> 
   };
 }
 
-/** Format a single history message into a Google turn object. */
 function historyTurnToGoogleTurn(msg: TurnHistoryMessage): Record<string, unknown> {
   if (msg.role === 'tool') {
     return functionResponseTurn(msg);
@@ -273,7 +249,6 @@ function historyTurnToGoogleTurn(msg: TurnHistoryMessage): Record<string, unknow
   return { role, parts };
 }
 
-/** Build the `clientContent` message used for seeding conversation history before realtime streaming. */
 export function buildGeminiLiveClientContent(
   history: TurnHistoryMessage[],
 ): Record<string, unknown> | null {
@@ -288,7 +263,6 @@ export function buildGeminiLiveClientContent(
   };
 }
 
-/** Build a `realtimeInput` message for streaming audio, video, or text chunks. */
 export function buildGeminiLiveRealtimeInput(input: InteractionPart): Record<string, unknown> {
   if (input.type === 'text') {
     return {
@@ -304,7 +278,6 @@ export function buildGeminiLiveRealtimeInput(input: InteractionPart): Record<str
   return { realtimeInput: part.type === 'audio' ? { audio: media } : { video: media } };
 }
 
-/** Build the Gemini Live `response` struct for a function result: what the model reads. */
 export function liveFunctionResponsePayload(output: unknown): Record<string, unknown> {
   const error = asRecord(output)?.error;
   if (typeof error === 'string') {
@@ -313,7 +286,6 @@ export function liveFunctionResponsePayload(output: unknown): Record<string, unk
   return { result: output };
 }
 
-/** Build a `toolResponse` message returning the execution result of a tool call. */
 export function buildGeminiLiveToolResponse(
   id: string,
   name: string,
@@ -322,7 +294,6 @@ export function buildGeminiLiveToolResponse(
   return buildGeminiLiveToolResponses([{ id, name, output }]);
 }
 
-/** Build a batched `toolResponse` for one or more function results. */
 export function buildGeminiLiveToolResponses(
   responses: Array<{ id: string; name: string; output: unknown }>,
 ): Record<string, unknown> {
@@ -337,7 +308,6 @@ export function buildGeminiLiveToolResponses(
   };
 }
 
-/** A `functionResponse` as the tool message the model reads: its `response`, as sent. */
 function functionResponseMessage(response: Record<string, unknown>): TurnHistoryMessage {
   return {
     role: 'tool',
@@ -355,7 +325,6 @@ function records(value: unknown): Record<string, unknown>[] {
   });
 }
 
-/** One `clientContent` turn as kernel messages: its content, then any function responses. */
 function clientTurnMessages(turn: Record<string, unknown>): TurnHistoryMessage[] {
   const parts: InteractionPart[] = [];
   const calls: NonNullable<TurnHistoryMessage['tool_calls']> = [];
@@ -387,11 +356,7 @@ function clientTurnMessages(turn: Record<string, unknown>): TurnHistoryMessage[]
   return [...content, ...responses];
 }
 
-/**
- * What one outbound frame gives the model to read, as kernel messages in the
- * order sent. Setup and control frames (activity markers, `audioStreamEnd`)
- * give none.
- */
+/** What one outbound frame gives the model to read; setup and control frames give none. */
 export function liveFrameInput(frame: Record<string, unknown>): TurnHistoryMessage[] {
   const realtime = asRecord(frame.realtimeInput);
   if (realtime) {
@@ -414,7 +379,6 @@ export function liveFrameInput(frame: Record<string, unknown>): TurnHistoryMessa
   return toolResponse ? records(toolResponse.functionResponses).map(functionResponseMessage) : [];
 }
 
-/** Parse raw WebSocket message text / buffer into a JSON record. */
 export type ParsedLiveMessage =
   | { ok: true; value: Record<string, unknown> }
   | { ok: false; reason: 'empty' | 'malformed' };
@@ -441,14 +405,11 @@ export function parseGeminiLiveMessage(raw: unknown): ParsedLiveMessage {
 }
 
 /**
- * Live `usageMetadata` → `TurnTokens`. Live sends one row per model response,
- * at its `turnComplete`, covering that response alone; the prompt count grows
- * because each response re-reads the session.
- *
- * Live probe (gemini-3.1-flash-live-preview, 22/09/2026): `thoughtsTokenCount`
- * sits outside both `responseTokenCount` and `totalTokenCount`, so it is added
- * to output. `toolUsePromptTokenCount` (not seen in that probe) is added to
- * input, as on Interactions.
+ * Live sends one usage row per model response, at its `turnComplete`, covering that
+ * response alone; the prompt count grows because each response re-reads the session.
+ * Probe (gemini-3.1-flash-live-preview, 22/09/2026): `thoughtsTokenCount` sits outside
+ * `responseTokenCount` and `totalTokenCount`, so it is added to output.
+ * `toolUsePromptTokenCount` (not seen in that probe) is added to input, as on Interactions.
  */
 export function extractLiveUsageTokens(metadata: Record<string, unknown>): TurnTokens | undefined {
   const prompt = usageCount(metadata.promptTokenCount);
@@ -490,7 +451,6 @@ function foldSessionUpdate(message: Record<string, unknown>, events: ProviderEve
   });
 }
 
-/** What one Live connection remembers across server messages. */
 export interface LiveFold {
   /** Tool call names by id, for the cancel that names only ids. */
   calls: Map<string, string>;
@@ -500,7 +460,6 @@ export function newLiveFold(): LiveFold {
   return { calls: new Map() };
 }
 
-/** `toolCall.functionCalls[]`: each call, and its failure when its name or arguments are unusable. */
 function foldToolCalls(
   message: Record<string, unknown>,
   fold: LiveFold,
@@ -626,7 +585,6 @@ function codeExecutionResultEvidence(result: Record<string, unknown>): TurnEvent
   };
 }
 
-/** A transcription row's `text`, when it has any. */
 function transcriptionText(value: unknown): string | undefined {
   const text = asRecord(value)?.text;
   return typeof text === 'string' && text ? text : undefined;
@@ -728,9 +686,6 @@ function foldUsageMetadata(message: Record<string, unknown>, events: ProviderEve
   }
 }
 
-/**
- * Fold a raw `BidiGenerateContentServerMessage` into normalized `ProviderEvent` items.
- */
 export function foldGeminiLiveServerMessage(
   message: Record<string, unknown> | null | undefined,
   fold: LiveFold,

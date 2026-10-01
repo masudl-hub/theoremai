@@ -10,13 +10,13 @@
 
 import {
   DEFAULT_CHECKS,
-  EGRESS_RULES,
   NO_CHECKS,
   type ResolvedEgressChecks,
   standardEgressEnforce,
 } from './egress.ts';
 import { createEgressStream, type EgressStream, type EgressStreamHit } from './egress-stream.ts';
 import { type GivenUrls, imageLeakSpans, linkLeakSpans } from './egress-urls.ts';
+import { EGRESS_RULES } from './rules.ts';
 import type { EgressEnforcer } from './types.ts';
 
 // A space ends a URL the text before runs up to; no brackets, which after a `!` or `]` would open an image or link.

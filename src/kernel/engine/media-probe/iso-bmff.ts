@@ -1,9 +1,3 @@
-/**
- * ISO base media file format (MP4, M4A, HEIF) box walking.
- *
- * @module
- */
-
 import { ascii, uint64, view } from './bytes.ts';
 
 const BOX_HEADER = 8;
@@ -14,7 +8,6 @@ const FTYP_COMPATIBLE = 8;
 /** Version and flags that open every full box. */
 export const FULL_BOX_HEADER = 4;
 
-/** One box: its four-character type and where its payload sits. */
 export interface Box {
   type: string;
   /** First payload byte (past size, type, and any large size). */

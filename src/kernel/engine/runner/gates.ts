@@ -26,7 +26,7 @@ import type {
   TurnStop,
 } from '../../types.ts';
 import { findLast } from '../../util/find-last.ts';
-import { guardrailAttributes } from '../turn-trace.ts';
+import { guardrailCheckAttributes } from '../turn-trace.ts';
 import { collectValidationFailures, formatValidationFailures } from './schema-validation.ts';
 import { applyTurnStage } from './stages.ts';
 import { type AttemptFlowState, appendUserInput, type StepExecutionState } from './state.ts';
@@ -47,12 +47,7 @@ function collectAttemptText(events: TurnEvent[]): string {
   return parts.join('');
 }
 
-/**
- * Project attempt events into the egress payload.
- *
- * Structured output travels alongside text so a profile with `outputs.structured`
- * is covered by its own egress policy rather than passing unexamined.
- */
+// Structured output travels with the text so `outputs.structured` meets egress rather than passing unexamined.
 function projectOutbound(events: TurnEvent[]): OutboundPayload {
   const structured = findLast(events, (e) => e.type === 'structured')?.structured;
   return {
@@ -262,6 +257,7 @@ async function* handleEgressGate(
   maxRetries: number,
 ): AsyncGenerator<TurnEvent, 'continue' | 'terminal' | 'pass'> {
   const canRetry = flow.currentAttempt < maxRetries;
+  const checkStart = performance.now();
   const { outcome, guardrail } = await evaluateEgressOutcome({
     egress,
     attemptEvents: state.attemptEvents,
@@ -273,8 +269,14 @@ async function* handleEgressGate(
     givenUrls: state.givenUrls,
   });
 
+  state.trace.root.event(
+    'theorem.guardrail',
+    guardrailCheckAttributes('egress', performance.now() - checkStart, guardrail?.guardrail, {
+      stage: 'output_final',
+      trust: 'untrusted',
+    }),
+  );
   if (guardrail) {
-    state.trace.root.event('theorem.guardrail', guardrailAttributes(guardrail.guardrail));
     state.allEmittedEvents.push(guardrail);
     yield guardrail;
   }

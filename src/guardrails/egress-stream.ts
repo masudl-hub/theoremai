@@ -18,12 +18,7 @@
  * @module
  */
 
-import {
-  DEFAULT_CHECKS,
-  EGRESS_RULES,
-  type ResolvedEgressChecks,
-  standardEgressEnforce,
-} from './egress.ts';
+import { DEFAULT_CHECKS, type ResolvedEgressChecks, standardEgressEnforce } from './egress.ts';
 import {
   FORWARD_AUTOMATON,
   REVERSED_AUTOMATON,
@@ -48,6 +43,7 @@ import {
   typoNormalize,
 } from './injection.ts';
 import { isEmoji, normalizeCodePoint } from './normalize.ts';
+import { EGRESS_RULES } from './rules.ts';
 import { cardHit } from './sensitive.ts';
 import type { EgressEnforcer, GuardrailContext, Severity } from './types.ts';
 

@@ -1,10 +1,4 @@
-/**
- * A playground draft's tools, registered into one scope's tool registry: the
- * Google builtins and the draft's compiled custom tools. Function tools run the
- * demo handler for their name, or return a stub shaped by their output schema.
- *
- * @module
- */
+/** Function tools run the demo handler for their name, or return a stub shaped by their output schema. */
 
 import type { ToolRegistry } from '../src/kernel/tools/registry.ts';
 import { GOOGLE_BUILTIN_TOOLS } from '../src/presets/google.ts';
@@ -24,6 +18,7 @@ function registerCustomTool(tools: ToolRegistry, tool: ToolRegistration): void {
     permission: tool.permission,
     input: zodFromJsonSchema(tool.inputSchema),
     output: zodFromJsonSchema(tool.outputSchema),
+    ...(tool.labels ? { labels: tool.labels } : {}),
   };
   if (tool.type === 'http') {
     tools.register({
@@ -65,7 +60,6 @@ function registerCustomTool(tools: ToolRegistry, tool: ToolRegistration): void {
   });
 }
 
-/** Register the Google builtins and `customTools` in `tools`. */
 export function registerPlaygroundTools(
   tools: ToolRegistry,
   customTools: readonly ToolRegistration[],

@@ -9,15 +9,15 @@
  * @module
  */
 
-import type { ToolGateAuth } from '../../../src/interface/mod.ts';
+import type { ToolGateAuth } from '@theoremjs/agents/interface';
 import type {
 	ToolGate,
 	ToolId,
 	TurnEventOf,
 	TurnInput,
 	TurnToolSnapshot,
-} from '../../../src/kernel/mod.ts';
-import { gateExpired } from '../../../src/kernel/tools/gate-answer.ts';
+} from '@theoremjs/agents/kernel';
+import { gateExpired } from '@theoremjs/agents/kernel';
 
 /** A tool call the kernel paused on a gate, as the server saw it. */
 export type PendingToolGate = {

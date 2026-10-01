@@ -27,7 +27,6 @@ const B64_TRIPLET = 3;
 const CSV_FORMULA = /(^|,)(\s*)("?)(?:([=@])|([+-])(?![0-9."]))/gm;
 const B64_BODY = /^[A-Za-z0-9+/]*={0,2}$/;
 const TEXT_MIMES = new Set(['text/csv', 'text/plain', 'text/markdown']);
-/** Returns complete attachment limits only when every required global limit is set. */
 function resolveMediaLimits(inputs: MimeInputs): MediaLimits | undefined {
   const { maxFiles, maxBytes, maxTurnBytes, limitsByMime } = inputs;
   if (maxFiles && maxBytes && maxTurnBytes) {
@@ -36,7 +35,7 @@ function resolveMediaLimits(inputs: MimeInputs): MediaLimits | undefined {
   return undefined;
 }
 
-/** Resolves a MIME-specific byte cap, then its category wildcard, then the global cap. */
+/** A MIME-specific cap, then its category wildcard, then the global cap. */
 function maxBytesForMime(mimeType: string, limits: MediaLimits): number {
   if (limits.limitsByMime) {
     const cleanMime = mimeEssence(mimeType);
@@ -52,15 +51,10 @@ function maxBytesForMime(mimeType: string, limits: MediaLimits): number {
   return limits.maxBytes;
 }
 
-/** Attachment supplied by provider file reference — no bytes to size-check or sanitize. */
 function isTurnMediaRef(item: TurnBlob | TurnMediaRef): item is TurnMediaRef {
   return 'uri' in item;
 }
 
-/**
- * Returns a turn-capable profile's attachment limits or throws when its profile
- * type cannot accept attachments or it omitted a complete limits declaration.
- */
 function requireMediaLimits(profile: Profile): MediaLimits {
   if (profile.type === 'speech') {
     throw new TheoremError('request', `Profile ${profile.id} (speech) does not accept media input`); // lexicon-exempt: developer contract error
@@ -105,7 +99,7 @@ function decodeText(bytes: Uint8Array): string {
   }
 }
 
-/** Prefixes CSV formula-like cells with an apostrophe before they reach a model. */
+/** CSV formula injection: formula-like cells get an apostrophe before they reach a model. */
 function sanitizeCsvText(text: string): string {
   return text.replace(CSV_FORMULA, (_full, ...groups: string[]) => {
     const [a, b, c, d, e] = groups;
@@ -123,17 +117,14 @@ function sanitizeTextBytes(mime: string, bytes: Uint8Array): Uint8Array {
   );
 }
 
-/** One file as validation sees it. `sizeBytes` is absent for provider references, which carry no bytes. */
+/** `sizeBytes` is absent for provider references, which carry no bytes. */
 export interface AttachmentFacts {
   name?: string;
   mimeType: string;
   sizeBytes?: number;
 }
 
-/**
- * What a profile takes: each channel's `accept` list (absent when it takes none)
- * and its complete limits.
- */
+/** An absent `accept` list means the channel takes nothing. */
 export interface AttachmentRules {
   attachments?: string[];
   voice?: string[];
@@ -179,11 +170,7 @@ function limitIssues(files: AttachmentFacts[], limits: MediaLimits): AttachmentV
   return issues;
 }
 
-/**
- * Every reason a turn's files are refused, each file's naming that file. Empty
- * means the files are accepted. The one attachment check: the kernel throws on
- * it at ingress and the headless interface runs it before a send.
- */
+/** The one attachment check: the kernel throws on it at ingress and the headless interface runs it before a send. */
 function attachmentIssues(
   rules: AttachmentRules,
   files: AttachmentFacts[],
@@ -214,7 +201,6 @@ const ISSUE_KEYS: Record<AttachmentValidationIssue['code'], LexiconKey> = {
   limits_unconfigured: 'attachments.limits_unconfigured',
 };
 
-/** The lexicon line for one issue, with its parameters and the file's name. */
 function attachmentIssueCopy(issue: AttachmentValidationIssue): ErrorCopy {
   const params: LexiconParams = {};
   for (const [key, value] of Object.entries(issue.params ?? {})) {
@@ -224,13 +210,11 @@ function attachmentIssueCopy(issue: AttachmentValidationIssue): ErrorCopy {
   return { key: ISSUE_KEYS[issue.code], params };
 }
 
-/** The user's line for one issue, in the profile's wording when `lexicon` is given. */
 function attachmentIssueText(issue: AttachmentValidationIssue, lexicon?: LexiconOverrides): string {
   const copy = attachmentIssueCopy(issue);
   return lexiconText(copy.key, copy.params, lexicon);
 }
 
-/** The refusal for a turn's files: one `input` error whose copy carries a line per issue. */
 function attachmentsRefused(issues: readonly AttachmentValidationIssue[]): TheoremError {
   return new TheoremError(
     'input',
@@ -252,11 +236,7 @@ function factsOf(item: TurnBlob | TurnMediaRef): AttachmentFacts {
   return facts;
 }
 
-/**
- * Refuse a turn's files when any is not accepted, naming every reason: one
- * `input` error whose copy carries a line per issue. Provider references are
- * checked for MIME and count; byte limits apply to inline blobs only.
- */
+/** Provider references are checked for MIME and count; byte limits apply to inline blobs only. */
 function assertTurnAttachments(
   profile: Profile,
   attachments: Array<TurnBlob | TurnMediaRef> | undefined,
@@ -294,11 +274,7 @@ function hasTurnBlobs(attachments?: TurnAttachments, voice?: TurnBlob[]): boolea
   return (attachments?.length ?? 0) > 0 || (voice?.length ?? 0) > 0;
 }
 
-/**
- * Refuses files the profile does not accept (every reason at once), then
- * sanitizes inline text and CSV blobs. Provider file references pass through
- * unchanged because the kernel has no bytes to scan. Names ride along.
- */
+/** Provider file references pass through unsanitized: the kernel has no bytes to scan. */
 function sanitizeTurnBlobs(
   profile: Profile,
   attachments: Array<TurnBlob | TurnMediaRef> | undefined,

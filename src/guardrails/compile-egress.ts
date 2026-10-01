@@ -1,5 +1,5 @@
 /**
- * Build-time compiler for host egress rules (`@theoremai/agents/guardrails/compile`).
+ * Build-time compiler for host egress rules (`@theoremjs/agents/guardrails/compile`).
  *
  * `compileEgressRules` turns the rules into the table `egressPolicy` loads;
  * `agents egress-compile` runs it on a module and writes the table as a module.

@@ -1,9 +1,3 @@
-/**
- * THEOREM tool registry and execution.
- *
- * @module
- */
-
 export {
   coerceToolResultParts,
   executeRegisteredTool,

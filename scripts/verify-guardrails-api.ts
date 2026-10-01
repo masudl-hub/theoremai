@@ -1,32 +1,10 @@
 #!/usr/bin/env -S deno run --allow-read --allow-net --allow-env --allow-sys
 
 /**
- * Guardrails red-team against a real provider API (text turns — not Gemini Live).
- *
- * Stresses the full runTurn stack:
- *   inbound sanitize (injection + sensitive) → canary bind → stream gate → egress
- *
- * Scoring philosophy — only Theorem-owned layers affect PASS/FAIL:
- *   • Inbound sanitize (pre-provider)
- *   • Canary stream gate + egress enforce (post-provider, pre-client)
- * Model refusals or benign replies without a Theorem block are MODEL TURN (neutral).
- * A provider safety refusal without a Theorem block is PROVIDER REFUSED (neutral).
- * A Theorem block (a `guardrail` event with action `block`) is THEOREM BLOCKED.
- * Any other provider error is ✗ PROVIDER: the case proved nothing, so the run fails.
- * Leak checks run on whatever reached the client, blocked or not.
- *
- * Free-tier wire ids (mirror playground-policy):
- *   OpenRouter: openrouter/free
- *   Gemini:     gemini-3.1-flash-lite
- *
- * Usage:
- *   deno task verify:guardrails-api   # vault slots from THEOREM_VAULT_*, see scripts/host-env.ts
- *   deno task verify:guardrails-api -- --provider gemini
- *   deno task verify:guardrails-api -- --provider gemini --model gemini-3.5-flash
- *   deno task verify:guardrails-api -- --provider gemini --model gemini-2.5-flash --effort default
- *     (--effort: the Gemini thinking level; `default` sends none, for models without `minimal`)
- *   deno task verify:guardrails-api -- --inbound-only   # no API calls
- *   deno task verify:guardrails-api -- --category canary,inbound-injection --limit 20
+ * Only Theorem-owned layers (inbound sanitize, canary stream gate, egress) decide PASS/FAIL. A
+ * model refusal without a Theorem block is MODEL TURN and a provider safety refusal PROVIDER
+ * REFUSED, both neutral; a Theorem block is THEOREM BLOCKED. Any other provider error is
+ * ✗ PROVIDER and fails the run. Leak checks read whatever reached the client, blocked or not.
  */
 
 import {
@@ -138,6 +116,7 @@ function registerLiveProfile(
           },
         },
         maxSteps: 1,
+        key: 'openrouter',
         tools: { allow: [] },
         inputs: { text: true },
         outputs: { structured: null },
@@ -169,7 +148,7 @@ function registerLiveProfile(
         },
       },
       maxSteps: 1,
-      key: 'slotA',
+      key: 'slot_a',
       tools: { allow: [] },
       inputs: { text: true },
       guardrails,
@@ -183,14 +162,14 @@ function createLiveProvider(providerKind: 'openrouter' | 'gemini'): ModelProvide
     const apiKey = hostOpenRouterKey();
     if (!apiKey) throw new Error(`${OPENROUTER_ENV} missing`);
     return createProvider(profile, {
+      vault: { ...hostVault(), openrouter: apiKey },
       openAiGateway: {
-        apiKey,
         siteUrl: 'https://theorem.masudlewis.com',
         siteName: 'Theorem Guardrails Live Red-Team',
       },
     });
   }
-  return createProvider(profile, { gemini: { vault: hostVault() } });
+  return createProvider(profile, { vault: hostVault() });
 }
 
 function serializedInbound(req: TurnRequest): string {

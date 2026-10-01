@@ -1,25 +1,10 @@
-/**
- * Local provider adapter for OpenAI-compatible endpoints (Ollama, llama.cpp,
- * vLLM, LM Studio, etc.).
- *
- * Streams SSE from `/v1/chat/completions`, accumulates tool calls, and yields
- * normalized `ProviderEvent` objects. No external SDK dependency — raw fetch + SSE.
- *
- * Wire-format message building delegates to the shared `openai/compat` module.
- * SSE parsing delegates to the shared `parseSseStream` from `sse.ts`.
- *
- * Hosts pass `baseUrl` explicitly. THEOREM does not read `OLLAMA_HOST` or other
- * environment variables (see docs/contracts/providers.md).
- *
- * @module
- */
-
 import {
   isAbortError,
   kindOfHttpStatus,
   TheoremError,
   toErrorEvent,
 } from '../../guardrails/error.ts';
+import { asRecord } from '../../kernel/engine/record.ts';
 import { turnStopFromOpenAiFinishReason } from '../../kernel/stop.ts';
 import type {
   ModelProvider,
@@ -33,9 +18,8 @@ import { foldResponse } from '../shared/response-identity.ts';
 import { parseSseStream } from '../shared/sse.ts';
 import { toolCallEvents } from '../shared/tool-args.ts';
 import { networkFetch, tapFetch } from '../shared/upstream-tap.ts';
-import type { LocalProviderConfig } from '../types.ts';
-
-// ── wire types ──────────────────────────────────────
+import { bearerFetch, requireKey } from '../shared/vault.ts';
+import type { LocalTransport } from '../types.ts';
 
 interface OpenAiDelta {
   role?: string;
@@ -55,15 +39,13 @@ interface OpenAiChoice {
 
 export type PendingToolCall = { id: string; name: string; args: string };
 
-// ── request mapping ─────────────────────────────────
-
 function normalizeBaseUrl(baseUrl: string): string {
   let end = baseUrl.length;
   while (end > 0 && baseUrl.charCodeAt(end - 1) === 47) end -= 1;
   return baseUrl.slice(0, end);
 }
 
-export function resolveBaseUrl(config: LocalProviderConfig): string {
+export function resolveBaseUrl(config: LocalTransport): string {
   const baseUrl = config.baseUrl.trim();
   if (!baseUrl) {
     throw new TheoremError('config', 'Local provider requires baseUrl'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -75,17 +57,15 @@ function buildBody(req: ProviderCompleteRequest): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model: req.apiId,
     messages: buildChatMessages(req),
-    stream: true,
-    stream_options: { include_usage: true },
+    stream: req.stream !== false,
     temperature: req.temperature,
     max_tokens: req.maxOutputTokens,
   };
+  if (body.stream) body.stream_options = { include_usage: true };
   const tools = wireTools(req.wireTools);
   if (tools) body.tools = tools;
   return body;
 }
-
-// ── stream → ProviderEvent ──────────────────────────
 
 export function flushPending(pending: Map<number, PendingToolCall>): ProviderEvent[] {
   const events = [...pending.values()].flatMap((tc) => toolCallEvents(tc, tc.args));
@@ -93,20 +73,35 @@ export function flushPending(pending: Map<number, PendingToolCall>): ProviderEve
   return events;
 }
 
+/** A local server takes no key unless the model names a slot; then the key goes as a bearer token. */
+function localFetch(
+  req: ProviderCompleteRequest,
+  config: LocalTransport,
+): {
+  send: typeof fetch;
+  headers: Record<string, string>;
+} {
+  const fetchFn = networkFetch(config.fetch ?? globalThis.fetch);
+  if (!req.keySlot) return { send: tapFetch(req.tapUpstream, fetchFn), headers: {} };
+  const key = requireKey(config.vault, req.keySlot);
+  return {
+    send: bearerFetch(req, fetchFn, config.vault, key),
+    headers: { Authorization: `Bearer ${key}` },
+  };
+}
+
 async function* streamComplete(
   baseUrl: string,
   req: ProviderCompleteRequest,
-  fetchFn: typeof globalThis.fetch,
+  config: LocalTransport,
 ): AsyncGenerator<ProviderEvent> {
-  const res = await tapFetch(req.tapUpstream, networkFetch(fetchFn))(
-    `${baseUrl}/v1/chat/completions`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(buildBody(req)),
-      signal: req.signal,
-    },
-  );
+  const { send, headers } = localFetch(req, config);
+  const res = await send(`${baseUrl}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify(buildBody(req)),
+    signal: req.signal,
+  });
   if (!res.ok) {
     const text = await res.text();
     yield toErrorEvent(
@@ -114,11 +109,40 @@ async function* streamComplete(
     );
     return;
   }
+  if (req.stream === false) {
+    yield* bufferedOpenAiBody(await res.json(), req.tapUpstream);
+    return;
+  }
   if (!res.body) {
     yield toErrorEvent(new TheoremError('bad_response', 'empty response body'));
     return;
   }
   yield* streamOpenAiBody(res.body, req.tapUpstream);
+}
+
+function* bufferedOpenAiBody(
+  raw: Record<string, unknown>,
+  tap: ProviderCompleteRequest['tapUpstream'],
+): Generator<ProviderEvent> {
+  tap?.(raw);
+  const identity = foldResponse(undefined, openAiResponse(raw));
+  if (identity.event) yield identity.event;
+  const tokens = openAiUsageTokens(raw.usage);
+  if (tokens) yield { type: 'tokens', tokens };
+  const choice = Array.isArray(raw.choices) ? asRecord(raw.choices[0]) : undefined;
+  const message = asRecord(choice?.message) as OpenAiDelta | undefined;
+  if (message?.content) yield { type: 'text', text: message.content };
+  for (const [index, call] of (message?.tool_calls ?? []).entries()) {
+    yield* toolCallEvents(
+      { id: call.id ?? `call_${index}`, name: call.function?.name ?? '' },
+      call.function?.arguments ?? '',
+    );
+  }
+  const finish = choice?.finish_reason;
+  yield {
+    type: 'done',
+    stop: turnStopFromOpenAiFinishReason(typeof finish === 'string' ? finish : null),
+  };
 }
 
 async function* streamOpenAiBody(
@@ -198,16 +222,12 @@ function accumulateToolCalls(
   }
 }
 
-// ── public factory ──────────────────────────────────
-
-/** Create a `ModelProvider` for a local OpenAI-compatible server (Ollama, llama.cpp, vLLM, LM Studio). */
-function createLocalProvider(config: LocalProviderConfig): ModelProvider {
+function createLocalProvider(config: LocalTransport): ModelProvider {
   const baseUrl = resolveBaseUrl(config);
-  const fetchFn = config.fetch ?? globalThis.fetch;
   return {
     async *complete(req: ProviderCompleteRequest): AsyncGenerator<ProviderEvent> {
       try {
-        yield* streamComplete(baseUrl, req, fetchFn);
+        yield* streamComplete(baseUrl, req, config);
       } catch (err) {
         if (isAbortError(err)) throw err;
         yield toErrorEvent(err);

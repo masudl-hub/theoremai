@@ -1,6 +1,3 @@
-/**
- * Tool-result fidelity: project → history shape → adapter wire.
- */
 import '../fixtures/test-host.ts';
 import { assertEquals } from '@std/assert';
 import { historyMessageParts, wireInteractionPart } from '../../src/kernel/interaction-parts.ts';

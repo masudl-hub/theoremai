@@ -16,10 +16,10 @@ import { firstOf } from '../../../fixtures/events.ts';
 import { geminiModels } from '../../../fixtures/models.ts';
 
 const vault: KeyVault = {
-  slotA: 'free-a-key',
-  slotB: 'free-b-key',
-  slotC: 'free-c-key',
-  paid: 'paid-key',
+  slot_a: 'free-a-key',
+  slot_b: 'free-b-key',
+  slot_c: 'free-c-key',
+  spare: 'spare-key',
 };
 
 function noWait(): Promise<void> {
@@ -235,7 +235,7 @@ Deno.test('createProvider routes speech-role Interactions to the same adapter', 
   });
   const profile = getProfile('speech-test');
   const provider = createProvider(profile, {
-    gemini: { vault },
+    vault: vault,
   });
   assertEquals(typeof provider.complete, 'function');
 });

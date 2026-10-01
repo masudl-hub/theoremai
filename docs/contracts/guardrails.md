@@ -1,4 +1,4 @@
-# Guardrails (`@theoremai/agents/guardrails`)
+# Guardrails (`@theoremjs/agents/guardrails`)
 
 Generic inbound and outbound guardrail primitives. App-specific policy,
 product copy, and channel UX remain host-owned — this entry ships reusable
@@ -8,11 +8,11 @@ detectors, sanitizers, public error mapping, and optional per-day quota slots.
 
 | Field | Value |
 | --- | --- |
-| Import | `@theoremai/agents/guardrails` / `jsr:@theoremai/agents/guardrails` |
+| Import | `@theoremjs/agents/guardrails` / `jsr:@theoremjs/agents/guardrails` |
 | Module | `src/guardrails/mod.ts` |
-| Testing | `@theoremai/agents/guardrails/testing` → `src/guardrails/testing.ts` (corpus / fuzz only) |
-| Compile | `@theoremai/agents/guardrails/compile` → `src/guardrails/compile-egress.ts` (build time only; imports `refa`) |
-| Also on | Root `@theoremai/agents` re-exports common error/sanitize/quota/canary helpers |
+| Testing | `@theoremjs/agents/guardrails/testing` → `src/guardrails/testing.ts` (corpus / fuzz only) |
+| Compile | `@theoremjs/agents/guardrails/compile` → `src/guardrails/compile-egress.ts` (build time only; imports `refa`) |
+| Also on | Root `@theoremjs/agents` re-exports common error/sanitize/quota/canary helpers |
 
 ## Invariant
 
@@ -79,10 +79,10 @@ Owns every module under `src/guardrails/`.
 | `egress-stream.ts` | The bundled policy and host rules read incrementally: where a match could still start, and its settled hits |
 | `egress-rules.ts` | Host egress rule shape, the compiled table's shape, rule checks |
 | `egress-policy.ts` | `egressPolicy` — the bundled policy plus host rules, or host rules alone, held exactly |
-| `compile-egress.ts` | `@theoremai/agents/guardrails/compile` entry: `compileEgressRules`, `compiledEgressModule` |
+| `compile-egress.ts` | `@theoremjs/agents/guardrails/compile` entry: `compileEgressRules`, `compiledEgressModule` |
 | `egress-compiler.ts` | Build-time compiler from regexes to hold automata (`agents egress-compile`, `scripts/gen-egress-automata.ts`) |
 | `corpus/` | Adversarial bank (live attacks, inbound fuzz, canary egress catalog) |
-| `testing.ts` | Test-only re-exports (`@theoremai/agents/guardrails/testing`) |
+| `testing.ts` | Test-only re-exports (`@theoremjs/agents/guardrails/testing`) |
 | `normalize.ts` | Detection normalization |
 | `serialize.ts` | `textForScan` — flatten non-text payloads for detectors without ever throwing |
 | `tool-result.ts` | Tool boundary — fence, provenance, result / failure / argument guards |
@@ -96,6 +96,7 @@ Owns every module under `src/guardrails/`.
 | `mintCanary` | Generate per-turn 32-hex token (128 random bits, no prefix) |
 | `bindCanary` | Append canary note to system prompt |
 | `wrapUserData` | Fence untrusted user text in `<user_data>` |
+| `bindUserDataNote` | Append the `user_data.note` lexicon line, which tells the model what the fence means, to the system prompt of every text, image and live turn (speech has no system prompt). An empty override leaves it out. |
 | `createCanaryStreamGate` | Holds only a tail that could start a leak, for split-token streaming; with a system prompt, also stops a reply echoing it |
 | `scanTextForCanaryLeak` | The token — as written, reversed, in ROT13, spelled out (digit words, NATO letters), as character or byte codes, or in base64 at any offset — read through case, lookalike and fullwidth characters, and separators up to 32 characters; any 16 consecutive characters of it count |
 | `eventHasCanary` | Scan any `TurnEvent` wire shape |
@@ -107,7 +108,7 @@ Owns every module under `src/guardrails/`.
 Hosts may supply `guardrails.egress.enforce` or use the bundled helper:
 
 ```ts
-import { standardEgressEnforce } from '@theoremai/agents/guardrails';
+import { standardEgressEnforce } from '@theoremjs/agents/guardrails';
 
 guardrails: {
   egress: { enforce: standardEgressEnforce, onBlock: 'refuse_to_user' },
@@ -296,7 +297,7 @@ agents egress-compile ./acme-egress.ts --out ./acme-egress.compiled.ts
 ```
 
 ```ts
-import { egressPolicy } from '@theoremai/agents/guardrails';
+import { egressPolicy } from '@theoremjs/agents/guardrails';
 import { rules } from './acme-egress.ts';
 import { compiledEgressRules } from './acme-egress.compiled.ts';
 
@@ -311,7 +312,7 @@ guardrails: { egress: { enforce: egressPolicy({ rules, compiled: compiledEgressR
 - The compiler turns each regex into an automaton the way the bundled patterns
   are (lookbehinds and anchors dropped, lookaheads optional, repeats over 256
   unbounded). Building automata needs `refa` and takes time a cold start cannot
-  spare, so it is a build step: `@theoremai/agents/guardrails/compile` is the
+  spare, so it is a build step: `@theoremjs/agents/guardrails/compile` is the
   only entry that imports `refa`, and `egressPolicy` only loads the table.
 - Rule ids must be non-empty and distinct, and may not start with `egress.`
   (the bundled policy's). A sticky (`y`) pattern is rejected. A backreference to
@@ -494,7 +495,7 @@ deno task guardrails:eval
 Corpora are fetched on demand and cached under `.guardrail-corpus/` (gitignored,
 never published). Nothing third-party is vendored. The harness itself
 (`src/guardrails/eval/`, `scripts/guardrails-eval.ts`) is repo-only: it is excluded
-from the published package and is not part of `@theoremai/agents/guardrails/testing`.
+from the published package and is not part of `@theoremjs/agents/guardrails/testing`.
 
 | Source | Licence | Role |
 | --- | --- | --- |
@@ -550,7 +551,7 @@ observations, not rates.
 
 ## Adversarial testing
 
-Import corpus helpers from **`@theoremai/agents/guardrails/testing`** (not the production guardrails entry).
+Import corpus helpers from **`@theoremjs/agents/guardrails/testing`** (not the production guardrails entry).
 
 | API / task | Role |
 | --- | --- |
@@ -722,7 +723,7 @@ Patterns target untrusted user text before provider submission:
 - Instruction override (`ignore previous instructions`, `disregard rules`, …)
 - Mode hijack (`developer mode`, `jailbreak`, `DAN`, `do anything now`)
 - Safety bypass (`disable safety filters`, …)
-- Role / delimiter forgery (`<system>`, `[System Message]`, ChatML tokens)
+- Role / delimiter forgery (`<system>`, `[System Message]`, ChatML, Llama `[INST]` and DeepSeek control tokens)
 - Prompt exfiltration (`reveal your system prompt`, …)
 - Multilingual override fragments
 
@@ -742,45 +743,45 @@ False-positive tuning: `tests/guardrails/false-positives.test.ts` and
 | --- | --- |
 | `sensitiveSpans(text, selection?)` | Credential / PII span detection for the groups `selection` runs (default every group) |
 | `SENSITIVE_GROUPS` | The groups, each switched on its own |
-| `redactSensitiveOnly` | Model output path without injection patterns |
+| `redactSensitiveOnly` | Redact sensitive spans only, without injection patterns |
 
 | Group | Matches |
 | --- | --- |
 | `ids` | SSNs (bare and in context), ITINs, EINs |
 | `financial` | IBANs, and card numbers passing the Luhn check |
 | `network` | IPv4 and IPv6 addresses |
-| `credentials` | Cloud and model API keys, GitHub and Slack tokens, bearer tokens, PEM private keys |
+| `credentials` | AWS / Google / OpenAI / Anthropic / OpenRouter keys, GitHub and Slack tokens, `Bearer` tokens, PEM private keys |
 
-`sensitiveSpans` redacts credential-like and PII patterns from inbound text and,
-when enabled, outbound paths. A selection is `true` (every group), `false`
-(none), or an object switching the groups it names, the rest at their default.
-IPv4 and IPv6 addresses count inbound, where they are the user's personal data;
-egress leaves `network` off by default, because an address in a reply is not a
-secret. Use `redactSensitiveOnly` on model output when
-injection patterns should not run. A card-number candidate counts only when it
-is 13–19 digits passing the Luhn check (`cardHit`), in batch and in the egress
-stream alike.
+`sensitiveSpans` finds, and never itself replaces. A selection is `true` (every
+group), `false` (none), or an object switching the groups it names, the rest at
+their default. Inbound, `guardrails.redactSensitive` (default every group)
+redacts them from untrusted and assembled text; trusted text is left verbatim
+(see [Trust levels](#trust-levels)). IPv4 and IPv6 addresses count inbound,
+where they are the user's personal data; egress leaves `network` off by default,
+because an address in a reply is not a secret (see [Egress](#egress)). A
+card-number candidate counts only when it is 13–19 digits passing the Luhn check
+(`cardHit`), in batch and in the egress stream alike. The trace writer uses
+`redactSensitiveOnly` when its scrub keeps sensitive redaction but drops
+injection redaction.
 
 ## Tool boundary
 
 The surface where untrusted bytes re-enter the model's context carrying the
 model's own authority. A tool result is not user text: the model asked for it, so
 it arrives looking like something the turn already trusts. Remote HTTP and MCP
-servers author their own response bodies *and their own error strings*, and a
-delegated agent answers in prose that reads as authoritative.
+servers author their own response bodies *and their own error strings*.
 
 Every registered tool returns through `executeRegisteredTool`, so the guard cannot
-be skipped by adding a tool type. Each result is labelled with `Provenance`:
+be skipped by adding a tool type. Each result and failure that crosses the guard
+is labelled with `Provenance`; failures the kernel raises before a tool runs
+(unknown, ineligible or taint-refused calls) carry kernel text and are not
+labelled.
 
 | Field | Meaning |
 | --- | --- |
-| `origin` | `local`, `builtin`, `http`, `mcp`, `delegated` |
+| `origin` | `local`, `builtin`, `http`, `mcp` (`delegated` is in the schema, but no tool type produces it) |
 | `tool` | Registered tool name |
-| `depth` | Hops from the user's turn; a direct call is `1` |
-
-`depth` is tracked separately from `origin` because a delegated agent's answer is
-model-generated prose: a two-hop delegation can otherwise launder remote content
-into trusted-looking output.
+| `depth` | Hops from the user's turn; always `1` today |
 
 **Fencing.** Remote-origin results are wrapped so the model reads them as data:
 
@@ -792,8 +793,10 @@ into trusted-looking output.
 
 The origin travels on the tag rather than in prose, and forged `tool_data` markers
 in the body are stripped before wrapping, so a result cannot claim a friendlier
-provenance than it has. Local host tools are detected but not fenced — fencing a
-local tool's output would change prompts hosts have already tuned.
+provenance than it has. Local and builtin results get injection and
+sensitive-data redaction but are not fenced, keep any forged `tool_data` markers,
+and get no directive detection — fencing a local tool's output would change
+prompts hosts have already tuned.
 
 **What the model reads.** Each result once: a tool's own `finding` leads and the
 rest of its output follows as `data`; a result with no `finding` is its output
@@ -804,18 +807,30 @@ carries it as `result`, never the tool's raw output.
 both reach the model; hiding an injection payload one level down in the JSON does
 not evade it. Failure messages are guarded too — an unguarded remote error string
 is the cleanest injection path across this boundary, because the kernel frames it
-for the model as a system report.
+for the model as a system report. The kernel redacts every failure message under
+full detection, whatever the profile's `sanitizeInput` / `redactSensitive`, then
+frames it as `Tool error (code): …` and passes it through the result guard, so a
+remote failure is fenced like a remote result. A redaction there is reported
+like any other: a `tool_result`-stage `redact` event with `tool_failure.redacted`,
+timed on the tool's span as the `tool_failure` check. Rebuilding a failure the
+model already read (history, a live replay) redacts again without reporting it
+twice.
 
 **Arguments.** `inspectToolArguments` reports rather than rewrites. Arguments are
 model-authored, so the risk is exfiltration — a credential lifted from context and
 posted outward as a parameter — and silently altering an argument would make the
-call succeed against something the model never asked for. The result is a `flag`
-verdict, surfaced as an event; the call proceeds.
+call succeed against something the model never asked for. With `redactSensitive`
+on, it scans the arguments for credential-shaped values (not injection) and
+returns a `flag` verdict, surfaced as an event; the call proceeds. With
+`redactSensitive` off, or arguments that cannot be serialized, it reports
+nothing.
+
+The tool boundary's rules (all ids: [Rule ids](#rule-ids)):
 
 | Rule | Stage | Meaning |
 | --- | --- | --- |
 | `tool_result.redacted` | `tool_result` | Detection changed the result text |
-| `tool_failure.redacted` | `tool_result` | Detection changed a failure message |
+| `tool_failure.redacted` | `tool_result` | `guardToolFailureText` changed a failure message (not emitted by the kernel) |
 | `tool_call.sensitive-argument` | `tool_call` | Credential-shaped value in tool arguments |
 | `tool_call.tainted-turn` | `tool_call` | State-changing call on a turn that has read remote content |
 | `tool_call.steered-turn` | `tool_call` | Same, where that content carried a directive and a destination |
@@ -838,7 +853,7 @@ What is anomalous inside *data* is content behaving like an instruction:
 | Imperative aimed at the agent | `tool_result.imperative` |
 | Claims an authority the content cannot hold | `tool_result.authority-claim` |
 
-The callable-tool signal reads `TurnToolSnapshot.executable`, so it is scoped to
+Directive detection runs on remote-origin results only. The callable-tool signal reads `TurnToolSnapshot.executable`, so it is scoped to
 what the model can actually invoke on this turn.
 
 **A signal only counts when it co-occurs with a concrete external destination** —
@@ -877,24 +892,27 @@ what the content said.
 
 **Nothing is redacted on these signals.** A page documenting an email API
 legitimately says "call `send_email`"; rewriting it would corrupt content the model
-needs. Directive hits raise the turn's taint instead, so a precision failure costs
-a refused write — recoverable and visible — rather than silently damaged input.
+needs. Directive hits are recorded on the turn's taint, so a later state-changing
+call reports `tool_call.steered-turn` instead of `tool_call.tainted-turn`; they
+never cause a refusal on their own.
 
 Attacks carrying no destination are not detected here and are not meant to be. An
 action-shaped attack has to reach a tool to accomplish anything, which the taint
 gate handles structurally without reading the content at all.
 
 The corpus lives in `src/guardrails/corpus/tool-ingress.ts` — attacks,
-destination-free action attacks, and instruction-shaped benign output — so the
-rates are measured by `tests/guardrails/tool-directives.test.ts` rather than
-asserted. It is currently a smoke-sized sample, not a benchmark.
+destination-free action attacks, and instruction-shaped benign output.
+`tests/guardrails/tool-directives.test.ts` asserts every attack is flagged, no
+benign output is flagged, and no destination-free attack is flagged. It is a
+smoke-sized sample, not a benchmark.
 
 ### Taint — acting after reading
 
 The confused-deputy case: the agent fetches attacker-influenceable bytes, those
 bytes ask for an action, and the agent performs it with authority the content
 never had. A turn accumulates `TurnTaint` as it reads, and each later tool call is
-judged against it.
+judged against it. Only request/response turns track taint: a Live session
+accumulates none, so `afterRemoteRead` has no effect there.
 
 Only remote origins taint. A local host tool returns bytes the host's own code
 produced, and treating those as attacker-influenceable would make the gate useless
@@ -939,19 +957,24 @@ hits without a second copy of the secret:
 
 ```ts
 { type: 'guardrail', guardrail: {
-  stage, trust, action, hits, provenance?
+  stage, trust, action, hits, provenance?, errorInternal?
 } }
 ```
 
-`hits` carry rule identity, severity, and offsets. Detectors may also attach
+`errorInternal` is a block's builder-only reason; `forClient` strips it. `hits`
+carry rule identity and severity, plus offsets (`span`) when the detector located
+the match; a host's egress `enforce` hook may add `label` and `doc` to its own
+hits, and both reach the host stream and the trace; whole-payload rules (tool boundary, taint, arguments, network, canary)
+carry none. Detectors may also attach
 `match` (the exact matched text, whole). The host stream and the
 trace's `theorem.guardrail` events strip `match` unless
 `observability.include.guardrailMatchPreview` is true (default **false** — treat like server logs when enabled). Canary leaks
 use the placeholder `[canary]`, never the live token. `forClient` /
 `forClientEvents` always strip `match` before browser/SSE. A clean surface
-emits nothing, so the absence of an event is itself information.
+emits no turn event, so on the host stream the absence of an event is itself
+information.
 
-Emission sites (non-`allow` only):
+Emission sites of host events (non-`allow` only):
 
 | Stage | Path |
 | --- | --- |
@@ -963,13 +986,49 @@ Emission sites (non-`allow` only):
 | `live_inbound` | `prepareLiveInboundText` → session pending events |
 | `live_outbound` | Live progressive-yield / finalize |
 
+`attachment` and `trace` are stages in the schema that nothing emits.
+
 The trace records each decision as a `theorem.guardrail` event on the span
 where it happened when `observability.include.guardrailDecisions` is true
-(default). Match previews
+(default). The input and final egress checks record there even when they
+pass, as `action: "allow"` with no hits, and each carries `check` (`input`,
+`egress`) and `duration_ms`, the time the check took; the host stream still
+hears only hits. Checks that run many times over a stream record once per
+model call, with `runs` and their total `duration_ms`: `output_stream` (the
+progressive gate), `stream_canary`, and on a live response `live_output`. One
+that acts records its time so far on the decision instead, and
+`theorem.guardrail.stream_ms` on the call is their sum. A live session's
+inbound text check records on the session span as `live_input`. The tool
+boundary's checks record the same way on the tool's span, pass or not:
+`tool_arguments` (`inspectToolArguments`), `taint` (`checkTaintGate`),
+`tool_result` (`guardToolResult`), `tool_failure` (`guardToolFailureText`),
+`network` (`assertSafeUrl` before a declarative HTTP or MCP request) and
+`network_request` (the host lookup and every redirect hop inside
+`fetchGuarded`, summed). A decision one of them made is recorded once, with
+its time. Match previews
 follow `guardrailMatchPreview`. Helpers: `guardrailFromVerdict`,
 `guardrailFromHits`, `guardrailTurnEvent`, `projectGuardrailTurnEvent`,
 `hitFromSpan`, `projectGuardrailEvent`, plus the tool-boundary event shaping in
 `src/guardrails/tool-result.ts`.
+
+### Rule ids
+
+Every rule id Theorem's own guardrails report lives in
+`src/guardrails/rules.ts`, grouped as `SANITIZE_RULES`, `EGRESS_RULES`,
+`DIRECTIVE_RULES`, `TOOL_RULES` and `NETWORK_RULES`; `GuardrailRule` is their
+union. The trace catalog gives each one a label and a sentence on why it
+matters (`theorem.guardrail` → `hits` → `rule`), keyed by `GuardrailRule`, so a
+new id does not typecheck until it is described. Ids a host's egress
+`enforce` hook reports are its own; the hit's `label` and `doc` name and
+explain them, and without those they show as the raw id.
+
+| Group | Rules |
+| --- | --- |
+| `SANITIZE_RULES` | `sanitize.injection`, `sanitize.sensitive` |
+| `EGRESS_RULES` | `egress.canary-leak`, `egress.sensitive-echo`, `egress.system-boundary`, `egress.injection-echo`, `egress.unscannable`, `egress.enforcer-error`, `egress.blocked` (the progressive gate stopped on a verdict that named no rule) |
+| `DIRECTIVE_RULES` | `tool_result.names-callable-tool`, `tool_result.imperative`, `tool_result.authority-claim` |
+| `TOOL_RULES` | `tool_result.redacted`, `tool_failure.redacted`, `tool_call.sensitive-argument`, `tool_call.tainted-turn`, `tool_call.steered-turn` |
+| `NETWORK_RULES` | `network.blocked` |
 
 ## Network
 
@@ -993,7 +1052,7 @@ covers remote HTTP and MCP tools, token refresh, discovery, and token exchange.
 DNS lookup, such as Workers. The lookup is separate from the
 connection's own, so it stops names that point inward but not a DNS server that
 changes its answer between the two (rebinding); that stays the host egress
-layer's job.
+layer's job. `onCheck`, when given, hears how long each hop's check took.
 
 ```ts
 guardrails: {
@@ -1034,8 +1093,8 @@ rather than its content policy — leaving it at defaults is the safe choice.
 **Not** enforced inside `runTurn`. HTTP hosts call:
 
 ```ts
+if (skipQuota(peer, req)) return runTurn(...);
 const ip = clientIp(peer, req);
-if (skipQuota(peer, req)) { /* local dev */ }
 const status = takeSlot(profile, ip, Date.now());
 // 'ok' | 'busy' | 'quota' | 'not_configured'
 try {
@@ -1045,9 +1104,15 @@ try {
 }
 ```
 
+`clientIp` uses `cf-connecting-ip` only when the peer is loopback (`127.0.0.1`,
+`::1`, `localhost`), else the peer, else `'unknown'`. `skipQuota` is true for a
+loopback peer without that header, i.e. local dev. Counts are per profile and
+client per UTC day, held in process memory: each server instance counts
+separately and a restart resets them.
+
 | Status | Meaning |
 | --- | --- |
-| `ok` | Slot taken; increment daily count |
+| `ok` | Slot taken; daily count incremented (`releaseSlot` frees the slot but never refunds the count) |
 | `busy` | Same ip/profile already in flight |
 | `quota` | `perDay` exhausted |
 | `not_configured` | Profile has no `guardrails.quota` (including when `guardrails` itself is omitted) |
@@ -1069,22 +1134,24 @@ in `src/guardrails/lexicon.ts` under a stable `LexiconKey`. Hosts replace
 defaults process-wide with `overrideLexicon({ … })` (same registration pattern
 as `registerTraceDestination`) and per profile with the profile's `lexicon`,
 which wins over the process override. Every profile type takes a `lexicon`.
-Both throw `TheoremError('config', …)` on unknown keys or a missing required
-placeholder.
+Both throw `TheoremError('config', …)` on unknown keys, a missing required
+placeholder, or a placeholder the key never fills in.
 
 | Key family | Examples | Override |
 | --- | --- | --- |
 | Continue (text profiles; the turn's user message) | `continue.instruction` | lexicon |
 | Canary | `canary.bind_note` | lexicon (must keep `{canary}`) |
+| User-data fence | `user_data.note` | lexicon (empty leaves it out) |
 | Taint / advisory | `taint.*`, `advisory.*` | lexicon |
 | Attachments | `attachments.*` | lexicon (structured codes also exposed) |
 | Errors | `error.<kind>` | lexicon (resolved where the event reaches the host) |
 | Quota | `quota.exhausted` | lexicon (`quotaExhausted` → `rate_limit`) |
 | Repair / egress | `repair.*` (`repair.default_guidance` is the validation repair guidance), `egress.default_repair_guidance`, `egress.refusal`, `egress.rejection`, `egress.invalid_verdict`, `egress.policy_failed` | lexicon |
-| Session | `session.abandon_gated`, `session.tool_denied`, `session.tool_aborted`, `session.sign_in`, `session.gate_expired`, `session.turn_ended`, `session.gate_pending` | lexicon |
+| Session | `session.abandon_gated`, `session.tool_denied`, `session.tool_aborted`, `session.sign_in`, `session.gate_expired`, `session.turn_ended`, `session.gate_pending`, `session.part_skipped` | lexicon |
 | Live | `live.session_ended` (the provider ended the call after warning it would) | lexicon (the Live session words the ended signal's `message` when it closes) |
 | Voice (browser recording) | `voice.unsupported`, `voice.permission`, `voice.unavailable`, `voice.failed`, `voice.empty` | lexicon |
 | Tools | `tool.*` (model-facing), `tool.completed_hidden` | lexicon |
+| Sign-in | `sign_in.link` (the channel line with `{link}`), `sign_in.pending`, `sign_in.done`, `sign_in.declined`, `sign_in.expired`, `sign_in.out_of_scope` — each names `{service}` | lexicon |
 
 The copy-manifest lint (`scripts/docs-truth/copy-lint.mjs`) scans the **full**
 `src/kernel`, `src/guardrails`, and `src/interface` trees, and the headless
@@ -1119,7 +1186,8 @@ From `src/guardrails/mod.ts`:
 | Injection / sensitive | `injectionSpans`, `sensitiveSpans`, `SENSITIVE_GROUPS`, `SensitiveGroup`, `SensitiveGroups`, `SensitiveSelection`, `SensitiveSwitches` |
 | Vocabulary | `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailEvent`, `guardrailEventSchema`, `Provenance`, `ToolOrigin`, `GuardrailAction`, `GuardrailContext`, `OutboundPayload`, `EgressEnforcer`, `EgressOnBlock`, `ProfileEgressSpec`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `DecisionDisclosureVerdict`, `DecisionDisclosureEnforcer`, `DecisionGuardrailsSpec`, `NetworkGuardrailSpec`, `CanaryGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES`, `EGRESS_ON_BLOCK` |
 | Policy | `resolveGuardrailPolicy`, `detectionForTrust`, `DetectionOptions` |
-| Tool boundary | `guardToolResult`, `guardToolFailureText`, `inspectToolArguments`, `toolCallEvent`, `wrapToolData`, `isRemoteOrigin`, `composeToolText`, `checkTaintGate`, `recordTaint`, `isTainted`, `isSuspicious`, `directiveHits`, `looksDirective`, `advisoryLevel`, `DIRECTIVE_RULES`, `ADVISORY_LEVELS`, `AdvisoryLevel`, `TOOL_CLOSE`, `TOOL_ORIGINS`, `TAINT_GATES`, `GuardedToolText`, `Provenance`, `ToolOrigin`, `TurnTaint`, `TaintGate`, `TaintGuardrailSpec`, `GuardrailEvent` |
+| Rule ids | `SANITIZE_RULES`, `EGRESS_RULES`, `DIRECTIVE_RULES`, `TOOL_RULES`, `NETWORK_RULES`, `GuardrailRule` |
+| Tool boundary | `guardToolResult`, `guardToolFailureText`, `inspectToolArguments`, `toolCallEvent`, `wrapToolData`, `isRemoteOrigin`, `composeToolText`, `checkTaintGate`, `recordTaint`, `isTainted`, `isSuspicious`, `directiveHits`, `looksDirective`, `advisoryLevel`, `ADVISORY_LEVELS`, `AdvisoryLevel`, `TOOL_CLOSE`, `TOOL_ORIGINS`, `TAINT_GATES`, `GuardedToolText`, `Provenance`, `ToolOrigin`, `TurnTaint`, `TaintGate`, `TaintGuardrailSpec`, `GuardrailEvent` |
 | Serialization | `textForScan`, `scanTextOf`, `ScanText` |
 | Sanitize | `sanitizeProjectId`, `sanitizeText`, `detectText`, `sanitizeHistory`, `sanitizeTurnRequest`, `sanitizeTurnRequestWithEvents`, `redactSensitiveOnly`, `detectionForProfile` |
 | Events | `guardrailFromHits`, `guardrailFromVerdict`, `guardrailTurnEvent`, `projectGuardrailTurnEvent`, `hitFromSpan`, `projectGuardrailEvent` |

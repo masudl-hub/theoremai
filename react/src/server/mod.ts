@@ -1,36 +1,37 @@
 /**
- * Server half of `@theoremai/react`: serve one profile to the chat UI.
+ * Server half of `@theoremjs/react`: serve one profile to the chat UI, a
+ * decision profile to the decision UI, or a host profile's tools to the host UI.
  *
  * @module
  */
 
-export {
-	createTheoremHandler,
-	type TheoremHandlerOptions,
-	type TheoremRequestContext,
-	theoremSessionId,
-} from './handler.ts';
+export { theoremHostCallRequestSchema } from '../client/host-transport.ts';
+export type { LiveClientMessage } from '../client/live-messages.ts';
 export {
 	theoremInvokeRequestSchema,
 	theoremReplaySchema,
 	theoremSteerRequestSchema,
 	theoremTurnRequestSchema,
 } from '../client/transport.ts';
-export type { LiveClientMessage } from '../client/live-messages.ts';
-export { checkRequest, parseLiveClientMessage } from './request-check.ts';
-export { checkWalkAway, type WalkedAwayCall, walkAway } from './walk-away.ts';
 export {
 	createMemoryCredentialStore,
 	type TheoremCredentialStore,
 	type TheoremCredentials,
 } from './credential-store.ts';
 export {
-	createMemorySteerInbox,
-	steerUnitOf,
-	type SteerInbox,
-	steerStage,
-	type SteerUnit,
-} from './steer-inbox.ts';
+	createTheoremDecisionHandler,
+	type TheoremDecisionHandlerOptions,
+} from './decision-handler.ts';
+export {
+	createTheoremHandler,
+	createTheoremHostHandler,
+	readBody,
+	type TheoremHandlerOptions,
+	type TheoremHostHandlerOptions,
+	type TheoremRequestContext,
+	theoremSessionId,
+} from './handler.ts';
+export { checkRequest, parseLiveClientMessage } from './request-check.ts';
 export {
 	createMemorySessionStore,
 	type MemorySessionStoreOptions,
@@ -39,3 +40,11 @@ export {
 	type TheoremSessionState,
 	type TheoremSessionStore,
 } from './session-store.ts';
+export {
+	createMemorySteerInbox,
+	type SteerInbox,
+	type SteerUnit,
+	steerStage,
+	steerUnitOf,
+} from './steer-inbox.ts';
+export { checkWalkAway, type WalkedAwayCall, walkAway } from './walk-away.ts';

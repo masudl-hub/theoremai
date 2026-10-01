@@ -5,7 +5,8 @@
  */
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
-import { EGRESS_RULES, standardEgressEnforce } from '../../src/guardrails/egress.ts';
+import { standardEgressEnforce } from '../../src/guardrails/egress.ts';
+import { EGRESS_RULES } from '../../src/guardrails/rules.ts';
 import { OMIT_IMAGE } from '../../src/guardrails/thought-guard.ts';
 import {
   registerProfile,
@@ -154,7 +155,7 @@ async function liveReply(
   const session = await runSession(
     { profile: profile.id },
     {
-      gemini: { vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined } },
+      vault: { slotA: 'test-key' },
       openWebSocket: () => {
         const socket = new MockLiveWebSocket();
         mock = socket;

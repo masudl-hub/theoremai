@@ -51,21 +51,17 @@ Deno.test('takeSsePayloads handles empty data, non-object JSON, and invalid JSON
   const { payloads } = takeSsePayloads(raw);
   assertEquals(payloads.length, 4);
 
-  // Empty data
   assertEquals(payloads[0].sseEvent, 'empty_ev');
   assertEquals(payloads[0].eventType, 'sse_done');
 
-  // Array data (non-object)
   assertEquals(payloads[1].sseEvent, 'array_ev');
   assertEquals(payloads[1].eventType, 'sse_unparsed');
   assertEquals(payloads[1].data, [1, 2, 3]);
 
-  // Primitive number
   assertEquals(payloads[2].sseEvent, 'primitive_ev');
   assertEquals(payloads[2].eventType, 'sse_unparsed');
   assertEquals(payloads[2].data, 42);
 
-  // Invalid JSON string
   assertEquals(payloads[3].sseEvent, 'bad_json');
   assertEquals(payloads[3].eventType, 'sse_unparsed');
   assertEquals(payloads[3].data, '{ invalid syntax');

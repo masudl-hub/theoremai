@@ -35,10 +35,11 @@ import {
 } from '../../../fixtures/events.ts';
 
 const vault: KeyVault = {
-  slotA: 'free-a-key',
-  slotB: 'free-b-key',
-  slotC: 'free-c-key',
-  paid: 'paid-key',
+  slot_a: 'free-a-key',
+  slot_b: 'free-b-key',
+  slot_c: 'free-c-key',
+  spare: 'spare-key',
+  images: 'images-key',
 };
 
 const HTTP_OK = 200;
@@ -530,7 +531,7 @@ Deno.test('provider emits grounding once from a buffered search body', async () 
   assertEquals(citedUris(events), ['https://grounding.example/redirect/care']);
 });
 
-Deno.test('provider overflows to paid only after 429 backoff', async () => {
+Deno.test("provider retries on the profile's fallback slot only after 429 backoff", async () => {
   const used: string[] = [];
   const provider = createInteractionsProvider({
     vault,
@@ -538,7 +539,7 @@ Deno.test('provider overflows to paid only after 429 backoff', async () => {
     fetch: (_url, init) => {
       const key = headerApiKey(init);
       used.push(key);
-      if (key !== 'paid-key') {
+      if (key !== 'spare-key') {
         return Promise.resolve(new Response('no', { status: HTTP_QUOTA }));
       }
       return Promise.resolve(
@@ -546,8 +547,10 @@ Deno.test('provider overflows to paid only after 429 backoff', async () => {
       );
     },
   });
-  const events = await Array.fromAsync(provider.complete(fromChatProfile()));
-  assertEquals(used, ['free-a-key', 'free-a-key', 'free-a-key', 'paid-key']);
+  const events = await Array.fromAsync(
+    provider.complete({ ...fromChatProfile(), fallbackKeySlot: 'spare' }),
+  );
+  assertEquals(used, ['free-a-key', 'free-a-key', 'free-a-key', 'spare-key']);
   assertEquals(events[0], { type: 'text', text: 'hi' });
 });
 

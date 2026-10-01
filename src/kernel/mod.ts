@@ -7,6 +7,7 @@
 export * from './auth/mod.ts';
 export {
   clearProfiles,
+  compactHistory,
   getProfile,
   getStructured,
   getTool,
@@ -38,7 +39,7 @@ export {
   splitForCompaction,
 } from './engine/compaction.ts';
 export type { RunDecisionOptions } from './engine/decision.ts';
-export { DecisionError } from './engine/decision.ts';
+export { DecisionError, validateDecisionRequest } from './engine/decision.ts';
 export type { LiveIngressChannel } from './engine/live-ingress.ts';
 export {
   assertLiveIngress,
@@ -48,7 +49,7 @@ export {
   liveIngressEnabled,
   liveIngressEnabledFromSpec,
 } from './engine/live-ingress.ts';
-export type { RunSessionOptions } from './engine/session/mod.ts';
+export type { RunSessionOptions, SignInGatePolicy } from './engine/session/mod.ts';
 export type {
   MediaPayload,
   MediaTokenFamily,
@@ -119,6 +120,7 @@ export {
   CACHE_MODES,
   CACHE_TTLS,
   COMPACTION_METERS,
+  COMPACTION_OUTCOMES,
   COMPACTION_TIMINGS,
   CONTINUE_STOP_KINDS,
   catalogPathFor,
@@ -129,17 +131,17 @@ export {
   fieldMeta,
   HTTP_METHODS,
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
+  isKeySlotName,
   isSpeechFormatAllowedForProtocol,
   isToolGateKind,
   isTurnInjectStage,
   isTurnStage,
   isValidPair,
   isValidProfileProtocol,
-  KEY_SLOTS,
+  KEY_SLOT_NAME,
   MEDIA_INPUT_KIND_VALUES,
   MEDIA_INPUT_KINDS,
   MEDIA_WILDCARDS,
-  OVERFLOW_KEY_SLOTS,
   PLAYGROUND_AUTH_TYPES,
   PROFILE_FIELDS,
   PROFILE_TYPE_PROTOCOLS,
@@ -164,6 +166,7 @@ export {
   TURN_INJECT_STAGES,
   TURN_STAGES,
   TURN_STOP_KINDS,
+  thinkingLevelsForProtocol,
   VOICE_ACCEPT_MIMES,
 } from './schema.ts';
 export type { KernelScope } from './scope.ts';
@@ -219,7 +222,11 @@ export {
   GATE_DECISIONS,
   type GateAnswerRequest,
   type GateDecision,
+  gateExpired,
   type HeldGatedCall,
+  resolveGateTtlMs,
+  sessionPermissionsAfterApproval,
+  type ToolGateAuth,
 } from './tools/gate-answer.ts';
 export type { McpProtocolVersion, McpRpcResponse, ToolRegistry } from './tools/mod.ts';
 export {
@@ -239,6 +246,7 @@ export {
   registerHarnessTools,
   resolveToolAuth,
 } from './tools/mod.ts';
+export { CredentialRefusedError } from './tools/signed-in-fetch.ts';
 export {
   awaitingUserInputSchema,
   TURN_EVENT_SCHEMAS,
@@ -249,3 +257,6 @@ export {
   turnToolSnapshotSchema,
 } from './turn-events.ts';
 export type * from './types.ts';
+export { base64ToBytes, bytesToBase64 } from './util/base64.ts';
+export type { Equals } from './util/exact-type.ts';
+export { isRecord } from './util/record.ts';

@@ -1,27 +1,10 @@
-/**
- * Profile graph — playground / authoring topology projected from PROFILE_FIELDS.
- *
- * This is not runtime policy. It declares which profile sections are graph
- * facets, for which ProfileType, whether they may be omitted, and whether the
- * host UI uses a schema form or a structural editor. The playground must import
- * this catalog; it must not invent FacetKind unions.
- *
- * @module
- */
-
 import { ALL_PROFILE_TYPES, profileTypesForField } from './profile-scope.ts';
 import type { ProfileType } from './schema.ts';
 
-/** How the playground (or other host UI) should edit this facet. */
 export type ProfileGraphEditor = 'schema' | 'structural';
 
-/** Where the facet sits in the authoring graph. */
 export type ProfileGraphRole = 'root' | 'spine' | 'branch';
 
-/**
- * Base definition shape — `id` and `parent` are narrowed via `as const`;
- * the public `ProfileGraphFacetId` type is derived, never hand-maintained.
- */
 interface ProfileGraphFacetDef {
   readonly id: string;
   readonly profilePath: string;
@@ -34,11 +17,8 @@ interface ProfileGraphFacetDef {
 }
 
 /**
- * Authoring-graph catalog. Adding a profile section? Add PROFILE_FIELDS and a row
- * here — never a FacetKind in the frontend. Each facet's `profileTypes` come
- * from `PROFILE_FIELD_SCOPE` via its `profilePath` (see `FACET_PROFILE_TYPES`).
- *
- * `ProfileGraphFacetId` is derived from this array; do not maintain a union by hand.
+ * Adding a profile section? Add it to PROFILE_FIELDS and a row here, never a FacetKind in the
+ * frontend. Each facet's `profileTypes` come from `PROFILE_FIELD_SCOPE` via its `profilePath`.
  */
 const PROFILE_GRAPH_DEF = [
   {
@@ -51,22 +31,13 @@ const PROFILE_GRAPH_DEF = [
     ownsFields: ['id', 'type'],
   },
   {
-    id: 'decision',
-    profilePath: 'decision',
-    role: 'spine',
-    optional: false,
-    editor: 'structural',
-    label: 'Decision',
-    ownsFields: ['inputs'],
-  },
-  {
     id: 'models',
     profilePath: 'models',
     role: 'spine',
     optional: false,
     editor: 'structural',
     label: 'Models',
-    ownsFields: ['defaultModel', 'allowModelSelect', 'maxSteps', 'key'],
+    ownsFields: ['defaultModel', 'allowModelSelect', 'maxSteps', 'key', 'fallbackKey'],
   },
   {
     id: 'modelBinding',
@@ -76,6 +47,15 @@ const PROFILE_GRAPH_DEF = [
     optional: false,
     editor: 'structural',
     label: 'Model binding',
+  },
+  {
+    id: 'decision',
+    profilePath: 'decision',
+    role: 'spine',
+    optional: false,
+    editor: 'structural',
+    label: 'Decision',
+    ownsFields: ['inputs'],
   },
   {
     id: 'image',
@@ -168,15 +148,9 @@ const PROFILE_GRAPH_DEF = [
   },
 ] as const satisfies readonly ProfileGraphFacetDef[];
 
-/** Stable facet ids — derived from PROFILE_GRAPH; never hand-maintained. */
 export type ProfileGraphFacetId = (typeof PROFILE_GRAPH_DEF)[number]['id'];
 
-/**
- * One node kind on the profile authoring graph.
- *
- * `profilePath` is a PROFILE_FIELDS key (section root) or a dynamic path
- * (`models.*`). Branch facets nest under `parent`.
- */
+/** `profilePath` is a PROFILE_FIELDS key (section root) or a dynamic path (`models.*`). */
 export interface ProfileGraphFacet {
   id: ProfileGraphFacetId;
   profilePath: string;
@@ -201,10 +175,6 @@ const FACET_PROFILE_TYPES: Partial<Record<ProfileGraphFacetId, readonly ProfileT
   inputs: profileTypesForField('inputs').filter((type) => type !== 'decision'),
 };
 
-/**
- * Immutable profile-editor catalog. Hosts can use it to render compatible facets
- * and detect profile-field drift without duplicating the kernel's structure.
- */
 export const PROFILE_GRAPH: readonly ProfileGraphFacet[] = PROFILE_GRAPH_DEF.map((facet) => ({
   ...facet,
   profileTypes: FACET_PROFILE_TYPES[facet.id] ?? profileTypesForField(facet.profilePath),
@@ -218,7 +188,6 @@ function spineFacetsForProfileType(type: ProfileType): ProfileGraphFacet[] {
   );
 }
 
-/** Look up a graph facet by id. */
 function profileGraphFacet(id: ProfileGraphFacetId): ProfileGraphFacet | undefined {
   return PROFILE_GRAPH.find((facet) => facet.id === id);
 }

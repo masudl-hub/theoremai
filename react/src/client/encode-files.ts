@@ -1,5 +1,5 @@
-import type { PendingAttachment, TranscriptBlock } from '../../../src/interface/mod.ts';
-import { base64ToBytes, bytesToBase64 } from '../../../src/kernel/util/base64.ts';
+import type { PendingAttachment, TranscriptBlock } from '@theoremjs/agents/interface';
+import { base64ToBytes, bytesToBase64 } from '@theoremjs/agents/kernel';
 
 export function filesToPending(files: readonly File[]): PendingAttachment[] {
 	return files.map((file) => ({

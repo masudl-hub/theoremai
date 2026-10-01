@@ -107,43 +107,29 @@ async function assertNpmPackageFilesOmitRepoDocs(): Promise<void> {
   if (!npmignore.includes('docs/') || !npmignore.includes('src/**/*.md')) {
     throw new Error('.npmignore must exclude docs/ and src/**/*.md from the npm tarball');
   }
-  if (!npmignore.includes('react/') || !npmignore.includes('src/interface/')) {
-    throw new Error(
-      '.npmignore must exclude repo-private react/ and src/interface/ from the npm tarball',
-    );
+  if (!npmignore.includes('react/')) {
+    throw new Error('.npmignore must exclude react/, which publishes as @theoremjs/react');
   }
 }
 
-async function assertNoFrontendOrInterfaceInBundles(): Promise<void> {
+/** `react/` publishes as its own package, `@theoremjs/react`; the agents bundles leave it out. */
+async function assertNoReactInBundles(): Promise<void> {
   const packageConfig = JSON.parse(await Deno.readTextFile(`${root}/package.json`)) as {
-    exports?: Record<string, unknown>;
     files?: string[];
   };
   const denoConfig = JSON.parse(await Deno.readTextFile(`${root}/deno.json`)) as {
-    exports?: Record<string, unknown>;
     publish?: { exclude?: string[] };
   };
-  if (Object.keys(packageConfig.exports ?? {}).includes('./interface')) {
-    throw new Error('package.json must not publish the repo-private ./interface entrypoint');
+  if ((packageConfig.files ?? []).includes('react/')) {
+    throw new Error('package.json files must not include react/');
   }
-  if (Object.keys(denoConfig.exports ?? {}).includes('./interface')) {
-    throw new Error('deno.json must not publish the repo-private ./interface entrypoint');
-  }
-  if (
-    (packageConfig.files ?? []).some((file) => file === 'react/' || file.includes('src/interface'))
-  ) {
-    throw new Error('package.json files must not include repo-private frontend or interface paths');
-  }
-  const excluded = new Set(denoConfig.publish?.exclude ?? []);
-  for (const path of ['react/', 'src/interface/']) {
-    if (!excluded.has(path)) throw new Error(`deno.json publish.exclude must include ${path}`);
+  if (!(denoConfig.publish?.exclude ?? []).includes('react/')) {
+    throw new Error('deno.json publish.exclude must include react/');
   }
   if (await exists(`${root}/npm`)) {
     for await (const file of walkFiles(`${root}/npm`)) {
-      if (file.includes('/react/') || file.includes('/interface/')) {
-        throw new Error(
-          `npm build output must not contain repo-private frontend/interface files: ${file}`,
-        );
+      if (file.includes('/react/')) {
+        throw new Error(`npm build output must not contain react/ files: ${file}`);
       }
     }
   }
@@ -152,14 +138,17 @@ async function assertNoFrontendOrInterfaceInBundles(): Promise<void> {
 async function findOversizedFiles(): Promise<string[]> {
   const hits: string[] = [];
 
-  /** Artifact trees that may exist locally but must never contain huge blobs. */
+  /**
+   * Artifact trees that may exist locally but must never contain huge blobs.
+   * `.fallow/` is left out: its cache outgrows the cap on every run, and
+   * `publish.exclude` already keeps it out of the tarball.
+   */
   const sizeScanDirs = [
     '.stryker-cache',
     '.stryker-tmp',
     'coverage',
     'cov_profile',
     'traces',
-    '.fallow',
   ] as const;
 
   for (const dir of sizeScanDirs) {
@@ -326,7 +315,7 @@ async function main(): Promise<void> {
   assertPublishExcludeCoversArtifacts(exclude);
   await assertExportMapsMatch();
   await assertNpmPackageFilesOmitRepoDocs();
-  await assertNoFrontendOrInterfaceInBundles();
+  await assertNoReactInBundles();
   await assertNoPlaygroundInBundles();
   await assertNoExportedInternals();
   await assertPublicEntrypointsOmitTestHooks();
@@ -341,7 +330,7 @@ async function main(): Promise<void> {
   }
 
   console.log(
-    'verify-publish-bundle: exclude list covers artifacts; export maps match; repo docs omitted from package; playground absent from all bundles; no exported _internals; no global test internals in src/; no oversized local files.',
+    'verify-publish-bundle: exclude list covers artifacts; export maps match; repo docs omitted from package; playground absent from all bundles; react absent from the agents bundles; no exported _internals; no global test internals in src/; no oversized local files.',
   );
 }
 

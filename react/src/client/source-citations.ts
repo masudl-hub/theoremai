@@ -1,5 +1,5 @@
-import type { TranscriptBlock } from '../../../src/interface/mod.ts';
-import type { Source } from '../../../src/kernel/mod.ts';
+import type { TranscriptBlock } from '@theoremjs/agents/interface';
+import type { Source } from '@theoremjs/agents/kernel';
 
 /** One source as a citation: its title, and when it's on the web, its link and favicon. */
 export type SourceCitation = {

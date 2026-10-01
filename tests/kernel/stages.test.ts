@@ -1,6 +1,3 @@
-/**
- * Pressure tests for frozen turn-stage shapes and defensive affordance apply.
- */
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import {
   AWAITING_USER_INPUT_STATUS,
@@ -30,7 +27,6 @@ import {
   toolGateSchema,
 } from '../../src/kernel/turn-events.ts';
 
-/** A gate when `value` is one, else undefined. */
 function gateOf(value: unknown): ToolGate | undefined {
   const parsed = toolGateSchema.safeParse(value);
   return parsed.success ? parsed.data : undefined;
@@ -392,14 +388,14 @@ Deno.test('toolGateSchema: auth requires challenge; kinds closed', () => {
   const auth = gateOf({
     kind: 'auth',
     tool: 'http_tool',
-    authChallenge: { slot: 's', authType: 'oauth2', message: 'login' },
+    authChallenge: { slot: 's', authType: 'oauth2', service: 'Svc', message: 'login' },
   });
   assertEquals(auth?.kind === 'auth' ? auth.authChallenge.slot : undefined, 's');
   assertEquals(
     gateOf({
       kind: 'auth',
       tool: 'http_tool',
-      authChallenge: { slot: 's', authType: 'nope', message: 'login' },
+      authChallenge: { slot: 's', authType: 'nope', service: 'Svc', message: 'login' },
     }),
     undefined,
   );
@@ -413,7 +409,7 @@ Deno.test('toolGateSchema: auth requires challenge; kinds closed', () => {
     gateOf({
       kind: 'confirmation',
       tool: 'ask',
-      authChallenge: { slot: 's', authType: 'oauth2', message: 'login' },
+      authChallenge: { slot: 's', authType: 'oauth2', service: 'Svc', message: 'login' },
     }),
     { tool: 'ask', kind: 'confirmation' },
   );
@@ -787,9 +783,11 @@ Deno.test('toolGateSchema: trims, and checks the auth challenge field by field',
     const gate = gateOf({ kind: 'auth', tool: 'x', authChallenge: challenge });
     return gate?.kind === 'auth' ? gate.authChallenge : undefined;
   };
-  const good = { slot: ' s ', authType: 'bearer', message: ' m ' };
-  assertEquals(auth(good), { slot: 's', authType: 'bearer', message: 'm' });
+  const good = { slot: ' s ', authType: 'bearer', service: ' Svc ', message: ' m ' };
+  assertEquals(auth(good), { slot: 's', authType: 'bearer', service: 'Svc', message: 'm' });
   assertEquals(auth({ ...good, slot: ' ' }), undefined);
+  assertEquals(auth({ ...good, service: ' ' }), undefined);
+  assertEquals(auth({ ...good, service: undefined }), undefined);
   assertEquals(auth({ ...good, slot: 1 }), undefined);
   assertEquals(auth({ ...good, message: ' ' }), undefined);
   assertEquals(auth({ ...good, message: 1 }), undefined);
@@ -808,6 +806,7 @@ Deno.test('toolGateSchema: trims, and checks the auth challenge field by field',
     {
       slot: 's',
       authType: 'bearer',
+      service: 'Svc',
       message: 'm',
       authorizationUrl: 'https://a',
       state: 'st',

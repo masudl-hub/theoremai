@@ -113,7 +113,6 @@ Deno.test('audioSeconds is undefined for MP4 edits it cannot decode exactly', ()
     audioSeconds(mp4Bytes({ audio: { frames: 100, priming: 1024, seconds: 1 } })),
     undefined,
   );
-  // Two non-empty edits.
   assertEquals(
     audioSeconds(
       mp4Bytes({

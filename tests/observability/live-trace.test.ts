@@ -1,7 +1,3 @@
-/**
- * Live session traces: the session record, one record per response, one per
- * `executeTool` call.
- */
 import { z } from 'zod';
 import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
 import { forClient } from '../../src/host/client-turn.ts';
@@ -47,7 +43,9 @@ registerProfile(
     type: 'live',
     id: PROFILE,
     identity: { handle: 'live', system: 'hi' },
-    models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, key: 'slotA' } },
+    models: {
+      gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, key: 'main', fallbackKey: 'spare' },
+    },
     live: {
       voice: 'Aoede',
       ingress: { text: true },
@@ -66,7 +64,7 @@ registerProfile(
     type: 'live',
     id: WORDED_PROFILE,
     identity: { handle: 'live', system: 'hi' },
-    models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, key: 'slotA' } },
+    models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, key: 'main' } },
     live: { voice: 'Aoede', ingress: { text: true } },
     tools: { allow: [TOOL] },
     lexicon: { 'live.session_ended': ENDED_WORDING },
@@ -88,7 +86,7 @@ async function open(extra: Partial<SessionRequest> = {}): Promise<Harness> {
   const session = await runSession(
     { profile: PROFILE, ...extra },
     {
-      gemini: { vault: { slotA: 'test-key', slotB: undefined, slotC: undefined, paid: undefined } },
+      vault: { main: 'test-key' },
       openWebSocket: () => {
         socket = new MockLiveWebSocket();
         setTimeout(() => socket?.open(), 0);
@@ -200,6 +198,33 @@ Deno.test('a response is its own record under the session, with what was sent fo
   );
   const done = firstOf(events, 'done');
   assertEquals(done?.traceparent, `00-${call.traceId}-${call.spanId}-01`);
+});
+
+/** A span's guardrail check named `check`. */
+function checkOn(span: TraceSpan, check: string): TraceAttributes | undefined {
+  return span.events.find((e) => e.name === 'theorem.guardrail' && e.attributes.check === check)
+    ?.attributes;
+}
+
+Deno.test("a live session times the host's input check and each response's output check", async () => {
+  const harness = await open();
+  await harness.session.sendText('where is my order');
+  await deliver(
+    harness,
+    { serverContent: { modelTurn: { parts: [{ text: 'On its way.' }] } } },
+    complete,
+  );
+  await finish(harness);
+  const input = checkOn(rootOf(sessionRecord(harness.records)), 'live_input');
+  assertEquals(input?.action, 'allow');
+  assertEquals(typeof input?.duration_ms, 'number');
+  const call = rootOf(recordNamed(harness.records, 'generate_content')[0]);
+  const output = checkOn(call, 'live_output');
+  assertEquals(output?.action, 'allow');
+  assertEquals(output?.stage, 'live_outbound');
+  assertEquals(typeof output?.duration_ms, 'number');
+  assertEquals((output?.runs as number) >= 1, true);
+  assertEquals(call.attributes['theorem.guardrail.stream_ms'], output?.duration_ms);
 });
 
 Deno.test('a response records what the host received beside what the model produced', async () => {
@@ -352,9 +377,7 @@ Deno.test('a session that fails to open still writes its record, typed by its ki
     await runSession(
       { profile: PROFILE },
       {
-        gemini: {
-          vault: { slotA: undefined, slotB: undefined, slotC: undefined, paid: undefined },
-        },
+        vault: { main: undefined },
       },
       catalogedSink(records),
     );
@@ -466,16 +489,14 @@ class QuotaRefusedSocket extends MockLiveWebSocket {
   }
 }
 
-Deno.test('a quota refusal at setup reopens on paid, and the trace names the refusal and the key that served', async () => {
+Deno.test('a quota refusal at setup reopens on the fallback slot, and the trace names the refusal and the key that served', async () => {
   const records: TraceRecord[] = [];
   const urls: string[] = [];
   const sockets: MockLiveWebSocket[] = [];
   const session = await runSession(
     { profile: PROFILE },
     {
-      gemini: {
-        vault: { slotA: 'free-key', slotB: undefined, slotC: undefined, paid: 'paid-key' },
-      },
+      vault: { main: 'free-key', spare: 'spare-key' },
       openWebSocket: (url) => {
         urls.push(url);
         const socket = urls.length === 1 ? new QuotaRefusedSocket() : new MockLiveWebSocket();
@@ -501,24 +522,24 @@ Deno.test('a quota refusal at setup reopens on paid, and the trace names the ref
 
   assertEquals(
     urls.map((url) => new URL(url).searchParams.get('key')),
-    ['free-key', 'paid-key'],
+    ['free-key', 'spare-key'],
   );
   const root = rootOf(sessionRecord(records));
-  const [overflow] = sessionEvents(root);
-  assertEquals(overflow?.kind, 'key_overflow');
-  assertEquals(overflow?.key_slot, 'slotA');
-  assertEquals(overflow?.to_key_slot, 'paid');
-  assertEquals(overflow?.['error.type'], 'rate_limit');
-  assertEquals(String(overflow?.error).includes('exceeded your current quota'), true);
+  const [fallback] = sessionEvents(root);
+  assertEquals(fallback?.kind, 'key_fallback');
+  assertEquals(fallback?.key_slot, 'main');
+  assertEquals(fallback?.to_key_slot, 'spare');
+  assertEquals(fallback?.['error.type'], 'rate_limit');
+  assertEquals(String(fallback?.error).includes('exceeded your current quota'), true);
   assertEquals(
     sessionEvents(root).map((e) => e.kind),
-    ['key_overflow', 'setup_complete', 'closed'],
+    ['key_fallback', 'setup_complete', 'closed'],
   );
   const [response] = recordNamed(records, 'generate_content');
-  assertEquals(rootOf(response).attributes['theorem.key_slot'], 'paid');
+  assertEquals(rootOf(response).attributes['theorem.key_slot'], 'spare');
 });
 
-Deno.test('a quota refusal with no distinct paid key fails the open as rate_limit', async () => {
+Deno.test('a quota refusal with no filled fallback slot fails the open as rate_limit', async () => {
   const records: TraceRecord[] = [];
   let opens = 0;
   let failure: unknown;
@@ -526,9 +547,7 @@ Deno.test('a quota refusal with no distinct paid key fails the open as rate_limi
     await runSession(
       { profile: PROFILE },
       {
-        gemini: {
-          vault: { slotA: 'free-key', slotB: undefined, slotC: undefined, paid: undefined },
-        },
+        vault: { main: 'free-key' },
         openWebSocket: () => {
           opens += 1;
           const socket = new QuotaRefusedSocket();

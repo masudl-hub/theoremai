@@ -41,12 +41,9 @@ Deno.test('sdkPart maps text parts', () => {
   assertEquals(sdkPart(part), { type: 'text', text: 'hello' });
 });
 
-Deno.test('sdkPart maps image parts with data URI', () => {
+Deno.test('sdkPart maps image parts as file, not the deprecated image part', () => {
   const part: InteractionPart = { type: 'image', mimeType: 'image/png', data: 'abc123' };
-  assertEquals(sdkPart(part), {
-    type: 'image',
-    image: 'data:image/png;base64,abc123',
-  });
+  assertEquals(sdkPart(part), { type: 'file', mediaType: 'image/png', data: 'abc123' });
 });
 
 Deno.test('sdkPart maps document and audio parts as file', () => {
@@ -91,8 +88,9 @@ Deno.test('sdkContentFromParts returns array for mixed parts', () => {
   assertEquals((result as Array<Record<string, unknown>>).length, 2);
   assertEquals((result as Array<Record<string, unknown>>)[0], { type: 'text', text: 'caption' });
   assertEquals((result as Array<Record<string, unknown>>)[1], {
-    type: 'image',
-    image: 'data:image/png;base64,img',
+    type: 'file',
+    mediaType: 'image/png',
+    data: 'img',
   });
 });
 
@@ -263,7 +261,7 @@ Deno.test('contentHistoryMessage sends content and parts together', () => {
   if (result.role !== 'user') throw new Error('expected user message');
   assertEquals(result.content, [
     { type: 'text', text: 'What is on this leaf?' },
-    { type: 'image', image: 'data:image/png;base64,iVBORw0=' },
+    { type: 'file', mediaType: 'image/png', data: 'iVBORw0=' },
   ]);
   const text = contentHistoryMessage({
     role: 'user',

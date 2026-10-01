@@ -1,15 +1,5 @@
-/**
- * Whether a profile must set each field, and what leaving it out does — for
- * authoring UIs, which mark the fields a profile can't omit and show what a
- * blank one means. `PROFILE_FIELDS` exposes it on each field's `FieldMeta`.
- *
- * `defineProfile` enforces the requirements; this records them for display. A
- * path with no entry says nothing either way.
- *
- * Leaf module: `schema.ts` reads it at load time.
- *
- * @module
- */
+// Leaf module: `schema.ts` reads it at load time. `defineProfile` enforces the requirements;
+// this records them for display.
 
 /** lexicon-exempt-file: authoring field-meta presence notes — not runtime user or model copy (P2) */
 
@@ -33,11 +23,13 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
   speech: { required: true },
   live: { required: true },
   decision: { required: true },
+  'decision.contract': { required: true },
   models: { required: true },
   defaultModel: { required: 'when more than one model is declared', unset: 'The only model' },
   allowModelSelect: { unset: 'Off' },
   maxSteps: { unset: 'Unbounded' },
   key: { required: 'when a Google model has no key of its own', unset: 'No key slot' },
+  fallbackKey: { unset: 'No fallback' },
   'models.*.protocol': { required: true },
   'models.*.provider': { required: true },
   'models.*.apiId': { required: true },
@@ -51,6 +43,21 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
     unset: 'The only effort',
   },
   'models.*.allowEffortSelect': { unset: 'Off' },
+  'models.*.key': { unset: "The profile's key" },
+  'models.*.fallbackKey': { unset: "The profile's fallback key" },
+  'models.*.timeoutMs': { unset: 'No timeout' },
+  'models.*.compaction': { unset: 'Off' },
+  'models.*.compaction.maxTokens': { required: true },
+  'models.*.compaction.compactAt': { required: true },
+  'models.*.compaction.previousExchanges': { required: true },
+  'models.*.compaction.profile': { required: true },
+  'models.*.compaction.timing': { required: true },
+  'models.*.compaction.meter': { unset: 'history' },
+  'models.*.cache': { unset: 'Off' },
+  'models.*.cache.mode': { required: true },
+  'models.*.cache.ttl': { unset: 'Provider default' },
+  'models.*.store': { unset: 'Provider default' },
+  'models.*.persistViaInteractionId': { unset: 'On' },
   inputs: { required: true },
   'inputs.text': { unset: 'Accepted' },
   'inputs.attachments.accept': { unset: 'No attachments' },
@@ -58,12 +65,54 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
   'inputs.maxFiles': { required: 'when attachments or voice is set' },
   'inputs.maxBytes': { required: 'when attachments or voice is set' },
   'inputs.maxTurnBytes': { required: 'when attachments or voice is set' },
+  'inputs.state': { required: true },
+  'inputs.maxStateBytes': { unset: 'No cap' },
+  'inputs.limitsByMime': { unset: 'maxBytes for every type' },
+  'inputs.slots': { unset: 'No slots' },
+  'outputs.structured': { unset: 'Free text' },
+  'outputs.validation.maxRetries': { unset: '0' },
+  'outputs.streaming.mode': { unset: 'sse' },
+  'outputs.streaming.streamThoughts': { unset: 'On' },
+  'turnBehaviour.resumption.allowContinue': { unset: 'All three' },
+  'turnBehaviour.resumption.autoContinue': { unset: 'length and stream_incomplete' },
+  'turnBehaviour.resumption.maxContinues': { unset: 'No cap' },
+  'turnBehaviour.allowSteering': { unset: 'On' },
+  'guardrails.quota': { unset: 'No limit' },
+  'guardrails.canary': { unset: 'On' },
+  'guardrails.sanitizeInput': { unset: 'On' },
+  'guardrails.redactSensitive': { unset: 'On' },
+  'guardrails.egress': { unset: 'No check' },
+  'guardrails.egress.onBlock': { unset: 'reject_to_agent' },
+  'guardrails.egress.maxRetries': { unset: '0' },
+  'guardrails.egress.holdback': { unset: '256' },
+  'guardrails.network.allowPrivateNetworks': { unset: 'Off' },
+  'guardrails.network.allowedHosts': { unset: 'None' },
+  'guardrails.network.allowedSchemes': {
+    unset: 'https, plus http when allowPrivateNetworks is on',
+  },
+  'guardrails.taint.afterRemoteRead': { unset: 'off' },
+  'guardrails.disclosure': { unset: 'No check' },
+  'observability.writeTo': { unset: 'No traces' },
+  'observability.sampleRate': { unset: '1' },
+  'observability.include.upstreamLog': { unset: 'On' },
+  'observability.include.outboundWire': { unset: 'Off' },
+  'observability.include.evidenceRaw': { unset: 'Off' },
+  'observability.include.usage': { unset: 'On' },
+  'observability.include.guardrailDecisions': { unset: 'On' },
+  'observability.include.guardrailMatchPreview': { unset: 'Off' },
+  'observability.resource': { unset: 'None' },
+  'observability.scrub.sensitive': { unset: 'On' },
+  'observability.scrub.injection': { unset: 'On' },
+  'observability.scrub.canary': { unset: 'On' },
+  'observability.retainForDays': { unset: '14' },
+  'observability.rotateAfterMiB': { unset: '32' },
+  'observability.onWriteError': { unset: 'Errors are dropped' },
   'image.aspectRatio': { unset: 'Provider default' },
   'image.size': { unset: 'Provider default' },
   'image.mimeType': { unset: 'Provider default' },
   'image.includeText': { unset: 'Off' },
   'speech.voice': { unset: 'Provider default' },
-  'speech.format': { unset: 'pcm' },
+  'speech.format': { unset: 'Provider default' },
   'live.ingress.audio': { unset: 'On' },
   'live.ingress.video': { unset: 'On' },
   'live.ingress.text': { unset: 'Off' },

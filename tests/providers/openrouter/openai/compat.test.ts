@@ -271,3 +271,10 @@ Deno.test('resolveResponseFormat formats json_schema, and is undefined without a
   });
   assertEquals(resolveResponseFormat(null), undefined);
 });
+
+Deno.test('resolveResponseFormat names a dotted or long structured id in the characters OpenAI accepts', () => {
+  const id = `greenhouse.answer/${'x'.repeat(80)}`;
+  registerStructured(id, { jsonSchema: { type: 'object' } });
+  const format = resolveResponseFormat(resolvedStructured(id)) as { json_schema: { name: string } };
+  assertEquals(format.json_schema.name, `greenhouse_answer_${'x'.repeat(46)}`);
+});

@@ -1,14 +1,7 @@
-/**
- * Google Gemini Live session transport — long-lived BidiGenerateContent WebSocket.
- *
- * `turnComplete` is a conversational turn boundary, not session teardown.
- *
- * @module
- */
-
 import { describeError, isAbortError, TheoremError } from '../../../guardrails/error.ts';
 import type { ProviderCompleteRequest } from '../../../kernel/types.ts';
-import { canOverflow, type GeminiTransport, requireKey } from '../keys.ts';
+import { fallbackKey, requireKey } from '../../shared/vault.ts';
+import type { GeminiTransport } from '../keys.ts';
 import { buildGeminiLiveWebSocketUrl } from './framing.ts';
 import {
   attachLiveSessionHandlers,
@@ -21,11 +14,8 @@ import {
 } from './stream.ts';
 
 export interface GoogleLiveConnection {
-  /** The server's `setupComplete` frame. */
   readonly setup: Record<string, unknown>;
-  /** Send one frame upstream (tapped as a `ws_send` row). */
   send(payload: Record<string, unknown>): void;
-  /** Drain session batches until the socket closes or errors. */
   batches(): AsyncGenerator<SessionQueueItem>;
   close(code?: number, reason?: string): void;
 }
@@ -63,8 +53,8 @@ function attachAbort(ws: WebSocket, liveQueue: LiveQueue, signal?: AbortSignal):
   return () => signal.removeEventListener('abort', onAbort);
 }
 
-/** Tape row: setup on the pinned key was refused for quota, so the session opens on `paid`. */
-export const LIVE_OVERFLOW_ROW = 'ws_overflow';
+/** Tape row: setup on the pinned key was refused for quota, so the session opens on the fallback slot. */
+export const LIVE_FALLBACK_ROW = 'ws_fallback';
 
 interface OpenedSocket {
   ws: WebSocket;
@@ -73,7 +63,6 @@ interface OpenedSocket {
   setup: Record<string, unknown>;
 }
 
-/** Open the socket on one key and complete the setup handshake. */
 async function openOnKey(
   req: ProviderCompleteRequest,
   apiKey: string,
@@ -113,9 +102,9 @@ async function openOnKey(
 }
 
 /**
- * Open on the pinned key; a quota refusal at setup reopens on the vault's
- * `paid` key when it holds a distinct one, as `fetchGemini` does for HTTP.
- * The tape records the refusal (`ws_overflow`) before the retry.
+ * Open on the pinned key; a quota refusal at setup reopens on the profile's
+ * fallback slot when it names one, as `fetchGemini` does for HTTP.
+ * The tape records the refusal (`ws_fallback`) before the retry.
  */
 async function openWithOverflow(
   req: ProviderCompleteRequest,
@@ -129,25 +118,20 @@ async function openWithOverflow(
   try {
     return await openOnKey(req, primary, openWebSocket);
   } catch (err) {
-    const paid = canOverflow(req.keySlot, transport.vault, primary);
-    if (!paid || !(err instanceof TheoremError) || err.kind !== 'rate_limit') throw err;
+    const fallback = fallbackKey(req.fallbackKeySlot, transport.vault, primary);
+    if (!fallback || !(err instanceof TheoremError) || err.kind !== 'rate_limit') throw err;
     req.tapUpstream?.({
-      eventType: LIVE_OVERFLOW_ROW,
+      eventType: LIVE_FALLBACK_ROW,
       from: req.keySlot,
-      keySlot: 'paid',
+      keySlot: fallback.slot,
       errorKind: err.kind,
       error: describeError(err),
     });
-    return await openOnKey(req, paid, openWebSocket);
+    return await openOnKey(req, fallback.key, openWebSocket);
   }
 }
 
-/**
- * Open a long-lived Gemini Live WebSocket after setup handshake.
- * Callers own send / batch drain / close — typically via `runSession`.
- *
- * @param openWebSocket Host override for Cloudflare fetch-upgrade (etc.).
- */
+/** @param openWebSocket Host override, e.g. for a Cloudflare fetch-upgrade. */
 export async function openGoogleLiveSession(
   req: ProviderCompleteRequest,
   transport: GeminiTransport,

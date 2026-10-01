@@ -1,22 +1,10 @@
-/**
- * OpenAI-compatible image generation transport (internal).
- *
- * Hosts use `createProvider(profile, { openAiGateway })` — this module is selected
- * when the profile is an openAi image role on OpenRouter.
- *
- * Image-only turns POST `/images`. When `image.includeText` is set, chat
- * completions carry an OpenRouter image-generation server tool so the model may
- * return interleaved assistant text and images.
- *
- * @module
- */
-
 import { TheoremError, toErrorEvent } from '../../guardrails/error.ts';
 import { asRecord, nonEmptyString } from '../../kernel/engine/record.ts';
 import { turnStopFromOpenAiFinishReason } from '../../kernel/stop.ts';
 import type { ModelProvider, ProviderCompleteRequest, ProviderEvent } from '../../kernel/types.ts';
-import { networkFetch, tapFetch } from '../shared/upstream-tap.ts';
-import type { OpenAiGatewayConfig } from '../types.ts';
+import { networkFetch } from '../shared/upstream-tap.ts';
+import { bearerFetch } from '../shared/vault.ts';
+import type { OpenAiGatewayTransport } from '../types.ts';
 import { buildChatMessages, httpErrorEvent, openAiGatewayHeaders } from './openai/compat.ts';
 import {
   buildImagesPayload,
@@ -27,10 +15,9 @@ import { openAiUsageTokens } from './openai/usage.ts';
 import { resolveOpenAiGatewayApiKey } from './resolve-api-key.ts';
 
 const HTTP_OK = 200;
-/** OpenRouter chat server tool for inline image generation. */
 export const OPENROUTER_IMAGE_TOOL = 'openrouter:image_generation';
 
-export type ImageProviderConfig = OpenAiGatewayConfig;
+export type ImageProviderConfig = OpenAiGatewayTransport;
 
 export function buildImageHeaders(
   apiKey: string,
@@ -59,10 +46,7 @@ function* yieldUsage(raw: unknown): Generator<ProviderEvent> {
   yield { type: 'tokens', tokens };
 }
 
-/**
- * Images on a `/images` response: `data[]` entries of `b64_json` +
- * `media_type` (probe 23/09/2026, bytedance-seed/seedream-4.5).
- */
+/** `/images` answers `data[]` of `b64_json` + `media_type` (probe 23/09/2026, bytedance-seed/seedream-4.5). */
 export function imagesFromImagesBody(
   body: Record<string, unknown>,
 ): { mimeType: string; data: string }[] {
@@ -75,7 +59,6 @@ export function imagesFromImagesBody(
   });
 }
 
-/** A `data:<mime>;base64,<bytes>` url as media; any other url carries no inline bytes. */
 function mediaFromDataUrl(url: unknown): { mimeType: string; data: string } | undefined {
   if (typeof url !== 'string') {
     return undefined;
@@ -88,10 +71,9 @@ function mediaFromDataUrl(url: unknown): { mimeType: string; data: string } | un
 }
 
 /**
- * Images on a chat completion message. OpenRouter returns them on
- * `message.images[]` as `{ type: 'image_url', image_url: { url } }` with a
- * base64 data url (probe 23/09/2026, gemini-3.1-flash-lite with the image
- * generation tool); `message.content` holds only the text.
+ * OpenRouter returns chat images on `message.images[]` as `{ type: 'image_url', image_url: { url } }`
+ * with a base64 data url; `message.content` holds only the text (probe 23/09/2026,
+ * gemini-3.1-flash-lite with the image generation tool).
  */
 export function imagesFromChatMessage(
   message: Record<string, unknown>,
@@ -110,7 +92,7 @@ async function postJson(
   path: string,
   body: Record<string, unknown>,
 ): Promise<Response> {
-  const fetchFn = tapFetch(req.tapUpstream, networkFetch(config.fetch ?? fetch), req.keySlot);
+  const fetchFn = bearerFetch(req, networkFetch(config.fetch ?? fetch), config.vault, apiKey);
   return await fetchFn(`${baseUrl(config)}${path}`, {
     method: 'POST',
     headers: buildImageHeaders(apiKey, config),
@@ -119,7 +101,6 @@ async function postJson(
   });
 }
 
-/** The JSON body of a successful response, taped as received. */
 async function readTapedJson(
   req: ProviderCompleteRequest,
   res: Response,
@@ -147,7 +128,7 @@ export function buildInterleavedChatPayload(req: ProviderCompleteRequest): Recor
     messages: buildChatMessages(req),
     temperature: req.temperature,
     max_tokens: req.maxOutputTokens,
-    ...(req.thinking && req.thinking !== 'none' ? { reasoning: { effort: req.thinking } } : {}),
+    ...(req.thinking ? { reasoning: { effort: req.thinking } } : {}),
     tools: [
       {
         type: OPENROUTER_IMAGE_TOOL,
@@ -273,7 +254,6 @@ export async function* streamImage(
   yield* yieldImagesEndpoint(req, config, apiKey);
 }
 
-/** Internal ModelProvider for openAi image roles on OpenRouter. */
 export function createImageProvider(config: ImageProviderConfig = {}): ModelProvider {
   return {
     complete: (req: ProviderCompleteRequest) => streamImage(req, config),

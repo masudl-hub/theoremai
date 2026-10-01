@@ -1,24 +1,12 @@
-/**
- * Runtime structured-output schema registry.
- *
- * Host apps register schemas by id, then reference those ids from profile output
- * declarations. Each kernel scope owns one registry; see `createKernelScope`.
- *
- * @module
- */
-
 import { TheoremError } from '../../guardrails/error.ts';
 import type { StructuredSpec } from '../types.ts';
 
-/** One scope's structured output schemas, by id. */
 interface SchemaRegistry {
-  /** Register a host-owned structured output schema. */
   register(id: string, spec: StructuredSpec): void;
-  /** The schema registered under `id`; throws when there is none. */
+  /** Throws when there is none. */
   get(id: string): StructuredSpec;
 }
 
-/** A schema registry of its own: nothing registered in one is visible from another. */
 function createSchemaRegistry(): SchemaRegistry {
   const schemas = new Map<string, StructuredSpec>();
   return {

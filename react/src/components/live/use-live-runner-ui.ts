@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import { type LexiconOverrides, type SessionEventOf, TheoremError } from '../../../../mod.ts';
-import { type ClientFailure, clientFailure } from '../../client/failure';
-import { applyLiveTurnToolEvent } from '../../client/live/apply-live-turn-tool-event';
+import { type LexiconOverrides, type SessionEventOf, TheoremError } from '@theoremjs/agents';
+import { type ClientFailure, clientFailure } from '../../client/failure.ts';
+import { applyLiveTurnToolEvent } from '../../client/live/apply-live-turn-tool-event.ts';
 import {
 	clearLiveCaptionInterim,
 	emptyLiveCaptionState,
 	type LiveCaptionState,
-} from '../../client/live/live-captions';
-import type { LiveGateAnswer, LiveToolGatePrompt } from '../../client/live/live-tool';
-import type { LiveFacingMode, LiveVideoCapture } from '../../client/live/live-video';
-import type { LiveConnectPhase, LiveSessionStatus } from '../../client/live-client';
-import type { ToolGateResolution } from '../../client/tool-resume';
+} from '../../client/live/live-captions.ts';
+import type { LiveGateAnswer, LiveToolGatePrompt } from '../../client/live/live-tool.ts';
+import type { LiveFacingMode, LiveVideoCapture } from '../../client/live/live-video.ts';
+import type { LiveConnectPhase, LiveSessionStatus } from '../../client/live/live-state.ts';
+import type { ToolGateResolution } from '../../client/tool-resume.ts';
 
 /** UI + media state bag for the live runner. `lexicon` is the interface's: the profile's wording. */
 export function useLiveRunnerUiState(lexicon: LexiconOverrides) {

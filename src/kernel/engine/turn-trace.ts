@@ -523,6 +523,11 @@ function controlAttributes(req: ProviderCompleteRequest): TraceAttributes {
             ...optional('mime_type', image.mimeType),
             ...optional('aspect_ratio', image.aspectRatio),
             ...optional('size', image.size),
+            ...optional('quality', image.quality),
+            ...optional('background', image.background),
+            ...optional('n', image.n),
+            ...optional('seed', image.seed),
+            ...optional('output_compression', image.outputCompression),
             include_text: image.includeText,
           },
         }

@@ -454,3 +454,37 @@ Deno.test('an image profile takes no voice', () => {
     'must not set inputs.voice',
   );
 });
+
+Deno.test('image pins reach the resolved image format; unset pins stay unset', () => {
+  registerProfile(
+    defineProfile({
+      ...imageWithInputs('image_pinned', {}),
+      image: { quality: 'high', background: 'opaque', n: 2, seed: 7, outputCompression: 60 },
+    } as ProfileDefinition),
+  );
+  const { image } = resolveTurn({ profile: 'image_pinned', input: { text: 'hi' } }).generation;
+  assertEquals(image?.quality, 'high');
+  assertEquals(image?.background, 'opaque');
+  assertEquals(image?.n, 2);
+  assertEquals(image?.seed, 7);
+  assertEquals(image?.outputCompression, 60);
+  const plain = resolveTurn({ profile: 'image', input: { text: 'hi' } }).generation.image;
+  assertEquals(plain?.quality, undefined);
+  assertEquals(plain?.n, undefined);
+});
+
+Deno.test('image pins are checked as whole numbers in range', () => {
+  for (const image of [
+    { n: 0 },
+    { n: 1.5 },
+    { seed: 0.5 },
+    { outputCompression: 101 },
+    { outputCompression: -1 },
+  ]) {
+    assertThrows(
+      () => defineProfile({ ...imageWithInputs('image_bad_pin', {}), image } as ProfileDefinition),
+      TheoremError,
+      'image.',
+    );
+  }
+});

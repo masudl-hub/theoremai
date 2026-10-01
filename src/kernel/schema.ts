@@ -733,6 +733,26 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'string',
     'The file type of generated images; OpenRouter takes png, jpeg or webp and uses png for anything else.',
   ),
+  'image.quality': field(
+    'string',
+    'How much effort the model spends on each image; OpenRouter takes auto, low, medium or high.',
+  ),
+  'image.background': field(
+    'string',
+    'The background of generated images; OpenRouter takes auto, transparent or opaque.',
+  ),
+  'image.n': field(
+    'number',
+    'How many images one request makes; only OpenRouter `/images` takes it, up to 10.',
+  ),
+  'image.seed': field(
+    'number',
+    'A seed for repeatable images; OpenRouter `/images` and Google take it, where the model honours it.',
+  ),
+  'image.outputCompression': field(
+    'number',
+    'Compression from 0 to 100 for jpeg and webp images; OpenRouter only.',
+  ),
   'image.includeText': field(
     'boolean',
     'Whether the model may write text alongside its images; on OpenRouter this also sends the system instruction and history.',

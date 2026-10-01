@@ -304,6 +304,8 @@ the same `createInteractionsProvider` handles image via polymorphic
 | OpenAI | `openrouter/image.ts` | `POST /chat/completions` + server tool | When `image.includeText`. `message.content` (a string) is `text`; every `message.images[].image_url.url` data URL is one `media` (probe 23/09/2026). No image is an `error`. |
 | Interactions | `google/interactions/framing.ts` | `responseFormat` object or array | Image-only object; text + image array when `includeText`. No image is an `error`, as no audio is for speech. |
 
+Image profile pins `quality`, `background`, `n`, `seed` and `outputCompression`: unset ones are omitted from the wire. OpenRouter `/images` sends all five. OpenRouter chat (`includeText`) sends `quality`, `background` and `output_compression`, and refuses `n` and `seed`, which its server tool does not document. Google sends `seed` as `generationConfig.seed` and refuses the other four. A pin a transport cannot send is `unsupported`, never dropped.
+
 `openAi`/`local` image roles are rejected at `createProvider`.
 
 ## Speech roles

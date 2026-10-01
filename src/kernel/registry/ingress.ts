@@ -87,6 +87,11 @@ function resolveImageFormat(profile: Profile): ImageResponseFormat | null {
     mimeType: pins.mimeType,
     aspectRatio: pins.aspectRatio,
     size: pins.size,
+    quality: pins.quality,
+    background: pins.background,
+    n: pins.n,
+    seed: pins.seed,
+    outputCompression: pins.outputCompression,
     includeText: pins.includeText === true,
   };
 }

@@ -356,3 +356,40 @@ Deno.test('imageToolParameters and buildImagesPayload omit unset aspect and size
   assertEquals(Object.hasOwn(payload, 'aspect_ratio'), false);
   assertEquals(Object.hasOwn(payload, 'resolution'), false);
 });
+
+const PINNED: ImageResponseFormat = {
+  type: 'image',
+  includeText: false,
+  quality: 'high',
+  background: 'transparent',
+  n: 2,
+  seed: 7,
+  outputCompression: 80,
+};
+
+Deno.test('buildImagesPayload sends quality, background, n, seed and output_compression', () => {
+  const payload = buildImagesPayload(createMockImageRequest({ image: PINNED }));
+  assertEquals(payload.quality, 'high');
+  assertEquals(payload.background, 'transparent');
+  assertEquals(payload.n, 2);
+  assertEquals(payload.seed, 7);
+  assertEquals(payload.output_compression, 80);
+});
+
+Deno.test('buildImagesPayload omits every unset image pin', () => {
+  const payload = buildImagesPayload(
+    createMockImageRequest({ image: { type: 'image', includeText: false } }),
+  );
+  for (const key of ['quality', 'background', 'n', 'seed', 'output_compression']) {
+    assertEquals(Object.hasOwn(payload, key), false);
+  }
+});
+
+Deno.test('imageToolParameters sends quality, background and compression but refuses n and seed', () => {
+  assertEquals(imageToolParameters({ ...PINNED, n: undefined, seed: undefined }), {
+    quality: 'high',
+    background: 'transparent',
+    output_compression: 80,
+  });
+  assertThrows(() => imageToolParameters(PINNED), TheoremError);
+});

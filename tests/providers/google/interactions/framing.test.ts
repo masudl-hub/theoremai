@@ -699,3 +699,20 @@ Deno.test('Interactions wires a media reference as { type, uri, mime_type } (Fil
   });
   assertEquals(JSON.stringify(body).includes('file_uri'), false);
 });
+
+Deno.test('baseInteractionsBody sends an image seed as generationConfig.seed', () => {
+  const req = baseReq({ image: { type: 'image', includeText: false, seed: 9 } });
+  assertEquals((baseInteractionsBody(req).generationConfig as Record<string, unknown>).seed, 9);
+});
+
+Deno.test('attachResponseFormat refuses image pins Google cannot send', () => {
+  for (const pin of [
+    { quality: 'high' },
+    { background: 'opaque' },
+    { n: 2 },
+    { outputCompression: 50 },
+  ]) {
+    const req = baseReq({ image: { type: 'image', includeText: false, ...pin } });
+    assertThrows(() => attachResponseFormat(req, {}), TheoremError);
+  }
+});

@@ -73,6 +73,21 @@ export function attachImagePins(
   if (image.mimeType) {
     payload.output_format = outputFormatFromMime(image.mimeType);
   }
+  if (image.quality) {
+    payload.quality = image.quality;
+  }
+  if (image.background) {
+    payload.background = image.background;
+  }
+  if (image.n !== undefined) {
+    payload.n = image.n;
+  }
+  if (image.seed !== undefined) {
+    payload.seed = image.seed;
+  }
+  if (image.outputCompression !== undefined) {
+    payload.output_compression = image.outputCompression;
+  }
 }
 
 export function buildImagesPayload(req: ProviderCompleteRequest): Record<string, unknown> {
@@ -104,6 +119,26 @@ export function imageToolParameters(image: ImageResponseFormat): Record<string, 
   }
   if (image.size) {
     params.resolution = image.size;
+  }
+  if (image.quality) {
+    params.quality = image.quality;
+  }
+  if (image.background) {
+    params.background = image.background;
+  }
+  if (image.outputCompression !== undefined) {
+    params.output_compression = image.outputCompression;
+  }
+  for (const [name, value] of [
+    ['n', image.n],
+    ['seed', image.seed],
+  ] as const) {
+    if (value !== undefined) {
+      throw new TheoremError(
+        'unsupported',
+        `image.${name} is not supported with image.includeText`,
+      );
+    }
   }
   return params;
 }

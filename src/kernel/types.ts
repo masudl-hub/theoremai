@@ -164,6 +164,11 @@ export interface ProfileImageSpec {
   aspectRatio?: string;
   size?: string;
   mimeType?: string;
+  quality?: string;
+  background?: string;
+  n?: number;
+  seed?: number;
+  outputCompression?: number;
   /** Also request interleaved text with the images (Google: text + image `response_format`). */
   includeText?: boolean;
 }
@@ -681,6 +686,11 @@ export interface ImageResponseFormat {
   aspectRatio?: string;
   /** Adapters map it to the provider wire key (e.g. Google `imageSize`). */
   size?: string;
+  quality?: string;
+  background?: string;
+  n?: number;
+  seed?: number;
+  outputCompression?: number;
   includeText: boolean;
 }
 

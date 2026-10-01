@@ -467,6 +467,15 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     "'text' | 'image' | 'speech' | 'live' | 'decision' | 'host'",
     'What kind of agent this is: text, image, speech, live, decision, or host (runs your tools through invokeTool and never calls a model).',
     PROFILE_TYPES,
+    {
+      text: 'Each turn the model replies in text, or in JSON when outputs ask for a structured reply, and may call tools.',
+      image: 'Each turn makes images, in the shape, size and format the image block sets.',
+      speech: 'Each turn reads text aloud in the voice the speech block names.',
+      live: 'One realtime voice and video session over Gemini Live, rather than separate turns.',
+      decision:
+        "Answers the host's questions about a JSON state, each with a choice, a score or a number.",
+      host: 'Runs your tools through invokeTool and never calls a model.',
+    },
   ),
   identity: field(
     '{ handle, system?, systemByRole? }',

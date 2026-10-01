@@ -72,6 +72,18 @@ Deno.test('buildImagesPayload maps kernel image pins to OpenAI-compat body', () 
   });
 });
 
+Deno.test('buildImagesPayload sends no system prompt or history', () => {
+  const body = JSON.stringify(
+    buildImagesPayload(
+      createMockImageRequest({
+        system: 'SYSTEM-MARKER',
+        history: [{ role: 'user', content: 'HISTORY-MARKER' }],
+      }),
+    ),
+  );
+  assertEquals(body.includes('SYSTEM-MARKER') || body.includes('HISTORY-MARKER'), false);
+});
+
 Deno.test('outputFormatFromMime normalizes jpeg aliases', () => {
   assertEquals(outputFormatFromMime('image/jpeg'), 'jpeg');
   assertEquals(outputFormatFromMime('image/jpg'), 'jpeg');
@@ -292,6 +304,19 @@ Deno.test('wireInputReferences wires image parts and skips the text prompt', () 
   );
 });
 
+Deno.test('wireInputReferences passes an http(s) reference through and refuses other schemes', () => {
+  const url = 'https://example.com/style.png';
+  assertEquals(wireInputReferences([{ type: 'image', mimeType: 'image/png', uri: url }]), [
+    { type: 'image_url', image_url: { url } },
+  ]);
+  const error = assertThrows(
+    () => wireInputReferences([{ type: 'image', mimeType: 'image/png', uri: 'gs://bucket/a.png' }]),
+    TheoremError,
+  );
+  assertEquals(error.kind, 'unsupported');
+  assertStringIncludes(error.message, 'http(s)');
+});
+
 Deno.test('wireInputReferences refuses media /images cannot take', () => {
   for (const part of [
     { type: 'audio', mimeType: 'audio/wav', data: 'x' },
@@ -330,4 +355,41 @@ Deno.test('imageToolParameters and buildImagesPayload omit unset aspect and size
   assertEquals(payload.output_format, 'jpeg');
   assertEquals(Object.hasOwn(payload, 'aspect_ratio'), false);
   assertEquals(Object.hasOwn(payload, 'resolution'), false);
+});
+
+const PINNED: ImageResponseFormat = {
+  type: 'image',
+  includeText: false,
+  quality: 'high',
+  background: 'transparent',
+  n: 2,
+  seed: 7,
+  outputCompression: 80,
+};
+
+Deno.test('buildImagesPayload sends quality, background, n, seed and output_compression', () => {
+  const payload = buildImagesPayload(createMockImageRequest({ image: PINNED }));
+  assertEquals(payload.quality, 'high');
+  assertEquals(payload.background, 'transparent');
+  assertEquals(payload.n, 2);
+  assertEquals(payload.seed, 7);
+  assertEquals(payload.output_compression, 80);
+});
+
+Deno.test('buildImagesPayload omits every unset image pin', () => {
+  const payload = buildImagesPayload(
+    createMockImageRequest({ image: { type: 'image', includeText: false } }),
+  );
+  for (const key of ['quality', 'background', 'n', 'seed', 'output_compression']) {
+    assertEquals(Object.hasOwn(payload, key), false);
+  }
+});
+
+Deno.test('imageToolParameters sends quality, background and compression but refuses n and seed', () => {
+  assertEquals(imageToolParameters({ ...PINNED, n: undefined, seed: undefined }), {
+    quality: 'high',
+    background: 'transparent',
+    output_compression: 80,
+  });
+  assertThrows(() => imageToolParameters(PINNED), TheoremError);
 });

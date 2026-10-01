@@ -453,3 +453,78 @@ Deno.test('an image profile takes no voice', () => {
     'must not set inputs.voice',
   );
 });
+
+Deno.test('image pins reach the resolved image format; unset pins stay unset', () => {
+  registerProfile(
+    defineProfile({
+      ...imageWithInputs('image_pinned', {}),
+      image: { quality: 'high', background: 'opaque', n: 2, seed: 7, outputCompression: 60 },
+    } as ProfileDefinition),
+  );
+  const { image } = resolveTurn({ profile: 'image_pinned', input: { text: 'hi' } }).generation;
+  assertEquals(image?.quality, 'high');
+  assertEquals(image?.background, 'opaque');
+  assertEquals(image?.n, 2);
+  assertEquals(image?.seed, 7);
+  assertEquals(image?.outputCompression, 60);
+  const plain = resolveTurn({ profile: 'image', input: { text: 'hi' } }).generation.image;
+  assertEquals(plain?.quality, undefined);
+  assertEquals(plain?.n, undefined);
+});
+
+Deno.test('image pins are checked as whole numbers in range', () => {
+  for (const image of [
+    { n: 0 },
+    { n: 1.5 },
+    { seed: 0.5 },
+    { outputCompression: 101 },
+    { outputCompression: -1 },
+  ]) {
+    assertThrows(
+      () => defineProfile({ ...imageWithInputs('image_bad_pin', {}), image } as ProfileDefinition),
+      TheoremError,
+      'image.',
+    );
+  }
+});
+
+Deno.test('image references go ahead of the turn attachments, before any wire', () => {
+  registerProfile(
+    defineProfile({
+      ...imageWithInputs('image_refs', { attachments: { accept: ['image/*'] } }),
+      image: {
+        references: [
+          { mimeType: 'image/png', data: 'pinned' },
+          { mimeType: 'image/jpg', uri: 'https://example.com/a.jpg' },
+        ],
+      },
+    } as ProfileDefinition),
+  );
+  const { input } = resolveTurn({
+    profile: 'image_refs',
+    input: { text: 'hi', attachments: [{ mimeType: 'image/webp', data: 'turn' }] },
+  }).generation;
+  assertEquals(input.slice(1), [
+    { type: 'image', mimeType: 'image/png', data: 'pinned' },
+    { type: 'image', mimeType: 'image/jpeg', uri: 'https://example.com/a.jpg' },
+    { type: 'image', mimeType: 'image/webp', data: 'turn' },
+  ]);
+});
+
+Deno.test('image references must be images with a source', () => {
+  for (const references of [
+    [{ mimeType: 'video/mp4', data: 'x' }],
+    [{ mimeType: 'image/png', data: '' }],
+    [{ mimeType: 'image/png', uri: '' }],
+  ]) {
+    assertThrows(
+      () =>
+        defineProfile({
+          ...imageWithInputs('image_bad_ref', {}),
+          image: { references },
+        } as ProfileDefinition),
+      TheoremError,
+      'image.references[0]',
+    );
+  }
+});

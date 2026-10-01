@@ -1174,3 +1174,280 @@ Deno.test('provider emits error event when SSE stream returns an API error paylo
   assertEquals(events[0]?.type, 'error');
   assertEquals(eventAt(events, 0, 'error')?.errorInternal, COMBINED_ERROR);
 });
+
+function check(actual: unknown, expected: unknown, label: string): void {
+  assertEquals({ label, actual }, { label, actual: expected });
+}
+
+function startThought(signature: unknown): Record<string, unknown> {
+  return row('step.start', { index: 0, step: { type: 'thought', signature } });
+}
+
+function callRows(index: number, id: string): Record<string, unknown>[] {
+  return [
+    row('step.start', { index, step: { id, type: 'function_call', name: 'water', arguments: {} } }),
+    row('step.stop', { index }),
+  ];
+}
+
+function signatureOfOnlyCall(rows: Record<string, unknown>[]): unknown {
+  const event = foldRows(rows).find((e) => e.type === 'tool');
+  return event?.type === 'tool' ? event.tool.thoughtSignature : 'no tool event';
+}
+
+Deno.test('a thought signature is held only from a thought, only when non-empty, and survives a bare thought', () => {
+  check(
+    signatureOfOnlyCall([startThought('sig'), ...callRows(1, 'c')]),
+    'sig',
+    'thought step.start signature',
+  );
+  check(
+    signatureOfOnlyCall([startThought('sig'), startThought(undefined), ...callRows(1, 'c')]),
+    'sig',
+    'a thought without a signature leaves the held one',
+  );
+  check(
+    signatureOfOnlyCall([startThought('sig'), startThought(''), ...callRows(1, 'c')]),
+    'sig',
+    'an empty thought signature leaves the held one',
+  );
+  check(
+    signatureOfOnlyCall([startThought('sig'), startThought(7), ...callRows(1, 'c')]),
+    'sig',
+    'a non-string thought signature leaves the held one',
+  );
+  check(
+    signatureOfOnlyCall([startThought(7), ...callRows(1, 'c')]),
+    undefined,
+    'a non-string thought signature is not held',
+  );
+  check(
+    signatureOfOnlyCall([
+      row('step.start', { index: 0, step: { type: 'model_output', signature: 'x' } }),
+      ...callRows(1, 'c'),
+    ]),
+    undefined,
+    'a step.start that is not a thought holds nothing',
+  );
+  check(
+    signatureOfOnlyCall([
+      row('step.delta', { index: 0, delta: { type: 'text', text: 'hi', signature: 'x' } }),
+      ...callRows(1, 'c'),
+    ]),
+    undefined,
+    'a delta that is not a thought_signature holds nothing',
+  );
+});
+
+Deno.test('a call with an empty or non-string own signature takes the held thought signature', () => {
+  for (const own of ['', 7]) {
+    const fold = newStreamFold();
+    eventsFromStep({ type: 'thought', signature: 'held' }, fold);
+    check(
+      eventsFromStep(
+        { type: 'function_call', id: 'c', name: 'water', arguments: {}, signature: own },
+        fold,
+      ),
+      [
+        {
+          type: 'tool',
+          tool: { callId: 'c', name: 'water', arguments: {}, thoughtSignature: 'held' },
+        },
+      ],
+      `own signature ${JSON.stringify(own)}`,
+    );
+  }
+});
+
+Deno.test('a function_call with a non-string id or name is not trusted', () => {
+  const fold = newStreamFold();
+  const [withoutId] = eventsFromStep(
+    { type: 'function_call', id: 5, name: 'water', arguments: {} },
+    fold,
+  );
+  const callId = withoutId?.type === 'tool' ? withoutId.tool.callId : undefined;
+  check(typeof callId === 'string' && callId.startsWith('call_water_'), true, 'generated call id');
+  const nameless = eventsFromStep({ type: 'function_call', id: 'c', name: 7, arguments: {} }, fold);
+  check(
+    toolEventsOf(nameless, 'error').map((e) => [e.callId, e.failure.code]),
+    [['c', 'malformed_arguments']],
+    'nameless call fails as malformed',
+  );
+});
+
+Deno.test('streamed steps are keyed by their numeric index, and a missing or non-numeric index is 0', () => {
+  const fold = newStreamFold();
+  const open = (index: number, id: string) =>
+    foldPayload(
+      row('step.start', {
+        index,
+        step: { id, type: 'google_search_call', arguments: { queries: [id] } },
+      }),
+      fold,
+    );
+  open(1, 'one');
+  open(2, 'two');
+  check([...fold.steps.keys()], [1, 2], 'two open steps keep separate indices');
+  check(foldPayload(row('step.stop', { index: 2 }), fold).length, 1, 'stopping index 2');
+  check([...fold.steps.keys()], [1], 'index 1 is still open');
+
+  const absent = newStreamFold();
+  foldPayload(row('step.start', { step: { id: 'z', type: 'google_search_call' } }), absent);
+  check([...absent.steps.keys()], [0], 'no index is 0');
+  check(foldPayload(row('step.stop', { index: 0 }), absent).length, 1, 'a stop at 0 closes it');
+  const text = newStreamFold();
+  foldPayload(
+    row('step.start', { index: '1', step: { id: 'z', type: 'google_search_call' } }),
+    text,
+  );
+  check([...text.steps.keys()], [0], 'a string index is 0');
+});
+
+Deno.test('step rows without a step or delta payload emit nothing', () => {
+  const fold = newStreamFold();
+  check(foldPayload(row('step.start', { index: 0 }), fold), [], 'step.start without step');
+  check(foldPayload(row('step.delta', { index: 0 }), fold), [], 'step.delta without delta');
+  check(fold.steps.size, 0, 'nothing opened');
+});
+
+Deno.test('an arguments_delta without arguments adds nothing to what arrived', () => {
+  const events = foldRows([
+    row('step.start', {
+      index: 0,
+      step: { id: 'c', type: 'function_call', name: 'water', arguments: {} },
+    }),
+    row('step.delta', { index: 0, delta: { type: 'arguments_delta', arguments: '{"ml":5}' } }),
+    row('step.delta', { index: 0, delta: { type: 'arguments_delta' } }),
+    row('step.stop', { index: 0 }),
+  ]);
+  check(
+    events,
+    [{ type: 'tool', tool: { callId: 'c', name: 'water', arguments: { ml: 5 } } }],
+    'args',
+  );
+});
+
+Deno.test('interaction rows without an interaction emit nothing', () => {
+  check(foldRows([row('interaction.created', {}), row('interaction.completed', {})]), [], 'rows');
+});
+
+Deno.test('a buffered body skips steps that are not objects and a steps value that is not a list', () => {
+  const steps = [null, 'text', { type: 'model_output', content: [{ type: 'text', text: 'ok' }] }];
+  check(
+    foldBody({ id: 'v1_b', status: 'completed', steps }, newStreamFold()).map((e) => e.type),
+    ['response', 'text', 'done'],
+    'non-object steps',
+  );
+  check(
+    foldBody({ id: 'v1_b', status: 'completed', steps: 'nope' }, newStreamFold()).map(
+      (e) => e.type,
+    ),
+    ['response', 'done'],
+    'steps not a list',
+  );
+});
+
+type FetchFn = (url: string | URL | Request, init?: RequestInit) => Promise<Response>;
+
+function providerOf(fetch: FetchFn) {
+  return createInteractionsProvider({ vault, wait: noWait, fetch });
+}
+
+async function summaryOf(fetch: FetchFn, req: ProviderCompleteRequest): Promise<string[]> {
+  const events = await Array.fromAsync(providerOf(fetch).complete(req));
+  return events.map((e) => (e.type === 'error' ? `error:${e.errorInternal}` : e.type));
+}
+
+Deno.test('an image profile that returns no image fails, streamed and buffered', async () => {
+  const wanted = 'error:no image returned from image generation';
+  const streamed = await summaryOf(
+    () =>
+      Promise.resolve(
+        sseResponse([
+          row('step.delta', { index: 0, delta: { type: 'text', text: 'no' } }),
+          completedRow(),
+        ]),
+      ),
+    imageRequest(),
+  );
+  check(streamed, ['text', 'response', 'done', wanted], 'streamed');
+  const buffered = await summaryOf(
+    () => Promise.resolve(Response.json({ id: 'v1_i', status: 'completed', steps: [] })),
+    { ...imageRequest(), stream: false },
+  );
+  check(buffered, ['response', 'done', wanted], 'buffered');
+});
+
+Deno.test('an empty response body is named; rows after [DONE] are ignored', async () => {
+  check(
+    await summaryOf(() => Promise.resolve(new Response(null, { status: HTTP_OK })), imageRequest()),
+    ['error:empty response body'],
+    'null body',
+  );
+  const late = row('step.delta', { index: 0, delta: { type: 'text', text: 'late' } });
+  check(
+    await summaryOf(
+      () =>
+        Promise.resolve(
+          new Response(
+            `data: ${JSON.stringify(completedRow())}\n\ndata: [DONE]\n\ndata: ${JSON.stringify(late)}\n\n`,
+            { status: HTTP_OK },
+          ),
+        ),
+      { ...fromChatProfile(), structured: null },
+    ),
+    ['response', 'done'],
+    'nothing after [DONE]',
+  );
+});
+
+Deno.test('a request without a key slot is a config error and posts nothing', async () => {
+  let posted = false;
+  const { keySlot: _slot, ...withoutSlot } = fromChatProfile();
+  const events = await Array.fromAsync(
+    providerOf(() => {
+      posted = true;
+      return Promise.resolve(new Response('{}'));
+    }).complete(withoutSlot),
+  );
+  check(posted, false, 'posted');
+  check(
+    events.map((e) => (e.type === 'error' ? [e.errorKind, e.errorInternal] : e.type)),
+    [['config', 'Request requires keySlot']],
+    'events',
+  );
+});
+
+Deno.test('a buffered body that is an API error is an error, not a turn', async () => {
+  check(
+    await summaryOf(
+      () =>
+        Promise.resolve(
+          Response.json({ error: { code: 'invalid_request', message: COMBINED_ERROR } }),
+        ),
+      { ...fromChatProfile(), structured: null, stream: false },
+    ),
+    [`error:${COMBINED_ERROR}`],
+    'events',
+  );
+});
+
+Deno.test('an abort rethrows instead of becoming an error event', async () => {
+  const body = new ReadableStream({
+    start(controller) {
+      controller.error(new DOMException('The operation was aborted.', 'AbortError'));
+    },
+  });
+  let name = '';
+  try {
+    await Array.fromAsync(
+      providerOf(() => Promise.resolve(new Response(body, { status: HTTP_OK }))).complete({
+        ...fromChatProfile(),
+        structured: null,
+      }),
+    );
+  } catch (err) {
+    name = err instanceof Error ? err.name : String(err);
+  }
+  check(name, 'AbortError', 'thrown');
+});

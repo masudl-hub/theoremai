@@ -43,6 +43,7 @@ import type {
   ModelProfile,
   Profile,
   ProfileIdentity,
+  ProfileImageSpec,
   ProfileInputsSpec,
   ProfileModelFields,
   ProfileOutputsSpec,
@@ -52,7 +53,8 @@ import type {
   SpeechProfile,
   TextProfile,
 } from '../types.ts';
-import { mimeAllowed, profileInputs } from './catalog.ts';
+import { isTurnMediaRef } from './attachments.ts';
+import { mediaKindForMime, mimeAllowed, profileInputs } from './catalog.ts';
 import { soleModelId } from './sole-model.ts';
 
 /** Not shared by host profiles, which invoke tools without a model turn. */
@@ -638,6 +640,7 @@ function defineProfile(input: ProfileDefinition): Profile {
         lexicon,
       } satisfies ImageProfile;
       assertImageAccept(profile.id, profile.inputs.attachments?.accept);
+      assertImagePinValues(profile.id, profile.image);
       break;
     case 'speech':
       profile = {
@@ -699,6 +702,34 @@ function assertStructuredSlot(profile: ModelProfile): void {
       `Profile ${profile.id}: outputs.structured.map maps ${unknown.join(', ')}, not a choice of slot '${structured.by}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
+}
+
+const IMAGE_PIN_RULES = {
+  n: { ok: (v: number) => Number.isInteger(v) && v >= 1, rule: 'a whole number of 1 or more' }, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  seed: { ok: Number.isInteger, rule: 'a whole number' }, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  outputCompression: {
+    ok: (v: number) => Number.isInteger(v) && v >= 0 && v <= 100,
+    rule: 'a whole number from 0 to 100', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  },
+} as const;
+
+function assertImagePinValues(profileId: string, image: ProfileImageSpec) {
+  for (const [name, { ok, rule }] of Object.entries(IMAGE_PIN_RULES)) {
+    const value = image[name as keyof typeof IMAGE_PIN_RULES];
+    if (value !== undefined && !ok(value)) {
+      throw new TheoremError('config', `Profile ${profileId}: image.${name} must be ${rule}`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    }
+  }
+  image.references?.forEach((reference, index) => {
+    const where = `Profile ${profileId}: image.references[${index}]`;
+    if (mediaKindForMime(reference.mimeType) !== 'image') {
+      throw new TheoremError('config', `${where} must be an image, not '${reference.mimeType}'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    }
+    const source = isTurnMediaRef(reference) ? reference.uri : reference.data;
+    if (!source) {
+      throw new TheoremError('config', `${where} needs its bytes or its uri`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    }
+  });
 }
 
 function assertImageAccept(profileId: string, accept: string[] | undefined) {

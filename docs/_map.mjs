@@ -450,7 +450,7 @@ const graph = {
     presets: {
       export: './presets',
       doc: 'docs/contracts/presets.md',
-      owns: ['src/presets/mod.ts', 'src/presets/typesafe.ts'],
+      owns: ['src/presets/mod.ts', 'src/presets/openrouter.ts', 'src/presets/typesafe.ts'],
       watches: [
         {
           path: 'src/presets/google.ts',

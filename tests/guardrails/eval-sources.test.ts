@@ -3,6 +3,7 @@ import {
   type CorpusCache,
   type CorpusSample,
   fetchRows,
+  parseLabelledCsv,
   recordsFromYaml,
   SOURCES,
 } from '../../src/guardrails/eval/corpus.ts';
@@ -477,4 +478,12 @@ Deno.test('fetchRows stops walking once a batch reaches the end of the split', a
   assertEquals(rows, [{ n: 1 }]);
   // Four pages per batch; the empty ones end the walk after the first batch.
   assertEquals(seen.length, 4);
+});
+
+Deno.test('a CSV label other than 0 or 1 is dropped, whatever number it is', () => {
+  const csv = 'text,label\ntwo,2\nminus,-1\nhalf,0.5\nword,yes\nzero,0\none,1\n';
+  assertEquals(
+    parseLabelledCsv(csv).map((row) => row.text),
+    ['zero', 'one'],
+  );
 });

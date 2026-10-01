@@ -3,6 +3,7 @@ import { isMediaRefPart } from '../../../kernel/interaction-parts.ts';
 import type {
   ImageResponseFormat,
   InteractionMediaPart,
+  InteractionMediaRefPart,
   InteractionPart,
   ProviderCompleteRequest,
 } from '../../../kernel/types.ts';
@@ -26,11 +27,13 @@ export function outputFormatFromMime(mimeType: string): string {
   return 'png';
 }
 
-export function wireInputReference(part: InteractionMediaPart): Record<string, unknown> {
-  return {
-    type: 'image_url',
-    image_url: { url: `data:${part.mimeType};base64,${part.data}` },
-  };
+const HTTP_URL = /^https?:\/\//i;
+
+export function wireInputReference(
+  part: InteractionMediaPart | InteractionMediaRefPart,
+): Record<string, unknown> {
+  const url = isMediaRefPart(part) ? part.uri : `data:${part.mimeType};base64,${part.data}`;
+  return { type: 'image_url', image_url: { url } };
 }
 
 /** Non-image media is refused, not dropped: a dropped file would leave the user believing the model saw it. */
@@ -46,8 +49,11 @@ export function wireInputReferences(input: InteractionPart[]): Record<string, un
         `${part.mimeType} input is not supported on /images, which takes image references only`,
       );
     }
-    if (isMediaRefPart(part)) {
-      throw new TheoremError('unsupported', 'media references are not supported on openAi');
+    if (isMediaRefPart(part) && !HTTP_URL.test(part.uri)) {
+      throw new TheoremError(
+        'unsupported',
+        'only http(s) media references are supported on /images',
+      );
     }
     references.push(wireInputReference(part));
   }
@@ -66,6 +72,21 @@ export function attachImagePins(
   }
   if (image.mimeType) {
     payload.output_format = outputFormatFromMime(image.mimeType);
+  }
+  if (image.quality) {
+    payload.quality = image.quality;
+  }
+  if (image.background) {
+    payload.background = image.background;
+  }
+  if (image.n !== undefined) {
+    payload.n = image.n;
+  }
+  if (image.seed !== undefined) {
+    payload.seed = image.seed;
+  }
+  if (image.outputCompression !== undefined) {
+    payload.output_compression = image.outputCompression;
   }
 }
 
@@ -98,6 +119,26 @@ export function imageToolParameters(image: ImageResponseFormat): Record<string, 
   }
   if (image.resolution) {
     params.resolution = image.resolution;
+  }
+  if (image.quality) {
+    params.quality = image.quality;
+  }
+  if (image.background) {
+    params.background = image.background;
+  }
+  if (image.outputCompression !== undefined) {
+    params.output_compression = image.outputCompression;
+  }
+  for (const [name, value] of [
+    ['n', image.n],
+    ['seed', image.seed],
+  ] as const) {
+    if (value !== undefined) {
+      throw new TheoremError(
+        'unsupported',
+        `image.${name} is not supported with image.includeText`,
+      );
+    }
   }
   return params;
 }

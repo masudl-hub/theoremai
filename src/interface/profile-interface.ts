@@ -152,6 +152,19 @@ const profileInterface = z.discriminatedUnion('type', [
       aspectRatio: z.string().optional(),
       resolution: z.string().optional(),
       mimeType: z.string().optional(),
+      quality: z.string().optional(),
+      background: z.string().optional(),
+      n: z.number().int().min(1).optional(),
+      seed: z.number().int().optional(),
+      outputCompression: z.number().int().min(0).max(100).optional(),
+      references: z
+        .array(
+          z.union([
+            z.object({ mimeType: z.string(), data: z.string(), name: z.string().optional() }),
+            z.object({ mimeType: z.string(), uri: z.string(), name: z.string().optional() }),
+          ]),
+        )
+        .optional(),
       includeText: z.boolean().optional(),
     }),
     inputs,

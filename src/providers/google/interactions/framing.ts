@@ -147,6 +147,19 @@ export function attachResponseFormat(
     if (req.image.resolution) {
       imageEntry.imageSize = req.image.resolution;
     }
+    for (const [name, value] of [
+      ['quality', req.image.quality],
+      ['background', req.image.background],
+      ['n', req.image.n],
+      ['outputCompression', req.image.outputCompression],
+    ] as const) {
+      if (value !== undefined) {
+        throw new TheoremError(
+          'unsupported',
+          `image.${name} is not supported on Google image models`,
+        );
+      }
+    }
     // An object asks for image only; an array for text + image.
     camel.responseFormat = req.image.includeText ? [{ type: 'text' }, imageEntry] : imageEntry;
     return;
@@ -269,6 +282,9 @@ export function baseInteractionsBody(req: ProviderCompleteRequest): Record<strin
     }
     if (req.summaries) {
       generationConfig.thinkingSummaries = req.summaries;
+    }
+    if (req.image?.seed !== undefined) {
+      generationConfig.seed = req.image.seed;
     }
   }
   return {

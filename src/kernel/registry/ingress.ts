@@ -152,29 +152,28 @@ function continueText(profile: Profile, req: TurnRequest): string | undefined {
   return lexiconText('continue.instruction', {}, profile.lexicon);
 }
 
+function assertSpeechTakesNoMedia(profile: Profile, req: TurnRequest): void {
+  const { attachments, voice } = req.input ?? {};
+  if ((attachments?.length ?? 0) + (voice?.length ?? 0) > 0) {
+    throw new TheoremError('input', `Profile ${profile.id} (speech) does not accept media input`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+}
+
+function pinnedReferenceParts(profile: Profile): InteractionPart[] {
+  return profile.type === 'image' && profile.image.references
+    ? mediaParts(profile.image.references)
+    : [];
+}
+
 function extractMediaParts(profile: Profile, req: TurnRequest): InteractionPart[] {
   if (profile.type === 'speech') {
-    const { attachments, voice } = req.input ?? {};
-    if ((attachments?.length ?? 0) + (voice?.length ?? 0) > 0) {
-      throw new TheoremError('input', `Profile ${profile.id} (speech) does not accept media input`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    }
+    assertSpeechTakesNoMedia(profile, req);
     return [];
   }
-  const { attachments, voice } = req.input ?? {};
-  const files = attachments ?? [];
-  const clips = voice ?? [];
+  const files = req.input?.attachments ?? [];
+  const clips = req.input?.voice ?? [];
   assertTurnAttachments(profile, files, clips);
-  const parts: InteractionPart[] = [];
-  if (profile.type === 'image' && profile.image.references) {
-    parts.push(...mediaParts(profile.image.references));
-  }
-  if (files.length > 0) {
-    parts.push(...mediaParts(files));
-  }
-  if (clips.length > 0) {
-    parts.push(...mediaParts(clips));
-  }
-  return parts;
+  return [...pinnedReferenceParts(profile), ...mediaParts(files), ...mediaParts(clips)];
 }
 
 function resolveInputParts(profile: Profile, req: TurnRequest): InteractionPart[] {

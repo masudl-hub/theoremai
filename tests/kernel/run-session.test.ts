@@ -1,5 +1,6 @@
 import { assertEquals, assertRejects, assertStringIncludes, assertThrows } from '@std/assert';
 import { z } from 'zod';
+import { browserToolHandler } from '../../playground/browser-tool.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import { lexiconText } from '../../src/guardrails/lexicon.ts';
 import type { ResolveHost } from '../../src/guardrails/network.ts';
@@ -1776,4 +1777,57 @@ Deno.test('runSession before_end inject schedules realtime text and still emits 
 
   liveMock.close();
   await session.close();
+});
+
+function registerBrowserTool(): void {
+  registerTool({
+    type: 'function',
+    name: 'live_browser_count',
+    description: 'counts something in the browser',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    input: z.object({}),
+    output: z.object({ count: z.number() }),
+    handler: browserToolHandler('live_browser_count'),
+  });
+}
+
+Deno.test('a browser tool settles with what the browser sent as host.clientOutput', async () => {
+  clearProfiles();
+  resetTools();
+  registerBrowserTool();
+  const h = await openToolSession(['live_browser_count']);
+  await h.modelCalls({ id: 'c1', name: 'live_browser_count' });
+  const settled = await h.session.executeTool({
+    callId: 'c1',
+    host: { clientOutput: { count: 3 } },
+  });
+  assertEquals(settled.outputRaw, { count: 3 });
+  await h.close();
+});
+
+Deno.test('a browser tool with no result, a timeout or an off-schema result fails to the model', async () => {
+  clearProfiles();
+  resetTools();
+  registerBrowserTool();
+  const h = await openToolSession(['live_browser_count']);
+  await h.modelCalls(
+    { id: 'c1', name: 'live_browser_count' },
+    { id: 'c2', name: 'live_browser_count' },
+    { id: 'c3', name: 'live_browser_count' },
+  );
+  const missing = await h.session.executeTool({ callId: 'c1' });
+  const timedOut = await h.session.executeTool({ callId: 'c2', host: { clientTimedOut: true } });
+  const wrong = await h.session.executeTool({
+    callId: 'c3',
+    host: { clientOutput: { count: 'x' } },
+  });
+  assertEquals(missing.failure !== undefined, true);
+  assertStringIncludes(JSON.stringify(timedOut.failure), "didn't answer");
+  assertEquals(wrong.failure !== undefined, true);
+  assertEquals(h.toolResponses().length, 3);
+  await h.close();
 });

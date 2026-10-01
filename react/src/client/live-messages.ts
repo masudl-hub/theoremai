@@ -39,6 +39,8 @@ export type LiveClientMessage =
 	| { type: 'context'; text: string }
 	/** Run a call the model made, by its id; the live session holds its name, input and gate. */
 	| { type: 'executeTool'; callId: string; decision?: GateDecision; input?: unknown; secret?: string;
+	  /** What the browser did for a tool that runs there; a relay hands it to the tool as `host.clientOutput`. */
+	  output?: unknown;
 	  };
 const liveClientMessage = z.discriminatedUnion('type', [
 	z.object({ type: z.literal('audio'), data: z.string() }),
@@ -52,6 +54,7 @@ const liveClientMessage = z.discriminatedUnion('type', [
 		decision: z.enum(GATE_DECISIONS).optional(),
 		input: z.unknown().optional(),
 		secret: z.string().optional(),
+		output: z.unknown().optional(),
 	}),
 ]);
 true satisfies Equals<z.infer<typeof liveClientMessage>, LiveClientMessage>;
@@ -134,7 +137,8 @@ export type LiveToolStep =
  * Ask the relay to run `LiveSession.executeTool` for a call the model made.
  * `decision` answers its gate; `input` is the user's edit to an approval;
  * `secret` is the key the user typed at a sign-in gate, sent once: the
- * session makes it the credential for the gate's slot.
+ * session makes it the credential for the gate's slot. `output` is the
+ * browser's result for a tool that runs in the page (see `browserToolHandler`).
  */
 export type ExecuteToolOnRelay = (
 	args: Omit<Extract<LiveClientMessage, { type: 'executeTool' }>, 'type'>,

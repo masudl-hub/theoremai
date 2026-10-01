@@ -264,7 +264,7 @@ Deno.test('an issue becomes copy with its params, its file name and its lexicon 
   check(
     attachmentIssueCopy({
       code: 'file_too_large',
-      params: { maxBytes: 3, other: undefined },
+      params: { maxBytes: 3, maxFiles: undefined },
       fileName: 'a.png',
     }),
     { key: 'attachments.file_too_large', params: { maxBytes: 3, fileName: 'a.png' } },

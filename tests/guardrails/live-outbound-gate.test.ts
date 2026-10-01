@@ -706,3 +706,76 @@ Deno.test('processLiveOutboundBatch under egress holds the profile holdback', as
     events: [said('x'.repeat(10))],
   });
 });
+
+const guardrailTypes = (events: TurnEvent[]) => events.map((e) => e.type);
+
+Deno.test('after a progressive hit, later audio and chunks stay held and the hit is reported once', async () => {
+  const profile = egressProfile('live_egress_hit_then_more', () => blockVerdict('egress.hit'));
+  const s = createLiveOutboundGateSession(profile);
+  const first = await processLiveOutboundBatch(s, [said('hello')]);
+  assertEquals(first.action === 'emit' && guardrailTypes(first.events), ['guardrail']);
+  assertEquals(s.withholdVisible, true);
+
+  assertEquals(await processLiveOutboundBatch(s, [audio(1)]), { action: 'idle' });
+  assertEquals(s.held.length, 2);
+  assertEquals(await processLiveOutboundBatch(s, [said(' more')]), { action: 'idle' });
+  assertEquals(s.gate?.accumulated(), 'hello more');
+});
+
+Deno.test('a canary-only hit mid-batch stops the batch and names the canary', async () => {
+  const s = session(FIXED_CANARY);
+  const result = await processLiveOutboundBatch(s, [
+    { type: 'text', text: FIXED_CANARY },
+    { type: 'text', text: 'never reached' },
+  ]);
+  assertEquals(result.action, 'withhold');
+  if (result.action === 'withhold') {
+    assertEquals(guardrailTypes(result.events ?? []), ['guardrail']);
+  }
+});
+
+Deno.test('a canary in a non-stream event withholds with a guardrail event after what was already cleared', async () => {
+  const s = session(FIXED_CANARY);
+  const result = await processLiveOutboundBatch(s, [
+    { type: 'text', text: 'safe words here' },
+    { type: 'error', errorKind: 'internal', error: FIXED_CANARY },
+  ]);
+  assertEquals(result.action, 'withhold');
+  if (result.action === 'withhold') {
+    assertEquals(guardrailTypes(result.events ?? []), ['text', 'guardrail']);
+    assertEquals(result.error.kind, 'safety');
+  }
+});
+
+Deno.test('a hit while flushing at a non-stream event ends the batch before that event', async () => {
+  const profile = egressProfile('live_egress_flush_hit', () => blockVerdict('egress.hit'), {
+    canary: false,
+  });
+  const s = createLiveOutboundGateSession(profile);
+  const result = await processLiveOutboundBatch(s, [said('hello'), turnComplete]);
+  assertEquals(result.action === 'emit' && guardrailTypes(result.events), ['guardrail', 'session']);
+});
+
+Deno.test('a block at finalize keeps what the flush released, then the guardrail', async () => {
+  const profile = egressProfile('live_egress_final_block_prior', (input) =>
+    input.text.length > 20 ? blockVerdict('egress.late') : { action: 'allow' },
+  );
+  const s = createLiveOutboundGateSession(profile);
+  await processLiveOutboundBatch(s, [said('x'.repeat(40))]);
+  const result = await finalizeLiveOutboundTurn(s);
+  assertEquals(result.action, 'withhold');
+  if (result.action === 'withhold') {
+    assertEquals(result.error.kind, 'safety');
+    assertEquals(guardrailTypes(result.events ?? []).at(-1), 'guardrail');
+  }
+});
+
+Deno.test('a refusal at finalize carries the flush events before the guardrail and the text', async () => {
+  const profile = egressProfile('live_egress_refuse_prior', () => blockVerdict('egress.x'), {
+    onBlock: 'refuse_to_user',
+  });
+  const s = createLiveOutboundGateSession(profile);
+  await processLiveOutboundBatch(s, [said('hello')]);
+  const result = await finalizeLiveOutboundTurn(s);
+  assertEquals(result.action === 'emit' && guardrailTypes(result.events), ['guardrail', 'text']);
+});

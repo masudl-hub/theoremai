@@ -1125,10 +1125,6 @@ Deno.test('runSession with signInGate answer tells the model the sign-in is pend
   assertEquals(h.toolResponses(), [
     { id: 'c-wait', name: 'live_tracker', response: { result: pending } },
   ]);
-  await assertRejects(
-    () => h.session.executeTool({ callId: 'c-wait', decision: 'approve', secret: 'k' }),
-    TheoremError,
-  );
   const gate = h.events.find(
     (ev) => ev.type === 'tool' && ev.tool.callId === 'c-wait' && ev.tool.phase === 'gate',
   );
@@ -1136,6 +1132,75 @@ Deno.test('runSession with signInGate answer tells the model the sign-in is pend
     gate?.type === 'tool' && gate.tool.phase === 'gate' ? gate.tool.readBack : '',
     pending,
   );
+
+  // The released call still takes its outcome; the model reads it as the call's next result.
+  const declined = await h.session.executeTool({ callId: 'c-wait', decision: 'deny' });
+  assertEquals(declined.failure?.kind, 'declined');
+  const [, second] = h.toolResponses();
+  assertEquals(second?.id, 'c-wait');
+  assertStringIncludes(
+    JSON.stringify(second?.response),
+    lexiconText('sign_in.declined', { service: 'Tracker' }),
+  );
+  await assertRejects(() => h.session.executeTool({ callId: 'c-wait' }), TheoremError);
+  await h.close();
+});
+
+Deno.test('runSession with signInGate answer tells the model a released sign-in it settles elsewhere', async () => {
+  clearProfiles();
+  resetTools();
+  registerTrackerTool();
+  const h = await openToolSession(['live_tracker'], { signInGate: 'answer' });
+  await h.modelCalls({ id: 'c-later', name: 'live_tracker' });
+  h.session.answerToolCall({
+    callId: 'c-later',
+    events: await h.invokeFor('live_tracker', 'c-later'),
+  });
+
+  // The sign-in finished outside the call; its outcome reaches the model as a second result.
+  const outcome = await h.invokeFor('live_tracker', 'c-later', { granted: false, signIn: true });
+  assertEquals(
+    h.session.answerToolCall({ callId: 'c-later', events: outcome }).failure?.kind,
+    'declined',
+  );
+  const responses = h.toolResponses();
+  assertEquals(responses.length, 2);
+  assertStringIncludes(
+    JSON.stringify(responses[1]?.response),
+    lexiconText('sign_in.declined', { service: 'Tracker' }),
+  );
+  assertThrows(
+    () => h.session.answerToolCall({ callId: 'c-later', events: outcome }),
+    TheoremError,
+  );
+  await h.close();
+});
+
+Deno.test('runSession with signInGate answer tells the model when a released sign-in lapses', async () => {
+  clearProfiles();
+  resetTools();
+  registerTrackerTool();
+  const h = await openToolSession(['live_tracker'], { signInGate: 'answer', gateTtlMs: 20 });
+  await h.modelCalls({ id: 'c-lapse', name: 'live_tracker' });
+  h.session.answerToolCall({
+    callId: 'c-lapse',
+    events: await h.invokeFor('live_tracker', 'c-lapse'),
+  });
+  await new Promise((r) => setTimeout(r, 40));
+
+  const expired = lexiconText('sign_in.expired', { service: 'Tracker' });
+  const responses = h.toolResponses();
+  assertEquals(responses.length, 2);
+  assertStringIncludes(JSON.stringify(responses[1]?.response), expired);
+  const lapsed = h.events.find(
+    (ev) => ev.type === 'tool' && ev.tool.callId === 'c-lapse' && ev.tool.phase === 'error',
+  );
+  assertEquals(
+    lapsed?.type === 'tool' && lapsed.tool.phase === 'error' ? lapsed.tool.failure.message : '',
+    expired,
+  );
+  const late = await h.invokeFor('live_tracker', 'c-lapse', { granted: false, signIn: true });
+  assertThrows(() => h.session.answerToolCall({ callId: 'c-lapse', events: late }), TheoremError);
   await h.close();
 });
 

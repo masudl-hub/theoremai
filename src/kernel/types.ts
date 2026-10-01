@@ -1042,8 +1042,9 @@ export interface LiveSession {
   /**
    * Settle a call whose body ran in the registry-owning process: its events
    * join `events()` and the model reads its `readBack`. A run that ends on a
-   * gate leaves the call open. An unknown, settled or running call, or events
-   * that settle nothing for it, is a `request` error.
+   * gate leaves the call open; a released sign-in (`signInGate: 'answer'`)
+   * takes its outcome until `gateTtlMs`. An unknown, settled, running or
+   * expired call, or events that settle nothing for it, is a `request` error.
    */
   answerToolCall(args: LiveAnswerToolCallArgs): LiveExecuteToolResult;
   close(reason?: string): Promise<void>;

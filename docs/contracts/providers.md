@@ -217,8 +217,12 @@ stay on the session path; there is no raw tool-response escape hatch. See
 
 A sign-in gate waits for its decision like any gate (`signInGate: 'hold'`, the
 default). With `signInGate: 'answer'` the session answers the model at once
-with the gate's `sign_in.pending` note and lets the call go, for a host whose
-sign-in finishes outside the call and returns as a new turn.
+with the gate's `sign_in.pending` note and releases the call, for a host whose
+sign-in finishes outside the call. A released call still takes its outcome for
+`gateTtlMs` (`executeTool` with a decision, or `answerToolCall`); the model reads
+it as the call's next `functionResponse` (probe 30/09/2026,
+gemini-3.1-flash-live: a second response for an answered `NON_BLOCKING` call is
+accepted and spoken). Unanswered by then, the model reads `sign_in.expired`.
 
 `createProvider` **rejects** `geminiLive` — there is no turn-scoped live `complete()` adapter.
 

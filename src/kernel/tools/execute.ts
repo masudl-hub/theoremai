@@ -890,6 +890,29 @@ function refusedSignInService(tool: RegisteredTool, resume: ToolContext['resume'
   return tool.auth?.service;
 }
 
+/**
+ * A gate nobody answered: a sign-in for `expiredService` whose link expired, or any other gate
+ * left behind. Both settle as `cancelled`.
+ */
+export function lapsedGateFailure(
+  toolName: string,
+  expiredService: string | undefined,
+  lexicon: LexiconOverrides | undefined,
+): ToolFailure {
+  if (expiredService) {
+    return {
+      code: 'expired',
+      kind: 'cancelled',
+      message: lexiconText('sign_in.expired', { service: expiredService }, lexicon),
+    };
+  }
+  return {
+    code: 'cancelled',
+    kind: 'cancelled',
+    message: lexiconText('session.abandon_gated', { tool: toolName }, lexicon),
+  };
+}
+
 /** `abandoned` and `expired` settle as `cancelled`. */
 function refusalFailure(
   tool: RegisteredTool,
@@ -907,18 +930,7 @@ function refusalFailure(
         : lexiconText('session.tool_denied', { tool: tool.name }, lexicon),
     };
   }
-  if (cause === 'expired' && service) {
-    return {
-      code: 'expired',
-      kind: 'cancelled',
-      message: lexiconText('sign_in.expired', { service }, lexicon),
-    };
-  }
-  return {
-    code: 'cancelled',
-    kind: 'cancelled',
-    message: lexiconText('session.abandon_gated', { tool: tool.name }, lexicon),
-  };
+  return lapsedGateFailure(tool.name, cause === 'expired' ? service : undefined, lexicon);
 }
 
 function resumeApproval(resume: ToolContext['resume']): boolean | undefined {

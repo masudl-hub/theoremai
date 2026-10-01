@@ -43,7 +43,11 @@ import {
 } from '../../stages.ts';
 import { profileAllowsInject, stageAbortStop } from '../../stop.ts';
 import { failureEvent } from '../../tools/events.ts';
-import { executeRegisteredTool, type ToolExecuteSettlement } from '../../tools/execute.ts';
+import {
+  executeRegisteredTool,
+  lapsedGateFailure,
+  type ToolExecuteSettlement,
+} from '../../tools/execute.ts';
 import {
   answerGatedCall,
   gateExpired,
@@ -98,7 +102,9 @@ export interface RunSessionOptions {
   /**
    * `hold` (default): a sign-in gate waits for its decision, as any gate does. `answer`: the
    * model reads the gate's pending note at once and the call is released, for a host whose
-   * sign-in finishes outside the session and comes back as a new turn.
+   * sign-in finishes outside the session. A released call still takes its outcome for
+   * `gateTtlMs` (`executeTool` with a decision, or `answerToolCall`), which the model reads as
+   * the call's next result; unanswered by then, the model reads that the sign-in expired.
    */
   signInGate?: SignInGatePolicy;
 }
@@ -108,9 +114,18 @@ export type SignInGatePolicy = 'hold' | 'answer';
 type HeldCall = {
   name: string;
   arguments: Record<string, unknown>;
-  /** `running` while `executeTool` runs it; a gated call waits for its decision. */
-  state: 'open' | 'running' | { gate: ToolGate; createdAt: number };
+  /**
+   * `running` while `executeTool` runs it; a gated call waits for its decision. A `released` call
+   * has already answered the model (a sign-in's pending note) and waits for its outcome.
+   */
+  state: 'open' | 'running' | { gate: ToolGate; createdAt: number; released?: true };
+  /** Settles a released call that waited past `gateTtlMs`. */
+  lapse?: ReturnType<typeof setTimeout>;
 };
+
+function isReleased(held: HeldCall): boolean {
+  return typeof held.state === 'object' && held.state.released === true;
+}
 
 type SettledPhase = Extract<ToolPhaseEvent, { phase: 'complete' | 'error' | 'gate' }>;
 
@@ -471,14 +486,55 @@ function buildLiveSession(args: {
     connection.send(payload);
   };
 
-  /** A sign-in gate's pending note, when this session answers sign-in gates at once. */
-  const answeredGateReadBack = (readBack: string | undefined) =>
-    signInGate === 'answer' ? readBack : undefined;
-
-  const settleHeld = (callId: string, held: HeldCall, readBack: string) => {
-    calls.delete(callId);
+  const answerModel = (callId: string, held: HeldCall, readBack: string) => {
     recordToolSettle({ name: held.name, callId, arguments: held.arguments }, readBack);
     sendJson(buildGeminiLiveToolResponse(callId, held.name, readBack));
+  };
+
+  const settleHeld = (callId: string, held: HeldCall, readBack: string) => {
+    clearTimeout(held.lapse);
+    calls.delete(callId);
+    answerModel(callId, held, readBack);
+  };
+
+  /** A released call nobody answered in time: the model reads that its sign-in expired. */
+  const lapseReleased = (callId: string, held: HeldCall) => {
+    if (closed || calls.get(callId) !== held || typeof held.state !== 'object') return;
+    const { gate } = held.state;
+    const failure = lapsedGateFailure(
+      held.name,
+      gate.kind === 'auth' ? gate.authChallenge.service : undefined,
+      profile.lexicon,
+    );
+    const readBack = formatToolResult(formatToolFailureForModel(failure));
+    enqueuePending(failureEvent({ name: held.name, callId }, failure, readBack));
+    settleHeld(callId, held, readBack);
+  };
+
+  /** A closed session answers nothing more. */
+  const stopLapses = () => {
+    for (const held of calls.values()) clearTimeout(held.lapse);
+  };
+
+  /**
+   * A call that ran into `gate`. A sign-in gate this session answers at once tells the model its
+   * pending note and releases the call; a call already released stays released. Either waits
+   * `gateTtlMs` for its outcome. False: the call is not released, and the caller holds it.
+   */
+  const releaseGated = (
+    callId: string,
+    held: HeldCall,
+    wasReleased: boolean,
+    gate: ToolGate,
+    readBack: string | undefined,
+  ): boolean => {
+    const answersNow = signInGate === 'answer' && gate.kind === 'auth' && readBack !== undefined;
+    if (!answersNow && !wasReleased) return false;
+    if (answersNow) answerModel(callId, held, readBack);
+    clearTimeout(held.lapse);
+    held.state = { gate, createdAt: Date.now(), released: true };
+    held.lapse = setTimeout(() => lapseReleased(callId, held), gateTtlMs);
+    return true;
   };
 
   /**
@@ -654,6 +710,7 @@ function buildLiveSession(args: {
     per: Pick<LiveExecuteToolArgs, 'credentials' | 'host'>,
   ): Promise<LiveExecuteToolResult> => {
     const waiting = held.state;
+    const wasReleased = isReleased(held);
     held.state = 'running';
     const host = per.host ?? sessionHost;
     const record = trace.toolRecord(callId);
@@ -706,9 +763,9 @@ function buildLiveSession(args: {
     }
 
     if (s.gated) {
-      const readBack = answeredGateReadBack(s.gateReadBack);
-      if (readBack !== undefined) settleHeld(callId, held, readBack);
-      else held.state = { gate: s.gated, createdAt: Date.now() };
+      if (!releaseGated(callId, held, wasReleased, s.gated, s.gateReadBack)) {
+        held.state = { gate: s.gated, createdAt: Date.now() };
+      }
       return { gated: s.gated };
     }
 
@@ -764,9 +821,16 @@ function buildLiveSession(args: {
     };
   };
 
+  const gateExpiredError = (callId: string) =>
+    // lexicon-exempt: developer contract / internal diagnostic — the user reads session.gate_expired
+    new TheoremError('request', `gate ${callId} expired`, {
+      copy: { key: 'session.gate_expired' },
+    });
+
   /**
    * The held call `callId`, when it can run now. A gate that waited past
-   * `gateTtlMs` is settled as abandoned (the model reads that), then refused.
+   * `gateTtlMs` is settled (a held one as abandoned, a released one as lapsed;
+   * the model reads that), then refused.
    */
   const takeHeld = async (callId: string): Promise<HeldCall> => {
     const held = calls.get(callId);
@@ -777,11 +841,10 @@ function buildLiveSession(args: {
       typeof held.state === 'object' &&
       gateExpired(held.state.createdAt, Date.now(), gateTtlMs)
     ) {
-      await runHeld(callId, held, held.arguments, resumeForAnswer({ decision: 'abandon' }), {});
-      // lexicon-exempt: developer contract / internal diagnostic — the user reads session.gate_expired
-      throw new TheoremError('request', `gate ${callId} expired`, {
-        copy: { key: 'session.gate_expired' },
-      });
+      if (isReleased(held)) lapseReleased(callId, held);
+      else
+        await runHeld(callId, held, held.arguments, resumeForAnswer({ decision: 'abandon' }), {});
+      throw gateExpiredError(callId);
     }
     return held;
   };
@@ -877,6 +940,7 @@ function buildLiveSession(args: {
       throw err;
     } finally {
       closed = true;
+      stopLapses();
       if (withholdClose) closeSocket(1011, 'guardrail withheld', closer);
       else closeSocket(1000, 'session-closed', closer);
       // The socket is closed, so a batch still awaited resolves and the provider can finish.
@@ -983,8 +1047,15 @@ function buildLiveSession(args: {
     answerToolCall({ callId, events }: LiveAnswerToolCallArgs): LiveExecuteToolResult {
       assertOpen();
       const held = calls.get(callId);
-      if (held?.state !== 'open') {
+      if (!held || (held.state !== 'open' && !isReleased(held))) {
         throw new TheoremError('request', `call ${callId} is not waiting for an answer`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      }
+      if (
+        typeof held.state === 'object' &&
+        gateExpired(held.state.createdAt, Date.now(), gateTtlMs)
+      ) {
+        lapseReleased(callId, held);
+        throw gateExpiredError(callId);
       }
       let settled: SettledPhase | undefined;
       for (const ev of events) {
@@ -1007,8 +1078,7 @@ function buildLiveSession(args: {
       };
       if (settled.phase === 'gate') {
         forward();
-        const readBack = answeredGateReadBack(settled.readBack);
-        if (readBack !== undefined) settleHeld(callId, held, readBack);
+        releaseGated(callId, held, isReleased(held), settled.gate, settled.readBack);
         return { gated: settled.gate };
       }
       const { readBack } = settled;
@@ -1024,6 +1094,7 @@ function buildLiveSession(args: {
     close(reason = 'session-closed'): Promise<void> {
       if (!closed) {
         closed = true;
+        stopLapses();
         closeSocket(1000, reason, 'host');
       }
       // The session record is sealed here; frames the host reads after closing are not in it.

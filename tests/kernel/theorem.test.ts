@@ -249,7 +249,7 @@ Deno.test('runTurn accepts an omitted input object', async () => {
   };
   const events = await Array.fromAsync(runTurn({ profile: 'no_input_bot' }, provider));
 
-  assertEquals(firstOf(events, 'text')?.text, 'empty input ok');
+  assertEquals(replyText(events), 'empty input ok');
   assertDoneThenPostTurn(events);
 });
 
@@ -1880,8 +1880,7 @@ Deno.test('guardrails.egress refuse_to_user delivers in-character refusal withou
     events.push(ev);
   }
 
-  const textEv = firstOf(events, 'text');
-  assertEquals(textEv?.text, "i can't discuss internal wiring.");
+  assertEquals(replyText(events), "i can't discuss internal wiring.");
 });
 
 Deno.test('guardrails.egress reject_to_agent triggers auto-repair retry loop', async () => {

@@ -12,6 +12,9 @@ import type { NetworkGuardrailSpec } from './types.ts';
  * - RFC 2544 benchmark testing: 198.18.0.0/15
  * - Broadcast / multicast / reserved: 224.0.0.0/4, 240.0.0.0/4, 255.255.255.255
  */
+/** Four dotted decimal octets and nothing else, so an IPv6 literal's dotted tail is never read as an IPv4 address. */
+const IPV4_LITERAL = /^\d{1,3}(\.\d{1,3}){3}$/;
+
 type IPv4OctetMatch = (b0: number, b1: number, b2: number) => boolean;
 
 const PRIVATE_OR_LOCAL_IPV4_MATCHES: readonly IPv4OctetMatch[] = [
@@ -34,32 +37,11 @@ function isPrivateOrLocalIPv4Parts(b0: number, b1: number, b2: number, _b3: numb
 }
 
 function isPrivateOrLocalIPv4(ip: string): boolean {
-  const parts = ip.split('.').map((p) => Number.parseInt(p, 10));
-  if (parts.length !== 4) {
+  if (!IPV4_LITERAL.test(ip)) {
     return false;
   }
-  const b0 = parts[0];
-  const b1 = parts[1];
-  const b2 = parts[2];
-  const b3 = parts[3];
-  if (
-    b0 === undefined ||
-    b1 === undefined ||
-    b2 === undefined ||
-    b3 === undefined ||
-    Number.isNaN(b0) ||
-    Number.isNaN(b1) ||
-    Number.isNaN(b2) ||
-    Number.isNaN(b3) ||
-    b0 < 0 ||
-    b0 > 255 ||
-    b1 < 0 ||
-    b1 > 255 ||
-    b2 < 0 ||
-    b2 > 255 ||
-    b3 < 0 ||
-    b3 > 255
-  ) {
+  const [b0 = 0, b1 = 0, b2 = 0, b3 = 0] = ip.split('.').map(Number);
+  if (b0 > 255 || b1 > 255 || b2 > 255 || b3 > 255) {
     return false;
   }
   return isPrivateOrLocalIPv4Parts(b0, b1, b2, b3);
@@ -82,7 +64,8 @@ function parseIPv6Words(ip: string): number[] | null {
       const b2 = v4Parts[2] ?? 0;
       const b3 = v4Parts[3] ?? 0;
       ipv4Words = [(b0 << 8) | b1, (b2 << 8) | b3];
-      v6Str = trimmed.slice(0, lastColon);
+      const head = trimmed.slice(0, lastColon + 1);
+      v6Str = head.endsWith('::') ? head : head.slice(0, -1);
     }
   }
 
@@ -286,8 +269,6 @@ export interface GuardedFetchOptions {
 
 /** A host name's IPv4 and IPv6 addresses; empty when the name does not exist. */
 export type ResolveHost = (hostname: string, signal?: AbortSignal) => Promise<readonly string[]>;
-
-const IPV4_LITERAL = /^\d{1,3}(\.\d{1,3}){3}$/;
 
 /**
  * `assertSafeUrl` judges literal addresses and local names, so a public name whose DNS answers a

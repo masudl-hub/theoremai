@@ -13,6 +13,11 @@ import { EGRESS_RULES } from '../../src/guardrails/rules.ts';
 import type { EgressEnforcer, GuardrailContext } from '../../src/guardrails/types.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 
+/** Names the case that failed; `assertEquals` takes only the two values. */
+function check(actual: unknown, expected: unknown, label: string): void {
+  assertEquals({ label, value: actual }, { label, value: expected });
+}
+
 function ctx(canary?: string): GuardrailContext {
   return {
     stage: 'output_final',
@@ -195,4 +200,98 @@ Deno.test('createOutboundProgressiveGate defaults egress to DEFAULT_HOLDBACK', a
   const gate = createOutboundProgressiveGate(policy, ctx(mintCanary()));
   await gate?.process('s'.repeat(DEFAULT_HOLDBACK * 2));
   assertEquals(gate?.unreleased().length, DEFAULT_HOLDBACK);
+});
+
+const PEM_HEAD = '-----BEGIN PRIVATE KEY-----';
+
+Deno.test('an open PEM body is held from its BEGIN, however small the holdback', async () => {
+  const gate = createProgressiveYieldGate({ context: ctx(), enforce: allowAll, holdback: 4 });
+  const first = await gate.process(`safe text ${PEM_HEAD}\nAAAA\nBBBB\n`);
+  assertEquals(first, { blocked: false, emit: 'safe text ' });
+  const second = await gate.process('CCCC\n');
+  assertEquals(second, { blocked: false, emit: '' });
+});
+
+Deno.test('a PEM body that opens the text is held whole', async () => {
+  const gate = createProgressiveYieldGate({ context: ctx(), enforce: allowAll, holdback: 4 });
+  assertEquals(await gate.process(`${PEM_HEAD}\nAAAA\nBBBB\n`), { blocked: false, emit: '' });
+});
+
+Deno.test('a closed PEM body is released down to the holdback, with or without RSA', async () => {
+  for (const kind of ['', 'RSA ']) {
+    const gate = createProgressiveYieldGate({ context: ctx(), enforce: allowAll, holdback: 4 });
+    const text = `-----BEGIN ${kind}PRIVATE KEY-----\nAAAA\n-----END ${kind}PRIVATE KEY-----\nthen more words`;
+    const result = await gate.process(text);
+    check(result, { blocked: false, emit: text.slice(0, text.length - 4) }, kind);
+  }
+});
+
+Deno.test('an END that comes before a later BEGIN does not close it', async () => {
+  const gate = createProgressiveYieldGate({ context: ctx(), enforce: allowAll, holdback: 4 });
+  const result = await gate.process(
+    `-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\nplain ${PEM_HEAD}\nBBBB\n`,
+  );
+  assertEquals(result.blocked, false);
+  if (!result.blocked) {
+    assertEquals(result.emit.endsWith('plain '), true);
+    assertEquals(result.emit.includes('BBBB'), false);
+  }
+});
+
+Deno.test('a host enforcer that stops the stream is judged by its action and its own hits', async () => {
+  const own = { rule: 'host.rule', severity: 'high' as const };
+  const verdicts = (hits: (typeof own)[]): EgressEnforcer[] => [
+    () => ({ action: 'block', hits, rejection: 'no' }),
+    () => ({ action: 'redact', hits, text: 'x' }),
+  ];
+  for (const enforce of verdicts([own])) {
+    const gate = createProgressiveYieldGate({ context: ctx(), enforce });
+    assertEquals(await gate.process('text'), { blocked: true, hits: [own] });
+  }
+  for (const enforce of verdicts([])) {
+    const gate = createProgressiveYieldGate({ context: ctx(), enforce });
+    assertEquals(await gate.process('text'), {
+      blocked: true,
+      hits: [{ rule: EGRESS_RULES.blocked, severity: 'high' }],
+    });
+  }
+  const flagged = createProgressiveYieldGate({
+    context: ctx(),
+    enforce: () => ({ action: 'flag', hits: [own] }),
+    holdback: 0,
+  });
+  assertEquals(await flagged.process('text'), { blocked: false, emit: 'text' });
+});
+
+Deno.test('an empty fragment is neither scanned nor released', async () => {
+  let scans = 0;
+  const gate = createProgressiveYieldGate({
+    context: ctx(),
+    enforce: () => {
+      scans++;
+      return { action: 'allow' };
+    },
+    holdback: 0,
+  });
+  assertEquals(await gate.process(''), { blocked: false, emit: '' });
+  assertEquals(scans, 0);
+  assertEquals(await gate.process('x'), { blocked: false, emit: 'x' });
+  assertEquals(scans, 1);
+});
+
+Deno.test('a canary-shaped tail is held from where it begins in the unreleased text', async () => {
+  const canary = mintCanary();
+  const gate = createProgressiveYieldGate({ context: ctx(canary) });
+  assertEquals(await gate.process('w'.repeat(50)), { blocked: false, emit: 'w'.repeat(50) });
+  assertEquals(await gate.process(canary.slice(0, 3)), { blocked: false, emit: '' });
+  assertEquals(gate.unreleased(), canary.slice(0, 3));
+});
+
+Deno.test('draining the unreleased tail takes only what was not yet released, and flush then adds nothing', async () => {
+  const gate = createProgressiveYieldGate({ context: ctx(), enforce: allowAll, holdback: 4 });
+  assertEquals(await gate.process('abcdefghij'), { blocked: false, emit: 'abcdef' });
+  assertEquals(gate.drainUnreleased(), 'ghij');
+  assertEquals(gate.unreleased(), '');
+  assertEquals(await gate.flush(), { blocked: false, emit: '' });
+  assertEquals(gate.accumulated(), 'abcdefghij');
 });

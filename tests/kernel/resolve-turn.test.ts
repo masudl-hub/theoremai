@@ -175,7 +175,7 @@ Deno.test('the transport follows the model, streaming follows the profile, and c
   define('streamed', { outputs: { streaming: { mode: 'stream' } } });
   define('nochain', withModel({ persistViaInteractionId: false, store: true }));
   const gen = (id: string, extra: Partial<TurnRequest> = {}) =>
-    resolved(turn(id, extra)) as Record<string, unknown>;
+    resolved(turn(id, extra)) as unknown as Record<string, unknown>;
   check(gen('gem').transport, 'interactions', 'gemini');
   check(gen('router').transport, 'openAiCompat', 'openrouter');
   check(gen('gem').stream, true, 'default streaming');
@@ -245,11 +245,11 @@ Deno.test('image, speech and live profiles carry their own spec onto the generat
     models: { m: { protocol: 'geminiInteractions', provider: 'google', apiId: 'gi' } },
     outputs: { structured: null },
   });
-  const generation = resolved(turn('img')) as Record<string, unknown>;
+  const generation = resolved(turn('img')) as unknown as Record<string, unknown>;
   check(generation.image !== undefined && generation.image !== null, true, 'image spec');
   check(generation.speech, undefined, 'no speech');
   check(generation.live, undefined, 'no live');
-  const plain = resolved(turn('img')) as Record<string, unknown>;
+  const plain = resolved(turn('img')) as unknown as Record<string, unknown>;
   check(plain.structured, null, 'no structured');
 });
 

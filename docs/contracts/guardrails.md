@@ -158,15 +158,15 @@ Outbound streaming uses **progressive yield** (`createProgressiveYieldGate` /
 `createOutboundProgressiveGate`): cleared prefixes release while a lookback
 window stays held for split-token matches. The window is what the scan can
 detect. The canary scan reads only the characters a leak form is written with
-(the token, case-folded; its base64), so separators and case do not hide it,
+(the token, reversed and in ROT13, each case-folded; its base64), so separators and case do not hide it,
 and the gate holds just the tail that could still be the start of a leak
 (`canaryHoldFrom`) — usually nothing, so canary-only output streams almost at
 once, and an opening stretched by separators of any length stays held. Under
 `egress.enforce` the gate also holds `egress.holdback` characters (default
 `DEFAULT_HOLDBACK`, 256), plus any incomplete PEM body until its END line.
 `redactCanary` and the trace and upstream-tape scrubbers replace every form the
-scan detects. Not detected yet: the token reversed, in ROT13, spelled out in
-words, or split across turns — `fuzz-canary` reports each as a bypass. `defineProfile` rejects a
+scan detects. Not detected yet: the token spelled out in words, or split across
+turns — `fuzz-canary` reports each as a bypass. `defineProfile` rejects a
 `holdback` or `maxRetries` that is not a non-negative integer. The same constructor backs `runTurn` and
 Live (`processLiveOutboundBatch`). Host `egress.enforce` is authoritative when
 set; otherwise the gate scans for the canary alone and a leak ends

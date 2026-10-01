@@ -9,6 +9,7 @@ import {
   OMIT_CANARY,
   redactCanary,
   redactCanaryText,
+  rot13,
   scanTextForCanaryLeak,
   USER_CLOSE,
   USER_OPEN,
@@ -321,6 +322,17 @@ Deno.test('scanTextForCanaryLeak ignores prose rich in hex letters', () => {
   assertEquals(scanTextForCanaryLeak(prose, FIXED_CANARY), false);
 });
 
+Deno.test('scanTextForCanaryLeak detects the canary reversed or in ROT13, through case and separators', () => {
+  const canary = mintCanary();
+  const reversed = [...canary].reverse().join('');
+  const rotated = rot13(canary);
+  assertEquals(scanTextForCanaryLeak(`backwards: ${reversed}`, canary), true);
+  assertEquals(scanTextForCanaryLeak([...reversed.toUpperCase()].join('-'), canary), true);
+  assertEquals(scanTextForCanaryLeak(`rot13: ${rotated}`, canary), true);
+  assertEquals(scanTextForCanaryLeak([...rotated.toUpperCase()].join(' '), canary), true);
+  assertEquals(scanTextForCanaryLeak(rot13(mintCanary()), canary), false);
+});
+
 Deno.test('canaryHoldFrom holds only from where a leak could start', () => {
   const lead = FIXED_CANARY.slice(0, 5);
   assertEquals(canaryHoldFrom('nothing to hold', FIXED_CANARY), 'nothing to hold'.length);
@@ -328,6 +340,8 @@ Deno.test('canaryHoldFrom holds only from where a leak could start', () => {
   // Separators and case inside the opening do not move where it starts.
   assertEquals(canaryHoldFrom('say 0 - 1 - 2 - 3', FIXED_CANARY), 4);
   assertEquals(canaryHoldFrom(`say ${btoa(FIXED_CANARY).slice(0, 6)}`, FIXED_CANARY), 4);
+  assertEquals(canaryHoldFrom('say fedcb', FIXED_CANARY), 4);
+  assertEquals(canaryHoldFrom(`say ${rot13('0123456789abc')}`, FIXED_CANARY), 4);
   assertEquals(canaryHoldFrom(`say ${lead}`, ''), `say ${lead}`.length);
 });
 
@@ -335,16 +349,25 @@ Deno.test('redactCanaryText replaces every detected form and keeps the text arou
   const canary = FIXED_CANARY;
   const spaced = [...canary.toUpperCase()].join(' ');
   assertEquals(
-    redactCanaryText(`a ${spaced} b ${btoa(canary)} c ${canary}`, canary),
-    `a ${OMIT_CANARY} b ${OMIT_CANARY} c ${OMIT_CANARY}`,
+    redactCanaryText(
+      `a ${spaced} b ${btoa(canary)} c ${canary} d ${[...canary].reverse().join('')} e ${rot13(canary)}`,
+      canary,
+    ),
+    `a ${OMIT_CANARY} b ${OMIT_CANARY} c ${OMIT_CANARY} d ${OMIT_CANARY} e ${OMIT_CANARY}`,
   );
   assertEquals(redactCanaryText('no leak here', canary), 'no leak here');
   assertEquals(redactCanaryText('', canary), '');
 });
 
-Deno.test('canary stream gate catches a separated or base64 leak split across chunks', () => {
+Deno.test('canary stream gate catches a separated, base64, reversed or ROT13 leak split across chunks', () => {
   const canary = mintCanary();
-  for (const form of [[...canary].join(' '), [...canary].join('     '), btoa(canary)]) {
+  for (const form of [
+    [...canary].join(' '),
+    [...canary].join('     '),
+    btoa(canary),
+    [...canary].reverse().join(''),
+    [...rot13(canary)].join(' '),
+  ]) {
     const gate = createCanaryStreamGate(canary);
     const half = Math.floor(form.length / 2);
     assertEquals(gate.process(`x ${form.slice(0, half)}`).leak, false);

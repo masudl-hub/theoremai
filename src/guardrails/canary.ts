@@ -75,17 +75,30 @@ interface CanaryLeakForm {
 
 const BASE64_CHAR = /^[A-Za-z0-9+/=]$/;
 
+const ROT13_SHIFT = 13;
+const ALPHABET_SIZE = 26;
+const LOWER_A = 'a'.charCodeAt(0);
+
+function rot13(text: string): string {
+  return text.replace(/[a-z]/g, (char) =>
+    String.fromCharCode(((char.charCodeAt(0) - LOWER_A + ROT13_SHIFT) % ALPHABET_SIZE) + LOWER_A),
+  );
+}
+
+function caseFoldedForm(value: string): CanaryLeakForm {
+  const alphabet = new Set(value.split(''));
+  return { value, keeps: (char) => alphabet.has(char.toLowerCase()), foldCase: true };
+}
+
 /**
- * Every form a leaked canary is detected in: the token itself and its base64.
- * The token carries no fixed prefix, so no form depends on a marker the model
- * could drop or split off.
+ * Every form a leaked canary is detected in: the token itself, reversed, in
+ * ROT13, and its base64. The token carries no fixed prefix, so no form depends
+ * on a marker the model could drop or split off.
  */
 function canaryLeakForms(canary: string): CanaryLeakForm[] {
   const literal = canary.toLowerCase();
-  const alphabet = new Set(literal.split(''));
-  const forms: CanaryLeakForm[] = [
-    { value: literal, keeps: (char) => alphabet.has(char.toLowerCase()), foldCase: true },
-  ];
+  const values = new Set([literal, [...literal].reverse().join(''), rot13(literal)]);
+  const forms = [...values].map(caseFoldedForm);
   try {
     forms.push({ value: btoa(canary), keeps: (char) => BASE64_CHAR.test(char), foldCase: false });
   } catch {
@@ -311,6 +324,7 @@ export {
   OMIT_CANARY,
   redactCanary,
   redactCanaryText,
+  rot13,
   scanTextForCanaryLeak,
   USER_CLOSE,
   USER_OPEN,

@@ -72,8 +72,8 @@ export interface SealedStatePayload {
 const MIN_SECRET_BYTES = 32;
 
 /** So each use of a host secret derives a key no other use shares. */
-const STATE_KEY_INFO = 'theorem/oauth-state/v1';
-const SECRET_KEY_INFO = 'theorem/sealed-secret/v1';
+const STATE_CONTEXT = 'theorem/oauth-state/v1';
+const SEAL_CONTEXT = 'theorem/sealed-secret/v1';
 
 const IV_BYTES = 12;
 
@@ -158,7 +158,7 @@ async function openBytes(
 }
 
 const STATE_SCHEME: SealScheme = {
-  info: STATE_KEY_INFO,
+  info: STATE_CONTEXT,
   label: 'OAuth state secret', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   associatedData: ENVELOPE_VERSION,
 };
@@ -199,7 +199,7 @@ export async function unsealStatePayload(
 
 function secretScheme(keyVersion: number, binding: readonly string[]): SealScheme {
   return {
-    info: SECRET_KEY_INFO,
+    info: SEAL_CONTEXT,
     label: 'Secret sealing key', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     associatedData: JSON.stringify([ENVELOPE_VERSION, keyVersion, binding]),
   };

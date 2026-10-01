@@ -19,10 +19,24 @@ import { isModelProfile, requireModelProfile } from '../../src/kernel/registry/r
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import { resolveTurnTools } from '../../src/kernel/tools/resolve.ts';
 import type { ModelProvider } from '../../src/kernel/types.ts';
-import { googleInteractionsPersistence, registerGooglePreset } from '../../src/presets/google.ts';
+import {
+  googleEfforts,
+  googleInteractionsPersistence,
+  registerGooglePreset,
+} from '../../src/presets/google.ts';
 import { geminiModels, HOST_BINDINGS, modelBindings } from '../fixtures/models.ts';
 
 registerGooglePreset();
+
+Deno.test('googleEfforts passes the levels Gemini takes and refuses the rest when the binding is built', () => {
+  const efforts = { quick: 'low', deep: 'high' } as const;
+  assertEquals(googleEfforts(efforts), efforts);
+  assertThrows(
+    () => googleEfforts({ big: 'xhigh' } as unknown as Record<'big', 'high'>),
+    TheoremError,
+    "does not take 'xhigh'",
+  );
+});
 
 Deno.test('defineProfile preserves explicit typed fields without defaults', () => {
   const profile = defineProfile({

@@ -11,6 +11,7 @@ export type {
   GoogleImageSize,
   GoogleInteractionsPersistence,
   GoogleSpeechVoice,
+  GoogleThinkingLevel,
   GoogleVoiceInputMime,
 } from './google.ts';
 export {
@@ -24,6 +25,7 @@ export {
   GOOGLE_SPEECH_VOICES,
   GOOGLE_THINKING_LEVELS,
   GOOGLE_VOICE_INPUT_MIMES,
+  googleEfforts,
   googleInteractionsPersistence,
   registerGooglePreset,
 } from './google.ts';

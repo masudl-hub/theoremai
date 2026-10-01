@@ -651,3 +651,53 @@ Deno.test('an activity label follows nullable, union and referenced schemas', ()
   assert(!flag.ok);
   assertEquals(flag.issues[0].message, '{ok} is true or false; a label shows text or a number.');
 });
+
+Deno.test('an image draft pins references and output settings, and reports what it cannot send', () => {
+  const draft = setProfileType(createExampleDraft(), 'image');
+  const pinned = compiled({
+    ...draft,
+    image: {
+      ...draft.image,
+      quality: ' high ',
+      seed: 7,
+      references: [
+        { key: 'reference-a', name: 'a.png', mimeType: 'image/png', data: 'AAAA' },
+        { key: 'reference-b', uri: 'https://example.com/b.JPG?v=1' },
+      ],
+    },
+  }).profile;
+  assert(pinned.type === 'image');
+  assertEquals(pinned.image, {
+    quality: 'high',
+    seed: 7,
+    references: [
+      { mimeType: 'image/png', data: 'AAAA', name: 'a.png' },
+      { mimeType: 'image/jpeg', uri: 'https://example.com/b.JPG?v=1' },
+    ],
+  });
+
+  const refused = compilePlayground({
+    ...draft,
+    image: {
+      ...draft.image,
+      n: 0,
+      outputCompression: 101,
+      references: [
+        { key: 'reference-a', name: 'a.pdf', mimeType: 'application/pdf', data: 'AAAA' },
+        { key: 'reference-b', uri: 'ftp://example.com/b.png' },
+        { key: 'reference-c', uri: '' },
+      ],
+    },
+  });
+  assert(!refused.ok);
+  assertEquals(
+    refused.issues.map(({ nodeId, field, index }) => ({ nodeId, field, index })),
+    [
+      { nodeId: 'image', field: 'n', index: undefined },
+      { nodeId: 'image', field: 'outputCompression', index: undefined },
+      { nodeId: 'image', field: 'references', index: 0 },
+      { nodeId: 'image', field: 'references', index: 1 },
+      { nodeId: 'image', field: 'references', index: 2 },
+    ],
+  );
+});

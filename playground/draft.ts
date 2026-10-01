@@ -176,11 +176,24 @@ export interface ObservabilityDraft {
   rotateAfterMiB: number | null;
 }
 
+/** A pinned reference image: a file's bytes, or a link to one. */
+export type ImageReferenceDraft =
+  | { key: string; name: string; mimeType: string; data: string }
+  | { key: string; uri: string };
+
 export interface ImageDraft {
   aspectRatio: string;
   resolution: string;
   mimeType: string;
+  /** Provider vocabularies (OpenRouter: auto, low, medium, high); blank is the provider default. */
+  quality: string;
+  /** Provider vocabularies (OpenRouter: auto, transparent, opaque); blank is the provider default. */
+  background: string;
+  n: number | null;
+  seed: number | null;
+  outputCompression: number | null;
   includeText: boolean;
+  references: ImageReferenceDraft[];
 }
 
 export interface SpeechDraft {
@@ -266,7 +279,7 @@ export interface PlaygroundDraft {
   wording: WordingDraft;
 }
 
-export function draftKey(prefix: 'model' | 'tool' | 'question' | 'criterion'): string {
+export function draftKey(prefix: 'model' | 'tool' | 'question' | 'criterion' | 'reference'): string {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
@@ -447,7 +460,18 @@ export function createBlankDraft(): PlaygroundDraft {
     },
     guardrails: defaultGuardrails(),
     observability: defaultObservability(),
-    image: { aspectRatio: '', resolution: '', mimeType: '', includeText: false },
+    image: {
+      aspectRatio: '',
+      resolution: '',
+      mimeType: '',
+      quality: '',
+      background: '',
+      n: null,
+      seed: null,
+      outputCompression: null,
+      includeText: false,
+      references: [],
+    },
     speech: { voice: '', format: '' },
     live: {
       ingressAudio: liveIngressChannelDefault('audio'),

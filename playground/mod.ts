@@ -26,6 +26,7 @@ export {
   type GuardrailsDraft,
   type IdentityDraft,
   type ImageDraft,
+  type ImageReferenceDraft,
   includableFacets,
   includeFacet,
   INLINE_WORDING,

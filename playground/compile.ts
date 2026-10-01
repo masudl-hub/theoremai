@@ -53,6 +53,7 @@ import type {
   DecisionDraft,
   GuardrailsDraft,
   ImageDraft,
+  ImageReferenceDraft,
   InputsDraft,
   LiveDraft,
   ModelBindingDraft,
@@ -838,12 +839,72 @@ function compileObservability(
   return Object.keys(spec).length ? spec : undefined;
 }
 
-function compileImage(image: ImageDraft): ProfileImageSpec {
+/** The image types a reference link may name, by its file extension. */
+const REFERENCE_LINK_MIMES: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  gif: 'image/gif',
+};
+
+/** A link's image type, from its path's extension; undefined unless it is an http(s) image link. */
+function referenceLinkMime(uri: string): string | undefined {
+  if (!URL.canParse(uri)) return undefined;
+  const url = new URL(uri);
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return undefined;
+  const extension = url.pathname.split('.').pop()?.toLowerCase() ?? '';
+  return REFERENCE_LINK_MIMES[extension];
+}
+
+type PinnedReference = NonNullable<ProfileImageSpec['references']>[number];
+
+function compileReferences(
+  references: readonly ImageReferenceDraft[],
+  report: Report,
+): PinnedReference[] {
+  return references.flatMap((reference, index): PinnedReference[] => {
+    if ('data' in reference) {
+      if (reference.mimeType.startsWith('image/') && reference.data) {
+        return [{ mimeType: reference.mimeType, data: reference.data, name: reference.name }];
+      }
+      report('image', `${reference.name || 'A reference'} is not an image.`, 'references', index);
+      return [];
+    }
+    const uri = reference.uri.trim();
+    const mimeType = referenceLinkMime(uri);
+    if (mimeType) return [{ mimeType, uri }];
+    report(
+      'image',
+      uri
+        ? 'Link to a .png, .jpg, .webp or .gif image over http(s).'
+        : 'Add a link or remove the reference.',
+      'references',
+      index,
+    );
+    return [];
+  });
+}
+
+function compileImage(image: ImageDraft, report: Report): ProfileImageSpec {
+  checkWhole(report, 'image', 'n', 'Images per request', image.n, 1);
+  checkWhole(report, 'image', 'seed', 'Seed', image.seed, 0);
+  checkWhole(report, 'image', 'outputCompression', 'Compression', image.outputCompression, 0);
+  if (image.outputCompression !== null && image.outputCompression > 100) {
+    report('image', 'Compression goes from 0 to 100.', 'outputCompression');
+  }
+  const references = compileReferences(image.references, report);
   return {
     ...(image.aspectRatio.trim() ? { aspectRatio: image.aspectRatio.trim() } : {}),
     ...(image.resolution.trim() ? { resolution: image.resolution.trim() } : {}),
     ...(image.mimeType.trim() ? { mimeType: image.mimeType.trim() } : {}),
+    ...(image.quality.trim() ? { quality: image.quality.trim() } : {}),
+    ...(image.background.trim() ? { background: image.background.trim() } : {}),
+    ...(image.n !== null ? { n: image.n } : {}),
+    ...(image.seed !== null ? { seed: image.seed } : {}),
+    ...(image.outputCompression !== null ? { outputCompression: image.outputCompression } : {}),
     ...(image.includeText ? { includeText: true } : {}),
+    ...(references.length ? { references } : {}),
   };
 }
 
@@ -1255,7 +1316,7 @@ function assemble(
       ...(system ? { system } : {}),
     },
     ...modelFields,
-    ...(facets.has('image') ? { image: compileImage(draft.image) } : {}),
+    ...(facets.has('image') ? { image: compileImage(draft.image, report) } : {}),
     ...(facets.has('speech') ? { speech: compileSpeech(draft.speech, draft, report) } : {}),
     ...(facets.has('live') ? { live: compileLive(draft.live, report, mode) } : {}),
     ...(tools ? { tools } : {}),

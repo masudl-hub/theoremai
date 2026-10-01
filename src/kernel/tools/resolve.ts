@@ -11,10 +11,17 @@ import { isRecord } from '../util/record.ts';
 import type { ToolRegistry } from './registry.ts';
 import type {
   PromoteLoadedResult,
+  RegisteredTool,
   ToolFailure,
   TurnToolSnapshot,
   WireFunctionTool,
 } from './types.ts';
+
+/** Callable by the host: registered, and not a provider-run builtin. */
+function isExecutable(tools: ToolRegistry, id: ToolId): boolean {
+  const tool = tools.get(id);
+  return tool !== undefined && tool.type !== 'builtin';
+}
 
 export function pathMatches(catalogPaths?: string[], turnPath?: string): boolean {
   if (!catalogPaths || catalogPaths.includes('*')) {
@@ -164,7 +171,7 @@ export function resolveTurnTools(
   const gated = [...customAllowed, ...modelBuiltins];
   const builtins = initialBuiltins(tools, profile, gated);
   const visible = initialVisible(tools, profile, gated);
-  const executable = visible.filter((id) => tools.get(id)?.type !== 'builtin');
+  const executable = visible.filter((id) => isExecutable(tools, id));
   return {
     builtins,
     gated,
@@ -243,7 +250,7 @@ export async function expandT1Policy(
       promoteTool(tools, state, id);
     }
   }
-  state.executable = state.visible.filter((id) => tools.get(id)?.type !== 'builtin');
+  state.executable = state.visible.filter((id) => isExecutable(tools, id));
 }
 
 const LOADED_ID_BLOCKLIST = new Set(['__proto__', 'constructor', 'prototype']);
@@ -280,21 +287,11 @@ export function promoteLoadedTools(
         },
       };
     }
-    const failure = promotionFailure(tools, id, profile);
-    if (failure) {
-      return { promoted: [], failure };
+    const target = promotionTarget(tools, id, profile);
+    if ('failure' in target) {
+      return { promoted: [], failure: target.failure };
     }
-    const tool = tools.get(id);
-    if (!tool) {
-      return {
-        promoted: [],
-        failure: {
-          code: 'invalid_output',
-          kind: 'bad_response',
-          message: `Tool '${id}' is not registered`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-        },
-      };
-    }
+    const { tool } = target;
     if (!pathMatches(tool.paths, state.path) || !state.gated.includes(id)) {
       continue;
     }
@@ -305,43 +302,39 @@ export function promoteLoadedTools(
     promoteTool(tools, state, id);
     promoted.push(id);
   }
-  state.executable = state.visible.filter((tid) => tools.get(tid)?.type !== 'builtin');
+  state.executable = state.visible.filter((id) => isExecutable(tools, id));
   return { promoted };
 }
 
-export function promotionFailure(
+function promotionRefused(message: string): { failure: ToolFailure } {
+  return { failure: { code: 'invalid_output', kind: 'bad_response', message } };
+}
+
+export function promotionTarget(
   tools: ToolRegistry,
   id: string,
   profile: Profile,
-): ToolFailure | undefined {
+): { tool: RegisteredTool } | { failure: ToolFailure } {
   if (!profileToolAllow(profile).includes(id)) {
-    return {
-      code: 'invalid_output',
-      kind: 'bad_response',
-      message: `tools.t2Loader attempted to promote tool '${id}' outside profile allow`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    };
+    return promotionRefused(
+      `tools.t2Loader attempted to promote tool '${id}' outside profile allow`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
   }
   const tool = tools.get(id);
   if (!tool) {
-    return {
-      code: 'invalid_output',
-      kind: 'bad_response',
-      message: `tools.t2Loader attempted to promote unknown tool '${id}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    };
+    return promotionRefused(
+      `tools.t2Loader attempted to promote unknown tool '${id}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
   }
   if (tool.type === 'builtin') {
-    return {
-      code: 'invalid_output',
-      kind: 'bad_response',
-      message: `tools.t2Loader attempted to promote builtin '${id}' — only custom tools may be promoted`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    };
+    return promotionRefused(
+      `tools.t2Loader attempted to promote builtin '${id}' — only custom tools may be promoted`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
   }
   if (tool.loadTier !== 'T2') {
-    return {
-      code: 'invalid_output',
-      kind: 'bad_response',
-      message: `tools.t2Loader attempted to promote tool '${id}' with loadTier '${tool.loadTier}' — only T2 tools may be promoted`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    };
+    return promotionRefused(
+      `tools.t2Loader attempted to promote tool '${id}' with loadTier '${tool.loadTier}' — only T2 tools may be promoted`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
   }
-  return undefined;
+  return { tool };
 }

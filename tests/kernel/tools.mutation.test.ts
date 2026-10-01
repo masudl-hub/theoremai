@@ -29,7 +29,7 @@ import {
   promoteBuiltin,
   promoteLoadedTools,
   promoteTool,
-  promotionFailure,
+  promotionTarget,
   resolveAllowedCustomToolIds,
   resolveModelBuiltinIds,
   wireForTool,
@@ -41,6 +41,12 @@ import type {
   TurnToolSnapshot,
 } from '../../src/kernel/tools/types.ts';
 import type { ModelProfile, Profile, TurnRequest } from '../../src/kernel/types.ts';
+
+/** The refusal a promotion would fail with, or undefined when the tool may be promoted. */
+function refusal(...args: Parameters<typeof promotionTarget>) {
+  const target = promotionTarget(...args);
+  return 'failure' in target ? target.failure : undefined;
+}
 
 type ToolPhaseEvent = {
   tool: {
@@ -313,7 +319,7 @@ Deno.test('tools mutation coverage exercises resolver filtering and builtin prom
   assertEquals(state.builtins, ['googleSearch', 'googleMaps']);
   assertEquals(
     asValue<FailureInfo | undefined>(
-      promotionFailure(
+      refusal(
         defaultKernelScope.tools,
         'stub_tool',
         asValue<Profile>({ type: 'text', tools: { allow: ['stub_tool'] } }),
@@ -323,7 +329,7 @@ Deno.test('tools mutation coverage exercises resolver filtering and builtin prom
   );
   assertEquals(
     asValue<FailureInfo | undefined>(
-      promotionFailure(
+      refusal(
         defaultKernelScope.tools,
         'missing',
         asValue<Profile>({ type: 'text', tools: { allow: [] } }),
@@ -332,7 +338,7 @@ Deno.test('tools mutation coverage exercises resolver filtering and builtin prom
     'invalid_output',
   );
   assertEquals(
-    promotionFailure(
+    refusal(
       defaultKernelScope.tools,
       'record_lookup',
       asValue<Profile>({ type: 'text', tools: { allow: ['record_lookup'] } }),

@@ -16,7 +16,7 @@ import {
   promoteBuiltin,
   promoteLoadedTools,
   promoteTool,
-  promotionFailure,
+  promotionTarget,
   resolveAllowedCustomToolIds,
   resolveModelBuiltinIds,
   resolveTurnTools,
@@ -24,6 +24,12 @@ import {
 } from '../../src/kernel/tools/resolve.ts';
 import type { TurnToolSnapshot } from '../../src/kernel/tools/types.ts';
 import type { ModelId, Profile, TurnRequest } from '../../src/kernel/types.ts';
+
+/** The refusal a promotion would fail with, or undefined when the tool may be promoted. */
+function refusal(...args: Parameters<typeof promotionTarget>) {
+  const target = promotionTarget(...args);
+  return 'failure' in target ? target.failure : undefined;
+}
 
 function check(actual: unknown, expected: unknown, label: string): void {
   try {
@@ -580,7 +586,7 @@ Deno.test('expandT1Policy without a policy, or on a live or host profile, change
   }
 });
 
-Deno.test('expandT1Policy and promoteLoadedTools keep a visible tool that is no longer registered', async () => {
+Deno.test('expandT1Policy and promoteLoadedTools do not treat a visible tool that is no longer registered as executable', async () => {
   const state = snapshot({ gated: ['f2'], visible: ['gone', 'f0'] });
   await expandT1Policy(
     tools,
@@ -588,11 +594,11 @@ Deno.test('expandT1Policy and promoteLoadedTools keep a visible tool that is no 
     as<Profile>({ type: 'text', tools: { allow: ['f2'], t1Policy: () => [] } }),
     req(),
   );
-  check(state.executable, ['gone', 'f0'], 'expand');
+  check(state.executable, ['f0'], 'expand');
 
   const loaded = snapshot({ gated: ['f2'], visible: ['gone', 'b0'] });
   promoteLoadedTools(tools, loaded, ['f2'], textProfile(['f2']));
-  check(loaded.executable, ['gone', 'f2'], 'promote');
+  check(loaded.executable, ['f2'], 'promote');
 });
 
 const BAD_ID = 'tools.t2Loader loaded ids must be plain strings';
@@ -677,35 +683,35 @@ Deno.test('promoteLoadedTools is all-or-nothing: a later invalid id discards ear
   check(state, snapshot({ gated: ['f2', 'f1'], executable: ['keep'] }), 'state untouched');
 });
 
-Deno.test('promotionFailure names why a loaded id may not be promoted, and accepts an allowed T2 custom tool', () => {
+Deno.test('promotionTarget names why a loaded id may not be promoted, and accepts an allowed T2 custom tool', () => {
   const profile = textProfile(['f2', 'f1', 'b2', 'ghost']);
   const failure = (message: string) => ({ code: 'invalid_output', kind: 'bad_response', message });
   check(
-    promotionFailure(tools, 'f2b', profile),
+    refusal(tools, 'f2b', profile),
     failure("tools.t2Loader attempted to promote tool 'f2b' outside profile allow"),
     'outside allow',
   );
   check(
-    promotionFailure(tools, 'f2b', as<Profile>({ type: 'decision' })),
+    refusal(tools, 'f2b', as<Profile>({ type: 'decision' })),
     failure("tools.t2Loader attempted to promote tool 'f2b' outside profile allow"),
     'profile without tools',
   );
   check(
-    promotionFailure(tools, 'ghost', profile),
+    refusal(tools, 'ghost', profile),
     failure("tools.t2Loader attempted to promote unknown tool 'ghost'"),
     'unknown',
   );
   check(
-    promotionFailure(tools, 'b2', profile),
+    refusal(tools, 'b2', profile),
     failure("tools.t2Loader attempted to promote builtin 'b2' — only custom tools may be promoted"),
     'builtin even at T2',
   );
   check(
-    promotionFailure(tools, 'f1', profile),
+    refusal(tools, 'f1', profile),
     failure(
       "tools.t2Loader attempted to promote tool 'f1' with loadTier 'T1' — only T2 tools may be promoted",
     ),
     'T1',
   );
-  check(promotionFailure(tools, 'f2', profile), undefined, 'T2 allowed');
+  check(refusal(tools, 'f2', profile), undefined, 'T2 allowed');
 });

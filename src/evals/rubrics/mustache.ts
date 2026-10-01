@@ -18,7 +18,7 @@ type Token =
   | { kind: 'name'; name: string }
   | { kind: 'section'; name: string; inverted: boolean; children: Token[] };
 
-const TAG = /\{\{(\{?)([^}]*)\}?\}\}/g;
+const TAG = /\{\{(\{?)([^{}]*)\}?\}\}/g;
 
 function templateError(message: string): TheoremError {
   return new TheoremError('config', `rubric template: ${message}`); // lexicon-exempt: developer contract error

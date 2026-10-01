@@ -6,14 +6,22 @@ import { Spinner } from '@astryxdesign/core/Spinner';
 import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
 import type { DefinedTheme } from '@astryxdesign/core/theme';
-import { type ReactNode, type Ref, type RefObject, useLayoutEffect, useMemo, useRef } from 'react';
+import {
+	type ReactNode,
+	type Ref,
+	type RefObject,
+	useImperativeHandle,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+} from 'react';
 import {
 	type ComposerProfileInterface,
 	moveComposerPendingWithinKind,
 	removeComposerPendingMessage,
 } from '@theoremjs/agents/interface';
 import { createHttpTransport, type HttpTransportOptions, type TheoremTransport } from '../client/transport.ts';
-import { useTheoremChat } from '../hooks/use-theorem-chat.ts';
+import { type ChatSnapshot, type SentTurn, useTheoremChat } from '../hooks/use-theorem-chat.ts';
 import { useTheoremInterface } from '../hooks/use-theorem-interface.ts';
 import { ChatComposerBar } from './ChatComposerBar.tsx';
 import { parseAspectRatio } from '../client/image-output.ts';
@@ -59,6 +67,24 @@ export type TheoremChatProps = {
 	trace?: boolean;
 	className?: string;
 	style?: React.CSSProperties;
+	/** A conversation to resume, as `onChatChange` reported it. Read once, when the chat mounts. */
+	initialChat?: ChatSnapshot;
+	/**
+	 * Called with the conversation each time it comes to rest: a turn finished, or a message was
+	 * added or removed; never while a reply streams. Keep it to resume the chat later.
+	 */
+	onChatChange?: (snapshot: ChatSnapshot) => void;
+	/** Lets the host send a message as the composer would; see {@link TheoremChatHandle}. */
+	chatRef?: Ref<TheoremChatHandle>;
+};
+
+/** What a host can do to a mounted {@link TheoremChat}. */
+export type TheoremChatHandle = {
+	/**
+	 * Sends `text` as the user, and resolves with the blocks the turn added once the reply is done;
+	 * `null` when the chat can't take a message now (a reply is streaming, or waits on a gate).
+	 */
+	send: (text: string) => Promise<SentTurn | null>;
 };
 
 /**
@@ -194,9 +220,14 @@ function ChatBody({
 	trace,
 	className,
 	style,
+	initialChat,
+	onChatChange,
+	chatRef,
 }: ChatBodyProps) {
 	const t = useLabels();
-	const chat = useTheoremChat({ transport, iface });
+	const chat = useTheoremChat({ transport, iface, initial: initialChat, onChange: onChatChange });
+	const sendText = chat.sendText;
+	useImperativeHandle(chatRef, () => ({ send: sendText }), [sendText]);
 	const blocks = useMemo(() => [...chat.blocks, ...chat.streamBlocks], [chat.blocks, chat.streamBlocks]);
 	const handle = t('@theorem.agent.handle', { handle: iface.identity.handle });
 	const landing = blocks.length === 0;

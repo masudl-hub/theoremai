@@ -22,7 +22,12 @@ export { ChatTranscript, type ChatTranscriptProps } from './ChatTranscript.tsx';
 export { TheoremDecisionAnswers, type TheoremDecisionAnswersProps } from './DecisionAnswers.tsx';
 export { TheoremDecision, type TheoremDecisionProps } from './TheoremDecision.tsx';
 export { TheoremHost, type TheoremHostProps } from './TheoremHost.tsx';
-export { DEFAULT_CHAT_MAX_WIDTH, TheoremChat, type TheoremChatProps } from './TheoremChat.tsx';
+export {
+	DEFAULT_CHAT_MAX_WIDTH,
+	TheoremChat,
+	type TheoremChatHandle,
+	type TheoremChatProps,
+} from './TheoremChat.tsx';
 export {
 	ApprovalCard,
 	type ApprovalCardProps,

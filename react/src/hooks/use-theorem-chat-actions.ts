@@ -425,6 +425,7 @@ export function useTheoremChatActions(args: TheoremChatActionArgs) {
 	);
 
 	return {
+		startTurnFromFields,
 		startTurnFromDraft,
 		handleStop,
 		handleSubmit,

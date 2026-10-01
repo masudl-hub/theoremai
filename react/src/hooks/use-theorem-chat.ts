@@ -18,13 +18,30 @@ import { followGenerationDefaults } from '../client/generation-selection.ts';
 import { applyTurnResultToTranscript, type StreamView } from '../client/index.ts';
 import type { TheoremTransport, TurnEventSink } from '../client/transport.ts';
 import { type RunTurnStream, useTheoremChatActions } from './use-theorem-chat-actions.ts';
-import { type MessageDelivery, type SetSession, useTheoremChatState } from './use-theorem-chat-state.ts';
+import {
+	type ChatSnapshot,
+	type MessageDelivery,
+	type SetSession,
+	useTheoremChatState,
+} from './use-theorem-chat-state.ts';
+
+export type { ChatSnapshot };
 
 export type UseTheoremChatOptions = {
 	transport: TheoremTransport;
 	/** Composer interface for the host profile — see `useTheoremInterface`. `null` while loading. */
 	iface: ComposerProfileInterface | null;
+	/** A conversation to resume: its transcript, and the session the next turn continues from. */
+	initial?: ChatSnapshot;
+	/**
+	 * The conversation each time it comes to rest: a turn finished, or a message was added or
+	 * removed. Never while a reply streams or waits on a gate.
+	 */
+	onChange?: (snapshot: ChatSnapshot) => void;
 };
+
+/** What `sendText` hands back: the blocks the turn added, its user message and the reply. */
+export type SentTurn = { blocks: TranscriptBlock[] };
 
 type TurnOk = {
 	ok: true;
@@ -307,8 +324,8 @@ function useTappedTransport(transport: TheoremTransport, state: ChatState): Theo
  * queue / steer / stash, tool gates. Render it with `@theoremjs/react/ui` or
  * your own components.
  */
-export function useTheoremChat({ transport, iface }: UseTheoremChatOptions) {
-	const state = useTheoremChatState();
+export function useTheoremChat({ transport, iface, initial, onChange }: UseTheoremChatOptions) {
+	const state = useTheoremChatState(initial);
 	useDefaultGeneration(iface, state.session, state.setSession);
 
 	const gated = state.session.gatedTool !== null;
@@ -340,6 +357,29 @@ export function useTheoremChat({ transport, iface }: UseTheoremChatOptions) {
 	});
 
 	useQueueDrain(phase, state, actions.startTurnFromDraft);
+
+	const onChangeRef = useRef(onChange);
+	onChangeRef.current = onChange;
+	const restedOn = useRef<ChatSnapshot | undefined>(initial);
+	useEffect(() => {
+		if (state.busy || gated) return;
+		const last = restedOn.current;
+		if (last && last.blocks === state.blocks && last.session === state.session) return;
+		const snapshot = { blocks: state.blocks, session: state.session };
+		restedOn.current = snapshot;
+		onChangeRef.current?.(snapshot);
+	}, [state.busy, gated, state.blocks, state.session]);
+
+	/** Sends `text` as the composer would, and resolves once the reply is done; `null` when it can't go now. */
+	const sendText = useCallback(
+		async (text: string): Promise<SentTurn | null> => {
+			if (!iface || state.busyRef.current || state.sessionRef.current.gatedTool !== null) return null;
+			const before = state.blocksRef.current.length;
+			await actions.startTurnFromFields({ text, files: [], voice: [] });
+			return { blocks: state.blocksRef.current.slice(before) };
+		},
+		[actions, iface, state],
+	);
 
 	const handleBranch = useCallback(
 		(index: number) => {
@@ -402,5 +442,6 @@ export function useTheoremChat({ transport, iface }: UseTheoremChatOptions) {
 		handleSendNow: actions.handleSendNow,
 		handleToolDecision: actions.handleToolDecision,
 		handleGenerationChange,
+		sendText,
 	};
 }

@@ -191,6 +191,13 @@ show the answer on its way from their owner (`useTheoremChat().answering`, passe
 on Cloudflare (process Map locally) so mid-turn injects work across isolates.
 Live sessions key the same inbox by `sessionId` from relay `ready`.
 
+A chat can be kept and resumed: `onChatChange` (or `useTheoremChat`'s `onChange`) reports the
+`{ blocks, session }` each time the conversation comes to rest (a turn finished, a message
+added or removed; never while a reply streams or waits on a gate), and `initialChat` (`initial`)
+resumes from one, the session carrying what the next turn is sent with. `chatRef` (`sendText`
+on the hook) sends a message as the composer would and resolves with the blocks the turn added
+once its reply is done, or `null` while a reply streams or waits on a gate.
+
 Pending rows show attachment / voice previews, text, **Queue** (stash → queue),
 and **Send now**. Clicking the text restores the full draft (text + files + voice)
 into the composer; if the composer already had a payload, that payload is re-stashed.

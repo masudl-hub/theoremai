@@ -21,9 +21,12 @@ export type { SetSession };
  */
 export type MessageDelivery = 'sending' | 'sent' | 'delivered' | 'read';
 
+/** A conversation at rest: what the transcript shows and what the next turn is sent with. */
+export type ChatSnapshot = { blocks: TranscriptBlock[]; session: InterfaceTurnSession };
+
 /** Composer / transcript / session state behind {@link useTheoremChat}. */
-export function useTheoremChatState() {
-	const [blocks, setBlocks] = useState<TranscriptBlock[]>([]);
+export function useTheoremChatState(initial?: ChatSnapshot) {
+	const [blocks, setBlocksState] = useState<TranscriptBlock[]>(initial?.blocks ?? []);
 	const [streamBlocks, setStreamBlocks] = useState<TranscriptBlock[]>([]);
 	const [draftText, setDraftText] = useState('');
 	const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -33,16 +36,22 @@ export function useTheoremChatState() {
 	const [failure, setFailure] = useState<ClientFailure | null>(null);
 	const [answering, setAnswering] = useState<AnsweringGate | null>(null);
 	const [busy, setBusy] = useState(false);
-	const [chatStarted, setChatStarted] = useState(false);
+	const [chatStarted, setChatStarted] = useState((initial?.blocks.length ?? 0) > 0);
 	const [streaming, setStreaming] = useState(false);
-	const [session, setSession] = useState<InterfaceTurnSession>(emptyInterfaceTurnSession());
+	const [session, setSession] = useState<InterfaceTurnSession>(
+		initial?.session ?? emptyInterfaceTurnSession(),
+	);
 	// One object per posted message, so a run can tell whether it posted one.
 	const [delivery, setDeliveryState] = useState<{ status: MessageDelivery } | null>(null);
 
 	const streamRafRef = useRef<number | null>(null);
 	const pendingStreamRef = useRef<TranscriptBlock[] | null>(null);
 	const blocksRef = useRef(blocks);
-	blocksRef.current = blocks;
+	// Set as it is written, so a caller awaiting a turn reads the transcript the turn left.
+	const setBlocks = useCallback((value: TranscriptBlock[] | ((prev: TranscriptBlock[]) => TranscriptBlock[])) => {
+		blocksRef.current = typeof value === 'function' ? value(blocksRef.current) : value;
+		setBlocksState(blocksRef.current);
+	}, []);
 	const streamBlocksRef = useRef(streamBlocks);
 	streamBlocksRef.current = streamBlocks;
 	const busyRef = useRef(false);

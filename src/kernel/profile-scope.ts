@@ -32,10 +32,10 @@ export interface ProfileFieldScope {
   /** Why other types can't take it — shown in `defineProfile` errors and authoring UIs. */
   reason: string;
   /**
-   * The one value other types may still carry: the field's "off" value, which
-   * `defineProfile` itself writes (speech stores `guardrails.canary: false`).
+   * The one value other types may still carry: the field's "off" value (speech stores
+   * `guardrails.canary: false`; `outputs.structured: null` asks for no schema).
    */
-  offValue?: false;
+  offValue?: false | null;
 }
 
 /** Guardrails a host profile may set keep `host`; the rest guard a model turn. */
@@ -184,6 +184,15 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
     profileTypes: ['text', 'image', 'speech'],
     reason:
       'live output is the realtime session, and decision and host profiles produce no turn output',
+  },
+  'outputs.structured': {
+    profileTypes: ['text'],
+    reason: 'only a text reply has a JSON shape; image and speech turns return media',
+    offValue: null,
+  },
+  'outputs.validation': {
+    profileTypes: ['text'],
+    reason: 'validation checks a structured reply, which only text profiles make',
   },
   turnBehaviour: {
     profileTypes: TURN_TYPES,

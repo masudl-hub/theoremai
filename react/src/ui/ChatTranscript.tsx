@@ -316,13 +316,22 @@ function GeneratedGallery({ items, ratio }: { items: GalleryItem[]; ratio?: numb
 	);
 }
 
+/** An image takes seconds: a slow, smooth breath rather than the Skeleton's quick stepped blink. */
+const GENERATING_PULSE = { animationDuration: '1.8s', animationTimingFunction: 'ease-in-out' } as const;
+
 /** Placeholder shaped like the image being generated. */
 function GeneratingImage({ ratio }: { ratio?: number }) {
 	const t = useLabels();
 	return (
 		<VStack width="100%" maxWidth={GENERATED_IMAGE_MAX_WIDTH}>
 			<AspectRatio ratio={ratio ?? 1}>
-				<Skeleton width="100%" height="100%" radius={3} aria-label={t('@theorem.transcript.generating_image')} />
+				<Skeleton
+					width="100%"
+					height="100%"
+					radius={3}
+					style={GENERATING_PULSE}
+					aria-label={t('@theorem.transcript.generating_image')}
+				/>
 			</AspectRatio>
 		</VStack>
 	);

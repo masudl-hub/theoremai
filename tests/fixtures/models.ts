@@ -2,7 +2,7 @@ import type { ModelBinding, ModelId } from '../../src/kernel/types.ts';
 import {
   GOOGLE_IMAGE_ASPECT_RATIOS,
   GOOGLE_IMAGE_INPUT_MIMES,
-  GOOGLE_IMAGE_SIZES,
+  GOOGLE_IMAGE_RESOLUTIONS,
   GOOGLE_VOICE_INPUT_MIMES,
 } from '../../src/presets/google.ts';
 
@@ -18,7 +18,7 @@ const CHAT_MEDIA_LIMITS = {
 const IMAGE_INPUT_MIMES = [...GOOGLE_IMAGE_INPUT_MIMES];
 const VOICE_INPUT_MIMES = [...GOOGLE_VOICE_INPUT_MIMES];
 const IMAGE_ASPECT_RATIOS = [...GOOGLE_IMAGE_ASPECT_RATIOS];
-const IMAGE_SIZES = [...GOOGLE_IMAGE_SIZES];
+const IMAGE_RESOLUTIONS = [...GOOGLE_IMAGE_RESOLUTIONS];
 
 const GEMINI_INTERACTIONS = {
   protocol: 'geminiInteractions' as const,
@@ -144,7 +144,7 @@ export {
   HOST_BINDINGS,
   IMAGE_ASPECT_RATIOS,
   IMAGE_INPUT_MIMES,
-  IMAGE_SIZES,
+  IMAGE_RESOLUTIONS,
   modelBindings,
   VOICE_INPUT_MIMES,
 };

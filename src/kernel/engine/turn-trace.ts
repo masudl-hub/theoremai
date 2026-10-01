@@ -522,7 +522,7 @@ function controlAttributes(req: ProviderCompleteRequest): TraceAttributes {
           'theorem.request.image': {
             ...optional('mime_type', image.mimeType),
             ...optional('aspect_ratio', image.aspectRatio),
-            ...optional('size', image.size),
+            ...optional('resolution', image.resolution),
             include_text: image.includeText,
           },
         }

@@ -578,12 +578,15 @@ function compileInputs(
   };
 }
 
+/** `shaped`: the type takes a structured reply and its validation (text only). */
 function compileOutputs(
   outputs: OutputsDraft,
+  shaped: boolean,
   report: Report,
 ): { outputs?: ProfileOutputsSpec; structured?: StructuredRegistration } {
   let structured: StructuredRegistration | undefined;
-  if (outputs.mode === 'structured') {
+  const validationEnabled = shaped && outputs.validationEnabled;
+  if (shaped && outputs.mode === 'structured') {
     const id = outputs.schemaId.trim();
     if (!id) {
       report('outputs', 'Structured output needs a schema id.', 'schemaId');
@@ -594,11 +597,11 @@ function compileOutputs(
       structured = { id, spec: { jsonSchema: schema.schema } };
     }
   }
-  if (outputs.validationEnabled) {
+  if (validationEnabled) {
     checkWhole(report, 'outputs', 'maxRetries', 'Validation max retries', outputs.maxRetries, 0);
   }
   const validation =
-    outputs.validationEnabled && outputs.maxRetries !== null
+    validationEnabled && outputs.maxRetries !== null
       ? { maxRetries: outputs.maxRetries }
       : {};
   const streaming = {
@@ -678,7 +681,7 @@ function compileLexicon(
     entries.push(['guardrails', 'quotaMessage', 'quota.exhausted', guardrails.quotaMessage.trim()]);
   }
   const { outputs } = draft;
-  if (facets.has('outputs') && outputs.validationEnabled) {
+  if (facets.has('outputs') && allows('outputs.validation') && outputs.validationEnabled) {
     entries.push([
       'outputs',
       'repairGuidance',
@@ -838,7 +841,7 @@ function compileObservability(
 function compileImage(image: ImageDraft): ProfileImageSpec {
   return {
     ...(image.aspectRatio.trim() ? { aspectRatio: image.aspectRatio.trim() } : {}),
-    ...(image.size.trim() ? { size: image.size.trim() } : {}),
+    ...(image.resolution.trim() ? { resolution: image.resolution.trim() } : {}),
     ...(image.mimeType.trim() ? { mimeType: image.mimeType.trim() } : {}),
     ...(image.includeText ? { includeText: true } : {}),
   };
@@ -1232,7 +1235,7 @@ function assemble(
   const system = draft.identity.system.trim();
   const modelFields = compileModels(draft, type, report);
   const { outputs, structured } = facets.has('outputs')
-    ? compileOutputs(draft.outputs, report)
+    ? compileOutputs(draft.outputs, allows('outputs.structured'), report)
     : {};
   const { customTools, tools } = facets.has('tools')
     ? compileTools(draft, allows('tools.t2Loader'), report)

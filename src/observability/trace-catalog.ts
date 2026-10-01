@@ -747,7 +747,12 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
   'theorem.request.image': fields('request', 'Image settings', 'The image asked for.', {
     mime_type: attr('request', 'Format', 'text', 'The image file type.'),
     aspect_ratio: attr('request', 'Aspect ratio', 'text', 'Width to height.'),
-    size: attr('request', 'Size', 'text', 'The image size.'),
+    resolution: attr(
+      'request',
+      'Resolution',
+      'text',
+      'How detailed the image is, such as 1K, 2K or 4K.',
+    ),
     include_text: attr('request', 'With text', 'boolean', 'Text may come back beside the image.'),
   }),
   'theorem.request.speech': fields('request', 'Speech settings', 'The audio asked for.', {

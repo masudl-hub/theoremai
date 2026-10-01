@@ -108,7 +108,7 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
   'observability.rotateAfterMiB': { unset: '32' },
   'observability.onWriteError': { unset: 'Errors are dropped' },
   'image.aspectRatio': { unset: 'Provider default' },
-  'image.size': { unset: 'Provider default' },
+  'image.resolution': { unset: 'Provider default' },
   'image.mimeType': { unset: 'Provider default' },
   'image.includeText': { unset: 'Off' },
   'speech.voice': { unset: 'Provider default' },

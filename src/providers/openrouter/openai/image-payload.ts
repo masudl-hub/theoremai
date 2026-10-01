@@ -61,8 +61,8 @@ export function attachImagePins(
   if (image.aspectRatio) {
     payload.aspect_ratio = image.aspectRatio;
   }
-  if (image.size) {
-    payload.resolution = image.size;
+  if (image.resolution) {
+    payload.resolution = image.resolution;
   }
   if (image.mimeType) {
     payload.output_format = outputFormatFromMime(image.mimeType);
@@ -96,8 +96,8 @@ export function imageToolParameters(image: ImageResponseFormat): Record<string, 
   if (image.aspectRatio) {
     params.aspect_ratio = image.aspectRatio;
   }
-  if (image.size) {
-    params.resolution = image.size;
+  if (image.resolution) {
+    params.resolution = image.resolution;
   }
   return params;
 }

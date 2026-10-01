@@ -734,11 +734,11 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'outputs.structured': field(
     'StructuredSchemaId | StructuredBySlot | null',
-    'The registered JSON schema the reply must follow, which can vary by slot (text profiles only).',
+    'The registered JSON schema the reply must follow, which can vary by slot.',
   ),
   image: field('ProfileImageSpec', 'Settings for the images this profile makes.'),
   'image.aspectRatio': field('string', 'The shape of generated images, such as 16:9.'),
-  'image.size': field('string', 'The resolution of generated images.'),
+  'image.resolution': field('string', 'How detailed generated images are, such as 1K, 2K or 4K.'),
   'image.mimeType': field(
     'string',
     'The file type of generated images; OpenRouter takes png, jpeg or webp and uses png for anything else.',

@@ -192,7 +192,7 @@ Deno.test('attachResponseFormat throws when speech and image are both requested'
       type: 'image',
       mimeType: 'image/png',
       aspectRatio: '1:1',
-      size: '1K',
+      resolution: '1K',
       includeText: false,
     },
   });
@@ -218,7 +218,7 @@ Deno.test('attachResponseFormat sets an image-only response format by default', 
       type: 'image',
       mimeType: 'image/png',
       aspectRatio: '16:9',
-      size: '2K',
+      resolution: '2K',
       includeText: false,
     },
   });
@@ -255,7 +255,7 @@ Deno.test('attachResponseFormat sets text and image response formats when includ
       type: 'image',
       mimeType: 'image/png',
       aspectRatio: '16:9',
-      size: '2K',
+      resolution: '2K',
       includeText: true,
     },
   });

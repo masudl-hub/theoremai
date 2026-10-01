@@ -26,7 +26,7 @@ const IMAGE: ImageResponseFormat = {
   type: 'image',
   mimeType: 'image/png',
   aspectRatio: '16:9',
-  size: '2K',
+  resolution: '2K',
   includeText: false,
 };
 

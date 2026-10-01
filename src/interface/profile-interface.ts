@@ -150,7 +150,7 @@ const profileInterface = z.discriminatedUnion('type', [
     outputs: outputs.optional(),
     image: z.object({
       aspectRatio: z.string().optional(),
-      size: z.string().optional(),
+      resolution: z.string().optional(),
       mimeType: z.string().optional(),
       includeText: z.boolean().optional(),
     }),

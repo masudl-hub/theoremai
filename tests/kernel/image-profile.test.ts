@@ -45,7 +45,7 @@ Deno.test('image oneshot uses image model and image response format', () => {
     type: 'image',
     mimeType: 'image/jpeg',
     aspectRatio: '1:1',
-    size: '1K',
+    resolution: '1K',
     includeText: false,
   });
   assertEquals(generation.input, [
@@ -141,7 +141,7 @@ Deno.test('interactions body requests text and image when includeText is set', (
     ...geminiModels('gemini31FlashLiteImage'),
     image: {
       aspectRatio: '1:1',
-      size: '1K',
+      resolution: '1K',
       mimeType: 'image/jpeg',
       includeText: true,
     },
@@ -206,11 +206,11 @@ Deno.test('image projection exposes image pins not tools', () => {
   assertEquals(ui.tools, []);
   assertEquals(ui.outputs?.structured, null);
   assertEquals(ui.image?.mimeType, 'image/jpeg');
-  assertEquals(ui.image?.size, '1K');
+  assertEquals(ui.image?.resolution, '1K');
   assertEquals(ui.models.gemini31FlashLiteImage.summaries, false);
 });
 
-Deno.test('media validations allow omitted aspect/size; reject structured mixing and invalid mime', () => {
+Deno.test('media validations allow omitted aspect/resolution; reject structured mixing and invalid mime', () => {
   registerProfile(
     defineProfile({
       id: 'image_defaults_profile',
@@ -232,29 +232,28 @@ Deno.test('media validations allow omitted aspect/size; reject structured mixing
     type: 'image',
     mimeType: 'image/jpeg',
     aspectRatio: undefined,
-    size: undefined,
+    resolution: undefined,
     includeText: false,
   });
 
-  // Image pins with a structured schema: two wire output formats
-  registerProfile(
-    defineProfile({
-      id: 'mixed_media_profile',
-      type: 'image',
-      identity: { handle: 'mixed_media_profile' },
-      ...geminiModels('gemini31FlashLiteImage'),
-      image: { aspectRatio: '1:1', size: '1K', mimeType: 'image/jpeg' },
-      tools: { allow: [] },
-      inputs: { text: true },
-      outputs: {
-        structured: 'chatTurn',
-      },
-      guardrails: { quota: { perDay: 10 } },
-    }),
-  );
+  // A structured reply on an image profile is refused when the profile is defined
   assertThrows(
-    () => resolveTurn({ profile: 'mixed_media_profile', input: { text: 'test' } }),
+    () =>
+      defineProfile({
+        id: 'mixed_media_profile',
+        type: 'image',
+        identity: { handle: 'mixed_media_profile' },
+        ...geminiModels('gemini31FlashLiteImage'),
+        image: { aspectRatio: '1:1', resolution: '1K', mimeType: 'image/jpeg' },
+        tools: { allow: [] },
+        inputs: { text: true },
+        outputs: {
+          structured: 'chatTurn',
+        },
+        guardrails: { quota: { perDay: 10 } },
+      }),
     TheoremError,
+    'outputs.structured',
   );
 
   // codeExecution on image profiles is a host/model choice — kernel does not block it
@@ -272,7 +271,7 @@ Deno.test('media validations allow omitted aspect/size; reject structured mixing
       key: 'slot_a',
       image: {
         aspectRatio: '1:1',
-        size: '1K',
+        resolution: '1K',
         mimeType: 'image/jpeg',
       },
       tools: { allow: [] },
@@ -303,7 +302,7 @@ Deno.test('media validations allow omitted aspect/size; reject structured mixing
       key: 'slot_a',
       image: {
         aspectRatio: '1:1',
-        size: '1K',
+        resolution: '1K',
         mimeType: 'image/jpeg',
       },
       tools: { allow: [] },
@@ -405,7 +404,7 @@ Deno.test('image and speech profiles take a lexicon; continueFrom still adds not
       identity: { handle: 'image_lexicon' },
       ...geminiModels('gemini31FlashLiteImage'),
       maxSteps: 1,
-      image: { aspectRatio: '1:1', size: '1K', mimeType: 'image/jpeg' },
+      image: { aspectRatio: '1:1', resolution: '1K', mimeType: 'image/jpeg' },
       tools: { allow: [] },
       inputs: { text: true },
       lexicon,

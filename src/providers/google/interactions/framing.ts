@@ -144,8 +144,8 @@ export function attachResponseFormat(
     if (req.image.aspectRatio) {
       imageEntry.aspectRatio = req.image.aspectRatio;
     }
-    if (req.image.size) {
-      imageEntry.imageSize = req.image.size;
+    if (req.image.resolution) {
+      imageEntry.imageSize = req.image.resolution;
     }
     // An object asks for image only; an array for text + image.
     camel.responseFormat = req.image.includeText ? [{ type: 'text' }, imageEntry] : imageEntry;

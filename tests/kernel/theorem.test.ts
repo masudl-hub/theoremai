@@ -2009,7 +2009,7 @@ Deno.test('guardrails.egress withholds media until prose clears', async () => {
       maxSteps: 1,
       image: {
         aspectRatio: '1:1',
-        size: '1K',
+        resolution: '1K',
         mimeType: 'image/jpeg',
       },
       tools: { allow: [] },

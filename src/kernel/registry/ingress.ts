@@ -86,7 +86,7 @@ function resolveImageFormat(profile: Profile): ImageResponseFormat | null {
     type: 'image',
     mimeType: pins.mimeType,
     aspectRatio: pins.aspectRatio,
-    size: pins.size,
+    resolution: pins.resolution,
     includeText: pins.includeText === true,
   };
 }

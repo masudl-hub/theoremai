@@ -178,7 +178,7 @@ export interface ObservabilityDraft {
 
 export interface ImageDraft {
   aspectRatio: string;
-  size: string;
+  resolution: string;
   mimeType: string;
   includeText: boolean;
 }
@@ -447,7 +447,7 @@ export function createBlankDraft(): PlaygroundDraft {
     },
     guardrails: defaultGuardrails(),
     observability: defaultObservability(),
-    image: { aspectRatio: '', size: '', mimeType: '', includeText: false },
+    image: { aspectRatio: '', resolution: '', mimeType: '', includeText: false },
     speech: { voice: '', format: '' },
     live: {
       ingressAudio: liveIngressChannelDefault('audio'),

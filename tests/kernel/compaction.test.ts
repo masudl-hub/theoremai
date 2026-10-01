@@ -1798,7 +1798,7 @@ Deno.test('registerProfile rejects a compactor that is not a text profile', () =
       type: 'image',
       identity: { handle: 'image' },
       ...geminiModels('gemini31FlashLiteImage'),
-      image: { aspectRatio: '1:1', size: '1K', mimeType: 'image/jpeg' },
+      image: { aspectRatio: '1:1', resolution: '1K', mimeType: 'image/jpeg' },
       tools: { allow: [] },
       inputs: { text: true },
     }),

@@ -162,7 +162,7 @@ export type ChatRole = 'system' | 'user' | 'assistant';
 /** Host strings (presets own the vocabularies); an unpinned value is the provider default. */
 export interface ProfileImageSpec {
   aspectRatio?: string;
-  size?: string;
+  resolution?: string;
   mimeType?: string;
   /** Also request interleaved text with the images (Google: text + image `response_format`). */
   includeText?: boolean;
@@ -679,8 +679,8 @@ export interface ImageResponseFormat {
   type: 'image';
   mimeType?: string;
   aspectRatio?: string;
-  /** Adapters map it to the provider wire key (e.g. Google `imageSize`). */
-  size?: string;
+  /** Adapters map it to the provider wire key (Google `imageSize`, OpenRouter `resolution`). */
+  resolution?: string;
   includeText: boolean;
 }
 

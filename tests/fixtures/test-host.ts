@@ -192,7 +192,7 @@ const image: ProfileDefinition = {
   maxSteps: 1,
   image: {
     aspectRatio: '1:1',
-    size: '1K',
+    resolution: '1K',
     mimeType: 'image/jpeg',
   } satisfies GoogleImagePins,
   tools: { allow: [] },

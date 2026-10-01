@@ -255,7 +255,7 @@ Deno.test('turn input: an image turn with a stage handler keeps its prompt as in
     type: 'image',
     identity: { handle: 'img' },
     ...geminiModels('gemini31FlashLiteImage'),
-    image: { aspectRatio: '1:1', size: '1K', mimeType: 'image/jpeg', includeText: false },
+    image: { aspectRatio: '1:1', resolution: '1K', mimeType: 'image/jpeg', includeText: false },
     tools: { allow: [] },
     inputs: { text: true },
     outputs: { structured: null },

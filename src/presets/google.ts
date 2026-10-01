@@ -66,17 +66,21 @@ const GOOGLE_IMAGE_ASPECT_RATIOS = [
   '21:9',
 ] as const;
 
-const GOOGLE_IMAGE_SIZES = ['1K'] as const;
+const GOOGLE_IMAGE_RESOLUTIONS = ['1K', '2K', '4K'] as const;
+
+/** What a Gemini image model can be asked to return. */
+const GOOGLE_IMAGE_OUTPUT_MIMES = ['image/png', 'image/jpeg'] as const;
 
 type GoogleImageInputMime = (typeof GOOGLE_IMAGE_INPUT_MIMES)[number];
 type GoogleVoiceInputMime = (typeof GOOGLE_VOICE_INPUT_MIMES)[number];
 type GoogleImageAspectRatio = (typeof GOOGLE_IMAGE_ASPECT_RATIOS)[number];
-type GoogleImageSize = (typeof GOOGLE_IMAGE_SIZES)[number];
+type GoogleImageResolution = (typeof GOOGLE_IMAGE_RESOLUTIONS)[number];
+type GoogleImageOutputMime = (typeof GOOGLE_IMAGE_OUTPUT_MIMES)[number];
 
-type GoogleImagePins = Omit<ProfileImageSpec, 'aspectRatio' | 'size' | 'mimeType'> & {
+type GoogleImagePins = Omit<ProfileImageSpec, 'aspectRatio' | 'resolution' | 'mimeType'> & {
   aspectRatio?: GoogleImageAspectRatio;
-  size?: GoogleImageSize;
-  mimeType?: GoogleImageInputMime | 'image/jpeg';
+  resolution?: GoogleImageResolution;
+  mimeType?: GoogleImageOutputMime;
 };
 
 const GOOGLE_BUILTIN_TOOLS = [
@@ -146,8 +150,9 @@ function registerGooglePreset(): void {
 export type {
   GoogleImageAspectRatio,
   GoogleImageInputMime,
+  GoogleImageOutputMime,
   GoogleImagePins,
-  GoogleImageSize,
+  GoogleImageResolution,
   GoogleInteractionsPersistence,
   GoogleLivePins,
   GoogleSpeechPins,
@@ -158,7 +163,8 @@ export {
   GOOGLE_BUILTIN_TOOLS,
   GOOGLE_IMAGE_ASPECT_RATIOS,
   GOOGLE_IMAGE_INPUT_MIMES,
-  GOOGLE_IMAGE_SIZES,
+  GOOGLE_IMAGE_OUTPUT_MIMES,
+  GOOGLE_IMAGE_RESOLUTIONS,
   GOOGLE_NO_THINKING_API_IDS,
   GOOGLE_SINGLE_TURN_API_IDS,
   GOOGLE_SPEECH_VOICES,

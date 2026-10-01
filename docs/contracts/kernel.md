@@ -639,7 +639,7 @@ Top-level modality pins (after `model`, not under `outputs`):
 
 | Block | Effect |
 | --- | --- |
-| `image` | Optional aspect/size, mime, max input images (type `'image'` only) |
+| `image` | Optional aspect ratio, resolution, mime, max input images (type `'image'` only) |
 | `speech` | TTS voice + `format` (unset sends none, so the provider picks; `pcm` → WAV; `mp3` requires `protocol: 'openAi'` — see `speechFormatsForProtocol`) (type `'speech'` only) |
 | `live` | Voice, VAD, transcription, sessionResumption, contextCompression, proactiveAudio (type `'live'` only; omit → provider defaults) |
 

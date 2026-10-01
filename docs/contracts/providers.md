@@ -306,6 +306,8 @@ the same `createInteractionsProvider` handles image via polymorphic
 
 Image profile pins `quality`, `background`, `n`, `seed` and `outputCompression`: unset ones are omitted from the wire. OpenRouter `/images` sends all five. OpenRouter chat (`includeText`) sends `quality`, `background` and `output_compression`, and refuses `n` and `seed`, which its server tool does not document. Google sends `seed` as `generationConfig.seed` and refuses the other four. A pin a transport cannot send is `unsupported`, never dropped.
 
+An image profile's `image.references` (bytes or `uri`, images only) go into every turn's input ahead of the user's attachments, so each transport sends them as it sends any other reference image. The kernel checks only that each is an image with a source; how many a model takes is the transport's and the model's to refuse.
+
 `openAi`/`local` image roles are rejected at `createProvider`.
 
 ## Speech roles

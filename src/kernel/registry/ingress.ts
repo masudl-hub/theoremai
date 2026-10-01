@@ -165,6 +165,9 @@ function extractMediaParts(profile: Profile, req: TurnRequest): InteractionPart[
   const clips = voice ?? [];
   assertTurnAttachments(profile, files, clips);
   const parts: InteractionPart[] = [];
+  if (profile.type === 'image' && profile.image.references) {
+    parts.push(...mediaParts(profile.image.references));
+  }
   if (files.length > 0) {
     parts.push(...mediaParts(files));
   }

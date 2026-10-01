@@ -753,6 +753,10 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'number',
     'Compression from 0 to 100 for jpeg and webp images; OpenRouter only.',
   ),
+  'image.references': field(
+    'Array<TurnBlob | TurnMediaRef>',
+    'Reference images sent with every turn, ahead of the ones the user attaches; each is bytes (`data`) or a link (`uri`).',
+  ),
   'image.includeText': field(
     'boolean',
     'Whether the model may write text alongside its images; on OpenRouter this also sends the system instruction and history.',

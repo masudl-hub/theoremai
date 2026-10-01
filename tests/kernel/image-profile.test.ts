@@ -488,3 +488,44 @@ Deno.test('image pins are checked as whole numbers in range', () => {
     );
   }
 });
+
+Deno.test('image references go ahead of the turn attachments, before any wire', () => {
+  registerProfile(
+    defineProfile({
+      ...imageWithInputs('image_refs', { attachments: { accept: ['image/*'] } }),
+      image: {
+        references: [
+          { mimeType: 'image/png', data: 'pinned' },
+          { mimeType: 'image/jpg', uri: 'https://example.com/a.jpg' },
+        ],
+      },
+    } as ProfileDefinition),
+  );
+  const { input } = resolveTurn({
+    profile: 'image_refs',
+    input: { text: 'hi', attachments: [{ mimeType: 'image/webp', data: 'turn' }] },
+  }).generation;
+  assertEquals(input.slice(1), [
+    { type: 'image', mimeType: 'image/png', data: 'pinned' },
+    { type: 'image', mimeType: 'image/jpeg', uri: 'https://example.com/a.jpg' },
+    { type: 'image', mimeType: 'image/webp', data: 'turn' },
+  ]);
+});
+
+Deno.test('image references must be images with a source', () => {
+  for (const references of [
+    [{ mimeType: 'video/mp4', data: 'x' }],
+    [{ mimeType: 'image/png', data: '' }],
+    [{ mimeType: 'image/png', uri: '' }],
+  ]) {
+    assertThrows(
+      () =>
+        defineProfile({
+          ...imageWithInputs('image_bad_ref', {}),
+          image: { references },
+        } as ProfileDefinition),
+      TheoremError,
+      'image.references[0]',
+    );
+  }
+});

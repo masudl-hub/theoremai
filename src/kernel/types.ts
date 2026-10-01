@@ -169,6 +169,7 @@ export interface ProfileImageSpec {
   n?: number;
   seed?: number;
   outputCompression?: number;
+  references?: Array<TurnBlob | TurnMediaRef>;
   /** Also request interleaved text with the images (Google: text + image `response_format`). */
   includeText?: boolean;
 }

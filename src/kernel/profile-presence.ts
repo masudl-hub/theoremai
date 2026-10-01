@@ -115,6 +115,7 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
   'image.n': { unset: 'Provider default' },
   'image.seed': { unset: 'Provider default' },
   'image.outputCompression': { unset: 'Provider default' },
+  'image.references': { unset: 'None' },
   'image.includeText': { unset: 'Off' },
   'speech.voice': { unset: 'Provider default' },
   'speech.format': { unset: 'Provider default' },

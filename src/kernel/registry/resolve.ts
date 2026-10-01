@@ -215,7 +215,7 @@ function resolveTurnInRegistry(
   const builtins = toolSnapshot.builtins;
   const structuredId = resolveStructured(profile, input.slots);
   assertOutputMode(profile, structuredId);
-  assertSpeechRole(profile, binding, safe);
+  assertSpeechRole(profile, safe);
   const keys = resolveKeySlot(profile, binding);
   const transport = resolveTransport(profile, binding);
   const chains = transport === 'interactions' && binding.persistViaInteractionId !== false;

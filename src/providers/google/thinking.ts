@@ -1,6 +1,6 @@
 import { TheoremError } from '../../guardrails/error.ts';
 import type { ThinkingLevel } from '../../kernel/schema.ts';
-import { GOOGLE_THINKING_LEVELS } from '../../presets/google-thinking.ts';
+import { GOOGLE_THINKING_LEVELS } from '../../presets/google-limits.ts';
 
 /** Refuses a thinking level Gemini does not take, rather than sending it. */
 export function assertGoogleThinkingLevel(level: ThinkingLevel | undefined): void {

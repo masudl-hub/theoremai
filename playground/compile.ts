@@ -33,7 +33,6 @@ import {
   isValidPair,
   isValidProfileProtocol,
   protocolsForProfileType,
-  speechFormatsForProtocol,
 } from '../src/kernel/schema.ts';
 import { activityLabelProblem } from '../src/kernel/tools/activity-label.ts';
 import type {
@@ -47,6 +46,7 @@ import type {
 } from '../src/kernel/types.ts';
 import { resolveObservabilityPolicy } from '../src/observability/mod.ts';
 import {
+  GOOGLE_SPEECH_FORMATS,
   GOOGLE_THINKING_LEVELS,
   googleInteractionsPersistence,
 } from '../src/presets/google.ts';
@@ -854,7 +854,8 @@ function compileSpeech(
   const { format } = speech;
   if (format) {
     const refused = draft.modelBindings.find(
-      (binding) => !speechFormatsForProtocol(binding.protocol).includes(format),
+      (binding) =>
+        binding.protocol !== 'openAi' && !(GOOGLE_SPEECH_FORMATS as readonly string[]).includes(format),
     );
     if (refused) {
       report(

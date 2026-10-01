@@ -2,13 +2,11 @@ import { wrapUserData } from '../../guardrails/canary.ts';
 import { TheoremError } from '../../guardrails/error.ts';
 import { lexiconText } from '../../guardrails/lexicon.ts';
 import { synthesizeRepairPrompt } from '../engine/repair.ts';
-import { isSpeechFormatAllowedForProtocol } from '../schema.ts';
 import { CONTINUE_INSTRUCTION_TYPES } from '../stop.ts';
 import type {
   ImageResponseFormat,
   InteractionPart,
   MediaInputKind,
-  ModelBinding,
   Profile,
   ProfileImageSpec,
   TurnBlob,
@@ -57,7 +55,7 @@ function assertImagePins(profile: Profile): ProfileImageSpec {
   return profile.image;
 }
 
-function assertSpeechRole(profile: Profile, binding: ModelBinding, req: TurnRequest): void {
+function assertSpeechRole(profile: Profile, req: TurnRequest): void {
   if (profile.type !== 'speech') {
     return;
   }
@@ -65,14 +63,6 @@ function assertSpeechRole(profile: Profile, binding: ModelBinding, req: TurnRequ
     throw new TheoremError(
       'config',
       `Profile ${profile.id} (speech) takes no system prompt — the input text is the transcript`, // lexicon-exempt: developer contract error
-    );
-  }
-  const format = profile.speech.format;
-  if (format && !isSpeechFormatAllowedForProtocol(binding.protocol, format)) {
-    throw new TheoremError(
-      'config',
-      `Profile ${profile.id}: speech.format '${format}' requires protocol 'openAi' ` + // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-        `(geminiInteractions speech returns PCM and emits WAV)`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 }

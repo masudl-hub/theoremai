@@ -6,6 +6,7 @@ import type {
   TurnHistoryMessage,
   WireFunctionTool,
 } from '../../../kernel/types.ts';
+import { GOOGLE_SPEECH_FORMATS } from '../../../presets/google-limits.ts';
 import { builtinWire } from '../../shared/builtin-wire.ts';
 import { historyToolArguments, historyToolIdentity } from '../../shared/tool-args.ts';
 import { assertGoogleThinkingLevel } from '../thinking.ts';
@@ -132,6 +133,13 @@ export function attachResponseFormat(
     }
     if (req.structured) {
       throw new TheoremError('config', 'cannot mix speech and structured response formats');
+    }
+    const format = req.speech.format;
+    if (format && !(GOOGLE_SPEECH_FORMATS as readonly string[]).includes(format)) {
+      throw new TheoremError(
+        'unsupported',
+        `Gemini speech returns ${GOOGLE_SPEECH_FORMATS.join(', ')}, not '${format}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
     }
     camel.responseFormat = { type: 'audio' };
     camel.responseModalities = ['audio'];

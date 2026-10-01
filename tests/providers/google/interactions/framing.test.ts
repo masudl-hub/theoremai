@@ -212,6 +212,18 @@ Deno.test('attachResponseFormat sets an audio response format for speech-only re
   assertEquals(camel.responseModalities, ['audio']);
 });
 
+Deno.test('attachResponseFormat refuses a speech format Gemini cannot return', () => {
+  const camel: Record<string, unknown> = {};
+  attachResponseFormat(baseReq({ speech: { voice: 'Kore', format: 'pcm' } }), camel);
+  assertEquals(camel.responseFormat, { type: 'audio' });
+  const refused = assertThrows(
+    () => attachResponseFormat(baseReq({ speech: { voice: 'Kore', format: 'mp3' } }), {}),
+    TheoremError,
+    "not 'mp3'",
+  );
+  assertEquals(refused.kind, 'unsupported');
+});
+
 Deno.test('attachResponseFormat sets an image-only response format by default', () => {
   const req = baseReq({
     image: {

@@ -58,6 +58,7 @@ Constants (and matching types) for host profile authoring:
 | `GOOGLE_IMAGE_ASPECT_RATIOS` / `GOOGLE_IMAGE_SIZES` | Image output pins |
 | `GOOGLE_SPEECH_VOICES` | TTS voice names for `outputs.speech.voice` |
 | `GOOGLE_SINGLE_TURN_API_IDS` | TTS models that reject history with a model turn, so they can't take compaction |
+| `GOOGLE_SPEECH_FORMATS` | The audio format Gemini speech returns (`pcm`, wrapped as WAV); OpenRouter speech also takes `mp3`; the Google provider refuses any other |
 | `GOOGLE_THINKING_LEVELS` | The thinking levels Gemini takes (`minimal`, `low`, `medium`, `high`); OpenRouter models take every level; the Google providers refuse any other |
 | `GOOGLE_NO_THINKING_API_IDS` | Models that reject any thinking setting, `summaries: false` included; leave `efforts` and `summaries` unset |
 | `GoogleImageAspectRatio`, `GoogleImageInputMime`, `GoogleImageSize`, `GoogleVoiceInputMime` | Typed vocabulary unions |

@@ -76,16 +76,23 @@ export function routePlaygroundLines(
 
 function ignoreSteerInbox(): void {}
 
+/**
+ * How a playground transport reaches the server. `traces` is the feed its trace records land in:
+ * pass one feed to every transport of a conversation so a recompiled draft keeps the earlier
+ * turns' traces beside the transcript that kept them.
+ */
+export type PlaygroundTransportOptions = HttpOptions & { traces?: TraceFeed };
+
 export function createPlaygroundTransport(
   payload: PlaygroundRunPayload,
-  options: HttpOptions = {},
+  options: PlaygroundTransportOptions = {},
 ): TheoremTransport {
   const compiled = {
     profile: payload.profile,
     customTools: payload.customTools,
     structured: payload.structured,
   };
-  const traces = createTraceFeed();
+  const traces = options.traces ?? createTraceFeed();
   /** The server's steer inbox for each turn, by the client's turn id. */
   const inboxes = new Map<string, string>();
   return {
@@ -135,10 +142,10 @@ export function createPlaygroundTransport(
  */
 export function createPlaygroundDecisionTransport(
   payload: PlaygroundRunPayload,
-  options: HttpOptions = {},
+  options: PlaygroundTransportOptions = {},
 ): DecisionTransport {
   const questions = payload.questions ?? {};
-  const traces = createTraceFeed();
+  const traces = options.traces ?? createTraceFeed();
   return {
     describe: () =>
       Promise.resolve(decisionInterface(defineProfile(payload.profile) as DecisionProfile, questions)),
@@ -161,10 +168,10 @@ export function createPlaygroundDecisionTransport(
  */
 export function createPlaygroundHostTransport(
   payload: PlaygroundRunPayload,
-  options: HttpOptions = {},
+  options: PlaygroundTransportOptions = {},
 ): HostTransport {
   const compiled = { profile: payload.profile, customTools: payload.customTools };
-  const traces = createTraceFeed();
+  const traces = options.traces ?? createTraceFeed();
   let sessionPermissions: string[] = [];
   return {
     describe: () =>

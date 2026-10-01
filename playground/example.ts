@@ -54,7 +54,7 @@ export function createExampleDraft(): PlaygroundDraft {
       system: DEMO_CONCIERGE_SYSTEM,
     },
     included: ['outputs', 'turnBehaviour', 'guardrails', 'observability', 'wording'],
-    models: { defaultModel: 'fast', allowModelSelect: true, maxSteps: 12, key: 'primary' },
+    models: { defaultModel: 'fast', allowModelSelect: true, maxSteps: 12, key: 'gemini' },
     modelBindings: [
       defaultModelBinding({
         modelId: 'fast',
@@ -89,6 +89,8 @@ export function createExampleDraft(): PlaygroundDraft {
         apiId: OPENROUTER_PLAYGROUND_API_ID,
         efforts: [{ alias: 'default', level: 'minimal' }],
         defaultEffort: 'default',
+        // Its own slot: a slot two providers share can hold neither's key.
+        keySlot: 'openrouter',
       }),
     ],
     tools: { t2Loader: 'discover_tools' },

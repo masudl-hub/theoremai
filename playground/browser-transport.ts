@@ -4,7 +4,7 @@ import {
   decisionInterface,
 } from '../react/src/client/decision-transport.ts';
 import { type HostTransport, hostInterface } from '../react/src/client/host-transport.ts';
-import { createTraceFeed } from '../react/src/client/trace-feed.ts';
+import { createTraceFeed, type TraceFeed } from '../react/src/client/trace-feed.ts';
 import {
   hostError,
   type HostErrorBody,
@@ -74,8 +74,9 @@ async function deliver(
 export function createBrowserPlaygroundTransport(
   payload: PlaygroundRunPayload,
   runtime: PlaygroundBrowserRuntime,
+  options: { traces?: TraceFeed } = {},
 ): TheoremTransport {
-  const traces = createTraceFeed();
+  const traces = options.traces ?? createTraceFeed();
   const steer = createMemorySteerInbox();
   const inboxes = new Map<string, string>();
   const compiled = {
@@ -139,8 +140,9 @@ export function createBrowserPlaygroundTransport(
 export function createBrowserPlaygroundHostTransport(
   payload: PlaygroundRunPayload,
   runtime: PlaygroundBrowserRuntime,
+  options: { traces?: TraceFeed } = {},
 ): HostTransport {
-  const traces = createTraceFeed();
+  const traces = options.traces ?? createTraceFeed();
   let sessionPermissions: string[] = [];
   const compiled = {
     profile: payload.profile,
@@ -189,8 +191,9 @@ export function createBrowserPlaygroundHostTransport(
 export function createBrowserPlaygroundDecisionTransport(
   payload: PlaygroundRunPayload,
   runtime: PlaygroundBrowserRuntime,
+  options: { traces?: TraceFeed } = {},
 ): DecisionTransport {
-  const traces = createTraceFeed();
+  const traces = options.traces ?? createTraceFeed();
   return {
     describe: () =>
       Promise.resolve(

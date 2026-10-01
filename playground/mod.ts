@@ -157,7 +157,7 @@ export {
   upsertPlaygroundRunIndex,
 } from './run-payload.ts';
 export { registerPlaygroundTools } from './tools.ts';
-export type { PlaygroundSteerLine } from './transport.ts';
+export type { PlaygroundSteerLine, PlaygroundTransportOptions } from './transport.ts';
 export {
   createPlaygroundDecisionTransport,
   createPlaygroundHostTransport,

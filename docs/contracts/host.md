@@ -110,6 +110,8 @@ against its own schema: a kind it does not know reaches `onTurnEvent` as
 `events` envelope) as `malformed`, left out as `bad_response`: the session
 goes on, and an `events` envelope's other events stand.
 
+The live client's `context` message (at most 2000 characters) goes to `session.sendContext`: background the model reads without replying, such as the page the visitor is on.
+
 A relay only forwards the live client's tool messages. The session holds the
 model's calls and gates (see [`stages.md`](stages.md), "`LiveSession.executeTool`"),
 so the relay passes the browser's `executeTool` message, less its `type`, to

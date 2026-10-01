@@ -24,6 +24,33 @@ export type MessageDelivery = 'sending' | 'sent' | 'delivered' | 'read';
 /** A conversation at rest: what the transcript shows and what the next turn is sent with. */
 export type ChatSnapshot = { blocks: TranscriptBlock[]; session: InterfaceTurnSession };
 
+/** Coalesces streamed partial blocks to one state update per animation frame. */
+function useStreamFrames(setStreamBlocks: (blocks: TranscriptBlock[]) => void) {
+	const streamRafRef = useRef<number | null>(null);
+	const pendingStreamRef = useRef<TranscriptBlock[] | null>(null);
+
+	const cancelPendingStreamFrame = useCallback(() => {
+		if (streamRafRef.current != null) {
+			cancelAnimationFrame(streamRafRef.current);
+			streamRafRef.current = null;
+		}
+		pendingStreamRef.current = null;
+	}, []);
+
+	const scheduleStreamBlocks = useCallback((partial: TranscriptBlock[]) => {
+		pendingStreamRef.current = partial;
+		if (streamRafRef.current != null) return;
+		streamRafRef.current = requestAnimationFrame(() => {
+			streamRafRef.current = null;
+			const next = pendingStreamRef.current;
+			pendingStreamRef.current = null;
+			if (next) setStreamBlocks(next);
+		});
+	}, []);
+
+	return { cancelPendingStreamFrame, scheduleStreamBlocks };
+}
+
 /** Composer / transcript / session state behind {@link useTheoremChat}. */
 export function useTheoremChatState(initial?: ChatSnapshot) {
 	const [blocks, setBlocksState] = useState<TranscriptBlock[]>(initial?.blocks ?? []);
@@ -44,8 +71,6 @@ export function useTheoremChatState(initial?: ChatSnapshot) {
 	// One object per posted message, so a run can tell whether it posted one.
 	const [delivery, setDeliveryState] = useState<{ status: MessageDelivery } | null>(null);
 
-	const streamRafRef = useRef<number | null>(null);
-	const pendingStreamRef = useRef<TranscriptBlock[] | null>(null);
 	const blocksRef = useRef(blocks);
 	// Set as it is written, so a caller awaiting a turn reads the transcript the turn left.
 	const setBlocks = useCallback((value: TranscriptBlock[] | ((prev: TranscriptBlock[]) => TranscriptBlock[])) => {
@@ -71,24 +96,7 @@ export function useTheoremChatState(initial?: ChatSnapshot) {
 		setDeliveryState(next);
 	}, []);
 
-	const cancelPendingStreamFrame = useCallback(() => {
-		if (streamRafRef.current != null) {
-			cancelAnimationFrame(streamRafRef.current);
-			streamRafRef.current = null;
-		}
-		pendingStreamRef.current = null;
-	}, []);
-
-	const scheduleStreamBlocks = useCallback((partial: TranscriptBlock[]) => {
-		pendingStreamRef.current = partial;
-		if (streamRafRef.current != null) return;
-		streamRafRef.current = requestAnimationFrame(() => {
-			streamRafRef.current = null;
-			const next = pendingStreamRef.current;
-			pendingStreamRef.current = null;
-			if (next) setStreamBlocks(next);
-		});
-	}, []);
+	const { cancelPendingStreamFrame, scheduleStreamBlocks } = useStreamFrames(setStreamBlocks);
 
 	const clearComposer = useCallback(() => {
 		setDraftText('');

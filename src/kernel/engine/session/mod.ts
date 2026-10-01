@@ -828,6 +828,9 @@ function buildLiveSession(args: {
       copy: { key: 'session.gate_expired' },
     });
 
+  const gateLapsed = (held: HeldCall): boolean =>
+    typeof held.state === 'object' && gateExpired(held.state.createdAt, Date.now(), gateTtlMs);
+
   /**
    * The held call `callId`, when it can run now. A gate that waited past
    * `gateTtlMs` is settled (a held one as abandoned, a released one as lapsed;
@@ -838,10 +841,7 @@ function buildLiveSession(args: {
     if (!held || held.state === 'running') {
       throw new TheoremError('request', `call ${callId} is not waiting to run`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
-    if (
-      typeof held.state === 'object' &&
-      gateExpired(held.state.createdAt, Date.now(), gateTtlMs)
-    ) {
+    if (gateLapsed(held)) {
       if (isReleased(held)) lapseReleased(callId, held);
       else
         await runHeld(callId, held, held.arguments, resumeForAnswer({ decision: 'abandon' }), {});
@@ -1061,10 +1061,7 @@ function buildLiveSession(args: {
       if (!held || (held.state !== 'open' && !isReleased(held))) {
         throw new TheoremError('request', `call ${callId} is not waiting for an answer`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       }
-      if (
-        typeof held.state === 'object' &&
-        gateExpired(held.state.createdAt, Date.now(), gateTtlMs)
-      ) {
+      if (gateLapsed(held)) {
         lapseReleased(callId, held);
         throw gateExpiredError(callId);
       }

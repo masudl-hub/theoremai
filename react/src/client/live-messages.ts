@@ -28,7 +28,7 @@ import {
 } from './wire-line.ts';
 
 /** The longest context message a relay accepts. */
-export const LIVE_CONTEXT_MAX_CHARS = 2000;
+const LIVE_CONTEXT_MAX_CHARS = 2000;
 
 /** What the live client sends its relay, besides the host's own `openMessage`. */
 export type LiveClientMessage =

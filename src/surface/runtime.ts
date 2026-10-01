@@ -7,7 +7,6 @@ import type {
   SurfaceActionContext,
   SurfaceActionOutcome,
   SurfaceField,
-  SurfaceIssue,
   SurfaceNode,
   SurfaceRejection,
 } from './types.ts';
@@ -352,38 +351,45 @@ export function createSurfaceRuntime(options: SurfaceRuntimeOptions = {}): Surfa
     return { rejected, node: node.id };
   };
 
-  const act = async (args: unknown, callId: string) => {
-    const seen = ledger.find((entry) => entry.callId === callId);
-    if (seen) return seen.result;
+  /** What an `act` call resolved to, or the answer that ends it before anything runs. */
+  const prepareAct = async (args: unknown) => {
     const parsed = actArgs.safeParse(args ?? {});
     if (!parsed.success) {
-      return { status: 'refused', why: 'Bad call.', rejected: rejectionsFrom(parsed.error) };
+      return {
+        done: { status: 'refused', why: 'Bad call.', rejected: rejectionsFrom(parsed.error) },
+      };
     }
     const { at, action: name, basedOn, intent } = parsed.data;
     const target = await resolve(at);
-    if ('refused' in target) return { status: 'refused', why: target.refused };
+    if ('refused' in target) return { done: { status: 'refused', why: target.refused } };
     const { surface, node } = target;
     const action = actionsOf(node).find(([candidate]) => candidate === name)?.[1];
     if (!action) {
       return {
-        status: 'refused',
-        why: `${target.at} has no ${name}. It has: ${actionsOf(node)
-          .map(([candidate]) => candidate)
-          .join(', ')}.`,
+        done: {
+          status: 'refused',
+          why: `${target.at} has no ${name}. It has: ${actionsOf(node)
+            .map(([candidate]) => candidate)
+            .join(', ')}.`,
+        },
       };
     }
     const checked = action.input
       ? action.input.safeParse(parsed.data.input ?? {})
       : { success: true as const, data: parsed.data.input ?? {} };
     if (!checked.success) {
-      return { status: 'refused', why: 'Bad input.', rejected: rejectionsFrom(checked.error) };
+      return {
+        done: { status: 'refused', why: 'Bad input.', rejected: rejectionsFrom(checked.error) },
+      };
     }
     const write = action.effect === 'write';
     if (write && basedOn === undefined) {
       return {
-        status: 'refused',
-        why: 'Pass basedOn: the revision from your last look.',
-        revision: surface.revision(),
+        done: {
+          status: 'refused',
+          why: 'Pass basedOn: the revision from your last look.',
+          revision: surface.revision(),
+        },
       };
     }
     if (write && action.intent && intent) {
@@ -393,8 +399,18 @@ export function createSurfaceRuntime(options: SurfaceRuntimeOptions = {}): Surfa
           entry.at === target.at &&
           now() - entry.time < INTENT_WINDOW_MS,
       );
-      if (repeat) return repeat.result;
+      if (repeat) return { done: repeat.result };
     }
+    return { ready: { target, name, basedOn, intent, data: checked.data, write } };
+  };
+
+  const act = async (args: unknown, callId: string) => {
+    const seen = ledger.find((entry) => entry.callId === callId);
+    if (seen) return seen.result;
+    const prepared = await prepareAct(args);
+    if (!prepared.ready) return prepared.done;
+    const { target, name, basedOn, intent, data, write } = prepared.ready;
+    const { surface, node } = target;
     let result: unknown;
     let applied = false;
     if (write && basedOn !== surface.revision()) {
@@ -411,13 +427,8 @@ export function createSurfaceRuntime(options: SurfaceRuntimeOptions = {}): Surfa
         const own = node.actions?.[name];
         const outcome =
           name in BUILT_IN && !own
-            ? runBuiltIn(
-                target,
-                name as 'set' | 'point',
-                checked.data as Record<string, unknown>,
-                ctx,
-              )
-            : await (own as SurfaceAction<never>).run(checked.data as never, ctx);
+            ? runBuiltIn(target, name as 'set' | 'point', data as Record<string, unknown>, ctx)
+            : await (own as SurfaceAction<never>).run(data as never, ctx);
         const after = surface.revision();
         applied = after !== before;
         const landed =
@@ -515,5 +526,3 @@ export function createSurfaceRuntime(options: SurfaceRuntimeOptions = {}): Surfa
     },
   };
 }
-
-export type { SurfaceIssue };

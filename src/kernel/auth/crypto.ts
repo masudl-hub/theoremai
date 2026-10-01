@@ -71,7 +71,7 @@ export interface SealedStatePayload {
 /** A secret shorter than 256 bits would be the weak link. */
 const MIN_SECRET_BYTES = 32;
 
-/** So each use of a host secret derives a key no other use shares. */
+/** Public domain-separation labels, not secrets: each use of a host secret derives a key no other use shares. */
 const STATE_CONTEXT = 'theorem/oauth-state/v1';
 const SEAL_CONTEXT = 'theorem/sealed-secret/v1';
 

@@ -1,8 +1,7 @@
 /**
  * What the hosted playground allows on top of the kernel: Gemini runs on free-tier keys;
  * OpenRouter decisions use only the free Span model. TypeSafe has no free-model restriction.
- * AI Studio grounding quotas (Sep 2026): search is 1.5K
- * on Gemini 2 / 2.5 and 0 on Gemini 3; maps is 0 or 500 per model.
+ * Which grounding each model's free quota allows is the Google preset's table.
  */
 
 import {
@@ -12,7 +11,7 @@ import {
   type Provider,
 } from '../src/kernel/schema.ts';
 import type { DecisionQuestion } from '../src/kernel/types.ts';
-import { GOOGLE_BUILTIN_TOOLS } from '../src/presets/google.ts';
+import { GOOGLE_BUILTIN_TOOLS, googleFreeTierBuiltins } from '../src/presets/google.ts';
 import type { ModelBindingDraft, PlaygroundProfileType } from './draft.ts';
 
 export type PlaygroundConnectionMode = 'demo' | 'byok' | 'local';
@@ -124,10 +123,6 @@ export interface GeminiPlaygroundModel {
   id: string;
   label: string;
   profileType: PlaygroundProfileType;
-  /** The model's map-grounding quota is non-zero. */
-  mapGrounding: boolean;
-  /** The model's search-grounding quota is non-zero. */
-  searchGrounding: boolean;
 }
 
 /**
@@ -139,127 +134,91 @@ export const GEMINI_PLAYGROUND_MODELS: readonly GeminiPlaygroundModel[] = [
     id: 'gemini-2.5-flash-lite',
     label: '2.5 Flash Lite',
     profileType: 'text',
-    mapGrounding: true,
-    searchGrounding: true,
   },
   {
     id: 'gemini-2.5-flash',
     label: '2.5 Flash',
     profileType: 'text',
-    mapGrounding: true,
-    searchGrounding: true,
   },
   {
     id: 'gemini-2.5-flash-preview-tts',
     label: '2.5 Flash TTS',
     profileType: 'speech',
-    mapGrounding: false,
-    searchGrounding: true,
   },
   {
     id: 'gemini-3-flash-preview',
     label: '3 Flash',
     profileType: 'text',
-    mapGrounding: false,
-    searchGrounding: false,
   },
   {
     id: 'gemini-3.1-flash-lite',
     label: '3.1 Flash Lite',
     profileType: 'text',
-    mapGrounding: true,
-    searchGrounding: false,
   },
   {
     id: 'gemini-3.1-flash-lite-image',
     label: '3.1 Flash Lite Image',
     profileType: 'image',
-    mapGrounding: false,
-    searchGrounding: false,
   },
   {
     id: 'gemini-3.1-flash-tts-preview',
     label: '3.1 Flash TTS',
     profileType: 'speech',
-    mapGrounding: true,
-    searchGrounding: false,
   },
   {
     id: 'gemini-3.5-flash-lite',
     label: '3.5 Flash Lite',
     profileType: 'text',
-    mapGrounding: true,
-    searchGrounding: false,
   },
   {
     id: 'gemini-3.5-flash',
     label: '3.5 Flash',
     profileType: 'text',
-    mapGrounding: false,
-    searchGrounding: false,
   },
   {
     id: 'gemini-3.6-flash',
     label: '3.6 Flash',
     profileType: 'text',
-    mapGrounding: false,
-    searchGrounding: false,
   },
   {
     id: 'gemini-3.7-flash',
     label: '3.7 Flash',
     profileType: 'text',
-    mapGrounding: false,
-    searchGrounding: false,
   },
   {
     id: 'gemini-3.8-flash-tts',
     label: '3.8 Flash TTS',
     profileType: 'speech',
-    mapGrounding: false,
-    searchGrounding: false,
   },
   {
     id: 'gemini-3.8-flash-lite-tts',
     label: '3.8 Flash Lite TTS',
     profileType: 'speech',
-    mapGrounding: false,
-    searchGrounding: false,
   },
   {
     id: 'gemma-4-26b-a4b-it',
     label: 'Gemma 4 26B',
     profileType: 'text',
-    mapGrounding: false,
-    searchGrounding: false,
   },
   {
     id: 'gemma-4-31b-it',
     label: 'Gemma 4 31B',
     profileType: 'text',
-    mapGrounding: false,
-    searchGrounding: false,
   },
   {
     id: 'gemini-3.1-flash-live-preview',
     label: '3.1 Flash Live',
     profileType: 'live',
-    mapGrounding: false,
-    searchGrounding: false,
   },
   {
     id: 'gemini-3.8-live',
     label: '3.8 Live',
     profileType: 'live',
-    mapGrounding: false,
-    searchGrounding: false,
   },
   {
     id: 'gemini-3.8-live-extended-thinking',
     label: '3.8 Live Extended Thinking',
     profileType: 'live',
-    mapGrounding: false,
-    searchGrounding: false,
   },
 ];
 
@@ -320,13 +279,8 @@ export function isProviderBuiltinId(name: string): boolean {
 }
 
 export function allowedBuiltinsForGemini(apiId: string): string[] {
-  const model = geminiPlaygroundModel(apiId);
-  if (!model) return [];
-  const out: string[] = [];
-  if (model.searchGrounding) out.push('googleSearch');
-  if (model.mapGrounding) out.push('googleMaps');
-  out.push('urlContext');
-  return out;
+  if (!geminiPlaygroundModel(apiId)) return [];
+  return [...googleFreeTierBuiltins(apiId), 'urlContext'];
 }
 
 export function defaultBindingForProfileType(

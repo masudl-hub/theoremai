@@ -5,6 +5,8 @@
  */
 
 export type {
+  GoogleBindingViolation,
+  GoogleFreeTierGrounding,
   GoogleImageAspectRatio,
   GoogleImageInputMime,
   GoogleImageOutputMime,
@@ -16,6 +18,7 @@ export type {
 } from './google.ts';
 export {
   GOOGLE_BUILTIN_TOOLS,
+  GOOGLE_FREE_TIER_GROUNDING,
   GOOGLE_IMAGE_ASPECT_RATIOS,
   GOOGLE_IMAGE_INPUT_MIMES,
   GOOGLE_IMAGE_OUTPUT_MIMES,
@@ -23,7 +26,10 @@ export {
   GOOGLE_NO_THINKING_API_IDS,
   GOOGLE_SINGLE_TURN_API_IDS,
   GOOGLE_SPEECH_VOICES,
+  GOOGLE_THINKING_REQUIRED_API_IDS,
   GOOGLE_VOICE_INPUT_MIMES,
+  googleBindingViolation,
+  googleFreeTierBuiltins,
   googleInteractionsPersistence,
   registerGooglePreset,
 } from './google.ts';

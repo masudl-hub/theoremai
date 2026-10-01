@@ -47,6 +47,19 @@ stage inject, and every step sends that history (`ResolvedGeneration.chains` is
 `false`). The kernel does not pair them itself; a binding that sets them apart
 reaches Google as written.
 
+## Model rules
+
+`googleBindingViolation(binding, { freeTier? })` returns the first setting Google would refuse on a binding as `{ field, message }`, or `undefined`:
+
+| Rule | Field | Google's refusal (Live, 01/10/2026) |
+| --- | --- | --- |
+| A `GOOGLE_NO_THINKING_API_IDS` model pins `efforts` or sets `summaries` | `efforts` / `summaries` | `gemini-3.8-live` closes 1007 "Thinking level is not supported for this model" |
+| A `GOOGLE_THINKING_REQUIRED_API_IDS` model has no `efforts` | `efforts` | `gemini-3.8-live-extended-thinking` closes 1007 "Thinking level must be specified for this model" |
+| With `freeTier`, a model missing from `GOOGLE_FREE_TIER_GROUNDING` | `apiId` | The model has no free-tier quota |
+| With `freeTier`, `googleSearch` or `googleMaps` the model's free quota doesn't allow | `builtInTools` | Live closes 1011 "You exceeded your current quota" at setup, whatever the key's usage, so it reads as a quota failure |
+
+`GOOGLE_FREE_TIER_GROUNDING` maps each free-tier model to `{ googleSearch, googleMaps }` (AI Studio, Sep 2026); `googleFreeTierBuiltins(apiId)` lists the grounding builtins it allows. The playground's model policy reads this table. The kernel does not run the check; a host calls it on the profiles it registers.
+
 ## Vocabularies
 
 Constants (and matching types) for host profile authoring:
@@ -59,6 +72,8 @@ Constants (and matching types) for host profile authoring:
 | `GOOGLE_SPEECH_VOICES` | TTS voice names for `outputs.speech.voice` |
 | `GOOGLE_SINGLE_TURN_API_IDS` | TTS models that reject history with a model turn, so they can't take compaction |
 | `GOOGLE_NO_THINKING_API_IDS` | Models that reject any thinking setting, `summaries: false` included; leave `efforts` and `summaries` unset |
+| `GOOGLE_THINKING_REQUIRED_API_IDS` | Models that refuse a session without a thinking level; pin `efforts` |
+| `GOOGLE_FREE_TIER_GROUNDING` / `GoogleFreeTierGrounding` | Free-tier models and the grounding each one's quota allows |
 | `GoogleImageAspectRatio`, `GoogleImageInputMime`, `GoogleImageResolution`, `GoogleImageOutputMime`, `GoogleVoiceInputMime` | Typed vocabulary unions |
 | `GoogleImagePins`, `GoogleSpeechPins`, `GoogleSpeechVoice` | Typed pins assignable to kernel specs |
 
@@ -73,6 +88,9 @@ Kernel types stay stringly; these packs make Google hosts typed when they opt in
 | `GOOGLE_BUILTIN_TOOLS` | Static catalog entries |
 | `GOOGLE_SINGLE_TURN_API_IDS` | TTS models that can't take compaction |
 | `GOOGLE_NO_THINKING_API_IDS` | Models that take no `efforts` or `summaries` |
+| `GOOGLE_THINKING_REQUIRED_API_IDS` | Models that need `efforts` |
+| `GOOGLE_FREE_TIER_GROUNDING`, `GoogleFreeTierGrounding`, `googleFreeTierBuiltins` | Free-tier models and the grounding each allows |
+| `googleBindingViolation`, `GoogleBindingViolation` | The first setting Google would refuse on a binding |
 | `GOOGLE_IMAGE_ASPECT_RATIOS`, `GOOGLE_IMAGE_INPUT_MIMES`, `GOOGLE_IMAGE_RESOLUTIONS`, `GOOGLE_IMAGE_OUTPUT_MIMES`, `GOOGLE_VOICE_INPUT_MIMES`, `GOOGLE_SPEECH_VOICES` | Typed profile authoring constants |
 | `GoogleImageAspectRatio`, `GoogleImageInputMime`, `GoogleImageResolution`, `GoogleImageOutputMime`, `GoogleVoiceInputMime`, `GoogleImagePins`, `GoogleLivePins`, `GoogleSpeechPins`, `GoogleSpeechVoice` | Typed pins and vocabularies |
 | `GOOGLE_SPEECH_VOICES` / `GoogleSpeechVoice` | Published speech-voice vocabulary provided by `src/presets/google/speech-voices.ts` and consumed by profile authoring |
@@ -96,6 +114,12 @@ Kernel types stay stringly; these packs make Google hosts typed when they opt in
       "supports": [
         { "kind": "source", "path": "src/presets/google.ts" },
         { "kind": "contract_test", "path": "tests/kernel/theorem.test.ts" }
+      ]
+    },
+    "Model rules": {
+      "supports": [
+        { "kind": "source", "path": "src/presets/google.ts" },
+        { "kind": "contract_test", "path": "tests/presets/google.test.ts" }
       ]
     },
     "Vocabularies": {

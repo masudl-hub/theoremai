@@ -80,9 +80,8 @@ Deno.test('a fallback must differ from the key', () => {
   assertEquals(defineError({ key: 'a', fallbackKey: 'b' }), '');
 });
 
-Deno.test('every provider reads the same slots and fallback', () => {
-  const local: ModelBinding = { protocol: 'openAi', provider: 'local', apiId: 'llama' };
-  for (const binding of [google, stubBinding, local]) {
+Deno.test('every hosted provider reads the same slots and fallback', () => {
+  for (const binding of [google, stubBinding]) {
     assertEquals(defineError({ key: 'a', fallbackKey: 'b' }, binding), '');
     assertEquals(resolveKeySlot({ key: 'a', fallbackKey: 'b' }, binding), {
       keySlot: 'a',
@@ -132,6 +131,12 @@ Deno.test('a local model may name no slot; it sends no key', () => {
   const local: ModelBinding = { protocol: 'openAi', provider: 'local', apiId: 'llama' };
   assertEquals(defineError({}, local), '');
   assertEquals(resolveKeySlot({}, local), {});
+});
+
+Deno.test("a local model never inherits the profile's key; it uses only its own", () => {
+  const local: ModelBinding = { protocol: 'openAi', provider: 'local', apiId: 'llama' };
+  assertEquals(resolveKeySlot({ key: 'a', fallbackKey: 'b' }, local), {});
+  assertEquals(resolveKeySlot({ key: 'a' }, { ...local, key: 'token' }), { keySlot: 'token' });
 });
 
 Deno.test('openrouter resolveTurn carries the slot the profile or its model names', () => {

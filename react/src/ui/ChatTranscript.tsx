@@ -22,7 +22,6 @@ import { Text } from '@astryxdesign/core/Text';
 import { Thumbnail } from '@astryxdesign/core/Thumbnail';
 import { Timestamp } from '@astryxdesign/core/Timestamp';
 import { Token } from '@astryxdesign/core/Token';
-import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconCheck, IconCopy } from '@tabler/icons-react';
 import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
@@ -177,19 +176,11 @@ function MessageTime({ at }: { at: number }) {
 	return <Timestamp value={at} format="relative_short" isLive />;
 }
 
-/** A message's time, copy button and status; a failure's reason shows on hover over its mark. */
+/** A message's time, copy button and status; a failure says why on the line beneath. */
 function MessageChrome(props: { at: number; copyText: string; status?: ChatMessageStatus; error?: string }) {
-	const mark = useRef<HTMLElement | null>(null);
 	const failed = props.error !== undefined;
 	const metadata = (
 		<ChatMessageMetadata
-			ref={(row) => {
-				// The status mark is the row's last item; its native title ("Failed") would
-				// cover the tooltip that says why.
-				const last = failed ? row?.lastElementChild : null;
-				mark.current = last instanceof HTMLElement ? last : null;
-				mark.current?.removeAttribute('title');
-			}}
 			timestamp={<MessageTime at={props.at} />}
 			footer={<CopyButton text={props.copyText} />}
 			status={failed ? 'error' : props.status}
@@ -197,11 +188,12 @@ function MessageChrome(props: { at: number; copyText: string; status?: ChatMessa
 	);
 	if (!failed) return metadata;
 	return (
-		<>
+		<VStack gap={1}>
 			{metadata}
-			{/* The tooltip sits beside the row, inside a user message's end-aligned text. */}
-			<Tooltip anchorRef={mark} content={<div style={{ textAlign: 'start' }}>{props.error}</div>} />
-		</>
+			<Text type="supporting" color="secondary">
+				{props.error}
+			</Text>
+		</VStack>
 	);
 }
 

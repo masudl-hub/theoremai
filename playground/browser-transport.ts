@@ -7,6 +7,7 @@ import { type HostTransport, hostInterface } from '../react/src/client/host-tran
 import { createTraceFeed } from '../react/src/client/trace-feed.ts';
 import {
   hostError,
+  type HostErrorBody,
   type TheoremTransport,
   type TurnEventSink,
 } from '../react/src/client/transport.ts';
@@ -44,6 +45,14 @@ function runSignal(
     : (runtime.signal ?? signal);
 }
 
+/**
+ * The builder runs this turn on their own keys and machine, so the failure says what actually
+ * happened (a rejected key, an unreachable server) rather than the visitor wording.
+ */
+function builderError(event: HostErrorBody): Error {
+  return hostError({ ...event, error: event.errorInternal ?? event.error }, 'internal');
+}
+
 /** Direct streams use the same event and trace routing as the HTTP transport. */
 async function deliver(
   source: AsyncIterable<TurnEvent | PlaygroundTraceLine | PlaygroundSteerLine>,
@@ -52,12 +61,12 @@ async function deliver(
 ): Promise<void> {
   try {
     for await (const line of source) {
-      if (line.type === 'error') throw hostError(line, 'internal');
+      if (line.type === 'error') throw builderError(line);
       sink(line);
     }
   } catch (error) {
     const event = withPublicWording(toErrorEvent(error), payload.profile.lexicon);
-    if (event.type === 'error') throw hostError(event, 'internal');
+    if (event.type === 'error') throw builderError(event);
     throw error;
   }
 }

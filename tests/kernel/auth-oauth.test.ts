@@ -801,3 +801,154 @@ Deno.test('only http is allowed on loopback, and a body-less miss at the metadat
     'falls through to the OIDC URL',
   );
 });
+
+Deno.test('the authorization URL carries the flow parameters under their protocol names', async () => {
+  const flow = await flowFor({ scopes: ['a'] });
+  const params = new URL(flow.authorizationUrl).searchParams;
+  check(params.get('response_type'), 'code', 'response_type');
+  check(params.get('client_id'), 'client', 'client_id');
+  check(params.get('redirect_uri'), REDIRECT, 'redirect_uri');
+  check(params.get('code_challenge_method'), 'S256', 'code_challenge_method');
+  check(params.get('resource'), RESOURCE, 'resource');
+  check(params.get('scope'), 'a', 'scope');
+  check((params.get('code_challenge') ?? '').length, 43, 'code_challenge is a SHA-256 digest');
+  check(params.get('state'), flow.state, 'state');
+});
+
+Deno.test('a provider parameter may be added but not one the flow sets itself', async () => {
+  check(
+    new URL(
+      (await flowFor({ authorizationParams: { prompt: 'consent' } })).authorizationUrl,
+    ).searchParams.get('prompt'),
+    'consent',
+    'a provider parameter rides along',
+  );
+  for (const name of [
+    'response_type',
+    'client_id',
+    'redirect_uri',
+    'code_challenge',
+    'code_challenge_method',
+    'state',
+    'resource',
+    'scope',
+  ]) {
+    check(
+      await rejection(() => flowFor({ authorizationParams: { [name]: 'x' } })),
+      `OAuth authorization parameter "${name}" is set by the flow and cannot be passed`,
+      name,
+    );
+  }
+  check(
+    await rejection(() => flowFor({ scopes: ['a b'] })),
+    'OAuth scope "a b" is not a single RFC 6749 scope token',
+    'a scope that is two tokens',
+  );
+});
+
+Deno.test('a URL that is not https is refused under the name of the field that held it', async () => {
+  const http = 'http://x.example';
+  const named = (field: string) =>
+    `OAuth ${field} "${http}" must be an https URL without a fragment`;
+  check(
+    await rejection(() =>
+      flowFor({ preResolved: { ...PRE_RESOLVED, authorizationEndpoint: http } }),
+    ),
+    named('authorization_endpoint'),
+    'authorization_endpoint',
+  );
+  check(await rejection(() => flowFor({ resourceServerUrl: http })), named('resource'), 'resource');
+  check(
+    await rejection(() => discoverAuthServerMetadata(http, { fetchFn: routes({}).fetchFn })),
+    named('issuer'),
+    'issuer',
+  );
+  check(
+    await rejection(() => discoverResourceMetadata(http, { fetchFn: routes({}).fetchFn })),
+    named('resource'),
+    'resource metadata url',
+  );
+  for (const field of ['token_endpoint', 'registration_endpoint']) {
+    check(
+      await rejection(() =>
+        discoverAuthServerMetadata(ISSUER, {
+          fetchFn: routes({ [AS_URL]: () => json({ ...AS_METADATA, [field]: http }) }).fetchFn,
+        }),
+      ),
+      named(field),
+      field,
+    );
+  }
+});
+
+Deno.test('resource metadata returns its optional lists as given', async () => {
+  const found = await discoverResourceMetadata(RESOURCE, {
+    fetchFn: routes({
+      [RS_URL]: () =>
+        json({
+          resource: RESOURCE,
+          authorization_servers: [ISSUER],
+          scopes_supported: ['a'],
+          bearer_methods_supported: ['header'],
+        }),
+    }).fetchFn,
+  });
+  check(found?.scopes_supported, ['a'], 'scopes_supported');
+  check(found?.bearer_methods_supported, ['header'], 'bearer_methods_supported');
+  check(found?.authorization_servers, [ISSUER], 'authorization_servers');
+});
+
+Deno.test('a grant beyond the ask names every scope it added, in order', async () => {
+  const { run } = await exchangeWith(() => json({ ...BEARER, scope: 'a x y' }), {
+    flow: { scopes: ['a'] },
+  });
+  check(
+    await rejection(run),
+    `Token response from ${TOKEN_ENDPOINT} grants scopes that were not asked for: x, y`,
+    'two beyond',
+  );
+});
+
+Deno.test('a typed credential is built by the server, by auth type', async () => {
+  const { credentialForSignInGate, credentialFromTypedSecret } = await import(
+    '../../src/kernel/auth/typed-secret.ts'
+  );
+  const said = (body: () => unknown) => {
+    try {
+      body();
+      return 'ok';
+    } catch (err) {
+      return err instanceof Error
+        ? `${(err as { kind?: string }).kind}: ${err.message}`
+        : String(err);
+    }
+  };
+  check(
+    credentialFromTypedSecret('bearer', '  tok  '),
+    { type: 'bearer', token: 'tok' },
+    'bearer, trimmed',
+  );
+  check(credentialFromTypedSecret('api_key', 'k'), { type: 'api_key', key: 'k' }, 'api key');
+  for (const bad of ['', '   ', 5, null, undefined]) {
+    check(
+      said(() => credentialFromTypedSecret('bearer', bad)),
+      'request: A typed credential must be a non-empty string',
+      `secret ${JSON.stringify(bad)}`,
+    );
+  }
+  check(
+    said(() => credentialFromTypedSecret('oauth' as never, 'x')),
+    "request: A 'oauth' sign-in takes no typed credential; the host's callback saves it",
+    'oauth takes none',
+  );
+  check(
+    said(() => credentialForSignInGate(undefined, 'x')),
+    'request: a typed credential answers only a sign-in gate',
+    'no sign-in gate',
+  );
+  check(
+    credentialForSignInGate({ slot: 'main', authType: 'api_key' }, 'k'),
+    { slot: 'main', credential: { type: 'api_key', key: 'k' } },
+    'a sign-in gate',
+  );
+});

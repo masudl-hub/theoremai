@@ -384,15 +384,20 @@ type OpeningMin = (form: CanaryLeakForm) => number;
 
 const ANY_OPENING: OpeningMin = () => 1;
 
-/** Where the opening of `form` at the end of `kept` starts, if one is at least `shortest` long. */
+/**
+ * Where the opening of `form` at the end of `kept` starts, if one is at least
+ * `shortest` long: any piece of the token it goes on past, as a run can start
+ * anywhere in it.
+ */
 function openingFrom(
   kept: string,
   at: number[],
   form: CanaryLeakForm,
   shortest: number,
 ): number | undefined {
-  for (let size = Math.min(kept.length, form.value.length - 1); size >= shortest; size--) {
-    if (kept.endsWith(form.value.slice(0, size))) {
+  const continued = form.value.slice(0, -1);
+  for (let size = Math.min(kept.length, continued.length); size >= shortest; size--) {
+    if (continued.includes(kept.slice(kept.length - size))) {
       return at[kept.length - size];
     }
   }
@@ -717,14 +722,59 @@ function scanTextForCanaryLeak(text: string, canary: string): boolean {
   );
 }
 
+/** Whether `point` starts (`first`) or ends (`last`) in a word, as the scan reads words. */
+function foldsToWord(point: string, edge: 'first' | 'last'): boolean {
+  const chars = foldChars(point, true);
+  return (edge === 'first' ? chars[0] : chars.at(-1))?.word ?? false;
+}
+
+/**
+ * Where the word `at` would cut in two starts, as the scan reads words; `at`
+ * itself when it cuts none. The start of a word reads as another word once
+ * the rest is omitted ("0This" as "0"), so a release never ends inside one.
+ */
+function wordStartAcross(text: string, at: number): number {
+  const following = text.codePointAt(at);
+  if (following === undefined || !foldsToWord(String.fromCodePoint(following), 'first')) {
+    return at;
+  }
+  let start = at;
+  while (start > 0) {
+    const pair = start > 1 ? text.slice(start - 2, start) : '';
+    const point = pair.length === 2 && [...pair].length === 1 ? pair : text.slice(start - 1, start);
+    if (!foldsToWord(point, 'last')) break;
+    start -= point.length;
+    if (!foldChars(point, true).every((c) => c.word)) break;
+  }
+  return start;
+}
+
+/**
+ * How much released text the hold rereads: an opening it released holds at
+ * most `CANARY_OPENING_MIN - 1` characters, each at most `LONGEST_WORD_READ`
+ * long and `LEAK_GAP` from the next, and a word cut where this starts reads
+ * as no character.
+ */
+const RELEASED_LOOKBACK = CANARY_OPENING_MIN * (LONGEST_WORD_READ + LEAK_GAP) + LONGEST_WORD_READ;
+
+/**
+ * How far before a point a leak run reaching past it can start: the longest
+ * run less one character, each read as above.
+ */
+const CANARY_LEAK_REACH =
+  Math.max(TOKEN_LEAK_RUN, BASE64_LEAK_RUN, BYTE_CODE_LEAK_RUN) * (LONGEST_WORD_READ + LEAK_GAP) +
+  LONGEST_WORD_READ;
+
 /**
  * Offset from which `text` must stay held: the earliest point where what
  * follows is an opening of a leak form at least `CANARY_OPENING_MIN` long,
- * and so could still grow into a leak. A shorter opening is released; the
- * scan still reads it with what follows, so the leak it grows into is caught.
+ * and so could still grow into a leak; 0 when one began in `released`, the
+ * text shown before it. A shorter opening is released; the scan still reads
+ * it with what follows, so the leak it grows into is caught.
  */
-function canaryHoldFrom(text: string, canary: string): number {
-  return leakOpeningFrom(text, canary, openingMin);
+function canaryHoldFrom(text: string, canary: string, released = ''): number {
+  const lead = released.slice(-RELEASED_LOOKBACK);
+  return Math.max(0, leakOpeningFrom(lead + text, canary, openingMin) - lead.length);
 }
 
 /** Where the earliest opening of any leak form at least `minimum(form)` long starts in `text`. */
@@ -964,7 +1014,7 @@ interface CanaryStreamGate {
 function createCanaryStreamGate(canary: string, system?: string): CanaryStreamGate {
   const scanner = createCanaryScanner(canary);
   let pending = '';
-  /** Released text a prompt echo could still continue from, read but never re-released. */
+  /** Released text an opening or a prompt echo could still continue from, read but never re-released. */
   let released = '';
 
   /**
@@ -986,11 +1036,12 @@ function createCanaryStreamGate(canary: string, system?: string): CanaryStreamGa
     if (leaks(fragment, window)) {
       return { leak: true };
     }
-    const safeEnd = canaryHoldFrom(window, canary);
+    const safeEnd = canaryHoldFrom(window, canary, released);
     const emit = window.slice(0, safeEnd);
     pending = window.slice(safeEnd);
     released += emit;
-    released = system ? released.slice(promptEchoScanFrom(released, released.length)) : '';
+    const echoFrom = system ? promptEchoScanFrom(released, released.length) : released.length;
+    released = released.slice(Math.min(echoFrom, Math.max(0, released.length - RELEASED_LOOKBACK)));
     return { leak: false, emit };
   }
 
@@ -1035,6 +1086,7 @@ export type { CanaryGateResult, CanaryScanner, CanaryStreamGate, StreamedReplyEv
 export {
   bindCanary,
   bindUserDataNote,
+  CANARY_LEAK_REACH,
   canaryHoldFrom,
   canaryLeakRanges,
   createCanaryScanner,
@@ -1050,5 +1102,6 @@ export {
   scanTextForCanaryLeak,
   USER_CLOSE,
   USER_OPEN,
+  wordStartAcross,
   wrapUserData,
 };

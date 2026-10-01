@@ -194,9 +194,15 @@ function createProgressiveYieldGate(options: ProgressiveYieldGateOptions): Progr
     // Until this window releases anything, its opening may continue the carry.
     const lead = emitted === 0 ? carry : '';
     const tail = lead + accumulated.slice(emitted);
-    const canaryFrom = canaryHoldFrom(tail, context.canary);
-    const echoFrom = context.system ? promptEchoHoldFrom(tail, context.system) : tail.length;
-    return emitted + Math.max(0, Math.min(canaryFrom, echoFrom) - lead.length);
+    const canaryFrom = canaryHoldFrom(
+      accumulated.slice(emitted),
+      context.canary,
+      carry + accumulated.slice(0, emitted),
+    );
+    const echoFrom = context.system
+      ? Math.max(0, promptEchoHoldFrom(tail, context.system) - lead.length)
+      : tail.length;
+    return emitted + Math.min(canaryFrom, echoFrom);
   }
 
   /** Where the host policy holds from: exactly for the bundled one, a fixed lookback otherwise. */

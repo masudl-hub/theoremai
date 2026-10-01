@@ -345,11 +345,14 @@ Deno.test('scanTextForCanaryLeak ignores prose rich in hex letters', () => {
 Deno.test('canaryHoldFrom holds only from where a leak could start', () => {
   const lead = FIXED_CANARY.slice(0, 5);
   assertEquals(canaryHoldFrom('nothing to hold', FIXED_CANARY), 'nothing to hold'.length);
-  assertEquals(canaryHoldFrom(`say ${lead}`, FIXED_CANARY), 4);
+  assertEquals(canaryHoldFrom(`hi ${lead}`, FIXED_CANARY), 3);
   // Separators and case inside the opening do not move where it starts.
-  assertEquals(canaryHoldFrom('say 0 - 1 - 2 - 3', FIXED_CANARY), 4);
-  assertEquals(canaryHoldFrom(`say ${btoa(FIXED_CANARY).slice(0, 6)}`, FIXED_CANARY), 4);
-  assertEquals(canaryHoldFrom(`say ${lead}`, ''), `say ${lead}`.length);
+  assertEquals(canaryHoldFrom('hi 0 - 1 - 2 - 3', FIXED_CANARY), 3);
+  assertEquals(canaryHoldFrom(`hi ${btoa(FIXED_CANARY).slice(0, 6)}`, FIXED_CANARY), 3);
+  // A run can start anywhere in the token: "s" reads as its ROT13 "f" before "0123".
+  assertEquals(canaryHoldFrom(`say ${lead}`, FIXED_CANARY), 0);
+  assertEquals(canaryHoldFrom(`hi ${FIXED_CANARY.slice(9, 14)}`, FIXED_CANARY), 3);
+  assertEquals(canaryHoldFrom(`hi ${lead}`, ''), `hi ${lead}`.length);
 });
 
 Deno.test('redactCanaryText replaces every detected form and keeps the text around it', () => {
@@ -523,10 +526,29 @@ Deno.test('eventHasCanary detects canary in structured field', () => {
   assertEquals(eventHasCanary({ type: 'structured', structured: { token: canary } }, canary), true);
 });
 
+Deno.test('createCanaryStreamGate shows at most three characters of a run begun mid-token', () => {
+  const canary = 'dc2687497293496049aafee2aac7cac1';
+  const shown = (text: string, size: number) => {
+    const gate = createCanaryStreamGate(canary);
+    let out = '';
+    for (let i = 0; i < text.length; i += size) {
+      const step = gate.process(text.slice(i, i + size));
+      if (step.leak) return { leak: true, out };
+      out += step.emit;
+    }
+    return { leak: false, out };
+  };
+  assertEquals(shown(`see ${canary.slice(9)}`, 1), { leak: true, out: 'see 293' });
+  assertEquals(shown(`${canary.slice(0, 8)}data>${canary.slice(8)}`, 1), {
+    leak: true,
+    out: 'dc2',
+  });
+});
+
 Deno.test('createCanaryStreamGate flush emits remaining safe text in the pending buffer', () => {
   const gate = createCanaryStreamGate(FIXED_CANARY);
   const lead = FIXED_CANARY.slice(0, 4);
-  assertEquals(gate.process(`safe text ${lead}`), { leak: false, emit: 'safe text ' });
+  assertEquals(gate.process(`hi ${lead}`), { leak: false, emit: 'hi ' });
   assertEquals(gate.flush(), { leak: false, emit: lead });
 });
 

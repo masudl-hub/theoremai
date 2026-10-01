@@ -225,10 +225,10 @@ Deno.test('createProgressiveYieldGate holds a window opening that continues the 
   assertEquals(await other.process('zz, 5'), { blocked: false, emit: 'zz, 5' });
 });
 
-Deno.test('createProgressiveYieldGate carries nothing that cannot open a leak', async () => {
+Deno.test('createProgressiveYieldGate carries only the tail that could open a leak', async () => {
   const gate = createProgressiveYieldGate({ context: ctx(FIXED_CANARY) });
   await gate.process('nothing to carry here');
-  assertEquals(gate.carryOut(), '');
+  assertEquals(gate.carryOut(), 're');
   assertEquals(createProgressiveYieldGate({ context: ctx() }).carryOut(), '');
 });
 

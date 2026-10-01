@@ -543,7 +543,7 @@ Deno.test('finalizeLiveOutboundTurn emits refuse_to_user for non-canary egress h
 
 Deno.test('finalizeLiveOutboundTurn flushes progressive gate tail on finalize', async () => {
   const s = session(FIXED_CANARY);
-  await processLiveOutboundBatch(s, [{ type: 'text', text: `prefix ${LEAD}` }]);
+  await processLiveOutboundBatch(s, [{ type: 'text', text: `hi ${LEAD}` }]);
   assertEquals(await finalizeLiveOutboundTurn(s), {
     action: 'emit',
     events: [{ type: 'text', text: LEAD }],

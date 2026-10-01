@@ -10,10 +10,12 @@
  */
 
 import {
+  CANARY_LEAK_REACH,
   canaryHoldFrom,
   canaryLeakRanges,
   createCanaryScanner,
   promptLeakCarry,
+  wordStartAcross,
 } from './canary.ts';
 import {
   CANARY_HIT,
@@ -48,6 +50,33 @@ interface Omission {
   end: number;
   kind: OmissionKind;
   hit: GuardrailHit;
+}
+
+/** A placeholder in the thought and the text it replaced. */
+interface Mark {
+  start: number;
+  end: number;
+  raw: string;
+}
+
+/** Text with each placeholder read as what it replaced, and where each piece stands in the thought. */
+interface RawView {
+  text: string;
+  /** Where the held text starts in `text`. */
+  held: number;
+  pieces: Array<{ raw: number; shown: number; mark?: Mark }>;
+}
+
+/** Where `raw`, an offset into `view.text`, stands in the thought: a placeholder's start, or with `end` its end. */
+function shownAt(view: RawView, raw: number, end = false): number {
+  let piece = view.pieces[0];
+  for (const next of view.pieces) {
+    if (next.raw > raw || (end && next.raw === raw && raw > 0)) break;
+    piece = next;
+  }
+  if (!piece) return raw;
+  if (piece.mark) return end ? piece.mark.end : piece.mark.start;
+  return piece.shown + raw - piece.raw;
 }
 
 /** What a thought guard lets through: the text to show, and what it omitted from it. */
@@ -109,7 +138,10 @@ const MAX_LEAKS = 16;
 
 /**
  * The guard reads the thought as it will be shown, placeholders in: text
- * released is final, and what is held changes only by omission.
+ * released is final, and what is held changes only by omission. The canary
+ * and prompt echo are read a second time with each placeholder as the text it
+ * replaced, so a leak running on past one, or across one longer than its
+ * text, is omitted too.
  */
 function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
   const { checks, canary, given, lexicon } = options;
@@ -131,6 +163,8 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
   let readTo = 0;
   /** Where a leak still growing at the end of the held text starts; held until it ends. */
   let open: number | undefined;
+  /** The placeholders in `out + held` a leak reaching the held text could run through, in order. */
+  let marks: Mark[] = [];
   /** Set once the rest of the thought is omitted: nothing more is read until the flush. */
   let cut = false;
   let leaks = 0;
@@ -196,9 +230,110 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
     return spans;
   }
 
+  /** The mark `at` falls inside, if any. */
+  function markAt(at: number): Mark | undefined {
+    return marks.find((mark) => mark.start < at && at < mark.end);
+  }
+
+  /** `out + held` from `from` to `to`, mark boundaries both, each placeholder as the text it replaced. */
+  function rawOf(from: number, to: number): string {
+    const whole = out + held;
+    let text = '';
+    let at = from;
+    for (const mark of marks) {
+      if (mark.end <= from || mark.start >= to) continue;
+      text += whole.slice(at, mark.start) + mark.raw;
+      at = mark.end;
+    }
+    return text + whole.slice(at, to);
+  }
+
+  /**
+   * The thought from far enough back that a leak reaching the held text
+   * starts inside, placeholders read as what they replaced; none when no
+   * placeholder is that close, as it then reads as the thought does.
+   */
+  function rawView(): RawView | undefined {
+    const whole = out + held;
+    for (let reach = CANARY_LEAK_REACH; ; reach *= 2) {
+      let from = out.length;
+      let length = 0;
+      for (let i = marks.length - 1; from > 0 && length < reach; ) {
+        const mark = marks[i];
+        if (mark && mark.end > from) {
+          i--;
+        } else if (mark && mark.end === from) {
+          length += mark.raw.length;
+          from = mark.start;
+          i--;
+        } else {
+          const stop = Math.max(mark?.end ?? 0, from - (reach - length));
+          length += from - stop;
+          from = stop;
+        }
+      }
+      marks = marks.filter((mark) => mark.end > from);
+      if (marks.length === 0) return undefined;
+      const view: RawView = { text: '', held: 0, pieces: [] };
+      let at = from;
+      for (const mark of [...marks, undefined]) {
+        const plain = mark ? mark.start : whole.length;
+        if (plain > at) view.pieces.push({ raw: view.text.length, shown: at });
+        if (at <= out.length && out.length <= plain) view.held = view.text.length + out.length - at;
+        view.text += whole.slice(at, plain);
+        if (!mark) break;
+        view.pieces.push({ raw: view.text.length, shown: mark.start, mark });
+        view.text += mark.raw;
+        at = mark.end;
+      }
+      // An echo run is counted in words: read back until it fits, or the thought starts.
+      if (!system || from === 0 || promptEchoScanFrom(view.text, view.held) > 0) return view;
+    }
+  }
+
+  /** The leaks the raw view finds that leave something held still shown, as spans of the thought. */
+  function rawLeaks(): Omission[] {
+    const view = rawView();
+    if (!view) return [];
+    const ranges: Array<[number, number, GuardrailHit]> = [];
+    if (canary) {
+      for (const [start, end] of canaryLeakRanges(view.text, canary)) {
+        ranges.push([start, end, CANARY_HIT]);
+      }
+    }
+    if (system) {
+      for (const [start, end] of promptEchoRanges(view.text, system)) {
+        ranges.push([start, end, PROMPT_ECHO_HIT]);
+      }
+    }
+    const spans: Omission[] = [];
+    for (const [rawStart, rawEnd, hit] of ranges) {
+      if (rawEnd <= view.held) continue;
+      const start = shownAt(view, rawStart);
+      const end = shownAt(view, rawEnd, true);
+      let shows = false;
+      for (let at = Math.max(start, out.length); at < end && !shows; at++) {
+        shows = !marks.some((mark) => mark.start <= at && at < mark.end);
+      }
+      if (shows) spans.push({ start, end, kind: 'instructions', hit });
+    }
+    return spans;
+  }
+
+  /** Every leak in the thought, as shown and as written, overlapping ones as one. */
+  function allLeaks(): Omission[] {
+    return merged([...leakSpans(out + held), ...rawLeaks()]);
+  }
+
   /** The leaks reaching into the held text, in order. */
   function heldLeaks(): Omission[] {
-    return merged(leakSpans(out + held)).filter(({ end }) => end > out.length);
+    return allLeaks().filter(({ end }) => end > out.length);
+  }
+
+  /** `at` moved off the inside of a placeholder: back to its start, or with `end` on to its end. */
+  function offMark(at: number, end = false): number {
+    const mark = markAt(at);
+    return mark ? (end ? mark.end : mark.start) : at;
   }
 
   /**
@@ -212,30 +347,52 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
     const tail = spans.at(-1);
     const growing = !ended && tail !== undefined && tail.end >= whole.length ? tail : undefined;
     const closed = growing ? spans.slice(0, -1) : spans;
+    const kept = marks.filter((mark) => mark.end <= out.length);
     let next = '';
     let at = out.length;
+    /** Copy `whole` up to `to`, and the marks in it. */
+    const copy = (to: number) => {
+      const shift = out.length + next.length - at;
+      for (const mark of marks) {
+        if (mark.start >= at && mark.end <= to) {
+          kept.push({ ...mark, start: mark.start + shift, end: mark.end + shift });
+        }
+      }
+      next += whole.slice(at, Math.max(at, to));
+      at = Math.max(at, to);
+    };
     for (const { start, end, kind, hit } of closed) {
-      next += whole.slice(at, Math.max(at, start));
-      next += placeholder(kind, out + next);
+      copy(offMark(start));
+      const to = Math.max(at, offMark(end, true));
+      const text = placeholder(kind, out + next);
+      const begin = out.length + next.length;
+      kept.push({ start: begin, end: begin + text.length, raw: rawOf(at, to) });
+      next += text;
       hits.set(hit.rule, hit);
-      at = end;
+      at = to;
     }
     open = undefined;
     if (growing) {
-      next += whole.slice(at, Math.max(at, growing.start));
-      at = Math.max(at, growing.start);
+      copy(offMark(growing.start));
       open = out.length + next.length;
     }
-    held = next + whole.slice(at);
+    copy(whole.length);
+    marks = kept;
+    held = next;
     return closed.length > 0;
   }
 
   /** Omit the held text from the first leak on; all of it when the leak is in what was shown. */
   function cutRest(): void {
-    const first = merged(leakSpans(out + held))[0];
-    const from = first ? Math.max(0, first.start - out.length) : 0;
+    const first = allLeaks()[0];
+    const from = first ? Math.max(0, offMark(first.start) - out.length) : 0;
     const kept = held.slice(0, from);
-    held = kept + placeholder(first?.kind ?? 'instructions', out + kept);
+    const text = placeholder(first?.kind ?? 'instructions', out + kept);
+    const begin = out.length + from;
+    const raw = rawOf(begin, out.length + held.length);
+    marks = marks.filter((mark) => mark.end <= begin);
+    marks.push({ start: begin, end: begin + text.length, raw });
+    held = kept + text;
     if (first) hits.set(first.hit.rule, first.hit);
     open = undefined;
     cut = true;
@@ -251,24 +408,39 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
   function settle(): void {
     for (let round = 0; round < MAX_ROUNDS; round++) {
       if (leaks >= MAX_LEAKS) break;
+      const before = new Set(marks.map((mark) => mark.start));
       if (!omitHeld(false)) {
         // A leak the readers settled that no span covers is cut, not shown.
         if (open === undefined) break;
         return;
       }
-      leaks++;
+      // A leak running on past its placeholder only grows it.
+      if (marks.some((mark) => !before.has(mark.start))) leaks++;
       if (!restart(readable())) return;
     }
     cutRest();
   }
 
-  /** The earliest index of `out + held` a leak could still start at. */
+  /** The earliest index of `out + held` a leak could still start at, moved back to the start of a word it cuts. */
   function holdFrom(): number {
     const end = out.length + held.length;
     const url = stream ? stream.holdFrom() : end;
-    const leak = canary ? out.length + canaryHoldFrom(held, canary) : end;
+    const leak = canary ? out.length + canaryHoldFrom(held, canary, out) : end;
     const echo = system ? out.length + promptEchoHoldFrom(held, system) : end;
-    return Math.min(url, leak, echo, open ?? end);
+    const from = Math.min(url, leak, echo, rawHoldFrom() ?? end, open ?? end);
+    return offMark(
+      from < out.length ? from : out.length + wordStartAcross(held, from - out.length),
+    );
+  }
+
+  /** The hold as the raw view reads it: an opening a placeholder spent may not be spent. */
+  function rawHoldFrom(): number | undefined {
+    const view = rawView();
+    if (!view) return undefined;
+    const rest = view.text.slice(view.held);
+    const leak = canary ? canaryHoldFrom(rest, canary, view.text.slice(0, view.held)) : rest.length;
+    const echo = system ? promptEchoHoldFrom(rest, system) : rest.length;
+    return shownAt(view, view.held + Math.min(leak, echo));
   }
 
   function release(text: string): ThoughtRelease {
@@ -283,7 +455,7 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
     push(text) {
       if (cut || !text) return release('');
       held += text;
-      if (open !== undefined || read(text)) settle();
+      if (open !== undefined || read(text) || rawLeaks().length > 0) settle();
       if (cut) return release('');
       const clear = Math.max(0, holdFrom() - out.length);
       const shown = held.slice(0, clear);
@@ -295,10 +467,15 @@ function createThoughtGuard(options: ThoughtGuardOptions): ThoughtGuard {
       if (!cut) {
         for (let round = 0; round < MAX_ROUNDS && omitHeld(true); round++);
         // A leak left is one the text shown already takes part in, such as a definition an image opener held here could use.
-        if (held && leakSpans(out + held).length > 0) cutRest();
+        if (held && (leakSpans(out + held).length > 0 || rawLeaks().length > 0)) cutRest();
       }
       const shown = held;
-      out = canary ? promptLeakCarry(out + held, canary, system) : '';
+      const whole = out + held;
+      out = canary ? promptLeakCarry(whole, canary, system) : '';
+      const shift = out.length - whole.length;
+      marks = marks
+        .filter((mark) => mark.start + shift >= 0)
+        .map((mark) => ({ ...mark, start: mark.start + shift, end: mark.end + shift }));
       held = '';
       open = undefined;
       cut = false;

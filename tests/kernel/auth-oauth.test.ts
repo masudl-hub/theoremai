@@ -89,7 +89,7 @@ async function atTime<T>(now: number, body: () => Promise<T>): Promise<T> {
   }
 }
 
-async function flowFor(over: Record<string, unknown> = {}) {
+function flowFor(over: Record<string, unknown> = {}) {
   return createOAuthPkceFlow(flowOptions(over));
 }
 
@@ -479,7 +479,7 @@ Deno.test('a state whose session digest only starts like the presented one is an
       SECRET,
     );
   const { fetchFn } = routes({ [TOKEN_ENDPOINT]: () => json(BEARER) });
-  const exchange = async (sessionBinding: string) =>
+  const exchange = (sessionBinding: string) =>
     rejection(async () =>
       exchangeOAuthPkce({
         code: 'c',

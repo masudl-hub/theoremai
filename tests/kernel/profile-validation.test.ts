@@ -380,18 +380,19 @@ Deno.test('resumption lists name only continue stop kinds', () => {
 });
 
 Deno.test('egress counts are non-negative integers', () => {
+  const enforce = () => ({ action: 'allow' as const });
   for (const key of ['maxRetries', 'holdback']) {
     const message = `Profile p: guardrails.egress.${key} must be a non-negative integer`;
     for (const bad of [-1, 1.5, Number.NaN]) {
       check(
-        said(textProfile({ guardrails: { egress: { [key]: bad } } })),
+        said(textProfile({ guardrails: { egress: { enforce, [key]: bad } } })),
         message,
         `${key} ${bad}`,
       );
     }
     for (const ok of [0, 1, 7]) {
       check(
-        said(textProfile({ guardrails: { egress: { [key]: ok } } })),
+        said(textProfile({ guardrails: { egress: { enforce, [key]: ok } } })),
         'defined',
         `${key} ${ok}`,
       );

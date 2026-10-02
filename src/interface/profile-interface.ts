@@ -235,7 +235,6 @@ const profileInterface = z.discriminatedUnion('type', [
           slidingWindow: z.object({ targetTokens: z.number().optional() }),
         })
         .optional(),
-      proactiveAudio: z.boolean().optional(),
       transcription: z
         .object({ input: z.boolean().optional(), output: z.boolean().optional() })
         .optional(),

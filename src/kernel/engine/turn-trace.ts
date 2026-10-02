@@ -573,7 +573,6 @@ function liveAttributes(
           },
         }
       : {}),
-    ...optional('proactive_audio', live.proactiveAudio),
     ...(transcription
       ? {
           transcription: {

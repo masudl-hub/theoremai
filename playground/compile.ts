@@ -1118,7 +1118,6 @@ function compileLive(
     ...(Object.keys(vad).length ? { vad } : {}),
     ...(live.sessionResumption ? { sessionResumption: true } : {}),
     ...(live.contextCompression ? { contextCompression: contextCompression(live) } : {}),
-    ...(live.proactiveAudio ? { proactiveAudio: true } : {}),
     ...(Object.keys(transcription).length ? { transcription } : {}),
   };
 }

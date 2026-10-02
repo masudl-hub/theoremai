@@ -56,7 +56,6 @@ Deno.test('buildGeminiLiveSetupMessage constructs standard setup frame', () => {
       },
       sessionResumption: true,
       contextCompression: { triggerTokens: 100_000, slidingWindow: { targetTokens: 40_000 } },
-      proactiveAudio: true,
       transcription: {
         input: true,
         output: true,
@@ -74,7 +73,6 @@ Deno.test('buildGeminiLiveSetupMessage constructs standard setup frame', () => {
       contextWindowCompression: Record<string, unknown>;
       inputAudioTranscription: Record<string, unknown>;
       outputAudioTranscription: Record<string, unknown>;
-      proactivity: Record<string, unknown>;
     };
   };
 
@@ -103,30 +101,8 @@ Deno.test('buildGeminiLiveSetupMessage constructs standard setup frame', () => {
   assertExists(setupMsg.setup.realtimeInputConfig);
   assertExists(setupMsg.setup.inputAudioTranscription);
   assertExists(setupMsg.setup.outputAudioTranscription);
-  assertEquals(setupMsg.setup.proactivity, { proactiveAudio: true });
   // Empty sessions must not gate on clientContent history — that stalls realtime.
   assertEquals((setupMsg.setup as { historyConfig?: unknown }).historyConfig, undefined);
-});
-
-Deno.test('buildGeminiLiveSetupMessage omits proactivity when proactiveAudio is unset', () => {
-  const req: ProviderCompleteRequest = {
-    model: 'gemini-3.1-flash-live-preview',
-    apiId: 'gemini-3.1-flash-live-preview',
-    temperature: 0.7,
-    maxOutputTokens: 2048,
-    system: 'You are a helpful live assistant.',
-    builtins: [],
-    thinking: 'low',
-    input: [],
-    structured: null,
-    image: null,
-    live: { voice: 'Puck', proactiveAudio: false },
-  };
-
-  const setupMsg = buildGeminiLiveSetupMessage(req) as {
-    setup: { proactivity?: unknown };
-  };
-  assertEquals(setupMsg.setup.proactivity, undefined);
 });
 
 Deno.test('buildGeminiLiveSetupMessage omits VAD and compression when profile omits them', () => {

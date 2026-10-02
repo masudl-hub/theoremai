@@ -827,10 +827,6 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'number',
     'The context size, in tokens, to trim down to; below the trigger.',
   ),
-  'live.proactiveAudio': field(
-    'boolean',
-    "Lets the model choose not to answer speech it judges isn't meant for it.",
-  ),
   'live.transcription': field('LiveTranscriptionSpec', "Text transcripts of the session's speech."),
   'live.transcription.input': field('boolean', "Whether the user's speech is transcribed."),
   'live.transcription.output': field('boolean', "Whether the model's speech is transcribed."),

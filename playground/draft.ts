@@ -257,7 +257,6 @@ export interface LiveDraft {
   ingressText: boolean;
   voice: string;
   sessionResumption: boolean;
-  proactiveAudio: boolean;
   /** Context window compression by sliding window; the two numbers are its trigger and target. */
   contextCompression: boolean;
   compressionTriggerTokens: number | null;
@@ -551,7 +550,6 @@ export function createBlankDraft(): PlaygroundDraft {
       ingressText: liveIngressChannelDefault('text'),
       voice: '',
       sessionResumption: false,
-      proactiveAudio: false,
       contextCompression: false,
       compressionTriggerTokens: null,
       compressionTargetTokens: null,

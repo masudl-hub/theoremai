@@ -122,7 +122,7 @@ The shipped wording for every span, attribute, event and value is the trace cata
 | `gen_ai.request.temperature`, `.max_tokens`, `.reasoning.level` | as requested |
 | `gen_ai.request.previous_response.id` | Interactions continuation |
 | `theorem.request.builtins` | provider-run tools requested (`[]` when none) |
-| `theorem.request.store`, `.summaries`, `.structured`, `.session_id`, `.cache`, `.image`, `.speech`, `.live` | request controls semconv has no names for, as requested. `live` holds voice, VAD, session resumption, context compression, proactive audio, transcription and `resumed`; a resumption handle is a credential and is never recorded. |
+| `theorem.request.store`, `.summaries`, `.structured`, `.session_id`, `.cache`, `.image`, `.speech`, `.live` | request controls semconv has no names for, as requested. `live` holds voice, VAD, session resumption, context compression, transcription and `resumed`; a resumption handle is a credential and is never recorded. |
 | `gen_ai.response.id` | as the provider reported it; absent when not reported |
 | `gen_ai.response.finish_reasons` (chat) / `gen_ai.response.status` (Gemini) | the provider's own stop value. Absent when the call was stopped (cancelled, interrupted), because the provider never said. |
 | `gen_ai.response.time_to_first_chunk` | seconds from the start of the successful streamed HTTP try to its first chunk |

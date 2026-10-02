@@ -424,8 +424,6 @@ export interface ProfileLiveSpec {
   sessionResumption?: boolean;
   /** Context window compression. Omit → none: the provider ends the session at its limit. */
   contextCompression?: LiveContextCompressionSpec;
-  /** Proactivity: allow model to stay silent or ignore irrelevant input. */
-  proactiveAudio?: boolean;
   transcription?: LiveTranscriptionSpec;
 }
 

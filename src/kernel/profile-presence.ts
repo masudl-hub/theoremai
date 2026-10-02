@@ -148,7 +148,6 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
   'live.contextCompression.triggerTokens': { unset: 'Provider default' },
   'live.contextCompression.slidingWindow': { required: true },
   'live.contextCompression.slidingWindow.targetTokens': { unset: 'Provider default' },
-  'live.proactiveAudio': { unset: 'Off' },
   'live.transcription.input': { unset: 'Off' },
   'live.transcription.output': { unset: 'Off' },
 };

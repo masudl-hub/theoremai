@@ -646,7 +646,7 @@ Top-level modality pins (after `model`, not under `outputs`):
 | --- | --- |
 | `image` | Optional aspect ratio, resolution, mime, max input images (type `'image'` only) |
 | `speech` | TTS voice + `format` (unset sends none, so the provider picks; `pcm` → WAV; the kernel holds the `SPEECH_AUDIO_FORMATS` vocabulary; Gemini speech takes only `GOOGLE_SPEECH_FORMATS` and its provider refuses `mp3`) (type `'speech'` only) |
-| `live` | Voice, VAD, transcription, sessionResumption, contextCompression, proactiveAudio (type `'live'` only; omit → provider defaults) |
+| `live` | Voice, VAD, transcription, sessionResumption, contextCompression (type `'live'` only; omit → provider defaults) |
 
 ### Live profile (`type: 'live'`)
 
@@ -656,7 +656,7 @@ Live is a **session** contract (`runSession`), not a turn contract (`runTurn`). 
 | --- | --- | --- |
 | `identity` | yes | `handle`, `system` / `systemByRole` |
 | `model` | yes | `protocol: 'geminiLive'`, `provider: 'google'` only |
-| `live` | yes | Voice, VAD, transcription, resumption, compression, proactive audio, **`ingress`** (realtime mic / camera / text toggles; text off unless `ingress.text: true`) |
+| `live` | yes | Voice, VAD, transcription, resumption, compression, **`ingress`** (realtime mic / camera / text toggles; text off unless `ingress.text: true`) |
 | `tools` | yes | `{ allow: ToolId[] }` only — every allowlisted id and every model `builtInTools` id is wired once at Gemini Live setup regardless of `loadTier` (declarations cannot be added mid-session, so on live every allowed tool is effectively T0) |
 | `guardrails` | optional | Canary, sanitize, egress (live outbound gate) |
 | `inputs` | **no** | Turn file attachments — use `live.ingress` for realtime channels instead |

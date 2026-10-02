@@ -831,12 +831,6 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
         target_tokens: attr('request', 'Keep', 'tokens', 'Context size kept after compressing.'),
       },
     ),
-    proactive_audio: attr(
-      'request',
-      'Proactive audio',
-      'boolean',
-      'The model may stay silent or ignore input that is not for it.',
-    ),
     transcription: fields(
       'request',
       'Transcription',

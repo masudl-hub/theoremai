@@ -157,9 +157,6 @@ function applyLiveOptionalFeatures(
   if (live?.transcription?.output) {
     setup.outputAudioTranscription = {};
   }
-  if (live?.proactiveAudio === true) {
-    setup.proactivity = { proactiveAudio: true };
-  }
 }
 
 export function buildGeminiLiveSetupMessage(req: ProviderCompleteRequest): Record<string, unknown> {

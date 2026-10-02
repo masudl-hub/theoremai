@@ -1121,7 +1121,7 @@ Deno.test('a remote tool reads back fenced output; http and mcp both reach their
   const server = ((input: string | URL | Request, init?: RequestInit) => {
     urls.push(String(input));
     const body = JSON.parse(String(init?.body ?? '{}'));
-    if (String(input).startsWith('https://mcp.example.com')) {
+    if (new URL(String(input)).origin === 'https://mcp.example.com') {
       return Promise.resolve(
         jsonResponse({
           jsonrpc: '2.0',
@@ -1152,9 +1152,13 @@ Deno.test('a remote tool reads back fenced output; http and mcp both reach their
     true,
     'mcp fence',
   );
-  check(urls.filter((u) => u.startsWith('https://api.example.com')).length, 1, 'http requests');
   check(
-    urls.filter((u) => u.startsWith('https://mcp.example.com')).length >= 1,
+    urls.filter((u) => new URL(u).origin === 'https://api.example.com').length,
+    1,
+    'http requests',
+  );
+  check(
+    urls.filter((u) => new URL(u).origin === 'https://mcp.example.com').length >= 1,
     true,
     'mcp requests',
   );
@@ -1204,7 +1208,7 @@ Deno.test('a host edit at post_tool is re-parsed by the remote tool schema and k
   );
   const server = ((input: string | URL | Request, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body ?? '{}'));
-    if (String(input).startsWith('https://mcp.example.com')) {
+    if (new URL(String(input)).origin === 'https://mcp.example.com') {
       return Promise.resolve(
         jsonResponse({
           jsonrpc: '2.0',

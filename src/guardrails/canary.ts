@@ -16,7 +16,7 @@ const HEX_RADIX = 16;
 const HEX_PAD = 2;
 const OMIT_CANARY = '[omitted - canary]';
 /** A fence tag as a model could read one: spacing, case and closing `>` aside. */
-const FENCE = /<\s*\/?\s*user[\s_-]*data\b(?:\s*\/?\s*>)?/gi;
+const FENCE = /<\s*(?:\/\s*)?user[\s_-]*data\b(?:\s*(?:\/\s*)?>)?/gi;
 
 /** Creates a 128-bit, cryptographically random token for one turn's canary binding. */
 function mintCanary(): string {

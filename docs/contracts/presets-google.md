@@ -35,17 +35,28 @@ Hosts may declare optional `conflictsWith` on registered builtins; the preset do
 
 ## Interaction persistence
 
-`googleInteractionsPersistence(chained)` returns `{ store, persistViaInteractionId }`
-set to the same value, to spread into a `geminiInteractions` binding. Google
-chains a turn with `previous_interaction_id` only from a stored interaction, so
-the two move together: `true` keeps turns on Google and chains them (free tier
-keeps them 1 day, paid 55); `false` stores nothing and the host sends the history
-every turn. With `persistViaInteractionId: false` the kernel never chains inside a
+Every `geminiInteractions` binding states `persistViaInteractionId`; there is no
+default. `true` chains each step and turn with `previous_interaction_id`, so Google
+builds the context from its stored interactions (free tier keeps them 1 day, paid
+55). Google chains only from a stored interaction, so `true` refuses `store: false`.
+`false` sends the history the host passes, plus this turn's steps, on every
+call; across turns the host builds that history (`input.history`). `store` stays
+independent of it, and
+decides only whether Google keeps a copy. With `persistViaInteractionId: false`
+the kernel never chains inside a
 turn either: a step's calls go into the turn's history as one assistant message
 (the first carrying the step's `thoughtSignature`), then each result and any
 stage inject, and every step sends that history (`ResolvedGeneration.chains` is
-`false`). The kernel does not pair them itself; a binding that sets them apart
-reaches Google as written.
+`false`).
+
+Chaining a streamed tool loop is unreliable on Google's side: an interaction
+created by a streamed call is stored as its new steps plus a pointer to the one
+before, and Google refuses the fourth chained call of a tool loop with "function
+response turn comes immediately after a function call turn" (probe 01/10/2026,
+`gemini-3.1-flash-lite` and `gemini-3.5-flash-lite`: 16 of 17 streamed tool
+chains refused at that call; non-streamed chains, history mode and text-only
+chains all passed). A streamed profile with tools that chains will hit it;
+`false` avoids it.
 
 ## Vocabularies
 
@@ -72,7 +83,6 @@ Kernel types stay stringly; these packs make Google hosts typed when they opt in
 | --- | --- |
 | `registerGooglePreset` | Register builtins into catalog |
 | `googleEfforts`, `GoogleThinkingLevel` | A Gemini binding's `efforts`, typed to `GOOGLE_THINKING_LEVELS`; throws `config` on any other level when the binding is built |
-| `googleInteractionsPersistence` / `GoogleInteractionsPersistence` | `store` and `persistViaInteractionId` set together for a `geminiInteractions` binding |
 | `GOOGLE_BUILTIN_TOOLS` | Static catalog entries |
 | `GOOGLE_SINGLE_TURN_API_IDS` | TTS models that can't take compaction |
 | `GOOGLE_NO_THINKING_API_IDS` | Models that take no `efforts` or `summaries` |

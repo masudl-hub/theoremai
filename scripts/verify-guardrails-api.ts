@@ -130,6 +130,7 @@ function registerLiveProfile(providerKind: 'openrouter' | 'gemini'): void {
         geminiFree: {
           protocol: 'geminiInteractions',
           provider: 'google',
+          persistViaInteractionId: false,
           apiId: GEMINI_VERIFY_API_ID,
           efforts: { normal: 'minimal', low: 'low', medium: 'medium', high: 'high' },
           defaultEffort: 'normal',

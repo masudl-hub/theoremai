@@ -204,8 +204,8 @@ Each `ModelBinding` in `profile.models` carries wire ids (`apiId`), optional
 `efforts` / `defaultEffort`, `summaries`, `maxOutputTokens`, `temperature`,
 `builtInTools`, vault `key` (required on every non-local model, unless the
 profile sets `key`), optional `compaction`, optional OpenRouter
-`cache` (`mode` / `ttl`; openrouter-only), and Gemini Interactions optional
-`store` / `persistViaInteractionId` (Interactions-only), and an optional local
+`cache` (`mode` / `ttl`; openrouter-only), Gemini Interactions `store`
+(optional) and `persistViaInteractionId` (required; Interactions-only), and an optional local
 `server` name (local-only; traces report it as `gen_ai.provider.name`).
 
 `TurnRequest.sessionId` is an optional sticky routing key forwarded to OpenRouter
@@ -267,10 +267,11 @@ Live sessions emit the same stage names around utterance cycles and
    progressive-yield gate; thoughts are never guarded ([guardrails](./guardrails.md)).
 7. **Tool loop** — while under `maxSteps`, tool calls execute via `executeRegisteredTool`
    (shared with `invokeTool`), threading the host's `credentials` source (`ToolCredentialSource`, read one slot at a time as a signed-in tool runs) for authenticated HTTP/MCP tools and the opaque `host` context slot; `pre_tool` / `post_tool` stages + `preTool` run on that path. After each
-   settled tool, `post_tool` may inject. Gate (`stop.kind: 'gate'`) suspends the batch. `generation.transport` selects
-   Interactions continuation (`previous_interaction_id` + `continuation`: the tool
-   results and stage injects as kernel messages, which the adapter maps like
-   history) vs OpenAI-compat tool-call history. Server-side `codeExecution` does not consume a runner step.
+   settled tool, `post_tool` may inject. Gate (`stop.kind: 'gate'`) suspends the batch. `generation.chains`
+   (a binding with `persistViaInteractionId: true`) selects an Interactions continuation
+   (`previous_interaction_id` + `continuation`: the tool results and stage injects as
+   kernel messages, which the adapter maps like history); otherwise the step's calls and
+   results go in tool-call history. Server-side `codeExecution` does not consume a runner step.
 8. **`before_end`** — stage before egress/validation; inject re-enters the step
    loop when under `maxSteps`.
 9. **Validation / repair** — structured output validators (`outputs.validation`)
@@ -1069,6 +1070,14 @@ Beyond compaction rules (above), `registerProfile` / `defineProfile` assert:
   `protocol: 'geminiInteractions'` and `provider: 'google'`.
   **Breaking:** previously these fields were accepted on any binding and ignored
   at runtime; `defineProfile` now rejects them outside Interactions+google.
+- `models.*.persistViaInteractionId` is required on every
+  `geminiInteractions` binding (`config`): `true` chains each step and turn on
+  Google's stored interaction, `false` sends the host's history (`input.history`)
+  plus this turn's steps every call. There is
+  no default, so chaining is always a choice the profile states. `true` with
+  `store: false` is refused, since Google chains only from a stored interaction.
+  At turn time `resolveTurn` refuses (`request`) a `previousInteractionId` on a
+  model that does not chain, and a `store: false` turn on one that does.
 
 Runtime structured validation uses `outputs.validation.fields` keyed by dotted
 paths; failures can trigger repair turns via `input.repair`.

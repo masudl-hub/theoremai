@@ -188,6 +188,49 @@ Deno.test('summaries compile on, off, or left to the provider', () => {
   assertEquals(summaries(null), undefined);
 });
 
+Deno.test('a Gemini Interactions binding always compiles its chaining, and storage only when set', () => {
+  const draft = createExampleDraft();
+  const [fast, ...rest] = draft.modelBindings;
+  const model = (patch: Partial<typeof fast>) =>
+    compiled({ ...draft, modelBindings: [{ ...fast, ...patch }, ...rest] }).profile.models[
+      fast.modelId
+    ];
+  const unset = model({});
+  assertEquals(unset.persistViaInteractionId, false);
+  assertEquals(unset.store, undefined);
+  const chained = model({ store: true, persistViaInteractionId: true });
+  assertEquals([chained.store, chained.persistViaInteractionId], [true, true]);
+  assertEquals(model({ store: false }).store, false);
+});
+
+Deno.test('chaining with storage off is an issue on its binding', () => {
+  const draft = createExampleDraft();
+  const [fast, ...rest] = draft.modelBindings;
+  const result = compilePlayground({
+    ...draft,
+    modelBindings: [{ ...fast, store: false, persistViaInteractionId: true }, ...rest],
+  });
+  assertEquals(issueNodes(result), [modelBindingNodeId(fast.key)]);
+  assert(!result.ok && result.issues[0].field === 'persistViaInteractionId');
+});
+
+Deno.test('chaining and storage compile only on Gemini Interactions', () => {
+  const draft = createExampleDraft();
+  const [fast, ...rest] = draft.modelBindings;
+  const routed = {
+    ...fast,
+    protocol: 'openAi' as const,
+    provider: 'openrouter' as const,
+    apiId: OPENROUTER_PLAYGROUND_API_ID,
+    store: true,
+    persistViaInteractionId: true,
+  };
+  const model = compiled({ ...draft, modelBindings: [routed, ...rest] }).profile.models[
+    fast.modelId
+  ];
+  assertEquals([model.store, model.persistViaInteractionId], [undefined, undefined]);
+});
+
 Deno.test('a duplicate tool name is keyed to the second tool', () => {
   const draft = createExampleDraft();
   const copy = defaultToolSpec({ toolName: draft.toolSpecs[0].toolName });

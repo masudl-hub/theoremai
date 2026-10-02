@@ -611,7 +611,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'models.*.persistViaInteractionId': field(
     'boolean',
-    "Whether turns continue from Google's stored interaction instead of resending the history (Gemini Interactions only).",
+    'Whether Google builds the context from its stored interaction (true) or every call sends the history the host passes plus the steps of this turn (false); Gemini Interactions only, and true needs storing on.',
   ),
   'models.*.server': field(
     'string',

@@ -23,6 +23,7 @@ const IMAGE_SIZES = [...GOOGLE_IMAGE_SIZES];
 const GEMINI_INTERACTIONS = {
   protocol: 'geminiInteractions' as const,
   provider: 'google' as const,
+  persistViaInteractionId: true,
 };
 
 function geminiBinding(spec: Omit<ModelBinding, 'protocol' | 'provider'>): ModelBinding {

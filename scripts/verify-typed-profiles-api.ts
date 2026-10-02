@@ -116,6 +116,7 @@ function geminiTextBinding(apiId: string) {
   return {
     protocol: 'geminiInteractions',
     provider: 'google',
+    persistViaInteractionId: false,
     apiId,
     efforts: { normal: 'low' },
     maxOutputTokens: 1024,
@@ -447,6 +448,7 @@ if (selected.has('image')) {
           [apiId]: {
             protocol: 'geminiInteractions',
             provider: 'google',
+            persistViaInteractionId: false,
             apiId,
             efforts: { normal: 'minimal' },
             maxOutputTokens: 4096,
@@ -526,6 +528,7 @@ if (selected.has('speech')) {
             [apiId]: {
               protocol: 'geminiInteractions',
               provider: 'google',
+              persistViaInteractionId: false,
               apiId,
               efforts: { normal: 'minimal' },
               maxOutputTokens: 2048,
@@ -561,6 +564,7 @@ if (selected.has('speech')) {
           [GEMINI_SPEECH_DEFAULT]: {
             protocol: 'geminiInteractions',
             provider: 'google',
+            persistViaInteractionId: false,
             apiId: GEMINI_SPEECH_DEFAULT,
             efforts: { normal: 'minimal' },
             maxOutputTokens: 2048,

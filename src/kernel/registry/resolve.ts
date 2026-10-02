@@ -154,6 +154,31 @@ function resolveStore(binding: ModelBinding, reqStore: boolean | undefined): boo
   return binding.store;
 }
 
+/**
+ * A turn chains only on a binding that says so: an interaction id sent to one
+ * that does not, or a chaining turn that switches storage off, is a request error.
+ */
+function assertTurnChaining(
+  profile: ModelProfile,
+  model: ModelId,
+  chains: boolean,
+  req: TurnRequest,
+  store: boolean | undefined,
+): void {
+  if (req.previousInteractionId && !chains) {
+    throw new TheoremError(
+      'request',
+      `Profile ${profile.id} model '${model}': previousInteractionId needs a binding with persistViaInteractionId: true`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  if (chains && store === false) {
+    throw new TheoremError(
+      'request',
+      `Profile ${profile.id} model '${model}': store: false cannot apply to a binding with persistViaInteractionId: true — Google chains only from a stored interaction`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+}
+
 function resolveTransport(profile: ModelProfile, binding: ModelBinding): ProviderTransport {
   if (profile.type === 'live') {
     return 'geminiLive';
@@ -218,8 +243,9 @@ function resolveTurnInRegistry(
   assertSpeechRole(profile, safe);
   const keys = resolveKeySlot(profile, binding);
   const transport = resolveTransport(profile, binding);
-  const chains = transport === 'interactions' && binding.persistViaInteractionId !== false;
-  const previousInteractionId = chains ? safe.previousInteractionId : undefined;
+  const chains = transport === 'interactions' && binding.persistViaInteractionId === true;
+  const store = resolveStore(binding, safe.store);
+  assertTurnChaining(profile, model, chains, safe, store);
   return {
     profile,
     generation: {
@@ -227,8 +253,8 @@ function resolveTurnInRegistry(
       apiId: binding.apiId,
       transport,
       chains,
-      previousInteractionId,
-      store: resolveStore(binding, safe.store),
+      previousInteractionId: safe.previousInteractionId,
+      store,
       stream: resolveStreamFlag(profile),
       thinking: resolveEffort(profile, binding, model, safe.effort),
       summaries: resolveSummaries(binding),

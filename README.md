@@ -173,6 +173,7 @@ const support = defineProfile({
       allowEffortSelect: true,
       summaries: true,
       builtInTools: ["googleSearch", "urlContext"],
+      persistViaInteractionId: false,
     },
     deep: {
       protocol: "openAi",
@@ -384,7 +385,13 @@ defineProfile({
   id: "marketing.cover",
   identity: { handle: "cover", system: "Generate clean, on-brand product imagery." },
   models: {
-    image: { protocol: "geminiInteractions", provider: "google", apiId: "gemini-3-pro-image", key: "images" },
+    image: {
+      protocol: "geminiInteractions",
+      provider: "google",
+      apiId: "gemini-3-pro-image",
+      key: "images",
+      persistViaInteractionId: false,
+    },
   },
   image: { aspectRatio: "16:9", mimeType: "image/png", includeText: true },
   tools: { allow: [] },

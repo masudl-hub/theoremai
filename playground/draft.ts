@@ -92,6 +92,14 @@ export interface ModelBindingDraft {
   maxOutputTokens: number | null;
   temperature: number | null;
   builtInTools: string[];
+  /** Google stores the interaction: on, off, or `null` for Google's default. Gemini Interactions only. */
+  store: boolean | null;
+  /**
+   * Gemini Interactions only, and required there: `true` chains on Google's
+   * stored interaction so Google builds the context; `false` sends the host's
+   * history plus this turn's steps.
+   */
+  persistViaInteractionId: boolean;
   /** This model's own vault slot; `''` or absent uses the profile's. */
   keySlot?: KeySlot | '';
   /** This model's own fallback slot; `''` or absent uses the profile's. */
@@ -285,6 +293,8 @@ export function defaultModelBinding(partial?: Partial<ModelBindingDraft>): Model
     maxOutputTokens: null,
     temperature: null,
     builtInTools: [],
+    store: null,
+    persistViaInteractionId: false,
     ...partial,
   };
 }

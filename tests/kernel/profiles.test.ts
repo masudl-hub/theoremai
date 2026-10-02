@@ -19,11 +19,7 @@ import { isModelProfile, requireModelProfile } from '../../src/kernel/registry/r
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import { resolveTurnTools } from '../../src/kernel/tools/resolve.ts';
 import type { ModelProvider } from '../../src/kernel/types.ts';
-import {
-  googleEfforts,
-  googleInteractionsPersistence,
-  registerGooglePreset,
-} from '../../src/presets/google.ts';
+import { googleEfforts, registerGooglePreset } from '../../src/presets/google.ts';
 import { geminiModels, HOST_BINDINGS, modelBindings } from '../fixtures/models.ts';
 
 registerGooglePreset();
@@ -764,7 +760,8 @@ Deno.test('defineProfile accepts Interactions store/persist and rejects them on 
     models: {
       gemini35FlashLite: {
         ...HOST_BINDINGS.gemini35FlashLite,
-        ...googleInteractionsPersistence(true),
+        store: true,
+        persistViaInteractionId: true,
       },
     },
     key: 'main',
@@ -773,10 +770,6 @@ Deno.test('defineProfile accepts Interactions store/persist and rejects them on 
   });
   assertEquals(ok.models.gemini35FlashLite.store, true);
   assertEquals(ok.models.gemini35FlashLite.persistViaInteractionId, true);
-  assertEquals(googleInteractionsPersistence(false), {
-    store: false,
-    persistViaInteractionId: false,
-  });
 
   assertThrows(
     () =>

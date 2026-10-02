@@ -818,10 +818,22 @@ function assertInteractionsPersistence(
   modelId: ModelId,
   binding: ModelBinding,
 ): void {
-  if (binding.store === undefined && binding.persistViaInteractionId === undefined) {
+  if (binding.protocol === 'geminiInteractions' && binding.provider === 'google') {
+    if (binding.persistViaInteractionId === undefined) {
+      throw new TheoremError(
+        'config',
+        `Profile ${profileId} model '${modelId}': persistViaInteractionId is required on a 'geminiInteractions' binding — true chains on Google's stored interaction, false sends the host's history plus this turn's steps every call`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
+    if (binding.persistViaInteractionId && binding.store === false) {
+      throw new TheoremError(
+        'config',
+        `Profile ${profileId} model '${modelId}': persistViaInteractionId: true needs store left on — Google chains only from a stored interaction`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
     return;
   }
-  if (binding.protocol === 'geminiInteractions' && binding.provider === 'google') {
+  if (binding.store === undefined && binding.persistViaInteractionId === undefined) {
     return;
   }
   const which =

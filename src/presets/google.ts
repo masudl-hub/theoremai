@@ -5,12 +5,7 @@
  */
 
 import { registerTools } from '../kernel/default-scope.ts';
-import type {
-  ModelBinding,
-  ProfileImageSpec,
-  ProfileLiveSpec,
-  ProfileSpeechSpec,
-} from '../kernel/types.ts';
+import type { ProfileImageSpec, ProfileLiveSpec, ProfileSpeechSpec } from '../kernel/types.ts';
 import { GOOGLE_SPEECH_VOICES, type GoogleSpeechVoice } from './google/speech-voices.ts';
 import {
   GOOGLE_SPEECH_FORMATS,
@@ -132,18 +127,6 @@ const GOOGLE_BUILTIN_TOOLS = [
   },
 ];
 
-type GoogleInteractionsPersistence = Required<
-  Pick<ModelBinding, 'store' | 'persistViaInteractionId'>
->;
-
-/**
- * Google chains a turn (`previous_interaction_id`) only onto a stored interaction, so
- * both settings move together; `false` stores nothing and the host resends history.
- */
-function googleInteractionsPersistence(chained: boolean): GoogleInteractionsPersistence {
-  return { store: chained, persistViaInteractionId: chained };
-}
-
 /** Registers into the default scope; a scope of its own takes `GOOGLE_BUILTIN_TOOLS`. */
 function registerGooglePreset(): void {
   registerTools(GOOGLE_BUILTIN_TOOLS);
@@ -154,7 +137,6 @@ export type {
   GoogleImageInputMime,
   GoogleImagePins,
   GoogleImageSize,
-  GoogleInteractionsPersistence,
   GoogleLivePins,
   GoogleSpeechPins,
   GoogleSpeechVoice,
@@ -173,6 +155,5 @@ export {
   GOOGLE_THINKING_LEVELS,
   GOOGLE_VOICE_INPUT_MIMES,
   googleEfforts,
-  googleInteractionsPersistence,
   registerGooglePreset,
 };

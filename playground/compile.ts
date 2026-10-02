@@ -48,7 +48,6 @@ import { resolveObservabilityPolicy } from '../src/observability/mod.ts';
 import {
   GOOGLE_SPEECH_FORMATS,
   GOOGLE_THINKING_LEVELS,
-  googleInteractionsPersistence,
 } from '../src/presets/google.ts';
 import { PLAYGROUND_KEY_SLOT_CAP } from './browser-connection.ts';
 import type {
@@ -224,6 +223,9 @@ function compileBinding(
   ) {
     report(nodeId, 'Temperature must be zero or more.', 'temperature');
   }
+  if (onGoogleInteractions(binding) && binding.persistViaInteractionId && binding.store === false) {
+    report(nodeId, 'Chaining needs Google storage on.', 'persistViaInteractionId');
+  }
 
   return {
     protocol: binding.protocol,
@@ -238,15 +240,17 @@ function compileBinding(
     ...(binding.maxOutputTokens !== null ? { maxOutputTokens: binding.maxOutputTokens } : {}),
     ...(binding.temperature !== null ? { temperature: binding.temperature } : {}),
     ...(binding.builtInTools.length ? { builtInTools: [...binding.builtInTools] } : {}),
-    // Google sometimes breaks a chain mid-turn (python-genai#3003), so every step sends full history.
-    ...(onGoogleInteractions(binding, type) ? googleInteractionsPersistence(false) : {}),
+    ...(onGoogleInteractions(binding)
+      ? {
+          ...(binding.store !== null ? { store: binding.store } : {}),
+          persistViaInteractionId: binding.persistViaInteractionId,
+        }
+      : {}),
   };
 }
 
-function onGoogleInteractions(binding: ModelBindingDraft, type: PlaygroundProfileType): boolean {
-  return (
-    type === 'text' && binding.protocol === 'geminiInteractions' && binding.provider === 'google'
-  );
+function onGoogleInteractions(binding: ModelBindingDraft): boolean {
+  return binding.protocol === 'geminiInteractions' && binding.provider === 'google';
 }
 
 function compileModels(

@@ -74,6 +74,7 @@ function flashBinding(builtInTools: BuiltinToolId[]): ModelBinding {
   return {
     protocol: 'geminiInteractions',
     provider: 'google',
+    persistViaInteractionId: false,
     apiId: modelId,
     efforts: { normal: 'minimal', low: 'low', medium: 'medium', high: 'high' },
     defaultEffort: turnEffort,

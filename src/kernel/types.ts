@@ -204,8 +204,11 @@ export interface ModelBinding {
   /** Gemini Interactions: whether the provider stores the interaction. Omit → provider default. */
   store?: boolean;
   /**
-   * Gemini Interactions: prefer server-side thread via `previous_interaction_id`
-   * instead of client-owned history. Omit → host/turn decides.
+   * Gemini Interactions: `true` chains each step and turn on Google's stored
+   * interaction (`previous_interaction_id`), so Google builds the context;
+   * `false` sends the history the host passes, plus this turn's steps, on every
+   * call — across turns the host builds that history. Required on every
+   * `geminiInteractions` binding; `true` needs `store` left on.
    */
   persistViaInteractionId?: boolean;
   /**
@@ -874,7 +877,7 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
    * Whether the turn's steps chain on the stored interaction: a tool result or
    * stage inject rides `continuation` after `previousInteractionId`. Only an
    * Interactions binding chains, and never one with `persistViaInteractionId:
-   * false` — its steps each send the full history.
+   * false` — its steps each send the host's history plus the turn's steps so far.
    */
   chains: boolean;
   tools: TurnToolSnapshot;

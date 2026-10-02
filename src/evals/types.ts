@@ -97,18 +97,23 @@ true satisfies Equals<z.infer<typeof evalCaseInput>, EvalCaseInput>;
 
 /**
  * A dataset case's right answer. Only an `accepted` name passes; a `partial`
- * one is close but not enough (the genus, the broader condition).
+ * one is close but not enough (the genus, the broader condition); a `rejected`
+ * one is a wrong answer the dataset records for the case (a confuser, an
+ * identification it superseded).
  */
 export interface EvalAnswer {
   /** Every name that counts: scientific name, synonyms, common names. */
   accepted: string[];
   partial?: string[];
+  /** A reply that names one beside an accepted name hedged: `partial`, not a pass. */
+  rejected?: string[];
   /** Grounding notes for the person reading a miss; no grader reads them. */
   reference?: string;
 }
 const evalAnswer = z.object({
   accepted: z.array(z.string().min(1)).min(1),
   partial: z.array(z.string().min(1)).optional(),
+  rejected: z.array(z.string().min(1)).optional(),
   reference: z.string().optional(),
 });
 true satisfies Equals<z.infer<typeof evalAnswer>, EvalAnswer>;

@@ -1,7 +1,7 @@
 /**
  * Identification datasets: cases whose photos sit beside the cases file,
  * pinned by hash; the `answer` grader labelling a trial against the case's
- * accepted and partial names with no model, reading the reply, a JSON key or
+ * accepted, partial and rejected names with no model, reading the reply, a JSON key or
  * a committing tool call's argument; and the run reported by tag.
  */
 
@@ -72,6 +72,74 @@ Deno.test('answer searches the reply for the case’s names as whole words', asy
     false,
     "reply names none of Epipremnum aureum, golden pothos, devil's ivy",
   ]);
+});
+
+Deno.test('a reply naming a rejected name beside the answer hedged; alone it is wrong', async () => {
+  const confused: EvalCase = {
+    ...POTHOS,
+    expect: {
+      answer: {
+        accepted: ['Epipremnum aureum', 'golden pothos'],
+        partial: ['Epipremnum'],
+        rejected: ['Epipremnum pinnatum', 'Philodendron hederaceum'],
+      },
+    },
+  };
+  const label = async (text: string) => {
+    const result = await answer().grade(await trialOf({ text }, confused), NO_JUDGE);
+    return [result.score?.label, result.passed, result.explanation];
+  };
+  assertEquals(await label('Golden pothos, or possibly Epipremnum pinnatum.'), [
+    'partial',
+    false,
+    'reply names "golden pothos" and "Epipremnum pinnatum", which the case rejects',
+  ]);
+  assertEquals(await label('A Philodendron hederaceum.'), [
+    'wrong',
+    false,
+    'reply names "Philodendron hederaceum", which the case rejects; accepted Epipremnum aureum, golden pothos',
+  ]);
+  // The rejected name outranks the genus it shares with the answer.
+  assertEquals((await label('Epipremnum pinnatum'))[0], 'wrong');
+  assertEquals(await label('Epipremnum aureum.'), [
+    'accepted',
+    true,
+    'reply names "Epipremnum aureum"',
+  ]);
+  // A name said only inside a longer listed one is not said.
+  const zz: EvalCase = {
+    ...POTHOS,
+    expect: {
+      answer: {
+        accepted: ['Zamioculcas', 'ZZ plant'],
+        rejected: ['Zamioculcas zamiifolia Raven'],
+      },
+    },
+  };
+  const zzLabel = async (text: string) =>
+    (await answer().grade(await trialOf({ text }, zz), NO_JUDGE)).score?.label;
+  assertEquals(await zzLabel('Zamioculcas zamiifolia Raven'), 'wrong');
+  assertEquals(await zzLabel('A ZZ plant, not Zamioculcas zamiifolia Raven'), 'partial');
+  assertEquals(await zzLabel('Zamioculcas zamiifolia'), 'accepted');
+});
+
+Deno.test('a rejected JSON answer says the case rejects it', async () => {
+  const confused: EvalCase = {
+    ...POTHOS,
+    expect: { answer: { accepted: ['Epipremnum aureum'], rejected: ['Epipremnum pinnatum'] } },
+  };
+  const result = await answer({ from: { json: 'species' } }).grade(
+    await trialOf({ structured: { species: 'epipremnum pinnatum' } }, confused),
+    NO_JUDGE,
+  );
+  assertEquals(
+    [result.score?.label, result.passed, result.explanation],
+    [
+      'wrong',
+      false,
+      'answered "epipremnum pinnatum" (JSON key species), which the case rejects; accepted Epipremnum aureum',
+    ],
+  );
 });
 
 Deno.test('answer reads a JSON key when the suite names one, compared whole', async () => {

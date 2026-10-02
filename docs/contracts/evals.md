@@ -31,7 +31,7 @@ through `withOpenInference` and `phoenixAnnotations`).
 | `src/evals/trial.ts` | `buildTrial` (records → one `Trial`), `groupByTrace` |
 | `src/evals/graders/shared.ts` | `codeGrader`, `passFail`, delivered text/JSON readers |
 | `src/evals/graders/code.ts` | Code graders for any turn: `delivered`, `toolTrajectory`, `stopKind`, `guardrail`, `budget`, `outcome` |
-| `src/evals/graders/answer.ts` | `answer`: a dataset case's answer against its accepted and partial names, by code |
+| `src/evals/graders/answer.ts` | `answer`: a dataset case's answer against its accepted, partial and rejected names, by code |
 | `src/evals/graders/live.ts` | Live graders: `transcription`, `interruptions` |
 | `src/evals/graders/latency.ts` | `turnLatency`: the person's wait before each reply began, for turns and Live |
 | `src/evals/graders/media.ts` | The media a judged turn carried, and its bytes from the case or the host's `media` store |
@@ -71,8 +71,10 @@ photos are never held at once.
 `expect` holds what graders may read when built without an argument:
 `tools` (names in order), `json` (fields the delivered structured output must
 match), `transcription` (`includes` / `regex`), `answer` (a dataset question's
-right answer: `accepted` names, optional `partial` names, and `reference` notes
-for the person reading a miss), and free-text `notes`.
+right answer: `accepted` names, optional `partial` names, optional `rejected`
+names (wrong answers the dataset records for the case: confusers, superseded
+identifications), and `reference` notes for the person reading a miss), and
+free-text `notes`.
 
 Trials: `{ repeat, pass? }`. `pass` is an `EvalPassRule`:
 
@@ -171,14 +173,18 @@ is `devil's ivy`, but `devils ivy` is not. `from` says where the answer is:
 | `{ tool, arg: 'a.b' }` | that argument of the last call to `tool` | the string equals a name, whole |
 | absent | the delivered reply text | a name appears as whole words |
 
-`accepted` is checked before `partial`. An answer that is absent (no key, the
-tool never called, no name in the reply) is `wrong` and says so; so is a case
-with no `expect.answer`. A name the case does not list is `wrong` until it is
-added to the case. The exception is a turn that stopped `provider_error` with
-no answer: the agent never had its say, so the result has no label and
-`errorType: 'provider_error'`, the trial errors, and it counts toward neither
-accuracy nor pass^k. An answer given before the provider failed is graded as
-usual. Other stops (`length`, `stream_incomplete`, …) stay `wrong`.
+`accepted` is checked before `partial`. A `rejected` name is `wrong`, and the
+explanation says the case rejects it; in the reply, a rejected name beside an
+accepted one is a hedge, labelled `partial`, and a rejected name outranks a
+`partial` one. A name said only inside a longer listed name is not said:
+`black-eyed Susan` in `sweet black-eyed Susan` is the longer name. An answer
+that is absent (no key, the tool never called, no name in the reply) is `wrong`
+and says so; so is a case with no `expect.answer`. A name the case does not list
+is `wrong` until it is added to the case. The exception is a turn that stopped
+`provider_error` with no answer: the agent never had its say, so the result has
+no label and `errorType: 'provider_error'`, the trial errors, and it counts
+toward neither accuracy nor pass^k. An answer given before the provider failed
+is graded as usual. Other stops (`length`, `stream_incomplete`, …) stay `wrong`.
 
 Latency is two readings, not one. `budget.maxTimeToFirstChunkMs` is the
 provider's share: from the successful HTTP try (or the Live response's first

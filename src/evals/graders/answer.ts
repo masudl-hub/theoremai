@@ -16,7 +16,8 @@ import { toolSteps } from './transcript.ts';
  * - `{ json: 'a.b' }`: that key of the delivered JSON (dots walk into objects);
  * - `{ tool, arg: 'a.b' }`: that argument of the last call to the tool the
  *   agent commits its answer with;
- * - absent: the reply text, searched for the case's names as whole words.
+ * - absent: the reply text, searched for the case's names as whole words; an
+ *   accepted name beside a rejected one is a hedge, labelled `partial`.
  */
 type AnswerSource = { json: string } | { tool: string; arg: string };
 
@@ -31,6 +32,39 @@ function normalized(text: string): string {
     .toLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim();
+}
+
+/**
+ * Which of the names the text says as whole words. A name said only inside a
+ * longer one of them is not said: `Calathea` in `Calathea orbifolia` is the
+ * species, and `Zamioculcas` in `Zamioculcas zamiifolia` is not a genus answer.
+ */
+function namedIn(text: string, names: string[]): (among: string[]) => string | undefined {
+  const words = normalized(text).split(' ');
+  const spans = names.flatMap((name) => {
+    const key = normalized(name);
+    if (!key) return [];
+    const parts = key.split(' ');
+    return words.flatMap((_, start) =>
+      parts.every((part, i) => words[start + i] === part)
+        ? [{ name, start, end: start + parts.length }]
+        : [],
+    );
+  });
+  const said = new Set(
+    spans
+      .filter(
+        (span) =>
+          !spans.some(
+            (other) =>
+              other.start <= span.start &&
+              other.end >= span.end &&
+              other.end - other.start > span.end - span.start,
+          ),
+      )
+      .map((span) => span.name),
+  );
+  return (among) => among.find((name) => said.has(name));
 }
 
 function at(value: unknown, path: string): unknown {
@@ -108,6 +142,7 @@ function answer(options: { from?: AnswerSource } = {}): EvalGrader {
     if (!expected) return result('wrong', 'case has no expect.answer');
     const accepted = expected.accepted;
     const partial = expected.partial ?? [];
+    const rejected = expected.rejected ?? [];
     if (from) {
       const read = readAnswer(trial, from);
       if ('missing' in read) {
@@ -121,6 +156,12 @@ function answer(options: { from?: AnswerSource } = {}): EvalGrader {
       if (accepted.some((name) => normalized(name) === said)) {
         return result('accepted', `answered ${quoted} (${read.where})`);
       }
+      if (rejected.some((name) => normalized(name) === said)) {
+        return result(
+          'wrong',
+          `answered ${quoted} (${read.where}), which the case rejects; accepted ${listOf(accepted)}`,
+        );
+      }
       if (partial.some((name) => normalized(name) === said)) {
         return result(
           'partial',
@@ -129,11 +170,22 @@ function answer(options: { from?: AnswerSource } = {}): EvalGrader {
       }
       return result('wrong', `answered ${quoted} (${read.where}); accepted ${listOf(accepted)}`);
     }
-    const reply = ` ${normalized(deliveredText(trial, undefined))} `;
-    const found = (names: string[]) =>
-      names.find((name) => reply.includes(` ${normalized(name)} `));
+    const found = namedIn(deliveredText(trial, undefined), [...accepted, ...partial, ...rejected]);
     const hit = found(accepted);
+    const miss = found(rejected);
+    if (hit && miss) {
+      return result(
+        'partial',
+        `reply names ${JSON.stringify(hit)} and ${JSON.stringify(miss)}, which the case rejects`,
+      );
+    }
     if (hit) return result('accepted', `reply names ${JSON.stringify(hit)}`);
+    if (miss) {
+      return result(
+        'wrong',
+        `reply names ${JSON.stringify(miss)}, which the case rejects; accepted ${listOf(accepted)}`,
+      );
+    }
     const near = found(partial);
     if (near) {
       return result('partial', `reply names ${JSON.stringify(near)}; accepted ${listOf(accepted)}`);

@@ -455,7 +455,7 @@ if (selected.has('image')) {
             key: 'slot_a',
           },
         },
-        image: { aspectRatio: '1:1', size: '1K', mimeType: 'image/jpeg' },
+        image: { aspectRatio: '1:1', resolution: '1K', mimeType: 'image/jpeg' },
         tools: { allow: [] },
         inputs: { text: true },
       }) as ImageProfile;

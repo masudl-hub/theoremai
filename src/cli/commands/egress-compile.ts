@@ -5,6 +5,8 @@
  * @module
  */
 
+import { writeFile } from 'node:fs/promises';
+import { cwd } from 'node:process';
 import type { EgressRule } from '../../guardrails/egress-rules.ts';
 
 interface EgressCompileOptions {
@@ -18,7 +20,7 @@ interface EgressCompileOptions {
 
 /** `specifier` as a URL, relative paths read from the working directory. */
 function moduleUrl(specifier: string): string {
-  return new URL(specifier, `file://${Deno.cwd()}/`).href;
+  return new URL(specifier, `file://${cwd()}/`).href;
 }
 
 /** Compiles the rules and writes the module; returns how many rules it read. */
@@ -36,7 +38,7 @@ async function egressCompileCommand({
   const { compiledEgressModule, compileEgressRules } = await import(
     '../../guardrails/egress-compiler.ts'
   );
-  await Deno.writeTextFile(out, compiledEgressModule(compileEgressRules(rules)));
+  await writeFile(out, compiledEgressModule(compileEgressRules(rules)));
   return rules.length;
 }
 

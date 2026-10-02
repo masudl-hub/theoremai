@@ -187,14 +187,12 @@ function checkBindingRoute(
   return apiId;
 }
 
-function compileBinding(
+/** The binding's efforts, keyed by alias, and its default; each problem is reported on the binding. */
+function compileEfforts(
   binding: ModelBindingDraft,
-  type: PlaygroundProfileType,
+  nodeId: string,
   report: Report,
-): ModelBinding {
-  const nodeId = modelBindingNodeId(binding.key);
-  const apiId = checkBindingRoute(binding, type, report);
-
+): { efforts: Record<string, ModelBindingDraft['efforts'][number]['level']>; defaultEffort: string } {
   const efforts: Record<string, ModelBindingDraft['efforts'][number]['level']> = {};
   binding.efforts.forEach(({ alias, level }, index) => {
     const name = alias.trim();
@@ -211,8 +209,7 @@ function compileBinding(
       );
     }
   });
-  const effortCount = Object.keys(efforts).length;
-  if (binding.allowEffortSelect && effortCount < 2) {
+  if (binding.allowEffortSelect && Object.keys(efforts).length < 2) {
     report(nodeId, 'Effort select needs at least two efforts.', 'allowEffortSelect');
   }
   const defaultEffort = binding.defaultEffort.trim();
@@ -221,6 +218,18 @@ function compileBinding(
   } else if (defaultEffort && !(defaultEffort in efforts)) {
     report(nodeId, `Default effort '${defaultEffort}' is not one of the efforts.`, 'defaultEffort');
   }
+  return { efforts, defaultEffort };
+}
+
+function compileBinding(
+  binding: ModelBindingDraft,
+  type: PlaygroundProfileType,
+  report: Report,
+): ModelBinding {
+  const nodeId = modelBindingNodeId(binding.key);
+  const apiId = checkBindingRoute(binding, type, report);
+  const { efforts, defaultEffort } = compileEfforts(binding, nodeId, report);
+  const effortCount = Object.keys(efforts).length;
   checkWhole(report, nodeId, 'maxOutputTokens', 'Max output tokens', binding.maxOutputTokens, 1);
   if (
     binding.temperature !== null &&

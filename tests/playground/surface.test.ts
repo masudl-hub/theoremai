@@ -1,5 +1,6 @@
 import { assert, assertEquals, assertStringIncludes } from '@std/assert';
 import { createBlankDraft, type PlaygroundDraft, setProfileType } from '../../playground/draft.ts';
+import { createExampleDraft } from '../../playground/example.ts';
 import {
   type PlaygroundDraftChange,
   type PlaygroundSurfaceHost,
@@ -256,4 +257,39 @@ Deno.test('a tool with auth shows its test credential as a card', async () => {
     'c3',
   )) as Answer;
   assertStringIncludes(JSON.stringify(refused.rejected), 'only the person enters this');
+});
+
+Deno.test('try reports the reply: its text, media, tool calls and errors', async () => {
+  const { runtime, host } = setup(createExampleDraft());
+  const sent: string[] = [];
+  host.send = (text) => {
+    sent.push(text);
+    return Promise.resolve({
+      blocks: [
+        { id: 'b1', kind: 'thought', text: 'unseen' },
+        { id: 'b2', kind: 'text', text: 'Hello.' },
+        { id: 'b3', kind: 'structured', value: { ok: true } },
+        { id: 'b4', kind: 'media', mimeType: 'image/png' },
+        {
+          id: 'b5',
+          kind: 'tool',
+          tool: { name: 'lookup', callId: 'c', arguments: {}, artifacts: [] },
+        },
+        { id: 'b6', kind: 'error', message: 'quota' },
+      ],
+    });
+  };
+  const done = (await runtime.answer(
+    'act',
+    { at: 'playground', action: 'try', input: { message: 'Hi' } },
+    'c1',
+  )) as Answer;
+  assertEquals(sent, ['Hi']);
+  assertEquals(done.result, {
+    sent: true,
+    reply: 'Hello.\n{"ok":true}',
+    media: [{ mimeType: 'image/png' }],
+    tools: [{ name: 'lookup', state: undefined }],
+    errors: ['quota'],
+  });
 });

@@ -8,7 +8,6 @@ import type {
   InteractionPart,
   MediaInputKind,
   Profile,
-  ProfileImageSpec,
   TurnBlob,
   TurnMediaRef,
   TurnRequest,
@@ -48,13 +47,6 @@ function assertOutputMode(profile: Profile, structuredId: string | null): void {
   );
 }
 
-function assertImagePins(profile: Profile): ProfileImageSpec {
-  if (profile.type !== 'image') {
-    throw new TheoremError('request', `Profile ${profile.id} is not type 'image'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  }
-  return profile.image;
-}
-
 function assertSpeechRole(profile: Profile, req: TurnRequest): void {
   if (profile.type !== 'speech') {
     return;
@@ -71,7 +63,7 @@ function resolveImageFormat(profile: Profile): ImageResponseFormat | null {
   if (profile.type !== 'image') {
     return null;
   }
-  const pins = assertImagePins(profile);
+  const pins = profile.image;
   return {
     type: 'image',
     mimeType: pins.mimeType,

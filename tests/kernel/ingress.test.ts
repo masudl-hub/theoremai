@@ -1,8 +1,19 @@
 import { wrapUserData } from '../../src/guardrails/canary.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
-import { clearProfiles, registerProfile, resolveTurn } from '../../src/kernel/default-scope.ts';
+import {
+  clearProfiles,
+  getProfile,
+  registerProfile,
+  resolveTurn,
+} from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import { assertOutputMode } from '../../src/kernel/registry/ingress.ts';
+import {
+  assertOutputMode,
+  assertSpeechRole,
+  assertTurnSlots,
+  resolveImageFormat,
+  resolveInputParts,
+} from '../../src/kernel/registry/ingress.ts';
 import type { Profile, TurnRequest } from '../../src/kernel/types.ts';
 import { registerGooglePreset } from '../../src/presets/google.ts';
 
@@ -325,5 +336,125 @@ Deno.test('image generation carries its pins and refuses a profile that declares
     said({ id: 'p', type: 'speech' }, 'schema'),
     `${head} (structured, speech).${tail}`,
     'speech and structured',
+  );
+});
+
+/** The kind and message a call throws as a TheoremError, or 'returned'. */
+function thrown(body: () => unknown): string {
+  try {
+    body();
+  } catch (err) {
+    return err instanceof TheoremError ? `${err.kind}: ${err.message}` : String(err);
+  }
+  return 'returned';
+}
+
+Deno.test("resolveInputParts refuses on its own what resolveTurn already screened, with each error's kind", () => {
+  clearProfiles();
+  define('chat', { inputs: { text: true, attachments: { accept: ['image/png'] }, ...LIMITS } });
+  define('voice', {
+    type: 'speech',
+    speech: { voice: 'Kore' },
+    models: { m: { ...GEMINI, apiId: 'tts' } },
+    inputs: undefined,
+    tools: undefined,
+    outputs: undefined,
+    guardrails: undefined,
+  });
+  define('wide', {
+    inputs: { text: true, attachments: { accept: ['application/x-foo'] }, ...LIMITS },
+  });
+  const chat = getProfile('chat') as never;
+  const wide = getProfile('wide') as never;
+  const voice = getProfile('voice') as never;
+  const resolve = (profile: never, input: object, over: object = {}) =>
+    thrown(() => resolveInputParts(profile, { profile: 'p', input, ...over } as never));
+  check(
+    resolve({ type: 'decision', id: 'd' } as never, { text: 'x' }),
+    'request: Profile d (decision) does not accept turn input',
+    'decision',
+  );
+  check(
+    resolve(voice, { text: '' }),
+    'request: Profile voice (speech) requires text input',
+    'speech without text',
+  );
+  check(
+    resolve(voice, { text: 'say', attachments: [png()] }),
+    'input: Profile voice (speech) does not accept media input',
+    'speech attachments',
+  );
+  check(
+    resolve(voice, { text: 'say', voice: [{ mimeType: 'audio/wav', data: 'YQ==' }] }),
+    'input: Profile voice (speech) does not accept media input',
+    'speech voice',
+  );
+  check(resolve(voice, { text: 'say' }), 'returned', 'speech with text alone');
+  check(resolve(voice, { text: 'say', attachments: [] }), 'returned', 'empty lists are no media');
+  check(
+    resolve(chat, { text: 'x', attachments: [{ mimeType: 'image/gif', data: 'YQ==' }] }),
+    'input: attachments refused: mime_not_allowed',
+    'attachments are checked against the profile',
+  );
+  check(
+    resolve(wide, { text: 'x', attachments: [{ mimeType: 'application/x-foo', data: 'YQ==' }] }),
+    "input: MIME 'application/x-foo' is not a supported media input type",
+    'an unsupported MIME',
+  );
+  check(
+    resolve(chat, { text: 'x' }, { continueFrom: { stop: { kind: 'length' } } }),
+    'request: Profile chat: a continueFrom turn takes no input.text — its user message is the continue instruction',
+    'continue with text',
+  );
+  check(
+    thrown(() =>
+      resolveInputParts(chat, {
+        profile: 'chat',
+        continueFrom: { stop: { kind: 'length' } },
+      } as never),
+    ),
+    'returned',
+    'a continue with no input at all',
+  );
+  check(
+    resolve(chat, { text: 'x', slots: { a: 'b' } }),
+    'returned',
+    "slots are not this function's",
+  );
+});
+
+Deno.test('slot, speech-role and image-pin refusals carry the request kind', () => {
+  clearProfiles();
+  define('slotted', { inputs: { text: true, slots: { mood: ['happy'] } } });
+  const slotted = getProfile('slotted') as never;
+  const slots = (value: Record<string, string>) =>
+    thrown(() =>
+      assertTurnSlots(slotted, { profile: 'slotted', input: { slots: value } } as never),
+    );
+  check(slots({ tone: 'x' }), "request: Profile slotted has no slot 'tone'", 'undeclared');
+  check(
+    slots({ mood: 'sad' }),
+    "request: Profile slotted: slot 'mood' takes happy, not 'sad'",
+    'undeclared choice',
+  );
+  check(
+    thrown(() =>
+      assertSpeechRole(
+        { type: 'speech', id: 's' } as never,
+        { profile: 's', system: 'x' } as never,
+      ),
+    ),
+    'config: Profile s (speech) takes no system prompt — the input text is the transcript',
+    'speech role',
+  );
+  check(
+    thrown(() => assertOutputMode({ type: 'text', id: 'm' } as never, null)),
+    'returned',
+    'one mode',
+  );
+  check(
+    thrown(() => resolveImageFormat({ type: 'text', id: 't' } as never)),
+    'returned',
+    'non-image has no format',
   );
 });

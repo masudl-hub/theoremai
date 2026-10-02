@@ -15,6 +15,7 @@
     "jsr:@ts-morph/common@0.29": "0.29.0",
     "npm:@ast-grep/cli@0.41": "0.41.1",
     "npm:@biomejs/biome@^2.5.8": "2.5.11",
+    "npm:@eslint-community/regexpp@4.12.2": "4.12.2",
     "npm:@openrouter/ai-sdk-provider@3": "3.0.0_ai@7.0.108_zod@4.5.4",
     "npm:@stryker-mutator/core@10": "10.0.0_@types+node@20.19.43",
     "npm:@types/node@^20.19.43": "20.19.43",
@@ -23,6 +24,7 @@
     "npm:fallow@3.17.0": "3.17.0",
     "npm:gpt-tokenizer@4": "4.0.0",
     "npm:intl-messageformat@^11.2.9": "11.2.15",
+    "npm:refa@0.12.1": "0.12.1",
     "npm:zod@^4.1.8": "4.5.4"
   },
   "jsr": {
@@ -504,6 +506,9 @@
       "integrity": "sha512-QSQr/KjOgXA7OzXJUWS+oguKyAZ3Q0l/lnlDGbu397eKo83atuWUjBPJrsqbKNF6CARGw8XXJLGzpHC8Ryhd4Q==",
       "os": ["win32"],
       "cpu": ["x64"]
+    },
+    "@eslint-community/regexpp@4.12.2": {
+      "integrity": "sha512-EriSTlt5OC9/7SXkRSCAhfSxxoSUgBm33OH+IkwbdpgoqsSsUg7y3uh+IICI/Qg4BBWr3U2i39RpmycbxMq4ew=="
     },
     "@fallow-cli/darwin-arm64@3.17.0": {
       "integrity": "sha512-u9O4aQaTSdaZaa4MAVEZEiwOx6QQzChymyQPrxV6KvDcVbcl0oYSekJKdvN4gEqUY8ClMze9gWS1tbn/W3N4dQ==",
@@ -1341,6 +1346,12 @@
       "integrity": "sha512-6YHEFRL9mfgcAvql/XhwTvf5jKcOiiupt2FiJxHkiX1z4j7WL8J/jRHYLluORvc1XxB5rV20KoeK00gVJamspg==",
       "dependencies": [
         "side-channel"
+      ]
+    },
+    "refa@0.12.1": {
+      "integrity": "sha512-J8rn6v4DBb2nnFqkqwy6/NnTYMcgLA+sLr0iIO41qpv0n+ngb7ksag2tMRl0inb1bbO/esUwzW1vbJi7K0sI0g==",
+      "dependencies": [
+        "@eslint-community/regexpp"
       ]
     },
     "require-from-string@2.0.2": {

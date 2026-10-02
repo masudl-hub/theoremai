@@ -2,6 +2,12 @@ import { TheoremError } from '../../src/guardrails/error.ts';
 import { detectionForTrust, resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
 import { sanitizeText } from '../../src/guardrails/sanitize.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
+import {
+  clampThinkingLevelForApiId,
+  mediaChannelForMime,
+  mimeAllowed,
+  requireModelBinding,
+} from '../../src/kernel/registry/catalog.ts';
 import { profileTurnOutputs } from '../../src/kernel/registry/profile-outputs.ts';
 import {
   providerBuiltins,
@@ -215,5 +221,49 @@ Deno.test('a role is taken only when the profile declares it as its own property
     pickSystemRole(profile({ handle: 'h', systemByRole: { editor: 'e' } }, 'speech'), 'editor'),
     'h',
     'speech has no roles',
+  );
+});
+
+Deno.test('an exact MIME rule matches only that type; a subtype wildcard matches the whole family', () => {
+  check(mimeAllowed(['image/png'], 'image/png; charset=x'), true, 'exact, parameters ignored');
+  check(mimeAllowed(['image/png'], 'image/pnx'), false, 'a longer sibling is not the rule');
+  check(mimeAllowed(['image/png'], 'image/pn'), false, 'a shorter one either');
+  check(mimeAllowed(['image/*'], 'image/anything'), true, 'wildcard');
+  check(mimeAllowed(['image/*'], 'imagex/png'), false, 'wildcard keeps its slash');
+  check(mimeAllowed(['image/*'], 'audio/wav'), false, 'another family');
+  check(mimeAllowed([], 'image/png'), false, 'no rules');
+});
+
+Deno.test('a file is routed to the channel that accepts it, and nowhere when the kernel cannot classify it', () => {
+  const profile = (inputs: object) => ({ type: 'text', id: 'p', inputs }) as never;
+  const both = profile({
+    attachments: { accept: ['image/png'] },
+    voice: { accept: ['audio/wav'] },
+  });
+  check(mediaChannelForMime(both, 'image/png'), 'attachments', 'attachment');
+  check(mediaChannelForMime(both, 'audio/wav'), 'voice', 'voice');
+  check(mediaChannelForMime(both, 'image/gif'), undefined, 'accepted nowhere');
+  const wildcard = profile({ attachments: { accept: ['application/*'] } });
+  check(mediaChannelForMime(wildcard, 'application/x-foo'), undefined, 'unclassifiable');
+  check(mediaChannelForMime(wildcard, 'application/pdf'), 'attachments', 'classifiable');
+  check(mediaChannelForMime({ type: 'live', id: 'l' } as never, 'image/png'), undefined, 'live');
+});
+
+Deno.test('a missing model binding is a config error naming the profile and model', () => {
+  const profile = { id: 'p', models: { m: { apiId: 'a' } } } as never;
+  check(requireModelBinding(profile, 'm'), { apiId: 'a' }, 'present');
+  check(
+    thrown(() => requireModelBinding(profile, 'x')),
+    "config: Profile p has no model binding for 'x'",
+    'absent',
+  );
+});
+
+Deno.test('a thinking level is kept when no model, or no effort ladder, bounds it', () => {
+  check(clampThinkingLevelForApiId({}, 'nope', 'high' as never), 'high', 'unknown model');
+  check(
+    clampThinkingLevelForApiId({ m: { apiId: 'a' } as never }, 'a', 'high' as never),
+    'high',
+    'no ladder',
   );
 });

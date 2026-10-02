@@ -998,13 +998,14 @@ function buildLiveSession(args: {
       });
     },
     sendContext(text: string): Promise<void> {
-      return withIngress(async () => {
+      return withIngress(() => {
         assertLiveIngress(profile, 'text');
         const start = performance.now();
         const prepared = prepareLiveInboundText(profile, text);
         trace.inboundCheck(performance.now() - start, prepared.guardrail);
         if (prepared.guardrail) enqueuePending(prepared.guardrail);
         sendJson(buildGeminiLiveContext(prepared.text));
+        return Promise.resolve();
       });
     },
     async executeTool({

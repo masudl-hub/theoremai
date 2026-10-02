@@ -1,6 +1,5 @@
 import '../../../fixtures/test-host.ts';
-import { assertEquals, assertThrows } from '@std/assert';
-import { TheoremError } from '../../../../src/guardrails/error.ts';
+import { assertEquals } from '@std/assert';
 import { getProfile, registerProfile, resolveTurn } from '../../../../src/kernel/default-scope.ts';
 import { providerBuiltins } from '../../../../src/kernel/registry/provider-request.ts';
 import { defaultKernelScope } from '../../../../src/kernel/scope.ts';
@@ -209,7 +208,7 @@ Deno.test('Interactions non-voice profile does not synthesize speech media from 
   );
 });
 
-Deno.test('Interactions speech profile rejects mp3 format at profile resolution', () => {
+Deno.test('Interactions speech profile carries mp3 to the provider, which refuses it', () => {
   registerProfile({
     id: 'bad-speech',
     type: 'speech',
@@ -220,9 +219,8 @@ Deno.test('Interactions speech profile rejects mp3 format at profile resolution'
       format: 'mp3',
     },
   });
-  assertThrows(() => {
-    resolveTurn({ profile: 'bad-speech', input: { text: 'hi' } });
-  }, TheoremError);
+  const { generation } = resolveTurn({ profile: 'bad-speech', input: { text: 'hi' } });
+  assertEquals(generation.speech?.format, 'mp3');
 });
 
 Deno.test('createProvider routes speech-role Interactions to the same adapter', () => {

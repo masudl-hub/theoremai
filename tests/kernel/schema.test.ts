@@ -5,7 +5,6 @@ import {
   catalogPathFor,
   coerceProtocol,
   coerceProvider,
-  coerceSpeechFormat,
   EXTRA_FIELDS,
   fieldMeta,
   isKeySlotName,
@@ -22,7 +21,6 @@ import {
   protocolsFor,
   protocolsForProfileType,
   providersFor,
-  speechFormatsForProtocol,
   THINKING_LEVELS,
   VOICE_ACCEPT_MIMES,
 } from '../../src/kernel/schema.ts';
@@ -108,15 +106,6 @@ Deno.test('MEDIA_INPUT_KINDS values are MediaInputKind', () => {
   assertEquals(ATTACHMENT_ACCEPT_MIMES.includes('image/png'), true);
   assertEquals(VOICE_ACCEPT_MIMES.includes('audio/*'), true);
   assertEquals(VOICE_ACCEPT_MIMES.includes('audio/wav'), true);
-});
-
-Deno.test('speechFormatsForProtocol matches assertSpeechRole rules', () => {
-  assertEquals([...speechFormatsForProtocol('openAi')], ['pcm', 'mp3']);
-  assertEquals([...speechFormatsForProtocol('geminiInteractions')], ['pcm']);
-  assertEquals([...speechFormatsForProtocol('geminiLive')], ['pcm']);
-  assertEquals(coerceSpeechFormat('geminiInteractions', 'mp3'), 'pcm');
-  assertEquals(coerceSpeechFormat('openAi', 'mp3'), 'mp3');
-  assertEquals(coerceSpeechFormat('openAi', undefined), undefined);
 });
 
 Deno.test('PROFILE_FIELDS protocol / accept / text match live unions', () => {

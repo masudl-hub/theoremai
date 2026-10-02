@@ -322,7 +322,7 @@ When `profile.type === 'speech'` and protocol/provider is
 | Transport | Module | Path / mechanism | Notes |
 | --- | --- | --- | --- |
 | OpenAI | `openrouter/speech.ts` | `/audio/speech` | `speech.format` rides `response_format` when set; unset sends none, and the upstream picks. `mp3` allowed. The response carries no usage; the runner estimates the call. The response's `content-type` states the audio; raw PCM with a rate is wrapped as WAV. The endpoint answers whole or not at all, so a body with audio ends `done` with stop `completed`. |
-| Interactions | `google/interactions/mod.ts` | `responseFormat: { type: 'audio' }` | Real PCM → WAV only. Missing audio on a speech-role turn (text-only or empty) yields an `error` event — never invents PCM from text bytes. `mp3` rejected at resolve. |
+| Interactions | `google/interactions/mod.ts` | `responseFormat: { type: 'audio' }` | Real PCM → WAV only. Missing audio on a speech-role turn (text-only or empty) yields an `error` event — never invents PCM from text bytes. `mp3` is refused (`unsupported`) when the request is framed; Gemini speech takes only `GOOGLE_SPEECH_FORMATS`. |
 
 Speech turns carry no system prompt. The input text is the transcript: Gemini
 TTS rejects developer instructions ("Developer instruction is not enabled") and

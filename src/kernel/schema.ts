@@ -84,31 +84,6 @@ export type StreamMode = (typeof STREAM_MODES)[number];
 export const SPEECH_AUDIO_FORMATS = ['pcm', 'mp3'] as const;
 export type SpeechAudioFormat = (typeof SPEECH_AUDIO_FORMATS)[number];
 
-export function speechFormatsForProtocol(protocol: Protocol): readonly SpeechAudioFormat[] {
-  return protocol === 'openAi' ? SPEECH_AUDIO_FORMATS : ['pcm'];
-}
-
-export function thinkingLevelsForProtocol(protocol: Protocol): readonly ThinkingLevel[] {
-  return protocol === 'openAi' ? THINKING_LEVELS : ['minimal', 'low', 'medium', 'high'];
-}
-
-export function isSpeechFormatAllowedForProtocol(
-  protocol: Protocol,
-  format: SpeechAudioFormat,
-): boolean {
-  return speechFormatsForProtocol(protocol).includes(format);
-}
-
-/** Snap a format the protocol can't send to its first legal one; unset stays unset. */
-export function coerceSpeechFormat(
-  protocol: Protocol,
-  format: SpeechAudioFormat | undefined,
-): SpeechAudioFormat | undefined {
-  if (format === undefined) return undefined;
-  const allowed = speechFormatsForProtocol(protocol);
-  return allowed.includes(format) ? format : allowed[0];
-}
-
 export const LIVE_ACTIVITY_HANDLINGS = ['START_OF_ACTIVITY_INTERRUPTS', 'NO_INTERRUPTION'] as const;
 export type LiveActivityHandling = (typeof LIVE_ACTIVITY_HANDLINGS)[number];
 

@@ -25,6 +25,7 @@ import {
   toolCallEvents,
 } from '../../shared/tool-args.ts';
 import { groundingFromLiveMetadata } from '../grounding.ts';
+import { assertGoogleThinkingLevel } from '../thinking.ts';
 import { GEMINI_LIVE_WS_URL } from '../urls.ts';
 import { byModality, modalityCounts } from '../usage.ts';
 import { toGeminiOpenApiSchema } from './openapi-schema.ts';
@@ -84,6 +85,7 @@ function buildLiveGenerationConfig(req: ProviderCompleteRequest): Record<string,
       },
     };
   }
+  assertGoogleThinkingLevel(req.thinking);
   if (req.thinking) {
     generationConfig.thinkingConfig = {
       thinkingLevel: req.thinking,

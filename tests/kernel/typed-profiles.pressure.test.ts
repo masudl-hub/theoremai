@@ -458,20 +458,14 @@ Deno.test('pressure-test: outputs.streaming.mode resolution', () => {
 
 Deno.test('pressure-test: speech profile ingress restrictions and format validation', () => {
   registerProfile({
-    id: 'speech_invalid_mp3',
+    id: 'speech_mp3_resolves',
     type: 'speech',
     identity: { handle: 'speech_mp3' },
     ...geminiModels('gemini31FlashTts'),
     speech: { voice: 'Kore', format: 'mp3' },
   });
 
-  assertThrows(
-    () => {
-      resolveTurn({ profile: 'speech_invalid_mp3', input: { text: 'hello' } });
-    },
-    TheoremError,
-    "speech.format 'mp3' requires protocol 'openAi'",
-  );
+  resolveTurn({ profile: 'speech_mp3_resolves', input: { text: 'hello' } });
 
   registerProfile({
     id: 'speech_valid_pcm',

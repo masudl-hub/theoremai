@@ -12,6 +12,12 @@ import type {
   ProfileSpeechSpec,
 } from '../kernel/types.ts';
 import { GOOGLE_SPEECH_VOICES, type GoogleSpeechVoice } from './google/speech-voices.ts';
+import {
+  GOOGLE_SPEECH_FORMATS,
+  GOOGLE_THINKING_LEVELS,
+  type GoogleThinkingLevel,
+  googleEfforts,
+} from './google-limits.ts';
 
 const GOOGLE_IMAGE_INPUT_MIMES = [
   'image/png',
@@ -262,6 +268,7 @@ export type {
   GoogleLivePins,
   GoogleSpeechPins,
   GoogleSpeechVoice,
+  GoogleThinkingLevel,
   GoogleVoiceInputMime,
 };
 export {
@@ -273,10 +280,13 @@ export {
   GOOGLE_IMAGE_RESOLUTIONS,
   GOOGLE_NO_THINKING_API_IDS,
   GOOGLE_SINGLE_TURN_API_IDS,
+  GOOGLE_SPEECH_FORMATS,
   GOOGLE_SPEECH_VOICES,
+  GOOGLE_THINKING_LEVELS,
   GOOGLE_THINKING_REQUIRED_API_IDS,
   GOOGLE_VOICE_INPUT_MIMES,
   googleBindingViolation,
+  googleEfforts,
   googleFreeTierBuiltins,
   googleInteractionsPersistence,
   registerGooglePreset,

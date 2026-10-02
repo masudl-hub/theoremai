@@ -14,6 +14,7 @@ export type {
   GoogleImageResolution,
   GoogleInteractionsPersistence,
   GoogleSpeechVoice,
+  GoogleThinkingLevel,
   GoogleVoiceInputMime,
 } from './google.ts';
 export {
@@ -25,10 +26,13 @@ export {
   GOOGLE_IMAGE_RESOLUTIONS,
   GOOGLE_NO_THINKING_API_IDS,
   GOOGLE_SINGLE_TURN_API_IDS,
+  GOOGLE_SPEECH_FORMATS,
   GOOGLE_SPEECH_VOICES,
+  GOOGLE_THINKING_LEVELS,
   GOOGLE_THINKING_REQUIRED_API_IDS,
   GOOGLE_VOICE_INPUT_MIMES,
   googleBindingViolation,
+  googleEfforts,
   googleFreeTierBuiltins,
   googleInteractionsPersistence,
   registerGooglePreset,

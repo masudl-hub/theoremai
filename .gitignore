@@ -5,7 +5,7 @@ npm/
 # Test, coverage, and mutation artifacts (never commit or publish)
 coverage/
 cov_profile/
-.stryker-tmp/
+.stryker-tmp*/
 .stryker-cache/
 stryker.log
 reports/

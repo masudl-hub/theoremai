@@ -212,6 +212,18 @@ Deno.test('attachResponseFormat sets an audio response format for speech-only re
   assertEquals(camel.responseModalities, ['audio']);
 });
 
+Deno.test('attachResponseFormat refuses a speech format Gemini cannot return', () => {
+  const camel: Record<string, unknown> = {};
+  attachResponseFormat(baseReq({ speech: { voice: 'Kore', format: 'pcm' } }), camel);
+  assertEquals(camel.responseFormat, { type: 'audio' });
+  const refused = assertThrows(
+    () => attachResponseFormat(baseReq({ speech: { voice: 'Kore', format: 'mp3' } }), {}),
+    TheoremError,
+    "not 'mp3'",
+  );
+  assertEquals(refused.kind, 'unsupported');
+});
+
 Deno.test('attachResponseFormat sets an image-only response format by default', () => {
   const req = baseReq({
     image: {
@@ -715,4 +727,11 @@ Deno.test('attachResponseFormat refuses image pins Google cannot send', () => {
     const req = baseReq({ image: { type: 'image', includeText: false, ...pin } });
     assertThrows(() => attachResponseFormat(req, {}), TheoremError);
   }
+});
+
+Deno.test('baseInteractionsBody refuses a thinking level Gemini does not take', () => {
+  for (const level of ['none', 'xhigh', 'max'] as const) {
+    assertThrows(() => baseInteractionsBody(baseReq({ thinking: level })), TheoremError, level);
+  }
+  baseInteractionsBody(baseReq({ thinking: 'high' }));
 });

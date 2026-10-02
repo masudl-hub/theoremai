@@ -458,9 +458,11 @@ Deno.test('every text type is scrubbed, UTF-8 is read as UTF-8, and a padded siz
     });
   const wide = withCap(100);
   const tight = withCap(11);
-  const run = (mimeType: string, data: string) =>
-    (sanitizeTurnBlobs(wide, [{ mimeType, data }] as never, undefined).attachments?.[0] as TurnBlob)
-      .data;
+  const run = (mimeType: string, data: string) => {
+    const [blob] =
+      sanitizeTurnBlobs(wide, [{ mimeType, data }] as never, undefined).attachments ?? [];
+    return (blob as TurnBlob).data;
+  };
   for (const mimeType of ['text/csv', 'text/plain', 'text/markdown']) {
     check(
       decode(run(mimeType, b64('ssn 000-11-2222'))).includes('000-11-2222'),

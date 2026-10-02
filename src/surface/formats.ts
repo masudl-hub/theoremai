@@ -75,9 +75,13 @@ export function maskUrl(raw: string): string {
   try {
     url = new URL(raw);
   } catch {
-    return raw.replace(/([?&;])([^=&#\s]*)=[^&#\s]+/g, (whole, lead: string, name: string) =>
-      QUERY_CREDENTIAL.test(name) ? `${lead}${name}=${MASK}` : whole,
-    );
+    return raw.replace(/[?&;][^?&;#\s]*/g, (pair) => {
+      const at = pair.indexOf('=');
+      const name = pair.slice(1, at);
+      return at > 1 && at < pair.length - 1 && QUERY_CREDENTIAL.test(name)
+        ? `${pair.slice(0, at + 1)}${MASK}`
+        : pair;
+    });
   }
   const credentials = [...new Set(url.searchParams.keys())].filter((name) =>
     CREDENTIAL_NAME.test(name),

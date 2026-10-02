@@ -19,7 +19,6 @@ import type { TurnHistoryMessage } from '../kernel/turn-events.ts';
 import type { ProviderCompleteRequest } from '../kernel/types.ts';
 import { textForScan } from './serialize.ts';
 
-/** The canonical URLs the model was given this turn, by where they came from. */
 interface GivenUrls {
   /** From the system prompt, the user and host history. */
   request: ReadonlySet<string>;
@@ -27,7 +26,6 @@ interface GivenUrls {
   tools: ReadonlySet<string>;
 }
 
-/** Given URLs as a turn collects them. */
 interface GivenUrlSets extends GivenUrls {
   request: Set<string>;
   tools: Set<string>;
@@ -37,9 +35,7 @@ function givenUrlSets(): GivenUrlSets {
   return { request: new Set(), tools: new Set() };
 }
 
-/** What decides whether a URL in the reply is a leak. */
 interface UrlScope {
-  /** Unset: none. */
   given?: GivenUrls;
   /** Hostnames the check lets through whatever their URL. */
   hosts?: readonly string[];
@@ -198,7 +194,6 @@ function addSeenUrls(seen: Set<string>, text: string): void {
   }
 }
 
-/** Adds the URLs in history the model is given, less its own earlier replies. */
 function addHistoryUrls(given: GivenUrlSets, messages: readonly TurnHistoryMessage[]): void {
   for (const message of messages) {
     if (message.role === 'assistant') continue;
@@ -206,7 +201,6 @@ function addHistoryUrls(given: GivenUrlSets, messages: readonly TurnHistoryMessa
   }
 }
 
-/** Adds the URLs in what `request` gives the model. */
 function addRequestUrls(
   given: GivenUrlSets,
   request: Pick<ProviderCompleteRequest, 'system' | 'input' | 'history' | 'continuation'>,
@@ -223,7 +217,6 @@ function isGiven(canonical: string, scope: UrlScope): boolean {
   return given.request.has(canonical) || (scope.fromTools !== false && given.tools.has(canonical));
 }
 
-/** Whether nobody can receive a request to `host`, or the host allowed it. */
 function hostPasses(host: string, scope: UrlScope): boolean {
   const name = host.toLowerCase();
   return (
@@ -232,7 +225,6 @@ function hostPasses(host: string, scope: UrlScope): boolean {
   );
 }
 
-/** Whether loading `raw` could carry data somewhere the host did not allow. */
 function urlLeaks(raw: string, scope: UrlScope): boolean {
   const { text, unknown } = decodeEntities(raw.trim());
   const canonical = canonicalUrl(text);
@@ -278,13 +270,11 @@ function bareUrlLeaks(found: string, scope: UrlScope): boolean {
 const SPEND_PER_CHAR = 32;
 const SPEND_BASE = 1 << 16;
 
-/** What one read of a text has decoded, and may. */
 interface Meter {
   spent: number;
   cap: number;
 }
 
-/** A read decoded past its meter's cap. */
 class Overspent extends Error {}
 
 function capFor(length: number): number {
@@ -296,7 +286,6 @@ function spend(meter: Meter, count: number): void {
   if (meter.spent > meter.cap) throw new Overspent();
 }
 
-/** Whether any of `urls` leaks, each charged to `meter`. */
 function anyLeaks(urls: readonly string[], scope: UrlScope, meter: Meter): boolean {
   return urls.some((url) => {
     spend(meter, url.length);
@@ -306,7 +295,6 @@ function anyLeaks(urls: readonly string[], scope: UrlScope, meter: Meter): boole
 
 type Span = { start: number; end: number };
 
-/** Indices in [from, to) where `at` holds. */
 function indicesIn(from: number, to: number, at: (i: number) => boolean): number[] {
   const out: number[] = [];
   for (let i = from; i < to; i++) if (at(i)) out.push(i);
@@ -319,7 +307,6 @@ function indicesIn(from: number, to: number, at: (i: number) => boolean): number
 const PARAGRAPH_BREAK = /\n[ \t]*(?=\n|$)/g;
 const PARAGRAPH_BREAK_AT = /\n[ \t]*(?=\n|$)/y;
 
-/** Where the paragraph holding `at` starts. */
 function paragraphStart(text: string, at: number): number {
   for (
     let i = text.lastIndexOf('\n', at - 1);
@@ -332,7 +319,6 @@ function paragraphStart(text: string, at: number): number {
   return 0;
 }
 
-/** The paragraphs from `start` (where one starts) to the one holding `last`, as [start, end). */
 function paragraphsFrom(text: string, start: number, last: number): [number, number][] {
   const out: [number, number][] = [];
   for (let from = start; from <= last && from < text.length; ) {
@@ -367,7 +353,6 @@ function backtickRuns(text: string, start: number, end: number): Map<number, num
   return runs;
 }
 
-/** The first run of exactly `length` backticks starting in [from, before), or -1. */
 function runIn(runs: Map<number, number[]>, length: number, from: number, before: number): number {
   const starts = runs.get(length);
   if (!starts) return -1;
@@ -471,7 +456,6 @@ function destinationEnds(text: string, start: number, end: number): Int32Array {
   return ends;
 }
 
-/** An inline image or link: where its markup starts, and its `[`. */
 interface Inline {
   start: number;
   open: number;
@@ -511,7 +495,6 @@ function paragraphLeaks(
     const stop = ends[at - start] as number;
     return stop > at ? { raw: text.slice(at, stop), end: stop } : undefined;
   };
-  /** Per `]`: where the leaking destination after it ends, or null. */
   const decided = new Map<number, number | null>();
   const leakEnd = (close: number): number | null => {
     let found = decided.get(close);
@@ -536,7 +519,6 @@ function paragraphLeaks(
   return spans;
 }
 
-/** The leaking inline images or links among `openers`, read paragraph by paragraph. */
 function inlineLeaks(
   text: string,
   openers: readonly Inline[],
@@ -558,7 +540,6 @@ function inlineLeaks(
   return spans;
 }
 
-/** Inline images whose `!` is in [from, to), nested ones included. */
 function imageOpeners(text: string, from: number, to: number): Inline[] {
   return indicesIn(from, to, (i) => text[i] === '!' && text[i + 1] === '[').map((i) => ({
     start: i,
@@ -629,7 +610,6 @@ function isLetter(code: number): boolean {
   return (code >= 0x41 && code <= 0x5a) || (code >= 0x61 && code <= 0x7a);
 }
 
-/** What a tag's name decides about its attributes. */
 type TagKind = 'link' | 'meta' | 'other';
 
 function tagKind(name: string): TagKind {
@@ -725,7 +705,6 @@ interface Attribute {
   name: string;
   from: number;
   to: number;
-  /** Where the tokenizer reads on. */
   next: number;
 }
 
@@ -788,7 +767,6 @@ function tagLeaks(
     return known;
   }
 
-  /** Where the tag read on from `i` ends, or -1 when it never does. */
   function endFrom(i: number): number {
     const path: number[] = [];
     let at = i;
@@ -815,7 +793,6 @@ function tagLeaks(
     return tagLeaks(value.document, reader, scope, meter).length > 0;
   }
 
-  /** Whether an attribute of the tag read on from `i` leaks. */
   function leaksFrom(i: number, kind: TagKind): boolean {
     const memo = leaks[kind];
     const path: number[] = [];
@@ -953,7 +930,6 @@ function readFailingClosed(text: string, read: (meter: Meter) => Span[]): Span[]
   }
 }
 
-/** Every image in `text` whose URL is a leak, as spans. */
 function imageLeakSpans(text: string, scope: UrlScope): Span[] {
   return readFailingClosed(text, (meter) => [
     ...inlineLeaks(text, imageOpeners(text, 0, text.length), scope, meter),
@@ -963,10 +939,7 @@ function imageLeakSpans(text: string, scope: UrlScope): Span[] {
   ]);
 }
 
-/**
- * Every link in `text` whose URL is a leak, as spans. With `skipImages`, an
- * image's own markup is left to the image check.
- */
+/** With `skipImages`, an image's own markup is left to the image check. */
 function linkLeakSpans(text: string, scope: UrlScope, skipImages: boolean): Span[] {
   return readFailingClosed(text, (meter) => [
     ...inlineLeaks(text, linkOpeners(text, 0, text.length, skipImages), scope, meter),
@@ -1090,7 +1063,6 @@ function imageReadings(scope: UrlScope): UrlPatternReading[] {
   ]);
 }
 
-/** The readings of `LINK_PATTERNS`, in its order. */
 function linkReadings(scope: UrlScope, skipImages: boolean): UrlPatternReading[] {
   return metered([
     (reply, from, to, meter) =>

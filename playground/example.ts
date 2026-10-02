@@ -52,6 +52,7 @@ export function createExampleDraft(): PlaygroundDraft {
       profileType: 'text',
       handle: 'concierge',
       system: DEMO_CONCIERGE_SYSTEM,
+      systemByRoleJson: '',
     },
     included: ['outputs', 'turnBehaviour', 'guardrails', 'observability', 'wording'],
     models: { defaultModel: 'fast', allowModelSelect: true, maxSteps: 12, key: 'gemini' },
@@ -102,6 +103,8 @@ export function createExampleDraft(): PlaygroundDraft {
       maxFiles: inputs.maxFiles,
       maxBytes: inputs.maxBytes,
       maxTurnBytes: inputs.maxTurnBytes,
+      limitsByMimeJson: '',
+      slotsJson: '',
     },
     guardrails: {
       ...blank.guardrails,

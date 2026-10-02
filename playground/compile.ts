@@ -231,6 +231,8 @@ function compileBinding(
   if (onGoogleInteractions(binding) && binding.persistViaInteractionId && binding.store === false) {
     report(nodeId, 'Chaining needs Google storage on.', 'persistViaInteractionId');
   }
+  const cache = compileCache(binding, nodeId, report);
+  const server = binding.provider === 'local' ? binding.server?.trim() : undefined;
 
   return {
     protocol: binding.protocol,
@@ -245,6 +247,8 @@ function compileBinding(
     ...(binding.maxOutputTokens !== null ? { maxOutputTokens: binding.maxOutputTokens } : {}),
     ...(binding.temperature !== null ? { temperature: binding.temperature } : {}),
     ...(binding.builtInTools.length ? { builtInTools: [...binding.builtInTools] } : {}),
+    ...(cache ? { cache } : {}),
+    ...(server ? { server } : {}),
     ...(onGoogleInteractions(binding)
       ? {
           ...(binding.store !== null ? { store: binding.store } : {}),
@@ -252,6 +256,19 @@ function compileBinding(
         }
       : {}),
   };
+}
+
+/** Prompt caching runs only on OpenRouter's openAi route. */
+function compileCache(
+  binding: ModelBindingDraft,
+  nodeId: string,
+  report: Report,
+): ModelBinding['cache'] {
+  if (!binding.cacheMode) return undefined;
+  if (binding.provider !== 'openrouter' || binding.protocol !== 'openAi') {
+    report(nodeId, 'Prompt caching runs only on OpenRouter with openAi.', 'cacheMode');
+  }
+  return { mode: binding.cacheMode, ...(binding.cacheTtl ? { ttl: binding.cacheTtl } : {}) };
 }
 
 function onGoogleInteractions(binding: ModelBindingDraft): boolean {
@@ -305,22 +322,43 @@ function compileModels(
   };
 }
 
-function parseHeaders(raw: string | undefined): Record<string, string> | undefined | null {
+/**
+ * A JSON object typed in a field: `undefined` when blank or empty, `null` when it isn't an
+ * object or a value fails `isValue`.
+ */
+function parseRecord<T>(
+  raw: string | undefined,
+  isValue: (value: unknown) => value is T,
+): Record<string, T> | undefined | null {
   if (!raw?.trim()) return undefined;
+  let parsed: unknown;
   try {
-    const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return null;
-    }
-    const headers: Record<string, string> = {};
-    for (const [name, value] of Object.entries(parsed)) {
-      if (typeof value !== 'string') return null;
-      headers[name] = value;
-    }
-    return Object.keys(headers).length ? headers : undefined;
+    parsed = JSON.parse(raw);
   } catch {
     return null;
   }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const entries = Object.entries(parsed);
+  if (!entries.every(([, value]) => isValue(value))) return null;
+  return entries.length ? Object.fromEntries(entries) as Record<string, T> : undefined;
+}
+
+const isString = (value: unknown): value is string => typeof value === 'string';
+const isAny = (_value: unknown): _value is unknown => true;
+
+function parseHeaders(raw: string | undefined): Record<string, string> | undefined | null {
+  return parseRecord(raw, isString);
+}
+
+/** A record field's value, reporting `message` on `field` when it doesn't parse. */
+function recordField<T>(
+  raw: string,
+  isValue: (value: unknown) => value is T,
+  report: () => void,
+): Record<string, T> | undefined {
+  const parsed = parseRecord(raw, isValue);
+  if (parsed === null) report();
+  return parsed ?? undefined;
 }
 
 function compileAuth(
@@ -577,6 +615,16 @@ function compileInputs(
   checkWhole(report, 'inputs', 'maxFiles', 'Max files', inputs.maxFiles, 1);
   checkWhole(report, 'inputs', 'maxBytes', 'Max bytes', inputs.maxBytes, 1);
   checkWhole(report, 'inputs', 'maxTurnBytes', 'Max turn bytes', inputs.maxTurnBytes, 1);
+  const limitsByMime = recordField(inputs.limitsByMimeJson, isPositiveWhole, () => {
+    report(
+      'inputs',
+      'Limits by type must be a JSON object of positive whole numbers.',
+      'limitsByMimeJson',
+    );
+  });
+  const slots = recordField(inputs.slotsJson, isValueList, () => {
+    report('inputs', 'Slots must be a JSON object of lists of text.', 'slotsJson');
+  });
   return {
     ...(inputs.text ? {} : { text: false }),
     ...(inputs.attachmentsAccept.length
@@ -586,8 +634,17 @@ function compileInputs(
     ...(inputs.maxFiles !== null ? { maxFiles: inputs.maxFiles } : {}),
     ...(inputs.maxBytes !== null ? { maxBytes: inputs.maxBytes } : {}),
     ...(inputs.maxTurnBytes !== null ? { maxTurnBytes: inputs.maxTurnBytes } : {}),
+    ...(limitsByMime ? { limitsByMime } : {}),
+    ...(slots ? { slots } : {}),
   };
 }
+
+const isPositiveWhole = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isInteger(value) && value > 0;
+const isValueList = (value: unknown): value is string[] =>
+  Array.isArray(value) &&
+  value.length > 0 &&
+  value.every((item) => typeof item === 'string' && item.trim() !== '');
 
 /** `shaped`: the type takes a structured reply and its validation (text only). */
 function compileOutputs(
@@ -767,10 +824,12 @@ function compileNetwork(
   if (blank !== -1) {
     report('guardrails', 'Allowed hosts cannot be blank.', 'allowedHosts', blank);
   }
-  if (!guardrails.allowPrivateNetworks && !hosts.length) return undefined;
+  const schemes = cleanList(guardrails.allowedSchemes);
+  if (!guardrails.allowPrivateNetworks && !hosts.length && !schemes.length) return undefined;
   return {
     ...(guardrails.allowPrivateNetworks ? { allowPrivateNetworks: true } : {}),
     ...(hosts.length ? { allowedHosts: hosts } : {}),
+    ...(schemes.length ? { allowedSchemes: schemes } : {}),
   };
 }
 
@@ -840,8 +899,12 @@ function compileGuardrails(
       guardrails.sanitizeInput !== defaults.sanitizeInput ? guardrails.sanitizeInput : undefined,
     redactSensitive: compileRedactSensitive(guardrails.redactSensitive, defaults.redactSensitive),
     quota: compileQuota(guardrails, report),
+    promptEcho: guardrails.promptEcho !== defaults.promptEcho ? guardrails.promptEcho : undefined,
     egress: compileEgress(guardrails, report),
     network: compileNetwork(guardrails, report),
+    taint: guardrails.taintAfterRemoteRead
+      ? { afterRemoteRead: guardrails.taintAfterRemoteRead }
+      : undefined,
   };
   const spec = Object.fromEntries(
     Object.entries(parts).filter(([, value]) => value !== undefined),
@@ -868,6 +931,9 @@ function compileObservability(
   ) {
     report('observability', 'Rotate after MiB must be more than zero.', 'rotateAfterMiB');
   }
+  const resource = recordField(observability.resourceJson, isAny, () => {
+    report('observability', 'Resource must be a JSON object.', 'resourceJson');
+  });
 
   const include = Object.fromEntries(
     Object.entries(observability.include).filter(
@@ -887,6 +953,9 @@ function compileObservability(
     ...(observability.retainForDays !== null ? { retainForDays: observability.retainForDays } : {}),
     ...(observability.rotateAfterMiB !== null
       ? { rotateAfterMiB: observability.rotateAfterMiB }
+      : {}),
+    ...(resource
+      ? { resource: resource as NonNullable<ProfileObservabilitySpec['resource']> }
       : {}),
   };
   return Object.keys(spec).length ? spec : undefined;
@@ -1348,6 +1417,9 @@ function assemble(
   const facets = new Set<string>(draftFacets(draft));
   const allows = (path: string) => draftAllows(draft, path);
   const system = draft.identity.system.trim();
+  const systemByRole = recordField(draft.identity.systemByRoleJson, isString, () => {
+    report('identity', 'Instructions by role must be a JSON object of text.', 'systemByRoleJson');
+  });
   const modelFields = compileModels(draft, type, report);
   const { outputs, structured } = facets.has('outputs')
     ? compileOutputs(draft.outputs, allows('outputs.structured'), report)
@@ -1368,6 +1440,7 @@ function assemble(
     identity: {
       handle: draft.identity.handle.trim(),
       ...(system ? { system } : {}),
+      ...(systemByRole ? { systemByRole } : {}),
     },
     ...modelFields,
     ...(facets.has('image') ? { image: compileImage(draft.image, report) } : {}),

@@ -828,3 +828,91 @@ Deno.test('an image draft pins references and output settings, and reports what 
     ],
   );
 });
+
+Deno.test('instructions by role, slots and limits by type compile from their JSON fields', () => {
+  const draft = createExampleDraft();
+  const { profile } = compiled({
+    ...draft,
+    identity: { ...draft.identity, systemByRoleJson: '{"support":"Answer as support."}' },
+    inputs: {
+      ...draft.inputs,
+      limitsByMimeJson: '{"application/pdf":2000000}',
+      slotsJson: '{"language":["en","fr"]}',
+    },
+  });
+  assert(profile.type === 'text');
+  assertEquals(profile.identity.systemByRole, { support: 'Answer as support.' });
+  assertEquals(profile.inputs?.limitsByMime, { 'application/pdf': 2000000 });
+  assertEquals(profile.inputs?.slots, { language: ['en', 'fr'] });
+
+  const bad = compilePlayground({
+    ...draft,
+    identity: { ...draft.identity, systemByRoleJson: '{"support":1}' },
+    inputs: { ...draft.inputs, limitsByMimeJson: '{"image/*":0}', slotsJson: '{"language":[]}' },
+  });
+  assert(!bad.ok);
+  assertEquals(bad.issues.map((issue) => issue.field).sort(), [
+    'limitsByMimeJson',
+    'slotsJson',
+    'systemByRoleJson',
+  ]);
+});
+
+Deno.test('prompt caching compiles on OpenRouter and is refused elsewhere', () => {
+  const draft = createExampleDraft();
+  const withCache = (index: number) =>
+    updateModelBinding(draft, draft.modelBindings[index].key, {
+      cacheMode: 'system',
+      cacheTtl: '1h',
+    });
+  const { profile } = compiled(withCache(2));
+  assertEquals(profile.models.open.cache, { mode: 'system', ttl: '1h' });
+  assertEquals(profile.models.fast.cache, undefined);
+  const refused = compilePlayground(withCache(0));
+  assert(!refused.ok);
+  assertEquals(
+    refused.issues.map((issue) => issue.field),
+    ['cacheMode'],
+  );
+});
+
+Deno.test('a local server name compiles only on a local model', () => {
+  const draft = createExampleDraft();
+  const { profile } = compiled(
+    updateModelBinding(draft, draft.modelBindings[2].key, { server: 'ollama' }),
+  );
+  assertEquals(profile.models.open.server, undefined);
+});
+
+Deno.test('prompt echo, schemes, taint and trace resource compile when set', () => {
+  const draft = createExampleDraft();
+  const { profile } = compiled({
+    ...draft,
+    guardrails: {
+      ...draft.guardrails,
+      promptEcho: false,
+      allowedSchemes: ['https', ' '],
+      taintAfterRemoteRead: 'write',
+    },
+    observability: { ...draft.observability, resourceJson: '{"service.name":"concierge"}' },
+  });
+  assertEquals(profile.guardrails?.promptEcho, false);
+  assertEquals(profile.guardrails?.network?.allowedSchemes, ['https']);
+  assertEquals(profile.guardrails?.taint, { afterRemoteRead: 'write' });
+  assertEquals(profile.observability?.resource, { 'service.name': 'concierge' });
+
+  const plain = compiled(draft).profile;
+  assertEquals(plain.guardrails?.promptEcho, undefined);
+  assertEquals(plain.guardrails?.taint, undefined);
+  assertEquals(plain.observability?.resource, undefined);
+
+  const bad = compilePlayground({
+    ...draft,
+    observability: { ...draft.observability, resourceJson: '[1]' },
+  });
+  assert(!bad.ok);
+  assertEquals(
+    bad.issues.map((issue) => issue.field),
+    ['resourceJson'],
+  );
+});

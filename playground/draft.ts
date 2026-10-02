@@ -12,11 +12,14 @@ import {
 } from '../mod.ts';
 import { type ResolvedEgressChecks, resolveEgressChecks, type UrlCheck } from '../src/guardrails/egress.ts';
 import type { SensitiveGroups } from '../src/guardrails/sensitive.ts';
+import type { TaintGate } from '../src/guardrails/types.ts';
 import { resolveObservabilityPolicy } from '../src/observability/mod.ts';
 import { mimeAllowed } from '../src/kernel/registry/catalog.ts';
 import { profileTypesForField } from '../src/kernel/profile-scope.ts';
 import { CONTINUE_INSTRUCTION_TYPES } from '../src/kernel/stop.ts';
 import {
+  type CacheMode,
+  type CacheTtl,
   type ContinueStopKind,
   type EgressOnBlock,
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
@@ -59,6 +62,8 @@ export interface IdentityDraft {
   handle: string;
   /** Unused on speech, which has no system channel. */
   system: string;
+  /** Other instructions by the role a turn names, as a JSON object of strings; blank omits it. */
+  systemByRoleJson: string;
 }
 
 export interface ModelsDraft {
@@ -106,6 +111,12 @@ export interface ModelBindingDraft {
   keySlot?: KeySlot | '';
   /** This model's own fallback slot; `''` or absent uses the profile's. */
   fallbackKeySlot?: KeySlot | '';
+  /** Prompt caching, OpenRouter only; `''` or absent leaves it off. */
+  cacheMode?: CacheMode | '';
+  /** How long a cached prompt lasts; `''` or absent is the provider's default. */
+  cacheTtl?: CacheTtl | '';
+  /** The local server running the model, recorded on traces; local models only. */
+  server?: string;
 }
 
 export interface ToolsDraft {
@@ -125,6 +136,10 @@ export interface InputsDraft {
   maxFiles: number | null;
   maxBytes: number | null;
   maxTurnBytes: number | null;
+  /** Size limits by file type, as a JSON object of byte counts; blank omits it. */
+  limitsByMimeJson: string;
+  /** Named choices a turn can make, as a JSON object of value lists; blank omits it. */
+  slotsJson: string;
 }
 
 export interface OutputsDraft {
@@ -179,8 +194,14 @@ export interface GuardrailsDraft {
   egressOnBlock: EgressOnBlock | '';
   egressMaxRetries: number | null;
   egressRepairGuidance: string;
+  /** With the canary on, also stops a reply that repeats the system instruction. */
+  promptEcho: boolean;
   allowPrivateNetworks: boolean;
   allowedHosts: string[];
+  /** Empty omits it: https, plus http with private networks. */
+  allowedSchemes: string[];
+  /** `''` omits it (kernel default: off). */
+  taintAfterRemoteRead: TaintGate | '';
 }
 
 export interface ObservabilityDraft {
@@ -201,6 +222,8 @@ export interface ObservabilityDraft {
   };
   retainForDays: number | null;
   rotateAfterMiB: number | null;
+  /** Attributes on every trace, as a JSON object; blank omits it. */
+  resourceJson: string;
 }
 
 /** A pinned reference image: a file's bytes, or a link to one. */
@@ -377,8 +400,11 @@ function defaultGuardrails(): GuardrailsDraft {
     egressOnBlock: '',
     egressMaxRetries: null,
     egressRepairGuidance: '',
+    promptEcho: resolved.promptEcho,
     allowPrivateNetworks: false,
     allowedHosts: [],
+    allowedSchemes: [],
+    taintAfterRemoteRead: '',
   };
 }
 
@@ -391,6 +417,7 @@ function defaultObservability(): ObservabilityDraft {
     scrub: { ...resolved.scrub },
     retainForDays: null,
     rotateAfterMiB: null,
+    resourceJson: '',
   };
 }
 
@@ -469,7 +496,7 @@ export function newCriteria(type: DecisionQuestionType): DecisionCriterionDraft[
  */
 export function createBlankDraft(): PlaygroundDraft {
   return {
-    identity: { agentId: '', profileType: '', handle: '', system: '' },
+    identity: { agentId: '', profileType: '', handle: '', system: '', systemByRoleJson: '' },
     included: ['observability', 'wording'],
     models: { defaultModel: '', allowModelSelect: false, maxSteps: null, key: '' },
     modelBindings: [],
@@ -482,6 +509,8 @@ export function createBlankDraft(): PlaygroundDraft {
       maxFiles: null,
       maxBytes: null,
       maxTurnBytes: null,
+      limitsByMimeJson: '',
+      slotsJson: '',
     },
     outputs: {
       mode: 'text',

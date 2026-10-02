@@ -171,6 +171,28 @@ Deno.test('egress rules need distinct ids of their own and a pattern the stream 
   }
 });
 
+Deno.test('a pattern with inline modifiers or repeated group names is held for like any other', () => {
+  const rules: EgressRule[] = [
+    { rule: 'acme.secret', pattern: /(?i:secret)-\d+/ },
+    { rule: 'acme.ticket', pattern: /(?<id>T-\d+)|(?<id>TK\d+)/ },
+    { rule: 'acme.span', pattern: /a(?s:.)z/ },
+  ];
+  const { automaton } = compileEgressRules(rules);
+  const host = {
+    automaton,
+    rules: rules.map(({ rule, pattern }) => ({ rule, pattern, severity: 'high' as const })),
+  };
+  for (const [text, start] of [
+    ['see SeCrEt-', 4],
+    ['see TK', 4],
+    ['see a\n', 4],
+  ] as const) {
+    const stream = createEgressStream({ checks: NO_CHECKS, host });
+    for (const chunk of text) stream.push(chunk);
+    assertEquals(stream.holdFrom(), start, text);
+  }
+});
+
 const HOST_SCAN = {
   automaton: COMPILED.automaton,
   rules: RULES.map(({ rule, pattern, severity }) => ({

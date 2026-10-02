@@ -11,7 +11,7 @@ detectors, sanitizers, public error mapping, and optional per-day quota slots.
 | Import | `@theoremjs/agents/guardrails` / `jsr:@theoremjs/agents/guardrails` |
 | Module | `src/guardrails/mod.ts` |
 | Testing | `@theoremjs/agents/guardrails/testing` → `src/guardrails/testing.ts` (corpus / fuzz only) |
-| Compile | `@theoremjs/agents/guardrails/compile` → `src/guardrails/compile-egress.ts` (build time only; imports `refa`) |
+| Compile | `@theoremjs/agents/guardrails/compile` → `src/guardrails/compile-egress.ts` (build time only; imports `refa` and `@eslint-community/regexpp`) |
 | Also on | Root `@theoremjs/agents` re-exports common error/sanitize/quota/canary helpers |
 
 ## Invariant
@@ -316,9 +316,12 @@ guardrails: { egress: { enforce: egressPolicy({ rules, compiled: compiledEgressR
   `bundled: false` only the canary and prompt echo run beside the host rules.
 - The compiler turns each regex into an automaton the way the bundled patterns
   are (lookbehinds and anchors dropped, lookaheads optional, repeats over 256
-  unbounded). Building automata needs `refa` and takes time a cold start cannot
+  unbounded, an inline modifier's flags set on the whole pattern). `regexpp`
+  reads the pattern, so current syntax (inline modifiers, repeated group names)
+  compiles; `refa` builds the automaton. That takes time a cold start cannot
   spare, so it is a build step: `@theoremjs/agents/guardrails/compile` is the
-  only entry that imports `refa`, and `egressPolicy` only loads the table.
+  only entry that imports either, `agents egress-compile` loads it only when
+  run, and `egressPolicy` only loads the table.
 - Rule ids must be non-empty and distinct, and may not start with `egress.`
   (the bundled policy's). A sticky (`y`) pattern is rejected. A backreference to
   text that varies has no automaton, so compiling it fails.

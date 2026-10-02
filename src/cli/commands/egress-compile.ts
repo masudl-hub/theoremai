@@ -5,7 +5,6 @@
  * @module
  */
 
-import { compiledEgressModule, compileEgressRules } from '../../guardrails/egress-compiler.ts';
 import type { EgressRule } from '../../guardrails/egress-rules.ts';
 
 interface EgressCompileOptions {
@@ -33,6 +32,10 @@ async function egressCompileCommand({
   if (!Array.isArray(rules)) {
     throw new Error(`${module} has no array export named ${exportName}`);
   }
+  // Loaded here so no other command loads the regex engine.
+  const { compiledEgressModule, compileEgressRules } = await import(
+    '../../guardrails/egress-compiler.ts'
+  );
   await Deno.writeTextFile(out, compiledEgressModule(compileEgressRules(rules)));
   return rules.length;
 }

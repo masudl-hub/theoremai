@@ -9,13 +9,15 @@
  *
  * An automaton drops its pattern's assertions: a lookbehind, `\b`, `^` and `$`
  * match nothing, and a lookahead may be read or skipped. A bounded repeat over
- * `COUNT_LIMIT` is unbounded. Each change only widens what it accepts, so the
- * hold can only hold more than it must. A backreference to text that varies
- * has no automaton; compiling it fails.
+ * `COUNT_LIMIT` is unbounded. An inline modifier's flags are set on the whole
+ * pattern. Each change only widens what it accepts, so the hold can only hold
+ * more than it must. A backreference to text that varies has no automaton;
+ * compiling it fails.
  *
  * @module
  */
 
+import { type AST, RegExpParser, visitRegExpAST } from '@eslint-community/regexpp';
 import { type Concatenation, type Element, JS, NFA, type NoParent } from 'refa';
 import { EGRESS_PATTERNS } from './egress-patterns.ts';
 import {
@@ -108,12 +110,29 @@ function loosenedElement(element: NoParent<Element>): NoParent<Element>[] {
 }
 
 /**
+ * `literal` as current JavaScript reads it: refa's own parser stops at ES2024,
+ * and refa ignores an inline modifier group, so its flags go on the pattern.
+ */
+function literalAst(literal: string): AST.RegExpLiteral {
+  const ast = new RegExpParser().parseLiteral(literal);
+  visitRegExpAST(ast, {
+    onModifiersEnter({ add }) {
+      ast.flags.ignoreCase ||= add.ignoreCase;
+      ast.flags.dotAll ||= add.dotAll;
+      ast.flags.multiline ||= add.multiline;
+    },
+  });
+  return ast;
+}
+
+/**
  * The pattern over UTF-16 code units. A `u` or `v` pattern reads code points;
  * it is rewritten to the equivalent pattern on the units that spell them.
  */
 function parsed(pattern: RegExp): Alternatives {
-  const { expression } = JS.Parser.fromLiteral(pattern).parse({ assertions: 'parse' });
-  if (!pattern.unicode && !pattern.unicodeSets) {
+  const ast = literalAst(String(pattern));
+  const { expression } = JS.Parser.fromAst(ast).parse({ assertions: 'parse' });
+  if (!ast.flags.unicode && !ast.flags.unicodeSets) {
     return expression.alternatives;
   }
   const units = JS.toLiteral(expression, { flags: { unicode: false, unicodeSets: false } });

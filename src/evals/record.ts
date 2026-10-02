@@ -1,13 +1,3 @@
-/**
- * Results as trace records. A trial's results are a `theorem.eval.trial` span
- * inside the judged trace, parented to the judged root, with the judge calls
- * that graded it beneath, so a viewer shows them under the turn; a suite run
- * is its own `theorem.eval.run` record that links every trial span. Both go through `buildRecord` with the profile's policy,
- * so retention, scrub and sampling apply as they do to turns.
- *
- * @module
- */
-
 import { TheoremError } from '../guardrails/error.ts';
 import { sha256 } from '../kernel/engine/hash.ts';
 import { buildRecord, type TraceRecord } from '../observability/trace-record.ts';
@@ -32,7 +22,6 @@ function optional(key: string, value: TraceAttributes[string] | undefined): Trac
   return value === undefined ? {} : { [key]: value };
 }
 
-/** The judged model response's id: the last model call that reported one. */
 function responseIdOf(trial: Trial): string | undefined {
   const calls = [...trial.spans('chat'), ...trial.spans('generate_content')];
   for (let i = calls.length - 1; i >= 0; i -= 1) {
@@ -42,7 +31,6 @@ function responseIdOf(trial: Trial): string | undefined {
   return undefined;
 }
 
-/** One result as `gen_ai.evaluation.result` event attributes. */
 async function resultAttributes(
   result: EvalResult,
   graderIdentity: string,
@@ -63,35 +51,22 @@ async function resultAttributes(
   };
 }
 
-/** A result with the identity of the grader that produced it. */
 interface GradedResult {
   result: EvalResult;
   graderIdentity: string;
 }
 
-/** What a trial record starts from. */
 interface TrialRecordInput {
   trial: Trial;
   policy: ResolvedObservabilityPolicy;
-  /** Share a clock with the run so both timelines agree. */
   clock?: TraceClock;
 }
 
-/** A trial record open while its graders run. */
 interface OpenTrialRecord {
-  /** The trial span as a W3C `traceparent`: every judge call runs under it. */
   traceparent: string;
-  /** Close the span on the results and build the record, with its stored span so the run can link it. */
   finish: (results: readonly GradedResult[]) => Promise<{ record: TraceRecord; span: TraceSpan }>;
 }
 
-/**
- * Open the trial's `theorem.eval.trial` span in the judged trace, under the
- * judged root, before its graders run: judge calls made under `traceparent`
- * become its children, and the span lasts as long as the grading.
- * `finish` adds one `gen_ai.evaluation.result` event per result and builds
- * the record.
- */
 function startTrialRecord(input: TrialRecordInput): OpenTrialRecord {
   const { trial, policy } = input;
   const tree = startTrace(TRIAL_SPAN, {
@@ -123,19 +98,14 @@ function startTrialRecord(input: TrialRecordInput): OpenTrialRecord {
   return { traceparent: tree.root.traceparent(), finish };
 }
 
-/** What a run record is built from. */
 interface RunRecordInput {
   suite: Pick<EvalSuite, 'id' | 'trials'>;
   verdicts: readonly CaseVerdict[];
-  /** Every trial span the run wrote, to link. */
   trialSpans: readonly Pick<TraceSpan, 'traceId' | 'spanId'>[];
   policy: ResolvedObservabilityPolicy;
   clock?: TraceClock;
-  /** Recorded mode over traces with no case: only caseless graders ran. */
   caseless?: boolean;
-  /** The run stopped early, and why. */
   stopped?: 'budget';
-  /** The commit under test (`vcs.ref.head.revision`). */
   revision?: string;
 }
 
@@ -152,10 +122,6 @@ function verdictAttributes(verdict: CaseVerdict): TraceAttributes {
   };
 }
 
-/**
- * One suite run as its own trace: a `theorem.eval.run` root, one
- * `theorem.eval.verdict` event per case (zeros included), a link to every trial span.
- */
 function buildRunRecord(input: RunRecordInput): Promise<TraceRecord> {
   const rule = input.suite.trials.pass ?? 'all';
   const tree = startTrace(RUN_SPAN, {

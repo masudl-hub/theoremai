@@ -1,12 +1,3 @@
-/**
- * A run by group: every cased trial together, then each tag's trials. What a
- * dataset run reports: how often the agent was right, how consistently, how
- * long it took and how many times it looped, so "fast on houseplants, lost on
- * succulents" shows.
- *
- * @module
- */
-
 import type { SuiteRun, TrialReport } from './run.ts';
 import type { CaseVerdict } from './verdict.ts';
 
@@ -16,24 +7,16 @@ interface Spread {
   p90: number;
 }
 
-/** One group's trials: `all`, or those of cases carrying a tag. */
 interface GroupSummary {
-  /** `all`, or the tag. */
   group: string;
   cases: number;
-  /** Cases whose trials met the suite's pass rule: pass^k under the default `all`. */
   casesPassed: number;
-  /** Cases too few of whose trials escaped error to apply the rule; out of the pass rate. */
   casesUndecided: number;
   trials: number;
   trialsPassed: number;
-  /** Trials that could not be graded (a provider error, a failed judge); out of the pass rate. */
   trialsErrored: number;
-  /** The `answer` grader's labels over the trials, when the suite grades answers; `none` had no label (the turn errored). */
   answers?: { accepted: number; partial: number; wrong: number; none: number };
-  /** How the trials that produced a trace stopped, by `theorem.stop.kind` (`unrecorded` when the root has none). */
   stops: Record<string, number>;
-  /** Over the trials that produced a trace. */
   durationMs?: Spread;
   modelCalls?: Spread;
   toolCalls?: Spread;
@@ -100,7 +83,6 @@ function groupOf(
   };
 }
 
-/** `all` first, then each tag in name order. Caseless trials belong to no group. */
 function groupSummaries(run: Pick<SuiteRun, 'trials' | 'verdicts'>): GroupSummary[] {
   const gradesAnswers = run.trials.some((report) =>
     report.results.some((result) => result.name === 'answer'),

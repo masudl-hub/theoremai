@@ -1,11 +1,3 @@
-/**
- * The media a judged turn carried, and the bytes a judge needs to see it.
- * Traces keep a blob's hash and size, never its bytes: the case's own
- * attachments and the host's `media` resolver are where the bytes come from.
- *
- * @module
- */
-
 import { sha256Base64 } from '../../kernel/engine/hash.ts';
 import type { TurnBlob, TurnMediaRef } from '../../kernel/types.ts';
 import { isRecord } from '../../kernel/util/record.ts';
@@ -13,20 +5,14 @@ import { attachmentData } from '../attachments.ts';
 import type { EvalAttachment, EvalGradeContext, Trial } from '../types.ts';
 import { modelCalls } from './shared.ts';
 
-/** One distinct piece of media in the turn, in the order it first appeared. */
 interface TrialMedia {
-  /** What the transcript says in its place, e.g. `[image 1: image/jpeg]`. */
   label: string;
   mimeType: string;
-  /** Whether the turn's input carried it, or a model call produced it. */
   from: 'input' | 'output';
-  /** A blob's hash; its bytes must be found. */
   sha256?: string;
-  /** A reference the judge's provider can fetch itself. */
   uri?: string;
 }
 
-/** A blob or uri part's identity: its hash or its uri. */
 function mediaKey(part: Record<string, unknown>): string | undefined {
   if (part.type === 'blob' && typeof part.content_sha256 === 'string') return part.content_sha256;
   if (part.type === 'uri' && typeof part.uri === 'string') return part.uri;
@@ -40,7 +26,6 @@ function messageParts(messages: unknown): Record<string, unknown>[] {
   );
 }
 
-/** The turn's input as the host sent it, then every model call's output, in order. */
 function trialMedia(trial: Trial): TrialMedia[] {
   const parts = [
     ...messageParts(trial.content(trial.root.attributes['gen_ai.input.messages'])).map((part) => ({
@@ -71,7 +56,6 @@ function trialMedia(trial: Trial): TrialMedia[] {
   return [...media.values()];
 }
 
-/** What the transcript writes for a blob or uri part: the label its media carries. */
 function mediaLabeler(trial: Trial): (part: Record<string, unknown>) => string {
   const byKey = new Map(
     trialMedia(trial).map((media) => [media.sha256 ?? media.uri ?? '', media.label]),
@@ -79,7 +63,7 @@ function mediaLabeler(trial: Trial): (part: Record<string, unknown>) => string {
   return (part) => byKey.get(mediaKey(part) ?? '') ?? `[${String(part.type)}]`;
 }
 
-/** The case's attachments by the hash of their bytes; a file's hash is the one its case pins. */
+// A file's hash is the one its case pins.
 async function caseAttachments(trial: Trial): Promise<Map<string, EvalAttachment>> {
   const byHash = new Map<string, EvalAttachment>();
   const input = trial.case?.input;
@@ -95,7 +79,7 @@ async function caseAttachments(trial: Trial): Promise<Map<string, EvalAttachment
   return byHash;
 }
 
-/** The host's bytes for a hash, only when they are the bytes the trace hashed. */
+// The host's bytes for a hash, only when they are the bytes the trace hashed.
 async function fromHost(
   sha256: string,
   mimeType: string,
@@ -106,7 +90,6 @@ async function fromHost(
   return (await sha256Base64(data))?.hash === sha256 ? data : undefined;
 }
 
-/** The media as a judge's turn attaches it, or the labels of the media no source had. */
 async function resolveMedia(
   trial: Trial,
   media: readonly TrialMedia[],

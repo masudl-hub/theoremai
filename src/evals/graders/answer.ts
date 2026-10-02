@@ -1,30 +1,12 @@
-/**
- * The dataset grader: was the agent's answer one the case accepts? Graded by
- * code alone against `expect.answer`; a miss is for a person to read, not a
- * judge to second-guess.
- *
- * @module
- */
-
 import { isRecord } from '../../kernel/util/record.ts';
 import type { EvalGrader, EvalResult, Trial } from '../types.ts';
 import { codeGrader, deliveredJson, deliveredText, listOf } from './shared.ts';
 import { toolSteps } from './transcript.ts';
 
-/**
- * Where `answer` reads the agent's answer:
- * - `{ json: 'a.b' }`: that key of the delivered JSON (dots walk into objects);
- * - `{ tool, arg: 'a.b' }`: that argument of the last call to the tool the
- *   agent commits its answer with;
- * - absent: the reply text, searched for the case's names as whole words; an
- *   accepted name beside a rejected one is a hedge, labelled `partial`.
- */
 type AnswerSource = { json: string } | { tool: string; arg: string };
 
-/** `accepted` passes; `partial` is close but not enough; `wrong` is anything else. */
 type AnswerLabel = 'accepted' | 'partial' | 'wrong';
 
-/** Case, accents, punctuation and spacing left out, so `Épipremnum  aureum.` is `epipremnum aureum`. */
 function normalized(text: string): string {
   return text
     .normalize('NFKD')
@@ -34,11 +16,7 @@ function normalized(text: string): string {
     .trim();
 }
 
-/**
- * Which of the names the text says as whole words. A name said only inside a
- * longer one of them is not said: `Calathea` in `Calathea orbifolia` is the
- * species, and `Zamioculcas` in `Zamioculcas zamiifolia` is not a genus answer.
- */
+/** A name said only inside a longer one of them is not said: `Calathea` in `Calathea orbifolia` is the species. */
 function namedIn(text: string, names: string[]): (among: string[]) => string | undefined {
   const words = normalized(text).split(' ');
   const spans = names.flatMap((name) => {
@@ -84,7 +62,6 @@ function parsedArguments(text: string): unknown {
   }
 }
 
-/** The answer the source holds, and where it was read, or why there is none. */
 function readAnswer(
   trial: Trial,
   source: AnswerSource,
@@ -114,10 +91,7 @@ function result(label: AnswerLabel, explanation: string): EvalResult {
   };
 }
 
-/**
- * A turn the provider failed before it answered: the agent never had its
- * say, so the trial errors instead of counting as wrong.
- */
+/** A turn the provider failed before it answered: the agent never had its say, so the trial errors instead of counting as wrong. */
 function unanswered(trial: Trial, why: string): EvalResult | undefined {
   if (trial.root.attributes['theorem.stop.kind'] !== 'provider_error') return undefined;
   const kind = trial.root.status.message ? ` (${trial.root.status.message})` : '';
@@ -129,11 +103,6 @@ function unanswered(trial: Trial, why: string): EvalResult | undefined {
   };
 }
 
-/**
- * Labels a trial `accepted`, `partial` or `wrong` against the case's
- * `expect.answer`; only `accepted` passes. A turn that stopped
- * `provider_error` without an answer gets no label: its trial errors.
- */
 function answer(options: { from?: AnswerSource } = {}): EvalGrader {
   const { from } = options;
   const identity = `answer:${from ? JSON.stringify(from) : 'reply'}`;

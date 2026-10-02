@@ -1,20 +1,5 @@
-/**
- * From results to a verdict. A trial passes when every grader that decided
- * said yes; a case passes when its trials meet the suite's pass rule. An
- * errored trial is one that could not be graded (a provider error, a judge
- * that failed), so the rule reads it as a trial that never ran: a rate limit
- * never counts against the agent. Nothing is summarized away: every count is
- * kept, zeros included.
- *
- * @module
- */
-
 import type { EvalCase, EvalPassRule, EvalResult } from './types.ts';
 
-/**
- * One trial's outcome. `errored`: a grader could not produce a result;
- * `ungraded`: no grader decided (results, if any, were informational only).
- */
 type TrialOutcome = 'passed' | 'failed' | 'errored' | 'ungraded';
 
 function trialOutcome(results: readonly EvalResult[]): TrialOutcome {
@@ -24,19 +9,11 @@ function trialOutcome(results: readonly EvalResult[]): TrialOutcome {
   return decided.every((result) => result.passed) ? 'passed' : 'failed';
 }
 
-/** One case's verdict after k trials. */
 interface CaseVerdict {
   case: string;
   kind: EvalCase['kind'];
   difficulty?: EvalCase['difficulty'];
-  /** The pass rule, met over the trials that did not error. False when every trial was ungraded, or when undecided. */
   passed: boolean;
-  /**
-   * False when errors left too few trials to apply the rule (none for `all`
-   * and `any`, fewer than `atLeast` for `{ atLeast }`) and those left do not
-   * already meet it. An undecided case counts toward no pass rate. A case
-   * that ran no trials at all, errors aside, is decided: it failed.
-   */
   decided: boolean;
   trials: number;
   trialsPassed: number;
@@ -44,7 +21,6 @@ interface CaseVerdict {
   trialsUngraded: number;
 }
 
-/** Whether `passed` of `trials` meets the rule. */
 function ruleMet(rule: EvalPassRule, passed: number, trials: number): boolean {
   if (trials === 0) return false;
   if (rule === 'all') return passed === trials;
@@ -52,17 +28,15 @@ function ruleMet(rule: EvalPassRule, passed: number, trials: number): boolean {
   return passed >= rule.atLeast;
 }
 
-/** The fewest trials the rule can be read over. */
 function trialsNeeded(rule: EvalPassRule): number {
   return typeof rule === 'object' ? rule.atLeast : 1;
 }
 
-/** The rule as the run record names it. */
 function passRuleName(rule: EvalPassRule): 'all' | 'any' | 'at_least' {
   return typeof rule === 'string' ? rule : 'at_least';
 }
 
-/** A case's verdict from each trial's results, by the suite's pass rule (default `all`). */
+// An errored trial is one that could not be graded (a provider error, a judge that failed), so the rule reads it as a trial that never ran: a rate limit never counts against the agent.
 function caseVerdict(
   evalCase: EvalCase,
   trials: readonly (readonly EvalResult[])[],

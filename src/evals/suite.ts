@@ -1,11 +1,3 @@
-/**
- * Loading a suite: the TypeScript module that names the profile, graders and
- * pass rule, and the JSONL file beside it that holds the cases. Also the
- * JSONL reader recorded mode uses for trace records.
- *
- * @module
- */
-
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { cwd } from 'node:process';
 import type { z } from 'zod';
@@ -23,19 +15,13 @@ import {
   evalSuiteSchema,
 } from './types.ts';
 
-/** A suite with its cases read in. */
 interface LoadedSuite {
   suite: EvalSuite;
   cases: EvalCase[];
-  /** The provider the suite module exported, when it did (`export const provider`). */
   provider?: ModelProvider;
-  /** The provider for text judge profiles, when the module exported one (`export const judgeProvider`). */
   judgeProvider?: ModelProvider;
-  /** The key for decision judge profiles, when the module exported one (`export const judgeDecision`). */
   judgeDecision?: Omit<RunDecisionOptions, 'sink'>;
-  /** Where a judge finds media by hash, when the module exported it (`export const media`). */
   media?: EvalMediaResolver;
-  /** Absolute path of the suite module. */
   path: string;
 }
 
@@ -43,7 +29,6 @@ function isProvider(value: unknown): value is ModelProvider {
   return isRecord(value) && typeof value.complete === 'function';
 }
 
-/** A vault, as `runDecision` takes it. */
 function isDecisionKey(value: unknown): value is Omit<RunDecisionOptions, 'sink'> {
   return isRecord(value) && isRecord(value.vault);
 }
@@ -57,7 +42,6 @@ function siblingOf(modulePath: string, relative: string): string {
   return relative.startsWith('/') ? relative : `${dir}/${relative}`;
 }
 
-/** Every non-blank line of a JSONL file, parsed and validated; the line number names a bad one. */
 async function readJsonl<T>(path: string, schema: z.ZodType<T>, what: string): Promise<T[]> {
   const text = await readFile(path, 'utf8');
   const out: T[] = [];
@@ -84,7 +68,6 @@ async function readJsonl<T>(path: string, schema: z.ZodType<T>, what: string): P
   return out;
 }
 
-/** The trace records in one JSONL file, or in every `.jsonl` file of a directory. */
 async function readTraceRecords(path: string): Promise<TraceRecord[]> {
   const target = absolute(path);
   const info = await stat(target);
@@ -100,11 +83,6 @@ async function readTraceRecords(path: string): Promise<TraceRecord[]> {
   return records;
 }
 
-/**
- * Import a suite module (`export default` an `EvalSuite`, optionally
- * `export const provider`, `judgeProvider`, `judgeDecision` and `media`), then read
- * its cases from the file it names, relative to the module.
- */
 async function loadSuite(modulePath: string): Promise<LoadedSuite> {
   const path = absolute(modulePath);
   const module: unknown = await import(new URL(`file://${path}`).href);

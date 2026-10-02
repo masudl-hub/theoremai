@@ -1,26 +1,14 @@
-/**
- * Live graders over the text path: what the provider transcribed of the
- * model's spoken reply, and how often the user cut it off. Turn latency lives
- * in `latency.ts`, since a turn has one too.
- *
- * @module
- */
-
 import type { EvalGrader } from '../types.ts';
 import { codeGrader, deliveredText, passFail } from './shared.ts';
 
 const OUTPUT_TRANSCRIPTION = 'output_transcription';
 
-/** Graders over the transcript of the model's spoken reply. */
 interface TranscriptionGraders {
-  /** The reply's transcript contains `text`, or the case's `expect.transcription.includes`. */
   includes: (text?: string) => EvalGrader;
-  /** The reply's transcript matches `pattern`, or the case's `expect.transcription.regex`. */
   regex: (pattern?: string, flags?: string) => EvalGrader;
 }
 
 const transcription: TranscriptionGraders = {
-  /** The reply's transcript contains `text`, or the case's `expect.transcription.includes`. */
   includes(text?: string): EvalGrader {
     const identity = `transcription.includes:${text ?? 'case'}`;
     return codeGrader('transcription_includes', identity, text === undefined, (trial) => {
@@ -42,7 +30,6 @@ const transcription: TranscriptionGraders = {
       );
     });
   },
-  /** The reply's transcript matches `pattern`, or the case's `expect.transcription.regex`. */
   regex(pattern?: string, flags = ''): EvalGrader {
     const identity = `transcription.regex:${pattern === undefined ? 'case' : `/${pattern}/${flags}`}`;
     return codeGrader('transcription_regex', identity, pattern === undefined, (trial) => {
@@ -62,7 +49,6 @@ const transcription: TranscriptionGraders = {
   },
 };
 
-/** The user interrupted the model at most `max` times (responses that stopped as `interrupted`). */
 function interruptions(options: { max: number }): EvalGrader {
   return codeGrader('interruptions', `interruptions:${options.max}`, false, (trial) => {
     const count = trial

@@ -1,10 +1,3 @@
-/**
- * The judged record as a rubric reads it: Phoenix's variable names, each
- * filled from the trace alone.
- *
- * @module
- */
-
 import type { DecisionJson } from '../../kernel/types.ts';
 import { isRecord } from '../../kernel/util/record.ts';
 import type { TraceAttributeValue, TraceSpan } from '../../observability/trace-span.ts';
@@ -14,7 +7,6 @@ import type { Trial } from '../types.ts';
 import { mediaLabeler, trialMedia } from './media.ts';
 import { deliveredJson, deliveredText, modelCalls, startOf } from './shared.ts';
 
-/** The names a rubric may use without the host supplying a reading. */
 const TRIAL_VARIABLES = [
   'input',
   'output',
@@ -26,15 +18,12 @@ const TRIAL_VARIABLES = [
   'text',
 ] as const;
 
-/** One message of the turn's output, as a rubric's `output.messages` lists it. */
 type JudgedMessage = {
   role: string;
   content: string;
-  /** Each tool call the message made, as JSON (`name`, `arguments`). */
   tool_calls: string[];
 };
 
-/** Whether a text part already says what a structured part holds (the model's JSON, parsed). */
 function sameAsText(content: unknown, texts: readonly string[]): boolean {
   const json = JSON.stringify(content);
   return texts.some((text) => {
@@ -46,11 +35,6 @@ function sameAsText(content: unknown, texts: readonly string[]): boolean {
   });
 }
 
-/**
- * The text of a message's parts once inlined: text parts joined, media by
- * the label the judge sees it under, tool calls left out, and a structured
- * part only where no text part already carries the same JSON.
- */
 function partsText(parts: unknown, media: (part: Record<string, unknown>) => string): string {
   if (!Array.isArray(parts)) return '';
   const texts = parts.flatMap((part) =>
@@ -73,7 +57,6 @@ function partsText(parts: unknown, media: (part: Record<string, unknown>) => str
     .join('\n');
 }
 
-/** A tool call as a rubric lists it: arguments as the JSON object they were, not a string of it. */
 function toolCallText(part: Record<string, unknown>): string {
   let args: unknown = part.arguments;
   if (typeof args === 'string') {
@@ -86,7 +69,6 @@ function toolCallText(part: Record<string, unknown>): string {
   return JSON.stringify({ name: part.name, arguments: args });
 }
 
-/** The turn's input messages, inlined, as `{ role, text }`. */
 function inputMessages(trial: Trial): { role: string; text: string }[] {
   const messages = trial.content(trial.root.attributes['gen_ai.input.messages']);
   if (!Array.isArray(messages)) return [];
@@ -120,7 +102,6 @@ function toolSteps(trial: Trial): ToolStep[] {
   }));
 }
 
-/** The tools the model was offered, as the last model call declared them, one JSON definition each. */
 function availableTools(trial: Trial): string[] {
   const calls = modelCalls(trial);
   for (let i = calls.length - 1; i >= 0; i -= 1) {
@@ -137,7 +118,6 @@ function availableTools(trial: Trial): string[] {
   return [];
 }
 
-/** Every model message and tool result of the turn, in the order they happened. */
 function outputMessages(trial: Trial, steps: readonly ToolStep[]): JudgedMessage[] {
   const media = mediaLabeler(trial);
   const fromCalls = modelCalls(trial).flatMap((span) => {
@@ -165,7 +145,6 @@ function outputMessages(trial: Trial, steps: readonly ToolStep[]): JudgedMessage
     .map((entry) => entry.message);
 }
 
-/** What the model delivered: its text, or its structured JSON when that is all it delivered. */
 function outputText(trial: Trial): string {
   const text = deliveredText(trial, undefined);
   if (text !== '') return text;
@@ -173,7 +152,6 @@ function outputText(trial: Trial): string {
   return json === undefined ? '' : JSON.stringify(json);
 }
 
-/** A tool step as the transcript writes it: the call with its arguments, then its result. */
 function stepText(step: ToolStep): string[] {
   return [
     `[tool call ${step.name}]\n${step.arguments}`,
@@ -193,18 +171,6 @@ function transcript(
   ].join('\n\n');
 }
 
-/**
- * Every standard variable, read from the trial:
- *
- * - `input`, `user_message`: the last user message of the turn's input.
- * - `output`, `text`: what the model delivered.
- * - `context`: what the model had to go on besides the question: the media
- *   the input carried, then every tool call with its arguments and result,
- *   in order.
- * - `tool_call`: every tool called, with its arguments and outcome, one a line.
- * - `tool_result`: every tool result, named, in order.
- * - `conversation`: the whole record as a transcript, step by step.
- */
 function trialVariables(trial: Trial): Record<(typeof TRIAL_VARIABLES)[number], string> {
   const messages = inputMessages(trial);
   const input = messages.findLast((message) => message.role === 'user')?.text ?? '';
@@ -229,14 +195,7 @@ function trialVariables(trial: Trial): Record<(typeof TRIAL_VARIABLES)[number], 
   };
 }
 
-/**
- * What one rubric reads, by its variables: the host's reading where it gives
- * one, else the trace's. Two readings depend on the rubric. One whose prompt
- * reads `output.messages` or `output.available_tools` gets `output` as those
- * lists (every model message and tool result, in order; each offered tool as
- * JSON). One that reads `user_message` gets `conversation` as what came
- * before that message, as Phoenix's user-friction prompt asks.
- */
+// A rubric that reads `user_message` gets `conversation` as what came before that message, as Phoenix's user-friction prompt asks.
 function rubricView(
   rubric: EvalRubric,
   trial: Trial,

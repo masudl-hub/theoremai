@@ -1,11 +1,4 @@
-/**
- * A case's attachments as bytes. A file attachment is read when its trial
- * runs, not when the suite loads, so thousands of photos are never held at
- * once; its hash is checked at load, before anything is spent, and again at
- * read.
- *
- * @module
- */
+// A file attachment is read when its trial runs, not when the suite loads, so thousands of photos are never held at once.
 
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -26,7 +19,6 @@ async function hashedFile(path: string): Promise<{ bytes: Buffer; sha256: string
   return { bytes, sha256: createHash('sha256').update(bytes).digest('hex') };
 }
 
-/** The file's bytes, refused when they are not the bytes the case pinned. */
 async function fileBytes(attachment: EvalFileAttachment): Promise<Buffer> {
   const { bytes, sha256 } = await hashedFile(attachment.path);
   if (sha256 !== attachment.sha256) {
@@ -38,15 +30,10 @@ async function fileBytes(attachment: EvalFileAttachment): Promise<Buffer> {
   return bytes;
 }
 
-/** An attachment's base64 bytes, as `TurnBlob` takes them. */
 async function attachmentData(attachment: EvalAttachment): Promise<string> {
   return 'data' in attachment ? attachment.data : (await fileBytes(attachment)).toString('base64');
 }
 
-/**
- * The cases with every file attachment's path made absolute against the
- * cases file's directory, each file checked against its hash.
- */
 async function pinCaseFiles(cases: EvalCase[], casesPath: string): Promise<EvalCase[]> {
   const pinned: EvalCase[] = [];
   for (const evalCase of cases) {

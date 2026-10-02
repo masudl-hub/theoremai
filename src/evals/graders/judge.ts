@@ -1,26 +1,3 @@
-/**
- * The model grader: one rubric, filled from the judged trace and put to a
- * judge profile. The host picks the judge per suite or per grader:
- *
- * - a **text** profile runs the rubric's prompt through `runTurn`, so the
- *   judged transcript passes the judge's own guardrails, and answers through
- *   structured output (`evalJudgment`: label and explanation);
- * - a **decision** profile (Jev) answers the rubric's question through
- *   `runDecision`, over the rubric's variables as JSON state: a typed choice
- *   with its probabilities, and no written explanation.
- *
- * A decision judge's verdict is read from its probabilities, not its top
- * choice: a trial passes only when the pass labels together clear the line
- * the grader's `wrongPassCost` sets (more likely than not by default), fails
- * when the other labels hold most of the probability, and is `unknown`
- * otherwise. `escalate` names a text profile that decides the unknowns.
- *
- * Either way the judge call runs under the trial span, so it lands in the
- * judged trace beneath the trial it graded.
- *
- * @module
- */
-
 import { errorKind, TheoremError } from '../../guardrails/error.ts';
 import {
   getProfile,
@@ -49,19 +26,14 @@ import { resolveMedia, trialMedia } from './media.ts';
 import { deliveredJson, deliveredText } from './shared.ts';
 import { rubricView, TRIAL_VARIABLES } from './transcript.ts';
 
-/** The structured schema id a text judge profile's `outputs.structured` must name. */
 const EVAL_JUDGMENT = 'evalJudgment';
 
-/** The label every rubric accepts: the judge could not decide. */
 const UNKNOWN = 'unknown';
 
-/** What a decision judge reads `unknown` as. */
 const UNKNOWN_CRITERION = 'The record does not show enough to decide.';
 
-/** The question id a decision judge answers under. */
 const VERDICT = 'verdict';
 
-/** Stops where the turn broke rather than ended. */
 const FAILED_STOPS: ReadonlySet<string> = new Set([
   'provider_error',
   'cancelled',
@@ -69,7 +41,6 @@ const FAILED_STOPS: ReadonlySet<string> = new Set([
   'interrupted',
 ]);
 
-/** Why a turn cannot be judged: it broke, or it delivered nothing to judge. */
 function turnFailure(trial: Trial): string | undefined {
   const stop = trial.root.attributes['theorem.stop.kind'];
   if (typeof stop === 'string' && FAILED_STOPS.has(stop)) return `the turn stopped with ${stop}`;
@@ -79,7 +50,6 @@ function turnFailure(trial: Trial): string | undefined {
   return undefined;
 }
 
-/** What a judge answered. */
 interface Judgment {
   label: string;
   explanation: string;
@@ -107,30 +77,18 @@ registerStructured(EVAL_JUDGMENT, JUDGMENT_SCHEMA);
 
 interface JudgeOptions {
   rubric: EvalRubric;
-  /** The result's `gen_ai.evaluation.name`; default the rubric's name. */
   name?: string;
-  /** Labels that pass, replacing the rubric's. */
   pass?: readonly string[];
-  /** The judge profile, text or decision; default the suite's `judge.profile`. */
   profile?: string;
-  /** The host's own readings of the trial, by variable name; they replace the standard ones. */
   variables?: (trial: Trial) => Record<string, string>;
-  /**
-   * Decision judges only: how many times worse a wrong pass is than a wrong
-   * fail; default 1. A trial passes only when the judge puts the pass labels
-   * above `wrongPassCost / (1 + wrongPassCost)`: more likely than not at 1,
-   * above 75% at 3.
-   */
+  /** Decision judges only: how many times worse a wrong pass is than a wrong fail; default 1. */
   wrongPassCost?: number;
-  /** Decision judges only: a text judge profile that decides when the decision judge is unsure. */
   escalate?: string;
 }
 
-/** One judge call's outcome, or an escalation's: the judge traces it drew on, first call first. */
 interface JudgeRun {
   traceparents: string[];
   judgment?: Judgment;
-  /** The kind of error that left the judge without a judgment. */
   error?: string;
 }
 
@@ -138,7 +96,6 @@ function configError(grader: string, message: string): TheoremError {
   return new TheoremError('config', `judge ${grader}: ${message}`); // lexicon-exempt: developer contract error
 }
 
-/** The judge profile's kind, once it is known to fit the rubric. */
 function judgeKind(grader: string, rubric: EvalRubric, profileId: string): 'text' | 'decision' {
   const profile = getProfile(profileId);
   if (profile.type === 'decision') {
@@ -168,7 +125,6 @@ function judgeKind(grader: string, rubric: EvalRubric, profileId: string): 'text
   return 'text';
 }
 
-/** The judge call's root (the span no other span in its record parents) as a `traceparent`. */
 function traceparentsOf(records: readonly TraceRecord[]): string[] {
   const spans = records[0]?.spans ?? [];
   const ids = new Set(spans.map((span) => span.spanId));
@@ -176,7 +132,6 @@ function traceparentsOf(records: readonly TraceRecord[]): string[] {
   return root ? [formatTraceparent(root.traceId, root.spanId)] : [];
 }
 
-/** The stamp every judge call carries, so recorded mode knows it for a judge's trace. */
 function judgeStamp(trial: Trial, grader: string): Record<string, unknown> {
   return {
     eval: {
@@ -188,7 +143,6 @@ function judgeStamp(trial: Trial, grader: string): Record<string, unknown> {
   };
 }
 
-/** What every judge call carries: its stamp, the trial span it runs under, the run's signal. */
 function judgeCall(
   trial: Trial,
   grader: string,
@@ -208,14 +162,12 @@ function parseJudgment(value: unknown): Judgment | undefined {
   return { label, explanation };
 }
 
-/** Run a text judge once over the filled prompt; its trace goes to the context. */
 async function askText(args: {
   trial: Trial;
   prompt: string;
   profile: string;
   grader: string;
   context: EvalGradeContext;
-  /** The media the prompt names, for the judge to see beside it. */
   attachments: Array<TurnBlob | TurnMediaRef>;
 }): Promise<JudgeRun> {
   const { context } = args;
@@ -254,22 +206,12 @@ function percent(value: number): string {
   return `${Math.round(value * 100)}%`;
 }
 
-/** How a decision judge's probabilities become a verdict. */
 interface ChoiceRule {
-  /** Labels that pass; absent, the top choice stands and nothing is decided. */
   pass: readonly string[] | undefined;
-  /** Every label the rubric declares. */
   labels: readonly string[];
-  /** The probability the pass labels together must exceed. */
   line: number;
 }
 
-/**
- * A choice read back as a judgment. With a pass rule the label comes from the
- * probabilities: the likeliest pass label when the pass labels clear the
- * line, the likeliest other label when those hold most of the probability,
- * else `unknown`. The explanation keeps every label's odds.
- */
 function choiceJudgment(
   answer: DecisionAnswer | undefined,
   rule: ChoiceRule,
@@ -296,7 +238,6 @@ function choiceJudgment(
   return { label: UNKNOWN, explanation: `Jev was unsure: ${odds}; ${needs}.` };
 }
 
-/** Put the rubric's question to a decision judge once; its trace goes to the context. */
 async function askDecision(args: {
   trial: Trial;
   rubric: EvalRubric;
@@ -339,7 +280,6 @@ async function askDecision(args: {
   }
 }
 
-/** The text judge's answer to what the decision judge left unknown, drawn from both judge traces. */
 function escalated(decision: JudgeRun, text: JudgeRun): JudgeRun {
   const traceparents = [...decision.traceparents, ...text.traceparents];
   if (!text.judgment) return { traceparents, error: text.error ?? 'internal' };
@@ -352,7 +292,6 @@ function escalated(decision: JudgeRun, text: JudgeRun): JudgeRun {
   };
 }
 
-/** The rubric's variables as the state a decision judge reads; a variable the view lacks is a config error. */
 function stateOf(
   rubric: EvalRubric,
   view: Readonly<Record<string, DecisionJson>>,
@@ -368,17 +307,12 @@ function stateOf(
   return state;
 }
 
-/**
- * The label as the rubric declares it. Models echo the prompt's headings
- * (`CORRECT -`), so a text judge's label is read case-insensitively; a label
- * the rubric did not declare is `undefined`.
- */
+// Models echo the prompt's headings (`CORRECT -`), so a text judge's label is read case-insensitively.
 function declaredLabel(label: string, allowed: ReadonlySet<string>): string | undefined {
   const wanted = label.trim().toLowerCase();
   return [...allowed].find((declared) => declared.toLowerCase() === wanted);
 }
 
-/** One trial's result from the judge's answer. */
 function resultOf(
   run: JudgeRun,
   rubric: EvalRubric,
@@ -415,12 +349,6 @@ function resultOf(
   };
 }
 
-/**
- * A model grader over one rubric. Runs its judge profile (the grader's own,
- * else the suite's) once per trial and reads the label back: through
- * structured output from a text judge, as a typed choice from a decision
- * judge. The result names the judge call it was drawn from.
- */
 function judge(options: JudgeOptions): EvalGrader {
   const { rubric } = options;
   const name = options.name ?? rubric.name;
@@ -525,7 +453,6 @@ function judge(options: JudgeOptions): EvalGrader {
     if (judgeKind(name, rubric, profile) === 'text')
       return resultOf(await text(profile), rubric, name, pass);
     if (attachments.length > 0) {
-      // A decision judge reads JSON state only; media goes to the text judge or goes unjudged.
       if (!options.escalate) {
         return notJudged(
           `decision judge ${profile} cannot see ${media.map((item) => item.label).join(', ')} and no escalate judge can`,

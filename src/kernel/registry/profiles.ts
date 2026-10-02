@@ -145,13 +145,7 @@ function assertModelRoute(
   binding: Pick<ModelBinding, 'protocol' | 'provider' | 'apiId'>,
   type?: ProfileType,
 ): void {
-  if (!binding.protocol) {
-    throw new TheoremError('config', `Profile ${profileId} model '${modelId}' must set protocol`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  }
-  if (!binding.provider) {
-    throw new TheoremError('config', `Profile ${profileId} model '${modelId}' must set provider`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  }
-  if (!binding.apiId || (type === 'decision' && !binding.apiId.trim())) {
+  if (type === 'decision' && !binding.apiId.trim()) {
     throw new TheoremError('config', `Profile ${profileId} model '${modelId}' must set apiId`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   if (type === 'decision' && !isValidProfileProtocol(type, binding.protocol)) {

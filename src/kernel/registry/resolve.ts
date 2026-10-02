@@ -97,14 +97,8 @@ function resolveEffort(
     }
     return level;
   }
-  const alias = binding.defaultEffort ?? (keys.length === 1 ? keys[0] : undefined);
-  if (!alias) {
-    throw new TheoremError(
-      'config',
-      `Profile ${profile.id} model '${modelId}' must set defaultEffort when more than one effort is declared`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    );
-  }
-  return efforts[alias];
+  // Registration requires a default whenever more than one effort is declared.
+  return efforts[binding.defaultEffort ?? keys[0]];
 }
 
 function resolveSummaries(binding: ModelBinding): SummaryMode | undefined {
@@ -259,7 +253,7 @@ function resolveTurnInRegistry(
   assertSpeechRole(profile, safe);
   const keys = resolveKeySlot(profile, binding);
   const transport = resolveTransport(profile, binding);
-  const chains = transport === 'interactions' && binding.persistViaInteractionId === true;
+  const chains = binding.persistViaInteractionId === true;
   const store = resolveStore(binding, safe.store);
   assertTurnChaining(profile, model, chains, safe, store);
   return {

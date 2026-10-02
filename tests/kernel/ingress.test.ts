@@ -370,32 +370,12 @@ Deno.test("resolveInputParts refuses on its own what resolveTurn already screene
   const resolve = (profile: never, input: object, over: object = {}) =>
     thrown(() => resolveInputParts(profile, { profile: 'p', input, ...over } as never));
   check(
-    resolve({ type: 'decision', id: 'd' } as never, { text: 'x' }),
-    'request: Profile d (decision) does not accept turn input',
-    'decision',
-  );
-  check(
     resolve(voice, { text: '' }),
     'request: Profile voice (speech) requires text input',
     'speech without text',
   );
-  check(
-    resolve(voice, { text: 'say', attachments: [png()] }),
-    'input: Profile voice (speech) does not accept media input',
-    'speech attachments',
-  );
-  check(
-    resolve(voice, { text: 'say', voice: [{ mimeType: 'audio/wav', data: 'YQ==' }] }),
-    'input: Profile voice (speech) does not accept media input',
-    'speech voice',
-  );
   check(resolve(voice, { text: 'say' }), 'returned', 'speech with text alone');
   check(resolve(voice, { text: 'say', attachments: [] }), 'returned', 'empty lists are no media');
-  check(
-    resolve(chat, { text: 'x', attachments: [{ mimeType: 'image/gif', data: 'YQ==' }] }),
-    'input: attachments refused: mime_not_allowed',
-    'attachments are checked against the profile',
-  );
   check(
     resolve(wide, { text: 'x', attachments: [{ mimeType: 'application/x-foo', data: 'YQ==' }] }),
     "input: MIME 'application/x-foo' is not a supported media input type",

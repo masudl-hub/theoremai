@@ -122,10 +122,21 @@ Deno.test('a definition must be an object with an id and a known type', () => {
 Deno.test('a model route names its protocol, provider and apiId, and the pair must be valid', () => {
   const at = "Profile p model 'm'";
   table([
-    ['no protocol', textProfile(modelWith({ protocol: false })), `${at} must set protocol`],
-    ['no provider', textProfile(modelWith({ provider: false })), `${at} must set provider`],
-    ['no apiId', textProfile(modelWith({ apiId: 0 })), `${at} must set apiId`],
-    ['empty apiId', textProfile(modelWith({ apiId: false })), `${at} must set apiId`],
+    [
+      'no protocol',
+      textProfile(modelWith({ protocol: undefined })),
+      "Profile p: type 'text' must set models.*.protocol",
+    ],
+    [
+      'no provider',
+      textProfile(modelWith({ provider: '' })),
+      "Profile p: type 'text' must set models.*.provider",
+    ],
+    [
+      'no apiId',
+      textProfile(modelWith({ apiId: null })),
+      "Profile p: type 'text' must set models.*.apiId",
+    ],
     [
       'protocol and provider that do not pair',
       textProfile(modelWith({ protocol: 'geminiLive', provider: 'openrouter' })),
@@ -457,15 +468,19 @@ Deno.test('a host profile sets tools.allow, and a decision profile is one model 
     ],
     [
       'decision no protocol',
-      decisionProfile(decisionModel({ protocol: false })),
-      `${at} must set protocol`,
+      decisionProfile(decisionModel({ protocol: undefined })),
+      "Profile d: type 'decision' must set models.*.protocol",
     ],
     [
       'decision no provider',
-      decisionProfile(decisionModel({ provider: false })),
-      `${at} must set provider`,
+      decisionProfile(decisionModel({ provider: '' })),
+      "Profile d: type 'decision' must set models.*.provider",
     ],
-    ['decision no apiId', decisionProfile(decisionModel({ apiId: false })), `${at} must set apiId`],
+    [
+      'decision no apiId',
+      decisionProfile(decisionModel({ apiId: null })),
+      "Profile d: type 'decision' must set models.*.apiId",
+    ],
     [
       'decision blank apiId',
       decisionProfile(decisionModel({ apiId: '  ' })),

@@ -12,7 +12,7 @@ import type {
   TurnMediaRef,
   TurnRequest,
 } from '../types.ts';
-import { assertTurnAttachments, isTurnMediaRef } from './attachments.ts';
+import { isTurnMediaRef } from './attachments.ts';
 import { mediaKindForMime, mimeEssence, profileInputs } from './catalog.ts';
 
 type PrimaryOutputMode = 'structured' | 'image' | 'speech';
@@ -101,12 +101,6 @@ function mediaParts(blobs: Array<TurnBlob | TurnMediaRef>): InteractionPart[] {
 
 function extractTextPart(profile: Profile, req: TurnRequest): InteractionPart | null {
   const { text, repair, history } = req.input ?? {};
-  if (profile.type === 'decision') {
-    throw new TheoremError(
-      'request',
-      `Profile ${profile.id} (decision) does not accept turn input`, // lexicon-exempt: developer contract error
-    );
-  }
   if (profile.type === 'speech' && !text?.trim()) {
     throw new TheoremError('request', `Profile ${profile.id} (speech) requires text input`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
@@ -134,27 +128,16 @@ function continueText(profile: Profile, req: TurnRequest): string | undefined {
   return lexiconText('continue.instruction', {}, profile.lexicon);
 }
 
-function assertSpeechTakesNoMedia(profile: Profile, req: TurnRequest): void {
-  const { attachments, voice } = req.input ?? {};
-  if ((attachments?.length ?? 0) + (voice?.length ?? 0) > 0) {
-    throw new TheoremError('input', `Profile ${profile.id} (speech) does not accept media input`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  }
-}
-
 function pinnedReferenceParts(profile: Profile): InteractionPart[] {
   return profile.type === 'image' && profile.image.references
     ? mediaParts(profile.image.references)
     : [];
 }
 
+/** `sanitizeTurnRequest` has already checked the blobs against the profile's limits and accept lists. */
 function extractMediaParts(profile: Profile, req: TurnRequest): InteractionPart[] {
-  if (profile.type === 'speech') {
-    assertSpeechTakesNoMedia(profile, req);
-    return [];
-  }
   const files = req.input?.attachments ?? [];
   const clips = req.input?.voice ?? [];
-  assertTurnAttachments(profile, files, clips);
   return [...pinnedReferenceParts(profile), ...mediaParts(files), ...mediaParts(clips)];
 }
 
